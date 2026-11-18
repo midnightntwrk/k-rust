@@ -107,7 +107,8 @@ namespace Semantics
 variable (c : Semantics)
 
 /-- Every term of a condition is well sorted: a term at the sort its connective names, over the
-right-hand side's context, and a pattern of an `exMatch` over a left-hand side's (`patCtxAll`);
+right-hand side's context, and a pattern of an `exMatch` over the context of a pattern that applies
+no function-overloaded symbol (`patCtxNF`);
 a binder extends the variable sorts by the sorts it binds. The sort an atom names is a numbered
 sort of the definition (`s < nRegSorts + c.sortNames.length`): a condition about a sort the
 definition does not have states nothing about its values, and through it every variable the
@@ -123,7 +124,7 @@ def condOK (vars : List Srt) : Cond → Bool
       sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) vars u == some s) &&
       decide (s < nRegSorts + c.sortNames.length)
   | .exMatch ys s p t body =>
-      (sortOfTerm c.patCtxAll (vars ++ ys) p == some s &&
+      (sortOfTerm c.patCtxNF (vars ++ ys) p == some s &&
       sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) vars t == some s && condOK (vars ++ ys) body) &&
       decide (s < nRegSorts + c.sortNames.length)
   | .ex s body | .all s body => condOK (vars ++ [s]) body
@@ -144,6 +145,39 @@ def clauseSorted (f : Fn) (rhsHeads : List CtorSig) (cl : Clause) : Bool :=
   reqOK (c.rhsCtx rhsHeads) cl.vars cl.ens &&
   (Cond.bound c cl.vars.length cl.pre && Cond.bound c cl.vars.length cl.post) &&
   condOK c cl.vars cl.pre
+
+/-- The pattern of an `exMatch` with `condOK` has the sort the `exMatch` names over `patCtxNF`: it
+is well sorted and applies no function-overloaded symbol. -/
+theorem condOK_exMatch_nf {vars ys s p t body} (h : c.condOK vars (.exMatch ys s p t body) = true) :
+    sortOfTerm c.patCtxNF (vars ++ ys) p = some s := by
+  simp only [condOK, Bool.and_eq_true, beq_iff_eq] at h
+  exact h.1.1.1
+
+/-- The pattern of each `exMatch` of a condition with `condOK` applies no function-overloaded
+symbol. -/
+theorem condOK_pats_noFnOvl : ∀ {vars : List Srt} (q : Cond), c.condOK vars q = true →
+    ∀ p ∈ condPats q, c.NoFnOvlIn p
+  | _, .top, _, p, hp | _, .bot, _, p, hp | _, .ceil _ _, _, p, hp | _, .equals _ _ _, _, p, hp
+  | _, .mem _ _ _, _, p, hp => by simp [condPats] at hp
+  | _, .not q, h, p, hp => by
+    simp only [condOK] at h
+    exact condOK_pats_noFnOvl q h p (by simpa [condPats] using hp)
+  | _, .and q r, h, p, hp | _, .or q r, h, p, hp | _, .implies q r, h, p, hp => by
+    simp only [condOK, Bool.and_eq_true] at h
+    simp only [condPats, List.mem_append] at hp
+    rcases hp with hp | hp
+    · exact condOK_pats_noFnOvl q h.1 p hp
+    · exact condOK_pats_noFnOvl r h.2 p hp
+  | _, .exMatch ys s p' t body, h, p, hp => by
+    have hnf := c.condOK_exMatch_nf h
+    simp only [condOK, Bool.and_eq_true] at h
+    simp only [condPats, List.mem_cons] at hp
+    rcases hp with rfl | hp
+    · exact (sortOfTerm_of_nf _ hnf).2
+    · exact condOK_pats_noFnOvl body h.1.2 p hp
+  | _, .ex s body, h, p, hp | _, .all s body, h, p, hp => by
+    simp only [condOK] at h
+    exact condOK_pats_noFnOvl body h p (by simpa [condPats] using hp)
 
 /-- A rule's predicates are well sorted (`condOK`), with binders that range where values and
 elements agree (`Cond.bound`): what `ruleSorted` asks of `pre` and `post`. -/
@@ -329,6 +363,39 @@ theorem ruleSorted_lhs_nf {r : Rule} (h : c.ruleSorted r = true) :
 /-- The left side of a rule with `ruleSorted` applies no function-overloaded symbol. -/
 theorem ruleSorted_lhs_noFnOvl {r : Rule} (h : c.ruleSorted r = true) : c.NoFnOvlIn r.lhs :=
   (sortOfTerm_of_nf r.lhs (c.ruleSorted_lhs_nf h)).2
+
+/-- **`sortedOK` gives `ovlPatsOK`**: no pattern of a semantics `sortedOK` accepts applies a
+function-overloaded symbol. `ruleSorted` sorts a rule's left side, `clauseSorted` a clause's
+patterns and `condOK` each `exMatch` pattern of a rule's `pre` and `post` and of a clause's `pre`
+over `patCtxNF`, and `clausesPlain` asks a `\top` predicate on a clause's right side, which holds
+no pattern. -/
+theorem ovlPatsOK_of_sortedOK (h : c.sortedOK = true) : c.ovlPatsOK = true := by
+  have hs := sortedOK_sorted h
+  simp only [Bool.and_eq_true, List.all_eq_true] at hs
+  have hcp : c.clausesPlain = true := by
+    simp only [sortedOK, Bool.and_eq_true] at h; exact h.1.2
+  simp only [clausesPlain, Bool.and_eq_true, List.all_eq_true] at hcp
+  simp only [ovlPatsOK, Bool.and_eq_true, List.all_eq_true, Bool.not_eq_true']
+  refine ⟨fun r hr => ?_, fun f hf cl hcl => ?_⟩
+  · have hr' := hs.2 r hr
+    have hpp : c.condOK r.vars r.pre = true ∧ c.condOK r.vars r.post = true := by
+      have h0 := hr'
+      simp only [ruleSorted, Bool.and_eq_true] at h0
+      exact ⟨h0.1.1.1.1.1.2, h0.1.1.1.2⟩
+    refine ⟨c.ruleSorted_lhs_noFnOvl hr', fun p hp => ?_⟩
+    rcases List.mem_append.mp hp with hp | hp
+    · exact c.condOK_pats_noFnOvl _ hpp.1 p hp
+    · exact c.condOK_pats_noFnOvl _ hpp.2 p hp
+  · have hcs := hs.1.2 f hf cl hcl
+    have hpost : cl.post = .top := Cond.eq_top_of_isTop (hcp f hf cl hcl).1.2
+    have hpre : c.condOK cl.vars cl.pre = true := by
+      have h0 := hcs
+      simp only [clauseSorted, Bool.and_eq_true] at h0
+      exact h0.2
+    refine ⟨NoFnOvlIn.mem (c.clauseSorted_pats_noFnOvl hcs), fun p hp => ?_⟩
+    rw [hpost] at hp
+    simp only [condPats, List.append_nil] at hp
+    exact c.condOK_pats_noFnOvl _ hpre p hp
 
 /-- What `ruleSorted` says of a rule's left side, its `requires`, its `ensures` and its right side. -/
 theorem ruleSorted_parts {r : Rule} (h : c.ruleSorted r = true) :
