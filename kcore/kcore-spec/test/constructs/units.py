@@ -101,7 +101,10 @@ ALLOWANCE = [
     # each shape a case with its fixture, class and unit.
     # 34 -> 33 with P3.rows-ksym-setvar: E3's KSEQ-SYMBOLIC #set-@ row, R-c without unit, is R-a
     # with its reason and the E4 rows' cases.
-    ("ROWS-1.unit-rc", 33, "entries of class R-c without unit",
+    # 33 -> 35 with R2-release.fixrest-pending-rows: E2 ML_BINDER(mlBinder)@frontend and
+    # ML_OP(mlOp)@frontend take, by rule S1, the status and class of the E3 rows of #Exists and #Ceil
+    # (refused R-c without unit), the productions whose KORE their fixture's sentences show.
+    ("ROWS-1.unit-rc", 35, "entries of class R-c without unit",
      lambda l, e, k: k == "nounit" and e.get("class") == "R-c"),
     ("ROWS-1.unit-refused", 119, "refused entries of class R-a, R-b or scope without unit",
      lambda l, e, k: k == "nounit" and e.get("class") in ("R-a", "R-b", "scope")),

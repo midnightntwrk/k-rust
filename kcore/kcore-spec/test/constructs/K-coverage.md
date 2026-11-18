@@ -15,7 +15,7 @@ Rows by status:
 | list | entries | supported | parameter | inert | erased | refused | pending-fixture | not-handled |
 |---|---|---|---|---|---|---|---|---|
 | E1 | 58 | 36 | 3 | 1 | 18 | 0 | 0 | 0 |
-| E2 | 182 | 46 | 0 | 49 | 66 | 16 | 5 | 0 |
+| E2 | 182 | 47 | 0 | 49 | 68 | 18 | 0 | 0 |
 | E3 | 98 | 64 | 2 | 9 | 5 | 18 | 0 | 0 |
 | E4 | 123 | 87 | 0 | 10 | 0 | 26 | 0 | 0 |
 | E5 | 22 | 8 | 1 | 10 | 1 | 2 | 0 | 0 |
@@ -23,7 +23,7 @@ Rows by status:
 | E7 | 42 | 32 | 0 | 4 | 6 | 0 | 0 | 0 |
 | E8 | 63 | 2 | 1 | 1 | 52 | 7 | 0 | 0 |
 | C3 | 44 | 29 | 0 | 9 | 2 | 4 | 0 | 0 |
-| all | 1458 | 822 | 102 | 209 | 192 | 128 | 5 | 0 |
+| all | 1458 | 823 | 102 | 209 | 194 | 130 | 0 | 0 |
 
 Nested entries by status:
 
@@ -45,7 +45,7 @@ Refused rows by class:
 | list | entries | R-a | R-b | R-c | scope |
 |---|---|---|---|---|---|
 | E1 | 0 | 0 | 0 | 0 | 0 |
-| E2 | 16 | 1 | 12 | 3 | 0 |
+| E2 | 18 | 1 | 12 | 5 | 0 |
 | E3 | 18 | 8 | 2 | 8 | 0 |
 | E4 | 26 | 4 | 18 | 4 | 0 |
 | E5 | 2 | 0 | 2 | 0 | 0 |
@@ -53,7 +53,7 @@ Refused rows by class:
 | E7 | 0 | 0 | 0 | 0 | 0 |
 | E8 | 7 | 0 | 7 | 0 | 0 |
 | C3 | 4 | 2 | 0 | 2 | 0 |
-| all | 128 | 70 | 41 | 17 | 0 |
+| all | 130 | 70 | 41 | 19 | 0 |
 
 Refused nested entries by class:
 
@@ -70,7 +70,7 @@ Refused nested entries by class:
 | C3 | 17 | 8 | 4 | 2 | 3 |
 | all | 120 | 42 | 11 | 43 | 24 |
 
-## Entries of class R-c (60)
+## Entries of class R-c (62)
 
 Each names the notion the kernel lacks, the cone declaration that would change, and the ticket or unit that supports it (`unit`, checked by `units.py`).
 
@@ -80,6 +80,8 @@ Each names the notion the kernel lacks, the cone declaration that would change, 
 | E2 | `ASSOC(assoc)@symbol` | row | refused | a symbol that is neither a function with equations nor a free constructor: values of a sort built by a symbol modulo a law | KoreAML.Cons.noJunkItem and KCore.Faithful.consItemsK (a sort's values are those its constructors build), with KCore.GroundTerm; the kernel's one non-free symbol is KCore.OvlSig | P2.d2-kompiled | CN-3 V3 (d1: open generators, \`ParamSig.raw\`, \`ParamSig.assoc\`; d3: \`assocH\`, \`OpenLaws\`; V4); P2 (d2: the reader; fixtures e2-comm-ctor, e2-open-rule) |
 | E2 | `COMM(comm)@symbol` | row | refused | as ASSOC@symbol | as ASSOC@symbol | P2.d2-kompiled | CN-3 V3 (d1: open generators, \`ParamSig.raw\`, \`ParamSig.assoc\`; d3: \`assocH\`, \`OpenLaws\`; V4); P2 (d2: the reader; fixtures e2-comm-ctor, e2-open-rule) |
 | E2 | `HYBRID(hybrid)@frontend` | row | refused | a sort predicate whose equations are the text's: a function read from its equations, in place of the one KCore builds from the sorts | KCore.Semantics.sortPreds (reached through KCore.Semantics.allFns) | C3.pred-read-design |  |
+| E2 | `ML_BINDER(mlBinder)@frontend` | row | refused |  | Term (Core.lean:58): a term has variables, applications, injections, \`as\` and domain values, no connective; and with it Rule.lhs/rhs/req/ens, Clause.pats/req/rhs, Eval and Step, which read terms | no unit |  |
+| E2 | `ML_OP(mlOp)@frontend` | row | refused |  | Term (Core.lean:58): a term has variables, applications, injections, \`as\` and domain values, no connective; and with it Rule.lhs/rhs/req/ens, Clause.pats/req/rhs, Eval and Step, which read terms | no unit |  |
 | E2 | `SYMBOL(symbol)@symbol` | cases[0] | refused |  | under option (c), taken: none. Lifting the refusal needs the Γ-only form of option (b), as the sort case | no unit |  |
 | E3 | `ML-SYNTAX:Sort::="#Top"` | row | refused |  | Term (Core.lean:58): a term has variables, applications, injections, \`as\` and domain values, no connective; and with it Rule.lhs/rhs/req/ens, Clause.pats/req/rhs, Eval and Step, which read terms | no unit | CN-3 P1 (e0, e1: L-2, an anonymous variable, reader only); R3 (e2: R-5, a right side as \`?Z\` with \`post\`) |
 | E3 | `ML-SYNTAX:Sort::="#Top"` | cases[2] | refused |  |  | no unit | R-5 |
@@ -137,13 +139,9 @@ Each names the notion the kernel lacks, the cone declaration that would change, 
 | C3 | `hook x equation` | cases[2] | refused | as the row's (class R-c inherited from the row, TRIAGE-hook-eq-premise section 0 item 2 and section 2.3): a premise about the symbol beside what Γ states of it, with the obligation that Γ's statement satisfies the equation | as the row's: the declarations its cone names (KCore.Semantics, KCore.Faithful.fnItems, KCore.FnHyp, KCore.consistent\_of, KCore.Semantics.coreOK) | no unit |  |
 | C3 | `strict x hybrid` | row | refused |  | KCore.Semantics.sortPreds (reached through KCore.Semantics.allFns) | C3.pred-read-design |  |
 
-## Rows not yet decided (5)
+## Rows not yet decided (0)
 
-- E2 `INDEX(index)@frontend`: pending-fixture; pending: No fixture (\`fixture = "none"\`, 'not tried'). Expected erased; C2 wants the pair.
-- E2 `INITIAL(initial)@frontend`: pending-fixture; pending: No fixture. A cell property read by GenerateSentencesFromConfigDecl (:778, :788): it may change initializer equations; not erased until a pair shows it.
-- E2 `ML_BINDER(mlBinder)@frontend`: pending-fixture; pending: The key marks kast.md's #Exists and #Forall productions; its effect is \`\\exists\`, \`\\forall\` in rule bodies, which are E3 rows. The E2 row should take the E3 rows' statuses by rule S1, not one of its own. The e0 fixtures exist (e3-ml-rule-\*, e3-ml-eq-\*, e3-ml-req-\*, e3-ml-lhs-empty-sort; the E3 rows'…
-- E2 `ML_OP(mlOp)@frontend`: pending-fixture; pending: As ML\_BINDER, for #Ceil, #Equals and the other matching-logic productions (E3). The e0 fixtures exist (e3-ml-rule-\*, e3-ml-eq-\*, e3-ml-req-\*, e3-ml-lhs-empty-sort; the E3 rows' cases give their statuses by position); TRIAGE-2 decides this row.
-- E2 `PARSER(parser)@frontend`: pending-fixture; pending: No fixture. Expected erased (a program-parsing key, class \`use\`).
+None: every row has one of the five statuses.
 
 ## What the cone teaches
 
@@ -308,8 +306,8 @@ Not core:
 | `HYBRID(hybrid)@frontend` | refused | R-c | The text holds three equations of LblisKResult (fixtures/c3-strict-hybrid/kore.txt //@ 445 to 447): isKResult(K) = false [owise], its exclusion two disjuncts; isKResult(pair(K0, K1)) = true requires isKResult(K0) andBool isKResult(K1), which hybrid adds; isKResult(inj{KResult,KItem}(V)) = true. Noth… | KCore.Semantics.sortPreds (reached through KCore.Semantics.allFns) | C3.pred-read-design | c3-strict-hybrid | no | no | fixtures/c3-strict-hybrid/account.txt: \`stage refusals (of sentences classified read): 2\`, \`2 generatedEquation\`, \`sentence 458 (LblisKResult): generatedEquation (LblisKResult: LblisKResult(\_) = "false" [owise])\`, \`sentence 459 (LblisKResult): generatedEquation (LblisKResult: LblisKResult(kseq(inj(L… |
 | `IDEM(idem)@symbol` | supported |  | On a set's concatenation of the definition (the fixture's case): \`idem{}()\` on the hooked symbol and the axiom \`[idem{}()]\`. The axiom is deliberately not read (UnreadReason.setIdempotence): a C6 reading, not as written, with its guard; the row is supported only with that guard. | none (reader only) |  | e2-collection | no | no | FX/e2-collection/account.txt (2 unread setIdempotence, parse ok, wf true); the row's sentences. |
 | `IMPURE(impure)@symbol` | inert |  |  |  |  | e2-symbol | no | no | K-coverage.md A.3 anywhere, impure, ... (symbols) |
-| `INDEX(index)@frontend` | pending-fixture |  | FrontendOnly: DONE-0 C1 E2 names \`erased\` (evidence: two equal texts) for KFIX/TRIAGE |  |  | none | no | no |  |
-| `INITIAL(initial)@frontend` | pending-fixture |  | FrontendOnly: DONE-0 C1 E2 names \`erased\` (evidence: two equal texts) for KFIX/TRIAGE |  |  | none | no | no |  |
+| `INDEX(index)@frontend` | erased |  | kompile leaves no trace: the text with the key equals the text without it after removing Source and Location | none |  | e2-index | no | no | fixtures/e2-index/kompile.txt: exit 0, \`same\_as e2-cells-plain: equal after stripping\` |
+| `INITIAL(initial)@frontend` | supported |  | Rule S1: on an optional or collection cell holding no configuration variable the key makes the cell's initializer the initialised cell instead of the empty one (GenerateSentencesFromConfigDecl.optionalCellInitializer). The KORE it becomes is a constructor application in the top cell's initializer eq… | none (reader only) |  | e2-initial | no | no | fixtures/e2-initial/kompile.txt: exit 0, \`differs\_from c3-cells-opt: different after stripping\`; fixtures/e2-initial/account.txt \`stage refusals (of sentences classified read): 0\`, \`parse: ok; wf true; failing: []\`, \`coreOK: true; failing: []\`, \`refused by the account: 0\` |
 | `INITIALIZER(initializer)@frontend` | supported |  | Rule S1. The KORE is cell constructors (\`cell{}()\`), hooked collection sorts with unit, element, concat, initializer equations, and for exit the function getExitCode with one equation: all read. The cell's subsort into its collection sort is deliberately not read (UnreadReason.cellCollectionInjectio… | none (reader only) |  | e2-cells | no | no | FX/e2-cells/account.txt (parse: ok; wf true; 6 unread cellCollectionInjection); FX/e2-cells-exit/account.txt (ok; getExitCode at kore.txt 36 and 236). |
 | `INJECTIVE(injective)@symbol` | inert |  |  |  |  | e2-symbol | no | no | K-coverage.md A.3 injective (symbols) |
 | `INTERNAL(internal)@frontend` | erased |  | kompile leaves no trace: the text with the keys equals the text without them after removing Source and Location (the rows' own no\_sentence). | none |  | e2-frontend | no | no | FX/e2-frontend same\_as FX/e2-frontend-none (20 keys); FX/e2-cells-attrs same\_as FX/e2-cells-plain (maincell, multiplicity=1, color). |
@@ -327,8 +325,8 @@ Not core:
 | `MACRO_REC(macro-rec)@symbol` | inert |  |  |  |  | e2-macro | no | no | K-coverage.md A.3 macro, macro-rec, alias, alias-rec (symbols): unread macroUnused |
 | `MAINCELL(maincell)@frontend` | erased |  | kompile leaves no trace: the text with the keys equals the text without them after removing Source and Location (the rows' own no\_sentence). | none |  | e2-cells-attrs | no | no | FX/e2-frontend same\_as FX/e2-frontend-none (20 keys); FX/e2-cells-attrs same\_as FX/e2-cells-plain (maincell, multiplicity=1, color). |
 | `MEMO(memo)@symbol` | inert |  |  |  |  | e2-symbol | no | no | K-coverage.md A.3 ..., memo, ... (symbols) |
-| `ML_BINDER(mlBinder)@frontend` | pending-fixture |  | FrontendOnly: DONE-0 C1 E2 names \`erased\` (evidence: two equal texts) for KFIX/TRIAGE |  |  | e3-ml | no | no |  |
-| `ML_OP(mlOp)@frontend` | pending-fixture |  | FrontendOnly: DONE-0 C1 E2 names \`erased\` (evidence: two equal texts) for KFIX/TRIAGE |  |  | e3-ml | no | no |  |
+| `ML_BINDER(mlBinder)@frontend` | refused | R-c | Rule S1: the key marks the productions of kast.md 154-155 (#Exists, #Forall), and no sentence carries it; its effect is those productions' KORE, the matching-logic connectives of rule bodies, which are E3 rows. The row takes the status and class of the E3 row of the production its sentence shows (ML… | Term (Core.lean:58): a term has variables, applications, injections, \`as\` and domain values, no connective; and with it Rule.lhs/rhs/req/ens, Clause.pats/req/rhs, Eval and Step, which read terms |  | e3-ml | no | no | the E3 row ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2 (the production of the row's sentence in fixtures/e3-ml) and, for the key's other productions, the E3 rows named in split |
+| `ML_OP(mlOp)@frontend` | refused | R-c | Rule S1: the key marks the productions of kast.md 140-159 (#Not, #Ceil, #Floor, #Equals, #And, #Or, #Implies, #Exists, #Forall, #AG, #wEF, #wAF), and no sentence carries it; its effect is those productions' KORE, the matching-logic connectives of rule bodies, which are E3 rows. The row takes the sta… | Term (Core.lean:58): a term has variables, applications, injections, \`as\` and domain values, no connective; and with it Rule.lhs/rhs/req/ens, Clause.pats/req/rhs, Eval and Step, which read terms |  | e3-ml | no | no | the E3 row ML-SYNTAX:Sort2::="#Ceil" "(" Sort1 ")" (the production of the row's sentence in fixtures/e3-ml) and, for the key's other productions, the E3 rows named in split |
 | `MULTIPLICITY(multiplicity)=1@frontend` | erased |  | kompile leaves no trace: the text with the keys equals the text without them after removing Source and Location (the rows' own no\_sentence). | none |  | e2-cells-attrs | no | no | FX/e2-frontend same\_as FX/e2-frontend-none (20 keys); FX/e2-cells-attrs same\_as FX/e2-cells-plain (maincell, multiplicity=1, color). |
 | `MULTIPLICITY(multiplicity)=*@frontend` | supported |  | Rule S1. The KORE is cell constructors (\`cell{}()\`), hooked collection sorts with unit, element, concat, initializer equations, and for exit the function getExitCode with one equation: all read. The cell's subsort into its collection sort is deliberately not read (UnreadReason.cellCollectionInjectio… | none (reader only) |  | e2-cells | no | no | FX/e2-cells/account.txt (parse: ok; wf true; 6 unread cellCollectionInjection); FX/e2-cells-exit/account.txt (ok; getExitCode at kore.txt 36 and 236). |
 | cases[0]: a cell of multiplicity \* beside another cell (&lt;t> &lt;k> $PGM:K &lt;/k> &lt;x multiplicity="\*" type="Set"> 0 &lt;/x> &lt;/t>) | supported |  | the text states &lt;t> as a cell constructor of two arguments, KCell and the collection sort XCellSet (kore.txt: \`symbol Lbl'-LT-'t'-GT-'{}(SortKCell{}, SortXCellSet{}) : SortTCell{}\`), XCellSet a hooked SET collection with unit .XCellSet, element XCellSetItem over XCell and concat, and initXCell() : X… | none (reader and presentation only: Parse.cellOf, Presentation's Cell, the cell sentences Emit writes, Presentation.cellsOK; Semantics.ctors and Semantics.colls state the sentences as they are) |  | rdr-cell-star-sibling |  |  | fixtures/rdr-cell-star-sibling/kompile.txt: exit 0; its account as reader\_today |
@@ -345,7 +343,7 @@ Not core:
 | `OWISE(owise)@equation` | supported |  |  |  |  | e2-equation | no | yes | K-coverage.md A.3 owise (rules; on equations read from the premise) |
 | cases[0]: an [owise] equation whose exclusion is not of kompile's form, or has another number of disjuncts than the function's oth… | refused | scope | the exclusion is a pattern like any other, so another form has a meaning. kompile writes one disjunct per equation of the function that is neither [owise], [simplification] nor non-executable, each \\exists over that equation's variables around \\and(its requires, its argument memberships) (ModuleToKO… |  | none (scope): never written |  |  |  | k/k-frontend/src/main/java/org/kframework/backend/kore/ModuleToKORE.java:1138-1187 and :1422-1426; the [owise] fixtures of [C3] (c3-eq-\*owise\*) are read; 0 of the 381 corpus texts print it (test/corpus.py's logs with a kcore built at 111ce242e, read by closed.py corpus), nor does any other committed… |
 | `OWISE(owise)@simplification` | refused | R-b | Rule S2: kompile 7.1.337 with default options and --backend haskell writes no definition.kore for the text (each row's no\_sentence quotes the message). | none (reader only) |  | e2-simp-owise | no | yes | FX/e2-anywhere, e2-anywhere-eq, e2-anywhere-simp, e2-cells-bag, e2-rule-nonexec, e2-simp-owise, e2-simp-priority, e2-simp-on-rule, e2-syntactic-rule, e2-syntactic-eq: kompile.txt, exit 113. |
-| `PARSER(parser)@frontend` | pending-fixture |  | FrontendOnly: DONE-0 C1 E2 names \`erased\` (evidence: two equal texts) for KFIX/TRIAGE |  |  | none | no | no |  |
+| `PARSER(parser)@frontend` | erased |  | kompile leaves no trace: the text with the key equals the text without it after removing Source and Location (the key names the module that parses the program bound to $PGM; kompile writes it into configVars.sh and, with a bison option, a parser, outside definition.kore) | none |  | e2-parser | no | no | fixtures/e2-parser/kompile.txt: exit 0, \`same\_as e2-cells-plain: equal after stripping\` |
 | `PREC(prec)@frontend` | erased |  | kompile leaves no trace: the text with the keys equals the text without them after removing Source and Location (the rows' own no\_sentence). | none |  | e2-frontend | no | no | FX/e2-frontend same\_as FX/e2-frontend-none (20 keys); FX/e2-cells-attrs same\_as FX/e2-cells-plain (maincell, multiplicity=1, color). |
 | `PREFER(prefer)@frontend` | erased |  | kompile leaves no trace: the text with the keys equals the text without them after removing Source and Location (the rows' own no\_sentence). | none |  | e2-frontend | no | no | FX/e2-frontend same\_as FX/e2-frontend-none (20 keys); FX/e2-cells-attrs same\_as FX/e2-cells-plain (maincell, multiplicity=1, color). |
 | `PRESERVES_DEFINEDNESS(preserves-definedness)@rule` | inert |  |  |  |  | e2-rule | no | no | K-coverage.md A.3 preserves-definedness, cool, ... (axioms) |
