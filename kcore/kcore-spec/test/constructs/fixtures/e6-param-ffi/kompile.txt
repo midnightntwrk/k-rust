@@ -1,0 +1,11 @@
+command: kompile --backend haskell e6-param-ffi.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 4.9
+definition.kore bytes: 389158
+definition.kore sha256: 5ca7fc4da4c145fab75dcb2f11232f2772171d32b1657853977316182c04f2db
+stripped sha256: e37188aa6bb77162b38e7c45145d0e57b7e3edddcf18ac8c6be04ab850a4fc3f
+main module: 936 sentences, 453 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-PARAM-FFI-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E6-PARAM-FFI as default.

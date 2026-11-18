@@ -76,8 +76,9 @@ theorem has_model_core (h : HypModelCore c) (hne : c.FnsNoExs) (hp : ClausePreDe
 /-- `HypModel` gives `HypModelCore`: its functions' coherence gives `FnDet`
 (`fnDet_of_coherent`), and with their termination `FnSolves` (`fnSolves_of_total`). -/
 theorem HypModel.core (h : HypModel c) : HypModelCore c :=
-  have hd := fnDet_of_coherent (CoherentAll_of h.hyp.core)
-  HypModel.core_of h hd (fnSolves_of_total h.sound.core hd h.hyp.core.2.2.1
+  have hc := h.hyp.core (Semantics.overloadsOK_pats h.sound.2.2.2.2.2.2.2.2.ok)
+  have hd := fnDet_of_coherent (CoherentAll_of hc)
+  HypModel.core_of h hd (fnSolves_of_total h.sound.core hd hc.2.2.1
     fun fn hfn cl hcl hne vs σ hdec =>
       (h.hyp.2.2.2.2.2.1 fn hfn cl hcl).2 hne fn.label fn vs σ
         (lookupFn_of_sound h.sound.core (List.mem_append_left _ hfn)) hcl hdec)
@@ -85,7 +86,9 @@ theorem HypModel.core (h : HypModel c) : HypModelCore c :=
 /-- **`Γ` with the step's closure has a model** under `HypModel`: `has_model_core`. -/
 theorem has_model (h : HypModel c) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top) (hl : OpenLaws c) :
     ∃ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), I ⊧ᴵP (Γ c ∪ Γstep c) :=
-  has_model_core h.core (Semantics.fnsNoExs_of_sortedOK h.hyp.core.1) (clausePreDecided_of_terminates h.sound.core h.hyp.core.2.2.1) htop hl
+  have hc := h.hyp.core (Semantics.overloadsOK_pats h.sound.2.2.2.2.2.2.2.2.ok)
+  has_model_core h.core (Semantics.fnsNoExs_of_sortedOK hc.1) (clausePreDecided_of_terminates h.sound.core
+    hc.2.2.1) htop hl
 
 end Model
 

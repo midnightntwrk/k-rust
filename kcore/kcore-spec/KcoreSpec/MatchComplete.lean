@@ -121,21 +121,6 @@ theorem bindVar_complete {σ τ : Subst} {i : Nat} {v : GroundTerm} (hx : Ext σ
 
 /-! ## Sorts of what patterns denote -/
 
-theorem sortOfTerm_as {x : TermCtx} {vars : List Srt} {t : Term} {i : Nat} {s : Srt} :
-    sortOfTerm x vars (.as t i) = some s → vars[i]? = some s ∧ sortOfTerm x vars t = some s := by
-  simp only [sortOfTerm]
-  split
-  · rename_i v s' _ hv hs
-    intro h
-    split at h
-    · rename_i he
-      rw [beq_iff_eq] at he
-      cases h
-      subst he
-      exact ⟨hv, hs⟩
-    · cases h
-  · intro h; cases h
-
 theorem patternHooks_lookup : ∀ f ∈ patternHooks,
     lookupSig (hookSigs.filter (patternHooks.contains ·.name)) f = lookupSig hookSigs f := by decide +kernel
 

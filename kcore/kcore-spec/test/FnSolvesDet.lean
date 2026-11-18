@@ -1,10 +1,27 @@
 /-
-  WIT.fndet (DONE-0 C8 part 2): a witness for `FnDet` would be a semantics with `coreOK` and
-  `FnSolves`, without `FnDet`, whose `Γ` has no model. None exists among the semantics whose
-  clauses' predicates are all `\top` (`clausesPreTop`): there, under `coreOK`, `FnSolves` gives
-  `FnDet` (`fnDet_of_fnSolves`), kernel-checked here. `coreOK` also admits a clause whose predicate
-  is not `\top` where its conditions need no witness; whether `FnSolves` gives `FnDet` there is not
-  decided by this file. Run from the package root: `lake env lean -j1 test/FnSolvesDet.lean`.
+  `FnDet` beside `coreOK` and `FnSolves`. A witness for `FnDet` is a semantics with `coreOK` and
+  `FnSolves`, without `FnDet`, whose `Γ` has no model.
+  - Among the semantics whose clauses' predicates are all `\top` (`clausesPreTop`) there is none:
+    there, under `coreOK`, `FnSolves` gives `FnDet` (`fnDet_of_fnSolves`), kernel-checked here.
+  - `coreOK` also admits a clause whose predicate is not `\top` where its conditions need no
+    witness, and there `FnSolves` does not give `FnDet` (`not_fnDet_of_fnSolves`): the semantics of
+    KcoreSpec/ModelFnDetWitness.lean meets `coreOK`, `FnSolves`, `ClausePreDecided` and `OpenLaws`,
+    one of its functions has two results at 0, and its `Γ` has no model. So `fnDet_of_fnSolves`
+    cannot lose `clausesPreTop`, and `consistent_of` cannot lose `FnDet` (`consistent_needs_fnDet`).
+  Run from the package root: `lake env lean -j1 test/FnSolvesDet.lean`.
+
+  Why the proof below stops at a predicate. It shows, by induction over one derivation, that every
+  value of the function is that derivation's result; it never shows that a derivation of a value
+  excludes a derivation of none. Reading a clause's failure (`Fails`, a derivation that its
+  `requires` is not `true`) as "the clause does not apply" needs only the first. A predicate adds
+  `ReqFails.pre`, a derivation that the predicate is false, and `Holds.not` over `Holds.ceil` makes
+  a predicate false from a derivation of a value and true from a derivation of none: reading that
+  failure as "does not apply" needs that a value excludes none, which is `FnDet` itself. `FnSolves`
+  speaks of values only, so it does not give it. The witness: `a(X) => 1`,
+  `a(X) => 1 ensures u(X)` and `u(X) => true` where `¬⌈a(X)⌉`. `a` is 1 by its first clause; so the
+  predicate is false, `u`'s clause fails and `u` is undefined; so `a` has no value by its second
+  clause (`Eval.ensFails`); so the predicate is also true and `u` is `true`. The values of `a` are 1
+  alone and those of `u` `true` alone, and each clause gives them: `FnSolves` holds.
 
   Scope. The proof reads the block as it is here: every term is strict (undefined where an argument
   is), `coreOK` leaves no clause an existential variable and makes every clause's `post` `\top`
@@ -35,8 +52,8 @@
   - The terms: as `EvalTerm.functional_hdet_of_fnDet` (EvalFunctional.lean), on the value side only.
   `FnDet` follows: two results that are both `none` are equal, and otherwise one is a value.
 
-  So the hypothesis `FnDet` of `consistent_open` (Sound.lean) is implied by its others there; C8
-  part 2's alternative "or the conjunct is removed" is the orchestrator's (a cone change). The
+  So the hypothesis `FnDet` of `consistent_open` (Sound.lean) is implied by its others where every
+  predicate is `\top`, and by nothing else it asks where a clause has another predicate. The
   instance `instance_c0` checks the hypotheses are met by a definition (non-vacuity).
 -/
 import KcoreSpec
@@ -451,6 +468,23 @@ example (c : Semantics) (h : c.coreOK = true) (hpreTop : c.clausesPreTop = true)
     Consistent c :=
   consistent_of c h (fnDet_of_fnSolves h hpreTop hs) hs hp hl
 
+/-! ## Without `clausesPreTop` -/
+
+/-- **`coreOK` and `FnSolves` do not give `FnDet`** where a clause has a predicate that is not
+`\top`: `FnDetWitness.c` meets both and not `FnDet`. -/
+theorem not_fnDet_of_fnSolves : ¬ ∀ c : Semantics, c.coreOK = true → FnSolves c → FnDet c :=
+  fun h => FnDetWitness.not_fnDet (h _ FnDetWitness.coreOK FnDetWitness.fnSolves)
+
+/-- The semantics that shows it is outside `fnDet_of_fnSolves`: a clause of it has a predicate
+that is not `\top`. -/
+example : FnDetWitness.c.clausesPreTop = false := FnDetWitness.not_preTop
+
+/-- **`consistent_of` cannot lose `FnDet`**: its other hypotheses do not give `Consistent`. -/
+theorem consistent_needs_fnDet :
+    ¬ ∀ c : Semantics, c.coreOK = true → FnSolves c → ClausePreDecided c → OpenLaws c → Consistent c :=
+  fun h => FnDetWitness.not_consistent
+    (h _ FnDetWitness.coreOK FnDetWitness.fnSolves FnDetWitness.clausePreDecided FnDetWitness.openLaws)
+
 /-! ## An instance: a definition meeting both hypotheses -/
 
 /-- The configuration `<k> K </k>` with the counter and no function: `FnSolves` holds, there being
@@ -479,3 +513,7 @@ end KCore
 #guard_msgs in #print axioms KCore.FnSolvesDet.fnDet_of_fnSolves
 /-- info: 'KCore.FnSolvesDet.instance_c0' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.FnSolvesDet.instance_c0
+/-- info: 'KCore.FnSolvesDet.not_fnDet_of_fnSolves' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.FnSolvesDet.not_fnDet_of_fnSolves
+/-- info: 'KCore.FnSolvesDet.consistent_needs_fnDet' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.FnSolvesDet.consistent_needs_fnDet

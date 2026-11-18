@@ -495,7 +495,7 @@ theorem int_apart : apartSort c Srt.int = true := by decide +kernel
 theorem not_model_text : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), ¬ (I ⊧ᴵP ΓFnText c) := by
   intro M _ I hI'
   have hI := gamma_of_text hI'
-  have htr := (sortCtx_of_all (Semantics.sortedOK_of_okAll okAll) srReady (OvlOK.ovlCase inferInstance)).trans
+  have htr := (sortCtx_of_all (Semantics.sortedOK_of_okAll okAll (Semantics.ovlPatsOK_of_ovlCase (OvlOK.ovlCase inferInstance))) srReady (OvlOK.ovlCase inferInstance)).trans
   have heq1 := clause_eq hI namesNumbered htr lookup_f (cl := cl1) (List.mem_cons_self ..) rfl rfl rfl (ws := [])
     (by decide +kernel) (σ' := []) (fun _ _ h => by simp [cl1] at h) .nil rfl (by decide +kernel)
     (fun _ h => by simp [cl1] at h) (fun _ h => by cases h) (fun _ h => by simp [cl1, varOccs] at h)

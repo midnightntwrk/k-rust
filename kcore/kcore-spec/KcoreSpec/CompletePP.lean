@@ -344,7 +344,7 @@ theorem successor_split_pp (h : c.coreOK = true) (hrules : ∀ r ∈ c.rules, c.
   let σ := substOf c I tbl vs r.vars eR
   -- the left side binds the variables it holds at values
   obtain ⟨hmatch, hwitL⟩ := patVal_backC hIΓ hph hcs hcso hg hsc.trans hnn.1 (canonVars_length c r.vars) hinR
-    (collPat_of_sorted hph' hlhs) (OvlOK.nf_bridge inferInstance hlhs) x.property hlR
+    (collPat_of_sorted hph' hlhs) (Semantics.ruleSorted_lhs_nf c hs) x.property hlR
   -- no rule of a smaller priority applies at values: it would apply in the model
   have hnoapp : ∀ r' ∈ c.rules, r'.prio < r.prio → ¬ RuleApplies c r' x.val :=
     fun r' hr' hlt' ⟨σ', hσ', hpv', hreq', hpre'⟩ => hcomp r' hr' hlt'

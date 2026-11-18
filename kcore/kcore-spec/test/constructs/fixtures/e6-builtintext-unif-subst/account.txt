@@ -1,0 +1,21 @@
+out/definition.kore: 5 modules; prelude agrees
+user module E6-BUILTINTEXT-UNIF-SUBST: 501 sentences
+  1 inert import [generated]
+  221 read [generated]
+  237 read [builtin]
+  9 read [own builtin]
+  1 refused userHookedSort [own builtin]
+      e.g. hooked-sort SortKVar{} [hasDomainValues{}(), hook{}("KVAR.KVar"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(44,3,44,39)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(BUILTIN/substitution.md)"), token{}()]
+  4 unread parametricUnused [own builtin]
+  4 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert parametricFunctional [generated]
+  12 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 unknownSort
+      sentence 70 (LblString2KVar'LParUndsRParUnds'KVAR-COMMON'Unds'KVar'Unds'String): unknownSort (KVar)
+        [own builtin] (no label) at substitution.md:51: hooked-symbol LblString2KVar'LParUndsRParUnds'KVAR-COMMON'Unds'KVar'Unds'String{}(SortString{}) : SortKVar{} [function{}(), functional{}(), hook{}("STRING.string2token"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(51,19,51,84)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(BUILTIN/substitution.md)"), total{}()]
+finish: sentence 70 (LblString2KVar'LParUndsRParUnds'KVAR-COMMON'Unds'KVar'Unds'String): unknownSort (KVar)
+(exit 0)

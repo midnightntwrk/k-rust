@@ -248,7 +248,7 @@ def consumedWith (generated : Bool) (S : Scan) (E : Env) (d : Definition) (s : K
       -- constructor argument's projection's (`genEqClassOK`) or a sentence of `kconfigModule`'s
       -- text where `d` imports that module (`kconfigOwnSentence`)
       (generated && (predProjAcc E.N E.src S.eqs c e || predInstAcc E.N E.src S.eqs c e ||
-        (!isUserSource a.attributes && (genEqClassOK E d S.eqs e || kconfigOwnSentence E s))))
+        (!isUserSource a.attributes && !isOwnBuiltin s && (genEqClassOK E d S.eqs e || kconfigOwnSentence E s))))
     | none => match scanEvent s with
       -- a macro symbol's functional axiom: of a symbol that is not part of the reading
       | some (.inl f) => S.macros.contains f || c.ctors.any (fun k => c.symName k.name == f) ||
@@ -321,7 +321,7 @@ def unconsumedWhy (s : Kore.Sentence) : RefusalReason × String :=
   match s with
   | .axiom a => match (rawEqn? a).orElse fun _ => projDomainEqn? a with
     | some e =>
-      if !isUserSource a.attributes && (regSymNames.contains e.fn || (dropPrefix? "Lblis" e.fn).isSome ||
+      if !isUserSource a.attributes && !isOwnBuiltin s && (regSymNames.contains e.fn || (dropPrefix? "Lblis" e.fn).isSome ||
           (dropPrefix? "Lblproject'Coln" e.fn).isSome) then
         (.generatedEquation, s!"{e.fn}: {eqnShape e}")
       else (.unaccounted, readKind s)

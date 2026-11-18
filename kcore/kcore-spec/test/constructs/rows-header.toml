@@ -140,7 +140,9 @@
 #             same file refuting the fact the package names as owed (stated for every H). The
 #             entry's status stays the reading's (`supported` where the reading agrees with the
 #             text that it has no model); K-coverage.md prints "(no model)" beside it and lists
-#             such entries with their fixtures.
+#             such entries with their fixtures. An owed_refuted is the state "refuted" of an owed fact
+#             (owed_state below, one rule for both): K-coverage.md prints "(owed fact false)" beside
+#             the status and lists the entry with the refuted owed facts.
 # Fields of DONE-0 C2's evidence (test/constructs/rest.py, whose docstring gives each form's items):
 #   tie       on a row or a nested table: the C14 tie modules of the entry's fixture, a list of
 #             files test/X.lean that test/integration.sh builds.
@@ -183,6 +185,35 @@
 #   removed   on a row whose option removes sentences of a reference text: per sentence (its index in
 #             the reference text's user module), its tie class and direction there, the theorem and
 #             its companion, and the file.
+# Field of an owed CondDecided (checked by test/constructs/rest.py check; DONE-0 C2, C7):
+#   owed_state  on a row or a nested table: a table from a fixture directory to the state of the
+#             CondDecided its account.txt prints as owed (`CondDecided open, over V`, for each clause
+#             and rule the account lists under "clauses whose CondDecided is owed" and "rules whose
+#             CondDecided is owed"), one string:
+#               "proved: THEOREM[ (FILE)]"   a theorem proving the CondDecided of every clause and
+#                                            rule the account lists (OpenDecided, or the clauses'
+#                                            hypothesis where only clauses are listed);
+#               "refuted: THEOREM[ (FILE)]"  a theorem refuting the CondDecided of one of them;
+#               "open: REASON"               neither is shown; REASON says why and what is known.
+#             THEOREM a full name declared in FILE, a test/X.lean that test/integration.sh builds,
+#             or, without FILE, in a file of the entry's `tie`. It is stated of the semantics the
+#             reader builds from that fixture's own text (the fact the account lists, the package's
+#             `Owed`), not of another text, however close: a fixture whose text equals another's after
+#             stripping is open until a theorem is stated on its text. Required keys: each fixture
+#             of the entry (`fixture`, `also_fixtures`) whose account prints `CondDecided open`;
+#             other keys: a fixture whose account prints it and that the entry's text (evidence,
+#             reader_today, refused_by, place, note, reading, no_sentence, reason) names, a companion
+#             the entry's status rests on. A key whose account prints no `CondDecided open` fails,
+#             and so does a fixture printing it that no entry keys.
+#             The entry's status stays the reading's: the account refuses nothing for the fact
+#             (CondDecided is Witnessed or Refuted, which no terminating check decides in general),
+#             so a false owed fact is no refusal and no class. Where it is false, the headline
+#             statements, whose hypothesis FnHyp holds OpenDecided, state nothing of Step at that
+#             text; the fixture is a recorded limit of the hypothesis, not the evidence of the status
+#             under them. K-coverage.md prints "(owed fact false)", "(owed fact open)" or "(owed fact
+#             proved)" beside the status (the first of the three that one of the entry's states, or an
+#             owed_refuted, gives) and lists the entries with a false or open owed fact, with their
+#             fixtures.
 # The rule for a sentence of the text that the reader does not put in Γ (decision owed-sentence,
 # findings/work/review-no-fable-window.md section 15 items 1 to 5; DONE-0 C2, C6, C8, C14):
 #   1. it is owed: entailed by Γ (the inert lemma classes, C14 direction entailed or at values) or a

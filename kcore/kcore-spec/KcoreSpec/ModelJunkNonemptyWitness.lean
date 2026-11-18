@@ -182,7 +182,7 @@ theorem no_model :
   have hI : I ⊧ᴵP Γ c := fun φ h => hI' φ (Or.inl h)
   have hD := defOK hI
   have hc := sat_sigItem hI (sig_ceilDef (c := c))
-  have htr := (sortCtx_of_all (Semantics.sortedOK_of_okAll okAll) srReady (OvlOK.ovlCase inferInstance)).trans
+  have htr := (sortCtx_of_all (Semantics.sortedOK_of_okAll okAll (Semantics.ovlPatsOK_of_ovlCase (OvlOK.ovlCase inferInstance))) srReady (OvlOK.ovlCase inferInstance)).trans
   obtain ⟨σB, hσB1, hσB2⟩ := sortSing hI (s := Srt.bool) (by decide +kernel)
   obtain ⟨σK, hσK1, hσK2⟩ := sortSing hI (s := Srt.kitem) (by decide +kernel)
   obtain ⟨σE, hσE1, hσE2⟩ := sortSing hI (s := Srt.ioError) (by decide +kernel)

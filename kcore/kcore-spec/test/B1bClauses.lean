@@ -8,9 +8,12 @@
     `inert simplification`; the clause owes its `CondDecided` (HOLE of K, unconfined).
   - `openh` (F1-DECISION 7.3's title clause, `f() => 0 requires 1 ==Int 2 *Int H`) and `clgenless`
     (fixture e2-clause-genless-arg, `f(_) => 1 requires isC(H:S)` beside `f(_) => 0 [owise]`):
-    each read with `coreOK`, its clause's `CondDecided` owed and open (`owedClauses`; neither is
+    each read with `coreOK`, its clause's `CondDecided` owed (`owedClauses`; neither is
     `Witnessed`: test/ClauseOpenCond.lean). The pinned `sound_at` is stated for each only under the
-    owed fact as a hypothesis, named with its clause (`hc_of_owed`).
+    owed fact as a hypothesis, named with its clause (`hc_of_owed`). At `openh` the owed fact is
+    open. At `clgenless` it is false (`KCore.TieClauseGenless.owed_false`), so `Genless.Owed` does
+    not hold and the statement under it is vacuous; soundness itself fails there
+    (`KCore.TieClauseGenless.step_not_sound`).
   - `rhsempty` (fixture e2-clause-rhs-empty, `f() => g(Y:Empty)`): read with `coreOK`; `f` is
     held-named (`Semantics.heldObligations`), Empty having no value, so `rightValued` is false.
   - `rhsunit` (e2-clause-rhs-unit, `f() => h(Y:U)`, `U ::= "u"`) and `rhsint` (e2-clause-rhs-int,

@@ -1,0 +1,1366 @@
+//@ 0
+module E6-PARAM-FFI
+//@ 9
+  sort SortEndianness{} []
+//@ 14
+  sort SortFFIType{} []
+//@ 17
+  sort SortSignedness{} []
+//@ 160
+  symbol Lblgo{}(SortInt{}, SortK{}, SortK{}, SortK{}, SortK{}, SortK{}) : SortKItem{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(12,20,12,55)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-param-ffi.k)"), symbol'Kywd'{}("go")]
+//@ 166
+  symbol LblisBytes{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
+//@ 167
+  symbol LblisEndianness{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
+//@ 168
+  symbol LblisFFIType{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
+//@ 169
+  symbol LblisFloat{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
+//@ 183
+  symbol LblisSignedness{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
+//@ 184
+  symbol LblisString{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
+//@ 207
+  symbol Lblproject'Coln'Bytes{}(SortK{}) : SortBytes{} [function{}()]
+//@ 208
+  symbol Lblproject'Coln'Endianness{}(SortK{}) : SortEndianness{} [function{}()]
+//@ 209
+  symbol Lblproject'Coln'FFIType{}(SortK{}) : SortFFIType{} [function{}()]
+//@ 210
+  symbol Lblproject'Coln'Float{}(SortK{}) : SortFloat{} [function{}()]
+//@ 223
+  symbol Lblproject'Coln'Signedness{}(SortK{}) : SortSignedness{} [function{}()]
+//@ 224
+  symbol Lblproject'Coln'String{}(SortK{}) : SortString{} [function{}()]
+//@ 252
+  axiom{R} \exists{R} (Val:SortKItem{}, \equals{SortKItem{}, R} (Val:SortKItem{}, inj{SortEndianness{}, SortKItem{}} (From:SortEndianness{}))) [subsort{SortEndianness{}, SortKItem{}}()] // subsort
+//@ 255
+  axiom{R} \exists{R} (Val:SortKItem{}, \equals{SortKItem{}, R} (Val:SortKItem{}, inj{SortBytes{}, SortKItem{}} (From:SortBytes{}))) [subsort{SortBytes{}, SortKItem{}}()] // subsort
+//@ 263
+  axiom{R} \exists{R} (Val:SortKItem{}, \equals{SortKItem{}, R} (Val:SortKItem{}, inj{SortSignedness{}, SortKItem{}} (From:SortSignedness{}))) [subsort{SortSignedness{}, SortKItem{}}()] // subsort
+//@ 264
+  axiom{R} \exists{R} (Val:SortKItem{}, \equals{SortKItem{}, R} (Val:SortKItem{}, inj{SortFFIType{}, SortKItem{}} (From:SortFFIType{}))) [subsort{SortFFIType{}, SortKItem{}}()] // subsort
+//@ 266
+  axiom{R} \exists{R} (Val:SortKItem{}, \equals{SortKItem{}, R} (Val:SortKItem{}, inj{SortFloat{}, SortKItem{}} (From:SortFloat{}))) [subsort{SortFloat{}, SortKItem{}}()] // subsort
+//@ 267
+  axiom{R} \exists{R} (Val:SortKItem{}, \equals{SortKItem{}, R} (Val:SortKItem{}, inj{SortString{}, SortKItem{}} (From:SortString{}))) [subsort{SortString{}, SortKItem{}}()] // subsort
+//@ 271
+  axiom{R} \exists{R} (Val:SortFFIType{}, \equals{SortFFIType{}, R} (Val:SortFFIType{}, Lbl'Hash'ffi'Unds'complexdouble{}())) [functional{}()] // functional
+//@ 272
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexdouble{}(), Lbl'Hash'ffi'Unds'complexfloat{}())) [constructor{}()] // no confusion different constructors
+//@ 273
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexdouble{}(), Lbl'Hash'ffi'Unds'complexlongdouble{}())) [constructor{}()] // no confusion different constructors
+//@ 274
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexdouble{}(), Lbl'Hash'ffi'Unds'double{}())) [constructor{}()] // no confusion different constructors
+//@ 275
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexdouble{}(), Lbl'Hash'ffi'Unds'float{}())) [constructor{}()] // no confusion different constructors
+//@ 276
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexdouble{}(), Lbl'Hash'ffi'Unds'longdouble{}())) [constructor{}()] // no confusion different constructors
+//@ 277
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexdouble{}(), Lbl'Hash'ffi'Unds'pointer{}())) [constructor{}()] // no confusion different constructors
+//@ 278
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexdouble{}(), Lbl'Hash'ffi'Unds'schar{}())) [constructor{}()] // no confusion different constructors
+//@ 279
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexdouble{}(), Lbl'Hash'ffi'Unds'sint{}())) [constructor{}()] // no confusion different constructors
+//@ 280
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexdouble{}(), Lbl'Hash'ffi'Unds'sint16{}())) [constructor{}()] // no confusion different constructors
+//@ 281
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexdouble{}(), Lbl'Hash'ffi'Unds'sint32{}())) [constructor{}()] // no confusion different constructors
+//@ 282
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexdouble{}(), Lbl'Hash'ffi'Unds'sint64{}())) [constructor{}()] // no confusion different constructors
+//@ 283
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexdouble{}(), Lbl'Hash'ffi'Unds'sint8{}())) [constructor{}()] // no confusion different constructors
+//@ 284
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexdouble{}(), Lbl'Hash'ffi'Unds'slong{}())) [constructor{}()] // no confusion different constructors
+//@ 285
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexdouble{}(), Lbl'Hash'ffi'Unds'sshort{}())) [constructor{}()] // no confusion different constructors
+//@ 286
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexdouble{}(), Lbl'Hash'ffi'Unds'struct{}(Y0:SortList{}))) [constructor{}()] // no confusion different constructors
+//@ 287
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexdouble{}(), Lbl'Hash'ffi'Unds'uchar{}())) [constructor{}()] // no confusion different constructors
+//@ 288
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexdouble{}(), Lbl'Hash'ffi'Unds'uint{}())) [constructor{}()] // no confusion different constructors
+//@ 289
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexdouble{}(), Lbl'Hash'ffi'Unds'uint16{}())) [constructor{}()] // no confusion different constructors
+//@ 290
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexdouble{}(), Lbl'Hash'ffi'Unds'uint32{}())) [constructor{}()] // no confusion different constructors
+//@ 291
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexdouble{}(), Lbl'Hash'ffi'Unds'uint64{}())) [constructor{}()] // no confusion different constructors
+//@ 292
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexdouble{}(), Lbl'Hash'ffi'Unds'uint8{}())) [constructor{}()] // no confusion different constructors
+//@ 293
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexdouble{}(), Lbl'Hash'ffi'Unds'ulong{}())) [constructor{}()] // no confusion different constructors
+//@ 294
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexdouble{}(), Lbl'Hash'ffi'Unds'ushort{}())) [constructor{}()] // no confusion different constructors
+//@ 295
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexdouble{}(), Lbl'Hash'ffi'Unds'void{}())) [constructor{}()] // no confusion different constructors
+//@ 296
+  axiom{R} \exists{R} (Val:SortFFIType{}, \equals{SortFFIType{}, R} (Val:SortFFIType{}, Lbl'Hash'ffi'Unds'complexfloat{}())) [functional{}()] // functional
+//@ 297
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexfloat{}(), Lbl'Hash'ffi'Unds'complexlongdouble{}())) [constructor{}()] // no confusion different constructors
+//@ 298
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexfloat{}(), Lbl'Hash'ffi'Unds'double{}())) [constructor{}()] // no confusion different constructors
+//@ 299
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexfloat{}(), Lbl'Hash'ffi'Unds'float{}())) [constructor{}()] // no confusion different constructors
+//@ 300
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexfloat{}(), Lbl'Hash'ffi'Unds'longdouble{}())) [constructor{}()] // no confusion different constructors
+//@ 301
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexfloat{}(), Lbl'Hash'ffi'Unds'pointer{}())) [constructor{}()] // no confusion different constructors
+//@ 302
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexfloat{}(), Lbl'Hash'ffi'Unds'schar{}())) [constructor{}()] // no confusion different constructors
+//@ 303
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexfloat{}(), Lbl'Hash'ffi'Unds'sint{}())) [constructor{}()] // no confusion different constructors
+//@ 304
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexfloat{}(), Lbl'Hash'ffi'Unds'sint16{}())) [constructor{}()] // no confusion different constructors
+//@ 305
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexfloat{}(), Lbl'Hash'ffi'Unds'sint32{}())) [constructor{}()] // no confusion different constructors
+//@ 306
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexfloat{}(), Lbl'Hash'ffi'Unds'sint64{}())) [constructor{}()] // no confusion different constructors
+//@ 307
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexfloat{}(), Lbl'Hash'ffi'Unds'sint8{}())) [constructor{}()] // no confusion different constructors
+//@ 308
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexfloat{}(), Lbl'Hash'ffi'Unds'slong{}())) [constructor{}()] // no confusion different constructors
+//@ 309
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexfloat{}(), Lbl'Hash'ffi'Unds'sshort{}())) [constructor{}()] // no confusion different constructors
+//@ 310
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexfloat{}(), Lbl'Hash'ffi'Unds'struct{}(Y0:SortList{}))) [constructor{}()] // no confusion different constructors
+//@ 311
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexfloat{}(), Lbl'Hash'ffi'Unds'uchar{}())) [constructor{}()] // no confusion different constructors
+//@ 312
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexfloat{}(), Lbl'Hash'ffi'Unds'uint{}())) [constructor{}()] // no confusion different constructors
+//@ 313
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexfloat{}(), Lbl'Hash'ffi'Unds'uint16{}())) [constructor{}()] // no confusion different constructors
+//@ 314
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexfloat{}(), Lbl'Hash'ffi'Unds'uint32{}())) [constructor{}()] // no confusion different constructors
+//@ 315
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexfloat{}(), Lbl'Hash'ffi'Unds'uint64{}())) [constructor{}()] // no confusion different constructors
+//@ 316
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexfloat{}(), Lbl'Hash'ffi'Unds'uint8{}())) [constructor{}()] // no confusion different constructors
+//@ 317
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexfloat{}(), Lbl'Hash'ffi'Unds'ulong{}())) [constructor{}()] // no confusion different constructors
+//@ 318
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexfloat{}(), Lbl'Hash'ffi'Unds'ushort{}())) [constructor{}()] // no confusion different constructors
+//@ 319
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexfloat{}(), Lbl'Hash'ffi'Unds'void{}())) [constructor{}()] // no confusion different constructors
+//@ 320
+  axiom{R} \exists{R} (Val:SortFFIType{}, \equals{SortFFIType{}, R} (Val:SortFFIType{}, Lbl'Hash'ffi'Unds'complexlongdouble{}())) [functional{}()] // functional
+//@ 321
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexlongdouble{}(), Lbl'Hash'ffi'Unds'double{}())) [constructor{}()] // no confusion different constructors
+//@ 322
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexlongdouble{}(), Lbl'Hash'ffi'Unds'float{}())) [constructor{}()] // no confusion different constructors
+//@ 323
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexlongdouble{}(), Lbl'Hash'ffi'Unds'longdouble{}())) [constructor{}()] // no confusion different constructors
+//@ 324
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexlongdouble{}(), Lbl'Hash'ffi'Unds'pointer{}())) [constructor{}()] // no confusion different constructors
+//@ 325
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexlongdouble{}(), Lbl'Hash'ffi'Unds'schar{}())) [constructor{}()] // no confusion different constructors
+//@ 326
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexlongdouble{}(), Lbl'Hash'ffi'Unds'sint{}())) [constructor{}()] // no confusion different constructors
+//@ 327
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexlongdouble{}(), Lbl'Hash'ffi'Unds'sint16{}())) [constructor{}()] // no confusion different constructors
+//@ 328
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexlongdouble{}(), Lbl'Hash'ffi'Unds'sint32{}())) [constructor{}()] // no confusion different constructors
+//@ 329
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexlongdouble{}(), Lbl'Hash'ffi'Unds'sint64{}())) [constructor{}()] // no confusion different constructors
+//@ 330
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexlongdouble{}(), Lbl'Hash'ffi'Unds'sint8{}())) [constructor{}()] // no confusion different constructors
+//@ 331
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexlongdouble{}(), Lbl'Hash'ffi'Unds'slong{}())) [constructor{}()] // no confusion different constructors
+//@ 332
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexlongdouble{}(), Lbl'Hash'ffi'Unds'sshort{}())) [constructor{}()] // no confusion different constructors
+//@ 333
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexlongdouble{}(), Lbl'Hash'ffi'Unds'struct{}(Y0:SortList{}))) [constructor{}()] // no confusion different constructors
+//@ 334
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexlongdouble{}(), Lbl'Hash'ffi'Unds'uchar{}())) [constructor{}()] // no confusion different constructors
+//@ 335
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexlongdouble{}(), Lbl'Hash'ffi'Unds'uint{}())) [constructor{}()] // no confusion different constructors
+//@ 336
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexlongdouble{}(), Lbl'Hash'ffi'Unds'uint16{}())) [constructor{}()] // no confusion different constructors
+//@ 337
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexlongdouble{}(), Lbl'Hash'ffi'Unds'uint32{}())) [constructor{}()] // no confusion different constructors
+//@ 338
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexlongdouble{}(), Lbl'Hash'ffi'Unds'uint64{}())) [constructor{}()] // no confusion different constructors
+//@ 339
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexlongdouble{}(), Lbl'Hash'ffi'Unds'uint8{}())) [constructor{}()] // no confusion different constructors
+//@ 340
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexlongdouble{}(), Lbl'Hash'ffi'Unds'ulong{}())) [constructor{}()] // no confusion different constructors
+//@ 341
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexlongdouble{}(), Lbl'Hash'ffi'Unds'ushort{}())) [constructor{}()] // no confusion different constructors
+//@ 342
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexlongdouble{}(), Lbl'Hash'ffi'Unds'void{}())) [constructor{}()] // no confusion different constructors
+//@ 343
+  axiom{R} \exists{R} (Val:SortFFIType{}, \equals{SortFFIType{}, R} (Val:SortFFIType{}, Lbl'Hash'ffi'Unds'double{}())) [functional{}()] // functional
+//@ 344
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'double{}(), Lbl'Hash'ffi'Unds'float{}())) [constructor{}()] // no confusion different constructors
+//@ 345
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'double{}(), Lbl'Hash'ffi'Unds'longdouble{}())) [constructor{}()] // no confusion different constructors
+//@ 346
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'double{}(), Lbl'Hash'ffi'Unds'pointer{}())) [constructor{}()] // no confusion different constructors
+//@ 347
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'double{}(), Lbl'Hash'ffi'Unds'schar{}())) [constructor{}()] // no confusion different constructors
+//@ 348
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'double{}(), Lbl'Hash'ffi'Unds'sint{}())) [constructor{}()] // no confusion different constructors
+//@ 349
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'double{}(), Lbl'Hash'ffi'Unds'sint16{}())) [constructor{}()] // no confusion different constructors
+//@ 350
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'double{}(), Lbl'Hash'ffi'Unds'sint32{}())) [constructor{}()] // no confusion different constructors
+//@ 351
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'double{}(), Lbl'Hash'ffi'Unds'sint64{}())) [constructor{}()] // no confusion different constructors
+//@ 352
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'double{}(), Lbl'Hash'ffi'Unds'sint8{}())) [constructor{}()] // no confusion different constructors
+//@ 353
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'double{}(), Lbl'Hash'ffi'Unds'slong{}())) [constructor{}()] // no confusion different constructors
+//@ 354
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'double{}(), Lbl'Hash'ffi'Unds'sshort{}())) [constructor{}()] // no confusion different constructors
+//@ 355
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'double{}(), Lbl'Hash'ffi'Unds'struct{}(Y0:SortList{}))) [constructor{}()] // no confusion different constructors
+//@ 356
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'double{}(), Lbl'Hash'ffi'Unds'uchar{}())) [constructor{}()] // no confusion different constructors
+//@ 357
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'double{}(), Lbl'Hash'ffi'Unds'uint{}())) [constructor{}()] // no confusion different constructors
+//@ 358
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'double{}(), Lbl'Hash'ffi'Unds'uint16{}())) [constructor{}()] // no confusion different constructors
+//@ 359
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'double{}(), Lbl'Hash'ffi'Unds'uint32{}())) [constructor{}()] // no confusion different constructors
+//@ 360
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'double{}(), Lbl'Hash'ffi'Unds'uint64{}())) [constructor{}()] // no confusion different constructors
+//@ 361
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'double{}(), Lbl'Hash'ffi'Unds'uint8{}())) [constructor{}()] // no confusion different constructors
+//@ 362
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'double{}(), Lbl'Hash'ffi'Unds'ulong{}())) [constructor{}()] // no confusion different constructors
+//@ 363
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'double{}(), Lbl'Hash'ffi'Unds'ushort{}())) [constructor{}()] // no confusion different constructors
+//@ 364
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'double{}(), Lbl'Hash'ffi'Unds'void{}())) [constructor{}()] // no confusion different constructors
+//@ 365
+  axiom{R} \exists{R} (Val:SortFFIType{}, \equals{SortFFIType{}, R} (Val:SortFFIType{}, Lbl'Hash'ffi'Unds'float{}())) [functional{}()] // functional
+//@ 366
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'float{}(), Lbl'Hash'ffi'Unds'longdouble{}())) [constructor{}()] // no confusion different constructors
+//@ 367
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'float{}(), Lbl'Hash'ffi'Unds'pointer{}())) [constructor{}()] // no confusion different constructors
+//@ 368
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'float{}(), Lbl'Hash'ffi'Unds'schar{}())) [constructor{}()] // no confusion different constructors
+//@ 369
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'float{}(), Lbl'Hash'ffi'Unds'sint{}())) [constructor{}()] // no confusion different constructors
+//@ 370
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'float{}(), Lbl'Hash'ffi'Unds'sint16{}())) [constructor{}()] // no confusion different constructors
+//@ 371
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'float{}(), Lbl'Hash'ffi'Unds'sint32{}())) [constructor{}()] // no confusion different constructors
+//@ 372
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'float{}(), Lbl'Hash'ffi'Unds'sint64{}())) [constructor{}()] // no confusion different constructors
+//@ 373
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'float{}(), Lbl'Hash'ffi'Unds'sint8{}())) [constructor{}()] // no confusion different constructors
+//@ 374
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'float{}(), Lbl'Hash'ffi'Unds'slong{}())) [constructor{}()] // no confusion different constructors
+//@ 375
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'float{}(), Lbl'Hash'ffi'Unds'sshort{}())) [constructor{}()] // no confusion different constructors
+//@ 376
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'float{}(), Lbl'Hash'ffi'Unds'struct{}(Y0:SortList{}))) [constructor{}()] // no confusion different constructors
+//@ 377
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'float{}(), Lbl'Hash'ffi'Unds'uchar{}())) [constructor{}()] // no confusion different constructors
+//@ 378
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'float{}(), Lbl'Hash'ffi'Unds'uint{}())) [constructor{}()] // no confusion different constructors
+//@ 379
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'float{}(), Lbl'Hash'ffi'Unds'uint16{}())) [constructor{}()] // no confusion different constructors
+//@ 380
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'float{}(), Lbl'Hash'ffi'Unds'uint32{}())) [constructor{}()] // no confusion different constructors
+//@ 381
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'float{}(), Lbl'Hash'ffi'Unds'uint64{}())) [constructor{}()] // no confusion different constructors
+//@ 382
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'float{}(), Lbl'Hash'ffi'Unds'uint8{}())) [constructor{}()] // no confusion different constructors
+//@ 383
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'float{}(), Lbl'Hash'ffi'Unds'ulong{}())) [constructor{}()] // no confusion different constructors
+//@ 384
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'float{}(), Lbl'Hash'ffi'Unds'ushort{}())) [constructor{}()] // no confusion different constructors
+//@ 385
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'float{}(), Lbl'Hash'ffi'Unds'void{}())) [constructor{}()] // no confusion different constructors
+//@ 386
+  axiom{R} \exists{R} (Val:SortFFIType{}, \equals{SortFFIType{}, R} (Val:SortFFIType{}, Lbl'Hash'ffi'Unds'longdouble{}())) [functional{}()] // functional
+//@ 387
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'longdouble{}(), Lbl'Hash'ffi'Unds'pointer{}())) [constructor{}()] // no confusion different constructors
+//@ 388
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'longdouble{}(), Lbl'Hash'ffi'Unds'schar{}())) [constructor{}()] // no confusion different constructors
+//@ 389
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'longdouble{}(), Lbl'Hash'ffi'Unds'sint{}())) [constructor{}()] // no confusion different constructors
+//@ 390
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'longdouble{}(), Lbl'Hash'ffi'Unds'sint16{}())) [constructor{}()] // no confusion different constructors
+//@ 391
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'longdouble{}(), Lbl'Hash'ffi'Unds'sint32{}())) [constructor{}()] // no confusion different constructors
+//@ 392
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'longdouble{}(), Lbl'Hash'ffi'Unds'sint64{}())) [constructor{}()] // no confusion different constructors
+//@ 393
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'longdouble{}(), Lbl'Hash'ffi'Unds'sint8{}())) [constructor{}()] // no confusion different constructors
+//@ 394
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'longdouble{}(), Lbl'Hash'ffi'Unds'slong{}())) [constructor{}()] // no confusion different constructors
+//@ 395
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'longdouble{}(), Lbl'Hash'ffi'Unds'sshort{}())) [constructor{}()] // no confusion different constructors
+//@ 396
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'longdouble{}(), Lbl'Hash'ffi'Unds'struct{}(Y0:SortList{}))) [constructor{}()] // no confusion different constructors
+//@ 397
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'longdouble{}(), Lbl'Hash'ffi'Unds'uchar{}())) [constructor{}()] // no confusion different constructors
+//@ 398
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'longdouble{}(), Lbl'Hash'ffi'Unds'uint{}())) [constructor{}()] // no confusion different constructors
+//@ 399
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'longdouble{}(), Lbl'Hash'ffi'Unds'uint16{}())) [constructor{}()] // no confusion different constructors
+//@ 400
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'longdouble{}(), Lbl'Hash'ffi'Unds'uint32{}())) [constructor{}()] // no confusion different constructors
+//@ 401
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'longdouble{}(), Lbl'Hash'ffi'Unds'uint64{}())) [constructor{}()] // no confusion different constructors
+//@ 402
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'longdouble{}(), Lbl'Hash'ffi'Unds'uint8{}())) [constructor{}()] // no confusion different constructors
+//@ 403
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'longdouble{}(), Lbl'Hash'ffi'Unds'ulong{}())) [constructor{}()] // no confusion different constructors
+//@ 404
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'longdouble{}(), Lbl'Hash'ffi'Unds'ushort{}())) [constructor{}()] // no confusion different constructors
+//@ 405
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'longdouble{}(), Lbl'Hash'ffi'Unds'void{}())) [constructor{}()] // no confusion different constructors
+//@ 406
+  axiom{R} \exists{R} (Val:SortFFIType{}, \equals{SortFFIType{}, R} (Val:SortFFIType{}, Lbl'Hash'ffi'Unds'pointer{}())) [functional{}()] // functional
+//@ 407
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'pointer{}(), Lbl'Hash'ffi'Unds'schar{}())) [constructor{}()] // no confusion different constructors
+//@ 408
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'pointer{}(), Lbl'Hash'ffi'Unds'sint{}())) [constructor{}()] // no confusion different constructors
+//@ 409
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'pointer{}(), Lbl'Hash'ffi'Unds'sint16{}())) [constructor{}()] // no confusion different constructors
+//@ 410
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'pointer{}(), Lbl'Hash'ffi'Unds'sint32{}())) [constructor{}()] // no confusion different constructors
+//@ 411
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'pointer{}(), Lbl'Hash'ffi'Unds'sint64{}())) [constructor{}()] // no confusion different constructors
+//@ 412
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'pointer{}(), Lbl'Hash'ffi'Unds'sint8{}())) [constructor{}()] // no confusion different constructors
+//@ 413
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'pointer{}(), Lbl'Hash'ffi'Unds'slong{}())) [constructor{}()] // no confusion different constructors
+//@ 414
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'pointer{}(), Lbl'Hash'ffi'Unds'sshort{}())) [constructor{}()] // no confusion different constructors
+//@ 415
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'pointer{}(), Lbl'Hash'ffi'Unds'struct{}(Y0:SortList{}))) [constructor{}()] // no confusion different constructors
+//@ 416
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'pointer{}(), Lbl'Hash'ffi'Unds'uchar{}())) [constructor{}()] // no confusion different constructors
+//@ 417
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'pointer{}(), Lbl'Hash'ffi'Unds'uint{}())) [constructor{}()] // no confusion different constructors
+//@ 418
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'pointer{}(), Lbl'Hash'ffi'Unds'uint16{}())) [constructor{}()] // no confusion different constructors
+//@ 419
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'pointer{}(), Lbl'Hash'ffi'Unds'uint32{}())) [constructor{}()] // no confusion different constructors
+//@ 420
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'pointer{}(), Lbl'Hash'ffi'Unds'uint64{}())) [constructor{}()] // no confusion different constructors
+//@ 421
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'pointer{}(), Lbl'Hash'ffi'Unds'uint8{}())) [constructor{}()] // no confusion different constructors
+//@ 422
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'pointer{}(), Lbl'Hash'ffi'Unds'ulong{}())) [constructor{}()] // no confusion different constructors
+//@ 423
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'pointer{}(), Lbl'Hash'ffi'Unds'ushort{}())) [constructor{}()] // no confusion different constructors
+//@ 424
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'pointer{}(), Lbl'Hash'ffi'Unds'void{}())) [constructor{}()] // no confusion different constructors
+//@ 425
+  axiom{R} \exists{R} (Val:SortFFIType{}, \equals{SortFFIType{}, R} (Val:SortFFIType{}, Lbl'Hash'ffi'Unds'schar{}())) [functional{}()] // functional
+//@ 426
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'schar{}(), Lbl'Hash'ffi'Unds'sint{}())) [constructor{}()] // no confusion different constructors
+//@ 427
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'schar{}(), Lbl'Hash'ffi'Unds'sint16{}())) [constructor{}()] // no confusion different constructors
+//@ 428
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'schar{}(), Lbl'Hash'ffi'Unds'sint32{}())) [constructor{}()] // no confusion different constructors
+//@ 429
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'schar{}(), Lbl'Hash'ffi'Unds'sint64{}())) [constructor{}()] // no confusion different constructors
+//@ 430
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'schar{}(), Lbl'Hash'ffi'Unds'sint8{}())) [constructor{}()] // no confusion different constructors
+//@ 431
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'schar{}(), Lbl'Hash'ffi'Unds'slong{}())) [constructor{}()] // no confusion different constructors
+//@ 432
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'schar{}(), Lbl'Hash'ffi'Unds'sshort{}())) [constructor{}()] // no confusion different constructors
+//@ 433
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'schar{}(), Lbl'Hash'ffi'Unds'struct{}(Y0:SortList{}))) [constructor{}()] // no confusion different constructors
+//@ 434
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'schar{}(), Lbl'Hash'ffi'Unds'uchar{}())) [constructor{}()] // no confusion different constructors
+//@ 435
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'schar{}(), Lbl'Hash'ffi'Unds'uint{}())) [constructor{}()] // no confusion different constructors
+//@ 436
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'schar{}(), Lbl'Hash'ffi'Unds'uint16{}())) [constructor{}()] // no confusion different constructors
+//@ 437
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'schar{}(), Lbl'Hash'ffi'Unds'uint32{}())) [constructor{}()] // no confusion different constructors
+//@ 438
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'schar{}(), Lbl'Hash'ffi'Unds'uint64{}())) [constructor{}()] // no confusion different constructors
+//@ 439
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'schar{}(), Lbl'Hash'ffi'Unds'uint8{}())) [constructor{}()] // no confusion different constructors
+//@ 440
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'schar{}(), Lbl'Hash'ffi'Unds'ulong{}())) [constructor{}()] // no confusion different constructors
+//@ 441
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'schar{}(), Lbl'Hash'ffi'Unds'ushort{}())) [constructor{}()] // no confusion different constructors
+//@ 442
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'schar{}(), Lbl'Hash'ffi'Unds'void{}())) [constructor{}()] // no confusion different constructors
+//@ 443
+  axiom{R} \exists{R} (Val:SortFFIType{}, \equals{SortFFIType{}, R} (Val:SortFFIType{}, Lbl'Hash'ffi'Unds'sint{}())) [functional{}()] // functional
+//@ 444
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint{}(), Lbl'Hash'ffi'Unds'sint16{}())) [constructor{}()] // no confusion different constructors
+//@ 445
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint{}(), Lbl'Hash'ffi'Unds'sint32{}())) [constructor{}()] // no confusion different constructors
+//@ 446
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint{}(), Lbl'Hash'ffi'Unds'sint64{}())) [constructor{}()] // no confusion different constructors
+//@ 447
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint{}(), Lbl'Hash'ffi'Unds'sint8{}())) [constructor{}()] // no confusion different constructors
+//@ 448
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint{}(), Lbl'Hash'ffi'Unds'slong{}())) [constructor{}()] // no confusion different constructors
+//@ 449
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint{}(), Lbl'Hash'ffi'Unds'sshort{}())) [constructor{}()] // no confusion different constructors
+//@ 450
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint{}(), Lbl'Hash'ffi'Unds'struct{}(Y0:SortList{}))) [constructor{}()] // no confusion different constructors
+//@ 451
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint{}(), Lbl'Hash'ffi'Unds'uchar{}())) [constructor{}()] // no confusion different constructors
+//@ 452
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint{}(), Lbl'Hash'ffi'Unds'uint{}())) [constructor{}()] // no confusion different constructors
+//@ 453
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint{}(), Lbl'Hash'ffi'Unds'uint16{}())) [constructor{}()] // no confusion different constructors
+//@ 454
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint{}(), Lbl'Hash'ffi'Unds'uint32{}())) [constructor{}()] // no confusion different constructors
+//@ 455
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint{}(), Lbl'Hash'ffi'Unds'uint64{}())) [constructor{}()] // no confusion different constructors
+//@ 456
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint{}(), Lbl'Hash'ffi'Unds'uint8{}())) [constructor{}()] // no confusion different constructors
+//@ 457
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint{}(), Lbl'Hash'ffi'Unds'ulong{}())) [constructor{}()] // no confusion different constructors
+//@ 458
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint{}(), Lbl'Hash'ffi'Unds'ushort{}())) [constructor{}()] // no confusion different constructors
+//@ 459
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint{}(), Lbl'Hash'ffi'Unds'void{}())) [constructor{}()] // no confusion different constructors
+//@ 460
+  axiom{R} \exists{R} (Val:SortFFIType{}, \equals{SortFFIType{}, R} (Val:SortFFIType{}, Lbl'Hash'ffi'Unds'sint16{}())) [functional{}()] // functional
+//@ 461
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint16{}(), Lbl'Hash'ffi'Unds'sint32{}())) [constructor{}()] // no confusion different constructors
+//@ 462
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint16{}(), Lbl'Hash'ffi'Unds'sint64{}())) [constructor{}()] // no confusion different constructors
+//@ 463
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint16{}(), Lbl'Hash'ffi'Unds'sint8{}())) [constructor{}()] // no confusion different constructors
+//@ 464
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint16{}(), Lbl'Hash'ffi'Unds'slong{}())) [constructor{}()] // no confusion different constructors
+//@ 465
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint16{}(), Lbl'Hash'ffi'Unds'sshort{}())) [constructor{}()] // no confusion different constructors
+//@ 466
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint16{}(), Lbl'Hash'ffi'Unds'struct{}(Y0:SortList{}))) [constructor{}()] // no confusion different constructors
+//@ 467
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint16{}(), Lbl'Hash'ffi'Unds'uchar{}())) [constructor{}()] // no confusion different constructors
+//@ 468
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint16{}(), Lbl'Hash'ffi'Unds'uint{}())) [constructor{}()] // no confusion different constructors
+//@ 469
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint16{}(), Lbl'Hash'ffi'Unds'uint16{}())) [constructor{}()] // no confusion different constructors
+//@ 470
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint16{}(), Lbl'Hash'ffi'Unds'uint32{}())) [constructor{}()] // no confusion different constructors
+//@ 471
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint16{}(), Lbl'Hash'ffi'Unds'uint64{}())) [constructor{}()] // no confusion different constructors
+//@ 472
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint16{}(), Lbl'Hash'ffi'Unds'uint8{}())) [constructor{}()] // no confusion different constructors
+//@ 473
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint16{}(), Lbl'Hash'ffi'Unds'ulong{}())) [constructor{}()] // no confusion different constructors
+//@ 474
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint16{}(), Lbl'Hash'ffi'Unds'ushort{}())) [constructor{}()] // no confusion different constructors
+//@ 475
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint16{}(), Lbl'Hash'ffi'Unds'void{}())) [constructor{}()] // no confusion different constructors
+//@ 476
+  axiom{R} \exists{R} (Val:SortFFIType{}, \equals{SortFFIType{}, R} (Val:SortFFIType{}, Lbl'Hash'ffi'Unds'sint32{}())) [functional{}()] // functional
+//@ 477
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint32{}(), Lbl'Hash'ffi'Unds'sint64{}())) [constructor{}()] // no confusion different constructors
+//@ 478
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint32{}(), Lbl'Hash'ffi'Unds'sint8{}())) [constructor{}()] // no confusion different constructors
+//@ 479
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint32{}(), Lbl'Hash'ffi'Unds'slong{}())) [constructor{}()] // no confusion different constructors
+//@ 480
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint32{}(), Lbl'Hash'ffi'Unds'sshort{}())) [constructor{}()] // no confusion different constructors
+//@ 481
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint32{}(), Lbl'Hash'ffi'Unds'struct{}(Y0:SortList{}))) [constructor{}()] // no confusion different constructors
+//@ 482
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint32{}(), Lbl'Hash'ffi'Unds'uchar{}())) [constructor{}()] // no confusion different constructors
+//@ 483
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint32{}(), Lbl'Hash'ffi'Unds'uint{}())) [constructor{}()] // no confusion different constructors
+//@ 484
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint32{}(), Lbl'Hash'ffi'Unds'uint16{}())) [constructor{}()] // no confusion different constructors
+//@ 485
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint32{}(), Lbl'Hash'ffi'Unds'uint32{}())) [constructor{}()] // no confusion different constructors
+//@ 486
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint32{}(), Lbl'Hash'ffi'Unds'uint64{}())) [constructor{}()] // no confusion different constructors
+//@ 487
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint32{}(), Lbl'Hash'ffi'Unds'uint8{}())) [constructor{}()] // no confusion different constructors
+//@ 488
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint32{}(), Lbl'Hash'ffi'Unds'ulong{}())) [constructor{}()] // no confusion different constructors
+//@ 489
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint32{}(), Lbl'Hash'ffi'Unds'ushort{}())) [constructor{}()] // no confusion different constructors
+//@ 490
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint32{}(), Lbl'Hash'ffi'Unds'void{}())) [constructor{}()] // no confusion different constructors
+//@ 491
+  axiom{R} \exists{R} (Val:SortFFIType{}, \equals{SortFFIType{}, R} (Val:SortFFIType{}, Lbl'Hash'ffi'Unds'sint64{}())) [functional{}()] // functional
+//@ 492
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint64{}(), Lbl'Hash'ffi'Unds'sint8{}())) [constructor{}()] // no confusion different constructors
+//@ 493
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint64{}(), Lbl'Hash'ffi'Unds'slong{}())) [constructor{}()] // no confusion different constructors
+//@ 494
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint64{}(), Lbl'Hash'ffi'Unds'sshort{}())) [constructor{}()] // no confusion different constructors
+//@ 495
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint64{}(), Lbl'Hash'ffi'Unds'struct{}(Y0:SortList{}))) [constructor{}()] // no confusion different constructors
+//@ 496
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint64{}(), Lbl'Hash'ffi'Unds'uchar{}())) [constructor{}()] // no confusion different constructors
+//@ 497
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint64{}(), Lbl'Hash'ffi'Unds'uint{}())) [constructor{}()] // no confusion different constructors
+//@ 498
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint64{}(), Lbl'Hash'ffi'Unds'uint16{}())) [constructor{}()] // no confusion different constructors
+//@ 499
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint64{}(), Lbl'Hash'ffi'Unds'uint32{}())) [constructor{}()] // no confusion different constructors
+//@ 500
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint64{}(), Lbl'Hash'ffi'Unds'uint64{}())) [constructor{}()] // no confusion different constructors
+//@ 501
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint64{}(), Lbl'Hash'ffi'Unds'uint8{}())) [constructor{}()] // no confusion different constructors
+//@ 502
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint64{}(), Lbl'Hash'ffi'Unds'ulong{}())) [constructor{}()] // no confusion different constructors
+//@ 503
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint64{}(), Lbl'Hash'ffi'Unds'ushort{}())) [constructor{}()] // no confusion different constructors
+//@ 504
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint64{}(), Lbl'Hash'ffi'Unds'void{}())) [constructor{}()] // no confusion different constructors
+//@ 505
+  axiom{R} \exists{R} (Val:SortFFIType{}, \equals{SortFFIType{}, R} (Val:SortFFIType{}, Lbl'Hash'ffi'Unds'sint8{}())) [functional{}()] // functional
+//@ 506
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint8{}(), Lbl'Hash'ffi'Unds'slong{}())) [constructor{}()] // no confusion different constructors
+//@ 507
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint8{}(), Lbl'Hash'ffi'Unds'sshort{}())) [constructor{}()] // no confusion different constructors
+//@ 508
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint8{}(), Lbl'Hash'ffi'Unds'struct{}(Y0:SortList{}))) [constructor{}()] // no confusion different constructors
+//@ 509
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint8{}(), Lbl'Hash'ffi'Unds'uchar{}())) [constructor{}()] // no confusion different constructors
+//@ 510
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint8{}(), Lbl'Hash'ffi'Unds'uint{}())) [constructor{}()] // no confusion different constructors
+//@ 511
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint8{}(), Lbl'Hash'ffi'Unds'uint16{}())) [constructor{}()] // no confusion different constructors
+//@ 512
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint8{}(), Lbl'Hash'ffi'Unds'uint32{}())) [constructor{}()] // no confusion different constructors
+//@ 513
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint8{}(), Lbl'Hash'ffi'Unds'uint64{}())) [constructor{}()] // no confusion different constructors
+//@ 514
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint8{}(), Lbl'Hash'ffi'Unds'uint8{}())) [constructor{}()] // no confusion different constructors
+//@ 515
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint8{}(), Lbl'Hash'ffi'Unds'ulong{}())) [constructor{}()] // no confusion different constructors
+//@ 516
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint8{}(), Lbl'Hash'ffi'Unds'ushort{}())) [constructor{}()] // no confusion different constructors
+//@ 517
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sint8{}(), Lbl'Hash'ffi'Unds'void{}())) [constructor{}()] // no confusion different constructors
+//@ 518
+  axiom{R} \exists{R} (Val:SortFFIType{}, \equals{SortFFIType{}, R} (Val:SortFFIType{}, Lbl'Hash'ffi'Unds'slong{}())) [functional{}()] // functional
+//@ 519
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'slong{}(), Lbl'Hash'ffi'Unds'sshort{}())) [constructor{}()] // no confusion different constructors
+//@ 520
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'slong{}(), Lbl'Hash'ffi'Unds'struct{}(Y0:SortList{}))) [constructor{}()] // no confusion different constructors
+//@ 521
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'slong{}(), Lbl'Hash'ffi'Unds'uchar{}())) [constructor{}()] // no confusion different constructors
+//@ 522
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'slong{}(), Lbl'Hash'ffi'Unds'uint{}())) [constructor{}()] // no confusion different constructors
+//@ 523
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'slong{}(), Lbl'Hash'ffi'Unds'uint16{}())) [constructor{}()] // no confusion different constructors
+//@ 524
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'slong{}(), Lbl'Hash'ffi'Unds'uint32{}())) [constructor{}()] // no confusion different constructors
+//@ 525
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'slong{}(), Lbl'Hash'ffi'Unds'uint64{}())) [constructor{}()] // no confusion different constructors
+//@ 526
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'slong{}(), Lbl'Hash'ffi'Unds'uint8{}())) [constructor{}()] // no confusion different constructors
+//@ 527
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'slong{}(), Lbl'Hash'ffi'Unds'ulong{}())) [constructor{}()] // no confusion different constructors
+//@ 528
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'slong{}(), Lbl'Hash'ffi'Unds'ushort{}())) [constructor{}()] // no confusion different constructors
+//@ 529
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'slong{}(), Lbl'Hash'ffi'Unds'void{}())) [constructor{}()] // no confusion different constructors
+//@ 530
+  axiom{R} \exists{R} (Val:SortFFIType{}, \equals{SortFFIType{}, R} (Val:SortFFIType{}, Lbl'Hash'ffi'Unds'sshort{}())) [functional{}()] // functional
+//@ 531
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sshort{}(), Lbl'Hash'ffi'Unds'struct{}(Y0:SortList{}))) [constructor{}()] // no confusion different constructors
+//@ 532
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sshort{}(), Lbl'Hash'ffi'Unds'uchar{}())) [constructor{}()] // no confusion different constructors
+//@ 533
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sshort{}(), Lbl'Hash'ffi'Unds'uint{}())) [constructor{}()] // no confusion different constructors
+//@ 534
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sshort{}(), Lbl'Hash'ffi'Unds'uint16{}())) [constructor{}()] // no confusion different constructors
+//@ 535
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sshort{}(), Lbl'Hash'ffi'Unds'uint32{}())) [constructor{}()] // no confusion different constructors
+//@ 536
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sshort{}(), Lbl'Hash'ffi'Unds'uint64{}())) [constructor{}()] // no confusion different constructors
+//@ 537
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sshort{}(), Lbl'Hash'ffi'Unds'uint8{}())) [constructor{}()] // no confusion different constructors
+//@ 538
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sshort{}(), Lbl'Hash'ffi'Unds'ulong{}())) [constructor{}()] // no confusion different constructors
+//@ 539
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sshort{}(), Lbl'Hash'ffi'Unds'ushort{}())) [constructor{}()] // no confusion different constructors
+//@ 540
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'sshort{}(), Lbl'Hash'ffi'Unds'void{}())) [constructor{}()] // no confusion different constructors
+//@ 541
+  axiom{R} \exists{R} (Val:SortFFIType{}, \equals{SortFFIType{}, R} (Val:SortFFIType{}, Lbl'Hash'ffi'Unds'struct{}(K0:SortList{}))) [functional{}()] // functional
+//@ 542
+  axiom{}\implies{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'struct{}(X0:SortList{}), Lbl'Hash'ffi'Unds'struct{}(Y0:SortList{})), Lbl'Hash'ffi'Unds'struct{}(\and{SortList{}} (X0:SortList{}, Y0:SortList{}))) [constructor{}()] // no confusion same constructor
+//@ 543
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'struct{}(X0:SortList{}), Lbl'Hash'ffi'Unds'uchar{}())) [constructor{}()] // no confusion different constructors
+//@ 544
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'struct{}(X0:SortList{}), Lbl'Hash'ffi'Unds'uint{}())) [constructor{}()] // no confusion different constructors
+//@ 545
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'struct{}(X0:SortList{}), Lbl'Hash'ffi'Unds'uint16{}())) [constructor{}()] // no confusion different constructors
+//@ 546
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'struct{}(X0:SortList{}), Lbl'Hash'ffi'Unds'uint32{}())) [constructor{}()] // no confusion different constructors
+//@ 547
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'struct{}(X0:SortList{}), Lbl'Hash'ffi'Unds'uint64{}())) [constructor{}()] // no confusion different constructors
+//@ 548
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'struct{}(X0:SortList{}), Lbl'Hash'ffi'Unds'uint8{}())) [constructor{}()] // no confusion different constructors
+//@ 549
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'struct{}(X0:SortList{}), Lbl'Hash'ffi'Unds'ulong{}())) [constructor{}()] // no confusion different constructors
+//@ 550
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'struct{}(X0:SortList{}), Lbl'Hash'ffi'Unds'ushort{}())) [constructor{}()] // no confusion different constructors
+//@ 551
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'struct{}(X0:SortList{}), Lbl'Hash'ffi'Unds'void{}())) [constructor{}()] // no confusion different constructors
+//@ 552
+  axiom{R} \exists{R} (Val:SortFFIType{}, \equals{SortFFIType{}, R} (Val:SortFFIType{}, Lbl'Hash'ffi'Unds'uchar{}())) [functional{}()] // functional
+//@ 553
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'uchar{}(), Lbl'Hash'ffi'Unds'uint{}())) [constructor{}()] // no confusion different constructors
+//@ 554
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'uchar{}(), Lbl'Hash'ffi'Unds'uint16{}())) [constructor{}()] // no confusion different constructors
+//@ 555
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'uchar{}(), Lbl'Hash'ffi'Unds'uint32{}())) [constructor{}()] // no confusion different constructors
+//@ 556
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'uchar{}(), Lbl'Hash'ffi'Unds'uint64{}())) [constructor{}()] // no confusion different constructors
+//@ 557
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'uchar{}(), Lbl'Hash'ffi'Unds'uint8{}())) [constructor{}()] // no confusion different constructors
+//@ 558
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'uchar{}(), Lbl'Hash'ffi'Unds'ulong{}())) [constructor{}()] // no confusion different constructors
+//@ 559
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'uchar{}(), Lbl'Hash'ffi'Unds'ushort{}())) [constructor{}()] // no confusion different constructors
+//@ 560
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'uchar{}(), Lbl'Hash'ffi'Unds'void{}())) [constructor{}()] // no confusion different constructors
+//@ 561
+  axiom{R} \exists{R} (Val:SortFFIType{}, \equals{SortFFIType{}, R} (Val:SortFFIType{}, Lbl'Hash'ffi'Unds'uint{}())) [functional{}()] // functional
+//@ 562
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'uint{}(), Lbl'Hash'ffi'Unds'uint16{}())) [constructor{}()] // no confusion different constructors
+//@ 563
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'uint{}(), Lbl'Hash'ffi'Unds'uint32{}())) [constructor{}()] // no confusion different constructors
+//@ 564
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'uint{}(), Lbl'Hash'ffi'Unds'uint64{}())) [constructor{}()] // no confusion different constructors
+//@ 565
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'uint{}(), Lbl'Hash'ffi'Unds'uint8{}())) [constructor{}()] // no confusion different constructors
+//@ 566
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'uint{}(), Lbl'Hash'ffi'Unds'ulong{}())) [constructor{}()] // no confusion different constructors
+//@ 567
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'uint{}(), Lbl'Hash'ffi'Unds'ushort{}())) [constructor{}()] // no confusion different constructors
+//@ 568
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'uint{}(), Lbl'Hash'ffi'Unds'void{}())) [constructor{}()] // no confusion different constructors
+//@ 569
+  axiom{R} \exists{R} (Val:SortFFIType{}, \equals{SortFFIType{}, R} (Val:SortFFIType{}, Lbl'Hash'ffi'Unds'uint16{}())) [functional{}()] // functional
+//@ 570
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'uint16{}(), Lbl'Hash'ffi'Unds'uint32{}())) [constructor{}()] // no confusion different constructors
+//@ 571
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'uint16{}(), Lbl'Hash'ffi'Unds'uint64{}())) [constructor{}()] // no confusion different constructors
+//@ 572
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'uint16{}(), Lbl'Hash'ffi'Unds'uint8{}())) [constructor{}()] // no confusion different constructors
+//@ 573
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'uint16{}(), Lbl'Hash'ffi'Unds'ulong{}())) [constructor{}()] // no confusion different constructors
+//@ 574
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'uint16{}(), Lbl'Hash'ffi'Unds'ushort{}())) [constructor{}()] // no confusion different constructors
+//@ 575
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'uint16{}(), Lbl'Hash'ffi'Unds'void{}())) [constructor{}()] // no confusion different constructors
+//@ 576
+  axiom{R} \exists{R} (Val:SortFFIType{}, \equals{SortFFIType{}, R} (Val:SortFFIType{}, Lbl'Hash'ffi'Unds'uint32{}())) [functional{}()] // functional
+//@ 577
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'uint32{}(), Lbl'Hash'ffi'Unds'uint64{}())) [constructor{}()] // no confusion different constructors
+//@ 578
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'uint32{}(), Lbl'Hash'ffi'Unds'uint8{}())) [constructor{}()] // no confusion different constructors
+//@ 579
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'uint32{}(), Lbl'Hash'ffi'Unds'ulong{}())) [constructor{}()] // no confusion different constructors
+//@ 580
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'uint32{}(), Lbl'Hash'ffi'Unds'ushort{}())) [constructor{}()] // no confusion different constructors
+//@ 581
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'uint32{}(), Lbl'Hash'ffi'Unds'void{}())) [constructor{}()] // no confusion different constructors
+//@ 582
+  axiom{R} \exists{R} (Val:SortFFIType{}, \equals{SortFFIType{}, R} (Val:SortFFIType{}, Lbl'Hash'ffi'Unds'uint64{}())) [functional{}()] // functional
+//@ 583
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'uint64{}(), Lbl'Hash'ffi'Unds'uint8{}())) [constructor{}()] // no confusion different constructors
+//@ 584
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'uint64{}(), Lbl'Hash'ffi'Unds'ulong{}())) [constructor{}()] // no confusion different constructors
+//@ 585
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'uint64{}(), Lbl'Hash'ffi'Unds'ushort{}())) [constructor{}()] // no confusion different constructors
+//@ 586
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'uint64{}(), Lbl'Hash'ffi'Unds'void{}())) [constructor{}()] // no confusion different constructors
+//@ 587
+  axiom{R} \exists{R} (Val:SortFFIType{}, \equals{SortFFIType{}, R} (Val:SortFFIType{}, Lbl'Hash'ffi'Unds'uint8{}())) [functional{}()] // functional
+//@ 588
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'uint8{}(), Lbl'Hash'ffi'Unds'ulong{}())) [constructor{}()] // no confusion different constructors
+//@ 589
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'uint8{}(), Lbl'Hash'ffi'Unds'ushort{}())) [constructor{}()] // no confusion different constructors
+//@ 590
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'uint8{}(), Lbl'Hash'ffi'Unds'void{}())) [constructor{}()] // no confusion different constructors
+//@ 591
+  axiom{R} \exists{R} (Val:SortFFIType{}, \equals{SortFFIType{}, R} (Val:SortFFIType{}, Lbl'Hash'ffi'Unds'ulong{}())) [functional{}()] // functional
+//@ 592
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'ulong{}(), Lbl'Hash'ffi'Unds'ushort{}())) [constructor{}()] // no confusion different constructors
+//@ 593
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'ulong{}(), Lbl'Hash'ffi'Unds'void{}())) [constructor{}()] // no confusion different constructors
+//@ 594
+  axiom{R} \exists{R} (Val:SortFFIType{}, \equals{SortFFIType{}, R} (Val:SortFFIType{}, Lbl'Hash'ffi'Unds'ushort{}())) [functional{}()] // functional
+//@ 595
+  axiom{}\not{SortFFIType{}} (\and{SortFFIType{}} (Lbl'Hash'ffi'Unds'ushort{}(), Lbl'Hash'ffi'Unds'void{}())) [constructor{}()] // no confusion different constructors
+//@ 596
+  axiom{R} \exists{R} (Val:SortFFIType{}, \equals{SortFFIType{}, R} (Val:SortFFIType{}, Lbl'Hash'ffi'Unds'void{}())) [functional{}()] // functional
+//@ 597
+  axiom{R} \exists{R} (Val:SortBytes{}, \equals{SortBytes{}, R} (Val:SortBytes{}, Lbl'Stop'Bytes'Unds'BYTES-HOOKED'Unds'Bytes{}())) [functional{}()] // functional
+//@ 609
+  axiom{R} \exists{R} (Val:SortString{}, \equals{SortString{}, R} (Val:SortString{}, LblBool2String'LParUndsRParUnds'STRING-COMMON'Unds'String'Unds'Bool{}(K0:SortBool{}))) [functional{}()] // functional
+//@ 610
+  axiom{R} \exists{R} (Val:SortString{}, \equals{SortString{}, R} (Val:SortString{}, LblBytes2Hex'LParUndsRParUnds'BYTES-HOOKED'Unds'String'Unds'Bytes{}(K0:SortBytes{}))) [functional{}()] // functional
+//@ 611
+  axiom{R} \exists{R} (Val:SortInt{}, \equals{SortInt{}, R} (Val:SortInt{}, LblBytes2Int'LParUndsCommUndsCommUndsRParUnds'BYTES-HOOKED'Unds'Int'Unds'Bytes'Unds'Endianness'Unds'Signedness{}(K0:SortBytes{}, K1:SortEndianness{}, K2:SortSignedness{}))) [functional{}()] // functional
+//@ 612
+  axiom{R} \exists{R} (Val:SortString{}, \equals{SortString{}, R} (Val:SortString{}, LblBytes2String'LParUndsRParUnds'BYTES-HOOKED'Unds'String'Unds'Bytes{}(K0:SortBytes{}))) [functional{}()] // functional
+//@ 613
+  axiom{R} \exists{R} (Val:SortString{}, \equals{SortString{}, R} (Val:SortString{}, LblFloat2String'LParUndsRParUnds'STRING-COMMON'Unds'String'Unds'Float{}(K0:SortFloat{}))) [functional{}()] // functional
+//@ 614
+  axiom{R} \exists{R} (Val:SortBytes{}, \equals{SortBytes{}, R} (Val:SortBytes{}, LblInt2Bytes'LParUndsCommUndsCommUndsRParUnds'BYTES-HOOKED'Unds'Bytes'Unds'Int'Unds'Int'Unds'Endianness{}(K0:SortInt{}, K1:SortInt{}, K2:SortEndianness{}))) [functional{}()] // functional
+//@ 615
+  axiom{R} \exists{R} (Val:SortBytes{}, \equals{SortBytes{}, R} (Val:SortBytes{}, LblInt2BytesNoLen{}(K0:SortInt{}, K1:SortEndianness{}, K2:SortSignedness{}))) [functional{}()] // functional
+//@ 616
+  axiom{R} \exists{R} (Val:SortString{}, \equals{SortString{}, R} (Val:SortString{}, LblInt2String'LParUndsRParUnds'STRING-COMMON'Unds'String'Unds'Int{}(K0:SortInt{}))) [functional{}()] // functional
+//@ 623
+  axiom{R} \exists{R} (Val:SortBytes{}, \equals{SortBytes{}, R} (Val:SortBytes{}, LblString2Bytes'LParUndsRParUnds'BYTES-HOOKED'Unds'Bytes'Unds'String{}(K0:SortString{}))) [functional{}()] // functional
+//@ 624
+  axiom{R} \exists{R} (Val:SortInt{}, \equals{SortInt{}, R} (Val:SortInt{}, Lbl'UndsAnd-'Int'Unds'{}(K0:SortInt{}, K1:SortInt{}))) [functional{}()] // functional
+//@ 625
+  axiom{R} \exists{R} (Val:SortInt{}, \equals{SortInt{}, R} (Val:SortInt{}, Lbl'UndsStar'Int'Unds'{}(K0:SortInt{}, K1:SortInt{}))) [functional{}()] // functional
+//@ 626
+  axiom{R} \exists{R} (Val:SortBytes{}, \equals{SortBytes{}, R} (Val:SortBytes{}, Lbl'UndsPlus'Bytes'UndsUnds'BYTES-HOOKED'Unds'Bytes'Unds'Bytes'Unds'Bytes{}(K0:SortBytes{}, K1:SortBytes{}))) [functional{}()] // functional
+//@ 627
+  axiom{R} \exists{R} (Val:SortInt{}, \equals{SortInt{}, R} (Val:SortInt{}, Lbl'UndsPlus'Int'Unds'{}(K0:SortInt{}, K1:SortInt{}))) [functional{}()] // functional
+//@ 628
+  axiom{R} \exists{R} (Val:SortString{}, \equals{SortString{}, R} (Val:SortString{}, Lbl'UndsPlus'String'UndsUnds'STRING-COMMON'Unds'String'Unds'String'Unds'String{}(K0:SortString{}, K1:SortString{}))) [functional{}()] // functional
+//@ 629
+  axiom{R} \exists{R} (Val:SortInt{}, \equals{SortInt{}, R} (Val:SortInt{}, Lbl'Unds'-Int'Unds'{}(K0:SortInt{}, K1:SortInt{}))) [functional{}()] // functional
+//@ 631
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds-LT-Eqls'Int'Unds'{}(K0:SortInt{}, K1:SortInt{}))) [functional{}()] // functional
+//@ 634
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds-LT-Eqls'String'UndsUnds'STRING-COMMON'Unds'Bool'Unds'String'Unds'String{}(K0:SortString{}, K1:SortString{}))) [functional{}()] // functional
+//@ 635
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds-LT-'Int'Unds'{}(K0:SortInt{}, K1:SortInt{}))) [functional{}()] // functional
+//@ 636
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds-LT-'String'UndsUnds'STRING-COMMON'Unds'Bool'Unds'String'Unds'String{}(K0:SortString{}, K1:SortString{}))) [functional{}()] // functional
+//@ 637
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'UndsEqlsSlshEqls'Bool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 638
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'UndsEqlsSlshEqls'Int'Unds'{}(K0:SortInt{}, K1:SortInt{}))) [functional{}()] // functional
+//@ 639
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'UndsEqlsSlshEqls'K'Unds'{}(K0:SortK{}, K1:SortK{}))) [functional{}()] // functional
+//@ 640
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'UndsEqlsSlshEqls'String'UndsUnds'STRING-COMMON'Unds'Bool'Unds'String'Unds'String{}(K0:SortString{}, K1:SortString{}))) [functional{}()] // functional
+//@ 641
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'UndsEqlsEqls'Bool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 642
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'UndsEqlsEqls'Int'Unds'{}(K0:SortInt{}, K1:SortInt{}))) [functional{}()] // functional
+//@ 643
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'UndsEqlsEqls'K'Unds'{}(K0:SortK{}, K1:SortK{}))) [functional{}()] // functional
+//@ 644
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'UndsEqlsEqls'String'UndsUnds'STRING-COMMON'Unds'Bool'Unds'String'Unds'String{}(K0:SortString{}, K1:SortString{}))) [functional{}()] // functional
+//@ 645
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds-GT-Eqls'Int'Unds'{}(K0:SortInt{}, K1:SortInt{}))) [functional{}()] // functional
+//@ 646
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds-GT-Eqls'String'UndsUnds'STRING-COMMON'Unds'Bool'Unds'String'Unds'String{}(K0:SortString{}, K1:SortString{}))) [functional{}()] // functional
+//@ 647
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds-GT-'Int'Unds'{}(K0:SortInt{}, K1:SortInt{}))) [functional{}()] // functional
+//@ 648
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds-GT-'String'UndsUnds'STRING-COMMON'Unds'Bool'Unds'String'Unds'String{}(K0:SortString{}, K1:SortString{}))) [functional{}()] // functional
+//@ 661
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds'andBool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 662
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds'andThenBool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 663
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds'impliesBool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 666
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds'orBool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 667
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds'orElseBool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 668
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds'xorBool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 669
+  axiom{R} \exists{R} (Val:SortInt{}, \equals{SortInt{}, R} (Val:SortInt{}, Lbl'Unds'xorInt'Unds'{}(K0:SortInt{}, K1:SortInt{}))) [functional{}()] // functional
+//@ 671
+  axiom{R} \exists{R} (Val:SortInt{}, \equals{SortInt{}, R} (Val:SortInt{}, Lbl'UndsPipe'Int'Unds'{}(K0:SortInt{}, K1:SortInt{}))) [functional{}()] // functional
+//@ 673
+  axiom{R} \exists{R} (Val:SortInt{}, \equals{SortInt{}, R} (Val:SortInt{}, LblabsInt'LParUndsRParUnds'INT-COMMON'Unds'Int'Unds'Int{}(K0:SortInt{}))) [functional{}()] // functional
+//@ 674
+  axiom{R} \exists{R} (Val:SortEndianness{}, \equals{SortEndianness{}, R} (Val:SortEndianness{}, LblbigEndianBytes{}())) [functional{}()] // functional
+//@ 675
+  axiom{}\not{SortEndianness{}} (\and{SortEndianness{}} (LblbigEndianBytes{}(), LbllittleEndianBytes{}())) [constructor{}()] // no confusion different constructors
+//@ 676
+  axiom{R} \exists{R} (Val:SortInt{}, \equals{SortInt{}, R} (Val:SortInt{}, LblcountAllOccurrences'LParUndsCommUndsRParUnds'STRING-COMMON'Unds'Int'Unds'String'Unds'String{}(K0:SortString{}, K1:SortString{}))) [functional{}()] // functional
+//@ 677
+  axiom{R} \exists{R} (Val:SortInt{}, \equals{SortInt{}, R} (Val:SortInt{}, LblfreshInt'LParUndsRParUnds'INT'Unds'Int'Unds'Int{}(K0:SortInt{}))) [functional{}()] // functional
+//@ 678
+  axiom{R} \exists{R} (Val:SortKItem{}, \equals{SortKItem{}, R} (Val:SortKItem{}, Lblgo{}(K0:SortInt{}, K1:SortK{}, K2:SortK{}, K3:SortK{}, K4:SortK{}, K5:SortK{}))) [functional{}()] // functional
+//@ 679
+  axiom{}\implies{SortKItem{}} (\and{SortKItem{}} (Lblgo{}(X0:SortInt{}, X1:SortK{}, X2:SortK{}, X3:SortK{}, X4:SortK{}, X5:SortK{}), Lblgo{}(Y0:SortInt{}, Y1:SortK{}, Y2:SortK{}, Y3:SortK{}, Y4:SortK{}, Y5:SortK{})), Lblgo{}(\and{SortInt{}} (X0:SortInt{}, Y0:SortInt{}), \and{SortK{}} (X1:SortK{}, Y1:SortK{}), \and{SortK{}} (X2:SortK{}, Y2:SortK{}), \and{SortK{}} (X3:SortK{}, Y3:SortK{}), \and{SortK{}} (X4:SortK{}, Y4:SortK{}), \and{SortK{}} (X5:SortK{}, Y5:SortK{}))) [constructor{}()] // no confusion same constructor
+//@ 683
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, LblisBytes{}(K0:SortK{}))) [functional{}()] // functional
+//@ 684
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, LblisEndianness{}(K0:SortK{}))) [functional{}()] // functional
+//@ 685
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, LblisFFIType{}(K0:SortK{}))) [functional{}()] // functional
+//@ 686
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, LblisFloat{}(K0:SortK{}))) [functional{}()] // functional
+//@ 700
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, LblisSignedness{}(K0:SortK{}))) [functional{}()] // functional
+//@ 701
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, LblisString{}(K0:SortK{}))) [functional{}()] // functional
+//@ 702
+  axiom{R, SortSort} \exists{R} (Val:SortSort, \equals{SortSort, R} (Val:SortSort, Lblite{SortSort}(K0:SortBool{}, K1:SortSort, K2:SortSort))) [functional{}()] // functional
+//@ 704
+  axiom{R} \exists{R} (Val:SortInt{}, \equals{SortInt{}, R} (Val:SortInt{}, LbllengthBytes'LParUndsRParUnds'BYTES-HOOKED'Unds'Int'Unds'Bytes{}(K0:SortBytes{}))) [functional{}()] // functional
+//@ 705
+  axiom{R, SortWidth} \exists{R} (Val:SortMInt{SortWidth}, \equals{SortMInt{SortWidth}, R} (Val:SortMInt{SortWidth}, LbllengthBytes'LParUndsRParUnds'BYTES-HOOKED'Unds'MInt'Unds'Bytes{SortWidth}(K0:SortBytes{}))) [functional{}()] // functional
+//@ 706
+  axiom{R} \exists{R} (Val:SortInt{}, \equals{SortInt{}, R} (Val:SortInt{}, LbllengthString'LParUndsRParUnds'STRING-COMMON'Unds'Int'Unds'String{}(K0:SortString{}))) [functional{}()] // functional
+//@ 707
+  axiom{R} \exists{R} (Val:SortEndianness{}, \equals{SortEndianness{}, R} (Val:SortEndianness{}, LbllittleEndianBytes{}())) [functional{}()] // functional
+//@ 708
+  axiom{R} \exists{R} (Val:SortInt{}, \equals{SortInt{}, R} (Val:SortInt{}, LblmaxInt'LParUndsCommUndsRParUnds'INT-COMMON'Unds'Int'Unds'Int'Unds'Int{}(K0:SortInt{}, K1:SortInt{}))) [functional{}()] // functional
+//@ 709
+  axiom{R} \exists{R} (Val:SortInt{}, \equals{SortInt{}, R} (Val:SortInt{}, LblminInt'LParUndsCommUndsRParUnds'INT-COMMON'Unds'Int'Unds'Int'Unds'Int{}(K0:SortInt{}, K1:SortInt{}))) [functional{}()] // functional
+//@ 712
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, LblnotBool'Unds'{}(K0:SortBool{}))) [functional{}()] // functional
+//@ 715
+  axiom{R} \exists{R} (Val:SortString{}, \equals{SortString{}, R} (Val:SortString{}, LblreplaceAll'LParUndsCommUndsCommUndsRParUnds'STRING-COMMON'Unds'String'Unds'String'Unds'String'Unds'String{}(K0:SortString{}, K1:SortString{}, K2:SortString{}))) [functional{}()] // functional
+//@ 716
+  axiom{R} \exists{R} (Val:SortString{}, \equals{SortString{}, R} (Val:SortString{}, LblreplaceFirst'LParUndsCommUndsCommUndsRParUnds'STRING-COMMON'Unds'String'Unds'String'Unds'String'Unds'String{}(K0:SortString{}, K1:SortString{}, K2:SortString{}))) [functional{}()] // functional
+//@ 717
+  axiom{R} \exists{R} (Val:SortBytes{}, \equals{SortBytes{}, R} (Val:SortBytes{}, LblreverseBytes'LParUndsRParUnds'BYTES-HOOKED'Unds'Bytes'Unds'Bytes{}(K0:SortBytes{}))) [functional{}()] // functional
+//@ 718
+  axiom{R} \exists{R} (Val:SortSignedness{}, \equals{SortSignedness{}, R} (Val:SortSignedness{}, LblsignedBytes{}())) [functional{}()] // functional
+//@ 719
+  axiom{}\not{SortSignedness{}} (\and{SortSignedness{}} (LblsignedBytes{}(), LblunsignedBytes{}())) [constructor{}()] // no confusion different constructors
+//@ 723
+  axiom{R} \exists{R} (Val:SortString{}, \equals{SortString{}, R} (Val:SortString{}, LblsubstrString'LParUndsCommUndsCommUndsRParUnds'STRING-COMMON'Unds'String'Unds'String'Unds'Int'Unds'Int{}(K0:SortString{}, K1:SortInt{}, K2:SortInt{}))) [functional{}()] // functional
+//@ 724
+  axiom{R} \exists{R} (Val:SortSignedness{}, \equals{SortSignedness{}, R} (Val:SortSignedness{}, LblunsignedBytes{}())) [functional{}()] // functional
+//@ 726
+  axiom{R} \exists{R} (Val:SortInt{}, \equals{SortInt{}, R} (Val:SortInt{}, Lbl'Tild'Int'Unds'{}(K0:SortInt{}))) [functional{}()] // functional
+//@ 728
+  axiom{} \or{SortBytes{}} (\top{SortBytes{}}(), \bottom{SortBytes{}}()) [constructor{}()] // no junk (TODO: fix bug with \dv)
+//@ 729
+  axiom{} \or{SortEndianness{}} (LblbigEndianBytes{}(), LbllittleEndianBytes{}(), \bottom{SortEndianness{}}()) [constructor{}()] // no junk
+//@ 730
+  axiom{} \or{SortFFIType{}} (Lbl'Hash'ffi'Unds'complexdouble{}(), Lbl'Hash'ffi'Unds'complexfloat{}(), Lbl'Hash'ffi'Unds'complexlongdouble{}(), Lbl'Hash'ffi'Unds'double{}(), Lbl'Hash'ffi'Unds'float{}(), Lbl'Hash'ffi'Unds'longdouble{}(), Lbl'Hash'ffi'Unds'pointer{}(), Lbl'Hash'ffi'Unds'schar{}(), Lbl'Hash'ffi'Unds'sint{}(), Lbl'Hash'ffi'Unds'sint16{}(), Lbl'Hash'ffi'Unds'sint32{}(), Lbl'Hash'ffi'Unds'sint64{}(), Lbl'Hash'ffi'Unds'sint8{}(), Lbl'Hash'ffi'Unds'slong{}(), Lbl'Hash'ffi'Unds'sshort{}(), \exists{SortFFIType{}} (X0:SortList{}, Lbl'Hash'ffi'Unds'struct{}(X0:SortList{})), Lbl'Hash'ffi'Unds'uchar{}(), Lbl'Hash'ffi'Unds'uint{}(), Lbl'Hash'ffi'Unds'uint16{}(), Lbl'Hash'ffi'Unds'uint32{}(), Lbl'Hash'ffi'Unds'uint64{}(), Lbl'Hash'ffi'Unds'uint8{}(), Lbl'Hash'ffi'Unds'ulong{}(), Lbl'Hash'ffi'Unds'ushort{}(), Lbl'Hash'ffi'Unds'void{}(), \bottom{SortFFIType{}}()) [constructor{}()] // no junk
+//@ 731
+  axiom{} \or{SortFloat{}} (\top{SortFloat{}}(), \bottom{SortFloat{}}()) [constructor{}()] // no junk (TODO: fix bug with \dv)
+//@ 740
+  axiom{} \or{SortKItem{}} (\exists{SortKItem{}} (X0:SortInt{}, \exists{SortKItem{}} (X1:SortK{}, \exists{SortKItem{}} (X2:SortK{}, \exists{SortKItem{}} (X3:SortK{}, \exists{SortKItem{}} (X4:SortK{}, \exists{SortKItem{}} (X5:SortK{}, Lblgo{}(X0:SortInt{}, X1:SortK{}, X2:SortK{}, X3:SortK{}, X4:SortK{}, X5:SortK{}))))))), \exists{SortKItem{}} (Val:SortBool{}, inj{SortBool{}, SortKItem{}} (Val:SortBool{})), \exists{SortKItem{}} (Val:SortBytes{}, inj{SortBytes{}, SortKItem{}} (Val:SortBytes{})), \exists{SortKItem{}} (Val:SortEndianness{}, inj{SortEndianness{}, SortKItem{}} (Val:SortEndianness{})), \exists{SortKItem{}} (Val:SortFFIType{}, inj{SortFFIType{}, SortKItem{}} (Val:SortFFIType{})), \exists{SortKItem{}} (Val:SortFloat{}, inj{SortFloat{}, SortKItem{}} (Val:SortFloat{})), \exists{SortKItem{}} (Val:SortGeneratedCounterCell{}, inj{SortGeneratedCounterCell{}, SortKItem{}} (Val:SortGeneratedCounterCell{})), \exists{SortKItem{}} (Val:SortGeneratedCounterCellOpt{}, inj{SortGeneratedCounterCellOpt{}, SortKItem{}} (Val:SortGeneratedCounterCellOpt{})), \exists{SortKItem{}} (Val:SortGeneratedTopCell{}, inj{SortGeneratedTopCell{}, SortKItem{}} (Val:SortGeneratedTopCell{})), \exists{SortKItem{}} (Val:SortGeneratedTopCellFragment{}, inj{SortGeneratedTopCellFragment{}, SortKItem{}} (Val:SortGeneratedTopCellFragment{})), \exists{SortKItem{}} (Val:SortInt{}, inj{SortInt{}, SortKItem{}} (Val:SortInt{})), \exists{SortKItem{}} (Val:SortKCell{}, inj{SortKCell{}, SortKItem{}} (Val:SortKCell{})), \exists{SortKItem{}} (Val:SortKCellOpt{}, inj{SortKCellOpt{}, SortKItem{}} (Val:SortKCellOpt{})), \exists{SortKItem{}} (Val:SortKConfigVar{}, inj{SortKConfigVar{}, SortKItem{}} (Val:SortKConfigVar{})), \exists{SortKItem{}} (Val:SortList{}, inj{SortList{}, SortKItem{}} (Val:SortList{})), \exists{SortKItem{}} (Val:SortMap{}, inj{SortMap{}, SortKItem{}} (Val:SortMap{})), \exists{SortKItem{}} (Val:SortSet{}, inj{SortSet{}, SortKItem{}} (Val:SortSet{})), \exists{SortKItem{}} (Val:SortSignedness{}, inj{SortSignedness{}, SortKItem{}} (Val:SortSignedness{})), \exists{SortKItem{}} (Val:SortString{}, inj{SortString{}, SortKItem{}} (Val:SortString{})), \bottom{SortKItem{}}()) [constructor{}()] // no junk
+//@ 741
+  axiom{} \or{SortSignedness{}} (LblsignedBytes{}(), LblunsignedBytes{}(), \bottom{SortSignedness{}}()) [constructor{}()] // no junk
+//@ 742
+  axiom{} \or{SortString{}} (\top{SortString{}}(), \bottom{SortString{}}()) [constructor{}()] // no junk (TODO: fix bug with \dv)
+//@ 777
+// rule `<generatedTop>`(`<k>`(go(#token("1","Int"),inj{Bytes,KItem}(X1),_Gen0,_Gen1,_Gen2,_Gen3)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{Int,KItem}(`#address(_)_FFI_Int_Bytes`(X1))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(ce18bb9fe5212b33976e9fda12a6203157738d310dcf32027ca7c5e89f5a25bc), org.kframework.attributes.Location(Location(13,8,13,64)), org.kframework.attributes.Source(Source(FIXTURE/e6-param-ffi.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("1"),kseq{}(inj{SortBytes{}, SortKItem{}}(VarX1:SortBytes{}),dotk{}()),Var'Unds'Gen0:SortK{},Var'Unds'Gen1:SortK{},Var'Unds'Gen2:SortK{},Var'Unds'Gen3:SortK{}),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortInt{}, SortKItem{}}(Lbl'Hash'address'LParUndsRParUnds'FFI'Unds'Int'Unds'Bytes{}(VarX1:SortBytes{})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("ce18bb9fe5212b33976e9fda12a6203157738d310dcf32027ca7c5e89f5a25bc"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(13,8,13,64)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-param-ffi.k)")]
+//@ 778
+// rule `<generatedTop>`(`<k>`(go(#token("2","Int"),X1,inj{Int,KItem}(X2),inj{Int,KItem}(X3),_Gen0,_Gen1)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{Bytes,KItem}(`#alloc(_,_,_)_FFI_Bytes_KItem_Int_Int`(X1,X2,X3))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(2662056ff35710f3de240045275f3c4b2790392b0cd815fbd90001c370d22722), org.kframework.attributes.Location(Location(14,8,14,80)), org.kframework.attributes.Source(Source(FIXTURE/e6-param-ffi.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("2"),kseq{}(VarX1:SortKItem{},dotk{}()),kseq{}(inj{SortInt{}, SortKItem{}}(VarX2:SortInt{}),dotk{}()),kseq{}(inj{SortInt{}, SortKItem{}}(VarX3:SortInt{}),dotk{}()),Var'Unds'Gen0:SortK{},Var'Unds'Gen1:SortK{}),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortBytes{}, SortKItem{}}(Lbl'Hash'alloc'LParUndsCommUndsCommUndsRParUnds'FFI'Unds'Bytes'Unds'KItem'Unds'Int'Unds'Int{}(VarX1:SortKItem{},VarX2:SortInt{},VarX3:SortInt{})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("2662056ff35710f3de240045275f3c4b2790392b0cd815fbd90001c370d22722"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(14,8,14,80)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-param-ffi.k)")]
+//@ 779
+// rule `<generatedTop>`(`<k>`(go(#token("3","Int"),inj{Int,KItem}(X1),inj{List,KItem}(X2),inj{List,KItem}(X3),inj{FFIType,KItem}(X4),_Gen0)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{Bytes,KItem}(`#ffiCall(_,_,_,_)_FFI_Bytes_Int_List_List_FFIType`(X1,X2,X3,X4))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(121e3d562b18a9a97509bd3797235158ef60cf9578d55426417a72ba7a117091), org.kframework.attributes.Location(Location(15,8,15,95)), org.kframework.attributes.Source(Source(FIXTURE/e6-param-ffi.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("3"),kseq{}(inj{SortInt{}, SortKItem{}}(VarX1:SortInt{}),dotk{}()),kseq{}(inj{SortList{}, SortKItem{}}(VarX2:SortList{}),dotk{}()),kseq{}(inj{SortList{}, SortKItem{}}(VarX3:SortList{}),dotk{}()),kseq{}(inj{SortFFIType{}, SortKItem{}}(VarX4:SortFFIType{}),dotk{}()),Var'Unds'Gen0:SortK{}),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortBytes{}, SortKItem{}}(Lbl'Hash'ffiCall'LParUndsCommUndsCommUndsCommUndsRParUnds'FFI'Unds'Bytes'Unds'Int'Unds'List'Unds'List'Unds'FFIType{}(VarX1:SortInt{},VarX2:SortList{},VarX3:SortList{},VarX4:SortFFIType{})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("121e3d562b18a9a97509bd3797235158ef60cf9578d55426417a72ba7a117091"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(15,8,15,95)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-param-ffi.k)")]
+//@ 780
+// rule `<generatedTop>`(`<k>`(go(#token("4","Int"),inj{Int,KItem}(X1),inj{List,KItem}(X2),inj{List,KItem}(X3),inj{List,KItem}(X4),inj{FFIType,KItem}(X5))~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{Bytes,KItem}(`#ffiCall(_,_,_,_,_)_FFI_Bytes_Int_List_List_List_FFIType`(X1,X2,X3,X4,X5))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(a52f8a6458557a4c27b2887781bd43e44c6e70ea733166aac4e9ef75cf325e0c), org.kframework.attributes.Location(Location(16,8,16,105)), org.kframework.attributes.Source(Source(FIXTURE/e6-param-ffi.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("4"),kseq{}(inj{SortInt{}, SortKItem{}}(VarX1:SortInt{}),dotk{}()),kseq{}(inj{SortList{}, SortKItem{}}(VarX2:SortList{}),dotk{}()),kseq{}(inj{SortList{}, SortKItem{}}(VarX3:SortList{}),dotk{}()),kseq{}(inj{SortList{}, SortKItem{}}(VarX4:SortList{}),dotk{}()),kseq{}(inj{SortFFIType{}, SortKItem{}}(VarX5:SortFFIType{}),dotk{}())),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortBytes{}, SortKItem{}}(Lbl'Hash'ffiCall'LParUndsCommUndsCommUndsCommUndsCommUndsRParUnds'FFI'Unds'Bytes'Unds'Int'Unds'List'Unds'List'Unds'List'Unds'FFIType{}(VarX1:SortInt{},VarX2:SortList{},VarX3:SortList{},VarX4:SortList{},VarX5:SortFFIType{})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("a52f8a6458557a4c27b2887781bd43e44c6e70ea733166aac4e9ef75cf325e0c"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(16,8,16,105)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-param-ffi.k)")]
+//@ 781
+// rule `<generatedTop>`(`<k>`(go(#token("5","Int"),X1,_Gen0,_Gen1,_Gen2,_Gen3)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(`#free(_)_FFI_K_KItem`(X1)~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(641a9926e6199d3ed30d0c97805a4b3664490e6e6d96e2b1fae8a21a95c801f3), org.kframework.attributes.Location(Location(17,8,17,61)), org.kframework.attributes.Source(Source(FIXTURE/e6-param-ffi.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("5"),kseq{}(VarX1:SortKItem{},dotk{}()),Var'Unds'Gen0:SortK{},Var'Unds'Gen1:SortK{},Var'Unds'Gen2:SortK{},Var'Unds'Gen3:SortK{}),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(append{}(Lbl'Hash'free'LParUndsRParUnds'FFI'Unds'K'Unds'KItem{}(VarX1:SortKItem{}),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("641a9926e6199d3ed30d0c97805a4b3664490e6e6d96e2b1fae8a21a95c801f3"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(17,8,17,61)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-param-ffi.k)")]
+//@ 782
+// rule `<generatedTop>`(`<k>`(go(#token("6","Int"),inj{String,KItem}(X1),_Gen0,_Gen1,_Gen2,_Gen3)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{Int,KItem}(`#functionAddress(_)_FFI_Int_String`(X1))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(2e929c72e10499ad896d68e9788a6bf1b288ea9b6ea5f38a66447375e2ab1f24), org.kframework.attributes.Location(Location(18,8,18,73)), org.kframework.attributes.Source(Source(FIXTURE/e6-param-ffi.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("6"),kseq{}(inj{SortString{}, SortKItem{}}(VarX1:SortString{}),dotk{}()),Var'Unds'Gen0:SortK{},Var'Unds'Gen1:SortK{},Var'Unds'Gen2:SortK{},Var'Unds'Gen3:SortK{}),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortInt{}, SortKItem{}}(Lbl'Hash'functionAddress'LParUndsRParUnds'FFI'Unds'Int'Unds'String{}(VarX1:SortString{})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("2e929c72e10499ad896d68e9788a6bf1b288ea9b6ea5f38a66447375e2ab1f24"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(18,8,18,73)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-param-ffi.k)")]
+//@ 783
+// rule `<generatedTop>`(`<k>`(go(#token("7","Int"),inj{Int,KItem}(X1),inj{Bytes,KItem}(X2),_Gen0,_Gen1,_Gen2)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(`#nativeRead(_,_)_FFI_K_Int_Bytes`(X1,X2)~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(e88811470a8d680383546b784920a0470fd501144e45139da7d8af889f28c89b), org.kframework.attributes.Location(Location(19,8,19,76)), org.kframework.attributes.Source(Source(FIXTURE/e6-param-ffi.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("7"),kseq{}(inj{SortInt{}, SortKItem{}}(VarX1:SortInt{}),dotk{}()),kseq{}(inj{SortBytes{}, SortKItem{}}(VarX2:SortBytes{}),dotk{}()),Var'Unds'Gen0:SortK{},Var'Unds'Gen1:SortK{},Var'Unds'Gen2:SortK{}),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(append{}(Lbl'Hash'nativeRead'LParUndsCommUndsRParUnds'FFI'Unds'K'Unds'Int'Unds'Bytes{}(VarX1:SortInt{},VarX2:SortBytes{}),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("e88811470a8d680383546b784920a0470fd501144e45139da7d8af889f28c89b"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(19,8,19,76)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-param-ffi.k)")]
+//@ 784
+// rule `<generatedTop>`(`<k>`(go(#token("8","Int"),inj{Int,KItem}(X1),inj{Bytes,KItem}(X2),_Gen0,_Gen1,_Gen2)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(`#nativeWrite(_,_)_FFI_K_Int_Bytes`(X1,X2)~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(62b00fb2739ee5979fe688b90079c58c26a53f37753c88da2db82e07984034d7), org.kframework.attributes.Location(Location(20,8,20,77)), org.kframework.attributes.Source(Source(FIXTURE/e6-param-ffi.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("8"),kseq{}(inj{SortInt{}, SortKItem{}}(VarX1:SortInt{}),dotk{}()),kseq{}(inj{SortBytes{}, SortKItem{}}(VarX2:SortBytes{}),dotk{}()),Var'Unds'Gen0:SortK{},Var'Unds'Gen1:SortK{},Var'Unds'Gen2:SortK{}),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(append{}(Lbl'Hash'nativeWrite'LParUndsCommUndsRParUnds'FFI'Unds'K'Unds'Int'Unds'Bytes{}(VarX1:SortInt{},VarX2:SortBytes{}),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("62b00fb2739ee5979fe688b90079c58c26a53f37753c88da2db82e07984034d7"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(20,8,20,77)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-param-ffi.k)")]
+//@ 863
+// rule isBytes(K)=>#token("false","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(7b64e4dd7c4feb3f2de6be193043beffb53ede0465701be9cadd48a9abe0e27f), owise]
+  axiom{R} \implies{R} (
+    \and{R} (
+      \not{R} (
+        \or{R} (
+          \exists{R} (Var'Unds'Gen1:SortBytes{},
+            \and{R} (
+              \top{R}(),
+              \and{R} (
+                \in{SortK{}, R} (
+                  X0:SortK{},
+                  kseq{}(inj{SortBytes{}, SortKItem{}}(Var'Unds'Gen1:SortBytes{}),dotk{}())
+                ),
+                \top{R} ()
+              )
+          )),
+          \bottom{R}()
+        )
+      ),
+      \and{R}(
+        \top{R}(),
+        \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            VarK:SortK{}
+          ),
+          \top{R} ()
+        )
+    )),
+    \equals{SortBool{},R} (
+      LblisBytes{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("false"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("7b64e4dd7c4feb3f2de6be193043beffb53ede0465701be9cadd48a9abe0e27f"), owise{}()]
+//@ 864
+// rule isBytes(inj{Bytes,KItem}(Bytes))=>#token("true","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(cf9557048af554522e5d8df98ce08e94bee4e83a204d7d8282e6546ab477e7af)]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{SortBytes{}, SortKItem{}}(VarBytes:SortBytes{}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortBool{},R} (
+      LblisBytes{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("true"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("cf9557048af554522e5d8df98ce08e94bee4e83a204d7d8282e6546ab477e7af")]
+//@ 865
+// rule isEndianness(K)=>#token("false","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(1e0c7b51dfff4f4f81e007d23b825ea5a0aac1580bcc8afdf28a2ab4b982dbe7), owise]
+  axiom{R} \implies{R} (
+    \and{R} (
+      \not{R} (
+        \or{R} (
+          \exists{R} (Var'Unds'Gen1:SortEndianness{},
+            \and{R} (
+              \top{R}(),
+              \and{R} (
+                \in{SortK{}, R} (
+                  X0:SortK{},
+                  kseq{}(inj{SortEndianness{}, SortKItem{}}(Var'Unds'Gen1:SortEndianness{}),dotk{}())
+                ),
+                \top{R} ()
+              )
+          )),
+          \bottom{R}()
+        )
+      ),
+      \and{R}(
+        \top{R}(),
+        \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            VarK:SortK{}
+          ),
+          \top{R} ()
+        )
+    )),
+    \equals{SortBool{},R} (
+      LblisEndianness{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("false"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("1e0c7b51dfff4f4f81e007d23b825ea5a0aac1580bcc8afdf28a2ab4b982dbe7"), owise{}()]
+//@ 866
+// rule isEndianness(inj{Endianness,KItem}(Endianness))=>#token("true","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(046f538ac22bdf3ccf0a2eb4a68371a574a4365990ffba4473d6583c31396757)]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{SortEndianness{}, SortKItem{}}(VarEndianness:SortEndianness{}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortBool{},R} (
+      LblisEndianness{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("true"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("046f538ac22bdf3ccf0a2eb4a68371a574a4365990ffba4473d6583c31396757")]
+//@ 867
+// rule isFFIType(K)=>#token("false","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(386b6f62343584a9cbaef97c59704993d86394b13465a4eecfd7467120f40e0c), owise]
+  axiom{R} \implies{R} (
+    \and{R} (
+      \not{R} (
+        \or{R} (
+          \exists{R} (Var'Unds'Gen0:SortFFIType{},
+            \and{R} (
+              \top{R}(),
+              \and{R} (
+                \in{SortK{}, R} (
+                  X0:SortK{},
+                  kseq{}(inj{SortFFIType{}, SortKItem{}}(Var'Unds'Gen0:SortFFIType{}),dotk{}())
+                ),
+                \top{R} ()
+              )
+          )),
+          \bottom{R}()
+        )
+      ),
+      \and{R}(
+        \top{R}(),
+        \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            VarK:SortK{}
+          ),
+          \top{R} ()
+        )
+    )),
+    \equals{SortBool{},R} (
+      LblisFFIType{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("false"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("386b6f62343584a9cbaef97c59704993d86394b13465a4eecfd7467120f40e0c"), owise{}()]
+//@ 868
+// rule isFFIType(inj{FFIType,KItem}(FFIType))=>#token("true","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(983529a69d2ed3f7260c84bcfa6edff42ceaafe3637d7ff6ef3cb56e0289cfe9)]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{SortFFIType{}, SortKItem{}}(VarFFIType:SortFFIType{}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortBool{},R} (
+      LblisFFIType{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("true"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("983529a69d2ed3f7260c84bcfa6edff42ceaafe3637d7ff6ef3cb56e0289cfe9")]
+//@ 869
+// rule isFloat(K)=>#token("false","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(613283edb3d0af0dfe3d5c3626073b1904f0e254fc0797cd7a4f620cfeb7de62), owise]
+  axiom{R} \implies{R} (
+    \and{R} (
+      \not{R} (
+        \or{R} (
+          \exists{R} (Var'Unds'Gen0:SortFloat{},
+            \and{R} (
+              \top{R}(),
+              \and{R} (
+                \in{SortK{}, R} (
+                  X0:SortK{},
+                  kseq{}(inj{SortFloat{}, SortKItem{}}(Var'Unds'Gen0:SortFloat{}),dotk{}())
+                ),
+                \top{R} ()
+              )
+          )),
+          \bottom{R}()
+        )
+      ),
+      \and{R}(
+        \top{R}(),
+        \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            VarK:SortK{}
+          ),
+          \top{R} ()
+        )
+    )),
+    \equals{SortBool{},R} (
+      LblisFloat{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("false"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("613283edb3d0af0dfe3d5c3626073b1904f0e254fc0797cd7a4f620cfeb7de62"), owise{}()]
+//@ 870
+// rule isFloat(inj{Float,KItem}(Float))=>#token("true","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(d74a36c34f45e0bf74d89fdd362f124478ab18934b5786ff4aabfe527643c5f0)]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{SortFloat{}, SortKItem{}}(VarFloat:SortFloat{}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortBool{},R} (
+      LblisFloat{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("true"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("d74a36c34f45e0bf74d89fdd362f124478ab18934b5786ff4aabfe527643c5f0")]
+//@ 896
+// rule isSignedness(K)=>#token("false","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(fdb4f75eac954bf992f8bef0826d300214e56ed18582ea34e002f78ab98c8a0f), owise]
+  axiom{R} \implies{R} (
+    \and{R} (
+      \not{R} (
+        \or{R} (
+          \exists{R} (Var'Unds'Gen0:SortSignedness{},
+            \and{R} (
+              \top{R}(),
+              \and{R} (
+                \in{SortK{}, R} (
+                  X0:SortK{},
+                  kseq{}(inj{SortSignedness{}, SortKItem{}}(Var'Unds'Gen0:SortSignedness{}),dotk{}())
+                ),
+                \top{R} ()
+              )
+          )),
+          \bottom{R}()
+        )
+      ),
+      \and{R}(
+        \top{R}(),
+        \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            VarK:SortK{}
+          ),
+          \top{R} ()
+        )
+    )),
+    \equals{SortBool{},R} (
+      LblisSignedness{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("false"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("fdb4f75eac954bf992f8bef0826d300214e56ed18582ea34e002f78ab98c8a0f"), owise{}()]
+//@ 897
+// rule isSignedness(inj{Signedness,KItem}(Signedness))=>#token("true","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(d1de4cb84bd34d2dbc5bcaae03818af056fd81a68d3b9738c7a3f06055d74e93)]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{SortSignedness{}, SortKItem{}}(VarSignedness:SortSignedness{}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortBool{},R} (
+      LblisSignedness{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("true"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("d1de4cb84bd34d2dbc5bcaae03818af056fd81a68d3b9738c7a3f06055d74e93")]
+//@ 898
+// rule isString(K)=>#token("false","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(fbe29b27977283e8cb5b35f1b17a6b7b2abc92a7fca608d496b346f7b6918961), owise]
+  axiom{R} \implies{R} (
+    \and{R} (
+      \not{R} (
+        \or{R} (
+          \exists{R} (Var'Unds'Gen0:SortString{},
+            \and{R} (
+              \top{R}(),
+              \and{R} (
+                \in{SortK{}, R} (
+                  X0:SortK{},
+                  kseq{}(inj{SortString{}, SortKItem{}}(Var'Unds'Gen0:SortString{}),dotk{}())
+                ),
+                \top{R} ()
+              )
+          )),
+          \bottom{R}()
+        )
+      ),
+      \and{R}(
+        \top{R}(),
+        \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            VarK:SortK{}
+          ),
+          \top{R} ()
+        )
+    )),
+    \equals{SortBool{},R} (
+      LblisString{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("false"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("fbe29b27977283e8cb5b35f1b17a6b7b2abc92a7fca608d496b346f7b6918961"), owise{}()]
+//@ 899
+// rule isString(inj{String,KItem}(String))=>#token("true","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(109ced650ead4a5092ddba090e1b8e181633ed0aa5c5f93bce9f88be215668ef)]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{SortString{}, SortKItem{}}(VarString:SortString{}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortBool{},R} (
+      LblisString{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("true"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("109ced650ead4a5092ddba090e1b8e181633ed0aa5c5f93bce9f88be215668ef")]
+//@ 907
+// rule `project:Bytes`(inj{Bytes,KItem}(K))=>K requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(3dd796c6a5f8b672e77ec1deefb73e210491fa6a6b575e55995906d5853e0412), projection]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{SortBytes{}, SortKItem{}}(VarK:SortBytes{}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortBytes{},R} (
+      Lblproject'Coln'Bytes{}(X0:SortK{}),
+     \and{SortBytes{}} (
+       VarK:SortBytes{},
+        \top{SortBytes{}}())))
+  [UNIQUE'Unds'ID{}("3dd796c6a5f8b672e77ec1deefb73e210491fa6a6b575e55995906d5853e0412")]
+//@ 908
+// rule `project:Endianness`(inj{Endianness,KItem}(K))=>K requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(dbd19bfafbdcba20fb8bf650b93158c4bed0b9af2a0b7476d20cf061c0be7da3), projection]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{SortEndianness{}, SortKItem{}}(VarK:SortEndianness{}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortEndianness{},R} (
+      Lblproject'Coln'Endianness{}(X0:SortK{}),
+     \and{SortEndianness{}} (
+       VarK:SortEndianness{},
+        \top{SortEndianness{}}())))
+  [UNIQUE'Unds'ID{}("dbd19bfafbdcba20fb8bf650b93158c4bed0b9af2a0b7476d20cf061c0be7da3")]
+//@ 909
+// rule `project:FFIType`(inj{FFIType,KItem}(K))=>K requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(f46278b8cd950a78c1f6c528e978c486477a2b049df550e04475e236bb2c6e73), projection]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{SortFFIType{}, SortKItem{}}(VarK:SortFFIType{}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortFFIType{},R} (
+      Lblproject'Coln'FFIType{}(X0:SortK{}),
+     \and{SortFFIType{}} (
+       VarK:SortFFIType{},
+        \top{SortFFIType{}}())))
+  [UNIQUE'Unds'ID{}("f46278b8cd950a78c1f6c528e978c486477a2b049df550e04475e236bb2c6e73")]
+//@ 910
+// rule `project:Float`(inj{Float,KItem}(K))=>K requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(ef206f477d884c0b6413273ff35b1206769cdb5a5ceba7b97d9e8e0a7b14e399), projection]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{SortFloat{}, SortKItem{}}(VarK:SortFloat{}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortFloat{},R} (
+      Lblproject'Coln'Float{}(X0:SortK{}),
+     \and{SortFloat{}} (
+       VarK:SortFloat{},
+        \top{SortFloat{}}())))
+  [UNIQUE'Unds'ID{}("ef206f477d884c0b6413273ff35b1206769cdb5a5ceba7b97d9e8e0a7b14e399")]
+//@ 923
+// rule `project:Signedness`(inj{Signedness,KItem}(K))=>K requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(829c38fa75d4ab0af8ef1602244b1e03c3ba7cb56ef7ad938953f9b07c83161a), projection]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{SortSignedness{}, SortKItem{}}(VarK:SortSignedness{}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortSignedness{},R} (
+      Lblproject'Coln'Signedness{}(X0:SortK{}),
+     \and{SortSignedness{}} (
+       VarK:SortSignedness{},
+        \top{SortSignedness{}}())))
+  [UNIQUE'Unds'ID{}("829c38fa75d4ab0af8ef1602244b1e03c3ba7cb56ef7ad938953f9b07c83161a")]
+//@ 924
+// rule `project:String`(inj{String,KItem}(K))=>K requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(e491dad8f644d2344f08cb72af01ade1e6ce9f564010a2de7909b3b6c7e2ae85), projection]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{SortString{}, SortKItem{}}(VarK:SortString{}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortString{},R} (
+      Lblproject'Coln'String{}(X0:SortK{}),
+     \and{SortString{}} (
+       VarK:SortString{},
+        \top{SortString{}}())))
+  [UNIQUE'Unds'ID{}("e491dad8f644d2344f08cb72af01ade1e6ce9f564010a2de7909b3b6c7e2ae85")]
+//@ 934
+// rule #Ceil{Map,#SortParam}(`_Map_`(`_|->_`(@K0,@K1),@Rest))=>#And{#SortParam}(#Equals{Bool,#SortParam}(`_in_keys(_)_MAP_Bool_KItem_Map`(@K0,@Rest),#token("false","Bool")),#And{#SortParam}(#Top{#SortParam}(.KList),#Ceil{KItem,#SortParam}(@K1))) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(c3ef047673d1123119fa107febfbe8f250dbfbcfa1df4d2f44d28ce4e740e233), simplification, sortParams({Q0})]
+  axiom{R,Q0} \implies{R} (
+    \top{R}(),
+    \equals{Q0,R} (
+      \ceil{SortMap{}, Q0}(Lbl'Unds'Map'Unds'{}(Lbl'UndsPipe'-'-GT-Unds'{}(@VarK0:SortKItem{},@VarK1:SortKItem{}),@VarRest:SortMap{})),
+     \and{Q0} (
+       \and{Q0}(\equals{SortBool{}, Q0}(Lbl'Unds'in'Unds'keys'LParUndsRParUnds'MAP'Unds'Bool'Unds'KItem'Unds'Map{}(@VarK0:SortKItem{},@VarRest:SortMap{}),\dv{SortBool{}}("false")),\and{Q0}(\top{Q0}(),\ceil{SortKItem{}, Q0}(@VarK1:SortKItem{}))),
+        \top{Q0}())))
+  [UNIQUE'Unds'ID{}("c3ef047673d1123119fa107febfbe8f250dbfbcfa1df4d2f44d28ce4e740e233"), simplification{}("")]
+//@ 935
+endmodule [org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(6,1,21,10)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-param-ffi.k)")]

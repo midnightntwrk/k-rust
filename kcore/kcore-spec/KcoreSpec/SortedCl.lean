@@ -287,6 +287,7 @@ theorem rule_ctxClEx (hok : c.sortedOKClEx = true) {r : Rule} (hr : r ∈ c.rule
   have h := List.all_eq_true.mp hrs r hr
   simp only [Semantics.ruleSorted, Bool.and_eq_true, beq_iff_eq] at h
   obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨hl, -⟩, -⟩, -⟩, hreq⟩, -⟩, -⟩, -⟩, -⟩, -⟩, hrhs⟩ := h
+  replace hl := sortOfTerm_all_of_nf hl
   refine ⟨hl, fun t ht => ?_, hrhs⟩
   · rw [ht] at hreq
     simpa [reqOK] using hreq
