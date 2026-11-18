@@ -568,7 +568,7 @@ theorem clause_den_exCore (hI : I ⊧ᴵP Γ c) (hnn : NamesNumbered c) (hsc : S
       (eqn_item_mem hfnm hmem) hws hσ' (fun j s hj => HoldsShape.varsOf_withPre_prem (hv.1 j s hj)) (fun _ h => h)
       (fun k hk => freeOf_withPreCl hpreOK hpats hreqv hk) hpats hreqv hrhsv hensv hokQ hlt hnd hocc hr
       (fun tbl e σr m0 hk hag hX hRv hσr2 hm0 =>
-        withPre_holdsCl (premise_holds4 hI hnn hph htr hfnm hws hσ' hmatch hpats hag hX hRv hσr2 hm0 (ihreq' tbl e hag))
+        withPre_holdsCl (premise_holds4 hI hnn hph htr hfnm hws hσ' hmatch (OvlOK.nfs_bridge inferInstance hpats) hag hX hRv hσr2 hm0 (ihreq' tbl e hag))
           hk (fun hpt hkp hRk => ihpre hpt tbl e σr m0 hag hkp hRk hRv hσr2 hm0))
       hgive hsound e m
   · have hmem := competingEquation_mem (c := c) hcl hlow'
@@ -613,7 +613,7 @@ theorem clause_den_exCore (hI : I ⊧ᴵP Γ c) (hnn : NamesNumbered c) (hsc : S
       show (KoreAML.tr ⟨tbl, []⟩ (Kore.Pattern.and KoreAML.R [.not KoreAML.R (KoreAML.anyOf comps), P])).interpret I e m0
       rw [tr_and2, KoreAML.interp_sAnd]
       refine ⟨?_, withPre_holdsCl
-        (premise_holds4 hI hnn hph htr hfnm hws hσ' hmatch hpats hag hX hRv hσr2 hm0 (ihreq' tbl e hag))
+        (premise_holds4 hI hnn hph htr hfnm hws hσ' hmatch (OvlOK.nfs_bridge inferInstance hpats) hag hX hRv hσr2 hm0 (ihreq' tbl e hag))
         (fun k hk => hkeys k (hP k hk)) (fun hpt hkp hRk => ihpre hpt tbl e σr m0 hag hkp hRk hRv hσr2 hm0)⟩
       rw [KoreAML.tr, KoreAML.interp_sNot]
       refine ⟨?_, (KoreAML.interp_inhOf_of hRv).mpr hm0⟩
