@@ -10,15 +10,19 @@ import KcoreSpec.ConsTransferCons
 open KCore KCore.Cons ML Faithful
 
 example {c : Semantics} {D : KoreAML.Sym → Prop} {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
-    (hD : ∀ σ, D σ → plainSym σ) (hraw : ∀ p ∈ c.params, p.raw = false) (hI : I ⊧ᴵP Γown c D)
+    (hD : ∀ σ, D σ → plainSym σ) (hlaw : ∀ p ∈ c.params, p.raw = true →
+      ¬ D (.sort ("Sort" ++ c.sortName p.sig.result)) ∧ ¬ D (.symbol (c.symName p.sig.name)) ∧
+      ∃ σ, KoreAML.IsSort I σ ∧ ∀ a, I.evalSymb (.sort ("Sort" ++ c.sortName p.sig.result)) a ↔ a = σ) (hI : I ⊧ᴵP Γown c D)
     {φ : KoreAML.P} (hφ : ΓCons c φ) (hn : ∀ σ ∈ psyms φ, ¬ D σ) : extModel c D I ⊧ᴵ φ :=
-  sat_own_cons hD hraw hI hφ hn
+  sat_own_cons hD hlaw hI hφ hn
 
 example {c : Semantics} {D : KoreAML.Sym → Prop} {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
-    (hD : ∀ σ, D σ → plainSym σ) (hraw : ∀ p ∈ c.params, p.raw = false) (hI : I ⊧ᴵP Γown c D)
+    (hD : ∀ σ, D σ → plainSym σ) (hlaw : ∀ p ∈ c.params, p.raw = true →
+      ¬ D (.sort ("Sort" ++ c.sortName p.sig.result)) ∧ ¬ D (.symbol (c.symName p.sig.name)) ∧
+      ∃ σ, KoreAML.IsSort I σ ∧ ∀ a, I.evalSymb (.sort ("Sort" ++ c.sortName p.sig.result)) a ↔ a = σ) (hI : I ⊧ᴵP Γown c D)
     {φ : KoreAML.P} (hφ : ΓSig c φ ∨ ΓCons c φ ∨ ΓColls c φ) (hn : ∀ σ ∈ psyms φ, ¬ D σ) :
     extModel c D I ⊧ᴵ φ :=
-  sat_own_sig_cons hD hraw hI hφ hn
+  sat_own_sig_cons hD hlaw hI hφ hn
 
 /-- The items at uncovered arguments and the no-junk item hold without the definition's facts. -/
 example {c : Semantics} {D : KoreAML.Sym → Prop} {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}

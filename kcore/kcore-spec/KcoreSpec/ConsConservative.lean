@@ -2,7 +2,7 @@
   Removing the registry family at detached names changes nothing a model of the smaller theory
   holds of its own symbols (`registry_conservative`), and no step at values (`exact_own`), at the
   decided form of `Detached` (`detachedB`, DetachedB.lean) and for a definition without a raw
-  parameter symbol.
+  parameter symbol or names that do not hold `_==K_`.
 
   The model is the extension of a model of `Γown` (`extModel`, ConsExtModel.lean), with `Sum.inl`
   as the embedding (`ext_embeds`). A premise that names nothing detached holds in it because it
@@ -121,12 +121,34 @@ end
 
 end Cons
 
+/-- What the transfer of the functions' equations reads of the clauses, from `coreOK` and `FnHyp`:
+every clause of a function has `\top` for its predicate, every clause variable's sort is numbered,
+and no clause binds a variable on its right. -/
+theorem Cons.clauseFacts_cv {c : Semantics} (h : c.coreOK = true) (hf : FnHyp c) :
+    (∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, cl.pre = .top) ∧
+    (∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, ∀ s ∈ cl.vars, s < nRegSorts + c.sortNames.length) ∧
+    (∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, cl.exs = []) := by
+  have hm : HypModelCore c := hypModel_of_fnHyp h hf
+  have hpre := Semantics.sortedOK_preTop (Semantics.coreOK_parts h).1
+  have hF : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, EqnFactsPre c fn cl := fun fn hfn cl hcl =>
+    clause_eqnFactsPre hm hfn hcl (by rw [hpre fn hfn cl hcl]; rfl)
+  refine ⟨hpre, fun fn hfn cl hcl s hs => ?_, fun fn hfn cl hcl => (hF fn hfn cl hcl).exs⟩
+  obtain ⟨i, hi, rfl⟩ := List.mem_iff_getElem.mp hs
+  have := vars_numPre hm hfn (hF fn hfn cl hcl) i hi
+  rwa [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hi] at this
+
 open Cons in
 /-- **The extension of a model of the theory without the detached names is a model of the whole
 theory**, at the decided form of `Detached`, for a definition `coreOK` accepts whose functions meet
-`FnHyp` and that has no raw parameter symbol. -/
+`FnHyp` and that has no raw parameter symbol, or names that do not hold `_==K_`. The three facts
+of the clauses the functions' equations are transferred by are hypotheses (`clauseFacts_cv` gives
+them). -/
 theorem Cons.ext_model_cv {c : Semantics} {ss : List Srt} {ks : List Sym} (h : c.coreOK = true) (hf : FnHyp c)
-    (hd : detachedB c ss ks = true) (hraw : ∀ p ∈ c.params, p.raw = false) {M : Type} [Inhabited M]
+    (hd : detachedB c ss ks = true) (hra : (∀ p ∈ c.params, p.raw = false) ∨ DetachedB.kOK c ss ks kEq = true)
+    (hpre : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, cl.pre = .top)
+    (hvars : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, ∀ s ∈ cl.vars, s < nRegSorts + c.sortNames.length)
+    (hexs : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, cl.exs = [])
+    {M : Type} [Inhabited M]
     {I : Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP Γown c (DetachedB.names c ss ks)) :
     extModel c (DetachedB.names c ss ks) I ⊧ᴵP (Γc c ∪ Γstep c) := by
   have hD : ∀ σ, DetachedB.names c ss ks σ → plainSym σ := names_plain_rs
@@ -134,26 +156,42 @@ theorem Cons.ext_model_cv {c : Semantics} {ss : List Srt} {ks : List Sym} (h : c
   obtain ⟨-, -, -, hg, -, -, -, -, hno⟩ := hypSound_of_core h
   haveI : OvlOK c := hno
   have hdet := detached_of_decided c ss ks h hd
-  have hpre := Semantics.sortedOK_preTop (Semantics.coreOK_parts h).1
-  have hF : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, EqnFactsPre c fn cl := fun fn hfn cl hcl =>
-    clause_eqnFactsPre hm hfn hcl (by rw [hpre fn hfn cl hcl]; rfl)
-  have hvars : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, ∀ s ∈ cl.vars, s < nRegSorts + c.sortNames.length :=
-    fun fn hfn cl hcl s hs => by
-      obtain ⟨i, hi, rfl⟩ := List.mem_iff_getElem.mp hs
-      have := vars_numPre hm hfn (hF fn hfn cl hcl) i hi
-      rwa [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hi] at this
   have hne := ownSort_inhabited_cv hd hI
+  have hlaw : ∀ p ∈ c.params, p.raw = true →
+      ¬ DetachedB.names c ss ks (.sort ("Sort" ++ c.sortName p.sig.result)) ∧
+      ¬ DetachedB.names c ss ks (.symbol (c.symName p.sig.name)) ∧
+      ∃ σ, IsSort I σ ∧ ∀ a, I.evalSymb (.sort ("Sort" ++ c.sortName p.sig.result)) a ↔ a = σ :=
+    fun p hp hr => by
+      have hG : graphsB c ss ks = true := by
+        simp only [detachedB, Bool.and_eq_true] at hd
+        exact hd.2
+      simp only [graphsB, Bool.and_eq_true, List.all_eq_true] at hG
+      obtain ⟨hap, hso⟩ := hG.1.2 p hp
+      have hite := (Semantics.raw_of_paramsPlain (Semantics.sortedOKCl_parts hm.hyp.1).2.2.2.2 hp hr).2.2.2.1
+      have hk : kOK c ss ks p.sig.name = true := by
+        unfold appOK at hap
+        rw [hite] at hap
+        exact hap
+      have hns : ¬ DetachedB.names c ss ks (.sort ("Sort" ++ c.sortName p.sig.result)) := fun hh => by
+        have h1 := isName_iff.mpr hh
+        have h2 := hso p.sig.result (List.mem_cons_self ..)
+        simp only [sOK, h1] at h2
+        cases h2
+      have hnf : ¬ DetachedB.names c ss ks (.symbol (c.symName p.sig.name)) := fun hh => by
+        have h1 := isName_iff.mpr hh
+        simp only [kOK, h1] at hk
+        cases hk
+      exact ⟨hns, hnf, sortSing_own_fn hD hI (consSorts_numbered hm (genWf_raw_cons hg hp hr)) hns⟩
   intro φ hφ
   by_cases hcl : ∀ σ ∈ psyms φ, ¬ DetachedB.names c ss ks σ
   · have hfr : ΓFns c φ ∨ ΓRules c φ ∨ Γstep c φ ∨ ΓDomains c φ ∨ ΓFallback c φ ∨ Γcl c φ →
         extModel c (DetachedB.names c ss ks) I ⊧ᴵ φ := fun hφ' =>
-      sat_own_fns_rules hD hI hne (fun fn hfn => hm.fnSorts hfn) hvars hpre
-        (fun fn hfn cl hcl' => (hF fn hfn cl hcl').exs) hφ' hcl
+      sat_own_fns_rules hD hI hne (fun fn hfn => hm.fnSorts hfn) hvars hpre hexs hφ' hcl
     rcases hφ with (((((((hφ | hφ) | hφ) | hφ) | hφ) | hφ) | hφ) | hφ) | hφ
-    · exact sat_own_sig_cons hD hraw hI (.inl hφ) hcl
-    · exact sat_own_sig_cons hD hraw hI (.inr (.inl hφ)) hcl
+    · exact sat_own_sig_cons hD hlaw hI (.inl hφ) hcl
+    · exact sat_own_sig_cons hD hlaw hI (.inr (.inl hφ)) hcl
     · exact hfr (.inr (.inr (.inr (.inl hφ))))
-    · exact sat_own_sig_cons hD hraw hI (.inr (.inr hφ)) hcl
+    · exact sat_own_sig_cons hD hlaw hI (.inr (.inr hφ)) hcl
     · exact hfr (.inl hφ)
     · exact hfr (.inr (.inl hφ))
     · exact hfr (.inr (.inr (.inr (.inr (.inl hφ)))))
@@ -161,36 +199,40 @@ theorem Cons.ext_model_cv {c : Semantics} {ss : List Srt} {ks : List Sym} (h : c
     · exact hfr (.inr (.inr (.inl hφ)))
   · have hname : ∃ σ ∈ psyms φ, DetachedB.names c ss ks σ :=
       Classical.byContradiction fun hno' => hcl fun σ hσ hn => hno' ⟨σ, hσ, hn⟩
-    exact sat_registry hd hI hm hg hm.trans hraw (hdet.2.2 φ hφ hname)
+    exact sat_registry hd hI hm hg hm.trans hra (hdet.2.2 φ hφ hname)
 
 open Cons in
 /-- **The registry family at detached names is conservative**, at the decided form of `Detached`:
 a model of the theory without the premises that name a sort of `ss` or a hook of `ks` embeds into
 a model of the whole theory, its extension, in which a symbol outside those names and application
 hold of old elements what they held. For a definition `coreOK` accepts whose functions meet
-`FnHyp` and that has no raw parameter symbol. -/
+`FnHyp`, and that has no raw parameter symbol or whose detached names do not hold `_==K_`: two
+values of an open generator's sort are told apart by no constructor item, and by the graph of
+`_==K_` where the theory without the detached names keeps it. -/
 theorem registry_conservative (c : Semantics) (ss : List Srt) (ks : List Sym) (h : c.coreOK = true)
-    (hf : FnHyp c) (hd : detachedB c ss ks = true) (hraw : ∀ p ∈ c.params, p.raw = false) :
+    (hf : FnHyp c) (hd : detachedB c ss ks = true) (hra : (∀ p ∈ c.params, p.raw = false) ∨ DetachedB.kOK c ss ks kEq = true) :
     RegistryConservative c (DetachedB.names c ss ks) := by
   intro M _ I hI
   have hemb := ext_embeds c (DetachedB.names c ss ks) I
+  have hc := clauseFacts_cv h hf
   exact ⟨Ext M, ⟨.inl default⟩, extModel c (DetachedB.names c ss ks) I, Sum.inl, hemb.1,
-    ext_model_cv h hf hd hraw hI, hemb.2.1, hemb.2.2⟩
+    ext_model_cv h hf hd hra hc.1 hc.2.1 hc.2.2 hI, hemb.2.1, hemb.2.2⟩
 
 open Cons in
 /-- **No step at values rests on the registry family at detached names**, at the decided form of
-`Detached`: the steps of `Step` are the steps at values that some model of the theory without the
-detached names has. Right to left, the model's extension is a model of the whole theory
+`Detached`, under the hypotheses of `registry_conservative`: the steps of `Step` are the steps at
+values that some model of the theory without the detached names has. Right to left, the model's extension is a model of the whole theory
 (`ext_model_cv`), and it has the step: the patterns of the two configurations name nothing
 detached (the sort of configurations is not detached, `top_ok_cv`), so the sentence that there is
 no step, if the extension satisfied it, would hold in the model (`transfer_back`). -/
 theorem exact_own (c : Semantics) (ss : List Srt) (ks : List Sym) (h : c.coreOK = true)
-    (hf : FnHyp c) (hd : detachedB c ss ks = true) (hraw : ∀ p ∈ c.params, p.raw = false) :
+    (hf : FnHyp c) (hd : detachedB c ss ks = true) (hra : (∀ p ∈ c.params, p.raw = false) ∨ DetachedB.kOK c ss ks kEq = true) :
     ExactOwn c (DetachedB.names c ss ks) := by
   intro x y
   refine ⟨exact_own_mp c _ h hf, ?_⟩
   rintro ⟨M, _, I, hI, hn⟩
   have hD : ∀ σ, DetachedB.names c ss ks σ → plainSym σ := names_plain_rs
+  have hc := clauseFacts_cv h hf
   have hV : valuesB c ss ks = true := by
     simp only [detachedB, Bool.and_eq_true] at hd
     exact hd.1.2
@@ -203,7 +245,37 @@ theorem exact_own (c : Semantics) (ss : List Srt) (ks : List Sym) (h : c.coreOK 
       (den c x.val ⇒ ∼ KoreAML.sNext (den c y.val)) :=
     .impEO (hden x) (OwnSorted.toOld (.neg_ex (.appE (.sym trivial hnext) (hden y).toOld)))
   refine (exact_hyp c h hf x y).mpr ⟨Ext M, ⟨.inl default⟩, extModel c (DetachedB.names c ss ks) I,
-    ext_model_cv h hf hd hraw hI, fun hall => hn ?_⟩
+    ext_model_cv h hf hd hra hc.1 hc.2.1 hc.2.2 hI, fun hall => hn ?_⟩
   exact transfer_back (gs := []) hD (defOK_own_sg hD hI) nil_sub hb hall
+
+open Classical in
+/-- **A detached set of names is the names of two lists**: `Detached`'s first conjunct puts every
+name of `D` among the registry sorts' and the interpreted hooked symbols', which are finitely
+many, so `D` is `DetachedB.names` at the registry sorts and the hooked symbols it holds. -/
+theorem Detached.eq_names_cv {c : Semantics} {D : KoreAML.Sym → Prop} (hd : Detached c D) :
+    ∃ (ss : List Srt) (ks : List Sym), (∀ s ∈ ss, s < nRegSorts) ∧ (∀ k ∈ ks, ∃ h ∈ hookSigs, h.name = k) ∧
+      D = DetachedB.names c ss ks := by
+  refine ⟨(List.range nRegSorts).filter fun s => decide (D (.sort ("Sort" ++ c.sortName s))),
+    (hookSigs.map (·.name)).filter fun k => decide (D (.symbol (c.symName k))),
+    fun s hs => List.mem_range.mp (List.mem_filter.mp hs).1,
+    fun k hk => by
+      obtain ⟨h, hh, rfl⟩ := List.mem_map.mp (List.mem_filter.mp hk).1
+      exact ⟨h, hh, rfl⟩, ?_⟩
+  funext σ
+  refine propext ⟨fun hσ => ?_, ?_⟩
+  · rcases hd.1 σ hσ with ⟨s, hs, rfl⟩ | ⟨k, hk, rfl⟩
+    · exact .inl ⟨s, List.mem_filter.mpr ⟨List.mem_range.mpr hs, decide_eq_true hσ⟩, rfl⟩
+    · exact .inr ⟨k.name, List.mem_filter.mpr ⟨List.mem_map_of_mem hk, decide_eq_true hσ⟩, rfl⟩
+  · rintro (⟨s, hs, rfl⟩ | ⟨k, hk, rfl⟩)
+    · exact of_decide_eq_true (List.mem_filter.mp hs).2
+    · exact of_decide_eq_true (List.mem_filter.mp hk).2
+
+/-- **The two statements at a set of names `D`**, where the decided check holds of some lists whose
+names are `D`. With `Detached.eq_names_cv`, what separates this from the statements at every
+detached `D` is whether the decided check holds of such lists whenever `D` is detached. -/
+theorem registry_conservative_names_cv (c : Semantics) (D : KoreAML.Sym → Prop) (ss : List Srt) (ks : List Sym)
+    (h : c.coreOK = true) (hf : FnHyp c) (hD : D = DetachedB.names c ss ks) (hd : detachedB c ss ks = true)
+    (hra : (∀ p ∈ c.params, p.raw = false) ∨ DetachedB.kOK c ss ks kEq = true) : RegistryConservative c D ∧ ExactOwn c D :=
+  hD ▸ ⟨registry_conservative c ss ks h hf hd hra, exact_own c ss ks h hf hd hra⟩
 
 end KCore
