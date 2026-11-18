@@ -808,7 +808,7 @@ theorem preDec_c : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, ∀ σ ws, c.WellSor
 
 /-- **`satFnsGoalPre` at `c`**: the value model satisfies the functions' equations with their
 predicates. -/
-theorem satFns : SatFnsGoal c := satFnsGoalPre hypModel preOK_c preDec_c
+theorem satFns : SatFnsGoal c := satFnsGoalPre hypModel (Semantics.fnsNoExs_of_coreOK coreOK_ok) preOK_c preDec_c
 
 theorem gFn_mem : gFn ∈ c.fns := by simp [c]
 theorem gCl1_mem : gCl1 ∈ gFn.clauses := List.mem_cons_self ..
@@ -821,9 +821,9 @@ theorem sat_gCl1 (T : GroundTerm → GroundTerm → Prop) :
       (withPre c (canonVars c gCl1.vars) gCl1 (clausePrem c gFn gCl1))
       (fnConcl c gFn (Term.kore c (canonVars c gCl1.vars) gCl1.rhs)
         (reqPat (srtOf c gFn.result) (gCl1.ens.map (Term.kore c (canonVars c gCl1.vars))))), []⟩ : Kore.Axiom)⟩).pat :=
-  AtT.sat_clauseEqPre hypModel gFn_all (clause_eqnFactsPre hypModel gFn_all gCl1_mem (preOK_c _ gFn_mem _ gCl1_mem))
+  AtT.sat_clauseEqPre hypModel gFn_all (clause_eqnFactsPre hypModel gFn_all gCl1_mem rfl (preOK_c _ gFn_mem _ gCl1_mem))
     (preDec_c _ gFn_mem _ gCl1_mem)
-    fun σ ws hws happ => eval_of_decides hypModel gFn_all gCl1_mem hws ⟨happ, fun cl' hcl' _ hlt => by
+    fun σ ws hws happ => eval_of_decides hypModel gFn_all gCl1_mem rfl hws ⟨happ, fun cl' hcl' _ hlt => by
       rcases gCl_of hcl' with rfl | rfl
       · exact absurd hlt (Nat.lt_irrefl _)
       · exact absurd hlt (by decide)⟩
@@ -836,12 +836,12 @@ theorem sat_gCl2 (T : GroundTerm → GroundTerm → Prop) :
         withPre c (canonVars c gCl2.vars) gCl2 (clausePrem c gFn gCl2)])
       (fnConcl c gFn (Term.kore c (canonVars c gCl2.vars) gCl2.rhs)
         (reqPat (srtOf c gFn.result) (gCl2.ens.map (Term.kore c (canonVars c gCl2.vars))))), []⟩ : Kore.Axiom)⟩).pat :=
-  AtT.sat_competingEqPre hypModel gFn_all (clause_eqnFactsPre hypModel gFn_all gCl2_mem (preOK_c _ gFn_mem _ gCl2_mem))
+  AtT.sat_competingEqPre hypModel gFn_all (clause_eqnFactsPre hypModel gFn_all gCl2_mem rfl (preOK_c _ gFn_mem _ gCl2_mem))
     (preDec_c _ gFn_mem _ gCl2_mem)
     (fun cl' hcl' => by
       obtain rfl : cl' = gCl1 := by simpa using hcl'
-      exact (clause_eqnFactsPre hypModel gFn_all gCl1_mem (preOK_c _ gFn_mem _ gCl1_mem)).toExclFactsPre)
-    fun σ ws hws happ hfails => eval_of_decides hypModel gFn_all gCl2_mem hws ⟨happ, fun cl' hcl' _ hlt σ' hw hp' => by
+      exact (clause_eqnFactsPre hypModel gFn_all gCl1_mem rfl (preOK_c _ gFn_mem _ gCl1_mem)).toExclFactsPre)
+    fun σ ws hws happ hfails => eval_of_decides hypModel gFn_all gCl2_mem rfl hws ⟨happ, fun cl' hcl' _ hlt σ' hw hp' => by
       rcases gCl_of hcl' with rfl | rfl
       · exact hfails gCl1 (List.mem_singleton_self _) σ' hw hp'
       · exact absurd hlt (Nat.lt_irrefl _)⟩
