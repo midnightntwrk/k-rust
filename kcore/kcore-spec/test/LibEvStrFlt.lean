@@ -29,8 +29,9 @@
     not have here: the reader numbers an instance of `ite` from its use in a sentence it reads, a
     parameter symbol of the text (`Parse.iteName`, implemented by `kIte`), and no such sentence of
     this text applies it; Γ's one `ite` is `kIte`, at KItem (LibProbe's run prints 296 as not
-    probed, applying `ite{Int}`). The names `symbolsOf` reads carry no sort parameters, so by them
-    296 applies only Γ's names (`ite296_names`). Where an instance is Γ's, it is a parameter symbol,
+    probed, applying `ite{Int}`). A symbol with sort parameters is one symbol at each instance, and
+    Γ applies `kIte` at no sort argument, so 296 applies a head Γ lacks (`ite296_absent`), though its
+    names are all names of Γ's symbols. Where an instance is Γ's, it is a parameter symbol,
     which `LibEv`'s terms do not apply either (they apply interpreted symbols: `val` reads
     `Semantics.hv`, `srt?` reads `hookSigs`). Its condition on the interpretation is `findCharEq`.
   - 228 to 232 (`Int2Bytes` at three arguments, 2250 to 2258): each applies `Int2BytesNoLen`, a
@@ -296,19 +297,24 @@ Each applies `Int2BytesNoLen` (the three-argument `Int2Bytes`, `symbol(Int2Bytes
 `hook`), which Γ does not have; it is the one symbol of each that Γ lacks, but for 229 (a negative
 Int), which applies `~Int` too (`int2BytesNoLen_absent`). -/
 
-/-- The symbols a sentence applies that Γ does not have (the injection aside). -/
+/-- The names of the heads a sentence applies, each with its sort arguments (`appHeadsOf`), that are
+not Γ's (`gammaHeads`). -/
 noncomputable def absentOf (ad : AxiomDecl) : List String :=
-  (symbolsOf ad.ax.pattern).filter fun n => !(n == "inj" || (kernelSyms c).any (fun k => c.symName k.name == n))
+  ((appHeadsOf ad.ax.pattern).filter fun h => !gammaHasHead c h).map (·.1)
 
 theorem int2BytesNoLen_absent :
     [U.ax228, U.ax229, U.ax230, U.ax231, U.ax232].map absentOf =
       [["LblInt2BytesNoLen"], ["LblInt2BytesNoLen", "Lbl'Tild'Int'Unds'"], ["LblInt2BytesNoLen"],
        ["LblInt2BytesNoLen"], ["LblInt2BytesNoLen"]] := by decide +kernel
 
-/-- 296 (domains.md 1891) applies `ite{SortInt}`. `symbolsOf` reads an application's head name and
-not its sort parameters, so it reads that instance as `Lblite`, the name of Γ's `kIte` (`ite` at
-KItem): by the names alone, 296 applies no symbol Γ lacks. -/
-theorem ite296_names : (symbolsOf U.ax296.ax.pattern).contains "Lblite" = true ∧ absentOf U.ax296 = [] := by
+/-- 296 (domains.md 1891) applies `ite{SortInt}` twice, the one head of it Γ lacks: Γ's `ite`, the
+registry's `kIte` at KItem, is applied at no sort argument. By the names alone (`symbolsOf`, `inj`
+aside) it applies none Γ lacks: `Lblite` is the name of `kIte`. -/
+theorem ite296_absent :
+    (appHeadsOf U.ax296.ax.pattern).any (fun h => decide (h = ("Lblite", [KoreAML.srt "Int"]))) = true ∧
+    absentOf U.ax296 = ["Lblite", "Lblite"] ∧
+    (symbolsOf U.ax296.ax.pattern).all
+      (fun n => n == "inj" || (kernelSyms c).any (fun k => c.symName k.name == n)) = true := by
   decide +kernel
 
 end KCore.LibEvStrFlt
@@ -357,7 +363,7 @@ end KCore.LibEvStrFlt
 #guard_msgs in #print axioms KCore.LibEvStrFlt.count294_not_holds
 /-- info: 'KCore.LibEvStrFlt.cr0_iff' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.LibEvStrFlt.cr0_iff
-/-- info: 'KCore.LibEvStrFlt.int2BytesNoLen_absent' depends on axioms: [propext] -/
+/-- info: 'KCore.LibEvStrFlt.int2BytesNoLen_absent' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.LibEvStrFlt.int2BytesNoLen_absent
-/-- info: 'KCore.LibEvStrFlt.ite296_names' depends on axioms: [propext] -/
-#guard_msgs in #print axioms KCore.LibEvStrFlt.ite296_names
+/-- info: 'KCore.LibEvStrFlt.ite296_absent' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.LibEvStrFlt.ite296_absent

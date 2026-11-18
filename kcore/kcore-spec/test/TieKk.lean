@@ -53,7 +53,10 @@ noncomputable def trS (ad : AxiomDecl) : Item := trAxiom kore.symbolDecls kore.a
 - set idempotence: the `idem` sentence of `_Set_`;
 - set-variable lemma: the definedness lemmas of `%Int`, `/Int`, `>>Int`, `<<Int`, `modInt`
   (domains.md 1392 to 1396) and kompile's `#Ceil(@K0 |-> @K1 @Rest)`, over set variables;
-- no direction: a sentence that applies a symbol Γ does not have. -/
+- no direction: a sentence that applies a symbol Γ does not have (281, `ite{Sort}`'s `functional`
+  sentence, 549, which applies `ite{Int}`, and 686, 687, `ite{K}`'s equations, among them: a symbol
+  with sort parameters is one symbol at each instance, and Γ applies its `ite`, `kIte`, at no sort
+  argument). -/
 def classes : List (String × List Nat) :=
   [("function equation", [479, 480, 481, 482, 483, 484, 485, 486, 487, 488, 489, 490, 491, 492, 493, 494, 495, 497, 498, 499, 500,
       501, 502, 503, 504, 505, 506, 507, 508, 509, 510, 511, 512, 513, 514, 515, 516, 517, 518, 519, 520,
@@ -90,21 +93,20 @@ def classes : List (String × List Nat) :=
       371, 372, 373, 374, 375, 376, 377, 378]),
    ("function functional", [249, 250, 251, 252, 253, 254, 255, 256, 257, 258, 259, 260, 261, 262, 263, 264, 265, 266, 267, 268,
       269, 270, 271, 272, 273, 274, 275, 276, 277, 278, 279, 280]),
-   ("hooked functional", [42, 43, 48, 61, 63, 64, 65, 66, 67, 68, 69, 71, 72, 73, 74, 78, 80, 81, 82, 83, 84, 85, 86, 87, 88,
-      89, 90, 91, 92, 93, 94, 95, 99, 107, 108, 109, 110, 111, 112, 113, 114, 115, 117, 119, 120, 202,
-      233, 248, 281, 287, 292, 300, 301, 311, 319, 320, 321, 322, 330, 331, 332, 341]),
+   ("hooked functional", [42, 43, 48, 61, 63, 64, 65, 66, 67, 68, 69, 71, 72, 73, 74, 78, 80, 81, 82, 83, 84, 85,
+      86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 99, 107, 108, 109, 110, 111, 112, 113, 114, 115, 117, 119, 120,
+      202, 233, 248, 287, 292, 300, 301, 311, 319, 320, 321, 322, 330, 331, 332, 341]),
    ("collection law", [96, 97, 98, 100, 101, 102, 103, 105, 106]),
-   ("library", [384, 385, 386, 387, 388, 389, 390, 391, 392, 393, 394, 395, 396, 397, 398,
-      399, 400, 401, 402, 403, 404, 405, 406, 407, 418, 419, 420, 421, 422, 424, 425, 426, 427, 428, 429,
-      430, 431, 432, 433, 434, 435, 436, 437, 438, 439, 440, 441, 442, 443, 444, 445, 446, 447, 448, 449,
-      450, 451, 452, 453, 454, 455, 456, 457, 458, 459, 461, 462, 463, 464, 465, 466, 467, 468, 469, 470,
-      471, 472, 473, 474, 475, 476, 477, 478, 521, 522, 549, 550, 558, 686, 687, 733, 734, 748, 749, 788,
-      793, 794, 795, 796, 797, 802, 803]),
+   ("library", [384, 385, 386, 387, 388, 389, 390, 391, 392, 393, 394, 395, 396, 397, 398, 399, 400, 401, 402, 403,
+      404, 405, 406, 407, 418, 419, 420, 421, 422, 424, 425, 426, 427, 428, 429, 430, 431, 432, 433, 434, 435,
+      436, 437, 438, 439, 440, 441, 442, 443, 444, 445, 446, 447, 448, 449, 450, 451, 452, 453, 454, 455, 456,
+      457, 458, 459, 461, 462, 463, 464, 465, 466, 467, 468, 469, 470, 471, 472, 473, 474, 475, 476, 477, 478,
+      521, 522, 550, 558, 733, 734, 748, 749, 788, 793, 794, 795, 796, 797, 802, 803]),
    ("set idempotence", [104]),
    ("set-variable lemma", [379, 380, 381, 382, 383, 837]),
-   ("no direction", [62, 70, 75, 79, 116, 118, 247, 345, 350, 423, 460, 496, 559, 596, 597, 598, 757, 758, 759, 760, 761,
-      762, 763, 764, 765, 766, 767, 768, 769, 770, 771, 772, 773, 774, 775, 776, 777, 778, 779, 780, 781,
-      782, 783, 784, 785, 786, 787, 805])]
+   ("no direction", [62, 70, 75, 79, 116, 118, 247, 281, 345, 350, 423, 460, 496, 549, 559, 596, 597, 598, 686,
+      687, 757, 758, 759, 760, 761, 762, 763, 764, 765, 766, 767, 768, 769, 770, 771, 772, 773, 774, 775, 776,
+      777, 778, 779, 780, 781, 782, 783, 784, 785, 786, 787, 805])]
 
 /-- The indices of a class. -/
 def classOf (n : String) : List Nat := (classes.filter (·.1 == n)).flatMap (·.2)
@@ -122,25 +124,44 @@ theorem account : (classes.flatMap (·.2)).isPerm (userAxioms.map (·.index)) = 
 
 /-- The class sizes. -/
 theorem account_sizes : classes.map (fun cl => (cl.1, cl.2.length)) =
-    [("function equation", 302), ("rewrite rule", 10), ("priority equation", 0), ("constructor functional", 52), ("subsort", 32), ("injectivity", 35), ("distinctness", 115), ("no junk", 28), ("function functional", 32), ("hooked functional", 62), ("collection law", 9), ("library", 102), ("set idempotence", 1), ("set-variable lemma", 6), ("no direction", 48)] := by
+    [("function equation", 302), ("rewrite rule", 10), ("priority equation", 0), ("constructor functional", 52), ("subsort", 32), ("injectivity", 35), ("distinctness", 115), ("no junk", 28), ("function functional", 32), ("hooked functional", 61), ("collection law", 9), ("library", 99), ("set idempotence", 1), ("set-variable lemma", 6), ("no direction", 52)] := by
   decide +kernel
 
 /-- The classes are the tie's (`tieClasses`, which gives each its direction), in its order. -/
 theorem account_classes : classes.map (·.1) = tieClasses.map (·.1) := by decide +kernel
 
-/-- **A sentence outside the no-direction class applies only symbols Γ has** (the injection `inj`
-aside, which Γ's constructor items apply), and each sentence of that class applies one Γ lacks. -/
+/-- The symbol `k` of Γ has no name `iteSort?` reads as an instance of `ite`. -/
+noncomputable def plainName (k : CtorSig) : Bool := (iteSort? (c.symName k.name)).isNone
+
+/-- No symbol of Γ has a name `iteSort?` reads as an instance of `ite`, so each is applied at its
+name with no sort argument (`gammaHasHead_eq_plain`). In parts of 50 symbols, each one kernel
+decision: `iteSort?` reads a name as its characters, and one decision over every name exceeds
+12 GiB. -/
+theorem noIte₁ : ((kernelSyms c).take 50).all plainName = true := by decide +kernel
+theorem noIte₂ : (((kernelSyms c).drop 50).take 50).all plainName = true := by decide +kernel
+theorem noIte₃ : ((((kernelSyms c).drop 50).drop 50).take 50).all plainName = true := by decide +kernel
+theorem noIte₄ : (((((kernelSyms c).drop 50).drop 50).drop 50).take 50).all plainName = true := by decide +kernel
+theorem noIte₅ : ((((((kernelSyms c).drop 50).drop 50).drop 50).drop 50).take 50).all plainName = true := by decide +kernel
+theorem noIte₆ : ((((((kernelSyms c).drop 50).drop 50).drop 50).drop 50).drop 50).all plainName = true := by decide +kernel
+theorem noIte : (kernelSyms c).all plainName = true :=
+  all_of_take_drop_heads _ _ 50 noIte₁
+    (all_of_take_drop_heads _ _ 50 noIte₂
+    (all_of_take_drop_heads _ _ 50 noIte₃
+    (all_of_take_drop_heads _ _ 50 noIte₄
+    (all_of_take_drop_heads _ _ 50 noIte₅ noIte₆))))
+
+/-- **A sentence outside the no-direction class applies only symbols Γ has**, each a head with its
+sort arguments (`appHeadsOf`) among Γ's (`gammaHeads`), and each sentence of that class applies one
+Γ lacks. -/
 theorem account_absent : userAxioms.all (fun ad =>
-    (classOf "no direction").contains ad.index !=
-      (symbolsOf ad.ax.pattern).all (fun n => n == "inj" || (kernelSyms c).any (fun k => c.symName k.name == n))) = true := by
-  rw [userAxioms_eq]; decide +kernel
+    (classOf "no direction").contains ad.index != (appHeadsOf ad.ax.pattern).all (gammaHasHead c)) = true := by
+  rw [userAxioms_eq, gammaHasHead_eq_plain (c := c) noIte]; decide +kernel
 
 /-- **The no-direction class is closed**: every sentence outside it applies only symbols Γ has,
 so no sentence with a direction applies a symbol Γ lacks. -/
 theorem absent_closed :
     (userAxioms.filter (fun ad => !(classOf "no direction").contains ad.index)).all
-      (fun ad => (symbolsOf ad.ax.pattern).all
-        (fun n => n == "inj" || (kernelSyms c).any (fun k => c.symName k.name == n))) = true :=
+      (fun ad => (appHeadsOf ad.ax.pattern).all (gammaHasHead c)) = true :=
   tieAbsent_of_account userAxioms _ _ account_absent
 
 end KCore.TieKk

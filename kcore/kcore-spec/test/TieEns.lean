@@ -38,8 +38,9 @@
     model of Γ, for every H (`lib166`, direction Ev, from `ΓDomains`' graph of `-Int`).
   - Sentences applying a symbol Γ does not have (`absent_syms` for four of them): the cell
     initializers and the counter's getter, the 14 projections, seven hooked symbols' `functional`
-    sentences, two library sentences (157 and 189) over symbols without a hook here: no direction.
-    The six sentences over the shifts (128, 129, 171, 172, 178, 179; 171 is `X <<Int 0 = X`)
+    sentences, two library sentences (157 and 189) over symbols without a hook here, and the three
+    sentences over instances of `ite` (99, `ite{Sort}`'s `functional` sentence, and 244, 245,
+    `ite{K}`'s equations; `ite_absent`): no direction. The six sentences over the shifts (128, 129, 171, 172, 178, 179; 171 is `X <<Int 0 = X`)
     apply symbols Γ interprets: 171, 172, 178, 179 are of the class library, 128 and 129 of the
     class set-variable lemma.
 
@@ -690,11 +691,19 @@ The cell initializers and the counter's getter (82, 210, 212 to 214), the projec
 seven hooked symbols' `functional` sentences (36, 40, 42, 73, 75, 113, 114) and two library
 sentences (157, 189) apply a symbol that is not among
 Γ's symbols (`kernelSyms`): Γ states nothing of it, so no direction holds for these sentences.
+The same holds of 99 (`ite{Sort}`'s `functional` sentence, at the sort variable `Sort`) and 244,
+245 (`ite{K}`'s two equations): a symbol with sort parameters is one symbol at each instance, and
+Γ applies its `ite`, the registry's `kIte` at KItem, at no sort argument (`ite_absent`).
 `<<Int` and `>>Int` are symbols of Γ (interpreted hooks), so the sentences over them alone are
 not of this kind (`shift_syms`, `account_absent`). -/
 
 theorem absent_syms : ["LblinitKCell", "LblgetGeneratedCounterCell", "Lblproject'Coln'Int",
     "Lbl'UndsAnd-'Int'Unds'"].all (fun n => (kernelSyms c).all (fun k => c.symName k.name != n)) = true := by
+  decide +kernel
+
+theorem ite_absent : [U.ax99, U.ax244, U.ax245].all (fun ad =>
+      (appHeadsOf ad.ax.pattern).any (fun h => h.1 == "Lblite" && !gammaHasHead c h)) = true ∧
+    gammaHasHead c ("Lblite", []) = true := by
   decide +kernel
 
 theorem shift_syms : ["Lbl'Unds-LT--LT-'Int'Unds'", "Lbl'Unds-GT--GT-'Int'Unds'"].all
@@ -732,16 +741,16 @@ def classes : List (String × List Nat) :=
    ("no junk", [115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125]),
    ("function functional", [84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98]),
    ("hooked functional", [19, 20, 21, 30, 31, 32, 33, 34, 35, 37, 38, 39, 41, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52,
-      56, 64, 65, 66, 67, 68, 69, 70, 71, 72, 74, 76, 77, 81, 83, 99, 100, 101, 102, 105, 106, 107, 110, 111, 112]),
+      56, 64, 65, 66, 67, 68, 69, 70, 71, 72, 74, 76, 77, 81, 83, 100, 101, 102, 105, 106, 107, 110, 111, 112]),
    ("collection law", [53, 54, 55, 57, 58, 59, 60, 62, 63]),
    ("library", [131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147,
       148, 149, 150, 151, 152, 153, 154, 156, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173,
       174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 190, 191, 192, 193, 194, 195, 196, 197, 198,
-      199, 200, 201, 202, 203, 204, 205, 206, 207, 209, 244, 245, 246, 247, 248, 249, 264]),
+      199, 200, 201, 202, 203, 204, 205, 206, 207, 209, 246, 247, 248, 249, 264]),
    ("set idempotence", [61]),
    ("set-variable lemma", [126, 127, 128, 129, 130, 266]),
-   ("no direction", [36, 40, 42, 73, 75, 82, 113, 114, 157, 189, 208, 210, 212, 213,
-      214, 250, 251, 252, 253, 254, 255, 256, 257, 258, 259, 260, 261, 262, 263, 265])]
+   ("no direction", [36, 40, 42, 73, 75, 82, 99, 113, 114, 157, 189, 208, 210, 212, 213,
+      214, 244, 245, 250, 251, 252, 253, 254, 255, 256, 257, 258, 259, 260, 261, 262, 263, 265])]
 
 /-- The indices of a class. -/
 def classOf (n : String) : List Nat := (classes.filter (·.1 == n)).flatMap (·.2)
@@ -757,8 +766,8 @@ theorem account : (classes.flatMap (·.2)).isPerm (userAxioms.map (·.index)) = 
 theorem account_sizes : classes.map (fun cl => (cl.1, cl.2.length)) =
     [("function equation", 30), ("rewrite rule", 1), ("priority equation", 0), ("constructor functional", 8),
      ("subsort", 15), ("injectivity", 6), ("distinctness", 1), ("no junk", 11), ("function functional", 15),
-     ("hooked functional", 48), ("collection law", 9), ("library", 82), ("set idempotence", 1),
-     ("set-variable lemma", 6), ("no direction", 30)] := by
+     ("hooked functional", 47), ("collection law", 9), ("library", 80), ("set idempotence", 1),
+     ("set-variable lemma", 6), ("no direction", 33)] := by
   decide +kernel
 
 /-- The classes are the tie's (`tieClasses`, which gives each its direction), in its order. -/
@@ -775,21 +784,20 @@ theorem account_lists : (classOf "function equation").isPerm (fnText.map (·.ind
     classOf "set-variable lemma" = [U.ax126, U.ax127, U.ax128, U.ax129, U.ax130, U.ax266].map (·.index) := by
   decide +kernel
 
-/-- **A sentence outside the no-direction class applies only symbols Γ has** (the injection `inj`
-aside, which Γ's constructor items apply), and each sentence of that class applies one Γ lacks. -/
+/-- **A sentence outside the no-direction class applies only symbols Γ has**, each a head with its
+sort arguments (`appHeadsOf`) among Γ's (`gammaHeads`), and each sentence of that class applies one
+Γ lacks. -/
 theorem account_absent : userAxioms.all (fun ad =>
-    (classOf "no direction").contains ad.index !=
-      (symbolsOf ad.ax.pattern).all (fun n => n == "inj" || (kernelSyms c).any (fun k => c.symName k.name == n))) = true := by
+    (classOf "no direction").contains ad.index != (appHeadsOf ad.ax.pattern).all (gammaHasHead c)) = true := by
   rw [userAxioms_eq]; decide +kernel
 
 /-- **The no-direction class is closed**: every sentence outside it applies only symbols Γ has,
 so no sentence with a direction applies a symbol Γ lacks. The injection `inj` is no member of
-`kernelSyms` (`coreOK` keeps the name from them) and is Γ's all the same: the constructor items
-state it for each subsort pair. -/
+`kernelSyms` (`coreOK` keeps the name from them) and is Γ's all the same at each subsort pair,
+where the constructor items state it (`gammaHeads`). -/
 theorem absent_closed :
     (userAxioms.filter (fun ad => !(classOf "no direction").contains ad.index)).all
-      (fun ad => (symbolsOf ad.ax.pattern).all
-        (fun n => n == "inj" || (kernelSyms c).any (fun k => c.symName k.name == n))) = true :=
+      (fun ad => (appHeadsOf ad.ax.pattern).all (gammaHasHead c)) = true :=
   tieAbsent_of_account userAxioms _ _ account_absent
 
 /-! ## The constructor sentences: functional, subsort, injectivity, distinctness -/

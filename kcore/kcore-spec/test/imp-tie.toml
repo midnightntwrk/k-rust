@@ -106,9 +106,9 @@ reason = "Gamma does not hold them: the functional sentences of the semantics' 2
 
 [[class]]
 name = "hooked functional"
-count = 48
+count = 47
 direction = "atValues"
-remainder = 48
+remainder = 47
 reason = "not kernel-checked at values on kimp's text: the library's statements (KcoreSpec/LibEv*.lean) take coreOK of the semantics, which on kimp's literal is one kernel decision above 12 GiB in a test file; they are applied on ens's and silentflt's texts (test/LibEv*Ens.lean, test/LibEv*Flt.lean). Native evidence: test/LibProbe.lean evaluates each such sentence of kimp's text on a grid of values (check on f2-examples/ref-kimp.kore, the same bytes)"
 
 [[class]]
@@ -120,9 +120,9 @@ reason = "as hooked functional: not kernel-checked at values on kimp's text; the
 
 [[class]]
 name = "library"
-count = 82
+count = 80
 direction = "atValues"
-remainder = 82
+remainder = 80
 reason = "as hooked functional: not kernel-checked at values on kimp's text; the library's equations and lemmas are checked on ens's and silentflt's texts and probed natively on kimp's (test/LibProbe.lean)"
 
 [[class]]
@@ -141,9 +141,9 @@ reason = "sentences 671 to 675 and 904: refuted at sets of values on ens's text 
 
 [[class]]
 name = "no direction"
-count = 36
+count = 39
 direction = "none"
-no_direction = 36
+no_direction = 39
 file = "test/TieKimp.lean"
 theorems = ["account_absent", "absent_closed"]
 groups = [
@@ -152,4 +152,5 @@ groups = [
   "the counter cell's initialiser's functional: 611",
   "cell initialisers and the counter getter: 833 to 837 (834 and 837 also apply projections)",
   "projections: 883 to 901",
+  "instances of ite at a sort Gamma does not apply it at (Gamma's kIte is applied at no sort argument): 633 (functional of ite{Sort}), 877, 878 (the equations of ite{K})",
 ]

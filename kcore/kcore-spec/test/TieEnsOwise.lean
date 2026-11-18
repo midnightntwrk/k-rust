@@ -170,17 +170,18 @@ def classes : List (String × List Nat) :=
    ("distinctness", [80]),
    ("no junk", [115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125]),
    ("function functional", [84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98]),
-   ("hooked functional", [19, 20, 21, 30, 31, 32, 33, 34, 35, 37, 38, 39, 41, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52,
-      56, 64, 65, 66, 67, 68, 69, 70, 71, 72, 74, 76, 77, 81, 83, 99, 100, 101, 102, 105, 106, 107, 110, 111, 112]),
+   ("hooked functional", [19, 20, 21, 30, 31, 32, 33, 34, 35, 37, 38, 39, 41, 43, 44, 45, 46, 47, 48, 49, 50, 51,
+      52, 56, 64, 65, 66, 67, 68, 69, 70, 71, 72, 74, 76, 77, 81, 83, 100, 101, 102, 105, 106, 107, 110, 111,
+      112]),
    ("collection law", [53, 54, 55, 57, 58, 59, 60, 62, 63]),
-   ("library", [131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147,
-      148, 149, 150, 151, 152, 153, 154, 156, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172,
-      173, 174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 190, 191, 192, 193, 194, 195, 196,
-      197, 198, 199, 200, 201, 202, 203, 204, 205, 206, 207, 209, 245, 246, 247, 248, 249, 250, 265]),
+   ("library", [131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150,
+      151, 152, 153, 154, 156, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173,
+      174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 190, 191, 192, 193, 194, 195,
+      196, 197, 198, 199, 200, 201, 202, 203, 204, 205, 206, 207, 209, 247, 248, 249, 250, 265]),
    ("set idempotence", [61]),
    ("set-variable lemma", [126, 127, 128, 129, 130, 267]),
-   ("no direction", [36, 40, 42, 73, 75, 82, 113, 114, 157, 189, 208, 210, 213, 214,
-      215, 251, 252, 253, 254, 255, 256, 257, 258, 259, 260, 261, 262, 263, 264, 266])]
+   ("no direction", [36, 40, 42, 73, 75, 82, 99, 113, 114, 157, 189, 208, 210, 213, 214, 215, 245, 246, 251, 252,
+      253, 254, 255, 256, 257, 258, 259, 260, 261, 262, 263, 264, 266])]
 
 /-- **The account**: the class lists partition the user module's sentences, and the function
 equations' list is `fnText`'s. -/
@@ -195,14 +196,13 @@ def classOf (n : String) : List Nat := (classes.filter (·.1 == n)).flatMap (·.
 /-- The classes are the tie's (`tieClasses`, which gives each its direction), in its order. -/
 theorem account_classes : classes.map (·.1) = tieClasses.map (·.1) := by decide +kernel
 
-/-- **A sentence outside the no-direction class applies only names of Γ's symbols** (the injection
-`inj` aside, which Γ's constructor items apply), and each sentence of that class applies a name Γ
-lacks. The names are head names (`symbolsOf`), without sort parameters: 99, 245 and 246 apply
-instances of `ite` (`ite{Sort}`, `ite{SortK}`) under the name of Γ's `kIte`, which is `ite` at
-KItem; the instances themselves are no symbols of Γ. -/
+/-- **A sentence outside the no-direction class applies only symbols Γ has**, each a head with its
+sort arguments (`appHeadsOf`) among Γ's (`gammaHeads`), and each sentence of that class applies one
+Γ lacks. 99, 245 and 246 apply instances of `ite` (`ite{Sort}`, `ite{SortK}`): a symbol with sort
+parameters is one symbol at each instance, and Γ applies its `ite`, the registry's `kIte` at KItem,
+at no sort argument, so the three are of the no-direction class. -/
 theorem account_absent : userAxioms.all (fun ad =>
-    (classOf "no direction").contains ad.index !=
-      (symbolsOf ad.ax.pattern).all (fun n => n == "inj" || (kernelSyms c).any (fun k => c.symName k.name == n))) = true := by
+    (classOf "no direction").contains ad.index != (appHeadsOf ad.ax.pattern).all (gammaHasHead c)) = true := by
   rw [userAxioms_eq]; decide +kernel
 
 end KCore.TieEnsOwise
