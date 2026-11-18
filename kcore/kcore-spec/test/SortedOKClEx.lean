@@ -15,6 +15,7 @@
 import KcoreSpec.OpenClauseConsistent
 import KcoreSpec.ValueModelApp
 import KcoreSpec.ModelFunctional
+import KcoreSpec.ModelHasEx
 
 set_option autoImplicit false
 set_option maxRecDepth 100000
@@ -59,11 +60,9 @@ theorem sortedOKCl_iff (c : Semantics) : c.sortedOKCl = true ↔ c.sortedOKClEx 
 
 /-- What each clause is asked for the value model's function equations with existential variables,
 from `HypModelCore`. -/
-theorem hcls_of_hypModelCore {c : Semantics} (h : HypModelCore c) :
+example {c : Semantics} (h : HypModelCore c) :
     ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, c.clauseSortedOpen fn (c.fns.map Fn.sig) cl = true ∧
-      c.clauseExOK cl = true ∧ (cl.exs = [] → cl.post = .top) := fun fn hfn cl hcl =>
-  have hp := (Semantics.sortedOKClEx_parts h.hyp.1).2.1 fn hfn cl hcl
-  ⟨hp.1, (Semantics.clausePlainOpenEx_parts hp.2).1, (Semantics.clausePlainOpenEx_parts hp.2).2.1⟩
+      c.clauseExOK cl = true ∧ (cl.exs = [] → cl.post = .top) := hypModelCore_clsFactsCe h
 
 /-! The statements on the model's path without existential variables keep `FnsNoExs` as a premise. -/
 
