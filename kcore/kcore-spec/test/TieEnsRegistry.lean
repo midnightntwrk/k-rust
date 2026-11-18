@@ -15,6 +15,9 @@
   - `surplus_registry`: every item of `sigItems c` that `surplusItem` classes as surplus (those of
     `sig_origin`, test/TieEnsSig.lean, that are no declaration's item) names one of those names, so
     it is a `RegistryItem` at them.
+  - `ens_conservative`, `ens_exact_own`: the registry family at those names is conservative
+    (`registry_conservative`) and no step at values rests on it (`exact_own`), under `FnHyp c`
+    from the functions' obligations, each empty on the text by a kernel decision (`fnHyp`).
 -/
 import KcoreSpec
 
@@ -131,9 +134,38 @@ theorem surplus_registry : ∀ it ∈ sigItems c, surplusItem kore it = true →
     Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl ⟨it, hit, rfl⟩)))))))))
   exact registry_names_detached.2.2 it.pat hΓ ⟨σ, hσ, isName_iff.mp hn⟩
 
+/-! ## The registry family is conservative on ens -/
+
+def callOrder : List Nat := [364]
+
+theorem term_named : c.rankObligations callOrder ++ c.decObligationsL = [] := by decide +kernel
+theorem total_named : c.totalObligationsRP callOrder [] = [] := by decide +kernel
+theorem agree_named : c.agreeObligationsI = [] := by decide +kernel
+theorem match_named : c.matchObligationsL = ([] : List (Nat × Nat)) := by decide +kernel
+
+/-- What the statements assume of ens' functions, from their obligations, none open. -/
+theorem fnHyp : FnHyp c :=
+  fnHyp_of_fnObligations coreOK (Semantics.rightHeld_of_valued (by decide +kernel)) ParamsTotal.nil
+    (FnObligations.of_nil term_named total_named agree_named match_named)
+
+/-- **The registry family at the names ens does not declare is conservative.** -/
+theorem ens_conservative : RegistryConservative c (DetachedB.names c ss ks) :=
+  registry_conservative c ss ks coreOK fnHyp registry_detached
+
+/-- **No step of ens at values rests on the registry family** at the names it does not declare. -/
+theorem ens_exact_own : ExactOwn c (DetachedB.names c ss ks) :=
+  exact_own c ss ks coreOK fnHyp registry_detached
+
 end KCore.TieEns
 
+#check @KCore.TieEns.ens_conservative
+#check @KCore.TieEns.ens_exact_own
 #check @KCore.TieEns.registry_detached
 #check @KCore.TieEns.surplus_registry
 #print axioms KCore.TieEns.registry_detached
 #print axioms KCore.TieEns.surplus_registry
+
+/-- info: 'KCore.TieEns.ens_exact_own' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.TieEns.ens_exact_own
+/-- info: 'KCore.TieEns.ens_conservative' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.TieEns.ens_conservative
