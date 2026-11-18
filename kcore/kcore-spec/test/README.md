@@ -909,9 +909,12 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   ranges (domains.md 1438, 1440) hold of `hook` at every three integers, both sides with the same
   value or both none (no value at a negative index or length, the sign extension also at length
   0, through the shifts' `#False`); hand-derived points, and points without a value where Γ states
-  ⊥ under every interpretation; `^%Int` has no value at a zero modulus (Γ states ⊥), the remainder
-  `(A ^Int B) %Int C` at a non-negative exponent where the power is not negative or the modulus
-  divides it (Γ's statement under every interpretation), and is silent at the other points. The row `INT.pow`: the power at a non-negative exponent, Γ's statement under every
+  ⊥ under every interpretation; `^%Int` has no value at a zero modulus (Γ states ⊥), the
+  truncating remainder `(A ^Int B) %Int C` at a non-negative exponent and another modulus (Γ's
+  statement under every interpretation, `-2 ^%Int 3 5` = -3 among the points: the prose states the
+  value, the `smt-hook` is how a solver query encodes the production and states none), and is
+  silent at a negative exponent; there Γ does not entail the prose's equality of `A ^%Int B C` with
+  `(A ^Int B) %Int C`, and no statement says that relation is undetermined by the text. The row `INT.pow`: the power at a non-negative exponent, Γ's statement under every
   interpretation; silent at a negative one (`2 ^Int -1`).
 - `test/HooksBool.lean`: the 14 supported hook rows of BOOL (the sort and nine operations), KEQUAL
   (`==K`, `=/=K`, `ite`) and KVAR (the sort) against the prose of domains.md and substitution.md,

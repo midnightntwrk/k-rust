@@ -48,8 +48,8 @@
   set of a positive X, undefined at X ≤ 0 (1298-1301), `bitRangeInt` and `signExtendBitRangeInt`
   the right sides of their equations (1438, 1440), which apply the shifts, so undefined at a
   negative index or length and the second also at length 0, `A ^%Int B C` undefined at C = 0
-  and elsewhere `(A ^Int B) %Int C` (equal in value to it, 1229-1231) at B ≥ 0 where the power is
-  not negative or C divides it, `A ^Int B` the power at B ≥ 0 (1228);
+  and elsewhere `(A ^Int B) %Int C` (equal in value to it, 1229-1231) at B ≥ 0, the truncating
+  remainder of the power, `A ^Int B` the power at B ≥ 0 (1228);
   a Float is a datum of its format (represented as IEEE 754 represents it, domains.md 1481-1490), an
   arithmetic result the exact result rounded to nearest, ties to even, where the text states it
   (FloatDomain.lean; no value at an infinity, NaN or zero divisor, at a zero result the text gives
@@ -194,7 +194,7 @@ def intHooks : List (Sym × (List GroundTerm → Option GroundTerm)) :=
      | [a] => (asInt a).bind fun x => if 0 < x then some (int x.toNat.log2) else none
      | _ => none),
    (intPowMod, fun vs => intArgs3 vs fun a b m =>
-     if b < 0 ∨ m = 0 ∨ (a ^ b.toNat < 0 ∧ (a ^ b.toNat).emod m ≠ 0) then none
+     if b < 0 ∨ m = 0 then none
      else some (int ((a ^ b.toNat).tmod m))),
    (intBitRange, fun vs => intArgs3 vs fun x i l => if i < 0 ∨ l < 0 then none else some (int (bitRangeVal x i l))),
    (intSignExtBitRange, fun vs =>
@@ -788,13 +788,13 @@ interpretation (`Semantics.libAdmitted`, LibAdmitted.lean). Line numbers are dom
 - RANGEMAP's `[_ <- undef]` and `removeAll` at a proper range no part of which is in the map: the
   sentences speak of a range of which "all or any part" is present (575-576, 611-613), neither
   operation is declared `total` (579, 616), and of another range nothing is said.
-- `^%Int` at a modulus other than 0: "equal in value to `(A ^Int B) %Int C`" (1229-1231), where
-  `%Int` truncates (1233-1234), and `smt-hook((mod (^ #1 #2) #3))` (1251), the Euclidean remainder:
-  the two differ at a negative power the modulus does not divide, and of a negative exponent the
-  text says nothing (1228). `hook` gives the remainder where the exponent is not negative and the
-  power is not negative or the modulus divides it (there the two remainders are one), and no value
-  at the other points off a zero modulus, which are silent; at a zero modulus `(A ^Int B) %Int 0`
-  has none (1233-1234).
+- `^%Int` at a negative exponent and a modulus other than 0: "equal in value to `(A ^Int B) %Int C`"
+  (1229-1231), and of `A ^Int B` at a negative exponent the text says nothing (1228). At an exponent
+  not negative `hook` gives the truncating remainder of the power (1233-1234), at every modulus
+  other than 0; `smt-hook((mod (^ #1 #2) #3))` (1251) is how a solver query encodes the production
+  (MAN 2381-2389; "SMT hooks need to convert from Euclidian division operations", 1255) and states
+  no value. At a zero modulus `(A ^Int B) %Int 0` has none (1233-1234), and the point is not
+  silent.
 - `^Int` at a negative exponent: "the exponentiation `^Int` of two integers" (1228) names no
   integer there and writes no `#False`.
 - `L[I <- V]` off `0 ≤ I < size`: "a new `List` with a new value at a particular index" (974-975);
