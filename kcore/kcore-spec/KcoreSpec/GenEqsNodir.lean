@@ -29,6 +29,11 @@
     the account's scan reads it (`Parse.scanEqn`), or its `functional` axiom (`nodFunctional?`), and
     a check that it is one of the shapes above (`nodEqB`, `nodFunB`): one model of the theory whose
     steps are the semantics' in which each holds at every list of values of its variables' sorts.
+  - **One freeness check for the names (`nod_names_reg`, `nod_instance_reg`).** `freeB` at a list
+    of symbols gives `freeB` at each of them (`nodFreeB_sub`): a name of fewer symbols is a name of
+    the list, and no item is a hook's arity when no hook is among them. So the names `armNameB`
+    accepts are had from one `freeB` at the registry numbers of the sorts' projections among them
+    (`nodRegKs`) and, for each name, `armNameB`'s other checks (`nodNameB`).
 -/
 import KcoreSpec.GenEqsInitArm
 import KcoreSpec.InjValue
@@ -1339,6 +1344,181 @@ theorem nod_instance_withHooks (c : Semantics) (hc : c.coreOK = true) (hf : ∀ 
     ((nodOrderB_withHooks c H names eqs order).trans hchk) ((nodFixedB_withHooks c H).trans hfix)
     (by rw [show nodSentEqB Nm msrc eqs (c.withHooks H) cells names order sents = nodSentEqB Nm msrc eqs c cells names order sents from funext (nodSentEqB_withHooks c H Nm msrc eqs cells names order sents)]; exact heq)
     (by rw [show nodSentFunB (c.withHooks H) eqs names order sents = nodSentFunB c eqs names order sents from funext (nodSentFunB_withHooks c H eqs names order sents)]; exact hfun)
+
+
+/-! ## The names, with one freeness check for the registry's projections -/
+
+section FreeSub
+
+open DetachedB
+
+variable {c : Semantics} {ks ks' : List Sym}
+
+/-- A symbol named by none of `ks` is named by none of fewer symbols `ks'`. -/
+theorem nodFree_name (hs : ∀ k ∈ ks', k ∈ ks) {σ : KoreAML.Sym} (h : (!isName c [] ks σ) = true) :
+    (!isName c [] ks' σ) = true := by
+  cases σ with
+  | symbol n =>
+    simp only [isName, Bool.not_eq_true', List.any_eq_false, beq_iff_eq] at h ⊢
+    exact fun k hk => h k (hs k hk)
+  | _ => rfl
+
+theorem nodFree_clean (hs : ∀ k ∈ ks', k ∈ ks) {φ : KoreAML.P} (h : clean c [] ks φ = true) :
+    clean c [] ks' φ = true :=
+  List.all_eq_true.mpr fun σ hσ => nodFree_name hs (List.all_eq_true.mp h σ hσ)
+
+/-- At no sort, every sort's name is none of the names. -/
+theorem nodFree_sOK (s : Srt) : sOK c [] ks s = true := rfl
+
+theorem nodFree_kOK (hs : ∀ k ∈ ks', k ∈ ks) {f : Sym} (h : kOK c [] ks f = true) : kOK c [] ks' f = true :=
+  nodFree_name hs h
+
+theorem nodFree_appOK (hs : ∀ k ∈ ks', k ∈ ks) {f : Sym} (h : appOK c [] ks f = true) : appOK c [] ks' f = true := by
+  unfold appOK at h ⊢
+  split
+  · rename_i X hX
+    rw [hX] at h
+    simp only [Bool.and_eq_true] at h ⊢
+    exact ⟨nodFree_name hs h.1, nodFree_name hs h.2⟩
+  · rename_i hX
+    rw [hX] at h
+    exact nodFree_kOK hs h
+
+/-- A symbol of `ks` is no hook where `freeB c ks`'s last part holds, so no item is the arity of a
+hook of `ks`. -/
+theorem nodFree_regSig (hh : hookSigs.all (fun k => kOK c [] ks k.name) = true) (φ : KoreAML.P) :
+    regSig c [] ks φ = false := by
+  unfold regSig
+  simp only [List.any_nil, Bool.false_or, List.any_eq_false, Bool.and_eq_true, not_and]
+  intro h hh' hk
+  have := List.all_eq_true.mp hh h hh'
+  simp only [kOK, isName, Bool.not_eq_true', List.any_eq_false, beq_iff_eq] at this
+  exact absurd rfl (this h.name (List.contains_iff_mem.mp hk))
+
+/-- **`freeB` at fewer symbols**: where no premise names the symbols `ks`, none names those of a
+sublist `ks'`. -/
+theorem nodFreeB_sub (hs : ∀ k ∈ ks', k ∈ ks) (h : freeB c ks = true) : freeB c ks' = true := by
+  unfold freeB at h ⊢
+  simp only [Bool.and_eq_true] at h ⊢
+  obtain ⟨⟨⟨hl, hv⟩, hg⟩, hh⟩ := h
+  have hcl := @nodFree_clean c ks ks' hs
+  have hk := @nodFree_kOK c ks ks' hs
+  have ha := @nodFree_appOK c ks ks' hs
+  refine ⟨⟨⟨?_, ?_⟩, ?_⟩, List.all_eq_true.mpr fun k hk' => hk (List.all_eq_true.mp hh k hk')⟩
+  · unfold listsB at hl ⊢
+    simp only [Bool.and_eq_true, List.all_eq_true] at hl ⊢
+    obtain ⟨⟨⟨h1, h2⟩, h3⟩, h4⟩ := hl
+    refine ⟨⟨⟨fun it hit => ?_, fun it hit => hcl (h2 it hit)⟩, fun k hk' => ?_⟩, hcl h4⟩
+    · have := h1 it hit
+      rw [nodFree_regSig hh, Bool.or_false] at this
+      rw [hcl this, Bool.true_or]
+    · have := h3 k hk'
+      have hn : ¬ (builtinColls.contains k = true ∧ ([] : List Srt).contains k.sort = true) := by simp
+      simp only [hn, ↓reduceIte, Bool.and_eq_true, List.all_eq_true] at this ⊢
+      exact ⟨hcl this.1, fun a ha' => hcl (this.2 a ha')⟩
+  · unfold valuesB at hv ⊢
+    simp only [Bool.and_eq_true, List.all_eq_true, Bool.or_eq_true] at hv ⊢
+    obtain ⟨⟨⟨h1, h2⟩, h3⟩, h4⟩ := hv
+    refine ⟨⟨⟨fun k hk' => ⟨hk (h1 k hk').1, fun s _ => nodFree_sOK s⟩, fun p _ => ⟨nodFree_sOK _, nodFree_sOK _⟩⟩,
+      fun k hk' => .inr ?_⟩, nodFree_name hs h4⟩
+    rcases h3 k hk' with h | h
+    · simp [nodFree_sOK] at h
+    · obtain ⟨⟨⟨⟨hu, he⟩, hc⟩, -⟩, -⟩ := h
+      exact ⟨⟨⟨⟨hk hu, hk he⟩, hk hc⟩, nodFree_sOK _⟩, by cases k.val <;> rfl⟩
+  · unfold graphsB at hg ⊢
+    simp only [Bool.and_eq_true, List.all_eq_true, Bool.or_eq_true] at hg ⊢
+    obtain ⟨⟨h1, h2⟩, h3⟩ := hg
+    refine ⟨⟨fun k hk' => .inr ⟨?_, fun s _ => nodFree_sOK s⟩, fun k hk' => ⟨ha (h2 k hk').1, fun s _ => nodFree_sOK s⟩⟩,
+      fun f hf => ⟨ha (h3 f hf).1, fun s _ => nodFree_sOK s⟩⟩
+    rcases h1 k hk' with h | h
+    · rw [List.all_eq_true.mp hh k hk'] at h; cases h
+    · exact ha h.1
+
+end FreeSub
+
+/-- The registry numbers of the sorts' projections among `names`: the symbols one freeness check
+(`freeB`) covers. -/
+def nodRegKs (names : List String) : List Sym :=
+  names.filterMap fun n =>
+    if (KoreAML.Parse.dropPrefix? "Lblproject'Coln'" n).isSome then regSymNames.idxOf? n else none
+
+/-- `armNameB` without its freeness check: the name is no symbol of the registry or of `c` (nor
+`""`, `inj`, `Lblite`), or a sort's projection with an equation `predProjOK?` accepts. -/
+def nodNameB (Nm : Parse.Names) (msrc : String) (eqs : List Parse.RawEqn) (c : Semantics) (n : String) : Bool :=
+  (!(regSymNames ++ c.symNames).contains n && n != "" && n != "inj" && n != "Lblite") ||
+  ((KoreAML.Parse.dropPrefix? "Lblproject'Coln'" n).isSome &&
+    eqs.any fun e => e.fn == n && Parse.predProjOK? Nm msrc eqs c e == some true)
+
+/-- **The names `armNameB` accepts, with one freeness check**: each name `nodNameB` accepts, the
+registry's projections among them free of the theory together (`freeB c (nodRegKs names)`). -/
+theorem nod_names_reg {Nm : Parse.Names} {msrc : String} {eqs : List Parse.RawEqn} {c : Semantics}
+    {names : List String} {ks : List Sym} (hks : (nodRegKs names).all ks.contains = true)
+    (hfree : freeB c ks = true) (hn : names.all (nodNameB Nm msrc eqs c) = true) :
+    names.all (armNameB Nm msrc eqs c) = true := by
+  refine List.all_eq_true.mpr fun n hmem => ?_
+  have h := List.all_eq_true.mp hn n hmem
+  unfold nodNameB at h
+  unfold armNameB
+  rcases Bool.or_eq_true_iff.mp h with h1 | h2
+  · rw [h1, Bool.true_or]
+  · simp only [Bool.and_eq_true, List.any_eq_true, beq_iff_eq] at h2
+    obtain ⟨hX, e, he, hfn, hok⟩ := h2
+    refine Bool.or_eq_true_iff.mpr (.inr ?_)
+    rw [hX, Bool.true_and]
+    refine List.any_eq_true.mpr ⟨e, he, ?_⟩
+    subst hfn
+    have hfr : Parse.regProjFree c e.fn = true := by
+      unfold Parse.regProjFree
+      rw [hX]
+      cases hi : regSymNames.idxOf? e.fn with
+      | none => rfl
+      | some i =>
+        refine nodFreeB_sub (fun k hk => ?_) hfree
+        rw [List.mem_singleton.mp hk]
+        exact List.contains_iff_mem.mp (List.all_eq_true.mp hks i
+          (List.mem_filterMap.mpr ⟨e.fn, hmem, by rw [hX, hi]; rfl⟩))
+    simp only [beq_self_eq_true, Bool.true_and, Parse.predProjAcc, hok, hfr]
+
+/-- **`nod_instance` with one freeness check for the registry's projections among the names**
+(`nod_names_reg`). -/
+theorem nod_instance_reg (c : Semantics) (hc : c.coreOK = true) (hf : FnHyp c) (Nm : Parse.Names) (msrc : String)
+    (eqs : List Parse.RawEqn) (cells : List Cell) (names order : List String) (sents : List KoreAML.AxiomDecl)
+    (eqIdx funIdx : List Nat)
+    (ks : List Sym) (hks : (nodRegKs names).all ks.contains = true) (hfree : freeB c ks = true)
+    (hnames : names.all (nodNameB Nm msrc eqs c) = true)
+    (hR : armRankB order eqs = true)
+    (hord : order.all names.contains = true) (hchk : nodOrderB c names eqs order = true)
+    (hfix : nodFixedB c = true)
+    (heq : eqIdx.all (nodSentEqB Nm msrc eqs c cells names order sents) = true)
+    (hfun : funIdx.all (nodSentFunB c eqs names order sents) = true) :
+    ∃ I : Interpretation KoreAML.Sym Elem, (I ⊧ᴵP (Γc c ∪ Γstep c)) ∧
+      (∀ x y : Config c, Step c x y ↔ ¬ (I ⊧ᴵ (den c x.val ⇒ ∼ KoreAML.sNext (den c y.val)))) ∧
+      (∀ i ∈ eqIdx, ∃ ad ∈ sents, ad.index = i ∧ ∃ e, Parse.scanEqn (.axiom ad.ax) = some e ∧ NodEqn c I e) ∧
+      (∀ i ∈ funIdx, ∃ ad ∈ sents, ad.index = i ∧ ∃ L S, nodFunctional? ad.ax = some (L, S) ∧ NodFun c I L S) :=
+  nod_instance c hc hf Nm msrc eqs cells names order sents eqIdx funIdx (nod_names_reg hks hfree hnames) hR hord hchk
+    hfix heq hfun
+
+/-- **`nod_instance_withHooks` with one freeness check for the registry's projections among the
+names** (`nod_names_reg`), decided once on the data. -/
+theorem nod_instance_reg_withHooks (c : Semantics) (hc : c.coreOK = true) (hf : ∀ H, FnHyp (c.withHooks H))
+    (Nm : Parse.Names) (msrc : String) (eqs : List Parse.RawEqn) (cells : List Cell) (names order : List String)
+    (sents : List KoreAML.AxiomDecl) (eqIdx funIdx : List Nat)
+    (ks : List Sym) (hks : (nodRegKs names).all ks.contains = true) (hfree : freeB c ks = true)
+    (hnames : names.all (nodNameB Nm msrc eqs c) = true)
+    (hR : armRankB order eqs = true)
+    (hord : order.all names.contains = true) (hchk : nodOrderB c names eqs order = true)
+    (hfix : nodFixedB c = true)
+    (heq : eqIdx.all (nodSentEqB Nm msrc eqs c cells names order sents) = true)
+    (hfun : funIdx.all (nodSentFunB c eqs names order sents) = true) (H : HookParams) :
+    ∃ I : Interpretation KoreAML.Sym Elem, (I ⊧ᴵP (Γc (c.withHooks H) ∪ Γstep (c.withHooks H))) ∧
+      (∀ x y : Config (c.withHooks H),
+        Step (c.withHooks H) x y ↔ ¬ (I ⊧ᴵ (den (c.withHooks H) x.val ⇒ ∼ KoreAML.sNext (den (c.withHooks H) y.val)))) ∧
+      (∀ i ∈ eqIdx, ∃ ad ∈ sents, ad.index = i ∧ ∃ e, Parse.scanEqn (.axiom ad.ax) = some e ∧
+        NodEqn (c.withHooks H) I e) ∧
+      (∀ i ∈ funIdx, ∃ ad ∈ sents, ad.index = i ∧ ∃ L S, nodFunctional? ad.ax = some (L, S) ∧
+        NodFun (c.withHooks H) I L S) :=
+  nod_instance_withHooks c hc hf Nm msrc eqs cells names order sents eqIdx funIdx (nod_names_reg hks hfree hnames) hR
+    hord hchk hfix heq hfun H
 
 end GenEqs
 
