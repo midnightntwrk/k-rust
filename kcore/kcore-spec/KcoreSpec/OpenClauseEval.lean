@@ -127,7 +127,7 @@ theorem eqn_atCl [Inhabited M] (hI : I ⊧ᴵP Γ c) [OvlOK c] (hnn : NamesNumbe
     · unfold clauseConcl at hk
       rw [KoreAML.freeOf] at hk
       rcases List.mem_append.mp hk with hk | hk
-      · unfold KoreAML.ap at hk; rw [KoreAML.freeOf] at hk
+      · rw [freeOf_symApp] at hk
         obtain ⟨n, s, hn, rfl⟩ := freeOf_callX _ 0 hk
         exact Or.inl ⟨n, s, hn, by rw [Nat.zero_add]⟩
       · obtain ⟨i, hi, rfl⟩ := freeOf_clauseConclRight hk
@@ -155,7 +155,7 @@ theorem eqn_atCl [Inhabited M] (hI : I ⊧ᴵP Γ c) [OvlOK c] (hnn : NamesNumbe
         rw [hk, KoreAML.interp_guard_evar hD, trSort_srt, ← hk, hVv i hi, hw]
         exact (elemOf_spec hI hsw e').2
   have hall' : ∀ a, Inh I σr a →
-      ((KoreAML.tr ⟨tbl, []⟩ (KoreAML.ap (c.symName fn.label)
+      ((KoreAML.tr ⟨tbl, []⟩ (symApp c fn.label
         (KoreAML.vars (KoreAML.numbered "X" 0 (fn.args.map c.sortName))))).interpret I e' a ↔
         (KoreAML.tr ⟨tbl, []⟩ (clauseRight c fn cl)).interpret I e' a) := fun m0 hm0 => by
     have hax := sat_fns hI (Or.inl ⟨_, hmem, rfl⟩)
@@ -171,41 +171,24 @@ theorem eqn_atCl [Inhabited M] (hI : I ⊧ᴵP Γ c) [OvlOK c] (hnn : NamesNumbe
     obtain ⟨-, hall⟩ := hprem
     exact hall m0 hm0
   have hcall : ∀ m, (KoreAML.den (symApp c fn.label (GroundTerm.koreList c ws))).interpret I e0 m ↔
-      (KoreAML.tr ⟨tbl, []⟩ (KoreAML.ap (c.symName fn.label)
+      (KoreAML.tr ⟨tbl, []⟩ (symApp c fn.label
         (KoreAML.vars (KoreAML.numbered "X" 0 (fn.args.map c.sortName))))).interpret I e' m := by
     intro m
     unfold KoreAML.den
-    rw [tr_symApp]
-    unfold symHead
-    rw [hnn.2.1 fn hfnm]
-    dsimp only
-    unfold KoreAML.ap
-    rw [KoreAML.tr_app0]
+    rw [tr_symApp, tr_symApp]
     refine call_congr (e0 := e0) (e' := e') (fn.args.map c.sortName) ws 0 _ _ (by rw [List.length_map]; exact hlen)
-      (fun k s w hk hw m => ?_) (fun m => sym_congr (e := e0) (e' := e') _ m) m
+      (fun k s w hk hw m => ?_) (fun m => symHead_congr (e := e0) (e' := e') _ m) m
     rw [Nat.zero_add, hXv k s w hk hw]
     obtain ⟨a, -, hsw⟩ := hargsort k s w hk hw
     exact (elemOf_spec hI hsw e0).1 m
-  have harity : ∀ a, (KoreAML.tr ⟨tbl, []⟩ (KoreAML.ap (c.symName fn.label)
+  have harity : ∀ a, (KoreAML.tr ⟨tbl, []⟩ (symApp c fn.label
       (KoreAML.vars (KoreAML.numbered "X" 0 (fn.args.map c.sortName))))).interpret I e' a → Inh I σr a := by
     intro a ha
-    have hit := sat_sigItem hI (sig_arity (fn_sig_mem hfnm))
-    unfold symArityItem at hit
-    rw [show iteSort? (c.symName fn.sig.name) = none from hnn.2.1 fn hfnm] at hit
-    dsimp only at hit
-    unfold KoreAML.arityItem at hit
-    dsimp only [KoreAML.paramTable, List.map_nil, KoreAML.appList, Fn.sig] at hit
-    have hinc := (KoreAML.interp_included hD).mp (hit e' default) a
-    unfold srtOf at hinc
-    rw [trSort_srt, KoreAML.interp_inhOf_of (S := KoreAML.sym _) hσr1] at hinc
-    apply hinc
-    unfold KoreAML.ap at ha
-    rw [KoreAML.tr_app0] at ha
-    have := call_arity (fn.args.map c.sortName) 0 _ (KoreAML.sym (.symbol (c.symName fn.label))) a ha
+    refine (KoreAML.interp_inhOf_of (S := KoreAML.sym _) hσr1).mp (symArity_at hI (fn_sig_mem hfnm) e' a ?_)
+    rw [tr_symApp] at ha
+    have := call_arity (fn.args.map c.sortName) 0 _ (symHead c fn.label) a ha
       (fun k s hk => ?_) (fun _ h => h)
-    · rw [List.map_map] at this
-      rw [List.map_map]
-      exact this
+    · exact this
     · rw [Nat.zero_add]
       obtain ⟨w, hw, -⟩ : ∃ w, ws[k]? = some w ∧ True := by
         have hjn : k < ws.length := by rw [hlen]; simpa using (List.getElem?_eq_some_iff.mp hk).1

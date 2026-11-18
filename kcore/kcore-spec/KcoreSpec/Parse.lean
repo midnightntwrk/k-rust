@@ -420,6 +420,15 @@ inductive RefusalReason where
   side's elements only where they agree; it checks them before it reads the right side. The detail
   names the connective, its sort and the operand's. -/
   | rhsOperandSort
+  /-- A subsort axiom whose lower sort is K (`[subsort{SortK{}, B}()]`, `∃v. v = inj{K, B}(x)`:
+  kompile's sentence for `syntax B ::= K`, `sortAboveKOf?`). It states that `inj{K, B}` gives every
+  element of K exactly one element of B, so B has an element in every model of the text (the
+  image of `dotk()`'s). The semantics has no subsort pair with lower sort K: its lower sorts are the
+  definition's sorts and the library's sorts below KItem (`Semantics.subsortsOK`), and a K, a
+  sequence of KItems, is no KItem. Read without the axiom, B's values are those of its other
+  generators only, none where it has no other (`Semantics.gens`), while the text gives it one per
+  element of K; no generator the semantics has stands for the injection. The detail names B. -/
+  | sortAboveK
   deriving Repr, DecidableEq, Inhabited
 
 /-- The reason the reader refuses with, for a key `attrVerdict` refuses. -/
@@ -5327,9 +5336,18 @@ def isParametricSubsort (a : Kore.Axiom) : Bool :=
   | [⟨⟨⟨"subsort"⟩⟩, [A, B], []⟩] => (sortName? A).isNone || (sortName? B).isNone
   | _ => false
 
+/-- The upper sort B of a subsort axiom whose lower sort is K: an axiom whose one attribute is
+`subsort{SortK{}, B}()`, as `scanEvent` takes a subsort axiom. `classifyAxiom` refuses it
+`sortAboveK` before any other arm. -/
+def sortAboveKOf? (a : Kore.Axiom) : Option String :=
+  match a.attributes with
+  | [⟨⟨⟨"subsort"⟩⟩, [A, B], []⟩] => if sortName? A == some "K" then sortName? B else none
+  | _ => none
+
 def classifyAxiom (N : Names) (a : Kore.Axiom) : SentenceClass :=
   let s := Kore.Sentence.axiom a
-  if isBuiltinSource a.attributes then .read
+  if (sortAboveKOf? a).isSome then .refused .sortAboveK
+  else if isBuiltinSource a.attributes then .read
   else if isNoPredSentence s then .unread .noSortPredicate
   -- a sentence of a K installation's file about names of its own is read as a user's file's
   else if let some c := (if isKBuiltin a.attributes then classifyKBuiltin s else none) then c
@@ -6791,27 +6809,52 @@ def initConstFn? (c : Semantics) (f : Sym) : Option Term :=
   | none => none
 
 mutual
-  /-- The term with each application `f()` of a function `f` of `c` that `initConstFn?` gives a
-  right side replaced by that right side, which is not itself looked into. -/
-  def initInline (c : Semantics) : Term → Term
-    | .app f [] => (initConstFn? c f).getD (.app f [])
-    | .app f (t :: ts) => .app f (initInlines c (t :: ts))
-    | .inj a b t => .inj a b (initInline c t)
+  /-- The term with each application `f()` of a function `f` of `c` that `initConstFn?` gives the
+  right side `r` replaced by `k f r`; the rest of the term is kept. -/
+  def initInlineK (c : Semantics) (k : Sym → Term → Term) : Term → Term
+    | .app f [] => match initConstFn? c f with
+      | some r => k f r
+      | none => .app f []
+    | .app f (t :: ts) => .app f (initInlinesK c k (t :: ts))
+    | .inj a b t => .inj a b (initInlineK c k t)
     | t => t
     termination_by structural t => t
-  /-- `initInline` of each term. -/
-  def initInlines (c : Semantics) : List Term → List Term
+  /-- `initInlineK` of each term. -/
+  def initInlinesK (c : Semantics) (k : Sym → Term → Term) : List Term → List Term
     | [] => []
-    | t :: ts => initInline c t :: initInlines c ts
+    | t :: ts => initInlineK c k t :: initInlinesK c k ts
     termination_by structural ts => ts
 end
+
+/-- The term with each application `f()` that `initConstFn?` reads replaced by its right side,
+read the same way in turn, at most `n` deep; an `f()` whose function `seen` (the functions it
+stands inside the right sides of) holds is kept. -/
+def initInlineFuel (c : Semantics) : Nat → List Sym → Term → Term
+  | 0, _, t => t
+  | n + 1, seen, t => initInlineK c
+      (fun f r => if seen.contains f then .app f [] else initInlineFuel c n (f :: seen) r) t
+
+/-- **The term with every application `f()` of a function of `c` that `initConstFn?` reads replaced
+by its value's term**, the right side of `f`'s one clause, read the same way in turn. Each
+replacement is the clause applying at the empty argument list (its substitution empty, no other
+clause of `f`), so the term denotes what it denoted. The replacement stops at an `f()` inside the
+right side of `f` itself (directly or through other such functions): the unfolding there would
+not end, so `f()` is kept, and `initGroundVal` gives the term no value (it is not computed). Along a
+chain of replacements the functions are distinct (`seen`), each a function of `c`
+(`initConstFn?` reads `lookupFn`), so a chain is at most `c.allFns.length` long and that depth
+never stops a replacement the repetition would not; each right side is read once on each chain,
+so the work is the size of the result. -/
+def initInline (c : Semantics) (t : Term) : Term :=
+  initInlineFuel c c.allFns.length [] t
 
 /-- The right side of the equation `e` has exactly one value because it is ground and its value is
 computed: literals, injections, constructors, and interpreted symbols each applied to values where
 its meaning gives a value (a partial hook among them, `<s> SetItem(1) SetItem(2) </s>`), and
 functions of `c` without argument whose one clause always applies, each read as its clause's right
-side (`initInline`: the initializer of a cell collection, `initLtCell() = LtCellListItem(<lt>(0))`
-in `initLsCell() = <ls>(initLtCell())`). `Γ` states each interpreted symbol's graph on values, and
+side and that in turn (`initInline`: the initializer of a cell collection,
+`initLtCell() = LtCellListItem(<lt>(0))` in `initLsCell() = <ls>(initLtCell())`, and
+`initIdCell() = <id>(0)` in `initThCell() = ThCellSetItem(<th>(initIdCell()))` inside
+`<ts>(initThCell())`). `Γ` states each interpreted symbol's graph on values, and
 the function's value is its clause's, so the term denotes that value. -/
 def initGroundOK (N : Names) (c : Semantics) (e : RawEqn) : Bool :=
   match term N [] e.rhs with
@@ -7136,6 +7179,9 @@ def classDetail (m : Kore.Module) (s : Kore.Sentence) (r : RefusalReason) : Stri
     | some (f, X) => s!"{X}: an argument of {f} on the equation's left side: the sentence states \
         {f} at every set's elements, at a set of two elements a, b only that {f}(a, b) is the right \
         side or undefined; no clause states that"
+    | none => ""
+  | .sortAboveK, .axiom a => match sortAboveKOf? a with
+    | some b => s!"{b}: the axiom states K < {b}, inj\{K, {b}} total"
     | none => ""
   | _, _ => ""
 

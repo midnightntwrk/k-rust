@@ -15,6 +15,18 @@
   - The results at the fixture (`evalX_mk`, `evalX_inv`): `f(true)` is `false` and `f(false)` is
     `true`, and nothing else. The last clause's `pre` is false at both arguments (`lastX_inv`):
     some element of Bool, `notBool(x)`, gives the right side an element.
+  - `FnHyp` holds of `cX` (`fnHypX`, `eval_fixture_fnHyp`): f has a value at each Bool argument (a
+    value of Bool is a literal, `boolValues`); two clauses that apply at one argument list are the
+    clause of one literal (`appliesX`), so they are coherent (`coherentX`); no clause needs a
+    witness, and there is no parameter.
+  - The fixtures through the reader (`runFx`, the kompiled texts from the cache `kfix.py` keeps):
+    on `e3-eq-exists-bool-ml` the reader's clauses of f (`Parse.clauses?`) are `clsX`, and the
+    text is read (`coreOK`, `readsConfined`, `litSort Srt.bool`). The spelling of EX-KPROV F4,
+    `f(X) => ?B ensures ?B ==Bool notBool X`, is refused by kompile (fixture `e3-eq-exists-bool`,
+    kompile.txt `exit: 113`); `e3-eq-exists-bool-ml` is its `#Exists` spelling. The binder of Int
+    (`e3-eq-exists-int-ml`, h not `total`) and f not `total` (`e3-eq-exists-partial-ml`) are not
+    EX's: the reader refuses both `manyValuedRightSide (\exists)`; their refusal
+    `existentialEquation` and their reading by `Parse.ceRead` are the CE wiring's.
 -/
 import KcoreSpec
 
@@ -327,6 +339,143 @@ theorem eval_fixture :
     (Eval cX Fs [bool false] (some (bool true)) ∧ ∀ r, Eval cX Fs [bool false] r → r = some (bool true)) :=
   ⟨⟨evalX_mk true, fun _ h => evalX_inv h⟩, ⟨evalX_mk false, fun _ h => evalX_inv h⟩⟩
 
+/-! ## `FnHyp` -/
+
+/-- A value of Bool is a literal: `cX` gives Bool its literals only. -/
+theorem boolX {v : GroundTerm} (hv : cX.sortOf v = some Srt.bool) : ∃ x, v = bool x :=
+  boolValues cX_coreOK cX_lit hv
+
+theorem mem_fns {fn : Fn} (h : fn ∈ cX.fns) : fn = fX := by simpa [cX, mk] using h
+
+/-- **A clause of f that applies at an argument list**: the argument is a literal x, X is x, and the
+clause is that of the literal `!x`; the other literal's clause and the last clause do not apply. -/
+theorem appliesX {cl : Clause} (hcl : cl ∈ fX.clauses) {σ : Subst} {vs : List GroundTerm}
+    (h : cl.AppliesAt cX σ vs) :
+    ∃ x, vs = [bool x] ∧ σ.lookup 0 = some (bool x) ∧ cl = clX (litT !x) none (preI !x) := by
+  obtain ⟨hs, hm, -, hpre⟩ := h
+  have hp : cl.pats = [.var 0] := by rcases clX_of hcl with rfl | rfl | rfl <;> rfl
+  rw [hp] at hm
+  obtain ⟨v, rfl, hl⟩ := match0 hm
+  have h0 : ∃ w, σ.lookup 0 = some w ∧ cX.sortOf w = some Srt.bool := by
+    rcases clX_of hcl with rfl | rfl | rfl <;> exact hs 0 (by decide) Srt.bool rfl
+  obtain ⟨w, hw, hws⟩ := h0
+  rw [hl] at hw
+  obtain rfl := Option.some.inj hw
+  obtain ⟨x, rfl⟩ := boolX hws
+  refine ⟨x, rfl, hl, ?_⟩
+  rcases clX_of hcl with rfl | rfl | rfl
+  · have := (bEq_iff true x).mp (preI_inv hl hpre).symm
+    rw [← this]
+  · have := (bEq_iff false x).mp (preI_inv hl hpre).symm
+    rw [← this]
+  · exact absurd (lastX_inv hl hpre) (by simp)
+
+/-- **Any two clauses of f are coherent**: where both apply at one argument list they are one
+clause, whose right side is a literal. -/
+theorem coherentX {cl cl' : Clause} (hcl : cl ∈ fX.clauses) (hcl' : cl' ∈ fX.clauses) : Coherent cX cl cl' := by
+  intro vs σ σ' ha ha' _ _ _ _ _
+  obtain ⟨x, hv, -, rfl⟩ := appliesX hcl ha
+  obtain ⟨x', hv', -, rfl⟩ := appliesX hcl' ha'
+  rw [hv] at hv'
+  have : x' = x := by cases x <;> cases x' <;> first | rfl | exact absurd hv' (by decide)
+  subst this
+  left
+  refine ⟨rfl, rfl, rfl, rfl, fun i hi => ?_, fun t ht => nomatch ht⟩
+  cases x' <;> simp [clX, litT, varOccs] at hi
+
+theorem noWitX : ∀ fn ∈ cX.fns, ∀ cl ∈ fn.clauses, cl.needsWitness cX = false := by decide +kernel
+
+/-- **`FnHyp` holds of `cX`**: f has a result, a value, at each Bool argument (`evalX_mk`), its
+clauses are coherent (`coherentX`), no clause needs a witness, and there is no parameter. -/
+theorem fnHypX : FnHyp cX := by
+  have hres : ∀ vs, cX.sortsOf vs = some fX.args → ∃ x, vs = [bool x] := fun vs hvs => by
+    obtain ⟨v, rfl, hv⟩ := Faithful.Model.sortsOf_single hvs
+    obtain ⟨x, rfl⟩ := boolX hv
+    exact ⟨x, rfl⟩
+  refine ⟨fun fn hfn vs hvs => ?_, fun fn hfn _ vs hvs => ?_, fun fn hfn => ?_, fun fn hfn cl hcl => ?_, ?_, ?_⟩
+  · obtain rfl := mem_fns hfn
+    obtain ⟨x, rfl⟩ := hres vs hvs
+    exact ⟨_, evalX_mk x⟩
+  · obtain rfl := mem_fns hfn
+    obtain ⟨x, rfl⟩ := hres vs hvs
+    exact ⟨_, evalX_mk x⟩
+  · obtain rfl := mem_fns hfn
+    intro cl cl' hp _
+    obtain ⟨h1, h2⟩ := mem_of_mem_pairs hp
+    exact ⟨coherentX h1 h2, coherentX h2 h1⟩
+  · obtain rfl := mem_fns hfn
+    have hx : cl.exs = [] := by rcases clX_of hcl with rfl | rfl | rfl <;> rfl
+    exact (matchIndependent_iff_noExs hx).mpr (coherentX hcl hcl)
+  · exact openDecided_of_coreCl cX_coreOK (fun r hr => by simp [cX, mk] at hr)
+      (fun fn hfn cl hcl hw => absurd hw (by rw [noWitX fn hfn cl hcl]; decide))
+  · exact openLaws_of_plain (fun k hk => by simp [cX, mk] at hk)
+
+/-- **EX-KPROV D3's expectation, with `FnHyp`**: `f(true)` is `false` and `f(false)` is `true`,
+nothing else, and the statements' hypothesis on the functions holds. -/
+theorem eval_fixture_fnHyp :
+    ((Eval cX Fs [bool true] (some (bool false)) ∧ ∀ r, Eval cX Fs [bool true] r → r = some (bool false)) ∧
+    (Eval cX Fs [bool false] (some (bool true)) ∧ ∀ r, Eval cX Fs [bool false] r → r = some (bool true))) ∧
+    FnHyp cX :=
+  ⟨eval_fixture, fnHypX⟩
+
+/-! ## The fixtures through the reader -/
+
+/-- The cache of kompiled fixture texts, as test/constructs/kfix.py names it. -/
+def cacheDir : IO String := do
+  let get := fun (n : String) => do
+    match ← IO.getEnv n with
+    | some d => pure (if d.isEmpty then none else some d)
+    | none => pure none
+  if let some d ← get "KCORE_KFIX_CACHE" then return d
+  if let some d ← get "XDG_CACHE_HOME" then return s!"{d}/kcore-kfix"
+  let home := (← get "HOME").getD "."
+  return s!"{home}/.cache/kcore-kfix"
+
+/-- The kompiled text of fixture `n`, its `BUILTIN/` and `FIXTURE/` paths restored to made-up
+directories (as `kfix.py accounts` restores them before reading). -/
+def load (n : String) : IO Kore.Definition := do
+  let t ← IO.FS.readFile s!"test/constructs/fixtures/{n}/kompile.txt"
+  let some l := (t.splitOn "\n").find? (·.startsWith "definition.kore sha256: ")
+    | throw (IO.userError s!"{n}: kompile.txt names no sha256")
+  let sha := (l.splitOn ": ").getD 1 ""
+  let raw ← IO.FS.readFile s!"{← cacheDir}/{sha}.kore"
+  let raw := ((raw.replace "BUILTIN/" "/made-up-k/include/kframework/builtin/").replace "FIXTURE/" "/made-up-fx/").replace
+    "FIXTURE" "/made-up-fx"
+  match Kore.parseDefinition raw with
+  | .ok k => pure k
+  | .error e => throw (IO.userError s!"{n}: KORE read error {e}")
+
+/-- The clauses the reader gives the equations of `fn` in fixture `n` (`Parse.clauses?`), whether
+they are `clsX`, and `parse`'s verdict on the text. -/
+def runFx (n fn : String) : IO Unit := do
+  let k ← load n
+  let some m := k.modules.getLast? | IO.println s!"{n}: no module"
+  let S := scan m.sentences
+  match envOf m S with
+  | .error f => IO.println s!"{n}: envOf fails {f.reason.name}"
+  | .ok E =>
+    for e in S.eqs.filter (·.fn == fn) do
+      match clauses? E.N E.src e none with
+      | .ok xs => IO.println s!"{n} {fn}: {xs.length} clauses; clsX: {reprStr (xs.map (·.1)) == reprStr clsX}"
+      | .error f => IO.println s!"{n} {fn}: refused {f.reason.name} ({f.detail})"
+  match Parse.parse k with
+  | .error r => IO.println s!"  parse: refused {r.reason.name} ({r.detail})"
+  | .ok d => IO.println s!"  parse: read; coreOK {d.sem.coreOK}; readsConfined {d.sem.readsConfined}; litSort Bool {d.sem.litSort Srt.bool}"
+
+/--
+info: e3-eq-exists-bool-ml Lblf: 3 clauses; clsX: true
+  parse: read; coreOK true; readsConfined true; litSort Bool true
+e3-eq-exists-int-ml Lblh: refused manyValuedRightSide (\exists)
+  parse: refused manyValuedRightSide (\exists)
+e3-eq-exists-partial-ml Lblf: refused manyValuedRightSide (\exists)
+  parse: refused manyValuedRightSide (\exists)
+-/
+#guard_msgs in
+#eval show IO Unit from do
+  runFx "e3-eq-exists-bool-ml" "Lblf"
+  runFx "e3-eq-exists-int-ml" "Lblh"
+  runFx "e3-eq-exists-partial-ml" "Lblf"
+
 end ExLastBinderTest
 
 /-- info: 'ExLastBinderTest.exRead_eqB' depends on axioms: [propext, Classical.choice, Quot.sound] -/
@@ -347,3 +496,7 @@ end ExLastBinderTest
 #guard_msgs in #print axioms ExLastBinderTest.cT_coreOKEx
 /-- info: 'ExLastBinderTest.eval_fixture' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms ExLastBinderTest.eval_fixture
+/-- info: 'ExLastBinderTest.fnHypX' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms ExLastBinderTest.fnHypX
+/-- info: 'ExLastBinderTest.eval_fixture_fnHyp' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms ExLastBinderTest.eval_fixture_fnHyp

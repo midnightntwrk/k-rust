@@ -18,7 +18,12 @@
 -/
 import KcoreSpec.SoundCE
 import KcoreSpec.StepSuccessorExCEx
-import KcoreSpec.ExactHeld
+import KcoreSpec.CompletePP
+import KcoreSpec.ModelChoicePP
+import KcoreSpec.StepValuesPP
+import KcoreSpec.HoldsDecided
+import KcoreSpec.ModelChoiceHeld
+import KcoreSpec.HeldBackAll
 import KcoreSpec.FnModelCEx
 import KcoreSpec.HypModelCoreEx
 
@@ -74,7 +79,7 @@ theorem holds_of_conjPPCEx (h : c.coreOKEx = true) (hft : FnTerminates c) (hI : 
     simp [Cond.conj, hT]
 
 /-- **The step a valuation gives, where it gives every variable a value**, for a rule with
-predicates: `rule_step_of_witnessed`'s conclusion, x's element in `pre` and y's in `post` read by
+predicates: `rule_step_of_witnessedSSx`'s conclusion, x's element in `pre` and y's in `post` read by
 the Holds lemma. -/
 theorem rule_step_of_witnessed_ppCEx (h : c.coreOKEx = true) (hft : FnTerminates c) (hI : I ⊧ᴵP Γc c)
     (hcw : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c) {r : Rule}
@@ -599,7 +604,7 @@ theorem stdI_T_model_heldCEx (c : Semantics) {H : Sym → Bool} (hm : HypModelCo
     exact boolClosed_modelClT hm hlit
   · exact satStepGoal_held hm hrules T hsub φ hφ
 
-/-- **The choice among instances is free, for rules with `pre` and `post`**: `has_model_choice_ex`'s
+/-- **The choice among instances is free, for rules with `pre` and `post`**: `has_model_choice_exCEx`'s
 statement with `rulePlainHeldH` for `rulePlainEx`, under `coreOKEx` and `FnHyp`, so a function's clauses
 may bind variables by `\exists`. The model is the value model at
 `liftT_ex c T`; `hsub` gives its closure through `stepVBy_of_stepBy`, `hall` and `hsome` its rules'

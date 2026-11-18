@@ -1,0 +1,9 @@
+# Hand-written KORE: the kompiled text of fixture e5-ovl-fun (K 7.1.337, definition.kore sha256
+# 632282882e0c551f384f5759bd526299899c61df13eb51223b61851060a9b853), BUILTIN/ and FIXTURE/ restored as paths,
+# and one attribute changed: the declaration of LblplusExp, the first symbol of the symbol-overload axiom,
+# carries constructor{}() in place of anywhere{}(). Kompile declares the first symbol of an overload pair
+# anywhere, functional and injective and never constructor (every symbol-overload axiom of the fixtures'
+# and the corpus's kompiled texts), so no text it delivers has this shape.
+# Expected: refused overloadAxiom (Parse.lean: a symbol-overload axiom whose first symbol is neither an
+# overloading symbol, declared anywhere without constructor, nor a function of the definition).
+kore = "test/constructs/fixtures/hw-ovl-ctor-fn/hw-ovl-ctor-fn.kore"

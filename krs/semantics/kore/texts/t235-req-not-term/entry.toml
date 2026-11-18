@@ -1,0 +1,78 @@
+id = "t235-req-not-term"
+kind = "text"
+subject = "A rewrite rule whose requires is #Not(B), B a Bool term: go(X) => done requires #Not(X >Int 0). Where the condition holds, given that Bool's values are true and false."
+origin = "kcore-spec fixture e3-ml-req-not"
+rests_on = ["kk:t01-rule-applies", "kk:t02-step-successors", "kk:t10-fn-innermost", "kk:t123-req-and"]
+
+[text]
+files = ["t235-req-not-term.k"]
+kompile = "accepts"
+frontend = "as-ruled"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "The condition #Not(B) holds exactly where B denotes false: go(i) has the successor done exactly at the integers i <= 0, and the rule states nothing of go(i) at i > 0. #Not(B) is the complement of what B denotes in Bool, whose values are true and false: where B denotes false it is {true} and the condition holds; where B denotes true it is {false}; where B denotes nothing it is {true, false}; in the last two cases the condition does not hold. So it states what requires notBool B states wherever B has one value or none. This entry rules on a text in which Bool has the two values of the BOOL module and no production of the text's own."
+reason = '''
+(1) The requires clause is a predicate of sort Bool evaluated before the rule applies; where it does not evaluate to true the rule does not apply (kk:t01-rule-applies, user_manual.md:1154-1157). A matching-logic connective in a requires is a pattern of sort Bool, and the condition is that it denote {true}, the truth of Bool converted to the truth of matching logic by {B #Equals true} (domains.md:1080-1082; kk:t123-req-and, points (1) and (2), for #And).
+(2) #Not is the negation of ML-SYNTAX (kast.md:140): the complement in the carrier of its sort (introduction-to-matching-logic.tex:732-733). The boolean values are true and false (domains.md:1084). So #Not(B) denotes {true} where B denotes {false}, {false} where B denotes {true}, and {true, false} where B denotes nothing.
+(3) An equality holds where its two sides denote the same set (introduction-to-matching-logic.tex:880-885). So {#Not(B) #Equals true} holds exactly where B denotes {false}.
+(4) X >Int 0 compares two integers (domains.md:1324-1325): at every integer i it denotes one value, false exactly where i <= 0. So the rule applies at go(i) exactly where i <= 0, and each such configuration has the successor done (kk:t02-step-successors, point (4)).
+(5) notBool B is the negation of a boolean value (domains.md:1106), and an application to an argument that denotes nothing denotes nothing (kk:t10-fn-innermost, point (2)): it denotes {true} exactly where B denotes {false}, which is (3).'''
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1154-1157 (K 7.1.337)"
+quote = "The requires clause is an additional predicate (function-like term of sort `Bool`), which is to be evaluated before applying the rule. If the requires clause does not evaluate to `true`, then the rule does not apply."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1080-1082 (K 7.1.337)"
+quote = "Note that this algebra is different from the builtin truth in matching logic. You can, however, convert from the truth of the `Bool` sort to the truth in matching logic via the expression `{B #Equals true}`."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1084 (K 7.1.337)"
+quote = "The boolean values are `true` and `false`."
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/kast.md:138-140 (K 7.1.337)"
+quote = 'syntax {Sort} Sort ::= "#Top" [symbol(#Top), group(mlUnary)] | "#Bottom" [symbol(#Bottom), group(mlUnary)] | "#Not" "(" Sort ")" [symbol(#Not), mlOp, group(mlUnary, mlOp)]'
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:732-733 (K 7.1.337)"
+quote = '\item $\overline{\rho}(\neg\varphi) = M_s \ \backslash\ \overline{\rho}(\varphi)$ for all $\varphi\in\Pattern_s$'
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:880-885 (K 7.1.337)"
+quote = '''Equality is also a predicate. if $\varphi,\varphi' \in \Pattern_{s_1}$ and $\rho : \Var \ra M$ then $\overline{\rho}(\varphi =_{s_1}^{s_2} \varphi') = \emptyset$ iff $\overline{\rho}(\varphi) \neq \overline{\rho}(\varphi')$, and $\overline{\rho}(\varphi =_{s_1}^{s_2} \varphi') = M_{s_2}$ iff $\overline{\rho}(\varphi) = \overline{\rho}(\varphi')$.'''
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1324-1325 (K 7.1.337)"
+quote = "You can compute whether two integers are less than or equal to, less than, greater than or equal to, greater than, equal, or unequal to another integer."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1106 (K 7.1.337)"
+quote = "* Negate a boolean value."
+
+[ruling.kore]
+statement = '''The requires is written \equals{Bool,GeneratedTopCell}(\not{Bool}(X >Int 0), \dv{Bool}("true")) conjoined with the left side (kore.txt:98-100), and states what the ruling states where the carrier of Bool is the two values true and false. That the carrier is those two is what the hooked sort Bool is (the boolean values of the BOOL module, domains.md:1084-1088), not a further sentence the text writes. In a model whose carrier of Bool held an element besides the two, the complement of {false} would hold that element too and the condition would hold at no valuation.'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:98-100"
+quote = '''\equals{SortBool{},SortGeneratedTopCell{}}( \not{SortBool{}}(Lbl'Unds-GT-'Int'Unds'{}(VarX:SortInt{},\dv{SortInt{}}("0"))), \dv{SortBool{}}("true")))'''
+
+[[ruling.kore.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1084-1088 (K 7.1.337)"
+quote = "The boolean values are `true` and `false`. ```k module SORT-BOOL syntax Bool [hook(BOOL.Bool)]"
+
+[[observe]]
+file = "kore.txt"
+contains = '''\not{SortBool{}}(Lbl'Unds-GT-'Int'Unds'{}(VarX:SortInt{},\dv{SortInt{}}("0")))'''

@@ -19,7 +19,8 @@
 # test/constructs/kklink.py: every Kore-in-K entry id a row or a fixture names (kk) is an entry of
 # krs/semantics/kore, and every row's kk_sha is that entry's present ruling hash (a row whose hash
 # is not current is reported stale, not failed). Then
-# test/constructs/provisional.py: no entry of ../core-manifest.toml is provisional, and each entry
+# test/constructs/provisional.py: no entry of ../core-manifest.toml is provisional (outside its
+# allowance: an entry a pending ticket owes, pinned by declaration), and each entry
 # relabelled stable names the rows.toml entries it leaves refused or parameter, or the sentence "no
 # construct depends on it" (DONE-0 C5 part 4). Then test/constructs/e6map.py --check: each E6 library
 # row's e6_tie is the tie its sentences have in the tie files. Then test/constructs/rest.py check: DONE-0 C2's

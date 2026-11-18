@@ -629,7 +629,7 @@ def Definition.report (d : Definition) : List (String × Bool) :=
    ("rules: well-sorted over the configuration sort", d.sem.rules.all fun r => d.sem.ruleOKAll r && d.sem.rulePredsOK r),
    ("certificate: self calls decrease", d.cert.ok d.sem),
    ("presentation: variable names distinct; cells named apart, the cell holding $PGM of content K or its sort, each with its kind's sorts and symbols, the core's first sorts, constructors and subsorts", d.pres.ok d.sem),
-   ("theory: no function or constructor named like ite at a sort, functions' sorts numbered", Faithful.namesNumbered d.sem),
+   ("theory: no constructor and no overloaded symbol named like ite at a sort, functions' sorts numbered", Faithful.namesNumbered d.sem),
    ("theory: values generated (constructor sorts)", Faithful.genWf d.sem),
    ("theory: no collection sort holds a domain value", Faithful.collSortsOK d.sem),
    ("theory: collections built by the parameters their names denote", Faithful.collsOK d.sem),

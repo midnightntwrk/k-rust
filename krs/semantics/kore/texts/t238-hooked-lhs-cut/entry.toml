@@ -1,0 +1,91 @@
+id = "t238-hooked-lhs-cut"
+kind = "text"
+subject = "List:set (hook LIST.update) in a rewrite rule's left side: <list> _ [ I <- J ] </list>, whose list argument nothing else holds (K's regression text list-set), and <list> L [ I <- J ] </list> with L, I and J bound in the k cell. Where each rule applies, and what the written sentences leave open."
+origin = "K 7.1.337 regression text pyk/regression-new/list-set/test.k, with a second rule"
+rests_on = ["kk:t02-step-successors", "kk:t10-fn-innermost", "kk:t34-collection-values", "kk:t233-rule-conn-cut"]
+
+[text]
+files = ["t238-hooked-lhs-cut.k"]
+kompile = "accepts"
+frontend = "as-ruled"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = """(1) A list update applied to a variable is one of the list patterns the manual allows on a left side. As a pattern, L [ I <- J ] denotes at a valuation the list the update gives at L, I and J; the application stands at its position as any application does, so the left side is the cut of kk:t233-rule-conn-cut: the list cell holds some V with V in L [ I <- J ].
+(2) The first rule, whose list argument (the wildcard) nothing else holds, applies at a configuration whose k cell begins with l(i, j) and whose list cell holds the list v exactly where v is L [ i <- j ] for some list L. Where i is an index of v (0 <= i < size of v): if v's element at i is j, L = v is such a list (the update puts at i the element v already has there) and the rule applies; if v's element at i is not j, no list L gives v, since L [ i <- j ] has j at i, and the rule states nothing there. At an i that is no index of v (negative, or not below the size), what the rule states is not ruled here. On the text's list ListItem(0) ListItem(1) ListItem(2): l(0, 0), l(1, 1) and l(2, 2) have the successor .K in the k cell, the list unchanged; of l(0, 1) the rule states nothing.
+(3) The second rule, whose list argument L the k cell binds, applies at a configuration whose k cell begins with m(l, i, j), l a list, exactly where the list cell holds l [ i <- j ], the list the update gives at l, i and j where it gives one.
+(4) What the written KORE sentences leave open beside this: see [ruling.kore]."""
+reason = '''
+(1) Patterns on a left side may refer to complex terms of sort List although terms which are functions should not appear on a left side, and such terms are destructured into pattern matching operations (user_manual.md:2212-2216); among the forms allowed are one or more list update operations applied to a variable (user_manual.md:2228-2229). List:set is that update, a function of the LIST module (domains.md:978), which creates a new List with a new value at a particular index (domains.md:974-975). So the text's two left sides are allowed patterns.
+(2) A List is a finite sequence of items in which the order counts (kk:t34-collection-values). An application at a valuation denotes the symbol's value at its arguments' values (kk:t10-fn-innermost, point (1)), so L [ I <- J ] at a valuation denotes the list the update gives there; a variable held by the left side only is quantified over every value (kk:t02-step-successors, point (4): the rule holds at every valuation), so the first left side holds every v that some L gives. This is the cut C[V] with V in L [ I <- J ] (kk:t233-rule-conn-cut, point (1)).
+(3) The new list has the new value at the index (domains.md:974-975): where L [ i <- j ] is v, v holds j at i. Where i is an index of v and v holds j there, the update of v at i by j gives v, its items at the other positions being v's (a step: the update changes the value at the one index it names). Indices of a list are counted from 0 at its beginning (domains.md:961-962, said of a lookup); what the update gives at a negative index or one not below the size is not said in the update's section, so the entry rules only where i is an index of v.
+(4) The second rule's L is bound by the k cell to the list m holds, so the left side holds the configurations whose list cell is the update's value at that l, i and j.
+(5) A rewrite rule states that at every valuation every element of its left side has a successor in its right side (kk:t02-step-successors, point (4)): the configurations of (3) and (4) each have the successor whose k cell holds the rest and whose list cell is unchanged.'''
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:2212-2216 (K 7.1.337)"
+quote = "It is allowed to write patterns on the left hand side of rules which refer to complex terms of sort Map, List, and Set, despite these patterns ostensibly breaking the rule that terms which are functions should not appear on the left hand side of rules. Such terms are destructured into pattern matching operations."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:2228-2229 (K 7.1.337)"
+quote = "// 1 or more list update operations applied to a variable L:List [ K1 <- E1 ] [ K2 <- E2 ]"
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:974-975 (K 7.1.337)"
+quote = "You can create a new `List` with a new value at a particular index in O(log(N)) time, or effectively constant."
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:978 (K 7.1.337)"
+quote = 'syntax List ::= List "[" index: Int "<-" value: KItem "]" [function, hook(LIST.update), symbol(List:set)]'
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:961-962 (K 7.1.337)"
+quote = "Positive `Int` indices are 0-indexed from the beginning of the list, and negative indices are -1-indexed from the end of the list."
+
+[ruling.kore]
+statement = '''The left sides are written <list>(List:set(_Gen0, I, inj{Int,KItem}(J))) #as _Gen1 (kore.txt:135) and <list>(List:set(L, I, inj{Int,KItem}(J))) #as _Gen0 (kore.txt:144), the list cell kept on the right side by its as-variable (kore.txt:138, 147). In the first, _Gen0 is free and occurs nowhere else in the axiom: the axiom holds at every valuation of it, so its left side at a valuation of I and J is in effect the union over every element e of the carrier of List of the configurations with List:set(e, i, j) in the list cell. The LIST module states the update's value where its arguments are lists. That every element of List's carrier is a list is what the hooked sort List is (an implementation of lists, domains.md:902-904, 914), not a sentence the text writes; the written sentences state nothing of List:set at an element of the carrier that is no list, if a model has one. So at a configuration whose list v no list L gives as L [ i <- j ] (i an index of v whose element is not j), whether some other element e of the carrier gives List:set(e, i, j) = v, and so whether the first rule applies there, is not stated by the written sentences: one model may have such an e and another not. The second rule's L is the list the k cell holds, so at a configuration whose k cell holds m(l, i, j) with l a list, the update's value is the module's and whether the rule applies is stated; only where the k cell holds an element of List that is no list is it open in the same way.'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:135"
+quote = '''\and{SortListCell{}}(Lbl'-LT-'list'-GT-'{}(LblList'Coln'set{}(Var'Unds'Gen0:SortList{},VarI:SortInt{},inj{SortInt{}, SortKItem{}}(VarJ:SortInt{}))),Var'Unds'Gen1:SortListCell{})'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:138"
+quote = '''Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(Var'Unds'DotVar1:SortK{}),Var'Unds'Gen1:SortListCell{},Var'Unds'DotVar0:SortGeneratedCounterCell{})'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:144"
+quote = '''Lbl'-LT-'k'-GT-'{}(kseq{}(Lblm{}(VarL:SortList{},VarI:SortInt{},VarJ:SortInt{}),Var'Unds'DotVar1:SortK{})),\and{SortListCell{}}(Lbl'-LT-'list'-GT-'{}(LblList'Coln'set{}(VarL:SortList{},VarI:SortInt{},inj{SortInt{}, SortKItem{}}(VarJ:SortInt{}))),Var'Unds'Gen0:SortListCell{})'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:767-768 (K 7.1.337)"
+quote = 'Model $M$ \emph{satisfies} $\varphi_s$, written ${M}\models \varphi_s$, iff $\overline{\rho}(\varphi_s) = M_s$ for all $\rho:\Var\rightarrow M$.'
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:704-707 (K 7.1.337)"
+quote = '''An $S$-sorted set $\{M_s\}_{s\in S}$, where each set $M_s$, called the \emph{carrier of sort $s$ of $M$}, is assumed non-empty'''
+
+[[ruling.kore.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:902-904 (K 7.1.337)"
+quote = "Provided here is the syntax of an implementation of immutable, associative lists of `KItem`. This type is hooked to an implementation of lists provided"
+
+[[ruling.kore.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:914 (K 7.1.337)"
+quote = "syntax List [hook(LIST.List)]"
+
+[[observe]]
+file = "kore.txt"
+contains = '''LblList'Coln'set{}(Var'Unds'Gen0:SortList{},VarI:SortInt{},inj{SortInt{}, SortKItem{}}(VarJ:SortInt{}))'''

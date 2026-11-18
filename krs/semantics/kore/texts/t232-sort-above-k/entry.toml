@@ -1,0 +1,88 @@
+id = "t232-sort-above-k"
+kind = "text"
+subject = "A sort whose one production is `syntax S ::= K` (REQUIRES-ENSURES' #RuleBody): what its subsort axiom subsort{K, S} and S's no-junk axiom state, and what they leave open."
+origin = "kcore-spec fixture e6-mod-requires-ensures"
+
+[text]
+files = ["t232-sort-above-k.k"]
+kompile = "accepts"
+frontend = "differs"
+frontend_difference = "The K text makes #RuleBody a subsort of KItem (the production syntax KItem ::= #RuleBody K inserts for every declared sort), and the kompiled text holds no subsort axiom #RuleBody < KItem (no sentence with subsort{Sort'Hash'RuleBody{}, SortKItem{}}), while it applies inj{#RuleBody,KItem} in is#RuleBody's equations (kore.txt:59, 91)."
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "`syntax #RuleBody ::= K` (kast.md:343) is a subsort production: K is a subsort of #RuleBody, and every K, `.K` among them, is also a #RuleBody, through an injection. It is #RuleBody's one production. K implicitly makes #RuleBody a subsort of KItem, and KItem is a subsort of K (kast.md:39), so the three sorts lie on a cycle of the subsort relation, K < #RuleBody < KItem < K. The K text says nothing more of #RuleBody."
+reason = """
+(1) A production `syntax S ::= S2` is a subsort production: S2 is a subsort of S, any S2 is also an S, and an injection keeps track of where the subsorting occurs (11_casts/README.md:164-170). kast.md:343 is one with S = #RuleBody and S2 = K, so every K is also a #RuleBody. Module REQUIRES-ENSURES (kast.md:340-349) declares no other production of sort #RuleBody: its four others are of sort #RuleContent and take a #RuleBody as an argument.
+(2) For every sort S declared in a definition other than K and KItem, K implicitly inserts `syntax KItem ::= S` (13_rewrite_rules/README.md:58-68): #RuleBody is a subsort of KItem. BASIC-K declares `syntax K ::= KItem` (kast.md:39): KItem is a subsort of K. With (1), K < #RuleBody < KItem < K."""
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/kast.md:340-349 (K 7.1.337)"
+quote = '''module REQUIRES-ENSURES imports BASIC-K syntax #RuleBody ::= K syntax #RuleContent ::= #RuleBody [symbol("#ruleNoConditions")] | #RuleBody "requires" Bool [symbol("#ruleRequires")] | #RuleBody "ensures" Bool [symbol("#ruleEnsures")] | #RuleBody "requires" Bool "ensures" Bool [symbol("#ruleRequiresEnsures")] endmodule'''
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/kast.md:35-39 (K 7.1.337)"
+quote = '''module BASIC-K imports ML-SYNTAX imports SORT-BOOL syntax KItem [hook(K.KItem)] syntax K ::= KItem'''
+
+[[ruling.basis]]
+source = "tutorial"
+locator = "k-distribution/k-tutorial/1_basic/11_casts/README.md:164-170 (K 7.1.337)"
+quote = '''Remember from above that such a production looks like `syntax S ::= S2`. This type of production, called a **subsort production**, can be thought of as a type of inheritance involving constructors. If we have the above production in our grammar, we say that `S2` is a subsort of `S`, or that any `S2` is also an `S`. K implicitly maintains a symbol at runtime which keeps track of where such subsortings occur; this symbol is called an **injection**.'''
+
+[[ruling.basis]]
+source = "tutorial"
+locator = "k-distribution/k-tutorial/1_basic/13_rewrite_rules/README.md:58-68 (K 7.1.337)"
+quote = '''For every sort `S` declared in a definition (with the exception of `K` and `KItem`), K will implicitly insert the following production: ``` syntax KItem ::= S ``` In other words, every sort is a subsort of the sort `KItem`'''
+
+[ruling.kore]
+statement = """The text states the subsort K < #RuleBody by one axiom, the only subsort axiom naming #RuleBody (kore.txt:10): \\exists Val. Val = inj{K,#RuleBody}(From), From free. So inj{K,#RuleBody} gives every element of K exactly one element of #RuleBody, and in every model #RuleBody holds the image of each element of K, of which there is at least one. #RuleBody's no-junk axiom (kore.txt:44) states that every element of #RuleBody is in the image of one of fourteen injections inj{X,#RuleBody}, X one of Bool, GeneratedCounterCell, GeneratedCounterCellOpt, GeneratedTopCell, GeneratedTopCellFragment, Int, K, KCell, KCellOpt, KConfigVar, KItem, List, Map, Set.
+Left open by the text: for the thirteen X other than K it holds no subsort axiom, so it states neither that inj{X,#RuleBody} gives an element of X exactly one element of #RuleBody, or any, nor how the images of those injections stand to inj{K,#RuleBody}'s. The prelude's composition axiom (prelude.kore:50-51) equates inj{X,#RuleBody}(x) with inj{KItem,#RuleBody}(inj{X,KItem}(x)), an injection through KItem, and never reaches inj{K,#RuleBody}: an element of KItem becomes one of K by kseq, a constructor, not by an injection. So whether inj{Int,#RuleBody}(1) and inj{K,#RuleBody}(kseq(inj{Int,KItem}(1), dotk())) are one element is not stated. The text applies inj{#RuleBody,KItem} in is#RuleBody's equation (kore.txt:91) and holds no subsort axiom #RuleBody < KItem, so what that injection gives an element of #RuleBody is not stated either."""
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:10"
+quote = '''axiom{R} \exists{R} (Val:Sort'Hash'RuleBody{}, \equals{Sort'Hash'RuleBody{}, R} (Val:Sort'Hash'RuleBody{}, inj{SortK{}, Sort'Hash'RuleBody{}} (From:SortK{}))) [subsort{SortK{}, Sort'Hash'RuleBody{}}()]'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:44"
+quote = '''axiom{} \or{Sort'Hash'RuleBody{}} (\exists{Sort'Hash'RuleBody{}} (Val:SortBool{}, inj{SortBool{}, Sort'Hash'RuleBody{}} (Val:SortBool{})), ... \exists{Sort'Hash'RuleBody{}} (Val:SortK{}, inj{SortK{}, Sort'Hash'RuleBody{}} (Val:SortK{})), ... \exists{Sort'Hash'RuleBody{}} (Val:SortSet{}, inj{SortSet{}, Sort'Hash'RuleBody{}} (Val:SortSet{})), \bottom{Sort'Hash'RuleBody{}}()) [constructor{}()]'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:91"
+quote = '''kseq{}(inj{Sort'Hash'RuleBody{}, SortKItem{}}(Var'Hash'RuleBody:Sort'Hash'RuleBody{}),dotk{}())'''
+
+[[ruling.kore.basis]]
+source = "prelude"
+locator = "k-distribution/include/kframework/kore/prelude.kore:50-51 (K 7.1.337)"
+quote = '''symbol inj{From, To}(From) : To [sortInjection{}()] axiom {S1, S2, S3, R} \equals{S3, R}(inj{S2, S3}(inj{S1, S2}(T:S1)), inj{S1, S3}(T:S1)) [simplification{}()]'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:960-964 (K 7.1.337)"
+quote = '''For example, if $f$ is a unary symbol, then the pattern equation ``$\forall x\,.\,\exists y\,.\,f(x) = y$'' (the convention for free variables allows us to drop the universal quantifier) states that in any model $M$, the set $f_M(a)$ contains precisely one element for any $a\in M$; i.e. $f$ is a total function.'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:704-707 (K 7.1.337)"
+quote = '''An $S$-sorted set $\{M_s\}_{s\in S}$, where each set $M_s$, called the \emph{carrier of sort $s$ of $M$}, is assumed non-empty'''
+
+[[observe]]
+file = "kore.txt"
+contains = "[subsort{SortK{}, Sort'Hash'RuleBody{}}()]"
+
+[[observe]]
+file = "kore.txt"
+absent = "subsort{SortKItem{}, Sort'Hash'RuleBody{}}"
+
+[[observe]]
+file = "kore.txt"
+absent = "subsort{Sort'Hash'RuleBody{}, SortKItem{}}"
+
+[[observe]]
+file = "kore.txt"
+absent = "subsort{SortInt{}, Sort'Hash'RuleBody{}}"

@@ -1763,6 +1763,26 @@ table above, on the tree before String and Bytes). Not investigated here.
   `Semantics.libAdmitted`, 374 (`replaceAll`, 1917) and 377 (`rfindChar`, 1893), and so at
   `HookParams.lib` (`_lib`). The header lists the sentences not tied and why (1898, 1891, 2250 to
   2258). Axioms guarded.
+- `test/LibEvDeclsFlt.lean`: the declarations of `f2-examples/silentflt.kompile.kore` in the
+  direction E, for every H: the item of each sort declaration without sort parameters
+  (`decls_entailed`) and of the library's symbol declarations named in `libDeclNames`
+  (BYTES-HOOKED's `bigEndianBytes`, `littleEndianBytes`, `signedBytes`, `unsignedBytes`; FLOAT's
+  `isInfinite`, `sqrtFloat`, `=/=Float`; `lib_decls_entailed`). `dividesInt_absent` and
+  `int2BytesNoLen_absent_decl`: INT-COMMON's `dividesInt` and BYTES-HOOKED's `Int2BytesNoLen` are
+  declared without sort parameters, are parameter symbols of their modules that no hook
+  interprets, and name no symbol of Γ (the reading has no parameter symbol); the library's
+  equation of `dividesInt` (274, domains.md 1454) applies it, the one head it applies that Γ lacks.
+  Axioms printed.
+- `test/LibEvDeclsStrBuf.lean`: the declarations of `f2-examples/e6sb.kompile.kore` (the fixture
+  e6-string-buffer) in the direction E, for every H: each sort declaration without sort
+  parameters (`decls_entailed`) and STRING-BUFFER-IN-K's three symbol declarations
+  (`lib_decls_entailed`), which the rule applies and the reading has as parameter symbols
+  (`params_sb`). Axioms printed.
+- `test/IteIntParam.lean`: on `f2-examples/e6ite.kompile.kore` (the fixture e6-ite-int), the
+  reading's one parameter symbol is `ite{Int}`, implemented by `kIte` (`params_ite`); Γ holds it
+  and applies it at the head `Lblite{SortInt{}}`, for every H (`ite_int_in_gamma`); the module's
+  sentences applying that head are the rule and `findChar`'s equation (domains.md 1891), every head
+  of which is Γ's (`ite_int_sentences`, `findChar_heads_in_gamma`). Axioms printed.
 - `test/LibEvCollSym.lean`: the lemmas of MAP-KORE-SYMBOLIC and SET-KORE-SYMBOLIC of
   `f2-examples/collsym.kompile.kore`, for every H, from the library's statements
   (`KcoreSpec/LibEvCollSym.lean`): entailed at values, without an `ensures` (`LibEv.Eqn`; domains.md
@@ -1860,12 +1880,15 @@ table above, on the tree before String and Bytes). Not investigated here.
   `f2-examples/projapp.kore` (fixture kore-projapp), for every H. `project:Int`'s selector-domain
   axiom (sentence 179) with the signature entails Γ's item of the clause read from it (`w1`: where
   X0 is no injected Int the axiom's right side is empty, so `project:Int(X0)` holds no element of
-  Int); the other function equations are Γ's items (`shape`, `fns_entailed`, `fns_from_text`);
+  Int), and Γ entails the axiom (`dom_entailed`: where `⌈project:Int(K)⌉` holds, the arity of
+  `project:Int` and `w1`'s item put K in the form `kseq(inj(V), dotk)`, one element by Cons-Fun;
+  conversely sentence 178 gives the value V); the other function equations are Γ's items (`shape`,
+  `fns_entailed`, `fns_from_text`);
   `cons_entailed`; `account`, with the 13 other selector-domain axioms about projections that are
   no symbol of the definition (`other_domains`). `attrsAgree` is false here by its priorities part
   (`prios_read_clause`: no equation states the read clause's 200). `Consistent` is not derived: the
   deciders name `project:Int`'s termination (`dec_named`). Derivations from `Pre H`: `proj_5`,
-  `proj_dotk`. About 2.5 minutes, 6.3 GiB.
+  `proj_dotk`. About 2.5 minutes, 6.6 GiB.
 - `test/NoteStream.lean`: the tie (C14) of the reading notes `reflectionAsOwn` and `streamRule` on
   e2-cells-stream's kompiled text (`f2-examples/cellsstream`), for every H. The eight K-REFLECTION
   declarations are of symbols of Γ whose arity items are Γ's (`refl_arity`, `refl_entailed`); the
@@ -1960,6 +1983,12 @@ table above, on the tree before String and Bytes). Not investigated here.
   `InertEvUser.EqnU.entailed`), from `f(n) = n` at every integer (`eval_all`) and a value table that
   takes `isKResult`'s value at each K, which it has for every H (`isKResult_total`, the sort predicates'
   totality); both sides are n whatever the `requires` is.
+- `test/InertE3Setvar.lean`: the C2 evidence of the inert simplification over a set variable
+  `rule f(@S) => @S [simplification]` (fixture e3-setvar): Γ entails it for every H, at every
+  valuation (`lem_entailed`). Γ entails f's equation `f(X) => X` (`eq_entailed`, by the kernel shape
+  check of Γ's function items against the text), so in a model `f` at an inhabitant x of Int holds,
+  among the inhabitants of Int, exactly x (`eqn_at`); the sentence's guard puts `@S` inside Int's
+  inhabitants, and application is pointwise, so both sides hold exactly `@S` there.
 - `test/InertSemPairs.lean`, `test/InertPassAttrs.lean`: inert constructs that leave a mark in the text
   and no sentence the reading states: the fixture's text and its companion's have one semantics, so at
   every H one Γ and one `Step` (`sem_eq`, `withHooks_eq`, `gamma_eq`): `--disable-ceil-simplification-rules`

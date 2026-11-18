@@ -7,14 +7,14 @@
   term's sort reads the sorts of its own variables only (`sortOfTerm_congr`, ModelPat.lean), and a translated term
   the valuation at its own variables only (`tr_kore_congr`).
 
-  - `NotApplies c r x` gives `¬applies` at x's element (`not_applies_of_notApplies`), for a rule
+  - `NotApplies c r x` gives `¬applies` at x's element (`not_applies_of_notApplies_heldCEx`, SoundCEx.lean), for a rule
     with `ruleSorted`, `rulePlainOpen` and a larger rule: by the competition conjunct, each open
     condition variable is of a confined sort (`confined_value`), or the conditions are closed and
     `needsWitness` holds, so they are decided: `Refuted` fails where `applies` holds
     (`cond_not_refuted_at`), and `Witnessed` with x's match gives the rule's application at values.
-  - Conversely, a rule that applies at values applies in a model (`applies_of_values`), so where its
+  - Conversely, a rule that applies at values applies in a model (`applies_of_valuesSSx`), so where its
     `requires` has a result at each match, `¬applies` at a valuation gives `NotApplies`
-    (`notApplies_of_not_applies`). No arm is read.
+    (`notApplies_of_not_appliesSSx`). No arm is read.
 
   This file holds the readings those lemmas share (`Rule.leftSorts`, `fillV`, `setV`,
   `PatVal.congr_lookup`); the lemmas themselves read the functions' clauses through

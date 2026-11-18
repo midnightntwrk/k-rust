@@ -1,0 +1,86 @@
+id = "t237-hook-eq-owed"
+kind = "text"
+subject = "Equations of the text's own for two symbols of the INT module whose values the module states: X +Int 0 => X with no attribute, and X *Int 1 => X [simplification]. What each states, whether the attribute changes it, and how the sentences stand against the values the module gives."
+origin = "kcore-spec fixture c3-hook-eq-lib (its rule), and a simplification rule"
+rests_on = ["kk:t10-fn-innermost", "kk:t11-eq-applies", "kk:t91-set-variable-lemmas", "kk:t193-hook-eq-user"]
+
+[text]
+files = ["t237-hook-eq-owed.k"]
+kompile = "accepts"
+frontend = "as-ruled"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "Each rule is a sentence of the text about a symbol whose value the INT module states at every pair of integers: the first states x +Int 0 = x, the second x *Int 1 = x, each at every integer x. The simplification attribute does not change what the second states: it says how the sentence is used, and the sentence is the equality written. Neither sentence defines its symbol anew: each is a claim about the values the INT module gives, true or false of them. Both are true here (x + 0 = x and x * 1 = x), so the text has a model in which +Int and *Int are the sum and the product. Had either been false of those values at some integer (as X +Int 1 => X would be at every one), the text would state two values there and have no model, whatever the sentence's attributes. That is the same ruling kk:t193-hook-eq-user gives for a symbol of the text's own hooked to INT.add, here for the module's own symbols and with or without the attribute."
+reason = '''
+(1) An equation states its right side at every argument its patterns denote, under a valuation of its variables at which its requires holds (kk:t11-eq-applies). Neither rule has a requires: the first states x +Int 0 = x and the second x *Int 1 = x at every integer x.
+(2) The simplification attribute identifies a rule outside the main semantics used to simplify function patterns (user_manual.md:1388-1389). It gives the sentence a use and no other meaning than the one written (kk:t91-set-variable-lemmas, point (2)). An attribute of a written sentence is a hint whose semantic content should correspond to axioms declared explicitly, and the meaning of a particular attribute is left to each implementation (kore-syntax.md:223-228). So the second rule states the same equality it would state without the attribute.
+(3) +Int computes the sum and *Int the product of two integers (domains.md:1232, 1238), declared with hook(INT.add) and hook(INT.mul) (domains.md:1253, 1266). x + 0 = x and x * 1 = x at every integer, so both sentences are true of the module's values and the text has the model in which the two symbols are the sum and the product (as kk:t193-hook-eq-user, point (3)).
+(4) A sentence false of those values at some integers would state there a second value beside the one the module states; a function application denotes at most one value (user_manual.md:540-544; kk:t10-fn-innermost, point (3)), so the text would have no model (kk:t193-hook-eq-user, point (3)). By (2) the attribute does not change this.'''
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1388-1389 (K 7.1.337)"
+quote = "The simplification attribute identifies rules outside the main semantics that are used to simplify function patterns."
+
+[[ruling.basis]]
+source = "kore-syntax"
+locator = "haskell-backend/docs/kore-syntax.md:223-228 (K 7.1.337)"
+quote = "Attributes are hints to the backend, often collected by the frontend. Some attributes express syntactic information, while others express semantic information. All semantic information contained in attributes should correspond to axioms declared explicitly. The hints indicate when the backend may use faster algorithms, more efficent data structures, and so on. The meaning of particular attributes is implementation-defined."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1232 (K 7.1.337)"
+quote = "* Compute the product `*Int` of two integers."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1238 (K 7.1.337)"
+quote = "Compute the sum `+Int` or difference `-Int` of two integers."
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1253 (K 7.1.337)"
+quote = 'Int "*Int" Int [function, total, symbol(_*Int_), left, comm, smt-hook(*), hook(INT.mul)]'
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1266 (K 7.1.337)"
+quote = 'Int "+Int" Int [function, total, symbol(_+Int_), left, comm, smt-hook(+), hook(INT.add)]'
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:540-544 (K 7.1.337)"
+quote = "Semantically, it means that evaluation of that symbol will result in at most one return value (that is, the symbol is a *partial function*)."
+
+[ruling.kore]
+statement = '''kompile writes the first rule as an equation of +Int, \implies(X0 in X and X1 in 0, +Int(X0, X1) = X) (kore.txt:71-89), and the second as \implies(\top, *Int(X, 1) = X) with the attribute simplification{}("") (kore.txt:61-68). The premises of the first say no more than X0 = X and X1 = 0 (a membership in a variable or a literal holds exactly at its one element), so the two sentences are the equalities of the ruling, each holding at every valuation of X in the carrier of Int. The INT module states the values of +Int and *Int at integers. That every element of Int's carrier is an integer is what the hooked sort Int is (an implementation of arbitrary-precision integer arithmetic, domains.md:1196-1197), not a sentence the text writes: at an element of Int's carrier that is no integer, if a model has one, the module states no value of the two symbols, and the two sentences are claims of the text's own there.'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:61-68"
+quote = '''axiom{R} \implies{R} ( \top{R}(), \equals{SortInt{},R} ( Lbl'UndsStar'Int'Unds'{}(VarX:SortInt{},\dv{SortInt{}}("1")), \and{SortInt{}} ( VarX:SortInt{}, \top{SortInt{}}()))) ... simplification{}("")]'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:75-89"
+quote = '''\in{SortInt{}, R} ( X0:SortInt{}, VarX:SortInt{} ),\and{R} ( \in{SortInt{}, R} ( X1:SortInt{}, \dv{SortInt{}}("0") ), \top{R} () ))), \equals{SortInt{},R} ( Lbl'UndsPlus'Int'Unds'{}(X0:SortInt{},X1:SortInt{}), \and{SortInt{}} ( VarX:SortInt{}, \top{SortInt{}}())))'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:897-902 (K 7.1.337)"
+quote = '''Membership is also a predicate. Specifically, for any $\rho:\Var\ra M$, $\overline{\rho}(x \in_{s_1}^{s_2} \varphi) = \emptyset$ iff $\rho(x) \not\in \overline{\rho}(\varphi)$, and $\overline{\rho}(x \in_{s_1}^{s_2} \varphi) = M_{s_2}$ iff $\rho(x) \in \overline{\rho}(\varphi)$.'''
+
+[[ruling.kore.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1196-1197 (K 7.1.337)"
+quote = "Provided here is the syntax of an implementation of arbitrary-precision integer arithmetic in K. This type is hooked to an implementation of integers"
+
+[[observe]]
+file = "kore.txt"
+contains = '''simplification{}("")'''
+
+[[observe]]
+file = "kore.txt"
+contains = '''Lbl'UndsPlus'Int'Unds'{}(X0:SortInt{},X1:SortInt{})'''

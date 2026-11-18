@@ -1,0 +1,11 @@
+command: kompile --backend haskell e5-ovl-param.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.8
+definition.kore bytes: 205798
+definition.kore sha256: 138b768194421dbeb7cd57fd04dc448740c6309774c687f72f0d47cfac5d9374
+stripped sha256: cf9f2ec4e88173b08dccab1025c5b9168958a6e9f25508f90fd7e8362332a787
+main module: 404 sentences, 48 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E5-OVL-PARAM-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E5-OVL-PARAM as default.

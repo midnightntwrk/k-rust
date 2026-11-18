@@ -142,6 +142,18 @@ def equationAx (f : String) (args : List String) (res : String) (prem rhs ens : 
   axiomR (.implies R prem (.equals (srt res) R (ap f (vars (numbered "X" 0 args)))
     (.and (srt res) [rhs, ens]))) attrs
 
+/-- `equationAx` with the left side given as a pattern, for an equation of a symbol that is applied
+at sort arguments: `\implies{R}(prem, \equals{res,R}(lhs, \and{res}(rhs, ens)))`. -/
+def equationAt (lhs : Kore.Pattern) (res : String) (prem rhs ens : Kore.Pattern)
+    (attrs : List Kore.AppPattern) : Kore.Sentence :=
+  axiomR (.implies R prem (.equals (srt res) R lhs (.and (srt res) [rhs, ens]))) attrs
+
+/-- `equationAx` is `equationAt` at the plain application of `f` to the formal arguments. -/
+theorem equationAx_eq_at (f : String) (args : List String) (res : String) (prem rhs ens : Kore.Pattern)
+    (attrs : List Kore.AppPattern) :
+    equationAx f args res prem rhs ens attrs =
+      equationAt (ap f (vars (numbered "X" 0 args))) res prem rhs ens attrs := rfl
+
 /-- A variable as `emit` writes it: the presentation's name, the core's sort. -/
 structure Var where
   name : String
