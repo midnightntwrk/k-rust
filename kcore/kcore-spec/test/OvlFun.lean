@@ -113,7 +113,7 @@ def c : Semantics :=
     rules := []
     ovls := [⟨⟨plusExp, [expS, expS], expS⟩, [plusInt]⟩] }
 
-theorem light_ok : light c = true := by decide +kernel
+theorem light_ok : light c = true := by rw [light]; decide_cheap
 
 open Faithful.Model in
 theorem names_ok : namesApartFast c = true := by decide +kernel
@@ -223,7 +223,7 @@ def ovlfun : Semantics := sem rWrap
 /-- e5-ovl-fun-lhs. -/
 def lhs : Semantics := sem rLhs
 
-theorem light_ovlfun : light ovlfun = true := by decide +kernel
+theorem light_ovlfun : light ovlfun = true := by rw [light]; decide_cheap
 
 open Faithful.Model in
 theorem names_ovlfun : namesApartFast ovlfun = true := by decide +kernel
@@ -233,7 +233,7 @@ theorem ites_ovlfun : itesApart ovlfun = true := by decide_cheap
 
 theorem others_ovlfun : others ovlfun = true := others_of light_ovlfun names_ovlfun ites_ovlfun
 
-theorem light_lhs : light lhs = true := by decide +kernel
+theorem light_lhs : light lhs = true := by rw [light]; decide_cheap
 
 open Faithful.Model in
 theorem names_lhs : namesApartFast lhs = true := by decide +kernel
@@ -321,7 +321,7 @@ def c : Semantics :=
     rules := []
     ovls := [⟨⟨capGas, [gasS], gasS⟩, [capN]⟩] }
 
-theorem light_ok : light c = true := by decide +kernel
+theorem light_ok : light c = true := by rw [light]; decide_cheap
 
 open Faithful.Model in
 theorem names_ok : namesApartFast c = true := by decide +kernel
@@ -373,23 +373,23 @@ def rBig : Rule :=
   { vars := [bigS, bigS, Srt.counter], lhs := cfg kl bigS (.app plusBig [.var 0, .var 1]) 2, req := none,
     rhs := cfg kl bigS (.var 0) 2, ens := none, prio := 50 }
 
-theorem light_false : light (c false) = true := by decide +kernel
+theorem light_false : light (c false) = true := by rw [light]; decide_cheap
 
 open Faithful.Model in
 theorem names_false : namesApartFast (c false) = true := by decide +kernel
 
 open Faithful.Model in
-theorem ites_false : itesApart (c false) = true := by decide +kernel
+theorem ites_false : itesApart (c false) = true := by decide_cheap
 
 theorem others_false : others (c false) = true := others_of light_false names_false ites_false
 
-theorem light_true : light (c true) = true := by decide +kernel
+theorem light_true : light (c true) = true := by rw [light]; decide_cheap
 
 open Faithful.Model in
 theorem names_true : namesApartFast (c true) = true := by decide +kernel
 
 open Faithful.Model in
-theorem ites_true : itesApart (c true) = true := by decide +kernel
+theorem ites_true : itesApart (c true) = true := by decide_cheap
 
 theorem others_true : others (c true) = true := others_of light_true names_true ites_true
 
@@ -456,13 +456,13 @@ def c (over : List Sym) : Semantics :=
     rules := [rY, rZ]
     ovls := [⟨⟨fS, [aS], sS⟩, over⟩] }
 
-theorem light_ok : light (c [fB]) = true := by decide +kernel
+theorem light_ok : light (c [fB]) = true := by rw [light]; decide_cheap
 
 open Faithful.Model in
 theorem names_ok : namesApartFast (c [fB]) = true := by decide +kernel
 
 open Faithful.Model in
-theorem ites_ok : itesApart (c [fB]) = true := by decide +kernel
+theorem ites_ok : itesApart (c [fB]) = true := by decide_cheap
 
 theorem others_ok : others (c [fB]) = true := others_of light_ok names_ok ites_ok
 

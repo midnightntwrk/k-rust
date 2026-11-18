@@ -110,7 +110,8 @@ theorem mems : projectSym Srt.int ∈ regProjs ∧ projectSym Srt.k ∈ regProjs
   decide +kernel
 
 /-- **No premise of the theory applies a registry projection** (decided). -/
-theorem free : freeB c regProjs = true := by decide +kernel
+theorem free : freeB c regProjs = true := by
+  rw [freeB, DetachedB.listsB, DetachedB.valuesB, DetachedB.graphsB]; decide_cheap 40
 
 theorem int_free : ∀ φ, (Faithful.Γc c ∪ Faithful.Γstep c) φ → KoreAML.Sym.symbol "Lblproject'Coln'Int" ∉ psyms φ := by
   have := sym_free c regProjs coreOK free mems.1
@@ -128,7 +129,7 @@ theorem kitem_free : ∀ φ, (Faithful.Γc c ∪ Faithful.Γstep c) φ → KoreA
 `project:KItem` together. -/
 
 /-- Every premise of the theory is rooted (decided on its lists). -/
-theorem rooted : rootedListsB c = true := by decide +kernel
+theorem rooted : rootedListsB c = true := by rw [rootedListsB]; decide_cheap 40
 
 def projNames : String → Prop := fun n => n ∈ ["Lblproject'Coln'Int", "Lblproject'Coln'K", "Lblproject'Coln'KItem"]
 
@@ -208,9 +209,9 @@ definition_of defn from "f2-examples/prio.kore"
 
 noncomputable abbrev c : Semantics := defn.sem
 
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_cheap
 
-theorem rooted : rootedListsB c = true := by decide +kernel
+theorem rooted : rootedListsB c = true := by rw [rootedListsB]; decide_cheap 40
 
 def projB : String := "Lblproject'Coln'B"
 def projKCell : String := "Lblproject'Coln'KCell"
@@ -223,9 +224,11 @@ def names : List String := [projB, projKCell, getter]
 theorem unnumbered : names.all (fun n => !(regSymNames ++ c.symNames).contains n) = true := by decide +kernel
 
 /-- **No premise of the theory holds the three** (decided). -/
-theorem free : nameFreeB c names = true := by decide +kernel
+theorem free : nameFreeB c names = true := by
+  rw [nameFreeB, NameFree.listsN, NameFree.valuesN, NameFree.graphsN]; decide_cheap 40
 
-theorem unbox_free : freeB c [unboxKConfigValue] = true := by decide +kernel
+theorem unbox_free : freeB c [unboxKConfigValue] = true := by
+  rw [freeB, DetachedB.listsB, DetachedB.valuesB, DetachedB.graphsB]; decide_cheap 40
 
 theorem unbox_name : c.symName unboxKConfigValue = unbox := by decide +kernel
 

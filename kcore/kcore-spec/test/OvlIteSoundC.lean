@@ -393,7 +393,7 @@ theorem arity_sat : I ⊧ᴵ (symArityItem c fSig).pat := by
 set_option maxHeartbeats 1000000 in
 theorem sig_align : (sigItems c).map (fun it => if it.pat = (symArityItem c fSig).pat then (symArityItem c2 fSig).pat
     else ren it.pat) = (sigItems c2).map (·.pat) := by
-  decide_map_blocks 25 8
+  decide_map_blocks 25 20
 
 theorem satI_sig {φ : KoreAML.P} (h : ΓSig c φ) : I ⊧ᴵ φ := by
   rcases h with (⟨it, hit, rfl⟩ | ⟨x, rfl⟩) | ⟨lit, rfl⟩
@@ -452,7 +452,7 @@ theorem satI_colls {φ : KoreAML.P} (h : ΓColls c φ) : I ⊧ᴵ φ := by
 
 theorem hooks_dec : hookSigs.all (fun k => decide (k.name < nRegSyms) &&
     (iteSort? (regSymNames.getD k.name "")).isNone) = true := by
-  decide +kernel
+  decide_cheap 20
 
 theorem hook_names {k : CtorSig} (hk : k ∈ hookSigs) :
     iteSort? (c.symName k.name) = none ∧ iteSort? (c2.symName k.name) = none := by

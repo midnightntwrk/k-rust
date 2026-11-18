@@ -150,7 +150,7 @@ aside, which Γ's constructor items apply), and each sentence of that class appl
 theorem account_absent : userAxioms.all (fun ad =>
     (classOf "no direction").contains ad.index !=
       (symbolsOf ad.ax.pattern).all (fun n => n == "inj" || (kernelSyms c).any (fun k => c.symName k.name == n))) = true := by
-  rw [userAxioms_eq]; decide +kernel
+  rw [userAxioms_eq]; decide_cheap 100
 
 /-- **The no-direction class is closed**: every sentence outside it applies only symbols Γ has,
 so no sentence with a direction applies a symbol Γ lacks. The injection `inj` is no member of
@@ -166,7 +166,8 @@ theorem absent_closed :
 
 /-- **The attributes of the text agree with `defn`** (`attrsAgree`): constructors, functions,
 hooks, collection symbols, priorities. -/
-theorem attrs_agree : attrsAgree kore defn = true := by decide +kernel
+theorem attrs_agree : attrsAgree kore defn = true := by
+  rw [attrsAgree, AttrsAgree.ctors, AttrsAgree.fns, AttrsAgree.hooks]; decide_cheap 40
 
 /-! ## Function equations (39 sentences) -/
 
@@ -192,7 +193,7 @@ noncomputable def fnText : List AxiomDecl :=
 of `fnItems` and the translation of `fnText[j]` (one kernel decision). -/
 theorem fn_shape : (fnItems c).map (·.pat) = fnText.map (trS · |>.pat) := by
   rw [fnItems_eq, List.map_map]
-  exact (by decide +kernel :
+  exact (by decide_map_blocks 10 3 :
     ((fnAxioms c).map fun a => (trAxiom [] [] ⟨0, "kernel", a⟩).pat) = fnText.map (trS · |>.pat))
 
 /-- Each member of `fnText` is the sentence of the user module with its index. -/

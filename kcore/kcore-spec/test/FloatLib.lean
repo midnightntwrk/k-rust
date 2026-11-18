@@ -153,7 +153,7 @@ example : Lit.text (.float 53 11 0x3FB999999999999A) =
     Lit.text (.float 53 11 0x7FF8000000000000) = "NaNp53x11" ∧
     Parse.floatLit? (Lit.text (.float 53 11 1)) = some (.float 53 11 1) ∧
     Parse.floatLit? (Lit.text (.float 53 11 0x4084D00000000000)) = some (.float 53 11 0x4084D00000000000) := by
-  decide +kernel
+  decide_cheap
 
 /-- A NaN other than the canonical one is no value; a pattern beyond the format's bits neither. -/
 example : dvOK {} Srt.float (.float 53 11 0x7FF8000000000001) = false ∧
