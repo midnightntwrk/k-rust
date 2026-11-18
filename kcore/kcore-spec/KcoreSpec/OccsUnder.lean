@@ -13,8 +13,8 @@
     side's sort lies in its translation, at a valuation of its variables in their sorts, the
     valuation gives each variable of `occsUnder c H t` the element of a value of its sort, for
     every H whose symbols have `HeldBack`.
-  - `collHeld`: the unit, element and concatenation symbols of the collections, the symbols
-    `Semantics.holds` names (`holds_eq_collHeld`). Such a symbol is no overloading symbol
+  - `collHeld`: the unit, element and concatenation symbols of the collections, which
+    `Semantics.holds` names beside the `ovlHeld` symbols (`holds_eq_collOvl`). Such a symbol is no overloading symbol
     (`collHeld_not_ovl`), a right side's context gives it the signature a left side's context gives
     it (`held_lookup`), and it has `HeldBack` (`collHeld_back`).
   - `ovl_backR`: an overloading symbol with no function among its overloads has `HeldBack`.
@@ -110,8 +110,8 @@ end
 pattern symbol. -/
 def collHeld (c : Semantics) (f : Sym) : Bool := patternHooks.contains f || c.isCollPat f
 
-/-- `Semantics.holds` names the `collHeld` symbols. -/
-theorem holds_eq_collHeld (c : Semantics) (f : Sym) : c.holds f = collHeld c f := rfl
+/-- `Semantics.holds` names the `collHeld` and the `ovlHeld` symbols. -/
+theorem holds_eq_collOvl (c : Semantics) (f : Sym) : c.holds f = (collHeld c f || c.ovlHeld f) := rfl
 
 /-! ## The variables held under a set of symbols, at a value -/
 

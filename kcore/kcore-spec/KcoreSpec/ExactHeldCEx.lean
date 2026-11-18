@@ -680,11 +680,13 @@ theorem step_of_successor_ce (c : Semantics) (h : c.coreOKEx = true) (hf : FnHyp
     {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP (Γc c ∪ Γstep c))
     (x y : Config c) (e : Valuation M)
     (hs : (KoreAML.sNext (den c y.val)).interpret I e (elemOf c I x.val)) : Step c x y :=
-  step_of_successor_heldCEx c h hf (Semantics.ruleFactsHeld_of_coreEx h) (heldBackAll_holdsCEx h) hI x y e hs
+  let ⟨_, hrules, hbk⟩ := Semantics.heldFacts_of_coreEx h
+  step_of_successor_heldCEx c h hf hrules hbk hI x y e hs
 
 /-- **Exactness of a semantics** that `coreOKEx` accepts and whose functions meet `FnHyp`:
 `exact_hyp`'s statement with `coreOKEx` for `coreOK`. -/
 theorem exact_ce (c : Semantics) (h : c.coreOKEx = true) (hf : FnHyp c) : ExactC c :=
-  exact_heldCEx c h hf (Semantics.ruleFactsHeld_of_coreEx h) (heldBackAll_holdsCEx h)
+  let ⟨_, hrules, hbk⟩ := Semantics.heldFacts_of_coreEx h
+  exact_heldCEx c h hf hrules hbk
 
 end KCore

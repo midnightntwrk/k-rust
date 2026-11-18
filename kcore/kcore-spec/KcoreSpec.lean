@@ -253,7 +253,6 @@ import KcoreSpec.ReadRuleConn
 import KcoreSpec.InjValue
 import KcoreSpec.ClausePlainEx
 import KcoreSpec.ExistsHoist
-import KcoreSpec.HeldValues
 import KcoreSpec.TieDefs
 import KcoreSpec.RegistryOwn
 import KcoreSpec.DetachedB

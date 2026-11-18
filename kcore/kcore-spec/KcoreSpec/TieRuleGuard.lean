@@ -203,8 +203,8 @@ theorem ruleGuard_of_stepBy {c : Semantics} (hcore : c.coreOK = true) (hrc : c.r
     RuleGuard (prioRuleK c r) I (overV c I (KoreAML.tableOf [] (prioRuleK c r)) r.vars σ (KoreAML.val0 : Valuation M)) := by
   have hod := openDecided_of_readsConfined hrc
   have hIc : I ⊧ᴵP Γc c := by rw [Γc_plain hrc]; exact hI
-  have hrules := Semantics.ruleFactsHeld_of_core hcore
-  exact ruleGuard_of_stepBy_held hcore hrules hIc (heldBackAll_holds hcore I hIc) hod.2 (hrules r hb.mem).1
+  obtain ⟨H, hrules, hbk⟩ := Semantics.heldFacts_of_core hcore
+  exact ruleGuard_of_stepBy_held hcore hrules hIc (hbk I hIc) hod.2 (hrules r hb.mem).1
     (readsConfined_of_pre hb.mem) (readsConfined_of_post hb.mem)
     (fun _ _ hlt => List.any_eq_true.mpr ⟨r, hb.mem, by simpa using hlt⟩) hb.hσ hb.hmatch hb.hpre hb.heval
     hb.hens hb.hpost hb.hprio (fun r' hr' _ hn _ => hod.1 r' hr' hn)
