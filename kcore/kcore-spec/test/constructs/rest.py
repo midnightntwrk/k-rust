@@ -97,6 +97,9 @@ The evidence forms (DONE-0 C2's table), by status and list, and the items each n
                    sentence or entails it only partly) is missing evidence
   parameter
       derived      a `derived` table of form (c): the param_undetermined instance
+  parameter (no model) (a parameter entry with a `derived` table of form (r): its fixture's text
+  has no model, so no param_undetermined instance exists there; counted apart)
+      derived      a `derived` table of form (r)
   inert
       class        `inert_class` or a `reasons` item InertReason.X: a constructor of InertReason
                    (an E6 row keyed lemma: is a [simplification] axiom, of class simplification);
@@ -242,6 +245,8 @@ def form(l, key, e, row=None, fx=None):
             return "supported function of the text"
         return ("supported" if l in KLEVEL else "supported E4/E5" if l in ("E4", "E5") else
                 "supported hook" if key.startswith("hook:") else "supported E6")
+    if s == "parameter" and any(isinstance(d, dict) and d.get("form") == "r" for d in (e.get("derived") or [])):
+        return "parameter (no model)"
     if s == "inert" and e.get("inert_class") == "use":
         return "inert (use)"
     if s == "inert" and e.get("inert_class") == "attribute":
@@ -691,6 +696,8 @@ def evidence(fx, l, key, e, row):
         ties()
     elif f == "parameter":
         derived(["c"])
+    elif f == "parameter (no model)":
+        derived(["r"])
     elif f == "inert (use)":
         reason_sentence(["reason"])
         comp = [x for x in own if fx.conf(x).get("differs_from")]
@@ -1403,6 +1410,8 @@ def self_test():
             ("E7", "A", {k: v for k, v in attr.items() if k != "reason"}, False),
             ("E6", "x", {"status": "parameter", "derived": [{"form": "c", "theorem": "T", "file": tie}]}, True),
             ("E6", "x", {"status": "parameter", "derived": [thm]}, False),
+            ("E6", "x", {"status": "parameter", "derived": [{"form": "r", "theorem": "T", "file": tie}]}, True),
+            ("E6", "x", {"status": "parameter", "derived": [{"form": "r", "theorem": "T", "file": tie}, thm]}, True),
             ("E6", "hook:X", {"status": "supported", "derived": [thm]}, True),
             ("E6", "hook:X", {"status": "supported"}, False),
             ("E6", "symbol:X", {"status": "supported", "tie": [tie], "tie_theorems": ["KCore.C3EqReqEns.f_5"]}, True),

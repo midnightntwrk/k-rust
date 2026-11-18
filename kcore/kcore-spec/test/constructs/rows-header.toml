@@ -192,7 +192,9 @@
 #   carried_by  C: "<list> <row key>", a row that is not erased, has its own evidence and whose
 #             fixture holds the entry's `sentence`.
 #   A parameter entry's param_undetermined instance is a `derived` table of form (c); a supported
-#   hook's in-domain value a `derived` table of form (a).
+#   hook's in-domain value a `derived` table of form (a). A parameter entry whose fixture's text has
+#   no model has no such instance: a `derived` table of form (r) stands in its place, and rest.py
+#   counts the entry apart (form "parameter (no model)").
 #   A supported table nested in an E6 `hook:` row whose fixture's reading takes the row's symbol for a
 #   symbol of the text (its params.txt lists no parameter implemented by the symbol) is not the hook:
 #   its evidence is a supported K-level row's (fixture, clean account, tie, theorems; rest.py).
