@@ -2778,8 +2778,9 @@ def account (koreFile : String) : IO UInt32 := do
       | some s => IO.println s!"      sentence {i}: {clip 300 (Kore.Printer.sentence s)}"
       | none => pure ()
   let rs := Parse.refusals k
+  let P := Parse.cellCollPairs m.sentences
   let classRefused := fun (i : Nat) => match m.sentences[i - off]? with
-    | some s => match Parse.classifyShape s with | .refused _ => true | _ => false
+    | some s => match Parse.classifyShapeIn P s with | .refused _ => true | _ => false
     | none => false
   let stage := rs.filter fun r => match r.index with
     | some i => !classRefused i
@@ -3285,8 +3286,9 @@ import, a claim, a projection's selector-domain axiom and selector-inverse lemma
 `UNIQUE'Unds'ID`), a lemma (`simplification`), an equation of a symbol `d` has no function for (a
 library symbol's, a cell initializer's, a projection `d` does not read), the `functional` axiom of
 a function (read into `FnHyp`, not into Γ) or of a hooked symbol, a collection law, set
-idempotence, and a sentence of any other form. -/
-def gapKind (d : Definition) (s : Kore.Sentence) : String × Bool :=
+idempotence, and a sentence of any other form. The class is the one at the text's cell-collection
+pairs `P` (`Parse.cellCollPairs`). -/
+def gapKind (P : List (String × String)) (d : Definition) (s : Kore.Sentence) : String × Bool :=
   let c := d.sem
   let fnLabels := c.fns.map fun f => c.symName f.label
   let ctorNames := c.ctorSigs.map fun k => c.symName k.name
@@ -3301,7 +3303,7 @@ def gapKind (d : Definition) (s : Kore.Sentence) : String × Bool :=
     if uid.endsWith ".selector-domain" then ("selector-domain axiom of a projection", false)
     else if uid.endsWith ".selector-inverse" then ("selector-inverse lemma of a projection", false)
     else
-    match Parse.classifyShape s with
+    match Parse.classifyShapeIn P s with
     | .inert .simplification => ("simplification", false)
     | .inert .injectivity => ("injectivity axiom", true)
     | .inert .distinctCtors => ("distinctness axiom", true)
@@ -3323,7 +3325,7 @@ def gapKind (d : Definition) (s : Kore.Sentence) : String × Bool :=
           else ("functional axiom of another symbol", false)
         | some (.inr _) => ("subsort axiom", true)
         | none => if (Parse.scanOr s).isSome then ("no-junk axiom", true)
-          else (s!"axiom of another form ({(Parse.classifyShape s).name})", false)
+          else (s!"axiom of another form ({(Parse.classifyShapeIn P s).name})", false)
 
 /-- The attributes the two sentences do not share, `-a` the text's, `+a` the emitted's (their head
 names, sorted). -/
@@ -3353,6 +3355,7 @@ def gapCmd (koreFile : String) (all : Bool) : IO UInt32 := do
     | .ok d => pure d
     | .error r => IO.println s!"cannot {koreFile}: KCore's parse refuses it ({r.toText})"; return 3
   let e := d.emit
+  let P := (k.modules.getLast?.map fun m => Parse.cellCollPairs m.sentences).getD []
   -- the text's sentences not emitted (module name, index in the module, sentence), the emitted not in the text
   let mut ts : Array (String × Nat × Kore.Sentence) := #[]
   let mut es : Array (String × Kore.Sentence) := #[]
@@ -3388,7 +3391,7 @@ def gapCmd (koreFile : String) (all : Bool) : IO UInt32 := do
     if st == "attributes" then s!"attributes ({gapAttrDiff ts[i]!.2.2 es[j]!.2})" else st
   let tAlone := (List.range ts.size).filter fun i => tPair[i]!.isNone
   let eAlone := (List.range es.size).filter fun j => !eUsed[j]!
-  let kindOf := fun (s : Kore.Sentence) => let (kd, dir) := gapKind d s; s!"{kd}{if dir then " (direction)" else ""} [{origin s}]"
+  let kindOf := fun (s : Kore.Sentence) => let (kd, dir) := gapKind P d s; s!"{kd}{if dir then " (direction)" else ""} [{origin s}]"
   IO.println s!"gap {koreFile}: {ts.size} sentences of the text not emitted, {es.size} emitted sentences not in the text"
   IO.println s!"paired, one text sentence with one emitted: {pairs.length}"
   for (n, m) in tally pairCauses do IO.println s!"  {m} {n}"
@@ -3428,13 +3431,13 @@ def gapCmd (koreFile : String) (all : Bool) : IO UInt32 := do
       ((match Parse.classify N s with
         | .readAs r => [r.name]
         | .unread r => [s!"unread {r.name}"]
-        | .inert r => if Parse.ctorInert? s |>.isSome then (if uninduced.contains n then [] else [s!"{r.name} induced"]) else [s!"inert {r.name}"]
+        | .inert r => if Parse.ctorInert? P s |>.isSome then (if uninduced.contains n then [] else [s!"{r.name} induced"]) else [s!"inert {r.name}"]
         | _ => []) ++
       ((conn.lookup n).getD []).map (·.name) ++
       (if (keys.lookup n).isSome then [Parse.ReadingNote.keyFunctionAsMember.name] else []) ++
       (if narrowed.contains n then ["owiseDisjunctNarrower"] else []) ++
       (if tokOmitted.contains n then ["tokKItem"] else [])).eraseDups
-  let notHeld := (List.range ts.size).filter fun i => (gapKind d ts[i]!.2.2).2 && !held i
+  let notHeld := (List.range ts.size).filter fun i => (gapKind P d ts[i]!.2.2).2 && !held i
   let noted := notHeld.filter fun i => !(notesOf i).isEmpty
   let unnoted := notHeld.filter fun i => (notesOf i).isEmpty
   IO.println s!"text sentences of a kind with a direction that d does not hold as written: {notHeld.length}; read in another form with a reading note: {noted.length}{if noted.isEmpty then "" else s!" ({countsOf (noted.flatMap notesOf)})"}; without one (a candidate reader defect): {unnoted.length}"
@@ -3449,7 +3452,7 @@ def gapCmd (koreFile : String) (all : Bool) : IO UInt32 := do
         s!"; emitted under the same name, the first difference at character {pos}: text …{around a}…, emitted …{around b}…"
       | none => ""
     let ns := notesOf i
-    IO.println s!"  {mn} sentence {j} ({(gapKind d s).1}, {origin s}; {if ns.isEmpty then "no reading note" else s!"read {", ".intercalate ns}"}): {clip 200 (Kore.Printer.sentence s)}{partner}"
+    IO.println s!"  {mn} sentence {j} ({(gapKind P d s).1}, {origin s}; {if ns.isEmpty then "no reading note" else s!"read {", ".intercalate ns}"}): {clip 200 (Kore.Printer.sentence s)}{partner}"
   return if unnoted.isEmpty then 0 else 1
 
 /-! ## Agreement with recorded results

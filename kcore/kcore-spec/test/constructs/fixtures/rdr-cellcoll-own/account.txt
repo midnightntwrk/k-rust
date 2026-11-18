@@ -1,22 +1,19 @@
 out/definition.kore: 5 modules; prelude agrees
 user module RDR-CELLCOLL-OWN: 410 sentences
   1 inert import [generated]
-  194 read [generated]
+  195 read [generated]
   184 read [builtin]
   2 read [user]
-  2 unread cellCollectionInjection [generated]
   5 inert injectivity [generated]
   9 inert collectionLaw [generated]
   1 unread setIdempotence [generated]
   1 inert parametricFunctional [generated]
-  10 inert noJunk [generated]
+  11 inert noJunk [generated]
   1 inert simplification [generated]
 stage refusals (of sentences classified read): 0
 read and not accounted for: 0
 inert constructor axioms not induced by the constructors: 0
-cell collection injections not of a collection of the definition: 2
-      sentence 175 (inj): cellCollectionInjection (not a collection of the definition and its cell)
-      sentence 273 (LbldotFoo): cellCollectionInjection (not a collection of the definition and its cell)
+cell collection injections not of a collection of the definition: 0
 law axioms of no collection's concatenation: 0
 rules with an `ensures`: 0
 rules read with the premise ⌈rhs ∧ ens⌉ (ruleRightDefined): 0
@@ -34,5 +31,5 @@ functions with an equation holding a variable its arguments and conditions do no
 functions whose equations' agreement no decider confirms (the package's agree_named, Semantics.agreeObligationsI; not a condition of wf or coreOK: where two competing equations both decide, their agreement is owed as ClausesAgree): 0: 
 parse: ok; wf true; failing: []
 coreOK: true; failing: []
-refused by the account: 2
+refused by the account: 0
 (exit 0)
