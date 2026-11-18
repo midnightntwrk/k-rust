@@ -75,6 +75,7 @@ differs f2-examples/e3-casts.kompile.kore
 differs f2-examples/e3-cells-dotbag.kompile.kore
 differs f2-examples/e3-cells.kompile.kore
 differs f2-examples/e3-fresh.kompile.kore
+differs f2-examples/e3-kast.kompile.kore
 differs f2-examples/e3-kseq.kompile.kore
 cannot f2-examples/e3-setvar-rewrite-fn.kompile.kore
 cannot f2-examples/e3-setvar-rewrite-req.kompile.kore
