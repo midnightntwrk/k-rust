@@ -720,7 +720,7 @@ theorem model_with_inits_step (c : Semantics) (h : c.coreOK = true) (hf : FnHyp 
   have hsr : ∀ r ∈ c.rules, c.ruleSorted r = true := fun r hr => (hrules r hr).1
   let T : Config c → Config c → Prop := Step c
   have hI : stdI_T c (liftT_ex c T) ⊧ᴵP (Γc c ∪ Γstep c) := by
-    refine stdI_T_model_held c h hm (clausePreDecided_of_fnHyp h hf) hf.2.2.2.2.2 hrules (liftT_ex c T) ?_ ?_ ?_
+    refine stdI_T_model_heldCEx c hm (clausePreDecided_of_fnHyp h hf) (clausePostDecided_of_fnHypCEx (Semantics.coreOKEx_of_coreOK h) hf) hf.2.2.2.2.2 hrules (liftT_ex c T) ?_ ?_ ?_
     · intro x y hx hy hT
       obtain ⟨r, σ, hb⟩ := step_iff_by.mp (hT hx hy)
       exact ⟨r, σ, stepVBy_of_stepBy hfd hb⟩

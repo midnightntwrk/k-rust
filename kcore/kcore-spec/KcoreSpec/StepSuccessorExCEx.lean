@@ -15,7 +15,7 @@
   `step_of_successor_exCEx` under `FnHyp`).
 -/
 import KcoreSpec.StepExRuleSSx
-import KcoreSpec.ExExact
+import KcoreSpec.ExComplete
 import KcoreSpec.OpenClauseModel
 
 set_option autoImplicit false
@@ -169,8 +169,7 @@ theorem step_of_successor_exCEx_of (c : Semantics) (h : c.coreOKEx = true) (hft 
   exact step_iff_by.mpr ⟨r, σ, ⟨hr, hσ, hm, hrq, hpre, hev, hen, hpo, hprio⟩⟩
 
 /-- **A successor in a model is a step**, for a semantics that `coreOKEx` accepts whose functions
-meet `FnHyp` and whose rules have `ruleSorted` and `rulePlainEx`: `step_of_successor_ex` with
-`coreOKEx` in place of `coreOK`, so for a text whose functions' clauses may bind variables by
+meet `FnHyp` and whose rules have `ruleSorted` and `rulePlainEx`; the functions' clauses may bind variables by
 `\exists`. -/
 theorem step_of_successor_exCEx (c : Semantics) (h : c.coreOKEx = true) (hf : FnHyp c)
     (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainEx r = true)

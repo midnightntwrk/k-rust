@@ -52,9 +52,7 @@
   - The terms: as `EvalTerm.functional_hdet_of_fnDet` (EvalFunctional.lean), on the value side only.
   `FnDet` follows: two results that are both `none` are equal, and otherwise one is a value.
 
-  So the hypothesis `FnDet` of `consistent_open` (Sound.lean) is implied by its others where every
-  predicate is `\top`, and by nothing else it asks where a clause has another predicate. The
-  instance `instance_c0` checks the hypotheses are met by a definition (non-vacuity).
+  The instance `instance_c0` checks the hypotheses are met by a definition (non-vacuity).
 -/
 import KcoreSpec
 
@@ -457,11 +455,6 @@ theorem fnDet_of_fnSolves (h : c.coreOK = true) (hpreTop : c.clausesPreTop = tru
     | some w => exact (eval_value h hpreTop hs h2 _ h1 rfl).symm
 
 /-! ## The statements that read `FnDet` beside `FnSolves` -/
-
-/-- `consistent_open` with its `FnDet` from its other hypotheses. -/
-example (c : Semantics) (h : c.coreOK = true) (hpreTop : c.clausesPreTop = true) (hs : FnSolves c) (hp : ClausePreDecided c) (hl : OpenLaws c)
-    (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainOpen r = true) : Consistent c :=
-  consistent_open c h (fnDet_of_fnSolves h hpreTop hs) hs hp hl hrules
 
 /-- `consistent_of` (pinned, test/Pins.lean) with its `FnDet` from its other hypotheses. -/
 example (c : Semantics) (h : c.coreOK = true) (hpreTop : c.clausesPreTop = true) (hs : FnSolves c) (hp : ClausePreDecided c) (hl : OpenLaws c) :

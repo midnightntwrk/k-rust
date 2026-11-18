@@ -21,7 +21,7 @@ section
 variable {c : Semantics} {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
 
 /-- **A condition's conjuncts hold at one element of the sentence's sort iff at any other** (R3,
-`successor_split_pp`'s `hpred`): in a model of `Γ c` of a definition `coreOK` accepts, for a
+`successor_split_ppCEx`'s `hpred`): in a model of `Γ c` of a definition `coreOK` accepts, for a
 well-sorted condition p at a numbered sort S, through a table holding the keys of its pattern's
 variables, at a valuation that gives each free variable of p an element of its sort. -/
 theorem cond_pred_transfer (h : c.coreOK = true) (hI : I ⊧ᴵP Γ c) {vars : List Srt} {p : Cond}
@@ -48,7 +48,7 @@ theorem cond_pred_transfer (h : c.coreOK = true) (hI : I ⊧ᴵP Γ c) {vars : L
     subst hφ
     exact hP.mp (hall _ hφ')
 
-/-- `cond_pred_transfer` at the configuration sort, in the form of `successor_split_pp`'s `hpred`
+/-- `cond_pred_transfer` at the configuration sort, in the form of `successor_split_ppCEx`'s `hpred`
 with its two hypotheses: the table holds the pattern's keys, and the valuation gives each free
 variable of the condition an element of its sort. -/
 theorem cond_pred_transfer_top (h : c.coreOK = true) (hI : I ⊧ᴵP Γ c) {vars : List Srt} {p : Cond}
