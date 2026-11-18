@@ -1039,6 +1039,17 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   texts against their fixtures (sha256, account) and generates both packages (`--core`) into
   `.lake/nonexec-owise`: `agree_named`, `namedFacts`, `Obl`, no `obl_nil`, every statement of a model
   or of the semantics taking `hob`, and builds them.
+- `test/GenEqsInits.lean`: instances of `KcoreSpec/GenEqsInit.lean`, the equations of the cell
+  tree's initializers and of the counter's getter on two kompiled texts. Nested cells
+  (`Cells`, `f2-examples/cellsplain.kompile.kore`, `<t> <k> $PGM:Exp </k> <one> 0 </one> <ec> 0 </ec> </t>`):
+  none of the initializers, `project:Exp` or the getter is a symbol the semantics numbers, and one
+  model of the theory whose steps are the semantics' (`GenEqs.model_with_inits_step`) holds the
+  constants' equations and `functional` axioms, each initializer's equation with the text's right side
+  at the map `$PGM ↦ a()` (the initial configuration its value) and at the empty map (both sides
+  without a value, `initGeneratedTopCell(.Map) = ⊥`), and the getter at the initial configuration.
+  Two arguments (`Fresh`, `f2-examples/freshcfg.kompile.kore`, `<k> $PGM:Exp </k> <id> !N:Int </id>`):
+  `initIdCell(Init, #Configuration)` and `initGeneratedTopCell(Init, #Configuration)` at a map and a
+  configuration, the counter's initial value 1.
 - `test/GenEqsLemmas.lean`: instances of `KcoreSpec/GenEqsConservative.lean`. Sort predicates (the
   hand-written `isFoo` equations of `test/PredContent.lean`): `predProjOK?` accepts both, and each is
   read as a clause of `isFoo`'s `sortPreds` function whose equation is a premise of `Γ`
@@ -1052,7 +1063,11 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   follows from the arm's conditions on the two names (`GenEqs.model_with_eqns_argProj`). A named
   argument's projections on a kompiled text (`NamedArg`, `f2-examples/namedarg.kompile.kore`):
   `coreOK`, the arm's conditions on `project:pair:fst` and `project:pair:snd`, and one model of the
-  theory whose steps are the semantics' in which both equations hold at `pair(leaf, leaf)`.
+  theory whose steps are the semantics' in which both equations hold at `pair(leaf, leaf)`. A
+  registry-numbered projection (`RegProj`, a hand-built semantics with a parameter numbered as the
+  registry's `project:Int`): `coreOK`, `predProjOK?` accepts `project:Int`'s selector-domain axiom,
+  a premise of the theory names the symbol (`GenEqs.kernelSym_named`), and the arm refuses it
+  (`Parse.predProjAcc`).
 - `test/RuleAndSame.lean`: the reading of `t #And u` on a rule's right side with the ensures
   `t == u` and the exact reading give the same steps. `step_fresh_int`: for a semantics whose one
   rule has the ensures `t ==Int u`, no `requires` and `\top` predicates, with coherent functions,
@@ -1354,9 +1369,22 @@ table above, on the tree before String and Bytes). Not investigated here.
 - `test/TieUnboundAtValues.lean`: on `f2-examples/unbound.kompile.kore` (fixture e2-unbound), the
   classes test/TieKimpAtValues.lean and the set-variable section of test/TieKimpRefuted.lean tie on
   kimp, over this text's indices, for every H: hooked functional 47 of 48 (`fun_entailed`), the 9
-  collection laws (`laws_entailed`) and library 80 of 82 (`lib_entailed`, `libSet_entailed`) at
+  collection laws (`laws_entailed`) and library 80 of 84 (`lib_entailed`, `libSet_entailed`) at
   values; the 6 set-variable lemmas refuted (`sN_refuted`) and held at sets of at most one value
   (`sN_one`); the accounts against TieUnbound's class lists, owed 100 (`ite`'s functional) and 242,
+  243 (`ite{SortK}`) and 207, 263 (the equations of `bitRangeInt` and `signExtendBitRangeInt`); the `_c`
+  forms over `Γc`. 51 s, 3.4 GiB.
+- `test/TieRuleCoolText.lean`, `TieRuleCoolWf.lean`, `TieRuleCoolCons.lean`, `TieRuleCoolAttrs.lean`,
+  `TieRuleCoolAccount.lean`, `TieRuleCoolAtValues.lean`: the tie on `f2-examples/rulecool.kompile.kore`
+  (fixture e2-rule) beside test/TieRuleCool.lean's rules and steps, ported from test/TieUnbound.lean
+  and test/TieUnboundAtValues.lean over the axiom index maps, for every H: `wf_defn` and
+  `not_reordered` (Wf, 3.4 GiB); the 31 function equations (`shape`), no junk (the trivial three,
+  nine over generators, KItem's in another order), set idempotence refuted, the `_c` forms (Text,
+  2.9 GiB); the 37 constructor sentences (Cons, 3.5 GiB); `attrs_agree`, `fn_prios` (Attrs, 6.2
+  GiB: `attrsAgree` on the whole text); the account of the 282 sentences and the closed
+  no-direction class (Account, 4.1 GiB); hooked functional 47 of 48, collection laws, library 80
+  of 84 at values, the 6 set-variable lemmas refuted, owed 109, 225, 262, 263, 284 (AtValues, 3.5
+  GiB).
   243 (`ite{SortK}`); the `_c` forms over `Γc`. 37 s, 3.4 GiB.
   `c.withHooks H`; the expectations `b_step` (from `PreS`, the sentences as written) and `a_succs`
   (through the step's closure, from `Pre`). About 11 s, 2.9 GiB.
@@ -1542,6 +1570,11 @@ table above, on the tree before String and Bytes). Not investigated here.
   the rule of default priority at its listed match, `Cert.stepBy_of_checkStep`), `guard_an1` (the
   guard `RuleGuard` there, `TieRulePair.ruleGuard_of_stepBy`: the rule of priority 40 does not apply
   and the right side is defined), `w2_an1` (sentence 159 as written holds there in every model of Γ).
+- `test/C3SimpEnsRefuted.lean`, `test/InertE2SimpRefuted.lean`: simplification sentences that are
+  not inert: c3-simp-ens's `f(f(X)) => f(X) ensures X >=Int 0` beside `f(X) => X` (`ens_refuted`),
+  and e2-simplification's `f(X) -Int 1 => X` and `sl(X) >=Int 0 => true` beside `f(X) => X`,
+  `sl(X) => X` (`s170_refuted`, `s178_refuted`, from `eqn1_fails`): each fails at X = -1 in every
+  model of Γ, for every H, so Γ with it has no model.
 - `test/C3SimpPrio.lean`, `test/C3OwiseSimp.lean`: the C2 evidence of the inert pairs
   `simplification` x `priority` and `[owise]` x `simplification` on their fixtures: the
   simplification sentence `f(f(X)) => f(X)` is entailed by Γ at values, for every H (`simp_ev`,

@@ -26,7 +26,8 @@
     (`nameFree_of_argProj`, `argProj_free_of_genEqClassOK`), and `model_with_eqns_argProj` is
     `model_with_eqns_step` at such names with no decided premise; a sort's projection that
     `predProjOK?` accepts is free where the registry numbers no symbol of its name
-    (`sortProj_free_of_predProjOK`).
+    (`sortProj_free_of_predProjOK`), and one the arm accepts (`predProjAcc`, which decides `freeB` at
+    a registry-numbered name) is free and resolves to no constant (`sortProj_free_of_predProjAcc`).
 -/
 import KcoreSpec.GenEqsNames
 
@@ -1209,29 +1210,29 @@ theorem model_with_eqns_argProj (c : Semantics) (h : c.coreOK = true) (hf : FnHy
     (fun n hn => let ⟨hp, hr, hs⟩ := hN n hn; spareSymB_of_argProj c hp hr hs)
 
 /-- **The account's arm for generated equations, read**: an equation `genEqClassOK` accepts is one
-`predProjOK?` accepts (a sort predicate's or a sort's projection's), or a constructor argument's
+`predProjAcc` accepts (a sort predicate's or a sort's projection's), or a constructor argument's
 projection, whose name has the prefix `Lblproject'Coln` and is no registry symbol's and none of
 the definition's own: the conditions `nameFree_of_argProj` and `spareSymB_of_argProj` read. -/
 theorem genEqClassOK_cases {E : Parse.Env} {d : Definition} {eqs : List Parse.RawEqn} {e : Parse.RawEqn}
     (h : Parse.genEqClassOK E d eqs e = true) :
-    Parse.predProjOK? E.N E.src eqs d.sem e = some true ∨
+    Parse.predProjAcc E.N E.src eqs d.sem e = true ∨
       ((KoreAML.Parse.dropPrefix? "Lblproject'Coln" e.fn).isSome = true ∧ regSymNames.contains e.fn = false ∧
         d.sem.symNames.contains e.fn = false) := by
   unfold Parse.genEqClassOK at h
-  simp only [Bool.or_eq_true, beq_iff_eq, Bool.and_eq_true, Bool.not_eq_true'] at h
+  simp only [Bool.or_eq_true, Bool.and_eq_true, Bool.not_eq_true'] at h
   rcases h with h | h
   · exact .inl h
   · exact .inr ⟨h.1.1.1.1.1, h.1.1.2, h.1.2⟩
 
 /-- **A constructor argument's projection whose equation the account's arm accepts outside
-`predProjOK?` is free of the theory and resolves to no constant**: the premises `hfree` and `hsym`
+`predProjAcc` is free of the theory and resolves to no constant**: the premises `hfree` and `hsym`
 of `model_with_eqns_step` at its name, from the arm's check alone. -/
 theorem argProj_free_of_genEqClassOK {E : Parse.Env} {d : Definition} {eqs : List Parse.RawEqn}
     {e : Parse.RawEqn} (h : Parse.genEqClassOK E d eqs e = true)
-    (hp : Parse.predProjOK? E.N E.src eqs d.sem e ≠ some true) (hc : d.sem.coreOK = true) :
+    (hp : Parse.predProjAcc E.N E.src eqs d.sem e = false) (hc : d.sem.coreOK = true) :
     (∀ φ, (Γc d.sem ∪ Γstep d.sem) φ → KoreAML.Sym.symbol e.fn ∉ psyms φ) ∧ spareSymB d.sem e.fn = true := by
   rcases genEqClassOK_cases h with h' | ⟨h1, h2, h3⟩
-  · exact absurd h' hp
+  · rw [hp] at h'; cases h'
   · exact ⟨nameFree_of_argProj d.sem hc h1 h2 h3, spareSymB_of_argProj d.sem h1 h2 h3⟩
 
 /-- **A sort's projection whose equation `predProjOK?` accepts, at a name the registry does not
@@ -1261,6 +1262,103 @@ theorem sortProj_free_of_predProjOK {N : Parse.Names} {msrc : String} {eqs : Lis
   refine ⟨nameFree_of_decided c [e.fn] hc (nameFreeB_of_unnumbered c [e.fn] fun m hm => by
     rw [List.mem_singleton.mp hm]; exact ⟨hu, hne⟩) e.fn (List.mem_singleton_self _),
     spareSymB_of_unnumbered c hu hne.1 hne.2.1⟩
+
+/-! ## A sort's projection the arm accepts -/
+
+theorem if_pos_walk {α : Type} {p : Prop} [Decidable p] {a b : α} (h : p) : (if p then a else b) = a := by
+  simp [h]
+
+theorem psyms_appList_head {σ : KoreAML.Sym} : ∀ (l : List KoreAML.P) (h : KoreAML.P), σ ∈ psyms h →
+    σ ∈ psyms (KoreAML.appList h l)
+  | [], _, hm => hm
+  | a :: l, h, hm => psyms_appList_head l (h ⬝ a) (List.mem_append_left _ hm)
+
+/-- A projection's name is no `ite` instance's. -/
+theorem iteSort_none_of_proj {n : String} (h : (KoreAML.Parse.dropPrefix? "Lblproject'Coln'" n).isSome = true) :
+    iteSort? n = none := by
+  unfold KoreAML.Parse.dropPrefix? at h
+  dsimp only at h
+  split at h
+  · rename_i ht
+    have ht' : n.toList.take 16 = "Lblproject'Coln'".toList := by
+      have := beq_iff_eq.mp ht
+      rwa [show "Lblproject'Coln'".toList.length = 16 by decide] at this
+    unfold iteSort?
+    rw [← List.take_append_drop 16 n.toList, ht']
+    rfl
+  · cases h
+
+/-- A symbol of the semantics other than an `ite` instance is named by its arity item, a premise of
+the theory. -/
+theorem kernelSym_named {c : Semantics} {k : CtorSig} (hk : k ∈ kernelSyms c) (hi : iteSort? (c.symName k.name) = none) :
+    ∃ φ, (Γc c ∪ Γstep c) φ ∧ KoreAML.Sym.symbol (c.symName k.name) ∈ psyms φ := by
+  have hit : symArityItem c k ∈ sigItems c := by
+    unfold sigItems
+    exact List.mem_append_left _ (List.mem_append_right _ (List.mem_map.mpr ⟨k, hk, rfl⟩))
+  refine ⟨_, Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl
+    ⟨_, hit, rfl⟩))))))))), ?_⟩
+  unfold symArityItem
+  rw [hi]
+  dsimp only
+  have hm := psyms_appList_head (σ := KoreAML.Sym.symbol (c.symName k.name))
+    ((List.map (srtOf c) k.args).map fun s => KoreAML.inhOf (KoreAML.trSort [] s))
+    (KoreAML.sym (.symbol (c.symName k.name))) (by simp [psyms, KoreAML.sym])
+  simp only [KoreAML.arityItem, KoreAML.paramTable, List.map_nil, KoreAML.guarded, KoreAML.appList, ML.included,
+    ML.total, Pattern.negation, psyms, List.mem_append]
+  exact .inl (.inr (.inl (.inl hm)))
+
+/-- A name no premise holds, other than `inj` and `Lblite`, that is no `ite` instance's, resolves to no
+constant. -/
+theorem spareSymB_of_free {c : Semantics} {n : String}
+    (hfree : ∀ φ, (Γc c ∪ Γstep c) φ → KoreAML.Sym.symbol n ∉ psyms φ)
+    (hinj : n ≠ "inj") (hl : n ≠ "Lblite") (hi : iteSort? n = none) : spareSymB c n = true := by
+  have hres : Faithful.Model.resolve c n [] = none := by
+    unfold Faithful.Model.resolve
+    split
+    · rename_i h; cases h
+    · rw [Option.map_eq_none_iff, List.find?_eq_none]
+      intro k hk hn
+      have he := beq_iff_eq.mp hn
+      obtain ⟨φ, hφ, hm⟩ := kernelSym_named hk (by rw [he]; exact hi)
+      rw [he] at hm
+      exact hfree φ hφ hm
+  simp only [spareSymB, hres, Bool.and_true]
+  exact bne_iff_ne.mpr hinj
+
+/-- **A sort's projection whose equation the arm accepts (`predProjAcc`) is free of the theory and
+resolves to no constant**: at a name the registry does not number by `sortProj_free_of_predProjOK`;
+at a registry-numbered one, the arm's decided check `GenEqs.freeB c [i]` (`regProjFree`), `i` the
+registry symbol bearing the name. -/
+theorem sortProj_free_of_predProjAcc {N : Parse.Names} {msrc : String} {eqs : List Parse.RawEqn}
+    {c : Semantics} {e : Parse.RawEqn} (h : Parse.predProjAcc N msrc eqs c e = true)
+    (hX : (KoreAML.Parse.dropPrefix? "Lblproject'Coln'" e.fn).isSome = true) (hc : c.coreOK = true) :
+    (∀ φ, (Γc c ∪ Γstep c) φ → KoreAML.Sym.symbol e.fn ∉ psyms φ) ∧ spareSymB c e.fn = true := by
+  unfold Parse.predProjAcc at h
+  simp only [Bool.and_eq_true, beq_iff_eq] at h
+  obtain ⟨hp, hr⟩ := h
+  cases hi : regSymNames.idxOf? e.fn with
+  | none =>
+    refine sortProj_free_of_predProjOK hp hX ?_ hc
+    rw [Bool.eq_false_iff]
+    intro hm
+    rw [List.idxOf?_eq_none_iff] at hi
+    exact hi (List.contains_iff_mem.mp hm)
+  | some i =>
+    have hd : freeB c [i] = true := by
+      unfold Parse.regProjFree at hr
+      simpa only [hX, ↓reduceIte, hi] using hr
+    obtain ⟨hlt', heq, -⟩ := List.idxOf?_eq_some_iff.mp hi
+    have hlt : i < nRegSyms := (show regSymNames.length = nRegSyms by decide +kernel) ▸ hlt'
+    have hname : c.symName i = e.fn := by
+      unfold Semantics.symName
+      rw [if_pos_walk hlt, List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hlt', Option.getD_some, heq]
+    have hfree : ∀ φ, (Γc c ∪ Γstep c) φ → KoreAML.Sym.symbol e.fn ∉ psyms φ := by
+      have := sym_free c [i] hc hd (List.mem_singleton_self _)
+      rwa [hname] at this
+    have hne : e.fn ≠ "inj" ∧ e.fn ≠ "Lblite" := by
+      refine ⟨?_, ?_⟩ <;>
+        · intro he; rw [he] at hX; revert hX; decide
+    exact ⟨hfree, spareSymB_of_free hfree hne.1 hne.2 (iteSort_none_of_proj hX)⟩
 
 end GenEqs
 

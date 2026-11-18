@@ -420,6 +420,7 @@ partial def cellGo (g : Ctx) (pre : String) : Cell → List String
   | .leaf nm _ ids => [s!"def {quoteId (nm ++ "Path")} : Path := {pre}.arg {g.sym ids.label} 1 0]",
       s!"def {quoteId ("get_" ++ nm)} (x : GroundTerm) : Option GroundTerm := x.atPath {quoteId (nm ++ "Path")}"]
   | .node _ cs ids => cs.zipIdx.flatMap fun (ch, i) => cellGo g (pre ++ s!".arg {g.sym ids.label} {cs.length} {i}, ") ch
+  | .coll _ => []
 
 def cellPathsOf (g : Ctx) : List String :=
   let p := g.d.pres
@@ -4373,6 +4374,55 @@ def scopeCountCmd (koreFile : String) : IO UInt32 := do
   IO.println s!"modules={ms.length}\tiff={c.iff}\tmu={c.mu}\tnu={c.nu}\tnext={c.next}\tleftAssoc={c.leftAssoc}\trightAssoc={c.rightAssoc}\tstring={c.string}\talias={c.alias}\tsvarEqn={c.svarEqn}"
   return 0
 
+/-! ## `kcore sentence-heads`: each sentence's kind, attribute heads, Source and Location -/
+
+/-- The text of a string, one line: tabs and line ends as spaces. -/
+def sentenceHeadsOneLine (s : String) : String :=
+  s.map fun ch => if ch == '\t' || ch == '\n' || ch == '\r' then ' ' else ch
+
+/-- The sentence's kind (its keyword) and its attributes. -/
+def sentenceHeadsOf : Kore.Sentence → String × List Kore.AppPattern
+  | .import i => ("import", i.attributes)
+  | .sort s => ("sort", s.attributes)
+  | .hookedSort s => ("hooked-sort", s.attributes)
+  | .symbol s => ("symbol", s.attributes)
+  | .hookedSymbol s => ("hooked-symbol", s.attributes)
+  | .alias a => ("alias", a.attributes)
+  | .axiom a => ("axiom", a.attributes)
+  | .claim c => ("claim", c.attributes)
+
+/-- The string argument of the attribute whose head is `head`, or "-". -/
+def sentenceHeadsArg (attrs : List Kore.AppPattern) (head : String) : String :=
+  match attrs.find? (·.head.ident.name == head) with
+  | some { args := [.string v], .. } => sentenceHeadsOneLine v
+  | _ => "-"
+
+/-- One line of an attribute list: its heads (comma-separated, in order), the Source and the
+Location strings. -/
+def sentenceHeadsLine (attrs : List Kore.AppPattern) : String :=
+  ",".intercalate (attrs.map (·.head.ident.name)) ++ "\t" ++
+    sentenceHeadsArg attrs "org'Stop'kframework'Stop'attributes'Stop'Source" ++ "\t" ++
+    sentenceHeadsArg attrs "org'Stop'kframework'Stop'attributes'Stop'Location"
+
+/-- `kcore sentence-heads KORE`: the parsed text's attribute lists, one line each, tab-separated:
+`definition HEADS SOURCE LOCATION` for the definition's, then per module (index I from 0)
+`module I NAME HEADS SOURCE LOCATION` and per sentence (index J from 0 in its module)
+`sentence I J KIND HEADS SOURCE LOCATION`, KIND the sentence's keyword, HEADS the head identifiers
+of its attributes (comma-separated, as written), SOURCE and LOCATION the string arguments of its
+Source and Location attributes or "-". Then `sentences N`, their number. -/
+def sentenceHeadsCmd (koreFile : String) : IO UInt32 := do
+  let .ok k := Kore.parseDefinition (← IO.FS.readFile koreFile) | IO.eprintln s!"{koreFile}: KORE read error"; return 1
+  IO.println s!"definition\t{sentenceHeadsLine k.attributes}"
+  let mut n := 0
+  for (m, i) in k.modules.zipIdx do
+    IO.println s!"module\t{i}\t{sentenceHeadsOneLine m.name.ident.name}\t{sentenceHeadsLine m.attributes}"
+    for (s, j) in m.sentences.zipIdx do
+      let (kind, attrs) := sentenceHeadsOf s
+      IO.println s!"sentence\t{i}\t{j}\t{kind}\t{sentenceHeadsLine attrs}"
+      n := n + 1
+  IO.println s!"sentences {n}"
+  return 0
+
 end KcoreGen
 
 def main (argv : List String) : IO UInt32 := do
@@ -4380,6 +4430,7 @@ def main (argv : List String) : IO UInt32 := do
   | ["generated-eqs", kore] => KcoreGen.generatedEqsCmd kore
   | ["sem-fields", kore] => KcoreGen.semFieldsCmd kore
   | ["scope-count", kore] => KcoreGen.scopeCountCmd kore
+  | ["sentence-heads", kore] => KcoreGen.sentenceHeadsCmd kore
   | ["account", kore] => KcoreGen.account kore
   | ["wf-parts", kore] => KcoreGen.wfParts kore
   | ["roundtrip", kore] => KcoreGen.roundTrip kore
@@ -4412,4 +4463,4 @@ def main (argv : List String) : IO UInt32 := do
     KcoreGen.gen kore out ns (certs := certs) (high := high) (keyed := keyed) (tie := rest.contains "--tie")
       (wfMods := rest.contains "--wf") (core := rest.contains "--core") (withSyntax := !rest.contains "--no-syntax")
       (asNotPlain := rest.contains "--as-not-plain")
-  | _ => IO.eprintln "usage: kcore gen definition.kore OUTDIR NAME [--tie | --wf | --core [--no-syntax]] [--as-not-plain] [--cert NAME=RUN.json]... [--high CELL]... [--keyed CELL]...\n       kcore account definition.kore\n       kcore wf-parts definition.kore\n       kcore roundtrip definition.kore\n       kcore gap definition.kore [--all]\n       kcore agree CASES.jsonl...\n       kcore oracle definition.kore config.kore | kcore oracle CASES.jsonl...\n       kcore exec definition.kore config.kore [--steps N] [--fuel F]\n       kcore exec-ready definition.kore\n       kcore rule-ids definition.kore\n       kcore sem-fields definition.kore\n       kcore scope-count definition.kore"; return 2
+  | _ => IO.eprintln "usage: kcore gen definition.kore OUTDIR NAME [--tie | --wf | --core [--no-syntax]] [--as-not-plain] [--cert NAME=RUN.json]... [--high CELL]... [--keyed CELL]...\n       kcore account definition.kore\n       kcore wf-parts definition.kore\n       kcore roundtrip definition.kore\n       kcore gap definition.kore [--all]\n       kcore agree CASES.jsonl...\n       kcore oracle definition.kore config.kore | kcore oracle CASES.jsonl...\n       kcore exec definition.kore config.kore [--steps N] [--fuel F]\n       kcore exec-ready definition.kore\n       kcore rule-ids definition.kore\n       kcore sem-fields definition.kore\n       kcore scope-count definition.kore\n       kcore sentence-heads definition.kore"; return 2
