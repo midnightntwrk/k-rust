@@ -108,7 +108,12 @@ What it states where the text:
   the converse over Γ's content `gamma_from` (`TiePair.Pre`). Two or more such items are left
   `uncovered`;
 - has the no-junk sentence of an open generator's sort: the item over its generators in the text's
-  order, a permutation of `Semantics.gens` (`<sort>TextGens`), `nojunk_<sort>_entailed`.
+  order, a permutation of `Semantics.gens` (`<sort>TextGens`), `nojunk_<sort>_entailed`;
+- has the `functional` sentence of a parameter symbol no registry hook implements that the text
+  declares total (`isParamFunctional`, the class `parameter functional`, direction hypothesis):
+  `total_params` (`Definition.totalParams`), `paramfunctional_account`, `paramfunctional_heads`; it is
+  owed as `ParamsTotal`, the hypothesis on H the statements take. The functional sentence of a
+  parameter without `impl` the text does not declare total is refused.
 
 What the test states (each a kernel decision or a proof from one):
 - layer 1: `wf defn = true` (or `coreOK` with the failing conjuncts of `wf` named); the account (the
@@ -174,8 +179,8 @@ WRAP = ["systemd-run", "--user", "--scope", "-q", "-p", "MemoryMax=12G", "-p", "
 CLASSES = ["function equation", "rewrite rule", "priority equation", "constructor functional", "subsort",
            "injectivity", "distinctness", "no junk", "function functional", "hooked functional",
            "collection law", "library", "set idempotence", "set-variable lemma", "function law",
-           "open generator law", "open generator functional", "parameter lemma", "user lemma",
-           "user lemma at values", "no direction"]
+           "open generator law", "open generator functional", "parameter functional", "parameter lemma",
+           "user lemma", "user lemma at values", "no direction"]
 # the classes test/TieEns.lean states a theorem of, sentence by sentence
 THEOREM_CLASSES = {"function equation", "rewrite rule", "priority equation", "constructor functional",
                    "subsort", "injectivity", "distinctness", "no junk", "set idempotence"}
@@ -187,6 +192,12 @@ CONS_CLASSES = ["constructor functional", "subsort", "injectivity", "distinctnes
 LAW_FN_CLASS = "function law"
 LAW_OPEN_CLASS = "open generator law"
 OPEN_FUNCTIONAL_CLASS = "open generator functional"
+# The class of the `functional` sentence of a parameter symbol no registry hook interprets that the
+# text declares total (`isParamFunctional`, `Definition.totalParams`): the reader reads it as that
+# declaration; Γ states the parameter's graph at values from the interpretation, so the sentence holds
+# at values where H gives the parameter a value at every argument list of its sorts, which the
+# statements take as the hypothesis `ParamsTotal` (direction hypothesis).
+PARAM_FUNCTIONAL_CLASS = "parameter functional"
 # The class of a lemma the reader leaves out of Γ that applies a parameter symbol no registry hook
 # interprets (`isParamLemma`): its truth depends on the interpretation, so it is owed as a hypothesis
 # on H, the sentence itself at the member (direction hypothesis); the tie of a text with one owes one
@@ -545,6 +556,8 @@ def tgMinusNeg (a : Kore.Axiom) : P :=
   let nmK := Parse.namesOf k
   let ixOf := fun (q : P) => (usP.filter fun (_, p, _) => p == q).map (·.1.index)
   IO.println s!"H hasParams {c.params.any (·.impl.isNone)}"
+  IO.println s!"H totalParams {d.totalParams.map c.symName}"
+  IO.println s!"H noImplParams {(c.params.filter fun p => p.impl.isNone && !p.raw).map (c.symName ·.sig.name)}"
   IO.println s!"H totalNil {decide (c.totalObligationsRP @ORDER@ [] = [])}"
   IO.println s!"H attrsParts {AttrsAgree.ctors k c} {AttrsAgree.fns k c} {AttrsAgree.hooks k c} {AttrsAgree.colls k c} {AttrsAgree.prios k d}"
   let lawIx := d.laws.map fun l => ixOf (lawPattern c l)
@@ -683,11 +696,13 @@ def probe(name, path, um, order="[]", cons_head=False):
 # ---------------------------------------------------------------------------------------------
 # Classes
 
-def form_class(s, raw, builtin, laws=(), open_laws=(), raw_names=(), at_values=()):
+def form_class(s, raw, builtin, laws=(), open_laws=(), raw_names=(), at_values=(), total_params=()):
     """The class a sentence's form and its probe give, or None. `laws`: the sentences that are, as
     written, the reader's laws of functions (`lawPattern`); `open_laws`: those that are Γ's law
     items of open generators (`lawItemsK`); `raw_names`: the open generators' symbol names;
-    `at_values`: the user lemmas the caller names as holding at values only."""
+    `at_values`: the user lemmas the caller names as holding at values only; `total_params`: the
+    names of the parameter symbols without `impl` that the text declares total
+    (`Definition.totalParams`)."""
     if s["absent"]:
         return "no direction"
     if s["idx"] in laws:
@@ -696,6 +711,8 @@ def form_class(s, raw, builtin, laws=(), open_laws=(), raw_names=(), at_values=(
         return LAW_OPEN_CLASS
     if "[functional{}()]" in raw and s["fh"] in raw_names and not s["fnJ"] and not s["consItem"]:
         return OPEN_FUNCTIONAL_CLASS
+    if "[functional{}()]" in raw and s["fh"] in total_params and not s["fnJ"] and not s["consItem"]:
+        return PARAM_FUNCTIONAL_CLASS
     if s["fnJ"]:
         return "function equation"
     if s["rw"]:
@@ -729,7 +746,7 @@ def form_class(s, raw, builtin, laws=(), open_laws=(), raw_names=(), at_values=(
     return None
 
 
-def classify(name, text, sents, laws=(), open_laws=(), raw_names=(), at_values=()):
+def classify(name, text, sents, laws=(), open_laws=(), raw_names=(), at_values=(), total_params=(), no_impl=()):
     um, ua = user_axioms(text)
     if sorted(sents) != [a[0] for a in ua]:
         raise Refused(f"{name}: the probe's user-module sentences are not the text's (indices differ)")
@@ -741,7 +758,13 @@ def classify(name, text, sents, laws=(), open_laws=(), raw_names=(), at_values=(
     cls, mapped, unmapped = {}, {}, []
     for i, _, s, raw in ua:
         builtin = "/include/kframework/builtin/" in raw
-        fc = form_class(sents[i], raw, builtin, laws, open_laws, raw_names, at_values)
+        fc = form_class(sents[i], raw, builtin, laws, open_laws, raw_names, at_values, total_params)
+        # the functional sentence of a parameter without `impl` that the text does not declare total
+        # has no class: the reader reads such a sentence only as the declaration (`totalParams`)
+        if ("[functional{}()]" in raw and sents[i]["fh"] in no_impl and sents[i]["fh"] not in total_params
+                and not sents[i]["absent"]):
+            raise Refused(f"{name}: sentence {i} is the functional sentence of the parameter {sents[i]['fh']}, "
+                          f"which the text does not declare total (`Definition.totalParams`)")
         # whether a sentence applies a head Γ lacks is a fact of this text's Γ: a sentence equal to one
         # of ens's that is in the no-direction class in one text and not in the other takes no class
         # from ens's and is unmapped
@@ -750,8 +773,9 @@ def classify(name, text, sents, laws=(), open_laws=(), raw_names=(), at_values=(
             mapped[i] = j
             # a lemma over a parameter symbol of this text's reading without `impl` is a parameter
             # lemma whatever ens's class of the same sentence (the parameters are the text's), and a
-            # lemma of a user's file is a user lemma (the `Source` is this text's)
-            ec = fc if fc == PARAM_LEMMA_CLASS or fc in USER_LEMMA_CLASSES else ecls[j]
+            # lemma of a user's file is a user lemma (the `Source` is this text's), and the functional
+            # sentence of a parameter this text declares total is a parameter functional
+            ec = fc if fc in (PARAM_LEMMA_CLASS, PARAM_FUNCTIONAL_CLASS) or fc in USER_LEMMA_CLASSES else ecls[j]
             # where the probe decides the class (a head Γ lacks, an item of Γ), it must agree with ens's
             decided = fc if fc in ("no direction", "function equation", "rewrite rule") or (fc == "no junk" and ec == "no junk") else None
             if decided and decided != ec:
@@ -935,6 +959,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     fn_any = fn_full or fn_align
     open_fun = [i for i in idx if cls[i] == OPEN_FUNCTIONAL_CLASS and sents[i]["fh"] in {k["name"] for k in raw}]
     param_lem = by_class[PARAM_LEMMA_CLASS]
+    param_fun = by_class[PARAM_FUNCTIONAL_CLASS]
+    total_names = re.findall(r"[^\s\[\],]+", head.get("totalParams", ""))
     user_lem, user_lem_v = by_class[USER_LEMMA_CLASS], by_class[USER_LEMMA_VALUES_CLASS]
     if tp_params:
         raise Refused(f"{name}: a `[total]` function owes the totality of a parameter the text declares total "
@@ -1107,6 +1133,9 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         owed_more += "; open generator functional: owed as `OpenTotal`\n    (`open_functional_not_item`)"
     if open_law:
         owed_more += "; open generator law: Γ's law item (`openlaw_item`,\n    `openlaw_account`)"
+    if param_fun:
+        owed_more += ("; parameter functional: owed as `ParamsTotal`\n    (`total_params`, `paramfunctional_account`, "
+                      "`paramfunctional_heads`)")
     if param_lem:
         owed_more += ("; parameter lemma: owed as a hypothesis on H\n    (`paramlemma_account`, `paramlemma_heads`, "
                       "`ParamLemmaWitness`)")
@@ -1143,6 +1172,20 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             w(textwrap.fill(" ".join(para), width=100, initial_indent="  ", subsequent_indent="  ",
                             break_on_hyphens=False, break_long_words=False))
             w("")
+    if param_fun:
+        para = [f"The parameter functional sentence{'s' if len(param_fun) > 1 else ''} ({', '.join(map(str, param_fun))}) "
+                f"{'are' if len(param_fun) > 1 else 'is'} the `functional` sentence of a parameter symbol no registry hook "
+                "interprets that the text declares total (`Definition.totalParams`, `total_params`), which the reader "
+                "reads as that declaration. Γ states the parameter's graph at values from the interpretation "
+                "(`ΓDomains`: its application to values denotes `paramVal`'s value, or nothing), so the sentence "
+                "holds at values where H gives the parameter a value of its sort at every argument list of its "
+                "sorts: the hypothesis on H the statements take (`ParamsTotal`). The account holds "
+                f"{'them' if len(param_fun) > 1 else 'it'} in the class `{PARAM_FUNCTIONAL_CLASS}`, of the direction "
+                "`hypothesis` (`paramfunctional_account`), and every such sentence of the user module is in it "
+                "(`paramfunctional_heads`)."]
+        w(textwrap.fill(" ".join(para), width=100, initial_indent="  ", subsequent_indent="  ",
+                        break_on_hyphens=False, break_long_words=False))
+        w("")
     if param_lem:
         w(f"  The parameter lemmas ({', '.join(map(str, param_lem))}) apply a parameter symbol no registry hook interprets,")
         w("  whose value the interpretation gives: each is owed as a hypothesis on H, the sentence itself at the")
@@ -1811,6 +1854,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w(openlaw_section(open_law, rnames, need_rfl=not nj_items))
     if open_fun:
         w(open_functional_section(open_fun, rnames))
+    if param_fun:
+        w(param_functional_section(param_fun, total_names, len(idx), chunk))
     if param_lem:
         w(param_lemma_section(param_lem))
     if user_lem or user_lem_v:
@@ -1869,6 +1914,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         names += ["openlaw_item", "openlaw_cons", "openlaw_entailed", "openlaw_account"]
     if open_fun:
         names.append("open_functional_not_item")
+    if param_fun:
+        names += ["total_params", "paramfunctional_account", "paramfunctional_heads"]
     if param_lem:
         names += ["paramlemma_account", "paramlemma_heads", "ParamLemmaWitness"]
     if user_lem or user_lem_v:
@@ -2204,6 +2251,48 @@ theorem law_not_item : lawText.all (fun ad => !(fnItems c).any (·.pat == (trS a
 not hold the sentence; it is owed as `FnLaws`). -/
 theorem law_account : lawText.map (·.index) = classOf "{LAW_FN_CLASS}" := by
   decide +kernel
+"""
+
+
+def param_functional_section(param_fun, total_names, n, chunk):
+    il = ", ".join(map(str, param_fun))
+    lt = ", ".join(f"U.ax{i}" for i in param_fun)
+    tn = ", ".join(f'"{x}"' for x in total_names)
+    pred = f'(fun ad => !functionalOfNamed [{tn}] ad.ax || (classOf "{PARAM_FUNCTIONAL_CLASS}").contains ad.index)'
+    if chunk:
+        thms, body = by_ranges("paramFunE", "U.all", "paramFunP", ranges(n, 0, chunk), "tieAll", True)
+        heads = (f"""/-- The sentence is no parameter's functional sentence, or it is of the class
+`{PARAM_FUNCTIONAL_CLASS}`. -/
+noncomputable def paramFunP (ad : AxiomDecl) : Bool :=
+  !functionalOfNamed [{tn}] ad.ax || (classOf "{PARAM_FUNCTIONAL_CLASS}").contains ad.index
+
+{thms}
+
+""", "  rw [userAxioms_eq]; exact\n    " + body.replace("\n    ", "\n      "))
+    else:
+        heads = ("", "  rw [userAxioms_eq]; decide +kernel")
+    return f"""/-! ## The parameter functional sentences ({il}): owed as `ParamsTotal` -/
+
+/-- The parameter symbols no registry hook interprets that the text declares total
+(`Definition.totalParams`): the statements take `ParamsTotal c defn.totalParams H`, that `H` gives
+each a value of its result sort at every argument list of its argument sorts. -/
+theorem total_params : defn.totalParams.map c.symName = [{tn}] := by decide +kernel
+
+/-- The text's `functional` sentences of those parameters (`isParamFunctional`). -/
+noncomputable def paramFunctionalText : List AxiomDecl := [{lt}]
+
+/-- The parameter functional sentences are the account's class `{PARAM_FUNCTIONAL_CLASS}`, of the
+direction `hypothesis`: Γ states a parameter's graph at values from the interpretation (`ΓDomains`),
+so it holds the sentence at values exactly where `H` gives the parameter a value at the values of its
+argument sorts, which is `ParamsTotal` at that parameter. -/
+theorem paramfunctional_account : paramFunctionalText.map (·.index) = classOf "{PARAM_FUNCTIONAL_CLASS}" ∧
+    paramFunctionalText.all (fun ad => functionalOfNamed [{tn}] ad.ax) = true := by
+  decide +kernel
+
+{heads[0]}/-- Every `functional` sentence of the user module of a parameter the text declares total
+(`total_params`) is of the class `{PARAM_FUNCTIONAL_CLASS}`. -/
+theorem paramfunctional_heads : userAxioms.all {pred} = true := by
+{heads[1]}
 """
 
 
@@ -2689,8 +2778,9 @@ def main(argv):
     if (head.get("sigAll") != "true" and not next_only) or head.get("declAll") != "true":
         raise Refused(f"{name}: an item of the signature has no origin (items {head.get('sigBad')}) or a declaration's item is not Γ's")
     law_set, open_set = {l[0] for l in laws}, {l[0] for l in open_laws}
+    names_of = lambda k: set(re.findall(r"[^\s\[\],]+", head.get(k, "")))
     um, cls, mapped, unmapped = classify(name, text, sents, law_set, open_set, {k["name"] for k in head["raw"]},
-                                         at_values)
+                                         at_values, names_of("totalParams"), names_of("noImplParams"))
     for i in law_set | open_set:
         if sents[i]["fnJ"] or (i in law_set and sents[i]["consItem"]):
             raise Refused(f"{name}: law sentence {i} is a function equation's item or a constructor item of Γ")
