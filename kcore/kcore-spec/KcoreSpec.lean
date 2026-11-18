@@ -372,3 +372,4 @@ import KcoreSpec.KKLitsVPatVal
 import KcoreSpec.GenEqsInitArm
 import KcoreSpec.ValueModelApp
 import KcoreSpec.ModelHasEx
+import KcoreSpec.CoreOKEx
