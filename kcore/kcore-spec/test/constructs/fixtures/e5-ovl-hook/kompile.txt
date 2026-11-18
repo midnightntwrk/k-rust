@@ -1,0 +1,11 @@
+command: kompile --backend haskell e5-ovl-hook.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 3.2
+definition.kore bytes: 205996
+definition.kore sha256: 9895be1a7289f672c04c1469a631eaa5382863c4a842d4b165b96e05a01e4df6
+stripped sha256: ae38c99b5bffdc6a1ef8f6bf440d25f27f666fc3081f7bb0172f646b3e3499f9
+main module: 405 sentences, 49 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E5-OVL-HOOK-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E5-OVL-HOOK as default.

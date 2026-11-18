@@ -1,0 +1,4 @@
+# An overload pair whose smaller symbol is a parameter symbol: plusInt is a function with no
+# equation (e5-ovl-fun without its rule).
+expectation = "kompile delivers the symbol-overload axiom plusExp(inj K0, inj K1) = inj(plusInt(K0, K1)); at covered arguments plusExp's application is the injected value the interpretation gives plusInt, which no equation of the text constrains."
+observed = "kore.txt line 10: plusInt declared [function{}()] with no functional axiom and no equation; line 86: the symbol-overload axiom; lines 76 and 78: plusExp's functional and no-confusion axioms. account.txt: the axiom is refused overloadForm (LblplusInt: neither a constructor, an overloading symbol nor a function of the definition); no other refusal."
