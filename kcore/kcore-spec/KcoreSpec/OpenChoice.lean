@@ -103,7 +103,7 @@ theorem has_model_choice_open (c : Semantics) (h : c.coreOK = true) (hf : FnHyp 
     ∃ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), (I ⊧ᴵP (Γc c ∪ Γstep c)) ∧
       ∀ x y : Config c, T x y ↔ ¬ (I ⊧ᴵ (den c x.val ⇒ ∼ KoreAML.sNext (den c y.val))) := by
   refine ⟨Elem, inferInstance, stdI c, stdI_modelOpen c h (hypModel_of_fnHyp h hf) hf.2.2.2.2.2 hrules
-    (satFnsGoal_decided (hypModel_of_fnHyp h hf) (clausePreDecided_of_fnHyp h hf)), fun x y => ?_⟩
+    (satFnsGoal_decided (hypModel_of_fnHyp h hf) (Semantics.fnsNoExs_of_coreOK h) (clausePreDecided_of_fnHyp h hf)), fun x y => ?_⟩
   rw [← step_iff_stdIChoice c h hf hrules x y]
   refine ⟨hsub x y, fun hs => ?_⟩
   obtain ⟨r, σ, hb⟩ := step_iff_by.mp hs

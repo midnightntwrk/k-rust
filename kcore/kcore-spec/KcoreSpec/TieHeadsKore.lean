@@ -308,7 +308,7 @@ theorem cond (S : Kore.KSort) :
   | .exMatch ys s p t body, vars, vs, h => by
     simp only [Semantics.condOK, Bool.and_eq_true, beq_iff_eq] at h
     simp only [Cond.kore, hin_existsAll, hin_and, hinL_cons, hinL_nil, and_true, hin_in]
-    exact ⟨⟨term ctxG_rhsCtx_fns vars vs t h.1.1.2, term ctxG_patCtxAll (vars ++ ys) _ p h.1.1.1⟩,
+    exact ⟨⟨term ctxG_rhsCtx_fns vars vs t h.1.1.2, term ctxG_patCtxAll (vars ++ ys) _ p (sortOfTerm_all_of_nf h.1.1.1)⟩,
       cond S body (vars ++ ys) _ h.1.2⟩
   | .ex s body, vars, vs, h => by
     simp only [Semantics.condOK] at h
@@ -364,7 +364,7 @@ theorem clauseG_of_sorted {f : Fn} {rhsHeads : List CtorSig} {cl : Clause}
   simp only [Semantics.clauseSorted, Bool.and_eq_true, beq_iff_eq] at h
   obtain ⟨⟨⟨⟨⟨⟨hpats, -⟩, hreq⟩, hrhs⟩, hens⟩, -⟩, hpre⟩ := h
   have hx := ctxG_rhsCtx hf
-  refine ⟨fun vs => terms ctxG_patCtxAll cl.vars vs cl.pats hpats,
+  refine ⟨fun vs => terms ctxG_patCtxAll cl.vars vs cl.pats (sortsOfTerms_all_of_nf hpats),
     fun vs t ht => term hx cl.vars vs t (reqOK_some_ghk hreq t ht),
     fun vs => term hx cl.vars vs cl.rhs hrhs,
     fun vs t ht => term hx cl.vars vs t (reqOK_some_ghk hens t ht),

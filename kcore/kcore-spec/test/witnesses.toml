@@ -228,14 +228,15 @@ note = "two constructors g, h : Int -> KCell overloaded by f : Int -> KCell: the
 [[conjunct]]
 key = "overloadsOK.9"
 text = "c.ovlPatsOK"
-witness = "none: no witness exists: implied by overloadsOK.1, overloadsOK.5 and faithCoreOK.11 (fnsApart), for every semantics (kernel-checked: ov9_of_ov15): each symbol an overloading symbol overloads is a constructor or an overloading symbol, neither of which is a function's label, so no symbol is function-overloaded (fnOvlSyms is empty) and no pattern applies one; the implication holds while overloadsOK.5 admits no function among the overloaded symbols"
-evidence = "test/WitRestOvlB.lean"
-note = "sortedOK.3 gives the part on the rules' left sides for every semantics (kernel-checked: lhs_noFnOvl_of_sortedOK, test/SortedNF.lean): ruleSorted sorts a left side over patCtxNF, which holds no function-overloaded symbol. sortedOK does not yet give the parts on the clauses' patterns and the exMatch patterns, which clauseSorted and condOK sort over patCtxAll"
+witness = "none: no witness exists: implied by sortedOK.2, sortedOK.3 and sortedOK.5, for every semantics (kernel-checked: Semantics.ovlPatsOK_of_sortedOK): ruleSorted sorts a rule's left side, clauseSorted a clause's patterns and condOK each exMatch pattern of a rule's pre and post and of a clause's pre over patCtxNF, which holds no function-overloaded symbol, and clausesPlain asks that a clause's right side hold no predicate (post.isTop), so it holds no pattern"
+evidence = "test/SortedNF.lean"
+note = "also implied by overloadsOK.1, overloadsOK.5 and faithCoreOK.11 (fnsApart) while overloadsOK.5 admits no function among the overloaded symbols (kernel-checked: ov9_of_ov15, test/WitRestOvlB.lean)"
 
 [[conjunct]]
 key = "FnDet"
 text = "KCore.FnDet"
-witness = "none: derivable from coreOK and FnSolves at the current Eval block where every clause's predicate is top (clausesPreTop; test/FnSolvesDet.lean); open where coreOK admits another predicate; reopened after CE.flip"
+witness = "KcoreSpec.ModelFnDetWitness"
+note = "the witness has a clause whose predicate is not ⊤ (u(X) => true where ¬⌈a(X)⌉, beside a(X) => 1 and a(X) => 1 ensures u(X)): it meets coreOK, FnSolves, ClausePreDecided and OpenLaws, a(0) has the results 1 and none, and Γ has no model. Where every clause's predicate is ⊤ (clausesPreTop) there is no witness: coreOK and FnSolves give FnDet (fnDet_of_fnSolves, test/FnSolvesDet.lean)"
 evidence = "test/FnSolvesDet.lean"
 
 [[conjunct]]

@@ -1,0 +1,9 @@
+param	Lbl'Hash'address'LParUndsRParUnds'FFI'Unds'Int'Unds'Bytes	args=[Bytes]	result=Int	impl=none	raw=false	assoc=false	idem=false
+param	Lbl'Hash'alloc'LParUndsCommUndsCommUndsRParUnds'FFI'Unds'Bytes'Unds'KItem'Unds'Int'Unds'Int	args=[KItem, Int, Int]	result=Bytes	impl=none	raw=false	assoc=false	idem=false
+param	Lbl'Hash'ffiCall'LParUndsCommUndsCommUndsCommUndsCommUndsRParUnds'FFI'Unds'Bytes'Unds'Int'Unds'List'Unds'List'Unds'List'Unds'FFIType	args=[Int, List, List, List, FFIType]	result=Bytes	impl=none	raw=false	assoc=false	idem=false
+param	Lbl'Hash'ffiCall'LParUndsCommUndsCommUndsCommUndsRParUnds'FFI'Unds'Bytes'Unds'Int'Unds'List'Unds'List'Unds'FFIType	args=[Int, List, List, FFIType]	result=Bytes	impl=none	raw=false	assoc=false	idem=false
+param	Lbl'Hash'free'LParUndsRParUnds'FFI'Unds'K'Unds'KItem	args=[KItem]	result=K	impl=none	raw=false	assoc=false	idem=false
+param	Lbl'Hash'functionAddress'LParUndsRParUnds'FFI'Unds'Int'Unds'String	args=[String]	result=Int	impl=none	raw=false	assoc=false	idem=false
+param	Lbl'Hash'nativeRead'LParUndsCommUndsRParUnds'FFI'Unds'K'Unds'Int'Unds'Bytes	args=[Int, Bytes]	result=K	impl=none	raw=false	assoc=false	idem=false
+param	Lbl'Hash'nativeWrite'LParUndsCommUndsRParUnds'FFI'Unds'K'Unds'Int'Unds'Bytes	args=[Int, Bytes]	result=K	impl=none	raw=false	assoc=false	idem=false
+(exit 0)

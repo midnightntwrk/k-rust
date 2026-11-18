@@ -15,6 +15,12 @@ The document holds, in this order:
              having no model (DONE-0 C7, rows-header.toml): its fixture, the sentences and families
              the refutation uses, the theorem, its kind where given, and `owed_refuted`. Such an
              entry's status cell in its list reads "STATUS (no model)".
+  owed facts every entry (row or nested) with an `owed_state` (rows-header.toml: per fixture, the
+             state of the CondDecided its account lists as owed) or an `owed_refuted`: the count
+             by state, and each entry with a false or open owed fact, one line per fixture: the
+             state, and the theorem or the reason. Such an entry's status cell reads "STATUS (owed
+             fact false)", "STATUS (owed fact open)" or "STATUS (owed fact proved)", the first of
+             the three that one of its states gives (an owed_refuted gives false).
   teaches    every layer of the manifest in its order: id, status, `teaches`, declarations, and the
              status of each `except` entry; then the manifest's not_core items.
   the lists  one table per list, one line per row in rows.toml's order, each nested entry on a line
@@ -96,6 +102,24 @@ def no_model(e):
     return [d for d in ds if isinstance(d, dict) and d.get("form") == "r"] if isinstance(ds, list) else []
 
 
+def owed_facts(e):
+    """[(fixture, state, theorem or reason)] of an entry: its `owed_state`, then each owed_refuted
+    of its form (r) tables, a refuted owed fact of its fixture."""
+    out = []
+    st = e.get("owed_state")
+    for x, v in (st.items() if isinstance(st, dict) else []):
+        word, _, rest = str(v).partition(": ")
+        out.append((x, "false" if word == "refuted" else word, rest))
+    out += [(e.get("fixture", ""), "false", d["owed_refuted"]) for d in no_model(e) if d.get("owed_refuted")]
+    return out
+
+
+def owed_mark(e):
+    """The state K-coverage.md prints beside the entry's status, or None."""
+    ws = {w for _, w, _ in owed_facts(e)}
+    return next((w for w in ("false", "open", "proved") if w in ws), None)
+
+
 def mark(v):
     return "" if v is None else ("yes" if v is True else "no" if v is False else text(v, 20))
 
@@ -136,7 +160,7 @@ def generate(rows_path, manifest_path):
         raise SystemExit(f"coverage: tables of rows.toml this script does not know: {extra}")
     st_rows, st_nest = {}, {}
     cl_rows, cl_nest = {}, {}
-    rc, undecided, nomodel = [], collections.defaultdict(list), []
+    rc, undecided, nomodel, owed = [], collections.defaultdict(list), [], []
     for l in LISTS:
         st_rows[l], st_nest[l] = collections.Counter(), collections.Counter()
         cl_rows[l], cl_nest[l] = collections.Counter(), collections.Counter()
@@ -155,6 +179,8 @@ def generate(rows_path, manifest_path):
                     rc.append((l, key, w, e))
                 for d in no_model(e):
                     nomodel.append((l, key, w, e, d))
+                if owed_mark(e):
+                    owed.append((l, key, w, e))
     seen_st = {s for c in list(st_rows.values()) + list(st_nest.values()) for s in c}
     stcols = STATUSES + sorted((s for s in seen_st if s not in STATUSES), key=str)
     seen_cl = {s for c in list(cl_rows.values()) + list(cl_nest.values()) for s in c}
@@ -228,6 +254,24 @@ def generate(rows_path, manifest_path):
              text(d.get("owed_refuted", ""))]
             for l, key, w, e, d in nomodel])
 
+    marks = collections.Counter(owed_mark(e) for _, _, _, e in owed)
+    shown = [(l, key, w, e, f) for l, key, w, e in owed for f in owed_facts(e) if f[1] != "proved"]
+    o += ["", f"## Entries with an owed fact ({len(owed)}: false {marks['false']}, open {marks['open']},"
+          f" proved {marks['proved']})", "",
+          "An entry's `owed_state` names, per fixture, the state of the CondDecided its account lists "
+          "as owed: proved or refuted by the theorem named, or open with the reason; an "
+          "`owed_refuted` of form (r) is a refuted owed fact of the entry's fixture. The status stays "
+          "the reading's: where the owed fact is false, the headline statements, whose hypothesis "
+          "holds it, state nothing of the step at that text. The list prints the state beside the "
+          "status; below, every false or open owed fact.", ""]
+    if not shown:
+        o += ["None."]
+    else:
+        o += table(["list", "row", "entry", "status", "fixture", "owed fact", "theorem or reason"], [
+            [l, code(key), text(w) if w else "row", text(e.get("status", "")), text(f[0]), text(f[1]),
+             text(f[2], CUT)]
+            for l, key, w, e, f in shown])
+
     o += ["", "## What the cone teaches", "",
           "The layers of `core-manifest.toml` in their order, each with its `teaches` field (DONE-0 "
           "C11: the release gate and the completion gate read each against the cone's "
@@ -264,6 +308,8 @@ def generate(rows_path, manifest_path):
                     st += f" ({', '.join(fs)})" if fs else " (no form)"
                 if no_model(e):
                     st += " (no model)"
+                if owed_mark(e):
+                    st += f" (owed fact {owed_mark(e)})"
                 lines.append([
                     name, text(st), text(e.get("class", "")),
                     text(e.get("reason", e.get("note", "")), CUT)

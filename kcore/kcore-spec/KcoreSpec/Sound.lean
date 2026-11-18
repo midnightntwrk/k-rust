@@ -104,7 +104,7 @@ theorem consistent_open (c : Semantics) (h : c.coreOK = true) (hd : FnDet c) (hs
     (hp : ClausePreDecided c) (hl : OpenLaws c)
     (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainOpen r = true) : Consistent c :=
   ⟨Elem, inferInstance, stdI c, stdI_modelOpen c h (hypModel_of_fn h hd hs) hl hrules
-    (satFnsGoal_decided (hypModel_of_fn h hd hs) hp)⟩
+    (satFnsGoal_decided (hypModel_of_fn h hd hs) (Semantics.fnsNoExs_of_coreOK h) hp)⟩
 
 /-- **Exactness of a definition whose rules' left sides need not bind every variable**: `ExactC`,
 for a semantics that `coreOK` accepts whose functions meet `FnHyp` and whose rules have

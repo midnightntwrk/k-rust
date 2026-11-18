@@ -18,6 +18,13 @@ Usage (from kcore-spec):
       (--report or not) on one that names no ticket, or whose ticket is done or not in PROGRESS
       (KCORE_PROGRESS, else ../progress beside kcore-spec, else the main checkout's, as units.py);
       with --gate (the completion gate), on every one
+      Then the owed CondDecided (`owed_state`, rows-header.toml): exit 1 (--report or not) on an
+      entry whose `fixture` or `also_fixtures` has an account.txt printing `CondDecided open` and
+      that names no state for it; on a key whose account prints no `CondDecided open`, or that is
+      neither a fixture of the entry nor named in its text; on a state of no known form; on a
+      theorem not declared, under its full name, in the state's FILE (a test/X.lean that
+      test/integration.sh builds) or, without FILE, in a file of the entry's `tie`; and on a
+      fixture printing `CondDecided open` that no entry's `owed_state` keys
   python3 -I test/constructs/rest.py --self-test
       the check on entries and fixtures written to a scratch directory, each accepted or refused
       as expected
@@ -337,34 +344,40 @@ def tie_file_ok(f):
 _decls = {}
 
 
+def file_decls(f):
+    """The full names the file declares (namespaces tracked by their `namespace` lines; a textual
+    check, as provenance.sh's), or None where it is no file."""
+    p = os.path.join(K, f) if isinstance(f, str) else None
+    if not p or not os.path.isfile(p):
+        return None
+    if f not in _decls:
+        src = re.sub(r"/-.*?-/", "", open(p).read(), flags=re.S)
+        src = re.sub(r"--.*", "", src)
+        decls = set()
+        stack = []
+        for line in src.split("\n"):
+            s = line.strip()
+            m = re.match(r"namespace (\S+)", s)
+            if m:
+                stack.append(m[1]); continue
+            m = re.match(r"end (\S+)$", s)
+            if m and stack and stack[-1] == m[1]:
+                stack.pop(); continue
+            m = re.match(r"(?:@\[[^\]]*\]\s*)?(?:private |protected |noncomputable )*"
+                         r"(?:theorem|lemma|def|abbrev|instance|example) ([^\s:({\[]+)", s)
+            if m:
+                d = m[1].strip("«»")
+                decls.add(".".join(stack + [d]) if not d.startswith("_root_.") else d[7:])
+        _decls[f] = decls
+    return _decls[f]
+
+
 def declared(name, files):
-    """Whether the full name is declared in one of the files (namespaces tracked by their
-    `namespace` lines; a textual check, as provenance.sh's)."""
-    parts = name.split(".")
+    """Whether the full name is declared in one of the files (a declaration's name may also be a
+    suffix of it)."""
     for f in files:
-        p = os.path.join(K, f) if isinstance(f, str) else None
-        if not p or not os.path.isfile(p):
-            continue
-        if f not in _decls:
-            src = re.sub(r"/-.*?-/", "", open(p).read(), flags=re.S)
-            src = re.sub(r"--.*", "", src)
-            decls = set()
-            stack = []
-            for line in src.split("\n"):
-                s = line.strip()
-                m = re.match(r"namespace (\S+)", s)
-                if m:
-                    stack.append(m[1]); continue
-                m = re.match(r"end (\S+)$", s)
-                if m and stack and stack[-1] == m[1]:
-                    stack.pop(); continue
-                m = re.match(r"(?:@\[[^\]]*\]\s*)?(?:private |protected |noncomputable )*"
-                             r"(?:theorem|lemma|def|abbrev|instance|example) ([^\s:({\[]+)", s)
-                if m:
-                    d = m[1].strip("«»")
-                    decls.add(".".join(stack + [d]) if not d.startswith("_root_.") else d[7:])
-            _decls[f] = decls
-        if name in _decls[f] or any(name.endswith("." + d) or d == name for d in _decls[f]):
+        ds = file_decls(f)
+        if ds is not None and (name in ds or any(name.endswith("." + d) for d in ds)):
             return True
     return False
 
@@ -705,7 +718,8 @@ def main(argv):
     if "--list" in opt:
         print_list([r for r in res if not r[4]], fresh, opt["--list"])
     rc = print_check(res, fresh, report, opt.get("--out"))
-    return print_reader_owed(t, gate) or rc
+    rc = print_reader_owed(t, gate) or rc
+    return print_owed_state(t, fx) or rc
 
 
 # ------------------------------------------------------------------------- inert of class attribute
@@ -779,7 +793,7 @@ READER_OWED = [
     ("RDR.read-hook-assoc", ["rdr-hook-assoc"]),
     ("RDR.read-keq-only", ["rdr-keq-only"]),
     ("RDR.read-pred-rule", ["rdr-pred-rule"]),
-    ("RDR.builtin-own-reading", ["E6 module:KVAR-SYNTAX", "E6 hook:KVAR.KVar:SortKVar", "E6 token:SortKVar"]),
+    ("RDR.kvar-token-sort", ["E6 module:KVAR-SYNTAX", "E6 hook:KVAR.KVar:SortKVar", "E6 token:SortKVar"]),
 ]
 OWED_STATUSES = ("supported", "parameter", "inert")
 
@@ -831,6 +845,84 @@ def print_reader_owed(t, gate):
           + (" (completion gate: none accepted)" if gate else f", {len(rs) - len(bad)} owed by a ticket not done"))
     for where, tid, why in rs:
         print(f"    {where}: {tid or 'no ticket'}" + (f"; FAILS: {why}" if why else ""))
+    return 1 if bad else 0
+
+
+# ------------------------------------------------------------------------- the owed CondDecided
+
+# An account's line for a clause or rule whose CondDecided is owed (KcoreGen's `account`).
+OWED_OPEN = re.compile(r"^\s+(.+): CondDecided open, over (\S+)$", re.M)
+# A state of `owed_state` (rows-header.toml): proved or refuted by a theorem, or open with a reason.
+OWED_STATE = re.compile(r"^(proved|refuted): (\S+)(?: \((test/[^()\s]+\.lean)\))?$|^(open): (\S.*)$")
+# The fields whose text may name a companion fixture of the entry (its same_as pair, its evidence).
+OWED_NAMING = ("evidence", "reader_today", "refused_by", "place", "note", "reading", "no_sentence", "reason")
+
+
+def owed_open(fx, name):
+    """The clauses and rules whose CondDecided fixtures/NAME/account.txt prints open: [(item, over)]."""
+    a = fx.read(name, "account.txt") if fx.exists(name) else None
+    return OWED_OPEN.findall(a) if a else []
+
+
+def owed_state(t, fx):
+    """[(where, fixture, state word or None, failure or None)] over the entries naming `owed_state`
+    or having a fixture whose account prints `CondDecided open`, then one line (where "fixtures")
+    per fixture of the directory whose account prints it and that no entry's `owed_state` keys."""
+    out, keyed = [], set()
+    for l, key, where, e, row in entries(t):
+        own = [x for x in [e.get("fixture")] + list(e.get("also_fixtures") or []) if isinstance(x, str)]
+        need = [x for x in own if owed_open(fx, x)]
+        st = e.get("owed_state")
+        if st is None:
+            out += [(where, x, None, "its fixture's account prints `CondDecided open` and the entry has no"
+                     " owed_state") for x in need]
+            continue
+        if not isinstance(st, dict) or not st:
+            out.append((where, None, None, "owed_state is not a table from a fixture to its state")); continue
+        out += [(where, x, None, "owed_state has no key for its fixture, whose account prints"
+                 " `CondDecided open`") for x in need if x not in st]
+        prose = " ".join(str(e.get(f, "")) for f in OWED_NAMING)
+        for x, v in st.items():
+            keyed.add(x)
+            m = OWED_STATE.match(v) if isinstance(v, str) else None
+            word = m and (m[1] or m[4])
+            why = None
+            if not owed_open(fx, x):
+                why = f"fixtures/{x}'s account prints no `CondDecided open`"
+            elif x not in own and not re.search(rf"(?<![\w-]){re.escape(x)}(?![\w-])", prose):
+                why = f"{x} is no fixture of the entry and its text does not name it"
+            elif not m:
+                why = (f"state {str(v)[:60]!r} is not 'proved: THEOREM[ (FILE)]', 'refuted: THEOREM[ (FILE)]'"
+                       " or 'open: REASON'")
+            elif word != "open":
+                th, fl = m[2], m[3]
+                ts = e.get("tie")
+                files = [fl] if fl else (ts if isinstance(ts, list) else [ts] if ts else [])
+                if not files:
+                    why = f"{th} names no file and the entry has no tie"
+                elif fl and tie_file_ok(fl):
+                    why = tie_file_ok(fl)
+                elif not any(th in (file_decls(f) or ()) for f in files):
+                    why = f"{th} is not declared in {', '.join(map(str, files))}"
+            out.append((where, x, word, why))
+    for x in sorted(os.listdir(fx.fx)):
+        if x not in keyed and owed_open(fx, x):
+            out.append(("fixtures", x, None, "its account prints `CondDecided open` and no entry's owed_state"
+                        " names its state"))
+    return out
+
+
+def print_owed_state(t, fx):
+    """The state of each owed CondDecided the entries name; returns the exit code."""
+    rs = owed_state(t, fx)
+    bad = [r for r in rs if r[3]]
+    states = collections.Counter(r[2] for r in rs if r[2])
+    print(f"owed-state: {len({r[0] for r in rs if r[2]})} entries name the state of an owed CondDecided"
+          f" at {len({r[1] for r in rs if r[2]})} fixtures: "
+          + ", ".join(f"{k} {states[k]}" for k in ("proved", "refuted", "open")) + f"; {len(bad)} failing")
+    for where, x, word, why in rs:
+        if why or word != "proved":
+            print(f"    {where}: {x or ''} {word or ''}".rstrip() + (f"; FAILS: {why}" if why else ""))
     return 1 if bad else 0
 
 
@@ -1035,9 +1127,42 @@ def self_test():
             bad.append(f"reader_owed without an owing ticket: {got}")
         if not all(why for _, _, why in reader_owed(t, owed, st, True)):
             bad.append("reader_owed --gate accepts an entry")
+        ofx = os.path.join(d, "fixtures-owed")
+        for name, acc in (("ow", "      rule 0: CondDecided open, over VarX:S\n"),
+                          ("ow2", "      function f, clause 0 at ow2.k:3: CondDecided open, over VarH:S\n"),
+                          ("no", clean)):
+            os.makedirs(os.path.join(ofx, name))
+            open(os.path.join(ofx, name, "account.txt"), "w").write(acc)
+        ofix = Fixtures(ofx, False)
+        b = {"status": "supported", "fixture": "ow2", "owed_state": {"ow2": "open: r"}}
+        a = lambda **kw: {"status": "supported", "fixture": "ow", **kw}
+        f5 = "KCore.C3EqReqEns.f_5"
+        ocases = [  # ({row key: entry} of E2, the failures expected, each named by a substring)
+            ({"A": a(owed_state={"ow": f"proved: {f5} ({tie})", "ow2": "open: r"}, evidence="fixtures/ow2",
+                     cases=[{"case": "c", "fixture": "ow2", "tie": [tie], "owed_state": {"ow2": f"refuted: {f5}"}}])}, []),
+            ({"A": a(), "B": b}, ["the entry has no owed_state", "no entry's owed_state names"]),
+            ({"A": a(owed_state={"ow": "open: r", "no": "open: r"}, evidence="fixtures/no"), "B": b},
+             ["prints no `CondDecided open`"]),
+            ({"A": a(owed_state={"ow": f"proved: KCore.C3EqReqEns.nope ({tie})"}), "B": b},
+             [f"KCore.C3EqReqEns.nope is not declared in {tie}"]),
+            ({"A": a(owed_state={"ow": f"refuted: {f5}"}, tie=["test/TieE1Module.lean"]), "B": b},
+             ["is not declared in test/TieE1Module.lean"]),
+            ({"A": a(owed_state={"ow": f"refuted: {f5}"}), "B": b}, ["names no file and the entry has no tie"]),
+            ({"A": a(owed_state={"ow": f"proved: {f5} (test/PrintNames.lean)"}), "B": b}, ["skip list"]),
+            ({"A": a(owed_state={"ow": "witnessed"}), "B": b}, ["is not 'proved: THEOREM"]),
+            ({"A": a(owed_state={"ow": "open: r", "ow2": "open: r"})}, ["ow2 is no fixture of the entry"]),
+            ({"A": a(owed_state={"ow2": "open: r"}, evidence="fixtures/ow2")},
+             ["has no key for its fixture", "no entry's owed_state names"]),
+            ({"A": a(owed_state="open: r"), "B": b}, ["not a table", "no entry's owed_state names"]),
+        ]
+        for i, (rows, want) in enumerate(ocases):
+            got = [why for _, _, _, why in owed_state({"E2": rows}, ofix) if why]
+            if len(got) != len(want) or not all(any(w in g for g in got) for w in want):
+                bad.append(f"owed_state case {i}: failures {got}, expected {want}")
         for b in bad:
             print(f"rest self-test: FAILS: {b}")
-        print(f"rest self-test: {len(cases)} entries and the core predicate, {len(bad)} failing")
+        print(f"rest self-test: {len(cases)} entries, the core predicate and {len(ocases)} owed_state tables,"
+              f" {len(bad)} failing")
         return 1 if bad else 0
     finally:
         shutil.rmtree(d, ignore_errors=True)

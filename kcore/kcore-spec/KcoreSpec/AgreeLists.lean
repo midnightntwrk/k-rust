@@ -554,8 +554,8 @@ theorem fnExclusiveL_sound (hmc : MatchCtxO c) {heads : List CtorSig} {f : Fn}
   simp only [Semantics.clauseSorted, Bool.and_eq_true, beq_iff_eq] at hc1 hc2
   replace hc1 := hc1.1
   replace hc2 := hc2.1
-  have hn1 := sortsOfTerms_to_nf _ hc1.1.1.1.1.1 (noFnOvlInL_of_ovlFree hmc _ (hfr cl h1))
-  have hn2 := sortsOfTerms_to_nf _ hc2.1.1.1.1.1 (noFnOvlInL_of_ovlFree hmc _ (hfr cl' h2))
+  have hn1 := hc1.1.1.1.1.1
+  have hn2 := hc2.1.1.1.1.1
   simp only [Bool.or_eq_true, Bool.not_eq_true', Bool.and_eq_true, bne_iff_ne, ne_eq] at hpair
   rcases hpair with (((((((hne | ho) | ⟨hfx, hx | hx⟩) | ha) | hl) | hg) | hg) | ⟨hfx, hn⟩)
   · exact (not_compete (by revert hne; simp) hprio).elim

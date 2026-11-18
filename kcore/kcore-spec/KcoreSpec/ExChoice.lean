@@ -87,7 +87,7 @@ theorem stdI_T_model (c : Semantics) (h : c.coreOK = true) (hm : HypModelCore c)
     (hsome : ∀ r σ x y, StepMBy c r σ x y → r.exs ≠ [] → ∃ y' σ',
        (∀ i, ¬ i ∈ r.exs → σ'.lookup i = σ.lookup i) ∧ StepMBy c r σ' x y' ∧ T x y') :
     stdI_T c T ⊧ᴵP (Γc c ∪ Γstep c) := by
-  obtain ⟨hSig, hCons, hDom, hColls, hFns, hFb, hBool⟩ := model_parts_T hm h hl T (AtT.satFnsGoal_decided hm hp)
+  obtain ⟨hSig, hCons, hDom, hColls, hFns, hFb, hBool⟩ := model_parts_T hm h hl T (AtT.satFnsGoal_decided hm (Semantics.fnsNoExs_of_coreOK h) hp)
   intro φ hφ
   rcases hφ with (hφ | hφ) | hφ
   · rcases hφ with (((((hφ | hφ) | hφ) | hφ) | hφ) | hφ) | hφ

@@ -37,6 +37,7 @@ differs f2-examples/c3-rule-req-ens.kompile.kore
 differs f2-examples/c3-rule-req-owise.kompile.kore
 differs f2-examples/c3-rule-req-prio-comp.kompile.kore
 differs f2-examples/c3-rule-req-prio.kompile.kore
+differs f2-examples/c3-seqstrict-order.kompile.kore
 differs f2-examples/c3-simp-comm-base.kompile.kore
 differs f2-examples/c3-simp-comm.kompile.kore
 differs f2-examples/c3-simp-ens-true.kompile.kore
@@ -45,6 +46,7 @@ differs f2-examples/c3-simp-prio.kompile.kore
 differs f2-examples/c3-simp-req.kompile.kore
 differs f2-examples/c3-strict-alias.kompile.kore
 differs f2-examples/c3-strict-base.kompile.kore
+differs f2-examples/c3-strict-result.kompile.kore
 differs f2-examples/cells.kompile.kore
 differs f2-examples/cellsplain.kompile.kore
 differs f2-examples/cellsstream.kompile.kore
@@ -68,6 +70,7 @@ differs f2-examples/e2-fn-assoc-unit.kompile.kore
 differs f2-examples/e2-fn-assoc.kompile.kore
 differs f2-examples/e2-fn-idem.kompile.kore
 differs f2-examples/e2-macro-plain.kompile.kore
+differs f2-examples/e2-macro.kompile.kore
 differs f2-examples/e2-module-att.kompile.kore
 differs f2-examples/e2-simp-true-prio.kompile.kore
 differs f2-examples/e2-simp-true.kompile.kore
@@ -76,11 +79,18 @@ differs f2-examples/e2-unit-ctor.kompile.kore
 differs f2-examples/e3-casts.kompile.kore
 differs f2-examples/e3-cells-dotbag.kompile.kore
 differs f2-examples/e3-cells.kompile.kore
+differs f2-examples/e3-fragment.kompile.kore
 differs f2-examples/e3-fresh.kompile.kore
+differs f2-examples/e3-k-fun2.kompile.kore
+differs f2-examples/e3-k-unify.kompile.kore
+differs f2-examples/e3-k.kompile.kore
+differs f2-examples/e3-kast.kompile.kore
 differs f2-examples/e3-kseq.kompile.kore
+differs f2-examples/e3-reqens.kompile.kore
 cannot f2-examples/e3-setvar-rewrite-fn.kompile.kore
 cannot f2-examples/e3-setvar-rewrite-req.kompile.kore
 differs f2-examples/e3-setvar-rewrite.kompile.kore
+differs f2-examples/e3-userlist.kompile.kore
 differs f2-examples/e3-vars.kompile.kore
 differs f2-examples/e3-withconfig.kompile.kore
 differs f2-examples/e5-ovl-fn-fn-ctor.kompile.kore
@@ -94,8 +104,11 @@ differs f2-examples/e6-param-rangemap.kompile.kore
 differs f2-examples/e6cfg.kompile.kore
 differs f2-examples/e6rm.kompile.kore
 differs f2-examples/e6rmkeys.kompile.kore
+differs f2-examples/e7-constfold.kompile.kore
 differs f2-examples/e7-freshconfig.kompile.kore
+differs f2-examples/e7-guardors.kompile.kore
 differs f2-examples/e7-implicitk.kompile.kore
+differs f2-examples/e7-removeunit.kompile.kore
 differs f2-examples/e8-disable-ceil-simplification-rules.kompile.kore
 differs f2-examples/e8-main-module.kompile.kore
 differs f2-examples/e8-md.kompile.kore
@@ -125,6 +138,7 @@ exact f2-examples/fprio.kore
 differs f2-examples/freshcfg.kompile.kore
 differs f2-examples/hashsort.kompile.kore
 differs f2-examples/heldmap.kompile.kore
+differs f2-examples/heldmaprest.kompile.kore
 cannot f2-examples/heldrangemap.kompile.kore
 differs f2-examples/heldset.kompile.kore
 cannot f2-examples/heldupdate.kompile.kore
