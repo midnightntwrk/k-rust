@@ -23,7 +23,9 @@
   (`tight_of_rhsSorted`). The first part, `TightSem`, is a fact of the model at the valuation, which
   a model of `Γ` has of the terms of a well-sorted text. With both the reader's alternatives, each with
   its lifted conditions and the top's, hold exactly the elements of p (`rhs_sem`). The lemmas read
-  the translation with no alias (`⟨tbl, []⟩`), as `InertEv.vacuous_none` does.
+  the translation with no alias (`⟨tbl, []⟩`), as `InertEv.vacuous_none` does; a text's
+  translation names its aliases, and a pattern that applies none of them translates as it does
+  with none (`tr_aliasFree`).
 
   ## The clauses (`readings_of_fr`)
 
@@ -38,8 +40,20 @@
   alternatives lie in the result sort follows from `TermsInSort` (`inSort_of_terms`). The
   right side's reading is `rhs_of_reader`: the text's right side holds what the reader's
   alternatives hold, where each of `xs` translates as the kept alternative it is read from.
-  `readings_of_fr` takes the equation `frRead` read, the sorts of its right side from the reader
-  and `TightSem` of it; `readings_of_rhs` takes the right side's reading itself.
+  `readings_of_fr` takes the equation `frRead` reads as clauses, whose success gives the
+  normalisation of its right side, its lifted conditions (`frRead_norm`) and the sorts of its
+  connectives, and `TightSem` of it; `readings_of_rhs` takes the right side's reading itself.
+
+  ## From the text's literal (`readings_of_frT`)
+
+  `readings_of_frT` takes, beside `frRead`'s success, facts a kernel decides on the text's
+  literal: that the right side and the `ensures` part apply none of the text's aliases
+  (`aliasFreeFR`), the `ensures` part's shape (`ensBools`, read by `ens_reading`), and that the
+  alternatives translate as the kept ones (`altsTrOK`, giving the pairing by `all2_of_altsTrOK`).
+  `TightSem` reduces to the operands of the right side's connectives that are no `\or` and no
+  `\and` (`tightSem_of_ops`), each `\bottom`, a lifted conjunct, a term (`TermsInSort`) or an
+  operand whose alternatives are terms. `readings_compete` adds the competitors' negation that
+  `prioEquation` writes before the premises.
 
   ## The last clause (`noneEmpty_of_apart`)
 
@@ -119,11 +133,13 @@ def SortDen (I : Interpretation KoreAML.Sym M) (tbl : VarTable) (e : Valuation M
   ∃ τ, IsSort I τ ∧ ∀ a, (trSort tbl s).interpret I e a ↔ a = τ
 
 mutual
-  /-- The pattern is of the sort s where it states its sort (`\or`, `\and`, `\equals`), and so are
-  the operands of its `\or`s and `\and`s: the sorting rule of KORE at those connectives. -/
+  /-- The pattern is of the sort s where it states its sort (`\or`, `\and`, `\exists`, `\equals`),
+  and so are the operands of its `\or`s and `\and`s and the body of its `\exists`: the sorting
+  rule of KORE at those connectives. -/
   def sortIs (s : Kore.KSort) : Kore.Pattern → Bool
     | .or s' ps => decide (s' = s) && sortIsList s ps
     | .and s' ps => decide (s' = s) && sortIsList s ps
+    | .exist s' _ p => decide (s' = s) && sortIs s p
     | .equals _ s' _ _ => decide (s' = s)
     | _ => true
     termination_by structural p => p
@@ -166,6 +182,7 @@ theorem rhsOpSort_eq_sortIs (s : Kore.KSort) (p : Kore.Pattern) : Parse.rhsOpSor
     (motive_2 := fun ps => Parse.rhsOpSortList s ps = sortIsList s ps) with
   | or s' ps ih => rw [Parse.rhsOpSort, sortIs, ih]
   | and s' ps ih => rw [Parse.rhsOpSort, sortIs, ih]
+  | exist s' x q ih => rw [Parse.rhsOpSort, sortIs, ih]
   | nil => rw [Parse.rhsOpSortList, sortIsList]
   | cons q qs ih1 ih2 => rw [Parse.rhsOpSortList, sortIsList, ih1, ih2]
   | _ => simp [Parse.rhsOpSort, sortIs]
@@ -995,6 +1012,172 @@ def keptAlts (r : Kore.Pattern) : List (Kore.Pattern × List Parse.SideCond) :=
   (Parse.orAlts r).filterMap fun a =>
     if (Parse.hoist a).2.2 then none else some ((Parse.hoist a).1, (Parse.hoist a).2.1)
 
+/-! ## Aliases, and what `frRead` checks of the right side -/
+
+mutual
+  /-- The pattern applies none of the aliases `al`, and holds no `\left-assoc` or `\right-assoc`. -/
+  def aliasFreeFR (al : List String) : Kore.Pattern → Bool
+    | .app h _ ps => !al.contains h.ident.name && aliasFreeFRList al ps
+    | .not _ p | .next _ p | .ceil _ _ p | .floor _ _ p | .mu _ p | .nu _ p | .exist _ _ p
+    | .forall _ _ p => aliasFreeFR al p
+    | .and _ ps | .or _ ps => aliasFreeFRList al ps
+    | .implies _ p q | .iff _ p q | .equals _ _ p q | .in _ _ p q | .rewrites _ p q =>
+      aliasFreeFR al p && aliasFreeFR al q
+    | .leftAssoc .. | .rightAssoc .. => false
+    | _ => true
+    termination_by structural p => p
+  def aliasFreeFRList (al : List String) : List Kore.Pattern → Bool
+    | [] => true
+    | p :: ps => aliasFreeFR al p && aliasFreeFRList al ps
+    termination_by structural ps => ps
+end
+
+/-- **A pattern that applies none of the aliases translates as it does with none.** -/
+theorem tr_aliasFree (tbl : VarTable) (al : List String) (p : Kore.Pattern) :
+    aliasFreeFR al p = true → tr ⟨tbl, al⟩ p = tr ⟨tbl, []⟩ p := by
+  induction p using Kore.Pattern.rec
+    (motive_2 := fun ps => aliasFreeFRList al ps = true →
+      (∀ acc, trArgs ⟨tbl, al⟩ acc ps = trArgs ⟨tbl, []⟩ acc ps) ∧
+      (∀ s, trAndList ⟨tbl, al⟩ s ps = trAndList ⟨tbl, []⟩ s ps) ∧
+      (∀ s, trOrList ⟨tbl, al⟩ s ps = trOrList ⟨tbl, []⟩ s ps)) with
+  | app h ss ps ih =>
+    intro hf
+    rw [aliasFreeFR, Bool.and_eq_true, Bool.not_eq_true'] at hf
+    have h1 : (al.contains h.ident.name = true) = False := by rw [hf.1]; simp
+    have h2 : (([] : List String).contains h.ident.name = true) = False := by simp
+    rw [tr, tr]
+    simp only [h1, h2, ↓reduceIte]
+    exact (ih hf.2).1 _
+  | and s ps ih => intro hf; rw [aliasFreeFR] at hf; rw [tr, tr]; exact (ih hf).2.1 _
+  | or s ps ih => intro hf; rw [aliasFreeFR] at hf; rw [tr, tr]; exact (ih hf).2.2 _
+  | not s p ih => intro hf; rw [aliasFreeFR] at hf; rw [tr, tr, ih hf]
+  | next s p ih => intro hf; rw [aliasFreeFR] at hf; rw [tr, tr, ih hf]
+  | ceil s s' p ih => intro hf; rw [aliasFreeFR] at hf; rw [tr, tr, ih hf]
+  | floor s s' p ih => intro hf; rw [aliasFreeFR] at hf; rw [tr, tr, ih hf]
+  | mu X p ih => intro hf; rw [aliasFreeFR] at hf; rw [tr, tr, ih hf]
+  | nu X p ih => intro hf; rw [aliasFreeFR] at hf; rw [tr, tr, ih hf]
+  | exist s x p ih => intro hf; rw [aliasFreeFR] at hf; rw [tr, tr, ih hf]
+  | «forall» s x p ih => intro hf; rw [aliasFreeFR] at hf; rw [tr, tr, ih hf]
+  | implies s p q ihp ihq =>
+    intro hf; rw [aliasFreeFR, Bool.and_eq_true] at hf; rw [tr, tr, ihp hf.1, ihq hf.2]
+  | iff s p q ihp ihq =>
+    intro hf; rw [aliasFreeFR, Bool.and_eq_true] at hf; rw [tr, tr, ihp hf.1, ihq hf.2]
+  | equals s s' p q ihp ihq =>
+    intro hf; rw [aliasFreeFR, Bool.and_eq_true] at hf; rw [tr, tr, ihp hf.1, ihq hf.2]
+  | «in» s s' p q ihp ihq =>
+    intro hf; rw [aliasFreeFR, Bool.and_eq_true] at hf; rw [tr, tr, ihp hf.1, ihq hf.2]
+  | rewrites s p q ihp ihq =>
+    intro hf; rw [aliasFreeFR, Bool.and_eq_true] at hf; rw [tr, tr, ihp hf.1, ihq hf.2]
+  | leftAssoc => intro hf; simp [aliasFreeFR] at hf
+  | rightAssoc => intro hf; simp [aliasFreeFR] at hf
+  | var v => intro _; cases v <;> rfl
+  | nil => exact ⟨fun _ => by rw [trArgs, trArgs], fun _ => by rw [trAndList, trAndList],
+      fun _ => by rw [trOrList, trOrList]⟩
+  | cons p ps ih1 ih2 =>
+    rename_i hf
+    rw [aliasFreeFRList, Bool.and_eq_true] at hf
+    have h1 := ih1 hf.1
+    obtain ⟨h2, h3, h4⟩ := ih2 hf.2
+    refine ⟨fun acc => by rw [trArgs, trArgs, h1, h2], fun s => ?_, fun s => ?_⟩
+    · cases ps with
+      | nil => rw [trAndList, trAndList, h1]
+      | cons q qs => rw [trAndList, trAndList, h1, h3]
+    · cases ps with
+      | nil => rw [trOrList, trOrList, h1]
+      | cons q qs => rw [trOrList, trOrList, h1, h4]
+  | _ => intro _; rfl
+
+/-! ### What `frRead` checks -/
+
+theorem bind_ok_FR {α β : Type} {x : Parse.Rd α} {f : α → Parse.Rd β} {y : β}
+    (h : (x >>= f) = .ok y) : ∃ a, x = .ok a ∧ f a = .ok y := by
+  cases x with
+  | error e => cases h
+  | ok a => exact ⟨a, rfl, h⟩
+
+/-- Conditions all of which a test refusing `.same` accepts are that Bool terms be `true`. -/
+theorem allTrue_of_all {P : Parse.SideCond → Bool} (hP : ∀ s t u, P (.same s t u) = false)
+    {cs : List Parse.SideCond} (h : cs.all P = true) : AllTrue cs := by
+  intro c hc
+  have := List.all_eq_true.mp h c hc
+  cases c with
+  | isTrue b => rfl
+  | same s t u => rw [hP] at this; cases this
+
+/-- The right side `frRead` reads, normalised (`hoist (dropEmptyAlts p)`). -/
+def frSide (p : Kore.Pattern) : Kore.Pattern := (Parse.hoist (Parse.dropEmptyAlts p)).1
+
+/-- The conditions `hoist` lifts at the top of the normalised right side. -/
+def frConds (p : Kore.Pattern) : List Parse.SideCond := (Parse.hoist (Parse.dropEmptyAlts p)).2.1
+
+/-- An alternative `altOf` reads, not empty, lifts conditions that Bool terms be `true` only. -/
+theorem altOf_allTrue {N : Parse.Names} {vs : List KoreAML.Var} {a : Kore.Pattern}
+    {x : Option (Term × List Cond) × List KoreAML.Var} (h : Parse.altOf N vs a = .ok x)
+    (he : (Parse.hoist a).2.2 = false) : AllTrue (Parse.hoist a).2.1 := by
+  unfold Parse.altOf at h
+  rcases hx : Parse.hoist a with ⟨r, conds, emp⟩
+  rw [hx] at h he
+  simp only at he h ⊢
+  subst he
+  simp only [Bool.false_eq_true, ↓reduceIte] at h
+  split at h
+  · cases h
+  · split at h
+    · exact allTrue_of_all (fun _ _ _ => rfl) ‹_›
+    · first | cases h | (obtain ⟨_, h', -⟩ := bind_ok_FR h; cases h')
+
+/-- Each alternative `altsOf` reads that is not empty lifts conditions that Bool terms be `true`
+only. -/
+theorem altsOf_allTrue {N : Parse.Names} : ∀ {vs : List KoreAML.Var} {as : List Kore.Pattern}
+    {y : List (Term × List Cond) × List KoreAML.Var}, Parse.altsOf N vs as = .ok y →
+    ∀ a ∈ as, (Parse.hoist a).2.2 = false → AllTrue (Parse.hoist a).2.1
+  | _, [], _, _ => by simp
+  | vs, a :: as, y, h => by
+    rw [Parse.altsOf] at h
+    obtain ⟨⟨x, vs1⟩, h1, h⟩ := bind_ok_FR h
+    obtain ⟨⟨xs, vs2⟩, h2, -⟩ := bind_ok_FR h
+    intro b hb he
+    rcases List.mem_cons.mp hb with rfl | hb
+    · exact altOf_allTrue h1 he
+    · exact altsOf_allTrue h2 b hb he
+
+/-- **What `frRead` checks of the right side it reads as clauses**: its normalisation
+`hoist (dropEmptyAlts p)` is not empty, the conditions lifted at its top and those of each of its
+alternatives that is not empty are that Bool terms be `true`. -/
+theorem frRead_norm {N : Parse.Names} {eq : Parse.RawEqn} {z : List Clause × List KoreAML.Var}
+    (h : Parse.frRead N eq = .ok (some z)) :
+    Parse.hoist (Parse.dropEmptyAlts eq.rhs) = (frSide eq.rhs, frConds eq.rhs, false) ∧ AllTrue (frConds eq.rhs) ∧
+      ∀ a ∈ Parse.orAlts (frSide eq.rhs), (Parse.hoist a).2.2 = false → AllTrue (Parse.hoist a).2.1 := by
+  unfold Parse.frRead at h
+  obtain ⟨_, -, h⟩ := bind_ok_FR h
+  unfold frSide frConds
+  rcases hx : Parse.hoist (Parse.dropEmptyAlts eq.rhs) with ⟨r, conds, emp⟩
+  rw [hx] at h
+  dsimp only at h ⊢
+  split at h
+  · cases h
+  rename_i hne
+  have he : emp = false := by
+    cases emp
+    · rfl
+    · exact absurd (Bool.true_or _) hne
+  subst he
+  split at h
+  · cases h
+  obtain ⟨⟨pats, req, ens, vs, np⟩, -, h⟩ := bind_ok_FR h
+  dsimp only at h
+  split at h
+  · split at h
+    · obtain ⟨_, h', -⟩ := bind_ok_FR h; cases h'
+    · split at h
+      · rename_i hc
+        obtain ⟨⟨cs, vs1⟩, -, h⟩ := bind_ok_FR h
+        dsimp only at h
+        obtain ⟨_, hal, -⟩ := bind_ok_FR h
+        exact ⟨rfl, allTrue_of_all (fun _ _ _ => rfl) hc, altsOf_allTrue hal⟩
+      · first | cases h | (obtain ⟨_, h', -⟩ := bind_ok_FR h; cases h')
+  · first | cases h | (obtain ⟨_, h', -⟩ := bind_ok_FR h; cases h')
+
 section
 variable [Inhabited M] (hD : DefOK I) (hc : I ⊧ᴵ ceilDefItem.pat) (hB : BoolDen I) {tbl : VarTable} {e : Valuation M}
 include hD hc hB
@@ -1005,7 +1188,7 @@ reading `hoist (dropEmptyAlts p) = (r, cs, false)` of it, with conditions that B
 and some kept alternative holds it with its own conditions. -/
 theorem rhs_sem {p r : Kore.Pattern} {cs : List Parse.SideCond} (hT : Tight I tbl e p)
     (hh : Parse.hoist (Parse.dropEmptyAlts p) = (r, cs, false)) (hcs : AllTrue cs)
-    (halt : ∀ a ∈ Parse.orAlts r, AllTrue (Parse.hoist a).2.1) (m : M) :
+    (halt : ∀ a ∈ Parse.orAlts r, (Parse.hoist a).2.2 = false → AllTrue (Parse.hoist a).2.1) (m : M) :
     (tr ⟨tbl, []⟩ p).interpret I e m ↔
       HoldsSC I tbl e cs ∧ ∃ k ∈ keptAlts r, (tr ⟨tbl, []⟩ k.1).interpret I e m ∧ HoldsSC I tbl e k.2 := by
   obtain ⟨dT, d⟩ := drop_sem hD p hT
@@ -1016,16 +1199,16 @@ theorem rhs_sem {p r : Kore.Pattern} {cs : List Parse.SideCond} (hT : Tight I tb
     unfold keptAlts
     constructor
     · rintro ⟨q, hq, hm⟩
-      have hq' := (hoist_ok hD hc hB q _ _ _ (oT q hq) rfl (halt q hq)).2 m
       cases hemp : (Parse.hoist q).2.2
-      · refine ⟨((Parse.hoist q).1, (Parse.hoist q).2.1), List.mem_filterMap.mpr ⟨q, hq, by simp [hemp]⟩, hq'.mp hm⟩
+      · have hq' := (hoist_ok hD hc hB q _ _ _ (oT q hq) rfl (halt q hq hemp)).2 m
+        refine ⟨((Parse.hoist q).1, (Parse.hoist q).2.1), List.mem_filterMap.mpr ⟨q, hq, by simp [hemp]⟩, hq'.mp hm⟩
       · exact (hoist_empty hD q hemp m hm).elim
     · rintro ⟨k, hk, hm⟩
       obtain ⟨q, hq, hqk⟩ := List.mem_filterMap.mp hk
       cases hemp : (Parse.hoist q).2.2
       · simp only [hemp, Bool.false_eq_true, ↓reduceIte, Option.some.injEq] at hqk
         subst hqk
-        exact ⟨q, hq, ((hoist_ok hD hc hB q _ _ _ (oT q hq) rfl (halt q hq)).2 m).mpr hm⟩
+        exact ⟨q, hq, ((hoist_ok hD hc hB q _ _ _ (oT q hq) rfl (halt q hq hemp)).2 m).mpr hm⟩
       · simp [hemp] at hqk
   rw [← d m, h m, o m, key]
   exact and_comm
@@ -1063,7 +1246,7 @@ theorem rhs_of_reader {ws : List KoreAML.P} {r : EVar} {σ : M} {tblT : VarTable
     {Ens : Valuation M → Prop}
     (hT : ∀ e m, TieFR.At I ws r e m → Tight I tblT e p)
     (hh : Parse.hoist (Parse.dropEmptyAlts p) = (r0, cs, false)) (hcs : AllTrue cs)
-    (halt : ∀ a ∈ Parse.orAlts r0, AllTrue (Parse.hoist a).2.1)
+    (halt : ∀ a ∈ Parse.orAlts r0, (Parse.hoist a).2.2 = false → AllTrue (Parse.hoist a).2.1)
     (hen : ∀ e m, TieFR.At I ws r e m → ∀ a, Inh I σ a → ((tr ⟨tblT, []⟩ en).interpret I e a ↔ Ens e))
     (hbr : All2 (fun k x =>
       (∀ e m, TieFR.At I ws r e m → ∀ a, (A x).interpret I e a ↔ (tr ⟨tblT, []⟩ k.1).interpret I e a) ∧
@@ -1275,38 +1458,40 @@ theorem readings_of_rhs {tbl : VarTable} {vs : List KoreAML.Var} {s : Srt} {xs :
   rhs := hrhs
 
 /-- **The readings of the clauses `frClauses` writes, from the reader** (`TieFR.Readings`). The
-equation `eq` is one `frRead` reads, its right side `eq.rhs` translated over the text's table
-`tblT`, and its `ensures` part `en` holding where `Ens` does. The sorts of the right side's
-connectives are the reader's: `frRead` reads only a right side that is `rhsSorted`
-(`frRead_rhsSorted`), which with `TightSem` (its operands lie in their sorts) is `Tight`
-(`tight_of_rhsSorted`). The reading of the right side is then `rhs_of_reader`'s, the rest
-`readings_of_rhs`'s. -/
-theorem readings_of_fr {N : Parse.Names} {eq : Parse.RawEqn} {y : Option (List Clause × List KoreAML.Var)}
+equation `eq` is one `frRead` reads as clauses, its right side `eq.rhs` translated over the text's
+table `tblT`, and its `ensures` part `en` holding where `Ens` does. What `frRead` checks of the
+right side gives its normalisation `hoist (dropEmptyAlts eq.rhs)` (`frSide`, with the conditions
+`frConds`), not empty, and that every lifted condition is that a Bool term be `true`
+(`frRead_norm`); the sorts of its connectives are the reader's: `frRead` reads only a right side
+that is `rhsSorted` (`frRead_rhsSorted`), which with `TightSem` (its operands lie in their sorts)
+is `Tight` (`tight_of_rhsSorted`). The reading of the right side is then `rhs_of_reader`'s, the
+rest `readings_of_rhs`'s. -/
+theorem readings_of_fr {N : Parse.Names} {eq : Parse.RawEqn} {z : List Clause × List KoreAML.Var}
     {tbl tblT : VarTable} {vs : List KoreAML.Var} {s : Srt} {xs : List (Term × List Term)}
-    {ws : List KoreAML.P} {σ : M} {prem : KoreAML.P} {en r0 : Kore.Pattern} {cs : List Parse.SideCond}
+    {ws : List KoreAML.P} {σ : M} {prem : KoreAML.P} {en : Kore.Pattern}
     {Ens : Valuation M → Prop}
-    (hrd : Parse.frRead N eq = .ok y)
+    (hrd : Parse.frRead N eq = .ok (some z))
     (hr : sortGuard (tbl.ev (sortVarKey Rv)) ∈ ws)
     (hσ : ∀ (e : Valuation M) a, (trSort tbl (srtOf c s)).interpret I e a ↔ a = σ) (hσS : IsSort I σ)
     (hin : ∀ e m, TieFR.At I ws (tbl.ev (sortVarKey Rv)) e m → ∀ x ∈ xs, ∀ a,
       (altP c tbl vs x).interpret I e a → Inh I σ a)
     (hT : ∀ e m, TieFR.At I ws (tbl.ev (sortVarKey Rv)) e m → TightSem I tblT e eq.rhs)
-    (hh : Parse.hoist (Parse.dropEmptyAlts eq.rhs) = (r0, cs, false)) (hcs : AllTrue cs)
-    (halt : ∀ a ∈ Parse.orAlts r0, AllTrue (Parse.hoist a).2.1)
     (hen : ∀ e m, TieFR.At I ws (tbl.ev (sortVarKey Rv)) e m → ∀ a, Inh I σ a →
       ((tr ⟨tblT, []⟩ en).interpret I e a ↔ Ens e))
     (hbr : All2 (fun k x =>
       (∀ e m, TieFR.At I ws (tbl.ev (sortVarKey Rv)) e m → ∀ a,
         (altP c tbl vs x).interpret I e a ↔ (tr ⟨tblT, []⟩ k.1).interpret I e a) ∧
       ∀ e m, TieFR.At I ws (tbl.ev (sortVarKey Rv)) e m →
-        (altG I c tbl vs x e ↔ Ens e ∧ HoldsSC I tblT e cs ∧ HoldsSC I tblT e k.2)) (keptAlts r0) xs) :
+        (altG I c tbl vs x e ↔ Ens e ∧ HoldsSC I tblT e (frConds eq.rhs) ∧ HoldsSC I tblT e k.2))
+      (keptAlts (frSide eq.rhs)) xs) :
     TieFR.Readings I ws (tbl.ev (sortVarKey Rv)) σ prem
       (sAnd (tr ⟨tblT, []⟩ eq.rhs) (tr ⟨tblT, []⟩ en)) xs (altP c tbl vs) (altG I c tbl vs)
       (clauseQ c tbl vs s prem) (lastQ c tbl vs s prem xs) :=
+  have hn := frRead_norm hrd
   readings_of_rhs F hr hσ hσS hin
     (rhs_of_reader F.defOK F.ceilDef (boolDen_of F)
       (fun e m hat => tight_of_rhsSorted eq.rhs (Parse.frRead_rhsSorted hrd) (hT e m hat))
-      hh hcs halt hen hbr)
+      hn.1 hn.2.1 hn.2.2 hen hbr)
 
 omit F in
 /-- **The alternatives lie in the result sort** where each is a term of it (`TermsInSort`) and the
@@ -1355,6 +1540,416 @@ theorem noneEmpty_of_apart {ws : List KoreAML.P} {r : EVar} {σ : M} {α : Type}
     TieFR.NoneEmpty I ws r σ alts A G
       (sAnd A₁ (tr ⟨tbl, []⟩ (reqPat S (some (Term.kore c vs (Parse.boolT false)))))) :=
   TieFR.noneEmpty_of_empty fun e _ _ a _ ha => ensFalse_none F (hS e) hσ a (interp_sAnd.mp ha).2
+
+end
+
+/-! ## The premises of the readings from the text's literal (`readings_of_frT`)
+
+What `readings_of_fr` takes of a text, read off the text's literal or from facts a model of `Γ`
+has, so that a tie of a text states only kernel decisions about its sentence:
+- the text's translation names the text's aliases (`trAxiom`'s `al`); a right side and an `ensures`
+  part that apply none of them translate as they do with none (`tr_aliasFree`);
+- the `ensures` part `rawEqn?` reads (`Parse.req?`) is `\top{S}` or `\equals{Bool,S}(b, true)`
+  (`ensBools`; `req?` does not look at the sorts, so the shape is decided of the literal) and holds
+  all of S where its Bool terms agree with `true` (`ens_reading`);
+- the alternatives `xs` translate as the kept alternatives, their conditions as the `ensures`
+  part's Bool terms, the top's lifted conditions and their own, in that order (`altsTrOK`, a
+  decision on the literal), which gives `readings_of_fr`'s pairing (`all2_of_altsTrOK`);
+- `TightSem` holds where the operands of the right side's connectives that are no `\or` and no
+  `\and` lie in their sorts and the sorts of its `\and`s denote sorts (`tightSem_of_ops`); such an
+  operand is `\bottom` (`inSortK_bottom`), a lifted conjunct (`inSortK_isTrue`), a term
+  (`inSortK_of_term`, from `TermsInSort`), or holds an `\or` whose alternatives are terms
+  (`inSortK_of_alts`).
+A clause with competitors (`prioEquation`'s `competingEquation`) has the premise `¬⋁ lower ∧ prem`
+for each clause `frClauses` writes, all of one priority: `readings_compete` adds the negation to
+the readings. -/
+
+/-! ### The `ensures` part -/
+
+/-- The Bool terms of an `ensures` part `\top{S}()` (none) or `\equals{Bool,S}(b, \dv{Bool}("true"))`
+(b), the two forms `Parse.req?` reads, with Bool's sorts, which `req?` does not look at. -/
+def ensBools : Kore.Pattern → Option (List Kore.Pattern)
+  | .top _ => some []
+  | .equals bs _ b (.dv bs' "true") =>
+    if KoreAML.Parse.sortName? bs == some "Bool" && KoreAML.Parse.sortName? bs' == some "Bool" then some [b] else none
+  | _ => none
+
+/-- The sort of an `ensures` part: S of `\top{S}()` and of `\equals{_,S}(…)`. -/
+def ensSort : Kore.Pattern → Kore.KSort
+  | .top S => S
+  | .equals _ S _ _ => S
+  | _ => .var Rv
+
+section
+variable [Inhabited M] (hD : DefOK I) (hc : I ⊧ᴵ ceilDefItem.pat) (hB : BoolDen I) {tbl : VarTable}
+include hD hc hB
+
+/-- **The `ensures` part holds all of its sort σ where its Bool terms agree with `true`.** -/
+theorem ens_reading {en : Kore.Pattern} {bs : List Kore.Pattern} {σ : M} (h : ensBools en = some bs)
+    (hS : ∀ (e : Valuation M) a, (trSort tbl (ensSort en)).interpret I e a ↔ a = σ) (hσ : IsSort I σ)
+    (e : Valuation M) (a : M) (ha : Inh I σ a) :
+    (tr ⟨tbl, []⟩ en).interpret I e a ↔ ∀ b ∈ bs, EqTrue I e (tr ⟨tbl, []⟩ b) := by
+  unfold ensBools at h
+  split at h
+  · rename_i S
+    cases h
+    simp only [ensSort] at hS
+    rw [tr_top_iff hD (hS e) a]
+    simp [ha]
+  · rename_i bs0 S b bs'
+    split at h
+    · rename_i hb
+      cases h
+      simp only [Bool.and_eq_true, beq_iff_eq] at hb
+      simp only [ensSort] at hS
+      rw [tr_isTrue_iff hD hc hB hb.1 hb.2 ⟨σ, hσ, hS e⟩ a, interp_inhOf_of (hS e)]
+      simp [ha]
+    · cases h
+  · cases h
+
+end
+
+/-! ### The alternatives as the reader writes them -/
+
+/-- The alternatives `xs` translate as the kept alternatives `ks`, in order: each term as the kept
+alternative's side, its conditions as the Bool terms `bs` of the `ensures` part, those of the top's
+lifted conditions `cs` and those of its own, in that order. -/
+def altsTrOK (c : Semantics) (tbl : VarTable) (vs : List KoreAML.Var) (tblT : VarTable)
+    (cs : List Parse.SideCond) (bs : List Kore.Pattern) :
+    List (Kore.Pattern × List Parse.SideCond) → List (Term × List Term) → Bool
+  | [], [] => true
+  | k :: ks, x :: xs =>
+    decide (tr ⟨tblT, []⟩ k.1 = altP c tbl vs x) &&
+      decide (x.2.map (fun b => tr ⟨tbl, []⟩ (Term.kore c vs b)) =
+        (bs ++ (cs ++ k.2).filterMap scTrue).map (tr ⟨tblT, []⟩)) &&
+      altsTrOK c tbl vs tblT cs bs ks xs
+  | _, _ => false
+
+/-- **`altsTrOK` gives `readings_of_fr`'s pairing**, the `ensures` part's reading being that its
+Bool terms agree with `true`. -/
+theorem all2_of_altsTrOK {c : Semantics} {tbl tblT : VarTable} {vs : List KoreAML.Var}
+    {cs : List Parse.SideCond} {bs : List Kore.Pattern} {Pr : Valuation M → M → Prop} :
+    ∀ {ks : List (Kore.Pattern × List Parse.SideCond)} {xs : List (Term × List Term)},
+    altsTrOK c tbl vs tblT cs bs ks xs = true →
+    All2 (fun k x =>
+      (∀ e m, Pr e m → ∀ a, (altP c tbl vs x).interpret I e a ↔ (tr ⟨tblT, []⟩ k.1).interpret I e a) ∧
+      ∀ e m, Pr e m → (altG I c tbl vs x e ↔ (∀ b ∈ bs, EqTrue I e (tr ⟨tblT, []⟩ b)) ∧
+        HoldsSC I tblT e cs ∧ HoldsSC I tblT e k.2)) ks xs
+  | [], [], _ => .nil
+  | k :: ks, x :: xs, h => by
+    rw [altsTrOK, Bool.and_eq_true, Bool.and_eq_true, decide_eq_true_iff, decide_eq_true_iff] at h
+    obtain ⟨⟨h1, h2⟩, h3⟩ := h
+    refine .cons ⟨fun e m _ a => by rw [h1], fun e m _ => ?_⟩ (all2_of_altsTrOK h3)
+    have key : altG I c tbl vs x e ↔ ∀ y ∈ x.2.map (fun b => tr ⟨tbl, []⟩ (Term.kore c vs b)), EqTrue I e y := by
+      unfold altG; simp
+    rw [key, h2, ← holdsSC_append]
+    unfold HoldsSC
+    simp only [List.mem_map, List.mem_append, forall_exists_index, and_imp]
+    constructor
+    · intro hy
+      exact ⟨fun b hb => hy _ b (Or.inl hb) rfl, fun b hb => hy _ b (Or.inr hb) rfl⟩
+    · rintro ⟨h1, h2⟩ y b hb rfl
+      exact hb.elim (h1 b) (h2 b)
+  | [], _ :: _, h => by simp [altsTrOK] at h
+  | _ :: _, [], h => by simp [altsTrOK] at h
+
+/-! ### `TightSem` from the operands of the connectives -/
+
+mutual
+  /-- The operands of each `\or{s}` and `\and{s}` under applications, conjunctions and
+  disjunctions, each with s. -/
+  def connOps : Kore.Pattern → List (Kore.KSort × Kore.Pattern)
+    | .app _ _ ps => connOpsList ps
+    | .and s ps => ps.map (s, ·) ++ connOpsList ps
+    | .or s ps => ps.map (s, ·) ++ connOpsList ps
+    | _ => []
+    termination_by structural p => p
+  def connOpsList : List Kore.Pattern → List (Kore.KSort × Kore.Pattern)
+    | [] => []
+    | p :: ps => connOps p ++ connOpsList ps
+    termination_by structural ps => ps
+end
+
+mutual
+  /-- The sorts of the `\and`s under applications, conjunctions and disjunctions. -/
+  def andSorts : Kore.Pattern → List Kore.KSort
+    | .app _ _ ps => andSortsList ps
+    | .and s ps => s :: andSortsList ps
+    | .or _ ps => andSortsList ps
+    | _ => []
+    termination_by structural p => p
+  def andSortsList : List Kore.Pattern → List Kore.KSort
+    | [] => []
+    | p :: ps => andSorts p ++ andSortsList ps
+    termination_by structural ps => ps
+end
+
+/-- An operand that is no `\or` and no `\and`. -/
+def opLeaf : Kore.Pattern → Bool
+  | .or .. | .and .. => false
+  | _ => true
+
+theorem mem_connOpsList {x : Kore.KSort × Kore.Pattern} : ∀ {ps : List Kore.Pattern},
+    x ∈ connOpsList ps ↔ ∃ p ∈ ps, x ∈ connOps p
+  | [] => by simp [connOpsList]
+  | p :: ps => by simp [connOpsList, mem_connOpsList (ps := ps)]
+
+theorem mem_andSortsList {s : Kore.KSort} : ∀ {ps : List Kore.Pattern},
+    s ∈ andSortsList ps ↔ ∃ p ∈ ps, s ∈ andSorts p
+  | [] => by simp [andSortsList]
+  | p :: ps => by simp [andSortsList, mem_andSortsList (ps := ps)]
+
+/-- The operands of an operand's connectives are operands of the pattern's, and an operand is of
+the sort of its connective where the pattern is `rhsSorted`. -/
+theorem connOps_sub (p : Kore.Pattern) : ∀ x ∈ connOps p, connOps x.2 ⊆ connOps p ∧
+    (Parse.rhsSorted p = true → sortIs x.1 x.2 = true) := by
+  induction p using Kore.Pattern.rec
+    (motive_2 := fun ps => ∀ p ∈ ps, ∀ x ∈ connOps p, connOps x.2 ⊆ connOps p ∧
+      (Parse.rhsSorted p = true → sortIs x.1 x.2 = true)) with
+  | app h ss ps ih =>
+    intro x hx
+    rw [connOps, mem_connOpsList] at hx
+    obtain ⟨p, hp, hx⟩ := hx
+    obtain ⟨h1, h2⟩ := ih p hp x hx
+    refine ⟨fun y hy => ?_, fun hS => h2 ?_⟩
+    · rw [connOps, mem_connOpsList]; exact ⟨p, hp, h1 hy⟩
+    · rw [Parse.rhsSorted, rhsSortedList_iff] at hS; exact hS p hp
+  | and s ps ih =>
+    intro x hx
+    rw [connOps, List.mem_append, mem_connOpsList] at hx
+    rcases hx with hx | ⟨p, hp, hx⟩
+    · obtain ⟨q, hq, rfl⟩ := List.mem_map.mp hx
+      refine ⟨fun y hy => ?_, fun hS => ?_⟩
+      · rw [connOps, List.mem_append, mem_connOpsList]; exact .inr ⟨q, hq, hy⟩
+      · rw [Parse.rhsSorted, Bool.and_eq_true, rhsOpSortList_iff_sortIs] at hS; exact hS.1 q hq
+    · obtain ⟨h1, h2⟩ := ih p hp x hx
+      refine ⟨fun y hy => ?_, fun hS => h2 ?_⟩
+      · rw [connOps, List.mem_append, mem_connOpsList]; exact .inr ⟨p, hp, h1 hy⟩
+      · rw [Parse.rhsSorted, Bool.and_eq_true, rhsSortedList_iff] at hS; exact hS.2 p hp
+  | or s ps ih =>
+    intro x hx
+    rw [connOps, List.mem_append, mem_connOpsList] at hx
+    rcases hx with hx | ⟨p, hp, hx⟩
+    · obtain ⟨q, hq, rfl⟩ := List.mem_map.mp hx
+      refine ⟨fun y hy => ?_, fun hS => ?_⟩
+      · rw [connOps, List.mem_append, mem_connOpsList]; exact .inr ⟨q, hq, hy⟩
+      · rw [Parse.rhsSorted, Bool.and_eq_true, rhsOpSortList_iff_sortIs] at hS; exact hS.1 q hq
+    · obtain ⟨h1, h2⟩ := ih p hp x hx
+      refine ⟨fun y hy => ?_, fun hS => h2 ?_⟩
+      · rw [connOps, List.mem_append, mem_connOpsList]; exact .inr ⟨p, hp, h1 hy⟩
+      · rw [Parse.rhsSorted, Bool.and_eq_true, rhsSortedList_iff] at hS; exact hS.2 p hp
+  | nil => exact absurd ‹_ ∈ ([] : List Kore.Pattern)› List.not_mem_nil
+  | cons q qs ih1 ih2 =>
+    rename_i p hp x hx
+    rcases List.mem_cons.mp hp with rfl | hp
+    · exact ih1 x hx
+    · exact ih2 p hp x hx
+  | _ => intro x hx; simp [connOps] at hx
+
+theorem andSorts_sub (p : Kore.Pattern) : ∀ x ∈ connOps p, andSorts x.2 ⊆ andSorts p := by
+  induction p using Kore.Pattern.rec
+    (motive_2 := fun ps => ∀ p ∈ ps, ∀ x ∈ connOps p, andSorts x.2 ⊆ andSorts p) with
+  | app h ss ps ih =>
+    intro x hx y hy
+    rw [connOps, mem_connOpsList] at hx
+    obtain ⟨p, hp, hx⟩ := hx
+    rw [andSorts, mem_andSortsList]; exact ⟨p, hp, ih p hp x hx hy⟩
+  | and s ps ih =>
+    intro x hx y hy
+    rw [connOps, List.mem_append, mem_connOpsList] at hx
+    rw [andSorts, List.mem_cons, mem_andSortsList]
+    rcases hx with hx | ⟨p, hp, hx⟩
+    · obtain ⟨q, hq, rfl⟩ := List.mem_map.mp hx; exact .inr ⟨q, hq, hy⟩
+    · exact .inr ⟨p, hp, ih p hp x hx hy⟩
+  | or s ps ih =>
+    intro x hx y hy
+    rw [connOps, List.mem_append, mem_connOpsList] at hx
+    rw [andSorts, mem_andSortsList]
+    rcases hx with hx | ⟨p, hp, hx⟩
+    · obtain ⟨q, hq, rfl⟩ := List.mem_map.mp hx; exact ⟨q, hq, hy⟩
+    · exact ⟨p, hp, ih p hp x hx hy⟩
+  | nil => exact absurd ‹_ ∈ ([] : List Kore.Pattern)› List.not_mem_nil
+  | cons q qs ih1 ih2 =>
+    rename_i p hp x hx
+    rcases List.mem_cons.mp hp with rfl | hp
+    · exact ih1 x hx
+    · exact ih2 p hp x hx
+  | _ => intro x hx; simp [connOps] at hx
+
+section
+variable (hD : DefOK I) {tbl : VarTable} {e : Valuation M}
+include hD
+
+/-- An `\or{s}` or `\and{s}` whose operands lie in s lies in s. -/
+theorem inSortK_conn {s : Kore.KSort} {q : Kore.Pattern} {qs : List Kore.Pattern}
+    (hq : q = .or s qs ∨ q = .and s qs) (h : ∀ q' ∈ qs, InSortK I tbl e s q') : InSortK I tbl e s q := by
+  intro a ha
+  rcases hq with rfl | rfl
+  · rw [tr] at ha
+    obtain ⟨q', hq', ha⟩ := (trOrList_iff hD h a).mp ha
+    exact h q' hq' a ha
+  · rw [tr] at ha
+    cases qs with
+    | nil => rw [trAndList, interp_sTop hD (InertEv.trSort_topFresh tbl s)] at ha; exact ha
+    | cons q' qs' =>
+      exact h q' (List.mem_cons_self ..) a ((trAndList_iff (List.cons_ne_nil _ _) a).mp ha q' (List.mem_cons_self ..))
+
+/-- **`TightSem` from the operands of the connectives.** Where p is `rhsSorted`, each operand of
+its `\or{s}`s and `\and{s}`s that is no `\or` and no `\and` lies in s, and the sort of each of its
+`\and`s denotes a sort, p is `TightSem`: an operand `\or{s}` or `\and{s}` lies in s where its own
+operands do. -/
+theorem tightSem_of_ops (p : Kore.Pattern) (hS : Parse.rhsSorted p = true)
+    (hL : ∀ x ∈ connOps p, opLeaf x.2 = true → InSortK I tbl e x.1 x.2)
+    (hA : ∀ s ∈ andSorts p, SortDen I tbl e s) : TightSem I tbl e p := by
+  -- every operand lies in its sort
+  have hO : ∀ q, ∀ x ∈ connOps p, x.2 = q → InSortK I tbl e x.1 q := by
+    intro q
+    induction q using Kore.Pattern.rec
+      (motive_2 := fun qs => ∀ q ∈ qs, ∀ x ∈ connOps p, x.2 = q → InSortK I tbl e x.1 q) with
+    | or s' qs ih =>
+      intro x hx hq
+      obtain ⟨hsub, hsort⟩ := connOps_sub p x hx
+      have hs := hsort hS
+      rw [hq, sortIs, Bool.and_eq_true, decide_eq_true_iff] at hs
+      obtain ⟨rfl, -⟩ := hs
+      refine inSortK_conn hD (.inl rfl) fun q' hq' => ih q' hq' (x.1, q') (hsub ?_) rfl
+      rw [hq, connOps, List.mem_append]; exact .inl (List.mem_map.mpr ⟨q', hq', rfl⟩)
+    | and s' qs ih =>
+      intro x hx hq
+      obtain ⟨hsub, hsort⟩ := connOps_sub p x hx
+      have hs := hsort hS
+      rw [hq, sortIs, Bool.and_eq_true, decide_eq_true_iff] at hs
+      obtain ⟨rfl, -⟩ := hs
+      refine inSortK_conn hD (.inr rfl) fun q' hq' => ih q' hq' (x.1, q') (hsub ?_) rfl
+      rw [hq, connOps, List.mem_append]; exact .inl (List.mem_map.mpr ⟨q', hq', rfl⟩)
+    | nil => exact absurd ‹_ ∈ ([] : List Kore.Pattern)› List.not_mem_nil
+    | cons q qs ih1 ih2 =>
+      rename_i q' hq' x hx hxq
+      rcases List.mem_cons.mp hq' with rfl | hq'
+      · exact ih1 x hx hxq
+      · exact ih2 q' hq' x hx hxq
+    | _ => intro x hx hq; have h := hL x hx (by rw [hq]; rfl); rwa [hq] at h
+  -- the pattern and every pattern under its applications, conjunctions and disjunctions
+  suffices key : ∀ p', connOps p' ⊆ connOps p → andSorts p' ⊆ andSorts p → TightSem I tbl e p' from
+    key p (fun _ h => h) (fun _ h => h)
+  intro p'
+  induction p' using Kore.Pattern.rec
+    (motive_2 := fun ps => connOpsList ps ⊆ connOps p → andSortsList ps ⊆ andSorts p → TightSemList I tbl e ps) with
+  | app h ss ps ih => intro h1 h2; rw [TightSem]; exact ih (by rwa [connOps] at h1) (by rwa [andSorts] at h2)
+  | and s ps ih =>
+    intro h1 h2
+    rw [TightSem]
+    refine ⟨hA s (h2 (by rw [andSorts]; exact List.mem_cons_self ..)), fun q hq => hO q (s, q) (h1 ?_) rfl,
+      ih (fun y hy => h1 ?_) (fun y hy => h2 ?_)⟩
+    · rw [connOps, List.mem_append]; exact .inl (List.mem_map.mpr ⟨q, hq, rfl⟩)
+    · rw [connOps, List.mem_append]; exact .inr hy
+    · rw [andSorts]; exact List.mem_cons_of_mem _ hy
+  | or s ps ih =>
+    intro h1 h2
+    rw [TightSem]
+    refine ⟨fun q hq => hO q (s, q) (h1 ?_) rfl, ih (fun y hy => h1 ?_) (fun y hy => h2 ?_)⟩
+    · rw [connOps, List.mem_append]; exact .inl (List.mem_map.mpr ⟨q, hq, rfl⟩)
+    · rw [connOps, List.mem_append]; exact .inr hy
+    · rw [andSorts]; exact hy
+  | nil => simp [TightSemList]
+  | cons q qs ih1 ih2 =>
+    rename_i h1 h2
+    rw [connOpsList] at h1; rw [andSortsList] at h2
+    rw [TightSemList]
+    exact ⟨ih1 (fun y hy => h1 (List.mem_append_left _ hy)) (fun y hy => h2 (List.mem_append_left _ hy)),
+      ih2 (fun y hy => h1 (List.mem_append_right _ hy)) (fun y hy => h2 (List.mem_append_right _ hy))⟩
+  | _ => intro _ _; simp [TightSem]
+
+/-- `\bottom` lies in every sort. -/
+theorem inSortK_bottom (s s' : Kore.KSort) : InSortK I tbl e s (.bottom s') := by
+  intro a ha
+  rw [tr] at ha
+  exact (InertEv.sBot_none hD (InertEv.trSort_topFresh tbl s') e a ha).elim
+
+end
+
+section
+variable [Inhabited M] (hD : DefOK I) (hc : I ⊧ᴵ ceilDefItem.pat) (hB : BoolDen I) {tbl : VarTable} {e : Valuation M}
+include hD hc hB
+
+/-- A lifted conjunct `\equals{Bool,s}(b, true)` lies in s. -/
+theorem inSortK_isTrue {bs s bs' : Kore.KSort} {b : Kore.Pattern} (h1 : KoreAML.Parse.sortName? bs = some "Bool")
+    (h2 : KoreAML.Parse.sortName? bs' = some "Bool") (hs : SortDen I tbl e s) :
+    InSortK I tbl e s (.equals bs s b (.dv bs' "true")) :=
+  fun a ha => ((tr_isTrue_iff hD hc hB h1 h2 hs a).mp ha).1
+
+omit [Inhabited M] hc hB in
+/-- A `Tight` operand lies in s where each of its alternatives (`orAlts`) does. -/
+theorem inSortK_of_alts {s : Kore.KSort} {q : Kore.Pattern} (hT : Tight I tbl e q)
+    (h : ∀ q' ∈ Parse.orAlts q, InSortK I tbl e s q') : InSortK I tbl e s q := by
+  intro a ha
+  obtain ⟨q', hq', ha'⟩ := ((orAlts_sem hD q hT).1 a).mp ha
+  exact h q' hq' a ha'
+
+end
+
+/-- **An operand that translates as a term of the sort s lies in s** (`TermsInSort`), where the
+valuation puts the term's variables in their sorts. -/
+theorem inSortK_of_term [Inhabited M] {c : Semantics} (hTS : Faithful.TermsInSort c I) {tbl tblT : VarTable}
+    {vars : List Srt} {s : Srt} {t : Term} {S : Kore.KSort} {q : Kore.Pattern} {e : Valuation M}
+    (hs : s < nRegSorts + c.sortNames.length) (hty : sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) vars t = some s)
+    (htr : tr ⟨tblT, []⟩ q = tr ⟨tbl, []⟩ (Term.kore c (canonVars c vars) t))
+    (hS : trSort tblT S = trSort tbl (srtOf c s))
+    (hvar : ∀ i ∈ varOccs t, Faithful.InS I (c.sortName (vars.getD i 0)) (e.evalEvar (tbl.ev (Faithful.canonKey c vars i)))) :
+    InSortK I tblT e S q := by
+  intro a ha
+  rw [htr] at ha
+  have h := hTS hty hs hvar a ha
+  rw [← Faithful.inS_iff e] at h
+  have : KoreAML.Cons.sortP (c.sortName s) = trSort tbl (srtOf c s) := by
+    rw [srtOf, Faithful.trSort_srt]; rfl
+  rw [hS, ← this]
+  exact h
+
+/-! ### Competitors -/
+
+/-- **The readings under the negation of the competitors**: with a premise `¬⋁ lower`, written
+before each clause's premise and the sentence's (`competingEquation`, the text's `\not`), the
+readings hold of `n ∧ prem`. -/
+theorem readings_compete {ws : List KoreAML.P} {r : EVar} {σ : M} {prem rhs n : KoreAML.P} {α : Type}
+    {alts : List α} {A : α → KoreAML.P} {G : α → Valuation M → Prop} {Q : α → KoreAML.P} {QN : KoreAML.P}
+    (R : TieFR.Readings I ws r σ prem rhs alts A G Q QN) :
+    TieFR.Readings I ws r σ (sAnd n prem) rhs alts A G (fun x => sAnd n (Q x)) (sAnd n QN) where
+  inSort := R.inSort
+  clause e m hat x hx := by rw [interp_sAnd, interp_sAnd, R.clause e m hat x hx, and_assoc]
+  none e m hat := by rw [interp_sAnd, interp_sAnd, R.none e m hat, and_assoc]
+  rhs := R.rhs
+
+section
+variable [Inhabited M] {c : Semantics} (F : HoldsShape.NodeFacts c I)
+include F
+
+/-- **The readings of the clauses `frClauses` writes, from the text's literal** (`TieFR.Readings`).
+`readings_of_fr` with: the text's translation naming the aliases `al`, which its right side and
+`ensures` part do not apply (`tr_aliasFree`); the `ensures` part read by `ensBools`, holding all of
+its sort σ where its Bool terms agree with `true` (`ens_reading`); and the pairing of the
+alternatives with the kept ones decided on the literal (`altsTrOK`, `all2_of_altsTrOK`). What is
+left is `TightSem` (`tightSem_of_ops`) and that the alternatives lie in σ (`inSort_of_terms`). -/
+theorem readings_of_frT {N : Parse.Names} {eq : Parse.RawEqn} {z : List Clause × List KoreAML.Var}
+    {al : List String} {tbl tblT : VarTable} {vs : List KoreAML.Var} {s : Srt} {xs : List (Term × List Term)}
+    {ws : List KoreAML.P} {σ : M} {prem : KoreAML.P} {en : Kore.Pattern} {bs : List Kore.Pattern}
+    (hrd : Parse.frRead N eq = .ok (some z))
+    (hal : aliasFreeFR al eq.rhs = true) (hal' : aliasFreeFR al en = true)
+    (hr : sortGuard (tbl.ev (sortVarKey Rv)) ∈ ws)
+    (hσ : ∀ (e : Valuation M) a, (trSort tbl (srtOf c s)).interpret I e a ↔ a = σ) (hσS : IsSort I σ)
+    (hin : ∀ e m, TieFR.At I ws (tbl.ev (sortVarKey Rv)) e m → ∀ x ∈ xs, ∀ a,
+      (altP c tbl vs x).interpret I e a → Inh I σ a)
+    (hT : ∀ e m, TieFR.At I ws (tbl.ev (sortVarKey Rv)) e m → TightSem I tblT e eq.rhs)
+    (hE : ensBools en = some bs)
+    (hES : ∀ (e : Valuation M) a, (trSort tblT (ensSort en)).interpret I e a ↔ a = σ)
+    (hok : altsTrOK c tbl vs tblT (frConds eq.rhs) bs (keptAlts (frSide eq.rhs)) xs = true) :
+    TieFR.Readings I ws (tbl.ev (sortVarKey Rv)) σ prem
+      (sAnd (tr ⟨tblT, al⟩ eq.rhs) (tr ⟨tblT, al⟩ en)) xs (altP c tbl vs) (altG I c tbl vs)
+      (clauseQ c tbl vs s prem) (lastQ c tbl vs s prem xs) := by
+  rw [tr_aliasFree tblT al _ hal, tr_aliasFree tblT al _ hal']
+  exact readings_of_fr F (Ens := fun e => ∀ b ∈ bs, EqTrue I e (tr ⟨tblT, []⟩ b)) hrd hr hσ hσS hin hT
+    (fun e _ _ a ha => ens_reading F.defOK F.ceilDef (boolDen_of F) hE hES hσS e a ha)
+    (all2_of_altsTrOK hok)
 
 end
 

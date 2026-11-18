@@ -16,9 +16,12 @@
   two notes of a rule: whether a conjunction of terms on its right side is read through the cut
   depends on which symbols are constructors (`andCutTaken`), and whether a map key of its left side
   is read as a fresh variable on which symbols are the definition's functions (`keyCutFns`), which
-  the sentence alone does not say. Without the names (`classifyShape`) the class is the same but for
-  those two notes. `parse` scans the sentences classified read and no other (`scan`, which reads
-  `classifyShape`). A text it does not read gives a `Refusal`: the
+  the sentence alone does not say. The names also carry the text's cell-collection pairs
+  (`cellCollPairs`, from its collection sorts' declarations): whether a subsort axiom or a
+  no-junk axiom is a cell collection's injection depends on which sorts the text declares
+  collections, not on the sentence. With the pairs alone (`classifyShapeIn`) the class is the same
+  but for those two notes. `parse` scans the sentences classified read and no other (`scan`, which
+  reads `classifyShapeIn` at the module's pairs). A text it does not read gives a `Refusal`: the
   sentence's position in the file, its head, and the reason, one of `RefusalReason`'s.
 -/
 import KcoreSpec.Emit
@@ -79,9 +82,10 @@ inductive RefusalReason where
   that is not, up to variable names and the order of conjuncts and disjuncts, one the definition's
   constructors induce (`Account.uninduced`): it states something the semantics does not. -/
   | inertMismatch
-  /-- An application of `inj{XCell, XCellMap}` (or a cell set's or list's): the subsort of a cell
-  into its collection sort, which the reader does not read (`UnreadReason.cellCollectionInjection`);
-  or a sentence classified so whose sorts are not a collection of the definition and its cell. -/
+  /-- An application of `inj{XCell, XCellMap}` (or a cell set's or list's) at a cell-collection pair
+  of the text (`cellCollPairs`): the subsort of a collection's entry sort into the collection sort,
+  which the reader does not read (`UnreadReason.cellCollectionInjection`); or a sentence classified
+  so whose sorts are not a collection of the definition and its cell. -/
   | cellCollectionInjection
   /-- An alias declaration: KCore reads no alias, whose applications stand for its body. -/
   | aliasDeclaration
@@ -250,8 +254,9 @@ inductive RefusalReason where
   the symbol, S and the reason. A rule's left side is read through the cut (`ovlCut`), the
   application a fresh variable and its membership in the application a conjunct of `pre`: there
   the reason is printed where S is not confined and a variable of the arguments is held by no other
-  part of the left side (`openCutRefusal`); the account's row remains for a clause's pattern and
-  for an application whose arguments hold `#as`, which is not cut. -/
+  part of the left side (`openCutRefusal`); a clause's argument patterns are read the same way
+  (`ovlCutList`, `openCutRefusalCl`); the account's row remains for an application whose arguments
+  hold `#as`, which is not cut. -/
   | openGeneratorPattern
   /-- A range-map symbol binding a variable in a left side: the range's bounds are of KItem
   (`RangeMap:Range(KItem, KItem)`), the entry's value of KItem and the rest of RangeMap, all
@@ -393,8 +398,10 @@ inductive RefusalReason where
   | symbolAttrUnkeyed
   /-- An equation or a rewrite axiom whose right side (under its `\exists` binders) holds, under
   applications, conjunctions and disjunctions, an `\and{s}` or `\or{s}` with an operand that
-  states a sort other than s at its head (`rhsSorted`): an `\and` or `\or` at another sort, or an
-  `\equals{S1,S2}` whose result sort S2 is not s. In a valid KORE pattern the sort of each
+  states a sort other than s at its head (`rhsSorted`): an `\and`, `\or` or `\exists` at another
+  sort, an `\exists{s}` whose body states another sort than s (its pattern argument is of the
+  sort parameter, kore-syntax.md:195, 330), or an `\equals{S1,S2}` whose result sort S2 is not s.
+  In a valid KORE pattern the sort of each
   argument of a connective is the connective's sort parameter (kore-syntax.md:330: "In any
   matching logic pattern, the sort of pattern arguments agrees with the specified argument sort
   parameter"), so the sentence is no valid KORE axiom. The reader drops these sorts when it lifts
@@ -915,6 +922,10 @@ structure Names where
   sort's name: a rule's left side applying one is read through the cut (`ovlCut`), which
   `openCutRefusal` refuses where the generator's sort is not confined -/
   openCutSyms : List (Sym × String) := []
+  /-- the text's cell-collection pairs (`cellCollPairs`): the sort of a collection's entries and the
+  collection sort, by name. A subsort axiom, a no-junk axiom and an application of `inj` at such a
+  pair are a cell collection's injection (`UnreadReason.cellCollectionInjection`) -/
+  cellPairs : List (String × String) := []
 
 /-- The aliases K's prelude declares: their applications are refused by name, except as a rewrite
 axiom's right side where the alias sentence is the identity (`identityAliases`, `unaliasRule`). -/
@@ -1001,13 +1012,6 @@ end Names
 
 /-- A sort's name, or why it has none. -/
 def sortNameE (s : Kore.KSort) : Rd String := need (sortName? s) .parametricSort
-
-/-- `a` is a cell sort `XCell` and `b` its collection's sort `XCellMap`, `XCellSet` or
-`XCellList`, as kompile names them. -/
-def isCellCollPair (a b : String) : Bool :=
-  let ac := a.toList
-  ac.reverse.take 4 == "lleC".toList &&
-    (b.toList == ac ++ "Map".toList || b.toList == ac ++ "Set".toList || b.toList == ac ++ "List".toList)
 
 /-! ## Float literals -/
 
@@ -1159,7 +1163,7 @@ mutual
         | [A, B], [p] => do
           let a ← sortNameE A
           let b ← sortNameE B
-          if isCellCollPair a b then fail .cellCollectionInjection b
+          if N.cellPairs.contains (a, b) then fail .cellCollectionInjection b
           let (t, vs) ← term N vs p
           pure (.inj (← N.srtE a) (← N.srtE b) t, vs)
         | _, _ => fail .injShape
@@ -1426,6 +1430,35 @@ def ovlCut (N : Names) (lhs : Term) (vs : List Var) : Rd (Term × List Var × Co
         acc ++ [⟨freshName acc (acc.length + 1) (pfx app ++ toString (acc.length - vs.length)), X⟩]) vs
       let mems ← xs.mapM fun (i, X, app) => do pure (Cond.mem (← N.srtE X) (.var i) app)
       pure (lhs', vs', ovlCutConj mems)
+
+/-- A clause's argument patterns `pats` and its variables `vs`, read with each application of a
+function-overloaded symbol or of an open generator cut, as `ovlCut` reads a rule's left side
+(`cutOvlAppsList`, the fresh variables named the same way): the patterns, the variables with the
+fresh ones after them, and the conjunction of the memberships, `\top` where nothing is cut.
+
+A function's equation is `req ∧ X₁ ∈ p₁ ∧ … ∧ Xₙ ∈ pₙ → f(X̄) = rhs ∧ ens`, the Xᵢ variables. Its
+premise `Xᵢ ∈ C[g(P̄)]`, the hole under applications, is `∃V. Xᵢ ∈ C[V] ∧ V ∈ g(P̄)` in every
+interpretation, V fresh of g's sort (the cut, `KCore.cut_identity`: an application is pointwise
+over the elements its arguments hold, and `Xᵢ ∈ _` distributes over the union), and
+`(∃V. φ) → ψ` is `∀V. (φ → ψ)` for V not in ψ. So the equation read with V a variable of the
+clause, the application a fresh variable of the pattern and the membership a conjunct of the
+clause's premise predicate (`Clause.pre`, whose term is evaluated, not matched) is the text's
+equation, with no premise. The variables of P̄ that the other patterns do not hold are then
+variables the arguments do not bind, in a condition with one they bind (V): decided as any such
+(`clausesPlain`, `clauseRefusal`). -/
+def ovlCutList (N : Names) (pats : List Term) (vs : List Var) : Rd (List Term × List Var × Cond) :=
+  match N.ovlCutSyms ++ N.openCutSyms with
+  | [] => pure (pats, vs, .top)
+  | cs => match cutOvlAppsList cs vs.length pats with
+    | (_, _, []) => pure (pats, vs, .top)
+    | (pats', _, xs) => do
+      let pfx := fun (app : Term) => match app with
+        | .app f _ => if (N.ovlCutSyms.lookup f).isSome then "Ovl" else "Open"
+        | _ => "Ovl"
+      let vs' := xs.foldl (fun acc (_, X, app) =>
+        acc ++ [⟨freshName acc (acc.length + 1) (pfx app ++ toString (acc.length - vs.length)), X⟩]) vs
+      let mems ← xs.mapM fun (i, X, app) => do pure (Cond.mem (← N.srtE X) (.var i) app)
+      pure (pats', vs', ovlCutConj mems)
 
 /-! ## Connectives with a term's reading
 
@@ -1705,13 +1738,14 @@ mutual
 end
 
 mutual
-  /-- The pattern is of the sort s where its head states its sort as a connective `\or{s'}` or
-  `\and{s'}` or as the result sort of `\equals{S1,s'}` (s' = s), and so are the operands of such
-  an `\or` and `\and`. An application, a variable, a domain value and the other connectives are
-  not looked at. -/
+  /-- The pattern is of the sort s where its head states its sort as a connective `\or{s'}`,
+  `\and{s'}` or `\exists{s'}` or as the result sort of `\equals{S1,s'}` (s' = s), and so are the
+  operands of such an `\or` and `\and` and the body of such an `\exists`. An application, a
+  variable, a domain value and the other connectives are not looked at. -/
   def rhsOpSort (s : Kore.KSort) : Kore.Pattern → Bool
     | .or s' ps => decide (s' = s) && rhsOpSortList s ps
     | .and s' ps => decide (s' = s) && rhsOpSortList s ps
+    | .exist s' _ p => decide (s' = s) && rhsOpSort s p
     | .equals _ s' _ _ => decide (s' = s)
     | _ => true
     termination_by structural p => p
@@ -1743,6 +1777,7 @@ def rhsHeadSort? : Kore.Pattern → Option (String × Kore.KSort)
   | .or s _ => some ("\\or", s)
   | .and s _ => some ("\\and", s)
   | .equals _ s _ _ => some ("\\equals", s)
+  | .exist s _ _ => some ("\\exists", s)
   | _ => none
 
 /-- The first operand of `conn{s}(ps)` whose head states another sort than s, named. -/
@@ -1754,11 +1789,12 @@ def rhsOpFault? (conn : String) (s : Kore.KSort) (ps : List Kore.Pattern) : Opti
 
 mutual
   /-- Where `rhsSorted` fails, the first connective (outermost first) with an operand of another
-  sort, named (`rhsOpFault?`). -/
+  sort, or an `\exists` whose body states another sort, named (`rhsOpFault?`). -/
   def rhsSortFault? : Kore.Pattern → Option String
     | .app _ _ ps => rhsSortFaultList? ps
     | .and s ps => (rhsOpFault? "\\and" s ps).orElse fun _ => rhsSortFaultList? ps
     | .or s ps => (rhsOpFault? "\\or" s ps).orElse fun _ => rhsSortFaultList? ps
+    | .exist s _ p => (rhsOpFault? "\\exists" s [p]).orElse fun _ => rhsSortFault? p
     | _ => none
     termination_by structural p => p
   def rhsSortFaultList? : List Kore.Pattern → Option String
@@ -2625,7 +2661,11 @@ def clauseBody (N : Names) (msrc : String) (e : RawEqn) (excl : Option Kore.Patt
   -- a `non-executable` equation: a clause that no `[owise]` premise negates (`Clause.aside`)
   let aside := nonExec e
   match excl with
-  | none => pure ({ vars := ← varSorts N vs, pats, req, rhs, ens, prio, aside },
+  | none =>
+    -- an application of a function-overloaded symbol or of an open generator in the patterns: a
+    -- fresh variable, its membership in the application a conjunct of `pre` (`ovlCutList`)
+    let (pats, vs, pre) ← ovlCutList N pats vs
+    pure ({ vars := ← varSorts N vs, pats, req, rhs, ens, prio, aside, pre },
       ⟨vs.map (·.name), m, vs.map (·.name), attrStr? e.attrs "label", srcOver msrc e.attrs, explicit.isSome,
        (overloadSyms? e.attrs).map (·.2)⟩)
   | some ex =>
@@ -2647,10 +2687,15 @@ def clauseBody (N : Names) (msrc : String) (e : RawEqn) (excl : Option Kore.Patt
     -- `ensures` holds, at their places (`inv` keeps an index past the disjunct's), in the names of
     -- both the clause and its exclusion
     let vs' := π.map (vs.getD · default) ++ vs.drop evs.length
-    let vars ← varSorts N vs'
-    pure ({ vars, pats := Term.reindexList inv pats, req := req.map (Term.reindex inv),
-            rhs := Term.reindex inv rhs, ens := ens.map (Term.reindex inv), prio, aside },
-          ⟨vs'.map (·.name), m, π.map (fun i => (evs.getD i default).name) ++ (vs.drop evs.length).map (·.name),
+    -- the cut of the patterns (`ovlCutList`), in the clause's order of variables: the fresh
+    -- variables are after every other, under their own names in the exclusion's too
+    let (pats, vsC, pre) ← ovlCutList N (Term.reindexList inv pats) vs'
+    let cutNames := (vsC.drop vs'.length).map (·.name)
+    let vars ← varSorts N vsC
+    pure ({ vars, pats, req := req.map (Term.reindex inv),
+            rhs := Term.reindex inv rhs, ens := ens.map (Term.reindex inv), prio, aside, pre },
+          ⟨vsC.map (·.name), m,
+           π.map (fun i => (evs.getD i default).name) ++ (vs.drop evs.length).map (·.name) ++ cutNames,
            attrStr? e.attrs "label",
            srcOver msrc e.attrs, explicit.isSome, (overloadSyms? e.attrs).map (·.2)⟩)
 
@@ -4203,7 +4248,9 @@ def scanColl : Kore.Sentence → Option (String × CollKind × String × String 
 `classify` reads one sentence, and of the definition's names (the scan's, from the text's
 declarations) only what decides the cut of a conjunction of terms on a rule's right side
 (`andCutTaken`, the one test `ruleBody` takes it by) and the map keys of a rule's left side read as
-fresh variables (`keyCutFns`, the keys `keyCut` reads so). A sentence is read when `parse` reads it: a declaration, a
+fresh variables (`keyCutFns`, the keys `keyCut` reads so), and the text's cell-collection pairs
+(`Names.cellPairs`, `cellCollPairs`), which decide whether a subsort or no-junk axiom is a cell
+collection's injection (`isCellCollAxiom`). A sentence is read when `parse` reads it: a declaration, a
 rewrite axiom, a function equation, a `subsort` or `functional` axiom, KItem's no-junk axiom
 (whose order the presentation keeps), or a sentence of a builtin module (whose source and line
 name the module the definition imports). It is inert when the semantics does not read it, for
@@ -4323,15 +4370,16 @@ def injSorts? : Kore.Pattern → Option (String × String)
   | .app h [A, B] [_] => if h.ident.name == "inj" then do pure (← sortName? A, ← sortName? B) else none
   | _ => none
 
-/-- The subsort axiom of a cell into its collection's sort (`[subsort{XCell, XCellMap}()]`), or the
-collection sort's no-junk axiom, a disjunction of injected cells. -/
-def isCellCollAxiom (a : Kore.Axiom) : Bool :=
+/-- At the cell-collection pairs `P` (`cellCollPairs`): the subsort axiom of a cell into its
+collection's sort (`[subsort{XCell, XCellMap}()]`), or the collection sort's no-junk axiom, a
+disjunction one of whose disjuncts is an injected cell. -/
+def isCellCollAxiom (P : List (String × String)) (a : Kore.Axiom) : Bool :=
   match a.attributes, a.pattern with
   | [⟨⟨⟨"subsort"⟩⟩, [A, B], []⟩], _ => match sortName? A, sortName? B with
-    | some x, some y => isCellCollPair x y
+    | some x, some y => P.contains (x, y)
     | _, _ => false
   | [⟨⟨⟨"constructor"⟩⟩, [], []⟩], .or _ ds => ds.any fun d => match injSorts? (binders eqnFuel d).2 with
-    | some (x, y) => isCellCollPair x y
+    | some (x, y) => P.contains (x, y)
     | none => false
   | _, _ => false
 
@@ -4462,7 +4510,7 @@ def classifyAxiom (N : Names) (a : Kore.Axiom) : SentenceClass :=
   else if isNoPredSentence s then .unread .noSortPredicate
   -- a sentence of a K installation's file about names of its own is read as a user's file's
   else if let some c := (if isKBuiltin a.attributes then classifyKBuiltin s else none) then c
-  else if isCellCollAxiom a then .unread .cellCollectionInjection
+  else if isCellCollAxiom N.cellPairs a then .unread .cellCollectionInjection
   -- a `\rewrites` axiom carrying `simplification` states a step: it is read, and `ruleBody`
   -- refuses it (`ruleAttrFault?`) instead of the step being dropped as an inert lemma
   else if hasAttr a.attributes "simplification" && (scanRewrite s).isNone then .inert .simplification
@@ -4527,8 +4575,9 @@ def symAttrFault? (as : List Kore.AppPattern) : Option (RefusalReason × String)
 /-- The class of a sentence of the user module, from the sentence and the definition's names: the
 names decide only whether a conjunction of terms on a rule's right side is read through the cut
 (`andTermsCut`, `andCutTaken`) or with the `ensures` of the conjuncts' equality (`andTermsWeaker`),
-and whether a map key of a rule's left side applying a function of the definition is read as a
-fresh variable (`keyFunctionAsMember`, `keyCutFns`). -/
+whether a map key of a rule's left side applying a function of the definition is read as a
+fresh variable (`keyFunctionAsMember`, `keyCutFns`), and whether a subsort or no-junk axiom is a
+cell collection's injection (`Names.cellPairs`, `isCellCollAxiom`). -/
 def classify (N : Names) : Kore.Sentence → SentenceClass
   | .import _ => .inert .import
   | .claim c => match attrFault? .claim .outsideE2 c.attributes with
@@ -4563,19 +4612,54 @@ def classify (N : Names) : Kore.Sentence → SentenceClass
 
 /-- The names of no definition. With them `classify` gives each sentence its class but for the note
 of a conjunction of terms on a rule's right side, which reads the definition's constructors
-(`andCutTaken`): there it gives `andTermsWeaker`; and for the note of a map key applying a function,
-which reads the definition's functions (`keyCutFns`): there it gives `read`. Read, refused, inert and
-unread do not read the names. -/
+(`andCutTaken`): there it gives `andTermsWeaker`; for the note of a map key applying a function,
+which reads the definition's functions (`keyCutFns`): there it gives `read`; and for a subsort or
+no-junk axiom at a cell-collection pair, which reads the text's collection sorts (`cellPairs`):
+there it gives the class of a subsort or constructor axiom of no collection. Refused, inert and the
+other unread classes do not read the names. -/
 def Names.empty : Names := { sorts := [], syms := [] }
 
-/-- A sentence's class without the names (`Names.empty`): what the scan reads to tell the read
-sentences from the others. -/
+/-- A sentence's class without the names (`Names.empty`), for a sentence read alone. Of a sentence
+of a module, the class is `classifyShapeIn` at the module's cell-collection pairs. -/
 def classifyShape (s : Kore.Sentence) : SentenceClass := classify Names.empty s
 
 def isRead (s : Kore.Sentence) : Bool :=
   match classifyShape s with
   | .read | .readAs _ => true
   | _ => false
+
+/-- A sentence's class with no names but the cell-collection pairs `P` (`cellCollPairs`): what the
+scan reads to tell the read sentences from the others. It differs from `classify` at the
+definition's names only in the two notes of a rule that read the definition's symbols
+(`andCutTaken`, `keyCutFns`). -/
+def classifyShapeIn (P : List (String × String)) (s : Kore.Sentence) : SentenceClass :=
+  classify { Names.empty with cellPairs := P } s
+
+def isReadIn (P : List (String × String)) (s : Kore.Sentence) : Bool :=
+  match classifyShapeIn P s with
+  | .read | .readAs _ => true
+  | _ => false
+
+/-- The cell-collection pairs of the sentences `l`: for each collection sort X of the text
+(`scanColl`: a hooked sort outside the library with hook `MAP.Map`, `SET.Set` or `LIST.List` and
+its unit, element and concatenation symbols) the sort of its entries, the argument of its element
+symbol for a set or a list and the second argument (the value) for a map, as `collSigOf` reads the
+collection's signature, with X. The reading holds X's elements as collections (`Semantics.colls`),
+a set, list or map of entries of that sort; an injection of an entry into X would give a second
+element, `inj(e)`, for what X holds as a one-entry collection, which is why a subsort at such a pair
+is not read (`UnreadReason.cellCollectionInjection`). Read off the declarations alone, whose class
+reads no pairs (`classify`). -/
+def cellCollPairs (l : List Kore.Sentence) : List (String × String) :=
+  l.filterMap fun s => do
+    let (X, k, _, e, _) ← (scanColl s).filter fun _ => isRead s
+    let h ← l.findSome? fun t => (scanUserHooked t).filter fun h =>
+      h.symbol.ident.ident.name == e && isRead t
+    let a ← match k, h.sorts with
+      | .map, [_, b] => sortName? b
+      | .set, [a] => sortName? a
+      | .list, [a] => sortName? a
+      | _, _ => none
+    pure (a, X)
 
 mutual
   /-- The first symbol a pattern applies, in pre-order. -/
@@ -4624,20 +4708,20 @@ def scanGenSym : Kore.Sentence → Option Kore.SentenceSymbol
       (hasAttr x.attributes "constructor" || hasAttr x.attributes "function") then some x else none
   | _ => none
 
-def scanRefused (s : Kore.Sentence) : Option (RefusalReason × String) :=
-  match classifyShape s with
+def scanRefused (P : List (String × String)) (s : Kore.Sentence) : Option (RefusalReason × String) :=
+  match classifyShapeIn P s with
   | .refused r => some (r, headOf s)
   | _ => none
 
-/-- The scan of the sentences `l`: each part from the sentences classified read, and the refused
-ones. -/
-def scan (l : List Kore.Sentence) : Scan :=
-  let r := l.filter isRead
+/-- The scan of the sentences `l` at the cell-collection pairs `P`: each part from the sentences
+classified read, and the refused ones. -/
+def scanWith (P : List (String × String)) (l : List Kore.Sentence) : Scan :=
+  let r := l.filter (isReadIn P)
   ⟨r.filterMap scanSym, r.filterMap scanEqn, r.filterMap scanPlainSort, r.filterMap scanUserSym,
    r.filterMap scanUserHooked, r.filterMap scanBuiltin, r.filterMap scanKBuiltin, r.filterMap scanSimpArg,
    r.flatMap scanRewrites,
    r.filterMap scanEvent, r.filterMap scanOr, r.filterMap scanColl, r.filterMap scanHeads,
-   r.filterMap scanLocSort, l.filterMap scanRefused, l.filterMap scanMacro, r.filterMap scanGenSym,
+   r.filterMap scanLocSort, l.filterMap (scanRefused P), l.filterMap scanMacro, r.filterMap scanGenSym,
    r.filterMap scanTokenSort, l.filterMap scanParamDecl, r.filterMap scanCarrier, l.filterMap functionalSym?,
    l.filterMap hookEqFact?⟩
 
@@ -4650,25 +4734,31 @@ def Scan.append (a b : Scan) : Scan :=
    a.tokenSorts ++ b.tokenSorts, a.paramDecls ++ b.paramDecls, a.carriers ++ b.carriers, a.fnls ++ b.fnls,
    a.hookEqFacts ++ b.hookEqFacts⟩
 
-theorem scan_append (l l' : List Kore.Sentence) : scan (l ++ l') = (scan l).append (scan l') := by
-  simp only [scan, Scan.append, List.filter_append, List.filterMap_append, List.flatMap_append]
+/-- The scan of a module's sentences: at the module's cell-collection pairs. -/
+def scan (l : List Kore.Sentence) : Scan := scanWith (cellCollPairs l) l
 
-/-- The scan of the segments `a` to `a + n` of a module's sentences is `S`. -/
+theorem scanWith_append (P : List (String × String)) (l l' : List Kore.Sentence) :
+    scanWith P (l ++ l') = (scanWith P l).append (scanWith P l') := by
+  simp only [scanWith, Scan.append, List.filter_append, List.filterMap_append, List.flatMap_append]
+
+/-- The scan of the segments `a` to `a + n` of a module's sentences is `S`, at the cell-collection
+pairs of the whole module. -/
 def ScanIs (segs : List (List Kore.Sentence)) (a n : Nat) (S : Scan) : Prop :=
-  scan ((segs.drop a).take n).flatten = S
+  scanWith (cellCollPairs segs.flatten) ((segs.drop a).take n).flatten = S
 
 theorem ScanIs.join {segs : List (List Kore.Sentence)} {a n m k : Nat} {S₁ S₂ : Scan}
     (h₁ : ScanIs segs a n S₁) (h₂ : ScanIs segs (a + n) m S₂) (hk : n + m = k) :
     ScanIs segs a k (S₁.append S₂) := by
   subst hk
   unfold ScanIs at *
-  rw [List.take_add, List.flatten_append, scan_append, h₁, List.drop_drop, h₂]
+  rw [List.take_add, List.flatten_append, scanWith_append, h₁, List.drop_drop, h₂]
 
 theorem ScanIs.all {segs : List (List Kore.Sentence)} {n : Nat} {S : Scan}
     (hn : segs.length = n) (h : ScanIs segs 0 n S) : scan segs.flatten = S := by
   subst hn
   unfold ScanIs at h
-  rwa [List.drop_zero, List.take_length] at h
+  rw [List.drop_zero, List.take_length] at h
+  exact h
 
 /-- A hooked symbol of the text read as a function: its hook is one no registry hook interprets
 (`regHookOf`), it is no unit, element or concatenation symbol of a collection sort of the text,
@@ -5010,6 +5100,7 @@ def envOf (m : Kore.Module) (S : Scan) : Rd Env := do
       else Rd.within (.attrs e.attrs) (fail .overloadAxiom f)
     | none => pure ()
   let N₀ : Names := { sorts := ownSortNames, macros := S.macros, own := libProjNames, carriers := S.carriers
+                      cellPairs := cellCollPairs m.sentences
                       syms := ownSortNames.map KoreAML.isLabel ++ RCell.symsList rconfig ++ ctorNames ++ fnNames ++
                         -- the generated functions after the productions' (`coreOf`), before the parameters
                         genFnNames ++ paramNames }
@@ -5124,13 +5215,14 @@ def envOf (m : Kore.Module) (S : Scan) : Rd Env := do
 
 
 /-- The names `parse` reads the user module's rules with (`envOf` on the scan), or `Names.empty`
-where it refuses the text before them: what `classify` reads of a definition. -/
+with the module's cell-collection pairs where it refuses the text before them: what `classify`
+reads of a definition. -/
 def namesOf (k : Kore.Definition) : Names :=
   match k.modules.getLast? with
   | none => Names.empty
   | some m => match envOf m (scan m.sentences) with
     | .ok E => E.N
-    | .error _ => Names.empty
+    | .error _ => { Names.empty with cellPairs := cellCollPairs m.sentences }
 /-- `symProdT`, its failures not yet placed. -/
 def symProdBody (E : Env) (eqs : List RawEqn) (ov : List (String × List (Clause × ClausePres)))
     (s : Kore.SentenceSymbol) : Rd Prod := do
@@ -5329,14 +5421,19 @@ are not closed over such a variable of a sort that is not confined (`Clause.need
 `clausesPlain` refuses beside a predicate, with `openRequires`). One held only by the right side or the `ensures` is read at every
 sort: it is universal over the elements of its sort, so on values the clause has an instance for
 each value of the sort and none where the sort has no value; the function is then named
-(`Semantics.heldObligations`) where the sort has no exhibited value. -/
+(`Semantics.heldObligations`) where the sort has no exhibited value. For a variable in the term of
+a membership `V ∈ f(…)` of `pre`, V bound by the arguments (a cut, `ovlCutList`), the detail names
+the symbol f (`openRefusalCutSym`). -/
 def clauseRefusal (c : Semantics) (cl : Clause) (names : List String) : Option (RefusalReason × String) :=
   let conf := fun i => (cl.vars[i]?.map c.confined).getD false
   let what := fun i => s!"Var{names.getD i ""}:{c.sortName (cl.vars.getD i 0)}"
+  let cut := fun i => match openRefusalCutSym (varOccsList cl.pats) i cl.pre with
+    | some f => s!" (V ∈ {c.symName f}(…)), under {c.symName f}"
+    | none => ""
   if !(!cl.reqOpen || cl.reqClosed || cl.openCondVars.all conf) then
     let i := (cl.openCondVars.find? (fun i => !conf i)).getD 0
     some (.openRequires,
-      s!"{what i}: in a condition with a variable the arguments bind, not bound by the arguments, of a sort the text leaves unconfined")
+      s!"{what i}: in a condition with a variable the arguments bind{cut i}, not bound by the arguments, of a sort the text leaves unconfined")
   else if !cl.pre.isTop && cl.needsWitness c then
     let i := (cl.openCondVars.find? (fun i => !conf i)).getD 0
     some (.openRequires,
@@ -5366,6 +5463,24 @@ def openCutRefusal (c : Semantics) (r : Rule) (names : List String) : Option (Re
         ((varOccs (.app g as)).find? (!held.contains ·)).map fun i =>
           let sn := c.sortName k.sig.result
           (.openGeneratorPattern, s!"{c.symName g}: its sort {sn} is recursive or reaches an unconfined sort: the arguments it matches depend on elements of {sn} the text does not name (Var{names.getD i ""}:{c.sortName (r.vars.getD i 0)}, under {c.symName g}, held by no other part of the left side)")
+      else none
+    | none => none
+
+/-- Why a clause read through the cut of an open generator (`ovlCutList`) is not read, or `none`:
+`openCutRefusal`'s case on a clause, the arguments' patterns in the left side's place. A membership
+`V ∈ g(P̄)` of `pre`, V bound by the patterns and g an open generator whose sort is not confined,
+whose arguments hold a variable that no pattern holds (`openGeneratorPattern`): the equation is
+stated of every element, and at an element of g's sort that is no value's which arguments are sent
+to it the text does not say. -/
+def openCutRefusalCl (c : Semantics) (cl : Clause) (names : List String) : Option (RefusalReason × String) :=
+  let held := varOccsList cl.pats
+  (openCutMemsOf cl.pre).findSome? fun (v, g, as) =>
+    match c.params.find? (fun k => k.raw && k.sig.name == g) with
+    | some k =>
+      if held.contains v && !c.confined k.sig.result then
+        ((varOccs (.app g as)).find? (!held.contains ·)).map fun i =>
+          let sn := c.sortName k.sig.result
+          (.openGeneratorPattern, s!"{c.symName g}: its sort {sn} is recursive or reaches an unconfined sort: the arguments it matches depend on elements of {sn} the text does not name (Var{names.getD i ""}:{c.sortName (cl.vars.getD i 0)}, under {c.symName g}, held by no other part of the arguments' patterns)")
       else none
     | none => none
 
@@ -5637,7 +5752,7 @@ constructors and subsorts of it, before the user's (`Cell.topSorts`, `Cell.topSi
 `Cell.topSubs` of the cell tree). The definition's token sorts (`Env.tokenSorts`) are token sorts
 of the semantics after the imported modules' (`Lib.tokenSorts`): their values are their literals.
 A rule that is not read (`ruleRefusal`) is refused at its axiom; then the first clause of a
-function that is not read (`clauseRefusal`), at its equation; then the first equation of a sort's
+function that is not read (`openCutRefusalCl`, then `clauseRefusal`), at its equation; then the first equation of a sort's
 predicate or projection that the core does not state (`predEqnFaults`), at that equation: the core
 defines the sort predicates from the sorts (`Semantics.sortPreds`), so a text whose equations of
 one are others is a text one of whose sentences the core would not state. -/
@@ -5671,7 +5786,8 @@ def coreOf (S : Scan) (E : Env) (prods : List Prod) (rules : List (Rule × RuleP
   | some (a, reason, detail) => Rd.within (.sentence (.axiom a)) (fail reason detail)
   | none =>
     let fnCls := prods.flatMap fun | .fn f fp => withPres f.clauses fp.clauses | _ => []
-    match fnCls.findSome? (fun (cl, cp) => (clauseRefusal core cl cp.names).map (cp, ·)) with
+    match fnCls.findSome? (fun (cl, cp) =>
+        ((openCutRefusalCl core cl cp.names).orElse fun _ => clauseRefusal core cl cp.names).map (cp, ·)) with
     | some (cp, reason, detail) =>
       -- the equation the clause is read from, found by its id
       match S.eqs.find? (fun e => (eqnInfo? e.attrs).any (·.uid == cp.info.uid)) with
@@ -6175,7 +6291,8 @@ def classDetail (m : Kore.Module) (s : Kore.Sentence) (r : RefusalReason) : Stri
 
 /-- The first sentence of the user module that `classify` refuses, as a refusal. -/
 def classRefusal (off : Nat) (m : Kore.Module) : Refusal :=
-  let refusedAt := fun (si : Kore.Sentence × Nat) => match classifyShape si.1 with
+  let P := cellCollPairs m.sentences
+  let refusedAt := fun (si : Kore.Sentence × Nat) => match classifyShapeIn P si.1 with
     | .refused r => some (⟨some (off + si.2), headOf si.1, r, classDetail m si.1 r⟩ : Refusal)
     | _ => none
   ((m.sentences.zipIdx).findSome? refusedAt).getD ⟨none, m.name.ident.name, .axiomShape, ""⟩

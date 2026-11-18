@@ -3,23 +3,25 @@ import KcoreSpec.CollExecStep
 import KcoreSpec.KKEncCanon
 
 /-!
-# `kore.k`'s matching of a pattern without a collection
+# `kore.k`'s matching
 
 `matchF`, `matchTsF`, `matchKF`, `bindAfterF`, `lookF`, `bindVarF`, `leqF` and `aboveF` are
 `kore.k`'s functions `match`, `matchTs`, `matchK`, `bindAfter`, `look`, `bindVar`, `leq` and `above`
-over the mirrors, one Lean equation per equation of `kore.k`; `cat` is `++`. A substitution `Bind`
-is `kore.k`'s list `bind(X, T, B)`, newest entry first, and `Ms` the list of substitutions a match
-gives.
+over the mirrors, and `matchColF`, `chooseF`, `splitF`, `splitOnF` and `restF` its `matchCol`,
+`choose`, `split`, `splitOn` and `rest`, one Lean equation per equation of `kore.k`; `cat` and `app`
+are `++`, and `isElem` is `isElemT`. A substitution `Bind` is `kore.k`'s list `bind(X, T, B)`, newest
+entry first, and `Ms` the list of substitutions a match gives.
 
 `matchTs` has an equation for two empty lists and for two non-empty lists only, so `matchTsF` is
 `none` at lists of two lengths, where `kore.k`'s `matchTs` has no value; a function applied to an
-argument without a value has none, so `matchF`, `matchKF` and `matchTsF` give `Option Ms`.
-`match` of a collection pattern (`cb`) against a collection (`co`) is `matchCol`, which is not
-mirrored here: `matchF` is `none` there, and every statement below is about a pattern without `cb`
-(`noCb`).
+argument without a value has none, so every function here gives `Option Ms`, and `none` at a
+concatenation one of whose arguments is `none`.
+`match` of a collection pattern (`cb`) against a collection (`co`) is `matchCol` at the pattern's
+kind and sort and the collection's elements: the collection's own kind and sort are not read.
 
 The statements are about one semantics `c`: `matchF_sound` and `matchF_complete` relate `matchF` at
-the encoding of a pattern (`encTerm`) and of a value (`enc`) to `PatVal c`. The pattern is well
+the encoding of a pattern (`encTerm`) and of a value (`enc`) to `PatVal c`, for a pattern without
+`cb` (`noCb`). The pattern is well
 sorted in a left side's context at the sort of the value: `kore.k` compares the sources of two
 injections and never their targets, and a variable seen twice by `==K` on encodings, which is
 equality of values on values sorted in `c` whose literals `kore.k` has (`enc_inj`).
@@ -165,8 +167,8 @@ def matchF (S : List (Int × Int)) : T → T → Bind → Option Ms
         else some []
     | _ => some []
   | .as p x, t, B => (matchF S p t B).map (bindAfterF x t)
-  | .cb _ _ _, a, _ => match a with
-    | .co _ _ _ => none
+  | .cb k c ps, a, B => match a with
+    | .co _ _ es => matchColF S k c ps es B
     | _ => some []
   | .kv p q, a, B => match a with
     | .kv k v => matchTsF S [p, q] [k, v] B
@@ -203,6 +205,96 @@ def matchKF (S : List (Int × Int)) : Ms → List T → List T → Option Ms
     | some x, some y => some (x ++ y)
     | _, _ => none
   termination_by ms ps => (psizeLF ps, 2, ms.length)
+  decreasing_by
+    all_goals simp_wf
+    all_goals first
+      | exact Prod.Lex.right _ (Prod.Lex.left _ _ (by omega))
+      | exact Prod.Lex.right _ (Prod.Lex.right _ (by omega))
+      | (apply Prod.Lex.left; (try simp only [psizeF]); (try simp only [psizeLF]); omega)
+/-- `matchCol(K, C, Ps, Es, B, S)`: the parts `Ps` of a collection pattern against the elements
+`Es`. An element part of a `Map` or a `Set` takes each element in turn (`mc-choose`), a `List`'s the
+first (`mc-head`); a last part that is no element takes the elements left, as a collection of the
+pattern's kind and sort (`mc-frame`); a `List`'s part that is no element and has parts after it
+takes each prefix in turn (`mc-split`). -/
+def matchColF (S : List (Int × Int)) (k : Kind) (c : Int) (ps es : List T) (B : Bind) : Option Ms :=
+  match ps with
+  | [] => match es with
+    | [] => some [B]
+    | _ :: _ => some []
+  | p :: ps' =>
+    if isElemT p then
+      if k = .list then match es with
+        | e :: es' => match matchF S p e B with
+          | some ms => restF S .list c ps' es' ms
+          | none => none
+        | [] => some []
+      else chooseF S k c p ps' [] es B
+    else match ps' with
+      | [] => matchF S p (.co k c es) B
+      | q :: qs => if k = .list then splitF S c p (q :: qs) [] es B else some []
+  termination_by (psizeLF ps, 3, 0)
+  decreasing_by
+    all_goals simp_wf
+    all_goals first
+      | exact Prod.Lex.right _ (Prod.Lex.left _ _ (by omega))
+      | exact Prod.Lex.right _ (Prod.Lex.right _ (by omega))
+      | (apply Prod.Lex.left; (try simp only [psizeF]); (try simp only [psizeLF]); omega)
+/-- `choose(K, C, P, Ps, Pre, Post, B, S)`: the element part `P` against each element of `Post` in
+turn, the parts `Ps` against the other elements. -/
+def chooseF (S : List (Int × Int)) (k : Kind) (c : Int) (p : T) (ps pre post : List T) (B : Bind) :
+    Option Ms :=
+  match post with
+  | [] => some []
+  | e :: post' =>
+    match (match matchF S p e B with
+      | some ms => restF S k c ps (pre ++ post') ms
+      | none => none), chooseF S k c p ps (pre ++ [e]) post' B with
+    | some x, some y => some (x ++ y)
+    | _, _ => none
+  termination_by (psizeLF (p :: ps), 2, post.length)
+  decreasing_by
+    all_goals simp_wf
+    all_goals first
+      | exact Prod.Lex.right _ (Prod.Lex.left _ _ (by omega))
+      | exact Prod.Lex.right _ (Prod.Lex.right _ (by omega))
+      | (apply Prod.Lex.left; (try simp only [psizeF]); (try simp only [psizeLF]); omega)
+/-- `split(C, F, Ps, Pre, Post, B, S)`: the part `F` against the list of `Pre` and the parts `Ps`
+against `Post`, then the same at each longer prefix (`splitOn`). -/
+def splitF (S : List (Int × Int)) (c : Int) (f : T) (ps pre post : List T) (B : Bind) : Option Ms :=
+  match (match matchF S f (.co .list c pre) B with
+    | some ms => restF S .list c ps post ms
+    | none => none), splitOnF S c f ps pre post B with
+  | some x, some y => some (x ++ y)
+  | _, _ => none
+  termination_by (psizeLF (f :: ps), 2, 2 * post.length + 1)
+  decreasing_by
+    all_goals simp_wf
+    all_goals first
+      | exact Prod.Lex.right _ (Prod.Lex.left _ _ (by omega))
+      | exact Prod.Lex.right _ (Prod.Lex.right _ (by omega))
+      | (apply Prod.Lex.left; (try simp only [psizeF]); (try simp only [psizeLF]); omega)
+/-- `splitOn(C, F, Ps, Pre, Post, B, S)`: `split` with the first element of `Post` moved to the
+end of `Pre`; no substitution where `Post` is empty. -/
+def splitOnF (S : List (Int × Int)) (c : Int) (f : T) (ps pre post : List T) (B : Bind) : Option Ms :=
+  match post with
+  | [] => some []
+  | e :: post' => splitF S c f ps (pre ++ [e]) post' B
+  termination_by (psizeLF (f :: ps), 2, 2 * post.length)
+  decreasing_by
+    all_goals simp_wf
+    all_goals first
+      | exact Prod.Lex.right _ (Prod.Lex.left _ _ (by omega))
+      | exact Prod.Lex.right _ (Prod.Lex.right _ (by omega))
+      | (apply Prod.Lex.left; (try simp only [psizeF]); (try simp only [psizeLF]); omega)
+/-- `rest(K, C, Ps, Es, Ms, S)`: the parts `Ps` against the elements `Es` under each substitution
+of `Ms`. -/
+def restF (S : List (Int × Int)) (k : Kind) (c : Int) (ps es : List T) (ms : Ms) : Option Ms :=
+  match ms with
+  | [] => some []
+  | B :: ms' => match matchColF S k c ps es B, restF S k c ps es ms' with
+    | some x, some y => some (x ++ y)
+    | _, _ => none
+  termination_by (psizeLF ps, 4, ms.length)
   decreasing_by
     all_goals simp_wf
     all_goals first
@@ -283,7 +375,22 @@ theorem matchF_ij_inv {a b : Int} {p u : T} {B B' : Bind} {M : Ms}
       · cases h; cases hB
   | _ => unfold matchF at h; simp at h; subst h; cases hB
 
+/-- `m-fail` at `bot`, a collection value and a right side with its ensures as patterns. -/
+theorem matchF_bot (a : T) (B : Bind) : matchF S .bot a B = some [] := by rw [matchF]
+
+theorem matchF_co (k : Kind) (c : Int) (es : List T) (a : T) (B : Bind) :
+    matchF S (.co k c es) a B = some [] := by rw [matchF]
+
+theorem matchF_en (t e a : T) (B : Bind) : matchF S (.en t e) a B = some [] := by rw [matchF]
+
 theorem matchTsF_nil (B : Bind) : matchTsF S [] [] B = some [B] := by rw [matchTsF]
+
+/-- `matchTs` has no equation at lists of two lengths. -/
+theorem matchTsF_nil_cons (t : T) (ts : List T) (B : Bind) : matchTsF S [] (t :: ts) B = none := by
+  rw [matchTsF] <;> simp
+
+theorem matchTsF_cons_nil (p : T) (ps : List T) (B : Bind) : matchTsF S (p :: ps) [] B = none := by
+  rw [matchTsF] <;> simp
 
 theorem matchTsF_cons (p : T) (ps : List T) (t : T) (ts : List T) (B : Bind) :
     matchTsF S (p :: ps) (t :: ts) B =
@@ -318,6 +425,195 @@ theorem matchKF_mem {ps ts : List T} {B' : Bind} : ∀ {ms M : Ms}, matchKF S ms
 theorem matchKF_single {ps ts : List T} {B : Bind} {M : Ms} (h : matchTsF S ps ts B = some M) :
     matchKF S [B] ps ts = some M := by
   rw [matchKF_cons, matchKF_nil, h]; simp
+
+/-! ### The collection equations -/
+
+/-- `m-col`: the subject's own kind and sort are not read. -/
+theorem matchF_cb_co (k l : Kind) (c e : Int) (ps es : List T) (B : Bind) :
+    matchF S (.cb k c ps) (.co l e es) B = matchColF S k c ps es B := by rw [matchF]
+
+/-- `m-col` is the one equation that gives a substitution at a collection pattern. -/
+theorem matchF_cb_inv {k : Kind} {c : Int} {ps : List T} {a : T} {B B' : Bind} {M : Ms}
+    (h : matchF S (.cb k c ps) a B = some M) (hB : B' ∈ M) :
+    ∃ l e es, a = .co l e es ∧ matchColF S k c ps es B = some M := by
+  cases a with
+  | co l e es => rw [matchF_cb_co] at h; exact ⟨l, e, es, rfl, h⟩
+  | _ => unfold matchF at h; simp at h; subst h; cases hB
+
+/-- `m-kv`. -/
+theorem matchF_kv_kv (p q a v : T) (B : Bind) :
+    matchF S (.kv p q) (.kv a v) B = matchTsF S [p, q] [a, v] B := by rw [matchF]
+
+/-- `m-el`. -/
+theorem matchF_el_el (p x : T) (B : Bind) : matchF S (.el p) (.el x) B = matchF S p x B := by
+  rw [matchF]
+
+theorem matchF_kv_inv {p q a : T} {B B' : Bind} {M : Ms}
+    (h : matchF S (.kv p q) a B = some M) (hB : B' ∈ M) :
+    ∃ k v, a = .kv k v ∧ matchTsF S [p, q] [k, v] B = some M := by
+  cases a with
+  | kv k v => rw [matchF_kv_kv] at h; exact ⟨k, v, rfl, h⟩
+  | _ => unfold matchF at h; simp at h; subst h; cases hB
+
+theorem matchF_el_inv {p a : T} {B B' : Bind} {M : Ms}
+    (h : matchF S (.el p) a B = some M) (hB : B' ∈ M) :
+    ∃ x, a = .el x ∧ matchF S p x B = some M := by
+  cases a with
+  | el x => rw [matchF_el_el] at h; exact ⟨x, rfl, h⟩
+  | _ => unfold matchF at h; simp at h; subst h; cases hB
+
+/-- `mc-done`, and `mc-fail` at no part and an element. -/
+theorem matchColF_nil (k : Kind) (c : Int) (es : List T) (B : Bind) :
+    matchColF S k c [] es B = some (if es = [] then [B] else []) := by
+  rw [matchColF.eq_def]; cases es <;> simp
+
+/-- `mc-choose`. -/
+theorem matchColF_choose {k : Kind} {p : T} (hp : isElemT p = true) (hk : k ≠ .list) (c : Int)
+    (ps es : List T) (B : Bind) :
+    matchColF S k c (p :: ps) es B = chooseF S k c p ps [] es B := by
+  rw [matchColF.eq_def]; simp [hp, hk]
+
+/-- `mc-head`. -/
+theorem matchColF_head {p : T} (hp : isElemT p = true) (c : Int) (ps : List T) (e : T)
+    (es : List T) (B : Bind) :
+    matchColF S .list c (p :: ps) (e :: es) B =
+      match matchF S p e B with
+      | some ms => restF S .list c ps es ms
+      | none => none := by
+  rw [matchColF.eq_def]; simp [hp]
+
+/-- `mc-fail` at a list's element part and no element. -/
+theorem matchColF_head_nil {p : T} (hp : isElemT p = true) (c : Int) (ps : List T) (B : Bind) :
+    matchColF S .list c (p :: ps) [] B = some [] := by
+  rw [matchColF.eq_def]; simp [hp]
+
+/-- `mc-frame`. -/
+theorem matchColF_frame {f : T} (hf : isElemT f = false) (k : Kind) (c : Int) (es : List T)
+    (B : Bind) : matchColF S k c [f] es B = matchF S f (.co k c es) B := by
+  rw [matchColF.eq_def]; simp [hf]
+
+/-- `mc-split`. -/
+theorem matchColF_split {f : T} (hf : isElemT f = false) (c : Int) (p : T) (ps es : List T)
+    (B : Bind) : matchColF S .list c (f :: p :: ps) es B = splitF S c f (p :: ps) [] es B := by
+  rw [matchColF.eq_def]; simp [hf]
+
+/-- `mc-fail` at a `Map`'s or a `Set`'s part that is no element and has parts after it. -/
+theorem matchColF_frame_more {f : T} (hf : isElemT f = false) {k : Kind} (hk : k ≠ .list) (c : Int)
+    (p : T) (ps es : List T) (B : Bind) : matchColF S k c (f :: p :: ps) es B = some [] := by
+  rw [matchColF.eq_def]; simp [hf, hk]
+
+theorem chooseF_nil (k : Kind) (c : Int) (p : T) (ps pre : List T) (B : Bind) :
+    chooseF S k c p ps pre [] B = some [] := by rw [chooseF]
+
+theorem chooseF_cons (k : Kind) (c : Int) (p : T) (ps pre : List T) (e : T) (post : List T)
+    (B : Bind) :
+    chooseF S k c p ps pre (e :: post) B =
+      match (match matchF S p e B with
+        | some ms => restF S k c ps (pre ++ post) ms
+        | none => none), chooseF S k c p ps (pre ++ [e]) post B with
+      | some x, some y => some (x ++ y)
+      | _, _ => none := by rw [chooseF]
+
+theorem splitF_eq (c : Int) (f : T) (ps pre post : List T) (B : Bind) :
+    splitF S c f ps pre post B =
+      match (match matchF S f (.co .list c pre) B with
+        | some ms => restF S .list c ps post ms
+        | none => none), splitOnF S c f ps pre post B with
+      | some x, some y => some (x ++ y)
+      | _, _ => none := by rw [splitF]
+
+theorem splitOnF_nil (c : Int) (f : T) (ps pre : List T) (B : Bind) :
+    splitOnF S c f ps pre [] B = some [] := by rw [splitOnF]
+
+theorem splitOnF_cons (c : Int) (f : T) (ps pre : List T) (e : T) (post : List T) (B : Bind) :
+    splitOnF S c f ps pre (e :: post) B = splitF S c f ps (pre ++ [e]) post B := by rw [splitOnF]
+
+theorem restF_nil (k : Kind) (c : Int) (ps es : List T) : restF S k c ps es [] = some [] := by
+  rw [restF]
+
+theorem restF_cons (k : Kind) (c : Int) (ps es : List T) (B : Bind) (ms : Ms) :
+    restF S k c ps es (B :: ms) =
+      match matchColF S k c ps es B, restF S k c ps es ms with
+      | some x, some y => some (x ++ y)
+      | _, _ => none := by rw [restF]
+
+/-- A substitution `rest` gives is one `matchCol` gives under a substitution of the list. -/
+theorem restF_mem {k : Kind} {c : Int} {ps es : List T} {B' : Bind} : ∀ {ms M : Ms},
+    restF S k c ps es ms = some M → B' ∈ M →
+    ∃ B₁ ∈ ms, ∃ M₁, matchColF S k c ps es B₁ = some M₁ ∧ B' ∈ M₁
+  | [], M, h, hB => by rw [restF_nil] at h; cases h; cases hB
+  | B :: ms, M, h, hB => by
+    rw [restF_cons] at h
+    split at h
+    · rename_i x y hx hy
+      cases h
+      rcases List.mem_append.mp hB with hB | hB
+      · exact ⟨B, by simp, x, hx, hB⟩
+      · obtain ⟨B₁, h1, M₁, h2, h3⟩ := restF_mem hy hB
+        exact ⟨B₁, by simp [h1], M₁, h2, h3⟩
+    · cases h
+
+/-- A substitution `choose` gives: the element part matched one element of `Post`, and the parts
+after it the elements before and after that one. -/
+theorem chooseF_mem {k : Kind} {c : Int} {p : T} {ps : List T} {B B' : Bind} :
+    ∀ {post pre : List T} {M : Ms}, chooseF S k c p ps pre post B = some M → B' ∈ M →
+    ∃ l e r M₁ B₁ M₂, post = l ++ e :: r ∧ matchF S p e B = some M₁ ∧ B₁ ∈ M₁ ∧
+      matchColF S k c ps (pre ++ l ++ r) B₁ = some M₂ ∧ B' ∈ M₂
+  | [], pre, M, h, hB => by rw [chooseF_nil] at h; cases h; cases hB
+  | e :: post, pre, M, h, hB => by
+    rw [chooseF_cons] at h
+    split at h
+    · rename_i x y hx hy
+      cases h
+      rcases List.mem_append.mp hB with hB | hB
+      · cases hm : matchF S p e B with
+        | none => rw [hm] at hx; cases hx
+        | some ms =>
+          rw [hm] at hx
+          obtain ⟨B₁, h1, M₂, h2, h3⟩ := restF_mem S hx hB
+          exact ⟨[], e, post, ms, B₁, M₂, rfl, hm, h1, by simpa using h2, h3⟩
+      · obtain ⟨l, e', r, M₁, B₁, M₂, rfl, h1, h2, h3, h4⟩ := chooseF_mem hy hB
+        exact ⟨e :: l, e', r, M₁, B₁, M₂, rfl, h1, h2, by simpa using h3, h4⟩
+    · cases h
+
+/-- A substitution `split` gives: the first part matched the list of `Pre` and a prefix of `Post`,
+and the parts after it the elements after that prefix. -/
+theorem splitF_mem {c : Int} {f : T} {ps : List T} {B B' : Bind} :
+    ∀ {post pre : List T} {M : Ms}, splitF S c f ps pre post B = some M → B' ∈ M →
+    ∃ l r M₁ B₁ M₂, post = l ++ r ∧ matchF S f (.co .list c (pre ++ l)) B = some M₁ ∧ B₁ ∈ M₁ ∧
+      matchColF S .list c ps r B₁ = some M₂ ∧ B' ∈ M₂ := by
+  intro post
+  induction post with
+  | nil =>
+    intro pre M h hB
+    rw [splitF_eq, splitOnF_nil] at h
+    cases hm : matchF S f (.co .list c pre) B with
+    | none => rw [hm] at h; cases h
+    | some ms =>
+      rw [hm] at h
+      cases hr : restF S .list c ps [] ms with
+      | none => simp only [hr] at h; cases h
+      | some x =>
+        simp only [hr, List.append_nil, Option.some.injEq] at h
+        subst h
+        obtain ⟨B₁, h1, M₂, h2, h3⟩ := restF_mem S hr hB
+        exact ⟨[], [], ms, B₁, M₂, rfl, by simpa using hm, h1, h2, h3⟩
+  | cons e post ih =>
+    intro pre M h hB
+    rw [splitF_eq, splitOnF_cons] at h
+    split at h
+    · rename_i x y hx hy
+      cases h
+      rcases List.mem_append.mp hB with hB | hB
+      · cases hm : matchF S f (.co .list c pre) B with
+        | none => rw [hm] at hx; cases hx
+        | some ms =>
+          rw [hm] at hx
+          obtain ⟨B₁, h1, M₂, h2, h3⟩ := restF_mem S hx hB
+          exact ⟨[], e :: post, ms, B₁, M₂, rfl, by simpa using hm, h1, h2, h3⟩
+      · obtain ⟨l, r, M₁, B₁, M₂, rfl, h1, h2, h3, h4⟩ := ih hy hB
+        exact ⟨e :: l, r, M₁, B₁, M₂, rfl, by simpa using h1, h2, h3, h4⟩
+    · cases h
 
 end
 
