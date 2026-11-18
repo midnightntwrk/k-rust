@@ -240,6 +240,7 @@ import KcoreSpec.OccurrenceOrder
 import KcoreSpec.RuleAndIn
 import KcoreSpec.RuleConnIn
 import KcoreSpec.SetVarRewrite
+import KcoreSpec.BoolClosedCl
 import KcoreSpec.OpenClauseConsistent
 import KcoreSpec.SetVarIn
 import KcoreSpec.RangeMapLaws
