@@ -1,0 +1,4 @@
+param	LblList2Set'LParUndsRParUnds'COLLECTIONS'Unds'Set'Unds'List	args=[List]	result=Set	impl=none	raw=false	assoc=false	idem=false
+param	LblSet'Coln'choice	args=[Set]	result=KItem	impl=none	raw=false	assoc=false	idem=false
+param	LblSet2List'LParUndsRParUnds'COLLECTIONS'Unds'List'Unds'Set	args=[Set]	result=List	impl=none	raw=false	assoc=false	idem=false
+(exit 0)
