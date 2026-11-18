@@ -129,7 +129,7 @@ theorem ovlOK_of_coreEx (h : c.coreOKEx = true) : OvlOK c := by
   obtain ⟨hok, hfa, -, -, hids⟩ := Semantics.coreOKEx_parts h
   obtain ⟨-, -, -, -, -, hn, -, hs, -, -, -, hfns⟩ := faithCoreOK_parts hfa
   refine ⟨Semantics.coreOKEx_ovls h, NamesApart.subsorts_irrefl_ofCEx hids hok, ?_,
-    fnOvlSyms_nil_of_apart (Semantics.coreOKEx_ovls h) hfns⟩
+    fnOver_of_apart (Semantics.coreOKEx_ovls h) hfns⟩
   intro o ho kg hkg A hA B hB he
   have hkgk : kg ∈ kernelSyms c := by
     obtain ⟨g, -, hg⟩ := List.mem_filterMap.mp hkg
