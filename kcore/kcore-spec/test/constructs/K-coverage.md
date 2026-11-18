@@ -30,7 +30,7 @@ Nested entries by status:
 | list | entries | supported | parameter | inert | erased | refused | pending-fixture | not-handled |
 |---|---|---|---|---|---|---|---|---|
 | E1 | 3 | 2 | 0 | 0 | 0 | 1 | 0 | 0 |
-| E2 | 14 | 3 | 0 | 0 | 0 | 11 | 0 | 0 |
+| E2 | 15 | 3 | 0 | 0 | 0 | 12 | 0 | 0 |
 | E3 | 76 | 29 | 0 | 2 | 0 | 45 | 0 | 0 |
 | E4 | 40 | 12 | 0 | 4 | 0 | 24 | 0 | 0 |
 | E5 | 54 | 30 | 1 | 5 | 0 | 18 | 0 | 0 |
@@ -38,7 +38,7 @@ Nested entries by status:
 | E7 | 6 | 1 | 1 | 2 | 0 | 2 | 0 | 0 |
 | E8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 34 | 14 | 0 | 2 | 1 | 17 | 0 | 0 |
-| all | 237 | 96 | 2 | 15 | 1 | 122 | 0 | 1 |
+| all | 238 | 96 | 2 | 15 | 1 | 123 | 0 | 1 |
 
 Refused rows by class:
 
@@ -60,7 +60,7 @@ Refused nested entries by class:
 | list | entries | R-a | R-b | R-c | scope |
 |---|---|---|---|---|---|
 | E1 | 1 | 0 | 0 | 1 | 0 |
-| E2 | 11 | 3 | 0 | 2 | 6 |
+| E2 | 12 | 3 | 0 | 3 | 6 |
 | E3 | 45 | 10 | 2 | 32 | 1 |
 | E4 | 24 | 14 | 4 | 0 | 6 |
 | E5 | 18 | 7 | 0 | 6 | 5 |
@@ -68,9 +68,9 @@ Refused nested entries by class:
 | E7 | 2 | 0 | 0 | 0 | 2 |
 | E8 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 17 | 8 | 4 | 2 | 3 |
-| all | 122 | 43 | 11 | 44 | 24 |
+| all | 123 | 43 | 11 | 45 | 24 |
 
-## Entries of class R-c (63)
+## Entries of class R-c (64)
 
 Each names the notion the kernel lacks, the cone declaration that would change, and the ticket or unit that supports it (`unit`, checked by `units.py`).
 
@@ -81,6 +81,7 @@ Each names the notion the kernel lacks, the cone declaration that would change, 
 | E2 | `COMM(comm)@symbol` | row | refused | as ASSOC@symbol | as ASSOC@symbol | P2.d2-kompiled | CN-3 V3 (d1: open generators, \`ParamSig.raw\`, \`ParamSig.assoc\`; d3: \`assocH\`, \`OpenLaws\`; V4); P2 (d2: the reader; fixtures e2-comm-ctor, e2-open-rule) |
 | E2 | `COMM(comm)@symbol` | cases[4] | refused |  |  | P3.cut-clause |  |
 | E2 | `HYBRID(hybrid)@frontend` | row | refused | a sort predicate whose equations are the text's: a function read from its equations, in place of the one KCore builds from the sorts | KCore.Semantics.sortPreds (reached through KCore.Semantics.allFns) | C3.pred-read-design |  |
+| E2 | `INITIAL(initial)@frontend` | cases[0] | refused |  | none (reader only) | no unit |  |
 | E2 | `ML_BINDER(mlBinder)@frontend` | row | refused |  | Term (Core.lean:58): a term has variables, applications, injections, \`as\` and domain values, no connective; and with it Rule.lhs/rhs/req/ens, Clause.pats/req/rhs, Eval and Step, which read terms | no unit |  |
 | E2 | `ML_OP(mlOp)@frontend` | row | refused |  | Term (Core.lean:58): a term has variables, applications, injections, \`as\` and domain values, no connective; and with it Rule.lhs/rhs/req/ens, Clause.pats/req/rhs, Eval and Step, which read terms | no unit |  |
 | E2 | `SYMBOL(symbol)@symbol` | cases[0] | refused |  | under option (c), taken: none. Lifting the refusal needs the Γ-only form of option (b), as the sort case | no unit |  |
@@ -312,6 +313,7 @@ Not core:
 | `IMPURE(impure)@symbol` | inert |  |  |  |  | e2-symbol | no | no | K-coverage.md A.3 anywhere, impure, ... (symbols) |
 | `INDEX(index)@frontend` | erased |  | kompile leaves no trace: the text with the key equals the text without it after removing Source and Location | none |  | e2-index | no | no | fixtures/e2-index/kompile.txt: exit 0, \`same\_as e2-cells-plain: equal after stripping\` |
 | `INITIAL(initial)@frontend` | supported |  | Rule S1: on an optional or collection cell holding no configuration variable the key makes the cell's initializer the initialised cell instead of the empty one (GenerateSentencesFromConfigDecl.optionalCellInitializer). The KORE it becomes is a constructor application in the top cell's initializer eq… | none (reader only) |  | e2-initial | no | no | fixtures/e2-initial/kompile.txt: exit 0, \`differs\_from c3-cells-opt: different after stripping\`; fixtures/e2-initial/account.txt \`stage refusals (of sentences classified read): 0\`, \`parse: ok; wf true; failing: []\`, \`coreOK: true; failing: []\`, \`refused by the account: 0\` |
+| cases[0]: initial on a cell collection (multiplicity="\*", type="List") holding no configuration variable | refused | R-c | Rule S1 read on the collection cell: the key makes the collection's initializer the collection holding the initialised cell (initLtCell() = LtCellListItem(&lt;lt>(0))) instead of the empty one, and the text gains the functional axioms of initLtCell and of the initializer of the enclosing cell initLsCel… | none (reader only) |  | e2-initial-coll |  |  | fixtures/e2-initial-coll (c3-cells-star's text with initial="" on the List cell collection &lt;lt multiplicity="\*" type="List"> 0 &lt;/lt>; fixture.toml differs\_from c3-cells-star): kompile.txt exit 0, \`differs\_from c3-cells-star: different after stripping\`; kore.txt the initializer of the collection init… |
 | `INITIALIZER(initializer)@frontend` | supported |  | Rule S1. The KORE is cell constructors (\`cell{}()\`), hooked collection sorts with unit, element, concat, initializer equations, and for exit the function getExitCode with one equation: all read. The cell's subsort into its collection sort is deliberately not read (UnreadReason.cellCollectionInjectio… | none (reader only) |  | e2-cells | no | no | FX/e2-cells/account.txt (parse: ok; wf true; 6 unread cellCollectionInjection); FX/e2-cells-exit/account.txt (ok; getExitCode at kore.txt 36 and 236). |
 | `INJECTIVE(injective)@symbol` | inert |  |  |  |  | e2-symbol | no | no | K-coverage.md A.3 injective (symbols) |
 | `INTERNAL(internal)@frontend` | erased |  | kompile leaves no trace: the text with the keys equals the text without them after removing Source and Location (the rows' own no\_sentence). | none |  | e2-frontend | no | no | FX/e2-frontend same\_as FX/e2-frontend-none (20 keys); FX/e2-cells-attrs same\_as FX/e2-cells-plain (maincell, multiplicity=1, color). |
