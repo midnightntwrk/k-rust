@@ -1,0 +1,6 @@
+param	Lbl'Hash'metaKVariables'LParUndsRParUnds'UNIFICATION'Unds'Set'Unds'K	args=[K]	result=Set	impl=none	raw=false	assoc=false	idem=false
+param	Lbl'Hash'renameVariables'LParUndsRParUnds'UNIFICATION'Unds'K'Unds'K	args=[K]	result=K	impl=none	raw=false	assoc=false	idem=false
+param	Lbl'Hash'unifiable'LParUndsCommUndsRParUnds'UNIFICATION'Unds'Bool'Unds'K'Unds'K	args=[K, K]	result=Bool	impl=none	raw=false	assoc=false	idem=false
+param	Lbl'Hash'variables'LParUndsRParUnds'UNIFICATION'Unds'Set'Unds'K	args=[K]	result=Set	impl=none	raw=false	assoc=false	idem=false
+param	Lbl'Hash'variablesMap'LParUndsRParUnds'UNIFICATION'Unds'KItem'Unds'K	args=[K]	result=KItem	impl=none	raw=false	assoc=false	idem=false
+(exit 0)
