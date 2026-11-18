@@ -362,6 +362,7 @@ import KcoreSpec.ModelFnsDecided
 import KcoreSpec.FloatUnpack
 import KcoreSpec.FloatThin
 import KcoreSpec.FloatThinLaws
+import KcoreSpec.FloatThinRound
 import KcoreSpec.ClauseEqOpen
 import KcoreSpec.EvalCallsInduct
 import KcoreSpec.GenEqsInst

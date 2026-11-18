@@ -8,7 +8,7 @@
   bit 0 is `f·2^(−1)`, so 0.5, 1, 1.5; 4 is +∞; 16 the NaN.
   `p1x1`: 0 and 2 the zeros, 1 and 3 the infinities, 4 the NaN.
 -/
-import KcoreSpec.FloatThinLaws
+import KcoreSpec.FloatThinRound
 
 open KCore.KFloat Float.Model
 
@@ -114,5 +114,98 @@ example : (List.range 17).all (fun b =>
 example : (List.range 17).all (fun b =>
     isInf (s b) == (cmpExact (s b) (s 3) == some .gt || cmpExact (s b) (s 11) == some .lt)) = true := by
   decide +kernel
+
+/-! ## The rounding has a value on the stated region and is to the nearest datum (`tnRound_isSome`, `tnRound_nearest`)
+
+Magnitudes are in units of `2^(−shift)`: at `p1x3` (`shift` 3) the largest finite datum 8 is 64
+units; at `p3x1` (`shift` 2) the largest finite datum 1.5 is 6 units. -/
+
+/-- At `p1x3`, `N / D` is not halfway between two powers of two. -/
+theorem p1x3_off_tie {N D : Nat} (h : ∀ X, 1 ≤ X → 2 * (N * 2 ^ shift 1 3) ≠ 3 * 2 ^ X * D) :
+    (1 : Nat) = 1 → ∀ X, 1 ≤ X → 2 * (N * 2 ^ shift 1 3) ≠ 3 * 2 ^ X * D := fun _ => h
+
+/-- The region's three hypotheses at `p1x3`: the largest finite datum itself (8); 3/16, between half
+the smallest positive datum and that datum; 7, which rounds into the next binade. -/
+example : (tnRound 1 3 .positive 8 1).isSome = true :=
+  tnRound_isSome (W := 64) (by decide) (by decide) (by decide) (by decide +kernel) (by decide) (by decide)
+    (p1x3_off_tie fun X _ => by simp only [show shift 1 3 = 3 by decide]; omega)
+example : (tnRound 1 3 .negative 3 16).isSome = true :=
+  tnRound_isSome (W := 64) (by decide) (by decide) (by decide) (by decide +kernel) (by decide) (by decide)
+    (p1x3_off_tie fun X hX => by
+      have := Nat.pow_le_pow_right (n := 2) (by decide) hX
+      simp only [show shift 1 3 = 3 by decide]; omega)
+example : (tnRound 1 3 .positive 7 1).isSome = true :=
+  tnRound_isSome (W := 64) (by decide) (by decide) (by decide) (by decide +kernel) (by decide) (by decide)
+    (p1x3_off_tie fun X _ => by simp only [show shift 1 3 = 3 by decide]; omega)
+
+/-- At `p3x1`: the two ties 3/4 and 5/4, and the largest finite datum 3/2. A tie has a value where
+the precision is not 1. -/
+example : (tnRound 3 1 .positive 3 4).isSome = true ∧ (tnRound 3 1 .positive 5 4).isSome = true ∧
+    (tnRound 3 1 .negative 3 2).isSome = true :=
+  ⟨tnRound_isSome (W := 6) (by decide) (by decide) (by decide) (by decide +kernel) (by decide) (by decide)
+      (fun h => absurd h (by decide)),
+   tnRound_isSome (W := 6) (by decide) (by decide) (by decide) (by decide +kernel) (by decide) (by decide)
+      (fun h => absurd h (by decide)),
+   tnRound_isSome (W := 6) (by decide) (by decide) (by decide) (by decide +kernel) (by decide) (by decide)
+      (fun h => absurd h (by decide))⟩
+
+/-- The two statements together at the tie 3/4 of `p3x1` and at 7 of `p1x3`: the rounding has a
+value, no datum is nearer, and a datum of another value as near leaves an even significand. -/
+example : ∃ m q hm, tnRound 3 1 .positive 3 4 = some (.finite .positive m q hm) ∧
+    ∀ d w, tnIsDatum 3 1 d = true → tnMag 3 1 d = some w →
+      tnGap (3 * 2 ^ shift 3 1) (m * 2 ^ (q + (shift 3 1 : Int)).toNat * 4) ≤ tnGap (3 * 2 ^ shift 3 1) (w * 4) ∧
+        (tnGap (3 * 2 ^ shift 3 1) (m * 2 ^ (q + (shift 3 1 : Int)).toNat * 4) = tnGap (3 * 2 ^ shift 3 1) (w * 4) →
+          w ≠ m * 2 ^ (q + (shift 3 1 : Int)).toNat → m % 2 = 0) := by
+  obtain ⟨u, hu⟩ := Option.isSome_iff_exists.1 (tnRound_isSome (p := 3) (e := 1) (sg := .positive) (N := 3) (D := 4)
+    (W := 6) (by decide) (by decide) (by decide) (by decide +kernel) (by decide) (by decide)
+    (fun h => absurd h (by decide)))
+  obtain ⟨m, q, hm, rfl, h⟩ := tnRound_nearest (by decide) (by decide) (by decide) hu
+  exact ⟨m, q, hm, hu, h⟩
+
+example : ∃ m q hm, tnRound 1 3 .positive 7 1 = some (.finite .positive m q hm) ∧
+    ∀ d w, tnIsDatum 1 3 d = true → tnMag 1 3 d = some w →
+      tnGap (7 * 2 ^ shift 1 3) (m * 2 ^ (q + (shift 1 3 : Int)).toNat * 1) ≤ tnGap (7 * 2 ^ shift 1 3) (w * 1) ∧
+        (tnGap (7 * 2 ^ shift 1 3) (m * 2 ^ (q + (shift 1 3 : Int)).toNat * 1) = tnGap (7 * 2 ^ shift 1 3) (w * 1) →
+          w ≠ m * 2 ^ (q + (shift 1 3 : Int)).toNat → m % 2 = 0) := by
+  obtain ⟨u, hu⟩ := Option.isSome_iff_exists.1 (tnRound_isSome (p := 1) (e := 3) (sg := .positive) (N := 7) (D := 1)
+    (W := 64) (by decide) (by decide) (by decide) (by decide +kernel) (by decide) (by decide)
+    (p1x3_off_tie fun X _ => by simp only [show shift 1 3 = 3 by decide]; omega))
+  obtain ⟨m, q, hm, rfl, h⟩ := tnRound_nearest (by decide) (by decide) (by decide) hu
+  exact ⟨m, q, hm, hu, h⟩
+
+/-- `N / D` is in the region of `tnRound_isSome` at the format `(p, e)` whose largest finite datum
+is `W` units; the halfway points up to `2^8` units. -/
+def inRegion (p e W N D : Nat) : Bool :=
+  decide (N * 2 ^ shift p e ≤ W * D) && decide (D < N * 2 ^ shift p e) &&
+    (p != 1 || (List.range 8).all fun X => 2 * (N * 2 ^ shift p e) != 3 * 2 ^ (X + 1) * D)
+
+/-- The result `r` of rounding `N / D` is a zero or finite datum, no encoding's datum is nearer, and
+an encoding of another value as near leaves `r`'s significand even. -/
+def isNearest (p e N D : Nat) (r : UnpackedFloat) : Bool :=
+  match tnMag p e r with
+  | none => false
+  | some x => (List.range (2 ^ (p + e))).all fun b =>
+    match tnMag p e (tnUnpack p e b) with
+    | none => true
+    | some w => decide (tnGap (N * 2 ^ shift p e) (x * D) ≤ tnGap (N * 2 ^ shift p e) (w * D)) &&
+      (tnGap (N * 2 ^ shift p e) (x * D) != tnGap (N * 2 ^ shift p e) (w * D) || w == x ||
+        (match r with | .finite _ m _ _ => m % 2 == 0 | _ => false))
+
+/-- The fractions `(N + 1) / (D + 1)` for `N < 40`, `D < 12`. -/
+def fracs : List (Nat × Nat) := (List.range 40).flatMap fun N => (List.range 12).map fun D => (N + 1, D + 1)
+
+/-- On the grid, at `p1x3` and at `p3x1`: in the region the rounding has a value, and every value
+it has is a nearest datum, a tie to the even significand. -/
+example : fracs.all (fun (N, D) =>
+    (!inRegion 1 3 64 N D || (tnRound 1 3 .positive N D).isSome) &&
+      (match tnRound 1 3 .positive N D with | some r => isNearest 1 3 N D r | none => true)) = true := by
+  decide +kernel
+example : fracs.all (fun (N, D) =>
+    (!inRegion 3 1 6 N D || (tnRound 3 1 .positive N D).isSome) &&
+      (match tnRound 3 1 .positive N D with | some r => isNearest 3 1 N D r | none => true)) = true := by
+  decide +kernel
+/-- At `p1x1` no positive finite datum exists, the region is empty (`tnMax?` has no value) and the
+rounding has none. -/
+example : fracs.all (fun (N, D) => (tnRound 1 1 .positive N D).isNone) = true := by decide +kernel
 
 end KCore.FloatThinTest
