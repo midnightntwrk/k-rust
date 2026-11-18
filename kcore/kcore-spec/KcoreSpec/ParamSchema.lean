@@ -25,6 +25,14 @@
   (`paramOK`: the parameter named, looked up by its number, no hook implementing it, the point's
   arguments values of its argument sorts and the given value one of its result sort), closed by
   `undetermined_of_paramOK`.
+
+  A parameter the text declares total has a value under every interpretation the statements are
+  about (`ParamsTotal`), and a `[total]` function applying it owes its totality under
+  `HookParams.none`. There the shape has two values (`param_undetermined_two`): over the
+  interpretations with a property P, Γ entails neither that the application is `v` nor that it is
+  `v'`, distinct values of the result sort, each given by an interpretation with P
+  (`constH v`, `constH v'`, total where `constTotal` holds); closed on the text by
+  `undetermined_two_of_paramOK`, with `FnHyp` from `fnHyp_decided_total`.
 -/
 import KcoreSpec.Sound
 import KcoreSpec.FnObligations
@@ -37,6 +45,8 @@ import KcoreSpec.DecreasingL
 import KcoreSpec.CallGroups
 import KcoreSpec.AgreeInst
 import KcoreSpec.UniqLists
+import KcoreSpec.FaithfulNeg
+import KcoreSpec.HypWf
 
 set_option autoImplicit false
 
@@ -211,5 +221,118 @@ theorem undetermined_of_paramOK (c : Semantics) (hok : c.coreOK = true) (hr : �
   simp only [paramOK, Bool.and_eq_true, beq_iff_eq] at h
   obtain ⟨⟨⟨⟨-, hl⟩, hi⟩, hvs⟩, hv⟩ := h
   exact param_undetermined_const c hok hr hl hi hvs hv (hfn _) (hfn _)
+
+/-! ## A parameter the text declares total: two values -/
+
+/-- At a parameter symbol no hook implements, under an interpretation `Hw` giving the value `w` at
+`vs`, Γ does not entail that the application is another value `u` of the result sort: in a model of
+Γ (`sound_hyp`) the application is `w`'s element, and distinct values of one sort are distinct
+elements (`values_apart`). -/
+theorem param_not_other (c : Semantics) (hok : c.coreOK = true) (hr : ∀ k ∈ c.params, k.raw = false)
+    {k : ParamSig} (hlk : c.lookupParam k.sig.name = some k) (hi : k.impl = none)
+    {vs : List GroundTerm} (hvs : c.sortsOf vs = some k.sig.args)
+    {u w : GroundTerm} (hu : c.sortOf u = some k.sig.result) (hw : c.sortOf w = some k.sig.result)
+    (hne : u ≠ w) {Hw : HookParams} (hHw : Hw.app k.sig.name vs = some w)
+    (hfn : FnHyp (c.withHooks Hw)) :
+    ¬ (Γ (c.withHooks Hw) ⊧ (paramApp (c.withHooks Hw) k.sig.name vs ≡ den (c.withHooks Hw) u)) := by
+  have hk : k ∈ c.params := by
+    have h := hlk
+    rw [Semantics.lookupParam_eq] at h; exact List.mem_of_find?_eq_some h
+  have hokH : (c.withHooks Hw).coreOK = true := (Semantics.coreOK_withHooks c _).trans hok
+  have hvsH : (c.withHooks Hw).sortsOf vs = some k.sig.args := by
+    rw [Semantics.sortsOf_withHooks c _ hr]; exact hvs
+  have huH : (c.withHooks Hw).sortOf u = some k.sig.result := by
+    rw [Semantics.sortOf_withHooks c _ hr]; exact hu
+  have hwH : (c.withHooks Hw).sortOf w = some k.sig.result := by
+    rw [Semantics.sortOf_withHooks c _ hr]; exact hw
+  have hpv : (c.withHooks Hw).paramVal k.sig.name vs = some w := by
+    rw [paramVal_implNone c hr _ hlk hi, hHw]
+    simp [Option.filter, hw]
+  intro hent
+  obtain ⟨M, _, I, hI⟩ := (sound_hyp (c.withHooks Hw) hokH hfn).1
+  have hIΓ : I ⊧ᴵP Γ (c.withHooks Hw) := fun φ h => hI φ (Or.inl (Or.inl h))
+  have hD := defOK hIΓ
+  obtain ⟨hsok, hsr, -, hg, -, -, -, -, hno⟩ := hypSound_of_core hokH
+  haveI : OvlOK (c.withHooks Hw) := hno
+  have hsc := sortCtx_of_all hsok hsr (OvlOK.ovlCase hno)
+  have hgp := hIΓ _ (gamma_param (c.withHooks Hw) (k := k) hk hvsH)
+  rw [hpv] at hgp
+  have hval := hent hIΓ
+  have h1 := (KoreAML.interp_equal hD).mp (hgp KoreAML.val0 default) (elemOf (c.withHooks Hw) I w)
+  have h2 := (KoreAML.interp_equal hD).mp (hval KoreAML.val0 default) (elemOf (c.withHooks Hw) I w)
+  have hwe := ((elemOf_spec hIΓ hwH KoreAML.val0).1 _).mpr rfl
+  have hue := ((elemOf_spec hIΓ huH KoreAML.val0).1 _).mp (h2.mp (h1.mpr hwe))
+  exact hne (values_apart hIΓ hg hsc.trans (apartSort_of_sorted hg huH) huH hwH hue.symm)
+
+/-- **`param_undetermined_two`**: at a parameter symbol no hook implements, at values `vs` of its
+argument sorts, over the interpretations with the property `P` Γ entails neither that the
+application is `v` nor that it is `v'`, two distinct values of its result sort, where an
+interpretation with `P` gives `v` at `vs` and another gives `v'`. Under the first the application
+is `v` in every model of Γ, under the second `v'`; both theories have models (`sound_hyp`, from
+`coreOK` and `FnHyp` at the two interpretations). No interpretation without a value at `vs` is
+read: `P` may be totality on the parameters the text declares total (`ParamsTotal c tp`), under
+which the application has a value in every model. -/
+theorem param_undetermined_two (c : Semantics) (hok : c.coreOK = true) (hr : ∀ k ∈ c.params, k.raw = false)
+    {k : ParamSig} (hlk : c.lookupParam k.sig.name = some k) (hi : k.impl = none)
+    {vs : List GroundTerm} (hvs : c.sortsOf vs = some k.sig.args)
+    {v v' : GroundTerm} (hv : c.sortOf v = some k.sig.result) (hv' : c.sortOf v' = some k.sig.result)
+    (hne : v ≠ v') (P : HookParams → Prop) {Hv Hv' : HookParams} (hP : P Hv) (hP' : P Hv')
+    (hHv : Hv.app k.sig.name vs = some v) (hHv' : Hv'.app k.sig.name vs = some v')
+    (hfnv : FnHyp (c.withHooks Hv)) (hfnv' : FnHyp (c.withHooks Hv')) :
+    ¬ (∀ H : HookParams, P H → Γ (c.withHooks H) ⊧
+      (paramApp (c.withHooks H) k.sig.name vs ≡ den (c.withHooks H) v)) ∧
+    ¬ (∀ H : HookParams, P H → Γ (c.withHooks H) ⊧
+      (paramApp (c.withHooks H) k.sig.name vs ≡ den (c.withHooks H) v')) :=
+  ⟨fun hall => param_not_other c hok hr hlk hi hvs hv hv' hne hHv' hfnv' (hall Hv' hP'),
+   fun hall => param_not_other c hok hr hlk hi hvs hv' hv (Ne.symm hne) hHv hfnv (hall Hv hP)⟩
+
+/-- Every parameter of `c` named in `tp` that no hook implements has the sort of `v` as its result
+sort. -/
+def constTotal (c : Semantics) (tp : List Sym) (v : GroundTerm) : Bool :=
+  c.params.all fun k => !(k.impl.isNone && tp.contains k.sig.name) || c.sortOf v == some k.sig.result
+
+/-- `constH v` is total on the parameters `tp` where `constTotal` holds. -/
+theorem paramsTotal_constH {c : Semantics} {tp : List Sym} {v : GroundTerm}
+    (h : constTotal c tp v = true) : ParamsTotal c tp (constH v) := by
+  intro k hk hi hn vs _
+  refine ⟨v, rfl, ?_⟩
+  have h' := List.all_eq_true.mp h k hk
+  simpa [hi, hn] using h'
+
+/-- `fnHyp_decided` under an interpretation total on the parameters `tp`: with no fact named by the
+deciders at the call order `ord`, the parameters `tp` taken total, `FnHyp` holds under every such
+interpretation. -/
+theorem fnHyp_decided_total (c : Semantics) (hok : c.coreOK = true) (hr : ∀ k ∈ c.params, k.raw = false)
+    (hrv : c.rightValued = true) (hpre : c.clausesPreTop = true) (hplain : c.plain = true)
+    {ord tp : List Sym} (h1 : c.rankObligations ord ++ c.decObligationsL = [])
+    (h2 : c.totalObligationsRP ord tp = []) (h3 : c.agreeObligationsI = [])
+    (h4 : c.matchObligationsL = ([] : List (Nat × Nat))) {H : HookParams} (hH : ParamsTotal c tp H) :
+    FnHyp (c.withHooks H) :=
+  fnHyp_withHooks hok (Semantics.rightHeld_of_valued hrv) H hH
+    (FnObligations.of_nil
+      (by rw [Semantics.rankObligations_withHooks, Semantics.decObligationsL_withHooks]; exact h1)
+      ((Semantics.totalObligationsRP_withHooks _ H _ _).trans h2)
+      ((Det.Semantics.agreeObligationsI_withHooks _ H).trans h3)
+      ((Det.Semantics.matchObligationsL_withHooks _ H).trans h4)
+      ((Semantics.plain_withHooks c H).trans hplain)) hr hpre
+
+/-- `param_undetermined_two` at the parameter named `n`, over the interpretations total on the
+parameters `tp`, with `constH v` and `constH v'`: from the decided tests `paramOK` and
+`constTotal` at both values. -/
+theorem undetermined_two_of_paramOK (c : Semantics) (hok : c.coreOK = true) (hr : ∀ k ∈ c.params, k.raw = false)
+    (tp : List Sym) (hfn : ∀ H : HookParams, ParamsTotal c tp H → FnHyp (c.withHooks H))
+    {n : String} {vs : List GroundTerm} {v v' : GroundTerm}
+    (h : paramOK c n vs v = true) (h' : paramOK c n vs v' = true) (hne : v ≠ v')
+    (ht : constTotal c tp v = true) (ht' : constTotal c tp v' = true) :
+    ¬ (∀ H : HookParams, ParamsTotal c tp H → Γ (c.withHooks H) ⊧
+      (paramApp (c.withHooks H) (paramNamed c n).sig.name vs ≡ den (c.withHooks H) v)) ∧
+    ¬ (∀ H : HookParams, ParamsTotal c tp H → Γ (c.withHooks H) ⊧
+      (paramApp (c.withHooks H) (paramNamed c n).sig.name vs ≡ den (c.withHooks H) v')) := by
+  simp only [paramOK, Bool.and_eq_true, beq_iff_eq] at h h'
+  obtain ⟨⟨⟨⟨-, hl⟩, hi⟩, hvs⟩, hv⟩ := h
+  obtain ⟨-, hv'⟩ := h'
+  exact param_undetermined_two c hok hr hl hi hvs hv hv' hne (ParamsTotal c tp)
+    (paramsTotal_constH ht) (paramsTotal_constH ht') rfl rfl
+    (hfn _ (paramsTotal_constH ht)) (hfn _ (paramsTotal_constH ht'))
 
 end KCore.ParamSchema
