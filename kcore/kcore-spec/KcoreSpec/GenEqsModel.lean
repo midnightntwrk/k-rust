@@ -35,6 +35,7 @@
 -/
 import KcoreSpec.GenEqsConservative
 import KcoreSpec.ModelFunctional
+import KcoreSpec.StepClosurePadIx
 
 set_option autoImplicit false
 
