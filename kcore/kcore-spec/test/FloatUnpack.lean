@@ -20,6 +20,19 @@ example (s : Format) (u : UnpackedFloat) (hu : Datum s u) : UnpackedFloat.unpack
 
 example (s : Format) (b : BitVec s.numBits) : Datum s (UnpackedFloat.unpack s b) := datum_unpack s b
 
+example (s : Format) :
+    maxValue s = .finite .positive (2 ^ s.mantissaBits - 1)
+      ((s.exponentBias : Int) - s.mantissaBitsWithoutImplicit) (fu_maxValue_pos s) := maxValue_eq s
+
+example (s : Format) :
+    exact (maxValue s) =
+      some (((2 ^ s.mantissaBits - 1 : Nat) : Int), (s.exponentBias : Int) - s.mantissaBitsWithoutImplicit) :=
+  exact_maxValue s
+
+example (s : Format) (sg : Sign) (m : Nat) (q : Int) (hm : 0 < m)
+    (ht : s.targetExponent (totalExponent m q) = q) : round s sg m q = .finite sg m q hm :=
+  round_of_target s sg hm ht
+
 end KCore.KFloat
 
 /-- info: 'KCore.KFloat.datum_unpack' depends on axioms: [propext, Classical.choice, Quot.sound] -/
@@ -30,3 +43,9 @@ end KCore.KFloat
 #guard_msgs in #print axioms KCore.KFloat.unpack_pack
 /-- info: 'KCore.KFloat.unpackBits_packBits' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.KFloat.unpackBits_packBits
+/-- info: 'KCore.KFloat.round_of_target' depends on axioms: [propext] -/
+#guard_msgs in #print axioms KCore.KFloat.round_of_target
+/-- info: 'KCore.KFloat.maxValue_eq' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms KCore.KFloat.maxValue_eq
+/-- info: 'KCore.KFloat.exact_maxValue' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms KCore.KFloat.exact_maxValue

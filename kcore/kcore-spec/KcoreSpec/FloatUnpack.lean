@@ -10,6 +10,8 @@
     `2^e − 2 − B − w` (`unpack_finite_bounds`), the exponent field being at most `2^e − 2`.
   - `unpack_pack`: `pack` and `unpack` are inverse at a `Datum` (`unpackBits_packBits` on the
     encoding as a number).
+  - `round_of_target`: `round` leaves `m·2^q` unchanged where `q` is already the exponent the format
+    gives it (`targetExponent`); so `maxValue s` is `(2^p − 1)·2^(B − w)` (`maxValue_eq`, `exact_maxValue`).
 -/
 import KcoreSpec.FloatDomain
 
@@ -233,5 +235,76 @@ theorem unpackBits_packBits (s : Format) (u : UnpackedFloat) (hu : Datum s u) :
 
 theorem datum_neg {s : Format} {u : UnpackedFloat} (hu : Datum s u) : Datum s u.neg := by
   cases u <;> exact hu
+
+/-! ## `round` at a value the format holds -/
+
+theorem fu_shr_zero (em : ExtendedMantissa) : em >>> (0 : Nat) = em := rfl
+
+/-- At an exponent that is already the target, `shiftToTargetExponent` shifts nothing. -/
+theorem fu_shiftToTargetExponent_of_target (s : Format) {m : Nat} {q : Int}
+    (ht : s.targetExponent (totalExponent m q) = q) :
+    shiftToTargetExponent s m q .exact = (⟨m, false, false⟩, q) := by
+  unfold shiftToTargetExponent shiftToExponent
+  simp only [ht, Int.sub_self, Int.toNat_zero, fu_shr_zero, Int.natCast_zero, Int.add_zero]
+  rfl
+
+/-- **`round` leaves `m·2^q` unchanged where `q` is the exponent the format gives it**
+(`targetExponent` of its total exponent): no bit is shifted out, so the mantissa is exact and
+rounding to nearest keeps it. -/
+theorem round_of_target (s : Format) (sg : Sign) {m : Nat} {q : Int} (hm : 0 < m)
+    (ht : s.targetExponent (totalExponent m q) = q) : round s sg m q = .finite sg m q hm := by
+  unfold round decreaseExponent
+  simp only [ht, Int.sub_self, Int.toNat_zero, Nat.shiftLeft_zero, Int.natCast_zero, Int.sub_zero]
+  unfold roundWithAccuracy
+  rw [fu_shiftToTargetExponent_of_target s ht]
+  dsimp only [ExtendedMantissa.roundedMantissa, ExtendedMantissa.accuracy,
+    Accuracy.roundToNearestEven]
+  rw [fu_shiftToTargetExponent_of_target s ht]
+  dsimp only
+  simp [Nat.pos_iff_ne_zero.mp hm]
+
+/-- The total exponent of `2^p − 1` at `B − w` is `B + 1`, and the format's target exponent for
+it is `B − w`. -/
+theorem fu_target_maxValue (s : Format) :
+    s.targetExponent (totalExponent (2 ^ s.mantissaBits - 1)
+      ((s.exponentBias : Int) - s.mantissaBitsWithoutImplicit)) =
+      (s.exponentBias : Int) - s.mantissaBitsWithoutImplicit := by
+  have hB := fu_one_le_exponentBias s
+  have hp : 2 ^ s.mantissaBits = 2 * 2 ^ s.mantissaBitsWithoutImplicit := by
+    rw [fu_mantissaBits]; exact Nat.pow_succ'
+  have h1 : 1 ≤ 2 ^ s.mantissaBitsWithoutImplicit := Nat.one_le_two_pow
+  have hl : (2 ^ s.mantissaBits - 1).log2 = s.mantissaBitsWithoutImplicit :=
+    (Nat.log2_eq_iff (by omega)).mpr ⟨by omega, by rw [Nat.pow_succ]; omega⟩
+  unfold Format.targetExponent totalExponent
+  rw [hl, fu_minExponent, fu_mantissaBits]
+  omega
+
+theorem fu_maxValue_pos (s : Format) : 0 < 2 ^ s.mantissaBits - 1 := by
+  have : 2 ^ 1 ≤ 2 ^ s.mantissaBits :=
+    Nat.pow_le_pow_right (by decide) (by rw [fu_mantissaBits]; omega)
+  omega
+
+/-- **(b)** The format's largest finite value is the datum `(2^p − 1)·2^(B − (p − 1))`: `round`
+leaves it unchanged. -/
+theorem maxValue_eq (s : Format) :
+    maxValue s = .finite .positive (2 ^ s.mantissaBits - 1)
+      ((s.exponentBias : Int) - s.mantissaBitsWithoutImplicit) (fu_maxValue_pos s) :=
+  round_of_target s .positive (fu_maxValue_pos s) (fu_target_maxValue s)
+
+/-- **(b)** `exact (maxValue s) = (2^p − 1, B − (p − 1))`. -/
+theorem exact_maxValue (s : Format) :
+    exact (maxValue s) =
+      some (((2 ^ s.mantissaBits - 1 : Nat) : Int), (s.exponentBias : Int) - s.mantissaBitsWithoutImplicit) := by
+  rw [maxValue_eq]; rfl
+
+/-- The largest finite value is a datum of the format. -/
+theorem datum_maxValue (s : Format) : Datum s (maxValue s) := by
+  rw [maxValue_eq]
+  have hp : 2 ^ s.mantissaBits = 2 * 2 ^ s.mantissaBitsWithoutImplicit := by
+    rw [fu_mantissaBits]; exact Nat.pow_succ'
+  have h1 : 1 ≤ 2 ^ s.mantissaBitsWithoutImplicit := Nat.one_le_two_pow
+  have hB := fu_one_le_exponentBias s
+  left
+  refine ⟨by omega, by omega, by omega, Int.le_refl _⟩
 
 end KCore.KFloat
