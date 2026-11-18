@@ -376,3 +376,6 @@ import KcoreSpec.CoreOKEx
 import KcoreSpec.CoreOKExFacts
 import KcoreSpec.OpenClauseDenQ
 import KcoreSpec.ClauseExDenCEx
+import KcoreSpec.StepExTermSSx
+import KcoreSpec.StepExRuleSSx
+import KcoreSpec.StepSuccessorExCEx
