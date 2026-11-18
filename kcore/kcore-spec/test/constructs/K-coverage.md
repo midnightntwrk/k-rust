@@ -30,7 +30,7 @@ Nested entries by status:
 | list | entries | supported | parameter | inert | erased | refused | pending-fixture | not-handled |
 |---|---|---|---|---|---|---|---|---|
 | E1 | 3 | 2 | 0 | 0 | 0 | 1 | 0 | 0 |
-| E2 | 11 | 2 | 0 | 0 | 0 | 9 | 0 | 0 |
+| E2 | 14 | 3 | 0 | 0 | 0 | 11 | 0 | 0 |
 | E3 | 76 | 29 | 0 | 2 | 0 | 45 | 0 | 0 |
 | E4 | 40 | 12 | 0 | 4 | 0 | 24 | 0 | 0 |
 | E5 | 54 | 30 | 1 | 5 | 0 | 18 | 0 | 0 |
@@ -38,7 +38,7 @@ Nested entries by status:
 | E7 | 6 | 1 | 1 | 2 | 0 | 2 | 0 | 0 |
 | E8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 34 | 14 | 0 | 2 | 1 | 17 | 0 | 0 |
-| all | 234 | 95 | 2 | 15 | 1 | 120 | 0 | 1 |
+| all | 237 | 96 | 2 | 15 | 1 | 122 | 0 | 1 |
 
 Refused rows by class:
 
@@ -60,7 +60,7 @@ Refused nested entries by class:
 | list | entries | R-a | R-b | R-c | scope |
 |---|---|---|---|---|---|
 | E1 | 1 | 0 | 0 | 1 | 0 |
-| E2 | 9 | 2 | 0 | 1 | 6 |
+| E2 | 11 | 3 | 0 | 2 | 6 |
 | E3 | 45 | 10 | 2 | 32 | 1 |
 | E4 | 24 | 14 | 4 | 0 | 6 |
 | E5 | 18 | 7 | 0 | 6 | 5 |
@@ -68,9 +68,9 @@ Refused nested entries by class:
 | E7 | 2 | 0 | 0 | 0 | 2 |
 | E8 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 17 | 8 | 4 | 2 | 3 |
-| all | 120 | 42 | 11 | 43 | 24 |
+| all | 122 | 43 | 11 | 44 | 24 |
 
-## Entries of class R-c (62)
+## Entries of class R-c (63)
 
 Each names the notion the kernel lacks, the cone declaration that would change, and the ticket or unit that supports it (`unit`, checked by `units.py`).
 
@@ -79,6 +79,7 @@ Each names the notion the kernel lacks, the cone declaration that would change, 
 | E1 | `Sentence:kw:syntax` | cases[0] | refused |  | under option (c), taken: none. Lifting the refusal needs the Γ-only form of option (b) (findings/REVIEW-TIE-cons.md finding 9 and its amended §0 item 4): sigItems, ΓDomains, ΓFallback guarded by 'declared in c', a Semantics field of declared registry names and a coreOK conjunct that every applied ho… | no unit |  |
 | E2 | `ASSOC(assoc)@symbol` | row | refused | a symbol that is neither a function with equations nor a free constructor: values of a sort built by a symbol modulo a law | KoreAML.Cons.noJunkItem and KCore.Faithful.consItemsK (a sort's values are those its constructors build), with KCore.GroundTerm; the kernel's one non-free symbol is KCore.OvlSig | P2.d2-kompiled | CN-3 V3 (d1: open generators, \`ParamSig.raw\`, \`ParamSig.assoc\`; d3: \`assocH\`, \`OpenLaws\`; V4); P2 (d2: the reader; fixtures e2-comm-ctor, e2-open-rule) |
 | E2 | `COMM(comm)@symbol` | row | refused | as ASSOC@symbol | as ASSOC@symbol | P2.d2-kompiled | CN-3 V3 (d1: open generators, \`ParamSig.raw\`, \`ParamSig.assoc\`; d3: \`assocH\`, \`OpenLaws\`; V4); P2 (d2: the reader; fixtures e2-comm-ctor, e2-open-rule) |
+| E2 | `COMM(comm)@symbol` | cases[4] | refused |  |  | P3.cut-clause |  |
 | E2 | `HYBRID(hybrid)@frontend` | row | refused | a sort predicate whose equations are the text's: a function read from its equations, in place of the one KCore builds from the sorts | KCore.Semantics.sortPreds (reached through KCore.Semantics.allFns) | C3.pred-read-design |  |
 | E2 | `ML_BINDER(mlBinder)@frontend` | row | refused |  | Term (Core.lean:58): a term has variables, applications, injections, \`as\` and domain values, no connective; and with it Rule.lhs/rhs/req/ens, Clause.pats/req/rhs, Eval and Step, which read terms | no unit |  |
 | E2 | `ML_OP(mlOp)@frontend` | row | refused |  | Term (Core.lean:58): a term has variables, applications, injections, \`as\` and domain values, no connective; and with it Rule.lhs/rhs/req/ens, Clause.pats/req/rhs, Eval and Step, which read terms | no unit |  |
@@ -276,7 +277,10 @@ Not core:
 | `COLORS(colors)@symbol` | erased |  | kompile leaves no trace: the text with the keys equals the text without them after removing Source and Location (the rows' own no\_sentence). | none |  | e2-frontend | no | no | FX/e2-frontend same\_as FX/e2-frontend-none (20 keys); FX/e2-cells-attrs same\_as FX/e2-cells-plain (maincell, multiplicity=1, color). |
 | `COMM(comm)@symbol` | refused | R-c | For a production that is no function, comm makes kompile drop \`constructor\` and \`injective\`, write no comm key on the declaration and no axiom at all. The text says \`and\` is total and one of Exp's generators, nothing of commutativity, injectivity or distinctness; the reader reads that (an open gener… | as ASSOC@symbol | P2.d2-kompiled | e2-comm-ctor | no | no | FX/e2-comm-ctor/kore.txt line 6: \`symbol Lbland{}(SortExp{}, SortExp{}) : SortExp{} [functional{}(), …]\`; no axiom carries comm. |
 | cases[0]: comm on a production of a sort that also has a constructor with arguments (syntax Exp ::= "x" \| s(Exp) \| Exp "&" Exp [co… | refused | R-a | The text says and is total into Exp and one of Exp's generators, and states no injectivity of it and no distinctness of its image from s's or x's. Exp is recursive, so unconfined: the text has a model in which an application of and to values is s's image of an element no term denotes (findings/V2-d1… |  | none (R-a): the text writes no sentence that keeps the generator's applications out of a constructor's image at an element no term denotes, and Exp is recursive, so unconfined | e2-open-ctor-arg |  |  | fixtures/e2-open-ctor-arg: kompile.txt exit 0; kore.txt line 6 Lbland declared functional, without constructor and injective; line 18 its functional axiom; line 30 Exp's no-junk axiom listing Lbland, Lbls and Lblx; no no-confusion axiom names Lbland; account.txt \`sentence 62 (Lbland): openGenerator… |
-| cases[1]: comm on a production of a sort that has a subsort (syntax N ::= Int \| N "&" N [comm]) | refused | R-a | The text says and is total into N and one of N's generators beside the injection from Int, and states nothing that separates its image from the injection's. Int is unconfined: the text has a model in which an application of and to values is the injection of an element of Int that no literal denotes… |  | none (R-a): the text writes no sentence that keeps the generator's applications out of the injection's image at an element no term denotes, and Int is unconfined | e2-open-subsort |  |  | fixtures/e2-open-subsort: kompile.txt exit 0; kore.txt line 6 Lbland declared functional, without constructor and injective; line 62 its functional axiom; line 80 N's no-junk axiom listing Lbland and inj{SortInt{}, SortN{}}; account.txt \`sentence 94 (Lbland): openGenerator (Lbland: its result sort N… |
+| cases[1]: comm on a production of a sort that has a subsort (syntax N ::= Int \| N "&" N [comm]) | refused | R-a | The text says and is total into N and one of N's generators beside the injection from Int, and states nothing that separates its image from the injection's. Int is unconfined: the text has a model in which an application of and to values is the injection of an element of Int that no literal denotes… |  | none (R-a): the text writes no sentence that keeps the generator's applications out of the injection's image at an element no term denotes, and Int is unconfined | e2-open-subsort |  |  | fixtures/e2-open-subsort: kompile.txt exit 0; kore.txt line 6 Lbland declared functional, without constructor and injective; line 62 its functional axiom; line 80 N's no-junk axiom listing Lbland and inj{SortInt{}, SortN{}}; account.txt \`sentence 94 (Lbland): openGenerator (Lbland: its sort N has a… |
+| cases[2]: an open generator applied in a rule's left side, its sort recursive or reaching an unconfined sort, a variable of its ar… | refused | R-a | The cut is the left side's meaning in every interpretation (C[g(P̄)] is ∃V. C[V] ∧ V ∈ g(P̄)), but X and Y, held by nothing else of the left side, range over elements of B the interpretation may send to the matched value, elements that are no value's among them, and B is recursive, so not confined:… |  | none (R-a): an element of B that is no value's may be the generator's image of other such elements, so which arguments match depends on elements of B the text does not name (designs/CN-4-constructs.md section 5, openGeneratorPattern (i)) | e2-open-rec |  |  | fixtures/e2-open-rec/account.txt: \`sentence 210 (Lbl'-LT-'generatedTop'-GT-'): openGeneratorPattern (Lbland: its sort B is recursive or reaches an unconfined sort: the arguments it matches depend on elements of B the text does not name (VarX:B, under Lbland, held by no other part of the left side))\`… |
+| cases[3]: an open generator applied in a rule's left side, its sort confined (syntax A ::= "x" \| "y"; syntax B ::= A "&" A [comm];… | supported |  |  |  |  | e2-open-mixed |  |  | fixtures/e2-open-mixed/account.txt: \`stage refusals (of sentences classified read): 0\`, \`parse: ok; wf true; failing: []\`, \`coreOK: true; failing: []\`, \`refused by the account: 0\`; test/OpenGenerator.lean (openmixed: the rule's left side c(Open0) with pre in[B](Open0, Lbland(X, Y)), openGeneratorInP… |
+| cases[4]: an open generator applied in a function clause's pattern, its sort confined (syntax A ::= first(B) [function]; rule firs… | refused | R-c | A clause's cut is a conjunct of Clause.pre, which clausesPlain admits only after e3 (designs/CN-4b-rc-units.md sections 3.1 and 12); until then the pattern applies the generator, which the pattern context does not sort. |  | P3.cut-clause | e8-llvm-e2-open-mixed-clause |  |  | fixtures/e8-llvm-e2-open-mixed-clause/account.txt: \`sentence 214 (Lblfirst): openGeneratorPattern (Lbland: its sort B is confined: the arguments it matches at a value are the value's preimage under the interpretation's graph, which the semantics does not build)\`, \`coreOK: false; failing: [clauses so… |
 | `COMM(comm)@rule` | inert |  | The kompiled text differs from the text without the key in the attribute list of one sentence only; the sentence's pattern (for a declaration: its sorts and its constructor, function, total, hook attributes) is the same. An attribute list is not part of the pattern \`tr s\` translates, and K's text gi… | none (reader only) |  | e2-comm-rule | no | no | FX/e2-comm-rule kore.txt line 37 (\`[comm{}(), ]\` on the rewrite axiom of a symbol that is not comm); FX/e2-comm-eq line 84; FX/e2-sym-concrete lines 4, 6 (fc, fs; their equations at 82, 100 carry no key); FX/e2-symbol (klabel{}("k1"), label{}("flabel"), priority{}("30")). |
 | `COMM(comm)@equation` | inert |  | The kompiled text differs from the text without the key in the attribute list of one sentence only; the sentence's pattern (for a declaration: its sorts and its constructor, function, total, hook attributes) is the same. An attribute list is not part of the pattern \`tr s\` translates, and K's text gi… | none (reader only) |  | e2-comm-eq | no | no | FX/e2-comm-rule kore.txt line 37 (\`[comm{}(), ]\` on the rewrite axiom of a symbol that is not comm); FX/e2-comm-eq line 84; FX/e2-sym-concrete lines 4, 6 (fc, fs; their equations at 82, 100 carry no key); FX/e2-symbol (klabel{}("k1"), label{}("flabel"), priority{}("30")). |
 | `COMM(comm)@simplification` | inert |  | kompile consumes the key: it writes the simplification again with the comm symbol's arguments swapped on the left side and removes comm from both (ResolveComm.java:28-51). The sentences are simplification axioms: InertReason.simplification, whose standing is node SIMP's. | none |  | e2-simplification | no | no | FX/e2-simplification: the row's sentence; no simplification axiom of the fixture carries comm. |
