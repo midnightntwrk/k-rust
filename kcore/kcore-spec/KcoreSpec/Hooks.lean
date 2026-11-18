@@ -764,10 +764,10 @@ interpretation (`Semantics.libAdmitted`, LibAdmitted.lean). Line numbers are dom
   the defining sentence describes at `index + N` = the length, and the defining sentence decides.
 - `Bytes2Int`, `Int2Bytes`: declared `total` (2082, 2083); a negative length, or an Endianness or
   Signedness that is no constructor of BYTES, is not described.
-- `sqrtFloat` at −0: its equation `rootFloat(F, 2)` (1671) and "square root" name two IEEE 754
-  operations that differ there only (FloatDomain.lean `sqrt?`; as recalled, not confirmed).
-  Elsewhere `sqrtFloat` has the square root rounded as Lean core's `sqrt` gives it, at NaN and the
-  infinities included: not restricted to the regions the text states, as the operations above are.
+- `sqrtFloat` (1600, not `total`) where the format does not hold the operand's square root (the
+  text names no rounding for it), at NaN, a negative datum and the infinities; and at −0, where its
+  equation `rootFloat(F, 2)` (1671) and "square root" name two IEEE 754 operations that differ there
+  only (FloatDomain.lean `sqrt?`; as recalled, not confirmed).
 - `--Float`, `absFloat`, `floorFloat`, `ceilFloat`, `truncFloat`, `isInfinite` (and the operations
   above) at a value of a format with a field of 1 (`KFloat.thinOK`), and the six comparisons and
   `isNaN` at one of a single exponent bit: KCore computes no operation there, so Γ states there
