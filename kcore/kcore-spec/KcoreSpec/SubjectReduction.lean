@@ -1907,6 +1907,7 @@ theorem sortCtx_of_all {c : Semantics} (hok : c.sortedOK = true) (hr : c.srReady
       exact ⟨g, List.mem_append_left _ hg, rfl⟩
     · have := hfns fn hfn cl hcl
       simp only [Semantics.clauseSorted, Bool.and_eq_true, beq_iff_eq] at this
+      replace this := this.1
       exact this.1.1.2
 
 theorem sortCtx_of_okM {c : Semantics} (hok : c.okM = true) (hr : c.srReady = true) (hov : c.OvlCase) : SortCtx c :=

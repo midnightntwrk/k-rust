@@ -130,7 +130,10 @@ theorem Cons.clauseFacts_cv {c : Semantics} (h : c.coreOK = true) (hf : FnHyp c)
   have hm : HypModelCore c := hypModel_of_fnHyp h hf
   have hpre := Semantics.sortedOK_preTop (Semantics.coreOK_parts h).1
   have hF : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, EqnFactsPre c fn cl := fun fn hfn cl hcl =>
-    clause_eqnFactsPre hm hfn hcl (by rw [hpre fn hfn cl hcl]; rfl)
+    clause_eqnFactsPre hm hfn hcl (by
+      rcases List.mem_append.mp hfn with hu | hp
+      · exact hm.preOK fn hu cl hcl
+      · rw [Semantics.sortPreds_pre hp cl hcl]; rfl)
   refine ⟨hpre, fun fn hfn cl hcl s hs => ?_, fun fn hfn cl hcl => (hF fn hfn cl hcl).exs⟩
   obtain ⟨i, hi, rfl⟩ := List.mem_iff_getElem.mp hs
   have := vars_numPre hm hfn (hF fn hfn cl hcl) i hi

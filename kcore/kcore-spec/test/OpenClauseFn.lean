@@ -113,6 +113,7 @@ example {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M} (hI : I â
       Faithful.Res c4 I e (some (.dv Srt.int (.int 0))) m :=
   Faithful.eval_den4_coreCl hI decided.1 decided.2.1 decided.2.2.2.2.1 decided.2.2.2.2.2.1
     (fun fn hfn cl hcl hw => absurd hw (by rw [decided.2.2.2.2.2.2 fn hfn cl hcl]; decide))
+    (Faithful.preRead_of_allTop (Faithful.clauseOpenFacts_of_sortedOKCl decided.1))
     eval4 hfn4 (by decide +kernel) e m
 
 /-- info: 'KCore.Faithful.eval_den4_coreCl' depends on axioms: [propext, Classical.choice, Quot.sound] -/

@@ -547,6 +547,8 @@ theorem fnExclusiveL_sound (hmc : MatchCtxO c) {heads : List CtorSig} {f : Fn}
   have hc1 := hcls cl h1
   have hc2 := hcls cl' h2
   simp only [Semantics.clauseSorted, Bool.and_eq_true, beq_iff_eq] at hc1 hc2
+  replace hc1 := hc1.1
+  replace hc2 := hc2.1
   simp only [Bool.or_eq_true, Bool.not_eq_true', Bool.and_eq_true, bne_iff_ne, ne_eq] at hpair
   rcases hpair with (((((((hne | ho) | ⟨hfx, hx | hx⟩) | ha) | hl) | hg) | hg) | ⟨hfx, hn⟩)
   · exact (not_compete (by revert hne; simp) hprio).elim

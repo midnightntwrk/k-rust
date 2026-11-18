@@ -24,9 +24,9 @@ namespace ModelPartsT
 section
 variable {c : Semantics} (h : HypModelCore c) (hc : c.coreOK = true) (hl : OpenLaws c)
 
-example : SatSigGoal c ∧ SatConsGoal c ∧ SatDomainsGoal c ∧ SatCollsGoal c ∧ SatFnsGoal c ∧
+example (hFns : SatFnsGoal c) : SatSigGoal c ∧ SatConsGoal c ∧ SatDomainsGoal c ∧ SatCollsGoal c ∧ SatFnsGoal c ∧
     SatFallbackGoal c ∧ (c.litSort Srt.bool = true → (stdI c ⊧ᴵ boolClosed c)) :=
-  model_parts_T h hc hl (StepM c)
+  model_parts_T h hc hl (StepM c) hFns
 
 example (v : GroundTerm) {s : Srt} (hv : c.sortOf v = some s) (e : ML.Valuation Elem) (m : Elem) :
     (den c v).interpret (stdI c) e m ↔ m = .val v :=
@@ -56,7 +56,9 @@ example (hd : FnDet c) (hs : FnSolves c) :
     (stdI_T c (fun _ _ => True) ⊧ᴵP ΓCons c) ∧ (stdI_T c (fun _ _ => True) ⊧ᴵP ΓDomains c) := by
   have h := hypModel_of_fn coreOK hd hs
   have p0 := model_parts_T h coreOK (openLaws_of_plain (by decide +kernel)) (fun _ _ => False)
+    (AtT.satFnsGoal_decided h (clausePreDecided_of_isTop (by decide +kernel)))
   have p1 := model_parts_T h coreOK (openLaws_of_plain (by decide +kernel)) (fun _ _ => True)
+    (AtT.satFnsGoal_decided h (clausePreDecided_of_isTop (by decide +kernel)))
   exact ⟨p0.1, p0.2.2.2.2.1, p0.2.2.2.2.2.2 boolLit, p1.2.1, p1.2.2.1⟩
 
 /-- Under the empty transition `true` denotes its own element, and no value has a successor. -/

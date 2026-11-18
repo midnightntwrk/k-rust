@@ -876,6 +876,7 @@ theorem total_of_totalOK (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov
     (n := Semantics.coverFuel fn) hcov hrhs (fun cl hcl => by simpa using hne cl hcl) (fun g hg hgl => ?_)
   · have := hfok cl hcl
     simp only [Semantics.clauseSorted, Bool.and_eq_true, beq_iff_eq] at this
+    replace this := this.1
     exact ⟨this.1.1.1.1.1, (Semantics.sortedOK_clause hok hfn hcl).1⟩
   · simp only [List.mem_append, List.mem_map, List.mem_singleton] at hg
     rcases hg with (hg | ⟨p, hp, rfl⟩) | hg

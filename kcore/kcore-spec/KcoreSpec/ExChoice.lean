@@ -22,6 +22,7 @@
 import KcoreSpec.ExStepT
 import KcoreSpec.OpenChoice
 import KcoreSpec.HoldsDecided
+import KcoreSpec.ModelFnsDecided
 
 set_option autoImplicit false
 
@@ -77,7 +78,8 @@ semantics that `coreOK` accepts with `HypModelCore`, whose rules have `ruleSorte
 `rulePlainEx`, where every T step between configurations is a `StepM` step (`hsub`), every `StepMBy`
 instance of a rule without existential variables is in T (`hall`), and for a rule with existential
 variables some instance that differs from a given one at ē only is (`hsome`). -/
-theorem stdI_T_model (c : Semantics) (h : c.coreOK = true) (hm : HypModelCore c) (hl : OpenLaws c)
+theorem stdI_T_model (c : Semantics) (h : c.coreOK = true) (hm : HypModelCore c) (hp : ClausePreDecided c)
+    (hl : OpenLaws c)
     (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainEx r = true)
     (T : GroundTerm → GroundTerm → Prop)
     (hsub : ∀ x y, c.sortOf x = some topCellSort → c.sortOf y = some topCellSort → T x y → StepM c x y)
@@ -85,7 +87,7 @@ theorem stdI_T_model (c : Semantics) (h : c.coreOK = true) (hm : HypModelCore c)
     (hsome : ∀ r σ x y, StepMBy c r σ x y → r.exs ≠ [] → ∃ y' σ',
        (∀ i, ¬ i ∈ r.exs → σ'.lookup i = σ.lookup i) ∧ StepMBy c r σ' x y' ∧ T x y') :
     stdI_T c T ⊧ᴵP (Γc c ∪ Γstep c) := by
-  obtain ⟨hSig, hCons, hDom, hColls, hFns, hFb, hBool⟩ := model_parts_T hm h hl T
+  obtain ⟨hSig, hCons, hDom, hColls, hFns, hFb, hBool⟩ := model_parts_T hm h hl T (AtT.satFnsGoal_decided hm hp)
   intro φ hφ
   rcases hφ with (hφ | hφ) | hφ
   · rcases hφ with (((((hφ | hφ) | hφ) | hφ) | hφ) | hφ) | hφ
@@ -130,10 +132,11 @@ theorem step_iff_stdI_T (c : Semantics) (hm : HypModelCore c) (T : GroundTerm �
 
 /-- **The value model is a model of `Γc` with the step's closure**, for rules with `ruleSorted` and
 `rulePlainEx`: `stdI_T_model` at `T := StepM c`. -/
-theorem stdI_model_ex (c : Semantics) (h : c.coreOK = true) (hm : HypModelCore c) (hl : OpenLaws c)
+theorem stdI_model_ex (c : Semantics) (h : c.coreOK = true) (hm : HypModelCore c) (hp : ClausePreDecided c)
+    (hl : OpenLaws c)
     (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainEx r = true) :
     stdI c ⊧ᴵP (Γc c ∪ Γstep c) :=
-  stdI_T_model c h hm hl hrules (StepM c) (fun _ _ _ _ hT => hT)
+  stdI_T_model c h hm hp hl hrules (StepM c) (fun _ _ _ _ hT => hT)
     (fun r σ _ _ hb _ => (stepM_iff_by c).mpr ⟨r, σ, hb⟩)
     (fun r σ _ y hb _ => ⟨y, σ, fun _ _ => rfl, hb, (stepM_iff_by c).mpr ⟨r, σ, hb⟩⟩)
 
@@ -166,7 +169,7 @@ theorem has_model_choice_ex (c : Semantics) (h : c.coreOK = true) (hf : FnHyp c)
       ∀ x y : Config c, T x y ↔ ¬ (I ⊧ᴵ (den c x.val ⇒ ∼ KoreAML.sNext (den c y.val))) := by
   have hm := hypModel_of_fnHyp h hf
   have hfd := (fnModel_of_fnHyp h hf).1
-  refine ⟨Elem, inferInstance, stdI_T c (liftT_ex c T), stdI_T_model c h hm hf.2.2.2.2.2 hrules (liftT_ex c T) ?_ ?_ ?_,
+  refine ⟨Elem, inferInstance, stdI_T c (liftT_ex c T), stdI_T_model c h hm (clausePreDecided_of_fnHyp h hf) hf.2.2.2.2.2 hrules (liftT_ex c T) ?_ ?_ ?_,
     fun x y => (liftT_ex_iff T x y).symm.trans (step_iff_stdI_T c hm _ x y)⟩
   · intro x y hx hy hT
     obtain ⟨r, σ, hb⟩ := step_iff_by.mp (hsub ⟨x, hx⟩ ⟨y, hy⟩ (hT hx hy))

@@ -23,7 +23,7 @@
   `inj_defined`); the other side has a result at the substitution `subst_atElems` builds, whose
   element the fixed side shares, and `inj_value` reads the injection back.
 -/
-import KcoreSpec.HoldsFactsCore
+import KcoreSpec.ClausePreCore
 import KcoreSpec.HoldsModelFixed
 import KcoreSpec.InjValue
 
