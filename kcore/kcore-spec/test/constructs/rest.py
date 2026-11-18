@@ -215,14 +215,14 @@ class Fixtures:
         return self._acc[name]
 
     def fresh_equal(self, name):
-        """True / False: the account against a fresh one; None: not run (no --fresh, or the
-        kompiled text is not in kfix.py's cache)."""
+        """True / False: the account against a fresh one; otherwise why it was not compared: "not
+        run" (no --fresh) or "not in the cache" (kfix.py's cache lacks the kompiled text)."""
         if not self.fresh:
-            return None
+            return "not run"
         if name not in self._fresh:
             import kfix
             got = kfix.account_of(name, kfix.conf(name))
-            self._fresh[name] = None if got is None else got == self.read(name, "account.txt")
+            self._fresh[name] = "not in the cache" if got is None else got == self.read(name, "account.txt")
         return self._fresh[name]
 
 
@@ -334,9 +334,9 @@ def evidence(fx, l, key, e, row):
         elif clean_needed:
             item(a[2], "account refuses nothing", f"account refuses nothing ({x}'s refuses "
                  + (", ".join(sorted(a[1])) or "something: parse, stage or account line") + ")")
-        fr = fx.fresh_equal(x) if a is not None else None
         if a is not None:
-            item(fr is True, "fresh account", "fresh account (" + ("not run" if fr is None else "differs") + ")")
+            fr = fx.fresh_equal(x)
+            item(fr is True, "fresh account", "fresh account (" + ("differs" if fr is False else str(fr)) + ")")
         return x
 
     def ties():
@@ -434,7 +434,7 @@ def evidence(fx, l, key, e, row):
                 if hit:
                     fr = fx.fresh_equal(hit[0])
                     item(fr is True, "fresh account",
-                         "fresh account (" + ("not run" if fr is None else "differs") + ")")
+                         "fresh account (" + ("differs" if fr is False else str(fr)) + ")")
         reason_sentence(["reason", "reader_reason", "refused_by"])
     elif f == "independent":
         ds = e.get("declarations")
