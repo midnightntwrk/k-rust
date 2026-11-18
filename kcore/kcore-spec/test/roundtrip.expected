@@ -31,6 +31,7 @@ differs f2-examples/c3-rule-req-prio-comp.kompile.kore
 differs f2-examples/c3-rule-req-prio.kompile.kore
 differs f2-examples/c3-simp-comm-base.kompile.kore
 differs f2-examples/c3-simp-comm.kompile.kore
+differs f2-examples/c3-simp-ens-true.kompile.kore
 differs f2-examples/c3-simp-ens.kompile.kore
 differs f2-examples/c3-simp-prio.kompile.kore
 differs f2-examples/c3-simp-req.kompile.kore
