@@ -184,6 +184,18 @@ direction = "hypothesis"
 note = "the text has no lemma applying a parameter symbol without impl"
 
 [[class]]
+name = "user lemma"
+count = 0
+direction = "entailed"
+note = "the text has no lemma of a user's file"
+
+[[class]]
+name = "user lemma at values"
+count = 0
+direction = "atValues"
+note = "the text has no lemma of a user's file"
+
+[[class]]
 name = "no direction"
 count = 37
 direction = "none"

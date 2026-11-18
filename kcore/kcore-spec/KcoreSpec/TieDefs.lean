@@ -361,6 +361,11 @@ sentences under these names, in this order.
 - parameter lemma: a sentence the reader leaves out of `Γ` (a lemma) that applies a parameter
   symbol no registry hook interprets (`impl = none`), whose value the interpretation gives: owed as
   a hypothesis on `H`, the sentence itself at the member (`Γ (c.withHooks H) ⊧ tr s`);
+- user lemma: a sentence of the user's text that the reader leaves out of `Γ` as a lemma
+  (`InertReason.simplification`) and that applies no parameter symbol without `impl`, proved
+  `Γ (c.withHooks H) ⊧ tr s` for every `H`;
+- user lemma at values: the same, where the sentence holds at the valuations sending its variables
+  to values (`EntailsAtValues`), because it rests on an interpreted symbol's graph;
 - no direction: a sentence that applies a symbol `Γ` does not have. -/
 def tieClasses : List (String × TieDir) :=
   [("function equation", .equal), ("rewrite rule", .weaker), ("priority equation", .weaker),
@@ -369,7 +374,8 @@ def tieClasses : List (String × TieDir) :=
    ("hooked functional", .atValues), ("collection law", .atValues), ("library", .atValues),
    ("set idempotence", .refuted), ("set-variable lemma", .refuted), ("function law", .hypothesis),
    ("open generator law", .equal), ("open generator functional", .hypothesis),
-   ("parameter lemma", .hypothesis), ("no direction", .none)]
+   ("parameter lemma", .hypothesis), ("user lemma", .entailed), ("user lemma at values", .atValues),
+   ("no direction", .none)]
 
 /-! ## The no-direction class is closed -/
 
