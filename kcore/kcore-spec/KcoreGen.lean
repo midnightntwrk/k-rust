@@ -2673,12 +2673,14 @@ end {ns}
 /-! ## The account of a text, without generating -/
 
 /-- Where a sentence comes from: a file of K's builtin library (`…/include/kframework/builtin/` or
-`krust-builtin://`), another file, or no file (generated). -/
+`krust-builtin://`), such a file's sentence read as the definition's own (`own builtin`,
+`Parse.isOwnBuiltin`), another file, or no file (generated). -/
 def origin (s : Kore.Sentence) : String :=
   match KoreAML.Parse.source? (Parse.sentenceAttrs s) with
   | none => "generated"
   | some src =>
-    if (KoreAML.Parse.dropPrefix? "krust-builtin://" src).isSome ||
+    if Parse.isOwnBuiltin s then "own builtin"
+    else if (KoreAML.Parse.dropPrefix? "krust-builtin://" src).isSome ||
        (src.splitOn "/include/kframework/builtin/").length > 1 then "builtin" else "user"
 
 /-- The segments of `cs` (in order, together `cs`): the text outside every `Source(PATH)`'s PATH
