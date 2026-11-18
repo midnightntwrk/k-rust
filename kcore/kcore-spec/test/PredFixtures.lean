@@ -1,11 +1,12 @@
 /-
   The fixtures of rules with predicates (CN-4 §4.8, R3 fixture table), read from K 7.1.337 kompile's
-  KORE with a connective at a term position cut (`Parse.connRuleOf`, `Parse.andRuleOf`;
-  test/PredReader.lean prints the readings). Run from the package root:
+  KORE with a connective at a term position cut (`Parse.parse`, which reads it through
+  `Parse.connRuleBody`, `ReadingNote.connectiveCut`; and `Parse.andRuleOf`; test/PredReader.lean
+  prints the readings). Run from the package root:
   `lake env lean -j1 test/PredFixtures.lean`.
 
-  `definition_read NAME from "file.kore" by conn` (or `by and`) adds the definition
-  `Parse.parseWith` builds with that reading function, as `definition_of` adds `Parse.parse`'s.
+  `definition_of NAME from "file.kore"` adds the definition `Parse.parse` builds;
+  `definition_read NAME from "file.kore" by and` the one `Parse.parseWith Parse.andRuleOf` builds.
 
   ## e3-ml-rule-lhs-not
   `f2-examples/mlnot.kompile.kore` (`test/constructs/fixtures/e3-ml-rule-lhs-not/kore.txt:51-56`):
@@ -64,12 +65,11 @@ open ML Faithful
 namespace PredFixtures
 
 open Lean Elab Command in
-/-- `definition_read NAME from "file.kore" by conn|and`: `def NAME : Definition`, the definition
-`Parse.parseWith` builds from the file with the rules read by `Parse.connRuleOf` (`conn`) or
-`Parse.andRuleOf` (`and`), added as a term (not compiled). -/
+/-- `definition_read NAME from "file.kore" by and`: `def NAME : Definition`, the definition
+`Parse.parseWith` builds from the file with the rules read by `Parse.andRuleOf`, added as a term
+(not compiled). -/
 elab "definition_read " id:ident " from " path:str " by " rd:ident : command => do
   let f ← match rd.getId.toString with
-    | "conn" => pure Parse.connRuleOf
     | "and" => pure Parse.andRuleOf
     | s => throwError "definition_read: no reading function {s}"
   let input ← IO.FS.readFile path.getString
@@ -339,7 +339,7 @@ theorem patVal_cfgPat {c : Semantics} {σ : Subst} {kCell : Sym} {s : Srt} {p : 
 
 namespace LhsNot
 
-definition_read defn from "f2-examples/mlnot.kompile.kore" by conn
+definition_of defn from "f2-examples/mlnot.kompile.kore"
 
 noncomputable abbrev c : Semantics := defn.sem
 
@@ -578,7 +578,7 @@ theorem larger_refused : c.confined exp = false ∧ r0.opens = [3] ∧ cLarger.r
 def largerMessage : IO Unit := do
   match Kore.parseDefinition (← IO.FS.readFile "f2-examples/mlnot.kompile.kore") with
   | .error e => IO.println s!"KORE read error {e}"
-  | .ok k => match Parse.parseWith Parse.connRuleOf k with
+  | .ok k => match Parse.parse k with
     | .error r => IO.println s!"refused {r.reason.name}"
     | .ok d =>
       let c' : Semantics := { d.sem with rules := d.sem.rules ++ [rOther] }
@@ -603,7 +603,7 @@ end LhsNot
 
 namespace RhsOr
 
-definition_read defn from "f2-examples/mlror.kompile.kore" by conn
+definition_of defn from "f2-examples/mlror.kompile.kore"
 
 noncomputable abbrev c : Semantics := defn.sem
 
