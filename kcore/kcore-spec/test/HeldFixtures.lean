@@ -53,6 +53,16 @@
   existential, of Int, which the text leaves unconfined, and held only under `_[_<-_]`, resp. the
   range map's element symbol, neither a constructor: `heldOccs` does not hold V, `rulePlainHO1` fails
   and `openRefusal` is `openRight` (`refused`).
+
+  ## e3-vars-set and e3-vars-list (`VarsSet`, `VarsList`)
+  `rule <k> go() => .K ... </k> <s> S => SetItem(?V:Int) S </s>` and the same with
+  `<l> L => ListItem(?V:Int) L </l>`, V the existential variable 3, held under the collection's element
+  and concatenation symbols (`held`); `coreOK` and `FnHyp` by the kernel. At x, the collection holding
+  1 (`X`): `Step` from x reaches exactly `SetItem(k) S` for the Ints k other than 1 (a set's
+  concatenation is undefined at a shared element: `rhs_none_at_key`, and in every model of `Γc`
+  `_Set_(SetItem(1), SetItem(1))` has no element, `concat_key_bot`), and `ListItem(k) L` for every Int
+  k (`step_iff`); at each step `Γc ⊧ den x ⇒ •famEx` (`sound_xy`); by `ExactC`, no other value is a
+  successor in any model of `Γc` with the step's closure (`exact_y`).
 -/
 import KcoreSpec
 
@@ -185,6 +195,39 @@ theorem sortOf_map_ki_fxv
 /-- `ki a` and `ki b` are equal in `GroundTerm.cmp` exactly where a and b are equal. -/
 theorem cmp_ki_fxv (a b : Int) : GroundTerm.cmp (ki a) (ki b) = .eq ↔ a = b := by
   rw [cmp_eq_iff]; simp [ki, int]
+
+/-- The element symbols and the concatenations of sets and lists, at values. -/
+theorem hook_setElem_fxv (k : GroundTerm) : hook setElem [k] = some (some (.set Srt.set [k])) := rfl
+theorem hook_setConcat_fxv (s t : Srt) (a b : List GroundTerm) :
+    hook setConcat [.set s a, .set t b] = some ((concatS a b).map (.set Srt.set)) := rfl
+theorem hook_listElem_fxv (k : GroundTerm) : hook listElem [k] = some (some (.list Srt.list [k])) := rfl
+theorem hook_listConcat_fxv (s t : Srt) (a b : List GroundTerm) :
+    hook listConcat [.list s a, .list t b] = some (some (.list Srt.list (a ++ b))) := rfl
+
+/-- A list of Ints injected into KItem has the sorts KItem. -/
+theorem sortsOf_ki_fxv (hki : ∀ j, c.sortOf (ki j) = some Srt.kitem) :
+    ∀ {es : List GroundTerm}, (∀ e ∈ es, ∃ j, e = ki j) → c.sortsOf es = some (es.map fun _ => Srt.kitem)
+  | [], _ => rfl
+  | e :: es, h => by
+    obtain ⟨j, rfl⟩ := h e (by simp)
+    simp only [Semantics.sortsOf, hki, sortsOf_ki_fxv hki (fun e he => h e (List.mem_cons_of_mem _ he)),
+      List.map_cons]
+
+/-- A sorted set of `Set` of Ints injected into KItem is a value of `Set`, in a semantics whose
+`Set` is the library's. -/
+theorem sortOf_set_ki_fxv
+    (hco : c.collOf Srt.set = some ⟨Srt.set, .set, Srt.kitem, none, setUnit, setElem, setConcat⟩)
+    (hki : ∀ j, c.sortOf (ki j) = some Srt.kitem) {es : List GroundTerm} (hs : elemsSorted es = true)
+    (he : ∀ e ∈ es, ∃ j, e = ki j) : c.sortOf (.set Srt.set es) = some Srt.set := by
+  simp [Semantics.sortOf, hco, sortsOf_ki_fxv hki he, hs]
+
+/-- A list of `List` of Ints injected into KItem is a value of `List`, in a semantics whose `List`
+is the library's. -/
+theorem sortOf_list_ki_fxv
+    (hco : c.collOf Srt.list = some ⟨Srt.list, .list, Srt.kitem, none, listUnit, listElem, listConcat⟩)
+    (hki : ∀ j, c.sortOf (ki j) = some Srt.kitem) {es : List GroundTerm}
+    (he : ∀ e ∈ es, ∃ j, e = ki j) : c.sortOf (.list Srt.list es) = some Srt.list := by
+  simp [Semantics.sortOf, hco, sortsOf_ki_fxv hki he]
 
 end Shared
 
@@ -877,5 +920,650 @@ theorem refused : r0.exs = [3] ∧ r0.vars[3]? = some Srt.int ∧ (heldOccs c r0
 #guard_msgs in #print axioms refused
 
 end RangeMap
+
+namespace VarsSet
+
+open ML Faithful
+
+definition_of defn from "f2-examples/heldset.kompile.kore"
+
+noncomputable abbrev c : Semantics := defn.sem
+
+def sExp : Srt := 34
+def kCell : Sym := 385
+def sCell : Sym := 387
+def symGo : Sym := 389
+
+theorem names_ok : c.sortName sExp = "Exp" ∧ c.symName kCell = "Lbl'-LT-'k'-GT-'" ∧
+    c.symName sCell = "Lbl'-LT-'s'-GT-'" ∧ c.symName symGo = "Lblgo" ∧ c.symName setElem = "LblSetItem" := by
+  decide +kernel
+
+theorem coreOK : c.coreOK = true := by decide_cheap
+
+noncomputable def r0 : Rule := c.rules[0]'(by decide +kernel)
+
+theorem rules_eq : c.rules = [r0] := by
+  have h : c.rules.length = 1 := by decide +kernel
+  match hr : c.rules, h with
+  | [r], _ => simp only [r0, hr, List.getElem_cons_zero]
+
+theorem r0_vars : r0.vars = [Srt.k, Srt.set, 19, Srt.int] := rfl
+theorem r0_lhs : r0.lhs = .app topLabel [.app kCell [.app kseq [.inj sExp Srt.kitem (.app symGo []),
+    .var 0]], .app sCell [.var 1], .var 2] := rfl
+theorem r0_rhs : r0.rhs = .app topLabel [.app kCell [.var 0],
+    .app sCell [.app setConcat [.app setElem [.inj Srt.int Srt.kitem (.var 3)], .var 1]], .var 2] := rfl
+theorem r0_shape : r0.req = none ∧ r0.ens = none ∧ r0.pre = .top ∧ r0.post = .top ∧ r0.exs = [3] :=
+  ⟨rfl, rfl, rfl, rfl, rfl⟩
+
+/-- `S => SetItem(?V:Int) S`: V (variable 3) is existential, under no constructor of the right side
+but under the element and concatenation symbols of the collection, which `holds`; the rule has
+`ruleSorted` and the conjunct `rulePlainHO1`. Int is not confined. -/
+theorem held : c.ruleSorted r0 = true ∧ (heldOccs c r0.rhs).contains 3 = true ∧
+    (ctorOccs c r0.rhs).contains 3 = false ∧ c.holds setElem = true ∧ c.holds setConcat = true ∧
+    c.rulePlainHO1 r0 = true ∧ c.confined Srt.int = false := by
+  decide +kernel
+
+theorem fns_nil : c.fns = [] := by decide +kernel
+theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
+theorem noWitness : ∀ r ∈ c.rules, r.needsWitness c = false := by decide +kernel
+theorem shapesOK : c.shapesOK = true := by decide +kernel
+
+theorem syms_ok : c.isCtor topLabel = true ∧ c.isCtor kCell = true ∧ c.isCtor kseq = true ∧
+    c.isCtor symGo = true ∧ c.isCtor sCell = true ∧ c.isCtor dotk = true ∧ c.isCtor counterLabel = true ∧
+    c.isCtor setElem = false ∧ isHook setElem = true ∧ c.isCtor setConcat = false ∧ isHook setConcat = true := by
+  decide +kernel
+theorem hooks_ok : patternHooks.contains topLabel = false ∧ patternHooks.contains kCell = false ∧
+    patternHooks.contains kseq = false ∧ patternHooks.contains symGo = false ∧
+    patternHooks.contains sCell = false := by
+  decide +kernel
+
+/-- The hypothesis on the functions holds: the text declares none, no rule needs a witness and no
+parameter is an open generator. -/
+theorem fnHyp : FnHyp c :=
+  have hn : ∀ fn, fn ∈ c.fns → False := fun fn hfn => by rw [fns_nil] at hfn; cases hfn
+  ⟨fun fn hfn => (hn fn hfn).elim, fun fn hfn => (hn fn hfn).elim, fun fn hfn => (hn fn hfn).elim,
+    fun fn hfn => (hn fn hfn).elim,
+    openDecided_of_plain noWitness (fun fn hfn => (hn fn hfn).elim),
+    openLaws_of_plain noRaw⟩
+
+/-! ## The configurations -/
+
+def ctr : GroundTerm := .ctor counterLabel [int 0]
+
+/-- The collection holding 1. -/
+def e1 : List GroundTerm := [ki 1]
+
+/-- `<k> go() ~> . </k> <s> SetItem(1) </s>`. -/
+def X : Config c :=
+  ⟨.ctor topLabel [.ctor kCell [.ctor kseq [.inj sExp Srt.kitem (.ctor symGo []), .ctor dotk []]],
+    .ctor sCell [GroundTerm.set Srt.set e1], ctr], by decide +kernel⟩
+
+/-- `<k> . </k>` with the collection es. -/
+def cfgR (es : List GroundTerm) : GroundTerm :=
+  .ctor topLabel [.ctor kCell [.ctor dotk []], .ctor sCell [GroundTerm.set Srt.set es], ctr]
+
+theorem lookups_ok : (lookupSig c.ctorSigs topLabel).isSome = true ∧ (lookupSig c.ctorSigs sCell).isSome = true := by
+  decide +kernel
+
+theorem collOf_coll : c.collOf Srt.set = some ⟨Srt.set, .set, Srt.kitem, none, setUnit, setElem, setConcat⟩ := by
+  decide +kernel
+
+theorem sortOf_ki (j : Int) : c.sortOf (ki j) = some Srt.kitem := by
+  rw [sortOf_ki_fxv j]; decide +kernel
+
+/-- k is an element of the set holding 1 exactly where it is 1. -/
+theorem memS_e1 (k : Int) : memS (ki k) e1 = true ↔ k = 1 := by
+  simp only [memS, e1, List.any_cons, List.any_nil, Bool.or_false, beq_iff_eq, cmp_ki_fxv]
+
+/-- `SetItem(k) S` at S the set holding 1, k other than 1: k inserted in order. -/
+def rest (k : Int) : List GroundTerm := insertS (ki k) e1
+
+theorem rest_ki (k : Int) : ∀ e ∈ rest k, ∃ j, e = ki j := fun e he => by
+  rcases insertS_mem he with rfl | he
+  · exact ⟨k, rfl⟩
+  · simp only [e1, List.mem_singleton] at he; exact ⟨1, he⟩
+
+/-- The successor's configuration is one for every Int k. -/
+theorem sortOf_cfgRest (k : Int) : c.sortOf (cfgR (rest k)) = some topCellSort := by
+  have h0 : c.sortOf (cfgR e1) = some topCellSort := by decide +kernel
+  rw [← h0]
+  have h1 : c.sortOf (GroundTerm.set Srt.set (rest k)) = some Srt.set :=
+    sortOf_set_ki_fxv collOf_coll sortOf_ki (elemsSorted_iff.mpr (insertS_sorted
+      (elemsSorted_iff.mp (by decide +kernel : elemsSorted e1 = true)))) (rest_ki k)
+  have h2 : c.sortOf (GroundTerm.set Srt.set e1) = some Srt.set := by decide +kernel
+  have hm : c.sortOf (GroundTerm.set Srt.set (rest k)) = c.sortOf (GroundTerm.set Srt.set e1) := by rw [h1, h2]
+  exact sortOf_ctor_congr_fxv lookups_ok.1 (sortsOf_cons_congr_fxv rfl
+    (sortsOf_cons_congr_fxv (sortOf_ctor_congr_fxv lookups_ok.2 (sortsOf_cons_congr_fxv hm rfl)) rfl))
+
+/-- The successor at k. -/
+def Y (k : Int) : Config c := ⟨cfgR (rest k), sortOf_cfgRest k⟩
+
+/-! ## The concatenation -/
+
+theorem silent_concat (vs : List GroundTerm) : silent setConcat vs = false := rfl
+
+/-- `SetItem(k) S` has a value exactly where k is no element of S, and it is `rest k`. -/
+theorem hookRes_concat (k : Int) :
+    c.hookRes setConcat [GroundTerm.set Srt.set [ki k], GroundTerm.set Srt.set e1] =
+      some (if k = 1 then none else some (GroundTerm.set Srt.set (rest k))) := by
+  rw [Semantics.hookRes_of_not_silent (silent_concat _), hook_setConcat_fxv]
+  by_cases hk : k = 1
+  · subst hk; rfl
+  · have hn : memS (ki k) e1 = false := by
+      cases h : memS (ki k) e1
+      · rfl
+      · exact absurd ((memS_e1 k).mp h) hk
+    simp only [concatS, List.all_cons, List.all_nil, hn, Bool.not_false, Bool.and_true, ↓reduceIte, unionS,
+      List.foldr_cons, List.foldr_nil, hk, rest, Option.map]
+
+def resV (k : Int) : Option GroundTerm := if k = 1 then none else some (GroundTerm.set Srt.set (rest k))
+
+/-! ## `Step` -/
+
+def σ (k : Int) : Subst := [(0, .ctor dotk []), (1, GroundTerm.set Srt.set e1), (2, ctr), (3, int k)]
+
+theorem hmatchX (τ : Subst) (h0 : τ.lookup 0 = some (.ctor dotk [])) (h1 : τ.lookup 1 = some (GroundTerm.set Srt.set e1))
+    (h2 : τ.lookup 2 = some ctr) : PatVal c τ r0.lhs X.val := by
+  rw [r0_lhs]
+  exact .ctor syms_ok.1 (.cons (.ctor syms_ok.2.1 (.cons (.ctor syms_ok.2.2.1
+    (.cons (.inj (.ctor syms_ok.2.2.2.1 .nil)) (.cons (.var h0) .nil))) .nil))
+    (.cons (.ctor syms_ok.2.2.2.2.1 (.cons (.var h1) .nil)) (.cons (.var h2) .nil)))
+
+/-- `SetItem(V)` at V := k. -/
+theorem elemEval (k : Int) : EvalTerm c (σ k) (.app setElem [.inj Srt.int Srt.kitem (.var 3)])
+    (some (GroundTerm.set Srt.set [ki k])) :=
+  .hook syms_ok.2.2.2.2.2.2.2.1 syms_ok.2.2.2.2.2.2.2.2.1 (.cons (.inj .var) .nil)
+    (fun vs hvs => by
+      obtain rfl : vs = [ki k] := (Option.some.inj (show some [ki k] = some vs from hvs)).symm
+      exact Semantics.hookRes_of_value (hook_setElem_fxv _))
+    (fun h => nomatch (show some [ki k] = none from h))
+
+/-- `SetItem(V) S` at V := k. -/
+theorem concatEval (k : Int) : EvalTerm c (σ k)
+    (.app setConcat [.app setElem [.inj Srt.int Srt.kitem (.var 3)], .var 1]) (resV k) :=
+  .hook syms_ok.2.2.2.2.2.2.2.2.2.1 syms_ok.2.2.2.2.2.2.2.2.2.2 (.cons (elemEval k) (.cons .var .nil))
+    (fun vs hvs => by
+      obtain rfl : vs = [GroundTerm.set Srt.set [ki k], GroundTerm.set Srt.set e1] :=
+        (Option.some.inj (show some [GroundTerm.set Srt.set [ki k], GroundTerm.set Srt.set e1] = some vs from hvs)).symm
+      exact hookRes_concat k)
+    (fun h => nomatch (show some [GroundTerm.set Srt.set [ki k], GroundTerm.set Srt.set e1] = none from h))
+
+/-- **The step at V := k** where the right side has a value. -/
+theorem stepBy {k : Int} {v : GroundTerm} (hk : resV k = some v) (y : Config c) (hy : y.val = .ctor topLabel
+    [.ctor kCell [.ctor dotk []], .ctor sCell [v], ctr]) : StepBy c r0 (σ k) X y where
+  mem := by rw [rules_eq]; simp
+  hσ := fun j s hs => by
+    rw [r0_vars] at hs
+    match j, hs with
+    | 0, hs => cases hs; exact ⟨_, rfl, by decide +kernel⟩
+    | 1, hs => cases hs; exact ⟨_, rfl, by decide +kernel⟩
+    | 2, hs => cases hs; exact ⟨_, rfl, by decide +kernel⟩
+    | 3, hs => cases hs; exact ⟨_, rfl, sortOf_int k⟩
+    | _ + 4, hs => simp at hs
+  hmatch := hmatchX _ rfl rfl rfl
+  hreq := fun t ht => by rw [r0_shape.1] at ht; cases ht
+  hpre := by rw [r0_shape.2.2.1]; exact .top
+  heval := by
+    rw [r0_rhs, hy]
+    have h := concatEval k
+    rw [hk] at h
+    exact .ctor syms_ok.1 (.cons (.ctor syms_ok.2.1 (.cons .var .nil))
+      (.cons (.ctor syms_ok.2.2.2.2.1 (.cons h .nil)) (.cons .var .nil)))
+  hens := fun t ht => by rw [r0_shape.2.1] at ht; cases ht
+  hpost := by rw [r0_shape.2.2.2.1]; exact .top
+  hprio := fun r' hr' hlt => by
+    rw [rules_eq] at hr'
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at hr'
+    subst hr'
+    exact absurd hlt (Nat.lt_irrefl _)
+
+/-! ## No other successor -/
+
+/-- **What the left side denotes**: `<k> go() ~> w </k>` with the collection m and the counter cell u,
+w, m and u the values σ gives the variables 0, 1 and 2. -/
+theorem lhs_inv {τ : Subst} {x : GroundTerm} (h : PatVal c τ r0.lhs x) :
+    ∃ w m u, x = .ctor topLabel [.ctor kCell [.ctor kseq [.inj sExp Srt.kitem (.ctor symGo []), w]],
+      .ctor sCell [m], u] ∧ τ.lookup 0 = some w ∧ τ.lookup 1 = some m ∧ τ.lookup 2 = some u := by
+  rw [r0_lhs] at h
+  obtain ⟨-, vs, rfl, hvs⟩ := PatVal.app_inv hooks_ok.1 h syms_ok.1
+  obtain ⟨v1, vs1, rfl, h1, hvs1⟩ := hvs.cons_inv
+  obtain ⟨v2, vs2, rfl, h2, hvs2⟩ := hvs1.cons_inv
+  obtain ⟨u, vs3, rfl, h3, hvs3⟩ := hvs2.cons_inv
+  cases hvs3.nil_inv
+  obtain ⟨-, ws, rfl, hws⟩ := PatVal.app_inv hooks_ok.2.1 h1 syms_ok.2.1
+  obtain ⟨w1, ws1, rfl, h11, hws1⟩ := hws.cons_inv
+  cases hws1.nil_inv
+  obtain ⟨-, ns, rfl, hns⟩ := PatVal.app_inv hooks_ok.2.2.2.2 h2 syms_ok.2.2.2.2.1
+  obtain ⟨m, ns1, rfl, hm, hns1⟩ := hns.cons_inv
+  cases hns1.nil_inv
+  obtain ⟨-, zs, rfl, hzs⟩ := PatVal.app_inv hooks_ok.2.2.1 h11 syms_ok.2.2.1
+  obtain ⟨z1, zs1, rfl, hz1, hzs1⟩ := hzs.cons_inv
+  obtain ⟨w, zs2, rfl, hz2, hzs2⟩ := hzs1.cons_inv
+  cases hzs2.nil_inv
+  obtain ⟨a, ha, rfl⟩ := PatVal.inj_inv hz1
+  obtain ⟨-, as, rfl, has⟩ := PatVal.app_inv hooks_ok.2.2.2.1 ha syms_ok.2.2.2.1
+  cases has.nil_inv
+  exact ⟨w, m, u, rfl, PatVal.var_inv hz2, PatVal.var_inv hm, PatVal.var_inv h3⟩
+
+/-- **A step from x is at V := k for an Int k where the right side has a value v, to the collection v.** -/
+theorem stepBy_inv {τ : Subst} {y : Config c} (hb : StepBy c r0 τ X y) :
+    ∃ k v, τ.lookup 3 = some (int k) ∧ resV k = some v ∧
+      y.val = .ctor topLabel [.ctor kCell [.ctor dotk []], .ctor sCell [v], ctr] := by
+  obtain ⟨w, m, u, hx, h0, h1, h2⟩ := lhs_inv hb.hmatch
+  simp only [X, GroundTerm.ctor.injEq, List.cons.injEq, and_true, true_and] at hx
+  obtain ⟨rfl, rfl, rfl⟩ := hx
+  obtain ⟨v, h3, hv⟩ := hb.hσ 3 Srt.int (by rw [r0_vars]; rfl)
+  obtain ⟨k, rfl⟩ := shape_int shapesOK hv
+  have h := hb.heval
+  rw [r0_rhs] at h
+  obtain ⟨rs, hrs, he⟩ := EvalTerm.ctor_inv syms_ok.1 h
+  obtain ⟨q1, rs1, rfl, hq1, hrs1⟩ := hrs.cons_inv
+  obtain ⟨q2, rs2, rfl, hq2, hrs2⟩ := hrs1.cons_inv
+  obtain ⟨q3, rs3, rfl, hq3, hrs3⟩ := hrs2.cons_inv
+  cases hrs3.nil_inv
+  rw [hq3.var_inv, h2] at he
+  obtain ⟨ps, hps, rfl⟩ := EvalTerm.ctor_inv syms_ok.2.1 hq1
+  obtain ⟨p1, ps1, rfl, hp1, hps1⟩ := hps.cons_inv
+  cases hps1.nil_inv
+  rw [hp1.var_inv, h0] at he
+  obtain ⟨ms, hms, rfl⟩ := EvalTerm.ctor_inv syms_ok.2.2.2.2.1 hq2
+  obtain ⟨m', ms1, rfl, hm', hms1⟩ := hms.cons_inv
+  cases hms1.nil_inv
+  obtain ⟨cs, hcs, hhc, -⟩ := evalHook_inv_fxv syms_ok.2.2.2.2.2.2.2.2.2.1 syms_ok.2.2.2.2.2.2.2.2.2.2 hm'
+  obtain ⟨c1, cs1, rfl, hc1, hcs1⟩ := hcs.cons_inv
+  obtain ⟨c2, cs2, rfl, hc2, hcs2⟩ := hcs1.cons_inv
+  cases hcs2.nil_inv
+  rw [hc2.var_inv, h1] at hhc
+  obtain ⟨es, hes, hhe, -⟩ := evalHook_inv_fxv syms_ok.2.2.2.2.2.2.2.1 syms_ok.2.2.2.2.2.2.2.2.1 hc1
+  obtain ⟨f1, es1, rfl, hf1, hes1⟩ := hes.cons_inv
+  cases hes1.nil_inv
+  obtain ⟨f1', hf1', rfl⟩ := EvalTerm.inj_inv hf1
+  rw [hf1'.var_inv, h3] at hhe
+  have hel := hhe _ rfl
+  rw [Semantics.hookRes_of_value (hook_setElem_fxv _)] at hel
+  cases hel
+  have hcat : c.hookRes setConcat [GroundTerm.set Srt.set [ki k], GroundTerm.set Srt.set e1] = some m' := hhc _ rfl
+  have hres : resV k = m' := by rw [hookRes_concat k] at hcat; exact Option.some.inj hcat
+  cases m' with
+  | none => simp only [allSome, Option.bind, Option.map] at he; cases he
+  | some v =>
+    refine ⟨k, v, h3, hres, ?_⟩
+    simp only [allSome, Option.bind, Option.map, Option.some.injEq] at he
+    exact he
+
+/-- **The successors of x** are exactly the `SetItem(k) S`, k an Int that is no element of S. -/
+theorem step_iff (y : Config c) : Step c X y ↔ ∃ k, k ≠ 1 ∧ y = Y k := by
+  constructor
+  · intro hs
+    obtain ⟨r, τ, hb⟩ := step_iff_by.mp hs
+    have hr := hb.mem
+    rw [rules_eq] at hr
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at hr
+    subst hr
+    obtain ⟨k, v, -, hk, hy⟩ := stepBy_inv hb
+    by_cases h1 : k = 1
+    · simp [resV, h1] at hk
+    · simp only [resV, h1, ↓reduceIte, Option.some.injEq] at hk
+      subst hk
+      exact ⟨k, h1, Subtype.ext hy⟩
+  · rintro ⟨k, hk, rfl⟩
+    exact step_iff_by.mpr ⟨r0, σ k, stepBy (by simp [resV, hk]) (Y k) rfl⟩
+
+/-- **At the element 1 the right side has no value**: `SetItem(1) S` with 1 in S is undefined. -/
+theorem rhs_none_at_key : EvalTerm c (σ 1) r0.rhs none := by
+  rw [r0_rhs]
+  have h := concatEval 1
+  simp only [resV, ↓reduceIte] at h
+  exact .ctor syms_ok.1 (.cons (.ctor syms_ok.2.1 (.cons .var .nil))
+    (.cons (.ctor syms_ok.2.2.2.2.1 (.cons h .nil)) (.cons .var .nil)))
+
+/-- **In every model of `Γc` the concatenation at the element has no element**: `Γ`'s axiom of the
+hooked symbol `_Set_` at the two values `SetItem(1)`, `SetItem(1)`. -/
+theorem concat_key_bot :
+    Γc c ⊧ (KoreAML.den (symApp c setConcat (GroundTerm.koreList c [GroundTerm.set Srt.set e1, GroundTerm.set Srt.set e1])) ≡ ⊥) :=
+  fun hI => hI _ (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inr (Or.inl
+    ⟨⟨setConcat, [Srt.set, Srt.set], Srt.set⟩, [GroundTerm.set Srt.set e1, GroundTerm.set Srt.set e1], none,
+      by decide, by decide +kernel, rfl, fun _ => rfl, rfl⟩)))))))
+
+/-- **In every model of `Γc`, x has a successor among the instances of the application, and each
+successor is one of them** (`sound_at`; no competitor, no function). -/
+theorem sound_xy {k : Int} {v : GroundTerm} (hk : resV k = some v) (y : Config c) (hy : y.val = .ctor topLabel
+    [.ctor kCell [.ctor dotk []], .ctor sCell [v], ctr]) :
+    (Γc c ⊧ (den c X.val ⇒ KoreAML.sNext (famEx c r0 (σ k)))) ∧ (Γc c ⊧ (den c y.val ⇒ famEx c r0 (σ k))) :=
+  sound_at c coreOK X y r0 (σ k) (stepBy hk y hy)
+    (fun r' hr' hlt _ _ => by
+      rw [rules_eq] at hr'
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at hr'
+      subst hr'
+      exact absurd hlt (Nat.lt_irrefl _))
+    (fun fn hfn => by rw [fns_nil] at hfn; cases hfn)
+
+/-- **By `ExactC`**: y is a successor of x in some model of `Γc` with the step's closure exactly where
+`Step` has it. -/
+theorem exact_y (y : Config c) :
+    (∃ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M),
+      (I ⊧ᴵP (Γc c ∪ Γstep c)) ∧ ¬ (I ⊧ᴵ (den c X.val ⇒ ∼ KoreAML.sNext (den c y.val)))) ↔
+    ∃ k, k ≠ 1 ∧ y = Y k := by
+  rw [← exact_hyp c coreOK fnHyp X y]
+  exact step_iff y
+
+/-- info: 'HeldFixtures.VarsSet.held' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms held
+/-- info: 'HeldFixtures.VarsSet.step_iff' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms step_iff
+/-- info: 'HeldFixtures.VarsSet.sound_xy' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms sound_xy
+/-- info: 'HeldFixtures.VarsSet.exact_y' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms exact_y
+/-- info: 'HeldFixtures.VarsSet.rhs_none_at_key' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms rhs_none_at_key
+/-- info: 'HeldFixtures.VarsSet.concat_key_bot' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms concat_key_bot
+
+end VarsSet
+
+namespace VarsList
+
+open ML Faithful
+
+definition_of defn from "f2-examples/exvarslist.kompile.kore"
+
+noncomputable abbrev c : Semantics := defn.sem
+
+def sExp : Srt := 34
+def kCell : Sym := 385
+def lCell : Sym := 387
+def symGo : Sym := 389
+
+theorem names_ok : c.sortName sExp = "Exp" ∧ c.symName kCell = "Lbl'-LT-'k'-GT-'" ∧
+    c.symName lCell = "Lbl'-LT-'l'-GT-'" ∧ c.symName symGo = "Lblgo" ∧ c.symName listElem = "LblListItem" := by
+  decide +kernel
+
+theorem coreOK : c.coreOK = true := by decide_cheap
+
+noncomputable def r0 : Rule := c.rules[0]'(by decide +kernel)
+
+theorem rules_eq : c.rules = [r0] := by
+  have h : c.rules.length = 1 := by decide +kernel
+  match hr : c.rules, h with
+  | [r], _ => simp only [r0, hr, List.getElem_cons_zero]
+
+theorem r0_vars : r0.vars = [Srt.k, Srt.list, 19, Srt.int] := rfl
+theorem r0_lhs : r0.lhs = .app topLabel [.app kCell [.app kseq [.inj sExp Srt.kitem (.app symGo []),
+    .var 0]], .app lCell [.var 1], .var 2] := rfl
+theorem r0_rhs : r0.rhs = .app topLabel [.app kCell [.var 0],
+    .app lCell [.app listConcat [.app listElem [.inj Srt.int Srt.kitem (.var 3)], .var 1]], .var 2] := rfl
+theorem r0_shape : r0.req = none ∧ r0.ens = none ∧ r0.pre = .top ∧ r0.post = .top ∧ r0.exs = [3] :=
+  ⟨rfl, rfl, rfl, rfl, rfl⟩
+
+/-- `L => ListItem(?V:Int) L`: V (variable 3) is existential, under no constructor of the right side
+but under the element and concatenation symbols of the collection, which `holds`; the rule has
+`ruleSorted` and the conjunct `rulePlainHO1`. Int is not confined. -/
+theorem held : c.ruleSorted r0 = true ∧ (heldOccs c r0.rhs).contains 3 = true ∧
+    (ctorOccs c r0.rhs).contains 3 = false ∧ c.holds listElem = true ∧ c.holds listConcat = true ∧
+    c.rulePlainHO1 r0 = true ∧ c.confined Srt.int = false := by
+  decide +kernel
+
+theorem fns_nil : c.fns = [] := by decide +kernel
+theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
+theorem noWitness : ∀ r ∈ c.rules, r.needsWitness c = false := by decide +kernel
+theorem shapesOK : c.shapesOK = true := by decide +kernel
+
+theorem syms_ok : c.isCtor topLabel = true ∧ c.isCtor kCell = true ∧ c.isCtor kseq = true ∧
+    c.isCtor symGo = true ∧ c.isCtor lCell = true ∧ c.isCtor dotk = true ∧ c.isCtor counterLabel = true ∧
+    c.isCtor listElem = false ∧ isHook listElem = true ∧ c.isCtor listConcat = false ∧ isHook listConcat = true := by
+  decide +kernel
+theorem hooks_ok : patternHooks.contains topLabel = false ∧ patternHooks.contains kCell = false ∧
+    patternHooks.contains kseq = false ∧ patternHooks.contains symGo = false ∧
+    patternHooks.contains lCell = false := by
+  decide +kernel
+
+/-- The hypothesis on the functions holds: the text declares none, no rule needs a witness and no
+parameter is an open generator. -/
+theorem fnHyp : FnHyp c :=
+  have hn : ∀ fn, fn ∈ c.fns → False := fun fn hfn => by rw [fns_nil] at hfn; cases hfn
+  ⟨fun fn hfn => (hn fn hfn).elim, fun fn hfn => (hn fn hfn).elim, fun fn hfn => (hn fn hfn).elim,
+    fun fn hfn => (hn fn hfn).elim,
+    openDecided_of_plain noWitness (fun fn hfn => (hn fn hfn).elim),
+    openLaws_of_plain noRaw⟩
+
+/-! ## The configurations -/
+
+def ctr : GroundTerm := .ctor counterLabel [int 0]
+
+/-- The collection holding 1. -/
+def e1 : List GroundTerm := [ki 1]
+
+/-- `<k> go() ~> . </k> <l> ListItem(1) </l>`. -/
+def X : Config c :=
+  ⟨.ctor topLabel [.ctor kCell [.ctor kseq [.inj sExp Srt.kitem (.ctor symGo []), .ctor dotk []]],
+    .ctor lCell [GroundTerm.list Srt.list e1], ctr], by decide +kernel⟩
+
+/-- `<k> . </k>` with the collection es. -/
+def cfgR (es : List GroundTerm) : GroundTerm :=
+  .ctor topLabel [.ctor kCell [.ctor dotk []], .ctor lCell [GroundTerm.list Srt.list es], ctr]
+
+theorem lookups_ok : (lookupSig c.ctorSigs topLabel).isSome = true ∧ (lookupSig c.ctorSigs lCell).isSome = true := by
+  decide +kernel
+
+theorem collOf_coll : c.collOf Srt.list = some ⟨Srt.list, .list, Srt.kitem, none, listUnit, listElem, listConcat⟩ := by
+  decide +kernel
+
+theorem sortOf_ki (j : Int) : c.sortOf (ki j) = some Srt.kitem := by
+  rw [sortOf_ki_fxv j]; decide +kernel
+
+/-- `ListItem(k) L` at L the list holding 1: k in front of 1. -/
+def rest (k : Int) : List GroundTerm := [ki k] ++ e1
+
+/-- The successor's configuration is one for every Int k. -/
+theorem sortOf_cfgRest (k : Int) : c.sortOf (cfgR (rest k)) = some topCellSort := by
+  have h0 : c.sortOf (cfgR e1) = some topCellSort := by decide +kernel
+  rw [← h0]
+  have h1 : c.sortOf (GroundTerm.list Srt.list (rest k)) = some Srt.list :=
+    sortOf_list_ki_fxv collOf_coll sortOf_ki fun e he => by
+      simp only [rest, e1, List.cons_append, List.nil_append, List.mem_cons, List.not_mem_nil, or_false] at he
+      rcases he with rfl | rfl
+      · exact ⟨k, rfl⟩
+      · exact ⟨1, rfl⟩
+  have h2 : c.sortOf (GroundTerm.list Srt.list e1) = some Srt.list := by decide +kernel
+  have hm : c.sortOf (GroundTerm.list Srt.list (rest k)) = c.sortOf (GroundTerm.list Srt.list e1) := by rw [h1, h2]
+  exact sortOf_ctor_congr_fxv lookups_ok.1 (sortsOf_cons_congr_fxv rfl
+    (sortsOf_cons_congr_fxv (sortOf_ctor_congr_fxv lookups_ok.2 (sortsOf_cons_congr_fxv hm rfl)) rfl))
+
+/-- The successor at k. -/
+def Y (k : Int) : Config c := ⟨cfgR (rest k), sortOf_cfgRest k⟩
+
+/-! ## The concatenation -/
+
+theorem silent_concat (vs : List GroundTerm) : silent listConcat vs = false := rfl
+
+/-- `ListItem(k) L` is the list with k in front, for every k. -/
+theorem hookRes_concat (k : Int) :
+    c.hookRes listConcat [GroundTerm.list Srt.list [ki k], GroundTerm.list Srt.list e1] = some (some (GroundTerm.list Srt.list (rest k))) := by
+  rw [Semantics.hookRes_of_not_silent (silent_concat _), hook_listConcat_fxv]; rfl
+
+def resV (k : Int) : Option GroundTerm := some (GroundTerm.list Srt.list (rest k))
+
+/-! ## `Step` -/
+
+def σ (k : Int) : Subst := [(0, .ctor dotk []), (1, GroundTerm.list Srt.list e1), (2, ctr), (3, int k)]
+
+theorem hmatchX (τ : Subst) (h0 : τ.lookup 0 = some (.ctor dotk [])) (h1 : τ.lookup 1 = some (GroundTerm.list Srt.list e1))
+    (h2 : τ.lookup 2 = some ctr) : PatVal c τ r0.lhs X.val := by
+  rw [r0_lhs]
+  exact .ctor syms_ok.1 (.cons (.ctor syms_ok.2.1 (.cons (.ctor syms_ok.2.2.1
+    (.cons (.inj (.ctor syms_ok.2.2.2.1 .nil)) (.cons (.var h0) .nil))) .nil))
+    (.cons (.ctor syms_ok.2.2.2.2.1 (.cons (.var h1) .nil)) (.cons (.var h2) .nil)))
+
+/-- `ListItem(V)` at V := k. -/
+theorem elemEval (k : Int) : EvalTerm c (σ k) (.app listElem [.inj Srt.int Srt.kitem (.var 3)])
+    (some (GroundTerm.list Srt.list [ki k])) :=
+  .hook syms_ok.2.2.2.2.2.2.2.1 syms_ok.2.2.2.2.2.2.2.2.1 (.cons (.inj .var) .nil)
+    (fun vs hvs => by
+      obtain rfl : vs = [ki k] := (Option.some.inj (show some [ki k] = some vs from hvs)).symm
+      exact Semantics.hookRes_of_value (hook_listElem_fxv _))
+    (fun h => nomatch (show some [ki k] = none from h))
+
+/-- `ListItem(V) L` at V := k. -/
+theorem concatEval (k : Int) : EvalTerm c (σ k)
+    (.app listConcat [.app listElem [.inj Srt.int Srt.kitem (.var 3)], .var 1]) (resV k) :=
+  .hook syms_ok.2.2.2.2.2.2.2.2.2.1 syms_ok.2.2.2.2.2.2.2.2.2.2 (.cons (elemEval k) (.cons .var .nil))
+    (fun vs hvs => by
+      obtain rfl : vs = [GroundTerm.list Srt.list [ki k], GroundTerm.list Srt.list e1] :=
+        (Option.some.inj (show some [GroundTerm.list Srt.list [ki k], GroundTerm.list Srt.list e1] = some vs from hvs)).symm
+      exact hookRes_concat k)
+    (fun h => nomatch (show some [GroundTerm.list Srt.list [ki k], GroundTerm.list Srt.list e1] = none from h))
+
+/-- **The step at V := k** where the right side has a value. -/
+theorem stepBy {k : Int} {v : GroundTerm} (hk : resV k = some v) (y : Config c) (hy : y.val = .ctor topLabel
+    [.ctor kCell [.ctor dotk []], .ctor lCell [v], ctr]) : StepBy c r0 (σ k) X y where
+  mem := by rw [rules_eq]; simp
+  hσ := fun j s hs => by
+    rw [r0_vars] at hs
+    match j, hs with
+    | 0, hs => cases hs; exact ⟨_, rfl, by decide +kernel⟩
+    | 1, hs => cases hs; exact ⟨_, rfl, by decide +kernel⟩
+    | 2, hs => cases hs; exact ⟨_, rfl, by decide +kernel⟩
+    | 3, hs => cases hs; exact ⟨_, rfl, sortOf_int k⟩
+    | _ + 4, hs => simp at hs
+  hmatch := hmatchX _ rfl rfl rfl
+  hreq := fun t ht => by rw [r0_shape.1] at ht; cases ht
+  hpre := by rw [r0_shape.2.2.1]; exact .top
+  heval := by
+    rw [r0_rhs, hy]
+    have h := concatEval k
+    rw [hk] at h
+    exact .ctor syms_ok.1 (.cons (.ctor syms_ok.2.1 (.cons .var .nil))
+      (.cons (.ctor syms_ok.2.2.2.2.1 (.cons h .nil)) (.cons .var .nil)))
+  hens := fun t ht => by rw [r0_shape.2.1] at ht; cases ht
+  hpost := by rw [r0_shape.2.2.2.1]; exact .top
+  hprio := fun r' hr' hlt => by
+    rw [rules_eq] at hr'
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at hr'
+    subst hr'
+    exact absurd hlt (Nat.lt_irrefl _)
+
+/-! ## No other successor -/
+
+/-- **What the left side denotes**: `<k> go() ~> w </k>` with the collection m and the counter cell u,
+w, m and u the values σ gives the variables 0, 1 and 2. -/
+theorem lhs_inv {τ : Subst} {x : GroundTerm} (h : PatVal c τ r0.lhs x) :
+    ∃ w m u, x = .ctor topLabel [.ctor kCell [.ctor kseq [.inj sExp Srt.kitem (.ctor symGo []), w]],
+      .ctor lCell [m], u] ∧ τ.lookup 0 = some w ∧ τ.lookup 1 = some m ∧ τ.lookup 2 = some u := by
+  rw [r0_lhs] at h
+  obtain ⟨-, vs, rfl, hvs⟩ := PatVal.app_inv hooks_ok.1 h syms_ok.1
+  obtain ⟨v1, vs1, rfl, h1, hvs1⟩ := hvs.cons_inv
+  obtain ⟨v2, vs2, rfl, h2, hvs2⟩ := hvs1.cons_inv
+  obtain ⟨u, vs3, rfl, h3, hvs3⟩ := hvs2.cons_inv
+  cases hvs3.nil_inv
+  obtain ⟨-, ws, rfl, hws⟩ := PatVal.app_inv hooks_ok.2.1 h1 syms_ok.2.1
+  obtain ⟨w1, ws1, rfl, h11, hws1⟩ := hws.cons_inv
+  cases hws1.nil_inv
+  obtain ⟨-, ns, rfl, hns⟩ := PatVal.app_inv hooks_ok.2.2.2.2 h2 syms_ok.2.2.2.2.1
+  obtain ⟨m, ns1, rfl, hm, hns1⟩ := hns.cons_inv
+  cases hns1.nil_inv
+  obtain ⟨-, zs, rfl, hzs⟩ := PatVal.app_inv hooks_ok.2.2.1 h11 syms_ok.2.2.1
+  obtain ⟨z1, zs1, rfl, hz1, hzs1⟩ := hzs.cons_inv
+  obtain ⟨w, zs2, rfl, hz2, hzs2⟩ := hzs1.cons_inv
+  cases hzs2.nil_inv
+  obtain ⟨a, ha, rfl⟩ := PatVal.inj_inv hz1
+  obtain ⟨-, as, rfl, has⟩ := PatVal.app_inv hooks_ok.2.2.2.1 ha syms_ok.2.2.2.1
+  cases has.nil_inv
+  exact ⟨w, m, u, rfl, PatVal.var_inv hz2, PatVal.var_inv hm, PatVal.var_inv h3⟩
+
+/-- **A step from x is at V := k for an Int k where the right side has a value v, to the collection v.** -/
+theorem stepBy_inv {τ : Subst} {y : Config c} (hb : StepBy c r0 τ X y) :
+    ∃ k v, τ.lookup 3 = some (int k) ∧ resV k = some v ∧
+      y.val = .ctor topLabel [.ctor kCell [.ctor dotk []], .ctor lCell [v], ctr] := by
+  obtain ⟨w, m, u, hx, h0, h1, h2⟩ := lhs_inv hb.hmatch
+  simp only [X, GroundTerm.ctor.injEq, List.cons.injEq, and_true, true_and] at hx
+  obtain ⟨rfl, rfl, rfl⟩ := hx
+  obtain ⟨v, h3, hv⟩ := hb.hσ 3 Srt.int (by rw [r0_vars]; rfl)
+  obtain ⟨k, rfl⟩ := shape_int shapesOK hv
+  have h := hb.heval
+  rw [r0_rhs] at h
+  obtain ⟨rs, hrs, he⟩ := EvalTerm.ctor_inv syms_ok.1 h
+  obtain ⟨q1, rs1, rfl, hq1, hrs1⟩ := hrs.cons_inv
+  obtain ⟨q2, rs2, rfl, hq2, hrs2⟩ := hrs1.cons_inv
+  obtain ⟨q3, rs3, rfl, hq3, hrs3⟩ := hrs2.cons_inv
+  cases hrs3.nil_inv
+  rw [hq3.var_inv, h2] at he
+  obtain ⟨ps, hps, rfl⟩ := EvalTerm.ctor_inv syms_ok.2.1 hq1
+  obtain ⟨p1, ps1, rfl, hp1, hps1⟩ := hps.cons_inv
+  cases hps1.nil_inv
+  rw [hp1.var_inv, h0] at he
+  obtain ⟨ms, hms, rfl⟩ := EvalTerm.ctor_inv syms_ok.2.2.2.2.1 hq2
+  obtain ⟨m', ms1, rfl, hm', hms1⟩ := hms.cons_inv
+  cases hms1.nil_inv
+  obtain ⟨cs, hcs, hhc, -⟩ := evalHook_inv_fxv syms_ok.2.2.2.2.2.2.2.2.2.1 syms_ok.2.2.2.2.2.2.2.2.2.2 hm'
+  obtain ⟨c1, cs1, rfl, hc1, hcs1⟩ := hcs.cons_inv
+  obtain ⟨c2, cs2, rfl, hc2, hcs2⟩ := hcs1.cons_inv
+  cases hcs2.nil_inv
+  rw [hc2.var_inv, h1] at hhc
+  obtain ⟨es, hes, hhe, -⟩ := evalHook_inv_fxv syms_ok.2.2.2.2.2.2.2.1 syms_ok.2.2.2.2.2.2.2.2.1 hc1
+  obtain ⟨f1, es1, rfl, hf1, hes1⟩ := hes.cons_inv
+  cases hes1.nil_inv
+  obtain ⟨f1', hf1', rfl⟩ := EvalTerm.inj_inv hf1
+  rw [hf1'.var_inv, h3] at hhe
+  have hel := hhe _ rfl
+  rw [Semantics.hookRes_of_value (hook_listElem_fxv _)] at hel
+  cases hel
+  have hcat : c.hookRes listConcat [GroundTerm.list Srt.list [ki k], GroundTerm.list Srt.list e1] = some m' := hhc _ rfl
+  have hres : resV k = m' := by rw [hookRes_concat k] at hcat; exact Option.some.inj hcat
+  cases m' with
+  | none => simp only [allSome, Option.bind, Option.map] at he; cases he
+  | some v =>
+    refine ⟨k, v, h3, hres, ?_⟩
+    simp only [allSome, Option.bind, Option.map, Option.some.injEq] at he
+    exact he
+
+/-- **The successors of x** are exactly the `ListItem(k) L`, k an Int. -/
+theorem step_iff (y : Config c) : Step c X y ↔ ∃ k, y = Y k := by
+  constructor
+  · intro hs
+    obtain ⟨r, τ, hb⟩ := step_iff_by.mp hs
+    have hr := hb.mem
+    rw [rules_eq] at hr
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at hr
+    subst hr
+    obtain ⟨k, v, -, hk, hy⟩ := stepBy_inv hb
+    simp only [resV, Option.some.injEq] at hk
+    subst hk
+    exact ⟨k, Subtype.ext hy⟩
+  · rintro ⟨k, rfl⟩
+    exact step_iff_by.mpr ⟨r0, σ k, stepBy rfl (Y k) rfl⟩
+
+/-- **In every model of `Γc`, x has a successor among the instances of the application, and each
+successor is one of them** (`sound_at`; no competitor, no function). -/
+theorem sound_xy {k : Int} {v : GroundTerm} (hk : resV k = some v) (y : Config c) (hy : y.val = .ctor topLabel
+    [.ctor kCell [.ctor dotk []], .ctor lCell [v], ctr]) :
+    (Γc c ⊧ (den c X.val ⇒ KoreAML.sNext (famEx c r0 (σ k)))) ∧ (Γc c ⊧ (den c y.val ⇒ famEx c r0 (σ k))) :=
+  sound_at c coreOK X y r0 (σ k) (stepBy hk y hy)
+    (fun r' hr' hlt _ _ => by
+      rw [rules_eq] at hr'
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at hr'
+      subst hr'
+      exact absurd hlt (Nat.lt_irrefl _))
+    (fun fn hfn => by rw [fns_nil] at hfn; cases hfn)
+
+/-- **By `ExactC`**: y is a successor of x in some model of `Γc` with the step's closure exactly where
+`Step` has it. -/
+theorem exact_y (y : Config c) :
+    (∃ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M),
+      (I ⊧ᴵP (Γc c ∪ Γstep c)) ∧ ¬ (I ⊧ᴵ (den c X.val ⇒ ∼ KoreAML.sNext (den c y.val)))) ↔
+    ∃ k, y = Y k := by
+  rw [← exact_hyp c coreOK fnHyp X y]
+  exact step_iff y
+
+/-- info: 'HeldFixtures.VarsList.held' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms held
+/-- info: 'HeldFixtures.VarsList.step_iff' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms step_iff
+/-- info: 'HeldFixtures.VarsList.sound_xy' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms sound_xy
+/-- info: 'HeldFixtures.VarsList.exact_y' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms exact_y
+
+end VarsList
 
 end HeldFixtures
