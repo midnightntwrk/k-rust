@@ -375,6 +375,7 @@ import KcoreSpec.KKLitsVPatVal
 import KcoreSpec.KKMatchF
 import KcoreSpec.KKMatchFSpec
 import KcoreSpec.KKMatchColSpec
+import KcoreSpec.KKMatchTotal
 import KcoreSpec.GenEqsInitArm
 import KcoreSpec.ValueModelApp
 import KcoreSpec.ModelHasEx
