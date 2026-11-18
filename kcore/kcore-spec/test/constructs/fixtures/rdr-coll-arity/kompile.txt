@@ -1,0 +1,22 @@
+command: kompile --backend haskell rdr-coll-arity.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 3.7
+output:
+  kore-exec: [58141] Error (ErrorVerify):
+      Error:
+        module 'RDR-COLL-ARITY':
+        hooked-symbol 'LblMyItem' declaration (definition.kore 105:17):
+        In argument sorts:
+          Expected 1 arguments, found 2
+  Error:
+    module 'RDR-COLL-ARITY':
+    hooked-symbol 'LblMyItem' declaration (definition.kore 105:17):
+    In argument sorts:
+      Expected 1 arguments, found 2
+  Created bug report: kore-exec.tar.gz
+  [Error] Critical: Haskell backend reported errors validating compiled
+  definition.
+  Examine output to see errors.
+  [Warning] Compiler: Could not find main syntax module with name
+  RDR-COLL-ARITY-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  RDR-COLL-ARITY as default.

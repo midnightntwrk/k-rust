@@ -1,0 +1,20 @@
+command: kompile --backend haskell rdr-own-mint.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 2.5
+output:
+  kore-exec: [18778] Error (ErrorVerify):
+      Error:
+        module 'RDR-OWN-MINT':
+        (definition.kore 80:15, definition.kore 72:8):
+          Duplicated name: SortMInt.
+  Error:
+    module 'RDR-OWN-MINT':
+    (definition.kore 80:15, definition.kore 72:8):
+      Duplicated name: SortMInt.
+  Created bug report: kore-exec.tar.gz
+  [Error] Critical: Haskell backend reported errors validating compiled
+  definition.
+  Examine output to see errors.
+  [Warning] Compiler: Could not find main syntax module with name
+  RDR-OWN-MINT-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  RDR-OWN-MINT as default.

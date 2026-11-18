@@ -1,0 +1,4 @@
+# Hand-written KORE: hw-base's kompiled text with a declaration of LblisMInt (no Source), the predicate name
+# kompile would generate for a sort named MInt without parameters, which no text it delivers holds (fixtures/rdr-own-mint).
+# From: test/constructs/kfix.py run hw-base's definition.kore.
+kore = "test/constructs/fixtures/hw-ispred-mint/hw-ispred-mint.kore"

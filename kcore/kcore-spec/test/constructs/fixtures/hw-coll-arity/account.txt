@@ -1,0 +1,17 @@
+test/constructs/fixtures/hw-coll-arity/hw-coll-arity.kore: 5 modules; prelude agrees
+user module RDR-COLL-ARITY: 402 sentences
+  1 inert import [generated]
+  185 read [generated]
+  184 read [builtin]
+  4 read [user]
+  4 inert injectivity [generated]
+  12 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert parametricFunctional [generated]
+  9 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 collectionShape
+      the module (RDR-COLL-ARITY): collectionShape (MySet)
+finish: the module (RDR-COLL-ARITY): collectionShape (MySet)
+(exit 0)

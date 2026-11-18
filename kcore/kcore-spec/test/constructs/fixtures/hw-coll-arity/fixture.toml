@@ -1,0 +1,4 @@
+# The text kompile's frontend writes for fixtures/rdr-coll-arity (a set sort of the text whose element symbol has two
+# arguments), which kore-exec refuses in kompile's validation step (rdr-coll-arity/kompile.txt): out/definition.kore
+# of that run with the fixture directory's path made relative.
+kore = "test/constructs/fixtures/hw-coll-arity/hw-coll-arity.kore"

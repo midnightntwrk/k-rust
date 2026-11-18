@@ -1,0 +1,4 @@
+# Hand-written KORE: hw-base's kompiled text without one sentence of the library module INT-KORE
+# (domains.md 1415, `I +Int B => B +Int I` [simplification]), the other sentences of the module kept.
+# From: test/constructs/kfix.py run hw-base's definition.kore. kompile writes every sentence of each library module it includes.
+kore = "test/constructs/fixtures/hw-lib-missing/hw-lib-missing.kore"

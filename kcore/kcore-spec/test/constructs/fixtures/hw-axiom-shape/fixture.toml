@@ -1,0 +1,3 @@
+# Hand-written KORE: hw-base's kompiled text with the premise of f's equation \and(\bottom, ...) in place of \and(\top, ...):
+# an axiom of none of the forms the reader reads or classes inert. From: test/constructs/kfix.py run hw-base's definition.kore.
+kore = "test/constructs/fixtures/hw-axiom-shape/hw-axiom-shape.kore"
