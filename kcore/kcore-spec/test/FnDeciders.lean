@@ -8,7 +8,7 @@
      termination and for totality; the rank `[G, F]` names nothing (`rk_rank`). A rank that puts F
      first names F (`rk_wrongRank`): a wrong rank only names more.
   2. `mt`: `F(X) = G(X)`, `G(X) = F(X)`. Every rank names one of them (`mt_rank`): the order of the
-     functions must put each callee first, and a cycle has no such order. (That neither terminates (hpreTop := by decide +kernel)
+     functions must put each callee first, and a cycle has no such order. (That neither terminates
      is TerminationGaps' `gapSelf` with one more call.)
   3. `ls`: `H(ListItem(X) L) = X` (one list pattern), `K(K' |-> V M, K') = V` (a map whose key the
      second argument binds), `S(L1 L2) = L1` (two frames). `clauseFixed` refuses the first two and

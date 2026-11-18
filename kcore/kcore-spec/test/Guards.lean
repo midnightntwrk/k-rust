@@ -207,14 +207,14 @@ theorem eval_noValue_of_ens_fails {c : Semantics} {f : Sym} {fn : Fn} {vs : List
     ¬ ∃ v, Eval c f vs (some v) := fun ⟨_, h⟩ =>
   nomatch Eval.functional hco h (.ensFails hfn hmem hσ hmatch hreq hpre hprio hex he hev hr)
 
-/-- `Γ` entails `f(vs) = ⊥` where `f` has no value, for every interpretation, from `coreOK` on the
-data (`coreOK` does not read the interpretation). -/
+/-- `Γ` entails `f(vs) = ⊥` where `f` has no value, for every interpretation, from `coreOK` and
+`clausesPreTop` on the data (neither reads the interpretation). -/
 theorem gamma_bot_everyH {c : Semantics} (hcore : c.coreOK = true) (hr : ∀ k ∈ c.params, k.raw = false)
     (hbc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true) {f : Sym} {fn : Fn} {vs : List GroundTerm}
     (hfn : c.lookupFn f = some fn) (hvs : c.sortsOf vs = some fn.args) (H : HookParams)
-    (hE : Eval (c.withHooks H) f vs none) :
+    (hE : Eval (c.withHooks H) f vs none) (hpreTop : c.clausesPreTop = true := by decide +kernel) :
     Γ (c.withHooks H) ⊧ (KoreAML.den (symApp (c.withHooks H) f (GroundTerm.koreList (c.withHooks H) vs)) ≡ ⊥) :=
-  eval_none_sound_core (hpreTop := by decide +kernel) _ (hypSound_of_core ((Semantics.coreOK_withHooks c H).trans hcore)) hbc hE
+  eval_none_sound_core _ ((Semantics.clausesPreTop_withHooks c H).trans hpreTop) (hypSound_of_core ((Semantics.coreOK_withHooks c H).trans hcore)) hbc hE
     (by rw [Semantics.lookupFn_withHooks]; exact hfn) (by rw [Semantics.sortsOf_withHooks _ _ hr]; exact hvs)
 
 namespace Ens
