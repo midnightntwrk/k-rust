@@ -55,7 +55,9 @@ The evidence forms (DONE-0 C2's table), by status and list, and the items each n
   supported E4, E5
       fixture, clean, fresh, tie, theorems as above; node: the fixture's kompiled sentences (kore.txt,
       or the text of a `kore` fixture) hold the row's node or translation site, found by
-      test/constructs/e4e5.py's parse of the text when that module exists, else by `sentence`
+      test/constructs/e4e5.py's parse of the text when that module exists, else by `sentence`;
+      with `node_sentence`, the sentence of the fixture's cached kompiled definition whose first
+      line contains it holds the node (e4e5.py)
   supported hook (E6, key hook:)
       derived      a `derived` table of form (a) (the in-domain value; FIX-core.rows-evidence names
                    the hook's three statements there)
@@ -615,7 +617,7 @@ def node_held(fx, l, key, x, e):
     except ImportError:
         e4e5 = None
     if e4e5 is not None:
-        return e4e5.holds(fx, l, key, x)
+        return e4e5.holds(fx, l, key, x, e.get("node_sentence"))
     if "sentence" in e:
         return True, "sentence"
     return False, "no parse of the text (test/constructs/e4e5.py) and no sentence"

@@ -149,6 +149,15 @@
 #   tie_theorems  the theorems of those modules the entry rests on (C14's statement for its class,
 #             the tie of its sentence), full names, each declared in a file of `tie`; with the
 #             `theorem` of each `derived` table, the theorems the entry names.
+#   node_sentence  on a supported E4 or E5 row or `cases` entry whose node is a sentence kore.txt
+#             leaves out (a builtin file's sentence, whose Source is K's): a substring of the first
+#             line of that sentence in the fixture's kompiled definition (the text kompile.txt's
+#             `definition.kore sha256` names, read from kfix.py's cache). The node check (e4e5.py
+#             check, rest.py's item node) then parses that definition and requires the sentence
+#             the string locates to hold the row's node, instead of looking in kore.txt; absent,
+#             the node is looked up in kore.txt (or the `kore` fixture's text). Only an entry whose
+#             sentence kore.txt leaves out carries it: every kompiled definition holds the library's
+#             sentences, so the definition alone would hold most nodes on any fixture.
 #   inert_class  for inert: the constructor of InertReason (KcoreSpec/Parse.lean) its sentence is
 #             classed under, or "use" (DONE-0 C1's class use, with `reason` C1's reason).
 #   For erased, the forms of findings/work/decision-fixrest-erased-forms.md section 2, at least one,
