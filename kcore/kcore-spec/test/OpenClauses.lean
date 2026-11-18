@@ -113,13 +113,13 @@ example {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M} (hI : I �
     (hH : clH.CondDecided c) (hG : clG.CondDecided c) (hrc : c.readsConfined = true) :
     Faithful.ExclEmptyCl c I fH clH ∧ Faithful.ExclEmptyCl c I gG clG ∧ Faithful.ExclEmptyCl c I gB clB ∧
       Faithful.ExclEmptyCl c I gP clP :=
-  ⟨Faithful.exclEmptyCl_of coreOK hI Faithful.fns_headsOK sorted.1.1 sorted.1.2.1
+  ⟨Faithful.exclEmptyCl_of coreOK hI Faithful.fns_headsOK sorted.1.1 sorted.1.2.1 rfl
       (fun h' => by rw [conf.1] at h'; cases h') (fun _ => hH),
-   Faithful.exclEmptyCl_of coreOK hI Faithful.fns_headsOK sorted.2.1.1 sorted.2.1.2.1
+   Faithful.exclEmptyCl_of coreOK hI Faithful.fns_headsOK sorted.2.1.1 sorted.2.1.2.1 rfl
       (fun h' => by rw [conf.2.1] at h'; cases h') (fun _ => hG),
-   Faithful.exclEmptyCl_of coreOK hI Faithful.fns_headsOK sorted.2.2.1.1 sorted.2.2.1.2.1
+   Faithful.exclEmptyCl_of coreOK hI Faithful.fns_headsOK sorted.2.2.1.1 sorted.2.2.1.2.1 rfl
       (fun _ => hrc) (fun h' => by rw [arms.2.2.1.2.2] at h'; cases h'),
-   Faithful.exclEmptyCl_of coreOK hI Faithful.fns_headsOK sorted.2.2.2.1 sorted.2.2.2.2.1
+   Faithful.exclEmptyCl_of coreOK hI Faithful.fns_headsOK sorted.2.2.2.1 sorted.2.2.2.2.1 rfl
       (fun h' => by rw [conf.2.2.2] at h'; cases h') (fun h' => by rw [arms.2.2.2.2] at h'; cases h')⟩
 
 /-- The text with `clB` among `g`'s clauses and `f` the function of the clause `clH`. -/
@@ -140,9 +140,9 @@ theorem coreBH : cBH.coreOK = true ∧ cBH.readsConfined = true ∧
 example {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP Faithful.Γc cBH)
     (hH : clH.CondDecided cBH) :
     Faithful.ExclEmptyCl cBH I gB clB ∧ Faithful.ExclEmptyCl cBH I fH clH :=
-  ⟨Faithful.exclEmptyCl_of coreBH.1 hI Faithful.fns_headsOK coreBH.2.2.1.1 coreBH.2.2.1.2
+  ⟨Faithful.exclEmptyCl_of coreBH.1 hI Faithful.fns_headsOK coreBH.2.2.1.1 coreBH.2.2.1.2 rfl
       (fun _ => coreBH.2.1) (fun h' => by rw [coreBH.2.2.2.2.1] at h'; cases h'),
-   Faithful.exclEmptyCl_of coreBH.1 hI Faithful.fns_headsOK coreBH.2.2.2.1.1 coreBH.2.2.2.1.2
+   Faithful.exclEmptyCl_of coreBH.1 hI Faithful.fns_headsOK coreBH.2.2.2.1.1 coreBH.2.2.2.1.2 rfl
       (fun h' => by rw [coreBH.2.2.2.2.2.2] at h'; cases h') (fun _ => hH)⟩
 
 /-- `exclEmptyCl_core` at `clG`, from `Fails` alone: where `clG` fails at `[w]`, its exclusion is
@@ -150,8 +150,8 @@ empty at every valuation giving `X0` w's element. -/
 example {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP Faithful.Γc c)
     (hG : clG.CondDecided c) {w : GroundTerm} (hw : c.sortsOf [w] = some [Srt.int])
     (hf : Fails c [w] clG) : True := by
-  have := @Faithful.exclEmptyCl_core c M _ I coreOK (by decide +kernel) hI gG clG _ Faithful.fns_headsOK sorted.2.1.1
-    sorted.2.1.2.1 (fun h' => by rw [conf.2.1] at h'; cases h') (fun _ => hG) [w] hw hf
+  have := @Faithful.exclEmptyCl_core c M _ I (by decide +kernel) coreOK (by decide +kernel) hI gG clG _ Faithful.fns_headsOK
+    sorted.2.1.1 sorted.2.1.2.1 rfl (fun h' => by rw [conf.2.1] at h'; cases h') (fun _ => hG) [w] hw hf
   trivial
 
 /-! ## A clause that decides: `clause_den4Cl` -/
@@ -184,9 +184,11 @@ example {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M} (hI : I �
     (hE : Faithful.ExclEmptyCl c2 I gG clG) (hF : Fails c2 ws clG) (hM : Faithful.ModelFailsCl c2 I clG ws) :
     True := by
   obtain ⟨hpG, hoG, hrG, hhG, heG⟩ := Semantics.clauseSortedOpen_parts den_facts.1
-  obtain ⟨hexG, hpreG, hpostG, -⟩ := Semantics.clausePlainOpen_parts den_facts.2.1
+  obtain ⟨hexG, hpostG, -, -⟩ := Semantics.clausePlainOpen_partsP den_facts.2.1
+  have hpreG : clG.pre = .top := rfl
   obtain ⟨hpO, hoO, hrO, hhO, heO⟩ := Semantics.clauseSortedOpen_parts den_facts.2.2.1
-  obtain ⟨hexO, hpreO, hpostO, -⟩ := Semantics.clausePlainOpen_parts den_facts.2.2.2.1
+  obtain ⟨hexO, hpostO, -, -⟩ := Semantics.clausePlainOpen_partsP den_facts.2.2.2.1
+  have hpreO : clO.pre = .top := rfl
   have hmemG : clG ∈ gG.clauses := by rw [gG_clauses]; exact List.mem_cons_self ..
   have hmemO : clO ∈ gG.clauses := by rw [gG_clauses]; exact List.mem_cons_of_mem _ (List.mem_singleton_self _)
   have hlowG : ∀ cl' ∈ gG.clauses, cl'.aside = false → cl'.prio < clG.prio → False := by
@@ -239,7 +241,7 @@ example : OpenDecided c :=
 of `c2` (from the decided facts). -/
 example : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, ∃ L, HeadsOK c L ∧ Faithful.ClauseOpenFacts c fn L cl :=
   Faithful.clauseOpenFacts_of_sortedOK (hpreTop := by decide +kernel) (Semantics.coreOK_parts coreOK).1
-example : Faithful.ClauseOpenFacts c2 gG (c2.fns.map Fn.sig) clG := Faithful.clauseOpenFacts_of den_facts.1 den_facts.2.1
+example : Faithful.ClauseOpenFacts c2 gG (c2.fns.map Fn.sig) clG := Faithful.clauseOpenFacts_of (by decide +kernel) den_facts.1 den_facts.2.1 rfl
 
 /-- `c2`, whose clause `clG` has a variable its patterns do not bind, meets `coreOK`, which gives the
 clause facts of every clause of `c2`. -/

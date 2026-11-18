@@ -965,7 +965,7 @@ theorem hypModel5 : Faithful.Model.HypModelCore c5 :=
 its patterns and conditions**: in the value model, `clYE`'s exclusion holds exactly where its
 (empty) patterns match and its (absent) `requires` holds under a substitution well sorted on
 `leftVars`, which is empty; Y is not asked a value. -/
-example := @Faithful.Model.exclusion_iffCl c5 hypModel5 fF5
+example := @Faithful.Model.exclusion_iffCl c5 (by decide +kernel) hypModel5 fF5
   (List.mem_append_left _ (List.mem_append_right _ (List.mem_singleton_self _))) clYE (List.mem_cons_self ..)
 
 /-- info: 'KCore.Faithful.Model.exclusion_iffCl' depends on axioms: [propext, Classical.choice, Quot.sound] -/
