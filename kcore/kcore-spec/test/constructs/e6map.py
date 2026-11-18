@@ -7,6 +7,8 @@ Usage (from kcore-spec):
                                                 uncovered; exit 0
   python3 -I test/constructs/e6map.py --write   also write each row's field e6_tie
   python3 -I test/constructs/e6map.py --check   exit 1 unless every row's e6_tie is the one computed
+                                                and the self-check passes
+  python3 -I test/constructs/e6map.py --self-check   form (d)'s self-check only (below)
 
 Tied texts and their tie files: the Lean files test/TieEns*.lean, test/TieKimp*.lean,
 test/TieKk*.lean and test/LibEv*.lean, each on the text its `user_axioms U from "TEXT"` names.
@@ -31,14 +33,37 @@ A row's sentences are the text's axioms whose key, computed as test/constructs/e
 E6's keys (the axiom's Source file, the module of that file holding its Location line, and the
 Location's line and column; `lemma` when it is a simplification, and `#N` after the key for the
 N-th sentence of a text with that key where rows.toml has a row of that name, as extract.py
-numbers the sentences of one location, a `comm` rule's two among them), is the row's key. A row of a
-declaration (sort, symbol, token) is tied only where (a) to (c) name it, which none of them does: a
-declaration is not an axiom. A module row is tied when every row of the module in this scope (axiom,
-lemma, sort, symbol) is, and at least one exists.
-e6_tie, on a row: a list of "THEOREM (FILE; TEXT axiom N)" strings, "refuted: MODULE; ..." (above), or
-"uncovered: MODULE" with, after
-the module, why: no tied text holds the sentence, the texts that hold it tie it by no theorem, or
-the row is a declaration (or a module with a row left uncovered).
+numbers the sentences of one location, a `comm` rule's two among them), is the row's key.
+A declaration is not an axiom, so (a) to (c) tie none. A row of a declaration (sort, symbol, token) is
+tied by form (d), on the declaration files: the Lean files test/TieEns*.lean, test/TieKimp*.lean,
+test/TieKk*.lean, test/TieRangeMap*.lean and test/LibEv*.lean, each on the text its
+`kore_term kore from "TEXT"` names. A row's declarations are the text's sort and symbol declarations
+with a builtin Source whose key, computed as extract.py computes E6's (the declaration's kind, the
+module of its Location line, its name; a hooked one is a hook row's, outside this scope), is the
+row's key; a token row's declaration is that of its sort, declared `token` or `hasDomainValues`, so
+it is tied as the sort declaration's item (G-sort), which says nothing of how a `\\dv` string is read.
+  (d) a theorem with H whose statement (its text up to `:=`, spaces collapsed) holds one of:
+      - `∀ it ∈ declItems, Γ (cH H) ⊧ it.pat`, the file defining `plainSorts` and `declItems` by the
+        lines PLAIN_SORTS and DECL_ITEMS, or `∀ sd ∈ kore.sortDecls, sd.params = [] → Γ (cH H) ⊧
+        (sortConstantItem sd).pat`: it ties each sort declaration of the text without sort parameters;
+      - `∀ sd ∈ X, Γ (cH H) ⊧ (sortConstantItem sd).pat`, the file defining
+        `X : List SortDecl := kore.sortDecls.filter (N.contains ·.name)` and `N : List String` as a
+        literal list: it ties each sort declaration without sort parameters named in N;
+      - `∀ sd ∈ kore.symbolDecls, sd.params = [] → sd.name ∈ N → Γ (cH H) ⊧ (arityItem sd).pat`,
+        the file defining `N : List String` as a literal list: it ties each symbol declaration without
+        sort parameters named in N.
+      A symbol declaration is tied only by a list naming it: that it names a symbol of Γ (and so is
+      among the items `decls_entailed` reaches) is the kernel's fact in that file, not this script's.
+The self-check: each theorem `decls_entailed` of a declaration file is in a form of (d); each name of
+a symbol statement's list is an unhooked symbol declaration of the file's text with a builtin Source
+and without sort parameters; and the control row DECL_CONTROL, which those texts declare without sort
+parameters and no list names, is held by a text of (d) and not tied.
+A module row is tied when every row of the module in this scope (axiom, lemma, sort, symbol) is, and
+at least one exists.
+e6_tie, on a row: a list of "THEOREM (FILE; TEXT axiom N)" or "THEOREM (FILE; TEXT sort|symbol
+declaration NAME)" strings, "refuted: MODULE; ..." (above), or "uncovered: MODULE" with, after the
+module, why: no tied text holds the sentence or declaration, the texts that hold it tie it by no
+theorem (or a module with a row left uncovered).
 """
 import os, re, sys, tomllib
 from collections import defaultdict
@@ -52,6 +77,7 @@ KR = relsource.krust_root() or "K_RUST-unset"
 KOMPILE = os.environ.get("K_KOMPILE", os.path.join(KR, "k/result/bin/kompile"))
 BUILTIN = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(KOMPILE))), "include/kframework/builtin")
 TIE_FILE = re.compile(r"^(TieEns|TieKimp|TieKk|LibEv)\w*\.lean$")
+DECL_FILE = re.compile(r"^(TieEns|TieKimp|TieKk|TieRangeMap|LibEv)\w*\.lean$")
 SRC = re.compile(r"Source\{\}\(\"Source\(([^)]*)\)\"\)")
 LOC = re.compile(r"Location\{\}\(\"Location\((\d+),(\d+),(\d+),(\d+)\)\"\)")
 
@@ -136,6 +162,27 @@ def e6_key(s):
     return f"{kind}:{module_at(f, int(lm.group(1)))}:{lm.group(1)}:{lm.group(2)}"
 
 
+def file_theorems(t):
+    """[(full name, statement)] of a Lean file's theorems: the statement is the text up to `:=`
+    (namespaces tracked by their `namespace` and `end` lines)."""
+    ns, out = [], []
+    for l in t.split("\n"):
+        m = re.match(r"namespace (\S+)", l)
+        if m:
+            ns.append(m.group(1))
+        m = re.match(r"end (\S+)\s*$", l)
+        if m and ns and ns[-1] == m.group(1):
+            ns.pop()
+        m = re.match(r"(?:private )?theorem (\S+)", l)
+        if m:
+            out.append([".".join(ns + [m.group(1)]), l])
+        elif out and out[-1][1] is not None:
+            out[-1][1] += "\n" + l
+        if out and out[-1][1] is not None and ":=" in out[-1][1]:
+            out[-1].append(out[-1][1].split(":=")[0]); out[-1][1] = None
+    return [(th[0], th[2]) for th in out if len(th) >= 3]
+
+
 def lean_ties():
     """text -> index -> [(theorem, file)], from the tie files' text (forms (a) and (b))."""
     ties = defaultdict(lambda: defaultdict(list))
@@ -153,25 +200,7 @@ def lean_ties():
         lists = {m.group(1): idx[m.group(2)] for m in re.finditer(
             r"^(?:noncomputable )?def (\w+) : List AxiomDecl :=\s*U\.all\.filter fun ad => (\w+)\.contains ad\.index\s*$",
             t, re.M) if m.group(2) in idx}
-        ns, out = [], []
-        for l in t.split("\n"):
-            m = re.match(r"namespace (\S+)", l)
-            if m:
-                ns.append(m.group(1))
-            m = re.match(r"end (\S+)\s*$", l)
-            if m and ns and ns[-1] == m.group(1):
-                ns.pop()
-            m = re.match(r"(?:private )?theorem (\S+)", l)
-            if m:
-                out.append([".".join(ns + [m.group(1)]), l])
-            elif out and out[-1][1] is not None:
-                out[-1][1] += "\n" + l
-            if out and out[-1][1] is not None and ":=" in out[-1][1]:
-                out[-1].append(out[-1][1].split(":=")[0]); out[-1][1] = None
-        for th in out:
-            if len(th) < 3:
-                continue
-            name, stmt = th[0], th[2]
+        for name, stmt in file_theorems(t):
             if "HookParams" not in stmt:
                 continue
             ns_ = {int(x) for x in re.findall(r"\bU\.ax(\d+)\b", stmt)}
@@ -208,6 +237,137 @@ def kimp_ties():
     return tie["text"], out
 
 
+def declarations(path):
+    """[(row key, kind, name, has sort parameters)] of a text's sort and symbol declarations with a
+    builtin Source, keyed as test/constructs/extract.py keys E6's declarations (a hooked one's key is
+    a hook row's, outside this scope), and a `token:` key beside the sort key of a sort declared
+    `token` or `hasDomainValues`."""
+    out, cur = [], None
+    for l in open(os.path.join(K, path)).read().split("\n"):
+        if l.lstrip().startswith("//"):
+            continue
+        if re.match(r"\s+(sort|hooked-sort|symbol|hooked-symbol|claim|alias|import|axiom)\b", l) or \
+                l.startswith("endmodule") or l.startswith("module "):
+            if cur:
+                out.append(cur)
+            cur = l.strip() if re.match(r"\s+(sort|hooked-sort|symbol|hooked-symbol) ", l) else None
+        elif cur:
+            cur += "\n" + l
+    if cur:
+        out.append(cur)
+    res = []
+    for s in out:
+        sm = SRC.search(s)
+        if not sm or "/include/kframework/builtin/" not in sm.group(1):
+            continue
+        lm = LOC.search(s)
+        mod = module_at(os.path.basename(sm.group(1)), int(lm.group(1)) if lm else 0)
+        head = s.split()[0]
+        m = re.match(r"\S+ (\S+?)\{([^}]*)\}", s)
+        nm, params = m.group(1), bool(m.group(2).strip())
+        kind = "sort" if head in ("sort", "hooked-sort") else "symbol"
+        if not re.search(r'(?<![-\w])hook\{\}\("([^"]*)"\)', s):
+            res.append((f"{kind}:{mod}:{nm}", kind, nm, params))
+        if kind == "sort" and re.search(r"\btoken\{\}\(\)|hasDomainValues\{\}\(\)", s):
+            res.append((f"token:{nm}", kind, nm, params))
+    return res
+
+
+def str_lists(t):
+    """name -> the literal `List String` the file defines under that name."""
+    return {m.group(1): re.findall(r'"((?:[^"\\]|\\.)*)"', m.group(2))
+            for m in re.finditer(r"^def (\w+) : List String :=\s*\[([^\]]*)\]", t, re.M)}
+
+
+PLAIN_SORTS = "noncomputable def plainSorts : List SortDecl := kore.sortDecls.filter (·.params.isEmpty)"
+DECL_ITEMS = "noncomputable def declItems : List Item := plainSorts.map sortConstantItem ++ plainSyms.map arityItem"
+
+
+def decl_forms():
+    """file -> (text, [(theorem, 'sort' | 'symbol', None for every declaration without sort
+    parameters or the set of names)]), each declaration file's text and its statements of form (d)
+    (none for a file stating none), and the theorems `decls_entailed` of the declaration files in no
+    form of (d) (the self-check's)."""
+    forms, odd = {}, []
+    for f in sorted(os.listdir(os.path.join(K, "test"))):
+        if not DECL_FILE.match(f):
+            continue
+        rel = "test/" + f
+        t = open(os.path.join(K, rel)).read()
+        km = re.search(r'^kore_term kore from "([^"]+)"', t, re.M)
+        if not km:
+            continue
+        lines = set(l.strip() for l in t.split("\n"))
+        strs = str_lists(t)
+        sortsets = {m.group(1): set(strs[m.group(2)]) for m in re.finditer(
+            r"^noncomputable def (\w+) : List SortDecl := kore\.sortDecls\.filter \((\w+)\.contains ·\.name\)\s*$",
+            t, re.M) if m.group(2) in strs}
+        got = []
+        for name, stmt in file_theorems(t):
+            s = " ".join(stmt.split())
+            n0 = len(got)
+            if "(H : HookParams)" in s:
+                if ("∀ it ∈ declItems, Γ (cH H) ⊧ it.pat" in s and PLAIN_SORTS in lines and DECL_ITEMS in lines) or \
+                        "∀ sd ∈ kore.sortDecls, sd.params = [] → Γ (cH H) ⊧ (sortConstantItem sd).pat" in s:
+                    got.append((name, "sort", None))
+                for m in re.finditer(r"∀ sd ∈ (\w+), Γ \(cH H\) ⊧ \(sortConstantItem sd\)\.pat", s):
+                    if m.group(1) in sortsets:
+                        got.append((name, "sort", sortsets[m.group(1)]))
+                for m in re.finditer(r"∀ sd ∈ kore\.symbolDecls, sd\.params = \[\] → sd\.name ∈ (\w+) → "
+                                     r"Γ \(cH H\) ⊧ \(arityItem sd\)\.pat", s):
+                    if m.group(1) in strs:
+                        got.append((name, "symbol", set(strs[m.group(1)])))
+            if name.split(".")[-1] == "decls_entailed" and len(got) == n0:
+                odd.append(f"{rel}: {name} is in no form of (d)")
+        forms[rel] = (km.group(1), got)
+    return forms, odd
+
+
+def decl_ties(forms):
+    """text -> row key -> [(theorem, file, declaration name)] (form (d)), and text -> the row keys of
+    the text's declarations with a builtin Source."""
+    ties, held = defaultdict(lambda: defaultdict(list)), defaultdict(set)
+    decls = {}
+    for rel, (text, got) in sorted(forms.items()):
+        if text not in decls:
+            decls[text] = declarations(text)
+            held[text] = {k for k, *_ in decls[text]}
+        for key, kind, nm, params in decls[text]:
+            for th, k, names in got:
+                if k == kind and not params and (names is None or nm in names):
+                    ties[text][key].append((th, rel, nm))
+    return ties, held
+
+
+DECL_CONTROL = "symbol:INT-COMMON:Lbl'Unds'dividesInt'UndsUnds'INT-COMMON'Unds'Bool'Unds'Int'Unds'Int"
+
+
+def self_check(rows, res):
+    """Form (d)'s self-check: each `decls_entailed` of a declaration file is in a form of (d); each
+    name of a symbol statement's list is a declaration of the file's text with a builtin Source,
+    unhooked and without sort parameters; and the control row (`dividesInt`, which the texts declare
+    without sort parameters and no list names) is held by a text of (d) and not tied."""
+    forms, odd = decl_forms()
+    bad = list(odd)
+    for rel, (text, got) in sorted(forms.items()):
+        ds = {(kind, nm): params for key, kind, nm, params in declarations(text) if not key.startswith("token:")}
+        for th, k, names in got:
+            for n in sorted(names or []) if k == "symbol" else []:
+                if ds.get((k, n), True):
+                    bad.append(f"{rel}: {th} names {n}, no unhooked {k} declaration of {text} with a builtin "
+                               f"Source and without sort parameters")
+    if not any(DECL_CONTROL in h for h in decl_ties(forms)[1].values()):
+        bad.append(f"control {DECL_CONTROL}: held by no text of form (d)")
+    elif DECL_CONTROL not in rows or isinstance(res.get(DECL_CONTROL), list):
+        bad.append(f"control {DECL_CONTROL}: not a row, or tied")
+    for b in bad:
+        print(f"e6map self-check: {b}")
+    print(f"e6map self-check: {len(forms)} declaration files ({sum(1 for _, g in forms.values() if g)} with a "
+          f"statement of form (d)), "
+          f"{sum(len(g) for _, g in forms.values())} statements of form (d), {len(bad)} failures")
+    return not bad
+
+
 def compute():
     rows = tomllib.load(open(ROWS, "rb"))["E6"]
     ties = lean_ties()
@@ -215,6 +375,7 @@ def compute():
     for n, l in kt.items():
         if not ties[ktext].get(n):
             ties[ktext][n] += l
+    dties, dheld_by = decl_ties(decl_forms()[0])
     # key -> text -> [index]
     where = defaultdict(lambda: defaultdict(list))
     for text in sorted(ties) + ([] if ktext in ties else [ktext]):
@@ -253,7 +414,12 @@ def compute():
         elif kind == "module":
             continue
         else:
-            res[k] = f"uncovered: {mod}; a declaration, which no tie file names"
+            got = [f"{th} ({f}; {text} {'sort' if kind == 'token' else kind} declaration {nm})"
+                   for text in sorted(dties) for th, f, nm in dties[text].get(k, [])]
+            dheld = sorted(text for text, h in dheld_by.items() if k in h)
+            res[k] = (sorted(set(got)) if got else
+                      f"uncovered: {mod}; a declaration held by {', '.join(dheld)}, tied there by no theorem" if dheld
+                      else f"uncovered: {mod}; a declaration no tied text holds")
     for k in scope:
         if k.startswith("module:"):
             m = k.split(":")[1]
@@ -297,12 +463,16 @@ def write(res):
 
 def main():
     scope, res = compute()
+    if "--self-check" in sys.argv or "--check" in sys.argv:
+        ok = self_check(tomllib.load(open(ROWS, "rb"))["E6"], res)
+        if "--self-check" in sys.argv:
+            return 0 if ok else 1
     if "--check" in sys.argv:
         bad = [k for k, v in scope.items() if v.get("e6_tie") != res[k]]
         for k in bad[:20]:
             print(f"e6map: {k}: e6_tie is not the computed one")
         print(f"e6map check: {len(scope) - len(bad)} of {len(scope)} rows' e6_tie current")
-        return 1 if bad else 0
+        return 1 if bad or not ok else 0
     by = defaultdict(list)
     for k in scope:
         by[k.split(":")[1] if not k.startswith("token:") else "(token sort)"].append(k)
