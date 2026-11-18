@@ -14,7 +14,7 @@ The expected result of each case is its ruling, derived from the K and KORE text
 `kore.k`'s header states the reading it implements; in short:
 
 - a function application is evaluated innermost: arguments first; an undefined argument (`\bottom`) makes the application undefined; a constructor application is a value;
-- an equation applies when its argument patterns match and its `requires` evaluates to `true`; among the applicable equations one of the least priority gives the result (`[owise]` is priority 200, no attribute is 50); an application no equation applies to is given no value (`bot`): the text leaves such a point open (the unsettled entry `kk:t13-fn-no-equation`), and `kore.k` computes its reading `closure-none`; where a hook's text leaves a point open, `op-undef` gives no value too, a reading of that point's entry (for two sets with a common element, `nilpotent` of the unsettled entry `kk:t35-set-concat-overlap`);
+- an equation applies when its argument patterns match and its `requires` evaluates to `true`; among the applicable equations one of the least priority gives the result (`[owise]` is priority 200, no attribute is 50); an application no equation applies to is given no value (`bot`): the text leaves such a point open (the unsettled entry `kk:t13-fn-no-equation`), and `kore.k` computes its reading `closure-none`; where a hook's text states no value, `op-undef` gives none (for two sets with a common element, the settled entry `kk:t35-set-concat-overlap`), and where it leaves a point open, `op-undef` gives no value too, a reading of that point's entry;
 - a rewrite rule applies when its left side matches and its `requires` evaluates to `true`; the successors are the defined results of the applicable rules of the least priority; a rule whose result is undefined still blocks the rules of larger priority;
 - equations and rules are tried by ascending priority, the equations of one priority in the order of the text: an equation (a rule) of a larger priority applies only where none of a smaller priority does, so its `requires` and right side are evaluated only there, and one without a value (a `requires` whose evaluation does not terminate, an undefined right side) does not affect a result decided at a smaller priority (c45, c46, c48);
 - a configuration is final when no rule applies to it; one to which rules apply, all with undefined results, has no successor and is not final;
@@ -104,7 +104,7 @@ Keep the object search finite: on a cycle the haskell backend's search does not 
 
 ## Cases
 
-52 cases, each a small object definition for one point of the reading above; beside them, 115 text entries under `texts/`, each a ruling on a K text, a KORE text or a quoted declaration (`SCHEMA.md`, section 3), on which the cases' rulings rest.
+52 cases, each a small object definition for one point of the reading above; beside them, 118 text entries under `texts/`, each a ruling on a K text, a KORE text or a quoted declaration (`SCHEMA.md`, section 3), on which the cases' rulings rest.
 A case's ruling is its final configurations, derived in its `entry.toml` from the K text and the entries it rests on; where the text does not settle a point, the case is unsettled, names the entry whose question it is, gives one reading per answer, and names the reading `kore.k` computes.
 The last column gives, for a settled case, the implementations whose result is not the ruling (`differs`); for an unsettled one, the reading each implementation's result is (`reading:<name>`), `coincides:<name>` where its finals equal a reading's by a route the text does not admit, or `differs` where it is no reading. `kore.k` is named there only where its result is not the ruling or the reading the ruling column names for it. The reason of each is the `[[disposition]]` of the case's `entry.toml`.
 
@@ -136,8 +136,8 @@ The last column gives, for a settled case, the implementations whose result is n
 | c24-map-fn-pattern | equations whose argument pattern is `K \|-> V M`; the substitution whose `requires` holds is not the first | settled | `r(30, 2)` | none |
 | c25-map-equal | `A B` and `B A` are one map: a variable seen twice matches them | settled | `same(1 \|-> 2 3 \|-> 4)` | none |
 | c26-map-strict | a map with an undefined entry is undefined | settled | `r(2, 1 \|-> 2 5 \|-> 1)` | llvm differs |
-| c27-set-choice | `SetItem(X) S` matches every element | unsettled | on `kk:t35-set-concat-overlap`: readings `nilpotent`, `idempotent`, `as-written`; `kore.k` computes `nilpotent` | haskell reading:nilpotent, llvm reading:nilpotent |
-| c28-set-overlap | `_Set_` on a common element, which the `SET` module states both idempotent and `#False`; `\|Set` is total | unsettled | on `kk:t35-set-concat-overlap`: readings `nilpotent`, `idempotent`, `as-written`; `kore.k` computes `nilpotent` | haskell reading:nilpotent, llvm reading:idempotent |
+| c27-set-choice | `SetItem(X) S` matches every element, and only where `S` does not hold `X` (the settled entry `kk:t35-set-concat-overlap`) | settled | `out(1, SetItem(2) SetItem(3) SetItem(11))`, `out(2, SetItem(1) SetItem(3) SetItem(12))`, `out(3, SetItem(1) SetItem(2) SetItem(13))` | none |
+| c28-set-overlap | `_Set_` on a common element has no value (`#False` in the `SET` module's prose, the settled entry `kk:t35-set-concat-overlap`; the declaration's `idem` states no value there); `\|Set` is total | settled | `r(2, SetItem(1) SetItem(2))`, `r(3, SetItem(1))` | llvm differs |
 | c29-set-hooks | `Set:in`, `size(Set)`, `\|Set` with an element below, between, above and equal to the present ones | settled | `r(true, false, 2, SetItem(0) SetItem(1) SetItem(3), SetItem(1) SetItem(2) SetItem(3), SetItem(1) SetItem(3) SetItem(9), SetItem(1) SetItem(3))` | none |
 | c30-list-positions | `ListItem(X) L` takes the first element, `L ListItem(X)` the last; a pattern without a frame matches only its length | settled | `r(1, ListItem(2) ListItem(3))`, `r(3, ListItem(3) ListItem(1) ListItem(2))`, `d(ListItem(1) ListItem(2) ListItem(3))` | none |
 | c31-list-concat | `_List_` is associative and not commutative; an element may occur twice; `size(List)` | settled | `p(ListItem(1) ListItem(2), ListItem(2) ListItem(1))`, `assoc(ListItem(1) ListItem(2) ListItem(1))`, `n(3)` | none |
@@ -163,8 +163,8 @@ The last column gives, for a settled case, the implementations whose result is n
 | c51-fn-ensures-owise | c50 beside `half(_) => 0 [owise]`: the first equation decides at -4, so the `[owise]` one does not apply and `half(-4)` has no value, not 0 | unsettled | on `kk:t03-applied-rule-blocks`: readings `applied-blocks`, `undefined-rhs-does-not-block`; `kore.k` computes `applied-blocks` | haskell reading:applied-blocks, llvm differs |
 | c52-subsort-one-entry | one stated subsort `Int < Val` and a sort `Other` with none: an `Int` matches `V:Val` through the subsort and not `X:Other`, a walk of the subsort table as long as the table | settled | `done(3)` | none |
 
-Counted by `tools/check.py` on this tree: 167 entries, 125 settled and 42 unsettled; of the 52 cases 43 are settled and 9 unsettled, of the 115 text entries 82 settled and 33 unsettled.
-Recorded differences: llvm 20 (13 settled cases, where it aborts or does not evaluate an `ensures`, and 7 unsettled ones, where its result is no reading), haskell 1 (c33, where its search stops with an error), and, counted apart, `kore.k` 1 (c42: its finals are those of `value-false`, reached by giving the `total` function no value, which the text excludes). No `kcore` row is recorded.
+Counted by `tools/check.py` on this tree: 170 entries, 130 settled and 40 unsettled; of the 52 cases 45 are settled and 7 unsettled, of the 118 text entries 85 settled and 33 unsettled.
+Recorded differences: llvm 21 (14 settled cases, where it aborts, does not evaluate an `ensures`, or gives `_Set_` a value on a common element (c28), and 7 unsettled ones, where its result is no reading), haskell 1 (c33, where its search stops with an error), and, counted apart, `kore.k` 1 (c42: its finals are those of `value-false`, reached by giving the `total` function no value, which the text excludes). No `kcore` row is recorded.
 Both backends' results are kept in each case's `evidence.json`, labelled with the K release and backend that produced them.
 
 ## Rerunning the cases
@@ -189,7 +189,7 @@ An entry passes when its record is consistent with itself (`SCHEMA.md`, section 
 An implementation that differs from the ruling under a disposition is not a failure, whichever implementation it is.
 It prints one line per entry, its status and how each implementation stands (`=`, `reading:<name>`, `coincides:<name>`, `differs`), and a `PASS` or `FAIL` summary that counts the entries, settled and unsettled, and the recorded differences per implementation, `kore.k`'s apart; it exits 0 only when every entry passes.
 
-Measured in this tree: 167 of 167 entries pass (125 settled, 42 unsettled); recorded differences haskell 1, llvm 20, `kore.k` 1; each `krust krun` process takes 45 to 125 ms, the whole command about 4 s warm.
+Measured in this tree: 170 of 170 entries pass (130 settled, 40 unsettled); recorded differences haskell 1, llvm 21, `kore.k` 1; each `krust krun` process takes 45 to 125 ms, the whole command about 4 s warm.
 
 ## The kink corpus
 
@@ -285,7 +285,7 @@ A half port, part of the definition in KRS and part in K, would leave two defini
 
 ## Status
 
-Done: the definition, with `Map`, `Set` and `List`; the encoder and the case builder, with configurations of several cells and `Map` cell collections, `==K`, token sorts, sort predicates, `ensures` and `String` values; 52 cases and 115 text entries, each with its ruling and its evidence; the kink corpus with this tree's coverage and kill matrix; and `tools/check.py`, which checks each entry's record and runs `kore.k` on every case.
+Done: the definition, with `Map`, `Set` and `List`; the encoder and the case builder, with configurations of several cells and `Map` cell collections, `==K`, token sorts, sort predicates, `ensures` and `String` values; 52 cases and 118 text entries, each with its ruling and its evidence; the kink corpus with this tree's coverage and kill matrix; and `tools/check.py`, which checks each entry's record and runs `kore.k` on every case.
 
 Not verified here: `kore.k` is checked against the rulings of these 52 cases, with the two backends' results recorded beside them; that a ruling follows from the sentences it quotes is a reader's check, and `tools/case.py --verify-quotes` checks only that each quote stands at its locator; no case exercises a definition outside the fragment, so the encoder's refusals are untested; this tree's encoder was rerun on every case from its kompiled text and reproduces every committed `kore.pgm` and `symbols.json` (c41's were re-encoded: the committed ones came from the encoder before the `ensures` change and differed only in the numbers of two symbols); a `Map` or `Set` value's canonical order is `cmp`'s, which the decoders replace by the order of the elements' texts, so the order itself is checked only through `kore.k`'s own equalities (c25); kink's verdicts rest on k-rust's execution of `kore.k`, which is the same engine `tools/check.py` uses.
 

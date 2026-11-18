@@ -1,0 +1,41 @@
+id = "t208-int-powmod-negative"
+kind = "text"
+subject = "^%Int at a negative exponent and a modulus that is not 0: what the INT module states of A ^%Int B C for B < 0 and C not 0."
+retro = ["H4"]
+rests_on = ["kk:t202-int-pow-negative", "kk:t203-int-powmod", "kk:t31-int-division", "kk:t30-hooks-strict"]
+
+[text]
+declaration = { source = "domains", locator = "k-distribution/include/kframework/builtin/domains.md:1229-1231 (K 7.1.337)", quote = "* Compute the exponentiation of two integers modulo another integer (`^%Int`). `A ^%Int B C` is equal in value to `(A ^Int B) %Int C`, but has a better asymptotic complexity." }
+kompile = "not-run"
+
+[ruling]
+status = "unsettled"
+reason = """
+What every reading shares:
+(1) domains.md:1229-1231: A ^%Int B C is equal in value to (A ^Int B) %Int C, at B < 0 as at any other point: the text does determine how the two terms stand to each other. The prose gives the value and the smt-hook of the declaration gives none (kk:t203-int-powmod, which rules B >= 0 and C = 0).
+(2) At C not 0, (A ^Int B) %Int C is the remainder of t-division where A ^Int B has a value (kk:t31-int-division), and has no value where A ^Int B has none (kk:t30-hooks-strict).
+What the text does not determine:
+(3) A ^Int B at B < 0: kk:t202-int-pow-negative's question, and with it A ^%Int B C at B < 0 and C not 0. The readings are that entry's, each with the value (1) and (2) then give."""
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1229-1231 (K 7.1.337)"
+quote = "* Compute the exponentiation of two integers modulo another integer (`^%Int`). `A ^%Int B C` is equal in value to `(A ^Int B) %Int C`, but has a better asymptotic complexity."
+
+[[reading]]
+name = "unstated"
+statement = "The text states no value of A ^Int B at B < 0 (kk:t202-int-pow-negative, reading unstated): each interpretation gives it its own value, an integer or none, and A ^%Int B C is that integer's remainder by C, or has no value."
+answer = "2 ^%Int -1 5 is V %Int 5 where the interpretation gives 2 ^Int -1 the integer V, and has no value where it gives none."
+consequence = "A rule whose right side holds 2 ^%Int -1 5 has a successor per value an interpretation may give, or none; in each interpretation the value is that of (2 ^Int -1) %Int 5."
+
+[[reading]]
+name = "integer-power"
+statement = "A ^Int B at B < 0 is the power where it is an integer, at |A| = 1, and is not stated elsewhere (kk:t202-int-pow-negative, reading integer-power); A ^%Int B C is its remainder by C there."
+answer = "1 ^%Int -3 5 = 1 and (-1) ^%Int -3 5 = -1; 2 ^%Int -1 5 is not stated."
+consequence = "At |A| = 1 the value is fixed; elsewhere as unstated."
+
+[[reading]]
+name = "no-value"
+statement = "A ^Int B has no value at B < 0 (kk:t202-int-pow-negative, reading no-value), and so has (A ^Int B) %Int C."
+answer = "2 ^%Int -1 5 and 1 ^%Int -3 5 have no value."
+consequence = "A rule whose right side holds A ^%Int B C with B < 0 gives no successor."

@@ -1,22 +1,32 @@
 id = "t203-int-powmod"
 kind = "text"
-subject = "^%Int at a zero modulus, and at a negative power the modulus does not divide: what the INT module states of A ^%Int B C."
+subject = "^%Int at a zero modulus and at an exponent B >= 0: what the INT module states of A ^%Int B C, where the prose names the remainder of t-division and the declaration's smt-hook names SMT-LIB's mod. B < 0 at a modulus that is not 0 is kk:t208-int-powmod-negative."
 retro = ["H4"]
-rests_on = ["kk:t31-int-division", "kk:t30-hooks-strict", "kk:t202-int-pow-negative"]
+rests_on = ["kk:t31-int-division", "kk:t30-hooks-strict"]
 
 [text]
 declaration = { source = "domains", locator = "k-distribution/include/kframework/builtin/domains.md:1229-1231 (K 7.1.337)", quote = "* Compute the exponentiation of two integers modulo another integer (`^%Int`). `A ^%Int B C` is equal in value to `(A ^Int B) %Int C`, but has a better asymptotic complexity." }
 kompile = "not-run"
 
 [ruling]
-status = "unsettled"
+status = "settled"
+form = "hook-value"
+hook = "INT.powmod"
+statement = "For integers A, B, C with B >= 0 and C not 0, A ^%Int B C is (A ^Int B) %Int C: the remainder of the t-division of A to the power B by C, whose sign is that of the power. At C = 0, A ^%Int B 0 has no value, whatever A and B. The smt-hook of the declaration states no value."
+points = [
+  { at = "2 ^%Int 3 5", value = "3" },
+  { at = "(-2) ^%Int 3 5", value = "-3" },
+  { at = "(-2) ^%Int 3 -5", value = "-3" },
+  { at = "(-2) ^%Int 2 5", value = "4" },
+  { at = "A ^%Int B 0, any integers A and B", value = "no value" },
+]
 reason = """
-What every reading shares:
-(1) domains.md:1229-1231: A ^%Int B C is equal in value to (A ^Int B) %Int C. At C = 0 that term has no value, %Int at a zero divisor having none (kk:t31-int-division) where the power has a value, and an application to an argument that has none having none where it has none (kk:t30-hooks-strict): A ^%Int B 0 has no value.
-(2) At C not 0 and B >= 0, where A ^Int B >= 0 or C divides it, the truncating and the Euclidean remainder agree: 2 ^%Int 3 5 = 8 %Int 5 = 3.
-(3) At B < 0 the value is that of (A ^Int B) %Int C, and A ^Int B at B < 0 is kk:t202-int-pow-negative's question; this entry does not restate its readings.
-What the text does not determine:
-(4) At C not 0, B >= 0, A ^Int B < 0 and C not dividing it: the prose names %Int, the remainder of t-division, whose sign is that of the dividend (kk:t31-int-division), while the declaration's smt-hook names SMT-LIB's (mod (^ #1 #2) #3) (domains.md:1251), the attribute that gives the term encoding the production for the prover (user_manual.md:2387-2389). At (-2) ^%Int 3 5 the first gives -8 %Int 5 = -3 and the second the Euclidean remainder 2. No sentence says which governs the value."""
+(1) domains.md:1229-1231: A ^%Int B C is equal in value to (A ^Int B) %Int C. The sentence is about the value of the operation, at every point where the term on its right has a value or has none.
+(2) domains.md:1228: ^Int is the exponentiation of two integers, so at B >= 0, A ^Int B is the integer A to the power B: 2 ^Int 3 = 8, (-2) ^Int 3 = -8, (-2) ^Int 2 = 4. This step uses the sentence at B >= 0 only.
+(3) %Int at a divisor that is not 0 is the remainder of t-division, whose sign is that of the dividend (kk:t31-int-division): 8 %Int 5 = 3, -8 %Int 5 = -3, -8 %Int -5 = -3, 4 %Int 5 = 4. With (1) and (2), these are the values of ^%Int at B >= 0 and C not 0.
+(4) At C = 0: %Int at a zero divisor has no value where its first argument has one (kk:t31-int-division), and an application to an argument that has no value has none (kk:t30-hooks-strict). So (A ^Int B) %Int 0 has no value whether or not A ^Int B has one, at every B, and by (1) neither has A ^%Int B 0.
+(5) The declaration carries smt-hook((mod (^ #1 #2) #3)) (domains.md:1251), and SMT-LIB's mod is the Euclidean remainder: 2 at -8 and 5, where (3) gives -3. The attribute is no second statement of the value. user_manual.md:2384-2385, 2387-2389: the SMT attributes guide the prover when it discharges a proof obligation, and smt-hook gives the term that is used to encode the production for the solver. That says how a query writes the production, and nothing of what the production's value is. The module says the same of the operation (3) rests on: /Int and %Int implement t-division, and SMT hooks need to convert from Euclidean division (domains.md:1255); an encoding is to be made to agree with the stated value, it is not its source. So the prose states the value, an attribute would stand in only where the prose were silent, and here the prose is not silent: at (-2) ^%Int 3 5 the value is -3, and the term of the smt-hook does not encode the operation at that point.
+(6) B < 0 at C not 0 is not ruled here: by (1) the value there is that of (A ^Int B) %Int C, and what A ^Int B is at B < 0 is another entry's question (kk:t208-int-powmod-negative)."""
 
 [[ruling.basis]]
 source = "domains"
@@ -24,23 +34,26 @@ locator = "k-distribution/include/kframework/builtin/domains.md:1229-1231 (K 7.1
 quote = "* Compute the exponentiation of two integers modulo another integer (`^%Int`). `A ^%Int B C` is equal in value to `(A ^Int B) %Int C`, but has a better asymptotic complexity."
 
 [[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1228 (K 7.1.337)"
+quote = "* Compute the exponentiation `^Int` of two integers."
+
+[[ruling.basis]]
 source = "builtin-module"
 locator = "k-distribution/include/kframework/builtin/domains.md:1251 (K 7.1.337)"
 quote = '| Int "^%Int" Int Int [function, symbol(_^%Int__), left, smt-hook((mod (^ #1 #2) #3)), hook(INT.powmod)]'
 
 [[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1255 (K 7.1.337)"
+quote = "/* /Int and %Int implement t-division, which rounds towards 0. SMT hooks need to convert from Euclidian division operations */"
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:2384-2385 (K 7.1.337)"
+quote = "These attributes guide the prover when it tries to apply rules to discharge a proof obligation."
+
+[[ruling.basis]]
 source = "manual"
 locator = "docs/user_manual.md:2387-2389 (K 7.1.337)"
 quote = "`smt-hook(...)` allows you to specify a term in SMTLIB2 format which should be used to encode that production, and assumes that all symbols appearing in the term are already declared by the SMT solver."
-
-[[reading]]
-name = "prose-tmod"
-statement = "The prose governs: the value is (A ^Int B) %Int C, the truncating remainder."
-answer = "(-2) ^%Int 3 5 = -3."
-consequence = "A negative power gives a remainder of its sign."
-
-[[reading]]
-name = "smt-emod"
-statement = "The smt-hook governs: the value is SMT-LIB's mod of the power by C, the Euclidean remainder."
-answer = "(-2) ^%Int 3 5 = 2."
-consequence = "The remainder is always in 0 to |C| - 1."

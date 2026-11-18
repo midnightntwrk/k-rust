@@ -18,7 +18,7 @@
   }
  },
  "inputs": {
-  "answer": "c17738e5af4a8a8ff344e7bcecf78270f4df8db33bd763436e1c27822e62216c",
+  "answer": "ac1941a219067828dc9ce44039fd289a1f68d60e102031ebce5d259fe7f3ab42",
   "def.k": "24c6b324226e5bcddc54395579e9c2dbe7ec6b9f2573fff979e5775653246a61",
   "pgm": "904a6b1aecb049b9169d87e2c7c37785b28188226c003c2d8ecf975ce111888f"
  },
@@ -30,20 +30,10 @@
   "release": "K v7.1.337"
  },
  "ruling_canonical": {
-  "readings": {
-   "idempotent": [
-    "inj{SortS,SortKItem}(Lblout'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int'Unds'Set(1,SortSet{inj{SortInt,SortKItem}(1),inj{SortInt,SortKItem}(11),inj{SortInt,SortKItem}(2),inj{SortInt,SortKItem}(3)}))",
-    "inj{SortS,SortKItem}(Lblout'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int'Unds'Set(1,SortSet{inj{SortInt,SortKItem}(11),inj{SortInt,SortKItem}(2),inj{SortInt,SortKItem}(3)}))",
-    "inj{SortS,SortKItem}(Lblout'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int'Unds'Set(2,SortSet{inj{SortInt,SortKItem}(1),inj{SortInt,SortKItem}(12),inj{SortInt,SortKItem}(2),inj{SortInt,SortKItem}(3)}))",
-    "inj{SortS,SortKItem}(Lblout'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int'Unds'Set(2,SortSet{inj{SortInt,SortKItem}(1),inj{SortInt,SortKItem}(12),inj{SortInt,SortKItem}(3)}))",
-    "inj{SortS,SortKItem}(Lblout'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int'Unds'Set(3,SortSet{inj{SortInt,SortKItem}(1),inj{SortInt,SortKItem}(13),inj{SortInt,SortKItem}(2),inj{SortInt,SortKItem}(3)}))",
-    "inj{SortS,SortKItem}(Lblout'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int'Unds'Set(3,SortSet{inj{SortInt,SortKItem}(1),inj{SortInt,SortKItem}(13),inj{SortInt,SortKItem}(2)}))"
-   ],
-   "nilpotent": [
-    "inj{SortS,SortKItem}(Lblout'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int'Unds'Set(1,SortSet{inj{SortInt,SortKItem}(11),inj{SortInt,SortKItem}(2),inj{SortInt,SortKItem}(3)}))",
-    "inj{SortS,SortKItem}(Lblout'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int'Unds'Set(2,SortSet{inj{SortInt,SortKItem}(1),inj{SortInt,SortKItem}(12),inj{SortInt,SortKItem}(3)}))",
-    "inj{SortS,SortKItem}(Lblout'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int'Unds'Set(3,SortSet{inj{SortInt,SortKItem}(1),inj{SortInt,SortKItem}(13),inj{SortInt,SortKItem}(2)}))"
-   ]
-  }
+  "settled": [
+   "inj{SortS,SortKItem}(Lblout'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int'Unds'Set(1,SortSet{inj{SortInt,SortKItem}(11),inj{SortInt,SortKItem}(2),inj{SortInt,SortKItem}(3)}))",
+   "inj{SortS,SortKItem}(Lblout'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int'Unds'Set(2,SortSet{inj{SortInt,SortKItem}(1),inj{SortInt,SortKItem}(12),inj{SortInt,SortKItem}(3)}))",
+   "inj{SortS,SortKItem}(Lblout'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int'Unds'Set(3,SortSet{inj{SortInt,SortKItem}(1),inj{SortInt,SortKItem}(13),inj{SortInt,SortKItem}(2)}))"
+  ]
  }
 }
