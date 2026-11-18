@@ -639,16 +639,22 @@ def ranges(n, first, chunk):
     return out
 
 
-def by_ranges(prefix, lst, pred, rs, lem="tieAllE"):
+def by_ranges(prefix, lst, pred, rs, lem="tieAllE", named=False):
+    """The range theorems of `{lst}.all {pred} = true` over `rs`, each its own kernel decision, and
+    the term that joins them. `named`: the join names the list and the predicate at every step, so
+    each step's statement is fixed before its argument is elaborated, and the predicate's binder
+    has the list's member type; the join is then instantiation and the `a + n` of `tieAll_range`
+    against the next range's literal start, with nothing of the list or the predicate reduced."""
     thms, chain = [], []
     for a, ln in rs:
         if ln is None:
             thms.append(f"theorem {prefix}_{a} : (({lst}).drop {a}).all {pred} = true := by decide +kernel")
         else:
             thms.append(f"theorem {prefix}_{a} : ((({lst}).drop {a}).take {ln}).all {pred} = true := by decide +kernel")
-    body = f"{lem}_whole (p := {pred}) <|\n"
+    lp = f"(l := {lst}) (p := {pred}) " if named else ""
+    body = f"{lem}_whole {lp or f'(p := {pred}) '}<|\n"
     for a, ln in rs[:-1]:
-        body += f"    {lem}_range (a := {a}) (n := {ln}) {prefix}_{a} <|\n"
+        body += f"    {lem}_range {lp}(a := {a}) (n := {ln}) {prefix}_{a} <|\n"
     body += f"    {prefix}_{rs[-1][0]}"
     return "\n".join(thms), body
 
@@ -1019,17 +1025,17 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     w("/-- The classes are the tie's (`tieClasses`, which gives each its direction), in its order. -/")
     w("theorem account_classes : classes.map (·.1) = tieClasses.map (·.1) := by decide +kernel")
     w("")
-    w("/-- **A sentence outside the no-direction class applies only symbols Γ has** (the injection `inj`")
-    w("aside, which Γ's constructor items apply), and each sentence of that class applies one Γ lacks. -/")
     if chunk:
         w("/-- The sentence is in the no-direction class exactly where it applies a symbol Γ lacks. -/")
         w("noncomputable def absentP (ad : AxiomDecl) : Bool :=")
         w('  (classOf "no direction").contains ad.index !=')
         w('    (symbolsOf ad.ax.pattern).all (fun n => n == "inj" || (kernelSyms c).any (fun k => c.symName k.name == n))')
         w("")
-        thms, body = by_ranges("absentE", "U.all", "absentP", ranges(len(idx), 0, chunk), "tieAll")
+        thms, body = by_ranges("absentE", "U.all", "absentP", ranges(len(idx), 0, chunk), "tieAll", True)
         w(thms)
         w("")
+    w("/-- **A sentence outside the no-direction class applies only symbols Γ has** (the injection `inj`")
+    w("aside, which Γ's constructor items apply), and each sentence of that class applies one Γ lacks. -/")
     w("theorem account_absent : userAxioms.all (fun ad =>")
     w('    (classOf "no direction").contains ad.index !=')
     w('      (symbolsOf ad.ax.pattern).all (fun n => n == "inj" || (kernelSyms c).any (fun k => c.symName k.name == n))) = true := by')
@@ -1499,7 +1505,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w("  " + ax_list(cons_text))
         w("")
         if chunk and len(cons_text) > chunk:
-            thms, body = by_ranges("consE", "consText", "(fun ad => tieConsB c ad.ax)", ranges(len(cons_text), 0, chunk), "tieAll")
+            thms, body = by_ranges("consE", "consText", "(fun ad => tieConsB c ad.ax)", ranges(len(cons_text), 0, chunk), "tieAll", True)
             w(thms)
             w("theorem cons_checked : consText.all (fun ad => tieConsB c ad.ax) = true :=")
             w("  " + body)
@@ -1508,14 +1514,13 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w("")
         if chunk and len(cons_text) > chunk:
             pr = "(fun ad => decide ((trS ad).pat = (trAxiom [] [] ad).pat))"
-            thms, body = by_ranges("consT", "consText", pr, ranges(len(cons_text), 0, chunk), "tieAll")
+            thms, body = by_ranges("consT", "consText", pr, ranges(len(cons_text), 0, chunk), "tieAll", True)
             w(thms)
             w(f"theorem cons_trS : consText.all {pr} = true :=")
             w("  " + body)
-            w("")
         else:
             w("theorem cons_trS : consText.all (fun ad => decide ((trS ad).pat = (trAxiom [] [] ad).pat)) = true := by")
-        w("  decide +kernel")
+            w("  decide +kernel")
         w("")
         w("/-- **E for the constructor sentences**: Γ entails each, for every H. -/")
         w("theorem cons_entailed (H : HookParams) : ∀ ad ∈ consText, Γ (cH H) ⊧ (trS ad).pat := by")
