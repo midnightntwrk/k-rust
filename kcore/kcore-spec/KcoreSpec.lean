@@ -276,6 +276,7 @@ import KcoreSpec.LibEvFnBoolInt
 import KcoreSpec.TieChunks
 import KcoreSpec.LibEvFnColl
 import KcoreSpec.LibEvLaw
+import KcoreSpec.LibEvLawRm
 import KcoreSpec.LibEvFnKNe
 import KcoreSpec.LibEvFnOwise
 import KcoreSpec.TieCmd
@@ -310,6 +311,7 @@ import KcoreSpec.LibEvBoolK
 import KcoreSpec.ExsValues
 import KcoreSpec.ClauseExDen
 import KcoreSpec.ClauseExModel
+import KcoreSpec.ModelFnsEx
 import KcoreSpec.LawModelChoice
 import KcoreSpec.GenEqsConservative
 import KcoreSpec.GenEqsModel
@@ -317,6 +319,7 @@ import KcoreSpec.CondResort
 import KcoreSpec.CondResortModel
 import KcoreSpec.TieRhs
 import KcoreSpec.HoldsNode
+import KcoreSpec.HoldsRead
 import KcoreSpec.ClausePreTie
 import KcoreSpec.CondVarsCongr
 import KcoreSpec.CondKoreVars
@@ -338,10 +341,19 @@ import KcoreSpec.GenEqsInit
 import KcoreSpec.TieRuleGuard
 import KcoreSpec.ModelFnsPre
 import KcoreSpec.CoreDecide
+import KcoreSpec.TieHeads
+import KcoreSpec.TieHeadsWalk
 import KcoreSpec.CondPredAt
 import KcoreSpec.CondCross
 import KcoreSpec.ClausePreCore
 import KcoreSpec.ModelFnsDecided
 import KcoreSpec.FloatUnpack
+import KcoreSpec.ClauseEqOpen
 import KcoreSpec.EvalCallsInduct
 import KcoreSpec.GenEqsInst
+import KcoreSpec.KKEnc
+import KcoreSpec.KKEncDef
+import KcoreSpec.KKEncLemmas
+import KcoreSpec.LibEvCollSym
+import KcoreSpec.LibEvCollSymK
+import KcoreSpec.ModelEmptyInhabited

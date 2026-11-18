@@ -1,0 +1,3 @@
+module E2-INTERNAL-KEYS-WRITTEN
+  syntax Foo ::= foo() [symbol(foo), anonymous, bracketLabel, cellFragment, cellOptAbsent, contentStartColumn, contentStartLine, denormal, digest, filterElement, fresh, notInjection, not-lr1-modules, originalPrd, predicate, prettyPrintWithSortAnnotation, org.kframework.definition.Production, projection, recordPrd, recordPrd-zero, recordPrd-one, recordPrd-main, recordPrd-empty, recordPrd-subsort, recordPrd-repeat, recordPrd-item, refreshed, smt-prelude, org.kframework.kore.Sort, sortParams, syntaxModule, temporary-cell-sort-decl, userList, userListTerminator, withConfig]
+endmodule

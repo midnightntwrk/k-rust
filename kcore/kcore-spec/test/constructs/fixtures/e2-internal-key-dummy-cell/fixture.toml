@@ -1,0 +1,3 @@
+# The internal key dummy_cell written by an author on a production: the outer parser refuses the
+# text at the key's `_` (kompile.txt), so no text writes it.
+expect = "error"

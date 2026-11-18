@@ -1,0 +1,5 @@
+# c3-macro-rule's text (a macro m and its rule m(X) => g(X)), its kompiled directory's macros.kore
+# kept (other.txt): the macro rule's axiom is written there and in no sentence of definition.kore.
+main = "c3-macro-rule.k"
+text_from = "c3-macro-rule"
+other_file = "macros.kore"

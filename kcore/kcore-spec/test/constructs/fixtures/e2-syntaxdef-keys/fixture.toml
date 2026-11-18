@@ -1,0 +1,7 @@
+# e1-priority's text (priorities, left and right associativity, a non-assoc group), its kompiled
+# directory's syntaxDefinition.kore kept where its lines hold the attributes left, right, priorities
+# or terminals (other.txt): the keys are written there and in no sentence of definition.kore.
+main = "e1-priority.k"
+text_from = "e1-priority"
+other_file = "syntaxDefinition.kore"
+other_keep = ["(?<![\\w'-])(left|right|priorities|terminals)\\{"]

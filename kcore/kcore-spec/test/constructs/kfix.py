@@ -130,7 +130,8 @@ and that each erased entry has one):
            ones) that no attribute list of any kompiled text in scope matches. The scope is every
            fixture's kompiled text (the cache) and every text of the reference cache's corpus
            (test/corpus.py's .lake/corpus/defs); each is parsed natively (`kcore sentence-heads`,
-           whose summary is kept per text and kcore binary in CACHE/scan). A text in scope held
+           whose summary is kept per text and kcore binary in CACHE/scan, gzipped; a summary no
+           scan read for 3 days is removed). A text in scope held
            nowhere fails the pattern. `check` prints the number of texts scanned.
   other_file, witness  O: the entry's fixture (fixture, also_fixtures) has other.txt of that file,
            and each witness (whitespace runs as one space) occurs in it and in no sentence of the
@@ -138,7 +139,7 @@ and that each erased entry has one):
   carried_by  C: "<list> <row key>", a row of rows.toml that is not erased (rest.py checks that it
            has its own evidence and that the entry's sentence occurs in its fixture).
 """
-import difflib, hashlib, json, os, re, shutil, subprocess, sys, time, tomllib
+import difflib, gzip, hashlib, json, os, re, shutil, subprocess, sys, threading, time, tomllib
 
 K = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(K, "test"))
@@ -928,10 +929,12 @@ def summary_of(path):
     if path in _summaries:
         return _summaries[path]
     key = hashlib.sha256(open(path, "rb").read()).hexdigest() + "-" + kcore_id()[:16]
-    cp = os.path.join(SCAN, key + ".json")
+    cp = os.path.join(SCAN, key + ".json.gz")
     if os.path.isfile(cp):
-        _summaries[path] = json.load(open(cp))
+        _summaries[path] = json.loads(gzip.decompress(open(cp, "rb").read()))
+        os.utime(cp)
         return _summaries[path]
+    scan_prune()
     r = subprocess.run([*WRAP, "timeout", "600", KCORE, "sentence-heads", path], cwd=K, capture_output=True,
                        text=True, env={**os.environ, "LEAN_NUM_THREADS": "1"})
     if r.returncode != 0 or not re.search(r"^sentences \d+$", r.stdout, re.M):
@@ -947,11 +950,31 @@ def summary_of(path):
             lists.append([int(f[1]), int(f[2]), f[3], f[4], f[5], f[6]])
     sm = {"modules": mods, "lists": [x for x in lists if x[3] or x[4] != "-"]}
     os.makedirs(SCAN, exist_ok=True)
-    tmp = f"{cp}.{os.getpid()}.tmp"
-    json.dump(sm, open(tmp, "w"), separators=(",", ":"))
+    tmp = f"{cp}.{os.getpid()}.{threading.get_ident()}.tmp"
+    open(tmp, "wb").write(gzip.compress(json.dumps(sm, separators=(",", ":")).encode()))
     os.replace(tmp, cp)
     _summaries[path] = sm
     return sm
+
+
+_pruned = False
+
+
+def scan_prune(days=3):
+    """Remove the summaries no scan has read for `days` days (those of kcore binaries no tree runs
+    any more); once per process, before the first summary it writes."""
+    global _pruned
+    if _pruned:
+        return
+    _pruned = True
+    now = time.time()
+    for f in os.listdir(SCAN) if os.path.isdir(SCAN) else []:
+        p = os.path.join(SCAN, f)
+        try:
+            if now - os.path.getmtime(p) > days * 86400:
+                os.remove(p)
+        except OSError:
+            pass
 
 
 ABSENT = [
@@ -971,7 +994,8 @@ def absent_form(pattern):
                                 not OTHER)
       "source FILE A-B"         a sentence whose Source is FILE of K's builtin directory and whose
                                 Location starts at a line from A to B; a builtin FILE of another K
-                                installation than 7.1.337's counts as found (its lines are another file's)
+                                installation than 7.1.337's, or a FILE outside K's builtin directory,
+                                counts as found (its lines are another file's)
       "module other than M1, M2, ... and the main module"
                                 a module of the text other than its last and the ones named"""
     for rx, kind in ABSENT:
@@ -999,6 +1023,8 @@ def absent_hits(pattern, sm):
         a, b = int(m[2]), int(m[3])
         for x in sm["lists"]:
             s = BUILTIN_SRC.match(x[4])
+            if not s and x[4].endswith("/" + m[1] + ")"):
+                hits.append(place(x) + f" from a {m[1]} outside K's builtin directory: {x[4]}"); continue
             if not s or s[1] != m[1]:
                 continue
             if "/nix/store/" in x[4] and K_VERSION not in x[4]:

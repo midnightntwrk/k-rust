@@ -42,8 +42,9 @@
   six values over the same KItems (empty, `[0, 2)`, `[2, 3)` of the same value, which concatenation
   merges with it, two touching ranges of different values, `[1, 3)`, which overlaps three of them,
   and `[3, 5)`);
-  String "", "a", "ab", "é∀"; Float binary32's 1.0, largest finite, ∞, NaN and `p1x2`'s 1.0, ∞,
-  NaN; Bytes three values; Endianness `LE`, `BE` and Signedness `Signed`, `Unsigned`.
+  String "", "a", "ab", "é∀"; Float binary32's 1.0, largest finite, ∞, NaN, `p1x2`'s 1.0, ∞,
+  NaN and one value of `p2x1` (one exponent bit); Bytes three values; Endianness `LE`, `BE` and
+  Signedness `Signed`, `Unsigned`.
 
   `check` runs the probe on `ens.kompile.kore` and on kompile's text of kimp (`ref-kimp.kore`) and
   compares the per-class counts with `expected`, and what the points with a two-element set find
@@ -59,13 +60,21 @@
   left side is at a silent point, and every sentence at a line of `libSentences` that the text holds
   and the probe evaluates reads it; and that under `HookParams.lib` only the control fails. One
   sentence is excepted from both (`unmet`): `countAllOccurrences`' second equation at the empty
-  needle, which no interpretation meets. Two lines of `libSentences` are outside what the probe
-  evaluates: `findChar`'s equation (1891), which it does not probe, and `sqrtFloat`'s (1671), which
-  applies `rootFloat`, no symbol of Γ in these texts. `checkAll` excepts one more sentence from the
-  first condition only (`unlisted`): RANGEMAP's associativity, a condition on the interpretation that
-  `Semantics.libAdmitted` does not state. `checkFlt` and `checkAll` except one line of
-  `libSentences` from the third (`quiet`): `=/=Float`'s equation (1648), whose silent points are at
-  no format of the Float grid.
+  needle, which no interpretation that gives the count a value there meets. Two lines of
+  `libSentences` are outside what the probe evaluates: `findChar`'s equation (1891), which it does
+  not probe (it applies `ite{Int}`, a symbol Γ does not have), and `sqrtFloat`'s (1671), which applies
+  `rootFloat`, no symbol of Γ in these texts. A collection law carries no line of its own: the probe
+  names it by its symbol, and puts the law generated from a symbol's `assoc` attribute at the line
+  of the symbol's declaration (`declPlace`, `Res.lawPlace`), so that RANGEMAP's associativity is at
+  line 508, `rangeMapAssocEq`'s line of `libSentences`.
+
+  A sentence of these classes that applies a symbol Γ does not have is printed with that reason
+  (`applies symbols Γ does not have`), as silentflt's `Int2Bytes` equations at three arguments
+  (228 to 232, `Int2BytesNoLen`): that is the tie's account of the sentence, no direction, which
+  test/LibEvStrFlt.lean states in the kernel (`int2BytesNoLen_absent`). `kcore account` counts the
+  same sentences under `read [builtin]`: that is the reader's classification (how a sentence is
+  consumed: as the library's text), not a direction, and it agrees with the tie's: the library's
+  text is read, and Γ has no symbol `Int2BytesNoLen`.
 -/
 import KcoreSpec
 
@@ -171,10 +180,12 @@ lower bounds, maximal). -/
 def rangeMapV (es : List (Int × Int × Int)) : GroundTerm := rmV (es.map fun (a, b, v) => (rangeT a b, iK v))
 
 /-- Float values (precision, exponent width, encoding): binary32's 1.0, the largest finite value,
-+∞ and NaN; `p1x2`'s (a format with a field of 1, `KFloat.thinOK`) 1.0, ∞ and NaN. -/
++∞ and NaN; `p1x2`'s (a format with a field of 1, `KFloat.thinOK`) 1.0, ∞ and NaN; and the `p2x1`
+encoding 1 (sign 0, the one exponent bit 0, the fraction bit 1), of a format with one exponent bit,
+at which no Float has a datum (`asDatum`), so that the comparisons are silent there. -/
 def floats : List (Nat × Nat × Nat) :=
   [(24, 8, 0x3F800000), (24, 8, 0x7F7FFFFF), (24, 8, 0x7F800000), (24, 8, 0x7FC00000),
-   (1, 2, 1), (1, 2, 3), (1, 2, 8)]
+   (1, 2, 1), (1, 2, 3), (1, 2, 8), (2, 1, 1)]
 
 /-- The grid of values of a sort (each checked to be of it); none for a sort without one. -/
 def gridOf (c : Semantics) (s : Srt) (small : Bool := false) : Option (List GroundTerm) :=
@@ -438,6 +449,16 @@ def placeOf (as : List Kore.AppPattern) : String :=
   let line := (((locOf as).drop 9).toString.splitOn ",").headD ""
   if file.isEmpty then "-" else s!"{file}:{line}"
 
+/-- The place (`placeOf`) of the declaration of the symbol named `n` in `k`; `-` where `k` declares
+none. -/
+def declPlace (k : Kore.Definition) (n : String) : String :=
+  let at? (sym : Kore.Symbol) (as : List Kore.AppPattern) : Option String :=
+    if sym.ident.ident.name == n then some (placeOf as) else none
+  ((k.modules.flatMap (·.sentences)).findSome? fun
+    | .symbol s => at? s.symbol s.attributes
+    | .hookedSymbol s => at? s.symbol s.attributes
+    | _ => none).getD "-"
+
 def isFunctionalShape : Kore.Pattern → Option (Kore.SymbolIdent × List Kore.KSort)
   | .exist _ v (.equals _ _ (.var (.evar v')) (.app h ss _)) => if v == v' then some (h, ss) else none
   | _ => none
@@ -473,6 +494,9 @@ structure Res where
   place : String
   syms : List String
   absent : List String
+  /-- a collection law generated from its symbol's `assoc` attribute: the place of the symbol's
+  declaration, which the law sentence, carrying no location, is named by; `-` for any other -/
+  lawPlace : String := "-"
   points : Nat := 0
   holds : Nat := 0
   /-- points where the sentence's premise (`\implies`' first argument) holds under `HookParams.none`:
@@ -734,7 +758,9 @@ def run (path : String) (verbose : Bool := true) (modes : List Mode := [.none, .
     | some row =>
       let syms := (appsOf ad.ax.pattern).eraseDups
       let absent := syms.filter (!gNames.contains ·)
-      let r : Res := { index := ad.index, line := lines.getD (ad.index - 1) 0, row, place := placeOf ad.ax.attributes, syms, absent }
+      let lawPlace := if row == 15 && hasAttr ad.ax.attributes "assoc" then (syms.head?.map (declPlace k)).getD "-" else "-"
+      let place := placeOf ad.ax.attributes
+      let r : Res := { index := ad.index, line := lines.getD (ad.index - 1) 0, row, place, syms, absent, lawPlace }
       -- a shift by 2^64 + 1 is a number of that many bits: its sentences are probed on the small grid
       let small := small || syms.any ["Lbl'Unds-LT--LT-'Int'Unds'", "Lbl'Unds-GT--GT-'Int'Unds'"].contains
       let r := if absent.isEmpty then probe c r ad.ax modes small else { r with skip := some s!"applies symbols Γ does not have: {absent}" }
@@ -760,12 +786,14 @@ def run (path : String) (verbose : Bool := true) (modes : List Mode := [.none, .
   let name (r : Res) : String := s!"{r.row} {if r.place == "-" then " ".intercalate r.syms else r.place}"
   let keyNames := totalSilentKeys.map c.symName
   let places := libSentences.map fun (l, _) => s!"domains.md:{l}"
+  -- a sentence at a line of `libSentences`: by its own place, or a law by its symbol's declaration's
+  let atLine (r : Res) : Bool := r.row != 9 && (places.contains r.place || places.contains r.lawPlace)
   let named (r : Res) : Bool :=
-    (r.row == 9 && r.syms.length == 1 && r.syms.all keyNames.contains) || (r.row != 9 && places.contains r.place)
+    (r.row == 9 && r.syms.length == 1 && r.syms.all keyNames.contains) || atLine r
   let probed := res.filter (·.skip.isNone)
   let reads : Reads :=
     { unnamed := (probed.filter fun r => r.hdep > 0 && !named r).map name
-      unread := (probed.filter fun r => r.row != 9 && places.contains r.place && r.hdep == 0).map name
+      unread := (probed.filter fun r => atLine r && r.hdep == 0).map name
       off := (probed.filter (·.hOff > 0)).map name
       libFails := (probed.filter (·.failModes.contains Mode.lib.name)).map name }
   let readers := probed.filter (·.hdep > 0)
@@ -795,27 +823,12 @@ because no interpretation meets them: the second equation of `countAllOccurrence
 `HookParams.lib` as under every interpretation that gives the count a value there. -/
 def unmet : List String := ["17 domains.md:1898"]
 
-/-- The sentences reading the interpretation that state a condition on it which is not one of
-`Semantics.libAdmitted`'s: RANGEMAP's associativity of `_RangeMap_` (its `assoc` attribute, domains.md 508). Where
-two of the three maps have ranges in common, `_RangeMap_` is at a silent point, and the law states
-that the interpretation's values there associate; the readings `pick 0`, `pick 1` and `hash` do
-not (`m = [0, 2) |-> 0`, `n = [1, 3) |-> 1`, `p = [3, 5) |-> 2` under `pick 0`: `(m n) p` is `p`,
-`m (n p)` the empty map), `HookParams.none` and `HookParams.lib` do (no value on either side). -/
-def unlisted : List String := ["15 Lbl'Unds'RangeMap'Unds'"]
-
-/-- The sentences at a line of `libSentences` that read the interpretation at no point of the
-grid: `=/=Float`'s equation (domains.md 1648). Its sides apply `==Float` and `=/=Float`, which have
-their values wherever both operands have a datum (`asDatum`: a format with a model, or precision 1
-and at least 2 exponent bits); so its silent points are at the formats of one exponent bit, and
-the Float grid (`floats`: binary32 and `p1x2`) holds none. -/
-def quiet : List String := ["17 domains.md:1648"]
-
-/-- What `checkLib` requires of a run: every sentence reading the interpretation has a named
-condition, `unmet` and `extra` aside, and reads it only where its left side is silent, the named
-sentences the text holds that read it nowhere are exactly `unreadOK`, and under `HookParams.lib`
-only the control (set idempotence) and `unmet` fail. -/
-def readsOK (r : Reads) (extra : List String := []) (unreadOK : List String := []) : Bool :=
-  r.unnamed.all (fun n => unmet.contains n || extra.contains n) && r.unread == unreadOK && r.off.isEmpty &&
+/-- What a check requires of a run: every sentence reading the interpretation has a named
+condition, `unmet` aside, and reads it only where its left side is silent, every named sentence
+the text holds reads it at some point of the grid, and under `HookParams.lib` only the control
+(set idempotence) and `unmet` fail. -/
+def readsOK (r : Reads) : Bool :=
+  r.unnamed.all unmet.contains && r.unread.isEmpty && r.off.isEmpty &&
     r.libFails.all fun n => n.startsWith "16 " || unmet.contains n
 
 /-- The readings `check` and `checkFlt` add: `HookParams.lib`, and the non-constant `hash`. -/
@@ -834,21 +847,22 @@ points and no value elsewhere (each meets `Semantics.silentTotal`). -/
 def fltModes : List Mode := [.none, .pick 0, .pick 1, .only totalSilentKeys 0, .only totalSilentKeys 1] ++ libModes
 
 /-- The counts of `silentflt.kompile.kore` (FLOAT, STRING, BYTES, SET imported) over the five
-readings, the Int grid without 2^64 + 1. Row 9's nine failures are the `functional` sentences of
+readings, the Int grid without 2^64 + 1. Row 9's ten failures are the `functional` sentences of
 `substrString`, `Int2Bytes` (at a negative length), `--Float`, `absFloat`, `floorFloat`,
-`ceilFloat`, `truncFloat`, `countAllOccurrences` and `replaceAll` (at the empty needle), under
-`HookParams.none` only (`isNaN` has its values at the `p1x2` data, `asDatum`). Row 17's four:
-`countAllOccurrences`' second equation (1898) at the empty
-needle, under every reading that gives the count a value there (`unmet`); `replaceAll`'s (1917) at
-the empty needle under the readings that give `replaceAll` and `replace` at the count different
-values; `isInfinite`'s equation (domains.md 1673) at the three `p1x2`
-values under the two `only` readings (`isInfinite` has a value, `maxValueFloat` none, so the right
-side has none); `rfindChar`'s (1893) under `pick0` and `pick1` (in the points printed),
-which give the silent points of two symbols values that do not agree with the equation.
-`=/=Float`'s (1648) reads the interpretation nowhere: `==Float` and `=/=Float` have their values at
-the `p1x2` data (`asDatum`). -/
+`ceilFloat`, `truncFloat`, `countAllOccurrences` and `replaceAll` (at the empty needle), and
+`isNaN`'s at the `p2x1` value, which has no datum (`asDatum`; `isNaN` has its values at the `p1x2`
+data), under `HookParams.none` only. Row 17's five: `countAllOccurrences`' second equation (1898)
+at the empty needle, under every reading that gives the count a value there (`unmet`);
+`replaceAll`'s (1917) at the empty needle under the readings that give `replaceAll` and `replace`
+at the count different values; `isInfinite`'s equation (domains.md 1673) at the three `p1x2` values
+and the `p2x1` one, under the two `only` readings (`isInfinite` has a value, `maxValueFloat` none, so
+the right side has none) and under `pick0`, `pick1` and `hash`; `rfindChar`'s (1893) under `pick0`
+and `pick1` (in the points printed), which give the silent points of two symbols values that do
+not agree with the equation; and `=/=Float`'s (1648) where an operand is the `p2x1` value, at which
+`==Float` and `=/=Float` are silent, under `pick0`, `pick1` and `hash`, which give the two values
+that do not agree with the equation (`neFloatEq`). -/
 def expectedFlt : Summary :=
-  [(9, 93, 73, 64, 0, 9, 0), (15, 9, 9, 9, 0, 0, 0), (17, 55, 45, 40, 0, 4, 1), (18, 67, 66, 66, 0, 0, 0),
+  [(9, 93, 73, 63, 0, 10, 0), (15, 9, 9, 9, 0, 0, 0), (17, 55, 45, 39, 0, 5, 1), (18, 67, 66, 66, 0, 0, 0),
    (16, 1, 1, 0, 1, 0, 0)]
 
 def checkFlt : IO Unit := do
@@ -856,19 +870,20 @@ def checkFlt : IO Unit := do
   let (s, r, t) ← run path (modes := fltModes) (small := true)
   if s != expectedFlt then throw (IO.userError s!"{path}: counts {s}, expected {expectedFlt}")
   if t != expectedFltTwo then throw (IO.userError s!"{path}: at two-element sets {reprStr t}, expected {reprStr expectedFltTwo}")
-  if !readsOK r (unreadOK := quiet) then throw (IO.userError s!"{path}: sentences reading the interpretation: {reprStr r}")
+  if !readsOK r then throw (IO.userError s!"{path}: sentences reading the interpretation: {reprStr r}")
   IO.println s!"{path}: counts as expected, conditions closed, HookParams.lib fails only the control"
 
 /-- The counts of `allbuiltins.kompile.kore` (kompile's text of a definition importing every module
 of the K 7.1.337 installation's builtin files) over `fltModes`, the Int grid without 2^64 + 1, after
 leaving out the 193 sentences of builtin modules outside the library's text (`outOfLibrary`:
 ARRAY, RAT, FFI, MINT, …). The sentences reading the interpretation are those of silentflt and
-RANGEMAP's associativity (`unlisted`), the one sentence of row 15 failing only under some
-interpretation; RANGEMAP's other sentences over Γ's symbols with a variable of sort RangeMap (the
-`functional` sentences of `lookupOrDefault`, `-RangeMap`, `<=RangeMap`, `in_keys`, `keys`, `size`
-and `updateRangeMap`, and the two unit laws) hold in every reading. -/
+RANGEMAP's associativity, at the line of `_RangeMap_`'s declaration (508, `rangeMapAssocEq`), the
+one sentence of row 15 failing only under some interpretation; RANGEMAP's other sentences over
+Γ's symbols with a variable of sort RangeMap (the `functional` sentences of `lookupOrDefault`,
+`-RangeMap`, `<=RangeMap`, `in_keys`, `keys`, `size` and `updateRangeMap`, and the two unit laws)
+hold in every reading. -/
 def expectedAll : Summary :=
-  [(9, 110, 81, 72, 0, 9, 0), (15, 12, 12, 11, 0, 1, 0), (17, 63, 45, 40, 0, 4, 1), (18, 114, 113, 113, 0, 0, 0),
+  [(9, 110, 81, 71, 0, 10, 0), (15, 12, 12, 11, 0, 1, 0), (17, 63, 45, 39, 0, 5, 1), (18, 114, 113, 113, 0, 0, 0),
    (16, 1, 1, 0, 1, 0, 0)]
 
 def checkAll : IO Unit := do
@@ -876,9 +891,7 @@ def checkAll : IO Unit := do
   let (s, r, t) ← run path (modes := fltModes) (small := true) (dropOut := true)
   if s != expectedAll then throw (IO.userError s!"{path}: counts {s}, expected {expectedAll}")
   if t != expectedAllTwo then throw (IO.userError s!"{path}: at two-element sets {reprStr t}, expected {reprStr expectedAllTwo}")
-  if !unlisted.all r.unnamed.contains then
-    throw (IO.userError s!"{path}: sentences reading the interpretation without a named condition: {r.unnamed}, expected {unlisted} among them")
-  if !readsOK r unlisted quiet then throw (IO.userError s!"{path}: sentences reading the interpretation: {reprStr r}")
+  if !readsOK r then throw (IO.userError s!"{path}: sentences reading the interpretation: {reprStr r}")
   IO.println s!"{path}: counts as expected, conditions closed, HookParams.lib fails only the control"
 
 end KCore.LibProbe

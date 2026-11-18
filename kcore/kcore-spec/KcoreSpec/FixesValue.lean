@@ -18,6 +18,15 @@
   and the condition's among them: nothing is asked of another variable in scope. `fixes_value` is
   it where R holds of every variable.
 
+  The recursion is `fixes_value_readT`, over a predicate T on term evaluations: each truth value
+  comes with T at the evaluations of its terms (`HoldsReadT`), and T gives an evaluation's reading
+  in the model (`TermUse`). With T every evaluation and the atoms' facts it is `fixes_value_read`.
+  With T the reading in the model (`TermAt`) it is `fixes_value_read_hr` and `fixes_value_hr`,
+  which ask the constructors' facts only: the soundness of `EvalTerm` in the model is not a
+  hypothesis, each truth value bringing the readings of its own terms. There the substitutions
+  are well sorted on every variable in scope (`TermAt` reads a term under such a one), and a truth
+  value is asked only at those that are a given substitution beyond the variables in scope.
+
   By recursion on p through `mem`, `equals`, `and`, `or` and `ex`. At `mem` and `equals` the fixed
   side is the variable or its injection, one element of the atom's sort (`fixSide_read`,
   `inj_defined`); the other side has a result at the substitution `subst_atElems` builds, whose
@@ -26,6 +35,7 @@
 import KcoreSpec.ClausePreCore
 import KcoreSpec.HoldsModelFixed
 import KcoreSpec.InjValue
+import KcoreSpec.HoldsRead
 
 set_option autoImplicit false
 
@@ -48,6 +58,85 @@ def AtElems (c : Semantics) (I : Interpretation KoreAML.Sym M) (tbl : KoreAML.Va
     (e : Valuation M) (ok : Nat → Bool) (R : Nat → Prop) (σ : Subst) : Prop :=
   ∀ j, ok j = true → R j → j < vars.length →
     ∃ v, σ.lookup j = some v ∧ elemOf c I v = e.evalEvar (tbl.ev (canonKey c vars j))
+
+/-- Sorted on more variables is sorted on fewer. -/
+theorem SortedOn.mono {vars : List Srt} {Q Q' : Nat → Prop} {σ : Subst} (hσ : SortedOn c vars Q σ)
+    (hQ : ∀ j, Q' j → Q j) : SortedOn c vars Q' σ :=
+  fun i s hi hs => hσ i s (hQ i hi) hs
+
+/-- The substitution that is `σ₁` below n and τ from n on. -/
+def overAt (n : Nat) (σ₁ τ : Subst) : Subst :=
+  (List.range n).filterMap (fun j => (σ₁.lookup j).map fun v => (j, v)) ++ τ.filter (fun p => decide (n ≤ p.1))
+
+theorem lookup_tabAt (σ₁ : Subst) (i : Nat) : ∀ (l : List Nat),
+    (l.filterMap fun j => (σ₁.lookup j).map fun v => (j, v)).lookup i = if i ∈ l then σ₁.lookup i else none
+  | [] => by simp
+  | j :: l => by
+    have ih := lookup_tabAt σ₁ i l
+    by_cases hij : i = j
+    · subst hij
+      cases hv : σ₁.lookup i with
+      | none =>
+        rw [List.filterMap_cons_none (by rw [hv]; rfl), ih]
+        by_cases hm : i ∈ l <;> simp [hm, hv]
+      | some v =>
+        rw [List.filterMap_cons_some (by rw [hv]; rfl)]
+        simp
+    · have hne : (i == j) = false := by simpa using hij
+      cases hv : σ₁.lookup j with
+      | none =>
+        rw [List.filterMap_cons_none (by rw [hv]; rfl), ih]
+        simp [hij]
+      | some v =>
+        rw [List.filterMap_cons_some (by rw [hv]; rfl), List.lookup_cons, hne, ih]
+        simp [hij]
+
+theorem lookup_fromAt (n i : Nat) : ∀ (τ : Subst),
+    (τ.filter fun p => decide (n ≤ p.1)).lookup i = if n ≤ i then τ.lookup i else none
+  | [] => by simp
+  | (k, v) :: τ => by
+    have ih := lookup_fromAt n i τ
+    by_cases hk : n ≤ k
+    · rw [List.filter_cons_of_pos (by simpa using hk), List.lookup_cons, List.lookup_cons, ih]
+      by_cases hik : i = k
+      · subst hik; simp [hk]
+      · have hne : (i == k) = false := by simpa using hik
+        rw [hne]
+    · rw [List.filter_cons_of_neg (by simpa using hk), ih]
+      by_cases hi : n ≤ i
+      · have hne : (i == k) = false := by simp; omega
+        simp [hi, List.lookup_cons, hne]
+      · simp [hi]
+
+theorem lookup_overAt (n : Nat) (σ₁ τ : Subst) (i : Nat) :
+    (overAt n σ₁ τ).lookup i = if i < n then σ₁.lookup i else τ.lookup i := by
+  rw [overAt, List.lookup_append, lookup_tabAt, lookup_fromAt]
+  by_cases hi : i < n
+  · have : ¬ n ≤ i := by omega
+    simp [hi, this]
+  · have : n ≤ i := by omega
+    simp [hi, this]
+
+/-- How a term's evaluation that T holds of is read in I: at a valuation that reads the term's
+variables as their values under σ, σ sorted on every variable in scope where `w` holds, the term's
+translation denotes what its result denotes. -/
+def TermUse (c : Semantics) (I : Interpretation KoreAML.Sym M) (w : Prop)
+    (T : Subst → Term → Option GroundTerm → Prop) : Prop :=
+  ∀ {σ : Subst} {t : Term} {r : Option GroundTerm}, T σ t r →
+    ∀ {vars : List Srt} {P : Nat → Prop} {tbl : KoreAML.VarTable} {e : Valuation M} {s : Srt},
+    SortedOn c vars (fun _ => w) σ → (∀ i ∈ varOccs t, P i) → Reads c I vars P σ tbl e →
+    sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) vars t = some s →
+    ∀ m, (KoreAML.tr ⟨tbl, []⟩ (Term.kore c (canonVars c vars) t)).interpret I e m ↔ Res c I e r m
+
+omit [Inhabited M] in
+/-- With the atoms' facts, every evaluation of a term is read, whatever σ is sorted on. -/
+theorem termUse_of_atomFacts (F : AtomFacts c I) : TermUse c I False (EvalTerm c) :=
+  fun hev _ _ _ _ _ _ hP hr ht m => F.termSound hev hP hr ht m
+
+omit [Inhabited M] in
+/-- An evaluation read in I (`TermAt`) is read where σ is well sorted. -/
+theorem termUse_termAt : TermUse c I True (TermAt c I) :=
+  fun hT _ _ _ _ _ _ hP hr ht m => hT hP hr ht m
 
 /-- What `fixesBy` decides: t is the variable i or an injection of it, and `ok` admits every
 variable of u. -/
@@ -125,17 +214,20 @@ theorem fixSide_read (h : c.coreOK = true) (hI : I ⊧ᴵP Γ c) {vars : List Sr
       exact ⟨w, by rw [hg]; exact hw, hew.symm⟩
 
 /-- **An atom that fixes i**: where the fixed side t, read as one element y of the atom's sort,
-has y in the other side u, and u has a result at every substitution of values that agrees with the
-valuation on the variables `ok` admits, the valuation gives i the element of a value. Only the
-variables R holds of are read, i and those of u among them. -/
-theorem fixesBy_value (h : c.coreOK = true) (hI : I ⊧ᴵP Γ c) (F : AtomFacts c I)
+has y in the other side u, and u has a result whose evaluation is read (`TermUse`) at every
+substitution of values that agrees with the valuation on the variables `ok` admits and is τ beyond
+the variables in scope, the valuation gives i the element of a value. Only the variables R holds of
+are read, i and those of u among them. -/
+theorem fixesBy_valueT (h : c.coreOK = true) (hI : I ⊧ᴵP Γ c) (N : NodeFacts c I)
+    {w : Prop} {T : Subst → Term → Option GroundTerm → Prop} (hT : TermUse c I w T) (τ : Subst)
     {vars : List Srt} {ok : Nat → Bool} {R : Nat → Prop} {i : Nat} {t u : Term} {s : Srt}
     {tbl : KoreAML.VarTable} {e : Valuation M}
     (hi : i < vars.length) (hRi : R i) (hRu : ∀ j ∈ varOccs u, R j)
     (ht : sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) vars t = some s)
     (hu : sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) vars u = some s)
-    (hfb : fixesBy ok i t u = true) (hσ0 : ∃ σ, SortedOn c vars R σ)
-    (hdec : ∀ σ, SortedOn c vars R σ → AtElems c I tbl vars e ok R σ → ∃ r, EvalTerm c σ u r)
+    (hfb : fixesBy ok i t u = true) (hσ0 : ∃ σ, SortedOn c vars (fun j => R j ∨ w) σ)
+    (hdec : ∀ σ, (∀ j, vars.length ≤ j → σ.lookup j = τ.lookup j) → SortedOn c vars (fun j => R j ∨ w) σ →
+      AtElems c I tbl vars e ok R σ → ∃ r, EvalTerm c σ u r ∧ T σ u r)
     (hw : ∀ j, ok j = true → R j → j < vars.length → Witnessed c I tbl (canonVars c vars) vars e j)
     (hin : ∀ j, R j → j < vars.length → canonKey c vars j ∈ tbl ∧
       InS I (c.sortName (vars.getD j 0)) (e.evalEvar (tbl.ev (canonKey c vars j))))
@@ -146,23 +238,36 @@ theorem fixesBy_value (h : c.coreOK = true) (hI : I ⊧ᴵP Γ c) (F : AtomFacts
   obtain ⟨hsh, hoku⟩ := fixesBy_shape hfb
   obtain ⟨y, hy, hty, hfin⟩ := fixSide_read h hI (hin i hRi hi).2 ht hsh
   obtain ⟨σ0, hσ0⟩ := hσ0
-  obtain ⟨σ, hσ, hσw⟩ := subst_atElems (I := I) (tbl := tbl) (e := e) hσ0
-  have hat : AtElems c I tbl vars e ok R σ := fun j hj hR hjl => by
+  obtain ⟨σ1, hσ1, hσw1⟩ := subst_atElems (I := I) (tbl := tbl) (e := e) hσ0
+  -- the substitution with τ beyond the variables in scope
+  have hlo : ∀ j, j < vars.length → (overAt vars.length σ1 τ).lookup j = σ1.lookup j :=
+    fun j hj => by rw [lookup_overAt, if_pos hj]
+  have hσ : SortedOn c vars (fun j => R j ∨ w) (overAt vars.length σ1 τ) := fun j s' hRj hj => by
+    rw [hlo j (List.getElem?_eq_some_iff.mp hj).1]; exact hσ1 j s' hRj hj
+  have hσw : ∀ j, j < vars.length → Witnessed c I tbl (canonVars c vars) vars e j →
+      ∃ v, (overAt vars.length σ1 τ).lookup j = some v ∧ c.sortOf v = some (vars.getD j 0) ∧
+        elemOf c I v = e.evalEvar (tbl.ev (canonKey c vars j)) := fun j hj hwj => by
+    rw [hlo j hj]; exact hσw1 j hj hwj
+  have hat : AtElems c I tbl vars e ok R (overAt vars.length σ1 τ) := fun j hj hR hjl => by
     obtain ⟨v, hv, -, hev⟩ := hσw j hjl (hw j hj hR hjl)
     exact ⟨v, hv, hev⟩
-  obtain ⟨r, hev⟩ := hdec σ hσ hat
-  have hr : Reads c I vars (fun j => j ∈ varOccs u) σ tbl e := fun j hj => by
+  obtain ⟨r, hev, hTr⟩ := hdec _ (fun j hj => by rw [lookup_overAt, if_neg (by omega)]) hσ hat
+  have hr : Reads c I vars (fun j => j ∈ varOccs u) (overAt vars.length σ1 τ) tbl e := fun j hj => by
     have hjl := varOccs_lt u hu j hj
     obtain ⟨v, hv, hsv, hev⟩ := hσw j hjl (hw j (hoku j hj) (hRu j hj) hjl)
     refine ⟨hjl, (hin j (hRu j hj) hjl).1, v, hv, hsv, fun m => ?_⟩
     rw [(elemOf_spec hI hsv e).1 m, hev]
-  obtain ⟨-, hru⟩ := term_read F hr hu (fun j hj => hj)
-  obtain ⟨hread, hsort⟩ := hru r hev
+  have hsatU : c.WellSortedAt vars (varOccs u) (overAt vars.length σ1 τ) := by
+    intro j hj s' hs'
+    obtain ⟨-, -, v, hv, hsv, -⟩ := hr j hj
+    refine ⟨v, hv, ?_⟩
+    rw [hsv, List.getD_eq_getElem?_getD, hs']; rfl
+  have hread := hT hTr (hσ.mono fun _ hw' => Or.inr hw') (fun j hj => hj) hr hu
   have hres := (hread y).mp (hsat y hy hty)
   cases r with
   | none => exact hres.elim
   | some v =>
-    have hv := hsort v rfl
+    have hv := EvalTerm.sorted_at N.sortCtx hev fns_headsOK hsatU hu rfl
     exact hfin v hv (((elemOf_spec hI hv e).1 y).mp hres)
 
 /-- A substitution well sorted on the variables in scope R holds of, with a value of the sort s at
@@ -183,25 +288,29 @@ theorem sortedOn_snocFV {vars : List Srt} {R : Nat → Prop} {σ : Subst} (hσ :
     simp at hj; subst hj
     exact ⟨v, Model.extOneStdI_at σ _ v, hv⟩
 
-/-- **`fixes_value_read`.** In a model of `Γc` of a definition with `coreOK` that reads confined
-sorts, with the soundness of `EvalTerm` in the model (`F`) and `val` true only at sorts with a
+/-- **A variable a condition fixes is at a value's element**, over what holds of the term
+evaluations of the condition's truth values. In a model of `Γc` of a definition with `coreOK` that
+reads confined sorts, with the constructors' facts (`N`) and `val` true only at sorts with a
 value: an element valuation over the variables in scope that gives every variable `ok` admits the
 element of a value and satisfies a condition that fixes i (`Cond.fixes`) gives i the element of a
-value. The condition has a truth value at every substitution of values that agrees with the
-valuation on the variables `ok` admits, some substitution of values is well sorted on the
-variables in scope, and each `ex` binder of the condition is of a confined sort or of a sort
-`val` admits (`Cond.boundV`). Of the variables in scope only those R holds of are read, i and the
-condition's among them: of another, neither a value of its sort, nor its key in the table, nor
-its element is asked. -/
-theorem fixes_value_read (h : c.coreOK = true) (hrc : c.readsConfined = true) (hIc : I ⊧ᴵP Γc c)
-    (F : AtomFacts c I) {val : Srt → Bool} (hval : ∀ s, val s = true → ∃ v, c.sortOf v = some s) :
+value. The condition has a truth value, each of whose term evaluations T holds of and is read
+through T (`TermUse`), at every substitution of values that agrees with the valuation on the
+variables `ok` admits and is τ beyond the variables in scope; some substitution of values is
+sorted on the variables in scope; and each `ex` binder of the condition is of a confined sort or
+of a sort `val` admits (`Cond.boundV`). Of the variables in scope only those R holds of are read,
+i and the condition's among them; a substitution is sorted on those, and on all of them where `w`
+holds. -/
+theorem fixes_value_readT (h : c.coreOK = true) (hrc : c.readsConfined = true) (hIc : I ⊧ᴵP Γc c)
+    (N : NodeFacts c I) {w : Prop} {T : Subst → Term → Option GroundTerm → Prop} (hT : TermUse c I w T)
+    {val : Srt → Bool} (hval : ∀ s, val s = true → ∃ v, c.sortOf v = some s) (tl : Subst) :
     ∀ (p : Cond) (ok : Nat → Bool) (R : Nat → Prop) (i : Nat) (vars : List Srt) (tbl : KoreAML.VarTable)
       (e : Valuation M) (S : Srt),
     c.condOK vars p = true → Cond.boundV c val vars.length p = true →
     Cond.fixes c.confined val ok i vars.length p = true → i < vars.length → R i →
     (∀ j ∈ varOccsCond vars.length p, j < vars.length → R j) →
-    (∃ σ, SortedOn c vars R σ) →
-    (∀ σ, SortedOn c vars R σ → AtElems c I tbl vars e ok R σ → ∃ b, Holds c vars.length σ p b) →
+    (∃ σ, SortedOn c vars (fun j => R j ∨ w) σ) →
+    (∀ σ, (∀ j, vars.length ≤ j → σ.lookup j = tl.lookup j) → SortedOn c vars (fun j => R j ∨ w) σ →
+      AtElems c I tbl vars e ok R σ → ∃ b, HoldsReadT c T vars.length σ p b) →
     (∀ j, ok j = true → R j → j < vars.length → Witnessed c I tbl (canonVars c vars) vars e j) →
     (∀ j, R j → j < vars.length → canonKey c vars j ∈ tbl ∧
       InS I (c.sortName (vars.getD j 0)) (e.evalEvar (tbl.ev (canonKey c vars j)))) →
@@ -216,15 +325,15 @@ theorem fixes_value_read (h : c.coreOK = true) (hrc : c.readsConfined = true) (h
     have hs : s < nRegSorts + c.sortNames.length := of_decide_eq_true hok.2
     replace hok := hok.1; rw [Bool.and_eq_true, beq_iff_eq, beq_iff_eq] at hok
     rw [Cond.fixes] at hfix
-    obtain ⟨τ, hτ, hτd⟩ := F.sort hs
-    obtain ⟨τS, hτS, hτSd⟩ := F.sort hS
+    obtain ⟨τ, hτ, hτd⟩ := N.sort hs
+    obtain ⟨τS, hτS, hτSd⟩ := N.sort hS
     have hRu : ∀ j ∈ varOccs u, R j := fun j hj =>
       hR j (by rw [varOccsCond]; exact List.mem_append_right _ hj) (varOccs_lt u hok.2 j hj)
-    refine fixesBy_value h hI F hi hRi hRu hok.1 hok.2 hfix hσ0 (fun σ hσ hat => ?_) hw hin fun y hy hty => ?_
-    · obtain ⟨b, hb⟩ := hdec σ hσ hat
+    refine fixesBy_valueT h hI N hT tl hi hRi hRu hok.1 hok.2 hfix hσ0 (fun σ htl hσ hat => ?_) hw hin fun y hy hty => ?_
+    · obtain ⟨b, hb⟩ := hdec σ htl hσ hat
       cases hb with
-      | mem _ hev' => exact ⟨_, hev'⟩
-    · rw [Cond.kore, KoreAML.tr, KoreAML.interp_sIn F.defOK F.ceilDef (hτd tbl e) (hτSd tbl e) hτ hτS (fun m hm => by
+      | mem _ _ hev' hT' => exact ⟨_, hev', hT'⟩
+    · rw [Cond.kore, KoreAML.tr, KoreAML.interp_sIn N.defOK N.ceilDef (hτd tbl e) (hτSd tbl e) hτ hτS (fun m hm => by
         rw [(hty m).mp hm]
         exact (KoreAML.interp_inhOf_of (hτd tbl e)).mp (inhOf_srtOf_inS.mpr hy))] at hpa
       obtain ⟨⟨x, h1, h2⟩, -⟩ := hpa
@@ -236,9 +345,9 @@ theorem fixes_value_read (h : c.coreOK = true) (hrc : c.readsConfined = true) (h
     have hs : s < nRegSorts + c.sortNames.length := of_decide_eq_true hok.2
     replace hok := hok.1; rw [Bool.and_eq_true, beq_iff_eq, beq_iff_eq] at hok
     rw [Cond.fixes, Bool.or_eq_true] at hfix
-    obtain ⟨τ, hτ, hτd⟩ := F.sort hs
-    obtain ⟨τS, hτS, hτSd⟩ := F.sort hS
-    rw [Cond.kore, KoreAML.tr, KoreAML.interp_sEquals F.defOK F.ceilDef (hτd tbl e) (hτSd tbl e) hτ hτS] at hpa
+    obtain ⟨τ, hτ, hτd⟩ := N.sort hs
+    obtain ⟨τS, hτS, hτSd⟩ := N.sort hS
+    rw [Cond.kore, KoreAML.tr, KoreAML.interp_sEquals N.defOK N.ceilDef (hτd tbl e) (hτSd tbl e) hτ hτS] at hpa
     have hinh : ∀ y, InS I (c.sortName s) y → KoreAML.Inh I τ y := fun y hy =>
       (KoreAML.interp_inhOf_of (hτd tbl e)).mp (inhOf_srtOf_inS.mpr hy)
     have hRt : ∀ j ∈ varOccs t, R j := fun j hj =>
@@ -246,16 +355,16 @@ theorem fixes_value_read (h : c.coreOK = true) (hrc : c.readsConfined = true) (h
     have hRu : ∀ j ∈ varOccs u, R j := fun j hj =>
       hR j (by rw [varOccsCond]; exact List.mem_append_right _ hj) (varOccs_lt u hok.2 j hj)
     rcases hfix with hfix | hfix
-    · refine fixesBy_value h hI F hi hRi hRu hok.1 hok.2 hfix hσ0 (fun σ hσ hat => ?_) hw hin fun y hy hty =>
+    · refine fixesBy_valueT h hI N hT tl hi hRi hRu hok.1 hok.2 hfix hσ0 (fun σ htl hσ hat => ?_) hw hin fun y hy hty =>
         (hpa.2 y (hinh y hy)).mp ((hty y).mpr rfl)
-      obtain ⟨b, hb⟩ := hdec σ hσ hat
+      obtain ⟨b, hb⟩ := hdec σ htl hσ hat
       cases hb with
-      | equals _ hev' => exact ⟨_, hev'⟩
-    · refine fixesBy_value h hI F hi hRi hRt hok.2 hok.1 hfix hσ0 (fun σ hσ hat => ?_) hw hin fun y hy hty =>
+      | equals _ _ hev' hT' => exact ⟨_, hev', hT'⟩
+    · refine fixesBy_valueT h hI N hT tl hi hRi hRt hok.2 hok.1 hfix hσ0 (fun σ htl hσ hat => ?_) hw hin fun y hy hty =>
         (hpa.2 y (hinh y hy)).mpr ((hty y).mpr rfl)
-      obtain ⟨b, hb⟩ := hdec σ hσ hat
+      obtain ⟨b, hb⟩ := hdec σ htl hσ hat
       cases hb with
-      | equals hev _ => exact ⟨_, hev⟩
+      | equals hev hT' _ _ => exact ⟨_, hev, hT'⟩
   | .and p q, ok, R, i, vars, tbl, e, S, hok, hbd, hfix, hi, hRi, hR, hσ0, hdec, hw, hin, hk, hS, ⟨a, ha, hpa⟩ => by
     rw [Semantics.condOK, Bool.and_eq_true] at hok
     rw [Cond.boundV, Bool.and_eq_true] at hbd
@@ -272,12 +381,12 @@ theorem fixes_value_read (h : c.coreOK = true) (hrc : c.readsConfined = true) (h
       hk k (by rw [Cond.kore, KoreAML.varsOf, KoreAML.varsOfList, KoreAML.varsOfList]
                exact List.mem_append_right _ (List.mem_append_right _ (List.mem_append_left _ hk0)))
     rcases hfix with hfix | hfix
-    · exact fixes_value_read h hrc hIc F hval p ok R i vars tbl e S hok.1 hbd.1 hfix hi hRi hRp hσ0 (fun σ hσ hat => by
-        obtain ⟨b, hb⟩ := hdec σ hσ hat
+    · exact fixes_value_readT h hrc hIc N hT hval tl p ok R i vars tbl e S hok.1 hbd.1 hfix hi hRi hRp hσ0 (fun σ htl hσ hat => by
+        obtain ⟨b, hb⟩ := hdec σ htl hσ hat
         cases hb with
         | and h1 _ => exact ⟨_, h1⟩) hw hin hkp hS ⟨a, ha, hpa.1⟩
-    · exact fixes_value_read h hrc hIc F hval q ok R i vars tbl e S hok.2 hbd.2 hfix hi hRi hRq hσ0 (fun σ hσ hat => by
-        obtain ⟨b, hb⟩ := hdec σ hσ hat
+    · exact fixes_value_readT h hrc hIc N hT hval tl q ok R i vars tbl e S hok.2 hbd.2 hfix hi hRi hRq hσ0 (fun σ htl hσ hat => by
+        obtain ⟨b, hb⟩ := hdec σ htl hσ hat
         cases hb with
         | and _ h2 => exact ⟨_, h2⟩) hw hin hkq hS ⟨a, ha, hpa.2⟩
   | .or p q, ok, R, i, vars, tbl, e, S, hok, hbd, hfix, hi, hRi, hR, hσ0, hdec, hw, hin, hk, hS, ⟨a, ha, hpa⟩ => by
@@ -296,12 +405,12 @@ theorem fixes_value_read (h : c.coreOK = true) (hrc : c.readsConfined = true) (h
       hk k (by rw [Cond.kore, KoreAML.varsOf, KoreAML.varsOfList, KoreAML.varsOfList]
                exact List.mem_append_right _ (List.mem_append_right _ (List.mem_append_left _ hk0)))
     rcases hpa.2 with hpa' | hpa'
-    · exact fixes_value_read h hrc hIc F hval p ok R i vars tbl e S hok.1 hbd.1 hfix.1 hi hRi hRp hσ0 (fun σ hσ hat => by
-        obtain ⟨b, hb⟩ := hdec σ hσ hat
+    · exact fixes_value_readT h hrc hIc N hT hval tl p ok R i vars tbl e S hok.1 hbd.1 hfix.1 hi hRi hRp hσ0 (fun σ htl hσ hat => by
+        obtain ⟨b, hb⟩ := hdec σ htl hσ hat
         cases hb with
         | or h1 _ => exact ⟨_, h1⟩) hw hin hkp hS ⟨a, ha, hpa'⟩
-    · exact fixes_value_read h hrc hIc F hval q ok R i vars tbl e S hok.2 hbd.2 hfix.2 hi hRi hRq hσ0 (fun σ hσ hat => by
-        obtain ⟨b, hb⟩ := hdec σ hσ hat
+    · exact fixes_value_readT h hrc hIc N hT hval tl q ok R i vars tbl e S hok.2 hbd.2 hfix.2 hi hRi hRq hσ0 (fun σ htl hσ hat => by
+        obtain ⟨b, hb⟩ := hdec σ htl hσ hat
         cases hb with
         | or _ h2 => exact ⟨_, h2⟩) hw hin hkq hS ⟨a, ha, hpa'⟩
   | .ex s body, ok, R, i, vars, tbl, e, S, hok, hbd, hfix, hi, hRi, hR, hσ0, hdec, hw, hin, hk, hS, ⟨a, ha, hpa⟩ => by
@@ -312,7 +421,7 @@ theorem fixes_value_read (h : c.coreOK = true) (hrc : c.readsConfined = true) (h
         (c.confined s || (val s && Cond.fixes c.confined val (fun j => j != vars.length && ok j) vars.length
           (vars.length + 1) body)) else ok j) i (vars.length + 1) body = true := hfix
     have hlen : (vars ++ [s]).length = vars.length + 1 := by simp
-    obtain ⟨τS, hτS, hτSd⟩ := F.sort hS
+    obtain ⟨τS, hτS, hτSd⟩ := N.sort hS
     let K := canonKey c (vars ++ [s]) vars.length
     have hkb : KoreAML.evarKey (Cond.binder c (canonVars c vars).length s).kore = K := Model.binder_keyStdI vars s
     have hkore : Cond.kore c (canonVars c vars) (srtOf c S) (.ex s body) =
@@ -325,7 +434,7 @@ theorem fixes_value_read (h : c.coreOK = true) (hrc : c.readsConfined = true) (h
       fun k hk0 => hk k (by rw [KoreAML.varsOf]; exact List.mem_append_right _ hk0)
     rw [KoreAML.tr, KoreAML.interp_sExists, hkb] at hpa
     obtain ⟨a0, hmem, hbody⟩ := hpa
-    simp only [KoreAML.interp_member F.defOK, Function.update_same] at hmem
+    simp only [KoreAML.interp_member N.defOK, Function.update_same] at hmem
     have ha0 : InS I (c.sortName s) a0 :=
       (inhOf_srtOf_inS (c := c) (I := I) (tbl := tbl) (s := s) (a := a0)).mp hmem
     -- the valuation under the binder, and what it keeps of the variables in scope
@@ -372,25 +481,33 @@ theorem fixes_value_read (h : c.coreOK = true) (hrc : c.readsConfined = true) (h
       obtain ⟨v, hv, hve⟩ := hat j (hok' j hjl hj) (Or.inl hRj) (by rw [hlen]; omega)
       refine ⟨v, hv, ?_⟩
       rw [← hev j hjl hRj, ← hkey j hjl]; exact hve
-    -- the body has a truth value at each substitution under the binder
+    -- the body has a truth value at each substitution under the binder: the condition's at the
+    -- substitution that is σ' on the variables in scope and τ beyond them
     have hdec' : ∀ (ok' : Nat → Bool), (∀ j, j < vars.length → ok j = true → ok' j = true) → ∀ σ',
-        SortedOn c (vars ++ [s]) (fun j => R j ∨ j = vars.length) σ' →
+        (∀ j, (vars ++ [s]).length ≤ j → σ'.lookup j = tl.lookup j) →
+        SortedOn c (vars ++ [s]) (fun j => (R j ∨ j = vars.length) ∨ w) σ' →
         AtElems c I tbl (vars ++ [s]) ⟨Function.update e.evalEvar (tbl.ev K) a0, e.evalSvar⟩ ok'
           (fun j => R j ∨ j = vars.length) σ' →
-        ∃ b, Holds c (vars ++ [s]).length σ' body b := by
-      intro ok' hok' σ' hσ' hat'
-      have hσ : SortedOn c vars R σ' := fun j s' hRj hj =>
-        hσ' j s' (Or.inl hRj) (by rw [List.getElem?_append_left (List.getElem?_eq_some_iff.mp hj).1]; exact hj)
-      obtain ⟨b, hb⟩ := hdec σ' hσ (hat ok' hok' σ' hat')
+        ∃ b, HoldsReadT c T (vars ++ [s]).length σ' body b := by
+      intro ok' hok' σ' _ hσ' hat'
+      have hlo : ∀ j, j < vars.length → (overAt vars.length σ' tl).lookup j = σ'.lookup j :=
+        fun j hj => by rw [lookup_overAt, if_pos hj]
+      have hσ : SortedOn c vars (fun j => R j ∨ w) (overAt vars.length σ' tl) := fun j s' hRj hj => by
+        have hjl := (List.getElem?_eq_some_iff.mp hj).1
+        rw [hlo j hjl]
+        exact hσ' j s' (hRj.elim (fun hR' => Or.inl (Or.inl hR')) Or.inr)
+          (by rw [List.getElem?_append_left hjl]; exact hj)
+      obtain ⟨b, hb⟩ := hdec _ (fun j hj => by rw [lookup_overAt, if_neg (by omega)]) hσ
+        (fun j hj hRj hjl => by rw [hlo j hjl]; exact hat ok' hok' σ' hat' j hj hRj hjl)
       cases hb with
       | ex g hb _ =>
         refine ⟨g σ', ?_⟩
         rw [hlen]
-        refine hb σ' ⟨fun _ _ => rfl, fun j s' hj => ?_⟩
+        refine hb σ' ⟨fun j hj => (hlo j hj).symm, fun j s' hj => ?_⟩
         cases j with
         | zero =>
           simp at hj; subst hj
-          exact hσ' vars.length _ (Or.inr rfl) (by simp)
+          exact hσ' vars.length _ (Or.inl (Or.inr rfl)) (by simp)
         | succ j => simp at hj
     have haS : (KoreAML.inhOf (KoreAML.trSort tbl (srtOf c S))).interpret I
         ⟨Function.update e.evalEvar (tbl.ev K) a0, e.evalSvar⟩ a :=
@@ -410,10 +527,11 @@ theorem fixes_value_read (h : c.coreOK = true) (hrc : c.readsConfined = true) (h
       · obtain ⟨v, hv, -⟩ := hconf hc
         exact ⟨v, by rw [Model.getD_appendR_stdI _ _ _ (Nat.le_refl _)] at hv; simpa using hv⟩
       · exact hval s hv
-    have hσ0' : ∃ σ, SortedOn c (vars ++ [s]) (fun j => R j ∨ j = vars.length) σ := by
+    have hσ0' : ∃ σ, SortedOn c (vars ++ [s]) (fun j => (R j ∨ j = vars.length) ∨ w) σ := by
       obtain ⟨σ0, hσ0⟩ := hσ0
       obtain ⟨v, hv⟩ := hvs
-      exact ⟨_, sortedOn_snocFV hσ0 hv⟩
+      exact ⟨_, (sortedOn_snocFV hσ0 hv).mono fun j hj =>
+        hj.elim (fun hj' => hj'.elim (fun hR' => Or.inl (Or.inl hR')) Or.inr) fun hw' => Or.inl (Or.inr hw')⟩
     have hrest : ∀ j, j < vars.length → ok j = true → R j →
         Witnessed c I tbl (canonVars c (vars ++ [s])) (vars ++ [s])
           ⟨Function.update e.evalEvar (tbl.ev K) a0, e.evalSvar⟩ j :=
@@ -424,7 +542,7 @@ theorem fixes_value_read (h : c.coreOK = true) (hrc : c.readsConfined = true) (h
       by_cases hlt : j < vars.length
       · exact .inl (hR j (by rw [varOccsCond]; exact List.mem_filter.mpr ⟨hj, by simpa using hlt⟩) hlt)
       · exact .inr (by omega)
-    refine (hWiff i hi hRi).mp (fixes_value_read h hrc hIc F hval body (fun j => if j == vars.length then
+    refine (hWiff i hi hRi).mp (fixes_value_readT h hrc hIc N hT hval tl body (fun j => if j == vars.length then
         (c.confined s || (val s && Cond.fixes c.confined val (fun j => j != vars.length && ok j) vars.length
           (vars.length + 1) body)) else ok j) (fun j => R j ∨ j = vars.length) i (vars ++ [s]) tbl _ S hok
       (by rw [hlen]; exact hbd.2)
@@ -436,7 +554,7 @@ theorem fixes_value_read (h : c.coreOK = true) (hrc : c.readsConfined = true) (h
       simp only [beq_self_eq_true, ↓reduceIte, Bool.or_eq_true, Bool.and_eq_true] at hj
       rcases hj with hc | ⟨-, hfx⟩
       · exact hconf hc
-      · exact fixes_value_read h hrc hIc F hval body (fun j => j != vars.length && ok j)
+      · exact fixes_value_readT h hrc hIc N hT hval tl body (fun j => j != vars.length && ok j)
           (fun j => R j ∨ j = vars.length) vars.length (vars ++ [s]) tbl _ S hok (by rw [hlen]; exact hbd.2)
           (by rw [hlen]; exact hfx) (by rw [hlen]; omega) (Or.inr rfl) hRB hσ0'
           (hdec' _ fun j hjl hj => by simp [Nat.ne_of_lt hjl, hj])
@@ -455,6 +573,69 @@ theorem fixes_value_read (h : c.coreOK = true) (hrc : c.readsConfined = true) (h
   | .ceil .., _, _, _, _, _, _, _, _, _, hfix, _, _, _, _, _, _, _, _, _, _ => by simp [Cond.fixes] at hfix
   | .exMatch .., _, _, _, _, _, _, _, _, _, hfix, _, _, _, _, _, _, _, _, _, _ => by simp [Cond.fixes] at hfix
   | .all .., _, _, _, _, _, _, _, _, _, hfix, _, _, _, _, _, _, _, _, _, _ => by simp [Cond.fixes] at hfix
+
+/-- **`fixes_value_read`.** In a model of `Γc` of a definition with `coreOK` that reads confined
+sorts, with the soundness of `EvalTerm` in the model (`F`) and `val` true only at sorts with a
+value: an element valuation over the variables in scope that gives every variable `ok` admits the
+element of a value and satisfies a condition that fixes i (`Cond.fixes`) gives i the element of a
+value. The condition has a truth value at every substitution of values that agrees with the
+valuation on the variables `ok` admits, some substitution of values is well sorted on the
+variables in scope, and each `ex` binder of the condition is of a confined sort or of a sort
+`val` admits (`Cond.boundV`). Of the variables in scope only those R holds of are read, i and the
+condition's among them: of another, neither a value of its sort, nor its key in the table, nor
+its element is asked. -/
+theorem fixes_value_read (h : c.coreOK = true) (hrc : c.readsConfined = true) (hIc : I ⊧ᴵP Γc c)
+    (F : AtomFacts c I) {val : Srt → Bool} (hval : ∀ s, val s = true → ∃ v, c.sortOf v = some s) :
+    ∀ (p : Cond) (ok : Nat → Bool) (R : Nat → Prop) (i : Nat) (vars : List Srt) (tbl : KoreAML.VarTable)
+      (e : Valuation M) (S : Srt),
+    c.condOK vars p = true → Cond.boundV c val vars.length p = true →
+    Cond.fixes c.confined val ok i vars.length p = true → i < vars.length → R i →
+    (∀ j ∈ varOccsCond vars.length p, j < vars.length → R j) →
+    (∃ σ, SortedOn c vars R σ) →
+    (∀ σ, SortedOn c vars R σ → AtElems c I tbl vars e ok R σ → ∃ b, Holds c vars.length σ p b) →
+    (∀ j, ok j = true → R j → j < vars.length → Witnessed c I tbl (canonVars c vars) vars e j) →
+    (∀ j, R j → j < vars.length → canonKey c vars j ∈ tbl ∧
+      InS I (c.sortName (vars.getD j 0)) (e.evalEvar (tbl.ev (canonKey c vars j)))) →
+    (∀ k ∈ KoreAML.varsOf (Cond.kore c (canonVars c vars) (srtOf c S) p), k ∈ tbl) →
+    S < nRegSorts + c.sortNames.length →
+    (∃ a, (KoreAML.inhOf (KoreAML.trSort tbl (srtOf c S))).interpret I e a ∧
+      (KoreAML.tr ⟨tbl, []⟩ (Cond.kore c (canonVars c vars) (srtOf c S) p)).interpret I e a) →
+    Witnessed c I tbl (canonVars c vars) vars e i :=
+  fun p ok R i vars tbl e S hok hbd hfix hi hRi hR hσ0 hdec hw hin hk hS hsat => by
+    obtain ⟨σ0, hσ0⟩ := hσ0
+    exact fixes_value_readT h hrc hIc F.node (termUse_of_atomFacts F) hval [] p ok R i vars tbl e S hok hbd hfix hi hRi hR
+      ⟨σ0, hσ0.mono fun _ hj => hj.elim id False.elim⟩
+      (fun σ _ hσ hat => by
+        obtain ⟨b, hb⟩ := hdec σ (hσ.mono fun _ hj => Or.inl hj) hat
+        exact ⟨b, HoldsReadT.of_holds (fun hev => hev) p hb⟩) hw hin hk hS hsat
+
+/-- **`fixes_value_read` over the readings of the condition's terms.** `fixes_value_read` with the
+constructors' facts (`N`) in place of the atoms': the soundness of `EvalTerm` in the model is not
+asked. The condition's truth value at a substitution comes with the reading in I of each term it
+evaluates (`HoldsRead`); it is asked at the substitutions of values well sorted on the variables
+in scope that are τ beyond them. -/
+theorem fixes_value_read_hr (h : c.coreOK = true) (hrc : c.readsConfined = true) (hIc : I ⊧ᴵP Γc c)
+    (N : NodeFacts c I) {val : Srt → Bool} (hval : ∀ s, val s = true → ∃ v, c.sortOf v = some s) (τ : Subst)
+    (p : Cond) (ok : Nat → Bool) (R : Nat → Prop) (i : Nat) (vars : List Srt) (tbl : KoreAML.VarTable)
+    (e : Valuation M) (S : Srt)
+    (hok : c.condOK vars p = true) (hbd : Cond.boundV c val vars.length p = true)
+    (hfix : Cond.fixes c.confined val ok i vars.length p = true) (hi : i < vars.length) (hRi : R i)
+    (hR : ∀ j ∈ varOccsCond vars.length p, j < vars.length → R j)
+    (hσ0 : ∃ σ, c.WellSorted vars σ)
+    (hdec : ∀ σ, (∀ j, vars.length ≤ j → σ.lookup j = τ.lookup j) → c.WellSorted vars σ →
+      AtElems c I tbl vars e ok R σ → ∃ b, HoldsRead c I vars.length σ p b)
+    (hw : ∀ j, ok j = true → R j → j < vars.length → Witnessed c I tbl (canonVars c vars) vars e j)
+    (hin : ∀ j, R j → j < vars.length → canonKey c vars j ∈ tbl ∧
+      InS I (c.sortName (vars.getD j 0)) (e.evalEvar (tbl.ev (canonKey c vars j))))
+    (hk : ∀ k ∈ KoreAML.varsOf (Cond.kore c (canonVars c vars) (srtOf c S) p), k ∈ tbl)
+    (hS : S < nRegSorts + c.sortNames.length)
+    (hsat : ∃ a, (KoreAML.inhOf (KoreAML.trSort tbl (srtOf c S))).interpret I e a ∧
+      (KoreAML.tr ⟨tbl, []⟩ (Cond.kore c (canonVars c vars) (srtOf c S) p)).interpret I e a) :
+    Witnessed c I tbl (canonVars c vars) vars e i := by
+  obtain ⟨σ0, hσ0⟩ := hσ0
+  exact fixes_value_readT h hrc hIc N termUse_termAt hval τ p ok R i vars tbl e S hok hbd hfix hi hRi hR
+    ⟨σ0, fun j s _ hs => hσ0 j s hs⟩
+    (fun σ htl hσ hat => hdec σ htl (fun j s hs => hσ j s (Or.inr trivial) hs) hat) hw hin hk hS hsat
 
 /-- **`fixes_value`.** `fixes_value_read` where every variable in scope is read: some substitution
 of values is well sorted on all of them, each has its key in the table and its element in its
@@ -479,6 +660,27 @@ theorem fixes_value (h : c.coreOK = true) (hrc : c.readsConfined = true) (hIc : 
     (fun _ _ _ => trivial) ⟨σ0, fun j s _ hs => hσ0 j s hs⟩
     (fun σ hσ hat => hdec σ (fun j s hs => hσ j s trivial hs) hat)
     (fun j hj _ hjl => hw j hj hjl) (fun j _ hjl => hin j hjl) hk hS hsat
+
+/-- **`fixes_value` over the readings of the condition's terms**: `fixes_value_read_hr` where
+every variable in scope is read. -/
+theorem fixes_value_hr (h : c.coreOK = true) (hrc : c.readsConfined = true) (hIc : I ⊧ᴵP Γc c)
+    (N : NodeFacts c I) {val : Srt → Bool} (hval : ∀ s, val s = true → ∃ v, c.sortOf v = some s) (τ : Subst)
+    (p : Cond) (ok : Nat → Bool) (i : Nat) (vars : List Srt) (tbl : KoreAML.VarTable) (e : Valuation M) (S : Srt)
+    (hok : c.condOK vars p = true) (hbd : Cond.boundV c val vars.length p = true)
+    (hfix : Cond.fixes c.confined val ok i vars.length p = true) (hi : i < vars.length)
+    (hσ0 : ∃ σ, c.WellSorted vars σ)
+    (hdec : ∀ σ, (∀ j, vars.length ≤ j → σ.lookup j = τ.lookup j) → c.WellSorted vars σ →
+      AtElems c I tbl vars e ok (fun _ => True) σ → ∃ b, HoldsRead c I vars.length σ p b)
+    (hw : ∀ j, ok j = true → j < vars.length → Witnessed c I tbl (canonVars c vars) vars e j)
+    (hin : ∀ j, j < vars.length → canonKey c vars j ∈ tbl ∧
+      InS I (c.sortName (vars.getD j 0)) (e.evalEvar (tbl.ev (canonKey c vars j))))
+    (hk : ∀ k ∈ KoreAML.varsOf (Cond.kore c (canonVars c vars) (srtOf c S) p), k ∈ tbl)
+    (hS : S < nRegSorts + c.sortNames.length)
+    (hsat : ∃ a, (KoreAML.inhOf (KoreAML.trSort tbl (srtOf c S))).interpret I e a ∧
+      (KoreAML.tr ⟨tbl, []⟩ (Cond.kore c (canonVars c vars) (srtOf c S) p)).interpret I e a) :
+    Witnessed c I tbl (canonVars c vars) vars e i :=
+  fixes_value_read_hr h hrc hIc N hval τ p ok (fun _ => True) i vars tbl e S hok hbd hfix hi trivial
+    (fun _ _ _ => trivial) hσ0 hdec (fun j hj _ hjl => hw j hj hjl) (fun j _ hjl => hin j hjl) hk hS hsat
 
 end FixesValue
 
