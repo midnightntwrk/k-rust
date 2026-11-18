@@ -720,11 +720,13 @@ def expectedAllTwo : Two :=
     hOnly := [], unevaluated := [] }
 
 /-- The text without the user module's sentences the reader refuses as builtin sentences outside
-the library's text (`builtinText`: a module of a K installation KCore's library does not hold), with
-their heads; the text itself when there are none. -/
+the library's text (`builtinText`: a module of a K installation KCore's library does not hold) and
+without its subsort axioms whose lower sort is K (`sortAboveK`: kompile's sentence for
+REQUIRES-ENSURES' `syntax #RuleBody ::= K`, a module outside the library, which has no row here),
+with their heads; the text itself when there are none. -/
 def outOfLibrary (k : Kore.Definition) : Kore.Definition × List String :=
   let off := Parse.preludeLength k
-  let rs := (Parse.refusals k).filter (·.reason.name == "builtinText")
+  let rs := (Parse.refusals k).filter (fun r => r.reason.name == "builtinText" || r.reason.name == "sortAboveK")
   let ix := rs.filterMap (·.index)
   match k.modules.getLast? with
   | none => (k, [])
@@ -876,7 +878,7 @@ def checkFlt : IO Unit := do
 /-- The counts of `allbuiltins.kompile.kore` (kompile's text of a definition importing every module
 of the K 7.1.337 installation's builtin files) over `fltModes`, the Int grid without 2^64 + 1, after
 leaving out the 193 sentences of builtin modules outside the library's text (`outOfLibrary`:
-ARRAY, RAT, FFI, MINT, …). The sentences reading the interpretation are those of silentflt and
+ARRAY, RAT, FFI, MINT, …) and the subsort axiom K < #RuleBody of REQUIRES-ENSURES. The sentences reading the interpretation are those of silentflt and
 RANGEMAP's associativity, at the line of `_RangeMap_`'s declaration (508, `rangeMapAssocEq`), the
 one sentence of row 15 failing only under some interpretation; RANGEMAP's other sentences over
 Γ's symbols with a variable of sort RangeMap (the `functional` sentences of `lookupOrDefault`,

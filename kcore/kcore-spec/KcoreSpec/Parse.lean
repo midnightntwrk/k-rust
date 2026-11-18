@@ -418,6 +418,15 @@ inductive RefusalReason where
   side's elements only where they agree; it checks them before it reads the right side. The detail
   names the connective, its sort and the operand's. -/
   | rhsOperandSort
+  /-- A subsort axiom whose lower sort is K (`[subsort{SortK{}, B}()]`, `∃v. v = inj{K, B}(x)`:
+  kompile's sentence for `syntax B ::= K`, `sortAboveKOf?`). It states that `inj{K, B}` gives every
+  element of K exactly one element of B, so B has an element in every model of the text (the
+  image of `dotk()`'s). The semantics has no subsort pair with lower sort K: its lower sorts are the
+  definition's sorts and the library's sorts below KItem (`Semantics.subsortsOK`), and a K, a
+  sequence of KItems, is no KItem. Read without the axiom, B's values are those of its other
+  generators only, none where it has no other (`Semantics.gens`), while the text gives it one per
+  element of K; no generator the semantics has stands for the injection. The detail names B. -/
+  | sortAboveK
   deriving Repr, DecidableEq, Inhabited
 
 /-- The reason the reader refuses with, for a key `attrVerdict` refuses. -/
@@ -5221,9 +5230,18 @@ def isParametricSubsort (a : Kore.Axiom) : Bool :=
   | [⟨⟨⟨"subsort"⟩⟩, [A, B], []⟩] => (sortName? A).isNone || (sortName? B).isNone
   | _ => false
 
+/-- The upper sort B of a subsort axiom whose lower sort is K: an axiom whose one attribute is
+`subsort{SortK{}, B}()`, as `scanEvent` takes a subsort axiom. `classifyAxiom` refuses it
+`sortAboveK` before any other arm. -/
+def sortAboveKOf? (a : Kore.Axiom) : Option String :=
+  match a.attributes with
+  | [⟨⟨⟨"subsort"⟩⟩, [A, B], []⟩] => if sortName? A == some "K" then sortName? B else none
+  | _ => none
+
 def classifyAxiom (N : Names) (a : Kore.Axiom) : SentenceClass :=
   let s := Kore.Sentence.axiom a
-  if isBuiltinSource a.attributes then .read
+  if (sortAboveKOf? a).isSome then .refused .sortAboveK
+  else if isBuiltinSource a.attributes then .read
   else if isNoPredSentence s then .unread .noSortPredicate
   -- a sentence of a K installation's file about names of its own is read as a user's file's
   else if let some c := (if isKBuiltin a.attributes then classifyKBuiltin s else none) then c
@@ -7030,6 +7048,9 @@ def classDetail (m : Kore.Module) (s : Kore.Sentence) (r : RefusalReason) : Stri
     | some (f, X) => s!"{X}: an argument of {f} on the equation's left side: the sentence states \
         {f} at every set's elements, at a set of two elements a, b only that {f}(a, b) is the right \
         side or undefined; no clause states that"
+    | none => ""
+  | .sortAboveK, .axiom a => match sortAboveKOf? a with
+    | some b => s!"{b}: the axiom states K < {b}, inj\{K, {b}} total"
     | none => ""
   | _, _ => ""
 

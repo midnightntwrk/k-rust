@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t232-sort-above-k.k": "1ba401dcb3f2e73536ad7d33c0e24905bc072cf66f35ed6f42e9f1383872b723"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t232-sort-above-k.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "8efb84efa07d08efccc34e2b5026b72e7fdffb8eea76097930e120cb09ba9a53",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}
