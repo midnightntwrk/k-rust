@@ -1674,7 +1674,8 @@ theorem eval_eq_of_uniq (hok : c.ok = true) (hmc : MatchCtx c) (hmi : CoherentAl
   split at hu
   · rename_i D hD
     obtain ⟨hlt, -, -, -, -⟩ := ruleOK_of hok hr
-    have hag := uniq_sound hmc hτ hτ' _ hD hm hm' (sortOfTerm_heads c.patCtx (c.collPatSigs ++ c.ovlSigs) _ _ hlt) (fun _ h => by cases h)
+    have hag := uniq_sound hmc hτ hτ' _ hD hm hm' (sortOfTerm_nf_of_nil (Semantics.fnOvlSyms_of_noOvl hmc.noOvl)
+      (sortOfTerm_heads c.patCtx (c.collPatSigs ++ c.ovlSigs) _ _ hlt)) (fun _ h => by cases h)
     have he₂ := Exec.EvalTerm.congr he fun k hk => hag k (by
       simp only [List.all_eq_true, List.contains_iff_mem] at hu; exact hu k hk)
     exact Option.some.inj (evalTerm_det hmi he₂ he')

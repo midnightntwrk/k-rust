@@ -701,7 +701,7 @@ mutual
   theorem overlap_sound_termF (hmc : MatchCtxO c) {vars vars' : List Srt} {σ σ' : Subst}
       (hσ : c.WellSorted vars σ) (hσ' : c.WellSorted vars' σ') : ∀ (p : Term) {q : Term} {s s' : Srt} {v : GroundTerm},
       c.ovlFree p = true → c.ovlFree q = true →
-      sortOfTerm c.patCtxAll vars p = some s → sortOfTerm c.patCtxAll vars' q = some s' →
+      sortOfTerm c.patCtxNF vars p = some s → sortOfTerm c.patCtxNF vars' q = some s' →
       overlap c.meet c.collHead p q = false → PatVal c σ p v → PatVal c σ' q v → False
     | .var _, _, _, _, _, _, _, _, _, ho, _, _ => by simp [overlap] at ho
     | .as p _, _, _, _, _, hpf, hqf, hs, hs', ho, hp, hq => by
@@ -811,7 +811,7 @@ mutual
   theorem overlap_soundF (hmc : MatchCtxO c) {vars vars' : List Srt} {σ σ' : Subst}
       (hσ : c.WellSorted vars σ) (hσ' : c.WellSorted vars' σ') : ∀ (ps : List Term) {qs : List Term} {ss ss' : List Srt} {vs : List GroundTerm},
       c.ovlFreeList ps = true → c.ovlFreeList qs = true →
-      sortsOfTerms c.patCtxAll vars ps = some ss → sortsOfTerms c.patCtxAll vars' qs = some ss' →
+      sortsOfTerms c.patCtxNF vars ps = some ss → sortsOfTerms c.patCtxNF vars' qs = some ss' →
       overlapList c.meet c.collHead ps qs = false → PatVals c σ ps vs → PatVals c σ' qs vs → False
     | [], _, _, _, _, _, _, _, _, ho, _, _ => by simp [overlapList] at ho
     | _ :: _, [], _, _, _, _, _, _, _, ho, _, _ => by simp [overlapList] at ho
@@ -836,7 +836,7 @@ end
 symbol: `overlap_sound_termF`). -/
 theorem overlap_sound_term (hmc : MatchCtx c) {vars vars' : List Srt} {σ σ' : Subst}
     (hσ : c.WellSorted vars σ) (hσ' : c.WellSorted vars' σ') (p : Term) {q : Term} {s s' : Srt} {v : GroundTerm}
-    (hs : sortOfTerm c.patCtxAll vars p = some s) (hs' : sortOfTerm c.patCtxAll vars' q = some s')
+    (hs : sortOfTerm c.patCtxNF vars p = some s) (hs' : sortOfTerm c.patCtxNF vars' q = some s')
     (ho : overlap c.meet c.collHead p q = false) (hp : PatVal c σ p v) (hq : PatVal c σ' q v) : False :=
   overlap_sound_termF hmc hσ hσ' p (ovlFree_of_nil hmc.noOvl p) (ovlFree_of_nil hmc.noOvl q) hs hs' ho hp hq
 
@@ -844,8 +844,8 @@ theorem overlap_sound_term (hmc : MatchCtx c) {vars vars' : List Srt} {σ σ' : 
 common (no overloading symbol: `overlap_soundF`). -/
 theorem overlap_sound (hmc : MatchCtx c) {vars vars' : List Srt} {σ σ' : Subst}
     (hσ : c.WellSorted vars σ) (hσ' : c.WellSorted vars' σ') (ps : List Term) {qs : List Term} {ss ss' : List Srt}
-    {vs : List GroundTerm} (hs : sortsOfTerms c.patCtxAll vars ps = some ss)
-    (hs' : sortsOfTerms c.patCtxAll vars' qs = some ss') (ho : overlapList c.meet c.collHead ps qs = false)
+    {vs : List GroundTerm} (hs : sortsOfTerms c.patCtxNF vars ps = some ss)
+    (hs' : sortsOfTerms c.patCtxNF vars' qs = some ss') (ho : overlapList c.meet c.collHead ps qs = false)
     (hp : PatVals c σ ps vs) (hq : PatVals c σ' qs vs) : False :=
   overlap_soundF hmc hσ hσ' ps (ovlFreeList_of_nil hmc.noOvl ps) (ovlFreeList_of_nil hmc.noOvl qs) hs hs' ho hp hq
 
@@ -1096,7 +1096,7 @@ theorem clausesAgree_sound {cl cl' : Clause} (h : clausesAgree cl cl' = true) (�
 terms of one of their `requires` have one result under its match: their matches agree on every
 variable (`clauseFixed`), and their `requires` are then exclusive. -/
 theorem clausesExclusive_sound (hmc : MatchCtxO c) {heads : List CtorSig} {cl cl' : Clause}
-    {ss : List Srt} (hpt : sortsOfTerms c.patCtxAll cl.vars cl.pats = some ss)
+    {ss : List Srt} (hpt : sortsOfTerms c.patCtxNF cl.vars cl.pats = some ss)
     (hfx : c.clauseFixed cl = true) (hrq' : reqOK (c.rhsCtx heads) cl'.vars cl'.req = true)
     (h : c.clausesExclusive heads cl cl' = true) {vs : List GroundTerm} {σ σ' : Subst}
     (hσ : c.WellSorted cl.vars σ) (hm : PatVals c σ cl.pats vs)
@@ -1138,17 +1138,19 @@ theorem fnExclusiveOK_sound (hmc : MatchCtxO c) {heads : List CtorSig} {f : Fn}
   have hc1 := hcls cl h1
   have hc2 := hcls cl' h2
   simp only [Semantics.clauseSorted, Bool.and_eq_true, beq_iff_eq] at hc1 hc2
+  have hn1 := sortsOfTerms_to_nf _ hc1.1.1.1.1.1 (noFnOvlInL_of_ovlFree hmc _ (hfr cl h1))
+  have hn2 := sortsOfTerms_to_nf _ hc2.1.1.1.1.1 (noFnOvlInL_of_ovlFree hmc _ (hfr cl' h2))
   simp only [Bool.or_eq_true, Bool.not_eq_true', Bool.and_eq_true, bne_iff_ne, ne_eq] at hpair
   rcases hpair with ((hne | ho) | ⟨hfx, hx⟩) | ha
   · exact (not_compete (by revert hne; simp) hprio).elim
   · exact ⟨fun vs σ σ' ⟨hσ, hm, _⟩ ⟨hσ', hm', _⟩ _ _ _ _ =>
-        (overlap_soundF hmc hσ hσ' cl.pats (hfr cl h1) (hfr cl' h2) hc1.1.1.1.1.1 hc2.1.1.1.1.1 ho hm hm').elim,
+        (overlap_soundF hmc hσ hσ' cl.pats (hfr cl h1) (hfr cl' h2) hn1 hn2 ho hm hm').elim,
       fun vs σ' σ ⟨hσ', hm', _⟩ ⟨hσ, hm, _⟩ _ _ _ _ =>
-        (overlap_soundF hmc hσ hσ' cl.pats (hfr cl h1) (hfr cl' h2) hc1.1.1.1.1.1 hc2.1.1.1.1.1 ho hm hm').elim⟩
+        (overlap_soundF hmc hσ hσ' cl.pats (hfr cl h1) (hfr cl' h2) hn1 hn2 ho hm hm').elim⟩
   · exact ⟨fun vs σ σ' ⟨hσ, hm, hq, _⟩ ⟨hσ', hm', hq', _⟩ hd _ _ _ =>
-        (clausesExclusive_sound hmc hc1.1.1.1.1.1 hfx hc2.1.1.1.2 hx hσ hm hq hσ' hm' hq' (.inl hd)).elim,
+        (clausesExclusive_sound hmc hn1 hfx hc2.1.1.1.2 hx hσ hm hq hσ' hm' hq' (.inl hd)).elim,
       fun vs σ' σ ⟨hσ', hm', hq', _⟩ ⟨hσ, hm, hq, _⟩ hd _ _ _ =>
-        (clausesExclusive_sound hmc hc1.1.1.1.1.1 hfx hc2.1.1.1.2 hx hσ hm hq hσ' hm' hq' (.inr hd)).elim⟩
+        (clausesExclusive_sound hmc hn1 hfx hc2.1.1.1.2 hx hσ hm hq hσ' hm' hq' (.inr hd)).elim⟩
   · exact ⟨fun vs σ σ' _ _ _ _ _ _ => .inl (clausesAgree_sound ha σ σ').1,
       fun vs σ' σ _ _ _ _ _ _ => .inl (clausesAgree_sound ha σ σ').2⟩
 

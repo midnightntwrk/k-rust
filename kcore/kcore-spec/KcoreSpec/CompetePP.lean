@@ -226,7 +226,7 @@ theorem applies_of_values_pp (h : c.coreOK = true) (hI : I ⊧ᴵP Γc c)
     rw [hv, Option.getD_some]
     exact ((elemOf_spec hIΓ hws e4).1 m).symm
   have hxs := elemOf_spec hIΓ x.property e4
-  have hlx4 := ((patVal_den4 hIΓ hnn.1 hph hsc.trans hσ' hvsl hag hpv' hlhs').2 _).mpr ((hxs.1 _).mpr rfl)
+  have hlx4 := ((patVal_den4 hIΓ hnn.1 hph hsc.trans hσ' hvsl hag hpv' (Semantics.lhs_nf OvlOK.ok hr hlhs')).2 _).mpr ((hxs.1 _).mpr rfl)
   obtain ⟨σC, hσC1, hσC2⟩ := sortSing hIΓ (top_numbered (c := c))
   have hreq4 := reqPat_holds hIΓ (vs := vs) (q := r.req) (fun t ht b =>
     evalTerm_den4Cl hIΓ hnn hsc hph (clauseOpenFacts_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK hok)) (neg_of_coreCl hI (Semantics.sortedOKCl_of_sortedOK hok) hsr (Semantics.coreOK_parts h).2.1 hph hcw) (hreq' t ht) fns_headsOK hσ' hvsl hag (hreqS' t ht) b)
@@ -426,7 +426,7 @@ theorem not_applies_of_notApplies_pp (h : c.coreOK = true) (hI : I ⊧ᴵP Γc c
     have hin2 : ∀ i < r.leftSorts.length, InS I (c.sortName (r.leftSorts.getD i 0)) (e2.evalEvar (tbl.ev (keyAt vs i))) :=
       fun i hi => by obtain ⟨v, hv, he⟩ := hwit2 i hi; rw [← he]; exact (inS_iff e2).mp (elemOf_spec hIΓ hv e2).2
     obtain ⟨hpv, -⟩ := patVal_backC hIΓ hph hcs hcso hg hsc.trans hnn.1 hvsl hin2 (collPat_of_sorted hph' hlhs')
-      hlhs' x.property hl2
+      (Semantics.lhs_nf OvlOK.ok hr hlhs') x.property hl2
     obtain ⟨hσ2, hag2⟩ := substOf_ok hIΓ hg hsc.trans hvsl hwit2
     obtain ⟨t, v, ht, he, hv⟩ : ∃ t v, r.req = some t ∧ EvalTerm c (substOf c I tbl vs r.leftSorts e2) t v ∧
         v ≠ some (bool true) := by
@@ -474,7 +474,7 @@ theorem not_applies_of_notApplies_pp (h : c.coreOK = true) (hI : I ⊧ᴵP Γc c
     refine List.mem_filter.mpr ⟨?_, by simpa using hcv⟩
     simp only [Rule.opens, List.mem_filter, List.mem_range]; exact ⟨hi, by simpa using hnl⟩
   obtain ⟨-, hwitL⟩ := patVal_backC hIΓ hph hcs hcso hg hsc.trans hnn.1 hvsl hin1 (collPat_of_sorted hph' hlhs')
-    hlhs' x.property hlx1
+    (Semantics.lhs_nf OvlOK.ok hr hlhs') x.property hlx1
   by_cases hconf : r.openCondVars.all (fun i => (r.vars[i]?.map c.confined).getD false) = true
   · -- every open condition variable is of a confined sort: it is a value's
     refine hfin e1 (fun i hi => ?_) hlx1 (fun t ht => Or.inl (hreq1 t ht)) hpre1

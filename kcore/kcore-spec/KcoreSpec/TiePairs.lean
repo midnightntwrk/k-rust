@@ -325,7 +325,8 @@ theorem eval_some_sound (c : Semantics) (h : HypSoundCore c)
   have hex : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, ExclEmpty c I fn cl := fun fn hfn cl hcl => by
     obtain ⟨hp', hb', -⟩ := clause_ctx hok hbc hfn hcl
     exact fun hws _ hkeys hXkeys hRkey _ hX _ hR hσR hfail m =>
-      exclusion_emptyC hI hph hcs hcso hg hsc.trans hnn.1 (clause_preTop hok hfn hcl) hp' hb'
+      exclusion_emptyC hI hph hcs hcso hg hsc.trans hnn.1 (clause_preTop hok hfn hcl)
+        (Semantics.pats_nf (OvlOK.hyp inferInstance hsc.trans) hfn hcl hp') hb'
         (collPats_of_sorted hph' hp') hws hkeys hXkeys hRkey hX hR hσR hfail m
   rw [KoreAML.interp_equal (defOK hI)]
   intro a

@@ -355,7 +355,7 @@ theorem applies_iff_T (h : HypModelCore c) {T : GroundTerm → GroundTerm → Pr
     ⟨varOccs_lt t (hreqS t ht) i hi, Rule.req_leftVars ht i hi⟩
   let P : Nat → Prop := fun i => i < n ∧ i ∈ r.leftVars
   have hpat : PatOK c P r.lhs :=
-    (patOK_of_sorted h hlhs).monoOpen fun i hi => ⟨hltL i hi, List.mem_append_left _ hi⟩
+    (patOK_of_sorted h (h.lhs_nf hr hlhs)).monoOpen fun i hi => ⟨hltL i hi, List.mem_append_left _ hi⟩
   have hreqT : ∀ t, r.req = some t → TermOK c P t := fun t ht =>
     (termOK_of_sorted h fns_headsOK (hreqS t ht)).monoOpen (hreqLt t ht)
   rw [applies_eqOpen hpre]
@@ -528,7 +528,7 @@ theorem rule_premise_open (h : HypModelCore c) {r : Rule} (hs : c.ruleSorted r =
           ∃ y, EvalTerm c σ r.rhs (some y) ∧ ∀ t, r.ens = some t → EvalTerm c σ t (some (bool true))) := by
   obtain ⟨hlhs, -, hreqs, hensS, hrhss⟩ := ruleSorted_partsOpen hs hp
   obtain ⟨hex₀, hpre₀, hpost₀⟩ := Semantics.rulePlainOpen_top hp
-  have hpat := patOK_of_sorted h hlhs
+  have hpat := patOK_of_sorted h (h.lhs_nf hr hlhs)
   let C := srtOf c topCellSort
   let vs := canonVars c r.vars
   let comps := (c.rules.filter (·.prio < r.prio)).map fun r' => applies c r' (canonRulePres r')

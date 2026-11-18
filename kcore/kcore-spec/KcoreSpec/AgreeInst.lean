@@ -249,7 +249,7 @@ mutual
       (hσ : c.WellSorted vars σ) (hσ' : c.WellSorted vars' σ') :
       ∀ (p : Term) {q : Term} {θ θ' : List (Nat × Term)} {v : GroundTerm} {s s' : Srt},
       c.instOf θ p q = some θ' → PatVal c σ p v → PatVal c σ' q v →
-      sortOfTerm c.patCtxAll vars p = some s → sortOfTerm c.patCtxAll vars' q = some s' →
+      sortOfTerm c.patCtxNF vars p = some s → sortOfTerm c.patCtxNF vars' q = some s' →
       InstOK c σ σ' θ → InstOK c σ σ' θ'
     | .var x, q, θ, θ', v, s, s', hi, h, h', _, _, hθ => by
       simp only [Semantics.instOf, Option.bind_eq_some_iff] at hi
@@ -311,7 +311,7 @@ mutual
       (hσ : c.WellSorted vars σ) (hσ' : c.WellSorted vars' σ') :
       ∀ (ps : List Term) {qs : List Term} {θ θ' : List (Nat × Term)} {vs : List GroundTerm} {ss ss' : List Srt},
       c.instOfList θ ps qs = some θ' → PatVals c σ ps vs → PatVals c σ' qs vs →
-      sortsOfTerms c.patCtxAll vars ps = some ss → sortsOfTerms c.patCtxAll vars' qs = some ss' →
+      sortsOfTerms c.patCtxNF vars ps = some ss → sortsOfTerms c.patCtxNF vars' qs = some ss' →
       InstOK c σ σ' θ → InstOK c σ σ' θ'
     | [], qs, θ, θ', vs, ss, ss', hi, _, _, _, _, hθ => by
       cases qs with
@@ -691,8 +691,8 @@ theorem litsApartI_sound {σ : Subst} {ls ls' : List (Term × Bool)} (h : c.lits
 /-- **Two clauses `instAgree` accepts are coherent, in both orders**, in the form of clauses without
 existential variables (`CoherentPlain`). -/
 theorem instAgree_sound (hmc : MatchCtxO c) {heads : List CtorSig} {cl cl' : Clause} {ss ss' : List Srt}
-    (hpt : sortsOfTerms c.patCtxAll cl.vars cl.pats = some ss)
-    (hpt' : sortsOfTerms c.patCtxAll cl'.vars cl'.pats = some ss')
+    (hpt : sortsOfTerms c.patCtxNF cl.vars cl.pats = some ss)
+    (hpt' : sortsOfTerms c.patCtxNF cl'.vars cl'.pats = some ss')
     (h : c.instAgree heads cl cl' = true) : CoherentPlain c cl cl' ∧ CoherentPlain c cl' cl := by
   unfold Semantics.instAgree at h
   split at h
@@ -885,24 +885,24 @@ theorem ovlClosure_self (f : Sym) : f ∈ c.ovlClosure f := by
 s, for h in its head's overload closure (`norm_head`). -/
 theorem patVal_head (hmc : MatchCtxO c) {σ : Subst} {vars : List Srt} (hσ : c.WellSorted vars σ)
     {f : Sym} {ps : List Term} {s : Srt} {v : GroundTerm}
-    (hs : sortOfTerm c.patCtxAll vars (.app f ps) = some s) (hk : (c.isCtor f || c.isOvl f) = true)
+    (hs : sortOfTerm c.patCtxNF vars (.app f ps) = some s) (hk : (c.isCtor f || c.isOvl f) = true)
     (h : PatVal c σ (.app f ps) v) : ∃ A g us, v = lift A s (.ctor g us) ∧ g ∈ c.ovlClosure f := by
   rcases Bool.or_eq_true_iff.mp hk with hc | ho
   · obtain ⟨vs, rfl, -⟩ := PatVal.ctor_shape hmc hc h
     exact ⟨s, f, vs, (OvlLaws.lift_self s _).symm, ovlClosure_self f⟩
   · obtain ⟨vs, hvs, hv⟩ := PatVal.ovl_inv ho h
     obtain ⟨k, hk', hargs, rfl⟩ := sortOfTerm_app.mp hs
-    obtain ⟨o, hlo, rfl⟩ := patCtxAll_ovl_lookup ho hk'
+    obtain ⟨o, hlo, rfl⟩ := patCtxNF_ovl_lookup ho hk'
     obtain ⟨-, hn, -, -, hks, -⟩ := OvlLaws.ovl_facts_ovlF hmc.ovlHyp.fnFacts hlo
     obtain ⟨A, g, us, he, hg⟩ := OvlLaws.norm_head_ovlF hmc.ovlHyp hmc.ovlHyp.fnFacts hks
-      (patVals_sortedAllO hmc hσ hvs hargs) (OvlLaws.fnCover_none_of_ok hmc.ovlHyp.ok _ _)
+      (patVals_sortedAllO hmc hσ hvs hargs) (OvlLaws.fnCover_none_of_not_fnOvl (patCtxNF_lookup.mp hk').2 _)
     rw [hn] at he hg
     exact ⟨A, g, us, by rw [← hv]; exact he, hg⟩
 
 /-- **Two patterns of one sort that `headApart` finds apart denote no value in common.** -/
 theorem headApart_sound (hmc : MatchCtxO c) {vars vars' : List Srt} {σ σ' : Subst}
     (hσ : c.WellSorted vars σ) (hσ' : c.WellSorted vars' σ') {p q : Term} {s : Srt} {v : GroundTerm}
-    (hs : sortOfTerm c.patCtxAll vars p = some s) (hs' : sortOfTerm c.patCtxAll vars' q = some s)
+    (hs : sortOfTerm c.patCtxNF vars p = some s) (hs' : sortOfTerm c.patCtxNF vars' q = some s)
     (ha : c.headApart p q = true) (h : PatVal c σ p v) (h' : PatVal c σ' q v) : False := by
   obtain ⟨hsp, hp⟩ := peelAs_patVal hs h
   obtain ⟨hsq, hq⟩ := peelAs_patVal hs' h'
@@ -927,15 +927,15 @@ theorem headApart_sound (hmc : MatchCtxO c) {vars vars' : List Srt} {σ σ' : Su
 /-- Two clauses of one argument sorts that `clausesHeadApart` accepts match no argument list in
 common. -/
 theorem clausesHeadApart_sound (hmc : MatchCtxO c) {cl cl' : Clause} {ss : List Srt}
-    (hpt : sortsOfTerms c.patCtxAll cl.vars cl.pats = some ss)
-    (hpt' : sortsOfTerms c.patCtxAll cl'.vars cl'.pats = some ss)
+    (hpt : sortsOfTerms c.patCtxNF cl.vars cl.pats = some ss)
+    (hpt' : sortsOfTerms c.patCtxNF cl'.vars cl'.pats = some ss)
     (ha : c.clausesHeadApart cl cl' = true) {vs : List GroundTerm} {σ σ' : Subst}
     (hσ : c.WellSorted cl.vars σ) (hσ' : c.WellSorted cl'.vars σ')
     (hm : PatVals c σ cl.pats vs) (hm' : PatVals c σ' cl'.pats vs) : False := by
   simp only [Semantics.clausesHeadApart, List.any_eq_true] at ha
   obtain ⟨⟨p, q⟩, hpq, hap⟩ := ha
   suffices key : ∀ (ps qs : List Term) (vs : List GroundTerm) (ss : List Srt),
-      sortsOfTerms c.patCtxAll cl.vars ps = some ss → sortsOfTerms c.patCtxAll cl'.vars qs = some ss →
+      sortsOfTerms c.patCtxNF cl.vars ps = some ss → sortsOfTerms c.patCtxNF cl'.vars qs = some ss →
       PatVals c σ ps vs → PatVals c σ' qs vs → (p, q) ∈ ps.zip qs → False from
     key _ _ _ _ hpt hpt' hm hm' hpq
   intro ps

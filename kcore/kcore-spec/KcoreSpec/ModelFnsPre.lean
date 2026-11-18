@@ -267,7 +267,7 @@ theorem exclusion_ofPre (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {
     rw [canonVars_getD c (hl i hi)]; exact ⟨_, rfl⟩
   let P : Nat → Prop := fun i => i < n ∧ i ∈ cl.leftVars
   have hpatOK : ∀ p ∈ cl.pats, PatOK c P p := fun p hp =>
-    (patOKs_of_sorted h hpats p hp).monoOpen fun i hi =>
+    (patOKs_of_sorted h (h.pats_nf hfn hcl hpats) p hp).monoOpen fun i hi =>
       ⟨varOccsList_lt cl.pats hpats i (varOccsList_of_memOpen hp hi), List.mem_append_left _ (varOccsList_of_memOpen hp hi)⟩
   have hreqOK : ∀ t, cl.req = some t → TermOK c P t := fun t ht =>
     (termOK_of_sorted h hL (hreqs t ht)).monoOpen fun i hi =>

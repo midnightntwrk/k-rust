@@ -345,7 +345,7 @@ theorem rule_step_values_held (h : c.coreOK = true) (hft : FnTerminates c) (hI :
       rw [List.contains_iff_mem.mpr hjl] at this
       exact absurd this (by decide)
     obtain ⟨-, hwitL⟩ := patVal_backC hIΓ hph hcs hcso hg hsc.trans hnn.1 (canonVars_length c r.vars) hin
-      (collPat_of_sorted hph' hlhs) hlhs x.property hl
+      (collPat_of_sorted hph' hlhs) (Semantics.lhs_nf OvlOK.ok hr hlhs) x.property hl
     refine rule_step_C_wit h hft hI hcw hs hcl
       (fun j hj hjr => hapart j hj (List.mem_append_left _ (List.mem_append_left _ hjr)))
       (fun j hj t' ht' hjt => hapart j hj (List.mem_append_left _ (List.mem_append_right _ (by rw [ht']; exact hjt))))
