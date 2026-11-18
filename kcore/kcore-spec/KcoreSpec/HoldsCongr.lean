@@ -272,7 +272,7 @@ theorem Clause.appliesAt_extendRH {c : Semantics} {cl : Clause} (hh : c.HeldAt c
     (hpre : Holds c cl.vars.length σ cl.pre true) :
     ∃ σ', cl.AppliesAt c σ' vs ∧ ∀ i ∈ cl.leftVars, σ'.lookup i = σ.lookup i := by
   obtain ⟨σ', hws, hag⟩ := Semantics.extendHeld hh hσ
-  refine ⟨σ', ⟨hws, PatVals.congr_varsRH hm fun j hj => hag j (List.mem_append_left _ hj), fun t ht => ?_,
+  refine ⟨σ', ⟨hws.at _, PatVals.congr_varsRH hm fun j hj => hag j (List.mem_append_left _ hj), fun t ht => ?_,
     Holds.congr_NI hpre fun j hj => (hag j (Clause.pre_leftVarsRH j hj)).symm⟩, hag⟩
   exact Exec.EvalTerm.congr (hreq t ht) fun i hi => (hag i (Clause.req_leftVarsRH ht i hi)).symm
 
@@ -293,7 +293,7 @@ theorem Clause.fails_of_not_appliesRH {c : Semantics} {cl : Clause} (hh : c.Held
   obtain ⟨hq, b, hb⟩ := hreq σ' hws hm'
   by_cases hall : ∀ t, cl.req = some t → EvalTerm c σ' t (some (bool true))
   · cases b with
-    | true => exact absurd ⟨σ', hws, hm', hall, hb⟩ hna
+    | true => exact absurd ⟨σ', hws.at _, hm', hall, hb⟩ hna
     | false => exact ReqFails.pre (Holds.congr_NI hb fun j hj => hag j (Clause.pre_leftVarsRH j hj))
   · obtain ⟨t, hne⟩ := Classical.not_forall.mp hall
     obtain ⟨ht, hne⟩ := Classical.not_imp.mp hne
@@ -314,8 +314,8 @@ theorem Clause.Res.eval {c : Semantics} {f : Sym} {fn : Fn} {cl : Clause} {σ : 
   obtain ⟨⟨hσ, hm, hq, hpre⟩, hp⟩ := hd
   rcases hr with ⟨hex, (⟨he, hpost, hrhs⟩ | ⟨t, w, ht, he, hw, rfl⟩)⟩ |
     ⟨hne, (⟨σ₁, v, ha, hσ₁, ⟨grhs, gens, gpost⟩, hall, rfl⟩ | ⟨rfl, hsome, hall⟩)⟩
-  · exact .clause hfn hmem hσ hm hq hpre hp hex hrhs he hpost
-  · exact .ensFails hfn hmem hσ hm hq hpre hp hex ht he hw
+  · exact .clause hfn hmem ((wellSortedAt_univ hex).mp hσ) hm hq hpre hp hex hrhs he hpost
+  · exact .ensFails hfn hmem ((wellSortedAt_univ hex).mp hσ) hm hq hpre hp hex ht he hw
   · have hl : ∀ i ∈ cl.leftVars, σ₁.lookup i = σ.lookup i := fun i hi =>
       ha i (by simp [Clause.exsFree, hi])
     exact .clauseEx hfn hmem hσ₁
@@ -323,7 +323,7 @@ theorem Clause.Res.eval {c : Semantics} {f : Sym} {fn : Fn} {cl : Clause} {σ : 
       (fun t ht => Exec.EvalTerm.congr (hq t ht) fun i hi => (hl i (Clause.req_leftVarsRH ht i hi)).symm)
       (Holds.congr_NI hpre fun j hj => (hl j (Clause.pre_leftVarsRH j hj)).symm) hp hne grhs gens gpost
       (fun σ'' ha'' hs'' => hall σ'' (ha.trans ha'') hs'')
-  · exact .exNone hfn hmem hne (hσ.at _) hm hq hpre hp hsome hall
+  · exact .exNone hfn hmem hne hσ hm hq hpre hp hsome hall
 
 /-- One result at each argument list gives the coherence of every two clauses: each clause's
 result at its match is an `Eval` result (`Clause.Res.eval`), and `FnDet` equates the two. -/

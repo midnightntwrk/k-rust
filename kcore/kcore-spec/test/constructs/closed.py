@@ -128,7 +128,6 @@ UNSHOWN = ("R2-release.C4", 7)
 PINNED = [
     # no stage of the reader produces it yet (ReadFns.hoistExists, its producer, has no caller there)
     ("RefusalReason.existentialEquation", "CE.reader-wire"),
-    ("RefusalReason.openGeneratorPattern", "P2.rows"),
     ("RefusalReason.openLaw", "P3.rows"),
     # printed by fixtures hw-h1-*, hw-h8 and hw-h12-ctor; the rows of those shapes are owed
     ("RefusalReason.constructorEquation", "KPROV.apply"),

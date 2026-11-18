@@ -47,7 +47,11 @@ differs f2-examples/defcfg.kompile.kore
 differs f2-examples/e1-module.kompile.kore
 differs f2-examples/e1-sentences-nocoollike.kore
 differs f2-examples/e1-sentences.kompile.kore
+differs f2-examples/e2-fn-assoc-bad.kompile.kore
+differs f2-examples/e2-fn-assoc-rest.kompile.kore
 differs f2-examples/e2-fn-assoc-unit.kompile.kore
+differs f2-examples/e2-fn-assoc.kompile.kore
+differs f2-examples/e2-fn-idem.kompile.kore
 differs f2-examples/e2-simplification.kompile.kore
 cannot f2-examples/e3-setvar-rewrite-fn.kompile.kore
 cannot f2-examples/e3-setvar-rewrite-req.kompile.kore
@@ -145,7 +149,7 @@ cannot f2-examples/openlinked.kompile.kore
 cannot f2-examples/openlinkedbool.kompile.kore
 differs f2-examples/openmixed.kompile.kore
 cannot f2-examples/openmixedunheld.kompile.kore
-differs f2-examples/openrec.kompile.kore
+cannot f2-examples/openrec.kompile.kore
 differs f2-examples/openrule.kompile.kore
 differs f2-examples/optcell.kompile.kore
 differs f2-examples/ovlconf.kompile.kore

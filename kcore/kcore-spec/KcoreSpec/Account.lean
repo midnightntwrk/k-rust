@@ -469,7 +469,10 @@ its result sort S:
   the generator's image of other such elements, so which arguments match depends on elements of S
   the text does not name;
 - S is confined: every element of S is a value's and the arguments that match are values, a finite
-  preimage of the value under the interpretation's graph, which the semantics does not build. -/
+  preimage of the value under the interpretation's graph, which the semantics does not build.
+A rule's left side is read through the cut (`Parse.ovlCut`), so it applies an open generator only
+where the application's arguments hold `#as`; the reader refuses a cut rule whose generator's sort
+is not confined itself (`Parse.openCutRefusal`). -/
 
 /-- The rules and clauses whose left side applies an open generator of `d`: one refusal
 (`openGeneratorPattern`) for each, the symbol named with its result sort and the reason that

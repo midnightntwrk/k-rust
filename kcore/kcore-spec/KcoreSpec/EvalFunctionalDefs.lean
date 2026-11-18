@@ -17,10 +17,12 @@ namespace KCore
 
 open KCore.Exec
 
-/-- The clause applies at `vs` under σ: σ is well sorted, the patterns denote `vs`, the
-`requires` evaluates to `true`, and the predicate `pre` is true. -/
+/-- The clause applies at `vs` under σ: σ is well sorted on the variables the right side does not
+bind (`Clause.univ`; every variable where the clause has no existential variable,
+`wellSortedAt_univ`), the patterns denote `vs`, the `requires` evaluates to `true`, and the
+predicate `pre` is true. -/
 def Clause.AppliesAt (c : Semantics) (cl : Clause) (σ : Subst) (vs : List GroundTerm) : Prop :=
-  c.WellSorted cl.vars σ ∧ PatVals c σ cl.pats vs ∧
+  c.WellSortedAt cl.vars cl.univ σ ∧ PatVals c σ cl.pats vs ∧
     (∀ t, cl.req = some t → EvalTerm c σ t (some (bool true))) ∧ Holds c cl.vars.length σ cl.pre true
 
 mutual
@@ -367,8 +369,10 @@ theorem fnSolves_iff_noExs {c : Semantics}
         cl.DecidesAt c fn σ vs → ∀ v, Eval c fn.label vs (some v) ↔
           EvalTerm c σ cl.rhs (some v) ∧ ∀ t, cl.ens = some t → EvalTerm c σ t (some (bool true)) :=
   ⟨fun h fn hfn vs hvs cl hcl σ hdec v => (h fn hfn vs hvs cl hcl σ hdec v).trans
-      (Clause.gives_iff_noExs (hx fn hfn cl hcl).1 (hx fn hfn cl hcl).2 hdec.1.1 v),
+      (Clause.gives_iff_noExs (hx fn hfn cl hcl).1 (hx fn hfn cl hcl).2
+        ((wellSortedAt_univ (hx fn hfn cl hcl).1).mp hdec.1.1) v),
     fun h fn hfn vs hvs cl hcl σ hdec v => (h fn hfn vs hvs cl hcl σ hdec v).trans
-      (Clause.gives_iff_noExs (hx fn hfn cl hcl).1 (hx fn hfn cl hcl).2 hdec.1.1 v).symm⟩
+      (Clause.gives_iff_noExs (hx fn hfn cl hcl).1 (hx fn hfn cl hcl).2
+        ((wellSortedAt_univ (hx fn hfn cl hcl).1).mp hdec.1.1) v).symm⟩
 
 end KCore

@@ -1046,6 +1046,13 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   (`GenEqs.predEqnOK_clause`). Registry projections (`f2-examples/owisenx.kompile.kore`):
   `GenEqs.freeB` holds of every registry `projectSym X` named `project:X`, so no premise of
   `Γc c ∪ Γstep c` applies `project:Int`, `project:K` or `project:KItem` (`GenEqs.sym_free`).
+  Without decisions of the theory's lists (`General`, KcoreSpec/GenEqsWalk.lean): every semantics'
+  lists are rooted (`GenEqs.rootedListsB_holds`), every symbol a premise holds is named by a symbol
+  of the semantics, or is `inj` or `Lblite` (`GenEqs.premise_symbols`), and `HandArg`'s model
+  follows from the arm's conditions on the two names (`GenEqs.model_with_eqns_argProj`). A named
+  argument's projections on a kompiled text (`NamedArg`, `f2-examples/namedarg.kompile.kore`):
+  `coreOK`, the arm's conditions on `project:pair:fst` and `project:pair:snd`, and one model of the
+  theory whose steps are the semantics' in which both equations hold at `pair(leaf, leaf)`.
 - `test/RuleAndSame.lean`: the reading of `t #And u` on a rule's right side with the ensures
   `t == u` and the exact reading give the same steps. `step_fresh_int`: for a semantics whose one
   rule has the ensures `t ==Int u`, no `requires` and `\top` predicates, with coherent functions,
@@ -1351,6 +1358,18 @@ table above, on the tree before String and Bytes). Not investigated here.
   values; the 6 set-variable lemmas refuted (`sN_refuted`) and held at sets of at most one value
   (`sN_one`); the accounts against TieUnbound's class lists, owed 100 (`ite`'s functional) and 242,
   243 (`ite{SortK}`); the `_c` forms over `Γc`. 37 s, 3.4 GiB.
+  `c.withHooks H`; the expectations `b_step` (from `PreS`, the sentences as written) and `a_succs`
+  (through the step's closure, from `Pre`). About 11 s, 2.9 GiB.
+- `test/TieRuleCool.lean`: on `f2-examples/rulecool.kompile.kore` (fixture e2-rule: nine rules over
+  `a(Int)`, `b(Int)`, `c(Int)` with a label, priorities 10, 50, 60, `[owise]`, `preserves-definedness`,
+  and the `[cool]` and `[heat]` rules whose `requires` hold HOLE, bound by no side), for every H:
+  the function equations (`shape`) and the nine rule sentences 164 to 172 (`rules_tie`,
+  `rules_from_text`, W1) tied; `Γc`'s one closure item `boolClosed` (`gammaCl_eq`); the two owed
+  conditions `Witnessed` at `c.withHooks H` (`witnessed6H`, `witnessed7H`), so `FnHyp`
+  (`fnHypH`), `consistent` and `pre_model`; the steps by hand (`stepA5` ... `stepC2`, the priority
+  premise by `NotApplies`), their inversions over the nine rules (`succ_A5`, `succ_B5`, `succ_B0`,
+  `succ_C5`); the expectations from `Pre`: `a5_step`, `a5_succs`, `b5_step`, `b5_succs`, `b0_step`,
+  `b0_succs`, `c5_step`, `c5_succs`, `c1_step`, `c2_step`. About 23 s, 2.8 GiB.
 - `test/TieKimpSig.lean`: `sig_origin` on kimp's text: each of the 255 items of `sigItems c` is a
   declaration's item of the text or a `surplusItem`. One kernel decision exceeds 12 GiB; it is
   decided by thirteen ranges of the items and joined by `tieAll_range` (KcoreSpec/TieChunks.lean).
@@ -1475,6 +1494,14 @@ table above, on the tree before String and Bytes). Not investigated here.
   `zero`'s clauses, `LawAt` holds of each (`unitR_lawAt`, `unitL_lawAt`, `assoc_lawAt`), so
   `FnLaws` of the text's laws (`fnLaws`), the fact the account lists as owed. With `zero`'s clause
   answering 1 the right unit law fails (`cOne_not_unitR`).
+- `test/FnLawFixtures.lean`: the law axioms of functions in the kompiled texts of the fixtures
+  e2-fn-assoc, e2-fn-assoc-bad, e2-fn-assoc-rest, e2-fn-idem and e2-fn-assoc-unit
+  (`f2-examples/NAME.kompile.kore`), through the reader: the account's `fnLaw` lines of each, no law
+  sentence left unmatched; for the first four, `defn.laws` is the text's law, `lawSorted`, and the
+  account's entry is "owed, open" (assoc, bad, idem) or "a condition on the interpretation" (rest,
+  whose `pk` is a parameter no hook implements). On e2-fn-assoc, `FnLaws` of `defn.laws` and
+  `consistent_with_laws` under every H (`Assoc.consistent`); on e2-fn-assoc-bad, `LawAt` fails at
+  (1, 2, 3) under every H (`Bad.not_lawAt`).
 - `test/C3EqReqEns.lean`, `C3EqEnsPrio.lean`, `C3EqEnsPrioComp.lean`, `C3EqEnsOwise.lean`,
   `C3EqEnsTotal.lean`, `C3EqEnsTotalHolds.lean`: the tie (C14) of the four equation pairs of DONE-0
   C3 that hold `ensures`, one file per fixture of `test/constructs/fixtures/` (its kompiled text
@@ -1630,6 +1657,23 @@ table above, on the tree before String and Bytes). Not investigated here.
   `top_b`, `top_d`, `ex_a`, `ex_b`, and `ex_x` (no successor, with `Γstep`). On the `orSplit` text
   `attrsAgree` holds (`defs_attrsAgree`): each of the two rules holds the priority of the one axiom
   it is read from. About 4 minutes each.
+- `test/NoteOrVar.lean`: the tie (C14) of the reading note `ruleRightDefined` on its construct
+  fixture's kompiled text (`f2-examples/mlorvar`, e3-ml-rule-lhs-or: `d(X, a()) #Or d(a(), X) => X`,
+  the disjuncts holding the variable the right side reads), for every H, in the form of
+  `NoteOrSplit`: each of Γ's two rule items has the conjunct `⌈r⌉` more on its left side, and
+  `rule_from_text` derives it from the sentence with `ΓSig` and `ΓDomains` (`d_inh`: the arity of
+  `d` puts `d(X, a())` in Exp, from the guard of X and the value `a()`). Expectations `or_ba`,
+  `or_ab`, `or_aa` (steps from `Pre H`). About 4 minutes.
+- `test/NoteEqPrio.lean`: the tie (C14) of the reading notes `equationPriority` and
+  `owiseAsPriority` on e2-equation's kompiled text (`f2-examples/eqprio`), for every H. The four
+  equations with a sibling of a smaller priority (`f(0)`, `f(2)`, `f(3)`, `h`'s aside one) are
+  Γ's items under the negation of those siblings' clauses: each sentence entails its item (`w0`,
+  `w2`, `w3`, `w8`) and is the item without that premise. The `[owise]` sentence and Γ's item agree
+  up to the order of the exclusion's disjuncts and variable names (`ow_same`, `TieAlpha.acEqB`).
+  `fns_entailed`, `fns_from_text`, `cons_entailed`, `account`, `consistent`; `attrsAgree` is false
+  on this text (`attrsAgree_p`: `p`, a function without equations, is read as a parameter symbol),
+  its constructor, collection and priority parts hold (`defs_attrsAgree_parts`). Expectations from
+  `Pre H`: `f_1`, `f_3`, `f_5` (`f(5) = 9`, the `[owise]` equation), `h_4`. About 3 minutes.
 - `test/NotePredBool.lean`: the tie (C14) of the reading note `predicateAtBool` on its construct
   fixture's kompiled text (`f2-examples/mlceil`), for every H, in the same form. Sentence 158
   (priority 60) entails Γ's item (two conjuncts more, `left1`). Sentence 157's `requires`

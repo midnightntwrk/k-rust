@@ -1,0 +1,9 @@
+# Hand-written KORE: the kompiled text of fixture c3-ctor-law-base (K 7.1.337, sha256
+# edfeb993cfd3427f67cca46912f8463eafe67e72fd376f2f444764ab866c144f: Exp ::= .E | x | Exp "+" Exp, plus a
+# constructor), BUILTIN/ and FIXTURE/ restored as paths, and two axioms added after _Set_'s idempotence:
+# the associativity axiom of Lblplus from c3-ctor-assoc's text and its idempotence axiom from c3-ctor-idem's.
+# Kompile drops constructor from a production with assoc or idem (c3-ctor-assoc, c3-ctor-idem), so only a
+# hand-written text holds such an axiom on a symbol that kept constructor.
+# Expected: both axioms refused lawAxiom by the account (Account.lawUnmatched), the idempotence one with
+# the contradiction against the no-confusion axioms.
+kore = "test/constructs/fixtures/hw-law-ctor/hw-law-ctor.kore"

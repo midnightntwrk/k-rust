@@ -65,7 +65,7 @@ theorem ov6_of_ov5 (c : Semantics) (o : OvlSig) (i : Nat)
   rw [beq_iff_eq]
   refine length_filterMap _ _ fun g hg => ?_
   have hg' := List.all_eq_true.mp h g hg
-  rw [lookupSig_eq, List.find?_append]
+  rw [lookupSig_eq, List.find?_append, List.find?_append]
   rcases Bool.or_eq_true_iff.mp hg' with h1 | h2
   · rw [lookupSig_eq] at h1
     obtain ⟨k, hk⟩ := Option.isSome_iff_exists.mp h1
@@ -74,7 +74,9 @@ theorem ov6_of_ov5 (c : Semantics) (o : OvlSig) (i : Nat)
     have hs : (c.ovlSigs.find? (·.name == g)).isSome = true :=
       List.find?_isSome.mpr ⟨x.sig, List.mem_map_of_mem (List.mem_of_mem_take hx), hxg⟩
     cases h' : c.ctorSigs.find? (·.name == g) with
-    | none => exact hs
+    | none =>
+      obtain ⟨y, hy⟩ := Option.isSome_iff_exists.mp hs
+      rw [hy]; rfl
     | some k => rfl
 
 /-! ## overloadsOK.5: an overloading symbol overloading itself -/

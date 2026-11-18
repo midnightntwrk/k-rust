@@ -49,12 +49,13 @@ def CoDefined (c : Semantics) : Prop :=
 
 variable {c : Semantics}
 
-/-- A clause that applies under σ does not fail, its `requires` having one result there. -/
+/-- A clause without existential variables that applies under σ does not fail, its `requires`
+having one result there. -/
 theorem not_fails_of_applies (hd : FnDet c) {vs : List GroundTerm} {cl : Clause} {σ : Subst}
-    (ha : cl.AppliesAt c σ vs) (hf : Fails c vs cl) : False := by
+    (hex : cl.exs = []) (ha : cl.AppliesAt c σ vs) (hf : Fails c vs cl) : False := by
   cases hf with
   | intro h =>
-    cases h σ (ha.1.at _) ha.2.1 with
+    cases h σ (((wellSortedAt_univ hex).mp ha.1).at _) ha.2.1 with
     | intro ht he hr => exact hr (EvalTerm.functional_of_fnDet hd he (ha.2.2.1 _ ht))
     | pre hf => exact absurd (Holds.functional_of_fnDet hd ha.2.2.2 hf) (by simp)
 
@@ -113,9 +114,9 @@ theorem solves_of_parts {fn : Fn} (hlk : c.lookupFn fn.label = some fn) (hd : Fn
         (hdec.2 cl' hcl' ha hlt)
   have back : ∀ r, cl.InstRes c σ r → Eval c fn.label vs r := fun r hr => by
     rcases hr with ⟨he, hr⟩ | ⟨t, w, ht, he, hw, rfl⟩
-    · exact .clause hlk hcl hdec.1.1 hdec.1.2.1 hdec.1.2.2.1 hdec.1.2.2.2 hlow (hx cl hcl).1 hr he
+    · exact .clause hlk hcl ((wellSortedAt_univ (hx cl hcl).1).mp hdec.1.1) hdec.1.2.1 hdec.1.2.2.1 hdec.1.2.2.2 hlow (hx cl hcl).1 hr he
         (Clause.holds_postTop (hx cl hcl).2 σ)
-    · exact .ensFails hlk hcl hdec.1.1 hdec.1.2.1 hdec.1.2.2.1 hdec.1.2.2.2 hlow (hx cl hcl).1 ht he hw
+    · exact .ensFails hlk hcl ((wellSortedAt_univ (hx cl hcl).1).mp hdec.1.1) hdec.1.2.1 hdec.1.2.2.1 hdec.1.2.2.2 hlow (hx cl hcl).1 ht he hw
   have fwd : ∀ r, Eval c fn.label vs r → ∀ v, r = some v →
       EvalTerm c σ cl.rhs (some v) ∧ ∀ t, cl.ens = some t → EvalTerm c σ t (some (bool true)) := by
     intro r hE
@@ -126,7 +127,7 @@ theorem solves_of_parts {fn : Fn} (hlk : c.lookupFn fn.label = some fn) (hd : Fn
       rcases EvalFunctional.compete_or_blocks cl₂ cl with hcomp | ⟨ha, hlt⟩ | ⟨ha, hlt⟩
       · -- the two compete: cl₂ decides as the model reads deciding, its smaller clauses failing
         have hdec₂ : cl₂.DecidesAt c fn σ₂ vs :=
-          ⟨⟨hσ₂, hm₂, hq₂, hpr₂⟩, fun cl' h1 h2 h3 σ' hw hp' hq' => not_true_of_fails hd (hprio₂ cl' h1 h2 h3) hw hp' hq'.1 hq'.2⟩
+          ⟨⟨hσ₂.at _, hm₂, hq₂, hpr₂⟩, fun cl' h1 h2 h3 σ' hw hp' hq' => not_true_of_fails hd (hprio₂ cl' h1 h2 h3) hw hp' hq'.1 hq'.2⟩
         obtain ⟨r, hr⟩ := ha cl₂ σ₂ cl σ hmem₂ hcl hdec₂ hdec ⟨v, .inl ⟨he₂, hr₂⟩⟩
         have := hd _ _ _ _ (back r hr) (.clause hlk hmem₂ hσ₂ hm₂ hq₂ hpr₂ hprio₂ hex₂ hr₂ he₂ hpost₂)
         subst this
@@ -134,10 +135,10 @@ theorem solves_of_parts {fn : Fn} (hlk : c.lookupFn fn.label = some fn) (hd : Fn
         · exact ⟨hr, he⟩
         · cases h
       · exact (hdec.2 cl₂ hmem₂ ha hlt σ₂ (hσ₂.at _) hm₂ ⟨hq₂, hpr₂⟩).elim
-      · exact (not_fails_of_applies hd hdec.1 (hprio₂ cl hcl ha hlt)).elim
+      · exact (not_fails_of_applies hd (hx cl hcl).1 hdec.1 (hprio₂ cl hcl ha hlt)).elim
     | rest hfn' hnone =>
       rw [hlk] at hfn'; cases hfn'
-      exact (not_fails_of_applies hd hdec.1 (hnone cl hcl)).elim
+      exact (not_fails_of_applies hd (hx cl hcl).1 hdec.1 (hnone cl hcl)).elim
     | ensFails => intro v hv; cases hv
     | clauseEx hfn' hmem₂ _ _ _ _ _ hne₂ _ _ _ _ =>
       rw [hlk] at hfn'; cases hfn'
@@ -191,8 +192,8 @@ theorem solves_of_res {fn : Fn} (hlk : c.lookupFn fn.label = some fn) (hd : FnDe
   · intro hv
     have hrv : r = some v := hd _ _ _ _ hE hv
     subst hrv
-    rcases hr with ⟨-, ⟨he, hpost, hr⟩ | ⟨_, _, _, _, _, h⟩⟩ | ⟨-, ⟨σ', v', ha, hw, hg, -, h⟩ | ⟨h, -⟩⟩
-    · exact ⟨σ, AgreeOff.refl _ _, hdec.1.1, hr, he, hpost⟩
+    rcases hr with ⟨hex, ⟨he, hpost, hr⟩ | ⟨_, _, _, _, _, h⟩⟩ | ⟨-, ⟨σ', v', ha, hw, hg, -, h⟩ | ⟨h, -⟩⟩
+    · exact ⟨σ, AgreeOff.refl _ _, (wellSortedAt_univ hex).mp hdec.1.1, hr, he, hpost⟩
     · cases h
     · cases h; exact ⟨σ', ha, hw, hg⟩
     · cases h
