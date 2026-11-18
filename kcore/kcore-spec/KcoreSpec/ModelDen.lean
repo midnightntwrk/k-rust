@@ -802,7 +802,7 @@ theorem den_elem1 (h : HypModelCore c) (k : CollSig) (hk : k ∈ c.allColls) (hc
 /-- What the laws of the overloading symbols' normal forms read (OvlLaws.lean): `overloadsOK`, and
 transitive, irreflexive subsorts. -/
 theorem HypModelCore.ovlHyp (h : HypModelCore c) : OvlLaws.OvlHyp c :=
-  ⟨h.ovlOK, (sortCtx_of_allCl h.hyp.1 h.hyp.2.1 h.ovlCase).trans,
+  ⟨h.ovlOK, (sortCtx_of_allClEx h.hyp.1 h.hyp.2.1 h.ovlCase).trans,
     fun s hs => (genWf_sub h.sound.2.2.2.1 hs).2 rfl⟩
 
 /-! ## The reading -/
@@ -816,7 +816,7 @@ finds the raw parameter itself (`raw_lookup`, from `idsOK` and the number outsid
 theorem HypModelCore.open_param (h : HypModelCore c) {f : Sym} {kp : ParamSig} (hko : c.lookupOpen f = some kp) :
     c.lookupParam f = some kp ∧ kp.impl = none := by
   obtain ⟨hkp, hraw, rfl, hreg⟩ := c.lookupOpen_spec hko
-  exact ⟨(Semantics.raw_lookup h.ids hkp hraw hreg).1, (Semantics.raw_of_sortedOKCl h.sound.1 hkp hraw).1⟩
+  exact ⟨(Semantics.raw_lookup h.ids hkp hraw hreg).1, (Semantics.raw_of_sortedOKClEx h.sound.1 hkp hraw).1⟩
 
 namespace AtT
 

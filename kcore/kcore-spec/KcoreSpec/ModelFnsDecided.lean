@@ -32,18 +32,18 @@ variable {c : Semantics}
 /-- Each clause's predicate is well sorted over the clause's variables, under `HypModelCore`. -/
 theorem HypModelCore.preOK (h : HypModelCore c) :
     ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, c.condOK cl.vars cl.pre = true := fun fn hfn cl hcl =>
-  Semantics.clauseSortedOpen_preOK ((Semantics.sortedOKCl_parts h.hyp.1).2.1 fn hfn cl hcl).1
+  Semantics.clauseSortedOpen_preOK ((Semantics.sortedOKClEx_parts h.hyp.1).2.1 fn hfn cl hcl).1
 
 /-- **The value model at any transition satisfies the functions' equations**, under `HypModelCore`
 and `ClausePreDecided`: each clause's equation with its predicate in the premise
 (`AtT.satFnsGoalPre`). -/
 theorem AtT.satFnsGoal_decided {T : GroundTerm → GroundTerm → Prop} (h : HypModelCore c)
-    (hp : ClausePreDecided c) : stdI_T c T ⊧ᴵP ΓFns c :=
-  AtT.satFnsGoalPre h h.preOK fun fn hfn cl hcl σ ws hσ hpv _ => hp fn hfn cl hcl σ ws (hσ.at _) hpv
+    (hne : c.FnsNoExs) (hp : ClausePreDecided c) : stdI_T c T ⊧ᴵP ΓFns c :=
+  AtT.satFnsGoalPre h hne h.preOK fun fn hfn cl hcl σ ws hσ hpv _ => hp fn hfn cl hcl σ ws (hσ.at _) hpv
 
 /-- `AtT.satFnsGoal_decided` in the value model. -/
-theorem satFnsGoal_decided (h : HypModelCore c) (hp : ClausePreDecided c) : SatFnsGoal c :=
-  AtT.satFnsGoal_decided (T := StepM c) h hp
+theorem satFnsGoal_decided (h : HypModelCore c) (hne : c.FnsNoExs) (hp : ClausePreDecided c) : SatFnsGoal c :=
+  AtT.satFnsGoal_decided (T := StepM c) h hne hp
 
 end Model
 

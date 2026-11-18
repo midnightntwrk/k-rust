@@ -491,7 +491,7 @@ theorem sortPreds_shape {fn : Fn} (hfn : fn ∈ c.sortPreds) :
 
 theorem HypModelCore.lookupFn (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) : c.lookupFn fn.label = some fn := by
   rw [Semantics.lookupFn_eq]
-  exact find?_label (sortCtx_of_allCl h.hyp.1 h.hyp.2.1 h.ovlCase).nodupFns hfn
+  exact find?_label (sortCtx_of_allClEx h.hyp.1 h.hyp.2.1 h.ovlCase).nodupFns hfn
 
 /-- A function of the semantics is the one `lookupFn` finds under its label. -/
 theorem lookupFn_of_sound (hs : HypSoundCore c) {fn : Fn} (hfn : fn ∈ c.allFns) : c.lookupFn fn.label = some fn := by
