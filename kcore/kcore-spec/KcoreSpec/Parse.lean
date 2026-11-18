@@ -5635,7 +5635,7 @@ def regIteDeclIoh (h : Kore.HookedSymbol) : Bool :=
   | [v] =>
     let S : Kore.KSort := .var v
     h.symbol.ident.ident.name == "Lblite" &&
-    h.sorts == [.ctor ⟨⟨"SortBool"⟩⟩ [], S, S] && h.sort == S &&
+    decide (h.sorts = [.ctor ⟨⟨"SortBool"⟩⟩ [], S, S]) && decide (h.sort = S) &&
     (attrStr? h.attributes "hook").bind regHookOf == some kIte
   | _ => false
 
