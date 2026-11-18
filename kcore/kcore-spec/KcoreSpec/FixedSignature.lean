@@ -664,7 +664,8 @@ def bytesPartial : List Sym :=
 
 /-- The interpreted symbols not known total here (`hook` can be undefined): division and modulo,
 the two shifts (undefined at a negative amount) and `log2Int` (undefined at a number not above 0),
-`^%Int` (no value at a zero modulus, the interpretation's elsewhere), `bitRangeInt` and
+`^%Int` (no value at a zero modulus, the interpretation's at a negative exponent and at a
+remainder of a negative power the modulus does not divide), `bitRangeInt` and
 `signExtendBitRangeInt` (undefined at a negative index or length, the second also at length 0),
 `^Int` (the interpretation's at a negative exponent), `L[I <- V]`, `makeList`, `updateList` and
 `fillList` (the interpretation's off the ranges the text describes),
