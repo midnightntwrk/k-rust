@@ -1861,6 +1861,9 @@ table above, on the tree before String and Bytes). Not investigated here.
   `f2-examples/heldmaprest`): from `<m> 1 |-> 0 </m>` `Step` reaches `(k |-> 0) (1 |-> 0)` exactly for
   the Ints k other than 1; at the key the right side has no value, and in every model of `Γc`
   `_Map_(1 |-> 0, 1 |-> 0)` is empty (its `ΓDomains` axiom); by `ExactC` no other successor.
+  `Update`, `RangeMap`: on the reader's semantics before the rules are checked (`held_base_of`), V
+  is not in `heldOccs`, Int is not confined, `rulePlainHO1` fails and `openRefusal` is `openRight`;
+  `_[_<-_]` and the range map's symbols are not held in any semantics.
 - `test/C3SimpReq.lean`, `test/C3SimpComm.lean`, `test/InertResolveComm.lean`: the C2 evidence of the
   inert simplifications of the pairs `simplification` x `requires` and simplification `comm` x symbol
   `comm` and of the pass resolveComm (E7), on their fixtures: each sentence is entailed by Γ at values,
