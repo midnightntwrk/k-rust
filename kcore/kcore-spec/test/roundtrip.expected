@@ -158,6 +158,7 @@ differs f2-examples/e6-param-string.kompile.kore
 differs f2-examples/e6-param-timer.kompile.kore
 differs f2-examples/e6-param-unification.kompile.kore
 differs f2-examples/e6cfg.kompile.kore
+differs f2-examples/e6ite.kompile.kore
 differs f2-examples/e6rm.kompile.kore
 differs f2-examples/e6rmkeys.kompile.kore
 differs f2-examples/e6rmrest.kompile.kore

@@ -1778,6 +1778,11 @@ table above, on the tree before String and Bytes). Not investigated here.
   parameters (`decls_entailed`) and STRING-BUFFER-IN-K's three symbol declarations
   (`lib_decls_entailed`), which the rule applies and the reading has as parameter symbols
   (`params_sb`). Axioms printed.
+- `test/IteIntParam.lean`: on `f2-examples/e6ite.kompile.kore` (the fixture e6-ite-int), the
+  reading's one parameter symbol is `ite{Int}`, implemented by `kIte` (`params_ite`); Γ holds it
+  and applies it at the head `Lblite{SortInt{}}`, for every H (`ite_int_in_gamma`); the module's
+  sentences applying that head are the rule and `findChar`'s equation (domains.md 1891), every head
+  of which is Γ's (`ite_int_sentences`, `findChar_heads_in_gamma`). Axioms printed.
 - `test/LibEvCollSym.lean`: the lemmas of MAP-KORE-SYMBOLIC and SET-KORE-SYMBOLIC of
   `f2-examples/collsym.kompile.kore`, for every H, from the library's statements
   (`KcoreSpec/LibEvCollSym.lean`): entailed at values, without an `ensures` (`LibEv.Eqn`; domains.md
