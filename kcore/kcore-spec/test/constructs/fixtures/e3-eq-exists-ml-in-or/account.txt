@@ -11,9 +11,9 @@ user module E3-EQ-EXISTS-ML-IN-OR: 281 sentences
   1 inert simplification [generated]
 stage refusals (of sentences classified read): 2
   2 manyValuedRightSide
-      sentence 246 (Lblf): manyValuedRightSide (\or)
+      sentence 246 (Lblf): manyValuedRightSide (\or: the sentence gives the function every element of each side; the text holds no functional sentence of the function, so where the sides differ that is more than one element, which no clause states)
         [user] (no label) at e3-eq-exists-ml-in-or.k:4: axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortBool{}, R}(X0:SortBool{}, VarX:SortBool{}), \top{R}())), \equals{SortBool{}, R}(Lblf{}(X0:SortBool{}), \and{SortBool{}}(\or{SortBool{}}(VarX:SortBool{}, \exists{SortBool{}}(VarB:SortBool{}, \and{SortBool{}}(VarB:SortBool{}, \equals{SortBool{}, SortBool{}}(VarB:SortBool{}, LblnotBool'Unds'{}(VarX:SortBool{}))))), \top{SortBool{}}()))) [UNIQUE' …
-      sentence 247 (Lblfx): manyValuedRightSide (\or)
+      sentence 247 (Lblfx): manyValuedRightSide (\or: the sentence gives the function every element of each side; the text holds no functional sentence of the function, so where the sides differ that is more than one element, which no clause states)
         [user] (no label) at e3-eq-exists-ml-in-or.k:5: axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortBool{}, R}(X0:SortBool{}, VarX:SortBool{}), \top{R}())), \equals{SortBool{}, R}(Lblfx{}(X0:SortBool{}), \and{SortBool{}}(\or{SortBool{}}(VarX:SortBool{}, \exists{SortBool{}}(VarB:SortBool{}, \and{SortBool{}}(VarB:SortBool{}, \equals{SortBool{}, SortBool{}}(VarB:SortBool{}, VarX:SortBool{})))), \top{SortBool{}}()))) [UNIQUE'Unds'ID{}("d686981a …
-finish: sentence 246 (Lblf): manyValuedRightSide (\or)
+finish: sentence 246 (Lblf): manyValuedRightSide (\or: the sentence gives the function every element of each side; the text holds no functional sentence of the function, so where the sides differ that is more than one element, which no clause states)
 (exit 0)

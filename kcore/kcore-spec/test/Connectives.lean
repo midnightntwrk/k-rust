@@ -415,7 +415,7 @@ mlmixed: [[orSplit]]; []; unheldVariable Var'Unds'Gen1:Empty: a variable of the 
 mlrequnheld: [[requiresOrSplit]]; []; read; unaccounted 0; uninduced 0; coreOK true
 mlvalue: [[orSplit], [orSplit], [existsAsVariable]]; []; read; unaccounted 0; uninduced 0; coreOK true
 mlreqor: [[requiresOrSplit]]; []; read; unaccounted 0; uninduced 0; coreOK true
-mleqor: []; []; manyValuedRightSide \or
+mleqor: []; []; manyValuedRightSide \or: the sentence gives the function every element of each side; the text holds no functional sentence of the function, so where the sides differ that is more than one element, which no clause states
 mlsetv: []; []; setVariable VarS: in the right side, the requires, the ensures or an exclusion: the sentence states the function's value at every set holding the arguments; with the set as the value it has no model at a sort with two elements, otherwise its truth reads every subset of the sort
 mlallexp: []; []; openExtent Exp
 -/
