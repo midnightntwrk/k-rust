@@ -372,6 +372,7 @@ import KcoreSpec.KKLitsVPatVal
 import KcoreSpec.GenEqsInitArm
 import KcoreSpec.ValueModelApp
 import KcoreSpec.ModelHasEx
+import KcoreSpec.HypModelCoreEx
 import KcoreSpec.CoreOKEx
 import KcoreSpec.CoreOKExFacts
 import KcoreSpec.OpenClauseDenQ
