@@ -27,7 +27,7 @@ open KCore GroundTerm Faithful Faithful.Model
 
 example (c : Semantics) (h : c.coreOKEx = true) (hd : FnDet c) (hs : FnSolves c) : HypModelCore c :=
   hypModelCore_of_coreEx h hd hs
-example (c : Semantics) (h : c.sortedOKEx = true) : c.sortedOKClEx = true := Semantics.sortedOKClEx_of_okEx h
+example (c : Semantics) (h : c.sortedOKEx = true) : c.sortedOKClEx = true := Semantics.sortedOKClEx_of_sortedOKEx h
 example (c : Semantics) (h : HypModel c) : c.FnsNoExs := h.fnsNoExs
 example (c : Semantics) (h : c.coreOKEx = true) (hd : FnDet c) (hs : FnSolves c) (hp : ClausePreDecided c)
     (hq : ClausePostDecided c) (hl : OpenLaws c) : Consistent c :=
