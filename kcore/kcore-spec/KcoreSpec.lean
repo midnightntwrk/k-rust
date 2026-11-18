@@ -400,3 +400,4 @@ import KcoreSpec.TieFRRead
 import KcoreSpec.GenEqsNodirFun
 import KcoreSpec.ParamSchema
 import KcoreSpec.InjApart
+import KcoreSpec.TieEX
