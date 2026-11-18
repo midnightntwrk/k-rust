@@ -1,5 +1,5 @@
 /-
-  `coreOKEx` admits CE-1's clause, kernel-checked: `f() => g(?Z:Int)` with `post := Z ∈ lp()`, beside
+  `coreOKEx` admits a clause with an existential variable, kernel-checked: `f() => g(?Z:Int)` with `post := Z ∈ lp()`, beside
   `lp() => lp()` and `g(X:Int) => X` (in test/ExClauses.lean `g` is not declared, so that semantics is
   not well sorted). `coreOK` refuses the semantics (its clause binds `Z` by `\exists`) and `coreOKEx`
   accepts it; it reads confined sorts. With `f() => g(0)` in place of the clause, `coreOK` accepts it.
@@ -53,7 +53,7 @@ def cPl : Semantics :=
 
 theorem clCf_exs : clCf.exs ≠ [] := by decide
 
-/-- **`coreOKEx` accepts CE-1's semantics.** -/
+/-- **`coreOKEx` accepts the semantics of `f() => g(?Z:Int)` with `post := Z ∈ lp()`.** -/
 theorem cCeG_coreOKEx : cCeG.coreOKEx = true := by
   unfold Semantics.coreOKEx Semantics.sortedOKEx; decide_cheap
 
@@ -75,7 +75,7 @@ theorem cCe_clauseSorted : cCe.clauseSorted fnCf (cCe.fns.map Fn.sig) clCf = fal
 
 theorem fnCf_mem : fnCf ∈ cCeG.allFns := List.mem_append_left _ (by simp [cCeG])
 
-/-- **The reading of CE-1's clause holds in every model of `Γc`.** -/
+/-- **The reading of the clause `f() => g(?Z:Int)` holds in every model of `Γc`.** -/
 theorem cCeG_clauseExRead {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M} (hIc : I ⊧ᴵP Faithful.Γc cCeG) :
     Faithful.ClauseExRead cCeG I fnCf clCf :=
   Faithful.clauseExRead_of_coreEx cCeG_coreOKEx cCeG_readsConfined hIc fnCf fnCf_mem clCf (by simp [fnCf]) clCf_exs
