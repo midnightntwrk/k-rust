@@ -20,7 +20,7 @@
     `<k> d(x) </k>` and to `<k> d(y) </k>`.
 
   The other branches of the cut (beside an `[owise]` rule; every argument variable held elsewhere in
-  the left side; an `#as` under the generator, not cut) are test/OpenGenerator.lean's.
+  the left side; an `#as` under the generator) are test/OpenGenerator.lean's.
 -/
 import KcoreSpec
 

@@ -467,8 +467,9 @@ overloads a function, `Semantics.fnOvlSyms`, whose application at covered argume
 function's value; no constructor, no collection's symbol and no open generator, which
 `openGeneratorInPattern` names) in their left side: one refusal (`functionInPattern`) for each, the
 symbol named. A rule's left side and a clause's argument patterns are read through the cut
-(`Parse.ovlCut`, `Parse.ovlCutList`), so they apply a function-overloaded symbol only where the
-application's arguments hold `#as`. -/
+(`Parse.ovlCut`, `Parse.ovlCutList`), which takes every outermost application of a
+function-overloaded symbol, its arguments' `#as` bindings read as conditions (`Parse.cutOvlApps`),
+so they apply none. -/
 def functionInPattern (k : Kore.Definition) (d : Definition) : List Refusal :=
   match k.modules.getLast? with
   | none => []
@@ -516,8 +517,8 @@ its result sort S:
 - S is confined: every element of S is a value's and the arguments that match are values, a finite
   preimage of the value under the interpretation's graph, which the semantics does not build.
 A rule's left side and a clause's argument patterns are read through the cut (`Parse.ovlCut`,
-`Parse.ovlCutList`), so they apply an open generator only where the application's arguments hold
-`#as`; the reader refuses a cut rule or clause whose generator's sort is not confined itself
+`Parse.ovlCutList`), which takes every outermost application of an open generator, its arguments'
+`#as` bindings read as conditions (`Parse.cutOvlApps`), so they apply none; the reader refuses a cut rule or clause whose generator's sort is not confined itself
 (`Parse.openCutRefusal`, `Parse.openCutRefusalCl`). -/
 
 /-- The rules and clauses whose left side applies an open generator of `d`: one refusal
