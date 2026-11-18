@@ -362,3 +362,4 @@ import KcoreSpec.LibEvCollSym
 import KcoreSpec.LibEvCollSymK
 import KcoreSpec.ModelEmptyInhabited
 import KcoreSpec.KKLitsVPatVal
+import KcoreSpec.GenEqsInitArm
