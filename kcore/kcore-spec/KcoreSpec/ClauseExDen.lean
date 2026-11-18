@@ -4,7 +4,7 @@
   The clause's equation is `premise → f(X̄) = (∃ē. (rhs ∧ ens ∧ post)) ∧ ⊤` (`clauseRhs`): the
   function's elements at the arguments are those of the instances of the right side over elements
   of the sorts of ē at which `ens` and `post` hold. `eqn_atRightEx` reads an equation of a function
-  with any right side at the valuation of a match of values. `clauseRhs_readEx` reads the right
+  with any right side at the valuation of a match of values. `clauseRightEx_read` reads the right
   side: an instance at values that gives `v` puts `v`'s element in it, and an element in it is in an
   instance at elements; where each such instance is one at values (`Witnessed`, what `exs_values`
   concludes) and every instance at values is decided and gives `r` or nothing, the right side is
