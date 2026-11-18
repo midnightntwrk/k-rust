@@ -398,11 +398,13 @@ inductive RefusalReason where
   detail names the attribute. -/
   | symbolAttrUnkeyed
   /-- An equation or a rewrite axiom whose right side (under its `\exists` binders) holds, under
-  applications, conjunctions and disjunctions, an `\and{s}` or `\or{s}` with an operand that
-  states a sort other than s at its head (`rhsSorted`): an `\and`, `\or`, `\exists`, `\top` or
-  `\bottom` at another sort, an `\exists{s}` whose body states another sort than s (its pattern
-  argument is of the sort parameter, kore-syntax.md:195, 330), or an `\equals{S1,S2}` whose result
-  sort S2 is not s; or a binder `\exists{T}` heading the right side of a rewrite axiom
+  applications, conjunctions and disjunctions, an `\and{s}` or `\or{s}` with an operand not of
+  the sort s (`rhsSorted`, `rhsOpSort`): a connective whose sort, or result sort S2 of
+  `\equals{S1,S2}`, `\ceil{S1,S2}`, `\floor{S1,S2}`, `\in{S1,S2}`, is not s, or a connective,
+  among the operands of such connectives, with an operand not of the sort its sort parameters give
+  it (the body of `\exists{s}` and `\forall{s}` and the operands of `\not{s}`, `\implies{s}` and
+  `\iff{s}` of s, those of `\equals{S1,S2}`, `\ceil{S1,S2}`, `\floor{S1,S2}` and `\in{S1,S2}` of S1:
+  kore-syntax.md:195, 330); or a binder `\exists{T}` heading the right side of a rewrite axiom
   `\rewrites{s}` (`ruleBodyRead`) or of an equation of a function of result sort s
   (`eqnBinderSortGuard`) with T not s.
   In a valid KORE pattern the sort of each
@@ -1787,18 +1789,18 @@ end
 
 mutual
   /-- The pattern is of the sort s where its head states its sort as a connective `\or{s'}`,
-  `\and{s'}`, `\exists{s'}`, `\top{s'}`, `\bottom{s'}`, `\not{s'}`, `\implies{s'}` or `\forall{s'}`
-  or as the result sort of `\equals{S1,s'}`, `\ceil{S1,s'}`, `\floor{S1,s'}` or `\in{S1,s'}`
-  (s' = s), and its operands are of the sort the connective gives them (kore-syntax.md:330): the
-  operands of such an `\or`, `\and`, `\not` and `\implies` and the body of such an `\exists` and
-  `\forall` are of the sort s, the operand of such a `\ceil` and `\floor` and the two of such an
-  `\in` of the sort S1. An application, a variable, a domain value, the operands of `\equals` and
-  the other connectives are not looked at. -/
+  `\and{s'}`, `\exists{s'}`, `\top{s'}`, `\bottom{s'}`, `\not{s'}`, `\implies{s'}`, `\forall{s'}` or
+  `\iff{s'}` or as the result sort of `\equals{S1,s'}`, `\ceil{S1,s'}`, `\floor{S1,s'}` or
+  `\in{S1,s'}` (s' = s), and its operands are of the sort the connective gives them
+  (kore-syntax.md:330): the operands of such an `\or`, `\and`, `\not`, `\implies` and `\iff` and the
+  body of such an `\exists` and `\forall` are of the sort s, the operand of such a `\ceil` and
+  `\floor` and the two of such an `\equals` and `\in` of the sort S1. An application, a variable, a
+  domain value and the other connectives are not looked at. -/
   def rhsOpSort (s : Kore.KSort) : Kore.Pattern → Bool
     | .or s' ps => decide (s' = s) && rhsOpSortList s ps
     | .and s' ps => decide (s' = s) && rhsOpSortList s ps
     | .exist s' _ p => decide (s' = s) && rhsOpSort s p
-    | .equals _ s' _ _ => decide (s' = s)
+    | .equals s1 s' p q => decide (s' = s) && rhsOpSort s1 p && rhsOpSort s1 q
     | .top s' => decide (s' = s)
     | .bottom s' => decide (s' = s)
     | .not s' p => decide (s' = s) && rhsOpSort s p
@@ -1807,6 +1809,7 @@ mutual
     | .ceil s1 s' p => decide (s' = s) && rhsOpSort s1 p
     | .floor s1 s' p => decide (s' = s) && rhsOpSort s1 p
     | .in s1 s' p q => decide (s' = s) && rhsOpSort s1 p && rhsOpSort s1 q
+    | .iff s' p q => decide (s' = s) && rhsOpSort s p && rhsOpSort s q
     | _ => true
     termination_by structural p => p
   def rhsOpSortList (s : Kore.KSort) : List Kore.Pattern → Bool
@@ -1846,6 +1849,7 @@ def rhsHeadSort? : Kore.Pattern → Option (String × Kore.KSort)
   | .ceil _ s _ => some ("\\ceil", s)
   | .floor _ s _ => some ("\\floor", s)
   | .in _ s _ _ => some ("\\in", s)
+  | .iff s _ _ => some ("\\iff", s)
   | _ => none
 
 /-- The first operand of the connective `head` (as printed) whose head states another sort than
@@ -1867,7 +1871,8 @@ def rhsHead2 (conn : String) (s1 s2 : Kore.KSort) : String :=
 mutual
   /-- Where `rhsSorted` fails, the first connective (outermost first) with an operand of another
   sort than the one the connective gives it, or an `\exists` or `\forall` whose body states
-  another sort, named (`rhsOpFault?`, `rhsOpFaultAt?`). -/
+  another sort, named (`rhsOpFault?`, `rhsOpFaultAt?`). The operands of `\equals` and `\iff` are
+  looked into as `rhsOpSort` looks into them. -/
   def rhsSortFault? : Kore.Pattern → Option String
     | .app _ _ ps => rhsSortFaultList? ps
     | .and s ps => (rhsOpFault? "\\and" s ps).orElse fun _ => rhsSortFaultList? ps
@@ -1880,6 +1885,10 @@ mutual
     | .ceil s1 s2 p => (rhsOpFaultAt? (rhsHead2 "\\ceil" s1 s2) s1 [p]).orElse fun _ => rhsSortFault? p
     | .floor s1 s2 p => (rhsOpFaultAt? (rhsHead2 "\\floor" s1 s2) s1 [p]).orElse fun _ => rhsSortFault? p
     | .in s1 s2 p q => (rhsOpFaultAt? (rhsHead2 "\\in" s1 s2) s1 [p, q]).orElse fun _ =>
+        (rhsSortFault? p).orElse fun _ => rhsSortFault? q
+    | .equals s1 s2 p q => (rhsOpFaultAt? (rhsHead2 "\\equals" s1 s2) s1 [p, q]).orElse fun _ =>
+        (rhsSortFault? p).orElse fun _ => rhsSortFault? q
+    | .iff s p q => (rhsOpFault? "\\iff" s [p, q]).orElse fun _ =>
         (rhsSortFault? p).orElse fun _ => rhsSortFault? q
     | _ => none
     termination_by structural p => p
