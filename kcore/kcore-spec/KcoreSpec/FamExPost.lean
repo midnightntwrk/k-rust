@@ -192,7 +192,7 @@ theorem famEx_closed_post (c : Semantics) (h : c.coreOK = true) {x y : Config c}
     Γc c ⊧ (famEx c r σ ≡ den c y.val) := by
   intro M _ I hI e m
   rw [KoreAML.interp_equal (defOK fun φ hφ => hI φ (Or.inl hφ))]
-  exact fun a => famEx_denPP h (Semantics.ruleFactsHO1_of_core h r hs.mem).1 hex
+  exact fun a => famEx_denPP h (Semantics.ruleFactsHO2_of_core h r hs.mem).1 hex
     (readsConfined_of_post hs.mem) hs.hσ hs.heval hs.hens hs.hpost hI hc e a
 
 end KCore

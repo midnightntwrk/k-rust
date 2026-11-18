@@ -13,7 +13,7 @@
     that hold its steps, for a rule with `ruleSorted`.
   - `famEx_values_ce`, `famOpen_values_ce`: the rules' facts and `HeldBackAll` read from
     `coreOKEx` (`Semantics.heldFacts_of_coreEx`,
-    `Semantics.ruleFactsHO1_of_coreEx`).
+    `Semantics.ruleFactsHO2_of_coreEx`).
 -/
 import KcoreSpec.FamExValuesHeld
 import KcoreSpec.FamOpenValuesPP
@@ -492,6 +492,6 @@ theorem famOpen_values_ce (c : Semantics) (h : c.coreOKEx = true) (hf : FnHyp c)
     (hys : ∀ y : Config c, (∃ σ', (∀ i ∈ varOccs r.lhs, σ'.lookup i = σ.lookup i) ∧ StepBy c r σ' x y) →
       y.val ∈ ys) :
     Γc c ⊧ (famOpen c r σ ⇒ KoreAML.disjList (ys.map (den c))) :=
-  famOpen_values_ppCEx c h hf x r hr (Semantics.ruleFactsHO1_of_coreEx h r hr).1 σ hu hcf ys hys
+  famOpen_values_ppCEx c h hf x r hr (Semantics.ruleFactsHO2_of_coreEx h r hr).1 σ hu hcf ys hys
 
 end KCore

@@ -677,7 +677,7 @@ end ExRules
 
 /-! # After the flip: a definition `coreOK` accepts with a rule with existential variables
 
-  `rulesPlain` asks `rulePlainHO1` of each rule (`Semantics.rulesPlain_iff_held`), not
+  `rulesPlain` asks `rulePlainHO2` of each rule (`Semantics.rulesPlain_iff_memHeld`), not
   `r.exs = []`. `cX`, the text's semantics with `exTwo` (`a() => b(?X:Int) ensures ?B:Bool`: X by
   arm A, B by arm B), has `coreOK` and `rulesPlain` (`coreX`), and `exTwo` is one of its rules. At
   `cX`'s rules, whose facts `coreOK` and their `rulePlainEx`, decided, give (`Semantics.ruleFactsEx_of_coreAll`): `satRulesGoal_T` and

@@ -10,6 +10,7 @@ import KcoreSpec.Kore.Translate
 import KcoreSpec.Kore.Blocks
 import KcoreSpec.Kore.Distinct
 import KcoreSpec.FaithOK
+import KcoreSpec.OvlHeldDefs
 
 set_option autoImplicit false
 
@@ -45,12 +46,13 @@ def Definition.namesOK (d : Definition) : Bool :=
 /-- Which variables the left side of a rule leaves open the values decide, an existential variable
 of the right side among them: each is held by the right side under constructors, injections and
 the symbols under which a value's element has values' elements as arguments (`heldOccs`), or of a
-confined sort, or held by closed conditions (`OpenDecided`) no variable of which the right side, the
-`ensures` or `post` holds; and a rule that competes with a larger one has open condition variables
-of confined sorts, or closed conditions. A rule's predicates `pre` and `post` are not asked to be
-`\top`. -/
+confined sort, or held by a cut of `pre` (`memHeld`: a conjunct `V ∈ t`, V bound by the left side,
+t holding the variable), or held by closed conditions (`OpenDecided`) no variable of which the right
+side, the `ensures` or `post` holds; and a rule that competes with a larger one has open condition
+variables of confined sorts or held by a cut, or closed conditions. A rule's predicates `pre` and
+`post` are not asked to be `\top`. -/
 def Semantics.rulesPlain (c : Semantics) : Bool := c.rules.all fun r =>
-  let conf := fun i => (r.vars[i]?.map c.confined).getD false
+  let conf := fun i => (r.vars[i]?.map c.confined).getD false || memHeld c (varOccs r.lhs) r.pre i
   let rest := varOccs r.rhs ++ (r.ens.map varOccs).getD [] ++ varOccsCond r.vars.length r.post
   let condApart := r.reqClosed && r.condVars.all fun j => !rest.contains j
   r.opens.all (fun i => (heldOccs c r.rhs).contains i || conf i || (r.condVars.contains i && condApart)) &&

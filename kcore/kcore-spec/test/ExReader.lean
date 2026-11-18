@@ -14,7 +14,7 @@
   - `exvarslist` (e3-vars-list): `L => ListItem(?V:Int) L`: read, `?V` held under the list's
     element and concatenation symbols (`heldOccs`, HO-1), which `rulePlainEx`'s constructor arm
     does not read (`rulePlainEx false`).
-  `rulesPlain` asks `rulePlainHO1` of each rule (`Semantics.rulesPlain_iff_held`), so the four read
+  `rulesPlain` asks `rulePlainHO2` of each rule (`Semantics.rulesPlain_iff_memHeld`), so the four read
   texts are well formed and have `coreOK` (`Vars.rule2` for e3-vars, by the kernel).
 
   The binders are read by the sentence's scoping (C3.reader-exists-binders; section "Hand-written
