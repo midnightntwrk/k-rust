@@ -24,7 +24,9 @@
   - At the account's arm for generated equations (`genEqClassOK_cases`): a constructor argument's
     projection it accepts is free of the theory and resolves to no constant
     (`nameFree_of_argProj`, `argProj_free_of_genEqClassOK`), and `model_with_eqns_argProj` is
-    `model_with_eqns_step` at such names with no decided premise.
+    `model_with_eqns_step` at such names with no decided premise; a sort's projection that
+    `predProjOK?` accepts is free where the registry numbers no symbol of its name
+    (`sortProj_free_of_predProjOK`).
 -/
 import KcoreSpec.GenEqsNames
 
@@ -1231,6 +1233,34 @@ theorem argProj_free_of_genEqClassOK {E : Parse.Env} {d : Definition} {eqs : Lis
   rcases genEqClassOK_cases h with h' | ⟨h1, h2, h3⟩
   · exact absurd h' hp
   · exact ⟨nameFree_of_argProj d.sem hc h1 h2 h3, spareSymB_of_argProj d.sem h1 h2 h3⟩
+
+/-- **A sort's projection whose equation `predProjOK?` accepts, at a name the registry does not
+number, is free of the theory and resolves to no constant**: the arm checks that the name is none
+of the semantics' own (`!c.symNames.contains`), and with no registry symbol bearing it no symbol of
+the semantics does. -/
+theorem sortProj_free_of_predProjOK {N : Parse.Names} {msrc : String} {eqs : List Parse.RawEqn} {c : Semantics}
+    {e : Parse.RawEqn} (h : Parse.predProjOK? N msrc eqs c e = some true)
+    (hX : (KoreAML.Parse.dropPrefix? "Lblproject'Coln'" e.fn).isSome = true)
+    (hr : regSymNames.contains e.fn = false) (hc : c.coreOK = true) :
+    (∀ φ, (Γc c ∪ Γstep c) φ → KoreAML.Sym.symbol e.fn ∉ psyms φ) ∧ spareSymB c e.fn = true := by
+  have hs : c.symNames.contains e.fn = false := by
+    unfold Parse.predProjOK? at h
+    split at h
+    · split at h
+      · simp only [Option.some.injEq, Bool.and_eq_true, Bool.not_eq_true'] at h
+        exact h.1
+      · cases h
+    · rename_i hn
+      rw [hn] at hX
+      cases hX
+  have hu : (regSymNames ++ c.symNames).contains e.fn = false := by
+    rw [List.contains_append, hr, hs]; rfl
+  have hne : e.fn ≠ "" ∧ e.fn ≠ "inj" ∧ e.fn ≠ "Lblite" := by
+    refine ⟨?_, ?_, ?_⟩ <;>
+      · intro he; rw [he] at hX; revert hX; decide
+  refine ⟨nameFree_of_decided c [e.fn] hc (nameFreeB_of_unnumbered c [e.fn] fun m hm => by
+    rw [List.mem_singleton.mp hm]; exact ⟨hu, hne⟩) e.fn (List.mem_singleton_self _),
+    spareSymB_of_unnumbered c hu hne.1 hne.2.1⟩
 
 end GenEqs
 

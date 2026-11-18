@@ -476,6 +476,8 @@ end General
 #guard_msgs in #print axioms premise_symbols
 /-- info: 'KCore.GenEqs.argProj_free_of_genEqClassOK' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms argProj_free_of_genEqClassOK
+/-- info: 'KCore.GenEqs.sortProj_free_of_predProjOK' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms sortProj_free_of_predProjOK
 /-- info: 'GenEqsLemmas.General.handArg_eqns' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms General.handArg_eqns
 
