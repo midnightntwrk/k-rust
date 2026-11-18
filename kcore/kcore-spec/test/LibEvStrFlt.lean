@@ -36,7 +36,10 @@
     `Semantics.hv`, `srt?` reads `hookSigs`). Its condition on the interpretation is `findCharEq`.
   - 228 to 232 (`Int2Bytes` at three arguments, 2250 to 2258): each applies `Int2BytesNoLen`, a
     symbol Γ does not have, and 229 `~Int` too, their only such symbols (`int2BytesNoLen_absent`);
-    LibProbe's run prints each as not probed, applying symbols Γ does not have.
+    this is the tie's account of them, no direction, and LibProbe's run prints each as not probed,
+    applying symbols Γ does not have. `kcore account` counts them under `read [builtin]`, the
+    reader's classification (consumed as the library's text), which agrees with it: Γ has no
+    symbol `Int2BytesNoLen`.
 -/
 import KcoreSpec
 
