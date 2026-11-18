@@ -573,7 +573,8 @@ theorem ovl_at (hok : c.overloadsOK = true) {o : OvlSig} (ho : o ∈ c.ovls) :
     c.lookupOvl o.sig.name = some o ∧ iteSort? (c.symName o.sig.name) = none ∧
       ∀ kg ∈ c.ovlOver o, c.ovlPairOK o kg = true := by
   obtain ⟨i, hi⟩ := List.mem_iff_getElem?.mp ho
-  simp only [Semantics.overloadsOK, List.all_eq_true] at hok
+  have hok := ((Bool.and_eq_true _ _).mp hok).1
+  simp only [List.all_eq_true] at hok
   have hoi := hok (o, i) (List.mem_zipIdx_iff_getElem?.mpr hi)
   simp only [Bool.and_eq_true, beq_iff_eq, Option.isNone_iff_eq_none, List.all_eq_true] at hoi
   obtain ⟨⟨⟨⟨⟨⟨⟨-, h2⟩, h3⟩, -⟩, -⟩, -⟩, h7⟩, -⟩ := hoi
