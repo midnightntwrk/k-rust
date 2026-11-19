@@ -40,6 +40,13 @@
 //! acceptance views judge `different`. The clock (`time_ms`) only cancels a run, which then has
 //! no answer; it never decides a verdict.
 //!
+//! A view naming a projection whose `relation` is `snapshot` judges the implementation's value
+//! against the one a user accepted for the program, a file beside the flow ([`crate::snapshot`]),
+//! and reads no side of the definition ([`snapshot_rows`]): under an `accepts` projection the
+//! implementation's whole answer to whether it accepts the program (`accepted`, `rejected` with
+//! its `message` and `refused`, or `crashed`), under an `end` projection the end as the answer
+//! states it. A program with no accepted value is `pending`, which is no answer, never a failure.
+//!
 //! Only a required view decides the exit status ([`compare_status`]); every other verdict is
 //! reported.
 //!
@@ -109,6 +116,7 @@ use crate::results::{
     BaselineRunner, ProgramRow, ResultClass, cache_directory, current_record,
     record_final_configuration, result_key, result_store, runner_refusal, update_results,
 };
+use crate::snapshot::{self, Judgement, SNAPSHOT_DIFFERENCE_FORMAT, SnapshotKind};
 use k_rust::kore::{ast::Pattern, parser::parse_pattern};
 use kink_campaign::{
     ChannelEnd, ChannelValues, Closure, Element, Opened, Opening, StopSide, ValueElement,
@@ -165,7 +173,15 @@ pub const COMPARE_SCHEMA: &str = "kink-flow-compare";
 /// holds the program (none: it is not run, and its row has no request); a row's `required` says
 /// whether a required view holds the program. A flow that writes no `domain` gives version 7's
 /// document but for its version.
-pub const COMPARE_VERSION: u64 = 8;
+/// 9 since a projection's relation may be a snapshot (projections PJ-20): a view naming one
+/// judges the implementation's value against the file a user accepted for the program
+/// ([`crate::snapshot`]): its entry has `snapshot` (the file, relative to the flow's directory),
+/// the verdict `pending` (no file: status 3), the reason `snapshot-unreadable`,
+/// a `different` entry's `difference` of format `kink-snapshot/1`, and `summary` has
+/// `snapshots` and counts `pending`; a crash has a verdict under an `accepts` snapshot view, its
+/// value `crashed`. A flow without a snapshot projection gives version 8's
+/// document but for its version.
+pub const COMPARE_VERSION: u64 = 9;
 /// The protocol a request names (`protocol`) and its answer is read by, unless the
 /// implementation declares another ([`Protocol`]).
 pub const PROTOCOL: &str = "kink-implementation/1";
@@ -264,6 +280,9 @@ pub enum NotCompared {
         projection: String,
         domain: Vec<String>,
     },
+    /// A snapshot view whose snapshot file cannot be read as a value of its kind: fix the file
+    /// (2).
+    SnapshotUnreadable(String),
 }
 
 /// The reason of a view outside its projection's domain ([`NotCompared::OutsideDomain`]).
@@ -283,6 +302,7 @@ impl NotCompared {
             Self::ObservedNothing(_) => "observed-nothing",
             Self::NoEnd { .. } => "no-end",
             Self::OutsideDomain { .. } => OUTSIDE_DOMAIN_REASON,
+            Self::SnapshotUnreadable(_) => "snapshot-unreadable",
         }
     }
 
@@ -307,7 +327,8 @@ impl NotCompared {
             | Self::Unreadable(detail)
             | Self::SeveralPaths(detail)
             | Self::ObservedNothing(detail)
-            | Self::NoEnd { detail, .. } => detail.clone(),
+            | Self::NoEnd { detail, .. }
+            | Self::SnapshotUnreadable(detail) => detail.clone(),
             Self::OutsideDomain { projection, domain } => format!(
                 "the program is outside the domain of the projection `{projection}` ({}): the \
                  projection does not apply to it",
@@ -335,7 +356,10 @@ impl NotCompared {
             | Self::SeveralPaths(_)
             | Self::ObservedNothing(_)
             | Self::NoEnd { carried: false, .. } => EXIT_UNANSWERED,
-            Self::Omitted(_) | Self::LeftOut(_) | Self::Unreadable(_) => EXIT_UNASKED,
+            Self::Omitted(_)
+            | Self::LeftOut(_)
+            | Self::Unreadable(_)
+            | Self::SnapshotUnreadable(_) => EXIT_UNASKED,
             Self::NoEnd { carried: true, .. } | Self::OutsideDomain { .. } => EXIT_YES,
         }
     }
@@ -885,16 +909,20 @@ pub struct Failure {
     pub detail: String,
     /// The exit status, when it exited with one.
     pub exit_code: Option<i32>,
+    /// The signal that ended it, when one did: the crash's value under a snapshot of an
+    /// `accepts` projection ([`crate::snapshot::crashed`]); no member of the row's `failure`.
+    pub signal: Option<i32>,
     /// The end of its stderr, when it wrote some.
     pub stderr: Option<String>,
 }
 
 impl Failure {
-    fn new(kind: &'static str, detail: impl Into<String>) -> Self {
+    pub(crate) fn new(kind: &'static str, detail: impl Into<String>) -> Self {
         Self {
             kind,
             detail: detail.into(),
             exit_code: None,
+            signal: None,
             stderr: None,
         }
     }
@@ -1395,6 +1423,7 @@ fn run_process(
     if !status.success() {
         return Err(Failure {
             exit_code: status.code(),
+            signal: signal(status),
             stderr,
             ..Failure::new(
                 "exit",
@@ -1406,6 +1435,19 @@ fn run_process(
         });
     }
     Ok(Ran { stdout, wall_ms })
+}
+
+/// The signal that ended a run, where the platform says.
+fn signal(status: std::process::ExitStatus) -> Option<i32> {
+    #[cfg(unix)]
+    {
+        std::os::unix::process::ExitStatusExt::signal(&status)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = status;
+        None
+    }
 }
 
 /// The last [`STDERR_QUOTED`] bytes of `bytes`, as text.
@@ -1888,6 +1930,121 @@ fn answered_rows(
     Ok(rows)
 }
 
+/// The kind of value the snapshot projection `view` names observes ([`crate::snapshot`]): `None`
+/// for a view that names no projection or one whose relation is not a snapshot.
+fn snapshot_kind(manifest: &FlowManifest, view: &ViewSection) -> Option<SnapshotKind> {
+    let projection = manifest.projection(view.projection.as_deref()?)?;
+    if projection.is_snapshot() {
+        SnapshotKind::of(projection.kind)
+    } else {
+        None
+    }
+}
+
+/// What a snapshot view of one (implementation, program) judges: the implementation's answer,
+/// or its run that crashed (a failure of kind `exit`).
+enum Observation<'a> {
+    Answer(&'a Stated),
+    Crash(&'a Failure),
+}
+
+/// The rows of `implementation`'s snapshot views on `program`, in the declaration's order, `None`
+/// for each other view. A snapshot view judges the value the implementation states
+/// ([`snapshot::observed`]), or, under an `accepts` projection, the crash ([`snapshot::crashed`]),
+/// against the file a user accepted for the program ([`snapshot::path`], beside the flow), and
+/// reads no side of the definition: `equal`, `different` (`kink-snapshot/1`: both values and a
+/// line diff), `pending` (no file: no answer, status 3), `not-compared` (`snapshot-unreadable`),
+/// or `could-not-apply` (README D6). A crash gives an `end` snapshot view no row: it states no
+/// end. Each row names its file (`snapshot`, relative to the flow's directory).
+fn snapshot_rows(
+    manifest: &FlowManifest,
+    implementation: &ImplementationSection,
+    program: &Program,
+    observation: &Observation<'_>,
+) -> Vec<Option<Value>> {
+    implementation
+        .views
+        .iter()
+        .map(|view| {
+            let kind = snapshot_kind(manifest, view)?;
+            let observed = match observation {
+                Observation::Answer(stated) => snapshot::observed(kind, stated),
+                Observation::Crash(failure) => match kind {
+                    SnapshotKind::Acceptance => Some(snapshot::crashed(failure)),
+                    SnapshotKind::End => return None,
+                },
+            };
+            let projection = view.projection.as_deref().unwrap_or(&view.name);
+            let relative = snapshot::relative(projection, &program.id);
+            let mut row = view_row(view);
+            row["snapshot"] = json!(relative);
+            let Some(observed) = observed else {
+                // `could-not-apply`, the one answer that states no value.
+                if let Observation::Answer(Stated {
+                    end: StatedEnd::CouldNotApply(reason),
+                    ..
+                }) = observation
+                {
+                    row["verdict"] = json!("could-not-apply");
+                    row["detail"] = json!(reason);
+                }
+                return Some(row);
+            };
+            let file = snapshot::path(&manifest.directory, projection, &program.id);
+            match snapshot::judge(&observed, &snapshot::read(&file)) {
+                Judgement::Equal => row["verdict"] = json!("equal"),
+                Judgement::Different(difference) => {
+                    row["verdict"] = json!("different");
+                    row["difference"] = difference;
+                }
+                Judgement::Pending => {
+                    row["verdict"] = json!("pending");
+                    row["detail"] = json!(format!(
+                        "no value is accepted for the program: {relative} does not exist"
+                    ));
+                    row["status"] = json!(EXIT_UNANSWERED);
+                }
+                Judgement::Unreadable(why) => not_compared_row(
+                    &mut row,
+                    &NotCompared::SnapshotUnreadable(format!("the snapshot {relative}: {why}")),
+                ),
+            }
+            Some(row)
+        })
+        .collect()
+}
+
+/// `implementation` without its snapshot views (those `snapshots` has a row of), which the
+/// definition's side judges; `None` where it has none.
+fn without_snapshot_views(
+    implementation: &ImplementationSection,
+    snapshots: &[Option<Value>],
+) -> Option<ImplementationSection> {
+    snapshots
+        .iter()
+        .any(Option::is_some)
+        .then(|| ImplementationSection {
+            views: implementation
+                .views
+                .iter()
+                .zip(snapshots)
+                .filter(|(_, row)| row.is_none())
+                .map(|(view, _)| view.clone())
+                .collect(),
+            ..implementation.clone()
+        })
+}
+
+/// The rows of every view in the declaration's order: each snapshot view's of `snapshots`, and
+/// each other view's of `judged`, in their order.
+fn with_snapshot_rows(snapshots: Vec<Option<Value>>, judged: Vec<Value>) -> Vec<Value> {
+    let mut judged = judged.into_iter();
+    snapshots
+        .into_iter()
+        .filter_map(|row| row.or_else(|| judged.next()))
+        .collect()
+}
+
 /// What the views judged by acceptance read of one (implementation, program) with an answer:
 /// the definition's acceptance, whether it refuses the program at every end (so its end views
 /// are judged by acceptance too), and, where the answer is `rejected` with a `refused` and the
@@ -2192,6 +2349,7 @@ pub fn row_status(row: &Value) -> u8 {
             match view["verdict"].as_str() {
                 Some("equal") => EXIT_YES,
                 Some("different" | "could-not-apply") => EXIT_NO,
+                Some("pending") => EXIT_UNANSWERED,
                 Some("not-compared" | "agree-up-to") => view["status"]
                     .as_u64()
                     .and_then(|status| u8::try_from(status).ok())
@@ -2624,7 +2782,12 @@ fn compared_selected(
                 format!("implementation `{}`: {detail}", implementation.name),
             );
         }
-        if let Some(view) = implementation.views.iter().find(|view| view.accepts)
+        // A snapshot view of an `accepts` projection judges the implementation's diagnostic, not
+        // the definition's acceptance.
+        if let Some(view) = implementation
+            .views
+            .iter()
+            .find(|view| view.accepts && snapshot_kind(manifest, view).is_none())
             && !vocabulary.declares_finished_end()
         {
             return refused(
@@ -2942,11 +3105,27 @@ fn compared_selected(
                     // program whose acceptance the definition states disagrees on it (README
                     // D1): the acceptance views judge it, the row keeps its failure.
                     if failure.kind == "exit" {
+                        // A snapshot view of an `accepts` projection judges the crash as a
+                        // value of its own ([`snapshot::crashed`]).
+                        let snapshots = snapshot_rows(
+                            manifest,
+                            implementation,
+                            program,
+                            &Observation::Crash(&failure),
+                        );
                         let crashed = implementation
                             .views
                             .iter()
-                            .filter(|view| view.accepts)
-                            .filter_map(|view| crashed_row(view, &acceptance))
+                            .zip(snapshots)
+                            .filter_map(|(view, snapshot)| {
+                                snapshot.or_else(|| {
+                                    if view.accepts && snapshot_kind(manifest, view).is_none() {
+                                        crashed_row(view, &acceptance)
+                                    } else {
+                                        None
+                                    }
+                                })
+                            })
                             .collect::<Vec<_>>();
                         if !crashed.is_empty() {
                             let decided = implementation.views.iter().all(|view| {
@@ -3058,10 +3237,19 @@ fn compared_selected(
                                     .map(|judged| Some((canonical, judged))),
                                 _ => Ok(None),
                             };
+                            // Snapshot views judge the answer alone; the other views are judged
+                            // against the definition's side.
+                            let snapshots = snapshot_rows(
+                                manifest,
+                                implementation,
+                                program,
+                                &Observation::Answer(&stated),
+                            );
+                            let judged = without_snapshot_views(implementation, &snapshots);
                             let rows = refusal.and_then(|refusal| {
                                 answered_rows(
                                     vocabulary,
-                                    implementation,
+                                    judged.as_ref().unwrap_or(implementation),
                                     &stated,
                                     ends,
                                     &not_compared,
@@ -3072,6 +3260,7 @@ fn compared_selected(
                                         refusal: refusal.as_ref(),
                                     }),
                                 )
+                                .map(|views| with_snapshot_rows(snapshots, views))
                             });
                             match rows {
                                 Ok(views) => {
@@ -3105,7 +3294,11 @@ fn compared_selected(
         document["stop"] = stop;
     }
     document["result"] = json!({"not_compared": not_compared});
-    document["summary"] = summary(&rows, second_protocol);
+    let snapshots = snapshot_views(&json!({
+        "implementations": declared,
+        "projections": manifest.projections_value(),
+    }));
+    document["summary"] = summary(&rows, second_protocol, &snapshots);
     document["rows"] = json!(rows);
     if programs_failed(&update) && document["refusal"].is_null() {
         document["cache_error"] = json!(true);
@@ -3527,7 +3720,8 @@ fn stored_values(entry: &Value, recorded: &Value, names: &[Value]) -> Option<Vec
 /// difference, request_sha256, identity_sha256}`. `reason` is a `not-compared` verdict's reason
 /// (never a `could-not-apply` verdict's, the implementation's words, nor a rejection's
 /// `message`); `difference` is a `different` verdict's first difference as canonical JSON, a
-/// text that is a function of the difference; `identity_sha256` is null for an implementation
+/// text that is a function of the difference, but for a snapshot view's, which holds the
+/// snapshot's content and the observed value and is never recorded (null); `identity_sha256` is null for an implementation
 /// that declares no `identity`. An `agree-up-to` verdict's row also has `horizon`, its horizon as
 /// canonical JSON, and an entry whose rejections were compared and agree has `refused`, the
 /// answer's refusal as canonical JSON; no other row has either key. A row of a run that gave no
@@ -3549,7 +3743,11 @@ pub fn verdict_rows(document: &Value) -> Vec<Value> {
                     "not-compared" => view["reason"].clone(),
                     _ => Value::Null,
                 };
-                let difference = if view["difference"].is_null() {
+                // A snapshot's difference holds the accepted and the observed values, which are
+                // inputs and answers, never in the record: its verdict alone is.
+                let difference = if view["difference"].is_null()
+                    || view["difference"]["format"] == SNAPSHOT_DIFFERENCE_FORMAT
+                {
                     Value::Null
                 } else {
                     json!(canonical_json(&view["difference"]))
@@ -3825,28 +4023,102 @@ pub fn clock_lines(document: &Value) -> Vec<String> {
 
 /// The verdicts a summary counts, in the order its line gives them; `agree-up-to` only in the
 /// document of a flow with an implementation of a second protocol (`second_protocol`), since
-/// only a trace view has that verdict.
-fn counted(second_protocol: bool) -> impl Iterator<Item = &'static str> {
+/// only a trace view has that verdict, and `pending` only in one with a snapshot view
+/// (`snapshots`), since only a snapshot view has that verdict.
+fn counted(second_protocol: bool, snapshots: bool) -> impl Iterator<Item = &'static str> {
     [
         "equal",
         "agree-up-to",
         "different",
         "could-not-apply",
+        "pending",
         "not-compared",
     ]
     .into_iter()
-    .filter(move |verdict| second_protocol || *verdict != "agree-up-to")
+    .filter(move |verdict| match *verdict {
+        "agree-up-to" => second_protocol,
+        "pending" => snapshots,
+        _ => true,
+    })
+}
+
+/// The snapshot views of a compare document's selected implementations
+/// (`implementations[].views[]` naming, by `projection`, an entry of `projections` whose
+/// `relation` is `snapshot`), each `(implementation, view)`, in the declarations' order. A view
+/// naming a projection has the projection's name, so `view` names the projection too.
+#[must_use]
+pub fn snapshot_views(document: &Value) -> Vec<(String, String)> {
+    let snapshot = |name: &str| {
+        document["projections"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|projection| projection["name"] == name && projection["relation"] == "snapshot")
+    };
+    let mut views = Vec::new();
+    for implementation in document["implementations"].as_array().into_iter().flatten() {
+        for view in implementation["views"].as_array().into_iter().flatten() {
+            if view["projection"].as_str().is_some_and(snapshot)
+                && let (Some(implementation), Some(view)) =
+                    (implementation["name"].as_str(), view["name"].as_str())
+            {
+                views.push((implementation.to_owned(), view.to_owned()));
+            }
+        }
+    }
+    views
+}
+
+/// Per snapshot view of `views` ([`snapshot_views`]), in their order, the programs whose verdict
+/// is `equal`, `different` and `pending` among `entries` (`(implementation, view, verdict)`):
+/// `{projection, implementation, equal, different, pending}`. Every other verdict (a failed run,
+/// `could-not-apply`, `not-compared`) is in none of the three.
+#[must_use]
+pub fn snapshot_counts<'a>(
+    views: &[(String, String)],
+    entries: impl IntoIterator<Item = (&'a str, &'a str, &'a str)>,
+) -> Vec<Value> {
+    let mut counts = vec![[0_u64; 3]; views.len()];
+    for (implementation, view, verdict) in entries {
+        let Some(index) = views
+            .iter()
+            .position(|(i, v)| i == implementation && v == view)
+        else {
+            continue;
+        };
+        if let Some(at) = ["equal", "different", "pending"]
+            .iter()
+            .position(|counted| *counted == verdict)
+        {
+            counts[index][at] += 1;
+        }
+    }
+    views
+        .iter()
+        .zip(counts)
+        .map(|((implementation, view), [equal, different, pending])| {
+            json!({
+                "projection": view,
+                "implementation": implementation,
+                "equal": equal,
+                "different": different,
+                "pending": pending,
+            })
+        })
+        .collect()
 }
 
 /// The counts of the document's verdicts and failures: `{verdicts: {equal, different,
 /// could-not-apply, not-compared}, required: {..the same, of required views}, failures}`, each
-/// with `agree-up-to` under `second_protocol` ([`counted`]), and `views`, each (implementation,
-/// view)'s agreement ([`view_counts`]). A view outside its projection's domain is counted in
-/// none: the projection does not apply to the program.
-fn summary(rows: &[Value], second_protocol: bool) -> Value {
+/// with `agree-up-to` under `second_protocol` and `pending` where some snapshot view is among
+/// `snapshots` ([`counted`]), `views`, each (implementation, view)'s agreement ([`view_counts`]),
+/// and, where some snapshot view is, `snapshots`, each one's counts ([`snapshot_counts`]). A view
+/// outside its projection's domain is counted in none: the projection does not apply to the
+/// program.
+fn summary(rows: &[Value], second_protocol: bool, snapshots: &[(String, String)]) -> Value {
     let mut verdicts = Map::new();
     let mut required = Map::new();
-    for verdict in counted(second_protocol) {
+    for verdict in counted(second_protocol, !snapshots.is_empty()) {
         let count = |only_required: bool| {
             rows.iter()
                 .flat_map(|row| row["views"].as_array().into_iter().flatten())
@@ -3872,12 +4144,32 @@ fn summary(rows: &[Value], second_protocol: bool) -> Value {
                 horizon: view["horizon"].clone(),
             })
     });
-    json!({
+    let mut summary = json!({
         "verdicts": verdicts,
         "required": required,
         "failures": rows.iter().filter(|row| row["failure"].is_object()).count(),
         "views": view_counts(entries),
-    })
+    });
+    if !snapshots.is_empty() {
+        summary["snapshots"] = json!(snapshot_counts(
+            snapshots,
+            rows.iter().flat_map(|row| {
+                let implementation = row["implementation"].as_str().unwrap_or_default();
+                row["views"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(move |view| {
+                        (
+                            implementation,
+                            view["view"].as_str().unwrap_or_default(),
+                            view["verdict"].as_str().unwrap_or_default(),
+                        )
+                    })
+            })
+        ));
+    }
+    summary
 }
 
 /// One verdict of one (implementation, view), as [`view_counts`] counts it: `horizon` is an
@@ -3918,8 +4210,9 @@ fn agrees(verdict: &str, horizon: &Value) -> bool {
 
 /// The agreement of each (implementation, view) over the corpus's programs, in the order the
 /// pairs first occur: `{implementation, view, required, compared, agreeing}`, `compared` the
-/// programs whose verdict is not `not-compared` and `agreeing` those of them that agree
-/// ([`agrees`]). A run that gave no answer has no verdict and counts in neither.
+/// programs whose verdict is not `not-compared` or `pending` and `agreeing` those of them that
+/// agree ([`agrees`]). A run that gave no answer has no verdict and counts in neither, and
+/// neither does a snapshot view with no accepted value (`pending`).
 #[must_use]
 pub fn view_counts<'a>(entries: impl IntoIterator<Item = ViewEntry<'a>>) -> Vec<Value> {
     let mut counts: Vec<(&str, &str, bool, u64, u64)> = Vec::new();
@@ -3934,7 +4227,7 @@ pub fn view_counts<'a>(entries: impl IntoIterator<Item = ViewEntry<'a>>) -> Vec<
                 counts.len() - 1
             }
         };
-        if entry.verdict != "not-compared" {
+        if !matches!(entry.verdict, "not-compared" | "pending") {
             counts[index].3 += 1;
             if agrees(entry.verdict, &entry.horizon) {
                 counts[index].4 += 1;
@@ -4014,12 +4307,24 @@ pub fn text(document: &Value) -> Result<String, String> {
                         view["difference"]["implementation"].as_str().unwrap_or("?")
                     )
                 }
+                "different" if view["difference"]["format"] == SNAPSHOT_DIFFERENCE_FORMAT => {
+                    let lines = view["difference"]["lines"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .map(|line| format!("\n    {}", line.as_str().unwrap_or_default()))
+                        .collect::<String>();
+                    format!(
+                        " from the snapshot {}{lines}",
+                        view["snapshot"].as_str().unwrap_or("?")
+                    )
+                }
                 "different" => view["difference"]["at"]
                     .as_str()
                     .or_else(|| view["difference"]["path"].as_str())
                     .map(|at| format!(" at {at}"))
                     .unwrap_or_default(),
-                "could-not-apply" | "not-compared" | "agree-up-to" => view["detail"]
+                "could-not-apply" | "not-compared" | "agree-up-to" | "pending" => view["detail"]
                     .as_str()
                     .map(|detail| format!(": {detail}"))
                     .unwrap_or_default(),
@@ -4043,10 +4348,13 @@ pub fn text(document: &Value) -> Result<String, String> {
     let summary = &document["summary"];
     if summary.is_object() {
         let counts = |member: &str| {
-            counted(summary[member].get("agree-up-to").is_some())
-                .map(|verdict| format!("{} {verdict}", summary[member][verdict]))
-                .collect::<Vec<_>>()
-                .join(", ")
+            counted(
+                summary[member].get("agree-up-to").is_some(),
+                summary[member].get("pending").is_some(),
+            )
+            .map(|verdict| format!("{} {verdict}", summary[member][verdict]))
+            .collect::<Vec<_>>()
+            .join(", ")
         };
         for view in summary["views"].as_array().into_iter().flatten() {
             text.push_str(&format!(
@@ -4060,6 +4368,16 @@ pub fn text(document: &Value) -> Result<String, String> {
                 },
                 view["agreeing"],
                 view["compared"]
+            ));
+        }
+        for snapshot in summary["snapshots"].as_array().into_iter().flatten() {
+            text.push_str(&format!(
+                "{} {} (snapshot): {} equal, {} different, {} pending\n",
+                snapshot["implementation"].as_str().unwrap_or("?"),
+                snapshot["projection"].as_str().unwrap_or("?"),
+                snapshot["equal"],
+                snapshot["different"],
+                snapshot["pending"]
             ));
         }
         text.push_str(&format!(
@@ -5710,7 +6028,7 @@ mod tests {
             {"implementation": "fake", "view": "end", "required": true, "compared": 3, "agreeing": 1},
             {"implementation": "fake", "view": "ticks", "required": true, "compared": 3, "agreeing": 2},
         ]);
-        let summary = summary(&rows, true);
+        let summary = summary(&rows, true, &[]);
         assert_eq!(summary["views"], counts);
         let document = json!({"schema": COMPARE_SCHEMA, "rows": rows, "summary": summary,
                               "implementations": [{"name": "fake"}]});
@@ -5782,7 +6100,7 @@ mod tests {
             json!({"implementation": "cpu", "program": "p", "required": true,
                                "failure": null, "views": rows}),
         ];
-        let summary = summary(&rows, false);
+        let summary = summary(&rows, false, &[]);
         assert_eq!(
             summary.to_string(),
             r#"{"failures":0,"required":{"could-not-apply":0,"different":1,"equal":0,"not-compared":0},"verdicts":{"could-not-apply":0,"different":2,"equal":0,"not-compared":0},"views":[{"agreeing":0,"compared":1,"implementation":"cpu","required":true,"view":"writes"},{"agreeing":0,"compared":1,"implementation":"cpu","required":false,"view":"all"}]}"#
@@ -5854,7 +6172,7 @@ mod tests {
                        "views": [view]})
             })
             .collect::<Vec<_>>();
-        let summary = summary(&rows, true);
+        let summary = summary(&rows, true, &[]);
         assert_eq!(
             summary["required"],
             json!({"equal": 0, "agree-up-to": 1, "different": 2, "could-not-apply": 0,

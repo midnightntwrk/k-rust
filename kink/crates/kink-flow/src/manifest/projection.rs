@@ -19,8 +19,13 @@
 //! whose id, or whose case document's path, one of its case patterns matches. `compare` measures
 //! a view naming the projection on those programs only; `run` does not apply it yet.
 //!
+//! A projection's `relation` says what its observed values are judged against: absent, each
+//! side's against the definition's; `snapshot`, an implementation's against the value a user
+//! accepted for the case, a file beside the flow (`crate::snapshot`). A snapshot relation reads no
+//! side of the definition.
+//!
 //! kink-flow reads the declaration's shape and its own keys (`name`, `kind`, `compare`,
-//! `channels`, `domain`); `views` and `observer` are the front end's, as a view's are
+//! `channels`, `domain`, `relation`); `views` and `observer` are the front end's, as a view's are
 //! ([`super::ViewSection::front_end`]), and kink-flow's own K front end refuses a projection that
 //! has them (`crate::admit`, stage `projection`).
 
@@ -56,6 +61,22 @@ pub struct ProjectionSection {
     /// ([`super::Program`]'s `files` grammar), as written, each matching some program of the
     /// flow; `None`: every case ([`Self::holds`]).
     pub domain: Option<Vec<String>>,
+    /// `relation`: what the observed values are judged against; [`Relation::Definition`] by
+    /// default.
+    pub relation: Relation,
+}
+
+/// What a projection's observed values are judged against.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum Relation {
+    /// No `relation`: each side's observed value against the definition's.
+    #[default]
+    Definition,
+    /// `relation = "snapshot"`: an implementation's observed value against the value a user
+    /// accepted for the case (`crate::snapshot`): under an `accepts` projection its whole answer
+    /// to whether it accepts the case (`accepted`, `rejected` with its `message` and `refused`,
+    /// `crashed`), under an `end` projection the end as the answer states it.
+    Snapshot,
 }
 
 /// What a projection observes of each side's result.
@@ -126,8 +147,14 @@ impl ProjectionSection {
         })
     }
 
+    /// Whether the projection's relation is a snapshot ([`Relation::Snapshot`]).
+    #[must_use]
+    pub fn is_snapshot(&self) -> bool {
+        self.relation == Relation::Snapshot
+    }
+
     /// The projection as documents name it: `{name, kind}` with the keys it has (`compare`,
-    /// `views`, `observer`, `channels`, `domain`).
+    /// `views`, `observer`, `channels`, `domain`, `relation`).
     #[must_use]
     pub fn value(&self) -> serde_json::Value {
         let mut value = self.front_end.clone();
@@ -139,6 +166,9 @@ impl ProjectionSection {
         }
         if let Some(domain) = &self.domain {
             value.insert("domain".into(), serde_json::json!(domain));
+        }
+        if self.is_snapshot() {
+            value.insert("relation".into(), serde_json::json!("snapshot"));
         }
         value.insert("kind".into(), serde_json::json!(self.kind.as_str()));
         value.insert("name".into(), serde_json::json!(self.name));
@@ -157,6 +187,7 @@ pub fn default_projection(observe: Option<&ObserveSection>) -> ProjectionSection
         front_end: serde_json::Map::new(),
         channels: observe.map(|observe| observe.channel_names().map(str::to_owned).collect()),
         domain: None,
+        relation: Relation::Definition,
     }
 }
 
@@ -289,7 +320,7 @@ fn projection(
         entry,
         prefix,
         &[
-            "name", "kind", "compare", "views", "observer", "channels", "domain",
+            "name", "kind", "compare", "views", "observer", "channels", "domain", "relation",
         ],
     )?;
     let name = required_string(entry, prefix, "name")?;
@@ -392,6 +423,7 @@ fn projection(
             ));
         }
     };
+    let relation = relation(entry, prefix, kind)?;
     Ok(ProjectionSection {
         name,
         kind,
@@ -399,7 +431,58 @@ fn projection(
         front_end,
         channels,
         domain,
+        relation,
     })
+}
+
+/// `relation`: absent, or `"snapshot"` on an `accepts` projection or on an `end` projection
+/// that observes the end as the answer states it (no `compare`, `views`, `observer` or
+/// `channels`): kink-flow holds an implementation's observed value only as its answer states it,
+/// and narrowing its cells or applying functions of their values is the front end's comparison,
+/// which states no value to store; a trace's elements are compared by the front end alone.
+fn relation(
+    entry: &toml::Table,
+    prefix: &str,
+    kind: ProjectionKind,
+) -> Result<Relation, ManifestError> {
+    let key = join(prefix, "relation");
+    match entry.get("relation") {
+        None => return Ok(Relation::Definition),
+        Some(Value::String(relation)) if relation == "snapshot" => {}
+        Some(Value::String(relation)) => {
+            return Err(ManifestError::new(
+                key,
+                format!(
+                    "`{relation}` is no relation: `snapshot` (an implementation's value against \
+                     the one accepted for the case); leave `relation` out to compare each side \
+                     with the definition"
+                ),
+            ));
+        }
+        Some(_) => return Err(ManifestError::new(key, "expected a string")),
+    }
+    if kind == ProjectionKind::Trace {
+        return Err(ManifestError::new(
+            key,
+            "a `trace` projection has no snapshot: its elements are compared by the front end at \
+             equal indices, and no value of them is stored; a snapshot is an `accepts` \
+             projection's (the implementation's answer: accepted, rejected, crashed) or an `end` \
+             projection's (the end as \
+             the answer states it)",
+        ));
+    }
+    if let Some(other) = ["compare", "views", "observer", "channels"]
+        .into_iter()
+        .find(|other| entry.contains_key(*other))
+    {
+        return Err(ManifestError::new(
+            join(prefix, other),
+            "a snapshot of an end holds the end as the implementation's answer states it, every \
+             cell it states: narrowing the cells or comparing functions of their values is the \
+             front end's comparison with the definition, which states no value to store",
+        ));
+    }
+    Ok(Relation::Snapshot)
 }
 
 fn no_kind(prefix: &str, what: &str) -> ManifestError {

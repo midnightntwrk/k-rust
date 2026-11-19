@@ -2564,6 +2564,77 @@ identity_sha256 = "aa"
         }
     }
 
+    /// A snapshot view's rows (projections PJ-20) are kept as any view's where its run gave no
+    /// answer, and the `[[compare.snapshot]]` counts are those of the rows the section holds: a
+    /// failed run moves neither. No row holds a snapshot's difference.
+    #[test]
+    fn a_snapshot_view_s_counts_are_those_of_the_kept_rows() {
+        let dir = scratch("compare-snapshot-kept");
+        let path = dir.join(LOCK_FILE);
+        let store = Store::new(&dir);
+        let document = |rows: Vec<Value>| {
+            let mut document = compare_document(rows);
+            document["implementations"][0]["views"] = json!([{"name": "msg", "projection": "msg"}]);
+            document["projections"] =
+                json!([{"name": "msg", "kind": "accepts", "relation": "snapshot"}]);
+            document
+        };
+        let difference = json!({"format": "kink-snapshot/1", "snapshot": "bad token",
+                                "observed": "bad tokens", "lines": ["-bad token", "+bad tokens"]});
+        let answered = |program: &str, verdict: &str| {
+            let extra = if verdict == "different" {
+                json!({"difference": difference})
+            } else {
+                json!({})
+            };
+            compare_row(
+                program,
+                vec![view("msg", true, verdict, extra)],
+                Value::Null,
+                Value::Null,
+            )
+        };
+        let read = || Lock::read_kind(&path, LockKind::Compare).unwrap();
+        let (value, _) = read().settle(
+            &store,
+            &document(vec![answered("p1", "different"), answered("p2", "pending")]),
+            WRITE,
+        );
+        assert_eq!(value["status"], "created", "{value:#}");
+        let counts = "[[compare.snapshot]]\nprojection = \"msg\"\nimplementation = \"cpu\"\n\
+                      equal = 0\ndifferent = 1\npending = 1\n";
+        let written = fs::read_to_string(&path).unwrap();
+        assert!(written.contains(counts), "{written}");
+        assert!(!written.contains("bad token"), "{written}");
+        assert!(!written.contains("kink-snapshot"), "{written}");
+        // The implementation's run on p2 fails: its pending row and the counts stay as recorded.
+        let failed = compare_row(
+            "p2",
+            vec![],
+            json!({"kind": "exit", "detail": "status 3"}),
+            Value::Null,
+        );
+        let (value, _) = read().settle(
+            &store,
+            &document(vec![answered("p1", "different"), failed]),
+            WRITE,
+        );
+        assert_eq!(value["status"], "unchanged", "{value:#}");
+        assert_eq!(fs::read_to_string(&path).unwrap(), written);
+        // A decided row moves its count.
+        let (value, _) = read().settle(
+            &store,
+            &document(vec![answered("p1", "equal"), answered("p2", "pending")]),
+            WRITE,
+        );
+        assert_eq!(value["status"], "written", "{value:#}");
+        assert!(
+            fs::read_to_string(&path)
+                .unwrap()
+                .contains("equal = 1\ndifferent = 0\npending = 1\n")
+        );
+    }
+
     /// A case's `provenance` on its program row (PJ-22) is in no lock section: the run,
     /// coverage, compare and query sections a document renders are the same with and without it,
     /// so stating, editing or removing it never makes `--locked` stale.

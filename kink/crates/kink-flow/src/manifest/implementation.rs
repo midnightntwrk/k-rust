@@ -35,6 +35,7 @@ use super::{
     ManifestError, ObserveSection, ProjectionKind, ProjectionSection, front_end_key, join,
     known_keys, missing, names, optional_string, required_string, table,
 };
+use std::collections::BTreeMap;
 use toml::{Table, Value};
 
 /// One `[[implementation]]`, as written.
@@ -610,6 +611,9 @@ pub(super) fn resolve_views(
     implementations: &mut [ImplementationSection],
     projections: &[ProjectionSection],
 ) -> Result<(), ManifestError> {
+    // The implementation that first names each snapshot projection: its snapshots
+    // (`snapshots/<projection>/<case id>`) name no implementation, so one produces them.
+    let mut snapshot_producers = BTreeMap::<String, usize>::new();
     for (index, implementation) in implementations.iter_mut().enumerate() {
         for (position, view) in implementation.views.iter_mut().enumerate() {
             let Some(name) = view.projection.clone() else {
@@ -632,6 +636,23 @@ pub(super) fn resolve_views(
                     ),
                 ));
             };
+            if projection.is_snapshot()
+                && let Some(first) = snapshot_producers.get(&name).copied()
+                && first != index
+            {
+                return Err(ManifestError::new(
+                    key,
+                    format!(
+                        "the projection `{name}` is a snapshot, and implementation[{first}] \
+                         names it first: its snapshots (`snapshots/{name}/<case id>`) hold one \
+                         implementation's values, so each snapshot projection is named by one \
+                         implementation"
+                    ),
+                ));
+            }
+            if projection.is_snapshot() {
+                snapshot_producers.insert(name.clone(), index);
+            }
             match projection.kind {
                 ProjectionKind::Accepts => view.accepts = true,
                 ProjectionKind::Trace => view.channels.clone_from(&projection.channels),

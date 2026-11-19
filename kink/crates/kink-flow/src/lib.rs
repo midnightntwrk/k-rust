@@ -86,6 +86,7 @@ pub mod query;
 pub mod report;
 pub mod results;
 pub mod search;
+pub mod snapshot;
 pub mod verdicts;
 
 pub use admit::{
@@ -120,8 +121,8 @@ pub use manifest::{
     Budget, CaseRoot, CorpusSection, Decoder, ExpectFor, FlowManifest, Given, IdentitySection,
     ImplementationSection, KrsSpec, LogSection, ManifestError, ManifestFile, ObserveFunctionsSlot,
     ObserveSection, PatternsEntry, PointSection, Program, ProjectionKind, ProjectionSection,
-    Protocol, RecordCell, RejectedStage, SpecDecl, SpecSection, StopSection, StopWhenSection,
-    StopWhenSlot, ViewSection,
+    Protocol, RecordCell, RejectedStage, Relation, SpecDecl, SpecSection, StopSection,
+    StopWhenSection, StopWhenSlot, ViewSection,
 };
 pub use mutation::{
     EditAction, EditSpec, EditedRule, Expect, InvalidMutation, InvalidReason, LabelMatch, Mutation,

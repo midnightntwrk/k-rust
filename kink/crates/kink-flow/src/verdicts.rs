@@ -289,6 +289,11 @@ pub const VERDICTS_SCHEMA: &str = "kink-flow-verdicts";
 /// they add rows to the compare section alone, which no committed record had, and a section
 /// written before them is `stale` under `--locked` as one with a moved row is, while a new
 /// version would refuse every committed `[run]` and `[coverage]` section until rewritten.
+/// A snapshot view's rows (the verdict `pending`, the reason `snapshot-unreadable`, no
+/// `difference`) and the `[[compare.snapshot]]` counts after the
+/// `[[compare.view]]` rows (projections PJ-20) were added at 29 for the same reason: they occur
+/// only in the compare section of a flow with a snapshot projection, which no committed record
+/// has, and every other section is the bytes it was.
 pub const VERDICTS_VERSION: u64 = 29;
 
 /// The comment a record opens with, before its `schema`: what the file is, which section each
@@ -363,6 +368,15 @@ pub const VIEW_COUNTS_LEGEND: &[&str] = &[
     "Each [[compare.view]] counts one view of one implementation over the programs above:",
     "`compared`, those whose verdict is not not-compared, and `agreeing`, those of them that are",
     "equal (or agree-up-to with every horizon the definition's).",
+];
+
+/// The comment before a compare section's first `[[compare.snapshot]]`: what its counts are, and
+/// that no snapshot's content is recorded.
+pub const SNAPSHOT_COUNTS_LEGEND: &[&str] = &[
+    "Each [[compare.snapshot]] counts the programs of one snapshot projection, named by one view",
+    "of one implementation: `equal` (its value is the snapshot's), `different` and `pending` (no",
+    "snapshot is accepted). Snapshots are files beside the flow (snapshots/<projection>/), never",
+    "this record: a row above holds a snapshot view's verdict, not its values.",
 ];
 
 /// The comment before a run section's first `[[run.mutation]]`: what a row is and what each status
@@ -986,6 +1000,35 @@ fn compare(text: &mut String, document: &Value) {
         }
         line(text, "required", &(count["required"] == true).to_string());
         for key in ["compared", "agreeing"] {
+            line(text, key, &count[key].to_string());
+        }
+    }
+    // The cases of each snapshot view, counted from the rows the section holds; a snapshot's
+    // content is in no row.
+    let snapshots = crate::compare::snapshot_counts(
+        &crate::compare::snapshot_views(document),
+        rows.iter().map(|row| {
+            (
+                row["implementation"].as_str().unwrap_or_default(),
+                row["view"].as_str().unwrap_or_default(),
+                row["verdict"].as_str().unwrap_or_default(),
+            )
+        }),
+    );
+    if !snapshots.is_empty() {
+        text.push('\n');
+        comment(text, SNAPSHOT_COUNTS_LEGEND);
+    }
+    for (index, count) in snapshots.iter().enumerate() {
+        text.push_str(if index == 0 {
+            "[[compare.snapshot]]\n"
+        } else {
+            "\n[[compare.snapshot]]\n"
+        });
+        for key in ["projection", "implementation"] {
+            line(text, key, &string(count[key].as_str().unwrap_or_default()));
+        }
+        for key in ["equal", "different", "pending"] {
             line(text, key, &count[key].to_string());
         }
     }

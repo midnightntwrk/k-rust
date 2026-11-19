@@ -932,7 +932,7 @@ fn a_view_compares_only_the_programs_of_its_projection_s_domain() {
         ..Default::default()
     };
     let document = kink_flow::compare::command(&read, &options, Some(&Equal), "compare");
-    assert_eq!(document["version"], 8, "{document:#}");
+    assert_eq!(document["version"], 9, "{document:#}");
     let views = |implementation: &str, program: &str| -> Vec<(String, String, Value)> {
         let row = document["rows"]
             .as_array()
@@ -1597,4 +1597,314 @@ fn a_flow_without_projections_names_none_in_its_rows() {
             assert!(entry.get("projections").is_none(), "{entry:#}");
         }
     }
+}
+
+/// A view naming a snapshot projection (projections PJ-20) judges the implementation's value
+/// against the file accepted for the program beside the flow, and reads no side of the
+/// definition: an `accepts` snapshot the whole answer to whether it accepts (`accepted`,
+/// `rejected` with its `message`), an `end` snapshot the end as stated, each a JSON document
+/// compared as a value (re-ordered and re-spaced is no difference). A program with no file is
+/// `pending` (status 3); the lock holds each verdict and the counts per projection, never a
+/// snapshot's content or the observed value.
+#[test]
+fn a_snapshot_view_judges_the_answer_against_the_accepted_file() {
+    let answer = |answer: &str| format!("[\"sh\", \"-c\", \"cat > /dev/null; echo '{answer}'\"]");
+    let manifest = fs::read_to_string(flow().join("FLOW.toml"))
+        .unwrap()
+        .replace(
+            "[[program]]",
+            "[[projection]]\nname = \"msg\"\nkind = \"accepts\"\nrelation = \"snapshot\"\n\n\
+             [[projection]]\nname = \"end\"\nrelation = \"snapshot\"\n\n\
+             [[projection]]\nname = \"quiet\"\nkind = \"accepts\"\nrelation = \"snapshot\"\n\n\
+             [[program]]",
+        )
+        + &format!(
+            "\n[[program]]\nid = \"two\"\ntext = \"emit(2)\"\n\n\
+             [[implementation]]\nname = \"diag\"\ngiven = \"inputs\"\nprotocol = \
+             \"kink-implementation/3\"\ncommand = {}\nviews = [{{ projection = \"msg\", required = \
+             true }}]\n\n\
+             [[implementation]]\nname = \"ends\"\ngiven = \"inputs\"\ncommand = {}\nviews = [\n  \
+             {{ projection = \"end\" }},\n  {{ name = \"all\" }},\n  {{ projection = \"quiet\" }},\n]\n",
+            answer(r#"{\"end\": \"rejected\", \"message\": \"bad token\"}"#),
+            answer(r#"{\"end\": \"final\", \"cells\": {\"x\": 2, \"y\": [1, 2]}}"#),
+        );
+    let dir = fixture("snapshot", &[("snapshot", &manifest)]);
+    let snapshots = dir.join("snapshots");
+    for (file, text) in [
+        // Re-ordered and re-spaced: no difference.
+        (
+            "msg/both.json",
+            "{\"message\": \"bad token\",\n\"answer\":\"rejected\"}",
+        ),
+        (
+            "end/both.json",
+            "{\"end\":\"final\",\"cells\":{\"y\":[1,2],   \"x\":2}}",
+        ),
+        (
+            "end/two.json",
+            "{\"cells\": {\"x\": 1, \"y\": [1, 2]}, \"end\": \"final\"}",
+        ),
+        (
+            "quiet/both.json",
+            "{\"answer\": \"rejected\", \"message\": \"an old diagnostic\"}",
+        ),
+    ] {
+        let path = snapshots.join(file);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, text).unwrap();
+    }
+    let read = FlowManifest::read(&dir.join("FLOW-snapshot.toml")).unwrap();
+    let lock = dir.join("kink.lock");
+    let options = kink_flow::compare::CompareOptions {
+        lock: Some(lock.clone()),
+        ..Default::default()
+    };
+    let document = kink_flow::compare::command(&read, &options, Some(&Equal), "compare");
+    assert_eq!(document["refusal"], Value::Null, "{document:#}");
+    let entry = |implementation: &str, program: &str, view: &str| {
+        document["rows"]
+            .as_array()
+            .unwrap_or_else(|| panic!("{document:#}"))
+            .iter()
+            .find(|row| row["implementation"] == implementation && row["program"] == program)
+            .and_then(|row| {
+                row["views"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|entry| entry["view"] == view)
+                    .cloned()
+            })
+            .unwrap_or_else(|| panic!("{implementation} {program} {view}: {document:#}"))
+    };
+    let verdict = |implementation: &str, program: &str, view: &str| {
+        let entry = entry(implementation, program, view);
+        format!(
+            "{}{}",
+            entry["verdict"].as_str().unwrap(),
+            entry["reason"]
+                .as_str()
+                .map(|reason| format!(" {reason}"))
+                .unwrap_or_default()
+        )
+    };
+    assert_eq!(verdict("diag", "both", "msg"), "equal");
+    assert_eq!(verdict("diag", "two", "msg"), "pending");
+    assert_eq!(entry("diag", "two", "msg")["status"], 3);
+    assert_eq!(
+        entry("diag", "two", "msg")["snapshot"],
+        "snapshots/msg/two.json"
+    );
+    assert_eq!(verdict("ends", "both", "end"), "equal");
+    assert_eq!(verdict("ends", "two", "end"), "different");
+    let difference = &entry("ends", "two", "end")["difference"];
+    assert_eq!(difference["format"], "kink-snapshot/1");
+    assert_eq!(difference["snapshot"]["cells"]["x"], 1);
+    assert_eq!(difference["observed"]["cells"]["x"], 2);
+    let lines = difference["lines"].as_array().unwrap();
+    assert!(lines.contains(&json!("-    \"x\": 1,")), "{difference:#}");
+    assert!(lines.contains(&json!("+    \"x\": 2,")), "{difference:#}");
+    assert_eq!(entry("ends", "two", "end")["distance"], Value::Null);
+    // `quiet` observes whether the implementation accepts: a `final` answer is `accepted`.
+    assert_eq!(verdict("ends", "both", "quiet"), "different");
+    assert_eq!(
+        entry("ends", "both", "quiet")["difference"]["observed"],
+        json!({"answer": "accepted"})
+    );
+    assert_eq!(verdict("ends", "two", "quiet"), "pending");
+    // A view that is no snapshot view is judged against the definition, in its place.
+    let names = |program: &str| {
+        document["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["implementation"] == "ends" && row["program"] == program)
+            .unwrap()["views"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|entry| entry["view"].as_str().unwrap().to_owned())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(names("two"), ["end", "all", "quiet"]);
+    assert_eq!(verdict("ends", "two", "all"), "equal");
+    assert_eq!(entry("ends", "two", "all").get("snapshot"), None);
+    let summary = &document["summary"];
+    assert_eq!(summary["verdicts"]["pending"], 2, "{summary:#}");
+    assert_eq!(summary["required"]["pending"], 1, "{summary:#}");
+    assert_eq!(
+        summary["snapshots"],
+        json!([
+            {"projection": "msg", "implementation": "diag", "equal": 1, "different": 0, "pending": 1},
+            {"projection": "end", "implementation": "ends", "equal": 1, "different": 1, "pending": 0},
+            {"projection": "quiet", "implementation": "ends", "equal": 0, "different": 1, "pending": 1},
+        ])
+    );
+    // `pending` is no comparison: the view counts it as neither compared nor agreeing.
+    let msg = summary["views"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|view| view["view"] == "msg")
+        .unwrap();
+    assert_eq!((&msg["compared"], &msg["agreeing"]), (&json!(1), &json!(1)));
+    // The required `msg` view is pending on `two`: no answer.
+    assert_eq!(
+        kink_flow::compare::compare_status(&document),
+        kink_flow::cli::EXIT_UNANSWERED
+    );
+    let text = kink_flow::compare::text(&document).unwrap();
+    assert!(
+        text.contains(
+            "ends two end (reported): different from the snapshot snapshots/end/two.json\n"
+        ),
+        "{text}"
+    );
+    assert!(text.contains("\n    +    \"x\": 2,\n"), "{text}");
+    assert!(
+        text.contains("diag msg (snapshot): 1 equal, 0 different, 1 pending\n"),
+        "{text}"
+    );
+    // The lock: verdicts and counts, no snapshot content and no observed value.
+    let recorded = fs::read_to_string(&lock).unwrap();
+    for content in [
+        "bad token",
+        "an old diagnostic",
+        "kink-snapshot",
+        "accepted\\\"",
+    ] {
+        assert!(!recorded.contains(content), "{content}: {recorded}");
+    }
+    assert!(
+        recorded.contains("view = \"msg\"\nrequired = true\nverdict = \"pending\"\n"),
+        "{recorded}"
+    );
+    assert!(
+        recorded.contains("view = \"quiet\"\nrequired = false\nverdict = \"pending\"\n"),
+        "{recorded}"
+    );
+    assert!(
+        recorded.contains(
+            "[[compare.snapshot]]\nprojection = \"msg\"\nimplementation = \"diag\"\nequal = 1\n\
+             different = 0\npending = 1\n"
+        ),
+        "{recorded}"
+    );
+    let rows = |header: &str| recorded.lines().filter(|line| *line == header).count();
+    assert_eq!(
+        (
+            rows("[[compare.verdict]]"),
+            rows("[[compare.view]]"),
+            rows("[[compare.snapshot]]")
+        ),
+        (8, 4, 3),
+        "{recorded}"
+    );
+    let locked = kink_flow::compare::CompareOptions {
+        locked: true,
+        ..options
+    };
+    let again = kink_flow::compare::command(&read, &locked, Some(&Equal), "compare");
+    assert_eq!(again["lock"]["status"], "unchanged", "{:#}", again["lock"]);
+    // Accepting a value for `two` moves its verdict, a lock difference; another message is
+    // `different`, with a line diff of the two renderings.
+    fs::write(
+        snapshots.join("msg/two.json"),
+        "{\"answer\": \"rejected\", \"message\": \"bad token!\"}",
+    )
+    .unwrap();
+    let moved = kink_flow::compare::command(&read, &locked, Some(&Equal), "compare");
+    assert_eq!(moved["lock"]["status"], "stale", "{:#}", moved["lock"]);
+    let row = moved["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["implementation"] == "diag" && row["program"] == "two")
+        .unwrap();
+    assert_eq!(row["views"][0]["verdict"], "different");
+    assert_eq!(
+        row["views"][0]["difference"]["lines"],
+        json!([
+            " {",
+            "   \"answer\": \"rejected\",",
+            "-  \"message\": \"bad token!\"",
+            "+  \"message\": \"bad token\"",
+            " }",
+            " "
+        ])
+    );
+}
+
+/// A crash is a value under an `accepts` snapshot view (`crashed` with its exit status), judged
+/// as any other, so the view decides the crash's row; `could-not-apply` stays the
+/// implementation's own answer (D6), whether or not a snapshot exists.
+#[test]
+fn a_crash_is_a_snapshot_value_and_could_not_apply_is_its_own_verdict() {
+    let manifest = fs::read_to_string(flow().join("FLOW.toml"))
+        .unwrap()
+        .replace(
+            "[[program]]",
+            "[[projection]]\nname = \"crashed\"\nkind = \"accepts\"\nrelation = \"snapshot\"\n\n\
+             [[projection]]\nname = \"ended\"\nrelation = \"snapshot\"\n\n\
+             [[projection]]\nname = \"declined\"\nrelation = \"snapshot\"\n\n[[program]]",
+        )
+        + "\n[[program]]\nid = \"two\"\ntext = \"emit(2)\"\n\n\
+           [[implementation]]\nname = \"boom\"\ngiven = \"inputs\"\nprotocol = \
+           \"kink-implementation/3\"\ncommand = [\"sh\", \"-c\", \"cat > /dev/null; exit 1\"]\n\
+           views = [{ projection = \"crashed\", required = true }, { projection = \"ended\" }]\n\n\
+           [[implementation]]\nname = \"later\"\ngiven = \"inputs\"\ncommand = [\"sh\", \"-c\", \
+           \"cat > /dev/null; echo '{\\\"end\\\": \\\"could-not-apply\\\", \\\"reason\\\": \
+           \\\"not yet\\\"}'\"]\nviews = [{ projection = \"declined\", required = true }]\n";
+    let dir = fixture("snapshot-failures", &[("snapshot", &manifest)]);
+    fs::create_dir_all(dir.join("snapshots/crashed")).unwrap();
+    fs::write(
+        dir.join("snapshots/crashed/both.json"),
+        "{\"answer\": \"crashed\", \"exit_code\": 1}",
+    )
+    .unwrap();
+    let read = FlowManifest::read(&dir.join("FLOW-snapshot.toml")).unwrap();
+    let document = kink_flow::compare::command(
+        &read,
+        &kink_flow::compare::CompareOptions::default(),
+        Some(&Equal),
+        "compare",
+    );
+    assert_eq!(document["refusal"], Value::Null, "{document:#}");
+    let row = |implementation: &str, program: &str| {
+        document["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["implementation"] == implementation && row["program"] == program)
+            .unwrap()
+            .clone()
+    };
+    let both = row("boom", "both");
+    assert_eq!(both["failure"]["kind"], "exit", "{both:#}");
+    // The crash is the accepted value; the end snapshot has no end to judge.
+    assert_eq!(both["views"].as_array().unwrap().len(), 1, "{both:#}");
+    assert_eq!(both["views"][0]["view"], "crashed");
+    assert_eq!(both["views"][0]["verdict"], "equal");
+    assert_eq!(both["failure"]["decided"], true, "{both:#}");
+    let two = row("boom", "two");
+    assert_eq!(two["views"][0]["verdict"], "pending", "{two:#}");
+    let later = row("later", "both");
+    assert_eq!(later["views"][0]["verdict"], "could-not-apply", "{later:#}");
+    assert_eq!(
+        later["views"][0]["snapshot"],
+        "snapshots/declined/both.json"
+    );
+    assert_eq!(
+        document["summary"]["snapshots"],
+        json!([
+            {"projection": "crashed", "implementation": "boom", "equal": 1, "different": 0, "pending": 1},
+            {"projection": "ended", "implementation": "boom", "equal": 0, "different": 0, "pending": 0},
+            {"projection": "declined", "implementation": "later", "equal": 0, "different": 0, "pending": 0},
+        ])
+    );
+    // `could-not-apply` under a required view is 1, a pending required view 3.
+    assert_eq!(
+        kink_flow::compare::compare_status(&document),
+        kink_flow::cli::EXIT_NO
+    );
 }

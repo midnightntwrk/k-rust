@@ -75,7 +75,7 @@ pub use implementation::{Given, IdentitySection, ImplementationSection, Protocol
 use kink_corpus::ProgramSource;
 pub use pattern_sources::PatternsEntry;
 pub use projection::{
-    DEFAULT_PROJECTION, ProjectionKind, ProjectionSection, RecordCell, compare_cells,
+    DEFAULT_PROJECTION, ProjectionKind, ProjectionSection, RecordCell, Relation, compare_cells,
     default_projection,
 };
 use std::{

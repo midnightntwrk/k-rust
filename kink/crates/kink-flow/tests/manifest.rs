@@ -4,7 +4,8 @@
 use kink_corpus::ProgramSource;
 use kink_flow::manifest::{
     Budget, DEFAULT_MAX_DEPTH, DEFAULT_TIME_MS, FlowManifest, KrsSpec, ManifestError, ManifestFile,
-    Program, ProjectionKind, ProjectionSection, RecordCell, RejectedStage, SpecDecl, SpecSection,
+    Program, ProjectionKind, ProjectionSection, RecordCell, RejectedStage, Relation, SpecDecl,
+    SpecSection,
 };
 use std::path::{Path, PathBuf};
 
@@ -527,6 +528,7 @@ fn a_flow_without_projections_has_the_default_one() {
         front_end: serde_json::Map::new(),
         channels: None,
         domain: None,
+        relation: Relation::Definition,
     };
     assert_eq!(manifest.projections(), vec![default.clone()]);
     assert_eq!(manifest.projection("default"), Some(default.clone()));
@@ -836,6 +838,82 @@ fn projection_errors_name_the_key() {
         &format!("{SPEC}{OBSERVE}{p}kind = \"trace\"\nchannels = []\n"),
         "projection[0].channels",
         "names no channel",
+    );
+}
+
+/// `relation = "snapshot"` (projections PJ-20) on an `accepts` projection, or on an `end`
+/// projection that observes the end as stated; documents name it, and a projection without it
+/// is named as before. A trace projection, or an end projection that narrows or views its cells,
+/// has no snapshot, and one snapshot projection is named by one implementation.
+#[test]
+fn a_snapshot_projection_is_decoded_and_named() {
+    let manifest = decode(&format!(
+        "{SPEC}[[projection]]\nname = \"msg\"\nkind = \"accepts\"\nrelation = \"snapshot\"\n\n\
+         [[projection]]\nname = \"end\"\nrelation = \"snapshot\"\n\n[[projection]]\nname = \
+         \"acc\"\nkind = \"accepts\"\n\n[[implementation]]\nname = \"cli\"\ngiven = \
+         \"inputs\"\ncommand = [\"cli\"]\nprotocol = \"kink-implementation/3\"\nviews = [{{ projection = \"msg\" }}, \
+         {{ projection = \"end\" }}, {{ projection = \"acc\" }}]\n"
+    ))
+    .unwrap();
+    let relations = manifest
+        .projections
+        .iter()
+        .map(|projection| (projection.name.as_str(), projection.relation))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        relations,
+        [
+            ("msg", Relation::Snapshot),
+            ("end", Relation::Snapshot),
+            ("acc", Relation::Definition)
+        ]
+    );
+    let named = manifest.projections_value().unwrap();
+    assert_eq!(named[0]["relation"], "snapshot");
+    assert_eq!(named[1]["relation"], "snapshot");
+    assert!(named[2].get("relation").is_none(), "{named}");
+    // A snapshot projection keeps the record as its kind does: nothing is re-keyed.
+    assert_eq!(manifest.record_cells, None);
+    let p = "[[projection]]\nname = \"p\"\n";
+    for (text, key, message) in [
+        (
+            format!("{p}relation = \"equal\"\n"),
+            "projection[0].relation",
+            "`equal` is no relation: `snapshot`",
+        ),
+        (
+            format!("{p}relation = 1\n"),
+            "projection[0].relation",
+            "expected a string",
+        ),
+        (
+            format!("{p}compare = [\"k\"]\nrelation = \"snapshot\"\n"),
+            "projection[0].compare",
+            "a snapshot of an end holds the end as the implementation's answer states it",
+        ),
+        (
+            format!("{p}views = {{ k = \"V\" }}\nrelation = \"snapshot\"\n"),
+            "projection[0].views",
+            "a snapshot of an end holds the end",
+        ),
+        (
+            format!(
+                "{p}relation = \"snapshot\"\n\n[[implementation]]\nname = \"a\"\ngiven = \
+                 \"inputs\"\ncommand = [\"a\"]\nviews = [{{ projection = \"p\" }}]\n\n[[implementation]]\nname = \
+                 \"b\"\ngiven = \"inputs\"\ncommand = [\"b\"]\nviews = [{{ projection = \"p\" }}]\n"
+            ),
+            "implementation[1].views[0].projection",
+            "the projection `p` is a snapshot, and implementation[0] names it first",
+        ),
+    ] {
+        assert_error(&format!("{SPEC}{text}"), key, message);
+    }
+    assert_error(
+        &format!(
+            "{SPEC}{OBSERVE}{p}kind = \"trace\"\nchannels = [\"ticks\"]\nrelation = \"snapshot\"\n"
+        ),
+        "projection[0].relation",
+        "a `trace` projection has no snapshot",
     );
 }
 
