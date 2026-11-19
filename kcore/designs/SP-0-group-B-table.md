@@ -174,7 +174,7 @@ theorem gamma_bot (c : Semantics) {k : CtorSig} (hk : k ∈ hookSigs) {vs : List
     Γ c (KoreAML.den (symApp c k.name (GroundTerm.koreList c vs)) ≡ ⊥)
 ```
 
-(the term of `roundFloat_p1_bot` in `test/FloatFieldOne.lean`, generalized). Instances, one per row of §1.2: `7 /Int 0`, `7 %Int 0`, `7 divInt 0`, `7 modInt 0`; a lookup off the keys; `_Map_` on a common key; `_Set_` on a common member; `B[I <- V]` at `I = length` and at `V = 256`; `B[I]` at `I = length`; `substrBytes(B, 2, 1)`; `padRightBytes(B, -1, 0)`, `padLeftBytes(B, 1, 256)`; `replaceAtBytes(b"ab", 1, b"xy")` (a key, guard false: this is the instance that tests the guard).
+(the term of `roundFloat_x1_bot` in `test/FloatFieldOne.lean`, generalized). Instances, one per row of §1.2: `7 /Int 0`, `7 %Int 0`, `7 divInt 0`, `7 modInt 0`; a lookup off the keys; `_Map_` on a common key; `_Set_` on a common member; `B[I <- V]` at `I = length` and at `V = 256`; `B[I]` at `I = length`; `substrBytes(B, 2, 1)`; `padRightBytes(B, -1, 0)`, `padLeftBytes(B, 1, 256)`; `replaceAtBytes(b"ab", 1, b"xy")` (a key, guard false: this is the instance that tests the guard).
 
 `no_silent_point` (`silent f vs = false := rfl`) is false once the table has an entry: delete it.
 
