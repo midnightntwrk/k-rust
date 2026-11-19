@@ -34,6 +34,52 @@
 //!
 //! Anything else is an [`InvalidMutation`] naming the edit and the reason, and no patch
 //! exists for it. Resolution only loads; it never compiles (it has no validator).
+//!
+//! # Grammar edits
+//!
+//! An edit may instead edit a grammar declaration (PJ-34): a `syntax` declaration of productions,
+//! `syntax priority`, `syntax left|right|non-assoc` or `syntax lexical`, addressed by
+//! `production = NAME` (a production's label: the `symbol` or `klabel` it declares, else the label
+//! K derives from its text; for KRS the symbol it derives from the production's item), by a line
+//! in it or by a `find` in it and in no rule. A declaration lowers to several sentences (one per
+//! production, a priority sentence for `>`, an associativity sentence per `left:` group and per
+//! `[left]`), and the parser reads priority and associativity only from those sentences, so the
+//! edit is of the whole declaration: `find` occurs once in it, and `delete = true` deletes it (one
+//! of several productions is refused). A mutation edits rules or grammar declarations, never both
+//! ([`InvalidReason::RuleAndGrammarEdits`]).
+//!
+//! A grammar mutant changes which program text parses to which term and keeps the rules' terms
+//! (the patched baseline's rules are the baseline's), so a grammar edit is not read by an edited
+//! load, which would parse every rule again under the edited grammar (a literal a rule uses would
+//! make it fail): every source file's K view, the edited views in place of the edited files, is
+//! read by k-rust's outer parser and lowered as one source set ([`k_rust::outer::lower`], which
+//! never parses a rule's body). Then, failing closed:
+//!
+//! 1. each edited file has the baseline's modules (names, attributes, imports, requires) and its
+//!    declarations less the deleted ones, of the same kinds, each unedited one where the edits move
+//!    it and each edited one starting where they move it and ending there or earlier by
+//!    whitespace (`structure-changed`, `span-changed`);
+//! 2. every declaration no edit edits lowers to the sentences it lowered to before, up to
+//!    positions (a tag of a priority declaration elsewhere could resolve otherwise:
+//!    `structure-changed`), and the loaded specification's sentences of each edited declaration
+//!    are its outer lowering (`unread-declaration`: a sort synonym, which the load resolves after
+//!    lowering, is one such case);
+//! 3. the sentences of each edited declaration before and after are paired by kind (productions
+//!    by label, the others by equality, then in order): a pair that differs is a
+//!    `ReplaceSentence` with the baseline's position keys, an unpaired baseline sentence a
+//!    `DeleteSentence`, an unpaired edited one an `InsertSentence` at its module's end (order
+//!    within a module means nothing to the grammar). A production that declares no `symbol` or
+//!    `klabel` keeps the baseline's label, and its declaration's priority and associativity tags
+//!    name it so: the label K derives from the literals names the constructor the rules' terms
+//!    use, and the edit changes its text, not the constructor (refused when another production
+//!    already has the derived label); a declared label that changes is `label-changed`;
+//! 4. the pinned patch applies (`edited-load-failed` for a definition that does not resolve) and
+//!    its mutant gives a program parser for the syntax module (kink-patch
+//!    `Mutant::program_parser`; `no-program-parser`).
+//!
+//! The rows show the declaration before and after ([`EditedKind::Grammar`]). `run` and a `fuzz`
+//! kill job do not judge a grammar mutation yet ([`ResolvedMutation::run_refusal`]): the
+//! mutant's grammar must parse each case again, which kink does not do yet.
 
 use crate::{
     admit::corpus_source,
@@ -41,14 +87,14 @@ use crate::{
 };
 use k_rust::{
     definition::{AttributeKey, Attributes, Definition, Location, Sentence},
-    outer::extract_fenced_k_code_with_map,
+    outer::{self, extract_fenced_k_code_with_map},
     provenance::{LogicalSourceId, SourceId},
 };
 use kink_corpus::{LoadedSource, resolver::load_source_with_overlay};
 use kink_patch::{
     Baseline, Bindings, CandidateDisposition, CandidateGeneration, CodecError, Discovery,
-    DiscoveryTuple, Edit, POSITION_KEYS, Patch, SelectionPolicy, SentenceFingerprint, SentenceRef,
-    Sha256Digest, Site, StackRefusal, TermRef, select, sha256,
+    DiscoveryTuple, Edit, InsertPosition, POSITION_KEYS, Patch, PatchFailureKind, SelectionPolicy,
+    SentenceFingerprint, SentenceRef, Sha256Digest, Site, StackRefusal, TermRef, select, sha256,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -171,7 +217,12 @@ pub struct EditSpec {
     /// `add`), or a suffix of its components (`plus_zero` for `nat--plus_zero`); it must name
     /// exactly one label in either way ([`label_match`]).
     pub rule: Option<String>,
-    /// A line (1-based) inside the rule.
+    /// A production's name: its label, the `symbol` (or `klabel`) it declares, else the label K
+    /// derives from its text; matched as `rule` matches a label ([`label_match`]). It addresses
+    /// the grammar declaration that declares the production (PJ-34). `rule` and `production`
+    /// exclude each other.
+    pub production: Option<String>,
+    /// A line (1-based) inside the rule, or inside the grammar declaration.
     pub line: Option<u32>,
     pub action: EditAction,
 }
@@ -479,10 +530,26 @@ fn edit_spec(key: &str, value: &Value) -> Result<EditSpec, ManifestError> {
     known_keys(
         entry,
         key,
-        &["file", "rule", "line", "find", "replace", "delete"],
+        &[
+            "file",
+            "rule",
+            "production",
+            "line",
+            "find",
+            "replace",
+            "delete",
+        ],
     )?;
     let file = optional_non_empty(entry, key, "file")?;
     let rule = optional_non_empty(entry, key, "rule")?;
+    let production = optional_non_empty(entry, key, "production")?;
+    if rule.is_some() && production.is_some() {
+        return Err(ManifestError::new(
+            key,
+            "give rule or production, not both: a rule label and a production name are anchors \
+             of different sentences",
+        ));
+    }
     let line = match entry.get("line") {
         None => None,
         Some(Value::Integer(line)) if *line > 0 => Some(
@@ -542,15 +609,16 @@ fn edit_spec(key: &str, value: &Value) -> Result<EditSpec, ManifestError> {
             ));
         }
     };
-    if action == EditAction::Delete && rule.is_none() && line.is_none() {
+    if action == EditAction::Delete && rule.is_none() && production.is_none() && line.is_none() {
         return Err(ManifestError::new(
             key,
-            "delete = true needs rule or line to address the rule",
+            "delete = true needs rule, production or line to address what it deletes",
         ));
     }
     Ok(EditSpec {
         file,
         rule,
+        production,
         line,
         action,
     })
@@ -563,7 +631,8 @@ pub enum InvalidReason {
     UnknownFile,
     /// The specification reads several files and the edit names neither a file nor a rule.
     FileRequired,
-    /// No authored sentence's label is the anchor or ends with it as whole components.
+    /// No authored sentence's label is the anchor or ends with it as whole components (for
+    /// `production`, no production's name).
     UnknownLabel,
     /// The anchor names several labels (exactly or as a suffix of their components); the
     /// detail gives each one's module-qualified label, its fullest anchor.
@@ -572,9 +641,12 @@ pub enum InvalidReason {
     LineOutsideRules,
     /// Several rules cover the line.
     LineAmbiguous,
-    /// `rule`, `line` and `file` do not all address the same rule.
+    /// `rule` (or `production`), `line` and `file` do not all address the same rule (or grammar
+    /// declaration).
     AddressMismatch,
-    /// The addressed sentence is not a rule (only rules are editable).
+    /// The addressed sentence is neither a rule nor in a grammar declaration (a production, a
+    /// lexical, priority or associativity declaration): a sort declaration, a configuration or
+    /// another sentence, none of which is editable.
     NonRuleSentence,
     /// The addressed rule has no usable source span.
     NoUsableSpan,
@@ -634,6 +706,27 @@ pub enum InvalidReason {
     /// ([`Self::status`]); the same mutation is judged where the host grants the stack (re-pin
     /// L1-3-tail, review L1-3-fix-2-1 D1).
     HostStackRefused,
+    /// The edited grammar declarations give no program parser for the specification's syntax
+    /// module (kink-patch `Mutant::program_parser`): the detail is k-rust's reason (an invalid
+    /// regex, a token two productions rank differently, a priority cycle).
+    NoProgramParser,
+    /// kink-flow reads a grammar edit from the declaration's text with k-rust's outer parser and
+    /// lowering, and the specification's loaded sentences of an edited declaration are not that
+    /// reading (a sort synonym the load resolves after lowering, say), or the declarations do not
+    /// lower apart from the rest of the load (a tag declared only in the prelude): kink-flow
+    /// cannot tell what the edit changes.
+    UnreadDeclaration,
+    /// The mutation edits both rules and grammar declarations. A grammar edit is read without
+    /// parsing any rule (the rules keep their terms), and an edited rule's text is parsed under
+    /// the specification's grammar; which grammar a rule edited beside a grammar edit is parsed
+    /// under is not decided, so such a mutation is refused.
+    RuleAndGrammarEdits,
+    /// `run` (and a `fuzz` kill job) does not judge a grammar mutation yet: judging one needs
+    /// each case parsed again under the mutant's grammar (PJ-34), which kink does not do yet, and
+    /// running the mutant on the baseline's parsed cases would judge another mutant. It is kink's
+    /// limit, neither a fault of the mutation nor a verdict, so the row's status is `error`; `check`
+    /// resolves the mutation.
+    GrammarNotRun,
     /// A front end refused the mutation before kink-flow resolved it, by a check only the front
     /// end can make (the krs front end: an edit of a node KRS generated, a mutant KRS's own
     /// analysis refuses). `name` is the front end's kebab-case reason and `next` what the author
@@ -673,11 +766,15 @@ impl InvalidReason {
             Self::PatchRejected => "patch-rejected",
             Self::EditedRuleTooDeep => "edited-rule-too-deep",
             Self::HostStackRefused => "host-stack-refused",
+            Self::NoProgramParser => "no-program-parser",
+            Self::UnreadDeclaration => "unread-declaration",
+            Self::RuleAndGrammarEdits => "rule-and-grammar-edits",
+            Self::GrammarNotRun => "grammar-not-run",
         }
     }
 
     /// Every reason kink-flow gives, in declaration order (not [`Self::External`], a front end's).
-    pub const ALL: [Self; 24] = [
+    pub const ALL: [Self; 28] = [
         Self::UnknownFile,
         Self::FileRequired,
         Self::UnknownLabel,
@@ -702,6 +799,10 @@ impl InvalidReason {
         Self::PatchRejected,
         Self::EditedRuleTooDeep,
         Self::HostStackRefused,
+        Self::NoProgramParser,
+        Self::UnreadDeclaration,
+        Self::RuleAndGrammarEdits,
+        Self::GrammarNotRun,
     ];
 
     /// The reason whose [`Self::as_str`] is `name`.
@@ -717,7 +818,10 @@ impl InvalidReason {
                 "name a source file of the specification in `file` (the detail lists them), or \
                  leave `file` out and address the rule by `rule`"
             }
-            Self::FileRequired => "add `file`, or address the rule by `rule = <label>`",
+            Self::FileRequired => {
+                "add `file`, or address the rule by `rule = <label>` (a production by \
+                 `production = <name>`)"
+            }
             Self::UnknownLabel => {
                 "the rule was renamed or removed, or the anchor is misspelt: find the rule's \
                  current label in the K (the detail names the labels near the anchor, when there \
@@ -732,11 +836,13 @@ impl InvalidReason {
                  anything above it changes"
             }
             Self::AddressMismatch => {
-                "make `rule`, `line` and `file` name one rule, or keep `rule` alone"
+                "make `rule` (or `production`), `line` and `file` name one rule (or grammar \
+                 declaration), or keep `rule` (or `production`) alone"
             }
             Self::NonRuleSentence => {
-                "address a rule: only rules are editable, not syntax declarations, \
-                 configurations or other sentences"
+                "address a rule or a grammar declaration (a production, a lexical, priority or \
+                 associativity declaration): sort declarations, configurations and other \
+                 sentences are not editable"
             }
             Self::FindNotFound => {
                 "the rule's text changed or `find` is misspelt: copy `find` from the rule's \
@@ -764,8 +870,9 @@ impl InvalidReason {
                  k-rust's message)"
             }
             Self::StructureChanged => {
-                "edit only the addressed rule: the replacement must stay one rule sentence and \
-                 change nothing outside it"
+                "edit only the addressed rule (or grammar declaration): a replaced rule must stay \
+                 one rule sentence, a grammar declaration one declaration, and nothing outside \
+                 them may change (the detail says what did)"
             }
             Self::LabelChanged => {
                 "keep the rule's label: a mutation changes what a rule does, not its name"
@@ -785,15 +892,31 @@ impl InvalidReason {
             Self::HostStackRefused => {
                 "rerun where the host grants more address space; the mutation is not at fault"
             }
+            Self::NoProgramParser => {
+                "fix the edit so that the edited grammar still gives a program parser (the detail \
+                 is k-rust's reason)"
+            }
+            Self::UnreadDeclaration => {
+                "edit another declaration, or report it: kink-flow cannot read this declaration's \
+                 edit apart from the rest of the specification (the detail says why)"
+            }
+            Self::RuleAndGrammarEdits => {
+                "split the mutation: one mutation edits rules, another grammar declarations"
+            }
+            Self::GrammarNotRun => {
+                "keep the mutation for `check`, or leave it out of the list `run` reads: kink does \
+                 not yet parse the cases again under a mutant's grammar, so no run judges it"
+            }
         }
     }
 
     /// The status of the row of a mutation refused for this reason: `error` for the host's
-    /// refusal ([`Self::HostStackRefused`]), `invalid-mutation` for every other reason, a front
-    /// end's included.
+    /// refusal ([`Self::HostStackRefused`]) and for kink's not judging a grammar mutation yet
+    /// ([`Self::GrammarNotRun`]), neither a fault of the mutation; `invalid-mutation` for every
+    /// other reason, a front end's included.
     pub const fn status(self) -> &'static str {
         match self {
-            Self::HostStackRefused => "error",
+            Self::HostStackRefused | Self::GrammarNotRun => "error",
             _ => crate::search::INVALID_MUTATION,
         }
     }
@@ -861,10 +984,25 @@ pub struct ResolvedEdit {
     pub edited_range: Range<usize>,
 }
 
-/// One rule a mutation edits or deletes.
+/// What an [`EditedRule`] is: a rule, or a grammar declaration (PJ-34).
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum EditedKind {
+    /// One rule sentence.
+    #[default]
+    Rule,
+    /// One grammar declaration (a `syntax` declaration of productions, `syntax priority`,
+    /// `syntax left|right|non-assoc`, `syntax lexical`) and every sentence it lowers to; `at` is
+    /// the item the edits address (the production `production` names, or the one production the
+    /// line or text lies in, else the declaration's first sentence), and the lines and texts are
+    /// the declaration's.
+    Grammar,
+}
+
+/// One rule a mutation edits or deletes, or one grammar declaration it edits ([`EditedKind`]).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EditedRule {
     pub at: SentenceRef,
+    pub kind: EditedKind,
     /// The indices of the mutation's edits addressed to this rule.
     pub edits: Vec<usize>,
     pub file: String,
@@ -883,19 +1021,55 @@ impl ResolvedMutation {
     /// edited view, or a `.md` file's Markdown envelope of its edited view (one fence around
     /// the view, which extracts to the view again; [`markdown_envelope`]). It exists so that a
     /// test can repeat the edited load; nothing shows it to a user, and the mutant is never
-    /// built from it (the mutant is the patched baseline).
+    /// built from it (the mutant is the patched baseline). Empty for a grammar mutation, which no
+    /// edited load reads (module documentation, "Grammar edits").
     pub fn overlay(&self) -> &BTreeMap<String, String> {
         &self.overlay
+    }
+
+    /// Whether the mutation edits grammar declarations (it then edits no rule).
+    #[must_use]
+    pub fn is_grammar(&self) -> bool {
+        self.rules
+            .iter()
+            .any(|rule| rule.kind == EditedKind::Grammar)
+    }
+
+    /// Why `run` and a `fuzz` kill job do not judge this mutation: `grammar-not-run` for a
+    /// grammar mutation ([`InvalidReason::GrammarNotRun`]), `None` for a rule mutation.
+    #[must_use]
+    pub fn run_refusal(&self) -> Option<InvalidMutation> {
+        self.is_grammar().then(|| InvalidMutation {
+            edit: None,
+            reason: InvalidReason::GrammarNotRun,
+            detail: format!(
+                "the mutation edits the grammar ({}); kink does not yet parse each case again \
+                 under the mutant's grammar, and running the mutant on the cases as the \
+                 specification parses them would judge another mutant",
+                self.rules
+                    .iter()
+                    .map(|rule| match &rule.label {
+                        Some(label) => format!("{label} at {}:{}", rule.file, rule.start_line),
+                        None => format!("the declaration at {}:{}", rule.file, rule.start_line),
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        })
     }
 
     /// The candidate generation that runs this mutation: one candidate, this patch, with a
     /// site at the body of every addressed rule (a supplied, hence non-exhaustive and never
     /// scored, discovery; kink-patch `Discovery::supplied`). `baseline` must be the baseline
-    /// of the validator that runs the campaign (`CandidateGeneration::derived_from`).
+    /// of the validator that runs the campaign (`CandidateGeneration::derived_from`). A grammar
+    /// mutation has none yet ([`Self::run_refusal`]).
     pub fn generation<'b>(
         &self,
         baseline: &'b Baseline,
     ) -> Result<CandidateGeneration<'b>, InvalidMutation> {
+        if let Some(refusal) = self.run_refusal() {
+            return Err(refusal);
+        }
         let rejected = |detail: String| InvalidMutation {
             edit: None,
             reason: InvalidReason::PatchRejected,
@@ -939,8 +1113,10 @@ struct TextEdit {
     at: SentenceRef,
     file: String,
     range: Range<usize>,
-    /// `None` deletes the rule.
+    /// `None` deletes the rule (or the grammar declaration).
     replacement: Option<String>,
+    /// The grammar declaration the edit edits; `None` for a rule edit.
+    declaration: Option<Declaration>,
 }
 
 /// An authored sentence with its source file.
@@ -954,6 +1130,21 @@ struct Authored<'a> {
 impl Authored<'_> {
     fn is_rule(&self) -> bool {
         matches!(self.sentence, Sentence::Rule { .. })
+    }
+
+    /// A production's name, its label ([`EditSpec::production`]).
+    fn production_name(&self) -> Option<&str> {
+        match self.sentence {
+            Sentence::Production {
+                label: Some(label), ..
+            } => Some(label.name.as_str()),
+            _ => None,
+        }
+    }
+
+    /// The name a row gives the sentence: its label (a rule's), else a production's name.
+    fn name(&self) -> Option<&str> {
+        self.label().or_else(|| self.production_name())
     }
 
     fn label(&self) -> Option<&str> {
@@ -970,7 +1161,7 @@ impl Authored<'_> {
             (Some(file), Some(l)) => format!("{file}:{}", l.start_line),
             _ => format!("{}#{}", self.at.module, self.at.index),
         };
-        match self.label() {
+        match self.name() {
             Some(label) => format!("{label} ({place})"),
             None => place,
         }
@@ -1097,6 +1288,8 @@ struct Views<'a> {
     md_selector: String,
     loaded: &'a LoadedSource,
     views: BTreeMap<String, View>,
+    /// Each view's outer syntax (k-rust's outer parser) and its declarations, built on first use.
+    parsed: BTreeMap<String, (outer::SourceFile, Vec<Declaration>)>,
 }
 
 impl<'a> Views<'a> {
@@ -1106,7 +1299,27 @@ impl<'a> Views<'a> {
             md_selector: manifest.spec.md_selector.clone(),
             loaded,
             views: BTreeMap::new(),
+            parsed: BTreeMap::new(),
         }
+    }
+
+    /// The outer syntax of the K view of `name` and its declarations.
+    fn parsed(
+        &mut self,
+        name: &str,
+    ) -> Result<&(outer::SourceFile, Vec<Declaration>), (InvalidReason, String)> {
+        if !self.parsed.contains_key(name) {
+            let view = self.view(name)?;
+            let file = outer::parse(name, &view.text).map_err(|e| {
+                (
+                    InvalidReason::SourceViewMismatch,
+                    format!("k-rust's outer parser does not read the K view of {name}: {e}"),
+                )
+            })?;
+            let declarations = declarations_of(&file);
+            self.parsed.insert(name.to_owned(), (file, declarations));
+        }
+        Ok(&self.parsed[name])
     }
 
     fn names(&self) -> impl Iterator<Item = &str> {
@@ -1120,6 +1333,75 @@ impl<'a> Views<'a> {
         }
         Ok(&self.views[name])
     }
+}
+
+/// One declaration of a K view, as k-rust's outer parser reads it: a `syntax` declaration, a
+/// `syntax priority`, associativity or lexical declaration, or a bubble (a rule, claim, context
+/// or configuration).
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct Declaration {
+    module: String,
+    /// Its bytes in the view.
+    span: Range<usize>,
+    start_line: u32,
+    end_line: u32,
+    /// Whether it is a grammar declaration (PJ-34): a `syntax` declaration of productions, or a
+    /// priority, associativity or lexical declaration. A sort declaration, a sort synonym and a
+    /// bubble are not.
+    grammar: bool,
+    /// The productions it declares (alternatives of a `syntax` declaration).
+    productions: usize,
+    /// Its kind, so that an edit cannot turn one kind of declaration into another.
+    kind: &'static str,
+}
+
+impl Declaration {
+    fn contains(&self, range: &Range<usize>) -> bool {
+        self.span.start <= range.start && range.end <= self.span.end
+    }
+
+    fn describe(&self, file: &str) -> String {
+        format!(
+            "the {} declaration at {file}:{}",
+            self.kind, self.start_line
+        )
+    }
+}
+
+/// The declarations of `file`, module by module in text order.
+fn declarations_of(file: &outer::SourceFile) -> Vec<Declaration> {
+    let mut declarations = Vec::new();
+    for module in &file.modules {
+        for sentence in &module.sentences {
+            let (span, kind, productions) = match sentence {
+                outer::Sentence::Syntax(syntax) => match &syntax.body {
+                    outer::SyntaxBody::Productions(blocks) => (
+                        syntax.span,
+                        "syntax",
+                        blocks.iter().map(|block| block.productions.len()).sum(),
+                    ),
+                    outer::SyntaxBody::Sort(_) => (syntax.span, "sort", 0),
+                    outer::SyntaxBody::Synonym { .. } => (syntax.span, "sort synonym", 0),
+                },
+                outer::Sentence::Priority(priority) => (priority.span, "priority", 0),
+                outer::Sentence::Associativity(associativity) => {
+                    (associativity.span, "associativity", 0)
+                }
+                outer::Sentence::Lexical(lexical) => (lexical.span, "lexical", 0),
+                outer::Sentence::Bubble(bubble) => (bubble.span, "bubble", 0),
+            };
+            declarations.push(Declaration {
+                module: module.name.clone(),
+                span: span.start.offset..span.end.offset,
+                start_line: span.start.line,
+                end_line: span.end.line,
+                grammar: matches!(kind, "syntax" | "priority" | "associativity" | "lexical"),
+                productions,
+                kind,
+            });
+        }
+    }
+    declarations
 }
 
 /// The authored sentences of the baseline of `loaded`, each with its source file.
@@ -1155,15 +1437,33 @@ pub fn addressed_rule(
     loaded: &LoadedSource,
     edit: &EditSpec,
 ) -> Option<(SentenceRef, Option<String>)> {
+    addressed_item(manifest, loaded, edit).map(|(at, label, _)| (at, label))
+}
+
+/// [`addressed_rule`] with what the edit edits: a rule, whose label it gives, or a grammar
+/// declaration, whose item's production name it gives ([`EditedKind`]).
+#[must_use]
+pub fn addressed_item(
+    manifest: &FlowManifest,
+    loaded: &LoadedSource,
+    edit: &EditSpec,
+) -> Option<(SentenceRef, Option<String>, EditedKind)> {
     let authored = authored_sentences(loaded);
     let mut views = Views::new(manifest, loaded);
-    let at = address(0, edit, &authored, &mut views).ok()?.at;
-    let label = authored
-        .iter()
-        .find(|a| a.at == at)
-        .and_then(Authored::label)
-        .map(str::to_owned);
-    Some((at, label))
+    let addressed = address(0, edit, &authored, &mut views).ok()?;
+    let item = authored.iter().find(|a| a.at == addressed.at);
+    Some(match addressed.declaration {
+        None => (
+            addressed.at,
+            item.and_then(Authored::label).map(str::to_owned),
+            EditedKind::Rule,
+        ),
+        Some(_) => (
+            addressed.at,
+            item.and_then(Authored::production_name).map(str::to_owned),
+            EditedKind::Grammar,
+        ),
+    })
 }
 
 /// A file name normalised lexically as the resolver names sources (`a/./b/../c.k` is
@@ -1295,12 +1595,7 @@ pub struct RuleText {
 /// Every authored rule of the specification `loaded`, in sentence order, with its K text
 /// (sliced from its file's K view by the same checked span resolution uses).
 pub fn rule_texts(manifest: &FlowManifest, loaded: &LoadedSource) -> Vec<RuleText> {
-    let mut views = Views {
-        directory: manifest.directory.clone(),
-        md_selector: manifest.spec.md_selector.clone(),
-        loaded,
-        views: BTreeMap::new(),
-    };
+    let mut views = Views::new(manifest, loaded);
     let file_names = loaded
         .files
         .iter()
@@ -1378,36 +1673,30 @@ pub fn resolve(
         text_edits.push(text_edit);
     }
 
+    // A grammar edit edits a declaration, read without parsing any rule (module documentation,
+    // "Grammar edits"); a mutation edits rules or grammar declarations, not both.
+    if let Some(grammar) = text_edits.iter().find(|e| e.declaration.is_some()) {
+        if let Some(rule) = text_edits.iter().find(|e| e.declaration.is_none()) {
+            return Err(InvalidMutation {
+                edit: Some(grammar.edit.max(rule.edit)),
+                reason: InvalidReason::RuleAndGrammarEdits,
+                detail: format!(
+                    "edit[{}] edits a rule and edit[{}] a grammar declaration: a grammar edit \
+                     changes which program text parses to which term and keeps the rules' terms, \
+                     and under which grammar a rule edited beside it is read is not decided",
+                    rule.edit, grammar.edit
+                ),
+            });
+        }
+        return resolve_grammar(loaded, mutation, &text_edits, &mut views, &authored);
+    }
+
     // Edits of one rule must not overlap; a deleted rule takes no other edit.
     let mut groups = BTreeMap::<SentenceRef, Vec<&TextEdit>>::new();
     for edit in &text_edits {
         groups.entry(edit.at.clone()).or_default().push(edit);
     }
-    for edits in groups.values_mut() {
-        edits.sort_by_key(|e| (e.range.start, e.range.end));
-        if edits.len() > 1
-            && let Some(delete) = edits.iter().find(|e| e.replacement.is_none())
-        {
-            return Err(InvalidMutation {
-                edit: Some(delete.edit),
-                reason: InvalidReason::OverlappingEdits,
-                detail: "a deleted rule takes no other edit".into(),
-            });
-        }
-        for pair in edits.windows(2) {
-            if pair[0].range.end > pair[1].range.start {
-                return Err(InvalidMutation {
-                    edit: Some(pair[0].edit.max(pair[1].edit)),
-                    reason: InvalidReason::OverlappingEdits,
-                    detail: format!(
-                        "edit[{}] and edit[{}] overlap in the same rule",
-                        pair[0].edit.min(pair[1].edit),
-                        pair[0].edit.max(pair[1].edit)
-                    ),
-                });
-            }
-        }
-    }
+    check_overlaps(&mut groups, "rule")?;
 
     // Step 2: apply the text edits to the K views and load the edited views (a `.md` file
     // through its Markdown envelope).
@@ -1419,39 +1708,9 @@ pub fn resolve(
     let mut edited_files = BTreeMap::<String, EditedFile>::new();
     let mut overlay = BTreeMap::<String, String>::new();
     let mut resolved_edits = Vec::with_capacity(text_edits.len());
-    for (file, mut edits) in by_file {
+    for (file, edits) in by_file {
         let view = views.view(file).map_err(from_view)?;
-        edits.sort_by_key(|e| (e.range.start, e.range.end));
-        let mut edited_view = String::with_capacity(view.text.len());
-        let mut shifts = Vec::new();
-        let mut written = Vec::new();
-        let mut cursor = 0;
-        for edit in edits {
-            // Rule spans are disjoint and the edits of one rule do not overlap (checked above).
-            if edit.range.start < cursor {
-                return Err(InvalidMutation {
-                    edit: Some(edit.edit),
-                    reason: InvalidReason::OverlappingEdits,
-                    detail: format!("edit[{}] overlaps another edit of {file}", edit.edit),
-                });
-            }
-            edited_view.push_str(&view.text[cursor..edit.range.start]);
-            let start = edited_view.len();
-            let replacement = edit.replacement.as_deref().unwrap_or("");
-            edited_view.push_str(replacement);
-            written.push((edit.edit, start..edited_view.len()));
-            resolved_edits.push(ResolvedEdit {
-                edit: edit.edit,
-                at: edit.at.clone(),
-                file: file.to_owned(),
-                range: edit.range.clone(),
-                replacement: edit.replacement.clone(),
-                edited_range: start..edited_view.len(),
-            });
-            shifts.push((edit.range.clone(), length_change(&edit.range, replacement)));
-            cursor = edit.range.end;
-        }
-        edited_view.push_str(&view.text[cursor..]);
+        let (edited_view, shifts, written) = splice(&view.text, file, edits, &mut resolved_edits)?;
         let (loaded_text, parsed, shift) = if view.markdown {
             for (edit, range) in &written {
                 if let Some((line, text)) = fence_line_touching(&edited_view, range) {
@@ -1585,6 +1844,7 @@ pub fn resolve(
         };
         rules.push(EditedRule {
             at: at.clone(),
+            kind: EditedKind::Rule,
             edits: group.edits.clone(),
             file,
             label: site.label().map(str::to_owned),
@@ -1603,11 +1863,47 @@ pub fn resolve(
         .map_err(|e| rejected(e.to_string()))?
         .pinned(baseline)
         .map_err(|e| rejected(e.to_string()))?;
-    let digest = patch.digest().map_err(|e| match e {
+    let digest = patch_digest(baseline, &patch, &rules, whole())?;
+    resolved_edits.sort_by_key(|e| e.edit);
+    let edited_views = edited_files
+        .into_iter()
+        .map(|(name, file)| (name, file.edited_view))
+        .collect::<BTreeMap<_, _>>();
+    let resolved = ResolvedMutation {
+        id: mutation.id.clone(),
+        patch,
+        digest,
+        rules,
+        edits: resolved_edits,
+        edited_sources: edited_views.clone(),
+        edited_views,
+        overlay,
+    };
+    // kink-patch applies the patch (and nothing else) once more when it folds the generation.
+    resolved.generation(baseline)?;
+    Ok(resolved)
+}
+
+/// The digest of `patch`, the mutation's identity, or why it has none: kink's depth limit
+/// (`edited-rule-too-deep`, at the edit `whole` when the mutation has one) or the host's stack
+/// (`host-stack-refused`).
+fn patch_digest(
+    baseline: &Baseline,
+    patch: &Patch,
+    rules: &[EditedRule],
+    whole: Option<usize>,
+) -> Result<Sha256Digest, InvalidMutation> {
+    let rejected = |detail: String| InvalidMutation {
+        edit: None,
+        reason: InvalidReason::PatchRejected,
+        detail,
+    };
+    let whole = || whole;
+    patch.digest().map_err(|e| match e {
         CodecError::TooDeep { depth, limit } => InvalidMutation {
             edit: whole(),
             reason: InvalidReason::EditedRuleTooDeep,
-            detail: too_deep_detail(baseline, &patch, &rules, depth, limit),
+            detail: too_deep_detail(baseline, patch, rules, depth, limit),
         },
         CodecError::Stack(StackRefusal::Refused(refused)) => InvalidMutation {
             edit: None,
@@ -1632,13 +1928,189 @@ pub fn resolve(
             ),
         },
         other => rejected(other.to_string()),
-    })?;
+    })
+}
+
+/// Edits of one rule (or grammar declaration, `unit`) must not overlap, and a deleted one takes
+/// no other edit. Sorts each group by range.
+fn check_overlaps<K: Ord>(
+    groups: &mut BTreeMap<K, Vec<&TextEdit>>,
+    unit: &str,
+) -> Result<(), InvalidMutation> {
+    for edits in groups.values_mut() {
+        edits.sort_by_key(|e| (e.range.start, e.range.end));
+        if edits.len() > 1
+            && let Some(delete) = edits.iter().find(|e| e.replacement.is_none())
+        {
+            return Err(InvalidMutation {
+                edit: Some(delete.edit),
+                reason: InvalidReason::OverlappingEdits,
+                detail: format!("a deleted {unit} takes no other edit"),
+            });
+        }
+        for pair in edits.windows(2) {
+            if pair[0].range.end > pair[1].range.start {
+                return Err(InvalidMutation {
+                    edit: Some(pair[0].edit.max(pair[1].edit)),
+                    reason: InvalidReason::OverlappingEdits,
+                    detail: format!(
+                        "edit[{}] and edit[{}] overlap in the same {unit}",
+                        pair[0].edit.min(pair[1].edit),
+                        pair[0].edit.max(pair[1].edit)
+                    ),
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The edited K view of `file` (baseline view `text`) with `edits` applied, the length change of
+/// each edit (its range in `text` and the change, in view order) and where each replacement lies
+/// in the edited view; each applied edit is pushed onto `resolved`.
+#[allow(clippy::type_complexity)]
+fn splice(
+    text: &str,
+    file: &str,
+    mut edits: Vec<&TextEdit>,
+    resolved: &mut Vec<ResolvedEdit>,
+) -> Result<
+    (
+        String,
+        Vec<(Range<usize>, isize)>,
+        Vec<(usize, Range<usize>)>,
+    ),
+    InvalidMutation,
+> {
+    edits.sort_by_key(|e| (e.range.start, e.range.end));
+    let mut edited_view = String::with_capacity(text.len());
+    let mut shifts = Vec::new();
+    let mut written = Vec::new();
+    let mut cursor = 0;
+    for edit in edits {
+        // Rule spans (and declaration spans) are disjoint and the edits of one do not overlap
+        // (`check_overlaps`).
+        if edit.range.start < cursor {
+            return Err(InvalidMutation {
+                edit: Some(edit.edit),
+                reason: InvalidReason::OverlappingEdits,
+                detail: format!("edit[{}] overlaps another edit of {file}", edit.edit),
+            });
+        }
+        edited_view.push_str(&text[cursor..edit.range.start]);
+        let start = edited_view.len();
+        let replacement = edit.replacement.as_deref().unwrap_or("");
+        edited_view.push_str(replacement);
+        written.push((edit.edit, start..edited_view.len()));
+        resolved.push(ResolvedEdit {
+            edit: edit.edit,
+            at: edit.at.clone(),
+            file: file.to_owned(),
+            range: edit.range.clone(),
+            replacement: edit.replacement.clone(),
+            edited_range: start..edited_view.len(),
+        });
+        shifts.push((edit.range.clone(), length_change(&edit.range, replacement)));
+        cursor = edit.range.end;
+    }
+    edited_view.push_str(&text[cursor..]);
+    Ok((edited_view, shifts, written))
+}
+
+/// One declaration of a file before and after the edits: its baseline declaration, the edited
+/// declaration (`None` for a deleted one) and whether an edit edits it.
+struct DeclarationPair {
+    file: String,
+    before: Declaration,
+    after: Option<Declaration>,
+    edited: bool,
+}
+
+/// Steps 2 and 3 for a mutation whose every edit is a grammar edit (PJ-34; module documentation,
+/// "Grammar edits"): the edits are applied to the K views, every file's view is read with k-rust's
+/// outer parser and lowered (no rule is parsed), every declaration no edit edits must lower as
+/// before, and each edited declaration's sentences are compared with its baseline's to give the
+/// patch, which must apply and give a program parser for the syntax module.
+fn resolve_grammar(
+    loaded: &LoadedSource,
+    mutation: &Mutation,
+    text_edits: &[TextEdit],
+    views: &mut Views<'_>,
+    authored: &[Authored<'_>],
+) -> Result<ResolvedMutation, InvalidMutation> {
+    let baseline = &loaded.baseline;
+    let whole = || (mutation.edits.len() == 1).then_some(0);
+    let from_view = |(reason, detail)| InvalidMutation {
+        edit: None,
+        reason,
+        detail,
+    };
+
+    // Edits of one declaration must not overlap; a deleted declaration takes no other edit.
+    let mut groups = BTreeMap::<(String, usize), Vec<&TextEdit>>::new();
+    for edit in text_edits {
+        let declaration = edit.declaration.as_ref().expect("a grammar edit");
+        groups
+            .entry((edit.file.clone(), declaration.span.start))
+            .or_default()
+            .push(edit);
+    }
+    check_overlaps(&mut groups, "declaration")?;
+
+    // Apply the edits to the K views (no envelope: no edited load reads them).
+    let mut by_file = BTreeMap::<&str, Vec<&TextEdit>>::new();
+    for edit in text_edits {
+        by_file.entry(&edit.file).or_default().push(edit);
+    }
+    let mut edited_files = BTreeMap::<String, EditedFile>::new();
+    let mut resolved_edits = Vec::with_capacity(text_edits.len());
+    for (file, edits) in by_file {
+        let view = views.view(file).map_err(from_view)?;
+        let (edited_view, shifts, _) = splice(&view.text, file, edits, &mut resolved_edits)?;
+        edited_files.insert(
+            file.to_owned(),
+            EditedFile {
+                shifts,
+                parsed: edited_view.clone(),
+                edited_view,
+                shift: 0,
+            },
+        );
+    }
+
+    // Every file's outer syntax, the edited views in place of the edited files, and its
+    // declarations paired before and after the edits.
+    let (before_files, after_files, pairs) =
+        read_files(loaded, views, &edited_files, &groups, whole())?;
+
+    let edits = grammar_patch_edits(
+        baseline,
+        authored,
+        &before_files,
+        &after_files,
+        &pairs,
+        &groups,
+        whole(),
+    )?;
+    if edits.is_empty() {
+        return Err(InvalidMutation {
+            edit: Some(text_edits[0].edit),
+            reason: InvalidReason::NoChange,
+            detail: "the edited declarations lower to the same sentences as before the edits: \
+                     layout and comments are no change"
+                .into(),
+        });
+    }
+
+    let rules = grammar_rows(views, authored, &groups, &pairs, &edited_files)?;
+    let patch = admitted_patch(loaded, edits, whole())?;
+    let digest = patch_digest(baseline, &patch, &rules, whole())?;
     resolved_edits.sort_by_key(|e| e.edit);
     let edited_views = edited_files
         .into_iter()
         .map(|(name, file)| (name, file.edited_view))
         .collect::<BTreeMap<_, _>>();
-    let resolved = ResolvedMutation {
+    Ok(ResolvedMutation {
         id: mutation.id.clone(),
         patch,
         digest,
@@ -1646,11 +2118,718 @@ pub fn resolve(
         edits: resolved_edits,
         edited_sources: edited_views.clone(),
         edited_views,
-        overlay,
+        overlay: BTreeMap::new(),
+    })
+}
+
+/// The rows' entries of a grammar mutation: one per edited declaration, its item, lines and text
+/// before and after the edits ([`EditedKind::Grammar`]).
+fn grammar_rows(
+    views: &mut Views<'_>,
+    authored: &[Authored<'_>],
+    groups: &BTreeMap<(String, usize), Vec<&TextEdit>>,
+    pairs: &[DeclarationPair],
+    edited_files: &BTreeMap<String, EditedFile>,
+) -> Result<Vec<EditedRule>, InvalidMutation> {
+    let from_view = |(reason, detail)| InvalidMutation {
+        edit: None,
+        reason,
+        detail,
     };
-    // kink-patch applies the patch (and nothing else) once more when it folds the generation.
-    resolved.generation(baseline)?;
-    Ok(resolved)
+    let mut rules = Vec::new();
+    for ((file, start), group) in groups {
+        let pair = pairs
+            .iter()
+            .find(|p| p.file == *file && p.before.span.start == *start)
+            .expect("an edited declaration is paired");
+        let item = authored
+            .iter()
+            .find(|a| a.at == group[0].at)
+            .expect("a grammar item is authored");
+        let view = views.view(file).map_err(from_view)?;
+        let before = view.text[pair.before.span.clone()].to_owned();
+        let after = pair
+            .after
+            .as_ref()
+            .map(|d| edited_files[file].edited_view[d.span.clone()].to_owned());
+        let mut indices = group.iter().map(|e| e.edit).collect::<Vec<_>>();
+        indices.sort_unstable();
+        rules.push(EditedRule {
+            at: item.at.clone(),
+            kind: EditedKind::Grammar,
+            edits: indices,
+            file: file.clone(),
+            label: item.production_name().map(str::to_owned),
+            start_line: pair.before.start_line,
+            end_line: pair.before.end_line,
+            before,
+            after,
+        });
+    }
+    Ok(rules)
+}
+
+/// The pinned patch of a grammar mutation's `edits`, once it applies (`edited-load-failed` for a
+/// definition that does not resolve) and its mutant gives a program parser for the syntax module
+/// (`no-program-parser`).
+fn admitted_patch(
+    loaded: &LoadedSource,
+    edits: Vec<Edit>,
+    whole: Option<usize>,
+) -> Result<Patch, InvalidMutation> {
+    let baseline = &loaded.baseline;
+    let fail = |reason, detail: String| InvalidMutation {
+        edit: whole,
+        reason,
+        detail,
+    };
+    let rejected = |detail: String| InvalidMutation {
+        edit: None,
+        reason: InvalidReason::PatchRejected,
+        detail,
+    };
+    let patch = Patch::new(edits)
+        .map_err(|e| rejected(e.to_string()))?
+        .pinned(baseline)
+        .map_err(|e| rejected(e.to_string()))?;
+    let mutant = kink_patch::apply(baseline, &patch).map_err(|failure| {
+        if failure.kind() == PatchFailureKind::LocallyIllFormed {
+            fail(InvalidReason::EditedLoadFailed, failure.to_string())
+        } else {
+            rejected(failure.to_string())
+        }
+    })?;
+    mutant
+        .program_parser(loaded.syntax_module())
+        .map_err(|failure| {
+            fail(
+                InvalidReason::NoProgramParser,
+                format!(
+                    "the edited grammar gives no program parser for {}: {failure}",
+                    loaded.syntax_module()
+                ),
+            )
+        })?;
+    Ok(patch)
+}
+
+/// Every source file's outer syntax before and after the edits (the edited views in place of the
+/// edited files), in the load's file order, and every declaration paired before and after.
+#[allow(clippy::type_complexity)]
+fn read_files(
+    loaded: &LoadedSource,
+    views: &mut Views<'_>,
+    edited_files: &BTreeMap<String, EditedFile>,
+    groups: &BTreeMap<(String, usize), Vec<&TextEdit>>,
+    whole: Option<usize>,
+) -> Result<
+    (
+        Vec<outer::SourceFile>,
+        Vec<outer::SourceFile>,
+        Vec<DeclarationPair>,
+    ),
+    InvalidMutation,
+> {
+    let from_view = |(reason, detail)| InvalidMutation {
+        edit: None,
+        reason,
+        detail,
+    };
+    let fail = |reason, detail: String| InvalidMutation {
+        edit: whole,
+        reason,
+        detail,
+    };
+    let names = loaded
+        .files
+        .iter()
+        .map(|f| f.name.clone())
+        .collect::<Vec<_>>();
+    let mut before_files = Vec::with_capacity(names.len());
+    let mut after_files = Vec::with_capacity(names.len());
+    let mut pairs = Vec::new();
+    for name in &names {
+        let (before, declarations) = views.parsed(name).map_err(from_view)?.clone();
+        let Some(edited) = edited_files.get(name) else {
+            pairs.extend(declarations.into_iter().map(|d| DeclarationPair {
+                file: name.clone(),
+                after: Some(d.clone()),
+                before: d,
+                edited: false,
+            }));
+            after_files.push(before.clone());
+            before_files.push(before);
+            continue;
+        };
+        let after = outer::parse(name.as_str(), &edited.edited_view).map_err(|e| {
+            fail(
+                InvalidReason::EditedLoadFailed,
+                format!("{name}: k-rust's outer parser does not read the edited view: {e}"),
+            )
+        })?;
+        pairs.extend(paired_declarations(
+            name,
+            &before,
+            &declarations,
+            &after,
+            edited,
+            groups,
+            whole,
+        )?);
+        before_files.push(before);
+        after_files.push(after);
+    }
+    Ok((before_files, after_files, pairs))
+}
+
+/// The edits of a grammar mutation (module documentation, "Grammar edits", 2 and 3): the files
+/// before and after the edits are lowered as one source set each, every unedited declaration must
+/// lower as before, and each edited declaration's baseline sentences, which must be its outer
+/// lowering, are turned into its sentences after the edits ([`declaration_edits`]).
+fn grammar_patch_edits(
+    baseline: &Baseline,
+    authored: &[Authored<'_>],
+    before_files: &[outer::SourceFile],
+    after_files: &[outer::SourceFile],
+    pairs: &[DeclarationPair],
+    groups: &BTreeMap<(String, usize), Vec<&TextEdit>>,
+    whole: Option<usize>,
+) -> Result<Vec<Edit>, InvalidMutation> {
+    let fail = |reason, detail: String| InvalidMutation {
+        edit: whole,
+        reason,
+        detail,
+    };
+    // Lower every file as one source set, so that tags resolve across files.
+    let main_module = &baseline.definition().main_module;
+    let lowered_before = lower_all(before_files, main_module).map_err(|detail| {
+        fail(
+            InvalidReason::UnreadDeclaration,
+            format!("the specification's declarations do not lower apart from its load: {detail}"),
+        )
+    })?;
+    let lowered_after = lower_all(after_files, main_module).map_err(|detail| {
+        fail(
+            InvalidReason::EditedLoadFailed,
+            format!("the edited declarations do not lower: {detail}"),
+        )
+    })?;
+    let mut edits = Vec::new();
+    let mut inserted = BTreeMap::<String, u32>::new();
+    for module in &lowered_before.modules {
+        let after_module = lowered_after
+            .modules
+            .iter()
+            .find(|m| m.name == module.name)
+            .ok_or_else(|| {
+                fail(
+                    InvalidReason::StructureChanged,
+                    format!("module {} is gone after the edits", module.name),
+                )
+            })?;
+        let in_module = pairs
+            .iter()
+            .filter(|pair| pair.before.module == module.name)
+            .collect::<Vec<_>>();
+        let before = by_declaration(&module.local_sentences, in_module.iter().map(|p| &p.before));
+        let after = by_declaration(
+            &after_module.local_sentences,
+            in_module.iter().filter_map(|p| p.after.as_ref()),
+        );
+        let unchanged = |left: &[Arc<Sentence>], right: &[Arc<Sentence>]| {
+            left.len() == right.len()
+                && left.iter().zip(right).all(|(l, r)| fingerprint_equal(l, r))
+        };
+        if !unchanged(&before.loose, &after.loose) {
+            return Err(fail(
+                InvalidReason::StructureChanged,
+                format!(
+                    "module {} lowers to other sentences outside its declarations after the edits",
+                    module.name
+                ),
+            ));
+        }
+        for pair in in_module {
+            let old = before.of(&pair.before);
+            let new = pair.after.as_ref().map(|d| after.of(d)).unwrap_or_default();
+            if !pair.edited && pair.after.is_some() {
+                if !unchanged(old, new) {
+                    return Err(fail(
+                        InvalidReason::StructureChanged,
+                        format!(
+                            "{} lowers to other sentences after the edits, although no edit \
+                             addresses it",
+                            pair.before.describe(&pair.file)
+                        ),
+                    ));
+                }
+                continue;
+            }
+            let edit_of = groups
+                .get(&(pair.file.clone(), pair.before.span.start))
+                .and_then(|edits| edits.first())
+                .map(|edit| edit.edit);
+            let specification = read_as_loaded(authored, pair, old, edit_of)?;
+            declaration_edits(
+                baseline,
+                &module.name,
+                &specification,
+                new,
+                edit_of,
+                &mut inserted,
+                &mut edits,
+            )?;
+        }
+    }
+    Ok(edits)
+}
+
+/// The loaded specification's sentences of the edited declaration of `pair`, which must be
+/// `read`, its outer lowering (same count and order, equal fingerprints): else
+/// `unread-declaration`.
+fn read_as_loaded<'x>(
+    authored: &'x [Authored<'x>],
+    pair: &DeclarationPair,
+    read: &[Arc<Sentence>],
+    edit: Option<usize>,
+) -> Result<Vec<&'x Authored<'x>>, InvalidMutation> {
+    let specification = declared(authored, &pair.file, &pair.before);
+    if specification.len() == read.len()
+        && specification
+            .iter()
+            .zip(read)
+            .all(|(a, r)| fingerprint_equal(a.sentence, r))
+    {
+        return Ok(specification);
+    }
+    Err(InvalidMutation {
+        edit,
+        reason: InvalidReason::UnreadDeclaration,
+        detail: format!(
+            "the loaded specification's sentences of {} are not what k-rust's outer lowering \
+             reads from its text ({} loaded, {} read)",
+            pair.before.describe(&pair.file),
+            specification.len(),
+            read.len()
+        ),
+    })
+}
+
+/// The declarations of one edited file paired before and after the edits: the edited file must
+/// have the baseline's modules and the baseline's declarations less the deleted ones, of the same
+/// kinds, each unedited one where the edits move it and each edited one starting where they move
+/// its start and ending where they move its end, or earlier by whitespace only.
+fn paired_declarations(
+    name: &str,
+    before: &outer::SourceFile,
+    declarations: &[Declaration],
+    after: &outer::SourceFile,
+    edited: &EditedFile,
+    groups: &BTreeMap<(String, usize), Vec<&TextEdit>>,
+    whole: Option<usize>,
+) -> Result<Vec<DeclarationPair>, InvalidMutation> {
+    let changed = |reason, detail: String| InvalidMutation {
+        edit: whole,
+        reason,
+        detail,
+    };
+    if !same_modules(before, after) {
+        return Err(changed(
+            InvalidReason::StructureChanged,
+            format!("the modules, imports or requires of {name} changed outside its declarations"),
+        ));
+    }
+    let edits_of = |d: &Declaration| groups.get(&(name.to_owned(), d.span.start));
+    let deleted = |d: &Declaration| {
+        edits_of(d).is_some_and(|edits| edits.iter().any(|e| e.replacement.is_none()))
+    };
+    let after_declarations = declarations_of(after);
+    let kept = declarations.iter().filter(|d| !deleted(d)).count();
+    if kept != after_declarations.len() {
+        return Err(changed(
+            InvalidReason::StructureChanged,
+            format!(
+                "{name} has {} declarations after the edits, not {kept}: an edit split, merged, \
+                 added or removed a declaration",
+                after_declarations.len()
+            ),
+        ));
+    }
+    let mut next = after_declarations.into_iter();
+    let mut pairs = Vec::with_capacity(declarations.len());
+    for declaration in declarations {
+        let edits = edits_of(declaration);
+        if deleted(declaration) {
+            pairs.push(DeclarationPair {
+                file: name.to_owned(),
+                before: declaration.clone(),
+                after: None,
+                edited: true,
+            });
+            continue;
+        }
+        let new = next.next().expect("counted above");
+        let what = declaration.describe(name);
+        let edit = edits
+            .and_then(|e| e.first())
+            .map_or(whole, |e| Some(e.edit));
+        if new.module != declaration.module || new.kind != declaration.kind {
+            return Err(InvalidMutation {
+                edit,
+                reason: InvalidReason::StructureChanged,
+                detail: format!(
+                    "{what} is a {} declaration of module {} after the edits",
+                    new.kind, new.module
+                ),
+            });
+        }
+        let start = edited.moved(declaration.span.start);
+        let end = edited.moved(declaration.span.end);
+        let end_holds = match (edits, end) {
+            (_, None) => false,
+            (Some(_), Some(end)) => {
+                new.span.end <= end
+                    && edited
+                        .edited_view
+                        .get(new.span.end..end)
+                        .is_some_and(|gap| gap.chars().all(char::is_whitespace))
+            }
+            (None, Some(end)) => new.span.end == end,
+        };
+        if start != Some(new.span.start) || !end_holds {
+            return Err(InvalidMutation {
+                edit,
+                reason: InvalidReason::SpanChanged,
+                detail: format!(
+                    "{what} spans bytes {}..{} of the edited K view of {name}, not where the edits \
+                     move it ({}..{}): the edits changed text outside the declarations they edit",
+                    new.span.start,
+                    new.span.end,
+                    start.map_or_else(|| "?".to_owned(), |s| s.to_string()),
+                    end.map_or_else(|| "?".to_owned(), |e| e.to_string())
+                ),
+            });
+        }
+        pairs.push(DeclarationPair {
+            file: name.to_owned(),
+            before: declaration.clone(),
+            after: Some(new),
+            edited: edits.is_some(),
+        });
+    }
+    Ok(pairs)
+}
+
+/// Whether two readings of a file have the same modules (names, attributes, imports) and requires.
+fn same_modules(before: &outer::SourceFile, after: &outer::SourceFile) -> bool {
+    let modules = |file: &outer::SourceFile| {
+        file.modules
+            .iter()
+            .map(|m| {
+                (
+                    m.name.clone(),
+                    m.attributes.clone(),
+                    m.imports
+                        .iter()
+                        .map(|i| (i.module.clone(), i.public))
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    let requires = |file: &outer::SourceFile| {
+        file.requires
+            .iter()
+            .map(|r| r.path.clone())
+            .collect::<Vec<_>>()
+    };
+    modules(before) == modules(after) && requires(before) == requires(after)
+}
+
+/// k-rust's outer lowering of `files` as one source set: one tag index over all of them, as the
+/// load builds it. Only each sentence's module and offsets are read from the result, so every
+/// sentence naming one source is harmless. `Err` holds k-rust's diagnostics.
+fn lower_all(files: &[outer::SourceFile], main_module: &str) -> Result<Definition, String> {
+    let combined = outer::SourceFile {
+        source: "kink-flow:grammar-edit".to_owned(),
+        source_id: files.first().map_or(SourceId(0), |f| f.source_id),
+        requires: Vec::new(),
+        modules: files
+            .iter()
+            .flat_map(|f| f.modules.iter().cloned())
+            .collect(),
+    };
+    outer::lower(&combined, main_module).map_err(|diagnostics| {
+        diagnostics
+            .iter()
+            .map(|d| d.message.clone())
+            .collect::<Vec<_>>()
+            .join("; ")
+    })
+}
+
+/// A module's lowered sentences by the declaration whose span holds their start offset, in
+/// [`kind_rank`] order within a declaration; `loose` holds those with no offset.
+#[derive(Default)]
+struct Lowered {
+    by_start: BTreeMap<usize, Vec<Arc<Sentence>>>,
+    loose: Vec<Arc<Sentence>>,
+}
+
+impl Lowered {
+    fn of(&self, declaration: &Declaration) -> &[Arc<Sentence>] {
+        self.by_start
+            .get(&declaration.span.start)
+            .map_or(&[], Vec::as_slice)
+    }
+}
+
+fn by_declaration<'d>(
+    sentences: &[Arc<Sentence>],
+    declarations: impl Iterator<Item = &'d Declaration>,
+) -> Lowered {
+    let declarations = declarations.collect::<Vec<_>>();
+    let mut lowered = Lowered::default();
+    for sentence in sentences {
+        let holder = offsets(sentence).and_then(|span| {
+            declarations
+                .iter()
+                .find(|d| d.span.start <= span.start && span.start < d.span.end)
+        });
+        match holder {
+            Some(declaration) => lowered
+                .by_start
+                .entry(declaration.span.start)
+                .or_default()
+                .push(sentence.clone()),
+            None => lowered.loose.push(sentence.clone()),
+        }
+    }
+    for list in lowered.by_start.values_mut() {
+        list.sort_by_key(|s| {
+            let span = offsets(s).unwrap_or_default();
+            (span.start, span.end, kind_rank(s))
+        });
+    }
+    lowered
+}
+
+/// The labels of the paired productions `pairs` (baseline sentence, index into `edited`): a
+/// declared label is the constructor's name and must not change (`label-changed`); a label K
+/// derives from the literals is kept as the baseline's in `edited`, in the production and in the
+/// declaration's priority and associativity tags (`structure-changed` when another production
+/// already has the derived label).
+fn keep_derived_labels(
+    baseline: &Baseline,
+    pairs: &[(&Authored<'_>, usize)],
+    edited: &mut [Sentence],
+    edit: Option<usize>,
+) -> Result<(), InvalidMutation> {
+    let invalid = |reason, detail: String| InvalidMutation {
+        edit,
+        reason,
+        detail,
+    };
+    let mut renamed = BTreeMap::<String, String>::new();
+    for (old, i) in pairs {
+        let (
+            Sentence::Production {
+                label: old_label, ..
+            },
+            Sentence::Production {
+                label: new_label, ..
+            },
+        ) = (old.sentence, &edited[*i])
+        else {
+            continue;
+        };
+        let (old_name, new_name) = (
+            old_label.as_ref().map(|l| l.name.clone()),
+            new_label.as_ref().map(|l| l.name.clone()),
+        );
+        if old_name == new_name {
+            continue;
+        }
+        if declares_label(old.sentence) || declares_label(&edited[*i]) {
+            return Err(invalid(
+                InvalidReason::LabelChanged,
+                format!(
+                    "the edit changes the name of {} to {}: a grammar edit changes which text \
+                     parses to a constructor, not the constructor's declared name",
+                    old.describe(),
+                    new_name.as_deref().unwrap_or("none")
+                ),
+            ));
+        }
+        if let (Some(old_name), Some(new_name)) = (old_name, new_name) {
+            renamed.insert(new_name, old_name);
+        }
+    }
+    let labels = baseline
+        .definition()
+        .modules
+        .iter()
+        .flat_map(|m| &m.local_sentences)
+        .filter_map(|s| match s.as_ref() {
+            Sentence::Production {
+                label: Some(label), ..
+            } => Some(label.name.clone()),
+            _ => None,
+        })
+        .collect::<BTreeSet<_>>();
+    for (new_name, old_name) in &renamed {
+        let twice = edited
+            .iter()
+            .filter(
+                |s| matches!(s, Sentence::Production { label: Some(l), .. } if l.name == *new_name),
+            )
+            .count();
+        if labels.contains(new_name) || twice > 1 {
+            return Err(invalid(
+                InvalidReason::StructureChanged,
+                format!(
+                    "after the edit, the production K labels {old_name} derives the label \
+                     {new_name}, which another production has"
+                ),
+            ));
+        }
+    }
+    if !renamed.is_empty() {
+        let rename = |tag: &mut String| {
+            if let Some(old) = renamed.get(tag.as_str()) {
+                tag.clone_from(old);
+            }
+        };
+        for sentence in edited.iter_mut() {
+            match sentence {
+                Sentence::Production {
+                    label: Some(label), ..
+                } => rename(&mut label.name),
+                Sentence::SyntaxPriority { priorities, .. } => {
+                    priorities.iter_mut().flatten().for_each(rename);
+                }
+                Sentence::SyntaxAssociativity { tags, .. } => tags.iter_mut().for_each(rename),
+                _ => {}
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Pairs the baseline sentences of kind `rank` with the edited ones: first each with the first
+/// unpaired edited sentence `same` holds for, then the rest in order; the unpaired ones of each
+/// side are pushed to `extra_old` and `extra_new`.
+fn pair_kind<'x>(
+    specification: &[&'x Authored<'x>],
+    edited: &[Sentence],
+    rank: u8,
+    same: impl Fn(&Sentence, &Sentence) -> bool,
+    pairs: &mut Vec<(&'x Authored<'x>, usize)>,
+    extra_old: &mut Vec<&'x Authored<'x>>,
+    extra_new: &mut Vec<usize>,
+) {
+    let old = specification
+        .iter()
+        .copied()
+        .filter(|a| kind_rank(a.sentence) == rank)
+        .collect::<Vec<_>>();
+    let mut free = (0..edited.len())
+        .filter(|i| kind_rank(&edited[*i]) == rank)
+        .collect::<Vec<_>>();
+    let mut unpaired = Vec::new();
+    for a in old {
+        match free.iter().position(|i| same(a.sentence, &edited[*i])) {
+            Some(k) => pairs.push((a, free.remove(k))),
+            None => unpaired.push(a),
+        }
+    }
+    let mut free = free.into_iter();
+    for a in unpaired {
+        match free.next() {
+            Some(i) => pairs.push((a, i)),
+            None => extra_old.push(a),
+        }
+    }
+    extra_new.extend(free);
+}
+
+/// Whether a production declares its label (`symbol` or `klabel`), rather than K deriving it from
+/// its text.
+fn declares_label(sentence: &Sentence) -> bool {
+    sentence.attributes().has(AttributeKey::Symbol)
+        || sentence.attributes().has(AttributeKey::Klabel)
+}
+
+/// The edits that turn the baseline sentences `specification` of one declaration of `module`
+/// into `edited`, its sentences after the edits: paired by kind in order, a pair that differs is
+/// replaced, an unpaired baseline sentence deleted, an unpaired edited one inserted at the
+/// module's end. A production whose label neither side declares keeps the baseline's, and the
+/// declaration's priority and associativity tags name it by that label (module documentation).
+fn declaration_edits(
+    baseline: &Baseline,
+    module: &str,
+    specification: &[&Authored<'_>],
+    edited: &[Arc<Sentence>],
+    edit: Option<usize>,
+    inserted: &mut BTreeMap<String, u32>,
+    edits: &mut Vec<Edit>,
+) -> Result<(), InvalidMutation> {
+    let mut edited = edited.iter().map(|s| (**s).clone()).collect::<Vec<_>>();
+    // Productions pair by label, then in order; the rest of a kind by equality (after the
+    // labels below), then in order.
+    let mut pairs = Vec::new();
+    let mut extra_old = Vec::new();
+    let mut extra_new = Vec::new();
+    let label_of = |sentence: &Sentence| match sentence {
+        Sentence::Production { label, .. } => label.as_ref().map(|l| l.name.clone()),
+        _ => None,
+    };
+    pair_kind(
+        specification,
+        &edited,
+        0,
+        |old, new| label_of(old).is_some() && label_of(old) == label_of(new),
+        &mut pairs,
+        &mut extra_old,
+        &mut extra_new,
+    );
+    keep_derived_labels(baseline, &pairs, &mut edited, edit)?;
+    for rank in 1..=4 {
+        pair_kind(
+            specification,
+            &edited,
+            rank,
+            |old, new| fingerprint_equal(new, old),
+            &mut pairs,
+            &mut extra_old,
+            &mut extra_new,
+        );
+    }
+    for (old, i) in pairs {
+        if !fingerprint_equal(&edited[i], old.sentence) {
+            edits.push(Edit::ReplaceSentence {
+                at: old.at.clone(),
+                replacement: with_baseline_positions(&edited[i], old.sentence),
+            });
+        }
+    }
+    for old in extra_old {
+        edits.push(Edit::DeleteSentence { at: old.at.clone() });
+    }
+    for i in extra_new {
+        let mut sentence = edited[i].clone();
+        for key in POSITION_KEYS {
+            sentence.attributes_mut().remove(key.as_str());
+        }
+        let ordinal = inserted.entry(module.to_owned()).or_default();
+        edits.push(Edit::InsertSentence {
+            position: InsertPosition::ModuleEnd(module.to_owned()),
+            ordinal: *ordinal,
+            sentence,
+        });
+        *ordinal += 1;
+    }
+    Ok(())
 }
 
 /// The detail of an `edited-rule-too-deep` refusal of `patch`, whose document nests `depth` levels,
@@ -2440,7 +3619,65 @@ fn address(
             }
         }
     };
-    if let (Some(file), Some(rule)) = (&file, by_label)
+    let by_production = match &edit.production {
+        None => None,
+        Some(name) => {
+            // As for `rule`: exact and suffix matches are one candidate set.
+            let productions = authored
+                .iter()
+                .filter(|a| a.production_name().is_some())
+                .collect::<Vec<_>>();
+            let matches = productions
+                .iter()
+                .copied()
+                .filter(|a| {
+                    a.production_name()
+                        .is_some_and(|n| label_match(n, &a.at.module, name).is_some())
+                })
+                .collect::<Vec<_>>();
+            match matches.as_slice() {
+                [] => {
+                    return Err(invalid(
+                        InvalidReason::UnknownLabel,
+                        format!(
+                            "no production is named {name:?} (its `symbol`, `klabel` or the label \
+                             K derives from its text), and no name ends with it as a whole \
+                             component{}",
+                            near_labels(
+                                productions.iter().filter_map(|a| a.production_name()),
+                                name
+                            )
+                        ),
+                    ));
+                }
+                [one] => Some(*one),
+                several => {
+                    return Err(invalid(
+                        InvalidReason::AmbiguousLabel,
+                        format!(
+                            "{name:?} names several productions, as the name itself or as a \
+                             suffix of its components: {}; write more of the name, such as the \
+                             module-qualified name given for each",
+                            several
+                                .iter()
+                                .map(|a| format!(
+                                    "{} as {:?}",
+                                    a.describe(),
+                                    qualified_label(
+                                        a.production_name().unwrap_or_default(),
+                                        &a.at.module
+                                    )
+                                ))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        ),
+                    ));
+                }
+            }
+        }
+    };
+    let anchor = by_label.or(by_production);
+    if let (Some(file), Some(rule)) = (&file, anchor)
         && rule.file != Some(file.as_str())
     {
         return Err(invalid(
@@ -2448,7 +3685,7 @@ fn address(
             format!("{} is not in {file}", rule.describe()),
         ));
     }
-    let file = match (file, by_label) {
+    let file = match (file, anchor) {
         (Some(file), _) => file,
         (None, Some(rule)) => rule
             .file
@@ -2490,8 +3727,20 @@ fn address(
                 .copied()
                 .filter(|a| a.is_rule())
                 .collect::<Vec<_>>();
+            let mut grammar = || -> Result<Option<Declaration>, InvalidMutation> {
+                Ok(views
+                    .parsed(&file)
+                    .map_err(from_views)?
+                    .1
+                    .iter()
+                    .find(|d| d.grammar && d.start_line <= line && line <= d.end_line)
+                    .cloned())
+            };
             match (covering_rules.as_slice(), covering.as_slice()) {
-                ([one], _) => Some(*one),
+                ([one], _) => Some(LineHit::Rule(one)),
+                ([], _) if let Some(declaration) = grammar()? => {
+                    Some(LineHit::Grammar(declaration))
+                }
                 ([], []) => {
                     return Err(invalid(
                         InvalidReason::LineOutsideRules,
@@ -2526,6 +3775,70 @@ fn address(
                 }
             }
         }
+    };
+    // A grammar edit: the production `production` names, or the grammar declaration the line
+    // lies in.
+    let line_declaration = match &by_line {
+        Some(LineHit::Grammar(declaration)) => Some(declaration.clone()),
+        _ => None,
+    };
+    if let Some(production) = by_production {
+        let declaration = declaration_of(views, &file, production).map_err(from_views)?;
+        let declaration = declaration.ok_or_else(|| {
+            invalid(
+                InvalidReason::NonRuleSentence,
+                format!(
+                    "{} lies in no grammar declaration of {file}: a configuration or another \
+                     sentence declares it",
+                    production.describe()
+                ),
+            )
+        })?;
+        if let Some(line) = edit.line
+            && line_declaration.as_ref() != Some(&declaration)
+        {
+            return Err(invalid(
+                InvalidReason::AddressMismatch,
+                format!(
+                    "production {:?} is {}, declared by {}, but line {line} is not in that \
+                     declaration",
+                    edit.production.as_deref().unwrap_or_default(),
+                    production.describe(),
+                    declaration.describe(&file)
+                ),
+            ));
+        }
+        let text = &views.view(&file).map_err(from_views)?.text;
+        return grammar_edit(index, edit, file.clone(), declaration, production, text);
+    }
+    if let Some(declaration) = line_declaration {
+        if let Some(rule) = by_label {
+            return Err(invalid(
+                InvalidReason::AddressMismatch,
+                format!(
+                    "rule {:?} is {}, but line {} is in {}",
+                    edit.rule.as_deref().unwrap_or_default(),
+                    rule.describe(),
+                    edit.line.unwrap_or_default(),
+                    declaration.describe(&file)
+                ),
+            ));
+        }
+        let line = edit.line.unwrap_or_default();
+        let item = grammar_item(authored, &file, &declaration, |a| a.covers(line))
+            .ok_or_else(|| unread_item(index, &file, &declaration))?;
+        let text = &views.view(&file).map_err(from_views)?.text;
+        return grammar_edit(index, edit, file.clone(), declaration, item, text);
+    }
+    let by_line = match by_line {
+        Some(LineHit::Rule(rule)) => Some(rule),
+        _ => None,
+    };
+    // A `find` alone may lie in a grammar declaration (read below, after the view is borrowed).
+    let declarations = if by_label.or(by_line).is_none() {
+        Some(views.parsed(&file).map_err(from_views)?.1.clone())
+    } else {
+        None
     };
     if let (Some(rule), Some(line)) = (by_label, by_line)
         && rule.at != line.at
@@ -2634,10 +3947,29 @@ fn address(
                 .copied()
                 .filter(|a| a.is_rule())
                 .collect::<Vec<_>>();
+            let in_grammar = declarations
+                .iter()
+                .flatten()
+                .find(|d| d.grammar && d.contains(&range));
             match (containing_rules.as_slice(), containing.as_slice()) {
                 ([one], _) => {
                     span_of(one)?;
                     (*one, range)
+                }
+                ([], _) if let Some(declaration) = in_grammar => {
+                    let item = grammar_item(authored, &file, declaration, |a| {
+                        sentence_span(a.sentence, text)
+                            .is_some_and(|s| s.start <= range.start && range.end <= s.end)
+                    })
+                    .ok_or_else(|| unread_item(index, &file, declaration))?;
+                    return grammar_edit(
+                        index,
+                        edit,
+                        file.clone(),
+                        declaration.clone(),
+                        item,
+                        text,
+                    );
                 }
                 ([], []) => {
                     return Err(invalid(
@@ -2679,7 +4011,162 @@ fn address(
             EditAction::Replace { replace, .. } => Some(replace.clone()),
             EditAction::Delete => None,
         },
+        declaration: None,
     })
+}
+
+/// What a `line` names: the rule covering it, or the grammar declaration it lies in.
+enum LineHit<'x> {
+    Rule(&'x Authored<'x>),
+    Grammar(Declaration),
+}
+
+/// The grammar declaration of `file` that holds the production `production` (by its offsets).
+fn declaration_of(
+    views: &mut Views<'_>,
+    file: &str,
+    production: &Authored<'_>,
+) -> Result<Option<Declaration>, (InvalidReason, String)> {
+    let Some(span) = offsets(production.sentence) else {
+        return Ok(None);
+    };
+    Ok(views
+        .parsed(file)?
+        .1
+        .iter()
+        .find(|d| d.grammar && d.module == production.at.module && d.contains(&span))
+        .cloned())
+}
+
+/// The baseline sentences `declaration` of `file` lowers to (by their offsets), in text order.
+fn declared<'x>(
+    authored: &'x [Authored<'x>],
+    file: &str,
+    declaration: &Declaration,
+) -> Vec<&'x Authored<'x>> {
+    let mut declared = authored
+        .iter()
+        .filter(|a| a.file == Some(file) && a.at.module == declaration.module)
+        .filter(|a| offsets(a.sentence).is_some_and(|s| declaration.contains(&s)))
+        .collect::<Vec<_>>();
+    declared.sort_by_key(|a| {
+        let span = offsets(a.sentence).unwrap_or_default();
+        (span.start, span.end, kind_rank(a.sentence), a.at.index)
+    });
+    declared
+}
+
+/// The item a grammar edit names in `declaration`: the one production `holds` admits, else the
+/// declaration's first sentence; `None` when the declaration lowers to no baseline sentence.
+fn grammar_item<'x>(
+    authored: &'x [Authored<'x>],
+    file: &str,
+    declaration: &Declaration,
+    holds: impl Fn(&Authored<'_>) -> bool,
+) -> Option<&'x Authored<'x>> {
+    let declared = declared(authored, file, declaration);
+    let holding = declared
+        .iter()
+        .copied()
+        .filter(|a| a.production_name().is_some() && holds(a))
+        .collect::<Vec<_>>();
+    match holding.as_slice() {
+        [one] => Some(one),
+        _ => declared.first().copied(),
+    }
+}
+
+fn unread_item(index: usize, file: &str, declaration: &Declaration) -> InvalidMutation {
+    InvalidMutation {
+        edit: Some(index),
+        reason: InvalidReason::UnreadDeclaration,
+        detail: format!(
+            "{} lowers to no sentence of the loaded specification",
+            declaration.describe(file)
+        ),
+    }
+}
+
+/// The text edit of one grammar edit (PJ-34): `find` occurs once in the declaration, and a
+/// deletion removes the whole declaration (one that declares several productions is refused:
+/// the alternative's removal is a find/replace of the declaration).
+fn grammar_edit(
+    index: usize,
+    edit: &EditSpec,
+    file: String,
+    declaration: Declaration,
+    item: &Authored<'_>,
+    text: &str,
+) -> Result<TextEdit, InvalidMutation> {
+    let invalid = |reason, detail: String| InvalidMutation {
+        edit: Some(index),
+        reason,
+        detail,
+    };
+    let what = declaration.describe(&file);
+    let range = match &edit.action {
+        EditAction::Delete if declaration.productions > 1 => {
+            return Err(invalid(
+                InvalidReason::StructureChanged,
+                format!(
+                    "delete = true deletes a whole declaration, and {what} declares {} \
+                     productions: write the removal of one alternative as a find/replace of the \
+                     declaration (its text and its `|` or `>`, replaced by nothing)",
+                    declaration.productions
+                ),
+            ));
+        }
+        EditAction::Delete => declaration.span.clone(),
+        EditAction::Replace { find, .. } => {
+            let scope = declaration.span.clone();
+            match occurrences(&text[scope.clone()], find).as_slice() {
+                [one] => scope.start + one..scope.start + one + find.len(),
+                [] if text.contains(find.as_str()) => {
+                    return Err(invalid(
+                        InvalidReason::EditOutsideRule,
+                        format!("{find:?} occurs in {file} but not inside {what}"),
+                    ));
+                }
+                [] => {
+                    return Err(invalid(
+                        InvalidReason::FindNotFound,
+                        format!(
+                            "{find:?} does not occur in {what}{}",
+                            find_hint(text, scope, find, &file, false)
+                        ),
+                    ));
+                }
+                several => {
+                    return Err(invalid(
+                        InvalidReason::FindAmbiguous,
+                        format!("{find:?} occurs {} times in {what}", several.len()),
+                    ));
+                }
+            }
+        }
+    };
+    Ok(TextEdit {
+        edit: index,
+        at: item.at.clone(),
+        file,
+        range,
+        replacement: match &edit.action {
+            EditAction::Replace { replace, .. } => Some(replace.clone()),
+            EditAction::Delete => None,
+        },
+        declaration: Some(declaration),
+    })
+}
+
+/// The order of sentence kinds within one declaration's sentences.
+fn kind_rank(sentence: &Sentence) -> u8 {
+    match sentence {
+        Sentence::Production { .. } => 0,
+        Sentence::SyntaxLexical { .. } => 1,
+        Sentence::SyntaxPriority { .. } => 2,
+        Sentence::SyntaxAssociativity { .. } => 3,
+        _ => 4,
+    }
 }
 
 /// `attributes` without the position and provenance keys (kink-patch `POSITION_KEYS`).

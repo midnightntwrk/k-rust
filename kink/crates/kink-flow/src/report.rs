@@ -511,9 +511,11 @@ pub fn render(document: &Value) -> String {
 }
 
 /// One edited rule of a mutation: `{module, index, file, label, start_line, end_line, edits,
-/// before, after}`; `after` is null for a deleted rule.
+/// before, after}`; `after` is null for a deleted rule. An edited grammar declaration (PJ-34) has
+/// `kind: "grammar"` besides: `module` and `index` name the item its edits address, `label` the
+/// production's name (or null), and the lines and texts are the declaration's.
 pub fn rule_value(rule: &EditedRule) -> Value {
-    json!({
+    let mut value = json!({
         "module": rule.at.module,
         "index": rule.at.index,
         "file": rule.file,
@@ -523,7 +525,11 @@ pub fn rule_value(rule: &EditedRule) -> Value {
         "edits": rule.edits,
         "before": rule.before,
         "after": rule.after,
-    })
+    });
+    if rule.kind == crate::mutation::EditedKind::Grammar {
+        value["kind"] = json!("grammar");
+    }
+    value
 }
 
 /// The `rules` of a resolved mutation, in sentence order.
@@ -722,6 +728,10 @@ pub fn action(status: &str, reason: Option<&str>) -> Option<&'static str> {
         }
         "not-admitted" => "fix the mutation: the mutant does not compile (reason)",
         "invalid-mutation" => "fix the mutation: it does not resolve (reason, edit, detail)",
+        "error" if reason == Some("grammar-not-run") => {
+            "keep the grammar mutation for `check`, or leave it out of the list: kink does not yet \
+             parse the cases again under a mutant's grammar, so no run judges it (detail)"
+        }
         "error" if reason == Some("host-stack-refused") => {
             "rerun where the host grants more address space: the system refused the native stack \
              kink needs to encode this mutation's patch (detail); the mutation is not at fault"

@@ -112,7 +112,7 @@ fn calc_is_admitted_with_every_program_ok_and_the_document_is_exact() {
         })
     );
     assert_eq!(document["schema"], "kink-flow-check");
-    assert_eq!(document["version"], 19);
+    assert_eq!(document["version"], 20);
     // Without --mutations no list is checked.
     for key in ["mutation_list", "mutations", "coverage"] {
         assert!(document[key].is_null(), "{key}");
@@ -820,7 +820,7 @@ fn check_resolves_every_mutation_and_runs_no_program() {
     );
     let (document, status) = check_list(&manifest, &mutations, None);
     assert_eq!(status, EXIT_UNASKED, "{document:#}");
-    assert_eq!(document["version"], 19);
+    assert_eq!(document["version"], 20);
     assert_eq!(document["spec"]["outcome"], "admitted");
     assert_eq!(document["mutation_list"]["outcome"], "ok");
     // Nothing ran and nothing was written: no cache, so no unmatched-rule warning.
@@ -847,7 +847,7 @@ fn check_resolves_every_mutation_and_runs_no_program() {
             ("stale/renamed", "refused"),
             ("stale/no-op", "refused"),
             ("stale/overlapping", "refused"),
-            ("stale/syntax", "refused"),
+            ("stale/syntax", "ok"),
             ("stale/no-op-by-line", "refused"),
         ]
     );
@@ -891,7 +891,6 @@ fn check_resolves_every_mutation_and_runs_no_program() {
         ("stale/renamed", InvalidReason::UnknownLabel, 0),
         ("stale/no-op", InvalidReason::NoChange, 0),
         ("stale/overlapping", InvalidReason::OverlappingEdits, 1),
-        ("stale/syntax", InvalidReason::NonRuleSentence, 0),
         ("stale/no-op-by-line", InvalidReason::NoChange, 0),
     ] {
         let refused = row(&document, id);
@@ -903,6 +902,45 @@ fn check_resolves_every_mutation_and_runs_no_program() {
             "{id}"
         );
     }
+
+    // PJ-34: a grammar edit resolves and is shown as a rule edit is: the production the line lies
+    // in, its whole declaration before and after, and `kind = "grammar"`; the anchor warning names
+    // the production's name.
+    let syntax = row(&document, "stale/syntax");
+    let rule = &syntax["rules"][0];
+    assert_eq!(rule["kind"], "grammar", "{syntax:#}");
+    assert_eq!(
+        (
+            &rule["label"],
+            &rule["file"],
+            &rule["start_line"],
+            &rule["end_line"]
+        ),
+        (
+            &Value::from("mul"),
+            &Value::from("calc.k"),
+            &Value::from(6),
+            &Value::from(12)
+        )
+    );
+    assert!(
+        rule["before"]
+            .as_str()
+            .unwrap()
+            .contains("Exp \"*\" Exp [strict, symbol(mul)]")
+            && rule["after"]
+                .as_str()
+                .unwrap()
+                .contains("Exp \"x\" Exp [strict, symbol(mul)]"),
+        "{rule:#}"
+    );
+    assert_eq!(reasons(&syntax["warnings"]), ["line-anchor"]);
+    assert_eq!(
+        syntax["warnings"][0]["next"],
+        "address the production by its name: production = \"mul\""
+    );
+    // A rule entry has no `kind`.
+    assert!(ok["rules"][0].get("kind").is_none(), "{ok:#}");
 
     // The anchor warning of a refused mutation names the rule its edit is addressed to.
     let refused_by_line = row(&document, "stale/no-op-by-line");
@@ -924,6 +962,47 @@ fn check_resolves_every_mutation_and_runs_no_program() {
     assert_eq!(status, EXIT_UNASKED);
     assert_eq!(document["mutation_list"]["outcome"], "refused");
     assert!(document["mutations"].is_null());
+}
+
+/// PJ-34: `run` does not judge a grammar mutation yet (`error`, `grammar-not-run`, with its next
+/// step), runs nothing for it, and judges the list's rule mutation as before.
+#[test]
+fn run_refuses_a_grammar_mutation_until_cases_are_reparsed() {
+    let dir = calc_copy("run-grammar");
+    let manifest = dir.join("FLOW.toml");
+    let mutations = dir.join("MUTATIONS.toml");
+    write(
+        &mutations,
+        &[
+            one_edit("add-becomes-sub", ARITH),
+            one_edit(
+                "plus-literal",
+                "  production = \"add\"\n  find = \"\\\"+\\\"\"\n  replace = \"\\\"plus\\\"\"",
+            ),
+        ]
+        .concat(),
+    );
+    let (check, _) = check_list(&manifest, &mutations, None);
+    assert_eq!(row(&check, "plus-literal")["outcome"], "ok", "{check:#}");
+    let (document, _) = flow_support::corpus_run(&manifest, &mutations);
+    let grammar = row(&document, "plus-literal");
+    assert_eq!(
+        (&grammar["status"], &grammar["reason"]),
+        (&Value::from("error"), &Value::from("grammar-not-run")),
+        "{grammar:#}"
+    );
+    assert!(
+        grammar["action"]
+            .as_str()
+            .unwrap()
+            .contains("parse the cases again"),
+        "{grammar:#}"
+    );
+    assert_eq!(
+        row(&document, "add-becomes-sub")["status"],
+        "killed",
+        "{document:#}"
+    );
 }
 
 #[test]
@@ -1141,7 +1220,7 @@ fn a_flagged_definition_names_its_cause_chains_and_passes_check() {
     assert!(exclusions.short_circuit_flagged());
     assert_eq!(exclusions.definition_exclusion(), None);
     assert_eq!(status, EXIT_YES, "{document:#}");
-    assert_eq!(document["version"], 19);
+    assert_eq!(document["version"], 20);
     assert_eq!(document["spec"]["outcome"], "admitted");
     assert!(document["spec"]["exclusion"].is_null(), "{document:#}");
     for program in document["programs"].as_array().unwrap() {
@@ -2486,7 +2565,7 @@ fn check_reports_a_program_rejected_at_the_stage_it_states() {
         move || check(&manifest)
     });
     assert_eq!(status, EXIT_YES, "{document:#}");
-    assert_eq!(document["version"], 19);
+    assert_eq!(document["version"], 20);
     let rows = document["programs"].as_array().unwrap();
     let outcome = |id: &str| {
         let row = rows.iter().find(|row| row["id"] == id).unwrap();

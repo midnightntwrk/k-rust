@@ -6,9 +6,9 @@ use kink_flow::{
     FlowManifest,
     admit::corpus_source,
     mutation::{
-        EditAction, EditSpec, Expect, Expected, InvalidMutation, InvalidReason, LabelMatch,
-        MUTATION_OPERATOR, Mutation, MutationList, ResolvedMutation, label_match, location_span,
-        resolve, sentence_span,
+        EditAction, EditSpec, EditedKind, Expect, Expected, InvalidMutation, InvalidReason,
+        LabelMatch, MUTATION_OPERATOR, Mutation, MutationList, ResolvedMutation, label_match,
+        location_span, resolve, sentence_span,
     },
 };
 use kink_native::{NativeValidator, ValidatedDefinition};
@@ -198,7 +198,7 @@ fn decoding_rejects_unknown_keys_and_malformed_edits() {
             "[[mutation]]\nid = \"m\"\nmisunderstanding = \"a test mutation\"\n[[mutation.edit]]\nfile = \"calc.k\"\ndelete = true\n"
                 .into(),
             "mutation \"m\".edit[0]",
-            "needs rule or line",
+            "needs rule, production or line",
         ),
         (
             "[[mutation]]\nid = \"m\"\nmisunderstanding = \"a test mutation\"\n[[mutation.edit]]\nline = 0\nfind = \"a\"\nreplace = \"b\"\n"
@@ -284,6 +284,7 @@ fn decoding_reads_every_field() {
             EditSpec {
                 file: None,
                 rule: Some("add".into()),
+                production: None,
                 line: None,
                 action: EditAction::Replace {
                     find: "=> I1".into(),
@@ -293,6 +294,7 @@ fn decoding_reads_every_field() {
             EditSpec {
                 file: Some("calc.k".into()),
                 rule: None,
+                production: None,
                 line: Some(21),
                 action: EditAction::Replace {
                     find: "+Int I2".into(),
@@ -638,6 +640,8 @@ const DEFENSIVE: [InvalidReason; 2] = [InvalidReason::PatchRejected, InvalidReas
 /// refuses the stack a deep patch's encoding needs (recorded with the release binary under
 /// `ulimit -v` in the L1-3-tail handoff). Their rows have status `error`.
 const HOST: [InvalidReason; 1] = [InvalidReason::HostStackRefused];
+/// PJ-34: `run`'s refusal of a grammar mutation (status `error`), produced by the grammar tests.
+const NOT_RUN: [InvalidReason; 1] = [InvalidReason::GrammarNotRun];
 
 #[test]
 fn every_invalid_mutation_reason_on_calc() {
@@ -661,17 +665,12 @@ fn every_invalid_mutation_reason_on_calc() {
             LineOutsideRules,
         ),
         (
-            "[[mutation.edit]]\nline = 9\nfind = \"*\"\nreplace = \"x\"\n".into(),
+            "[[mutation.edit]]\nfind = \"$PGM\"\nreplace = \"$X\"\n".into(),
             Some(0),
             NonRuleSentence,
         ),
         (
             "[[mutation.edit]]\nline = 18\ndelete = true\n".into(),
-            Some(0),
-            NonRuleSentence,
-        ),
-        (
-            "[[mutation.edit]]\nfind = \"[bracket]\"\nreplace = \"[strict]\"\n".into(),
             Some(0),
             NonRuleSentence,
         ),
@@ -1018,19 +1017,28 @@ fn every_reason_is_produced_or_listed_as_defensive() {
         SpanChanged,
         // Re-pin L1-3-fix-2: produced by tests/deep_rules.rs.
         EditedRuleTooDeep,
+        // PJ-34: produced by the grammar tests below.
+        NoProgramParser,
+        UnreadDeclaration,
+        RuleAndGrammarEdits,
     ];
     let all = produced
         .iter()
         .chain(&DEFENSIVE)
         .chain(&HOST)
+        .chain(&NOT_RUN)
         .map(|r| r.as_str())
         .collect::<BTreeSet<_>>();
-    assert_eq!(all.len(), produced.len() + DEFENSIVE.len() + HOST.len());
+    assert_eq!(
+        all.len(),
+        produced.len() + DEFENSIVE.len() + HOST.len() + NOT_RUN.len()
+    );
     // Every reason but the host's is an `invalid-mutation` row.
     for reason in produced.iter().chain(&DEFENSIVE) {
         assert_eq!(reason.status(), "invalid-mutation", "{}", reason.as_str());
     }
     assert_eq!(InvalidReason::HostStackRefused.status(), "error");
+    assert_eq!(InvalidReason::GrammarNotRun.status(), "error");
     // CF-18: `ALL` lists every reason once, each parses back from its name and has a next step.
     assert_eq!(
         InvalidReason::ALL
@@ -1046,14 +1054,20 @@ fn every_reason_is_produced_or_listed_as_defensive() {
     }
     assert_eq!(InvalidReason::parse("no-such-reason"), None);
     // An exhaustive match: a new reason fails to compile here until it is listed.
-    for reason in produced.iter().chain(&DEFENSIVE).chain(&HOST) {
+    for reason in produced
+        .iter()
+        .chain(&DEFENSIVE)
+        .chain(&HOST)
+        .chain(&NOT_RUN)
+    {
         match reason {
             UnknownFile | FileRequired | UnknownLabel | AmbiguousLabel | LineOutsideRules
             | LineAmbiguous | AddressMismatch | NonRuleSentence | NoUsableSpan | FindNotFound
             | FindAmbiguous | EditOutsideRule | OverlappingEdits | SourceChanged
             | EditedLoadFailed | StructureChanged | LabelChanged | NoChange | PatchRejected
             | SourceViewMismatch | MarkdownEnvelope | SpanChanged | EditedRuleTooDeep
-            | HostStackRefused => {}
+            | HostStackRefused | NoProgramParser | UnreadDeclaration | RuleAndGrammarEdits
+            | GrammarNotRun => {}
             // A front end's reason (CF-40): kink-flow never constructs it, so no test here
             // produces it and `ALL` does not list it.
             External { .. } => {}
@@ -2227,4 +2241,516 @@ fn a_requires_that_holds_everywhere_keeps_the_axiom() {
             "{edits}"
         );
     }
+}
+
+// ---------------------------------------------------------------------------------------
+// Grammar edits (PJ-34): a production, a token, a lexical, priority or associativity
+// declaration, addressed by `production`, `line` or `find` and read without parsing a rule.
+
+const GRAMMAR_K: &str = include_str!("../../../testdata/k/grammar.k");
+
+/// A specification of one file `name` with `text`, main module `main` and syntax module
+/// `<main>-SYNTAX`.
+fn grammar_spec(test: &str, name: &str, text: &str, main: &str) -> Spec {
+    let dir = scratch(test);
+    write(&dir.join(name), text);
+    write(
+        &dir.join("FLOW.toml"),
+        &format!(
+            "[spec]\nentry = \"{name}\"\nmain_module = \"{main}\"\nsyntax_module = \"{main}-SYNTAX\"\n"
+        ),
+    );
+    Spec::at(&dir.join("FLOW.toml"))
+}
+
+/// Productions whose labels K derives from their literals, with rules that use the literals.
+const DERIVED_K: &str = r#"module D-SYNTAX
+  imports INT-SYNTAX
+  syntax Num = Int
+  syntax Exp ::= Int
+               | Exp "*" Exp [left]
+               > Exp "+" Exp [left]
+  syntax Exp ::= "num" Num [symbol(num)]
+endmodule
+
+module D
+  imports D-SYNTAX
+  imports INT
+  configuration <k> $PGM:Exp </k>
+  rule I1:Int + I2:Int => I1 +Int I2
+  rule I1:Int * I2:Int => I1 *Int I2
+endmodule
+"#;
+
+/// The kind and baseline address of every edit of a patch, an insertion by its module.
+fn grammar_shape(resolved: &ResolvedMutation) -> Vec<(&'static str, String)> {
+    resolved
+        .patch
+        .edits()
+        .iter()
+        .map(|edit| match edit {
+            Edit::ReplaceSentence { at, replacement } => (
+                kind_name(replacement),
+                format!("replace {}#{}", at.module, at.index),
+            ),
+            Edit::DeleteSentence { at } => ("-", format!("delete {}#{}", at.module, at.index)),
+            Edit::InsertSentence {
+                position: kink_patch::InsertPosition::ModuleEnd(module),
+                sentence,
+                ..
+            } => (kind_name(sentence), format!("insert {module}")),
+            other => panic!("unexpected edit {other:?}"),
+        })
+        .collect()
+}
+
+fn kind_name(sentence: &Sentence) -> &'static str {
+    match sentence {
+        Sentence::Production { .. } => "production",
+        Sentence::SyntaxLexical { .. } => "lexical",
+        Sentence::SyntaxPriority { .. } => "priority",
+        Sentence::SyntaxAssociativity { .. } => "associativity",
+        _ => "other",
+    }
+}
+
+fn edit_of(anchor: &str, find: &str, replace: &str) -> String {
+    format!(
+        "[[mutation.edit]]\n{anchor}\nfind = {}\nreplace = {}\n",
+        serde_json::to_string(find).unwrap(),
+        serde_json::to_string(replace).unwrap()
+    )
+}
+
+/// The baseline sentence `at` of `spec` with the label of the production it is.
+fn production_label(spec: &Spec, at: &SentenceRef) -> Option<String> {
+    match spec.sentence(at) {
+        Sentence::Production { label, .. } => label.as_ref().map(|l| l.name.clone()),
+        _ => None,
+    }
+}
+
+/// Each kind of grammar sentence is editable by its anchor: a production's literal by its name, a
+/// token's regex and a lexical declaration by their text or line, a `>` between groups, a
+/// standalone priority declaration, a `[left]` attribute (whose associativity sentence goes, or
+/// comes), and the row shows the declaration before and after.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One table of edits, one per kind of grammar sentence."
+)]
+fn every_kind_of_grammar_sentence_is_editable() {
+    let spec = grammar_spec("grammar-kinds", "grammar.k", GRAMMAR_K, "GRAMMAR");
+    let line = |text: &str| {
+        1 + GRAMMAR_K[..GRAMMAR_K.find(text).unwrap()]
+            .matches('\n')
+            .count()
+    };
+    let lexical = line("syntax lexical");
+    let neg = line("| \"neg\"");
+    let cases: Vec<(String, Vec<(&str, &str)>)> = vec![
+        // A production's literal, by its name.
+        (
+            edit_of("production = \"print\"", "\"print\"", "\"show\""),
+            vec![("production", "replace GRAMMAR-SYNTAX#12")],
+        ),
+        // A token's regex, by its text alone.
+        (
+            edit_of("", "([.]{Digit}*)?", "([,]{Digit}*)?"),
+            vec![("production", "replace GRAMMAR-SYNTAX#1")],
+        ),
+        // A lexical declaration, by its line.
+        (
+            edit_of(&format!("line = {lexical}"), "[0-9]", "[0-7]"),
+            vec![("lexical", "replace GRAMMAR-SYNTAX#0")],
+        ),
+        // A `>` between groups becomes `|`: only the declaration's priority sentence changes.
+        (
+            edit_of("production = \"add\"", "> Exp \"+\"", "| Exp \"+\""),
+            vec![("priority", "replace GRAMMAR-SYNTAX#3")],
+        ),
+        // A standalone priority declaration.
+        (
+            edit_of("", "syntax priority mul > neg", "syntax priority add > neg"),
+            vec![("priority", "replace GRAMMAR-SYNTAX#11")],
+        ),
+        // `[left]` changed: the production's attribute and its associativity sentence.
+        (
+            edit_of(
+                "production = \"mul\"",
+                "[left, symbol(mul)]",
+                "[right, symbol(mul)]",
+            ),
+            vec![
+                ("production", "replace GRAMMAR-SYNTAX#6"),
+                ("associativity", "replace GRAMMAR-SYNTAX#7"),
+            ],
+        ),
+        // `[left]` removed: its associativity sentence is deleted.
+        (
+            edit_of("production = \"mul\"", "left, symbol(mul)", "symbol(mul)"),
+            vec![
+                ("production", "replace GRAMMAR-SYNTAX#6"),
+                ("-", "delete GRAMMAR-SYNTAX#7"),
+            ],
+        ),
+        // `[right]` added, by line: an associativity sentence is inserted.
+        (
+            edit_of(
+                &format!("line = {neg}"),
+                "[symbol(neg)]",
+                "[right, symbol(neg)]",
+            ),
+            vec![
+                ("production", "replace GRAMMAR-SYNTAX#10"),
+                ("associativity", "insert GRAMMAR-SYNTAX"),
+            ],
+        ),
+        // A whole declaration deleted.
+        (
+            format!(
+                "[[mutation.edit]]\nline = {}\ndelete = true\n",
+                line("syntax priority")
+            ),
+            vec![("-", "delete GRAMMAR-SYNTAX#11")],
+        ),
+    ];
+    for (edits, expected) in cases {
+        let resolved = spec
+            .resolve_edits(&edits)
+            .unwrap_or_else(|e| panic!("{edits}: {e}"));
+        let shape = grammar_shape(&resolved);
+        let shape = shape
+            .iter()
+            .map(|(kind, at)| (*kind, at.as_str()))
+            .collect::<Vec<_>>();
+        assert_eq!(shape, expected, "{edits}");
+        assert!(resolved.is_grammar(), "{edits}");
+        assert!(resolved.overlay().is_empty(), "{edits}");
+        let [rule] = resolved.rules.as_slice() else {
+            panic!("{edits}: one declaration");
+        };
+        assert_eq!(rule.kind, EditedKind::Grammar);
+        // The row shows the declaration as it was and as it is.
+        let view = &resolved.edited_views["grammar.k"];
+        assert!(GRAMMAR_K.contains(&rule.before), "{edits}");
+        match &rule.after {
+            Some(after) => {
+                assert!(view.contains(after.as_str()), "{edits}");
+                assert_ne!(after, &rule.before, "{edits}");
+            }
+            None => assert!(edits.contains("delete = true"), "{edits}"),
+        }
+        // Run does not judge it yet.
+        let refusal = resolved
+            .generation(&spec.loaded.baseline)
+            .map(|_| ())
+            .expect_err("no generation of a grammar mutation");
+        assert_eq!(refusal.reason, InvalidReason::GrammarNotRun, "{edits}");
+        assert_eq!(refusal.reason.status(), "error");
+    }
+
+    // The row of a production names it and shows its whole declaration.
+    let resolved = spec
+        .resolve_edits(&edit_of("production = \"print\"", "\"print\"", "\"show\""))
+        .unwrap();
+    let rule = &resolved.rules[0];
+    assert_eq!(rule.label.as_deref(), Some("print"));
+    assert_eq!(
+        (rule.start_line, rule.end_line),
+        (
+            u32::try_from(line("syntax Stmt")).unwrap(),
+            u32::try_from(line("| \"tag\"")).unwrap()
+        )
+    );
+    assert_eq!(
+        rule.before,
+        "syntax Stmt ::= \"print\" Exp \";\" [symbol(print)]\n                | \"tag\" Tag [symbol(tag)]"
+    );
+    assert_eq!(
+        rule.after.as_deref(),
+        Some(
+            "syntax Stmt ::= \"show\" Exp \";\" [symbol(print)]\n                | \"tag\" Tag [symbol(tag)]"
+        )
+    );
+    // The edited production keeps its label: the rules' terms name it.
+    let Edit::ReplaceSentence { at, replacement } = &resolved.patch.edits()[0] else {
+        panic!("a replacement");
+    };
+    let Sentence::Production { label, items, .. } = replacement else {
+        panic!("a production");
+    };
+    assert_eq!(label.as_ref().map(|l| l.name.as_str()), Some("print"));
+    assert_eq!(production_label(&spec, at).as_deref(), Some("print"));
+    assert!(format!("{items:?}").contains("show"), "{items:?}");
+}
+
+/// A production whose label K derives from its literals keeps the baseline's label (the rules'
+/// terms use it), and so do its declaration's priority and associativity tags; the edited load,
+/// which would parse the rules under the edited grammar, does not even load.
+#[test]
+fn a_derived_label_is_kept_and_rules_keep_their_terms() {
+    let spec = grammar_spec("grammar-derived", "d.k", DERIVED_K, "D");
+    let resolved = spec
+        .resolve_edits(&edit_of("", "\"+\"", "\"plus\""))
+        .unwrap();
+    // Only the production changes: its associativity and the priority name it as before.
+    assert_eq!(
+        grammar_shape(&resolved),
+        [("production", "replace D-SYNTAX#5".to_owned())]
+    );
+    let Edit::ReplaceSentence { at, replacement } = &resolved.patch.edits()[0] else {
+        panic!("a replacement");
+    };
+    let Sentence::Production { label, .. } = replacement else {
+        panic!("a production");
+    };
+    assert_eq!(
+        label.as_ref().map(|l| l.name.clone()),
+        production_label(&spec, at)
+    );
+    assert_eq!(
+        label.as_ref().map(|l| l.name.as_str()),
+        Some("_+__D-SYNTAX_Exp_Exp_Exp")
+    );
+    // The text edit as an edited load: the rule `I1:Int + I2:Int` no longer parses.
+    let mut overlay = BTreeMap::new();
+    overlay.insert("d.k".to_owned(), resolved.edited_views["d.k"].clone());
+    assert!(load_source_with_overlay(&corpus_source(&spec.manifest), &overlay).is_err());
+    // A derived label another production has is refused.
+    expect_invalid(
+        spec.resolve_edits(&edit_of("", "\"+\"", "\"*\"")),
+        Some(0),
+        InvalidReason::StructureChanged,
+    );
+    // A sort synonym the load resolves after lowering: the outer reading is not the loaded one.
+    expect_invalid(
+        spec.resolve_edits(&edit_of("production = \"num\"", "\"num\"", "\"n\"")),
+        Some(0),
+        InvalidReason::UnreadDeclaration,
+    );
+}
+
+/// Grammar edits that do not resolve: each reason with its producing edit.
+#[test]
+fn grammar_edits_that_do_not_resolve() {
+    use InvalidReason::*;
+    let spec = grammar_spec("grammar-refusals", "grammar.k", GRAMMAR_K, "GRAMMAR");
+    let line = |text: &str| {
+        1 + GRAMMAR_K[..GRAMMAR_K.find(text).unwrap()]
+            .matches('\n')
+            .count()
+    };
+    let cases: Vec<(String, InvalidReason)> = vec![
+        // A priority cycle: mul > neg in the block, neg > mul here.
+        (
+            edit_of("", "syntax priority mul > neg", "syntax priority neg > mul"),
+            NoProgramParser,
+        ),
+        // An invalid regex.
+        (edit_of("", "[0-9]", "[0-9"), NoProgramParser),
+        // A declared symbol is the constructor's name.
+        (
+            edit_of("production = \"print\"", "symbol(print)", "symbol(show)"),
+            LabelChanged,
+        ),
+        // A tag a priority declaration names is no longer declared.
+        (
+            edit_of("production = \"mul\"", "symbol(mul)", "symbol(times)"),
+            EditedLoadFailed,
+        ),
+        // Layout only.
+        (
+            edit_of("production = \"print\"", "\"print\" Exp", "\"print\"  Exp"),
+            NoChange,
+        ),
+        // Text that does not parse.
+        (
+            edit_of("production = \"print\"", "\"print\"", "\"print"),
+            EditedLoadFailed,
+        ),
+        // A text that writes a second declaration.
+        (
+            edit_of(
+                "production = \"tag\"",
+                "[symbol(tag)]",
+                "[symbol(tag)]\n  syntax Other",
+            ),
+            StructureChanged,
+        ),
+        // `delete = true` of a declaration of several productions.
+        (
+            "[[mutation.edit]]\nproduction = \"neg\"\ndelete = true\n".into(),
+            StructureChanged,
+        ),
+        // A name no production has, and a sort declaration.
+        (edit_of("production = \"times\"", "a", "b"), UnknownLabel),
+        (
+            edit_of(&format!("line = {}", line("syntax Note")), "Note", "Notes"),
+            NonRuleSentence,
+        ),
+        // `find` outside the production's declaration.
+        (
+            edit_of("production = \"print\"", "syntax priority", "syntax left"),
+            EditOutsideRule,
+        ),
+        // A line in another declaration than the production's.
+        (
+            edit_of(
+                &format!("production = \"mul\"\nline = {}", line("syntax Stmt")),
+                "a",
+                "b",
+            ),
+            AddressMismatch,
+        ),
+        // A rule edited beside a grammar declaration.
+        (
+            format!(
+                "{}{}",
+                edit_of("rule = \"run\"", ".K", "print 1 ;"),
+                edit_of("production = \"print\"", "\"print\"", "\"show\"")
+            ),
+            RuleAndGrammarEdits,
+        ),
+        // Two edits of one declaration that overlap.
+        (
+            format!(
+                "{}{}",
+                edit_of("production = \"print\"", "\"print\" Exp", "\"show\" Exp"),
+                edit_of("production = \"tag\"", "Exp \";\"", "Exp \",\"")
+            ),
+            OverlappingEdits,
+        ),
+    ];
+    for (edits, reason) in cases {
+        let result = spec.resolve_edits(&edits);
+        match result {
+            Ok(resolved) => panic!(
+                "{edits}: expected {reason:?}, got {:?}",
+                grammar_shape(&resolved)
+            ),
+            Err(invalid) => {
+                assert_eq!(invalid.reason, reason, "{edits}: {invalid}");
+                assert!(!invalid.detail.is_empty(), "{edits}");
+            }
+        }
+    }
+    // Decoding: `rule` and `production` exclude each other.
+    let error = MutationList::decode(
+        "[[mutation]]\nid = \"m\"\nmisunderstanding = \"m\"\n[[mutation.edit]]\nrule = \"run\"\nproduction = \"print\"\nfind = \"a\"\nreplace = \"b\"\n",
+    )
+    .unwrap_err();
+    assert!(error.message.contains("not both"), "{}", error.message);
+}
+
+/// The KRS emission: a production is named by the symbol KRS derives from its item, and a literal
+/// the rules use is editable (an edited load would reparse the rules); a Markdown specification's
+/// grammar edit is K text, as a rule edit's is; calc's `left:` group by line, and its bracket.
+#[test]
+fn a_krs_production_and_a_markdown_production_are_editable() {
+    let story = include_str!("../../../../docs-site/story/plus/kink/definition.k");
+    let spec = grammar_spec("grammar-krs", "definition.k", story, "NAT");
+    let resolved = spec
+        .resolve_edits(&edit_of("production = \"natSyntaxSucc\"", "\"s\"", "\"t\""))
+        .unwrap();
+    assert_eq!(
+        grammar_shape(&resolved),
+        [("production", "replace NAT-SYNTAX#1".to_owned())]
+    );
+    assert_eq!(resolved.rules[0].label.as_deref(), Some("natSyntaxSucc"));
+    let mut overlay = BTreeMap::new();
+    overlay.insert(
+        "definition.k".to_owned(),
+        resolved.edited_views["definition.k"].clone(),
+    );
+    assert!(load_source_with_overlay(&corpus_source(&spec.manifest), &overlay).is_err());
+
+    let markdown = Spec::fixture("markdown");
+    let resolved = markdown
+        .resolve_edits(&edit_of("production = \"inc\"", "\"inc\"", "\"incr\""))
+        .unwrap();
+    let rule = &resolved.rules[0];
+    assert_eq!(rule.label.as_deref(), Some("inc"));
+    assert!(
+        rule.before.starts_with("syntax Exp ::= Int"),
+        "{}",
+        rule.before
+    );
+    assert!(
+        rule.after.as_deref().unwrap().contains("\"incr\" Exp"),
+        "{rule:?}"
+    );
+    assert!(!resolved.edited_views["spec.md"].contains("```"));
+
+    let calc = Spec::fixture("calc");
+    // calc.k line 10: `> left:` before `+`.
+    let resolved = calc
+        .resolve_edits(&edit_of(
+            "line = 10",
+            "left:\n                 Exp \"+\"",
+            "right:\n                 Exp \"+\"",
+        ))
+        .unwrap();
+    assert_eq!(
+        grammar_shape(&resolved),
+        [("associativity", "replace CALC-SYNTAX#5".to_owned())]
+    );
+    // A bracket made a production: its label and the priority tags follow.
+    let resolved = calc
+        .resolve_edits(&edit_of("", "[bracket]", "[strict]"))
+        .unwrap();
+    assert!(resolved.is_grammar());
+}
+
+/// Tags resolve across files: a priority declaration of one file names a group a production of
+/// another file declares; each file's declarations are editable, and an edit of one file that
+/// leaves the other's tag undeclared is refused.
+#[test]
+fn grammar_edits_read_the_tags_of_every_file() {
+    let dir = scratch("grammar-two-files");
+    write(
+        &dir.join("lib.k"),
+        "module LIB-SYNTAX\n  imports INT-SYNTAX\n  syntax Exp ::= Int\n               | Exp \"*\" Exp [symbol(mul), group(mulg)]\n               | Exp \"+\" Exp [symbol(add)]\nendmodule\n",
+    );
+    write(
+        &dir.join("main.k"),
+        "requires \"lib.k\"\n\nmodule MAIN-SYNTAX\n  imports LIB-SYNTAX\n  syntax priority mulg > add\nendmodule\n\nmodule MAIN\n  imports MAIN-SYNTAX\n  imports INT\n  configuration <k> $PGM:Exp </k>\n  rule [add]: I1:Int + I2:Int => I1 +Int I2\nendmodule\n",
+    );
+    write(
+        &dir.join("FLOW.toml"),
+        "[spec]\nentry = \"main.k\"\nmain_module = \"MAIN\"\nsyntax_module = \"MAIN-SYNTAX\"\n",
+    );
+    let spec = Spec::at(&dir.join("FLOW.toml"));
+    // The other file's priority declaration still names `mulg`.
+    let resolved = spec
+        .resolve_edits(&edit_of(
+            "production = \"mul\"\nfile = \"lib.k\"",
+            "\"*\"",
+            "\"x\"",
+        ))
+        .unwrap();
+    assert_eq!(
+        grammar_shape(&resolved),
+        [("production", "replace LIB-SYNTAX#1".to_owned())]
+    );
+    // The priority declaration reads the group of the other file.
+    let resolved = spec
+        .resolve_edits(&edit_of("file = \"main.k\"", "mulg > add", "add > mulg"))
+        .unwrap();
+    assert_eq!(
+        grammar_shape(&resolved),
+        [("priority", "replace MAIN-SYNTAX#0".to_owned())]
+    );
+    // The group gone, the other file's declaration names no production.
+    expect_invalid(
+        spec.resolve_edits(&edit_of("production = \"mul\"", ", group(mulg)", "")),
+        Some(0),
+        InvalidReason::EditedLoadFailed,
+    );
+    // A configuration's cell production is not a grammar declaration's.
+    expect_invalid(
+        spec.resolve_edits(&edit_of("production = \"<k>\"", "k", "j")),
+        Some(0),
+        InvalidReason::NonRuleSentence,
+    );
 }

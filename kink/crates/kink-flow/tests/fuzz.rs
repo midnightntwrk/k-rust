@@ -1072,6 +1072,38 @@ program = "t2"
   allow-refused-sort = true
 "#;
 
+/// PJ-34: a kill job of a grammar mutation is refused before any compile (`error`,
+/// `grammar-not-run`), as `run` refuses it: its mutant would be judged on the cases as the
+/// specification parses them, not as its own grammar does.
+#[test]
+fn a_kill_job_of_a_grammar_mutation_is_refused() {
+    let dir = scratch("kill-grammar");
+    flow_support::copy_dir(&flow("calc"), &dir);
+    fs::write(
+        dir.join("GRAMMAR.toml"),
+        "[[mutation]]\nid = \"plus\"\nmisunderstanding = \"+ is spelt plus\"\n\n  [[mutation.edit]]\n  production = \"add\"\n  find = \"\\\"+\\\"\"\n  replace = \"\\\"plus\\\"\"\n",
+    )
+    .unwrap();
+    let (document, ok) = fuzz_kill(
+        &dir,
+        "GRAMMAR.toml",
+        Some("[[template]]\nid = \"add\"\nprogram = \"add\"\n"),
+        "add",
+        "plus",
+        FuzzOptions::default(),
+    );
+    assert!(!ok, "{document:#}");
+    assert_eq!(
+        (&document["job"]["status"], &document["job"]["reason"]),
+        (
+            &serde_json::json!("error"),
+            &serde_json::json!("grammar-not-run")
+        ),
+        "{document:#}"
+    );
+    assert_eq!(document["attempts"], serde_json::json!([]), "{document:#}");
+}
+
 mod kink_tier {
     use super::*;
 

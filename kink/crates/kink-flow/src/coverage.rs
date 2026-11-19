@@ -1139,7 +1139,8 @@ fn run_flips(
             Judged::Admitted { .. } => {
                 let mutation = entry.mutation().expect("an admitted flip has its edits");
                 let resolution =
-                    crate::mutation::resolve(context.manifest, &context.spec.loaded, &mutation);
+                    crate::mutation::resolve(context.manifest, &context.spec.loaded, &mutation)
+                        .and_then(|resolved| resolved.run_refusal().map_or(Ok(resolved), Err));
                 match &resolution {
                     Err(invalid) => {
                         item["status"] = json!(crate::flips::REFUSED);

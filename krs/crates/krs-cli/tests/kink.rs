@@ -3692,6 +3692,34 @@ fn check_refuses_what_krs_refuses_of_the_mutations_source() {
     );
 }
 
+/// PJ-34: a grammar edit of a production KRS emits is anchored by the symbol KRS derives from its
+/// item (`ExpSyntax::Other` is `expSyntaxOther`); kink-flow resolves it, though the rules use the
+/// literal, and shows its declaration, and the krs front end refuses it `not-judged`: KRS does not
+/// judge an edit of a declaration it emits yet (U34g).
+#[test]
+fn a_production_edit_resolves_and_the_front_end_does_not_judge_it() {
+    let project = checked();
+    project.write(
+        "kink/check-grammar.toml",
+        "[[mutation]]\nid = \"other-literal\"\nmisunderstanding = \"`other` is spelt `another`\"\n\n  [[mutation.edit]]\n  production = \"expSyntaxOther\"\n  find = \"\\\"other\\\"\"\n  replace = \"\\\"another\\\"\"\n",
+    );
+    let output = project.kink("check", &["--mutations", "kink/check-grammar.toml"]);
+    assert_status(&output, 2);
+    let document = json(&output);
+    let row = row(&document, "other-literal");
+    let rule = &row["rules"][0];
+    assert_eq!(
+        (&rule["kind"], &rule["label"]),
+        (&json!("grammar"), &json!("expSyntaxOther")),
+        "{row:#}"
+    );
+    assert!(
+        rule["after"].as_str().unwrap().contains("\"another\""),
+        "{row:#}"
+    );
+    assert_eq!(reasons(row), (vec!["not-judged"], vec![]), "{row:#}");
+}
+
 /// `run` gives each mutation the front end refuses its first refusal, runs nothing for it, runs
 /// the rest, and exits non-zero.
 #[test]
@@ -6436,7 +6464,7 @@ fn a_case_expectation_is_reported_and_its_case_kept() {
     let output = project.kink("check", &[]);
     assert_status(&output, 0);
     let check = json(&output);
-    assert_eq!(check["version"], 19, "{check:#}");
+    assert_eq!(check["version"], 20, "{check:#}");
     assert_eq!(results["result_cache"]["enabled"], true, "{results:#}");
     assert_eq!(verdicts(&check), expected, "{check:#}");
 

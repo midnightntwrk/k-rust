@@ -697,6 +697,7 @@ impl<'a> Speller<'a> {
         Ok(EditSpec {
             file: None,
             rule: Some(rule.label.clone()),
+            production: None,
             line: None,
             action: EditAction::Replace {
                 find: self.text(&find).to_owned(),

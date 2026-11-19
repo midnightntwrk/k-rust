@@ -91,6 +91,7 @@ fn edit(rule: &str, find: &str, replace: &str) -> EditSpec {
     EditSpec {
         file: None,
         rule: Some(rule.to_owned()),
+        production: None,
         line: None,
         action: EditAction::Replace {
             find: find.to_owned(),

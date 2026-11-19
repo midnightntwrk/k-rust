@@ -1446,7 +1446,7 @@ fn a_case_expectation_is_checked_by_the_front_ends_renderer() {
         )
     });
     assert_eq!(status, kink_flow::cli::EXIT_YES, "{check:#}");
-    assert_eq!(check["version"], 19, "{check:#}");
+    assert_eq!(check["version"], 20, "{check:#}");
     assert_eq!(expectations(&check), reported, "{check:#}");
 
     // A refused expectation refuses its case.
@@ -1716,7 +1716,7 @@ fn check_with_warns_of_a_scope_no_flow_given_reads() {
 
     let (alone, status) = checked(Vec::new(), None);
     assert_eq!(status, kink_flow::cli::EXIT_YES, "{alone:#}");
-    assert_eq!(alone["version"], 19, "{alone:#}");
+    assert_eq!(alone["version"], 20, "{alone:#}");
     assert_eq!(alone.get("with"), None, "{alone:#}");
     assert!(warnings(&alone).is_empty(), "{alone:#}");
 

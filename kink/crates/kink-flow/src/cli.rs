@@ -123,6 +123,9 @@ A mutation (MUTATIONS.toml):
   expect = \"kill\"                   # optional, \"kill\" or \"survive\": run fails when unmet
     [[mutation.edit]]               # one or more, applied together
     rule = \"add\"                    # a rule label, or a unique suffix of its components
+                                    # (or production = \"mul\": a grammar edit of mul's
+                                    # syntax declaration, which check resolves and run does
+                                    # not judge yet)
     find = \"I1 +Int I2\"             # exact text, exactly once in that rule
     replace = \"I1 -Int I2\"          # its replacement
     # or, in place of find and replace: delete = true, which removes the rule
@@ -3354,7 +3357,13 @@ fn admission_status(admission: &FlowAdmission) -> u8 {
 /// `expectation`, met or unmet ([`crate::expect::rejection_check`]); neither decides the exit
 /// status. A flow whose entries state no rejection gives version 18's document but for its
 /// version.
-pub const CHECK_VERSION: u64 = 19;
+/// 20 (PJ-34) resolves grammar edits: an edit addressed by `production = NAME`, or by a line or
+/// text in a grammar declaration, resolves (where it was `non-rule-sentence`), its row's `rules`
+/// entry has `kind: "grammar"` and the declaration's lines and texts, the anchor warnings name
+/// `production = NAME`, and the refusals `no-program-parser`, `unread-declaration` and
+/// `rule-and-grammar-edits` are new. A list whose edits are all rule edits gives version 19's
+/// document but for its version.
+pub const CHECK_VERSION: u64 = 20;
 
 /// The check document's members, and under the Z3 profile `z3` ([`crate::with_z3_build`]); every
 /// document a verb gives for a manifest that does not decode is built from it

@@ -1238,6 +1238,7 @@ mod clock {
                     edits: vec![EditSpec {
                         file: None,
                         rule: Some("countdown".to_owned()),
+                        production: None,
                         line: None,
                         action: EditAction::Replace {
                             find: "requires I >Int 0".to_owned(),

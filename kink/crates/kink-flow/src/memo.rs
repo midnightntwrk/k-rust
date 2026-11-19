@@ -39,8 +39,8 @@
 //!   (`load_source_with_overlay` with `admit::corpus_source`). Before any record is read, every
 //!   source file must still have its recorded SHA-256 ([`sources_unchanged`]), so the files the
 //!   uncached path would read are the ones the key names;
-//! - the mutation's edits, in order, every field ([`mutation_entry`]: `file`, `rule`, `line`,
-//!   `find`/`replace` or `delete`). Its `id` only names the row and its `note` is never read by
+//! - the mutation's edits, in order, every field ([`mutation_entry`]: `file`, `rule`,
+//!   `production` where an edit has one, `line`, `find`/`replace` or `delete`). Its `id` only names the row and its `note` is never read by
 //!   resolution;
 //! - kink's build (`kink_build`, which also fixes the linked k-rust, the load options and every
 //!   algorithm with or without a version) and its semantics identity (`kink`);
@@ -104,7 +104,7 @@
 
 use crate::{
     manifest::Budget,
-    mutation::{EditAction, EditSpec, EditedRule, Mutation},
+    mutation::{EditAction, EditSpec, EditedKind, EditedRule, Mutation},
 };
 use kink_corpus::{LoadedSource, Store};
 use kink_native::DeclarationCensus;
@@ -175,6 +175,7 @@ impl Facts {
             "rules": self.rules.iter().map(|rule| {
                 let EditedRule {
                     at,
+                    kind,
                     edits,
                     file,
                     label,
@@ -183,7 +184,7 @@ impl Facts {
                     before,
                     after,
                 } = rule;
-                json!({
+                let mut value = json!({
                     "module": at.module,
                     "index": at.index,
                     "edits": edits,
@@ -193,7 +194,12 @@ impl Facts {
                     "end_line": end_line,
                     "before": before,
                     "after": after,
-                })
+                });
+                // A rule's record is as before grammar edits existed (no `kind` key).
+                if *kind == EditedKind::Grammar {
+                    value["kind"] = json!("grammar");
+                }
+                value
             }).collect::<Vec<_>>(),
             "identity": self.identity.map(|identity| identity.to_string()),
             "typing_diagnostics": self.typing_diagnostics,
@@ -210,6 +216,11 @@ impl Facts {
             .iter()
             .map(|rule| {
                 Some(EditedRule {
+                    kind: match rule.get("kind") {
+                        None => EditedKind::Rule,
+                        Some(kind) if kind == "grammar" => EditedKind::Grammar,
+                        Some(_) => return None,
+                    },
                     at: SentenceRef::new(
                         rule["module"].as_str()?,
                         u32::try_from(rule["index"].as_u64()?).ok()?,
@@ -285,6 +296,7 @@ pub fn mutation_entry(mutation: &Mutation) -> Value {
                 let EditSpec {
                     file,
                     rule,
+                    production,
                     line,
                     action,
                 } = edit;
@@ -292,14 +304,20 @@ pub fn mutation_entry(mutation: &Mutation) -> Value {
                     EditAction::Replace { find, replace } => (json!(find), json!(replace), false),
                     EditAction::Delete => (Value::Null, Value::Null, true),
                 };
-                json!({
+                let mut entry = json!({
                     "file": file,
                     "rule": rule,
                     "line": line,
                     "find": find,
                     "replace": replace,
                     "delete": delete,
-                })
+                });
+                // Only an edit that has one names it, so every key of an edit without one is as
+                // before `production` existed.
+                if let Some(production) = production {
+                    entry["production"] = json!(production);
+                }
+                entry
             })
             .collect(),
     )

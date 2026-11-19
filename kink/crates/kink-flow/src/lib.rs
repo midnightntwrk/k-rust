@@ -127,9 +127,9 @@ pub use manifest::{
     Relation, SpecDecl, SpecSection, StopSection, StopWhenSection, StopWhenSlot, ViewSection,
 };
 pub use mutation::{
-    EditAction, EditSpec, EditedRule, Expect, Expected, InvalidMutation, InvalidReason, LabelMatch,
-    Mutation, MutationList, ResolvedEdit, ResolvedMutation, RuleText, addressed_rule, label_match,
-    resolve, rule_texts,
+    EditAction, EditSpec, EditedKind, EditedRule, Expect, Expected, InvalidMutation, InvalidReason,
+    LabelMatch, Mutation, MutationList, ResolvedEdit, ResolvedMutation, RuleText, addressed_item,
+    addressed_rule, label_match, resolve, rule_texts,
 };
 pub use names::{RuleRef, visit_rules};
 pub use observed::{ResultProjection, ResultRefusal, result_projection};

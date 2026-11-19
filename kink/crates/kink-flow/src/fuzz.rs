@@ -2642,7 +2642,9 @@ pub fn fuzz_front(
         Some(mutation_entry) => {
             let resolution = match front.refused.get(&mutation_entry.id) {
                 Some(refusal) => Err(refusal.clone()),
-                None => resolve(manifest, &spec.loaded, mutation_entry),
+                // A grammar mutation is not judged yet (`grammar-not-run`), as `run` refuses it.
+                None => resolve(manifest, &spec.loaded, mutation_entry)
+                    .and_then(|resolved| resolved.run_refusal().map_or(Ok(resolved), Err)),
             };
             let resolved = match resolution {
                 Ok(resolved) => resolved,
@@ -2657,6 +2659,12 @@ pub fn fuzz_front(
                     let action = match invalid.reason {
                         InvalidReason::External { next, .. } => {
                             format!("fix the mutation: {next}")
+                        }
+                        InvalidReason::GrammarNotRun => {
+                            format!(
+                                "no kill job judges it: {}",
+                                InvalidReason::GrammarNotRun.next_step()
+                            )
                         }
                         _ => "fix the mutation: it does not resolve".to_owned(),
                     };

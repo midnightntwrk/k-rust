@@ -44,7 +44,7 @@ Its corpus is `<package>/kink/`, with a `FLOW.toml` whose `[spec]` is `krs = { p
 3. **Mutation list.** Write `MUTATIONS.toml` (or one `<topic>.toml` per topic in a mutations directory): edits of rules that are likely to expose bugs,
    either single edits (one `+Int` becomes `-Int`) or correlated edits (several rules changed together as one mutation),
    each with the plausible misunderstanding of the specification it writes (`misunderstanding`).
-   `kink-flow check FLOW.toml --mutations MUTATIONS.toml` resolves every mutation without compiling or running anything: it shows each edited rule before and after, and refuses a mutation that does not resolve (a stale anchor, overlapping edits, an edit of a sentence that is not a rule) with what to do next.
+   `kink-flow check FLOW.toml --mutations MUTATIONS.toml` resolves every mutation without compiling or running anything: it shows each edited rule (or grammar declaration) before and after, and refuses a mutation that does not resolve (a stale anchor, overlapping edits, an edit of a sentence that is neither a rule nor a grammar declaration) with what to do next.
    A mutant kink does not compile is found only by `run` (status `not-admitted`).
    Every run report lists the rules no mutation targets yet (`untargeted_rules`, with each rule's K text and how to address it).
 4. **Kill search with an outcome cache.** `kink-flow run` checks, for each mutation, whether some program's final configuration changes.

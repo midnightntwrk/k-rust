@@ -89,7 +89,8 @@ use crate::{
     digest::execution_digest,
     manifest::{FlowManifest, ManifestFile},
     mutation::{
-        InvalidMutation, Mutation, MutationList, ResolvedMutation, addressed_rule, resolve,
+        EditedKind, InvalidMutation, Mutation, MutationList, ResolvedMutation, addressed_item,
+        resolve,
     },
     report::rules_value,
     results::{ResultClass, cache_directory, current_record, no_coverage_signal, result_store},
@@ -914,19 +915,29 @@ fn warnings(
             .rules
             .iter()
             .find(|rule| rule.edits.contains(&edit))
-            .map(|rule| (rule.at.clone(), rule.label.clone())),
-        None => addressed_rule(manifest, loaded, &mutation.edits[edit]),
+            .map(|rule| (rule.at.clone(), rule.label.clone(), rule.kind)),
+        None => addressed_item(manifest, loaded, &mutation.edits[edit]),
     };
     let mut findings = Vec::new();
     for (index, edit) in mutation.edits.iter().enumerate() {
-        if edit.rule.is_some() {
+        if edit.rule.is_some() || edit.production.is_some() {
             continue;
         }
         let rule = rule_of(index);
         let next = Some(match &rule {
-            Some((_, Some(label))) => format!("address the rule by its label: rule = {label:?}"),
-            Some((_, None)) => {
+            Some((_, Some(label), EditedKind::Rule)) => {
+                format!("address the rule by its label: rule = {label:?}")
+            }
+            Some((_, None, EditedKind::Rule)) => {
                 "give the rule a label and address it by `rule = <label>`".to_owned()
+            }
+            Some((_, Some(name), EditedKind::Grammar)) => {
+                format!("address the production by its name: production = {name:?}")
+            }
+            Some((_, None, EditedKind::Grammar)) => {
+                "this grammar declaration names no production: keep the anchor, and check the \
+                 mutation after each edit of the specification"
+                    .to_owned()
             }
             None => {
                 "address the rule by its label, `rule = <label>` (giving the rule a label if it \
@@ -955,14 +966,15 @@ fn warnings(
         findings.push(Finding::warning(
             reason,
             Some(index),
-            rule.map(|(at, _)| at),
+            rule.map(|(at, _, _)| at),
             detail,
             next,
         ));
     }
     if let (Some(resolved), Some(stop)) = (resolved, manifest.stop.as_ref()) {
         let hides = StopHides::of(manifest, coverage);
-        for rule in &resolved.rules {
+        // The stop, observe and coverage warnings are about rules; a grammar declaration is none.
+        for rule in resolved.rules.iter().filter(|r| r.kind == EditedKind::Rule) {
             // A deleted rule takes its label with it (a K label names one rule): the stop then
             // names no rule of the mutant, so `run` does not admit it, and nothing of the edit
             // is hidden from a program, since no program runs it.
@@ -999,7 +1011,7 @@ fn warnings(
         }
     }
     if let (Some(resolved), Some(observe)) = (resolved, manifest.observe.as_ref()) {
-        for rule in &resolved.rules {
+        for rule in resolved.rules.iter().filter(|r| r.kind == EditedKind::Rule) {
             // A deleted rule takes its label with it: a class naming it has no rule of the
             // mutant, so `run` does not admit the mutant.
             if let (None, Some(label)) = (&rule.after, rule.label.as_deref())
@@ -1033,7 +1045,7 @@ fn warnings(
     let (Some(resolved), Some(coverage)) = (resolved, coverage) else {
         return findings;
     };
-    for rule in &resolved.rules {
+    for rule in resolved.rules.iter().filter(|r| r.kind == EditedKind::Rule) {
         let name = rule
             .label
             .clone()
