@@ -1093,3 +1093,65 @@ fn the_definitions_values_are_read_from_the_cache() {
     package.corpus(corpus, &named("agree", "maps"), &cases);
     assert_missed("channels");
 }
+
+/// An end view that compares no cell is `not-compared` (`compared-nothing`, status 2), never an
+/// agreement on nothing (projections PJ-10). In a flow whose only projection is a `trace`
+/// projection the record keeps no cell of the end, so an inline end view without `compare`
+/// compares none of the cells the implementation states; beside it the required trace view is
+/// judged as ever. An implementation that omits every cell of a record that keeps them all is
+/// the same case.
+#[test]
+fn an_end_view_that_compares_no_cell_is_not_compared() {
+    let package = Package::new();
+    let trace_only = "corpora/trace-only";
+    package.corpus(
+        trace_only,
+        "[[projection]]\nname = \"ticks\"\nkind = \"trace\"\nchannels = [\"ticks\"]\n\n\
+         [[implementation]]\nname = \"agree\"\nprotocol = \"kink-implementation/2\"\ncommand = \
+         [\"sh\", \"fake2.sh\", \"agree\", \"ticks\"]\ngiven = \"inputs\"\nomits = [\"k\", \
+         \"seen\"]\nviews = [{ name = \"whole\", required = true }, { name = \"ticks\", channels \
+         = [\"ticks\"], required = true }]\n",
+        &[("a", 2), ("b", 5)],
+    );
+    let output = package.compare(trace_only, &[]);
+    assert_status(&output, 2);
+    let document = json_of(&output);
+    for case in ["a", "b"] {
+        let row = row(&document, "agree", case);
+        let whole = verdict(row, "whole");
+        assert_eq!(whole["verdict"], "not-compared", "{whole:#}");
+        assert_eq!(whole["reason"], "compared-nothing", "{whole:#}");
+        assert_eq!(whole["status"], 2, "{whole:#}");
+        assert_eq!(whole["distance"], Value::Null, "{whole:#}");
+        let detail = whole["detail"].as_str().unwrap();
+        assert!(
+            detail.contains("compares no cell") && detail.contains("no projection compares"),
+            "{detail}"
+        );
+        assert_eq!(verdict(row, "ticks")["verdict"], "equal", "{row:#}");
+    }
+    let whole = document["summary"]["views"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["implementation"] == "agree" && entry["view"] == "whole")
+        .unwrap_or_else(|| panic!("{document:#}"));
+    assert_eq!(whole["compared"], 0, "{whole:#}");
+    assert_eq!(whole["agreeing"], 0, "{whole:#}");
+
+    let blind = "corpora/omits-every-cell";
+    package.corpus(
+        blind,
+        "[[implementation]]\nname = \"blind\"\ncommand = [\"sh\", \"fake1.sh\", \"equal\"]\n\
+         given = \"inputs\"\nomits = [\"k\", \"n\", \"acc\", \"seen\"]\nviews = [{ name = \
+         \"whole\", required = true }]\n",
+        &[("a", 2)],
+    );
+    let output = package.compare(blind, &[]);
+    assert_status(&output, 2);
+    let document = json_of(&output);
+    let whole = verdict(row(&document, "blind", "a"), "whole");
+    assert_eq!(whole["reason"], "compared-nothing", "{whole:#}");
+    let detail = whole["detail"].as_str().unwrap();
+    assert!(detail.contains("`omits`"), "{detail}");
+}

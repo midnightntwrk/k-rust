@@ -1011,7 +1011,7 @@ fn a_view_compares_only_the_programs_of_its_projection_s_domain() {
         ..Default::default()
     };
     let document = kink_flow::compare::command(&read, &options, Some(&Equal), "compare");
-    assert_eq!(document["version"], 11, "{document:#}");
+    assert_eq!(document["version"], 12, "{document:#}");
     let views = |implementation: &str, program: &str| -> Vec<(String, String, Value)> {
         let row = document["rows"]
             .as_array()
@@ -1257,7 +1257,7 @@ fn a_program_rejected_before_it_runs_is_rejected_on_the_definition_side() {
         ..Default::default()
     };
     let document = kink_flow::compare::command(&read, &options, Some(&Accepting), "compare");
-    assert_eq!(document["version"], 11, "{document:#}");
+    assert_eq!(document["version"], 12, "{document:#}");
     assert!(document["refusal"].is_null(), "{document:#}");
     let class = |program: &str| {
         document["programs"]
@@ -2901,7 +2901,7 @@ fn a_metric_view_measures_the_answer_against_its_baseline() {
     };
 
     let first = compare(false);
-    assert_eq!(first["version"], 11);
+    assert_eq!(first["version"], 12);
     assert_eq!(
         verdicts(&first, "meter", "alloc"),
         [

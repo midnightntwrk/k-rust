@@ -214,7 +214,13 @@ pub const COMPARE_SCHEMA: &str = "kink-flow-compare";
 /// `pending` (no baseline), the reason `metric-unstated`; `summary` has `metrics` and counts the
 /// metric verdicts. A flow without a metric projection gives version 10's document but for its
 /// version.
-pub const COMPARE_VERSION: u64 = 11;
+/// 12 since an end view that compares no cell is `not-compared` for the reason
+/// `compared-nothing` (status 2), never `equal` (projections PJ-10): an inline view without
+/// `compare` whose implementation states no cell the corpus's ends keep (a flow whose record
+/// keeps none) or omits every one; a word difference compared on no cell has a null `distance`.
+/// A flow none of whose end views compares no cell gives version 11's document but for its
+/// version.
+pub const COMPARE_VERSION: u64 = 12;
 /// The protocol a request names (`protocol`) and its answer is read by, unless the
 /// implementation declares another ([`Protocol`]).
 pub const PROTOCOL: &str = "kink-implementation/1";
@@ -303,6 +309,12 @@ pub enum NotCompared {
     /// A trace view none of whose channels was compared at any index: both sides agree through
     /// no element and state nothing further. A comparison of nothing is no agreement (3).
     ObservedNothing(String),
+    /// An end view whose comparison compares no cell (an inline view without `compare` whose
+    /// implementation states no cell the corpus's ends keep, or omits every one): it would agree
+    /// with any answer whatever its cells, and a comparison of nothing is no agreement. The
+    /// view, the implementation's `omits` and the cells the record keeps decide it, so the
+    /// declaration or the corpus must change (2).
+    ComparedNothing(String),
     /// An end view of a program whose baseline its bounds cut before it ended: the definition
     /// has no end there. `carried`: the same implementation declares a required trace view,
     /// which then carries the program's requirement (0); otherwise the question is open (3).
@@ -346,6 +358,7 @@ impl NotCompared {
             Self::Unreadable(_) => "unreadable",
             Self::SeveralPaths(_) => "several-paths",
             Self::ObservedNothing(_) => "observed-nothing",
+            Self::ComparedNothing(_) => "compared-nothing",
             Self::NoEnd { .. } => "no-end",
             Self::OutsideDomain { .. } => OUTSIDE_DOMAIN_REASON,
             Self::SnapshotUnreadable(_) => "snapshot-unreadable",
@@ -375,6 +388,7 @@ impl NotCompared {
             | Self::Unreadable(detail)
             | Self::SeveralPaths(detail)
             | Self::ObservedNothing(detail)
+            | Self::ComparedNothing(detail)
             | Self::NoEnd { detail, .. }
             | Self::SnapshotUnreadable(detail)
             | Self::RejectedBeforeRun(detail)
@@ -409,6 +423,7 @@ impl NotCompared {
             | Self::NoEnd { carried: false, .. } => EXIT_UNANSWERED,
             Self::Omitted(_)
             | Self::LeftOut(_)
+            | Self::ComparedNothing(_)
             | Self::Unreadable(_)
             | Self::SnapshotUnreadable(_)
             | Self::MetricUnstated(_) => EXIT_UNASKED,
@@ -1868,19 +1883,18 @@ fn end_view_row(
             "implementation": stated.word(),
         });
         // The words decide the verdict; the cells, where the answer states them, are compared
-        // for the distance alone, so a comparison that does not conclude (or fails) leaves the
-        // distance uncounted and decides nothing.
+        // for the distance alone, so a comparison that does not conclude (or fails), or one of
+        // no cell, leaves the distance uncounted and decides nothing.
         let distance = stated.cells.as_ref().and_then(|cells| {
-            vocabulary
-                .compare(&Question {
-                    implementation,
-                    view,
-                    cells,
-                    ends,
-                    not_compared,
-                })
-                .ok()?
-                .distance()
+            compared_cells(vocabulary.compare(&Question {
+                implementation,
+                view,
+                cells,
+                ends,
+                not_compared,
+            }))
+            .ok()?
+            .distance()
         });
         row["distance"] = distance.map_or(UNCOUNTED, |distance| distance.value());
     } else {
@@ -1888,13 +1902,13 @@ fn end_view_row(
             .cells
             .as_ref()
             .ok_or("an answer an end view compares states no `cells`")?;
-        let judged = vocabulary.compare(&Question {
+        let judged = compared_cells(vocabulary.compare(&Question {
             implementation,
             view,
             cells,
             ends,
             not_compared,
-        })?;
+        }))?;
         let distance = judged.distance();
         match judged {
             Judged::Equal { omitted, .. } => {
@@ -1917,6 +1931,23 @@ fn end_view_row(
         }
     }
     Ok(row)
+}
+
+/// The front end's comparison `judged` of an end view's cells, with an agreement on no cell
+/// (`compared_cells` 0) read as no comparison ([`NotCompared::ComparedNothing`]): it would hold
+/// of any answer whatever its cells. A difference the front end names stays one.
+fn compared_cells(judged: Result<Judged, String>) -> Result<Judged, String> {
+    Ok(match judged? {
+        Judged::Equal {
+            compared_cells: 0, ..
+        } => Judged::NotCompared(NotCompared::ComparedNothing(
+            "the view compares no cell: every cell the implementation states is one the corpus's \
+             ends leave out (cells no projection compares, unobservable cells) or one it omits \
+             (`omits`), so it would agree with any answer"
+                .to_owned(),
+        )),
+        judged => judged,
+    })
 }
 
 /// Why an end view of `implementation` is not compared on a program whose baseline its bounds
@@ -6699,6 +6730,65 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    /// An end view whose comparison compares no cell is `not-compared` (`compared-nothing`,
+    /// status 2), under any front end, never an agreement on nothing; a difference the front end
+    /// names on no cell stays one, and a word difference stays one with its distance uncounted.
+    #[test]
+    fn an_end_view_that_compares_no_cell_is_not_compared() {
+        let implementation = second(END);
+        let ends = BTreeSet::new();
+        let words = BTreeSet::from(["final"]);
+        let end_row = |end: Judged, stated: &Stated| {
+            let mock = Mock {
+                end,
+                ..Mock::judging(Vec::new())
+            };
+            end_view_row(
+                &mock,
+                &implementation,
+                &implementation.views[0],
+                stated,
+                (&ends, &words),
+                &[],
+            )
+            .unwrap()
+        };
+        let nothing = Judged::Equal {
+            omitted: Vec::new(),
+            compared_cells: 0,
+        };
+        let ended = stated(StatedEnd::Ended(EndWord::Final), true, false);
+        let row = end_row(nothing.clone(), &ended);
+        assert_eq!(row["verdict"], "not-compared", "{row:#}");
+        assert_eq!(row["reason"], "compared-nothing", "{row:#}");
+        assert_eq!(row["status"], EXIT_UNASKED, "{row:#}");
+        assert!(row["distance"].is_null(), "{row:#}");
+        assert!(
+            row["detail"]
+                .as_str()
+                .is_some_and(|detail| detail.starts_with("the view compares no cell")),
+            "{row:#}"
+        );
+        assert_eq!(
+            NotCompared::ComparedNothing(String::new()).status(),
+            EXIT_UNASKED
+        );
+        let named = Judged::Different {
+            difference: json!({"format": "krs-difference/3"}),
+            omitted: Vec::new(),
+            distance: Distance {
+                differing_cells: 0,
+                compared_cells: 0,
+            },
+        };
+        assert_eq!(end_row(named, &ended)["verdict"], "different");
+        let stopped = stated(StatedEnd::Ended(EndWord::Stopped), true, false);
+        let row = end_row(nothing, &stopped);
+        assert_eq!(row["verdict"], "different", "{row:#}");
+        assert_eq!(row["difference"]["format"], "kink-end/1", "{row:#}");
+        assert!(row["distance"].is_null(), "{row:#}");
     }
 
     /// Every entry says how far apart the two sides are (README "Verdicts", `distance`), and the

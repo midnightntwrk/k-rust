@@ -20,7 +20,8 @@
 //!   for the command ([`super::projections`]), and a projection without `compare` compares every
 //!   observable leaf cell. A compared cell the implementation omits makes the view
 //!   `not-compared` (`omitted`), as does one the corpus's ends leave out (the projections' cells,
-//!   `left-out`).
+//!   `left-out`), and so does a view of the stated cells that compares none (none is stated
+//!   outside the cells the corpus's ends leave out: `compared-nothing`).
 //! - Each end view is resolved once per command: its observation and observer on first use, and
 //!   what it compares (its cells, the refusals above, its comparison checked) once per set of
 //!   cells the corpus's ends leave out, which a command does not change; a question only binds
@@ -246,8 +247,9 @@ fn overlap(left: &str, right: &str) -> bool {
 
 /// What the end view `view` of `implementation`, observing `observation`, compares, its views
 /// bound in `observer` (else `semantics`) through `observers`, given the cells the corpus's ends
-/// leave out (`left_out`, by declared path): `Ok(Err(..))` when it is not compared, `Err` when it
-/// is no comparison of the definition.
+/// leave out (`left_out`, by declared path): `Ok(Err(..))` when it is not compared (a compared
+/// cell omitted or left out, or no cell compared), `Err` when it is no comparison of the
+/// definition.
 fn comparison(
     observers: &Observers,
     semantics: &Semantics,
@@ -307,7 +309,20 @@ fn comparison(
             .map_err(refuse)?,
     };
     semantics.check_comparison(&comparison).map_err(refuse)?;
-    Ok(Ok((comparison.compare.unwrap_or_default(), omits)))
+    let compare = comparison.compare.unwrap_or_default();
+    // A view of the stated cells where none is stated and kept compares nothing: an agreement on
+    // no cell would hold of any answer.
+    if compare.is_empty() {
+        let cause = if leaves(&cells, left_out).is_empty() {
+            "the corpus's ends keep no cell (cells no projection compares, unobservable cells)"
+        } else {
+            "the implementation omits (`omits`) every cell the corpus's ends keep"
+        };
+        return Ok(Err(NotCompared::ComparedNothing(format!(
+            "the view compares no cell: {cause}, so it would agree with any answer"
+        ))));
+    }
+    Ok(Ok((compare, omits)))
 }
 
 /// An answer's `cells` read as an end of the definition.
