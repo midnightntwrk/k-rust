@@ -10,7 +10,7 @@ user module E3-ML: 399 sentences
   1 inert parametricFunctional [generated]
   9 inert noJunk [generated]
   4 inert simplification [user]: owed, entailed by Γ (the tie on the text proves it or fails), not decided by the reader
-  4 parameter lemma [user]: owed as a hypothesis on H, the sentence itself at the member (Γ (c.withHooks H) ⊧ tr s; the tie shows an H at which the text's hypotheses hold), not decided by the reader
+  4 parameter lemma [user]: owed as a hypothesis on H at values (some H meets FnObligations and at it each sentence of the class is EntailsAtValues (c.withHooks H) s (tr s); the tie shows an H at which the text's hypotheses hold), not decided by the reader
   1 inert simplification [generated]
 stage refusals (of sentences classified read): 0
 read and not accounted for: 0
