@@ -3,7 +3,8 @@
 
 Usage (from anywhere; the library and `kcore` built first):
   python3 -I test/constructs/tiegen.py FIXTURE [--sig-chunk N] [--decl-chunk N] [--chunk N]
-                                               [--hand consistency=FILE] [--at-values N,...] [--reads-h N,...]
+                                               [--hand consistency=FILE] [--hand ovlfn=FILE]
+                                               [--at-values N,...] [--reads-h N,...]
                                                [--cons-head] [--wf-parts]
                                                [--split] [--account-sorted] [--heads-literal] [--heads-codes]
                                                [--attrs-parts] [--attrs-blocks N] [--decl-parts] [--fn-blocks N]
@@ -122,6 +123,15 @@ parameters, of a symbol Γ has (`builtinDeclNames`, a literal list of names; `bu
 `builtin_decls_entailed`, in the form `∀ sd ∈ kore.symbolDecls, sd.params = [] → sd.name ∈
 builtinDeclNames → Γ (cH H) ⊧ (arityItem sd).pat` that test/constructs/e6map.py reads as tying those
 declarations' rows); refused where the text has no such declaration.
+--hand ovlfn=FILE puts FILE in place of the section on what the sentences of a function-overloaded
+symbol (`ovlFnApart`, below) say at the arguments an overload covers, required for a text with such a
+sentence and refused for another. For each sentence i of `ovlFnApart`, FILE states exactly one of:
+`ovlfn_at_values_<i>` (the sentence at values, for every H); `ovlfn_refuted_<i>` with i in
+`def ovlFnRefuted : List Nat := [...]` (no model of Γ satisfies it, for every H; the list in text
+order, holding only such sentences, and `ovlfn_refuted_sub` states it a sublist of `ovlFnApart`); or
+`OvlFnHyp<i>` (a hypothesis on H), `ovlfn_hyp_at_values_<i>` (under it, the sentence at values),
+`ovlfn_hyp_holds_<i>` and `ovlfn_hyp_fails_<i>` (an H at which it holds, one at which it fails). tiegen
+reads only the names; their statements are the section's.
 --hand consistency=FILE puts FILE in place of the consistency section, for a text that owes an
 agreement, a clause's match independence, or a rule's or clause's condition (`owed_rules`,
 `owed_clauses`): FILE proves the owed facts and states `consistent` for every H, with `facts` for an
@@ -314,6 +324,16 @@ What it states where the text:
   Γ satisfies it with the text's G-nonempty item of a left-out sort). The apartness of the images
   comes from Γ's Cons-Dist items, which Γ holds through the reading's subsort, not from the text;
   no model of the text is claimed or denied. One such sentence per text is stated;
+- has the `functional`, same-constructor or different-constructors sentence of a function-overloaded
+  generator (an overloading symbol one of whose overloads is a function, `Semantics.fnOvl`; the probe
+  decides it with `tieOvlFnFunB`, `tieOvlFnInjB`, `tieOvlFnDistB`, KcoreSpec/TieOvlFn.lean), which Γ
+  holds at the arguments no overload covers only (`funUncItem`, `injUncItem`, `distUncItem`): weaker
+  under overloadFunction, in no class, listed apart in the account (`ovlFnApart`). Part 1, for every
+  H: `ovlfn_text_<i>` (the sentence's kind, sort and generators), `ovlfn_item_in_gamma_<i>` (Γ's item
+  at uncovered arguments) and `ovlfn_entails_item_<i>` (in a model of Γ the sentence entails it; a
+  no-confusion sentence with the `functional` sentence of its function-overloaded generator, which
+  the text states and `ovlFnApart` holds, or the text is refused). Part 2, what it says at covered
+  arguments, is the hand section `--hand ovlfn`'s;
 - has the `functional` sentence of a parameter symbol no registry hook implements that the text
   declares total (`isParamFunctional`, the class `parameter functional`, direction hypothesis):
   `total_params` (`Definition.totalParams`), `paramfunctional_account`, `paramfunctional_heads`; it is
@@ -456,6 +476,18 @@ OVL_NC = "refuted, no class"
 # model (`kitemOmit_refuted_exhibit`), else that no model of Γ satisfies it with the text's
 # G-nonempty item of a left-out sort (`kitemOmit_refuted_nonempty`).
 TOK_OMIT = "weaker under tokKItem, listed apart"
+# The `functional`, same-constructor and different-constructors sentences of a function-overloaded
+# generator (an overloading symbol one of whose overloads is a function, `Semantics.fnOvl`; the
+# probe's `ovlFn`, from `tieOvlFnFunB`, `tieOvlFnInjB`, `tieOvlFnDistB`). Γ holds each at the
+# arguments no overload covers only (`funUncItem`, `injUncItem`, `distUncItem`); at a covered
+# argument the sentence says what the overloaded function's values are, which Γ states only through
+# that function's equations. It is in no class of `tieClasses`: the account lists it apart
+# (`ovlFnApart`). Part 1, for every H: the sentence, with the `functional` sentence it is joint with,
+# entails Γ's item at uncovered arguments (`tieOvlFn*_weaker_Γ`), which is Γ's. Part 2, what it says
+# at covered arguments, is written by hand (`--hand ovlfn=FILE`), per sentence one of: the sentence at
+# values for every H, its refutation for every H (listed in `ovlFnRefuted`), or a hypothesis on H it
+# is owed under, with an H at which the hypothesis holds and one at which it fails.
+OVL_FN = "weaker under overloadFunction, listed apart"
 
 
 class Refused(Exception):
@@ -475,6 +507,7 @@ RESERVED = {"c", "cH", "kore", "defn", "U", "trS", "fn", "f", "at", "by", "do", 
             "else", "have", "show", "from", "end", "def", "theorem", "match", "with", "open", "namespace", "where",
             "instance", "structure", "class", "import", "names", "classes", "consText", "fnText", "ruleText",
             "ovlEqText", "ovlNcText", "ovlRefuted", "tokKItemApart", "tokKItemSorts", "tokKItemGens",
+            "ovlFnApart", "ovlFnText", "ovlFnRefuted",
             "lawText", "lawIdx", "callOrder", "Pre", "Families", "hasSym", "declItems", "plainSorts", "plainSyms",
             "fnFunIdx", "fnFunText", "fnFunOK"}
 
@@ -748,6 +781,9 @@ def tgAlphaB {𝕊 : Type} [DecidableEq 𝕊] : List (EVar × EVar) → Pattern 
   | env, .existential x p, .existential y q => tgAlphaB ((x, y) :: env) p q
   | env, .mu X p, .mu Y q => decide (X = Y) && tgAlphaB env p q
   | _, _, _ => false
+def tgGenLit : KCore.Gen → String
+  | .ctor k => s!".ctor ⟨{k.name}, {k.args}, {k.result}⟩"
+  | .inj a => s!".inj {a}"
 def tgFreeEV {𝕊 : Type} : List EVar → Pattern 𝕊 → List EVar
   | bound, .evar x => if x ∈ bound then [] else [x]
   | _, .svar _ => []
@@ -1024,7 +1060,26 @@ def tgNjOrder (gs : List KoreAML.Gen) : List Kore.Pattern → Option (List Nat)
         if S == srtOf c Srt.kitem && kitemOmitB c xs gs &&
             p == (KoreAML.Cons.noJunkItem (c.sortName Srt.kitem) (gs.map (Gen.toK c))).pat then xs else []
       | _ => []
-    IO.println s!"S {ad.index}\t{absent}\t{fnJ}\t{cons}\t{plain}\t{consItem}\t{triv}\t{kitem}\t{rw}\t{eh}\t{kind eh}\t{fh}\t{kind fh}\t{AttrsAgree.prioOf ad.ax.attributes}\t{pl}\t{simp}\t{usrc}\t{rl}\t{ovlEq}\t{ovlNc}\t{Parse.isOwnLibrarySentence (.axiom ad.ax)}\t{omitX}\t{hr}"
+    -- the `functional`, same-constructor and different-constructors sentences of a function-overloaded
+    -- generator (`tieOvlFnFunB`, `tieOvlFnInjB`, `tieOvlFnDistB`); none where no overload is a function
+    let ovlFn : String := if c.fnOvlSyms.isEmpty then "" else
+      if tieOvlFnFunB c ad.ax then "fun" else if tieOvlFnInjB c ad.ax then "inj"
+      else if tieOvlFnDistB c ad.ax then "dist" else ""
+    IO.println s!"S {ad.index}\t{absent}\t{fnJ}\t{cons}\t{plain}\t{consItem}\t{triv}\t{kitem}\t{rw}\t{eh}\t{kind eh}\t{fh}\t{kind fh}\t{AttrsAgree.prioOf ad.ax.attributes}\t{pl}\t{simp}\t{usrc}\t{rl}\t{ovlEq}\t{ovlNc}\t{Parse.isOwnLibrarySentence (.axiom ad.ax)}\t{omitX}\t{hr}\t{ovlFn}"
+    -- for such a sentence, each sort and generator (or pair) its predicate accepts it at, whether N is
+    -- one of the semantics' sorts, and per generator: `tieOvlFnArityB`, the user sentences that are its
+    -- `functional` sentence in the form `tieOvlFnFunShapeB` decides, and `Semantics.fnOvl`
+    if ovlFn != "" then
+      let gInfo := fun (N : Srt) (g : KCore.Gen) =>
+        s!"{tgGenLit g}\t{tieOvlFnArityB c N g}\t{(us.filter fun af => tieOvlFnFunShapeB c N (Gen.toK c g) af.ax).map (·.index)}\t{c.fnOvl g}\t{match g with | .ctor k => c.symName k.name | .inj _ => "inj"}"
+      for N in consSorts c do
+        for g in c.gens N do
+          if (ovlFn == "fun" && tieOvlFnFunAtB c N g ad.ax) || (ovlFn == "inj" && tieOvlFnInjAtB c N g ad.ax) then
+            IO.println s!"OF {ad.index}\t{ovlFn}\t{N}\t{c.sortName N}\t{decide (N < nRegSorts + c.sortNames.length)}\t{gInfo N g}"
+          if ovlFn == "dist" then
+            for g' in c.gens N do
+              if tieOvlFnDistAtB c N g g' ad.ax then
+                IO.println s!"OF {ad.index}\t{ovlFn}\t{N}\t{c.sortName N}\t{decide (N < nRegSorts + c.sortNames.length)}\t{gInfo N g}\t{gInfo N g'}"
     for x in omitX do
       IO.println s!"KO {ad.index}\t{x}\t{c.sortName x}\t{(Parse.exhibit? c x).isSome}"
     if kitem then
@@ -1170,7 +1225,14 @@ def probe(name, path, um, order="[]", cons_head=False, sig_pos=False, decl_pos=F
                                     simp=f[15] == "true", usrc=f[16] == "true", rl=f[17] == "true",
                                     ovlEq=f[18] == "true", ovlNc=f[19] == "true", own=f[20:21] == ["true"],
                                     omit=nums(f[21]) if len(f) > 21 else [],
-                                    hr=f[22:23] == ["true"])
+                                    hr=f[22:23] == ["true"], ovlFn=f[23] if len(f) > 23 else "")
+        elif l.startswith("OF "):
+            f = l[3:].split("\t")
+            gi = lambda k: dict(lit=f[k], arity=f[k + 1] == "true", fun=nums(f[k + 2]), fnOvl=f[k + 3] == "true",
+                                sym=f[k + 4])
+            head.setdefault("ovlFn", {}).setdefault(int(f[0]), []).append(
+                dict(kind=f[1], srt=int(f[2]), sort=f[3], numbered=f[4] == "true",
+                     gens=[gi(5)] + ([gi(10)] if len(f) > 10 else [])))
         elif l.startswith("KO "):
             f = l[3:].split("\t")
             head.setdefault("omit", {}).setdefault(int(f[0]), []).append(
@@ -1224,6 +1286,10 @@ def form_class(s, raw, builtin, laws=(), open_laws=(), raw_names=(), at_values=(
         return OVL_NC
     if s.get("omit"):
         return TOK_OMIT
+    # before the `// functional` and `// no confusion` arms, which would class such a sentence by its
+    # comment: Γ holds it at uncovered arguments only
+    if s.get("ovlFn"):
+        return OVL_FN
     if s["idx"] in laws:
         return LAW_FN_CLASS
     if s["idx"] in open_laws:
@@ -1317,7 +1383,7 @@ def classify(name, text, sents, laws=(), open_laws=(), raw_names=(), at_values=(
             # lemma whatever ens's class of the same sentence (the parameters are the text's), and a
             # lemma of a user's file is a user lemma (the `Source` is this text's), and the functional
             # sentence of a parameter this text declares total is a parameter functional
-            ec = fc if fc in (PARAM_LEMMA_CLASS, PARAM_FUNCTIONAL_CLASS, OVL_EQ_CLASS, OVL_NC, TOK_OMIT) or fc in USER_LEMMA_CLASSES else ecls[j]
+            ec = fc if fc in (PARAM_LEMMA_CLASS, PARAM_FUNCTIONAL_CLASS, OVL_EQ_CLASS, OVL_NC, TOK_OMIT, OVL_FN) or fc in USER_LEMMA_CLASSES else ecls[j]
             # where the probe decides the class (a head Γ lacks, an item of Γ), it must agree with ens's
             decided = fc if fc in ("no direction", "function equation", "rewrite rule") or (fc == "no junk" and ec == "no junk") else None
             if decided and decided != ec:
@@ -1489,7 +1555,14 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     tok_sorts = head.get("omit", {}).get(tok_omit[0], []) if tok_omit else []
     if tok_omit and [e["srt"] for e in tok_sorts] != sents[tok_omit[0]]["omit"]:
         raise Refused(f"{name}: the probe's left-out sorts of sentence {tok_omit[0]} are not listed one per line")
-    unmapped = [i for i in unmapped if cls[i] not in (OVL_NC, TOK_OMIT)]
+    # the sentences of a function-overloaded generator: in no class, listed apart (`ovlFnApart`), part 1
+    # generated, part 2 by hand
+    ovl_fn = [i for i in idx if cls[i] == OVL_FN]
+    if "ovlfn" in hand and not ovl_fn:
+        raise Refused(f"{name}: --hand ovlfn: the text states no sentence of a function-overloaded symbol")
+    ovl_fn_rows, ovl_fn_gens = ovl_fn_rows_of(name, ovl_fn, head, sents) if ovl_fn else ({}, [])
+    ovl_fn_hand = ovl_fn_hand_of(name, ovl_fn, hand.get("ovlfn")) if ovl_fn else {}
+    unmapped = [i for i in unmapped if cls[i] not in (OVL_NC, TOK_OMIT, OVL_FN)]
     by_class = {c: [i for i in idx if cls[i] == c] for c in classes_list}
     # the no-direction sentences that are equations of a projection (`AttrsAgree.eqnHead`), each with
     # the projection's sort X
@@ -1770,7 +1843,19 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w("  - `wf_defn`: `wf defn = true`.")
     else:
         w(f"  - `coreOK`: `coreOK`; `wf` fails at the conjuncts {', '.join(failing)} (`wfFailing`).")
-    if tok_omit:
+    if ovl_fn:
+        refl = (f", the {numword(len(ovl_nc))} refuted sentence{'s' if len(ovl_nc) > 1 else ''} in no class (`ovlRefuted`)"
+                if ovl_nc else "")
+        tokl = f", KItem's no-junk sentence {tok_omit[0]}, listed apart (`tokKItemApart`)," if tok_omit else ""
+        w(textwrap.fill(
+            f"- The account: the class lists{refl}{tokl} and the {numword(len(ovl_fn))} sentence"
+            f"{'s' if len(ovl_fn) > 1 else ''} of a function-overloaded symbol, listed apart (`ovlFnApart`), "
+            f"partition the {len(idx)} sentences of the user module {um}, the classes in "
+            f"`{'tieClassesOvl' if ovl_any else 'tieClasses'}`' order (`account`, `account_sizes`, `account_classes`); "
+            "the no-direction class holds exactly the sentences that apply a symbol Γ lacks (`account_absent`, "
+            "`absent_closed`).", width=100, initial_indent="  ", subsequent_indent="    ", break_on_hyphens=False,
+            break_long_words=False))
+    elif tok_omit:
         refl = (f", the {numword(len(ovl_nc))} refuted sentence{'s' if len(ovl_nc) > 1 else ''} in no class (`ovlRefuted`)"
                 if ovl_nc else "")
         w(textwrap.fill(
@@ -1977,6 +2062,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w("    of Γ (`ovlnc_refuted`), in no class.")
     if tok_omit:
         w(tok_omit_doc(tok_omit[0], tok_sorts))
+    if ovl_fn:
+        w(ovl_fn_doc(ovl_fn, ovl_fn_rows, ovl_fn_hand))
     w(f"  - No junk ({len(nj_triv)} of a sort without generators, `nojunk_trivial_entailed`; {len(nj_items)} equal to")
     w(f"    one of Γ's constructor items, `nojunk_items`; {len(nj_kitem)} KItem's with its disjuncts in the text's")
     w("    order, `nojunk_kitem_entailed`).")
@@ -2282,16 +2369,33 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w("KItem (`tokKItemSorts`), which Γ's no-junk item of KItem has: weaker under tokKItem, in no class. -/")
         w("def tokKItemApart : List Nat := [" + ", ".join(map(str, tok_omit)) + "]")
         w("")
-    if account_sorted and (ovl_nc or tok_omit):
-        raise Refused(f"{name}: --account-sorted with sentences in no class (`ovlRefuted`, `tokKItemApart`): not stated")
-    if ovl_nc or tok_omit:
-        apart = (["the refuted sentences"] if ovl_nc else []) + (["the sentence listed apart"] if tok_omit else [])
-        among = (["among the refuted ones"] if ovl_nc else []) + (["listed apart"] if tok_omit else [])
-        w(f"/-- **The account**: the class lists and {' and '.join(apart)} partition the user module's")
-        w("sentences. Their concatenation is a permutation of the sentences' indices, which are distinct, so")
-        w(f"each sentence is in one class or {' or '.join(among)}, and there once. -/")
+    if ovl_fn:
+        w("/-- The sentences of a function-overloaded symbol (its `functional` sentence and its no-confusion")
+        w("sentences), which Γ holds at the arguments no overload covers only: weaker under overloadFunction,")
+        w("in no class. -/")
+        w("def ovlFnApart : List Nat := [" + ", ".join(map(str, ovl_fn)) + "]")
+        w("")
+    if account_sorted and (ovl_nc or tok_omit or ovl_fn):
+        raise Refused(f"{name}: --account-sorted with sentences in no class (`ovlRefuted`, `tokKItemApart`, "
+                      f"`ovlFnApart`): not stated")
+    if ovl_nc or tok_omit or ovl_fn:
+        apart = (["the refuted sentences"] if ovl_nc else []) + (["the sentence listed apart"] if tok_omit else []) + \
+            (["the sentences of a function-overloaded symbol"] if ovl_fn else [])
+        among = (["among the refuted ones"] if ovl_nc else []) + (["listed apart"] if tok_omit else []) + \
+            (["among those of a function-overloaded symbol"] if ovl_fn else [])
+        if ovl_fn:
+            w(textwrap.fill(f"/-- **The account**: the class lists and {', '.join(apart[:-1]) + ' and ' if len(apart) > 1 else ''}"
+                            f"{apart[-1]} partition the user module's sentences. Their concatenation is a permutation "
+                            f"of the sentences' indices, which are distinct, so each sentence is in one class or "
+                            f"{' or '.join(among)}, and there once. -/", width=100, break_on_hyphens=False,
+                            break_long_words=False))
+        else:
+            w(f"/-- **The account**: the class lists and {' and '.join(apart)} partition the user module's")
+            w("sentences. Their concatenation is a permutation of the sentences' indices, which are distinct, so")
+            w(f"each sentence is in one class or {' or '.join(among)}, and there once. -/")
         w("theorem account : (classes.flatMap (·.2)" + (" ++ ovlRefuted" if ovl_nc else "") +
-          (" ++ tokKItemApart" if tok_omit else "") + ").isPerm (userAxioms.map (·.index)) = true ∧")
+          (" ++ tokKItemApart" if tok_omit else "") + (" ++ ovlFnApart" if ovl_fn else "") +
+          ").isPerm (userAxioms.map (·.index)) = true ∧")
         w("    (userAxioms.map (·.index)).Nodup := by")
         w("  rw [userAxioms_eq]; decide +kernel")
     elif account_sorted:
@@ -3365,6 +3469,12 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w(ovl_nc_section(ovl_nc))
     if tok_omit:
         w(tok_omit_section(tok_omit[0], tok_sorts))
+    if ovl_fn:
+        w(ovl_fn_section(ovl_fn, ovl_fn_rows, ovl_fn_gens))
+        w(HAND_SECTIONS["ovlfn"] + " (by hand) -/")
+        w("")
+        if ovl_fn_hand["refuted"]:
+            w(ovl_fn_refuted_section())
     if idem is not None:
         sec = ens_section("/-! ## Set idempotence (61): refuted -/", "/-! ## Consistency for every H -/",
                           IDEM_DROP).replace("@I@", str(idem))
@@ -3415,7 +3525,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     cnames = []
     if confined:
         sec, cnames = gamma_c_section(gamma, fn_align, nrules, fn_any, nj_triv, nj_items, nj_kitem, cons_text, idem,
-                                      own_idem, ovl_eq, ovl_nc, tok_omit, tok_sorts)
+                                      own_idem, ovl_eq, ovl_nc, tok_omit, tok_sorts, ovl_fn, ovl_fn_rows)
         w(sec)
     w(f"end KCore.{ns}")
     w("")
@@ -3446,6 +3556,9 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                   "tokkitem_entails_item", "tokkitem_item_in_gamma", "tokkitem_holds_iff_empty"]
         names += (["tokkitem_exhibit", "tokkitem_refuted"] if any(e["valued"] for e in tok_sorts) else
                   ["tokkitem_nonempty_in_text", "tokkitem_refuted_with_nonempty"])
+    if ovl_fn:
+        names += ["ovlfn_index"] + [f"ovlfn_{n}_{i}" for i in ovl_fn for n in ("text", "item_in_gamma", "entails_item")]
+        names += ovl_fn_hand["names"] + (["ovlfn_refuted_sub"] if ovl_fn_hand["refuted"] else [])
     if rules_full and nrules:
         names += ["rules_account", "rule_from_text"]
     if comp_map:
@@ -3518,7 +3631,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     for sec, text in hand.items():
         start = HAND_SECTIONS[sec]
         a = lean.index("\n" + start) + 1
-        b = lean.index("\n/-! ## ", a) + 1
+        b = (lean.index("\n/-! ## ", a) if "\n/-! ## " in lean[a:] else lean.index("\nend KCore.", a)) + 1
         new = text.rstrip("\n") + "\n\n"
         if split and any(a < o < b for o, _ in marks):
             raise Refused(f"{name}: --split: a section starts inside the hand-written {sec} section")
@@ -3535,6 +3648,10 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         owed.append(f"Γ entails the user lemmas {', '.join(map(str, user_lem))} for every H (UserLemmaEntailed)")
     if user_lem_v:
         owed.append(f"the user lemmas {', '.join(map(str, user_lem_v))} hold at values for every H (UserLemmaAtValues)")
+    if ovl_fn_hand.get("hypothesis"):
+        owed.append(f"the sentence{'s' if len(ovl_fn_hand['hypothesis']) > 1 else ''} "
+                    f"{', '.join(map(str, ovl_fn_hand['hypothesis']))} of a function-overloaded symbol "
+                    f"at covered arguments, under the hypotheses on H the hand section names (OvlFnHyp<i>)")
     summary = dict(fixture=name, sentences=len(idx), mapped=len(mapped), unmapped=len(unmapped),
                    classes={c_: len(by_class[c_]) for c_ in classes_list}, fn_full=fn_full, fn_prelude=sorted(fn_pre), fn_align=fn_align,
                    fn_pair=fn_pair, **({"fn_pairs": dict(w1=pair_ws, ac=pair_ac)} if fn_pairs else {}),
@@ -3545,6 +3662,11 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                    **({"tok_kitem_apart": dict(sentence=tok_omit[0], sorts=[e["sort"] for e in tok_sorts],
                                                valued=[e["sort"] for e in tok_sorts if e["valued"]])}
                       if tok_omit else {}),
+                   **({"ovl_fn_apart": dict(sentences=ovl_fn, kinds={i: ovl_fn_rows[i]["kind"] for i in ovl_fn},
+                                            joint={i: ovl_fn_rows[i]["jf"] for i in ovl_fn if ovl_fn_rows[i]["jf"] != i},
+                                            at_values=ovl_fn_hand["at_values"], refuted=ovl_fn_hand["refuted"],
+                                            hypothesis=ovl_fn_hand["hypothesis"])}
+                      if ovl_fn else {}),
                    law_search=[dict(law=law_idx[r["j"]], searched=r["searched"], valuations=r["tried"], refuted=False)
                                for r in head["lawRef"]])
     if split:
@@ -3763,7 +3885,8 @@ def split_tie(ns, lean, marks, text_rel, cmd, blocks):
 
 
 # the sections a hand-written text may take the place of (`--hand NAME=FILE`), by their first line
-HAND_SECTIONS = {"consistency": "/-! ## Consistency for every H"}
+HAND_SECTIONS = {"consistency": "/-! ## Consistency for every H",
+                 "ovlfn": "/-! ## Sentences of a function-overloaded symbol: the covered part"}
 
 NEX_TIE = os.path.join(KS, "test/NonExecOwiseTie.lean")
 
@@ -5003,6 +5126,235 @@ def tok_omit_section(i, sorts):
     return "\n".join(L)
 
 
+# the forms of the covered part of a sentence of `ovlFnApart` the hand section (`--hand ovlfn`) states,
+# each by the names it defines: at values for every H; refuted for every H (the sentence also in
+# `ovlFnRefuted`); or owed under a hypothesis on H, with an H at which it holds and one at which it fails
+OVL_FN_FORMS = {"at_values": ("ovlfn_at_values_{}",),
+                "refuted": ("ovlfn_refuted_{}",),
+                "hypothesis": ("OvlFnHyp{}", "ovlfn_hyp_at_values_{}", "ovlfn_hyp_holds_{}", "ovlfn_hyp_fails_{}")}
+OVL_FN_KIND = {"fun": "the `functional` sentence", "inj": "the same-constructor sentence",
+               "dist": "a different-constructors sentence"}
+
+
+def ovl_fn_rows_of(name, ovl_fn, head, sents):
+    """Per sentence of `ovlFnApart`, from the probe's `OF` rows: its kind, sort, generators, and the
+    `functional` sentence of `ovlFnApart` it is joint with (`jf`, the sentence itself for a `functional`
+    one) with the position of that sentence's generator among the sentence's (`gf`); and the distinct
+    generators, in order of first appearance. Refused where a sentence has no row or several, where
+    its sort is not one of the semantics', or where no `functional` sentence of the text that
+    `tieOvlFnFunAtB` accepts at the generator, with Γ's arity item of it (`tieOvlFnArityB`), is there
+    to be joint with."""
+    rows, gens = {}, []
+    of = head.get("ovlFn", {})
+    for i in ovl_fn:
+        rs = of.get(i, [])
+        if len(rs) != 1 or rs[0]["kind"] != sents[i]["ovlFn"]:
+            raise Refused(f"{name}: sentence {i} is of a function-overloaded symbol, but the probe gives "
+                          f"{len(rs)} sorts and generators it is that sentence at (one is stated)")
+        r = rs[0]
+        if not r["numbered"]:
+            raise Refused(f"{name}: sentence {i}: its sort {r['sort']} is not one of the semantics' numbered sorts")
+        for g in r["gens"]:
+            if g["lit"] not in gens:
+                gens.append(g["lit"])
+        funs = [j for j in ovl_fn if j in of and of[j][0]["kind"] == "fun" and of[j][0]["srt"] == r["srt"]]
+        cands = [(p, j) for p, g in enumerate(r["gens"]) if g["fnOvl"]
+                 for j in funs if of[j][0]["gens"][0]["lit"] == g["lit"]]
+        if r["kind"] == "fun":
+            cands = [(0, i)]
+        if not cands:
+            raise Refused(f"{name}: sentence {i} ({r['kind']}) is joint with the `functional` sentence of its "
+                          f"function-overloaded generator, which the text does not state")
+        p, j = cands[0]
+        if not r["gens"][p]["arity"]:
+            raise Refused(f"{name}: sentence {i}: Γ holds no arity item of the generator {r['gens'][p]['sym']} in "
+                          f"the form `tieOvlFnArityB` reads")
+        rows[i] = dict(kind=r["kind"], srt=r["srt"], sort=r["sort"], gens=[g["lit"] for g in r["gens"]],
+                       syms=[g["sym"] for g in r["gens"]], jf=j, gf=p)
+    return rows, gens
+
+
+def ovl_fn_hand_of(name, ovl_fn, text):
+    """The form of the covered part the hand section states for each sentence of `ovlFnApart`, read
+    from the names it defines (`OVL_FN_FORMS`), and those names. Refused where it states none or
+    several for a sentence, or where `ovlFnRefuted` lists a sentence it does not refute."""
+    if text is None:
+        raise Refused(f"{name}: sentences {', '.join(map(str, ovl_fn))} are of a function-overloaded symbol "
+                      f"(`ovlFnApart`): what each says at covered arguments is stated by hand (--hand ovlfn=FILE)")
+    has = lambda n: re.search(r"^(?:noncomputable )?(?:theorem|def|abbrev) " + re.escape(n) + r"(?![\w'])", text, re.M)
+    m = re.search(r"^(?:noncomputable )?def ovlFnRefuted : List Nat := \[([^\]]*)\]", text, re.M)
+    listed = [int(x) for x in re.findall(r"\d+", m.group(1))] if m else []
+    out = {"at_values": [], "refuted": [], "hypothesis": [], "names": [] + (["ovlFnRefuted"] if m else [])}
+    for i in ovl_fn:
+        forms = [f for f, ns in OVL_FN_FORMS.items() if all(has(n.format(i)) for n in ns)
+                 and (f != "refuted" or i in listed)]
+        if len(forms) != 1:
+            raise Refused(f"{name}: --hand ovlfn " + ("leaves" if not forms else f"states {' and '.join(forms)} for")
+                          + f" sentence {i}" + (" without its covered part: one of " + "; ".join(
+                              ", ".join(n.format(i) for n in ns) + (f" (with {i} in `ovlFnRefuted`)" if f == "refuted" else "")
+                              for f, ns in OVL_FN_FORMS.items()) if not forms else ": one is stated"))
+        out[forms[0]].append(i)
+        out["names"] += [n.format(i) for n in OVL_FN_FORMS[forms[0]]]
+    stray = [i for i in listed if i not in out["refuted"]]
+    if stray:
+        raise Refused(f"{name}: --hand ovlfn: `ovlFnRefuted` lists {', '.join(map(str, stray))}, no sentence of "
+                      f"`ovlFnApart` the section refutes (`ovlfn_refuted_<i>`)")
+    if out["refuted"] and listed != out["refuted"]:
+        raise Refused(f"{name}: --hand ovlfn: `ovlFnRefuted` is not in text order")
+    return out
+
+
+def ovl_fn_doc(ovl_fn, rows, hand):
+    """The header's paragraph on the sentences of a function-overloaded symbol, listed apart."""
+    what = "; ".join(f"{i}, {OVL_FN_KIND[rows[i]['kind']]} of `{rows[i]['syms'][0]}`"
+                     + (f" and `{rows[i]['syms'][1]}`" if rows[i]["kind"] == "dist" else "") for i in ovl_fn)
+    para = (f"- Sentences of a function-overloaded symbol ({what}), weaker under overloadFunction, listed apart "
+            "(`ovlFnApart`): Γ holds each at the arguments no overload covers only. Part 1, for every H: in a "
+            "model of Γ the sentence, with the `functional` sentence it is joint with, entails Γ's item at "
+            "uncovered arguments (`ovlfn_text_<i>`, `ovlfn_entails_item_<i>`), which is Γ's "
+            "(`ovlfn_item_in_gamma_<i>`). Part 2, what it says at covered arguments, by hand: ")
+    parts = []
+    if hand["at_values"]:
+        parts.append(f"at values for every H ({', '.join(map(str, hand['at_values']))}; `ovlfn_at_values_<i>`)")
+    if hand["refuted"]:
+        parts.append(f"refuted for every H ({', '.join(map(str, hand['refuted']))}; `ovlFnRefuted`, "
+                     "`ovlfn_refuted_<i>`)")
+    if hand["hypothesis"]:
+        parts.append(f"owed under a hypothesis on H ({', '.join(map(str, hand['hypothesis']))}; `OvlFnHyp<i>`, "
+                     "`ovlfn_hyp_at_values_<i>`, with an H at which it holds, `ovlfn_hyp_holds_<i>`, and one at "
+                     "which it fails, `ovlfn_hyp_fails_<i>`)")
+    para += "; ".join(parts) + "."
+    return textwrap.fill(para, width=100, initial_indent="  ", subsequent_indent="    ", break_on_hyphens=False,
+                         break_long_words=False)
+
+
+def ovl_fn_item(kind, srt, ga, gb=None, h="(cH H)"):
+    """Γ's item at uncovered arguments of a sentence of the kind, over the generators' definitions."""
+    if kind == "fun" or kind == "inj":
+        it = "funUncItem" if kind == "fun" else "injUncItem"
+        return (f"(KoreAML.Cons.{it} ({h}.sortName {srt}) (Gen.toK {h} {ga}) ((ovlArgsOf {h} {ga}).getD [])).pat")
+    return (f"(KoreAML.Cons.distUncItem ({h}.sortName {srt}) (Gen.toK {h} {ga}) (Gen.toK {h} {gb}) "
+            f"(ovlArgsOf {h} {ga}) (ovlArgsOf {h} {gb})).pat")
+
+
+def ovl_fn_entails(i, r, gname):
+    """The binders and the conclusion of `ovlfn_entails_item_<i>`, after `H`, `M` and `I`, and before
+    the model hypothesis (`hI`)."""
+    ga = gname[r["gens"][0]]
+    gb = gname[r["gens"][1]] if r["kind"] == "dist" else None
+    hyps = ([f"(hf : I ⊧ᴵ (trS U.ax{r['jf']}).pat) "] if r["jf"] != i else []) + [f"(h : I ⊧ᴵ (trS U.ax{i}).pat)"]
+    if r["kind"] == "dist":
+        concl = (f"(I ⊧ᴵ {ovl_fn_item('dist', r['srt'], ga, gb)}) ∧\n"
+                 f"    (I ⊧ᴵ {ovl_fn_item('dist', r['srt'], gb, ga)})")
+    else:
+        concl = f"I ⊧ᴵ {ovl_fn_item(r['kind'], r['srt'], ga)}"
+    return "".join(hyps), concl
+
+
+def ovl_fn_section(ovl_fn, rows, gens):
+    """Part 1 of the sentences of `ovlFnApart`, for every H: each is the sentence of its kind of a
+    function-overloaded generator (`tieOvlFnFunAtB`, `tieOvlFnInjAtB`, `tieOvlFnDistAtB`; kernel), Γ holds
+    its item at uncovered arguments (`tieOvlFn*_item_withHooks`), and in a model of Γ it entails that
+    item with the `functional` sentence it is joint with (`tieOvlFn*_weaker_Γ`)."""
+    gname = {g: f"ovlFnGen{k}" for k, g in enumerate(gens)}
+    srts = sorted({r["srt"] for r in rows.values()})
+    L = [f"/-! ## Sentences of a function-overloaded symbol ({', '.join(map(str, ovl_fn))}): weaker under",
+         "overloadFunction, listed apart",
+         "",
+         "Γ holds each sentence at the arguments no overload of its generator covers only (Γ's items",
+         "`funUncItem`, `injUncItem`, `distUncItem`). This section states what holds for every H on every",
+         "text: the sentence entails that item in a model of Γ, the same-constructor and",
+         "different-constructors sentences with the `functional` sentence of their function-overloaded",
+         "generator. What a sentence says at covered arguments is the next section's, by hand. -/",
+         "",
+         "/-- The sentences of `ovlFnApart`, in text order. -/",
+         "noncomputable def ovlFnText : List AxiomDecl :=",
+         "  " + ax_list(ovl_fn),
+         "",
+         "theorem ovlfn_index : ovlFnText.map (·.index) = ovlFnApart := by decide +kernel",
+         ""]
+    for g in gens:
+        sym = next(r["syms"][k] for r in rows.values() for k, x in enumerate(r["gens"]) if x == g)
+        L += [f"/-- The generator `{sym}`. -/", f"def {gname[g]} : Gen := {g}", ""]
+    names = " ∧ ".join(f"c.sortName {x} = {lean_str(next(r['sort'] for r in rows.values() if r['srt'] == x))}" for x in srts)
+    L += ["/-- The sorts of these generators are the semantics' sorts, named: -/",
+          f"theorem ovlfn_sorts : {' ∧ '.join(f'{x} < nRegSorts + c.sortNames.length' for x in srts)} := by decide +kernel",
+          f"theorem ovlfn_sort_names : {names} := by decide +kernel",
+          "",
+          "/-- Γ holds the G-arity item of each generator whose `functional` sentence the others are joint",
+          "with (`tieOvlFnArityB`). -/"]
+    fgens = []
+    for i in ovl_fn:
+        r = rows[i]
+        key = (r["srt"], r["gens"][r["gf"]])
+        if key not in fgens:
+            fgens.append(key)
+    arity = {k: f"ovlfn_arity_{n}" for n, k in enumerate(fgens)}
+    for (x, g), n in arity.items():
+        L.append(f"theorem {n} : tieOvlFnArityB c {x} {gname[g]} = true := by decide +kernel")
+    L.append("")
+    srt_ix = {x: k for k, x in enumerate(srts)}
+    numbered = lambda x: "ovlfn_sorts" + ".2" * srt_ix[x] + (".1" if srt_ix[x] < len(srts) - 1 else "")
+    pred = {"fun": "Fun", "inj": "Inj", "dist": "Dist"}
+    for i in ovl_fn:
+        r = rows[i]
+        P = pred[r["kind"]]
+        x = r["srt"]
+        ga = gname[r["gens"][0]]
+        gb = gname[r["gens"][1]] if r["kind"] == "dist" else None
+        gargs = f"{ga} {gb}" if gb else ga
+        j, gf = r["jf"], gname[r["gens"][r["gf"]]]
+        hyps, concl = ovl_fn_entails(i, r, gname)
+        L += [f"/-- Sentence {i} is {OVL_FN_KIND[r['kind']]} of `{r['syms'][0]}`"
+              + (f" and `{r['syms'][1]}`" if gb else "") + f" of {r['sort']}"
+              + ("" if j == i else f", joint with the `functional` sentence {j}") + ". -/",
+              f"theorem ovlfn_text_{i} : tieOvlFn{P}AtB c {x} {gargs} U.ax{i}.ax = true := by decide +kernel",
+              f"theorem ovlfn_trS_{i} : (trS U.ax{i}).pat = (trAxiom [] [] U.ax{i}).pat := by decide +kernel",
+              "",
+              f"/-- Γ holds its item at uncovered arguments, for every H{'' if gb else ''}"
+              + (" (in one of the two orders)" if gb else "") + ". -/",
+              f"theorem ovlfn_item_in_gamma_{i} (H : HookParams) :"]
+        if gb:
+            L += [f"    (∃ it ∈ consItemsK (cH H), it.pat = {ovl_fn_item('dist', x, ga, gb)}) ∨",
+                  f"    (∃ it ∈ consItemsK (cH H), it.pat = {ovl_fn_item('dist', x, gb, ga)}) :="]
+        else:
+            L += [f"    ∃ it ∈ consItemsK (cH H), it.pat = {ovl_fn_item(r['kind'], x, ga)} :="]
+        L += [f"  tieOvlFn{P}_item_withHooks ovlfn_text_{i} H",
+              "",
+              f"/-- **In a model of Γ, sentence {i}"
+              + ("" if j == i else f" with sentence {j}") + " entails that item**"
+              + (", in both orders" if gb else "") + ", for every H. -/",
+              f"theorem ovlfn_entails_item_{i} (H : HookParams) {{M : Type}} [Inhabited M] {{I : Interpretation KoreAML.Sym M}}",
+              f"    (hI : I ⊧ᴵP Γ (cH H)) {hyps} :",
+              f"    {concl} := by"]
+        if j != i:
+            L.append(f"  rw [ovlfn_trS_{j}] at hf")
+        L.append(f"  rw [ovlfn_trS_{i}] at h")
+        hA = f"((tieOvlFnArityB_withHooks c H _ _).trans {arity[(x, r['gens'][r['gf']])]})"
+        if r["kind"] == "fun":
+            L += [f"  exact tieOvlFnFun_weaker_Γ hI ((tieOvlFnFunAtB_withHooks c H _ _ _).trans ovlfn_text_{i}) {numbered(x)}",
+                  f"    {hA} h _"]
+        elif r["kind"] == "inj":
+            L += [f"  exact tieOvlFnInj_weaker_Γ hI ((tieOvlFnFunAtB_withHooks c H _ _ _).trans ovlfn_text_{j})",
+                  f"    ((tieOvlFnInjAtB_withHooks c H _ _ _).trans ovlfn_text_{i}) {numbered(x)} {hA} hf h _"]
+        else:
+            L += [f"  have hfa := (tieOvlFnFunAtB_withHooks c H _ _ _).trans ovlfn_text_{j}",
+                  "  simp only [tieOvlFnFunAtB, Bool.and_eq_true] at hfa",
+                  f"  exact tieOvlFnDist_weaker_Γ hI (gf := {gf}) ({'.inl' if r['gf'] == 0 else '.inr'} rfl) hfa.1.2",
+                  f"    ((tieOvlFnDistAtB_withHooks c H _ _ _ _).trans ovlfn_text_{i}) {numbered(x)} {hA} hf h _ _"]
+        L.append("")
+    return "\n".join(L)
+
+
+def ovl_fn_refuted_section():
+    """`ovlFnRefuted`, which the hand section defines, is a sublist of `ovlFnApart`."""
+    return "\n".join([
+        "/-! ## The refuted sentences of a function-overloaded symbol -/",
+        "",
+        "/-- The sentences the hand section refutes for every H are sentences of `ovlFnApart`, in its order. -/",
+        "theorem ovlfn_refuted_sub : ovlFnRefuted.isSublist ovlFnApart = true := by decide +kernel",
+        ""])
+
 def law_section(law_idx):
     il = ", ".join(map(str, law_idx))
     lt = ", ".join(f"U.ax{i}" for i in law_idx)
@@ -5205,7 +5557,7 @@ theorem open_functional_not_item : {ax_list(open_fun, 4)}.all (fun ad => !(consI
 
 
 def gamma_c_section(gamma, fn_align, nrules, fn_any, nj_triv, nj_items, nj_kitem, cons_text, idem, own_idem=(),
-                    ovl_eq=(), ovl_nc=(), tok_omit=(), tok_sorts=()):
+                    ovl_eq=(), ovl_nc=(), tok_omit=(), tok_sorts=(), ovl_fn=(), ovl_fn_rows=None):
     """The statements over `Γc = Γ ∪ Γcl`, the theory of a definition that reads a confined sort: each
     entailment over Γ holds over `Γc`; `Γcl` holds `boolClosed` alone; the origin of `Γc`'s premises."""
     L = ["/-! ## Over `Γc`, the theory the statements are about -/", "",
@@ -5296,6 +5648,22 @@ def gamma_c_section(gamma, fn_align, nrules, fn_any, nj_triv, nj_items, nj_kitem
               f"    (hI : I ⊧ᴵP Γc (cH H)) : (I ⊧ᴵ (trS U.ax{i}).pat) ↔ ∀ x ∈ tokKItemSorts, ¬ ∃ y, InS I (c.sortName x) y :=",
               "  tokkitem_holds_iff_empty H fun φ hφ => hI φ (Γ_sub_Γc _ hφ)"]
         names.append("tokkitem_holds_iff_empty_c")
+    if ovl_fn:
+        gname = {}
+        for r in ovl_fn_rows.values():
+            for g in r["gens"]:
+                gname.setdefault(g, f"ovlFnGen{len(gname)}")
+        for i in ovl_fn:
+            r = ovl_fn_rows[i]
+            hyps, concl = ovl_fn_entails(i, r, gname)
+            args = " hf h" if r["jf"] != i else " h"
+            L += [f"/-- **Over `Γc`, sentence {i}" + ("" if r["jf"] == i else f" with sentence {r['jf']}") +
+                  " entails Γ's item at uncovered arguments**, for every H: a model of `Γc` is one of Γ. -/",
+                  f"theorem ovlfn_entails_item_{i}_c (H : HookParams) {{M : Type}} [Inhabited M] {{I : Interpretation KoreAML.Sym M}}",
+                  f"    (hI : I ⊧ᴵP Γc (cH H)) {hyps} :",
+                  f"    {concl} :=",
+                  f"  ovlfn_entails_item_{i} H (fun φ hφ => hI φ (Γ_sub_Γc _ hφ)){args}"]
+            names.append(f"ovlfn_entails_item_{i}_c")
     return "\n".join(L) + "\n", names
 
 
