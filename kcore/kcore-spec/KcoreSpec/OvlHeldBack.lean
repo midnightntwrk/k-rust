@@ -66,7 +66,7 @@ theorem heldBackAll_holds {c : Semantics} (h : c.coreOK = true)
   haveI : OvlOK c := hno
   exact heldBack_holdsCl (fun φ hφ => hI φ (Or.inl hφ)) (sortCtx_of_all hok hsr (OvlOK.ovlCase hno)) hnn hg
     (Model.namesApartK_spec (faithCoreOK_parts (Semantics.coreOK_parts h).2.1).2.2.2.2.2.1)
-    (fun k hk hkr => (Semantics.raw_of_core h hk hkr).2.2.2.1) hph hcs hcso
+    (fun k hk hkr => Semantics.raw_noInst_core_irs h hk hkr) hph hcs hcso
     (fun hany => confinedAt_value h (hrc hany) hI) f k hc hh hk
 
 /-- **Each symbol `Semantics.holds` names has `HeldBack`** in a model of `Γc`. `hrc`: the

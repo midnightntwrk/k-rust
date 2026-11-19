@@ -54,30 +54,13 @@ theorem head_arity {k : CtorSig} (hk : k ∈ kernelSyms c) {e : Valuation M} {a 
       | cons b bs =>
         exact .cons ((inS_iff _).mpr (hb 0 b (c.sortName s) rfl rfl))
           (ih bs (by simpa using hl) (fun i x s' h1 h2 => hb (i + 1) x s' (by simpa using h1) (by simpa using h2)))
-  unfold symArityItem at hit
-  unfold symHead at ha
-  cases hX : iteSort? (c.symName k.name) with
-  | none =>
-    rw [hX] at hit ha
-    dsimp only at hit ha
-    unfold KoreAML.arityItem at hit
-    dsimp only [KoreAML.paramTable, List.map_nil] at hit
-    have hinc := (KoreAML.interp_included hD).mp (hit KoreAML.val0 default) m
-    unfold srtOf at hinc
-    rw [trSort_srt] at hinc
-    apply hinc
-    rw [interp_appList]
-    refine ⟨a, ((Closed.sym _).interp e KoreAML.val0 a).mp ha, bs, ?_, hm⟩
-    have := hargs k.args bs hbl hbs
-    simpa [srtOf, trSort_srt, List.map_map, Function.comp_def, KoreAML.Cons.sortP] using this
-  | some X =>
-    rw [hX] at hit ha
-    dsimp only at hit ha
-    have hinc := (KoreAML.interp_included hD).mp (hit KoreAML.val0 default) m
-    apply hinc
-    rw [interp_appList]
-    refine ⟨a, (((Closed.sym _).app (Closed.sym _)).interp e KoreAML.val0 a).mp ha, bs, ?_, hm⟩
-    exact hargs k.args bs hbl hbs
+  obtain ⟨h, xs, -, hw⟩ := symApp_head c k.name
+  rw [symArityItem_of_symApp hw] at hit
+  rw [symHead_of_symApp hw] at ha
+  have hinc := (KoreAML.interp_included hD).mp (hit KoreAML.val0 default) m
+  apply hinc
+  rw [interp_appList]
+  exact ⟨a, ((instHeadP_closed h xs).interp e KoreAML.val0 a).mp ha, bs, hargs k.args bs hbl hbs, hm⟩
 
 variable [OvlOK c] (hg : genWf c = true)
   (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsorts → (a, d) ∈ c.subsorts)

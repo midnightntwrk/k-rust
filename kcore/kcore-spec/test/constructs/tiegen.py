@@ -7,7 +7,7 @@ Usage (from anywhere; the library and `kcore` built first):
                                                [--split] [--account-sorted] [--heads-literal] [--heads-codes]
                                                [--attrs-parts] [--attrs-blocks N] [--decl-parts] [--fn-blocks N]
                                                [--absent-file] [--builtin-decls] [--decl-syms-literal] [--nojunk-eq]
-                                               [--nojunk-blocks N] [--out DIR] [--print]
+                                               [--nojunk-blocks N] [--lists-by-class] [--out DIR] [--print]
   (the probe, a run of the Lean definitions on the text, is stopped after $TIEGEN_PROBE_TIMEOUT seconds, 900 by default)
   python3 -I test/constructs/tiegen.py --self-test   (the law search below, on three fixtures)
 
@@ -80,6 +80,12 @@ of N (`tieEq_range`, `njTrOr_pat`): the text names the variable of each injectio
 whatever its sort, where `noJunkDisjuncts` numbers a name it has given at another sort, so the
 disjuncts agree only up to their translation. Both flags state the text's alias names once
 (`aliasLit`, `aliasLit_eq`).
+--lists-by-class proves `lists_in_account` (each sentence of `unmapped` and `uncovered` is in its class)
+from `lists_classes` (each listed class is a class of the account) and `lists_sub` (for each class, the
+listed sentences of it, in their order, are a sublist of its indices), joined by `tieAll_of_groups`:
+deciding the statement directly computes `classOf` and scans it once per listed sentence, which over
+some thousand sentences exceeds a 12 GiB scope; `lists_sub` reads each class's list once. A text whose
+listed sentences of a class are not in the order of the class's indices is refused.
 --builtin-decls also states, after `decls_entailed`, that Γ entails the G-arity item of each symbol
 declaration of the text with a K builtin file's `Source`, without a `hook` attribute and without sort
 parameters, of a symbol Γ has (`builtinDeclNames`, a literal list of names; `builtinDeclNames_has`;
@@ -99,6 +105,12 @@ function functional sentences, owed as `FnHyp`, are not shown by the tie, unless
 values in every model of `Γc` from the sort predicates' own results (`theorem fnFun_at_values (H :
 HookParams) : ∀ ad ∈ fnFunText, EntailsAtValuesΓc (cH H) ad (trS ad).pat`, LibEvSortPred.lean), which
 they then say, with `not_fnHypH` where FILE states `FnHyp` false for every H.
+Where each sentence of the class function functional is, as written, a sort predicate's `functional`
+sentence (`LibEv.funPat`), the clauses' predicates are `\\top`, no clause binds a variable by
+`\\exists` and no clause's condition reads a variable its patterns leave open, the tie states those
+sentences at values in every model of `Γc` for every H from the sort predicates' own results
+(`fnFun_at_values`, by `LibEv.sortPredFun_evC_withHooks`), whatever FILE states, unless FILE states
+them itself.
 --at-values N,... names the user lemmas (by `AxiomDecl.index`) that are of the class `user lemma at
 values` in place of `user lemma`; an index that is no user lemma of the text is refused.
 
@@ -391,7 +403,8 @@ RESERVED = {"c", "cH", "kore", "defn", "U", "trS", "fn", "f", "at", "by", "do", 
             "else", "have", "show", "from", "end", "def", "theorem", "match", "with", "open", "namespace", "where",
             "instance", "structure", "class", "import", "names", "classes", "consText", "fnText", "ruleText",
             "ovlEqText", "ovlNcText", "ovlRefuted", "tokKItemApart", "tokKItemSorts", "tokKItemGens",
-            "lawText", "lawIdx", "callOrder", "Pre", "Families", "hasSym", "declItems", "plainSorts", "plainSyms"}
+            "lawText", "lawIdx", "callOrder", "Pre", "Families", "hasSym", "declItems", "plainSorts", "plainSyms",
+            "fnFunIdx", "fnFunText", "fnFunOK"}
 
 
 def short_sym(n):
@@ -795,6 +808,10 @@ def tgNjOrder (gs : List KoreAML.Gen) : List Kore.Pattern → Option (List Nat)
     IO.println s!"L {j}\t{gate}\t{σs.length}\t{ws}"
   IO.println s!"H litBool {c.litSort Srt.bool}"
   IO.println s!"H owedNil {c.owedRules.isEmpty && c.owedClauses.isEmpty}"
+  -- the conditions `LibEv.sortPredFun_evC` reads of the clauses, and the user sentences that are, as
+  -- written, a sort predicate's `functional` sentence (`LibEv.funPat`, over the sort variable `R`)
+  IO.println s!"H fnFunGate {c.clausesPreTop && (c.fns.all fun f => f.clauses.all fun cl => cl.exs.isEmpty) && (c.fns.all fun f => f.clauses.all fun cl => !cl.reqOpen)}"
+  IO.println s!"H fnFunOK {(us.filter fun ad => decide (ad.ax.sortVars = [Rv]) && c.sortPreds.any fun fn => decide (ad.ax.pattern = LibEv.funPat c fn.sig) && LibEv.predFunReg c fn.sig).map (·.index)}"
   IO.println s!"H fnClauses {afs.map fun f => c.symName f.label ++ "=" ++ toString f.clauses.length}"
   -- Γ's heads in `gammaHeads`' order, each sort argument by its name (`?` for a sort that is no
   -- constructor without arguments), for `--heads-literal`
@@ -1251,7 +1268,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
              hand=None, chunk=0, at_values=(), cons_head=False, wf_parts=None, split=False,
              account_sorted=None, heads_literal=False, heads_codes=False, attrs_parts=False, decl_parts=False,
              fn_blocks=0, attrs_blocks=0, absent_file=False, builtin_decls=(), decl_syms=False, nojunk_eq=False,
-             nojunk_blocks=0):
+             nojunk_blocks=0, lists_by_class=False):
     """The Lean text of the tie. `ob`: what `obligations` read; `raws`: each sentence's text as
     written; `hand`: hand-written sections by name (`consistency`), each in place of the generated
     one; `chunk`: the length of the ranges the decisions over the whole user module are cut into
@@ -1263,7 +1280,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     equations (0: one decision); `decl_syms`: decide `decl_counts` and the `declsE` ranges on Γ's
     symbol names as a literal (`gSymCodes`); `nojunk_eq`: `nojunk_items` from each sentence's
     equation to its sort's item (`njEq`); `nojunk_blocks`: the no-junk orders of KItem and of a sort
-    of more generators than that by blocks of that many disjuncts (0: one decision)."""
+    of more generators than that by blocks of that many disjuncts (0: one decision); `lists_by_class`:
+    `lists_in_account` from one check per class (`tieAll_of_groups`)."""
     raws = raws or {}
     hand = hand or {}
     call_order = ob["call_order"]
@@ -1375,6 +1393,14 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         hand_c, re.M))
     notfnhyp_hand = held_total and not fnhyp_hand and bool(re.search(
         r"^theorem not_fnHypH \(H : HookParams\) : ¬ FnHyp \(cH H\)", hand_c, re.M))
+    # otherwise, where each function functional sentence is, as written, a sort predicate's
+    # `functional` sentence and the clauses meet what `LibEv.sortPredFun_evC` reads, the tie states
+    # them at values in every model of `Γc` (`fnFun_section`)
+    fnfun_idx = by_class["function functional"]
+    fnfun_ok = {int(x) for x in re.findall(r"\d+", head.get("fnFunOK", ""))}
+    fnfun_gen = (not fnfun_hand and "fnFun" not in hand_c and bool(fnfun_idx) and head.get("fnFunGate") == "true"
+                 and all(i in fnfun_ok and sents[i]["plain"] for i in fnfun_idx))
+    fnfun_any = fnfun_hand or fnfun_gen
     tp_params = ob["hform"] and head["totalNil"] != "true"
     # where a `[total]` function applies a parameter the text declares total, its totality holds
     # under the interpretations total on those parameters (`totalObligationsRP callOrder
@@ -1577,7 +1603,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                                         "which it does not state (its comment says why)") +
                  (": the function functional sentences, the sort predicates' `functional` sentences, hold at "
                   "values in every model of `Γc` from the sort predicates' own results (`fnFun_at_values`)."
-                  if fnfun_hand else
+                  if fnfun_any else
                   ": the function functional sentences, owed as `FnHyp`, are not shown by this tie where `FnHyp` fails."))
         w(textwrap.fill(para, 104, initial_indent="    ", subsequent_indent="    "))
     elif agree:
@@ -1741,11 +1767,17 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     if user_lem or user_lem_v:
         owed_more += ("; user lemma: owed, by hand\n    (`userlemma_account`, `UserLemmaEntailed`, "
                       "`UserLemmaAtValues`)")
-    if fnfun_hand:
+    if fnfun_any:
         w("  - Function functional: at values in every model of `Γc`, from the sort predicates' results, not")
         w("    from `FnHyp` (`fnFun_at_values`, `fnFun_account`).")
-        w(f"  - Hooked functional, collection law, library: at values (no theorem here){owed_more}; no direction:")
-        w("    `absent_closed`.")
+        if owed_more:
+            w(textwrap.fill("Hooked functional, collection law, library: at values (no theorem here)" +
+                            owed_more.replace("\n    ", " ") + "; no direction: `absent_closed`.",
+                            width=100, initial_indent="  - ", subsequent_indent="    ",
+                            break_on_hyphens=False, break_long_words=False))
+        else:
+            w("  - Hooked functional, collection law, library: at values (no theorem here); no direction:")
+            w("    `absent_closed`.")
     else:
         w("  - Hooked functional, collection law, library: at values (no theorem here); function functional:")
         w(f"    owed as `FnHyp` ({'not stated here; ' if held_total and not fnhyp_hand else ''}no theorem){owed_more}; no direction: `absent_closed`.")
@@ -2143,9 +2175,32 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     w("def uncovered : List (Nat × String) :=")
     w("  [" + wrap_nums([f'({i}, "{c_}")' for i, c_ in uncovered], 3) + "]")
     w("")
-    w("/-- Each listed sentence is in its class in the account. -/")
-    w("theorem lists_in_account : (unmapped ++ uncovered).all (fun ic => (classOf ic.2).contains ic.1) = true := by")
-    w("  decide +kernel")
+    if lists_by_class:
+        listed = [(i, cls[i]) for i in unmapped] + list(uncovered)
+        for c_ in classes_list:
+            got, it = [i for i, k in listed if k == c_], iter(by_class[c_])
+            if not all(any(i == j for j in it) for i in got):
+                raise Refused(f"{name}: --lists-by-class: the listed sentences of class {c_!r}, in the order "
+                              f"`unmapped ++ uncovered` lists them, are no sublist of the class's indices")
+        if any(k not in classes_list for _, k in listed):
+            raise Refused(f"{name}: --lists-by-class: a listed sentence's class is no class of the account")
+        w("/-- Each listed sentence's class is a class of the account. -/")
+        w("theorem lists_classes : (unmapped ++ uncovered).all (fun ic => (classes.map (·.1)).contains ic.2) = true := by")
+        w("  decide +kernel")
+        w("")
+        w("/-- For each class of the account, the listed sentences of it, in their order, are a sublist of its")
+        w("indices: one pass over each class's list. -/")
+        w("theorem lists_sub : (classes.map (·.1)).all (fun n =>")
+        w("    (((unmapped ++ uncovered).filter (·.2 == n)).map (·.1)).isSublist (classOf n)) = true := by")
+        w("  decide +kernel")
+        w("")
+        w("/-- Each listed sentence is in its class in the account (`tieAll_of_groups`). -/")
+        w("theorem lists_in_account : (unmapped ++ uncovered).all (fun ic => (classOf ic.2).contains ic.1) = true :=")
+        w("  tieAll_of_groups lists_classes lists_sub")
+    else:
+        w("/-- Each listed sentence is in its class in the account. -/")
+        w("theorem lists_in_account : (unmapped ++ uncovered).all (fun ic => (classOf ic.2).contains ic.1) = true := by")
+        w("  decide +kernel")
     w("")
     mark("Attrs")
     w("/-! ## The attributes -/")
@@ -2513,6 +2568,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             w(f"/-- **{'`Γc`' if confined else 'Γ'} with the step's closure has a model, for every H.** -/")
             w("theorem consistent (H : HookParams) : Consistent (cH H) := consistent_of_fnHyp _ (coreOKH H) (fnHypH H)")
             w("")
+    if fnfun_gen:
+        w(fnfun_section(fnfun_idx))
     mark("Fns")
     if fn_align:
         w(alpha_block())
@@ -2957,6 +3014,9 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
               "fnFun_at_values_step"] if fnfun_hand else [])
     elif agree:
         after += ["agree_named"] + (["agree"] if "consistency" in hand else []) + ["facts"]
+    if fnfun_gen:
+        after += ["fnFun_indices", "fnFun_account", "fnFun_checked", "fnFun_trS", "fnFun_at_values",
+                  "fnFun_at_values_step"]
     if tp_held:
         after += ["total_named", "paramsTotal_witness", "consistent_witness"]
     if fn_align:
@@ -3011,7 +3071,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         marks = [(o if o <= a else o + len(new) - (b - a), m) for o, m in marks]
         lean = lean[:a] + new + lean[b:]
     owed = ([f"the agreement of {', '.join(ob['agree_names'])} (AgreeOwed)"] if agree and "consistency" not in hand else [])
-    if held_total and not fnhyp_hand and not fnfun_hand:
+    if held_total and not fnhyp_hand and not fnfun_any:
         owed.append("FnHyp, the hypothesis the function functional sentences are owed under (not stated: the "
                     "consistency section shows `consistent` without it)")
     if param_lem:
@@ -3251,6 +3311,79 @@ def split_tie(ns, lean, marks, text_rel, cmd, blocks):
 HAND_SECTIONS = {"consistency": "/-! ## Consistency for every H"}
 
 NEX_TIE = os.path.join(KS, "test/NonExecOwiseTie.lean")
+
+
+def fnfun_section(idx):
+    """The function functional sentences, each a sort predicate's `functional` sentence as written, at
+    values in every model of `Γc` for every H (`LibEv.sortPredFun_evC_withHooks`)."""
+    n = len(idx)
+    return f"""/-! ## Function functional ({n}): the sort predicates' `functional` sentences, at values in every model of Γc -/
+
+/- The class holds the `functional` sentences of {n} sort predicates `isX`,
+`\\exists{{R}}(Val:SortBool{{}}, \\equals{{SortBool{{}}, R}}(Val:SortBool{{}}, LblisX{{}}(K0:SortK{{}})))`. KCore builds
+the sort predicates (`Semantics.sortPreds`): each has a value at every K, and a model of `Γc` reads
+its application at a value's element as that value's element (`LibEv.sortPredFun_evC`, under
+`coreOK`, the clauses' predicates `\\top`, no `\\exists` in a clause, and no condition over a
+variable the patterns leave open). So each sentence holds in every model of `Γc`, and of `Γc` with
+the step's closure, at every valuation sending K0 to a value, for every H, from the sort predicates'
+own results and without `FnHyp`. -/
+
+/-- The sentences' indices. -/
+def fnFunIdx : List Nat := [{wrap_nums(idx, 3)}]
+
+/-- The sentences, in text order. -/
+noncomputable def fnFunText : List AxiomDecl := U.all.filter fun ad => fnFunIdx.contains ad.index
+
+theorem fnFun_indices : fnFunText.map (·.index) = fnFunIdx := by decide +kernel
+
+/-- **`fnFunText` is the account's function functional class**: the same indices, each once. -/
+theorem fnFun_account : (classOf "function functional").isPerm (fnFunText.map (·.index)) = true := by
+  decide +kernel
+
+/-- The sentence is the `functional` sentence of a sort predicate of `c`, over the one sort
+variable `R`, with its variables' sorts the registry's. -/
+noncomputable def fnFunOK (ad : AxiomDecl) : Bool :=
+  decide (ad.ax.sortVars = [Rv]) &&
+    c.sortPreds.any fun fn => decide (ad.ax.pattern = LibEv.funPat c fn.sig) && LibEv.predFunReg c fn.sig
+
+theorem fnFun_checked : fnFunText.all fnFunOK = true := by decide +kernel
+
+/-- None of the {n} reads a declaration or an alias. -/
+theorem fnFun_trS : fnFunText.all (fun ad => decide ((trS ad).pat = (trAxiom [] [] ad).pat)) = true := by
+  decide +kernel
+
+/-- The clauses' predicates are `\\top`, no clause binds a variable by `\\exists`, and no clause has
+a condition over a variable its patterns leave open. -/
+theorem fnFun_clauses : c.clausesPreTop = true ∧
+    (c.fns.all fun f => f.clauses.all fun cl => cl.exs.isEmpty) = true ∧
+    (c.fns.all fun f => f.clauses.all fun cl => !cl.reqOpen) = true := by
+  decide +kernel
+
+theorem fnFun_noWitH (H : HookParams) : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness (cH H) = false := by
+  intro fn hfn cl hcl
+  have h := List.all_eq_true.mp (List.all_eq_true.mp fnFun_clauses.2.2 fn hfn) cl hcl
+  simp only [Bool.not_eq_eq_eq_not, Bool.not_true] at h
+  simp [Clause.needsWitness, h]
+
+/-- **The function functional sentences hold at values in every model of `Γc`, for every H**
+(`EntailsAtValuesΓc`), without `FnHyp`. -/
+theorem fnFun_at_values (H : HookParams) : ∀ ad ∈ fnFunText, EntailsAtValuesΓc (cH H) ad (trS ad).pat := by
+  intro ad had
+  rw [of_decide_eq_true (List.all_eq_true.mp fnFun_trS ad had)]
+  have hok := List.all_eq_true.mp fnFun_checked ad had
+  simp only [fnFunOK, Bool.and_eq_true, decide_eq_true_eq] at hok
+  obtain ⟨hsv, hany⟩ := hok
+  obtain ⟨fn, hfn, hfp⟩ := List.any_eq_true.mp hany
+  simp only [Bool.and_eq_true, decide_eq_true_eq] at hfp
+  exact LibEv.sortPredFun_evC_withHooks H coreOK fnFun_clauses.1 (Semantics.fnsNoExs_of_all fnFun_clauses.2.1)
+    (fun fn hfn cl hcl hw => absurd hw (by rw [fnFun_noWitH H fn hfn cl hcl]; decide)) hfn hfp.2 ad hfp.1 hsv
+
+/-- The same in every model of `Γc` with the step's closure, the theory `Consistent` asks a model of. -/
+theorem fnFun_at_values_step (H : HookParams) : ∀ ad ∈ fnFunText,
+    ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), I ⊧ᴵP (Γc (cH H) ∪ Γstep (cH H)) →
+      ∀ e, AtValues (cH H) I e ad.ax → ∀ m, (trS ad).pat.interpret I e m :=
+  fun ad had M hM I hI => fnFun_at_values H ad had M hM I (fun φ hφ => hI φ (Or.inl hφ))
+"""
 
 
 def pair_section(j, i, prio, nonexec, nfe):
@@ -4689,7 +4822,7 @@ def main(argv):
                                  heads_literal, heads_codes, "--attrs-parts" in argv or attrs_blocks > 0, "--decl-parts" in argv,
                                  fn_blocks, attrs_blocks, absent_file, builtin_decls=builtin_decls,
                                  decl_syms="--decl-syms-literal" in argv, nojunk_eq="--nojunk-eq" in argv,
-                                 nojunk_blocks=opt("--nojunk-blocks", 0))
+                                 nojunk_blocks=opt("--nojunk-blocks", 0), lists_by_class="--lists-by-class" in argv)
     outdir = argv[argv.index("--out") + 1] if "--out" in argv else None
     if outdir is None and (not os.path.exists(final) or open(final).read() != text):
         open(final, "w").write(text)

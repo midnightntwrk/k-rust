@@ -107,7 +107,6 @@ theorem call_read (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {tbl : 
   have hl : ws.length = fn.args.length := sortsOf_len hws
   rw [tr_symApp, trArgs_appList, interp_appList_sing _ _ (ws.map Elem.val)
     (vars_numbered_read _ ws 0 (by simp [hl]) (fun n w s h1 h2 => by rw [Nat.zero_add]; exact hX n w s h1 h2)) b]
-  unfold symHead
   exact (head_app (T := T) h (fn_sig_mem hfn) (tbl := tbl) (vs := []) (ts := []) (e := e) (ws := ws)
     (by rw [hl]; rfl) b).trans (result_fn (k := fn.sig) hc hh hp (c.isOvl_of_lookupFn (h.lookupFn hfn)) b)
 

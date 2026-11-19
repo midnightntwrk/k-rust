@@ -26,6 +26,7 @@
 import KcoreSpec.FixesValue
 import KcoreSpec.HoldsCongr
 import KcoreSpec.CondTwoTables
+import KcoreSpec.HasValueValue
 
 set_option autoImplicit false
 
@@ -257,10 +258,10 @@ theorem holdsAt_den_fixed (h : c.coreOK = true) (hIc : I ⊧ᴵP Γc c) (F : Ato
   holdsAt_of_den (holds_den_fixed h hIc F hval p hrc) hh
 
 /-- **The Holds lemma over `Cond.bound`, in every model of `Γc`**: `holds_den_fixed` at
-`Semantics.valued`, whose Bool bounds every condition `Cond.bound` bounds. -/
+`Semantics.hasValue`, whose Bool bounds every condition `Cond.bound` bounds. -/
 theorem holds_den_bound (h : c.coreOK = true) (hIc : I ⊧ᴵP Γc c) (F : AtomFacts c I) (p : Cond)
     (hrc : hasBinder p = true → c.readsConfined = true) : HoldsDenB (Cond.bound c) c I p :=
-  HoldsDenB.mono (Cond.boundV_valued_of_bound c p) (holds_den_fixed h hIc F (fun _ => Semantics.valued_value) p hrc)
+  HoldsDenB.mono (Cond.boundV_hasValue_of_bound c p) (holds_den_fixed h hIc F (fun _ => hasValue_value h) p hrc)
 
 omit [Inhabited M] in
 /-- An evaluation read in I (`TermAt`) is read whatever σ is sorted on: `TermAt` asks of σ only
@@ -477,13 +478,13 @@ theorem holdsReadT_holdsAt_fixed (h : c.coreOK = true) (hrc : c.readsConfined = 
       (fun hb => by rw [Cond.boundV, Bool.and_eq_true] at hb; exact ⟨G.elemsValues hb.1, hb.2⟩) g ih hr
 
 /-- **A truth value with its terms' readings is read in I over `Cond.bound`, in every model of
-`Γc`**: `holdsReadT_holdsAt_fixed` at `Semantics.valued`, whose Bool bounds every condition
+`Γc`**: `holdsReadT_holdsAt_fixed` at `Semantics.hasValue`, whose Bool bounds every condition
 `Cond.bound` bounds. -/
 theorem holdsReadT_holdsAt_bound (h : c.coreOK = true) (hrc : c.readsConfined = true) (hIc : I ⊧ᴵP Γc c)
     (N : NodeFacts c I) {n : Nat} {σ : Subst} {p : Cond} {b : Bool} (hh : HoldsRead c I n σ p b) :
     HoldsAtB (Cond.bound c) c I n σ p b :=
-  HoldsAtB.mono (fun m hb => Cond.boundV_valued_of_bound c p m hb)
-    (holdsReadT_holdsAt_fixed h hrc hIc N (fun _ => Semantics.valued_value) hh)
+  HoldsAtB.mono (fun m hb => Cond.boundV_hasValue_of_bound c p m hb)
+    (holdsReadT_holdsAt_fixed h hrc hIc N (fun _ => hasValue_value h) hh)
 
 end HoldsDenFixed
 

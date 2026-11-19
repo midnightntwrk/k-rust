@@ -48,13 +48,23 @@ theorem collSig_map (c : Semantics) : c.collSig .map Srt.map = mapColl := by
 theorem collOf_map (c : Semantics) : c.collOf Srt.map = some mapColl := by
   simp [Semantics.collOf, Semantics.allColls, List.find?_append, builtinColls, mapColl]
 
-theorem iteSort_reg {c : Semantics} {f : Sym} (hf : f < nRegSyms) (h : iteSort? (regSymNames.getD f "") = none) :
-    iteSort? (c.symName f) = none := by
+theorem noInst_reg_irs {c : Semantics} {f : Sym} (hf : f < nRegSyms) (h : instDecode? (regSymNames.getD f "") = none) :
+    instDecode? (c.symName f) = none := by
   unfold Semantics.symName; rw [if_pos hf]; exact h
 
-theorem iteSort_mapUnit (c : Semantics) : iteSort? (c.symName mapUnit) = none := iteSort_reg (by decide) (by decide)
-theorem iteSort_mapElem (c : Semantics) : iteSort? (c.symName mapElem) = none := iteSort_reg (by decide) (by decide)
-theorem iteSort_mapConcat (c : Semantics) : iteSort? (c.symName mapConcat) = none := iteSort_reg (by decide) (by decide)
+/-- The interpreted hooks have registry names, none of which the decoder reads as an instance. -/
+theorem hookSigs_noInst_irs : ∀ k ∈ hookSigs, k.name < nRegSyms ∧ instDecode? (regSymNames.getD k.name "") = none := by
+  decide +kernel
+
+theorem hook_noInst_irs {c : Semantics} {k : CtorSig} (hk : k ∈ hookSigs) : instDecode? (c.symName k.name) = none :=
+  noInst_reg_irs (hookSigs_noInst_irs k hk).1 (hookSigs_noInst_irs k hk).2
+
+theorem noInst_mapUnit_irs (c : Semantics) : instDecode? (c.symName mapUnit) = none :=
+  noInst_reg_irs (by decide) (by decide)
+theorem noInst_mapElem_irs (c : Semantics) : instDecode? (c.symName mapElem) = none :=
+  noInst_reg_irs (by decide) (by decide)
+theorem noInst_mapConcat_irs (c : Semantics) : instDecode? (c.symName mapConcat) = none :=
+  noInst_reg_irs (by decide) (by decide)
 
 /-- A map of the library's sort: its keys sorted, its entries of KItem. -/
 theorem sortOf_libMap {c : Semantics} {es : List (GroundTerm × GroundTerm)} :
@@ -178,10 +188,7 @@ theorem concat_val {w₁ w₂ : GroundTerm} (h1 : c.sortOf w₁ = some Srt.map) 
     fun _ => silent_of_not_silentKey (silentKey_of_patternHook rfl) _, rfl⟩)
   have hgr := (KoreAML.interp_equal hD).mp (hax KoreAML.val0 default) m
   unfold KoreAML.den at hgr
-  rw [tr_symApp] at hgr
-  unfold symHead at hgr
-  rw [iteSort_mapConcat] at hgr
-  dsimp only at hgr
+  rw [tr_symApp, symHead_noInst (noInst_mapConcat_irs c)] at hgr
   rw [trArgs_appList] at hgr
   have hl : (GroundTerm.koreList c [w₁, w₂]).map (KoreAML.tr ⟨[], []⟩) = [den c w₁, den c w₂] := rfl
   rw [hl, interp_symList _ _ _ (.cons (den_sing hI h1 _) (.cons (den_sing hI h2 _) .nil)) m] at hgr
@@ -583,35 +590,30 @@ mutual
       exact ⟨mapPat_of_plain h.1, mapPats_of_plain h.2⟩
 end
 
-theorem iteSort_patHook {c : Semantics} {f : Sym} (hp : patternHooks.contains f = true) : iteSort? (c.symName f) = none := by
+theorem noInst_patHook_irs {c : Semantics} {f : Sym} (hp : patternHooks.contains f = true) :
+    instDecode? (c.symName f) = none := by
   rcases Exec.patternHooks_cases hp with rfl | rfl | rfl
-  · exact iteSort_mapUnit c
-  · exact iteSort_mapElem c
-  · exact iteSort_mapConcat c
+  · exact noInst_mapUnit_irs c
+  · exact noInst_mapElem_irs c
+  · exact noInst_mapConcat_irs c
 
 theorem symHead_patHook {c : Semantics} {f : Sym} (hp : patternHooks.contains f = true) :
-    symHead c f = KoreAML.sym (.symbol (c.symName f)) := by
-  unfold symHead; rw [iteSort_patHook hp]
+    symHead c f = KoreAML.sym (.symbol (c.symName f)) :=
+  symHead_noInst (noInst_patHook_irs hp)
 
 section
 variable {c : Semantics} {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
 
 /-- G-arity of an interpreted hooked symbol, at elements of its argument sorts. -/
 theorem hook_arity (hI : I ⊧ᴵP Γ c) [OvlOK c] {f : Sym} {k : CtorSig} (hk : lookupSig hookSigs f = some k)
-    (hit0 : iteSort? (c.symName f) = none) {bs : List M} (hbl : bs.length = (k.args.map c.sortName).length)
+    (hit0 : instDecode? (c.symName f) = none) {bs : List M} (hbl : bs.length = (k.args.map c.sortName).length)
     (hbs : ∀ (i : Nat) x s, bs[i]? = some x → (k.args.map c.sortName)[i]? = some s → InS I s x) {m : M}
     (hm : SymE I (c.symName f) bs m) : InS I (c.sortName k.result) m := by
   have hD := defOK hI
   obtain ⟨hkm, hkn⟩ := lookupSig_spec hk
   have hit := sat_sigItem hI (sig_arity (c := c) (k := k) (List.mem_append_left _ (List.mem_append_right _ hkm)))
-  unfold symArityItem at hit
-  rw [show iteSort? (c.symName k.name) = none by rw [hkn]; exact hit0] at hit
-  dsimp only at hit
-  unfold KoreAML.arityItem at hit
-  dsimp only [KoreAML.paramTable, List.map_nil] at hit
+  rw [symArityItem_plain_irs (fun _ => symApp_noInst (by rw [hkn]; exact hit0))] at hit
   have hinc := (KoreAML.interp_included hD).mp (hit KoreAML.val0 default) m
-  unfold srtOf at hinc
-  rw [trSort_srt] at hinc
   apply hinc
   obtain ⟨a, ha, hm⟩ := hm
   rw [interp_appList]
@@ -620,7 +622,7 @@ theorem hook_arity (hI : I ⊧ᴵP Γ c) [OvlOK c] {f : Sym} {k : CtorSig} (hk :
   have : ∀ (ss : List Srt) (bs : List M), bs.length = (ss.map c.sortName).length →
       (∀ (i : Nat) x s, bs[i]? = some x → (ss.map c.sortName)[i]? = some s → InS I s x) →
       All2 (fun φ b => φ.interpret I KoreAML.val0 b)
-        ((ss.map (srtOf c)).map fun s => KoreAML.inhOf (KoreAML.trSort [] s)) bs := by
+        (ss.map fun s => KoreAML.inhOf (sortP (c.sortName s))) bs := by
     intro ss
     induction ss with
     | nil => intro bs hl _; cases bs with
@@ -632,7 +634,6 @@ theorem hook_arity (hI : I ⊧ᴵP Γ c) [OvlOK c] {f : Sym} {k : CtorSig} (hk :
       | nil => simp at hl
       | cons b bs =>
         refine .cons ?_ (ih bs (by simpa using hl) (fun i x s' h1 h2 => hb (i + 1) x s' (by simpa using h1) (by simpa using h2)))
-        unfold srtOf; dsimp only; rw [trSort_srt]
         exact hb 0 b (c.sortName s) rfl rfl
   exact this k.args bs hbl hbs
 
@@ -683,7 +684,7 @@ mutual
         rw [kore_app, tr_symApp, symHead_patHook hph', trArgs_appList, interp_appList] at hm
         obtain ⟨a, ha, bs, hbs, hm⟩ := hm
         have hsorts := patSorts4 hps hargs hbs
-        exact hook_arity hI hks (iteSort_patHook hph') hsorts.1 hsorts.2 ⟨a, ha, hm⟩
+        exact hook_arity hI hks (noInst_patHook_irs hph') hsorts.1 hsorts.2 ⟨a, ha, hm⟩
     | .inj a b p, s, hp, ht, m, hm => by
       obtain ⟨hab, ht', rfl⟩ := sortOfTerm_inj.mp ht
       rw [mapPat] at hp

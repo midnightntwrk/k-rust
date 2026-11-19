@@ -78,15 +78,22 @@ theorem sortOf_numbered (h : HypModelCore c) {v : GroundTerm} {s : Srt} (hv : c.
     obtain ⟨hk, rfl⟩ := collOf_spec hco
     exact (h.collSorts hk).1
 
-/-- The interpreted hooks have registry names, none named like `ite` at a sort. -/
-theorem hookSigs_plain : ∀ k ∈ hookSigs, k.name < nRegSyms ∧ iteSort? (regSymNames.getD k.name "") = none := by
+/-- The interpreted hooks have registry names, none an instance name. -/
+theorem hookSigs_noInst : ∀ k ∈ hookSigs, k.name < nRegSyms ∧ instDecode? (regSymNames.getD k.name "") = none := by
   decide +kernel
 
-theorem hook_plain {k : CtorSig} (hk : k ∈ hookSigs) : iteSort? (c.symName k.name) = none := by
-  obtain ⟨h1, h2⟩ := hookSigs_plain k hk
+theorem hook_noInst {k : CtorSig} (hk : k ∈ hookSigs) : instDecode? (c.symName k.name) = none := by
+  obtain ⟨h1, h2⟩ := hookSigs_noInst k hk
   unfold Semantics.symName
   rw [if_pos h1]
   exact h2
+
+/-- The interpreted hooks have registry names, none named like `ite` at a sort. -/
+theorem hookSigs_plain : ∀ k ∈ hookSigs, k.name < nRegSyms ∧ iteSort? (regSymNames.getD k.name "") = none :=
+  fun k hk => ⟨(hookSigs_noInst k hk).1, iteSort?_none_of_instDecode (hookSigs_noInst k hk).2⟩
+
+theorem hook_plain {k : CtorSig} (hk : k ∈ hookSigs) : iteSort? (c.symName k.name) = none :=
+  iteSort?_none_of_instDecode (hook_noInst hk)
 
 /-! ## Applications at values, as the graphs write them -/
 
@@ -112,109 +119,31 @@ namespace AtT
 
 variable {T : GroundTerm → GroundTerm → Prop}
 
-/-- A symbol not named like `ite`, applied to values: what the symbol gives. -/
-theorem symApp_plain (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c)
-    (hi : iteSort? (c.symName k.name) = none) {vs : List GroundTerm} {ss : List Srt}
-    (hvs : c.sortsOf vs = some ss) (hl : vs.length = k.args.length) (e : Valuation Elem) (m : Elem) :
-    (KoreAML.den (symApp c k.name (GroundTerm.koreList c vs))).interpret (stdI_T c T) e m ↔ result c k vs m := by
-  unfold symApp
-  rw [hi]
-  dsimp only
-  unfold KoreAML.den
-  rw [show (Kore.Pattern.app ⟨⟨c.symName k.name⟩⟩ [] (GroundTerm.koreList c vs)) =
-    KoreAML.ap (c.symName k.name) (GroundTerm.koreList c vs) from rfl, tr_ap,
-    interp_symList _ _ _ (den_koreList h hvs e) m]
-  exact symE_vals h.namesK hk hl m
-
-end AtT
-
-/-- A symbol not named like `ite`, applied to values: what the symbol gives. -/
-theorem symApp_plain (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c)
-    (hi : iteSort? (c.symName k.name) = none) {vs : List GroundTerm} {ss : List Srt}
-    (hvs : c.sortsOf vs = some ss) (hl : vs.length = k.args.length) (e : Valuation Elem) (m : Elem) :
-    (KoreAML.den (symApp c k.name (GroundTerm.koreList c vs))).interpret (stdI c) e m ↔ result c k vs m :=
-  AtT.symApp_plain (c := c) (T := StepM c) (h := h) (k := k) (hk := hk) (hi := hi) (vs := vs) (ss := ss) (hvs := hvs) (hl := hl) (e := e) (m := m)
-
-namespace AtT
-
-variable {T : GroundTerm → GroundTerm → Prop}
-
-/-- `Lblite` applied to the sort `X` of a symbol named like `ite` at `X`, then to values: what the
-symbol gives. -/
-theorem lblite_app (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c) {X : String}
-    (hi : iteSort? (c.symName k.name) = some X) {vs : List GroundTerm} (hl : vs.length = k.args.length)
-    (e : Valuation Elem) (m : Elem) :
-    (∃ a, (KoreAML.sym (.symbol "Lblite") ⬝ KoreAML.sym (.sort ("Sort" ++ X))).interpret (stdI_T c T) e a ∧
-      AppE (stdI_T c T) a (vs.map Elem.val) m) ↔ result c k vs m := by
-  have hn := h.namesK
-  obtain ⟨s', hs'm, rfl⟩ := h.iteSorted hk hi
-  have hr : ∀ tail, resolve c "Lblite" (.srt s' :: tail) = some (k, 1) := fun tail =>
-    resolve_ite h hk hi tail
-  have hhead : ∀ a, (KoreAML.sym (.symbol "Lblite") ⬝ KoreAML.sym (.sort ("Sort" ++ c.sortName s'))).interpret
-      (stdI_T c T) e a ↔ symAt c "Lblite" [.srt s'] a := by
-    intro a
-    rw [KoreAML.interp_app]
-    simp only [KoreAML.interp_sym, stdI_symb]
-    constructor
-    · rintro ⟨h0, b0, hh0, hb0, hab⟩
-      rw [(evalSymb_lblite hn h0).mp hh0] at hab
-      have hb0' : b0 = .srt s' := (sort_den (T := T) hn (List.mem_range.mp hs'm) e b0).mp hb0
-      subst hb0'
-      exact hab
-    · intro ha
-      exact ⟨_, _, (evalSymb_lblite hn _).mpr rfl,
-        (sort_den (T := T) hn (List.mem_range.mp hs'm) e _).mpr rfl, ha⟩
-  simp only [hhead]
-  by_cases h0 : k.args = []
-  · rw [h0] at hl
-    obtain rfl : vs = [] := List.eq_nil_of_length_eq_zero hl
-    simp only [symAt_full (hr []) (by simp [h0]) (show vals ([Elem.srt s'].drop 1) = some [] from rfl),
-      List.map_nil, AppE]
-    constructor
-    · rintro ⟨a, ha, rfl⟩; exact ha
-    · intro hm; exact ⟨m, hm, rfl⟩
-  · simp only [symAt_partial (hr []) (by simp; exact List.length_pos_iff.mpr h0)]
-    have := appE_symP (T := T) (P := [.srt s']) (n := "Lblite") (k := k) (fun pre _ => hr _) [] vs
-      (by simp; exact List.length_pos_iff.mpr h0) (by simpa using hl) m
-    simp only [List.map_nil, List.append_nil, List.nil_append] at this
-    constructor
-    · rintro ⟨a, rfl, ha⟩; exact this.mp ha
-    · intro hm; exact ⟨_, rfl, this.mpr hm⟩
-
-end AtT
-
-/-- `Lblite` applied to the sort `X` of a symbol named like `ite` at `X`, then to values: what the
-symbol gives. -/
-theorem lblite_app (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c) {X : String}
-    (hi : iteSort? (c.symName k.name) = some X) {vs : List GroundTerm} (hl : vs.length = k.args.length)
-    (e : Valuation Elem) (m : Elem) :
-    (∃ a, (KoreAML.sym (.symbol "Lblite") ⬝ KoreAML.sym (.sort ("Sort" ++ X))).interpret (stdI c) e a ∧
-      AppE (stdI c) a (vs.map Elem.val) m) ↔ result c k vs m :=
-  AtT.lblite_app (c := c) (T := StepM c) (h := h) (k := k) (hk := hk) (X := X) (hi := hi) (vs := vs) (hl := hl) (e := e) (m := m)
-
-namespace AtT
-
-variable {T : GroundTerm → GroundTerm → Prop}
-
 /-- Any symbol of the semantics applied to values, as `symApp` writes it: what the symbol gives. -/
 theorem symApp_val (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c) {vs : List GroundTerm}
     {ss : List Srt} (hvs : c.sortsOf vs = some ss) (hl : vs.length = k.args.length) (e : Valuation Elem) (m : Elem) :
     (KoreAML.den (symApp c k.name (GroundTerm.koreList c vs))).interpret (stdI_T c T) e m ↔ result c k vs m := by
-  cases hi : iteSort? (c.symName k.name) with
-  | none => exact symApp_plain h hk hi hvs hl e m
-  | some X =>
-    unfold symApp
-    rw [hi]
-    dsimp only
-    unfold KoreAML.den
-    rw [KoreAML.tr]
-    simp only [List.contains_nil, Bool.false_eq_true, if_false]
-    rw [trArgs_appList]
-    show (KoreAML.appList (KoreAML.sym (.symbol "Lblite") ⬝ KoreAML.trSort [] (KoreAML.srt X)) _).interpret _ _ _ ↔ _
-    rw [trSort_srt, interp_appList_sing _ _ _ (den_koreList h hvs e) m]
-    exact lblite_app h hk hi hl e m
+  obtain ⟨hd, xs, -, hw⟩ := symApp_head c k.name
+  rw [hw]
+  unfold KoreAML.den
+  rw [tr_instApp, trArgs_appList, interp_appList_sing _ _ _ (den_koreList h hvs e) m]
+  exact instHead_app h hk hw hl e m
+
+/-- A symbol the decoder reads as no instance, applied to values: what the symbol gives. -/
+theorem symApp_plain (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c)
+    (_hi : instDecode? (c.symName k.name) = none) {vs : List GroundTerm} {ss : List Srt}
+    (hvs : c.sortsOf vs = some ss) (hl : vs.length = k.args.length) (e : Valuation Elem) (m : Elem) :
+    (KoreAML.den (symApp c k.name (GroundTerm.koreList c vs))).interpret (stdI_T c T) e m ↔ result c k vs m :=
+  symApp_val h hk hvs hl e m
 
 end AtT
+
+/-- A symbol the decoder reads as no instance, applied to values: what the symbol gives. -/
+theorem symApp_plain (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c)
+    (hi : instDecode? (c.symName k.name) = none) {vs : List GroundTerm} {ss : List Srt}
+    (hvs : c.sortsOf vs = some ss) (hl : vs.length = k.args.length) (e : Valuation Elem) (m : Elem) :
+    (KoreAML.den (symApp c k.name (GroundTerm.koreList c vs))).interpret (stdI c) e m ↔ result c k vs m :=
+  AtT.symApp_plain (c := c) (T := StepM c) (h := h) (k := k) (hk := hk) (_hi := hi) (vs := vs) (ss := ss) (hvs := hvs) (hl := hl) (e := e) (m := m)
 
 /-- Any symbol of the semantics applied to values, as `symApp` writes it: what the symbol gives. -/
 theorem symApp_val (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c) {vs : List GroundTerm}

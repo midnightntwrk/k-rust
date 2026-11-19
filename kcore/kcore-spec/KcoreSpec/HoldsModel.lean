@@ -7,11 +7,13 @@
   valuation that reads them as their values under σ, holds at an element of the predicate sort
   exactly where the truth value `Holds` gives it is `true` (`holds_atT`, the value model's instance of
   `HoldsShape.holds_denB`, from `atomFacts_stdI`, `binderFacts_stdI` and `boundReads_bound_stdI`); a binder ranges over the
-  values of its sort, as `Extends` does. `holds_stdI`: where the condition has a truth value, it
+  values of its sort, as `Extends` does: its sort is confined, or has a value and so is numbered
+  (`boundReads_boundV_stdI`). `holds_stdI`: where the condition has a truth value, it
   holds exactly where that value is `true`.
 -/
 import KcoreSpec.ExModelT
 import KcoreSpec.HoldsFacts
+import KcoreSpec.HasValueValue
 
 set_option autoImplicit false
 
@@ -347,10 +349,44 @@ theorem ReadsT.snocStdI {vars : List Srt} {P : Nat → Prop} {σ σ' : Subst} {t
     show Function.update e.evalEvar _ _ _ = _
     rw [Function.update_same]
 
+/-- In the value model at T, the elements of a numbered sort are values'. -/
+theorem elemsValues_stdI (h : HypModelCore c) {s : Srt} (hs : s < nRegSorts + c.sortNames.length) :
+    HoldsShape.ElemsValues c (stdI_T c T) s :=
+  ⟨hs, fun tbl e a ha => by
+    have hin := (inhOf_srtOf_stdI h hs e a).mp ha
+    cases a with
+    | val v => exact ⟨v, hin, den_val_T h T v hin e⟩
+    | _ => exact hin.elim⟩
+
+/-- **The value model at T reads `Cond.boundV c val`** where `val` admits numbered sorts only: at
+an `ex` binder of a sort `val` admits, the elements of the sort are values' because the sort is
+numbered. -/
+theorem boundReads_boundV_stdI (h : HypModelCore c) {val : Srt → Bool}
+    (hval : ∀ s, val s = true → s < nRegSorts + c.sortNames.length) :
+    HoldsShape.BoundReads c (stdI_T c T) (Cond.boundV c val) where
+  not := fun hb => by rw [Cond.boundV] at hb; exact hb
+  and := fun hb => by rw [Cond.boundV, Bool.and_eq_true] at hb; exact hb
+  or := fun hb => by rw [Cond.boundV, Bool.and_eq_true] at hb; exact hb
+  implies := fun hb => by rw [Cond.boundV, Bool.and_eq_true] at hb; exact hb
+  exMatch := fun hb => by rw [Cond.boundV, Bool.and_eq_true] at hb; exact hb
+  ex := fun {n s body} hb => by
+    rw [Cond.boundV, Bool.and_eq_true, Bool.or_eq_true, Bool.and_eq_true] at hb
+    refine ⟨elemsValues_stdI h ?_, hb.2⟩
+    rcases hb.1 with hc | ⟨hv, -⟩
+    · exact confined_numberedStdI h hc
+    · exact hval s hv
+  all := fun hb => by
+    rw [Cond.boundV, Bool.and_eq_true] at hb
+    exact ⟨elemsValues_stdI h (confined_numberedStdI h hb.1), hb.2⟩
+
 /-- **The value model at T reads `Cond.bound`**: at an `ex` or `all` binder the elements of the
-sort are values'. -/
+sort are values', the sort being confined or of a value (`hasValue_value_of`), hence numbered. -/
 theorem boundReads_bound_stdI (h : HypModelCore c) : HoldsShape.BoundReads c (stdI_T c T) (Cond.bound c) := by
-  rw [Cond.bound_eq_boundConf]; exact HoldsShape.boundReads_boundConf (binderFacts_stdI h)
+  rw [Cond.bound_eq_boundV]
+  exact boundReads_boundV_stdI h fun _ hs =>
+    let ⟨_, hv⟩ := hasValue_value_of h.sound.2.2.2.2.2.2.2.2
+      (sortCtx_of_allClEx h.sound.1 h.sound.2.1 h.ovlCase).trans (Model.namesApartK_spec h.names) hs
+    sortOf_numbered h hv
 
 theorem holdsT_ex (h : HypModelCore c) (s : Srt) {body : Cond} (ih : HoldsT c T body) : HoldsT c T (.ex s body) :=
   holdsT_of_den h (HoldsShape.holds_exB (atomFacts_stdI h) (bd := Cond.bound c) s (boundReads_bound_stdI h).ex

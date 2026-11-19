@@ -2,8 +2,7 @@
   KCore. A semantics with two parameters named `Lblite{Int}` and `Lblite{Int]`, both taking two
   Ints to an Int, the first implemented by `_+Int_`, the second without an implementation. The
   decoder of instance names (`instDecode?`) reads the first as the head `Lblite` at `Int` and the
-  second, whose sort list no `}` closes, as no instance: so `iteSort?` gives the first the sort
-  `Int` and the second none (`ite1`, `ite2`), and `Γ` writes their applications at two heads,
+  second, whose sort list no `}` closes, as no instance (`ite1`, `ite2`), and `Γ` writes their applications at two heads,
   `Lblite{SortInt}(…)` and `Lblite{Int]}(…)` (`symApp_apart`). The semantics meets every condition
   of `coreOK`, `itesApart` among them (`itesApart_holds`, `coreOK_holds`), and `FnHyp`, so it is
   sound (`sound`, by `sound_hyp`).
@@ -77,16 +76,16 @@ theorem meets_others : c.sortedOK = true ∧ c.hooksApart = true ∧ c.predsApar
 /-- `itesApart` holds: `Lblite{Int}` is the one instance name, at the numbered sort `Int`. -/
 theorem itesApart_holds : Model.itesApart c = true := by decide +kernel
 
-theorem ite1 : iteSort? (c.symName p1.sig.name) = some "Int" := by decide +kernel
-theorem ite2 : iteSort? (c.symName p2.sig.name) = none := by decide +kernel
+theorem ite1 : instDecode? (c.symName p1.sig.name) = some ("Lblite", ["Int"]) := by decide +kernel
+theorem ite2 : instDecode? (c.symName p2.sig.name) = none := by decide +kernel
 
 /-- The two parameters' applications are written at two heads. -/
 theorem symApp_apart (args : List Kore.Pattern) :
     symApp c p1.sig.name args = .app ⟨⟨"Lblite"⟩⟩ [KoreAML.srt "Int"] args ∧
       symApp c p2.sig.name args = .app ⟨⟨"Lblite{Int]"⟩⟩ [] args := by
   constructor
-  · unfold symApp; rw [ite1]
-  · unfold symApp; rw [ite2]; rfl
+  · unfold symApp; rw [iteSort?_eq_some.2 ite1]
+  · exact symApp_noInst ite2
 
 theorem overloadsOK_holds : c.overloadsOK = true := by decide +kernel
 

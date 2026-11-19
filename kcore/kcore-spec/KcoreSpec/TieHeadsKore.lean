@@ -142,7 +142,7 @@ theorem fnHead_mem {f : Fn} (hf : f ∈ c.allFns) : gammaHead c f.label ∈ gamm
 /-- `Term.kore` applies a symbol at its head `gammaHead`. -/
 theorem kore_app_ghk (vs : List KoreAML.Var) (f : Sym) (ts : List Term) :
     Term.kore c vs (.app f ts) = .app ⟨⟨(gammaHead c f).1⟩⟩ (gammaHead c f).2 (Term.koreList c vs ts) := by
-  rw [← symApp_gammaHead]; rw [Term.kore]; unfold symApp; rfl
+  rw [← symApp_gammaHead, Faithful.kore_app]
 
 theorem hin_app_gamma {f : Sym} {vs : List KoreAML.Var} {ts : List Term} (hf : gammaHead c f ∈ gammaHeads c)
     (hts : HInL c (Term.koreList c vs ts)) : HIn c (Term.kore c vs (.app f ts)) := by

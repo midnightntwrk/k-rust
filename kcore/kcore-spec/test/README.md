@@ -1187,20 +1187,23 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
 - `test/HoldsModelFixed.lean`: a condition with an `ex` binder of a sort that is not confined, in
   the value model at a transition (KcoreSpec/HoldsModelFixed.lean), at the reader's semantics for
   `f2-examples/symrule.kompile.kore`. `conds_ok`: `Z ∈ 3 ∨ ∃ B:Int. (Z ∈ B ∧ B = 4)` and its
-  negation are refused by `Cond.bound` (Int is not confined) and accepted by
-  `Cond.boundV c c.valueSorts.contains`; `∃ B:Int. Z ∈ B`, whose body does not fix B, is refused
-  by both; a binder of Bool is accepted by both. `hval`: every sort of `valueSorts` is numbered
-  (decided). `holds_atT_fixed` and `holds_stdI_fixed` at the two accepted conditions under
-  `FnHyp`, the truth value from `holds_decided`; `Cond.boundV_none`, `Cond.boundV_of_bound` at
-  instances.
+  negation are accepted by `Cond.bound` (Int is not confined but has a value, `Semantics.hasValue`,
+  and the body fixes B) and refused by `Cond.boundConf`, which reads the binder's sort alone;
+  `∃ B:Int. Z ∈ B`, whose body does not fix B, is refused by both; a binder of Bool is accepted by
+  both. `Cond.bound` is `Cond.boundV c c.hasValue` (`Cond.bound_eq_boundV`). `hval`: a sort
+  `hasValue` accepts is numbered in the model (`hasValue_value`). `holds_atT_fixed`, `holds_stdI_fixed` and `holds_stdI` at the
+  accepted conditions under `FnHyp`, the truth value from `holds_decided`;
+  `Cond.boundV_hasValue_of_bound` at an instance. The axioms of `Cond.bound_of_boundV_valued`,
+  `Semantics.clausePlainEx_of_valued` (what was accepted with `Semantics.valued` stays accepted) and
+  `hasValue_value_of`.
 - `test/HoldsBinderFixed.lean`: the Holds lemma at an `ex` binder of a sort that is not confined,
   in every model of `Γc` (KcoreSpec/HoldsBinderFixed.lean). `CE.holds_binder_fixed` (the `ex` case
-  over `Cond.boundV c val`) and `CE.holds_entails_fixed` (every condition) at `val := c.valued`,
-  whose sorts have a value (`Semantics.valued_value`); with `val` admitting no sort,
-  `holds_entails_fixed` gives the lemma over `Cond.bound` (`Cond.boundV_none`). The axioms of
+  over `Cond.boundV c val`) and `CE.holds_entails_fixed` (every condition) at `val := c.hasValue`,
+  whose sorts have a value on `coreOK` (`hasValue_value`); at `val := c.hasValue`,
+  `holds_entails_fixed` gives the lemma over `Cond.bound` (`Cond.bound_eq_boundV`). The axioms of
   these, of `holds_den_fixed`, `fixes_value_read` and `fixes_value`. The reading of a truth value
   with its terms' readings (KcoreSpec/HoldsDenFixed.lean): `CE.holdsAt_ex_fixed` and
-  `CE.holdsReadT_holdsAt_fixed` at `c.valued`, `CE.holdsReadT_holdsAt_bound` over `Cond.bound`,
+  `CE.holdsReadT_holdsAt_fixed` at `c.hasValue`, `CE.holdsReadT_holdsAt_bound` over `Cond.bound`,
   `HoldsReadT.congr_NIR` at `TermAt`, and `holdsAt_allB` over `Cond.boundV`, with their axioms.
 - `test/HooksSet.lean`: the 10 supported hook rows of SET (the sort and nine operations) against
   domains.md's prose, cited by line: each operation at every argument list by the members of its
@@ -2053,8 +2056,8 @@ table above, on the tree before String and Bytes). Not investigated here.
   (`fC_none`); `fl() => true` beside `fl() => ?B`: coherent, the second clause not match independent,
   `FnSolves` false (`k2_*`); `fl() => true` beside `fl() => false` with `post := ⊥`: match
   independent, `FnSolves` false (`q_*`); `fl() => Y` with `post := ⊥`: no result, coherent with itself
-  (`p_*`); a variable fixed under a confined variable (`c_*`), under a binder (`s_*`, which
-  `clausePlainEx` refuses), a binder over a sort without a value (`vac_*`), and `h(K) => ?Z` with
+  (`p_*`); a variable fixed under a confined variable (`c_*`), under a binder of Int, which has
+  a value (`s_*`, which `clausePlainEx` admits), a binder over a sort without a value (`vac_*`), and `h(K) => ?Z` with
   `inj{Int,KItem}(Z) = K` (`h_some` by `clauseEx`, `h_none` by `exNone`). About 25 s.
 - `test/DetOkM.lean`: coherence and the decider's soundness over `okM` (`Det.coherentAll_of_nil_okM`,
   `Det.detCond_sound_okM`) at e3-ml-rule-rhs-and-ctor's core with its rule read by `Parse.andRuleOf`

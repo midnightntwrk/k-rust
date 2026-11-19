@@ -14,11 +14,12 @@
 
   The sentences are named by index (`AxiomDecl.index`, the text's axiom numbers): `eqIdx` the
   equations (as `Parse.scanEqn` reads each), `funIdx` the constants' `functional` axioms
-  (`GenEqs.nodFunctional?`). Each applies a symbol Γ lacks (`listed_absent`, the predicate of the
-  no-direction class, decided here on the text). The text has no tie file, so the listed sentences
-  are not compared with a tie's class list. Not listed: the projection `project:Int`'s equation
-  (2976), which applies no symbol Γ lacks, and the equations of `#stdin` and `#stdout` (2813,
-  2814), which are no initializer's, projection's or getter's, the shapes `nodSentEqB` takes.
+  (`GenEqs.nodFunctional?`). Their union `listed` is a sublist of the no-direction class of the
+  text's tie (`test/TieE2CellsStream.lean`; `listed_sub`), and each applies a symbol Γ lacks, the
+  class's defining property there (`listed_absent`, `account_absent`'s predicate). Not listed: the
+  projection `project:Int`'s equation (2976), which applies no symbol Γ lacks, and the equations of
+  `#stdin` and `#stdout` (2813, 2814), which are no initializer's, projection's or getter's, the
+  shapes `nodSentEqB` takes.
 
   Nothing here writes a right side, a value or a `G` by hand. The model is the arm's: `G` read from
   `S.eqs` along `order` (`GenEqs.armG`), the getter and the projections by `GenEqs.armBase`. The
@@ -177,6 +178,12 @@ def listed : List Nat := [2615, 2616, 2705, 2890, 2891, 2892, 2893, 2894, 2895, 
 
 theorem listed_eq : listed.isPerm (eqIdx ++ funIdx) = true := by decide
 
+/-- The no-direction class of the tie (`test/TieE2CellsStream.lean`, `classes`). -/
+def nodirClass : List Nat := [2603, 2604, 2613, 2614, 2615, 2616, 2621, 2622, 2653, 2658, 2660, 2697, 2699, 2705, 2736, 2755, 2756, 2811, 2812, 2813, 2814, 2828, 2865, 2887, 2890, 2891, 2892, 2893, 2894, 2895, 2896, 2954, 2955, 2960, 2961, 2962, 2963, 2964, 2965, 2966, 2967, 2968, 2969, 2970, 2971, 2972, 2973, 2974, 2975, 2977, 2978, 2979, 2980, 2981, 2982, 2983, 2984, 2985, 2986, 2987, 2988, 2989, 2990]
+
+/-- **The listed sentences are a sublist of the tie's no-direction class.** -/
+theorem listed_sub : listed.Sublist nodirClass := by decide
+
 /-- No symbol of the semantics has a name `iteSort?` reads as an instance of `ite`, so Γ's heads
 are its symbols' names at no sort argument and `inj` at its subsorts (`gammaHasHead_eq_plain`). -/
 theorem iteFree : (Faithful.kernelSyms c).all (fun k => (iteSort? (c.symName k.name)).isNone) = true := by
@@ -221,13 +228,13 @@ theorem funs_ok : funIdx.all (nodSentFunB c eqs names order U.all) = true := by 
 are `Step`'s, in which each listed equation holds at every list of values of its variables' sorts
 and each listed `functional` axiom holds**, read as the account reads the text. -/
 theorem nodir_instance (H : HookParams) :
-    kore.modules.getLast? = some m ∧ envOf m S = .ok E ∧ S.eqs = eqs ∧
+    kore.modules.getLast? = some m ∧ envOf m S = .ok E ∧ S.eqs = eqs ∧ listed.Sublist nodirClass ∧
     ∃ I : ML.Interpretation KoreAML.Sym Faithful.Model.Elem,
       (I ⊧ᴵP (Faithful.Γc (cH H) ∪ Faithful.Γstep (cH H))) ∧
       (∀ x y : Config (cH H), Step (cH H) x y ↔ ¬ (I ⊧ᴵ (den (cH H) x.val ⇒ ∼ KoreAML.sNext (den (cH H) y.val)))) ∧
       (∀ i ∈ eqIdx, ∃ ad ∈ U.all, ad.index = i ∧ ∃ e, scanEqn (.axiom ad.ax) = some e ∧ NodEqn (cH H) I e) ∧
       (∀ i ∈ funIdx, ∃ ad ∈ U.all, ad.index = i ∧ ∃ L S, nodFunctional? ad.ax = some (L, S) ∧ NodFun (cH H) I L S) :=
-  ⟨last_eq, env_eq, eqs_eq,
+  ⟨last_eq, env_eq, eqs_eq, listed_sub,
     nod_instance_lacked_withHooks c coreOK fnHypH E.N E.src eqs cells names order U.all eqIdx funIdx names_ok rank hord
       sorts_ok fixed_ok eqs_ok funs_ok H⟩
 

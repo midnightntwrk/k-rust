@@ -369,7 +369,6 @@ theorem armHead_sound {h : String} {ψs : List KoreAML.P} {ws : List GroundTerm}
         have hmem : k ∈ hookSigs := List.mem_of_find?_eq_some hk'
         by_cases hc : iteSort? h = none ∧ c.sortsOf ws = some k.args
         · rw [if_pos_walk hc]
-          have hf : iteSort? (c.symName k.name) = none := hkn ▸ hc.1
           cases hr : hook k.name ws with
           | none => trivial
           | some r =>
@@ -378,14 +377,14 @@ theorem armHead_sound {h : String} {ψs : List KoreAML.P} {ws : List GroundTerm}
               dsimp only
               by_cases hs : (c.sortOf v).isSome = true
               · rw [if_pos_walk hs]
-                have := hM.hookV hmem hf hws hc.2 hr (Option.some_get hs).symm
+                have := hM.hookV_irs hmem hws hc.2 hr (Option.some_get hs).symm
                 rwa [hkn] at this
               · rw [if_neg_arm hs]; trivial
             | none =>
               dsimp only
               by_cases hsil : silent k.name ws = false
               · rw [if_pos_walk hsil]
-                have := hM.hookE hmem hf hws hc.2 hr hsil
+                have := hM.hookE_irs hmem hws hc.2 hr hsil
                 rwa [hkn] at this
               · rw [if_neg_arm hsil]; trivial
         · rw [if_neg_arm hc]; trivial

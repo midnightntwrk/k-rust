@@ -23,6 +23,7 @@ import KcoreSpec.HypWf
 import KcoreSpec.TieDefs
 import KcoreSpec.LibAdmitted
 import KcoreSpec.OpenClauseFam
+import KcoreSpec.CoreDecide
 
 set_option autoImplicit false
 
@@ -455,9 +456,8 @@ mutual
     | .var i, _ => by rw [kore, koreR, srtOf_reg c (getD_reg hv i)]
     | .app f ts, ht => by
       simp only [reg, Bool.and_eq_true, decide_eq_true_eq, Option.isNone_iff_eq_none] at ht
-      rw [kore, koreR, koreList_reg c hv ts ht.2]
-      unfold symApp
-      rw [symName_reg c ht.1.1, ht.1.2]
+      rw [kore, koreR, koreList_reg c hv ts ht.2,
+        symApp_noInst (by rw [symName_reg c ht.1.1]; exact Faithful.regSym_noInst_irs ht.1.1), symName_reg c ht.1.1]
     | .dv s lit, ht => by
       simp only [reg, decide_eq_true_eq] at ht
       rw [kore, koreR, srtOf_reg c ht]
