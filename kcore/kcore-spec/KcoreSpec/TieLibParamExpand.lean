@@ -14,8 +14,12 @@
   - `expand_lacked`: the statement at `c.withHooks H`, for every hook interpretation H, with
     agreement at `gammaHeads c`: the model and its steps carry over.
   - `expand_lacked_sentences`: a choice at the names Γ lacks that makes sentences `S` hold gives a
-    model of `Γc ∪ Γstep ∪ S` with the same steps. That is the use of the expansion condition for a
-    library parameter Γ lacks: the condition is the existence of such a choice for every model.
+    model of `Γc ∪ Γstep ∪ S` with the same steps. That is the case without gained elements of the
+    expansion condition (E) for a library parameter Γ lacks (owed-sentence rule item 7): (E) asks
+    that every model of Γ extend, possibly gaining elements, to a model of Γ and of the lacked
+    symbols' sentences that is elementary for Γ's language at the model's elements. On the same
+    carrier with the same application, agreement at Γ's heads already makes every pattern over
+    Γ's symbols denote what it denoted.
 
   - `agree_updAt`: an interpretation changed at one name Γ lacks (`lackedNameB`) agrees with it.
 
@@ -137,8 +141,9 @@ theorem expand_lacked (c : Semantics) (h : c.coreOK = true) (H : HookParams) {M 
   exact ⟨agree_sat h' hA' hI, agree_step h' hA'⟩
 
 /-- **A choice at the lacked names that makes the sentences `S` hold is a model of the theory with
-`S`, with the same steps**: the expansion condition, where it holds of a model `I`, gives the
-theory together with the sentences of the lacked names a model with `I`'s steps. -/
+`S`, with the same steps**: where a model `I` has such a choice on its own carrier, the case
+without gained elements of the expansion condition (E), the theory together with the sentences of
+the lacked names has a model with `I`'s steps. -/
 theorem expand_lacked_sentences (c : Semantics) (h : c.coreOK = true) (H : HookParams) {M : Type}
     (I I' : Interpretation KoreAML.Sym M) (S : Premises KoreAML.Sym)
     (hI : I ⊧ᴵP (Γc (c.withHooks H) ∪ Γstep (c.withHooks H))) (hA : AgreeAtHeads c I I') (hS : I' ⊧ᴵP S) :
