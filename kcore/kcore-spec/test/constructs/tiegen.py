@@ -156,7 +156,10 @@ What it states where the text:
 What the test states (each a kernel decision or a proof from one):
 - layer 1: `wf defn = true` (or `coreOK` with the failing conjuncts of `wf` named); the account (the
   class lists, in `tieClasses`' order, partition the user module's sentences); `account_absent` and
-  `absent_closed`; `attrs_agree`; `sig_origin` and `decls_entailed` (by ranges of the lists);
+  `absent_closed`; where the no-direction class holds equations of projections `project:X`,
+  `absent_proj_below` (each X is K, KItem or below KItem in Γ, `GenEqs.projBelowB`, so Γ entails
+  what the equation states of its constructor pattern); `attrs_agree`; `sig_origin` and
+  `decls_entailed` (by ranges of the lists);
 - the acceptance conditions themselves: `noRaw`, `readsConfined_c`, the four obligation lists empty,
   `consistent` for every H;
 - by class, the theorems of test/TieEns.lean over the sentences they hold of: the function
@@ -255,6 +258,8 @@ PARAM_LEMMA_CLASS = "parameter lemma"
 USER_LEMMA_CLASS = "user lemma"
 USER_LEMMA_VALUES_CLASS = "user lemma at values"
 USER_LEMMA_CLASSES = (USER_LEMMA_CLASS, USER_LEMMA_VALUES_CLASS)
+# the name of the projection `project:X` of a sort X is this prefix and X
+PROJ_PREFIX = "Lblproject'Coln'"
 
 
 class Refused(Exception):
@@ -981,6 +986,10 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     ns = "Tie" + camel(name)
     idx = sorted(cls)
     by_class = {c: [i for i in idx if cls[i] == c] for c in CLASSES}
+    # the no-direction sentences that are equations of a projection (`AttrsAgree.eqnHead`), each with
+    # the projection's sort X
+    abs_proj = [(i, sents[i]["eh"][len(PROJ_PREFIX):]) for i in by_class["no direction"]
+                if sents[i]["eh"].startswith(PROJ_PREFIX) and len(sents[i]["eh"]) > len(PROJ_PREFIX)]
     nfn = int(head["nFnItems"])
     nrules = int(head["nRuleItems"])
     # function equations, in fnItems' order
@@ -1159,6 +1168,9 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     w(f"  - The account: the class lists partition the {len(idx)} sentences of the user module {um}, in")
     w("    `tieClasses`' order (`account`, `account_sizes`, `account_classes`); the no-direction class holds")
     w("    exactly the sentences that apply a symbol Γ lacks (`account_absent`, `absent_closed`).")
+    if abs_proj:
+        w(f"  - `absent_proj_below`: the {len(abs_proj)} no-direction sentences that are equations of a projection")
+        w("    `project:X` are of sorts X that are K, KItem or below KItem in Γ (`GenEqs.projBelowB`).")
     il = ", ".join(map(str, law_idx))
     rnames = " and ".join(f"`{r}`" for _, r, _ in rawd)
     if law_idx:
@@ -1563,6 +1575,31 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     w("      (fun ad => (appHeadsOf ad.ax.pattern).all (gammaHasHead c)) = true :=")
     w("  tieAbsent_of_account userAxioms _ _ account_absent")
     w("")
+    if abs_proj:
+        w("/-- The sentences of the no-direction class that are equations of a projection `project:X` (their")
+        w(f"left side applies `{PROJ_PREFIX}X`), each with X. -/")
+        w("def absentProj : List (Nat × String) :=")
+        w("  [" + wrap_nums([f'({i}, "{x}")' for i, x in abs_proj], 3) + "]")
+        w("")
+        w("/-- Each sort of `absentProj` is K, KItem or a sort below KItem of Γ, with K and KItem")
+        w("constructor sorts. -/")
+        w("theorem absent_proj_below_c : absentProj.all (fun p => GenEqs.projBelowB c p.2) = true := by")
+        w("  decide +kernel")
+        w("")
+        w("/-- **The projections the no-direction class defines are of sorts below KItem**: `absentProj` is")
+        w(f"the list of the no-direction sentences whose left side applies a symbol `{PROJ_PREFIX}X`, each")
+        w("with that X, and each such X is K, KItem or a sort below KItem of Γ, with K and KItem constructor")
+        w("sorts (`GenEqs.projBelowB`). So the pattern each of these equations is at is functional and")
+        w("injective on X in every model of Γ (`GenEqs.projSel_fun`, `GenEqs.projSel_inj`): what the")
+        w("equation states of the pattern's symbols, Γ entails. -/")
+        w("theorem absent_proj_below (H : HookParams) :")
+        w('    (userAxioms.filter (fun ad => (classOf "no direction").contains ad.index &&')
+        w(f'        ((AttrsAgree.eqnHead ad.ax.pattern).getD "").startsWith "{PROJ_PREFIX}")).map')
+        w("      (fun ad => (ad.index, AttrsAgree.eqnHead ad.ax.pattern)) =")
+        w(f'      absentProj.map (fun p => (p.1, some ("{PROJ_PREFIX}" ++ p.2))) ∧')
+        w("    absentProj.all (fun p => GenEqs.projBelowB (cH H) p.2) = true :=")
+        w("  ⟨by rw [userAxioms_eq]; decide +kernel, absent_proj_below_c⟩")
+        w("")
     w("/-- The sentences whose text is none of f2-examples/ens.kompile.kore's user module, with their class. -/")
     w("def unmapped : List (Nat × String) :=")
     w("  [" + wrap_nums([f'({i}, "{cls[i]}")' for i in unmapped], 3) + "]")
@@ -2143,7 +2180,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     w(f"end KCore.{ns}")
     w("")
     names = ["params_raw" if raw else "noRaw", "readsConfined_c", "userAxioms_eq", "coreOK"] + (["wf_defn"] if wf_ok else []) + \
-        ["account", "account_sizes", "account_classes", "account_absent", "absent_closed", "lists_in_account"] + \
+        ["account", "account_sizes", "account_classes", "account_absent", "absent_closed"] + \
+        (["absent_proj_below_c", "absent_proj_below"] if abs_proj else []) + ["lists_in_account"] + \
         ["attrs_agree"] + \
         ["sig_origin_but_next" if head["sigAll"] != "true" else "sig_origin", "decls_entailed",
          "consistent"] + (["text_nextless"] if head["sigAll"] != "true" else [])
