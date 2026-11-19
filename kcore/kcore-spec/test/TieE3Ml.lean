@@ -32,23 +32,22 @@
   - The converse over Γ's content: each premise is a function sentence's translation, one of the
     five parts Γ defines by predicates, or definedness (`gamma_origin`, `gamma_from`).
   - Hooked functional, collection law, library: at values (no theorem here); function functional:
-    owed as `FnHyp` (no theorem); parameter lemma: a hypothesis on H, shown at values at one H
-    (`paramlemma_account`, `paramlemma_heads`, `e3ml_witness`, `e3ml_open`); user lemma: entailed, by
-    hand (`userlemma_account`, `userlemma_entailed`); no direction: `absent_closed`.
+    owed as `FnHyp` (no theorem); parameter lemma: a hypothesis on H, at values, shown at one H
+    (`paramlemma_account`, `paramlemma_heads`, `ParamLemmaWitnessAtValues`, `e3ml_witness`,
+    `e3ml_open`); user lemma: entailed, by hand (`userlemma_account`, `userlemma_entailed`); no
+    direction: `absent_closed`.
 
   The parameter lemmas (126, 127, 210, 211) apply a parameter symbol no registry hook interprets,
-  whose value the interpretation gives: each is owed as a hypothesis on H, the sentence itself at the
-  member (`Γ (cH H) ⊧ (trS ad).pat`). The account holds them in the class `parameter lemma`, of the
-  direction `hypothesis`. A hypothesis no H satisfies would tie a text without a model, so the tie owes
-  one H at which the functions' obligations and every parameter lemma hold (`ParamLemmaWitness`).
-  Proved here, by hand, at values: at `H1`, the interpretation with `h(n) = n`, the obligations
-  hold and each parameter lemma holds in every model of Γ at the valuations sending its variable to
-  a value (`e3ml_witness`, `ParamLemmaWitnessAtValues`); at `HookParams.none` Γ with sentence 210 has
-  no model (`e3ml_open`), so the class is no `entailed`. `ParamLemmaWitness` itself, which asks each
-  lemma at every element of Int, is not proved: Γ states `h`'s graph at values only, and a model
-  may hold an element of Int that is no value's. Every `simplification` equation of the user
-  module whose left side's head is a parameter symbol without `impl` is one of them
-  (`paramlemma_heads`).
+  whose value the interpretation gives: each is owed as a hypothesis on H, at the valuations sending
+  its variables to values (`EntailsAtValues (cH H) ad (trS ad).pat`), since Γ states the parameter's
+  graph at values only (`ΓDomains`). The account holds them in the class `parameter lemma`, of the
+  direction `hypothesis`. A hypothesis no H satisfies would tie a text without a model, so the tie
+  owes one H at which the functions' obligations hold and every parameter lemma holds at values
+  (`ParamLemmaWitnessAtValues`). Proved here, by hand: at `H1`, the interpretation with `h(n) = n`,
+  the obligations hold and each parameter lemma holds in every model of Γ at the valuations sending
+  its variable to a value (`e3ml_witness`); at `HookParams.none` Γ with sentence 210 has no model
+  (`e3ml_open`), so the class is no `entailed`. Every `simplification` equation of the user module
+  whose left side's head is a parameter symbol without `impl` is one of them (`paramlemma_heads`).
 
   The user lemmas (123, 124, 125, 152) are sentences of a user's file that the reader leaves out of
   Γ as lemmas (inert simplification) and that apply no parameter symbol without `impl`. Of the class
@@ -130,6 +129,7 @@ def classes : List (String × List Nat) :=
    ("function law", []),
    ("open generator law", []),
    ("open generator functional", []),
+   ("parameter functional", []),
    ("parameter lemma", [126, 127, 210, 211]),
    ("user lemma", [123, 124, 125, 152]),
    ("user lemma at values", []),
@@ -148,7 +148,7 @@ theorem account : (classes.flatMap (·.2)).isPerm (userAxioms.map (·.index)) = 
 
 /-- The class sizes. -/
 theorem account_sizes : classes.map (fun cl => (cl.1, cl.2.length)) =
-    [("function equation", 29), ("rewrite rule", 0), ("priority equation", 0), ("constructor functional", 6), ("subsort", 14), ("injectivity", 4), ("distinctness", 0), ("no junk", 10), ("function functional", 14), ("hooked functional", 47), ("collection law", 9), ("library", 82), ("set idempotence", 1), ("set-variable lemma", 6), ("function law", 0), ("open generator law", 0), ("open generator functional", 0), ("parameter lemma", 4), ("user lemma", 4), ("user lemma at values", 0), ("no direction", 30)] := by
+    [("function equation", 29), ("rewrite rule", 0), ("priority equation", 0), ("constructor functional", 6), ("subsort", 14), ("injectivity", 4), ("distinctness", 0), ("no junk", 10), ("function functional", 14), ("hooked functional", 47), ("collection law", 9), ("library", 82), ("set idempotence", 1), ("set-variable lemma", 6), ("function law", 0), ("open generator law", 0), ("open generator functional", 0), ("parameter functional", 0), ("parameter lemma", 4), ("user lemma", 4), ("user lemma at values", 0), ("no direction", 30)] := by
   decide +kernel
 
 /-- The classes are the tie's (`tieClasses`, which gives each its direction), in its order. -/
@@ -696,16 +696,18 @@ theorem lib166_at_values (H : HookParams) : EntailsAtValues (cH H) U.ax163 (trS 
 noncomputable def paramLemmaText : List AxiomDecl := [U.ax126, U.ax127, U.ax210, U.ax211]
 
 /-- The parameter lemmas are the account's class `parameter lemma`, of the direction `hypothesis`
-(Γ does not hold the sentence; at the member `cH H` it is owed as itself). -/
+(Γ does not hold the sentence; at the member `cH H` it is owed at values). -/
 theorem paramlemma_account : paramLemmaText.map (·.index) = classOf "parameter lemma" := by
   decide +kernel
 
 /-- **What the tie owes of the parameter lemmas**: one interpretation `H` at which the functions'
-obligations hold and Γ entails every parameter lemma, so that the text with its hypotheses has a
-model. Not proved here (Γ states `h`'s graph at values only, and a model may hold an element of
-Int that is no value's); proved at values: `e3ml_witness`. -/
-def ParamLemmaWitness : Prop :=
-  ∃ H : HookParams, FnObligations (cH H) callOrder [] ∧ ∀ ad ∈ paramLemmaText, Γ (cH H) ⊧ (trS ad).pat
+obligations hold and every parameter lemma holds in every model of Γ at the valuations sending its
+free element variables to values (`EntailsAtValues`), so that the text with its hypotheses has a
+model. Γ states a parameter's graph at values only (`ΓDomains`), so the lemma is owed there. Proved
+by hand: `e3ml_witness`. -/
+def ParamLemmaWitnessAtValues : Prop :=
+  ∃ H : HookParams, FnObligations (cH H) callOrder [] ∧
+    ∀ ad ∈ paramLemmaText, EntailsAtValues (cH H) ad (trS ad).pat
 
 /-- Every sentence of the user module that carries `simplification`, is an equation
 (`AttrsAgree.eqnHead`) and has at the head of its left side a parameter symbol no registry hook
@@ -1562,16 +1564,6 @@ theorem userlemma_entailed : UserLemmaEntailed := by
   · exact s125_entailed H
   · exact s152_entailed H
 
-/-- **What this file proves of the parameter lemmas**: one interpretation `H` at which the
-functions' obligations hold and every parameter lemma holds in every model of Γ at the valuations
-sending its variables to values (`EntailsAtValues`). It is `ParamLemmaWitness` with `EntailsAtValues`
-in place of `Γ (cH H) ⊧`, which asks the lemma at every element of Int: Γ states `h`'s graph at
-values only, and a model may hold an element of Int that is no value's, at which no item of Γ
-constrains `h`; this file proves the parameter lemmas there for no H. -/
-def ParamLemmaWitnessAtValues : Prop :=
-  ∃ H : HookParams, FnObligations (cH H) callOrder [] ∧
-    ∀ ad ∈ paramLemmaText, EntailsAtValues (cH H) ad (trS ad).pat
-
 /-- **The witness**: at `H1` (`h(n) = n`) the obligations hold (`obl_nil`) and the four parameter
 lemmas hold at values. -/
 theorem e3ml_witness : ParamLemmaWitnessAtValues := by
@@ -1659,7 +1651,7 @@ end KCore.TieE3Ml
 #check @KCore.TieE3Ml.gamma_from
 #check @KCore.TieE3Ml.paramlemma_account
 #check @KCore.TieE3Ml.paramlemma_heads
-#check @KCore.TieE3Ml.ParamLemmaWitness
+#check @KCore.TieE3Ml.ParamLemmaWitnessAtValues
 #check @KCore.TieE3Ml.userlemma_account
 #check @KCore.TieE3Ml.UserLemmaEntailed
 #check @KCore.TieE3Ml.UserLemmaAtValues
@@ -1695,7 +1687,7 @@ end KCore.TieE3Ml
 #print axioms KCore.TieE3Ml.gamma_from
 #print axioms KCore.TieE3Ml.paramlemma_account
 #print axioms KCore.TieE3Ml.paramlemma_heads
-#print axioms KCore.TieE3Ml.ParamLemmaWitness
+#print axioms KCore.TieE3Ml.ParamLemmaWitnessAtValues
 #print axioms KCore.TieE3Ml.userlemma_account
 #print axioms KCore.TieE3Ml.UserLemmaEntailed
 #print axioms KCore.TieE3Ml.UserLemmaAtValues
@@ -1709,7 +1701,6 @@ end KCore.TieE3Ml
 #check @KCore.TieE3Ml.s127_at_values
 #check @KCore.TieE3Ml.s210_at_values
 #check @KCore.TieE3Ml.s211_at_values
-#check @KCore.TieE3Ml.ParamLemmaWitnessAtValues
 #check @KCore.TieE3Ml.e3ml_witness
 #check @KCore.TieE3Ml.e3ml_open
 #print axioms KCore.TieE3Ml.fg_id_eml
@@ -1722,6 +1713,5 @@ end KCore.TieE3Ml
 #print axioms KCore.TieE3Ml.s127_at_values
 #print axioms KCore.TieE3Ml.s210_at_values
 #print axioms KCore.TieE3Ml.s211_at_values
-#print axioms KCore.TieE3Ml.ParamLemmaWitnessAtValues
 #print axioms KCore.TieE3Ml.e3ml_witness
 #print axioms KCore.TieE3Ml.e3ml_open
