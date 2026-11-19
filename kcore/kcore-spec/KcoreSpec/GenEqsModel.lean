@@ -508,32 +508,11 @@ theorem evalSymb_head {c : Semantics} {τ : KoreAML.Sym} {h : Head} (hx : evalSy
 
 theorem symAt_head {c : Semantics} {n : String} {args : List Elem} {h : Head}
     (hx : symAt c n args (.app h [])) : args = [] := by
-  refine Classical.byContradiction fun ha => ?_
-  unfold symAt at hx
-  generalize resolve c n args = r at hx
-  rcases r with _ | ⟨k, p⟩
-  · have hx' := (ite_mem _ _ _).mp hx
-    simp only [ha, ↓reduceIte] at hx'
-    split at hx'
-    · cases hx'
-    · rename_i hneg
-      exact cast (congrFun (symAt.match_3.eq_2 (fun _ _ => Set Elem) n args
-        (fun _ => fun x => x = Elem.app (.sym n) args) (fun _ _ => fun _ => False) hneg) (Elem.app h [])) hx'
-  · have hx' := (ite_mem _ _ _).mp hx
-    by_cases hl : args.length < p + k.args.length
-    · simp only [hl, ↓reduceIte] at hx'
-      injection hx' with _ h2
-      exact ha h2.symm
-    · simp only [hl, ↓reduceIte] at hx'
-      have hx2 := (ite_mem _ _ _).mp hx'
-      by_cases hl2 : args.length = p + k.args.length
-      · simp only [hl2, ↓reduceIte] at hx2
-        generalize vals (List.drop p args) = o at hx2
-        rcases o with _ | vs
-        · exact hx2
-        · obtain ⟨v, hv⟩ := result_val hx2
-          cases hv
-      · simp only [hl2, ↓reduceIte] at hx2
+  rcases symAt_cases hx with he | ⟨k, p, vs, -, -, hres⟩
+  · injection he with _ h2
+    exact h2.symm
+  · obtain ⟨v, hv⟩ := result_val hres
+    cases hv
 
 /-- Application gives a head without arguments only from the definedness element. -/
 theorem evalApp_head {c : Semantics} {T : GroundTerm → GroundTerm → Prop} {a b : Elem} {h : Head}

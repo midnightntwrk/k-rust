@@ -1321,15 +1321,12 @@ theorem spareSymB_of_free {c : Semantics} {n : String}
     (hfree : ∀ φ, (Γc c ∪ Γstep c) φ → KoreAML.Sym.symbol n ∉ psyms φ)
     (hinj : n ≠ "inj") (hl : n ≠ "Lblite") (hi : iteSort? n = none) : spareSymB c n = true := by
   have hres : Faithful.Model.resolve c n [] = none := by
-    unfold Faithful.Model.resolve
-    split
-    · rename_i h; cases h
-    · rw [Option.map_eq_none_iff, List.find?_eq_none]
-      intro k hk hn
-      have he := beq_iff_eq.mp hn
-      obtain ⟨φ, hφ, hm⟩ := kernelSym_named hk (by rw [he]; exact hi)
-      rw [he] at hm
-      exact hfree φ hφ hm
+    rw [Faithful.Model.resolve_nil, Option.map_eq_none_iff, List.find?_eq_none]
+    intro k hk hn
+    have he := beq_iff_eq.mp hn
+    obtain ⟨φ, hφ, hm⟩ := kernelSym_named hk (by rw [he]; exact hi)
+    rw [he] at hm
+    exact hfree φ hφ hm
   simp only [spareSymB, hres, Bool.and_true]
   exact bne_iff_ne.mpr hinj
 
