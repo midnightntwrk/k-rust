@@ -15,6 +15,9 @@
   - `tnRound_isSome`: `tnRound p e sg N D` has a value where `N / D` is at most the largest finite
     datum, above half the smallest positive datum (at half of it or below, the nearest datum is zero,
     or at `p = 1` there is a tie) and, at `p = 1`, not halfway between two powers of two.
+  - `tn_guard_le`: the upper cut `tnNearest?` and `tnQuot?` write (`cmpScaled … ≠ .gt` against the
+    largest finite datum) is `tnRound_isSome`'s upper bound on the numerator and denominator they
+    give `tnRound`; so `tnNearest?_isSome` and `tnQuot?_isSome`: the two have a value on the region.
 -/
 import KcoreSpec.FloatThinLaws
 
@@ -495,5 +498,115 @@ theorem tnRound_isSome {p e : Nat} {sg : Sign} {N D W : Nat} (hp : 1 ≤ p) (he 
           omega
     rw [tnMk?_of sg hn1 hd]
     rfl
+
+/-! ## The callers' guard is the region's upper bound -/
+
+/-- The largest finite datum of the format is a positive `m·2^q` with `q + shift ≥ 1`. -/
+theorem tnMax?_finite_ftw {p e : Nat} {u : UnpackedFloat} (h : tnMax? p e = some u) :
+    ∃ m q hm, u = .finite .positive m q hm ∧ 1 ≤ q + (shift p e : Int) := by
+  have hmk : ∃ m q, tnMk? p e .positive m q = some u := by
+    unfold tnMax? at h
+    split at h
+    · exact ⟨_, _, h⟩
+    · exact ⟨_, _, h⟩
+  obtain ⟨m, q, hmk⟩ := hmk
+  obtain ⟨hm, rfl, hd⟩ := tnMk?_eq_some hmk
+  refine ⟨m, q, hm, rfl, ?_⟩
+  simp only [tnIsDatum, Bool.or_eq_true, decide_eq_true_eq] at hd
+  omega
+
+/-- The guard of `tnNearest?` and `tnQuot?`: where `A·2^x / (B·2^y)` is at most the largest finite
+datum `M·2^Q` (`cmpScaled A x (M·B) (Q + y)` is not `.gt`), `N = A·2^(x − min x y)` and
+`D = B·2^(y − min x y)`, the numerator and denominator `tnRound` is given, satisfy
+`N·2^shift ≤ W·D` with `W` the largest datum's magnitude in units of `2^(−shift)` (`tnMag`): the
+upper bound of `tnRound_isSome`. Both sides are the guard's comparison scaled by one power of two,
+which is a natural number because the largest datum's last digit has `Q + shift ≥ 1`. -/
+theorem tn_guard_le {p e W A B : Nat} {x y M Q : Int}
+    (hMQ : (tnMax? p e).bind exact = some (M, Q)) (hW : (tnMax? p e).bind (tnMag p e) = some W)
+    (h : cmpScaled A x (M * B) (Q + y) ≠ .gt) :
+    A * 2 ^ (x - min x y).toNat * 2 ^ shift p e ≤ W * (B * 2 ^ (y - min x y).toNat) := by
+  rw [Option.bind_eq_some_iff] at hMQ hW
+  obtain ⟨u, hu, hex⟩ := hMQ
+  obtain ⟨u', hu', hmag⟩ := hW
+  rw [hu] at hu'; cases hu'
+  obtain ⟨m, q0, hm, rfl, hq0⟩ := tnMax?_finite_ftw hu
+  simp only [exact, Sign.apply, Option.some.injEq, Prod.mk.injEq] at hex
+  obtain ⟨rfl, rfl⟩ := hex
+  simp only [tnMag, Option.some.injEq] at hmag
+  subst hmag
+  generalize hS : shift p e = S at *
+  unfold cmpScaled at h
+  dsimp only at h
+  generalize hz' : min x (q0 + y) = z' at h
+  have hle : (A : Int) * 2 ^ (x - z').toNat ≤ (m : Int) * (B : Int) * 2 ^ (q0 + y - z').toNat := by
+    apply Int.not_lt.1
+    intro hc
+    exact h ((Int.compare_eq_gt).2 hc)
+  have hle' : A * 2 ^ (x - z').toNat ≤ m * B * 2 ^ (q0 + y - z').toNat := by
+    exact_mod_cast hle
+  generalize hX1 : (x - z').toNat = X1 at hle'
+  generalize hY1 : (q0 + y - z').toNat = Y1 at hle'
+  have hk1 : X1 + (S + z' - min x y).toNat = (x - min x y).toNat + S := by omega
+  have hk2 : Y1 + (S + z' - min x y).toNat = (q0 + S).toNat + (y - min x y).toNat := by omega
+  generalize (S + z' - min x y).toNat = k at hk1 hk2
+  have hm2 := Nat.mul_le_mul_right (2 ^ k) hle'
+  calc A * 2 ^ (x - min x y).toNat * 2 ^ S = A * 2 ^ X1 * 2 ^ k := by
+        rw [Nat.mul_assoc, ← Nat.pow_add, ← hk1, Nat.pow_add, Nat.mul_assoc]
+    _ ≤ m * B * 2 ^ Y1 * 2 ^ k := hm2
+    _ = m * 2 ^ (q0 + S).toNat * (B * 2 ^ (y - min x y).toNat) := by
+        rw [Nat.mul_assoc, ← Nat.pow_add, hk2, Nat.pow_add]; ac_rfl
+
+/-- `tnNearest? p e a q` has a value on the region where the text states one: `a·2^q` is at most the
+format's largest finite datum `M·2^Q` in magnitude (the guard `tnNearest?` writes), above half its
+smallest positive datum (`2^(−shift)`; `N·2^shift > D` for `N = |a|·2^q`, `D = 1` scaled to naturals
+as `tnRound` is given them) and, at `p = 1`, not halfway between two powers of two of the format. -/
+theorem tnNearest?_isSome {p e : Nat} {a q M Q : Int} (hp : 1 ≤ p) (he : 1 ≤ e)
+    (hMQ : (tnMax? p e).bind exact = some (M, Q)) (hle : cmpScaled a.natAbs q M Q ≠ .gt)
+    (hlo : 2 ^ (-q).toNat < a.natAbs * 2 ^ q.toNat * 2 ^ shift p e)
+    (htie : p = 1 → ∀ X, 1 ≤ X →
+      2 * (a.natAbs * 2 ^ q.toNat * 2 ^ shift p e) ≠ 3 * 2 ^ X * 2 ^ (-q).toNat) :
+    (tnNearest? p e a q).isSome = true := by
+  have ha : a ≠ 0 := by
+    intro h0; rw [h0] at hlo; simp at hlo
+  obtain ⟨u, hu, -⟩ := Option.bind_eq_some_iff.1 hMQ
+  obtain ⟨m, q0, hm, rfl, -⟩ := tnMax?_finite_ftw hu
+  have hW : (tnMax? p e).bind (tnMag p e) = some (m * 2 ^ (q0 + (shift p e : Int)).toNat) := by
+    rw [hu]; rfl
+  have hg := tn_guard_le (A := a.natAbs) (B := 1) (y := 0) (x := q) hMQ hW
+    (by rw [Int.add_zero, Int.natCast_one, Int.mul_one]; exact hle)
+  have e1 : (q - min q 0).toNat = q.toNat := by omega
+  have e2 : ((0 : Int) - min q 0).toNat = (-q).toNat := by omega
+  rw [e1, e2, Nat.one_mul] at hg
+  unfold tnNearest?
+  rw [hMQ]
+  simp only [ne_eq, ha, not_false_eq_true, hle, and_self, ↓reduceIte]
+  exact tnRound_isSome hp he (Nat.two_pow_pos _) hW hg hlo htie
+
+/-- `tnQuot? p e u v` has a value on the region where the text states one: `u` and `v` are finite
+data `a·2^qa` and `b·2^qb`, `b ≠ 0`, the quotient is at most the format's largest finite datum
+`M·2^Q` in magnitude (the guard `tnQuot?` writes), above half its smallest positive datum, and at
+`p = 1` not halfway between two powers of two of the format; `N` and `D` are the numerator and the
+denominator `tnRound` is given. -/
+theorem tnQuot?_isSome {p e : Nat} {u v : UnpackedFloat} {a qa b qb M Q : Int} (hp : 1 ≤ p) (he : 1 ≤ e)
+    (hu : exact u = some (a, qa)) (hv : exact v = some (b, qb)) (hb : b ≠ 0)
+    (hMQ : (tnMax? p e).bind exact = some (M, Q))
+    (hle : cmpScaled a.natAbs qa (M * b.natAbs) (Q + qb) ≠ .gt)
+    (hlo : b.natAbs * 2 ^ (qb - min qa qb).toNat < a.natAbs * 2 ^ (qa - min qa qb).toNat * 2 ^ shift p e)
+    (htie : p = 1 → ∀ X, 1 ≤ X → 2 * (a.natAbs * 2 ^ (qa - min qa qb).toNat * 2 ^ shift p e) ≠
+      3 * 2 ^ X * (b.natAbs * 2 ^ (qb - min qa qb).toNat)) :
+    (tnQuot? p e u v).isSome = true := by
+  have ha : a ≠ 0 := by
+    intro h0; rw [h0] at hlo; simp at hlo
+  obtain ⟨w, hw, -⟩ := Option.bind_eq_some_iff.1 hMQ
+  obtain ⟨m, q0, hm, rfl, -⟩ := tnMax?_finite_ftw hw
+  have hW : (tnMax? p e).bind (tnMag p e) = some (m * 2 ^ (q0 + (shift p e : Int)).toNat) := by
+    rw [hw]; rfl
+  have hg := tn_guard_le hMQ hW hle
+  have hD : 0 < b.natAbs * 2 ^ (qb - min qa qb).toNat :=
+    Nat.mul_pos (Int.natAbs_pos.2 hb) (Nat.two_pow_pos _)
+  unfold tnQuot?
+  rw [hu, hv, hMQ]
+  simp only [ne_eq, ha, hb, not_false_eq_true, hle, and_self, ↓reduceIte]
+  exact tnRound_isSome hp he hD hW hg hlo htie
 
 end KCore.KFloat
