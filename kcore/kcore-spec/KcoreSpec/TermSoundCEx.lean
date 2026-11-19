@@ -31,7 +31,7 @@ existential variables are in scope and in no pattern (`clauseExOK`), so each is 
 of the clause. -/
 theorem readsConfined_of_exsCEx (h : c.coreOKEx = true) {fn : Fn} (hfn : fn ∈ c.fns) {cl : Clause}
     (hcl : cl ∈ fn.clauses) (hne : cl.exs ≠ []) : c.readsConfined = true := by
-  obtain ⟨-, hs, -, -⟩ :=
+  obtain ⟨-, hs, -⟩ :=
     Semantics.clausesPlainEx_spec (Semantics.sortedOKEx_parts (Semantics.coreOKEx_parts h).1).2.2.2.2.1 hfn hcl
   simp only [Semantics.clauseExOK, Bool.and_eq_true, List.all_eq_true] at hs
   obtain ⟨⟨⟨hlt, -⟩, hleft⟩, -⟩ := hs
@@ -78,7 +78,7 @@ theorem neg_of_coreClEx (hI : I ⊧ᴵP Γc c) (hok : c.sortedOKClEx = true) (hs
   rcases List.mem_append.mp hfn with hu | hp
   · obtain ⟨hs, hpl⟩ := (Semantics.sortedOKClEx_parts hok).2.1 fn hu cl hcl
     obtain ⟨hpats, -, hreqS, -, -⟩ := Semantics.clauseSortedOpen_parts hs
-    obtain ⟨-, -, hconj, -⟩ := Semantics.clausePlainOpenEx_parts hpl
+    obtain ⟨-, -, hconj⟩ := Semantics.clausePlainOpenEx_parts hpl
     exact exclEmptyCl_ofCl hI (namesNumbered_spec hnn) hg hsc hph hcso hcs hph' hcv
       (Semantics.clauseSortedOpen_pats_nf hs)
       (Semantics.clauseSortedOpen_preOK hs) (hpreR fn hfn cl hcl) hreqS hconj

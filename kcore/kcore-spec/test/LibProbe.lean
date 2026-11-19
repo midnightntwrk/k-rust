@@ -46,7 +46,7 @@
   merges with it, two touching ranges of different values, `[1, 3)`, which overlaps three of them,
   and `[3, 5)`);
   String "", "a", "ab", "é∀"; Float binary32's 1.0, largest finite, ∞, NaN, `p1x2`'s 1.0, ∞,
-  NaN and one value of `p2x1` (one exponent bit); Bytes three values; Endianness `LE`, `BE` and
+  NaN and `p1x1`'s 0.0 (one exponent bit, no finite datum but the zeros); Bytes three values; Endianness `LE`, `BE` and
   Signedness `Signed`, `Unsigned`.
 
   `check` runs the probe on `ens.kompile.kore` and on kompile's text of kimp (`ref-kimp.kore`) and
@@ -63,7 +63,9 @@
   left side does, and every sentence at a line of `libSentences` that the text holds
   and the probe evaluates reads it; and that under `HookParams.lib` only the control fails. One
   sentence is excepted from both (`unmet`): `countAllOccurrences`' second equation at the empty
-  needle, which no interpretation that gives the count a value there meets. Two lines of
+  needle, which no interpretation that gives the count a value there meets. One is excepted from
+  the second (`unreadAtLiterals`): `=/=Float`'s (1648), which reads the interpretation where
+  `=/=Float` is silent, at no pair of Float literals (`asDatum` has a datum at every format). Two lines of
   `libSentences` are outside what the probe evaluates: `findChar`'s equation (1891), which it does
   not probe (it applies `ite{Int}`, a symbol Γ does not have), and `sqrtFloat`'s (1671), which applies
   `rootFloat`, no symbol of Γ in these texts. A collection law carries no line of its own: the probe
@@ -184,12 +186,11 @@ def rangeMapV (es : List (Int × Int × Int)) : GroundTerm := rmV (es.map fun (a
 
 /-- Float values (precision, exponent width, encoding): binary32's 1.0, the largest finite value,
 +∞ and NaN; `p1x2`'s (a format with a field of 1, `KFloat.thinOK`, at which every operation computes,
-`thinAt`) 1.0, ∞ and NaN; and the `p2x1` encoding 1 (sign 0, the one exponent bit 0, the fraction
-bit 1), of a format with one exponent bit, at which no Float has a datum (`asDatum`) and no operation
-computes, so that the comparisons and `isInfinite` are silent there. -/
+`thinAt`) 1.0, ∞ and NaN; and `p1x1`'s 0.0 (the encoding 0), of the format whose finite data are the
+two zeros, at which `maxValueFloat` has no value, so that `isInfinite` is silent there. -/
 def floats : List (Nat × Nat × Nat) :=
   [(24, 8, 0x3F800000), (24, 8, 0x7F7FFFFF), (24, 8, 0x7F800000), (24, 8, 0x7FC00000),
-   (1, 2, 1), (1, 2, 3), (1, 2, 8), (2, 1, 1)]
+   (1, 2, 1), (1, 2, 3), (1, 2, 8), (1, 1, 0)]
 
 /-- The grid of values of a sort (each checked to be of it); none for a sort without one. -/
 def gridOf (c : Semantics) (s : Srt) (small : Bool := false) : Option (List GroundTerm) :=
@@ -441,6 +442,32 @@ partial def sides : Kore.Pattern → Option (Kore.Pattern × Kore.Pattern)
   | .exist _ _ (.equals _ _ _ t) => some (t, t)
   | _ => none
 
+/-- Whether the left side's own head application reads the interpretation at a point: the left
+side's arguments are evaluated, and the head is applied (`applyAt`) at each choice of their values
+from an empty flag state; it reads it iff one of those applications marks a silent point, a
+parameter or a function reading H. What the arguments' own evaluation reads is not counted: it is
+read below the application the sentence states the value of. An application with an argument ⊥ is
+⊥ whatever the interpretation and reads nothing of it; an injection, or a left side that is no
+application, applies no symbol of Γ and reads nothing of it. The second component says whether the
+arguments' evaluation read it (`Res.hOffOut` counts the off points where neither does). -/
+def leftHeadReads (x : Ctx) (env : List (String × D)) : Kore.Pattern → Except String (Bool × Bool)
+  | .app h sorts args => do
+    if h.ident.name == "inj" then return (false, false)
+    let key := appKey h sorts
+    match x.syms.lookup key with
+    | none => throw s!"{key} not among Γ's symbols"
+    | some k =>
+      let (ds, fa) ← (args.mapM (eval x env)).run {}
+      let argsRead := !fa.silent.isEmpty || !fa.param.isEmpty
+      if ds.any (fun d => match d with | .bot => true | _ => false) then return (false, argsRead)
+      let vss ← ds.mapM fun d => match d.elems with
+        | some vs => pure vs
+        | none => throw s!"{key} applied to \\top"
+      let tuples := vss.foldr (fun vs acc => vs.flatMap fun v => acc.map (v :: ·)) [[]]
+      let (_, fl) ← (tuples.mapM (applyAt x key k)).run {}
+      return (!fl.silent.isEmpty || !fl.param.isEmpty, argsRead)
+  | _ => return (false, false)
+
 def points : List (String × List D) → List (List (String × D))
   | [] => [[]]
   | (n, ds) :: rest => let ps := points rest; ds.flatMap fun d => ps.map ((n, d) :: ·)
@@ -524,9 +551,15 @@ structure Res where
   cex : List String := []
   /-- failures under some interpretation at points reaching a silent point or parameter -/
   hfail : List String := []
-  /-- points reading the interpretation where the left side (the application the sentence states
-  the value of) is not marked as reading it: the interpretation is read elsewhere only -/
+  /-- points reading the interpretation where the left side's own head application (the
+  application the sentence states the value of) reads nothing of it (`leftHeadReads`): the
+  interpretation is read elsewhere only -/
   hOff : Nat := 0
+  /-- the first such point, its reading and what the sentence reached there -/
+  offFirst : String := ""
+  /-- of those, points where the left side's arguments read nothing of it either: the
+  interpretation is read outside the left side altogether -/
+  hOffOut : Nat := 0
   /-- the readings under which it fails at some point -/
   failModes : List String := []
   /-- why not probed -/
@@ -570,14 +603,16 @@ def probe (c : Semantics) (r : Res) (a : Kore.Axiom) (modes : List Mode := [.non
         let ds := g.map D.val
         grids := grids ++ [(n, if n.startsWith "@" then D.bot :: ds else ds)]
   let pts := points grids
-  let leftKey : Option String := match sides a.pattern with
-    | some (.app h ss _, _) => some (appKey h ss)
+  -- the left side, where it is an application (`leftHeadReads`); none otherwise (a `#Ceil` lemma's)
+  let left : Option Kore.Pattern := match sides a.pattern with
+    | some (l@(.app _ _ _), _) => some l
     | _ => none
   let modes := noneFirst modes
   let mut r := { r with points := pts.length }
   for pt in pts do
     let mut dep := false
     let mut off := false
+    let mut offOut := false
     let mut okAll := true
     for m in modes do
       if m != Mode.none && !dep then break
@@ -588,8 +623,20 @@ def probe (c : Semantics) (r : Res) (a : Kore.Axiom) (modes : List Mode := [.non
         let isDep := !fl.silent.isEmpty || !fl.param.isEmpty
         if isDep then
           dep := true
-          let onLeft := leftKey.any fun k => fl.silent.contains k || fl.param.contains k || fl.param.contains (k ++ " (reads H)")
-          if !onLeft then off := true
+          -- the point is off the left side unless the left side's own head application reads H there
+          match left.map (leftHeadReads x pt) with
+          | some (.error e) => return { r with skip := some s!"at {showPoint c pt}: the left side: {e}" }
+          | some (.ok (true, _)) => pure ()
+          | some (.ok (false, argsRead)) =>
+            off := true
+            if !argsRead then offOut := true
+            if r.offFirst.isEmpty then
+              r := { r with offFirst := s!"{m.name} at {showPoint c pt} (reached {fl.silent ++ fl.param})" }
+          | none =>
+            off := true
+            offOut := true
+            if r.offFirst.isEmpty then
+              r := { r with offFirst := s!"{m.name} at {showPoint c pt} (reached {fl.silent ++ fl.param})" }
         let holds := match d with | .top => true | _ => false
         if !holds then
           okAll := false
@@ -614,8 +661,39 @@ def probe (c : Semantics) (r : Res) (a : Kore.Axiom) (modes : List Mode := [.non
     | _ => pure ()
     if dep then r := { r with hdep := r.hdep + 1 }
     if off then r := { r with hOff := r.hOff + 1 }
+    if offOut then r := { r with hOffOut := r.hOffOut + 1 }
     if okAll then r := { r with holds := r.holds + 1 }
   return r
+
+/-- The off test reads the left side's own head application (`leftHeadReads`), not its symbol among
+what the whole sentence reached. On `ens.kompile.kore`, at the seven Int values from -3 to 3:
+`X ^Int Y = X ^Int (0 -Int Y)` reads the interpretation at Y > 0 (the right side's `^Int` at a
+negative exponent, a silent point) where its left side's `^Int` has a value, so those 21 points are
+off the left side though both sides apply `^Int`; `X ^Int Y = X ^Int Y` reads it only at Y < 0, where
+its left side does (no point off). -/
+def checkLeftOwn : IO Unit := do
+  let path := "f2-examples/ens.kompile.kore"
+  let k ← match Kore.parseDefinition (← IO.FS.readFile path) with
+    | .ok k => pure k
+    | .error e => throw (IO.userError s!"read: {e}")
+  let d ← match Parse.parse k with
+    | .ok d => pure d
+    | .error e => throw (IO.userError s!"parse: {e.toText}")
+  let pow (y : String) : String := s!"Lbl'UndsXor-'Int'Unds'\{}(X:SortInt\{}, {y})"
+  let cases : List (String × Nat) :=
+    [(s!"\\equals\{SortInt\{}, R}({pow "Y:SortInt{}"}, {pow "Lbl'Unds'-Int'Unds'{}(\\dv{SortInt{}}(\"0\"), Y:SortInt{})"})", 21),
+     (s!"\\equals\{SortInt\{}, R}({pow "Y:SortInt{}"}, {pow "Y:SortInt{}"})", 0)]
+  for (s, n) in cases do
+    let p ← match Kore.parsePattern s with
+      | .ok p => pure p
+      | .error e => throw (IO.userError s!"{s}: {e}")
+    let r0 : Res := { index := 0, line := 0, row := 0, place := "-", syms := [], absent := [] }
+    let r := probe d.sem r0 { sortVars := [], pattern := p, attributes := [] } (small := true)
+    if r.skip.isSome || r.points != 49 || r.hOff != n || r.hOffOut != n then
+      throw (IO.userError s!"{s}: {r.points} points, {r.hOff} off the left side ({r.hOffOut} outside it), expected 49 and {n} ({r.skip})")
+  IO.println "the off test reads the left side's own head application"
+
+#eval show IO Unit from do if (← IO.getEnv "LIBPROBE_ALL_ONLY").isNone then checkLeftOwn
 
 def pairsOf {α : Type} : List α → List (α × α)
   | [] => []
@@ -698,7 +776,9 @@ place (a `functional` sentence, which has none, by its symbol):
 - `unnamed`: those reading it at some point that are neither a `functional` sentence of a symbol of
   `totalSilentKeys` nor at a line of `libSentences`;
 - `unread`: those at a line of `libSentences`, probed, that read it at no point;
-- `off`: those reading it at a point where the left side is not marked as reading it;
+- `off`: those reading it at a point where the left side's own head application reads nothing of it
+  (`leftHeadReads`), `offBelowHead` aside while each such point reads it in the left side's
+  arguments (`Res.hOffOut` is 0);
 - `libFails`: those failing at some point under `HookParams.lib`. -/
 structure Reads where
   unnamed : List String
@@ -706,6 +786,17 @@ structure Reads where
   off : List String
   libFails : List String
   deriving BEq, Repr
+
+/-- The sentences that read the interpretation below their left side's head, in its arguments, at
+points where the head application at the arguments' values reads nothing of it, and nowhere outside
+the left side: RANGEMAP's associativity (the law generated from `_RangeMap_`'s `assoc`, at the line
+of its declaration, 508, `rangeMapAssocEq`), `(K1 K2) K3 = K1 (K2 K3)`, reads it at the inner
+`_RangeMap_` of its own left side where `K1 K2` is a silent point (overlapping ranges, as K1 = K2 =
+{[0, 2) ↦ 0}, K3 = .Map), and the outer application at that value has one. FIX-core.probe-off-left-own
+measured it (78 of its 152 points reading the interpretation; on allbuiltins, `checkAll`); the
+exception holds only while none of its off points reads the interpretation outside the left side
+(`Res.hOffOut`). -/
+def offBelowHead : List String := ["15 Lbl'Unds'RangeMap'Unds'"]
 
 /-- What the points with a two-element set find, of the sentences with a free set variable that
 are over Γ's symbols and hold at every point of the first grid in every reading (each named as in
@@ -775,7 +866,7 @@ def outOfLibrary (k : Kore.Definition) : Kore.Definition × Nat × List String :
 
 /-- The line printed for a sentence. -/
 def resLine (r : Res) : String :=
-  s!"#{r.index} L{r.line} row {r.row} {r.place} [{" ".intercalate r.syms}] points {r.points} (premise holds at {r.active}, reads H at {r.hdep}): {verdict r}{verdictTwo r}{if r.failModes.isEmpty then "" else s!" [fails under {r.failModes}]"}"
+  s!"#{r.index} L{r.line} row {r.row} {r.place} [{" ".intercalate r.syms}] points {r.points} (premise holds at {r.active}, reads H at {r.hdep}): {verdict r}{verdictTwo r}{if r.failModes.isEmpty then "" else s!" [fails under {r.failModes}]"}{if r.hOff > 0 then s!" [reads H off the left side at {r.hOff} points, {r.hOffOut} of them outside it; first: {r.offFirst}]" else ""}"
 
 def run (path : String) (verbose : Bool := true) (modes : List Mode := [.none, .pick 0, .pick 1])
     (small : Bool := false) (dropOut : Bool := false) : IO (Summary × Reads × Two) := do
@@ -851,11 +942,12 @@ def run (path : String) (verbose : Bool := true) (modes : List Mode := [.none, .
   let reads : Reads :=
     { unnamed := (probed.filter fun r => r.hdep > 0 && !named r).map name
       unread := (probed.filter fun r => atLine r && r.hdep == 0).map name
-      off := (probed.filter (·.hOff > 0)).map name
+      off := (probed.filter fun r => r.hOff > 0 && !(offBelowHead.contains (name r) && r.hOffOut == 0)).map name
       libFails := (probed.filter (·.failModes.contains Mode.lib.name)).map name }
   let readers := probed.filter (·.hdep > 0)
   IO.println s!"sentences reading the interpretation: {readers.map fun r => s!"{name r} ({r.hdep} points)"}"
   IO.println s!"guard: {reprStr reads}"
+  IO.println s!"reading the interpretation off the left side's head, below it only (`offBelowHead`): {(probed.filter fun r => r.hOff > 0 && offBelowHead.contains (name r) && r.hOffOut == 0).map fun r => s!"{name r} ({r.hOff} points)"}"
   let sv := res.filter (·.setVar)
   let two : Two :=
     { sentences := sv.length
@@ -880,12 +972,18 @@ because no interpretation meets them: the second equation of `countAllOccurrence
 `HookParams.lib` as under every interpretation that gives the count a value there. -/
 def unmet : List String := ["17 domains.md:1898"]
 
+/-- The sentences at a line of `libSentences` that read the interpretation at no point because their
+left side has a value at every probed argument: `=/=Float`'s (domains.md 1648), `=/=Float` having a
+value at every two Float literals (`asDatum` has a datum at every format), so that its condition,
+`neFloatEq`, reads no pair of Floats where every Float value is a literal. -/
+def unreadAtLiterals : List String := ["17 domains.md:1648"]
+
 /-- What a check requires of a run: every sentence reading the interpretation has a named
 condition, `unmet` aside, and reads it only where its left side does, every named sentence
-the text holds reads it at some point of the grid, and under `HookParams.lib` only the control
-(set idempotence) and `unmet` fail. -/
+the text holds reads it at some point of the grid, `unreadAtLiterals` aside, and under
+`HookParams.lib` only the control (set idempotence) and `unmet` fail. -/
 def readsOK (r : Reads) : Bool :=
-  r.unnamed.all unmet.contains && r.unread.isEmpty && r.off.isEmpty &&
+  r.unnamed.all unmet.contains && r.unread.all unreadAtLiterals.contains && r.off.isEmpty &&
     r.libFails.all fun n => n.startsWith "16 " || unmet.contains n
 
 /-- The readings `check` and `checkFlt` add: `HookParams.lib`, and the non-constant `hash`. -/
@@ -904,22 +1002,21 @@ points and no value elsewhere (each meets `Semantics.silentTotal`). -/
 def fltModes : List Mode := [.none, .pick 0, .pick 1, .only totalSilentKeys 0, .only totalSilentKeys 1] ++ libModes
 
 /-- The counts of `silentflt.kompile.kore` (FLOAT, STRING, BYTES, SET imported) over the five
-readings, the Int grid without 2^64 + 1. Row 9's ten failures are the `functional` sentences of
+readings, the Int grid without 2^64 + 1. Row 9's nine failures are the `functional` sentences of
 `substrString`, `Int2Bytes` (at a negative length), `--Float`, `absFloat`, `floorFloat`,
-`ceilFloat`, `truncFloat`, `countAllOccurrences` and `replaceAll` (at the empty needle), and
-`isNaN`'s at the `p2x1` value, which has no datum (`asDatum`; `isNaN` has its values at the `p1x2`
-data), under `HookParams.none` only. Row 17's five: `countAllOccurrences`' second equation (1898)
-at the empty needle, under every reading that gives the count a value there (`unmet`);
-`replaceAll`'s (1917) at the empty needle under the readings that give `replaceAll` and `replace`
-at the count different values; `isInfinite`'s equation (domains.md 1673) at the `p2x1` value (at
-the three `p1x2` values both sides are `hook`'s), under the two `only` readings (`isInfinite` has a
-value, `maxValueFloat` none, so the right side has none) and under `hash`; `rfindChar`'s (1893) under `pick0`
-and `pick1` (in the points printed), which give the silent points of two symbols values that do
-not agree with the equation; and `=/=Float`'s (1648) where an operand is the `p2x1` value, at which
-`==Float` and `=/=Float` are silent, under `pick0`, `pick1` and `hash`, which give the two values
-that do not agree with the equation (`neFloatEq`). -/
+`ceilFloat`, `truncFloat`, `countAllOccurrences` and `replaceAll` (at the empty needle), under
+`HookParams.none` only; `isNaN`'s holds, `isNaN` having a value at every Float literal. Row 17's
+four: `countAllOccurrences`' second equation (1898) at the empty needle, under every reading that
+gives the count a value there (`unmet`); `replaceAll`'s (1917) at the empty needle under the
+readings that give `replaceAll` and `replace` at the count different values; `isInfinite`'s
+equation (domains.md 1673) at `p1x1`'s 0.0 (at the other Float values both sides are `hook`'s),
+under the two `only` readings (`isInfinite` has a value, `maxValueFloat(1, 1)` none, so the right
+side has none) and under `pick0` (`isInfinite` true, `maxValueFloat(1, 1)` binary32's 1.0, so the
+right side is false); `rfindChar`'s (1893) under `pick0` and `pick1` (in the points printed), which
+give the silent points of two symbols values that do not agree with the equation. `=/=Float`'s
+(1648) holds at every point, reading the interpretation at none (`unreadAtLiterals`). -/
 def expectedFlt : Summary :=
-  [(9, 93, 73, 63, 0, 10, 0), (15, 9, 9, 9, 0, 0, 0), (17, 55, 45, 39, 0, 5, 1), (18, 67, 66, 66, 0, 0, 0),
+  [(9, 93, 73, 64, 0, 9, 0), (15, 9, 9, 9, 0, 0, 0), (17, 55, 45, 40, 0, 4, 1), (18, 67, 66, 66, 0, 0, 0),
    (16, 1, 1, 0, 1, 0, 0)]
 
 def checkFlt : IO Unit := do
@@ -944,7 +1041,7 @@ one sentence of row 15 failing only under some interpretation; RANGEMAP's other 
 `-RangeMap`, `<=RangeMap`, `in_keys`, `keys`, `size` and `updateRangeMap`, and the two unit laws)
 hold in every reading. -/
 def expectedAll : Summary :=
-  [(9, 110, 81, 71, 0, 10, 0), (15, 12, 12, 11, 0, 1, 0), (17, 63, 45, 39, 0, 5, 1), (18, 114, 113, 113, 0, 0, 0),
+  [(9, 110, 81, 72, 0, 9, 0), (15, 12, 12, 11, 0, 1, 0), (17, 63, 45, 40, 0, 4, 1), (18, 114, 113, 113, 0, 0, 0),
    (16, 1, 1, 0, 1, 0, 0)]
 
 def checkAll : IO Unit := do

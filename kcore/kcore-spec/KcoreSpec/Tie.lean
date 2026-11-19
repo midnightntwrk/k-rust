@@ -96,24 +96,23 @@ end Semantics
 /-- What is asked of the clauses beyond their sorts: each existential variable is of a confined
 sort or fixed by the right-side predicate, which is `\top` where there is none (`clausePlainEx`);
 the existential variables are in scope, apart and outside the left side, and the right-side
-predicate is sorted (`clauseExOK`); a clause with a predicate in its premise is not one whose
-conditions need a witness (`needsWitness`); and a clause's open condition variables are of
-confined sorts or held by a cut of its premise predicate (`memHeld`), or its conditions are closed
+predicate is sorted (`clauseExOK`); and a clause's open condition variables are of confined sorts
+or held by a cut of its premise predicate (`memHeld`), or its conditions are closed
 (`OpenDecided`). -/
 def Semantics.clausesPlain (c : Semantics) : Bool := c.fns.all fun f => f.clauses.all fun cl =>
-  c.clausePlainEx cl && c.clauseExOK cl && (cl.pre.isTop || !cl.needsWitness c) &&
+  c.clausePlainEx cl && c.clauseExOK cl &&
   (!cl.reqOpen || cl.reqClosed || cl.openCondVars.all fun i => (cl.vars[i]?.map c.confined).getD false ||
       memHeld c (varOccsList cl.pats) cl.pre i)
 
 /-- What `clausesPlain` asks of one clause. -/
 theorem Semantics.clausesPlain_spec {c : Semantics} (h : c.clausesPlain = true) {f : Fn} (hf : f ∈ c.fns)
     {cl : Clause} (hcl : cl ∈ f.clauses) :
-    c.clausePlainEx cl = true ∧ c.clauseExOK cl = true ∧ (cl.pre.isTop || !cl.needsWitness c) = true ∧
+    c.clausePlainEx cl = true ∧ c.clauseExOK cl = true ∧
       (!cl.reqOpen || cl.reqClosed || cl.openCondVars.all fun i => (cl.vars[i]?.map c.confined).getD false ||
       memHeld c (varOccsList cl.pats) cl.pre i) = true := by
   have := List.all_eq_true.mp (List.all_eq_true.mp h f hf) cl hcl
   simp only [Bool.and_eq_true] at this
-  exact ⟨this.1.1.1, this.1.1.2, this.1.2, this.2⟩
+  exact ⟨this.1.1, this.1.2, this.2⟩
 
 /-- Every clause's predicate is `\top`: what the checks outside `coreOK` ask of the clauses (`ok`,
 `okM`, `okAll`), and the statements whose proofs read no predicate of a clause. -/
@@ -672,7 +671,7 @@ def Definition.report (d : Definition) : List (String × Bool) :=
   [("names declared once, none named like a hook, functions named apart, own sorts and symbols numbered in order", d.namesOK),
    ("declarations over declared sorts", d.sem.declsOK),
    ("rules plain (rulesPlain): open and existential variables held, open condition variables confined or closed conditions apart", d.sem.rulesPlain),
-   ("clauses plain (clausesPlain): existential variables confined or fixed by the predicate, in scope and outside the left side; no witness needed beside a predicate; open condition variables confined or closed conditions", d.sem.clausesPlain),
+   ("clauses plain (clausesPlain): existential variables confined or fixed by the predicate, in scope and outside the left side; open condition variables confined or closed conditions", d.sem.clausesPlain),
    ("parameters plain (paramsPlain): no law on a parameter that is no open generator, an open generator of the admitted shape; carriers well formed", d.sem.paramsPlain),
    ("subsorts: a strict partial order into user sorts and library constructor sorts, closed", d.sem.subsortsOK),
    ("functions: well-sorted", d.sem.fnsOKAll),

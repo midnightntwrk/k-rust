@@ -156,7 +156,7 @@ def rangeMapV (es : List (Int × Int × Int)) : GroundTerm := rmV (es.map fun (a
 /-- Float values (precision, exponent width, encoding): binary32's 1.0, the largest finite value,
 +∞ and NaN; `p1x2`'s (a format with a field of 1, `KFloat.thinOK`) 1.0, ∞ and NaN; and the `p2x1`
 encoding 1 (sign 0, the one exponent bit 0, the fraction bit 1), of a format with one exponent bit,
-at which no Float has a datum (`asDatum`), so that the comparisons are silent there. -/
+also a field of 1, at which every Float has a datum (`asDatum`, `KFloat.tnUnpack`). -/
 def floats : List (Nat × Nat × Nat) :=
   [(24, 8, 0x3F800000), (24, 8, 0x7F7FFFFF), (24, 8, 0x7F800000), (24, 8, 0x7FC00000),
    (1, 2, 1), (1, 2, 3), (1, 2, 8), (2, 1, 1)]
@@ -496,6 +496,30 @@ partial def sides : Kore.Pattern → Option (Kore.Pattern × Kore.Pattern)
   | .exist _ _ (.equals _ _ _ t) => some (t, t)
   | _ => none
 
+/-- Whether the left side's own head application reads the interpretation at a point: the left
+side's arguments are evaluated, and the head is applied (`applyAt`) at each choice of their values
+from an empty flag state; it reads it iff one of those applications marks a silent point, a
+parameter or a function reading H. What the arguments' own evaluation reads is not counted: it is
+read below the application the sentence states the value of. An application with an argument ⊥ is
+⊥ whatever the interpretation and reads nothing of it; an injection, or a left side that is no
+application, applies no symbol of Γ and reads nothing of it. -/
+def leftHeadReads (x : Ctx) (env : List (String × D)) : Kore.Pattern → Except String Bool
+  | .app h sorts args => do
+    if h.ident.name == "inj" then return false
+    let key := appKey h sorts
+    match x.syms.lookup key with
+    | none => throw s!"{key} not among Γ's symbols"
+    | some k =>
+      let (ds, _) ← (args.mapM (eval x env)).run {}
+      if ds.any (fun d => match d with | .bot => true | _ => false) then return false
+      let vss ← ds.mapM fun d => match d.elems with
+        | some vs => pure vs
+        | none => throw s!"{key} applied to \\top"
+      let tuples := vss.foldr (fun vs acc => vs.flatMap fun v => acc.map (v :: ·)) [[]]
+      let (_, fl) ← (tuples.mapM (applyAt x key k)).run {}
+      return !fl.silent.isEmpty || !fl.param.isEmpty
+  | _ => return false
+
 def points : List (String × List D) → List (List (String × D))
   | [] => [[]]
   | (n, ds) :: rest => let ps := points rest; ds.flatMap fun d => ps.map ((n, d) :: ·)
@@ -546,7 +570,9 @@ or parameter with a hook (`constructor functional`, `function functional`, `para
 lemma` where it applies a parameter without hook and of `user lemma` otherwise; an equation of a
 function of Γ of `function equation`, or of `priority equation` where it carries a `priority` and is
 not `owise`. A `user lemma` the probe then refutes at a point where a set variable holds two values
-is of `set-variable lemma` (`reclass`). -/
+is of `set-variable lemma`, and one over element variables that the probe finds holding at every
+point under some reading and failing only at points reading the interpretation is of `parameter
+lemma` (`reclass`). -/
 def tieClassOf (c : Semantics) (syms : List (String × CtorSig)) (absent : List String) (a : Kore.Axiom) : String :=
   if !absent.isEmpty then "no direction" else
   let noImpl (n : String) : Bool := match syms.lookup n with
@@ -567,12 +593,33 @@ def tieClassOf (c : Semantics) (syms : List (String × CtorSig)) (absent : List 
     else if hasAttr a.attributes "priority" && !hasAttr a.attributes "owise" then "priority equation"
     else "function equation"
 
-/-- The class of a sentence once probed: a lemma the reader leaves out of Γ (`user lemma`) that fails
-at a point reading nothing of the interpretation where a set variable holds two values is of
-`set-variable lemma`, whose direction is `refuted`: Γ with it has no model, at a valuation sending
-each free set variable to a set of values. -/
-def reclass (cls : String) (ncexTwo : Nat) : String :=
-  if cls == "user lemma" && ncexTwo > 0 then "set-variable lemma" else cls
+/-- The class of a sentence once probed, from a lemma the reader leaves out of Γ (`user lemma`):
+- one that fails at a point reading nothing of the interpretation where a set variable holds two
+  values (`ncexTwo`) is of `set-variable lemma`, whose direction is `refuted`: Γ with it has no
+  model, at a valuation sending each free set variable to a set of values;
+- one without a free set variable (`setVar`) that fails at no point reading nothing of the
+  interpretation (`ncex`), fails under some reading at a point reading it (`nhfail`) and holds at
+  every point under some reading (`met`) is of `parameter lemma`, whose direction is `hypothesis`:
+  its truth at values reads a value the interpretation gives, some readings meet it and others do
+  not, so it is no consequence of Γ for every interpretation and a hypothesis on it;
+- one failing at a point reading nothing of the interpretation otherwise stays `user lemma`, and
+  the verdict says that Γ with it has no model (`owes`).
+Every other class is the probe's as `tieClassOf` gives it. -/
+def reclass (cls : String) (ncexTwo ncex nhfail : Nat) (setVar met : Bool) : String :=
+  if cls == "user lemma" && ncexTwo > 0 then "set-variable lemma"
+  else if cls == "user lemma" && !setVar && ncex == 0 && nhfail > 0 && met then "parameter lemma"
+  else cls
+
+-- a user lemma the probe finds failing only under some readings, at points reading the
+-- interpretation, and holding under another, is a parameter lemma; one failing at a point reading
+-- nothing of it, or with a free set variable, is not; a set variable holding two values at a failure
+-- makes it a set-variable lemma; another class is not changed
+#guard reclass "user lemma" 0 0 3 false true == "parameter lemma"
+#guard reclass "user lemma" 0 0 3 false false == "user lemma"
+#guard reclass "user lemma" 0 2 3 false true == "user lemma"
+#guard reclass "user lemma" 0 0 3 true true == "user lemma"
+#guard reclass "user lemma" 1 1 0 true true == "set-variable lemma"
+#guard reclass "function equation" 0 0 3 false true == "function equation"
 
 /-- The direction of a class (`KCore.tieClasses`). -/
 def dirOf (cls : String) : Option TieDir := (tieClasses.find? (·.1 == cls)).map (·.2)
@@ -618,9 +665,11 @@ structure Res where
   /-- points where the interpretation was read (a silent point, a parameter, a function's value
   that depends on it) -/
   hdep : Nat := 0
-  /-- of those, points where the left side (the application the sentence states the value of) is
-  not at a silent point -/
+  /-- of those, points where the left side's own head application (the application the sentence
+  states the value of) reads nothing of the interpretation (`leftHeadReads`) -/
   hOff : Nat := 0
+  /-- the first such point, its reading and what the sentence reached there -/
+  offFirst : String := ""
   /-- failures at points reading nothing of the interpretation: how many, how many of them at a
   point holding a `<I, J>Rat` no fraction in lowest terms (`nonCanon`), and the first eight (a
   failure under `HookParams.none`, which is then one under every reading) -/
@@ -697,8 +746,9 @@ def probe (x0 : Ctx) (xs : List Ctx) (r : Res) (a : Kore.Axiom) : Res := Id.run 
         | none => return { r with skip := some s!"the pattern bound to {n} denotes every element" }
         | some vs => ext := ext.flatMap fun e => vs.map fun v => e ++ [(n, D.val v)]
     pts := pts ++ ext
-  let leftKey : Option String := match sides a.pattern with
-    | some (.app h ss _, _) => some (appKey h ss)
+  -- the left side, where it is an application (`leftHeadReads`); none otherwise (a `#Ceil` lemma's)
+  let left : Option Kore.Pattern := match sides a.pattern with
+    | some (l@(.app _ _ _), _) => some l
     | _ => none
   let premise := match a.pattern with
     | .implies _ p _ => p
@@ -716,8 +766,14 @@ def probe (x0 : Ctx) (xs : List Ctx) (r : Res) (a : Kore.Axiom) : Res := Id.run 
         let isDep := !fl.silent.isEmpty || !fl.param.isEmpty
         if isDep then
           dep := true
-          let onLeft := leftKey.any fun k => fl.silent.contains k || fl.param.contains k || fl.param.contains (k ++ " (reads H)")
-          if !onLeft then off := true
+          -- the point is off the left side unless the left side's own head application reads H there
+          match left.map (leftHeadReads x pt) with
+          | some (.error e) => return { r with skip := some s!"at {showPoint c pt}: the left side: {e}" }
+          | some (.ok true) => pure ()
+          | _ =>
+            off := true
+            if r.offFirst.isEmpty then
+              r := { r with offFirst := s!"{x.mode.name} at {showPoint c pt} (reached {fl.silent ++ fl.param})" }
         let holds := match d with | .top => true | _ => false
         if !holds then
           okAll := false
@@ -744,6 +800,40 @@ def probe (x0 : Ctx) (xs : List Ctx) (r : Res) (a : Kore.Axiom) : Res := Id.run 
     if off then r := { r with hOff := r.hOff + 1 }
     if okAll then r := { r with holds := r.holds + 1 }
   return r
+
+/-- The off test reads the left side's own head application (`leftHeadReads`), not its symbol among
+what the whole sentence reached. On `ens.kompile.kore`, at the seven Int values from -3 to 3:
+`X ^Int Y = X ^Int (0 -Int Y)` reads the interpretation at Y > 0 (the right side's `^Int` at a
+negative exponent, a silent point) where its left side's `^Int` has a value, so those 21 points are
+off the left side though both sides apply `^Int`; `X ^Int Y = X ^Int Y` reads it only at Y < 0, where
+its left side does (no point off). -/
+def checkLeftOwn : IO Unit := do
+  let path := "f2-examples/ens.kompile.kore"
+  let k ← match Kore.parseDefinition (← IO.FS.readFile path) with
+    | .ok k => pure k
+    | .error e => throw (IO.userError s!"read: {e}")
+  let d ← match Parse.parse k with
+    | .ok d => pure d
+    | .error e => throw (IO.userError s!"parse: {e.toText}")
+  let xs := Ctx.all d.sem [.none, .pick 0, .pick 1] true
+  let x0 ← match xs with
+    | x :: _ => pure x
+    | [] => throw (IO.userError "no reading")
+  let pow (y : String) : String := s!"Lbl'UndsXor-'Int'Unds'\{}(X:SortInt\{}, {y})"
+  let cases : List (String × Nat) :=
+    [(s!"\\equals\{SortInt\{}, R}({pow "Y:SortInt{}"}, {pow "Lbl'Unds'-Int'Unds'{}(\\dv{SortInt{}}(\"0\"), Y:SortInt{})"})", 21),
+     (s!"\\equals\{SortInt\{}, R}({pow "Y:SortInt{}"}, {pow "Y:SortInt{}"})", 0)]
+  for (s, n) in cases do
+    let p ← match Kore.parsePattern s with
+      | .ok p => pure p
+      | .error e => throw (IO.userError s!"{s}: {e}")
+    let r0 : Res := { index := 0, place := "-", name := "-", cls := "-", syms := [], absent := [] }
+    let r := probe x0 xs r0 { sortVars := [], pattern := p, attributes := [] }
+    if r.skip.isSome || r.points != 49 || r.hOff != n then
+      throw (IO.userError s!"{s}: {r.points} points, {r.hOff} off the left side, expected 49 and {n} ({r.skip})")
+  IO.println "the off test reads the left side's own head application"
+
+#eval checkLeftOwn
 
 /-- What the reading owes for the sentence: first what its class's direction (`dirOf`) makes it
 - `no direction`: it applies a symbol Γ does not have, and states nothing of Γ's symbols;
@@ -797,7 +887,7 @@ def verdict (r : Res) : String :=
   match r.skip with
   | some e => s!"not probed: {e}"
   | none =>
-    let pts := s!"{r.points} points (premise holds at {r.active}, reads H at {r.hdep}{if r.hOff > 0 then s!", {r.hOff} of them off the left side" else ""})"
+    let pts := s!"{r.points} points (premise holds at {r.active}, reads H at {r.hdep}{if r.hOff > 0 then s!", {r.hOff} of them off the left side, first {r.offFirst}" else ""})"
     if r.ncex > 0 then s!"{pts}: COUNTEREXAMPLE ({r.ncex} points{if r.ncexNC > 0 then s!", {r.ncexNC} at a non-canonical fraction" else ""}; first: {r.cex.headD ""})"
     else if r.nhfail > 0 then s!"{pts}: FAILS UNDER SOME H ({r.nhfail} point-readings; first: {r.hfail.headD ""}) [fails under {r.failModes}]"
     else s!"{pts}: holds"
@@ -889,7 +979,8 @@ def run (path : String) (sel : Nat → Bool := fun _ => true) : IO (List (Res ×
     let r : Res := { index := ad.index, place, name, cls, syms, absent }
     let t0 ← IO.monoMsNow
     let r := if absent.isEmpty then probe x0 xs r ad.ax else { r with skip := some s!"applies symbols Γ does not have: {absent}" }
-    let r := { r with cls := reclass r.cls r.ncexTwo }
+    let met := modes.any fun m => !r.failModes.contains m.name
+    let r := { r with cls := reclass r.cls r.ncexTwo r.ncex r.nhfail r.setVar met }
     let pinnedAt ← match (pinned x0).lookup name with
       | none => pure []
       | some pts => pts.mapM fun pt => match failsAt xs ad.ax pt with

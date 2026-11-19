@@ -19,11 +19,10 @@
     of the right side's two comparisons.
 
   The statements on the combinators hold at every format `thinAt` names; their proofs read `thinAt`
-  through `thinAt_tnFormat` and `thinAt_spec_none`, except `thin_asDatum`, which reads the guard in
-  `asDatum`'s body. `thin_isInf_iff` holds at every format with a field of 1 and a largest finite
-  datum: at precision 1, where that datum `1·2^(2^e − 2 − shift)` is a power of two, and at one
-  exponent bit, where it is subnormal (`KFloat.tnMax?_subnormal`). At `(1, 1)` `KFloat.tnMax?` is
-  none and nothing is stated.
+  through `thinAt_tnFormat` and `thinAt_spec_none`. `thin_isInf_iff` holds at every format with a
+  field of 1 and a largest finite datum: at precision 1, where that datum `1·2^(2^e − 2 − shift)` is
+  a power of two, and at one exponent bit, where it is subnormal (`KFloat.tnMax?_subnormal`). At
+  `(1, 1)` `KFloat.tnMax?` is none and nothing is stated.
 -/
 import KcoreSpec.Hooks
 import KcoreSpec.FloatThinLaws
@@ -57,10 +56,7 @@ theorem thin_asThin_tnFloatV (ht : thinAt p e = true) {u : UnpackedFloat}
 /-- The datum `asDatum` reads off a Float literal of a format `thinAt` names. -/
 theorem thin_asDatum (ht : thinAt p e = true) (b : Nat) :
     asDatum (.dv Srt.float (.float p e b)) = some (KFloat.tnUnpack p e b) := by
-  have h1 := ht
-  simp only [thinAt, decide_eq_true_eq] at h1
-  obtain ⟨rfl, he⟩ := h1
-  simp [asDatum, thinAt_spec_none ht, he, KFloat.tnUnpack_one he]
+  simp [asDatum, thinAt_spec_none ht, thinAt_tnFormat ht]
 
 /-- `asDatum` reads the literal of a datum of the format back as that datum. -/
 theorem thin_asDatum_tnFloatV (ht : thinAt p e = true) {u : UnpackedFloat}

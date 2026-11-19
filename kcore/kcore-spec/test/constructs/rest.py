@@ -723,7 +723,8 @@ def evidence(fx, l, key, e, row):
         on a module row, or "uncovered: ..."; a module row of form (m) also has a last item "not held
         by TEXT: ..." (the module's sentences inside a block comment of its code, no sentences of the
         module), which names no theorem; a live sentence the text does not hold makes the row
-        "uncovered: ..." instead."""
+        "uncovered: ..." instead, unless an instance the row's `instances` names ties it (its items
+        are then theorem items like the others)."""
         v = e.get("e6_tie")
         v = v if isinstance(v, list) else [v]
         unc = [x for x in v if isinstance(x, str) and x.startswith("uncovered")]

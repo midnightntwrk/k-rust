@@ -51,7 +51,7 @@
   library's conjuncts are false at Bool (`library_lits`: no module of the library gives Bool a
   subsort, constructor, token or byte sort, nor does a fixed constructor, `#KConfigValue` or a
   builtin collection), so no text reaches the refusal: a value the text gives Bool (`subBoolD`, a
-  declared sort Foo below Bool) makes `boolLits` false and the equation is refused
+  declared sort Foo below Bool, with the sentences kompile writes for its predicate) makes `boolLits` false and the equation is refused
   `manyValuedRightSide` before. The check is run on the stages of `finish` with the names' bit
   set (`finishWith`): on `e3-eq-exists-bool-ml` with `subBoolD`, refused `existentialEquation`
   (Bool); on the text itself, read with `litSort Srt.bool` true; with the bit unset, `subBoolD`'s
@@ -509,15 +509,41 @@ end Stages
 
 namespace CoreOfBool
 
-/-- `subBool` with the sort Foo declared: the text gives Bool the elements of Foo. -/
+/-- The sentences of the module `m` that apply the sort predicate of the sort `X` (its declaration,
+its `functional` axiom, its equations), printed with X renamed `Y` and their unique ids prefixed,
+and read back: the sentences kompile writes for the predicate of a sort Y declared as X is. -/
+def predSentencesAs (m : Kore.Module) (X Y : String) : List Kore.Sentence :=
+  let mine := m.sentences.filter fun s => ((Kore.Printer.sentence s).splitOn s!"Lblis{X}\{").length > 1
+  let txt := "\n".intercalate (mine.map fun s =>
+    ((((Kore.Printer.sentence s).replace s!"Lblis{X}\{" s!"Lblis{Y}\{").replace s!"Sort{X}\{" s!"Sort{Y}\{").replace
+      s!"Var{X}:" s!"Var{Y}:").replace "UNIQUE'Unds'ID{}(\"" s!"UNIQUE'Unds'ID\{}(\"{Y}-")
+  match Kore.parseDefinition s!"[]\nmodule PRED\n{txt}\nendmodule\n[]" with
+  | .ok d => d.modules.flatMap (·.sentences)
+  | .error _ => []
+
+/-- `subBool` with the sort Foo declared as kompile declares a user sort: the text gives Bool the
+elements of Foo. Foo's predicate `isFoo` is declared with its `functional` axiom and its equations
+(`isFoo(inj{Foo,KItem}(X)) = true`, `isFoo(K) = false` otherwise), those of `isKCell` renamed
+(`predSentencesAs`): kompile writes them for every user sort, and a text without them states no
+clause of the predicate the semantics has for Foo (`Parse.predFnNamesPR` reads it from the text's
+equations, `predFnsOfPR` from its declaration). -/
 def subBoolD (k : Kore.Definition) : Kore.Definition :=
   let sd : Kore.Sentence := .sort { sort := ⟨⟨"SortFoo"⟩⟩, sortVars := [], attributes := [] }
   let ax : Kore.Axiom :=
     { sortVars := [], pattern := .top (KoreAML.srt "K"),
       attributes := [⟨⟨⟨"subsort"⟩⟩, [KoreAML.srt "Foo", KoreAML.srt "Bool"], []⟩] }
   match k.modules.reverse with
-  | m :: rest => { k with modules := ({ m with sentences := m.sentences ++ [sd, .axiom ax] } :: rest).reverse }
+  | m :: rest =>
+    { k with modules := ({ m with sentences := m.sentences ++ [sd, .axiom ax] ++ predSentencesAs m "KCell" "Foo" } ::
+      rest).reverse }
   | [] => k
+
+/-- info: isFoo's sentences: 4 -/
+#guard_msgs in
+#eval show IO Unit from do
+  let k ← load "e3-eq-exists-bool-ml"
+  let some m := k.modules.getLast? | pure ()
+  IO.println s!"isFoo's sentences: {(predSentencesAs m "KCell" "Foo").length}"
 
 /-- `finish` with the names' `boolLits` set to `b` after `envOf`. -/
 def finishWith (b : Bool) (m : Kore.Module) (S : Scan) : Rd Definition := do

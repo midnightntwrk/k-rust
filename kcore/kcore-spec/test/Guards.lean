@@ -115,7 +115,16 @@
     has no model with `Γ (c.withHooks H)` (`Faithful.noJunk_omitted_refuted`, the shape of TieEns'
     `idem_refuted`). On hashsort's text (`#Tok`), test/TokKItem.lean: the sentence entails `Γ`'s
     item (`text_entails_item`), is refuted for every H (`tok_refuted`), and `Γ` has a model
-    (`consistent`), so `Γ` does not entail it (`text_not_entailed`).
+    (`consistent`), so `Γ` does not entail it (`text_not_entailed`). At a sort without a value, for
+    every semantics without a function overload and every H, no model of `Γ (c.withHooks H)` with
+    an element x of a sort a satisfies a constructor sort's no-junk sentence that leaves out the
+    non-open injection `inj{a, N}`, its generators injections from sorts incomparable with a and
+    sharing no lower bound with it (`Faithful.noJunk_omitted_refuted_elem`); on the texts
+    importing SORT-KBOTT and KVARIABLE-SYNTAX (KBott, `#KVariable`), test/TieE6ModSortKbott.lean and
+    test/TieE6ModKvariableSyntax.lean: the sentence entails `Γ`'s item (`tokkitem_entails_item`), no
+    model of `Γ` satisfies it with the text's G-nonempty item of the sort
+    (`tokkitem_refuted_with_nonempty`), and in a model of `Γ` it holds exactly where the sort has no
+    element (`tokkitem_holds_iff_empty`).
   - G4 for the inert constructor classes (`distinctCtors`, `injectivity`, `noJunk`), for every
     semantics with `coreOK` and every H: a constructor sentence the check `Faithful.tieConsB`
     accepts on the data is entailed by `Γ (c.withHooks H)` (`inertCons_everyH`; the check reads no
@@ -2271,10 +2280,17 @@ def readingNote : ReadingNote → GuardEntry
   | .tokKItem =>
     { status := .guarded,
       guard := [.decl ``KCore.Faithful.noJunk_omitted_refuted, .test "test/TokKItem.lean" "tok_refuted",
-        .test "test/TokKItem.lean" "text_entails_item", .test "test/HashSort.lean" "tokKItem"],
-      companion := [.test "test/TokKItem.lean" "consistent", .test "test/TokKItem.lean" "text_not_entailed"],
+        .test "test/TokKItem.lean" "text_entails_item", .test "test/HashSort.lean" "tokKItem",
+        .decl ``KCore.Faithful.noJunk_omitted_refuted_elem,
+        .test "test/TieE6ModSortKbott.lean" "tokkitem_refuted_with_nonempty",
+        .test "test/TieE6ModSortKbott.lean" "tokkitem_entails_item",
+        .test "test/TieE6ModKvariableSyntax.lean" "tokkitem_refuted_with_nonempty",
+        .test "test/TieE6ModKvariableSyntax.lean" "tokkitem_entails_item"],
+      companion := [.test "test/TokKItem.lean" "consistent", .test "test/TokKItem.lean" "text_not_entailed",
+        .test "test/TieE6ModSortKbott.lean" "tokkitem_holds_iff_empty",
+        .test "test/TieE6ModKvariableSyntax.lean" "tokkitem_holds_iff_empty"],
       invariant := [``KCore.Semantics.sortsBelowKItem, ``KCore.Faithful.consItemsK, ``KCore.Semantics.gens],
-      note := "for every semantics with coreOK and every H, a no-junk sentence of a constructor sort that leaves out a non-open injection inj{a, N} from a sort with a value, its generators injections from sorts incomparable with a and sharing no lower bound with it, has no model with Γ (c.withHooks H) (noJunk_omitted_refuted: Cons-Fun and Cons-Dist); on hashsort's text (syntax #Tok [token]; KItem's no-junk sentence, axiom 125, lists 13 injections and not inj{#Tok, KItem}; no subsort axiom states #Tok < KItem; the equations of is#Tok apply inj{#Tok, KItem}), where the reading adds the subsort #Tok < KItem: the sentence entails Γ's no-junk item of KItem in every interpretation with definedness (text_entails_item), Γ with it has no model for every H (tok_refuted), and Γ has one (consistent), so Γ does not entail it (text_not_entailed)" }
+      note := "for every semantics with coreOK and every H, a no-junk sentence of a constructor sort that leaves out a non-open injection inj{a, N} from a sort with a value, its generators injections from sorts incomparable with a and sharing no lower bound with it, has no model with Γ (c.withHooks H) (noJunk_omitted_refuted: Cons-Fun and Cons-Dist); on hashsort's text (syntax #Tok [token]; KItem's no-junk sentence, axiom 125, lists 13 injections and not inj{#Tok, KItem}; no subsort axiom states #Tok < KItem; the equations of is#Tok apply inj{#Tok, KItem}), where the reading adds the subsort #Tok < KItem: the sentence entails Γ's no-junk item of KItem in every interpretation with definedness (text_entails_item), Γ with it has no model for every H (tok_refuted), and Γ has one (consistent), so Γ does not entail it (text_not_entailed); at a sort without a value (KBott, #KVariable: a sort with no production, which no term denotes and which the text gives neither a subsort axiom into KItem nor a disjunct in KItem's no-junk sentence, kk:t241-kitem-nojunk-sort-left-out), for every semantics without a function overload and every H, no model of Γ (c.withHooks H) with an element x of a sort a satisfies a constructor sort's no-junk sentence that leaves out the non-open injection inj{a, N}, its generators injections from sorts incomparable with a and sharing no lower bound with it (noJunk_omitted_refuted_elem); on e6-mod-sort-kbott's and e6-mod-kvariable-syntax's texts (axiom 89), for every H: the sentence entails Γ's no-junk item of KItem (tokkitem_entails_item), no model of Γ satisfies it with the text's G-nonempty item of the sort (tokkitem_refuted_with_nonempty), and in a model of Γ it holds exactly where the sort has no element (tokkitem_holds_iff_empty): the reading and the text part where the sort has an element; Γ's Cons-Dist items, held through the reading's subsort, put that element's image apart from the listed injections' images, which the text does not state either way, and no claim is made that the kompiled text has or lacks a model" }
   | .notAsCondition =>
     { status := .guarded,
       guard := [.decl ``KCore.Guards.DevNotCond.not_steps, .test "test/CondCut.lean" "notAsCondition"],

@@ -15,8 +15,8 @@
   - `fnDet`: every function of `d` has at most one result;
   - `fnSolves`: `FnSolves d` (no clause of `h` decides anywhere; where `l`'s clause decides, both
     sides are without a value);
-  - `coreOK_ok`, `pre_ok`, `openLaws`: `coreOK` accepts `d` (`clausesPlain` admits its predicates:
-    no clause's conditions need a witness), its predicates have `condOK` and `Cond.bound`, and
+  - `coreOK_ok`, `pre_ok`, `openLaws`: `coreOK` accepts `d` (`clausesPlain` admits its
+    predicates), its predicates have `condOK` and `Cond.bound`, and
     `OpenLaws d` holds;
   - `trueV`: the reading of `preU` that takes a term without a result as the empty set (`TrueV`) is
     true at every σ;
@@ -112,7 +112,7 @@ theorem clause_ok : d.fns.all (fun f => f.clauses.all (clauseE3 d)) = true := by
 /-- Each predicate is well sorted over its clause's variables and holds no binder. -/
 theorem pre_ok : d.fns.all (fun f => f.clauses.all fun cl =>
     d.condOK cl.vars cl.pre && Cond.bound d cl.vars.length cl.pre) = true := by decide +kernel
-/-- `clausesPlain` admits `d`: its clauses with a predicate need no witness. -/
+/-- `clausesPlain` admits `d` with its clauses' predicates. -/
 theorem clausesPlain_ok : d.clausesPlain = true := by decide +kernel
 /-- `coreOK` accepts `d`. -/
 theorem coreOK_ok : d.coreOK = true := by

@@ -7,7 +7,7 @@ Usage (from anywhere; the library and `kcore` built first):
                                                [--split] [--account-sorted] [--heads-literal] [--heads-codes]
                                                [--attrs-parts] [--attrs-blocks N] [--decl-parts] [--fn-blocks N]
                                                [--absent-file] [--builtin-decls] [--decl-syms-literal] [--nojunk-eq]
-                                               [--nojunk-blocks N] [--lists-by-class] [--out DIR] [--print]
+                                               [--nojunk-blocks N] [--lists-by-class] [--heads-plain] [--out DIR] [--print]
   (the probe, a run of the Lean definitions on the text, is stopped after $TIEGEN_PROBE_TIMEOUT seconds, 900 by default)
   python3 -I test/constructs/tiegen.py --self-test   (the law search below, on three fixtures)
 
@@ -52,6 +52,14 @@ so that no range recomputes Γ's heads.
 on a membership that compares a sentence's head name with Γ's by their codes, numbers, and the sort
 arguments only where the codes are equal (`absentPC`, equal to `absentPL` by `strCode_inj`): a String
 comparison runs over the names' characters, and a sentence of many heads compares each with all of Γ's.
+--heads-plain (with --chunk; in place of --heads-literal and --heads-codes) decides `account_absent`'s
+ranges on two literals of codes, each with one equation: Γ's symbol names (`gSymCodes`, as
+--decl-syms-literal writes it, `symCodesOf c`) and its subsort pairs, each sort as the code of the
+identifier `KoreAML.srt` writes (`gInjCodes`, `injCodesOf c`), read by `hasHeadCoded` (`absentPH`,
+equal to `absentP` by `gammaHasHead_coded`, KcoreSpec/TieCodes.lean, with `gSymCodes_noInst`: no
+code holds the byte of `{`). It builds no list of Γ's heads and decodes no name: a head is compared
+with Γ's names (or, for `inj`, its subsort pairs) by numbers. Refused where a name of Γ's symbols
+holds `{` (today's --heads-literal path is kept for such a text).
 --attrs-parts states `attrs_agree` from its five conjuncts (`attrs_ctors`, `attrs_fns`, `attrs_hooks`,
 `attrs_colls`, `attrs_prios`), each a decision of its own.
 --attrs-blocks N (implies --attrs-parts) decides `attrs_ctors`, `attrs_fns` and `attrs_hooks` over the
@@ -235,6 +243,17 @@ What it states where the text:
   that class with `ovleq_account` and `ovleq_entailed`; the no-confusion sentences in no class,
   listed apart in the account (`ovlRefuted`), with `ovlnc_refuted` (no model of Γ satisfies one, for
   every H). The account of a text with neither lists the classes in `tieClasses`' order;
+- has KItem's no-junk sentence over KItem's generators but the injections from sorts the definition
+  holds below KItem (`Parse.ReadingNote.tokKItem`; the probe decides it with `kitemOmitB` and the
+  item over `kitemOmitGens`, KcoreSpec/TieTokKItem.lean): weaker under tokKItem, in no class, listed
+  apart in the account (`tokKItemApart`), with the left-out sorts (`tokKItemSorts`), `tokkitem_text`,
+  `tokkitem_entails_item` and `tokkitem_item_in_gamma` (the sentence entails Γ's item, which is Γ's
+  for every H), `tokkitem_holds_iff_empty` (in a model of Γ it holds exactly where no left-out sort
+  has an element), and, where a left-out sort has a value the reader exhibits (`Parse.exhibit?`),
+  `tokkitem_refuted` (Γ with it has no model), else `tokkitem_refuted_with_nonempty` (no model of
+  Γ satisfies it with the text's G-nonempty item of a left-out sort). The apartness of the images
+  comes from Γ's Cons-Dist items, which Γ holds through the reading's subsort, not from the text;
+  no model of the text is claimed or denied. One such sentence per text is stated;
 - has the `functional` sentence of a parameter symbol no registry hook implements that the text
   declares total (`isParamFunctional`, the class `parameter functional`, direction hypothesis):
   `total_params` (`Definition.totalParams`), `paramfunctional_account`, `paramfunctional_heads`; it is
@@ -362,6 +381,17 @@ PROJ_PREFIX = "Lblproject'Coln'"
 # lists it apart (`ovlRefuted`), with the theorem that no model of Γ satisfies it.
 OVL_EQ_CLASS = "overload equation"
 OVL_NC = "refuted, no class"
+# KItem's no-junk sentence that leaves out the injections from sorts the definition holds below KItem
+# (`Parse.ReadingNote.tokKItem`; the probe's `omit`, where `kitemOmitB` holds): Γ holds the sorts
+# below KItem, so its no-junk item of KItem has a generator the sentence lacks. The sentence entails
+# that item (`kitemOmit_entails_item`), not conversely: in a model of Γ it holds exactly where none
+# of the left-out sorts has an element (`kitemOmit_holds_iff_empty`), the elements' images being
+# apart from the listed injections' by Γ's Cons-Dist items, which exist through the reading's
+# subsort. It is in no class of `tieClasses`: the account lists it apart (`tokKItemApart`), with
+# those theorems and, where a left-out sort has a value the reader exhibits, that Γ with it has no
+# model (`kitemOmit_refuted_exhibit`), else that no model of Γ satisfies it with the text's
+# G-nonempty item of a left-out sort (`kitemOmit_refuted_nonempty`).
+TOK_OMIT = "weaker under tokKItem, listed apart"
 
 
 class Refused(Exception):
@@ -380,7 +410,7 @@ def nested(s):
 RESERVED = {"c", "cH", "kore", "defn", "U", "trS", "fn", "f", "at", "by", "do", "fun", "let", "in", "if", "then",
             "else", "have", "show", "from", "end", "def", "theorem", "match", "with", "open", "namespace", "where",
             "instance", "structure", "class", "import", "names", "classes", "consText", "fnText", "ruleText",
-            "ovlEqText", "ovlNcText", "ovlRefuted",
+            "ovlEqText", "ovlNcText", "ovlRefuted", "tokKItemApart", "tokKItemSorts", "tokKItemGens",
             "lawText", "lawIdx", "callOrder", "Pre", "Families", "hasSym", "declItems", "plainSorts", "plainSyms",
             "fnFunIdx", "fnFunText", "fnFunOK"}
 
@@ -875,7 +905,22 @@ def tgNjOrder (gs : List KoreAML.Gen) : List Kore.Pattern → Option (List Nat)
     -- at values (`tieOvlNcB`), which Γ refutes; neither where the semantics has no overloading symbol
     let ovlEq := !c.ovls.isEmpty && tieOvlEqB c ad.ax
     let ovlNc := !c.ovls.isEmpty && !cons && tieOvlNcB c ad.ax
-    IO.println s!"S {ad.index}\t{absent}\t{fnJ}\t{cons}\t{plain}\t{consItem}\t{triv}\t{kitem}\t{rw}\t{eh}\t{kind eh}\t{fh}\t{kind fh}\t{AttrsAgree.prioOf ad.ax.attributes}\t{pl}\t{simp}\t{usrc}\t{rl}\t{ovlEq}\t{ovlNc}\t{Parse.isOwnLibrarySentence (.axiom ad.ax)}"
+    -- KItem's no-junk sentence over its generators but the injections from sorts of the definition
+    -- below KItem that its disjuncts do not name (`Parse.ReadingNote.tokKItem`), where `kitemOmitB`
+    -- holds of those sorts and the generators it lists: the sorts, else none
+    let omitX : List Srt := match ad.ax.pattern with
+      | .or S ds =>
+        let named := ds.filterMap Parse.tokKItemDisjunctSort?
+        let xs := (c.gens Srt.kitem).filterMap fun g => match g with
+          | .inj b => if named.contains (c.sortName b) then none else some b
+          | .ctor _ => none
+        let gs := kitemOmitGens c d.pres xs
+        if S == srtOf c Srt.kitem && kitemOmitB c xs gs &&
+            p == (KoreAML.Cons.noJunkItem (c.sortName Srt.kitem) (gs.map (Gen.toK c))).pat then xs else []
+      | _ => []
+    IO.println s!"S {ad.index}\t{absent}\t{fnJ}\t{cons}\t{plain}\t{consItem}\t{triv}\t{kitem}\t{rw}\t{eh}\t{kind eh}\t{fh}\t{kind fh}\t{AttrsAgree.prioOf ad.ax.attributes}\t{pl}\t{simp}\t{usrc}\t{rl}\t{ovlEq}\t{ovlNc}\t{Parse.isOwnLibrarySentence (.axiom ad.ax)}\t{omitX}"
+    for x in omitX do
+      IO.println s!"KO {ad.index}\t{x}\t{c.sortName x}\t{(Parse.exhibit? c x).isSome}"
     if kitem then
       for vk in tableOf [] ad.ax.pattern do
         IO.println s!"TT {ad.index}\t{tgKey vk}"
@@ -989,7 +1034,12 @@ def probe(name, path, um, order="[]", cons_head=False):
                                     kitem=f[7] == "true", rw=f[8] == "true", eh=f[9], ehk=f[10], fh=f[11],
                                     fhk=f[12], prio=int(f[13]), pl=f[14] == "true",
                                     simp=f[15] == "true", usrc=f[16] == "true", rl=f[17] == "true",
-                                    ovlEq=f[18] == "true", ovlNc=f[19] == "true", own=f[20:21] == ["true"])
+                                    ovlEq=f[18] == "true", ovlNc=f[19] == "true", own=f[20:21] == ["true"],
+                                    omit=nums(f[21]) if len(f) > 21 else [])
+        elif l.startswith("KO "):
+            f = l[3:].split("\t")
+            head.setdefault("omit", {}).setdefault(int(f[0]), []).append(
+                dict(srt=int(f[1]), sort=f[2], valued=f[3] == "true"))
     return head, sents
 
 
@@ -1036,6 +1086,8 @@ def form_class(s, raw, builtin, laws=(), open_laws=(), raw_names=(), at_values=(
         return OVL_EQ_CLASS
     if s["ovlNc"]:
         return OVL_NC
+    if s.get("omit"):
+        return TOK_OMIT
     if s["idx"] in laws:
         return LAW_FN_CLASS
     if s["idx"] in open_laws:
@@ -1123,7 +1175,7 @@ def classify(name, text, sents, laws=(), open_laws=(), raw_names=(), at_values=(
             # lemma whatever ens's class of the same sentence (the parameters are the text's), and a
             # lemma of a user's file is a user lemma (the `Source` is this text's), and the functional
             # sentence of a parameter this text declares total is a parameter functional
-            ec = fc if fc in (PARAM_LEMMA_CLASS, PARAM_FUNCTIONAL_CLASS, OVL_EQ_CLASS, OVL_NC) or fc in USER_LEMMA_CLASSES else ecls[j]
+            ec = fc if fc in (PARAM_LEMMA_CLASS, PARAM_FUNCTIONAL_CLASS, OVL_EQ_CLASS, OVL_NC, TOK_OMIT) or fc in USER_LEMMA_CLASSES else ecls[j]
             # where the probe decides the class (a head Γ lacks, an item of Γ), it must agree with ens's
             decided = fc if fc in ("no direction", "function equation", "rewrite rule") or (fc == "no junk" and ec == "no junk") else None
             if decided and decided != ec:
@@ -1224,7 +1276,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
              hand=None, chunk=0, at_values=(), cons_head=False, wf_parts=None, split=False,
              account_sorted=None, heads_literal=False, heads_codes=False, attrs_parts=False, decl_parts=False,
              fn_blocks=0, attrs_blocks=0, absent_file=False, builtin_decls=(), decl_syms=False, nojunk_eq=False,
-             nojunk_blocks=0, lists_by_class=False):
+             nojunk_blocks=0, lists_by_class=False, heads_plain=False):
     """The Lean text of the tie. `ob`: what `obligations` read; `raws`: each sentence's text as
     written; `hand`: hand-written sections by name (`consistency`), each in place of the generated
     one; `chunk`: the length of the ranges the decisions over the whole user module are cut into
@@ -1237,7 +1289,9 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     symbol names as a literal (`gSymCodes`); `nojunk_eq`: `nojunk_items` from each sentence's
     equation to its sort's item (`njEq`); `nojunk_blocks`: the no-junk orders of KItem and of a sort
     of more generators than that by blocks of that many disjuncts (0: one decision); `lists_by_class`:
-    `lists_in_account` from one check per class (`tieAll_of_groups`)."""
+    `lists_in_account` from one check per class (`tieAll_of_groups`); `heads_plain`: decide
+    `account_absent`'s ranges on the codes of Γ's symbol names and subsort pairs (`gSymCodes`,
+    `gInjCodes`, `hasHeadCoded`, by `gammaHasHead_coded`), in place of `gHeads`/`gCodes`."""
     raws = raws or {}
     hand = hand or {}
     call_order = ob["call_order"]
@@ -1249,7 +1303,15 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     ovl_nc = [i for i in idx if cls[i] == OVL_NC]
     ovl_any = bool(ovl_eq or ovl_nc)
     classes_list = CLASSES[:-1] + [OVL_EQ_CLASS, CLASSES[-1]] if ovl_any else CLASSES
-    unmapped = [i for i in unmapped if cls[i] != OVL_NC]
+    # KItem's no-junk sentence that leaves out sorts below KItem: in no class, listed apart
+    tok_omit = [i for i in idx if cls[i] == TOK_OMIT]
+    if len(tok_omit) > 1:
+        raise Refused(f"{name}: sentences {', '.join(map(str, tok_omit))} are KItem no-junk sentences that leave out "
+                      f"sorts below KItem: one is stated (`tokKItemSorts`)")
+    tok_sorts = head.get("omit", {}).get(tok_omit[0], []) if tok_omit else []
+    if tok_omit and [e["srt"] for e in tok_sorts] != sents[tok_omit[0]]["omit"]:
+        raise Refused(f"{name}: the probe's left-out sorts of sentence {tok_omit[0]} are not listed one per line")
+    unmapped = [i for i in unmapped if cls[i] not in (OVL_NC, TOK_OMIT)]
     by_class = {c: [i for i in idx if cls[i] == c] for c in classes_list}
     # the no-direction sentences that are equations of a projection (`AttrsAgree.eqnHead`), each with
     # the projection's sort X
@@ -1442,6 +1504,29 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     w = L.append
     marks = []
     mark = lambda m: marks.append((len(L), m))  # the section of the file `--split` puts what follows in
+
+    def gsym_block(beq):
+        """The literal `gSymCodes` of Γ's symbol names' codes and its equation (`--decl-syms-literal`,
+        `--heads-plain`), with `symCode_beq` where `beq` (`hasSymL_eq` reads it)."""
+        w("/-! ## Γ's symbol names, as a literal -/")
+        w("")
+        w("/-- Γ's symbol names (`c.symName` of each of `kernelSyms c`, in its order), each as its code")
+        w("(`KoreAML.Distinct.strCode`), written out. -/")
+        w("def gSymCodes : List Nat :=")
+        w("  [" + wrap_nums([str(str_code(n)) for n in head["gSyms"]], 3) + "]")
+        w("")
+        w("theorem gSymCodes_eq :")
+        w("    (kernelSyms c).map (fun k => KoreAML.Distinct.strCode (c.symName k.name)) = gSymCodes := by")
+        w("  decide +kernel")
+        w("")
+        if beq:
+            w("/-- Two names are equal exactly where their codes are (`strCode_inj`). -/")
+            w("theorem symCode_beq (a b : String) :")
+            w("    (KoreAML.Distinct.strCode a == KoreAML.Distinct.strCode b) = (a == b) := by")
+            w("  apply Bool.eq_iff_iff.mpr")
+            w("  simp only [beq_iff_eq]")
+            w("  exact ⟨fun h => KoreAML.Distinct.strCode_inj h, fun h => h ▸ rfl⟩")
+            w("")
     # ---- header
     w("/-")
     w(f"  The tie (C14) on `{text_rel}`, the kompiled text of construct fixture {name}")
@@ -1467,7 +1552,17 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w("  - `wf_defn`: `wf defn = true`.")
     else:
         w(f"  - `coreOK`: `coreOK`; `wf` fails at the conjuncts {', '.join(failing)} (`wfFailing`).")
-    if ovl_nc:
+    if tok_omit:
+        refl = (f", the {numword(len(ovl_nc))} refuted sentence{'s' if len(ovl_nc) > 1 else ''} in no class (`ovlRefuted`)"
+                if ovl_nc else "")
+        w(textwrap.fill(
+            f"- The account: the class lists{refl} and KItem's no-junk sentence {tok_omit[0]}, listed apart "
+            f"(`tokKItemApart`), partition the {len(idx)} sentences of the user module {um}, the classes in "
+            f"`{'tieClassesOvl' if ovl_any else 'tieClasses'}`' order (`account`, `account_sizes`, `account_classes`); "
+            "the no-direction class holds exactly the sentences that apply a symbol Γ lacks (`account_absent`, "
+            "`absent_closed`).", width=100, initial_indent="  ", subsequent_indent="    ", break_on_hyphens=False,
+            break_long_words=False))
+    elif ovl_nc:
         w(f"  - The account: the class lists and the {numword(len(ovl_nc))} refuted sentence{'s' if len(ovl_nc) > 1 else ''} in no class (`ovlRefuted`)")
         w(f"    partition the {len(idx)} sentences of the user module {um}, the classes in `tieClassesOvl`'s order")
         w("    (`account`, `account_sizes`, `account_classes`); the no-direction class holds exactly the")
@@ -1657,6 +1752,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w(f"  - No-confusion sentences of two symbols that meet at values ({', '.join(map(str, ovl_nc))}; an overloading")
         w("    symbol and a symbol it overloads, which the overload axiom equates there): refuted by every model")
         w("    of Γ (`ovlnc_refuted`), in no class.")
+    if tok_omit:
+        w(tok_omit_doc(tok_omit[0], tok_sorts))
     w(f"  - No junk ({len(nj_triv)} of a sort without generators, `nojunk_trivial_entailed`; {len(nj_items)} equal to")
     w(f"    one of Γ's constructor items, `nojunk_items`; {len(nj_kitem)} KItem's with its disjuncts in the text's")
     w("    order, `nojunk_kitem_entailed`).")
@@ -1926,13 +2023,21 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w("symbol it overloads), which Γ refutes (`ovlnc_refuted`): in no class. -/")
         w("def ovlRefuted : List Nat := [" + ", ".join(map(str, ovl_nc)) + "]")
         w("")
-    if account_sorted and ovl_nc:
-        raise Refused(f"{name}: --account-sorted with sentences in no class (`ovlRefuted`): not stated")
-    if ovl_nc:
-        w("/-- **The account**: the class lists and the refuted sentences partition the user module's")
+    if tok_omit:
+        w(f"/-- KItem's no-junk sentence that leaves out the injections from sorts the definition holds below")
+        w("KItem (`tokKItemSorts`), which Γ's no-junk item of KItem has: weaker under tokKItem, in no class. -/")
+        w("def tokKItemApart : List Nat := [" + ", ".join(map(str, tok_omit)) + "]")
+        w("")
+    if account_sorted and (ovl_nc or tok_omit):
+        raise Refused(f"{name}: --account-sorted with sentences in no class (`ovlRefuted`, `tokKItemApart`): not stated")
+    if ovl_nc or tok_omit:
+        apart = (["the refuted sentences"] if ovl_nc else []) + (["the sentence listed apart"] if tok_omit else [])
+        among = (["among the refuted ones"] if ovl_nc else []) + (["listed apart"] if tok_omit else [])
+        w(f"/-- **The account**: the class lists and {' and '.join(apart)} partition the user module's")
         w("sentences. Their concatenation is a permutation of the sentences' indices, which are distinct, so")
-        w("each sentence is in one class or among the refuted ones, and there once. -/")
-        w("theorem account : (classes.flatMap (·.2) ++ ovlRefuted).isPerm (userAxioms.map (·.index)) = true ∧")
+        w(f"each sentence is in one class or {' or '.join(among)}, and there once. -/")
+        w("theorem account : (classes.flatMap (·.2)" + (" ++ ovlRefuted" if ovl_nc else "") +
+          (" ++ tokKItemApart" if tok_omit else "") + ").isPerm (userAxioms.map (·.index)) = true ∧")
         w("    (userAxioms.map (·.index)).Nodup := by")
         w("  rw [userAxioms_eq]; decide +kernel")
     elif account_sorted:
@@ -1971,6 +2076,12 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w("/-- The classes are the tie's (`tieClasses`, which gives each its direction), in its order. -/")
         w("theorem account_classes : classes.map (·.1) = tieClasses.map (·.1) := by decide +kernel")
     w("")
+    if heads_plain and decl_syms:
+        # the literal is read by the absent section and by `decl_counts`' parts and the `declsE` ranges:
+        # written once, before its first reader, and repeated in each file that reads it
+        mark("Head")
+        gsym_block(True)
+        mark("Account")
     if absent_file:
         mark("Absent")
     if chunk:
@@ -1978,6 +2089,30 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w("noncomputable def absentP (ad : AxiomDecl) : Bool :=")
         w('  (classOf "no direction").contains ad.index != (appHeadsOf ad.ax.pattern).all (gammaHasHead c)')
         w("")
+        if heads_plain:
+            if not decl_syms:
+                gsym_block(False)
+            w("/-- Γ's subsort pairs (`c.subsorts`, in its order), each sort as the code of the identifier")
+            w("`KoreAML.srt` writes for it (`injCodesOf`), written out. -/")
+            w("def gInjCodes : List (Nat × Nat) :=")
+            w("  [" + wrap_nums([f"({str_code(a)}, {str_code(b)})" for _, (a, b) in head["gHeads"][len(head["gSyms"]):]], 3) + "]")
+            w("")
+            w("theorem gInjCodes_eq : injCodesOf c = gInjCodes := by decide +kernel")
+            w("")
+            w("/-- No code of Γ's symbol names holds the byte of `{`, so the decoder reads none of the names as an")
+            w("instance (`noInst_of_codes`). -/")
+            w("theorem gSymCodes_noInst : gSymCodes.all (fun x => !Faithful.instCoded x) = true := by decide +kernel")
+            w("")
+            w("/-- `absentP` with Γ's heads read on the codes of its symbol names and subsort pairs (`hasHeadCoded`). -/")
+            w("noncomputable def absentPH (ad : AxiomDecl) : Bool :=")
+            w('  (classOf "no direction").contains ad.index !=')
+            w("    (appHeadsOf ad.ax.pattern).all (hasHeadCoded gSymCodes gInjCodes)")
+            w("")
+            w("/-- `absentPH` is `absentP`: `gammaHasHead c` is `hasHeadCoded gSymCodes gInjCodes` (`gammaHasHead_coded`). -/")
+            w("theorem absentPH_eq : absentPH = absentP := by")
+            w("  funext ad; unfold absentPH absentP")
+            w("  rw [gammaHasHead_coded gSymCodes_eq gInjCodes_eq gSymCodes_noInst]")
+            w("")
         if heads_literal:
             w("/-- The heads at which Γ applies its symbols (`gammaHeads c`), written out. -/")
             w("def gHeads : List (String × List Kore.KSort) :=")
@@ -2029,7 +2164,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             w("  simp only [List.any_map, Function.comp_def, headCode_eq]")
             w("")
         thms, body = by_ranges("absentE", "U.all",
-                               "absentPC" if heads_codes else "absentPL" if heads_literal else "absentP",
+                               "absentPH" if heads_plain else "absentPC" if heads_codes else
+                               "absentPL" if heads_literal else "absentP",
                                ranges(len(idx), 0, chunk), "tieAll", True)
         w(thms)
         w("")
@@ -2038,7 +2174,12 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     w("Γ lacks. -/")
     w("theorem account_absent : userAxioms.all (fun ad =>")
     w('    (classOf "no direction").contains ad.index != (appHeadsOf ad.ax.pattern).all (gammaHasHead c)) = true := by')
-    if chunk and heads_codes:
+    if chunk and heads_plain:
+        w("  rw [userAxioms_eq]")
+        w("  have h : (U.all).all absentPH = true :=")
+        w("    " + body.replace("\n    ", "\n      "))
+        w("  rw [absentPH_eq] at h; exact h")
+    elif chunk and heads_codes:
         w("  rw [userAxioms_eq]")
         w("  have h : (U.all).all absentPC = true :=")
         w("    " + body.replace("\n    ", "\n      "))
@@ -2239,28 +2380,11 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     w("")
     w("kernel_rfl sigItems_withHooks : ∀ (c : Semantics) (H : HookParams), sigItems (c.withHooks H) = sigItems c")
     w("")
-    if decl_syms:
+    if decl_syms and not heads_plain:
         # read by `decl_counts`' parts and by the `declsE` ranges, which `--split` may put in two files:
-        # repeated in each, as the head's literals are
+        # repeated in each, as the head's literals are (with --heads-plain written before the absent section)
         mark("Head")
-        w("/-! ## Γ's symbol names, as a literal -/")
-        w("")
-        w("/-- Γ's symbol names (`c.symName` of each of `kernelSyms c`, in its order), each as its code")
-        w("(`KoreAML.Distinct.strCode`), written out. -/")
-        w("def gSymCodes : List Nat :=")
-        w("  [" + wrap_nums([str(str_code(n)) for n in head["gSyms"]], 3) + "]")
-        w("")
-        w("theorem gSymCodes_eq :")
-        w("    (kernelSyms c).map (fun k => KoreAML.Distinct.strCode (c.symName k.name)) = gSymCodes := by")
-        w("  decide +kernel")
-        w("")
-        w("/-- Two names are equal exactly where their codes are (`strCode_inj`). -/")
-        w("theorem symCode_beq (a b : String) :")
-        w("    (KoreAML.Distinct.strCode a == KoreAML.Distinct.strCode b) = (a == b) := by")
-        w("  apply Bool.eq_iff_iff.mpr")
-        w("  simp only [beq_iff_eq]")
-        w("  exact ⟨fun h => KoreAML.Distinct.strCode_inj h, fun h => h ▸ rfl⟩")
-        w("")
+        gsym_block(True)
     mark("Decls")
     w("/-- Γ has a symbol under the name `n`. -/")
     w("noncomputable def hasSym (n : String) : Bool := (kernelSyms c).any fun k => c.symName k.name == n")
@@ -2847,6 +2971,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w(ovl_eq_section(ovl_eq))
     if ovl_nc:
         w(ovl_nc_section(ovl_nc))
+    if tok_omit:
+        w(tok_omit_section(tok_omit[0], tok_sorts))
     if idem is not None:
         sec = ens_section("/-! ## Set idempotence (61): refuted -/", "/-! ## Consistency for every H -/",
                           IDEM_DROP).replace("@I@", str(idem))
@@ -2890,7 +3016,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     cnames = []
     if confined:
         sec, cnames = gamma_c_section(gamma, fn_align, nrules, fn_any, nj_triv, nj_items, nj_kitem, cons_text, idem,
-                                      own_idem, ovl_eq, ovl_nc)
+                                      own_idem, ovl_eq, ovl_nc, tok_omit, tok_sorts)
         w(sec)
     w(f"end KCore.{ns}")
     w("")
@@ -2916,6 +3042,11 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         names += ["ovleq_account", "ovleq_entailed"]
     if ovl_nc:
         names += ["ovlnc_index", "ovlnc_refuted"]
+    if tok_omit:
+        names += ["tokkitem_index", "tokkitem_sorts_named", "tokkitem_sub", "tokkitem_text", "tokkitem_ok",
+                  "tokkitem_entails_item", "tokkitem_item_in_gamma", "tokkitem_holds_iff_empty"]
+        names += (["tokkitem_exhibit", "tokkitem_refuted"] if any(e["valued"] for e in tok_sorts) else
+                  ["tokkitem_nonempty_in_text", "tokkitem_refuted_with_nonempty"])
     if rules_full and nrules:
         names += ["rules_account", "rule_from_text"]
     if comp_map:
@@ -3008,6 +3139,9 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                    cons=len(cons_text), nojunk=[len(nj_triv), len(nj_items), len(nj_kitem), len(nj_sorts)],
                    idem=idem, own_idem=[i for i, _, _ in own_idem], lib166=lib166, gamma=gamma, laws=law_idx, open_generators=[k["name"] for k in raw],
                    confined=confined, uncovered=uncovered, owed=owed, theorems=names,
+                   **({"tok_kitem_apart": dict(sentence=tok_omit[0], sorts=[e["sort"] for e in tok_sorts],
+                                               valued=[e["sort"] for e in tok_sorts if e["valued"]])}
+                      if tok_omit else {}),
                    law_search=[dict(law=law_idx[r["j"]], searched=r["searched"], valuations=r["tried"], refuted=False)
                                for r in head["lawRef"]])
     if split:
@@ -3937,6 +4071,118 @@ def ovl_nc_section(ovl_nc):
         ""])
 
 
+def tok_omit_doc(i, sorts):
+    """The header's paragraph on KItem's no-junk sentence `i`, which leaves out the injections from the
+    sorts `sorts` (the probe's), listed apart."""
+    names = ", ".join(e["sort"] for e in sorts)
+    valued = [e["sort"] for e in sorts if e["valued"]]
+    para = (f"- KItem's no-junk sentence ({i}), weaker under tokKItem, listed apart: it lists KItem's generators "
+            f"but `inj{{X, KItem}}` for X in `tokKItemSorts` ({names}), {'sorts' if len(sorts) > 1 else 'a sort'} "
+            "the definition holds below KItem (`Parse.ReadingNote.tokKItem`, `tokkitem_sub`; `tokkitem_text`). "
+            "It entails Γ's no-junk item of KItem in every interpretation with definedness "
+            "(`tokkitem_entails_item`), an item of Γ for every H (`tokkitem_item_in_gamma`). In a model of Γ it "
+            "holds exactly where no sort of `tokKItemSorts` has an element (`tokkitem_holds_iff_empty`): Γ's "
+            "Cons-Fun item of `inj{X, KItem}` gives an element of X an image in KItem, and Γ's Cons-Dist items, "
+            "which it holds through the reading's subsort, put that image apart from the image of each injection "
+            "the sentence lists; the text states neither that the image is apart from those nor that it meets them. ")
+    if valued:
+        para += (f"{', '.join(valued)} {'have values' if len(valued) > 1 else 'has a value'} the reader exhibits "
+                 "(`tokkitem_exhibit`), so Γ with the sentence has no model, for every H (`tokkitem_refuted`).")
+    else:
+        para += ("No model of Γ satisfies it together with the text's G-nonempty item of a sort of "
+                 "`tokKItemSorts` (`tokkitem_nonempty_in_text`, `tokkitem_refuted_with_nonempty`), for every H.")
+    return textwrap.fill(para, width=100, initial_indent="  ", subsequent_indent="    ", break_on_hyphens=False,
+                         break_long_words=False)
+
+
+def tok_omit_section(i, sorts):
+    """KItem's no-junk sentence `i`, which leaves out the injections from the sorts `sorts` (the probe's
+    `omit`, with `kitemOmitB`): the theorems of KcoreSpec/TieTokKItem.lean at the text's literals."""
+    ids = ", ".join(str(e["srt"]) for e in sorts)
+    names = ", ".join(lean_str(e["sort"]) for e in sorts)
+    valued = [e for e in sorts if e["valued"]]
+    L = [f"/-! ## KItem's no-junk sentence ({i}) without the injections from sorts below KItem: weaker under",
+         "tokKItem, listed apart -/",
+         "",
+         f"/-- The sorts of the definition whose injections into KItem sentence {i} does not list. -/",
+         f"def tokKItemSorts : List Srt := [{ids}]",
+         "",
+         f"theorem tokkitem_index : tokKItemApart = [{i}] := by decide +kernel",
+         f"theorem tokkitem_sorts_named : tokKItemSorts.map c.sortName = [{names}] := by decide +kernel",
+         "",
+         "/-- Each is a sort of the definition below KItem (`Parse.ReadingNote.tokKItem`). -/",
+         "theorem tokkitem_sub : tokKItemSorts.all (fun x => c.subsorts.contains (x, Srt.kitem)) = true := by",
+         "  decide +kernel",
+         "",
+         f"/-- The generators of KItem sentence {i} lists: KItem's generators in kompile's order but the",
+         "injections from `tokKItemSorts`. -/",
+         "noncomputable def tokKItemGens : List Gen := kitemOmitGens c defn.pres tokKItemSorts",
+         "",
+         f"/-- Sentence {i} is the no-junk sentence of KItem over `tokKItemGens`. -/",
+         f"theorem tokkitem_text : (trS U.ax{i}).pat =",
+         "    (KoreAML.Cons.noJunkItem (c.sortName Srt.kitem) (tokKItemGens.map (Gen.toK c))).pat := by decide +kernel",
+         "",
+         "/-- The left-out sorts and the listed generators are as the lemmas of `kitemOmitB` ask: each",
+         "listed generator an injection that is not open, from a sort incomparable with each left-out sort",
+         "and with no lower bound in common with it; each generator of KItem listed or from a left-out sort. -/",
+         "theorem tokkitem_ok : kitemOmitB c tokKItemSorts tokKItemGens = true := by decide +kernel",
+         "theorem tokkitem_kitem_cons : Srt.kitem ∈ consSorts c := by decide +kernel",
+         "theorem tokkitem_noFnOvl : c.fnOvlSyms = [] := by decide +kernel",
+         "",
+         "/-- **The sentence entails Γ's no-junk item of KItem, in every interpretation with definedness**",
+         "(`kitemOmit_entails_item`). -/",
+         "theorem tokkitem_entails_item {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hD : KoreAML.DefOK I)",
+         f"    (h : I ⊧ᴵ (trS U.ax{i}).pat) :",
+         "    I ⊧ᴵ (KoreAML.Cons.noJunkItem (c.sortName Srt.kitem) ((c.gens Srt.kitem).map (Gen.toK c))).pat := by",
+         "  rw [tokkitem_text] at h",
+         "  exact kitemOmit_entails_item tokkitem_ok hD h",
+         "",
+         "/-- That item is Γ's, for every H. -/",
+         "theorem tokkitem_item_in_gamma (H : HookParams) :",
+         "    KoreAML.Cons.noJunkItem (c.sortName Srt.kitem) ((c.gens Srt.kitem).map (Gen.toK c)) ∈ consItemsK (cH H) :=",
+         "  kitemOmit_item_in_gamma tokkitem_ok tokkitem_kitem_cons H",
+         "",
+         f"/-- **In a model of Γ, sentence {i} holds exactly where no sort of `tokKItemSorts` has an element**,",
+         "for every H (`kitemOmit_holds_iff_empty`). -/",
+         "theorem tokkitem_holds_iff_empty (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}",
+         f"    (hI : I ⊧ᴵP Γ (cH H)) : (I ⊧ᴵ (trS U.ax{i}).pat) ↔ ∀ x ∈ tokKItemSorts, ¬ ∃ y, InS I (c.sortName x) y := by",
+         "  rw [tokkitem_text]",
+         "  exact kitemOmit_holds_iff_empty tokkitem_ok tokkitem_kitem_cons tokkitem_noFnOvl H hI",
+         ""]
+    if valued:
+        x = valued[0]
+        L += [f"/-- The reader exhibits a value of {x['sort']} (`Parse.exhibit?`). -/",
+              f"theorem tokkitem_exhibit : (Parse.exhibit? c {x['srt']}).isSome = true := by decide +kernel",
+              "",
+              f"/-- **Γ with sentence {i} has no model**, for every H: the exhibited value's element is an element of",
+              f"{x['sort']} in every model of Γ (`kitemOmit_refuted_exhibit`). -/",
+              "theorem tokkitem_refuted (H : HookParams) : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M),",
+              f"    I ⊧ᴵP Γ (cH H) → ¬ (I ⊧ᴵ (trS U.ax{i}).pat) := by",
+              "  intro M _ I hI",
+              "  rw [tokkitem_text]",
+              "  obtain ⟨v, hv⟩ := Option.isSome_iff_exists.mp tokkitem_exhibit",
+              f"  exact kitemOmit_refuted_exhibit tokkitem_ok tokkitem_kitem_cons tokkitem_noFnOvl H (x := {x['srt']})",
+              "    (by decide) hv hI",
+              ""]
+    else:
+        L += ["/-- The text's G-nonempty item of each sort of `tokKItemSorts` is one of its translation's",
+              "signature items. -/",
+              "theorem tokkitem_nonempty_in_text : tokKItemSorts.all (fun x => (Theory.ofDefinition kore).signature.any",
+              "    (·.pat == (nonemptyItem ⟨\"Sort\" ++ c.sortName x, [], false⟩).pat)) = true := by",
+              "  decide +kernel",
+              "",
+              f"/-- **For every H, no model of Γ satisfies sentence {i} together with the text's G-nonempty item",
+              "of a sort of `tokKItemSorts`** (`kitemOmit_refuted_nonempty`). -/",
+              "theorem tokkitem_refuted_with_nonempty (H : HookParams) {M : Type} [Inhabited M]",
+              f"    {{I : Interpretation KoreAML.Sym M}} (hI : I ⊧ᴵP Γ (cH H)) (h : I ⊧ᴵ (trS U.ax{i}).pat) :",
+              "    ∀ x ∈ tokKItemSorts, ¬ (I ⊧ᴵ (nonemptyItem ⟨\"Sort\" ++ c.sortName x, [], false⟩).pat) := by",
+              "  intro x hx hne",
+              "  rw [tokkitem_text] at h",
+              "  exact kitemOmit_refuted_nonempty tokkitem_ok tokkitem_kitem_cons tokkitem_noFnOvl H hx hI hne h",
+              ""]
+    return "\n".join(L)
+
+
 def law_section(law_idx):
     il = ", ".join(map(str, law_idx))
     lt = ", ".join(f"U.ax{i}" for i in law_idx)
@@ -4124,7 +4370,7 @@ theorem open_functional_not_item : {ax_list(open_fun, 4)}.all (fun ad => !(consI
 
 
 def gamma_c_section(gamma, fn_align, nrules, fn_any, nj_triv, nj_items, nj_kitem, cons_text, idem, own_idem=(),
-                    ovl_eq=(), ovl_nc=()):
+                    ovl_eq=(), ovl_nc=(), tok_omit=(), tok_sorts=()):
     """The statements over `Γc = Γ ∪ Γcl`, the theory of a definition that reads a confined sort: each
     entailment over Γ holds over `Γc`; `Γcl` holds `boolClosed` alone; the origin of `Γc`'s premises."""
     L = ["/-! ## Over `Γc`, the theory the statements are about -/", "",
@@ -4207,6 +4453,14 @@ def gamma_c_section(gamma, fn_align, nrules, fn_any, nj_triv, nj_items, nj_kitem
               "    (hI : I ⊧ᴵP Γc (cH H)) : ∀ ad ∈ ovlNcText, ¬ (I ⊧ᴵ (trS ad).pat) :=",
               "  @ovlnc_refuted H M _ I fun φ hφ => hI φ (Γ_sub_Γc _ hφ)"]
         names.append("ovlnc_refuted_c")
+    if tok_omit:
+        i = tok_omit[0]
+        L += [f"/-- **Over `Γc`, sentence {i} holds exactly where no sort of `tokKItemSorts` has an element**, for",
+              "every H: a model of `Γc` is one of Γ. -/",
+              "theorem tokkitem_holds_iff_empty_c (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}",
+              f"    (hI : I ⊧ᴵP Γc (cH H)) : (I ⊧ᴵ (trS U.ax{i}).pat) ↔ ∀ x ∈ tokKItemSorts, ¬ ∃ y, InS I (c.sortName x) y :=",
+              "  tokkitem_holds_iff_empty H fun φ hφ => hI φ (Γ_sub_Γc _ hφ)"]
+        names.append("tokkitem_holds_iff_empty_c")
     return "\n".join(L) + "\n", names
 
 
@@ -4602,6 +4856,20 @@ def main(argv):
     heads_codes = "--heads-codes" in argv
     if heads_codes and not heads_literal:
         raise Refused(f"{name}: --heads-codes codes the literal of Γ's heads: it needs --heads-literal")
+    heads_plain = "--heads-plain" in argv
+    if heads_plain:
+        if not chunk:
+            raise Refused(f"{name}: --heads-plain decides `account_absent` by ranges: it needs --chunk N")
+        if heads_literal:
+            raise Refused(f"{name}: --heads-plain replaces --heads-literal and --heads-codes: give one of them")
+        gs, gh = head["gSyms"], head["gHeads"]
+        if any("{" in n for n in gs):
+            raise Refused(f"{name}: --heads-plain: a name of Γ's symbols holds `{{` (the decoder may read it as an "
+                          f"instance, which Γ applies at sort arguments): use --heads-literal")
+        if (not gs or gh[:len(gs)] != [(n, []) for n in gs] or
+                any(n != "inj" or len(ss) != 2 for n, ss in gh[len(gs):])):
+            raise Refused(f"{name}: --heads-plain: the probe's heads of Γ are not its symbols' names at no sort "
+                          f"argument followed by `inj` at the subsort pairs")
     fn_blocks = opt("--fn-blocks", 0)
     attrs_blocks = opt("--attrs-blocks", 0)
     absent_file = "--absent-file" in argv
@@ -4620,7 +4888,8 @@ def main(argv):
                                  heads_literal, heads_codes, "--attrs-parts" in argv or attrs_blocks > 0, "--decl-parts" in argv,
                                  fn_blocks, attrs_blocks, absent_file, builtin_decls=builtin_decls,
                                  decl_syms="--decl-syms-literal" in argv, nojunk_eq="--nojunk-eq" in argv,
-                                 nojunk_blocks=opt("--nojunk-blocks", 0), lists_by_class="--lists-by-class" in argv)
+                                 nojunk_blocks=opt("--nojunk-blocks", 0), lists_by_class="--lists-by-class" in argv,
+                                 heads_plain=heads_plain)
     outdir = argv[argv.index("--out") + 1] if "--out" in argv else None
     if outdir is None and (not os.path.exists(final) or open(final).read() != text):
         open(final, "w").write(text)

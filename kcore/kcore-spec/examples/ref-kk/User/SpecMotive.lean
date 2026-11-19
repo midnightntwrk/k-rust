@@ -19,8 +19,10 @@
     it is one (`CallIs_ksm`).
   - `evalAt`, `evalIf`, `tryAt`, `orElse`, `tryCl`, `tryM` (the walk of the clauses): `some u`
     where `u` is the encoding of a result `Eval (d₀ d) f` has, `none` where the clauses the call
-    walks `Fails`. Each takes what the walk has shown before the call: every clause of a smaller
-    priority fails (`Below_ksm`).
+    walks `Fails`. `evalAt`, `evalIf`, `tryAt`, `orElse` take what the walk has shown before the
+    call: every clause of a smaller priority fails (`Below_ksm`); `tryCl` and `tryM`, which read one
+    clause, give a result of `f` only under it, and their `none` needs it not. `tryM` takes
+    bindings with an entry for every variable of the clause (`Covers_ksm`).
 
   `StepCase d E f` is the step of the induction at `f`; `stepCase_iff_ksm` and the examples after
   it give its statement at each function with `Spec` unfolded there. `spec_of_steps` is the
@@ -167,9 +169,12 @@ def SpecApplyL (d : Semantics) (E : D) (vs : List GroundTerm) (r : Option Ground
     vs = [embD E, .dv 3 (.int (f : Int)), embTs (encTs ws), embLook l] → litsVL ws = true →
     l = ((d₀ d).lookupFn f).map (fun fn => fn.clauses.map (encCl d)) → CallIs_ksm d f ws r
 
-/-- `result(F, As, R)`: the term `R` holds, `bot` at `none`. -/
+/-- `result(F, As, R)` at a code `F` and terms `As`: the term `R` holds, `bot` at `none`. (At an
+`F` that is no Int value no equation of `result` matches, and the result is none: User.WalkInv's
+`result_illSorted_ksc`.) -/
 def SpecResult (vs : List GroundTerm) (r : Option GroundTerm) : Prop :=
-  ∀ (f as : GroundTerm) (x : Option T), vs = [f, as, embRes x] → r = some (emb (x.getD .bot))
+  ∀ (f : Int) (ts : List T) (x : Option T), vs = [.dv 3 (.int f), embTs ts, embRes x] →
+    r = some (emb (x.getD .bot))
 
 /-! ## The walk of the clauses -/
 
@@ -182,6 +187,9 @@ def WalkAt_ksm (d : Semantics) (f : Sym) (fn : Fn) (ws : List GroundTerm) : Prop
 fails at `ws`; at `noP`, every clause. -/
 def Below_ksm (d : Semantics) (fn : Fn) (ws : List GroundTerm) (p : Option Int) : Prop :=
   ∀ cl ∈ fn.clauses, (∀ P, p = some P → (cl.prio : Int) < P) → Fails (d₀ d) ws cl
+
+/-- `B` has an entry for each of the variables `is`. -/
+def Covers_ksm (B : Bind) (is : List Nat) : Prop := ∀ i ∈ is, (lookF (i : Int) B).isSome = true
 
 /-- `u` is the encoding of a result `f` has at `ws` in `d₀ d`. -/
 def Found_ksm (d : Semantics) (f : Sym) (ws : List GroundTerm) (u : T) : Prop :=
@@ -227,27 +235,33 @@ def SpecOrElse (d : Semantics) (E : D) (vs : List GroundTerm) (r : Option Ground
     ∃ y, r = some (embRes y) ∧ (∀ u, y = some u → Found_ksm d f ws u) ∧
       (y = none → x = none ∧ ∀ cl ∈ suf, (cl.prio : Int) = P → Fails (d₀ d) ws cl)
 
-/-- `tryCl(D, Ps, Req, Rhs, As)` at a clause `cl` of `fn` below whose priority every clause
-fails: `some u` with `u` a result of `f`, or `none` where `cl` fails. -/
+/-- `tryCl(D, Ps, Req, Rhs, As)` at a clause `cl` of `fn`: `some u` or `none`; `u` is a result of
+`f` where every clause of a smaller priority than `cl`'s fails, and at `none` `cl` fails. -/
 def SpecTryCl (d : Semantics) (E : D) (vs : List GroundTerm) (r : Option GroundTerm) : Prop :=
   ∀ (f : Sym) (fn : Fn) (ws : List GroundTerm) (cl : Clause),
     vs = [embD E, embTs (encCl d cl).pats, emb (encCl d cl).req, emb (encCl d cl).rhs,
       embTs (encTs ws)] →
-    WalkAt_ksm d f fn ws → cl ∈ fn.clauses → Below_ksm d fn ws (some (cl.prio : Int)) →
-    ∃ x, r = some (embRes x) ∧ (∀ u, x = some u → Found_ksm d f ws u) ∧
+    WalkAt_ksm d f fn ws → cl ∈ fn.clauses →
+    ∃ x, r = some (embRes x) ∧
+      (Below_ksm d fn ws (some (cl.prio : Int)) → ∀ u, x = some u → Found_ksm d f ws u) ∧
       (x = none → Fails (d₀ d) ws cl)
 
-/-- `tryM(D, Req, Rhs, Ms)` at matches `ms` of `cl`'s patterns at `ws`, each the binding of a
-substitution under which the patterns denote `ws`: `some u` with `u` a result of `f`, or `none`
-where the `requires` fails under every substitution a binding of `ms` represents. -/
+/-- `tryM(D, Req, Rhs, Ms)` at matches `ms` of `cl`'s patterns at `ws`, each a binding with an
+entry for every variable of `cl` that agrees with some well-sorted substitution under which the
+patterns denote `ws`: `some u` or `none`; `u` is a result of `f` where every clause of a smaller
+priority than `cl`'s fails, and at `none` the `requires` fails under every well-sorted
+substitution a binding of `ms` agrees with and under which the patterns denote `ws`. (A binding
+without an entry for a variable of the `requires` or the right side has no instance of it, and the
+result is none whatever `cl` gives: User.WalkInv's `tryM_undef_ksc`.) -/
 def SpecTryM (d : Semantics) (E : D) (vs : List GroundTerm) (r : Option GroundTerm) : Prop :=
   ∀ (f : Sym) (fn : Fn) (ws : List GroundTerm) (cl : Clause) (ms : Ms),
     vs = [embD E, emb (encCl d cl).req, emb (encCl d cl).rhs, embMs ms] →
-    WalkAt_ksm d f fn ws → cl ∈ fn.clauses → Below_ksm d fn ws (some (cl.prio : Int)) →
-    (∀ B ∈ ms, ∃ σ, BindRep (d₀ d) cl.vars B σ ∧ (d₀ d).WellSorted cl.vars σ ∧
-      PatVals (d₀ d) σ cl.pats ws) →
-    ∃ x, r = some (embRes x) ∧ (∀ u, x = some u → Found_ksm d f ws u) ∧
-      (x = none → ∀ B ∈ ms, ∀ σ, BindRep (d₀ d) cl.vars B σ → (d₀ d).WellSorted cl.vars σ →
+    WalkAt_ksm d f fn ws → cl ∈ fn.clauses →
+    (∀ B ∈ ms, Covers_ksm B (List.range cl.vars.length) ∧
+      ∃ σ, BindAgree B σ ∧ (d₀ d).WellSorted cl.vars σ ∧ PatVals (d₀ d) σ cl.pats ws) →
+    ∃ x, r = some (embRes x) ∧
+      (Below_ksm d fn ws (some (cl.prio : Int)) → ∀ u, x = some u → Found_ksm d f ws u) ∧
+      (x = none → ∀ B ∈ ms, ∀ σ, BindAgree B σ → (d₀ d).WellSorted cl.vars σ →
         PatVals (d₀ d) σ cl.pats ws → ReqFails (d₀ d) σ cl)
 
 /-! ## The motive -/
@@ -458,9 +472,8 @@ theorem Spec.tryCl_none {d : Semantics} {E : D} {f : Sym} {fn : Fn} {ws : List G
     {cl : Clause}
     (h : Spec d E 513 [embD E, embTs (encCl d cl).pats, emb (encCl d cl).req,
       emb (encCl d cl).rhs, embTs (encTs ws)] (some (embRes none)))
-    (hw : WalkAt_ksm d f fn ws) (hcl : cl ∈ fn.clauses)
-    (hb : Below_ksm d fn ws (some (cl.prio : Int))) : Fails (d₀ d) ws cl := by
-  obtain ⟨x, hx, -, hn⟩ := (Spec_tryCl d E _ _).mp h f fn ws cl rfl hw hcl hb
+    (hw : WalkAt_ksm d f fn ws) (hcl : cl ∈ fn.clauses) : Fails (d₀ d) ws cl := by
+  obtain ⟨x, hx, -, hn⟩ := (Spec_tryCl d E _ _).mp h f fn ws cl rfl hw hcl
   cases x with
   | none => exact hn rfl
   | some u => simp [embRes] at hx

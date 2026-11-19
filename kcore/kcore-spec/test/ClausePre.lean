@@ -27,7 +27,7 @@
   decides; at 2, `gCl1` meets `hpre` (`Holds.ceil` at `some 2`) and decides, and `gCl2` is blocked
   since `gCl1` does not fail.
 
-  `clausesPlain` admits `gCl1` (a predicate in the premise, conditions that need no witness), so
+  `clausesPlain` admits `gCl1` (a predicate in the premise), so
   `coreOK` holds (`clausesPlain_ok`, `coreOK_ok`: `expectCore`). The sentences
   carry the predicate (`withPre`, Emit.lean, in `exclusion`, `clauseEquation` and
   `competingEquation`): the second clause's sentence negates `∃X'. ((⊤ ∧ X0 ∈ X') ∧ ⌈u(X')⌉)`
@@ -155,7 +155,7 @@ theorem sortedRest_ok : sortedRest c = true := by decide +kernel
 theorem coreRest_ok : coreRest c = true := by decide +kernel
 /-- Every clause meets CN-4 §4.9's final clause conjunct. -/
 theorem clauseE3_ok : c.fns.all (fun f => f.clauses.all (clauseE3 c)) = true := by decide +kernel
-/-- `clausesPlain` admits `gCl1`: its predicate is not `\top` and its conditions need no witness. -/
+/-- `clausesPlain` admits `gCl1`, whose predicate is not `\top`. -/
 theorem clausesPlain_ok : c.clausesPlain = true := by decide +kernel
 /-- So `coreOK` holds. -/
 theorem coreOK_ok : c.coreOK = true := by
