@@ -6,7 +6,7 @@
     patterns, conditions, right side, `ensures` or right side's predicate) in place of "the patterns
     bind each variable";
   - `Semantics.clausePlainOpen`: no existential variable and the right side's predicate `\top`, with
-    what `clausesPlain` asks of a clause's premise and of its open condition variables: none, or
+    what `clausesPlain` asks of a clause's open condition variables: none, or
     closed conditions, or each of a confined sort.
 
   A clause's exclusion `∃ȳ. ⌈req = true⌉ ∧ X̄ ∈ p̄` binds the variables of its patterns and
@@ -654,7 +654,7 @@ theorem exclEmptyCl_of (h : c.coreOK = true) (hI : I ⊧ᴵP Γc c) {fn : Fn} {c
   obtain ⟨hok, hsr, hnn, hg, hph, hcso, hcs, hph', hno⟩ := hypSound_of_core h
   haveI : OvlOK c := hno
   obtain ⟨hpats, -, hreqS, -, -⟩ := Semantics.clauseSortedOpen_parts hs
-  obtain ⟨-, -, hconj, -⟩ := Semantics.clausePlainOpen_partsP hp
+  obtain ⟨-, -, hconj⟩ := Semantics.clausePlainOpen_partsP hp
   have hcv : c.readsConfined = true → ∀ s, c.confined s = true → ∀ x, InS I (c.sortName s) x →
       ∃ v, c.sortOf v = some s ∧ elemOf c I v = x := fun hr s hs' x hx => by
     obtain ⟨v, hv, hden⟩ := confined_value h hr hI hs' KoreAML.val0 x ((inS_iff KoreAML.val0).mpr hx)

@@ -39,19 +39,18 @@ namespace KCore
 
 open ML Faithful HoldsShape
 
-/-- **`clausePlainEx` with `clauseExOK` and `clausesPlain`'s two conjuncts on the premise and the open
-condition variables gives
-`clausePlainOpenEx`**: the latter is the former without "each existential variable is of a confined
+/-- **`clausePlainEx` with `clauseExOK` and `clausesPlain`'s conjunct on the open condition
+variables gives `clausePlainOpenEx`**: the latter is the former without "each existential variable is of a confined
 sort or fixed by the predicate", which the value model does not read. -/
 theorem Semantics.clausePlainOpenEx_of_plainEx {c : Semantics} {cl : Clause}
-    (h : (c.clausePlainEx cl && c.clauseExOK cl && (cl.pre.isTop || !cl.needsWitness c) &&
+    (h : (c.clausePlainEx cl && c.clauseExOK cl &&
       (!cl.reqOpen || cl.reqClosed || cl.openCondVars.all fun i => (cl.vars[i]?.map c.confined).getD false ||
       memHeld c (varOccsList cl.pats) cl.pre i)) = true) :
     c.clausePlainOpenEx cl = true := by
   simp only [Semantics.clausePlainEx, Bool.and_eq_true] at h
-  obtain ⟨⟨⟨⟨h1, -⟩, h2⟩, h3⟩, h4⟩ := h
+  obtain ⟨⟨⟨h1, -⟩, h2⟩, h4⟩ := h
   simp only [Semantics.clausePlainOpenEx, Bool.and_eq_true]
-  exact ⟨⟨⟨h1, h2⟩, h3⟩, h4⟩
+  exact ⟨⟨h1, h2⟩, h4⟩
 
 namespace CE
 

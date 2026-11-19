@@ -35,7 +35,7 @@ example (c : Semantics) : HypSoundModel c =
       collSortsOK c = true ∧ collsOK c = true ∧ patHeadsOK c = true ∧ OvlOK c) := rfl
 
 example (c : Semantics) (cl : Clause) : c.clausePlainOpenEx cl =
-    ((!cl.exs.isEmpty || cl.post.isTop) && c.clauseExOK cl && (cl.pre.isTop || !cl.needsWitness c) &&
+    ((!cl.exs.isEmpty || cl.post.isTop) && c.clauseExOK cl &&
     (!cl.reqOpen || cl.reqClosed || cl.openCondVars.all fun i => (cl.vars[i]?.map c.confined).getD false ||
       memHeld c (varOccsList cl.pats) cl.pre i)) := rfl
 example (c : Semantics) : c.sortedOKClEx =
@@ -51,8 +51,7 @@ example (c : Semantics) : c.sortedOKCl = true → c.FnsNoExs := Semantics.fnsNoE
 example (c : Semantics) (cl : Clause) : c.clausePlainOpenEx cl = true →
     c.clauseExOK cl = true ∧ (cl.exs = [] → cl.post = .top) ∧
       (!cl.reqOpen || cl.reqClosed || cl.openCondVars.all fun i => (cl.vars[i]?.map c.confined).getD false ||
-      memHeld c (varOccsList cl.pats) cl.pre i) = true ∧
-      (cl.pre ≠ .top → cl.needsWitness c = false) := Semantics.clausePlainOpenEx_parts
+      memHeld c (varOccsList cl.pats) cl.pre i) = true := Semantics.clausePlainOpenEx_parts
 
 /-- The two bundles differ by `FnsNoExs` exactly: `sortedOKCl` is `sortedOKClEx` with no clause
 holding an existential variable. -/
