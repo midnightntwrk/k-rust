@@ -17,8 +17,10 @@ differs f2-examples/c3-eq-ens-prio.kompile.kore
 differs f2-examples/c3-eq-ens-total-holds.kompile.kore
 differs f2-examples/c3-eq-ens-total.kompile.kore
 differs f2-examples/c3-eq-nonexec-prio-below.kompile.kore
+differs f2-examples/c3-eq-owise-ens-own.kompile.kore
 differs f2-examples/c3-eq-owise-owise-diff.kompile.kore
 differs f2-examples/c3-eq-owise-owise.kompile.kore
+differs f2-examples/c3-eq-owise-prio200.kompile.kore
 differs f2-examples/c3-eq-owise-total.kompile.kore
 differs f2-examples/c3-eq-pdef-nopreservesdefinedness.kore
 differs f2-examples/c3-eq-pdef.kompile.kore
@@ -26,6 +28,7 @@ differs f2-examples/c3-eq-prio-nonexec.kompile.kore
 differs f2-examples/c3-eq-prio-owise.kompile.kore
 differs f2-examples/c3-eq-prio-total-comp.kompile.kore
 differs f2-examples/c3-eq-prio-total.kompile.kore
+differs f2-examples/c3-eq-prio200-owise-pair.kompile.kore
 differs f2-examples/c3-eq-req-ens.kompile.kore
 differs f2-examples/c3-eq-req-owise.kompile.kore
 differs f2-examples/c3-eq-req-prio-comp.kompile.kore
@@ -49,6 +52,7 @@ differs f2-examples/c3-owise-simp.kompile.kore
 differs f2-examples/c3-rule-ens-owise.kompile.kore
 differs f2-examples/c3-rule-ens-prio-comp.kompile.kore
 differs f2-examples/c3-rule-ens-prio.kompile.kore
+differs f2-examples/c3-rule-owise-prio200.kompile.kore
 differs f2-examples/c3-rule-prio-owise.kompile.kore
 differs f2-examples/c3-rule-req-ens.kompile.kore
 differs f2-examples/c3-rule-req-owise.kompile.kore
