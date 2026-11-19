@@ -8,12 +8,14 @@
     value there, or a name whose `G` has none, or an application with an argument that denotes
     nothing), or not read (`none`: any other symbol, a sort argument, a literal that is not a
     value's own text, a result of no sort). Variables, literals, `inj`, constructors of the
-    semantics, interpreted hooks and the names are read. `inj{A, B}` over a value of `A` is its
+    semantics, interpreted hooks, the names, and a collection sort's unit at no argument (the
+    empty collection, `armCollUnit`, whose KORE the unit applied to nothing is) are read. `inj{A, B}` over a value of `A` is its
     normalised injection into `B` (`injNormal`: over a value that is itself an injection, the
     inner value injected into `B`).
   - **What it reads holds (`armVal_sound`).** In a model `InitModel c N ar G`, the translation of
     the right side with its variables replaced by the values' KORE terms (`armSubst`) denotes the
     value read, or nothing: by `InitModel.ctor`, `injN`, `hookV`, `hookE`, `name`, `name_none`,
+    `val` (the empty collection, `armCollUnit_den`),
     in a semantics with `coreOK` (`injN` reads the theory's injection coherence).
   - **`G` from the text (`armG`, `armG_fix`).** The names of `order` are given their equation's
     right side read through `G` itself, by recursion on the position in `order`, which lists every
@@ -35,7 +37,8 @@
   What acceptance gives and what reading adds: `initEqnOK` gives the equation's shape (distinct
   variable patterns, the only equation of its symbol, no condition) and which symbols its right
   side applies; it checks no sort or arity. Reading the right side at the values (`armVal` is not
-  `none`) checks the rest: every symbol applied is a constructor, an interpreted hook or a name,
+  `none`) checks the rest: every symbol applied is a constructor, an interpreted hook, a name or a
+collection sort's unit,
   at arguments of its sorts and arity.
 -/
 import KcoreSpec.GenEqsInit
@@ -90,9 +93,19 @@ def armWs : List (Option (Option GroundTerm)) → Option (List GroundTerm)
   | some (some w) :: rs => (armWs rs).map (w :: ·)
   | _ :: _ => none
 
+/-- The empty collection of the collection sort of `k`, the value its unit `k.unit()` denotes
+(`GroundTerm.kore` writes the empty collection as the unit applied to nothing). -/
+def armCollUnit (k : CollSig) : GroundTerm :=
+  match k.kind with
+  | .map | .rangeMap => .map k.sort []
+  | .set => .set k.sort []
+  | .list => .list k.sort []
+
 /-- The symbol named `h` at the values `ws`: a name (`isN`) at `ar h` of them, `G`'s value or
 nothing; a constructor of `c`, the value it builds; an interpreted hook at arguments of its sorts,
-its graph's value, or nothing where the graph has none and the text is not silent. -/
+its graph's value, or nothing where the graph has none and the text is not silent; the unit of a
+collection sort of `c` (the collection sort's own, `collOf`) at no argument, the empty collection
+where it has a sort. -/
 def armHead (c : Semantics) (isN : String → Bool) (ar : String → Nat) (G : String → List GroundTerm → Option GroundTerm)
     (h : String) (ws : List GroundTerm) : Option (Option GroundTerm) :=
   if isN h then
@@ -111,7 +124,12 @@ def armHead (c : Semantics) (isN : String → Bool) (ar : String → Nat) (G : S
         | some none => if silent k.name ws = false then some none else none
         | none => none
       else none
-    | none => none
+    | none => match c.colls.find? (fun k => c.symName k.unit == h) with
+      | some k =>
+        if ws.isEmpty && decide (c.collOf k.sort = some k) && (c.sortOf (armCollUnit k)).isSome then
+          some (some (armCollUnit k))
+        else none
+      | none => none
 
 /-- An application of the symbol named `h` to arguments read as `rs`: nothing where one denotes
 nothing, else `armHead` at their values. -/
@@ -282,6 +300,16 @@ theorem InitModel.injN {c : Semantics} {N : String → Prop} {ar : String → Na
   rw [Faithful.den_inj_gs hI hw ρ m, ← Faithful.den_injNormal_gs hI htr hab hw ρ m]
   exact hM.vals _ b hs ρ m
 
+/-- **The empty collection's KORE is its unit applied to nothing**, where the collection sort of
+`k` is `k`'s own. -/
+theorem armCollUnit_den {c : Semantics} {k : CollSig} (hk : c.collOf k.sort = some k) :
+    den c (armCollUnit k) = KoreAML.appList (symP (c.symName k.unit)) [] := by
+  have hs : ∀ kd, c.collSig kd k.sort = k := fun kd => by unfold Semantics.collSig; rw [hk]; rfl
+  unfold armCollUnit den
+  cases k.kind <;>
+    simp only [GroundTerm.kore, GroundTerm.koreEntries, GroundTerm.koreElems, hs, KoreAML.ap, armDen_app0,
+      List.map_nil]
+
 section Sound
 
 variable {c : Semantics} {N : String → Prop} {ar : String → Nat} {G : String → List GroundTerm → Option GroundTerm}
@@ -320,7 +348,21 @@ theorem armHead_sound {h : String} {ψs : List KoreAML.P} {ws : List GroundTerm}
     | none =>
       dsimp only
       cases hk' : hookSigs.find? (fun k => c.symName k.name == h) with
-      | none => trivial
+      | none =>
+        dsimp only
+        cases hu : c.colls.find? (fun k => c.symName k.unit == h) with
+        | none => trivial
+        | some k =>
+          dsimp only
+          have hkn : c.symName k.unit = h := by have := List.find?_some hu; exact beq_iff_eq.mp this
+          by_cases hcu : (ws.isEmpty && decide (c.collOf k.sort = some k) && (c.sortOf (armCollUnit k)).isSome) = true
+          · rw [if_pos_walk hcu]
+            simp only [Bool.and_eq_true, decide_eq_true_eq, List.isEmpty_iff] at hcu
+            obtain ⟨⟨rfl, hco⟩, hso⟩ := hcu
+            cases hws
+            have hd := hM.val (Option.some_get hso).symm
+            rwa [armCollUnit_den hco, hkn] at hd
+          · rw [if_neg_arm hcu]; trivial
       | some k =>
         dsimp only
         have hkn : c.symName k.name = h := by have := List.find?_some hk'; exact beq_iff_eq.mp this

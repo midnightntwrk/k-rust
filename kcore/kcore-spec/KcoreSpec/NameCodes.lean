@@ -8,9 +8,11 @@
   into a list of numbers tied to the numbered names by one fact (`(allSymNames c).map strCode =
   sym`, proved in blocks of rows: `codeRows`), and the checks read only those numbers:
 
-  - a name `iteSort?` reads as `ite` at a sort begins with the seven bytes of `Lblite{`, so its code
-    has their value as its low seven base-256 digits (`iteSort_none_of_code`); the symbols whose
-    codes do are listed once (`iteIdx`), and `namesNumbered` and `itesApart` decode only those;
+  - a name the decoder reads as an instance (`instDecode?`) holds `{`, so its code has the byte 123
+    among its digits (`instCoded_of_instDecode`); the symbols whose codes do are listed once
+    (`instIdx`), and `namesNumbered` and `itesApart` decode only those. A name `iteSort?` reads as
+    `ite` at a sort begins with the seven bytes of `Lblite{`, so its code has their value as its
+    low seven base-256 digits (`iteSort_none_of_code`, `iteIdx`);
   - names are distinct when their codes are, which the sorted codes decide (`nodup_of_ascending`);
     `namesApartK` then follows from distinct symbol numbers in `kernelSyms`, distinct codes of
     their names (picked from the table in one pass, `pick`) and of all numbered sorts' names, and
@@ -135,10 +137,10 @@ theorem utf8Encode_cons_toList (c : Char) (l : List Char) :
 
 /-- A name read as `ite` at a sort has a code `iteCoded` accepts. -/
 theorem iteCoded_of_iteSort {n : String} (h : iteSort? n ≠ none) : iteCoded (strCode n) = true := by
-  unfold iteSort? at h
-  split at h
-  · rename_i rest heq
-    have hn : n = String.ofList ('L' :: 'b' :: 'l' :: 'i' :: 't' :: 'e' :: '{' :: rest) := by
+  obtain ⟨X, hX⟩ := Option.ne_none_iff_exists'.mp h
+  have heq := iteSort?_toList hX
+  generalize X.toList ++ ['}'] = rest at heq
+  · have hn : n = String.ofList ('L' :: 'b' :: 'l' :: 'i' :: 't' :: 'e' :: '{' :: rest) := by
       rw [← heq, String.ofList_toList]
     have he : (String.ofList ('L' :: 'b' :: 'l' :: 'i' :: 't' :: 'e' :: '{' :: rest)).toByteArray.data.toList =
         [76, 98, 108, 105, 116, 101, 123] ++ rest.utf8Encode.data.toList := by
@@ -150,7 +152,6 @@ theorem iteCoded_of_iteSort {n : String} (h : iteSort? n ≠ none) : iteCoded (s
     have h7 : ([76, 98, 108, 105, 116, 101, 123] : List UInt8).length = 7 := rfl
     rw [h7, Nat.add_comm, Nat.add_mul_mod_self_right]
     decide
-  · exact absurd rfl h
 
 /-- A name whose code `iteCoded` refuses is not read as `ite` at a sort. -/
 theorem iteSort_none_of_code {n : String} (h : iteCoded (strCode n) = false) : iteSort? n = none := by
@@ -194,37 +195,111 @@ theorem mem_iteIdx {c : Semantics} {sym : List Nat} (hc : (allSymNames c).map st
   have := mem_idxWhere iteCoded sym 0 f hf (by rw [← strCode_getD hc hf]; exact iteCoded_of_iteSort h)
   simpa [iteIdx] using this
 
+/-! ## Names read as an instance -/
+
+/-- Whether one of the base-256 digits of `n` below its leading one, among its lowest `f`, is 123,
+the byte of `{`. -/
+def braceDigits : Nat → Nat → Bool
+  | 0, _ => false
+  | f + 1, n => if n < 256 then false else n % 256 == 123 || braceDigits f (n / 256)
+
+/-- A code holding the byte of `{` among its digits. -/
+def instCoded (n : Nat) : Bool := braceDigits n n
+
+theorem length_le_bytesCode : ∀ l : List UInt8, l.length ≤ bytesCode l
+  | [] => Nat.zero_le _
+  | b :: bs => by
+    have := length_le_bytesCode bs
+    have := bytesCode_pos bs
+    simp only [List.length_cons, bytesCode]; omega
+
+theorem braceDigits_bytesCode : ∀ (l : List UInt8) (f : Nat), l.length ≤ f → (123 : UInt8) ∈ l →
+    braceDigits f (bytesCode l) = true
+  | [], _, _, hm => absurd hm List.not_mem_nil
+  | b :: bs, 0, hl, _ => absurd hl (by simp)
+  | b :: bs, f + 1, hl, hm => by
+    have hp := bytesCode_pos bs
+    have hb := b.toNat_lt
+    have hlt : ¬ bytesCode bs * 256 + b.toNat < 256 := by omega
+    have hmod : (bytesCode bs * 256 + b.toNat) % 256 = b.toNat := by omega
+    have hdiv : (bytesCode bs * 256 + b.toNat) / 256 = bytesCode bs := by omega
+    simp only [bytesCode, braceDigits, hlt, ↓reduceIte, hmod, hdiv, Bool.or_eq_true, beq_iff_eq]
+    rcases List.mem_cons.mp hm with he | he
+    · left; rw [← he]; rfl
+    · right; exact braceDigits_bytesCode bs f (by simp at hl; omega) he
+
+/-- A name the decoder reads as an instance holds `{`, so its UTF-8 bytes hold 123. -/
+theorem brace_mem_bytes {n : String} (h : instDecode? n ≠ none) : (123 : UInt8) ∈ n.toByteArray.data.toList := by
+  have hh : instDecHead n.toList ≠ none := by
+    intro he; apply h; unfold instDecode?; rw [he]
+  obtain ⟨⟨hd, r⟩, hp⟩ := Option.ne_none_iff_exists'.mp hh
+  have hn : n = String.ofList (hd ++ '{' :: r) := by
+    rw [← (instDecHead_eq_some.1 hp).1, String.ofList_toList]
+  have hc : (['{'] : List Char).utf8Encode.data.toList = [123] := by decide
+  rw [hn, String.toByteArray_ofList, List.utf8Encode_append, List.utf8Encode_cons, ByteArray.toList_data_append,
+    ByteArray.toList_data_append, hc]
+  simp
+
+/-- A name the decoder reads as an instance has a code `instCoded` accepts. -/
+theorem instCoded_of_instDecode {n : String} (h : instDecode? n ≠ none) : instCoded (strCode n) = true :=
+  braceDigits_bytesCode _ _ (length_le_bytesCode _) (brace_mem_bytes h)
+
+theorem idxWhere_append (p : Nat → Bool) : ∀ (l₁ l₂ : List Nat) (i : Nat),
+    idxWhere p (l₁ ++ l₂) i = idxWhere p l₁ i ++ idxWhere p l₂ (i + l₁.length)
+  | [], _, i => by simp [idxWhere]
+  | a :: l₁, l₂, i => by
+    have := idxWhere_append p l₁ l₂ (i + 1)
+    rw [show i + 1 + l₁.length = i + (a :: l₁).length by simp; omega] at this
+    simp only [List.cons_append, idxWhere, this]
+    split <;> rfl
+
+/-- The numbered symbols whose names' codes `instCoded` accepts, given the codes of all numbered
+symbols' names. -/
+def instIdx (sym : List Nat) : List Nat := idxWhere instCoded sym 0
+
+/-- A symbol whose name the decoder reads as an instance is listed in `instIdx`. -/
+theorem mem_instIdx {c : Semantics} {sym : List Nat} (hc : (allSymNames c).map strCode = sym) {f : Sym}
+    (h : instDecode? (c.symName f) ≠ none) : f ∈ instIdx sym := by
+  rw [symName_eq_getD] at h
+  have hf : f < sym.length := by
+    rw [← hc, List.length_map]
+    refine Nat.lt_of_not_le fun hge => h ?_
+    rw [List.getD_eq_getElem?_getD, List.getElem?_eq_none hge]
+    rfl
+  have := mem_idxWhere instCoded sym 0 f hf (by rw [← strCode_getD hc hf]; exact instCoded_of_instDecode h)
+  simpa [instIdx] using this
+
 /-! ## `namesNumbered` -/
 
 namespace Model
 
-/-- `namesNumbered` on codes: `I` lists the symbols that may be named like `ite` at a sort
-(`iteIdx`); a constructor among them, or a symbol among them that an overloading symbol overloads,
-is not so named (`iteSort?`, read on its name only there: a name `Lblite{…}` holding a comma has a
-code `iteCoded` accepts and no sort), and every sort of a function is numbered. -/
+/-- `namesNumbered` on codes: `I` lists the symbols that may be named like an instance
+(`instIdx`, the names holding `{`); a constructor among them, or a symbol among them that an
+overloading symbol overloads, is not so named (`instDecode?`, read on its name only there), and
+every sort of a function is numbered. -/
 def namesNumberedC (c : Semantics) (I : List Nat) : Bool :=
-  c.ctorSigs.all (fun k => !I.contains k.name || (iteSort? (c.symName k.name)).isNone) &&
-  c.ovls.all (fun o => o.over.all fun g => !I.contains g || (iteSort? (c.symName g)).isNone) &&
+  c.ctorSigs.all (fun k => !I.contains k.name || (instDecode? (c.symName k.name)).isNone) &&
+  c.ovls.all (fun o => o.over.all fun g => !I.contains g || (instDecode? (c.symName g)).isNone) &&
   c.allFns.all fun fn => (fn.result :: fn.args).all fun s => decide (s < nRegSorts + c.sortNames.length)
 
 theorem namesNumbered_of_codes {c : Semantics} {sym I : List Nat} (hc : (allSymNames c).map strCode = sym)
-    (hI : iteIdx sym = I) (h : namesNumberedC c I = true) : namesNumbered c = true := by
+    (hI : instIdx sym = I) (h : namesNumberedC c I = true) : namesNumbered c = true := by
   subst hI
   simp only [namesNumberedC, Bool.and_eq_true, List.all_eq_true, Bool.or_eq_true, Bool.not_eq_true'] at h
   obtain ⟨⟨h1, h2⟩, h3⟩ := h
   simp only [namesNumbered, Bool.and_eq_true, List.all_eq_true, Option.isNone_iff_eq_none]
   refine ⟨⟨fun k hk => ?_, fun o ho g hg => ?_⟩, h3⟩
-  · cases hn : iteSort? (c.symName k.name) with
+  · cases hn : instDecode? (c.symName k.name) with
     | none => rfl
-    | some X =>
+    | some p =>
       rcases h1 k hk with h | h
-      · exact absurd (mem_iteIdx hc (by rw [hn]; exact Option.some_ne_none X)) (by simpa using h)
+      · exact absurd (mem_instIdx hc (by rw [hn]; exact Option.some_ne_none p)) (by simpa using h)
       · rw [hn] at h; cases h
-  · cases hn : iteSort? (c.symName g) with
+  · cases hn : instDecode? (c.symName g) with
     | none => rfl
-    | some X =>
+    | some p =>
       rcases h2 o ho g hg with h | h
-      · exact absurd (mem_iteIdx hc (by rw [hn]; exact Option.some_ne_none X)) (by simpa using h)
+      · exact absurd (mem_instIdx hc (by rw [hn]; exact Option.some_ne_none p)) (by simpa using h)
       · rw [hn] at h; cases h
 
 /-! ## `itesApart` -/
@@ -232,32 +307,43 @@ theorem namesNumbered_of_codes {c : Semantics} {sym I : List Nat} (hc : (allSymN
 /-- The entries of `kernelSyms` among `I`. -/
 def iteSyms (c : Semantics) (I : List Nat) : List CtorSig := (kernelSyms c).filter fun k => I.contains k.name
 
-/-- `itesApart` on codes, its pairs among the entries of `kernelSyms` that may be named like `ite`
-(`iteSyms`): such an entry named at a sort X names a numbered sort (X's code is a numbered sort
-name's code), and two of them named at one sort are one entry. -/
+/-- `itesApart` on codes, over the entries of `kernelSyms` among `I` (`iteSyms`), which lists
+those that may be named like an instance (`instIdx`): such an entry's sort names are numbered sort
+names (their codes are numbered sort names' codes), every such entry of its head has as many sorts,
+and its head is not `inj`. -/
 def itesApartC (c : Semantics) (I srt : List Nat) : Bool :=
-  (iteSyms c I).all (fun k => match iteSort? (c.symName k.name) with
-    | some X => srt.contains (strCode X)
-    | none => true) &&
-  (iteSyms c I).all fun k => (iteSyms c I).all fun k' =>
-    (iteSort? (c.symName k.name)).isNone || iteSort? (c.symName k.name) != iteSort? (c.symName k'.name) || k == k'
+  (iteSyms c I).all fun k =>
+    (match instDecode? (c.symName k.name) with
+      | some (_, xs) => xs.all fun x => srt.contains (strCode x)
+      | none => true) &&
+    (match instDecode? (c.symName k.name) with
+      | some (h, xs) => (iteSyms c I).all fun k' =>
+          match instDecode? (c.symName k'.name) with
+          | some (h', xs') => h' != h || xs'.length == xs.length
+          | none => true
+      | none => true) &&
+    (match instDecode? (c.symName k.name) with
+      | some (h, _) => h != "inj"
+      | none => true)
 
 theorem itesApart_of_codes {c : Semantics} {sym srt I : List Nat} (hc : (allSymNames c).map strCode = sym)
-    (hs : (allSortNames c).map strCode = srt) (hI : iteIdx sym = I) (h : itesApartC c I srt = true) :
+    (hs : (allSortNames c).map strCode = srt) (hI : instIdx sym = I) (h : itesApartC c I srt = true) :
     itesApart c = true := by
   subst hI
-  simp only [itesApartC, Bool.and_eq_true, List.all_eq_true] at h
-  obtain ⟨h1, h2⟩ := h
-  have hmem : ∀ k ∈ kernelSyms c, iteSort? (c.symName k.name) ≠ none → k ∈ iteSyms c (iteIdx sym) :=
-    fun k hk hn => List.mem_filter.mpr ⟨hk, by simpa using mem_iteIdx hc hn⟩
-  simp only [itesApart, List.all_eq_true, Bool.and_eq_true]
+  have hmem : ∀ k ∈ kernelSyms c, instDecode? (c.symName k.name) ≠ none → k ∈ iteSyms c (instIdx sym) :=
+    fun k hk hn => List.mem_filter.mpr ⟨hk, by simpa using mem_instIdx hc hn⟩
+  simp only [itesApart, List.all_eq_true]
   intro k hk
-  refine ⟨?_, fun k' hk' => ?_⟩
-  · split
-    · rename_i X hX
-      have hks := hmem k hk (by rw [hX]; exact Option.some_ne_none X)
-      have := h1 k hks
-      rw [hX] at this
+  cases hd : instDecode? (c.symName k.name) with
+  | none => rfl
+  | some p =>
+    obtain ⟨hh, xs⟩ := p
+    have hks := hmem k hk (by rw [hd]; exact Option.some_ne_none _)
+    have hk' := List.all_eq_true.mp h k hks
+    simp only [hd, Bool.and_eq_true, List.all_eq_true] at hk' ⊢
+    obtain ⟨⟨h1, h2⟩, h3⟩ := hk'
+    refine ⟨⟨fun x hx => ?_, fun k' hk'' => ?_⟩, h3⟩
+    · have := h1 x hx
       simp only [List.contains_iff_mem] at this
       obtain ⟨i, hi, hiX⟩ := List.getElem_of_mem this
       rw [← strCode_getD hs hi, ← sortName_eq_getD] at hiX
@@ -265,14 +351,12 @@ theorem itesApart_of_codes {c : Semantics} {sym srt I : List Nat} (hc : (allSymN
         rw [← allSortNames_length, ← List.length_map (f := strCode), hs]; exact hi
       simp only [List.any_eq_true, beq_iff_eq]
       exact ⟨i, by simpa [kernelSorts] using hi', strCode_inj hiX⟩
-    · rfl
-  · by_cases hn : iteSort? (c.symName k.name) = none
-    · simp [hn]
-    have hks := hmem k hk hn
-    by_cases hn' : iteSort? (c.symName k'.name) = none
-    · simp only [Bool.or_eq_true, bne_iff_ne, ne_eq, hn', beq_iff_eq]
-      exact Or.inl (Or.inr hn)
-    · exact h2 k hks k' (hmem k' hk' hn')
+    · cases hd' : instDecode? (c.symName k'.name) with
+      | none => rfl
+      | some p' =>
+        have := h2 k' (hmem k' hk'' (by rw [hd']; exact Option.some_ne_none _))
+        rw [hd'] at this
+        exact this
 
 /-! ## `namesApartK` -/
 

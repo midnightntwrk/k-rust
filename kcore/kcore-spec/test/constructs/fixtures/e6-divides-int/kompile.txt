@@ -1,0 +1,11 @@
+command: kompile --backend haskell e6-divides-int.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 3.8
+definition.kore bytes: 203375
+definition.kore sha256: fbb875581d0edbed6c9aaa62806533d1b4fb2611d0ebe1d6e59aa729e6d289c1
+stripped sha256: eaaf2159c256963583c947e8b7ea1482f23155d94b5b04ff2c580dc22d622679
+main module: 393 sentences, 37 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-DIVIDES-INT-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E6-DIVIDES-INT as default.

@@ -1,0 +1,11 @@
+command: kompile --backend haskell e6-int2bytes-nolen.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 3.9
+definition.kore bytes: 245715
+definition.kore sha256: 823e7ac703b1413b7595d583a19f9acd2402eda6df1f756f60ce5a5afb44c3e4
+stripped sha256: 1c5331c0c7bac4d0e4f630ae02f0f4dc0dcfd709d3fc96ae1d4d46009893909f
+main module: 488 sentences, 93 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-INT2BYTES-NOLEN-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E6-INT2BYTES-NOLEN as default.

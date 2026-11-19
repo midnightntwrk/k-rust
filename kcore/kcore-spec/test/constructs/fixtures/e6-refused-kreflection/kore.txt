@@ -1,0 +1,13 @@
+//@ 222
+  symbol Lblgo{}(SortInt{}) : SortKItem{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,20,8,40)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-refused-kreflection.k)"), symbol'Kywd'{}("go")]
+//@ 3079
+// rule `<generatedTop>`(`<k>`(go(#token("1","Int"))~>inj{Int,KItem}(X)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{String,KItem}(`#unparseKORE(_)_K-REFLECTION_String_Sort`{Int}(X))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(7475194f64d676426add456580f0afc243ad980ca7df016baa9ad54090e92e29), label(E6-REFUSED-KREFLECTION.kreflection-printKORE), org.kframework.attributes.Location(Location(9,33,9,79)), org.kframework.attributes.Source(Source(FIXTURE/e6-refused-kreflection.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("1")),kseq{}(inj{SortInt{}, SortKItem{}}(VarX:SortInt{}),Var'Unds'DotVar1:SortK{}))),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortString{}, SortKItem{}}(Lbl'Hash'unparseKORE'LParUndsRParUnds'K-REFLECTION'Unds'String'Unds'Sort{SortInt{}}(VarX:SortInt{})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("7475194f64d676426add456580f0afc243ad980ca7df016baa9ad54090e92e29"), label{}("E6-REFUSED-KREFLECTION.kreflection-printKORE"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(9,33,9,79)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-refused-kreflection.k)")]
+//@ 3231
+endmodule [org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,1,10,10)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-refused-kreflection.k)")]

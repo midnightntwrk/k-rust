@@ -1,0 +1,11 @@
+command: kompile --backend haskell e6-list-set-lhs.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 4.6
+definition.kore bytes: 208292
+definition.kore sha256: f08fa05682f6fc32c83c62f762faf9ce398fcff7c3ca4987f759279a3254ff2f
+stripped sha256: f11addd2739fc6628642a040c0fc875013acb5cc6ef5e63aec6f60414661c78d
+main module: 408 sentences, 75 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-LIST-SET-LHS-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E6-LIST-SET-LHS as default.

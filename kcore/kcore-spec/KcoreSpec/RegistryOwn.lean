@@ -101,4 +101,26 @@ theorem exact_own_mp (c : Semantics) (D : KoreAML.Sym → Prop) (h : c.coreOK = 
   obtain ⟨M, hM, I, hI, hn⟩ := (exact_hyp c h hf x y).mp hs
   exact ⟨M, hM, I, Γown_of_model hI, hn⟩
 
+/-- `psyms φ` followed by `acc`, built without copying a list at each application or implication
+(`psymsAcc_eq`). -/
+def psymsAcc : KoreAML.P → List KoreAML.Sym → List KoreAML.Sym
+  | .evar _, acc | .svar _, acc | .bottom, acc => acc
+  | .symbol σ, acc => σ :: acc
+  | .application φ ψ, acc | .implication φ ψ, acc => psymsAcc φ (psymsAcc ψ acc)
+  | .existential _ φ, acc | .mu _ φ, acc => psymsAcc φ acc
+
+theorem psymsAcc_eq : ∀ (φ : KoreAML.P) (acc : List KoreAML.Sym), psymsAcc φ acc = psyms φ ++ acc
+  | .evar _, _ | .svar _, _ | .bottom, _ | .symbol _, _ => rfl
+  | .application φ ψ, acc | .implication φ ψ, acc => by
+    simp only [psymsAcc, psyms, psymsAcc_eq φ, psymsAcc_eq ψ, List.append_assoc]
+  | .existential _ φ, acc | .mu _ φ, acc => by simp only [psymsAcc, psyms, psymsAcc_eq φ]
+
+/-- `psyms` computed with an accumulator. -/
+def psymsByAcc (φ : KoreAML.P) : List KoreAML.Sym := psymsAcc φ []
+
+/-- The compiled code computes `psyms` with an accumulator. -/
+@[csimp] theorem psyms_eq_psymsByAcc : @psyms = @psymsByAcc := by
+  funext φ
+  rw [psymsByAcc, psymsAcc_eq, List.append_nil]
+
 end KCore

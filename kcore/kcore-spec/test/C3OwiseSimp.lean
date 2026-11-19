@@ -37,7 +37,8 @@ noncomputable abbrev cH (H : HookParams) : Semantics := c.withHooks H
 noncomputable def trS (ad : AxiomDecl) : Item := trAxiom kore.symbolDecls kore.aliasNames ad
 
 theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
-theorem coreOK : c.coreOK = true := by decide +kernel
+set_option maxHeartbeats 4000000 in
+theorem coreOK : c.coreOK = true := by decide_coreOK
 theorem coreOKH (H : HookParams) : (cH H).coreOK = true := (Semantics.coreOK_withHooks c H).trans coreOK
 theorem hok : c.ok = true := by decide +kernel
 theorem hokH (H : HookParams) : (cH H).ok = true := (Semantics.ok_withHooks c H).trans hok

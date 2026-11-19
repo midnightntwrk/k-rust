@@ -1,0 +1,17 @@
+out/definition.kore: 5 modules; prelude agrees
+user module E3-EQ-EXISTS-UNDER-APP-PARTIAL-ML: 282 sentences
+  1 inert import [generated]
+  158 read [generated]
+  95 read [builtin]
+  4 read [user]
+  4 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  9 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 manyValuedRightSide
+      sentence 247 (Lblf): manyValuedRightSide (\exists)
+        [user] (no label) at e3-eq-exists-under-app-partial-ml.k:7: axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortBool{}, R}(X0:SortBool{}, VarX:SortBool{}), \top{R}())), \equals{SortBool{}, R}(Lblf{}(X0:SortBool{}), \and{SortBool{}}(Lblg{}(\exists{SortBool{}}(VarB:SortBool{}, \and{SortBool{}}(VarB:SortBool{}, \equals{SortBool{}, SortBool{}}(VarB:SortBool{}, VarX:SortBool{})))), \top{SortBool{}}()))) [UNIQUE'Unds'ID{}("51e1425006741aa8af001bc8daf5ed412b2 …
+finish: sentence 247 (Lblf): manyValuedRightSide (\exists)
+(exit 0)

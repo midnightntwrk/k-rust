@@ -2766,8 +2766,10 @@ def clipSegs : Nat → List (List Char × Bool) → List Char × Bool
       (cs ++ r.1, r.2)
     else (cs.take n, true)
 
-/-- The account's class of a lemma applying a parameter symbol without `impl` (`isParamLemma`): the
-tie class `parameter lemma` (`tieClasses`), in place of the reader's class `inert simplification`. -/
+/-- The account's class of a lemma applying a parameter symbol without `impl` (`isParamLemma`), and
+of a `simplification` sentence of K's builtin library applying one (`isLibParamLemma`): the tie
+class `parameter lemma` (`tieClasses`), in place of the reader's class `inert simplification`, or
+`read` for the library's sentence. -/
 def paramLemmaClass : String := "parameter lemma"
 
 /-- The account's class of a user's equation of a symbol whose value the registry gives
@@ -2817,7 +2819,8 @@ def account (koreFile : String) : IO UInt32 := do
   IO.println s!"{koreFile}: {k.modules.length} modules; prelude {if k.modules.dropLast = preludeModules then "agrees" else "differs: " ++ (Parse.preludeRefusal k).toText}"
   IO.println s!"user module {m.name.ident.name}: {m.sentences.length} sentences"
   let N := Parse.namesOf k
-  -- a lemma applying a parameter symbol without `impl` of the reading is a parameter lemma
+  -- a lemma applying a parameter symbol without `impl` of the reading is a parameter lemma, and so
+  -- is a `simplification` sentence of K's builtin library applying one
   let dRead := match Parse.finish m (Parse.scan m.sentences) with
     | .ok d => some d
     | .error _ => none
@@ -2830,8 +2833,8 @@ def account (koreFile : String) : IO UInt32 := do
     | .axiom a =>
       if (Parse.rawEqn? a).any (Parse.regLemmaEqn S ·) then
         if dRead.any (fun (d : Definition) => appliesNoImplParam d.sem a.pattern) then paramLemmaClass else userLemmaValuesClass
-      else if dRead.any (fun (d : Definition) => isParamLemma d.sem cl s) then paramLemmaClass else cl.name
-    | _ => if dRead.any (fun (d : Definition) => isParamLemma d.sem cl s) then paramLemmaClass else cl.name
+      else if dRead.any (fun (d : Definition) => isParamLemma d.sem cl s || isLibParamLemma d.sem cl s) then paramLemmaClass else cl.name
+    | _ => if dRead.any (fun (d : Definition) => isParamLemma d.sem cl s || isLibParamLemma d.sem cl s) then paramLemmaClass else cl.name
   let cls := m.sentences.map fun s => (clsName s, origin s, s)
   let keys := (cls.map fun (c, o, _) => (c, o)).eraseDups
   for (c, o) in keys do

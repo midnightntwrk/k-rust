@@ -13,6 +13,7 @@
   it with no guard: `f(x) ≠ f(y)` for Int x and y. At x = y = the element of `0` this is false. The
   decidable facts are kernel decisions.
 -/
+import KcoreSpec.CoreDecide
 import KcoreSpec.Sound
 import KcoreSpec.ModelOvlTwiceWitness
 
@@ -45,7 +46,8 @@ def c : Semantics :=
 /-- Without the library's constructor `coreOK` holds. -/
 def c0 : Semantics := { c with lib := {} }
 
-theorem c0_coreOK : c0.coreOK = true := by decide +kernel
+set_option maxHeartbeats 4000000 in
+theorem c0_coreOK : c0.coreOK = true := by decide_coreOK
 
 /-- The leaves of `overloadsOK`, each over every overloading symbol (test/witnesses.toml's
 overloadsOK.1 to overloadsOK.9). -/
@@ -76,7 +78,7 @@ set_option maxHeartbeats 1000000 in
 theorem meets_others : c.sortedOK = true ∧ c.faithCoreOK = true ∧ c.hooksApart = true ∧
     c.predsApart = true ∧ c.idsOK = true ∧ ov2 c = true ∧ ov3 c = true ∧ ov4 c = true ∧ ov5 c = true ∧
     ov6 c = true ∧ ov7 c = true ∧ ov8 c = true ∧ FnHyp c :=
-  ⟨sortedOK, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
+  ⟨sortedOK, by decide_faithCoreOK, by decide +kernel, by decide +kernel, by decide +kernel,
     by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
     by decide +kernel, by decide +kernel, fnHyp⟩
 

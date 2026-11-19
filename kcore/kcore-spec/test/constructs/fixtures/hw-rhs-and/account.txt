@@ -1,0 +1,22 @@
+test/constructs/fixtures/hw-rhs-and/hw-rhs-and.kore: 5 modules; prelude agrees
+user module HW-BASE: 426 sentences
+  1 inert import [generated]
+  196 read [generated]
+  183 read [builtin]
+  12 read [user]
+  8 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  2 inert distinctCtors [generated]
+  1 inert parametricFunctional [generated]
+  11 inert noJunk [generated]
+  1 read andAsEnsures [user]
+  1 inert simplification [generated]
+connective readings per sentence: 1
+      sentence 378: andAsEnsures
+stage refusals (of sentences classified read): 1
+  1 rhsOperandSort
+      sentence 378 (Lblf): rhsOperandSort (\and{SortExp{}}: an operand \equals of sort SortInt{})
+        [user] (no label) at hw-base.k:19: axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, VarX:SortInt{}), \top{R}())), \equals{SortExp{}, R}(Lblf{}(X0:SortInt{}), \and{SortExp{}}(\and{SortExp{}}(Lbla{}(VarX:SortInt{}), \equals{SortBool{}, SortInt{}}(\dv{SortBool{}}("true"), \dv{SortBool{}}("true"))), \top{SortExp{}}()))) [UNIQUE'Unds'ID{}("b9bdb7fbfd467bed71a894cf53e0819aa7a43d033da61c71fa7f5dd8bac1547a"), …
+finish: sentence 378 (Lblf): rhsOperandSort (\and{SortExp{}}: an operand \equals of sort SortInt{})
+(exit 0)

@@ -559,14 +559,14 @@ theorem collsOK_of_core (h : c.coreOK = true) : collsOK c = true := by
 theorem ctor_ite (h : c.coreOK = true) {k : CtorSig} (hk : k ∈ c.ctorSigs) : iteSort? (c.symName k.name) = none := by
   have := namesNumbered_of_core h
   simp only [namesNumbered, Bool.and_eq_true, List.all_eq_true, Option.isNone_iff_eq_none] at this
-  exact this.1.1 k hk
+  exact iteSort?_none_of_instDecode (this.1.1 k hk)
 
 /-- A symbol that an overloading symbol overloads is named plainly. -/
 theorem over_ite (h : c.coreOK = true) {o : OvlSig} (ho : o ∈ c.ovls) {g : Sym} (hg : g ∈ o.over) :
     iteSort? (c.symName g) = none := by
   have := namesNumbered_of_core h
   simp only [namesNumbered, Bool.and_eq_true, List.all_eq_true, Option.isNone_iff_eq_none] at this
-  exact this.1.2 o ho g hg
+  exact iteSort?_none_of_instDecode (this.1.2 o ho g hg)
 
 /-- What `overloadsOK` says of each overloading symbol: `lookupOvl` finds it under its name, it
 is named plainly, and each signature it overloads has argument and result sorts at most its own. -/
@@ -579,7 +579,7 @@ theorem ovl_at (hok : c.overloadsOK = true) {o : OvlSig} (ho : o ∈ c.ovls) :
   have hoi := hok (o, i) (List.mem_zipIdx_iff_getElem?.mpr hi)
   simp only [Bool.and_eq_true, beq_iff_eq, Option.isNone_iff_eq_none, List.all_eq_true] at hoi
   obtain ⟨⟨⟨⟨⟨⟨⟨⟨-, h2⟩, h3⟩, -⟩, -⟩, -⟩, h7⟩, -⟩, -⟩ := hoi
-  exact ⟨h2, h3, h7⟩
+  exact ⟨h2, iteSort?_none_of_instDecode h3, h7⟩
 
 theorem ovlSig_ite (h : c.coreOK = true) {k : CtorSig} (hk : k ∈ c.ovlSigs) : iteSort? (c.symName k.name) = none := by
   obtain ⟨o, ho, rfl⟩ := List.mem_map.mp hk
@@ -802,7 +802,7 @@ theorem collSyms_ks (h : c.coreOK = true) {k : CollSig} (hk : k ∈ c.allColls) 
     have hi : iteSort? (c.symName f) = none := by
       have := hite f hf
       simp only [Option.isNone_iff_eq_none] at this
-      exact this.2
+      exact iteSort?_none_of_instDecode this.2
     have hp : ∀ p : ParamSig, c.lookupParam f = some p →
         ∃ k' ∈ kernelSyms c, k'.name = f ∧ iteSort? (c.symName f) = none := by
       intro p hp

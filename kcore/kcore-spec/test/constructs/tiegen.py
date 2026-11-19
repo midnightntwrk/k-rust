@@ -4,7 +4,7 @@
 Usage (from anywhere; the library and `kcore` built first):
   python3 -I test/constructs/tiegen.py FIXTURE [--sig-chunk N] [--decl-chunk N] [--chunk N]
                                                [--hand consistency=FILE] [--at-values N,...] [--cons-head] [--wf-parts]
-                                               [--out DIR] [--print]
+                                               [--split] [--out DIR] [--print]
   (the probe, a run of the Lean definitions on the text, is stopped after $TIEGEN_PROBE_TIMEOUT seconds, 900 by default)
   python3 -I test/constructs/tiegen.py --self-test   (the law search below, on three fixtures)
 
@@ -26,6 +26,17 @@ accepts and it does not is left to the classes the probe gives otherwise.
 --wf-parts states `wf_defn` from its conjuncts (`wf_of_parts_all`), each a decision of its own, the
 names' distinctness by their codes (`KoreAML.Distinct`): `namesOK`'s `nodup` over the emitted
 declarations compares every pair of names, which for a text of many symbols exceeds a 12 GiB scope.
+--split writes the tie as test/Tie<Fixture>.lean and one file per heavy section, in the same
+namespace: Tie<Fixture>Attrs (`attrs_agree`), Sig (`sig_origin`), Decls (`decl_counts`,
+`decls_entailed`), Fns (the function equations), Rules, NoJunk, Cons; the first file keeps the
+literals, the names, `wf`, the account, the consistency and the later sections. The declarations
+are the ones the single file states, word for word, in its order. A test file imports no test file,
+so each file repeats the literals and the definitions and facts it reads (`c`, `cH`, `trS`,
+`classes`, `coreOK`, ...); a decision of a section other than the first file's head and consistency
+is never repeated: a declaration of the later sections goes to the file of the decisions it reads,
+and sections that read each other's decisions share one file (the rules with the functions where
+the converse over Γ reads both, `gamma_origin`). `--print` lists the files, the merges and what each
+file repeats. Without --split the output is the single file.
 --hand consistency=FILE puts FILE in place of the consistency section, for a text that owes an
 agreement, a clause's match independence, or a rule's or clause's condition (`owed_rules`,
 `owed_clauses`): FILE proves the owed facts and states `consistent` for every H, with `facts` for an
@@ -77,8 +88,9 @@ What it states where the text:
   functional`);
 - states a law of a function (`Definition.laws`): `law_text` (the sentence as written is `lawPattern`),
   `law_not_item`, `law_account` (the class `function law`);
-- has a lemma applying a parameter symbol no hook implements (`isParamLemma`, the class `parameter
-  lemma`, direction hypothesis): `paramlemma_account`, and `ParamLemmaWitnessAtValues`, one H at
+- has a lemma applying a parameter symbol no hook implements (`isParamLemma`, or a `simplification`
+  sentence of K's builtin library applying one, which the reader reads as the library's text and of
+  which Γ holds no item; the class `parameter lemma`, direction hypothesis): `paramlemma_account`, and `ParamLemmaWitnessAtValues`, one H at
   which `FnObligations` hold and every parameter lemma holds at values (`EntailsAtValues`), stated
   and owed (`owed` in the summary); and
   `paramlemma_heads`: every `simplification` equation of the user module whose left side's head is
@@ -225,7 +237,8 @@ OPEN_FUNCTIONAL_CLASS = "open generator functional"
 # statements take as the hypothesis `ParamsTotal` (direction hypothesis).
 PARAM_FUNCTIONAL_CLASS = "parameter functional"
 # The class of a lemma the reader leaves out of Γ that applies a parameter symbol no registry hook
-# interprets (`isParamLemma`): its truth depends on the interpretation, so it is owed as a hypothesis
+# interprets (`isParamLemma`, or a `simplification` sentence of K's builtin library, of which Γ holds
+# no item, applying one): its truth depends on the interpretation, so it is owed as a hypothesis
 # on H (direction hypothesis), at values: Γ states the parameter's graph at values only (`ΓDomains`),
 # so a model of Γ may hold an element of an unconfined sort that is no value's, at which no item of Γ
 # constrains the parameter, and the sentence at every valuation can fail there at every H. The tie of
@@ -701,7 +714,13 @@ def tgNjOrder (gs : List KoreAML.Gen) : List Kore.Pattern → Option (List Nat)
     -- a user's equation of a symbol whose value the registry gives (`Parse.regLemmaEqn`): out of Γ,
     -- a parameter lemma where it applies a parameter symbol without `impl`, else at values
     let rl := (Parse.rawEqn? ad.ax).any (Parse.regLemmaEqn scK ·)
-    let pl := isParamLemma c (Parse.classify nmK (.axiom ad.ax)) (.axiom ad.ax) || (rl && appliesNoImplParam c ad.ax.pattern)
+    -- a lemma of K's builtin library applying a parameter symbol without `impl` of the reading: the
+    -- reader reads the library's text and Γ holds no item of the lemma (the class `library` is at
+    -- values over symbols Γ interprets); the parameter's value is the interpretation's, so it is a
+    -- parameter lemma as a user's is
+    let lpl := Parse.isKBuiltin ad.ax.attributes && AttrsAgree.has ad.ax.attributes "simplification" &&
+      appliesNoImplParam c ad.ax.pattern
+    let pl := isParamLemma c (Parse.classify nmK (.axiom ad.ax)) (.axiom ad.ax) || (rl && appliesNoImplParam c ad.ax.pattern) || lpl
     let simp := Parse.classify nmK (.axiom ad.ax) == .inert .simplification
     let usrc := Parse.isUserSource ad.ax.attributes
     IO.println s!"S {ad.index}\t{absent}\t{fnJ}\t{cons}\t{plain}\t{consItem}\t{triv}\t{kitem}\t{rw}\t{eh}\t{kind eh}\t{fh}\t{kind fh}\t{AttrsAgree.prioOf ad.ax.attributes}\t{pl}\t{simp}\t{usrc}\t{rl}"
@@ -951,7 +970,7 @@ def by_ranges(prefix, lst, pred, rs, lem="tieAllE", named=False):
 
 
 def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, failing, ob, chunks, raws=None,
-             hand=None, chunk=0, at_values=(), cons_head=False, wf_parts=None):
+             hand=None, chunk=0, at_values=(), cons_head=False, wf_parts=None, split=False):
     """The Lean text of the tie. `ob`: what `obligations` read; `raws`: each sentence's text as
     written; `hand`: hand-written sections by name (`consistency`), each in place of the generated
     one; `chunk`: the length of the ranges the decisions over the whole user module are cut into
@@ -1110,6 +1129,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
 
     L = []
     w = L.append
+    marks = []
+    mark = lambda m: marks.append((len(L), m))  # the section of the file `--split` puts what follows in
     # ---- header
     w("/-")
     w(f"  The tie (C14) on `{text_rel}`, the kompiled text of construct fixture {name}")
@@ -1486,6 +1507,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w("def wfFailing : List String := [" + ", ".join(f'"{x}"' for x in failing) + "]")
     w("")
     # ---- account
+    mark("Account")
     w("/-! ## The account: every sentence of the user module is in exactly one class -/")
     w("")
     w("/-- Per class of the tie (`tieClasses`), the indices (`AxiomDecl.index`) of its sentences. -/")
@@ -1558,6 +1580,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     w("theorem lists_in_account : (unmapped ++ uncovered).all (fun ic => (classOf ic.2).contains ic.1) = true := by")
     w("  decide +kernel")
     w("")
+    mark("Attrs")
     w("/-! ## The attributes -/")
     w("")
     if law_idx:
@@ -1583,6 +1606,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     w("theorem attrs_agree : attrsAgree kore defn = true := by decide +kernel")
     w("")
     # ---- signature
+    mark("Sig")
     w("/-! ## The declarations: `sig_origin` and `decls_entailed`, by ranges -/")
     w("")
     w("/-- `p` holds from `a` on where it holds on the `n` members from `a` and from `a + n` on. -/")
@@ -1636,6 +1660,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     w("")
     w("kernel_rfl sigItems_withHooks : ∀ (c : Semantics) (H : HookParams), sigItems (c.withHooks H) = sigItems c")
     w("")
+    mark("Decls")
     w("/-- Γ has a symbol under the name `n`. -/")
     w("noncomputable def hasSym (n : String) : Bool := (kernelSyms c).any fun k => c.symName k.name == n")
     w("")
@@ -1670,6 +1695,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     w("  exact sat_sigItem hI (by rw [sigItems_withHooks]; exact hit')")
     w("")
     # ---- consistency
+    mark("Consistency")
     tp = "[]"
     if raw:
         w("/-! ## Consistency for every H satisfying the open generator's laws -/")
@@ -1808,6 +1834,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             w(f"/-- **{'`Γc`' if confined else 'Γ'} with the step's closure has a model, for every H.** -/")
             w("theorem consistent (H : HookParams) : Consistent (cH H) := consistent_of_fnHyp _ (coreOKH H) (fnHypH H)")
             w("")
+    mark("Fns")
     if fn_align:
         w(alpha_block())
     w("/-! ## Γ under every interpretation reads the same equations and rules -/")
@@ -1887,6 +1914,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w("theorem fn_prios : fnText.map (fun ad => AttrsAgree.prioOf ad.ax.attributes) =")
         w("    c.allFns.flatMap (fun f => f.clauses.map (·.prio)) := by decide +kernel")
         w("")
+    mark("Rules")
     if rules_full and nrules:
         w(ens_section("/-! ## The rule (sentence 155): W1 -/", "noncomputable def r0 : Rule").replace(
             "/-! ## The rule (sentence 155): W1 -/", f"/-! ## The rules ({nrules} sentences): W1 -/"))
@@ -1958,6 +1986,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             w(f"  · exact ⟨U.ax{i}, {mem}, rule{j}_from_text⟩")
         w("")
     # ---- no junk
+    mark("NoJunk")
     w("/-! ## No junk -/")
     w("")
     if nj_triv:
@@ -2031,6 +2060,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w(sec)
         nj_names += nn
     # ---- cons
+    mark("Cons")
     if cons_text:
         w("/-! ## The constructor sentences: functional, subsort, injectivity, distinctness -/")
         w("")
@@ -2070,6 +2100,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w("    ((tieConsB_withHooks c H ad.ax).trans (List.all_eq_true.mp cons_checked ad had)) ad.index ad.module hI")
         w("")
     # ---- idem
+    mark("Rest")
     if idem is not None:
         sec = ens_section("/-! ## Set idempotence (61): refuted -/", "/-! ## Consistency for every H -/",
                           IDEM_DROP).replace("@I@", str(idem))
@@ -2097,9 +2128,11 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     if user_lem or user_lem_v:
         w(user_lemma_section(user_lem, user_lem_v))
     if fn_pair:
+        mark("Fns")
         wi = pair_text[pair_w]
         w(pair_section(pair_w, wi, sents[wi]["prio"], "non-executable{}()" in raws.get(wi, ""),
                        len(by_class["function equation"])))
+        mark("Rest")
     if gamma:
         w(GAMMA_ALIGN if fn_align else GAMMA_RULES if nrules else GAMMA)
     cnames = []
@@ -2171,13 +2204,22 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             w(f"#check @KCore.{ns}.{n}")
         for n in block:
             w(f"#print axioms KCore.{ns}.{n}")
+    blocks = (names, pair_names)
     names = names + pair_names
+    offs = [0]
+    for x in L:
+        offs.append(offs[-1] + len(x) + 1)
+    marks = [(offs[k], m) for k, m in marks]
     lean = "\n".join(L) + "\n"
     for sec, text in hand.items():
         start = HAND_SECTIONS[sec]
         a = lean.index("\n" + start) + 1
         b = lean.index("\n/-! ## ", a) + 1
-        lean = lean[:a] + text.rstrip("\n") + "\n\n" + lean[b:]
+        new = text.rstrip("\n") + "\n\n"
+        if split and any(a < o < b for o, _ in marks):
+            raise Refused(f"{name}: --split: a section starts inside the hand-written {sec} section")
+        marks = [(o if o <= a else o + len(new) - (b - a), m) for o, m in marks]
+        lean = lean[:a] + new + lean[b:]
     owed = ([f"the agreement of {', '.join(ob['agree_names'])} (AgreeOwed)"] if agree and "consistency" not in hand else [])
     if param_lem:
         owed.append(f"one H at which FnObligations hold and the parameter lemmas {', '.join(map(str, param_lem))} "
@@ -2194,7 +2236,219 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                    confined=confined, uncovered=uncovered, owed=owed, theorems=names,
                    law_search=[dict(law=law_idx[r["j"]], searched=r["searched"], valuations=r["tried"], refuted=False)
                                for r in head["lawRef"]])
+    if split:
+        summary["split_files"], summary["split"] = split_tie(ns, lean, marks, text_rel, cmd, blocks)
     return ns, lean, summary
+
+
+# the files of `--split` beside the first, in this order; a file holds the sections `generate` marks
+# with its name (`mark`), and the declarations of the later sections that read their decisions
+SPLIT_PARTS = ["Attrs", "Sig", "Decls", "Fns", "Rules", "NoJunk", "Cons"]
+# the marks of the first file: `Head` and `Consistency` may be repeated where a part reads them, the
+# account's decisions may not, `Rest` (the sections after the constructors) follows what it reads
+SPLIT_FIRST = ["Head", "Account", "Consistency", "Rest"]
+SPLIT_DECL = re.compile(r"(?:@\[[^\]]*\]\s*)?(?:(?:private|protected|noncomputable)\s+)*"
+                        r"(theorem|lemma|def|abbrev|instance|kernel_rfl)\s+([^\s:({\[]+)")
+SPLIT_DECIDES = re.compile(r"\bdecide(?:_cheap\b|\s*\+kernel\b)|\bby\s+decide\b")
+SPLIT_IDENT = re.compile(r"(?<![\w'.!?])([^\W\d][\w'!?]*)")
+
+
+def split_depth(line):
+    """The brackets the line opens and does not close (strings and `--` comments dropped)."""
+    t = re.sub(r"--.*", "", re.sub(r'"(?:[^"\\]|\\.)*"', "", line))
+    return sum(t.count(x) for x in "([{⟨") - sum(t.count(x) for x in ")]}⟩")
+
+
+def split_chunks(text):
+    """The declarations of `text` (a part of the tie between the literals and `end`), in order, each
+    `(text, names, kind)`: kind "decl" for a declaration with the `set_option ... in` lines and the
+    doc comment before it, "note" for a comment by itself. The chunks concatenate to `text`."""
+    lines = text.split("\n")
+    out, i, n = [], 0, len(lines)
+    while i < n and lines[i] == "":
+        i += 1
+    if i:
+        out.append(["\n".join(lines[:i]) + "\n", [], "note"])
+    while i < n:
+        a = i
+        pre_doc = False
+        while True:
+            s = lines[i]
+            if s.startswith("/-"):
+                depth = 0
+                while True:
+                    depth += lines[i].count("/-") - lines[i].count("-/")
+                    i += 1
+                    if depth <= 0 or i >= n:
+                        break
+                if s.startswith("/--"):
+                    pre_doc = True
+                    if i < n and (lines[i].startswith("set_option ") or SPLIT_DECL.match(lines[i])):
+                        continue
+                kind = "doc" if pre_doc else "note"
+                break
+            if re.match(r"set_option \S+ \S+ in$", s) or s.startswith("--"):
+                i += 1
+                continue
+            m = re.match(r"section (\S+)$", s)
+            if m:
+                try:
+                    i = lines.index(f"end {m[1]}", i) + 1
+                except ValueError:
+                    raise Refused(f"--split: no `end {m[1]}` for `{s}`")
+                while i < n and lines[i] == "":
+                    i += 1
+                kind = "decl"
+                break
+            if SPLIT_DECL.match(s):
+                depth = split_depth(s)
+                i += 1
+                while i < n and (lines[i].startswith((" ", "\t")) or lines[i] == "" or depth > 0):
+                    depth += split_depth(lines[i])
+                    i += 1
+                kind = "decl"
+                break
+            raise Refused(f"--split: a line of the tie that is no declaration, comment or `set_option ... in`: {s[:80]!r}")
+        while kind != "decl" and i < n and lines[i] == "":
+            i += 1
+        if kind == "doc":
+            raise Refused(f"--split: a doc comment not followed by a declaration: {lines[a][:80]!r}")
+        body = "\n".join(lines[a:i]) + ("\n" if i < n else "")
+        names = [m[2].strip("«»") for l in lines[a:i] for m in [SPLIT_DECL.match(l)] if m] if kind == "decl" else []
+        out.append([body, names if lines[a].startswith("section ") else names[:1], kind])
+    if "".join(c[0] for c in out) != text:
+        raise Refused("--split: the declarations of the tie do not make up its text")
+    return out
+
+
+def split_refs(body):
+    """The identifiers a declaration's code names (comments and strings dropped), first components only."""
+    s = re.sub(r"/-.*?-/", " ", body, flags=re.S)
+    s = re.sub(r"--[^\n]*", " ", s)
+    s = re.sub(r'"(?:[^"\\]|\\.)*"', " ", s)
+    return set(SPLIT_IDENT.findall(s))
+
+
+def split_tie(ns, lean, marks, text_rel, cmd, blocks):
+    """The files of `--split`: `{file stem: text}`, the first `ns`, and the report (what each part
+    repeats; the parts merged because one reads another's decision). `marks`: `(offset, mark)`
+    in `lean`, each at the start of a line, in order; `blocks`: the lists of names the single file
+    checks and prints, each block in turn."""
+    end = f"end KCore.{ns}"
+    a = lean.index("\nimport KcoreSpec\n") + 1
+    b = lean.index("noncomputable abbrev cH (H : HookParams) : Semantics := c.withHooks H\n")
+    b = lean.index("\n", b) + 1
+    while lean[b:b + 1] == "\n":
+        b += 1
+    e = lean.index("\n" + end + "\n") + 1
+    header, preamble = lean[:a], lean[a:b]
+    bounds = [(max(o, b), m) for o, m in marks if o < e]
+    if bounds[0][0] != b:
+        bounds.insert(0, (b, "Head"))
+    chunks = []
+    for (o, m), (o2, _) in zip(bounds, bounds[1:] + [(e, None)]):
+        if o2 > o:
+            for body, names, kind in split_chunks(lean[o:o2]):
+                chunks.append(dict(body=body, names=names, kind=kind, mark=m))
+    defs = {}
+    for k, ch in enumerate(chunks):
+        for x in ch["names"]:
+            defs.setdefault(x, k)
+    for k, ch in enumerate(chunks):
+        ch["refs"] = {defs[x] for x in split_refs(ch["body"]) if x in defs} - {k} if ch["kind"] == "decl" else set()
+        ch["decides"] = ch["kind"] == "decl" and bool(SPLIT_DECIDES.search(re.sub(r"/-.*?-/", " ", ch["body"], flags=re.S)))
+    clos = {}
+
+    def closure(k):
+        if k not in clos:
+            seen, todo = set(), list(chunks[k]["refs"])
+            while todo:
+                j = todo.pop()
+                if j not in seen:
+                    seen.add(j)
+                    todo += chunks[j]["refs"]
+            clos[k] = seen
+        return clos[k]
+
+    file_of = lambda m: ns if m in SPLIT_FIRST else ns + m
+    parent = {}
+
+    def find(f):
+        while parent.get(f, f) != f:
+            f = parent[f]
+        return f
+
+    def union(fs):
+        fs = sorted({find(f) for f in fs}, key=lambda f: (f != ns, [ns + p for p in SPLIT_PARTS].index(f) if f != ns else 0))
+        for f in fs[1:]:
+            parent[f] = fs[0]
+        return fs[0]
+
+    heavy = lambda j: chunks[j]["decides"] and chunks[j]["mark"] not in ("Head", "Consistency", "Rest")
+    home = {}
+    for _ in range(len(SPLIT_PARTS) + 2):
+        changed = False
+        for k, ch in enumerate(chunks):
+            if ch["kind"] != "decl":
+                continue
+            own = None if ch["mark"] == "Rest" else find(file_of(ch["mark"]))
+            hs = {find(home.get(j, file_of(chunks[j]["mark"]))) for j in closure(k) if heavy(j)}
+            if own is not None:
+                hs.add(own)
+            h = union(hs) if hs else ns
+            if home.get(k) != h:
+                home[k], changed = h, True
+        if not changed:
+            break
+    # a declaration of the later sections that reads no decision goes where all its readers are
+    readers = {k: [j for j, ch in enumerate(chunks) if k in ch["refs"]] for k in home}
+    for k in sorted(home, reverse=True):
+        rs = {find(home[j]) for j in readers[k]}
+        if chunks[k]["mark"] == "Rest" and find(home[k]) == ns and len(rs) == 1 and ns not in rs:
+            home[k] = rs.pop()
+    nxt = None
+    for k in range(len(chunks) - 1, -1, -1):
+        if chunks[k]["kind"] == "decl":
+            nxt = home[k] = find(home[k])
+        else:
+            home[k] = nxt if nxt is not None and chunks[k]["mark"] == chunks[k + 1]["mark"] else find(file_of(chunks[k]["mark"]))
+    files = [f for f in [ns] + [ns + p for p in SPLIT_PARTS] if find(f) == f and any(home[k] == f for k in home)]
+    if ns not in files:
+        files.insert(0, ns)
+    merged = sorted({ns + p for p in SPLIT_PARTS if find(ns + p) != ns + p})
+    owner = {x: home[k] for x, k in defs.items()}
+    out, report = {}, {"merged": {m: find(m) for m in merged}, "repeats": {}}
+    for f in files:
+        own = [k for k in range(len(chunks)) if home[k] == f]
+        need = set().union(*[closure(k) for k in own]) - set(own) if own else set()
+        body = "".join(chunks[k]["body"] for k in range(len(chunks)) if k in need or k in set(own))
+        if not body.endswith("\n\n"):
+            body += "\n"
+        rep = [x for k in sorted(need) for x in chunks[k]["names"]]
+        dec = [x for k in sorted(need) if chunks[k]["decides"] for x in chunks[k]["names"]]
+        if f != ns or rep:
+            report["repeats"][f] = dict(names=rep, decided=dec)
+        tail = [end, ""]
+        for blk in blocks:
+            mine = [x for x in blk if owner.get(x, ns) == f]
+            tail += [f"#check @KCore.{ns}.{x}" for x in mine] + [f"#print axioms KCore.{ns}.{x}" for x in mine]
+        if f == ns:
+            parts = ", ".join(f"`test/{g}.lean`" for g in files[1:])
+            para = (f"Written with `--split`: this file holds the literals, the names, `wf`, the account, the "
+                    f"consistency and the sections that read none of the other files' decisions; the other sections "
+                    f"are in {parts}, in this namespace, each of which repeats the literals and the definitions and "
+                    f"facts it reads, as a test file imports no test file.")
+            head = header[:header.rindex("-/")] + (
+                textwrap.fill(para, width=100, initial_indent="  ", subsequent_indent="  ", break_on_hyphens=False,
+                              break_long_words=False) + "\n" if files[1:] else "") + header[header.rindex("-/"):]
+        else:
+            head = (f"/-\n  Part {f[len(ns):]} of the tie (C14) on `{text_rel}`, test/{ns}.lean: the sections\n"
+                    f"  `--split` puts here, in the tie's namespace. A test file imports no test file, so this one\n"
+                    f"  repeats the literals and the definitions and facts it reads. Written by\n"
+                    f"  `test/constructs/tiegen.py {cmd} --split`; run from the package root:\n"
+                    f"  `lake env lean -j1 test/{f}.lean`.\n-/\n")
+        out[f] = head + preamble + body + "\n".join(tail) + "\n"
+    return out, report
 
 
 # the sections a hand-written text may take the place of (`--hand NAME=FILE`), by their first line
@@ -2546,7 +2800,8 @@ def param_lemma_section(param_lem):
     lt = ", ".join(f"U.ax{i}" for i in param_lem)
     return f"""/-! ## The parameter lemmas ({il}): owed as a hypothesis on H -/
 
-/-- The text's lemmas that apply a parameter symbol no registry hook interprets (`isParamLemma`). -/
+/-- The text's lemmas that apply a parameter symbol no registry hook interprets (`isParamLemma`, or a
+`simplification` sentence of K's builtin library applying one). -/
 noncomputable def paramLemmaText : List AxiomDecl := [{lt}]
 
 /-- The parameter lemmas are the account's class `{PARAM_LEMMA_CLASS}`, of the direction `hypothesis`
@@ -3086,16 +3341,23 @@ def main(argv):
             raise Refused(f"{name}: law sentence {i} is a function equation's item or a constructor item of Γ")
     ns, lean, summary = generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, failing,
                                  ob, chunks, {i: raw for i, _, _, raw in ua}, hand, chunk,
-                                 at_values, cons_head, wf_parts)
+                                 at_values, cons_head, wf_parts, "--split" in argv)
     outdir = argv[argv.index("--out") + 1] if "--out" in argv else None
     if outdir is None and (not os.path.exists(final) or open(final).read() != text):
         open(final, "w").write(text)
     out = os.path.join(outdir or os.path.join(KS, "test"), ns + ".lean")
-    open(out, "w").write(lean)
+    files = summary.pop("split_files", None)
+    if files:
+        for stem, t in files.items():
+            open(os.path.join(os.path.dirname(out), stem + ".lean"), "w").write(t)
+        summary["files"] = [os.path.relpath(os.path.join(os.path.dirname(out), stem + ".lean"), KS) for stem in files]
+    else:
+        open(out, "w").write(lean)
     summary["file"] = os.path.relpath(out, KS)
     print(json.dumps(summary, indent=1) if "--print" in argv else
           f"tiegen: {summary['file']}: {summary['sentences']} sentences ({summary['mapped']} as ens's, "
-          f"{summary['unmapped']} unmapped), {len(summary['uncovered'])} uncovered")
+          f"{summary['unmapped']} unmapped), {len(summary['uncovered'])} uncovered"
+          + (f"; {len(files)} files: {', '.join(summary['files'])}" if files else ""))
     return 0
 
 

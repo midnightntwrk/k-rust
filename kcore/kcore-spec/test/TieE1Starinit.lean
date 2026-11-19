@@ -29,6 +29,8 @@
     one of Γ's constructor items, `nojunk_items`; 1 KItem's with its disjuncts in the text's
     order, `nojunk_kitem_entailed`).
   - Set idempotence (95): Γ with it has no model (`idem_refuted`).
+  - Set idempotence of the set collection of `Lbl'Unds'TCellSet'Unds'` (99): Γ with it has no model
+    (`own_idem_refuted_99`, from `setColl_idem_refuted_text`).
   - Library sample, 232 (`I -Int 0 = I`): holds at values (`lib166`, `lib166_at_values`).
   - The converse over Γ's content: each premise is a function sentence's translation, one of the
     five parts Γ defines by predicates, or definedness (`gamma_origin`, `gamma_from`).
@@ -36,7 +38,7 @@
     owed as `FnHyp` (no theorem); no direction: `absent_closed`.
 
   The sentences with no counterpart in f2-examples/ens.kompile.kore are `unmapped` (128);
-  the sentences of a class with a theorem that no theorem here holds of are `uncovered` (1).
+  the sentences of a class with a theorem that no theorem here holds of are `uncovered` (0).
 -/
 import KcoreSpec
 
@@ -114,6 +116,8 @@ def classes : List (String × List Nat) :=
    ("open generator law", []),
    ("open generator functional", []),
    ("parameter lemma", []),
+   ("user lemma", []),
+   ("user lemma at values", []),
    ("no direction", [31, 70, 74, 76, 111, 113, 120, 150, 166, 167, 183, 223, 255, 276, 277, 278, 279, 282, 283,
       340, 341, 346, 348, 349, 350, 351, 353, 354, 355, 356, 357, 358, 359, 360, 361, 362, 363,
       364, 365, 366, 367, 368, 369, 370, 371, 372])]
@@ -130,7 +134,7 @@ theorem account : (classes.flatMap (·.2)).isPerm (userAxioms.map (·.index)) = 
 
 /-- The class sizes. -/
 theorem account_sizes : classes.map (fun cl => (cl.1, cl.2.length)) =
-    [("function equation", 60), ("rewrite rule", 1), ("priority equation", 0), ("constructor functional", 20), ("subsort", 32), ("injectivity", 12), ("distinctness", 1), ("no junk", 23), ("function functional", 28), ("hooked functional", 47), ("collection law", 12), ("library", 82), ("set idempotence", 2), ("set-variable lemma", 6), ("function law", 0), ("open generator law", 0), ("open generator functional", 0), ("parameter lemma", 0), ("no direction", 46)] := by
+    [("function equation", 60), ("rewrite rule", 1), ("priority equation", 0), ("constructor functional", 20), ("subsort", 32), ("injectivity", 12), ("distinctness", 1), ("no junk", 23), ("function functional", 28), ("hooked functional", 47), ("collection law", 12), ("library", 82), ("set idempotence", 2), ("set-variable lemma", 6), ("function law", 0), ("open generator law", 0), ("open generator functional", 0), ("parameter lemma", 0), ("user lemma", 0), ("user lemma at values", 0), ("no direction", 46)] := by
   decide +kernel
 
 /-- The classes are the tie's (`tieClasses`, which gives each its direction), in its order. -/
@@ -195,7 +199,7 @@ def unmapped : List (Nat × String) :=
 /-- The sentences of a class with a theorem in the tie that no theorem of this file holds of: the
 tie's remainder on this text. -/
 def uncovered : List (Nat × String) :=
-  [(99, "set idempotence")]
+  []
 
 /-- Each listed sentence is in its class in the account. -/
 theorem lists_in_account : (unmapped ++ uncovered).all (fun ic => (classOf ic.2).contains ic.1) = true := by
@@ -682,6 +686,24 @@ theorem idem_refuted : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation Kore
 end Idem
 
 
+/-! ## Set idempotence of the definition's own set collections: refuted
+
+Each sentence is the idempotence sentence of a set collection of the definition, whose key sort
+has a value the search exhibits (`setIdemTextOK`, a kernel decision). At the element `x` of a
+one-member set `{w}` the sentence says `concat(x, x)` holds `x`; `ΓColls` (`setElemAtomAx`) then
+makes `x` the unit's, which `setElemNotUnitAx` denies (`Faithful.setColl_idem_refuted_text`). -/
+
+theorem own_idem_ok_99 : setIdemTextOK c "Lbl'Unds'TCellSet'Unds'" "K" U.ax99 = true := by decide +kernel
+theorem own_idem_trS_99 : (trS U.ax99).pat = (trAxiom [] [] U.ax99).pat := by decide +kernel
+
+/-- **Sentence 99 is refuted, for every H**: Γ with it has no model. -/
+theorem own_idem_refuted_99 (H : HookParams) : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M),
+    I ⊧ᴵP Γ (cH H) → ¬ (I ⊧ᴵ (trS U.ax99).pat) := by
+  haveI : OvlOK (cH H) := ovlOK_of_core (coreOKH H)
+  intro M hM I hI hax
+  rw [own_idem_trS_99] at hax
+  exact setColl_idem_refuted_text c H own_idem_ok_99 M hM I hI hax
+
 /-! ## Library sample: sentence 232, `I -Int 0 = I` (a `simplification`), at values (Ev) -/
 
 def vI : Kore.Pattern := KoreAML.ev "VarI" (KoreAML.srt "Int")
@@ -869,6 +891,7 @@ end KCore.TieE1Starinit
 #check @KCore.TieE1Starinit.rules_account
 #check @KCore.TieE1Starinit.rule_from_text
 #check @KCore.TieE1Starinit.idem_refuted
+#check @KCore.TieE1Starinit.own_idem_refuted_99
 #check @KCore.TieE1Starinit.lib166
 #check @KCore.TieE1Starinit.lib166_at_values
 #check @KCore.TieE1Starinit.gamma_origin
@@ -900,6 +923,7 @@ end KCore.TieE1Starinit
 #print axioms KCore.TieE1Starinit.rules_account
 #print axioms KCore.TieE1Starinit.rule_from_text
 #print axioms KCore.TieE1Starinit.idem_refuted
+#print axioms KCore.TieE1Starinit.own_idem_refuted_99
 #print axioms KCore.TieE1Starinit.lib166
 #print axioms KCore.TieE1Starinit.lib166_at_values
 #print axioms KCore.TieE1Starinit.gamma_origin

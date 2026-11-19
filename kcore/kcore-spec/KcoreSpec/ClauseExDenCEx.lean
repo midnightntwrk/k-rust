@@ -265,13 +265,11 @@ theorem eval_den_exCEx (h : c.coreOKEx = true) (hrc : c.readsConfined = true) (h
     Holds.congr_NI hpre fun j hj => (hl j (Clause.pre_leftVarsRH j hj)).symm
   have hall0 : ∀ σ', AgreeOff cl.exs σ₀ σ' → c.WellSorted cl.vars σ' → InstIs c σ' cl r := fun σ' ha hw =>
     hall σ' (hag0.trans (hfree ▸ ha)) hw
-  have HD : ∀ p : Cond, HoldsDenB (Cond.bound c) c I p := fun p =>
-    CE.holds_den_bound (Semantics.coreOK_iff_ex.mpr h) hIc F p fun _ => hrc
   exact eval_den_exReadCEx h hrc hIc hfn hcl hws hpats hpreOK hs hb hp hne hocc hreqs hrhss henss hσ₀ hmatch0
     (fun t ht tbl e' hag m' => hT (hreq0 t ht) hσ₀ (canonVars_length c cl.vars) hag (hreqs t ht) m')
     (fun hpt tbl e' σr m0 hag hkp hRk hRv hσr hm0 =>
       (preRead_agreesCl (hpreR (ne_top_of_isTop_false hpt)) hpreOK
-        (HoldsAtB.mono (Cond.bound_of_boundConf c _) (holdsAt_of_den (HD _) hpre0)) hσ₀ hag hkp hRk hRv hσr hm0).mpr rfl)
+        (HoldsReadT.of_holds F.termAt _ hpre0) hσ₀ hag hkp hRk hRv hσr hm0).mpr rfl)
     hlow (fun σ' ha hw => InstIsRead.of_instIs F (hall0 σ' ha hw))
     (fun v hv => by
       obtain ⟨hrhs, hens, hpost⟩ := hgive0 v hv

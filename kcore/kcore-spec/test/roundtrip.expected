@@ -90,6 +90,7 @@ differs f2-examples/e2-comm-rule-nocomm.kore
 differs f2-examples/e2-comm-rule.kompile.kore
 differs f2-examples/e2-concrete-rule-noconcrete.kore
 differs f2-examples/e2-concrete-rule.kompile.kore
+differs f2-examples/e2-cool-eq.kompile.kore
 differs f2-examples/e2-fn-assoc-bad.kompile.kore
 differs f2-examples/e2-fn-assoc-rest.kompile.kore
 differs f2-examples/e2-fn-assoc-unit.kompile.kore
@@ -149,6 +150,8 @@ differs f2-examples/e5-ovl-fun-keep-run.kompile.kore
 cannot f2-examples/e5-ovl-fun-lhs-int.kompile.kore
 differs f2-examples/e5-ovl-fun-lhs-owise.kompile.kore
 differs f2-examples/e5-ovl-fun-lhs.kompile.kore
+differs f2-examples/e6-divides-int.kompile.kore
+differs f2-examples/e6-int2bytes-nolen.kompile.kore
 differs f2-examples/e6-list-set-lhs-bound.kompile.kore
 differs f2-examples/e6-param-bytes.kompile.kore
 differs f2-examples/e6-param-ffi.kompile.kore

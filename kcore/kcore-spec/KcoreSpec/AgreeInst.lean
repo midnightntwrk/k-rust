@@ -1101,4 +1101,16 @@ theorem agreeObligationsI_of_T {T : Tables} (hT : T = tables c) {l : List Sym}
 kernel_rfl Semantics.agreeObligationsI_withHooks :
   ∀ (c : Semantics) (H : HookParams), (c.withHooks H).agreeObligationsI = c.agreeObligationsI
 
+/-- `agreeObligationsI` read from the tables of `c` (`tables`), which hold its subsorts and read
+the sort order from them. -/
+def _root_.KCore.Semantics.agreeObligationsITab (c : Semantics) : List Sym :=
+  c.agreeObligationsIT (tables c)
+
+/-- The compiled code computes `agreeObligationsI` from the tables, built once per semantics, where
+`Semantics.le` computes the subsorts again at each comparison. -/
+@[csimp] theorem agreeObligationsI_eq_tab :
+    @Semantics.agreeObligationsI = @Semantics.agreeObligationsITab := by
+  funext c
+  exact agreeObligationsI_of_T rfl rfl
+
 end KCore.Det

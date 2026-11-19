@@ -162,7 +162,7 @@ theorem fnDet (H : HookParams) : FnDet (cH H) :=
 /-- **The first clause of `f` is `Witnessed`, for every H**, at H := d: its `requires` `isC(d)` is
 `true` and nothing else. -/
 theorem witnessed (H : HookParams) : clG.Witnessed (cH H) := by
-  refine ⟨σd, fun j hj s hs => ?_, fun t ht => ?_, .top⟩
+  refine Clause.witnessed_of_top rfl (σ := σd) (fun j hj s hs => ?_) (fun t ht => ?_)
   · have hj1 : j = 1 := by
       have : clG.condVars = [1] := by decide +kernel
       rw [this] at hj; exact List.mem_singleton.mp hj

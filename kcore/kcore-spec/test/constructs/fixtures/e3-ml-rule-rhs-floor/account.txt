@@ -1,0 +1,22 @@
+out/definition.kore: 5 modules; prelude agrees
+user module E3-ML-RULE-RHS-FLOOR: 404 sentences
+  1 inert import [generated]
+  186 read [generated]
+  184 read [builtin]
+  4 read [user]
+  6 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert distinctCtors [generated]
+  1 inert parametricFunctional [generated]
+  10 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 2
+  1 patternConnective
+      sentence 307 (E3-ML-RULE-RHS-FLOOR.floor-bool): patternConnective (\floor)
+        [user] E3-ML-RULE-RHS-FLOOR.floor-bool at e3-ml-rule-rhs-floor.k:8: axiom{} \rewrites{SortGeneratedTopCell{}}(\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}}(Lblb{}(VarB:SortBool{})), Var'Unds'DotVar1:SortK{})), Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()), \and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}} …
+  1 openExtent
+      sentence 308 (E3-ML-RULE-RHS-FLOOR.floor-int): openExtent (Int)
+        [user] E3-ML-RULE-RHS-FLOOR.floor-int at e3-ml-rule-rhs-floor.k:7: axiom{} \rewrites{SortGeneratedTopCell{}}(\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}}(Lblgo{}(VarX:SortInt{})), Var'Unds'DotVar1:SortK{})), Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()), \and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}} …
+finish: sentence 307 (E3-ML-RULE-RHS-FLOOR.floor-bool): patternConnective (\floor)
+(exit 0)

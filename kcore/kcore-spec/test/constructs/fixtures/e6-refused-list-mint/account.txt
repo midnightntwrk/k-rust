@@ -1,0 +1,29 @@
+out/definition.kore: 5 modules; prelude agrees
+user module E6-REFUSED-LIST-MINT: 576 sentences
+  1 inert import [generated]
+  232 read [generated]
+  222 read [builtin]
+  1 refused sortAttribute [generated]
+      e.g. sort Sort64{} [nat{}("64")]
+  38 unread parametricUnused [own builtin]
+  4 read [user]
+  12 read [own builtin]
+  1 refused parametricSort [generated]
+      e.g. axiom{R} \exists{R}(Val:SortKItem{}, \equals{SortKItem{}, R}(Val:SortKItem{}, inj{SortMInt{Sort64{}}, SortKItem{}}(From:SortMInt{Sort64{}}))) [subsort{SortMInt{Sort64{}}, SortKItem{}}()]
+  33 inert parametricFunctional [generated]
+  5 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  2 inert distinctCtors [generated]
+  14 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 3
+  3 parametricSort
+      sentence 453 (E6-REFUSED-LIST-MINT.list-getMInt): parametricSort
+        [user] E6-REFUSED-LIST-MINT.list-getMInt at e6-refused-list-mint.k:9: axiom{} \rewrites{SortGeneratedTopCell{}}(\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("1")), kseq{}(inj{SortList{}, SortKItem{}}(VarL:SortList{}), kseq{}(inj{SortMInt{Sort64{}}, SortKItem{}}(VarI:SortMInt{Sort64{}}), Var'Unds'DotVar1:SortK{})))), Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()), \and{SortG …
+      sentence 454 (E6-REFUSED-LIST-MINT.list-updateMInt): parametricSort
+        [user] E6-REFUSED-LIST-MINT.list-updateMInt at e6-refused-list-mint.k:10: axiom{} \rewrites{SortGeneratedTopCell{}}(\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("2")), kseq{}(inj{SortList{}, SortKItem{}}(VarL:SortList{}), kseq{}(inj{SortMInt{Sort64{}}, SortKItem{}}(VarI:SortMInt{Sort64{}}), kseq{}(VarV:SortKItem{}, Var'Unds'DotVar1:SortK{}))))), Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGenerate …
+      sentence 455 (E6-REFUSED-LIST-MINT.list-sizeMInt): parametricSort
+        [user] E6-REFUSED-LIST-MINT.list-sizeMInt at e6-refused-list-mint.k:11: axiom{} \rewrites{SortGeneratedTopCell{}}(\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("3")), kseq{}(inj{SortList{}, SortKItem{}}(VarL:SortList{}), Var'Unds'DotVar1:SortK{}))), Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()), \and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kse …
+finish: sentence 453 (E6-REFUSED-LIST-MINT.list-getMInt): parametricSort
+(exit 0)
