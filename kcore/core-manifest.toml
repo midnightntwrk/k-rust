@@ -26,7 +26,7 @@
 [tree]
 # commit: the git tree at which cone_size was computed (kcore-spec/test/ConeV.lean, cone (v)); no release run
 # has yet passed on a git tree, so it names no release-gated tree
-commit = "560686e5e"
+commit = "18c499a44"
 # frozen_at: the git trees the review cone was frozen at, in order: the release freeze, then each
 # re-freeze after a cone declaration is fixed. Its last entry is the revision named by core-cone.txt's
 # `# computed at git REV` line, which kcore-spec/test/cone-row.sh (integration's cone row) checks
