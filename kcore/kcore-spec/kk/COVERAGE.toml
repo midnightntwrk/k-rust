@@ -806,7 +806,7 @@ refused_on = "e2-equation"
 [rows.E2."LABEL(label)@simplification"]
 verdict = "covered"
 by = "fixture"
-case = "e2-simplification"
+case = "e2-simp-label"
 
 [rows.E2."MACRO(macro)@symbol"]
 verdict = "covered"
