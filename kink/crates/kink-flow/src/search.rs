@@ -181,7 +181,9 @@
 //! decides the row with no call, and otherwise steps 2 to 7 run as above on the baseline's test
 //! cases, the mutant side of each program the mutant parses to another term started from that
 //! term (kink-campaign `run_campaign_multi_started`; the baseline side, its record and the drift
-//! check stay the baseline's). It is never memoised (its generation is not
+//! check stay the baseline's). Where O kills nothing, each case whose statement says the
+//! specification rejects it at parse and that the mutant parses runs on the mutant alone
+//! (kink-campaign `run_mutant_alone`, `mutant-accepts`), with no baseline run. It is never memoised (its generation is not
 //! [`ResolvedMutation::generation`]'s) and never compiled ahead, and only the first-kill search
 //! over the whole O, without `--verify`, in a flow that declares no `[[projection]]`, judges it.
 
@@ -725,16 +727,9 @@ impl Search<'_, '_> {
         (millis(started.elapsed()), result)
     }
 
-    fn call_untimed(
-        &mut self,
-        generation: &CandidateGeneration<'_>,
-        order: &[usize],
-    ) -> Result<LiveCall, CorpusError> {
-        let mut tests = Vec::with_capacity(order.len());
-        for &candidate in order {
-            tests.push(self.test(candidate)?);
-        }
-        let options = CampaignOptions {
+    /// The options of every campaign call of the search, a run alone's included.
+    fn call_options(&self) -> CampaignOptions {
+        CampaignOptions {
             schedule: self.schedule,
             selection: kink_campaign::SelectionPolicy::None,
             share_evidence: false,
@@ -751,7 +746,19 @@ impl Search<'_, '_> {
             },
             // The command compiles ahead across mutations ([`run_with`]); a call holds one.
             compile_workers: 1,
-        };
+        }
+    }
+
+    fn call_untimed(
+        &mut self,
+        generation: &CandidateGeneration<'_>,
+        order: &[usize],
+    ) -> Result<LiveCall, CorpusError> {
+        let mut tests = Vec::with_capacity(order.len());
+        for &candidate in order {
+            tests.push(self.test(candidate)?);
+        }
+        let options = self.call_options();
         // The witness order (README 5.6 step 2): once the mutant's claim-free side compiles, the
         // runner asks which programs come first, from that side's compiled edit. The full
         // schedule keeps corpus order and only records the edit, for the row's `witnesses`.
@@ -1192,7 +1199,8 @@ impl Search<'_, '_> {
             Some(id) => Some(
                 match self.manifest.programs.iter().position(|p| &p.id == id) {
                     None => "not-in-corpus",
-                    Some(index) if self.position(id).is_none() => {
+                    // A stated case of a grammar row is one of its cases ([`crate::reparse`]).
+                    Some(index) if self.position(id).is_none() && !stated_case(row, id) => {
                         if row["unusable_killer"].is_null() {
                             row["unusable_killer"] = json!({
                                 "program": id,
@@ -1541,8 +1549,10 @@ impl Search<'_, '_> {
     /// another term run from that term on the mutant's side ([`Search::starts`]), and the search
     /// of a rule mutant over them decides ([`Search::search_facts`] with the grammar generation,
     /// [`ResolvedMutation::grammar_generation`]), read for a grammar mutant
-    /// ([`crate::reparse::read_call`]) whichever path, a call or tier 1, gave its status. Only the
-    /// first-kill search over the whole O in search mode of a flow without `[[projection]]`
+    /// ([`crate::reparse::read_call`]) whichever path, a call or tier 1, gave its status. The
+    /// stated cases the mutant's grammar parses are run on the mutant alone where O kills nothing
+    /// ([`Self::with_alone`]), and first where the lock records one of them as the killer. Only
+    /// the first-kill search over the whole O in search mode of a flow without `[[projection]]`
     /// judges one; every other search refuses it ([`ResolvedMutation::run_refusal`]).
     fn search_grammar(
         &mut self,
@@ -1598,17 +1608,44 @@ impl Search<'_, '_> {
         let facts = self.facts(resolved, &generation);
         // An empty O, and a baseline whose findings leave no end data, are the search's to report
         // (`no-comparable-program`, `baseline-findings`), as for a rule mutation.
-        let decision = if order.is_empty() || self.gated() {
+        let open = order.is_empty() || self.gated();
+        let recorded = self.recorded.get(&mutation.id).cloned();
+        // The stated cases' runs alone: made once per mutation, read after O is decided.
+        let mut alone = Alone {
+            cases: cases.clone(),
+            ..Alone::default()
+        };
+        // A recorded killer that is a stated case the mutant parses is the killer while it
+        // kills, whatever O gives: it runs first.
+        if !open
+            && cases
+                .iter()
+                .any(|case| reparse::pending(case) && Some(&case.program) == recorded.as_ref())
+        {
+            if let Err(error) = self.run_alone(&generation, &mut alone) {
+                return self.corpus_error(row, error, &Calls::default(), Vec::new());
+            }
+            if let Some(killer) = alone.cases.iter().find(|case| {
+                Some(&case.program) == recorded.as_ref()
+                    && matches!(case.verdict, reparse::Verdict::Killed(_))
+            }) {
+                let decision = reparse::Decision::Killed(killer);
+                let value = self.decided_grammar_row(row, &decision, facts, resolved, &order);
+                return self.with_alone(value, &generation, &mut alone, false);
+            }
+        }
+        let decision = if open {
             reparse::Decision::Call
         } else {
-            reparse::decide(&cases, self.recorded.get(&mutation.id).map(String::as_str))
+            reparse::decide(&cases, recorded.as_deref())
         };
         if decision == reparse::Decision::Call {
             let rules = row["rules"].clone();
-            // Each case parsed to another term runs its mutant side from that term; the
+            // Each program of O parsed to another term runs its mutant side from that term; the
             // baseline side, its record and the drift check stay the baseline's test case's.
             self.starts = cases
                 .iter()
+                .filter(|case| !case.stated)
                 .filter_map(|case| Some((case.program.clone(), case.start.clone()?)))
                 .collect();
             let searched = self.search_facts(mutation, row, &facts, Some(&generation));
@@ -1618,11 +1655,175 @@ impl Search<'_, '_> {
             if let Some(row) = value.as_object_mut() {
                 reparse::read_call(row, &rules, &cases);
             }
-            return (value, error);
+            if error {
+                return (value, error);
+            }
+            return self.with_alone(value, &generation, &mut alone, open);
         }
-        (
-            self.decided_grammar_row(row, &decision, facts, resolved, &order),
-            false,
+        let value = self.decided_grammar_row(row, &decision, facts, resolved, &order);
+        self.with_alone(value, &generation, &mut alone, open)
+    }
+
+    /// `value`, a grammar row whose O is decided, with its stated cases' runs alone
+    /// ([`reparse::fold_alone`]): they are run here (once per mutation, [`Self::run_alone`]) where
+    /// some stated case is left to them and O kills nothing (a `survived`, `unknown` or `timeout`
+    /// row), unless `open` (an empty O, or a baseline with unassumed findings, whose rows are the
+    /// search's). A corpus error of the run alone makes the row `error` and is the row's corpus
+    /// error (the second member, as [`Self::corpus_error`] gives it: the run stops after it).
+    fn with_alone(
+        &mut self,
+        mut value: Value,
+        generation: &CandidateGeneration<'_>,
+        alone: &mut Alone,
+        open: bool,
+    ) -> (Value, bool) {
+        let undecided = matches!(
+            value["status"].as_str(),
+            Some("survived" | "unknown" | "timeout")
+        );
+        if !open
+            && !alone.ran
+            && undecided
+            && alone.cases.iter().any(reparse::pending)
+            && let Err(error) = self.run_alone(generation, alone)
+        {
+            value["status"] = json!("error");
+            value["reason"] = json!(error.reason);
+            value["detail"] = json!(error.detail);
+            value["action"] = json!(action("error", Some(&error.reason)));
+            return (value, true);
+        }
+        if let Some(row) = value.as_object_mut() {
+            reparse::fold_alone(row, &alone.cases, &alone.executed, &alone.calls);
+        }
+        (value, false)
+    }
+
+    /// The mutant of `generation` run alone on every stated case of `alone` its grammar parses
+    /// (kink-campaign `run_mutant_alone`), each case judged by its run's acceptance
+    /// ([`reparse::alone`], [`Self::alone_acceptance`]), with an executed entry per run and the
+    /// call among `alone.calls`.
+    ///
+    /// # Errors
+    ///
+    /// The campaign's refusal of the call (`campaign-refused`).
+    fn run_alone(
+        &mut self,
+        generation: &CandidateGeneration<'_>,
+        alone: &mut Alone,
+    ) -> Result<(), CorpusError> {
+        alone.ran = true;
+        let oracles = self.spec.result.oracles();
+        let tests = alone
+            .cases
+            .iter()
+            .filter(|case| reparse::pending(case))
+            .filter_map(|case| {
+                Some(TestCase {
+                    id: case.program.clone(),
+                    initial_state: case.start.clone()?,
+                    oracles: oracles.clone(),
+                })
+            })
+            .collect::<Vec<_>>();
+        if tests.is_empty() {
+            return Ok(());
+        }
+        let started = Instant::now();
+        let run = self
+            .runner
+            .call_alone(
+                &tests,
+                std::slice::from_ref(generation),
+                &self.call_options(),
+            )
+            .map_err(|failure| CorpusError {
+                reason: "campaign-refused".into(),
+                detail: format!(
+                    "the campaign runner refused the mutant's run alone of {:?}: {failure}",
+                    tests.iter().map(|test| &test.id).collect::<Vec<_>>()
+                ),
+            })?;
+        let wall_ms = millis(started.elapsed());
+        let mut killed = false;
+        let mut undecided = false;
+        for case in alone.cases.iter_mut().filter(|case| reparse::pending(case)) {
+            if let Some(failure) = run.failure {
+                reparse::not_alone(
+                    case,
+                    &kebab(&format!("{failure:?}")),
+                    failure == MutantScopeFailure::EquivalentCompilation,
+                );
+                undecided = true;
+                continue;
+            }
+            let Some(evidence) = run
+                .evidence
+                .iter()
+                .find(|evidence| evidence.test_id == case.program)
+            else {
+                continue;
+            };
+            let acceptance = self.alone_acceptance(&case.program, evidence);
+            let label = match &acceptance {
+                Ok(crate::compare::Acceptance::Accepted) => Some("accepted"),
+                Ok(crate::compare::Acceptance::Rejected) => Some("rejected"),
+                _ => None,
+            };
+            reparse::alone(case, acceptance);
+            let entry = alone_entry(case, evidence, label);
+            killed |= entry["outcome"] == "distinguish";
+            undecided |= entry["outcome"] != "distinguish" && entry["outcome"] != "agree";
+            alone.executed.push(entry);
+        }
+        let status = if killed {
+            "killed"
+        } else if undecided {
+            "unknown"
+        } else {
+            "survived"
+        };
+        alone.calls.push((
+            json!({
+                "programs": tests.iter().map(|test| &test.id).collect::<Vec<_>>(),
+                "status": status,
+                "alone": true,
+            }),
+            json!(wall_ms),
+        ));
+        Ok(())
+    }
+
+    /// The mutant's acceptance of `program` from its run alone (`evidence`): by the rule of the
+    /// baseline's side ([`projected::mutant_acceptance`], in the baseline definition's observer),
+    /// or why the run gives no side (it failed, a side timed out, a judgement was refused, ...:
+    /// [`MutantEnds::alone`]).
+    fn alone_acceptance(
+        &self,
+        program: &str,
+        evidence: &TestEvidence,
+    ) -> Result<crate::compare::Acceptance, String> {
+        if let kink_campaign::SideRun::Failed(kind) = &evidence.run {
+            return Err(format!(
+                "the mutant's run alone failed: {}",
+                crate::report::failure_cause(*kind, self.manifest.budget)
+            ));
+        }
+        let ends = MutantEnds::alone(program, evidence).ok_or_else(|| {
+            "the mutant's run alone is no side: a side timed out or failed, a judgement kink \
+             makes of it was refused, a claim was contradicted, a short-circuit reading counted, \
+             or it counted no polls"
+                .to_owned()
+        })?;
+        projected::mutant_acceptance(
+            &ends,
+            &self.spec.result,
+            self.manifest.stop.is_some(),
+            |ends| {
+                self.manifest.end_renderer.get().and_then(|renderer| {
+                    renderer.declared_ends(ends, &self.spec.result.not_compared)
+                })
+            },
         )
     }
 
@@ -1691,7 +1892,12 @@ impl Search<'_, '_> {
         row.insert("status".into(), json!(status));
         row.insert("reason".into(), json!(reason));
         row.insert("detail".into(), json!(case.detail));
-        let source = killer.as_ref().map(|_| reparse::SOURCE_REPARSE);
+        let source = match &case.verdict {
+            reparse::Verdict::Killed(reparse::Direction::MutantAccepts) => {
+                Some(reparse::SOURCE_ALONE)
+            }
+            _ => killer.as_ref().map(|_| reparse::SOURCE_REPARSE),
+        };
         finish(row, killer, source, RowCalls::default(), Vec::new())
     }
 
@@ -5628,6 +5834,61 @@ fn open_reason(report: &MutantReport, opens: &BTreeMap<String, Undecided>) -> Op
     } else {
         None
     }
+}
+
+/// Whether `program` is a stated case of the grammar row `row` (a program whose met statement
+/// says the specification rejects it at parse, which the row's grammar mutant may run alone).
+fn stated_case(row: &Value, program: &str) -> bool {
+    row["grammar"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|case| case["program"] == program && !case["stated"].is_null())
+}
+
+/// The executed entry of the mutant's run alone (`evidence`) of the stated case `case`, judged
+/// ([`reparse::alone`]) with the acceptance `label` (`accepted`, `rejected` or none): its outcome
+/// `distinguish` for a kill, `agree` for a rejection, the failed run's status, `timeout` where a
+/// side timed out (so `crate::clock` reads a run the clock stopped), else `unknown`, with its
+/// cause where it decides nothing.
+fn alone_entry(case: &reparse::Case, evidence: &TestEvidence, label: Option<&str>) -> Value {
+    let outcome = match (&case.verdict, &evidence.run) {
+        (reparse::Verdict::Killed(_), _) => "distinguish",
+        (reparse::Verdict::Agree, _) => "agree",
+        (_, kink_campaign::SideRun::Failed(kind)) => status_name(kind.status()),
+        (_, kink_campaign::SideRun::Sides { sides })
+            if sides
+                .iter()
+                .any(|side| matches!(side, kink_campaign::OracleSide::Timeout)) =>
+        {
+            "timeout"
+        }
+        _ => "unknown",
+    };
+    let failure = match &evidence.run {
+        kink_campaign::SideRun::Failed(kind) => Some(kebab(&format!("{kind:?}"))),
+        kink_campaign::SideRun::Sides { .. } => None,
+    };
+    json!({
+        "program": case.program,
+        "alone": true,
+        "outcome": outcome,
+        "acceptance": label,
+        "failure": failure,
+        "cause": (outcome != "distinguish" && outcome != "agree").then(|| case.detail.clone()),
+        "cached": false,
+    })
+}
+
+/// The stated cases of a grammar mutation and their runs alone ([`Search::run_alone`]): the
+/// row's cases, each stated one judged once it ran; the runs' executed entries; the call with
+/// its wall time; whether the call was made.
+#[derive(Default)]
+struct Alone {
+    cases: Vec<reparse::Case>,
+    executed: Vec<Value>,
+    calls: Vec<(Value, Value)>,
+    ran: bool,
 }
 
 /// A row's `calls` and `call_wall_ms` (the same order).

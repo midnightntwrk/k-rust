@@ -320,6 +320,11 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// survivors in `grammar_targets` ([`grammar_targets`], PJ-34 U34d), and a `survived` grammar row
 /// with no reason has the grammar survivor's action ([`GRAMMAR_SURVIVOR_REASON`]); a run with no
 /// such row writes the document it wrote.
+/// Still 46 since a program whose met statement says the specification rejects it at parse, and
+/// that the mutant parses, is run on the mutant alone (PJ-34, U34c3): a grammar row may be killed
+/// `mutant-accepts` (`killer_source` `alone`), its `executed` entries and `calls` may be a run
+/// alone's (`alone` true; an entry's `acceptance`), and the reason
+/// `grammar-mutant-acceptance-not-decided` is new.
 pub const RUN_VERSION: u64 = 46;
 
 /// The name of the observation slot of an executed entry's `slots`, after the end slots
@@ -700,9 +705,15 @@ pub fn action(status: &str, reason: Option<&str>) -> Option<&'static str> {
         }
         "unknown" if reason == Some(crate::reparse::RUN_NOT_SUPPORTED) => {
             "keep the mutation: its verdict needs a run of the mutant kink does not make yet \
-             (grammar): its run alone of a case the specification rejects at parse and its \
-             grammar parses, or, for a mutant compiled to the specification's definition, its \
-             run of a case its grammar parses to another term"
+             (grammar): the mutant compiles to the specification's definition, so it runs no \
+             test, and a case its grammar parses to another term, or that the specification \
+             rejects at parse and its grammar parses, is judged only by a run from its term"
+        }
+        "unknown" if reason == Some(crate::reparse::MUTANT_ACCEPTANCE_NOT_DECIDED) => {
+            "declare which ends accept a program, or observe the case under a [stop] the mutant's \
+             run reaches: the mutant's grammar parses a case the specification rejects at parse \
+             (grammar), and whether the mutant's run alone of it accepts it is not known, so a \
+             later layer of the mutant may reject it (acceptance ignores the stage)"
         }
         "unknown" if reason == Some(crate::reparse::MUTANT_REFUSES) => {
             "change the mutation: the mutant's grammar refuses a case otherwise than at parse \
@@ -1295,7 +1306,7 @@ pub fn executed_cause(
     }
 }
 
-fn failure_cause(kind: ExecutionFailureKind, budget: Budget) -> String {
+pub(crate) fn failure_cause(kind: ExecutionFailureKind, budget: Budget) -> String {
     match kind {
         ExecutionFailureKind::TimeLimit => format!(
             "the mutant's run did not end within time_ms = {}",
@@ -1378,6 +1389,12 @@ fn failure_cause(kind: ExecutionFailureKind, budget: Budget) -> String {
         ExecutionFailureKind::EqualsCondition => {
             "equals-condition: a rule or equation condition of the mutant equates two terms \
              ({ A #Equals B }), which k-rust may decide wrongly when they may be undefined"
+                .into()
+        }
+        ExecutionFailureKind::InputGate => {
+            "input-gate: kink's input gate refuses, on the mutant's definition, the initial \
+             configuration the mutant's grammar parses the program to (the gate every \
+             specification start passes), so the mutant's run of it is not made"
                 .into()
         }
     }

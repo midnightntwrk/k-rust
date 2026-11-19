@@ -173,7 +173,7 @@ fn mutant_status_is_derived_from_validation_then_oracle_outcomes() {
     use OracleOutcome as O;
     use Run::{Compared, Failed, NotExecuted};
     #[rustfmt::skip]
-    let rows: [StatusRow; 10] = [
+    let rows: [StatusRow; 11] = [
         ("ordinary-result-kill", None, Compared(&[O::Distinguish, O::Agree]), Killed, None),
         ("complete-survival", None, Compared(&[O::Agree, O::Agree]), Survived, None),
         ("ill-sorted-invalid", Some(S::Rejected), NotExecuted, NotAdmitted, Some(NotAdmitted)),
@@ -182,6 +182,7 @@ fn mutant_status_is_derived_from_validation_then_oracle_outcomes() {
         ("lowering-resource-limit-is-unknown", Some(S::LoweringResourceLimit), NotExecuted, Unknown, Some(Unknown)),
         ("time-limit-is-timeout", None, Failed(E::TimeLimit), Timeout, Some(Timeout)),
         ("solver-indeterminate-is-unknown", None, Failed(E::Indeterminate), Unknown, Some(Unknown)),
+        ("input-gate-refusal-is-unknown", None, Failed(E::InputGate), Unknown, Some(Unknown)),
         ("infrastructure-failure-is-error", Some(S::Infrastructure), NotExecuted, Error, Some(Error)),
         ("bounded-agreement-is-survived-not-equivalent", None, Compared(&[O::Agree, O::Agree]), Survived, None),
     ];

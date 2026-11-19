@@ -712,6 +712,8 @@ fn an_unknown_is_cacheable_only_when_the_run_was_judged() {
         // A stop condition left undecided at an arrival, possibly by its evaluation's budget,
         // or refused there: the run is not a function of the key.
         F::StopCondition,
+        // A grammar mutant's start the input gate refuses: no run was made.
+        F::InputGate,
     ] {
         assert_eq!(
             outcome(&TestRun::Failed(kind), Some(&judged)),

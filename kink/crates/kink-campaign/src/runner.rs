@@ -1955,9 +1955,9 @@ pub type MutantStarts = BTreeMap<String, Pattern>;
 /// every call, and the mutant's bound of polls is the one of that baseline run
 /// ([`WorkBudget::limit`]). Before its run the start passes the input gate every baseline start
 /// passes (`validate_test_initial_state`), on the mutant's backend; a start it refuses makes the
-/// test's mutant side failed (`Infrastructure`, as an adapter's refusal of a state is), so the
-/// test contributes `error` to the fold, never a kill or an agreement. A test `starts` does not name runs exactly as in
-/// [`run_campaign_multi_ordered`], which is this call with no start.
+/// test's mutant side failed ([`ExecutionFailureKind::InputGate`]), so the test contributes
+/// `unknown` to the fold, never a kill or an agreement. A test `starts` does not name runs exactly
+/// as in [`run_campaign_multi_ordered`], which is this call with no start.
 ///
 /// Refused before anything runs (`InvalidDeclaration`): a start naming no test of the campaign,
 /// a started test with a pattern oracle (its stepped runs read the test on both sides) or with
@@ -2032,24 +2032,223 @@ fn starts_refusal(
     None
 }
 
-fn run_campaign_session(
+/// What [`run_mutant_alone`] gives: the mutant's runs of the campaign's tests, each with no
+/// baseline run beside it, or the mutant-scope failure that refused the mutant before any ran.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AloneRun {
+    /// Why the mutant ran no test ([`MutantScopeFailure`], as a call's plan names it: the mutant
+    /// does not compile, compiles to the baseline's definition, is inconsistent, ...); `None`
+    /// when every test ran.
+    pub failure: Option<MutantScopeFailure>,
+    /// The claims the mutant's edit leaves unbacked, which the claim-free mutant its tests run on
+    /// withdraws (as a call's plan names them).
+    pub claims: Withdrawal,
+    /// The mutant's evidence of each test, in the campaign's order; empty with a `failure`. A
+    /// test whose start the input gate refuses on the mutant's definition has
+    /// [`ExecutionFailureKind::InputGate`]. Every other run is judged as the mutant side of a
+    /// pair is ([`run_tests`]): on the mutant's definition, then its ends under the baseline's
+    /// ([`judge_across`], with no baseline end to judge), with no one-sided terminal kept.
+    pub evidence: Vec<TestEvidence>,
+}
+
+/// The one mutant of `generations` run alone on each test of `campaign`, with no baseline run
+/// (PJ-34 `mutant-accepts`: a grammar mutant parses a program the specification rejects at
+/// parse, so the specification has no initial configuration to run, and the mutant's acceptance
+/// of its own is read from its run alone).
+///
+/// The call prepares the baseline and the mutant exactly as [`run_campaign_multi_ordered`] does
+/// ([`prepare_call`], [`mutant_sides`]: the baseline's runtime with its stop, observation and data
+/// facts, then the claim-free mutant with the stop and observation resolved on it), but runs no
+/// baseline test: `campaign.tests` are the mutant's tests, and neither the baseline's input gate
+/// nor its admission reads them. Each test's start passes the input gate on the mutant's
+/// definition (else [`ExecutionFailureKind::InputGate`]), then runs on the claim-free mutant
+/// under the call's run options, bounded by [`WorkBudget::limit`] of no polls (the floor), with
+/// no baseline record, so no observation probe; its judgement reads the mutant's definition (the
+/// exclusions of its run and start, [`no_start`]), and its ends are judged under the baseline's
+/// definition as a pair's mutant ends are ([`judge_across`]). Nothing is compared, folded or
+/// scored: the caller reads the evidence.
+///
+/// Refused before anything runs (`InvalidDeclaration`): other than one candidate, evidence
+/// sharing, a test with a pattern oracle (its stepped run reads a baseline side) and a test with
+/// a free variable.
+///
+/// # Errors
+///
+/// [`run_campaign_multi_ordered`]'s refusals before a test runs, and the refusals above.
+pub fn run_mutant_alone(
     campaign: &Campaign<'_>,
     generations: &[CandidateGeneration<'_>],
     options: &CampaignOptions,
     session: &mut BaselineSession<'_>,
-    mut first: Option<&mut FirstTests<'_>>,
+) -> Result<AloneRun, CampaignFailure> {
+    if let Some(refusal) = alone_refusal(campaign, generations, options) {
+        return Err(CampaignFailure::new(
+            CampaignFailureKind::InvalidDeclaration,
+            refusal,
+        ));
+    }
+    let CallSetup {
+        baseline,
+        mut runtime,
+        admission,
+        ..
+    } = prepare_call(
+        campaign,
+        generations,
+        options,
+        session,
+        &MutantStarts::new(),
+    )?;
+    let Some(candidate) = generations
+        .iter()
+        .flat_map(CandidateGeneration::candidates)
+        .next()
+    else {
+        return Err(CampaignFailure::new(
+            CampaignFailureKind::InvalidDeclaration,
+            "a run alone needs a candidate",
+        ));
+    };
+    let observe = runtime.observe.clone();
+    let (mut sides, claims) = match mutant_sides(
+        campaign,
+        &candidate.patch,
+        &baseline,
+        options,
+        &admission,
+        observe,
+    ) {
+        Ok(prepared) => prepared,
+        Err(refusal) => {
+            return Ok(AloneRun {
+                failure: Some(refusal.failure),
+                claims: refusal.claims,
+                evidence: Vec::new(),
+            });
+        }
+    };
+    let max_polls = options.run.work.limit(0);
+    let evidence = campaign
+        .tests
+        .iter()
+        .map(|test| {
+            let failed = |kind| TestEvidence {
+                test_id: test.id.clone(),
+                run: SideRun::Failed(kind),
+                notes: RunNotes::default(),
+                ends: BTreeSet::new(),
+                undefined_steps: false,
+                one_sided_ends: BTreeSet::new(),
+                stop_ends: BTreeSet::new(),
+                payloads: BTreeMap::new(),
+            };
+            if validate_test_initial_state(&mut sides.runtime.backend, &test.initial_state).is_err()
+            {
+                return failed(ExecutionFailureKind::InputGate);
+            }
+            let (mut mutant, _) = sides.runtime.run_compared(
+                campaign,
+                test,
+                RunBounds {
+                    max_work: None,
+                    max_polls,
+                },
+                None,
+            );
+            // No baseline side: only the mutant's ends are judged, under the baseline's
+            // definition. A one-sided terminal distinguishes only from a baseline's complete set,
+            // which there is none of, so none is kept.
+            let mut no_baseline = failed(ExecutionFailureKind::Infrastructure);
+            judge_across(
+                test,
+                &mut no_baseline,
+                &mut mutant,
+                &mut Vec::new(),
+                &mut runtime,
+                &mut sides.runtime,
+            );
+            mutant.one_sided_ends = BTreeSet::new();
+            mutant
+        })
+        .collect();
+    Ok(AloneRun {
+        failure: None,
+        claims,
+        evidence,
+    })
+}
+
+/// Why `campaign`'s tests cannot be run on the mutant of `generations` alone under `options`
+/// ([`run_mutant_alone`]).
+fn alone_refusal(
+    campaign: &Campaign<'_>,
+    generations: &[CandidateGeneration<'_>],
+    options: &CampaignOptions,
+) -> Option<String> {
+    if options.share_evidence {
+        return Some("a run alone with evidence sharing, whose cache names a pair".into());
+    }
+    let candidates = generations
+        .iter()
+        .map(|generation| generation.candidates().len())
+        .sum::<usize>();
+    if candidates != 1 {
+        return Some(format!(
+            "a run alone over {candidates} candidates: it is one mutant's"
+        ));
+    }
+    for test in campaign.tests {
+        if test
+            .oracles
+            .iter()
+            .any(|declaration| matches!(declaration.projection(), Projection::Pattern { .. }))
+        {
+            return Some(format!(
+                "a run alone of {}, which has a pattern oracle (its stepped runs read a \
+                 baseline side)",
+                test.id
+            ));
+        }
+        if !test.initial_state.free_variables().is_empty() {
+            return Some(format!(
+                "a run alone of {}: its start must be concrete",
+                test.id
+            ));
+        }
+    }
+    None
+}
+
+/// What a call prepares before any test of it runs ([`prepare_call`]): the manifest of its tests,
+/// the compiled baseline, the baseline's runtime (its stop and observation resolved, its data
+/// facts read) and what every mutant of the call is admitted against.
+struct CallSetup {
+    manifest: Vec<ManifestTest>,
+    baseline: ValidatedDefinition,
+    runtime: Runtime,
+    admission: MutantAdmission,
+}
+
+/// The preparation every call of `campaign` over `generations` makes before it gates or runs a
+/// test, in this order: the session's admission of the campaign, the manifest and declaration
+/// checks, the refusals of `starts` ([`starts_refusal`]), the baseline's compile and runtime, the
+/// stop's and the observation's resolution on it, its data facts and the mutants' admission
+/// ([`run_campaign_session`], [`run_mutant_alone`]).
+fn prepare_call(
+    campaign: &Campaign<'_>,
+    generations: &[CandidateGeneration<'_>],
+    options: &CampaignOptions,
+    session: &mut BaselineSession<'_>,
     starts: &MutantStarts,
-) -> Result<CampaignRun, CampaignFailure> {
+) -> Result<CallSetup, CampaignFailure> {
     session.last_call = CallRecording::default();
     session.admit(campaign)?;
-    let memoise = BaselineSession::memoises(campaign);
     if generations.is_empty() {
         return Err(CampaignFailure::new(
             CampaignFailureKind::InvalidDeclaration,
             "a campaign needs at least one generation",
         ));
     }
-    let schedule = options.schedule;
     let manifest = campaign
         .tests
         .iter()
@@ -2185,6 +2384,30 @@ fn run_campaign_session(
         data,
         signature: runtime.signature.clone(),
     };
+    Ok(CallSetup {
+        manifest,
+        baseline,
+        runtime,
+        admission,
+    })
+}
+
+fn run_campaign_session(
+    campaign: &Campaign<'_>,
+    generations: &[CandidateGeneration<'_>],
+    options: &CampaignOptions,
+    session: &mut BaselineSession<'_>,
+    mut first: Option<&mut FirstTests<'_>>,
+    starts: &MutantStarts,
+) -> Result<CampaignRun, CampaignFailure> {
+    let CallSetup {
+        manifest,
+        baseline,
+        mut runtime,
+        admission,
+    } = prepare_call(campaign, generations, options, session, starts)?;
+    let memoise = BaselineSession::memoises(campaign);
+    let schedule = options.schedule;
     // Refuse unsafe input through the existing declaration admission gate, before any baseline
     // or mutant execution (TV-01, R2-F1). Its definedness refusals of test-written predicates
     // date from before k-rust's solver read each atom with its operands' definedness (GAP K15)
@@ -3230,22 +3453,14 @@ fn run_mutant(
     observations: &mut BaselineObservations<'_>,
     first: Option<&mut FirstTests<'_>>,
 ) -> MutantExecution {
-    // fz26 KINK-BASELINE-FINDINGS: no end of a baseline with a finding left is data, so no
-    // comparison on it can kill, and the mutant is unknown before it compiles.
-    let gated = match &admission.data {
-        Ok(facts) if data_ends(facts) == DataEnds::None => Err(MutantRefusal::new(
-            MutantScopeFailure::BaselineFindings,
-            Withdrawal::default(),
-        )),
-        _ => prepare_mutant(
-            campaign,
-            patch,
-            compiled_baseline,
-            admission,
-            options.run.stop.when().is_some() || !options.run.observe.is_none(),
-        ),
-    };
-    match gated {
+    match mutant_sides(
+        campaign,
+        patch,
+        compiled_baseline,
+        options,
+        admission,
+        observations.runtime.observe.clone(),
+    ) {
         Err(refusal) => {
             let MutantRefusal {
                 failure,
@@ -3264,40 +3479,6 @@ fn run_mutant(
             }
         }
         Ok((mut sides, claims)) => {
-            sides.runtime.modality = options.run.result_modality;
-            sides.runtime.one_sided = options.run.one_sided;
-            sides.runtime.stop = options.run.stop;
-            // The stop names the observation on this side too: a name that labels no rewrite
-            // rule of the claim-free mutant leaves it undefined there, and the mutant is not run
-            // without it.
-            let failure = match resolve_stop(options.run.stop, &mut sides.runtime.backend) {
-                Ok(unresolved) if unresolved.is_empty() => {
-                    condition_incompatible(options.run.stop, admission, &sides.runtime)
-                        .then_some(MutantScopeFailure::StopConditionIncompatible)
-                }
-                Ok(_) => Some(MutantScopeFailure::StopUnresolved),
-                Err(_) => Some(MutantScopeFailure::Infrastructure),
-            };
-            // The observation names its positions on this side too, and reads its cells with the
-            // baseline's declarations: a mutant on which either fails is not run under it.
-            let failure = failure.or_else(|| {
-                let observing = observations.runtime.observe.clone()?;
-                let refusal = observation_refusal(&observing, admission, &mut sides.runtime);
-                sides.runtime.observe = Some(observing);
-                refusal
-            });
-            if let Some(failure) = failure {
-                return MutantExecution {
-                    tests: Vec::new(),
-                    failure: Some(failure),
-                    evidence: Vec::new(),
-                    claims,
-                    inconsistent_pairs: Vec::new(),
-                    selection: None,
-                    caller_order: None,
-                    recordings: Vec::new(),
-                };
-            }
             let selection = mutant_selection(
                 campaign,
                 paired,
@@ -3344,6 +3525,61 @@ fn run_mutant(
                 recordings,
             }
         }
+    }
+}
+
+/// The mutant every test of a call runs on and the claims it withdraws, or its mutant-scope
+/// failure ([`run_mutant`], [`run_mutant_alone`]): the baseline-findings gate, the claim-free
+/// mutant and its runtime ([`prepare_mutant`]) under the call's run options, then the stop's
+/// resolution and its condition's compatibility on the mutant, then the observation `observe`
+/// (the baseline runtime's) on the mutant, in that order.
+fn mutant_sides(
+    campaign: &Campaign<'_>,
+    patch: &Patch,
+    compiled_baseline: &ValidatedDefinition,
+    options: &CampaignOptions,
+    admission: &MutantAdmission,
+    observe: Option<Arc<Observing>>,
+) -> Result<(MutantSides, Withdrawal), Box<MutantRefusal>> {
+    // fz26 KINK-BASELINE-FINDINGS: no end of a baseline with a finding left is data, so no
+    // comparison on it can kill, and the mutant is unknown before it compiles.
+    let (mut sides, claims) = match &admission.data {
+        Ok(facts) if data_ends(facts) == DataEnds::None => Err(MutantRefusal::new(
+            MutantScopeFailure::BaselineFindings,
+            Withdrawal::default(),
+        )),
+        _ => prepare_mutant(
+            campaign,
+            patch,
+            compiled_baseline,
+            admission,
+            options.run.stop.when().is_some() || !options.run.observe.is_none(),
+        ),
+    }?;
+    sides.runtime.modality = options.run.result_modality;
+    sides.runtime.one_sided = options.run.one_sided;
+    sides.runtime.stop = options.run.stop;
+    // The stop names the observation on this side too: a name that labels no rewrite rule of the
+    // claim-free mutant leaves it undefined there, and the mutant is not run without it.
+    let failure = match resolve_stop(options.run.stop, &mut sides.runtime.backend) {
+        Ok(unresolved) if unresolved.is_empty() => {
+            condition_incompatible(options.run.stop, admission, &sides.runtime)
+                .then_some(MutantScopeFailure::StopConditionIncompatible)
+        }
+        Ok(_) => Some(MutantScopeFailure::StopUnresolved),
+        Err(_) => Some(MutantScopeFailure::Infrastructure),
+    };
+    // The observation names its positions on this side too, and reads its cells with the
+    // baseline's declarations: a mutant on which either fails is not run under it.
+    let failure = failure.or_else(|| {
+        let observing = observe?;
+        let refusal = observation_refusal(&observing, admission, &mut sides.runtime);
+        sides.runtime.observe = Some(observing);
+        refusal
+    });
+    match failure {
+        Some(failure) => Err(MutantRefusal::new(failure, claims)),
+        None => Ok((sides, claims)),
     }
 }
 
@@ -3836,7 +4072,7 @@ fn run_tests(
             None if gated => (
                 TestEvidence {
                     test_id: test.id.clone(),
-                    run: SideRun::Failed(ExecutionFailureKind::Infrastructure),
+                    run: SideRun::Failed(ExecutionFailureKind::InputGate),
                     notes: RunNotes::default(),
                     ends: BTreeSet::new(),
                     undefined_steps: false,

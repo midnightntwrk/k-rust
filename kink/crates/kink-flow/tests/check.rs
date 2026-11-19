@@ -1249,8 +1249,10 @@ fn a_grammar_mutant_that_parses_a_case_differently_is_killed_by_its_run() {
 /// with no run (`killer_source` `reparse`); an ambiguous text is a rejection (dropping `left`
 /// from the group of `+` makes `1 + 2 + 3` ambiguous); a case stating that it is
 /// rejected at parse is parsed: still rejected, it agrees, and parsed by the mutant (a new
-/// alternative `plus`), it is a `mutant-accepts` witness only once kink runs the mutant on its
-/// own term, so the row is `unknown`; a mutant that resolves and does not compile is
+/// alternative `plus`), it is left to the mutant's run alone (U34c3), which this mutant does not
+/// make: its fresh constructor leaves claims unbacked (`unsupported-claims`), so it runs no
+/// program, of O or alone, and the row is `unknown` with that reason; where the reparse already
+/// kills, the stated case is not run; a mutant that resolves and does not compile is
 /// `not-admitted`, as for a rule mutation, even where a case's reparse would kill it.
 #[test]
 fn a_grammar_mutant_that_rejects_an_accepted_case_is_killed() {
@@ -1329,11 +1331,12 @@ fn a_grammar_mutant_that_rejects_an_accepted_case_is_killed() {
         json!([
             ["add", "rejected", "killed"],
             ["inline", "rejected", "killed"],
-            ["bad", "different", "unknown"]
+            ["bad", "different", "run"]
         ]),
         "{plus:#}"
     );
     assert_eq!(plus["grammar"][2]["stated"], "parse", "{plus:#}");
+    assert!(plus["executed"].as_array().unwrap().is_empty(), "{plus:#}");
     // Merging the groups of `*` and `+` keeps both texts' terms (the merged group is `left`):
     // every case parses alike, and the mutant's runs of them agree.
     let merged = row(&document, "merge-groups");
@@ -1372,7 +1375,17 @@ fn a_grammar_mutant_that_rejects_an_accepted_case_is_killed() {
     let alternative = row(&document, "plus-alternative");
     assert_eq!(
         (&alternative["status"], &alternative["reason"]),
-        (&json!("unknown"), &json!("grammar-run-not-supported")),
+        (&json!("unknown"), &json!("unsupported-claims")),
+        "{alternative:#}"
+    );
+    assert_eq!(
+        alternative["grammar"][2]["reason"], "grammar-mutant-acceptance-not-decided",
+        "{alternative:#}"
+    );
+    let detail = alternative["grammar"][2]["detail"].as_str().unwrap();
+    assert!(detail.contains("`unsupported-claims`"), "{alternative:#}");
+    assert!(
+        alternative["executed"].as_array().unwrap().is_empty(),
         "{alternative:#}"
     );
     assert_eq!(
@@ -1412,6 +1425,181 @@ fn a_grammar_mutant_that_rejects_an_accepted_case_is_killed() {
         warm["grammar_targets"], document["grammar_targets"],
         "{warm:#}"
     );
+}
+
+/// `kink-flow run` through the library with the lock `lock` (written unless `locked`).
+fn locked_run(manifest: &Path, mutations: &Path, lock: &Path, locked: bool) -> (Value, bool) {
+    kink_flow::search::run(
+        &FlowManifest::read(manifest).unwrap(),
+        &kink_flow::MutationList::read(mutations).unwrap(),
+        &kink_flow::search::RunOptions {
+            legacy_lock: None,
+            only: Vec::new(),
+            cache: None,
+            compile_workers: None,
+            memo: kink_flow::memo::MemoUse::On,
+            schedule: kink_campaign::ScheduleMode::FirstKill,
+            lock: Some(lock.to_owned()),
+            locked,
+        },
+    )
+}
+
+/// PJ-34 (U34c3): a case stating that the specification rejects it at parse, which a grammar
+/// mutant parses, is run on the mutant alone from the mutant's term, and kills it, direction
+/// `mutant-accepts`, where the mutant's whole pipeline accepts it: under `[stop] before
+/// CALC.add`, the mutant that spells `+` as `plus` parses `1 plus 2` to `1 + 2`, whose run
+/// stops before `add`, an accepted end. No program of O (`2 * 3`, parsed alike, runs and
+/// agrees) kills it, so the stated case is the killer (`killer_source` `alone`), with an
+/// executed entry of its run alone. Without the `[stop]` the same run ends on its own, an end
+/// calc declares no class of, so whether the mutant accepts it is not decided: `unknown`. A warm
+/// run gives the cold run's rows. With `1 + 2` in O, the reparse kills first (`mutant-rejects`,
+/// O before the stated cases), unless the lock records the stated case as the killer, which is
+/// kept while it kills; the lock then converges (`--locked`).
+#[test]
+fn a_grammar_mutant_that_accepts_a_rejected_case_is_killed_by_its_run_alone() {
+    use serde_json::json;
+    let dir = scratch("run-grammar-accepts");
+    write(&dir.join("calc.k"), CALC_K);
+    let flow = |stop: &str, programs: &str| {
+        format!(
+            "[spec]\nentry = \"calc.k\"\nmain_module = \"CALC\"\nsyntax_module = \"CALC-SYNTAX\"\n\n\
+             {stop}{programs}[[program]]\nid = \"bad\"\ntext = \"1 plus 2\"\n\
+             expect = {{ rejected = \"parse\" }}\n"
+        )
+    };
+    let stop = "[stop]\nbefore = [\"CALC.add\"]\n\n";
+    let mul = "[[program]]\nid = \"mul\"\ntext = \"2 * 3\"\n\n";
+    let manifest = dir.join("FLOW.toml");
+    write(&manifest, &flow(stop, mul));
+    let mutations = dir.join("MUTATIONS.toml");
+    write(
+        &mutations,
+        &one_edit(
+            "plus-literal",
+            "  production = \"add\"\n  find = \"\\\"+\\\"\"\n  replace = \"\\\"plus\\\"\"",
+        ),
+    );
+    let (check, _) = check_list(&manifest, &mutations, None);
+    assert_eq!(row(&check, "plus-literal")["outcome"], "ok", "{check:#}");
+    let (document, _) = flow_support::corpus_run(&manifest, &mutations);
+    let plus = row(&document, "plus-literal");
+    assert_eq!(
+        killed_as(plus),
+        json!(["killed", "bad", "mutant-accepts"]),
+        "{plus:#}"
+    );
+    assert_eq!(plus["killer_source"], "alone", "{plus:#}");
+    assert_eq!(plus["rules"], Value::Null, "{plus:#}");
+    assert_eq!(
+        reparsed(plus),
+        json!([["mul", "same", "run"], ["bad", "different", "killed"]]),
+        "{plus:#}"
+    );
+    assert_eq!(
+        plus["grammar"][1]["direction"], "mutant-accepts",
+        "{plus:#}"
+    );
+    let entries = plus["executed"].as_array().unwrap();
+    let alone = entries.iter().find(|entry| entry["alone"] == true).unwrap();
+    assert_eq!(
+        (&alone["program"], &alone["outcome"], &alone["acceptance"]),
+        (&json!("bad"), &json!("distinguish"), &json!("accepted")),
+        "{plus:#}"
+    );
+    assert!(
+        entries
+            .iter()
+            .any(|entry| entry["program"] == "mul" && entry["outcome"] == "agree"),
+        "{plus:#}"
+    );
+    let calls = plus["calls"].as_array().unwrap();
+    assert_eq!(
+        calls.last().unwrap(),
+        &json!({"programs": ["bad"], "status": "killed", "alone": true}),
+        "{plus:#}"
+    );
+    assert_eq!(
+        plus["calls"].as_array().unwrap().len(),
+        plus["call_wall_ms"].as_array().unwrap().len()
+    );
+    // Warm, O is served from the outcome cache and the stated case runs alone again.
+    let (warm, _) = flow_support::corpus_run(&manifest, &mutations);
+    assert_eq!(
+        grammar_verdict(row(&warm, "plus-literal")),
+        grammar_verdict(plus),
+        "{warm:#}"
+    );
+    // Without the stop, the run alone ends on its own: not decided.
+    write(&manifest, &flow("", mul));
+    let (unstopped, _) = flow_support::corpus_run(&manifest, &mutations);
+    let open = row(&unstopped, "plus-literal");
+    assert_eq!(
+        (&open["status"], &open["reason"], &open["killer"]),
+        (
+            &json!("unknown"),
+            &json!("grammar-mutant-acceptance-not-decided"),
+            &Value::Null
+        ),
+        "{open:#}"
+    );
+    assert_eq!(
+        reparsed(open),
+        json!([["mul", "same", "run"], ["bad", "different", "unknown"]]),
+        "{open:#}"
+    );
+    // O before the stated cases, the recorded killer first.
+    let add = "[[program]]\nid = \"add\"\ntext = \"1 + 2\"\n\n";
+    write(&manifest, &flow(stop, add));
+    let lock = dir.join("kink.lock");
+    let (first, _) = locked_run(&manifest, &mutations, &lock, false);
+    let plus = row(&first, "plus-literal");
+    assert_eq!(
+        killed_as(plus),
+        json!(["killed", "add", "mutant-rejects"]),
+        "{plus:#}"
+    );
+    assert_eq!(plus["grammar"][1]["verdict"], "run", "{plus:#}");
+    let written = std::fs::read_to_string(&lock).unwrap();
+    let recorded = "id = \"plus-literal\"\nstatus = \"killed\"\nkiller = \"add\"";
+    assert!(written.contains(recorded), "{written}");
+    write(
+        &lock,
+        &written.replace(
+            recorded,
+            "id = \"plus-literal\"\nstatus = \"killed\"\nkiller = \"bad\"",
+        ),
+    );
+    let (kept, _) = locked_run(&manifest, &mutations, &lock, false);
+    let plus = row(&kept, "plus-literal");
+    assert_eq!(
+        killed_as(plus),
+        json!(["killed", "bad", "mutant-accepts"]),
+        "{plus:#}"
+    );
+    assert_eq!(
+        (
+            &plus["killer_source"],
+            &plus["recorded_killer"],
+            &plus["killer_change"]
+        ),
+        (&json!("alone"), &json!("bad"), &Value::Null),
+        "{plus:#}"
+    );
+    assert_eq!(plus["unusable_killer"], Value::Null, "{plus:#}");
+    let (locked, _) = locked_run(&manifest, &mutations, &lock, true);
+    assert_eq!(
+        locked["lock"]["status"], "unchanged",
+        "{:#}",
+        locked["lock"]
+    );
+    // A recorded stated killer that no longer kills (no stop: not decided) gives way, and the
+    // row names why.
+    write(&manifest, &flow("", add));
+    let (gone, _) = locked_run(&manifest, &mutations, &lock, false);
+    let plus = row(&gone, "plus-literal");
+    assert_eq!(plus["killer"], Value::Null, "{plus:#}");
+    assert_eq!(plus["killer_change"], "no-longer-kills", "{plus:#}");
 }
 
 #[test]

@@ -30,7 +30,7 @@ use kink_campaign::{
     CampaignOptions, CampaignRun, CrashPolicy, MutantId, MutantStarts, OracleDeclaration,
     Projection, RunStop, ScheduleMode, SelectionPolicy as Selection, StateProjection, TestCase,
     TestRun, run_campaign_multi, run_campaign_multi_ordered, run_campaign_multi_started,
-    run_campaign_multi_with,
+    run_campaign_multi_with, run_mutant_alone,
 };
 use kink_native::NativeValidator;
 use kink_native::execution::{ExecutionBudget, HaltClass};
@@ -1035,6 +1035,103 @@ mod kink_tier {
                 shared.expect_err("evidence sharing").kind(),
                 CampaignFailureKind::InvalidDeclaration
             );
+        });
+    }
+
+    /// PJ-34 (U34c3): a test run on the mutant alone is the mutant side of a call whose test
+    /// starts there, run for run (its sides, ends, stop ends, undefined steps, polls and the
+    /// judgement of its ends under the baseline's definition), and it runs nothing on the
+    /// baseline: the session serves and records no baseline run.
+    #[test]
+    #[ignore = "kink"]
+    fn a_test_run_alone_is_the_mutant_side_of_a_started_call() {
+        with_stack(|| {
+            let classify: &Classify = &normal;
+            let validator = validator();
+            let generation = generation(validator.baseline());
+            let options = options(ScheduleMode::Full, false);
+            let alone_tests = vec![test("t1", counter_state(5))];
+            let inputs = Inputs::new(&alone_tests, classify);
+            let mut session = BaselineSession::new(&validator);
+            let alone = run_mutant_alone(
+                &inputs.campaign(&validator),
+                std::slice::from_ref(&generation),
+                &options,
+                &mut session,
+            )
+            .expect("run alone");
+            assert_eq!(counts(&session), (0, 0, 0), "no baseline run");
+            assert_eq!(alone.failure, None);
+            assert_eq!(alone.evidence.len(), 1);
+            let reference = run_campaign_multi(
+                &inputs.campaign(&validator),
+                std::slice::from_ref(&generation),
+                &options,
+            )
+            .expect("reference call");
+            let paired = &reference.mutants[0].evidence[0];
+            let ran = &alone.evidence[0];
+            let view = |evidence: &kink_campaign::TestEvidence| {
+                (
+                    evidence.test_id.clone(),
+                    evidence.run.clone(),
+                    evidence.ends.clone(),
+                    evidence.stop_ends.clone(),
+                    evidence.undefined_steps,
+                    evidence.notes.across.clone(),
+                    evidence.notes.polls,
+                    evidence.notes.max_polls,
+                )
+            };
+            assert_eq!(view(ran), view(paired));
+            assert!(!ran.ends.is_empty(), "{ran:?}");
+            assert!(ran.one_sided_ends.is_empty());
+            assert_eq!(alone.claims, reference.mutants[0].plan.claims);
+        });
+    }
+
+    /// PJ-34 (U34c3): a run alone the call cannot make is refused before anything runs: evidence
+    /// sharing, and other than one candidate.
+    #[test]
+    #[ignore = "kink"]
+    fn a_run_alone_the_call_cannot_make_is_refused() {
+        with_stack(|| {
+            let classify: &Classify = &normal;
+            let validator = validator();
+            let one = generation(validator.baseline());
+            let alone_tests = vec![test("t1", counter_state(5))];
+            let inputs = Inputs::new(&alone_tests, classify);
+            let campaign = inputs.campaign(&validator);
+            let mut session = BaselineSession::new(&validator);
+            let shared = run_mutant_alone(
+                &campaign,
+                std::slice::from_ref(&one),
+                &options(ScheduleMode::Full, true),
+                &mut session,
+            )
+            .expect_err("evidence sharing");
+            assert_eq!(shared.kind(), CampaignFailureKind::InvalidDeclaration);
+            for (generations, count) in [
+                (
+                    vec![
+                        generation(validator.baseline()),
+                        generation(validator.baseline()),
+                    ],
+                    "2 candidates",
+                ),
+                (vec![generation_of(&validator)], "0 candidates"),
+            ] {
+                let refused = run_mutant_alone(
+                    &campaign,
+                    &generations,
+                    &options(ScheduleMode::Full, false),
+                    &mut session,
+                )
+                .expect_err(count);
+                assert_eq!(refused.kind(), CampaignFailureKind::InvalidDeclaration);
+                assert!(refused.to_string().contains(count), "{refused:?}");
+            }
+            assert_eq!(counts(&session), (0, 0, 0));
         });
     }
 }

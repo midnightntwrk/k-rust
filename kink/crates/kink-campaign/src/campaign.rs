@@ -231,6 +231,13 @@ pub enum ExecutionFailureKind {
     /// state), or could not be asked: whether the run ended where the condition says is not
     /// known, so it is no evidence for any slot, on the mutant's side or the baseline's.
     StopCondition,
+    /// kink's input gate (kink-native `validate_test_initial_state`, the gate every baseline
+    /// start passes) refused, on the mutant's definition, a start the mutant side was given in
+    /// place of the test's own (a grammar mutant's parse of the program, PJ-34): the run was not
+    /// made. A function of the start and the definition, but no evidence of the mutant's run or
+    /// acceptance, since the gate is kink's fail-closed narrowing of what it runs, not the
+    /// language's; so unknown, never a kill, an agreement or a host failure.
+    InputGate,
 }
 
 impl ExecutionFailureKind {
@@ -250,7 +257,8 @@ impl ExecutionFailureKind {
             | Self::ImplementationChosenValue
             | Self::UnsupportedHook
             | Self::PassedStop
-            | Self::StopCondition => MutantStatus::Unknown,
+            | Self::StopCondition
+            | Self::InputGate => MutantStatus::Unknown,
             Self::TimeLimit => MutantStatus::Timeout,
             Self::Infrastructure => MutantStatus::Error,
         }
@@ -276,7 +284,8 @@ impl ExecutionFailureKind {
             | Self::ResourceLimit
             | Self::TimeLimit
             | Self::Infrastructure
-            | Self::StopCondition => {
+            | Self::StopCondition
+            | Self::InputGate => {
                 return None;
             }
         })

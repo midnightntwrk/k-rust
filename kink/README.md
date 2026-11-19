@@ -79,7 +79,7 @@ A survivor says that no program of the corpus tells the mutant apart from the sp
 it is a target for a new program, or a mutant no program can kill, to argue away, never a sign that the specification is wrong.
 Nor does a survivor show that no program can kill it: "no program found" is not "no program exists".
 
-A grammar mutation (an edit of a `syntax` declaration) is killed otherwise: by a case whose parse differs under the mutant's grammar, the mutant rejecting a program the specification accepts (`mutant-rejects`), or both parsing it to different terms whose runs differ (`parses-differently`); the direction is read from the witness, never from the edit.
+A grammar mutation (an edit of a `syntax` declaration) is killed otherwise: by a case whose parse differs under the mutant's grammar: the mutant rejecting a program the specification accepts (`mutant-rejects`), both parsing it to different terms whose runs differ (`parses-differently`), or the mutant parsing a program the specification rejects at parse (`expect = { rejected = "parse" }`) and accepting it, by its run alone from its own parse (`mutant-accepts`); the direction is read from the witness, never from the edit.
 What such a kill rests on (k-rust's parser for both grammars, an ambiguity read as a rejection, acceptance by the whole pipeline) is ["What a grammar kill trusts"](trust.md#what-a-grammar-kill-trusts); a grammar survivor is a target for a case whose parse differs (one the specification must reject, where the mutant adds texts), listed in the run document's `grammar_targets` ([`crates/kink-flow/README.md`](crates/kink-flow/README.md), "Grammar edits").
 
 What makes a run `unknown` instead of a verdict, each cause with the premise it protects in [`trust.md`](trust.md):

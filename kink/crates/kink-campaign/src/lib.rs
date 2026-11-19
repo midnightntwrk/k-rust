@@ -73,13 +73,13 @@ pub use oracle::{
     OracleValue, PatternValue, TerminalClass, compare_supplied,
 };
 pub use runner::{
-    AHEAD_PER_WORKER, BaselineRecording, BaselineSession, CallRecording, Campaign, CampaignOptions,
-    CampaignRun, ClaimFreeMutant, CrossCause, CrossEnd, CrossRefusal, FirstTests, LeafCensus,
-    MutantAdmission, MutantRefusal, MutantRun, MutantStage, MutantStarts, ONE_SIDED_VERSION,
-    ObservedDifference, OneSided, OracleDeclaration, Projection, RunNotes, RunOptions,
-    RunRecording, RunStop, STOP_VERSION, SideRun, StateProjection, Stop, Tally, TestCase,
-    TestEvidence, ValuesRefusal, WorkBudget, claim_free_mutant, mutant_compiles,
+    AHEAD_PER_WORKER, AloneRun, BaselineRecording, BaselineSession, CallRecording, Campaign,
+    CampaignOptions, CampaignRun, ClaimFreeMutant, CrossCause, CrossEnd, CrossRefusal, FirstTests,
+    LeafCensus, MutantAdmission, MutantRefusal, MutantRun, MutantStage, MutantStarts,
+    ONE_SIDED_VERSION, ObservedDifference, OneSided, OracleDeclaration, Projection, RunNotes,
+    RunOptions, RunRecording, RunStop, STOP_VERSION, SideRun, StateProjection, Stop, Tally,
+    TestCase, TestEvidence, ValuesRefusal, WorkBudget, claim_free_mutant, mutant_compiles,
     observed_difference, observed_values, pattern_side, run_campaign, run_campaign_multi,
     run_campaign_multi_ordered, run_campaign_multi_started, run_campaign_multi_with,
-    run_campaign_with, slot_outcome, state_side, tally,
+    run_campaign_with, run_mutant_alone, slot_outcome, state_side, tally,
 };

@@ -996,6 +996,41 @@ impl<'a> BaselineRunner<'a> {
         )
     }
 
+    /// The one mutant of `generations` run alone on each of `tests`, with no baseline run
+    /// (kink-campaign `run_mutant_alone`: a grammar mutant's own term of a program the
+    /// specification rejects at parse, PJ-34 `mutant-accepts`), under the options every call of
+    /// the command runs with.
+    ///
+    /// # Errors
+    ///
+    /// kink-campaign's refusal of the call.
+    pub fn call_alone(
+        &self,
+        tests: &[TestCase],
+        generations: &[CandidateGeneration<'_>],
+        options: &CampaignOptions,
+    ) -> Result<kink_campaign::AloneRun, CampaignFailure> {
+        let mut options = options.clone();
+        options.run.baseline_max_work = self.baseline_max_work;
+        options.run.smt_resource_limit = self.smt_resource_limit;
+        options.run.stop = self.stop;
+        options.run.observe = self.observe;
+        let campaign = Campaign {
+            validator: &self.spec.validator,
+            module: &self.module,
+            observation: &[],
+            classify: &classify,
+            tests,
+            budget: self.budget,
+        };
+        kink_campaign::run_mutant_alone(
+            &campaign,
+            generations,
+            &options,
+            &mut self.session.borrow_mut(),
+        )
+    }
+
     /// The two elements of the observation difference `verdict` reports for `test` (a test of a
     /// call of this command, with the specification's oracles), whose baseline's run recorded
     /// `record`: kink-campaign `observed_difference` under the options every call of the command

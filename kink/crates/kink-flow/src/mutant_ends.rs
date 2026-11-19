@@ -210,6 +210,22 @@ impl MutantEnds {
         {
             return None;
         }
+        Self::of_evidence(program_id, evidence)
+    }
+
+    /// The record of a test the mutant ran alone, with no baseline run beside it (kink-campaign
+    /// `run_mutant_alone`, PJ-34 `mutant-accepts`), read from its evidence by the rules
+    /// [`Self::of`] reads a pair's mutant evidence by; `None` where those rules write none. Its
+    /// [`Across::baseline`] is `None`, since there is no baseline end.
+    #[must_use]
+    pub fn alone(program_id: &str, evidence: &TestEvidence) -> Option<Self> {
+        Self::of_evidence(program_id, evidence)
+    }
+
+    /// [`Self::of`] once the pair's slots are known to give a record: from the mutant's evidence,
+    /// `None` where a side timed out or failed, a judgement was refused, a claim was contradicted,
+    /// a short-circuit reading counted or no polls were counted.
+    fn of_evidence(program_id: &str, evidence: &TestEvidence) -> Option<Self> {
         let SideRun::Sides { sides } = &evidence.run else {
             return None;
         };
