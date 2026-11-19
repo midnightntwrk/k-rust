@@ -138,6 +138,10 @@ pub struct FlowManifest {
     /// K flow. No run of the definition reads a projection's functions, so it is in no digest or
     /// key.
     pub projection_observations: BTreeMap<String, serde_json::Value>,
+    /// `[run] projections`: the names of the projections `run` judges every mutation under, in
+    /// the order written, each a projection of [`Self::projections`] and none twice; `None`:
+    /// every projection the flow has ([`Self::run_projections`]).
+    pub run_projections: Option<Vec<String>>,
     /// `[stop]`: where every program's run ends besides its own end, when the manifest says;
     /// `None`: every run ends where its paths end.
     pub stop: Option<StopSection>,
@@ -903,6 +907,8 @@ pub struct ManifestFile {
     pub projections: Vec<ProjectionSection>,
     /// The cells the result record keeps, as [`FlowManifest::record_cells`].
     pub record_cells: Option<Vec<RecordCell>>,
+    /// `[run] projections`, as [`FlowManifest::run_projections`].
+    pub run_projections: Option<Vec<String>>,
     /// `[stop]`, as [`FlowManifest::stop`], its rules as written.
     pub stop: Option<StopSection>,
     /// `[observe]`, as [`FlowManifest::observe`], its names as written.
@@ -1007,6 +1013,7 @@ impl ManifestFile {
                 "corpus",
                 "budget",
                 "projection",
+                "run",
                 "stop",
                 "observe",
                 "coverage",
@@ -1034,6 +1041,16 @@ impl ManifestFile {
             .transpose()?
             .unwrap_or_default();
         let record_cells = projection::record_cells(&projections);
+        let run_projections = top
+            .get("run")
+            .map(|value| {
+                run_section(
+                    value,
+                    &effective_projections(&projections, observe.as_ref()),
+                )
+            })
+            .transpose()?
+            .flatten();
         let coverage = top
             .get("coverage")
             .map(coverage)
@@ -1091,6 +1108,7 @@ impl ManifestFile {
             programs,
             projections,
             record_cells,
+            run_projections,
             stop,
             observe,
             coverage,
@@ -1144,6 +1162,7 @@ impl ManifestFile {
             projections: self.projections,
             record_cells: self.record_cells,
             projection_observations: BTreeMap::new(),
+            run_projections: self.run_projections,
             stop: self.stop,
             observe: self.observe,
             coverage: self.coverage,
@@ -1160,6 +1179,45 @@ impl ManifestFile {
             syntax: None,
         })
     }
+}
+
+/// `[run]`: its `projections` (`None` when absent), each a name of `projections` (the flow's
+/// projections, the implicit `default` included), nonempty and without repeats.
+fn run_section(
+    value: &Value,
+    projections: &[ProjectionSection],
+) -> Result<Option<Vec<String>>, ManifestError> {
+    let section = table(value, "run")?;
+    known_keys(section, "run", &["projections"])?;
+    if !section.contains_key("projections") {
+        return Ok(None);
+    }
+    let listed = names(section, "run", "projections", "projection names")?;
+    if listed.is_empty() {
+        return Err(ManifestError::new(
+            "run.projections",
+            "names no projection: leave it out to judge under every projection of the flow",
+        ));
+    }
+    for (index, name) in listed.iter().enumerate() {
+        if !projections
+            .iter()
+            .any(|projection| &projection.name == name)
+        {
+            return Err(ManifestError::new(
+                format!("run.projections[{index}]"),
+                format!(
+                    "`{name}` is no projection of the flow (it has {})",
+                    projections
+                        .iter()
+                        .map(|projection| format!("`{}`", projection.name))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+            ));
+        }
+    }
+    Ok(Some(listed))
 }
 
 /// The projections of a flow that declares `declared`: those, or the one [`default_projection`]
@@ -1241,6 +1299,21 @@ impl FlowManifest {
                 })
                 .collect(),
         ))
+    }
+
+    /// The projections `run` judges every mutation under (`[run] projections`), in the order
+    /// written; every projection of [`Self::projections`] when the flow does not say, which is
+    /// `default` alone for a flow that declares none.
+    #[must_use]
+    pub fn run_projections(&self) -> Vec<ProjectionSection> {
+        let all = self.projections();
+        match &self.run_projections {
+            None => all,
+            Some(names) => names
+                .iter()
+                .filter_map(|name| all.iter().find(|p| &p.name == name).cloned())
+                .collect(),
+        }
     }
 
     /// The projection named `name` among [`Self::projections`].

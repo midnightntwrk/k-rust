@@ -52,7 +52,7 @@
 
 use crate::evidence::Renderer;
 pub use crate::exclusion::ExclusionScope;
-use crate::manifest::{CaseRoot, Decoder, FlowManifest, Program};
+use crate::manifest::{CaseRoot, Decoder, FlowManifest, Program, ProjectionKind, RecordCell};
 use crate::observed::{ResultProjection, result_projection};
 use k_rust::{
     backend::Backend, k_rust_backend::definition::BackendDefinition, kast::Term, kore::ast::Pattern,
@@ -302,6 +302,14 @@ pub struct AdmittedSpec {
     /// unobservable, narrowed to the cells the projections compare (`FlowManifest::record_cells`;
     /// stage `result`; [`crate::observed`]).
     pub result: ResultProjection,
+    /// What each declared `end` projection of a K flow compares, by name: the second slot over
+    /// its own `compare` (every observable cell without one), computed as [`Self::result`] is,
+    /// which `run` judges a kill under that projection with ([`crate::projected`]); `Err` holds
+    /// why the projection's cells name no comparison of the configuration. Empty for a flow a
+    /// front end bound (its projections name cells in the front end's spelling, which the front
+    /// end compares itself, `crate::compare::Vocabulary::compare_ends`) and for a flow that
+    /// declares no projection.
+    pub projections: BTreeMap<String, Result<ResultProjection, String>>,
     /// The skeleton of the condition of every authored sentence behind a guarded rewrite rule or
     /// function equation (kink-native `coverage::guard_skeletons`), read once from the input
     /// backend's load: a guard's nodes, whether or not a program entered it, so that the
@@ -1267,6 +1275,7 @@ fn admit_definition(
             reason: refusal.reason().into(),
             detail: refusal.to_string(),
         })?;
+    let projections = projection_results(manifest, &compiled, &kore);
     // The input backend (kink-corpus `input_backend`: the compiled KORE for the main module,
     // refused as `inputs`/`input-gate`), with the corpus's solver budget.
     let mut backend = Backend::from_definition(
@@ -1320,6 +1329,7 @@ fn admit_definition(
             data,
             exclusions,
             result,
+            projections,
             guard_skeletons,
             syntax,
             definition: selected.map_err(|error| {
@@ -1329,6 +1339,36 @@ fn admit_definition(
         },
         backend,
     ))
+}
+
+/// [`AdmittedSpec::projections`]: in a K flow, each declared `end` projection's own second slot.
+fn projection_results(
+    manifest: &FlowManifest,
+    compiled: &ValidatedDefinition,
+    kore: &k_rust::kore::ast::Definition,
+) -> BTreeMap<String, Result<ResultProjection, String>> {
+    if manifest.definition.is_some() {
+        return BTreeMap::new();
+    }
+    manifest
+        .projections
+        .iter()
+        .filter(|projection| projection.kind == ProjectionKind::End)
+        .map(|projection| {
+            let cells = projection.compare.as_ref().map(|compare| {
+                compare
+                    .iter()
+                    .map(|cell| RecordCell {
+                        cell: cell.clone(),
+                        projection: projection.name.clone(),
+                    })
+                    .collect::<Vec<_>>()
+            });
+            let result = result_projection(compiled, kore, cells.as_deref(), &[])
+                .map_err(|refusal| refusal.to_string());
+            (projection.name.clone(), result)
+        })
+        .collect()
 }
 
 /// Each binder of a front end's syntax selection (`FlowManifest::syntax`) is selected once, or

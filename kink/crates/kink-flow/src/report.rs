@@ -285,8 +285,12 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// that states none writes the rows it wrote.
 /// 44 since a flow that declares `[[projection]]` names its projections (`projections`,
 /// [`crate::FlowManifest::projections_value`]: each projection's keys as written and, where it has
-/// `views` or `observer`, the identity of its `observation` as the front end resolved it); a flow
-/// that declares none gives version 43's document but for its version.
+/// `views` or `observer`, the identity of its `observation` as the front end resolved it), each
+/// row has the status of its mutation under each projection `[run] projections` lists
+/// (`projections`, `{name, status, killer, reason}`, a status possibly `undecided`) and each
+/// executed entry its program's verdict under each (`projections`, [`crate::projected`]); a flow
+/// that declares none gives version 43's document but for its version. (One version for both:
+/// neither was on `main` before the other.)
 pub const RUN_VERSION: u64 = 44;
 
 /// The name of the observation slot of an executed entry's `slots`, after the end slots

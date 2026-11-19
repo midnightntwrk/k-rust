@@ -1044,3 +1044,47 @@ fn assert_a_cancelled_run_keeps_its_rows(package: &Package, corpus: &str, rewrit
     );
     assert_eq!(fs::read_to_string(&record).unwrap(), rewritten);
 }
+
+/// `krs kink run` judges every mutation under each projection the corpus lists, its views
+/// evaluated at both sides' ends (kink-flow `Vocabulary::compare_ends`): the mutation `tick-plus-2`
+/// adds 2 to `acc` at every `tick`, which the search kills (`acc` differs) and which survives under
+/// `parity` (`acc`'s parity through the view `Parity`) and under `n`, while `acc` kills it. Under
+/// `--full` every program is judged; under the first-kill search a projection under which the
+/// first killing program agrees is `undecided`.
+#[test]
+fn run_judges_a_kill_under_a_projection_through_its_views() {
+    let package = Package::new();
+    let corpus = "corpora/kills";
+    package.corpus(
+        corpus,
+        "[[projection]]\nname = \"acc\"\ncompare = [\"acc\"]\n\n[[projection]]\nname = \
+         \"parity\"\ncompare = [\"acc\"]\nviews = { acc = \"Parity\" }\n\n[[projection]]\nname = \
+         \"n\"\ncompare = [\"n\"]\n\n",
+        &[("a", 2), ("b", 5)],
+    );
+    package.write(
+        &format!("{corpus}/mutations/tick.toml"),
+        "[[mutation]]\nid = \"tick-plus-2\"\nmisunderstanding = \"a tick adds 2 more\"\n\n  \
+         [[mutation.edit]]\n  rule = \"tick\"\n  find = \"+Int\"\n  replace = \"+Int 2 +Int\"\n",
+    );
+    let mut process = krs_command!();
+    fixture_build_env(&mut process, package.target.path());
+    let output = process
+        .current_dir(package.directory.path())
+        .args(["kink", "run", "--full", "--corpus", corpus])
+        .args(["--package", PACKAGE, "--definition", "main"])
+        .output()
+        .unwrap();
+    let document = json_of(&output);
+    let row = &document["mutations"][0];
+    assert_eq!(row["status"], "killed", "{document:#}");
+    assert_eq!(
+        row["projections"],
+        json!([
+            {"name": "acc", "status": "killed", "killer": row["killer"], "reason": null},
+            {"name": "parity", "status": "survived", "killer": null, "reason": null},
+            {"name": "n", "status": "survived", "killer": null, "reason": null},
+        ]),
+        "{row:#}"
+    );
+}

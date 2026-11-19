@@ -51,7 +51,9 @@
 //!
 //! PJ-11 adds the mutant ends store ([`mutant_ends`]): the ends of each mutant run `run` makes
 //! live, under the mutant's own key and with no projection in it, written beside the tier-1
-//! records for a judgement under another projection; `run` decides nothing from it.
+//! records for a judgement under another projection. `run` judges every mutation under each
+//! projection `[run] projections` lists ([`projected`]), from the run's slot outcomes and both
+//! sides' ends (the mutant's live, or from that store).
 
 pub mod admit;
 pub mod check;
@@ -77,6 +79,7 @@ pub mod names;
 pub mod observed;
 pub mod outcomes;
 pub mod pattern;
+pub mod projected;
 pub mod prune;
 pub mod query;
 pub mod report;
@@ -96,9 +99,9 @@ pub use cli::{
     dispatch, on_stack,
 };
 pub use compare::{
-    Acceptance, Answer, AskedChannel, ChannelAgreed, CompareOptions, Distance, EndWord, Judged,
-    NotCompared, Question, RefusalJudged, RefusalQuestion, Stated, StatedEnd, TraceAnswer,
-    TraceDifference, TraceJudged, TraceQuestion, TraceReach, Vocabulary,
+    Acceptance, Answer, AskedChannel, ChannelAgreed, CompareOptions, Distance, EndWord, EndsJudged,
+    EndsQuestion, Judged, NotCompared, Question, RefusalJudged, RefusalQuestion, Stated, StatedEnd,
+    TraceAnswer, TraceDifference, TraceJudged, TraceQuestion, TraceReach, Vocabulary,
 };
 pub use evidence::{DeclaredEnd, EndRenderer, Renderer};
 pub use expect::{CheckedExpectation, ExpectationCheck, ExpectationVerdict};

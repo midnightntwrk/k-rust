@@ -180,8 +180,11 @@ use crate::evidence::EndReader;
 use crate::{
     admit::{AdmittedSpec, InputSession, admit_spec_with},
     cli::{CommandSpelling, FrontEnd, Verb},
+    compare::{EndsJudged, EndsQuestion, Vocabulary},
+    digest::ExecutionDigest,
     digest::{mutation_identity, outcome_context, spec_digest},
     lock::{Lock, Settle},
+    manifest::ProjectionSection,
     manifest::{Budget, FlowManifest},
     memo::{self, Facts, MemoUse},
     mutant_ends::{MutantEndStore, MutantEnds},
@@ -190,6 +193,7 @@ use crate::{
         rule_texts,
     },
     outcomes::{CachedOutcome, OutcomeRecord, OutcomeStore, RunPolls, cacheable, slot_name},
+    projected::{self, Judge, ProjectionStatus, Verdict},
     report::{
         MutantCensus, OPEN_APPLICATION_REASON, RUN_SCHEMA, RUN_VERSION, WORK_BUDGET_REASON, action,
         action_spelled, claims_value, executed_cause, horizon_reason, matrix, observation_slot,
@@ -203,6 +207,7 @@ use crate::{
     },
 };
 use k_rust::definition::AttributeKey;
+use k_rust::kore::ast::Pattern;
 use kink_campaign::{
     CallRecording, CampaignFailure, CampaignOptions, CampaignReport, CompiledEdit, ManifestTest,
     MutantId, MutantPlan, MutantReport, MutantRun, MutantScopeFailure, MutantStatus, OracleOutcome,
@@ -541,6 +546,9 @@ struct Search<'a, 's> {
     support: ClaimSupport,
     /// How next steps spell the front end's commands.
     spelling: &'a dyn CommandSpelling,
+    /// The judgement under each listed projection ([`crate::projected`]); `None` for a flow that
+    /// declares no projection, under `--verify`, and in the searches of `coverage` and `prune`.
+    projected: Option<Projected<'a>>,
 }
 
 impl Search<'_, '_> {
@@ -1743,19 +1751,23 @@ impl Search<'_, '_> {
                 let reason = open_reason(&report, &cached_opens(&read, |c| self.candidates[c].id));
                 let killer = killer.map(|c| self.candidates[c].id.to_owned());
                 let source = killer.as_ref().map(|_| SOURCE_OUTCOME_CACHE);
-                return Some((
-                    verdict_row(
-                        row,
-                        &report,
-                        None,
-                        killer,
-                        reason,
-                        source,
-                        RowCalls::default(),
-                        executed,
-                    ),
-                    false,
-                ));
+                let mut value = verdict_row(
+                    row,
+                    &report,
+                    None,
+                    killer,
+                    reason,
+                    source,
+                    RowCalls::default(),
+                    executed,
+                );
+                let judged = read
+                    .iter()
+                    .map(|(c, record)| (*c, Executed::Cached(record)))
+                    .collect::<Vec<_>>();
+                let search = search_order.clone().unwrap_or_else(|| order.clone());
+                self.project_row(&mut value, &search, identity, &judged);
+                return Some((value, false));
             }
             Tier1::Empty => unreachable!("an empty O returned above"),
             Tier1::Call { records } => records,
@@ -1985,10 +1997,25 @@ impl Search<'_, '_> {
         });
         let killer = killer.map(|k| self.candidates[k].id.to_owned());
         let calls = self.calls(&calls);
-        Some((
-            verdict_row(row, &report, None, killer, reason, source, calls, executed),
-            false,
-        ))
+        let mut value = verdict_row(row, &report, None, killer, reason, source, calls, executed);
+        // The programs the status read: the valid records (unless the live call's
+        // infrastructure failure left them out of the plan), then each call's tests, a later
+        // call's replacing an earlier's.
+        let last_failure = runs.last().and_then(|(_, run, ..)| run.plan.mutant_failure);
+        let mut judged = if last_failure == Some(MutantScopeFailure::Infrastructure) {
+            Vec::new()
+        } else {
+            agree
+                .iter()
+                .map(|(c, record)| (*c, Executed::Cached(record)))
+                .collect::<Vec<_>>()
+        };
+        for (_, run, ..) in &runs {
+            judged.extend(self.live_executed(run));
+        }
+        let search = search_order.unwrap_or_else(|| order.clone());
+        self.project_row(&mut value, &search, identity, &judged);
+        Some((value, false))
     }
 
     /// A full row (`run --full`, module documentation): every program of O, in corpus order, is a
@@ -2157,19 +2184,35 @@ impl Search<'_, '_> {
         }
         let calls = self.calls(&calls);
         let killer = killer.map(|killer| self.candidates[killer].id.to_owned());
-        (
-            verdict_row(
-                row,
-                &report,
-                killed_by,
-                killer,
-                reason,
-                source,
-                calls,
-                entries(executed),
-            ),
-            false,
-        )
+        let mut value = verdict_row(
+            row,
+            &report,
+            killed_by,
+            killer,
+            reason,
+            source,
+            calls,
+            entries(executed),
+        );
+        // The cells the status read: the cached ones (unless the live call's infrastructure
+        // failure left them out of the plan), then the call's.
+        let mut judged = match &live {
+            Some(live)
+                if live.mutant.plan.mutant_failure == Some(MutantScopeFailure::Infrastructure) =>
+            {
+                Vec::new()
+            }
+            _ => cached
+                .iter()
+                .map(|(c, record)| (*c, Executed::Cached(record)))
+                .collect::<Vec<_>>(),
+        };
+        if let Some(live) = &live {
+            judged.extend(self.live_executed(&live.mutant));
+        }
+        let search = witness.map_or_else(|| order.to_vec(), |w| self.search_order(order, w));
+        self.project_row(&mut value, &search, facts.identity, &judged);
+        (value, false)
     }
 
     /// Live executed entries with the candidate index of their program.
@@ -2540,6 +2583,368 @@ impl Search<'_, '_> {
         row.insert("reason".into(), json!(error.reason));
         row.insert("detail".into(), json!(error.detail));
         (finish(row, None, None, self.calls(calls), executed), true)
+    }
+}
+
+/// `run`'s judgement under each projection it lists ([`crate::projected`]), for a flow that
+/// declares `[[projection]]`: the listed projections with how each is judged, and what judging a
+/// program reads besides the row (the front end's comparison, the baselines' ends).
+struct Projected<'a> {
+    listed: Vec<(ProjectionSection, Judge)>,
+    /// The front end's comparison of ends under a projection (`None` for kink-flow's own, which
+    /// compares a K flow's cells natively).
+    vocabulary: Option<&'a (dyn Vocabulary + Sync)>,
+    /// The execution digest and the cache directory a stored baseline record is read from.
+    execution: ExecutionDigest,
+    cache: PathBuf,
+    /// Each candidate's baseline ends as its record keeps them, read on first use.
+    baselines: BTreeMap<usize, Result<BTreeSet<Pattern>, String>>,
+}
+
+impl<'a> Projected<'a> {
+    /// The judgement of `manifest`'s listed projections (`[run] projections`), or `None` when the
+    /// flow declares no projection: its one projection, `default`, is the run's own.
+    fn of(
+        manifest: &FlowManifest,
+        vocabulary: Option<&'a (dyn Vocabulary + Sync)>,
+        execution: ExecutionDigest,
+        cache: &Path,
+    ) -> Option<Self> {
+        if manifest.projections.is_empty() {
+            return None;
+        }
+        let listed = manifest
+            .run_projections()
+            .into_iter()
+            .map(|projection| {
+                let judge = Judge::of(&projection, manifest);
+                (projection, judge)
+            })
+            .collect();
+        Some(Self {
+            listed,
+            vocabulary,
+            execution,
+            cache: cache.to_path_buf(),
+            baselines: BTreeMap::new(),
+        })
+    }
+}
+
+/// One program a row's status reads, for the judgement under projections: a valid outcome record
+/// (its mutant's ends in the ends store, if anywhere), or a live test with the mutant's evidence.
+enum Executed<'r> {
+    Cached(&'r OutcomeRecord),
+    Live(&'r TestRun, Option<&'r TestEvidence>),
+}
+
+/// The mutant's ends of one executed program, for a cells re-judgement.
+enum EndsAt {
+    /// A complete-or-not record of them.
+    Record(MutantEnds),
+    /// A live run that gave none to compare: why (a judged program, `unknown`).
+    Unusable(String),
+    /// A cached program with no ends record: not judged.
+    Missing,
+}
+
+impl Search<'_, '_> {
+    /// Each listed projection's status in `row` (`projections`), and each executed entry's
+    /// verdict under each (`projections`), from the programs the row's status read (`executed`,
+    /// by candidate; a later entry for a program replaces an earlier, as its executed entry
+    /// does), in the search order `order` (O in C); nothing when the flow declares no projection
+    /// or this search judges none. `identity` is the mutation's (the ends store's directory).
+    fn project_row(
+        &mut self,
+        row: &mut Value,
+        order: &[usize],
+        identity: Option<Sha256Digest>,
+        executed: &[(usize, Executed<'_>)],
+    ) {
+        let Some(mut projected) = self.projected.take() else {
+            return;
+        };
+        let mut sources = BTreeMap::<usize, &Executed<'_>>::new();
+        for (c, source) in executed {
+            sources.insert(*c, source);
+        }
+        let mutation_level = !matches!(
+            row["status"].as_str(),
+            Some("killed" | "survived" | "unknown")
+        ) || sources.is_empty();
+        let ids = order
+            .iter()
+            .map(|c| self.candidates[*c].id)
+            .collect::<Vec<_>>();
+        let mut statuses = Vec::new();
+        let mut verdicts = BTreeMap::<String, Vec<(String, &'static str)>>::new();
+        let listed = std::mem::take(&mut projected.listed);
+        for (projection, judge) in &listed {
+            let holds =
+                |c: usize| projection.holds(&self.manifest.programs[self.candidates[c].index]);
+            let domain = order
+                .iter()
+                .filter(|c| holds(**c))
+                .map(|c| self.candidates[*c].id)
+                .collect::<BTreeSet<_>>();
+            let mut judged = BTreeMap::<String, Verdict>::new();
+            for (&c, source) in &sources {
+                let id = self.candidates[c].id;
+                if !domain.contains(id) {
+                    // As `compare` names a view outside its domain (`outside-domain`): neither
+                    // judged nor counted.
+                    if !matches!(judge, Judge::NotJudged(_)) {
+                        verdicts
+                            .entry(id.to_owned())
+                            .or_default()
+                            .push((projection.name.clone(), projected::OUTSIDE_DOMAIN_VERDICT));
+                    }
+                    continue;
+                }
+                let verdict = match (judge, source) {
+                    (Judge::NotJudged(_), _) => None,
+                    (_, Executed::Live(TestRun::SkippedAfterKill, _)) => None,
+                    (_, Executed::Live(TestRun::Failed(kind), _)) => {
+                        Some(Verdict::Unknown(format!(
+                            "the mutant's run failed (`{}`)",
+                            kebab(&format!("{kind:?}"))
+                        )))
+                    }
+                    (Judge::Run, Executed::Live(TestRun::Compared(outcomes), _)) => {
+                        Some(Verdict::of_run(outcomes))
+                    }
+                    (Judge::Run, Executed::Cached(record)) => Some(Verdict::of_run(&record.slots)),
+                    (
+                        Judge::Flow(flow),
+                        Executed::Live(run @ TestRun::Compared(outcomes), evidence),
+                    ) => {
+                        let channel = evidence
+                            .and_then(|evidence| observation_verdict(&evidence.notes))
+                            .and_then(|verdict| verdict.position.as_ref())
+                            .map(|position| position.channel.clone());
+                        projected::verdict(flow, outcomes, channel.as_deref(), || {
+                            let ends = evidence
+                                .and_then(|evidence| MutantEnds::of(id, run, evidence))
+                                .map_or_else(
+                                    || {
+                                        EndsAt::Unusable(
+                                            "the mutant's run gave no ends to compare (a slot or \
+                                             side timed out or failed, or its judgement was \
+                                             refused)"
+                                                .to_owned(),
+                                        )
+                                    },
+                                    EndsAt::Record,
+                                );
+                            self.cells_verdict(&mut projected, projection, c, ends)
+                        })
+                    }
+                    (Judge::Flow(flow), Executed::Cached(record)) => {
+                        let channel = record.observation["position"]["channel"].as_str();
+                        projected::verdict(flow, &record.slots, channel, || {
+                            let ends = self
+                                .ends
+                                .as_ref()
+                                .zip(identity)
+                                .and_then(|(store, identity)| {
+                                    store.read(identity, &self.candidates[c].digest.to_string())
+                                })
+                                .filter(|ends| {
+                                    ends.polls.serves(self.poll_bound(&self.candidates[c]))
+                                })
+                                .map_or(EndsAt::Missing, EndsAt::Record);
+                            self.cells_verdict(&mut projected, projection, c, ends)
+                        })
+                    }
+                };
+                if let Some(verdict) = verdict {
+                    verdicts
+                        .entry(id.to_owned())
+                        .or_default()
+                        .push((projection.name.clone(), verdict.name()));
+                    judged.insert(id.to_owned(), verdict);
+                }
+            }
+            statuses.push(match judge {
+                _ if mutation_level => ProjectionStatus::of_row(&projection.name, row),
+                // The run's verdict over its domain only, where it has one.
+                Judge::Run if projection.domain.is_some() => ProjectionStatus::of_programs(
+                    &projection.name,
+                    &ids,
+                    |id| domain.contains(id),
+                    &judged,
+                ),
+                Judge::Run => ProjectionStatus::of_row(&projection.name, row),
+                Judge::NotJudged(reason) => ProjectionStatus {
+                    name: projection.name.clone(),
+                    status: projected::UNDECIDED.to_owned(),
+                    killer: None,
+                    reason: Some((*reason).to_owned()),
+                },
+                Judge::Flow(_) => ProjectionStatus::of_programs(
+                    &projection.name,
+                    &ids,
+                    |id| domain.contains(id),
+                    &judged,
+                ),
+            });
+        }
+        projected.listed = listed;
+        self.projected = Some(projected);
+        row["projections"] = json!(
+            statuses
+                .iter()
+                .map(ProjectionStatus::value)
+                .collect::<Vec<_>>()
+        );
+        if let Some(entries) = row["executed"].as_array_mut() {
+            for entry in entries {
+                if let Some(judged) = entry["program"].as_str().and_then(|id| verdicts.get(id)) {
+                    entry["projections"] = projected::entry_value(
+                        &judged
+                            .iter()
+                            .map(|(name, verdict)| (name.as_str(), *verdict))
+                            .collect::<Vec<_>>(),
+                    );
+                }
+            }
+        }
+    }
+
+    /// The tests of a live call's run, each with the mutant's evidence of its pair, by candidate.
+    fn live_executed<'r>(&self, run: &'r MutantRun) -> Vec<(usize, Executed<'r>)> {
+        run.plan
+            .tests
+            .iter()
+            .filter_map(|test| {
+                let evidence = run
+                    .evidence
+                    .iter()
+                    .find(|evidence| evidence.test_id == test.test_id);
+                Some((
+                    self.position(&test.test_id)?,
+                    Executed::Live(&test.run, evidence),
+                ))
+            })
+            .collect()
+    }
+
+    /// A row with no `projections` yet (a row no program decides: invalid, unkillable,
+    /// equivalent, a corpus error, ...) gets the row's own status under every listed projection,
+    /// when this search judges under projections.
+    fn fill_projections(&self, row: &mut Value) {
+        let Some(projected) = &self.projected else {
+            return;
+        };
+        if row.get("projections").is_none() {
+            row["projections"] = json!(
+                projected
+                    .listed
+                    .iter()
+                    .map(|(projection, _)| ProjectionStatus::of_row(&projection.name, row).value())
+                    .collect::<Vec<_>>()
+            );
+        }
+    }
+
+    /// The verdict under `projection` of candidate `c`'s cells slot, which distinguished the
+    /// mutant: the baseline's ends and the mutant's (`ends`) compared under the projection's
+    /// cells and views; `None` when the mutant's ends are not at hand.
+    fn cells_verdict(
+        &self,
+        projected: &mut Projected<'_>,
+        projection: &ProjectionSection,
+        c: usize,
+        ends: EndsAt,
+    ) -> Option<Verdict> {
+        let ends = match ends {
+            EndsAt::Record(ends) => ends,
+            EndsAt::Unusable(reason) => return Some(Verdict::Unknown(reason)),
+            EndsAt::Missing => return None,
+        };
+        let mutant = match projected::mutant_side(&ends, &self.spec.result) {
+            Ok(mutant) => mutant,
+            Err(reason) => return Some(Verdict::Unknown(reason)),
+        };
+        let baseline = match projected
+            .baselines
+            .entry(c)
+            .or_insert_with(|| self.baseline_ends(c, projected.execution, &projected.cache))
+        {
+            Ok(baseline) => &*baseline,
+            Err(reason) => return Some(Verdict::Unknown(reason.clone())),
+        };
+        if self.manifest.definition.is_none() {
+            return Some(match self.spec.projections.get(&projection.name) {
+                Some(Ok(cells)) => projected::native_cells(cells, baseline, &mutant),
+                Some(Err(reason)) => Verdict::Unknown(format!(
+                    "the projection's cells name no comparison: {reason}"
+                )),
+                None => Verdict::Unknown("the projection compares no cells of the end".to_owned()),
+            });
+        }
+        let Some(vocabulary) = projected.vocabulary else {
+            return Some(Verdict::Unknown(
+                "the front end compares no ends under a projection".to_owned(),
+            ));
+        };
+        Some(
+            match vocabulary.compare_ends(&EndsQuestion {
+                projection,
+                baseline,
+                mutant: &mutant,
+                not_compared: &self.spec.result.not_compared,
+            }) {
+                Ok(EndsJudged::Equal) => Verdict::Agree,
+                Ok(EndsJudged::Different(_)) => Verdict::Killed,
+                Ok(EndsJudged::Inconclusive(reason)) | Err(reason) => Verdict::Unknown(reason),
+            },
+        )
+    }
+
+    /// Candidate `c`'s baseline ends as its record keeps them (each left-out cell `\top`, the
+    /// counter erased): this command's live run of it when it made one, else its stored record,
+    /// as `compare` reads the definition's side.
+    fn baseline_ends(
+        &self,
+        c: usize,
+        execution: ExecutionDigest,
+        cache: &Path,
+    ) -> Result<BTreeSet<Pattern>, String> {
+        let candidate = &self.candidates[c];
+        let row = &self.rows[candidate.index];
+        // The stored record first, so that a baseline is never run again only for its ends.
+        let stored = row.inputs.as_ref().and_then(|inputs| {
+            crate::results::current_record(
+                self.manifest,
+                execution,
+                &self.manifest.programs[candidate.index],
+                inputs,
+                cache,
+            )
+            .and_then(|record| {
+                crate::results::record_final_configuration(&record)
+                    .map(|terms| terms.into_iter().map(str::to_owned).collect::<Vec<_>>())
+            })
+        });
+        let texts = stored.or_else(|| {
+            row.test.as_ref().and_then(|test| {
+                self.runner
+                    .run(test.clone())
+                    .final_terms()
+                    .map(|terms| terms.into_iter().map(str::to_owned).collect())
+            })
+        });
+        let texts = texts.ok_or_else(|| {
+            "the baseline's record holds no ends this command can read".to_owned()
+        })?;
+        texts
+            .iter()
+            .map(|text| {
+                k_rust::kore::parser::parse_pattern(text)
+                    .map_err(|error| format!("a baseline end does not parse: {error}"))
+            })
+            .collect()
     }
 }
 
@@ -3089,6 +3494,9 @@ pub(crate) fn run_session(
         within: None,
         support: ClaimSupport::new(spec.validator.baseline()),
         spelling: front.spelling,
+        projected: (mode == RunMode::Search)
+            .then(|| Projected::of(manifest, front.implementations, update.execution, &cache))
+            .flatten(),
     };
     let outcome_cache = |search: &Search<'_, '_>| search.outcome_cache(tier1_reason.as_deref());
     search.mismatches.extend(census_mismatch);
@@ -3239,6 +3647,7 @@ pub(crate) fn run_session(
             row = resolution_mismatch(row);
         }
         search.record_fields(&mut row, mutation);
+        search.fill_projections(&mut row);
         row["action"] = json!(
             front
                 .refused
@@ -3383,6 +3792,9 @@ pub(crate) fn run_session(
         ok = false;
     }
     if let Some(then) = then {
+        // The cells `prune` asks are judged under no projection (U12 makes its obligations
+        // per projection).
+        search.projected = None;
         let mut session = Session {
             search: &mut search,
             list,
@@ -3617,6 +4029,7 @@ pub(crate) fn search_derived(
         within: None,
         support: ClaimSupport::new(spec.validator.baseline()),
         spelling,
+        projected: None,
     };
     let mut rows = Vec::new();
     let mut stopped = None;

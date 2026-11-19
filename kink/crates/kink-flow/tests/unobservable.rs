@@ -1055,3 +1055,240 @@ fn a_view_compares_only_the_programs_of_its_projection_s_domain() {
     );
     assert_eq!(again["lock"]["status"], "unchanged", "{:#}", again["lock"]);
 }
+
+/// `FLOW-plain.toml` (every cell of `plain.k` observable) with `extra` (projections, `[run]`)
+/// before its program.
+fn plain_projected(extra: &str) -> String {
+    fs::read_to_string(flow().join("FLOW-plain.toml"))
+        .unwrap()
+        .replace("[[program]]", &format!("{extra}[[program]]"))
+}
+
+/// Each row's `projections`, `(mutation, projection) -> (status, killer)`, in row and list order.
+fn projection_statuses(document: &Value) -> Vec<(String, String, String, Option<String>)> {
+    document["mutations"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{document:#}"))
+        .iter()
+        .flat_map(|row| {
+            row["projections"]
+                .as_array()
+                .unwrap_or_else(|| panic!("no projections in {row:#}"))
+                .iter()
+                .map(|entry| {
+                    (
+                        row["id"].as_str().unwrap().to_owned(),
+                        entry["name"].as_str().unwrap().to_owned(),
+                        entry["status"].as_str().unwrap().to_owned(),
+                        entry["killer"].as_str().map(str::to_owned),
+                    )
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+fn quad(
+    mutation: &str,
+    projection: &str,
+    status: &str,
+    killer: Option<&str>,
+) -> (String, String, String, Option<String>) {
+    (
+        mutation.to_owned(),
+        projection.to_owned(),
+        status.to_owned(),
+        killer.map(str::to_owned),
+    )
+}
+
+/// PJ-11: a mutation the run kills on the union of the projections' cells is judged under each
+/// listed projection: `note-offset` changes `<scratch>` only, so it survives under `out` and is
+/// killed under `scratch`; `emit-offset` the reverse. Each kill under a projection is a kill of
+/// the run's own slots (a projection can turn a kill into a survival, never the reverse). A second
+/// run, which tier 1 decides from the outcome records, reads the mutant's ends from the ends store
+/// and gives the same statuses.
+#[test]
+fn kills_are_judged_under_each_listed_projection() {
+    let text = plain_projected(
+        "[[projection]]\nname = \"out\"\ncompare = [\"out\"]\n\n\
+         [[projection]]\nname = \"scratch\"\ncompare = [\"scratch\"]\n\n",
+    );
+    let dir = fixture("projections", &[("projections", &text)]);
+    let manifest = dir.join("FLOW-projections.toml");
+    let document = search(&manifest);
+    assert_eq!(
+        statuses(&document),
+        pairs(&[("note-offset", "killed"), ("emit-offset", "killed")])
+    );
+    let expected = vec![
+        quad("note-offset", "out", "survived", None),
+        quad("note-offset", "scratch", "killed", Some("both")),
+        quad("emit-offset", "out", "killed", Some("both")),
+        quad("emit-offset", "scratch", "survived", None),
+    ];
+    assert_eq!(projection_statuses(&document), expected, "{document:#}");
+    for row in document["mutations"].as_array().unwrap() {
+        let entry = &row["executed"][0];
+        assert_eq!(entry["cached"], false, "{entry:#}");
+        for (name, verdict) in entry["projections"].as_object().unwrap() {
+            if verdict == "killed" {
+                assert!(
+                    ["exit-stop", "cells"]
+                        .iter()
+                        .any(|slot| entry["slots"][slot]["outcome"] == "distinguish"),
+                    "{name}: {entry:#}"
+                );
+            }
+        }
+    }
+    let again = search(&manifest);
+    assert!(
+        again["mutations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|row| row["executed"][0]["cached"] == true),
+        "{again:#}"
+    );
+    assert_eq!(projection_statuses(&again), expected, "{again:#}");
+}
+
+/// A projection whose observation is the run's own takes the row's verdict; one judged
+/// flow-side over the same cells (`cells3` compares every cell of `plain.k` while `whole`, with
+/// no `compare`, keeps the record unnarrowed) gives the runner's verdict on every program: the
+/// flow-side relation is the runner's.
+#[test]
+fn a_projection_over_the_runs_cells_gives_the_runners_verdict() {
+    let text = plain_projected(
+        "[[projection]]\nname = \"whole\"\n\n\
+         [[projection]]\nname = \"cells3\"\ncompare = [\"k\", \"out\", \"scratch\"]\n\n",
+    );
+    let dir = fixture("runners", &[("runners", &text)]);
+    let document = search(&dir.join("FLOW-runners.toml"));
+    for row in document["mutations"].as_array().unwrap() {
+        let statuses = row["projections"].as_array().unwrap();
+        for entry in statuses {
+            assert_eq!(entry["status"], row["status"], "{row:#}");
+            assert_eq!(entry["killer"], row["killer"], "{row:#}");
+        }
+        for entry in row["executed"].as_array().unwrap() {
+            let verdicts = &entry["projections"];
+            let runner = if entry["slots"]
+                .as_object()
+                .unwrap()
+                .values()
+                .any(|slot| slot["outcome"] == "distinguish")
+            {
+                "killed"
+            } else {
+                "agree"
+            };
+            assert_eq!(
+                verdicts,
+                &json!({"whole": runner, "cells3": runner}),
+                "{entry:#}"
+            );
+        }
+    }
+}
+
+/// `[run] projections` selects the projections `run` judges under, in its order; a projection's
+/// `domain` keeps the programs outside it out of its judgement and its count (an executed entry
+/// names them `outside-domain`, as `compare` does); an `accepts` projection is not judged by `run`;
+/// a projection under which the search's first killing program agrees is `undecided` while a
+/// program of its domain after it was not run; a projection that observes what the search does
+/// (`whole`) takes the search's verdict over its domain only. The corpus is `both` and `other` (`emit(3)`): the
+/// search kills both mutations at `both`, the first program of the search order.
+#[test]
+fn run_judges_the_listed_projections_within_their_domain() {
+    let text = format!(
+        "{}\n[[program]]\nid = \"other\"\ntext = \"emit(3)\"\n",
+        plain_projected(
+            "[[projection]]\nname = \"out\"\ncompare = [\"out\"]\n\n\
+             [[projection]]\nname = \"mine\"\ncompare = [\"out\"]\ndomain = [\"both\"]\n\n\
+             [[projection]]\nname = \"acc\"\nkind = \"accepts\"\n\n\
+             [[projection]]\nname = \"whole\"\ndomain = [\"other\"]\n\n\
+             [run]\nprojections = [\"mine\", \"acc\", \"out\", \"whole\"]\n\n",
+        )
+    );
+    let dir = fixture("listed", &[("listed", &text)]);
+    let document = search(&dir.join("FLOW-listed.toml"));
+    let rows = document["mutations"].as_array().unwrap();
+    let note = &rows[0];
+    assert_eq!(note["id"], "note-offset");
+    assert_eq!(note["status"], "killed", "{note:#}");
+    assert_eq!(
+        note["projections"],
+        json!([
+            {"name": "mine", "status": "survived", "killer": null, "reason": null},
+            {"name": "acc", "status": "undecided", "killer": null, "reason": "kind-not-judged"},
+            {"name": "out", "status": "undecided", "killer": null, "reason": "projection-search"},
+            {"name": "whole", "status": "undecided", "killer": null, "reason": "projection-search"},
+        ]),
+        "{note:#}"
+    );
+    let emit = &rows[1];
+    assert_eq!(emit["id"], "emit-offset");
+    assert_eq!(
+        emit["projections"],
+        json!([
+            {"name": "mine", "status": "killed", "killer": "both", "reason": null},
+            {"name": "acc", "status": "undecided", "killer": null, "reason": "kind-not-judged"},
+            {"name": "out", "status": "killed", "killer": "both", "reason": null},
+            {"name": "whole", "status": "undecided", "killer": null, "reason": "projection-search"},
+        ]),
+        "{emit:#}"
+    );
+    assert_eq!(
+        emit["executed"][0]["projections"],
+        json!({"mine": "killed", "out": "killed", "whole": "outside-domain"})
+    );
+    // Under `--full` every program runs: `other` is outside `mine`'s domain.
+    let (full, _) = run(
+        &FlowManifest::read(&dir.join("FLOW-listed.toml")).unwrap(),
+        &MutationList::read(&dir.join("MUTATIONS.toml")).unwrap(),
+        &RunOptions {
+            schedule: kink_campaign::ScheduleMode::Full,
+            ..RunOptions::default()
+        },
+    );
+    let note = &full["mutations"][0];
+    let other = note["executed"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["program"] == "other")
+        .unwrap_or_else(|| panic!("{note:#}"));
+    assert_eq!(
+        other["projections"],
+        json!({"mine": "outside-domain", "out": "agree", "whole": "agree"}),
+        "{other:#}"
+    );
+    assert_eq!(note["projections"][0]["status"], "survived", "{note:#}");
+    assert_eq!(note["projections"][2]["status"], "survived", "{note:#}");
+    assert_eq!(note["projections"][3]["status"], "survived", "{note:#}");
+    // `whole` observes what the search does, over its domain only: `both`, the row's killer, is
+    // outside it, and `other` kills.
+    let emit = &full["mutations"][1];
+    assert_eq!(emit["killer"], "both", "{emit:#}");
+    assert_eq!(
+        emit["projections"][3],
+        json!({"name": "whole", "status": "killed", "killer": "other", "reason": null}),
+        "{emit:#}"
+    );
+}
+
+/// A flow that declares no projection is judged as it was: no row or executed entry names a
+/// projection, and every status and killer is the runner's.
+#[test]
+fn a_flow_without_projections_names_none_in_its_rows() {
+    let dir = fixture("unprojected", &[]);
+    let document = search(&dir.join("FLOW-plain.toml"));
+    for row in document["mutations"].as_array().unwrap() {
+        assert!(row.get("projections").is_none(), "{row:#}");
+        for entry in row["executed"].as_array().unwrap() {
+            assert!(entry.get("projections").is_none(), "{entry:#}");
+        }
+    }
+}

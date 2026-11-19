@@ -516,6 +516,23 @@ pub trait Vocabulary {
         Err("this front end reads no declared end, so it cannot read `refused`".to_owned())
     }
 
+    /// Compare the definition's ends with a mutant's ends of one program under one `end`
+    /// projection of the flow ([`EndsQuestion`]), for `run`'s judgement of a kill under it
+    /// ([`crate::projected`]): equal when the two sets of ends are equal under the projection's
+    /// cells and views (its views evaluated at both sides in the projection's one observer),
+    /// different with the first difference otherwise, inconclusive where a view's evaluation is
+    /// undecided or a side cannot be read. Never a difference that is not one: `run` counts a
+    /// difference as a kill.
+    ///
+    /// # Errors
+    ///
+    /// Why the front end cannot compare ends under the projection; by default, that it compares
+    /// none. `run` makes the program `unknown` under the projection, with the error as its reason.
+    fn compare_ends(&self, question: &EndsQuestion<'_>) -> Result<EndsJudged, String> {
+        let _ = question;
+        Err("this front end compares no ends under a projection".to_owned())
+    }
+
     /// Compare a `rejected` answer's `refused` with each of the definition's ends (every one of
     /// them rejected), on the parts of their declared class both state ([`RefusalJudged`]).
     ///
@@ -526,6 +543,33 @@ pub trait Vocabulary {
         let _ = question;
         Err("this front end compares no refusal".to_owned())
     }
+}
+
+/// One question to the front end for `run` ([`Vocabulary::compare_ends`]): the definition's ends
+/// and a mutant's ends of one program, compared under one `end` projection of the flow.
+pub struct EndsQuestion<'a> {
+    /// The projection, as the flow declares it (its `compare` in the front end's spelling).
+    pub projection: &'a ProjectionSection,
+    /// The definition's ends, final configurations of the K kink judges as its result slot
+    /// compares them: each cell of `not_compared` replaced by `\top` of its sort, the counter
+    /// erased.
+    pub baseline: &'a BTreeSet<Pattern>,
+    /// The mutant's ends, every one of them (the mutant's run is complete), projected as the
+    /// definition's are; each is data under the definition.
+    pub mutant: &'a BTreeSet<Pattern>,
+    /// The cells the corpus's ends leave out, by K cell name.
+    pub not_compared: &'a [String],
+}
+
+/// The front end's comparison of two sets of ends under a projection ([`EndsQuestion`]).
+#[derive(Clone, Debug, PartialEq)]
+pub enum EndsJudged {
+    /// The sets of ends are equal under the projection.
+    Equal,
+    /// They differ: the first difference (the front end's document).
+    Different(Value),
+    /// The comparison does not conclude: why.
+    Inconclusive(String),
 }
 
 /// One question to the front end: a `rejected` answer's `refused` against the definition's ends

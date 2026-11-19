@@ -594,6 +594,55 @@ fn a_projection_that_compares_every_cell_keeps_every_cell_in_the_record() {
     assert_eq!(traces.record_cells, Some(Vec::new()));
 }
 
+/// `[run] projections` lists the projections `run` judges under, in its order; without it, every
+/// projection the flow has (`default` alone for a flow that declares none).
+#[test]
+fn run_lists_the_projections_it_judges_under() {
+    let names = |manifest: &FlowManifest| {
+        manifest
+            .run_projections()
+            .into_iter()
+            .map(|projection| projection.name)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(names(&decode(SPEC).unwrap()), ["default"]);
+    let two = "[[projection]]\nname = \"a\"\ncompare = [\"k\"]\n\n\
+               [[projection]]\nname = \"b\"\n\n";
+    let declared = decode(&format!("{SPEC}{two}")).unwrap();
+    assert_eq!(declared.run_projections, None);
+    assert_eq!(names(&declared), ["a", "b"]);
+    let listed = decode(&format!("{SPEC}{two}[run]\nprojections = [\"b\", \"a\"]\n")).unwrap();
+    assert_eq!(names(&listed), ["b", "a"]);
+    // A flow without projections may name its one projection.
+    let default = decode(&format!("{SPEC}[run]\nprojections = [\"default\"]\n")).unwrap();
+    assert_eq!(names(&default), ["default"]);
+    for (text, key, message) in [
+        (
+            "[run]\nprojections = [\"c\"]\n",
+            "run.projections[0]",
+            "`c` is no projection of the flow (it has `a`, `b`)",
+        ),
+        (
+            "[run]\nprojections = [\"a\", \"a\"]\n",
+            "run.projections",
+            "names `a` twice",
+        ),
+        (
+            "[run]\nprojections = []\n",
+            "run.projections",
+            "names no projection",
+        ),
+        ("[run]\nslots = 1\n", "run.slots", "unknown key"),
+    ] {
+        assert_error(&format!("{SPEC}{two}{text}"), key, message);
+    }
+    assert_error(
+        &format!("{SPEC}[run]\nprojections = [\"a\"]\n"),
+        "run.projections[0]",
+        "`a` is no projection of the flow (it has `default`)",
+    );
+}
+
 #[test]
 fn projection_errors_name_the_key() {
     let p = "[[projection]]\nname = \"p\"\n";

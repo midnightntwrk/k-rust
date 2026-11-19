@@ -63,6 +63,9 @@ smt_resource_limit = 370000   # optional; Z3 resource units of a query's first a
 name = "regs"
 compare = ["k", "regs"]       # compare only these cells; default: every observable cell
 
+[run]                         # optional
+projections = ["regs"]        # optional; default: every projection of the flow ("Kills under each projection")
+
 [stop]                        # optional; every run ends where its paths end when absent
 after = ["CALC.frame-end"]    # and/or before = [...]: rewrite rules by exact K label
 count = 60                    # optional; default 1
@@ -342,12 +345,12 @@ A flow that declares projections has exactly those; one of them may be named `de
 | `compare` | every observable cell | `end` only: the cells compared, by the front end's names (a K name here, a Rust path through `krs kink`); a nonempty array without repeats. |
 | `views`, `observer` | none | `end` only: functions of the cells' values, as a view's ("Comparing implementations"). Only a front end that reads values resolves them: kink-flow's own front end refuses a projection with either at stage `projection`, reason `unsupported-front-end`. |
 | `channels` | none | Channels of `[observe]` by name, each one the flow declares; required for `trace`, optional for `end`, refused for `accepts`. |
-| `domain` | every case | The cases the projection applies to, as `[[program]] files` patterns, each matching some program of the flow (below); `compare` applies it, `run` does not yet. |
+| `domain` | every case | The cases the projection applies to, as `[[program]] files` patterns, each matching some program of the flow (below); `compare` and `run` apply it. |
 
 A projection's `domain` holds a program when one of its patterns matches the program's id or, for a case of a case document, the path of that document: the id of a `files` match and of a document's one case is the path the pattern matched, relative to the case root (the corpus root under `[corpus] root`), so a domain written as a `[[program]]` entry's pattern holds every program that entry gives, a document's named cases (`<document>#<name>`) included, and a pattern of a named case's id (`cases/a.toml#b`) holds that case alone; a listed program is matched by its `id`.
 A pattern is matched by its grammar alone, without the file system, and a wildcard matches no name that starts with `.`, as when it walks a directory.
 A pattern that matches no program of the flow is refused (`projection[i].domain[j]`), as a `[[program]]` pattern that matches nothing is: a projection measured on no case measures nothing.
-`run` judges its kills on one second slot over the union of the cells the projections compare, and on every channel of `[observe]` ("Which cells are compared"), on every program whatever the projections' domains; judging each projection apart is to come.
+`run`'s search judges its kills on one second slot over the union of the cells the projections compare, and on every channel of `[observe]` ("Which cells are compared"), on every program whatever the projections' domains, and then judges each projection `[run] projections` lists on the programs of its domain ("Kills under each projection"): a program outside it is neither judged nor counted under the projection.
 An implementation's view may name a projection ("Comparing implementations"), and is then compared on the programs of its domain only.
 A front end that reads values resolves each projection's `views` and `observer` once per command, before anything runs, whether or not a view names the projection (`krs kink`: stage `projection`, reason `projection-unresolved` for one that does not resolve).
 Every projection's `compare` is checked against the configuration, also where another projection keeps every cell in the record and the record does not narrow to it: kink-flow's own front end checks it as the narrowing of a record of its own, refused at stage `result` with the reason a flow whose only projection it is would get (`result-cell-unknown`, `result-cell-unobservable`, `map-key-left-out`, or `cell-layout` where the configuration's cells cannot be placed), and `krs kink` checks an unknown, repeated or unobservable cell.
@@ -1656,6 +1659,27 @@ So an outcome does not depend on the schedule, the tier-1 context does not name 
 The killer is a function of the lock and of the same inputs under both schedules ("The corpus record"), so a first-kill run and a full run name the same killer and write the same lock.
 A first-kill row's `killed_by` is null, not a one-element list, because first-kill establishes one killer, not every one.
 `run --verify --full` runs the cold call over every comparable program under the full schedule, so every cached outcome is compared with a live cell, and the status the cache would have given is the fold of every cached outcome with the live outcomes of the others (no killed-outcome shortcut).
+
+### Kills under each projection
+
+`[run] projections` names the projections `run` judges every mutation under, in the order written, each a projection of the flow; by default every projection the flow has, which is `default` alone for a flow that declares none.
+A flow that declares no `[[projection]]` is judged as it was before projections existed: its one projection is the search's own observation, and no row names it.
+
+A flow that declares projections gives each row `projections`, one `{name, status, killer, reason}` per listed projection, and each executed entry `projections`, the verdict of its program under each listed projection (`killed`, `agree` or `unknown`; `outside-domain` where the projection's domain does not hold the program, which is then neither judged nor counted under it, as `compare` leaves a view outside its domain out).
+A projection observes a function of what the search's slots compare (some of the record's cells, functions of those cells evaluated in one observer, some of the channels), so a difference under it is a difference of the search's slots and an agreement of the slots is an agreement under it: a projection can turn a kill into a survival, never the reverse.
+
+- A projection whose observation is the search's own (kind `end`, no `views` or `observer`, the cells the record keeps, every channel of `[observe]`) has the row's status, killer and reason; where it has a `domain`, the search's verdict of each program of its domain is folded as below.
+- Any other `end` or `trace` projection is judged per program the row's status read, live or from tier 1: the exit stop slot (read by an `end` projection) and the observation slot (read by a projection with `channels`; a difference the slot locates on a channel the projection does not read decides nothing, since only the first difference is recorded) give their outcomes; where the cells slot distinguished, an `end` projection compares the baseline's ends, as its result record keeps them, with the mutant's, as the live call gave them or the mutant ends store keeps them ("The cache directory", `mutant-ends/`), under its own cells and views: by the front end's comparison (`krs kink`: as `compare` compares two sets of ends, the views evaluated at both sides in the projection's one observer), or, under kink-flow's own front end, by the projection's own cells as the second slot projects them.
+  A program is killed under the projection where a slot it reads proves a difference, `unknown` where one it reads is undecided (a mutant run that is not complete or whose ends are not data under the other definition, an inconclusive comparison, a failed run), and `agree` otherwise.
+  A one-sided kill is never re-judged under such a projection: its program is `unknown` there.
+- An `accepts` projection is not judged by `run`: its status is `undecided`, reason `kind-not-judged`.
+
+A row whose status no program decides (`invalid-mutation`, `unkillable`, `equivalent`, an `error`, a mutant-scope failure) has that status under every projection.
+Otherwise a projection judged per program is `killed` by the first program of its domain in the search order C that kills under it, `survived` when every program of O in its domain agrees, `unknown` when every one is judged and some is unknown, `undecided` with reason `projection-search` when some program of its domain was not judged under it, and `error` with reason `no-comparable-program` when its domain holds no program of O.
+The first-kill search stops at the first program the search's slots kill, so a projection under which that program agrees is `undecided` until a later run judges the programs after it; `--full` judges every program.
+A program tier 1 decided is judged from the mutant ends store, and one whose ends it does not hold is not judged.
+Nothing of this is cached: each verdict under a projection is recomputed from the stored ends on every run, so no key names a projection.
+`--verify`, and the searches `coverage` and `prune` make, judge under no projection.
 
 ### The killer record, compile workers and memos
 

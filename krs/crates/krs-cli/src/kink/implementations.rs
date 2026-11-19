@@ -45,8 +45,8 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use k_rust::kore::ast::Pattern;
 use kink_flow::{
-    Distance, ImplementationSection, Judged, NotCompared, Program, Question, RefusalJudged,
-    RefusalQuestion, TraceAnswer, TraceQuestion, ViewSection, Vocabulary,
+    Distance, EndsJudged, EndsQuestion, ImplementationSection, Judged, NotCompared, Program,
+    Question, RefusalJudged, RefusalQuestion, TraceAnswer, TraceQuestion, ViewSection, Vocabulary,
 };
 use krs_exec::{
     Compared, Comparison, ConfigValue, End, EndClass, EndError, Ends, Halt, Semantics, Side,
@@ -560,6 +560,92 @@ impl Vocabulary for KrsImplementations {
                 judge(semantics, &comparison, &definition, &answered, omitted)
             },
         )
+    }
+
+    /// The definition's ends against a mutant's, both K ends of the definition read with the
+    /// cells the record leaves out unstated, compared on the projection's cells through its views
+    /// evaluated in its one observer, as two sets ([`Semantics::compare_ends`]); a view whose
+    /// evaluation stops or has no value, a side that cannot be read and a compared cell the
+    /// record leaves out are inconclusive.
+    fn compare_ends(&self, question: &EndsQuestion<'_>) -> Result<EndsJudged, String> {
+        let EndsQuestion {
+            projection,
+            baseline,
+            mutant,
+            not_compared,
+        } = *question;
+        let resolved = self
+            .projections
+            .get(&projection.name)
+            .ok_or_else(|| format!("`{}` is no end projection of the flow", projection.name))?;
+        let judge = |semantics: &mut Semantics, mut observer: Option<&mut Semantics>| {
+            let all = semantics.cells();
+            let unstated = unstated(&all, not_compared);
+            let left_out = unstated
+                .iter()
+                .map(|cell| cell.path.as_str())
+                .collect::<Vec<_>>();
+            let compare = resolved.observation.named(&all, &left_out);
+            if let Some(path) = compare
+                .iter()
+                .find(|path| left_out.iter().any(|cell| overlap(path, cell)))
+            {
+                return Ok(EndsJudged::Inconclusive(format!(
+                    "the projection compares `{path}`, which the record leaves out"
+                )));
+            }
+            let mut comparison = Comparison {
+                compare: Some(compare),
+                views: self
+                    .observers
+                    .bound_views(semantics, observer.as_deref(), &resolved.observation.views)
+                    .map_err(|error| format!("projection `{}`: {error}", projection.name))?,
+            };
+            let read = |semantics: &Semantics, ends| {
+                read_ends(semantics, ends, &stuck(), &unstated).map(|ends| Ends {
+                    ends,
+                    incomplete: None,
+                })
+            };
+            let (definition, mutated) = match (read(semantics, baseline), read(semantics, mutant)) {
+                (Ok(definition), Ok(mutated)) => (definition, mutated),
+                (Err(detail), _) | (_, Err(detail)) => {
+                    return Ok(EndsJudged::Inconclusive(detail));
+                }
+            };
+            if let Some(reason) = evaluate_views(
+                semantics,
+                observer.as_deref_mut(),
+                &mut comparison,
+                &definition,
+                &mutated,
+            ) {
+                return Ok(EndsJudged::Inconclusive(reason.detail()));
+            }
+            let left = Side {
+                name: "baseline",
+                ends: &definition,
+            };
+            let right = Side {
+                name: "mutant",
+                ends: &mutated,
+            };
+            Ok(match semantics.compare_ends(&comparison, left, right) {
+                Ok(Compared::Equal) => EndsJudged::Equal,
+                Ok(Compared::Differs(difference)) => EndsJudged::Different(
+                    serde_json::to_value(&*difference).map_err(|error| error.to_string())?,
+                ),
+                Ok(Compared::Inconclusive(reason)) => EndsJudged::Inconclusive(reason),
+                Err(error) => EndsJudged::Inconclusive(error.to_string()),
+            })
+        };
+        self.inputs
+            .with_semantics_mut("comparing a mutant's ends", |semantics| {
+                match &resolved.observer {
+                    Some(observer) => observer.with_loaded(|loaded| judge(semantics, Some(loaded))),
+                    None => judge(semantics, None),
+                }
+            })
     }
 
     fn observe_request(&self, channels: &[String]) -> Result<Vec<Value>, String> {
