@@ -7,17 +7,21 @@
 # status = "covered": kk.k (through the catalogue's encoder, krs/semantics/kore/tools/korek.py) reads
 #          it; `rules` names the kk.k rules that read it and `cases` the catalogue's cases that
 #          exercise it.
-# status = "absent":  kk.k does not read it; `note` says why and what the encoder does on it.
-# A row is never blank. This is a skeleton: the rows are KCore's constructors, not yet the rows of
-# kcore-spec's rows.toml.
+# status = "refused": KK.encDef (KcoreSpec/KKEncDef.lean) has no form for it; `bool` names the conjunct
+#          of KK.encodable that fails where the reader puts it into a Semantics, or "reader" where
+#          the reader refuses the form, so that no Semantics holds it and no conjunct is reached;
+#          `note` says why.
+# A covered row with `note` and no `rules` is one kk.k needs nothing of (`note` says why).
+# A row is never blank. The rows of kcore-spec's rows.toml are the table [rows] below, which
+# kk/coverage.py gen writes.
 
 # --- Clause (a function equation) -----------------------------------------------------------
 
 [[row]]
 type = "Clause"
 item = "vars"
-status = "absent"
-note = "the sorts of an equation's variables are not encoded: a variable is vr(i) and binds any value (m-var); on a well-sorted definition the value at a variable's position has its sort"
+status = "covered"
+note = "a variable is written vr(i) and binds any value (m-var); kk.k needs no sort of it: on a well-sorted definition the value at a variable's position has its sort"
 
 [[row]]
 type = "Clause"
@@ -58,40 +62,45 @@ note = "the field REVIEW-FA D1 decides (not yet in kcore-merge's Core.lean, whos
 [[row]]
 type = "Clause"
 item = "opens"
-status = "absent"
-note = "a variable no pattern binds (Clause.opens, derived from vars and pats: in the requires, the ensures or the right side alone) ranges over every value of its sort, and kk.k instantiates the three from one match of the patterns (try, inst), with no enumeration of a sort; the encoder refuses the equation: variable V of an equation of F: the left side does not bind it (tools/test_korek.py, on the text kompile writes for rule f() => g(Y) [unboundVariables(Y)])"
+status = "refused"
+bool = "shapesOK"
+note = "KK.shapesOK (KcoreSpec/KKStatements.lean) requires of every rule and clause opens = [], exs = [], pre and post \\top and, of a clause, not aside"
 
 [[row]]
 type = "Clause"
 item = "exs"
-status = "absent"
-note = "a right side under \\exists has a value for each witness of the bound variable; kk.k computes one value from one match; the encoder refuses the equation: right side of an equation of F under \\exists"
+status = "refused"
+bool = "shapesOK"
+note = "KK.shapesOK (KcoreSpec/KKStatements.lean) requires of every rule and clause opens = [], exs = [], pre and post \\top and, of a clause, not aside"
 
 [[row]]
 type = "Clause"
 item = "pre"
-status = "absent"
-note = "a predicate of the premise that is not a term equal to true (\\equals of two terms, \\in, \\ceil, a connective, a binder): cl holds one requires term, evaluated to bv(true), and has no operation that holds where a term is undefined; the encoder refuses the equation: requires shape"
+status = "refused"
+bool = "shapesOK"
+note = "KK.shapesOK (KcoreSpec/KKStatements.lean) requires of every rule and clause opens = [], exs = [], pre and post \\top and, of a clause, not aside: cl holds one requires term"
 
 [[row]]
 type = "Clause"
 item = "post"
-status = "absent"
-note = "a predicate of the right side that is not a term equal to true: cl holds the ensures as a term in en(R, E); the encoder refuses the equation: ensures shape"
+status = "refused"
+bool = "shapesOK"
+note = "KK.shapesOK (KcoreSpec/KKStatements.lean) requires of every rule and clause opens = [], exs = [], pre and post \\top and, of a clause, not aside: cl holds the ensures as a term in en(R, E)"
 
 [[row]]
 type = "Clause"
 item = "aside"
-status = "absent"
-note = "an equation that blocks no equation of a larger priority (the attribute non-executable): the walk stops at the first priority at which an equation applies, whichever it is; the encoder refuses the axiom by the attribute: non-executable (the attribute row non-executable)"
+status = "refused"
+bool = "shapesOK"
+note = "KK.shapesOK (KcoreSpec/KKStatements.lean) requires of every rule and clause opens = [], exs = [], pre and post \\top and, of a clause, not aside"
 
 # --- Rule (a rewrite rule) ------------------------------------------------------------------
 
 [[row]]
 type = "Rule"
 item = "vars"
-status = "absent"
-note = "as Clause.vars: variable sorts are not encoded"
+status = "covered"
+note = "as Clause.vars: a variable is vr(i); kk.k needs no sort of it"
 
 [[row]]
 type = "Rule"
@@ -131,26 +140,30 @@ cases = ["c02-rule-prio", "c46-prio-nonterm-requires"]
 [[row]]
 type = "Rule"
 item = "opens"
-status = "absent"
-note = "a variable the left side does not bind (Rule.opens, derived from vars and lhs) ranges over every value of its sort: the rule has a successor for each, and succs returns the finite list of one result per match of the left side; the encoder refuses the rule: variable V of a rule: the left side does not bind it"
+status = "refused"
+bool = "shapesOK"
+note = "KK.shapesOK (KcoreSpec/KKStatements.lean) requires of every rule and clause opens = [], exs = [], pre and post \\top and, of a clause, not aside"
 
 [[row]]
 type = "Rule"
 item = "exs"
-status = "absent"
-note = "a right side under \\exists (?X) has a successor for each witness; as opens; the encoder refuses the rule: right side of a rule under \\exists"
+status = "refused"
+bool = "shapesOK"
+note = "KK.shapesOK (KcoreSpec/KKStatements.lean) requires of every rule and clause opens = [], exs = [], pre and post \\top and, of a clause, not aside"
 
 [[row]]
 type = "Rule"
 item = "pre"
-status = "absent"
-note = "as Clause.pre: rl holds one requires term; the encoder refuses the rule: requires shape"
+status = "refused"
+bool = "shapesOK"
+note = "KK.shapesOK (KcoreSpec/KKStatements.lean) requires of every rule and clause opens = [], exs = [], pre and post \\top and, of a clause, not aside: rl holds one requires term"
 
 [[row]]
 type = "Rule"
 item = "post"
-status = "absent"
-note = "as Clause.post: rl holds the ensures as a term in en(R, E); the encoder refuses the rule: ensures shape"
+status = "refused"
+bool = "shapesOK"
+note = "KK.shapesOK (KcoreSpec/KKStatements.lean) requires of every rule and clause opens = [], exs = [], pre and post \\top and, of a clause, not aside: rl holds the ensures as a term in en(R, E)"
 
 # --- Term -----------------------------------------------------------------------------------
 
@@ -216,8 +229,9 @@ cases = ["c39-tokens-preds", "c49-string-bool-eq"]
 [[row]]
 type = "Lit"
 item = "float"
-status = "absent"
-note = "the encoder refuses a domain value of a sort other than Int, Bool, String or a token sort"
+status = "refused"
+bool = "litsOK"
+note = "KK.litsOK refuses a definition whose signatures, collections or subsorts name Float, and KK.encLit has no form for a Float literal"
 
 # --- Kore.Pattern (the KORE text the encoder reads) -----------------------------------------
 
@@ -278,8 +292,9 @@ note = "\\and(P, V) in a left side is an as-pattern; \\and(lhs, req) and \\and(r
 [[row]]
 type = "Pattern"
 item = "or"
-status = "absent"
-note = "only inside an [owise] premise, not read; elsewhere refused (a connective in a term)"
+status = "refused"
+bool = "shapesOK"
+note = "the reader reads \\or into a predicate (Parse.condOf: Cond.or), which is a rule's or clause's pre or post other than \\top; rows.E4.\"tree:Pattern.or\" (fixture base, where no \\or is read into a predicate) is the row's computed entry"
 
 [[row]]
 type = "Pattern"
@@ -292,44 +307,49 @@ note = "the shape of an equation axiom"
 [[row]]
 type = "Pattern"
 item = "iff"
-status = "absent"
-note = "refused (a connective in a term); not in the axioms the encoder selects"
+status = "refused"
+bool = "reader"
+note = "the reader refuses it (rows.toml E4 tree:Pattern.iff is refused), so no Semantics holds it and no conjunct of KK.encodable is reached"
 
 [[row]]
 type = "Pattern"
 item = "exist"
-status = "absent"
-note = "only inside an [owise] premise and kompile's functional axioms, not read; elsewhere refused"
+status = "refused"
+bool = "shapesOK"
+note = "the reader reads \\exists into a rule's or clause's exs, or into a predicate (Cond.ex, Cond.exMatch); rows.E4.\"tree:Pattern.exist\" is the row's computed entry"
 
 [[row]]
 type = "Pattern"
 item = "forall"
-status = "absent"
-note = "refused (a connective in a term)"
+status = "covered"
+note = "the reader reads it only in a requires or ensures of predicates, as the literal false (predicateAtBool), which kk.k writes bv(false); elsewhere the reader refuses it (rows.toml E4 tree:Pattern.forall); rows.E4.\"tree:Pattern.forall#cases[0]\" is the computed entry"
 
 [[row]]
 type = "Pattern"
 item = "mu"
-status = "absent"
-note = "refused (a connective in a term)"
+status = "refused"
+bool = "reader"
+note = "the reader refuses it (rows.toml E4 tree:Pattern.mu is refused), so no Semantics holds it and no conjunct of KK.encodable is reached"
 
 [[row]]
 type = "Pattern"
 item = "nu"
-status = "absent"
-note = "refused (a connective in a term)"
+status = "refused"
+bool = "reader"
+note = "the reader refuses it (rows.toml E4 tree:Pattern.nu is refused), so no Semantics holds it and no conjunct of KK.encodable is reached"
 
 [[row]]
 type = "Pattern"
 item = "ceil"
-status = "absent"
-note = "refused in a term; kompile's definedness axioms are not selected"
+status = "refused"
+bool = "shapesOK"
+note = "the reader reads \\ceil into a predicate (Parse.condOf: Cond.ceil); rows.E4.\"tree:Pattern.ceil\" and its cases are the row's computed entries"
 
 [[row]]
 type = "Pattern"
 item = "floor"
-status = "absent"
-note = "refused (a connective in a term)"
+status = "covered"
+note = "the reader reads it only in a requires or ensures of predicates, as the literal false (predicateAtBool), which kk.k writes bv(false); elsewhere the reader refuses it (rows.toml E4 tree:Pattern.floor); rows.toml names no fixture of that case, so it has no computed entry"
 
 [[row]]
 type = "Pattern"
@@ -350,8 +370,9 @@ note = "an equation's argument patterns \\in(X0, P0)"
 [[row]]
 type = "Pattern"
 item = "next"
-status = "absent"
-note = "refused (a connective in a term)"
+status = "refused"
+bool = "reader"
+note = "the reader refuses it (rows.toml E4 tree:Pattern.next is refused), so no Semantics holds it and no conjunct of KK.encodable is reached"
 
 [[row]]
 type = "Pattern"
@@ -371,11 +392,6091 @@ cases = ["c05-hooks", "c39-tokens-preds"]
 [[row]]
 type = "Pattern"
 item = "leftAssoc"
-status = "absent"
-note = "refused (a connective in a term)"
+status = "refused"
+bool = "reader"
+note = "the reader refuses it (rows.toml E4 tree:Pattern.leftAssoc is refused), so no Semantics holds it and no conjunct of KK.encodable is reached"
 
 [[row]]
 type = "Pattern"
 item = "rightAssoc"
-status = "absent"
-note = "refused (a connective in a term)"
+status = "refused"
+bool = "reader"
+note = "the reader refuses it (rows.toml E4 tree:Pattern.rightAssoc is refused), so no Semantics holds it and no conjunct of KK.encodable is reached"
+
+# ---- generated by kk/coverage.py gen from rows.toml and `kcore encodable`; do not edit below ----
+#
+# One table per supported or parameter row (and `cases` entry, "<row key>#cases[<i>]") of
+# test/constructs/rows.toml, under [rows.LIST."KEY"]; kk/coverage.py's docstring gives the rules.
+#   verdict  covered: KK.encDef has a form for the reader's semantics of the evidence; refused: it
+#            has none.
+#   by       the evidence: fixture (its kompiled text), kimp (f2-examples/ref-kimp.kore), hook table,
+#            sort table (`kcore encodable --library`), module hooks (the module's hook rows).
+#   case     for covered, the text or the table entry; bool, for refused, the first false conjunct
+#            of KK.encodable (a fixture's or ref-kimp's text), the table's Bool, or the first
+#            uncovered hook row's; refused_on, the text or table entry; first_uncovered, the hook
+#            row a module row is refused by.
+# Entries: 1079; covered 419; refused 660 (paramsOK 405, appsOK 158, litsOK 48, shapesOK 41, ovlsOK 8).
+# By evidence: fixture 858, hook table 139, kimp 50, module hooks 19, sort table 13.
+# No evidence text, no verdict (a fixture is owed; check fails on them, check --report lists them): 7:
+#   E3 ML-SYNTAX:Sort::="#Top"#cases[1]
+#   E3 ML-SYNTAX:Sort2::="#Floor" "(" Sort1 ")"#cases[1]
+#   E3 ML-SYNTAX:Sort::=Sort "#Implies" Sort#cases[1]
+#   E3 ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2#cases[18]
+#   E4 grammar:<matching-logic-pattern>::="\floor" "{" <sort> "," <sort> "}" "(" <pattern> ")"#cases[0]
+#   E4 tree:Pattern.floor#cases[0]
+#   E5 translateSymbol:symbol#1#cases[1]
+
+[rows.E1."Require:kw:requires"]
+verdict = "covered"
+by = "fixture"
+case = "e1-module"
+
+[rows.E1."Require:node:Require"]
+verdict = "covered"
+by = "fixture"
+case = "e1-module"
+
+[rows.E1."Module:kw:module"]
+verdict = "covered"
+by = "fixture"
+case = "e1-module"
+
+[rows.E1."Module:kw:endmodule"]
+verdict = "covered"
+by = "fixture"
+case = "e1-module"
+
+[rows.E1."Module:token:MODNAME"]
+verdict = "covered"
+by = "fixture"
+case = "e1-module"
+
+[rows.E1."Module:node:Module"]
+verdict = "covered"
+by = "fixture"
+case = "e1-module"
+
+[rows.E1."Import:kw:imports"]
+verdict = "covered"
+by = "fixture"
+case = "e1-module"
+
+[rows.E1."Import:token:MODNAME"]
+verdict = "covered"
+by = "fixture"
+case = "e1-module"
+
+[rows.E1."Import:node:Import"]
+verdict = "covered"
+by = "fixture"
+case = "e1-module"
+
+[rows.E1."Sentence:kw:rule"]
+verdict = "covered"
+by = "fixture"
+case = "e1-sentences"
+
+[rows.E1."Sentence:kw:context"]
+verdict = "covered"
+by = "fixture"
+case = "e1-sentences"
+
+[rows.E1."Sentence:kw:configuration"]
+verdict = "covered"
+by = "fixture"
+case = "e1-sentences"
+
+[rows.E1."Sentence:kw:configuration#cases[0]"]
+verdict = "covered"
+by = "fixture"
+case = "rdr-nopgm"
+
+[rows.E1."Sentence:kw:configuration#cases[1]"]
+verdict = "covered"
+by = "fixture"
+case = "rdr-config-deep"
+
+[rows.E1."Sentence:kw:configuration#cases[5]"]
+verdict = "covered"
+by = "fixture"
+case = "e1-starinit"
+
+[rows.E1."Sentence:kw:syntax"]
+verdict = "covered"
+by = "fixture"
+case = "e1-syntax"
+
+[rows.E1."Sentence:lit:{"]
+verdict = "covered"
+by = "fixture"
+case = "e1-param"
+
+[rows.E1."Sentence:lit:,"]
+verdict = "covered"
+by = "fixture"
+case = "e1-param"
+
+[rows.E1."Sentence:lit:}"]
+verdict = "covered"
+by = "fixture"
+case = "e1-param"
+
+[rows.E1."Sentence:lit:::="]
+verdict = "covered"
+by = "fixture"
+case = "e1-syntax"
+
+[rows.E1."Sentence:token:ALIAS"]
+verdict = "covered"
+by = "fixture"
+case = "e1-sentences"
+
+[rows.E1."Sentence:node:Syntax"]
+verdict = "covered"
+by = "fixture"
+case = "e1-syntax"
+
+[rows.E1."PriorityBlock:lit:|"]
+verdict = "covered"
+by = "fixture"
+case = "e1-syntax"
+
+[rows.E1."PriorityBlock:node:PriorityBlock"]
+verdict = "covered"
+by = "fixture"
+case = "e1-syntax"
+
+[rows.E1."Production:lit:("]
+verdict = "covered"
+by = "fixture"
+case = "e1-syntax"
+
+[rows.E1."Production:lit:,"]
+verdict = "covered"
+by = "fixture"
+case = "e1-syntax"
+
+[rows.E1."Production:lit:)"]
+verdict = "covered"
+by = "fixture"
+case = "e1-syntax"
+
+[rows.E1."Production:token:LOWER_ID"]
+verdict = "covered"
+by = "fixture"
+case = "e1-syntax"
+
+[rows.E1."Production:node:Terminal"]
+verdict = "covered"
+by = "fixture"
+case = "e1-syntax"
+
+[rows.E1."Production:node:Production"]
+verdict = "covered"
+by = "fixture"
+case = "e1-syntax"
+
+[rows.E1."Production:node:NonTerminal"]
+verdict = "covered"
+by = "fixture"
+case = "e1-syntax"
+
+[rows.E1."ProductionItem:kw:List"]
+verdict = "covered"
+by = "fixture"
+case = "e1-syntax"
+
+[rows.E1."ProductionItem:lit:{"]
+verdict = "covered"
+by = "fixture"
+case = "e1-syntax"
+
+[rows.E1."ProductionItem:lit:,"]
+verdict = "covered"
+by = "fixture"
+case = "e1-syntax"
+
+[rows.E1."ProductionItem:lit:}"]
+verdict = "covered"
+by = "fixture"
+case = "e1-syntax"
+
+[rows.E1."ProductionItem:kw:NeList"]
+verdict = "covered"
+by = "fixture"
+case = "e1-syntax"
+
+[rows.E1."ProductionItem:node:Terminal"]
+verdict = "covered"
+by = "fixture"
+case = "e1-syntax"
+
+[rows.E1."ProductionItem:node:Lexical"]
+verdict = "covered"
+by = "fixture"
+case = "e1-syntax"
+
+[rows.E1."ProductionItem:node:UserList"]
+verdict = "covered"
+by = "fixture"
+case = "e1-syntax"
+
+[rows.E1."Tag:lit:("]
+verdict = "covered"
+by = "fixture"
+case = "e1-tag"
+
+[rows.E1."Tag:lit:)"]
+verdict = "covered"
+by = "fixture"
+case = "e1-tag"
+
+[rows.E1."Tag:token:KEY"]
+verdict = "covered"
+by = "fixture"
+case = "e1-tag"
+
+[rows.E2."ALIAS(alias)@symbol"]
+verdict = "covered"
+by = "fixture"
+case = "e2-macro-plain"
+
+[rows.E2."ALIAS_REC(alias-rec)@symbol"]
+verdict = "covered"
+by = "fixture"
+case = "e2-macro-plain"
+
+[rows.E2."ASSOC(assoc)@symbol#cases[1]"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-comm-ctor"
+
+[rows.E2."CELL(cell)@symbol"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-cells"
+
+[rows.E2."CELL_COLLECTION(cellCollection)@frontend"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-cells"
+
+[rows.E2."CELL_COLLECTION(cellCollection)@frontend#cases[0]"]
+verdict = "covered"
+by = "fixture"
+case = "rdr-cellcoll-own"
+
+[rows.E2."CELL_NAME(cellName)@frontend"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-cells"
+
+[rows.E2."COMM(comm)@symbol#cases[3]"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-open-mixed"
+
+[rows.E2."COMM(comm)@symbol#cases[5]"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e8-llvm-e2-open-mixed-clause"
+
+[rows.E2."COMM(comm)@symbol#cases[6]"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-open-rec-held"
+
+[rows.E2."COMM(comm)@symbol#cases[7]"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-open-mixed-as"
+
+[rows.E2."COMM(comm)@symbol#cases[8]"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-comm-ctor"
+
+[rows.E2."CONSTRUCTOR(constructor)@symbol"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-symbol"
+
+[rows.E2."CONTEXT(context)@frontend"]
+verdict = "covered"
+by = "fixture"
+case = "e1-sentences"
+
+[rows.E2."COOL(cool)@equation"]
+verdict = "refused"
+by = "fixture"
+bool = "shapesOK"
+refused_on = "e2-cool-eq"
+
+[rows.E2."ELEMENT(element)@symbol"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-collection"
+
+[rows.E2."EXIT(exit)@frontend"]
+verdict = "covered"
+by = "fixture"
+case = "e2-cells-exit"
+
+[rows.E2."FUNCTION(function)@symbol"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-symbol"
+
+[rows.E2."FUNCTIONAL(functional)@symbol"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-symbol"
+
+[rows.E2."HEAT(heat)@frontend"]
+verdict = "refused"
+by = "fixture"
+bool = "shapesOK"
+refused_on = "e2-rule"
+
+[rows.E2."HOOK(hook)@symbol"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-symbol"
+
+[rows.E2."HOOK(hook)@sort"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-collection"
+
+[rows.E2."HYBRID(hybrid)@frontend"]
+verdict = "covered"
+by = "fixture"
+case = "c3-strict-hybrid"
+
+[rows.E2."IDEM(idem)@symbol"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-collection"
+
+[rows.E2."INITIAL(initial)@frontend"]
+verdict = "covered"
+by = "fixture"
+case = "e2-initial"
+
+[rows.E2."INITIAL(initial)@frontend#cases[0]"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-initial-coll"
+
+[rows.E2."INITIALIZER(initializer)@frontend"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-cells"
+
+[rows.E2."LABEL(label)@rule"]
+verdict = "refused"
+by = "fixture"
+bool = "shapesOK"
+refused_on = "e2-rule"
+
+[rows.E2."LABEL(label)@equation"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-equation"
+
+[rows.E2."LABEL(label)@simplification"]
+verdict = "covered"
+by = "fixture"
+case = "e2-simplification"
+
+[rows.E2."MACRO(macro)@symbol"]
+verdict = "covered"
+by = "fixture"
+case = "e2-macro-plain"
+
+[rows.E2."MACRO_REC(macro-rec)@symbol"]
+verdict = "covered"
+by = "fixture"
+case = "e2-macro-plain"
+
+[rows.E2."ML_OP(mlOp)@frontend"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e3-ml"
+
+[rows.E2."MULTIPLICITY(multiplicity)=*@frontend"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-cells"
+
+[rows.E2."MULTIPLICITY(multiplicity)=*@frontend#cases[0]"]
+verdict = "covered"
+by = "fixture"
+case = "rdr-cell-star-sibling"
+
+[rows.E2."MULTIPLICITY(multiplicity)=?@frontend"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-cells"
+
+[rows.E2."NON_EXECUTABLE(non-executable)@equation"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-equation"
+
+[rows.E2."OVERLOAD(overload)@frontend"]
+verdict = "refused"
+by = "fixture"
+bool = "ovlsOK"
+refused_on = "c3-anywhere-ctor"
+
+[rows.E2."OWISE(owise)@rule"]
+verdict = "refused"
+by = "fixture"
+bool = "shapesOK"
+refused_on = "e2-rule"
+
+[rows.E2."OWISE(owise)@equation"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-equation"
+
+[rows.E2."PRIORITY(priority)@rule"]
+verdict = "refused"
+by = "fixture"
+bool = "shapesOK"
+refused_on = "e2-rule"
+
+[rows.E2."PRIORITY(priority)@equation"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-equation"
+
+[rows.E2."RESULT(result)@frontend"]
+verdict = "covered"
+by = "fixture"
+case = "c3-strict-result"
+
+[rows.E2."SEQSTRICT(seqstrict)@frontend"]
+verdict = "covered"
+by = "fixture"
+case = "e1-sentences"
+
+[rows.E2."STREAM(stream)=stdin@frontend"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-cells-stream"
+
+[rows.E2."STREAM(stream)=stdout@frontend"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-cells-stream"
+
+[rows.E2."STRICT(strict)@frontend"]
+verdict = "covered"
+by = "fixture"
+case = "c3-strict-base"
+
+[rows.E2."TERMINATOR_SYMBOL(terminator-symbol)@frontend"]
+verdict = "covered"
+by = "fixture"
+case = "e1-syntax"
+
+[rows.E2."TOKEN(token)@sort"]
+verdict = "covered"
+by = "fixture"
+case = "e2-token"
+
+[rows.E2."TOKEN(token)@symbol"]
+verdict = "covered"
+by = "fixture"
+case = "e2-token"
+
+[rows.E2."TOTAL(total)@symbol"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-symbol"
+
+[rows.E2."TYPE(type)=Set@frontend"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-cells"
+
+[rows.E2."TYPE(type)=Map@frontend"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-cells"
+
+[rows.E2."TYPE(type)=List@frontend"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-cells"
+
+[rows.E2."UNBOUND_VARIABLES(unboundVariables)@frontend"]
+verdict = "refused"
+by = "fixture"
+bool = "shapesOK"
+refused_on = "e2-unbound"
+
+[rows.E2."UNIT(unit)@symbol"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-collection"
+
+[rows.E2."WRAP_ELEMENT(wrapElement)@frontend"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-cells"
+
+[rows.E2."CONCAT(concat)@any"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-collection"
+
+[rows.E2."HAS_DOMAIN_VALUES(hasDomainValues)@any"]
+verdict = "covered"
+by = "fixture"
+case = "e2-token"
+
+[rows.E2."LOCATION(org.kframework.attributes.Location)@any"]
+verdict = "covered"
+by = "fixture"
+case = "e1-module"
+
+[rows.E2."SOURCE(org.kframework.attributes.Source)@any"]
+verdict = "covered"
+by = "fixture"
+case = "e1-module"
+
+[rows.E2."SYMBOL_OVERLOAD(symbol-overload)@any"]
+verdict = "refused"
+by = "fixture"
+bool = "ovlsOK"
+refused_on = "c3-anywhere-ctor"
+
+[rows.E2."UNIQUE_ID(UNIQUE_ID)@any"]
+verdict = "covered"
+by = "fixture"
+case = "e1-module"
+
+[rows.E3."ML-SYNTAX:Sort::=\"#Top\"#cases[0]"]
+verdict = "covered"
+by = "fixture"
+case = "e3-ml-rule-lhs-top"
+
+[rows.E3."ML-SYNTAX:Sort::=\"#Top\"#cases[2]"]
+verdict = "refused"
+by = "fixture"
+bool = "shapesOK"
+refused_on = "e3-ml-rule-rhs-top"
+
+[rows.E3."ML-SYNTAX:Sort::=\"#Bottom\""]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e3-ml"
+
+[rows.E3."ML-SYNTAX:Sort::=\"#Bottom\"#cases[1]"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e3-ml"
+
+[rows.E3."ML-SYNTAX:Sort::=\"#Bottom\"#cases[2]"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e3-ml"
+
+[rows.E3."ML-SYNTAX:Sort::=\"#Bottom\"#cases[3]"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e3-ml"
+
+[rows.E3."ML-SYNTAX:Sort::=\"#Not\" \"(\" Sort \")\""]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e3-ml"
+
+[rows.E3."ML-SYNTAX:Sort::=\"#Not\" \"(\" Sort \")\"#cases[0]"]
+verdict = "refused"
+by = "fixture"
+bool = "shapesOK"
+refused_on = "e3-ml-rule-lhs-not-other"
+
+[rows.E3."ML-SYNTAX:Sort::=\"#Not\" \"(\" Sort \")\"#cases[1]"]
+verdict = "refused"
+by = "fixture"
+bool = "shapesOK"
+refused_on = "e3-ml-req-not"
+
+[rows.E3."ML-SYNTAX:Sort::=\"#Not\" \"(\" Sort \")\"#cases[2]"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e3-ml"
+
+[rows.E3."ML-SYNTAX:Sort2::=\"#Ceil\" \"(\" Sort1 \")\""]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e3-ml"
+
+[rows.E3."ML-SYNTAX:Sort2::=\"#Ceil\" \"(\" Sort1 \")\"#cases[0]"]
+verdict = "covered"
+by = "fixture"
+case = "e3-ml-req-ceil"
+
+[rows.E3."ML-SYNTAX:Sort2::=\"#Ceil\" \"(\" Sort1 \")\"#cases[2]"]
+verdict = "refused"
+by = "fixture"
+bool = "shapesOK"
+refused_on = "e3-ml-rule-lhs-ceil-ctor"
+
+[rows.E3."ML-SYNTAX:Sort2::=\"{\" Sort1 \"#Equals\" Sort1 \"}\""]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e3-ml"
+
+[rows.E3."ML-SYNTAX:Sort2::=\"{\" Sort1 \"#Equals\" Sort1 \"}\"#cases[0]"]
+verdict = "covered"
+by = "fixture"
+case = "e3-ml-eq-rhs-and-pred"
+
+[rows.E3."ML-SYNTAX:Sort2::=\"{\" Sort1 \"#Equals\" Sort1 \"}\"#cases[1]"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e3-ml-req-forall"
+
+[rows.E3."ML-SYNTAX:Sort2::=\"{\" Sort1 \"#Equals\" Sort1 \"}\"#cases[2]"]
+verdict = "refused"
+by = "fixture"
+bool = "shapesOK"
+refused_on = "e3-ml-rule-lhs-equals"
+
+[rows.E3."ML-SYNTAX:Sort::=Sort \"#And\" Sort#cases[0]"]
+verdict = "covered"
+by = "fixture"
+case = "e3-ml-eq-rhs-and-pred"
+
+[rows.E3."ML-SYNTAX:Sort::=Sort \"#And\" Sort#cases[2]"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e3-ml-rule-rhs-and-term"
+
+[rows.E3."ML-SYNTAX:Sort::=Sort \"#And\" Sort#cases[3]"]
+verdict = "refused"
+by = "fixture"
+bool = "shapesOK"
+refused_on = "e3-ml-req-and"
+
+[rows.E3."ML-SYNTAX:Sort::=Sort \"#And\" Sort#cases[4]"]
+verdict = "refused"
+by = "fixture"
+bool = "shapesOK"
+refused_on = "e3-ml-req-and-under-app"
+
+[rows.E3."ML-SYNTAX:Sort::=Sort \"#And\" Sort#cases[5]"]
+verdict = "covered"
+by = "fixture"
+case = "e3-ml-rule-lhs-and"
+
+[rows.E3."ML-SYNTAX:Sort::=Sort \"#And\" Sort#cases[6]"]
+verdict = "covered"
+by = "fixture"
+case = "e3-cells"
+
+[rows.E3."ML-SYNTAX:Sort::=Sort \"#Or\" Sort"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e3-ml"
+
+[rows.E3."ML-SYNTAX:Sort::=Sort \"#Or\" Sort#cases[0]"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e3-ml"
+
+[rows.E3."ML-SYNTAX:Sort::=Sort \"#Or\" Sort#cases[1]"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e3-ml"
+
+[rows.E3."ML-SYNTAX:Sort::=Sort \"#Or\" Sort#cases[3]"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e3-ml"
+
+[rows.E3."ML-SYNTAX:Sort::=Sort \"#Or\" Sort#cases[4]"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e3-ml"
+
+[rows.E3."ML-SYNTAX:Sort::=Sort \"#Or\" Sort#cases[5]"]
+verdict = "refused"
+by = "fixture"
+bool = "shapesOK"
+refused_on = "e3-ml-rule-rhs-or"
+
+[rows.E3."ML-SYNTAX:Sort::=Sort \"#Or\" Sort#cases[6]"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e3-ml"
+
+[rows.E3."ML-SYNTAX:Sort::=Sort \"#Or\" Sort#cases[8]"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e3-ml"
+
+[rows.E3."ML-SYNTAX:Sort::=Sort \"#Or\" Sort#cases[9]"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e3-ml"
+
+[rows.E3."ML-SYNTAX:Sort::=Sort \"#Or\" Sort#cases[11]"]
+verdict = "covered"
+by = "fixture"
+case = "e3-ml-eq-rhs-or-empty"
+
+[rows.E3."ML-SYNTAX:Sort2::=\"#Exists\" Sort1 \".\" Sort2#cases[0]"]
+verdict = "covered"
+by = "fixture"
+case = "e3-ml-rule-lhs-exists"
+
+[rows.E3."ML-SYNTAX:Sort2::=\"#Exists\" Sort1 \".\" Sort2#cases[1]"]
+verdict = "covered"
+by = "fixture"
+case = "e3-ml-lhs-value-sort"
+
+[rows.E3."ML-SYNTAX:Sort2::=\"#Exists\" Sort1 \".\" Sort2#cases[3]"]
+verdict = "refused"
+by = "fixture"
+bool = "shapesOK"
+refused_on = "e3-eq-exists-bool-ml"
+
+[rows.E3."ML-SYNTAX:Sort2::=\"#Exists\" Sort1 \".\" Sort2#cases[7]"]
+verdict = "refused"
+by = "fixture"
+bool = "shapesOK"
+refused_on = "e3-eq-exists-ml-under-app"
+
+[rows.E3."ML-SYNTAX:Sort2::=\"#Exists\" Sort1 \".\" Sort2#cases[17]"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e3-vars"
+
+[rows.E3."ML-SYNTAX:Sort2::=\"#Forall\" Sort1 \".\" Sort2#cases[1]"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e3-ml-req-forall"
+
+[rows.E3."BASIC-K:K::=KItem"]
+verdict = "covered"
+by = "fixture"
+case = "e3-kseq"
+
+[rows.E3."BASIC-K:KItem::=KConfigVar"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e3-vars"
+
+[rows.E3."KSTRING:KString::=r\"[\\\\\\\"](([^\\\\\\\"\\\\n\\\\r\\\\\\\\])|([\\\\\\\\][nrtf\\\\\\\"\\\\\\\\])|([\\\\\\\\][x][0-9a-fA-F]{2})|([\\\\\\\\][u][0-9a-fA-F]{4})|([\\\\\\\\][U][0-9a-fA-F]{8}))*[\\\\\\\"]\""]
+verdict = "refused"
+by = "fixture"
+bool = "litsOK"
+refused_on = "e3-kast"
+
+[rows.E3."BUILTIN-ID-TOKENS:#LowerId::=r\"[a-z][a-zA-Z0-9]*\""]
+verdict = "refused"
+by = "fixture"
+bool = "litsOK"
+refused_on = "e3-kast"
+
+[rows.E3."BUILTIN-ID-TOKENS:#UpperId::=r\"[A-Z][a-zA-Z0-9]*\""]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e3-vars"
+
+[rows.E3."KAST:KBott::=\"#token\" \"(\" KString \",\" KString \")\""]
+verdict = "refused"
+by = "fixture"
+bool = "litsOK"
+refused_on = "e3-kast"
+
+[rows.E3."KAST:KBott::=KLabel \"(\" KList \")\""]
+verdict = "refused"
+by = "fixture"
+bool = "litsOK"
+refused_on = "e3-kast"
+
+[rows.E3."KAST:KItem::=KBott"]
+verdict = "covered"
+by = "fixture"
+case = "e3-casts"
+
+[rows.E3."KAST:KLabel::=r\"`(\\\\\\\\`|\\\\\\\\\\\\\\\\|[^`\\\\\\\\\\\\n\\\\r])+`\""]
+verdict = "refused"
+by = "fixture"
+bool = "litsOK"
+refused_on = "e3-kast"
+
+[rows.E3."KAST:KLabel::=#LowerId"]
+verdict = "refused"
+by = "fixture"
+bool = "litsOK"
+refused_on = "e3-kast"
+
+[rows.E3."KAST:KLabel::=r\"[#a-z][a-zA-Z0-9]*\""]
+verdict = "refused"
+by = "fixture"
+bool = "litsOK"
+refused_on = "e3-kast"
+
+[rows.E3."KAST:KList::=K"]
+verdict = "refused"
+by = "fixture"
+bool = "litsOK"
+refused_on = "e3-kast"
+
+[rows.E3."KAST:KList::=\".KList\""]
+verdict = "refused"
+by = "fixture"
+bool = "litsOK"
+refused_on = "e3-kast"
+
+[rows.E3."KAST:KList::=KList \",\" KList"]
+verdict = "refused"
+by = "fixture"
+bool = "litsOK"
+refused_on = "e3-kast"
+
+[rows.E3."K-TOP-SORT:KItem::=KBott"]
+verdict = "covered"
+by = "fixture"
+case = "e3-casts"
+
+[rows.E3."K-TOP-SORT:KItem::=Sort"]
+verdict = "covered"
+by = "fixture"
+case = "e3-casts"
+
+[rows.E3."K-TOP-SORT:KItem::=Sort#cases[0]"]
+verdict = "covered"
+by = "fixture"
+case = "e3-hash-sort"
+
+[rows.E3."KSEQ:K::=\".K\""]
+verdict = "covered"
+by = "fixture"
+case = "e3-kseq"
+
+[rows.E3."KSEQ:K::=\".\""]
+verdict = "covered"
+by = "fixture"
+case = "e3-kseq"
+
+[rows.E3."KSEQ:K::=K \"~>\" K"]
+verdict = "covered"
+by = "fixture"
+case = "e3-kseq"
+
+[rows.E3."KSEQ:Sort::=\"(\" Sort \")\""]
+verdict = "covered"
+by = "fixture"
+case = "e3-kseq"
+
+[rows.E3."KSEQ-SYMBOLIC:#KVariable::=r\"(\\\\!|\\\\?|@)?([A-Z][A-Za-z0-9'_]*|_|_[A-Z][A-Za-z0-9'_]*)\"#plain"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e3-vars"
+
+[rows.E3."KSEQ-SYMBOLIC:#KVariable::=r\"(\\\\!|\\\\?|@)?([A-Z][A-Za-z0-9'_]*|_|_[A-Z][A-Za-z0-9'_]*)\"#fresh-!"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e3-fresh"
+
+[rows.E3."KSEQ-SYMBOLIC:#KVariable::=r\"(\\\\!|\\\\?|@)?([A-Z][A-Za-z0-9'_]*|_|_[A-Z][A-Za-z0-9'_]*)\"#existential-?"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e3-vars"
+
+[rows.E3."KSEQ-SYMBOLIC:#KVariable::=r\"(\\\\!|\\\\?|@)?([A-Z][A-Za-z0-9'_]*|_|_[A-Z][A-Za-z0-9'_]*)\"#existential-?#cases[0]"]
+verdict = "refused"
+by = "fixture"
+bool = "shapesOK"
+refused_on = "e3-vars-list"
+
+[rows.E3."KSEQ-SYMBOLIC:#KVariable::=r\"(\\\\!|\\\\?|@)?([A-Z][A-Za-z0-9'_]*|_|_[A-Z][A-Za-z0-9'_]*)\"#existential-?#cases[1]"]
+verdict = "refused"
+by = "fixture"
+bool = "shapesOK"
+refused_on = "e3-vars-set"
+
+[rows.E3."KSEQ-SYMBOLIC:#KVariable::=r\"(\\\\!|\\\\?|@)?([A-Z][A-Za-z0-9'_]*|_|_[A-Z][A-Za-z0-9'_]*)\"#existential-?#cases[2]"]
+verdict = "refused"
+by = "fixture"
+bool = "shapesOK"
+refused_on = "e3-vars-map"
+
+[rows.E3."KSEQ-SYMBOLIC:#KVariable::=r\"(\\\\!|\\\\?|@)?([A-Z][A-Za-z0-9'_]*|_|_[A-Z][A-Za-z0-9'_]*)\"#existential-?#cases[3]"]
+verdict = "refused"
+by = "fixture"
+bool = "shapesOK"
+refused_on = "e3-vars-map-rest"
+
+[rows.E3."KSEQ-SYMBOLIC:#KVariable::=r\"(\\\\!|\\\\?|@)?([A-Z][A-Za-z0-9'_]*|_|_[A-Z][A-Za-z0-9'_]*)\"#set-@#cases[0]"]
+verdict = "refused"
+by = "fixture"
+bool = "shapesOK"
+refused_on = "e3-setvar-rewrite"
+
+[rows.E3."KSEQ-SYMBOLIC:#KVariable::=r\"(\\\\!|\\\\?|@)?([A-Z][A-Za-z0-9'_]*|_|_[A-Z][A-Za-z0-9'_]*)\"#set-@#cases[3]"]
+verdict = "covered"
+by = "fixture"
+case = "e3-setvar-nonlinear"
+
+[rows.E3."KSEQ-SYMBOLIC:#KVariable::=r\"(\\\\!|\\\\?|@)?([A-Z][A-Za-z0-9'_]*|_|_[A-Z][A-Za-z0-9'_]*)\"#anonymous-_"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e3-vars"
+
+[rows.E3."KSEQ-SYMBOLIC:#KVariable::=r\"(\\\\!|\\\\?|@)?([A-Z][A-Za-z0-9'_]*|_|_[A-Z][A-Za-z0-9'_]*)\"#named-anonymous-_X"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e3-vars"
+
+[rows.E3."KSEQ-SYMBOLIC:#KVariable::=#UpperId"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e3-vars"
+
+[rows.E3."KSEQ-SYMBOLIC:KConfigVar::=r\"(\\\\$)([A-Z][A-Za-z0-9'_]*)\""]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e3-vars"
+
+[rows.E3."KSEQ-SYMBOLIC:KBott::=#KVariable"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e3-vars"
+
+[rows.E3."KSEQ-SYMBOLIC:KBott::=KConfigVar"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e3-vars"
+
+[rows.E3."REQUIRES-ENSURES:#RuleBody::=K"]
+verdict = "covered"
+by = "fixture"
+case = "e3-kseq"
+
+[rows.E3."REQUIRES-ENSURES:#RuleContent::=#RuleBody"]
+verdict = "covered"
+by = "fixture"
+case = "e3-kseq"
+
+[rows.E3."REQUIRES-ENSURES:#RuleContent::=#RuleBody \"requires\" Bool"]
+verdict = "covered"
+by = "fixture"
+case = "e3-reqens"
+
+[rows.E3."REQUIRES-ENSURES:#RuleContent::=#RuleBody \"ensures\" Bool"]
+verdict = "covered"
+by = "fixture"
+case = "e3-reqens"
+
+[rows.E3."REQUIRES-ENSURES:#RuleContent::=#RuleBody \"requires\" Bool \"ensures\" Bool"]
+verdict = "covered"
+by = "fixture"
+case = "e3-reqens"
+
+[rows.E3."K-BOTTOM-SORT:KItem::=KBott"]
+verdict = "covered"
+by = "fixture"
+case = "e3-casts"
+
+[rows.E3."K-BOTTOM-SORT:Sort::=KBott"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e3-vars"
+
+[rows.E3."KREWRITE:Sort::=Sort \"=>\" Sort"]
+verdict = "covered"
+by = "fixture"
+case = "e3-cells"
+
+[rows.E3."K:Sort::=Sort \"#as\" Sort"]
+verdict = "covered"
+by = "fixture"
+case = "e3-k"
+
+[rows.E3."K:Sort::=\"#fun\" \"(\" Sort \")\" \"(\" Sort \")\""]
+verdict = "covered"
+by = "fixture"
+case = "e3-k-fun2"
+
+[rows.E3."K:Sort1::=\"#fun\" \"(\" Sort2 \"=>\" Sort1 \")\" \"(\" Sort2 \")\""]
+verdict = "covered"
+by = "fixture"
+case = "e3-k-fun2"
+
+[rows.E3."K:Sort1::=\"#let\" Sort2 \"=\" Sort2 \"#in\" Sort1"]
+verdict = "covered"
+by = "fixture"
+case = "e3-k"
+
+[rows.E3."K:Bool::=K \":=K\" K"]
+verdict = "covered"
+by = "fixture"
+case = "e3-k-unify"
+
+[rows.E3."K:Bool::=K \":/=K\" K"]
+verdict = "covered"
+by = "fixture"
+case = "e3-k-unify"
+
+[rows.E3."KCELLS:Bag::=Bag Bag"]
+verdict = "covered"
+by = "fixture"
+case = "e3-cells"
+
+[rows.E3."KCELLS:Bag::=\".Bag\""]
+verdict = "covered"
+by = "fixture"
+case = "e3-cells"
+
+[rows.E3."KCELLS:Bag::=\".::Bag\""]
+verdict = "covered"
+by = "fixture"
+case = "e3-cells-dotbag"
+
+[rows.E3."KCELLS:Bag::=Cell"]
+verdict = "covered"
+by = "fixture"
+case = "e3-cells"
+
+[rows.E3."KCELLS:Bag::=\"(\" Bag \")\""]
+verdict = "covered"
+by = "fixture"
+case = "e3-cells"
+
+[rows.E3."KCELLS:KItem::=Bag"]
+verdict = "covered"
+by = "fixture"
+case = "e3-cells"
+
+[rows.E3."KCELLS:#RuleBody::=\"[\" \"[\" K \"]\" \"]\" Bag"]
+verdict = "covered"
+by = "fixture"
+case = "e3-withconfig"
+
+[rows.E3."KCELLS:Bag::=KBott"]
+verdict = "covered"
+by = "fixture"
+case = "e3-cells"
+
+[rows.E3."RULE-CELLS:#OptionalDots::=\"...\""]
+verdict = "covered"
+by = "fixture"
+case = "e3-cells"
+
+[rows.E3."RULE-CELLS:#OptionalDots::=\"\""]
+verdict = "covered"
+by = "fixture"
+case = "e3-cells"
+
+[rows.E3."generated:getCombinedGrammarImpl#1"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e3-param-cases"
+
+[rows.E3."generated:getCombinedGrammarImpl#3"]
+verdict = "covered"
+by = "fixture"
+case = "e3-casts"
+
+[rows.E3."generated:getCombinedGrammarImpl#4"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e3-param-cases"
+
+[rows.E3."generated:getCombinedGrammarImpl#5"]
+verdict = "covered"
+by = "fixture"
+case = "e3-cells"
+
+[rows.E3."generated:getCombinedGrammarImpl#6"]
+verdict = "covered"
+by = "fixture"
+case = "e3-cells"
+
+[rows.E3."generated:getCombinedGrammarImpl#7"]
+verdict = "covered"
+by = "fixture"
+case = "e3-fragment"
+
+[rows.E3."generated:getCombinedGrammarImpl#20"]
+verdict = "covered"
+by = "fixture"
+case = "e3-userlist"
+
+[rows.E3."generated:addCellNameProd#1"]
+verdict = "covered"
+by = "fixture"
+case = "e3-cells"
+
+[rows.E3."generated:makeCasts#1"]
+verdict = "covered"
+by = "fixture"
+case = "e3-casts"
+
+[rows.E3."generated:makeCasts#2"]
+verdict = "covered"
+by = "fixture"
+case = "e3-casts"
+
+[rows.E3."generated:makeCasts#3"]
+verdict = "covered"
+by = "fixture"
+case = "e3-casts"
+
+[rows.E3."generated:makeCasts#4"]
+verdict = "covered"
+by = "fixture"
+case = "e3-casts"
+
+[rows.E4."grammar:<string-literal>::=['\"'] <char>* ['\"']"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<char>::=<escape-sequence>"]
+verdict = "covered"
+by = "fixture"
+case = "e1-syntax"
+
+[rows.E4."grammar:<char>::=<printable-ascii-char> except ['\"', '\\']"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<printable-ascii-char>::=U+0020 through U+007E"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<keyword>::=\"module\""]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<keyword>::=\"endmodule\""]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<keyword>::=\"sort\""]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<keyword>::=\"hooked-sort\""]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-collection"
+
+[rows.E4."grammar:<keyword>::=\"symbol\""]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<keyword>::=\"hooked-symbol\""]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-symbol"
+
+[rows.E4."grammar:<keyword>::=\"axiom\""]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<identifier>::=<identifier-first-char> <identifier-char>*"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<identifier-char>::=<identifier-first-char>"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<identifier-char>::=<identifier-other-char>"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<identifier-first-char>::=['A'..'Z', 'a'..'z']"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<identifier-other-char>::=['0'..'9', '\\'', '-']"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<symbol-identifier>::=['\\']? <identifier>"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<element-variable-identifier>::=<identifier>"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<set-variable-identifier>::=['@'] <identifier>#cases[0]"]
+verdict = "refused"
+by = "fixture"
+bool = "shapesOK"
+refused_on = "e3-setvar-rewrite"
+
+[rows.E4."grammar:<set-variable-identifier>::=['@'] <identifier>#cases[3]"]
+verdict = "covered"
+by = "fixture"
+case = "e3-setvar-nonlinear"
+
+[rows.E4."grammar:<sort-identifier>::=<identifier>"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<module-name>::=<identifier>"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<[$item]-sep-by-[$separator]>::=\"\""]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<[$item]-sep-by-[$separator]>::=<[$item]-sep-by-1-[$separator]>"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<[$item]-sep-by-1-[$separator]>::=$item"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<[$item]-sep-by-1-[$separator]>::=$item $separator <[$item]-sep-by-1-[$separator]>"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<sort>::=<sort-variable>"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<sort>::=<sort-variable>#cases[0]"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<sort>::=<sort-identifier> \"{\" <sorts> \"}\""]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<sorts>::=<[sort]-sep-by-[\",\"]>"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<sort-variable>::=<sort-identifier>"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<sort-variables>::=<[sort-variable]-sep-by-[\",\"]>"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<pattern>::=<variable-pattern>"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<pattern>::=<matching-logic-pattern>"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<pattern>::=<application-pattern>"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<pattern>::=<string-literal>"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<pattern>::=<string-literal>#cases[0]"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<patterns>::=<[pattern]-sep-by-[\",\"]>"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<variable-pattern>::=<element-variable>"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<variable-pattern>::=<set-variable>#cases[0]"]
+verdict = "refused"
+by = "fixture"
+bool = "shapesOK"
+refused_on = "e3-setvar-rewrite"
+
+[rows.E4."grammar:<variable-pattern>::=<set-variable>#cases[3]"]
+verdict = "covered"
+by = "fixture"
+case = "e3-setvar-nonlinear"
+
+[rows.E4."grammar:<element-variable>::=<element-variable-identifier> \":\" <sort>"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<set-variable>::=<set-variable-identifier> \":\" <sort>#cases[0]"]
+verdict = "refused"
+by = "fixture"
+bool = "shapesOK"
+refused_on = "e3-setvar-rewrite"
+
+[rows.E4."grammar:<set-variable>::=<set-variable-identifier> \":\" <sort>#cases[3]"]
+verdict = "covered"
+by = "fixture"
+case = "e3-setvar-nonlinear"
+
+[rows.E4."grammar:<application-pattern>::=<symbol-identifier> \"{\" <sorts> \"}\" \"(\" <patterns> \")\""]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<matching-logic-pattern>::=\"\\top\" \"{\" <sort> \"}\" \"(\" \")\""]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<matching-logic-pattern>::=\"\\bottom\" \"{\" <sort> \"}\" \"(\" \")\""]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<matching-logic-pattern>::=\"\\not\" \"{\" <sort> \"}\" \"(\" <pattern> \")\""]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<matching-logic-pattern>::=\"\\and\" \"{\" <sort> \"}\" \"(\" <patterns> \")\""]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<matching-logic-pattern>::=\"\\or\" \"{\" <sort> \"}\" \"(\" <patterns> \")\""]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<matching-logic-pattern>::=\"\\implies\" \"{\" <sort> \"}\" \"(\" <pattern> \",\" <pattern> \")\""]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<matching-logic-pattern>::=\"\\exists\" \"{\" <sort> \"}\" \"(\" <element-variable> \",\" <pattern> \")\""]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<matching-logic-pattern>::=\"\\forall\" \"{\" <sort> \"}\" \"(\" <element-variable> \",\" <pattern> \")\"#cases[0]"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e3-ml-req-forall"
+
+[rows.E4."grammar:<matching-logic-pattern>::=\"\\ceil\" \"{\" <sort> \",\" <sort> \"}\" \"(\" <pattern> \")\""]
+verdict = "covered"
+by = "fixture"
+case = "kore-projapp"
+
+[rows.E4."grammar:<matching-logic-pattern>::=\"\\ceil\" \"{\" <sort> \",\" <sort> \"}\" \"(\" <pattern> \")\"#cases[0]"]
+verdict = "covered"
+by = "fixture"
+case = "kore-projapp"
+
+[rows.E4."grammar:<matching-logic-pattern>::=\"\\ceil\" \"{\" <sort> \",\" <sort> \"}\" \"(\" <pattern> \")\"#cases[1]"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e8-ref"
+
+[rows.E4."grammar:<matching-logic-pattern>::=\"\\equals\" \"{\" <sort> \",\" <sort> \"}\" \"(\" <pattern> \",\" <pattern> \")\""]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<matching-logic-pattern>::=\"\\in\" \"{\" <sort> \",\" <sort> \"}\" \"(\" <pattern> \",\" <pattern> \")\""]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<matching-logic-pattern>::=\"\\rewrites\" \"{\" <sort> \"}\" \"(\" <pattern> \",\" <pattern> \")\""]
+verdict = "covered"
+by = "fixture"
+case = "e1-sentences"
+
+[rows.E4."grammar:<matching-logic-pattern>::=\"\\dv\" \"{\" <sort> \"}\" \"(\" <string-literal> \")\""]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<attribute>::=<application-pattern>"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<attributes>::=<[attribute]-sep-by-[\",\"]>"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<sentence>::=<sentence-sort>"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<sentence>::=<sentence-hooked-sort>"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-collection"
+
+[rows.E4."grammar:<sentence>::=<sentence-symbol>"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<sentence>::=<sentence-hooked-symbol>"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-symbol"
+
+[rows.E4."grammar:<sentence>::=<sentence-axiom>"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<sentence-sort>::=\"sort\" <sort-identifier> \"{\" <sort-variables> \"}\" \"[\" <attributes> \"]\""]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<sentence-hooked-sort>::=\"hooked-sort\" <sort-identifier> \"{\" <sort-variables> \"}\" \"[\" <attributes> \"]\""]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-collection"
+
+[rows.E4."grammar:<sentence-symbol>::=\"symbol\" <symbol> \"(\" <sorts> \")\" \":\" <sort> \"[\" <attributes> \"]\""]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<sentence-hooked-symbol>::=\"hooked-symbol\" <symbol> \"(\" <sorts> \")\" \":\" <sort> \"[\" <attributes> \"]\""]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-symbol"
+
+[rows.E4."grammar:<sentence-axiom>::=\"axiom\" \"{\" <sort-variables> \"}\" <pattern> \"[\" <attributes> \"]\""]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<symbol>::=<symbol-or-alias>"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<symbol-or-alias>::=<symbol-identifier> \"{\" <sort-variables> \"}\""]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<definition>::=\"[\" <attributes> \"]\" <modules>"]
+verdict = "refused"
+by = "fixture"
+bool = "shapesOK"
+refused_on = "hw-ex-unused-empty"
+
+[rows.E4."grammar:<module>::=\"module\" <module-name> <sentences> \"endmodule\" \"[\" <attributes> \"]\""]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."grammar:<modules>::=<[module]-sep-by-1-[whitespace]>"]
+verdict = "refused"
+by = "fixture"
+bool = "shapesOK"
+refused_on = "hw-ex-unused-empty"
+
+[rows.E4."tree:KSort.var"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."tree:KSort.var#cases[0]"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."tree:KSort.ctor"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."tree:VarPattern.evar"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."tree:VarPattern.svar#cases[0]"]
+verdict = "refused"
+by = "fixture"
+bool = "shapesOK"
+refused_on = "e3-setvar-rewrite"
+
+[rows.E4."tree:VarPattern.svar#cases[3]"]
+verdict = "covered"
+by = "fixture"
+case = "e3-setvar-nonlinear"
+
+[rows.E4."tree:Pattern.var"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."tree:Pattern.app"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."tree:Pattern.string"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."tree:Pattern.string#cases[0]"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."tree:Pattern.top"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."tree:Pattern.bottom"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."tree:Pattern.not"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."tree:Pattern.and"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."tree:Pattern.or"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."tree:Pattern.implies"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."tree:Pattern.exist"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."tree:Pattern.forall#cases[0]"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e3-ml-req-forall"
+
+[rows.E4."tree:Pattern.ceil"]
+verdict = "covered"
+by = "fixture"
+case = "kore-projapp"
+
+[rows.E4."tree:Pattern.ceil#cases[0]"]
+verdict = "covered"
+by = "fixture"
+case = "kore-projapp"
+
+[rows.E4."tree:Pattern.ceil#cases[1]"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e8-ref"
+
+[rows.E4."tree:Pattern.equals"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."tree:Pattern.in"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."tree:Pattern.rewrites"]
+verdict = "covered"
+by = "fixture"
+case = "e1-sentences"
+
+[rows.E4."tree:Pattern.dv"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."tree:Sentence.sort"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."tree:Sentence.hookedSort"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-collection"
+
+[rows.E4."tree:Sentence.symbol"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E4."tree:Sentence.hookedSymbol"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-symbol"
+
+[rows.E4."tree:Sentence.axiom"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E5."translateSorts:hooked-#1"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-collection"
+
+[rows.E5."translateSorts:hooked-#1#cases[1]"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e6-rangemap"
+
+[rows.E5."translateSorts:hooked-#2"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-collection"
+
+[rows.E5."translateSorts:hooked-#2#cases[0]"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-collection"
+
+[rows.E5."translateSorts:hooked-#2#cases[1]"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-collection"
+
+[rows.E5."translateSorts:hooked-#2#cases[2]"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-kvar"
+
+[rows.E5."translateSorts:hooked-#2#cases[4]"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e5-hooked-int"
+
+[rows.E5."translateSorts:sort#1"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E5."translateSorts:sort#1#cases[0]"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E5."translateSorts:sort#1#cases[1]"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E5."translateSymbol:hooked-#1"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e8-hook-namespaces"
+
+[rows.E5."translateSymbol:symbol#1"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E5."translateSymbol:symbol#1#cases[0]"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E5."translateSymbol:symbol#1#cases[2]"]
+verdict = "covered"
+by = "fixture"
+case = "e2-macro-plain"
+
+[rows.E5."translateSymbol:symbol#1#cases[4]"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E5."genAssocAxiom:axiom#1#cases[0]"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "rdr-hook-assoc"
+
+[rows.E5."genIdemAxiom:axiom#1"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-collection"
+
+[rows.E5."genOverloadedAxiom:axiom#1"]
+verdict = "refused"
+by = "fixture"
+bool = "ovlsOK"
+refused_on = "e5-ovl-fun-keep"
+
+[rows.E5."genOverloadedAxiom:axiom#1#cases[0]"]
+verdict = "refused"
+by = "fixture"
+bool = "shapesOK"
+refused_on = "e5-ovl-fn-fn"
+
+[rows.E5."genOverloadedAxiom:axiom#1#cases[1]"]
+verdict = "refused"
+by = "fixture"
+bool = "ovlsOK"
+refused_on = "e5-ovl-fun-keep"
+
+[rows.E5."genOverloadedAxiom:axiom#1#cases[2]"]
+verdict = "refused"
+by = "fixture"
+bool = "ovlsOK"
+refused_on = "e5-ovl-fun-keep"
+
+[rows.E5."convertRule:axiom#1"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E5."convertRule:axiom#1#cases[0]"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E5."convertRule:axiom#1#cases[2]"]
+verdict = "covered"
+by = "fixture"
+case = "kore-projapp"
+
+[rows.E5."convertRule:axiom#1#cases[3]"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E5."convertRule:axiom#1#cases[5]"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E5."convertRule:axiom#1#cases[6]"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E5."convertRule:axiom#1#cases[7]"]
+verdict = "refused"
+by = "fixture"
+bool = "shapesOK"
+refused_on = "e5-owise-nonexec"
+
+[rows.E5."convertRule:axiom#1#cases[9]"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E5."convertRule:axiom#1#cases[11]"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E5."convertRule:axiom#1#cases[12]"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e8-ref"
+
+[rows.E5."convertRule:axiom#2"]
+verdict = "covered"
+by = "fixture"
+case = "e1-sentences"
+
+[rows.E5."convertRule:axiom#2#cases[0]"]
+verdict = "covered"
+by = "fixture"
+case = "e1-sentences"
+
+[rows.E5."convertRule:axiom#2#cases[1]"]
+verdict = "covered"
+by = "fixture"
+case = "e1-sentences"
+
+[rows.E5."convertRule:axiom#2#cases[2]"]
+verdict = "covered"
+by = "fixture"
+case = "e1-sentences"
+
+[rows.E5."convertRule:axiom#2#cases[3]"]
+verdict = "covered"
+by = "fixture"
+case = "e1-sentences"
+
+[rows.E5."convertRule:axiom#2#cases[6]"]
+verdict = "covered"
+by = "fixture"
+case = "e1-sentences"
+
+[rows.E5."convertRule:axiom#2#cases[7]"]
+verdict = "covered"
+by = "fixture"
+case = "e1-sentences"
+
+[rows.E5."convertRule:axiom#2#cases[8]"]
+verdict = "covered"
+by = "fixture"
+case = "e1-sentences"
+
+[rows.E5."convertRule:axiom#2#cases[11]"]
+verdict = "refused"
+by = "fixture"
+bool = "ovlsOK"
+refused_on = "e5-ovl-fun-lhs"
+
+[rows.E5."convertRule:axiom#2#cases[13]"]
+verdict = "refused"
+by = "fixture"
+bool = "ovlsOK"
+refused_on = "e5-ovl-fun-lhs-owise"
+
+[rows.E5."functionalPattern:axiom#1"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E5."functionalPattern:axiom#1#cases[0]"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E5."functionalPattern:axiom#1#cases[1]"]
+verdict = "covered"
+by = "fixture"
+case = "e1-starinit"
+
+[rows.E5."functionalPattern:axiom#1#cases[2]"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E5."functionalPattern:axiom#1#cases[4]"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E6."module:ARRAY-SYNTAX"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e6-mod-array"
+
+[rows.E6."module:ARRAY-IN-K"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e6-mod-array"
+
+[rows.E6."module:MAP"]
+verdict = "covered"
+by = "kimp"
+case = "f2-examples/ref-kimp.kore"
+
+[rows.E6."module:MAP-KORE-SYMBOLIC"]
+verdict = "covered"
+by = "module hooks"
+case = "no hook row"
+
+[rows.E6."module:RANGEMAP"]
+verdict = "refused"
+by = "module hooks"
+bool = "appsOK"
+first_uncovered = "hook:RANGEMAP.RangeMap:SortRangeMap"
+
+[rows.E6."module:SET"]
+verdict = "covered"
+by = "kimp"
+case = "f2-examples/ref-kimp.kore"
+
+[rows.E6."module:SET-KORE-SYMBOLIC"]
+verdict = "covered"
+by = "module hooks"
+case = "no hook row"
+
+[rows.E6."module:LIST"]
+verdict = "covered"
+by = "kimp"
+case = "f2-examples/ref-kimp.kore"
+
+[rows.E6."module:COLLECTIONS"]
+verdict = "refused"
+by = "module hooks"
+bool = "paramsOK"
+first_uncovered = "hook:SET.set2list:LblSet2List'LParUndsRParUnds'COLLECTIONS'Unds'List'Unds'Set"
+
+[rows.E6."module:SORT-BOOL"]
+verdict = "covered"
+by = "kimp"
+case = "f2-examples/ref-kimp.kore"
+
+[rows.E6."module:BOOL-COMMON"]
+verdict = "covered"
+by = "kimp"
+case = "f2-examples/ref-kimp.kore"
+
+[rows.E6."module:BOOL-KORE"]
+verdict = "covered"
+by = "kimp"
+case = "f2-examples/ref-kimp.kore"
+
+[rows.E6."module:UNSIGNED-INT-SYNTAX"]
+verdict = "covered"
+by = "kimp"
+case = "f2-examples/ref-kimp.kore"
+
+[rows.E6."module:INT-COMMON"]
+verdict = "covered"
+by = "kimp"
+case = "f2-examples/ref-kimp.kore"
+
+[rows.E6."module:INT-SYMBOLIC"]
+verdict = "covered"
+by = "kimp"
+case = "f2-examples/ref-kimp.kore"
+
+[rows.E6."module:INT-SYMBOLIC-KORE"]
+verdict = "covered"
+by = "kimp"
+case = "f2-examples/ref-kimp.kore"
+
+[rows.E6."module:INT-KORE"]
+verdict = "covered"
+by = "kimp"
+case = "f2-examples/ref-kimp.kore"
+
+[rows.E6."module:INT"]
+verdict = "covered"
+by = "kimp"
+case = "f2-examples/ref-kimp.kore"
+
+[rows.E6."module:FLOAT-SYNTAX"]
+verdict = "refused"
+by = "module hooks"
+bool = "litsOK"
+first_uncovered = "hook:FLOAT.Float:SortFloat"
+
+[rows.E6."module:FLOAT"]
+verdict = "refused"
+by = "module hooks"
+bool = "appsOK"
+first_uncovered = "hook:FLOAT.precision:LblprecisionFloat'LParUndsRParUnds'FLOAT'Unds'Int'Unds'Float"
+
+[rows.E6."module:STRING-SYNTAX"]
+verdict = "covered"
+by = "module hooks"
+case = "its 1 hook rows covered"
+
+[rows.E6."module:STRING-COMMON"]
+verdict = "refused"
+by = "module hooks"
+bool = "appsOK"
+first_uncovered = "hook:STRING.concat:Lbl'UndsPlus'String'UndsUnds'STRING-COMMON'Unds'String'Unds'String'Unds'String"
+
+[rows.E6."module:STRING-KORE"]
+verdict = "covered"
+by = "module hooks"
+case = "no hook row"
+
+[rows.E6."module:STRING-BUFFER-IN-K"]
+verdict = "covered"
+by = "module hooks"
+case = "no hook row"
+
+[rows.E6."module:BYTES-SYNTAX"]
+verdict = "covered"
+by = "module hooks"
+case = "its 1 hook rows covered"
+
+[rows.E6."module:BYTES-STRING-ENCODE"]
+verdict = "refused"
+by = "module hooks"
+bool = "paramsOK"
+first_uncovered = "hook:BYTES.decodeBytes:LbldecodeBytes'LParUndsCommUndsRParUnds'BYTES-STRING-ENCODE'Unds'String'Unds'String'Unds'Bytes"
+
+[rows.E6."module:BYTES-HOOKED"]
+verdict = "refused"
+by = "module hooks"
+bool = "appsOK"
+first_uncovered = "hook:BYTES.empty:Lbl'Stop'Bytes'Unds'BYTES-HOOKED'Unds'Bytes"
+
+[rows.E6."module:BYTES-SYMBOLIC-CEIL"]
+verdict = "covered"
+by = "module hooks"
+case = "no hook row"
+
+[rows.E6."module:BYTES"]
+verdict = "covered"
+by = "module hooks"
+case = "no hook row"
+
+[rows.E6."module:ID-SYNTAX"]
+verdict = "covered"
+by = "kimp"
+case = "f2-examples/ref-kimp.kore"
+
+[rows.E6."module:ID-COMMON"]
+verdict = "refused"
+by = "module hooks"
+bool = "paramsOK"
+first_uncovered = "hook:STRING.token2string:LblId2String'LParUndsRParUnds'ID-COMMON'Unds'String'Unds'Id"
+
+[rows.E6."module:K-EQUAL-SYNTAX"]
+verdict = "covered"
+by = "kimp"
+case = "f2-examples/ref-kimp.kore"
+
+[rows.E6."module:K-EQUAL-KORE"]
+verdict = "covered"
+by = "kimp"
+case = "f2-examples/ref-kimp.kore"
+
+[rows.E6."module:K-EQUAL"]
+verdict = "covered"
+by = "kimp"
+case = "f2-examples/ref-kimp.kore"
+
+[rows.E6."module:K-REFLECTION"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-cells-stream"
+
+[rows.E6."module:K-IO"]
+verdict = "refused"
+by = "module hooks"
+bool = "paramsOK"
+first_uncovered = "hook:IO.open:Lbl'Hash'open'LParUndsCommUndsRParUnds'K-IO'Unds'IOInt'Unds'String'Unds'String"
+
+[rows.E6."module:STDIN-STREAM"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-cells-stream"
+
+[rows.E6."module:STDOUT-STREAM"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-cells-stream"
+
+[rows.E6."module:MINT-SYNTAX"]
+verdict = "covered"
+by = "kimp"
+case = "f2-examples/ref-kimp.kore"
+
+[rows.E6."module:MINT"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e6-mod-mint"
+
+[rows.E6."module:FFI-SYNTAX"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-ffi"
+
+[rows.E6."module:FFI"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-ffi"
+
+[rows.E6."module:JSON-SYNTAX"]
+verdict = "covered"
+by = "module hooks"
+case = "no hook row"
+
+[rows.E6."module:JSON"]
+verdict = "refused"
+by = "module hooks"
+bool = "paramsOK"
+first_uncovered = "hook:JSON.json2string:LblJSON2String"
+
+[rows.E6."module:BASIC-K"]
+verdict = "covered"
+by = "kimp"
+case = "f2-examples/ref-kimp.kore"
+
+[rows.E6."module:KSTRING"]
+verdict = "covered"
+by = "fixture"
+case = "e6-mod-kstring"
+
+[rows.E6."module:BUILTIN-ID-TOKENS"]
+verdict = "covered"
+by = "fixture"
+case = "e6-mod-builtin-id-tokens"
+
+[rows.E6."module:SORT-KBOTT"]
+verdict = "covered"
+by = "fixture"
+case = "e6-mod-sort-kbott"
+
+[rows.E6."module:KVARIABLE-SYNTAX"]
+verdict = "covered"
+by = "fixture"
+case = "e6-mod-kvariable-syntax"
+
+[rows.E6."module:DEFAULT-CONFIGURATION"]
+verdict = "covered"
+by = "fixture"
+case = "e3-setvar"
+
+[rows.E6."module:RAT-SYNTAX"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."module:RAT-COMMON"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."module:RAT-SYMBOLIC"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."module:RAT-KORE"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."module:RAT"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."module:KVAR-SYNTAX"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-kvar"
+
+[rows.E6."module:KVAR-COMMON"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-kvar"
+
+[rows.E6."module:SUBSTITUTION"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-builtintext-unif-subst"
+
+[rows.E6."module:TIMER"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-timer"
+
+[rows.E6."module:UNIFICATION"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-unification"
+
+[rows.E6."sort:BASIC-K:SortKConfigVar"]
+verdict = "covered"
+by = "kimp"
+case = "f2-examples/ref-kimp.kore"
+
+[rows.E6."sort:ARRAY-SYNTAX:SortArray"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e6-mod-array"
+
+[rows.E6."hook:INT.Int:SortInt"]
+verdict = "covered"
+by = "sort table"
+case = "Int: KK.encLit"
+
+[rows.E6."hook:RANGEMAP.RangeMap:SortRangeMap"]
+verdict = "refused"
+by = "sort table"
+bool = "appsOK"
+refused_on = "RangeMap"
+
+[rows.E6."sort:KVARIABLE-SYNTAX:Sort'Hash'KVariable"]
+verdict = "covered"
+by = "fixture"
+case = "e6-mod-kvariable-syntax"
+
+[rows.E6."hook:LIST.List:SortList"]
+verdict = "covered"
+by = "sort table"
+case = "List: KK.libCollOf"
+
+[rows.E6."sort:SORT-KBOTT:SortKBott"]
+verdict = "covered"
+by = "fixture"
+case = "e6-mod-sort-kbott"
+
+[rows.E6."hook:FLOAT.Float:SortFloat"]
+verdict = "refused"
+by = "sort table"
+bool = "litsOK"
+refused_on = "Float"
+
+[rows.E6."hook:MAP.Map:SortMap"]
+verdict = "covered"
+by = "sort table"
+case = "Map: KK.libCollOf"
+
+[rows.E6."hook:STRING.String:SortString"]
+verdict = "covered"
+by = "sort table"
+case = "String: KK.encLit"
+
+[rows.E6."sort:ID-SYNTAX:SortId"]
+verdict = "covered"
+by = "kimp"
+case = "f2-examples/ref-kimp.kore"
+
+[rows.E6."hook:SET.Set:SortSet"]
+verdict = "covered"
+by = "sort table"
+case = "Set: KK.libCollOf"
+
+[rows.E6."sort:UNIFICATION:SortMetaVariable"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-unification"
+
+[rows.E6."hook:BYTES.Bytes:SortBytes"]
+verdict = "covered"
+by = "sort table"
+case = "Bytes: KK.encLit"
+
+[rows.E6."sort:RAT-SYNTAX:SortRat"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."hook:BOOL.Bool:SortBool"]
+verdict = "covered"
+by = "sort table"
+case = "Bool: KK.encLit"
+
+[rows.E6."hook:KVAR.KVar:SortKVar"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-kvar"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'E2BIG"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'EACCES"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'EADDRINUSE"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'EADDRNOTAVAIL"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'EAFNOSUPPORT"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'EAGAIN"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'EALREADY"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'EBADF"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'EBUSY"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'ECHILD"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'ECONNABORTED"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'ECONNREFUSED"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'ECONNRESET"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'EDEADLK"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'EDESTADDRREQ"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'EDOM"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'EEXIST"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'EFAULT"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'EFBIG"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'EHOSTDOWN"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'EHOSTUNREACH"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'EINPROGRESS"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'EINTR"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'EINVAL"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'EIO"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'EISCONN"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'EISDIR"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'ELOOP"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'EMFILE"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'EMLINK"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'EMSGSIZE"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'ENAMETOOLONG"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'ENETDOWN"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'ENETRESET"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'ENETUNREACH"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'ENFILE"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'ENOBUFS"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'ENODEV"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'ENOENT"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'ENOEXEC"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'ENOLCK"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'ENOMEM"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'ENOPROTOOPT"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'ENOSPC"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'ENOSYS"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'ENOTCONN"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'ENOTDIR"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'ENOTEMPTY"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'ENOTSOCK"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'ENOTTY"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'ENXIO"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'EOF"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'EOPNOTSUPP"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'EOVERFLOW"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'EPERM"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'EPFNOSUPPORT"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'EPIPE"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'EPROTONOSUPPORT"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'EPROTOTYPE"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'ERANGE"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'EROFS"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'ESHUTDOWN"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'ESOCKTNOSUPPORT"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'ESPIPE"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'ESRCH"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'ETIMEDOUT"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'ETOOMANYREFS"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'EWOULDBLOCK"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'EXDEV"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."hook:FLOAT.rat2float:Lbl'Hash'Rat2Float'LParUndsCommUndsCommUndsCommUndsRParUnds'RAT'Unds'Float'Unds'Int'Unds'Int'Unds'Int'Unds'Int"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."hook:IO.accept:Lbl'Hash'accept'LParUndsRParUnds'K-IO'Unds'IOInt'Unds'Int"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-io"
+
+[rows.E6."hook:FFI.bytes_address:Lbl'Hash'address'LParUndsRParUnds'FFI'Unds'Int'Unds'Bytes"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-ffi"
+
+[rows.E6."hook:FFI.alloc:Lbl'Hash'alloc'LParUndsCommUndsCommUndsRParUnds'FFI'Unds'Bytes'Unds'KItem'Unds'Int'Unds'Int"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-ffi"
+
+[rows.E6."hook:KREFLECTION.argv:Lbl'Hash'argv'LParRParUnds'K-REFLECTION'Unds'List"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-kreflection"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'buffer'LParUndsRParUnds'K-IO'Unds'Stream'Unds'K"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."hook:IO.close:Lbl'Hash'close'LParUndsRParUnds'K-IO'Unds'K'Unds'Int"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-io"
+
+[rows.E6."hook:KREFLECTION.configuration:Lbl'Hash'configuration'Unds'K-REFLECTION'Unds'K"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-kreflection"
+
+[rows.E6."hook:FFI.call:Lbl'Hash'ffiCall'LParUndsCommUndsCommUndsCommUndsRParUnds'FFI'Unds'Bytes'Unds'Int'Unds'List'Unds'List'Unds'FFIType"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-ffi"
+
+[rows.E6."hook:FFI.call_variadic:Lbl'Hash'ffiCall'LParUndsCommUndsCommUndsCommUndsCommUndsRParUnds'FFI'Unds'Bytes'Unds'Int'Unds'List'Unds'List'Unds'List'Unds'FFIType"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-ffi"
+
+[rows.E6."symbol:FFI:Lbl'Hash'ffiCall'LParUndsCommUndsCommUndsCommUndsCommUndsCommUndsRParUnds'FFI'Unds'Bytes'Unds'Bool'Unds'Int'Unds'List'Unds'List'Unds'Int'Unds'FFIType"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-ffi"
+
+[rows.E6."symbol:FFI-SYNTAX:Lbl'Hash'ffi'Unds'complexdouble"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-ffi"
+
+[rows.E6."symbol:FFI-SYNTAX:Lbl'Hash'ffi'Unds'complexfloat"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-ffi"
+
+[rows.E6."symbol:FFI-SYNTAX:Lbl'Hash'ffi'Unds'complexlongdouble"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-ffi"
+
+[rows.E6."symbol:FFI-SYNTAX:Lbl'Hash'ffi'Unds'double"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-ffi"
+
+[rows.E6."symbol:FFI-SYNTAX:Lbl'Hash'ffi'Unds'float"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-ffi"
+
+[rows.E6."symbol:FFI-SYNTAX:Lbl'Hash'ffi'Unds'longdouble"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-ffi"
+
+[rows.E6."symbol:FFI-SYNTAX:Lbl'Hash'ffi'Unds'pointer"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-ffi"
+
+[rows.E6."symbol:FFI-SYNTAX:Lbl'Hash'ffi'Unds'schar"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-ffi"
+
+[rows.E6."symbol:FFI-SYNTAX:Lbl'Hash'ffi'Unds'sint"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-ffi"
+
+[rows.E6."symbol:FFI-SYNTAX:Lbl'Hash'ffi'Unds'sint16"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-ffi"
+
+[rows.E6."symbol:FFI-SYNTAX:Lbl'Hash'ffi'Unds'sint32"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-ffi"
+
+[rows.E6."symbol:FFI-SYNTAX:Lbl'Hash'ffi'Unds'sint64"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-ffi"
+
+[rows.E6."symbol:FFI-SYNTAX:Lbl'Hash'ffi'Unds'sint8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-ffi"
+
+[rows.E6."symbol:FFI-SYNTAX:Lbl'Hash'ffi'Unds'slong"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-ffi"
+
+[rows.E6."symbol:FFI-SYNTAX:Lbl'Hash'ffi'Unds'sshort"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-ffi"
+
+[rows.E6."symbol:FFI-SYNTAX:Lbl'Hash'ffi'Unds'struct"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-ffi"
+
+[rows.E6."symbol:FFI-SYNTAX:Lbl'Hash'ffi'Unds'uchar"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-ffi"
+
+[rows.E6."symbol:FFI-SYNTAX:Lbl'Hash'ffi'Unds'uint"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-ffi"
+
+[rows.E6."symbol:FFI-SYNTAX:Lbl'Hash'ffi'Unds'uint16"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-ffi"
+
+[rows.E6."symbol:FFI-SYNTAX:Lbl'Hash'ffi'Unds'uint32"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-ffi"
+
+[rows.E6."symbol:FFI-SYNTAX:Lbl'Hash'ffi'Unds'uint64"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-ffi"
+
+[rows.E6."symbol:FFI-SYNTAX:Lbl'Hash'ffi'Unds'uint8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-ffi"
+
+[rows.E6."symbol:FFI-SYNTAX:Lbl'Hash'ffi'Unds'ulong"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-ffi"
+
+[rows.E6."symbol:FFI-SYNTAX:Lbl'Hash'ffi'Unds'ushort"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-ffi"
+
+[rows.E6."symbol:FFI-SYNTAX:Lbl'Hash'ffi'Unds'void"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-ffi"
+
+[rows.E6."hook:FFI.free:Lbl'Hash'free'LParUndsRParUnds'FFI'Unds'K'Unds'KItem"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-ffi"
+
+[rows.E6."hook:KREFLECTION.fresh:Lbl'Hash'fresh'LParUndsRParUnds'K-REFLECTION'Unds'KItem'Unds'String"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-kreflection"
+
+[rows.E6."hook:FFI.address:Lbl'Hash'functionAddress'LParUndsRParUnds'FFI'Unds'Int'Unds'String"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-ffi"
+
+[rows.E6."hook:IO.getc:Lbl'Hash'getc'LParUndsRParUnds'K-IO'Unds'IOInt'Unds'Int"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-io"
+
+[rows.E6."hook:KREFLECTION.getenv:Lbl'Hash'getenv'LParUndsRParUnds'K-REFLECTION'Unds'K'Unds'String"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-kreflection"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'istream'LParUndsRParUnds'K-IO'Unds'Stream'Unds'Int"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."hook:KREFLECTION.kompiledDir:Lbl'Hash'kompiledDirectory'LParRParUnds'K-REFLECTION'Unds'String"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-kreflection"
+
+[rows.E6."hook:IO.lock:Lbl'Hash'lock'LParUndsCommUndsRParUnds'K-IO'Unds'K'Unds'Int'Unds'Int"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-io"
+
+[rows.E6."hook:IO.logString:Lbl'Hash'log"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-io"
+
+[rows.E6."hook:IO.log:Lbl'Hash'logToFile"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-io"
+
+[rows.E6."hook:UNIFICATION.metaVariables:Lbl'Hash'metaKVariables'LParUndsRParUnds'UNIFICATION'Unds'Set'Unds'K"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-unification"
+
+[rows.E6."hook:IO.mkstemp:Lbl'Hash'mkstemp'LParUndsRParUnds'K-IO'Unds'IOFile'Unds'String"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-io"
+
+[rows.E6."hook:FFI.read:Lbl'Hash'nativeRead'LParUndsCommUndsRParUnds'FFI'Unds'K'Unds'Int'Unds'Bytes"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-ffi"
+
+[rows.E6."hook:FFI.write:Lbl'Hash'nativeWrite'LParUndsCommUndsRParUnds'FFI'Unds'K'Unds'Int'Unds'Bytes"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-ffi"
+
+[rows.E6."symbol:K-REFLECTION:Lbl'Hash'noParse"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-cells-stream"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'open'LParUndsRParUnds'K-IO'Unds'IOInt'Unds'String"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."hook:IO.open:Lbl'Hash'open'LParUndsCommUndsRParUnds'K-IO'Unds'IOInt'Unds'String'Unds'String"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-io"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'ostream'LParUndsRParUnds'K-IO'Unds'Stream'Unds'Int"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'parseInput'LParUndsCommUndsRParUnds'K-IO'Unds'Stream'Unds'String'Unds'String"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."hook:IO.putc:Lbl'Hash'putc'LParUndsCommUndsRParUnds'K-IO'Unds'K'Unds'Int'Unds'Int"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-io"
+
+[rows.E6."hook:IO.read:Lbl'Hash'read'LParUndsCommUndsRParUnds'K-IO'Unds'IOString'Unds'Int'Unds'Int"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-io"
+
+[rows.E6."hook:IO.remove:Lbl'Hash'remove'LParUndsRParUnds'K-IO'Unds'K'Unds'String"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-io"
+
+[rows.E6."hook:UNIFICATION.renameVariables:Lbl'Hash'renameVariables'LParUndsRParUnds'UNIFICATION'Unds'K'Unds'K"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-unification"
+
+[rows.E6."hook:IO.seek:Lbl'Hash'seek'LParUndsCommUndsRParUnds'K-IO'Unds'K'Unds'Int'Unds'Int"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-io"
+
+[rows.E6."hook:IO.seekEnd:Lbl'Hash'seekEnd'LParUndsCommUndsRParUnds'K-IO'Unds'K'Unds'Int'Unds'Int"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-io"
+
+[rows.E6."hook:IO.shutdownWrite:Lbl'Hash'shutdownWrite'LParUndsRParUnds'K-IO'Unds'K'Unds'Int"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-io"
+
+[rows.E6."hook:KREFLECTION.sort:Lbl'Hash'sort'LParUndsRParUnds'K-REFLECTION'Unds'String'Unds'K"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-kreflection"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'stderr'Unds'K-IO'Unds'Int"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'stdin'Unds'K-IO'Unds'Int"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'stdout'Unds'K-IO'Unds'Int"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."hook:IO.system:Lbl'Hash'system'LParUndsRParUnds'K-IO'Unds'KItem'Unds'String"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-io"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'systemResult"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."hook:IO.tell:Lbl'Hash'tell'LParUndsRParUnds'K-IO'Unds'IOInt'Unds'Int"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-io"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'tempFile"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."hook:IO.time:Lbl'Hash'time'LParRParUnds'K-IO'Unds'Int"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-io"
+
+[rows.E6."hook:IO.traceTerm:Lbl'Hash'trace"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-io"
+
+[rows.E6."hook:IO.traceTerm:Lbl'Hash'traceK"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-io"
+
+[rows.E6."hook:UNIFICATION.unifiable:Lbl'Hash'unifiable'LParUndsCommUndsRParUnds'UNIFICATION'Unds'Bool'Unds'K'Unds'K"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-unification"
+
+[rows.E6."symbol:K-IO:Lbl'Hash'unknownIOError"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."hook:IO.unlock:Lbl'Hash'unlock'LParUndsCommUndsRParUnds'K-IO'Unds'K'Unds'Int'Unds'Int"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-io"
+
+[rows.E6."hook:UNIFICATION.variables:Lbl'Hash'variables'LParUndsRParUnds'UNIFICATION'Unds'Set'Unds'K"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-unification"
+
+[rows.E6."hook:UNIFICATION.variablesMap:Lbl'Hash'variablesMap'LParUndsRParUnds'UNIFICATION'Unds'KItem'Unds'K"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-unification"
+
+[rows.E6."hook:IO.write:Lbl'Hash'write'LParUndsCommUndsRParUnds'K-IO'Unds'K'Unds'Int'Unds'String"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-io"
+
+[rows.E6."hook:FLOAT.neg:Lbl--Float'UndsUnds'FLOAT'Unds'Float'Unds'Float"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "FLOAT.neg"
+
+[rows.E6."hook:BYTES.empty:Lbl'Stop'Bytes'Unds'BYTES-HOOKED'Unds'Bytes"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "BYTES.empty"
+
+[rows.E6."hook:LIST.unit:Lbl'Stop'List"]
+verdict = "covered"
+by = "hook table"
+case = "LIST.unit: KK.libCollOf"
+
+[rows.E6."symbol:JSON-SYNTAX:Lbl'Stop'List'LBraQuot'JSONs'QuotRBra'"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-json"
+
+[rows.E6."hook:MAP.unit:Lbl'Stop'Map"]
+verdict = "covered"
+by = "hook table"
+case = "MAP.unit: KK.libCollOf"
+
+[rows.E6."hook:RANGEMAP.unit:Lbl'Stop'RangeMap"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "RANGEMAP.unit"
+
+[rows.E6."hook:SET.unit:Lbl'Stop'Set"]
+verdict = "covered"
+by = "hook table"
+case = "SET.unit: KK.libCollOf"
+
+[rows.E6."symbol:STRING-BUFFER-IN-K:Lbl'Stop'StringBuffer'Unds'STRING-BUFFER-IN-K'Unds'StringBuffer"]
+verdict = "refused"
+by = "fixture"
+bool = "litsOK"
+refused_on = "e6-mod-string-buffer"
+
+[rows.E6."symbol:RAT-COMMON:Lbl'-LT-UndsCommUnds-GT-'Rat'Unds'RAT-COMMON'Unds'Rat'Unds'Int'Unds'Int"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."symbol:DEFAULT-CONFIGURATION:Lbl'-LT-'k'-GT-'"]
+verdict = "covered"
+by = "fixture"
+case = "e3-setvar"
+
+[rows.E6."hook:STRING.base2string:LblBase2String'LParUndsCommUndsRParUnds'STRING-COMMON'Unds'String'Unds'Int'Unds'Int"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-string"
+
+[rows.E6."symbol:STRING-COMMON:LblBool2String'LParUndsRParUnds'STRING-COMMON'Unds'String'Unds'Bool"]
+verdict = "refused"
+by = "fixture"
+bool = "litsOK"
+refused_on = "e6-mod-string"
+
+[rows.E6."hook:BYTES.bytes2hex:LblBytes2Hex'LParUndsRParUnds'BYTES-HOOKED'Unds'String'Unds'Bytes"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-bytes"
+
+[rows.E6."hook:BYTES.bytes2int:LblBytes2Int'LParUndsCommUndsCommUndsRParUnds'BYTES-HOOKED'Unds'Int'Unds'Bytes'Unds'Endianness'Unds'Signedness"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "BYTES.bytes2int"
+
+[rows.E6."hook:BYTES.bytes2string:LblBytes2String'LParUndsRParUnds'BYTES-HOOKED'Unds'String'Unds'Bytes"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-bytes"
+
+[rows.E6."hook:FLOAT.float2int:LblFloat2Int'LParUndsRParUnds'FLOAT'Unds'Int'Unds'Float"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-float"
+
+[rows.E6."hook:STRING.float2string:LblFloat2String'LParUndsRParUnds'STRING-COMMON'Unds'String'Unds'Float"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-string"
+
+[rows.E6."hook:STRING.floatFormat:LblFloatFormat"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-string"
+
+[rows.E6."hook:STRING.token2string:LblId2String'LParUndsRParUnds'ID-COMMON'Unds'String'Unds'Id"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-string"
+
+[rows.E6."hook:BYTES.int2bytes:LblInt2Bytes'LParUndsCommUndsCommUndsRParUnds'BYTES-HOOKED'Unds'Bytes'Unds'Int'Unds'Int'Unds'Endianness"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "BYTES.int2bytes"
+
+[rows.E6."symbol:BYTES-HOOKED:LblInt2BytesNoLen"]
+verdict = "covered"
+by = "fixture"
+case = "e6-mod-bytes-kore"
+
+[rows.E6."hook:FLOAT.int2float:LblInt2Float'LParUndsCommUndsCommUndsRParUnds'FLOAT'Unds'Float'Unds'Int'Unds'Int'Unds'Int"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "FLOAT.int2float"
+
+[rows.E6."hook:STRING.int2string:LblInt2String'LParUndsRParUnds'STRING-COMMON'Unds'String'Unds'Int"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "STRING.int2string"
+
+[rows.E6."hook:JSON.json2string:LblJSON2String"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-json"
+
+[rows.E6."symbol:JSON-SYNTAX:LblJSONEntry"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-json"
+
+[rows.E6."symbol:JSON-SYNTAX:LblJSONList"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-json"
+
+[rows.E6."symbol:JSON-SYNTAX:LblJSONObject"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-json"
+
+[rows.E6."symbol:JSON-SYNTAX:LblJSONnull"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-json"
+
+[rows.E6."symbol:JSON-SYNTAX:LblJSONs"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-json"
+
+[rows.E6."hook:SET.list2set:LblList2Set'LParUndsRParUnds'COLLECTIONS'Unds'Set'Unds'List"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-set"
+
+[rows.E6."hook:LIST.get:LblList'Coln'get"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "LIST.get"
+
+[rows.E6."hook:LIST.range:LblList'Coln'range"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "LIST.range"
+
+[rows.E6."hook:LIST.update:LblList'Coln'set"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "LIST.update"
+
+[rows.E6."hook:LIST.update:LblList'Coln'set#cases[1]"]
+verdict = "refused"
+by = "fixture"
+bool = "shapesOK"
+refused_on = "e6-list-set-lhs-bound"
+
+[rows.E6."hook:LIST.element:LblListItem"]
+verdict = "covered"
+by = "hook table"
+case = "LIST.element: KK.libCollOf"
+
+[rows.E6."hook:MAP.choice:LblMap'Coln'choice"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-map"
+
+[rows.E6."hook:MAP.lookup:LblMap'Coln'lookup"]
+verdict = "covered"
+by = "hook table"
+case = "MAP.lookup: KK.hookCodes 40"
+
+[rows.E6."hook:MAP.lookupOrDefault:LblMap'Coln'lookupOrDefault"]
+verdict = "covered"
+by = "hook table"
+case = "MAP.lookupOrDefault: KK.hookCodes 41"
+
+[rows.E6."hook:MAP.update:LblMap'Coln'update"]
+verdict = "covered"
+by = "hook table"
+case = "MAP.update: KK.hookCodes 42"
+
+[rows.E6."symbol:RANGEMAP:LblRangeMap'Coln'Range"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e6-rangemap-keys"
+
+[rows.E6."hook:RANGEMAP.choice:LblRangeMap'Coln'choice"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rangemap"
+
+[rows.E6."hook:RANGEMAP.find_range:LblRangeMap'Coln'find'Unds'range"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "RANGEMAP.find_range"
+
+[rows.E6."hook:RANGEMAP.lookup:LblRangeMap'Coln'lookup"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "RANGEMAP.lookup"
+
+[rows.E6."hook:RANGEMAP.lookupOrDefault:LblRangeMap'Coln'lookupOrDefault"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "RANGEMAP.lookupOrDefault"
+
+[rows.E6."hook:RANGEMAP.updateRng:LblRangeMap'Coln'update"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "RANGEMAP.updateRng"
+
+[rows.E6."symbol:RAT-SYNTAX:LblRat2Float'LParUndsCommUndsCommUndsRParUnds'RAT-SYNTAX'Unds'Float'Unds'Rat'Unds'Int'Unds'Int"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."hook:SET.set2list:LblSet2List'LParUndsRParUnds'COLLECTIONS'Unds'List'Unds'Set"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-set"
+
+[rows.E6."hook:SET.choice:LblSet'Coln'choice"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-set"
+
+[rows.E6."hook:SET.difference:LblSet'Coln'difference"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "SET.difference"
+
+[rows.E6."hook:SET.in:LblSet'Coln'in"]
+verdict = "covered"
+by = "hook table"
+case = "SET.in: KK.hookCodes 50"
+
+[rows.E6."hook:SET.element:LblSetItem"]
+verdict = "covered"
+by = "hook table"
+case = "SET.element: KK.libCollOf"
+
+[rows.E6."hook:STRING.string2base:LblString2Base'LParUndsCommUndsRParUnds'STRING-COMMON'Unds'Int'Unds'String'Unds'Int"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "STRING.string2base"
+
+[rows.E6."symbol:STRING-COMMON:LblString2Bool'LParUndsRParUnds'STRING-COMMON'Unds'Bool'Unds'String"]
+verdict = "refused"
+by = "fixture"
+bool = "litsOK"
+refused_on = "e6-mod-string"
+
+[rows.E6."hook:BYTES.string2bytes:LblString2Bytes'LParUndsRParUnds'BYTES-HOOKED'Unds'Bytes'Unds'String"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-bytes"
+
+[rows.E6."hook:STRING.string2float:LblString2Float'LParUndsRParUnds'STRING-COMMON'Unds'Float'Unds'String"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-string"
+
+[rows.E6."hook:STRING.string2token:LblString2Id'LParUndsRParUnds'ID-COMMON'Unds'Id'Unds'String"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-string"
+
+[rows.E6."hook:STRING.string2int:LblString2Int'LParUndsRParUnds'STRING-COMMON'Unds'Int'Unds'String"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "STRING.string2int"
+
+[rows.E6."hook:JSON.string2json:LblString2JSON"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-json"
+
+[rows.E6."hook:STRING.string2token:LblString2KVar'LParUndsRParUnds'KVAR-COMMON'Unds'KVar'Unds'String"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-kvar"
+
+[rows.E6."symbol:STRING-BUFFER-IN-K:LblStringBuffer2String'LParUndsRParUnds'STRING-BUFFER-IN-K'Unds'String'Unds'StringBuffer"]
+verdict = "refused"
+by = "fixture"
+bool = "litsOK"
+refused_on = "e6-mod-string-buffer"
+
+[rows.E6."hook:FLOAT.rem:Lbl'UndsPerc'Float'UndsUnds'FLOAT'Unds'Float'Unds'Float'Unds'Float"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "FLOAT.rem"
+
+[rows.E6."hook:INT.tmod:Lbl'UndsPerc'Int'Unds'"]
+verdict = "covered"
+by = "hook table"
+case = "INT.tmod: KK.hookCodes 5"
+
+[rows.E6."hook:INT.and:Lbl'UndsAnd-'Int'Unds'"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-int"
+
+[rows.E6."hook:FLOAT.mul:Lbl'UndsStar'Float'UndsUnds'FLOAT'Unds'Float'Unds'Float'Unds'Float"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "FLOAT.mul"
+
+[rows.E6."hook:INT.mul:Lbl'UndsStar'Int'Unds'"]
+verdict = "covered"
+by = "hook table"
+case = "INT.mul: KK.hookCodes 3"
+
+[rows.E6."symbol:RAT-SYNTAX:Lbl'UndsStar'Rat'Unds'"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."hook:BYTES.concat:Lbl'UndsPlus'Bytes'UndsUnds'BYTES-HOOKED'Unds'Bytes'Unds'Bytes'Unds'Bytes"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "BYTES.concat"
+
+[rows.E6."hook:FLOAT.add:Lbl'UndsPlus'Float'UndsUnds'FLOAT'Unds'Float'Unds'Float'Unds'Float"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "FLOAT.add"
+
+[rows.E6."hook:INT.add:Lbl'UndsPlus'Int'Unds'"]
+verdict = "covered"
+by = "hook table"
+case = "INT.add: KK.hookCodes 1"
+
+[rows.E6."symbol:RAT-SYNTAX:Lbl'UndsPlus'Rat'Unds'"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."symbol:STRING-BUFFER-IN-K:Lbl'UndsPlus'String'UndsUnds'STRING-BUFFER-IN-K'Unds'StringBuffer'Unds'StringBuffer'Unds'String"]
+verdict = "refused"
+by = "fixture"
+bool = "litsOK"
+refused_on = "e6-mod-string-buffer"
+
+[rows.E6."hook:STRING.concat:Lbl'UndsPlus'String'UndsUnds'STRING-COMMON'Unds'String'Unds'String'Unds'String"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "STRING.concat"
+
+[rows.E6."hook:FLOAT.sub:Lbl'Unds'-Float'UndsUnds'FLOAT'Unds'Float'Unds'Float'Unds'Float"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "FLOAT.sub"
+
+[rows.E6."hook:INT.sub:Lbl'Unds'-Int'Unds'"]
+verdict = "covered"
+by = "hook table"
+case = "INT.sub: KK.hookCodes 2"
+
+[rows.E6."hook:MAP.difference:Lbl'Unds'-Map'UndsUnds'MAP'Unds'Map'Unds'Map'Unds'Map"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-map"
+
+[rows.E6."hook:RANGEMAP.difference:Lbl'Unds'-RangeMap'UndsUnds'RANGEMAP'Unds'RangeMap'Unds'RangeMap'Unds'RangeMap"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "RANGEMAP.difference"
+
+[rows.E6."symbol:RAT-SYNTAX:Lbl'Unds'-Rat'Unds'"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."hook:FLOAT.div:Lbl'UndsSlsh'Float'UndsUnds'FLOAT'Unds'Float'Unds'Float'Unds'Float"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "FLOAT.div"
+
+[rows.E6."hook:INT.tdiv:Lbl'UndsSlsh'Int'Unds'"]
+verdict = "covered"
+by = "hook table"
+case = "INT.tdiv: KK.hookCodes 4"
+
+[rows.E6."symbol:RAT-SYNTAX:Lbl'UndsSlsh'Rat'Unds'"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."hook:INT.shl:Lbl'Unds-LT--LT-'Int'Unds'"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "INT.shl"
+
+[rows.E6."hook:FLOAT.le:Lbl'Unds-LT-Eqls'Float'UndsUnds'FLOAT'Unds'Bool'Unds'Float'Unds'Float"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "FLOAT.le"
+
+[rows.E6."hook:INT.le:Lbl'Unds-LT-Eqls'Int'Unds'"]
+verdict = "covered"
+by = "hook table"
+case = "INT.le: KK.hookCodes 11"
+
+[rows.E6."hook:MAP.inclusion:Lbl'Unds-LT-Eqls'Map'UndsUnds'MAP'Unds'Bool'Unds'Map'Unds'Map"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-map"
+
+[rows.E6."hook:RANGEMAP.inclusion:Lbl'Unds-LT-Eqls'RangeMap'UndsUnds'RANGEMAP'Unds'Bool'Unds'RangeMap'Unds'RangeMap"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "RANGEMAP.inclusion"
+
+[rows.E6."symbol:RAT-SYNTAX:Lbl'Unds-LT-Eqls'Rat'Unds'"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."hook:SET.inclusion:Lbl'Unds-LT-Eqls'Set'UndsUnds'SET'Unds'Bool'Unds'Set'Unds'Set"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "SET.inclusion"
+
+[rows.E6."hook:STRING.le:Lbl'Unds-LT-Eqls'String'UndsUnds'STRING-COMMON'Unds'Bool'Unds'String'Unds'String"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "STRING.le"
+
+[rows.E6."hook:FLOAT.lt:Lbl'Unds-LT-'Float'UndsUnds'FLOAT'Unds'Bool'Unds'Float'Unds'Float"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "FLOAT.lt"
+
+[rows.E6."hook:INT.lt:Lbl'Unds-LT-'Int'Unds'"]
+verdict = "covered"
+by = "hook table"
+case = "INT.lt: KK.hookCodes 10"
+
+[rows.E6."symbol:RAT-SYNTAX:Lbl'Unds-LT-'Rat'Unds'"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."hook:STRING.lt:Lbl'Unds-LT-'String'UndsUnds'STRING-COMMON'Unds'Bool'Unds'String'Unds'String"]
+verdict = "covered"
+by = "hook table"
+case = "STRING.lt: KK.hookCodes 81"
+
+[rows.E6."hook:BOOL.ne:Lbl'UndsEqlsSlshEqls'Bool'Unds'"]
+verdict = "covered"
+by = "hook table"
+case = "BOOL.ne: KK.derivedHook"
+
+[rows.E6."symbol:FLOAT:Lbl'UndsEqlsSlshEqls'Float'UndsUnds'FLOAT'Unds'Bool'Unds'Float'Unds'Float"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-float"
+
+[rows.E6."hook:INT.ne:Lbl'UndsEqlsSlshEqls'Int'Unds'"]
+verdict = "covered"
+by = "hook table"
+case = "INT.ne: KK.hookCodes 15"
+
+[rows.E6."hook:KEQUAL.ne:Lbl'UndsEqlsSlshEqls'K'Unds'"]
+verdict = "covered"
+by = "hook table"
+case = "KEQUAL.ne: KK.hookCodes 71"
+
+[rows.E6."symbol:RAT-SYNTAX:Lbl'UndsEqlsSlshEqls'Rat'Unds'"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."hook:STRING.ne:Lbl'UndsEqlsSlshEqls'String'UndsUnds'STRING-COMMON'Unds'Bool'Unds'String'Unds'String"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "STRING.ne"
+
+[rows.E6."hook:BOOL.eq:Lbl'UndsEqlsEqls'Bool'Unds'"]
+verdict = "covered"
+by = "hook table"
+case = "BOOL.eq: KK.hookCodes 23"
+
+[rows.E6."hook:FLOAT.eq:Lbl'UndsEqlsEqls'Float'Unds'"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "FLOAT.eq"
+
+[rows.E6."hook:INT.eq:Lbl'UndsEqlsEqls'Int'Unds'"]
+verdict = "covered"
+by = "hook table"
+case = "INT.eq: KK.hookCodes 14"
+
+[rows.E6."hook:KEQUAL.eq:Lbl'UndsEqlsEqls'K'Unds'"]
+verdict = "covered"
+by = "hook table"
+case = "KEQUAL.eq: KK.hookCodes 70"
+
+[rows.E6."symbol:RAT-SYNTAX:Lbl'UndsEqlsEqls'Rat'Unds'"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."hook:STRING.eq:Lbl'UndsEqlsEqls'String'UndsUnds'STRING-COMMON'Unds'Bool'Unds'String'Unds'String"]
+verdict = "covered"
+by = "hook table"
+case = "STRING.eq: KK.hookCodes 80"
+
+[rows.E6."hook:FLOAT.ge:Lbl'Unds-GT-Eqls'Float'UndsUnds'FLOAT'Unds'Bool'Unds'Float'Unds'Float"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "FLOAT.ge"
+
+[rows.E6."hook:INT.ge:Lbl'Unds-GT-Eqls'Int'Unds'"]
+verdict = "covered"
+by = "hook table"
+case = "INT.ge: KK.hookCodes 13"
+
+[rows.E6."symbol:RAT-SYNTAX:Lbl'Unds-GT-Eqls'Rat'Unds'"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."hook:STRING.ge:Lbl'Unds-GT-Eqls'String'UndsUnds'STRING-COMMON'Unds'Bool'Unds'String'Unds'String"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "STRING.ge"
+
+[rows.E6."hook:INT.shr:Lbl'Unds-GT--GT-'Int'Unds'"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "INT.shr"
+
+[rows.E6."hook:FLOAT.gt:Lbl'Unds-GT-'Float'UndsUnds'FLOAT'Unds'Bool'Unds'Float'Unds'Float"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "FLOAT.gt"
+
+[rows.E6."hook:INT.gt:Lbl'Unds-GT-'Int'Unds'"]
+verdict = "covered"
+by = "hook table"
+case = "INT.gt: KK.hookCodes 12"
+
+[rows.E6."symbol:RAT-SYNTAX:Lbl'Unds-GT-'Rat'Unds'"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."hook:STRING.gt:Lbl'Unds-GT-'String'UndsUnds'STRING-COMMON'Unds'Bool'Unds'String'Unds'String"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "STRING.gt"
+
+[rows.E6."hook:LIST.concat:Lbl'Unds'List'Unds'"]
+verdict = "covered"
+by = "hook table"
+case = "LIST.concat: KK.libCollOf"
+
+[rows.E6."hook:MAP.concat:Lbl'Unds'Map'Unds'"]
+verdict = "covered"
+by = "hook table"
+case = "MAP.concat: KK.libCollOf"
+
+[rows.E6."hook:RANGEMAP.concat:Lbl'Unds'RangeMap'Unds'"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "RANGEMAP.concat"
+
+[rows.E6."hook:SET.concat:Lbl'Unds'Set'Unds'"]
+verdict = "covered"
+by = "hook table"
+case = "SET.concat: KK.libCollOf"
+
+[rows.E6."symbol:ARRAY-SYNTAX:Lbl'UndsLSqBUnds-LT-'-'UndsRSqB'"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e6-mod-array"
+
+[rows.E6."hook:BYTES.update:Lbl'UndsLSqBUnds-LT-'-'UndsRSqBUnds'BYTES-HOOKED'Unds'Bytes'Unds'Bytes'Unds'Int'Unds'Int"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "BYTES.update"
+
+[rows.E6."hook:MAP.remove:Lbl'UndsLSqBUnds-LT-'-undef'RSqB'"]
+verdict = "covered"
+by = "hook table"
+case = "MAP.remove: KK.hookCodes 43"
+
+[rows.E6."symbol:ARRAY-SYNTAX:Lbl'UndsLSqBUnds-LT-'-undef'RSqBUnds'ARRAY-SYNTAX'Unds'Array'Unds'Array'Unds'Int"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e6-mod-array"
+
+[rows.E6."symbol:ARRAY-SYNTAX:Lbl'UndsLSqBUndsRSqBUnds'ARRAY-SYNTAX'Unds'KItem'Unds'Array'Unds'Int"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e6-mod-array"
+
+[rows.E6."hook:BYTES.get:Lbl'UndsLSqBUndsRSqBUnds'BYTES-HOOKED'Unds'Int'Unds'Bytes'Unds'Int"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "BYTES.get"
+
+[rows.E6."hook:INT.powmod:Lbl'UndsXor-Perc'Int'UndsUnds'"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "INT.powmod"
+
+[rows.E6."hook:FLOAT.pow:Lbl'UndsXor-'Float'UndsUnds'FLOAT'Unds'Float'Unds'Float'Unds'Float"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-float"
+
+[rows.E6."hook:INT.pow:Lbl'UndsXor-'Int'Unds'"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "INT.pow"
+
+[rows.E6."symbol:RAT-SYNTAX:Lbl'UndsXor-'Rat'Unds'"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."hook:BOOL.and:Lbl'Unds'andBool'Unds'"]
+verdict = "covered"
+by = "hook table"
+case = "BOOL.and: KK.hookCodes 20"
+
+[rows.E6."hook:BOOL.andThen:Lbl'Unds'andThenBool'Unds'"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "BOOL.andThen"
+
+[rows.E6."hook:INT.ediv:Lbl'Unds'divInt'Unds'"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "INT.ediv"
+
+[rows.E6."symbol:INT-COMMON:Lbl'Unds'dividesInt'UndsUnds'INT-COMMON'Unds'Bool'Unds'Int'Unds'Int"]
+verdict = "covered"
+by = "kimp"
+case = "f2-examples/ref-kimp.kore"
+
+[rows.E6."hook:BOOL.implies:Lbl'Unds'impliesBool'Unds'"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "BOOL.implies"
+
+[rows.E6."hook:LIST.in:Lbl'Unds'inList'Unds'"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "LIST.in"
+
+[rows.E6."symbol:ARRAY-SYNTAX:Lbl'Unds'in'Unds'keys'LParUndsRParUnds'ARRAY-SYNTAX'Unds'Bool'Unds'Int'Unds'Array"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e6-mod-array"
+
+[rows.E6."hook:MAP.in_keys:Lbl'Unds'in'Unds'keys'LParUndsRParUnds'MAP'Unds'Bool'Unds'KItem'Unds'Map"]
+verdict = "covered"
+by = "hook table"
+case = "MAP.in_keys: KK.hookCodes 44"
+
+[rows.E6."hook:RANGEMAP.in_keys:Lbl'Unds'in'Unds'keys'LParUndsRParUnds'RANGEMAP'Unds'Bool'Unds'KItem'Unds'RangeMap"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "RANGEMAP.in_keys"
+
+[rows.E6."hook:INT.emod:Lbl'Unds'modInt'Unds'"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "INT.emod"
+
+[rows.E6."hook:BOOL.or:Lbl'Unds'orBool'Unds'"]
+verdict = "covered"
+by = "hook table"
+case = "BOOL.or: KK.hookCodes 21"
+
+[rows.E6."hook:BOOL.orElse:Lbl'Unds'orElseBool'Unds'"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "BOOL.orElse"
+
+[rows.E6."hook:RANGEMAP.removeRng:Lbl'Unds'r'LSqBUnds-LT-'-undef'RSqB'"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "RANGEMAP.removeRng"
+
+[rows.E6."hook:RANGEMAP.elementRng:Lbl'Unds'r'Pipe'-'-GT-Unds'"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "RANGEMAP.elementRng"
+
+[rows.E6."hook:BOOL.xor:Lbl'Unds'xorBool'Unds'"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "BOOL.xor"
+
+[rows.E6."hook:INT.xor:Lbl'Unds'xorInt'Unds'"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-int"
+
+[rows.E6."hook:MAP.element:Lbl'UndsPipe'-'-GT-Unds'"]
+verdict = "covered"
+by = "hook table"
+case = "MAP.element: KK.libCollOf"
+
+[rows.E6."hook:INT.or:Lbl'UndsPipe'Int'Unds'"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-int"
+
+[rows.E6."hook:SET.union:Lbl'UndsPipe'Set'UndsUnds'SET'Unds'Set'Unds'Set'Unds'Set"]
+verdict = "covered"
+by = "hook table"
+case = "SET.union: KK.hookCodes 52"
+
+[rows.E6."hook:FLOAT.abs:LblabsFloat'LParUndsRParUnds'FLOAT'Unds'Float'Unds'Float"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "FLOAT.abs"
+
+[rows.E6."hook:INT.abs:LblabsInt'LParUndsRParUnds'INT-COMMON'Unds'Int'Unds'Int"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "INT.abs"
+
+[rows.E6."hook:FLOAT.acos:LblacosFloat'LParUndsRParUnds'FLOAT'Unds'Float'Unds'Float"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-float"
+
+[rows.E6."symbol:ARRAY-IN-K:Lblarr'LParUndsCommUndsCommUndsRParUnds'ARRAY-IN-K'Unds'Array'Unds'List'Unds'Int'Unds'KItem"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e6-mod-array"
+
+[rows.E6."hook:FLOAT.asin:LblasinFloat'LParUndsRParUnds'FLOAT'Unds'Float'Unds'Float"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-float"
+
+[rows.E6."hook:FLOAT.atan2:Lblatan2Float'LParUndsCommUndsRParUnds'FLOAT'Unds'Float'Unds'Float'Unds'Float"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-float"
+
+[rows.E6."hook:FLOAT.atan:LblatanFloat'LParUndsRParUnds'FLOAT'Unds'Float'Unds'Float"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-float"
+
+[rows.E6."symbol:BYTES-HOOKED:LblbigEndianBytes"]
+verdict = "covered"
+by = "fixture"
+case = "e6-mod-bytes-kore"
+
+[rows.E6."hook:INT.bitRange:LblbitRangeInt'LParUndsCommUndsCommUndsRParUnds'INT-COMMON'Unds'Int'Unds'Int'Unds'Int'Unds'Int"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "INT.bitRange"
+
+[rows.E6."hook:STRING.category:LblcategoryChar'LParUndsRParUnds'STRING-COMMON'Unds'String'Unds'String"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-string"
+
+[rows.E6."hook:FLOAT.ceil:LblceilFloat'LParUndsRParUnds'FLOAT'Unds'Float'Unds'Float"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "FLOAT.ceil"
+
+[rows.E6."hook:STRING.chr:LblchrChar'LParUndsRParUnds'STRING-COMMON'Unds'String'Unds'Int"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "STRING.chr"
+
+[rows.E6."hook:FLOAT.cos:LblcosFloat'LParUndsRParUnds'FLOAT'Unds'Float'Unds'Float"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-float"
+
+[rows.E6."hook:STRING.countAllOccurrences:LblcountAllOccurrences'LParUndsCommUndsRParUnds'STRING-COMMON'Unds'Int'Unds'String'Unds'String"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "STRING.countAllOccurrences"
+
+[rows.E6."hook:BYTES.decodeBytes:LbldecodeBytes'LParUndsCommUndsRParUnds'BYTES-STRING-ENCODE'Unds'String'Unds'String'Unds'Bytes"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-bytes"
+
+[rows.E6."hook:STRING.directionality:LbldirectionalityChar'LParUndsRParUnds'STRING-COMMON'Unds'String'Unds'String"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-string"
+
+[rows.E6."hook:BYTES.encodeBytes:LblencodeBytes'LParUndsCommUndsRParUnds'BYTES-STRING-ENCODE'Unds'Bytes'Unds'String'Unds'String"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-bytes"
+
+[rows.E6."symbol:ARRAY-IN-K:LblensureOffsetList'LParUndsCommUndsCommUndsRParUnds'ARRAY-IN-K'Unds'List'Unds'List'Unds'Int'Unds'KItem"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e6-mod-array"
+
+[rows.E6."hook:FLOAT.exp:LblexpFloat'LParUndsRParUnds'FLOAT'Unds'Float'Unds'Float"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-float"
+
+[rows.E6."hook:FLOAT.exponentBits:LblexponentBitsFloat'LParUndsRParUnds'FLOAT'Unds'Int'Unds'Float"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "FLOAT.exponentBits"
+
+[rows.E6."hook:FLOAT.exponent:LblexponentFloat'LParUndsRParUnds'FLOAT'Unds'Int'Unds'Float"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-float"
+
+[rows.E6."symbol:ARRAY-SYNTAX:LblfillArray'LParUndsCommUndsCommUndsCommUndsRParUnds'ARRAY-SYNTAX'Unds'Array'Unds'Array'Unds'Int'Unds'Int'Unds'KItem"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e6-mod-array"
+
+[rows.E6."hook:LIST.fill:LblfillList'LParUndsCommUndsCommUndsCommUndsRParUnds'LIST'Unds'List'Unds'List'Unds'Int'Unds'Int'Unds'KItem"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "LIST.fill"
+
+[rows.E6."hook:STRING.findChar:LblfindChar'LParUndsCommUndsCommUndsRParUnds'STRING-COMMON'Unds'Int'Unds'String'Unds'String'Unds'Int"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "STRING.findChar"
+
+[rows.E6."hook:STRING.find:LblfindString'LParUndsCommUndsCommUndsRParUnds'STRING-COMMON'Unds'Int'Unds'String'Unds'String'Unds'Int"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "STRING.find"
+
+[rows.E6."hook:FLOAT.floor:LblfloorFloat'LParUndsRParUnds'FLOAT'Unds'Float'Unds'Float"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "FLOAT.floor"
+
+[rows.E6."symbol:ID-COMMON:LblfreshId'LParUndsRParUnds'ID-COMMON'Unds'Id'Unds'Int"]
+verdict = "refused"
+by = "fixture"
+bool = "litsOK"
+refused_on = "e6-mod-id"
+
+[rows.E6."symbol:INT:LblfreshInt'LParUndsRParUnds'INT'Unds'Int'Unds'Int"]
+verdict = "covered"
+by = "kimp"
+case = "f2-examples/ref-kimp.kore"
+
+[rows.E6."symbol:KVAR-COMMON:LblfreshKVar'LParUndsRParUnds'KVAR-COMMON'Unds'KVar'Unds'Int"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-kvar"
+
+[rows.E6."symbol:RAT:LblgcdInt'LParUndsCommUndsRParUnds'RAT'Unds'Int'Unds'Int'Unds'Int"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."hook:KREFLECTION.getKLabel:Lblgetsymbol'LParUndsRParUnds'K-REFLECTION'Unds'KItem'Unds'K"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-kreflection"
+
+[rows.E6."hook:SET.intersection:LblintersectSet'LParUndsCommUndsRParUnds'SET'Unds'Set'Unds'Set'Unds'Set"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "SET.intersection"
+
+[rows.E6."symbol:FLOAT:LblisInfinite'LParUndsRParUnds'FLOAT'Unds'Bool'Unds'Float"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-float"
+
+[rows.E6."hook:FLOAT.isNaN:LblisNaN'LParUndsRParUnds'FLOAT'Unds'Bool'Unds'Float"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "FLOAT.isNaN"
+
+[rows.E6."hook:KEQUAL.ite:Lblite"]
+verdict = "refused"
+by = "hook table"
+bool = "paramsOK"
+refused_on = "KEQUAL.ite"
+
+[rows.E6."hook:KEQUAL.ite:Lblite#cases[0]"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "rdr-ite-two"
+
+[rows.E6."hook:KEQUAL.ite:Lblite#cases[1]"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "rdr-ite-own"
+
+[rows.E6."hook:KEQUAL.ite:Lblite#cases[2]"]
+verdict = "covered"
+by = "fixture"
+case = "rdr-ite-own-eq"
+
+[rows.E6."hook:KEQUAL.ite:Lblite#cases[3]"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "rdr-ite-own-hook"
+
+[rows.E6."hook:KEQUAL.ite:Lblite#cases[4]"]
+verdict = "covered"
+by = "fixture"
+case = "rdr-ite-two-eq"
+
+[rows.E6."hook:MAP.keys:Lblkeys'LParUndsRParUnds'MAP'Unds'Set'Unds'Map"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "MAP.keys"
+
+[rows.E6."hook:RANGEMAP.keys:Lblkeys'LParUndsRParUnds'RANGEMAP'Unds'Set'Unds'RangeMap"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "RANGEMAP.keys"
+
+[rows.E6."hook:MAP.keys_list:Lblkeys'Unds'list'LParUndsRParUnds'MAP'Unds'List'Unds'Map"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-map"
+
+[rows.E6."hook:RANGEMAP.keys_list:Lblkeys'Unds'list'LParUndsRParUnds'RANGEMAP'Unds'List'Unds'RangeMap"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rangemap"
+
+[rows.E6."hook:BYTES.length:LbllengthBytes'LParUndsRParUnds'BYTES-HOOKED'Unds'Int'Unds'Bytes"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "BYTES.length"
+
+[rows.E6."hook:STRING.length:LbllengthString'LParUndsRParUnds'STRING-COMMON'Unds'Int'Unds'String"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "STRING.length"
+
+[rows.E6."symbol:BYTES-HOOKED:LbllittleEndianBytes"]
+verdict = "covered"
+by = "fixture"
+case = "e6-mod-bytes-kore"
+
+[rows.E6."hook:INT.log2:Lbllog2Int'LParUndsRParUnds'INT-COMMON'Unds'Int'Unds'Int"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "INT.log2"
+
+[rows.E6."hook:FLOAT.log:LbllogFloat'LParUndsRParUnds'FLOAT'Unds'Float'Unds'Float"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-float"
+
+[rows.E6."symbol:ARRAY-IN-K:LblmakeArray'LParUndsCommUndsRParUnds'ARRAY-IN-K'Unds'Array'Unds'Int'Unds'KItem"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e6-mod-array"
+
+[rows.E6."hook:LIST.make:LblmakeList'LParUndsCommUndsRParUnds'LIST'Unds'List'Unds'Int'Unds'KItem"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "LIST.make"
+
+[rows.E6."symbol:RAT:LblmakeRat'LParUndsCommUndsRParUnds'RAT'Unds'Rat'Unds'Int'Unds'Int"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."symbol:RAT:LblmakeRat'LParUndsCommUndsCommUndsRParUnds'RAT'Unds'Rat'Unds'Int'Unds'Int'Unds'Int"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."hook:FLOAT.max:LblmaxFloat'LParUndsCommUndsRParUnds'FLOAT'Unds'Float'Unds'Float'Unds'Float"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-float"
+
+[rows.E6."hook:INT.max:LblmaxInt'LParUndsCommUndsRParUnds'INT-COMMON'Unds'Int'Unds'Int'Unds'Int"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "INT.max"
+
+[rows.E6."symbol:RAT-SYNTAX:LblmaxRat"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."hook:FLOAT.maxValue:LblmaxValueFloat'LParUndsCommUndsRParUnds'FLOAT'Unds'Float'Unds'Int'Unds'Int"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "FLOAT.maxValue"
+
+[rows.E6."hook:BYTES.memset:LblmemsetBytes'LParUndsCommUndsCommUndsCommUndsRParUnds'BYTES-HOOKED'Unds'Bytes'Unds'Bytes'Unds'Int'Unds'Int'Unds'Int"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "BYTES.memset"
+
+[rows.E6."hook:FLOAT.min:LblminFloat'LParUndsCommUndsRParUnds'FLOAT'Unds'Float'Unds'Float'Unds'Float"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-float"
+
+[rows.E6."hook:INT.min:LblminInt'LParUndsCommUndsRParUnds'INT-COMMON'Unds'Int'Unds'Int'Unds'Int"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "INT.min"
+
+[rows.E6."symbol:RAT-SYNTAX:LblminRat"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."hook:FLOAT.minValue:LblminValueFloat'LParUndsCommUndsRParUnds'FLOAT'Unds'Float'Unds'Int'Unds'Int"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "FLOAT.minValue"
+
+[rows.E6."hook:STRING.uuid:LblnewUUID'Unds'STRING-COMMON'Unds'String"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-string"
+
+[rows.E6."hook:BOOL.not:LblnotBool'Unds'"]
+verdict = "covered"
+by = "hook table"
+case = "BOOL.not: KK.hookCodes 22"
+
+[rows.E6."hook:STRING.ord:LblordChar'LParUndsRParUnds'STRING-COMMON'Unds'Int'Unds'String"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "STRING.ord"
+
+[rows.E6."hook:BYTES.padLeft:LblpadLeftBytes'LParUndsCommUndsCommUndsRParUnds'BYTES-HOOKED'Unds'Bytes'Unds'Bytes'Unds'Int'Unds'Int"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "BYTES.padLeft"
+
+[rows.E6."hook:BYTES.padRight:LblpadRightBytes'LParUndsCommUndsCommUndsRParUnds'BYTES-HOOKED'Unds'Bytes'Unds'Bytes'Unds'Int'Unds'Int"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "BYTES.padRight"
+
+[rows.E6."symbol:RAT:LblpowRat'LParUndsCommUndsRParUnds'RAT'Unds'Rat'Unds'Rat'Unds'Int"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."hook:FLOAT.precision:LblprecisionFloat'LParUndsRParUnds'FLOAT'Unds'Int'Unds'Float"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "FLOAT.precision"
+
+[rows.E6."hook:LIST.push:LblpushList"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "LIST.push"
+
+[rows.E6."hook:INT.rand:LblrandInt'LParUndsRParUnds'INT-COMMON'Unds'Int'Unds'Int"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-int"
+
+[rows.E6."hook:MAP.removeAll:LblremoveAll'LParUndsCommUndsRParUnds'MAP'Unds'Map'Unds'Map'Unds'Set"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "MAP.removeAll"
+
+[rows.E6."hook:RANGEMAP.removeAll:LblremoveAll'LParUndsCommUndsRParUnds'RANGEMAP'Unds'RangeMap'Unds'RangeMap'Unds'Set"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "RANGEMAP.removeAll"
+
+[rows.E6."hook:STRING.replace:Lblreplace'LParUndsCommUndsCommUndsCommUndsRParUnds'STRING-COMMON'Unds'String'Unds'String'Unds'String'Unds'String'Unds'Int"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "STRING.replace"
+
+[rows.E6."hook:STRING.replaceAll:LblreplaceAll'LParUndsCommUndsCommUndsRParUnds'STRING-COMMON'Unds'String'Unds'String'Unds'String'Unds'String"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "STRING.replaceAll"
+
+[rows.E6."hook:BYTES.replaceAt:LblreplaceAtBytes'LParUndsCommUndsCommUndsRParUnds'BYTES-HOOKED'Unds'Bytes'Unds'Bytes'Unds'Int'Unds'Bytes"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "BYTES.replaceAt"
+
+[rows.E6."hook:STRING.replaceFirst:LblreplaceFirst'LParUndsCommUndsCommUndsRParUnds'STRING-COMMON'Unds'String'Unds'String'Unds'String'Unds'String"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "STRING.replaceFirst"
+
+[rows.E6."hook:BYTES.reverse:LblreverseBytes'LParUndsRParUnds'BYTES-HOOKED'Unds'Bytes'Unds'Bytes"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "BYTES.reverse"
+
+[rows.E6."hook:STRING.rfindChar:LblrfindChar'LParUndsCommUndsCommUndsRParUnds'STRING-COMMON'Unds'Int'Unds'String'Unds'String'Unds'Int"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "STRING.rfindChar"
+
+[rows.E6."hook:STRING.rfind:LblrfindString'LParUndsCommUndsCommUndsRParUnds'STRING-COMMON'Unds'Int'Unds'String'Unds'String'Unds'Int"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "STRING.rfind"
+
+[rows.E6."hook:FLOAT.root:LblrootFloat'LParUndsCommUndsRParUnds'FLOAT'Unds'Float'Unds'Float'Unds'Int"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-float"
+
+[rows.E6."hook:FLOAT.round:LblroundFloat'LParUndsCommUndsCommUndsRParUnds'FLOAT'Unds'Float'Unds'Float'Unds'Int'Unds'Int"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "FLOAT.round"
+
+[rows.E6."hook:INT.signExtendBitRange:LblsignExtendBitRangeInt'LParUndsCommUndsCommUndsRParUnds'INT-COMMON'Unds'Int'Unds'Int'Unds'Int'Unds'Int"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "INT.signExtendBitRange"
+
+[rows.E6."hook:FLOAT.sign:LblsignFloat'LParUndsRParUnds'FLOAT'Unds'Bool'Unds'Float"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-float"
+
+[rows.E6."symbol:BYTES-HOOKED:LblsignedBytes"]
+verdict = "covered"
+by = "fixture"
+case = "e6-mod-bytes-kore"
+
+[rows.E6."hook:FLOAT.sin:LblsinFloat'LParUndsRParUnds'FLOAT'Unds'Float'Unds'Float"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-float"
+
+[rows.E6."hook:SET.size:Lblsize'LParUndsRParUnds'SET'Unds'Int'Unds'Set"]
+verdict = "covered"
+by = "hook table"
+case = "SET.size: KK.hookCodes 51"
+
+[rows.E6."hook:LIST.size:LblsizeList"]
+verdict = "covered"
+by = "hook table"
+case = "LIST.size: KK.hookCodes 60"
+
+[rows.E6."hook:MAP.size:LblsizeMap"]
+verdict = "covered"
+by = "hook table"
+case = "MAP.size: KK.hookCodes 45"
+
+[rows.E6."hook:RANGEMAP.size:LblsizeRangeMap"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "RANGEMAP.size"
+
+[rows.E6."symbol:MINT:LblsmaxMInt'LParUndsRParUnds'MINT'Unds'Int'Unds'Int"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e6-mod-mint"
+
+[rows.E6."symbol:MINT:LblsminMInt'LParUndsRParUnds'MINT'Unds'Int'Unds'Int"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e6-mod-mint"
+
+[rows.E6."symbol:MINT:LblsoverflowMInt'LParUndsCommUndsRParUnds'MINT'Unds'Bool'Unds'Int'Unds'Int"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e6-mod-mint"
+
+[rows.E6."symbol:FLOAT:LblsqrtFloat'LParUndsRParUnds'FLOAT'Unds'Float'Unds'Float"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-float"
+
+[rows.E6."hook:INT.srand:LblsrandInt'LParUndsRParUnds'INT-COMMON'Unds'K'Unds'Int"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-int"
+
+[rows.E6."hook:BYTES.substr:LblsubstrBytes'LParUndsCommUndsCommUndsRParUnds'BYTES-HOOKED'Unds'Bytes'Unds'Bytes'Unds'Int'Unds'Int"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "BYTES.substr"
+
+[rows.E6."hook:STRING.substr:LblsubstrString'LParUndsCommUndsCommUndsRParUnds'STRING-COMMON'Unds'String'Unds'String'Unds'Int'Unds'Int"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "STRING.substr"
+
+[rows.E6."hook:FLOAT.tan:LbltanFloat'LParUndsRParUnds'FLOAT'Unds'Float'Unds'Float"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-float"
+
+[rows.E6."hook:TIMER.timerStart:LbltimerStart'LParRParUnds'TIMER'Unds'K"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-timer"
+
+[rows.E6."hook:TIMER.timerStop:LbltimerStop'LParRParUnds'TIMER'Unds'K"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-timer"
+
+[rows.E6."hook:FLOAT.trunc:LbltruncFloat'LParUndsRParUnds'FLOAT'Unds'Float'Unds'Float"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "FLOAT.trunc"
+
+[rows.E6."symbol:MINT:LblumaxMInt'LParUndsRParUnds'MINT'Unds'Int'Unds'Int"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e6-mod-mint"
+
+[rows.E6."symbol:MINT:LbluminMInt'LParUndsRParUnds'MINT'Unds'Int'Unds'Int"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e6-mod-mint"
+
+[rows.E6."symbol:BYTES-HOOKED:LblunsignedBytes"]
+verdict = "covered"
+by = "fixture"
+case = "e6-mod-bytes-kore"
+
+[rows.E6."symbol:MINT:LbluoverflowMInt'LParUndsCommUndsRParUnds'MINT'Unds'Bool'Unds'Int'Unds'Int"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e6-mod-mint"
+
+[rows.E6."symbol:ARRAY-SYNTAX:LblupdateArray'LParUndsCommUndsCommUndsRParUnds'ARRAY-SYNTAX'Unds'Array'Unds'Array'Unds'Int'Unds'List"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e6-mod-array"
+
+[rows.E6."hook:LIST.updateAll:LblupdateList'LParUndsCommUndsCommUndsRParUnds'LIST'Unds'List'Unds'List'Unds'Int'Unds'List"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "LIST.updateAll"
+
+[rows.E6."hook:MAP.updateAll:LblupdateMap'LParUndsCommUndsRParUnds'MAP'Unds'Map'Unds'Map'Unds'Map"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-map"
+
+[rows.E6."hook:RANGEMAP.updateAll:LblupdateRangeMap'LParUndsCommUndsRParUnds'RANGEMAP'Unds'RangeMap'Unds'RangeMap'Unds'RangeMap"]
+verdict = "refused"
+by = "hook table"
+bool = "appsOK"
+refused_on = "RANGEMAP.updateAll"
+
+[rows.E6."hook:MAP.values:Lblvalues'LParUndsRParUnds'MAP'Unds'List'Unds'Map"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-map"
+
+[rows.E6."hook:RANGEMAP.values:Lblvalues'LParUndsRParUnds'RANGEMAP'Unds'List'Unds'RangeMap"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rangemap"
+
+[rows.E6."hook:INT.not:Lbl'Tild'Int'Unds'"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-int"
+
+[rows.E6."lemma:K-EQUAL-KORE:2339:8#cases[0]"]
+verdict = "refused"
+by = "fixture"
+bool = "shapesOK"
+refused_on = "rdr-keq-only"
+
+[rows.E6."axiom:FFI:118:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-ffi"
+
+[rows.E6."axiom:FFI:119:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-ffi"
+
+[rows.E6."axiom:K-IO:2526:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."axiom:K-IO:2623:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."axiom:K-IO:2621:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."axiom:K-IO:2622:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-configuration"
+
+[rows.E6."axiom:STRING-BUFFER-IN-K:1964:8"]
+verdict = "refused"
+by = "fixture"
+bool = "litsOK"
+refused_on = "e6-mod-string-buffer"
+
+[rows.E6."axiom:STRING-COMMON:1788:8"]
+verdict = "refused"
+by = "fixture"
+bool = "litsOK"
+refused_on = "e6-mod-string"
+
+[rows.E6."axiom:STRING-COMMON:1787:8"]
+verdict = "refused"
+by = "fixture"
+bool = "litsOK"
+refused_on = "e6-mod-string"
+
+[rows.E6."axiom:BYTES:2254:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-int2bytes-nolen"
+
+[rows.E6."axiom:BYTES:2256:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-int2bytes-nolen"
+
+[rows.E6."axiom:BYTES:2258:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-int2bytes-nolen"
+
+[rows.E6."axiom:BYTES:2252:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-int2bytes-nolen"
+
+[rows.E6."axiom:BYTES:2250:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-int2bytes-nolen"
+
+[rows.E6."axiom:RAT:228:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."axiom:RAT:227:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."axiom:STRING-COMMON:1794:8"]
+verdict = "refused"
+by = "fixture"
+bool = "litsOK"
+refused_on = "e6-mod-string"
+
+[rows.E6."axiom:STRING-COMMON:1793:8"]
+verdict = "refused"
+by = "fixture"
+bool = "litsOK"
+refused_on = "e6-mod-string"
+
+[rows.E6."axiom:STRING-BUFFER-IN-K:1965:8"]
+verdict = "refused"
+by = "fixture"
+bool = "litsOK"
+refused_on = "e6-mod-string-buffer"
+
+[rows.E6."axiom:RAT:149:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."axiom:RAT:147:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."axiom:RAT:148:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."axiom:RAT:150:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."axiom:RAT:144:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."axiom:RAT:142:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."axiom:RAT:143:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."axiom:RAT:145:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."axiom:STRING-BUFFER-IN-K:1963:8"]
+verdict = "refused"
+by = "fixture"
+bool = "litsOK"
+refused_on = "e6-mod-string-buffer"
+
+[rows.E6."axiom:RAT:159:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."axiom:RAT:152:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."axiom:RAT:154:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."axiom:RAT:153:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."axiom:RAT:155:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."axiom:RAT:218:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."axiom:STRING-COMMON:1887:8"]
+verdict = "refused"
+by = "fixture"
+bool = "litsOK"
+refused_on = "e6-mod-string"
+
+[rows.E6."axiom:RAT:216:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."axiom:BOOL-COMMON:1170:8"]
+verdict = "covered"
+by = "kimp"
+case = "f2-examples/ref-kimp.kore"
+
+[rows.E6."axiom:FLOAT:1648:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-float"
+
+[rows.E6."axiom:INT:1453:8"]
+verdict = "covered"
+by = "kimp"
+case = "f2-examples/ref-kimp.kore"
+
+[rows.E6."axiom:K-EQUAL:2355:8"]
+verdict = "covered"
+by = "kimp"
+case = "f2-examples/ref-kimp.kore"
+
+[rows.E6."axiom:RAT-KORE:127:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."axiom:STRING-COMMON:1867:8"]
+verdict = "refused"
+by = "fixture"
+bool = "litsOK"
+refused_on = "e6-mod-string"
+
+[rows.E6."axiom:RAT-KORE:125:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."axiom:RAT:214:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."axiom:STRING-COMMON:1889:8"]
+verdict = "refused"
+by = "fixture"
+bool = "litsOK"
+refused_on = "e6-mod-string"
+
+[rows.E6."axiom:RAT:207:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."axiom:RAT:209:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."axiom:RAT:210:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."axiom:STRING-COMMON:1888:8"]
+verdict = "refused"
+by = "fixture"
+bool = "litsOK"
+refused_on = "e6-mod-string"
+
+[rows.E6."axiom:ARRAY-IN-K:177:8"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e6-mod-array"
+
+[rows.E6."axiom:ARRAY-IN-K:179:8"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e6-mod-array"
+
+[rows.E6."axiom:ARRAY-IN-K:170:8"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e6-mod-array"
+
+[rows.E6."axiom:ARRAY-IN-K:171:8"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e6-mod-array"
+
+[rows.E6."axiom:RAT:189:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."axiom:RAT:187:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."axiom:RAT:192:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."axiom:RAT:186:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."axiom:RAT:190:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."axiom:BOOL-COMMON:1143:8"]
+verdict = "covered"
+by = "kimp"
+case = "f2-examples/ref-kimp.kore"
+
+[rows.E6."axiom:BOOL-COMMON:1141:8"]
+verdict = "covered"
+by = "kimp"
+case = "f2-examples/ref-kimp.kore"
+
+[rows.E6."axiom:BOOL-COMMON:1148:8"]
+verdict = "covered"
+by = "kimp"
+case = "f2-examples/ref-kimp.kore"
+
+[rows.E6."axiom:BOOL-COMMON:1146:8"]
+verdict = "covered"
+by = "kimp"
+case = "f2-examples/ref-kimp.kore"
+
+[rows.E6."axiom:INT:1442:8"]
+verdict = "covered"
+by = "kimp"
+case = "f2-examples/ref-kimp.kore"
+
+[rows.E6."axiom:INT:1454:8"]
+verdict = "covered"
+by = "kimp"
+case = "f2-examples/ref-kimp.kore"
+
+[rows.E6."axiom:BOOL-COMMON:1166:8"]
+verdict = "covered"
+by = "kimp"
+case = "f2-examples/ref-kimp.kore"
+
+[rows.E6."axiom:BOOL-COMMON:1165:8"]
+verdict = "covered"
+by = "kimp"
+case = "f2-examples/ref-kimp.kore"
+
+[rows.E6."axiom:ARRAY-IN-K:185:8"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e6-mod-array"
+
+[rows.E6."axiom:BOOL-COMMON:1157:8"]
+verdict = "covered"
+by = "kimp"
+case = "f2-examples/ref-kimp.kore"
+
+[rows.E6."axiom:BOOL-COMMON:1155:8"]
+verdict = "covered"
+by = "kimp"
+case = "f2-examples/ref-kimp.kore"
+
+[rows.E6."axiom:BOOL-COMMON:1162:8"]
+verdict = "covered"
+by = "kimp"
+case = "f2-examples/ref-kimp.kore"
+
+[rows.E6."axiom:BOOL-COMMON:1160:8"]
+verdict = "covered"
+by = "kimp"
+case = "f2-examples/ref-kimp.kore"
+
+[rows.E6."axiom:BOOL-COMMON:1153:8"]
+verdict = "covered"
+by = "kimp"
+case = "f2-examples/ref-kimp.kore"
+
+[rows.E6."axiom:BOOL-COMMON:1151:8"]
+verdict = "covered"
+by = "kimp"
+case = "f2-examples/ref-kimp.kore"
+
+[rows.E6."axiom:SET:749:8"]
+verdict = "covered"
+by = "kimp"
+case = "f2-examples/ref-kimp.kore"
+
+[rows.E6."axiom:INT:1438:8"]
+verdict = "covered"
+by = "kimp"
+case = "f2-examples/ref-kimp.kore"
+
+[rows.E6."axiom:STRING-COMMON:1898:8"]
+verdict = "refused"
+by = "fixture"
+bool = "litsOK"
+refused_on = "e6-mod-string"
+
+[rows.E6."axiom:STRING-COMMON:1896:8"]
+verdict = "refused"
+by = "fixture"
+bool = "litsOK"
+refused_on = "e6-mod-string"
+
+[rows.E6."axiom:ARRAY-IN-K:174:8"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e6-mod-array"
+
+[rows.E6."axiom:ARRAY-IN-K:175:8"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e6-mod-array"
+
+[rows.E6."axiom:ARRAY-IN-K:183:8"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e6-mod-array"
+
+[rows.E6."axiom:STRING-COMMON:1891:8"]
+verdict = "refused"
+by = "fixture"
+bool = "litsOK"
+refused_on = "e6-mod-string"
+
+[rows.E6."axiom:STRING-COMMON:1892:8"]
+verdict = "refused"
+by = "fixture"
+bool = "litsOK"
+refused_on = "e6-mod-string"
+
+[rows.E6."axiom:ID-COMMON:2299:8"]
+verdict = "refused"
+by = "fixture"
+bool = "litsOK"
+refused_on = "e6-mod-id"
+
+[rows.E6."axiom:INT:1457:8"]
+verdict = "covered"
+by = "kimp"
+case = "f2-examples/ref-kimp.kore"
+
+[rows.E6."axiom:KVAR-COMMON:54:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-kvar"
+
+[rows.E6."axiom:RAT:178:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."axiom:RAT:179:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."axiom:RAT:180:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."axiom:FLOAT:1673:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-float"
+
+[rows.E6."axiom:K-EQUAL:2357:8"]
+verdict = "covered"
+by = "kimp"
+case = "f2-examples/ref-kimp.kore"
+
+[rows.E6."axiom:K-EQUAL:2358:8"]
+verdict = "covered"
+by = "kimp"
+case = "f2-examples/ref-kimp.kore"
+
+[rows.E6."axiom:ARRAY-IN-K:168:8"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e6-mod-array"
+
+[rows.E6."axiom:RAT:166:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."axiom:RAT:168:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."axiom:RAT:172:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."axiom:RAT:171:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."axiom:RAT:173:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."axiom:RAT:223:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."axiom:RAT:224:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."axiom:INT:1450:8"]
+verdict = "covered"
+by = "kimp"
+case = "f2-examples/ref-kimp.kore"
+
+[rows.E6."axiom:INT:1451:8"]
+verdict = "covered"
+by = "kimp"
+case = "f2-examples/ref-kimp.kore"
+
+[rows.E6."axiom:RAT:220:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."axiom:RAT:221:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."axiom:BOOL-COMMON:1139:8"]
+verdict = "covered"
+by = "kimp"
+case = "f2-examples/ref-kimp.kore"
+
+[rows.E6."axiom:BOOL-COMMON:1138:8"]
+verdict = "covered"
+by = "kimp"
+case = "f2-examples/ref-kimp.kore"
+
+[rows.E6."axiom:RAT:201:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."axiom:RAT:200:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."axiom:RAT:199:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-rat"
+
+[rows.E6."axiom:LIST:955:8"]
+verdict = "covered"
+by = "kimp"
+case = "f2-examples/ref-kimp.kore"
+
+[rows.E6."axiom:STRING-COMMON:1911:8"]
+verdict = "refused"
+by = "fixture"
+bool = "litsOK"
+refused_on = "e6-mod-string"
+
+[rows.E6."axiom:STRING-COMMON:1915:8"]
+verdict = "refused"
+by = "fixture"
+bool = "litsOK"
+refused_on = "e6-mod-string"
+
+[rows.E6."axiom:STRING-COMMON:1917:8"]
+verdict = "refused"
+by = "fixture"
+bool = "litsOK"
+refused_on = "e6-mod-string"
+
+[rows.E6."axiom:STRING-COMMON:1901:8"]
+verdict = "refused"
+by = "fixture"
+bool = "litsOK"
+refused_on = "e6-mod-string"
+
+[rows.E6."axiom:STRING-COMMON:1904:8"]
+verdict = "refused"
+by = "fixture"
+bool = "litsOK"
+refused_on = "e6-mod-string"
+
+[rows.E6."axiom:STRING-COMMON:1893:8"]
+verdict = "refused"
+by = "fixture"
+bool = "litsOK"
+refused_on = "e6-mod-string"
+
+[rows.E6."axiom:STRING-COMMON:1894:8"]
+verdict = "refused"
+by = "fixture"
+bool = "litsOK"
+refused_on = "e6-mod-string"
+
+[rows.E6."axiom:INT:1440:8"]
+verdict = "covered"
+by = "kimp"
+case = "f2-examples/ref-kimp.kore"
+
+[rows.E6."axiom:MINT:2949:8"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e6-mod-mint"
+
+[rows.E6."axiom:MINT:2948:8"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e6-mod-mint"
+
+[rows.E6."axiom:MINT:2964:5"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e6-mod-mint"
+
+[rows.E6."axiom:FLOAT:1671:8"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-float"
+
+[rows.E6."axiom:MINT:2951:8"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e6-mod-mint"
+
+[rows.E6."axiom:MINT:2950:8"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e6-mod-mint"
+
+[rows.E6."axiom:MINT:2968:5"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e6-mod-mint"
+
+[rows.E6."axiom:ARRAY-IN-K:181:8"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e6-mod-array"
+
+[rows.E6."token:SortKConfigVar"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-cells-stream"
+
+[rows.E6."token:SortInt"]
+verdict = "covered"
+by = "sort table"
+case = "Int: KK.encLit"
+
+[rows.E6."token:SortFloat"]
+verdict = "refused"
+by = "fixture"
+bool = "litsOK"
+refused_on = "e6-float-literals"
+
+[rows.E6."token:SortFloat#cases[0]"]
+verdict = "refused"
+by = "fixture"
+bool = "litsOK"
+refused_on = "e6-float-literals"
+
+[rows.E6."token:SortFloat#cases[1]"]
+verdict = "refused"
+by = "fixture"
+bool = "litsOK"
+refused_on = "e6-float-literals"
+
+[rows.E6."token:SortFloat#cases[2]"]
+verdict = "refused"
+by = "fixture"
+bool = "litsOK"
+refused_on = "e6-float-literals"
+
+[rows.E6."token:SortFloat#cases[3]"]
+verdict = "refused"
+by = "fixture"
+bool = "litsOK"
+refused_on = "e6-float-literals"
+
+[rows.E6."token:SortString"]
+verdict = "covered"
+by = "sort table"
+case = "String: KK.encLit"
+
+[rows.E6."token:SortId"]
+verdict = "refused"
+by = "fixture"
+bool = "litsOK"
+refused_on = "e3-kast"
+
+[rows.E6."token:SortBytes"]
+verdict = "covered"
+by = "sort table"
+case = "Bytes: KK.encLit"
+
+[rows.E6."token:SortBool"]
+verdict = "covered"
+by = "sort table"
+case = "Bool: KK.encLit"
+
+[rows.E6."token:SortKVar"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-kvar"
+
+[rows.E7."02:resolveIO"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-cells-stream"
+
+[rows.E7."03:resolveFun"]
+verdict = "covered"
+by = "fixture"
+case = "e3-k"
+
+[rows.E7."04:resolveFunctionWithConfig"]
+verdict = "covered"
+by = "fixture"
+case = "e3-withconfig"
+
+[rows.E7."05:resolveStrict"]
+verdict = "covered"
+by = "fixture"
+case = "e1-sentences"
+
+[rows.E7."06:resolveAnonVars"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e3-vars"
+
+[rows.E7."07:resolveContexts"]
+verdict = "covered"
+by = "fixture"
+case = "e1-sentences"
+
+[rows.E7."09:resolveHeatCoolAttribute"]
+verdict = "refused"
+by = "fixture"
+bool = "shapesOK"
+refused_on = "e2-rule"
+
+[rows.E7."09:resolveHeatCoolAttribute#cases[0]"]
+verdict = "refused"
+by = "fixture"
+bool = "shapesOK"
+refused_on = "e2-rule"
+
+[rows.E7."10:resolveSemanticCasts"]
+verdict = "covered"
+by = "fixture"
+case = "e3-casts"
+
+[rows.E7."11:subsortKItem1"]
+verdict = "covered"
+by = "fixture"
+case = "e1-module"
+
+[rows.E7."12:constantFolding"]
+verdict = "refused"
+by = "fixture"
+bool = "litsOK"
+refused_on = "e7-constfold"
+
+[rows.E7."14:guardOrs"]
+verdict = "covered"
+by = "fixture"
+case = "e7-guardors"
+
+[rows.E7."15:resolveFreshConfigConstants"]
+verdict = "covered"
+by = "fixture"
+case = "e7-freshconfig"
+
+[rows.E7."16:generateSortPredicateSyntax1"]
+verdict = "covered"
+by = "fixture"
+case = "e1-module"
+
+[rows.E7."17:generateSortProjections1"]
+verdict = "covered"
+by = "fixture"
+case = "e1-module"
+
+[rows.E7."17:generateSortProjections1#cases[0]"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "rdr-proj-norule"
+
+[rows.E7."17:generateSortProjections1#cases[1]"]
+verdict = "covered"
+by = "fixture"
+case = "e7-projuser"
+
+[rows.E7."18:expandMacros"]
+verdict = "covered"
+by = "fixture"
+case = "e2-macro"
+
+[rows.E7."19:addImplicitComputationCell"]
+verdict = "covered"
+by = "fixture"
+case = "e7-implicitk"
+
+[rows.E7."20:resolveFreshConstants"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e3-fresh"
+
+[rows.E7."21:generateSortPredicateSyntax2"]
+verdict = "covered"
+by = "fixture"
+case = "e1-module"
+
+[rows.E7."22:generateSortProjections2"]
+verdict = "covered"
+by = "fixture"
+case = "e1-module"
+
+[rows.E7."22:generateSortProjections2#cases[0]"]
+verdict = "covered"
+by = "fixture"
+case = "e7-projuser"
+
+[rows.E7."24:subsortKItem2"]
+verdict = "covered"
+by = "fixture"
+case = "e3-cells"
+
+[rows.E7."25:concretizeCells"]
+verdict = "covered"
+by = "fixture"
+case = "e3-cells"
+
+[rows.E7."28:resolveConfigVar"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e3-vars"
+
+[rows.E7."31:generateSortPredicateRules"]
+verdict = "covered"
+by = "fixture"
+case = "e1-module"
+
+[rows.E7."31:generateSortPredicateRules#cases[0]"]
+verdict = "covered"
+by = "fixture"
+case = "rdr-pred-rule"
+
+[rows.E7."emit1:AddSortInjections"]
+verdict = "covered"
+by = "fixture"
+case = "e1-module"
+
+[rows.E7."emit2:RemoveUnit"]
+verdict = "covered"
+by = "fixture"
+case = "e7-removeunit"
+
+[rows.E7."emit3:MinimizeTermConstruction"]
+verdict = "covered"
+by = "fixture"
+case = "e3-cells"
+
+[rows.E7."parse:DefinitionParsing:adding default configuration"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E7."parse:DefinitionParsing:adding MAP to modules with configs"]
+verdict = "covered"
+by = "fixture"
+case = "base"
+
+[rows.E7."parse:DefinitionParsing:replace configs"]
+verdict = "covered"
+by = "fixture"
+case = "e3-cells"
+
+[rows.E7."parse:DefinitionParsing:expand configs"]
+verdict = "covered"
+by = "fixture"
+case = "e3-cells"
+
+[rows.E7."parse:DefinitionParsing:parsing rules"]
+verdict = "covered"
+by = "fixture"
+case = "e3-kseq"
+
+[rows.E7."parse:Kompile:remove modules based on attributes"]
+verdict = "covered"
+by = "fixture"
+case = "e2-module-att"
+
+[rows.E8."--main-module"]
+verdict = "covered"
+by = "fixture"
+case = "e8-main-module"
+
+[rows.E8."--hook-namespaces"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e8-hook-namespaces"
+
+[rows.E8."--disable-ceil-simplification-rules"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e8-disable-ceil-simplification-rules"
+
+[rows.E8."--md-selector"]
+verdict = "covered"
+by = "fixture"
+case = "e8-md"
+
+[rows.C3."equation requires x equation ensures"]
+verdict = "covered"
+by = "fixture"
+case = "c3-eq-req-ens"
+
+[rows.C3."equation requires x equation priority"]
+verdict = "covered"
+by = "fixture"
+case = "c3-eq-req-prio"
+
+[rows.C3."equation requires x equation owise"]
+verdict = "covered"
+by = "fixture"
+case = "c3-eq-req-owise"
+
+[rows.C3."equation requires x equation total"]
+verdict = "covered"
+by = "fixture"
+case = "c3-eq-req-total"
+
+[rows.C3."equation ensures x equation priority"]
+verdict = "covered"
+by = "fixture"
+case = "c3-eq-ens-prio"
+
+[rows.C3."equation ensures x equation owise"]
+verdict = "covered"
+by = "fixture"
+case = "c3-eq-ens-owise"
+
+[rows.C3."equation ensures x equation owise#cases[0]"]
+verdict = "covered"
+by = "fixture"
+case = "c3-eq-owise-ens-own"
+
+[rows.C3."equation ensures x equation total"]
+verdict = "covered"
+by = "fixture"
+case = "c3-eq-ens-total"
+
+[rows.C3."equation priority x equation owise"]
+verdict = "covered"
+by = "fixture"
+case = "c3-eq-prio-owise"
+
+[rows.C3."equation priority x equation owise#cases[2]"]
+verdict = "covered"
+by = "fixture"
+case = "c3-eq-owise-prio200"
+
+[rows.C3."equation priority x equation owise#cases[4]"]
+verdict = "covered"
+by = "fixture"
+case = "c3-eq-prio200-owise-pair"
+
+[rows.C3."equation priority x equation total"]
+verdict = "covered"
+by = "fixture"
+case = "c3-eq-prio-total"
+
+[rows.C3."equation owise x equation total"]
+verdict = "covered"
+by = "fixture"
+case = "c3-eq-owise-total"
+
+[rows.C3."rule requires x rule ensures"]
+verdict = "covered"
+by = "fixture"
+case = "c3-rule-req-ens"
+
+[rows.C3."rule requires x rule priority"]
+verdict = "covered"
+by = "fixture"
+case = "c3-rule-req-prio"
+
+[rows.C3."rule requires x rule owise"]
+verdict = "covered"
+by = "fixture"
+case = "c3-rule-req-owise"
+
+[rows.C3."rule ensures x rule priority"]
+verdict = "covered"
+by = "fixture"
+case = "c3-rule-ens-prio"
+
+[rows.C3."rule ensures x rule owise"]
+verdict = "covered"
+by = "fixture"
+case = "c3-rule-ens-owise"
+
+[rows.C3."rule priority x rule owise"]
+verdict = "covered"
+by = "fixture"
+case = "c3-rule-prio-owise"
+
+[rows.C3."rule priority x rule owise#cases[2]"]
+verdict = "covered"
+by = "fixture"
+case = "c3-rule-owise-prio200"
+
+[rows.C3."hook x equation"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "c3-hook-eq"
+
+[rows.C3."hook x equation#cases[0]"]
+verdict = "covered"
+by = "fixture"
+case = "c3-hook-eq-lib"
+
+[rows.C3."hook x equation#cases[1]"]
+verdict = "covered"
+by = "fixture"
+case = "c3-hook-eq-param"
+
+[rows.C3."anywhere rule x constructor"]
+verdict = "refused"
+by = "fixture"
+bool = "ovlsOK"
+refused_on = "c3-anywhere-ctor"
+
+[rows.C3."equation priority x equation non-executable"]
+verdict = "refused"
+by = "fixture"
+bool = "shapesOK"
+refused_on = "c3-eq-nonexec-prio-below"
+
+[rows.C3."equation priority x equation non-executable#cases[0]"]
+verdict = "refused"
+by = "fixture"
+bool = "shapesOK"
+refused_on = "c3-eq-prio-nonexec"
+
+[rows.C3."unboundVariables x right-side variable"]
+verdict = "refused"
+by = "fixture"
+bool = "shapesOK"
+refused_on = "e2-unbound"
+
+[rows.C3."unboundVariables x right-side variable#cases[0]"]
+verdict = "refused"
+by = "fixture"
+bool = "shapesOK"
+refused_on = "e2-clause-rhs-int"
+
+[rows.C3."unboundVariables x right-side variable#cases[1]"]
+verdict = "refused"
+by = "fixture"
+bool = "shapesOK"
+refused_on = "e2-clause-rhs-empty"
+
+[rows.C3."unboundVariables x right-side variable#cases[2]"]
+verdict = "refused"
+by = "fixture"
+bool = "shapesOK"
+refused_on = "e2-clause-rhs-empty-peer"
+
+[rows.C3."unboundVariables x right-side variable#cases[3]"]
+verdict = "refused"
+by = "fixture"
+bool = "shapesOK"
+refused_on = "e2-clause-rhs-empty-owise"
+
+[rows.C3."unboundVariables x requires variable#cases[1]"]
+verdict = "refused"
+by = "fixture"
+bool = "shapesOK"
+refused_on = "e2-clause-genless-wit"
+
+[rows.C3."comm x constructor production"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "c3-ctor-comm"
+
+[rows.C3."assoc x constructor production"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "c3-ctor-assoc"
+
+[rows.C3."idem x constructor production"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "c3-ctor-idem"
+
+[rows.C3."idem x constructor production#cases[0]"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-band-ctor"
+
+[rows.C3."assoc x function"]
+verdict = "covered"
+by = "fixture"
+case = "e2-fn-assoc"
+
+[rows.C3."idem x function"]
+verdict = "refused"
+by = "fixture"
+bool = "appsOK"
+refused_on = "e2-fn-idem"
+
+[rows.C3."unit x function"]
+verdict = "covered"
+by = "fixture"
+case = "e2-fn-assoc-unit"
+
+[rows.C3."strict x result"]
+verdict = "covered"
+by = "fixture"
+case = "c3-strict-result"
+
+[rows.C3."seqstrict x argument order"]
+verdict = "covered"
+by = "fixture"
+case = "c3-seqstrict-order"
+
+[rows.C3."strict x hybrid"]
+verdict = "covered"
+by = "fixture"
+case = "c3-strict-hybrid"
+
+[rows.C3."strict x context alias#cases[0]"]
+verdict = "covered"
+by = "fixture"
+case = "c3-strict-alias-ctx"
+
+[rows.C3."macro x rule of the macro symbol"]
+verdict = "covered"
+by = "fixture"
+case = "c3-macro-rule"
+
+[rows.C3."multiplicity=* x type"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "c3-cells-star"
+
+[rows.C3."multiplicity=* x type#cases[2]"]
+verdict = "covered"
+by = "fixture"
+case = "c3-cells-type-nostar"
+
+[rows.C3."equation owise x equation owise"]
+verdict = "covered"
+by = "fixture"
+case = "c3-eq-owise-owise"
+
+[rows.C3."equation owise x equation owise#cases[0]"]
+verdict = "covered"
+by = "fixture"
+case = "c3-eq-owise-owise-diff"
