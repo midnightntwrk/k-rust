@@ -62,19 +62,7 @@ instance : OvlOK c := .of_nil rfl (by decide +kernel)
 theorem okAll : c.okAll = true := by decide +kernel
 theorem srReady : c.srReady = true := by decide +kernel
 theorem idsOK : c.idsOK = true := by decide +kernel
-theorem names_plain : c.ctorSigs.all (fun k => (iteSort? (c.symName k.name)).isNone) = true := by decide +kernel
-theorem names_fns : c.allFns.all (fun fn => (iteSort? (c.symName fn.label)).isNone &&
-    (fn.result :: fn.args).all (· < nRegSorts + c.sortNames.length)) = true := by decide +kernel
-
-theorem namesNumbered : NamesNumbered c := by
-  refine ⟨fun k hk => ?_, fun o ho g hg => ?_, fun fn hfn s hs => ?_⟩
-  · exact Option.isNone_iff_eq_none.mp (List.all_eq_true.mp names_plain k hk)
-  · have h : c.ovls.all (fun o => o.over.all fun g => (iteSort? (c.symName g)).isNone) = true := by
-      decide +kernel
-    exact Option.isNone_iff_eq_none.mp (List.all_eq_true.mp (List.all_eq_true.mp h o ho) g hg)
-  · have := List.all_eq_true.mp names_fns fn hfn
-    simp only [Bool.and_eq_true] at this
-    exact of_decide_eq_true (List.all_eq_true.mp this.2 s hs)
+theorem namesNumbered : NamesNumbered c := namesNumbered_spec (by decide +kernel)
 
 theorem lookup_f : c.lookupFn fl = some fn := rfl
 
@@ -141,7 +129,7 @@ theorem vf_sort : c.sortOf vf = some Srt.kitem := by decide +kernel
 theorem vk_sort : c.sortOf vk = some Srt.kitem := by decide +kernel
 theorem genWf_ok : genWf c = true := by decide +kernel
 theorem kitem_apart : apartSort c Srt.kitem = true := by decide +kernel
-theorem f_plain : iteSort? (c.symName fl) = none := by decide +kernel
+theorem f_plain : instDecode? (c.symName fl) = none := by decide +kernel
 
 /-- **`Γ c` has no model**, though `c` satisfies `Hyp`. -/
 theorem no_model : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), ¬ (I ⊧ᴵP Γ c) := by
@@ -161,7 +149,7 @@ theorem no_model : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.
   -- `f()` as the library's constructor's value
   have hfd : ∀ e m, (KoreAML.den (symApp c fl (GroundTerm.koreList c []))).interpret I e m ↔
       (den c vf).interpret I e m := fun e m => by
-    unfold symApp; rw [f_plain]; rfl
+    rw [symApp_noInst f_plain] <;> rfl
   have he : elemOf c I vf = elemOf c I vk := by
     have h1 := (elemOf_spec hI vf_sort KoreAML.val0).1
     have h2 := (elemOf_spec hI vk_sort KoreAML.val0).1

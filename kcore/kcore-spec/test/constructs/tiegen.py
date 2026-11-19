@@ -6,7 +6,7 @@ Usage (from anywhere; the library and `kcore` built first):
                                                [--hand consistency=FILE] [--at-values N,...] [--cons-head] [--wf-parts]
                                                [--split] [--account-sorted] [--heads-literal] [--heads-codes]
                                                [--attrs-parts] [--attrs-blocks N] [--decl-parts] [--fn-blocks N]
-                                               [--absent-file] [--decl-syms-literal] [--nojunk-eq]
+                                               [--absent-file] [--builtin-decls] [--decl-syms-literal] [--nojunk-eq]
                                                [--nojunk-blocks N] [--out DIR] [--print]
   (the probe, a run of the Lean definitions on the text, is stopped after $TIEGEN_PROBE_TIMEOUT seconds, 900 by default)
   python3 -I test/constructs/tiegen.py --self-test   (the law search below, on three fixtures)
@@ -80,6 +80,12 @@ of N (`tieEq_range`, `njTrOr_pat`): the text names the variable of each injectio
 whatever its sort, where `noJunkDisjuncts` numbers a name it has given at another sort, so the
 disjuncts agree only up to their translation. Both flags state the text's alias names once
 (`aliasLit`, `aliasLit_eq`).
+--builtin-decls also states, after `decls_entailed`, that Γ entails the G-arity item of each symbol
+declaration of the text with a K builtin file's `Source`, without a `hook` attribute and without sort
+parameters, of a symbol Γ has (`builtinDeclNames`, a literal list of names; `builtinDeclNames_has`;
+`builtin_decls_entailed`, in the form `∀ sd ∈ kore.symbolDecls, sd.params = [] → sd.name ∈
+builtinDeclNames → Γ (cH H) ⊧ (arityItem sd).pat` that test/constructs/e6map.py reads as tying those
+declarations' rows); refused where the text has no such declaration.
 --hand consistency=FILE puts FILE in place of the consistency section, for a text that owes an
 agreement, a clause's match independence, or a rule's or clause's condition (`owed_rules`,
 `owed_clauses`): FILE proves the owed facts and states `consistent` for every H, with `facts` for an
@@ -702,6 +708,7 @@ def tgNjOrder (gs : List KoreAML.Gen) : List Kore.Pattern → Option (List Nat)
   let si := sigItems c
   let declItems := plainSorts.map sortConstantItem ++ plainSyms.map arityItem
   IO.println s!"H readsConfined {c.readsConfined}"
+  IO.println s!"H plainSymNames {plainSyms.map (·.name)}"
   IO.println s!"H wf {wf d}"
   IO.println s!"H coreOK {c.coreOK}"
   IO.println s!"H attrsAgree {attrsAgree k d}"
@@ -851,7 +858,7 @@ def tgNjOrder (gs : List KoreAML.Gen) : List Kore.Pattern → Option (List Nat)
     -- at values (`tieOvlNcB`), which Γ refutes; neither where the semantics has no overloading symbol
     let ovlEq := !c.ovls.isEmpty && tieOvlEqB c ad.ax
     let ovlNc := !c.ovls.isEmpty && !cons && tieOvlNcB c ad.ax
-    IO.println s!"S {ad.index}\t{absent}\t{fnJ}\t{cons}\t{plain}\t{consItem}\t{triv}\t{kitem}\t{rw}\t{eh}\t{kind eh}\t{fh}\t{kind fh}\t{AttrsAgree.prioOf ad.ax.attributes}\t{pl}\t{simp}\t{usrc}\t{rl}\t{ovlEq}\t{ovlNc}"
+    IO.println s!"S {ad.index}\t{absent}\t{fnJ}\t{cons}\t{plain}\t{consItem}\t{triv}\t{kitem}\t{rw}\t{eh}\t{kind eh}\t{fh}\t{kind fh}\t{AttrsAgree.prioOf ad.ax.attributes}\t{pl}\t{simp}\t{usrc}\t{rl}\t{ovlEq}\t{ovlNc}\t{Parse.isOwnLibrarySentence (.axiom ad.ax)}"
     if kitem then
       for vk in tableOf [] ad.ax.pattern do
         IO.println s!"TT {ad.index}\t{tgKey vk}"
@@ -965,12 +972,35 @@ def probe(name, path, um, order="[]", cons_head=False):
                                     kitem=f[7] == "true", rw=f[8] == "true", eh=f[9], ehk=f[10], fh=f[11],
                                     fhk=f[12], prio=int(f[13]), pl=f[14] == "true",
                                     simp=f[15] == "true", usrc=f[16] == "true", rl=f[17] == "true",
-                                    ovlEq=f[18] == "true", ovlNc=f[19] == "true")
+                                    ovlEq=f[18] == "true", ovlNc=f[19] == "true", own=f[20:21] == ["true"])
     return head, sents
 
 
 # ---------------------------------------------------------------------------------------------
 # Classes
+
+def builtin_symbol_decls(text):
+    """The names of the text's symbol declarations (`symbol`, not `hooked-symbol`) with a K builtin
+    file's `Source`, without a `hook` attribute and without sort parameters, in text order."""
+    out, cur = [], None
+    for l in text.split("\n") + ["endmodule"]:
+        if l.lstrip().startswith("//"):
+            continue
+        if re.match(r"\s+(sort|hooked-sort|symbol|hooked-symbol|claim|alias|import|axiom)\b", l) or \
+                l.startswith("endmodule") or l.startswith("module "):
+            if cur:
+                out.append(cur)
+            cur = l.strip() if re.match(r"\s+symbol ", l) else None
+        elif cur:
+            cur += "\n" + l
+    names = []
+    for s in out:
+        m = re.match(r"symbol (\S+?)\{([^}]*)\}", s)
+        if (m and not m.group(2).strip() and "/include/kframework/builtin/" in s
+                and not re.search(r'(?<![-\w])hook\{\}\("', s)):
+            names.append(m.group(1))
+    return names
+
 
 def form_class(s, raw, builtin, laws=(), open_laws=(), raw_names=(), at_values=(), total_params=()):
     """The class a sentence's form and its probe give, or None. `laws`: the sentences that are, as
@@ -1031,7 +1061,10 @@ def form_class(s, raw, builtin, laws=(), open_laws=(), raw_names=(), at_values=(
     # do not apply (`narrowW`, from the probe) is a priority equation whatever its priority: one of
     # priority 50, written or not, beside a clause of a smaller priority is narrowed as well (a
     # sentence with an ens counterpart takes ens's class, `classify`)
-    if s["ehk"] == "fn" and not builtin:
+    # an equation of a function of Γ whose sentence the reader reads as the definition's own (a K
+    # builtin file's sentence about names no library text declares, `Parse.isOwnLibrarySentence`) is
+    # classed as a user's is: the reader reads it as the definition's own clause
+    if s["ehk"] == "fn" and (not builtin or s.get("own")):
         return "priority equation" if (s["prio"] != 50 and s["prio"] != 200) or s.get("narrowW") else "function equation"
     if "[idem{}()]" in raw:
         return "set idempotence"
@@ -1173,7 +1206,8 @@ def by_ranges(prefix, lst, pred, rs, lem="tieAllE", named=False):
 def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, failing, ob, chunks, raws=None,
              hand=None, chunk=0, at_values=(), cons_head=False, wf_parts=None, split=False,
              account_sorted=None, heads_literal=False, heads_codes=False, attrs_parts=False, decl_parts=False,
-             fn_blocks=0, attrs_blocks=0, absent_file=False, decl_syms=False, nojunk_eq=False, nojunk_blocks=0):
+             fn_blocks=0, attrs_blocks=0, absent_file=False, builtin_decls=(), decl_syms=False, nojunk_eq=False,
+             nojunk_blocks=0):
     """The Lean text of the tie. `ob`: what `obligations` read; `raws`: each sentence's text as
     written; `hand`: hand-written sections by name (`consistency`), each in place of the generated
     one; `chunk`: the length of the ranges the decisions over the whole user module are cut into
@@ -2250,6 +2284,23 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     w("  rw [← of_decide_eq_true he]")
     w("  exact sat_sigItem hI (by rw [sigItems_withHooks]; exact hit')")
     w("")
+    if builtin_decls:
+        w("/-- The symbol declarations of the text with a K builtin file's `Source`, without a `hook`")
+        w("attribute and without sort parameters, that Γ has, by name. -/")
+        w("def builtinDeclNames : List String :=")
+        w("  [" + ",\n   ".join('"' + n + '"' for n in builtin_decls) + "]")
+        w("")
+        w("/-- Each names a symbol of Γ. -/")
+        w("theorem builtinDeclNames_has : builtinDeclNames.all hasSym = true := by decide +kernel")
+        w("")
+        w("/-- **E for the symbol declarations named in `builtinDeclNames`**: Γ entails the G-arity item")
+        w("of each such declaration without sort parameters, for every H. -/")
+        w("theorem builtin_decls_entailed (H : HookParams) :")
+        w("    ∀ sd ∈ kore.symbolDecls, sd.params = [] → sd.name ∈ builtinDeclNames → Γ (cH H) ⊧ (arityItem sd).pat :=")
+        w("  fun sd hsd hp hn => decls_entailed H _ (List.mem_append_right _ (List.mem_map_of_mem")
+        w("    (List.mem_filter.mpr ⟨hsd, by")
+        w("      simp only [hp, List.isEmpty_nil, Bool.true_and]; exact List.all_eq_true.mp builtinDeclNames_has _ hn⟩)))")
+        w("")
     # ---- consistency
     mark("Consistency")
     tp = "[]"
@@ -2791,7 +2842,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         (["absent_proj_below_c", "absent_proj_below"] if abs_proj else []) + ["lists_in_account"] + \
         ["attrs_agree"] + (["decl_counts"] if decl_parts else []) + \
         ["sig_origin_but_next" if head["sigAll"] != "true" else "sig_origin", "decls_entailed",
-         "consistent"] + (["text_nextless"] if head["sigAll"] != "true" else [])
+         "consistent"] + (["text_nextless"] if head["sigAll"] != "true" else []) + \
+        (["builtin_decls_entailed"] if builtin_decls else [])
     if fn_full:
         names += [n[:1].lower() + n[1:] + "_eq" for n in pre_mods.values()]
         names += ["fn_shape", "fns_account", "fns_entailed", "fns_from_text", "fn_prios"]
@@ -4422,12 +4474,20 @@ def main(argv):
     absent_file = "--absent-file" in argv
     if absent_file and "--split" not in argv:
         raise Refused(f"{name}: --absent-file puts the absent section in a file of `--split`: it needs --split")
+    builtin_decls = ()
+    if "--builtin-decls" in argv:
+        has = set(re.findall(r"[^\s\[\],]+", head.get("plainSymNames", "")))
+        builtin_decls = [n for n in builtin_symbol_decls(text) if n in has]
+        if not builtin_decls:
+            raise Refused(f"{name}: --builtin-decls: the text declares no symbol of Γ with a K builtin file's "
+                          f"Source, without a hook and without sort parameters")
     ns, lean, summary = generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, failing,
                                  ob, chunks, {i: raw for i, _, _, raw in ua}, hand, chunk,
                                  at_values, cons_head, wf_parts, "--split" in argv, account_sorted,
                                  heads_literal, heads_codes, "--attrs-parts" in argv or attrs_blocks > 0, "--decl-parts" in argv,
-                                 fn_blocks, attrs_blocks, absent_file, "--decl-syms-literal" in argv,
-                                 "--nojunk-eq" in argv, opt("--nojunk-blocks", 0))
+                                 fn_blocks, attrs_blocks, absent_file, builtin_decls=builtin_decls,
+                                 decl_syms="--decl-syms-literal" in argv, nojunk_eq="--nojunk-eq" in argv,
+                                 nojunk_blocks=opt("--nojunk-blocks", 0))
     outdir = argv[argv.index("--out") + 1] if "--out" in argv else None
     if outdir is None and (not os.path.exists(final) or open(final).read() != text):
         open(final, "w").write(text)

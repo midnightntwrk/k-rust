@@ -402,6 +402,7 @@ import KcoreSpec.TieFRRead
 import KcoreSpec.TermRoundTrip
 import KcoreSpec.TieFRTermRT
 import KcoreSpec.GenEqsNodirFun
+import KcoreSpec.GenEqsNodirLacked
 import KcoreSpec.ParamSchema
 import KcoreSpec.InjApart
 import KcoreSpec.TieEX
@@ -421,3 +422,4 @@ import KcoreSpec.TieNoJunkBlk
 import KcoreSpec.WitnessedGivers
 import KcoreSpec.KKNative
 import KcoreSpec.LibEvSortPred
+import KcoreSpec.LibEvCeilFn
