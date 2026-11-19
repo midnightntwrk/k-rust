@@ -143,6 +143,7 @@ differs f2-examples/e5-ovl-fun-keep-run.kompile.kore
 cannot f2-examples/e5-ovl-fun-lhs-int.kompile.kore
 differs f2-examples/e5-ovl-fun-lhs-owise.kompile.kore
 differs f2-examples/e5-ovl-fun-lhs.kompile.kore
+differs f2-examples/e6-list-set-lhs-bound.kompile.kore
 differs f2-examples/e6-param-bytes.kompile.kore
 differs f2-examples/e6-param-ffi.kompile.kore
 differs f2-examples/e6-param-float.kompile.kore
@@ -224,7 +225,7 @@ differs f2-examples/kvtimeout.kompile.kore
 differs f2-examples/lawfn.kompile.kore
 exact f2-examples/lazy.kore
 differs f2-examples/libsub.kompile.kore
-differs f2-examples/lset.kompile.kore
+cannot f2-examples/lset.kompile.kore
 differs f2-examples/mapkeyfn.kompile.kore
 differs f2-examples/mapl.kompile.kore
 cannot f2-examples/mlag.kompile.kore

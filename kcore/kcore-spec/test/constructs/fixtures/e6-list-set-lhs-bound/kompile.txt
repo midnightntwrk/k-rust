@@ -1,0 +1,11 @@
+command: kompile --backend haskell e6-list-set-lhs-bound.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 5.4
+definition.kore bytes: 208509
+definition.kore sha256: bd3474464b9e8c5046426bc12b82ba8d1d79141355fd1ce7cea2d0dd1ae9cc30
+stripped sha256: 0dc8d467ccf0d034e395b9991cebd66b5fe85d8aeb996f8cf8a83a7a7469c85c
+main module: 408 sentences, 75 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-LIST-SET-LHS-BOUND-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using E6-LIST-SET-LHS-BOUND as default.

@@ -538,10 +538,11 @@ def tokKItemOmitted (k : Kore.Definition) (d : Definition) : List (Nat × List (
 
 A rule's left side and a clause's argument patterns are patterns, which the matcher reads as
 constructors, injections, variables, literals and the collections' symbols (`patCtxAll`). A
-function symbol applied there (`List:set(L, I, J)` in a list cell's left side) denotes the values
-the function takes at some arguments: the pattern matches a value when some arguments give it, and
-matching it needs what the function's inverse says (for `List:set`, that the element at I is J),
-which no part of the semantics gives. Such a sentence is refused with a reason of its own, the
+function symbol applied there (`List:set(L, I, J)` in an equation's argument pattern) denotes the
+values the function takes at some arguments: the pattern matches a value when some arguments give
+it, and matching it needs what the function's inverse says (for `List:set`, that the element at I
+is J), which no part of the semantics gives. (In a rule's left side a hooked symbol of the registry
+is read through the cut, `Parse.ovlCut`, and is not named here.) Such a sentence is refused with a reason of its own, the
 function named; it is not read. The collections' symbols (a set's concatenation and element, a cell
 set's element) are not named here: they are collection patterns, which the pattern context
 decides (`collPatternHooks`). -/
@@ -553,8 +554,9 @@ function's value; no constructor, no collection's symbol and no open generator, 
 `openGeneratorInPattern` names) in their left side: one refusal (`functionInPattern`) for each, the
 symbol named. A rule's left side and a clause's argument patterns are read through the cut
 (`Parse.ovlCut`, `Parse.ovlCutList`), which takes every outermost application of a
-function-overloaded symbol, its arguments' `#as` bindings read as conditions (`Parse.cutOvlApps`),
-so they apply none. -/
+function-overloaded symbol, and in a rule's left side of a hooked symbol of the registry that is no
+collection's symbol (`Parse.regCutSyms`), its arguments' `#as` bindings read as conditions
+(`Parse.cutOvlApps`), so they apply none. -/
 def functionInPattern (k : Kore.Definition) (d : Definition) : List Refusal :=
   match k.modules.getLast? with
   | none => []

@@ -155,7 +155,9 @@ inductive RefusalReason where
   | owisePriority
   /-- A rule's left side or a clause's argument pattern that applies a function symbol (a function
   or sort predicate of the definition, a parameter that is no open generator, a hooked symbol of the
-  registry), neither a constructor nor a collection's symbol: K's `List:set(L, I, J)` in a cell. A pattern denotes the
+  registry in a clause's argument pattern; a rule's left side applying a hooked symbol of the
+  registry is read through the cut, `ovlCut`), neither a constructor nor a collection's symbol. A
+  pattern denotes the
   values it matches; a function's application denotes the values the function takes at some
   arguments, and matching it needs what the function's inverse says, which no part of the semantics
   gives (the account's check, `Account.functionInPattern`). -/
@@ -1450,7 +1452,19 @@ confined (`Semantics.confinedAt`: the generators of a confined sort take argumen
 sorts), so the variables the cut leaves open are of confined sorts and `rulesPlain` reads them.
 Where it is not, a variable of P̄ that the rest of the left side does not hold may be matched by an
 element that is no value's which the interpretation sends to a value, and which elements those are
-the text does not say: `openCutRefusal` refuses such a rule (`openGeneratorPattern`). -/
+the text does not say: `openCutRefusal` refuses such a rule (`openGeneratorPattern`).
+
+A hooked symbol g of the registry that is no collection's unit, element or concatenation
+(`regCutSyms`: `List:set`, `Map:update`, `_+Int_`, …) is cut the same way in a rule's left side:
+`C[g(P̄)]` is `∃V. C[V] ∧ V ∈ g(P̄)` in every interpretation, and the membership's term is evaluated
+through the registry's value of g, the graph `Γ` states at values. Where every variable of P̄ is
+held by another part of the left side, the membership is a condition over variables the left side
+binds, decided at the values they match. A variable of P̄ that nothing else holds (`List:set`'s list
+argument written `_`) ranges over every element of its sort, among them, where the sort is not
+confined, elements that are no value's, at which `Γ` states nothing of g: `rulesPlain` decides it as
+any variable the left side does not bind, and refuses the rule `openRequires` there. A collection's
+symbols are patterns the matcher reads and are not cut; a clause's argument patterns are not cut
+for g (`ovlCutList`), so an equation applying it there stays refused (`functionInPattern`). -/
 
 mutual
   /-- `t` with each `#as` binding `p #as V` replaced by its variable V: the term, and each
@@ -1504,15 +1518,25 @@ def ovlCutConj : List Cond → Cond
   | [p] => p
   | p :: ps => .and p (ovlCutConj ps)
 
+/-- The hooked symbols of the registry (`hookSigs`) that are no collection's unit, element or
+concatenation (`builtinColls`: those are collection patterns, which the matcher reads), each with its
+result sort's name: the symbols whose application in a rule's left side `ovlCut` cuts. -/
+def regCutSyms : List (Sym × String) :=
+  let colls := builtinColls.flatMap fun cs => [cs.unit, cs.elem, cs.concat]
+  (hookSigs.filter (!colls.contains ·.name)).map fun g => (g.name, regSortNames.getD g.result "")
+
 /-- The cut `xs` (`cutOvlApps`) of a term over the variables `vs`: the variables with the fresh
 ones after them (`Ovl0`, `Ovl1`, … for a function-overloaded symbol, `Open0`, `Open1`, … for an open
-generator, numbered by position among the fresh ones, primed until new), and the conjunction of
+generator, `Hooked0`, `Hooked1`, … for a hooked symbol of the registry, numbered by position among
+the fresh ones, primed until new), and the conjunction of
 the memberships, each fresh variable's `V ∈ g(P̄)` (`Cond.mem` at g's result sort) followed by
 each binding's `Z ∈ p` of its arguments (at Z's sort). -/
 def ovlCutMemsAs (N : Names) (vs : List Var) (xs : List (Nat × String × Term × List (Nat × Term))) :
     Rd (List Var × Cond) := do
   let pfx := fun (app : Term) => match app with
-    | .app f _ => if (N.ovlCutSyms.lookup f).isSome then "Ovl" else "Open"
+    | .app f _ =>
+      if (N.ovlCutSyms.lookup f).isSome then "Ovl"
+      else if (N.openCutSyms.lookup f).isSome then "Open" else "Hooked"
     | _ => "Ovl"
   let vs' := xs.foldl (fun acc (_, X, app, _) =>
     acc ++ [⟨freshName acc (acc.length + 1) (pfx app ++ toString (acc.length - vs.length)), X⟩]) vs
@@ -1523,14 +1547,15 @@ def ovlCutMemsAs (N : Names) (vs : List Var) (xs : List (Nat × String × Term �
   pure (vs', ovlCutConj mems.flatten)
 
 /-- A rule's left side `lhs` and its variables `vs`, read with each application of a
-function-overloaded symbol (`Names.ovlCutSyms`) or of an open generator (`Names.openCutSyms`) cut
-(`cutOvlApps`): the left side, the variables with the fresh ones after them (`Ovl0`, `Ovl1`, … for
-the first, `Open0`, `Open1`, … for the second, numbered by position among the fresh ones, primed until
-new), and the conjunction of the memberships `V ∈ g(P̄)` of the fresh variables in their
+function-overloaded symbol (`Names.ovlCutSyms`), of an open generator (`Names.openCutSyms`) or of a
+hooked symbol of the registry that is no collection's symbol (`regCutSyms`) cut (`cutOvlApps`): the
+left side, the variables with the fresh ones after them (`Ovl0`, `Ovl1`, … for the first, `Open0`,
+`Open1`, … for the second, `Hooked0`, `Hooked1`, … for the third, numbered by position among the
+fresh ones, primed until new), and the conjunction of the memberships `V ∈ g(P̄)` of the fresh variables in their
 applications, each followed by the memberships `Z ∈ p` of its arguments' `#as` bindings
 (`ovlCutMemsAs`), `\top` where nothing is cut. -/
 def ovlCut (N : Names) (lhs : Term) (vs : List Var) : Rd (Term × List Var × Cond) :=
-  match N.ovlCutSyms ++ N.openCutSyms with
+  match N.ovlCutSyms ++ N.openCutSyms ++ regCutSyms with
   | [] => pure (lhs, vs, .top)
   | cs => match cutOvlApps cs vs.length lhs with
     | (_, _, []) => pure (lhs, vs, .top)
