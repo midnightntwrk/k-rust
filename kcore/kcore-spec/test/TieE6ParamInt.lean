@@ -60,7 +60,7 @@
   to values (`EntailsAtValues (cH H) ad (trS ad).pat`), since Γ states the parameter's graph at
   values only (`ΓDomains`). The account holds them in the class `parameter lemma`, of the direction
   `hypothesis`. A hypothesis no H satisfies would tie a text without a model, so the tie owes one H
-  at which the functions' obligations hold and every parameter lemma holds at values
+  at which `FnHyp` holds and every parameter lemma holds at values
   (`ParamLemmaWitnessAtValues`, proved by hand: `e6pi_witness`, at `HAndE6pi`, which gives `&Int`
   bitwise and at Int values). Every `simplification`
   equation of the user module whose left side's head is a parameter symbol without `impl` is one of
@@ -1005,13 +1005,13 @@ noncomputable def paramLemmaText : List AxiomDecl := [U.ax156]
 theorem paramlemma_account : paramLemmaText.map (·.index) = classOf "parameter lemma" := by
   decide +kernel
 
-/-- **What the tie owes of the parameter lemmas**: one interpretation `H` at which the functions'
-obligations hold and every parameter lemma holds in every model of Γ at the valuations sending its
+/-- **What the tie owes of the parameter lemmas**: one interpretation `H` at which `FnHyp` holds
+and every parameter lemma holds in every model of Γ at the valuations sending its
 free element variables to values (`EntailsAtValues`), so that the text with its hypotheses has a
 model. Γ states a parameter's graph at values only (`ΓDomains`), so the lemma is owed there. Proved
 by hand: `e6pi_witness`. -/
 def ParamLemmaWitnessAtValues : Prop :=
-  ∃ H : HookParams, FnObligations (cH H) callOrder [] ∧
+  ∃ H : HookParams, FnHyp (cH H) ∧
     ∀ ad ∈ paramLemmaText, EntailsAtValues (cH H) ad (trS ad).pat
 
 /-- Every sentence of the user module that carries `simplification`, is an equation
@@ -1074,8 +1074,8 @@ theorem gamma_from (H : HookParams) : ∀ φ, Γ (cH H) φ → Pre H ⊧ φ := b
 (symbol 213) is a parameter of the reading without `impl`, applied by a rule, so Γ states its graph
 at values from the interpretation (`ΓDomains`, `Semantics.paramVal`). At `HAndE6pi`, which gives
 `&Int` bitwise and at Int values (`landE6pi`), every model of Γ applies `&Int` to values as bitwise
-and, which is associative, so 156 holds there at values; the functions' obligations hold at every
-H (`obl_nil`). -/
+and, which is associative, so 156 holds there at values; `FnHyp` holds at every H (`fnHypH`, from
+`obl_nil`). -/
 
 section WitnessE6pi
 
@@ -1218,10 +1218,10 @@ theorem s156_at_valuesE6pi : EntailsAtValues (cH HAndE6pi) U.ax156 (trS U.ax156)
   exact Eqn.entailedLk_reg (coreOKH HAndE6pi) hI (andDenE6pi HAndE6pi hI) e156E6pi hr
     (by rw [sortOfHE6pi]; exact ht) holds156E6pi U.ax156 hp hsv e hat m
 
-/-- **The witness**: at `HAndE6pi` (`&Int` is bitwise and at values) the functions' obligations hold
-(`obl_nil`) and the parameter lemma 156 holds at values. -/
+/-- **The witness**: at `HAndE6pi` (`&Int` is bitwise and at values) `FnHyp` holds (`fnHypH`) and
+the parameter lemma 156 holds at values. -/
 theorem e6pi_witness : ParamLemmaWitnessAtValues := by
-  refine ⟨HAndE6pi, obl_nil HAndE6pi, fun ad had => ?_⟩
+  refine ⟨HAndE6pi, fnHypH HAndE6pi, fun ad had => ?_⟩
   simp only [paramLemmaText, List.mem_cons, List.not_mem_nil, or_false] at had
   subst had
   exact s156_at_valuesE6pi

@@ -2781,8 +2781,8 @@ def userLemmaValuesClass : String := "user lemma at values"
 /-- What the account says after a class line beyond the class: for a sentence of the user's text
 classed `inert simplification`, that the class claims `Γ ⊧ tr s` and the reader does not decide it:
 the sentence is owed, entailed by Γ, and the tie on the text (C14) proves it or fails; for a
-parameter lemma, that it is owed as a hypothesis on `H` at values (some `H` meets `FnObligations`
-and at it each sentence of the class is `EntailsAtValues (c.withHooks H) s (tr s)`); for a user's
+parameter lemma, that it is owed as a hypothesis on `H` at values (some `H` meets `FnHyp` and at
+it each sentence of the class is `EntailsAtValues (c.withHooks H) s (tr s)`); for a user's
 equation of a symbol whose value the registry gives, that it is owed at values. -/
 def classLineOwed (c o : String) : String :=
   if c == "inert simplification" && o == "user" then
@@ -2790,7 +2790,7 @@ def classLineOwed (c o : String) : String :=
   else if c == userLemmaValuesClass then
     ": owed at values, not in Γ (EntailsAtValues: Γ (c.withHooks H) entails it at the valuations sending its variables to values, or Γ with it has no model; the tie on the text proves it or fails), not decided by the reader"
   else if c == paramLemmaClass then
-    ": owed as a hypothesis on H at values (some H meets FnObligations and at it each sentence of the class is EntailsAtValues (c.withHooks H) s (tr s); the tie shows an H at which the text's hypotheses hold), not decided by the reader"
+    ": owed as a hypothesis on H at values (some H meets FnHyp and at it each sentence of the class is EntailsAtValues (c.withHooks H) s (tr s); the tie shows an H at which the text's hypotheses hold), not decided by the reader"
   else ""
 
 /-- `s` cut after its first `n` characters, a `Source(PATH)`'s PATH counted as none and never cut
