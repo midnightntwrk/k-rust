@@ -84,9 +84,11 @@ if on ref-kimp; then gen f2-examples/ref-kimp.kore ref-kimp RefKimp --wf
 # the other mirrors' embeddings with emb's inversion (User.EmbKit); `leq` on an embedded subsort
 # table (User.Leq: `KCore.KK.leq_eval_leqF`, `KCore.KK.leq_eval`); the text gen/kkcascade.py emits
 # over kore.k's mirrors (User.KkGenEmb, from User/cascade-emb.toml) and its measurement by hand
-# (User.SpikeEmb); a term's instance under a substitution, as kore.k's `inst` gives it (User.Inst:
-# `KCore.KK.Inst`, `KCore.KK.inst_Inst`)
+# (User.SpikeEmb); the embeddings `kcore kk-native` runs are sig's (User.NativeTie); the walk and lookup helpers over the mirrors (User.HelpWalk)
+# `match`, `matchTs` and `matchK` on embedded mirrors at a pattern without a collection pattern (User.MatchEval: `KCore.KK.match_eval`);
+# kore.k's order functions over the mirrors and insert and member on encodings (User.HelpOrder);
+# a term's instance under a substitution, as kore.k's `inst` gives it (User.Inst: `KCore.KK.Inst`, `KCore.KK.inst_Inst`)
 if on ref-kk; then gen examples/ref-kk/RefKk/definition.kore ref-kk RefKk --core
   step gen/build.sh examples/ref-kk User.Coherent User.EvalInversion User.FnSolves User.PrioDecided User.CoDefined User.Consistent \
-    User.KkKit User.KkFacts User.KkCascade User.SpikeBase User.SpikeHand User.SpikeCascade User.Emb User.Sig User.EmbKit User.Leq User.HelpTerms User.KkGenEmb User.SpikeEmb User.Inst; fi
+    User.KkKit User.KkFacts User.KkCascade User.SpikeBase User.SpikeHand User.SpikeCascade User.Emb User.Sig User.EmbKit User.Leq User.HelpTerms User.KkGenEmb User.SpikeEmb User.NativeTie User.HelpWalk User.MatchEval User.HelpOrder User.Inst; fi
 echo "all built"
