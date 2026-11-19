@@ -2273,10 +2273,23 @@ def readingNote : ReadingNote → GuardEntry
         .test "test/ExReader.lean" "exKept_drop"],
       note := "G9 is stated on translated sentences, not over c.withHooks H, with no premise on the binder's sort and five premises on the numbering of the two sentences' variables, decided by computation at the instance (a sort without a constructor); no companion (the read sentence is the weaker: nothing is refuted); no GUARD ticket names this constructor (added by C3.reader-exists-binders)" }
   | .overloadFunction =>
-    { status := .pending "GUARD.final",
-      guard := [.decl ``KCore.Faithful.funUncItem_of_funItem, .decl ``KCore.Faithful.injUncItem_of_injItem,
+    { status := .guarded,
+      guard := [.decl ``KCore.Faithful.tieOvlFnFun_item_withHooks, .decl ``KCore.Faithful.tieOvlFnInj_item_withHooks,
+        .decl ``KCore.Faithful.tieOvlFnDist_item_withHooks,
+        .decl ``KCore.Faithful.tieOvlFnFun_weaker_Γ, .decl ``KCore.Faithful.tieOvlFnInj_weaker_Γ,
+        .decl ``KCore.Faithful.tieOvlFnDist_weaker_Γ,
+        .decl ``KCore.Faithful.tieOvlFnBase_of_Γ_dotk, .decl ``KCore.Faithful.tieOvlFnArity_of_Γ,
+        .test "test/TieOvlFn.lean" "base_arity_Γ",
+        .decl ``KCore.Faithful.ovlFnTotal_atValues, .decl ``KCore.Faithful.ovlFnInj_atValues,
+        .decl ``KCore.Faithful.ovlFnDist_atValues,
+        .decl ``KCore.Faithful.ovlFnTotal_refuted, .decl ``KCore.Faithful.ovlFnInj_refuted,
+        .decl ``KCore.Faithful.ovlFnDist_refuted,
+        .test "test/TieOvlFnCov.lean" "fun_atValues", .test "test/TieOvlFnCov.lean" "dist_refuted",
         .test "test/Overloads.lean" "overloadFunction", .test "test/OvlFun.lean" "cons_items"],
-      note := "the functional sentence entails the item read of it in every interpretation with definedness, the definition of ceiling, the sort's constant, an inhabited sort and the symbol's arity (KCore.Faithful.TieOvlFnBase, TieOvlFnArity, tieOvlFnFun_weaker); a no-confusion sentence entails the item read of it only together with a functional sentence, under the same hypotheses (tieOvlFnInj_weaker, tieOvlFnDist_weaker), not alone (two empty applications are equal and satisfy it); that the functional, injectivity and distinctness items of a function-overloaded symbol are the uncovered ones is kernel-checked on two hand-built semantics; no statement over c.withHooks H (coreOK admits a function overload: test/OvlFun.lean, Admit.coreOK_e5)" }
+      companion := [.test "test/OvlFnCovered.lean" "fnl_refuted_none", .test "test/OvlFnCovered.lean" "capNY_Hz",
+        .test "test/OvlFnCovered.lean" "capNY_Hy"],
+      invariant := [``KCore.Faithful.consItemsK, ``KCore.Semantics.fnOvlSyms, ``KCore.Faithful.ovlArgsOf],
+      note := "the part read, at the arguments no overload covers: for a function-overloaded symbol whose functional, same-constructor or different-constructors axiom has the decided form, Γ (c.withHooks H) holds the item at those arguments for every H (tieOvlFnFun_item_withHooks, tieOvlFnInj_item_withHooks, tieOvlFnDist_item_withHooks), and in every model of Γ the axiom entails it: the functional axiom alone, the same-constructor axiom with the functional axiom of the symbol, a different-constructors axiom with the functional axiom of one of its two generators, not alone (two empty applications are equal and satisfy it) (tieOvlFnFun_weaker_Γ, tieOvlFnInj_weaker_Γ, tieOvlFnDist_weaker_Γ); the sort and arity facts these use hold in every model of Γ (tieOvlFnBase_of_Γ_dotk, tieOvlFnArity_of_Γ; on e5-ovl-fun-lhs for every H, Lhs.base_arity_Γ). The part owed, at covered arguments, as hypotheses on H over values (OvlFnTotal, OvlFnInj, OvlFnDist of c.withHooks H): for a semantics with coreOK, under FnHyp, under each the axiom holds at values in every model of Γc (ovlFnTotal_atValues, ovlFnInj_atValues, ovlFnDist_atValues), and a witness at values against it refutes the axiom in every model of Γc (ovlFnTotal_refuted, ovlFnInj_refuted, ovlFnDist_refuted); the different-constructors lemmas read the axiom naming the overloading symbol first, against a constructor of its sort. Instances (test/TieOvlFnCov.lean, every H): on e5-ovl-fun-lhs the functional and different-constructors axioms at values, the same-constructor one under OvlFnInj as a hypothesis; on e5-ovl-fun-keep-run the different-constructors axiom refuted; FnHyp is a hypothesis of the instances. Companion: on e5-ovl-fun-partial, whose covering function has no clause applying at y, at HookParams.none with Consistent and FnHyp no model of Γ satisfies the functional axiom (fnl_refuted_none), at the H whose rest gives z, Γ states capN(y) = z (capNY_Hz), and at the one whose rest gives y, capN(y) = y (capNY_Hy): what Γ says at a covered argument depends on H" }
   | .tokKItem =>
     { status := .guarded,
       guard := [.decl ``KCore.Faithful.noJunk_omitted_refuted, .test "test/TokKItem.lean" "tok_refuted",
