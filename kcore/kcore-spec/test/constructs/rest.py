@@ -63,8 +63,10 @@ The evidence forms (DONE-0 C2's table), by status and list, and the items each n
                    counts neither way, one that does not occur in that text is missing (its class
                    is not read). `no_direction` a non-empty list of indices of that class holding
                    each one `sentence` locates there; that tie file in `tie`; its account,
-                   account_absent and absent_closed among tie_theorems; a `derived` table of form
-                   (a), kind "in a model", whose sentences are the no_direction indices
+                   account_absent and absent_closed among tie_theorems, each declared in that file
+                   or in a file of `tie` with the same text and classes (a tie --split writes over
+                   several files); a `derived` table of form (a), kind "in a model", whose
+                   sentences are the no_direction indices
       tie          `tie` lists the C14 tie modules: files test/X.lean that test/integration.sh
                    builds (not in its skip list)
       theorems     the theorems the entry names, `tie_theorems` (full names, each declared in a
@@ -595,8 +597,12 @@ def nodir_items(fx, e, x, have, miss):
     if tf not in ts:
         miss.append(f"tie ({tf}, the tie whose classes hold the no-direction sentences, not in tie)")
     names = [n for n in (e.get("tie_theorems") or []) if isinstance(n, str)]
+    # a tie written over several files (tiegen --split) may state account_absent and absent_closed
+    # in a file other than the account's: each file of `tie` with the same text and the same
+    # classes is a file of that tie
+    tfs = [tf] + [f for f in ts if f != tf and nodir_classes(f) == (text, cls)]
     lack = [t for t in ("account", "account_absent", "absent_closed")
-            if not any(n.endswith("." + t) and declared(n, [tf]) for n in names)]
+            if not any(n.endswith("." + t) and declared(n, tfs) for n in names)]
     (have if not lack else miss).append(
         f"the class's statement ({tf}: account, account_absent, absent_closed)" if not lack else
         f"the class's statement ({', '.join(lack)} of {tf} not in tie_theorems)")
@@ -714,7 +720,10 @@ def evidence(fx, l, key, e, row):
     def e6_ties():
         """An E6 library row's `e6_tie` (test/constructs/e6map.py): "THEOREM (FILE; TEXT axiom N)" items,
         "every ... row of MODULE (n) is tied" or "module of hooks and generated declarations only: ..."
-        on a module row, or "uncovered: ..."."""
+        on a module row, or "uncovered: ..."; a module row of form (m) also has a last item "not held
+        by TEXT: ..." (the module's sentences inside a block comment of its code, no sentences of the
+        module), which names no theorem; a live sentence the text does not hold makes the row
+        "uncovered: ..." instead."""
         v = e.get("e6_tie")
         v = v if isinstance(v, list) else [v]
         unc = [x for x in v if isinstance(x, str) and x.startswith("uncovered")]
@@ -734,6 +743,7 @@ def evidence(fx, l, key, e, row):
         if len(v) == 1 and isinstance(v[0], str) and v[0].startswith("module of hooks and generated declarations only: "):
             have.append("module of hooks and generated declarations only, accounted by its declarations' rows (e6_tie)")
             return True
+        v = [x for x in v if not (isinstance(x, str) and x.startswith("not held by "))] or [None]
         thms = [re.match(r"(\S+) \((test/[^;]+\.lean); .+\)$", x) if isinstance(x, str) else None for x in v]
         if not all(thms):
             miss.append(f"theorems (e6_tie item of no known form: {next(x for x, m in zip(v, thms) if not m)!r:.80})")
@@ -1541,12 +1551,16 @@ def self_test():
         nd_t = "// rule initTCell(Init)=>`TCellSetItem`(`<t>`(initVCell(Init),initPCell(Init)))"
         for name, kore in (("base", f"//@ 30\n  {nd_kd} [function{{}}()]\n//@ 99\n{nd_k}\n  axiom{{R}} x\n"
                                     f"//@ 100\n  axiom{{R}} {nd_f} [{nd_src}]\n"),
-                           ("e1-starinit", f"//@ 300\n{nd_t}\n  axiom{{R}} x\n")):
+                           ("e1-starinit", f"//@ 300\n{nd_t}\n  axiom{{R}} x\n"),
+                           ("e2-cells-stream", "//@ 7000\n  ostream\n")):
             os.makedirs(os.path.join(fxd, name))
             open(os.path.join(fxd, name, "account.txt"), "w").write(clean)
             open(os.path.join(fxd, name, "kompile.txt"), "w").write("exit 0\n")
             open(os.path.join(fxd, name, "kore.txt"), "w").write(kore)
         tbase, ts_ = "test/TieBase.lean", "test/TieE1Starinit.lean"
+        # a tie written over several files: the account in the first, account_absent and absent_closed
+        # in another file of the same text and classes
+        tcs, tcsa = "test/TieE2CellsStream.lean", "test/TieE2CellsStreamAbsent.lean"
         acc3 = lambda ns: [f"KCore.{ns}.account", f"KCore.{ns}.account_absent", f"KCore.{ns}.absent_closed"]
         model = lambda ss, kind="in a model": {"form": "a", "kind": kind, "sentences": ss, "theorem": "KCore.C3EqReqEns.f_5",
                                               "file": tie}
@@ -1622,6 +1636,10 @@ def self_test():
                          "tie_theorems": acc3("TieE1Starinit"), "no_direction": [281], "derived": [model([281])]}, False),
             ("E1", "A", {"status": "supported", "fixture": "e1-starinit", "sentence": [nd_t], "tie": [ts_],
                          "tie_theorems": acc3("TieE1Starinit"), "no_direction": [283], "derived": [model([283])]}, True),
+            ("E2", "A", {"status": "supported", "fixture": "e2-cells-stream", "sentence": ["ostream"], "tie": [tcs, tcsa],
+                         "tie_theorems": acc3("TieE2CellsStream"), "no_direction": [2895], "derived": [model([2895])]}, True),
+            ("E2", "A", {"status": "supported", "fixture": "e2-cells-stream", "sentence": ["ostream"], "tie": [tcs],
+                         "tie_theorems": acc3("TieE2CellsStream"), "no_direction": [2895], "derived": [model([2895])]}, False),
             ("E2", "A", {"status": "supported", "fixture": "ok", "sentence": ["axiom{} f"], "tie": [tie],
                          "derived": [thm]}, True),
             ("E2", "A", {"status": "supported", "fixture": "ok", "tie": [tie]}, False),
@@ -1773,6 +1791,11 @@ def self_test():
             ("E6", "axiom:X", {"status": "supported", "e6_tie": ["uncovered: INT; no tied text holds the sentence"]}, False),
             ("E6", "lemma:X", {"status": "inert", "e6_tie": ["refuted: M; no theorem entails the sentence"]}, False),
             ("E6", "module:M", {"status": "supported", "e6_tie": ["every axiom, lemma, sort and symbol row of M (3) is tied"]}, True),
+            ("E6", "module:M", {"status": "supported", "e6_tie": ["KCore.C3EqReqEns.f_5 (test/C3EqReqEns.lean; t axiom 3)",
+                                                                  "not held by t: M; rule r (m.md:1): reason"]}, True),
+            ("E6", "module:M", {"status": "supported", "e6_tie": ["not held by t: M; rule r (m.md:1): reason"]}, False),
+            ("E6", "module:M", {"status": "supported", "e6_tie": "uncovered: M; rule r (m.md:1) held by no tied text; on t "
+                                                                 "1 of its 2 rules are tied (test/C3EqReqEns.lean)"}, False),
             ("E6", "module:M", {"status": "supported", "e6_tie": ["every axiom, lemma, sort and symbol row of M (3) is tied, "
                                                                   "or of no direction with a theorem in a model (1)"]}, True),
             ("E6", "axiom:X", {"status": "supported", "e6_tie": "no direction: INT; KCore.C3EqReqEns.f_5 "

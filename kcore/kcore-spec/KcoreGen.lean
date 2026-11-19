@@ -4752,12 +4752,12 @@ def kkNative (kkPath cases : String) (only : List String) : IO UInt32 := do
 
 /-! ## `kcore encodable` -/
 
-/-- The ten conjuncts of `KK.encodable`, in its order, by name. -/
+/-- The eleven conjuncts of `KK.encodable`, in its order, by name. -/
 def encodableParts (c : Semantics) : List (String × Bool) :=
   [("ovlsOK", KK.ovlsOK c), ("paramsOK", KK.paramsOK c), ("appsOK", KK.appsOK c),
    ("headsOK", KK.headsOK c), ("litsOK", KK.litsOK c), ("subsortsOK", KK.subsortsOK c),
    ("colPatsOK", KK.colPatsOK c), ("asOK", KK.asOK c), ("ensOK", KK.ensOK c),
-   ("shapesOK", KK.shapesOK c)]
+   ("shapesOK", KK.shapesOK c), ("collFormOK", KK.collFormOK c)]
 
 /-- The library modules a KORE text holds a sentence of (the reader's `moduleAt` of each builtin
 sentence's source and line, and the scan's own builtin modules), by name, in the library's order. -/
@@ -4815,7 +4815,7 @@ def encodableSortForm (s : Srt) : Except String String :=
     else .error "litsOK"
 
 /-- `kcore encodable definition.kore`: one JSON line, `KK.encodable` of the text's semantics
-(`encodable`), each of its ten conjuncts by name, and the library modules the text holds a
+(`encodable`), each of its eleven conjuncts by name, and the library modules the text holds a
 sentence of (`modules`). `kcore encodable --library`: the tables a row of a hook, a hooked sort or
 a library module is judged by, one tab-separated line each: `hook NAME covered FORM` or
 `hook NAME refused BOOL` for each registered hook (`regHookNames`): one whose library declaration

@@ -350,7 +350,7 @@ theorem sortOf_list_kel {c : Semantics} {s' : Srt} {es : List GroundTerm} {s : S
 theorem encodable_facts {c : Semantics} (h : encodable c = true) :
     c.ovls = [] ∧ c.lib.carriers = [] ∧ Srt.float ∉ sigSorts c := by
   simp only [encodable, Bool.and_eq_true] at h
-  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨h1, -⟩, -⟩, -⟩, h5⟩, -⟩, -⟩, -⟩, -⟩, -⟩ := h
+  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨h1, -⟩, -⟩, -⟩, h5⟩, -⟩, -⟩, -⟩, -⟩, -⟩, -⟩ := h
   simp only [ovlsOK, List.isEmpty_iff] at h1
   simp only [litsOK, Bool.and_eq_true, List.isEmpty_iff, Bool.not_eq_true'] at h5
   refine ⟨h1, h5.1.2, fun hm => ?_⟩
@@ -866,7 +866,7 @@ theorem encTerm_of_encodable {d : Semantics} (h : encodable d = true) {t : Term}
   suffices hs : (encTerm d t).isSome = true by
     unfold encT; obtain ⟨p, hp⟩ := Option.isSome_iff_exists.mp hs; rw [hp]; rfl
   simp only [encodable, Bool.and_eq_true] at h
-  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨-, -⟩, h3⟩, -⟩, h5⟩, -⟩, -⟩, -⟩, h9⟩, -⟩ := h
+  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨-, -⟩, h3⟩, -⟩, h5⟩, -⟩, -⟩, -⟩, h9⟩, -⟩, -⟩ := h
   rw [List.mem_append] at ht
   rcases ht with ht | ht
   · simp only [appsOK, List.all_eq_true] at h3

@@ -17,8 +17,9 @@
   model's reading of its `requires` there (`ModelFailsCl`) makes `⌈req = true⌉` empty. Otherwise
   the conditions are closed and `needsWitness` holds, so they are decided: `Witnessed` with the
   patterns' match is a substitution of values at which the clause fails (`Fails`), so its
-  `requires` there has a result other than `true`, while the witness's `requires` has no result but
-  `true`, and the two read the same values; and `Refuted` fails where the conditions hold at the binders
+  `requires` there has a result other than `true` or its predicate is false, while the witness's
+  `requires` has no result but `true` and its predicate no truth value but `true`, and the two read
+  the same values (`Clause.pre_not_false_of_only_true` for the predicate); and `Refuted` fails where the conditions hold at the binders
   (`Clause.not_refuted_at`). This is `exclEmptyCl_of`. The variables outside `leftVars` are given
   Bool and `true` (`Clause.leftSortsB`, `fillV`).
 
@@ -26,8 +27,7 @@
   the clause fails also where `Holds` gives its predicate `false` (`ReqFails.pre`): that truth value
   with its terms' readings in the model (`HoldsRead`, `ModelFailsCl`'s second case) read at `R`
   (`PreRead.atR`) makes
-  the predicate empty; a clause with a predicate other than `\top` is not one whose conditions need
-  a witness (`needsWitness`); and the predicate at the binders moves to Bool (`PreRead.toBool`)
+  the predicate empty; and the predicate at the binders moves to Bool (`PreRead.toBool`)
   against `Refuted`.
 
   `ModelFailsCl` is a hypothesis of `exclEmptyCl_of`, as `ModelFails` is of `ExclEmpty`: the
@@ -38,6 +38,7 @@ import KcoreSpec.OpenCompete
 import KcoreSpec.ModelFns
 import KcoreSpec.ClausePreRead
 import KcoreSpec.MemHeldClause
+import KcoreSpec.WitnessedGivers
 
 set_option autoImplicit false
 
@@ -314,8 +315,7 @@ of the semantics: for a clause whose patterns have the argument sorts, whose pre
 well sorted, whose `requires` is a Bool, and whose open condition variables are of confined sorts
 or whose conditions are closed; where its conditions are decided when `needsWitness` holds
 and the definition reads a confined sort where an open condition variable is of one. Where the
-predicate is not `\top`, it is read in the model (`PreRead`) and the clause's conditions are not
-closed over an open variable of a sort that is not confined (`needsWitness`). -/
+predicate is not `\top`, it is read in the model (`PreRead`). -/
 theorem exclEmptyCl_ofCl (hI : I ⊧ᴵP Γc c) (hnn : NamesNumbered c) (hg : genWf c = true) (hsc : SortCtx c)
     [OvlOK c] (hph : patHooksApart c = true) (hcso : collSortsOK c = true) (hcs : collsOK c = true)
     (hph' : patHeadsOK c = true)
@@ -324,7 +324,7 @@ theorem exclEmptyCl_ofCl (hI : I ⊧ᴵP Γc c) (hnn : NamesNumbered c) (hg : ge
     {fn : Fn} {cl : Clause} {L : List CtorSig}
     (hpatsN : sortsOfTerms c.patCtxNF cl.vars cl.pats = some fn.args)
     (hpreOK : c.condOK cl.vars cl.pre = true)
-    (hpR : cl.pre ≠ .top → HoldsShape.PreRead c I cl ∧ cl.needsWitness c = false)
+    (hpR : cl.pre ≠ .top → HoldsShape.PreRead c I cl)
     (hreqS : ∀ t, cl.req = some t → sortOfTerm (c.rhsCtx L) cl.vars t = some Srt.bool)
     (hconj : (!cl.reqOpen || cl.reqClosed || cl.openCondVars.all fun i =>
       (cl.vars[i]?.map c.confined).getD false || memHeld c (varOccsList cl.pats) cl.pre i) = true)
@@ -483,7 +483,7 @@ theorem exclEmptyCl_ofCl (hI : I ⊧ᴵP Γc c) (hnn : NamesNumbered c) (hg : ge
         (hoff1 i hlt (Clause.pre_leftVarsRH i hi)).symm
       rw [h2]
       exact h1.trans ((den_closed c v).interp e1 e' m')
-    have hiff := (hpR hne).1.atR (vars := cl.leftSortsB) (tbl := tbl) (e := e') hF (Clause.leftSortsB_length cl)
+    have hiff := (hpR hne).atR (vars := cl.leftSortsB) (tbl := tbl) (e := e') hF (Clause.leftSortsB_length cl)
       (fun i hi => Clause.leftSortsB_getElem? (hleftlt i hi) hi) hσ hrd (hpkeys hpt) hRkey hRv' hσR m hmR
     exact absurd (hiff.mp (hpreE hpt)) (by decide)
   -- each cut `V ∈ t` of the predicate with V a variable of the patterns: at e1, V's element is in
@@ -566,7 +566,7 @@ theorem exclEmptyCl_ofCl (hI : I ⊧ᴵP Γc c) (hnn : NamesNumbered c) (hg : ge
     rw [List.contains_iff_mem.mpr hjp] at this
     exact absurd this (by decide)
   rcases hw hnw with hW | href
-  · obtain ⟨σw, hσw, hreqw, hprew⟩ := id hW
+  · obtain ⟨σw, hσw, hreqw, -, hpreU⟩ := id hW
     -- witnessed: the witness's values at the conditions' variables and the patterns' match elsewhere
     -- give a valuation of values, at whose substitution the clause fails
     have hkeysC : ∀ i < n, i ∈ cl.condVars → canonKey c cl.vars i ∈ tbl :=
@@ -623,15 +623,21 @@ theorem exclEmptyCl_ofCl (hI : I ⊧ᴵP Γc c) (hnn : NamesNumbered c) (hg : ge
             show elemOf c I w = (setV c tbl cl.vars cl.condVars _ e1).evalEvar (tbl.ev (canonKey c cl.vars i))
             rw [setV_on hkeysC hi' hc, hw', Option.getD_some])]
       | pre hpf =>
-        -- a clause with a predicate other than `\top` needs no witness
-        by_cases hne : cl.pre = .top
-        · rw [hne] at hpf; exact absurd hpf.top_eq (by simp)
-        · exact absurd hnw (by rw [(hpR hne).2]; decide)
+        -- the predicate has no truth value but `true` at the witness, whose values the
+        -- valuation's substitution reads at the predicate's variables
+        refine Clause.pre_not_false_of_only_true hpreU (fun i hi => ?_) hpf
+        have hc : i ∈ cl.condVars := List.mem_append_right _ hi
+        have hi' := hprelt i hi
+        obtain ⟨w, hw', hws'⟩ := hσwv i hc hi'
+        rw [hw', substOf_var hIΓ hg hsc.trans hnn.1 hvsl hin2 (hget i hi')
+          (by rw [Clause.leftSortsB_getD hi' (List.mem_append_right _ hc)]; exact hws') (by
+            show elemOf c I w = (setV c tbl cl.vars cl.condVars _ e1).evalEvar (tbl.ev (canonKey c cl.vars i))
+            rw [setV_on hkeysC hi' hc, hw', Option.getD_some])]
   · -- refuted: but the conditions hold at the binders
     exact Clause.not_refuted_at hI hpreOK (fun i hi hc => hinL i hi (List.mem_append_right _ hc)) hreqlt hRv' hσR
       (fun t ht => by rw [ht] at hreqE; exact hreqE)
       (fun hpt tbl2 e2 mB hk2 hag2 hmB =>
-        (hpR (fun h => by rw [h] at hpt; simp [Cond.isTop] at hpt)).1.toBool (hpkeys hpt) hRkey hk2
+        (hpR (fun h => by rw [h] at hpt; simp [Cond.isTop] at hpt)).toBool (hpkeys hpt) hRkey hk2
           (fun i hi => ⟨hinL i (hprelt i hi) (Clause.pre_leftVarsRH i hi), hag2 i hi⟩) hRv' hσR hmR hmB (hpreE hpt))
       href
 

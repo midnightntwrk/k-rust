@@ -1302,14 +1302,16 @@ theorem fnDet_of_agree {c : Semantics} (h3 : ∀ fn ∈ c.fns, ClausesAgree c fn
 
 /-- **Where every function has at most one result, a clause is `Witnessed` exactly where some
 values satisfy its conditions**: the second half of `Witnessed`'s `requires` conjunct (no result
-but `true`) is then the functionality of `EvalTerm`. -/
+but `true`) is then the functionality of `EvalTerm`, and its last conjunct (the predicate has no
+truth value but `true`) that of `Holds`. -/
 theorem _root_.KCore.Clause.witnessedDet_iff_of_fnDet {c : Semantics} (hd : FnDet c) (cl : Clause) :
     cl.Witnessed c ↔
       ∃ σ, c.WellSortedAt cl.vars cl.condVars σ ∧
         (∀ t, cl.req = some t → EvalTerm c σ t (some (bool true))) ∧ Holds c cl.vars.length σ cl.pre true :=
-  ⟨fun ⟨σ, h1, h2, h3⟩ => ⟨σ, h1, fun t ht => (h2 t ht).1, h3⟩,
+  ⟨fun ⟨σ, h1, h2, h3, _⟩ => ⟨σ, h1, fun t ht => (h2 t ht).1, h3⟩,
    fun ⟨σ, h1, h2, h3⟩ =>
-    ⟨σ, h1, fun t ht => ⟨h2 t ht, fun _ hr => EvalTerm.functional_of_fnDet hd hr (h2 t ht)⟩, h3⟩⟩
+    ⟨σ, h1, fun t ht => ⟨h2 t ht, fun _ hr => EvalTerm.functional_of_fnDet hd hr (h2 t ht)⟩, h3,
+      fun _ hb => Holds.functional_of_fnDet hd hb h3⟩⟩
 
 theorem heads_app {f : Sym} {ts : List Term} {P : Sym → Prop} (h : ∀ g ∈ Term.heads (.app f ts), P g) :
     P f ∧ ∀ g ∈ Term.headsList ts, P g := by

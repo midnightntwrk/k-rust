@@ -15,6 +15,8 @@
     `memHeld` disjunct refuses the clause.
   - With a function `fI : A -> Gas` among `capGas`'s overloads, `capGas` is `ovlHeld` at A := Bool
     (confined) and not at A := Int: there the cut does not hold G and `clausesPlain` refuses.
+  - The reader's `Parse.clauseRefusal` refuses the clause where `clausesPlain` does and nowhere
+    else: not at `cU`, not at A := Bool, `openRequires` at A := Int.
 -/
 import KcoreSpec
 
@@ -74,6 +76,17 @@ theorem clausesPlain_fnOvl : (cUF Srt.bool).ovlHeld capGas = true ∧
     memHeld (cUF Srt.bool) (varOccsList clU.pats) clU.pre 1 = true ∧ (cUF Srt.bool).clausesPlain = true ∧
     (cUF Srt.int).ovlHeld capGas = false ∧
     memHeld (cUF Srt.int) (varOccsList clU.pats) clU.pre 1 = false ∧ (cUF Srt.int).clausesPlain = false := by
+  decide +kernel
+
+/-- **The reader agrees with `clausesPlain`**: `Parse.clauseRefusal` refuses the clause exactly
+where the cut does not hold G (`openRequires` at A := Int), and `Parse.openCutRefusalCl` refuses it
+nowhere (`capGas` is no open generator). -/
+theorem clauseRefusal_memHeld :
+    (Parse.clauseRefusal cU clU ["V", "G"]).map (·.1) = none ∧
+    (Parse.clauseRefusal (cUF Srt.bool) clU ["V", "G"]).map (·.1) = none ∧
+    (Parse.clauseRefusal (cUF Srt.int) clU ["V", "G"]).map (·.1) = some .openRequires ∧
+    (Parse.openCutRefusalCl cU clU ["V", "G"]).isNone = true ∧
+    (Parse.openCutRefusalCl (cUF Srt.int) clU ["V", "G"]).isNone = true := by
   decide +kernel
 
 /-- info: 'KCore.memHeld_clause_valuesCut' depends on axioms: [propext, Classical.choice, Quot.sound] -/

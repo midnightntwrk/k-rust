@@ -103,17 +103,6 @@ theorem is one of a file test/LibParamExpand*.lean whose statement holds ∃ and
 file's text, U.axN for a sentence the row's no-direction class holds there, or, for a declaration
 row, the declaration's name as a string (or a `String` def). Without such a file, a module with a
 row of no direction is not tied.
-A module row in this scope with no axiom, lemma, sort or symbol row of its module in this scope is
-tied by form (w), the whole-text tie, where its `fixture` text f2-examples/FIXTURE.kompile.kore holds
-a sentence (an axiom, or a sort or symbol declaration, hooked or not) whose builtin Source and
-Location place it in the module, and a tie file test/Tie*.lean on that text (its `user_axioms U from
-"TEXT"`) defines `uncovered : List (Nat × String)` as the literal empty list (every class with a
-theorem has a theorem holding each of its sentences: the tie leaves no remainder) and declares each
-theorem of WHOLE_THEOREMS: `account` (the classes partition the user module's axioms),
-`account_absent` and `absent_closed` (the no-direction class), `lists_in_account`, `decls_entailed`
-(the declarations' items) and `consistent` (Γ has a model); the theorems are those. WHOLE_CONTROL
-controls it: TIMER is of it, and e6-mod-sort-kbott's text, whose tie file's `uncovered` holds KItem's
-no-junk sentence, has no whole-text tie. Form (w) is tried before the next one.
 A module of hooks and generated declarations only is accounted by its declarations' rows, with no
 theorem owed for the module itself: a module row in this scope with no row of E6, of any status,
 keyed to its module other than hook rows (no axiom, lemma, rule, sort or symbol row: each sentence
@@ -122,9 +111,36 @@ kompile generates carries no builtin Source), and whose selected code holds no `
 `configuration`, `context` or `claim` sentence (a module whose rules E6's text leaves out, such as
 STDIN-STREAM, is not of the form; MODULE_CONTROL checks it). Its hook rows are those of the hooks the
 module's selected code names in `hook(...)`.
+Form (m), tried before the form above, accounts such a module row (no axiom, lemma,
+sort or symbol row of its module in this scope) sentence by sentence of the module's selected code
+(`//` comments dropped; a sentence inside `/* ... */` is marked commented), on its `fixture` text
+f2-examples/FIXTURE.kompile.kore and the tie files on that text (test/Tie*.lean and
+test/GenEqsNodir*.lean naming it in `user_axioms U from`, a tie split over several files included),
+where every one of these holds: a tie file defines `uncovered` as the literal empty list and none
+defines it otherwise; the text's sentences the module's code places in the module (builtin Source
+and Location) are axioms only, each in the span of an uncommented `rule` of the module, a `\\rewrites`
+axiom N held by the tie's `classes` under "rewrite rule" alone and listed in the file's literal
+`ruleText`, that file declaring `rules_account`, `rule_from_text` and `rule_prios` (Γ's rule items
+follow from the sentences, `ruleText` is the class, their priorities are the sentences') and a
+theorem stating `itemsPremises [trS U.axN] ⊧`; and each uncommented `configuration` of the module
+gives the content of its cell as the right side of exactly one cell initializer's equation of the
+text (an axiom without Source, `\\equals` of `initXCell`, holding each `$VAR` of the configuration
+as a string and each constant `#name` as a symbol `Lbl'Hash'name'Unds'...`), whose index N the
+tie's `classes` hold under "no direction" alone, with `account_absent` and `absent_closed`
+declared, and which a test/GenEqsNodir*.lean file's literal `eqIdx` holds, that file declaring a
+theorem stating `∀ i ∈ eqIdx`, ∃ and ⊧ᴵP (the equation holds in a model). The items name, per rule
+sentence, the theorems whose statement names U.axN, then the class's three theorems, then per
+configuration those of the no-direction class and in a model. A sentence of the module's code inside
+a block comment is no sentence of the module and is owed nothing: such sentences are listed in one
+last item "not held by TEXT: MODULE; NAME (FILE:LINE): inside a block comment of the module's code,
+no sentence; ...". A live sentence of the module's code (an uncommented `rule`, `syntax`, `context`
+or `claim`) that the text holds no sentence of is a sentence no theorem states, so the row is not
+tied: its e6_tie is the string "uncovered: MODULE; NAME (FILE:LINE), ... held by no tied text; on
+TEXT n of its m rules and its configuration are tied (FILES)", FILES the tie files of the theorems
+the items would name. STREAM_CONTROL controls it: STDOUT-STREAM is of form (m), and STDIN-STREAM,
+whose rule stdinUnblock (domains.md:2782) e2-cells-stream's text holds no sentence of, is uncovered.
 e6_tie, on a row: a list of "THEOREM (FILE; TEXT axiom N)" or "THEOREM (FILE; TEXT sort|symbol
-declaration NAME)" strings (form (w): "THEOREM (FILE; TEXT whole text: ...; the text holds n
-sentences of MODULE)"), "refuted: MODULE; ..." (above), "no direction: MODULE; THEOREM (FILE;
+declaration NAME)" strings, "refuted: MODULE; ..." (above), "no direction: MODULE; THEOREM (FILE;
 TEXT axiom N|symbol declaration NAME); ..." with the theorems of form (e), or "uncovered: MODULE" with,
 after the module, why: no tied text holds the sentence or declaration, the texts that hold it tie it
 by no theorem (or a module with a row left uncovered, the rows of no direction counted apart).
@@ -132,7 +148,9 @@ A module row that is tied reads "every axiom, lemma, sort and symbol row of MODU
 followed by ", or of no direction with a theorem in a model (k)" where k of them are. A module of
 hooks and generated declarations only reads, as a list (counted as tied), "module of hooks and
 generated declarations only: no axiom, lemma, rule, sort or symbol row of MODULE in E6; its
-declarations are accounted by their rows: n hook rows (HOOK, ...)" (one hook row: "1 hook row"),
+declarations are accounted by their rows: n hook rows (HOOK STATUS, ...)" (one hook row: "1 hook
+row"), STATUS the status of the hook's rows (several rows of one hook with different statuses: joined
+by "/"),
 or "0 hook rows: E6's text places no sentence in the module".
 The summary counts the rows tied, of no direction and uncovered apart.
 """
@@ -229,11 +247,13 @@ def hooks_only(m, rows, mhooks, msents):
     """The form of a module of hooks and generated declarations only, for module m, or None: E6
     keys no axiom, lemma, rule, sort or symbol row of any status to m, and m's selected code holds
     no `rule`, `configuration`, `context` or `claim` sentence; its hook rows are those of the hooks
-    its selected code names."""
+    its selected code names, each with the status of its rows."""
     if m in msents or any(r.split(":")[0] in MEMBER_KINDS and r.split(":")[1] == m for r in rows):
         return None
     hs = [h for h in mhooks.get(m, []) if any(r.startswith(f"hook:{h}:") for r in rows)]
-    acc = (f"{len(hs)} hook row{'' if len(hs) == 1 else 's'} ({', '.join(hs)})" if hs
+    st = {h: "/".join(dict.fromkeys(v.get("status", "?") for r, v in rows.items() if r.startswith(f"hook:{h}:")))
+          for h in hs}
+    acc = (f"{len(hs)} hook row{'' if len(hs) == 1 else 's'} ({', '.join(f'{h} {st[h]}' for h in hs)})" if hs
            else "0 hook rows: E6's text places no sentence in the module")
     return [f"{HOOKS_ONLY}: no axiom, lemma, rule, sort or symbol row of {m} in E6; its declarations "
             f"are accounted by their rows: {acc}"]
@@ -625,7 +645,7 @@ DECL_CONTROL = ("f2-examples/silentflt.kompile.kore",
                 "Lbl'Unds'dividesInt'UndsUnds'INT-COMMON'Unds'Bool'Unds'Int'Unds'Int")
 AX_CONTROL = ("f2-examples/silentflt.kompile.kore", 274, 296)
 MODULE_CONTROL = ("module:STDIN-STREAM", "module:SORT-BOOL")
-WHOLE_CONTROL = ("module:TIMER", "f2-examples/e6-mod-sort-kbott.kompile.kore")
+STREAM_CONTROL = ("module:STDOUT-STREAM", "module:STDIN-STREAM", "rule stdinUnblock (domains.md:2782)")
 
 
 def self_check(rows, res):
@@ -640,7 +660,9 @@ def self_check(rows, res):
     declared with sort parameters), although a statement naming the second and absentOf with a
     nonempty list literal exists; and of MODULE_CONTROL, the first module (STDIN-STREAM, which E6
     keys no row to but whose code holds rules) is not of the form of a module of hooks and generated
-    declarations only, and the second (SORT-BOOL, one hooked sort) is."""
+    declarations only, and the second (SORT-BOOL, one hooked sort) is; and of STREAM_CONTROL, the
+    first module (STDOUT-STREAM) is of form (m), and the second (STDIN-STREAM) is uncovered by form (m)
+    for its rule stdinUnblock, a live rule its fixture text holds no sentence of."""
     forms, odd = decl_forms()
     bad = list(odd)
     for rel, (text, got) in sorted(forms.items()):
@@ -682,17 +704,19 @@ def self_check(rows, res):
         bad.append(f"control {text} axiom {no}: of form (e2), or no statement names it with absentOf and a "
                    f"nonempty list literal")
     mno, myes = MODULE_CONTROL
-    if res.get(mno) is None or (isinstance(res[mno], list) and res[mno][0].startswith(HOOKS_ONLY)):
+    if res.get(mno) is None or hooks_only(mno.split(":")[1], rows, *module_hooks()) is not None:
         bad.append(f"control {mno}: of the form of a module of hooks and generated declarations only, or no row")
     if not (isinstance(res.get(myes), list) and res[myes][0].startswith(HOOKS_ONLY)):
         bad.append(f"control {myes}: not of the form of a module of hooks and generated declarations only")
-    wyes, wno = WHOLE_CONTROL
-    if not (isinstance(res.get(wyes), list) and res[wyes] and WHOLE in res[wyes][0]):
-        bad.append(f"control {wyes}: not of form (w)")
-    wfiles = [f for f in os.listdir(os.path.join(K, "test")) if WHOLE_FILE.match(f)
-              and f'user_axioms U from "{wno}"' in open(os.path.join(K, "test", f)).read()]
-    if not wfiles or whole_ties().get(wno):
-        bad.append(f"control {wno}: no tie file on it, or a whole-text tie (its `uncovered` holds a sentence)")
+    fyes, fno, fname = STREAM_CONTROL
+    got = res.get(fyes)
+    if not (isinstance(got, list) and got == module_text_tie(fyes.split(":")[1], rows.get(fyes, {}))
+            and any("rule_from_text" in x for x in got)):
+        bad.append(f"control {fyes}: not of form (m)")
+    got = res.get(fno)
+    if not (isinstance(got, str) and got == module_text_tie(fno.split(":")[1], rows.get(fno, {}))
+            and got.startswith(f"uncovered: {fno.split(':')[1]}; {fname} held by no tied text; ")):
+        bad.append(f"control {fno}: not uncovered by form (m) for {fname}")
     for b in bad:
         print(f"e6map self-check: {b}")
     print(f"e6map self-check: {len(forms)} declaration files ({sum(1 for _, g in forms.values() if g)} with a "
@@ -701,28 +725,8 @@ def self_check(rows, res):
     return not bad
 
 
-WHOLE_FILE = re.compile(r"^Tie\w*\.lean$")
-WHOLE_THEOREMS = ("account", "account_absent", "absent_closed", "lists_in_account", "decls_entailed", "consistent")
-WHOLE_UNCOVERED = re.compile(r"^def uncovered : List \(Nat × String\) :=\s*\[\s*\]\s*$", re.M)
-
-
-def whole_ties():
-    """text -> [(file, [theorem])]: the whole-text ties (form (w)), each tie file test/Tie*.lean on
-    the text its `user_axioms U from "TEXT"` names that defines `uncovered` as the literal empty list
-    and declares each theorem of WHOLE_THEOREMS, with those theorems."""
-    out = defaultdict(list)
-    for f in sorted(os.listdir(os.path.join(K, "test"))):
-        if not WHOLE_FILE.match(f):
-            continue
-        rel = "test/" + f
-        t = open(os.path.join(K, rel)).read()
-        um = re.search(r'^user_axioms U from "([^"]+)"', t, re.M)
-        if not um or not WHOLE_UNCOVERED.search(t):
-            continue
-        names = {n.split(".")[-1]: n for n, _ in file_theorems(t)}
-        if all(x in names for x in WHOLE_THEOREMS):
-            out[um.group(1)].append((rel, [names[x] for x in WHOLE_THEOREMS]))
-    return out
+TIE_ANY_FILE = re.compile(r"^Tie\w*\.lean$")
+UNCOVERED_EMPTY = re.compile(r"^def uncovered : List \(Nat × String\) :=\s*\[\s*\]\s*$", re.M)
 
 
 def module_sentences(path):
@@ -749,22 +753,160 @@ def module_sentences(path):
     return out
 
 
-def whole_tie(m, row, wties):
-    """Form (w) for the module row of module m, or None: the row's `fixture` text has a whole-text tie
-    (`whole_ties`) and holds a sentence the module's code places there; the items name the tie's
-    theorems."""
+MSENT = re.compile(r"\s*(rule|configuration|syntax|context|claim)\b")
+NOT_HELD = "not held by "
+
+
+def module_code_sentences(m):
+    """(file, [(kind, first line, last line, text, commented)]) of module m's selected code: each
+    sentence from its `rule`, `configuration`, `syntax`, `context` or `claim` line to the line before
+    the next such line, block-comment boundary or `endmodule` (`//` comments dropped), `commented`
+    where it lies inside `/* ... */`; ("?", []) where no builtin file has the module."""
+    for f, st in MODLINES.items():
+        for a, b, n in st:
+            if n != m:
+                continue
+            out, cur, inc = [], None, False
+            for ln, l in code_lines(f):
+                if not a <= ln <= (b or 10 ** 9):
+                    continue
+                s = re.sub(r"//.*$", "", l)
+                if not inc and "/*" in s:
+                    if cur:
+                        out.append(cur); cur = None
+                    inc = "*/" not in s.split("/*", 1)[1]
+                    continue
+                if inc and "*/" in s:
+                    if cur:
+                        out.append(cur); cur = None
+                    inc = False
+                    continue
+                if MSENT.match(s) or re.match(r"\s*endmodule", s):
+                    if cur:
+                        out.append(cur); cur = None
+                    if MSENT.match(s):
+                        cur = [MSENT.match(s).group(1), ln, ln, s.strip(), inc]
+                elif cur:
+                    cur[2], cur[3] = ln, (cur[3] + " " + s.strip()).strip()
+            if cur:
+                out.append(cur)
+            return f, [tuple(x) for x in out]
+    return "?", []
+
+
+def code_name(f, kind, a, s):
+    """A module sentence's name in an e6_tie item: a rule's label, a syntax sentence's first
+    production, else its kind; with its file and line."""
+    if kind == "rule":
+        lm = re.match(r"rule \[([\w.-]+)\]", s)
+        return f"rule {lm.group(1) if lm else '(no label)'} ({f}:{a})"
+    if kind == "syntax" and " ::= " in s:
+        lhs, rhs = s.split(" ::= ", 1)
+        return f"{lhs} ::= {rhs.split()[0]} ({f}:{a})"
+    return f"{kind} ({f}:{a})"
+
+
+def module_text_tie(m, row):
+    """Form (m) for the module row of module m, or None: the module's sentences on the tie of its
+    `fixture` text, read from the tie files on the text (a tie split over several files included),
+    the sentences inside a block comment of the module's code listed apart; or the string
+    "uncovered: m; ..." where a live sentence of the module's code has no sentence in the text."""
     fx = row.get("fixture")
     text = f"f2-examples/{fx}.kompile.kore" if isinstance(fx, str) else None
-    if not text or not wties.get(text):
+    if not text or not os.path.isfile(os.path.join(K, text)):
         return None
-    n = module_sentences(text).get(m, 0)
-    if not n:
+    f, code = module_code_sentences(m)
+    held = [(i, int(LOC.search(s).group(1)), s) for i, _mod, s in axioms(text)
+            if (k := e6_key(s)) and k.split(":")[1] == m]
+    if not held or len(held) != module_sentences(text).get(m, 0):
         return None
-    return [f"{th} ({rel}; {text} whole text: {WHOLE}; the text holds {n} sentence{'' if n == 1 else 's'} of {m})"
-            for rel, ths in wties[text] for th in ths]
+    files = {}
+    for g in sorted(os.listdir(os.path.join(K, "test"))):
+        if TIE_ANY_FILE.match(g) or g.startswith("GenEqsNodir"):
+            t = open(os.path.join(K, "test", g)).read()
+            if re.search(rf'^user_axioms U from "{re.escape(text)}"', t, re.M):
+                files["test/" + g] = (t, file_theorems(t))
+    ties = {r: v for r, v in files.items() if not r.startswith("test/GenEqsNodir")}
+    unc = [r for r, (t, _) in ties.items() if re.search(r"^def uncovered : List \(Nat × String\) :=", t, re.M)]
+    if not unc or any(not UNCOVERED_EMPTY.search(ties[r][0]) for r in unc):
+        return None
+    cls = defaultdict(set)
+    for r, (t, _) in ties.items():
+        cm = re.search(r"^def classes : List \(String × List Nat\) :=\n(.*?)\n\n", t, re.M | re.S)
+        for c in re.finditer(r'\("([^"]+)", \[([\d,\s]*)\]\)', cm.group(1) if cm else ""):
+            for n in re.findall(r"\d+", c.group(2)):
+                cls[int(n)].add(c.group(1))
 
+    def thm(r, short):
+        return next((n for n, _ in ties[r][1] if n.split(".")[-1] == short), None)
 
-WHOLE = "every axiom of its user module in one class of the account, none uncovered"
+    items, used = [], set()
+    # The rules: each sentence of the text placed in the module is a rule of the module's code and a
+    # rewrite rule of the tie's `ruleText`, with a theorem giving Γ's rule item from it.
+    rfile, rlist = None, set()
+    for r, (t, _) in ties.items():
+        lm = re.search(r"^noncomputable def ruleText : List AxiomDecl :=\s*\[([^\]]*)\]", t, re.M)
+        if lm:
+            rfile, rlist = r, {int(x) for x in re.findall(r"U\.ax(\d+)", lm.group(1))}
+    cl = [thm(rfile, x) for x in ("rules_account", "rule_from_text", "rule_prios")] if rfile else [None]
+    if not all(cl):
+        return None
+    for n, line, s in held:
+        sent = next((x for x in code if x[0] == "rule" and not x[4] and x[1] <= line <= x[2]), None)
+        if sent is None or n not in rlist or cls.get(n) != {"rewrite rule"} or "\\rewrites{" not in s:
+            return None
+        own = [(nm, st) for nm, st in ties[rfile][1] if re.search(rf"\bU\.ax{n}\b", st)]
+        if not any(re.search(rf"itemsPremises \[trS U\.ax{n}\] ⊧", st) for _, st in own):
+            return None
+        used.add(sent[1])
+        items += [f"{nm} ({rfile}; {text} axiom {n}: {code_name(f, *sent[:2], sent[3])}; rewrite rule, Γ's rule "
+                  f"item from the sentence)" for nm, _ in own]
+    ns = ", ".join(str(n) for n, _, _ in held)
+    items += [f"{th} ({rfile}; {text} rewrite rule class, axioms {ns} of {m}: Γ's rule items from the sentences)"
+              for th in cl]
+    # A configuration: the content it gives its cell is the right side of one cell initializer's
+    # equation of the text (which holds each `$` variable and each constant `#name` of it), of the
+    # no-direction class, with a theorem in a model naming it.
+    ndf = next((r for r in ties if thm(r, "account_absent") and thm(r, "absent_closed")), None)
+    inits = [(i, s) for i, _mod, s in axioms(text) if not SRC.search(s)
+             and re.search(r"\\equals\{Sort\w+Cell\{\}, ?R\} \(\s*Lblinit\w+Cell\{\}\(", s)]
+    for sent in code:
+        if sent[0] != "configuration" or sent[4]:
+            continue
+        body = re.sub(r"^configuration\s*", "", sent[3])
+        toks = [("$" + v, f'"${v}"') for v in re.findall(r"\$(\w+)", body)] + \
+               [("#" + v, f"Lbl'Hash'{v}'Unds'") for v in re.findall(r"#(\w+)\b(?!\s*\()", body)]
+        hit = [i for i, s in inits if toks and all(k in s for _, k in toks)]
+        if len(hit) != 1 or not ndf or cls.get(hit[0]) != {"no direction"}:
+            return None
+        n = hit[0]
+        model = []
+        for r, (t, ths) in files.items():
+            lm = re.search(r"^def eqIdx : List Nat := \[([\d,\s]*)\]", t, re.M)
+            if r.startswith("test/GenEqsNodir") and lm and n in {int(x) for x in re.findall(r"\d+", lm.group(1))}:
+                model += [(r, nm) for nm, st in ths if "∀ i ∈ eqIdx" in st and "∃" in st and "⊧ᴵP" in st]
+        if not model:
+            return None
+        used.add(sent[1])
+        what = (f"{text} axiom {n}: {code_name(f, *sent[:2], sent[3])}, the cell initializer equation holding "
+                f"its {', '.join(v for v, _ in toks)}")
+        items += [f"{thm(ndf, x)} ({ndf}; {what}; of no direction)" for x in ("account_absent", "absent_closed")]
+        items += [f"{nm} ({r}; {what}; in a model)" for r, nm in model]
+    # A live sentence of the module (outside a block comment) that the text holds no sentence of is
+    # a sentence of the module no theorem states: the row is uncovered.
+    live = [code_name(f, *x[:2], x[3]) for x in code if x[1] not in used and not x[4]]
+    if live:
+        nr = sum(1 for x in code if x[0] == "rule" and not x[4])
+        nc = sum(1 for x in code if x[0] == "configuration" and not x[4])
+        files = sorted({re.match(r"\S+ \((test/[^;]+\.lean); ", x)[1] for x in items})
+        cfg = "" if not nc else " and its configuration" if nc == 1 else f" and its {nc} configurations"
+        return (f"uncovered: {m}; {', '.join(live)} held by no tied text; on {text} {len(used) - nc} of its "
+                f"{nr} rules{cfg} are tied ({', '.join(files)})")
+    rest = [code_name(f, *x[:2], x[3]) + ": inside a block comment of the module's code, no sentence"
+            for x in code if x[1] not in used]
+    if rest:
+        items.append(f"{NOT_HELD}{text}: {m}; " + "; ".join(rest))
+    return items
 
 
 def compute():
@@ -846,7 +988,6 @@ def compute():
                 res[k] = (f"uncovered: {mod}; a declaration held by {', '.join(dheld)}, tied there by no theorem"
                           if dheld else f"uncovered: {mod}; a declaration no tied text holds")
     mhooks, msents = module_hooks()
-    wties = whole_ties()
     for k in scope:
         if k.startswith("module:"):
             m = k.split(":")[1]
@@ -859,7 +1000,8 @@ def compute():
                 res[k] = [f"every axiom, lemma, sort and symbol row of {m} ({len(mine)}) is tied"
                           + (f", or of no direction with a theorem in a model ({ndm})" if ndm else "")]
             elif not mine:
-                res[k] = (whole_tie(m, rows[k], wties) or hooks_only(m, rows, mhooks, msents)
+                res[k] = (module_text_tie(m, rows[k])
+                          or hooks_only(m, rows, mhooks, msents)
                           or f"uncovered: {m}; no axiom, lemma, sort or symbol row of the module")
             else:
                 res[k] = (f"uncovered: {m}; {left} of its {len(mine)} axiom, lemma, sort and symbol rows uncovered"

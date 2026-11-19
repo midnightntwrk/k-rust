@@ -884,7 +884,7 @@ theorem exs_values_hrCEx (h : c.coreOKEx = true) (hrc : c.readsConfined = true) 
   have key : ∀ (l acc : List Nat), (∀ i ∈ acc, Witnessed c I tbl (canonVars c cl.vars) cl.vars e i) →
       ∀ i ∈ l.foldl (fun acc _ =>
         cl.exs.filter fun i => acc.contains i ||
-          Cond.fixes c.confined (fun _ => false) (fun j => !cl.exs.contains j || acc.contains j ||
+          Cond.fixes c.confined c.hasValue (fun j => !cl.exs.contains j || acc.contains j ||
             (j != i && (cl.vars[j]?.map c.confined).getD false)) i cl.vars.length cl.post) acc,
         Witnessed c I tbl (canonVars c cl.vars) cl.vars e i := by
     intro l
@@ -898,8 +898,8 @@ theorem exs_values_hrCEx (h : c.coreOKEx = true) (hrc : c.readsConfined = true) 
       rw [Bool.or_eq_true] at hcond
       rcases hcond with hc | hfix
       · exact hacc i (List.contains_iff_mem.mp hc)
-      · refine fixes_value_hrCEx h hrc hIc N (val := fun _ => false) (fun s hs => by cases hs) σ cl.post _ i cl.vars tbl e S
-          hok (Cond.boundV_of_bound c _ cl.post _ hb) hfix (hlt i hie) hσ0
+      · refine fixes_value_hrCEx h hrc hIc N (val := c.hasValue) (fun _ => hasValue_value (Semantics.coreOK_iff_ex.mpr h)) σ cl.post _ i cl.vars tbl e S
+          hok (Cond.boundV_hasValue_of_bound c cl.post _ hb) hfix (hlt i hie) hσ0
           (hdecG _ fun j _ hne => by simp [hne]) (fun j hj hjl => ?_)
           (fun j hj => ⟨hkv j hj, hinAll j hj⟩) hk hS hpost
         simp only [Bool.or_eq_true, Bool.and_eq_true, Bool.not_eq_eq_eq_not, Bool.not_true] at hj

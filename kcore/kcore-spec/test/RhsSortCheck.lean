@@ -543,6 +543,52 @@ theorem iffEq_hand :
     reasonOf (frRead N0 (eqn "Lblh" orEqOk)) = none := by
   decide +kernel
 
+/-! ## The conjunction of the right side with its `ensures`: `bodyConjFault?`
+
+kompile writes an equation's right side r with its `ensures` ens as `\and{s}(r, ens)` at r's sort s,
+the operand of `\equals{s,R}(f(…), _)`, and a rewrite axiom's under its binders as the body of
+`\rewrites{s}(…, _)`; each operand of `\and{s}` is of the sort s (kore-syntax.md:195, 330). The
+readers' `rhsSortGuard` looks inside r only, so the conjunction and ens are checked on the axiom
+(`bodyConjFault?`), and `classifyAxiom` refuses such an equation or rewrite axiom `rhsOperandSort`.
+- `ensRule Int (\top{SortFoo})`, `ensRule Int (\equals{SortBool,SortFoo}(X >Int 0, true))`: the
+  ensures of another sort than its conjunction's; `ensRule Foo (\top{SortFoo})`: the conjunction of
+  another sort than the rewrite's. Refused; the twins at Int are read.
+- `ensEqn (\top{SortFoo})`: the same on an equation's conclusion; its twin at Int has no fault. -/
+
+def ensRule (s : Kore.KSort) (en : Kore.Pattern) : Kore.Axiom :=
+  ⟨[], .rewrites (srt "Int") (.and (srt "Int") [X, .top (srt "Int")]) (.and s [X, en]), [uid, loc]⟩
+
+def ensEqn (en : Kore.Pattern) : Kore.Axiom :=
+  ⟨[], .implies (srt "Int") (.top (srt "Int")) (.equals (srt "Int") (srt "Int") fX (.and (srt "Int") [gX, en])), [uid]⟩
+
+/--
+info: some "\\and{SortInt{}}: an operand \\top of sort SortFoo{}, the ensures"
+some "\\and{SortInt{}}: an operand \\equals of sort SortFoo{}, the ensures"
+some "\\rewrites{SortInt{}}: an operand \\and of sort SortFoo{}, the conjunction of the right side with its ensures"
+some "\\and{SortInt{}}: an operand \\top of sort SortFoo{}, the ensures"
+-/
+#guard_msgs in
+#eval show IO Unit from do
+  IO.println (repr (bodyConjFault? (ensRule (srt "Int") (.top (srt "Foo")))))
+  IO.println (repr (bodyConjFault? (ensRule (srt "Int") (isTrueAt (srt "Foo") gt0))))
+  IO.println (repr (bodyConjFault? (ensRule (srt "Foo") (.top (srt "Foo")))))
+  IO.println (repr (bodyConjFault? (ensEqn (.top (srt "Foo")))))
+
+/-- The ill-sorted conjunctions are faults and the rewrite axioms holding them are refused
+`rhsOperandSort` by `classifyAxiom`; their twins are not. -/
+theorem ensConj_hand :
+    (bodyConjFault? (ensRule (srt "Int") (.top (srt "Foo")))).isSome ∧
+    (bodyConjFault? (ensRule (srt "Int") (isTrueAt (srt "Foo") gt0))).isSome ∧
+    (bodyConjFault? (ensRule (srt "Foo") (.top (srt "Foo")))).isSome ∧
+    (bodyConjFault? (ensEqn (.top (srt "Foo")))).isSome ∧
+    bodyConjFault? (ensRule (srt "Int") (.top (srt "Int"))) = none ∧
+    bodyConjFault? (ensRule (srt "Int") (isTrueAt (srt "Int") gt0)) = none ∧
+    bodyConjFault? (ensEqn (.top (srt "Int"))) = none ∧
+    classifyShape (.axiom (ensRule (srt "Int") (.top (srt "Foo")))) = .refused .rhsOperandSort ∧
+    classifyShape (.axiom (ensRule (srt "Foo") (.top (srt "Foo")))) = .refused .rhsOperandSort ∧
+    classifyShape (.axiom (ensRule (srt "Int") (.top (srt "Int")))) ≠ .refused .rhsOperandSort := by
+  decide +kernel
+
 end RhsSortCheck
 
 /-- info: 'RhsSortCheck.refused_hand' depends on axioms: [propext, Classical.choice, Quot.sound] -/
@@ -563,5 +609,7 @@ end RhsSortCheck
 #guard_msgs in #print axioms RhsSortCheck.connOp_hand
 /-- info: 'RhsSortCheck.iffEq_hand' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RhsSortCheck.iffEq_hand
+/-- info: 'RhsSortCheck.ensConj_hand' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RhsSortCheck.ensConj_hand
 /-- info: 'KCore.Parse.clauseBody_rhsSorted' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms clauseBody_rhsSorted

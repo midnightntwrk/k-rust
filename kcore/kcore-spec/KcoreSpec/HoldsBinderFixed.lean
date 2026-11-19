@@ -18,7 +18,8 @@ section HoldsBinderFixed
 variable {c : Semantics} {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
 
 /-- **The Holds lemma over `Cond.boundV` in every model of `Γc`**: `holds_entailsCEx` with
-`Cond.boundV c val` for `Cond.bound c`, `val` true only at sorts with a value. -/
+`Cond.boundV c val` for `Cond.bound c`, `val` true only at sorts with a value (`Cond.bound c` is
+the instance at `c.hasValue`, `Cond.bound_eq_boundV`). -/
 theorem holds_entails_fixed (h : c.coreOK = true) (hIc : I ⊧ᴵP Γc c)
     (hc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c)
     {val : Srt → Bool} (hval : ∀ s, val s = true → ∃ v, c.sortOf v = some s)

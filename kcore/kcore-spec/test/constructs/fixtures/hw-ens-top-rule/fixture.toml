@@ -1,0 +1,6 @@
+# Hand-written KORE: the kompiled text of fixture e7-implicitk (rule a() => b()), as hw-scope-iff writes it with b() in its
+# term position, and one sentence changed: the rewrite axiom's ensures \top{SortGeneratedTopCell{}}() written \top{SortExp{}}(), an operand of
+# \and{SortGeneratedTopCell{}}(<the right side>, _) of another sort than the conjunction's. The KORE syntax document gives each argument of a
+# connective the connective's sort parameter (kore-syntax.md:195, :330); kompile writes the ensures at the rewrite's sort and writes none of this.
+# Expected: rhsOperandSort.
+kore = "test/constructs/fixtures/hw-ens-top-rule/hw-ens-top-rule.kore"
