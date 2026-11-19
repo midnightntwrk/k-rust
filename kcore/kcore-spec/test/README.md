@@ -2058,6 +2058,13 @@ table above, on the tree before String and Bytes). Not investigated here.
   `TieReqBool.ceil_const`); neither is `{true}`. Hence Γ entails sentence 157
   (`rule157_entailed`), and at values (`rule157_at_values`). Expectations `implies_other`,
   `exists_other` (`go(1)` steps to `other`). About 3 minutes each.
+- `test/NotePredBoolForall.lean`: the same on the text of e3-ml-req-forall
+  (`requires (∀ Y:Int. {f(Y) = Y}) = true` at Bool, the text's one rule), for every H.
+  `rule_from_text` as there. The sentence's own left side holds nothing at every valuation
+  (`ltext0_empty`): an `\equals` into Bool is all of Bool or none of it, so the `\forall` of one
+  is (`forallEqBool_const`; `f`'s equation is not read), and neither is `{true}`. Hence Γ entails
+  sentence 157 (`rule157_entailed`), and at values (`rule157_at_values`). Expectation
+  `forall_stuck` (`go(1)` has no successor). About 3 minutes.
 - `test/NoteAndBool.lean`: the tie (C14) of the reading note `andAtBool` on its construct fixture's
   kompiled text (`f2-examples/mlreqv`, e3-ml-req-and-var), for every H, in the same form. Sentence
   113 (`requires \and{SortBool{}}(true, B) = true`) is entailed at values (`EntailsAtValues`,
