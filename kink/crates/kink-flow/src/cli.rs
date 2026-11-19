@@ -3065,7 +3065,10 @@ fn admission_status(admission: &FlowAdmission) -> u8 {
 /// and refuses a `[spec] assume_joined` name with one of the reasons `malformed`, `position-name`,
 /// `unnamed-sentence`, `no-digest`, `changed`, `no-finding`, `decided` or `ambiguous` where it
 /// refused `name-refused` (KINK-FINDING-NAMES).
-pub const CHECK_VERSION: u64 = 15;
+/// 16 gives the row of a case whose case document states `provenance` its `provenance`,
+/// `{found_by, reason}` ([`crate::manifest::Provenance`], PJ-22); a row of a case without one is
+/// version 15's.
+pub const CHECK_VERSION: u64 = 16;
 
 /// The check document's members, and under the Z3 profile `z3` ([`crate::with_z3_build`]); every
 /// document a verb gives for a manifest that does not decode is built from it
@@ -3187,6 +3190,10 @@ pub fn check_document(admission: &FlowAdmission) -> Value {
             // A case's expectation (`crate::expect`); absent without one.
             if let Some(expectation) = &program.expectation {
                 row["expectation"] = expectation.clone();
+            }
+            // A case's provenance, shown as stated; absent without one.
+            if let Some(provenance) = &program.provenance {
+                row["provenance"] = provenance.value();
             }
             row
         })

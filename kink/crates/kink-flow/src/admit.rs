@@ -351,6 +351,9 @@ pub struct ProgramAdmission {
     /// command checked it (`crate::expect`: `check` checks it against the program's current
     /// result record); `None` otherwise.
     pub expectation: Option<serde_json::Value>,
+    /// The case's `provenance` ([`crate::manifest::Provenance`]), which the check document shows
+    /// beside the row; `None` for a program without one.
+    pub provenance: Option<crate::manifest::Provenance>,
 }
 
 impl ProgramAdmission {
@@ -807,6 +810,7 @@ impl<'a> InputSession<'a> {
             outcome,
             exclusion,
             expectation: None,
+            provenance: program.provenance.clone(),
         }
     }
 

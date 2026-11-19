@@ -1348,6 +1348,7 @@ fn fragment(template: &Template, instance: &Instance, case: &WitnessCase) -> Fra
         case: None,
         case_file: None,
         expect: None,
+        provenance: None,
         stop_count: instance.stop_count,
     };
     let inputs = CaseInputs {
@@ -1601,6 +1602,7 @@ fn template_program(template: &Template, instance: &Instance) -> Program {
         case: None,
         case_file: None,
         expect: None,
+        provenance: None,
         stop_count: instance.stop_count,
     }
 }

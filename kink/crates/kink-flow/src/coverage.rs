@@ -482,7 +482,10 @@ pub const COVERAGE_SCHEMA: &str = "kink-flow-coverage";
 /// status joins (`undeclared-end` 1, `end-classes-overlap` 2, `end-undecided` 3), and an equation
 /// only the declared ends reach has the status `declared-end` (`counts.declared_end`), from which
 /// no flip is derived; a definition that declares none writes the document it wrote.
-pub const COVERAGE_VERSION: u64 = 25;
+/// 26 since the row of a case whose case document states `provenance` carries it, as the run
+/// document's does (`crate::report::RUN_VERSION` 43); a corpus that states none writes the
+/// document it wrote.
+pub const COVERAGE_VERSION: u64 = 26;
 
 /// The status of a rule some comparable program fired.
 pub const FIRED: &str = "fired";

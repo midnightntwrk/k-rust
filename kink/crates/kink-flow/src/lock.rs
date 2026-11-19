@@ -2488,6 +2488,43 @@ identity_sha256 = "aa"
         assert_eq!(value["failed"], json!([]), "{value:#}");
     }
 
+    /// A case's `provenance` on its program row (PJ-22) is in no lock section: the run,
+    /// coverage, compare and query sections a document renders are the same with and without it,
+    /// so stating, editing or removing it never makes `--locked` stale.
+    #[test]
+    fn a_case_provenance_is_in_no_lock_section() {
+        let program = |provenance: bool| {
+            let mut row = json!({"id": "p1", "class": "comparable", "cause": null});
+            if provenance {
+                row["provenance"] = crate::manifest::Provenance {
+                    found_by: Some("cargo-fuzz".to_owned()),
+                    reason: Some("a prefix read twice".to_owned()),
+                }
+                .value();
+            }
+            row
+        };
+        let query = json!({
+            "schema": crate::query::QUERY_SCHEMA,
+            "profile": "no-z3",
+            "spec": {"outcome": "admitted"},
+            "obligations": [],
+        });
+        for document in [
+            run_document(&[("m1", "killed", Some("p1"))]),
+            coverage_document(&[], &["r1"]),
+            compare_document(vec![answered("p1", "acc")]),
+            query,
+        ] {
+            let with = |provenance| {
+                let mut document = document.clone();
+                document["programs"] = json!([program(provenance)]);
+                lock_section(&document).unwrap()
+            };
+            assert_eq!(with(false), with(true), "{document:#}");
+        }
+    }
+
     /// A row of a run that gave no answer (the implementation failed, the clock cancelled it, or
     /// the clock stopped the definition's baseline) keeps its recorded verdicts: under `--locked`
     /// the section is `undecided` (exit 3), not stale, and a write leaves the file as it was.

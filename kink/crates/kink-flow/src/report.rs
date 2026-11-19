@@ -280,7 +280,10 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// has its declared class (`declared`, `declared_by`, `reason`, `reason_text`,
 /// `declared_detail`; `crate::evidence`, "Declared ends") and a row whose classes are a finding
 /// has `declared_end`; a definition that declares none writes the rows it wrote.
-pub const RUN_VERSION: u64 = 42;
+/// 43 since the row of a case whose case document states `provenance` carries it,
+/// `{found_by, reason}` ([`crate::manifest::Provenance`], PJ-22), in no digest or key; a corpus
+/// that states none writes the rows it wrote.
+pub const RUN_VERSION: u64 = 43;
 
 /// The name of the observation slot of an executed entry's `slots`, after the end slots
 /// ([`crate::observed::ResultProjection::slots`]), under `[observe]`.

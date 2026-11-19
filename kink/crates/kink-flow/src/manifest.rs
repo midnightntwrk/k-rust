@@ -694,10 +694,38 @@ pub struct Program {
     /// on it, so it is in no digest. `None` for a case without one and for every program that is
     /// no case of a case document.
     pub expect: Option<Table>,
+    /// `provenance`: who found the case and why it is in the corpus, as its case document states
+    /// it ([`Provenance`]); every report that shows the case's row shows it, and no run, digest
+    /// or key reads it. `None` for a case without one and for every program that is no case of a
+    /// case document.
+    pub provenance: Option<Provenance>,
     /// `stop_count`: the stop event this program's run ends at, in place of `[stop] count`: the
     /// count is a property of the observation of one program (a console ROM that needs more
     /// frames than another), while the rules are the corpus's. Only with `[stop]`.
     pub stop_count: Option<std::num::NonZeroU64>,
+}
+
+/// A case's `provenance`, `{ found_by, reason }`: which tool or person found the case, and why it
+/// is in the corpus. It is an authored fact about the case, not a fact about its runs, so a case
+/// document states it and a report shows it beside the case, and it is in no digest or key: two
+/// cases that differ only in their provenance are the same program to every store.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct Provenance {
+    /// `found_by`: the tool or person that found the case; `None` when not stated.
+    pub found_by: Option<String>,
+    /// `reason`: why the case is in the corpus; `None` when not stated.
+    pub reason: Option<String>,
+}
+
+impl Provenance {
+    /// The members of a case document's `provenance`.
+    pub const KEYS: [&str; 2] = ["found_by", "reason"];
+
+    /// How a report shows it: `{found_by, reason}`, null for a member not stated.
+    #[must_use]
+    pub fn value(&self) -> serde_json::Value {
+        serde_json::json!({"found_by": self.found_by, "reason": self.reason})
+    }
 }
 
 /// How messages name the manifest's directory, the tree a flow without `[corpus]` reads its cases
@@ -2333,6 +2361,7 @@ fn files_entry(
                 case: None,
                 case_file: None,
                 expect: None,
+                provenance: None,
                 stop_count,
             };
             (program, key.clone())
@@ -2380,6 +2409,7 @@ fn cases_entry(
                 case: Some(document.clone()),
                 case_file: case.file,
                 expect: case.expect,
+                provenance: case.provenance,
                 source: None,
                 start_sort: None,
                 variables: Vec::new(),
@@ -2448,6 +2478,7 @@ fn program(position: &str, entry: &Table, cases: &CaseRoot) -> Result<Program, M
         case: None,
         case_file: None,
         expect: None,
+        provenance: None,
         stop_count,
     })
 }

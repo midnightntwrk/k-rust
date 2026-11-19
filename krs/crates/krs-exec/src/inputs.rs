@@ -243,7 +243,7 @@
 //!
 //! A *case document* is a TOML or a JSON document, by its file's extension,
 //! that states one case or several named cases ([`CaseDocument`]).
-//! A *case* is a table of five keys, each of which may be absent:
+//! A *case* is a table of six keys, each of which may be absent:
 //!
 //! - `inputs`: a value for each input, by name
 //!   (a parameter's Rust name, or its configuration variable's K name with or without `$`),
@@ -275,6 +275,11 @@
 //! - `instances`: the instances the run starts with, of the optional and repeated cells it names
 //!   ("Instances", below).
 //! - `expect`: the end the case expects of its run ("Expectations", below).
+//! - `provenance`: which tool or person found the case and why it is in its corpus,
+//!   a table of `found_by` and `reason`, each optional and a non-empty string,
+//!   at least one given, and no other key ([`CaseProvenance`]).
+//!   It is an authored fact about the case: no run, input or expectation reads it,
+//!   so it changes nothing a case computes.
 //!
 //! A document of one case holds these keys at its top, and no other.
 //! A document of named cases holds `case`, the *list* of its cases,
@@ -721,9 +726,21 @@ pub struct Case {
     pub instances: Option<Json>,
     /// The `expect` table, read against the definition by [`crate::Semantics::expectation`].
     pub expect: Option<Json>,
+    /// Its `provenance`; `None` when the case states none.
+    pub provenance: Option<CaseProvenance>,
     /// The resolved name ([`InputFiles::read`]) of the data file the case is written in, which
     /// its paths are relative to; `None` for the top document.
     pub file: Option<String>,
+}
+
+/// A case's `provenance` ([module documentation](self#case-documents)): which tool or person
+/// found it, and why it is in its corpus.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct CaseProvenance {
+    /// `found_by`: the tool or person that found the case; `None` when not stated.
+    pub found_by: Option<String>,
+    /// `reason`: why the case is in its corpus; `None` when not stated.
+    pub reason: Option<String>,
 }
 
 /// How a case is run: its `run` table.
@@ -782,7 +799,14 @@ pub struct Expectation {
 }
 
 /// The keys of a case, besides a named case's `name`.
-const CASE_KEYS: [&str; 5] = ["inputs", "run", "observe", "instances", "expect"];
+const CASE_KEYS: [&str; 6] = [
+    "inputs",
+    "run",
+    "observe",
+    "instances",
+    "expect",
+    "provenance",
+];
 
 /// What a document of named cases gives every case that does not give its own: its `run` and its
 /// `observe`.
@@ -836,7 +860,7 @@ impl Case {
         }
         let Json::Object(top) = document else {
             return Err(InputError::document(
-                "a case document is a table: one case's `inputs`, `run`, `observe`, `instances` and `expect`, or named cases under `case`".to_owned(),
+                "a case document is a table: one case's `inputs`, `run`, `observe`, `instances`, `expect` and `provenance`, or named cases under `case`".to_owned(),
             ));
         };
         case_table(top, "", None, Shared::default(), None)
@@ -845,6 +869,10 @@ impl Case {
 
 /// The cases of a case document ([module documentation](self#case-documents)).
 #[derive(Clone, Debug, PartialEq)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "front ends match `One(Case)` by value; a document holds one case, read once"
+)]
 pub enum CaseDocument {
     /// A document of one case, which has no name.
     One(Case),
@@ -1025,11 +1053,11 @@ fn case_table(
             "a document of one case names none; named cases are listed under `case`".to_owned()
         } else if named {
             format!(
-                "unknown key `{key}` in a case; a named case has the keys `name`, `inputs`, `run`, `observe`, `instances` and `expect`"
+                "unknown key `{key}` in a case; a named case has the keys `name`, `inputs`, `run`, `observe`, `instances`, `expect` and `provenance`"
             )
         } else {
             format!(
-                "unknown key `{key}` in a case; a case has the keys `inputs`, `run`, `observe`, `instances` and `expect`"
+                "unknown key `{key}` in a case; a case has the keys `inputs`, `run`, `observe`, `instances`, `expect` and `provenance`"
             )
         };
         return Err(at(position, message));
@@ -1080,6 +1108,10 @@ fn case_table(
         }
         None => None,
     };
+    let provenance = top
+        .remove("provenance")
+        .map(|document| provenance(&document, &key_position(position, "provenance")))
+        .transpose()?;
     Ok(Case {
         name,
         inputs,
@@ -1087,8 +1119,50 @@ fn case_table(
         observe: observe.or_else(|| shared.observe.cloned().map(Box::new)),
         instances,
         expect,
+        provenance,
         file: file.map(str::to_owned),
     })
+}
+
+/// The `provenance` table `document` at `position`: `found_by` and `reason`, each a non-empty
+/// string, at least one given.
+fn provenance(document: &Json, position: &str) -> Result<CaseProvenance, InputError> {
+    let Json::Object(table) = document else {
+        return Err(at(
+            position,
+            "`provenance` is a table of `found_by` and `reason`, each a non-empty string"
+                .to_owned(),
+        ));
+    };
+    if let Some(key) = table
+        .keys()
+        .find(|key| !matches!(key.as_str(), "found_by" | "reason"))
+    {
+        return Err(at(
+            position,
+            format!("unknown key `{key}` in `provenance`; it has the keys `found_by` and `reason`"),
+        ));
+    }
+    let member = |name: &str| match table.get(name) {
+        None => Ok(None),
+        Some(Json::String(text)) if !text.is_empty() => Ok(Some(text.clone())),
+        Some(_) => Err(at(
+            &key_position(position, name),
+            format!("`{name}` is a non-empty string"),
+        )),
+    };
+    let provenance = CaseProvenance {
+        found_by: member("found_by")?,
+        reason: member("reason")?,
+    };
+    if provenance == CaseProvenance::default() {
+        return Err(at(
+            position,
+            "`provenance` states neither `found_by` nor `reason`; give one, or remove it"
+                .to_owned(),
+        ));
+    }
+    Ok(provenance)
 }
 
 /// The `run` table `document` at `position`; `replaces` when it is a case's own `run` beside its
@@ -2030,7 +2104,7 @@ impl CaseReader<'_> {
             let Json::Object(table) = item else {
                 return Err(at(
                     &here,
-                    "a named case is a table of `name`, `inputs`, `run`, `observe`, `instances` and `expect`"
+                    "a named case is a table of `name`, `inputs`, `run`, `observe`, `instances`, `expect` and `provenance`"
                         .to_owned(),
                 ));
             };
@@ -3612,8 +3686,8 @@ mod tests {
     use std::num::NonZeroU64;
 
     use super::{
-        Case, CaseDocument, CaseRun, InputFiles, Json, json_document, parse_hex, parse_int,
-        toml_document,
+        Case, CaseDocument, CaseProvenance, CaseRun, InputFiles, Json, json_document, parse_hex,
+        parse_int, toml_document,
     };
     use num_bigint::BigInt;
 
@@ -3827,6 +3901,7 @@ mod tests {
                 observe: None,
                 instances: None,
                 expect: Some(serde_json::json!({"halt": "stuck"})),
+                provenance: None,
                 file: None,
             }
         );
@@ -3841,7 +3916,7 @@ mod tests {
         let refusal = |text: &str| Case::from_toml(text).unwrap_err().to_string();
         assert_eq!(
             refusal("[inputs]\n[other]\n"),
-            "unknown key `other` in a case; a case has the keys `inputs`, `run`, `observe`, `instances` and `expect`"
+            "unknown key `other` in a case; a case has the keys `inputs`, `run`, `observe`, `instances`, `expect` and `provenance`"
         );
         assert_eq!(
             refusal("name = \"boot\"\n"),
@@ -4019,7 +4094,7 @@ mod tests {
         );
         assert_eq!(
             refusal(r#"[{"name": "x", "other": 1}]"#),
-            "at `[0]`: unknown key `other` in a case; a named case has the keys `name`, `inputs`, `run`, `observe`, `instances` and `expect`"
+            "at `[0]`: unknown key `other` in a case; a named case has the keys `name`, `inputs`, `run`, `observe`, `instances`, `expect` and `provenance`"
         );
         assert_eq!(
             refusal(r#"[{"name": "x"}, {"$data-file": "a.json"}]"#),
@@ -4047,12 +4122,112 @@ mod tests {
         );
         assert_eq!(
             refusal(r"[1]"),
-            "at `[0]`: a named case is a table of `name`, `inputs`, `run`, `observe`, `instances` and `expect`"
+            "at `[0]`: a named case is a table of `name`, `inputs`, `run`, `observe`, `instances`, `expect` and `provenance`"
         );
         assert_eq!(
             refusal("true"),
             "a case document is a table (one case, or named cases under `case`) or an array of named cases"
         );
+    }
+
+    /// A case's `provenance` is read as kink-flow's case reader reads it (kink-flow
+    /// `manifest::case_document::tests`, the same documents): in a document of one case, in a
+    /// named case and in a case of an included file, each member optional; a provenance that is no
+    /// table, states neither member, has another member, a member that is no non-empty string, or
+    /// stands at the top of a document of named cases is refused. No other part of a case reads
+    /// it.
+    #[test]
+    fn a_case_provenance_is_read_as_kink_reads_it() {
+        let stated = |found_by: Option<&str>, reason: Option<&str>| {
+            Some(CaseProvenance {
+                found_by: found_by.map(str::to_owned),
+                reason: reason.map(str::to_owned),
+            })
+        };
+        let mut files = Files(BTreeMap::from([(
+            "data/more.toml",
+            "[[case]]\nname = \"c\"\nprovenance = { found_by = \"libafl\" }\ninputs = { n = 3 }\n",
+        )]));
+        let provenances =
+            |text: &str, files: &mut Files| match CaseDocument::from_toml(text, None, files)
+                .unwrap()
+            {
+                CaseDocument::One(case) => vec![case.provenance],
+                CaseDocument::Named(cases) => {
+                    cases.into_iter().map(|case| case.provenance).collect()
+                }
+            };
+        assert_eq!(
+            provenances(
+                "provenance = { found_by = \"cargo-fuzz\", reason = \"a prefix read twice\" }\n[inputs]\nn = 1\n",
+                &mut files
+            ),
+            [stated(Some("cargo-fuzz"), Some("a prefix read twice"))]
+        );
+        assert_eq!(
+            provenances(
+                "[[case]]\nname = \"a\"\nprovenance = { reason = \"from the manual\" }\n[[case]]\nname = \"b\"\n",
+                &mut files
+            ),
+            [stated(None, Some("from the manual")), None]
+        );
+        assert_eq!(
+            provenances(
+                "case = [{ \"$data-file\" = \"data/more.toml\" }]\n",
+                &mut files
+            ),
+            [stated(Some("libafl"), None)]
+        );
+        let bare = Case::from_toml("[inputs]\nn = 1\n").unwrap();
+        let found =
+            Case::from_toml("provenance = { found_by = \"cargo-fuzz\" }\n[inputs]\nn = 1\n")
+                .unwrap();
+        assert_eq!(
+            Case {
+                provenance: None,
+                ..found
+            },
+            bare
+        );
+
+        for (text, refusal) in [
+            (
+                "provenance = \"fuzz\"\n",
+                "at `provenance`: `provenance` is a table of `found_by` and `reason`, each a non-empty string",
+            ),
+            (
+                "provenance = {}\n",
+                "at `provenance`: `provenance` states neither `found_by` nor `reason`; give one, or remove it",
+            ),
+            (
+                "provenance = { found_by = \"a\", tool = \"b\" }\n",
+                "at `provenance`: unknown key `tool` in `provenance`; it has the keys `found_by` and `reason`",
+            ),
+            (
+                "provenance = { found_by = 1 }\n",
+                "at `provenance.found_by`: `found_by` is a non-empty string",
+            ),
+            (
+                "provenance = { reason = \"\" }\n",
+                "at `provenance.reason`: `reason` is a non-empty string",
+            ),
+            (
+                "[[case]]\nname = \"a\"\nprovenance = { found_by = [\"a\"] }\n",
+                "at `case[0].provenance.found_by`: `found_by` is a non-empty string",
+            ),
+            (
+                "provenance = { found_by = \"a\" }\n[[case]]\nname = \"a\"\n",
+                "a document of named cases holds `case`, `run` and `observe` only; one case's `provenance` belongs in its table in `case`",
+            ),
+        ] {
+            assert_eq!(
+                CaseDocument::from_toml(text, None, &mut files)
+                    .unwrap_err()
+                    .to_string(),
+                refusal,
+                "{text}"
+            );
+        }
     }
 
     /// A file the document includes that includes the document back is a cycle through the

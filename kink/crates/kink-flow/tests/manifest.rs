@@ -61,6 +61,7 @@ fn a_minimal_manifest_takes_every_default() {
             case: None,
             case_file: None,
             expect: None,
+            provenance: None,
             stop_count: None,
         }]
     );
@@ -155,6 +156,7 @@ text = "1 + 2"
                 case: None,
                 case_file: None,
                 expect: None,
+                provenance: None,
                 stop_count: None,
             },
             Program {
@@ -166,6 +168,7 @@ text = "1 + 2"
                 case: None,
                 case_file: None,
                 expect: None,
+                provenance: None,
                 stop_count: None,
             },
         ]
@@ -272,6 +275,7 @@ fn a_program_without_file_or_text_is_a_program_less_case() {
             case: None,
             case_file: None,
             expect: None,
+            provenance: None,
             stop_count: None,
         }]
     );

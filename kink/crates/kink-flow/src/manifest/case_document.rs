@@ -1,9 +1,9 @@
 //! A case document a `cases` pattern matched: one case, or named cases (the krs case document,
 //! read here with kink's containment rule).
 //!
-//! A document of one case holds `inputs` and `expect` at its top. A document of named cases holds
-//! `case`, the list of its cases: an array (TOML's `[[case]]` tables) of named cases, each a table
-//! of `name`, `inputs` and `expect`, and of includes, `{ "$data-file" = "path" }`, each naming a
+//! A document of one case holds `inputs`, `expect` and `provenance` at its top. A document of named
+//! cases holds `case`, the list of its cases: an array (TOML's `[[case]]` tables) of named cases,
+//! each a table of `name`, `inputs`, `expect` and `provenance`, and of includes, `{ "$data-file" = "path" }`, each naming a
 //! `.toml` or `.json` file whose document is a list (an array, or a table whose one key is
 //! `case`, as TOML writes a list), whose cases stand at the include's place; `case` may itself be
 //! an include. A path an included file names, an include's or one in a case's values, is
@@ -17,8 +17,13 @@
 //! document of named cases: kink runs every program of a corpus as the corpus says (`[stop]`,
 //! the entry's `stop_count`, `[budget]`), and a second statement of where a run ends would make
 //! the ends kink compares those of another observation than the one the case document states.
+//!
+//! A case's `provenance`, `{ found_by, reason }`, says which tool or person found it and why it is
+//! in the corpus ([`Provenance`]): each member optional and a nonempty string, at least one given,
+//! and no other member. It is read as written and changes no run: a report shows it, and no digest
+//! or key holds it.
 
-use super::{CaseRoot, ManifestError, join, program_key};
+use super::{CaseRoot, ManifestError, Provenance, join, program_key};
 use crate::admit::{InputFiles, ManifestFiles};
 use std::{collections::BTreeMap, fs, path::Path};
 use toml::{Table, Value};
@@ -53,6 +58,8 @@ pub(super) struct DocumentCase {
     pub(super) inputs: Table,
     /// `expect`: the end the case expects, kept as written.
     pub(super) expect: Option<Table>,
+    /// `provenance`, when given.
+    pub(super) provenance: Option<Provenance>,
     /// The name of the included file the case is written in, as [`InputFiles::read`] gives it
     /// (its path relative to the manifest's directory, links resolved); `None` for a case of the
     /// matched document itself.
@@ -107,18 +114,22 @@ pub(super) fn case_document(root: &CaseRoot, id: &str) -> Result<Vec<DocumentCas
     Ok(reader.cases)
 }
 
+/// The keys of a case, besides a named case's `name`.
+const CASE_KEYS: [&str; 3] = ["inputs", "expect", "provenance"];
+
 /// The one case of a document whose top is `document`, named `key`.
 fn one_case(mut document: Table, key: &str) -> Result<DocumentCase, ManifestError> {
     if let Some(other) = document
         .keys()
-        .find(|other| !matches!(other.as_str(), "inputs" | "expect"))
+        .find(|other| !CASE_KEYS.contains(&other.as_str()))
     {
         let message = match other.as_str() {
             "run" => run_refused(document.get("run")),
             "name" => {
                 "a document of one case names none; named cases are listed under `case`".to_owned()
             }
-            _ => "unknown key in a case document; a case has the keys `inputs` and `expect`"
+            _ => "unknown key in a case document; a case has the keys `inputs`, `expect` and \
+                  `provenance`"
                 .to_owned(),
         };
         return Err(ManifestError::new(join(key, other), message));
@@ -127,6 +138,7 @@ fn one_case(mut document: Table, key: &str) -> Result<DocumentCase, ManifestErro
         name: None,
         inputs: super::inputs(&document, key)?,
         expect: expect(&mut document, key)?,
+        provenance: provenance(&mut document, key)?,
         file: None,
     })
 }
@@ -141,6 +153,50 @@ fn expect(case: &mut Table, key: &str) -> Result<Option<Table>, ManifestError> {
             "expected a table of the expected end: `halt`, `rule`, `cells` and `compare`",
         )),
     }
+}
+
+/// `provenance` of a case named `key`, when given: a table of `found_by` and `reason`, each a
+/// nonempty string, at least one given (module documentation).
+fn provenance(case: &mut Table, key: &str) -> Result<Option<Provenance>, ManifestError> {
+    let at = join(key, "provenance");
+    let table = match case.remove("provenance") {
+        None => return Ok(None),
+        Some(Value::Table(table)) => table,
+        Some(_) => {
+            return Err(ManifestError::new(
+                at,
+                "`provenance` is a table of `found_by` and `reason`, each a nonempty string",
+            ));
+        }
+    };
+    if let Some(other) = table
+        .keys()
+        .find(|other| !Provenance::KEYS.contains(&other.as_str()))
+    {
+        return Err(ManifestError::new(
+            join(&at, other),
+            "unknown key in `provenance`; it has the keys `found_by` and `reason`",
+        ));
+    }
+    let member = |name: &str| match table.get(name) {
+        None => Ok(None),
+        Some(Value::String(text)) if !text.is_empty() => Ok(Some(text.clone())),
+        Some(_) => Err(ManifestError::new(
+            join(&at, name),
+            format!("`{name}` is a nonempty string"),
+        )),
+    };
+    let provenance = Provenance {
+        found_by: member("found_by")?,
+        reason: member("reason")?,
+    };
+    if provenance == Provenance::default() {
+        return Err(ManifestError::new(
+            at,
+            "states neither `found_by` nor `reason`; give one, or remove `provenance`",
+        ));
+    }
+    Ok(Some(provenance))
 }
 
 /// Reads the named cases of one document, following its includes.
@@ -177,7 +233,7 @@ impl CaseList<'_> {
             let Value::Table(case) = item else {
                 return Err(ManifestError::new(
                     here,
-                    "a named case is a table of `name`, `inputs` and `expect`",
+                    "a named case is a table of `name`, `inputs`, `expect` and `provenance`",
                 ));
             };
             let mut case = case.clone();
@@ -207,12 +263,13 @@ impl CaseList<'_> {
             }
             if let Some(other) = case
                 .keys()
-                .find(|other| !matches!(other.as_str(), "inputs" | "expect"))
+                .find(|other| !CASE_KEYS.contains(&other.as_str()))
             {
                 let message = if other == "run" {
                     run_refused(case.get("run"))
                 } else {
-                    "unknown key in a named case; it has the keys `name`, `inputs` and `expect`"
+                    "unknown key in a named case; it has the keys `name`, `inputs`, `expect` and \
+                     `provenance`"
                         .to_owned()
                 };
                 return Err(ManifestError::new(join(&here, other), message));
@@ -221,6 +278,7 @@ impl CaseList<'_> {
             self.cases.push(DocumentCase {
                 inputs: super::inputs(&case, &here)?,
                 expect: expect(&mut case, &here)?,
+                provenance: provenance(&mut case, &here)?,
                 name: Some(name),
                 file: from.map(str::to_owned),
             });
@@ -308,5 +366,175 @@ fn include<'v>(value: &'v Value, key: &str) -> Result<Option<&'v str>, ManifestE
             key,
             "a tagged form is a table with exactly one key",
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::{FlowManifest, ManifestError, Provenance};
+    use crate::admit::CaseInputs;
+    use crate::digest::{program_digest, program_payload};
+    use std::{fs, path::PathBuf};
+
+    /// A fresh corpus of this test process holding `files` (path, text) under `cases/`, whose
+    /// manifest matches every `.toml` file directly under `cases/` (`cases/data/` holds the
+    /// included files).
+    fn corpus(name: &str, files: &[(&str, &str)]) -> PathBuf {
+        let dir = std::env::temp_dir()
+            .join(format!(
+                "kink-flow-case-document-unit-{}",
+                std::process::id()
+            ))
+            .join(name);
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("cases/data")).unwrap();
+        for (path, text) in files {
+            fs::write(dir.join("cases").join(path), text).unwrap();
+        }
+        fs::write(
+            dir.join("FLOW.toml"),
+            "[spec]\nentry = \"x.k\"\nmain_module = \"X\"\n\n[[program]]\ncases = \"cases/*.toml\"\n",
+        )
+        .unwrap();
+        dir
+    }
+
+    fn read(name: &str, files: &[(&str, &str)]) -> Result<FlowManifest, ManifestError> {
+        FlowManifest::read(&corpus(name, files).join("FLOW.toml"))
+    }
+
+    fn stated(found_by: Option<&str>, reason: Option<&str>) -> Option<Provenance> {
+        Some(Provenance {
+            found_by: found_by.map(str::to_owned),
+            reason: reason.map(str::to_owned),
+        })
+    }
+
+    /// The documents krs-exec's case table reads alike (krs-exec `inputs::tests`,
+    /// `a_case_provenance_is_read_as_kink_reads_it`): each accepted with the provenance of its
+    /// cases in order, or refused at the key named.
+    const ACCEPTED: [&str; 3] = [
+        "provenance = { found_by = \"cargo-fuzz\", reason = \"a prefix read twice\" }\n[inputs]\nn = 1\n",
+        "[[case]]\nname = \"a\"\nprovenance = { reason = \"from the manual\" }\n[[case]]\nname = \"b\"\n",
+        "case = [{ \"$data-file\" = \"data/more.toml\" }]\n",
+    ];
+
+    /// A case's `provenance` is read in a document of one case, in a named case and in a case of
+    /// an included file, each member optional; a case without one has none.
+    #[test]
+    fn a_case_states_its_provenance() {
+        let more = (
+            "data/more.toml",
+            "[[case]]\nname = \"c\"\nprovenance = { found_by = \"libafl\" }\ninputs = { n = 3 }\n",
+        );
+        let manifest = read(
+            "provenance-read",
+            &[
+                ("one.toml", ACCEPTED[0]),
+                ("named.toml", ACCEPTED[1]),
+                ("included.toml", ACCEPTED[2]),
+                more,
+            ],
+        )
+        .unwrap();
+        let read = manifest
+            .programs
+            .iter()
+            .map(|program| (program.id.as_str(), program.provenance.clone()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            read,
+            [
+                ("cases/included.toml#c", stated(Some("libafl"), None)),
+                ("cases/named.toml#a", stated(None, Some("from the manual"))),
+                ("cases/named.toml#b", None),
+                (
+                    "cases/one.toml",
+                    stated(Some("cargo-fuzz"), Some("a prefix read twice"))
+                ),
+            ]
+        );
+    }
+
+    /// A `provenance` that is no table, states neither member, has another member, a member
+    /// that is no nonempty string, or stands at the top of a document of named cases is refused,
+    /// naming its position.
+    #[test]
+    fn a_malformed_provenance_is_refused() {
+        let id = "program \"cases/case.toml\"";
+        for (document, key, message) in [
+            (
+                "provenance = \"fuzz\"\n",
+                format!("{id}.provenance"),
+                "is a table of `found_by` and `reason`",
+            ),
+            (
+                "provenance = {}\n",
+                format!("{id}.provenance"),
+                "states neither `found_by` nor `reason`",
+            ),
+            (
+                "provenance = { found_by = \"a\", tool = \"b\" }\n",
+                format!("{id}.provenance.tool"),
+                "unknown key in `provenance`",
+            ),
+            (
+                "provenance = { found_by = 1 }\n",
+                format!("{id}.provenance.found_by"),
+                "`found_by` is a nonempty string",
+            ),
+            (
+                "provenance = { reason = \"\" }\n",
+                format!("{id}.provenance.reason"),
+                "`reason` is a nonempty string",
+            ),
+            (
+                "[[case]]\nname = \"a\"\nprovenance = { found_by = [\"a\"] }\n",
+                format!("{id}.case[0].provenance.found_by"),
+                "`found_by` is a nonempty string",
+            ),
+            (
+                "provenance = { found_by = \"a\" }\n[[case]]\nname = \"a\"\n",
+                format!("{id}.provenance"),
+                "a document of named cases holds `case` only",
+            ),
+        ] {
+            let error = read("provenance-refused", &[("case.toml", document)]).expect_err(document);
+            assert_eq!(error.key, key, "{document}: {error}");
+            assert!(error.message.contains(message), "{document}: {error}");
+        }
+    }
+
+    /// Two cases that differ only in their provenance are one program to every store: the same
+    /// program payload and digest (README 5.3), which every result and outcome key holds.
+    #[test]
+    fn a_case_provenance_is_in_no_program_digest() {
+        let program = |name: &str, document: &str| {
+            read(name, &[("case.toml", document)])
+                .unwrap()
+                .programs
+                .remove(0)
+        };
+        let bare = program("provenance-bare", "[inputs]\nn = 1\n");
+        let stated = program(
+            "provenance-stated",
+            "provenance = { found_by = \"cargo-fuzz\", reason = \"why\" }\n[inputs]\nn = 1\n",
+        );
+        assert_ne!(bare.provenance, stated.provenance);
+        assert_eq!(bare.inputs, stated.inputs);
+        let inputs = CaseInputs {
+            text: None,
+            typed: Vec::new(),
+            bound: None,
+            defaults: Vec::new(),
+        };
+        assert_eq!(
+            program_payload(&bare, &inputs),
+            program_payload(&stated, &inputs)
+        );
+        assert_eq!(
+            program_digest(&bare, &inputs),
+            program_digest(&stated, &inputs)
+        );
     }
 }

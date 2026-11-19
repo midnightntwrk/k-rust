@@ -225,8 +225,8 @@ A pattern that matches nothing is an error, not an empty corpus: a typo or a run
 
 `files` takes `start_sort`, `variables` and `inputs` beside it (`file` and `text` are the matches').
 `cases` takes no other key but `stop_count`: a match is a case document, the document `krs run --case` reads, so the document is the whole case in every tool.
-A document of one case holds the case's typed inputs under `[inputs]` by input name and the end it expects under `[expect]` ("Expectations", below), and no other top-level key.
-A document of named cases holds only `case`, the list of its cases: an array (`[[case]]` tables) of named cases, each a table of `name`, `inputs` and `expect`, and of includes, `{ "$data-file" = "path" }`, each naming a `.toml` or `.json` file whose document is such a list (an array, or a table whose one key is `case`), whose cases stand at the include's place; `case` may itself be an include.
+A document of one case holds the case's typed inputs under `[inputs]` by input name, the end it expects under `[expect]` ("Expectations", below) and who found it under `provenance` ("Provenance", below), and no other top-level key.
+A document of named cases holds only `case`, the list of its cases: an array (`[[case]]` tables) of named cases, each a table of `name`, `inputs`, `expect` and `provenance`, and of includes, `{ "$data-file" = "path" }`, each naming a `.toml` or `.json` file whose document is such a list (an array, or a table whose one key is `case`), whose cases stand at the include's place; `case` may itself be an include.
 A name is a nonempty string that no other case of the document has, the included files' cases included, so that the document's path and the name identify the case; the cases are programs in document order.
 A case's `run`, how `krs run --case` runs it on its own, is refused, in a case and beside `case`: kink runs every program as the corpus says (`[stop]`, `stop_count`, `[budget]`), and the ends a kill compares are those of that one observation.
 A `stop_count` beside `cases` is not part of the case but of how the corpus observes it ("Where a run ends"), and applies to every case the entry matches.
@@ -272,6 +272,23 @@ A baseline that misses its own expectation is a finding about the specification 
 Every kill by the case is still a difference between a mutant's ends and the baseline's, which is what a kill means whatever the case expects, so no verdict or status depends on an expectation.
 Only `coverage`, which asks whether each baseline meets its expectation, exits by it: 1 for an `unmet` one, 3 for an `inconclusive` one ("Exit status").
 No run depends on one either: it is in no digest, no cache key and no stored record, and every command that reports it checks it again from the baseline's ends.
+
+### Provenance
+
+A case's `provenance` states which tool or person found the case and why it is in the corpus, as its author knows it:
+
+```toml
+provenance = { found_by = "cargo-fuzz decode_target", reason = "a prefix byte the decoder read twice" }
+
+[inputs]
+pc = 256
+```
+
+It is a table of `found_by` and `reason`, each optional and a nonempty string, at least one given, and no other key; another value is a manifest error naming the position.
+A case states it, in a document of one case or in a named case; a document of named cases holds none beside `case`.
+`krs run --case` and `krs cases` read the same key under the same rule (krs-exec's case documents), so a document one reader accepts the other accepts.
+Who found a case is an authored fact about it, not a fact kink derives (the lock holds those), and no run depends on it: it is in no digest, no cache key, no stored record and no lock, so adding, editing or removing it reruns nothing and moves no lock.
+The case's row in the `check`, `coverage`, `run` and `query` documents carries it as `provenance: {found_by, reason}`, null for a member not stated; a row of a case without one has no `provenance`.
 
 Defaults:
 
@@ -627,6 +644,7 @@ Version 12 adds `stop.when` under a stop condition, the reason `unsupported-fron
 Version 13 adds `observe` for a corpus with `[observe]` (absent without one), the declaration as every run compares by it, the stage `observe` (reasons `point-unresolved`, `cell-refused`, `backend-error` and `unsupported-front-end`) and the warning `point-rule-deleted` ("What a run observes").
 Version 14 adds `z3` under the Z3 profile, the Z3 build, `{version, library_sha256}`, as the run document names it ("The report: the run document"); the portable document has no such member.
 Version 15 (KINK-FINDING-NAMES) names each finding by its kind, sentences and digest (`spec.assume_joined` above), gives each finding its `sentences` (`{part, at}`, `at` the generated K's position, information only), and refuses a `[spec] assume_joined` name with its own reason where version 14 refused every one as `name-refused`; a genuine finding's name is refused.
+Version 16 (PJ-22) gives the row of a case whose document states `provenance` its `provenance`, `{found_by, reason}` ("Provenance"); a row of a case without one is version 15's.
 Each case's expectation and the coverage warnings are read from result records, whose classes and coverage the baseline runs decided by asking the solver, and a record is read only under a key that names the Z3 build ("The cache directory"), so under Z3 what `check` says is a function of the build as much as of the profile.
 The document every verb prints for a manifest that does not decode is built from the check document's header, so it names the build too.
 
@@ -1226,7 +1244,7 @@ Version 19 (FB-39) sets aside the functions only the manifest's invariants reach
 Version 20 (KINK-FINDING-NAMES) names each finding of `data`, and the findings an argued item's `argument_check.function` and standing name, by its kind, sentences and digest (`spec.assume_joined` above), where version 19 named them by generated-K positions; a finding has `sentences`.
 Version 21 (FB45-LOCKED-TIMEOUT) keeps a coverage lock entry a run the clock stopped could change ("What decides a verdict"): `lock.kept`, `lock.clock_stopped`, the `lock.status` `undecided`, each flip's `timed_out`, and an argued item's `argument_check.evidence.clock_stopped`. It also gives the document's `lock` its `legacy`, `{path, status, moved}`, where the command was given an old lock file that is still there ("The corpus record", "Old files"; FB48-ONE-LOCK, unreleased with this version).
 `settings` is `{tiers, depth, mcdc, max_obligations, invariants, argued, source}` (`mcdc` the names as written, or `true`; `invariants` the tables as written, `{name, function, cells, identity}`, `identity` what the checks are about once the front end resolved the invariant, null on a document refused before that; `argued` the entries as written, `{item, argument, invariant}`, `invariant` null where the entry names none) (`source` `manifest` when `FLOW.toml` has a `[coverage]` section, else `default`).
-`programs` lists every program `{id, digest, class, cause, cached, verify, wall_ms, specification_diagnostics, smt_unknowns, decider_smt_unknowns, ends, short_circuit_readings, expectation?, observations?, not_cached?, cache_error?, unable_to_kill?}` (`observations` under `[observe]`, "What a run observes") (`ends` from the result record, null unless comparable; `short_circuit_readings` the readings that excluded the baseline run, empty for every other run; `specification_diagnostics` and `smt_unknowns` absent on a `refused` row; a `comparable` row has `unable_to_kill: "baseline-findings"` while the baseline has a finding `[spec] assume_joined` leaves unnamed, its class and coverage being facts of the run k-rust made).
+`programs` lists every program `{id, digest, class, cause, cached, verify, wall_ms, specification_diagnostics, smt_unknowns, decider_smt_unknowns, ends, short_circuit_readings, expectation?, provenance?, observations?, not_cached?, cache_error?, unable_to_kill?}` (`observations` under `[observe]`, "What a run observes") (`ends` from the result record, null unless comparable; `short_circuit_readings` the readings that excluded the baseline run, empty for every other run; `specification_diagnostics` and `smt_unknowns` absent on a `refused` row; a `comparable` row has `unable_to_kill: "baseline-findings"` while the baseline has a finding `[spec] assume_joined` leaves unnamed, its class and coverage being facts of the run k-rust made).
 `families` holds each family by name: `{tier, obligations, covered, argued, measure, counts, items}` where built.
 `summary` is `{programs, comparable, computed, mismatches, covered, argued, open, per_family, needless_arguments, argued_by_standing, failed_arguments}`, `per_family` giving each built family's `{obligations, covered, argued, open}` (the flips' where they ran, their obligations less the refused and equivalent ones), `open` being obligations less covered less argued; `covered`, `argued` and `open` are the sums over the families computed, `open` the number of targets.
 The exit status is `coverage`'s (above), joined with 3 for an `unknown` flip and 2 for a flip whose search ended in an error; a refused flip is no finding about the corpus.

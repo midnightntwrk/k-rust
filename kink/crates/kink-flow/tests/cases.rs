@@ -114,6 +114,7 @@ text = "2"
             case: None,
             case_file: None,
             expect: None,
+            provenance: None,
             stop_count: None,
         }
     );
@@ -436,6 +437,7 @@ fn a_case_document_is_the_whole_case() {
                 case: Some("cases/boot/case.toml".into()),
                 case_file: None,
                 expect: None,
+                provenance: None,
                 stop_count: None,
             },
             Program {
@@ -447,6 +449,7 @@ fn a_case_document_is_the_whole_case() {
                 case: Some("cases/empty/case.toml".into()),
                 case_file: None,
                 expect: None,
+                provenance: None,
                 stop_count: None,
             }
         ]
@@ -467,7 +470,7 @@ fn a_case_document_is_the_whole_case() {
     refused(
         "program = 1",
         &format!("{id}.program"),
-        "a case has the keys `inputs` and `expect`",
+        "a case has the keys `inputs`, `expect` and `provenance`",
     );
     refused("[inputs", id, "no TOML document");
 
@@ -1223,7 +1226,7 @@ fn named_cases_are_programs_named_by_their_document_and_name() {
     refused(
         "[[case]]\nname = \"a\"\nfile = \"x\"\n",
         &format!("{id}.case[0].file"),
-        "it has the keys `name`, `inputs` and `expect`",
+        "it has the keys `name`, `inputs`, `expect` and `provenance`",
     );
     refused(
         "[[case]]\nname = \"a\"\nexpect = 1\n",
@@ -1437,7 +1440,7 @@ fn a_case_expectation_is_checked_by_the_front_ends_renderer() {
         )
     });
     assert_eq!(status, kink_flow::cli::EXIT_YES, "{check:#}");
-    assert_eq!(check["version"], 15, "{check:#}");
+    assert_eq!(check["version"], 16, "{check:#}");
     assert_eq!(expectations(&check), reported, "{check:#}");
 
     // A refused expectation refuses its case.
@@ -1472,4 +1475,66 @@ fn a_case_expectation_is_checked_by_the_front_ends_renderer() {
         "{check:#}"
     );
     assert_eq!(row["expectation"]["verdict"], "inconclusive", "{check:#}");
+}
+
+/// A case's `provenance` is shown in its row of `coverage` and `check` as its document states
+/// it, and a case without one has none; it is in no digest or key: stating it leaves the
+/// program's digest as it was, and its result record, keyed by that digest, answers again.
+#[test]
+fn a_case_provenance_is_shown_and_in_no_digest_or_key() {
+    let dir = scratch("provenance");
+    write(&dir.join("cases.k"), CASES_K);
+    fs::create_dir_all(dir.join("cases")).unwrap();
+    fs::write(dir.join("cases/rom.bin"), [0x07]).unwrap();
+    let case = |name: &str, provenance: &str| {
+        format!(
+            "[[case]]\nname = \"{name}\"\n{provenance}inputs = {{ entry = {{ \"$go\" = true }}, n = 1, rom = {{ \"$file\" = \"rom.bin\" }} }}\n"
+        )
+    };
+    write(
+        &dir.join("FLOW.toml"),
+        "[spec]\nentry = \"cases.k\"\nmain_module = \"CASES\"\n\n[[program]]\ncases = \"cases/*.toml\"\n",
+    );
+    let coverage = |provenance: &str| {
+        write(
+            &dir.join("cases/runs.toml"),
+            &[case("found", provenance), case("plain", "")].concat(),
+        );
+        let manifest = read(&dir)
+            .unwrap()
+            .with_input_decoder(std::sync::Arc::new(TestDecoder));
+        let (document, ok) =
+            on_stack(move || kink_flow::coverage::coverage(&manifest, &CoverageOptions::default()));
+        assert!(ok, "{document:#}");
+        document
+    };
+    let before = coverage("");
+    let after =
+        coverage("provenance = { found_by = \"cargo-fuzz\", reason = \"a prefix read twice\" }\n");
+    let stated = serde_json::json!({"found_by": "cargo-fuzz", "reason": "a prefix read twice"});
+    // The second run reads each record the first wrote, under a key that names the program
+    // digest: a key that held the provenance would miss, and the program would run again.
+    assert_eq!(after["result_cache"]["enabled"], true, "{after:#}");
+    for (index, provenance) in [(0, Some(&stated)), (1, None)] {
+        let (was, is) = (&before["programs"][index], &after["programs"][index]);
+        assert_eq!(was.get("provenance"), None, "{before:#}");
+        assert_eq!(is.get("provenance"), provenance, "{after:#}");
+        assert!(was["digest"].is_string(), "{before:#}");
+        assert_eq!(was["digest"], is["digest"], "{after:#}");
+        assert_eq!(is["cached"], true, "{after:#}");
+    }
+
+    let manifest = read(&dir)
+        .unwrap()
+        .with_input_decoder(std::sync::Arc::new(TestDecoder));
+    let (check, status) = on_stack(move || {
+        kink_flow::cli::run_command(
+            &manifest,
+            &kink_flow::FlowCommand::Check(kink_flow::cli::CheckOptions::default()),
+            &kink_flow::FrontEnd::default(),
+        )
+    });
+    assert_eq!(status, kink_flow::cli::EXIT_YES, "{check:#}");
+    assert_eq!(check["programs"][0]["provenance"], stated, "{check:#}");
+    assert_eq!(check["programs"][1].get("provenance"), None, "{check:#}");
 }

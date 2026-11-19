@@ -428,7 +428,7 @@ fn a_chain_is_answered_along_the_paths_of_a_run() {
     let patterns = dir.join("PATTERNS.toml");
     let (document, status) = plain(&manifest, &patterns);
     assert_eq!(status, EXIT_YES, "{document:#}");
-    assert_eq!(document["version"], 13);
+    assert_eq!(document["version"], 14);
     assert_eq!(
         answers(&document),
         expect(&[
@@ -858,7 +858,7 @@ fn a_chain_run_is_bounded_by_its_work_budget() {
     let (manifest, patterns) = (dir.join("FLOW.toml"), dir.join("PATTERNS.toml"));
     let (document, status) = plain(&manifest, &patterns);
     assert_eq!(status, EXIT_UNANSWERED, "{document:#}");
-    assert_eq!(document["version"], 13);
+    assert_eq!(document["version"], 14);
     let polls = document["programs"][0]["polls"]
         .as_u64()
         .or_else(|| read_json(&result_record(&dir, &document, "fan"))["polls"].as_u64())
@@ -1478,7 +1478,7 @@ fn a_stopped_no_needs_every_count_of_undecided_solver_answers_zero() {
         &dir.join("PATTERNS.toml"),
         cache("stop"),
     );
-    assert_eq!(document["version"], 13, "{document:#}");
+    assert_eq!(document["version"], 14, "{document:#}");
     assert_eq!(
         document["stop"],
         json!({"before": [], "after": ["UNDECIDED.step"], "count": 1}),
@@ -1993,7 +1993,7 @@ fn the_first_query_records_one_witness_per_pattern() {
     let dir = fixture("witness", "witness-first");
     let (document, status) = locked_query(&dir, false, false);
     assert_eq!(status, EXIT_YES, "{document:#}");
-    assert_eq!(document["version"], 13);
+    assert_eq!(document["version"], 14);
     let first = owed(&[
         ("above-five", "hit", Some("B")),
         ("result-hundred", "open", None),
@@ -2260,7 +2260,7 @@ fn a_refuted_claim_is_explained_by_the_parts_of_its_pattern() {
     let dir = fixture("explain", "explain-claims");
     let (document, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
     assert_eq!(status, REFUTED_STATUS, "{document:#}");
-    assert_eq!(document["version"], 13);
+    assert_eq!(document["version"], 14);
     let conjunct = "requires conjunct 1: C:Int <=Int size ( L:List )";
 
     let one = explained(&document, "request-during-write", "boot");
@@ -2966,7 +2966,7 @@ programs = ["add"]
         );
         let (document, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
         assert_eq!(status, EXIT_YES, "{document:#}");
-        assert_eq!(document["version"], 13);
+        assert_eq!(document["version"], 14);
         let hit = row(&document, "filled", "twelve");
         assert_eq!(hit["answer"], "hit", "{hit:#}");
         let witness = &hit["witness"];
@@ -3116,7 +3116,7 @@ programs = ["add"]
         let (document, status) = plain(&dir.join("FLOW.toml"), &patterns);
         assert_eq!(status, REFUTED_STATUS, "{document:#}");
         assert_eq!(document["schema"], "kink-flow-query");
-        assert_eq!(document["version"], 13);
+        assert_eq!(document["version"], 14);
         // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
         // identity, not the version alone.
         assert_eq!(document["k_rust_revision"], k_rust::build_identity());

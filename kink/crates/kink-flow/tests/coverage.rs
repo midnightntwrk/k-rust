@@ -351,6 +351,7 @@ fn a_program_digest_changes_with_its_text_start_sort_and_variables_only() {
         case: None,
         case_file: None,
         expect: None,
+        provenance: None,
         stop_count: None,
     };
     let base = program_digest(&program("p"), &"1 + 2".into());
@@ -1764,7 +1765,7 @@ text = 'h(opaque(1), 2)'
         // checks an argued item's invariant by its connection; its eighteenth also by its
         // evidence on runs.
         assert_eq!(document["schema"], "kink-flow-coverage");
-        assert_eq!(document["version"], 25);
+        assert_eq!(document["version"], 26);
         // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
         // identity, not the version alone.
         assert_eq!(document["k_rust_revision"], k_rust::build_identity());

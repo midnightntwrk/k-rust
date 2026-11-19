@@ -2571,8 +2571,11 @@ fn program_row(
 ) -> ProgramRow {
     // `wall_ms`: the wall time of the program's live baseline run, from the record (outside
     // the key and the run digest; flow F-13).
+    // A case's provenance is shown as its case document states it, on the row only: neither the
+    // program digest nor the record (`record_value`) holds it, so it moves no key; absent without
+    // one, so a corpus that states none writes the rows it wrote.
     let row = |digest: Option<Sha256Digest>, class: &str, cause: &Value, cached, verify: Value| {
-        json!({
+        let mut row = json!({
             "id": program.id,
             "digest": digest.map(|d| d.to_string()),
             "class": class,
@@ -2580,7 +2583,11 @@ fn program_row(
             "cached": cached,
             "verify": verify,
             "wall_ms": null,
-        })
+        });
+        if let Some(provenance) = &program.provenance {
+            row["provenance"] = provenance.value();
+        }
+        row
     };
     // Re-pin adoption A-1: the record's specification diagnostics and undecided solver answers
     // too (outside the key and the run digest).

@@ -243,7 +243,9 @@ pub const QUERY_SCHEMA: &str = "kink-flow-query";
 /// 13 since, in a definition that declares ends, program rows carry their ends' declared classes
 /// and `declared_end`, as the run document's do; a definition that declares none writes the
 /// document it wrote, but for `version`.
-pub const QUERY_VERSION: u64 = 13;
+/// 14 since the row of a case whose case document states `provenance` carries it, as the run
+/// document's does; a corpus that states none writes the document it wrote, but for `version`.
+pub const QUERY_VERSION: u64 = 14;
 /// A cached answer's schema, and its key's `schema_version`.
 pub const RECORD_SCHEMA: &str = "kink-flow-pattern";
 /// The record's format and what its answers mean: it changes whenever what counts as a hit or a

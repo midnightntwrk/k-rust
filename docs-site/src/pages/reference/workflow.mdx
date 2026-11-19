@@ -701,7 +701,7 @@ so that it is byte-identical across runs and hosts.
 
 A *case document* is a TOML or a JSON document, by its file's extension,
 that states one case or several named cases (`CaseDocument`).
-A *case* is a table of five keys, each of which may be absent:
+A *case* is a table of six keys, each of which may be absent:
 
 - `inputs`: a value for each input, by name
   (a parameter's Rust name, or its configuration variable's K name with or without `$`),
@@ -733,6 +733,12 @@ A *case* is a table of five keys, each of which may be absent:
 - `instances`: the instances the run starts with, of the optional and repeated cells it names
   ("Instances", below).
 - `expect`: the end the case expects of its run ("Expectations", below).
+- `provenance`: which tool or person found the case and why it is in its corpus,
+  a table of `found_by` and `reason`, each optional and a non-empty string,
+  at least one given, and no other key (`CaseProvenance`).
+  It is an authored fact about the case: no run, input or expectation reads it,
+  and `krs kink` shows it on the case's row of its `check`, `coverage`, `run` and `query` documents
+  and holds it in no digest, cache key or lock.
 
 A document of one case holds these keys at its top, and no other.
 A document of named cases holds `case`, the *list* of its cases,
