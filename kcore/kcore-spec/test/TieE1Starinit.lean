@@ -10,6 +10,8 @@
   - The account: the class lists partition the 372 sentences of the user module STARINIT, in
     `tieClasses`' order (`account`, `account_sizes`, `account_classes`); the no-direction class holds
     exactly the sentences that apply a symbol Γ lacks (`account_absent`, `absent_closed`).
+  - `absent_proj_below`: the 25 no-direction sentences that are equations of a projection
+    `project:X` are of sorts X that are K, KItem or below KItem in Γ (`GenEqs.projBelowB`).
   - `attrs_agree`: the attributes the translation does not read agree with `defn`.
   - `sig_origin`: each of the 253 items of `sigItems c` is a declaration's item of the text or a
     surplus one; `decls_entailed`: Γ entails the item of each declaration without sort parameters
@@ -29,6 +31,8 @@
     one of Γ's constructor items, `nojunk_items`; 1 KItem's with its disjuncts in the text's
     order, `nojunk_kitem_entailed`).
   - Set idempotence (95): Γ with it has no model (`idem_refuted`).
+  - Set idempotence of the set collection of `Lbl'Unds'TCellSet'Unds'` (99): Γ with it has no model
+    (`own_idem_refuted_99`, from `setColl_idem_refuted_text`).
   - Library sample, 232 (`I -Int 0 = I`): holds at values (`lib166`, `lib166_at_values`).
   - The converse over Γ's content: each premise is a function sentence's translation, one of the
     five parts Γ defines by predicates, or definedness (`gamma_origin`, `gamma_from`).
@@ -36,7 +40,7 @@
     owed as `FnHyp` (no theorem); no direction: `absent_closed`.
 
   The sentences with no counterpart in f2-examples/ens.kompile.kore are `unmapped` (128);
-  the sentences of a class with a theorem that no theorem here holds of are `uncovered` (1).
+  the sentences of a class with a theorem that no theorem here holds of are `uncovered` (0).
 -/
 import KcoreSpec
 
@@ -113,7 +117,10 @@ def classes : List (String × List Nat) :=
    ("function law", []),
    ("open generator law", []),
    ("open generator functional", []),
+   ("parameter functional", []),
    ("parameter lemma", []),
+   ("user lemma", []),
+   ("user lemma at values", []),
    ("no direction", [31, 70, 74, 76, 111, 113, 120, 150, 166, 167, 183, 223, 255, 276, 277, 278, 279, 282, 283,
       340, 341, 346, 348, 349, 350, 351, 353, 354, 355, 356, 357, 358, 359, 360, 361, 362, 363,
       364, 365, 366, 367, 368, 369, 370, 371, 372])]
@@ -130,7 +137,7 @@ theorem account : (classes.flatMap (·.2)).isPerm (userAxioms.map (·.index)) = 
 
 /-- The class sizes. -/
 theorem account_sizes : classes.map (fun cl => (cl.1, cl.2.length)) =
-    [("function equation", 60), ("rewrite rule", 1), ("priority equation", 0), ("constructor functional", 20), ("subsort", 32), ("injectivity", 12), ("distinctness", 1), ("no junk", 23), ("function functional", 28), ("hooked functional", 47), ("collection law", 12), ("library", 82), ("set idempotence", 2), ("set-variable lemma", 6), ("function law", 0), ("open generator law", 0), ("open generator functional", 0), ("parameter lemma", 0), ("no direction", 46)] := by
+    [("function equation", 60), ("rewrite rule", 1), ("priority equation", 0), ("constructor functional", 20), ("subsort", 32), ("injectivity", 12), ("distinctness", 1), ("no junk", 23), ("function functional", 28), ("hooked functional", 47), ("collection law", 12), ("library", 82), ("set idempotence", 2), ("set-variable lemma", 6), ("function law", 0), ("open generator law", 0), ("open generator functional", 0), ("parameter functional", 0), ("parameter lemma", 0), ("user lemma", 0), ("user lemma at values", 0), ("no direction", 46)] := by
   decide +kernel
 
 /-- The classes are the tie's (`tieClasses`, which gives each its direction), in its order. -/
@@ -151,6 +158,35 @@ theorem absent_closed :
     (userAxioms.filter (fun ad => !(classOf "no direction").contains ad.index)).all
       (fun ad => (appHeadsOf ad.ax.pattern).all (gammaHasHead c)) = true :=
   tieAbsent_of_account userAxioms _ _ account_absent
+
+/-- The sentences of the no-direction class that are equations of a projection `project:X` (their
+left side applies `Lblproject'Coln'X`), each with X. -/
+def absentProj : List (Nat × String) :=
+  [(346, "Bool"), (348, "GeneratedCounterCell"), (349, "GeneratedCounterCellOpt"),
+   (350, "GeneratedTopCell"), (351, "GeneratedTopCellFragment"), (353, "K"), (354, "KCell"),
+   (355, "KCellOpt"), (356, "KItem"), (357, "List"), (358, "Map"), (359, "PCell"),
+   (360, "PCellOpt"), (361, "Set"), (362, "TCell"), (363, "TCellFragment"), (364, "TCellSet"),
+   (365, "TopCell"), (366, "TopCellFragment"), (367, "TopCellOpt"), (368, "TsCell"),
+   (369, "TsCellFragment"), (370, "TsCellOpt"), (371, "VCell"), (372, "VCellOpt")]
+
+/-- Each sort of `absentProj` is K, KItem or a sort below KItem of Γ, with K and KItem
+constructor sorts. -/
+theorem absent_proj_below_c : absentProj.all (fun p => GenEqs.projBelowB c p.2) = true := by
+  decide +kernel
+
+/-- **The projections the no-direction class defines are of sorts below KItem**: `absentProj` is
+the list of the no-direction sentences whose left side applies a symbol `Lblproject'Coln'X`, each
+with that X, and each such X is K, KItem or a sort below KItem of Γ, with K and KItem constructor
+sorts (`GenEqs.projBelowB`). So the pattern each of these equations is at is functional and
+injective on X in every model of Γ (`GenEqs.projSel_fun`, `GenEqs.projSel_inj`): what the
+equation states of the pattern's symbols, Γ entails. -/
+theorem absent_proj_below (H : HookParams) :
+    (userAxioms.filter (fun ad => (classOf "no direction").contains ad.index &&
+        ((AttrsAgree.eqnHead ad.ax.pattern).getD "").startsWith "Lblproject'Coln'")).map
+      (fun ad => (ad.index, AttrsAgree.eqnHead ad.ax.pattern)) =
+      absentProj.map (fun p => (p.1, some ("Lblproject'Coln'" ++ p.2))) ∧
+    absentProj.all (fun p => GenEqs.projBelowB (cH H) p.2) = true :=
+  ⟨by rw [userAxioms_eq]; decide +kernel, absent_proj_below_c⟩
 
 /-- The sentences whose text is none of f2-examples/ens.kompile.kore's user module, with their class. -/
 def unmapped : List (Nat × String) :=
@@ -195,7 +231,7 @@ def unmapped : List (Nat × String) :=
 /-- The sentences of a class with a theorem in the tie that no theorem of this file holds of: the
 tie's remainder on this text. -/
 def uncovered : List (Nat × String) :=
-  [(99, "set idempotence")]
+  []
 
 /-- Each listed sentence is in its class in the account. -/
 theorem lists_in_account : (unmapped ++ uncovered).all (fun ic => (classOf ic.2).contains ic.1) = true := by
@@ -523,6 +559,7 @@ theorem nojunk_trivial_entailed (H : HookParams) :
   · rw [nj174]; exact orTopBot_valid hD rfl
   · rw [nj177]; exact orTopBot_valid hD rfl
 
+set_option maxHeartbeats 1000000 in
 /-- **No junk of the sorts with generators**: the translation of each sentence is the pattern of
 one of Γ's constructor items. -/
 theorem nojunk_items : ∀ ad ∈ [U.ax169, U.ax170, U.ax171, U.ax172, U.ax173, U.ax175, U.ax176, U.ax179, U.ax180, U.ax181,
@@ -681,6 +718,24 @@ theorem idem_refuted : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation Kore
 
 end Idem
 
+
+/-! ## Set idempotence of the definition's own set collections: refuted
+
+Each sentence is the idempotence sentence of a set collection of the definition, whose key sort
+has a value the search exhibits (`setIdemTextOK`, a kernel decision). At the element `x` of a
+one-member set `{w}` the sentence says `concat(x, x)` holds `x`; `ΓColls` (`setElemAtomAx`) then
+makes `x` the unit's, which `setElemNotUnitAx` denies (`Faithful.setColl_idem_refuted_text`). -/
+
+theorem own_idem_ok_99 : setIdemTextOK c "Lbl'Unds'TCellSet'Unds'" "K" U.ax99 = true := by decide +kernel
+theorem own_idem_trS_99 : (trS U.ax99).pat = (trAxiom [] [] U.ax99).pat := by decide +kernel
+
+/-- **Sentence 99 is refuted, for every H**: Γ with it has no model. -/
+theorem own_idem_refuted_99 (H : HookParams) : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M),
+    I ⊧ᴵP Γ (cH H) → ¬ (I ⊧ᴵ (trS U.ax99).pat) := by
+  haveI : OvlOK (cH H) := ovlOK_of_core (coreOKH H)
+  intro M hM I hI hax
+  rw [own_idem_trS_99] at hax
+  exact setColl_idem_refuted_text c H own_idem_ok_99 M hM I hI hax
 
 /-! ## Library sample: sentence 232, `I -Int 0 = I` (a `simplification`), at values (Ev) -/
 
@@ -852,6 +907,8 @@ end KCore.TieE1Starinit
 #check @KCore.TieE1Starinit.account_classes
 #check @KCore.TieE1Starinit.account_absent
 #check @KCore.TieE1Starinit.absent_closed
+#check @KCore.TieE1Starinit.absent_proj_below_c
+#check @KCore.TieE1Starinit.absent_proj_below
 #check @KCore.TieE1Starinit.lists_in_account
 #check @KCore.TieE1Starinit.attrs_agree
 #check @KCore.TieE1Starinit.sig_origin
@@ -869,6 +926,7 @@ end KCore.TieE1Starinit
 #check @KCore.TieE1Starinit.rules_account
 #check @KCore.TieE1Starinit.rule_from_text
 #check @KCore.TieE1Starinit.idem_refuted
+#check @KCore.TieE1Starinit.own_idem_refuted_99
 #check @KCore.TieE1Starinit.lib166
 #check @KCore.TieE1Starinit.lib166_at_values
 #check @KCore.TieE1Starinit.gamma_origin
@@ -883,6 +941,8 @@ end KCore.TieE1Starinit
 #print axioms KCore.TieE1Starinit.account_classes
 #print axioms KCore.TieE1Starinit.account_absent
 #print axioms KCore.TieE1Starinit.absent_closed
+#print axioms KCore.TieE1Starinit.absent_proj_below_c
+#print axioms KCore.TieE1Starinit.absent_proj_below
 #print axioms KCore.TieE1Starinit.lists_in_account
 #print axioms KCore.TieE1Starinit.attrs_agree
 #print axioms KCore.TieE1Starinit.sig_origin
@@ -900,6 +960,7 @@ end KCore.TieE1Starinit
 #print axioms KCore.TieE1Starinit.rules_account
 #print axioms KCore.TieE1Starinit.rule_from_text
 #print axioms KCore.TieE1Starinit.idem_refuted
+#print axioms KCore.TieE1Starinit.own_idem_refuted_99
 #print axioms KCore.TieE1Starinit.lib166
 #print axioms KCore.TieE1Starinit.lib166_at_values
 #print axioms KCore.TieE1Starinit.gamma_origin
