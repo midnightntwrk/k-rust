@@ -388,11 +388,5 @@
 #             axiom, lemma, rule, sort or symbol row of any status to the module, and its code
 #             holds no rule, configuration, context or claim) is accounted by
 #             its declarations' rows, with no theorem owed for the module itself: a list holding
-#             "module of hooks and generated declarations only: ..." with its hook rows, counted as
-#             tied. Before that form, a module row with no axiom, lemma, sort or symbol row of its
-#             module in e6map's scope whose `fixture` text holds a sentence of the module and has a
-#             whole-text tie (a tie file on that text whose `uncovered` is the empty list, so the
-#             tie leaves no remainder, declaring account, account_absent, absent_closed,
-#             lists_in_account, decls_entailed and consistent; e6map.py's form (w)) is tied by that
-#             tie: a list of "THEOREM (FILE; TEXT whole text: ...; the text holds n sentences of
-#             MODULE)", one per theorem.
+#             "module of hooks and generated declarations only: ..." with its hook rows, each
+#             followed by its status, counted as tied.
