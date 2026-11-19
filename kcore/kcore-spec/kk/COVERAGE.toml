@@ -415,8 +415,8 @@ note = "the reader refuses it (rows.toml E4 tree:Pattern.rightAssoc is refused),
 #            of KK.encodable (a fixture's or ref-kimp's text), the table's Bool, or the first
 #            uncovered hook row's; refused_on, the text or table entry; first_uncovered, the hook
 #            row a module row is refused by.
-# Entries: 1106; covered 427; refused 679 (paramsOK 402, appsOK 160, shapesOK 61, litsOK 48, ovlsOK 8).
-# By evidence: fixture 885, hook table 139, kimp 50, module hooks 19, sort table 13.
+# Entries: 1107; covered 427; refused 680 (paramsOK 403, appsOK 160, shapesOK 61, litsOK 48, ovlsOK 8).
+# By evidence: fixture 886, hook table 139, kimp 50, module hooks 19, sort table 13.
 # No evidence text, no verdict (a fixture is owed; check fails on them, check --report lists them): 0.
 
 [rows.E1."Require:kw:requires"]
@@ -891,6 +891,12 @@ case = "c3-strict-result"
 verdict = "covered"
 by = "fixture"
 case = "e1-sentences"
+
+[rows.E2."SMT_HOOK(smt-hook)@symbol#cases[0]"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e6-param-float"
 
 [rows.E2."STREAM(stream)=stdin@frontend"]
 verdict = "refused"
