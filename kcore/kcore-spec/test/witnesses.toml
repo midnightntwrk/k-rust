@@ -267,7 +267,7 @@ witness = "KcoreSpec.ModelFnSolvesWitness"
 [[conjunct]]
 key = "ClausePreDecided"
 text = "KCore.ClausePreDecided"
-witness = "none: no witness module. The semantics d of test/ClausePreUndecided.lean meets coreOK (the predicate of its clause is not ⊤ and its conditions need no witness, which clausesPlain admits), FnDet, FnSolves and OpenLaws and not ClausePreDecided (not_clausePreDecided), and Γ has no model there (argued in that file's header, not proved: the two clauses' sentences state h(x) = 1 and h(x) = 2 at every Int, the premise ⌈l(X)⌉ ∨ ¬⌈l(X)⌉ being ⊤ in every interpretation). Where every clause's predicate is ⊤ the hypothesis holds (clausePreDecided_of_isTop)"
+witness = "none: no witness module. The semantics d of test/ClausePreUndecided.lean meets coreOK (the predicate of its clause is not ⊤, which clausesPlain admits), FnDet, FnSolves and OpenLaws and not ClausePreDecided (not_clausePreDecided), and Γ has no model there (argued in that file's header, not proved: the two clauses' sentences state h(x) = 1 and h(x) = 2 at every Int, the premise ⌈l(X)⌉ ∨ ¬⌈l(X)⌉ being ⊤ in every interpretation). Where every clause's predicate is ⊤ the hypothesis holds (clausePreDecided_of_isTop)"
 evidence = "test/ClausePreUndecided.lean"
 
 [[conjunct]]

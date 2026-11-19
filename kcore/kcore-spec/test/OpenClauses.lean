@@ -184,10 +184,10 @@ example {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M} (hI : I �
     (hE : Faithful.ExclEmptyCl c2 I gG clG) (hF : Fails c2 ws clG) (hM : Faithful.ModelFailsCl c2 I clG ws) :
     True := by
   obtain ⟨hpG, hoG, hrG, hhG, heG⟩ := Semantics.clauseSortedOpen_parts den_facts.1
-  obtain ⟨hexG, hpostG, -, -⟩ := Semantics.clausePlainOpen_partsP den_facts.2.1
+  obtain ⟨hexG, hpostG, -⟩ := Semantics.clausePlainOpen_partsP den_facts.2.1
   have hpreG : clG.pre = .top := rfl
   obtain ⟨hpO, hoO, hrO, hhO, heO⟩ := Semantics.clauseSortedOpen_parts den_facts.2.2.1
-  obtain ⟨hexO, hpostO, -, -⟩ := Semantics.clausePlainOpen_partsP den_facts.2.2.2.1
+  obtain ⟨hexO, hpostO, -⟩ := Semantics.clausePlainOpen_partsP den_facts.2.2.2.1
   have hpreO : clO.pre = .top := rfl
   have hmemG : clG ∈ gG.clauses := by rw [gG_clauses]; exact List.mem_cons_self ..
   have hmemO : clO ∈ gG.clauses := by rw [gG_clauses]; exact List.mem_cons_of_mem _ (List.mem_singleton_self _)
