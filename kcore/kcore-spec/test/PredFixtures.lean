@@ -35,6 +35,14 @@
   step's closure in which `den go ⇒ ¬•den b` holds, so `den go ⇒ •den b` is not entailed
   (`not_entailed_b`, `not_entailed_a`, and by `Γc` alone `not_entailed_Γc`).
 
+  ## e3-ml-rule-lhs-not-other
+  `f2-examples/mlnoto.kompile.kore` (`test/constructs/fixtures/e3-ml-rule-lhs-not-other/kore.txt:51-56`):
+  `c(#Not(a())) => b()`, kompiled with `c(\not{Exp}(a()))` on the left side. Read as `c(Z) => b`
+  with `pre := not (mem Z a)`, Z (variable 0) bound by the left side. The text's only rule, so the
+  definition has `coreOK` (`coreOK`). For every value z of Exp, `<k> c(z) </k>` steps to y exactly
+  where z is not `a` and y is `<k> b </k>` (`step_iff`): `c(b)` and `c(c(a))` step to `b`
+  (`step_cb`, `step_cca`), `c(a)` has no successor (`stuck_ca`).
+
   ## The conjunction of terms on a right side
   Four texts, each read by `Parse.andRuleOf` (`Parse.andCut`): the definition is the landed reader's
   (`definition_of`) with its rules replaced by the ones `parseWith andRuleOf` reads (its functions,
@@ -1382,5 +1390,181 @@ theorem famEx_one (y : Config c) : (Γc c ⊧ (den c y.val ⇒ famEx c r0 σ0)) 
 end MlAndT
 
 end RhsAnd
+
+/-! ## e3-ml-rule-lhs-not-other -/
+
+namespace LhsNotOther
+
+definition_of defn from "f2-examples/mlnoto.kompile.kore"
+
+noncomputable abbrev c : Semantics := defn.sem
+
+def exp : Srt := 32
+def kCell : Sym := 383
+def symA : Sym := 385
+def symB : Sym := 386
+def symC : Sym := 387
+
+theorem names_ok : c.sortName exp = "Exp" ∧ c.symName kCell = "Lbl'-LT-'k'-GT-'" ∧
+    c.symName symA = "Lbla" ∧ c.symName symB = "Lblb" ∧ c.symName symC = "Lblc" := by
+  decide +kernel
+
+/-- **Admitted as the only rule**: the definition with the rule `c(Z) => b` has `coreOK`. -/
+theorem coreOK : c.coreOK = true := by decide +kernel
+
+noncomputable def r0 : Rule := c.rules[0]'(by decide +kernel)
+
+theorem r0_mem : r0 ∈ c.rules := List.getElem_mem _
+
+/-- The text has the one rule. -/
+theorem rule_eq {r : Rule} (hr : r ∈ c.rules) : r = r0 := by
+  obtain ⟨i, hi, rfl⟩ := List.getElem_of_mem hr
+  have h1 : c.rules.length = 1 := by decide +kernel
+  have : i = 0 := by omega
+  subst this
+  rfl
+
+theorem r0_vars : r0.vars = [exp, Srt.k, 19] := by decide +kernel
+theorem r0_lhs : r0.lhs = cfgPat kCell exp (.app symC [.var 0]) 1 2 := rfl
+theorem r0_rhs : r0.rhs = cfgPat kCell exp (.app symB []) 1 2 := rfl
+/-- `pre := not (mem Z a)`, Z the variable 0. -/
+theorem r0_shape : r0.req = none ∧ r0.ens = none ∧ r0.exs = [] ∧ r0.post = .top ∧
+    r0.pre = .not (.mem exp (.var 0) (.app symA [])) :=
+  ⟨rfl, rfl, rfl, rfl, rfl⟩
+
+theorem syms_ok : c.isCtor topLabel = true ∧ c.isCtor kCell = true ∧ c.isCtor kseq = true ∧
+    c.isCtor symA = true ∧ c.isCtor symB = true ∧ c.isCtor symC = true := by
+  decide +kernel
+
+theorem hooks_ok : patternHooks.contains topLabel = false ∧ patternHooks.contains kCell = false ∧
+    patternHooks.contains kseq = false ∧ patternHooks.contains symC = false := by
+  decide +kernel
+
+theorem lookups_ok : (lookupSig c.ctorSigs topLabel).isSome = true ∧ (lookupSig c.ctorSigs kCell).isSome = true ∧
+    (lookupSig c.ctorSigs kseq).isSome = true ∧ (lookupSig c.ctorSigs symC).isSome = true := by
+  decide +kernel
+
+/-! ### The configurations -/
+
+def A : GroundTerm := .ctor symA []
+def B : GroundTerm := .ctor symB []
+def cfg (st : GroundTerm) : GroundTerm := cfgOf kCell exp st
+
+theorem sortOf_A : c.sortOf A = some exp := by decide +kernel
+
+theorem sortOf_cfgC {z : GroundTerm} (hz : c.sortOf z = some exp) :
+    c.sortOf (cfg (.ctor symC [z])) = some topCellSort := by
+  have h0 : c.sortOf (cfg (.ctor symC [A])) = some topCellSort := by decide +kernel
+  rw [← h0]
+  exact sortOf_cfgOf_congr ⟨lookups_ok.1, lookups_ok.2.1, lookups_ok.2.2.1⟩
+    (sortOf_ctor_congr lookups_ok.2.2.2 (sortsOf_head_congr (by rw [hz, sortOf_A]))) rfl
+
+/-- `<k> c(z) </k>`. -/
+def C (z : GroundTerm) (hz : c.sortOf z = some exp) : Config c := ⟨cfg (.ctor symC [z]), sortOf_cfgC hz⟩
+/-- `<k> b </k>`. -/
+def Bc : Config c := ⟨cfg B, by decide +kernel⟩
+
+/-! ### The step -/
+
+def σ (z : GroundTerm) : Subst := [(0, z), (1, .ctor dotk []), (2, .ctor counterLabel [int 0])]
+
+/-- `pre` where σ gives Z the value z: true exactly where z is not `a`. -/
+theorem pre_at {τ : Subst} {z : GroundTerm} (h0 : τ.lookup 0 = some z) {b : Bool} :
+    Holds c r0.vars.length τ r0.pre b ↔ b = !(decide (z = A)) := by
+  rw [r0_shape.2.2.2.2]
+  constructor
+  · intro h
+    obtain ⟨b', hp, rfl⟩ := holds_not_inv h
+    obtain ⟨r₁, r₁', e₁, e₁', rfl⟩ := holds_mem_inv hp
+    rw [EvalTerm.var_inv e₁, evalTerm_const syms_ok.2.2.2.1 e₁', h0]
+    simp only [Option.isSome_some, Bool.true_and, sameResult_some]
+    rfl
+  · intro hb
+    have h : Holds c r0.vars.length τ (.not (.mem exp (.var 0) (.app symA [])))
+        (!((τ.lookup 0).isSome && sameResult (τ.lookup 0) (some A))) :=
+      .not (.mem .var (.ctor syms_ok.2.2.2.1 .nil))
+    rw [h0] at h
+    simp only [Option.isSome_some, Bool.true_and, sameResult_some] at h
+    rw [hb]; exact h
+
+theorem stepBy {z : GroundTerm} (hz : c.sortOf z = some exp) (hne : z ≠ A) :
+    StepBy c r0 (σ z) (C z hz) Bc where
+  mem := r0_mem
+  hσ := fun j s hs => by
+    rw [r0_vars] at hs
+    match j, hs with
+    | 0, hs => cases hs; exact ⟨_, rfl, hz⟩
+    | 1, hs => cases hs; exact ⟨_, rfl, by decide +kernel⟩
+    | 2, hs => cases hs; exact ⟨_, rfl, by decide +kernel⟩
+  hmatch := by
+    rw [r0_lhs]
+    have hiz : injNormal exp Srt.kitem (.ctor symC [z]) = .inj exp Srt.kitem (.ctor symC [z]) := rfl
+    exact .ctor syms_ok.1 (.cons (.ctor syms_ok.2.1 (.cons (.ctor syms_ok.2.2.1
+      (.cons (hiz ▸ .inj (.ctor syms_ok.2.2.2.2.2 (.cons (.var rfl) .nil))) (.cons (.var rfl) .nil))) .nil))
+      (.cons (.var rfl) .nil))
+  hreq := fun t ht => by rw [r0_shape.1] at ht; cases ht
+  hpre := (pre_at rfl).mpr (by simp [hne])
+  heval := by
+    rw [r0_rhs]
+    have he : EvalTerm c (σ z) (.inj exp Srt.kitem (.app symB [])) (some (.inj exp Srt.kitem B)) :=
+      .inj (.ctor syms_ok.2.2.2.2.1 .nil)
+    exact .ctor syms_ok.1 (.cons (.ctor syms_ok.2.1 (.cons (.ctor syms_ok.2.2.1
+      (.cons he (.cons .var .nil))) .nil)) (.cons .var .nil))
+  hens := fun t ht => by rw [r0_shape.2.1] at ht; cases ht
+  hpost := by rw [r0_shape.2.2.2.1]; exact .top
+  hprio := fun r' hr' hlt => absurd hlt (by rw [rule_eq hr']; exact Nat.lt_irrefl _)
+
+/-- A match of the left side at `<k> c(z) </k>` gives Z the value z. -/
+theorem lookup0 {τ : Subst} {z : GroundTerm} (hm : PatVal c τ r0.lhs (cfg (.ctor symC [z]))) :
+    τ.lookup 0 = some z := by
+  rw [r0_lhs] at hm
+  have h1 := (patVal_ctor2 hooks_ok.1 syms_ok.1 hm).1
+  have h2 := patVal_ctor1 hooks_ok.2.1 syms_ok.2.1 h1
+  have h3 := (patVal_ctor2 hooks_ok.2.2.1 syms_ok.2.2.1 h2).1
+  obtain ⟨w, hw, he⟩ := PatVal.inj_inv h3
+  obtain ⟨-, vs, rfl, hs⟩ := PatVal.app_inv hooks_ok.2.2.2 hw syms_ok.2.2.2.2.2
+  have he' : GroundTerm.inj exp Srt.kitem (.ctor symC [z]) = .inj exp Srt.kitem (.ctor symC vs) := he
+  cases he'
+  obtain ⟨_, _, he1, h4, _⟩ := PatVals.cons_inv hs
+  cases he1
+  exact PatVal.var_inv h4
+
+/-- **`<k> c(z) </k>` steps to y exactly where z is not `a` and y is `<k> b </k>`**, for every
+value z of Exp and every configuration y. -/
+theorem step_iff {z : GroundTerm} (hz : c.sortOf z = some exp) (y : Config c) :
+    Step c (C z hz) y ↔ z ≠ A ∧ y = Bc := by
+  constructor
+  · intro h
+    obtain ⟨r, τ, hs⟩ := step_iff_by.mp h
+    have hr := rule_eq hs.mem
+    subst hr
+    have h0 := lookup0 hs.hmatch
+    have hp := (pre_at h0).mp hs.hpre
+    refine ⟨fun hza => by rw [hza] at hp; simp at hp, ?_⟩
+    have hm := hs.hmatch
+    rw [r0_lhs] at hm
+    obtain ⟨-, hk, hc⟩ := patVal_cfgPat ⟨syms_ok.1, syms_ok.2.1, syms_ok.2.2.1⟩
+      ⟨hooks_ok.1, hooks_ok.2.1, hooks_ok.2.2.1⟩ hm
+    have he := hs.heval
+    rw [r0_rhs] at he
+    obtain ⟨w', hw', hy⟩ := evalTerm_cfgPat ⟨syms_ok.1, syms_ok.2.1, syms_ok.2.2.1⟩ hk hc he
+    have hw := evalTerm_const syms_ok.2.2.2.2.1 hw'
+    cases hw
+    exact Subtype.ext hy
+  · rintro ⟨hne, rfl⟩
+    exact step_iff_by.mpr ⟨r0, σ z, stepBy hz hne⟩
+
+/-- `c(b)` and `c(c(a))` step to `b`; `c(a)` has no successor. -/
+theorem step_cb : Step c (C B (by decide +kernel)) Bc :=
+  (step_iff _ _).mpr ⟨by decide +kernel, rfl⟩
+theorem step_cca : Step c (C (.ctor symC [A]) (by decide +kernel)) Bc :=
+  (step_iff _ _).mpr ⟨by decide +kernel, rfl⟩
+theorem stuck_ca : ∀ y, ¬ Step c (C A sortOf_A) y :=
+  fun y h => ((step_iff _ y).mp h).1 rfl
+
+/-- info: 'PredFixtures.LhsNotOther.step_iff' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms step_iff
+
+end LhsNotOther
 
 end PredFixtures

@@ -129,6 +129,7 @@ differs f2-examples/e3-k-unify.kompile.kore
 differs f2-examples/e3-k.kompile.kore
 differs f2-examples/e3-kast.kompile.kore
 differs f2-examples/e3-kseq.kompile.kore
+differs f2-examples/e3-ml.kompile.kore
 differs f2-examples/e3-param-cases.kompile.kore
 differs f2-examples/e3-reqens.kompile.kore
 cannot f2-examples/e3-setvar-rewrite-fn.kompile.kore
@@ -247,13 +248,18 @@ differs f2-examples/mleqbotn.kompile.kore
 cannot f2-examples/mleqor.kompile.kore
 differs f2-examples/mleqorb.kompile.kore
 differs f2-examples/mleqort.kompile.kore
+differs f2-examples/mleqreqandapp.kompile.kore
+differs f2-examples/mleqreqnot.kompile.kore
 differs f2-examples/mlex.kompile.kore
 differs f2-examples/mlmacro.kompile.kore
 cannot f2-examples/mlmixed.kompile.kore
 differs f2-examples/mlnot.kompile.kore
+differs f2-examples/mlnoto.kompile.kore
 differs f2-examples/mlor.kompile.kore
 differs f2-examples/mlorand.kompile.kore
 differs f2-examples/mlorvar.kompile.kore
+differs f2-examples/mlreqandapp.kompile.kore
+differs f2-examples/mlreqnot.kompile.kore
 differs f2-examples/mlreqor.kompile.kore
 differs f2-examples/mlreqorsplit.kompile.kore
 differs f2-examples/mlrequnheld.kompile.kore

@@ -1,0 +1,4 @@
+# Hand-written KORE: the kompiled text of fixture rdr-ite-own (K 7.1.337, sha256 e22879ad21b5024852af02bce628446eae5f3d155cd3849f423553577c1fe6cf), the Source of its
+# own sentences written as its fixture's path, and one sentence changed: f's equation applies Lblite{SortBar{}}(…) in place of Lblite{SortFoo{}}(…), the text's own
+# one-sort Lblite at a sort no sentence of the text declares. No text kompile 7.1.337 writes holds it (kore-syntax.md:329: a sort is declared before it is used). Expected: iteShape naming Lblite{Bar}.
+kore = "test/constructs/fixtures/hw-ite-own-undeclared-sort/hw-ite-own-undeclared-sort.kore"
