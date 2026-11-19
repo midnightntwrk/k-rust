@@ -11,9 +11,14 @@
     gives each variable of `bound` the element of a value, where `pre` holds at some element inside
     such a sort and each cut of `pre` is well sorted, the valuation gives each `memHeldH` variable the
     element of a value of its sort, for every H whose symbols have `HeldBack`.
+  - `memHeldCl_witnessedCut`: the same from the cuts alone: each cut `V ∈ t` of `pre` with V in
+    `bound` has V and t at the sort it names and the valuation's element at V in t's translation.
   - `memHeld_clause_valuesF`: the same with `bound` a clause's patterns' variables, the patterns at
     the elements of values of their sorts (`patVals_backC` makes their variables values' elements),
     from the facts of a semantics the proofs of the exclusion read.
+  - `memHeld_clause_valuesCut`: the same from the cuts alone (`memHeldCl_witnessedCut`), where a
+    clause's exclusion reads the predicate at one valuation and the patterns at another that agrees
+    with it on the predicate's variables.
   - `memHeld_clause_valuesB`: the same in a model of `Γc` of a semantics `coreOK` accepts.
   - `memHeld_clause_values`: it at the landed `memHeld` (H = `Semantics.holds`).
 -/
@@ -93,6 +98,24 @@ theorem memHeldCl_witnessedAt {bound : List Nat} (hbound : ∀ v ∈ bound, Witn
   rw [← hwe] at hmt
   exact occsUnder_witnessed hI hg htr hnm hvs hin hL hback hts hw hmt i hti
 
+/-- **A variable held by a cut, at a value, from the cuts' memberships.** At a valuation of the
+variables in their sorts that gives each variable of `bound` the element of a value, where each cut
+`V ∈ t` of `pre` with V in `bound` has V and t at the sort it names and the valuation's element at
+V in t's translation: the valuation gives each `memHeldH` variable the element of a value of its
+sort. -/
+theorem memHeldCl_witnessedCut {bound : List Nat} (hbound : ∀ v ∈ bound, Witnessed c I tbl vs vars e v)
+    {pre : Cond}
+    (hcut : ∀ s v t, Cond.mem s (.var v) t ∈ pre.conjuncts → v ∈ bound → vars[v]? = some s ∧
+      sortOfTerm (c.rhsCtx L) vars t = some s ∧
+      (KoreAML.tr ⟨tbl, []⟩ (Term.kore c vs t)).interpret I e (e.evalEvar (tbl.ev (keyAt vs v))))
+    (i : Nat) (hi : memHeldH c H bound pre i = true) : Witnessed c I tbl vs vars e i := by
+  obtain ⟨s, v, t, hq, hvb, hti⟩ := memHeldH_parts hi
+  obtain ⟨hvs', hts, hmt⟩ := hcut s v t hq hvb
+  obtain ⟨w, hw, hwe⟩ := hbound v hvb
+  rw [List.getD_eq_getElem?_getD, hvs', Option.getD_some] at hw
+  rw [← hwe] at hmt
+  exact occsUnder_witnessed hI hg htr hnm hvs hin hL hback hts hw hmt i hti
+
 end AtS
 
 section Clause
@@ -126,6 +149,34 @@ theorem memHeld_clause_valuesF (hI : I ⊧ᴵP Γ c) (hnn : NamesNumbered c) (hg
     (collPats_of_sorted hph' (sortsOfTerms_all_of_nf hpats)) hpats hws hall
   exact memHeldCl_witnessedAt hI hg hsc.trans hnn.1 hvs hin fns_headsOK hback hwitP
     (fun s v t hq => conjuncts_memOK hok hq) hS' hσ' hpre i hi
+
+/-- **A variable held by a cut of a clause, at a value, from the cuts' memberships**: in a model of
+`Γ`, at a valuation of the variables in their sorts `vars` under which the clause's patterns, sorted
+at `vars`, hold at the elements of values of their sorts, and each cut `V ∈ t` of `pre` with V a
+variable of the patterns has V and t at the sort it names and the valuation's element at V in t's
+translation: the valuation gives every variable that is `memHeldH` over the patterns' variables the
+element of a value of its sort, for every H whose symbols that are no constructor have `HeldBack`
+in the model. -/
+theorem memHeld_clause_valuesCut (hI : I ⊧ᴵP Γ c) (hnn : NamesNumbered c) (hg : genWf c = true)
+    (hsc : SortCtx c) [OvlOK c] (hph : patHooksApart c = true) (hcso : collSortsOK c = true)
+    (hcs : collsOK c = true) (hph' : patHeadsOK c = true) {H : Sym → Bool}
+    (hback : ∀ f k, c.isCtor f = false → H f = true →
+      lookupSig (c.rhsCtx (c.fns.map Fn.sig)).heads f = some k → HeldBack c I f k)
+    {cl : Clause} {vars ss : List Srt}
+    (hpats : sortsOfTerms c.patCtxNF vars cl.pats = some ss)
+    {vs : List KoreAML.Var} {tbl : VarTable} {e : Valuation M} (hvs : vs.length = vars.length)
+    (hin : ∀ i < vars.length, InS I (c.sortName (vars.getD i 0)) (e.evalEvar (tbl.ev (keyAt vs i))))
+    {ws : List GroundTerm} (hws : c.sortsOf ws = some ss)
+    (hall : All2 (fun φ b => φ.interpret I e b) ((Term.koreList c vs cl.pats).map (KoreAML.tr ⟨tbl, []⟩))
+      (ws.map (elemOf c I)))
+    (hcut : ∀ s v t, Cond.mem s (.var v) t ∈ cl.pre.conjuncts → v ∈ varOccsList cl.pats →
+      vars[v]? = some s ∧ sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) vars t = some s ∧
+      (KoreAML.tr ⟨tbl, []⟩ (Term.kore c vs t)).interpret I e (e.evalEvar (tbl.ev (keyAt vs v))))
+    (i : Nat) (hi : memHeldH c H (varOccsList cl.pats) cl.pre i = true) :
+    Witnessed c I tbl vs vars e i := by
+  obtain ⟨-, hwitP⟩ := patVals_backC hI hph hcs hcso hg hsc.trans hnn.1 hvs hin
+    (collPats_of_sorted hph' (sortsOfTerms_all_of_nf hpats)) hpats hws hall
+  exact memHeldCl_witnessedCut hI hg hsc.trans hnn.1 hvs hin fns_headsOK hback hwitP hcut i hi
 
 /-- **A variable held by a cut of a clause, at a value**: in a model of `Γc` of a semantics
 `coreOK` accepts, a valuation of the variables in their sorts under which the clause's patterns,

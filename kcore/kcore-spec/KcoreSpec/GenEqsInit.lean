@@ -107,12 +107,9 @@ theorem unresolvedB_of_unnumbered (c : Semantics) {n : String}
     (hn : (regSymNames ++ c.symNames).contains n = false) (he : n ≠ "") (hi : n ≠ "inj") (hl : n ≠ "Lblite") :
     unresolvedB c n = true := by
   have hres : resolve c n [] = none := by
-    unfold resolve
-    split
-    · rename_i h; cases h
-    · rw [Option.map_eq_none_iff, List.find?_eq_none]
-      intro k _ hk
-      exact symName_ne_of_unnumbered c hn he k.name (beq_iff_eq.mp hk)
+    rw [resolve_nil, Option.map_eq_none_iff, List.find?_eq_none]
+    intro k _ hk
+    exact symName_ne_of_unnumbered c hn he k.name (beq_iff_eq.mp hk)
   simp only [unresolvedB, hres, Option.isNone_none, Bool.and_true, Bool.and_eq_true, bne_iff_ne, ne_eq]
   exact ⟨hi, hl⟩
 
@@ -153,36 +150,15 @@ theorem evalSymb_nil {c : Semantics} {τ : KoreAML.Sym} {h : Head} {args : List 
 a symbol resolves to it or it is `Lblite`. -/
 theorem symAt_sym {c : Semantics} {m n : String} {as args : List Elem}
     (hx : symAt c m as (.app (.sym n) args)) (ha : as ≠ []) : n = m ∧ ((resolve c m as).isSome ∨ m = "Lblite") := by
-  unfold symAt at hx
-  cases hr : resolve c m as with
-  | none =>
-    rw [hr] at hx
-    have hx' := (ite_mem _ _ _).mp hx
-    simp only [ha, ↓reduceIte] at hx'
-    split at hx'
-    · cases hx'; exact ⟨rfl, .inr rfl⟩
-    · rename_i hneg
-      exact (cast (congrFun (symAt.match_3.eq_2 (fun _ _ => Set Elem) m as
-        (fun _ => fun x => x = Elem.app (.sym m) as) (fun _ _ => fun _ => False) hneg) (Elem.app (.sym n) args)) hx').elim
-  | some kp =>
-    obtain ⟨k, p⟩ := kp
-    rw [hr] at hx
-    refine ⟨?_, .inl rfl⟩
-    have hx' := (ite_mem _ _ _).mp hx
-    by_cases hl : as.length < p + k.args.length
-    · simp only [hl, ↓reduceIte] at hx'
-      injection hx' with h1 _
-      injection h1
-    · simp only [hl, ↓reduceIte] at hx'
-      have hx2 := (ite_mem _ _ _).mp hx'
-      by_cases hl2 : as.length = p + k.args.length
-      · simp only [hl2, ↓reduceIte] at hx2
-        generalize vals (List.drop p as) = o at hx2
-        rcases o with _ | vs
-        · exact hx2.elim
-        · obtain ⟨v, hv⟩ := result_val hx2
-          cases hv
-      · simp only [hl2, ↓reduceIte] at hx2
+  rcases symAt_cases hx with h | ⟨k, p, vs, hr, -, hres⟩
+  · injection h with h1 _
+    injection h1 with h1
+    refine ⟨h1, ?_⟩
+    cases hr : resolve c m as with
+    | none => exact .inr (symAt_none_late hr ha hx).1
+    | some _ => exact .inl rfl
+  · obtain ⟨v, hv⟩ := result_val hres
+    cases hv
 
 /-- **Application gives the head of an unresolved name at arguments only from the definedness
 element.** -/
