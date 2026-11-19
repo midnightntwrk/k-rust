@@ -151,6 +151,8 @@ differs f2-examples/e3-k-unify.kompile.kore
 differs f2-examples/e3-k.kompile.kore
 differs f2-examples/e3-kast.kompile.kore
 differs f2-examples/e3-kseq.kompile.kore
+differs f2-examples/e3-ml-eq-req-and-under-app.kompile.kore
+differs f2-examples/e3-ml-eq-req-not.kompile.kore
 differs f2-examples/e3-ml-eq-rhs-or-bottom.kompile.kore
 differs f2-examples/e3-ml-eq-rhs-or-empty.kompile.kore
 differs f2-examples/e3-ml-lhs-or-rhs-var.kompile.kore
