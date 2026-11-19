@@ -1,0 +1,3 @@
+param	Lbl'Tild'Int'Unds'	args=[Int]	result=Int	impl=none	raw=false	assoc=false	idem=false
+param	LblInt2BytesNoLen	args=[Int, Endianness, Signedness]	result=Bytes	impl=none	raw=false	assoc=false	idem=false
+(exit 0)

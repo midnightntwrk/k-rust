@@ -78,11 +78,10 @@ The self-check: each theorem `decls_entailed` of a declaration file is in a form
 a symbol statement's list is an unhooked symbol declaration of the file's text with a builtin Source
 and without sort parameters; every symbol row held by a text of (d) that no list of (d) names is not
 tied, and is of no direction exactly where a declaration fact of (e) names it on a text holding it.
-No row serves as a control that no list names and Γ has: of the symbol rows held by a text of (d),
-the two no list names (dividesInt, Int2BytesNoLen) are both lacked by Γ there. So the control is
-stated as: a declaration no list of (d) names is neither tied nor of no direction unless form (e)
-holds, and the control row DECL_CONTROL (dividesInt, declared on those texts without sort parameters)
-is held by a text of (d), not tied, and of no direction, its form (e) case. AX_CONTROL controls (e2):
+The control is stated on one text: a declaration no list of (d) on a text names is not tied there,
+and is of no direction there only where form (e) holds; the control DECL_CONTROL (dividesInt on
+silentflt, which declares it without sort parameters and whose Γ lacks it) is held by that text's
+declaration files, named by no list of (d) on that text, and of form (e) there. AX_CONTROL controls (e2):
 on silentflt, dividesInt's equation (274) is of (e2), and findChar's (296), whose absent heads are
 `ite{SortInt}`, is not, although a statement names it with absentOf and a nonempty list literal.
 A module row is tied when every row of the module in this scope (axiom, lemma, sort, symbol) is tied
@@ -503,7 +502,9 @@ def model_theorems():
     return out
 
 
-DECL_CONTROL = "symbol:INT-COMMON:Lbl'Unds'dividesInt'UndsUnds'INT-COMMON'Unds'Bool'Unds'Int'Unds'Int"
+DECL_CONTROL = ("f2-examples/silentflt.kompile.kore",
+                "symbol:INT-COMMON:Lbl'Unds'dividesInt'UndsUnds'INT-COMMON'Unds'Bool'Unds'Int'Unds'Int",
+                "Lbl'Unds'dividesInt'UndsUnds'INT-COMMON'Unds'Bool'Unds'Int'Unds'Int")
 AX_CONTROL = ("f2-examples/silentflt.kompile.kore", 274, 296)
 
 
@@ -512,9 +513,9 @@ def self_check(rows, res):
     of (d); each name of a symbol statement's list is a declaration of the file's text with a builtin
     Source, unhooked and without sort parameters; every symbol row held by a text of (d) that no list
     of (d) names is not tied, and is of no direction exactly where a fact of form (e) on a text holding
-    it names its declaration; the control row DECL_CONTROL (`dividesInt`, which those texts declare
-    without sort parameters, no list names, and Γ lacks) is held by a text of (d), not tied, and of no
-    direction; and of AX_CONTROL's text, form (e2) takes the first sentence (`dividesInt`'s equation)
+    it names its declaration; the control DECL_CONTROL (`dividesInt` on silentflt, which declares it
+    without sort parameters and whose Γ lacks it) is held by that text's declaration files, named by no
+    list of (d) on that text, and of form (e) there; and of AX_CONTROL's text, form (e2) takes the first sentence (`dividesInt`'s equation)
     and not the second (`findChar`'s, whose absent heads are `ite{SortInt}`, an instance of a symbol
     declared with sort parameters), although a statement naming the second and absentOf with a
     nonempty list literal exists."""
@@ -539,12 +540,15 @@ def self_check(rows, res):
                 for k2, _k, nm, _p in declarations(t2) if k2 == key)
         if e != is_nodir(res[key]):
             bad.append(f"{key}: of no direction {is_nodir(res[key])}, a fact of form (e) {e}")
-    if not any(DECL_CONTROL in h for h in held.values()):
-        bad.append(f"control {DECL_CONTROL}: held by no text of form (d)")
-    elif DECL_CONTROL not in rows or isinstance(res.get(DECL_CONTROL), list):
-        bad.append(f"control {DECL_CONTROL}: not a row, or tied")
-    elif not is_nodir(res.get(DECL_CONTROL)):
-        bad.append(f"control {DECL_CONTROL}: not of no direction (form (e))")
+    ctext, ckey, cname = DECL_CONTROL
+    if ckey not in rows:
+        bad.append(f"control {ckey}: not a row")
+    elif ckey not in held.get(ctext, set()):
+        bad.append(f"control {ckey}: not held by {ctext} in a file of form (d)")
+    elif dties.get(ctext, {}).get(ckey):
+        bad.append(f"control {ckey}: named by a list of form (d) on {ctext}")
+    elif not ndd[ctext].get(cname):
+        bad.append(f"control {ckey}: no fact of form (e) on {ctext}")
     text, yes, no = AX_CONTROL
     nda = nodir_axioms()
     stmts = [s for f in os.listdir(os.path.join(K, "test")) if ND_FILE.match(f)
