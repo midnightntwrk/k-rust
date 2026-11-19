@@ -4377,6 +4377,11 @@ def lhsAndAxiom? (a : Kore.Axiom) : Option (Kore.Axiom × List Kore.Pattern × L
     else some ({ a with pattern := .rewrites s (.and s' [l', r0]) rx }, qs, cs)
   | _ => none
 
+/-- `xs` with each element-variable kept at its first occurrence, compared by `decide` (no derived
+`BEq` on `KSort`, which the kernel cannot evaluate: test/OpaqueAudit.lean). -/
+def evarsDedup (xs : List Kore.EVar) : List Kore.EVar :=
+  xs.foldl (fun acc x => if acc.any (fun y => decide (x = y)) then acc else acc ++ [x]) []
+
 /-- The condition of each cut `(Z, S, q)` of a left side's conjunction: Z's value matches q
 (`Cond.exMatch` at S), the variables q holds and no variable of `vs` is (the axiom read with the
 cuts, the predicates) bound by the match, as binders after the rule's variables. A variable that
@@ -4384,13 +4389,13 @@ the operands of two cuts hold and nothing else does is a variable of the rule, a
 first. -/
 def lhsAndConds (N : Names) (vs : List Var) (cuts : List ConnCut) : Rd (List Cond × List Var) := do
   let held := fun (vs : List Var) (x : Kore.EVar) => vs.any fun v => "Var" ++ v.name == x.var.ident.name
-  let all := cuts.flatMap fun c => (freeEVarsS [] c.2.2).eraseDups
-  let shared := (all.filter fun x => all.count x > 1 && !held vs x).eraseDups
+  let all := cuts.flatMap fun c => evarsDedup (freeEVarsS [] c.2.2)
+  let shared := evarsDedup (all.filter fun x => (all.filter fun y => decide (y = x)).length > 1 && !held vs x)
   let vs ← shared.foldlM (fun vs x => do pure (← varIndex vs x).2) vs
   let conds ← cuts.mapM fun (z, S, q) => do
     let (i, _) ← varIndex vs z
     let s ← N.sortE S
-    let ys := (freeEVarsS [] q).eraseDups.filter fun x => !held vs x
+    let ys := (evarsDedup (freeEVarsS [] q)).filter fun x => !held vs x
     let bvs ← ys.foldlM (fun vs x => do pure (← varIndex vs x).2) vs
     let (t, _) ← termNoAnd N bvs q
     pure (Cond.exMatch (← ys.mapM fun x => N.sortE x.sort) s t (.var i) .top)
