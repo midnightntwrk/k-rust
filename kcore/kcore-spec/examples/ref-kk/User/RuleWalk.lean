@@ -839,4 +839,233 @@ theorem encDef_rules_krw {E : D} (hE : encDef d = some E) : E.rules = d.rules.ma
 
 end FiredLemmas
 
+/-! ## The rules of a priority: `fireM`, `fire`, `fireAt` -/
+
+section Fire
+open _root_.KK
+variable {d : Semantics} {E : D}
+
+/-- **`fireM` at the matches of a rule's left side**, each a binding with an entry for every
+variable that agrees with a well-sorted substitution under which the left side denotes `x`: the
+list of the results of the matches whose `requires` is true, and every substitution such a binding
+agrees with fails the `requires` or has its result listed. -/
+theorem fireM_spec_krw (hr : CExec.execReady d = true) (hE : encDef d = some E) {ru : Rule}
+    (hm : ru ∈ d.rules) {x : GroundTerm} (ms : Ms) : ∀ {res : Option GroundTerm},
+    Eval c₀ 470 [embD E, emb (encRl d ru).req, emb (encRl d ru).rhs, embMs ms] res →
+    (∀ B ∈ ms, Covers_ksm B (List.range ru.vars.length) ∧
+      ∃ σ, BindAgree B σ ∧ (d₀ d).WellSorted ru.vars σ ∧ PatVal (d₀ d) σ ru.lhs x) →
+    ∃ us, res = some (embTs us) ∧ (∀ u ∈ us, ∃ σ, FiredBy_krw d ru σ x u) ∧
+      ∀ B ∈ ms, ∀ σ, BindAgree B σ → (d₀ d).WellSorted ru.vars σ → PatVal (d₀ d) σ ru.lhs x →
+        RuleReqFails (d₀ d) σ ru ∨ ∃ u ∈ us, FiredBy_krw d ru σ x u := by
+  have hc := encodable_of_encDef_ksc hE
+  induction ms with
+  | nil =>
+    intro res h _
+    rcases fireM_inv_krw (R := Eval c₀) (fun _ _ _ h => h) (Eval.byClause_iff.mp h) with
+      ⟨-, hr'⟩ | ⟨B, ms', he, -⟩
+    · exact ⟨[], hr', fun u hu => (nomatch hu), fun B hB => (nomatch hB)⟩
+    · cases he
+  | cons B ms' ih =>
+    intro res h hms
+    rcases fireM_inv_krw (R := Eval c₀) (fun _ _ _ h => h) (Eval.byClause_iff.mp h) with
+      ⟨he, -⟩ | ⟨B', ms'', he, hcase⟩
+    · cases he
+    obtain ⟨rfl, rfl⟩ := List.cons.inj he
+    obtain ⟨hcov, σ₀, hB₀, hσ₀, hp₀⟩ := hms B (List.mem_cons_self ..)
+    have hms' := fun B' (hB' : B' ∈ ms') => hms B' (List.mem_cons_of_mem _ hB')
+    obtain ⟨t, ht⟩ := ruleReqInst_krw hr hc hm hcov
+    rcases hcase t ht with ⟨q, hq, heq, q', q'', hq'', hres, hrhs⟩ | ⟨q, hq, hne, hR⟩ |
+        ⟨q, q', hq, hq', h1, h2⟩
+    · -- `fire-holds`
+      obtain ⟨u, rfl, -, hall⟩ := ruleReqEval_krw hr hc hm ht hB₀ hσ₀ ⟨hq, spec_all hr hE hq⟩
+      have hu := heq u rfl
+      rcases hrhs with ⟨hn, -⟩ | ⟨t', ht', hq'⟩
+      · obtain ⟨t', ht'⟩ := ruleRhsInst_krw hr hc hm hcov
+        rw [ht'] at hn; cases hn
+      obtain ⟨u', rfl, hall'⟩ := ruleRhsEval_krw hr hc hm ht' hB₀ hσ₀ ⟨hq', spec_all hr hE hq'⟩
+      obtain ⟨us, rfl, hf, hn⟩ := ih hq'' hms'
+      have fired : ∀ σ, BindAgree B σ → (d₀ d).WellSorted ru.vars σ → PatVal (d₀ d) σ ru.lhs x →
+          FiredBy_krw d ru σ x u' := fun σ hBσ hσ hp => by
+        obtain ⟨o, ho, hens⟩ := hall' σ hBσ hσ
+        refine ⟨hσ, hp, fun tq hrq => ?_, o, ho, hens⟩
+        obtain ⟨o', ho', he'⟩ := hall tq hrq σ hBσ hσ
+        rw [hu] at ho'
+        rw [encR_eq_bv_ksc ho'.symm] at he'
+        exact he'
+      refine ⟨u' :: us, by rw [hres]; rfl, fun v hv => ?_, fun B' hB' σ hBσ hσ hp => ?_⟩
+      · rcases List.mem_cons.mp hv with rfl | hv
+        · exact ⟨σ₀, fired σ₀ hB₀ hσ₀ hp₀⟩
+        · exact hf v hv
+      · rcases List.mem_cons.mp hB' with rfl | hB'
+        · exact .inr ⟨_, List.mem_cons_self .., fired σ hBσ hσ hp⟩
+        · rcases hn B' hB' σ hBσ hσ hp with h | ⟨v, hv, hfv⟩
+          · exact .inl h
+          · exact .inr ⟨v, List.mem_cons_of_mem _ hv, hfv⟩
+    · -- `fire-refuted`
+      obtain ⟨u, rfl, hnone, hall⟩ := ruleReqEval_krw hr hc hm ht hB₀ hσ₀ ⟨hq, spec_all hr hE hq⟩
+      have hu := hne u rfl
+      obtain ⟨us, rfl, hf, hn⟩ := ih hR hms'
+      refine ⟨us, rfl, hf, fun B' hB' σ hBσ hσ hp => ?_⟩
+      rcases List.mem_cons.mp hB' with rfl | hB'
+      · cases hrq : ru.req with
+        | none => exact absurd (hnone hrq) hu
+        | some tq =>
+          obtain ⟨o, rfl, ho⟩ := hall tq hrq σ hBσ hσ
+          exact .inl (.intro hrq ho fun e => hu (by rw [e]; rfl))
+      · exact hn B' hB' σ hBσ hσ hp
+    · -- neither: one call of `eval`, one value
+      obtain ⟨u, rfl, -, -⟩ := ruleReqEval_krw hr hc hm ht hB₀ hσ₀ ⟨hq, spec_all hr hE hq⟩
+      have e : q' = some (emb u) := (evalF_iff hq).mp hq'
+      exact absurd (h1 u rfl) (h2 u e)
+
+/-- **`fire` at a rule and a configuration**: the list of the rule's results at `x`, as
+`FiredAt_krw` at the rule alone. -/
+theorem fire_spec_krw (hr : CExec.execReady d = true) (hE : encDef d = some E) {ru : Rule}
+    (hm : ru ∈ d.rules) {x : GroundTerm} (hx : (d₀ d).sortOf x = some topCellSort)
+    {res : Option GroundTerm}
+    (h : Eval c₀ 468 [embD E, emb (encRl d ru).lhs, emb (encRl d ru).req, emb (encRl d ru).rhs,
+      emb (enc x)] res) :
+    ∃ us, res = some (embTs us) ∧ FiredAt_krw d x [ru] (ru.prio : Int) us := by
+  have hc := encodable_of_encDef_ksc hE
+  obtain ⟨hmc, hov⟩ := matchCtx_d₀ hr hc
+  have hcs : Faithful.collsOK (d₀ d) = true := (encodable_colls_c13 hc).1
+  obtain ⟨hle, hcp, -⟩ := ruleEnc_krw hc hm
+  have hq : encTerm (d₀ d) ru.lhs = some (encRl d ru).lhs := by rw [encTerm_d₀]; exact hle
+  have hp := rulePat_d₀ hr hc (show ru ∈ (d₀ d).rules from hm)
+  have hbinds := ruleBinds_krw hc hm
+  have hlv : litsV x = true := litsV_kst hr hc hx (by decide)
+  have hsubs : E.subs = subsF (d₀ d) := (encDef_subs hE).trans (subsF_d₀ d).symm
+  rcases fire_inv_krw (R := Eval c₀) (fun _ _ _ h => h) (Eval.byClause_iff.mp h) with
+    ⟨M, hM, hR⟩ | ⟨hM, -⟩
+  · rw [hsubs] at hM
+    have hprem : ∀ B ∈ M, Covers_ksm B (List.range ru.vars.length) ∧
+        ∃ σ, BindAgree B σ ∧ (d₀ d).WellSorted ru.vars σ ∧ PatVal (d₀ d) σ ru.lhs x :=
+      fun B hB => by
+        obtain ⟨-, hcov, -, -⟩ := matchF_col_sound hmc hov hcs hq hp hx hlv hM hB
+        obtain ⟨σ, hrep, hσ, hpv⟩ := matchF_col_wellSorted hmc hov hcs hq hp hx hlv hbinds hM hB
+        exact ⟨fun i hi => hcov i (Exec.binds_all hbinds i (List.mem_range.mp hi)), σ,
+          bindAgree_of_rep_ksc hrep, hσ, hpv⟩
+    obtain ⟨us, hus, hf, hn⟩ := fireM_spec_krw hr hE hm M hR hprem
+    refine ⟨us, hus, fun u hu => ⟨ru, List.mem_cons_self .., rfl, hf u hu⟩,
+      fun r' hr' _ σ hσ hpv => ?_⟩
+    rw [List.mem_singleton] at hr'
+    subst hr'
+    obtain ⟨M', hM', B', hB', hagree, -⟩ :=
+      matchF_col_complete hmc hov hcs hσ hq hcp hp hlv hpv (bindAgree_nil σ)
+    rw [hM] at hM'
+    cases hM'
+    exact hn B' hB' σ hagree hσ hpv
+  · rw [hsubs] at hM
+    have := matchF_total hov hq hp hx (subsF (d₀ d)) []
+    rw [hM] at this
+    cases this
+
+/-- **`fireAt` at rules `suf` of `d`, a configuration and a priority**: the list of the results
+of the rules of `suf` at that priority, as `FiredAt_krw`. -/
+theorem fireAt_spec_krw (hr : CExec.execReady d = true) (hE : encDef d = some E) {x : GroundTerm}
+    (hx : (d₀ d).sortOf x = some topCellSort) (P : Int) : ∀ (suf : List Rule)
+    {res : Option GroundTerm}, (∀ ru ∈ suf, ru ∈ d.rules) →
+    Eval c₀ 469 [embD E, embRls (suf.map (encRl d)), emb (enc x), .dv 3 (.int P)] res →
+    ∃ us, res = some (embTs us) ∧ FiredAt_krw d x suf P us
+  | [], res, _, h => by
+    rcases fireAt_inv_krw (R := Eval c₀) (fun _ _ _ h => h) (Eval.byClause_iff.mp h) with
+      ⟨-, hr'⟩ | ⟨c, rs', he, -⟩
+    · exact ⟨[], hr', FiredAt_krw.nil⟩
+    · cases he
+  | ru :: suf, res, hs, h => by
+    have hm := hs ru (List.mem_cons_self ..)
+    have hs' : ∀ r ∈ suf, r ∈ d.rules := fun r hr => hs r (List.mem_cons_of_mem _ hr)
+    rcases fireAt_inv_krw (R := Eval c₀) (fun _ _ _ h => h) (Eval.byClause_iff.mp h) with
+      ⟨he, -⟩ | ⟨c, rs', he, hcase⟩
+    · cases he
+    rw [List.map_cons] at he
+    obtain ⟨rfl, rfl⟩ := List.cons.inj he
+    rcases hcase with ⟨hP, q₁, q₂, h₁, h₂, happ⟩ | ⟨hP, hR⟩
+    · have hP' : (ru.prio : Int) = P := hP
+      obtain ⟨us₁, rfl, hf₁⟩ := fire_spec_krw hr hE hm hx h₁
+      obtain ⟨us₂, rfl, hf₂⟩ := fireAt_spec_krw hr hE hx P suf hs' h₂
+      exact ⟨us₁ ++ us₂, happ us₁ us₂ rfl rfl, FiredAt_krw.cons (by rw [← hP']; exact hf₁) hf₂⟩
+    · obtain ⟨us, rfl, hf⟩ := fireAt_spec_krw hr hE hx P suf hs' hR
+      exact ⟨us, rfl, FiredAt_krw.skip hP hf⟩
+
+end Fire
+
+/-! ## The priorities: `stepAt` and `stepIf` -/
+
+section Steps
+open _root_.KK
+
+/-- `stepAt(D, Rs, T, P)` at `d`'s rules, a configuration and a priority below which no rule
+applies: what `rule_walk` concludes. -/
+def SpecStepAt_krw (d : Semantics) (E : D) (vs : List GroundTerm) (r : Option GroundTerm) : Prop :=
+  ∀ (x : GroundTerm) (p : Option Int),
+    vs = [embD E, embRls (d.rules.map (encRl d)), emb (enc x), embPrio p] →
+    (d₀ d).sortOf x = some topCellSort → RuleBelow_krw d x p → WalkRes_krw d x r
+
+/-- `stepIf(D, Rs, T, P, Us)` at what `fireAt` gave at `P`: what `rule_walk` concludes. -/
+def SpecStepIf_krw (d : Semantics) (E : D) (vs : List GroundTerm) (r : Option GroundTerm) : Prop :=
+  ∀ (x : GroundTerm) (P : Int) (us : List T),
+    vs = [embD E, embRls (d.rules.map (encRl d)), emb (enc x), .dv 3 (.int P), embTs us] →
+    (d₀ d).sortOf x = some topCellSort → RuleBelow_krw d x (some P) →
+    FiredAt_krw d x d.rules P us → WalkRes_krw d x r
+
+/-- **The motive of the walk of the priorities**: `stepAt`'s and `stepIf`'s clauses, `True` at
+every other function. -/
+def RSpec_krw (d : Semantics) (E : D) (f : Sym) (vs : List GroundTerm) (r : Option GroundTerm) :
+    Prop :=
+  if f = 506 then SpecStepAt_krw d E vs r
+  else if f = 507 then SpecStepIf_krw d E vs r
+  else True
+
+section
+variable {d : Semantics} {E : D} {vs : List GroundTerm} {r : Option GroundTerm}
+
+theorem RSpec_stepAt_krw : RSpec_krw d E 506 vs r ↔ SpecStepAt_krw d E vs r := by
+  unfold RSpec_krw; rw [if_pos rfl]
+theorem RSpec_stepIf_krw : RSpec_krw d E 507 vs r ↔ SpecStepIf_krw d E vs r := by
+  unfold RSpec_krw; rw [if_neg (by decide), if_pos rfl]
+
+/-- The calls of a step: evaluations of kore.k of which `RSpec_krw` holds. -/
+abbrev RCalled_krw (d : Semantics) (E : D) : CallRel :=
+  fun g ws q => Eval c₀ g ws q ∧ RSpec_krw d E g ws q
+
+/-- **The step case at `stepAt`.** -/
+theorem rstep_stepAt_krw (hr : CExec.execReady d = true) (hE : encDef d = some E)
+    (hb : ByClause c₀ (RCalled_krw d E) 506 vs r) : SpecStepAt_krw d E vs r := by
+  intro x p hvs hx hbelow
+  subst hvs
+  rcases stepAt_inv_krw hb with ⟨rfl, hr'⟩ | ⟨P, rfl, q, hq, hcase⟩
+  · exact .inl ⟨hr', fun ru hm => hbelow ru hm fun P h => (nomatch h)⟩
+  · obtain ⟨us, rfl, hf⟩ := fireAt_spec_krw hr hE hx P d.rules (fun _ h => h) hq.1
+    rcases hcase with ⟨y, hy, hR⟩ | ⟨hn, -⟩
+    · cases hy
+      exact RSpec_stepIf_krw.mp hR.2 x P us rfl hx hbelow hf
+    · cases hn
+
+/-- **The step case at `stepIf`.** -/
+theorem rstep_stepIf_krw (hE : encDef d = some E) (hb : ByClause c₀ (RCalled_krw d E) 507 vs r) :
+    SpecStepIf_krw d E vs r := by
+  intro x P us hvs hx hbelow hf
+  subst hvs
+  rcases stepIf_inv_krw (fun _ _ _ h => h.1) hb with ⟨rfl, hR⟩ | ⟨hne, hr'⟩
+  · exact RSpec_stepAt_krw.mp hR.2 x _ rfl hx (ruleBelow_next_krw hbelow (firedAt_nil_krw hE hf))
+  · exact .inr ⟨P, us, hr', hne, hbelow, hf⟩
+
+/-- **`RSpec_krw` holds of every evaluation of kore.k**: the instance of `Eval.calls_induct` at
+`K₀ sig` and `RSpec_krw d E`. -/
+theorem rspec_of_steps_krw (hr : CExec.execReady d = true) (hE : encDef d = some E) {f : Sym}
+    {vs : List GroundTerm} {r : Option GroundTerm} (h : Eval c₀ f vs r) : RSpec_krw d E f vs r :=
+  Eval.calls_induct (c := c₀) (P := RSpec_krw d E) (fun f vs r hb => by
+    by_cases h506 : f = 506
+    · subst h506; exact RSpec_stepAt_krw.mpr (rstep_stepAt_krw hr hE hb)
+    by_cases h507 : f = 507
+    · subst h507; exact RSpec_stepIf_krw.mpr (rstep_stepIf_krw hE hb)
+    unfold RSpec_krw
+    rw [if_neg h506, if_neg h507]
+    trivial) h
+
+end
+
+end Steps
+
 end KCore.KK
