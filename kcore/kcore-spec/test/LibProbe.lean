@@ -180,9 +180,10 @@ lower bounds, maximal). -/
 def rangeMapV (es : List (Int × Int × Int)) : GroundTerm := rmV (es.map fun (a, b, v) => (rangeT a b, iK v))
 
 /-- Float values (precision, exponent width, encoding): binary32's 1.0, the largest finite value,
-+∞ and NaN; `p1x2`'s (a format with a field of 1, `KFloat.thinOK`) 1.0, ∞ and NaN; and the `p2x1`
-encoding 1 (sign 0, the one exponent bit 0, the fraction bit 1), of a format with one exponent bit,
-at which no Float has a datum (`asDatum`), so that the comparisons are silent there. -/
++∞ and NaN; `p1x2`'s (a format with a field of 1, `KFloat.thinOK`, at which every operation computes,
+`thinAt`) 1.0, ∞ and NaN; and the `p2x1` encoding 1 (sign 0, the one exponent bit 0, the fraction
+bit 1), of a format with one exponent bit, at which no Float has a datum (`asDatum`) and no operation
+computes, so that the comparisons and `isInfinite` are silent there. -/
 def floats : List (Nat × Nat × Nat) :=
   [(24, 8, 0x3F800000), (24, 8, 0x7F7FFFFF), (24, 8, 0x7F800000), (24, 8, 0x7FC00000),
    (1, 2, 1), (1, 2, 3), (1, 2, 8), (2, 1, 1)]
@@ -856,9 +857,9 @@ readings, the Int grid without 2^64 + 1. Row 9's ten failures are the `functiona
 data), under `HookParams.none` only. Row 17's five: `countAllOccurrences`' second equation (1898)
 at the empty needle, under every reading that gives the count a value there (`unmet`);
 `replaceAll`'s (1917) at the empty needle under the readings that give `replaceAll` and `replace`
-at the count different values; `isInfinite`'s equation (domains.md 1673) at the three `p1x2` values
-and the `p2x1` one, under the two `only` readings (`isInfinite` has a value, `maxValueFloat` none, so
-the right side has none) and under `pick0`, `pick1` and `hash`; `rfindChar`'s (1893) under `pick0`
+at the count different values; `isInfinite`'s equation (domains.md 1673) at the `p2x1` value (at
+the three `p1x2` values both sides are `hook`'s), under the two `only` readings (`isInfinite` has a
+value, `maxValueFloat` none, so the right side has none) and under `hash`; `rfindChar`'s (1893) under `pick0`
 and `pick1` (in the points printed), which give the silent points of two symbols values that do
 not agree with the equation; and `=/=Float`'s (1648) where an operand is the `p2x1` value, at which
 `==Float` and `=/=Float` are silent, under `pick0`, `pick1` and `hash`, which give the two values
