@@ -578,6 +578,26 @@ def isEquations (c : Semantics) (X : Srt) (uTrue uFalse : String) : List Kore.Se
          [ev "VarK" (srt "K")])
        (KoreAML.dv "Bool" "false") (.top (srt "Bool")) [uidAttr uFalse, attr "owise"]]
 
+/-- X's predicate as a function of `c.fns`, with its presentation, where the reader holds it there
+(the text's equations of it are not exactly `Semantics.sortPreds`' clauses); `none` otherwise. -/
+def predFnOfPE (c : Semantics) (p : Presentation) (X : Srt) : Option (Fn × FnPres) :=
+  (predOf X).bind fun l => (withPres c.fns p.fns).find? (·.1.label == l)
+
+/-- A clause's equation (`clauseAx`) with the attributes of an equation kompile generates: its id,
+and `owise{}()` where it is of priority 200 (`clausePrioAttrs`). -/
+def genClauseAxPE (c : Semantics) (p : Presentation) (f : Fn) (fp : FnPres) (cl : Clause) (cp : ClausePres) :
+    Kore.Sentence :=
+  match clauseAx c p f fp cl cp with
+  | .axiom a => .axiom { a with attributes := sortAttrs (uidAttr cp.info.uid :: clausePrioAttrs cl cp) }
+  | s => s
+
+/-- The equations of X's predicate: where it is a function of `c.fns` (`predFnOfPE`), one per clause,
+each with its own id (`genClauseAxPE`); otherwise the two of `isEquations`, with the sort's ids. -/
+def predEquationsPE (c : Semantics) (p : Presentation) (X : Srt) : List Kore.Sentence :=
+  match predFnOfPE c p X with
+  | some (f, fp) => (withPres f.clauses fp.clauses).map fun (cl, cp) => genClauseAxPE c p f fp cl cp
+  | none => let u := uidsOf c p X; isEquations c X u.isTrue u.isFalse
+
 /-- `⊤ ∨ ⊥`: the no-junk axiom of a sort with domain values. -/
 def topBotAx (c : Semantics) (X : Srt) : Kore.Sentence :=
   axiom0 (.or (srtOf c X) [.top (srtOf c X), .bottom (srtOf c X)]) [attr "constructor"]
@@ -648,7 +668,7 @@ def userBlocks (c : Semantics) (p : Presentation) : List (List Kore.Sentence) :=
   ++ (ruleSentences c p).map (fun s => [s])
   ++ U.map (fun X => let u := (uidsOf c p X).proj
       if p.libProjs.contains X || u == "" then [] else projEquations p.simpArg (c.sortName X) u)
-  ++ U.map (fun X => let u := uidsOf c p X; isEquations c X u.isTrue u.isFalse)
+  ++ U.map (predEquationsPE c p)
 
 def userModule (c : Semantics) (p : Presentation) : Kore.Module :=
   { name := ⟨⟨p.moduleName⟩⟩

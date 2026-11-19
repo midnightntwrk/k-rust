@@ -136,10 +136,6 @@ PINNED = [
     ("RefusalReason.constructorEquation", "KPROV.apply"),
     ("RefusalReason.existentialAxiom", "KPROV.apply"),
     ("RefusalReason.ctorResultSort", "KPROV.apply"),
-    # printed by e2-init-partial-fn (no entry cites it) and given at a registry sort's predicate
-    # equation that is no clause of its sortPreds function (hybrid at a registry sort, no fixture);
-    # the hybrid fixtures that printed it are read, and the row naming the registry case is owed
-    ("RefusalReason.generatedEquation", "C3.rows-hybrid-supported"),
 ]
 
 
