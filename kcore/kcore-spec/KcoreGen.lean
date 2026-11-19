@@ -4750,6 +4750,112 @@ def kkNative (kkPath cases : String) (only : List String) : IO UInt32 := do
             differ := differ + cnt "differ"
     return if differ == 0 then 0 else 1
 
+/-! ## `kcore encodable` -/
+
+/-- The ten conjuncts of `KK.encodable`, in its order, by name. -/
+def encodableParts (c : Semantics) : List (String × Bool) :=
+  [("ovlsOK", KK.ovlsOK c), ("paramsOK", KK.paramsOK c), ("appsOK", KK.appsOK c),
+   ("headsOK", KK.headsOK c), ("litsOK", KK.litsOK c), ("subsortsOK", KK.subsortsOK c),
+   ("colPatsOK", KK.colPatsOK c), ("asOK", KK.asOK c), ("ensOK", KK.ensOK c),
+   ("shapesOK", KK.shapesOK c)]
+
+/-- The library modules a KORE text holds a sentence of (the reader's `moduleAt` of each builtin
+sentence's source and line, and the scan's own builtin modules), by name, in the library's order. -/
+def encodableModules (k : Kore.Definition) : List String :=
+  match k.modules.getLast? with
+  | none => []
+  | some m =>
+    let S := Parse.scan m.sentences
+    let mods := S.builtin.filterMap (fun (s, l) => moduleAt s l) ++ S.kbuiltin
+    ((List.range library.length).filter mods.contains).filterMap fun i => library[i]?.map (·.name)
+
+/-- A sentence's declared name, `hook` attribute and whether it declares sort parameters, where it
+has a `hook` attribute. -/
+def encodableHookOf : Kore.Sentence → Option (String × String × Bool)
+  | .hookedSymbol s => (KoreAML.Parse.attrStr? s.attributes "hook").map
+      (s.symbol.ident.ident.name, ·, !s.symbol.sortVars.isEmpty)
+  | .symbol s => (KoreAML.Parse.attrStr? s.attributes "hook").map
+      (s.symbol.ident.ident.name, ·, !s.symbol.sortVars.isEmpty)
+  | .hookedSort s => (KoreAML.Parse.attrStr? s.attributes "hook").map (s.sort.ident.name, ·, !s.sortVars.isEmpty)
+  | .sort s => (KoreAML.Parse.attrStr? s.attributes "hook").map (s.sort.ident.name, ·, !s.sortVars.isEmpty)
+  | _ => none
+
+/-- Whether a library declaration with the hook `h` declares sort parameters: the reader reads an
+application of such a symbol at an instance as a parameter symbol whose `impl` is the hook's
+(KCORE-SPEC.md Q11), so `KK.paramsOK` judges it, not `KK.readApp`. -/
+def encodableHookParametric (h : String) : Bool :=
+  (List.range library.length).any fun i =>
+    (moduleText false i).any fun s => match encodableHookOf s with
+      | some (_, h', p) => h' == h && p
+      | none => false
+
+/-- Where `KK.readApp` gives an application of the registered hook `f` a `kore.k` form, whatever its
+arguments' forms: as a collection construction (`KK.libCollOf`), an operation code
+(`KK.hookCodes`) or a composition of codes (`KK.derivedHook`); `none` where it gives none. -/
+def encodableHookForm (f : Sym) : Option String :=
+  if isHook f then
+    match KK.libCollOf f, KK.opOf f, KK.derivedHook f [] with
+    | some _, _, _ => some "KK.libCollOf"
+    | none, some o, _ => some s!"KK.hookCodes {o}"
+    | none, none, some _ => some "KK.derivedHook"
+    | none, none, none => none
+  else none
+
+/-- A registry sort's form in `kore.k`: a library collection sort has one where its unit symbol
+has a form (`KK.libCollOf`); another sort where `KK.litsOK` admits it (not `Float`) and its
+literals, read by `Parse.lit?` (whose literal kind is fixed by the sort), have one (`KK.encLit`).
+The Bool that fails otherwise: `appsOK` (no construction of the collection has a form) or
+`litsOK`. -/
+def encodableSortForm (s : Srt) : Except String String :=
+  match builtinColls.find? (·.sort == s) with
+  | some k => if (KK.libCollOf k.unit).isSome then .ok "KK.libCollOf" else .error "appsOK"
+  | none =>
+    let sample := if s == Srt.int then "0" else if s == Srt.bool then "true" else "a"
+    if s != Srt.float && ((Parse.lit? s sample).bind (KK.encLit s)).isSome then .ok "KK.encLit"
+    else .error "litsOK"
+
+/-- `kcore encodable definition.kore`: one JSON line, `KK.encodable` of the text's semantics
+(`encodable`), each of its ten conjuncts by name, and the library modules the text holds a
+sentence of (`modules`). `kcore encodable --library`: the tables a row of a hook, a hooked sort or
+a library module is judged by, one tab-separated line each: `hook NAME covered FORM` or
+`hook NAME refused BOOL` for each registered hook (`regHookNames`): one whose library declaration
+declares sort parameters (`encodableHookParametric`) and that is no collection symbol is refused
+`paramsOK`, which admits a parameter only with a collection `impl`; the others by
+`encodableHookForm` (`appsOK` where it gives none);
+`sort NAME covered FORM` or `sort NAME refused BOOL` for each registry sort
+(`encodableSortForm`); `module NAME SOURCE` for each library module (its file, as its sentences'
+`Source` reads), followed by `mhook MODULE HOOK DECL`
+for each declaration of its text with a `hook` attribute, in text order. -/
+def encodableCmd (koreFile : String) : IO UInt32 := do
+  let out := fun (s : String) => do IO.println s; (← IO.getStdout).flush
+  if koreFile == "--library" then
+    for (f, h) in regHookNames do
+      if encodableHookParametric h && (KK.libCollOf f).isNone then out s!"hook\t{h}\trefused\tparamsOK"
+      else match encodableHookForm f with
+        | some form => out s!"hook\t{h}\tcovered\t{form}"
+        | none => out s!"hook\t{h}\trefused\tappsOK"
+    for (n, s) in regSortNames.zipIdx do
+      match encodableSortForm s with
+      | .ok form => out s!"sort\t{n}\tcovered\t{form}"
+      | .error b => out s!"sort\t{n}\trefused\t{b}"
+    for (m, i) in library.zipIdx do
+      out s!"module\t{m.name}\t{m.src}"
+      for s in moduleText false i do
+        if let some (d, h, _) := encodableHookOf s then out s!"mhook\t{m.name}\t{h}\t{d}"
+    return 0
+  let .ok k := Kore.parseDefinition (← IO.FS.readFile koreFile) | IO.eprintln s!"{koreFile}: KORE read error"; return 1
+  let d ← match Parse.parse k with
+    | .ok d => pure d
+    | .error r => IO.eprintln s!"{koreFile}: refused: {r.toText}"; return 1
+  let c := d.sem
+  let parts := encodableParts c
+  let all := parts.all (·.2)
+  if all != KK.encodable c then IO.eprintln "encodable: the conjuncts differ from KK.encodable"; return 1
+  let fields := parts.map (fun (n, b) => (n, Lean.Json.bool b)) ++
+    [("encodable", Lean.Json.bool (KK.encodable c)), ("modules", jsonStrs (encodableModules k))]
+  out (Lean.Json.compress (Lean.Json.mkObj fields))
+  return 0
+
 end KcoreGen
 
 def main (argv : List String) : IO UInt32 := do
@@ -4770,6 +4876,7 @@ def main (argv : List String) : IO UInt32 := do
   | ["fn-facts", kore] => KcoreGen.fnFacts kore
   | ["exec-ready", kore] => KcoreGen.execReadyCmd kore
   | ["rule-ids", kore] => KcoreGen.ruleIdsCmd kore
+  | ["encodable", kore] => KcoreGen.encodableCmd kore
   | "exec" :: kore :: cfg :: rest =>
     let num := fun (flag : String) (dflt : Nat) =>
       ((rest.zip (rest.drop 1)).find? (·.1 == flag)).bind (·.2.toNat?) |>.getD dflt
@@ -4792,4 +4899,4 @@ def main (argv : List String) : IO UInt32 := do
     KcoreGen.gen kore out ns (certs := certs) (high := high) (keyed := keyed) (tie := rest.contains "--tie")
       (wfMods := rest.contains "--wf") (core := rest.contains "--core") (withSyntax := !rest.contains "--no-syntax")
       (asNotPlain := rest.contains "--as-not-plain")
-  | _ => IO.eprintln "usage: kcore gen definition.kore OUTDIR NAME [--tie | --wf | --core [--no-syntax]] [--as-not-plain] [--cert NAME=RUN.json]... [--high CELL]... [--keyed CELL]...\n       kcore account definition.kore\n       kcore wf-parts definition.kore\n       kcore roundtrip definition.kore\n       kcore gap definition.kore [--all]\n       kcore agree CASES.jsonl...\n       kcore oracle definition.kore config.kore | kcore oracle CASES.jsonl...\n       kcore kk-native KK.kore CASES.jsonl [ID...]\n       kcore kk-native-hooks KK.kore\n       kcore exec definition.kore config.kore [--steps N] [--fuel F]\n       kcore exec-ready definition.kore\n       kcore rule-ids definition.kore\n       kcore sem-fields definition.kore\n       kcore scope-count definition.kore\n       kcore sentence-heads definition.kore"; return 2
+  | _ => IO.eprintln "usage: kcore gen definition.kore OUTDIR NAME [--tie | --wf | --core [--no-syntax]] [--as-not-plain] [--cert NAME=RUN.json]... [--high CELL]... [--keyed CELL]...\n       kcore account definition.kore\n       kcore wf-parts definition.kore\n       kcore roundtrip definition.kore\n       kcore gap definition.kore [--all]\n       kcore agree CASES.jsonl...\n       kcore oracle definition.kore config.kore | kcore oracle CASES.jsonl...\n       kcore kk-native KK.kore CASES.jsonl [ID...]\n       kcore kk-native-hooks KK.kore\n       kcore exec definition.kore config.kore [--steps N] [--fuel F]\n       kcore exec-ready definition.kore\n       kcore rule-ids definition.kore\n       kcore sem-fields definition.kore\n       kcore scope-count definition.kore\n       kcore sentence-heads definition.kore\n       kcore encodable definition.kore | kcore encodable --library"; return 2

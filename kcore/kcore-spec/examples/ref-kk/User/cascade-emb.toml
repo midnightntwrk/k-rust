@@ -1,0 +1,199 @@
+# What gen/kkcascade.py emits for kore.k's functions over its mirrors (paths relative to kcore-spec):
+# per function the cascade over sorted values (as cascade.toml's), then `F` over the mirrors of
+# User.Emb and User.EmbKit with `F.bridge`, `F.eval` at `K₀ sig` and `F.eval_iff`.
+package = "examples/ref-kk"
+kore = "RefKk/definition.kore"
+facts = "User/KkFacts.lean"
+module = "User/KkGenEmb.lean"
+namespace = "KK.CascadeE"
+hnamespace = "KCore.KK.Gen"
+hb = true
+
+# kore.k's list sorts as Lean values over terms, for the cascade over sorted values (as cascade.toml).
+[mirror.43] # Ts: `.Ts`, `T ; Ts`
+kind = "list"
+nil = 406
+cons = 407
+tail = 1
+emb = "tsOf"
+sorted = "sort_ts"
+names = ["t", "ts"]
+
+[mirror.39] # Fns: `.Fns`, `fn(G, Cs, Fs)`
+kind = "list"
+nil = 402
+cons = 421
+tail = 2
+emb = "fnsOf"
+sorted = "sort_fns"
+names = ["g", "cs", "fs"]
+
+[mirror.40] # Look: `nofn`, `fnd(Cs)`
+kind = "option"
+none = 432
+some = 422
+emb = "lookOf"
+
+# kore.k's sorts as the Lean mirrors of User.Emb and User.EmbKit: the type, the embedding, its
+# sort at `c₀`, and (`fun`) the embedding as the term function of the cascade over values where
+# that takes a Lean list or option.
+[hsort.2]
+type = "Bool"
+emb = "GroundTerm.dv 2 (.bool {})"
+sorted = "_root_.KK.Kit.sort_bool"
+[hsort.3]
+type = "Int"
+emb = "GroundTerm.dv 3 (.int {})"
+sorted = "_root_.KK.Kit.sort_int"
+[hsort.10]
+type = "String"
+emb = "GroundTerm.dv 10 (.tok {})"
+sorted = "sort_string_kemb"
+[hsort.32]
+type = "List (Int × Int)"
+emb = "embS"
+sorted = "embS_sorted_c₀"
+[hsort.33]
+type = "T"
+emb = "emb"
+sorted = "emb_sorted_c₀"
+[hsort.34]
+type = "Kind"
+emb = "embK"
+sorted = "embK_sorted_c₀"
+[hsort.35]
+type = "List Cl"
+emb = "embCls"
+sorted = "embCls_sorted_c₀"
+[hsort.36]
+type = "Option Int"
+emb = "embPrio"
+sorted = "embPrio_sorted_c₀"
+[hsort.37]
+type = "Ms"
+emb = "embMs"
+sorted = "embMs_sorted_c₀"
+[hsort.38]
+type = "St"
+emb = "embSt"
+sorted = "embSt_sorted_c₀"
+[hsort.39]
+type = "List (Int × List Cl)"
+emb = "embFns"
+sorted = "embFns_sorted_c₀"
+fun = "embFns_fun"
+[hsort.40]
+type = "Option (List Cl)"
+emb = "embLook"
+sorted = "embLook_sorted_c₀"
+fun = "embLook_fun"
+[hsort.41]
+type = "Option T"
+emb = "embRes"
+sorted = "embRes_sorted_c₀"
+[hsort.42]
+type = "List Rl"
+emb = "embRls"
+sorted = "embRls_sorted_c₀"
+[hsort.43]
+type = "List T"
+emb = "embTs"
+sorted = "embTs_sorted_c₀"
+fun = "embTs_fun"
+[hsort.45]
+type = "D"
+emb = "embD"
+sorted = "embD_sorted_c₀"
+[hsort.46]
+type = "Bind"
+emb = "embB"
+sorted = "embB_sorted_c₀"
+
+# Each constructor as its mirror's constructor, its arguments in order.
+[hctor]
+400 = "[]"
+401 = "[]"
+402 = "[]"
+403 = "[]"
+404 = "[]"
+405 = "[]"
+406 = "[]"
+407 = "{0} :: {1}"
+408 = ".ap {0} {1}"
+409 = ".as {0} {1}"
+410 = "some {0}"
+411 = "({0}, {1}) :: {2}"
+412 = ".bot"
+413 = ".bv {0}"
+414 = ".cb {0} {1} {2}"
+415 = "⟨{0}, {1}, {2}, {3}, {4}⟩ :: {5}"
+416 = ".co {0} {1} {2}"
+417 = "⟨{0}, {1}, {2}⟩"
+419 = ".el {0}"
+420 = ".en {0} {1}"
+421 = "({0}, {1}) :: {2}"
+422 = "some {0}"
+423 = ".hk {0} {1}"
+424 = ".ij {0} {1} {2}"
+425 = ".iv {0}"
+426 = ".kv {0} {1}"
+427 = ".list"
+428 = "{0} :: {1}"
+429 = ".map"
+430 = ".next {0}"
+431 = "none"
+432 = "none"
+433 = "none"
+436 = "⟨{0}, {1}, {2}, {3}, {4}⟩ :: {5}"
+438 = ".set"
+439 = "some {0}"
+441 = ".stuck"
+442 = "({0}, {1}) :: {2}"
+443 = ".tk {0} {1}"
+445 = ".vr {0}"
+
+# The functions (symbol, name of F, arguments' names, Int arguments taken as terms by the cascade
+# over values).
+[[fn]]
+sym = 447
+name = "app"
+args = ["xs", "ys"]
+
+[[fn]]
+sym = 493
+name = "mkInj"
+args = ["a", "b", "t"]
+raw = [0, 1]
+
+[[fn]]
+sym = 485
+name = "lookup"
+args = ["f", "fs"]
+
+
+
+[[fn]]
+sym = 516
+name = "valOf"
+args = ["x"]
+
+[[fn]]
+sym = 509
+name = "subsOf"
+args = ["d"]
+
+[[fn]]
+sym = 457
+name = "cmpI"
+args = ["x", "y"]
+
+[[fn]]
+sym = 511
+name = "tag"
+args = ["t"]
+
+
+[[fn]]
+sym = 492
+name = "mkEl"
+args = ["t"]
