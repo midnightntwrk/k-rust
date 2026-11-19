@@ -284,6 +284,11 @@ pub const VERDICTS_SCHEMA: &str = "kink-flow-verdicts";
 /// `[run]`, `[coverage]` or `[query]` section differs in its `version` line only; a `[compare]`
 /// section of implementations of the first protocol differs in its header only (its `version`
 /// line, its `protocols` line and its comments), every row being the bytes it was.
+/// A `[compare]` section's `[[compare.view]]` rows, each (implementation, view)'s `compared` and
+/// `agreeing` programs counted from its verdict rows, were added at 29 without a new version:
+/// they add rows to the compare section alone, which no committed record had, and a section
+/// written before them is `stale` under `--locked` as one with a moved row is, while a new
+/// version would refuse every committed `[run]` and `[coverage]` section until rewritten.
 pub const VERDICTS_VERSION: u64 = 29;
 
 /// The comment a record opens with, before its `schema`: what the file is, which section each
@@ -349,6 +354,13 @@ pub const COMPARE_LEGEND: &[&str] = &[
     "test at equal indices: that the implementation's element k is its state at the definition's",
     "point k is the implementation's claim. `request_sha256` names the request it was given, and",
     "`identity_sha256` its build (its `identity` file); a run that gave no answer keeps its rows.",
+];
+
+/// The comment before a compare section's first `[[compare.view]]`: what its counts are.
+pub const VIEW_COUNTS_LEGEND: &[&str] = &[
+    "Each [[compare.view]] counts one view of one implementation over the programs above:",
+    "`compared`, those whose verdict is not not-compared, and `agreeing`, those of them that are",
+    "equal (or agree-up-to with every horizon the definition's).",
 ];
 
 /// The comment after [`COMPARE_LEGEND`] in a section with a `definition-refused` verdict, which only
@@ -959,6 +971,33 @@ fn compare(text: &mut String, document: &Value) {
             if let Some(digest) = row[key].as_str() {
                 line(text, key, &string(digest));
             }
+        }
+    }
+    // The agreement of each (implementation, view), counted from the rows the section holds,
+    // so a row a run did not decide moves no count.
+    let counts = crate::compare::view_counts(rows.iter().map(|row| crate::compare::ViewEntry {
+        implementation: row["implementation"].as_str().unwrap_or_default(),
+        view: row["view"].as_str().unwrap_or_default(),
+        required: row["required"] == true,
+        verdict: row["verdict"].as_str().unwrap_or_default(),
+        horizon: row["horizon"].clone(),
+    }));
+    if !counts.is_empty() {
+        text.push('\n');
+        comment(text, VIEW_COUNTS_LEGEND);
+    }
+    for (index, count) in counts.iter().enumerate() {
+        text.push_str(if index == 0 {
+            "[[compare.view]]\n"
+        } else {
+            "\n[[compare.view]]\n"
+        });
+        for key in ["implementation", "view"] {
+            line(text, key, &string(count[key].as_str().unwrap_or_default()));
+        }
+        line(text, "required", &(count["required"] == true).to_string());
+        for key in ["compared", "agreeing"] {
+            line(text, key, &count[key].to_string());
         }
     }
 }

@@ -128,7 +128,11 @@ pub const COMPARE_SCHEMA: &str = "kink-flow-compare";
 /// 4 since an end view of a program the definition ends at a declared `refused` end has the
 /// verdict `definition-refused`, whatever the implementation answered, which the summary then
 /// counts; the document of a definition that declares no end differs in `version` only.
-pub const COMPARE_VERSION: u64 = 4;
+/// 5 since every view entry has `distance` ([`Distance`] for an end view's `equal` or
+/// `different`, the first difference's index or the agreeing elements for a trace view's
+/// verdict, else null) and `summary` has `views`, each (implementation, view)'s `compared` and
+/// `agreeing` programs, which `--output text` prints and a lock's `[[compare.view]]` rows hold.
+pub const COMPARE_VERSION: u64 = 5;
 /// The protocol a request names (`protocol`) and its answer is read by, unless the
 /// implementation declares another ([`Protocol`]).
 pub const PROTOCOL: &str = "kink-implementation/1";
@@ -282,21 +286,66 @@ impl NotCompared {
     }
 }
 
+/// How far apart two ends are under a view (an end view entry's `distance`): the compared cells
+/// at which they differ and the view's compared cells. `differing_cells` counts the first
+/// difference's cell and every other cell the front end names as differing (krs: `cell` and
+/// `also_differ`, an instance of a `List` or `Map` collection counted at each index or key that
+/// differs, a `Set` collection once); `compared_cells` counts the view's compared leaf cells by
+/// declared path. The two are not on one scale where a collection differs at several instances,
+/// so `differing_cells` may exceed `compared_cells`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Distance {
+    pub differing_cells: usize,
+    pub compared_cells: usize,
+}
+
+impl Distance {
+    /// The distance's member of its entry.
+    #[must_use]
+    pub fn value(&self) -> Value {
+        json!({"differing_cells": self.differing_cells, "compared_cells": self.compared_cells})
+    }
+}
+
 /// The front end's comparison of one view: equal, different with the first difference (the
 /// front end's document), or not compared.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Judged {
     /// Every end of the definition agrees with the answer on the view's cells; `omitted` lists
-    /// the cells the comparison left out because the implementation omits them.
-    Equal { omitted: Vec<String> },
-    /// They differ, first here.
+    /// the cells the comparison left out because the implementation omits them, and
+    /// `compared_cells` counts the view's compared leaf cells ([`Distance`]).
+    Equal {
+        omitted: Vec<String>,
+        compared_cells: usize,
+    },
+    /// They differ, first here, and this far apart.
     Different {
         difference: Value,
         omitted: Vec<String>,
+        distance: Distance,
     },
     /// The view is not compared.
     NotCompared(NotCompared),
 }
+
+impl Judged {
+    /// The distance this comparison found: none for a view not compared.
+    #[must_use]
+    pub const fn distance(&self) -> Option<Distance> {
+        match self {
+            Self::Equal { compared_cells, .. } => Some(Distance {
+                differing_cells: 0,
+                compared_cells: *compared_cells,
+            }),
+            Self::Different { distance, .. } => Some(*distance),
+            Self::NotCompared(_) => None,
+        }
+    }
+}
+
+/// The `distance` of an end view entry whose cells were not counted: an answer that states no
+/// cells (`horizon`), or a word difference whose comparison of cells did not conclude.
+const UNCOUNTED: Value = Value::Null;
 
 /// One question to the front end: the answer's cells against the definition's ends, under one
 /// view of one implementation.
@@ -1273,6 +1322,22 @@ fn end_view_row(
             "definition": word,
             "implementation": stated.word(),
         });
+        // The words decide the verdict; the cells, where the answer states them, are compared
+        // for the distance alone, so a comparison that does not conclude (or fails) leaves the
+        // distance uncounted and decides nothing.
+        let distance = stated.cells.as_ref().and_then(|cells| {
+            vocabulary
+                .compare(&Question {
+                    implementation,
+                    view,
+                    cells,
+                    ends,
+                    not_compared,
+                })
+                .ok()?
+                .distance()
+        });
+        row["distance"] = distance.map_or(UNCOUNTED, |distance| distance.value());
     } else {
         let cells = stated
             .cells
@@ -1285,20 +1350,25 @@ fn end_view_row(
             ends,
             not_compared,
         })?;
+        let distance = judged.distance();
         match judged {
-            Judged::Equal { omitted } => {
+            Judged::Equal { omitted, .. } => {
                 row["verdict"] = json!("equal");
                 row["omitted"] = json!(omitted);
             }
             Judged::Different {
                 difference,
                 omitted,
+                ..
             } => {
                 row["verdict"] = json!("different");
                 row["difference"] = difference;
                 row["omitted"] = json!(omitted);
             }
             Judged::NotCompared(reason) => not_compared_row(&mut row, &reason),
+        }
+        if let Some(distance) = distance {
+            row["distance"] = distance.value();
         }
     }
     Ok(row)
@@ -1468,6 +1538,10 @@ pub fn judged_row(
                 ));
             }
             row["verdict"] = json!("different");
+            row["distance"] = json!({"first_difference": {
+                "channel": difference.channel,
+                "index": difference.index,
+            }});
             row["difference"] = difference.value();
             return Ok(row);
         }
@@ -1485,6 +1559,8 @@ pub fn judged_row(
         ));
     }
     let mut horizon = Map::new();
+    // The elements that agree on each channel, the trace view's `distance` where nothing differs.
+    let mut agreeing = Map::new();
     let mut bounds = Vec::new();
     let mut short = false;
     // Whether some position was compared: an element, or a closure of both sides.
@@ -1507,6 +1583,7 @@ pub fn judged_row(
             .positions;
         let held = u64::try_from(values.elements.len()).unwrap_or(u64::MAX);
         let ending = values.ending();
+        agreeing.insert(channel.clone(), json!(elements));
         match reach {
             TraceReach::Closed => {
                 if !matches!(ending, ValuesEnd::End | ValuesEnd::Undefined) || elements != held {
@@ -1575,6 +1652,7 @@ pub fn judged_row(
     }
     if horizon.is_empty() {
         row["verdict"] = json!("equal");
+        row["distance"] = json!({"agreeing_elements": agreeing});
     } else if !compared {
         not_compared_row(
             &mut row,
@@ -1590,6 +1668,7 @@ pub fn judged_row(
         );
     } else {
         row["verdict"] = json!("agree-up-to");
+        row["distance"] = json!({"agreeing_elements": agreeing});
         row["horizon"] = Value::Object(horizon);
         row["detail"] = json!(format!(
             "{}; nothing past it is compared",
@@ -1612,6 +1691,7 @@ fn view_row(view: &ViewSection) -> Value {
         "detail": null,
         "omitted": [],
         "status": null,
+        "distance": null,
     });
     if view.is_trace() {
         row["horizon"] = Value::Null;
@@ -3082,11 +3162,100 @@ fn summary(rows: &[Value], second_protocol: bool) -> Value {
         verdicts.insert(DEFINITION_REFUSED.into(), json!(refused(false)));
         required.insert(DEFINITION_REFUSED.into(), json!(refused(true)));
     }
+    let entries = rows.iter().flat_map(|row| {
+        row["views"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(move |view| ViewEntry {
+                implementation: row["implementation"].as_str().unwrap_or_default(),
+                view: view["view"].as_str().unwrap_or_default(),
+                required: view["required"] == true,
+                verdict: view["verdict"].as_str().unwrap_or_default(),
+                horizon: view["horizon"].clone(),
+            })
+    });
     json!({
         "verdicts": verdicts,
         "required": required,
         "failures": rows.iter().filter(|row| row["failure"].is_object()).count(),
+        "views": view_counts(entries),
     })
+}
+
+/// One verdict of one (implementation, view), as [`view_counts`] counts it: `horizon` is an
+/// `agree-up-to` verdict's horizon object (or its canonical JSON text, as a lock row holds it).
+pub struct ViewEntry<'a> {
+    pub implementation: &'a str,
+    pub view: &'a str,
+    pub required: bool,
+    pub verdict: &'a str,
+    pub horizon: Value,
+}
+
+/// Whether a verdict is an agreement of the two sides over everything the definition states:
+/// `equal`, or `agree-up-to` whose every horizon is the definition's (`limited_by:
+/// "definition"`), whose status is 0 ([`judged_row`]).
+fn agrees(verdict: &str, horizon: &Value) -> bool {
+    match verdict {
+        "equal" => true,
+        "agree-up-to" => {
+            let parsed;
+            let horizon = match horizon {
+                Value::String(text) => {
+                    parsed = serde_json::from_str::<Value>(text).unwrap_or(Value::Null);
+                    &parsed
+                }
+                other => other,
+            };
+            horizon.as_object().is_some_and(|channels| {
+                !channels.is_empty()
+                    && channels
+                        .values()
+                        .all(|channel| channel["limited_by"] == "definition")
+            })
+        }
+        _ => false,
+    }
+}
+
+/// The agreement of each (implementation, view) over the corpus's programs, in the order the
+/// pairs first occur: `{implementation, view, required, compared, agreeing}`, `compared` the
+/// programs whose verdict is not `not-compared` and `agreeing` those of them that agree
+/// ([`agrees`]). A run that gave no answer has no verdict and counts in neither.
+#[must_use]
+pub fn view_counts<'a>(entries: impl IntoIterator<Item = ViewEntry<'a>>) -> Vec<Value> {
+    let mut counts: Vec<(&str, &str, bool, u64, u64)> = Vec::new();
+    for entry in entries {
+        let index = match counts
+            .iter()
+            .position(|(i, v, ..)| *i == entry.implementation && *v == entry.view)
+        {
+            Some(index) => index,
+            None => {
+                counts.push((entry.implementation, entry.view, entry.required, 0, 0));
+                counts.len() - 1
+            }
+        };
+        if entry.verdict != "not-compared" {
+            counts[index].3 += 1;
+            if agrees(entry.verdict, &entry.horizon) {
+                counts[index].4 += 1;
+            }
+        }
+    }
+    counts
+        .into_iter()
+        .map(|(implementation, view, required, compared, agreeing)| {
+            json!({
+                "implementation": implementation,
+                "view": view,
+                "required": required,
+                "compared": compared,
+                "agreeing": agreeing,
+            })
+        })
+        .collect()
 }
 
 /// The `--output text` rendering of a `compare` document: one line per (implementation,
@@ -3177,6 +3346,20 @@ pub fn text(document: &Value) -> Result<String, String> {
                 .collect::<Vec<_>>()
                 .join(", ")
         };
+        for view in summary["views"].as_array().into_iter().flatten() {
+            text.push_str(&format!(
+                "{} {} ({}): {} of {} programs compared agree\n",
+                view["implementation"].as_str().unwrap_or("?"),
+                view["view"].as_str().unwrap_or("?"),
+                if view["required"] == true {
+                    "required"
+                } else {
+                    "reported"
+                },
+                view["agreeing"],
+                view["compared"]
+            ));
+        }
         text.push_str(&format!(
             "verdicts: {}; required views: {}; failed runs: {}\n",
             counts("verdicts"),
@@ -3530,6 +3713,7 @@ mod tests {
                 shapes: Ok(Vec::new()),
                 end: Judged::Equal {
                     omitted: Vec::new(),
+                    compared_cells: 2,
                 },
                 trace: Ok(TraceAnswer::Judged(judged)),
             }
@@ -4391,8 +4575,175 @@ mod tests {
         );
     }
 
+    /// Every entry says how far apart the two sides are (README "Verdicts", `distance`), and the
+    /// summary, the text and the lock count each (implementation, view)'s agreement; neither
+    /// changes a verdict or a status.
+    #[test]
+    fn an_entry_reports_its_distance_and_each_view_its_agreement() {
+        let implementation = second(&format!("{END}, {TICKS}"));
+        let ends = BTreeSet::new();
+        let words = BTreeSet::from(["final"]);
+        let end_row = |end: Judged, stated: &Stated| {
+            let mock = Mock {
+                end,
+                ..Mock::judging(Vec::new())
+            };
+            end_view_row(
+                &mock,
+                &implementation,
+                &implementation.views[0],
+                stated,
+                (&ends, &words),
+                &[],
+            )
+            .unwrap()
+        };
+        let ended = stated(StatedEnd::Ended(EndWord::Final), true, false);
+        let equal = Judged::Equal {
+            omitted: Vec::new(),
+            compared_cells: 4,
+        };
+        let different = Judged::Different {
+            difference: json!({"format": "krs-difference/3", "cell": "acc"}),
+            omitted: Vec::new(),
+            distance: Distance {
+                differing_cells: 3,
+                compared_cells: 4,
+            },
+        };
+        let row = end_row(equal.clone(), &ended);
+        assert_eq!(row["verdict"], "equal");
+        assert_eq!(
+            row["distance"],
+            json!({"differing_cells": 0, "compared_cells": 4})
+        );
+        let row = end_row(different.clone(), &ended);
+        assert_eq!(row["verdict"], "different");
+        assert_eq!(
+            row["distance"],
+            json!({"differing_cells": 3, "compared_cells": 4})
+        );
+        // The words differ: the verdict is the word difference, the distance the cells'.
+        let stopped = stated(StatedEnd::Ended(EndWord::Stopped), true, false);
+        let row = end_row(different, &stopped);
+        assert_eq!(row["difference"]["format"], "kink-end/1");
+        assert_eq!(
+            row["distance"],
+            json!({"differing_cells": 3, "compared_cells": 4})
+        );
+        let row = end_row(equal.clone(), &stopped);
+        assert_eq!(row["difference"]["format"], "kink-end/1");
+        assert_eq!(
+            row["distance"],
+            json!({"differing_cells": 0, "compared_cells": 4})
+        );
+        // No cells to count (a `horizon` answer), or a comparison of them that does not
+        // conclude: the distance is uncounted, the verdict the same.
+        let row = end_row(equal, &stated(StatedEnd::Horizon, false, true));
+        assert_eq!(row["verdict"], "different");
+        assert!(row["distance"].is_null());
+        let undecided = Judged::NotCompared(NotCompared::Undecided("stopped".to_owned()));
+        let row = end_row(undecided.clone(), &stopped);
+        assert_eq!(row["verdict"], "different");
+        assert!(row["distance"].is_null());
+        let row = end_row(undecided, &ended);
+        assert_eq!(row["verdict"], "not-compared");
+        assert!(row["distance"].is_null());
+
+        // A trace view: the agreeing elements per channel, or where it first differs.
+        let (closed, _) = ticks_row(
+            4,
+            CLOSED,
+            5,
+            TraceJudged::Agree(vec![agreed("ticks", 4, TraceReach::Closed)]),
+        )
+        .unwrap();
+        assert_eq!(closed["verdict"], "equal");
+        assert_eq!(
+            closed["distance"],
+            json!({"agreeing_elements": {"ticks": 4}})
+        );
+        let (up_to, _) = ticks_row(
+            6,
+            open(Opening::Bound),
+            6,
+            TraceJudged::Agree(vec![agreed("ticks", 6, bounded(None))]),
+        )
+        .unwrap();
+        assert_eq!(up_to["verdict"], "agree-up-to");
+        assert_eq!(
+            up_to["distance"],
+            json!({"agreeing_elements": {"ticks": 6}})
+        );
+        let (short, _) = ticks_row(
+            6,
+            open(Opening::Bound),
+            6,
+            TraceJudged::Agree(vec![agreed("ticks", 2, bounded(Some("nothing")))]),
+        )
+        .unwrap();
+        assert_eq!(short["status"], EXIT_UNANSWERED);
+        let (differs, _) = ticks_row(6, CLOSED, 7, TraceJudged::Different(difference())).unwrap();
+        assert_eq!(
+            differs["distance"],
+            json!({"first_difference": {"channel": "ticks", "index": 3}})
+        );
+
+        // Per (implementation, view): the programs compared, and those that agree: `equal`, and
+        // `agree-up-to` only where every horizon is the definition's.
+        let mut not = view_row(&implementation.views[1]);
+        not_compared_row(
+            &mut not,
+            &NotCompared::SeveralPaths(SEVERAL_PATHS.to_owned()),
+        );
+        let end = |verdict: &str| json!({"view": "end", "required": true, "verdict": verdict});
+        let rows = [
+            (end("equal"), closed),
+            (end("different"), up_to),
+            (end("could-not-apply"), short),
+            (end("not-compared"), not),
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(index, (end, trace))| {
+            json!({"implementation": "fake", "program": format!("p{index}"), "required": true,
+                   "request_sha256": "rr", "failure": null, "views": [end, trace]})
+        })
+        .chain([
+            json!({"implementation": "fake", "program": "p4", "required": true,
+                       "failure": {"kind": "exit", "detail": "exit 101"}, "views": []}),
+        ])
+        .collect::<Vec<_>>();
+        let counts = json!([
+            {"implementation": "fake", "view": "end", "required": true, "compared": 3, "agreeing": 1},
+            {"implementation": "fake", "view": "ticks", "required": true, "compared": 3, "agreeing": 2},
+        ]);
+        let summary = summary(&rows, true);
+        assert_eq!(summary["views"], counts);
+        let document = json!({"schema": COMPARE_SCHEMA, "rows": rows, "summary": summary,
+                              "implementations": [{"name": "fake"}]});
+        let text = text(&document).unwrap();
+        assert!(
+            text.contains("fake end (required): 1 of 3 programs compared agree\n")
+                && text.contains("fake ticks (required): 2 of 3 programs compared agree\n"),
+            "{text}"
+        );
+        // A lock row holds a horizon as text, and is counted as the summary counts it.
+        let locked = verdict_rows(&document);
+        assert!(locked.iter().any(|row| row["horizon"].is_string()));
+        let from_lock = view_counts(locked.iter().map(|row| ViewEntry {
+            implementation: row["implementation"].as_str().unwrap(),
+            view: row["view"].as_str().unwrap(),
+            required: row["required"] == true,
+            verdict: row["verdict"].as_str().unwrap(),
+            horizon: row["horizon"].clone(),
+        }));
+        assert_eq!(json!(from_lock), counts);
+    }
+
     /// The rows, the summary and the text of an implementation of the first protocol are what
-    /// they were before a second existed: no key and no word of a trace.
+    /// they were before a second existed, but for each entry's `distance` and each view's
+    /// agreement (version 5): no key and no word of a trace.
     #[test]
     fn a_first_protocol_row_summary_and_text_are_unchanged() {
         let manifest = decoded(ONE).unwrap();
@@ -4403,6 +4754,10 @@ mod tests {
             end: Judged::Different {
                 difference: json!({"format": "krs-difference/3", "path": "acc"}),
                 omitted: vec!["k".to_owned()],
+                distance: Distance {
+                    differing_cells: 1,
+                    compared_cells: 2,
+                },
             },
             ..Mock::judging(Vec::new())
         };
@@ -4418,7 +4773,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             serde_json::to_string(&rows).unwrap(),
-            r#"[{"detail":null,"difference":{"format":"krs-difference/3","path":"acc"},"omitted":["k"],"reason":null,"required":true,"status":null,"verdict":"different","view":"writes"},{"detail":null,"difference":{"format":"krs-difference/3","path":"acc"},"omitted":["k"],"reason":null,"required":false,"status":null,"verdict":"different","view":"all"}]"#
+            r#"[{"detail":null,"difference":{"format":"krs-difference/3","path":"acc"},"distance":{"compared_cells":2,"differing_cells":1},"omitted":["k"],"reason":null,"required":true,"status":null,"verdict":"different","view":"writes"},{"detail":null,"difference":{"format":"krs-difference/3","path":"acc"},"distance":{"compared_cells":2,"differing_cells":1},"omitted":["k"],"reason":null,"required":false,"status":null,"verdict":"different","view":"all"}]"#
         );
         assert_eq!(
             Stated::from(answer).value().to_string(),
@@ -4428,7 +4783,7 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&definition_rows(implementation, "comparable-prefix", None))
                 .unwrap(),
-            r#"[{"detail":"the definition's run of the program is `comparable-prefix`: it has no end to compare","difference":null,"omitted":[],"reason":"definition","required":true,"status":3,"verdict":"not-compared","view":"writes"},{"detail":"the definition's run of the program is `comparable-prefix`: it has no end to compare","difference":null,"omitted":[],"reason":"definition","required":false,"status":3,"verdict":"not-compared","view":"all"}]"#
+            r#"[{"detail":"the definition's run of the program is `comparable-prefix`: it has no end to compare","difference":null,"distance":null,"omitted":[],"reason":"definition","required":true,"status":3,"verdict":"not-compared","view":"writes"},{"detail":"the definition's run of the program is `comparable-prefix`: it has no end to compare","difference":null,"distance":null,"omitted":[],"reason":"definition","required":false,"status":3,"verdict":"not-compared","view":"all"}]"#
         );
         let rows = vec![
             json!({"implementation": "cpu", "program": "p", "required": true,
@@ -4437,13 +4792,14 @@ mod tests {
         let summary = summary(&rows, false);
         assert_eq!(
             summary.to_string(),
-            r#"{"failures":0,"required":{"could-not-apply":0,"different":1,"equal":0,"not-compared":0},"verdicts":{"could-not-apply":0,"different":2,"equal":0,"not-compared":0}}"#
+            r#"{"failures":0,"required":{"could-not-apply":0,"different":1,"equal":0,"not-compared":0},"verdicts":{"could-not-apply":0,"different":2,"equal":0,"not-compared":0},"views":[{"agreeing":0,"compared":1,"implementation":"cpu","required":true,"view":"writes"},{"agreeing":0,"compared":1,"implementation":"cpu","required":false,"view":"all"}]}"#
         );
         let document = json!({"schema": COMPARE_SCHEMA, "rows": rows, "summary": summary});
         assert_eq!(
             text(&document).unwrap(),
             "cpu p writes (required): different at acc\ncpu p all (reported): different at \
-             acc\nverdicts: 0 equal, 2 different, 0 could-not-apply, 0 not-compared; required \
+             acc\ncpu writes (required): 0 of 1 programs compared agree\ncpu all (reported): 0 \
+             of 1 programs compared agree\nverdicts: 0 equal, 2 different, 0 could-not-apply, 0 not-compared; required \
              views: 0 equal, 1 different, 0 could-not-apply, 0 not-compared; failed runs: 0\n"
         );
         assert!(
@@ -4543,6 +4899,7 @@ mod tests {
                      open (nothing) before the 6 positions asked{testing}"
                 ),
                 format!("fake p4 ticks (required): not-compared: {SEVERAL_PATHS}{testing}"),
+                "fake ticks (required): 1 of 3 programs compared agree".to_owned(),
                 "verdicts: 0 equal, 1 agree-up-to, 2 different, 0 could-not-apply, 2 \
                  not-compared; required views: 0 equal, 1 agree-up-to, 2 different, 0 \
                  could-not-apply, 2 not-compared; failed runs: 0"

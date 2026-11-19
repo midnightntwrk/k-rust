@@ -682,7 +682,8 @@ fn assert_v1(package: &Package, document: &Value) {
         assert_eq!(
             row["views"],
             json!([{"view": "whole", "required": true, "verdict": "equal", "difference": null,
-                    "reason": null, "detail": null, "omitted": ["k", "seen"], "status": null}]),
+                    "reason": null, "detail": null, "omitted": ["k", "seen"], "status": null,
+                    "distance": {"differing_cells": 0, "compared_cells": 2}}]),
             "{row:#}"
         );
     }

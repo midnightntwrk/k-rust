@@ -1990,6 +1990,29 @@ horizon = '{"boundary":{"definition":"bound","elements":4096,"implementation":"t
 request_sha256 = "77c1…"
 identity_sha256 = "5d1e…"
 
+# Each [[compare.view]] counts one view of one implementation over the programs above:
+# ...
+[[compare.view]]
+implementation = "rust-cpu"
+view = "writes"
+required = true
+compared = 1
+agreeing = 1
+
+[[compare.view]]
+implementation = "rust-cpu"
+view = "accesses"
+required = false
+compared = 1
+agreeing = 0
+
+[[compare.view]]
+implementation = "rust-cpu-traced"
+view = "boundary"
+required = true
+compared = 1
+agreeing = 1
+
 [query]
 # The obligations of kink's `query` command (`krs kink query`, `kink-flow query`): the next
 # ...
@@ -3064,6 +3087,18 @@ Each (implementation, program, view) has one verdict:
 | `definition-refused` | An end view of a program every end of whose baseline is at a declared `refused` end ("Declared ends"), whatever the implementation answered: the definition states no end of the program to compare an answer with, only that it refuses it. Where the baseline also has an end of another class, the view is compared with the ends as before, since a refusal on one path does not answer for another. `detail` names the first refused end and its reason. It mirrors `could-not-apply`, the implementation's refusal, and is an answer as that is. A trace view is compared as before: the elements before the end are behaviour the definition states. A lock row's `reason` is the detail, and a section with such a row adds a legend line for it. |
 | `not-compared` | The view is not compared; `reason` says why: `definition` (the program's baseline is not `comparable`: it has no end; for an implementation of version 2 only a baseline that is `timeout`, `unknown` or an error), `no-end` (an end view of an implementation of version 2 on a program whose baseline the bounds cut, `comparable-prefix`), `several-paths` (a trace view of a program whose baseline has several paths: its record holds no one sequence of elements), `observed-nothing` (a trace view no channel of which was compared at any index: a comparison of nothing is no agreement), `omitted` (the view compares a cell the implementation omits), `left-out` (a cell the corpus's ends leave out, `[result]` or an unobservable cell), `several-ends` (the definition's run has several ends that the view tells apart, or ends both at the stop and on its own: one answer against several ends is inclusion, which this command does not decide), `undecided` (a view's evaluation stopped before it ended, or the clock stopped the depth-0 run that gives the start: no answer on this host; for a trace view, an element before any difference is not decided on one side, an `undecided` element of the answer or an element of the definition that is undecided or has a part with no document), `unreadable` (the definition's start, an end or an input has no document). |
 
+Each entry also has `distance`, how far apart the two sides are, which moves before the verdict does and decides no verdict and no status:
+
+- An end view entry whose verdict is `equal` or `different` has `{differing_cells, compared_cells}`.
+  `differing_cells` counts the compared cells at which the ends differ: the first difference's cell and every other cell the front end names as differing (krs: `cell` and `also_differ`, from one walk of every compared cell); it is 0 for `equal`.
+  krs names a cell of a `List` or `Map` collection at each index or key at which it differs, an instance one side lacks as one cell, and a `Set` collection as one cell however many of its instances differ.
+  `compared_cells` counts the view's compared leaf cells by declared path, a function of the view and the corpus, not of the program.
+  The two are not on one scale where a collection differs at several instances (`differing_cells` may exceed `compared_cells`), so the pair is no fraction.
+  Where the words differ (`kink-end/1`), the cells the answer states are compared for the distance alone; where it states none (`horizon`), or that comparison does not conclude, both counts are null: nothing was counted.
+- A trace view entry whose verdict is `different` has `{first_difference: {channel, index}}`: on that channel the elements before `index` agree.
+  One whose verdict is `equal` or `agree-up-to` has `{agreeing_elements: {CHANNEL: N}}`, the elements that agree on each channel of the view.
+- Every other entry's `distance` is null.
+
 ### Exit status
 
 Only a required view decides the status; every other verdict is reported.
@@ -3075,14 +3110,16 @@ The command exits with the join of its rows and of its lock ("Exit status"; `sta
 
 ### The document
 
-`schema` `kink-flow-compare`, `version` 3, `protocol`, the builds (`k_rust_revision`, `profile`, `kink_build`, `z3`), `spec`, `refusal` (`{stage, reason, detail}` or null), `implementations` (each declaration as written, its `identity` with `sha256`), `programs` (each program's baseline `{id, class, cause, cached, cache_error}`), `stop` and `result.not_compared` (the cells the ends leave out), `rows` and `summary`.
-Each row is one (implementation, program): `{implementation, program, required, request_sha256, answer: {end, reason}, cached, failure, wall_ms, clock_stopped, views}`, `request_sha256` the SHA-256 of the request's canonical JSON, `cached` whether the answer was read from the cache (its `wall_ms` is then null), `clock_stopped` the run the clock stopped that the row rests on (`baseline`, `start`, `implementation`, or null), and each entry of `views` `{view, required, verdict, difference, reason, detail, omitted, status}`.
+`schema` `kink-flow-compare`, `version` 5, `protocol`, the builds (`k_rust_revision`, `profile`, `kink_build`, `z3`), `spec`, `refusal` (`{stage, reason, detail}` or null), `implementations` (each declaration as written, its `identity` with `sha256`), `programs` (each program's baseline `{id, class, cause, cached, cache_error}`), `stop` and `result.not_compared` (the cells the ends leave out), `rows` and `summary`.
+Each row is one (implementation, program): `{implementation, program, required, request_sha256, answer: {end, reason}, cached, failure, wall_ms, clock_stopped, views}`, `request_sha256` the SHA-256 of the request's canonical JSON, `cached` whether the answer was read from the cache (its `wall_ms` is then null), `clock_stopped` the run the clock stopped that the row rests on (`baseline`, `start`, `implementation`, or null), and each entry of `views` `{view, required, verdict, difference, reason, detail, omitted, status, distance}`.
 Each program's baseline is `{id, class, cause, cached, not_cached, cache_error}`.
-`summary` counts the verdicts (`verdicts`, and `required`, of the required views) and the `failures`.
+`summary` counts the verdicts (`verdicts`, and `required`, of the required views) and the `failures`, and gives each (implementation, view)'s agreement over the programs (`views`: `{implementation, view, required, compared, agreeing}`, `compared` the programs whose verdict is not `not-compared`, `agreeing` those of them that are `equal`, or `agree-up-to` with every horizon the definition's); a run that gave no answer has no verdict and counts in neither.
 `lock`, with `--lock`, is the lock's state as `run`'s and `coverage`'s is ("The corpus record"), with `failed`.
-`--output text` prints one line per verdict (`IMPLEMENTATION PROGRAM VIEW (required|reported): VERDICT`, with where a difference is or why a view is not compared) and per failure, then the counts; `--output verdicts` prints the record's header and the `[compare]` section the run would write.
+`--output text` prints one line per verdict (`IMPLEMENTATION PROGRAM VIEW (required|reported): VERDICT`, with where a difference is or why a view is not compared) and per failure, one line per (implementation, view) (`IMPLEMENTATION VIEW (required|reported): A of C programs compared agree`), then the counts; `--output verdicts` prints the record's header and the `[compare]` section the run would write.
 Version 2 adds `lock`, a row's `cached` and `clock_stopped`, and a program's `not_cached`.
 Version 3 adds the second protocol.
+Version 4 adds the verdict `definition-refused`, which `summary` then counts.
+Version 5 adds each entry's `distance` and `summary.views`.
 Where a selected implementation declares it, the document has `protocols`, the protocols of the selected implementations, in place of `protocol`, and `evidence: "testing"`, and both members of `summary` count `agree-up-to`; a document of implementations of the first protocol alone has none of the three and is version 2's but for its `version`.
 A trace view's entry also has `horizon` (null but for `agree-up-to`) and `correspondence`; an end view's entry has neither key.
 An `agree-up-to` entry's `status` is its own, 0 or 3 ("Exit status").
@@ -3091,11 +3128,11 @@ A value run that does not reproduce the recorded baseline refuses the command (s
 
 ### The record and the cache
 
-With `--lock FILE` the verdicts are the corpus record's `[compare]` section ("The corpus record"): one `[[compare.verdict]]` per (implementation, program, view), with `required`, the verdict, its reason, a different view's first difference, an `agree-up-to` view's `horizon`, `request_sha256` and the implementation's `identity_sha256`, under a header that names the `protocols` of its implementations.
+With `--lock FILE` the verdicts are the corpus record's `[compare]` section ("The corpus record"): one `[[compare.verdict]]` per (implementation, program, view), with `required`, the verdict, its reason, a different view's first difference, an `agree-up-to` view's `horizon`, `request_sha256` and the implementation's `identity_sha256`, under a header that names the `protocols` of its implementations, then one `[[compare.view]]` per (implementation, view) with its `required`, `compared` and `agreeing` (as `summary.views` counts them), counted from the rows the section holds, so a row a run did not decide (below) moves no count.
 The record is read before anything runs, and the command follows the rule of `run` and `coverage`: a run of every implementation without `--locked` rewrites the section (`created`, `written` or `unchanged`), keeping the other sections byte for byte; `--only` and a refusal leave it unwritten.
 A verdict is a function of the definition, the corpus, the request and the implementation's answer, so the section states what the current inputs give, and a moved verdict shows in review.
 
-Under `--locked` the command writes nothing and compares the section it would write with the file's: a row whose verdict, reason, first difference or horizon differs (`kink.lock: rust-cpu cases/loop/case.toml boundary: agree-up-to: its horizon moved: recorded ..., now ...`), a reported view's included, is a lock difference (`lock.status` `stale`, exit 1, one line per change on stderr: `kink.lock: rust-cpu cases/irq/case.toml accesses: different: its first difference moved: recorded ..., now ...`, `kink.lock: rust-cpu cases/irq/case.toml writes: equal -> different`), and so is a row only one side has (`added, equal`, `removed, was different`), a moved digest, or another order or text, which the first difference names.
+Under `--locked` the command writes nothing and compares the section it would write with the file's: a row whose verdict, reason, first difference or horizon differs (`kink.lock: rust-cpu cases/loop/case.toml boundary: agree-up-to: its horizon moved: recorded ..., now ...`), a reported view's included, is a lock difference (a moved count of a `[[compare.view]]` too, which moves only with a row; `lock.status` `stale`, exit 1, one line per change on stderr: `kink.lock: rust-cpu cases/irq/case.toml accesses: different: its first difference moved: recorded ..., now ...`, `kink.lock: rust-cpu cases/irq/case.toml writes: equal -> different`), and so is a row only one side has (`added, equal`, `removed, was different`), a moved digest, or another order or text, which the first difference names.
 A run of an implementation that gave no answer, because it failed (`spawn`, `exit`, `malformed`) or the clock cancelled it (`timeout`), decides no verdict, and neither does a definition run the clock stopped: the rows of that (implementation, program) keep their recorded values, so the run is never a lock difference and never rewrites a row, and under `--locked` a section that differs in nothing else is `undecided`, exit 3, not decided on this host, as the clock's rule is for `run` ("What decides a verdict").
 stderr names each such run (`kink.lock: rust-cpu cases/irq/case.toml: the clock (time_ms) cancelled the implementation's run: its rows are not decided on this host`).
 

@@ -2858,6 +2858,18 @@ impl Semantics {
         self.viewed_selection(comparison).map(|_| ())
     }
 
+    /// The leaf cells `comparison` compares, by declared path, in declaration order: the
+    /// `compared` of every [`Difference`] it gives, which an equal comparison has no document to
+    /// name.
+    ///
+    /// # Errors
+    ///
+    /// The refusals of [`Self::check_comparison`].
+    pub fn compared_leaves(&self, comparison: &Comparison) -> Result<Vec<String>, EndError> {
+        let selection = self.viewed_selection(comparison)?;
+        Ok(Self::compared_paths(&selection, self.values.cells()).0)
+    }
+
     /// Check that `end` states every cell `comparison` compares, as any comparison of the end
     /// does, without comparing it: a caller refuses a partial end before it runs what the end is
     /// compared with. `side` names the end in a refusal.

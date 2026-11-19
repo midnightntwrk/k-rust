@@ -36,8 +36,8 @@ use std::sync::Arc;
 
 use k_rust::kore::ast::Pattern;
 use kink_flow::{
-    ImplementationSection, Judged, NotCompared, Program, Question, TraceAnswer, TraceQuestion,
-    ViewSection, Vocabulary,
+    Distance, ImplementationSection, Judged, NotCompared, Program, Question, TraceAnswer,
+    TraceQuestion, ViewSection, Vocabulary,
 };
 use krs_exec::{
     CellInfo, Compared, Comparison, ConfigValue, End, EndClass, EndError, Ends, Halt, Semantics,
@@ -542,8 +542,17 @@ fn judge(
         }
         Err(error) => return Err(error.to_string()),
     };
+    // The view's compared leaf cells, which every difference names as `compared` and an equal
+    // comparison has no document to name.
+    let compared_cells = semantics
+        .compared_leaves(comparison)
+        .map_err(|error| error.to_string())?
+        .len();
     Ok(match compared {
-        Compared::Equal => Judged::Equal { omitted },
+        Compared::Equal => Judged::Equal {
+            omitted,
+            compared_cells,
+        },
         Compared::Inconclusive(reason) => Judged::NotCompared(NotCompared::Undecided(reason)),
         Compared::Differs(difference) => {
             // Several ends that differ from each other under the view: one answer is compared
@@ -567,6 +576,13 @@ fn judge(
                     ))));
                 }
             }
+            // The first difference's cell (none where the classes differ) and every other
+            // compared cell that differs: one full walk of the compared cells gives both.
+            let distance = Distance {
+                differing_cells: usize::from(difference.cell.is_some())
+                    + difference.also_differ.len(),
+                compared_cells,
+            };
             let mut difference =
                 serde_json::to_value(&*difference).map_err(|error| error.to_string())?;
             // Both sides were read with one class: kink-flow compared their words.
@@ -578,6 +594,7 @@ fn judge(
             Judged::Different {
                 difference,
                 omitted,
+                distance,
             }
         }
     })

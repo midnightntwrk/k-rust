@@ -1916,10 +1916,18 @@ mod tests {
             })
             .collect::<Vec<_>>()
             .join("\n");
+        let counts_legend = crate::verdicts::VIEW_COUNTS_LEGEND
+            .iter()
+            .map(|line| format!("# {line}\n"))
+            .collect::<String>();
+        let counts = "[[compare.view]]\nimplementation = \"cpu\"\nview = \"whole\"\n\
+                      required = true\ncompared = 2\nagreeing = 2\n\n[[compare.view]]\n\
+                      implementation = \"cpu\"\nview = \"parity\"\nrequired = false\n\
+                      compared = 2\nagreeing = 0\n";
         format!(
             "[compare]\n{preamble}version = 29\nprofile = \"no-z3\"\n\
              protocols = [\"kink-implementation/1\"]\n\n[compare.spec]\noutcome = \
-             \"admitted\"\n\n{legend}{rows}"
+             \"admitted\"\n\n{legend}{rows}\n{counts_legend}{counts}"
         )
     }
 
@@ -2174,8 +2182,9 @@ identity_sha256 = "aa"
 "#;
 
     /// A section of implementations of the first protocol differs from the one version 28
-    /// wrote in its header only: the `version` line, the line that names the protocol, now
-    /// `protocols`, and the comments, which say what a verdict is. Every row is the bytes it was.
+    /// wrote in its header, the `version` line, the line that names the protocol, now
+    /// `protocols`, and the comments, which say what a verdict is, and in the per-view counts
+    /// after its rows. Every verdict row is the bytes it was.
     #[test]
     fn a_first_protocol_compare_section_differs_from_version_28_in_its_header_only() {
         let document = compare_document(vec![answered("p1", "acc"), answered("p2", "acc")]);
@@ -2193,7 +2202,11 @@ identity_sha256 = "aa"
         };
         let (before, rows_before) = parts(COMPARE_SECTION_28);
         let (now, rows_now) = parts(&section);
-        assert_eq!(rows_now, rows_before);
+        let (rows_now, counts) = rows_now
+            .split_once("\n\n# Each [[compare.view]]")
+            .expect("the section counts each view");
+        assert_eq!(format!("{rows_now}\n"), rows_before);
+        assert!(counts.contains("\n[[compare.view]]\n"), "{counts}");
         let moved = before
             .iter()
             .zip(&now)

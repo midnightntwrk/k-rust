@@ -10,7 +10,7 @@
 //! The implementations are one shell script, `fake.sh`, whose first argument says how it
 //! answers: `equal` computes the end as the definition does, `different` adds 2 to `acc` (a
 //! different end, of the same parity), `farther` adds 4 (the same, differing farther),
-//! `wrong-end` swaps `stopped` and `final`,
+//! `both` adds 2 to `acc` and 1 to `n` (two cells differ), `wrong-end` swaps `stopped` and `final`,
 //! `could-not-apply` declines every program, `omit` leaves `acc` out of its answer, `crash` exits
 //! 3, `garbage` prints no JSON, and `sleep` never answers. Its second argument, when given, is a
 //! file it appends each request to. It never states the computation cell `k`, which each
@@ -115,6 +115,7 @@ done
 case $mode in
   different) acc=$((acc + 2));;
   farther) acc=$((acc + 4));;
+  both) acc=$((acc + 2)); n=$((n + 1));;
   wrong-end) if [ "$end" = final ]; then end=stopped; else end=final; fi;;
 esac
 if [ "$mode" = omit ]; then
@@ -490,6 +491,98 @@ fn each_implementation_is_compared_under_each_view() {
         json_of(&unknown)["refusal"]["reason"],
         "unknown-implementation"
     );
+}
+
+/// Every end view entry says how far apart the two ends are: the compared cells that differ
+/// (the first difference's cell and each of `also_differ`) and the view's compared cells, also
+/// under a word difference, whose cells are compared for the distance alone; and each
+/// (implementation, view) counts the programs compared and those that agree, in the summary, the
+/// text and the record's `[[compare.view]]` rows. No verdict moves.
+#[test]
+fn an_end_view_reports_how_far_apart_the_ends_are() {
+    let package = Package::new();
+    let corpus = "corpora/distance";
+    let mut implementations = String::new();
+    for mode in ["equal", "different", "both", "wrong-end"] {
+        implementations.push_str(&implementation(mode, mode, "inputs", VIEWS));
+    }
+    package.corpus(corpus, &implementations, &[("a", 2), ("b", 5)]);
+    let output = package.compare(corpus, &[]);
+    assert_status(&output, 1);
+    let document = json_of(&output);
+    assert_eq!(document["lock"]["status"], "created", "{document:#}");
+    let distance = |implementation: &str, program: &str, view: &str| {
+        verdict(row(&document, implementation, program), view)["distance"].clone()
+    };
+    let cells = |differing: u64, compared: u64| json!({"differing_cells": differing, "compared_cells": compared});
+    for program in ["cases/a/case.toml", "cases/b/case.toml"] {
+        // Both views compare every stated cell, `n` and `acc` (`k` is omitted); `parity` compares
+        // `acc` through its view.
+        assert_eq!(
+            distance("equal", program, "whole"),
+            cells(0, 2),
+            "{document:#}"
+        );
+        assert_eq!(
+            distance("equal", program, "parity"),
+            cells(0, 2),
+            "{document:#}"
+        );
+        assert_eq!(
+            distance("different", program, "whole"),
+            cells(1, 2),
+            "{document:#}"
+        );
+        assert_eq!(
+            distance("different", program, "parity"),
+            cells(0, 2),
+            "{document:#}"
+        );
+        let both = verdict(row(&document, "both", program), "whole");
+        assert_eq!(both["verdict"], "different", "{both:#}");
+        assert_eq!(
+            both["difference"]["also_differ"].as_array().map(Vec::len),
+            Some(1)
+        );
+        assert_eq!(both["distance"], cells(2, 2), "{both:#}");
+    }
+    // The words differ; the cells, compared for the distance alone, agree.
+    let swapped = verdict(row(&document, "wrong-end", "cases/b/case.toml"), "whole");
+    assert_eq!(swapped["difference"]["format"], "kink-end/1", "{swapped:#}");
+    assert_eq!(swapped["distance"], cells(0, 2), "{swapped:#}");
+
+    let counts = document["summary"]["views"].as_array().unwrap();
+    let count = |implementation: &str, view: &str| {
+        counts
+            .iter()
+            .find(|count| count["implementation"] == implementation && count["view"] == view)
+            .map(|count| (count["compared"].clone(), count["agreeing"].clone()))
+            .unwrap_or_else(|| panic!("no count of {implementation} {view}: {document:#}"))
+    };
+    assert_eq!(count("equal", "whole"), (json!(2), json!(2)));
+    assert_eq!(count("different", "whole"), (json!(2), json!(0)));
+    assert_eq!(count("different", "parity"), (json!(2), json!(2)));
+    assert_eq!(count("wrong-end", "whole"), (json!(2), json!(0)));
+
+    let text = package.compare(corpus, &["--output", "text"]);
+    let text = String::from_utf8(text.stdout).unwrap();
+    assert!(
+        text.contains("different parity (reported): 2 of 2 programs compared agree\n")
+            && text.contains("both whole (required): 0 of 2 programs compared agree\n"),
+        "{text}"
+    );
+
+    let record =
+        fs::read_to_string(package.directory.path().join(corpus).join("kink.lock")).unwrap();
+    assert!(
+        record.contains(
+            "[[compare.view]]\nimplementation = \"different\"\nview = \"parity\"\nrequired = \
+             false\ncompared = 2\nagreeing = 2\n"
+        ),
+        "{record}"
+    );
+    let locked = json_of(&package.compare(corpus, &["--locked"]));
+    assert_eq!(locked["lock"]["status"], "unchanged", "{locked:#}");
 }
 
 /// A case added to the corpus is compared with no other edit.
