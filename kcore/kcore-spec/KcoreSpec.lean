@@ -325,6 +325,7 @@ import KcoreSpec.CondResortModel
 import KcoreSpec.TieRhs
 import KcoreSpec.TieRhsEmpty
 import KcoreSpec.TieCutEq
+import KcoreSpec.TieRuleRhsAnd
 import KcoreSpec.HoldsNode
 import KcoreSpec.HoldsRead
 import KcoreSpec.ClausePreTie
