@@ -6,7 +6,7 @@ Usage (from anywhere; the library and `kcore` built first):
                                                [--hand consistency=FILE] [--at-values N,...] [--cons-head] [--wf-parts]
                                                [--split] [--account-sorted] [--heads-literal] [--heads-codes]
                                                [--attrs-parts] [--attrs-blocks N] [--decl-parts] [--fn-blocks N]
-                                               [--absent-file] [--out DIR] [--print]
+                                               [--absent-file] [--decl-syms-literal] [--out DIR] [--print]
   (the probe, a run of the Lean definitions on the text, is stopped after $TIEGEN_PROBE_TIMEOUT seconds, 900 by default)
   python3 -I test/constructs/tiegen.py --self-test   (the law search below, on three fixtures)
 
@@ -64,6 +64,11 @@ its own; with --split they and `decl_counts` are in a file of their own, Tie<Fix
 --fn-blocks N decides `fn_shape` by `decide_map_blocks N K`, K = (Γ's equations) / N: K blocks of N
 equations and the rest, each a decision of its own; refused for a text whose equations are aligned
 up to a renaming (`fn_shape_but_owise`) or that states no `fn_shape`.
+--decl-syms-literal writes Γ's symbol names as a literal of their codes (`gSymCodes`, `gSymCodes_eq :
+(kernelSyms c).map (strCode ∘ c.symName ∘ name) = gSymCodes`) and decides `decl_counts` and the
+`declsE` ranges on `hasSymL`, `plainSymsL` and `declItemsL`, which read it and are equal to `hasSym`,
+`plainSyms` and `declItems` (`strCode_inj`): `hasSym` otherwise computes Γ's symbols once per symbol
+declaration of the text. With --split the literal's decision is repeated in each file that reads it.
 --hand consistency=FILE puts FILE in place of the consistency section, for a text that owes an
 agreement, a clause's match independence, or a rule's or clause's condition (`owed_rules`,
 `owed_clauses`): FILE proves the owed facts and states `consistent` for every H, with `facts` for an
@@ -734,6 +739,9 @@ def tgNjOrder (gs : List KoreAML.Gen) : List Kore.Pattern → Option (List Nat)
   -- constructor without arguments), for `--heads-literal`
   for g in gh do
     IO.println s!"G {g.1}\t{"\t".intercalate (g.2.map fun s => match s with | .ctor h [] => h.ident.name | _ => "?")}"
+  -- Γ's symbol names in `kernelSyms`' order, for `--decl-syms-literal`
+  for g in ks do
+    IO.println s!"Y {c.symName g.name}"
   for kp in c.params.filter (·.raw) do
     IO.println s!"P {kp.sig.name}\t{c.symName kp.sig.name}\t{kp.sig.args}\t{kp.sig.result}\t{c.sortName kp.sig.result}\t{kp.assoc}\t{kp.idem}\t{c.isOpenGen (.ctor kp.sig)}"
   for (it, j) in fis.zip (List.range fis.length) do
@@ -831,11 +839,14 @@ def probe(name, path, um, order="[]", cons_head=False):
     head["rules"], head["raw"], head["fnA"], head["nj"], head["lawRef"], head["fnW"] = [], [], {}, {}, [], {}
     head["fnQ"] = {}
     head["gHeads"] = []
+    head["gSyms"] = []
     nums = lambda s: [int(x) for x in re.findall(r"\d+", s)]
     for l in r.stdout.split("\n"):
         if l.startswith("G "):
             f = l[2:].split("\t")
             head["gHeads"].append((f[0], [x for x in f[1:] if x]))
+        elif l.startswith("Y "):
+            head["gSyms"].append(l[2:])
         elif l.startswith("H "):
             k, _, v = l[2:].partition(" ")
             head[k] = v
@@ -1022,13 +1033,18 @@ def head_lit(h):
     return "(" + lean_str(h[0]) + ", [" + ", ".join(f".ctor ⟨⟨{lean_str(s)}⟩⟩ []" for s in h[1]) + "])"
 
 
-def head_code_lit(h):
-    """A head of `gammaHeads` with its name as `KoreAML.Distinct.strCode` codes it (its UTF-8 bytes in
-    base 256, the first byte the lowest digit, behind a leading 1), as a Lean literal."""
+def str_code(name):
+    """The name as `KoreAML.Distinct.strCode` codes it: its UTF-8 bytes in base 256, the first byte
+    the lowest digit, behind a leading 1."""
     code = 1
-    for b in reversed(h[0].encode("utf-8")):
+    for b in reversed(name.encode("utf-8")):
         code = code * 256 + b
-    return f"({code}, [" + ", ".join(f".ctor ⟨⟨{lean_str(s)}⟩⟩ []" for s in h[1]) + "])"
+    return code
+
+
+def head_code_lit(h):
+    """A head of `gammaHeads` with its name as `KoreAML.Distinct.strCode` codes it, as a Lean literal."""
+    return f"({str_code(h[0])}, [" + ", ".join(f".ctor ⟨⟨{lean_str(s)}⟩⟩ []" for s in h[1]) + "])"
 
 
 def ax_list(nums, indent=3, pre=None):
@@ -1073,7 +1089,7 @@ def by_ranges(prefix, lst, pred, rs, lem="tieAllE", named=False):
 def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, failing, ob, chunks, raws=None,
              hand=None, chunk=0, at_values=(), cons_head=False, wf_parts=None, split=False,
              account_sorted=None, heads_literal=False, heads_codes=False, attrs_parts=False, decl_parts=False,
-             fn_blocks=0, attrs_blocks=0, absent_file=False):
+             fn_blocks=0, attrs_blocks=0, absent_file=False, decl_syms=False):
     """The Lean text of the tie. `ob`: what `obligations` read; `raws`: each sentence's text as
     written; `hand`: hand-written sections by name (`consistency`), each in place of the generated
     one; `chunk`: the length of the ranges the decisions over the whole user module are cut into
@@ -1082,7 +1098,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     decide `account_absent`'s ranges on Γ's heads as a literal (`gHeads`); `heads_codes`: and on
     their names' codes (`gCodes`); `attrs_parts`, `decl_parts`: `attrs_agree` and `decl_counts` from
     one decision per conjunct or component; `fn_blocks`: decide `fn_shape` by blocks of that many
-    equations (0: one decision)."""
+    equations (0: one decision); `decl_syms`: decide `decl_counts` and the `declsE` ranges on Γ's
+    symbol names as a literal (`gSymCodes`)."""
     raws = raws or {}
     hand = hand or {}
     call_order = ob["call_order"]
@@ -2000,6 +2017,28 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     w("")
     w("kernel_rfl sigItems_withHooks : ∀ (c : Semantics) (H : HookParams), sigItems (c.withHooks H) = sigItems c")
     w("")
+    if decl_syms:
+        # read by `decl_counts`' parts and by the `declsE` ranges, which `--split` may put in two files:
+        # repeated in each, as the head's literals are
+        mark("Head")
+        w("/-! ## Γ's symbol names, as a literal -/")
+        w("")
+        w("/-- Γ's symbol names (`c.symName` of each of `kernelSyms c`, in its order), each as its code")
+        w("(`KoreAML.Distinct.strCode`), written out. -/")
+        w("def gSymCodes : List Nat :=")
+        w("  [" + wrap_nums([str(str_code(n)) for n in head["gSyms"]], 3) + "]")
+        w("")
+        w("theorem gSymCodes_eq :")
+        w("    (kernelSyms c).map (fun k => KoreAML.Distinct.strCode (c.symName k.name)) = gSymCodes := by")
+        w("  decide +kernel")
+        w("")
+        w("/-- Two names are equal exactly where their codes are (`strCode_inj`). -/")
+        w("theorem symCode_beq (a b : String) :")
+        w("    (KoreAML.Distinct.strCode a == KoreAML.Distinct.strCode b) = (a == b) := by")
+        w("  apply Bool.eq_iff_iff.mpr")
+        w("  simp only [beq_iff_eq]")
+        w("  exact ⟨fun h => KoreAML.Distinct.strCode_inj h, fun h => h ▸ rfl⟩")
+        w("")
     mark("Decls")
     w("/-- Γ has a symbol under the name `n`. -/")
     w("noncomputable def hasSym (n : String) : Bool := (kernelSyms c).any fun k => c.symName k.name == n")
@@ -2011,6 +2050,23 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     w("/-- The item is one of `sigItems c`, pattern for pattern. -/")
     w("noncomputable def inSigItems (it : Item) : Bool := (sigItems c).any (·.pat == it.pat)")
     w("")
+    if decl_syms:
+        w("/-- `hasSym` read from the literal: the code of `n` is one of Γ's names' codes. -/")
+        w("noncomputable def hasSymL (n : String) : Bool := gSymCodes.any (· == KoreAML.Distinct.strCode n)")
+        w("")
+        w("theorem hasSymL_eq : hasSymL = hasSym := by")
+        w("  funext n")
+        w("  unfold hasSymL hasSym")
+        w("  rw [← gSymCodes_eq]")
+        w("  simp only [List.any_map, Function.comp_def, symCode_beq]")
+        w("")
+        w("noncomputable def plainSymsL : List SymbolDecl :=")
+        w("  kore.symbolDecls.filter fun sd => sd.params.isEmpty && hasSymL sd.name")
+        w("noncomputable def declItemsL : List Item := plainSorts.map sortConstantItem ++ plainSymsL.map arityItem")
+        w("")
+        w("theorem plainSymsL_eq : plainSymsL = plainSyms := by unfold plainSymsL plainSyms; rw [hasSymL_eq]")
+        w("theorem declItemsL_eq : declItemsL = declItems := by unfold declItemsL declItems; rw [plainSymsL_eq]")
+        w("")
     dparts = [("decl_count_sorts", "kore.sortDecls.length"), ("decl_count_plain_sorts", "plainSorts.length"),
               ("decl_count_syms", "kore.symbolDecls.length"), ("decl_count_plain_syms", "plainSyms.length"),
               ("decl_count_param_syms", "(kore.symbolDecls.filter fun sd => !sd.params.isEmpty).length"),
@@ -2018,9 +2074,12 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     if decl_parts and split:
         mark("DeclCounts")
     if decl_parts:
-        w("/-- The components of `decl_counts`, each its own decision. -/")
+        w("/-- The components of `decl_counts`, each its own decision" +
+          (" (where they read Γ's symbols, on the literal `gSymCodes`)" if decl_syms else "") + ". -/")
         for (dn, de), dv in zip(dparts, dc):
-            w(f"theorem {dn} : {de} = {dv} := by decide +kernel")
+            rw_ = {"decl_count_plain_syms": "rw [← plainSymsL_eq]; ",
+                   "decl_count_lacked_syms": "rw [← hasSymL_eq]; "}.get(dn, "") if decl_syms else ""
+            w(f"theorem {dn} : {de} = {dv} := by {rw_}decide +kernel")
         w("")
     w("/-- The declarations of the text: sorts, sorts without parameters, symbols, symbols without")
     w("parameters that Γ has, symbols with parameters, symbols without parameters that Γ lacks. -/")
@@ -2030,16 +2089,24 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     w(f"      (kore.symbolDecls.filter fun sd => sd.params.isEmpty && !hasSym sd.name).length) = ({', '.join(dc)}) := by")
     if decl_parts:
         w("  rw [" + ", ".join(dn for dn, _ in reversed(dparts)) + "]")
+    elif decl_syms:
+        w("  rw [← plainSymsL_eq, ← hasSymL_eq]")
+        w("  decide +kernel")
     else:
         w("  decide +kernel")
     w("")
     if decl_parts and split:
         mark("Decls")
-    thms, body = by_ranges("declsE", "declItems", "inSigItems", decl_rs)
+    thms, body = by_ranges("declsE", "declItemsL" if decl_syms else "declItems", "inSigItems", decl_rs)
     w(thms)
     w("")
-    w("theorem decls_in_sig : declItems.all inSigItems = true :=")
-    w("  " + body)
+    if decl_syms:
+        w("theorem decls_in_sig : declItems.all inSigItems = true := by")
+        w("  rw [← declItemsL_eq]")
+        w("  exact " + body.replace("\n    ", "\n      "))
+    else:
+        w("theorem decls_in_sig : declItems.all inSigItems = true :=")
+        w("  " + body)
     w("")
     w("/-- **E for the declarations**: Γ entails the item of each declaration without sort parameters of")
     w("a symbol Γ has, for every H. -/")
@@ -3939,7 +4006,7 @@ def main(argv):
                                  ob, chunks, {i: raw for i, _, _, raw in ua}, hand, chunk,
                                  at_values, cons_head, wf_parts, "--split" in argv, account_sorted,
                                  heads_literal, heads_codes, "--attrs-parts" in argv or attrs_blocks > 0, "--decl-parts" in argv,
-                                 fn_blocks, attrs_blocks, absent_file)
+                                 fn_blocks, attrs_blocks, absent_file, "--decl-syms-literal" in argv)
     outdir = argv[argv.index("--out") + 1] if "--out" in argv else None
     if outdir is None and (not os.path.exists(final) or open(final).read() != text):
         open(final, "w").write(text)
