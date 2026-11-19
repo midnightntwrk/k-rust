@@ -2028,7 +2028,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                     "(`EntailsAtValues (cH H) ad (trS ad).pat`), since Γ states a parameter's graph, a function's "
                     "rest and a hook's open point at values only. The account holds them in the class "
                     f"`{PARAM_LEMMA_CLASS}`, of the direction `hypothesis`. A hypothesis no H satisfies would tie a "
-                    "text without a model, so the tie owes one H at which the functions' obligations hold and every "
+                    "text without a model, so the tie owes one H at which `FnHyp` holds and every "
                     "parameter lemma holds at values (`ParamLemmaWitnessAtValues`, stated here and proved by hand: "
                     "owed). Every `simplification` equation of the user module whose left side's head is a "
                     "parameter symbol without `impl` is one of them (`paramlemma_heads`).")

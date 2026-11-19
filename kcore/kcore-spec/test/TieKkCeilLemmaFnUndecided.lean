@@ -48,9 +48,9 @@
   a hypothesis on H, at the valuations sending its variables to values (`EntailsAtValues (cH H) ad
   (trS ad).pat`), since Γ states a parameter's graph, a function's rest and a hook's open point at
   values only. The account holds them in the class `parameter lemma`, of the direction `hypothesis`.
-  A hypothesis no H satisfies would tie a text without a model, so the tie owes one H at which the
-  functions' obligations hold and every parameter lemma holds at values
-  (`ParamLemmaWitnessAtValues`). Proved here, by hand: at `HookParams.none` the obligations hold and
+  A hypothesis no H satisfies would tie a text without a model, so the tie owes one H at which
+  `FnHyp` holds and every parameter lemma holds at values
+  (`ParamLemmaWitnessAtValues`). Proved here, by hand: at `HookParams.none` `FnHyp` holds and
   the lemma holds in every model of Γ at the valuations sending its variables to values
   (`kkclfu_witness`); at `H7`, which gives 7 at every point, it fails in a model of Γ at `A = 1`,
   `B = 0` (`kkclfu_not_entailed`), so no statement of it for every H holds and its class is no `user
@@ -797,13 +797,13 @@ noncomputable def paramLemmaText : List AxiomDecl := [U.ax123]
 theorem paramlemma_account : paramLemmaText.map (·.index) = classOf "parameter lemma" := by
   decide +kernel
 
-/-- **What the tie owes of the parameter lemmas**: one interpretation `H` at which the functions'
-obligations hold and every parameter lemma holds in every model of Γ at the valuations sending its
+/-- **What the tie owes of the parameter lemmas**: one interpretation `H` at which `FnHyp` holds
+and every parameter lemma holds in every model of Γ at the valuations sending its
 free element variables to values (`EntailsAtValues`), so that the text with its hypotheses has a
 model. Γ states a parameter's graph at values only (`ΓDomains`), so the lemma is owed there. Proved
 by hand: `kkclfu_witness`. -/
 def ParamLemmaWitnessAtValues : Prop :=
-  ∃ H : HookParams, FnObligations (cH H) callOrder [] ∧
+  ∃ H : HookParams, FnHyp (cH H) ∧
     ∀ ad ∈ paramLemmaText, EntailsAtValues (cH H) ad (trS ad).pat
 
 /-- Every sentence of the user module that carries `simplification`, is an equation
@@ -1242,10 +1242,10 @@ theorem s123_at_values : EntailsAtValues (cH HookParams.none) U.ax123 (trS U.ax1
     rw [lhs_kkclfu hI hQv hQ x hx hσI1 hσI2 (fun y hy => by rw [(hv y).mp hy]; exact int_elem_kkclfu hI hσI1 a)]
     exact ⟨fun _ => hb, fun _ => ⟨_, (hv _).mpr rfl⟩⟩
 
-/-- **The witness**: at `HookParams.none` the obligations hold (`obl_nil`) and the parameter lemma
+/-- **The witness**: at `HookParams.none` `FnHyp` holds (`fnHypH`) and the parameter lemma
 holds at values (`s123_at_values`). -/
 theorem kkclfu_witness : ParamLemmaWitnessAtValues := by
-  refine ⟨HookParams.none, obl_nil HookParams.none, fun ad had => ?_⟩
+  refine ⟨HookParams.none, fnHypH HookParams.none, fun ad had => ?_⟩
   simp only [paramLemmaText, List.mem_cons, List.not_mem_nil, or_false] at had
   subst had
   exact s123_at_values
