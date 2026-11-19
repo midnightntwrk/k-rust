@@ -35,9 +35,10 @@ def carrierSem : Semantics where
 def lit (s : Srt) (i : Int) : GroundTerm := .dv s (.int i)
 
 /-- The carrier sort is no constructor sort, not confined, a distinct sort, and admitted by
-`paramsPlain`; its literals are Int's, at its own sort. -/
+`paramsPlain` and `carriersOK`; its literals are Int's, at its own sort. -/
 example : (Faithful.consSorts carrierSem).contains myInt = false ∧ carrierSem.confined myInt = false ∧
     (Faithful.distinctSorts carrierSem).contains myInt = true ∧ carrierSem.paramsPlain = true ∧
+    carrierSem.carriersOK = true ∧
     carrierSem.sortOf (lit myInt 5) = some myInt ∧ carrierSem.sortOf (.dv myInt (.bool true)) = none := by
   decide +kernel
 

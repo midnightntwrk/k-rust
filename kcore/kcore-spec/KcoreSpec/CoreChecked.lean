@@ -144,10 +144,10 @@ theorem Semantics.faithCoreOK_of_parts (h1 : namesNumbered c = true) (h2 : genWf
 /-- **`coreOK` from its conjuncts**, the sort checks read from the tables. -/
 theorem Semantics.coreOK_of_T (hT : T = tables c) (hs : c.subsortsOKT T = true)
     (hf : c.fnRowsSortedT T 0 c.fns.length = true) (hr : c.ruleRowsSortedT T 0 c.rules.length = true)
-    (hfa : c.faithCoreOK = true) (hha : c.hooksApart = true) (hpa : c.predsApart = true)
+    (hfa : c.faithCoreOK = true) (hpa : c.predsApart = true)
     (hids : c.idsOK = true) (hov : c.overloadsOK = true)
     (hpl : (c.rulesPlain && c.clausesPlain && c.paramsPlain) = true := by decide +kernel) : c.coreOK = true := by
-  simp only [Semantics.coreOK, Semantics.sortedOK_of_T hT hs hf hr hpl (Semantics.overloadsOK_pats hov), hfa, hha, hpa, hids, hov, Bool.and_self]
+  simp only [Semantics.coreOK, Semantics.sortedOK_of_T hT hs hf hr hpl (Semantics.overloadsOK_pats hov), hfa, hpa, hids, hov, Bool.and_self]
 
 end
 

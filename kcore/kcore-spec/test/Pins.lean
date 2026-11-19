@@ -275,9 +275,9 @@ example (c : Semantics) (ref : StepFn) : StepIs c ref =
 /-- `StepFn`: a step function on ground values. -/
 example : StepFn = (GroundTerm → List GroundTerm) := rfl
 
-/-- `Semantics.coreOK`: the six decidable conditions. -/
+/-- `Semantics.coreOK`: the five decidable conditions. -/
 example (c : Semantics) : c.coreOK =
-    (c.sortedOK && c.faithCoreOK && c.hooksApart && c.predsApart && c.idsOK && c.overloadsOK) := rfl
+    (c.sortedOK && c.faithCoreOK && c.predsApart && c.idsOK && c.overloadsOK) := rfl
 
 /-! The old texts no root of the cone reaches through a definition. -/
 

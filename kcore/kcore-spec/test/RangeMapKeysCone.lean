@@ -128,26 +128,26 @@ theorem rmkCoreOK {c : Semantics} {I : List Nat} (hI : instIdx ((allSymNames c).
     (h1 : namesNumbered c = true) (h2 : genWf c = true) (h3 : collSortsOK c = true)
     (h4 : collsOK c = true) (h5 : patHeadsOK c = true) (h6 : namesApartK c = true)
     (h7 : LitsApart c = true) (h8 : sortsNumbered c = true) (h11 : kindsApart c = true)
-    (h12 : ctorsOnce c = true) (h13 : fnsApart c = true) (hha : c.hooksApart = true)
+    (h12 : ctorsOnce c = true) (h13 : fnsApart c = true)
     (hpa : c.predsApart = true) (hids : c.idsOK = true) (hov : c.overloadsOK = true) :
     c.coreOK = true := by
   have hfa := Semantics.faithCoreOK_of_partsK h1 h2 h3 h4 h5 h6 h7 h8
     (itesApart_of_codes rfl rfl hI hite) h11 h12 h13
-  simp only [Semantics.coreOK, hs, hfa, hha, hpa, hids, hov, Bool.and_self]
+  simp only [Semantics.coreOK, hs, hfa, hpa, hids, hov, Bool.and_self]
 
 set_option maxHeartbeats 4000000 in
 theorem c1_coreOK : c1.coreOK = true :=
   rmkCoreOK (I := []) (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
     (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
     (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
-    (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
+    (by decide +kernel) (by decide +kernel) (by decide +kernel)
 
 set_option maxHeartbeats 4000000 in
 theorem c0_coreOK : c0.coreOK = true :=
   rmkCoreOK (I := []) (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
     (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
     (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
-    (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
+    (by decide +kernel) (by decide +kernel) (by decide +kernel)
 
 /-- With Range below KItem, and with no Range constructor, `coreOK` and `srReady` hold. -/
 theorem accepted : c1.coreOK = true ∧ c1.srReady = true ∧ c1.sortOf (rangeT 0 3) = some Srt.range ∧

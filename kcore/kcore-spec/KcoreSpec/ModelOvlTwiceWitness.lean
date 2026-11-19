@@ -62,9 +62,9 @@ theorem fnHyp : FnHyp c :=
 set_option maxHeartbeats 1000000 in
 /-- Every condition of `coreOK` but `idsOK` and the empty list of overloading symbols holds, and
 `FnHyp`. -/
-theorem meets_others : c.sortedOK = true ∧ c.faithCoreOK = true ∧ c.hooksApart = true ∧
+theorem meets_others : c.sortedOK = true ∧ c.faithCoreOK = true ∧
     c.predsApart = true ∧ c.overloadsOK = true ∧ FnHyp c :=
-  ⟨sortedOK, by decide_faithCoreOK, by decide +kernel, by decide +kernel, by decide +kernel, fnHyp⟩
+  ⟨sortedOK, by decide_faithCoreOK, by decide +kernel, by decide +kernel, fnHyp⟩
 
 /-- `idsOK` refuses `c`: its own symbols list f twice. -/
 theorem not_idsOK : c.idsOK = false := by decide +kernel

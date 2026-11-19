@@ -49,8 +49,11 @@ def c0 : Semantics := { c with lib := {} }
 set_option maxHeartbeats 4000000 in
 theorem c0_coreOK : c0.coreOK = true := by decide_coreOK
 
-/-- The leaves of `overloadsOK`, each over every overloading symbol (test/witnesses.toml's
-overloadsOK.1 to overloadsOK.9). -/
+/-- The leaves of `overloadsOK` on each overloading symbol, each over every overloading symbol:
+`ov1` to `ov5` are test/witnesses.toml's overloadsOK.1 to overloadsOK.5, `ov7` to `ov9` its
+overloadsOK.6 to overloadsOK.8. `ov6` (`ovlOver` finds every symbol overloaded) is no leaf:
+`ov5` implies it at each symbol (`ov6_of_ov5`, test/WitRestOvlB.lean), and `overloadsOK` does not
+ask it. -/
 def ov1 (c : Semantics) : Bool := c.ovls.all fun o => c.isOvl o.sig.name
 def ov2 (c : Semantics) : Bool := c.ovls.all fun o => c.lookupOvl o.sig.name == some o
 def ov3 (c : Semantics) : Bool := c.ovls.all fun o => (instDecode? (c.symName o.sig.name)).isNone
@@ -75,10 +78,10 @@ theorem fnHyp : FnHyp c :=
 
 set_option maxHeartbeats 1000000 in
 /-- Every condition of `coreOK` but `overloadsOK`'s first part holds, and `FnHyp`. -/
-theorem meets_others : c.sortedOK = true ∧ c.faithCoreOK = true ∧ c.hooksApart = true ∧
+theorem meets_others : c.sortedOK = true ∧ c.faithCoreOK = true ∧
     c.predsApart = true ∧ c.idsOK = true ∧ ov2 c = true ∧ ov3 c = true ∧ ov4 c = true ∧ ov5 c = true ∧
-    ov6 c = true ∧ ov7 c = true ∧ ov8 c = true ∧ FnHyp c :=
-  ⟨sortedOK, by decide_faithCoreOK, by decide +kernel, by decide +kernel, by decide +kernel,
+    ov7 c = true ∧ ov8 c = true ∧ FnHyp c :=
+  ⟨sortedOK, by decide_faithCoreOK, by decide +kernel,
     by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
     by decide +kernel, by decide +kernel, fnHyp⟩
 

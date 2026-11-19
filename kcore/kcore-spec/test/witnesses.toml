@@ -1,7 +1,7 @@
 # The leaf conjuncts of coreOK and the hypotheses FnDet, FnSolves, ClausePreDecided and ClausePostDecided, each with the witness module
 # that shows it cannot be dropped (a semantics meeting the others whose Γ has no model), or `none`
 # with the reason. Keys and texts are computed by test/Witnesses.lean from the definitions:
-# coreOK, sortedOK, faithCoreOK, hooksApart, predsApart, idsOK, overloadsOK and itesApart are
+# coreOK, sortedOK, faithCoreOK, predsApart, idsOK, overloadsOK and itesApart are
 # unfolded, `&&` is split, and List.all lambdas, single-alternative matches and lets are entered;
 # Witnesses.lean fails when a leaf has no row or its text differs. `evidence`: files with the
 # kernel-checked part of a `none` row. `note`: what a witness module shows, where it is less than
@@ -41,8 +41,8 @@ note = "the module's clause f(a #as X) => X lists X among its existential variab
 key = "sortedOK.6"
 text = "c.paramsPlain"
 witness = "KcoreSpec.ModelRawBoundWitness"
-note = "the raw-bound part: the module's open generator is numbered inside the registry (the raw branch's nRegSyms ≤ k.sig.name, so lookupOpen does not answer for it and Γ states its Cons-Fun while its graph is ⊥) and meets the raw branch's other parts (raw_parts_of). Other parts: the branch of a parameter that is no open generator (no law attribute): not found, and none exists in the no-model form (argued): the law sentences are written of open generators only and no other item of Γ reads the attributes, so Γ is that of the semantics without them (kernel-checked for test/WitRestPlain.lean's instance, which meets every other leaf of coreOK and FnHyp: lawItemsK empty, the constructor items and paramVal the same, and that semantics meets coreOK); carriersOK: not found; the part is not implied by the others (kernel-checked: semantics without rule, function or parameter that meet every other condition of coreOK and FnHyp with it false: Int hooked to Int, an own sort hooked to K or to KConfigVar, an own sort hooked to Int that is also a token sort or a byte sort, an own sort hooked twice); of its seven parts, the hooked sort a user sort is implied by sortsNumbered and idsOK.1 where it is an own sort, and the hooked sort no collection sort by collSortsOK, for every semantics (kernel-checked: carUser_of_numbered, carColl_of_collSortsOK); Γ of each instance has a model (argued): Γ reads the pairs through Lib.carrier, which ignores a registry sort's pair and reads the first pair of a sort, and through consSorts, distinctSorts and litSort at Bool (no instance hooks Bool), which read the hooked sorts as a set, so Γ is that of the semantics with the sort hooked to Int once or to nothing (which coreOK accepts, kernel-checked) up to a repeated item; a token or byte sort is asked at the carrier; hooked to K the sort has no value, hooked to KConfigVar its values are its tokens; no theorem of the library reads carriersOK (paramsPlain is read by raw_of_paramsPlain alone, at its first part); not examined: a pair of K, KItem or a generated configuration sort, a second sort that is a collection sort, Range, MInt or a registry token sort, a hook parameter over the hooked sort. Not examined in the no-model form: the raw branch's other parts (no registry hook, two arguments of the result sort where it has a law, no instance name, shapesOK)"
-evidence = "test/WitCarriers.lean, test/WitRestPlain.lean"
+note = "the raw-bound part: the module's open generator is numbered inside the registry (the raw branch's nRegSyms ≤ k.sig.name, so lookupOpen does not answer for it and Γ states its Cons-Fun while its graph is ⊥) and meets the raw branch's other parts (raw_parts_of). Other parts: the branch of a parameter that is no open generator (no law attribute): not found, and none exists in the no-model form (argued): the law sentences are written of open generators only and no other item of Γ reads the attributes, so Γ is that of the semantics without them (kernel-checked for test/WitRestPlain.lean's instance, which meets every other leaf of coreOK and FnHyp: lawItemsK empty, the constructor items and paramVal the same, and that semantics meets coreOK); paramsPlain is read by raw_of_paramsPlain alone. The sorts hooked to a library carrier (carriersOK) are asked by ok, okAll and okM beside paramsPlain, not by coreOK (test/WitCarriers.lean). Not examined in the no-model form: the raw branch's other parts (no registry hook, two arguments of the result sort where it has a law, no instance name, shapesOK)"
+evidence = "test/WitRestPlain.lean"
 
 [[conjunct]]
 key = "faithCoreOK.1"
@@ -132,18 +132,6 @@ witness = "KcoreSpec.ModelFnCtorWitness"
 note = "the module shows Hyp, HypSound and the other conditions of HypModel, not every other conjunct of coreOK"
 
 [[conjunct]]
-key = "hooksApart.1"
-text = "!KCore.hookSigs.any fun x => x.name == k.name"
-witness = "none: no witness exists: implied by kindsApart (faithCoreOK.9, its first part: no interpreted hook is a constructor), for every semantics (kernel-checked: hooksApart1_of_kindsApart)"
-evidence = "test/WitRestApart.lean"
-
-[[conjunct]]
-key = "hooksApart.2"
-text = "!KCore.hookSigs.any fun x => x.name == f.label"
-witness = "none: no witness exists: implied by fnsApart (faithCoreOK.11: no function of allFns, the definition's among them, is an interpreted hook; isHook_iff), for every semantics (kernel-checked: hooksApart2_of_fnsApart)"
-evidence = "test/WitRestApart.lean"
-
-[[conjunct]]
 key = "predsApart.1"
 text = "KCore.nodup (List.map (fun x => x.label) c.allFns)"
 witness = "KcoreSpec.ModelPredTwiceWitness"
@@ -231,31 +219,25 @@ evidence = "test/WitRestOvlB.lean"
 
 [[conjunct]]
 key = "overloadsOK.6"
-text = "(c.ovlOver o).length == o.over.length"
-witness = "none: no witness exists: implied by overloadsOK.5 at the same overloading symbol, for every semantics (kernel-checked: ov6_of_ov5): a symbol found among the constructors, the overloading symbols listed before or the functions is found by ovlOver's lookup in the constructors, every overloading symbol and the functions"
-evidence = "test/WitRestOvlB.lean"
-
-[[conjunct]]
-key = "overloadsOK.7"
 text = "(c.ovlOver o).all (c.ovlPairOK o)"
 witness = "none: not found; the conjunct is not implied by the others (kernel-checked: f : Int -> KCellOpt overloading the counter cell's constructor, whose result sort is not below KCellOpt, meets every other leaf of coreOK and FnHyp; overloading nothing, coreOK holds); Γ has a model (argued): the overload equation makes f(x) the injection from GeneratedCounterCell to KCellOpt of the counter cell of x, an injection of no declared subsort that no other item names, f's applications are covered and no values, and f's distinctness from KCellOpt's generators is that of the semantics overloading nothing or stated at uncovered arguments; a model of that theory with the injection read as the map from the counter cell of n to f(n) is one of Γ; not examined: an overload of another arity"
 evidence = "test/WitRestOvlB.lean"
 
 [[conjunct]]
-key = "overloadsOK.8"
+key = "overloadsOK.7"
 text = "c.ovlCoherent k1 k2"
 witness = "KcoreSpec.ModelOvlIncohWitness"
 note = "two constructors g, h : Int -> KCell overloaded by f : Int -> KCell: the overload equations give g(x) = f(x) = h(x), against Cons-Dist of g and h"
 
 [[conjunct]]
-key = "overloadsOK.9"
+key = "overloadsOK.8"
 text = "(!c.fns.any fun x => x.label == g) || o.over.contains g"
 witness = "KcoreSpec.ModelOvlClosedWitness"
 note = "the chain plusBig over plusExp over the function plusInt, Int < Exp < Big, plusBig listing plusExp only and plusInt without a clause (test/OvlFun.lean's Chain.c false with the clause taken away, Admit.closed_witness_eq): plusBig lists no function, so it is not function-overloaded and Γ states its Cons-Fun at every argument, while the two overload equations and plusInt(0, 0) = ⊥ (ΓFallback) make plusBig(inj inj 0, inj inj 0) empty; listing plusInt as well, coreOK holds; with plusInt's clause (Chain.c false itself) every other leaf of coreOK holds as well (Admit.chain_false, Chain.others_false), and the argument there (plusBig injective at every argument, plusBig(inj inj 1, inj inj 2) = inj inj 3 = plusBig(inj inj 2, inj inj 1)) is not kernel-checked: the library reads a function's equation in a model of Γ only under OvlOK, which holds overloadsOK (eqn_at)"
 evidence = "test/OvlFun.lean"
 
 [[conjunct]]
-key = "overloadsOK.10"
+key = "overloadsOK.9"
 text = "c.ovlPatsOK"
 witness = "none: no witness exists: implied by sortedOK.2, sortedOK.3 and sortedOK.5, for every semantics (kernel-checked: Semantics.ovlPatsOK_of_sortedOK): ruleSorted sorts a rule's left side, clauseSorted a clause's patterns and condOK each exMatch pattern of a rule's pre and post and of a clause's pre and post (clauseExOK, which clausesPlain asks) over patCtxNF, which holds no function-overloaded symbol"
 evidence = "test/SortedNF.lean"

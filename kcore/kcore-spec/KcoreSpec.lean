@@ -324,6 +324,7 @@ import KcoreSpec.GenEqsModel
 import KcoreSpec.CondResort
 import KcoreSpec.CondResortModel
 import KcoreSpec.TieRhs
+import KcoreSpec.TieRhsEmpty
 import KcoreSpec.HoldsNode
 import KcoreSpec.HoldsRead
 import KcoreSpec.ClausePreTie
@@ -340,6 +341,8 @@ import KcoreSpec.TieRulePair
 import KcoreSpec.InertEvUser
 import KcoreSpec.TieOvlConf
 import KcoreSpec.TieOvlEq
+import KcoreSpec.TieOvlFn
+import KcoreSpec.TieOvlFnCov
 import KcoreSpec.TieReqBool
 import KcoreSpec.TieAlphaOr
 import KcoreSpec.GenEqsNames

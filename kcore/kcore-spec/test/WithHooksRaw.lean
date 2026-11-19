@@ -74,8 +74,8 @@ def Hm : HookParams := ⟨fun f _ => if f == andS then some (.ctor xS []) else n
 /-- Every conjunct of `coreOK` other than `paramsPlain`'s test of the parameters. -/
 theorem cM_rest :
     (cM.subsortsOK && cM.fns.all (fun f => f.clauses.all (cM.clauseSorted f (cM.fns.map Fn.sig))) &&
-      cM.rules.all cM.ruleSorted && cM.rulesPlain && cM.clausesPlain && cM.carriersOK &&
-      cM.faithCoreOK && cM.hooksApart && cM.predsApart && cM.idsOK && cM.overloadsOK) = true := by
+      cM.rules.all cM.ruleSorted && cM.rulesPlain && cM.clausesPlain &&
+      cM.faithCoreOK && cM.predsApart && cM.idsOK && cM.overloadsOK) = true := by
   decide_cheap
 
 /-- `paramsPlain`'s test of the parameters (V2.d1-flip), restated: a raw parameter has no
@@ -91,8 +91,8 @@ def paramsRuled (c : Semantics) : Bool :=
 
 theorem cM_params : paramsRuled cM = true ∧ (cM.params.any (·.raw)) = true := by decide +kernel
 
-/-- `paramsPlain` is `paramsRuled` with the carriers. -/
-example (c : Semantics) : c.paramsPlain = (paramsRuled c && c.carriersOK) := rfl
+/-- `paramsPlain` is `paramsRuled`. -/
+example (c : Semantics) : c.paramsPlain = paramsRuled c := rfl
 
 /-- `coreOK` admits it (V2.d1-flip): a semantics with an open generator at which the two transport
 lemmas fail without `hr`. -/

@@ -6,7 +6,8 @@
 # in and built in the order of their imports; then the pin file checked against it: the three
 # statements and `kk_step` by their types, `sig` and its fields by `rfl`, `succs_name`, and the
 # facts the statements rest on (enc_injective, emb_injective, embSt_injective, emb_sorted,
-# embD_sorted, encDef_isSome) by their types, with their axioms.
+# embD_sorted, encDef_isSome) by their types, with their axioms, and `encodable` by `rfl` against its
+# eleven conjuncts.
 #
 # Exit 1 when the package or a User module does not build, or the pin file does not check.
 # Usage: test/pins-kk.sh   (from anywhere; the library and `kcore` built first)

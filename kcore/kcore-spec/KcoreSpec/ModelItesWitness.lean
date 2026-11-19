@@ -64,12 +64,12 @@ theorem fnHyp : FnHyp c :=
     openDecided_of_readsConfined (by decide +kernel), openLaws_of_plain (by decide +kernel)⟩
 
 /-- Every condition of `coreOK` but `itesApart` holds, and `FnHyp`. -/
-theorem meets_others : c.sortedOK = true ∧ c.hooksApart = true ∧ c.predsApart = true ∧ c.idsOK = true ∧
+theorem meets_others : c.sortedOK = true ∧ c.predsApart = true ∧ c.idsOK = true ∧
     namesNumbered c = true ∧ genWf c = true ∧ collSortsOK c = true ∧ collsOK c = true ∧
     patHeadsOK c = true ∧ Model.namesApartK c = true ∧ Model.LitsApart c = true ∧
     Model.sortsNumbered c = true ∧ Model.kindsApart c = true ∧ Model.ctorsOnce c = true ∧
     Model.fnsApart c = true ∧ FnHyp c :=
-  ⟨sortedOK, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
+  ⟨sortedOK, by decide +kernel, by decide +kernel, by decide +kernel,
     by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
     by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, fnHyp⟩
 

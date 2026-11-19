@@ -14,7 +14,9 @@
 #              "in a model" (the sentences of a symbol Γ lacks, of the no-direction class, hold at
 #              values in a model of Γ whose steps are Step's: owed-sentence rule item 7);
 #              form (r), optional: "through the reading" (the refutation is of the reading's theory,
-#              the sentence-level statement owed)
+#              the sentence-level statement owed) or "sentence against the reading" (a text without a
+#              model whose reading has one: for every H no model of Γ satisfies the one sentence
+#              named first in `sentences`, as written; the reading is consistent, `consistent`)
 #   family     kind "through the reading": the family the expectation goes through (`Γstep`, the
 #              premise ⌈rhs ∧ ens⌉, ...); form (r): the families of the reading the refutation uses
 #              beside the sentences, each named (always required: no refutation is from sentences
@@ -26,11 +28,18 @@
 #   derivation form (b): the file holding the derivation, relative to kcore-spec
 #   owed_refuted  form (r) only, optional: the full name of a theorem of `file` refuting the fact
 #              the package names as owed for the construct (it is false of this text)
+#   consistent kind "sentence against the reading" only, required: the full name of a theorem of
+#              `file` stating `Consistent` of the reading for every H (Γ has a model)
+#   owed_statement  kind "sentence against the reading" only, required: in words, the sentence-level
+#              statement left owed (no model of the translated sentences and the named families,
+#              with no other item of Γ)
 # The checks, each on the text of the named file (no Lean is run):
-# - `form` is one of the four, `kind` one of the three for form (a) and absent or "through the
-#   reading" for form (r), `family` given for "through the reading" and for form (r), `sentences` a
-#   non-empty list of indices for forms (a) and (r), `derivation` an existing file for form (b),
-#   `theorem` and `file` given for forms (a), (c) and (r), `owed_refuted` on form (r) only;
+# - `form` is one of the four, `kind` one of the three for form (a) and absent, "through the
+#   reading" or "sentence against the reading" for form (r), `family` given for "through the
+#   reading" and for form (r), `sentences` a non-empty list of indices for forms (a) and (r),
+#   `derivation` an existing file for form (b), `theorem` and `file` given for forms (a), (c) and
+#   (r), `owed_refuted` on form (r) only, `consistent` and `owed_statement` given for kind
+#   "sentence against the reading" and on no other table;
 # - the theorem (and `owed_refuted`) is declared in the file, once, under that full name
 #   (`namespace`/`section`/`end` tracked; comments removed);
 # - neither the file's path nor a namespace of the theorem's name contains `AtNone`: such a theorem
@@ -43,7 +52,12 @@
 #   `FnShape` or a hypothesis of that kind);
 # - a kind "in a model" statement states an interpretation satisfying the theory with Step's steps:
 #   it has an `∃`, a satisfaction of a theory (`⊧ᴵP`, or `InitModel`, whose field `sat` is one) and
-#   mentions `Step`.
+#   mentions `Step`;
+# - kind "sentence against the reading": the theorem's statement mentions Γ, a satisfaction of a
+#   theory (`⊧ᴵP`) and a negation (`¬`): no model of Γ satisfies the sentence; `consistent` is
+#   declared once in `file`, mentions H and `Consistent` and negates nothing (`¬`); the entry claims
+#   no inconsistency: none of its `tie_theorems` is named `inconsistent` or, declared in a file of its
+#   `tie`, states `¬ Consistent`.
 # Prints the entries by form and kind (the counts C7 asks for: forms (b), (r) and "through the
 # reading" counted apart), the fixtures of the form (r) entries (texts without a model), and every
 # failure. Exit 1 on a failure.
@@ -60,6 +74,8 @@ import os, re, sys, tempfile, tomllib
 K, arg = sys.argv[1], sys.argv[2]
 FORMS = {"a", "b", "c", "r"}
 KINDS = {"from sentences", "through the reading", "in a model"}
+AGAINST = "sentence against the reading"
+R_KINDS = (None, "through the reading", AGAINST)
 HP = r"(?:KCore\.)?HookParams"
 IDENT = r"[^\s(){}\[\]:,.⟨⟩]+"
 
@@ -170,12 +186,12 @@ def check(rows, base):
 
     def theorem_ok(at, th, fl, path, what, form, kind=None):
         """The checks on a named theorem of `fl`: declared once, in no AtNone namespace, its statement
-        mentioning H (and, for form (a), not FnShape)."""
+        mentioning H (and, for form (a), not FnShape). Returns its statement, or None."""
         if path not in cache:
             cache[path] = declarations(path)
         found = cache[path].get(th, [])
         if len(found) != 1:
-            bad.append(f"{at}: {len(found)} theorems named {th} in {fl}, not one"); return
+            bad.append(f"{at}: {len(found)} theorems named {th} in {fl}, not one"); return None
         ns, stmt, var = found[0]
         if any("AtNone" in p for p in ns):
             bad.append(f"{at}: {th} is in a namespace named AtNone: never a row's evidence")
@@ -188,6 +204,44 @@ def check(rows, base):
                                          and mentions("Step", stmt)):
             bad.append(f"{at}: the kind 'in a model' theorem {th} states no interpretation satisfying the"
                        " theory with Step's steps (an ∃, ⊧ᴵP or InitModel, and Step)")
+        if kind == AGAINST and not (mentions("Γ", stmt) and "⊧ᴵP" in stmt and "¬" in stmt):
+            bad.append(f"{at}: the kind '{AGAINST}' theorem {th} states no refutation against Γ (Γ, ⊧ᴵP and ¬)")
+        return stmt
+
+    def tie_statement(name, e):
+        """The statement of the theorem `name` in a file of the entry's `tie`, where one declares it once."""
+        ts = e.get("tie")
+        for fl in (ts if isinstance(ts, list) else [ts] if isinstance(ts, str) else []):
+            path = os.path.join(base, fl) if isinstance(fl, str) else ""
+            if not os.path.isfile(path):
+                continue
+            if path not in cache:
+                cache[path] = declarations(path)
+            found = cache[path].get(name, [])
+            if len(found) == 1:
+                return found[0][1]
+        return None
+
+    def against(at, d, e, fl, path):
+        """Kind "sentence against the reading": `consistent` and `owed_statement`, and no claim of
+        inconsistency among the entry's `tie_theorems`."""
+        ow = d.get("owed_statement")
+        if not (isinstance(ow, str) and ow.strip()):
+            bad.append(f"{at}: kind '{AGAINST}' names no `owed_statement`, the sentence-level statement left owed")
+        cs = d.get("consistent")
+        if not isinstance(cs, str):
+            bad.append(f"{at}: kind '{AGAINST}' names no `consistent`, the theorem that the reading has a model")
+        elif path is not None:
+            st = theorem_ok(at, cs, fl, path, "consistent ", "r")
+            if st is not None and not (mentions("Consistent", st) and "¬" not in st):
+                bad.append(f"{at}: the statement of consistent {cs} does not state Consistent (it mentions no"
+                           " Consistent, or negates)")
+        for n in (e.get("tie_theorems") or []):
+            if not isinstance(n, str):
+                continue
+            st = tie_statement(n, e)
+            if n.split(".")[-1] == "inconsistent" or (st is not None and re.search(r"¬\s*\(?\s*Consistent\b", st)):
+                bad.append(f"{at}: kind '{AGAINST}' beside tie_theorems {n}, which claims the reading inconsistent")
 
     for where, e in entries(t, ""):
         ds = e["derived"]
@@ -207,8 +261,8 @@ def check(rows, base):
             if form in ("a", "r"):
                 if form == "a" and kind not in KINDS:
                     bad.append(f"{at}: form (a) with kind {kind!r}, not 'from sentences', 'through the reading' or 'in a model'")
-                if form == "r" and kind not in (None, "through the reading"):
-                    bad.append(f"{at}: form (r) with kind {kind!r}, not absent or 'through the reading'")
+                if form == "r" and kind not in R_KINDS:
+                    bad.append(f"{at}: form (r) with kind {kind!r}, not absent, 'through the reading' or '{AGAINST}'")
                 if (form == "r" or kind == "through the reading") and not (isinstance(d.get("family"), str) and d["family"].strip()):
                     bad.append(f"{at}: " + ("form (r)" if form == "r" else "kind 'through the reading'") + " names no family")
                 ss = d.get("sentences")
@@ -219,6 +273,10 @@ def check(rows, base):
             ow = d.get("owed_refuted")
             if ow is not None and form != "r":
                 bad.append(f"{at}: `owed_refuted` on form ({form}); it is form (r)'s")
+            for fld in ("consistent", "owed_statement"):
+                if d.get(fld) is not None and (form, kind) != ("r", AGAINST):
+                    bad.append(f"{at}: `{fld}` on form ({form})" + (f" kind {kind!r}" if kind else "")
+                               + f"; it is kind '{AGAINST}''s")
             if form == "b":
                 dv = d.get("derivation")
                 if not (isinstance(dv, str) and os.path.isfile(os.path.join(base, dv))):
@@ -234,8 +292,13 @@ def check(rows, base):
                 bad.append(f"{at}: {th} is in the file {fl}, named AtNone: never a row's evidence")
             path = os.path.join(base, fl)
             if not os.path.isfile(path):
-                bad.append(f"{at}: no file {fl}"); continue
-            theorem_ok(at, th, fl, path, "", form, kind if form == "a" else None)
+                bad.append(f"{at}: no file {fl}")
+                if (form, kind) == ("r", AGAINST):
+                    against(at, d, e, fl, None)
+                continue
+            theorem_ok(at, th, fl, path, "", form, kind if form == "a" or (form, kind) == ("r", AGAINST) else None)
+            if (form, kind) == ("r", AGAINST):
+                against(at, d, e, fl, path)
             if ow is not None and form == "r":
                 if not isinstance(ow, str):
                     bad.append(f"{at}: `owed_refuted` is not a theorem's full name")
@@ -274,6 +337,11 @@ theorem model (H : HookParams) : ∃ I : Interpretation KoreAML.Sym Elem, (I ⊧
     (∀ x y : Config (cH H), Step (cH H) x y ↔ ¬ (I ⊧ᴵ (den x ⇒ ∼ den y))) ∧ I ⊧ᴵ φ := sorry
 theorem modelInit (H : HookParams) : ∃ I, InitModel (cH H) N ar G I ∧ ∀ x y, Step (cH H) x y ↔ R I x y := sorry
 theorem modelNoStep (H : HookParams) : ∃ I : Interpretation KoreAML.Sym Elem, I ⊧ᴵP (Γc (cH H)) ∧ I ⊧ᴵ φ := sorry
+theorem against (H : HookParams) : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation Sym M),
+    I ⊧ᴵP Γ (cH H) → ¬ (I ⊧ᴵ (trS ax).pat) := sorry
+theorem consistent (H : HookParams) : Consistent (cH H) := sorry
+theorem inconsistent (H : HookParams) : ¬ Consistent (cH H) := sorry
+theorem noCons (H : HookParams) : ¬Consistent (cH H) := sorry
 section S
 variable (H : HookParams)
 theorem viaVar : Eval (cH H) e v := sorry
@@ -330,12 +398,36 @@ end KCore.ProvT
          "namespace named AtNone"),
         ({"form": "c", "kind": "in a model", "theorem": "KCore.ProvT.pair", "file": f}, "kinds are forms (a) and (r)'s"),
     ]
+    ag = {"form": "r", "kind": "sentence against the reading", "sentences": [78, 86, 142], "family": "ΓDomains",
+          "theorem": "KCore.ProvT.against", "file": f, "consistent": "KCore.ProvT.consistent",
+          "owed_statement": "no model of sentences 78, 86, 142 and the families named, with no other item of Γ"}
+    agw = lambda **kw: {k: v for k, v in dict(ag, **kw).items() if v is not None}
+    tie = {"tie": [f], "tie_theorems": ["KCore.ProvT.consistent"]}
+    cases += [  # kind "sentence against the reading" (third item: fields of the entry beside `derived`)
+        (agw(), None),
+        (agw(), None, tie),
+        (agw(owed_refuted="KCore.ProvT.refuted"), None),
+        (agw(family=None), "form (r) names no family"),
+        (agw(consistent=None), "names no `consistent`"),
+        (agw(owed_statement=None), "names no `owed_statement`"),
+        (agw(consistent="KCore.ProvT.inconsistent"), "does not state Consistent"),
+        (agw(consistent="KCore.ProvT.missing"), "0 theorems named KCore.ProvT.missing"),
+        (agw(theorem="KCore.ProvT.noModel"), "states no refutation against Γ"),
+        (agw(), "claims the reading inconsistent", {"tie": [f], "tie_theorems": ["KCore.ProvT.inconsistent"]}),
+        (agw(), "claims the reading inconsistent", {"tie": [f], "tie_theorems": ["KCore.ProvT.noCons"]}),
+        ({"form": "r", "sentences": [344], "family": "ΓCons", "theorem": "KCore.ProvT.noModel", "file": f,
+          "consistent": "KCore.ProvT.consistent"}, "`consistent` on form (r)"),
+        ({"form": "r", "kind": "through the reading", "sentences": [344], "family": "ΓCons", "theorem": "KCore.ProvT.noModel",
+          "file": f, "owed_statement": "x"}, "`owed_statement` on form (r) kind"),
+    ]
     ok = True
-    for i, (dt, want) in enumerate(cases):
+    val = lambda v: f"{v!r}".replace("'", '"') if not isinstance(v, list) else "[" + ", ".join(val(x) for x in v) + "]"
+    for i, (dt, want, *more) in enumerate(cases):
         rp = os.path.join(d, f"rows{i}.toml")
+        extra = "".join(f", {k} = {val(v)}" for k, v in (more[0] if more else {}).items())
         with open(rp, "w") as o:
-            o.write("[E2]\n\"row\" = { status = \"supported\", derived = [{ "
-                    + ", ".join(f"{k} = {v!r}".replace("'", '"') if not isinstance(v, list) else f"{k} = {v}" for k, v in dt.items())
+            o.write("[E2]\n\"row\" = { status = \"supported\"" + extra + ", derived = [{ "
+                    + ", ".join(f"{k} = {val(v)}" for k, v in dt.items())
                     + " }] }\n")
         _, bad, _ = check(rp, K)
         got = bad[0] if bad else None

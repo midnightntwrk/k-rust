@@ -5,7 +5,7 @@
   `TIEGEN_PROBE_TIMEOUT=3000 python3 -I test/constructs/tiegen.py rdr-config-deep --split --cons-head
   --wf-parts --sig-chunk-first 13 --account-sorted --heads-literal --heads-codes --chunk 50
   --attrs-blocks 50 --decl-parts --fn-blocks 27 --absent-file --decl-syms-literal --nojunk-eq
-  --nojunk-blocks 25`;
+  --nojunk-blocks 25 --sig-positions --fnfun-chunk 34`;
   run from the package root: `lake env lean -j1 test/TieRdrConfigDeepNoJunk.lean`
   (193 s, peak 6.4 GiB under a 12 GiB scope with one Lean thread).
 -/

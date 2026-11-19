@@ -133,7 +133,7 @@ theorem instNamed_param {c : Semantics} (hn : namesNumbered c = true) (ho : c.ov
     replace ho := ho.1; simp only [List.all_eq_true] at ho
     have hoi := ho (o, i) (by simpa [List.mem_zipIdx_iff_getElem?, List.getElem?_eq_getElem hlt] using he)
     simp only [Bool.and_eq_true, Option.isNone_iff_eq_none] at hoi
-    rw [hoi.1.1.1.1.1.1.2] at hi; cases hi
+    rw [hoi.1.1.1.1.1.2] at hi; cases hi
 
 /-! ## A semantics that fails the first leaf only -/
 
@@ -176,14 +176,14 @@ theorem fnHyp : FnHyp c :=
 set_option maxHeartbeats 2000000 in
 /-- Every condition of `coreOK` but `itesApart` holds, the second, third and fourth leaves of
 `itesApart` hold, and `FnHyp`. -/
-theorem meets_others : c.sortedOK = true ∧ c.hooksApart = true ∧ c.predsApart = true ∧ c.idsOK = true ∧
+theorem meets_others : c.sortedOK = true ∧ c.predsApart = true ∧ c.idsOK = true ∧
     c.overloadsOK = true ∧
     namesNumbered c = true ∧ genWf c = true ∧ collSortsOK c = true ∧ collsOK c = true ∧
     patHeadsOK c = true ∧ Model.namesApartK c = true ∧ Model.LitsApart c = true ∧
     Model.sortsNumbered c = true ∧ Model.kindsApart c = true ∧ Model.ctorsOnce c = true ∧
     Model.fnsApart c = true ∧ itesArity c = true ∧ itesNotInj c = true ∧ itesConstApart c = true ∧
     FnHyp c :=
-  ⟨sortedOK, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
+  ⟨sortedOK, by decide_cheap, by decide_cheap, by decide_cheap,
     by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
     by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
     by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, fnHyp⟩
