@@ -1,0 +1,7 @@
+# Hand-written KORE: the kompiled text of fixture e1-param-two-sort (K 7.1.337, sha256 27cb390cd18ff5c5b3b261c66aed0b74f72a7b0e9b34a5eefae160cacb5deaca), the Source of its own
+# sentences written as its fixture's path, and one sentence changed: the declaration of the sort-parametric function
+# same{S, T}(S, T) : Bool written as a hooked-symbol with hook{}("E1PARAM.same"), a sort-parametric hooked symbol of the text.
+# Its equation same{K, K}(_, _) = true and its application same{Int, Exp}(X, a(X)) in the rule are then at instances of a hooked
+# symbol. kompile writes no such declaration: on `syntax {S} S ::= idh(S) [function, hook(...)]` it writes `symbol` with no hook.
+# Observed: the declaration itself refused parametricSort (sentence 146); the equation read as a user lemma at values.
+kore = "test/constructs/fixtures/hw-param-hooked/hw-param-hooked.kore"

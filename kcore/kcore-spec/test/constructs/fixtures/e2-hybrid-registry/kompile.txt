@@ -1,0 +1,11 @@
+command: kompile --backend haskell e2-hybrid-registry.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 7.3
+definition.kore bytes: 219096
+definition.kore sha256: 713a5bfbdcabd60ca7774fb0369d63776030cae2fbf8bf38956b2e3863d198ac
+stripped sha256: a77b7e782273ce4f61b34658c034a9782f7edede4a4a7ee5c8b1166d686c1534
+main module: 424 sentences, 69 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-HYBRID-REGISTRY-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E2-HYBRID-REGISTRY as default.

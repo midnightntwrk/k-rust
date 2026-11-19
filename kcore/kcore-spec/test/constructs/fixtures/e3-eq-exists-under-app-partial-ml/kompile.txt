@@ -1,0 +1,11 @@
+command: kompile --backend haskell e3-eq-exists-under-app-partial-ml.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 4.7
+definition.kore bytes: 123983
+definition.kore sha256: 372a9326058136699b4c41f5db6f3d4268858ae710afe9c49114e8d7e2d43899
+stripped sha256: 9f8b8951cfc3731e307214a4b8c2a9f3053ee3d573d5adfa2db1d571623a67d1
+main module: 285 sentences, 16 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-EQ-EXISTS-UNDER-APP-PARTIAL-ML-SYNTAX in definition.  Use --syntax-module to
+  specify one. Using E3-EQ-EXISTS-UNDER-APP-PARTIAL-ML as default.

@@ -1,0 +1,17 @@
+out/definition.kore: 5 modules; prelude agrees
+user module E3-EQ-EXISTS-ML-IN-OR-EMPTY: 293 sentences
+  1 inert import [generated]
+  166 read [generated]
+  95 read [builtin]
+  5 read [user]
+  5 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  10 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 manyValuedRightSide
+      sentence 256 (Lblfl): manyValuedRightSide (\or: the sentence gives the function every element of each side; the text holds no functional sentence of the function, so where the sides differ that is more than one element, which no clause states)
+        [user] (no label) at e3-eq-exists-ml-in-or-empty.k:9: axiom{R} \implies{R}(\and{R}(\top{R}(), \top{R}()), \equals{SortBool{}, R}(Lblfl{}(), \and{SortBool{}}(\or{SortBool{}}(\dv{SortBool{}}("true"), \exists{SortBool{}}(VarB:SortS{}, \and{SortBool{}}(Lblk{}(VarB:SortS{}), \equals{SortS{}, SortBool{}}(VarB:SortS{}, Lbllp{}())))), \top{SortBool{}}()))) [UNIQUE'Unds'ID{}("19f6d5777ff4e4d775ac01b2e05e9070e15e0e344f525f5734f7c3a1a5b29ac5"), org'Stop'kframew …
+finish: sentence 256 (Lblfl): manyValuedRightSide (\or: the sentence gives the function every element of each side; the text holds no functional sentence of the function, so where the sides differ that is more than one element, which no clause states)
+(exit 0)
