@@ -96,7 +96,11 @@
 //! deleting w re-opens the obligation. Its status is `hit`, `open` (every program answered a final
 //! `no`) or `undecided`. The pattern's claims (`programs`) are asked first, then the obligation's
 //! walk: w first, then corpus order, until the first hit ([`walk_order`]), reusing every answer a
-//! claim gave; `--full` asks every pair and lists every hitter, with the same witness. A
+//! claim gave; `--full` asks every pair and lists every hitter, with the same witness. A program
+//! whose entry states that it must be rejected before it runs (`expect = { rejected = ... }`,
+//! PJ-32) runs nothing by its statement: no pattern is asked of it, the walk leaves it out, the
+//! obligation is `open` when every other program answered a final `no`, and a claim naming it is
+//! refused with the pattern list ([`PatternList::check_programs`]). A
 //! pattern's `expect = "no"` is checked against its obligation ([`pattern_expectation`]) and
 //! enters no lock. With `--lock` the section is read before anything runs and settled after
 //! ([`Lock::settle`]); an obligation whose value rests on a run the clock stopped keeps its
@@ -249,7 +253,12 @@ pub const QUERY_SCHEMA: &str = "kink-flow-query";
 /// run document does): a pattern's answer is a fact of the definition's run, which no projection
 /// changes, but each program row reads its result record, which keeps the cells the projections
 /// compare; a flow that declares none writes the document it wrote, but for `version`.
-pub const QUERY_VERSION: u64 = 15;
+/// 16 since a program whose entry states that it must be rejected before it runs has the class
+/// `rejected` or `accepted` in `programs`, as in the run document, no pattern is asked of it
+/// (no row; an obligation is `open` when every other program answered a final `no`), and a
+/// claim naming it refuses the pattern list; a flow whose entries state no rejection writes the
+/// document it wrote, but for `version`.
+pub const QUERY_VERSION: u64 = 16;
 /// A cached answer's schema, and its key's `schema_version`.
 pub const RECORD_SCHEMA: &str = "kink-flow-pattern";
 /// The record's format and what its answers mean: it changes whenever what counts as a hit or a
@@ -956,7 +965,7 @@ fn query_unnamed(
                 }
             }
             if obligation["status"] == "open" && entry.expect.is_none() {
-                let corpus = (0..manifest.programs.len()).collect::<Vec<_>>();
+                let corpus = asked_programs(manifest);
                 obligation["explain"] = asker.explain(&entry.id, lowered, &corpus);
             }
         }
@@ -1076,14 +1085,27 @@ fn chain_steps(steps: &[crate::pattern::StepText], lowered: Option<&LoweredChain
 /// The order a pattern's obligation asks the corpus in: its recorded witness first, where it
 /// names a program of the corpus, then every other program in corpus order. Under `--full`
 /// every program is asked, in corpus order. The order decides only what is asked, not the
-/// witness ([`obligation`]).
+/// witness ([`obligation`]). A program whose entry states that it must be rejected before it
+/// runs is never asked ([`asked_programs`]).
 fn walk_order(manifest: &FlowManifest, recorded: Option<&str>, full: bool) -> Vec<usize> {
+    let asked = asked_programs(manifest);
     let first = recorded
         .filter(|_| !full)
-        .and_then(|id| manifest.programs.iter().position(|p| p.id == id));
+        .and_then(|id| manifest.programs.iter().position(|p| p.id == id))
+        .filter(|index| asked.contains(index));
     first
         .into_iter()
-        .chain((0..manifest.programs.len()).filter(|index| Some(*index) != first))
+        .chain(asked.into_iter().filter(|index| Some(*index) != first))
+        .collect()
+}
+
+/// The programs a pattern can be asked of, by corpus index, in corpus order: every program but
+/// those whose entry states that it must be rejected before it runs (`Program::rejected`,
+/// PJ-32), which run nothing by their statement. Every program of a flow whose entries state no
+/// rejection.
+fn asked_programs(manifest: &FlowManifest) -> Vec<usize> {
+    (0..manifest.programs.len())
+        .filter(|index| manifest.programs[*index].rejected.is_none())
         .collect()
 }
 
@@ -1095,8 +1117,8 @@ fn walk_order(manifest: &FlowManifest, recorded: Option<&str>, full: bool) -> Ve
 /// - The witness is the recorded witness where it hit, else the first program in corpus order
 ///   that hit: a function of the corpus and the record, not of what else was asked or in which
 ///   order, so a query and a `--full` one give the same.
-/// - `status`: `hit` with a witness, `open` when every program of the corpus answered a final
-///   `no`, else `undecided` (no hit, and some program's answer is `unknown`, an error or
+/// - `status`: `hit` with a witness, `open` when every program of the corpus it can ask
+///   ([`asked_programs`]) answered a final `no`, else `undecided` (no hit, and some program's answer is `unknown`, an error or
 ///   `invalid-pattern`).
 /// - `hitters`: under `--full`, every program that hit, in corpus order; else null.
 /// - `unanswered`: the programs whose answer is neither a hit nor a final `no`, in corpus order.
@@ -1136,7 +1158,7 @@ fn obligation(
                 .map(|(index, _)| *index)
         });
     let witness = witness_index.map(id_of);
-    let every_no = by_index.len() == manifest.programs.len()
+    let every_no = by_index.len() == asked_programs(manifest).len()
         && by_index.iter().all(|(_, row)| row["answer"] == "no");
     let status = if witness.is_some() {
         "hit"

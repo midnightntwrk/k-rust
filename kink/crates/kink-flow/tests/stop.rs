@@ -541,7 +541,7 @@ fn a_run_of_the_clock_ends_at_its_stop() {
     let (document, ok) = coverage(&manifest, &CoverageOptions::default());
     assert!(ok, "{document:#}");
     assert_eq!(document["schema"], "kink-flow-coverage");
-    assert_eq!(document["version"], 27);
+    assert_eq!(document["version"], 28);
     let stop = json!({"before": ["CLOCK.frame"], "after": [], "count": 1});
     assert_eq!(document["stop"], stop);
     let program = &document["programs"][0];
@@ -567,7 +567,7 @@ fn a_run_of_the_clock_ends_at_its_stop() {
 fn mutations_of_the_clock_are_judged_relative_to_the_stop() {
     let dir = fixture("run", &[]);
     let document = search(&dir.join("FLOW.toml"));
-    assert_eq!(document["version"], 44);
+    assert_eq!(document["version"], 45);
     assert_eq!(
         document["stop"],
         json!({"before": ["CLOCK.frame"], "after": [], "count": 1})
@@ -1039,7 +1039,7 @@ fn query_answers_through_the_stopped_run() {
     fs::write(dir.join("PATTERNS.toml"), CLOCK_PATTERNS).unwrap();
     let (document, status) = query(&dir.join("FLOW.toml"));
     assert_eq!(status, EXIT_YES, "{document:#}");
-    assert_eq!(document["version"], 15, "{document:#}");
+    assert_eq!(document["version"], 16, "{document:#}");
     assert_eq!(
         document["stop"],
         json!({"before": ["CLOCK.frame"], "after": [], "count": 1}),

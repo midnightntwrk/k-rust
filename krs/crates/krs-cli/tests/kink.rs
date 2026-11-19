@@ -4012,7 +4012,7 @@ fn coverage_gives_a_claim_helper_its_own_status() {
     let counts = &document["families"]["rules"]["counts"];
     assert_eq!(counts["claim_helper"], 1, "{counts:#}");
     assert_eq!(counts["unmatched"], count("unmatched"));
-    assert_eq!(document["version"], 27);
+    assert_eq!(document["version"], 28);
 }
 
 /// A false `total` claim of a KRS function, observed by a run, is a specification diagnostic

@@ -379,6 +379,74 @@ fn diagnosed(document: &Value, id: &str) -> Vec<Value> {
 mod kink_tier {
     use super::*;
 
+    /// A program whose entry states that it must be rejected before it runs (PJ-32) is never run on
+    /// a mutant, whether admission meets the statement (`bad`: `+ +` does not parse) or not
+    /// (`stated`: `5 + 5` parses, though the corpus says it must not; first in corpus order, so it
+    /// would be the first killer of `add-becomes-sub` if it ran). Its row has the class `rejected`
+    /// or `accepted` with its expectation, no record and no run; neither is a failure of the run, and
+    /// every verdict, killer and call is the calc corpus's.
+    #[test]
+    #[ignore = "kink"]
+    fn a_program_rejected_before_it_runs_is_never_run_on_a_mutant() {
+        let dir = fixture("calc", "rejected");
+        let manifest = dir.join("FLOW.toml");
+        let text = fs::read_to_string(&manifest).unwrap();
+        let (head, programs) = text.split_once("[[program]]").unwrap();
+        fs::write(
+            &manifest,
+            format!(
+                "{head}[[program]]\nid = \"stated\"\ntext = \"5 + 5\"\nexpect = {{ rejected = \"parse\" }}\n\n\
+                 [[program]]\nid = \"bad\"\ntext = \"+ +\"\nexpect = {{ rejected = \"parse\" }}\n\n\
+                 [[program]]{programs}"
+            ),
+        )
+        .unwrap();
+        let (document, ok) = search(&manifest, &manifest.with_file_name("MUTATIONS.toml"), &[]);
+        assert!(ok, "{document:#}");
+        assert_eq!(kink_flow::cli::run_status(&document), EXIT_YES);
+        assert_eq!(document["version"], 45);
+        assert_eq!(
+            verdicts(&document),
+            expect(
+                &CALC_VERDICTS
+                    .iter()
+                    .map(|&(id, status, killer)| (id, status, killer, false))
+                    .collect::<Vec<_>>()
+            )
+        );
+        assert_eq!(
+            calls(&document, "add-swaps-operands"),
+            vec![strings(&["add", "nested", "inline", "sub"])]
+        );
+        let row = |id: &str| {
+            document["programs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|row| row["id"] == id)
+                .unwrap_or_else(|| panic!("no row {id}: {document:#}"))
+        };
+        let (stated, bad) = (row("stated"), row("bad"));
+        assert_eq!(bad["class"], "rejected", "{bad:#}");
+        assert_eq!(bad["expectation"]["verdict"], "met", "{bad:#}");
+        assert!(
+            bad["cause"].as_str().unwrap().starts_with("inputs/parse: "),
+            "{bad:#}"
+        );
+        assert_eq!(stated["class"], "accepted", "{stated:#}");
+        assert_eq!(stated["expectation"]["verdict"], "unmet", "{stated:#}");
+        assert_eq!(stated["cause"], stated["expectation"]["detail"]);
+        for row in [stated, bad] {
+            assert_eq!(row["cached"], false, "{row:#}");
+            assert!(row["wall_ms"].is_null(), "{row:#}");
+        }
+        // Each has the digest its inputs give (a K text is read before it is parsed), and no record
+        // of either is written.
+        for id in ["stated", "bad"] {
+            assert!(!record_path(&manifest, &document, id).exists(), "{id}");
+        }
+    }
+
     #[test]
     #[ignore = "kink"]
     fn the_binarys_run_command() {
@@ -949,7 +1017,7 @@ note = "right-hand side"
         // Version 26 reads a left-hand side's aliases and adds `witnesses_global`; version 27 names
         // an open application of a stuck end and adds the reason `open-application`; version 32
         // names the Z3 build and a compared lock's `header_changes`.
-        assert_eq!(document["version"], 44);
+        assert_eq!(document["version"], 45);
         // Under the Z3 profile the document names the Z3 build its verdicts were decided on,
         // k-rust's; the portable document has no such member.
         let z3 = k_rust::backend::z3_build().filter(|_| cfg!(feature = "z3"));

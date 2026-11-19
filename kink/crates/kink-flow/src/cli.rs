@@ -1777,11 +1777,14 @@ fn record_status(row: &Value) -> u8 {
 /// prefix program answers what the baseline computes for the declared observation, up to its
 /// horizons, and some channel of it kept an element within its budget: one that kept none is
 /// `unknown`, since it observed nothing); `timeout` and `unknown`
-/// [`EXIT_UNANSWERED`], since the run has no end kink compares; `refused` and `error`
-/// [`EXIT_UNASKED`]; joined with [`EXIT_UNASKED`] for a result record it could not write.
+/// [`EXIT_UNANSWERED`], since the run has no end kink compares; `rejected` and `accepted`
+/// [`EXIT_YES`], since a program whose entry states that it must be rejected before it runs is
+/// asked nothing of its baseline (whether admission meets the statement is its expectation,
+/// which [`coverage_status`] joins apart); `refused` and `error` [`EXIT_UNASKED`]; joined with
+/// [`EXIT_UNASKED`] for a result record it could not write.
 fn program_status(row: &Value) -> u8 {
     let class = match row["class"].as_str() {
-        Some("comparable" | "comparable-prefix") => EXIT_YES,
+        Some("comparable" | "comparable-prefix" | "rejected" | "accepted") => EXIT_YES,
         Some("timeout" | "unknown") => EXIT_UNANSWERED,
         _ => EXIT_UNASKED,
     };
@@ -1792,7 +1795,8 @@ fn program_status(row: &Value) -> u8 {
 /// about the mutations and the patterns: [`EXIT_UNASKED`] for a program refused or failed on the
 /// baseline (whose kills or answers could not be asked) or a result record it could not write,
 /// else [`EXIT_YES`]. A program that times out or is unknown on the baseline only cannot kill or
-/// hit: the rows of the mutations and the patterns already say so.
+/// hit: the rows of the mutations and the patterns already say so. A program whose entry states
+/// that it must be rejected before it runs (`rejected` or `accepted`) is skipped, not failed.
 fn baseline_status(row: &Value) -> u8 {
     match row["class"].as_str() {
         Some("refused" | "error") => EXIT_UNASKED,

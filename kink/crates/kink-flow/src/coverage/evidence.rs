@@ -650,6 +650,12 @@ fn program_evidence(
     let mut programs = Vec::new();
     for (program, row) in manifest.programs.iter().zip(&context.update.rows) {
         let class = row.row["class"].as_str().unwrap_or("error");
+        // A program whose entry states that it must be rejected before it runs has no run to read
+        // (PJ-32): it is skipped, where any other program that cannot kill leaves the evidence
+        // incomplete.
+        if ResultClass::states_rejection(&json!(class)) {
+            continue;
+        }
         if !ResultClass::can_kill(&json!(class)) {
             programs.push((
                 program.id.clone(),

@@ -322,6 +322,16 @@ A program refused at the other stage, or for any other reason, is refused as any
 `check` reports each (below), and its exit status depends on neither verdict.
 The statement is in no digest, cache key or lock.
 
+A program whose entry states a rejection runs nothing, whether admission meets the statement or not: the statement says that it is no program to run, and an unmet one is a fault of the specification, which no kill or covered obligation may rest on.
+Its program row in the `coverage`, `run` and `query` documents has the class `rejected` (met, `cause` the refusal) or `accepted` (unmet, `cause` the expectation's detail), with its `expectation`, no record and no baseline run ("Programs and the result cache"); the `compare` document's `programs` entry has the same class and cause.
+Every command skips it:
+
+- `run` never runs it on a mutant, and it is no failure of the run;
+- `coverage` counts it towards no obligation and reads no run of it for an argued item's evidence; its class exits 0, and an unmet statement exits 1, as an unmet expectation does;
+- `query` asks no pattern of it (it has no row), an obligation is `open` when every other program answered a final `no`, and a claim (`programs`) naming it refuses the pattern list;
+- `fuzz` refuses a template whose `program` is it (`template-refused`);
+- `prune` keeps it (`rejected-before-run`): it is in the corpus for what prune does not read, the implementation's acceptance and the kill of a grammar mutation.
+
 ### Provenance
 
 A case's `provenance` states which tool or person found the case and why it is in the corpus, as its author knows it:
@@ -882,6 +892,8 @@ A program's class is
 | `timeout` | The run did not end within `budget.time_ms`; `cause` gives what k-rust returned when the bound fired (see below). A timeout depends on the host's load, so it is never cached: every command runs the program again. | Make the program terminate, raise `time_ms`, or set `budget.baseline_max_work` to bound the run by work, which gives a cached `unknown` instead. |
 | `unknown` | The run ended without a comparable value (for example a collection holding a `Float`, `budget.max_depth` or `budget.baseline_max_work` reached, an undecided step), or the run is excluded (`cause` then names the exclusion, such as `contradicted-claim`); `cause` says which. | Write a program whose final configuration kink can compare; for a `contradicted-claim` exclusion fix the claim the row's `specification_diagnostics` names, not the program; for a `short-circuit-reading` exclusion write a program whose run does not read the operand the row's `short_circuit_readings` names (or make that operand defined in the specification). |
 | `refused` | The program was not read, parsed or assembled; `cause` is the refusal. | Fix the program. |
+| `rejected` | The program's entry states that it must be rejected before it runs, and admission rejected it at that stage ("Programs rejected before they run"); `cause` is the refusal. It has no run, and every command skips it. | Nothing. |
+| `accepted` | The program's entry states that it must be rejected before it runs, and admission admitted it; `cause` says what admission admitted, and the row's `expectation` is `unmet`. It has no run, and every command skips it. | Fix the specification's grammar or decoder, or the statement. |
 | `error` | The run or the runner failed. | Report it. |
 
 Only comparable programs can kill a mutant; the others are reported and never count as covering an obligation.
@@ -1987,7 +1999,7 @@ Version 39 (FB45-LOCKED-TIMEOUT) keeps a lock entry a run the clock stopped coul
 | --- | --- |
 | `spec` | `{outcome, stage, reason, detail, digest, execution_digest, files, exclusion}`: the specification's admission and its digest, the execution digest that keyed the result cache and tier 1 (`{kind, digest}`, null when the specification is refused; added to version 14 without a new version, since it is additive), and its definition exclusion with its causes (`exclusion`, since version 13; as in the check document, null when there is none). |
 | `programs` | The `coverage` rows `{id, digest, class, cause, cached, verify, wall_ms, specification_diagnostics, smt_unknowns, ends, short_circuit_readings}` (`ends`, each end's computation head and class, since version 12; `short_circuit_readings`, the readings that excluded the baseline run, since version 15), plus `not_cached` for a result that depends on the host and was not written (no `rerun` any more: no stored record is a timeout). `specification_diagnostics` (the baseline run's contradicted-claim records, above) and `smt_unknowns` (its undecided solver answers, reported only) come from the result record (absent on a `refused` row, which has none). |
-| `unusable_programs` | Every program whose class is neither `comparable` nor `comparable-prefix`, once: `{id, class, cause}`. These programs are never run on a mutant. |
+| `unusable_programs` | Every program whose class is neither `comparable` nor `comparable-prefix`, once: `{id, class, cause}`, a program rejected before it runs (`rejected`, `accepted`) included. These programs are never run on a mutant. |
 | `mutations` | One row per selected mutation, in the list's order (below). |
 | `counts` | The number of mutations per status (all nine statuses). |
 | `survivors` | The ids of the mutations whose status is `survived`, `timeout` or `unknown`: no program killed them, and a new program could. Each survives relative to the cells compared (`result`). A control (`expect = "survive"`) is listed too: the list is of statuses. |
@@ -2988,6 +3000,7 @@ Only a front end with a corpus layout knows its corpus's own lists, so `corpus_o
 - A program whose cell on an obligation is unknown while no other program discharges that obligation: removing it could lose the only potential discharger.
 - A program whose decided combination is a side of a pair obligation that no decided pair discharges without it, while another program's cell on it is unknown or its baseline undecided (`unknown-partner`): what that program holds may be the other side of a pair with it.
 - A program whose baseline is `timeout` or `unknown` while some obligation has no decided discharger: kink asked it of no mutant and no pattern, so each of its cells is unknown.
+- A program whose entry states that it must be rejected before it runs (class `rejected` or `accepted`, `rejected-before-run`; "Programs rejected before they run"): no command runs it or asks it of a mutant or a pattern, so it discharges nothing prune reads, and it is in the corpus for what prune does not read (the implementation's acceptance, the kill of a grammar mutation).
 
 So the report only ever under-states what is prunable.
 `unanswered` counts the unknown cells (`cells`) and lists the programs with an undecided baseline (`undecided_cases`).
@@ -3020,7 +3033,7 @@ The report gives both:
 
 - `redundant`: each program redundant alone (`{case, class, obligations, unknown, unasked, removable, kept_for, lock}`), with each obligation it is known to discharge and the other known dischargers (`obligations`, `{family, id, others, complete}`), each obligation on which its cell is known to be unknown with its known dischargers (`unknown`, `{family, id, dischargers, complete}`), a pair obligation's entry in either naming instead the pairs that hold without the program (`{family, id, pairs, complete}`, each pair `{held, refuted}` with its sides' other programs), how many obligations its own cell was not asked on (`unasked`), whether the removable set removes it, and, where it does not, what kept it when the walk reached it (`kept_for`); `complete` is whether every cell of the obligation's row was asked, so that `others` (`dischargers`) is every one;
 - `removable`: one set removable together (`{order, cases, lock}`), built by walking the programs in reverse manifest order (`order` `reverse-manifest`) and removing each program the rules above, read against the programs still kept, keep nowhere;
-- `kept`: each program that is not redundant alone (`{case, class, reasons}`), each reason `{reason, family, id}` with `reason` one of `claimed` (the family `patterns`), `refutes` (the claim's family, `expectations` with the program's own id for its own expectation), `sole-discharger` and `unknown`, or `{reason: "unknown-partner", family, id, with}` (a pair obligation), or `{reason: "baseline-undecided", class, obligations}`.
+- `kept`: each program that is not redundant alone (`{case, class, reasons}`), each reason `{reason, family, id}` with `reason` one of `claimed` (the family `patterns`), `refutes` (the claim's family, `expectations` with the program's own id for its own expectation), `sole-discharger` and `unknown`, or `{reason: "unknown-partner", family, id, with}` (a pair obligation), or `{reason: "baseline-undecided", class, obligations}`, or `{reason: "rejected-before-run", class}`.
 
 Every list is in manifest order.
 After the walk each obligation keeps a decided discharger among the kept programs (a pair obligation, a decided pair), or every unknown cell it had.
@@ -3045,7 +3058,7 @@ None needs every cell, so without `--full` the `mutations` and `patterns` rows a
 
 The evidence then holds the cells asked: `others` and `unknown` are the known ones, `unasked` counts the obligations a program's own cell was not asked on, and each family's and `unanswered`'s `complete` say whether every cell was asked; `limits` adds `lazy`.
 A distinguished flip's row is never complete in either mode, since its kill search stops at its first killer.
-`accounting.cells` gives each family's matrix size (`matrix`: the list's mutations by the comparable programs, the patterns by the programs), the cells the ordinary search held (`searched`), and those asked one at a time after it (`asked`, of which `from_cache` a cache served).
+`accounting.cells` gives each family's matrix size (`matrix`: the list's mutations by the comparable programs, the patterns by the programs a pattern can be asked of, every program but those rejected before they run), the cells the ordinary search held (`searched`), and those asked one at a time after it (`asked`, of which `from_cache` a cache served).
 
 ### The corpus record
 

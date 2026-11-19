@@ -298,7 +298,12 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// `expectation` per projection (`{verdict, detail, projections}` for `expect = {NAME: ..}`,
 /// [`mutation_expectation`]), and a run's lock `failed` (a projection's entry left `undecided`
 /// over a recorded verdict, [`crate::clock`]).
-pub const RUN_VERSION: u64 = 44;
+/// 45 since a program whose entry states that it must be rejected before it runs (`expect = {
+/// rejected = ... }`, PJ-32) has the class `rejected` (admission rejected it at that stage) or
+/// `accepted` (admission admitted it), with its `expectation`, no record and no run: it is never
+/// run on a mutant, and it is no failure of the run; a flow whose entries state no rejection
+/// gives version 44's document but for its version.
+pub const RUN_VERSION: u64 = 45;
 
 /// The name of the observation slot of an executed entry's `slots`, after the end slots
 /// ([`crate::observed::ResultProjection::slots`]), under `[observe]`.

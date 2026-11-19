@@ -79,6 +79,11 @@
 //! - A case whose baseline run is undecided (class `timeout` or `unknown`: kink did not ask it of
 //!   any mutant or pattern) while some obligation has no decided discharger: each of its cells
 //!   is unknown, so the rule above applies to every obligation.
+//! - A case whose entry states that it must be rejected before it runs (`expect = { rejected =
+//!   ... }`, class `rejected` or `accepted`; PJ-32, `rejected-before-run`): no command runs it or
+//!   asks it of a mutant or a pattern, so it discharges no obligation prune reads, and it is in
+//!   the corpus for obligations prune does not read (the implementation's acceptance under the
+//!   acceptance projection, the kill of a grammar mutation). Its redundancy is not decided here.
 //!
 //! So the report only ever under-states what is prunable: every unknown counts against removal.
 //! The document counts the unknown cells (`unanswered`).
@@ -261,7 +266,11 @@ pub const PRUNE_SCHEMA: &str = "kink-flow-prune";
 /// Version 4 names the projections of a flow that declares `[[projection]]` (`projections`,
 /// [`FlowManifest::projections_value`]), as every kink-flow document does; a flow that declares
 /// none gives version 3's document but for its version.
-pub const PRUNE_VERSION: u64 = 4;
+/// Version 5 keeps every case whose entry states that it must be rejected before it runs
+/// (classes `rejected` and `accepted`, PJ-32), with the reason `rejected-before-run`
+/// (`{reason, class}`), and asks no cell of it; a flow whose entries state no rejection gives
+/// version 4's document but for its version.
+pub const PRUNE_VERSION: u64 = 5;
 
 /// The order the removable set is built in (`removable.order`, module docs).
 pub const REVERSE_MANIFEST_ORDER: &str = "reverse-manifest";
@@ -620,6 +629,10 @@ enum Keep {
     Partner(usize, Vec<usize>),
     /// Its baseline is undecided (its class), and these obligations have no kept discharger.
     Undecided(String, Vec<usize>),
+    /// Its entry states that it must be rejected before it runs (its class, `rejected` or
+    /// `accepted`; PJ-32): it discharges no obligation prune reads, and what it is in the corpus
+    /// for (the acceptance projection, a grammar mutation) is no obligation prune reads either.
+    Rejected(String),
 }
 
 /// A family's facts as the commands gave them.
@@ -1134,10 +1147,21 @@ impl Facts {
             .iter()
             .map(|class| ResultClass::can_kill(&json!(class)))
             .collect::<Vec<_>>();
+        // The cases whose entry states that they must be rejected before they run (PJ-32): no
+        // command runs or asks them, so they have no cell of any family, and none is asked.
+        let stated = classes
+            .iter()
+            .map(|class| ResultClass::states_rejection(&json!(class)))
+            .collect::<Vec<_>>();
         let mut keeps = vec![Vec::new(); cases.len()];
         for (pattern, case) in claims {
             if let Some(at) = index(&case) {
                 keeps[at].push(Keep::Claimed(pattern));
+            }
+        }
+        for (at, class) in classes.iter().enumerate() {
+            if stated[at] {
+                keeps[at].push(Keep::Rejected(class.clone()));
             }
         }
         // A case's own expectation that its run does not meet.
@@ -1298,8 +1322,10 @@ impl Facts {
             }
         }
         if let Some(query) = query {
-            facts.cells[1].matrix =
-                inputs.pattern_list.map_or(0, |list| list.patterns.len()) * cases.len();
+            // The patterns by the programs a pattern can be asked of: none of a case whose entry
+            // states that it must be rejected before it runs.
+            facts.cells[1].matrix = inputs.pattern_list.map_or(0, |list| list.patterns.len())
+                * stated.iter().filter(|stated| !**stated).count();
             let rows = query["rows"].as_array().map_or(&[][..], Vec::as_slice);
             facts.cells[1].searched = rows.len();
             for obligation in query["obligations"].as_array().into_iter().flatten() {
@@ -1341,7 +1367,9 @@ impl Facts {
                         _ => insert(&mut lazy.unknown, at),
                     }
                 }
-                lazy.unasked = (0..cases.len()).filter(|at| !known.contains(at)).collect();
+                lazy.unasked = (0..cases.len())
+                    .filter(|at| !stated[*at] && !known.contains(at))
+                    .collect();
                 facts.obligations.push(lazy);
                 if obligation["expect"] == PatternExpect::No.as_str() {
                     let at = facts.obligations.len() - 1;
@@ -1562,6 +1590,7 @@ impl Facts {
                 "class": class,
                 "obligations": open.iter().map(|index| self.reference(*index)).collect::<Vec<_>>(),
             }),
+            Keep::Rejected(class) => json!({"reason": "rejected-before-run", "class": class}),
         }
     }
 
@@ -2082,6 +2111,11 @@ fn reason_text(keep: &Value, reference: &dyn Fn(&Value) -> String) -> String {
             "its baseline is {} and {} obligations have no discharger",
             keep["class"].as_str().unwrap_or("?"),
             keep["obligations"].as_array().map_or(0, Vec::len)
+        ),
+        Some("rejected-before-run") => format!(
+            "it states that it is rejected before it runs (`{}`), so no command runs it, and \
+             prune reads none of the obligations it is in the corpus for",
+            keep["class"].as_str().unwrap_or("?")
         ),
         _ => "?".to_owned(),
     }

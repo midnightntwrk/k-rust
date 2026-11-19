@@ -658,15 +658,31 @@ impl PatternList {
     }
 
     /// Check every claimed program against the manifest: a claim naming a program the corpus
-    /// does not have is an error naming the key.
+    /// does not have, or one whose entry states that it must be rejected before it runs
+    /// (`expect = { rejected = ... }`, PJ-32: it runs nothing, so no pattern can be asked of it),
+    /// is an error naming the key.
     pub fn check_programs(&self, manifest: &FlowManifest) -> Result<(), ManifestError> {
         for entry in &self.patterns {
             for (index, id) in entry.programs.iter().flatten().enumerate() {
-                if !manifest.programs.iter().any(|program| &program.id == id) {
-                    return Err(ManifestError::new(
-                        format!("{}.programs[{index}]", pattern_key(&entry.id)),
-                        format!("no program of the manifest has the id {id:?}"),
-                    ));
+                let key = || format!("{}.programs[{index}]", pattern_key(&entry.id));
+                match manifest.programs.iter().find(|program| &program.id == id) {
+                    None => {
+                        return Err(ManifestError::new(
+                            key(),
+                            format!("no program of the manifest has the id {id:?}"),
+                        ));
+                    }
+                    Some(program) if program.rejected.is_some() => {
+                        return Err(ManifestError::new(
+                            key(),
+                            format!(
+                                "the program {id:?} states that it is rejected before it runs \
+                                 (`expect = {{ rejected = ... }}`), so it runs nothing and no \
+                                 pattern can be asked of it"
+                            ),
+                        ));
+                    }
+                    Some(_) => {}
                 }
             }
         }

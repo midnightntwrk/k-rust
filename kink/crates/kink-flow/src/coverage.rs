@@ -488,7 +488,12 @@ pub const COVERAGE_SCHEMA: &str = "kink-flow-coverage";
 /// 27 since a flow that declares `[[projection]]` names its projections (`projections`, as the run
 /// document does, `crate::report::RUN_VERSION` 44); a flow that declares none gives version 26's
 /// document but for its version.
-pub const COVERAGE_VERSION: u64 = 27;
+/// 28 since a program whose entry states that it must be rejected before it runs has the class
+/// `rejected` or `accepted` with its `expectation`, as in the run document
+/// (`crate::report::RUN_VERSION` 45): it covers nothing, its argued items' evidence reads no run
+/// of it, its class exits 0 and an unmet statement exits 1, as an unmet expectation does; a flow
+/// whose entries state no rejection gives version 27's document but for its version.
+pub const COVERAGE_VERSION: u64 = 28;
 
 /// The status of a rule some comparable program fired.
 pub const FIRED: &str = "fired";

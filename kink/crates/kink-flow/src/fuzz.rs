@@ -963,6 +963,15 @@ fn instance(
                 .iter()
                 .find(|program| &program.id == id)
                 .ok_or_else(|| refused(format!("program {id:?}: FLOW.toml has no such program")))?;
+            // A program whose entry states that it must be rejected before it runs is, by its
+            // statement, no program to vary or run (PJ-32).
+            if let Some(stage) = program.rejected {
+                return Err(refused(format!(
+                    "program {id:?} states that it is rejected before it runs (`expect = {{ \
+                     rejected = \"{}\" }}`), so it runs nothing and is no template",
+                    stage.as_str()
+                )));
+            }
             // A fuzz campaign varies and replays K text only: a typed input would be neither
             // carried into the campaign's input nor written back into a witness's fragment.
             if !program.inputs.is_empty() {
@@ -2041,7 +2050,8 @@ impl FuzzJob<'_> {
 /// edited rules (`{module, index, ...}`): its coverage's `sentences`, k-rust's `matched`, or a
 /// sentence whose condition its run entered ([`crate::guards::entered_sentences`]), the predicate
 /// the `coverage` document's `matched_by` lists, which counts comparable records only.
-/// False without a record or rules, or for a record of another class.
+/// False without a record or rules, for a record of another class, or for a program whose entry
+/// states that it must be rejected before it runs.
 fn template_reaches(
     manifest: &FlowManifest,
     spec: &AdmittedSpec,
@@ -2050,7 +2060,13 @@ fn template_reaches(
     id: &str,
     rules: &Value,
 ) -> bool {
-    let Some(program) = manifest.programs.iter().find(|program| program.id == id) else {
+    // A program whose entry states that it must be rejected before it runs has no current
+    // record (PJ-32): one it left before is not read.
+    let Some(program) = manifest
+        .programs
+        .iter()
+        .find(|program| program.id == id && program.rejected.is_none())
+    else {
         return false;
     };
     let edited = rules

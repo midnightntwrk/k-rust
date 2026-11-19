@@ -752,6 +752,42 @@ fn a_template_with_typed_inputs_is_refused() {
     );
 }
 
+/// A template of a corpus program whose entry states that it must be rejected before it runs
+/// (PJ-32) is refused before any case, whether admission meets the statement (`run(` does not
+/// parse) or not (`run(1)` parses): by its statement it runs nothing, so it is no program to
+/// vary.
+#[test]
+fn a_template_of_a_program_rejected_before_it_runs_is_refused() {
+    let manifest = "[spec]\nentry = \"steps.k\"\nmain_module = \"STEPS\"\nsyntax_module = \
+                    \"STEPS-SYNTAX\"\n\n[[program]]\nid = \"one\"\ntext = \"run(1)\"\n\n\
+                    [[program]]\nid = \"bad\"\ntext = \"run(\"\nexpect = { rejected = \"parse\" }\n\n\
+                    [[program]]\nid = \"stated\"\ntext = \"run(1)\"\n\
+                    expect = { rejected = \"parse\" }\n";
+    let dir = scratch_flow("rejected-template", "steps.k", STEPS_K, manifest, "");
+    for program in ["bad", "stated"] {
+        let (document, ok) = run_job(
+            &dir,
+            &format!("[[template]]\nid = \"t\"\nprogram = \"{program}\"\n"),
+            "t",
+            Job::Rule("big".into(), true),
+            FuzzOptions::default(),
+        );
+        assert!(!ok, "{document:#}");
+        let refusal = &document["job"]["refusal"];
+        assert_eq!(
+            (&refusal["stage"], &refusal["reason"]),
+            (&Value::from("template"), &Value::from("template-refused")),
+            "{document:#}"
+        );
+        assert!(
+            refusal["detail"].as_str().unwrap().starts_with(&format!(
+                "program \"{program}\" states that it is rejected before it runs"
+            )),
+            "{document:#}"
+        );
+    }
+}
+
 /// Under the Z3 profile the fuzz document names the Z3 build its confirmations are decided on
 /// (`z3`), whatever the outcome: a job refused before any case and the document of an input that
 /// does not decode; under the portable profile neither names a Z3 build.

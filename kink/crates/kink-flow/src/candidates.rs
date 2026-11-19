@@ -54,6 +54,7 @@
 //! later command's document does either.
 
 use crate::{
+    RejectedStage,
     cli::{EXIT_NO, EXIT_UNANSWERED, EXIT_UNASKED, EXIT_YES, FrontEnd, exit_join},
     compare::{Acceptance, ends_acceptance},
     coverage::{CoverageOptions, Tier},
@@ -343,8 +344,10 @@ pub fn command(
         .iter()
         .map(|(_, candidate)| candidate)
         .filter(|candidate| {
-            rows.get(&candidate.program.id)
-                .is_some_and(|row| row["class"] != ResultClass::Refused.as_str())
+            rows.get(&candidate.program.id).is_some_and(|row| {
+                row["class"] != ResultClass::Refused.as_str()
+                    && !ResultClass::states_rejection(&row["class"])
+            })
         })
         .collect();
     let mut newly = coverage_newly(&coverage, &corpus_set);
@@ -533,6 +536,28 @@ fn candidate_row(
         value["reason"] = json!(reason);
         value["detail"] = json!(detail);
         return (value, EXIT_YES);
+    }
+    // A candidate is a case document, which states no rejection before its run (both case
+    // readers refuse `rejected` there, PJ-32), so no candidate's row has the class `rejected` or
+    // `accepted`. Were one to, its outcome is admission's: rejected at the stage its entry states
+    // (`parse` or `input`, as `end` is the stage of a rejection read from the ends), with the
+    // refusal's reason and detail from its cause (`STAGE/REASON: DETAIL`, as a refusal's), or
+    // accepted, with its expectation.
+    if class == ResultClass::Rejected.as_str() {
+        let cause = row["cause"].as_str().unwrap_or_default();
+        let (head, detail) = cause.split_once(": ").unwrap_or(("", cause));
+        let reason = head.split_once('/').map_or("", |(_, reason)| reason);
+        value["outcome"] = json!("rejected");
+        value["stage"] = json!(candidate.program.rejected.map(RejectedStage::as_str));
+        value["reason"] = json!(reason);
+        value["detail"] = json!(detail);
+        value["expectation"] = row["expectation"].clone();
+        return (value, EXIT_YES);
+    }
+    if class == ResultClass::Accepted.as_str() {
+        value["outcome"] = json!("accepted");
+        value["expectation"] = row["expectation"].clone();
+        return (value, EXIT_NO);
     }
     let mut status = EXIT_YES;
     let (outcome, stage, reason, detail) = outcome(row, declares_finished);
@@ -926,6 +951,69 @@ mod tests {
         assert_eq!(outcome(&stopped, false).0, "accepted");
         let (word, _, reason, _) = outcome(&json!({"class": "timeout", "cause": "t"}), true);
         assert_eq!((word, reason.as_deref()), ("unknown", Some("timeout")));
+    }
+
+    /// A row of a program whose entry states that it must be rejected before it runs (PJ-32,
+    /// which no case document states) is read as admission decided it: `rejected` at the stage
+    /// its entry states, exit 0, or `accepted` with its unmet expectation, exit 1.
+    #[test]
+    fn a_row_rejected_before_it_runs_is_read_as_admission_decided_it() {
+        let candidate = Candidate {
+            file: "c.toml".into(),
+            program: crate::Program {
+                id: "c".into(),
+                source: None,
+                start_sort: None,
+                variables: Vec::new(),
+                inputs: Table::new(),
+                case: None,
+                case_file: None,
+                expect: None,
+                expect_for: crate::manifest::ExpectFor::default(),
+                provenance: None,
+                rejected: Some(crate::RejectedStage::Parse),
+                stop_count: None,
+            },
+            table: Table::new(),
+        };
+        let options = AdmitOptions {
+            candidates: Vec::new(),
+            provenance: Provenance::default(),
+            cache: None,
+        };
+        let met = json!({"verdict": "met", "detail": "d", "difference": null});
+        let (value, status) = candidate_row(
+            &candidate,
+            &json!({"class": "rejected", "cause": "inputs/parse: no parse", "expectation": met}),
+            &options,
+            true,
+        );
+        assert_eq!(status, EXIT_YES);
+        assert_eq!(
+            (
+                &value["outcome"],
+                &value["stage"],
+                &value["reason"],
+                &value["detail"]
+            ),
+            (
+                &json!("rejected"),
+                &json!("parse"),
+                &json!("parse"),
+                &json!("no parse")
+            )
+        );
+        assert_eq!(value["expectation"], met);
+        let unmet = json!({"verdict": "unmet", "detail": "d", "difference": null});
+        let (value, status) = candidate_row(
+            &candidate,
+            &json!({"class": "accepted", "cause": "d", "expectation": unmet}),
+            &options,
+            true,
+        );
+        assert_eq!(status, EXIT_NO);
+        assert_eq!(value["outcome"], "accepted");
+        assert_eq!(value["expectation"], unmet);
     }
 
     /// The fragment is a document of one case whose `provenance` takes each member a flag

@@ -163,6 +163,14 @@ pub enum ResultClass {
     Unknown,
     /// The program's input was refused (not read, parsed or assembled); never stored.
     Refused,
+    /// The program's entry states that it must be rejected before it runs (`expect = { rejected
+    /// = ... }`, [`crate::RejectedStage`]) and admission rejected it at that stage: the statement
+    /// is met. It runs nothing and every command skips it; never stored.
+    Rejected,
+    /// The program's entry states that it must be rejected before it runs, and admission
+    /// admitted it: the statement is unmet, a finding about the specification. By its statement
+    /// it runs nothing, so every command skips it as it skips [`Self::Rejected`]; never stored.
+    Accepted,
     /// The run or the runner failed.
     Error,
 }
@@ -175,6 +183,14 @@ impl ResultClass {
         *class == Self::Comparable.as_str() || *class == Self::ComparablePrefix.as_str()
     }
 
+    /// Whether `class`, a row's class, names a program whose entry states that it must be
+    /// rejected before it runs and that admission decided ([`Self::Rejected`] or
+    /// [`Self::Accepted`]): a program no command runs, asks or counts.
+    #[must_use]
+    pub fn states_rejection(class: &Value) -> bool {
+        *class == Self::Rejected.as_str() || *class == Self::Accepted.as_str()
+    }
+
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Comparable => "comparable",
@@ -182,6 +198,8 @@ impl ResultClass {
             Self::Timeout => "timeout",
             Self::Unknown => "unknown",
             Self::Refused => "refused",
+            Self::Rejected => "rejected",
+            Self::Accepted => "accepted",
             Self::Error => "error",
         }
     }
@@ -394,7 +412,11 @@ pub fn host_dependence(
     diagnostic: Option<Exclusion>,
 ) -> Option<HostDependence> {
     match class {
-        ResultClass::Comparable | ResultClass::ComparablePrefix | ResultClass::Refused => None,
+        ResultClass::Comparable
+        | ResultClass::ComparablePrefix
+        | ResultClass::Refused
+        | ResultClass::Rejected
+        | ResultClass::Accepted => None,
         ResultClass::Timeout => Some(HostDependence::Time),
         ResultClass::Error => Some(HostDependence::Failure),
         ResultClass::Unknown => match (exclusion, live_stop) {
@@ -2655,6 +2677,57 @@ fn program_row(
             clock_stopped: false,
         }
     };
+    // A program whose entry states that it must be rejected before it runs runs nothing, whether
+    // admission meets the statement or not (PJ-32): admission decides it, and the row says which
+    // (`rejected` or `accepted`, with its `expectation`), with no record and no run, so that
+    // every command skips it. Its digest is the one its inputs give where they can be read, as
+    // for any program.
+    if program.rejected.is_some() {
+        let digest = inputs
+            .read(program)
+            .ok()
+            .map(|case| program_digest(program, &case));
+        let crate::admit::ProgramAdmission {
+            rejected,
+            outcome,
+            expectation,
+            ..
+        } = inputs.admit(program);
+        let (class, cause) = match (rejected, outcome) {
+            (Some(_), Err(refusal)) => (
+                ResultClass::Rejected,
+                json!(format!(
+                    "{}/{}: {}",
+                    refusal.stage, refusal.reason, refusal.detail
+                )),
+            ),
+            (Some(_), Ok(_)) => (
+                ResultClass::Accepted,
+                expectation
+                    .as_ref()
+                    .map_or(Value::Null, |expectation| expectation["detail"].clone()),
+            ),
+            // Refused otherwise: a refusal at another stage or for another reason, which may be
+            // the corpus's own error, its detail naming the statement.
+            (None, Err(refusal)) => return refused(digest, refusal),
+            (None, Ok(_)) => unreachable!(
+                "admission decides the statement of every program it admits that states one"
+            ),
+        };
+        return ProgramRow {
+            row: expected(
+                row(digest, class.as_str(), &cause, false, Value::Null),
+                expectation,
+            ),
+            record: None,
+            live: None,
+            failed: false,
+            digest,
+            inputs: None,
+            test: None,
+            clock_stopped: false,
+        };
+    }
     let case = match inputs.read(program) {
         Ok(case) => case,
         Err(refusal) => return refused(None, refusal),
@@ -2929,13 +3002,15 @@ mod tests {
     #[test]
     fn a_result_depends_on_the_host_through_either_run() {
         use HostDependence::{Exclusion as Host, Failure, Time};
-        use ResultClass::{Comparable, Error, Refused, Timeout, Unknown};
+        use ResultClass::{Accepted, Comparable, Error, Refused, Rejected, Timeout, Unknown};
         let finished = Some(RunStop::Finished);
         let claim = Some(Exclusion::ContradictedClaim);
         let stack = Some(Exclusion::StackStop);
         let cases = [
             (Comparable, None, finished, None, None),
             (Refused, None, None, None, None),
+            (Rejected, None, None, None, None),
+            (Accepted, None, None, None, None),
             (Timeout, None, Some(RunStop::Time), None, Some(Time)),
             (Error, None, finished, None, Some(Failure)),
             (Error, claim, finished, stack, Some(Failure)),

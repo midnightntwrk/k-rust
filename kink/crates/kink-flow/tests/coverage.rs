@@ -1767,7 +1767,7 @@ text = 'h(opaque(1), 2)'
         // checks an argued item's invariant by its connection; its eighteenth also by its
         // evidence on runs.
         assert_eq!(document["schema"], "kink-flow-coverage");
-        assert_eq!(document["version"], 27);
+        assert_eq!(document["version"], 28);
         // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
         // identity, not the version alone.
         assert_eq!(document["k_rust_revision"], k_rust::build_identity());
@@ -3413,5 +3413,71 @@ fn the_result_store_is_off_only_for_a_clock_bounded_solver_under_z3() {
     assert_eq!(
         off(clock) == Some(kink_flow::results::RESULT_CACHE_Z3),
         SolverProfile::BUILD == SolverProfile::Z3 && kink_native::solver_named().is_ok()
+    );
+}
+
+/// A program whose entry states that it must be rejected before it runs (PJ-32) covers nothing
+/// and is no failure, whether admission meets the statement (`bad`: `+ +` does not parse, class
+/// `rejected`, where a program refused so exits 2) or not (`times`: `2 * 3` parses, class
+/// `accepted`). Neither has a record; `mul`, which only `times` would fire, stays unmatched; the
+/// unmet statement exits 1, as an unmet expectation does, and with the met one alone the
+/// command exits 0.
+#[test]
+fn a_program_rejected_before_it_runs_covers_nothing_and_is_no_failure() {
+    let dir = scratch("rejected");
+    fs::copy(flow("calc").join("calc.k"), dir.join("calc.k")).unwrap();
+    let flow_text = |extra: &str| {
+        format!(
+            "[spec]\nentry = \"calc.k\"\nmain_module = \"CALC\"\nsyntax_module = \"CALC-SYNTAX\"\n\n\
+             [[program]]\nid = \"add\"\ntext = \"1 + 2\"\n\n\
+             [[program]]\nid = \"bad\"\ntext = \"+ +\"\nexpect = {{ rejected = \"parse\" }}\n{extra}"
+        )
+    };
+    let manifest = dir.join("FLOW.toml");
+    write(
+        &manifest,
+        &flow_text(
+            "\n[[program]]\nid = \"times\"\ntext = \"2 * 3\"\nexpect = { rejected = \"parse\" }\n",
+        ),
+    );
+    let (document, status) = run(&manifest, false);
+    assert_eq!(status, EXIT_NO, "{document:#}");
+    assert_eq!(document["version"], 28);
+    assert_eq!(
+        rows(&document),
+        expect(&[
+            ("add", "comparable", false),
+            ("bad", "rejected", false),
+            ("times", "accepted", false),
+        ])
+    );
+    let programs = document["programs"].as_array().unwrap();
+    assert_eq!(programs[1]["expectation"]["verdict"], "met");
+    assert!(
+        programs[1]["cause"]
+            .as_str()
+            .unwrap()
+            .starts_with("inputs/parse: "),
+        "{document:#}"
+    );
+    assert_eq!(programs[2]["expectation"]["verdict"], "unmet");
+    let rule = |label: &str| {
+        rules(&document)
+            .iter()
+            .find(|rule| rule["label"] == label)
+            .cloned()
+            .unwrap_or_else(|| panic!("no rule {label}: {document:#}"))
+    };
+    assert_eq!(rule("CALC.add")["matched_by"], json!(["add"]));
+    assert_eq!(rule("CALC.mul")["status"], "unmatched");
+    assert_eq!(rule("CALC.mul")["matched_by"], json!([]));
+    assert_eq!(document["summary"]["comparable"], 1);
+
+    write(&manifest, &flow_text(""));
+    let (document, status) = run(&manifest, false);
+    assert_eq!(status, EXIT_YES, "{document:#}");
+    assert_eq!(
+        rows(&document),
+        expect(&[("add", "comparable", true), ("bad", "rejected", false)])
     );
 }

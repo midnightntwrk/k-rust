@@ -405,7 +405,7 @@ mod kink_tier {
         argue(&dir, &argued);
         let (after, status) = coverage(&dir, &[], Derived::Flips(&list));
         assert_eq!(status, EXIT_YES, "{after:#}");
-        assert_eq!(after["version"], 27);
+        assert_eq!(after["version"], 28);
         for ((id, argument), (family, unargued)) in argued.iter().zip([
             ("rules", "matched"),
             ("requirements", "open"),
@@ -836,7 +836,7 @@ mod kink_tier {
         );
         let (document, status) = coverage(&dir, &["--tier", "1"], Derived::default());
         assert_eq!(status, EXIT_NO, "{document:#}");
-        assert_eq!(document["version"], 27);
+        assert_eq!(document["version"], 28);
         let check = |id: &str| &item(&document, "requirements", id)["argument_check"];
         let walk = check(READZ_ROM_HELD);
         assert_eq!(
@@ -1263,6 +1263,65 @@ mod kink_tier {
             item(&broken, "rules", BUMP)["argument_check"]["standing"],
             bumped
         );
+    }
+
+    /// A program whose entry states that it must be rejected before it runs (PJ-32) has no run
+    /// for an argued item's evidence to read, whether admission meets the statement (`bad`,
+    /// `read(` does not parse) or not (`stated`, the program that breaks the invariant before a
+    /// step of `readz`, which parses): the evidence is the one of the corpus without them, where
+    /// any other program that cannot kill leaves it incomplete. The unmet statement exits 1.
+    #[test]
+    #[ignore = "kink"]
+    fn an_invariants_evidence_reads_no_program_rejected_before_it_runs() {
+        let dir = invariant("evidence-rejected");
+        with_programs(&dir, &[("clean", "read(8)")]);
+        let path = dir.join("FLOW.toml");
+        let text = fs::read_to_string(&path).unwrap();
+        let clean = "text = \"read(8)\"\n";
+        fs::write(
+            &path,
+            text.replacen(
+                clean,
+                &format!(
+                    "{clean}\n[[program]]\nid = \"bad\"\ntext = \"read(\"\n\
+                     expect = {{ rejected = \"parse\" }}\n\n[[program]]\nid = \"stated\"\n\
+                     text = \"write(2, 1) ; read(8)\"\nexpect = {{ rejected = \"parse\" }}\n"
+                ),
+                1,
+            ),
+        )
+        .unwrap();
+        argue_on(
+            &dir,
+            &[OUTSIDE_ROM],
+            &[(
+                READZ_ROM_HELD,
+                "memory holds no ROM address",
+                Some(OUTSIDE_ROM.0),
+            )],
+        );
+        let (document, status) = coverage(&dir, &["--tier", "1"], Derived::default());
+        assert_eq!(status, EXIT_NO, "{document:#}");
+        let classes = document["programs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| (row["id"].as_str().unwrap(), row["class"].as_str().unwrap()))
+            .collect::<Vec<_>>();
+        assert!(classes.contains(&("bad", "rejected")), "{classes:?}");
+        assert!(classes.contains(&("stated", "accepted")), "{classes:?}");
+        let walk = &item(&document, "requirements", READZ_ROM_HELD)["argument_check"];
+        assert_eq!(walk["standing"], "checked-on-runs", "{walk:#}");
+        assert_eq!(
+            (
+                &walk["evidence"]["status"],
+                &walk["evidence"]["programs"],
+                &walk["evidence"]["reason"]
+            ),
+            (&json!("holds"), &json!(["idle", "clean"]), &Value::Null),
+            "{walk:#}"
+        );
+        assert_eq!(document["summary"]["failed_arguments"], json!([]));
     }
 
     /// `dir`'s copy of the fixture's definition with `find` replaced by `replace`, once.
@@ -1997,7 +2056,7 @@ mod kink_tier {
             ..DerivedList::default()
         };
         let (document, _) = coverage(&dir, &[], Derived::Flips(&list));
-        assert_eq!(document["version"], 27);
+        assert_eq!(document["version"], 28);
         for id in OUTSIDE_ROM_EQUATIONS {
             let equation = item(&document, "rules", id);
             assert_eq!(equation["status"], "invariant", "{equation:#}");

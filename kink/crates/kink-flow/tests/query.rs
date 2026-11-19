@@ -303,6 +303,69 @@ fn a_pattern_list_error_names_its_key() {
     assert!(!dir.join(CACHE_DIRECTORY).exists());
 }
 
+/// No pattern is asked of a program whose entry states that it must be rejected before it runs
+/// (PJ-32), whether admission meets the statement (`bad`: `+ +` does not parse) or not
+/// (`five`: `2 + 3` parses): it has no row, and a pattern only `five`'s run would reach is
+/// `open`, every program it can ask having answered a final `no`. A claim naming such a program
+/// refuses the pattern list before anything runs.
+#[test]
+fn no_pattern_is_asked_of_a_program_rejected_before_it_runs() {
+    let dir = fixture("calc", "rejected");
+    let manifest = dir.join("FLOW.toml");
+    let text = fs::read_to_string(&manifest).unwrap();
+    write(
+        &manifest,
+        &format!(
+            "{text}\n[[program]]\nid = \"bad\"\ntext = \"+ +\"\nexpect = {{ rejected = \"parse\" }}\n\n\
+             [[program]]\nid = \"five\"\ntext = \"2 + 3\"\nexpect = {{ rejected = \"parse\" }}\n"
+        ),
+    );
+    let patterns = dir.join("PATTERNS-rejected.toml");
+    write(
+        &patterns,
+        "[[pattern]]\nid = \"five\"\npattern = \"<k> 5 </k>\"\n",
+    );
+    let (document, status) = full(&manifest, &patterns);
+    assert_eq!(status, EXIT_YES, "{document:#}");
+    assert_eq!(document["version"], 16);
+    let asked = document["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["program"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(asked, ["add", "nested", "sub", "inline"], "{document:#}");
+    let obligation = &document["obligations"][0];
+    assert_eq!(obligation["status"], "open", "{obligation:#}");
+    assert_eq!(obligation["unanswered"], json!([]), "{obligation:#}");
+    let classes = document["programs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| (row["id"].as_str().unwrap(), row["class"].as_str().unwrap()))
+        .collect::<Vec<_>>();
+    assert_eq!(&classes[4..], [("bad", "rejected"), ("five", "accepted")]);
+    let (lazy, status) = plain(&manifest, &patterns);
+    assert_eq!(status, EXIT_YES, "{lazy:#}");
+    assert_eq!(lazy["obligations"][0]["status"], "open", "{lazy:#}");
+
+    write(
+        &patterns,
+        "[[pattern]]\nid = \"five\"\npattern = \"<k> 5 </k>\"\nprograms = [\"add\", \"five\"]\n",
+    );
+    let (document, status) = plain(&manifest, &patterns);
+    assert_eq!(status, EXIT_UNASKED, "{document:#}");
+    assert_eq!(document["pattern_list"]["outcome"], "refused");
+    let detail = document["pattern_list"]["detail"].as_str().unwrap();
+    assert!(
+        detail.starts_with(
+            "pattern \"five\".programs[1]: the program \"five\" states that it is rejected \
+             before it runs"
+        ),
+        "{detail}"
+    );
+}
+
 /// A `steps` of one step is its `pattern`, answered as the pattern is, by the corpus's
 /// route under its digest; a chain beside it is answered by the chain route.
 #[test]
@@ -428,7 +491,7 @@ fn a_chain_is_answered_along_the_paths_of_a_run() {
     let patterns = dir.join("PATTERNS.toml");
     let (document, status) = plain(&manifest, &patterns);
     assert_eq!(status, EXIT_YES, "{document:#}");
-    assert_eq!(document["version"], 15);
+    assert_eq!(document["version"], 16);
     assert_eq!(
         answers(&document),
         expect(&[
@@ -858,7 +921,7 @@ fn a_chain_run_is_bounded_by_its_work_budget() {
     let (manifest, patterns) = (dir.join("FLOW.toml"), dir.join("PATTERNS.toml"));
     let (document, status) = plain(&manifest, &patterns);
     assert_eq!(status, EXIT_UNANSWERED, "{document:#}");
-    assert_eq!(document["version"], 15);
+    assert_eq!(document["version"], 16);
     let polls = document["programs"][0]["polls"]
         .as_u64()
         .or_else(|| read_json(&result_record(&dir, &document, "fan"))["polls"].as_u64())
@@ -1478,7 +1541,7 @@ fn a_stopped_no_needs_every_count_of_undecided_solver_answers_zero() {
         &dir.join("PATTERNS.toml"),
         cache("stop"),
     );
-    assert_eq!(document["version"], 15, "{document:#}");
+    assert_eq!(document["version"], 16, "{document:#}");
     assert_eq!(
         document["stop"],
         json!({"before": [], "after": ["UNDECIDED.step"], "count": 1}),
@@ -1993,7 +2056,7 @@ fn the_first_query_records_one_witness_per_pattern() {
     let dir = fixture("witness", "witness-first");
     let (document, status) = locked_query(&dir, false, false);
     assert_eq!(status, EXIT_YES, "{document:#}");
-    assert_eq!(document["version"], 15);
+    assert_eq!(document["version"], 16);
     let first = owed(&[
         ("above-five", "hit", Some("B")),
         ("result-hundred", "open", None),
@@ -2260,7 +2323,7 @@ fn a_refuted_claim_is_explained_by_the_parts_of_its_pattern() {
     let dir = fixture("explain", "explain-claims");
     let (document, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
     assert_eq!(status, REFUTED_STATUS, "{document:#}");
-    assert_eq!(document["version"], 15);
+    assert_eq!(document["version"], 16);
     let conjunct = "requires conjunct 1: C:Int <=Int size ( L:List )";
 
     let one = explained(&document, "request-during-write", "boot");
@@ -2966,7 +3029,7 @@ programs = ["add"]
         );
         let (document, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
         assert_eq!(status, EXIT_YES, "{document:#}");
-        assert_eq!(document["version"], 15);
+        assert_eq!(document["version"], 16);
         let hit = row(&document, "filled", "twelve");
         assert_eq!(hit["answer"], "hit", "{hit:#}");
         let witness = &hit["witness"];
@@ -3116,7 +3179,7 @@ programs = ["add"]
         let (document, status) = plain(&dir.join("FLOW.toml"), &patterns);
         assert_eq!(status, REFUTED_STATUS, "{document:#}");
         assert_eq!(document["schema"], "kink-flow-query");
-        assert_eq!(document["version"], 15);
+        assert_eq!(document["version"], 16);
         // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
         // identity, not the version alone.
         assert_eq!(document["k_rust_revision"], k_rust::build_identity());

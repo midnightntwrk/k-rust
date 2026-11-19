@@ -250,7 +250,7 @@ fn the_report_keeps_claims_unknowns_and_one_of_two_alternatives() {
     );
     assert_eq!(document["unanswered"]["complete"], true);
     assert_eq!(document["schema"], "kink-flow-prune");
-    assert_eq!(document["version"], 4);
+    assert_eq!(document["version"], 5);
     assert_eq!(document["cases"], 6);
     let redundant = document["redundant"]
         .as_array()
@@ -310,6 +310,55 @@ fn the_report_keeps_claims_unknowns_and_one_of_two_alternatives() {
     // Read-only: no lock, and the run's report is not stored.
     assert!(!dir.join(LOCK_FILE).exists());
     assert!(!dir.join(CACHE_DIRECTORY).join(REPORT_FILE).exists());
+}
+
+/// A case whose entry states that it must be rejected before it runs (PJ-32) is never prunable,
+/// whether admission meets the statement (`bad`, `+ +` does not parse) or not (`stated`, `9 - 9`
+/// parses, a finding coverage exits 1 for, which prune does not refuse): no command runs it or
+/// asks it of a mutant or a pattern, so it discharges nothing prune reads, and what it is in the
+/// corpus for prune does not read. The other cases' decisions are the corpus's without them.
+#[test]
+fn a_case_rejected_before_it_runs_is_never_prunable() {
+    let manifest = format!(
+        "{MANIFEST}\n[[program]]\nid = \"bad\"\ntext = \"+ +\"\nexpect = {{ rejected = \"parse\" }}\n\n\
+         [[program]]\nid = \"stated\"\ntext = \"9 - 9\"\nexpect = {{ rejected = \"parse\" }}\n"
+    );
+    let dir = corpus_of("rejected", &manifest, PATTERNS);
+    let (document, status) = prune(&dir, every_file(&dir), &["--full"]);
+    assert_eq!(status, EXIT_YES, "{document:#}");
+    assert_eq!(document["cases"], 8);
+    let redundant = document["redundant"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| entry["case"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(redundant, ["a1", "a2", "s2"]);
+    assert_eq!(ids(&document["removable"]["cases"]), ["a2", "s2"]);
+    assert_eq!(
+        entry(&document["kept"], "bad")["reasons"],
+        json!([{"reason": "rejected-before-run", "class": "rejected"}]),
+        "{document:#}"
+    );
+    assert_eq!(
+        entry(&document["kept"], "stated")["reasons"],
+        json!([
+            {"reason": "rejected-before-run", "class": "accepted"},
+            {"reason": "refutes", "family": "expectations", "id": "stated"},
+        ]),
+        "{document:#}"
+    );
+    // No cell of either was asked: the unknown cells and the matrices are the corpus's.
+    assert_eq!(document["unanswered"]["cells"], 2);
+    let cells = &document["accounting"]["cells"];
+    assert_eq!(
+        (&cells["mutations"]["matrix"], &cells["patterns"]["matrix"]),
+        (&json!(24), &json!(12)),
+        "{cells:#}"
+    );
+    let (lazy, status) = prune(&dir, every_file(&dir), &[]);
+    assert_eq!(status, EXIT_YES, "{lazy:#}");
+    assert_eq!(decisions(&lazy), decisions(&document));
 }
 
 /// A removable case that the corpus record names as a killer is flagged with the rows its
