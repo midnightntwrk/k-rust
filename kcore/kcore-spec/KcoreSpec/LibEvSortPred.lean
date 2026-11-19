@@ -13,9 +13,13 @@
   value, which is the `Val` the sentence asks for.
   - `LibEv.predFunReg`: the sorts of the sentence's variables are the registry's, each is free in
     the sentence and in its table, and none is named `Val` (decided on a text).
-  - `LibEv.sortPredFun_evC`: the sentence `funPat c fn.sig` of a sort predicate `fn`, over the one
-    sort variable `R`, translated, holds in every model of `Γc c` at every valuation sending its
-    free element variables to values.
+  - `LibEv.predFunRegS`: the same with the sorts any sort of the semantics.
+  - `LibEv.fnFun_evC`: the sentence `funPat c fn.sig` of a function `fn` with a value at every
+    argument list of its sorts, over the one sort variable `R`, translated, holds in every model of
+    `Γc c` at every valuation sending its free element variables to values.
+  - `LibEv.sortPredFun_evC`: the same for a sort predicate, from its evaluation's values.
+  - `LibEv.fnFun_evC_withHooks`: the same for a function of the text declared total, under an
+    interpretation of the hooks where `FnHyp` holds, which gives it those values.
   A model of `Γc ∪ Γstep` is one of `Γc`, so the sentence holds at values there too.
 -/
 import KcoreSpec.LibEvFun
@@ -46,16 +50,81 @@ def predFunReg (c : Semantics) (k : CtorSig) : Bool :=
   (funVars k).all (fun p => (KoreAML.freeOf [] (funPat c k)).contains (.evar p.1 (srtOf c p.2)) &&
     (KoreAML.tableOf [KoreAML.Rv] (funPat c k)).contains (.evar p.1 (srtOf c p.2)) && p.1 != "Val")
 
-/-- **The `functional` sentence of a sort predicate holds at values in every model of `Γc`.** For
-a semantics meeting `coreOK`, whose clauses' predicates are `\top`, whose functions bind no
-variable by `\exists`, and whose clauses' conditions are decided where `needsWitness` holds: the
-translation of an axiom declaration whose pattern is `funPat c fn.sig` for a sort predicate `fn`,
-over the one sort variable `R`, holds in every model of `Γc c` at every valuation that sends the
-axiom's free element variables to values. -/
-theorem sortPredFun_evC {c : Semantics} (h : c.coreOK = true) (hpreTop : c.clausesPreTop = true)
+/-- `predFunReg` with the sorts of the sentence's variables and of its result any sort of `c`
+(registry or the text's), in place of the registry's. -/
+def predFunRegS (c : Semantics) (k : CtorSig) : Bool :=
+  decide (k.result < nRegSorts + c.sortNames.length) &&
+  (funVars k).all (fun p => decide (p.2 < nRegSorts + c.sortNames.length)) &&
+  (funVars k).all (fun p => (KoreAML.freeOf [] (funPat c k)).contains (.evar p.1 (srtOf c p.2)) &&
+    (KoreAML.tableOf [KoreAML.Rv] (funPat c k)).contains (.evar p.1 (srtOf c p.2)) && p.1 != "Val")
+
+theorem predFunRegS_of_reg {c : Semantics} {k : CtorSig} (h : predFunReg c k = true) :
+    predFunRegS c k = true := by
+  have hnum : ∀ {s : Srt}, s < nRegSorts → s < nRegSorts + c.sortNames.length :=
+    fun hs => Nat.lt_of_lt_of_le hs (Nat.le_add_right _ _)
+  simp only [predFunReg, predFunRegS, Bool.and_eq_true, decide_eq_true_eq, List.all_eq_true] at h ⊢
+  exact ⟨⟨hnum h.1.1, fun p hp => hnum (h.1.2 p hp)⟩, h.2⟩
+
+/-- **`subst_of_atValues` for variables of any sorts of `c`**: a valuation that sends the free
+element variables of `a` to values gives a substitution with a value of its sort for each variable,
+whose element is the valuation's at the variable. -/
+theorem subst_of_atValuesS {c : Semantics} (h : c.coreOK = true) {M : Type} [Inhabited M]
+    {I : Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP Γ c) {e : Valuation M} {a : Kore.Axiom}
+    (hat : AtValues c I e a) (vars : Vars) (hvS : ∀ p ∈ vars, p.2 < nRegSorts + c.sortNames.length)
+    (hfv : ∀ i, i < vars.length → vkey c vars i ∈ KoreAML.freeOf [] a.pattern) :
+    ∃ σ : Subst, (∀ i p, vars[i]? = some p → ∃ v, σ.lookup i = some v ∧ c.sortOf v = some p.2) ∧
+      ∀ i v, i < vars.length → σ.lookup i = some v → c.sortOf v = some (vars.getD i ("", 0)).2 ∧
+        elemOf c I v = e.evalEvar ((KoreAML.tableOf a.sortVars a.pattern).ev (vkey c vars i)) := by
+  haveI : OvlOK c := ovlOK_of_core h
+  obtain ⟨-, hfa, -, -, -⟩ := Semantics.coreOK_parts h
+  obtain ⟨-, hg, -, -, -, hn, -, hsn, -, -, -, -⟩ := faithCoreOK_parts hfa
+  unfold AtValues at hat
+  generalize KoreAML.tableOf a.sortVars a.pattern = t at hat ⊢
+  have hval : ∀ i, i < vars.length → ∃ v, c.sortOf v = some (vars.getD i ("", 0)).2 ∧
+      elemOf c I v = e.evalEvar (t.ev (vkey c vars i)) := by
+    intro i hi
+    obtain ⟨v, S, hS, hv, hden⟩ := hat _ _ (List.mem_eraseDups.mpr (hfv i hi))
+    have hp2 : (vars.getD i ("", 0)).2 < nRegSorts + c.sortNames.length := by
+      rw [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hi]
+      exact hvS _ (List.getElem_mem hi)
+    have hSe : S = (vars.getD i ("", 0)).2 :=
+      sort_eq_of_name hn (sortOf_numbered_ofCl hg hsn (Semantics.coreOK_ovls h) hv) hp2 (srt_inj hS)
+    subst hSe
+    exact ⟨v, hv, (((elemOf_spec hI hv e).1 _).mp hden).symm⟩
+  let σ : Subst := (List.range vars.length).map fun i =>
+    (i, pick c I (vars.getD i ("", 0)).2 (e.evalEvar (t.ev (vkey c vars i))))
+  have hlk : ∀ i, σ.lookup i = if i < vars.length then
+      some (pick c I (vars.getD i ("", 0)).2 (e.evalEvar (t.ev (vkey c vars i)))) else none := by
+    intro i
+    show ((List.range vars.length).map _).lookup i = _
+    rw [List.range_eq_range', lookup_range']
+    simp
+  refine ⟨σ, fun i p hp' => ?_, fun i v hi hv => ?_⟩
+  · have hi : i < vars.length := (List.getElem?_eq_some_iff.mp hp').1
+    have hgd' : vars.getD i ("", 0) = p := by rw [List.getD_eq_getElem?_getD, hp']; rfl
+    refine ⟨pick c I (vars.getD i ("", 0)).2 (e.evalEvar (t.ev (vkey c vars i))), ?_, ?_⟩
+    · rw [hlk]; simp only [hi, ite_true]
+    · rw [← hgd']
+      exact (pick_spec (hval i hi)).1
+  · rw [hlk] at hv
+    simp only [hi, ite_true] at hv
+    cases hv
+    exact pick_spec (hval i hi)
+
+/-- **The `functional` sentence of a function with a value at every argument list of its sorts
+holds at values in every model of `Γc`.** For a semantics meeting `coreOK`, whose clauses'
+predicates are `\top`, whose functions bind no variable by `\exists`, and whose clauses'
+conditions are decided where `needsWitness` holds: for a function `fn` of the semantics (a user's
+or a sort predicate) whose evaluation has a value at every argument list of its argument sorts,
+the translation of an axiom declaration whose pattern is `funPat c fn.sig`, over the one sort
+variable `R`, holds in every model of `Γc c` at every valuation that sends the axiom's free element
+variables to values. -/
+theorem fnFun_evC {c : Semantics} (h : c.coreOK = true) (hpreTop : c.clausesPreTop = true)
     (hnoEx : c.FnsNoExs)
     (hw : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c)
-    {fn : Fn} (hfn : fn ∈ c.sortPreds) (hr : predFunReg c fn.sig = true) (ad : KoreAML.AxiomDecl)
+    {fn : Fn} (hfn : fn ∈ c.allFns)
+    (htot : ∀ vs, c.sortsOf vs = some fn.args → ∃ v, Eval c fn.label vs (some v))
+    (hr : predFunRegS c fn.sig = true) (ad : KoreAML.AxiomDecl)
     (hp : ad.ax.pattern = funPat c fn.sig) (hsv : ad.ax.sortVars = [KoreAML.Rv]) :
     EntailsAtValuesΓc c ad (KoreAML.trAxiom [] [] ad).pat := by
   intro M _ I hIc e hat m
@@ -68,20 +137,18 @@ theorem sortPredFun_evC {c : Semantics} (h : c.coreOK = true) (hpreTop : c.claus
   have hfa : c.faithCoreOK = true := (Semantics.coreOK_parts h).2.1
   have hsc : SortCtx c := sortCtx_of_allCl hokCl hsr (OvlOK.ovlCase hov)
   have hcN : EvalCtxN c := evalCtxN_of_all hpreTop hnoEx hok hsr (OvlOK.ovlCase hov)
-  have hlook : c.lookupFn fn.label = some fn := lookupFn_of_memN hcN (List.mem_append_right _ hfn)
+  have hlook : c.lookupFn fn.label = some fn := lookupFn_of_memN hcN hfn
   generalize hk : fn.sig = k at hr hp
   have hkn : k.name = fn.label := by rw [← hk]; rfl
   have hka : k.args = fn.args := by rw [← hk]; rfl
   have hkr : k.result = fn.result := by rw [← hk]; rfl
   have hr' := hr
-  simp only [predFunReg, Bool.and_eq_true, decide_eq_true_eq, List.all_eq_true, bne_iff_ne, ne_eq] at hr'
+  simp only [predFunRegS, Bool.and_eq_true, decide_eq_true_eq, List.all_eq_true, bne_iff_ne, ne_eq] at hr'
   obtain ⟨⟨hsR, hvR⟩, hvars⟩ := hr'
-  have hnum : ∀ {s : Srt}, s < nRegSorts → s < nRegSorts + c.sortNames.length :=
-    fun hs => Nat.lt_of_lt_of_le hs (Nat.le_add_right _ _)
   have hmemv : ∀ i, i < (funVars k).length → (funVars k).getD i ("", 0) ∈ funVars k := fun i hi => by
     rw [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hi]
     exact List.getElem_mem hi
-  obtain ⟨σ, hσ, hel⟩ := subst_of_atValues h hI hat (funVars k) hvR (fun i hi => by
+  obtain ⟨σ, hσ, hel⟩ := subst_of_atValuesS h hI hat (funVars k) hvR (fun i hi => by
     rw [hp]
     exact List.mem_of_elem_eq_true (hvars _ (hmemv i hi)).1.1)
   unfold KoreAML.trAxiom
@@ -124,8 +191,8 @@ theorem sortPredFun_evC {c : Semantics} (h : c.coreOK = true) (hpreTop : c.claus
     rw [(elemOf_spec hI h1 (ex x)).1 m', h2, hexK x i hi]
   have hDA := fun x => (den_vals (tbl := t) (e := ex x) h hI hσ (hag x) (argVars 0 k.args.length) hsrts).1 ws hws
   have hwss : c.sortsOf ws = some fn.args := hka ▸ (hDA default).1
-  -- the sort predicate's value at the arguments, and the model's reading of its application
-  obtain ⟨v, hev⟩ := sortPreds_totalN hcN hfn fn hlook ws hwss
+  -- the function's value at the arguments, and the model's reading of its application
+  obtain ⟨v, hev⟩ := htot ws hwss
   have hvs : c.sortOf v = some k.result := hkr ▸ Eval.sorted hsc hev hlook hwss rfl
   have hDV : ∀ x b, (KoreAML.tr ⟨t, []⟩ (kore c (funVars k) (funTerm k))).interpret I (ex x) b ↔
       (den c v).interpret I (ex x) b := fun x b => by
@@ -136,7 +203,7 @@ theorem sortPredFun_evC {c : Semantics} (h : c.coreOK = true) (hpreTop : c.claus
     unfold funTerm
     rw [kore, tr_symApp, hkn, (hDA x).2 _ _ (fun _ => Iff.rfl) b]
     exact hden
-  obtain ⟨τ, hτsort, hτ⟩ := srt_den hI (hnum hsR)
+  obtain ⟨τ, hτsort, hτ⟩ := srt_den hI hsR
   have hRv : ∀ x b, (KoreAML.trSort t KoreAML.R).interpret I (ex x) b ↔ b = e.evalEvar (t.ev (.sortVar "R")) :=
     fun x b => by rw [trSort_R, KoreAML.interp_evar, hexR]
   have hRv0 : ∀ b, (KoreAML.trSort t KoreAML.R).interpret I e b ↔ b = e.evalEvar (t.ev (.sortVar "R")) :=
@@ -172,6 +239,27 @@ theorem sortPredFun_evC {c : Semantics} (h : c.coreOK = true) (hpreTop : c.claus
       rw [Function.update_same]
       exact ((elemOf_spec hI hvs _).1 b).symm
 
+/-- **The `functional` sentence of a sort predicate holds at values in every model of `Γc`.** For
+a semantics meeting `coreOK`, whose clauses' predicates are `\top`, whose functions bind no
+variable by `\exists`, and whose clauses' conditions are decided where `needsWitness` holds: the
+translation of an axiom declaration whose pattern is `funPat c fn.sig` for a sort predicate `fn`,
+over the one sort variable `R`, holds in every model of `Γc c` at every valuation that sends the
+axiom's free element variables to values. Evaluation gives a sort predicate a value at every K
+(`sortPreds_totalN`). -/
+theorem sortPredFun_evC {c : Semantics} (h : c.coreOK = true) (hpreTop : c.clausesPreTop = true)
+    (hnoEx : c.FnsNoExs)
+    (hw : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c)
+    {fn : Fn} (hfn : fn ∈ c.sortPreds) (hr : predFunReg c fn.sig = true) (ad : KoreAML.AxiomDecl)
+    (hp : ad.ax.pattern = funPat c fn.sig) (hsv : ad.ax.sortVars = [KoreAML.Rv]) :
+    EntailsAtValuesΓc c ad (KoreAML.trAxiom [] [] ad).pat := by
+  haveI hov : OvlOK c := ovlOK_of_core h
+  obtain ⟨hok, hsr, -, -, -, -, -, -, -⟩ := hypSound_of_core h
+  have hcN : EvalCtxN c := evalCtxN_of_all hpreTop hnoEx hok hsr (OvlOK.ovlCase hov)
+  have hmem : fn ∈ c.allFns := List.mem_append_right _ hfn
+  exact fnFun_evC h hpreTop hnoEx hw hmem
+    (fun vs hvs => sortPreds_totalN hcN hfn fn (lookupFn_of_memN hcN hmem) vs hvs) (predFunRegS_of_reg hr) ad hp
+    hsv
+
 /-! ## Under every interpretation of the hooks -/
 
 set_option linter.unusedVariables false in
@@ -198,6 +286,10 @@ theorem predFunReg_withHooksSP (c : Semantics) (H : HookParams) (k : CtorSig) :
     predFunReg (c.withHooks H) k = predFunReg c k := by
   unfold predFunReg; rw [funPat_withHooksSP]; rfl
 
+theorem predFunRegS_withHooksSP (c : Semantics) (H : HookParams) (k : CtorSig) :
+    predFunRegS (c.withHooks H) k = predFunRegS c k := by
+  unfold predFunRegS; rw [funPat_withHooksSP]; rfl
+
 /-- **`sortPredFun_evC` under every interpretation of the hooks**, from the facts of `c`: the sort
 predicates, their sentences and the conditions it reads do not read the interpretation. -/
 theorem sortPredFun_evC_withHooks {c : Semantics} (H : HookParams) (h : c.coreOK = true)
@@ -209,6 +301,19 @@ theorem sortPredFun_evC_withHooks {c : Semantics} (H : HookParams) (h : c.coreOK
     EntailsAtValuesΓc (c.withHooks H) ad (KoreAML.trAxiom [] [] ad).pat :=
   sortPredFun_evC (c := c.withHooks H) ((Semantics.coreOK_withHooks c H).trans h) hpreTop hnoEx hw hfn
     ((predFunReg_withHooksSP c H _).trans hr) ad (hp.trans (funPat_withHooksSP c H _).symm) hsv
+
+/-- **The `functional` sentence of a function of `c` declared total holds at values in every model
+of `Γc`, under every interpretation of the hooks where `FnHyp` holds**: `FnHyp` gives the function
+a value at every argument list of its sorts and decides the clauses' conditions where
+`needsWitness` holds, which `fnFun_evC` reads. -/
+theorem fnFun_evC_withHooks {c : Semantics} (H : HookParams) (h : c.coreOK = true)
+    (hpreTop : c.clausesPreTop = true) (hnoEx : c.FnsNoExs) (hf : FnHyp (c.withHooks H))
+    {fn : Fn} (hfn : fn ∈ c.fns) (ht : fn.total = true) (hr : predFunRegS c fn.sig = true)
+    (ad : KoreAML.AxiomDecl) (hp : ad.ax.pattern = funPat c fn.sig) (hsv : ad.ax.sortVars = [KoreAML.Rv]) :
+    EntailsAtValuesΓc (c.withHooks H) ad (KoreAML.trAxiom [] [] ad).pat :=
+  fnFun_evC (c := c.withHooks H) ((Semantics.coreOK_withHooks c H).trans h) hpreTop hnoEx hf.2.2.2.2.1.2
+    (List.mem_append_left (c.withHooks H).sortPreds hfn) (hf.2.1 fn hfn ht)
+    ((predFunRegS_withHooksSP c H _).trans hr) ad (hp.trans (funPat_withHooksSP c H _).symm) hsv
 
 end LibEv
 
