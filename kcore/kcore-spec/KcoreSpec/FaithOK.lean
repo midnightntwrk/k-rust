@@ -120,14 +120,15 @@ def elemArgs (k : CollSig) : List Srt :=
   | _ => [k.key]
 
 /-- The definition's collection `k` is the collection of its sort (`collOf`), and its unit,
-element and concatenation are parameter symbols, not named like a hook or like `ite` at a sort,
+element and concatenation are parameter symbols, not named like a hook or like an instance of a
+sort-parametric symbol (`instDecode?`),
 whose declarations (the first of their names) have the collection's sorts and are implemented by
 the library's symbols of its kind; a map collection has a value sort. Decidable on the data;
 `collOK` (which `wf` checks) says that such parameters are declared, this says that they are the
 ones the names denote. -/
 def collSymsOK (c : Semantics) (k : CollSig) : Bool :=
   decide (c.collOf k.sort = some k) &&
-  [k.unit, k.elem, k.concat].all (fun f => !isHook f && (iteSort? (c.symName f)).isNone) &&
+  [k.unit, k.elem, k.concat].all (fun f => !isHook f && (instDecode? (c.symName f)).isNone) &&
   decide (c.lookupParam k.unit = some { sig := ⟨k.unit, [], k.sort⟩, impl := some (builtinColl k.kind).unit }) &&
   decide (c.lookupParam k.elem = some { sig := ⟨k.elem, elemArgs k, k.sort⟩, impl := some (builtinColl k.kind).elem }) &&
   decide (c.lookupParam k.concat =
@@ -160,11 +161,12 @@ def patHeadsOK (c : Semantics) : Bool :=
   c.patCtxAll.heads.all fun k => c.isCtor k.name || downHead c k.name
 
 /-- The names and sort numbers of the functions are well formed: no constructor, and no symbol that
-an overloading symbol overloads, is named like `ite` at a sort (`iteSort?`), and every sort of a
-function is a numbered sort. `NamesNumbered` (Faithful.lean), decided. -/
+an overloading symbol overloads, is named like an instance of a sort-parametric symbol
+(`instDecode?`: a value and an overload's equation write such a symbol under its name), and every
+sort of a function is a numbered sort. `NamesNumbered` (Faithful.lean) follows from it. -/
 def namesNumbered (c : Semantics) : Bool :=
-  c.ctorSigs.all (fun k => (iteSort? (c.symName k.name)).isNone) &&
-  c.ovls.all (fun o => o.over.all fun g => (iteSort? (c.symName g)).isNone) &&
+  c.ctorSigs.all (fun k => (instDecode? (c.symName k.name)).isNone) &&
+  c.ovls.all (fun o => o.over.all fun g => (instDecode? (c.symName g)).isNone) &&
   c.allFns.all fun fn => (fn.result :: fn.args).all fun s => decide (s < nRegSorts + c.sortNames.length)
 
 namespace Model
@@ -202,19 +204,68 @@ value is meant. `patHooksApart` says this of the library map's symbols only. -/
 def collsNotCtors (c : Semantics) : Bool :=
   c.allColls.all fun k => [k.unit, k.elem, k.concat].all fun f => !c.isCtor f
 
-/-- Every symbol with a signature named like `ite` at a sort (`iteSort?`) is named at a numbered
-sort, and no two are named at one sort: `Lblite` applied to a sort reads the first such symbol
-(`resolve`), and `Γ` says of each of them what the head `Lblite` applied to its sort does
-(`symArityItem`, the graphs of `ΓDomains`), so a sort name that names no sort would leave a
-parameter's graph without an element. `iteSort?` drops the last character of the name, so
-`namesApartK` does not give the second part. -/
+/-- Every symbol with a signature whose name the decoder reads as an instance `h{x₁,…,xₙ}` of a
+sort-parametric symbol `h` (`instDecode?`) is named at numbered sorts, all such symbols of one head
+are named at one number of sorts, and no such head is `inj`. The interpretation reads the head `h`
+applied to sort arguments as the instance named at those sorts (`resolve`, for `Lblite` at one
+sort, which `Γ` writes so: `symArityItem`, the graphs of `ΓDomains`), so a sort name that names no
+sort would leave the instance's graph without an element; a head at two numbers of sorts would make
+`h` applied to its first sorts both a result and a partial application; and `inj` is the head of
+the injections. Two instance-named symbols with one decoding are one symbol, by `namesApartK` and
+the decoder's exactness (`instsApart`). -/
 def itesApart (c : Semantics) : Bool :=
   (kernelSyms c).all fun k =>
-    (match iteSort? (c.symName k.name) with
-      | some X => (kernelSorts c).any fun s => c.sortName s == X
+    (match instDecode? (c.symName k.name) with
+      | some (_, xs) => xs.all fun x => (kernelSorts c).any fun s => c.sortName s == x
       | none => true) &&
-    (kernelSyms c).all fun k' =>
-      (iteSort? (c.symName k.name)).isNone || iteSort? (c.symName k.name) != iteSort? (c.symName k'.name) || k == k'
+    (match instDecode? (c.symName k.name) with
+      | some (h, xs) => (kernelSyms c).all fun k' =>
+          match instDecode? (c.symName k'.name) with
+          | some (h', xs') => h' != h || xs'.length == xs.length
+          | none => true
+      | none => true) &&
+    (match instDecode? (c.symName k.name) with
+      | some (h, _) => h != "inj"
+      | none => true)
+
+/-- What `itesApart` says of an instance-named symbol of `kernelSyms`: its sort names name
+numbered sorts, every symbol of `kernelSyms` named at the same head has as many sorts, and the
+head is not `inj`. -/
+theorem itesApart_inst {c : Semantics} (h : itesApart c = true) {k : CtorSig} (hk : k ∈ kernelSyms c)
+    {hd : String} {xs : List String} (hi : instDecode? (c.symName k.name) = some (hd, xs)) :
+    (∀ x ∈ xs, ∃ s ∈ kernelSorts c, c.sortName s = x) ∧
+    (∀ k' ∈ kernelSyms c, ∀ xs' : List String, instDecode? (c.symName k'.name) = some (hd, xs') →
+      xs'.length = xs.length) ∧
+    hd ≠ "inj" := by
+  have h1 := List.all_eq_true.mp h k hk
+  simp only [hi, Bool.and_eq_true, List.all_eq_true, List.any_eq_true, beq_iff_eq, bne_iff_ne,
+    ne_eq] at h1
+  obtain ⟨⟨h1, h2⟩, h3⟩ := h1
+  refine ⟨h1, fun k' hk' xs' hi' => ?_, h3⟩
+  have := h2 k' hk'
+  simp only [hi', bne_self_eq_false, Bool.false_or, beq_iff_eq] at this
+  exact this
+
+/-- **Two symbols of `kernelSyms` with one decoding are one symbol**: their names are one name
+(`instDecode?_inj`), and `namesApartK` names distinct symbols apart. -/
+theorem instsApart {c : Semantics} (hn : namesApartK c = true) {k k' : CtorSig} (hk : k ∈ kernelSyms c)
+    (hk' : k' ∈ kernelSyms c) {p : String × List String} (hi : instDecode? (c.symName k.name) = some p)
+    (hi' : instDecode? (c.symName k'.name) = some p) : k = k' := by
+  have he := instDecode?_inj hi hi'
+  simp only [namesApartK, Bool.and_eq_true, List.all_eq_true, Bool.or_eq_true, bne_iff_ne, ne_eq,
+    beq_iff_eq] at hn
+  exact (hn.1.1 k hk k' hk').resolve_left (fun hne => hne he)
+
+/-- A symbol of `kernelSyms` named like `ite` at a sort X is named at a numbered sort. -/
+theorem itesApart_iteSorted {c : Semantics} (h : itesApart c = true) {k : CtorSig} (hk : k ∈ kernelSyms c)
+    {X : String} (hi : iteSort? (c.symName k.name) = some X) : ∃ s ∈ kernelSorts c, c.sortName s = X :=
+  (itesApart_inst h hk (iteSort?_eq_some.1 hi)).1 X (List.mem_singleton_self X)
+
+/-- No two symbols of `kernelSyms` are named like `ite` at one sort. -/
+theorem itesOnce_of_namesApartK {c : Semantics} (hn : namesApartK c = true) {k k' : CtorSig}
+    (hk : k ∈ kernelSyms c) (hk' : k' ∈ kernelSyms c) {X : String} (hi : iteSort? (c.symName k.name) = some X)
+    (hi' : iteSort? (c.symName k'.name) = some X) : k = k' :=
+  instsApart hn hk hk' (iteSort?_eq_some.1 hi) (iteSort?_eq_some.1 hi')
 
 /-- The interpreted hooks and the parameters are not constructors, and no parameter is an
 interpreted hook: the interpretation reads a constructor first, then a hook, then a parameter, so
@@ -573,8 +624,8 @@ def ovlCoherent (k1 k2 : CtorSig) : Bool :=
       ((h.args.zip k1.args).zip k2.args).all fun ((H, A1), A2) => (lower A1 A2).all fun C => c.le C H
 
 /-- **The overloading symbols are well formed**: each is an overloading symbol of no other kind
-(`isOvl`) declared once, named plainly (not like `ite` at a sort, so its applications in patterns and
-right-hand sides are written as its values are), of a constructor sort; each symbol it overloads is a constructor, an
+(`isOvl`) declared once, named plainly (not like an instance of a sort-parametric symbol,
+`instDecode?`, so its applications in patterns and right-hand sides are written as its values are), of a constructor sort; each symbol it overloads is a constructor, an
 overloading symbol listed before it (so the overloads are acyclic and `norm`'s steps suffice) or a
 function of the definition, of its arity, with argument and result sorts at most its own
 (`ovlPairOK`); any two overloads of one symbol agree (`ovlCoherent`); it lists every function among
@@ -583,7 +634,7 @@ function are those listing one; and no pattern applies a function-overloaded sym
 Decidable on the data. -/
 def overloadsOK : Bool :=
   (c.ovls.zipIdx.all fun (o, i) =>
-    c.isOvl o.sig.name && c.lookupOvl o.sig.name == some o && (iteSort? (c.symName o.sig.name)).isNone &&
+    c.isOvl o.sig.name && c.lookupOvl o.sig.name == some o && (instDecode? (c.symName o.sig.name)).isNone &&
     (Faithful.consSorts c).contains o.sig.result &&
     o.over.all (fun g => (lookupSig c.ctorSigs g).isSome || (c.ovls.take i).any (·.sig.name == g) ||
       c.fns.any (·.label == g)) &&

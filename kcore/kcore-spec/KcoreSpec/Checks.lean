@@ -18,9 +18,8 @@
      (`complete`), and their forms over a semantics (`hypModel_of_core`, `sound_hyp`,
      `complete_hyp`, `sound_core`, `complete_core`) rest on Lean's three axioms only, and so do the
      derivation of `collsNotCtors` (`collsNotCtors_of`) and the failures of soundness without
-     `kindsApart`, `itesApart` or `sortsNumbered` (`KindsWitness.not_sound`,
-     `ItesWitness.not_sound`, `SortsWitness.not_sound`) and with an overloading symbol listed
-     twice (`OvlTwiceWitness.not_sound`).
+     `kindsApart` or `sortsNumbered` (`KindsWitness.not_sound`, `SortsWitness.not_sound`) and
+     with an overloading symbol listed twice (`OvlTwiceWitness.not_sound`).
 -/
 import KcoreSpec.Statements
 import KcoreSpec.Sound
@@ -240,10 +239,6 @@ def sortNamed (d : Definition) (n : String) : Srt := nRegSorts + d.sem.sortNames
 /-- info: 'KCore.Faithful.KindsWitness.not_sound' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in
 #print axioms Faithful.KindsWitness.not_sound
-
-/-- info: 'KCore.Faithful.ItesWitness.not_sound' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in
-#print axioms Faithful.ItesWitness.not_sound
 
 /-- info: 'KCore.Faithful.OvlTwiceWitness.not_sound' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in

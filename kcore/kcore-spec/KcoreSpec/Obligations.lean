@@ -113,7 +113,7 @@ theorem Semantics.raw_of_paramsPlain {c : Semantics} (h : c.paramsPlain = true) 
   simp only [hr, ↓reduceIte, Bool.and_eq_true, Option.isNone_iff_eq_none, Bool.not_eq_true',
     Bool.or_eq_true, decide_eq_true_eq, beq_iff_eq] at hp
   obtain ⟨⟨⟨⟨h1, h3⟩, h4⟩, h5⟩, h6⟩ := hp
-  refine ⟨h1, fun hl => ?_, h4, h5, h6⟩
+  refine ⟨h1, fun hl => ?_, h4, iteSort?_none_of_instDecode h5, h6⟩
   rcases h3 with h3 | h3
   · rw [hl] at h3; cases h3
   · exact h3

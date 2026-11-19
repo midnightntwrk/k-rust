@@ -12,6 +12,7 @@
   with no guard: `g(x) ≠ h(y)`. At x = y = the element of `0`, `g(x) = f(x) = h(x)`. With `f`
   overloading `g` alone, `coreOK` holds (`c0_coreOK`). The decidable facts are kernel decisions.
 -/
+import KcoreSpec.CoreDecide
 import KcoreSpec.Sound
 import KcoreSpec.ModelOvlLibCtorWitness
 
@@ -51,7 +52,8 @@ def c : Semantics :=
 /-- With `f` overloading `g` alone `coreOK` holds. -/
 def c0 : Semantics := { c with ovls := [⟨fSig, [gSig.name]⟩] }
 
-theorem c0_coreOK : c0.coreOK = true := by decide +kernel
+set_option maxHeartbeats 4000000 in
+theorem c0_coreOK : c0.coreOK = true := by decide_coreOK
 
 theorem sortedOK : c.sortedOK = true := by decide +kernel
 
@@ -66,7 +68,7 @@ set_option maxHeartbeats 1000000 in
 theorem meets_others : c.sortedOK = true ∧ c.faithCoreOK = true ∧ c.hooksApart = true ∧
     c.predsApart = true ∧ c.idsOK = true ∧ ov1 c = true ∧ ov2 c = true ∧ ov3 c = true ∧ ov4 c = true ∧
     ov5 c = true ∧ ov6 c = true ∧ ov7 c = true ∧ FnHyp c :=
-  ⟨sortedOK, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
+  ⟨sortedOK, by decide_faithCoreOK, by decide +kernel, by decide +kernel, by decide +kernel,
     by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
     by decide +kernel, by decide +kernel, fnHyp⟩
 
