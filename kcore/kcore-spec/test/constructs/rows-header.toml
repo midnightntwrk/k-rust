@@ -299,21 +299,35 @@
 # The rule for a sentence of the text that the reader does not put in Γ (decision owed-sentence,
 # findings/work/review-no-fable-window.md section 15 items 1 to 5; DONE-0 C2, C6, C8, C14):
 #   1. it is owed: entailed by Γ (the inert lemma classes, C14 direction entailed or at values; for a
-#      lemma of a user's file that applies no parameter symbol without impl, the classes user lemma,
-#      direction entailed, and user lemma at values, direction at values) or a
-#      hypothesis on the definition (FnHyp for a functional sentence, FnLaws for a function's law,
-#      and, for a lemma that applies a parameter symbol without impl (class parameter lemma), one H
-#      that meets FnHyp and at which each sentence of the class holds at values,
-#      EntailsAtValues (c.withHooks H) s (tr s), Γ giving a parameter's graph at values only;
-#      direction hypothesis);
+#      lemma of a user's file whose truth reads no value the interpretation gives, the classes user
+#      lemma, direction entailed, and user lemma at values, direction at values) or a hypothesis on
+#      the definition (FnHyp for a functional sentence, FnLaws for a function's law, and, for a lemma
+#      whose truth at values reads a value H gives (class parameter lemma: it applies a parameter
+#      symbol without impl, or a function of Γ at arguments none of its clauses decides, where Γ
+#      states the function's rest from H, or a hook at a point its text leaves open, where Γ states
+#      H's value), one H that meets FnHyp and at which each sentence of the class holds at values,
+#      EntailsAtValues (c.withHooks H) s (tr s), Γ giving a parameter's graph and a function's rest
+#      at values only; direction hypothesis);
 #   2. the reader neither claims it true nor refuses it for being false (in general it can decide
 #      neither); the account's word for it is "owed";
-#   3. a user's sentence that applies no symbol whose value H gives is proved for every H, at every
+#   3. a user's sentence whose truth reads no value H gives is proved for every H, at every
 #      valuation (class user lemma) or, where it rests on an interpreted symbol's graph, at the
 #      valuations sending its variables to values (class user lemma at values), or Γ with it has no
-#      model and the text is not tied; one that applies a parameter without impl is a
-#      hypothesis on H (class parameter lemma), and the tie shows an H at which the text's hypotheses
-#      hold. Only trusted base (4)'s refuted library sentences are recorded instead of failing;
+#      model for every H and the text is not tied; one whose truth at values reads a value H gives
+#      is a hypothesis on H (class parameter lemma), and the tie shows one H at which the text's
+#      hypotheses hold together. A sentence that applies a parameter without impl is classed so by
+#      that shape. Whether a sentence reads a function's rest or a hook's open point no shape of it
+#      decides (it depends on where the clauses and the hook's text decide): the tie's author names
+#      it (tiegen --reads-h), the tie decides that it applies a symbol through which evaluation may
+#      read H (appliesHRead), and the witness H is the class's proof; without the name it is classed
+#      user lemma, whose proof fails where its truth does read H. appliesHRead is necessary for that,
+#      not sufficient: sentence 205 of fixture e2-cool-eq, f(f(X)) => f(X), applies f, whose rest
+#      its account reports read, and is a user lemma proved for every H
+#      (KCore.CoolEq205.userlemma_entailed). A sentence that some H meet and others refute is of
+#      this class; one that no H meets is refuted. That the text has no model is said only where the
+#      refutation is proved: a for-every-H proof that fails or is not found shows neither "no model"
+#      nor "not a hypothesis". Only trusted base (4)'s refuted library sentences are recorded
+#      instead of failing;
 #   4. a row's status is shown on a fixture where the owed sentence holds; a fixture where it fails is
 #      a test of the check (DONE-0 C8), named so (note, reader_tests), never the row's evidence and
 #      never a reason for not-handled;
