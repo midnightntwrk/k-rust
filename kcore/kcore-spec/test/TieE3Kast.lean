@@ -883,8 +883,8 @@ theorem s166_pattern : U.ax216.ax.pattern = .implies KoreAML.R (.top KoreAML.R)
 theorem s166_free : (U.ax216.ax.sortVars.map sortVarKey ++ freeOf [] U.ax216.ax.pattern).eraseDups = [.sortVar "R", kI] := by
   decide +kernel
 theorem s166_sortVars : U.ax216.ax.sortVars = [KoreAML.Rv] := by decide +kernel
-theorem sub_name (H : HookParams) : (cH H).symName intSub = "Lbl'Unds'-Int'Unds'" ∧ iteSort? "Lbl'Unds'-Int'Unds'" = none :=
-  (by decide +kernel : c.symName intSub = "Lbl'Unds'-Int'Unds'" ∧ iteSort? "Lbl'Unds'-Int'Unds'" = none)
+theorem sub_name (H : HookParams) : (cH H).symName intSub = "Lbl'Unds'-Int'Unds'" ∧ instDecode? "Lbl'Unds'-Int'Unds'" = none :=
+  (by decide +kernel : c.symName intSub = "Lbl'Unds'-Int'Unds'" ∧ instDecode? "Lbl'Unds'-Int'Unds'" = none)
 theorem den_int0 (H : HookParams) : den (cH H) (KCore.int 0) = KoreAML.sym (.dv "0") ⬝ KoreAML.sym (.sort "SortInt") := by
   show den c (KCore.int 0) = _; decide +kernel
 theorem int_numbered (H : HookParams) : Srt.int < nRegSorts + (cH H).sortNames.length :=
@@ -935,7 +935,7 @@ theorem lib166 (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation Kor
         (KoreAML.sym (.symbol "Lbl'Unds'-Int'Unds'") ⬝ .evar (t.ev kI)) ⬝ (KoreAML.sym (.dv "0") ⬝ KoreAML.sym (.sort "SortInt")) := rfl
     have h2 : KoreAML.den (symApp (cH H) intSub (GroundTerm.koreList (cH H) [KCore.int n, KCore.int 0])) =
         (KoreAML.sym (.symbol "Lbl'Unds'-Int'Unds'") ⬝ den (cH H) (KCore.int n)) ⬝ den (cH H) (KCore.int 0) := by
-      unfold symApp; rw [(sub_name H).1, (sub_name H).2]; rfl
+      rw [symApp_noInst (c := cH H) (f := intSub) (by rw [(sub_name H).1]; exact (sub_name H).2), (sub_name H).1]; rfl
     rw [h1, h2]
     refine interp_app_congr (fun m => interp_app_congr (fun _ => Iff.rfl) (fun m => ?_) m) (fun m => ?_) b
     · rw [interp_evar, he, hes]

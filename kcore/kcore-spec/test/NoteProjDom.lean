@@ -387,7 +387,7 @@ theorem fns_from_text (H : HookParams) :
 def kp : CtorSig := ⟨387, [Srt.k], Srt.int⟩
 
 theorem kp_mem : kp ∈ kernelSyms c := by decide +kernel
-theorem iteSort_p : iteSort? (c.symName 387) = none := by decide +kernel
+theorem noInst_p : instDecode? (c.symName 387) = none := by decide +kernel
 theorem name_p : c.symName 387 = "Lblproject'Coln'Int" := by decide +kernel
 
 /-- **The arity of `project:Int` from `ΓSig`**: at an element of K it holds only elements of Int. -/
@@ -395,9 +395,7 @@ theorem proj_arity {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (
     (hS : I ⊧ᴵP ΓSig c) {e : Valuation M} {i : EVar} (hi : InS I "K" (e.evalEvar i)) {m : M}
     (hm : (projP i).interpret I e m) : InS I "Int" m := by
   have hit : I ⊧ᴵ (symArityItem c kp).pat := hS _ (Or.inl (Or.inl ⟨_, sig_arity kp_mem, rfl⟩))
-  unfold symArityItem at hit
-  rw [show kp.name = 387 from rfl, iteSort_p, name_p] at hit
-  dsimp only at hit
+  rw [symArityItem_noInst (k := kp) noInst_p, show kp.name = 387 from rfl, name_p] at hit
   unfold KoreAML.arityItem at hit
   dsimp only [KoreAML.paramTable, List.map_nil] at hit
   have hinc := (KoreAML.interp_included hD).mp (hit KoreAML.val0 default) m
