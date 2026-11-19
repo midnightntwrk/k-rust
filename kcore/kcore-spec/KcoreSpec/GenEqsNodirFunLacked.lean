@@ -14,6 +14,11 @@
     model `model_with_inits_arm` gives at the names and the symbols of `fs` and `fv` together, each
     borne by no symbol of the semantics, so that no premise of the theory names it
     (`nodLacked_free`). The arm's lemmas read the model only at its names (`nodFun_restrict`).
+  - **In a given model (`nod_funv_lacked_of_model`).** The same sentences hold in any model that
+    gives the names and the symbols of `fs` and `fv` these meanings, whatever it gives other names:
+    an instance that gives further lacked symbols meanings reads it. For such symbols:
+    `nod_const_dv_eqn` and `nod_const_dv_functional` (a constant whose equation's right side is a
+    domain value; `nod_order_dv` for a constant of `order`), `nod_alias_dv_eqn` (`L(x) = L₂(x, d)`).
 -/
 import KcoreSpec.GenEqsNodirFun
 import KcoreSpec.GenEqsNodirLacked
@@ -83,24 +88,54 @@ theorem nodFunVal_find_none {c : Semantics} {fs : List (String × Nat)} {fv : Li
     rw [beq_iff_eq.mp he, hn] at this
     cases this
 
-/-- **One model of the theory, whose steps are the semantics', in which each listed sentence
-holds**: `nod_instance`'s equations (`eqIdx`) and constants' `functional` axioms (`funIdx`), and the
+/-- The names the model gives meanings: the names, and the symbols of `fs` and of `fv`. -/
+abbrev nodFunValN (names : List String) (fs : List (String × Nat)) (fv : List (String × Nat × GroundTerm))
+    (n : String) : Prop :=
+  names.contains n = true ∨ (fs.find? (·.1 == n)).isSome = true ∨ (fv.find? (·.1 == n)).isSome = true
+
+/-- **No premise of the theory names a name of `nodFunValN`, and none resolves to a symbol**: each
+is borne by no symbol of the semantics. -/
+theorem nodFunValN_free {c : Semantics} (hc : c.coreOK = true) {names : List String} {fs : List (String × Nat)}
+    {fv : List (String × Nat × GroundTerm)} (hnames : names.all (nodLackedB c) = true)
+    (hfs : nodFunsLackedB c names fs fv = true) :
+    ∀ n, nodFunValN names fs fv n →
+      (∀ φ, (Γc c ∪ Γstep c) φ → KoreAML.Sym.symbol n ∉ psyms φ) ∧ unresolvedB c n = true := by
+  unfold nodFunsLackedB at hfs
+  simp only [Bool.and_eq_true] at hfs
+  obtain ⟨hfsA, hfvA⟩ := hfs
+  rintro n (hn | hn | hn)
+  · exact nodLacked_free hc (List.all_eq_true.mp hnames n (List.contains_iff_mem.mp hn))
+  · obtain ⟨p, hp⟩ := Option.isSome_iff_exists.mp hn
+    have hpn : p.1 = n := by have := List.find?_some hp; exact beq_iff_eq.mp this
+    have := List.all_eq_true.mp hfsA p (List.mem_of_find?_eq_some hp)
+    simp only [Bool.and_eq_true] at this
+    exact hpn ▸ nodLacked_free hc this.2
+  · obtain ⟨p, hp⟩ := Option.isSome_iff_exists.mp hn
+    have hpn : p.1 = n := by have := List.find?_some hp; exact beq_iff_eq.mp this
+    have := List.all_eq_true.mp hfvA p (List.mem_of_find?_eq_some hp)
+    simp only [Bool.and_eq_true] at this
+    exact hpn ▸ nodLacked_free hc this.2
+
+/-- **In a model that gives the names, `fs` and `fv` their meanings, each listed sentence holds**:
+`nod_instance`'s equations (`eqIdx`) and constants' `functional` axioms (`funIdx`), and the
 `functional` axioms of the symbols of `fs` (`funAtIdx`) and of `fv` (`funValIdx`), at every list of
-values of their variables' sorts; the names, `fs` and `fv` borne by no symbol of the semantics. -/
-theorem nod_instance_funv_lacked (c : Semantics) (hc : c.coreOK = true) (hf : FnHyp c) (Nm : Parse.Names)
+values of their variables' sorts. The model may give other names meanings as well: it is read at
+these names only. -/
+theorem nod_funv_lacked_of_model (c : Semantics) (hc : c.coreOK = true) (Nm : Parse.Names)
     (msrc : String) (eqs : List Parse.RawEqn) (cells : List Cell) (names order : List String)
     (sents : List KoreAML.AxiomDecl) (eqIdx funIdx : List Nat) (fs : List (String × Nat))
     (fv : List (String × Nat × GroundTerm)) (funAtIdx funValIdx : List Nat)
-    (hnames : names.all (nodLackedB c) = true) (hR : armRankB order eqs = true)
+    (hR : armRankB order eqs = true)
     (hord : order.all names.contains = true) (hchk : nodOrderB c names eqs order = true)
     (hfix : nodFixedB c = true)
     (heq : eqIdx.all (nodSentEqB Nm msrc eqs c cells names order sents) = true)
     (hfun : funIdx.all (nodSentFunB c eqs names order sents) = true)
     (hfs : nodFunsLackedB c names fs fv = true)
     (hat : funAtIdx.all (nodSentFunAtB c fs sents) = true)
-    (hval : funValIdx.all (nodSentFunValB c fs fv sents) = true) :
-    ∃ I : Interpretation KoreAML.Sym Elem, (I ⊧ᴵP (Γc c ∪ Γstep c)) ∧
-      (∀ x y : Config c, Step c x y ↔ ¬ (I ⊧ᴵ (den c x.val ⇒ ∼ KoreAML.sNext (den c y.val)))) ∧
+    (hval : funValIdx.all (nodSentFunValB c fs fv sents) = true)
+    {I : Interpretation KoreAML.Sym Elem}
+    (hM' : InitModel c (nodFunValN names fs fv) (nodFunValAr fs fv (armAr eqs))
+      (nodFunValG fs fv (armGOf c eqs names order (armBase c eqs))) I) :
       (∀ i ∈ eqIdx, ∃ ad ∈ sents, ad.index = i ∧ ∃ e, Parse.scanEqn (.axiom ad.ax) = some e ∧ NodEqn c I e) ∧
       (∀ i ∈ funIdx, ∃ ad ∈ sents, ad.index = i ∧ ∃ L S, nodFunctional? ad.ax = some (L, S) ∧ NodFun c I L S) ∧
       (∀ i ∈ funAtIdx, ∃ ad ∈ sents, ad.index = i ∧ ∃ L xs S, nodFunctionalAt? ad.ax = some (L, xs, S) ∧
@@ -108,28 +143,8 @@ theorem nod_instance_funv_lacked (c : Semantics) (hc : c.coreOK = true) (hf : Fn
       (∀ i ∈ funValIdx, ∃ ad ∈ sents, ad.index = i ∧ ∃ L xs S, nodFunctionalAt? ad.ax = some (L, xs, S) ∧
         NodFunAt c I L xs S) := by
   have hfs' : nodFunsLackedB c names fs fv = true := hfs
-  unfold nodFunsLackedB at hfs
-  simp only [Bool.and_eq_true] at hfs
-  obtain ⟨hfsA, hfvA⟩ := hfs
-  let N' : String → Prop := fun n =>
-    names.contains n = true ∨ (fs.find? (·.1 == n)).isSome = true ∨ (fv.find? (·.1 == n)).isSome = true
-  have hN' : ∀ n, N' n → (∀ φ, (Γc c ∪ Γstep c) φ → KoreAML.Sym.symbol n ∉ psyms φ) ∧ unresolvedB c n = true := by
-    rintro n (hn | hn | hn)
-    · exact nodLacked_free hc (List.all_eq_true.mp hnames n (List.contains_iff_mem.mp hn))
-    · obtain ⟨p, hp⟩ := Option.isSome_iff_exists.mp hn
-      have hpn : p.1 = n := by have := List.find?_some hp; exact beq_iff_eq.mp this
-      have := List.all_eq_true.mp hfsA p (List.mem_of_find?_eq_some hp)
-      simp only [Bool.and_eq_true] at this
-      exact hpn ▸ nodLacked_free hc this.2
-    · obtain ⟨p, hp⟩ := Option.isSome_iff_exists.mp hn
-      have hpn : p.1 = n := by have := List.find?_some hp; exact beq_iff_eq.mp this
-      have := List.all_eq_true.mp hfvA p (List.mem_of_find?_eq_some hp)
-      simp only [Bool.and_eq_true] at this
-      exact hpn ▸ nodLacked_free hc this.2
-  obtain ⟨I, hM', hstep⟩ := model_with_inits_arm c hc hf N' (nodFunValAr fs fv (armAr eqs))
-    (nodFunValG fs fv (armGOf c eqs names order (armBase c eqs))) hN'
   have hM : InitModel c (fun n => names.contains n = true) (armAr eqs) (armGOf c eqs names order (armBase c eqs)) I :=
-    nodFun_restrict hM' (fun n hn => .inl hn)
+    nodFun_restrict hM' (fun n hn => Or.inl hn)
       (fun n hn => by
         obtain ⟨h1, h2⟩ := nodFunVal_find_none hfs' hn
         simp only [nodFunValAr, h1, h2])
@@ -138,7 +153,7 @@ theorem nod_instance_funv_lacked (c : Semantics) (hc : c.coreOK = true) (hf : Fn
         simp only [nodFunValG, h1, h2])
   have hk : lookupSig c.ctorSigs kseq = some ⟨kseq, [Srt.kitem, Srt.k], Srt.k⟩ := by
     simp only [nodFixedB, Bool.and_eq_true, decide_eq_true_eq] at hfix; exact hfix.1.2
-  refine ⟨I, hM.sat, hstep, fun i hi => ?_, fun i hi => ?_, fun i hi => ?_, fun i hi => ?_⟩
+  refine ⟨fun i hi => ?_, fun i hi => ?_, fun i hi => ?_, fun i hi => ?_⟩
   · have h := List.all_eq_true.mp heq i hi
     unfold nodSentEqB at h
     cases ha : sents.find? (·.index == i) with
@@ -205,7 +220,7 @@ theorem nod_instance_funv_lacked (c : Semantics) (hc : c.coreOK = true) (hf : Fn
             obtain ⟨s0, hx0, hw0⟩ := hw
             rw [hxS, hS] at hx0
             cases hx0
-            have hNL : N' L := .inr (.inl (by rw [hfd]; rfl))
+            have hNL : nodFunValN names fs fv L := .inr (.inl (by rw [hfd]; rfl))
             have hlen : (w :: ws').length = nodFunValAr fs fv (armAr eqs) L := by
               simp only [nodFunValAr, hfd, List.length_cons, (nodVals_sorts hws').2]
             have hG : nodFunValG fs fv (armGOf c eqs names order (armBase c eqs)) L (w :: ws') = some w := by
@@ -240,7 +255,7 @@ theorem nod_instance_funv_lacked (c : Semantics) (hc : c.coreOK = true) (hf : Fn
           rw [hS] at hqs
           have hvs : c.sortOf q.2.2 = some s := of_decide_eq_true hqs
           have hsorted := nodVals_sorted hws
-          have hNL : N' L := .inr (.inr (by rw [hfv]; rfl))
+          have hNL : nodFunValN names fs fv L := .inr (.inr (by rw [hfv]; rfl))
           have hlen : ws.length = nodFunValAr fs fv (armAr eqs) L := by
             simp only [nodFunValAr, hfn, hfv, hql, (nodVals_sorts hws).2]
           have hG : nodFunValG fs fv (armGOf c eqs names order (armBase c eqs)) L ws = some q.2.2 := by
@@ -250,6 +265,35 @@ theorem nod_instance_funv_lacked (c : Semantics) (hc : c.coreOK = true) (hf : Fn
               rw [hM'.names L hNL ws hlen hsorted ρ m, hG]
               simp⟩
           exact hM'.functional hden hvs y
+
+/-- **One model of the theory, whose steps are the semantics', in which each listed sentence
+holds**: `nod_instance`'s equations (`eqIdx`) and constants' `functional` axioms (`funIdx`), and the
+`functional` axioms of the symbols of `fs` (`funAtIdx`) and of `fv` (`funValIdx`), at every list of
+values of their variables' sorts; the names, `fs` and `fv` borne by no symbol of the semantics. -/
+theorem nod_instance_funv_lacked (c : Semantics) (hc : c.coreOK = true) (hf : FnHyp c) (Nm : Parse.Names)
+    (msrc : String) (eqs : List Parse.RawEqn) (cells : List Cell) (names order : List String)
+    (sents : List KoreAML.AxiomDecl) (eqIdx funIdx : List Nat) (fs : List (String × Nat))
+    (fv : List (String × Nat × GroundTerm)) (funAtIdx funValIdx : List Nat)
+    (hnames : names.all (nodLackedB c) = true) (hR : armRankB order eqs = true)
+    (hord : order.all names.contains = true) (hchk : nodOrderB c names eqs order = true)
+    (hfix : nodFixedB c = true)
+    (heq : eqIdx.all (nodSentEqB Nm msrc eqs c cells names order sents) = true)
+    (hfun : funIdx.all (nodSentFunB c eqs names order sents) = true)
+    (hfs : nodFunsLackedB c names fs fv = true)
+    (hat : funAtIdx.all (nodSentFunAtB c fs sents) = true)
+    (hval : funValIdx.all (nodSentFunValB c fs fv sents) = true) :
+    ∃ I : Interpretation KoreAML.Sym Elem, (I ⊧ᴵP (Γc c ∪ Γstep c)) ∧
+      (∀ x y : Config c, Step c x y ↔ ¬ (I ⊧ᴵ (den c x.val ⇒ ∼ KoreAML.sNext (den c y.val)))) ∧
+      (∀ i ∈ eqIdx, ∃ ad ∈ sents, ad.index = i ∧ ∃ e, Parse.scanEqn (.axiom ad.ax) = some e ∧ NodEqn c I e) ∧
+      (∀ i ∈ funIdx, ∃ ad ∈ sents, ad.index = i ∧ ∃ L S, nodFunctional? ad.ax = some (L, S) ∧ NodFun c I L S) ∧
+      (∀ i ∈ funAtIdx, ∃ ad ∈ sents, ad.index = i ∧ ∃ L xs S, nodFunctionalAt? ad.ax = some (L, xs, S) ∧
+        NodFunAt c I L xs S) ∧
+      (∀ i ∈ funValIdx, ∃ ad ∈ sents, ad.index = i ∧ ∃ L xs S, nodFunctionalAt? ad.ax = some (L, xs, S) ∧
+        NodFunAt c I L xs S) := by
+  obtain ⟨I, hM', hstep⟩ := model_with_inits_arm c hc hf (nodFunValN names fs fv) (nodFunValAr fs fv (armAr eqs))
+    (nodFunValG fs fv (armGOf c eqs names order (armBase c eqs))) (nodFunValN_free hc hnames hfs)
+  exact ⟨I, hM'.sat, hstep, nod_funv_lacked_of_model c hc Nm msrc eqs cells names order sents eqIdx funIdx fs fv
+    funAtIdx funValIdx hR hord hchk hfix heq hfun hfs hat hval hM'⟩
 
 kernel_rfl nodFunsLackedB_withHooks : ∀ (c : Semantics) (H : HookParams) (names : List String)
   (fs : List (String × Nat)) (fv : List (String × Nat × GroundTerm)),
@@ -298,6 +342,156 @@ theorem nod_instance_funv_lacked_withHooks (c : Semantics) (hc : c.coreOK = true
     ((nodFunsLackedB_withHooks c H names fs fv).trans hfs)
     (by rw [show nodSentFunAtB (c.withHooks H) fs sents = nodSentFunAtB c fs sents from funext (nodSentFunAtB_withHooks c H fs sents)]; exact hat)
     (by rw [show nodSentFunValB (c.withHooks H) fs fv sents = nodSentFunValB c fs fv sents from funext (nodSentFunValB_withHooks c H hr fs fv sents)]; exact hval)
+
+/-- **`nod_funv_lacked_of_model` under an interpretation `H` of the parameters**, its checks decided
+once on the data. -/
+theorem nod_funv_lacked_of_model_withHooks (c : Semantics) (hc : c.coreOK = true)
+    (hr : ∀ k ∈ c.params, k.raw = false)
+    (Nm : Parse.Names) (msrc : String) (eqs : List Parse.RawEqn) (cells : List Cell) (names order : List String)
+    (sents : List KoreAML.AxiomDecl) (eqIdx funIdx : List Nat) (fs : List (String × Nat))
+    (fv : List (String × Nat × GroundTerm)) (funAtIdx funValIdx : List Nat)
+    (hR : armRankB order eqs = true)
+    (hord : order.all names.contains = true) (hchk : nodOrderB c names eqs order = true)
+    (hfix : nodFixedB c = true)
+    (heq : eqIdx.all (nodSentEqB Nm msrc eqs c cells names order sents) = true)
+    (hfun : funIdx.all (nodSentFunB c eqs names order sents) = true)
+    (hfs : nodFunsLackedB c names fs fv = true)
+    (hat : funAtIdx.all (nodSentFunAtB c fs sents) = true)
+    (hval : funValIdx.all (nodSentFunValB c fs fv sents) = true) (H : HookParams)
+    {I : Interpretation KoreAML.Sym Elem}
+    (hM' : InitModel (c.withHooks H) (nodFunValN names fs fv) (nodFunValAr fs fv (armAr eqs))
+      (nodFunValG fs fv (armGOf (c.withHooks H) eqs names order (armBase (c.withHooks H) eqs))) I) :
+      (∀ i ∈ eqIdx, ∃ ad ∈ sents, ad.index = i ∧ ∃ e, Parse.scanEqn (.axiom ad.ax) = some e ∧
+        NodEqn (c.withHooks H) I e) ∧
+      (∀ i ∈ funIdx, ∃ ad ∈ sents, ad.index = i ∧ ∃ L S, nodFunctional? ad.ax = some (L, S) ∧
+        NodFun (c.withHooks H) I L S) ∧
+      (∀ i ∈ funAtIdx, ∃ ad ∈ sents, ad.index = i ∧ ∃ L xs S, nodFunctionalAt? ad.ax = some (L, xs, S) ∧
+        NodFunAt (c.withHooks H) I L xs S) ∧
+      (∀ i ∈ funValIdx, ∃ ad ∈ sents, ad.index = i ∧ ∃ L xs S, nodFunctionalAt? ad.ax = some (L, xs, S) ∧
+        NodFunAt (c.withHooks H) I L xs S) :=
+  nod_funv_lacked_of_model (c.withHooks H) ((Semantics.coreOK_withHooks c H).trans hc) Nm msrc eqs cells names
+    order sents eqIdx funIdx fs fv funAtIdx funValIdx hR hord
+    ((nodOrderB_withHooks c H names eqs order).trans hchk) ((nodFixedB_withHooks c H).trans hfix)
+    (by rw [show nodSentEqB Nm msrc eqs (c.withHooks H) cells names order sents = nodSentEqB Nm msrc eqs c cells names order sents from funext (nodSentEqB_withHooks c H Nm msrc eqs cells names order sents)]; exact heq)
+    (by rw [show nodSentFunB (c.withHooks H) eqs names order sents = nodSentFunB c eqs names order sents from funext (nodSentFunB_withHooks c H eqs names order sents)]; exact hfun)
+    ((nodFunsLackedB_withHooks c H names fs fv).trans hfs)
+    (by rw [show nodSentFunAtB (c.withHooks H) fs sents = nodSentFunAtB c fs sents from funext (nodSentFunAtB_withHooks c H fs sents)]; exact hat)
+    (by rw [show nodSentFunValB (c.withHooks H) fs fv sents = nodSentFunValB c fs fv sents from funext (nodSentFunValB_withHooks c H hr fs fv sents)]; exact hval)
+    hM'
+
+/-! ## A constant's equation to a domain value, and an equation to another name's application -/
+
+/-- `armDv` reads no interpretation where no parameter is an open generator. -/
+theorem armDv_withHooks (c : Semantics) (H : HookParams) (hr : ∀ k ∈ c.params, k.raw = false) (S : Kore.KSort)
+    (text : String) : armDv (c.withHooks H) S text = armDv c S text := by
+  unfold armDv
+  rw [Semantics.sortOf_withHooks c H hr]
+  rfl
+
+/-- A domain value `armDv` reads at `S` is of the sort of `S`. -/
+theorem armDv_sortOf {c : Semantics} {S : Kore.KSort} {text : String} {v : GroundTerm}
+    (hd : armDv c S text = some v) {s : Srt} (hS : armSrt c S = some s) : c.sortOf v = some s := by
+  unfold armDv at hd
+  rw [hS] at hd
+  dsimp only at hd
+  cases hl : Parse.lit? s text with
+  | none => rw [hl] at hd; cases hd
+  | some l =>
+    rw [hl] at hd
+    dsimp only at hd
+    split at hd
+    · rename_i hcond
+      cases hd
+      simp only [Bool.and_eq_true, decide_eq_true_eq] at hcond
+      have h2 := hcond.2
+      rw [nod_sortOf_dv] at h2 ⊢
+      split at h2
+      · rename_i hok; rw [if_pos_walk hok]
+      · cases h2
+    · cases hd
+
+/-- **The arm's value of a constant of `order` whose equation's right side is a domain value is
+that value.** -/
+theorem nod_order_dv {c : Semantics} {eqs : List Parse.RawEqn} {names order : List String}
+    (hR : armRankB order eqs = true) {n : String} {e : Parse.RawEqn} (he : armLook order eqs n = some e)
+    (hp : e.pats = []) {S : Kore.KSort} {text : String} (hrhs : e.rhs = .dv S text) :
+    armGOf c eqs names order (armBase c eqs) n [] = armDv c S text := by
+  have hx : Parse.distinctEVars? e.pats = some [] := by rw [hp]; rfl
+  rw [armGOf, armG_fix c _ _ order eqs _ hR he hx [], hrhs, armVal]
+  cases armDv c S text <;> rfl
+
+section ConstEqn
+
+variable {c : Semantics} {N : String → Prop} {ar : String → Nat} {G : String → List GroundTerm → Option GroundTerm}
+  {I : Interpretation KoreAML.Sym Elem} (hM : InitModel c N ar G I)
+include hM
+
+/-- **A constant's equation to a domain value holds** where the model gives the constant that
+value: `L() = \dv{S}(text)`. -/
+theorem nod_const_dv_eqn (hc : c.coreOK = true) {e : Parse.RawEqn} {S : Kore.KSort} {text : String} {v : GroundTerm}
+    (hp : e.pats = []) (hrhs : e.rhs = .dv S text) (hN : N e.fn) (har : ar e.fn = 0) (hG : G e.fn [] = some v)
+    (hd : armDv c S text = some v) : NodEqn c I e := by
+  have hx : Parse.distinctEVars? e.pats = some [] := by rw [hp]; rfl
+  intro ws hws
+  have hvars : armVarsL e.pats = [] := by rw [hp]; rfl
+  rw [hvars] at hws ⊢
+  cases hws
+  have hs := armVal_sound hM hc (isN := fun _ => false) (fun _ h => by cases h) (σ := armZip [] [])
+    (fun _ _ h => by cases h) (.dv S text)
+  rw [armVal, hd] at hs
+  rw [armLhs_den c hx (ws := []) rfl, hrhs]
+  exact hM.eqn (hM.name hN .nil har.symm hG hs.1.choose_spec) hs
+
+/-- **A constant's `functional` axiom holds** where the model gives the constant a domain value
+read at the axiom's sort. -/
+theorem nod_const_dv_functional {L : String} {S : Kore.KSort} {text : String} {v : GroundTerm} (hN : N L)
+    (har : ar L = 0) (hG : G L [] = some v) (hd : armDv c S text = some v) : NodFun c I L S := by
+  intro s hS y
+  have hsv := armDv_sortOf hd hS
+  exact hM.functional (hM.name hN .nil har.symm hG hsv) hsv y
+
+/-- **An equation of a name to another name applied to the same variable and a domain value
+holds**, `L(x) = L₂(x, \dv{S}(text))`, where the model gives `L` at a value what it gives `L₂` at
+that value and the domain value, a value of a sort or nothing. -/
+theorem nod_alias_dv_eqn (hc : c.coreOK = true) {e : Parse.RawEqn} {x : Kore.EVar} {n2 : String} {S : Kore.KSort}
+    {text : String} {d : GroundTerm} (hp : e.pats = [.var (.evar x)])
+    (hrhs : e.rhs = .app ⟨⟨n2⟩⟩ [] [.var (.evar x), .dv S text]) (hne : (n2 == "inj") = false)
+    (hN : N e.fn) (hN2 : N n2) (har : ar e.fn = 1) (har2 : ar n2 = 2) (hd : armDv c S text = some d)
+    (hG : ∀ a, G e.fn [a] = G n2 [a, d]) (hGs : ∀ a v, G n2 [a, d] = some v → ∃ s, c.sortOf v = some s) :
+    NodEqn c I e := by
+  have hx : Parse.distinctEVars? e.pats = some [x] := by rw [hp]; rfl
+  intro ws hws
+  have hvars : armVarsL e.pats = [x] := by rw [hp]; rfl
+  rw [hvars] at hws ⊢
+  obtain ⟨a, rfl⟩ : ∃ a, ws = [a] := by
+    cases hws with
+    | cons _ hr => cases hr; exact ⟨_, rfl⟩
+  have hsa : ∃ s, c.sortOf a = some s := nodVals_sorted hws a (List.mem_singleton_self a)
+  have hs := armVal_sound hM hc (isN := fun n => n == n2) (fun n h => by rw [beq_iff_eq.mp h]; exact hN2)
+    (σ := armZip [x] [a]) (fun y w h => by
+      have := (List.of_mem_zip (armLookup_mem h)).2
+      rw [List.mem_singleton.mp this]; exact hsa) e.rhs
+  have hval : armVal c (fun n => n == n2) ar G (armZip [x] [a]) e.rhs =
+      match G n2 [a, d] with
+      | some v => if (c.sortOf v).isSome then some (some v) else none
+      | none => some none := by
+    rw [hrhs]
+    simp [armVal, armVals, hne, armApp, armEmpty, armWs, armHead, har2, hd, armLookup, armZip]
+    cases G n2 [a, d] <;> rfl
+  rw [hval] at hs
+  rw [armLhs_den c hx (ws := [a]) rfl]
+  have hda : All2 (DenV c I) ([a].map (den c)) [a] := armVals_den hM (nodVals_sorted hws)
+  cases hg : G n2 [a, d] with
+  | none =>
+    rw [hg] at hs
+    exact hM.eqn_none (hM.name_none hN hda har.symm ((hG a).trans hg)) hs
+  | some v =>
+    obtain ⟨s, hsv⟩ := hGs a v hg
+    rw [hg] at hs
+    simp only [hsv, Option.isSome_some, ite_true] at hs
+    exact hM.eqn (hM.name hN hda har.symm ((hG a).trans hg) hsv) hs
+
+end ConstEqn
 
 end GenEqs
 
