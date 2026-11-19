@@ -115,9 +115,26 @@ The evidence forms (DONE-0 C2's table), by status and list, and the items each n
                    theorem declared in FILE, a tie file as above; on a module row "every ... row
                    of MODULE (n) is tied", with ", or of no direction with a theorem in a model (k)"
                    where k are, or "module of hooks and generated declarations only: ..." (accounted
-                   by its declarations' rows); an item "uncovered: ...", "refuted: ..." (Γ refutes the sentence or
-                   entails it only partly) or "no direction: ..." (the tie's no-direction class) is
-                   missing evidence
+                   by its declarations' rows); a bare "uncovered: ...", "no direction: ..." without
+                   an item "...; in a model)", and "refuted: ..." on a row that names no recorded
+                   ruling (a finding for DONE-0 2.6) are missing evidence
+  The E6 library rows of the groups e6map counts apart (decision-e6-uncovered section 2), of status
+  supported (or inert, an E6 lemma row), each with its own form; every theorem item of the e6_tie
+  string declared in its FILE, a tie file as above:
+  E6 no direction (in a model)
+      "no direction: MODULE; ..." with at least one item "THEOREM (FILE; ...; in a model)" (a theorem
+      of kind "in a model" naming the sentence or declaration, rows-header.toml item 7), beside the
+      class's theorems; or, on a module row, "no direction in a model: MODULE; every ... row of
+      MODULE (n) is ..." (every member of no direction with a theorem in a model)
+  supported (no model) (left out of the headline count: Γ of every text holding the sentence has
+  no model, so an entailment there is vacuous)
+      "no model: MODULE; ..." with an item "...; no model)" (the no-model theorem of a form (r)
+      table) and an item stating that Γ's item of it is its translation; or, on a module row, "no
+      model: MODULE; every ... row of MODULE (n) is ..." (its members' weakest group)
+  refuted (recorded)
+      "refuted: MODULE; ..." on a row whose `refuted_ruling` names the recorded ruling (it holds
+      "DONE-0 section 0 (4)" or a decision file decision-*.md), with its refuting theorems; or, on a
+      module row, "refuted (recorded): MODULE; every ... row of MODULE (n) is ..."
   parameter
       derived      a `derived` table of form (c): the param_undetermined instance
   parameter (no model) (a parameter entry with a `derived` table of form (r): its fixture's text
@@ -282,13 +299,43 @@ def hook_own(fx, key, e, row):
                    for c in (ln.split("\t") for ln in p.splitlines()))
 
 
+E6_ND, E6_NM, E6_REF = "E6 no direction (in a model)", "supported (no model)", "refuted (recorded)"
+E6_GROUPS = (E6_ND, E6_NM, E6_REF)
+# Left out of the headline count (decision-e6-uncovered section 3: Γ of the text has no model).
+APART = (E6_NM,)
+E6_ITEM = re.compile(r"(\S+) \((test/[^;()]+\.lean); ([^()]*)\)")
+RULING = re.compile(r"DONE-0 section 0 \(4\)|\bdecision-[\w-]+\.md\b")
+
+
+def e6_group(key, e):
+    """The group of an E6 library row by its `e6_tie` (e6map.py), or None: E6_ND for "no direction:
+    ..." with an item "...; in a model)" or a module row's "no direction in a model: ..."; E6_NM for
+    "no model: ..."; E6_REF for "refuted: ..." on a row with a string field `refuted_ruling`, or a
+    module row's "refuted (recorded): ..."."""
+    v = e.get("e6_tie")
+    if not isinstance(v, str):
+        return None
+    if (v.startswith("no direction: ") and any(m[3].endswith("; in a model") for m in E6_ITEM.finditer(v))) \
+            or v.startswith("no direction in a model: "):
+        return E6_ND
+    if v.startswith("no model: "):
+        return E6_NM
+    if (v.startswith("refuted: ") and isinstance(e.get("refuted_ruling"), str)) or v.startswith("refuted (recorded): "):
+        return E6_REF
+    return None
+
+
 def form(l, key, e, row=None, fx=None):
     """The evidence form of DONE-0 C2's table for the entry's status, or None without a status.
     With the entry's row and the fixtures, a table nested in an E6 `hook:` row whose reading takes
-    the symbol for a function of the text has that form (`hook_own`)."""
+    the symbol for a function of the text has that form (`hook_own`). An E6 library row of status
+    supported or inert whose `e6_tie` is of a group e6map counts apart has that group's form
+    (`e6_group`)."""
     s = e.get("status")
     if s is None:
         return None
+    if l == "E6" and s in ("supported", "inert") and e.get("e6_tie") is not None and e6_group(key, e):
+        return e6_group(key, e)
     if s == "supported":
         if l == "E6" and hook_own(fx, key, e, row):
             return "supported function of the text"
@@ -787,6 +834,19 @@ def evidence(fx, l, key, e, row):
             item(not bad, f"theorems ({len(thms)})", f"theorems ({', '.join(bad[:2])} not declared)")
         return ok
 
+    def e6_items(v, what):
+        """The theorem items "THEOREM (FILE; ...)" of an e6_tie string after its first "; ", each
+        theorem declared in its FILE, a tie file; False (missing noted) otherwise or where none."""
+        its = list(E6_ITEM.finditer(v.split("; ", 1)[1] if "; " in v else ""))
+        if not its:
+            miss.append(f"theorems (e6_tie: {what}: no theorem item)"); return None
+        files = sorted({m[2] for m in its})
+        why = [w for w in map(tie_file_ok, files) if w]
+        item(not why, "tie " + ", ".join(files) + " (e6_tie)", "tie (e6_tie: " + "; ".join(why) + ")")
+        bad = [m[1] for m in its if not declared(m[1], [m[2]])]
+        item(not bad, f"theorems ({len(its)}, e6_tie)", f"theorems (e6_tie: {', '.join(bad[:2])} not declared)")
+        return its if not why and not bad else None
+
     def e6_ties():
         """An E6 library row's `e6_tie` (test/constructs/e6map.py): "THEOREM (FILE; TEXT axiom N)" items,
         "every ... row of MODULE (n) is tied" or "module of hooks and generated declarations only: ..."
@@ -794,20 +854,50 @@ def evidence(fx, l, key, e, row):
         by TEXT: ..." (the module's sentences inside a block comment of its code, no sentences of the
         module), which names no theorem; a live sentence the text does not hold makes the row
         "uncovered: ..." instead, unless an instance the row's `instances` names ties it (its items
-        are then theorem items like the others)."""
+        are then theorem items like the others). The groups counted apart (`e6_group`): "no
+        direction: ..." with a theorem in a model; "no model: ..." with the no-model theorem and one
+        that Γ's item is the translation; "refuted: ..." where the row's `refuted_ruling` names a
+        recorded ruling; and a module row's "no direction in a model: ...", "refuted (recorded):
+        ..." or "no model: ..." (its members' weakest group, e6map's module form)."""
         v = e.get("e6_tie")
         v = v if isinstance(v, list) else [v]
         unc = [x for x in v if isinstance(x, str) and x.startswith("uncovered")]
         if unc or not v:
             miss.append("theorems (e6_tie: " + (unc[0][:80] if unc else "empty") + ")"); return False
-        nd = [x for x in v if isinstance(x, str) and x.startswith("no direction: ")]
-        if nd:
-            miss.append("theorems (e6_tie: " + nd[0].split(";")[0] + ": of the tie's no-direction class, which"
-                        " no theorem entails; owed-sentence rule item 7)"); return False
+        x0 = v[0] if len(v) == 1 and isinstance(v[0], str) else None
+        if key.startswith("module:") and x0 and re.match(
+                r"(no direction in a model|refuted \(recorded\)|no model): \S+; every axiom, lemma, sort and symbol "
+                r"row of \S+ \(\d+\) is ", x0):
+            have.append(f"module row in its members' group: {x0.split(':')[0]} (e6_tie)"); return True
+        if x0 and x0.startswith("no direction: "):
+            its = [m for m in E6_ITEM.finditer(x0) if m[3].endswith("; in a model")]
+            if not its:
+                miss.append("theorems (e6_tie: " + x0.split(";")[0] + ": of the tie's no-direction class, with no"
+                            " theorem in a model naming it; owed-sentence rule item 7)"); return False
+            got = e6_items(x0, "no direction")
+            if got:
+                have.append(f"of no direction with a theorem in a model ({len(its)}, e6_tie)")
+            return bool(got)
+        if x0 and x0.startswith("no model: "):
+            its = list(E6_ITEM.finditer(x0))
+            if not any(m[3].endswith("; no model") for m in its) or all(m[3].endswith("; no model") for m in its):
+                miss.append("theorems (e6_tie: no model: the no-model theorem and one that Γ's item is the"
+                            " translation)"); return False
+            got = e6_items(x0, "no model")
+            if got:
+                have.append("of a text without a model, Γ's item the translation (e6_tie; counted apart)")
+            return bool(got)
         ref = [x for x in v if isinstance(x, str) and x.startswith("refuted")]
         if ref:
-            miss.append("theorems (e6_tie: " + ref[0].split(";")[0] + ": Γ refutes the sentence or entails it"
-                        " only partly, no tie; a finding for DONE-0 2.6)"); return False
+            rr = e.get("refuted_ruling")
+            if not (isinstance(rr, str) and RULING.search(rr)):
+                miss.append("theorems (e6_tie: " + ref[0].split(";")[0] + ": Γ refutes the sentence or entails it"
+                            " only partly, no tie, and `refuted_ruling` names no recorded ruling (DONE-0 section 0"
+                            " (4) or a decision file); a finding for DONE-0 2.6)"); return False
+            got = e6_items(ref[0], "refuted")
+            if got:
+                have.append(f"refuted, its recorded ruling named ({rr[:60]}) (e6_tie)")
+            return bool(got)
         if all(isinstance(x, str) and re.match(r"every .* row of \S+ \(\d+\) is tied"
                                                r"(, or of no direction with a theorem in a model \(\d+\))?$", x) for x in v):
             have.append("tie: every row of the module tied (e6_tie)"); return True
@@ -857,7 +947,7 @@ def evidence(fx, l, key, e, row):
         x = fixture_items(True); ties()
         nodir_items(fx, e, x, have, miss)
         uncovered_items(fx, e, own, have, miss)
-    elif f == "supported E6":
+    elif f in ("supported E6",) + E6_GROUPS:
         ties()
     elif f == "parameter":
         derived(["c"])
@@ -1108,7 +1198,11 @@ def print_check(res, fresh, report, out):
     fails = [r for r in res if r[6]]
     by = collections.Counter((r[0], r[2]) for r in fails)
     tot = collections.Counter((r[0], r[2]) for r in res)
-    print(f"c2-evidence: {len(res)} entries with a status, {len(fails)} missing evidence"
+    head = [r for r in res if r[2] not in APART]
+    apart = [f"{sum(1 for r in res if r[2] == f)} {f} ({sum(1 for r in fails if r[2] == f)} missing evidence)"
+             for f in APART if any(r[2] == f for r in res)]
+    print(f"c2-evidence: {len(head)} entries with a status, {sum(1 for r in fails if r[2] not in APART)} missing evidence"
+          + (f"; counted apart: {', '.join(apart)}" if apart else "")
           + (" (report mode: not failing)" if report else "") + ("" if fresh else "; fresh accounts not run"))
     for l in LISTS:
         ks = sorted({f for (x, f) in tot if x == l})
@@ -1613,6 +1707,7 @@ def self_test():
         fx.check_other = lambda e, own: kfix.check_other(e, own, read=fx.read, full_text=lambda x: defn)
         tie = "test/C3EqReqEns.lean"
         thm = {"form": "a", "theorem": "KCore.C3EqReqEns.f_5", "file": tie}
+        bad_forms = []
         for name, conf in (("cmp", 'differs_from = "ok"\n'), ("e1-module", ""), ("e2-rule", ""), ("opt", 'differs_from = "e8-ref"\n')):
             os.makedirs(os.path.join(fxd, name))
             open(os.path.join(fxd, name, "account.txt"), "w").write(clean)
@@ -1924,7 +2019,40 @@ def self_test():
             ("E8", "A", opt([dict(rm(4), file=tie)]), False),
             ("E8", "A", opt([rm(4)], fixture="ok"), False),
         ]
-        bad = []
+        # the E6 groups counted apart (e6map.py's forms), each with the form expected
+        f5 = "KCore.C3EqReqEns.f_5 (test/C3EqReqEns.lean; t axiom 3"
+        nope = "KCore.C3EqReqEns.nope (test/C3EqReqEns.lean; t axiom 3"
+        ref = "refuted: M; no theorem entails the sentence; it is refuted (Γ with it has no model): "
+        every = "every axiom, lemma, sort and symbol row of M (3) is "
+        rr = "DONE-0 section 0 (4): the known case of this refutation"
+        e6cases = [  # (key, e6_tie, other fields, form expected, accepted)
+            ("axiom:X", f"no direction: INT; {f5}); {f5}; in a model)", {}, E6_ND, True),
+            ("axiom:X", f"no direction: INT; {f5}); {nope}; in a model)", {}, E6_ND, False),
+            ("axiom:X", f"no direction: INT; {f5})", {}, "supported E6", False),
+            ("axiom:X", f"no model: RAT; {f5}; no model); {f5}; Γ's items are the list's translations, item for item)",
+             {}, E6_NM, True),
+            ("axiom:X", f"no model: RAT; {f5}; no model)", {}, E6_NM, False),
+            ("axiom:X", f"no model: RAT; {f5}; no model); {nope}; Γ has the symbol)", {}, E6_NM, False),
+            ("lemma:X", ref + f"{f5}) [refutes]", {"status": "inert", "refuted_ruling": rr}, E6_REF, True),
+            ("lemma:X", ref + f"{f5}) [refutes]", {"status": "inert", "refuted_ruling": "see the note"}, E6_REF, False),
+            ("lemma:X", ref + f"{nope}) [refutes]", {"status": "inert", "refuted_ruling": rr}, E6_REF, False),
+            ("lemma:X", ref + f"{f5}) [refutes]", {"status": "inert"}, "inert", False),
+            ("axiom:X", ref + f"{f5}) [refutes]", {}, "supported E6", False),
+            ("module:M", f"no direction in a model: M; every axiom, lemma, sort and symbol row of M (2) is of no "
+                         f"direction with a theorem in a model", {}, E6_ND, True),
+            ("module:M", f"refuted (recorded): M; {every}tied (2) or refuted with its recorded ruling (1)", {}, E6_REF, True),
+            ("module:M", f"no model: M; {every}tied (1), of no direction with a theorem in a model (0), refuted with "
+                         f"its recorded ruling (0) or of a text without a model (2)", {}, E6_NM, True),
+            ("module:M", "uncovered: M; 4 of its 45 axiom, lemma, sort and symbol rows uncovered, 41 of a text "
+                         "without a model", {}, "supported E6", False),
+            ("axiom:X", "uncovered: RAT; held by t, tied there by no theorem", {}, "supported E6", False),
+        ]
+        for key, v, more, f, want in e6cases:
+            e = dict({"status": "supported", "e6_tie": v}, **more)
+            cases.append(("E6", key, e, want))
+            if form("E6", key, e) != f:
+                bad_forms.append(f"{key} {v[:50]!r}: form {form('E6', key, e)!r}, expected {f!r}")
+        bad = list(bad_forms)
         for i, (l, key, e, want) in enumerate(cases):
             have, miss = evidence(fx, l, key, e, e)
             if (not miss) != want:

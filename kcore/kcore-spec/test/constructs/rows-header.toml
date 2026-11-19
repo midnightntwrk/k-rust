@@ -439,14 +439,22 @@
 # Field of the E6 library rows (supported axiom, module, sort, symbol, token; inert lemma), written and
 # checked by test/constructs/e6map.py (--write, --check; its docstring states the forms it reads):
 #   e6_tie    a list of "THEOREM (FILE; TEXT axiom N)": the theorems of the tie files
-#             (test/TieEns*, TieKimp*, TieKk*, LibEv*) that entail the row's sentence, axiom N of the
+#             (test/Tie*, LibEv*) that entail the row's sentence, axiom N of the
 #             tied text TEXT; or "refuted: MODULE; ..." where they only refute it or hold it where its
 #             set variables hold one value at most; or "no direction: MODULE; THEOREM (FILE; TEXT
 #             axiom N|symbol declaration NAME); ..." where no theorem ties or refutes it and, on a
 #             tied text, it is of the tie's no-direction class (owed-sentence rule item 7; the
-#             theorems that state the class, e6map.py's form (e)): never tied, counted apart, and
-#             counted toward its module being tied only with a theorem of kind "in a model" naming
-#             it; or "uncovered: MODULE; why". A module row of a module of hooks and generated
+#             theorems that state the class, e6map.py's form (e)), followed by the theorems of kind
+#             "in a model" naming it (test/LibParamExpand*, GenEqsNodir*; items ending "; in a
+#             model)"): never tied, counted apart, and counted toward its module being tied only
+#             with such a theorem; or "no model: MODULE; THEOREM (FILE; TEXT axiom N|symbol
+#             declaration NAME; WHAT); ..." where every text holding it has no model by a `derived`
+#             table of form (r) of the row or of its module's row, with a theorem that Γ's item of
+#             it is its translation (findings/work/decision-e6-uncovered.md section 2 (R)); or
+#             "uncovered: MODULE; why". A module row follows its members (e6map.py's docstring):
+#             tied as below, or "no direction in a model: MODULE; ...", "refuted (recorded):
+#             MODULE; ..." or "no model: MODULE; ..." (the weakest group among its members, each
+#             with evidence), or uncovered with the counts. A module row of a module of hooks and generated
 #             declarations only (findings/work/decision-e6-count-empty.md ruling 2: E6 keys no
 #             axiom, lemma, rule, sort or symbol row of any status to the module, and its code
 #             holds no rule, configuration, context or claim) is accounted by
@@ -463,6 +471,10 @@
 #             (FILE:LINE) held by no tied text; on TEXT n of its m rules and its configuration are
 #             tied (FILES)", unless the row's `instances` names an instance of that rule which
 #             e6map accepts (below); then the list also names the instance's theorems.
+#   refuted_ruling  on an E6 row whose e6_tie is "refuted: ...": the recorded ruling that the
+#             refutation is a known case (a case of DONE-0 section 0 (4), or a decision file under
+#             findings/), in words with its reference; without it the refuted row is a finding for
+#             DONE-0 2.6 and counts toward no module's evidence.
 #   instances  on a module row of form (m): a list of { sentence = "rule NAME (FILE:LINE)",
 #             fixture = FIXTURE, axiom = N, why = "..." }, each naming, for a live rule of the
 #             module that its `fixture` text holds no sentence of, axiom N of the text

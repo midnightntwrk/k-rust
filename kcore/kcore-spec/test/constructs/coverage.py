@@ -181,11 +181,13 @@ def erased_letters(e):
 
 
 def e6_state(v):
-    """An E6 row's `e6_tie` as one of tied, no direction, refuted, uncovered."""
+    """An E6 row's `e6_tie` as one of tied, no direction, no model, refuted, uncovered (a module row's
+    "no direction in a model: " and "refuted (recorded): " counted with no direction and refuted)."""
     if isinstance(v, list):
         return "tied"
-    for s in ("no direction", "refuted"):
-        if isinstance(v, str) and v.startswith(s + ":"):
+    for p, s in (("no direction: ", "no direction"), ("no direction in a model: ", "no direction"),
+                 ("no model: ", "no model"), ("refuted: ", "refuted"), ("refuted (recorded): ", "refuted")):
+        if isinstance(v, str) and v.startswith(p):
             return s
     return "uncovered"
 
@@ -267,7 +269,8 @@ def generate(rows_path, manifest_path):
     e6t = collections.Counter(e6_state(r.get("e6_tie")) for r in t.get("E6", {}).values() if "e6_tie" in r)
     o += ["", f"E6 library rows by their `e6_tie` (test/constructs/e6map.py; rows-header.toml): {sum(e6t.values())}, "
           f"of which {e6t['tied']} tied, {e6t['no direction']} of no direction (the tie's no-direction class, "
-          f"owed-sentence rule item 7: never tied, counted apart), {e6t['refuted']} refuted and "
+          f"owed-sentence rule item 7: never tied, counted apart), {e6t['no model']} of a text without a model "
+          f"(counted apart), {e6t['refuted']} refuted and "
           f"{e6t['uncovered']} uncovered."]
 
     o += ["", f"## Entries of class R-c ({len(rc)})", "",
