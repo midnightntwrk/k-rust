@@ -77,7 +77,7 @@ theorem noInst_plain (ps : List Kore.Pattern) : symApp c kPlain.name ps = .app �
 /-- The instance is written as `Lblite` at `SortInt`: the decoder reads its name as `Lblite` at one
 sort. -/
 theorem inst_written : ∀ ps, symApp c kInst.name ps = .app ⟨⟨"Lblite"⟩⟩ (["Int"].map KoreAML.srt) ps := by
-  intro ps; unfold symApp; rw [iteSort?_eq_some.2 dec_inst]; rfl
+  intro ps; exact symApp_inst dec_inst
 
 /-! ## (3) The readers of the head -/
 

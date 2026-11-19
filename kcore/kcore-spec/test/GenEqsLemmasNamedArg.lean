@@ -37,9 +37,10 @@ def names : List String := [fst, snd]
 theorem declared : names.all (fun n => kore.symbolDecls.any (·.name == n)) = true := by decide +kernel
 
 /-- **The arm's conditions on the two names**: the prefix, no registry symbol's, none of the
-semantics' own. -/
+semantics' own, the head of no instance-named symbol of it. -/
 theorem arm : ∀ n ∈ names, (KoreAML.Parse.dropPrefix? "Lblproject'Coln" n).isSome = true ∧
-    regSymNames.contains n = false ∧ c.symNames.contains n = false := by decide +kernel
+    regSymNames.contains n = false ∧ c.symNames.contains n = false ∧ c.instHeadFree n = true := by
+  decide +kernel
 
 theorem fns_nil : c.fns = [] := by decide +kernel
 theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel

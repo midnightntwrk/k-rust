@@ -494,7 +494,7 @@ theorem appendKseqX_spec {f : Sym} {cl : Clause} (h : cl.appendKseqX f = true) :
 omit [Inhabited M] in
 /-- What `Semantics.appendHeldX` checks. -/
 theorem appendHeldX_spec {f : Sym} (h : c.appendHeldX f = true) :
-    isHook f = false ∧ c.isParam f = false ∧ iteSort? (c.symName f) = none ∧ Srt.k ∈ consSorts c ∧
+    isHook f = false ∧ c.isParam f = false ∧ instDecode? (c.symName f) = none ∧ Srt.k ∈ consSorts c ∧
       c.gens Srt.k = [.ctor kseqSigX, .ctor dotkSigX] ∧
       ∃ fn, c.lookupFn f = some fn ∧ fn.args = [Srt.k, Srt.k] ∧ fn.result = Srt.k ∧
         ∃ cd ck, cd ∈ fn.clauses ∧ ck ∈ fn.clauses ∧ lowerClauses fn cd = [] ∧ lowerClauses fn ck = [] ∧
@@ -534,7 +534,7 @@ omit [Inhabited M] in
 that reads `appendHeldX`'s condition on the name. -/
 theorem appendHeldX_writes_irs {f : Sym} (h : c.appendHeldX f = true) :
     ∀ ps, symApp c f ps = .app ⟨⟨c.symName f⟩⟩ [] ps := by
-  intro ps; unfold symApp; rw [(appendHeldX_spec h).2.2.1]
+  intro ps; exact symApp_noInst (appendHeldX_spec h).2.2.1
 
 /-- **K's `append` has `HeldBack`** in a model of `Γ`: a symbol `appendHeldX` accepts, with the
 signature a right side's context gives it. -/

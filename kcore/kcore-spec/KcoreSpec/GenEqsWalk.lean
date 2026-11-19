@@ -1,6 +1,7 @@
 /-
   A walk of the theory's lists: every item of `Γc c ∪ Γstep c` that a list holds is rooted, and the
-  symbols it names are the semantics' own (`c.symName f`), `inj` or `Lblite`.
+  symbols it names are the semantics' own (`c.symName f`), `inj`, or the head of a symbol of the
+  semantics named as an instance (`instDecode?`).
 
   - **Good patterns (`good ok`).** A pattern whose applications have a rooted left side (`rootedB`)
     and whose symbols `.symbol n` have names that `ok` accepts.
@@ -10,17 +11,18 @@
     `⌈_⌉`, `⟦_⟧`, `•` and `ceil` to its operands; `ν` substitutes a good pattern for a set variable,
     which keeps a pattern good (`good_subst`).
   - **The KORE the semantics writes (`kok_term`, ...).** Its terms, conditions, premises,
-    equations and rules apply `c.symName f`, `inj` or `Lblite` only.
+    equations and rules apply `c.symName f`, `inj` or the head of an instance-named symbol only.
   - **The lists (`good_lists`).** Every item of the signature, the constructors, the functions, the
     rules, the step's closure, the collections and Bool's closure is good where `ok` accepts every
-    `c.symName f`, `inj` and `Lblite` (`HeadsOK`).
+    `c.symName f`, `inj` and the head of every instance-named symbol (`HeadsOK`).
 
   Consequences:
   - `rootedListsB_holds`: `rootedListsB c` for every `c` (at `ok` accepting every name), the
     premise `hr` of `model_with_eqns`.
   - `nameFreeB_of_unnumbered`: `nameFreeB c ns` for names that are no symbol's of the semantics,
-    none of them `inj` or `Lblite`; with `nameFree_of_decided`, `premise_symbols`: every symbol a
-    premise holds is named by a symbol of the semantics, or is `inj` or `Lblite`.
+    none of them `inj`, `Lblite` or the head of an instance-named symbol
+    (`Semantics.instHeadFree`); with `nameFree_of_decided`, `premise_symbols`: every symbol a
+    premise holds is named by a symbol of the semantics, or is `inj`, `Lblite` or such a head.
   - At the account's arm for generated equations (`genEqClassOK_cases`): a constructor argument's
     projection it accepts is free of the theory and resolves to no constant
     (`nameFree_of_argProj`, `argProj_free_of_genEqClassOK`), and `model_with_eqns_argProj` is
@@ -491,9 +493,20 @@ end
 
 /-! ## The KORE the semantics writes -/
 
-/-- `ok` accepts the name of every symbol of the semantics, and `inj` and `Lblite`. -/
+/-- `ok` accepts the name of every symbol of the semantics, `inj`, and the head of every symbol
+whose name the decoder reads as an instance (`instDecode?`): the heads `symApp` writes. -/
 def HeadsOK (c : Semantics) (ok : String → Bool) : Prop :=
-  (∀ f, ok (c.symName f) = true) ∧ ok "inj" = true ∧ ok "Lblite" = true
+  (∀ f, ok (c.symName f) = true) ∧ ok "inj" = true ∧
+    ∀ f h xs, instDecode? (c.symName f) = some (h, xs) → ok h = true
+
+/-- `ok` accepts the head `symApp` writes for a symbol. -/
+theorem HeadsOK.head {c : Semantics} {ok : String → Bool} (H : HeadsOK c ok) {f : Sym} {h : String}
+    {xs : List String} (hw : ∀ ps, symApp c f ps = .app ⟨⟨h⟩⟩ (xs.map KoreAML.srt) ps) : ok h = true := by
+  obtain ⟨h', xs', hof, hw'⟩ := symApp_head c f
+  obtain ⟨rfl, rfl⟩ := symApp_writes_eq_iha hw hw'
+  rcases hof with ⟨-, rfl⟩ | ⟨-, hd⟩
+  · exact H.1 f
+  · exact H.2.2 f _ _ hd
 
 /-- A sentence that is an axiom has a pattern whose heads `ok` accepts. -/
 def sok (ok : String → Bool) : Kore.Sentence → Bool
@@ -550,10 +563,9 @@ mutual
 theorem kok_term (H : HeadsOK c ok) (vs : List KoreAML.Var) : ∀ (t : Term), kok ok (Term.kore c vs t) = true
   | .var _ => by rw [Term.kore]; rfl
   | .app f ts => by
-    rw [Term.kore]
-    split
-    · simp only [kok, H.2.2, kok_terms H vs ts, Bool.and_self]
-    · simp only [kok, H.1 f, kok_terms H vs ts, Bool.and_self]
+    obtain ⟨h, xs, -, hw⟩ := symApp_head c f
+    rw [kore_app, hw]
+    simp only [kok, H.head hw, kok_terms H vs ts, Bool.and_self]
   | .inj a b t => by
     rw [Term.kore]
     simp only [KoreAML.injP, kok, kokL, H.2.1, kok_term H vs t, Bool.and_self]
@@ -633,9 +645,9 @@ theorem kok_clauseRhs (H : HeadsOK c ok) (f : Fn) (cl : Clause) :
 theorem sok_eqnSentence (H : HeadsOK c ok) (f : Fn) {prem rhs ens : Kore.Pattern} (h1 : kok ok prem = true)
     (h2 : kok ok rhs = true) (h3 : kok ok ens = true) : sok ok (eqnSentence c f prem rhs ens) = true := by
   have hs : kok ok (symApp c f.label (KoreAML.vars (KoreAML.numbered "X" 0 (f.args.map c.sortName)))) = true := by
-    unfold symApp; split
-    · simp only [kok, H.2.2, kokL_vars, Bool.and_self]
-    · simp only [kok, H.1 f.label, kokL_vars, Bool.and_self]
+    obtain ⟨h, xs, -, hw⟩ := symApp_head c f.label
+    rw [hw]
+    simp only [kok, H.head hw, kokL_vars, Bool.and_self]
   simp only [eqnSentence, KoreAML.equationAt, KoreAML.axiomR, sok, kok, kokL, hs, h1, h2, h3, Bool.and_self]
 
 theorem sok_prioEquation (H : HeadsOK c ok) (f : Fn) (cl : Clause) : sok ok (prioEquation c f cl) = true := by
@@ -789,19 +801,16 @@ theorem genOK_toK (H : HeadsOK c ok) (g : Gen) : genOK ok (Gen.toK c g) = true :
   | inj _ => exact H.2.1
 
 theorem good_symArityItem (H : HeadsOK c ok) (k : CtorSig) : good ok (symArityItem c k).pat = true := by
-  unfold symArityItem
-  split
-  · simp only [KoreAML.arityItem, KoreAML.paramTable, List.map_nil, KoreAML.guarded, good_included,
-      good_inhOf, good_trSort, Bool.and_true]
-    refine (good_appList _ (KoreAML.sym (.symbol (c.symName k.name))) rfl (H.1 k.name) ?_).2
-    intro a ha
-    obtain ⟨s, -, rfl⟩ := List.mem_map.mp ha
-    rw [good_inhOf, good_trSort]
-  · simp only [good_included, good_inhOf, good_sortP, Bool.and_true]
-    refine (good_appList _ _ rfl (by simp only [good_app, KoreAML.sym, good_symbol, symOK_symbol, H.2.2]; rfl) ?_).2
-    intro a ha
-    obtain ⟨s, -, rfl⟩ := List.mem_map.mp ha
-    rfl
+  obtain ⟨h, xs, -, hw⟩ := symApp_head c k.name
+  rw [symArityItem_of_symApp hw, instHeadP_appList_irs]
+  simp only [good_included, good_inhOf, good_sortP, Bool.and_true]
+  have hh := good_appList (xs.map sortP) (KoreAML.sym (.symbol h)) rfl (H.head hw) (fun a ha => by
+    obtain ⟨x, -, rfl⟩ := List.mem_map.mp ha
+    rfl)
+  refine (good_appList _ _ hh.1 hh.2 ?_).2
+  intro a ha
+  obtain ⟨s, -, rfl⟩ := List.mem_map.mp ha
+  rfl
 
 theorem good_sigItems (H : HeadsOK c ok) : ∀ it ∈ sigItems c, good ok it.pat = true := by
   intro it hit
@@ -1121,7 +1130,7 @@ open Walk
 /-- **Every premise of the theory's lists is rooted**, for every semantics: `rootedListsB`, the
 premise `hr` of `model_with_eqns`, holds without a decision. -/
 theorem rootedListsB_holds (c : Semantics) : rootedListsB c = true := by
-  obtain ⟨h1, h2, h3⟩ := good_lists (ok := fun _ => true) (c := c) ⟨fun _ => rfl, rfl, rfl⟩
+  obtain ⟨h1, h2, h3⟩ := good_lists (ok := fun _ => true) (c := c) ⟨fun _ => rfl, rfl, fun _ _ _ _ => rfl⟩
   simp only [rootedListsB, Bool.and_eq_true, List.all_eq_true] at h1 h2 ⊢
   refine ⟨⟨fun it hit => good_rooted (h1 it hit), fun k hk => ⟨good_rooted (h2 k hk).1, fun φ hφ =>
     good_rooted ((h2 k hk).2 φ hφ)⟩⟩, good_rooted h3⟩
@@ -1132,34 +1141,40 @@ theorem cleanN_of_good {ns : List String} {φ : KoreAML.P} (h : good (fun n => !
   List.all_eq_true.mpr fun σ hσ =>
     (show (!NameFree.isNm ns σ) = symOK (fun n => !ns.contains n) σ by cases σ <;> rfl).trans (good_syms h σ hσ)
 
-/-- **Names that are no symbol's of the semantics, and none of them `inj` or `Lblite`, are free
-of the theory, decided** (`nameFreeB`): no symbol name of the semantics is one of them
-(`symName_ne_of_unnumbered`), so every item of the lists is good at `ok` excluding them, and the
-values and the symbols applied at values are named by the semantics' symbols, `inj` and
-`Lblite` only. -/
+/-- **Names that are no symbol's of the semantics, none of them `inj`, `Lblite` or the head of a
+symbol named as an instance, are free of the theory, decided** (`nameFreeB`): no symbol name of
+the semantics is one of them (`symName_ne_of_unnumbered`) and no head `symApp` writes is
+(`Semantics.instHeadFree`: the theory applies an instance-named symbol at its head, which is no
+symbol's name), so every item of the lists is good at `ok` excluding them, and the values and the
+symbols applied at values are named by the semantics' symbols, `inj` and those heads only. -/
 theorem nameFreeB_of_unnumbered (c : Semantics) (ns : List String)
-    (hn : ∀ n ∈ ns, (regSymNames ++ c.symNames).contains n = false ∧ n ≠ "" ∧ n ≠ "inj" ∧ n ≠ "Lblite") :
+    (hn : ∀ n ∈ ns, (regSymNames ++ c.symNames).contains n = false ∧ n ≠ "" ∧ n ≠ "inj" ∧ n ≠ "Lblite" ∧
+      c.instHeadFree n = true) :
     nameFreeB c ns = true := by
   have hsym : ∀ f, (!ns.contains (c.symName f)) = true := fun f => by
     rw [Bool.not_eq_true', Bool.eq_false_iff]
     intro hm
-    obtain ⟨h1, h2, -, -⟩ := hn _ (List.contains_iff_mem.mp hm)
+    obtain ⟨h1, h2, -, -, -⟩ := hn _ (List.contains_iff_mem.mp hm)
     exact symName_ne_of_unnumbered c h1 h2 f rfl
   have hfix : ∀ m, m = "inj" ∨ m = "Lblite" → (!ns.contains m) = true := fun m hm => by
     rw [Bool.not_eq_true', Bool.eq_false_iff]
     intro hc
-    obtain ⟨-, -, h3, h4⟩ := hn _ (List.contains_iff_mem.mp hc)
+    obtain ⟨-, -, h3, h4, -⟩ := hn _ (List.contains_iff_mem.mp hc)
     rcases hm with rfl | rfl
     · exact h3 rfl
     · exact h4 rfl
-  have H : Walk.HeadsOK c (fun n => !ns.contains n) := ⟨hsym, hfix _ (.inl rfl), hfix _ (.inr rfl)⟩
+  have hhead : ∀ f h xs, instDecode? (c.symName f) = some (h, xs) → (!ns.contains h) = true :=
+    fun f h xs hd => by
+      rw [Bool.not_eq_true', Bool.eq_false_iff]
+      intro hc
+      exact instHeadFree_spec (hn _ (List.contains_iff_mem.mp hc)).2.2.2.2 f hd rfl
+  have H : Walk.HeadsOK c (fun n => !ns.contains n) := ⟨hsym, hfix _ (.inl rfl), hhead⟩
   obtain ⟨h1, h2, h3⟩ := good_lists H
   have hk : ∀ f, NameFree.kOKN c ns f = true := hsym
   have ha : ∀ f, NameFree.appOKN c ns f = true := fun f => by
-    unfold NameFree.appOKN symApp
-    cases iteSort? (c.symName f) with
-    | some X => exact hfix _ (.inr rfl)
-    | none => exact hsym f
+    obtain ⟨h, xs, -, hw⟩ := symApp_head c f
+    rw [NameFree.appOKN_of_symApp (hw := hw)]
+    exact H.head hw
   simp only [nameFreeB, NameFree.listsN, NameFree.valuesN, NameFree.graphsN, Bool.and_eq_true,
     List.all_eq_true]
   simp only [Bool.and_eq_true, List.all_eq_true] at h1 h2
@@ -1170,30 +1185,33 @@ theorem nameFreeB_of_unnumbered (c : Semantics) (ns : List String)
 
 /-- **A constructor argument's projection that the account's arm accepts is free of the theory**:
 a name with the prefix `Lblproject'Coln` that is no registry symbol's and none of the semantics'
-own (the conditions `Account.genEqClassOK` checks of it) is held by no premise of `Γc c ∪ Γstep c`,
+own, nor the head of an instance-named symbol of the semantics (the conditions
+`Account.genEqClassOK` checks of it), is held by no premise of `Γc c ∪ Γstep c`,
 the premise `hfree` of `model_with_eqns`. -/
 theorem nameFree_of_argProj (c : Semantics) (h : c.coreOK = true) {n : String}
     (hp : (KoreAML.Parse.dropPrefix? "Lblproject'Coln" n).isSome = true)
-    (hr : regSymNames.contains n = false) (hs : c.symNames.contains n = false) :
+    (hr : regSymNames.contains n = false) (hs : c.symNames.contains n = false)
+    (hh : c.instHeadFree n = true) :
     ∀ φ, (Γc c ∪ Γstep c) φ → KoreAML.Sym.symbol n ∉ psyms φ :=
   nameFree_of_decided c [n] h (nameFreeB_of_unnumbered c [n] fun m hm => by
     rw [List.mem_singleton.mp hm]
-    refine ⟨by rw [List.contains_append, hr, hs]; rfl, ?_, ?_, ?_⟩ <;>
+    refine ⟨by rw [List.contains_append, hr, hs]; rfl, ?_, ?_, ?_, hh⟩ <;>
       · rintro rfl; revert hp; decide) n (List.mem_singleton_self _)
 
 /-- **The symbols the theory names.** Every symbol `.symbol n` that a premise of `Γc c ∪ Γstep c`
 holds is named by a symbol of the semantics (a name of the registry or of `c.symNames`, or the
-empty name of an unnumbered symbol), or is `inj` or `Lblite`. -/
+empty name of an unnumbered symbol), or is `inj` or `Lblite`, or is the head of a symbol of the
+semantics named as an instance (`Semantics.instHeadFree` fails of it). -/
 theorem premise_symbols (c : Semantics) (h : c.coreOK = true) :
     ∀ φ, (Γc c ∪ Γstep c) φ → ∀ n, KoreAML.Sym.symbol n ∈ psyms φ →
-      n ∈ regSymNames ++ c.symNames ∨ n = "" ∨ n = "inj" ∨ n = "Lblite" := by
+      n ∈ regSymNames ++ c.symNames ∨ n = "" ∨ n = "inj" ∨ n = "Lblite" ∨ c.instHeadFree n = false := by
   intro φ hφ n hn
   refine Classical.byContradiction fun hno => ?_
   simp only [not_or] at hno
-  obtain ⟨h1, h2, h3, h4⟩ := hno
+  obtain ⟨h1, h2, h3, h4, h5⟩ := hno
   have hfree := nameFree_of_decided c [n] h (nameFreeB_of_unnumbered c [n] fun m hm => by
     rw [List.mem_singleton.mp hm]
-    exact ⟨by simpa using h1, h2, h3, h4⟩) n (List.mem_singleton_self _) φ hφ
+    exact ⟨by simpa using h1, h2, h3, h4, by simpa using h5⟩) n (List.mem_singleton_self _) φ hφ
   exact hfree hn
 
 /-- **`model_with_eqns_step` at constructor arguments' projections the account's arm accepts**,
@@ -1203,29 +1221,29 @@ such names from the arm's conditions (`nameFree_of_argProj`), and they resolve t
 theorem model_with_eqns_argProj (c : Semantics) (h : c.coreOK = true) (hf : FnHyp c) (N : String → Prop)
     (G : String → GroundTerm → Option GroundTerm)
     (hN : ∀ n, N n → (KoreAML.Parse.dropPrefix? "Lblproject'Coln" n).isSome = true ∧
-      regSymNames.contains n = false ∧ c.symNames.contains n = false) :
+      regSymNames.contains n = false ∧ c.symNames.contains n = false ∧ c.instHeadFree n = true) :
     ∃ I : ML.Interpretation KoreAML.Sym Faithful.Model.Elem, (I ⊧ᴵP (Γc c ∪ Γstep c)) ∧
       (∀ n, N n → ∀ (w v : GroundTerm) (s s' : Srt), c.sortOf w = some s → c.sortOf v = some s' →
         G n w = some v → I ⊧ᴵ (symP n ⬝ den c w ≡ den c v)) ∧
       ∀ x y : Config c, Step c x y ↔ ¬ (I ⊧ᴵ (den c x.val ⇒ ∼ KoreAML.sNext (den c y.val))) :=
   model_with_eqns_step c h hf N G (rootedListsB_holds c)
-    (fun n hn => let ⟨hp, hr, hs⟩ := hN n hn; nameFree_of_argProj c h hp hr hs)
-    (fun n hn => let ⟨hp, hr, hs⟩ := hN n hn; spareSymB_of_argProj c hp hr hs)
+    (fun n hn => let ⟨hp, hr, hs, hh⟩ := hN n hn; nameFree_of_argProj c h hp hr hs hh)
+    (fun n hn => let ⟨hp, hr, hs, _⟩ := hN n hn; spareSymB_of_argProj c hp hr hs)
 
 /-- **The account's arm for generated equations, read**: an equation `genEqClassOK` accepts is one
 `predProjAcc` accepts (a sort predicate's or a sort's projection's), or a constructor argument's
-projection, whose name has the prefix `Lblproject'Coln` and is no registry symbol's and none of
-the definition's own: the conditions `nameFree_of_argProj` and `spareSymB_of_argProj` read. -/
+projection, whose name has the prefix `Lblproject'Coln` and is no registry symbol's, none of
+the definition's own and the head of no instance-named symbol of it: the conditions `nameFree_of_argProj` and `spareSymB_of_argProj` read. -/
 theorem genEqClassOK_cases {E : Parse.Env} {d : Definition} {eqs : List Parse.RawEqn} {e : Parse.RawEqn}
     (h : Parse.genEqClassOK E d eqs e = true) :
     Parse.predProjAcc E.N E.src eqs d.sem e = true ∨
       ((KoreAML.Parse.dropPrefix? "Lblproject'Coln" e.fn).isSome = true ∧ regSymNames.contains e.fn = false ∧
-        d.sem.symNames.contains e.fn = false) := by
+        d.sem.symNames.contains e.fn = false ∧ d.sem.instHeadFree e.fn = true) := by
   unfold Parse.genEqClassOK at h
   simp only [Bool.or_eq_true, Bool.and_eq_true, Bool.not_eq_true'] at h
   rcases h with h | h
   · exact .inl h
-  · exact .inr ⟨h.1.1.1.1.1, h.1.1.2, h.1.2⟩
+  · exact .inr ⟨h.1.1.1.1.1.1, h.1.1.1.2, h.1.1.2, h.1.2⟩
 
 /-- **A constructor argument's projection whose equation the account's arm accepts outside
 `predProjAcc` is free of the theory and resolves to no constant**: the premises `hfree` and `hsym`
@@ -1234,37 +1252,42 @@ theorem argProj_free_of_genEqClassOK {E : Parse.Env} {d : Definition} {eqs : Lis
     {e : Parse.RawEqn} (h : Parse.genEqClassOK E d eqs e = true)
     (hp : Parse.predProjAcc E.N E.src eqs d.sem e = false) (hc : d.sem.coreOK = true) :
     (∀ φ, (Γc d.sem ∪ Γstep d.sem) φ → KoreAML.Sym.symbol e.fn ∉ psyms φ) ∧ spareSymB d.sem e.fn = true := by
-  rcases genEqClassOK_cases h with h' | ⟨h1, h2, h3⟩
+  rcases genEqClassOK_cases h with h' | ⟨h1, h2, h3, h4⟩
   · rw [hp] at h'; cases h'
-  · exact ⟨nameFree_of_argProj d.sem hc h1 h2 h3, spareSymB_of_argProj d.sem h1 h2 h3⟩
+  · exact ⟨nameFree_of_argProj d.sem hc h1 h2 h3 h4, spareSymB_of_argProj d.sem h1 h2 h3⟩
 
 /-- **A sort's projection whose equation `predProjOK?` accepts, at a name the registry does not
 number, is free of the theory and resolves to no constant**: the arm checks that the name is none
-of the semantics' own (`!c.symNames.contains`), and with no registry symbol bearing it no symbol of
-the semantics does. -/
+of the semantics' own (`!c.symNames.contains`) and the head of no instance-named symbol of it
+(`Semantics.instHeadFree`), and with no registry symbol bearing it no symbol of the semantics does. -/
 theorem sortProj_free_of_predProjOK {N : Parse.Names} {msrc : String} {eqs : List Parse.RawEqn} {c : Semantics}
     {e : Parse.RawEqn} (h : Parse.predProjOK? N msrc eqs c e = some true)
     (hX : (KoreAML.Parse.dropPrefix? "Lblproject'Coln'" e.fn).isSome = true)
     (hr : regSymNames.contains e.fn = false) (hc : c.coreOK = true) :
-    (∀ φ, (Γc c ∪ Γstep c) φ → KoreAML.Sym.symbol e.fn ∉ psyms φ) ∧ spareSymB c e.fn = true := by
-  have hs : c.symNames.contains e.fn = false := by
+    (∀ φ, (Γc c ∪ Γstep c) φ → KoreAML.Sym.symbol e.fn ∉ psyms φ) ∧
+      Faithful.Model.resolve c e.fn [] = none ∧ spareSymB c e.fn = true := by
+  have hs : c.symNames.contains e.fn = false ∧ c.instHeadFree e.fn = true := by
     unfold Parse.predProjOK? at h
     split at h
     · split at h
       · simp only [Option.some.injEq, Bool.and_eq_true, Bool.not_eq_true'] at h
-        exact h.1
+        exact ⟨h.1.1, h.2⟩
       · cases h
     · rename_i hn
       rw [hn] at hX
       cases hX
+  obtain ⟨hs, hh⟩ := hs
   have hu : (regSymNames ++ c.symNames).contains e.fn = false := by
     rw [List.contains_append, hr, hs]; rfl
   have hne : e.fn ≠ "" ∧ e.fn ≠ "inj" ∧ e.fn ≠ "Lblite" := by
     refine ⟨?_, ?_, ?_⟩ <;>
       · intro he; rw [he] at hX; revert hX; decide
   refine ⟨nameFree_of_decided c [e.fn] hc (nameFreeB_of_unnumbered c [e.fn] fun m hm => by
-    rw [List.mem_singleton.mp hm]; exact ⟨hu, hne⟩) e.fn (List.mem_singleton_self _),
-    spareSymB_of_unnumbered c hu hne.1 hne.2.1⟩
+    rw [List.mem_singleton.mp hm]; exact ⟨hu, hne.1, hne.2.1, hne.2.2, hh⟩) e.fn (List.mem_singleton_self _),
+    ?_, spareSymB_of_unnumbered c hu hne.1 hne.2.1⟩
+  rw [Faithful.Model.resolve_nil, Option.map_eq_none_iff, List.find?_eq_none]
+  intro k _ hk
+  exact symName_ne_of_unnumbered c hu hne.1 k.name (beq_iff_eq.mp hk)
 
 /-! ## A sort's projection the arm accepts -/
 
@@ -1276,78 +1299,85 @@ theorem psyms_appList_head {σ : KoreAML.Sym} : ∀ (l : List KoreAML.P) (h : Ko
   | [], _, hm => hm
   | a :: l, h, hm => psyms_appList_head l (h ⬝ a) (List.mem_append_left _ hm)
 
-/-- A projection's name is no `ite` instance's. -/
-theorem iteSort_none_of_proj {n : String} (h : (KoreAML.Parse.dropPrefix? "Lblproject'Coln'" n).isSome = true) :
-    iteSort? n = none := by
-  unfold KoreAML.Parse.dropPrefix? at h
-  dsimp only at h
-  split at h
-  · rename_i ht
-    have ht' : n.toList.take 16 = "Lblproject'Coln'".toList := by
-      have := beq_iff_eq.mp ht
-      rwa [show "Lblproject'Coln'".toList.length = 16 by decide] at this
-    cases hs : iteSort? n with
-    | none => rfl
-    | some X =>
-      have h4 := congrArg (List.take 4) ht'
-      rw [List.take_take, iteSort?_toList hs] at h4
-      have hr : List.take 4 "Lblproject'Coln'".toList = ['L', 'b', 'l', 'p'] := by decide
-      rw [hr] at h4
-      simp at h4
-  · cases h
-
-/-- A symbol of the semantics other than an `ite` instance is named by its arity item, a premise of
-the theory. -/
-theorem kernelSym_named {c : Semantics} {k : CtorSig} (hk : k ∈ kernelSyms c) (hi : iteSort? (c.symName k.name) = none) :
-    ∃ φ, (Γc c ∪ Γstep c) φ ∧ KoreAML.Sym.symbol (c.symName k.name) ∈ psyms φ := by
+/-- **A symbol of the semantics is named, at the head `symApp` writes for it, by its arity item**, a
+premise of the theory: the symbol's name for a symbol the decoder reads as no instance, the head
+of an instance-named symbol. -/
+theorem kernelSym_head_named {c : Semantics} {k : CtorSig} (hk : k ∈ kernelSyms c) {h : String} {xs : List String}
+    (hw : ∀ ps, symApp c k.name ps = .app ⟨⟨h⟩⟩ (xs.map KoreAML.srt) ps) :
+    ∃ φ, (Γc c ∪ Γstep c) φ ∧ KoreAML.Sym.symbol h ∈ psyms φ := by
   have hit : symArityItem c k ∈ sigItems c := by
     unfold sigItems
     exact List.mem_append_left _ (List.mem_append_right _ (List.mem_map.mpr ⟨k, hk, rfl⟩))
   refine ⟨_, Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl
     ⟨_, hit, rfl⟩))))))))), ?_⟩
-  unfold symArityItem
-  rw [hi]
-  dsimp only
-  have hm := psyms_appList_head (σ := KoreAML.Sym.symbol (c.symName k.name))
-    ((List.map (srtOf c) k.args).map fun s => KoreAML.inhOf (KoreAML.trSort [] s))
-    (KoreAML.sym (.symbol (c.symName k.name))) (by simp [psyms, KoreAML.sym])
-  simp only [KoreAML.arityItem, KoreAML.paramTable, List.map_nil, KoreAML.guarded, KoreAML.appList, ML.included,
-    ML.total, Pattern.negation, psyms, List.mem_append]
+  rw [symArityItem_of_symApp hw, instHeadP_appList_irs]
+  have hm := psyms_appList_head (σ := KoreAML.Sym.symbol h)
+    (k.args.map fun s => KoreAML.inhOf (sortP (c.sortName s)))
+    (KoreAML.appList (KoreAML.sym (.symbol h)) (xs.map sortP))
+    (psyms_appList_head _ _ (by simp [psyms, KoreAML.sym]))
+  simp only [ML.included, ML.total, Pattern.negation, psyms, List.mem_append]
   exact .inl (.inr (.inl (.inl hm)))
 
-/-- A name no premise holds, other than `inj` and `Lblite`, that is no `ite` instance's, resolves to no
-constant. -/
+/-- A symbol of the semantics whose name the decoder reads as no instance is named by its arity
+item, a premise of the theory. -/
+theorem kernelSym_named {c : Semantics} {k : CtorSig} (hk : k ∈ kernelSyms c)
+    (hi : instDecode? (c.symName k.name) = none) :
+    ∃ φ, (Γc c ∪ Γstep c) φ ∧ KoreAML.Sym.symbol (c.symName k.name) ∈ psyms φ :=
+  kernelSym_head_named hk (xs := []) (fun _ => symApp_noInst hi)
+
+/-- A name no premise holds is the head of no instance-named symbol of the semantics. -/
+theorem noInstHead_of_free {c : Semantics} {n : String}
+    (hfree : ∀ φ, (Γc c ∪ Γstep c) φ → KoreAML.Sym.symbol n ∉ psyms φ) :
+    ∀ k ∈ kernelSyms c, ∀ xs, instDecode? (c.symName k.name) ≠ some (n, xs) := fun k hk xs hd => by
+  obtain ⟨φ, hφ, hm⟩ := kernelSym_head_named hk (fun _ => symApp_inst hd)
+  exact hfree φ hφ hm
+
+/-- A name no premise holds that the decoder reads as no instance is no symbol's of the semantics. -/
+theorem resolve_nil_of_free {c : Semantics} {n : String}
+    (hfree : ∀ φ, (Γc c ∪ Γstep c) φ → KoreAML.Sym.symbol n ∉ psyms φ) (hi : instDecode? n = none) :
+    Faithful.Model.resolve c n [] = none := by
+  rw [Faithful.Model.resolve_nil, Option.map_eq_none_iff, List.find?_eq_none]
+  intro k hk hn
+  have he := beq_iff_eq.mp hn
+  obtain ⟨φ, hφ, hm⟩ := kernelSym_named hk (by rw [he]; exact hi)
+  rw [he] at hm
+  exact hfree φ hφ hm
+
+/-- A name no premise holds, other than `inj`, that the decoder reads as no instance, resolves to no
+constant. A name the decoder reads as an instance may be free of the theory and a constant's: the
+theory names such a symbol by its head. -/
 theorem spareSymB_of_free {c : Semantics} {n : String}
     (hfree : ∀ φ, (Γc c ∪ Γstep c) φ → KoreAML.Sym.symbol n ∉ psyms φ)
-    (hinj : n ≠ "inj") (hl : n ≠ "Lblite") (hi : iteSort? n = none) : spareSymB c n = true := by
-  have hres : Faithful.Model.resolve c n [] = none := by
-    rw [Faithful.Model.resolve_nil, Option.map_eq_none_iff, List.find?_eq_none]
-    intro k hk hn
-    have he := beq_iff_eq.mp hn
-    obtain ⟨φ, hφ, hm⟩ := kernelSym_named hk (by rw [he]; exact hi)
-    rw [he] at hm
-    exact hfree φ hφ hm
-  simp only [spareSymB, hres, Bool.and_true]
+    (hinj : n ≠ "inj") (hi : instDecode? n = none) : spareSymB c n = true := by
+  simp only [spareSymB, resolve_nil_of_free hfree hi, Bool.and_true]
   exact bne_iff_ne.mpr hinj
 
-/-- **A sort's projection whose equation the arm accepts (`predProjAcc`) is free of the theory and
-resolves to no constant**: at a name the registry does not number by `sortProj_free_of_predProjOK`;
-at a registry-numbered one, the arm's decided check `GenEqs.freeB c [i]` (`regProjFree`), `i` the
-registry symbol bearing the name. -/
+/-- **A sort's projection whose equation the arm accepts (`predProjAcc`) is free of the theory,
+no symbol of the semantics bears its name, and it resolves to no constant**: at a name the registry
+does not number by `sortProj_free_of_predProjOK` (no symbol bears a name that is not numbered); at
+a registry-numbered one, the arm's decided check `GenEqs.freeB c [i]` (`regProjFree`), `i` the
+registry symbol bearing the name, and the decoder reads no registry name as an instance
+(`regSym_noInst_irs`), so a symbol bearing it would be named by its arity item. The decoder is read
+on no other name: a name with the projections' prefix may decode as an instance. -/
 theorem sortProj_free_of_predProjAcc {N : Parse.Names} {msrc : String} {eqs : List Parse.RawEqn}
     {c : Semantics} {e : Parse.RawEqn} (h : Parse.predProjAcc N msrc eqs c e = true)
     (hX : (KoreAML.Parse.dropPrefix? "Lblproject'Coln'" e.fn).isSome = true) (hc : c.coreOK = true) :
-    (∀ φ, (Γc c ∪ Γstep c) φ → KoreAML.Sym.symbol e.fn ∉ psyms φ) ∧ spareSymB c e.fn = true := by
+    (∀ φ, (Γc c ∪ Γstep c) φ → KoreAML.Sym.symbol e.fn ∉ psyms φ) ∧
+      Faithful.Model.resolve c e.fn [] = none ∧ spareSymB c e.fn = true := by
   unfold Parse.predProjAcc at h
   simp only [Bool.and_eq_true, beq_iff_eq] at h
   obtain ⟨hp, hr⟩ := h
+  have hne : e.fn ≠ "" ∧ e.fn ≠ "inj" := by
+    refine ⟨?_, ?_⟩ <;>
+      · intro he; rw [he] at hX; revert hX; decide
   cases hi : regSymNames.idxOf? e.fn with
   | none =>
-    refine sortProj_free_of_predProjOK hp hX ?_ hc
-    rw [Bool.eq_false_iff]
-    intro hm
-    rw [List.idxOf?_eq_none_iff] at hi
-    exact hi (List.contains_iff_mem.mp hm)
+    have hreg : regSymNames.contains e.fn = false := by
+      rw [Bool.eq_false_iff]
+      intro hm
+      rw [List.idxOf?_eq_none_iff] at hi
+      exact hi (List.contains_iff_mem.mp hm)
+    exact sortProj_free_of_predProjOK hp hX hreg hc
   | some i =>
     have hd : freeB c [i] = true := by
       unfold Parse.regProjFree at hr
@@ -1360,10 +1390,12 @@ theorem sortProj_free_of_predProjAcc {N : Parse.Names} {msrc : String} {eqs : Li
     have hfree : ∀ φ, (Γc c ∪ Γstep c) φ → KoreAML.Sym.symbol e.fn ∉ psyms φ := by
       have := sym_free c [i] hc hd (List.mem_singleton_self _)
       rwa [hname] at this
-    have hne : e.fn ≠ "inj" ∧ e.fn ≠ "Lblite" := by
-      refine ⟨?_, ?_⟩ <;>
-        · intro he; rw [he] at hX; revert hX; decide
-    exact ⟨hfree, spareSymB_of_free hfree hne.1 hne.2 (iteSort_none_of_proj hX)⟩
+    have hdec : instDecode? e.fn = none := by
+      rw [← hname]
+      unfold Semantics.symName
+      rw [if_pos_walk hlt]
+      exact regSym_noInst_irs hlt
+    exact ⟨hfree, resolve_nil_of_free hfree hdec, spareSymB_of_free hfree hne.2 hdec⟩
 
 end GenEqs
 

@@ -93,7 +93,7 @@ def nodHead (c : Semantics) (isN : String → Bool) (ar : String → Nat) (nA : 
     else none
   | none => match hookSigs.find? (fun k => c.symName k.name == h) with
     | some k =>
-      if decide (iteSort? h = none) && decide (lookupSig hookSigs k.name = some k) &&
+      if decide (lookupSig hookSigs k.name = some k) &&
           decide (ts.map (·.1) = k.args) && !silentKey k.name && isHook k.name && decide (k.name ≠ rmKeys) then
         some (k.result, ts.isEmpty && (match hook k.name [] with | some (some _) => true | _ => false))
       else none
@@ -288,14 +288,14 @@ theorem nodHead_sound {h : String} (hG : isN h = true → NodGOK c nA nR G h) {t
           · rw [if_neg_arm hcu] at ht; cases ht
       | some k =>
         rw [hk'] at ht; dsimp only at ht ⊢
-        by_cases hc : (decide (iteSort? h = none) && decide (lookupSig hookSigs k.name = some k) &&
+        by_cases hc : (decide (lookupSig hookSigs k.name = some k) &&
             decide (ts.map (·.1) = k.args) && !silentKey k.name && isHook k.name && decide (k.name ≠ rmKeys)) = true
         · rw [if_pos_walk hc] at ht
           cases ht
           simp only [Bool.and_eq_true, decide_eq_true_eq, Bool.not_eq_true'] at hc
-          obtain ⟨⟨⟨⟨⟨hi, hl⟩, ha⟩, hsil⟩, hh⟩, hrm⟩ := hc
+          obtain ⟨⟨⟨⟨hl, ha⟩, hsil⟩, hh⟩, hrm⟩ := hc
           have hws' : c.sortsOf ws = some k.args := by rw [hws, ha]
-          rw [if_pos_walk (⟨hi, hws'⟩ : iteSort? h = none ∧ c.sortsOf ws = some k.args)]
+          rw [if_pos_walk hws']
           obtain ⟨o, ho⟩ := Faithful.hook_some hh ws
           rw [ho]
           cases o with
@@ -1184,7 +1184,8 @@ end Eqns
 
 /-- A name that is no symbol of the registry or of the semantics is one `armNameB` accepts. -/
 theorem nod_name_unnumbered {Nm : Parse.Names} {msrc : String} {eqs : List Parse.RawEqn} {c : Semantics} {n : String}
-    (h : (!(regSymNames ++ c.symNames).contains n && n != "" && n != "inj" && n != "Lblite") = true) :
+    (h : (!(regSymNames ++ c.symNames).contains n && n != "" && n != "inj" && n != "Lblite" &&
+      c.instHeadFree n) = true) :
     armNameB Nm msrc eqs c n = true := by
   unfold armNameB; rw [h]; rfl
 
@@ -1471,9 +1472,10 @@ def nodRegKs (names : List String) : List Sym :=
     if (KoreAML.Parse.dropPrefix? "Lblproject'Coln'" n).isSome then regSymNames.idxOf? n else none
 
 /-- `armNameB` without its freeness check: the name is no symbol of the registry or of `c` (nor
-`""`, `inj`, `Lblite`), or a sort's projection with an equation `predProjOK?` accepts. -/
+`""`, `inj`, `Lblite`) and the head of no symbol of `c` named as an instance
+(`Semantics.instHeadFree`), or a sort's projection with an equation `predProjOK?` accepts. -/
 def nodNameB (Nm : Parse.Names) (msrc : String) (eqs : List Parse.RawEqn) (c : Semantics) (n : String) : Bool :=
-  (!(regSymNames ++ c.symNames).contains n && n != "" && n != "inj" && n != "Lblite") ||
+  (!(regSymNames ++ c.symNames).contains n && n != "" && n != "inj" && n != "Lblite" && c.instHeadFree n) ||
   ((KoreAML.Parse.dropPrefix? "Lblproject'Coln'" n).isSome &&
     eqs.any fun e => e.fn == n && Parse.predProjOK? Nm msrc eqs c e == some true)
 

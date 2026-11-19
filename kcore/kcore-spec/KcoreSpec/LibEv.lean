@@ -420,11 +420,11 @@ mutual
 end
 
 mutual
-  /-- The term's symbols and sorts are the registry's, and none of its symbols is named like an
-  `ite` at a sort. -/
+  /-- The term's symbols and sorts are the registry's (the decoder reads no registry name as an
+  instance, `regSym_noInst_irs`). -/
   def reg : Term → Bool
     | .var _ => true
-    | .app f ts => decide (f < nRegSyms) && (iteSort? (regSymNames.getD f "")).isNone && regList ts
+    | .app f ts => decide (f < nRegSyms) && regList ts
     | .dv s _ => decide (s < nRegSorts)
     | .inj _ _ _ => false
     | .as _ _ => false
@@ -455,9 +455,9 @@ mutual
       ∀ t : Term, reg t = true → kore c vars t = koreR vars t
     | .var i, _ => by rw [kore, koreR, srtOf_reg c (getD_reg hv i)]
     | .app f ts, ht => by
-      simp only [reg, Bool.and_eq_true, decide_eq_true_eq, Option.isNone_iff_eq_none] at ht
+      simp only [reg, Bool.and_eq_true, decide_eq_true_eq] at ht
       rw [kore, koreR, koreList_reg c hv ts ht.2,
-        symApp_noInst (by rw [symName_reg c ht.1.1]; exact Faithful.regSym_noInst_irs ht.1.1), symName_reg c ht.1.1]
+        symApp_noInst (by rw [symName_reg c ht.1]; exact Faithful.regSym_noInst_irs ht.1), symName_reg c ht.1]
     | .dv s lit, ht => by
       simp only [reg, decide_eq_true_eq] at ht
       rw [kore, koreR, srtOf_reg c ht]

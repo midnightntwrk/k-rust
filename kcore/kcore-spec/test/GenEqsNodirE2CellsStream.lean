@@ -177,9 +177,9 @@ def listed : List Nat := [2615, 2616, 2705, 2890, 2891, 2892, 2893, 2894, 2895, 
 
 theorem listed_eq : listed.isPerm (eqIdx ++ funIdx) = true := by decide
 
-/-- No symbol of the semantics has a name `iteSort?` reads as an instance of `ite`, so Γ's heads
+/-- No symbol of the semantics has a name `instDecode?` reads as an instance of `ite`, so Γ's heads
 are its symbols' names at no sort argument and `inj` at its subsorts (`gammaHasHead_eq_plain`). -/
-theorem iteFree : (Faithful.kernelSyms c).all (fun k => (iteSort? (c.symName k.name)).isNone) = true := by
+theorem iteFree : (Faithful.kernelSyms c).all (fun k => (instDecode? (c.symName k.name)).isNone) = true := by
   decide +kernel
 
 /-- **Each listed sentence applies a symbol Γ lacks**, the no-direction class's defining property

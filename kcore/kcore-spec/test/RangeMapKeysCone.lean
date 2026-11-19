@@ -123,7 +123,8 @@ open Faithful.Model in
 direct decision of `itesApart` compares every pair of symbols' names, the interpreted ones among
 them. -/
 theorem rmkCoreOK {c : Semantics} {I : List Nat} (hI : instIdx ((allSymNames c).map KoreAML.Distinct.strCode) = I)
-    (hite : itesApartC c I ((allSortNames c).map KoreAML.Distinct.strCode) = true) (hs : c.sortedOK = true)
+    (hite : itesApartC c I ((allSymNames c).map KoreAML.Distinct.strCode)
+      ((allSortNames c).map KoreAML.Distinct.strCode) = true) (hs : c.sortedOK = true)
     (h1 : namesNumbered c = true) (h2 : genWf c = true) (h3 : collSortsOK c = true)
     (h4 : collsOK c = true) (h5 : patHeadsOK c = true) (h6 : namesApartK c = true)
     (h7 : LitsApart c = true) (h8 : sortsNumbered c = true) (h11 : kindsApart c = true)

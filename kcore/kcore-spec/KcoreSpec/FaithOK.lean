@@ -242,12 +242,15 @@ def collsNotCtors (c : Semantics) : Bool :=
 
 /-- Every symbol with a signature whose name the decoder reads as an instance `h{x₁,…,xₙ}` of a
 sort-parametric symbol `h` (`instDecode?`) is named at numbered sorts, all such symbols of one head
-are named at one number of sorts, and no such head is `inj`. The interpretation reads the head `h`
-applied to sort arguments as the instance named at those sorts (`resolve`, for `Lblite` at one
-sort, which `Γ` writes so: `symArityItem`, the graphs of `ΓDomains`), so a sort name that names no
+are named at one number of sorts, no such head is `inj`, and no symbol of no arguments is plainly
+named by such a head. `Γ` writes an instance as its head applied to its sorts (`symApp`,
+`symArityItem`, the graphs of `ΓDomains`), and the interpretation reads the head `h` applied to
+sort arguments as the instance named at those sorts (`resolve`), so a sort name that names no
 sort would leave the instance's graph without an element; a head at two numbers of sorts would make
-`h` applied to its first sorts both a result and a partial application; and `inj` is the head of
-the injections. Two instance-named symbols with one decoding are one symbol, by `namesApartK` and
+`h` applied to its first sorts both a result and a partial application; `inj` is the head of
+the injections; and a constant denotes its value, which is applied to nothing, so `Γ` with a
+constant `h` beside an instance of `h` states the constant's graph and the instance's of one
+symbol. Two instance-named symbols with one decoding are one symbol, by `namesApartK` and
 the decoder's exactness (`instsApart`). -/
 def itesApart (c : Semantics) : Bool :=
   (kernelSyms c).all fun k =>
@@ -262,25 +265,32 @@ def itesApart (c : Semantics) : Bool :=
       | none => true) &&
     (match instDecode? (c.symName k.name) with
       | some (h, _) => h != "inj"
+      | none => true) &&
+    (match instDecode? (c.symName k.name) with
+      | some (h, _) => (kernelSyms c).all fun k' => !k'.args.isEmpty || c.symName k'.name != h
       | none => true)
 
 /-- What `itesApart` says of an instance-named symbol of `kernelSyms`: its sort names name
-numbered sorts, every symbol of `kernelSyms` named at the same head has as many sorts, and the
-head is not `inj`. -/
+numbered sorts, every symbol of `kernelSyms` named at the same head has as many sorts, the
+head is not `inj`, and every symbol of `kernelSyms` plainly named by the head has an argument. -/
 theorem itesApart_inst {c : Semantics} (h : itesApart c = true) {k : CtorSig} (hk : k ∈ kernelSyms c)
     {hd : String} {xs : List String} (hi : instDecode? (c.symName k.name) = some (hd, xs)) :
     (∀ x ∈ xs, ∃ s ∈ kernelSorts c, c.sortName s = x) ∧
     (∀ k' ∈ kernelSyms c, ∀ xs' : List String, instDecode? (c.symName k'.name) = some (hd, xs') →
       xs'.length = xs.length) ∧
-    hd ≠ "inj" := by
+    hd ≠ "inj" ∧
+    (∀ k' ∈ kernelSyms c, c.symName k'.name = hd → k'.args ≠ []) := by
   have h1 := List.all_eq_true.mp h k hk
   simp only [hi, Bool.and_eq_true, List.all_eq_true, List.any_eq_true, beq_iff_eq, bne_iff_ne,
     ne_eq] at h1
-  obtain ⟨⟨h1, h2⟩, h3⟩ := h1
-  refine ⟨h1, fun k' hk' xs' hi' => ?_, h3⟩
-  have := h2 k' hk'
-  simp only [hi', bne_self_eq_false, Bool.false_or, beq_iff_eq] at this
-  exact this
+  obtain ⟨⟨⟨h1, h2⟩, h3⟩, h4⟩ := h1
+  refine ⟨h1, fun k' hk' xs' hi' => ?_, h3, fun k' hk' hn ha => ?_⟩
+  · have := h2 k' hk'
+    simp only [hi', bne_self_eq_false, Bool.false_or, beq_iff_eq] at this
+    exact this
+  · have := h4 k' hk'
+    rw [ha, hn] at this
+    simp at this
 
 /-- **Two symbols of `kernelSyms` with one decoding are one symbol**: their names are one name
 (`instDecode?_inj`), and `namesApartK` names distinct symbols apart. -/
@@ -291,17 +301,6 @@ theorem instsApart {c : Semantics} (hn : namesApartK c = true) {k k' : CtorSig} 
   simp only [namesApartK, Bool.and_eq_true, List.all_eq_true, Bool.or_eq_true, bne_iff_ne, ne_eq,
     beq_iff_eq] at hn
   exact (hn.1.1 k hk k' hk').resolve_left (fun hne => hne he)
-
-/-- A symbol of `kernelSyms` named like `ite` at a sort X is named at a numbered sort. -/
-theorem itesApart_iteSorted {c : Semantics} (h : itesApart c = true) {k : CtorSig} (hk : k ∈ kernelSyms c)
-    {X : String} (hi : iteSort? (c.symName k.name) = some X) : ∃ s ∈ kernelSorts c, c.sortName s = X :=
-  (itesApart_inst h hk (iteSort?_eq_some.1 hi)).1 X (List.mem_singleton_self X)
-
-/-- No two symbols of `kernelSyms` are named like `ite` at one sort. -/
-theorem itesOnce_of_namesApartK {c : Semantics} (hn : namesApartK c = true) {k k' : CtorSig}
-    (hk : k ∈ kernelSyms c) (hk' : k' ∈ kernelSyms c) {X : String} (hi : iteSort? (c.symName k.name) = some X)
-    (hi' : iteSort? (c.symName k'.name) = some X) : k = k' :=
-  instsApart hn hk hk' (iteSort?_eq_some.1 hi) (iteSort?_eq_some.1 hi')
 
 /-- The interpreted hooks and the parameters are not constructors, and no parameter is an
 interpreted hook: the interpretation reads a constructor first, then a hook, then a parameter, so
@@ -468,15 +467,15 @@ def Clause.appendKseqX (f : Sym) (cl : Clause) : Bool :=
     s0 == Srt.kitem && s1 == Srt.k && s2 == Srt.k && k0 == kseq && k1 == kseq && g == f
   | _, _, _, _, _, _, _, _ => false
 
-/-- K's `append`: f is a function of the definition, of `(K, K) → K`, named like no `ite` and no
-hooked or parameter symbol, whose clauses are `f(dotk, T) = T` and
+/-- K's `append`: f is a function of the definition, of `(K, K) → K`, named like no instance of a
+sort-parametric symbol (`instDecode?`) and no hooked or parameter symbol, whose clauses are `f(dotk, T) = T` and
 `f(kseq(I, KS), T) = kseq(I, f(KS, T))` of one priority (`Clause.appendDotX`,
 `Clause.appendKseqX`); K is a constructor sort whose generators are `kseq` and `dotk` alone. Every
 element of K is then `dotk` or a `kseq` (K's no-junk item), and the two equations, with `kseq` and
 `dotk`'s injectivity and distinctness, make the arguments of an application of f that is a value's
 element values' elements. -/
 def Semantics.appendHeldX (c : Semantics) (f : Sym) : Bool :=
-  !isHook f && !c.isParam f && (iteSort? (c.symName f)).isNone && (Faithful.consSorts c).contains Srt.k &&
+  !isHook f && !c.isParam f && (instDecode? (c.symName f)).isNone && (Faithful.consSorts c).contains Srt.k &&
   (match c.gens Srt.k with
     | [.ctor a, .ctor b] => a == ⟨kseq, [Srt.kitem, Srt.k], Srt.k⟩ && b == ⟨dotk, [], Srt.k⟩
     | _ => false) &&

@@ -1,10 +1,9 @@
 /-
   The conjuncts of `faithCoreOK` that read names, decided on the names' codes (NameCodes.lean).
   Run from the package root: `lake env lean test/NameCodes.lean`.
-  - A code `iteCoded` accepts is that of a name beginning `Lblite{`, whatever follows; a code
-    `instCoded` accepts is that of a name holding `{`.
+  - A code `instCoded` accepts is that of a name holding `{`.
   - The semantics of ModelItesWitness.lean (two parameters named `Lblite{Int}` and `Lblite{Int]`):
-    both are the symbols `iteIdx` and `instIdx` list, and the decisions on codes give
+    both are the symbols `instIdx` lists, and the decisions on codes give
     `namesNumbered`, `namesApartK` and `itesApart` (the decoder reads `Lblite{Int]` as no
     instance).
   - kompile's text of `f2-examples/libsub.k`: the three conjuncts from their decisions on codes, and
@@ -21,10 +20,6 @@ open KCore KCore.Faithful KCore.Faithful.Model KoreAML.Distinct
 
 namespace NameCodesTest
 
-theorem coded : iteCoded (strCode "Lblite{Int}") = true ∧ iteCoded (strCode "Lblite{") = true ∧
-    iteCoded (strCode "Lblite") = false ∧ iteCoded (strCode "Lblit{e") = false ∧
-    iteCoded (strCode "XLblite{Int}") = false ∧ iteCoded (strCode "") = false := by decide
-
 theorem instCodedT : instCoded (strCode "Lblite{Int}") = true ∧ instCoded (strCode "{") = true ∧
     instCoded (strCode "ab{") = true ∧ instCoded (strCode "Lblite") = false ∧
     instCoded (strCode "") = false := by decide +kernel
@@ -32,8 +27,6 @@ theorem instCodedT : instCoded (strCode "Lblite{Int}") = true ∧ instCoded (str
 namespace Ites
 
 abbrev c : Semantics := ItesWitness.c
-
-theorem ite_idx : iteIdx ((allSymNames c).map strCode) = [nRegSyms + 4, nRegSyms + 5] := by decide +kernel
 
 theorem inst_idx : instIdx ((allSymNames c).map strCode) = [nRegSyms + 4, nRegSyms + 5] := by decide +kernel
 

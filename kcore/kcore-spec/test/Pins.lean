@@ -377,8 +377,8 @@ example (s s' : Kore.KSort) (p q : Kore.Pattern) (ps : List Kore.Pattern) :
   ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
 
 example (c : Semantics) (f : Sym) : gammaHead c f =
-    match iteSort? (c.symName f) with
-    | some X => ("Lblite", [KoreAML.srt X])
+    match instDecode? (c.symName f) with
+    | some (h, xs) => (h, xs.map KoreAML.srt)
     | none => (c.symName f, []) := rfl
 example (c : Semantics) : gammaHeads c =
     (kernelSyms c).map (fun k => gammaHead c k.name) ++

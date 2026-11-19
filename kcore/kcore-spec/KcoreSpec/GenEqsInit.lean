@@ -79,39 +79,66 @@ theorem interpret_symb_congr {M : Type} (I J : Interpretation KoreAML.Sym M) (ha
 
 /-! ## Names no symbol resolves to -/
 
-/-- No symbol resolves to the name `n` at any arguments: it is neither `inj`'s nor `Lblite`'s, and
-no symbol of `kernelSyms` has it. -/
+/-- No symbol resolves to the name `n` at any arguments: it is neither `inj`'s nor `Lblite`'s, no
+symbol of `kernelSyms` has it, and none is named as an instance of the head `n` (`instDecode?`: a
+head applied to sorts resolves to its instances). -/
 def unresolvedB (c : Semantics) (n : String) : Bool :=
-  n != "inj" && n != "Lblite" && (resolve c n []).isNone
+  n != "inj" && n != "Lblite" && (resolve c n []).isNone &&
+    (kernelSyms c).all fun k => match instDecode? (c.symName k.name) with
+      | some (h, _) => h != n
+      | none => true
+
+/-- What `unresolvedB` says: the name is neither `inj` nor `Lblite`, no symbol of `kernelSyms` has
+it, and none is named as an instance of it. -/
+theorem unresolvedB_spec {c : Semantics} {n : String} (h : unresolvedB c n = true) :
+    n ≠ "inj" ∧ n ≠ "Lblite" ∧ resolve c n [] = none ∧
+      ∀ k ∈ kernelSyms c, ∀ xs, instDecode? (c.symName k.name) ≠ some (n, xs) := by
+  simp only [unresolvedB, Bool.and_eq_true, bne_iff_ne, ne_eq, Option.isNone_iff_eq_none, List.all_eq_true] at h
+  obtain ⟨⟨⟨hi, hl⟩, hr⟩, hh⟩ := h
+  refine ⟨hi, hl, hr, fun k hk xs hd => ?_⟩
+  have := hh k hk
+  rw [hd] at this
+  exact bne_iff_ne.mp this rfl
+
+/-- `unresolvedB` from its parts. -/
+theorem unresolvedB_of_parts {c : Semantics} {n : String} (hi : n ≠ "inj") (hl : n ≠ "Lblite")
+    (hr : resolve c n [] = none)
+    (hh : ∀ k ∈ kernelSyms c, ∀ xs, instDecode? (c.symName k.name) ≠ some (n, xs)) : unresolvedB c n = true := by
+  simp only [unresolvedB, Bool.and_eq_true, bne_iff_ne, ne_eq, Option.isNone_iff_eq_none, List.all_eq_true]
+  refine ⟨⟨⟨hi, hl⟩, hr⟩, fun k hk => ?_⟩
+  cases hd : instDecode? (c.symName k.name) with
+  | none => rfl
+  | some p =>
+    obtain ⟨h', xs⟩ := p
+    simp only [bne_iff_ne, ne_eq]
+    rintro rfl
+    exact hh k hk xs hd
 
 theorem resolve_none {c : Semantics} {n : String} (h : unresolvedB c n = true) (args : List Elem) :
     resolve c n args = none := by
-  simp only [unresolvedB, Bool.and_eq_true, bne_iff_ne, ne_eq, Option.isNone_iff_eq_none] at h
-  obtain ⟨⟨-, hl⟩, hr⟩ := h
-  have he : ∀ as : List Elem, resolve c n as = ((kernelSyms c).find? fun k => c.symName k.name == n).map (·, 0) := by
-    intro as
-    unfold resolve
-    split
-    · exact absurd rfl hl
-    · rfl
-  rw [he]; rw [he] at hr; exact hr
+  obtain ⟨-, -, hr, hh⟩ := unresolvedB_spec h
+  rcases args with _ | ⟨a, as⟩
+  · exact hr
+  · rcases a with v | s | ⟨hd, es⟩
+    · rw [resolve_plain n _ (by simp), ← resolve_nil]; exact hr
+    · exact resolve_head_noInst hh s as
+    · rw [resolve_plain n _ (by simp), ← resolve_nil]; exact hr
 
 theorem spareSymB_of_unresolved {c : Semantics} {n : String} (h : unresolvedB c n = true) : spareSymB c n = true := by
-  have hi : n ≠ "inj" := by
-    simp only [unresolvedB, Bool.and_eq_true, bne_iff_ne] at h; exact h.1.1
+  have hi : n ≠ "inj" := (unresolvedB_spec h).1
   simp only [spareSymB, resolve_none h [], Bool.and_true]
   exact bne_iff_ne.mpr hi
 
-/-- A name no symbol bears, other than `inj` and `Lblite`, is unresolved. -/
+/-- A name no symbol bears, other than `inj` and `Lblite`, at which no symbol is named as an
+instance (`Semantics.instHeadFree`), is unresolved. -/
 theorem unresolvedB_of_unnumbered (c : Semantics) {n : String}
-    (hn : (regSymNames ++ c.symNames).contains n = false) (he : n ≠ "") (hi : n ≠ "inj") (hl : n ≠ "Lblite") :
-    unresolvedB c n = true := by
+    (hn : (regSymNames ++ c.symNames).contains n = false) (he : n ≠ "") (hi : n ≠ "inj") (hl : n ≠ "Lblite")
+    (hh : c.instHeadFree n = true) : unresolvedB c n = true := by
   have hres : resolve c n [] = none := by
     rw [resolve_nil, Option.map_eq_none_iff, List.find?_eq_none]
     intro k _ hk
     exact symName_ne_of_unnumbered c hn he k.name (beq_iff_eq.mp hk)
-  simp only [unresolvedB, hres, Option.isNone_none, Bool.and_true, Bool.and_eq_true, bne_iff_ne, ne_eq]
-  exact ⟨hi, hl⟩
+  exact unresolvedB_of_parts hi hl hres fun k _ xs hd => instHeadFree_spec hh k.name hd rfl
 
 /-! ## The partial applications of the names, in the value model -/
 
@@ -147,15 +174,16 @@ theorem evalSymb_nil {c : Semantics} {τ : KoreAML.Sym} {h : Head} {args : List 
       · cases hx; rfl
 
 /-- The head of a name applied to arguments is given by `symAt` only for that name, and only where
-a symbol resolves to it or it is `Lblite`. -/
+a symbol resolves to it or the arguments are the first sorts of an instance of it (`instPrefix`). -/
 theorem symAt_sym {c : Semantics} {m n : String} {as args : List Elem}
-    (hx : symAt c m as (.app (.sym n) args)) (ha : as ≠ []) : n = m ∧ ((resolve c m as).isSome ∨ m = "Lblite") := by
+    (hx : symAt c m as (.app (.sym n) args)) (ha : as ≠ []) :
+    n = m ∧ ((resolve c m as).isSome ∨ instPrefix c m as = true) := by
   rcases symAt_cases hx with h | ⟨k, p, vs, hr, -, hres⟩
   · injection h with h1 _
     injection h1 with h1
     refine ⟨h1, ?_⟩
     cases hr : resolve c m as with
-    | none => exact .inr (symAt_none_late hr ha hx).1
+    | none => exact .inr (symAt_none_late hr ha hx)
     | some _ => exact .inl rfl
   · obtain ⟨v, hv⟩ := result_val hres
     cases hv
@@ -173,8 +201,8 @@ theorem evalApp_partial {c : Semantics} {T : GroundTerm → GroundTerm → Prop}
       have hx' : symAt c m (as ++ [b]) (.app (.sym n) args) := hx
       obtain ⟨rfl, hr | hl⟩ := symAt_sym hx' (by simp)
       · rw [resolve_none hn] at hr; cases hr
-      · simp only [unresolvedB, hl, bne_self_eq_false, Bool.and_false, Bool.false_and] at hn
-        cases hn
+      · obtain ⟨k, hk, xs, hd, -⟩ := instPrefix_spec hl
+        exact absurd hd ((unresolvedB_spec hn).2.2.2 k hk xs)
     | defined =>
       rcases as with _ | ⟨_, _⟩
       · rfl
@@ -512,11 +540,10 @@ theorem inj_den (a b : Srt) {ψ : KoreAML.P} {w : GroundTerm} {ρ : Valuation M}
   exact appList_congr _ _ _ _ (fun _ => Iff.rfl) (.cons (fun _ => Iff.rfl) (.cons (fun _ => Iff.rfl) (.cons h .nil))) m
 
 /-- The denotation of an interpreted symbol's application at values, as `ΓDomains` writes its
-graph, for a symbol that is not `ite` at a sort. -/
-theorem symApp_den {f : Sym} (hf : iteSort? (c.symName f) = none) (vs : List GroundTerm) :
+graph, for a symbol whose name the decoder reads as no instance. -/
+theorem symApp_den {f : Sym} (hf : instDecode? (c.symName f) = none) (vs : List GroundTerm) :
     KoreAML.den (symApp c f (GroundTerm.koreList c vs)) = KoreAML.appList (symP (c.symName f)) (vs.map (den c)) := by
-  unfold symApp
-  rw [hf]
+  rw [symApp_noInst hf]
   unfold KoreAML.den
   rw [KoreAML.tr_app0, trArgs_appList, koreList_den]
   rfl
@@ -636,7 +663,7 @@ theorem hookV_irs {k : CtorSig} (hk : k ∈ hookSigs) {ψs : List KoreAML.P}
     hook_den hM.sat hM.defOK hk hvs hr (fun h => by cases h) ρ m]
   exact hM.vals v s hs ρ m
 
-theorem hookV {k : CtorSig} (hk : k ∈ hookSigs) (_hf : iteSort? (c.symName k.name) = none) {ψs : List KoreAML.P}
+theorem hookV {k : CtorSig} (hk : k ∈ hookSigs) (_hf : instDecode? (c.symName k.name) = none) {ψs : List KoreAML.P}
     {vs : List GroundTerm} (h : All2 (DenV c I) ψs vs) (hvs : c.sortsOf vs = some k.args) {v : GroundTerm}
     (hr : hook k.name vs = some (some v)) {s : Srt} (hs : c.sortOf v = some s) :
     DenV c I (KoreAML.appList (symP (c.symName k.name)) ψs) v :=
@@ -653,7 +680,7 @@ theorem hookE_irs {k : CtorSig} (hk : k ∈ hookSigs) {ψs : List KoreAML.P}
     hook_den hM.sat hM.defOK hk hvs hr (fun _ => hsil) ρ m]
   exact id
 
-theorem hookE {k : CtorSig} (hk : k ∈ hookSigs) (_hf : iteSort? (c.symName k.name) = none) {ψs : List KoreAML.P}
+theorem hookE {k : CtorSig} (hk : k ∈ hookSigs) (_hf : instDecode? (c.symName k.name) = none) {ψs : List KoreAML.P}
     {vs : List GroundTerm} (h : All2 (DenV c I) ψs vs) (hvs : c.sortsOf vs = some k.args)
     (hr : hook k.name vs = some none) (hsil : silent k.name vs = false) :
     DenE I (KoreAML.appList (symP (c.symName k.name)) ψs) :=
@@ -696,18 +723,20 @@ end InitModel
 
 /-- **The theory with the equations of symbols it does not name, of any arity, has a model with
 the semantics' steps.** For a semantics that `coreOK` accepts under `FnHyp`, names `N` that are no
-symbol's of the semantics (nor `inj` or `Lblite`), arities `ar` and partial functions `G n` on
+symbol's of the semantics (nor `inj` or `Lblite`, nor the head of an instance-named symbol,
+`Semantics.instHeadFree`), arities `ar` and partial functions `G n` on
 lists of values: an interpretation that satisfies `Γc c` with the step's closure, in which every
 value of a sort denotes its own element and the name `n` applied to `ar n` values `ws` of a sort
 denotes exactly `G n ws`, nothing where that is `none` (a name of arity 0 is a constant)
 (`InitModel`), and whose steps at configurations are `Step`'s. -/
 theorem model_with_inits_step (c : Semantics) (h : c.coreOK = true) (hf : FnHyp c) (N : String → Prop)
     (ar : String → Nat) (G : String → List GroundTerm → Option GroundTerm)
-    (hN : ∀ n, N n → (regSymNames ++ c.symNames).contains n = false ∧ n ≠ "" ∧ n ≠ "inj" ∧ n ≠ "Lblite") :
+    (hN : ∀ n, N n → (regSymNames ++ c.symNames).contains n = false ∧ n ≠ "" ∧ n ≠ "inj" ∧ n ≠ "Lblite" ∧
+      c.instHeadFree n = true) :
     ∃ I : Interpretation KoreAML.Sym Elem, InitModel c N ar G I ∧
       ∀ x y : Config c, Step c x y ↔ ¬ (I ⊧ᴵ (den c x.val ⇒ ∼ KoreAML.sNext (den c y.val))) := by
   have hu : ∀ n, N n → unresolvedB c n = true := fun n hn =>
-    let ⟨h1, h2, h3, h4⟩ := hN n hn; unresolvedB_of_unnumbered c h1 h2 h3 h4
+    let ⟨h1, h2, h3, h4, h5⟩ := hN n hn; unresolvedB_of_unnumbered c h1 h2 h3 h4 h5
   have hfree : ∀ n, N n → ∀ φ, (Γc c ∪ Γstep c) φ → KoreAML.Sym.symbol n ∉ psyms φ := fun n hn =>
     nameFree_of_decided c [n] h (nameFreeB_of_unnumbered c [n] fun m hm => by
       rw [List.mem_singleton.mp hm]; exact hN n hn) n (List.mem_singleton_self _)

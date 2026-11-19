@@ -47,10 +47,11 @@ def sOK (s : Srt) : Bool := !isName c ss ks (.sort ("Sort" ++ c.sortName s))
 /-- The symbol's name is none of the names. -/
 def kOK (f : Sym) : Bool := !isName c ss ks (.symbol (c.symName f))
 
-/-- The head `symApp` writes for `f` names none of the names. -/
+/-- The head `symApp` writes for `f`, and each sort it writes the head at, names none of the names:
+the head and the sorts the decoder reads from the symbol's name (`instDecode?`), or the name. -/
 def appOK (f : Sym) : Bool :=
-  match iteSort? (c.symName f) with
-  | some X => !isName c ss ks (.symbol "Lblite") && !isName c ss ks (.sort ("Sort" ++ X))
+  match instDecode? (c.symName f) with
+  | some (h, xs) => !isName c ss ks (.symbol h) && xs.all fun x => !isName c ss ks (.sort ("Sort" ++ x))
   | none => kOK c ss ks f
 
 /-- `appOK` reads the head `symApp` writes and its sorts. -/
@@ -58,19 +59,19 @@ theorem appOK_of_symApp {f : Sym} {h : String} {xs : List String}
     (hw : ∀ ps, symApp c f ps = .app ⟨⟨h⟩⟩ (xs.map KoreAML.srt) ps) :
     appOK c ss ks f = (!isName c ss ks (.symbol h) && xs.all fun x => !isName c ss ks (.sort ("Sort" ++ x))) := by
   unfold appOK
-  cases hX : iteSort? (c.symName f) with
-  | some X =>
-    obtain ⟨rfl, rfl⟩ := symApp_writes_eq_iha hw (h' := "Lblite") (xs' := [X])
-      (fun ps => by unfold symApp; rw [hX]; rfl)
-    simp
+  cases hX : instDecode? (c.symName f) with
+  | some p =>
+    obtain ⟨h', xs'⟩ := p
+    obtain ⟨rfl, rfl⟩ := symApp_writes_eq_iha hw (h' := h') (xs' := xs') (fun ps => symApp_inst hX)
+    rfl
   | none =>
     obtain ⟨rfl, rfl⟩ := symApp_writes_eq_iha hw (h' := c.symName f) (xs' := [])
-      (fun ps => by unfold symApp; rw [hX]; rfl)
+      (fun ps => symApp_noInst hX)
     simp [kOK]
 
 /-- A symbol whose name the decoder reads as no instance is read by its name (`kOK`). -/
 theorem appOK_noInst {f : Sym} (h : instDecode? (c.symName f) = none) : appOK c ss ks f = kOK c ss ks f := by
-  unfold appOK; rw [iteSort?_none_of_instDecode h]
+  unfold appOK; rw [h]
 
 /-- The values of a sort outside the names are built from symbols and sorts outside the names:
 constructors, overloading symbols and parameter symbols with their argument sorts, both sorts of

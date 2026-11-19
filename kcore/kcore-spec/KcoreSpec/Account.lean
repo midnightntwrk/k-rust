@@ -166,7 +166,7 @@ def genEqClassOK (E : Env) (d : Definition) (eqs : List RawEqn) (e : RawEqn)
   let c := d.sem
   let noReq := e.req.isNone && e.ens.isNone && !e.dom
   let argProj := (dropPrefix? "Lblproject'Coln" e.fn).isSome && noReq && e.competitors.isNone &&
-    !regSymNames.contains e.fn && !c.symNames.contains e.fn &&
+    !regSymNames.contains e.fn && !c.symNames.contains e.fn && c.instHeadFree e.fn &&
     match e.pats, e.rhs with
     | [.app h [] args], .var (.evar v) =>
       c.ctorSigs.any (c.symName ·.name == h.ident.name) &&

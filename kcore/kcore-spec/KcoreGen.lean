@@ -620,7 +620,7 @@ decision on codes and that decision's arguments. -/
 def nameParts : List (String × String × String) :=
   [("namesNumbered", "Model.namesNumbered_of_codes sym_codes inst_idx", "Model.namesNumberedC defn.sem instIdxs"),
    ("namesApartK", "Model.namesApartK_of_codes sym_codes sort_codes", "Model.namesApartC defn.sem symCodes sortCodes"),
-   ("itesApart", "Model.itesApart_of_codes sym_codes sort_codes inst_idx", "Model.itesApartC defn.sem instIdxs sortCodes")]
+   ("itesApart", "Model.itesApart_of_codes sym_codes sort_codes inst_idx", "Model.itesApartC defn.sem instIdxs symCodes sortCodes")]
 
 /-- A list of numbers as Lean source, a few to a line. -/
 def natListSrc (l : List Nat) : String :=

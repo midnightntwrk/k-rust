@@ -390,35 +390,143 @@ theorem evalSymb_lblite (hn : NamesApartK c) (x : Elem) :
   rw [this]
   simp
 
-theorem find_ite (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c) {X : String}
-    (hi : iteSort? (c.symName k.name) = some X) :
-    (kernelSyms c).find? (fun k' => iteSort? (c.symName k'.name) == some X) = some k := by
-  cases hf : (kernelSyms c).find? (fun k' => iteSort? (c.symName k'.name) == some X) with
-  | none =>
-    have := List.find?_eq_none.mp hf k hk
-    simp [hi] at this
-  | some k' =>
-    have h1 : iteSort? (c.symName k'.name) = some X := by simpa using List.find?_some hf
-    have h2 := List.mem_of_find?_eq_some hf
-    rw [itesOnce_of_namesApartK h.names h2 hk h1 hi]
-
-/-- `Lblite` applied to the sort `s`, then to arguments, resolves to the symbol named like `ite` at
-`s`, after one sort argument. -/
-theorem resolve_ite (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c) {s : Srt}
-    (hi : iteSort? (c.symName k.name) = some (c.sortName s)) (tail : List Elem) :
-    resolve c "Lblite" (.srt s :: tail) = some (k, 1) := by
-  show ((kernelSyms c).find? fun k => iteSort? (c.symName k.name) == some (c.sortName s)).map (·, 1) = _
-  rw [find_ite h hk hi]; rfl
+/-- Where no symbol of `kernelSyms` is an instance at the head `n`, `n` applied to a sort resolves
+to none. -/
+theorem resolve_head_noInst {n : String}
+    (hi : ∀ k ∈ kernelSyms c, ∀ xs, instDecode? (c.symName k.name) ≠ some (n, xs))
+    (s : Srt) (tail : List Elem) : resolve c n (.srt s :: tail) = none := by
+  show (kernelSyms c).findSome? (fun k => (instAt c n (.srt s :: tail) k).map (k, ·)) = none
+  rw [List.findSome?_eq_none_iff]
+  intro k hk
+  cases hp : instAt c n (.srt s :: tail) k with
+  | none => rfl
+  | some p =>
+    obtain ⟨xs, hd, -⟩ := instAt_spec hp
+    exact absurd hd (hi k hk xs)
 
 /-- Where no symbol of `kernelSyms` is an instance at the head `Lblite`, `Lblite` applied to a sort
 resolves to none. -/
 theorem resolve_lblite_noInst
     (hi : ∀ k ∈ kernelSyms c, ∀ xs, instDecode? (c.symName k.name) ≠ some ("Lblite", xs))
-    (s : Srt) (tail : List Elem) : resolve c "Lblite" (.srt s :: tail) = none := by
-  show ((kernelSyms c).find? fun k => iteSort? (c.symName k.name) == some (c.sortName s)).map (·, 1) = none
-  rw [Option.map_eq_none_iff, List.find?_eq_none]
-  intro k hk he
-  exact hi k hk [c.sortName s] (iteSort?_eq_some.mp (beq_iff_eq.mp he))
+    (s : Srt) (tail : List Elem) : resolve c "Lblite" (.srt s :: tail) = none :=
+  resolve_head_noInst hi s tail
+
+/-! ## An instance's head at its sorts -/
+
+/-- The sort names of an instance-named symbol of `kernelSyms` are the names of numbered sorts. -/
+theorem instSorts_numbered (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c) {hd : String}
+    {xs : List String} (hi : instDecode? (c.symName k.name) = some (hd, xs)) :
+    ∃ ss : List Srt, (∀ s ∈ ss, s ∈ kernelSorts c) ∧ ss.map c.sortName = xs := by
+  have h1 := (itesApart_inst h.ites hk hi).1
+  clear hi
+  induction xs with
+  | nil => exact ⟨[], by simp, rfl⟩
+  | cons x xs ih =>
+    obtain ⟨s, hs, rfl⟩ := h1 x (List.mem_cons_self ..)
+    obtain ⟨ss, hss, rfl⟩ := ih (fun y hy => h1 y (List.mem_cons_of_mem _ hy))
+    exact ⟨s :: ss, fun t ht => by
+      rcases List.mem_cons.mp ht with rfl | ht
+      · exact hs
+      · exact hss t ht, rfl⟩
+
+/-- **The head of an instance denotes its partial application at no argument**: it is not `inj`,
+and a symbol of `kernelSyms` plainly named by it has an argument (`itesApart`), so it is no
+constant's name. -/
+theorem evalSymb_instHead (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c) {hd : String}
+    {xs : List String} (hi : instDecode? (c.symName k.name) = some (hd, xs)) (x : Elem) :
+    evalSymb c (.symbol hd) x ↔ x = .app (.sym hd) [] := by
+  obtain ⟨-, -, hinj, hconst⟩ := itesApart_inst h.ites hk hi
+  rw [evalSymb_symbol hinj, resolve_nil]
+  cases hf : (kernelSyms c).find? (fun k' => c.symName k'.name == hd) with
+  | none => exact Iff.rfl
+  | some k' =>
+    have hne := hconst k' (List.mem_of_find?_eq_some hf) (by simpa using List.find?_some hf)
+    show (if k'.args = [] then result c k' [] else fun x => x = Elem.app (.sym hd) []) x ↔ _
+    refine (ite_mem _ _ x).trans ?_
+    rw [if_neg hne]
+
+/-- **The head of an instance applied to its sorts, then to arguments, resolves to the instance**,
+after its sort arguments: a symbol found there is named at the head and at as many sorts
+(`itesApart`), so at these sorts, and two symbols of one decoding are one (`instsApart`). -/
+theorem resolve_inst (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c) {hd : String}
+    {ss : List Srt} (hne : ss ≠ []) (hi : instDecode? (c.symName k.name) = some (hd, ss.map c.sortName))
+    (tail : List Elem) : resolve c hd (ss.map Elem.srt ++ tail) = some (k, ss.length) := by
+  obtain ⟨s, ss', rfl⟩ := List.exists_cons_of_ne_nil hne
+  have hk0 : instAt c hd ((s :: ss').map Elem.srt ++ tail) k = some (s :: ss').length := by
+    unfold instAt
+    rw [hi]
+    simp only [List.length_map, beq_self_eq_true, Bool.true_and, leadSorts_srts, ↓reduceIte]
+  show (kernelSyms c).findSome? (fun k' => (instAt c hd ((s :: ss').map Elem.srt ++ tail) k').map (k', ·)) = _
+  cases hf : (kernelSyms c).findSome? (fun k' => (instAt c hd ((s :: ss').map Elem.srt ++ tail) k').map (k', ·)) with
+  | none =>
+    have := List.findSome?_eq_none_iff.mp hf k hk
+    rw [hk0] at this
+    cases this
+  | some kp =>
+    obtain ⟨k', hk', hkp⟩ := List.exists_of_findSome?_eq_some hf
+    obtain ⟨p, hp, rfl⟩ := Option.map_eq_some_iff.mp hkp
+    obtain ⟨xs', hd', hlen, hls⟩ := instAt_spec hp
+    have hl := (itesApart_inst h.ites hk hi).2.1 k' hk' xs' hd'
+    rw [List.length_map] at hl
+    have hxs : xs' = (s :: ss').map c.sortName := by
+      rw [← hlen, hl, leadSorts_srts] at hls
+      exact (Option.some.inj hls).symm
+    subst hxs
+    rw [instsApart h.names hk' hk hd' hi, ← hlen, List.length_map]
+
+/-- **At a nonempty proper prefix of an instance's sorts no symbol resolves, and the prefix begins
+the instance** (`instPrefix`): every instance of the head has as many sorts as this one. -/
+theorem resolve_instPrefix (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c) {hd : String}
+    {pre post : List Srt} (hpre : pre ≠ []) (hpost : post ≠ [])
+    (hi : instDecode? (c.symName k.name) = some (hd, (pre ++ post).map c.sortName)) :
+    resolve c hd (pre.map Elem.srt) = none ∧ instPrefix c hd (pre.map Elem.srt) = true := by
+  have hpl : 0 < post.length := List.length_pos_iff.mpr hpost
+  constructor
+  · obtain ⟨s, pre', rfl⟩ := List.exists_cons_of_ne_nil hpre
+    show (kernelSyms c).findSome? (fun k' => (instAt c hd ((s :: pre').map Elem.srt) k').map (k', ·)) = none
+    rw [List.findSome?_eq_none_iff]
+    intro k' hk'
+    cases hp : instAt c hd ((s :: pre').map Elem.srt) k' with
+    | none => rfl
+    | some p =>
+      obtain ⟨xs', hd', hlen, hls⟩ := instAt_spec hp
+      have hl := (itesApart_inst h.ites hk hi).2.1 k' hk' xs' hd'
+      have h2 := (leadSorts_length hls).2
+      simp only [List.length_map, List.length_append, List.length_cons, List.cons_append] at hl h2
+      omega
+  · refine List.any_eq_true.mpr ⟨k, hk, ?_⟩
+    rw [hi]
+    have hls := leadSorts_srts (c := c) pre []
+    rw [List.append_nil] at hls
+    simp only [beq_self_eq_true, Bool.true_and, Bool.and_eq_true, decide_eq_true_eq, beq_iff_eq,
+      List.length_map, List.length_append]
+    refine ⟨by omega, ?_⟩
+    rw [hls, List.map_append, List.take_left' (by simp)]
+
+/-- A list that is not empty ends with an element. -/
+theorem snoc_of_ne_nil {α : Type} : ∀ (l : List α), l ≠ [] → ∃ pre a, l = pre ++ [a]
+  | [], h => absurd rfl h
+  | [a], _ => ⟨[], a, rfl⟩
+  | a :: b :: l, _ => by
+    obtain ⟨pre, x, hx⟩ := snoc_of_ne_nil (b :: l) (List.cons_ne_nil _ _)
+    exact ⟨a :: pre, x, by rw [hx]; rfl⟩
+
+/-- Induction on a list from its end. -/
+theorem snoc_induction {α : Type} {P : List α → Prop} (hnil : P []) (hsnoc : ∀ l a, P l → P (l ++ [a])) :
+    ∀ l, P l := by
+  suffices ∀ n (l : List α), l.length = n → P l from fun l => this _ l rfl
+  intro n
+  induction n with
+  | zero => intro l hl; rw [List.eq_nil_of_length_eq_zero hl]; exact hnil
+  | succ n ih =>
+    intro l hl
+    obtain ⟨pre, a, rfl⟩ := snoc_of_ne_nil l (by intro h; rw [h] at hl; cases hl)
+    exact hsnoc pre a (ih pre (by simpa using hl))
+
+/-- An instance's head at one more sort is the head applied to that sort. -/
+theorem instHeadP_snoc (hd : String) (xs : List String) (x : String) :
+    instHeadP hd (xs ++ [x]) = instHeadP hd xs ⬝ KoreAML.sym (.sort ("Sort" ++ x)) := by
+  unfold instHeadP; rw [List.foldl_append]; rfl
 
 /-- `inhOf (SortX)` of the sorts of a list, as the arity item writes them. -/
 theorem map_inh (ss : List Srt) :
@@ -430,65 +538,90 @@ namespace AtT
 
 variable {T : GroundTerm → GroundTerm → Prop}
 
-/-- `Lblite` applied to the sort X, for a symbol the decoder reads as the head `Lblite` at the one
-sort X, then to values: what the symbol gives. -/
-theorem lbliteHead_app (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c) {X : String}
-    (hi : instDecode? (c.symName k.name) = some ("Lblite", [X])) {vs : List GroundTerm}
-    (hl : vs.length = k.args.length) (e : Valuation Elem) (m : Elem) :
-    (∃ a, (KoreAML.sym (.symbol "Lblite") ⬝ KoreAML.sym (.sort ("Sort" ++ X))).interpret (stdI_T c T) e a ∧
-      AppE (stdI_T c T) a (vs.map Elem.val) m) ↔ result c k vs m := by
-  have hn := h.namesK
-  obtain ⟨s', hs'm, rfl⟩ := (itesApart_inst h.ites hk hi).1 X (List.mem_singleton_self X)
-  have hr : ∀ tail, resolve c "Lblite" (.srt s' :: tail) = some (k, 1) := fun tail =>
-    resolve_ite h hk (iteSort?_eq_some.2 hi) tail
-  have hhead : ∀ a, (KoreAML.sym (.symbol "Lblite") ⬝ KoreAML.sym (.sort ("Sort" ++ c.sortName s'))).interpret
-      (stdI_T c T) e a ↔ symAt c "Lblite" [.srt s'] a := by
-    intro a
-    rw [KoreAML.interp_app]
-    simp only [KoreAML.interp_sym, stdI_symb]
+/-- **The head of an instance applied to a proper prefix of its sorts denotes that partial
+application.** -/
+theorem instHeadP_prefix (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c) {hd : String}
+    (pre : List Srt) : ∀ (post : List Srt), post ≠ [] → (∀ s ∈ pre ++ post, s ∈ kernelSorts c) →
+    instDecode? (c.symName k.name) = some (hd, (pre ++ post).map c.sortName) →
+    ∀ (e : Valuation Elem) (a : Elem),
+      ((instHeadP hd (pre.map c.sortName)).interpret (stdI_T c T) e a ↔
+        a = .app (.sym hd) (pre.map Elem.srt)) := by
+  refine snoc_induction (P := fun pre => ∀ (post : List Srt), post ≠ [] →
+    (∀ s ∈ pre ++ post, s ∈ kernelSorts c) →
+    instDecode? (c.symName k.name) = some (hd, (pre ++ post).map c.sortName) →
+    ∀ (e : Valuation Elem) (a : Elem),
+      ((instHeadP hd (pre.map c.sortName)).interpret (stdI_T c T) e a ↔
+        a = .app (.sym hd) (pre.map Elem.srt))) ?_ ?_ pre
+  · intro post _ _ hi e a
+    simp only [List.map_nil, instHeadP_nil, KoreAML.interp_sym, stdI_symb]
+    exact evalSymb_instHead h hk hi a
+  · intro pre s ih post hpost hs hi e a
+    have hi' : instDecode? (c.symName k.name) = some (hd, (pre ++ s :: post).map c.sortName) := by
+      simpa only [List.append_assoc, List.singleton_append] using hi
+    have ihp := ih (s :: post) (List.cons_ne_nil _ _)
+      (by simpa only [List.append_assoc, List.singleton_append] using hs) hi' e
+    have hsn : s < nRegSorts + c.sortNames.length := List.mem_range.mp (hs s (by simp))
+    obtain ⟨hr, hp⟩ := resolve_instPrefix h hk (pre := pre ++ [s]) (post := post) (by simp) hpost hi
+    simp only [List.map_append, List.map_cons, List.map_nil] at hr hp ⊢
+    rw [instHeadP_snoc, KoreAML.interp_app]
     constructor
-    · rintro ⟨h0, b0, hh0, hb0, hab⟩
-      rw [(evalSymb_lblite hn h0).mp hh0] at hab
-      have hb0' : b0 = .srt s' := (sort_den (T := T) hn (List.mem_range.mp hs'm) e b0).mp hb0
-      subst hb0'
+    · rintro ⟨a0, b0, ha0, hb0, hab⟩
+      rw [(ihp a0).mp ha0, (sort_den (T := T) h.namesK hsn e b0).mp hb0] at hab
+      exact (symAt_instPrefix hr (by simp) hp a).mp hab
+    · intro ha
+      exact ⟨_, _, (ihp _).mpr rfl, (sort_den (T := T) h.namesK hsn e _).mpr rfl,
+        (symAt_instPrefix hr (by simp) hp a).mpr ha⟩
+
+/-- The head `symApp` writes for an instance-named symbol of `kernelSyms`, at its sorts, applied to
+values: what the symbol gives. The head before its last sort is a partial application
+(`instHeadP_prefix`), and at all its sorts it resolves to the symbol (`resolve_inst`). -/
+theorem instHead_app_inst (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c) {hd : String}
+    {xs : List String} (_hw : ∀ ps, symApp c k.name ps = .app ⟨⟨hd⟩⟩ (xs.map KoreAML.srt) ps)
+    (hx : xs ≠ []) (hi : instDecode? (c.symName k.name) = some (hd, xs)) {vs : List GroundTerm}
+    (hl : vs.length = k.args.length) (e : Valuation Elem) (m : Elem) :
+    (∃ a, (instHeadP hd xs).interpret (stdI_T c T) e a ∧ AppE (stdI_T c T) a (vs.map Elem.val) m) ↔
+      result c k vs m := by
+  obtain ⟨ss, hss, rfl⟩ := instSorts_numbered h hk hi
+  have hne : ss ≠ [] := fun h0 => hx (by rw [h0]; rfl)
+  obtain ⟨pre, s, rfl⟩ := snoc_of_ne_nil ss hne
+  have hsn : s < nRegSorts + c.sortNames.length := List.mem_range.mp (hss s (by simp))
+  have hlen : (pre.map Elem.srt ++ [Elem.srt s]).length = pre.length + 1 := by simp
+  have hr : ∀ tail, resolve c hd ((pre.map Elem.srt ++ [Elem.srt s]) ++ tail) = some (k, pre.length + 1) :=
+    fun tail => by
+      have := resolve_inst h hk hne hi tail
+      simpa only [List.map_append, List.map_cons, List.map_nil, List.length_append, List.length_cons,
+        List.length_nil] using this
+  have hr0 := hr []
+  rw [List.append_nil] at hr0
+  have hpre := instHeadP_prefix (T := T) h hk pre [s] (List.cons_ne_nil _ _) hss hi e
+  have hhead : ∀ a, (instHeadP hd ((pre ++ [s]).map c.sortName)).interpret (stdI_T c T) e a ↔
+      symAt c hd (pre.map Elem.srt ++ [Elem.srt s]) a := by
+    intro a
+    rw [List.map_append, List.map_cons, List.map_nil, instHeadP_snoc, KoreAML.interp_app]
+    constructor
+    · rintro ⟨a0, b0, ha0, hb0, hab⟩
+      rw [(hpre a0).mp ha0, (sort_den (T := T) h.namesK hsn e b0).mp hb0] at hab
       exact hab
     · intro ha
-      exact ⟨_, _, (evalSymb_lblite hn _).mpr rfl,
-        (sort_den (T := T) hn (List.mem_range.mp hs'm) e _).mpr rfl, ha⟩
+      exact ⟨_, _, (hpre _).mpr rfl, (sort_den (T := T) h.namesK hsn e _).mpr rfl, ha⟩
   simp only [hhead]
   by_cases h0 : k.args = []
   · rw [h0] at hl
     obtain rfl : vs = [] := List.eq_nil_of_length_eq_zero hl
-    simp only [symAt_full (hr []) (by simp [h0]) (show vals ([Elem.srt s'].drop 1) = some [] from rfl),
-      List.map_nil, AppE]
+    simp only [symAt_full hr0 (by rw [hlen, h0]; rfl)
+      (show vals ((pre.map Elem.srt ++ [Elem.srt s]).drop (pre.length + 1)) = some [] by
+        rw [List.drop_of_length_le (by rw [hlen]; exact Nat.le_refl _)]; rfl), List.map_nil, AppE]
     constructor
     · rintro ⟨a, ha, rfl⟩; exact ha
     · intro hm; exact ⟨m, hm, rfl⟩
-  · simp only [symAt_partial (hr []) (by simp; exact List.length_pos_iff.mpr h0)]
-    have := appE_symP (T := T) (P := [.srt s']) (n := "Lblite") (k := k) (fun pre _ => hr _) [] vs
-      (by simp; exact List.length_pos_iff.mpr h0) (by simpa using hl) m
+  · have hpos : 0 < k.args.length := List.length_pos_iff.mpr h0
+    simp only [symAt_partial hr0 (by rw [hlen]; omega)]
+    have := appE_symP (T := T) (P := pre.map Elem.srt ++ [Elem.srt s]) (n := hd) (k := k)
+      (fun pre' _ => by rw [hlen]; exact hr _) [] vs (by simpa using hpos) (by simpa using hl) m
     simp only [List.map_nil, List.append_nil, List.nil_append] at this
     constructor
     · rintro ⟨a, rfl, ha⟩; exact this.mp ha
     · intro hm; exact ⟨_, rfl, this.mpr hm⟩
-
-/-- The head `symApp` writes for an instance-named symbol of `kernelSyms`, at its sorts, applied to
-values: what the symbol gives. -/
-theorem instHead_app_inst (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c) {hd : String}
-    {xs : List String} (hw : ∀ ps, symApp c k.name ps = .app ⟨⟨hd⟩⟩ (xs.map KoreAML.srt) ps)
-    (_hx : xs ≠ []) (_hi : instDecode? (c.symName k.name) = some (hd, xs)) {vs : List GroundTerm}
-    (hl : vs.length = k.args.length) (e : Valuation Elem) (m : Elem) :
-    (∃ a, (instHeadP hd xs).interpret (stdI_T c T) e a ∧ AppE (stdI_T c T) a (vs.map Elem.val) m) ↔
-      result c k vs m := by
-  cases hX : iteSort? (c.symName k.name) with
-  | some X =>
-    obtain ⟨rfl, rfl⟩ := symApp_writes_eq_iha hw (h' := "Lblite") (xs' := [X])
-      (fun ps => by unfold symApp; rw [hX]; rfl)
-    exact lbliteHead_app h hk (iteSort?_eq_some.1 hX) hl e m
-  | none =>
-    obtain ⟨-, rfl⟩ := symApp_writes_eq_iha hw (h' := c.symName k.name) (xs' := [])
-      (fun ps => by unfold symApp; rw [hX]; rfl)
-    exact absurd rfl _hx
 
 /-- **The head `symApp` writes**, at its sorts, applied to the values of a symbol of `kernelSyms`:
 what the symbol gives. -/

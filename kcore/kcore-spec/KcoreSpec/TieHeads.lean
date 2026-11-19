@@ -49,19 +49,20 @@ where
       simp only [appHeadsOfList, symbolsOfList, List.map_append, appHeadsOf_names p,
         appHeadsOfList_names ps]
 
-/-- The head at which Γ applies its symbol `f`, the one `symApp` writes: `Lblite` at the sort `SortX`
-for a symbol named `ite{X}`, the symbol's name with no sort argument otherwise (the registry's
+/-- The head at which Γ applies its symbol `f`, the one `symApp` writes: `h` at the sorts
+`Sortx₁`, …, `Sortxₙ` for a symbol whose name the decoder reads as the instance `h{x₁,…,xₙ}`
+(`instDecode?`), the symbol's name with no sort argument otherwise (the registry's
 `kIte`, named `Lblite`, among them: Γ applies it at no sort). -/
 def gammaHead (c : Semantics) (f : Sym) : String × List Kore.KSort :=
-  match iteSort? (c.symName f) with
-  | some X => ("Lblite", [KoreAML.srt X])
+  match instDecode? (c.symName f) with
+  | some (h, xs) => (h, xs.map KoreAML.srt)
   | none => (c.symName f, [])
 
 /-- `symApp` applies `f` at its head `gammaHead`. -/
 theorem symApp_gammaHead (c : Semantics) (f : Sym) (args : List Kore.Pattern) :
     symApp c f args = .app ⟨⟨(gammaHead c f).1⟩⟩ (gammaHead c f).2 args := by
   unfold symApp gammaHead
-  cases iteSort? (c.symName f) <;> rfl
+  cases instDecode? (c.symName f) <;> rfl
 
 /-- `gammaHead` is the head `symApp` writes, with its sorts. -/
 theorem gammaHead_of_symApp {c : Semantics} {f : Sym} {h : String} {xs : List String}
@@ -75,7 +76,7 @@ theorem gammaHead_of_symApp {c : Semantics} {f : Sym} {h : String} {xs : List St
 /-- A symbol whose name the decoder reads as no instance is Γ's at its name, at no sort. -/
 theorem gammaHead_noInst {c : Semantics} {f : Sym} (h : instDecode? (c.symName f) = none) :
     gammaHead c f = (c.symName f, []) := by
-  unfold gammaHead; rw [iteSort?_none_of_instDecode h]
+  unfold gammaHead; rw [h]
 
 /-- The heads at which Γ applies its symbols: the head of each of its symbols (`kernelSyms`) and the
 injection `inj` at each pair of `subsorts`, the order over which Γ's constructor items state the
@@ -97,20 +98,16 @@ def gammaHasHeadPlain (c : Semantics) (h : String × List Kore.KSort) : Bool :=
     (h.1 == "inj" && c.subsorts.any fun (a, b) =>
       decide ([KoreAML.srt (c.sortName a), KoreAML.srt (c.sortName b)] = h.2))
 
-/-- Where no symbol of Γ has a name `iteSort?` reads as an instance of `ite`, each of Γ's symbols
+/-- Where no symbol of Γ has a name the decoder reads as an instance, each of Γ's symbols
 is applied at its name with no sort argument, and `gammaHasHead` is `gammaHasHeadPlain`. -/
 theorem gammaHasHead_eq_plain {c : Semantics}
-    (hno : (kernelSyms c).all (fun k => (iteSort? (c.symName k.name)).isNone) = true) :
+    (hno : (kernelSyms c).all (fun k => (instDecode? (c.symName k.name)).isNone) = true) :
     gammaHasHead c = gammaHasHeadPlain c := by
   funext h
   obtain ⟨n, ss⟩ := h
   have hg : ∀ k ∈ kernelSyms c, gammaHead c k.name = (c.symName k.name, []) := by
     intro k hk
-    have h1 := List.all_eq_true.mp hno k hk
-    unfold gammaHead
-    cases hX : iteSort? (c.symName k.name) with
-    | none => rfl
-    | some X => rw [hX] at h1; exact absurd h1 Bool.false_ne_true
+    exact gammaHead_noInst (Option.isNone_iff_eq_none.mp (List.all_eq_true.mp hno k hk))
   simp only [gammaHasHead, gammaHeads, gammaHasHeadPlain, List.any_append, List.any_map]
   congr 1
   · apply Bool.eq_iff_iff.mpr

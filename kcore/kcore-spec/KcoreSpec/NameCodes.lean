@@ -10,9 +10,8 @@
 
   - a name the decoder reads as an instance (`instDecode?`) holds `{`, so its code has the byte 123
     among its digits (`instCoded_of_instDecode`); the symbols whose codes do are listed once
-    (`instIdx`), and `namesNumbered` and `itesApart` decode only those. A name `iteSort?` reads as
-    `ite` at a sort begins with the seven bytes of `Lblite{`, so its code has their value as its
-    low seven base-256 digits (`iteSort_none_of_code`, `iteIdx`);
+    (`instIdx`), and `namesNumbered` and `itesApart` decode only those; an instance's head is
+    compared with the names of the symbols of no arguments by its code;
   - names are distinct when their codes are, which the sorted codes decide (`nodup_of_ascending`);
     `namesApartK` then follows from distinct symbol numbers in `kernelSyms`, distinct codes of
     their names (picked from the table in one pass, `pick`) and of all numbered sorts' names, and
@@ -93,6 +92,18 @@ theorem strCode_getD {l : List String} {m : List Nat} (h : l.map strCode = m) {i
   subst h
   simp [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hl]
 
+/-- The code of a symbol's name is its entry of the codes, and 1, the code of the empty name, for
+a symbol that is not numbered. -/
+theorem strCode_symName_getD {c : Semantics} {sym : List Nat} (hc : (allSymNames c).map strCode = sym)
+    (f : Sym) : strCode (c.symName f) = sym.getD f 1 := by
+  rw [symName_eq_getD]
+  by_cases hf : f < sym.length
+  · rw [strCode_getD hc hf, List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hf, Option.getD_some]
+  · have hf' : ¬ f < (allSymNames c).length := by rw [← hc, List.length_map] at hf; exact hf
+    rw [List.getD_eq_getElem?_getD, List.getElem?_eq_none (Nat.le_of_not_lt hf'),
+      List.getD_eq_getElem?_getD, List.getElem?_eq_none (Nat.le_of_not_lt hf)]
+    decide
+
 /-! ## Distinct codes -/
 
 theorem nodup_of_ascending {p : Nat} {l : List Nat} (h : ascending (msort p l) = true) : l.Nodup :=
@@ -102,13 +113,7 @@ theorem eq_of_nodup_getElem {l : List Nat} (hn : l.Nodup) {i j : Nat} (hi : i < 
     (h : l[i] = l[j]) : i = j :=
   (List.Nodup.getElem_inj hn).mp h
 
-/-! ## Names read as `ite` at a sort -/
-
-/-- The value of the bytes of `Lblite{` as the low seven base-256 digits of a code. -/
-def itePrefix : Nat := 76 + 256 * (98 + 256 * (108 + 256 * (105 + 256 * (116 + 256 * (101 + 256 * 123)))))
-
-/-- A code whose low seven base-256 digits are the bytes of `Lblite{`. -/
-def iteCoded (n : Nat) : Bool := n % 256 ^ 7 == itePrefix
+/-! ## Codes of joined bytes -/
 
 theorem bytesCode_append (l r : List UInt8) : bytesCode (l ++ r) = bytesCode r * 256 ^ l.length + (bytesCode l - 256 ^ l.length) := by
   induction l with
@@ -135,32 +140,6 @@ theorem utf8Encode_cons_toList (c : Char) (l : List Char) :
     (c :: l).utf8Encode.data.toList = String.utf8EncodeChar c ++ l.utf8Encode.data.toList := by
   simp [List.utf8Encode]
 
-/-- A name read as `ite` at a sort has a code `iteCoded` accepts. -/
-theorem iteCoded_of_iteSort {n : String} (h : iteSort? n ≠ none) : iteCoded (strCode n) = true := by
-  obtain ⟨X, hX⟩ := Option.ne_none_iff_exists'.mp h
-  have heq := iteSort?_toList hX
-  generalize X.toList ++ ['}'] = rest at heq
-  · have hn : n = String.ofList ('L' :: 'b' :: 'l' :: 'i' :: 't' :: 'e' :: '{' :: rest) := by
-      rw [← heq, String.ofList_toList]
-    have he : (String.ofList ('L' :: 'b' :: 'l' :: 'i' :: 't' :: 'e' :: '{' :: rest)).toByteArray.data.toList =
-        [76, 98, 108, 105, 116, 101, 123] ++ rest.utf8Encode.data.toList := by
-      rw [String.toByteArray_ofList]
-      simp only [utf8Encode_cons_toList]
-      rfl
-    rw [hn, strCode, he, bytesCode_append]
-    simp only [iteCoded, beq_iff_eq]
-    have h7 : ([76, 98, 108, 105, 116, 101, 123] : List UInt8).length = 7 := rfl
-    rw [h7, Nat.add_comm, Nat.add_mul_mod_self_right]
-    decide
-
-/-- A name whose code `iteCoded` refuses is not read as `ite` at a sort. -/
-theorem iteSort_none_of_code {n : String} (h : iteCoded (strCode n) = false) : iteSort? n = none := by
-  cases hn : iteSort? n with
-  | none => rfl
-  | some X =>
-    rw [iteCoded_of_iteSort (by rw [hn]; exact Option.some_ne_none X)] at h
-    cases h
-
 /-- The positions from i of the entries of l that pass p. -/
 def idxWhere (p : Nat → Bool) : List Nat → Nat → List Nat
   | [], _ => []
@@ -178,22 +157,6 @@ theorem mem_idxWhere (p : Nat → Bool) : ∀ (l : List Nat) (i j : Nat) (hj : j
     rw [show i + (j + 1) = i + 1 + j by omega]
     unfold idxWhere
     split <;> simp [this]
-
-/-- The numbered symbols whose names' codes `iteCoded` accepts, given the codes of all numbered
-symbols' names. -/
-def iteIdx (sym : List Nat) : List Nat := idxWhere iteCoded sym 0
-
-/-- A symbol named like `ite` at a sort is listed in `iteIdx`. -/
-theorem mem_iteIdx {c : Semantics} {sym : List Nat} (hc : (allSymNames c).map strCode = sym) {f : Sym}
-    (h : iteSort? (c.symName f) ≠ none) : f ∈ iteIdx sym := by
-  rw [symName_eq_getD] at h
-  have hf : f < sym.length := by
-    rw [← hc, List.length_map]
-    refine Nat.lt_of_not_le fun hge => h ?_
-    rw [List.getD_eq_getElem?_getD, List.getElem?_eq_none hge]
-    rfl
-  have := mem_idxWhere iteCoded sym 0 f hf (by rw [← strCode_getD hc hf]; exact iteCoded_of_iteSort h)
-  simpa [iteIdx] using this
 
 /-! ## Names read as an instance -/
 
@@ -310,8 +273,10 @@ def iteSyms (c : Semantics) (I : List Nat) : List CtorSig := (kernelSyms c).filt
 /-- `itesApart` on codes, over the entries of `kernelSyms` among `I` (`iteSyms`), which lists
 those that may be named like an instance (`instIdx`): such an entry's sort names are numbered sort
 names (their codes are numbered sort names' codes), every such entry of its head has as many sorts,
-and its head is not `inj`. -/
-def itesApartC (c : Semantics) (I srt : List Nat) : Bool :=
+its head is not `inj`, and its head's code is the code of no name of an entry of `kernelSyms` of no
+arguments (`sym` the codes of the numbered symbols' names). -/
+def itesApartC (c : Semantics) (I sym srt : List Nat) : Bool :=
+  let cs := ((kernelSyms c).filter fun k => k.args.isEmpty).map fun k => sym.getD k.name 1
   (iteSyms c I).all fun k =>
     (match instDecode? (c.symName k.name) with
       | some (_, xs) => xs.all fun x => srt.contains (strCode x)
@@ -324,10 +289,13 @@ def itesApartC (c : Semantics) (I srt : List Nat) : Bool :=
       | none => true) &&
     (match instDecode? (c.symName k.name) with
       | some (h, _) => h != "inj"
+      | none => true) &&
+    (match instDecode? (c.symName k.name) with
+      | some (h, _) => !cs.contains (strCode h)
       | none => true)
 
 theorem itesApart_of_codes {c : Semantics} {sym srt I : List Nat} (hc : (allSymNames c).map strCode = sym)
-    (hs : (allSortNames c).map strCode = srt) (hI : instIdx sym = I) (h : itesApartC c I srt = true) :
+    (hs : (allSortNames c).map strCode = srt) (hI : instIdx sym = I) (h : itesApartC c I sym srt = true) :
     itesApart c = true := by
   subst hI
   have hmem : ∀ k ∈ kernelSyms c, instDecode? (c.symName k.name) ≠ none → k ∈ iteSyms c (instIdx sym) :=
@@ -341,8 +309,8 @@ theorem itesApart_of_codes {c : Semantics} {sym srt I : List Nat} (hc : (allSymN
     have hks := hmem k hk (by rw [hd]; exact Option.some_ne_none _)
     have hk' := List.all_eq_true.mp h k hks
     simp only [hd, Bool.and_eq_true, List.all_eq_true] at hk' ⊢
-    obtain ⟨⟨h1, h2⟩, h3⟩ := hk'
-    refine ⟨⟨fun x hx => ?_, fun k' hk'' => ?_⟩, h3⟩
+    obtain ⟨⟨⟨h1, h2⟩, h3⟩, h4⟩ := hk'
+    refine ⟨⟨⟨fun x hx => ?_, fun k' hk'' => ?_⟩, h3⟩, fun k' hk'' => ?_⟩
     · have := h1 x hx
       simp only [List.contains_iff_mem] at this
       obtain ⟨i, hi, hiX⟩ := List.getElem_of_mem this
@@ -357,6 +325,15 @@ theorem itesApart_of_codes {c : Semantics} {sym srt I : List Nat} (hc : (allSymN
         have := h2 k' (hmem k' hk'' (by rw [hd']; exact Option.some_ne_none _))
         rw [hd'] at this
         exact this
+    · cases ha : k'.args.isEmpty with
+      | false => rfl
+      | true =>
+        simp only [Bool.not_true, Bool.false_or, bne_iff_ne, ne_eq]
+        intro hn
+        have hm : strCode hh ∈ ((kernelSyms c).filter fun k => k.args.isEmpty).map fun k => sym.getD k.name 1 :=
+          List.mem_map.mpr ⟨k', List.mem_filter.mpr ⟨hk'', ha⟩, by rw [← strCode_symName_getD hc, hn]⟩
+        rw [Bool.not_eq_true', ← Bool.not_eq_true, List.contains_iff_mem] at h4
+        exact h4 hm
 
 /-! ## `namesApartK` -/
 

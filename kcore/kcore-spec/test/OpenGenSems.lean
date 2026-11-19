@@ -468,7 +468,7 @@ other conjuncts of the raw branch (no hook, no law, a number outside the registr
 theorem coreOK_refuses : c2.coreOK = false ∧ c2.paramsPlain = false ∧ c2.shapesOK = false ∧
     c2.enumShapesOK = false ∧ c2.floatShapeOK = true ∧ Faithful.genWf c2 = true ∧
     c2.params.all (fun k => k.raw && k.impl.isNone && !k.assoc && !k.idem &&
-      decide (nRegSyms ≤ k.sig.name) && (iteSort? (c2.symName k.sig.name)).isNone) = true ∧
+      decide (nRegSyms ≤ k.sig.name) && (instDecode? (c2.symName k.sig.name)).isNone) = true ∧
     (c2.subsortsOK && c2.fns.all (fun f => f.clauses.all (c2.clauseSorted f (c2.fns.map Fn.sig))) &&
       c2.rules.all c2.ruleSorted && c2.rulesPlain && c2.clausesPlain && c2.carriersOK &&
       c2.faithCoreOK && c2.hooksApart && c2.predsApart && c2.idsOK && c2.overloadsOK) = true := by
@@ -644,7 +644,7 @@ theorem openRule_coreOK : OpenRule.c.coreOK = true := by decide_cheap
 theorem commCtor_raw_or : CommCtor.orP.impl = none ∧
     ((CommCtor.orP.assoc || CommCtor.orP.idem) = true →
       CommCtor.orP.sig.args = [CommCtor.orP.sig.result, CommCtor.orP.sig.result]) ∧
-    nRegSyms ≤ CommCtor.orP.sig.name ∧ iteSort? (CommCtor.c.symName CommCtor.orP.sig.name) = none ∧
+    nRegSyms ≤ CommCtor.orP.sig.name ∧ instDecode? (CommCtor.c.symName CommCtor.orP.sig.name) = none ∧
     CommCtor.c.shapesOK = true :=
   Semantics.raw_of_core commCtor_coreOK (k := CommCtor.orP) (by decide +kernel) rfl
 

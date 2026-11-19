@@ -118,7 +118,7 @@ def armHead (c : Semantics) (isN : String → Bool) (ar : String → Nat) (G : S
   | some k => if (c.sortOf (.ctor k.name ws)).isSome then some (some (.ctor k.name ws)) else none
   | none => match hookSigs.find? (fun k => c.symName k.name == h) with
     | some k =>
-      if iteSort? h = none ∧ c.sortsOf ws = some k.args then
+      if c.sortsOf ws = some k.args then
         match hook k.name ws with
         | some (some v) => if (c.sortOf v).isSome then some (some v) else none
         | some none => if silent k.name ws = false then some none else none
@@ -367,7 +367,7 @@ theorem armHead_sound {h : String} {ψs : List KoreAML.P} {ws : List GroundTerm}
         dsimp only
         have hkn : c.symName k.name = h := by have := List.find?_some hk'; exact beq_iff_eq.mp this
         have hmem : k ∈ hookSigs := List.mem_of_find?_eq_some hk'
-        by_cases hc : iteSort? h = none ∧ c.sortsOf ws = some k.args
+        by_cases hc : c.sortsOf ws = some k.args
         · rw [if_pos_walk hc]
           cases hr : hook k.name ws with
           | none => trivial
@@ -377,14 +377,14 @@ theorem armHead_sound {h : String} {ψs : List KoreAML.P} {ws : List GroundTerm}
               dsimp only
               by_cases hs : (c.sortOf v).isSome = true
               · rw [if_pos_walk hs]
-                have := hM.hookV_irs hmem hws hc.2 hr (Option.some_get hs).symm
+                have := hM.hookV_irs hmem hws hc hr (Option.some_get hs).symm
                 rwa [hkn] at this
               · rw [if_neg_arm hs]; trivial
             | none =>
               dsimp only
               by_cases hsil : silent k.name ws = false
               · rw [if_pos_walk hsil]
-                have := hM.hookE_irs hmem hws hc.2 hr hsil
+                have := hM.hookE_irs hmem hws hc hr hsil
                 rwa [hkn] at this
               · rw [if_neg_arm hsil]; trivial
         · rw [if_neg_arm hc]; trivial
@@ -736,10 +736,11 @@ def armBase (c : Semantics) (eqs : List Parse.RawEqn) : String → List GroundTe
 /-! ## The names -/
 
 /-- The name is one the model may give a meaning: no symbol of the registry or of `c` (nor `""`,
-`inj`, `Lblite`), or a sort's projection with an equation the arm for sort projections accepts
-(`predProjAcc`). -/
+`inj`, `Lblite`) and the head of no symbol of `c` named as an instance (`Semantics.instHeadFree`:
+`Γ` applies such a symbol at its head), or a sort's projection with an equation the arm for sort
+projections accepts (`predProjAcc`). -/
 def armNameB (Nm : Parse.Names) (msrc : String) (eqs : List Parse.RawEqn) (c : Semantics) (n : String) : Bool :=
-  (!(regSymNames ++ c.symNames).contains n && n != "" && n != "inj" && n != "Lblite") ||
+  (!(regSymNames ++ c.symNames).contains n && n != "" && n != "inj" && n != "Lblite" && c.instHeadFree n) ||
   ((KoreAML.Parse.dropPrefix? "Lblproject'Coln'" n).isSome &&
     eqs.any fun e => e.fn == n && Parse.predProjAcc Nm msrc eqs c e)
 
@@ -762,26 +763,17 @@ theorem armName_free {Nm : Parse.Names} {msrc : String} {eqs : List Parse.RawEqn
   unfold armNameB at h
   rcases Bool.or_eq_true_iff.mp h with h1 | h2
   · simp only [Bool.and_eq_true, Bool.not_eq_true', bne_iff_ne, ne_eq] at h1
-    obtain ⟨⟨⟨hu, he⟩, hi⟩, hl⟩ := h1
+    obtain ⟨⟨⟨⟨hu, he⟩, hi⟩, hl⟩, hh⟩ := h1
     exact ⟨nameFree_of_decided c [n] hc (nameFreeB_of_unnumbered c [n] fun m hm => by
-        rw [List.mem_singleton.mp hm]; exact ⟨hu, he, hi, hl⟩) n (List.mem_singleton_self _),
-      unresolvedB_of_unnumbered c hu he hi hl⟩
+        rw [List.mem_singleton.mp hm]; exact ⟨hu, he, hi, hl, hh⟩) n (List.mem_singleton_self _),
+      unresolvedB_of_unnumbered c hu he hi hl hh⟩
   · simp only [Bool.and_eq_true, List.any_eq_true, beq_iff_eq] at h2
     obtain ⟨hX, e, -, rfl, hp⟩ := h2
-    have hfree := (sortProj_free_of_predProjAcc hp hX hc).1
+    obtain ⟨hfree, hres, -⟩ := sortProj_free_of_predProjAcc hp hX hc
     have hne : e.fn ≠ "inj" ∧ e.fn ≠ "Lblite" := by
       refine ⟨?_, ?_⟩ <;>
         · intro he; rw [he] at hX; revert hX; decide
-    have hres : Faithful.Model.resolve c e.fn [] = none := by
-      rw [Faithful.Model.resolve_nil, Option.map_eq_none_iff, List.find?_eq_none]
-      intro k hk hn
-      have he := beq_iff_eq.mp hn
-      obtain ⟨φ, hφ, hm⟩ := kernelSym_named hk (by rw [he]; exact iteSort_none_of_proj hX)
-      rw [he] at hm
-      exact hfree φ hφ hm
-    refine ⟨hfree, ?_⟩
-    simp only [unresolvedB, hres, Option.isNone_none, Bool.and_true, Bool.and_eq_true, bne_iff_ne, ne_eq]
-    exact hne
+    exact ⟨hfree, unresolvedB_of_parts hne.1 hne.2 hres (noInstHead_of_free hfree)⟩
 
 /-! ## The model -/
 

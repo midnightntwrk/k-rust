@@ -171,14 +171,36 @@ def vals : List Elem → Option (List GroundTerm)
   | .val v :: es => (vals es).map (v :: ·)
   | _ :: _ => none
 
+/-- The names of the first `m` elements of a list, where each is a sort. -/
+def leadSorts : Nat → List Elem → Option (List String)
+  | 0, _ => some []
+  | m + 1, .srt s :: es => (leadSorts m es).map (c.sortName s :: ·)
+  | _ + 1, _ => none
+
+/-- The number of sort arguments `k` takes as the instance of the head `n` at the sorts `args`
+begins with: `k`'s name decodes to `n` at sort names (`instDecode?`) that are those of as many
+leading elements of `args`. -/
+def instAt (n : String) (args : List Elem) (k : CtorSig) : Option Nat :=
+  match instDecode? (c.symName k.name) with
+  | some (h, xs) => if h == n && leadSorts c xs.length args == some xs then some xs.length else none
+  | none => none
+
+/-- `args` are sorts, fewer than the sorts of an instance of the head `n` among `kernelSyms` and
+the first of them: the head before all its sort arguments. -/
+def instPrefix (n : String) (args : List Elem) : Bool :=
+  (kernelSyms c).any fun k => match instDecode? (c.symName k.name) with
+    | some (h, xs) => h == n && decide (args.length < xs.length) &&
+        leadSorts c args.length args == some (xs.take args.length)
+    | none => false
+
 /-- The symbol an application of the head named `n` to `args` is, with the number of sort
-arguments it takes first: the symbol named `ite` at the sort of a leading sort argument, for
-`Lblite` applied to a sort (`symApp`); otherwise the symbol of that name. -/
+arguments it takes first. Where `args` begins with a sort: the symbol named as the instance of
+`n` at the sorts `args` begins with (`instAt`; `symApp` writes an instance-named symbol as its
+head applied to its sorts), and no other. Otherwise the symbol of that name, at no sort. -/
 def resolve (n : String) (args : List Elem) : Option (CtorSig × Nat) :=
-  match n, args with
-  | "Lblite", .srt s :: _ =>
-    ((kernelSyms c).find? fun k => iteSort? (c.symName k.name) == some (c.sortName s)).map (·, 1)
-  | _, _ => ((kernelSyms c).find? fun k => c.symName k.name == n).map (·, 0)
+  match args with
+  | .srt _ :: _ => (kernelSyms c).findSome? fun k => (instAt c n args k).map (k, ·)
+  | _ => ((kernelSyms c).find? fun k => c.symName k.name == n).map (·, 0)
 
 /-- What the overloading symbol `f` gives at the argument values `vs`: where a function it
 overloads covers them (`fnCover`), that function's results under `Eval` at the stripped arguments,
@@ -214,10 +236,8 @@ def symAt (n : String) (args : List Elem) : Set Elem :=
       | none => fun _ => False
     else fun _ => False
   | none => if args = [] then fun x => x = .app (.sym n) [] else
-      -- `Lblite` before its first argument is the only name that resolves late
-      match n, args with
-      | "Lblite", [_] => fun x => x = .app (.sym n) args
-      | _, _ => fun _ => False
+      -- the head of an instance before all its sort arguments resolves late
+      if instPrefix c n args then fun x => x = .app (.sym n) args else fun _ => False
 
 /-- The model's step: a rule whose left-hand side denotes `x` under a well-sorted σ, whose
 `requires` and `ensures` evaluate to `true`, whose predicates `pre` and `post` hold (`Holds … true`)
