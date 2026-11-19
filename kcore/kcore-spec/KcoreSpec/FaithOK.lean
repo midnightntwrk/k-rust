@@ -365,11 +365,47 @@ def Semantics.fnOverloads (c : Semantics) (f : Sym) : List Fn :=
 def Semantics.ovlHeld (c : Semantics) (f : Sym) : Bool :=
   c.isOvl f && (c.fnOverloads f).all fun fn => fn.args.all c.confined
 
+/-- The clause `f(dotk, T) = T` over the one variable `T : K`, with no `requires`, no `ensures`, no
+existential variable and `\top` predicates. -/
+def Clause.appendDotX (cl : Clause) : Bool :=
+  match cl.vars, cl.pats, cl.req, cl.rhs, cl.ens, cl.exs, cl.pre, cl.post with
+  | [s], [.app d [], .var 0], none, .var 0, none, [], .top, .top => s == Srt.k && d == dotk
+  | _, _, _, _, _, _, _, _ => false
+
+/-- The clause `f(kseq(I, KS), T) = kseq(I, f(KS, T))` over the variables `I : KItem`, `KS : K`,
+`T : K`, with no `requires`, no `ensures`, no existential variable and `\top` predicates. -/
+def Clause.appendKseqX (f : Sym) (cl : Clause) : Bool :=
+  match cl.vars, cl.pats, cl.req, cl.rhs, cl.ens, cl.exs, cl.pre, cl.post with
+  | [s0, s1, s2], [.app k0 [.var 0, .var 1], .var 2], none, .app k1 [.var 0, .app g [.var 1, .var 2]],
+      none, [], .top, .top =>
+    s0 == Srt.kitem && s1 == Srt.k && s2 == Srt.k && k0 == kseq && k1 == kseq && g == f
+  | _, _, _, _, _, _, _, _ => false
+
+/-- K's `append`: f is a function of the definition, of `(K, K) → K`, named like no `ite` and no
+hooked or parameter symbol, whose clauses are `f(dotk, T) = T` and
+`f(kseq(I, KS), T) = kseq(I, f(KS, T))` of one priority (`Clause.appendDotX`,
+`Clause.appendKseqX`); K is a constructor sort whose generators are `kseq` and `dotk` alone. Every
+element of K is then `dotk` or a `kseq` (K's no-junk item), and the two equations, with `kseq` and
+`dotk`'s injectivity and distinctness, make the arguments of an application of f that is a value's
+element values' elements. -/
+def Semantics.appendHeldX (c : Semantics) (f : Sym) : Bool :=
+  !isHook f && !c.isParam f && (iteSort? (c.symName f)).isNone && (Faithful.consSorts c).contains Srt.k &&
+  (match c.gens Srt.k with
+    | [.ctor a, .ctor b] => a == ⟨kseq, [Srt.kitem, Srt.k], Srt.k⟩ && b == ⟨dotk, [], Srt.k⟩
+    | _ => false) &&
+  match c.lookupFn f with
+  | some fn => fn.args == [Srt.k, Srt.k] && fn.result == Srt.k &&
+    match fn.clauses with
+    | [a, b] => a.prio == b.prio && ((a.appendDotX && b.appendKseqX f) || (b.appendDotX && a.appendKseqX f))
+    | _ => false
+  | none => false
+
 /-- The symbols under which a value's element has values' elements as arguments: the unit, element
-and concatenation symbols of a map, list or set collection, and an overloading symbol each function
-in whose overload closure takes arguments of confined sorts (`ovlHeld`). -/
+and concatenation symbols of a map, list or set collection, an overloading symbol each function
+in whose overload closure takes arguments of confined sorts (`ovlHeld`), and K's `append`
+(`appendHeldX`). -/
 def Semantics.holds (c : Semantics) (f : Sym) : Bool :=
-  patternHooks.contains f || c.isCollPat f || c.ovlHeld f
+  patternHooks.contains f || c.isCollPat f || c.ovlHeld f || c.appendHeldX f
 
 mutual
   /-- The variables a term holds under constructors, injections and the symbols under which a
