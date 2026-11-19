@@ -398,4 +398,18 @@
 #             module's code (an uncommented rule, syntax, context or claim) that the text holds no
 #             sentence of is stated by no theorem, so the row is "uncovered: MODULE; NAME
 #             (FILE:LINE) held by no tied text; on TEXT n of its m rules and its configuration are
-#             tied (FILES)".
+#             tied (FILES)", unless the row's `instances` names an instance of that rule which
+#             e6map accepts (below); then the list also names the instance's theorems.
+#   instances  on a module row of form (m): a list of { sentence = "rule NAME (FILE:LINE)",
+#             fixture = FIXTURE, axiom = N, why = "..." }, each naming, for a live rule of the
+#             module that its `fixture` text holds no sentence of, axiom N of the text
+#             f2-examples/FIXTURE.kompile.kore as the sentence kompile writes for that rule: a rule
+#             the module's code says kompile instantiates according to a user's rule (stdinUnblock),
+#             written at the user's rule's Location. e6map.py accepts it where the axiom is of the
+#             rule's shape (e6map's INSTANCE_SHAPES), is at a Location of a user's file where the
+#             text holds another rule, is a rewrite rule of a tie on that text with `uncovered`
+#             empty (its class "rewrite rule" alone, in `ruleText`, with Γ's rule item from it and
+#             rules_account, rule_from_text, rule_prios declared), and refuses it otherwise
+#             ("(its instance FIXTURE axiom N: WHY: refused)" in the uncovered string). `why` says
+#             what the axiom is and that its being kompile's instance of the rule rests on kompile
+#             (DONE-0 section 0 (3)), with the fixture as evidence.
