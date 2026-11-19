@@ -2038,6 +2038,14 @@ table above, on the tree before String and Bytes). Not investigated here.
   `TieReqBool.ceil_const`, and not `{true}`, `TieReqBool.eqTrue_empty`). Expectation from `Pre H`,
   through the reading (the priority premise): `ceil_other` (`go(1)` steps to `other`). About 4
   minutes.
+- `test/NotePredBoolTop.lean`, `test/NotePredBoolFloor.lean`: the same on the texts of
+  e3-ml-req-top (`requires \top{Bool} = true`) and e3-ml-req-floor
+  (`requires ⌊⌈1 /Int X⌉⌋ = true` at Bool), for every H. `rule_from_text` as there. The sentence's
+  own left side holds nothing at every valuation (`ltext0_empty`): `\top{Bool}` is the sort Bool
+  (`topBool_const`) and a `\floor` into Bool is all of Bool or none of it whatever its operand is
+  (`floorBool_const`), so neither is `{true}`. Hence Γ entails sentence 157 (`rule157_entailed`),
+  and at values (`rule157_at_values`). Expectations `top_other`, `floor_other` (`go(1)` steps to
+  `other`). About 3 minutes each.
 - `test/NoteAndBool.lean`: the tie (C14) of the reading note `andAtBool` on its construct fixture's
   kompiled text (`f2-examples/mlreqv`, e3-ml-req-and-var), for every H, in the same form. Sentence
   113 (`requires \and{SortBool{}}(true, B) = true`) is entailed at values (`EntailsAtValues`,
