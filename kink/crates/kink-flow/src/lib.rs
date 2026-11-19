@@ -48,6 +48,10 @@
 //! patterns their answers hit, the items `coverage` covers), each computed in process; it writes
 //! no lock and edits no file. FB56 asks a cell of the kill and pattern matrices only where a
 //! decision needs it, with the decisions `run --full` and `query --full` give (`prune --full`).
+//!
+//! PJ-11 adds the mutant ends store ([`mutant_ends`]): the ends of each mutant run `run` makes
+//! live, under the mutant's own key and with no projection in it, written beside the tier-1
+//! records for a judgement under another projection; `run` decides nothing from it.
 
 pub mod admit;
 pub mod check;
@@ -67,6 +71,7 @@ pub mod guards;
 pub mod lock;
 pub mod manifest;
 pub mod memo;
+pub mod mutant_ends;
 pub mod mutation;
 pub mod names;
 pub mod observed;

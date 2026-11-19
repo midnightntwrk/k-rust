@@ -401,6 +401,57 @@ pub fn execution_digest(manifest: &FlowManifest, spec: &AdmittedSpec) -> Executi
     }
 }
 
+/// The execution digest of the admitted specification with no projection in it: the payload of
+/// [`execution_digest`] without `result_cells`, which names what the second slot compares (a
+/// projection, gate G4), not what a run is. It keys the mutant ends store
+/// ([`crate::mutant_ends`]), whose records are the same whatever cells a projection compares; the
+/// definition, with its `unobservable` declarations, stays in it. Without a payload it is the
+/// specification digest, as [`execution_digest`]'s fallback is, which only costs misses.
+pub fn ends_execution_digest(manifest: &FlowManifest, spec: &AdmittedSpec) -> ExecutionDigest {
+    match execution_payload(manifest, spec) {
+        Some(mut payload) => {
+            if let Some(payload) = payload.as_object_mut() {
+                payload.remove("result_cells");
+            }
+            ExecutionDigest {
+                kind: EXECUTION_DIGEST_KIND,
+                digest: payload_digest(EXECUTION_DOMAIN, canonical_json(&payload).as_bytes()),
+            }
+        }
+        None => ExecutionDigest {
+            kind: SPEC_DOMAIN,
+            digest: spec_digest(manifest, &spec.loaded.files),
+        },
+    }
+}
+
+/// The members of a tier-1 context ([`outcome_context`]) that name a projection: the slots, the
+/// cells the second leaves out, and a front end's kill evidence. None of them is an input of a
+/// run.
+pub const PROJECTION_MEMBERS: [&str; 3] = ["oracles", "not_compared", "evidence"];
+
+/// The context of the mutant ends store ([`crate::mutant_ends`]): the tier-1 context `outcome`
+/// with its [`PROJECTION_MEMBERS`] removed, its `outcome_schema` replaced by `ends_schema`
+/// ([`crate::mutant_ends::MUTANT_ENDS_VERSION`]) and its execution digest by `execution`
+/// ([`ends_execution_digest`]). Members are removed rather than selected, so a member a later
+/// change adds to the tier-1 context keys the ends too: an input of the run is then named, and a
+/// further projection member only costs misses.
+pub fn mutant_ends_context(outcome: &Value, execution: ExecutionDigest) -> Value {
+    let mut context = outcome.clone();
+    if let Some(members) = context.as_object_mut() {
+        for member in PROJECTION_MEMBERS {
+            members.remove(member);
+        }
+        members.remove("outcome_schema");
+        members.insert(
+            "ends_schema".into(),
+            json!(crate::mutant_ends::MUTANT_ENDS_VERSION),
+        );
+        members.insert("execution_digest".into(), execution.value());
+    }
+    context
+}
+
 /// The tier-1 context (flow README 7.5.3, "The key"): every component of the key except the
 /// mutation and the program, shared by every mutation of one command. `result` is what the
 /// programs' second slot compares: the context names the slots, and the cells left out when

@@ -325,7 +325,7 @@ pub struct Outside {
 
 /// Every versioned constant outside [`KINK_IDENTITY`]. Each reason names the path that checks
 /// the constant, or says why nothing has to.
-pub const OUTSIDE_IDENTITY: [Outside; 49] = [
+pub const OUTSIDE_IDENTITY: [Outside; 51] = [
     Outside {
         krate: "kink-patch",
         constant: "TEST_MANIFEST_DOMAIN",
@@ -488,6 +488,21 @@ pub const OUTSIDE_IDENTITY: [Outside; 49] = [
         krate: "kink-flow",
         constant: "OUTCOMES_VERSION",
         reason: "the tier-1 outcome file's format, which its reader requires (outcomes.rs)",
+    },
+    Outside {
+        krate: "kink-flow",
+        constant: "MUTANT_ENDS_VERSION",
+        reason: "the mutant ends record's format and meaning (mutant_ends.rs, PJ-11): a member of \
+                 the store's context (`ends_schema`), which also holds `kink_build` and the whole \
+                 identity, and of every record, both of which the reader requires; no status is \
+                 decided from a record",
+    },
+    Outside {
+        krate: "kink-flow",
+        constant: "MUTANT_ENDS_DOMAIN",
+        reason: "the domain of a mutant ends record's digest: the reader recomputes it from the \
+                 record (mutant_ends.rs MutantEnds::digest) and reads a record only under a \
+                 context that holds `kink_build`",
     },
     Outside {
         krate: "kink-flow",

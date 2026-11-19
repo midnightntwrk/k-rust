@@ -1241,6 +1241,83 @@ fn both_caches_are_on_under_the_z3_profile() {
 mod kink_tier {
     use super::*;
 
+    /// PJ-11 (U11a): a live call stores each compared run's ends beside its tier-1 record, under the
+    /// mutant's own key (`mutant-ends/<context>/<mutation identity>/<program digest>.json`): every
+    /// ends record has an outcome record of the same mutation and program, the ends of a run that
+    /// ended are its whole set, and a warm run that decides from tier 1 keeps them, with no status
+    /// moved.
+    #[test]
+    #[ignore = "kink"]
+    fn a_live_call_stores_the_ends_of_each_run_beside_its_outcome() {
+        use kink_flow::mutant_ends::{
+            MUTANT_ENDS_DIRECTORY, MUTANT_ENDS_SCHEMA, MUTANT_ENDS_VERSION,
+        };
+        let (dir, cold) = calc_after_cold("mutant-ends");
+        let manifest = dir.join("FLOW.toml");
+        let root = cache_of(&manifest).join(MUTANT_ENDS_DIRECTORY);
+        let contexts = fs::read_dir(&root)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .collect::<Vec<_>>();
+        // One command, one context; it is not tier 1's, which names the projection.
+        assert_eq!(contexts.len(), 1, "{contexts:?}");
+        let context = contexts[0]
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_owned();
+        assert_ne!(
+            cold["outcome_cache"]["context_sha256"].as_str(),
+            Some(context.as_str())
+        );
+        let mut stored = 0;
+        for row in rows(&cold) {
+            let Some(identity) = row["identity"].as_str() else {
+                continue;
+            };
+            let id = row["id"].as_str().unwrap();
+            let outcomes = records(&manifest, &cold, id);
+            let directory = contexts[0].join(identity);
+            let Ok(files) = fs::read_dir(&directory) else {
+                continue;
+            };
+            for file in files {
+                let record = read_json(&file.unwrap().path());
+                assert_eq!(record["schema"], MUTANT_ENDS_SCHEMA);
+                assert_eq!(record["version"], MUTANT_ENDS_VERSION);
+                assert_eq!(record["context_sha256"], context.as_str());
+                assert_eq!(record["mutation_identity"], identity);
+                let program = record["program_id"].as_str().unwrap();
+                assert_eq!(
+                    record["program_digest"],
+                    program_digest(&cold, program).as_str()
+                );
+                assert!(
+                    outcomes.contains_key(program),
+                    "{id} on {program}: {record:#}"
+                );
+                // calc's programs end: a run the bound did not cut has its whole set of ends.
+                if record["polls"]["cut"] == false {
+                    assert_eq!(record["complete"], true, "{record:#}");
+                    assert!(
+                        !record["ends"].as_array().unwrap().is_empty()
+                            || record["undefined_steps"] == true,
+                        "{record:#}"
+                    );
+                }
+                stored += 1;
+            }
+        }
+        assert!(stored > 0, "no mutant ends were stored");
+        let before = fs::read_dir(&root).unwrap().count();
+        let (warm, ok) = search(&manifest, &dir.join("MUTATIONS.toml"), &[]);
+        assert!(ok, "{warm:#}");
+        assert_eq!(statuses(&warm), statuses(&cold));
+        assert_eq!(fs::read_dir(&root).unwrap().count(), before);
+        assert!(contexts[0].is_dir());
+    }
+
     /// Re-pin R0c-fix-2 (a mutant drops the claims its edit leaves unbacked), through kink-flow: the
     /// mutation `I +Int 0` of `td`'s equation leaves `td`'s `total` unbacked, so every program runs on
     /// the mutant without it. On `tdiv(0)` the claim-free mutant takes an undefined step (`10 /Int 0`

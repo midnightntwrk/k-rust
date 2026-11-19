@@ -184,6 +184,7 @@ use crate::{
     lock::{Lock, Settle},
     manifest::{Budget, FlowManifest},
     memo::{self, Facts, MemoUse},
+    mutant_ends::{MutantEndStore, MutantEnds},
     mutation::{
         EditedRule, Expect, InvalidMutation, Mutation, MutationList, ResolvedMutation, resolve,
         rule_texts,
@@ -520,6 +521,9 @@ struct Search<'a, 's> {
     mode: RunMode,
     /// The tier-1 store; `None` when kink's build identity cannot be computed.
     tier1: Option<OutcomeStore>,
+    /// The mutant ends store ([`crate::mutant_ends`]), on exactly where tier 1 is; written beside
+    /// the tier-1 records and read by nothing in `run`.
+    ends: Option<MutantEndStore>,
     /// The lock's killer of each mutation, by mutation id (program ids).
     recorded: BTreeMap<String, String>,
     store: Store,
@@ -1261,14 +1265,17 @@ impl Search<'_, '_> {
         )
     }
 
-    /// Write the tier-1 records of a mutation's live calls (README 7.5.3 step 7); a failed write
-    /// is the row's `cache_error`.
+    /// Write the tier-1 records of a mutation's live calls (README 7.5.3 step 7), and, once they
+    /// are written, the mutant ends records `ends` ([`crate::mutant_ends`]) of the programs those
+    /// records name, so every ends record has an outcome record beside it; a failed write is the
+    /// row's `cache_error`.
     fn write_records(
         &mut self,
         identity: Option<Sha256Digest>,
         mutation: &Mutation,
         row: &mut Map<String, Value>,
         records: &[(String, OutcomeRecord)],
+        ends: &[(String, MutantEnds)],
         witness: Option<&EditWitness>,
     ) {
         let (Some(store), Some(identity)) = (&self.tier1, identity) else {
@@ -1291,7 +1298,24 @@ impl Search<'_, '_> {
                     "cache_error".into(),
                     json!(format!("cannot write the outcome records: {e}")),
                 );
+                return;
             }
+        }
+        let Some(end_store) = &self.ends else {
+            return;
+        };
+        let ends = ends
+            .iter()
+            .filter(|(program, _)| records.iter().any(|(recorded, _)| recorded == program))
+            .cloned()
+            .collect::<Vec<_>>();
+        if !ends.is_empty()
+            && let Err(e) = end_store.write(&self.store, identity, &mutation.id, &ends)
+        {
+            row.insert(
+                "cache_error".into(),
+                json!(format!("cannot write the mutant ends records: {e}")),
+            );
         }
     }
 
@@ -1358,6 +1382,31 @@ impl Search<'_, '_> {
                             .map_or(Value::Null, observation_slot),
                         polls,
                     },
+                ))
+            })
+            .collect()
+    }
+
+    /// The mutant ends records a live call gives ([`crate::mutant_ends`]): one per test whose run
+    /// [`MutantEnds::of`] admits, by program digest, none when the call's plan carries a
+    /// mutant-scope failure. [`Search::write_records`] writes those whose program also has a
+    /// tier-1 record ([`Search::live_records`]).
+    fn live_ends(&self, run: &MutantRun) -> Vec<(String, MutantEnds)> {
+        if self.ends.is_none() || run.plan.mutant_failure.is_some() {
+            return Vec::new();
+        }
+        run.plan
+            .tests
+            .iter()
+            .filter_map(|test| {
+                let evidence = run
+                    .evidence
+                    .iter()
+                    .find(|evidence| evidence.test_id == test.test_id)?;
+                let candidate = &self.candidates[self.position(&test.test_id)?];
+                Some((
+                    candidate.digest.to_string(),
+                    MutantEnds::of(candidate.id, &test.run, evidence)?,
                 ))
             })
             .collect()
@@ -1911,7 +1960,21 @@ impl Search<'_, '_> {
             .iter()
             .flat_map(|(_, run, causes, opens)| self.live_records(run, &differences, causes, opens))
             .collect::<Vec<_>>();
-        self.write_records(identity, mutation, &mut row, &records, witness.as_ref());
+        // A program both calls ran has one ends record, the second call's.
+        let ends = runs
+            .iter()
+            .flat_map(|(_, run, ..)| self.live_ends(run))
+            .collect::<BTreeMap<_, _>>()
+            .into_iter()
+            .collect::<Vec<_>>();
+        self.write_records(
+            identity,
+            mutation,
+            &mut row,
+            &records,
+            &ends,
+            witness.as_ref(),
+        );
         let killer = killer.filter(|_| report.status == MutantStatus::Killed);
         let source = killer.map(|k| {
             if cached_kills.contains(&k) {
@@ -2051,11 +2114,13 @@ impl Search<'_, '_> {
                 self.manifest.budget,
             );
             let records = self.live_records(&live.mutant, &live.differences, &causes, &open);
+            let ends = self.live_ends(&live.mutant);
             self.write_records(
                 facts.identity,
                 mutation,
                 &mut row,
                 &records,
+                &ends,
                 witness.as_ref(),
             );
         }
@@ -2997,6 +3062,7 @@ pub(crate) fn run_session(
         Ok(store) => (Some(store), None),
         Err(reason) => (None, Some(reason)),
     };
+    let ends = ends_store(manifest, &spec, &cache, tier1.as_ref());
     let candidates = candidates(manifest, &update.rows);
     let program_rows = crate::results::data_marked(
         update.rows.iter().map(|row| row.row.clone()).collect(),
@@ -3013,6 +3079,7 @@ pub(crate) fn run_session(
         candidates,
         mode,
         tier1,
+        ends,
         recorded: recorded.unwrap_or_else(|| lock.as_ref().map(Lock::killers).unwrap_or_default()),
         store: Store::new(&cache),
         stats: Stats::default(),
@@ -3525,6 +3592,7 @@ pub(crate) fn search_derived(
         Ok(store) => (Some(store), None),
         Err(reason) => (None, Some(reason)),
     };
+    let ends = ends_store(manifest, spec, cache, tier1.as_ref());
     let candidates = candidates(manifest, &update.rows);
     let mut search = Search {
         spec,
@@ -3537,6 +3605,7 @@ pub(crate) fn search_derived(
         candidates,
         mode,
         tier1,
+        ends,
         recorded,
         store: Store::new(cache),
         stats: Stats::default(),
@@ -3627,6 +3696,26 @@ fn tier1_store(
             manifest.observe_value().as_ref(),
         ),
     ))
+}
+
+/// The mutant ends store of a command on `spec` ([`crate::mutant_ends`]), under the cache
+/// directory `cache`: on exactly where tier 1 is (`tier1`, [`tier1_store`]), its context the
+/// tier-1 context with no projection in it ([`crate::digest::mutant_ends_context`]).
+fn ends_store(
+    manifest: &FlowManifest,
+    spec: &AdmittedSpec,
+    cache: &Path,
+    tier1: Option<&OutcomeStore>,
+) -> Option<MutantEndStore> {
+    tier1.map(|tier1| {
+        MutantEndStore::new(
+            cache,
+            crate::digest::mutant_ends_context(
+                tier1.context(),
+                crate::digest::ends_execution_digest(manifest, spec),
+            ),
+        )
+    })
 }
 
 /// The comparable programs of `rows` (the results update's rows, in `FLOW.toml`'s order), the
