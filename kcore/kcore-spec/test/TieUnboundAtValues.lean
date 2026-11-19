@@ -19,13 +19,14 @@
     (test/TieUnbound.lean, `ite_absent`).
   - Collection law (`laws_entailed`, `law_indices`): associativity and the two units of `_List_`,
     `_Map_`, `_Set_` (53 to 55, 57 to 60, 62, 63), the nine sentences of the class.
-  - Library (`lib_entailed`, `libSet_entailed`, `lib_indices`): 80 of the class's 82. The sixteen
-    predicate equations of `==Int`, `=/=Int`, `==K`, `=/=K` (`pred_entailed`); 56 term and function
-    equations, each by its own theorem (`evN`); the eight Bool predicate sentences over set
-    variables, entailed at set values (`EntailsAtSetValues`), which `libSet_entailed` states. Owed:
-    207, 263, the equations of `bitRangeInt` and `signExtendBitRangeInt`, interpreted symbols of
-    which the library states no equation. The two equations of `ite{SortK}` (242, 243) apply `ite`
-    at the sort K, which Γ does not apply, and are of the class no direction (`ite_absent`).
+  - Library (`lib_entailed`, `libSet_entailed`, `lib_indices`): the class's 82. The sixteen
+    predicate equations of `==Int`, `=/=Int`, `==K`, `=/=K` (`pred_entailed`); 58 term and function
+    equations, each by its own theorem (`evN`), the equations of `bitRangeInt` (207, domains.md
+    1438, `LibEv.fnBitRange_ev`) and `signExtendBitRangeInt` (263, 1440, `LibEv.fnSignExt_ev`)
+    among them; the eight Bool predicate sentences over set variables, entailed at set values
+    (`EntailsAtSetValues`), which `libSet_entailed` states. The two equations of `ite{SortK}`
+    (242, 243) apply `ite` at the sort K, which Γ does not apply, and are of the class no direction
+    (`ite_absent`).
   - Set-variable lemmas (`sN_refuted`, `sN_one`, `setvar_indices`): 125 (`%Int`), 126 (`/Int`),
     129 (`modInt`) at `@I1 = {0}`, `@I2 = {1, 0}`; 127 (`<<Int`), 128 (`>>Int`) at `@I1 = {0}`,
     `@I2 = {0, -1}`; 264, kompile's `#Ceil(@K0 |-> @K1 @Rest)` lemma, at `@K0 = @K1 = {0}`,
@@ -33,7 +34,7 @@
     it has no model (`sN_refuted`), and it holds where its set variables hold at most one element
     (`sN_one`).
   - The accounts (`hooked_account`, `law_account`, `library_account`, `setvar_account`): the tied
-    sentences with the owed ones are the class lists of test/TieUnbound.lean (`classes`).
+    sentences are the class lists of test/TieUnbound.lean (`classes`).
   - The function functional class (85 to 99, the 15 sort predicates' `functional` sentences) is not
     tied: its direction is a hypothesis, `FnHyp`, which test/TieUnboundRule.lean shows for every H
     (`fnHypH`); no theorem here relates the 15 sentences to it.
@@ -220,7 +221,7 @@ theorem pred_entailed (H : HookParams) : ∀ ad ∈ predText, EntailsAtValues (c
     obtain ⟨x, -, rfl⟩ := hE
     exact LibEv.kEqPred_ev (coreOKH H) x.1 x.2.1 x.2.2 ad hp hsv
 
-/-! ## Library: term and function equations (56) -/
+/-! ## Library: term and function equations (58) -/
 
 theorem ev155 (H : HookParams) : EntailsAtValues (cH H) U.ax155 (trS U.ax155).pat := by
   rw [(by decide +kernel : (trS U.ax155).pat = (trAxiom [] [] U.ax155).pat)]
@@ -432,6 +433,14 @@ theorem ev262 (H : HookParams) : EntailsAtValues (cH H) U.ax262 (trS U.ax262).pa
   rw [(by decide +kernel : (trS U.ax262).pat = (trAxiom [] [] U.ax262).pat)]
   exact LibEv.fnPushList_ev (coreOKH H) (shapesOKH H) U.ax262 (by decide +kernel) (by decide +kernel)
 
+theorem ev207 (H : HookParams) : EntailsAtValues (cH H) U.ax207 (trS U.ax207).pat := by
+  rw [(by decide +kernel : (trS U.ax207).pat = (trAxiom [] [] U.ax207).pat)]
+  exact LibEv.fnBitRange_ev (coreOKH H) (shapesOKH H) U.ax207 (by decide +kernel) (by decide +kernel)
+
+theorem ev263 (H : HookParams) : EntailsAtValues (cH H) U.ax263 (trS U.ax263).pat := by
+  rw [(by decide +kernel : (trS U.ax263).pat = (trAxiom [] [] U.ax263).pat)]
+  exact LibEv.fnSignExt_ev (coreOKH H) (shapesOKH H) U.ax263 (by decide +kernel) (by decide +kernel)
+
 theorem ev170 (H : HookParams) : EntailsAtValues (cH H) U.ax170 (trS U.ax170).pat := by
   rw [(by decide +kernel : (trS U.ax170).pat = (trAxiom [] [] U.ax170).pat)]
   exact LibEv.shlZero_ev (coreOKH H) (shapesOKH H) U.ax170 (by decide +kernel) (by decide +kernel)
@@ -448,18 +457,18 @@ theorem ev178 (H : HookParams) : EntailsAtValues (cH H) U.ax178 (trS U.ax178).pa
   rw [(by decide +kernel : (trS U.ax178).pat = (trAxiom [] [] U.ax178).pat)]
   exact LibEv.zeroShr_ev (coreOKH H) (shapesOKH H) U.ax178 (by decide +kernel) (by decide +kernel)
 
-/-- The 56 sentences of `evN`. -/
+/-- The 58 sentences of `evN`. -/
 noncomputable def evText : List AxiomDecl :=
   [U.ax155, U.ax157, U.ax158, U.ax159, U.ax160, U.ax161, U.ax162, U.ax163, U.ax164, U.ax165,
    U.ax166, U.ax167, U.ax168, U.ax169, U.ax172, U.ax173, U.ax174, U.ax175, U.ax176, U.ax179,
    U.ax180, U.ax181, U.ax182, U.ax183, U.ax184, U.ax185, U.ax186, U.ax187, U.ax189, U.ax190,
    U.ax191, U.ax192, U.ax193, U.ax194, U.ax195, U.ax196, U.ax197, U.ax198, U.ax199, U.ax200,
    U.ax201, U.ax202, U.ax203, U.ax204, U.ax205, U.ax206, U.ax208, U.ax244, U.ax245, U.ax246,
-   U.ax247, U.ax262,
+   U.ax247, U.ax262, U.ax207, U.ax263,
    U.ax170, U.ax171, U.ax177, U.ax178]
 
 theorem ev_entailed (H : HookParams) : ∀ ad ∈ evText, EntailsAtValues (cH H) ad (trS ad).pat :=
-  List.forall_mem_cons.mpr ⟨ev155 H, List.forall_mem_cons.mpr ⟨ev157 H, List.forall_mem_cons.mpr ⟨ev158 H, List.forall_mem_cons.mpr ⟨ev159 H, List.forall_mem_cons.mpr ⟨ev160 H, List.forall_mem_cons.mpr ⟨ev161 H, List.forall_mem_cons.mpr ⟨ev162 H, List.forall_mem_cons.mpr ⟨ev163 H, List.forall_mem_cons.mpr ⟨ev164 H, List.forall_mem_cons.mpr ⟨ev165 H, List.forall_mem_cons.mpr ⟨ev166 H, List.forall_mem_cons.mpr ⟨ev167 H, List.forall_mem_cons.mpr ⟨ev168 H, List.forall_mem_cons.mpr ⟨ev169 H, List.forall_mem_cons.mpr ⟨ev172 H, List.forall_mem_cons.mpr ⟨ev173 H, List.forall_mem_cons.mpr ⟨ev174 H, List.forall_mem_cons.mpr ⟨ev175 H, List.forall_mem_cons.mpr ⟨ev176 H, List.forall_mem_cons.mpr ⟨ev179 H, List.forall_mem_cons.mpr ⟨ev180 H, List.forall_mem_cons.mpr ⟨ev181 H, List.forall_mem_cons.mpr ⟨ev182 H, List.forall_mem_cons.mpr ⟨ev183 H, List.forall_mem_cons.mpr ⟨ev184 H, List.forall_mem_cons.mpr ⟨ev185 H, List.forall_mem_cons.mpr ⟨ev186 H, List.forall_mem_cons.mpr ⟨ev187 H, List.forall_mem_cons.mpr ⟨ev189 H, List.forall_mem_cons.mpr ⟨ev190 H, List.forall_mem_cons.mpr ⟨ev191 H, List.forall_mem_cons.mpr ⟨ev192 H, List.forall_mem_cons.mpr ⟨ev193 H, List.forall_mem_cons.mpr ⟨ev194 H, List.forall_mem_cons.mpr ⟨ev195 H, List.forall_mem_cons.mpr ⟨ev196 H, List.forall_mem_cons.mpr ⟨ev197 H, List.forall_mem_cons.mpr ⟨ev198 H, List.forall_mem_cons.mpr ⟨ev199 H, List.forall_mem_cons.mpr ⟨ev200 H, List.forall_mem_cons.mpr ⟨ev201 H, List.forall_mem_cons.mpr ⟨ev202 H, List.forall_mem_cons.mpr ⟨ev203 H, List.forall_mem_cons.mpr ⟨ev204 H, List.forall_mem_cons.mpr ⟨ev205 H, List.forall_mem_cons.mpr ⟨ev206 H, List.forall_mem_cons.mpr ⟨ev208 H, List.forall_mem_cons.mpr ⟨ev244 H, List.forall_mem_cons.mpr ⟨ev245 H, List.forall_mem_cons.mpr ⟨ev246 H, List.forall_mem_cons.mpr ⟨ev247 H, List.forall_mem_cons.mpr ⟨ev262 H, List.forall_mem_cons.mpr ⟨ev170 H, List.forall_mem_cons.mpr ⟨ev171 H, List.forall_mem_cons.mpr ⟨ev177 H, List.forall_mem_cons.mpr ⟨ev178 H, fun _ h => nomatch h⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩
+  List.forall_mem_cons.mpr ⟨ev155 H, List.forall_mem_cons.mpr ⟨ev157 H, List.forall_mem_cons.mpr ⟨ev158 H, List.forall_mem_cons.mpr ⟨ev159 H, List.forall_mem_cons.mpr ⟨ev160 H, List.forall_mem_cons.mpr ⟨ev161 H, List.forall_mem_cons.mpr ⟨ev162 H, List.forall_mem_cons.mpr ⟨ev163 H, List.forall_mem_cons.mpr ⟨ev164 H, List.forall_mem_cons.mpr ⟨ev165 H, List.forall_mem_cons.mpr ⟨ev166 H, List.forall_mem_cons.mpr ⟨ev167 H, List.forall_mem_cons.mpr ⟨ev168 H, List.forall_mem_cons.mpr ⟨ev169 H, List.forall_mem_cons.mpr ⟨ev172 H, List.forall_mem_cons.mpr ⟨ev173 H, List.forall_mem_cons.mpr ⟨ev174 H, List.forall_mem_cons.mpr ⟨ev175 H, List.forall_mem_cons.mpr ⟨ev176 H, List.forall_mem_cons.mpr ⟨ev179 H, List.forall_mem_cons.mpr ⟨ev180 H, List.forall_mem_cons.mpr ⟨ev181 H, List.forall_mem_cons.mpr ⟨ev182 H, List.forall_mem_cons.mpr ⟨ev183 H, List.forall_mem_cons.mpr ⟨ev184 H, List.forall_mem_cons.mpr ⟨ev185 H, List.forall_mem_cons.mpr ⟨ev186 H, List.forall_mem_cons.mpr ⟨ev187 H, List.forall_mem_cons.mpr ⟨ev189 H, List.forall_mem_cons.mpr ⟨ev190 H, List.forall_mem_cons.mpr ⟨ev191 H, List.forall_mem_cons.mpr ⟨ev192 H, List.forall_mem_cons.mpr ⟨ev193 H, List.forall_mem_cons.mpr ⟨ev194 H, List.forall_mem_cons.mpr ⟨ev195 H, List.forall_mem_cons.mpr ⟨ev196 H, List.forall_mem_cons.mpr ⟨ev197 H, List.forall_mem_cons.mpr ⟨ev198 H, List.forall_mem_cons.mpr ⟨ev199 H, List.forall_mem_cons.mpr ⟨ev200 H, List.forall_mem_cons.mpr ⟨ev201 H, List.forall_mem_cons.mpr ⟨ev202 H, List.forall_mem_cons.mpr ⟨ev203 H, List.forall_mem_cons.mpr ⟨ev204 H, List.forall_mem_cons.mpr ⟨ev205 H, List.forall_mem_cons.mpr ⟨ev206 H, List.forall_mem_cons.mpr ⟨ev208 H, List.forall_mem_cons.mpr ⟨ev244 H, List.forall_mem_cons.mpr ⟨ev245 H, List.forall_mem_cons.mpr ⟨ev246 H, List.forall_mem_cons.mpr ⟨ev247 H, List.forall_mem_cons.mpr ⟨ev262 H, List.forall_mem_cons.mpr ⟨ev207 H, List.forall_mem_cons.mpr ⟨ev263 H, List.forall_mem_cons.mpr ⟨ev170 H, List.forall_mem_cons.mpr ⟨ev171 H, List.forall_mem_cons.mpr ⟨ev177 H, List.forall_mem_cons.mpr ⟨ev178 H, fun _ h => nomatch h⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩
 
 /-! ## Library: the Bool predicate sentences over set variables (8), at set values -/
 
@@ -501,7 +510,7 @@ noncomputable def setText : List AxiomDecl :=
 
 /-! ## The class -/
 
-/-- **Ev for the library sentences over element variables**: the 16 predicate equations and the 56
+/-- **Ev for the library sentences over element variables**: the 16 predicate equations and the 58
 term and function equations, for every H. -/
 theorem lib_entailed (H : HookParams) : ∀ ad ∈ predText ++ evText, EntailsAtValues (cH H) ad (trS ad).pat :=
   fun ad had => (List.mem_append.mp had).elim (pred_entailed H ad) (ev_entailed H ad)
@@ -510,12 +519,12 @@ theorem lib_entailed (H : HookParams) : ∀ ad ∈ predText ++ evText, EntailsAt
 theorem libSet_entailed (H : HookParams) : ∀ ad ∈ setText, EntailsAtSetValues (cH H) ad (trS ad).pat :=
   List.forall_mem_cons.mpr ⟨ev138 H, List.forall_mem_cons.mpr ⟨ev139 H, List.forall_mem_cons.mpr ⟨ev140 H, List.forall_mem_cons.mpr ⟨ev141 H, List.forall_mem_cons.mpr ⟨ev146 H, List.forall_mem_cons.mpr ⟨ev147 H, List.forall_mem_cons.mpr ⟨ev152 H, List.forall_mem_cons.mpr ⟨ev153 H, fun _ h => nomatch h⟩⟩⟩⟩⟩⟩⟩⟩
 
-/-- The 80 library sentences tied here. -/
+/-- The 82 library sentences, the class's list (`libraryClass`) in another order. -/
 theorem lib_indices : (predText ++ evText ++ setText).map (·.index) =
     [130, 131, 132, 133, 134, 135, 136, 137, 142, 143, 144, 145, 148, 149, 150, 151, 155, 157, 158, 159,
    160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 172, 173, 174, 175, 176, 179, 180, 181, 182, 183,
    184, 185, 186, 187, 189, 190, 191, 192, 193, 194, 195, 196, 197, 198, 199, 200, 201, 202, 203, 204,
-   205, 206, 208, 244, 245, 246, 247, 262, 170, 171, 177, 178, 138, 139, 140, 141, 146, 147, 152, 153] := by
+   205, 206, 208, 244, 245, 246, 247, 262, 207, 263, 170, 171, 177, 178, 138, 139, 140, 141, 146, 147, 152, 153] := by
   decide +kernel
 
 /-! ## The set-variable lemmas -/
@@ -663,8 +672,8 @@ theorem hooked_account : (funText.map (fun ad : AxiomDecl => ad.index)).isPerm h
   rw [fun_indices]; decide
 /-- Collection law: the nine tied are the class. -/
 theorem law_account : lawText.map (·.index) = lawClass := law_indices
-/-- Library: the 80 tied, and 207, 263 (`bitRangeInt`, `signExtendBitRangeInt`), owed, are the class. -/
-theorem library_account : ((predText ++ evText ++ setText).map (fun ad : AxiomDecl => ad.index) ++ [207, 263]).isPerm libraryClass = true := by
+/-- Library: the 82 tied are the class. -/
+theorem library_account : ((predText ++ evText ++ setText).map (fun ad : AxiomDecl => ad.index)).isPerm libraryClass = true := by
   rw [lib_indices]; decide
 /-- Set-variable lemma: the six refuted are the class. -/
 theorem setvar_account : [U.ax125, U.ax126, U.ax127, U.ax128, U.ax129, U.ax264].map (·.index) = setvarClass :=

@@ -1,0 +1,1 @@
+# row E2 LABEL(label)@simplification: a true simplification carrying a label (rule [s-label]: f(f(X)) => f(X) beside f(X) => X). Predicted: kompile exit 0, 1 inert simplification [user], coreOK true

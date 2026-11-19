@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t240-rat-ceil-div.k": "359fc40f20720b72578ce4fe91d22bf327af5f0cf5d568bd92c09d04ffb72e49"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t240-rat-ceil-div.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "3680668006bfa8c38a318f19939071ad49f16c9ccb73d71fdd10aa9f516899bf",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

@@ -314,9 +314,7 @@ theorem tr_pat (h : HypModelCore c) {P : Nat → Prop} {vs : List KoreAML.Var} {
       exact ⟨v, .coll hc' hcp hws (by rw [collVal_param hh', hv]), rfl⟩
     · rintro ⟨v, hv, rfl⟩
       have key : ∀ (ws : List GroundTerm), PatVals c σ ts ws → result c k ws (.val v) →
-          ∃ a, (match iteSort? (c.symName k.name) with
-            | some X => KoreAML.sym (.symbol "Lblite") ⬝ KoreAML.sym (.sort ("Sort" ++ X))
-            | none => KoreAML.sym (.symbol (c.symName k.name))).interpret (stdI_T c T) e a ∧
+          ∃ a, (symHead c k.name).interpret (stdI_T c T) e a ∧
             ∃ bs, All2 (fun φ b => φ.interpret (stdI_T c T) e b)
               ((Term.koreList c vs ts).map (KoreAML.tr ⟨tbl, []⟩)) bs ∧ AppE (stdI_T c T) a bs (.val v) := by
         intro ws hts hres
