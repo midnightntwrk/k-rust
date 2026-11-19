@@ -442,15 +442,15 @@ partial def sides : Kore.Pattern → Option (Kore.Pattern × Kore.Pattern)
   | .exist _ _ (.equals _ _ _ t) => some (t, t)
   | _ => none
 
-/-- Whether the left side's own head application reads the interpretation at a point: the left
-side's arguments are evaluated, and the head is applied (`applyAt`) at each choice of their values
-from an empty flag state; it reads it iff one of those applications marks a silent point, a
-parameter or a function reading H. What the arguments' own evaluation reads is not counted: it is
-read below the application the sentence states the value of. An application with an argument ⊥ is
-⊥ whatever the interpretation and reads nothing of it; an injection, or a left side that is no
-application, applies no symbol of Γ and reads nothing of it. The second component says whether the
-arguments' evaluation read it (`Res.hOffOut` counts the off points where neither does). -/
-def leftHeadReads (x : Ctx) (env : List (String × D)) : Kore.Pattern → Except String (Bool × Bool)
+/-- What the left side reads of the interpretation at a point, from an empty flag state: whether the
+application of its head (`applyAt`, at each choice of the values of its arguments) marks a silent
+point, a parameter or a function reading H, and whether the evaluation of its arguments does. The
+left side reads it where either does: the sentence states the value of the whole left side, its
+arguments included, so a read in an argument (an inner application of the head's own symbol, as
+in an associativity law) is one of the left side. An application with an argument ⊥ is ⊥ whatever
+the interpretation, and its head reads nothing of it; an injection, or a left side that is no
+application, reads nothing of it here. -/
+def leftSideReads (x : Ctx) (env : List (String × D)) : Kore.Pattern → Except String (Bool × Bool)
   | .app h sorts args => do
     if h.ident.name == "inj" then return (false, false)
     let key := appKey h sorts
@@ -551,15 +551,15 @@ structure Res where
   cex : List String := []
   /-- failures under some interpretation at points reaching a silent point or parameter -/
   hfail : List String := []
-  /-- points reading the interpretation where the left side's own head application (the
-  application the sentence states the value of) reads nothing of it (`leftHeadReads`): the
-  interpretation is read elsewhere only -/
+  /-- points reading the interpretation where the left side reads nothing of it, neither its
+  arguments nor its head application (`leftSideReads`): the interpretation is read outside the
+  left side only -/
   hOff : Nat := 0
   /-- the first such point, its reading and what the sentence reached there -/
   offFirst : String := ""
-  /-- of those, points where the left side's arguments read nothing of it either: the
-  interpretation is read outside the left side altogether -/
-  hOffOut : Nat := 0
+  /-- points where, under some reading, the left side reads it in its arguments only, its head
+  application at their values reading nothing (not off) -/
+  hBelow : Nat := 0
   /-- the readings under which it fails at some point -/
   failModes : List String := []
   /-- why not probed -/
@@ -603,7 +603,7 @@ def probe (c : Semantics) (r : Res) (a : Kore.Axiom) (modes : List Mode := [.non
         let ds := g.map D.val
         grids := grids ++ [(n, if n.startsWith "@" then D.bot :: ds else ds)]
   let pts := points grids
-  -- the left side, where it is an application (`leftHeadReads`); none otherwise (a `#Ceil` lemma's)
+  -- the left side, where it is an application (`leftSideReads`); none otherwise (a `#Ceil` lemma's)
   let left : Option Kore.Pattern := match sides a.pattern with
     | some (l@(.app _ _ _), _) => some l
     | _ => none
@@ -612,7 +612,7 @@ def probe (c : Semantics) (r : Res) (a : Kore.Axiom) (modes : List Mode := [.non
   for pt in pts do
     let mut dep := false
     let mut off := false
-    let mut offOut := false
+    let mut below := false
     let mut okAll := true
     for m in modes do
       if m != Mode.none && !dep then break
@@ -623,18 +623,14 @@ def probe (c : Semantics) (r : Res) (a : Kore.Axiom) (modes : List Mode := [.non
         let isDep := !fl.silent.isEmpty || !fl.param.isEmpty
         if isDep then
           dep := true
-          -- the point is off the left side unless the left side's own head application reads H there
-          match left.map (leftHeadReads x pt) with
+          -- the point is off the left side unless the left side, its arguments or its head
+          -- application, reads H there
+          match left.map (leftSideReads x pt) with
           | some (.error e) => return { r with skip := some s!"at {showPoint c pt}: the left side: {e}" }
           | some (.ok (true, _)) => pure ()
-          | some (.ok (false, argsRead)) =>
+          | some (.ok (false, true)) => below := true
+          | _ =>
             off := true
-            if !argsRead then offOut := true
-            if r.offFirst.isEmpty then
-              r := { r with offFirst := s!"{m.name} at {showPoint c pt} (reached {fl.silent ++ fl.param})" }
-          | none =>
-            off := true
-            offOut := true
             if r.offFirst.isEmpty then
               r := { r with offFirst := s!"{m.name} at {showPoint c pt} (reached {fl.silent ++ fl.param})" }
         let holds := match d with | .top => true | _ => false
@@ -661,16 +657,20 @@ def probe (c : Semantics) (r : Res) (a : Kore.Axiom) (modes : List Mode := [.non
     | _ => pure ()
     if dep then r := { r with hdep := r.hdep + 1 }
     if off then r := { r with hOff := r.hOff + 1 }
-    if offOut then r := { r with hOffOut := r.hOffOut + 1 }
+    if below then r := { r with hBelow := r.hBelow + 1 }
     if okAll then r := { r with holds := r.holds + 1 }
   return r
 
-/-- The off test reads the left side's own head application (`leftHeadReads`), not its symbol among
-what the whole sentence reached. On `ens.kompile.kore`, at the seven Int values from -3 to 3:
-`X ^Int Y = X ^Int (0 -Int Y)` reads the interpretation at Y > 0 (the right side's `^Int` at a
-negative exponent, a silent point) where its left side's `^Int` has a value, so those 21 points are
-off the left side though both sides apply `^Int`; `X ^Int Y = X ^Int Y` reads it only at Y < 0, where
-its left side does (no point off). -/
+/-- The off test reads the left side as a whole (`leftSideReads`): its head application and its
+arguments, not its head's symbol among what the whole sentence reached. On `ens.kompile.kore`, at the
+seven Int values from -3 to 3 of each variable:
+- `X ^Int Y = X ^Int (0 -Int Y)` reads the interpretation at Y > 0 (the right side's `^Int` at a
+  negative exponent, a silent point) where its left side reads nothing of it, so those 21 of its 49
+  points are off the left side though both sides apply `^Int`;
+- `X ^Int Y = X ^Int Y` reads it only at Y < 0, where its left side does: no point off;
+- `(X ^Int Y) ^Int Z = (X ^Int Y) ^Int Z` reads it at Y < 0 in its left side's argument, the inner
+  `^Int` (under `HookParams.none` the argument is ⊥ and the outer `^Int` is not applied): those 147
+  of its 343 points read it below the left side's head only (`Res.hBelow`), and none is off. -/
 def checkLeftOwn : IO Unit := do
   let path := "f2-examples/ens.kompile.kore"
   let k ← match Kore.parseDefinition (← IO.FS.readFile path) with
@@ -679,19 +679,22 @@ def checkLeftOwn : IO Unit := do
   let d ← match Parse.parse k with
     | .ok d => pure d
     | .error e => throw (IO.userError s!"parse: {e.toText}")
-  let pow (y : String) : String := s!"Lbl'UndsXor-'Int'Unds'\{}(X:SortInt\{}, {y})"
-  let cases : List (String × Nat) :=
-    [(s!"\\equals\{SortInt\{}, R}({pow "Y:SortInt{}"}, {pow "Lbl'Unds'-Int'Unds'{}(\\dv{SortInt{}}(\"0\"), Y:SortInt{})"})", 21),
-     (s!"\\equals\{SortInt\{}, R}({pow "Y:SortInt{}"}, {pow "Y:SortInt{}"})", 0)]
-  for (s, n) in cases do
+  let pow (b y : String) : String := s!"Lbl'UndsXor-'Int'Unds'\{}({b}, {y})"
+  let x := "X:SortInt{}"
+  let pxy := pow x "Y:SortInt{}"
+  let cases : List (String × Nat × Nat × Nat) :=
+    [(s!"\\equals\{SortInt\{}, R}({pxy}, {pow x "Lbl'Unds'-Int'Unds'{}(\\dv{SortInt{}}(\"0\"), Y:SortInt{})"})", 49, 21, 0),
+     (s!"\\equals\{SortInt\{}, R}({pxy}, {pxy})", 49, 0, 0),
+     (s!"\\equals\{SortInt\{}, R}({pow pxy "Z:SortInt{}"}, {pow pxy "Z:SortInt{}"})", 343, 0, 147)]
+  for (s, np, n, nb) in cases do
     let p ← match Kore.parsePattern s with
       | .ok p => pure p
       | .error e => throw (IO.userError s!"{s}: {e}")
     let r0 : Res := { index := 0, line := 0, row := 0, place := "-", syms := [], absent := [] }
     let r := probe d.sem r0 { sortVars := [], pattern := p, attributes := [] } (small := true)
-    if r.skip.isSome || r.points != 49 || r.hOff != n || r.hOffOut != n then
-      throw (IO.userError s!"{s}: {r.points} points, {r.hOff} off the left side ({r.hOffOut} outside it), expected 49 and {n} ({r.skip})")
-  IO.println "the off test reads the left side's own head application"
+    if r.skip.isSome || r.points != np || r.hOff != n || r.hBelow != nb then
+      throw (IO.userError s!"{s}: {r.points} points, {r.hOff} off the left side, {r.hBelow} below its head only, expected {np}, {n} and {nb} ({r.skip})")
+  IO.println "the off test reads the left side as a whole"
 
 #eval show IO Unit from do if (← IO.getEnv "LIBPROBE_ALL_ONLY").isNone then checkLeftOwn
 
@@ -776,9 +779,8 @@ place (a `functional` sentence, which has none, by its symbol):
 - `unnamed`: those reading it at some point that are neither a `functional` sentence of a symbol of
   `totalSilentKeys` nor at a line of `libSentences`;
 - `unread`: those at a line of `libSentences`, probed, that read it at no point;
-- `off`: those reading it at a point where the left side's own head application reads nothing of it
-  (`leftHeadReads`), `offBelowHead` aside while each such point reads it in the left side's
-  arguments (`Res.hOffOut` is 0);
+- `off`: those reading it at a point where the left side, its arguments or its head application,
+  reads nothing of it (`leftSideReads`);
 - `libFails`: those failing at some point under `HookParams.lib`. -/
 structure Reads where
   unnamed : List String
@@ -786,17 +788,6 @@ structure Reads where
   off : List String
   libFails : List String
   deriving BEq, Repr
-
-/-- The sentences that read the interpretation below their left side's head, in its arguments, at
-points where the head application at the arguments' values reads nothing of it, and nowhere outside
-the left side: RANGEMAP's associativity (the law generated from `_RangeMap_`'s `assoc`, at the line
-of its declaration, 508, `rangeMapAssocEq`), `(K1 K2) K3 = K1 (K2 K3)`, reads it at the inner
-`_RangeMap_` of its own left side where `K1 K2` is a silent point (overlapping ranges, as K1 = K2 =
-{[0, 2) ↦ 0}, K3 = .Map), and the outer application at that value has one. FIX-core.probe-off-left-own
-measured it (78 of its 152 points reading the interpretation; on allbuiltins, `checkAll`); the
-exception holds only while none of its off points reads the interpretation outside the left side
-(`Res.hOffOut`). -/
-def offBelowHead : List String := ["15 Lbl'Unds'RangeMap'Unds'"]
 
 /-- What the points with a two-element set find, of the sentences with a free set variable that
 are over Γ's symbols and hold at every point of the first grid in every reading (each named as in
@@ -866,7 +857,7 @@ def outOfLibrary (k : Kore.Definition) : Kore.Definition × Nat × List String :
 
 /-- The line printed for a sentence. -/
 def resLine (r : Res) : String :=
-  s!"#{r.index} L{r.line} row {r.row} {r.place} [{" ".intercalate r.syms}] points {r.points} (premise holds at {r.active}, reads H at {r.hdep}): {verdict r}{verdictTwo r}{if r.failModes.isEmpty then "" else s!" [fails under {r.failModes}]"}{if r.hOff > 0 then s!" [reads H off the left side at {r.hOff} points, {r.hOffOut} of them outside it; first: {r.offFirst}]" else ""}"
+  s!"#{r.index} L{r.line} row {r.row} {r.place} [{" ".intercalate r.syms}] points {r.points} (premise holds at {r.active}, reads H at {r.hdep}): {verdict r}{verdictTwo r}{if r.failModes.isEmpty then "" else s!" [fails under {r.failModes}]"}{if r.hOff > 0 then s!" [reads H off the left side at {r.hOff} points; first: {r.offFirst}]" else ""}{if r.hBelow > 0 then s!" [reads H below the left side's head only at {r.hBelow} points]" else ""}"
 
 def run (path : String) (verbose : Bool := true) (modes : List Mode := [.none, .pick 0, .pick 1])
     (small : Bool := false) (dropOut : Bool := false) : IO (Summary × Reads × Two) := do
@@ -942,12 +933,12 @@ def run (path : String) (verbose : Bool := true) (modes : List Mode := [.none, .
   let reads : Reads :=
     { unnamed := (probed.filter fun r => r.hdep > 0 && !named r).map name
       unread := (probed.filter fun r => atLine r && r.hdep == 0).map name
-      off := (probed.filter fun r => r.hOff > 0 && !(offBelowHead.contains (name r) && r.hOffOut == 0)).map name
+      off := (probed.filter (·.hOff > 0)).map name
       libFails := (probed.filter (·.failModes.contains Mode.lib.name)).map name }
   let readers := probed.filter (·.hdep > 0)
   IO.println s!"sentences reading the interpretation: {readers.map fun r => s!"{name r} ({r.hdep} points)"}"
   IO.println s!"guard: {reprStr reads}"
-  IO.println s!"reading the interpretation off the left side's head, below it only (`offBelowHead`): {(probed.filter fun r => r.hOff > 0 && offBelowHead.contains (name r) && r.hOffOut == 0).map fun r => s!"{name r} ({r.hOff} points)"}"
+  IO.println s!"reading the interpretation below the left side's head only at some point (not off): {(probed.filter (·.hBelow > 0)).map fun r => s!"{name r} ({r.hBelow} points)"}"
   let sv := res.filter (·.setVar)
   let two : Two :=
     { sentences := sv.length
