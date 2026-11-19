@@ -15,8 +15,9 @@
   Lean's model covers p ≥ 2 and e ≥ 2. A format K names with a field of 1 (`p1xM`, `pNx1`, N and
   M positive) has values too (`thinOK`): its encodings in the same p + e bits that are no NaN
   pattern, and one code past the bits for its NaN (at p = 1 there is no significand field to mark
-  one). At precision 1 and at least 2 exponent bits their data are read (`thinUnpack`) for `isNaN`
-  and the comparisons (Hooks.lean `asDatum`); no other operation computes on them.
+  one). At precision 1 and at least 2 exponent bits their data are read (`thinUnpack`; FloatThin.lean
+  `tnUnpack`) and every operation computes on them, by the formulas here over the rounding to the
+  nearest datum of that format (Hooks.lean `asDatum`, `thinHooks`); at one exponent bit none does.
 
   **Operations.** An operation has a value here exactly where K's text (domains.md, FLOAT) states
   one; elsewhere it gives none, and Γ states the interpretation's value (`silentTable`, Hooks.lean).

@@ -44,6 +44,8 @@
     apply symbols Γ interprets: 171, 172, 178, 179 are of the class library, 128 and 129 of the
     class set-variable lemma. The equations of `bitRangeInt` and `signExtendBitRangeInt` (208, 265)
     apply symbols Γ interprets and are of the class library.
+  - `absent_proj_below`: the 14 no-direction sentences that are equations of a projection
+    `project:X` are of sorts X that are K, KItem or below KItem in Γ (`GenEqs.projBelowB`).
 
   Γ's content (the converse). `gamma_origin`: each premise of Γ (cH H) is a function sentence's
   translation, a rule item entailed by sentence 155, or one of the five parts Γ defines by
@@ -614,8 +616,8 @@ theorem s166_pattern : U.ax166.ax.pattern = .implies KoreAML.R (.top KoreAML.R)
 theorem s166_free : (U.ax166.ax.sortVars.map sortVarKey ++ freeOf [] U.ax166.ax.pattern).eraseDups = [.sortVar "R", kI] := by
   decide +kernel
 theorem s166_sortVars : U.ax166.ax.sortVars = [KoreAML.Rv] := by decide +kernel
-theorem sub_name (H : HookParams) : (cH H).symName intSub = "Lbl'Unds'-Int'Unds'" ∧ iteSort? "Lbl'Unds'-Int'Unds'" = none :=
-  (by decide +kernel : c.symName intSub = "Lbl'Unds'-Int'Unds'" ∧ iteSort? "Lbl'Unds'-Int'Unds'" = none)
+theorem sub_name (H : HookParams) : (cH H).symName intSub = "Lbl'Unds'-Int'Unds'" ∧ instDecode? "Lbl'Unds'-Int'Unds'" = none :=
+  (by decide +kernel : c.symName intSub = "Lbl'Unds'-Int'Unds'" ∧ instDecode? "Lbl'Unds'-Int'Unds'" = none)
 theorem den_int0 (H : HookParams) : den (cH H) (KCore.int 0) = KoreAML.sym (.dv "0") ⬝ KoreAML.sym (.sort "SortInt") := by
   show den c (KCore.int 0) = _; decide +kernel
 theorem int_numbered (H : HookParams) : Srt.int < nRegSorts + (cH H).sortNames.length :=
@@ -666,7 +668,7 @@ theorem lib166 (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation Kor
         (KoreAML.sym (.symbol "Lbl'Unds'-Int'Unds'") ⬝ .evar (t.ev kI)) ⬝ (KoreAML.sym (.dv "0") ⬝ KoreAML.sym (.sort "SortInt")) := rfl
     have h2 : KoreAML.den (symApp (cH H) intSub (GroundTerm.koreList (cH H) [KCore.int n, KCore.int 0])) =
         (KoreAML.sym (.symbol "Lbl'Unds'-Int'Unds'") ⬝ den (cH H) (KCore.int n)) ⬝ den (cH H) (KCore.int 0) := by
-      unfold symApp; rw [(sub_name H).1, (sub_name H).2]; rfl
+      rw [symApp_noInst (c := cH H) (f := intSub) (by rw [(sub_name H).1]; exact (sub_name H).2), (sub_name H).1]; rfl
     rw [h1, h2]
     refine interp_app_congr (fun m => interp_app_congr (fun _ => Iff.rfl) (fun m => ?_) m) (fun m => ?_) b
     · rw [interp_evar, he, hes]
@@ -726,7 +728,7 @@ partition the 263 sentences; what holds of a class is its own theorem, stated ov
 - function functional: the `functional` sentence of a function of the definition (the 15 sort
   predicates), which Γ does not hold;
 - hooked functional: the `functional` sentence of a symbol Γ states by its graph (`freshInt`'s
-  among them, 83: the registry interprets it);
+  among them, 81: the registry interprets it);
 - collection law: associativity and the two units of `_List_`, `_Map_`, `_Set_`;
 - library: an equation or a lemma of the builtin library over symbols Γ has;
 - set idempotence: 61, refuted;
@@ -809,6 +811,32 @@ theorem absent_closed :
     (userAxioms.filter (fun ad => !(classOf "no direction").contains ad.index)).all
       (fun ad => (appHeadsOf ad.ax.pattern).all (gammaHasHead c)) = true :=
   tieAbsent_of_account userAxioms _ _ account_absent
+
+/-- The sentences of the no-direction class that are equations of a projection `project:X` (their
+left side applies `Lblproject'Coln'X`), each with X. -/
+def absentProj : List (Nat × String) :=
+  [(250, "Bool"), (251, "Cmd"), (252, "GeneratedCounterCell"), (253, "GeneratedCounterCellOpt"),
+   (254, "GeneratedTopCell"), (255, "GeneratedTopCellFragment"), (256, "Int"), (257, "K"),
+   (258, "KCell"), (259, "KCellOpt"), (260, "KItem"), (261, "List"), (262, "Map"), (263, "Set")]
+
+/-- Each sort of `absentProj` is K, KItem or a sort below KItem of Γ, with K and KItem
+constructor sorts. -/
+theorem absent_proj_below_c : absentProj.all (fun p => GenEqs.projBelowB c p.2) = true := by
+  decide +kernel
+
+/-- **The projections the no-direction class defines are of sorts below KItem**: `absentProj` is
+the list of the no-direction sentences whose left side applies a symbol `Lblproject'Coln'X`, each
+with that X, and each such X is K, KItem or a sort below KItem of Γ, with K and KItem constructor
+sorts (`GenEqs.projBelowB`). So the pattern each of these equations is at is functional and
+injective on X in every model of Γ (`GenEqs.projSel_fun`, `GenEqs.projSel_inj`): what the
+equation states of the pattern's symbols, Γ entails. -/
+theorem absent_proj_below (H : HookParams) :
+    (userAxioms.filter (fun ad => (classOf "no direction").contains ad.index &&
+        ((AttrsAgree.eqnHead ad.ax.pattern).getD "").startsWith "Lblproject'Coln'")).map
+      (fun ad => (ad.index, AttrsAgree.eqnHead ad.ax.pattern)) =
+      absentProj.map (fun p => (p.1, some ("Lblproject'Coln'" ++ p.2))) ∧
+    absentProj.all (fun p => GenEqs.projBelowB (cH H) p.2) = true :=
+  ⟨by rw [userAxioms_eq]; decide +kernel, absent_proj_below_c⟩
 
 /-! ## The constructor sentences: functional, subsort, injectivity, distinctness -/
 
@@ -964,6 +992,8 @@ open KCore.TieEns in
 #print axioms KCore.TieEns.attrs_agree
 #print axioms KCore.TieEns.fn_prios
 #print axioms KCore.TieEns.absent_closed
+#print axioms KCore.TieEns.absent_proj_below_c
+#print axioms KCore.TieEns.absent_proj_below
 #print axioms KCore.TieEns.strItem_registry
 #print axioms KCore.TieEns.account
 #print axioms KCore.TieEns.account_absent

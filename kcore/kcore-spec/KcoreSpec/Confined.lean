@@ -360,10 +360,10 @@ overloading symbol the element of the normal form of the application (`norm_gs`)
 the element of the injected value (through Cons-Coh where the argument is itself an injection),
 an open generator the element of its parameter graph's value (`ΓDomains`), none where the graph
 has no value. `ΓDomains` writes that graph at the head `symApp` applies and the no-junk sentence at
-the generator's own head; the two are one symbol where the generator's name is named like no `ite`
+the generator's own head; the two are one symbol where the decoder reads the generator's name as no instance
 (`hite`). -/
 theorem gen_value (hn : Model.NamesApartK c)
-    (hite : ∀ k ∈ c.params, k.raw = true → iteSort? (c.symName k.sig.name) = none)
+    (hite : ∀ k ∈ c.params, k.raw = true → instDecode? (c.symName k.sig.name) = none)
     {N : Srt} {g : Gen} (hgm : g ∈ c.gens N) {ws : List GroundTerm}
     (hws : c.sortsOf ws = some g.argSorts)
     (hnf : ∀ k : CtorSig, g = .ctor k → c.fnCover k.name ws = none) {m : M}
@@ -387,7 +387,7 @@ theorem gen_value (hn : Model.NamesApartK c)
     have hd : (den c (.ctor k.sig.name ws)).interpret I KoreAML.val0 m :=
       (den_sig_gs hI (k := k.sig) rfl hws KoreAML.val0 m).mpr hm
     have hsa : KoreAML.den (symApp c k.sig.name (GroundTerm.koreList c ws)) = den c (.ctor k.sig.name ws) := by
-      unfold symApp; rw [hite k hk hkr]; rfl
+      rw [symApp_noInst (hite k hk hkr)]; rfl
     have hax := sat_dom hI (Or.inr (Or.inl ⟨k, ws, hk, hws, rfl⟩))
     have hgr := (KoreAML.interp_equal (defOK hI)).mp (hax KoreAML.val0 default) m
     rw [hsa] at hgr
@@ -441,10 +441,10 @@ no-junk sentence makes each element a generator applied to elements of its argum
 (`noJunk_elim`); those are values' elements by the depth below, and the generator applied to
 values' elements is a value's element (`gen_value`: no function overload covers the arguments,
 because a confined sort's generator overloads no function, `fnCover_none_of_confinedGen`). From the
-subsorts' transitivity, `OvlOK` and `NamesApartK`, and that no open generator is named like `ite`
+subsorts' transitivity, `OvlOK` and `NamesApartK`, and that the decoder reads no open generator's name as an instance
 (`hite`, which `gen_value` reads). -/
 theorem confinedAt_valueCl (hn : Model.NamesApartK c)
-    (hite : ∀ k ∈ c.params, k.raw = true → iteSort? (c.symName k.sig.name) = none)
+    (hite : ∀ k ∈ c.params, k.raw = true → instDecode? (c.symName k.sig.name) = none)
     (hr : c.readsConfined = true) (hI : I ⊧ᴵP Γc c) :
     ∀ (k : Nat) (s : Srt), c.confinedAt k s = true → ∀ x, InS I (c.sortName s) x →
       ∃ v, c.sortOf v = some s ∧ elemOf c I v = x := by
@@ -494,7 +494,7 @@ theorem confinedAt_value (h : c.coreOK = true) (hr : c.readsConfined = true) (hI
   haveI : OvlOK c := hno
   exact confinedAt_valueCl (sortCtx_of_all hok hsr (OvlOK.ovlCase hno)).trans
     (Model.namesApartK_spec (faithCoreOK_parts (Semantics.coreOK_parts h).2.1).2.2.2.2.2.1)
-    (fun k hk hkr => (Semantics.raw_of_core h hk hkr).2.2.2.1) hr hI
+    (fun k hk hkr => Semantics.raw_noInst_core_irs h hk hkr) hr hI
 
 end
 

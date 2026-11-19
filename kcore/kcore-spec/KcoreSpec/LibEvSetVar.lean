@@ -153,7 +153,7 @@ mutual
       · simp [hd] at ht
     | .app f ts, s, hr, ht => by
       simp only [reg, Bool.and_eq_true, decide_eq_true_eq, Option.isNone_iff_eq_none] at hr
-      obtain ⟨⟨hf, hite⟩, hrs⟩ := hr
+      obtain ⟨⟨hf, -⟩, hrs⟩ := hr
       simp only [srt?] at ht
       obtain ⟨k, hk, hk2⟩ := Option.bind_eq_some_iff.mp ht
       by_cases hargs : srts? c vars ts = some k.args
@@ -166,7 +166,7 @@ mutual
           | true => rfl
           | false => rw [lookupSig_hookSigs_of_not_isHook hh] at hk; cases hk
         have hhead : KoreAML.sym (.symbol (regSymNames.getD f "")) = symHead c f := by
-          unfold symHead; rw [symName_reg c hf, hite]
+          rw [symHead_noInst (by rw [symName_reg c hf]; exact Faithful.regSym_noInst_irs hf), symName_reg c hf]
         refine ⟨fun m => ?_, fun w hw => ?_⟩
         · rw [svKore, KoreAML.tr_app0, hhead, hih.2 _ m, svVals]
           constructor

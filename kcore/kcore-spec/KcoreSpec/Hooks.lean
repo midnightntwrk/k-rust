@@ -355,8 +355,9 @@ def flTest (t : UnpackedFloat → Bool) (vs : List GroundTerm) : Option GroundTe
   | _ => none
 
 open Float.Model in
-/-- A test of one Float of a format with a model (`asFloat`): `isInfinite`, whose equation (domains.md
-1673) reads `maxValueFloat` and `--Float`, which compute at such a format only. -/
+/-- A test of one Float of a format with a model (`asFloat`): `isInfinite` there, whose equation
+(domains.md 1673) reads `maxValueFloat` and `--Float`, which compute at such a format (`tflInf` is
+its counterpart at a format `thinAt` names). -/
 def flTestM (t : UnpackedFloat → Bool) (vs : List GroundTerm) : Option GroundTerm :=
   match vs with
   | [a] => (asFloat a).map fun (_, _, _, u) => bool (t u)
@@ -535,22 +536,34 @@ the exact result rounded to nearest, ties to even, off the infinities, NaN, a ze
 zero results the text gives no sign and the values above the format's largest finite one;
 `roundFloat` and `Int2Float` at a value the format holds). A binary operation on two formats is
 undefined (K's documentation leaves it open; the symbols are not total); a comparison of two
-formats compares the exact values. -/
+formats compares the exact values. Each operation that computes a Float, and `isInfinite`, is
+paired by `flOr` with its entry of `thinHooks`: at a format with a model Lean core's, at a format
+`thinAt` names the same formulas over the rounding to the nearest datum of that format. -/
 def floatHooks : List (Sym × (List GroundTerm → Option GroundTerm)) :=
-  [(floatAdd, fl2 KFloat.sum?), (floatSub, fl2 KFloat.diff?),
-   (floatMul, fl2 KFloat.prod?), (floatDiv, fl2 KFloat.quot?),
-   (floatRem, fl2 KFloat.remainder),
-   (floatNeg, fl1 fun _ => KFloat.neg?), (floatAbs, fl1 fun _ => KFloat.abs?),
-   (floatFloor, fl1 fun s => KFloat.roundToIntegral s .down), (floatCeil, fl1 fun s => KFloat.roundToIntegral s .up),
-   (floatTrunc, fl1 fun s => KFloat.roundToIntegral s .zero), (floatSqrt, fun vs => match vs with
-     | [a] => (asFloat a).bind fun (p, e, sp, u) => (KFloat.sqrt? sp u).map (floatV p e sp) | _ => none),
+  [(floatAdd, flOr (fl2 KFloat.sum?) (tfl2 fun p e => KFloat.sumBy (KFloat.tnNearest? p e))),
+   (floatSub, flOr (fl2 KFloat.diff?) (tfl2 fun p e => KFloat.diffBy (KFloat.tnNearest? p e))),
+   (floatMul, flOr (fl2 KFloat.prod?) (tfl2 fun p e => KFloat.prodBy (KFloat.tnNearest? p e))),
+   (floatDiv, flOr (fl2 KFloat.quot?) (tfl2 KFloat.tnQuot?)),
+   (floatRem, flOr (fl2 KFloat.remainder) (tfl2 fun p e => KFloat.remainderBy (KFloat.tnHeld? p e))),
+   (floatNeg, flOr (fl1 fun _ => KFloat.neg?) (tfl1 fun _ _ => KFloat.neg?)),
+   (floatAbs, flOr (fl1 fun _ => KFloat.abs?) (tfl1 fun _ _ => KFloat.abs?)),
+   (floatFloor, flOr (fl1 fun s => KFloat.roundToIntegral s .down)
+     (tfl1 fun p e => KFloat.roundToIntegralBy (KFloat.tnHeld? p e) .down)),
+   (floatCeil, flOr (fl1 fun s => KFloat.roundToIntegral s .up)
+     (tfl1 fun p e => KFloat.roundToIntegralBy (KFloat.tnHeld? p e) .up)),
+   (floatTrunc, flOr (fl1 fun s => KFloat.roundToIntegral s .zero)
+     (tfl1 fun p e => KFloat.roundToIntegralBy (KFloat.tnHeld? p e) .zero)),
+   (floatSqrt, flOr (fun vs => match vs with
+     | [a] => (asFloat a).bind fun (p, e, sp, u) => (KFloat.sqrt? sp u).map (floatV p e sp) | _ => none)
+     (tfl1 KFloat.tnSqrt?)),
    (floatLe, flCmp fun o => o == some .lt || o == some .eq), (floatLt, flCmp fun o => o == some .lt),
    (floatGe, flCmp fun o => o == some .gt || o == some .eq), (floatGt, flCmp fun o => o == some .gt),
    (floatEq, flCmp fun o => o == some .eq), (floatNe, flCmp fun o => o != some .eq),
-   (floatIsNaN, flTest KFloat.isNaN), (floatIsInfinite, flTestM KFloat.isInf),
+   (floatIsNaN, flTest KFloat.isNaN), (floatIsInfinite, flOr (flTestM KFloat.isInf) tflInf),
    (floatPrecision, flFmt fun p _ => p), (floatExponentBits, flFmt fun _ e => e),
-   (floatRound, flTo KFloat.convertFormat), (int2Float, flOfInt),
-   (floatMaxValue, flAt KFloat.maxValue), (floatMinValue, flAt KFloat.minValue)]
+   (floatRound, flOr (flTo KFloat.convertFormat) tflTo), (int2Float, flOr flOfInt tflOfInt),
+   (floatMaxValue, flOr (flAt KFloat.maxValue) (tflAt KFloat.tnMax?)),
+   (floatMinValue, flOr (flAt KFloat.minValue) (tflAt KFloat.tnMin?))]
 
 /-! ## Strings and Bytes -/
 
@@ -870,8 +883,10 @@ interpretation (`Semantics.libAdmitted`, LibAdmitted.lean). Line numbers are dom
   zero result of a nonzero operand (no sign, 1583-1588) and at an integer the format does not hold
   (the "double-rounding" of 1655-1658 is described nowhere).
 - `roundFloat`, `Int2Float`, `maxValueFloat`, `minValueFloat` at a format without a model (`p < 2` or
-  `e < 2`): `pNxM` names a format for positive N and M only (1469-1476); at a field of 1 the format
-  is named and KCore computes none of its data (`KFloat.thinOK`).
+  `e < 2`) that `thinAt` does not name: `pNxM` names a format for positive N and M only
+  (1469-1476); at one exponent bit the format is named and KCore computes none of its data
+  (`KFloat.thinOK`). At a format `thinAt` names (precision 1, at least 2 exponent bits) they compute
+  (`thinHooks`), with the silent points of the bullet above.
 - `ordChar`, `chrChar`: a string of one code point (1738-1739), a code point 0 … 0x10ffff (1702-1703);
   another string or Int is not described; at a surrogate the string is not a value here.
 - `substrString`: "only defined on valid indices" (1753-1755), declared `total` (1758): a value exists
@@ -902,11 +917,14 @@ interpretation (`Semantics.libAdmitted`, LibAdmitted.lean). Line numbers are dom
   text names no rounding for it), at NaN, a negative datum and the infinities; and at both zeros,
   whose root is a zero of a sign the text does not give (FloatDomain.lean `sqrt?`).
 - `--Float`, `absFloat`, `floorFloat`, `ceilFloat`, `truncFloat`, `isInfinite` (and the operations
-  above) at a value of a format with a field of 1 (`KFloat.thinOK`), and the six comparisons and
-  `isNaN` at one of a single exponent bit: KCore computes no operation there, so Γ states there
-  only the interpretation's value, less than the text states (an operation at such a format has
-  the status it has at any format, 1475, 1481-1488). At precision 1 and at least 2 exponent bits
-  the comparisons and `isNaN` read the datum (`asDatum`, `KFloat.thinUnpack`).
+  above), the six comparisons and `isNaN` at a value of a format of one exponent bit
+  (`KFloat.thinOK`): KCore computes no operation there, so Γ states there only the interpretation's
+  value, less than the text states (an operation at such a format has the status it has at any
+  format, 1475, 1481-1488). At precision 1 and at least 2 exponent bits (`thinAt`) the comparisons
+  and `isNaN` read the datum (`asDatum`, `KFloat.thinUnpack`), and the other operations compute on
+  it by the formulas of a format with a model over the rounding to the nearest datum of that format
+  (`thinHooks`, FloatThin.lean), with the silent points the bullets above name, and at an exact
+  result halfway between two data of the format (zero and the smallest positive datum included).
 - RANGEMAP's `lookup` and `find_range` off the keys: "yield an exception during concrete execution"
   (534-535, 555-556), of a run, and no `#False`, the reading taken for `memsetBytes`.
 - RANGEMAP's element symbol `r|->`, update, `[_ <- undef]` and `removeAll` at a range that is no proper Int range (for

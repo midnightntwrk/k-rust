@@ -1,0 +1,116 @@
+id = "t242-rat-minmax-overlap"
+kind = "text"
+subject = "A text importing RAT: the two equations of each of the module's functions maxRat and minRat, maxRat(R, S) => R requires R >=Rat S and maxRat(R, S) => S requires S >=Rat R, minRat alike with <=Rat. What the text states of the two functions at a pair < 0 , J >Rat against 0 and at a pair < N , N >Rat against 1, pairs that are not in the canonical form the module's prose names."
+origin = "kcore-spec fixture e6-param-rat (its import of RAT)"
+rests_on = ["kk:t10-fn-innermost", "kk:t11-eq-applies", "kk:t12-eq-priority-owise", "kk:t210-eq-several-owise", "kk:t31-int-division", "kk:t32-keq-ite", "kk:t193-hook-eq-user", "kk:t228-ctor-distinct", "kk:t239-rat-makerat-overlap", "kk:t240-rat-ceil-div"]
+
+[text]
+files = ["t242-rat-minmax-overlap.k"]
+kompile = "accepts"
+
+[ruling]
+status = "settled"
+form = "no-model"
+statement = "The four equations are sentences of the text, each stating its right side wherever its own requires is true, at every two values of Rat; they have one priority, 50, and where both equations of one function apply both state their right sides. Both requires of maxRat, and both of minRat, are true at (R, S) exactly where R >Rat S and S >Rat R are both false. At (< 0 , J >Rat, 0), for every nonzero integer J, both are false, so the text states maxRat(< 0 , J >Rat, 0) = < 0 , J >Rat and maxRat(< 0 , J >Rat, 0) = 0. maxRat is a function, so in a model < 0 , 1 >Rat and < 0 , 2 >Rat are both the element 0 and are one element; the constructor < _ , _ >Rat at different arguments gives different elements. The text has no model. The same holds at (< N , N >Rat, 1) for every N > 0, where < 1 , 1 >Rat and < 2 , 2 >Rat would both be the element 1, and of minRat by itself. The comment and the prose that name the canonical form of a pair are no sentences and restrict none of the four equations. The conclusion holds whether or not a pair may be the element an integer is, and whatever a hook would give the two functions."
+reason = '''
+(1) The values. < _ , _ >Rat is a production that takes two integers (rat.md:100). The invariant written above it (rat.md:99: I =/= 0, J >= 2, I and J coprime) is a comment, and the module's prose that its operations normalize to a canonical form, and that users should not write the pair syntax (rat.md:86-93), is prose: neither is a sentence, so < 0 , J >Rat and < N , N >Rat are values of Rat at every integers J and N (kk:t240-rat-ceil-div, point (7)). The production carries no function attribute and no attribute stating equations among its terms, so it is a constructor and at different arguments gives different elements (kk:t228-ctor-distinct): < 0 , 1 >Rat and < 0 , 2 >Rat are different elements, and so are < 1 , 1 >Rat and < 2 , 2 >Rat. Whether a pair is ever the element an integer is, kk:t228-ctor-distinct does not say, and nothing below needs it.
+(2) The equations. maxRat has the two equations of rat.md:223-224 and minRat those of rat.md:220-221. None carries a priority or an owise attribute, so each has the priority 50 (user_manual.md:1748-1749; kk:t12-eq-priority-owise), and two equations of one priority that both apply at an argument both state their right sides there (kk:t210-eq-several-owise; kk:t239-rat-makerat-overlap, point (2)). Each states its right side at exactly the arguments its patterns denote where its requires evaluates to true (kk:t11-eq-applies); the patterns are the variables R and S of sort Rat, so each speaks of every two values of Rat. maxRat and minRat are declared with the function attribute (rat.md:66-67): an application of either has at most one value (user_manual.md:540-544). They also carry a hook attribute; an equation of a hooked symbol is a sentence beside the hook (kk:t193-hook-eq-user), so any value a hook gives is a value every applicable equation states.
+(3) The requires. R >=Rat S is notBool (R <Rat S), R <Rat S is S >Rat R, and R <=Rat S is S >=Rat R (rat.md:214, 216, 218). So maxRat's two requires at (R, S) are notBool (S >Rat R) and notBool (R >Rat S); minRat's, R <=Rat S and S <=Rat R, are S >=Rat R and R >=Rat S, the same two. All four are true where R >Rat S and S >Rat R are both false (an application at arguments that have values is the application at those values, kk:t10-fn-innermost).
+(4) >Rat. It is a function (rat.md:54) with three equations (rat.md:207, 209, 210). An equation that applies states the value of the application, and >Rat has at most one, so one applicable equation gives the value in every model; any other that applies states the same value or there is no model. R =/=Rat S is R =/=K S (rat.md:127), false where the two denote one element and true where they denote different ones (kk:t32-keq-ite). 0 >Rat 0 is false: the third equation applies with I = 0 and states 0 >Int 0.
+(5) At (< 0 , J >Rat, 0), J a nonzero integer. < 0 , J >Rat >Rat 0 is false: the second equation of >Rat applies with I = 0 and states 0 >Int 0. 0 >Rat < 0 , J >Rat is false: where < 0 , J >Rat is the element 0 it is 0 >Rat 0, false by (4). Where it is not, < 0 , J >Rat =/=Rat 0 is true and the first equation of >Rat applies: it states (0 -Rat < 0 , J >Rat) >Rat 0. 0 -Rat < 0 , J >Rat is 0 +Rat (-1 *Rat < 0 , J >Rat) (rat.md:159); -1 *Rat < 0 , J >Rat is (-1 *Int 0) /Rat J (rat.md:148), which is 0 /Rat J, which is makeRat(0, J) since J =/=Int 0 (rat.md:155), which is 0 (rat.md:166); 0 +Rat 0 is 0 +Int 0, 0 (rat.md:145). So it is 0 >Rat 0, false. By (3) both equations of maxRat apply: the text states maxRat(< 0 , J >Rat, 0) = < 0 , J >Rat and maxRat(< 0 , J >Rat, 0) = 0, and minRat(< 0 , J >Rat, 0) the same two.
+(6) So in a model < 0 , J >Rat is the element 0 for every nonzero J: either it is, or by (5) and (2) the one value of maxRat(< 0 , J >Rat, 0) is both. At J = 1 and J = 2, < 0 , 1 >Rat and < 0 , 2 >Rat would be one element, against (1). The text has no model. The derivation reads maxRat's equations and not minRat's, and the same derivation with minRat's reads them and not maxRat's: each pair of equations alone leaves the text without a model.
+(7) At (< N , N >Rat, 1), N a positive integer. First, < N , N >Rat is not the element 0: at such an element the second equation of >Rat applies to it against 0 with I = N and states N >Int 0, true, and the third with I = 0 states 0 >Int 0, false; true and false are two values (domains.md:1084) and >Rat has at most one. So < N , N >Rat =/=Rat 0 is true, and 1 =/=Rat 0 is true, 1 and 0 being different integers.
+< N , N >Rat >Rat 1: the first equation of >Rat applies and states (< N , N >Rat -Rat 1) >Rat 0. < N , N >Rat -Rat 1 is < N , N >Rat +Rat (-1 *Rat 1) (rat.md:159); -1 *Rat 1 is -1 *Int 1, -1 (rat.md:150); < N , N >Rat +Rat -1 is -1 +Rat < N , N >Rat (rat.md:144), which is ((-1 *Int N) +Int N) /Rat N (rat.md:143), 0 /Rat N, which is makeRat(0, N), 0 (rat.md:155, 166). So it is 0 >Rat 0, false.
+1 >Rat < N , N >Rat: the first equation applies and states (1 -Rat < N , N >Rat) >Rat 0. 1 -Rat < N , N >Rat is 1 +Rat (-1 *Rat < N , N >Rat) (rat.md:159); -1 *Rat < N , N >Rat is (-1 *Int N) /Rat N (rat.md:148), which is makeRat(0 - N, N) (rat.md:155), which is makeRat(0 - N, N, gcdInt(0 - N, N)) since neither is 0 (rat.md:168). gcdInt(0 - N, N) is gcdInt(N, (0 - N) %Int N) (rat.md:180), and (0 - N) %Int N is 0 (kk:t31-int-division), so it is gcdInt(N, 0), which is N since N >Int 0 (rat.md:178). makeRat(0 - N, N, N) is (0 - N) /Int N, -1, since N ==Int N (rat.md:171; kk:t31-int-division). 1 +Rat -1 is 1 +Int -1, 0 (rat.md:145). So it is 0 >Rat 0, false.
+By (3) both equations of maxRat apply: the text states maxRat(< N , N >Rat, 1) = < N , N >Rat and maxRat(< N , N >Rat, 1) = 1, and minRat the same two. In a model < N , N >Rat is then the element 1 for every N > 0, and < 1 , 1 >Rat and < 2 , 2 >Rat would be one element, against (1): no model, by this point alone too.
+(8) No step uses that a pair is not the element an integer is: (5) and (6) take both cases, and (7) shows the one case it needs. The text adds no equation of its own to maxRat or minRat, so the four equations are all the equations of the two functions.'''
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/rat.md:66-67 (K 7.1.337)"
+quote = "syntax Rat ::= minRat(Rat, Rat) [function, total, symbol(minRat), smtlib(ratmin), hook(RAT.min)] | maxRat(Rat, Rat) [function, total, symbol(maxRat), smtlib(ratmax), hook(RAT.max)]"
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/rat.md:220-224 (K 7.1.337)"
+quote = "rule minRat(R, S) => R requires R <=Rat S rule minRat(R, S) => S requires S <=Rat R rule maxRat(R, S) => R requires R >=Rat S rule maxRat(R, S) => S requires S >=Rat R"
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/rat.md:99-100 (K 7.1.337)"
+quote = '''// invariant of < I , J >Rat : I =/= 0, J >= 2, and I and J are coprime syntax Rat ::= "<" Int "," Int ">Rat" [format(%2 /Rat %4)]'''
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/rat.md:86-93 (K 7.1.337)"
+quote = "Users of the RAT module should not use any of the syntax defined in any of these modules. ... rational numbers are normalized to a canonical form by this module,. with the canonical form bearing the property that it is either an `Int`, or a pair of integers `I /Rat J` such that `I =/=Int 0 andBool J >=Int 2 andBool gcdInt(I, J) ==Int 1` is always true."
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/rat.md:214-218 (K 7.1.337)"
+quote = "rule R >=Rat S => notBool R <Rat S rule R <Rat S => S >Rat R rule R <=Rat S => S >=Rat R"
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/rat.md:54 (K 7.1.337)"
+quote = '''| Rat ">Rat" Rat [function, total, symbol(_>Rat_), smtlib(ratgt), hook(RAT.gt)]'''
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/rat.md:207-210 (K 7.1.337)"
+quote = "rule R >Rat S => R -Rat S >Rat 0 requires S =/=Rat 0 rule < I , _ >Rat >Rat 0 => I >Int 0 rule I:Int >Rat 0 => I >Int 0"
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/rat.md:127 (K 7.1.337)"
+quote = "rule R =/=Rat S => R =/=K S"
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/rat.md:143-145 (K 7.1.337)"
+quote = "rule I:Int +Rat < J , J' >Rat => ((I *Int J') +Int J) /Rat J' rule < J , J' >Rat +Rat I:Int => I +Rat < J , J' >Rat rule I:Int +Rat J:Int => I +Int J"
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/rat.md:148-150 (K 7.1.337)"
+quote = "rule I:Int *Rat < J , J' >Rat => (I *Int J) /Rat J' rule < J , J' >Rat *Rat I:Int => I *Rat < J , J' >Rat rule I:Int *Rat J:Int => I *Int J"
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/rat.md:155 (K 7.1.337)"
+quote = "rule I:Int /Rat J:Int => makeRat(I, J) requires J =/=Int 0"
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/rat.md:159 (K 7.1.337)"
+quote = "rule R -Rat S => R +Rat (-1 *Rat S)"
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/rat.md:166-168 (K 7.1.337)"
+quote = "rule makeRat(0, J) => 0 requires J =/=Int 0 rule makeRat(I, J) => makeRat(I, J, gcdInt(I,J)) requires I =/=Int 0 andBool J =/=Int 0"
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/rat.md:171 (K 7.1.337)"
+quote = "rule makeRat(I, J, D) => I /Int D requires J ==Int D"
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/rat.md:178-180 (K 7.1.337)"
+quote = "rule gcdInt(A, 0) => A requires A >Int 0 rule gcdInt(A, 0) => 0 -Int A requires A <Int 0 rule gcdInt(A, B) => gcdInt(B, A %Int B) requires B =/=Int 0"
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:540-544 (K 7.1.337)"
+quote = "Semantically, it means that evaluation of that symbol will result in at most one return value (that is, the symbol is a *partial function*)."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1748-1749 (K 7.1.337)"
+quote = "There is one more rule by which priorities are assigned: a rule with no attributes indicating its priority is assigned the priority 50."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1084 (K 7.1.337)"
+quote = "The boolean values are `true` and `false`."

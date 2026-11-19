@@ -51,11 +51,11 @@ mutual
 end
 
 /-- The sort of the value `.ctor f []`, for a symbol f whose application `symApp` writes without a
-sort argument (its name no `ite{X}` instance). -/
+sort argument. -/
 def ctorSortP? (c : Semantics) (f : Sym) : Option Srt :=
-  match iteSort? (c.symName f) with
-  | some _ => none
-  | none => c.sortOf (.ctor f [])
+  match symApp c f [] with
+  | .app _ [] _ => c.sortOf (.ctor f [])
+  | _ => none
 
 /-- Γ's value of the symbol `f` at `ws`: an interpreted hooked symbol's (`Semantics.hv`), a
 parameter symbol's (`Semantics.paramVal`), and for any other symbol at no arguments the value
@@ -291,17 +291,23 @@ mutual
               rw [valP, valPList]
               simp only [allSome, Option.bind_some, appValP, hl, hkp, hs', Option.map_some]
             unfold ctorSortP? at hs'
-            cases hi : iteSort? (c.symName f) with
-            | some _ => rw [hi] at hs'; cases hs'
-            | none =>
-              rw [hi] at hs'
+            obtain ⟨h, xs, hih, hwr⟩ := symApp_head c f
+            rw [hwr] at hs'
+            cases xs with
+            | cons x xs => simp at hs'
+            | nil =>
+              have hh : h = c.symName f := by
+                rcases hih with ⟨-, rfl⟩ | ⟨hne, -⟩
+                · rfl
+                · exact absurd rfl hne
+              subst hh
+              simp only [List.map_nil] at hs'
               refine ⟨fun m => ?_, fun w hw => ?_⟩
               · rw [hval, koreP, tr_symApp, korePList, KoreAML.trArgs_nil]
                 show _ ↔ (KoreAML.den (GroundTerm.kore c (.ctor f []))).interpret I e m
                 unfold KoreAML.den
-                rw [GroundTerm.kore, GroundTerm.koreList, KoreAML.tr_app0, KoreAML.trArgs_nil]
-                unfold symHead
-                rw [hi]
+                rw [GroundTerm.kore, GroundTerm.koreList, KoreAML.tr_app0, KoreAML.trArgs_nil,
+                  symHead_of_symApp hwr, instHeadP_nil]
               · rw [hval] at hw
                 cases hw
                 exact hs'

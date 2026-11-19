@@ -295,13 +295,14 @@ theorem lookup_patCtxAll {f : Sym} {k k0 : CtorSig} (h0 : lookupSig c.ctorSigs f
     exact lookupSig_append_some (lookupSig_append_some h0)
   rw [h] at this; exact Option.some.inj this
 
-theorem iteSort_ctor (hnm : NamesPlain c) {f : Sym} {k0 : CtorSig} (h0 : lookupSig c.ctorSigs f = some k0) :
-    iteSort? (c.symName f) = none := by
+/-- Under `NamesPlain`, `symApp` writes a constructor at its name, at no sort. -/
+theorem ctor_writes_irs (hnm : NamesPlain c) {f : Sym} {k0 : CtorSig} (h0 : lookupSig c.ctorSigs f = some k0) :
+    ∀ ps, symApp c f ps = .app ⟨⟨c.symName f⟩⟩ [] ps := by
   rw [lookupSig_eq] at h0
   have hmem := List.mem_of_find?_eq_some h0
   have h1 := List.find?_some h0
   have hname : k0.name = f := beq_iff_eq.mp h1
-  rw [← hname]; exact hnm k0 hmem
+  rw [← hname]; exact namesPlain_writes_irs hnm hmem
 
 theorem tr_var {vs : List KoreAML.Var} {t : KoreAML.VarTable} {e : Valuation M} (i : Nat) (m : M) :
     (KoreAML.tr ⟨t, []⟩ (Term.kore c vs (.var i))).interpret I e m ↔
@@ -342,8 +343,7 @@ mutual
       simp only [Bool.and_eq_true] at hp
       have ih := patVals_den hs hp.2 hargs
       refine ⟨sortOf_ctor_intro ⟨k, hk0, ih.1, rfl⟩, fun m => ?_⟩
-      rw [Term.kore, iteSort_ctor hnm hk0]
-      dsimp only
+      rw [kore_app, ctor_writes_irs hnm hk0]
       rw [KoreAML.tr_app0, den_ctor]
       exact ih.2 _ _ (fun _ => Iff.rfl) m
     | _, _, s, .hook hp _ _, hpl, _ => by

@@ -10,6 +10,8 @@
   - The account: the class lists partition the 323 sentences of the user module C3-STRICT-ALIAS, in
     `tieClasses`' order (`account`, `account_sizes`, `account_classes`); the no-direction class holds
     exactly the sentences that apply a symbol Γ lacks (`account_absent`, `absent_closed`).
+  - `absent_proj_below`: the 16 no-direction sentences that are equations of a projection
+    `project:X` are of sorts X that are K, KItem or below KItem in Γ (`GenEqs.projBelowB`).
   - `attrs_agree`: the attributes the translation does not read agree with `defn`.
   - `sig_origin`: each of the 219 items of `sigItems c` is a declaration's item of the text or a
     surplus one; `decls_entailed`: Γ entails the item of each declaration without sort parameters
@@ -148,6 +150,33 @@ theorem absent_closed :
     (userAxioms.filter (fun ad => !(classOf "no direction").contains ad.index)).all
       (fun ad => (appHeadsOf ad.ax.pattern).all (gammaHasHead c)) = true :=
   tieAbsent_of_account userAxioms _ _ account_absent
+
+/-- The sentences of the no-direction class that are equations of a projection `project:X` (their
+left side applies `Lblproject'Coln'X`), each with X. -/
+def absentProj : List (Nat × String) :=
+  [(308, "Bool"), (309, "Exp"), (310, "GeneratedCounterCell"), (311, "GeneratedCounterCellOpt"),
+   (312, "GeneratedTopCell"), (313, "GeneratedTopCellFragment"), (314, "Int"), (315, "K"),
+   (316, "KCell"), (317, "KCellOpt"), (318, "KItem"), (319, "KResult"), (320, "List"),
+   (321, "Map"), (322, "Set"), (323, "Val")]
+
+/-- Each sort of `absentProj` is K, KItem or a sort below KItem of Γ, with K and KItem
+constructor sorts. -/
+theorem absent_proj_below_c : absentProj.all (fun p => GenEqs.projBelowB c p.2) = true := by
+  decide +kernel
+
+/-- **The projections the no-direction class defines are of sorts below KItem**: `absentProj` is
+the list of the no-direction sentences whose left side applies a symbol `Lblproject'Coln'X`, each
+with that X, and each such X is K, KItem or a sort below KItem of Γ, with K and KItem constructor
+sorts (`GenEqs.projBelowB`). So the pattern each of these equations is at is functional and
+injective on X in every model of Γ (`GenEqs.projSel_fun`, `GenEqs.projSel_inj`): what the
+equation states of the pattern's symbols, Γ entails. -/
+theorem absent_proj_below (H : HookParams) :
+    (userAxioms.filter (fun ad => (classOf "no direction").contains ad.index &&
+        ((AttrsAgree.eqnHead ad.ax.pattern).getD "").startsWith "Lblproject'Coln'")).map
+      (fun ad => (ad.index, AttrsAgree.eqnHead ad.ax.pattern)) =
+      absentProj.map (fun p => (p.1, some ("Lblproject'Coln'" ++ p.2))) ∧
+    absentProj.all (fun p => GenEqs.projBelowB (cH H) p.2) = true :=
+  ⟨by rw [userAxioms_eq]; decide +kernel, absent_proj_below_c⟩
 
 /-- The sentences whose text is none of f2-examples/ens.kompile.kore's user module, with their class. -/
 def unmapped : List (Nat × String) :=
@@ -335,6 +364,7 @@ noncomputable def fnText : List AxiomDecl :=
    U.ax284, U.ax287, U.ax286, U.ax274, U.ax273, U.ax276, U.ax275, U.ax301, U.ax300, U.ax272,
    U.ax271, U.ax293, U.ax292]
 
+set_option maxHeartbeats 1000000 in
 /-- **Γ's equations are the text's sentences' translations, pattern for pattern** (one kernel
 decision). -/
 theorem fn_shape : (fnItems c).map (·.pat) = fnText.map (trS · |>.pat) := by
@@ -701,6 +731,7 @@ theorem nojunk_trivial_entailed (H : HookParams) :
   · rw [nj163]; exact orTopBot_valid hD rfl
   · rw [nj166]; exact orTopBot_valid hD rfl
 
+set_option maxHeartbeats 1000000 in
 /-- **No junk of the sorts with generators**: the translation of each sentence is the pattern of
 one of Γ's constructor items. -/
 theorem nojunk_items : ∀ ad ∈ [U.ax158, U.ax159, U.ax160, U.ax161, U.ax162, U.ax164, U.ax165, U.ax168, U.ax169],
@@ -871,8 +902,8 @@ theorem s166_pattern : U.ax221.ax.pattern = .implies KoreAML.R (.top KoreAML.R)
 theorem s166_free : (U.ax221.ax.sortVars.map sortVarKey ++ freeOf [] U.ax221.ax.pattern).eraseDups = [.sortVar "R", kI] := by
   decide +kernel
 theorem s166_sortVars : U.ax221.ax.sortVars = [KoreAML.Rv] := by decide +kernel
-theorem sub_name (H : HookParams) : (cH H).symName intSub = "Lbl'Unds'-Int'Unds'" ∧ iteSort? "Lbl'Unds'-Int'Unds'" = none :=
-  (by decide +kernel : c.symName intSub = "Lbl'Unds'-Int'Unds'" ∧ iteSort? "Lbl'Unds'-Int'Unds'" = none)
+theorem sub_name (H : HookParams) : (cH H).symName intSub = "Lbl'Unds'-Int'Unds'" ∧ instDecode? "Lbl'Unds'-Int'Unds'" = none :=
+  (by decide +kernel : c.symName intSub = "Lbl'Unds'-Int'Unds'" ∧ instDecode? "Lbl'Unds'-Int'Unds'" = none)
 theorem den_int0 (H : HookParams) : den (cH H) (KCore.int 0) = KoreAML.sym (.dv "0") ⬝ KoreAML.sym (.sort "SortInt") := by
   show den c (KCore.int 0) = _; decide +kernel
 theorem int_numbered (H : HookParams) : Srt.int < nRegSorts + (cH H).sortNames.length :=
@@ -923,7 +954,7 @@ theorem lib166 (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation Kor
         (KoreAML.sym (.symbol "Lbl'Unds'-Int'Unds'") ⬝ .evar (t.ev kI)) ⬝ (KoreAML.sym (.dv "0") ⬝ KoreAML.sym (.sort "SortInt")) := rfl
     have h2 : KoreAML.den (symApp (cH H) intSub (GroundTerm.koreList (cH H) [KCore.int n, KCore.int 0])) =
         (KoreAML.sym (.symbol "Lbl'Unds'-Int'Unds'") ⬝ den (cH H) (KCore.int n)) ⬝ den (cH H) (KCore.int 0) := by
-      unfold symApp; rw [(sub_name H).1, (sub_name H).2]; rfl
+      rw [symApp_noInst (c := cH H) (f := intSub) (by rw [(sub_name H).1]; exact (sub_name H).2), (sub_name H).1]; rfl
     rw [h1, h2]
     refine interp_app_congr (fun m => interp_app_congr (fun _ => Iff.rfl) (fun m => ?_) m) (fun m => ?_) b
     · rw [interp_evar, he, hes]
@@ -1029,6 +1060,8 @@ end KCore.TieC3StrictAlias
 #check @KCore.TieC3StrictAlias.account_classes
 #check @KCore.TieC3StrictAlias.account_absent
 #check @KCore.TieC3StrictAlias.absent_closed
+#check @KCore.TieC3StrictAlias.absent_proj_below_c
+#check @KCore.TieC3StrictAlias.absent_proj_below
 #check @KCore.TieC3StrictAlias.lists_in_account
 #check @KCore.TieC3StrictAlias.attrs_agree
 #check @KCore.TieC3StrictAlias.sig_origin
@@ -1060,6 +1093,8 @@ end KCore.TieC3StrictAlias
 #print axioms KCore.TieC3StrictAlias.account_classes
 #print axioms KCore.TieC3StrictAlias.account_absent
 #print axioms KCore.TieC3StrictAlias.absent_closed
+#print axioms KCore.TieC3StrictAlias.absent_proj_below_c
+#print axioms KCore.TieC3StrictAlias.absent_proj_below
 #print axioms KCore.TieC3StrictAlias.lists_in_account
 #print axioms KCore.TieC3StrictAlias.attrs_agree
 #print axioms KCore.TieC3StrictAlias.sig_origin

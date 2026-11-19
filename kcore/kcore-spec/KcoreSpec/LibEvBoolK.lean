@@ -109,9 +109,8 @@ theorem kEqSeq_den (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subs
   rw [tr_symApp, KoreAML.tr_app0]
   have hh : symHead c kEq = KoreAML.sym (.symbol (regSymNames.getD kEq "")) := by
     have hn : c.symName kEq = regSymNames.getD kEq "" := symName_reg c (by decide)
-    have hi : iteSort? (regSymNames.getD kEq "") = none := by decide
-    unfold symHead
-    rw [hn, hi]
+    have hi : instDecode? (regSymNames.getD kEq "") = none := by decide
+    rw [symHead_noInst (by rw [hn]; exact hi), hn]
   rw [hh]
   simp only [GroundTerm.koreList, KoreAML.trArgs_cons, KoreAML.trArgs_nil]
   exact KoreAML.interp_app_congr (KoreAML.interp_app_congr (fun _ => Iff.rfl)

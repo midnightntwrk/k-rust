@@ -48,13 +48,14 @@ theorem valHead_mem (h : c.coreOK = true) {f : Sym} {ts : List GroundTerm} {s : 
     have hm := List.mem_of_find?_eq_some hk
     refine ⟨?_, _, hts⟩
     rw [← hn]; exact plain_mem (ks_ctor hm) (ctor_ite h hm)
-  · obtain ⟨ho', hn, -, hi, -⟩ := OvlLaws.ovl_parts (Semantics.coreOK_ovls h) ho
+  · obtain ⟨ho', hn, -⟩ := OvlLaws.ovl_parts (Semantics.coreOK_ovls h) ho
+    have hi := OvlLaws.ovl_noInst_irs (Semantics.coreOK_ovls h) ho
     refine ⟨?_, _, hts⟩
     have := plain_mem (ks_ovl (List.mem_map_of_mem (f := (·.sig)) ho')) (by rw [hn]; exact hi)
     rwa [hn] at this
   · obtain ⟨hk', hr, hn, -⟩ := c.lookupOpen_spec hk
     refine ⟨?_, _, hts⟩
-    have := plain_mem (ks_param hk') (Semantics.raw_of_core h hk' hr).2.2.2.1
+    have := plain_mem (ks_param hk') (Semantics.raw_noInst_core_irs h hk' hr)
     rwa [hn] at this
 
 section

@@ -117,7 +117,7 @@ theorem Semantics.raw_of_coreEx {c : Semantics} (h : c.coreOKEx = true) {k : Par
     (hk : k ∈ c.params) (hr : k.raw = true) :
     k.impl = none ∧
     ((k.assoc || k.idem) = true → k.sig.args = [k.sig.result, k.sig.result]) ∧
-    nRegSyms ≤ k.sig.name ∧ iteSort? (c.symName k.sig.name) = none ∧
+    nRegSyms ≤ k.sig.name ∧ instDecode? (c.symName k.sig.name) = none ∧
     c.shapesOK = true :=
   Semantics.raw_of_sortedOKEx (Semantics.coreOKEx_parts h).1 hk hr
 
