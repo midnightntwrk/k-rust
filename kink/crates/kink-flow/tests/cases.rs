@@ -2024,3 +2024,297 @@ id = "plain"
     assert!(admission.all_admitted());
     assert!(admission.all_judgeable());
 }
+
+/// A test front end's renderer that declares ends: an end whose `<out>` holds 2 is `finished`,
+/// one whose `<out>` holds 4 is `refused`, and any other end's class is not decided.
+struct DeclaringRenderer;
+
+impl kink_flow::EndRenderer for DeclaringRenderer {
+    fn format(&self) -> &'static str {
+        "test-declaring/1"
+    }
+
+    fn identity(&self) -> Result<Value, String> {
+        Ok(Value::Null)
+    }
+
+    fn difference(
+        &self,
+        _: &std::collections::BTreeSet<k_rust::kore::ast::Pattern>,
+        _: &std::collections::BTreeSet<k_rust::kore::ast::Pattern>,
+        _: bool,
+        _: &[String],
+    ) -> Result<Value, String> {
+        Err("the test renderer shows no kill".into())
+    }
+
+    fn declared_ends(
+        &self,
+        ends: &[k_rust::kore::ast::Pattern],
+        _: &[String],
+    ) -> Option<Vec<kink_flow::DeclaredEnd>> {
+        Some(
+            ends.iter()
+                .map(|end| {
+                    let text = format!("{end:?}");
+                    let out = text.split("Lbl'-LT-'out'-GT-'").nth(1).unwrap_or_default();
+                    let holds = |value: &str| {
+                        out.split(')')
+                            .next()
+                            .is_some_and(|head| head.contains(value))
+                    };
+                    if holds("\"2\"") {
+                        kink_flow::DeclaredEnd::Finished { item: "two".into() }
+                    } else if holds("\"4\"") {
+                        kink_flow::DeclaredEnd::Refused {
+                            item: "four".into(),
+                            reason: None,
+                            text: "four is refused".into(),
+                        }
+                    } else {
+                        kink_flow::DeclaredEnd::Undecided(format!(
+                            "no declared end of {}",
+                            out.chars().take(60).collect::<String>()
+                        ))
+                    }
+                })
+                .collect(),
+        )
+    }
+}
+
+/// Every file, directory and link under `dir`, with each file's bytes and each link's target.
+fn tree(dir: &Path) -> Vec<(PathBuf, String, Vec<u8>)> {
+    let mut found = Vec::new();
+    let mut pending = vec![dir.to_path_buf()];
+    while let Some(at) = pending.pop() {
+        for entry in fs::read_dir(&at).unwrap() {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            let kind = entry.file_type().unwrap();
+            let relative = path.strip_prefix(dir).unwrap().to_path_buf();
+            if kind.is_symlink() {
+                let target = fs::read_link(&path).unwrap();
+                found.push((
+                    relative,
+                    "link".into(),
+                    target.into_os_string().into_encoded_bytes(),
+                ));
+            } else if kind.is_dir() {
+                found.push((relative, "dir".into(), Vec::new()));
+                pending.push(path);
+            } else {
+                found.push((relative, "file".into(), fs::read(&path).unwrap()));
+            }
+        }
+    }
+    found.sort();
+    found
+}
+
+/// `admit` reads each FILE as a case document under the case root, each of its cases one
+/// candidate, and says of each what the flow says: refused by today's admission with its reason,
+/// accepted, rejected at its end, or unknown, by the declared classes of its baseline's ends. Each
+/// admitted candidate newly discharges, against the corpus alone, the rule and the pattern no
+/// corpus case discharges, and is printed as a document of one case with the flags' provenance.
+/// Nothing under the flow's directory changes, its cache included, which `admit` reads: so the
+/// first `coverage` that holds the case runs it. A FILE outside the case root is no case of the
+/// flow, and the command exits 2.
+#[test]
+fn admit_reports_each_candidate_and_writes_nothing() {
+    let dir = scratch("admit");
+    write(&dir.join("cases.k"), CASES_K);
+    write(
+        &dir.join("FLOW.toml"),
+        "[spec]\nentry = \"cases.k\"\nmain_module = \"CASES\"\n\n\
+         [[program]]\nid = \"idle\"\nvariables = { ENTRY = \"0\", N = \"0\", ROM = 'b\"\"' }\n\n\
+         [[patterns]]\nfiles = \"patterns/*.toml\"\n",
+    );
+    write(
+        &dir.join("patterns/out.toml"),
+        "[[pattern]]\nid = \"two\"\npattern = \"<out> 2 </out>\"\n",
+    );
+    fs::create_dir_all(dir.join("cand")).unwrap();
+    fs::write(dir.join("cand/rom.bin"), [0x07]).unwrap();
+    let inputs = |n: &str| {
+        format!(
+            "inputs = {{ entry = {{ \"$go\" = true }}, n = {n}, rom = {{ \"$file\" = \"rom.bin\" }} }}\n"
+        )
+    };
+    write(
+        &dir.join("cand/two.toml"),
+        &format!(
+            "provenance = {{ reason = \"an extreme of the decoder\" }}\n{}",
+            inputs("1")
+        ),
+    );
+    write(
+        &dir.join("cand/named.toml"),
+        &[
+            format!("[[case]]\nname = \"four\"\n{}", inputs("3")),
+            format!("[[case]]\nname = \"six\"\n{}", inputs("5")),
+            format!("[[case]]\nname = \"bad\"\n{}", inputs("\"x\"")),
+        ]
+        .concat(),
+    );
+    let manifest = || {
+        read(&dir)
+            .unwrap()
+            .with_input_decoder(std::sync::Arc::new(TestDecoder))
+            .with_end_renderer(std::sync::Arc::new(DeclaringRenderer))
+    };
+    // The corpus's record is in the cache before `admit` reads it.
+    let corpus = manifest();
+    let (coverage, _) =
+        on_stack(move || kink_flow::coverage::coverage(&corpus, &CoverageOptions::default()));
+    assert_eq!(coverage["result_cache"]["enabled"], true, "{coverage:#}");
+    assert_eq!(
+        coverage["programs"][0]["class"], "comparable",
+        "{coverage:#}"
+    );
+    let before = tree(&dir);
+    let args = |files: &[PathBuf]| {
+        let mut args: Vec<String> = files.iter().map(|f| f.display().to_string()).collect();
+        args.extend(["--found-by", "cargo-fuzz decode"].map(str::to_owned));
+        args
+    };
+    let command = kink_flow::FlowCommand::parse(
+        "admit",
+        kink_flow::cli::CommandFiles::default(),
+        &args(&[dir.join("cand/two.toml"), dir.join("cand/named.toml")]),
+    )
+    .unwrap();
+    let admitting = manifest();
+    let (document, status) = on_stack(move || {
+        kink_flow::cli::run_command(&admitting, &command, &kink_flow::FrontEnd::default())
+    });
+    assert_eq!(tree(&dir), before, "admit wrote under the flow's directory");
+    assert_eq!(document["schema"], "kink-flow-admit", "{document:#}");
+    // `six` is unknown: no answer, and no finding.
+    assert_eq!(status, kink_flow::cli::EXIT_UNANSWERED, "{document:#}");
+    assert_eq!(
+        document["corpus"],
+        serde_json::json!({"programs": 1, "cached": 1})
+    );
+    let rows = document["candidates"].as_array().unwrap();
+    let summary = rows
+        .iter()
+        .map(|row| {
+            (
+                row["id"].as_str().unwrap().to_owned(),
+                row["outcome"].as_str().unwrap().to_owned(),
+                row["stage"].as_str().map(str::to_owned),
+                row["reason"].as_str().map(str::to_owned),
+            )
+        })
+        .collect::<Vec<_>>();
+    let owned = |id: &str, outcome: &str, stage: Option<&str>, reason: Option<&str>| {
+        (
+            id.to_owned(),
+            outcome.to_owned(),
+            stage.map(str::to_owned),
+            reason.map(str::to_owned),
+        )
+    };
+    assert_eq!(
+        summary,
+        [
+            owned("cand/two.toml", "accepted", None, None),
+            owned("cand/named.toml#four", "rejected", Some("end"), None),
+            owned("cand/named.toml#six", "unknown", None, Some("undecided")),
+            owned(
+                "cand/named.toml#bad",
+                "refused",
+                Some("inputs"),
+                Some("input-value")
+            ),
+        ],
+        "{document:#}"
+    );
+    let newly = |row: &Value| {
+        row["newly_discharged"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|entry| entry["family"].as_str().unwrap().to_owned())
+            .collect::<std::collections::BTreeSet<_>>()
+    };
+    // Each is judged against the corpus alone: `four` discharges the rule `two` already does.
+    assert!(newly(&rows[0]).contains("rules"), "{document:#}");
+    assert!(newly(&rows[0]).contains("patterns"), "{document:#}");
+    assert!(newly(&rows[1]).contains("rules"), "{document:#}");
+    assert!(!newly(&rows[1]).contains("patterns"), "{document:#}");
+    assert!(rows[3].get("newly_discharged").is_none(), "{document:#}");
+    assert!(rows[3].get("fragment").is_none(), "{document:#}");
+    assert_eq!(document["families"]["mutations"]["computed"], false);
+    assert_eq!(document["families"]["flips"]["computed"], false);
+    assert_eq!(document["families"]["patterns"]["computed"], true);
+    // The fragment is a document of one case: the flag's member over the candidate's own.
+    let stated =
+        serde_json::json!({"found_by": "cargo-fuzz decode", "reason": "an extreme of the decoder"});
+    assert_eq!(rows[0]["provenance"], stated, "{document:#}");
+    assert_eq!(
+        rows[1]["provenance"],
+        serde_json::json!({"found_by": "cargo-fuzz decode", "reason": null}),
+        "{document:#}"
+    );
+    let fragment: toml::Table = toml::from_str(rows[1]["fragment"].as_str().unwrap()).unwrap();
+    assert_eq!(
+        fragment["inputs"]["n"].as_integer(),
+        Some(3),
+        "{document:#}"
+    );
+    assert!(!fragment.contains_key("case"), "{document:#}");
+
+    // Saved under a `cases` pattern, the fragment is the case: the first coverage that holds it
+    // runs it, since admit kept no record of it, and it carries the provenance printed.
+    write(
+        &dir.join("FLOW.toml"),
+        "[spec]\nentry = \"cases.k\"\nmain_module = \"CASES\"\n\n\
+         [[program]]\nid = \"idle\"\nvariables = { ENTRY = \"0\", N = \"0\", ROM = 'b\"\"' }\n\n\
+         [[program]]\ncases = \"cand/saved.toml\"\n",
+    );
+    write(
+        &dir.join("cand/saved.toml"),
+        rows[0]["fragment"].as_str().unwrap(),
+    );
+    let saved = manifest();
+    let (coverage, _) =
+        on_stack(move || kink_flow::coverage::coverage(&saved, &CoverageOptions::default()));
+    let row = &coverage["programs"][1];
+    assert_eq!(row["id"], "cand/saved.toml", "{coverage:#}");
+    assert_eq!(row["cached"], false, "{coverage:#}");
+    assert_eq!(row["provenance"], stated, "{coverage:#}");
+
+    // A FILE outside the case root is no case of the flow.
+    let outside = scratch("admit-outside").join("case.toml");
+    write(&outside, &inputs("1"));
+    let command = kink_flow::FlowCommand::parse(
+        "admit",
+        kink_flow::cli::CommandFiles::default(),
+        &args(&[outside, dir.join("cand/two.toml")]),
+    )
+    .unwrap();
+    let admitting = manifest();
+    let (document, status) = on_stack(move || {
+        kink_flow::cli::run_command(&admitting, &command, &kink_flow::FrontEnd::default())
+    });
+    assert_eq!(status, kink_flow::cli::EXIT_UNASKED, "{document:#}");
+    let row = &document["candidates"][0];
+    assert_eq!(
+        (&row["outcome"], &row["stage"]),
+        (&Value::from("refused"), &Value::from("case-document")),
+        "{document:#}"
+    );
+    assert!(
+        row["detail"]
+            .as_str()
+            .unwrap()
+            .contains("outside the manifest's directory"),
+        "{document:#}"
+    );
+    assert_eq!(
+        document["candidates"][1]["outcome"], "accepted",
+        "{document:#}"
+    );
+}

@@ -2574,3 +2574,67 @@ fn check_reports_a_program_rejected_at_the_stage_it_states() {
         "{document:#}"
     );
 }
+
+/// PJ-22: `kink-flow admit FLOW.toml FILE...` as a command line gives it. At the K level, which
+/// has no decoder, a candidate with typed inputs is refused by today's admission
+/// (`inputs`/`typed-inputs`): an answer about the candidate, exit 0, with no fragment, and
+/// nothing is written beside the flow (no cache directory appears). No FILE, an empty
+/// `--found-by` and a FILE that is no file are usage errors.
+#[test]
+fn admit_reads_its_candidates_from_the_command_line() {
+    let dir = scratch("admit");
+    for file in ["FLOW.toml", "calc.k"] {
+        fs::copy(flow(&format!("calc/{file}")), dir.join(file)).unwrap();
+    }
+    for program in fs::read_dir(flow("calc/programs")).unwrap() {
+        let program = program.unwrap().path();
+        let target = dir.join("programs").join(program.file_name().unwrap());
+        fs::create_dir_all(target.parent().unwrap()).unwrap();
+        fs::copy(&program, target).unwrap();
+    }
+    write(&dir.join("cand/typed.toml"), "[inputs]\npgm = 1\n");
+    let manifest = dir.join("FLOW.toml");
+    let candidate = dir.join("cand/typed.toml");
+    let (code, stdout, stderr) = binary(&[
+        "admit".as_ref(),
+        manifest.as_os_str(),
+        candidate.as_os_str(),
+        "--found-by".as_ref(),
+        "a person".as_ref(),
+    ]);
+    assert_eq!(code, Some(EXIT_YES.into()), "{stdout}{stderr}");
+    let document: Value = serde_json::from_str(&stdout).unwrap();
+    let row = &document["candidates"][0];
+    assert_eq!(row["id"], "cand/typed.toml", "{document:#}");
+    assert_eq!(
+        (&row["outcome"], &row["stage"], &row["reason"]),
+        (
+            &Value::from("refused"),
+            &Value::from("inputs"),
+            &Value::from("typed-inputs")
+        ),
+        "{document:#}"
+    );
+    assert!(row.get("fragment").is_none(), "{document:#}");
+    assert!(!dir.join(".kink-flow").exists(), "admit wrote a cache");
+
+    for (args, message) in [
+        (vec![], "admit needs a FILE"),
+        (
+            vec![candidate.as_os_str(), "--found-by".as_ref(), "".as_ref()],
+            "--found-by needs a nonempty text",
+        ),
+        (vec!["no-such.toml".as_ref()], "no-such.toml is not a file"),
+    ] {
+        let mut line = vec!["admit".as_ref(), manifest.as_os_str()];
+        line.extend(args);
+        let (code, stdout, stderr) = binary(&line);
+        assert_eq!(code, Some(EXIT_UNASKED.into()), "{stdout}{stderr}");
+        assert!(stderr.contains(message), "{stderr}");
+    }
+    let (code, help, _) = binary(&["admit".as_ref(), "--help".as_ref()]);
+    assert_eq!(code, Some(EXIT_YES.into()));
+    for option in Verb::Admit.options() {
+        assert!(help.contains(option.spelling), "{help}");
+    }
+}

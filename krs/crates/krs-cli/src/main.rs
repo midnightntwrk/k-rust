@@ -265,6 +265,8 @@ Usage:
   krs kink prune   --package P --definition D [--corpus DIR] [--mutations PATH] [--patterns PATH]
                    [--full] [--lock FILE] [--compile-workers N] [--progress] [--cache DIR]
                    [--output json|text] [--locked]
+  krs kink admit   --package P --definition D [--corpus DIR] FILE... [--found-by TEXT]
+                   [--reason TEXT] [--cache DIR] [--locked]
 
 The corpus is <package>/kink (or --corpus DIR):
   FLOW.toml         [spec] krs = { package = \"P\", definition = \"D\" }, [budget], and the
@@ -375,7 +377,12 @@ and the pattern walk, asking a further cell only where a decision needs it (--fu
 and query --full, with the same decisions), and reports each case redundant alone, with the
 other cases known to discharge what it does, one set of cases removable together, why each other
 case is kept, and the kink.lock rows each removal would move; under --locked it refuses a stale
-definition.k.
+definition.k. admit reads each FILE, a case document under the corpus root that another tool
+or a person found, and reports whether today's admission refuses each of its cases, or whether
+the definition accepts or rejects it (or neither is known), and which obligations its baseline
+run would newly discharge (no kill or flip, which need mutant runs); it prints each admitted case
+as a case document carrying provenance from --found-by and --reason, and writes no case file,
+lock or cache entry.
 A kink/verdicts.lock or kink/coverage.lock of an earlier kink is read for its killers by the
 command that kept it, which moves them into kink.lock and says to delete the old file; under
 --locked the command is refused while it is there. report builds nothing: it
@@ -421,7 +428,7 @@ unless KRS_NO_REUSE=1.
 
 /// Each verb of `krs kink` with its usage line, as [`KINK_USAGE`] lists it.
 #[cfg(feature = "kink")]
-const KINK_VERB_USAGE: [(&str, &str); 9] = [
+const KINK_VERB_USAGE: [(&str, &str); 10] = [
     (
         "emit",
         "krs kink emit --package P --definition D [--corpus DIR] [--check]",
@@ -468,6 +475,11 @@ const KINK_VERB_USAGE: [(&str, &str); 9] = [
         "krs kink prune --package P --definition D [--corpus DIR] [--mutations PATH] [--patterns \
          PATH] [--full] [--lock FILE] [--compile-workers N] [--progress] [--cache DIR] [--output \
          json|text] [--locked]",
+    ),
+    (
+        "admit",
+        "krs kink admit --package P --definition D [--corpus DIR] FILE... [--found-by TEXT] \
+         [--reason TEXT] [--cache DIR] [--locked]",
     ),
 ];
 
@@ -2482,7 +2494,8 @@ fn unlisted_option(verb: kink_flow::Verb, args: &[String]) -> Option<&str> {
         kink_flow::Verb::Check
         | kink_flow::Verb::Coverage
         | kink_flow::Verb::Report
-        | kink_flow::Verb::Compare => &[],
+        | kink_flow::Verb::Compare
+        | kink_flow::Verb::Admit => &[],
     };
     let mut args = args.iter();
     while let Some(argument) = args.next() {

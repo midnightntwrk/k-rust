@@ -614,7 +614,7 @@ pub enum Acceptance {
 /// The definition's acceptance of a program whose baseline ends are summarized by `summaries`
 /// (a program row's `ends`, with `halt` under `[stop]` and `declared` where the definition
 /// declares ends).
-fn ends_acceptance(summaries: &[Value]) -> Acceptance {
+pub(crate) fn ends_acceptance(summaries: &[Value]) -> Acceptance {
     let mut accepted = 0;
     let mut rejected = 0;
     for summary in summaries {

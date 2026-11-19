@@ -7720,3 +7720,84 @@ fn a_premise_is_spelled_by_the_krs_items_that_wrote_its_sentences() {
     let document = json(&output);
     assert_eq!(document["spec"]["reason"], "position-name", "{document:#}");
 }
+
+/// Every file under `dir` with its bytes, sorted by path.
+fn files_under(dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
+    let mut found = Vec::new();
+    let mut pending = vec![dir.to_path_buf()];
+    while let Some(at) = pending.pop() {
+        for entry in fs::read_dir(&at).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                pending.push(path);
+            } else {
+                found.push((path.clone(), fs::read(&path).unwrap()));
+            }
+        }
+    }
+    found.sort();
+    found
+}
+
+/// PJ-22: `krs kink admit FILE...` passes its FILEs and kink-flow's admit options on. Each case
+/// of a candidate document under the corpus is reported: one the front end's decoder refuses is
+/// `refused` (`inputs`/`input-value`), and one whose ends the definition declares no class of is
+/// `unknown`, printed as a case document with the `--found-by` provenance. Nothing under the
+/// corpus changes, its cache and kink.lock included. An option admit does not take is refused
+/// before anything is built.
+#[test]
+fn krs_kink_admit_reports_candidates_and_writes_nothing() {
+    let project = project_of("krs-cli-kink-admit", "ADMIT", &expectation_files());
+    assert_status(&project.kink("coverage", &[]), 1);
+    project.write(
+        "kink/cand/found.toml",
+        "[[case]]\nname = \"two\"\ninputs = { pgm = { Run = { value = 1 } } }\n\n\
+         [[case]]\nname = \"bad\"\ninputs = { pgm = { Nope = { value = 1 } } }\n",
+    );
+    let before = files_under(&project.path().join("kink"));
+    let output = project.kink(
+        "admit",
+        &[
+            "kink/cand/found.toml",
+            "--found-by",
+            "cargo-fuzz run_target",
+        ],
+    );
+    assert_eq!(files_under(&project.path().join("kink")), before);
+    assert_status(&output, 3);
+    let document = json(&output);
+    assert_eq!(document["schema"], "kink-flow-admit", "{document:#}");
+    let two = &document["candidates"][0];
+    assert_eq!(two["id"], "cand/found.toml#two", "{document:#}");
+    assert_eq!(two["outcome"], "unknown", "{document:#}");
+    assert_eq!(two["reason"], "undecided", "{document:#}");
+    assert_eq!(
+        two["provenance"],
+        serde_json::json!({"found_by": "cargo-fuzz run_target", "reason": null}),
+        "{document:#}"
+    );
+    let fragment: toml::Table = toml::from_str(two["fragment"].as_str().unwrap()).unwrap();
+    assert_eq!(
+        fragment["inputs"]["pgm"]["Run"]["value"].as_integer(),
+        Some(1),
+        "{document:#}"
+    );
+    let bad = &document["candidates"][1];
+    assert_eq!(
+        (&bad["outcome"], &bad["stage"], &bad["reason"]),
+        (
+            &Value::from("refused"),
+            &Value::from("inputs"),
+            &Value::from("input-value")
+        ),
+        "{document:#}"
+    );
+
+    let output = project.kink("admit", &["kink/cand/found.toml", "--bogus"]);
+    assert_status(&output, 2);
+    assert!(
+        stderr(&output).contains("invalid option '--bogus'"),
+        "{}",
+        stderr(&output)
+    );
+}

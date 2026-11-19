@@ -56,6 +56,7 @@
 //! sides' ends (the mutant's live, or from that store).
 
 pub mod admit;
+pub mod candidates;
 pub mod check;
 pub mod cli;
 pub mod clock;

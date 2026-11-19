@@ -23,6 +23,7 @@ the compared cells: the specification's unobservable cells left out of every com
 the corpus record, a `kink.lock` with one section per command that `run --lock`, `coverage --lock` and `compare --lock` read and rewrite, each its own: `[run]`, one recorded killer per killed mutation, kept while it still kills, `[coverage]`, the same for the condition flips with each family's open and argued obligations, and `[compare]`, one verdict per implementation, program and view ("The corpus record" below),
 the comparison of other implementations of a corpus's system with the definition, over its programs, inputs and `[stop]`, under declared views, with `compare` (FB-47; "Comparing implementations" below),
 the report of which programs are redundant, from the mutations the corpus kills, the patterns it hits and the items `coverage` covers, each cell of the kill and pattern matrices asked only where a decision needs it (`--full`: `run --full` and `query --full`, with the same decisions), with `prune` (FB54-PRUNE, FB56; "Redundant programs" below),
+the admission of a case found elsewhere: what the flow says of a candidate case document, the obligations its baseline run would newly discharge, and the case document to save, written nowhere, with `admit` (PJ-22; "Admitting a case found elsewhere" below),
 and the library for both front ends, kink-flow's command line and the krs front end (`krs kink <verb>`): one manifest schema with a K or a KRS `[spec]`, one command layer, and the deterministic `--output verdicts` rendering (CF-40; "Front ends" and "Verdicts" below).
 
 ## Building
@@ -593,6 +594,7 @@ What else is a finding, or no answer, follows from what each command asks:
 | `query` | whether each asked program reaches a state matching each pattern, and whether each pattern's obligation is discharged ("Checking a pattern") | a refuted claim (`no` for a program the pattern claims); an `unmet` expectation (`expect = "no"` on a hit); under `--locked`, a `[query]` section the query would change (an `open` or `undecided` obligation is no finding) | an `unknown` answer; an `inconclusive` expectation; under `--locked`, a section whose only differences rest on runs the clock stopped |
 | `compare` | whether each implementation ends as the definition does on every program, under each required view, and whether its record of the `[observe]` channels agrees with the definition's up to the definition's horizon, under each required trace view ("Comparing implementations") | a `different` verdict of a required view | a required view `not-compared` with no answer (`several-ends`, `several-paths`, `observed-nothing`, `undecided`, a baseline `timeout` or `unknown`); a required trace view `agree-up-to` a horizon the implementation's answer set; a `timeout` of an implementation with a required view |
 | `prune` | which programs are redundant, from what the corpus discharges ("Redundant programs") | none: the report refutes nothing | none: an unknown cell makes the report conservative, and the report it states holds |
+| `admit` | what the flow says of each candidate case and what its baseline run would newly discharge ("Admitting a case found elsewhere") | an `unmet` expectation of a candidate | a candidate whose outcome is `unknown`; an `inconclusive` expectation |
 | `fuzz` | which hole values of the template are a witness of the job | a witness of a kill job whose mutation expects to survive (it refutes the expectation); otherwise none: a witness and `equivalent` are answers | a search that ended without a witness kink accepts (table under "The document") |
 
 `check`'s warnings, and a case's expectation in `check` and `run`, decide no status: `check` runs nothing and asks only whether verdicts are possible, and `run` asks about the mutations.
@@ -3124,6 +3126,50 @@ Version 14 adds a kill job's `job.expect` and the warning `expected-to-survive`,
 Version 15 runs a corpus with `[stop]` and one with `[observe]` ("A corpus with `[stop]` or `[observe]`"): `stop` and `observe` are the manifest's, as the `check`, `coverage` and `run` documents carry them, the refusals at stages `stop` and `observe` are narrowed to a stop condition and to a kill job, `template.stop_count`, `job.observe`, the refusal `stop-unresolved` at stage `mutant` and the warning `stop-hides-edit` are new, and the embedded k-rust-fuzz report is version 11, whose identity records the stop.
 Version 16 (KINK-FINDING-NAMES) names every finding (`findings`, `assumed`, `spec.unnamed_findings`, a witness's premises) by its kind, sentences and digest, refuses a genuine finding's name given with `--assume-joined` (`decided`), and embeds k-rust-fuzz reports of version 12.
 `tests/formats.rs` ties the version to the document's keys and enumerated values and to the report version it embeds.
+
+## Admitting a case found elsewhere: `kink-flow admit FLOW.toml FILE... [--found-by TEXT] [--reason TEXT] [--cache DIR]`
+
+Asks what the flow says of each candidate case, a case another tool found (an implementation-side fuzzer: cargo-fuzz, LibAFL, bolero, proptest) or a person wrote, and what adding it to the corpus would discharge.
+Such a case matters to the corpus only once the specification has said what it is, and the command is where kink says it.
+It writes nothing.
+
+Each FILE is a case document, of one case or of named cases ("Programs from a pattern"), and each of its cases is one candidate.
+A FILE is read by the flow's own case reader inside the case root ("The corpus root"): the files a case document's inputs name are relative to it and stay inside the root, so a FILE outside the root is no case of the flow.
+It need not match a `cases` pattern.
+A candidate's id is the id a `cases` pattern matching its document would give it (`cand/found.toml#two`).
+A FILE the reader refuses (unreadable, no TOML, a malformed key, outside the root) has one row, `refused` at stage `case-document` with the reader's message, and the command exits 2: the question cannot be asked of a file that is no case.
+A document given twice is read once.
+A `[[program]]` of `FLOW.toml` has no `provenance`, so a program text is no candidate; at the K level, which has no decoder, a candidate with typed inputs is refused (`inputs`/`typed-inputs`).
+
+Each candidate is admitted and run on the baseline as `coverage` admits and runs a program, and its row (`candidates[]`: `{file, id, class, cause, outcome, stage, reason, detail, ends, expectation, provenance, newly_discharged, fragment}`) says one of:
+
+| `outcome` | Meaning |
+| --- | --- |
+| `refused` | Today's admission refuses it (`inputs`/`parse`, `inputs`/`input-value`, `inputs`/`expectation-value`, ...), with that `stage`, `reason` and `detail`. A refusal is an answer about the candidate and decides no exit status. |
+| `accepted` | Its baseline is `comparable` and every end is accepted: reached at the corpus's stop, or of a declared `finished` class (compare's acceptance rule, "Acceptance"). |
+| `rejected` | Its baseline is `comparable`, every end is rejected (of a declared `refused` class, or `none`), and the definition declares a `finished` end (the front end says so, or some run of the corpus or a candidate ends at one): without one, an end it completes is not told from one it has no rule for, as `compare` refuses an acceptance view over it (`no-finished-end`), and the candidate is `unknown` for that reason. `stage` is `end`, the stage at which the run rejected it (a parse or input rejection is an admission refusal today), and `ends` gives each end's declared class, item and reason. |
+| `unknown` | Neither is known, with the `reason`: an end with no declared class, or one `undecided` or `overlap`; ends of both kinds; a baseline that is not `comparable` (`no-end` for `comparable-prefix`, else its class). kink-flow's own front end reads no declared end, so without `[stop]` every comparable candidate is `unknown`. |
+
+A candidate's `expectation`, where it has one its flow checks, is its row's in `coverage` ("Expectations").
+
+`newly_discharged` lists the obligations the candidate's baseline run would newly discharge, each `{family, item}` (with `corpus_unknown`, the corpus cases whose cell on it is unknown, a case whose baseline is `timeout` or `unknown` among them, and which may discharge it too).
+An obligation is one of the corpus's existential obligations as `prune` reads them ("Redundant programs"), among those a baseline run decides: the tier-1 coverage families (`rules`, `requirements` with the unique-cause level, `syntax`, `rule_windows`, `syntax_paths`), argued items' evidence (`arguments`) and the declared patterns (`patterns`).
+A candidate newly discharges an obligation when its decided cell discharges it and no case of the corpus does; a pair obligation, when a pair over the corpus and the candidate discharges it and no pair over the corpus does.
+The corpus is the flow's programs as it reads them now, without the cases of the candidates' own documents (a candidate already placed where a `cases` pattern matches it is judged as if absent), and each candidate is judged against the corpus alone, so the answer does not depend on the other candidates or their order.
+The corpus record is not the reference: a lock does not list a covered obligation ("What decides a verdict"), so it cannot tell a newly covered obligation from one covered already.
+Kills of a mutation list and condition flips need mutant runs, which `admit` does not make: the document's `families` says of each family whether it was computed, and why not (`mutations`, `flips`; `patterns` where the manifest declares none).
+It is computed by one tier-1 `coverage` of the corpus followed by every candidate, and, for the patterns, by a `query` of the corpus alone and a `--full` `query` of the admitted candidates alone of the patterns the corpus does not discharge, each pattern asked without its claims (they name corpus cases).
+
+`fragment` is each admitted candidate (every outcome but `refused`) as a document of one case, the TOML text to save under the root: `provenance`, then `inputs`, `expect` and `expect_for` as its document states them.
+`provenance` is the candidate's own with each member a flag gives replaced by the flag's value (`--found-by` for `found_by`, `--reason` for `reason`, each a nonempty text), and absent where neither gives one ("Provenance").
+Paths in the inputs stay as written, relative to the file the case is written in, so the fragment reads the same saved beside that file.
+`admit` minimizes nothing: minimizing a candidate is the finder's job (cargo-fuzz `tmin`, LibAFL's minimizers), against an objective of the implementation kink cannot evaluate.
+
+The command writes nothing: no case file, lock, report or cache entry.
+Every manifest it runs is an overlay held in memory, and every run uses a scratch cache directory, removed on every path, seeded with a symbolic link to each file of the flow's cache (`--cache DIR`, else `.kink-flow/`), so stored records are read and not recomputed (`corpus.cached` counts the corpus cases whose record was read).
+A store publishes a record by renaming a file over its path, which replaces the link and never its target, so nothing under the flow's directory, the corpus root or the cache changes, and no later command's document does: the first `coverage` of a corpus that holds the saved case runs it.
+A manifest or specification that is refused, a declared `krs` patterns package that cannot be compiled, and a query the command could not ask refuse the command (`refusal: {stage, detail}`, exit 2).
+Otherwise it exits 1 where a candidate's expectation is `unmet`, else 3 where an outcome is `unknown` or an expectation `inconclusive`, else 0.
 
 ## Comparing implementations: `kink-flow compare FLOW.toml [--only NAME]... [--lock FILE [--locked]] [--cache DIR] [--output json|text|verdicts]`
 

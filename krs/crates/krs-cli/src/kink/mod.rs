@@ -1057,8 +1057,8 @@ fn checked_mutations(
 }
 
 /// `annotator`, naming the guard nodes of the rows by KRS construct by `guard_names` where
-/// `command` is `coverage`, the one command whose document has guards ([`guards`]), or `prune`,
-/// which reads a coverage document it annotates as `coverage` does.
+/// `command` is `coverage`, the one command whose document has guards ([`guards`]), or `prune`
+/// or `admit`, each of which reads a coverage document it annotates as `coverage` does.
 fn naming_guards(
     annotator: annotate::Annotator,
     command: &FlowCommand,
@@ -1066,7 +1066,7 @@ fn naming_guards(
 ) -> annotate::Annotator {
     if matches!(
         command,
-        FlowCommand::Coverage { .. } | FlowCommand::Prune { .. }
+        FlowCommand::Coverage { .. } | FlowCommand::Prune { .. } | FlowCommand::Admit(_)
     ) {
         annotator.naming_guards(guard_names)
     } else {
@@ -1199,6 +1199,7 @@ fn command_cache(command: &FlowCommand) -> Option<&Path> {
         FlowCommand::Fuzz { request, .. } => request.options.cache.as_deref(),
         FlowCommand::Compare { options, .. } => options.cache.as_deref(),
         FlowCommand::Prune { options, .. } => options.cache.as_deref(),
+        FlowCommand::Admit(options) => options.cache.as_deref(),
     }
 }
 
@@ -1541,7 +1542,7 @@ const fn operand_flags(verb: Verb) -> &'static [&'static str] {
         Verb::Query => &["--patterns"],
         Verb::Fuzz => &["--templates"],
         Verb::Prune => &["--mutations", "--patterns"],
-        Verb::Check | Verb::Coverage | Verb::Report | Verb::Compare => &[],
+        Verb::Check | Verb::Coverage | Verb::Report | Verb::Compare | Verb::Admit => &[],
     }
 }
 

@@ -815,6 +815,19 @@ impl Provenance {
     pub fn value(&self) -> serde_json::Value {
         serde_json::json!({"found_by": self.found_by, "reason": self.reason})
     }
+
+    /// How a case document writes it: a table of the members stated.
+    #[must_use]
+    pub fn table(&self) -> Table {
+        [("found_by", &self.found_by), ("reason", &self.reason)]
+            .into_iter()
+            .filter_map(|(key, member)| {
+                member
+                    .as_ref()
+                    .map(|text| (key.to_owned(), Value::String(text.clone())))
+            })
+            .collect()
+    }
 }
 
 /// How messages name the manifest's directory, the tree a flow without `[corpus]` reads its cases
@@ -1391,6 +1404,44 @@ impl FlowManifest {
     #[must_use]
     pub fn case_root(&self) -> CaseRoot {
         CaseRoot::of(&self.directory, self.corpus.as_ref())
+    }
+
+    /// The cases of the case document at `path`, a file a command line names (`admit`'s
+    /// candidates), read as a `cases` pattern matching it would read them: by the case reader,
+    /// inside the case root, each case a program whose id is the document's path relative to the
+    /// root (with `#` and the case's name for a named case), with the corpus's stop count, and
+    /// beside it the case written as a document of one case ([`case_table`]). A document that
+    /// does not resolve, links included, to a file inside the case root is refused, naming the
+    /// root as the manifest writes it, since the paths a case document's inputs name are relative
+    /// to it and stay inside the root.
+    pub fn document_cases(&self, path: &Path) -> Result<Vec<(Program, Table)>, ManifestError> {
+        let shown = path.display().to_string();
+        let refused = |message: String| ManifestError::new(&shown, message);
+        let root = self.case_root();
+        let canonical = root
+            .canonical()
+            .map_err(|e| refused(format!("cannot resolve {}: {e}", root.name)))?;
+        let resolved = fs::canonicalize(path)
+            .map_err(|e| refused(format!("cannot read the case document: {e}")))?;
+        let Ok(relative) = resolved.strip_prefix(&canonical.directory) else {
+            return Err(refused(format!(
+                "the case document is outside {}: a case is read inside the flow's case root, \
+                 where the files its inputs name are too; place it under the root (it need not \
+                 match a `cases` pattern)",
+                root.name
+            )));
+        };
+        let document = relative.to_string_lossy().replace('\\', "/");
+        Ok(case_document::case_document(&canonical, &document)?
+            .into_iter()
+            .map(|case| {
+                let table = case_table(&case);
+                (
+                    document_program(&document, case, &self.expect_scope, None),
+                    table,
+                )
+            })
+            .collect())
     }
 
     /// The campaign stop of every program's run (kink-campaign `Stop`): `[stop]`'s rules and
@@ -2660,32 +2711,74 @@ fn cases_entry(
         .map_err(|e| ManifestError::new(&key, format!("cannot resolve {}: {e}", cases.name)))?;
     let mut programs = Vec::new();
     for document in matches {
-        for mut case in case_document::case_document(&root, &document)? {
-            let id = match &case.name {
-                Some(name) => format!("{document}#{name}"),
-                None => document.clone(),
-            };
-            let program = Program {
-                id,
-                case: Some(document.clone()),
-                case_file: case.file,
-                expect: case.expect,
-                expect_for: ExpectFor {
-                    definitions: case.expect_for.keys().cloned().collect(),
-                    scoped: case.expect_for.remove_entry(scope),
-                },
-                provenance: case.provenance,
-                rejected: None,
-                source: None,
-                start_sort: None,
-                variables: Vec::new(),
-                inputs: case.inputs,
-                stop_count,
-            };
-            programs.push((program, key.clone()));
+        for case in case_document::case_document(&root, &document)? {
+            programs.push((
+                document_program(&document, case, scope, stop_count),
+                key.clone(),
+            ));
         }
     }
     Ok(programs)
+}
+
+/// `case` as a document of one case states it: `provenance`, `inputs`, `expect` and every
+/// definition's `expect_for`, each as written and only where the case gives it. A document of one
+/// case is the whole case in every reader, whichever document the case was read from.
+fn case_table(case: &case_document::DocumentCase) -> Table {
+    let mut table = Table::new();
+    if let Some(provenance) = &case.provenance {
+        table.insert("provenance".into(), Value::Table(provenance.table()));
+    }
+    if !case.inputs.is_empty() {
+        table.insert("inputs".into(), Value::Table(case.inputs.clone()));
+    }
+    if let Some(expect) = &case.expect {
+        table.insert("expect".into(), Value::Table(expect.clone()));
+    }
+    if !case.expect_for.is_empty() {
+        table.insert(
+            "expect_for".into(),
+            Value::Table(
+                case.expect_for
+                    .iter()
+                    .map(|(name, expect)| (name.clone(), Value::Table(expect.clone())))
+                    .collect(),
+            ),
+        );
+    }
+    table
+}
+
+/// The program of `case`, a case of the case document `document` (its path relative to the case
+/// root), as the flow of the definition named `scope` reads it: its id is the document's path,
+/// with `#` and the case's name for a named case.
+fn document_program(
+    document: &str,
+    mut case: case_document::DocumentCase,
+    scope: &str,
+    stop_count: Option<std::num::NonZeroU64>,
+) -> Program {
+    let id = match &case.name {
+        Some(name) => format!("{document}#{name}"),
+        None => document.to_owned(),
+    };
+    Program {
+        id,
+        case: Some(document.to_owned()),
+        case_file: case.file,
+        expect: case.expect,
+        expect_for: ExpectFor {
+            definitions: case.expect_for.keys().cloned().collect(),
+            scoped: case.expect_for.remove_entry(scope),
+        },
+        provenance: case.provenance,
+        rejected: None,
+        source: None,
+        start_sort: None,
+        variables: Vec::new(),
+        inputs: case.inputs,
+        stop_count,
+    }
 }
 
 /// A listed program: `id` and its own keys.

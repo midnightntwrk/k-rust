@@ -84,7 +84,8 @@ macro_rules! usage_line {
          ([[patterns]]) | kink-flow compare FLOW.toml [--only NAME]... [--lock FILE \
          [--locked]] [--cache DIR] [--output json|text|verdicts] | kink-flow prune FLOW.toml \
          MUTATIONS [PATTERNS.toml] [--full] [--lock FILE] [--compile-workers N] [--progress] \
-         [--cache DIR] [--output json|text]; --help (or -h), anywhere, prints the loop, the mutation format \
+         [--cache DIR] [--output json|text] | kink-flow admit FLOW.toml FILE... [--found-by TEXT] \
+         [--reason TEXT] [--cache DIR]; --help (or -h), anywhere, prints the loop, the mutation format \
          and the exit statuses"
     };
 }
@@ -141,7 +142,7 @@ Reference: kink/crates/kink-flow/README.md; guide: kink/README.md, \"Using kink-
 /// What a usage error prints on stderr after its message when the command line names no verb:
 /// the shape of every command line, and where the rest is.
 const GENERAL_USAGE: &str = "usage: kink-flow --version | kink-flow VERB FLOW.toml [OPERAND] \
-     [OPTIONS], VERB one of check, coverage, run, report, query, fuzz, compare, prune\n\
+     [OPTIONS], VERB one of check, coverage, run, report, query, fuzz, compare, prune, admit\n\
      `kink-flow --help` explains the loop; `kink-flow VERB --help` lists a verb's options";
 
 /// Run one command; returns the process exit status.
@@ -305,7 +306,9 @@ fn operands(args: &[String]) -> Option<(Verb, PathBuf, CommandFiles, &[String])>
             }
             rest
         }
-        Verb::Check | Verb::Coverage | Verb::Report | Verb::Compare => rest,
+        // `admit`'s FILEs are among its options: its parser takes each argument that is no
+        // option or option value as one ([`admit_options`]), whichever front end passes them.
+        Verb::Check | Verb::Coverage | Verb::Report | Verb::Compare | Verb::Admit => rest,
     };
     Some((verb, PathBuf::from(manifest), files, rest))
 }
@@ -620,6 +623,21 @@ const COMPARE_OPTIONS: &[VerbOption] = &[
     ),
 ];
 
+const ADMIT_OPTIONS: &[VerbOption] = &[
+    option(
+        "--found-by TEXT",
+        "the tool or person that found the candidates: each fragment's provenance.found_by",
+    ),
+    option(
+        "--reason TEXT",
+        "why the candidates belong in the corpus: each fragment's provenance.reason",
+    ),
+    option(
+        "--cache DIR",
+        "the cache whose records are read, never written (default: .kink-flow beside FLOW.toml)",
+    ),
+];
+
 const PRUNE_OPTIONS: &[VerbOption] = &[
     option(
         "--full",
@@ -704,11 +722,12 @@ pub enum Verb {
     Fuzz,
     Compare,
     Prune,
+    Admit,
 }
 
 impl Verb {
     /// Every verb, in the order the usage lists them.
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::Check,
         Self::Coverage,
         Self::Run,
@@ -717,6 +736,7 @@ impl Verb {
         Self::Fuzz,
         Self::Compare,
         Self::Prune,
+        Self::Admit,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -729,6 +749,7 @@ impl Verb {
             Self::Fuzz => "fuzz",
             Self::Compare => "compare",
             Self::Prune => "prune",
+            Self::Admit => "admit",
         }
     }
 
@@ -785,6 +806,9 @@ impl Verb {
             Self::Prune => {
                 "prune FLOW.toml MUTATIONS [PATTERNS.toml] [--full] [--lock FILE] \
                  [--compile-workers N] [--progress] [--cache DIR] [--output json|text]"
+            }
+            Self::Admit => {
+                "admit FLOW.toml FILE... [--found-by TEXT] [--reason TEXT] [--cache DIR]"
             }
         }
     }
@@ -852,6 +876,16 @@ impl Verb {
                  report under-states what is prunable, never over-states it. It writes no lock \
                  and edits no file."
             }
+            Self::Admit => {
+                "What the flow says of each candidate case, a case document under the corpus \
+                 root found elsewhere (an implementation-side fuzzer, a person): refused by \
+                 today's admission (with its reason), accepted, rejected (with the stage), or \
+                 unknown; the obligations its baseline run would newly discharge (coverage's \
+                 tier-1 families, argued evidence, declared patterns; no kill or flip, which \
+                 need mutant runs), each against the corpus alone; and each admitted candidate \
+                 as a case document fragment carrying provenance = { found_by, reason } from \
+                 --found-by and --reason. It writes nothing: no case file, lock or cache entry."
+            }
         }
     }
 
@@ -868,6 +902,7 @@ impl Verb {
             Self::Fuzz => FUZZ_OPTIONS,
             Self::Compare => COMPARE_OPTIONS,
             Self::Prune => PRUNE_OPTIONS,
+            Self::Admit => ADMIT_OPTIONS,
         }
     }
 
@@ -893,6 +928,7 @@ impl Verb {
             Self::Fuzz => "Killing a survivor with fuzz",
             Self::Compare => "Comparing implementations: kink-flow compare",
             Self::Prune => "Redundant programs: kink-flow prune",
+            Self::Admit => "Admitting a case found elsewhere: kink-flow admit",
         }
     }
 
@@ -904,6 +940,7 @@ impl Verb {
             Self::Query => "FLOW.toml [PATTERNS.toml]",
             Self::Fuzz => "FLOW.toml TEMPLATES.toml",
             Self::Prune => "FLOW.toml MUTATIONS.toml [PATTERNS.toml]",
+            Self::Admit => "FLOW.toml FILE...",
         }
     }
 
@@ -922,6 +959,7 @@ impl Verb {
             Self::Report => crate::report::MISSING_SCHEMA,
             Self::Query => crate::query::QUERY_SCHEMA,
             Self::Compare => crate::compare::COMPARE_SCHEMA,
+            Self::Admit => crate::candidates::ADMIT_SCHEMA,
         };
         // Under the Z3 profile the document names the build (`crate::with_z3_build`), as every
         // document of every verb does; a refused `coverage` or `run` document is also rendered
@@ -942,6 +980,7 @@ impl Verb {
             Self::Fuzz => "fuzz",
             Self::Compare => "compare",
             Self::Prune => "prune",
+            Self::Admit => "admit",
         }
     }
 }
@@ -1111,6 +1150,7 @@ pub enum FlowCommand {
         /// `--progress`, as `run`'s.
         progress: bool,
     },
+    Admit(crate::candidates::AdmitOptions),
 }
 
 impl FlowCommand {
@@ -1275,6 +1315,16 @@ impl FlowCommand {
                     progress,
                 })
             }
+            Verb::Admit => {
+                let options = admit_options(options)?;
+                if options.candidates.is_empty() {
+                    return Err("admit needs a FILE, a case document of a candidate".to_owned());
+                }
+                if let Some(file) = options.candidates.iter().find(|file| !file.is_file()) {
+                    return Err(not_file(file));
+                }
+                Ok(Self::Admit(options))
+            }
         }
     }
 
@@ -1290,6 +1340,7 @@ impl FlowCommand {
             Self::Fuzz { .. } => Verb::Fuzz,
             Self::Compare { .. } => Verb::Compare,
             Self::Prune { .. } => Verb::Prune,
+            Self::Admit(_) => Verb::Admit,
         }
     }
 
@@ -1610,6 +1661,7 @@ pub fn run_command(
             options,
             front,
         ),
+        FlowCommand::Admit(options) => crate::candidates::command(manifest, options, front),
     };
     let mut document = front.annotated(document);
     if matches!(command, FlowCommand::Coverage { .. }) {
@@ -2741,6 +2793,42 @@ fn fuzz_options(args: &[String], files: &CommandFiles) -> Result<FuzzRequest, St
     })
 }
 
+/// `admit`'s options: `--found-by TEXT`, `--reason TEXT` (each a nonempty string, the rule of a
+/// case document's `provenance` member) and `--cache DIR`; every other argument that does not
+/// begin with `-` is a candidate FILE, in order.
+fn admit_options(args: &[String]) -> Result<crate::candidates::AdmitOptions, String> {
+    let mut options = crate::candidates::AdmitOptions::default();
+    let mut args = args.iter();
+    let text = |flag: &str, value: Option<&String>| match value {
+        Some(text) if !text.is_empty() => Ok(text.clone()),
+        Some(_) => Err(format!(
+            "{flag} needs a nonempty text: a case document's provenance states no empty member"
+        )),
+        None => Err(format!("{flag} needs a text")),
+    };
+    while let Some(arg) = args.next() {
+        if !arg.starts_with('-') {
+            options.candidates.push(PathBuf::from(arg));
+            continue;
+        }
+        listed(Verb::Admit, arg)?;
+        match arg.as_str() {
+            "--found-by" if options.provenance.found_by.is_none() => {
+                options.provenance.found_by = Some(text(arg, args.next())?);
+            }
+            "--reason" if options.provenance.reason.is_none() => {
+                options.provenance.reason = Some(text(arg, args.next())?);
+            }
+            "--cache" if options.cache.is_none() => {
+                let directory = args.next().ok_or("--cache needs a directory")?;
+                options.cache = Some(PathBuf::from(directory));
+            }
+            _ => return Err(repeated(arg)),
+        }
+    }
+    Ok(options)
+}
+
 fn report_options(args: &[String]) -> Result<(ReportOptions, OutputFormat), String> {
     let mut options = ReportOptions::default();
     let mut output = None;
@@ -3469,6 +3557,7 @@ mod tests {
                     Verb::Fuzz => fuzz_options(&args, &CommandFiles::default()).err(),
                     Verb::Compare => compare_options(&args).err(),
                     Verb::Prune => prune_options(&args).err(),
+                    Verb::Admit => admit_options(&args).err(),
                 };
                 assert!(
                     !error.as_deref().is_some_and(|error| {
@@ -3489,6 +3578,7 @@ mod tests {
                 Verb::Fuzz => fuzz_options(&unlisted, &CommandFiles::default()).err(),
                 Verb::Compare => compare_options(&unlisted).err(),
                 Verb::Prune => prune_options(&unlisted).err(),
+                Verb::Admit => admit_options(&unlisted).err(),
             };
             assert_eq!(error.as_deref(), Some("invalid option '--unlisted'"));
         }
@@ -3545,6 +3635,7 @@ mod tests {
                 Verb::Fuzz => fuzz_options(&twice, &CommandFiles::default()).err(),
                 Verb::Compare => compare_options(&twice).err(),
                 Verb::Prune => prune_options(&twice).err(),
+                Verb::Admit => admit_options(&twice).err(),
             };
             assert_eq!(
                 error.as_deref(),
