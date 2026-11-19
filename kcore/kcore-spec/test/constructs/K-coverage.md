@@ -16,14 +16,14 @@ Rows by status:
 |---|---|---|---|---|---|---|---|---|
 | E1 | 58 | 36 | 3 | 1 | 18 | 0 | 0 | 0 |
 | E2 | 182 | 54 | 0 | 44 | 68 | 16 | 0 | 0 |
-| E3 | 98 | 67 | 2 | 11 | 3 | 15 | 0 | 0 |
+| E3 | 98 | 68 | 2 | 11 | 3 | 14 | 0 | 0 |
 | E4 | 123 | 89 | 0 | 8 | 0 | 26 | 0 | 0 |
 | E5 | 22 | 9 | 1 | 8 | 2 | 2 | 0 | 0 |
 | E6 | 826 | 515 | 95 | 116 | 40 | 60 | 0 | 0 |
 | E7 | 42 | 32 | 0 | 4 | 4 | 2 | 0 | 0 |
 | E8 | 63 | 3 | 1 | 0 | 48 | 11 | 0 | 0 |
 | C3 | 44 | 32 | 0 | 8 | 2 | 2 | 0 | 0 |
-| all | 1458 | 837 | 102 | 200 | 185 | 134 | 0 | 0 |
+| all | 1458 | 838 | 102 | 200 | 185 | 133 | 0 | 0 |
 
 Nested entries by status:
 
@@ -46,14 +46,14 @@ Refused rows by class:
 |---|---|---|---|---|---|
 | E1 | 0 | 0 | 0 | 0 | 0 |
 | E2 | 16 | 1 | 4 | 1 | 10 |
-| E3 | 15 | 8 | 0 | 5 | 2 |
+| E3 | 14 | 8 | 0 | 4 | 2 |
 | E4 | 26 | 8 | 0 | 0 | 18 |
 | E5 | 2 | 0 | 0 | 0 | 2 |
 | E6 | 60 | 60 | 0 | 0 | 0 |
 | E7 | 2 | 0 | 0 | 0 | 2 |
 | E8 | 11 | 0 | 0 | 0 | 11 |
 | C3 | 2 | 2 | 0 | 0 | 0 |
-| all | 134 | 79 | 4 | 6 | 45 |
+| all | 133 | 79 | 4 | 5 | 45 |
 
 Refused nested entries by class:
 
@@ -70,11 +70,11 @@ Refused nested entries by class:
 | C3 | 17 | 8 | 4 | 0 | 5 |
 | all | 203 | 59 | 16 | 25 | 103 |
 
-Supported entries (rows and nested): 979; 14 of them have an owed fact and are counted by their best fixture: **13 proved** (the owed fact proved on a fixture the entry names: these count as supported under the headline statements), 0 open and 1 false (counted apart: the headline statements' hypothesis is not shown on their fixtures). The other 965 have no owed fact.
+Supported entries (rows and nested): 980; 14 of them have an owed fact and are counted by their best fixture: **13 proved** (the owed fact proved on a fixture the entry names: these count as supported under the headline statements), 0 open and 1 false (counted apart: the headline statements' hypothesis is not shown on their fixtures). The other 966 have no owed fact.
 
 E6 library rows by their `e6_tie` (test/constructs/e6map.py; rows-header.toml): 480, of which 203 tied, 3 of no direction (the tie's no-direction class, owed-sentence rule item 7: never tied, counted apart), 9 refuted and 265 uncovered.
 
-## Entries of class R-c (31)
+## Entries of class R-c (30)
 
 Each names the notion the kernel lacks, the cone declaration that would change, and the ticket or unit that supports it (`unit`, checked by `units.py`).
 
@@ -84,7 +84,6 @@ Each names the notion the kernel lacks, the cone declaration that would change, 
 | E2 | `ML_BINDER(mlBinder)@frontend` | row | refused |  | Term (Core.lean:58): a term has variables, applications, injections, \`as\` and domain values, no connective; and with it Rule.lhs/rhs/req/ens, Clause.pats/req/rhs, Eval and Step, which read terms | CE |  |
 | E2 | `SYMBOL(symbol)@symbol` | cases[0] | refused |  | KCore.Faithful.sigItems, KCore.Faithful.ΓDomains, KCore.Faithful.ΓFallback, KCore.Faithful.ΓColls, KCore.Faithful.Model.namesApartK, KCore.Faithful.Model.itesApart, KCore.gammaHeads, KCore.AttrsAgree.hooks (REGN.rows; the declarations findings/work/decision-regn.md changes: Γ's library family guarde… | REGN.rows |  |
 | E3 | `ML-SYNTAX:Sort::="#Top"` | row | refused |  | none (reader only): the connective goes to Rule.pre or Rule.post | RDR.rule-conn-wire | CN-3 P1 (e0, e1: L-2, an anonymous variable, reader only); R3 (e2: R-5, a right side as \`?Z\` with \`post\`) |
-| E3 | `ML-SYNTAX:Sort::="#Not" "(" Sort ")"` | row | refused |  | none (reader only): the connective goes to Rule.pre or Rule.post | RDR.rule-conn-wire | CN-3 R3 (e2: L-7, \`pre := not (exMatch ..)\`; R-5 as \`?Z\` with \`post\`); e3 (\`Clause.pre\`) |
 | E3 | `ML-SYNTAX:Sort::=Sort "#And" Sort` | row | refused |  | none at the row: each refused case, an equation's right side, names its cone declaration (KCore.Semantics.clausesPlain, Term, KCore.Cond.bound) | CE | CN-3 e3 (FR-4); the refused cases' units (CE, CE.reader-wire, CE.bound-fixed) |
 | E3 | `ML-SYNTAX:Sort::=Sort "#And" Sort` | cases[1] | refused |  | KCore.Semantics.clausesPlain (a clause's rhs and ens state no t ∩ u) | CE | CE.reader-and-eq (u ∈ post with a fresh existential variable) |
 | E3 | `ML-SYNTAX:Sort::=Sort "#And" Sort` | cases[7] | refused |  |  | CE.reader-wire |  |
@@ -520,7 +519,7 @@ Not core:
 | cases[1]: a rule's or an equation's right side, under applications and conjunctions | supported |  |  |  |  |  |  |  | fixtures/e3-ml-rule-rhs-bottom, -rhs-bottom-fn, e3-ml-eq-rhs-bottom, -bottom-ctor, -bottom-noval |
 | cases[2]: t #Or #Bottom on a right side | supported |  |  |  |  |  |  |  | fixtures/e3-ml-eq-rhs-or-bottom |
 | cases[3]: a requires or ensures \\equals(\\bottom{SortBool{}}, true) | supported |  |  |  |  |  |  |  | Parse.isPred |
-| `ML-SYNTAX:Sort::="#Not" "(" Sort ")"` | refused | R-c | a connective at a term position of a rule's side denotes a set of values where a term denotes one. Under applications it is the cut (kk:t233-rule-conn-cut): the position holds a variable Z of the rule, and Z's membership in the connective is a conjunct of Rule.pre on a left side and of Rule.post on… | none (reader only): the connective goes to Rule.pre or Rule.post | RDR.rule-conn-wire | e3-ml | no | no | fixtures/e3-ml-rule-lhs-not, e3-ml-rule-lhs-not-other: account \`1 read connectiveCut [user]\`, \`coreOK: true\`; fixtures/e3-ml-req-not: account \`notAsCondition\`; fixtures/e3-ml-eq-arg-not: kompile.txt \`kore-exec ... Error (ErrorVerify)\`; fixtures/e3-ml: account \`4 inert simplification [user]\`, \`4 para… |
+| `ML-SYNTAX:Sort::="#Not" "(" Sort ")"` | supported |  | a connective at a term position of a rule's side denotes a set of values where a term denotes one. Under applications it is the cut (kk:t233-rule-conn-cut): the position holds a variable Z of the rule, and Z's membership in the connective is a conjunct of Rule.pre on a left side and of Rule.post on… | none (reader only): the connective goes to Rule.pre or Rule.post | RDR.rule-conn-wire | e3-ml | no | no | fixtures/e3-ml-rule-lhs-not, e3-ml-rule-lhs-not-other: account \`1 read connectiveCut [user]\`, \`coreOK: true\`; fixtures/e3-ml-req-not: account \`notAsCondition\`; fixtures/e3-ml-eq-arg-not: kompile.txt \`kore-exec ... Error (ErrorVerify)\`; fixtures/e3-ml: account \`4 inert simplification [user]\`, \`4 para… |
 | cases[0]: a rule's left side | supported |  |  |  |  | e3-ml-rule-lhs-not-other |  |  | fixtures/e3-ml-rule-lhs-not-other (c(#Not(a())) => b()): account.txt \`1 read connectiveCut [user]\`, \`sentence 215: connectiveCut\`, \`coreOK: true\`, read as c(Z) => b with pre not (Z in a()); fixtures/e3-ml-rule-lhs-not (c(#Not(a())) => a(), kompiled c(\\not(\\and(a(), \_Gen5))) => \_Gen5, \_Gen5 bound onl… |
 | cases[1]: a requires #Not(B) of a term B | supported |  |  |  | RDR.req-not-term | e3-ml-req-not |  |  | fixtures/e3-ml-req-not (go(X) => done requires #Not(X >Int 0)): account.txt \`1 read notAsCondition [user]\`, \`coreOK: true; failing: []\`; fixtures/e3-ml-eq-req-not (an equation's requires, beside an [owise] one): account.txt \`notAsCondition\`; test/CondCut.lean (ReqNot.step\_iff: go(i) steps to done ex… |
 | cases[2]: a requires or ensures \\equals(\\not(P), true), P a predicate | supported |  |  |  |  |  |  |  | Parse.isPred |

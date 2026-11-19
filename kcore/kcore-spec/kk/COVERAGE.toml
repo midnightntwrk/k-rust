@@ -415,11 +415,10 @@ note = "the reader refuses it (rows.toml E4 tree:Pattern.rightAssoc is refused),
 #            of KK.encodable (a fixture's or ref-kimp's text), the table's Bool, or the first
 #            uncovered hook row's; refused_on, the text or table entry; first_uncovered, the hook
 #            row a module row is refused by.
-# Entries: 1077; covered 419; refused 658 (paramsOK 403, appsOK 158, litsOK 48, shapesOK 41, ovlsOK 8).
-# By evidence: fixture 856, hook table 139, kimp 50, module hooks 19, sort table 13.
-# No evidence text, no verdict (a fixture is owed; check fails on them, check --report lists them): 8:
+# Entries: 1079; covered 419; refused 660 (paramsOK 405, appsOK 158, litsOK 48, shapesOK 41, ovlsOK 8).
+# By evidence: fixture 858, hook table 139, kimp 50, module hooks 19, sort table 13.
+# No evidence text, no verdict (a fixture is owed; check fails on them, check --report lists them): 7:
 #   E3 ML-SYNTAX:Sort::="#Top"#cases[1]
-#   E3 ML-SYNTAX:Sort::="#Not" "(" Sort ")"#cases[2]
 #   E3 ML-SYNTAX:Sort2::="#Floor" "(" Sort1 ")"#cases[1]
 #   E3 ML-SYNTAX:Sort::=Sort "#Implies" Sort#cases[1]
 #   E3 ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2#cases[18]
@@ -1029,6 +1028,12 @@ by = "fixture"
 bool = "paramsOK"
 refused_on = "e3-ml"
 
+[rows.E3."ML-SYNTAX:Sort::=\"#Not\" \"(\" Sort \")\""]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e3-ml"
+
 [rows.E3."ML-SYNTAX:Sort::=\"#Not\" \"(\" Sort \")\"#cases[0]"]
 verdict = "refused"
 by = "fixture"
@@ -1040,6 +1045,12 @@ verdict = "refused"
 by = "fixture"
 bool = "shapesOK"
 refused_on = "e3-ml-req-not"
+
+[rows.E3."ML-SYNTAX:Sort::=\"#Not\" \"(\" Sort \")\"#cases[2]"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e3-ml"
 
 [rows.E3."ML-SYNTAX:Sort2::=\"#Ceil\" \"(\" Sort1 \")\""]
 verdict = "refused"
