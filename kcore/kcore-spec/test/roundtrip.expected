@@ -33,6 +33,7 @@ differs f2-examples/c3-eq-req-prio.kompile.kore
 differs f2-examples/c3-eq-req-total.kompile.kore
 differs f2-examples/c3-eq-symbolic-nosymbolic.kore
 differs f2-examples/c3-eq-symbolic.kompile.kore
+differs f2-examples/c3-hook-eq-lib.kompile.kore
 differs f2-examples/c3-macro-rule-expanded.kompile.kore
 differs f2-examples/c3-macro-rule.kompile.kore
 differs f2-examples/c3-owise-simp.kompile.kore
@@ -303,7 +304,7 @@ differs f2-examples/rdr-pred-rule.kompile.kore
 differs f2-examples/rdr-proj-norule.kompile.kore
 differs f2-examples/ref-kimp.kore
 differs f2-examples/ref-peano.kore
-cannot f2-examples/regeq.kompile.kore
+differs f2-examples/regeq.kompile.kore
 differs f2-examples/rhsempty.kompile.kore
 differs f2-examples/rhsemptyowise.kompile.kore
 differs f2-examples/rhsemptypeer.kompile.kore

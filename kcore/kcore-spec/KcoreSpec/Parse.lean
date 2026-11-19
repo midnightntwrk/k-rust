@@ -352,15 +352,12 @@ inductive RefusalReason where
   `Faithful.genWf` (its first conjunct) excludes such a definition; this is its message. The detail
   names the constructor, the sort and which of these it is. -/
   | ctorResultSort
-  /-- An equation (`eqnHeadFault?`) whose left side is headed by a hooked symbol of the text whose
-  hook a registry hook interprets, or that is a collection sort's unit, element or concatenation
-  symbol, or that has no hook attribute, or, written in a user's file, by a symbol of the registry.
-  (A hooked symbol of the text whose hook no registry hook interprets and that is no collection
-  symbol is read as a function with its equations, `hookFnSym`.) The sentence is a premise about
-  an interpreted symbol at every element of its sorts. `Γ` states such a symbol's graph at values
-  only, so it does not entail the premise (a model may hold elements of an argument sort that are
-  no value's, where the symbol is unconstrained), and the semantics has no place for the premise or
-  for the obligation that the graph satisfies it. The detail names the symbol and which it is. -/
+  /-- An equation (`eqnHeadFault?`) whose left side is headed by a hooked symbol of the text that
+  `hookFnSym` does not read as a function, where the equation is no user's sentence about a symbol
+  whose value the registry gives (`regLemmaEqn`): the symbol declared without a hook attribute, or
+  the equation without a user source. Of a symbol without a hook attribute the text names no hook
+  whose value it would be, and an equation without a user source is the compiler's, no sentence of
+  the user's: the reader reads neither. The detail names the symbol and which it is. -/
   | hookEquation
   /-- A rule or equation whose read `requires` or `ensures` holds an equality `_==K_` or `_==Int_`
   that the reader writes for what the text states (an equation's strict conjunction, `conjTerms`;
@@ -5546,30 +5543,52 @@ def hookImplAt (stands : List (Srt × Srt)) (hk : String) (k : CtorSig) : Option
 def hookFnDecls (S : Scan) : List Kore.SentenceSymbol :=
   (S.userHooked.filter (hookFnSym S)).map fun h => ⟨h.symbol, h.sorts, h.sort, h.attributes⟩
 
+/-- The hooked symbol of the text heading an equation's left side that `hookFnSym` does not read as
+a function: the symbol named `e.fn`, or, where it is sort-parametric, the one whose instance `e.fn`
+names (`instNameOf`: the symbol the text applies is the declared one at sort arguments). -/
+def eqnHookedHead? (S : Scan) (e : RawEqn) : Option Kore.HookedSymbol :=
+  (S.userHooked.filter (!hookFnSym S ·)).find? fun h =>
+    h.symbol.ident.ident.name == e.fn ||
+      (!h.symbol.sortVars.isEmpty && instNameOf h.symbol.ident.ident.name e.fn)
+
+/-- **An equation that is a user's sentence about a symbol whose value the registry gives**: written
+in a user's file, no symbol-overload or selector-domain axiom, its left side headed by a symbol of
+the registry (`regSymNames`), or by a hooked symbol of the text that `hookFnSym` does not read as a
+function and that carries a hook (`eqnHookedHead?`: one whose hook a registry hook interprets, a
+collection sort's unit, element or concatenation symbol among them). Such a symbol is read as it
+is without the equation: a registry symbol, or a parameter symbol whose value is its `impl`'s graph
+(`hookImplAt`) or, without one, the interpretation's. The equation states the symbol's value at
+every element of its argument sorts, a claim about values the registry (or `H`) gives, true or false
+of them; the attribute `simplification` does not change what an equation states, so it is the same
+kind of sentence as a user's `simplification` lemma. The reader does not put it in `Γ` and neither
+claims it true nor refuses it for being false: it is owed. Where it applies no parameter symbol
+without `impl` it rests on an interpreted symbol's graph, which `Γ` states at values, so the tie's
+class is `user lemma at values` (`EntailsAtValues`; the tie proves it, or `Γ` with it has no model
+and the text is not tied); where it applies one it is a parameter lemma, owed as a hypothesis on
+`H` (the account's class, `isParamLemma`'s condition). -/
+def regLemmaEqn (S : Scan) (e : RawEqn) : Bool :=
+  !e.dom && !hasAttr e.attrs "symbol-overload" && isUserSource e.attrs &&
+    (regSymNames.contains e.fn || (eqnHookedHead? S e).any (fun h => (attrStr? h.attributes "hook").isSome))
+
 /-- The refusal of an equation by the symbol heading its left side, with its detail: a hooked
-symbol of the text not read as a function (`hookFnSym`), applied at no sort argument or, where it is
-sort-parametric, at sort arguments (the equation then named by the instance, `instNameOf`: the
-symbol the text applies is the declared one), or a registry symbol where the equation is written in a user's file
-(`hookEquation`), a constructor (`constructorEquation`) or an open generator
-(`openGeneratorEquation`); none for an equation of any other symbol, a symbol-overload axiom or a
+symbol of the text not read as a function (`eqnHookedHead?`) where the equation is no user's
+sentence about it (`regLemmaEqn`: the symbol declared without a hook attribute, or the equation
+without a user source) (`hookEquation`), a constructor (`constructorEquation`) or an open
+generator (`openGeneratorEquation`); none for an equation of any other symbol, a user's equation
+of a symbol whose value the registry gives (`regLemmaEqn`), a symbol-overload axiom or a
 selector-domain axiom. -/
 def eqnHeadFault? (S : Scan) (e : RawEqn) : Option (RefusalReason × String) :=
-  if e.dom || hasAttr e.attrs "symbol-overload" then none
+  if e.dom || hasAttr e.attrs "symbol-overload" || regLemmaEqn S e then none
   else
     let isCtor := fun (n : String) =>
       S.syms.any fun s => s.symbol.ident.ident.name == n && hasAttr s.attributes "constructor"
-    let hooked := ((S.userHooked.filter (!hookFnSym S ·)).find? fun h =>
-        h.symbol.ident.ident.name == e.fn ||
-          (!h.symbol.sortVars.isEmpty && instNameOf h.symbol.ident.ident.name e.fn)).map fun h =>
+    let hooked := (eqnHookedHead? S e).map fun h =>
       let hk := (attrStr? h.attributes "hook").getD ""
       let inst := if h.symbol.ident.ident.name == e.fn then "" else s!"an instance of {h.symbol.ident.ident.name}, "
       (RefusalReason.hookEquation, s!"{e.fn}: {inst}a hooked symbol of the text, " ++
         if (attrStr? h.attributes "hook").isNone then "without a hook attribute"
-        else if (regHookOf hk).isSome then s!"hook {hk} interpreted by the registry"
-        else s!"hook {hk}, a unit, element or concatenation symbol of a collection sort")
+        else s!"hook {hk}, an equation without a user source")
     if hooked.isSome then hooked
-    else if isUserSource e.attrs && regSymNames.contains e.fn then
-      some (.hookEquation, s!"{e.fn}: a symbol of the registry")
     else if isCtor e.fn then
       let right := match e.rhs with
         | .app h _ _ =>

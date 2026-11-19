@@ -196,8 +196,9 @@ as `S`, named as `E`) accounts for:
 - a symbol-overload axiom of an overloading symbol is one of `d`'s overloads (`Semantics.ovls`: the
   symbol, and the symbol it overloads among its `over`), which `Γ` states (`KoreAML.Cons.ovlEqItem`);
 - a function equation is one of `d`'s functions' clauses (each `[owise]` equation of a function is
-  one), or the equation of `getGeneratedCounterCell` or of a cell's initializer, each no symbol of
-  `d`, of the shape under which it states nothing of another symbol (`getterEqnOK`, `initEqnOK`); or an equation of a sort predicate `isX` that is a clause
+  one), or a user's equation of a symbol whose value the registry gives (`regLemmaEqn`), which the
+  reader leaves out of `Γ` as an owed sentence, or the equation of `getGeneratedCounterCell` or of a
+  cell's initializer, each no symbol of `d`, of the shape under which it states nothing of another symbol (`getterEqnOK`, `initEqnOK`); or an equation of a sort predicate `isX` that is a clause
   of that predicate (which KCore defines from the sort order), or an instance of such a clause at a
   constructor pattern, or that predicate's `[owise]` equation whose exclusion names those
   instances too (`predInstAcc`), or of a sort's projection that `d`
@@ -267,6 +268,9 @@ def consumedWith (generated : Bool) (S : Scan) (E : Env) (d : Definition) (s : K
       -- every equation of a function is one of its clauses, each `[owise]` one among them (a
       -- selector-domain axiom: a clause of the projection, or generated with it)
       fnLabels.contains e.fn || ovlPair a.attributes ||
+      -- a user's equation of a symbol whose value the registry gives: a sentence the reader leaves
+      -- out of `Γ`, owed (`regLemmaEqn`)
+      regLemmaEqn S e ||
       -- the getter's equation and a tree initializer's, by their content
       (!symOfDefn c getterName && getterEqnOK c S.eqs e) ||
       ((initCell e.fn).any fun x => initEqnOK E.N E.src S.eqs c x e) ||

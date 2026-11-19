@@ -88,7 +88,11 @@ What it states where the text:
   `userlemma_account`, and the Props `UserLemmaEntailed` (Γ entails each for every H) and
   `UserLemmaAtValues` (`EntailsAtValues` of each for every H), stated and owed (`owed` in the
   summary). tiegen cannot decide which of the two holds: the default is the stronger class, whose
-  proof fails where the lemma holds at values only, and the author then names the index;
+  proof fails where the lemma holds at values only, and the author then names the index. A user's
+  equation of a symbol whose value the registry gives (`Parse.regLemmaEqn`, no `simplification`
+  needed: the attribute does not change what an equation states) is out of Γ as well and rests on
+  that symbol's graph, which Γ states at values: the class `user lemma at values` without
+  `--at-values` (a parameter lemma where it applies a parameter symbol without `impl`);
 - has a parameter symbol no hook implements (the H form): `total_named` and `obl_nil` at `[]`, which
   holds where no `[total]` function owes a parameter's totality (otherwise refused);
 - is not plain (`FnFacts`): `owed_rules`, `owed_clauses`, `openDecidedH`;
@@ -543,6 +547,9 @@ def tgMinusNeg (a : Kore.Axiom) : P :=
   let us := k.axiomDecls.filter (·.module == "@MOD@")
   let usP := us.map fun ad => let q := (trS ad).pat; (ad, q, (tgFreeEV [] q).eraseDups)
   let nmK := Parse.namesOf k
+  let scK := match k.modules.getLast? with
+    | some m => Parse.scan m.sentences
+    | none => Parse.scan []
   let ixOf := fun (q : P) => (usP.filter fun (_, p, _) => p == q).map (·.1.index)
   IO.println s!"H hasParams {c.params.any (·.impl.isNone)}"
   IO.println s!"H totalNil {decide (c.totalObligationsRP @ORDER@ [] = [])}"
@@ -615,10 +622,13 @@ def tgMinusNeg (a : Kore.Axiom) : P :=
     let fh := match ad.ax.pattern with
       | .exist _ _ (.equals _ _ _ (.app h _ _)) => h.ident.name
       | _ => ""
-    let pl := isParamLemma c (Parse.classify nmK (.axiom ad.ax)) (.axiom ad.ax)
+    -- a user's equation of a symbol whose value the registry gives (`Parse.regLemmaEqn`): out of Γ,
+    -- a parameter lemma where it applies a parameter symbol without `impl`, else at values
+    let rl := (Parse.rawEqn? ad.ax).any (Parse.regLemmaEqn scK ·)
+    let pl := isParamLemma c (Parse.classify nmK (.axiom ad.ax)) (.axiom ad.ax) || (rl && appliesNoImplParam c ad.ax.pattern)
     let simp := Parse.classify nmK (.axiom ad.ax) == .inert .simplification
     let usrc := Parse.isUserSource ad.ax.attributes
-    IO.println s!"S {ad.index}\t{absent}\t{fnJ}\t{cons}\t{plain}\t{consItem}\t{triv}\t{kitem}\t{rw}\t{eh}\t{kind eh}\t{fh}\t{kind fh}\t{AttrsAgree.prioOf ad.ax.attributes}\t{pl}\t{simp}\t{usrc}"
+    IO.println s!"S {ad.index}\t{absent}\t{fnJ}\t{cons}\t{plain}\t{consItem}\t{triv}\t{kitem}\t{rw}\t{eh}\t{kind eh}\t{fh}\t{kind fh}\t{AttrsAgree.prioOf ad.ax.attributes}\t{pl}\t{simp}\t{usrc}\t{rl}"
     if !consItem && triv.isEmpty && !kitem then
       match njCands.find? (fun (_, o, _) => o == p) with
       | some (s, _, _) => IO.println s!"N {ad.index}\t{s}\t{c.sortName s}\torder\t[]\t{(c.gens s).length}"
@@ -676,7 +686,7 @@ def probe(name, path, um, order="[]", cons_head=False):
                                     consItem=f[5] == "true", triv=re.findall(r"Sort[^,\]\s]+", f[6]),
                                     kitem=f[7] == "true", rw=f[8] == "true", eh=f[9], ehk=f[10], fh=f[11],
                                     fhk=f[12], prio=int(f[13]), pl=f[14] == "true",
-                                    simp=f[15] == "true", usrc=f[16] == "true")
+                                    simp=f[15] == "true", usrc=f[16] == "true", rl=f[17] == "true")
     return head, sents
 
 
@@ -706,6 +716,10 @@ def form_class(s, raw, builtin, laws=(), open_laws=(), raw_names=(), at_values=(
     # installation), whatever its form: with a set variable it is no library lemma
     if s["simp"] and s["usrc"] and not builtin:
         return USER_LEMMA_VALUES_CLASS if s["idx"] in at_values else USER_LEMMA_CLASS
+    # a user's equation of a symbol whose value the registry gives (`Parse.regLemmaEqn`), applying no
+    # parameter symbol without `impl`: it rests on an interpreted symbol's graph, at values
+    if s["rl"] and not builtin:
+        return USER_LEMMA_VALUES_CLASS
     if s["triv"] or s["consItem"] or s["kitem"] or "// no junk" in raw:
         return "no junk"
     if "[subsort{" in raw:

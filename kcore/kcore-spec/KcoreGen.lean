@@ -2770,13 +2770,22 @@ def clipSegs : Nat → List (List Char × Bool) → List Char × Bool
 tie class `parameter lemma` (`tieClasses`), in place of the reader's class `inert simplification`. -/
 def paramLemmaClass : String := "parameter lemma"
 
+/-- The account's class of a user's equation of a symbol whose value the registry gives
+(`Parse.regLemmaEqn`) that applies no parameter symbol without `impl`: the tie class `user lemma at
+values` (`tieClasses`), in place of the reader's class `read`. The reader does not put the sentence
+in Γ; it rests on an interpreted symbol's graph, which Γ states at values. -/
+def userLemmaValuesClass : String := "user lemma at values"
+
 /-- What the account says after a class line beyond the class: for a sentence of the user's text
 classed `inert simplification`, that the class claims `Γ ⊧ tr s` and the reader does not decide it:
 the sentence is owed, entailed by Γ, and the tie on the text (C14) proves it or fails; for a
-parameter lemma, that it is owed as a hypothesis on `H`, the sentence at the member. -/
+parameter lemma, that it is owed as a hypothesis on `H`, the sentence at the member; for a user's
+equation of a symbol whose value the registry gives, that it is owed at values. -/
 def classLineOwed (c o : String) : String :=
   if c == "inert simplification" && o == "user" then
     ": owed, entailed by Γ (the tie on the text proves it or fails), not decided by the reader"
+  else if c == userLemmaValuesClass then
+    ": owed at values, not in Γ (EntailsAtValues: Γ (c.withHooks H) entails it at the valuations sending its variables to values, or Γ with it has no model; the tie on the text proves it or fails), not decided by the reader"
   else if c == paramLemmaClass then
     ": owed as a hypothesis on H, the sentence itself at the member (Γ (c.withHooks H) ⊧ tr s; the tie shows an H at which the text's hypotheses hold), not decided by the reader"
   else ""
@@ -2811,9 +2820,17 @@ def account (koreFile : String) : IO UInt32 := do
   let dRead := match Parse.finish m (Parse.scan m.sentences) with
     | .ok d => some d
     | .error _ => none
+  -- a user's equation of a symbol whose value the registry gives is out of Γ, owed: a parameter
+  -- lemma where it applies a parameter symbol without `impl`, a user lemma at values otherwise
+  let S := Parse.scan m.sentences
   let clsName := fun (s : Kore.Sentence) =>
     let cl := Parse.classify N s
-    if dRead.any (fun d => isParamLemma d.sem cl s) then paramLemmaClass else cl.name
+    match s with
+    | .axiom a =>
+      if (Parse.rawEqn? a).any (Parse.regLemmaEqn S ·) then
+        if dRead.any (fun (d : Definition) => appliesNoImplParam d.sem a.pattern) then paramLemmaClass else userLemmaValuesClass
+      else if dRead.any (fun (d : Definition) => isParamLemma d.sem cl s) then paramLemmaClass else cl.name
+    | _ => if dRead.any (fun (d : Definition) => isParamLemma d.sem cl s) then paramLemmaClass else cl.name
   let cls := m.sentences.map fun s => (clsName s, origin s, s)
   let keys := (cls.map fun (c, o, _) => (c, o)).eraseDups
   for (c, o) in keys do
