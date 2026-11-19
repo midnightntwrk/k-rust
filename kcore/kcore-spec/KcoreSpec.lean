@@ -421,3 +421,4 @@ import KcoreSpec.TieNoJunkBlk
 import KcoreSpec.WitnessedGivers
 import KcoreSpec.KKNative
 import KcoreSpec.LibEvSortPred
+import KcoreSpec.LibEvCeilFn
