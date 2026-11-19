@@ -3120,8 +3120,10 @@ fn admission_status(admission: &FlowAdmission) -> u8 {
 /// 17 since `[[projection]]` replaces `[result]` (projections PJ-10): a manifest that writes
 /// `[result]` is refused at stage `manifest`; a refusal at stage `result` names the projection
 /// whose `compare` names the cell; a projection with `views` or `observer` is refused in a K
-/// flow at stage `projection`, reason `unsupported-front-end`; and a flow that declares
-/// projections names them (`projections`, [`crate::FlowManifest::projections_value`]: each
+/// flow at stage `projection`, reason `unsupported-front-end`, and, under a front end that
+/// resolves it (krs), at that stage, reason `projection-unresolved`, where its observer or a
+/// view does not resolve; and a flow that declares projections names them (`projections`,
+/// [`crate::FlowManifest::projections_value`]: each
 /// projection's keys as written and, where it has `views` or `observer`, the identity of its
 /// `observation` as the front end resolved it). A flow that declares no projection and writes
 /// no `[result]` gives version 16's document but for its version.

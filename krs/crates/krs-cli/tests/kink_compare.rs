@@ -680,6 +680,39 @@ fn a_view_naming_a_projection_is_resolved_once_per_command() {
             "{different:#}"
         );
     }
+    // The document names each projection, and the observation of the one with views as the
+    // front end resolved it: the definition as observer (its Definition IR digest) and the
+    // views as written, with no subject since the observer is the definition itself.
+    let projection = |name: &str| {
+        document["projections"]
+            .as_array()
+            .unwrap_or_else(|| panic!("{document:#}"))
+            .iter()
+            .find(|projection| projection["name"] == name)
+            .unwrap_or_else(|| panic!("no projection {name}: {document:#}"))
+            .clone()
+    };
+    let observation = &projection("parity")["observation"];
+    assert_eq!(
+        observation["observer"]["definition"],
+        Value::Null,
+        "{observation:#}"
+    );
+    assert!(
+        observation["observer"]["definition_ir"]
+            .as_str()
+            .is_some_and(
+                |digest| digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_hexdigit())
+            ),
+        "{observation:#}"
+    );
+    assert_eq!(
+        observation["views"],
+        json!({"acc": "Parity"}),
+        "{observation:#}"
+    );
+    assert_eq!(observation.get("subject"), None, "{observation:#}");
+    assert_eq!(projection("every").get("observation"), None);
     // One projection has functions to resolve; each implementation's three end views are
     // resolved (`every` and `parity` looked up, `whole` read from its keys) and decided once.
     assert_eq!(counters["kink.projections.resolved"], 1, "{counters:#}");

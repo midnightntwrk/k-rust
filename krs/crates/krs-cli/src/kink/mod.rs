@@ -1287,6 +1287,20 @@ fn bound_manifest(
     let projections =
         projections::KrsProjections::resolve(&manifest, &decoder, &observers, &names, &emitted.ir)
             .map_err(|unbound| refused(command, "projection", unbound.reason, &unbound.detail))?;
+    // Every document names the observation each projection with functions measured under.
+    let observed = manifest
+        .projections()
+        .into_iter()
+        .filter_map(|projection| {
+            let identity = projections.observation(&projection.name)?;
+            Some((projection.name, identity))
+        })
+        .collect::<Vec<_>>();
+    let manifest = observed
+        .into_iter()
+        .fold(manifest, |manifest, (name, identity)| {
+            manifest.with_projection_observation(&name, identity)
+        });
     let implementations = implementations::KrsImplementations::new(
         Arc::clone(&decoder),
         Arc::clone(&observers),

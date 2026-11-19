@@ -233,14 +233,7 @@ impl KrsProjections {
 
     /// The identity of the observation of the projection `name` (module documentation), where it
     /// has `views` or `observer`: what kink-flow's documents name as the projection's
-    /// `observation` (`FlowManifest::with_projection_observation`, U10c).
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "kink-flow's hook that takes it lands with the documents' `projections` member"
-        )
-    )]
+    /// `observation` ([`FlowManifest::with_projection_observation`]).
     pub(crate) fn observation(&self, name: &str) -> Option<Value> {
         self.by_name.get(name)?.identity.clone()
     }
