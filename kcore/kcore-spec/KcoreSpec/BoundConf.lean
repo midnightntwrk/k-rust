@@ -14,13 +14,14 @@
   - `Cond.bound_of_boundConf`, `Cond.boundV_hasValue_of_bound`: so `Cond.bound` accepts what
     `Cond.boundConf` accepts, and `Cond.boundV c c.hasValue` what `Cond.bound` accepts;
   - `Cond.fixes_mono`, `Cond.boundV_mono`, `Cond.bound_of_boundV_valued`: a wider `val` (and a
-    wider `ok`) accepts more, so `Cond.bound` accepts every condition `Cond.boundV c c.valued`
-    accepts (`Semantics.hasValue_of_valued`);
+    wider `ok`) accepts more, so on a definition with `coreOK` `Cond.bound` accepts every condition
+    `Cond.boundV c c.valued` accepts (`Semantics.hasValue_of_valued`, HasValueOfValued.lean);
   - `Clause.fixedExs_mono`, `Semantics.clausePlainEx_of_valued`: likewise `Clause.fixedExs`, so
-    `Semantics.clausePlainEx` accepts every clause it accepts with `Semantics.valued` in place of
-    `Semantics.hasValue`.
+    there `Semantics.clausePlainEx` accepts every clause it accepts with `Semantics.valued` in
+    place of `Semantics.hasValue`.
 -/
 import KcoreSpec.ClausePlainEx
+import KcoreSpec.HasValueOfValued
 
 set_option autoImplicit false
 
@@ -169,12 +170,13 @@ theorem Cond.boundV_mono (c : Semantics) {val val' : Srt → Bool} (hv : ∀ s, 
     rw [Cond.boundV, Bool.and_eq_true] at h ⊢
     exact ⟨h.1, Cond.boundV_mono c hv body _ h.2⟩
 
-/-- **Every condition `Cond.boundV c c.valued` accepts, `Cond.bound` accepts**: `Semantics.hasValue`
-accepts every sort `Semantics.valued` accepts. -/
-theorem Cond.bound_of_boundV_valued (c : Semantics) (p : Cond) (n : Nat)
+/-- **Every condition `Cond.boundV c c.valued` accepts, `Cond.bound` accepts**, on a definition
+with `coreOK`: there `Semantics.hasValue` accepts every sort `Semantics.valued` accepts
+(`Semantics.hasValue_of_valued`). -/
+theorem Cond.bound_of_boundV_valued {c : Semantics} (hc : c.coreOK = true) (p : Cond) (n : Nat)
     (h : Cond.boundV c c.valued n p = true) : Cond.bound c n p = true := by
   rw [Cond.bound_eq_boundV]
-  exact Cond.boundV_mono c (fun _ => Semantics.hasValue_of_valued) p n h
+  exact Cond.boundV_mono c (fun _ => Semantics.hasValue_of_valued hc) p n h
 
 /-- **`Clause.fixedExs` holds more where `val` admits more.** -/
 theorem Clause.fixedExs_mono {adm val val' : Srt → Bool} (hv : ∀ s, val s = true → val' s = true)
@@ -204,14 +206,14 @@ theorem Clause.fixedExs_mono {adm val val' : Srt → Bool} (hv : ∀ s, val s = 
     exact hk.imp (fun h1 => h1.imp id fun h2 => List.contains_iff_mem.mpr (hacc k (List.contains_iff_mem.mp h2))) id
 
 /-- **Every clause `Semantics.clausePlainEx` accepts with `Semantics.valued` in place of
-`Semantics.hasValue`, it accepts.** -/
-theorem Semantics.clausePlainEx_of_valued (c : Semantics) (cl : Clause)
+`Semantics.hasValue`, it accepts**, on a definition with `coreOK`. -/
+theorem Semantics.clausePlainEx_of_valued {c : Semantics} (hc : c.coreOK = true) (cl : Clause)
     (h : ((!cl.exs.isEmpty || cl.post.isTop) &&
       cl.exs.all (fun i => (cl.vars[i]?.map c.confined).getD false ||
         (cl.fixedExs c.confined c.valued).contains i)) = true) :
     c.clausePlainEx cl = true := by
   simp only [Semantics.clausePlainEx, Bool.and_eq_true, List.all_eq_true, Bool.or_eq_true,
     List.contains_iff_mem] at h ⊢
-  exact ⟨h.1, fun i hi => (h.2 i hi).imp id (Clause.fixedExs_mono (fun _ => Semantics.hasValue_of_valued) cl)⟩
+  exact ⟨h.1, fun i hi => (h.2 i hi).imp id (Clause.fixedExs_mono (fun _ => Semantics.hasValue_of_valued hc) cl)⟩
 
 end KCore

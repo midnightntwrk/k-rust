@@ -4,8 +4,9 @@
 
   The semantics `c` has the cell sorts only: Bool is confined (its values are the two literals),
   Int, String, Float and KItem are not. `fT`, `gT` are applications of symbols the examples never
-  evaluate. The test of a sort with a value is `Semantics.hasValue`; `Semantics.valued`, the
-  narrower test it extends, accepts Int and String but not Float (no literal of Float is among its
+  evaluate. The test of a sort with a value is `Semantics.hasValue`; `Semantics.valued`, a
+  narrower test on a definition with `coreOK` (`Semantics.hasValue_of_valued`; `c` has it,
+  `c_coreOK`), accepts Int and String but not Float (no literal of Float is among its
   seeds), and with it `clBindF` is refused.
 
   | Clause | `exs`, `post` | `fixedExs c.confined c.hasValue` | `clausePlainEx` |
@@ -135,10 +136,12 @@ theorem clBindF_ok : c.confined F = false ∧ c.valued F = false ∧ c.hasValue 
     Cond.bound c 2 clBindF.post = true ∧ Cond.boundV c c.valued 2 clBindF.post = false := by
   decide +kernel
 
-/-- What `Semantics.clausePlainEx` accepted with `Semantics.valued`, it accepts
-(`Semantics.clausePlainEx_of_valued`). -/
+theorem c_coreOK : c.coreOK = true := by decide_cheap
+
+/-- What `Semantics.clausePlainEx` accepted with `Semantics.valued`, it accepts, on a definition
+with `coreOK` (`Semantics.clausePlainEx_of_valued`). -/
 example : c.clausePlainEx clBind = true :=
-  Semantics.clausePlainEx_of_valued c clBind (by decide +kernel)
+  Semantics.clausePlainEx_of_valued c_coreOK clBind (by decide +kernel)
 
 /-! ### No existential variable -/
 

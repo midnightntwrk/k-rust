@@ -297,6 +297,7 @@ import KcoreSpec.LibEvInt
 import KcoreSpec.FixesValue
 import KcoreSpec.HasValue
 import KcoreSpec.HasValueValue
+import KcoreSpec.HasValueOfValued
 import KcoreSpec.TieHeadsAml
 import KcoreSpec.TieHeadsValues
 import KcoreSpec.KKStatements
