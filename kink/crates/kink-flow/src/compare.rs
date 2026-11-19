@@ -20,13 +20,22 @@
 //! `implementation`, reason `unsupported-front-end`).
 //!
 //! Each (implementation, program, view) has one verdict: `equal`, `different` (with the first
-//! difference), `could-not-apply` (the implementation's own answer, with its reason) or
-//! `not-compared` (with the reason: a compared cell the implementation omits, a definition run
-//! with no end or several, a view that could not be evaluated). A run of the implementation
-//! that exits non-zero, writes no answer the protocol reads, cannot be started, or that the clock
-//! cancels is a failure of the implementation, not a verdict: its row has `failure` and no
-//! verdicts. The clock (`time_ms`) only cancels a run, which then has no answer; it never
-//! decides a verdict.
+//! difference), `could-not-apply` (the implementation's own answer, a disagreement with a reason
+//! that is reported and never locked) or `not-compared` (with the reason: a compared cell the
+//! implementation omits, a definition run with no end or several, a view that could not be
+//! evaluated). An *acceptance view* (`kind = "accepts"`) compares whether each side accepts the
+//! program ([`Acceptance`], [`acceptance_row`]): the definition accepts at an end reached at the
+//! corpus's stop or of a declared `finished` class, and rejects at one of a declared `refused`
+//! class or of none; an implementation accepts by `stopped` or `final` and rejects by `rejected`
+//! ([`Protocol::V3`], with its own `message` and the definition's refusal it names,
+//! `refused`, compared by the front end where both sides state a part,
+//! [`Vocabulary::judge_refusal`]). An end view of a program the definition refuses at every end
+//! is judged so too. A run of the implementation that exits non-zero, writes no answer the
+//! protocol reads, cannot be started, or that the clock cancels is a failure of the
+//! implementation, not a verdict: its row has `failure` and no verdicts, but for a crash (a
+//! failure of kind `exit`) on a program whose acceptance the definition states, which its
+//! acceptance views judge `different`. The clock (`time_ms`) only cancels a run, which then has
+//! no answer; it never decides a verdict.
 //!
 //! Only a required view decides the exit status ([`compare_status`]); every other verdict is
 //! reported.
@@ -132,7 +141,15 @@ pub const COMPARE_SCHEMA: &str = "kink-flow-compare";
 /// `different`, the first difference's index or the agreeing elements for a trace view's
 /// verdict, else null) and `summary` has `views`, each (implementation, view)'s `compared` and
 /// `agreeing` programs, which `--output text` prints and a lock's `[[compare.view]]` rows hold.
-pub const COMPARE_VERSION: u64 = 5;
+/// 6 since acceptance is compared (projections PJ-02): a view may be an acceptance view
+/// (`kind = "accepts"`), an implementation of `kink-implementation/3` may answer `rejected`
+/// (its `message` and `refused` in the row's `answer`, an entry's `refused` where both sides'
+/// rejections were compared and agree), `could-not-apply` is a disagreement (status 1, its
+/// reason in no lock row), the verdict `definition-refused` is gone (an end view of a program
+/// the definition refuses at every end is judged by acceptance), and a crash on a program
+/// whose acceptance the definition states is `different` on its acceptance views, its row
+/// keeping `failure` (with `decided`).
+pub const COMPARE_VERSION: u64 = 6;
 /// The protocol a request names (`protocol`) and its answer is read by, unless the
 /// implementation declares another ([`Protocol`]).
 pub const PROTOCOL: &str = "kink-implementation/1";
@@ -438,6 +455,233 @@ pub trait Vocabulary {
     ///
     /// A failure of the comparison itself, which fails the command.
     fn judge_trace(&self, question: &TraceQuestion<'_>) -> Result<TraceAnswer, String>;
+
+    /// Whether the definition declares a `finished` end, without which no end of it can be
+    /// told accepted from one it has no rule for: an acceptance view over it is refused (stage
+    /// `implementation`, reason `no-finished-end`). None by default.
+    fn declares_finished_end(&self) -> bool {
+        false
+    }
+
+    /// Check a `rejected` answer's `refused` (`{end, reason}`) against the definition before it
+    /// is compared: `end` an item of a declared refused end, `reason` a document at that end's
+    /// reason type. The value is its canonical document, `{end, reason}` (`reason` null where it
+    /// is not stated), which a lock row holds where it was compared. `Err` makes the answer
+    /// malformed, naming the part.
+    ///
+    /// # Errors
+    ///
+    /// Why `refused` names no refusal of the definition; by default, that the front end reads no
+    /// declared end.
+    fn read_refusal(&self, refused: &Value) -> Result<Value, String> {
+        let _ = refused;
+        Err("this front end reads no declared end, so it cannot read `refused`".to_owned())
+    }
+
+    /// Compare a `rejected` answer's `refused` with each of the definition's ends (every one of
+    /// them rejected), on the parts of their declared class both state ([`RefusalJudged`]).
+    ///
+    /// # Errors
+    ///
+    /// A failure of the comparison itself, which fails the command.
+    fn judge_refusal(&self, question: &RefusalQuestion<'_>) -> Result<RefusalJudged, String> {
+        let _ = question;
+        Err("this front end compares no refusal".to_owned())
+    }
+}
+
+/// One question to the front end: a `rejected` answer's `refused` against the definition's ends
+/// on a program the definition rejects at every end ([`Vocabulary::judge_refusal`]).
+pub struct RefusalQuestion<'a> {
+    /// The answer's `refused`, as written; [`Vocabulary::read_refusal`] accepted it.
+    pub refused: &'a Value,
+    /// The definition's ends, as [`Question::ends`].
+    pub ends: &'a BTreeSet<Pattern>,
+    /// The cells the corpus's ends leave out, by K cell name.
+    pub not_compared: &'a [String],
+}
+
+/// The front end's comparison of an answer's refusal with the definition's ends, on the parts of
+/// their declared class both state (krs: an end's `class`, `end` and `reason`).
+#[derive(Clone, Debug, PartialEq)]
+pub enum RefusalJudged {
+    /// It agrees with every end.
+    Agree,
+    /// It agrees with no end: the first difference (the front end's document).
+    Different(Value),
+    /// It agrees with some ends and not others: one answer against several ends is inclusion.
+    SeveralEnds(String),
+    /// A comparison could not conclude.
+    Undecided(String),
+}
+
+/// The format of an acceptance difference ([`acceptance_difference`]).
+pub const ACCEPTS_DIFFERENCE_FORMAT: &str = "kink-accepts/1";
+
+/// Whether the definition accepts a program, from its baseline's ends: every end accepted (one
+/// reached at the corpus's stop, or of a declared `finished` class), every end rejected (of a
+/// declared `refused` class, or `none`: no declared end holds where no rule applies), or why
+/// neither is known.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Acceptance {
+    Accepted,
+    Rejected,
+    NotCompared(NotCompared),
+}
+
+/// The definition's acceptance of a program whose baseline ends are summarized by `summaries`
+/// (a program row's `ends`, with `halt` under `[stop]` and `declared` where the definition
+/// declares ends).
+fn ends_acceptance(summaries: &[Value]) -> Acceptance {
+    let mut accepted = 0;
+    let mut rejected = 0;
+    for summary in summaries {
+        if summary["halt"] == "stop" {
+            accepted += 1;
+            continue;
+        }
+        match summary["declared"].as_str() {
+            Some("finished") => accepted += 1,
+            Some("refused" | "none") => rejected += 1,
+            Some(class @ ("undecided" | "overlap")) => {
+                return Acceptance::NotCompared(NotCompared::Undecided(format!(
+                    "the class of an end of the definition's run is `{class}`{}: whether it \
+                     accepts the program is not known",
+                    summary["declared_detail"]
+                        .as_str()
+                        .map(|detail| format!(" ({detail})"))
+                        .unwrap_or_default()
+                )));
+            }
+            _ => {
+                return Acceptance::NotCompared(NotCompared::Undecided(
+                    "an end of the definition's run has no declared class: whether it accepts \
+                     the program is not known"
+                        .to_owned(),
+                ));
+            }
+        }
+    }
+    match (accepted, rejected) {
+        (0, 0) => Acceptance::NotCompared(NotCompared::Unreadable(
+            "the baseline's record names no end".to_owned(),
+        )),
+        (_, 0) => Acceptance::Accepted,
+        (0, _) => Acceptance::Rejected,
+        _ => Acceptance::NotCompared(NotCompared::SeveralEnds(
+            "the definition's run accepts the program on some path and rejects it on another: \
+             one answer against both is a question of inclusion, which compare does not decide"
+                .to_owned(),
+        )),
+    }
+}
+
+/// The definition's acceptance of the program whose definition side is `definition` and whose
+/// baseline row is `row`.
+fn definition_acceptance(definition: &Definition, row: &Value) -> Acceptance {
+    match definition {
+        Definition::Ends { .. } => ends_acceptance(
+            row["ends"]
+                .as_array()
+                .map(Vec::as_slice)
+                .unwrap_or_default(),
+        ),
+        Definition::Prefix { .. } => Acceptance::NotCompared(NotCompared::NoEnd {
+            detail: "the definition's run of the program is cut by its bounds before it ends \
+                     (`comparable-prefix`): whether it accepts the program is not known yet"
+                .to_owned(),
+            carried: false,
+        }),
+        Definition::None { class, .. } => Acceptance::NotCompared(NotCompared::Unreadable(
+            format!("the definition's run of the program is `{class}`: it has no end"),
+        )),
+    }
+}
+
+/// An acceptance difference: `{format: "kink-accepts/1", definition, implementation}`, each side
+/// `accepts`, `rejects`, or, for the implementation, what it answered instead (`horizon`: it did
+/// not end; `crashed`: its run failed with kind `exit`).
+fn acceptance_difference(definition: &str, implementation: &str) -> Value {
+    json!({
+        "format": ACCEPTS_DIFFERENCE_FORMAT,
+        "definition": definition,
+        "implementation": implementation,
+    })
+}
+
+/// How an answer stands to acceptance: `accepts` (`stopped`, `final`), `rejects` (`rejected`),
+/// `horizon` (it has not ended); `None` for `could-not-apply`, which has its own verdict.
+const fn answer_acceptance(stated: &Stated) -> Option<&'static str> {
+    match &stated.end {
+        StatedEnd::Ended(_) => Some("accepts"),
+        StatedEnd::Rejected { .. } => Some("rejects"),
+        StatedEnd::Horizon => Some("horizon"),
+        StatedEnd::CouldNotApply(_) => None,
+    }
+}
+
+/// The verdict of a view judged by acceptance (an acceptance view, or an end view of a program
+/// the definition refuses at every end), on an answer that is not `could-not-apply`: `equal`
+/// where both sides accept, or both reject and agree on the refusal's parts both state
+/// (`refusal`, the front end's comparison where the answer states `refused`, and `refused`,
+/// its canonical document, which the row then holds); `different` otherwise, naming both
+/// sides. It compares no cell, so its `distance` is null.
+fn acceptance_row(
+    view: &ViewSection,
+    definition: &Acceptance,
+    stated: &Stated,
+    refusal: Option<&(Value, RefusalJudged)>,
+) -> Value {
+    let mut row = view_row(view);
+    let definition = match definition {
+        Acceptance::NotCompared(reason) => {
+            not_compared_row(&mut row, reason);
+            return row;
+        }
+        Acceptance::Accepted => "accepts",
+        Acceptance::Rejected => "rejects",
+    };
+    let answer = answer_acceptance(stated).unwrap_or("could-not-apply");
+    if definition != answer {
+        row["verdict"] = json!("different");
+        row["difference"] = acceptance_difference(definition, answer);
+        return row;
+    }
+    match refusal {
+        None => row["verdict"] = json!("equal"),
+        Some((refused, RefusalJudged::Agree)) => {
+            row["verdict"] = json!("equal");
+            row["refused"] = refused.clone();
+        }
+        Some((_, RefusalJudged::Different(difference))) => {
+            row["verdict"] = json!("different");
+            row["difference"] = difference.clone();
+        }
+        Some((_, RefusalJudged::SeveralEnds(detail))) => {
+            not_compared_row(&mut row, &NotCompared::SeveralEnds(detail.clone()));
+        }
+        Some((_, RefusalJudged::Undecided(detail))) => {
+            not_compared_row(&mut row, &NotCompared::Undecided(detail.clone()));
+        }
+    }
+    row
+}
+
+/// The row of an acceptance view on a program whose implementation run crashed (a failure of
+/// kind `exit`: it exited with a failure status or a signal ended it): `different`, the implementation side `crashed`, where the definition
+/// states its acceptance (README D1: a crash on a program the definition accepts or rejects is
+/// a defect of the implementation on it, a function of the binary and the request); `None`
+/// where it does not, so the view has no verdict, as on every other failure.
+fn crashed_row(view: &ViewSection, definition: &Acceptance) -> Option<Value> {
+    let definition = match definition {
+        Acceptance::Accepted => "accepts",
+        Acceptance::Rejected => "rejects",
+        Acceptance::NotCompared(_) => return None,
+    };
+    let mut row = view_row(view);
+    row["verdict"] = json!("different");
+    row["difference"] = acceptance_difference(definition, "crashed");
+    Some(row)
 }
 
 /// One channel a request asks for (`observe.channels[i]`).
@@ -675,6 +919,14 @@ pub enum StatedEnd {
     Horizon,
     /// `could-not-apply`, with its reason.
     CouldNotApply(String),
+    /// `rejected` ([`Protocol::V3`]): the implementation rejects the program. `message` is its
+    /// own text, reported and never compared; `refused` the definition's declared refused end
+    /// it names (`{end, reason}`, as written), compared with the definition's where both state
+    /// a part ([`Vocabulary::judge_refusal`]).
+    Rejected {
+        message: Option<String>,
+        refused: Option<Value>,
+    },
 }
 
 /// An answer of either protocol, read ([`read_answer`], [`read_answer_2`]).
@@ -712,6 +964,7 @@ impl Stated {
             StatedEnd::Ended(end) => end.as_str(),
             StatedEnd::Horizon => "horizon",
             StatedEnd::CouldNotApply(_) => "could-not-apply",
+            StatedEnd::Rejected { .. } => "rejected",
         }
     }
 
@@ -720,6 +973,9 @@ impl Stated {
     fn value(&self) -> Value {
         match &self.end {
             StatedEnd::CouldNotApply(reason) => json!({"end": self.word(), "reason": reason}),
+            StatedEnd::Rejected { message, refused } => {
+                json!({"end": self.word(), "reason": null, "message": message, "refused": refused})
+            }
             _ => json!({"end": self.word(), "reason": null}),
         }
     }
@@ -747,28 +1003,103 @@ pub struct Asked {
 ///
 /// Why the bytes are no answer.
 pub fn read_answer_2(bytes: &[u8], asked: Asked) -> Result<Stated, String> {
-    let protocol = Protocol::V2.as_str();
+    read_answer_of(Protocol::V2, bytes, asked)
+}
+
+/// Read an answer document of [`Protocol::V3`]: one of [`Protocol::V2`] ([`read_answer_2`]), or
+/// `end: "rejected"`, with an optional `message` (a string) and an optional `refused` (an
+/// object of `end`, a nonempty string, and optionally `reason`), no `cells` and no `reason`, and
+/// `observations` exactly as a `stopped` or `final` answer has them. `message` and `refused`
+/// belong to a `rejected` answer only.
+///
+/// # Errors
+///
+/// Why the bytes are no answer.
+pub fn read_answer_3(bytes: &[u8], asked: Asked) -> Result<Stated, String> {
+    read_answer_of(Protocol::V3, bytes, asked)
+}
+
+/// Read an answer of `protocol`, [`Protocol::V2`] or [`Protocol::V3`] ([`read_answer_2`],
+/// [`read_answer_3`]).
+fn read_answer_of(protocol: Protocol, bytes: &[u8], asked: Asked) -> Result<Stated, String> {
+    let rejections = protocol.has_rejections();
+    let protocol = protocol.as_str();
     let document: Value = serde_json::from_slice(bytes)
         .map_err(|error| format!("stdout is not one JSON document: {error}"))?;
     let Value::Object(mut object) = document else {
         return Err("the answer is not a JSON object".to_owned());
     };
-    if let Some(key) = object
-        .keys()
-        .find(|key| !matches!(key.as_str(), "end" | "cells" | "reason" | "observations"))
-    {
-        return Err(format!(
-            "the answer has the key `{key}`; an answer holds `end`, `cells`, `reason` and \
-             `observations` only ({protocol})"
-        ));
+    if let Some(key) = object.keys().find(|key| {
+        !matches!(key.as_str(), "end" | "cells" | "reason" | "observations")
+            && !(rejections && matches!(key.as_str(), "message" | "refused"))
+    }) {
+        return Err(if rejections {
+            format!(
+                "the answer has the key `{key}`; an answer holds `end`, `cells`, `reason`, \
+                 `observations`, `message` and `refused` only ({protocol})"
+            )
+        } else {
+            format!(
+                "the answer has the key `{key}`; an answer holds `end`, `cells`, `reason` and \
+                 `observations` only ({protocol})"
+            )
+        });
     }
-    let end = object.get("end").and_then(Value::as_str).ok_or(
-        "the answer has no `end` string (`stopped`, `final`, `horizon` or `could-not-apply`)",
-    )?;
+    let words = if rejections {
+        "`stopped`, `final`, `horizon`, `rejected` or `could-not-apply`"
+    } else {
+        "`stopped`, `final`, `horizon` or `could-not-apply`"
+    };
+    let end = object
+        .get("end")
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("the answer has no `end` string ({words})"))?;
+    if end != "rejected" {
+        for key in ["message", "refused"] {
+            if object.contains_key(key) {
+                return Err(format!(
+                    "a `{end}` answer states no `{key}`: only a `rejected` answer does"
+                ));
+            }
+        }
+    }
     let end = match end {
         "stopped" => StatedEnd::Ended(EndWord::Stopped),
         "final" => StatedEnd::Ended(EndWord::Final),
         "horizon" => StatedEnd::Horizon,
+        "rejected" if rejections => {
+            let message = match object.remove("message") {
+                None => None,
+                Some(Value::String(message)) => Some(message),
+                Some(_) => return Err("`message` is not a string".to_owned()),
+            };
+            let refused = match object.remove("refused") {
+                None => None,
+                Some(Value::Object(refused)) => {
+                    if let Some(key) = refused
+                        .keys()
+                        .find(|key| !matches!(key.as_str(), "end" | "reason"))
+                    {
+                        return Err(format!(
+                            "`refused` has the key `{key}`; it holds `end` (a declared refused \
+                             end's item) and `reason` only"
+                        ));
+                    }
+                    if !refused
+                        .get("end")
+                        .and_then(Value::as_str)
+                        .is_some_and(|end| !end.trim().is_empty())
+                    {
+                        return Err("`refused` names its `end`, a declared refused end's item, \
+                                    as a nonempty string"
+                            .to_owned());
+                    }
+                    Some(Value::Object(refused))
+                }
+                Some(_) => return Err("`refused` is not a JSON object".to_owned()),
+            };
+            StatedEnd::Rejected { message, refused }
+        }
         "could-not-apply" => {
             for key in ["cells", "observations"] {
                 if object.contains_key(key) {
@@ -787,13 +1118,12 @@ pub fn read_answer_2(bytes: &[u8], asked: Asked) -> Result<Stated, String> {
             });
         }
         other => {
-            return Err(format!(
-                "`end` is `{other}`, not `stopped`, `final`, `horizon` or `could-not-apply`"
-            ));
+            return Err(format!("`end` is `{other}`, not {words}"));
         }
     };
     let word = match &end {
         StatedEnd::Ended(end) => end.as_str(),
+        StatedEnd::Rejected { .. } => "rejected",
         _ => "horizon",
     };
     if object.contains_key("reason") {
@@ -803,6 +1133,12 @@ pub fn read_answer_2(bytes: &[u8], asked: Asked) -> Result<Stated, String> {
         (Some(_), StatedEnd::Horizon) => {
             return Err(
                 "a `horizon` answer states no `cells`: the run has not ended, so it has no end"
+                    .to_owned(),
+            );
+        }
+        (Some(_), StatedEnd::Rejected { .. }) => {
+            return Err(
+                "a `rejected` answer states no `cells`: its rejection is what it observes"
                     .to_owned(),
             );
         }
@@ -1017,10 +1353,9 @@ enum Definition {
         ends: BTreeSet<Pattern>,
         /// The words of the ends, each once.
         words: BTreeSet<&'static str>,
-        /// Where every end is of a declared `refused` class (its summary's `declared`,
-        /// `crate::evidence`, "Declared ends"), the first end's item and reason, as a
-        /// `definition-refused` verdict's detail states them.
-        refused: Option<String>,
+        /// Whether every end is of a declared `refused` class (its summary's `declared`,
+        /// `crate::evidence`, "Declared ends"), so the end views judge the answer by acceptance.
+        refused: bool,
     },
     /// The program's baseline was cut by its bounds before it ended (`comparable-prefix`): it
     /// has no end, and its channels' elements up to their horizons, which a trace view compares.
@@ -1099,7 +1434,7 @@ fn definition_side(
             })
             .unwrap_or_default()
     };
-    let refused = refused_detail(
+    let refused = refused_everywhere(
         row.row["ends"]
             .as_array()
             .map(Vec::as_slice)
@@ -1112,45 +1447,18 @@ fn definition_side(
     }
 }
 
-/// The detail of a `definition-refused` verdict on a program whose baseline ends are `summaries`
-/// (a program row's `ends`), or `None` where the definition does not refuse it.
-/// The definition refuses the program only where every end it states is refused: where it also
-/// states another end, an answer is compared with that end as before, since a refusal on one path
-/// does not answer for another. The detail names the first end, in the record's order.
-fn refused_detail(summaries: &[Value]) -> Option<String> {
-    let first = summaries.first()?;
-    summaries
-        .iter()
-        .all(|summary| summary["declared"] == "refused")
-        .then(|| {
-            format!(
-                "the definition refuses the program, at its declared end `{}`: `{}`",
-                first["declared_by"].as_str().unwrap_or_default(),
-                first["reason_text"].as_str().unwrap_or_default()
-            )
-        })
+/// Whether the definition refuses a program whose baseline ends are `summaries` (a program row's
+/// `ends`) at every end, each of a declared `refused` class: its end views then compare the
+/// answer by acceptance ([`acceptance_row`]), since the definition states no end to compare an
+/// answer's cells with, only that it rejects the program. Where it also states another end, an
+/// answer is compared with the ends as before, since a refusal on one path does not answer for
+/// another.
+fn refused_everywhere(summaries: &[Value]) -> bool {
+    !summaries.is_empty()
+        && summaries
+            .iter()
+            .all(|summary| summary["declared"] == "refused")
 }
-
-/// `views`, the rows of `implementation`'s views on a program whose definition ends at a declared
-/// `refused` end (`refused`, the detail), with each end view's verdict `definition-refused`
-/// whatever the implementation answered: the definition states no end of the program to compare
-/// an answer with, only that it refuses the program, for its reason, which the detail gives.
-/// This mirrors `could-not-apply`, the implementation's own refusal, and is an answer as that
-/// is. A trace view is kept: the elements before the end are behaviour the definition states.
-fn definition_refused(views: &mut [Value], implementation: &ImplementationSection, refused: &str) {
-    for (row, view) in views.iter_mut().zip(&implementation.views) {
-        if view.is_trace() {
-            continue;
-        }
-        let mut replaced = view_row(view);
-        replaced["verdict"] = json!(DEFINITION_REFUSED);
-        replaced["detail"] = json!(refused);
-        *row = replaced;
-    }
-}
-
-/// The verdict of an end view on a program the definition refuses ([`definition_refused`]).
-pub const DEFINITION_REFUSED: &str = "definition-refused";
 
 /// The definition's observation record of one program, which its trace views are compared
 /// against: the `observations` of its baseline row.
@@ -1440,6 +1748,7 @@ fn answered_rows(
     ends: Option<(&BTreeSet<Pattern>, &BTreeSet<&'static str>)>,
     not_compared: &[String],
     trace: Option<TraceSide<'_>>,
+    acceptance: Option<&AcceptanceSide<'_>>,
 ) -> Result<Vec<Value>, String> {
     let (mut judged, not, asked, definition) = match trace {
         Some(TraceSide::Judged {
@@ -1471,6 +1780,21 @@ fn answered_rows(
                     return Err(format!("the trace view `{}` was not compared", view.name));
                 }
             }
+        } else if view.accepts {
+            match acceptance {
+                Some(side) => acceptance_row(view, side.definition, stated, side.refusal),
+                None => {
+                    return Err(format!(
+                        "the acceptance view `{}` was not judged",
+                        view.name
+                    ));
+                }
+            }
+        } else if let Some(side) = acceptance.filter(|side| side.refused_everywhere) {
+            // The definition rejects the program at every end, of a declared refused class: it
+            // states no end whose cells an answer could match, so the end view asks whether the
+            // answer rejects it too.
+            acceptance_row(view, &Acceptance::Rejected, stated, side.refusal)
         } else if let Some(ends) = ends {
             end_view_row(vocabulary, implementation, view, stated, ends, not_compared)?
         } else {
@@ -1480,6 +1804,16 @@ fn answered_rows(
         });
     }
     Ok(rows)
+}
+
+/// What the views judged by acceptance read of one (implementation, program) with an answer:
+/// the definition's acceptance, whether it refuses the program at every end (so its end views
+/// are judged by acceptance too), and, where the answer is `rejected` with a `refused` and the
+/// definition rejects the program, its canonical document and the front end's comparison.
+pub struct AcceptanceSide<'a> {
+    pub definition: &'a Acceptance,
+    pub refused_everywhere: bool,
+    pub refusal: Option<&'a (Value, RefusalJudged)>,
 }
 
 /// `count` elements, as a line says it.
@@ -1756,11 +2090,12 @@ fn definition_rows(
 }
 
 /// The status of one (implementation, program) row: the join of its required views' verdicts
-/// (`equal`, `could-not-apply` and `definition-refused` [`EXIT_YES`], `different` [`EXIT_NO`], `not-compared` its
-/// reason's status, `agree-up-to` its own: [`EXIT_YES`] where the definition limits every
-/// horizon, [`EXIT_UNANSWERED`] where the implementation's answer limits one), and of its failure
-/// where some view is required. A view that is not
-/// required decides nothing.
+/// (`equal` [`EXIT_YES`]; `different` and `could-not-apply` [`EXIT_NO`], the implementation
+/// stating that it does not apply a program being a disagreement with a reason; `not-compared`
+/// its reason's status; `agree-up-to` its own: [`EXIT_YES`] where the definition limits every
+/// horizon, [`EXIT_UNANSWERED`] where the implementation's answer limits one), and of its
+/// failure where some required view has no verdict (`failure.decided` false: a crash its
+/// acceptance views judged decides only them). A view that is not required decides nothing.
 #[must_use]
 pub fn row_status(row: &Value) -> u8 {
     let required = row["views"]
@@ -1773,8 +2108,8 @@ pub fn row_status(row: &Value) -> u8 {
         status = exit_join(
             status,
             match view["verdict"].as_str() {
-                Some("equal" | "could-not-apply" | DEFINITION_REFUSED) => EXIT_YES,
-                Some("different") => EXIT_NO,
+                Some("equal") => EXIT_YES,
+                Some("different" | "could-not-apply") => EXIT_NO,
                 Some("not-compared" | "agree-up-to") => view["status"]
                     .as_u64()
                     .and_then(|status| u8::try_from(status).ok())
@@ -1783,7 +2118,7 @@ pub fn row_status(row: &Value) -> u8 {
             },
         );
     }
-    if row["failure"].is_object() && row["required"] == true {
+    if row["failure"].is_object() && row["required"] == true && row["failure"]["decided"] != true {
         status = exit_join(
             status,
             if row["failure"]["kind"] == "timeout" {
@@ -2087,6 +2422,21 @@ fn compared_selected(
                 format!("implementation `{}`: {detail}", implementation.name),
             );
         }
+        if let Some(view) = implementation.views.iter().find(|view| view.accepts)
+            && !vocabulary.declares_finished_end()
+        {
+            return refused(
+                manifest,
+                "no-finished-end",
+                format!(
+                    "implementation `{}`: the acceptance view `{}` compares whether the \
+                     definition accepts each program, which it does only at a declared \
+                     `finished` end, and the definition declares none: without one an end it \
+                     completes is not told from one it has no rule for",
+                    implementation.name, view.name
+                ),
+            );
+        }
         let channels = traced_channels(implementation, manifest.observe.as_ref());
         traced.push(if channels.is_empty() {
             None
@@ -2172,6 +2522,10 @@ fn compared_selected(
         // The clock stopped the program's baseline run: it has no end on this host.
         let baseline_stopped = crate::clock::baseline_stopped(&row.row);
         let definition = definition_side(manifest, &runner, update.execution, program, row, &cache);
+        // Whether the definition accepts the program, which its acceptance views (and, where it
+        // refuses the program at every end, its end views) compare.
+        let acceptance = definition_acceptance(&definition, &row.row);
+        let refused_everywhere = matches!(definition, Definition::Ends { refused: true, .. });
         // The request's parts every implementation shares: its inputs and the start, each
         // read once.
         let mut shared: Option<RequestParts> = None;
@@ -2205,7 +2559,7 @@ fn compared_selected(
                 // implementation of the first protocol is told so as it was before the second
                 // existed.
                 Definition::Prefix { cause } if shapes.is_none() => {
-                    out["views"] = if implementation.protocol() == Some(Protocol::V2) {
+                    out["views"] = if implementation.protocol().is_some_and(Protocol::has_traces) {
                         json!(not_compared_rows(implementation, &no_end(implementation)))
                     } else {
                         json!(definition_rows(
@@ -2239,9 +2593,12 @@ fn compared_selected(
             });
             let asked = trace.as_ref().and_then(|trace| trace.as_ref().ok());
             let unasked = trace.as_ref().and_then(|trace| trace.as_ref().err());
-            let end_views = implementation.views.iter().any(|view| !view.is_trace());
+            let end_views = implementation.has_end_view();
+            // Some view asks for an answer whatever its trace: an end view or an acceptance
+            // view.
+            let answered_views = implementation.views.iter().any(|view| !view.is_trace());
             if let Some(reason) = unasked
-                && (ends.is_none() || !end_views)
+                && (ends.is_none() || !answered_views)
             {
                 // No view can be compared, so nothing is asked: the trace views for their
                 // reason, an end view because the definition has no end.
@@ -2322,6 +2679,7 @@ fn compared_selected(
                 // second is never read as one of the first, nor the reverse.
                 let stated = match implementation.protocol() {
                     Some(Protocol::V2) => read_answer_2(&stdout, asks),
+                    Some(Protocol::V3) => read_answer_3(&stdout, asks),
                     _ => read_answer(&stdout).map(Stated::from),
                 }
                 .map_err(|detail| Failure::new("malformed", detail))?;
@@ -2341,7 +2699,18 @@ fn compared_selected(
                         Failure::new("malformed", format!("`observations`: {detail}"))
                     })?;
                 }
-                Ok(stated)
+                // A rejection's `refused` names a refusal of the definition, read in its
+                // vocabulary: its canonical document, which a lock row holds.
+                let refused = match &stated.end {
+                    StatedEnd::Rejected {
+                        refused: Some(refused),
+                        ..
+                    } => Some(vocabulary.read_refusal(refused).map_err(|detail| {
+                        Failure::new("malformed", format!("`refused`: {detail}"))
+                    })?),
+                    _ => None,
+                };
+                Ok((stated, refused))
             });
             match answer {
                 Err(failure) => {
@@ -2349,8 +2718,27 @@ fn compared_selected(
                         out["clock_stopped"] = json!("implementation");
                     }
                     out["failure"] = failure.value();
+                    // A crash (a failure of kind `exit`: a failure status or a signal) on a
+                    // program whose acceptance the definition states disagrees on it (README
+                    // D1): the acceptance views judge it, the row keeps its failure.
+                    if failure.kind == "exit" {
+                        let crashed = implementation
+                            .views
+                            .iter()
+                            .filter(|view| view.accepts)
+                            .filter_map(|view| crashed_row(view, &acceptance))
+                            .collect::<Vec<_>>();
+                        if !crashed.is_empty() {
+                            let decided = implementation.views.iter().all(|view| {
+                                !view.required
+                                    || crashed.iter().any(|row| row["view"] == view.name.as_str())
+                            });
+                            out["failure"]["decided"] = json!(decided);
+                            out["views"] = json!(crashed);
+                        }
+                    }
                 }
-                Ok(stated) => {
+                Ok((stated, refused)) => {
                     // The trace views' side: the front end's comparison of the answer's
                     // observations with the values of the definition's channels, which one
                     // more run of the program's baseline reads, once per program.
@@ -2431,22 +2819,42 @@ fn compared_selected(
                         }
                         Ok(side) => {
                             out["answer"] = stated.value();
-                            match answered_rows(
-                                vocabulary,
-                                implementation,
-                                &stated,
-                                ends,
-                                &not_compared,
-                                side,
-                            ) {
-                                Ok(mut views) => {
-                                    if let Definition::Ends {
-                                        refused: Some(refused),
+                            // The refusal's comparison, where the answer names one and the
+                            // definition rejects the program.
+                            let refusal = match (&stated.end, refused, ends) {
+                                (
+                                    StatedEnd::Rejected {
+                                        refused: Some(written),
                                         ..
-                                    } = &definition
-                                    {
-                                        definition_refused(&mut views, implementation, refused);
-                                    }
+                                    },
+                                    Some(canonical),
+                                    Some((ends, _)),
+                                ) if acceptance == Acceptance::Rejected => vocabulary
+                                    .judge_refusal(&RefusalQuestion {
+                                        refused: written,
+                                        ends,
+                                        not_compared: &not_compared,
+                                    })
+                                    .map(|judged| Some((canonical, judged))),
+                                _ => Ok(None),
+                            };
+                            let rows = refusal.and_then(|refusal| {
+                                answered_rows(
+                                    vocabulary,
+                                    implementation,
+                                    &stated,
+                                    ends,
+                                    &not_compared,
+                                    side,
+                                    Some(&AcceptanceSide {
+                                        definition: &acceptance,
+                                        refused_everywhere,
+                                        refusal: refusal.as_ref(),
+                                    }),
+                                )
+                            });
+                            match rows {
+                                Ok(views) => {
                                     out["views"] = json!(views);
                                 }
                                 Err(detail) => {
@@ -2890,11 +3298,13 @@ fn stored_values(entry: &Value, recorded: &Value, names: &[Value]) -> Option<Vec
 /// manifest's order, each implementation's programs in the corpus's order and each program's
 /// views in the declaration's: `{id, implementation, program, view, required, verdict, reason,
 /// difference, request_sha256, identity_sha256}`. `reason` is a `not-compared` verdict's reason
-/// and a `could-not-apply` verdict's own (the implementation's words); `difference` is a
-/// `different` verdict's first difference as canonical JSON, a text that is a function of the
-/// difference; `identity_sha256` is null for an implementation that declares no `identity`. An
-/// `agree-up-to` verdict's row also has `horizon`, its horizon as canonical JSON; no other row
-/// has the key. A row of a run that gave no answer has no verdict, so it has none here.
+/// (never a `could-not-apply` verdict's, the implementation's words, nor a rejection's
+/// `message`); `difference` is a `different` verdict's first difference as canonical JSON, a
+/// text that is a function of the difference; `identity_sha256` is null for an implementation
+/// that declares no `identity`. An `agree-up-to` verdict's row also has `horizon`, its horizon as
+/// canonical JSON, and an entry whose rejections were compared and agree has `refused`, the
+/// answer's refusal as canonical JSON; no other row has either key. A row of a run that gave no
+/// answer has no verdict, so it has none here, but for the acceptance views of a crash.
 #[must_use]
 pub fn verdict_rows(document: &Value) -> Vec<Value> {
     let rows = document["rows"].as_array().map_or(&[][..], Vec::as_slice);
@@ -2906,9 +3316,10 @@ pub fn verdict_rows(document: &Value) -> Vec<Value> {
             let program = row["program"].as_str().unwrap_or_default();
             for view in row["views"].as_array().into_iter().flatten() {
                 let verdict = view["verdict"].as_str().unwrap_or_default();
+                // A `could-not-apply` reason is the implementation's own words, which may change
+                // with no change of verdict, so it is reported and never recorded.
                 let reason = match verdict {
                     "not-compared" => view["reason"].clone(),
-                    "could-not-apply" | DEFINITION_REFUSED => view["detail"].clone(),
                     _ => Value::Null,
                 };
                 let difference = if view["difference"].is_null() {
@@ -2931,6 +3342,9 @@ pub fn verdict_rows(document: &Value) -> Vec<Value> {
                 });
                 if !view["horizon"].is_null() {
                     verdict["horizon"] = json!(canonical_json(&view["horizon"]));
+                }
+                if let Some(refused) = view.get("refused").filter(|refused| !refused.is_null()) {
+                    verdict["refused"] = json!(canonical_json(refused));
                 }
                 verdicts.push(verdict);
             }
@@ -2981,6 +3395,23 @@ pub fn keep(lock: &Lock, document: &Value) -> Kept {
     let mut stopped = Vec::new();
     let mut failed = Vec::new();
     let mut undecided = BTreeSet::new();
+    // The views of each implementation, in the declaration's order.
+    let declared = |implementation: &str| {
+        document["implementations"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|declared| declared["name"] == implementation)
+            .and_then(|declared| declared["views"].as_array())
+            .map(|views| {
+                views
+                    .iter()
+                    .filter_map(|view| view["name"].as_str())
+                    .map(str::to_owned)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
+    };
     for row in document["rows"].as_array().into_iter().flatten() {
         let (implementation, program) = (&row["implementation"], &row["program"]);
         let pair = (
@@ -2999,6 +3430,15 @@ pub fn keep(lock: &Lock, document: &Value) -> Kept {
                 "program": program,
                 "run": run,
             })),
+            // A crash its acceptance views judged decides them (README D1); the pair is undecided
+            // only where some other view has no verdict.
+            None if row["failure"].is_object()
+                && row["views"].as_array().is_some_and(|views| {
+                    !views.is_empty() && views.len() >= declared(&pair.0).len()
+                }) =>
+            {
+                continue;
+            }
             None if row["failure"].is_object() => failed.push(json!({
                 "implementation": implementation,
                 "program": program,
@@ -3015,6 +3455,9 @@ pub fn keep(lock: &Lock, document: &Value) -> Kept {
                "difference": row["difference"]});
         if let Some(horizon) = row.get("horizon").filter(|horizon| !horizon.is_null()) {
             compared["horizon"] = horizon.clone();
+        }
+        if let Some(refused) = row.get("refused").filter(|refused| !refused.is_null()) {
+            compared["refused"] = refused.clone();
         }
         compared
     };
@@ -3039,7 +3482,19 @@ pub fn keep(lock: &Lock, document: &Value) -> Kept {
         });
         match recorded.get(&pair).filter(|_| undecided.contains(&pair)) {
             Some(rows) => {
-                for row in rows {
+                // A crash's acceptance rows are decided (README D1): they are the live ones,
+                // every other view keeps its recorded row, in the declaration's order.
+                let failed = document["rows"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .any(|row| {
+                        row["implementation"] == pair.0.as_str()
+                            && row["program"] == pair.1.as_str()
+                            && row["failure"].is_object()
+                            && row["clock_stopped"].is_null()
+                    });
+                let keep_row = |row: &Value, kept: &mut Vec<Value>| {
                     let now = own.clone().find(|live| live["id"] == row["id"]);
                     if let Some(now) = now.filter(|now| compared(now) != compared(row)) {
                         let mut entry =
@@ -3048,7 +3503,21 @@ pub fn keep(lock: &Lock, document: &Value) -> Kept {
                         entry.insert("now".into(), compared(now));
                         kept.push(Value::Object(entry));
                     }
-                    verdicts.push(row.clone());
+                    row.clone()
+                };
+                if failed && own.clone().next().is_some() {
+                    for view in declared(&pair.0) {
+                        let id = json!(compare_row_id(&pair.0, &pair.1, &view));
+                        if let Some(live) = own.clone().find(|live| live["id"] == id) {
+                            verdicts.push(live.clone());
+                        } else if let Some(row) = rows.iter().find(|row| row["id"] == id) {
+                            verdicts.push(keep_row(row, &mut kept));
+                        }
+                    }
+                } else {
+                    for row in rows {
+                        verdicts.push(keep_row(row, &mut kept));
+                    }
                 }
             }
             None => verdicts.extend(own.cloned()),
@@ -3133,8 +3602,8 @@ fn counted(second_protocol: bool) -> impl Iterator<Item = &'static str> {
 
 /// The counts of the document's verdicts and failures: `{verdicts: {equal, different,
 /// could-not-apply, not-compared}, required: {..the same, of required views}, failures}`, each
-/// with `agree-up-to` under `second_protocol` ([`counted`]) and with `definition-refused` where
-/// some view has that verdict.
+/// with `agree-up-to` under `second_protocol` ([`counted`]), and `views`, each (implementation,
+/// view)'s agreement ([`view_counts`]).
 fn summary(rows: &[Value], second_protocol: bool) -> Value {
     let mut verdicts = Map::new();
     let mut required = Map::new();
@@ -3148,19 +3617,6 @@ fn summary(rows: &[Value], second_protocol: bool) -> Value {
         };
         verdicts.insert(verdict.into(), json!(count(false)));
         required.insert(verdict.into(), json!(count(true)));
-    }
-    // Only a definition that declares ends refuses a program, so the count is there where some
-    // view is `definition-refused`, and a summary without one is the one it was.
-    let refused = |only_required: bool| {
-        rows.iter()
-            .flat_map(|row| row["views"].as_array().into_iter().flatten())
-            .filter(|view| view["verdict"] == DEFINITION_REFUSED)
-            .filter(|view| !only_required || view["required"] == true)
-            .count()
-    };
-    if refused(false) > 0 {
-        verdicts.insert(DEFINITION_REFUSED.into(), json!(refused(false)));
-        required.insert(DEFINITION_REFUSED.into(), json!(refused(true)));
     }
     let entries = rows.iter().flat_map(|row| {
         row["views"]
@@ -3291,13 +3747,13 @@ pub fn text(document: &Value) -> Result<String, String> {
             "{implementation} {}",
             row["program"].as_str().unwrap_or("?")
         );
+        // A failed run has no verdict but those its acceptance views judge (a crash).
         if let Some(failure) = row["failure"].as_object() {
             text.push_str(&format!(
                 "{name}: failed ({}): {}\n",
                 failure["kind"].as_str().unwrap_or("?"),
                 failure["detail"].as_str().unwrap_or("")
             ));
-            continue;
         }
         for view in row["views"].as_array().into_iter().flatten() {
             let required = if view["required"] == true {
@@ -3310,17 +3766,22 @@ pub fn text(document: &Value) -> Result<String, String> {
                 "different" if view["difference"]["format"] == TRACE_DIFFERENCE_FORMAT => {
                     format!(" at {}", trace_difference_text(&view["difference"]))
                 }
+                "different" if view["difference"]["format"] == ACCEPTS_DIFFERENCE_FORMAT => {
+                    format!(
+                        ": the definition {}, the implementation {}",
+                        view["difference"]["definition"].as_str().unwrap_or("?"),
+                        view["difference"]["implementation"].as_str().unwrap_or("?")
+                    )
+                }
                 "different" => view["difference"]["at"]
                     .as_str()
                     .or_else(|| view["difference"]["path"].as_str())
                     .map(|at| format!(" at {at}"))
                     .unwrap_or_default(),
-                "could-not-apply" | DEFINITION_REFUSED | "not-compared" | "agree-up-to" => {
-                    view["detail"]
-                        .as_str()
-                        .map(|detail| format!(": {detail}"))
-                        .unwrap_or_default()
-                }
+                "could-not-apply" | "not-compared" | "agree-up-to" => view["detail"]
+                    .as_str()
+                    .map(|detail| format!(": {detail}"))
+                    .unwrap_or_default(),
                 _ => String::new(),
             };
             // A trace view's line ends with what its verdict rests on.
@@ -3423,16 +3884,47 @@ mod tests {
             json!({"declared": "refused", "declared_by": "crate::trap", "reason_text": "7"});
         let finished = json!({"declared": "finished", "declared_by": "crate::halt"});
         let normal = json!({"class": "normal"});
-        assert_eq!(
-            refused_detail(std::slice::from_ref(&refused)).as_deref(),
-            Some("the definition refuses the program, at its declared end `crate::trap`: `7`")
-        );
-        assert!(refused_detail(&[refused.clone(), refused.clone()]).is_some());
+        assert!(refused_everywhere(std::slice::from_ref(&refused)));
+        assert!(refused_everywhere(&[refused.clone(), refused.clone()]));
         // A refusal on one path does not answer for another the definition also states.
-        assert_eq!(refused_detail(&[refused.clone(), finished]), None);
+        assert!(!refused_everywhere(&[refused.clone(), finished]));
         // A definition that declares no end has no `declared`.
-        assert_eq!(refused_detail(&[normal]), None);
-        assert_eq!(refused_detail(&[]), None);
+        assert!(!refused_everywhere(&[normal]));
+        assert!(!refused_everywhere(&[]));
+    }
+
+    /// The definition's acceptance of a program, from its ends: an end at the stop or of a
+    /// declared `finished` class accepts, one of a `refused` class or of none (a gap) rejects;
+    /// both kinds is inclusion, and an undecided class decides nothing.
+    #[test]
+    fn the_definition_accepts_by_its_declared_ends_and_its_stop() {
+        let end = |declared: &str| json!({"declared": declared});
+        let stop = json!({"halt": "stop"});
+        assert_eq!(ends_acceptance(&[end("finished")]), Acceptance::Accepted);
+        assert_eq!(
+            ends_acceptance(std::slice::from_ref(&stop)),
+            Acceptance::Accepted
+        );
+        assert_eq!(
+            ends_acceptance(&[stop, end("finished")]),
+            Acceptance::Accepted
+        );
+        assert_eq!(ends_acceptance(&[end("refused")]), Acceptance::Rejected);
+        assert_eq!(
+            ends_acceptance(&[end("none"), end("refused")]),
+            Acceptance::Rejected
+        );
+        let reason = |acceptance: Acceptance| match acceptance {
+            Acceptance::NotCompared(reason) => reason.reason(),
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(
+            reason(ends_acceptance(&[end("finished"), end("refused")])),
+            "several-ends"
+        );
+        assert_eq!(reason(ends_acceptance(&[end("undecided")])), "undecided");
+        assert_eq!(reason(ends_acceptance(&[end("overlap")])), "undecided");
+        assert_eq!(reason(ends_acceptance(&[json!({})])), "undecided");
     }
 
     const HEAD: &str = "[spec]\nentry = \"calc.k\"\nmain_module = \"CALC\"\n\n";
@@ -3634,13 +4126,32 @@ mod tests {
                 ),
                 EXIT_NO,
             ),
+            // Projections D6: an implementation that does not apply a program disagrees on it.
             (
                 row(
                     vec![view(true, "could-not-apply", Value::Null)],
                     Value::Null,
                     true,
                 ),
-                EXIT_YES,
+                EXIT_NO,
+            ),
+            // Projections D1: a crash its acceptance views judge decides them; its failure counts
+            // only where some required view has no verdict.
+            (
+                row(
+                    vec![view(true, "different", Value::Null)],
+                    json!({"kind": "exit", "decided": true}),
+                    true,
+                ),
+                EXIT_NO,
+            ),
+            (
+                row(
+                    vec![view(true, "different", Value::Null)],
+                    json!({"kind": "exit", "decided": false}),
+                    true,
+                ),
+                EXIT_UNASKED,
             ),
             (
                 row(
@@ -4211,6 +4722,238 @@ mod tests {
         assert_ne!(other.name, key.name);
     }
 
+    /// A third protocol answer may be `rejected`, with its own `message` and the definition's
+    /// refusal it names (`refused`), and states no `cells`; `message` and `refused` belong to a
+    /// `rejected` answer alone, and the second protocol has no such word.
+    #[test]
+    fn a_third_protocol_answer_may_reject_the_program() {
+        let ended = Asked {
+            observe: false,
+            end_view: true,
+        };
+        let stated = read_answer_3(
+            br#"{"end": "rejected", "message": "bad", "refused": {"end": "crate::trap", "reason": 1}}"#,
+            ended,
+        )
+        .unwrap();
+        assert_eq!(
+            stated.end,
+            StatedEnd::Rejected {
+                message: Some("bad".to_owned()),
+                refused: Some(json!({"end": "crate::trap", "reason": 1})),
+            }
+        );
+        assert_eq!(stated.word(), "rejected");
+        assert_eq!(
+            stated.value(),
+            json!({"end": "rejected", "reason": null, "message": "bad",
+                   "refused": {"end": "crate::trap", "reason": 1}})
+        );
+        assert_eq!(
+            read_answer_3(br#"{"end": "rejected"}"#, ended).unwrap().end,
+            StatedEnd::Rejected {
+                message: None,
+                refused: None
+            }
+        );
+        for (bytes, expected) in [
+            (
+                &br#"{"end": "rejected", "cells": {}}"#[..],
+                "a `rejected` answer states no `cells`",
+            ),
+            (
+                br#"{"end": "final", "cells": {}, "message": "x"}"#,
+                "a `final` answer states no `message`",
+            ),
+            (
+                br#"{"end": "rejected", "refused": {"reason": 1}}"#,
+                "`refused` names its `end`",
+            ),
+            (
+                br#"{"end": "rejected", "refused": {"end": "e", "why": 1}}"#,
+                "`refused` has the key `why`",
+            ),
+            (
+                br#"{"end": "rejected", "message": 3}"#,
+                "`message` is not a string",
+            ),
+        ] {
+            let error = read_answer_3(bytes, ended).unwrap_err();
+            assert!(error.starts_with(expected), "{error}");
+        }
+        let error = read_answer_2(br#"{"end": "rejected"}"#, ended).unwrap_err();
+        assert!(error.starts_with("`end` is `rejected`, not"), "{error}");
+        let error =
+            read_answer_2(br#"{"end": "final", "cells": {}, "message": "x"}"#, ended).unwrap_err();
+        assert!(
+            error.starts_with("the answer has the key `message`"),
+            "{error}"
+        );
+    }
+
+    /// A view judged by acceptance: equal where both sides accept, or both reject and agree on
+    /// the parts of the refusal both state; different otherwise, naming both sides; a crash
+    /// differs where the definition states its acceptance, and has no verdict where it does not.
+    #[test]
+    fn a_view_judged_by_acceptance_compares_accept_and_reject() {
+        let implementation = second("{ name = \"accepts\", kind = \"accepts\", required = true }");
+        let view = &implementation.views[0];
+        let ended = stated(StatedEnd::Ended(EndWord::Final), true, false);
+        let rejected = |refused: Option<Value>| Stated {
+            end: StatedEnd::Rejected {
+                message: Some("why".to_owned()),
+                refused,
+            },
+            cells: None,
+            observations: None,
+        };
+        let verdict = |row: &Value| {
+            (
+                row["verdict"].as_str().unwrap().to_owned(),
+                row["difference"].clone(),
+            )
+        };
+        let accepts = |definition: &str, implementation: &str| {
+            json!({"format": ACCEPTS_DIFFERENCE_FORMAT, "definition": definition,
+                   "implementation": implementation})
+        };
+        let row = acceptance_row(view, &Acceptance::Accepted, &ended, None);
+        assert_eq!(verdict(&row), ("equal".to_owned(), Value::Null));
+        assert!(row["distance"].is_null());
+        let row = acceptance_row(view, &Acceptance::Accepted, &rejected(None), None);
+        assert_eq!(
+            verdict(&row),
+            ("different".to_owned(), accepts("accepts", "rejects"))
+        );
+        let row = acceptance_row(view, &Acceptance::Rejected, &ended, None);
+        assert_eq!(
+            verdict(&row),
+            ("different".to_owned(), accepts("rejects", "accepts"))
+        );
+        let horizon = stated(StatedEnd::Horizon, false, true);
+        let row = acceptance_row(view, &Acceptance::Accepted, &horizon, None);
+        assert_eq!(
+            verdict(&row),
+            ("different".to_owned(), accepts("accepts", "horizon"))
+        );
+        let row = acceptance_row(view, &Acceptance::Rejected, &rejected(None), None);
+        assert_eq!(verdict(&row), ("equal".to_owned(), Value::Null));
+        // A refusal both state: recorded where it agrees.
+        let named = json!({"end": "crate::trap", "reason": 1});
+        let agree = (named.clone(), RefusalJudged::Agree);
+        let row = acceptance_row(
+            view,
+            &Acceptance::Rejected,
+            &rejected(Some(named.clone())),
+            Some(&agree),
+        );
+        assert_eq!(row["verdict"], "equal");
+        assert_eq!(row["refused"], named);
+        let differ = (
+            named.clone(),
+            RefusalJudged::Different(json!({"format": "krs-difference/3", "at": "class"})),
+        );
+        let row = acceptance_row(
+            view,
+            &Acceptance::Rejected,
+            &rejected(Some(named.clone())),
+            Some(&differ),
+        );
+        assert_eq!(row["verdict"], "different");
+        assert_eq!(row["difference"]["at"], "class");
+        assert!(row.get("refused").is_none());
+        let several = (named.clone(), RefusalJudged::SeveralEnds("some".to_owned()));
+        let row = acceptance_row(
+            view,
+            &Acceptance::Rejected,
+            &rejected(Some(named)),
+            Some(&several),
+        );
+        assert_eq!(row["reason"], "several-ends");
+        // The definition's acceptance is not known: not compared, for its reason.
+        let row = acceptance_row(
+            view,
+            &Acceptance::NotCompared(NotCompared::Undecided("u".to_owned())),
+            &ended,
+            None,
+        );
+        assert_eq!(row["reason"], "undecided");
+        // A crash.
+        assert_eq!(
+            crashed_row(view, &Acceptance::Rejected).map(|row| verdict(&row)),
+            Some(("different".to_owned(), accepts("rejects", "crashed")))
+        );
+        assert!(
+            crashed_row(
+                view,
+                &Acceptance::NotCompared(NotCompared::Undecided("u".to_owned()))
+            )
+            .is_none()
+        );
+        // Through answered_rows: an end view of a program the definition refuses at every end is
+        // judged so too, and `could-not-apply` keeps its verdict on every view.
+        let mixed = second(&format!(
+            "{END}, {{ name = \"accepts\", kind = \"accepts\" }}"
+        ));
+        let mock = Mock::judging(Vec::new());
+        let ends = BTreeSet::new();
+        let words = BTreeSet::from(["final"]);
+        let side = AcceptanceSide {
+            definition: &Acceptance::Rejected,
+            refused_everywhere: true,
+            refusal: None,
+        };
+        let rows = answered_rows(
+            &mock,
+            &mixed,
+            &rejected(None),
+            Some((&ends, &words)),
+            &[],
+            None,
+            Some(&side),
+        )
+        .unwrap();
+        assert!(
+            rows.iter().all(|row| row["verdict"] == "equal"),
+            "{rows:#?}"
+        );
+        let rows = answered_rows(
+            &mock,
+            &mixed,
+            &ended,
+            Some((&ends, &words)),
+            &[],
+            None,
+            Some(&side),
+        )
+        .unwrap();
+        assert!(
+            rows.iter()
+                .all(|row| row["difference"] == accepts("rejects", "accepts")),
+            "{rows:#?}"
+        );
+        let rows = answered_rows(
+            &mock,
+            &mixed,
+            &stated(StatedEnd::CouldNotApply("no".to_owned()), false, false),
+            Some((&ends, &words)),
+            &[],
+            None,
+            Some(&side),
+        )
+        .unwrap();
+        assert!(rows.iter().all(|row| row["verdict"] == "could-not-apply"));
+        // Its reason is reported and never recorded.
+        let document = json!({"implementations": [{"name": "fake"}],
+                              "rows": [{"implementation": "fake", "program": "p",
+                                        "request_sha256": "r", "views": rows}]});
+        assert!(
+            verdict_rows(&document)
+                .iter()
+                .all(|row| row["reason"].is_null())
+        );
+    }
+
     #[test]
     fn a_second_protocol_answer_is_read_by_what_its_request_asked() {
         let traced = Asked {
@@ -4449,6 +5192,7 @@ mod tests {
             None,
             &[],
             side(),
+            None,
         )
         .unwrap();
         assert_eq!(
@@ -4476,6 +5220,7 @@ mod tests {
             None,
             &[],
             side(),
+            None,
         )
         .unwrap();
         assert_eq!(rows[0]["reason"], "no-end");
@@ -4493,6 +5238,7 @@ mod tests {
             Some((&ends, &words)),
             &[],
             side(),
+            None,
         )
         .unwrap();
         assert_eq!(
@@ -4510,6 +5256,7 @@ mod tests {
             Some((&ends, &words)),
             &[],
             side(),
+            None,
         )
         .unwrap();
         assert_eq!(
@@ -4529,6 +5276,7 @@ mod tests {
             Some((&ends, &words)),
             &[],
             Some(TraceSide::Not(&several)),
+            None,
         )
         .unwrap();
         assert_eq!(
@@ -4553,13 +5301,15 @@ mod tests {
             None,
             &[],
             None,
+            None,
         )
         .unwrap();
         assert!(
             rows.iter()
                 .all(|row| row["verdict"] == "could-not-apply" && row["detail"] == "late")
         );
-        assert_eq!(status(&rows), EXIT_YES);
+        // Projections D6: a disagreement with a reason.
+        assert_eq!(status(&rows), EXIT_NO);
 
         // A trace view the front end did not compare fails the command.
         assert!(
@@ -4569,6 +5319,7 @@ mod tests {
                 &stated(StatedEnd::Horizon, false, true),
                 None,
                 &[],
+                None,
                 None
             )
             .is_err()
@@ -4768,6 +5519,7 @@ mod tests {
             &Stated::from(answer.clone()),
             Some((&ends, &words)),
             &[],
+            None,
             None,
         )
         .unwrap();

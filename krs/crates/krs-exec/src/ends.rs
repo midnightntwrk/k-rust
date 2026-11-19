@@ -2858,6 +2858,16 @@ impl Semantics {
         self.viewed_selection(comparison).map(|_| ())
     }
 
+    /// Whether the definition declares a `finished` end, so that a run's end can be told a
+    /// completed computation (its class `finished`) rather than one the definition refuses or
+    /// has no rule for.
+    #[must_use]
+    pub fn declares_finished_end(&self) -> bool {
+        self.ends
+            .iter()
+            .any(|end| DeclaredClass::of(end.class) == DeclaredClass::Finished)
+    }
+
     /// The leaf cells `comparison` compares, by declared path, in declaration order: the
     /// `compared` of every [`Difference`] it gives, which an equal comparison has no document to
     /// name.

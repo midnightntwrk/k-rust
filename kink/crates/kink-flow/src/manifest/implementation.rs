@@ -8,10 +8,12 @@
 //! implementation is no input of the definition's runs, so the declaration is in no digest or
 //! cache key of them.
 //!
-//! A view is an *end view*, which compares the implementation's end with the definition's, or a
+//! A view is an *end view*, which compares the implementation's end with the definition's, a
 //! *trace view* (`channels`), which compares the elements the implementation states for
-//! channels of the flow's `[observe]` with the definition's. Only an implementation of
-//! [`Protocol::V2`] is asked for a trace.
+//! channels of the flow's `[observe]` with the definition's, or an *acceptance view*
+//! (`kind = "accepts"`), which compares whether each side accepts the program. Only an
+//! implementation of [`Protocol::V2`] or [`Protocol::V3`] is asked for a trace, and only one of
+//! [`Protocol::V3`] can answer that it rejects a program.
 //!
 //! What makes a declaration no declaration of any flow (a key of the wrong shape, a view with
 //! both a trace view's key and an end view's) fails decoding, as every key of the manifest does.
@@ -63,11 +65,15 @@ pub enum Protocol {
     /// `kink-implementation/2`: `/1`, where a request may also ask for the elements of
     /// observation channels and an answer state them.
     V2,
+    /// `kink-implementation/3`: `/2`, where an answer may also say that the implementation
+    /// rejects the program (`end: "rejected"`, with its `message` and the definition's refused
+    /// end it names, `refused`).
+    V3,
 }
 
 impl Protocol {
     /// Every protocol, in order.
-    pub const ALL: [Self; 2] = [Self::V1, Self::V2];
+    pub const ALL: [Self; 3] = [Self::V1, Self::V2, Self::V3];
 
     /// The protocol's name, as `protocol` and a request spell it.
     #[must_use]
@@ -75,6 +81,7 @@ impl Protocol {
         match self {
             Self::V1 => "kink-implementation/1",
             Self::V2 => "kink-implementation/2",
+            Self::V3 => "kink-implementation/3",
         }
     }
 
@@ -90,7 +97,13 @@ impl Protocol {
     /// declare a trace view.
     #[must_use]
     pub const fn has_traces(self) -> bool {
-        matches!(self, Self::V2)
+        matches!(self, Self::V2 | Self::V3)
+    }
+
+    /// Whether an answer of the protocol can say that the implementation rejects the program.
+    #[must_use]
+    pub const fn has_rejections(self) -> bool {
+        matches!(self, Self::V3)
     }
 }
 
@@ -134,6 +147,9 @@ pub struct ViewSection {
     /// (without repeats); `None` for an end view. An empty array decodes, and is
     /// [`ImplementationSection::declaration`]'s refusal.
     pub channels: Option<Vec<String>>,
+    /// `kind = "accepts"`: an acceptance view, which compares whether each side accepts the
+    /// program (`crate::compare`), and has no other key but `name` and `required`.
+    pub accepts: bool,
     /// The front end's keys of an end view, as JSON (`compare`, an array of cell names; `views`,
     /// a function by cell; `observer`): which cells are compared, and through which functions of
     /// their values. Empty: every cell the implementation states, as values; and empty for a
@@ -186,6 +202,19 @@ impl ImplementationSection {
     /// The trace views, in the order written.
     pub fn trace_views(&self) -> impl Iterator<Item = &ViewSection> {
         self.views.iter().filter(|view| view.is_trace())
+    }
+
+    /// Whether some view compares the implementation's end's cells (an end view), so that an
+    /// answer that ends states them.
+    #[must_use]
+    pub fn has_end_view(&self) -> bool {
+        self.views.iter().any(ViewSection::is_end)
+    }
+
+    /// Whether some view is an acceptance view.
+    #[must_use]
+    pub fn has_accepts_view(&self) -> bool {
+        self.views.iter().any(|view| view.accepts)
     }
 
     /// Check what of the declaration depends on the flow it is written in, `observe` being the
@@ -269,6 +298,12 @@ impl ViewSection {
         self.channels.is_some()
     }
 
+    /// Whether the view is an end view: neither a trace view nor an acceptance view.
+    #[must_use]
+    pub const fn is_end(&self) -> bool {
+        self.channels.is_none() && !self.accepts
+    }
+
     /// The view as documents name it: its name, `required`, and an end view's front-end keys or
     /// a trace view's `channels`.
     #[must_use]
@@ -276,6 +311,9 @@ impl ViewSection {
         let mut value = self.front_end.clone();
         if let Some(channels) = &self.channels {
             value.insert("channels".into(), serde_json::json!(channels));
+        }
+        if self.accepts {
+            value.insert("kind".into(), serde_json::json!("accepts"));
         }
         value.insert("name".into(), serde_json::json!(self.name));
         value.insert("required".into(), serde_json::json!(self.required));
@@ -440,7 +478,7 @@ fn view_entry(entry: &Table, key: &str) -> Result<ViewSection, ManifestError> {
         entry,
         key,
         &[
-            "name", "required", "channels", "compare", "views", "observer",
+            "name", "required", "kind", "channels", "compare", "views", "observer",
         ],
     )?;
     let name = nonblank(entry, key, "name")?;
@@ -454,6 +492,29 @@ fn view_entry(entry: &Table, key: &str) -> Result<ViewSection, ManifestError> {
             ));
         }
     };
+    let accepts = match entry.get("kind") {
+        None => false,
+        Some(Value::String(kind)) if kind == "accepts" => true,
+        Some(_) => {
+            return Err(ManifestError::new(
+                join(key, "kind"),
+                "expected \"accepts\" (an acceptance view); an end view and a trace view have no \
+                 `kind`",
+            ));
+        }
+    };
+    if accepts
+        && let Some(other) = ["channels"]
+            .into_iter()
+            .chain(VIEW_FRONT_END_KEYS)
+            .find(|other| entry.contains_key(*other))
+    {
+        return Err(ManifestError::new(
+            join(key, other),
+            "an acceptance view (`kind = \"accepts\"`) compares whether each side accepts the \
+             program, and has `name` and `required` only",
+        ));
+    }
     let channels = if entry.contains_key("channels") {
         // The two kinds of view share no key but `name` and `required`: `compare`, `views` and
         // `observer` say how two ends are compared, and a trace view compares no end.
@@ -495,6 +556,7 @@ fn view_entry(entry: &Table, key: &str) -> Result<ViewSection, ManifestError> {
         name,
         required,
         channels,
+        accepts,
         front_end,
     })
 }
@@ -709,11 +771,11 @@ mod tests {
             ),
             (
                 x(
-                    "protocol = \"kink-implementation/3\"\n",
+                    "protocol = \"kink-implementation/4\"\n",
                     "{ name = \"end\" }",
                 ),
-                "implementation `x`: protocol: `kink-implementation/3` is no protocol: \
-                 `kink-implementation/1` or `kink-implementation/2`",
+                "implementation `x`: protocol: `kink-implementation/4` is no protocol: \
+                 `kink-implementation/1` or `kink-implementation/2` or `kink-implementation/3`",
             ),
         ] {
             let manifest = decoded(&text).unwrap();
@@ -730,5 +792,51 @@ mod tests {
             assert!(detail.starts_with(expected), "{text}\n{detail}");
             assert!(document["rows"].as_array().unwrap().is_empty());
         }
+    }
+
+    /// An acceptance view (`kind = "accepts"`) has `name` and `required` only, and is refused
+    /// before any run over a definition that declares no `finished` end (projections PJ-02).
+    #[test]
+    fn an_acceptance_view_is_declared_and_refused_without_a_finished_end() {
+        let manifest = decoded(&x(
+            "",
+            "{ name = \"a\", kind = \"accepts\", required = true }",
+        ))
+        .unwrap();
+        let view = &manifest.implementations[0].views[0];
+        assert!(view.accepts && !view.is_end() && !view.is_trace());
+        assert_eq!(
+            view.value(),
+            json!({"name": "a", "required": true, "kind": "accepts"})
+        );
+        for (views, expected) in [
+            (
+                "{ name = \"a\", kind = \"accepts\", compare = [\"n\"] }",
+                "implementation[0].views[0].compare: an acceptance view",
+            ),
+            (
+                "{ name = \"a\", kind = \"accepts\", channels = [\"ticks\"] }",
+                "implementation[0].views[0].channels: an acceptance view",
+            ),
+            (
+                "{ name = \"a\", kind = \"end\" }",
+                "implementation[0].views[0].kind: expected \"accepts\"",
+            ),
+        ] {
+            let error = decoded(&x("", views)).unwrap_err().to_string();
+            assert!(error.starts_with(expected), "{views}\n{error}");
+        }
+        let document = command(
+            &manifest,
+            &CompareOptions::default(),
+            Some(&Accepts),
+            "kink-flow compare",
+        );
+        assert_eq!(document["refusal"]["stage"], "implementation", "{document}");
+        assert_eq!(
+            document["refusal"]["reason"], "no-finished-end",
+            "{document}"
+        );
+        assert!(document["rows"].as_array().unwrap().is_empty());
     }
 }

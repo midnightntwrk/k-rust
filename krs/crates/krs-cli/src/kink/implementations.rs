@@ -36,8 +36,8 @@ use std::sync::Arc;
 
 use k_rust::kore::ast::Pattern;
 use kink_flow::{
-    Distance, ImplementationSection, Judged, NotCompared, Program, Question, TraceAnswer,
-    TraceQuestion, ViewSection, Vocabulary,
+    Distance, ImplementationSection, Judged, NotCompared, Program, Question, RefusalJudged,
+    RefusalQuestion, TraceAnswer, TraceQuestion, ViewSection, Vocabulary,
 };
 use krs_exec::{
     CellInfo, Compared, Comparison, ConfigValue, End, EndClass, EndError, Ends, Halt, Semantics,
@@ -47,7 +47,7 @@ use serde_json::{Value, json};
 
 use super::inputs::{KrsInputs, ManifestFiles};
 use super::observe::KrsObservations;
-use super::render::{Observers, read_ends, unstated};
+use super::render::{Observers, read_ends, unstated, with_declared_classes};
 use crate::DEFAULT_VIEW_BUDGET;
 
 /// The vocabulary of one emission, over the decoder's native compile and the corpus's
@@ -233,6 +233,21 @@ fn answer_end(semantics: &Semantics, cells: &Value) -> Result<End, String> {
         .map_err(|error| error.to_string())
 }
 
+/// A `rejected` answer's `refused` (`{end, reason}`) read as an end document's declared class
+/// (`class = "refused"`, its `end` and its `reason`), with no cell: the refusal the
+/// implementation names, in the definition's vocabulary. The reader refuses an `end` that is no
+/// declared refused end of the definition and a `reason` not of that end's reason type.
+fn refusal_end(semantics: &Semantics, refused: &Value) -> Result<End, String> {
+    let mut document = json!({"halt": Halt::Stuck.as_str(), "cells": {}, "class": "refused"});
+    document["end"] = refused["end"].clone();
+    if let Some(reason) = refused.get("reason") {
+        document["reason"] = reason.clone();
+    }
+    semantics
+        .read_end(&document)
+        .map_err(|error| error.to_string())
+}
+
 impl Vocabulary for KrsImplementations {
     fn check(&self, implementation: &ImplementationSection) -> Result<(), String> {
         self.inputs
@@ -255,6 +270,10 @@ impl Vocabulary for KrsImplementations {
                 Ok(())
             })?;
         for (index, view) in implementation.views.iter().enumerate() {
+            // An acceptance view compares whether each side accepts the program: no cell.
+            if view.accepts {
+                continue;
+            }
             // A trace view compares channels, never cells: it is no end view over every cell.
             if let Some(channels) = &view.channels {
                 self.observations()
@@ -368,7 +387,7 @@ impl Vocabulary for KrsImplementations {
                 let end = answer_end(semantics, cells)?;
                 // Only an end view compares cells: without one, the cells stated are read, and
                 // none is demanded.
-                if implementation.views.iter().all(ViewSection::is_trace) {
+                if !implementation.has_end_view() {
                     return Ok(());
                 }
                 let all = semantics.cells();
@@ -459,6 +478,95 @@ impl Vocabulary for KrsImplementations {
                 })
                 .collect()
         })
+    }
+
+    fn declares_finished_end(&self) -> bool {
+        self.inputs
+            .with_semantics("reading the definition's declared ends", |semantics| {
+                Ok(semantics.declares_finished_end())
+            })
+            .unwrap_or(false)
+    }
+
+    fn read_refusal(&self, refused: &Value) -> Result<Value, String> {
+        self.inputs
+            .with_semantics("reading an implementation's refusal", |semantics| {
+                let declared = refusal_end(semantics, refused)?
+                    .class
+                    .declared
+                    .unwrap_or_default();
+                Ok(json!({
+                    "end": declared.end,
+                    "reason": declared.reason.and_then(|reason| reason.document),
+                }))
+            })
+    }
+
+    /// Each definition end gets its declared class as an expectation's comparison gives it
+    /// ([`with_declared_classes`]), and is compared with the answer's refusal under a comparison
+    /// of no cell, so only the parts of the declared class both state decide
+    /// ([`krs_exec::Semantics::compare_ends`]).
+    fn judge_refusal(&self, question: &RefusalQuestion<'_>) -> Result<RefusalJudged, String> {
+        self.inputs
+            .with_semantics_mut("comparing an implementation's refusal", |semantics| {
+                let answered = Ends::one(refusal_end(semantics, question.refused)?);
+                let cells = semantics.cells();
+                let unstated = unstated(&cells, question.not_compared);
+                let left_out = !unstated.is_empty();
+                let ends = read_ends(semantics, question.ends, &stuck(), &unstated)?;
+                let class = answered.ends[0].class.clone();
+                let ends =
+                    match with_declared_classes(semantics, question.ends, ends, &class, left_out) {
+                        Ok(ends) => ends,
+                        Err(reason) => return Ok(RefusalJudged::Undecided(reason)),
+                    };
+                let comparison = Comparison {
+                    compare: Some(Vec::new()),
+                    ..Comparison::default()
+                };
+                let total = ends.len();
+                let mut agree = 0;
+                let mut first = None;
+                for end in ends {
+                    let one = Ends::one(end);
+                    let compared = semantics
+                        .compare_ends(
+                            &comparison,
+                            Side {
+                                name: "definition",
+                                ends: &one,
+                            },
+                            Side {
+                                name: "implementation",
+                                ends: &answered,
+                            },
+                        )
+                        .map_err(|error| error.to_string())?;
+                    match compared {
+                        Compared::Equal => agree += 1,
+                        Compared::Differs(difference) => {
+                            if first.is_none() {
+                                first = Some(
+                                    serde_json::to_value(&*difference)
+                                        .map_err(|error| error.to_string())?,
+                                );
+                            }
+                        }
+                        Compared::Inconclusive(reason) => {
+                            return Ok(RefusalJudged::Undecided(reason));
+                        }
+                    }
+                }
+                Ok(match first {
+                    None => RefusalJudged::Agree,
+                    Some(difference) if agree == 0 => RefusalJudged::Different(difference),
+                    Some(_) => RefusalJudged::SeveralEnds(format!(
+                        "the refusal the answer names agrees with {agree} of the definition's \
+                         {total} ends and not the others: one answer against several ends is \
+                         a question of inclusion, which compare does not decide"
+                    )),
+                })
+            })
     }
 
     fn judge_trace(&self, question: &TraceQuestion<'_>) -> Result<TraceAnswer, String> {

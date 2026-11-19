@@ -288,7 +288,8 @@ fn two_definitions_read_one_corpus_root() {
     // `compare`: the request of each case states its input from the file under the root, and
     // the implementation's command is the flow's own file.
     let compare = workspace.kink("spec", "compare", &[]);
-    assert_status(&compare, 0);
+    // The recorder applies no program, which is a disagreement on each (projections D6).
+    assert_status(&compare, 1);
     let document = json_of(&compare);
     let rows = document["rows"]
         .as_array()

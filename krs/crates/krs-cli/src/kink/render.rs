@@ -986,7 +986,7 @@ fn with_variables(pattern: &Pattern, fresh: &mut usize) -> Pattern {
 /// definition declares ends and the expectation `expected` states a part of the class; else
 /// `ends` as they are. An end whose class is not decided, or of both classes, leaves the
 /// expectation's class undecided: its reason.
-fn with_declared_classes(
+pub(super) fn with_declared_classes(
     semantics: &mut Semantics,
     configurations: &BTreeSet<Pattern>,
     mut ends: Vec<End>,

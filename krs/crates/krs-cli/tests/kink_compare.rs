@@ -459,16 +459,13 @@ fn each_implementation_is_compared_under_each_view() {
     // Only a required view decides the status.
     let answered = package.compare(
         "kink",
-        &only(&[
-            "equal",
-            "reported",
-            "could-not-apply",
-            "omitted-view",
-            "start",
-        ]),
+        &only(&["equal", "reported", "omitted-view", "start"]),
     );
     assert_status(&answered, 0);
     assert_status(&package.compare("kink", &only(&["different"])), 1);
+    // An implementation that does not apply a program disagrees on it, with its reason
+    // (projections D6).
+    assert_status(&package.compare("kink", &only(&["could-not-apply"])), 1);
     assert_status(&package.compare("kink", &only(&["slow"])), 3);
 
     // One line per verdict.
@@ -556,8 +553,10 @@ fn an_end_view_reports_how_far_apart_the_ends_are() {
         counts
             .iter()
             .find(|count| count["implementation"] == implementation && count["view"] == view)
-            .map(|count| (count["compared"].clone(), count["agreeing"].clone()))
-            .unwrap_or_else(|| panic!("no count of {implementation} {view}: {document:#}"))
+            .map_or_else(
+                || panic!("no count of {implementation} {view}: {document:#}"),
+                |count| (count["compared"].clone(), count["agreeing"].clone()),
+            )
     };
     assert_eq!(count("equal", "whole"), (json!(2), json!(2)));
     assert_eq!(count("different", "whole"), (json!(2), json!(0)));

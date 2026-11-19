@@ -350,8 +350,10 @@ pub const COMPARE_LEGEND: &[&str] = &[
     "close every channel after the same elements), agree-up-to (a trace view: no difference up",
     "to `horizon`, which names per channel the elements that agree and the side that states no",
     "more), different (`difference`, the first difference), could-not-apply (it declined the",
-    "program; `reason`, its own words) or not-compared (`reason` says why). A trace view is a",
-    "test at equal indices: that the implementation's element k is its state at the definition's",
+    "program, a disagreement whose reason is reported, never recorded) or not-compared (`reason`",
+    "says why). An acceptance view compares whether each side accepts the program (`refused`,",
+    "the parts of a rejection both sides stated). A trace view is a test at equal indices:",
+    "that the implementation's element k is its state at the definition's",
     "point k is the implementation's claim. `request_sha256` names the request it was given, and",
     "`identity_sha256` its build (its `identity` file); a run that gave no answer keeps its rows.",
 ];
@@ -361,13 +363,6 @@ pub const VIEW_COUNTS_LEGEND: &[&str] = &[
     "Each [[compare.view]] counts one view of one implementation over the programs above:",
     "`compared`, those whose verdict is not not-compared, and `agreeing`, those of them that are",
     "equal (or agree-up-to with every horizon the definition's).",
-];
-
-/// The comment after [`COMPARE_LEGEND`] in a section with a `definition-refused` verdict, which only
-/// a definition that declares ends gives, so that a section without one keeps its bytes.
-pub const DEFINITION_REFUSED_LEGEND: &[&str] = &[
-    "definition-refused: the definition ends the program at a declared refused end, so it states",
-    "no end to compare the answer with; `reason` names the end and its reason.",
 ];
 
 /// The comment before a run section's first `[[run.mutation]]`: what a row is and what each status
@@ -937,12 +932,6 @@ fn compare(text: &mut String, document: &Value) {
     if !rows.is_empty() {
         text.push('\n');
         comment(text, COMPARE_LEGEND);
-        if rows
-            .iter()
-            .any(|row| row["verdict"] == crate::compare::DEFINITION_REFUSED)
-        {
-            comment(text, DEFINITION_REFUSED_LEGEND);
-        }
     }
     for (index, row) in rows.iter().enumerate() {
         text.push_str(if index == 0 {
@@ -962,7 +951,7 @@ fn compare(text: &mut String, document: &Value) {
         if let Some(reason) = row["reason"].as_str() {
             line(text, "reason", &string(reason));
         }
-        for key in ["difference", "horizon"] {
+        for key in ["difference", "horizon", "refused"] {
             if let Some(value) = row[key].as_str() {
                 line(text, key, &literal(value));
             }

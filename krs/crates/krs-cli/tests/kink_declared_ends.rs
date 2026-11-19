@@ -1,8 +1,9 @@
 //! `krs kink` on a definition that declares ends (`#[k::end(finished)]`, `#[k::end(refused)]`):
 //! each end of a baseline run where no rule applies has its declared class, a case's expectation
-//! may state it, an end in no declared class is a finding of `coverage`, `compare` gives the
-//! verdict `definition-refused` on a program the definition refuses, and the functions of the
-//! ends are no obligation of `coverage`'s families. Also the record (`kink.lock`): it states the
+//! may state it, an end in no declared class is a finding of `coverage`, `compare` judges a
+//! program the definition refuses at every end by acceptance, an acceptance view compares whether
+//! each side accepts each program (and the refusal a `rejected` answer names), and the functions
+//! of the ends are no obligation of `coverage`'s families. Also the record (`kink.lock`): it states the
 //! definition's assumed totalities in each section it writes, and a change of them makes the
 //! section stale.
 //!
@@ -110,12 +111,48 @@ pub fn Same(x: Term<Int>) -> Term<Int> {
 }
 "#;
 
-/// An implementation that ends every program on its own with the input `n` in `n`.
+/// The implementations, one script whose argument says how it answers: `final` ends every
+/// program on its own with the input `n` in `n`; `rejects` does so for `n <= 0`, rejects `n = 1`
+/// naming the definition's refusal (`crate::trapped`, reason 1) with a message, and rejects
+/// `n >= 2` with a message alone; `wrong-reason` names the reason 2 for `n = 1`; `misnamed` names
+/// the finished end `crate::halted` as its refusal for `n = 1`; `crash` exits 3.
 const FAKE: &str = r#"#!/bin/sh
+mode=${1:-final}
 request=$(cat)
 n=$(printf '%s' "$request" | sed -n 's/.*"inputs":{"n":\(-\{0,1\}[0-9]*\)}.*/\1/p')
-printf '{"end":"final","cells":{"n":%s}}\n' "$n"
+if [ "$mode" = crash ]; then echo "fake: crashed" >&2; exit 3; fi
+if [ "$mode" = final ] || [ "$n" -le 0 ]; then
+  printf '{"end":"final","cells":{"n":%s}}\n' "$n"; exit 0
+fi
+case "$mode:$n" in
+  rejects:1) printf '{"end":"rejected","message":"trap at %s","refused":{"end":"crate::trapped","reason":1}}\n' "$n";;
+  wrong-reason:1) printf '{"end":"rejected","refused":{"end":"crate::trapped","reason":2}}\n';;
+  misnamed:1) printf '{"end":"rejected","refused":{"end":"crate::halted"}}\n';;
+  *) printf '{"end":"rejected","message":"no rule for %s"}\n' "$n";;
+esac
 "#;
+
+/// The corpus's implementations ([`FAKE`]): `fake`, of the first protocol, compared on its end
+/// (required); `accepting`, of the first protocol, on acceptance alone; `rejecting`, of the
+/// third, on acceptance (required) and on its end (reported); `wrong-reason`, `misnamed` and
+/// `crash`, of the third, on acceptance alone.
+const IMPLEMENTATIONS: &str = "[[implementation]]\nname = \"fake\"\ncommand = [\"sh\", \"fake.sh\"]\n\
+     given = \"inputs\"\nomits = [\"k\"]\nviews = [{ name = \"whole\", required = true }]\n\n\
+     [[implementation]]\nname = \"accepting\"\ncommand = [\"sh\", \"fake.sh\", \"final\"]\n\
+     given = \"inputs\"\nomits = [\"k\"]\nviews = [{ name = \"accepts\", kind = \"accepts\", \
+     required = true }]\n\n\
+     [[implementation]]\nname = \"rejecting\"\nprotocol = \"kink-implementation/3\"\n\
+     command = [\"sh\", \"fake.sh\", \"rejects\"]\ngiven = \"inputs\"\nomits = [\"k\"]\n\
+     views = [{ name = \"accepts\", kind = \"accepts\", required = true }, { name = \"whole\" }]\n\n\
+     [[implementation]]\nname = \"wrong-reason\"\nprotocol = \"kink-implementation/3\"\n\
+     command = [\"sh\", \"fake.sh\", \"wrong-reason\"]\ngiven = \"inputs\"\nomits = [\"k\"]\n\
+     views = [{ name = \"accepts\", kind = \"accepts\", required = true }]\n\n\
+     [[implementation]]\nname = \"misnamed\"\nprotocol = \"kink-implementation/3\"\n\
+     command = [\"sh\", \"fake.sh\", \"misnamed\"]\ngiven = \"inputs\"\nomits = [\"k\"]\n\
+     views = [{ name = \"accepts\", kind = \"accepts\", required = true }]\n\n\
+     [[implementation]]\nname = \"crash\"\nprotocol = \"kink-implementation/3\"\n\
+     command = [\"sh\", \"fake.sh\", \"crash\"]\ngiven = \"inputs\"\nomits = [\"k\"]\n\
+     views = [{ name = \"accepts\", kind = \"accepts\", required = true }]\n";
 
 /// The package with its corpus, and the fixture target `krs` builds in.
 struct Package {
@@ -147,9 +184,7 @@ impl Package {
             "kink/FLOW.toml",
             &format!(
                 "[spec]\nkrs = {{ package = \"{PACKAGE}\", definition = \"main\" }}\n\n[budget]\ntime_ms = 600000\n\n\
-                 [[program]]\ncases = \"cases/*.toml\"\n\n[[implementation]]\nname = \"fake\"\n\
-                 command = [\"sh\", \"fake.sh\"]\ngiven = \"inputs\"\nomits = [\"k\"]\n\
-                 views = [{{ name = \"whole\", required = true }}]\n"
+                 [[program]]\ncases = \"cases/*.toml\"\n\n{IMPLEMENTATIONS}"
             ),
         );
         package.write("kink/fake.sh", FAKE);
@@ -244,8 +279,7 @@ const CASES: &[(&str, &str)] = &[
 /// expectation that states a class is met by the baseline's ends where they are of that class
 /// (and unmet where not), an end in no declared class is a finding unless the case expects it,
 /// and the functions of the ends are no obligation, so no flip is derived from them. `compare`
-/// gives a program the definition refuses the verdict `definition-refused`, whatever the
-/// implementation answered, with its reason, and exits 0 for it.
+/// judges each program by acceptance where asked ([`assert_acceptance`]).
 #[test]
 fn declared_classes_are_read_stated_and_compared() {
     let package = Package::new(None, CASES);
@@ -321,30 +355,160 @@ fn declared_classes_are_read_stated_and_compared() {
         "{flips:#}"
     );
 
+    assert_acceptance(&package);
+}
+
+/// `compare` on the declared ends' corpus (projections PJ-02):
+///
+/// - an end view of a program the definition refuses at every end (`trap`) is judged by
+///   acceptance: an implementation that ends it differs, one that rejects it is equal;
+/// - an acceptance view: the definition accepts `halt` and `wrong` (a declared finished end) and
+///   rejects `trap` (refused) and `rest` and `gap` (no declared end holds: a gap); an answer that
+///   ends accepts, one that is `rejected` rejects;
+/// - a rejection that names the definition's refusal is compared with it on the parts both
+///   state, and recorded where it agrees; its message never is;
+/// - a refusal that names no declared refused end makes the answer malformed;
+/// - a crash is `different` on the acceptance view and keeps its failure (status 1, decided).
+fn assert_acceptance(package: &Package) {
     let output = package.kink("compare", &[]);
     let document = json_of(&output);
-    assert_status(&output, 0);
-    let row = |id: &str| {
+    // `misnamed`'s malformed answer fails a required view.
+    assert_status(&output, 2);
+    assert_eq!(document["version"], 6, "{document:#}");
+    let row = |implementation: &str, case: &str| {
         document["rows"]
             .as_array()
             .unwrap_or_else(|| panic!("{document:#}"))
             .iter()
-            .find(|row| row["program"] == id)
-            .unwrap_or_else(|| panic!("no row of {id}: {document:#}"))
+            .find(|row| {
+                row["implementation"] == implementation
+                    && row["program"] == format!("cases/{case}.toml").as_str()
+            })
+            .unwrap_or_else(|| panic!("no row of {implementation} {case}: {document:#}"))
             .clone()
     };
-    let trap = row("cases/trap.toml");
-    let view = &trap["views"][0];
-    assert_eq!(view["verdict"], "definition-refused", "{trap:#}");
+    let view = |implementation: &str, case: &str, view: &str| {
+        row(implementation, case)["views"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["view"] == view)
+            .unwrap_or_else(|| panic!("no view {view}: {:#}", row(implementation, case)))
+            .clone()
+    };
+    let accepts = |definition: &str, implementation: &str| {
+        serde_json::json!({"format": "kink-accepts/1", "definition": definition,
+                           "implementation": implementation})
+    };
+
+    // The end view of a program the definition refuses at every end: no longer a pass.
+    let trap = view("fake", "trap", "whole");
+    assert_eq!(trap["verdict"], "different", "{trap:#}");
     assert_eq!(
-        view["detail"],
-        "the definition refuses the program, at its declared end `crate::trapped`: `1`",
+        trap["difference"],
+        accepts("rejects", "accepts"),
         "{trap:#}"
     );
-    assert_eq!(row("cases/halt.toml")["views"][0]["verdict"], "equal");
+    assert!(trap["distance"].is_null(), "{trap:#}");
+    for case in ["halt", "rest", "gap", "wrong"] {
+        assert_eq!(view("fake", case, "whole")["verdict"], "equal", "{case}");
+    }
+
+    for (case, verdict) in [
+        ("halt", "equal"),
+        ("trap", "different"),
+        ("rest", "different"),
+        ("gap", "different"),
+        ("wrong", "equal"),
+    ] {
+        let entry = view("accepting", case, "accepts");
+        assert_eq!(entry["verdict"], verdict, "{case}: {entry:#}");
+        if verdict == "different" {
+            assert_eq!(
+                entry["difference"],
+                accepts("rejects", "accepts"),
+                "{entry:#}"
+            );
+        }
+    }
+
+    for case in ["halt", "trap", "rest", "gap", "wrong"] {
+        let entry = view("rejecting", case, "accepts");
+        assert_eq!(entry["verdict"], "equal", "{case}: {entry:#}");
+    }
+    let rejected = row("rejecting", "trap");
+    assert_eq!(rejected["answer"]["end"], "rejected", "{rejected:#}");
+    assert_eq!(rejected["answer"]["message"], "trap at 1", "{rejected:#}");
     assert_eq!(
-        document["summary"]["verdicts"]["definition-refused"], 1,
-        "{document:#}"
+        view("rejecting", "trap", "accepts")["refused"],
+        serde_json::json!({"end": "crate::trapped", "reason": 1})
+    );
+    // Its end view: the trap is judged by acceptance, the gap compares words.
+    assert_eq!(view("rejecting", "trap", "whole")["verdict"], "equal");
+    let gap = view("rejecting", "gap", "whole");
+    assert_eq!(gap["difference"]["format"], "kink-end/1", "{gap:#}");
+    assert_eq!(gap["difference"]["implementation"], "rejected", "{gap:#}");
+
+    let wrong = view("wrong-reason", "trap", "accepts");
+    assert_eq!(wrong["verdict"], "different", "{wrong:#}");
+    assert_eq!(wrong["difference"]["at"], "class", "{wrong:#}");
+    assert!(wrong.get("refused").is_none_or(Value::is_null), "{wrong:#}");
+
+    let misnamed = row("misnamed", "trap");
+    assert_eq!(misnamed["failure"]["kind"], "malformed", "{misnamed:#}");
+    assert!(
+        misnamed["failure"]["detail"]
+            .as_str()
+            .unwrap()
+            .contains("`refused`"),
+        "{misnamed:#}"
+    );
+
+    let crash = row("crash", "trap");
+    assert_eq!(crash["failure"]["kind"], "exit", "{crash:#}");
+    assert_eq!(crash["failure"]["decided"], true, "{crash:#}");
+    assert_eq!(
+        crash["views"][0]["difference"],
+        accepts("rejects", "crashed"),
+        "{crash:#}"
+    );
+
+    assert_acceptance_record(package);
+}
+
+/// Each implementation's exit status alone, and the record of [`assert_acceptance`]'s run: the
+/// agreed refusal is recorded, no message, and a crash's acceptance rows.
+fn assert_acceptance_record(package: &Package) {
+    for (implementation, status) in [
+        ("rejecting", 0),
+        ("accepting", 1),
+        ("wrong-reason", 1),
+        ("crash", 1),
+        ("misnamed", 2),
+    ] {
+        let output = package.kink("compare", &["--only", implementation]);
+        assert_status(&output, status);
+    }
+
+    let record = package.read("kink/kink.lock");
+    assert!(
+        record.contains(
+            "implementation = \"rejecting\"\nprogram = \"cases/trap.toml\"\nview = \
+             \"accepts\"\nrequired = true\nverdict = \"equal\"\n\
+             refused = '{\"end\":\"crate::trapped\",\"reason\":1}'\n"
+        ),
+        "{record}"
+    );
+    assert!(
+        !record.contains("trap at 1") && !record.contains("no rule for"),
+        "{record}"
+    );
+    assert!(
+        record.contains(
+            "implementation = \"crash\"\nprogram = \"cases/trap.toml\"\nview = \"accepts\"\n\
+             required = true\nverdict = \"different\"\n"
+        ),
+        "{record}"
     );
 }
 

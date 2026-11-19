@@ -235,6 +235,9 @@ impl LockKind {
                 if let Some(horizon) = row["horizon"].as_str() {
                     now["horizon"] = json!(horizon);
                 }
+                if let Some(refused) = row["refused"].as_str() {
+                    now["refused"] = json!(refused);
+                }
                 now
             }
             Self::Query => json!({"status": row["status"], "witness": row["witness"]}),
@@ -374,6 +377,9 @@ pub struct LockRow {
     /// A compare row's horizon (an `agree-up-to` verdict's), as the section writes it; read only
     /// to report what changed. None in every other row.
     pub horizon: Option<String>,
+    /// A compare row's refusal, the parts of a rejection both sides stated and agree on, as the
+    /// section writes it; read only to report what changed. None in every other row.
+    pub refused: Option<String>,
 }
 
 impl LockRow {
@@ -389,6 +395,9 @@ impl LockRow {
                        "difference": self.difference});
                 if let Some(horizon) = &self.horizon {
                     recorded["horizon"] = json!(horizon);
+                }
+                if let Some(refused) = &self.refused {
+                    recorded["refused"] = json!(refused);
                 }
                 recorded
             }
@@ -619,6 +628,7 @@ impl Lock {
                 reason: string("reason"),
                 difference: string("difference"),
                 horizon: string("horizon").filter(|_| kind == LockKind::Compare),
+                refused: string("refused").filter(|_| kind == LockKind::Compare),
             });
         }
         // A coverage section's open and argued obligations: each family table's `open` and
@@ -1722,10 +1732,12 @@ fn compare_change(recorded: &Value, now: &Value) -> String {
         }
         _ => {
             let side = |value: &Value| value.as_str().unwrap_or("none").to_owned();
-            let (what, key) = if recorded["difference"] == now["difference"] {
+            let (what, key) = if recorded["difference"] != now["difference"] {
+                ("first difference", "difference")
+            } else if recorded["horizon"] != now["horizon"] {
                 ("horizon", "horizon")
             } else {
-                ("first difference", "difference")
+                ("refusal", "refused")
             };
             format!(
                 "{}: its {what} moved: recorded {}, now {}",
@@ -2357,6 +2369,123 @@ identity_sha256 = "aa"
         let (value, _) = lock.settle(&store, &failed, LOCKED);
         assert_eq!(value["status"], "undecided", "{value:#}");
         assert_eq!(value["changes"], json!([]), "{value:#}");
+    }
+
+    /// A recorded row whose verdict stayed and whose agreed refusal moved names the refusal.
+    #[test]
+    fn a_moved_refusal_is_named() {
+        let row = |refused: &str| json!({"verdict": "equal", "reason": null, "difference": null, "refused": refused});
+        assert_eq!(
+            compare_change(&row("{\"end\":\"a\"}"), &row("{\"end\":\"b\"}")),
+            "equal: its refusal moved: recorded {\"end\":\"a\"}, now {\"end\":\"b\"}"
+        );
+    }
+
+    /// A crash on a program whose acceptance the definition states decides its acceptance views
+    /// (projections D1): their rows are written and compared under `--locked` as any verdict,
+    /// while the implementation's other views keep their recorded rows, and the pair is
+    /// `failed` only where such a view exists.
+    #[test]
+    fn a_crash_decides_its_acceptance_rows_and_keeps_the_others() {
+        let dir = scratch("compare-crash-accepts");
+        let path = dir.join(LOCK_FILE);
+        let store = Store::new(&dir);
+        let document = |rows: Vec<Value>, views: &[&str]| {
+            let mut document = compare_document(rows);
+            document["implementations"][0]["views"] = json!(
+                views
+                    .iter()
+                    .map(|name| json!({"name": name}))
+                    .collect::<Vec<_>>()
+            );
+            document
+        };
+        let both = |program: &str| {
+            compare_row(
+                program,
+                vec![
+                    view("whole", true, "equal", json!({})),
+                    view("accepts", true, "equal", json!({})),
+                ],
+                Value::Null,
+                Value::Null,
+            )
+        };
+        let crashed_accepts = view(
+            "accepts",
+            true,
+            "different",
+            json!({"difference": {"format": "kink-accepts/1", "definition": "accepts",
+                                  "implementation": "crashed"}}),
+        );
+        let read = || Lock::read_kind(&path, LockKind::Compare).unwrap();
+        let _ = read().settle(
+            &store,
+            &document(vec![both("p1"), both("p2")], &["whole", "accepts"]),
+            WRITE,
+        );
+        let crash = document(
+            vec![
+                both("p1"),
+                compare_row(
+                    "p2",
+                    vec![crashed_accepts.clone()],
+                    json!({"kind": "exit", "detail": "status 3", "decided": false}),
+                    Value::Null,
+                ),
+            ],
+            &["whole", "accepts"],
+        );
+        let (value, _) = read().settle(&store, &crash, LOCKED);
+        assert_eq!(value["status"], "stale", "{value:#}");
+        assert_eq!(
+            value["failed"],
+            json!([{"implementation": "cpu", "program": "p2", "failure": "exit"}]),
+            "{value:#}"
+        );
+        let (value, _) = read().settle(&store, &crash, WRITE);
+        assert_eq!(value["status"], "written", "{value:#}");
+        let written = fs::read_to_string(&path).unwrap();
+        // The whole view keeps its recorded verdict; the acceptance view is the crash's.
+        assert!(
+            written.contains(
+                "program = \"p2\"\nview = \"whole\"\nrequired = true\nverdict = \"equal\"\n"
+            ) && written.contains(
+                "program = \"p2\"\nview = \"accepts\"\nrequired = true\nverdict = \
+                 \"different\"\n"
+            ),
+            "{written}"
+        );
+        // An implementation compared on acceptance alone: the crash decides every view.
+        let _ = fs::remove_file(&path);
+        let only = |program: &str, accepts: Value, failure: Value| {
+            compare_row(program, vec![accepts], failure, Value::Null)
+        };
+        let _ = read().settle(
+            &store,
+            &document(
+                vec![
+                    only("p1", view("accepts", true, "equal", json!({})), Value::Null),
+                    only("p2", view("accepts", true, "equal", json!({})), Value::Null),
+                ],
+                &["accepts"],
+            ),
+            WRITE,
+        );
+        let crash = document(
+            vec![
+                only("p1", view("accepts", true, "equal", json!({})), Value::Null),
+                only(
+                    "p2",
+                    crashed_accepts,
+                    json!({"kind": "exit", "detail": "status 3", "decided": true}),
+                ),
+            ],
+            &["accepts"],
+        );
+        let (value, _) = read().settle(&store, &crash, LOCKED);
+        assert_eq!(value["status"], "stale", "{value:#}");
+        assert_eq!(value["failed"], json!([]), "{value:#}");
     }
 
     /// A row of a run that gave no answer (the implementation failed, the clock cancelled it, or

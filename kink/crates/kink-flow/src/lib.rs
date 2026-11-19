@@ -91,9 +91,9 @@ pub use cli::{
     dispatch, on_stack,
 };
 pub use compare::{
-    Answer, AskedChannel, ChannelAgreed, CompareOptions, Distance, EndWord, Judged, NotCompared,
-    Question, Stated, StatedEnd, TraceAnswer, TraceDifference, TraceJudged, TraceQuestion,
-    TraceReach, Vocabulary,
+    Acceptance, Answer, AskedChannel, ChannelAgreed, CompareOptions, Distance, EndWord, Judged,
+    NotCompared, Question, RefusalJudged, RefusalQuestion, Stated, StatedEnd, TraceAnswer,
+    TraceDifference, TraceJudged, TraceQuestion, TraceReach, Vocabulary,
 };
 pub use evidence::{DeclaredEnd, EndRenderer, Renderer};
 pub use expect::{CheckedExpectation, ExpectationCheck, ExpectationVerdict};
