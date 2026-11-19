@@ -70,8 +70,9 @@ The evidence forms (DONE-0 C2's table), by status and list, and the items each n
       tie          `tie` lists the C14 tie modules: files test/X.lean that test/integration.sh
                    builds (not in its skip list)
       theorems     the theorems the entry names, `tie_theorems` (full names, each declared in a
-                   file of `tie`) and the `theorem` of each `derived` table (declared in its
-                   `file`): at least one, each declared
+                   file of `tie`) and the `theorem` and `consistent` (form (r), kind "sentence
+                   against the reading") of each `derived` table (declared in its `file`): at
+                   least one, each declared
       removed      on an entry with `removed` (the sentences an option removes from a reference
                    text; any status): the fixture's `differs_from` names the reference, and of the
                    texts f2-examples/REFERENCE.kompile.kore and f2-examples/FIXTURE.kompile.kore,
@@ -708,8 +709,8 @@ def evidence(fx, l, key, e, row):
             item(not why, "tie " + ", ".join(ts), "tie (" + "; ".join(why) + ")")
             ok = not why
         thms = [(n, ts) for n in (e.get("tie_theorems") or [])]
-        thms += [(d.get("theorem"), [d.get("file")]) for d in (e.get("derived") or [])
-                 if isinstance(d, dict) and d.get("theorem")]
+        thms += [(d.get(k), [d.get("file")]) for d in (e.get("derived") or []) for k in ("theorem", "consistent")
+                 if isinstance(d, dict) and d.get(k)]
         if not thms:
             miss.append("theorems")
         else:
@@ -1650,6 +1651,10 @@ def self_test():
             ("E2", "A", {"status": "supported", "fixture": "ok", "sentence": ["axiom{} g"], "tie": [tie],
                          "derived": [thm]}, False),
             ("E2", "A", {"status": "supported", "fixture": "ok", "tie": ["test/PrintNames.lean"], "derived": [thm]}, False),
+            ("E2", "A", {"status": "supported", "fixture": "ok", "tie": [tie], "derived": [dict(thm, form="r",
+                         kind="sentence against the reading", consistent="KCore.C3EqReqEns.f_5")]}, True),
+            ("E2", "A", {"status": "supported", "fixture": "ok", "tie": [tie], "derived": [dict(thm, form="r",
+                         kind="sentence against the reading", consistent="KCore.C3EqReqEns.no_such_theorem")]}, False),
             ("E2", "A", {"status": "refused", "fixture": "bad", "reasons": ["RefusalReason.setVariable"],
                          "reason": "r"}, True),
             ("E2", "A", {"status": "refused", "fixture": "bad", "reasons": ["RefusalReason.ruleShape"],

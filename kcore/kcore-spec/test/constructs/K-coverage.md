@@ -113,7 +113,7 @@ None: every row has one of the five statuses.
 
 ## Entries whose text has no model, form (r) (4)
 
-A `derived` table of form (r): a kernel-checked theorem that the premise set form (a) would use has no model, from the sentences named (by index) and the families named beside them; `owed_refuted` the theorem refuting the fact the package names as owed. The entry's status is the reading's, and its list prints "(no model)" beside it.
+A `derived` table of form (r): a kernel-checked theorem that the premise set form (a) would use has no model, from the sentences named (by index) and the families named beside them; `owed_refuted` the theorem refuting the fact the package names as owed. The entry's status is the reading's, and its list prints "(no model)" beside it. Of kind "sentence against the reading": the reading has a model (`consistent`), and no model of it satisfies the first sentence named as written; the sentence-level statement stays owed (`owed_statement`); its list prints "(no model; the reading has one)".
 
 | list | row | entry | status | fixture | sentences | families | kind | theorem | owed refuted |
 |---|---|---|---|---|---|---|---|---|---|
