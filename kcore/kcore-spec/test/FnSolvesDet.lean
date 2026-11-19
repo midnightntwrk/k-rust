@@ -11,8 +11,9 @@
     no model. So `fnDet_of_fnSolves` cannot lose `clausesPreTop`, and `consistent_of` cannot lose
     `FnDet` (`consistent_needs_fnDet`).
   - Whether `fnDet_of_fnSolves` can lose `FnsNoExs` is open: `coreOK` admits a clause with
-    existential variables that its right-side predicate fixes, and `Eval.clauseEx` and
-    `Eval.exNone` read that predicate by `Holds`, which has `ceil` and `not`.
+    existential variables, each of a confined sort or fixed by the clause's right-side predicate,
+    and `Eval.clauseEx` and `Eval.exNone` read that predicate by `Holds`, which has `ceil` and
+    `not`.
   Run from the package root: `lake env lean -j1 test/FnSolvesDet.lean`.
 
   Why the proof below stops at a predicate. It shows, by induction over one derivation, that every
