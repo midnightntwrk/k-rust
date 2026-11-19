@@ -1068,4 +1068,99 @@ end
 
 end Steps
 
+/-! ## The rule walk -/
+
+section Walk
+open _root_.KK
+variable {d : Semantics} {E : D}
+
+/-- **The rule walk.** kore.k's `succs` at a configuration `x` of the top cell sort has the result
+`stuck`, and no rule applies at `x`; or it has the result `next` of the list `us` without `bot`,
+where `us` is not empty and is the list of the results of the rules of a priority `P` at `x`
+(`FiredAt_krw`), and no rule below `P` applies. -/
+theorem rule_walk (hr : CExec.execReady d = true) (hE : encDef d = some E) {x : GroundTerm}
+    (hx : (d₀ d).sortOf x = some topCellSort) {res : Option GroundTerm}
+    (h : Eval (K₀ sig) sig.succs [embD E, emb (enc x)] res) :
+    (res = some (embSt .stuck) ∧ ∀ r ∈ d.rules, NotApplies (d₀ d) r x) ∨
+    ∃ (P : Int) (us : List T), res = some (embSt (.next (dropF .bot us))) ∧ us ≠ [] ∧
+      RuleBelow_krw d x (some P) ∧ FiredAt_krw d x d.rules P us := by
+  have hR := succs_inv_krw (R := Eval c₀) (fun _ _ _ h => h) (Eval.byClause_iff.mp h)
+  rw [encDef_rules_krw hE] at hR
+  exact RSpec_stepAt_krw.mp (rspec_of_steps_krw hr hE hR) x _ rfl hx (ruleBelow_first_krw x)
+
+end Walk
+
+/-! ## Instances -/
+
+section Instances
+open KCore.Det _root_.KK _root_.KK.Kit _root_.KK.Facts Terms
+
+/-- **`stepAt` at `noP` is `stuck`**, at any definition, rules and term (`step-none`). -/
+theorem stepAt_noP_eval_krw (E : D) (rs : List Rl) (t : T) :
+    Eval c₀ 506 [embD E, embRls rs, emb t, embPrio none] (some (embSt .stuck)) :=
+  clause_kht WalkR.stepAtDef_lookup_krw (List.mem_cons_of_mem _ (List.mem_cons_self ..))
+    (ws_enum (vars := [45, 42, 33]) (.cons (embD_sorted_c₀ E) (.cons (embRls_sorted_c₀ rs)
+      (.cons (emb_sorted_c₀ t) .nil))))
+    (.cons (.var rfl) (.cons (.var rfl) (.cons (.var rfl) (.cons (.ctor ctor_431 .nil) .nil))))
+    (fun _ h => by cases h) (by decide) ⟨rfl, rfl, rfl, rfl⟩ (ev_ctor .nil)
+
+/-- `stepAt_inv_krw` at `stepAt_noP_eval_krw`'s evaluation: the `noP` disjunct. -/
+example (E : D) (rs : List Rl) (t : T) : True := by
+  rcases stepAt_inv_krw (R := Eval c₀) (Eval.byClause_iff.mp (stepAt_noP_eval_krw E rs t)) with
+    ⟨-, -⟩ | ⟨P, h, -⟩
+  · trivial
+  · cases h
+
+/-- **`fireM` at `.Ms` is `.Ts`** (`fire-nomatch`). -/
+theorem fireM_nil_eval_krw (E : D) (req rhs : T) :
+    Eval c₀ 470 [embD E, emb req, emb rhs, embMs []] (some (embTs [])) :=
+  clause_kht WalkR.fireMDef_lookup_krw (List.mem_cons_of_mem _ (List.mem_cons_of_mem _
+      (List.mem_cons_self ..)))
+    (ws_enum (vars := [45, 33, 33]) (.cons (embD_sorted_c₀ E) (.cons (emb_sorted_c₀ req)
+      (.cons (emb_sorted_c₀ rhs) .nil))))
+    (.cons (.var rfl) (.cons (.var rfl) (.cons (.var rfl) (.cons (.ctor ctor_403 .nil) .nil))))
+    (fun _ h => by cases h) (by decide) ⟨rfl, rfl, rfl, rfl⟩ (ev_ctor .nil)
+
+/-- `fireM_inv_krw` at `fireM_nil_eval_krw`'s evaluation: the `.Ms` disjunct. -/
+example (E : D) (req rhs : T) : True := by
+  rcases fireM_inv_krw (R := Eval c₀) (fun _ _ _ h => h)
+    (Eval.byClause_iff.mp (fireM_nil_eval_krw E req rhs)) with ⟨-, -⟩ | ⟨B, ms', h, -⟩
+  · trivial
+  · cases h
+
+/-- `appF_eq_krw` at two lists of one term each. -/
+example : Gen.appF [.iv 1] [.bv true] = some [.iv 1, .bv true] := appF_eq_krw _ _
+
+/-- `rprio_encRl_krw`: an encoded rule's priority. -/
+example (d : Semantics) : rprioF (encRl d ⟨[], .var 0, none, .var 0, none, 7, [], .top, .top⟩).prio
+    false = 7 := rprio_encRl_krw d _
+
+end Instances
+
+/-! ## Checks -/
+
+#check @rule_walk
+#check @firedBy_step_krw
+#check @firedAt_applies_krw
+#check @firedAt_nil_krw
+#check @FiredBy_krw
+#check @RuleBelow_krw
+#check @FiredAt_krw
+
+open Lean in
+#eval show CoreM Unit from do
+  for n in [``WalkR.succsDef_lookup_krw, ``WalkR.stepAtDef_lookup_krw, ``WalkR.stepIfDef_lookup_krw,
+      ``WalkR.fireAtDef_lookup_krw, ``WalkR.fireDef_lookup_krw, ``WalkR.fireMDef_lookup_krw,
+      ``WalkR.walk_names_krw, ``appF_eq_krw, ``succs_inv_krw, ``stepAt_inv_krw, ``stepIf_inv_krw,
+      ``rprioCmp_eval_krw, ``fireAt_inv_krw, ``fire_inv_krw, ``fireM_inv_krw, ``ruleShape_krw,
+      ``ruleTerms_krw, ``ruleEnc_krw, ``ruleBinds_krw, ``ruleVarsNF_krw, ``ruleReqInst_krw,
+      ``ruleRhsInst_krw, ``ruleReqEval_krw, ``ruleRhsEval_krw, ``FiredAt_krw.cons, ``FiredAt_krw.skip,
+      ``firedAt_nil_krw, ``firedAt_applies_krw, ``firedBy_step_krw, ``ruleBelow_first_krw,
+      ``ruleBelow_next_krw, ``encDef_rules_krw, ``fireM_spec_krw, ``fire_spec_krw, ``fireAt_spec_krw,
+      ``rstep_stepAt_krw, ``rstep_stepIf_krw, ``rspec_of_steps_krw, ``rule_walk,
+      ``stepAt_noP_eval_krw, ``fireM_nil_eval_krw] do
+    let axs ← collectAxioms n
+    unless axs.all ([``propext, ``Classical.choice, ``Quot.sound].contains ·) do
+      throwError "{n}: axioms {axs}"
+
 end KCore.KK
