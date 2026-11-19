@@ -1,0 +1,18 @@
+test/constructs/fixtures/hw-ite-own-undeclared-sort/hw-ite-own-undeclared-sort.kore: 5 modules; prelude agrees
+user module RDR-ITE-OWN: 294 sentences
+  1 inert import [generated]
+  167 read [generated]
+  95 read [builtin]
+  4 read [user]
+  1 unread parametricUnused [user]
+  4 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert distinctCtors [generated]
+  10 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 iteShape
+      the module (RDR-ITE-OWN): iteShape (Lblite{Bar})
+finish: the module (RDR-ITE-OWN): iteShape (Lblite{Bar})
+(exit 0)
