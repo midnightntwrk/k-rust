@@ -181,7 +181,11 @@ use std::{path::Path, sync::OnceLock};
 /// where v26 read it as a run with no path, the failed side `error`.
 /// A mutant that was `error` on such a program may now be `killed`;
 /// a baseline's record is unchanged, since a baseline with no start is still refused.
-pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v27";
+/// v28 (projections FX1): a comparable record of a baseline that takes an undefined step holds
+/// `undefined_steps: true`, which acceptance reads (an accepted end beside an undefined step is
+/// undecided, never accepted); a v27 record has none, so a baseline read from it would be taken
+/// to accept and a mutant that rejects could be killed on the "no end" reading of the step.
+pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v28";
 
 /// One component of [`KINK_IDENTITY`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
