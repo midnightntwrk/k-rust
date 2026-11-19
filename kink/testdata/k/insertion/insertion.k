@@ -5,8 +5,9 @@
 // A constructor inserted at Val grows Val, Top above it, Wrap and Prog (constructors holding a
 // Val), KItem and K, and List, Set and Map (which hold K items). Of the functions below, depth
 // (over Val), topSize (over Top), unwrap (over Wrap) and count (over List) take a grown sort,
-// and viaDepth reaches depth: their claims go. nat (result sort Val) and twice (over Int) keep
-// theirs. depth-lemma mentions depth and goes, twice-lemma stays. note-lemma names only the
+// and viaDepth reaches depth: their claims go. So does nat's: nat is a function into Val, whose
+// value may be a new one, and its recursive equation names it. twice (over Int) keeps its claim.
+// depth-lemma mentions depth and goes, twice-lemma stays. note-lemma names only the
 // prelude's #Equals, but quantifies over Note: it goes only when Note grows. A constructor
 // inserted at Flag, which the definition puts below the prelude's IOError, is refused.
 module INSERTION-SYNTAX

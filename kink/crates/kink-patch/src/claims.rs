@@ -49,7 +49,9 @@
 //! fresh constructor adds values to its sort and to every sort that can hold one (PJ-34, U34f,
 //! [`ClaimSupport::growth`]): it redefines the symbols a claim or an equation is about that take
 //! a value of a grown sort, and the heads of the equations that bind a variable of one, and a
-//! sentence that binds one is touched as one that mentions a redefined symbol is. The prelude's
+//! sentence that binds one is touched as one that mentions a redefined symbol is. A sentence
+//! that names an equationally defined symbol into a grown sort, or a grown sort's predicate
+//! `isS`, binds one too: such an application may denote a new value. The prelude's
 //! generic symbols (those whose productions, equations and reach are all the prelude's) and the
 //! prelude sentences that name only them are left out: they rest on the parametric premise (kink
 //! `trust.md`, provisional), that a prelude equation that names no symbol of the importing
@@ -113,7 +115,11 @@ use std::collections::{BTreeMap, BTreeSet};
 /// prelude's generic symbols (the parametric premise, kink `trust.md`), and the heads of the
 /// equations that bind a variable of a grown sort; a sentence that binds one has its claims
 /// withdrawn unless it is a generic prelude sentence. Every other inserted production still counts
-/// every symbol as redefined.
+/// every symbol as redefined. v5 was extended before its release (U34f review fix): a sentence
+/// that names an equationally defined symbol into a grown sort, or a grown sort's predicate
+/// `isS`, binds a grown value as one with a variable of the sort does (a `total` function no
+/// equation decides may be the new constructor), and a fresh constructor's label must be new to
+/// every sentence, the prelude's included, and not begin with `is`.
 pub const CLAIM_REMOVAL_VERSION: &str = "kink-patch/claim-removal/v5";
 
 /// The version of the weakening test ([`ClaimSupport::weakening`]): whether a mutation is
@@ -411,13 +417,20 @@ pub struct ClaimSupport {
     conjunctions: BTreeSet<String>,
     /// What the instance test reads of the baseline's main module ([`Self::instance`]).
     instances: InstanceFacts,
-    /// Every label with a production in the baseline: an inserted constructor must have another
-    /// ([`fresh_constructor`]).
+    /// Every label with a production in the baseline.
     produced: BTreeSet<String>,
-    /// Labels a claim or an equation is about: those of [`Self::defined`], the heads of every
-    /// equation, and the labels whose production carries a symbol claim or a concreteness
-    /// restriction. A taker of a grown sort that is none of these is a free constructor, which
-    /// no grown value redefines ([`ClaimSupport::growth`]).
+    /// Every label a baseline sentence declares or applies, the prelude's included: an inserted
+    /// constructor must have another ([`fresh_constructor`]).
+    named: BTreeSet<String>,
+    /// Labels whose applications equations define: those of [`Self::defined`] and the heads of
+    /// every equation. Such a symbol's value need not be a constructor term the definition
+    /// fixes, so an application of one into a grown sort may denote a new value
+    /// ([`Growth::open`]).
+    equational: BTreeSet<String>,
+    /// Labels a claim or an equation is about: [`Self::equational`] and the labels whose
+    /// production carries a symbol claim or a concreteness restriction. A taker of a grown sort
+    /// that is none of these is a free constructor, which no grown value redefines
+    /// ([`ClaimSupport::growth`]).
     observing: BTreeSet<String>,
     /// The prelude's generic symbols ([`generic_symbols`]): their claims, and the prelude
     /// sentences that mention only them, rest on the prelude alone and stay when a patch adds a
@@ -462,7 +475,9 @@ impl ClaimSupport {
         };
         let generic = generic_symbols(definition, &defined, &dependents);
         let mut produced = BTreeSet::new();
-        let mut observing = defined.clone();
+        let mut named = BTreeSet::new();
+        let mut equational = defined.clone();
+        let mut observing = BTreeSet::new();
         let mut prelude_sorts = BTreeSet::new();
         for (_, sentence) in sentences(definition) {
             match sentence {
@@ -487,14 +502,19 @@ impl ClaimSupport {
                 }
                 Sentence::Rule { .. } => {
                     if let Role::Equation(head) = role(sentence, &defined) {
-                        observing.insert(head);
+                        equational.insert(head);
                     }
                 }
                 _ => {}
             }
+            named.extend(mentions(sentence));
         }
+        named.extend(produced.iter().cloned());
+        observing.extend(equational.iter().cloned());
         Self {
             produced,
+            named,
+            equational,
             observing,
             generic,
             prelude_sorts,
@@ -868,7 +888,7 @@ impl ClaimSupport {
         let mut takers = BTreeSet::new();
         let mut pending = Vec::new();
         for sentence in inserted {
-            let (label, sort) = fresh_constructor(sentence, &self.produced)?;
+            let (label, sort) = fresh_constructor(sentence, &self.named)?;
             if self.prelude_sorts.contains(sort) || open(sort) {
                 return None;
             }
@@ -960,7 +980,7 @@ impl ClaimSupport {
                 pending.push(result.clone());
             }
         }
-        Some(Growth::new(grown, declared, takers, &all))
+        Some(Growth::new(grown, declared, takers, &self.equational, &all))
     }
 
     /// Whether `sentence` is the prelude's and mentions only its generic symbols (or labels no
@@ -1377,37 +1397,60 @@ struct Growth {
     /// The labels of the productions with an argument that may hold a new value, the inserted
     /// constructors included.
     takers: BTreeSet<String>,
+    /// Labels whose application may denote a new value: the equationally defined symbols whose
+    /// result sort may hold one, and the sort predicates `isS` of the grown sorts (which
+    /// compilation generates, so that no production of the loaded definition declares them).
+    /// A function such as `p(Int) [function, total]` into a grown sort with no equation for
+    /// `p(0)` may be the new constructor at `p(0)` in the mutant, so a sentence that names `p`
+    /// quantifies over the new values as one with a variable of the sort does (`Self::binds`).
+    open: BTreeSet<String>,
 }
 
 impl Growth {
     /// The growth of `sorts`, whose takers are `takers` (the inserted constructors) and the
-    /// labels of the productions of `sentences` with an argument that may hold a new value. A
-    /// bracket's label is no term symbol (the parsers erase it), so it takes nothing.
+    /// labels of the productions of `sentences` with an argument that may hold a new value, and
+    /// whose open labels are those of `equational` whose production's result sort may hold one
+    /// (a sort parameter included) and the grown sorts' predicates. A bracket's label is no term
+    /// symbol (the parsers erase it), so it takes nothing.
     fn new(
         sorts: BTreeSet<Sort>,
         declared: BTreeSet<String>,
         mut takers: BTreeSet<String>,
+        equational: &BTreeSet<String>,
         sentences: &[&Sentence],
     ) -> Self {
         let names = sorts.iter().map(|sort| sort.name.clone()).collect();
+        let open = sorts
+            .iter()
+            .map(|sort| format!("is{sort}"))
+            .collect::<BTreeSet<_>>();
         let mut growth = Self {
             sorts,
             names,
             declared,
             takers: BTreeSet::new(),
+            open,
         };
         for sentence in sentences {
-            if let Sentence::Production {
+            let Sentence::Production {
                 label: Some(label),
                 parameters,
+                sort,
                 items,
                 attributes,
-                ..
             } = sentence
-                && !attributes.has(AttributeKey::Bracket)
+            else {
+                continue;
+            };
+            if !attributes.has(AttributeKey::Bracket)
                 && takes(parameters, items, |argument| growth.holds(Some(argument)))
             {
                 takers.insert(label.name.clone());
+            }
+            if equational.contains(&label.name)
+                && (parameters.contains(sort) || growth.holds(Some(sort)))
+            {
+                growth.open.insert(label.name.clone());
             }
         }
         growth.takers = takers;
@@ -1425,8 +1468,15 @@ impl Growth {
     }
 
     /// Whether the rule-like `sentence` has a variable (named or anonymous) whose values may be
-    /// new ones: such a sentence quantifies over the grown values whatever symbols it names.
+    /// new ones, or names an open label ([`Self::open`]): such a sentence quantifies over the
+    /// grown values whatever else it names.
     fn binds(&self, sentence: &Sentence) -> bool {
+        if mentions(sentence)
+            .iter()
+            .any(|label| self.open.contains(label))
+        {
+            return true;
+        }
         let mut pending: Vec<&Term> = match sentence {
             Sentence::Rule {
                 body,
@@ -1489,14 +1539,16 @@ const CONSTRUCTOR_ATTRIBUTES: [AttributeKey; 4] = [
 ];
 
 /// The label and sort of `sentence` when it is a fresh constructor: a labelled production whose
-/// label no baseline production has, without sort parameters, whose items are terminals and
+/// label no baseline sentence declares or applies (`named`, the prelude's sentences included)
+/// and that does not begin with `is` (the spelling of the sort predicates `isS` compilation
+/// generates, which no loaded sentence declares), without sort parameters, whose items are terminals and
 /// nonterminals, which declares no subsort, and whose attributes are only
 /// [`CONSTRUCTOR_ATTRIBUTES`] and position keys (no claim, hook, function or macro kind,
 /// overload, unit or algebraic attribute). Such a production adds a symbol and its values and no
 /// equation; any other inserted production has an effect not known symbol by symbol.
 fn fresh_constructor<'s>(
     sentence: &'s Sentence,
-    produced: &BTreeSet<String>,
+    named: &BTreeSet<String>,
 ) -> Option<(&'s str, &'s Sort)> {
     let Sentence::Production {
         label: Some(label),
@@ -1514,7 +1566,8 @@ fn fresh_constructor<'s>(
             .chain(&POSITION_KEYS)
             .any(|allowed| allowed.as_str() == key)
     };
-    let fresh = !produced.contains(&label.name)
+    let fresh = !named.contains(&label.name)
+        && !label.name.starts_with("is")
         && parameters.is_empty()
         && label.parameters.is_empty()
         && sort.parameters.is_empty()

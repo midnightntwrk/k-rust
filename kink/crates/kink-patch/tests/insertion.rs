@@ -66,7 +66,11 @@ fn name(baseline: &Baseline, at: &SentenceRef) -> String {
         sentence => sentence
             .attributes()
             .string(AttributeKey::Label)
-            .and_then(|label| label.strip_prefix("INSERTION."))
+            .and_then(|label| {
+                label
+                    .strip_prefix("INSERTION.")
+                    .or_else(|| label.strip_prefix("OPEN."))
+            })
             .expect("a labelled rule")
             .to_owned(),
     }
@@ -77,7 +81,9 @@ fn user(baseline: &Baseline, claims: &[kink_patch::Claim]) -> BTreeSet<(String, 
     claims
         .iter()
         .filter_map(|claim| match &claim.origin {
-            SentenceOrigin::Baseline(at) if at.module == MAIN || at.module == SYNTAX => {
+            SentenceOrigin::Baseline(at)
+                if at.module == MAIN || at.module == SYNTAX || at.module == "OPEN" =>
+            {
                 Some((name(baseline, at), claim.key.clone()))
             }
             _ => None,
@@ -101,11 +107,12 @@ fn withdraw(baseline: &Baseline, patch: &Patch) -> Withdrawal {
 /// Every claim of a user symbol that takes a value of a grown sort, or reaches one, is withdrawn,
 /// and every other claim stays. Inserting `w(Val)` at Val grows Val, Top above it, Wrap and Prog
 /// (whose constructors hold a Val), `KItem` and `K`, and the collections. `depth` (over Val),
-/// `topSize` (over Top), `unwrap` (over Wrap) and `count` (over List) take a grown sort, `viaDepth` reaches
-/// `depth`, `depth-lemma` mentions `depth`, and the `run` and `go` rules quantify over Prog (and
-/// `run` mentions `depth`). `nat`, whose result sort is Val, and `twice` (over Int) keep their
-/// `total`, `twice-lemma` stays, and `note-lemma`, over Note, which does not grow, stays. No
-/// claim is unsupported: the prelude's hooked and `concrete` equations rest on the parametric
+/// `topSize` (over Top), `unwrap` (over Wrap) and `count` (over List) take a grown sort,
+/// `viaDepth` reaches `depth`, `depth-lemma` mentions `depth`, and the `run` and `go` rules
+/// quantify over Prog (and `run` mentions `depth`). `nat`, into Val, is a function whose value may
+/// be a new one, and its own recursive equation names it, so its `total` goes too (conservative:
+/// its equations decide every value). `twice` (over Int) keeps its `total`, `twice-lemma` stays,
+/// and `note-lemma`, over Note, which does not grow, stays. No claim is unsupported: the prelude's hooked and `concrete` equations rest on the parametric
 /// premise (kink `trust.md`), so the mutant is built with the withdrawn claims removed.
 #[test]
 fn an_inserted_constructor_withdraws_what_takes_its_sort() {
@@ -121,6 +128,7 @@ fn an_inserted_constructor_withdraws_what_takes_its_sort() {
             ("unwrap", "total"),
             ("count", "total"),
             ("viaDepth", "total"),
+            ("nat", "total"),
             ("depth-lemma", "simplification"),
             ("run", "preserves-definedness"),
             ("go", "preserves-definedness"),
@@ -131,10 +139,10 @@ fn an_inserted_constructor_withdraws_what_takes_its_sort() {
         .affected(&baseline, &patch)
         .unwrap()
         .expect("known symbol by symbol");
-    for kept in ["nat", "twice", "s", "wrap", "w"] {
+    for kept in ["twice", "s", "wrap", "w"] {
         assert!(!affected.contains(kept), "{kept} in {affected:?}");
     }
-    for redefined in ["depth", "topSize", "unwrap", "count", "viaDepth"] {
+    for redefined in ["depth", "topSize", "unwrap", "count", "viaDepth", "nat"] {
         assert!(
             affected.contains(redefined),
             "{redefined} not in {affected:?}"
@@ -196,5 +204,35 @@ fn an_insertion_the_growth_does_not_read_is_refused() {
             "{what}: {:?}",
             withdrawal.unsupported
         );
+    }
+}
+
+/// An application of an equationally defined symbol into a grown sort may denote a new value: in
+/// `open.k`, `p(Int)` into Val is `total` with no equation, so `p(0)` is a value of Val no
+/// equation fixes, `a` or `b` in the baseline and possibly `c` in the mutant that inserts the
+/// constructor `c`. `q`'s equation and the lemma `ab`, which name `p` but bind no variable of
+/// Val, rest on `p(N)` being `a` or `b`: `q`'s `total` and `ab` are withdrawn. So is `t`'s, whose
+/// condition names the sort predicate `isVal` that compilation generates. `p` keeps its own
+/// `total` (its domain and its equations, none, are the baseline's), and `r` keeps its.
+#[test]
+fn a_sentence_over_an_open_value_is_withdrawn() {
+    let baseline = support::load_path(&Path::new(support::DIR).join("insertion/open.k"), "OPEN");
+    let withdrawal = withdraw(&baseline, &insert("OPEN", constructor("c", "Val", &[])));
+    assert!(withdrawal.trusted(), "{:?}", withdrawal.unsupported);
+    assert_eq!(
+        user(&baseline, &withdrawal.withdrawn),
+        set(&[("q", "total"), ("ab", "simplification"), ("t", "total"),])
+    );
+}
+
+/// An inserted label must be new to every sentence, the prelude's included, not only to the
+/// productions: `_==K_` names the prelude's `==K` and `isVal` a sort predicate, so neither is a
+/// fresh constructor, and the insertion counts every symbol as redefined.
+#[test]
+fn an_inserted_label_must_be_new_to_every_sentence() {
+    let baseline = baseline();
+    for label in ["_==K_", "isVal", "depth"] {
+        let withdrawal = withdraw(&baseline, &insert(SYNTAX, constructor(label, "Val", &[])));
+        assert!(!withdrawal.trusted(), "{label}");
     }
 }

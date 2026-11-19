@@ -1,22 +1,25 @@
 //! The parametric premise, checked (PJ-34, U34f; kink `trust.md`, "What a kill trusts"): claim
 //! removal keeps the prelude's hooked and `concrete` equations when a patch inserts a fresh
 //! constructor, on the premise that a prelude equation that names no symbol of the importing
-//! definition stays true for any constructor the definition adds. That is
-//! a fact about k-rust's hooks as well as about the prelude's text, so it is not taken on trust
-//! alone for the equations the premise decides over a prelude-importing definition (the
-//! unsupported claims U34f's probe found under the rule without it): K-EQUAL's `=/=K` equation and
-//! its two `#if` equations, LIST's `pushList`, SET's `|Set` (`concrete`), and STRING's two
-//! `findChar` equations, which reach `#if`.
+//! definition stays true for any constructor the definition adds. That is a fact about k-rust's
+//! hooks as well as about the prelude's text, so it is not taken on trust alone for the seven
+//! equations whose eight claims (`|Set`'s is both hooked and `concrete`) U34f's probe found
+//! unsupported under the rule without it: K-EQUAL's `=/=K` equation and its two `#if` equations,
+//! LIST's `pushList`, SET's `|Set`, and STRING's two `findChar` equations.
 //!
 //! Over `testdata/k/insertion/premise.k` with a fresh constructor `fresh(Int)` inserted at the
-//! user sort Val, each equation's left-hand side is simplified by k-rust's backend, which applies
-//! a hook's builtin before any equation of its symbol, and compared with the simplified right-hand
-//! side the equation gives on the same terms (its `requires` holding). `pushList` and `findChar`
-//! have no builtin (k-rust-backend `builtin/evaluated.rs` `NOT_EVALUATED`), so their equations
-//! are their meaning and the check is that they evaluate; it becomes a comparison the day a
-//! builtin is added, which the dispatch pins below also flag. The prelude's equations and the
-//! hook code they are checked against are pinned (`PREMISE_PASSAGES`): a change of either fails
-//! here and must be read again.
+//! user sort Val, each equation's left-hand side and its right-hand side on the same terms (its
+//! `requires` holding) are simplified by k-rust's backend and must give the expected value. For
+//! the hooks with a builtin (`KEQUAL.ne`, `KEQUAL.ite`, `SET.union`) the builtin itself is also
+//! applied to the normalized arguments and must give the equation's value, so the agreement is
+//! the builtin's and does not rest on the order in which the simplifier tries a builtin and its
+//! symbol's equations (that order is not pinned here). `pushList` and `findChar` have no builtin
+//! (k-rust-backend `builtin/evaluated.rs` `NOT_EVALUATED`): their equations are their meaning,
+//! and the check is that they evaluate; the LIST and STRING dispatch pins fail the day a builtin
+//! is added. `findChar` takes only strings, so no fresh value reaches it: it is in the list
+//! because its equation reaches `#if`, which is checked on fresh values. The prelude's equations
+//! and the hook code they are checked against are pinned (`PREMISE_PASSAGES`): a change of
+//! either fails here and must be read again.
 
 #[path = "../../../testdata/k/support.rs"]
 mod support;
@@ -26,6 +29,7 @@ mod passage;
 
 use k_rust::backend::{Backend, BackendOptions};
 use k_rust::definition::{AttributeKey, Attributes, ProductionItem, Sentence};
+use k_rust::k_rust_backend::builtin::{BuiltinResult, evaluate_hook};
 use k_rust::k_rust_backend::definition::Admission;
 use k_rust::kast::identifier::{encode, encode_label};
 use k_rust::kast::{Label, Sort};
@@ -259,6 +263,66 @@ fn the_prelude_equations_agree_with_the_hooks_on_a_fresh_constructor() {
             "{name}: the hook and the equation disagree on {left:?}"
         );
         assert_eq!(by_hook, expected, "{name}: {left:?}");
+        if let Some(hook) = builtin_of(name) {
+            assert_builtin_gives(&mut backend, name, hook, &left, &by_equation);
+        }
+    }
+}
+
+/// The hook whose builtin a case's left-hand side applies, for the cases whose hook has one
+/// (`=/=K`'s `KEQUAL.ne`, `#if`'s `KEQUAL.ite`, `|Set`'s `SET.union`); `pushList` and `findChar`
+/// have none.
+fn builtin_of(name: &str) -> Option<&'static str> {
+    match name {
+        "=/=K" => Some("KEQUAL.ne"),
+        "#if (K)" | "#if (Val)" => Some("KEQUAL.ite"),
+        "|Set" => Some("SET.union"),
+        _ => None,
+    }
+}
+
+/// The builtin of `hook` itself gives the equation's value on `left`'s arguments (each
+/// simplified to its normal form first): the agreement above is the builtin's, whatever order
+/// the simplifier tries a hook's builtin and its symbol's equations in. Without this, a
+/// builtin that gave no value would leave the simplifier to the equation, and the two sides
+/// would agree by construction.
+fn assert_builtin_gives(
+    backend: &mut Backend,
+    name: &str,
+    hook: &str,
+    left: &Pattern,
+    value: &Pattern,
+) {
+    let Pattern::Application { arguments, .. } = left else {
+        panic!("{name}: a hooked application");
+    };
+    let arguments = arguments
+        .iter()
+        .map(|argument| simplify(backend, argument))
+        .collect::<Vec<_>>();
+    let (result, value) = backend
+        .with_solver(None, |definition, _| {
+            let internal = |pattern: &Pattern| {
+                definition
+                    .admit_unverified(pattern, &[])
+                    .internalize_term()
+                    .unwrap_or_else(|error| panic!("{name}: {pattern:?}: {error:?}"))
+            };
+            let arguments = arguments.iter().map(internal).collect::<Vec<_>>();
+            Ok::<_, k_rust::backend::BackendError>((
+                evaluate_hook(hook, &arguments),
+                internal(value),
+            ))
+        })
+        .expect("the definition loads");
+    match result {
+        Ok(Ok(BuiltinResult::Value(given))) => {
+            assert_eq!(
+                given, value,
+                "{name}: {hook}'s builtin and the equation disagree"
+            );
+        }
+        other => panic!("{name}: {hook}'s builtin gives no value: {other:?}"),
     }
 }
 
