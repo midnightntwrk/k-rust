@@ -1,0 +1,2 @@
+param	Lblf	args=[Int]	result=Int	impl=none	raw=false	assoc=false	idem=false
+(exit 0)

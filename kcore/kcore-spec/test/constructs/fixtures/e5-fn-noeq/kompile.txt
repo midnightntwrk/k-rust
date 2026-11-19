@@ -1,0 +1,11 @@
+command: kompile --backend haskell e5-fn-noeq.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 7.5
+definition.kore bytes: 207222
+definition.kore sha256: a94868e8aa11514ce650778eb31c6f8d12724b4e800ada2f121d2ec802c8611d
+stripped sha256: a24039af40a6cc47618153135a02a6a9845278ac660412253ae3432581cb21c8
+main module: 407 sentences, 51 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E5-FN-NOEQ-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E5-FN-NOEQ as default.
