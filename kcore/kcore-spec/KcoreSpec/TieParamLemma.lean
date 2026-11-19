@@ -10,7 +10,7 @@
   function's rest (`Semantics.fnRest`) from the interpretation (`ΓFallback`); or a hook at a point its
   text leaves open (`Semantics.fallback`), where Γ states the interpretation's value. Whether the
   lemma holds then depends on `H`: it is owed as a hypothesis on `H` at values: some `H` meets the
-  functions' obligations (`FnObligations`) and at it every sentence of the class holds at the
+  hypothesis on the functions (`FnHyp`) and at it every sentence of the class holds at the
   valuations sending its variables to values (`EntailsAtValues (c.withHooks H) s (tr s)`). `Γ` states
   a parameter's graph, a function's rest and a hook's open point at values only and says nothing of
   them at an element of a sort that is no value's, where a model of `Γ` may give them nothing, so the

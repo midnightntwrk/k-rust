@@ -18,7 +18,9 @@ The document holds, in this order:
   no model   every entry (row or nested) with a `derived` table of form (r), the text's sentences
              having no model (DONE-0 C7, rows-header.toml): its fixture, the sentences and families
              the refutation uses, the theorem, its kind where given, and `owed_refuted`. Such an
-             entry's status cell in its list reads "STATUS (no model)".
+             entry's status cell in its list reads "STATUS (no model)", or "STATUS (no model; the
+             reading has one)" where every such table is of kind "sentence against the reading" (Γ
+             has a model and refutes one sentence of the text as written).
   owed facts every entry (row or nested) with an `owed_state` (rows-header.toml: per fixture, the
              state of the CondDecided its account lists as owed, or a MatchIndependent proved on
              the text of a fixture of the same shape) or an `owed_refuted`: the count
@@ -56,6 +58,8 @@ ROWS = os.path.join(K, "test/constructs/rows.toml")
 MANIFEST = os.path.join(K, "../core-manifest.toml")
 OUT = os.path.join(K, "test/constructs/K-coverage.md")
 LISTS = ["E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8", "C3"]
+# the kind of a form (r) table whose text has no model while its reading has one (rows-header.toml)
+AGAINST = "sentence against the reading"
 TITLES = {
     "E1": "E1 sentence kinds (Outer.jj)",
     "E2": "E2 attributes (Att.scala; key x KORE sentence class)",
@@ -106,6 +110,15 @@ def no_model(e):
     """The `derived` tables of form (r) of an entry."""
     ds = e.get("derived")
     return [d for d in ds if isinstance(d, dict) and d.get("form") == "r"] if isinstance(ds, list) else []
+
+
+def no_model_mark(e):
+    """The mark beside an entry's status: "no model", or "no model; the reading has one" where each of
+    its form (r) tables is of kind "sentence against the reading"; "" without one."""
+    ds = no_model(e)
+    if not ds:
+        return ""
+    return "no model; the reading has one" if all(d.get("kind") == AGAINST for d in ds) else "no model"
 
 
 def owed_facts(e):
@@ -271,7 +284,10 @@ def generate(rows_path, manifest_path):
           "A `derived` table of form (r): a kernel-checked theorem that the premise set form (a) "
           "would use has no model, from the sentences named (by index) and the families named "
           "beside them; `owed_refuted` the theorem refuting the fact the package names as owed. "
-          "The entry's status is the reading's, and its list prints \"(no model)\" beside it.", ""]
+          "The entry's status is the reading's, and its list prints \"(no model)\" beside it. "
+          f"Of kind \"{AGAINST}\": the reading has a model (`consistent`), and no model of it satisfies "
+          "the first sentence named as written; the sentence-level statement stays owed "
+          "(`owed_statement`); its list prints \"(no model; the reading has one)\".", ""]
     if not nomodel:
         o += ["None."]
     else:
@@ -340,8 +356,8 @@ def generate(rows_path, manifest_path):
                 if st == "erased":
                     fs = erased_letters(e)
                     st += f" ({', '.join(fs)})" if fs else " (no form)"
-                if no_model(e):
-                    st += " (no model)"
+                if no_model_mark(e):
+                    st += f" ({no_model_mark(e)})"
                 if owed_mark(e):
                     st += f" (owed fact {owed_mark(e)})"
                 lines.append([

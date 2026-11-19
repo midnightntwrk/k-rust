@@ -382,7 +382,7 @@ inductive TieDir where
   /-- `Γ` does not hold `s`: it is owed as a hypothesis (`FnHyp` for a function's `functional`
   sentence, `FnLaws` for a law, `OpenTotal` for an open generator's `functional` sentence,
   `ParamsTotal` for the `functional` sentence of a parameter the text declares total, and for the
-  parameter lemmas one `H` that meets the functions' obligations (`FnObligations`) and at which each
+  parameter lemmas one `H` that meets the hypothesis on the functions (`FnHyp`) and at which each
   lemma holds at values, `EntailsAtValues (c.withHooks H) s (tr s)`). -/
   | hypothesis
   /-- `Γ` with `s` has no model. -/
@@ -427,7 +427,7 @@ class more, and an account lists apart the sentences that are in no class (both 
   sentence of K's builtin library, which the reader reads as the library's text and of which `Γ`
   holds no item, that applies a parameter symbol no registry hook interprets (`impl = none`), whose
   value the interpretation gives: owed as
-  a hypothesis on `H` at values: some `H` meets the functions' obligations (`FnObligations`) and at
+  a hypothesis on `H` at values: some `H` meets the hypothesis on the functions (`FnHyp`) and at
   it every sentence of the class holds at the valuations sending its variables to values
   (`EntailsAtValues (c.withHooks H) s (tr s)`). `Γ` states the parameter's graph at values only and
   says nothing of it at an element of its sort that is no value's, where a model of `Γ` may give it
