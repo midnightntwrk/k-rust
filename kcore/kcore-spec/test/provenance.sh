@@ -51,10 +51,15 @@
 #   (`namespace`/`section`/`end` tracked; comments removed);
 # - neither the file's path nor a namespace of the theorem's name contains `AtNone`: such a theorem
 #   may exist (a statement at the interpretation `HookParams.none`), and is never a row's evidence;
-# - its statement (the text from the name to the top-level `:=`) mentions H, and so does that of
-#   `owed_refuted`: a name bound in it at
-#   type `HookParams` (by a binder, `∀` or `∃`) and used past its binder, or a `variable` of that
-#   type in scope that the statement mentions;
+# - its statement (the text from the name to the top-level `:=`) is for every H, and so is that of
+#   `owed_refuted`: it mentions H (a name bound in it at type `HookParams`, by a binder, `∀` or `∃`,
+#   and used past its binder, or a `variable` of that type in scope that the statement mentions);
+#   or, naming no `HookParams` and no `withHooks`, it is over every Semantics (a name bound in it at
+#   type `Semantics` and used past its binder; `c.withHooks H` is a Semantics, so the statement holds
+#   at it for every H); or it reads no semantics at all (it names no `Semantics`, no `HookParams`,
+#   no `withHooks`, no `⊧`, no judgement that takes a semantics: SEM_READERS below). Under the last two,
+#   it names no semantics the file declares (`def`/`abbrev NAME : Semantics`, or `….sem`), which
+#   would make it a statement at that semantics' own H;
 # - a form (a) statement does not mention `FnShape` (C7: no form (a) theorem is stated under
 #   `FnShape` or a hypothesis of that kind);
 # - a form (r) statement, and that of `owed_refuted`, has no hypothesis `FnHyp`: it mentions `FnHyp`
@@ -69,6 +74,9 @@
 #   declared once in `file`, mentions H and `Consistent` and negates nothing (`¬`); the entry claims
 #   no inconsistency: none of its `tie_theorems` is named `inconsistent` or, declared in a file of its
 #   `tie`, states `¬ Consistent`.
+# - `silent_statement` (rows-header.toml), on a supported E6 `hook:` row only: a non-empty list of
+#   tables { theorem, file }, each checked as a form (c) table's theorem (declared once, no AtNone,
+#   for every H as above).
 # Prints the entries by form and kind (the counts C7 asks for: forms (b), (r) and "through the
 # reading" counted apart), the fixtures of the form (r) entries (texts without a model), and every
 # failure. Exit 1 on a failure.
@@ -88,6 +96,10 @@ KINDS = {"from sentences", "through the reading", "in a model"}
 AGAINST = "sentence against the reading"
 R_KINDS = (None, "through the reading", AGAINST)
 HP = r"(?:KCore\.)?HookParams"
+SEMT = r"(?:KCore\.)?Semantics"
+SEM_READERS = ("Γ", "Γc", "Γstep", "Γcl", "Eval", "EvalTerm", "Step", "Holds", "hookRes", "sortOf", "sortsOf",
+               "Consistent", "coreOK", "shapesOK", "floatShapeOK", "params", "fns", "lib", "sem",
+               "withHooks", "HookParams", "Semantics", "FnHyp", "InitModel", "Config")
 IDENT = r"[^\s(){}\[\]:,.⟨⟩]+"
 
 
@@ -141,6 +153,39 @@ def hook_binders(text):
             names += m.group(1).split()
         rest = re.sub(pat, " ", rest)
     return names, rest
+
+
+def sem_binders(text):
+    """(names bound at type Semantics, the text with those binders removed)."""
+    names, rest = [], text
+    for pat in (rf"[({{]\s*((?:{IDENT}\s+)*{IDENT})\s*:\s*{SEMT}\s*[)}}]",
+                rf"[∀∃]\s*((?:{IDENT}\s+)*{IDENT})\s*:\s*{SEMT}\s*,"):
+        for m in re.finditer(pat, rest):
+            names += m.group(1).split()
+        rest = re.sub(pat, " ", rest)
+    return names, rest
+
+
+def reads(name, text):
+    """Whether `text` names `name`, also as a field or method (`c.sortOf`)."""
+    return re.search(rf"(?<![\w'₀-₉]){re.escape(name)}(?![\w'₀-₉!?])", text) is not None
+
+
+def every_h(stmt, var, fixed):
+    """How the statement is for every H: "H" (it mentions a HookParams name), "every Semantics",
+    "reads no semantics", or None. `fixed`: the names the file declares at type Semantics."""
+    names, rest = hook_binders(stmt)
+    if any(mentions(h, rest) for h in names) or any(mentions(v, stmt) for v in var):
+        return "H"
+    sn, srest = sem_binders(stmt)
+    if reads("HookParams", stmt) or reads("withHooks", stmt) or any(mentions(x, stmt) for x in fixed if x not in sn) \
+            or re.search(r"\.sem(?![\w'₀-₉!?])", stmt):
+        return None
+    if any(mentions(x, srest) for x in sn):
+        return "every Semantics"
+    if "⊧" not in stmt and not any(reads(x, stmt) for x in SEM_READERS):
+        return "reads no semantics"
+    return None
 
 
 def mentions(name, text):
@@ -223,7 +268,7 @@ def entries(node, where):
 
 def check(rows, base):
     t = tomllib.load(open(rows, "rb"))
-    cache, bad, counts, nomodel = {}, [], {}, []
+    cache, fixed, bad, counts, nomodel = {}, {}, [], {}, []
     hookrows = {f"E6 {k}" for k, v in (t.get("E6") or {}).items()
                 if k.startswith("hook:") and isinstance(v, dict) and v.get("status") == "supported"}
 
@@ -238,9 +283,12 @@ def check(rows, base):
         ns, stmt, var = found[0]
         if any("AtNone" in p for p in ns):
             bad.append(f"{at}: {th} is in a namespace named AtNone: never a row's evidence")
-        names, rest = hook_binders(stmt)
-        if not (any(mentions(h, rest) for h in names) or any(mentions(v, stmt) for v in var)):
-            bad.append(f"{at}: the statement of {what}{th} does not mention H (no name of type HookParams it uses)")
+        if path not in fixed:
+            fixed[path] = re.findall(r"^[ \t]*(?:noncomputable\s+)?(?:abbrev|def)\s+(\S+)\s*:\s*" + SEMT + r"\b",
+                                     strip_comments(open(path, encoding="utf-8").read()), re.M)
+        if every_h(stmt, var, fixed[path]) is None:
+            bad.append(f"{at}: the statement of {what}{th} is not for every H (no name of type HookParams it"
+                       " uses; not over every Semantics; reads a semantics)")
         if form == "a" and mentions("FnShape", stmt):
             bad.append(f"{at}: the form (a) theorem {th} is stated under FnShape")
         if form == "r" and what != "consistent " and fn_hyp(stmt):
@@ -356,6 +404,31 @@ def check(rows, base):
                     bad.append(f"{at}: `owed_refuted` is not a theorem's full name")
                 else:
                     theorem_ok(at, ow, fl, path, "owed_refuted ", form)
+    def silent_tables(node, where):
+        if isinstance(node, dict):
+            if "silent_statement" in node:
+                yield where, node
+            for k, v in node.items():
+                yield from silent_tables(v, f"{where} {k}" if where else k)
+        elif isinstance(node, list):
+            for i, v in enumerate(node):
+                yield from silent_tables(v, f"{where}[{i}]")
+
+    for where, e in silent_tables(t, ""):
+        ss = e["silent_statement"]
+        if where not in hookrows:
+            bad.append(f"{where}: `silent_statement` on an entry that is no supported E6 hook: row"); continue
+        if not (isinstance(ss, list) and ss and all(isinstance(x, dict) for x in ss)):
+            bad.append(f"{where}: `silent_statement` is not a non-empty list of tables"); continue
+        for i, d in enumerate(ss):
+            at = f"{where}: silent_statement[{i}]"
+            th, fl = d.get("theorem"), d.get("file")
+            if not (isinstance(th, str) and isinstance(fl, str)):
+                bad.append(f"{at}: names no `theorem` and `file`"); continue
+            path = os.path.join(base, fl)
+            if "AtNone" in fl or not os.path.isfile(path):
+                bad.append(f"{at}: no file {fl}, or one named AtNone"); continue
+            theorem_ok(at, th, fl, path, "", "c")
     return counts, bad, nomodel
 
 
@@ -402,6 +475,18 @@ theorem notFnImp (H : HookParams) : ¬ FnHyp (cH H) → ¬ MatchIndependent (cH 
 theorem consistent (H : HookParams) : Consistent (cH H) := sorry
 theorem inconsistent (H : HookParams) : ¬ Consistent (cH H) := sorry
 theorem noCons (H : HookParams) : ¬Consistent (cH H) := sorry
+theorem overSem (c : Semantics) (i : Int) : c.sortOf (int i) = some Srt.int := sorry
+theorem overSemImpl {c : Semantics} (hs : c.shapesOK = true) : ∀ f ∈ fs, ∃ v, hook f vs = some (some v) := sorry
+theorem atConst (c : Semantics) : (c.withHooks (constH v)).sortOf x = some s := sorry
+theorem atFixed (c : Semantics) : Γ c φ ∧ Γ cFix ψ := sorry
+theorem atFixedSem : cDef.sem.sortOf x = some s := sorry
+theorem semUnused (c : Semantics) : Γ cFix ψ := sorry
+theorem noSem : ∀ f ∈ fs, ∀ vs : List GroundTerm, silent f vs = false := sorry
+theorem readsFixed : ∀ f ∈ fs, silent f vs = false ∧ cFix.sortOf x = some s := sorry
+theorem readsAnon : silentKey f = false ∧ Γ cX φ := sorry
+theorem readsTheory : Pre ⊧ φ := sorry
+theorem shadows (cFix : Semantics) (i : Int) : cFix.sortOf (int i) = some Srt.int := sorry
+noncomputable def cFix : Semantics := default
 section S
 variable (H : HookParams)
 theorem viaVar : Eval (cH H) e v := sorry
@@ -425,8 +510,8 @@ end KCore.ProvT
         ({"form": "a", "kind": "by eye", "sentences": [1], "theorem": "KCore.ProvT.good", "file": f}, "not 'from sentences'"),
         ({"form": "a", "kind": "through the reading", "sentences": [1], "theorem": "KCore.ProvT.good", "file": f}, "names no family"),
         ({"form": "a", "kind": "from sentences", "theorem": "KCore.ProvT.good", "file": f}, "without `sentences`"),
-        ({"form": "a", "kind": "from sentences", "sentences": [1], "theorem": "KCore.ProvT.unused", "file": f}, "does not mention H"),
-        ({"form": "a", "kind": "from sentences", "sentences": [1], "theorem": "KCore.ProvT.atNoneOnly", "file": f}, "does not mention H"),
+        ({"form": "a", "kind": "from sentences", "sentences": [1], "theorem": "KCore.ProvT.unused", "file": f}, "not for every H"),
+        ({"form": "a", "kind": "from sentences", "sentences": [1], "theorem": "KCore.ProvT.atNoneOnly", "file": f}, "not for every H"),
         ({"form": "a", "kind": "from sentences", "sentences": [1], "theorem": "KCore.ProvT.shape", "file": f}, "under FnShape"),
         ({"form": "a", "kind": "from sentences", "sentences": [1], "theorem": "KCore.ProvT.AtNone.hidden", "file": f}, "namespace named AtNone"),
         ({"form": "c", "theorem": "KCore.q", "file": os.path.relpath(os.path.join(d, "AtNoneT.lean"), K)}, "named AtNone"),
@@ -440,7 +525,7 @@ end KCore.ProvT
         ({"form": "r", "family": "ΓCons", "theorem": "KCore.ProvT.noModel", "file": f}, "form (r) without `sentences`"),
         ({"form": "r", "kind": "from sentences", "sentences": [344], "family": "ΓCons", "theorem": "KCore.ProvT.noModel", "file": f}, "form (r) with kind"),
         ({"form": "r", "sentences": [344], "family": "ΓCons"}, "form (r) names no theorem"),
-        ({"form": "r", "sentences": [344], "family": "ΓCons", "theorem": "KCore.ProvT.unused", "file": f}, "does not mention H"),
+        ({"form": "r", "sentences": [344], "family": "ΓCons", "theorem": "KCore.ProvT.unused", "file": f}, "not for every H"),
         ({"form": "r", "sentences": [344], "family": "ΓCons", "theorem": "KCore.ProvT.noModel", "file": f,
           "owed_refuted": "KCore.ProvT.unused"}, "statement of owed_refuted"),
         ({"form": "r", "sentences": [344], "family": "ΓCons", "theorem": "KCore.ProvT.noModel", "file": f,
@@ -498,6 +583,27 @@ end KCore.ProvT
         (pr, "cases[0]: derived[0]: form (a) without `sentences`", {"cases": [{"case": "n", "status": "supported", "derived": [pr]}]}, hk),
         (dict(pr, kind="from sentences"), "without `sentences`", {}, hk),
         (pr, "without `sentences`", {"status": "parameter"}, hk),
+    ]
+    sa = lambda th: {"form": "a", "kind": "from sentences", "sentences": [1], "theorem": f"KCore.ProvT.{th}", "file": f}
+    cases += [  # statements for every H without a HookParams name
+        (sa("overSem"), None),
+        (sa("overSemImpl"), None),
+        (sa("noSem"), None),
+        (sa("atConst"), "not for every H"),
+        (sa("atFixed"), "not for every H"),
+        (sa("atFixedSem"), "not for every H"),
+        (sa("semUnused"), "not for every H"),
+        (sa("readsFixed"), "not for every H"),
+        (sa("readsAnon"), "not for every H"),
+        (sa("readsTheory"), "not for every H"),
+        (sa("shadows"), None),
+        (pr, None, {"silent_statement": [{"theorem": "KCore.ProvT.noSem", "file": f}]}, hk),
+        (pr, None, {"silent_statement": [{"theorem": "KCore.ProvT.good", "file": f}]}, hk),
+        (pr, "silent_statement[0]: the statement of KCore.ProvT.atFixed is not for every H",
+         {"silent_statement": [{"theorem": "KCore.ProvT.atFixed", "file": f}]}, hk),
+        (pr, "silent_statement[0]: 0 theorems named", {"silent_statement": [{"theorem": "KCore.ProvT.missing", "file": f}]}, hk),
+        (pr, "not a non-empty list", {"silent_statement": []}, hk),
+        (sa("good"), "no supported E6 hook: row", {"silent_statement": [{"theorem": "KCore.ProvT.noSem", "file": f}]}),
     ]
     ok = True
     val = lambda v: (f"{v!r}".replace("'", '"') if not isinstance(v, (list, dict)) else
