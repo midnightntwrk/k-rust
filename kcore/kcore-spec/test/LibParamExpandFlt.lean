@@ -20,6 +20,10 @@
   steps at configurations are `Step`'s, in which each of these sentences, as the text's
   translation writes it, holds at every valuation that sends its free element variables to values.
 
+  `expansion_s6`: the same with a fifth symbol Γ lacks, INT's `&Int` (213), chosen as bitwise and
+  (`landS6`), under which its `functional` sentence 54 and its associativity lemma 236 (shape s6)
+  hold too, in the same model.
+
   Not stated here: that every model of Γ has such a choice (the expansion condition (E) for every
   model). `TieLibParam.expand_lacked` keeps a model a model where the interpretation changes at the
   lacked names only, keeping its carrier and its application. A choice there needs, for
@@ -675,6 +679,223 @@ theorem expansion (H : HookParams) :
   · rw [tr176]
     exact functionalLk (coreOKH H) hΓ hLs isHook_facts.2.2.1 k176 (not_total H) r176 U.ax176 p176 sv176
 
+/-! ## `&Int` (shape s6): its `functional` sentence and its associativity lemma
+
+`&Int` (registry symbol 213) is a library parameter no rule and no function of the reading applies,
+so Γ lacks it. silentflt's sentences applying it are its `functional` sentence 54 and INT-KORE's
+lemma 236 (domains.md 1428), `I1 &Int (I2 &Int C) = (I1 &Int I2) &Int C`. Both constrain `&Int`
+alone. Bitwise and (domains.md's operation, `landS6`) is total and associative, so both hold where
+`&Int` denotes it. The model is the one of `expansion` with `&Int` among the patched names
+(`lackedS6`, `GS6`), which agrees with `G` at the other four. -/
+
+def andSig : CtorSig := ⟨213, [Srt.int, Srt.int], Srt.int⟩
+
+/-- The four library symbols of `expansion` and `&Int`. -/
+def lackedS6 : List CtorSig := lacked ++ [andSig]
+
+/-- `m` with the bits of `n` cleared. -/
+def ldiffS6 (m n : Nat) : Nat := Nat.bitwise (fun a b => a && !b) m n
+
+/-- Bitwise and on Int in two's complement, where `-[n+1]` is the complement of `n`. -/
+def landS6 : Int → Int → Int
+  | .ofNat m, .ofNat n => .ofNat (m &&& n)
+  | .ofNat m, .negSucc n => .ofNat (ldiffS6 m n)
+  | .negSucc m, .ofNat n => .ofNat (ldiffS6 n m)
+  | .negSucc m, .negSucc n => .negSucc (m ||| n)
+
+/-- The bit `i` of an Int in two's complement. -/
+def bitS6 : Int → Nat → Bool
+  | .ofNat m, i => m.testBit i
+  | .negSucc m, i => !m.testBit i
+
+theorem testBit_ldiffS6 (m n i : Nat) : (ldiffS6 m n).testBit i = (m.testBit i && !n.testBit i) :=
+  Nat.testBit_bitwise rfl m n i
+
+/-- Each bit of `landS6 x y` is the and of `x`'s and `y`'s. -/
+theorem bitS6_land (x y : Int) (i : Nat) : bitS6 (landS6 x y) i = (bitS6 x i && bitS6 y i) := by
+  cases x <;> cases y <;> simp [landS6, bitS6, testBit_ldiffS6, Bool.and_comm]
+
+/-- An Int is its bits: a natural number and a negative one differ at a bit above both. -/
+theorem bitS6_ext {x y : Int} (h : ∀ i, bitS6 x i = bitS6 y i) : x = y := by
+  have hhi : ∀ m n : Nat, m.testBit (m + n) = false ∧ n.testBit (m + n) = false := fun m n =>
+    ⟨Nat.testBit_lt_two_pow (Nat.lt_of_lt_of_le Nat.lt_two_pow_self
+        (Nat.pow_le_pow_right (by decide) (Nat.le_add_right m n))),
+     Nat.testBit_lt_two_pow (Nat.lt_of_lt_of_le Nat.lt_two_pow_self
+        (Nat.pow_le_pow_right (by decide) (Nat.le_add_left n m)))⟩
+  cases x with
+  | ofNat m =>
+    cases y with
+    | ofNat n => exact congrArg _ (Nat.eq_of_testBit_eq h)
+    | negSucc n =>
+      have := h (m + n)
+      simp only [bitS6, (hhi m n).1, (hhi m n).2] at this
+      cases this
+  | negSucc m =>
+    cases y with
+    | ofNat n =>
+      have := h (m + n)
+      simp only [bitS6, (hhi m n).1, (hhi m n).2] at this
+      cases this
+    | negSucc n =>
+      exact congrArg _ (Nat.eq_of_testBit_eq fun i => by simpa [bitS6] using h i)
+
+/-- **Bitwise and is associative.** -/
+theorem landS6_assoc (x y z : Int) : landS6 (landS6 x y) z = landS6 x (landS6 y z) :=
+  bitS6_ext fun i => by simp only [bitS6_land, Bool.and_assoc]
+
+/-- `landS6` at a few values: 12 & 10 = 8, -1 & 10 = 10, -4 & -3 = -4, -6 & 7 = 2. -/
+theorem landS6_values : landS6 12 10 = 8 ∧ landS6 (-1) 10 = 10 ∧ landS6 (-4) (-3) = -4 ∧ landS6 (-6) 7 = 2 := by
+  decide +kernel
+
+/-- `&Int(a, b)`: bitwise and at Int values. -/
+def andG (ws : List GroundTerm) : Option GroundTerm :=
+  match ws with
+  | [a, b] => (asInt a).bind fun x => (asInt b).map fun y => int (landS6 x y)
+  | _ => none
+
+/-- `G` with `&Int`'s values. -/
+noncomputable def GS6 (H : HookParams) : Sym → List GroundTerm → Option GroundTerm := fun f ws =>
+  if f = 213 then andG ws else G H f ws
+
+theorem GS6_lacked (H : HookParams) : ∀ k ∈ lacked, ∀ ws, GS6 H k.name ws = G H k.name ws := by
+  intro k hk ws
+  simp only [lacked, List.mem_cons, List.not_mem_nil, or_false] at hk
+  rcases hk with rfl | rfl | rfl | rfl <;> rfl
+
+/-- **`&Int` is the registry's library parameter under the name the text declares, Γ lacks it, and
+it resolves to no symbol**; with the four of `lacked_names`, each is the first of `lackedS6` under
+its name. -/
+theorem lackedS6_names :
+    lackedS6.all (fun k => (library.any fun m => m.params.any (· == k)) && !isHook k.name &&
+      (kore.symbolDecls.filter (·.name == c.symName k.name)).length == 1 &&
+      sigNamed c lackedS6 (c.symName k.name) == some k && lackedNameB c (c.symName k.name) &&
+      GenEqs.unresolvedB c (c.symName k.name) && (iteSort? (c.symName k.name)).isNone) = true ∧
+    c.symName 213 = "Lbl'UndsAnd-'Int'Unds'" ∧ isHook 213 = false := by
+  decide +kernel
+
+theorem lackedS6_ok (H : HookParams) : ∀ k ∈ lackedS6, sigNamed (cH H) lackedS6 ((cH H).symName k.name) = some k ∧
+    lackedNameB (cH H) ((cH H).symName k.name) = true ∧ GenEqs.unresolvedB (cH H) ((cH H).symName k.name) = true ∧
+    iteSort? ((cH H).symName k.name) = none := by
+  intro k hk
+  have h := List.all_eq_true.mp lackedS6_names.1 k hk
+  simp only [Bool.and_eq_true, beq_iff_eq, Option.isNone_iff_eq_none] at h
+  exact ⟨h.1.1.1.2, h.1.1.2, h.1.2, h.2⟩
+
+theorem andG_int (x y : Int) : andG [int x, int y] = some (int (landS6 x y)) := rfl
+
+theorem GS6_sorted (H : HookParams) : ∀ k ∈ lackedS6, ∀ ws, (cH H).sortsOf ws = some k.args → ∀ v,
+    GS6 H k.name ws = some v → (cH H).sortOf v = some k.result := by
+  intro k hk ws hws v hv
+  rcases List.mem_append.mp hk with hk | hk
+  · rw [GS6_lacked H k hk] at hv
+    exact G_sorted H k hk ws hws v hv
+  · simp only [List.mem_singleton] at hk
+    subst hk
+    obtain ⟨a, b, rfl⟩ : ∃ a b, ws = [a, b] := by
+      match ws, hws with
+      | [a, b], _ => exact ⟨a, b, rfl⟩
+    obtain ⟨ha, hb⟩ := sortsOf2.mp hws
+    obtain ⟨x, rfl⟩ := shape_int (shapesOKH H) ha
+    obtain ⟨y, rfl⟩ := shape_int (shapesOKH H) hb
+    rw [show GS6 H andSig.name [int x, int y] = andG [int x, int y] from rfl, andG_int] at hv
+    cases hv
+    exact sortOf_int _
+
+theorem and_total (H : HookParams) : ∀ ws, (cH H).sortsOf ws = some andSig.args → ∃ v, GS6 H andSig.name ws = some v := by
+  intro ws hws
+  obtain ⟨a, b, rfl⟩ : ∃ a b, ws = [a, b] := by
+    have hl := Faithful.sortsOf_length hws
+    match ws, hl with
+    | [a, b], _ => exact ⟨a, b, rfl⟩
+    | [], h => simp [andSig] at h
+    | [_], h => simp [andSig] at h
+    | _ :: _ :: _ :: _, h => simp [andSig] at h
+  obtain ⟨ha, hb⟩ := sortsOf2.mp hws
+  obtain ⟨x, rfl⟩ := shape_int (shapesOKH H) ha
+  obtain ⟨y, rfl⟩ := shape_int (shapesOKH H) hb
+  exact ⟨int (landS6 x y), andG_int x y⟩
+
+/-- 236 (domains.md 1428): `I1 &Int (I2 &Int C) = (I1 &Int I2) &Int C`. -/
+def e236 : Eqn :=
+  ⟨[("VarI1", Srt.int), ("VarI2", Srt.int), ("VarC", Srt.int)], Srt.int, none,
+    .app 213 [.var 0, .app 213 [.var 1, .var 2]], .app 213 [.app 213 [.var 0, .var 1], .var 2]⟩
+
+theorem e236_text : U.ax236.ax.pattern = e236.patR ∧ U.ax236.ax.sortVars = [KoreAML.Rv] ∧ e236.regular = true ∧
+    e236.typedLk c.sortOf [andSig] = true ∧ (trS U.ax236).pat = (trAxiom [] [] U.ax236).pat := by
+  decide +kernel
+
+/-- The `functional` sentence of `&Int` (54). -/
+theorem fun54_text : U.ax54.ax.pattern = funPatR andSig ∧ U.ax54.ax.sortVars = [KoreAML.Rv] ∧ funReg andSig = true ∧
+    (trS U.ax54).pat = (trAxiom [] [] U.ax54).pat ∧ sigLk [andSig] andSig.name = some andSig := by
+  decide +kernel
+
+/-- **236 holds under `GS6`**: its two sides are bitwise and's two bracketings. -/
+theorem holds236 (H : HookParams) : e236.HoldsLk (cH H) (GS6 H) := by
+  intro σ hσ _
+  obtain ⟨v0, h0, s0⟩ := hσ 0 _ rfl
+  obtain ⟨v1, h1, s1⟩ := hσ 1 _ rfl
+  obtain ⟨v2, h2, s2⟩ := hσ 2 _ rfl
+  obtain ⟨x, rfl⟩ := shape_int (shapesOKH H) s0
+  obtain ⟨y, rfl⟩ := shape_int (shapesOKH H) s1
+  obtain ⟨z, rfl⟩ := shape_int (shapesOKH H) s2
+  have hh : isHook 213 = false := lackedS6_names.2.2
+  have hg : ∀ a b : Int, GS6 H 213 [int a, int b] = some (int (landS6 a b)) := fun a b => andG_int a b
+  simp only [e236, valLk, valListLk, allSome, h0, h1, h2, hh, Bool.false_eq_true, ↓reduceIte, Option.bind_some,
+    Option.map_some, hg, landS6_assoc]
+
+/-- **For every H, one model of `Γc ∪ Γstep` of `c.withHooks H`, whose steps at configurations are
+`Step`'s, in which the library's sentences of the five symbols Γ lacks hold at values**: those of
+`expansion` (274, 380, 228 to 232, 45 and 176) and `&Int`'s `functional` sentence 54 and its
+associativity lemma 236 (shape s6), each as the text's translation writes it, at every valuation
+that sends its free element variables to values. -/
+theorem expansion_s6 (H : HookParams) :
+    ∃ I : Interpretation KoreAML.Sym Faithful.Model.Elem,
+      (I ⊧ᴵP (Γc (cH H) ∪ Γstep (cH H))) ∧
+      (∀ x y : Config (cH H), Step (cH H) x y ↔ ¬ (I ⊧ᴵ (den (cH H) x.val ⇒ ∼ KoreAML.sNext (den (cH H) y.val)))) ∧
+      (∀ e, AtValues (cH H) I e U.ax274.ax → ∀ m, (trS U.ax274).pat.interpret I e m) ∧
+      (∀ e, AtValues (cH H) I e U.ax380.ax → ∀ m, (trS U.ax380).pat.interpret I e m) ∧
+      (∀ e, AtValues (cH H) I e U.ax228.ax → ∀ m, (trS U.ax228).pat.interpret I e m) ∧
+      (∀ e, AtValues (cH H) I e U.ax229.ax → ∀ m, (trS U.ax229).pat.interpret I e m) ∧
+      (∀ e, AtValues (cH H) I e U.ax230.ax → ∀ m, (trS U.ax230).pat.interpret I e m) ∧
+      (∀ e, AtValues (cH H) I e U.ax231.ax → ∀ m, (trS U.ax231).pat.interpret I e m) ∧
+      (∀ e, AtValues (cH H) I e U.ax232.ax → ∀ m, (trS U.ax232).pat.interpret I e m) ∧
+      (∀ e, AtValues (cH H) I e U.ax45.ax → ∀ m, (trS U.ax45).pat.interpret I e m) ∧
+      (∀ e, AtValues (cH H) I e U.ax176.ax → ∀ m, (trS U.ax176).pat.interpret I e m) ∧
+      (∀ e, AtValues (cH H) I e U.ax54.ax → ∀ m, (trS U.ax54).pat.interpret I e m) ∧
+      (∀ e, AtValues (cH H) I e U.ax236.ax → ∀ m, (trS U.ax236).pat.interpret I e m) := by
+  obtain ⟨I, hsat, hstep, hL6⟩ :=
+    model_lacked (cH H) (coreOKH H) (fnHypH H) lackedS6 (GS6 H) (lackedS6_ok H) (GS6_sorted H)
+  have hΓ : I ⊧ᴵP Γ (cH H) := fun φ hφ => hsat φ (Or.inl (Or.inl hφ))
+  have hL : LackedDen (cH H) lacked (G H) I := fun k hk ws hws => by
+    have := hL6 k (List.mem_append_left _ hk) ws hws
+    rwa [GS6_lacked H k hk] at this
+  have hLs : LackedDen (cH H) ls (G H) I := fun k hk =>
+    (List.mem_append.mp hk).elim (hL k) (ctorDen H I k)
+  have hLa : LackedDen (cH H) [andSig] (GS6 H) I := fun k hk =>
+    hL6 k (List.mem_append_right _ hk)
+  have heq : ∀ (E : FnEqn) (ad : AxiomDecl), E.HoldsLk (cH H) (G H) →
+      (ad.ax.pattern = E.patR ∧ ad.ax.sortVars = [KoreAML.Rv] ∧ E.regular = true ∧ E.typedLk c.sortOf ls = true ∧
+        (trS ad).pat = (trAxiom [] [] ad).pat) →
+      ∀ e, AtValues (cH H) I e ad.ax → ∀ m, (trS ad).pat.interpret I e m := by
+    intro E ad hE ⟨hp, hsv, hr, ht, htr⟩
+    rw [htr]
+    exact FnEqn.entailedLk_reg (coreOKH H) hΓ hLs E hr (by rw [sortOfH]; exact ht) hE ad hp hsv
+  obtain ⟨p45, sv45, r45, tr45, p176, sv176, r176, tr176, k45, k176⟩ := fun_text
+  refine ⟨I, hsat, hstep, heq e274 U.ax274 (holds274 H) e274_text, heq e380 U.ax380 (holds380 H) e380_text,
+    heq e228 U.ax228 (holds228 H) e228_text, heq e229 U.ax229 (holds229 H) e229_text,
+    heq e230 U.ax230 (holds230 H) e230_text, heq e231 U.ax231 (holds231 H) e231_text,
+    heq e232 U.ax232 (holds232 H) e232_text, ?_, ?_, ?_, ?_⟩
+  · rw [tr45]
+    exact functionalLk (coreOKH H) hΓ hLs isHook_facts.2.2.2.1 k45 (noLen_total H) r45 U.ax45 p45 sv45
+  · rw [tr176]
+    exact functionalLk (coreOKH H) hΓ hLs isHook_facts.2.2.1 k176 (not_total H) r176 U.ax176 p176 sv176
+  · obtain ⟨p54, sv54, r54, tr54, k54⟩ := fun54_text
+    rw [tr54]
+    exact functionalLk (coreOKH H) hΓ hLa lackedS6_names.2.2 k54 (and_total H) r54 U.ax54 p54 sv54
+  · obtain ⟨hp, hsv, hr, ht, htr⟩ := e236_text
+    rw [htr]
+    exact Eqn.entailedLk_reg (coreOKH H) hΓ hLa e236 hr (by rw [sortOfH]; exact ht) (holds236 H) U.ax236 hp hsv
+
 end KCore.LibParamExpandFlt
 
 #check @KCore.TieLibParam.expand_lacked
@@ -682,6 +903,12 @@ end KCore.LibParamExpandFlt
 
 /-- info: 'KCore.LibParamExpandFlt.expansion' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.LibParamExpandFlt.expansion
+#check @KCore.LibParamExpandFlt.expansion_s6
+#check @KCore.LibEv.Eqn.entailedLk
+/-- info: 'KCore.LibParamExpandFlt.expansion_s6' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.LibParamExpandFlt.expansion_s6
+/-- info: 'KCore.LibEv.Eqn.entailedLk' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.LibEv.Eqn.entailedLk
 /-- info: 'KCore.TieLibParam.expand_lacked' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.TieLibParam.expand_lacked
 /-- info: 'KCore.TieLibParam.agree_updAt' depends on axioms: [propext, Classical.choice, Quot.sound] -/

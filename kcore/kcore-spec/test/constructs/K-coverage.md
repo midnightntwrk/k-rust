@@ -72,7 +72,7 @@ Refused nested entries by class:
 
 Supported entries (rows and nested): 963; 14 of them have an owed fact and are counted by their best fixture: **13 proved** (the owed fact proved on a fixture the entry names: these count as supported under the headline statements), 0 open and 1 false (counted apart: the headline statements' hypothesis is not shown on their fixtures). The other 949 have no owed fact.
 
-E6 library rows by their `e6_tie` (test/constructs/e6map.py; rows-header.toml): 480, of which 189 tied, 13 of no direction (the tie's no-direction class, owed-sentence rule item 7: never tied, counted apart), 9 refuted and 269 uncovered.
+E6 library rows by their `e6_tie` (test/constructs/e6map.py; rows-header.toml): 480, of which 190 tied, 13 of no direction (the tie's no-direction class, owed-sentence rule item 7: never tied, counted apart), 9 refuted and 268 uncovered.
 
 ## Entries of class R-c (47)
 
