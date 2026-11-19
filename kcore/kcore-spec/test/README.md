@@ -848,7 +848,10 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   the text's theory without a model (`not_model_text`); `streamRule` names its reader test.
   `tokKItem` has `Faithful.noJunk_omitted_refuted` (for every semantics and every H, a no-junk
   sentence that leaves out an injection from a sort with a value has no model with `Γ`) and
-  test/TokKItem.lean's instance.
+  test/TokKItem.lean's instance; at a sort without a value, `Faithful.noJunk_omitted_refuted_elem`
+  (no model of `Γ` with an element of the left-out sort satisfies the sentence) and the instances
+  of test/TieE6ModSortKbott.lean and test/TieE6ModKvariableSyntax.lean (`tokkitem_entails_item`,
+  `tokkitem_refuted_with_nonempty`, `tokkitem_holds_iff_empty`).
 - `test/TokKItem.lean`: `ReadingNote.tokKItem` on `f2-examples/hashsort.kompile.kore` (a token
   sort `#Tok` that KItem's no-junk sentence, axiom 125, does not list and no subsort axiom puts
   below KItem; the reading adds `#Tok < KItem`): the sentence entails `Γ`'s no-junk item of KItem in

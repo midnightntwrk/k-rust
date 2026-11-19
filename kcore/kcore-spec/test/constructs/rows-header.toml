@@ -388,11 +388,14 @@
 #             axiom, lemma, rule, sort or symbol row of any status to the module, and its code
 #             holds no rule, configuration, context or claim) is accounted by
 #             its declarations' rows, with no theorem owed for the module itself: a list holding
-#             "module of hooks and generated declarations only: ..." with its hook rows, counted as
-#             tied. Before that form, a module row with no axiom, lemma, sort or symbol row of its
-#             module in e6map's scope whose `fixture` text holds a sentence of the module and has a
-#             whole-text tie (a tie file on that text whose `uncovered` is the empty list, so the
-#             tie leaves no remainder, declaring account, account_absent, absent_closed,
-#             lists_in_account, decls_entailed and consistent; e6map.py's form (w)) is tied by that
-#             tie: a list of "THEOREM (FILE; TEXT whole text: ...; the text holds n sentences of
-#             MODULE)", one per theorem.
+#             "module of hooks and generated declarations only: ..." with its hook rows, each
+#             followed by its status, counted as tied. Before that form, a module row with no
+#             axiom, lemma, sort or symbol row of its module in e6map's scope is accounted sentence
+#             by sentence of the module's code on the tie of its `fixture` text (e6map.py's form
+#             (m)): a list of the theorems of its rules and configuration on that text, and a last
+#             item "not held by TEXT: ..." naming the sentences inside a block comment of the
+#             module's code (no sentences of the module, owed nothing). A live sentence of the
+#             module's code (an uncommented rule, syntax, context or claim) that the text holds no
+#             sentence of is stated by no theorem, so the row is "uncovered: MODULE; NAME
+#             (FILE:LINE) held by no tied text; on TEXT n of its m rules and its configuration are
+#             tied (FILES)".
