@@ -1,0 +1,11 @@
+command: kompile --backend haskell e6-mod-rat-kore.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.2
+definition.kore bytes: 156613
+definition.kore sha256: 0f5b4583dc16a6b4bca65059fa450a672dcff3198b75b1d667af3d1ef5265120
+stripped sha256: fc675d8c12cb65fb876ffafc1a8448c9f5d79339fc0fc707bd3b6488bc9fd0db
+main module: 353 sentences, 50 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-MOD-RAT-KORE-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E6-MOD-RAT-KORE as default.
