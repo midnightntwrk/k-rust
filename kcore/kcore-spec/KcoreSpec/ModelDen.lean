@@ -99,6 +99,74 @@ theorem symAt_full {n : String} {args : List Elem} {k : CtorSig} {p : Nat} {vs :
   refine (ite_mem _ _ x).trans ?_
   rw [if_pos hl, hv]
 
+/-- No arguments: `resolve` reads the name alone. -/
+theorem resolve_nil (n : String) :
+    resolve c n [] = ((kernelSyms c).find? fun k => c.symName k.name == n).map (·, 0) :=
+  resolve_plain n [] (by simp)
+
+/-- What `symAt` holds: the partial application of the name, or, where a symbol resolves at the
+arguments and those after its sort arguments are values, a result of that symbol at them. -/
+theorem symAt_cases {n : String} {args : List Elem} {x : Elem} (hx : symAt c n args x) :
+    x = .app (.sym n) args ∨
+      ∃ k p vs, resolve c n args = some (k, p) ∧ vals (args.drop p) = some vs ∧ result c k vs x := by
+  unfold symAt at hx
+  cases hr : resolve c n args with
+  | none =>
+    rw [hr] at hx
+    left
+    have hx' := (ite_mem _ _ _).mp hx
+    split at hx'
+    · rename_i ha; rw [ha]; exact hx'
+    · split at hx'
+      · exact hx'
+      · rename_i hneg
+        exact (cast (congrFun (symAt.match_3.eq_2 (fun _ _ => Set Elem) n args
+          (fun _ => fun x => x = Elem.app (.sym n) args) (fun _ _ => fun _ => False) hneg) x) hx').elim
+  | some kp =>
+    obtain ⟨k, p⟩ := kp
+    rw [hr] at hx
+    have hx' := (ite_mem _ _ _).mp hx
+    by_cases hl : args.length < p + k.args.length
+    · rw [if_pos hl] at hx'; exact .inl hx'
+    · rw [if_neg hl] at hx'
+      have hx2 := (ite_mem _ _ _).mp hx'
+      by_cases hl2 : args.length = p + k.args.length
+      · rw [if_pos hl2] at hx2
+        cases hv : vals (args.drop p) with
+        | none => rw [hv] at hx2; exact hx2.elim
+        | some vs => rw [hv] at hx2; exact .inr ⟨k, p, vs, rfl, hv, hx2⟩
+      · rw [if_neg hl2] at hx2; exact hx2.elim
+
+/-- Where no symbol resolves at the arguments, `symAt` holds at most the partial application of
+the name. -/
+theorem symAt_none_app {n : String} {args : List Elem} {x : Elem} (hr : resolve c n args = none)
+    (hx : symAt c n args x) : x = .app (.sym n) args := by
+  rcases symAt_cases hx with h | ⟨k, p, vs, hr', -⟩
+  · exact h
+  · rw [hr] at hr'; cases hr'
+
+/-- Where no symbol resolves at arguments, `symAt` holds something there only for `Lblite` at one
+argument. -/
+theorem symAt_none_late {n : String} {args : List Elem} {x : Elem} (hr : resolve c n args = none)
+    (ha : args ≠ []) (hx : symAt c n args x) : n = "Lblite" ∧ args.length = 1 := by
+  unfold symAt at hx
+  rw [hr] at hx
+  have hx' := (ite_mem _ _ _).mp hx
+  rw [if_neg ha] at hx'
+  split at hx'
+  · exact ⟨rfl, rfl⟩
+  · rename_i hneg
+    exact (cast (congrFun (symAt.match_3.eq_2 (fun _ _ => Set Elem) n args
+      (fun _ => fun x => x = Elem.app (.sym n) args) (fun _ _ => fun _ => False) hneg) x) hx').elim
+
+/-- Where no symbol of `kernelSyms` is an instance at the head `n` and no symbol resolves at two
+arguments or more, `symAt` holds nothing there. -/
+theorem symAt_none_noInst {n : String} {args : List Elem} (hr : resolve c n args = none)
+    (_hi : ∀ k ∈ kernelSyms c, ∀ xs, instDecode? (c.symName k.name) ≠ some (n, xs))
+    (hl : 2 ≤ args.length) (x : Elem) : ¬ symAt c n args x := fun hx =>
+  absurd (symAt_none_late hr (fun h => by rw [h] at hl; cases hl) hx).2 (by omega)
+
+
 namespace AtT
 
 variable {T : GroundTerm → GroundTerm → Prop}

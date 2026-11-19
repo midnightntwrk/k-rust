@@ -774,15 +774,12 @@ theorem armName_free {Nm : Parse.Names} {msrc : String} {eqs : List Parse.RawEqn
       refine ⟨?_, ?_⟩ <;>
         · intro he; rw [he] at hX; revert hX; decide
     have hres : Faithful.Model.resolve c e.fn [] = none := by
-      unfold Faithful.Model.resolve
-      split
-      · rename_i h; cases h
-      · rw [Option.map_eq_none_iff, List.find?_eq_none]
-        intro k hk hn
-        have he := beq_iff_eq.mp hn
-        obtain ⟨φ, hφ, hm⟩ := kernelSym_named hk (by rw [he]; exact iteSort_none_of_proj hX)
-        rw [he] at hm
-        exact hfree φ hφ hm
+      rw [Faithful.Model.resolve_nil, Option.map_eq_none_iff, List.find?_eq_none]
+      intro k hk hn
+      have he := beq_iff_eq.mp hn
+      obtain ⟨φ, hφ, hm⟩ := kernelSym_named hk (by rw [he]; exact iteSort_none_of_proj hX)
+      rw [he] at hm
+      exact hfree φ hφ hm
     refine ⟨hfree, ?_⟩
     simp only [unresolvedB, hres, Option.isNone_none, Bool.and_true, Bool.and_eq_true, bne_iff_ne, ne_eq]
     exact hne

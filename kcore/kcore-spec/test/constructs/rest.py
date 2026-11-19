@@ -150,6 +150,19 @@ The evidence forms (DONE-0 C2's table), by status and list, and the items each n
                    `reasons` is not needed; or, for an option that writes no definition (unit
                    "none (scope): option", `shape` "none: ..."), a fixture of the entry whose
                    kompile.txt holds `definition.kore: none written`, and `reasons` is not needed
+      option row   instead of a RefusalReason, on an entry outside E8 of unit "none (scope): option"
+                   with no RefusalReason item whose `shape` is "E8 <row key>" (a pass or construct that acts only under that
+                   option): the E8 row exists, is refused of class scope or R-b, and has its own
+                   evidence here; and a fixture of the entry is an error fixture (fixture.toml
+                   expect = "error") whose kompile.txt `command:` passes R-12's options only (kompile
+                   refuses the text under default options) or passes that option (kompile refuses
+                   it under the option): no definition kompile delivers holds what the entry names
+      undelivered  instead of a RefusalReason, on an entry of unit "none (scope): not delivered"
+                   with no RefusalReason item (the reader reads the frontend's sentence): a fixture
+                   of the entry is an error fixture whose kompile.txt records a non-zero exit and the
+                   validator's `Error` in its output, and another is a hand-written text (fixture.toml
+                   `kore`) whose account refuses nothing, is fresh, and prints a ReadingNote that the
+                   entry's `refused_by` or `evidence` names (the sentence read)
       scope        instead of a RefusalReason, on an E8 option row of class R-b or scope (the row's
                    key the option): `reasons` holds SCOPE_OPTION ("none (scope): option"), and a
                    fixture of the entry has kompile.txt's `command:` passing the option outside R-12's
@@ -618,6 +631,32 @@ def option_passed(fx, x, opt):
     return opt not in R12_OPTIONS or args[i + 1:i + 2] != [R12_OPTIONS[opt]]
 
 
+def r12_command(fx, x):
+    """The fixture's kompile.txt `command:` line passes R-12's options only, each with R-12's value
+    (`-o` aside): the text kompiled under default options."""
+    m = re.search(r"^command: kompile (.*?)(?:  \(cwd: [^)]*\))?$", fx.read(x, "kompile.txt") or "", re.M)
+    if not m:
+        return False
+    args, i = m[1].split(), 0
+    while i < len(args):
+        a = args[i]
+        if a == "-o":
+            i += 2; continue
+        if a.startswith("-"):
+            if a not in R12_OPTIONS or args[i + 1:i + 2] != [R12_OPTIONS[a]]:
+                return False
+            i += 2; continue
+        i += 1
+    return True
+
+
+def validator_error(fx, x):
+    """The fixture's kompile.txt records a non-zero exit and an `Error` in kompile's output."""
+    k = fx.read(x, "kompile.txt") or ""
+    out = k.split("\noutput:\n", 1)
+    return bool(re.search(r"^exit: [1-9]\d*$", k, re.M)) and len(out) == 2 and "Error" in out[1]
+
+
 def evidence(fx, l, key, e, row):
     """(present, missing): two lists of strings, the items of the entry's form (module docstring)."""
     f = form(l, key, e, row, fx)
@@ -774,10 +813,47 @@ def evidence(fx, l, key, e, row):
         option = (e.get("unit") == "none (scope): option" and isinstance(e.get("shape"), str)
                   and e["shape"].startswith("none: "))
         scope = SCOPE_OPTION in (e.get("reasons") or [])
+        e8 = (re.match(r"E8 (\S.*)$", e["shape"]) if l != "E8" and e.get("unit") == "none (scope): option"
+              and isinstance(e.get("shape"), str) and not rs else None)
+        undelivered = e.get("unit") == "none (scope): not delivered" and not rs
         if kompile_refuses:
             have.append(f"kompile refuses ({err[0]})")
         elif option and nodef:
             have.append(f"kompile writes no definition ({nodef[0]})")
+        elif e8:
+            k8 = e8[1]
+            row8 = ((fx.rows or {}).get("E8") or {}).get(k8)
+            if not isinstance(row8, dict):
+                miss.append(f"option row: shape {e['shape']!r} names no row of E8")
+            elif row8.get("status") != "refused" or row8.get("class") not in ("scope", "R-b"):
+                miss.append(f"option row: E8 {k8} is {row8.get('status')!r} of class {row8.get('class')!r},"
+                            " not refused of class scope or R-b")
+            else:
+                _, m8 = evidence(fx, "E8", k8, row8, row8)
+                item(not m8, f"option row: E8 {k8} refused, with its own evidence",
+                     f"option row: E8 {k8} has not its own evidence ({m8[0][:80] if m8 else ''})")
+            how = [(x, "default options" if r12_command(fx, x) else k8) for x in err
+                   if r12_command(fx, x) or option_passed(fx, x, k8)]
+            item(bool(how), f"option row: kompile refuses {how[0][0]}'s text under {how[0][1]}" if how else "",
+                 f"option row: no error fixture of the entry whose kompile.txt command passes R-12's options"
+                 f" only or {k8}" + (f" ({', '.join(own)})" if own else " (no fixture)"))
+        elif undelivered:
+            bad = [x for x in err if validator_error(fx, x)]
+            item(bool(bad), f"not delivered: {bad[0]} kompile.txt, the validator's error" if bad else "",
+                 "not delivered: no error fixture of the entry whose kompile.txt records a non-zero exit and"
+                 " an Error" + (f" ({', '.join(own)})" if own else " (no fixture)"))
+            words = set(re.findall(r"\w+", " ".join(str(e.get(f) or "") for f in ("refused_by", "evidence"))))
+            hand = [(x, fx.account(x)) for x in own
+                    if isinstance(fx.conf(x).get("kore"), str) and fx.account(x) is not None]
+            read = [(x, [r for i, r in a[0] if i == "ReadingNote" and r in words]) for x, a in hand if a[2]]
+            read = [(x, ns) for x, ns in read if ns]
+            item(bool(read), f"not delivered: hand-written {read[0][0]} read ({', '.join(sorted(read[0][1]))})"
+                 if read else "",
+                 "not delivered: no hand-written fixture of the entry whose account refuses nothing and prints a"
+                 " ReadingNote the entry names" + (f" ({', '.join(x for x, _ in hand)})" if hand else ""))
+            if read:
+                fr = fx.fresh_equal(read[0][0])
+                item(fr is True, "fresh account", "fresh account (" + ("differs" if fr is False else str(fr)) + ")")
         elif scope and not (l == "E8" and e.get("class") in ("R-b", "scope")):
             miss.append(f"{SCOPE_OPTION!r} (only on an E8 option row of class R-b or scope)")
         else:
@@ -1405,9 +1481,28 @@ def self_test():
             open(os.path.join(fxd, name, "kompile.txt"), "w").write(
                 f"command: kompile {args} -o out  (cwd: the fixture directory)\nexit: 0\n")
             open(os.path.join(fxd, name, "account.txt"), "w").write(acc)
+        # error fixtures: kompile refuses under default options (validator's error in the output),
+        # under --opt, under another option; a hand-written text read, one refused
+        for name, args, out in (("errdef", "--backend haskell a.k", "  kore-exec: Error (ErrorParse):\n"),
+                                ("erropt", "--backend haskell --opt a.k", "  [Error] Compiler: x\n"),
+                                ("errother", "--backend haskell --other a.k", "  [Error] Compiler: x\n"),
+                                ("errquiet", "--backend haskell a.k", "  nothing\n")):
+            os.makedirs(os.path.join(fxd, name))
+            open(os.path.join(fxd, name, "fixture.toml"), "w").write('expect = "error"\n')
+            open(os.path.join(fxd, name, "kompile.txt"), "w").write(
+                f"command: kompile {args} -o out  (cwd: the fixture directory)\nexit: 113\noutput:\n{out}")
+        for name, acc in (("hwread", clean + "  1 read identityAlias [user]\n"), ("hwref", refusing)):
+            os.makedirs(os.path.join(fxd, name))
+            open(os.path.join(fxd, name, "fixture.toml"), "w").write(f'kore = "{name}.kore"\n')
+            open(os.path.join(fxd, name, "kompile.txt"), "w").write("command: none\n")
+            open(os.path.join(fxd, name, "account.txt"), "w").write(acc)
         rows = {"E3": {"U": {"status": "inert", "inert_class": "use", "reason": "C1", "fixture": "ok"},
                        "V": {"status": "inert", "inert_class": "use", "fixture": "ok"},
-                       "E": {"status": "erased", "fixture": "eq"}}}
+                       "E": {"status": "erased", "fixture": "eq"}},
+                "E8": {"--opt": {"status": "refused", "fixture": "optk", "class": "scope",
+                                 "reasons": [SCOPE_OPTION], "reason": "r"},
+                       "--bare": {"status": "refused", "class": "scope", "reasons": [SCOPE_OPTION], "reason": "r"},
+                       "--fine": {"status": "supported", "fixture": "optk"}}}
         fx = Fixtures(fxd, False, rows)
         fx.fresh_equal = lambda name: True
         import kfix
@@ -1608,6 +1703,39 @@ def self_test():
                              "reasons": [SCOPE_OPTION], "reason": "r"}, False),
             ("E8", "--opt", {"status": "refused", "fixture": "optk", "class": "R-a",
                              "reasons": [SCOPE_OPTION], "reason": "r"}, False),
+            # an entry outside E8 that acts only under an E8 row's option: that row's evidence and an
+            # error fixture under default options or under the option
+            ("E7", "A", {"status": "refused", "class": "scope", "unit": "none (scope): option", "shape": "E8 --opt",
+                         "fixture": "errdef", "reason": "r"}, True),
+            ("E7", "A", {"status": "refused", "class": "scope", "unit": "none (scope): option", "shape": "E8 --opt",
+                         "fixture": "erropt", "reason": "r"}, True),
+            ("E7", "A", {"status": "refused", "class": "scope", "unit": "none (scope): option", "shape": "E8 --opt",
+                         "fixture": "errother", "reason": "r"}, False),
+            ("E7", "A", {"status": "refused", "class": "scope", "unit": "none (scope): option", "shape": "E8 --opt",
+                         "fixture": "optk", "reason": "r"}, False),
+            ("E7", "A", {"status": "refused", "class": "scope", "unit": "none (scope): option", "shape": "E8 --bare",
+                         "fixture": "errdef", "reason": "r"}, False),
+            ("E7", "A", {"status": "refused", "class": "scope", "unit": "none (scope): option", "shape": "E8 --fine",
+                         "fixture": "errdef", "reason": "r"}, False),
+            ("E7", "A", {"status": "refused", "class": "scope", "unit": "none (scope): option", "shape": "E8 --none",
+                         "fixture": "errdef", "reason": "r"}, False),
+            # not delivered, the reader reading the frontend's sentence on a hand-written text
+            ("E2", "A", {"status": "refused", "class": "scope", "unit": "none (scope): not delivered",
+                         "fixture": "errdef", "also_fixtures": ["hwread"], "refused_by": "kore-exec; read (identityAlias)",
+                         "reason": "r"}, True),
+            ("E2", "A", {"status": "refused", "class": "scope", "unit": "none (scope): not delivered",
+                         "fixture": "errdef", "also_fixtures": ["hwread"], "refused_by": "kore-exec", "reason": "r"}, False),
+            ("E2", "A", {"status": "refused", "class": "scope", "unit": "none (scope): not delivered",
+                         "fixture": "errdef", "also_fixtures": ["hwref"], "refused_by": "identityAlias", "reason": "r"}, False),
+            ("E2", "A", {"status": "refused", "class": "scope", "unit": "none (scope): not delivered",
+                         "fixture": "errdef", "also_fixtures": ["ok"], "refused_by": "inert simplification", "reason": "r"}, False),
+            ("E2", "A", {"status": "refused", "class": "scope", "unit": "none (scope): not delivered",
+                         "fixture": "errquiet", "also_fixtures": ["hwread"], "refused_by": "identityAlias", "reason": "r"}, False),
+            ("E2", "A", {"status": "refused", "class": "scope", "unit": "none (scope): not delivered",
+                         "also_fixtures": ["hwread"], "refused_by": "identityAlias", "reason": "r"}, False),
+            # with a RefusalReason, a not-delivered entry is checked against the account as before
+            ("E2", "A", {"status": "refused", "class": "scope", "unit": "none (scope): not delivered",
+                         "fixture": "hwref", "reasons": ["RefusalReason.setVariable"], "reason": "r"}, True),
             ("E2", "A", {"status": "inert", "fixture": "ok", "inert_class": "simplification", "tie": [tie],
                          "tie_theorems": ["KCore.C3EqReqEns.f_5"]}, True),
             ("E2", "A", {"status": "inert", "fixture": "ok", "inert_class": "claim", "tie": [tie],

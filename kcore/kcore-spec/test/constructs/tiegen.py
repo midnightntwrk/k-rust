@@ -41,13 +41,19 @@ file repeats. Without --split the output is the single file.
 agreement, a clause's match independence, or a rule's or clause's condition (`owed_rules`,
 `owed_clauses`): FILE proves the owed facts and states `consistent` for every H, with `facts` for an
 agreement, and `owed_rules`, `owed_clauses` and `openDecidedH` (`OpenDecided` for every H) otherwise.
+It also takes a text that owes a held-named function's fact (`Held`, `HeldOwed`) or the totality of a
+`[total]` function (`total_named` not empty), beside any of those: FILE then states
+`theorem consistent (H : HookParams) : Consistent (cH H)` (refused otherwise), with `held_named` or
+`total_named`, and `fnHypH` (`FnHyp` for every H) where its route is `FnHyp`. Where it is not (a
+held-named function's fact false, so `FnHyp` fails), the header and the summary say that the
+function functional sentences, owed as `FnHyp`, are not shown by the tie.
 --at-values N,... names the user lemmas (by `AxiomDecl.index`) that are of the class `user lemma at
 values` in place of `user lemma`; an index that is no user lemma of the text is refused.
 
 It refuses, with the reason, a fixture without a kompiled text, a text whose `kcore account` is not
 the fixture's account.txt, a text the reader refuses, a text whose obligations `kcore gen --core`
-states in a form not in OBL_FORMS, or which owes termination, totality or a held-named function's
-fact, or, without --hand consistency, a match independence or a rule's or clause's condition;
+states in a form not in OBL_FORMS, or which owes termination, or, without --hand consistency,
+totality, a held-named function's fact, a match independence or a rule's or clause's condition;
 a text whose `attrsAgree` fails; a law of the reader or a law item of Γ that is not one sentence as
 written; a text with a law of a function that the probe refutes at values (Function laws, below).
 
@@ -449,10 +455,11 @@ def named_list(src, thm):
 def obligations(name, path, hand=False):
     """What `kcore gen --core` names of the text: the obligation form, the call order, the
     functions its agreement list names, whether it names a clause's match independence (`match`) and
-    whether it owes a rule's or clause's condition (`owed`). Refused: a form not in OBL_FORMS,
-    termination or totality named, a held-named function (`Held`); without `hand` (a consistency
-    section written by hand that proves them), a match independence named or an owed condition
-    (`Owed`)."""
+    whether it owes a rule's or clause's condition (`owed`), the held-named functions (`held`,
+    `held_names`) and the `[total]` functions whose totality is owed (`total`, `total_names`).
+    Refused: a form not in OBL_FORMS, termination named; without `hand` (a consistency section
+    written by hand that proves them), totality named, a held-named function (`Held`), a match
+    independence named or an owed condition (`Owed`)."""
     with tempfile.TemporaryDirectory(prefix="tiegen-") as d:
         g = run([KCORE, "gen", path, d, "TieGenProbe", "--core"], cwd=KS)
         if g.returncode != 0:
@@ -460,7 +467,7 @@ def obligations(name, path, hand=False):
         fh = open(os.path.join(d, "TieGenProbe/FnHyp.lean")).read()
         order = open(os.path.join(d, "TieGenProbe/FnHyp/Order.lean")).read()
         mods = {}
-        for m in ("Term", "Total", "Agree", "Match", "Owed"):
+        for m in ("Term", "Total", "Agree", "Match", "Owed", "Held"):
             p = os.path.join(d, f"TieGenProbe/FnHyp/{m}.lean")
             mods[m] = open(p).read() if os.path.exists(p) else ""
     form = None
@@ -470,8 +477,12 @@ def obligations(name, path, hand=False):
     if form is None:
         m = re.search(r"^abbrev Obl.*$", fh, re.M)
         raise Refused(f"{name}: the obligations are in a form tiegen does not state ({m[0] if m else 'no Obl'})")
-    if re.search(r"^abbrev Held\b", fh, re.M):
-        raise Refused(f"{name}: a held-named function (`kcore gen --core` states `Held`)")
+    form["held"] = bool(re.search(r"^abbrev Held\b", fh, re.M))
+    hm = re.search(r"^theorem held_named : .*?=\s*(\[.*?\])", mods["Held"], re.M | re.S)
+    form["held_names"] = re.findall(r"\d+ /- (.*?) -/", hm[1]) if hm else []
+    if form["held"] and not hand:
+        raise Refused(f"{name}: a held-named function (`kcore gen --core` states `Held`): its proof goes in "
+                      f"--hand consistency")
     if re.search(r"^abbrev Owed\b", fh, re.M) and not hand:
         raise Refused(f"{name}: an owed condition (`kcore gen --core` states `Owed`): its proof goes in "
                       f"--hand consistency")
@@ -479,11 +490,15 @@ def obligations(name, path, hand=False):
                                                    ("agree_named", "Agree"), ("match_named", "Match"))}
     if any(v is None for v in lists.values()):
         raise Refused(f"{name}: `kcore gen --core` states no list of {[k for k, v in lists.items() if v is None]}")
-    others = [k for k in ("term_named", "total_named") + (() if hand else ("match_named",)) if lists[k]]
+    others = [k for k in ("term_named",) + (() if hand else ("total_named", "match_named")) if lists[k]]
     if others:
         raise Refused(f"{name}: an owed fact other than an agreement ({', '.join(others)} not empty)"
-                      + ("" if hand or others != ["match_named"] else ": its proof goes in --hand consistency"))
+                      + ("" if hand or not set(others) <= {"total_named", "match_named"}
+                         else ": its proof goes in --hand consistency"))
     form["match"] = bool(lists["match_named"])
+    form["total"] = lists["total_named"]
+    tm = re.search(r"^theorem total_named : .*?=\s*(\[.*?\])", mods["Total"], re.M | re.S)
+    form["total_names"] = re.findall(r"\d+ /- (.*?) -/", tm[1]) if tm else []
     form["agree"] = lists["agree_named"]
     am = re.search(r"^theorem agree_named : .*?=\s*(\[.*?\])", mods["Agree"], re.M | re.S)
     form["agree_names"] = re.findall(r"\d+ /- (.*?) -/", am[1]) if am else []
@@ -1047,6 +1062,15 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             fn_pair, pair_text, pair_w = True, txt, ws[0]
     agree = ob["agree"]
     facts_kind = ob["kind"]
+    # a held-named function's fact or a `[total]` function's totality owed (`--hand consistency`
+    # only): the hand section states `consistent` for every H, by `FnHyp` (`fnHypH`) or otherwise
+    held_total = "consistency" in hand and bool(ob.get("held") or ob.get("total"))
+    held_hand = held_total and bool(ob.get("held"))
+    hand_c = hand.get("consistency", "")
+    if held_total and not re.search(r"^theorem consistent \(H : HookParams\) : Consistent \(cH H\)", hand_c, re.M):
+        raise Refused(f"{name}: the consistency section does not state `consistent` for every H "
+                      f"(`theorem consistent (H : HookParams) : Consistent (cH H)`)")
+    fnhyp_hand = held_total and bool(re.search(r"^theorem fnHypH \(H : HookParams\) : FnHyp \(cH H\)", hand_c, re.M))
     tp_params = ob["hform"] and head["totalNil"] != "true"
     # where a `[total]` function applies a parameter the text declares total, its totality holds
     # under the interpretations total on those parameters (`totalObligationsRP callOrder
@@ -1126,7 +1150,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     if raw and (agree or confined or facts_kind != "FnFacts"):
         raise Refused(f"{name}: an open generator beside an owed agreement or a confined sort: tiegen states "
                       f"neither together")
-    if agree and confined:
+    if agree and confined and not held_hand:
         raise Refused(f"{name}: an owed agreement beside a confined sort: tiegen states not both")
     if confined and head["litBool"] != "true":
         raise Refused(f"{name}: the definition reads a confined sort and Bool holds other than its literals (`Γcl` empty)")
@@ -1205,6 +1229,29 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             w("    has no law, so that is every H (`openLaws_any`, `consistent_any`).")
         else:
             w("    `consistent`), at `lawHooks c H` for every H (`lawHooks_laws`, `consistent_lawHooks`).")
+    elif held_total:
+        th = "`Γc`" if confined else "Γ"
+        owes = []
+        if ob.get("held"):
+            hn = " and ".join(f"`{x}`" for x in ob["held_names"])
+            owes.append(f"the fact of the held-named function {hn} (`held_named`, `HeldOwed`: the variables of its "
+                        f"clauses are held, or it has a result at every argument list of its sorts)")
+        if ob.get("total"):
+            tn = " and ".join(f"`{x}`" for x in ob["total_names"])
+            owes.append(f"the totality of the `[total]` function {tn} (`total_named`)")
+        if agree:
+            owes.append("the agreement of " + " and ".join(f"`{x}`" for x in ob["agree_names"]) + " (`agree_named`)")
+        if ob["match"]:
+            owes.append("the match independence of a clause (`match_named`)")
+        if ob["owed"]:
+            owes.append("the condition of a rule or clause (`owed_rules`, `owed_clauses`)")
+        w(f"  - The definition reads {'a' if confined else 'no'} confined sort (`readsConfined_c`) and has no open generator (`noRaw`).")
+        para = (f"It owes {'; '.join(owes)}, which no decider confirms. The consistency section, written by hand, "
+                f"proves that {th} with the step's closure has a model for every H (`consistent`), ")
+        para += ("through `FnHyp` for every H (`fnHypH`)." if fnhyp_hand else
+                 "without `FnHyp`, which it does not state (its comment says why): the function functional "
+                 "sentences, owed as `FnHyp`, are not shown by this tie where `FnHyp` fails.")
+        w(textwrap.fill(para, 104, initial_indent="    ", subsequent_indent="    "))
     elif agree:
         an = " and ".join(f"`{x}`" for x in ob["agree_names"])
         w("  - The definition reads no confined sort (`readsConfined_c`) and has no open generator (`noRaw`).")
@@ -1331,7 +1378,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         owed_more += ("; user lemma: owed, by hand\n    (`userlemma_account`, `UserLemmaEntailed`, "
                       "`UserLemmaAtValues`)")
     w("  - Hooked functional, collection law, library: at values (no theorem here); function functional:")
-    w(f"    owed as `FnHyp` (no theorem){owed_more}; no direction: `absent_closed`.")
+    w(f"    owed as `FnHyp` ({'not stated here; ' if held_total and not fnhyp_hand else ''}no theorem){owed_more}; no direction: `absent_closed`.")
     w("")
     if law_idx:
         what = law_what(law_idx, raws, sents)
@@ -2208,7 +2255,10 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     if gamma and not fn_align:
         names += ["gamma_origin", "gamma_from"]
     after = []
-    if agree:
+    if held_total:
+        after += (["held_named"] if ob.get("held") else []) + (["total_named"] if ob.get("total") else []) + \
+            (["fnHypH"] if fnhyp_hand else [])
+    elif agree:
         after += ["agree_named"] + (["agree"] if "consistency" in hand else []) + ["facts"]
     if tp_held:
         after += ["total_named", "paramsTotal_witness", "consistent_witness"]
@@ -2232,7 +2282,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         names += ["paramlemma_account", "paramlemma_heads", "ParamLemmaWitnessAtValues"]
     if user_lem or user_lem_v:
         names += ["userlemma_account", "UserLemmaEntailed", "UserLemmaAtValues"]
-    if facts_kind == "FnFacts" and not agree and not raw:
+    if facts_kind == "FnFacts" and not agree and not raw and not held_total:
         names += ["owed_rules", "owed_clauses", "openDecidedH"]
     names += cnames
     pair_names = ["fns_account", "aW_narrowed", "w_text", "w_differs", "w1", "shape", "fns_entailed",
@@ -2259,6 +2309,9 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         marks = [(o if o <= a else o + len(new) - (b - a), m) for o, m in marks]
         lean = lean[:a] + new + lean[b:]
     owed = ([f"the agreement of {', '.join(ob['agree_names'])} (AgreeOwed)"] if agree and "consistency" not in hand else [])
+    if held_total and not fnhyp_hand:
+        owed.append("FnHyp, the hypothesis the function functional sentences are owed under (not stated: the "
+                    "consistency section shows `consistent` without it)")
     if param_lem:
         owed.append(f"one H at which FnObligations hold and the parameter lemmas {', '.join(map(str, param_lem))} "
                     f"hold at values (ParamLemmaWitnessAtValues)")
@@ -3352,9 +3405,9 @@ def main(argv):
         nsyms = len(re.findall(r"^\s*(?:(?:hooked-)?symbol|alias) ", text, re.M))
         wf_parts = (nsorts.bit_length() + 1, nsyms.bit_length() + 1)
     head, sents = probe(name, path, um0, ob["order_list"], cons_head)
-    if "consistency" in hand and not (ob["agree"] or ob["match"] or ob["owed"]):
-        raise Refused(f"{name}: --hand consistency is for a text that owes an agreement, a match independence or a "
-                      f"condition")
+    if "consistency" in hand and not (ob["agree"] or ob["match"] or ob["owed"] or ob["held"] or ob["total"]):
+        raise Refused(f"{name}: --hand consistency is for a text that owes an agreement, a match independence, a "
+                      f"condition, a held-named function's fact or a totality")
     laws, open_laws = nested(head["lawIx"]), nested(head["openLawIx"])
     if any(len(l) != 1 for l in laws) or len({l[0] for l in laws}) != len(laws):
         raise Refused(f"{name}: a law of the reader (`Definition.laws`) is not, as written, exactly one sentence of the user module")

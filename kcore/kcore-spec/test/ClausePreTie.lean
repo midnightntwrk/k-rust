@@ -61,7 +61,8 @@ theorem gCl1_facts :
     sortsOfTerms c.patCtxNF gCl1.vars gCl1.pats = some gFn.args ∧ gCl1.req = none ∧
     gCl1.openCondVars = [] ∧ gCl1.needsWitness c = false ∧
     (!gCl1.reqOpen || gCl1.reqClosed ||
-      gCl1.openCondVars.all fun i => (gCl1.vars[i]?.map c.confined).getD false) = true := by
+      gCl1.openCondVars.all fun i => (gCl1.vars[i]?.map c.confined).getD false ||
+        memHeld c (varOccsList gCl1.pats) gCl1.pre i) = true := by
   refine ⟨fun h => Cond.noConfusion (show Cond.ceil Srt.int uX = Cond.top from h), ?_, ?_, ?_, ?_, rfl, ?_, ?_, ?_⟩ <;>
     decide +kernel
 
@@ -85,6 +86,7 @@ example (hI : I ⊧ᴵP Γc c) (hnn : NamesNumbered c) (hg : genWf c = true) (hs
   exclEmptyCl_ofCl hI hnn hg hsc hph hcso hcs hph' hcv (L := c.fns.map Fn.sig) gCl1_facts.2.2.2.2.1 gCl1_facts.2.1
     (fun _ => ⟨preRead_gCl1 F hT, gCl1_facts.2.2.2.2.2.2.2.1⟩) (fun t ht => by rw [gCl1_facts.2.2.2.2.2.1] at ht; cases ht)
     gCl1_facts.2.2.2.2.2.2.2.2
+    (fun h => by rw [gCl1_facts.2.2.2.2.2.2.1] at h; cases h)
     (fun h => by rw [gCl1_facts.2.2.2.2.2.2.1] at h; cases h)
     (fun h => by rw [gCl1_facts.2.2.2.2.2.2.2.1] at h; cases h)
 

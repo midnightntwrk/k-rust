@@ -1729,6 +1729,15 @@ table above, on the tree before String and Bytes). Not investigated here.
   and `sl(sl(X)) => sl(X) [simplification, smt-lemma]` beside `f(X) => X`, `sl(X) => X`; each is
   inert, class `simplification`, carries its key, and is entailed by Γ at values, for every H
   (`ne_ev`, `sl_ev`, by `InertEvUser.EqnU.entailed`).
+- `test/InertE2Simplification.lean`: the C2 evidence of the inert rows E2 `comm`, `concrete`,
+  `preserves-definedness`, `symbolic` and `syntactic` at a simplification, on fixture
+  e2-simplification: axioms 149 (`f(X) *Int Y => Y *Int f(X) [concrete(Y), symbolic(X)]`), 150
+  (`f(X) *Int 0 => 0 [concrete]`), 169 (`f(X) -Int 0 => f(X) [preserves-definedness]`), 212
+  (`f(g(X, Y)) => g(X, Y) [syntactic(1)]`) and 215 (`g(X, Y) => g(Y, X)`, `comm` removed by
+  kompile) beside `f(X) => X` and `g(X, Y) => X +Int Y`; each is inert, class `simplification`,
+  carries its keys (`keys`), and is entailed by Γ at values, for every H (`s149_ev` to `s215_ev`,
+  by `InertEvUser.EqnU.entailed`). The text's two false simplifications (`test/InertE2SimpRefuted.lean`)
+  are not in Γ.
 - `test/C3SimpPrio.lean`, `test/C3OwiseSimp.lean`: the C2 evidence of the inert pairs
   `simplification` x `priority` and `[owise]` x `simplification` on their fixtures: the
   simplification sentence `f(f(X)) => f(X)` is entailed by Γ at values, for every H (`simp_ev`,
@@ -1836,8 +1845,13 @@ table above, on the tree before String and Bytes). Not investigated here.
   (`decls_entailed`) and `Int2BytesNoLen`'s declaration (`lib_decls_entailed`), for every H; the
   library's equation at 0 (domains.md 2250, axiom 189) is entailed at values for every H meeting
   `i2bZeroEq` (`ev189`); `Hi2b` meets it (`ev189_Hi2b`); at `HookParams.none` the left side has no
-  value at 0 where the right side has one (`zero_none`). The other four equations (2252-2258) match a
-  Signedness constructor, which no LibEv term expresses. Axioms guarded.
+  value at 0 where the right side has one (`zero_none`). The other four equations (2252-2258, axioms
+  185-188), which match a Signedness constructor (a nullary constructor term of
+  `KcoreSpec/LibEvParam.lean`), are entailed at values for every H meeting `i2bMinEq`
+  (`Int2BytesNoLen` is `Int2Bytes` at the fewest bytes holding the Int, `MinLenI2b`), 2256 also
+  under `notEqI2b` (`~Int I` is `-I - 1`) (`ev185`-`ev188`); `Hi2bAll` meets the three conditions,
+  so the five equations hold together at values at one H (`hi2bAll_meets`, `ev_Hi2bAll`). Axioms
+  guarded.
 - `test/LibEvCollSym.lean`: the lemmas of MAP-KORE-SYMBOLIC and SET-KORE-SYMBOLIC of
   `f2-examples/collsym.kompile.kore`, for every H, from the library's statements
   (`KcoreSpec/LibEvCollSym.lean`): entailed at values, without an `ensures` (`LibEv.Eqn`; domains.md

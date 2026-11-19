@@ -128,7 +128,7 @@ theorem fnK_mem : fnK ∈ c.sortPreds := List.getElem_mem _
 
 theorem evalCtxN_H (H : HookParams) : EvalCtxN (cH H) := by
   have hokA : (cH H).okAll = true := (Semantics.okAll_withHooks c H).trans okAll_c
-  exact evalCtxN_of_all (hpreTop := Semantics.preTop_of_okAll hokA)
+  exact evalCtxN_of_all (hpreTop := Semantics.preTop_of_okAll hokA) (Semantics.fnsNoExs_of_okAll hokA)
     (Semantics.sortedOK_of_okAll hokA
       (Semantics.ovlPatsOK_of_ovlCase (Semantics.ovlCase_of_core (coreOKH H))))
     ((Semantics.srReady_withHooks c H).trans srReady_c) (Semantics.ovlCase_of_core (coreOKH H))
