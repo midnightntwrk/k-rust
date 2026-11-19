@@ -174,7 +174,7 @@ The evidence forms (DONE-0 C2's table), by status and list, and the items each n
       C carried_by "<list> <row key>": that row is not erased and has its own evidence here, and the
                    entry's `sentence` occurs in that row's fixture
   refused
-      reasons      `reasons` holds RefusalReason.X items
+      reasons      `reasons` holds RefusalReason.X items; or `core_failing` (below) in their place
       account      a fixture of the entry (`fixture`, `also_fixtures`) whose account prints each of
                    them (a refusal line or a class line, as closed.py reads accounts); or, for an
                    entry kompile refuses (unit "none (scope): rejected", or class R-b with an error
@@ -201,6 +201,11 @@ The evidence forms (DONE-0 C2's table), by status and list, and the items each n
                    option set (an argument other than `--backend haskell`, or `--backend` with another
                    value); RefusalReason items beside it are checked as above (what the reader answers
                    on the text the option gives); the item on another entry is missing evidence
+      core failing instead of a RefusalReason, on a text the reader reads but whose semantics
+                   fails coreOK: `core_failing`, a non-empty list of conjunct names of coreOK as
+                   KcoreGen.coreParts names them, equal as a set to the `failing:` list of the line
+                   `coreOK: false; failing: [...]` that the account of a fixture of the entry prints
+                   (where `reasons` is also given, its items are checked as above)
       fresh        as above, for a fixture that has an account
       reason       a reason sentence (`reason`, `reader_reason` or `refused_by`)
   independent (a [C3] pair)
@@ -359,6 +364,7 @@ class Fixtures:
     def __init__(self, fx, fresh, rows=None):
         self.fx, self.fresh, self._acc, self._fresh, self._text = fx, fresh, {}, {}, {}
         self.ctors = constructors()
+        self.core_parts = core_part_names()
         self.rows = rows
 
     def check_absent(self, e):
@@ -428,6 +434,15 @@ class Fixtures:
                 self._acc[name] = (names, refusals, clean)
         return self._acc[name]
 
+    def core_failing(self, name):
+        """The conjuncts of coreOK the account prints as failing (its line `coreOK: B; failing:
+        [...]`, an empty list where B is true), or None without account.txt or that line."""
+        a = self.read(name, "account.txt")
+        m = re.search(r"^coreOK: (true|false); failing: \[(.*)\]$", a or "", re.M)
+        if not m:
+            return None
+        return [x.strip() for x in m[2].split(", ") if x.strip()]
+
     def nodir_tie(self, name, ties):
         """The tie file of the fixture whose classes give a sentence's class: a file of `ties`, else
         any test/*.lean, that reads f2-examples/NAME.kompile.kore and defines `classes`; or None."""
@@ -474,6 +489,14 @@ CLASSLINE = re.compile(r"^\s+(\d+) (refused|inert|unread|read) (\w+) \[", re.M)
 REFUSAL = re.compile(r"(?:sentence \d+|the module) \(.*?\): (\w+)(?: \(.*\))?$", re.M)
 COUNTED = [("sentences the library's data induces that the text does not hold: ", "builtinIncomplete"),
            ("library sentences of the modules held that the text does not hold: ", "builtinIncomplete")]
+
+
+def core_part_names():
+    """The names of coreOK's conjuncts, as KcoreGen.coreParts pairs each with its check (the names
+    the account's line `coreOK: B; failing: [...]` prints)."""
+    src = open(os.path.join(K, "KcoreGen.lean")).read()
+    block = src.split("\ndef coreParts ", 1)[1].split("\n\n", 1)[0]
+    return re.findall(r'\("([^"]+)", ', block)
 
 
 def constructors():
@@ -986,6 +1009,7 @@ def evidence(fx, l, key, e, row):
     elif f == "refused":
         rs = [x.split(".", 1)[1] for x in (e.get("reasons") or [])
               if isinstance(x, str) and x.startswith("RefusalReason.")]
+        cf = e.get("core_failing")
         err = [x for x in own if (fx.conf(x).get("expect") == "error")]
         kompile_refuses = bool(err) and (e.get("unit") == "none (scope): rejected" or e.get("class") == "R-b")
         nodef = [x for x in own if re.search(r"^definition\.kore: none written$", fx.read(x, "kompile.txt") or "", re.M)]
@@ -1041,9 +1065,10 @@ def evidence(fx, l, key, e, row):
                 item(bool(passed), f"scope: option {key} outside R-12 ({passed[0] if passed else ''} kompile.txt)",
                      f"scope: no fixture of the entry whose kompile.txt command passes {key} outside R-12"
                      + (f" ({', '.join(own)})" if own else " (no fixture)"))
-            else:
+            elif cf is None:
                 item(bool(rs), "reasons " + ", ".join(rs), "reasons (RefusalReason)")
             accs = [(x, fx.account(x)) for x in own if fx.account(x) is not None]
+            fresh_of = []
             if not accs and not scope:
                 miss.append("fixture whose account prints the reason" + ("" if own else " (no fixture)"))
             elif not accs and rs:
@@ -1053,10 +1078,24 @@ def evidence(fx, l, key, e, row):
                 item(bool(hit), f"account {hit[0] if hit else ''} prints the reason",
                      f"account prints {', '.join(rs)} ({', '.join(x for x, _ in accs)} print "
                      + (", ".join(sorted(set().union(*[a[1] for _, a in accs]))) or "no refusal") + ")")
-                if hit:
-                    fr = fx.fresh_equal(hit[0])
-                    item(fr is True, "fresh account",
-                         "fresh account (" + ("differs" if fr is False else str(fr)) + ")")
+                fresh_of += hit[:1]
+            if cf is not None and not scope:
+                names = cf if isinstance(cf, list) and all(isinstance(x, str) for x in cf) else None
+                bad = [x for x in (names or []) if x not in fx.core_parts]
+                if not names or bad:
+                    miss.append("core_failing (" + (f"{bad[0]!r} is no conjunct of KcoreGen.coreParts" if bad
+                                                    else "a non-empty list of coreOK's conjunct names") + ")")
+                elif accs:
+                    printed = [(x, fx.core_failing(x)) for x, _ in accs]
+                    hit = [x for x, c in printed if c is not None and set(c) == set(names)]
+                    item(bool(hit), f"core_failing {', '.join(names)} (account {hit[0] if hit else ''})",
+                         f"core_failing: no account prints coreOK false failing exactly {', '.join(names)} ("
+                         + "; ".join(f"{x}: " + ("no coreOK line" if c is None else f"[{', '.join(c)}]")
+                                     for x, c in printed) + ")")
+                    fresh_of += [x for x in hit[:1] if x not in fresh_of]
+            for x in fresh_of:
+                fr = fx.fresh_equal(x)
+                item(fr is True, "fresh account", "fresh account (" + ("differs" if fr is False else str(fr)) + ")")
         reason_sentence(["reason", "reader_reason", "refused_by"])
     elif f == "independent":
         ds = e.get("declarations")
@@ -1679,6 +1718,12 @@ def self_test():
             open(os.path.join(fxd, name, "fixture.toml"), "w").write('expect = "error"\n')
             open(os.path.join(fxd, name, "kompile.txt"), "w").write(
                 f"command: kompile {args} -o out  (cwd: the fixture directory)\nexit: 113\noutput:\n{out}")
+        # a text read whose semantics fails coreOK at two conjuncts; one where coreOK holds
+        for name, acc in (("corefail", clean + "coreOK: false; failing: [subsortsOK, clauses sorted]\n"),
+                          ("coreok", clean + "coreOK: true; failing: []\n")):
+            os.makedirs(os.path.join(fxd, name))
+            open(os.path.join(fxd, name, "kompile.txt"), "w").write("exit: 0\n")
+            open(os.path.join(fxd, name, "account.txt"), "w").write(acc)
         for name, acc in (("hwread", clean + "  1 read identityAlias [user]\n"), ("hwref", refusing)):
             os.makedirs(os.path.join(fxd, name))
             open(os.path.join(fxd, name, "fixture.toml"), "w").write(f'kore = "{name}.kore"\n')
@@ -1855,6 +1900,25 @@ def self_test():
             ("E2", "A", {"status": "refused", "fixture": "bad", "reasons": ["RefusalReason.ruleShape"],
                          "reason": "r"}, False),
             ("E2", "A", {"status": "refused", "fixture": "bad", "reasons": ["RefusalReason.setVariable"]}, False),
+            # coreOK's failing conjuncts in place of a RefusalReason
+            ("E2", "A", {"status": "refused", "fixture": "corefail", "core_failing": ["clauses sorted", "subsortsOK"],
+                         "reason": "r"}, True),
+            ("E2", "A", {"status": "refused", "fixture": "corefail", "core_failing": ["subsortsOK"],
+                         "reason": "r"}, False),
+            ("E2", "A", {"status": "refused", "fixture": "corefail", "core_failing": ["subsortsOK", "clauses sorted",
+                         "genWf"], "reason": "r"}, False),
+            ("E2", "A", {"status": "refused", "fixture": "corefail", "core_failing": ["subsortsOK", "noSuchPart"],
+                         "reason": "r"}, False),
+            ("E2", "A", {"status": "refused", "fixture": "corefail", "core_failing": [], "reason": "r"}, False),
+            ("E2", "A", {"status": "refused", "fixture": "corefail", "reason": "r"}, False),
+            ("E2", "A", {"status": "refused", "fixture": "coreok", "core_failing": ["subsortsOK"], "reason": "r"}, False),
+            ("E2", "A", {"status": "refused", "fixture": "ok", "core_failing": ["subsortsOK"], "reason": "r"}, False),
+            ("E2", "A", {"status": "refused", "core_failing": ["subsortsOK"], "reason": "r"}, False),
+            ("E2", "A", {"status": "refused", "fixture": "corefail", "core_failing": ["subsortsOK", "clauses sorted"],
+                         "reasons": ["RefusalReason.setVariable"], "reason": "r"}, False),
+            ("E2", "A", {"status": "refused", "fixture": "bad", "also_fixtures": ["corefail"],
+                         "core_failing": ["subsortsOK", "clauses sorted"],
+                         "reasons": ["RefusalReason.setVariable"], "reason": "r"}, True),
             ("E2", "A", {"status": "refused", "fixture": "err", "class": "R-b", "reason": "r"}, True),
             ("E2", "A", {"status": "refused", "fixture": "err", "class": "R-a", "reason": "r"}, False),
             ("E2", "A", {"status": "erased", "fixture": "eq"}, True),

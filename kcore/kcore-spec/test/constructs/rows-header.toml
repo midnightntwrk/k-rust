@@ -61,6 +61,10 @@
 #             haskell`), which refuses the row whatever the reader answers on the text the option
 #             gives; test/constructs/rest.py accepts it in place of a RefusalReason where a fixture
 #             of the entry has kompile.txt's command passing the option outside that set.
+#   core_failing  on a refused entry whose fixture's text the reader reads and whose semantics fails
+#             coreOK: the conjuncts of coreOK (as KcoreGen.coreParts names them) that the line
+#             `coreOK: false; failing: [...]` of the fixture's account.txt prints; test/constructs/rest.py
+#             accepts it in place of a RefusalReason where it equals that list as a set.
 # First written by test/constructs/seed-rows.py (its docstring states how each status was carried).
 # Then test/constructs/apply-triage.py applies findings/TRIAGE-*.toml, copying each decision's fields
 # as written (names made one vocabulary; its docstring gives the renaming). Fields it adds:

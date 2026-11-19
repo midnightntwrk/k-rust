@@ -1,3 +1,3 @@
 command: none: fixture.toml kore = 'test/constructs/fixtures/hw-ex-bool-subsort/hw-ex-bool-subsort.kore', a KORE text kompile does not write; account.txt is `kcore account test/constructs/fixtures/hw-ex-bool-subsort/hw-ex-bool-subsort.kore` (cwd: kcore-spec)
-definition.kore bytes: 139981
-definition.kore sha256: f2b0bbf20a73a4ea9aa357543bc908d6b4df0249a8302ac1da1521169196dc53
+definition.kore bytes: 140240
+definition.kore sha256: 16e21338a556182ac4252ad020320ba5d937abb66e33a071b981869ca882385e

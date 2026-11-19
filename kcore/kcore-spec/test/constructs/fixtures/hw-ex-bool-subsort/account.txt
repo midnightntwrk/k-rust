@@ -1,7 +1,7 @@
 test/constructs/fixtures/hw-ex-bool-subsort/hw-ex-bool-subsort.kore: 5 modules; prelude agrees
-user module E3-EQ-EXISTS-BOOL-ML: 286 sentences
+user module E3-EQ-EXISTS-BOOL-ML: 287 sentences
   1 inert import [generated]
-  164 read [generated]
+  165 read [generated]
   95 read [builtin]
   1 read [user]
   4 inert injectivity [generated]
@@ -11,7 +11,7 @@ user module E3-EQ-EXISTS-BOOL-ML: 286 sentences
   1 read existentialClause [user]
   1 inert simplification [generated]
 connective readings per sentence: 1
-      sentence 250: existentialClause
+      sentence 251: existentialClause
 stage refusals (of sentences classified read): 0
 read and not accounted for: 0
 inert constructor axioms not induced by the constructors: 0
@@ -20,9 +20,6 @@ law axioms of no collection's concatenation: 0
 rules with an `ensures`: 0
 rules read with the premise ⌈rhs ∧ ens⌉ (ruleRightDefined): 0
 rules and clauses applying a function symbol in their left side: 0
-KItem no-junk axioms read with a generator inj{X, KItem} they do not list, X a sort of d below KItem (tokKItem): 1
-      sentence 216: Foo (the reading adds the subsort, which the text does not state)
-      the text's sentence entails Γ's no-junk item of KItem; where such a sort has an element, the text's sentence with Γ has no model
 sentences the library's data induces that the text does not hold: 0
 library sentences of the modules held that the text does not hold: 0
 sentences every definition holds (kernelText) that the text does not: 4

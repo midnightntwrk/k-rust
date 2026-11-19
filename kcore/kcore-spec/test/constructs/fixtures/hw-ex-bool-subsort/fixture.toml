@@ -2,8 +2,10 @@
 # sentences written as its fixture's path, and two sentences added after f's declaration: a sort Foo and the subsort axiom
 # Foo < Bool, in kompile's form. The sentences of Foo's sort predicate isFoo are added as kompile writes them for a user
 # sort, isKCell's renamed (unique ids prefixed Foo-): its declaration and its `functional` axiom after isBool's, and its two
-# equations (isFoo(inj{Foo,KItem}(X)) = true, isFoo(K) = false [owise]) after isBool's. The text's declarations then give
-# Bool an element beside its literals. kompile writes none
+# equations (isFoo(inj{Foo,KItem}(X)) = true, isFoo(K) = false [owise]) after isBool's. What kompile writes for every
+# user sort below KItem is added too: the subsort axiom Foo < KItem, after the text's last subsort axiom, and Foo's
+# disjunct in KItem's no-junk axiom, after Bool's (the disjuncts in the order of their sorts' names). The text's
+# declarations then give Bool an element beside its literals. kompile writes none
 # (on `syntax Bool ::= Foo` kompile exits 113, "Cannot add new constructors to hooked sort Bool").
 # Expected: f(X) = #Exists B:Bool. (B #And {B #Equals notBool X}) read by ceRead (existentialClause), not by exRead; the text
 # read with coreOK false, failing subsortsOK (the subsort Foo < Bool into the library sort Bool) and genWf.
