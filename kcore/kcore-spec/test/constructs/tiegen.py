@@ -1219,16 +1219,30 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                         break_on_hyphens=False, break_long_words=False))
         w("")
     if user_lem or user_lem_v:
-        para = [f"The user lemmas ({', '.join(map(str, user_lem + user_lem_v))}) are sentences of a user's file that the "
-                "reader leaves out of Γ as lemmas (inert simplification) and that apply no parameter symbol "
-                "without `impl`."]
+        # the class at values holds the lemmas `--at-values` names and, named by no option, the user's
+        # equations of a symbol whose value the registry gives (`Parse.regLemmaEqn`)
+        v_named = [i for i in user_lem_v if i in at_values]
+        v_reg = [i for i in user_lem_v if i not in at_values]
+        if not v_reg:
+            para = [f"The user lemmas ({', '.join(map(str, user_lem + user_lem_v))}) are sentences of a user's file "
+                    "that the reader leaves out of Γ as lemmas (inert simplification) and that apply no parameter "
+                    "symbol without `impl`."]
+        else:
+            para = [f"The user lemmas ({', '.join(map(str, user_lem + user_lem_v))}) are sentences of a user's file "
+                    "that the reader leaves out of Γ and that apply no parameter symbol without `impl`."]
+            if user_lem or v_named:
+                para.append(f"Lemmas (inert simplification): {', '.join(map(str, user_lem + v_named))}.")
+            para.append("Equations whose left side is headed by a symbol whose value the registry gives "
+                        f"(`Parse.regLemmaEqn`): {', '.join(map(str, v_reg))}; each rests on that symbol's graph, "
+                        "which Γ states at values.")
         if user_lem:
             para.append(f"Of the class `{USER_LEMMA_CLASS}` (direction `entailed`): {', '.join(map(str, user_lem))}, "
                         "each owed as `Γ (cH H) ⊧ (trS ad).pat` for every H (`UserLemmaEntailed`).")
         if user_lem_v:
-            para.append(f"Of the class `{USER_LEMMA_VALUES_CLASS}` (direction `atValues`), named by `--at-values`: "
-                        f"{', '.join(map(str, user_lem_v))}, each owed at the valuations sending its variables to "
-                        "values, for every H (`UserLemmaAtValues`).")
+            para.append(f"Of the class `{USER_LEMMA_VALUES_CLASS}` (direction `atValues`)"
+                        + (", named by `--at-values`" if not v_reg else "") + f": {', '.join(map(str, user_lem_v))}, "
+                        "each owed at the valuations sending its variables to values, for every H "
+                        "(`UserLemmaAtValues`).")
         para.append("Both are stated here and proved by hand: owed. A lemma that is false has no proof, and its "
                     "text is not tied.")
         w(textwrap.fill(" ".join(para), width=100, initial_indent="  ", subsequent_indent="  ",
