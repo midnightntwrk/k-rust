@@ -36,7 +36,10 @@ Failures (exit 1):
     reads nothing);
   - a constructor no entry names that PINNED does not hold; a name PINNED holds that is no
     constructor, or that an entry names, or whose ticket is not in PROGRESS or is done (as
-    units.py's ALLOWANCE).
+    units.py's ALLOWANCE);
+  - a name UNREACHED holds (a constructor no KORE text can make an account print, with why) that is
+    no constructor, or that some fixture's account.txt prints. An entry naming one in `reasons`
+    without a fixture is not counted among the reasons names no committed account shows.
 Printed: per inductive, how many constructors are named; each constructor no entry names with the
 ticket that owes it; how many `reasons` names no committed account shows (their entry's evidence
 names no fixture); and, per catch-all (CATCHALL below: a reason produced by an arm that takes
@@ -132,6 +135,17 @@ UNSHOWN = ("R2-release.C4", 0)
 PINNED = [
     # no stage of the reader produces it yet (ReadFns.hoistExists, its producer, has no caller there)
     ("RefusalReason.existentialEquation", "CE.reader-wire"),
+]
+
+# Constructors that no KORE text can make an account print, each with why. An entry may name one in
+# `reasons` without a fixture (it is then not counted among the reasons names no committed account
+# shows); an account.txt printing one fails, since the reason is then false.
+UNREACHED = [
+    ("RefusalReason.noModule",
+     "a KORE definition is a non-empty sequence of modules (kore-syntax.md:286, <modules> sep-by-1) and"
+     " KCore's KORE parser reads `many1 module` (kore-lean/KoreParser/Parser.lean:376), so `kcore account`"
+     " on a text of no module stops at the KORE read error; Parse.parse and Account.refusals give it only"
+     " for a Kore.Definition built in Lean with no module"),
 ]
 
 
@@ -267,7 +281,8 @@ for l, tab in t.items():
                         continue
                     here.add((ind, c))
                     if not ev:
-                        unshown.append(f"{where}: {x}")
+                        if x not in dict(UNREACHED):
+                            unshown.append(f"{where}: {x}")
                     elif (ind, c) not in shown:
                         unprinted.append(f"{where}: reasons {x}: no account.txt of the fixtures its evidence"
                                          f" names ({', '.join(ev)}) prints it")
@@ -403,6 +418,15 @@ for x, tid in PINNED:
     elif st == "done":
         bad.append(f"pin {x}: ticket {tid} is done, so it owes nothing")
 
+for x, why in UNREACHED:
+    ind, _, c = x.partition(".")
+    if ind not in CTORS or c not in CTORS[ind]:
+        bad.append(f"unreached {x}: no constructor of KcoreSpec/Parse.lean")
+    for name in ALLFX:
+        a = account(name)
+        if a and (ind, c) in a[0]:
+            bad.append(f"unreached {x}: fixtures/{name}/account.txt prints it, so no text reaching it is false")
+
 utid, upin = UNSHOWN
 ust = tstatus.get(utid)
 uwhy = ("" if len(unprinted) == upin and (upin == 0 or ust not in (None, "done")) else
@@ -419,6 +443,8 @@ print(f"  allowance {utid} (status {ust}): {len(unprinted)} of {upin} pinned: re
       " their entry's evidence names do not print" + (f"; FAILS: {uwhy}" if uwhy else ""))
 for u in unprinted:
     print(f"    {u}")
+for x, why in UNREACHED:
+    print(f"  unreached by any text: {x} (named by {len(named.get(tuple(x.split('.', 1)), []))} entries): {why}")
 for ind, c in unnamed:
     tid = pinned.get(f"{ind}.{c}")
     print(f"  not named: {ind}.{c}: " + (f"owed by {tid} (status {tstatus.get(tid)})" if tid else "no ticket"))

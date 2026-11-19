@@ -1,0 +1,63 @@
+id = "t240-rat-ceil-div"
+kind = "text"
+subject = "A text importing RAT: the module's [simplification] sentence #Ceil(@R1 /Rat @R2) => {(@R2 =/=Rat 0) #Equals true} #And #Ceil(@R1) #And #Ceil(@R2), beside the four equations of /Rat. What the sentence states of a quotient by 0, of a quotient by a pair whose first component is 0, and at a set of two divisors."
+origin = "kcore-spec fixture e6-param-rat (its import of RAT)"
+rests_on = ["kk:t91-set-variable-lemmas", "kk:t10-fn-innermost", "kk:t11-eq-applies", "kk:t32-keq-ite"]
+
+[text]
+files = ["t240-rat-ceil-div.k"]
+kompile = "accepts"
+
+[ruling]
+status = "settled"
+form = "no-model"
+statement = "The sentence states its two sides equal at every assignment of a set of values of Rat to @R1 and to @R2. At @R1 = {0}, @R2 = {0, 1} its left side holds, since 0 /Rat 1 is 0, and its right side does not, since @R2 =/=Rat 0 denotes false and true: the sentence is false there in every model of the module's equations, so the text has no model, whatever a quotient by 0 denotes. At sets of one value the sentence states that R /Rat 0 has no value for every value R of Rat, which no equation of /Rat states, and that R /Rat S has a value at every value S that is not the integer 0. The second equation of /Rat states 1 /Rat < 0 , 2 >Rat = 2 /Rat 0, so where the pair < 0 , 2 >Rat is not the element the integer 0 is, the sentence states of 2 /Rat 0 both that it has no value and that it has one: there the sentence fails at one of the two assignments ({2}, {0}) and ({1}, {< 0 , 2 >Rat}) whichever of the two 2 /Rat 0 does."
+reason = '''
+(1) The range. The sentence is written with the set variables @R1 and @R2 and carries the simplification attribute (rat.md:109-112). It states its two sides equal at every assignment of a set of values of Rat to each of the two, the sets of two values among them, and the attribute changes nothing of what it states (kk:t91-set-variable-lemmas).
+(2) The symbols. /Rat is a function and is not declared total (rat.md:38). It has four equations (rat.md:152-155): a pair by a pair, an integer by a pair, a pair by an integer J requires J =/=Int 0, an integer by an integer J requires J =/=Int 0. Each states its right side at exactly the arguments its patterns denote where its requires is true (kk:t11-eq-applies). None applies at an integer divisor 0: the first two ask a pair as the divisor, the last two ask J =/=Int 0. =/=Rat is total (rat.md:53) and R =/=Rat S is R =/=K S (rat.md:127), which is false where the two denote the same element and true where they denote different ones (kk:t32-keq-ite).
+(3) At @R1 = {0}, @R2 = {0, 1}. The fourth equation applies at (0, 1), since 1 =/=Int 0, and states 0 /Rat 1 = makeRat(0, 1); makeRat(0, J) is 0 where J =/=Int 0 (rat.md:166; the other equation of makeRat/2 asks I =/=Int 0, rat.md:168). So 0 /Rat 1 is 0 (an application at arguments that have values is the application at those values, kk:t10-fn-innermost), @R1 /Rat @R2 denotes at least the value 0, and the left side holds. On the right, 0 =/=Rat 0 is false and 1 =/=Rat 0 is true, so @R2 =/=Rat 0 denotes false and true; true denotes one value, and false is not true (domains.md:1084), so {(@R2 =/=Rat 0) #Equals true} does not hold and neither does the right side. The left side holds and the right side does not. The derivation uses that 0 /Rat 1 has a value, that 0 =/=Rat 0 is false and 1 =/=Rat 0 true, and that false is not true; it uses nothing of what 0 /Rat 0 denotes. It is the derivation of kk:t91-set-variable-lemmas, point (3), at /Rat.
+(4) Every model of the text satisfies the equations used in (3) and would satisfy the sentence at the assignment of (3). So the text has no model.
+(5) At sets of one value, the divisor the integer 0: at @R1 = {R}, @R2 = {0}, 0 =/=Rat 0 is false, the right side does not hold, and the sentence states that #Ceil(R /Rat 0) does not hold: R /Rat 0 has no value. By (2) no equation of /Rat speaks of an integer divisor 0 at an integer or a pair dividend, so this is said by the sentence alone.
+(6) At sets of one value, the divisor a value S that is not the element the integer 0 is: S =/=Rat 0 is true, both #Ceil on the right hold, and the sentence states that R /Rat S has a value.
+(7) < 0 , 2 >Rat is a value of Rat: the production takes two integers (rat.md:100), and the invariant written above it (rat.md:99: I =/= 0, J >= 2, I and J coprime) is a comment, in no sentence. The second equation of /Rat has no requires and applies at (1, < 0 , 2 >Rat) with I = 1, J = 0, J' = 2: it states 1 /Rat < 0 , 2 >Rat = (1 *Int 2) /Rat 0, which is the application 2 /Rat 0 (kk:t10-fn-innermost). The two sides of an equation denote the same, so 1 /Rat < 0 , 2 >Rat has a value exactly where 2 /Rat 0 has.
+(8) Where < 0 , 2 >Rat is not the element the integer 0 is: by (6) at ({1}, {< 0 , 2 >Rat}) the sentence states that 1 /Rat < 0 , 2 >Rat has a value, so by (7) that 2 /Rat 0 has one; by (5) at ({2}, {0}) it states that 2 /Rat 0 has none. If 2 /Rat 0 has a value the sentence is false at ({2}, {0}); if it has none the sentence is false at ({1}, {< 0 , 2 >Rat}). So no choice of what 2 /Rat 0 denotes makes the sentence true at sets of one value. Whether a pair may be the element an integer is, is not settled here; (3) and (4) do not need it.'''
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/rat.md:109-112 (K 7.1.337)"
+quote = "#Ceil(@R1:Rat /Rat @R2:Rat) => {(@R2 =/=Rat 0) #Equals true} #And #Ceil(@R1) #And #Ceil(@R2) [simplification]"
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/rat.md:38 (K 7.1.337)"
+quote = '''| Rat "/Rat" Rat [function, symbol(_/Rat_), left, smtlib(ratdiv), hook(RAT.div)]'''
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/rat.md:53 (K 7.1.337)"
+quote = '''| Rat "=/=Rat" Rat [function, total, symbol(_=/=Rat_), smtlib(ratne), hook(RAT.ne)]'''
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/rat.md:99-100 (K 7.1.337)"
+quote = '''// invariant of < I , J >Rat : I =/= 0, J >= 2, and I and J are coprime syntax Rat ::= "<" Int "," Int ">Rat" [format(%2 /Rat %4)]'''
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/rat.md:127 (K 7.1.337)"
+quote = "rule R =/=Rat S => R =/=K S"
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/rat.md:152-155 (K 7.1.337)"
+quote = "rule < I , I' >Rat /Rat < J , J' >Rat => (I *Int J') /Rat (I' *Int J) rule I:Int /Rat < J , J' >Rat => (I *Int J') /Rat J rule < I , I' >Rat /Rat J:Int => I /Rat (I' *Int J) requires J =/=Int 0 rule I:Int /Rat J:Int => makeRat(I, J) requires J =/=Int 0"
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/rat.md:166-168 (K 7.1.337)"
+quote = "rule makeRat(0, J) => 0 requires J =/=Int 0 rule makeRat(I, J) => makeRat(I, J, gcdInt(I,J)) requires I =/=Int 0 andBool J =/=Int 0"
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1084 (K 7.1.337)"
+quote = "The boolean values are `true` and `false`."

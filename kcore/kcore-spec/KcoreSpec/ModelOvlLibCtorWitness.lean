@@ -53,7 +53,7 @@ theorem c0_coreOK : c0.coreOK = true := by decide_coreOK
 overloadsOK.1 to overloadsOK.9). -/
 def ov1 (c : Semantics) : Bool := c.ovls.all fun o => c.isOvl o.sig.name
 def ov2 (c : Semantics) : Bool := c.ovls.all fun o => c.lookupOvl o.sig.name == some o
-def ov3 (c : Semantics) : Bool := c.ovls.all fun o => (iteSort? (c.symName o.sig.name)).isNone
+def ov3 (c : Semantics) : Bool := c.ovls.all fun o => (instDecode? (c.symName o.sig.name)).isNone
 def ov4 (c : Semantics) : Bool := c.ovls.all fun o => (consSorts c).contains o.sig.result
 def ov5 (c : Semantics) : Bool := c.ovls.zipIdx.all fun (o, i) =>
   o.over.all fun g => (lookupSig c.ctorSigs g).isSome || (c.ovls.take i).any (·.sig.name == g) ||

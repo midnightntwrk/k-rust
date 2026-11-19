@@ -415,16 +415,9 @@ note = "the reader refuses it (rows.toml E4 tree:Pattern.rightAssoc is refused),
 #            of KK.encodable (a fixture's or ref-kimp's text), the table's Bool, or the first
 #            uncovered hook row's; refused_on, the text or table entry; first_uncovered, the hook
 #            row a module row is refused by.
-# Entries: 1079; covered 419; refused 660 (paramsOK 405, appsOK 158, litsOK 48, shapesOK 41, ovlsOK 8).
-# By evidence: fixture 858, hook table 139, kimp 50, module hooks 19, sort table 13.
-# No evidence text, no verdict (a fixture is owed; check fails on them, check --report lists them): 7:
-#   E3 ML-SYNTAX:Sort::="#Top"#cases[1]
-#   E3 ML-SYNTAX:Sort2::="#Floor" "(" Sort1 ")"#cases[1]
-#   E3 ML-SYNTAX:Sort::=Sort "#Implies" Sort#cases[1]
-#   E3 ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2#cases[18]
-#   E4 grammar:<matching-logic-pattern>::="\floor" "{" <sort> "," <sort> "}" "(" <pattern> ")"#cases[0]
-#   E4 tree:Pattern.floor#cases[0]
-#   E5 translateSymbol:symbol#1#cases[1]
+# Entries: 1088; covered 425; refused 663 (paramsOK 406, appsOK 158, litsOK 48, shapesOK 42, ovlsOK 9).
+# By evidence: fixture 867, hook table 139, kimp 50, module hooks 19, sort table 13.
+# No evidence text, no verdict (a fixture is owed; check fails on them, check --report lists them): 0.
 
 [rows.E1."Require:kw:requires"]
 verdict = "covered"
@@ -998,6 +991,11 @@ verdict = "covered"
 by = "fixture"
 case = "e3-ml-rule-lhs-top"
 
+[rows.E3."ML-SYNTAX:Sort::=\"#Top\"#cases[1]"]
+verdict = "covered"
+by = "fixture"
+case = "e3-ml-req-top"
+
 [rows.E3."ML-SYNTAX:Sort::=\"#Top\"#cases[2]"]
 verdict = "refused"
 by = "fixture"
@@ -1068,6 +1066,11 @@ verdict = "refused"
 by = "fixture"
 bool = "shapesOK"
 refused_on = "e3-ml-rule-lhs-ceil-ctor"
+
+[rows.E3."ML-SYNTAX:Sort2::=\"#Floor\" \"(\" Sort1 \")\"#cases[1]"]
+verdict = "covered"
+by = "fixture"
+case = "e3-ml-req-floor"
 
 [rows.E3."ML-SYNTAX:Sort2::=\"{\" Sort1 \"#Equals\" Sort1 \"}\""]
 verdict = "refused"
@@ -1184,6 +1187,17 @@ verdict = "covered"
 by = "fixture"
 case = "e3-ml-eq-rhs-or-empty"
 
+[rows.E3."ML-SYNTAX:Sort::=Sort \"#Implies\" Sort#cases[0]"]
+verdict = "refused"
+by = "fixture"
+bool = "shapesOK"
+refused_on = "e3-ml-rule-lhs-implies"
+
+[rows.E3."ML-SYNTAX:Sort::=Sort \"#Implies\" Sort#cases[1]"]
+verdict = "covered"
+by = "fixture"
+case = "e3-ml-req-implies"
+
 [rows.E3."ML-SYNTAX:Sort2::=\"#Exists\" Sort1 \".\" Sort2#cases[0]"]
 verdict = "covered"
 by = "fixture"
@@ -1211,6 +1225,11 @@ verdict = "refused"
 by = "fixture"
 bool = "appsOK"
 refused_on = "e3-vars"
+
+[rows.E3."ML-SYNTAX:Sort2::=\"#Exists\" Sort1 \".\" Sort2#cases[18]"]
+verdict = "covered"
+by = "fixture"
+case = "e3-ml-req-exists"
 
 [rows.E3."ML-SYNTAX:Sort2::=\"#Forall\" Sort1 \".\" Sort2#cases[1]"]
 verdict = "refused"
@@ -1894,6 +1913,11 @@ by = "fixture"
 bool = "paramsOK"
 refused_on = "e8-ref"
 
+[rows.E4."grammar:<matching-logic-pattern>::=\"\\floor\" \"{\" <sort> \",\" <sort> \"}\" \"(\" <pattern> \")\"#cases[0]"]
+verdict = "covered"
+by = "fixture"
+case = "e3-ml-req-floor"
+
 [rows.E4."grammar:<matching-logic-pattern>::=\"\\equals\" \"{\" <sort> \",\" <sort> \"}\" \"(\" <pattern> \",\" <pattern> \")\""]
 verdict = "covered"
 by = "fixture"
@@ -2113,6 +2137,11 @@ by = "fixture"
 bool = "paramsOK"
 refused_on = "e8-ref"
 
+[rows.E4."tree:Pattern.floor#cases[0]"]
+verdict = "covered"
+by = "fixture"
+case = "e3-ml-req-floor"
+
 [rows.E4."tree:Pattern.equals"]
 verdict = "covered"
 by = "fixture"
@@ -2233,6 +2262,12 @@ verdict = "covered"
 by = "fixture"
 case = "base"
 
+[rows.E5."translateSymbol:symbol#1#cases[1]"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e5-fn-noeq"
+
 [rows.E5."translateSymbol:symbol#1#cases[2]"]
 verdict = "covered"
 by = "fixture"
@@ -2319,6 +2354,12 @@ refused_on = "e5-owise-nonexec"
 verdict = "covered"
 by = "fixture"
 case = "base"
+
+[rows.E5."convertRule:axiom#1#cases[10]"]
+verdict = "refused"
+by = "fixture"
+bool = "ovlsOK"
+refused_on = "e5-ovl-fun-clause"
 
 [rows.E5."convertRule:axiom#1#cases[11]"]
 verdict = "covered"

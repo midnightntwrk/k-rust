@@ -188,7 +188,7 @@ theorem a_sort (H : HookParams) : (cH H).sortOf aV = some 32 := by
 def kd : CtorSig := ⟨388, [32, 32], 32⟩
 
 theorem kd_mem : kd ∈ kernelSyms c := by decide +kernel
-theorem iteSort_d : iteSort? (c.symName 388) = none := by decide +kernel
+theorem noInst_d : instDecode? (c.symName 388) = none := by decide +kernel
 
 kernel_rfl sigItems_withHooks : ∀ (c : Semantics) (H : HookParams), sigItems (c.withHooks H) = sigItems c
 
@@ -198,11 +198,8 @@ theorem d_arity {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hD 
     {b0 b1 m : M} (h0 : InS I "Exp" b0) (h1 : InS I "Exp" b1) (hm : AppE I a [b0, b1] m) :
     InS I "Exp" m := by
   have hit : I ⊧ᴵ (symArityItem c kd).pat := hS _ (Or.inl (Or.inl ⟨_, sig_arity kd_mem, rfl⟩))
-  unfold symArityItem at hit
-  unfold symHead at ha
-  rw [show kd.name = 388 from rfl, iteSort_d] at hit
-  rw [iteSort_d] at ha
-  dsimp only at hit ha
+  rw [symArityItem_noInst (k := kd) noInst_d, show kd.name = 388 from rfl] at hit
+  rw [symHead_noInst (c := c) (f := 388) noInst_d] at ha
   unfold KoreAML.arityItem at hit
   dsimp only [KoreAML.paramTable, List.map_nil] at hit
   have hinc := (KoreAML.interp_included hD).mp (hit KoreAML.val0 default) m

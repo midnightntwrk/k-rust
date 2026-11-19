@@ -11,6 +11,8 @@
   - The account: the class lists partition the 253 sentences of the user module C3-EQ-OWISE-OWISE, in
     `tieClasses`' order (`account`, `account_sizes`, `account_classes`); the no-direction class holds
     exactly the sentences that apply a symbol Γ lacks (`account_absent`, `absent_closed`).
+  - `absent_proj_below`: the 13 no-direction sentences that are equations of a projection
+    `project:X` are of sorts X that are K, KItem or below KItem in Γ (`GenEqs.projBelowB`).
   - `attrs_agree`: the attributes the translation does not read agree with `defn`.
   - `sig_origin_but_next`: each of the 204 items of `sigItems c` but one is a declaration's item
     of the text or a surplus one; the one is next's arity at the configuration sort, which Γ states
@@ -38,8 +40,10 @@
   - The converse over Γ's content: each premise is a function sentence's translation up to a
     renaming, one of the five parts Γ defines by predicates, or definedness (`gamma_origin`,
     `gamma_from`).
-  - Hooked functional, collection law, library: at values (no theorem here); function functional:
-    owed as `FnHyp` (no theorem); no direction: `absent_closed`.
+  - Function functional: at values in every model of `Γc`, from the sort predicates' results, not
+    from `FnHyp` (`fnFun_at_values`, `fnFun_account`).
+  - Hooked functional, collection law, library: at values (no theorem here); no direction:
+    `absent_closed`.
 
   The sentences with no counterpart in f2-examples/ens.kompile.kore are `unmapped` (5);
   the sentences of a class with a theorem that no theorem here holds of are `uncovered` (0).
@@ -154,6 +158,32 @@ theorem absent_closed :
     (userAxioms.filter (fun ad => !(classOf "no direction").contains ad.index)).all
       (fun ad => (appHeadsOf ad.ax.pattern).all (gammaHasHead c)) = true :=
   tieAbsent_of_account userAxioms _ _ account_absent
+
+/-- The sentences of the no-direction class that are equations of a projection `project:X` (their
+left side applies `Lblproject'Coln'X`), each with X. -/
+def absentProj : List (Nat × String) :=
+  [(241, "Bool"), (242, "GeneratedCounterCell"), (243, "GeneratedCounterCellOpt"),
+   (244, "GeneratedTopCell"), (245, "GeneratedTopCellFragment"), (246, "Int"), (247, "K"),
+   (248, "KCell"), (249, "KCellOpt"), (250, "KItem"), (251, "List"), (252, "Map"), (253, "Set")]
+
+/-- Each sort of `absentProj` is K, KItem or a sort below KItem of Γ, with K and KItem
+constructor sorts. -/
+theorem absent_proj_below_c : absentProj.all (fun p => GenEqs.projBelowB c p.2) = true := by
+  decide +kernel
+
+/-- **The projections the no-direction class defines are of sorts below KItem**: `absentProj` is
+the list of the no-direction sentences whose left side applies a symbol `Lblproject'Coln'X`, each
+with that X, and each such X is K, KItem or a sort below KItem of Γ, with K and KItem constructor
+sorts (`GenEqs.projBelowB`). So the pattern each of these equations is at is functional and
+injective on X in every model of Γ (`GenEqs.projSel_fun`, `GenEqs.projSel_inj`): what the
+equation states of the pattern's symbols, Γ entails. -/
+theorem absent_proj_below (H : HookParams) :
+    (userAxioms.filter (fun ad => (classOf "no direction").contains ad.index &&
+        ((AttrsAgree.eqnHead ad.ax.pattern).getD "").startsWith "Lblproject'Coln'")).map
+      (fun ad => (ad.index, AttrsAgree.eqnHead ad.ax.pattern)) =
+      absentProj.map (fun p => (p.1, some ("Lblproject'Coln'" ++ p.2))) ∧
+    absentProj.all (fun p => GenEqs.projBelowB (cH H) p.2) = true :=
+  ⟨by rw [userAxioms_eq]; decide +kernel, absent_proj_below_c⟩
 
 /-- The sentences whose text is none of f2-examples/ens.kompile.kore's user module, with their class. -/
 def unmapped : List (Nat × String) :=
@@ -407,6 +437,73 @@ theorem facts (H : HookParams) : FnFacts (cH H) callOrder [] :=
 `consistent_of`, at `facts`). -/
 theorem consistent (H : HookParams) : Consistent (cH H) :=
   consistent_of_fnFacts (coreOKH H) (Semantics.rightHeld_withHooks_of_valued (by decide +kernel) H) (facts H)
+
+/-! ## Function functional (14): the sort predicates' `functional` sentences, at values in every model of Γc -/
+
+/- The class holds the `functional` sentences of 14 sort predicates `isX`,
+`\exists{R}(Val:SortBool{}, \equals{SortBool{}, R}(Val:SortBool{}, LblisX{}(K0:SortK{})))`. KCore builds
+the sort predicates (`Semantics.sortPreds`): each has a value at every K, and a model of `Γc` reads
+its application at a value's element as that value's element (`LibEv.sortPredFun_evC`, under
+`coreOK`, the clauses' predicates `\top`, no `\exists` in a clause, and no condition over a
+variable the patterns leave open). So each sentence holds in every model of `Γc`, and of `Γc` with
+the step's closure, at every valuation sending K0 to a value, for every H, from the sort predicates'
+own results and without `FnHyp`. -/
+
+/-- The sentences' indices. -/
+def fnFunIdx : List Nat := [80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93]
+
+/-- The sentences, in text order. -/
+noncomputable def fnFunText : List AxiomDecl := U.all.filter fun ad => fnFunIdx.contains ad.index
+
+theorem fnFun_indices : fnFunText.map (·.index) = fnFunIdx := by decide +kernel
+
+/-- **`fnFunText` is the account's function functional class**: the same indices, each once. -/
+theorem fnFun_account : (classOf "function functional").isPerm (fnFunText.map (·.index)) = true := by
+  decide +kernel
+
+/-- The sentence is the `functional` sentence of a sort predicate of `c`, over the one sort
+variable `R`, with its variables' sorts the registry's. -/
+noncomputable def fnFunOK (ad : AxiomDecl) : Bool :=
+  decide (ad.ax.sortVars = [Rv]) &&
+    c.sortPreds.any fun fn => decide (ad.ax.pattern = LibEv.funPat c fn.sig) && LibEv.predFunReg c fn.sig
+
+theorem fnFun_checked : fnFunText.all fnFunOK = true := by decide +kernel
+
+/-- None of the 14 reads a declaration or an alias. -/
+theorem fnFun_trS : fnFunText.all (fun ad => decide ((trS ad).pat = (trAxiom [] [] ad).pat)) = true := by
+  decide +kernel
+
+/-- The clauses' predicates are `\top`, no clause binds a variable by `\exists`, and no clause has
+a condition over a variable its patterns leave open. -/
+theorem fnFun_clauses : c.clausesPreTop = true ∧
+    (c.fns.all fun f => f.clauses.all fun cl => cl.exs.isEmpty) = true ∧
+    (c.fns.all fun f => f.clauses.all fun cl => !cl.reqOpen) = true := by
+  decide +kernel
+
+theorem fnFun_noWitH (H : HookParams) : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness (cH H) = false := by
+  intro fn hfn cl hcl
+  have h := List.all_eq_true.mp (List.all_eq_true.mp fnFun_clauses.2.2 fn hfn) cl hcl
+  simp only [Bool.not_eq_eq_eq_not, Bool.not_true] at h
+  simp [Clause.needsWitness, h]
+
+/-- **The function functional sentences hold at values in every model of `Γc`, for every H**
+(`EntailsAtValuesΓc`), without `FnHyp`. -/
+theorem fnFun_at_values (H : HookParams) : ∀ ad ∈ fnFunText, EntailsAtValuesΓc (cH H) ad (trS ad).pat := by
+  intro ad had
+  rw [of_decide_eq_true (List.all_eq_true.mp fnFun_trS ad had)]
+  have hok := List.all_eq_true.mp fnFun_checked ad had
+  simp only [fnFunOK, Bool.and_eq_true, decide_eq_true_eq] at hok
+  obtain ⟨hsv, hany⟩ := hok
+  obtain ⟨fn, hfn, hfp⟩ := List.any_eq_true.mp hany
+  simp only [Bool.and_eq_true, decide_eq_true_eq] at hfp
+  exact LibEv.sortPredFun_evC_withHooks H coreOK fnFun_clauses.1 (Semantics.fnsNoExs_of_all fnFun_clauses.2.1)
+    (fun fn hfn cl hcl hw => absurd hw (by rw [fnFun_noWitH H fn hfn cl hcl]; decide)) hfn hfp.2 ad hfp.1 hsv
+
+/-- The same in every model of `Γc` with the step's closure, the theory `Consistent` asks a model of. -/
+theorem fnFun_at_values_step (H : HookParams) : ∀ ad ∈ fnFunText,
+    ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), I ⊧ᴵP (Γc (cH H) ∪ Γstep (cH H)) →
+      ∀ e, AtValues (cH H) I e ad.ax → ∀ m, (trS ad).pat.interpret I e m :=
+  fun ad had M hM I hI => fnFun_at_values H ad had M hM I (fun φ hφ => hI φ (Or.inl hφ))
 
 /-! ## Patterns equal up to the names of their element variables -/
 
@@ -713,6 +810,7 @@ theorem nojunk_trivial_entailed (H : HookParams) :
   · rw [nj113]; exact orTopBot_valid hD rfl
   · rw [nj116]; exact orTopBot_valid hD rfl
 
+set_option maxHeartbeats 1000000 in
 /-- **No junk of the sorts with generators**: the translation of each sentence is the pattern of
 one of Γ's constructor items. -/
 theorem nojunk_items : ∀ ad ∈ [U.ax109, U.ax110, U.ax111, U.ax112, U.ax114, U.ax115],
@@ -878,8 +976,8 @@ theorem s166_pattern : U.ax157.ax.pattern = .implies KoreAML.R (.top KoreAML.R)
 theorem s166_free : (U.ax157.ax.sortVars.map sortVarKey ++ freeOf [] U.ax157.ax.pattern).eraseDups = [.sortVar "R", kI] := by
   decide +kernel
 theorem s166_sortVars : U.ax157.ax.sortVars = [KoreAML.Rv] := by decide +kernel
-theorem sub_name (H : HookParams) : (cH H).symName intSub = "Lbl'Unds'-Int'Unds'" ∧ iteSort? "Lbl'Unds'-Int'Unds'" = none :=
-  (by decide +kernel : c.symName intSub = "Lbl'Unds'-Int'Unds'" ∧ iteSort? "Lbl'Unds'-Int'Unds'" = none)
+theorem sub_name (H : HookParams) : (cH H).symName intSub = "Lbl'Unds'-Int'Unds'" ∧ instDecode? "Lbl'Unds'-Int'Unds'" = none :=
+  (by decide +kernel : c.symName intSub = "Lbl'Unds'-Int'Unds'" ∧ instDecode? "Lbl'Unds'-Int'Unds'" = none)
 theorem den_int0 (H : HookParams) : den (cH H) (KCore.int 0) = KoreAML.sym (.dv "0") ⬝ KoreAML.sym (.sort "SortInt") := by
   show den c (KCore.int 0) = _; decide +kernel
 theorem int_numbered (H : HookParams) : Srt.int < nRegSorts + (cH H).sortNames.length :=
@@ -930,7 +1028,7 @@ theorem lib166 (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation Kor
         (KoreAML.sym (.symbol "Lbl'Unds'-Int'Unds'") ⬝ .evar (t.ev kI)) ⬝ (KoreAML.sym (.dv "0") ⬝ KoreAML.sym (.sort "SortInt")) := rfl
     have h2 : KoreAML.den (symApp (cH H) intSub (GroundTerm.koreList (cH H) [KCore.int n, KCore.int 0])) =
         (KoreAML.sym (.symbol "Lbl'Unds'-Int'Unds'") ⬝ den (cH H) (KCore.int n)) ⬝ den (cH H) (KCore.int 0) := by
-      unfold symApp; rw [(sub_name H).1, (sub_name H).2]; rfl
+      rw [symApp_noInst (c := cH H) (f := intSub) (by rw [(sub_name H).1]; exact (sub_name H).2), (sub_name H).1]; rfl
     rw [h1, h2]
     refine interp_app_congr (fun m => interp_app_congr (fun _ => Iff.rfl) (fun m => ?_) m) (fun m => ?_) b
     · rw [interp_evar, he, hes]
@@ -1034,6 +1132,8 @@ end KCore.TieC3EqOwiseOwise
 #check @KCore.TieC3EqOwiseOwise.account_classes
 #check @KCore.TieC3EqOwiseOwise.account_absent
 #check @KCore.TieC3EqOwiseOwise.absent_closed
+#check @KCore.TieC3EqOwiseOwise.absent_proj_below_c
+#check @KCore.TieC3EqOwiseOwise.absent_proj_below
 #check @KCore.TieC3EqOwiseOwise.lists_in_account
 #check @KCore.TieC3EqOwiseOwise.attrs_agree
 #check @KCore.TieC3EqOwiseOwise.sig_origin_but_next
@@ -1042,6 +1142,12 @@ end KCore.TieC3EqOwiseOwise
 #check @KCore.TieC3EqOwiseOwise.agree_named
 #check @KCore.TieC3EqOwiseOwise.agree
 #check @KCore.TieC3EqOwiseOwise.facts
+#check @KCore.TieC3EqOwiseOwise.fnFun_indices
+#check @KCore.TieC3EqOwiseOwise.fnFun_account
+#check @KCore.TieC3EqOwiseOwise.fnFun_checked
+#check @KCore.TieC3EqOwiseOwise.fnFun_trS
+#check @KCore.TieC3EqOwiseOwise.fnFun_at_values
+#check @KCore.TieC3EqOwiseOwise.fnFun_at_values_step
 #check @KCore.TieC3EqOwiseOwise.fn_shape_but_owise
 #check @KCore.TieC3EqOwiseOwise.owise_not_literal
 #check @KCore.TieC3EqOwiseOwise.fn_align
@@ -1069,6 +1175,8 @@ end KCore.TieC3EqOwiseOwise
 #print axioms KCore.TieC3EqOwiseOwise.account_classes
 #print axioms KCore.TieC3EqOwiseOwise.account_absent
 #print axioms KCore.TieC3EqOwiseOwise.absent_closed
+#print axioms KCore.TieC3EqOwiseOwise.absent_proj_below_c
+#print axioms KCore.TieC3EqOwiseOwise.absent_proj_below
 #print axioms KCore.TieC3EqOwiseOwise.lists_in_account
 #print axioms KCore.TieC3EqOwiseOwise.attrs_agree
 #print axioms KCore.TieC3EqOwiseOwise.sig_origin_but_next
@@ -1077,6 +1185,12 @@ end KCore.TieC3EqOwiseOwise
 #print axioms KCore.TieC3EqOwiseOwise.agree_named
 #print axioms KCore.TieC3EqOwiseOwise.agree
 #print axioms KCore.TieC3EqOwiseOwise.facts
+#print axioms KCore.TieC3EqOwiseOwise.fnFun_indices
+#print axioms KCore.TieC3EqOwiseOwise.fnFun_account
+#print axioms KCore.TieC3EqOwiseOwise.fnFun_checked
+#print axioms KCore.TieC3EqOwiseOwise.fnFun_trS
+#print axioms KCore.TieC3EqOwiseOwise.fnFun_at_values
+#print axioms KCore.TieC3EqOwiseOwise.fnFun_at_values_step
 #print axioms KCore.TieC3EqOwiseOwise.fn_shape_but_owise
 #print axioms KCore.TieC3EqOwiseOwise.owise_not_literal
 #print axioms KCore.TieC3EqOwiseOwise.fn_align

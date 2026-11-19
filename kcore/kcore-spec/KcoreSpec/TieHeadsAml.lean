@@ -5,7 +5,7 @@
   - The signature (`ΓSig`): every symbol's arity at the head `Term.kore` applies it at
     (`symArityItem`), and items that apply no symbol at all.
   - The constructors (`ΓCons`) under `coreOK`: each generator of a constructor sort is a symbol of
-    Γ named plainly (not like `ite` at a sort), or the injection from a subsort; an overloading
+    Γ whose name the decoder reads as no instance, or the injection from a subsort; an overloading
     generator's covers and lifts are injections between sorts one below the other; the
     coherence triangles compose pairs of `subsorts`, which is transitive; the no-junk and law
     sentences are translations of KORE texts whose heads are such.
@@ -159,22 +159,21 @@ theorem consSortP_eq (n : String) : KoreAML.Cons.sortP n = sortP n := rfl
 
 /-! ## Γ's heads -/
 
-/-- A symbol of Γ named plainly is applied at no sort. -/
-theorem plain_memP {k : CtorSig} (hk : k ∈ kernelSyms c) (hi : iteSort? (c.symName k.name) = none) :
-    (c.symName k.name, []) ∈ gammaHeadsP c := by
-  have : headP [] (gammaHead c k.name) = (c.symName k.name, []) := by
-    unfold gammaHead; rw [hi]; rfl
+/-- A symbol of Γ is applied at the head `symApp` writes for it, at its sorts. -/
+theorem inst_memP_irs {k : CtorSig} (hk : k ∈ kernelSyms c) {h : String} {xs : List String}
+    (hw : ∀ ps, symApp c k.name ps = .app ⟨⟨h⟩⟩ (xs.map KoreAML.srt) ps) :
+    (h, xs.map sortP) ∈ gammaHeadsP c := by
+  have : headP [] (gammaHead c k.name) = (h, xs.map sortP) := by
+    rw [gammaHead_of_symApp hw]
+    simp only [headP, List.map_map]
+    congr 1
   rw [← this]
   exact List.mem_map_of_mem (List.mem_append_left _ (List.mem_map_of_mem hk))
 
-/-- A symbol of Γ named `ite{X}` is applied as `Lblite` at the sort `SortX`. -/
-theorem ite_memP {k : CtorSig} (hk : k ∈ kernelSyms c) {X : String} (hi : iteSort? (c.symName k.name) = some X) :
-    ("Lblite", [sortP X]) ∈ gammaHeadsP c := by
-  have : headP [] (gammaHead c k.name) = ("Lblite", [sortP X]) := by
-    unfold gammaHead; rw [hi]
-    simp only [headP, List.map_cons, List.map_nil, trSort_srtG]; rfl
-  rw [← this]
-  exact List.mem_map_of_mem (List.mem_append_left _ (List.mem_map_of_mem hk))
+/-- A symbol of Γ whose name the decoder reads as no instance is applied at no sort. -/
+theorem plain_memP {k : CtorSig} (hk : k ∈ kernelSyms c) (hi : instDecode? (c.symName k.name) = none) :
+    (c.symName k.name, []) ∈ gammaHeadsP c :=
+  inst_memP_irs (xs := []) hk (fun _ => symApp_noInst hi)
 
 /-- The injection at a pair of `subsorts`. -/
 theorem inj_memP {a b : Srt} (h : (a, b) ∈ c.subsorts) :
@@ -209,31 +208,18 @@ macro "ghv_close" : tactic => `(tactic| repeat (first
 
 /-- **Every symbol's arity item applies the symbol at its head of Γ**, `gammaHead`. -/
 theorem symArityItem_inGH {k : CtorSig} (hk : k ∈ kernelSyms c) : InGH c (symArityItem c k).pat := by
-  unfold symArityItem
-  cases hX : iteSort? (c.symName k.name) with
-  | none =>
-    simp only [KoreAML.arityItem, KoreAML.paramTable, List.map_nil, KoreAML.guarded]
-    refine inGH_included (inGH_plain ?_ (plain_memP hk hX) ?_) (inGH_inhOf (inGH_trSort _ _))
-    · intro y hy
-      cases hargs : k.args with
-      | nil => rw [hargs] at hy; cases hy
-      | cons a as => rw [hargs] at hy; cases hy; rfl
-    · intro x hx
-      obtain ⟨s, -, rfl⟩ := List.mem_map.mp hx
-      exact inGH_inhOf (inGH_trSort _ _)
-  | some X =>
-    refine inGH_included ?_ (inGH_inhOf (inGH_sortP _))
-    show InGH c (KoreAML.appList (KoreAML.sym (.symbol "Lblite")) ([sortP X] ++
-      k.args.map fun s => KoreAML.inhOf (sortP (c.sortName s))))
-    refine inGH_chain (fun s hs => ?_) ?_ (ite_memP hk hX) ?_
-    · cases List.mem_singleton.mp hs; exact ⟨rfl, rfl⟩
-    · intro y hy
-      cases hargs : k.args with
-      | nil => rw [hargs] at hy; cases hy
-      | cons a as => rw [hargs] at hy; cases hy; rfl
-    · intro x hx
-      obtain ⟨s, -, rfl⟩ := List.mem_map.mp hx
-      exact inGH_inhOf (inGH_sortP _)
+  obtain ⟨h, xs, -, hw⟩ := symApp_head c k.name
+  rw [symArityItem_of_symApp hw, instHeadP_appList_irs, ← appList_append]
+  refine inGH_included ?_ (inGH_inhOf (inGH_sortP _))
+  refine inGH_chain (fun s hs => ?_) ?_ (inst_memP_irs hk hw) ?_
+  · obtain ⟨x, -, rfl⟩ := List.mem_map.mp hs; exact ⟨rfl, rfl⟩
+  · intro y hy
+    cases hargs : k.args with
+    | nil => rw [hargs] at hy; cases hy
+    | cons a as => rw [hargs] at hy; cases hy; rfl
+  · intro x hx
+    obtain ⟨s, -, rfl⟩ := List.mem_map.mp hx
+    exact inGH_inhOf (inGH_sortP _)
 
 theorem definedness_inGH (x : EVar) : InGH c (@definedness KoreAML.Sym _ x) :=
   inGH_forall x (inGH_ceilD (inGH_evar x))
@@ -304,9 +290,9 @@ theorem Γcl_inGH : ∀ φ, Γcl c φ → InGH c φ := by
 /-! ## The constructors' items, at heads given -/
 
 /-- A head of Γ, as the KORE of the semantics writes it: a symbol of Γ named plainly. -/
-theorem plain_mem {k : CtorSig} (hk : k ∈ kernelSyms c) (hi : iteSort? (c.symName k.name) = none) :
+theorem plain_mem {k : CtorSig} (hk : k ∈ kernelSyms c) (hi : instDecode? (c.symName k.name) = none) :
     (c.symName k.name, []) ∈ gammaHeads c := by
-  have : gammaHead c k.name = (c.symName k.name, []) := by unfold gammaHead; rw [hi]
+  have : gammaHead c k.name = (c.symName k.name, []) := gammaHead_noInst hi
   rw [← this]; exact List.mem_append_left _ (List.mem_map_of_mem hk)
 
 /-- The injection at a pair of `subsorts`, as the KORE writes it. -/
@@ -318,7 +304,7 @@ theorem inj_mem {a b : Srt} (h : (a, b) ∈ c.subsorts) :
 /-- A generator of the sort `N` at a head of Γ: a symbol of Γ named plainly, or the injection from
 a sort below `N`. -/
 def GenS (c : Semantics) (N : Srt) : Gen → Prop
-  | .ctor k => k ∈ kernelSyms c ∧ iteSort? (c.symName k.name) = none
+  | .ctor k => k ∈ kernelSyms c ∧ instDecode? (c.symName k.name) = none
   | .inj a => (a, N) ∈ c.subsorts
 
 theorem head_evars (xs : List EVar) : ∀ y ∈ (xs.map Pattern.evar : List P).head?, sortArgB y = false := by
@@ -468,8 +454,8 @@ theorem sortArgB_lift (A B : String) (φ : P) (hφ' : sortArgB φ = false) :
 
 /-- An overload equation of `f` over `g`, both symbols of Γ named plainly, whose lifts are between
 sorts one below the other. -/
-theorem ovlEqItem_inGH {f g : CtorSig} (hf : f ∈ kernelSyms c) (hfi : iteSort? (c.symName f.name) = none)
-    (hg : g ∈ kernelSyms c) (hgi : iteSort? (c.symName g.name) = none)
+theorem ovlEqItem_inGH {f g : CtorSig} (hf : f ∈ kernelSyms c) (hfi : instDecode? (c.symName f.name) = none)
+    (hg : g ∈ kernelSyms c) (hgi : instDecode? (c.symName g.name) = none)
     (hargs : ∀ A B, (A, B) ∈ g.args.zip f.args → c.sortName A ≠ c.sortName B → (A, B) ∈ c.subsorts)
     (hres : c.sortName g.result ≠ c.sortName f.result → (g.result, f.result) ∈ c.subsorts) :
     InGH c (KoreAML.Cons.ovlEqItem (KCore.toK c f) (KCore.toK c g)).pat := by
@@ -556,22 +542,22 @@ theorem collsOK_of_core (h : c.coreOK = true) : collsOK c = true := by
   exact h4
 
 /-- A constructor is named plainly. -/
-theorem ctor_ite (h : c.coreOK = true) {k : CtorSig} (hk : k ∈ c.ctorSigs) : iteSort? (c.symName k.name) = none := by
+theorem ctor_ite (h : c.coreOK = true) {k : CtorSig} (hk : k ∈ c.ctorSigs) : instDecode? (c.symName k.name) = none := by
   have := namesNumbered_of_core h
   simp only [namesNumbered, Bool.and_eq_true, List.all_eq_true, Option.isNone_iff_eq_none] at this
-  exact iteSort?_none_of_instDecode (this.1.1 k hk)
+  exact this.1.1 k hk
 
 /-- A symbol that an overloading symbol overloads is named plainly. -/
 theorem over_ite (h : c.coreOK = true) {o : OvlSig} (ho : o ∈ c.ovls) {g : Sym} (hg : g ∈ o.over) :
-    iteSort? (c.symName g) = none := by
+    instDecode? (c.symName g) = none := by
   have := namesNumbered_of_core h
   simp only [namesNumbered, Bool.and_eq_true, List.all_eq_true, Option.isNone_iff_eq_none] at this
-  exact iteSort?_none_of_instDecode (this.1.2 o ho g hg)
+  exact this.1.2 o ho g hg
 
 /-- What `overloadsOK` says of each overloading symbol: `lookupOvl` finds it under its name, it
 is named plainly, and each signature it overloads has argument and result sorts at most its own. -/
 theorem ovl_at (hok : c.overloadsOK = true) {o : OvlSig} (ho : o ∈ c.ovls) :
-    c.lookupOvl o.sig.name = some o ∧ iteSort? (c.symName o.sig.name) = none ∧
+    c.lookupOvl o.sig.name = some o ∧ instDecode? (c.symName o.sig.name) = none ∧
       ∀ kg ∈ c.ovlOver o, c.ovlPairOK o kg = true := by
   obtain ⟨i, hi⟩ := List.mem_iff_getElem?.mp ho
   have hok := ((Bool.and_eq_true _ _).mp hok).1
@@ -579,9 +565,9 @@ theorem ovl_at (hok : c.overloadsOK = true) {o : OvlSig} (ho : o ∈ c.ovls) :
   have hoi := hok (o, i) (List.mem_zipIdx_iff_getElem?.mpr hi)
   simp only [Bool.and_eq_true, beq_iff_eq, Option.isNone_iff_eq_none, List.all_eq_true] at hoi
   obtain ⟨⟨⟨⟨⟨⟨⟨⟨-, h2⟩, h3⟩, -⟩, -⟩, -⟩, h7⟩, -⟩, -⟩ := hoi
-  exact ⟨h2, iteSort?_none_of_instDecode h3, h7⟩
+  exact ⟨h2, h3, h7⟩
 
-theorem ovlSig_ite (h : c.coreOK = true) {k : CtorSig} (hk : k ∈ c.ovlSigs) : iteSort? (c.symName k.name) = none := by
+theorem ovlSig_ite (h : c.coreOK = true) {k : CtorSig} (hk : k ∈ c.ovlSigs) : instDecode? (c.symName k.name) = none := by
   obtain ⟨o, ho, rfl⟩ := List.mem_map.mp hk
   exact (ovl_at (Semantics.coreOK_ovls h) ho).2.1
 
@@ -592,7 +578,7 @@ theorem gens_ok (h : c.coreOK = true) {N : Srt} {g : Gen} (hg : g ∈ c.gens N) 
   rcases hg with ((⟨k, ⟨hk, -⟩, rfl⟩ | ⟨k, ⟨hk, -⟩, rfl⟩) | ⟨k, ⟨⟨p, ⟨hp, hr⟩, rfl⟩, -⟩, rfl⟩) | ⟨a, ha, rfl⟩
   · exact ⟨ks_ctor hk, ctor_ite h hk⟩
   · exact ⟨ks_ovl hk, ovlSig_ite h hk⟩
-  · exact ⟨ks_param hp, (Semantics.raw_of_core h hp hr).2.2.2.1⟩
+  · exact ⟨ks_param hp, Semantics.raw_noInst_core_irs h hp hr⟩
   · rw [mem_sortBy] at ha
     obtain ⟨⟨a', b'⟩, hab, rfl⟩ := List.mem_map.mp ha
     simp only [List.mem_filter, beq_iff_eq] at hab
@@ -680,7 +666,7 @@ theorem lowerBounds_sub {a b C : Srt} (h : C ∈ c.lowerBounds a b) :
 
 /-- A signature an overloading symbol overloads is a symbol of Γ named plainly. -/
 theorem over_ok (h : c.coreOK = true) {o : OvlSig} (ho : o ∈ c.ovls) {kg : CtorSig} (hkg : kg ∈ c.ovlOver o) :
-    kg ∈ kernelSyms c ∧ iteSort? (c.symName kg.name) = none := by
+    kg ∈ kernelSyms c ∧ instDecode? (c.symName kg.name) = none := by
   have hok := Semantics.coreOK_ovls h
   obtain ⟨g, -, hg⟩ := List.mem_filterMap.mp hkg
   rcases List.mem_append.mp (lookupSig_spec hg).1 with hm | hm
@@ -758,7 +744,7 @@ theorem consItemsK_inGH (h : c.coreOK = true) : ∀ it ∈ consItemsK c, InGH c 
   · obtain ⟨k, hk, hit⟩ := List.mem_flatMap.mp hlaw
     split at hit
     · rename_i hr
-      have hm := plain_mem (ks_param hk) (Semantics.raw_of_core h hk hr).2.2.2.1
+      have hm := plain_mem (ks_param hk) (Semantics.raw_noInst_core_irs h hk hr)
       rcases List.mem_append.mp hit with hit | hit
       · split at hit
         · cases List.mem_singleton.mp hit
@@ -779,32 +765,32 @@ theorem ΓCons_inGH (h : c.coreOK = true) : ∀ φ, ΓCons c φ → InGH c φ :=
 /-- The library's collections' unit, element and concatenation are interpreted hooked symbols of
 the registry, named plainly. -/
 theorem builtinColls_reg : ∀ k ∈ builtinColls, ∀ f ∈ [k.unit, k.elem, k.concat],
-    (f < nRegSyms ∧ iteSort? (regSymNames.getD f "") = none) ∧ hookSigs.any (·.name == f) = true := by
+    (f < nRegSyms ∧ instDecode? (regSymNames.getD f "") = none) ∧ hookSigs.any (·.name == f) = true := by
   decide +kernel
 
 /-- **A collection's unit, element and concatenation are symbols of Γ named plainly**, under
 `coreOK`: the library's are interpreted hooked symbols; a definition's own are parameter symbols
 (`collSymsOK`). -/
 theorem collSyms_ks (h : c.coreOK = true) {k : CollSig} (hk : k ∈ c.allColls) :
-    ∀ f ∈ [k.unit, k.elem, k.concat], ∃ k' ∈ kernelSyms c, k'.name = f ∧ iteSort? (c.symName f) = none := by
+    ∀ f ∈ [k.unit, k.elem, k.concat], ∃ k' ∈ kernelSyms c, k'.name = f ∧ instDecode? (c.symName f) = none := by
   intro f hf
   rcases List.mem_append.mp hk with hk | hk
   · obtain ⟨⟨hr, hi⟩, ha⟩ := builtinColls_reg k hk f hf
     obtain ⟨s, hs, hn⟩ := List.any_eq_true.mp ha
     have hn : s.name = f := beq_iff_eq.mp hn
-    exact ⟨s, ks_hook hs, hn, Faithful.iteSort_reg hr hi⟩
+    exact ⟨s, ks_hook hs, hn, Faithful.noInst_reg_irs hr hi⟩
   · have hck := List.all_eq_true.mp (by
       have := collsOK_of_core h
       simp only [collsOK, Bool.and_eq_true] at this
       exact this.1) k hk
     simp only [collSymsOK, Bool.and_eq_true, decide_eq_true_eq, List.all_eq_true] at hck
     obtain ⟨⟨⟨⟨⟨-, hite⟩, hu⟩, he⟩, hc⟩, -⟩ := hck
-    have hi : iteSort? (c.symName f) = none := by
+    have hi : instDecode? (c.symName f) = none := by
       have := hite f hf
       simp only [Option.isNone_iff_eq_none] at this
-      exact iteSort?_none_of_instDecode this.2
+      exact this.2
     have hp : ∀ p : ParamSig, c.lookupParam f = some p →
-        ∃ k' ∈ kernelSyms c, k'.name = f ∧ iteSort? (c.symName f) = none := by
+        ∃ k' ∈ kernelSyms c, k'.name = f ∧ instDecode? (c.symName f) = none := by
       intro p hp
       rw [Semantics.lookupParam_eq] at hp
       exact ⟨p.sig, ks_param (List.mem_of_find?_eq_some hp), by simpa using List.find?_some hp, hi⟩

@@ -426,11 +426,13 @@ def iteFunPat (c : Semantics) (f : Sym) (S : Srt) : Kore.Pattern :=
 
 theorem freeOf_symApp (c : Semantics) (f : Sym) (ps : List Kore.Pattern) (b : List KoreAML.VarKey) :
     KoreAML.freeOf b (symApp c f ps) = KoreAML.freeOfList b ps := by
-  unfold symApp; split <;> rw [KoreAML.freeOf]
+  obtain ⟨h, xs, -, hw⟩ := symApp_head c f
+  rw [hw, KoreAML.freeOf]
 
 theorem mem_varsOf_symApp (c : Semantics) (f : Sym) {ps : List Kore.Pattern} {k : KoreAML.VarKey}
     (h : k ∈ KoreAML.varsOfList ps) : k ∈ KoreAML.varsOf (symApp c f ps) := by
-  unfold symApp; split <;> rw [KoreAML.varsOf] <;> exact List.mem_append_right _ h
+  obtain ⟨hd, xs, -, hw⟩ := symApp_head c f
+  rw [hw, KoreAML.varsOf]; exact List.mem_append_right _ h
 
 /-- **`ite` at a sort is total at values** (`InertReason.parametricFunctional`, at an instance):
 for a semantics meeting `coreOK` whose Bool values are literals (`shapesOK`) and a parameter symbol

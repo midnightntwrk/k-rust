@@ -176,7 +176,8 @@ example (c : Semantics) (cl : Clause) : cl.Witnessed c =
     (∃ σ, c.WellSortedAt cl.vars cl.condVars σ ∧
       (∀ t, cl.req = some t →
         EvalTerm c σ t (some (bool true)) ∧ ∀ r, EvalTerm c σ t r → r = some (bool true)) ∧
-      Holds c cl.vars.length σ cl.pre true) := rfl
+      Holds c cl.vars.length σ cl.pre true ∧
+      ∀ b, Holds c cl.vars.length σ cl.pre b → b = true) := rfl
 
 example (c : Semantics) (r : Rule) : r.condK c =
     (let C := srtOf c topCellSort

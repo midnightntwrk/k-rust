@@ -1,0 +1,11 @@
+command: kompile --backend haskell e3-ml-req-implies.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 6.2
+definition.kore bytes: 209111
+definition.kore sha256: 7ac96af4d1cdad6d998941dd97452df9c4192038959f6cb209a15d3c68f137f4
+stripped sha256: 53fa46e1ef43cdfd25bc2ac7cac808569f0231397b973b5e6863b5139ec77951
+main module: 410 sentences, 54 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-ML-REQ-IMPLIES-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E3-ML-REQ-IMPLIES as default.

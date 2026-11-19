@@ -72,16 +72,16 @@ theorem neg_of_coreClEx (hI : I ⊧ᴵP Γc c) (hok : c.sortedOKClEx = true) (hs
     confinedAt_valueCl hsc.trans (Model.namesApartK_spec hnk)
       (fun k hk hkr => (Semantics.raw_of_sortedOKClEx hok hk hkr).2.2.2.1) hr hI _ s hs x hx
   have hIΓ : I ⊧ᴵP Γ c := fun φ hφ => hI φ (Or.inl hφ)
-  have hrw : ∀ k ∈ c.params, k.raw = true → iteSort? (c.symName k.sig.name) = none :=
+  have hrw : ∀ k ∈ c.params, k.raw = true → instDecode? (c.symName k.sig.name) = none :=
     fun k hk hkr => (Semantics.raw_of_sortedOKClEx hok hk hkr).2.2.2.1
   intro fn hfn cl hcl _ ws
   rcases List.mem_append.mp hfn with hu | hp
   · obtain ⟨hs, hpl⟩ := (Semantics.sortedOKClEx_parts hok).2.1 fn hu cl hcl
     obtain ⟨hpats, -, hreqS, -, -⟩ := Semantics.clauseSortedOpen_parts hs
-    obtain ⟨-, -, hconj, hnw⟩ := Semantics.clausePlainOpenEx_parts hpl
+    obtain ⟨-, -, hconj, -⟩ := Semantics.clausePlainOpenEx_parts hpl
     exact exclEmptyCl_ofCl hI (namesNumbered_spec hnn) hg hsc hph hcso hcs hph' hcv
       (Semantics.clauseSortedOpen_pats_nf hs)
-      (Semantics.clauseSortedOpen_preOK hs) (fun hne => ⟨hpreR fn hfn cl hcl hne, hnw hne⟩) hreqS hconj
+      (Semantics.clauseSortedOpen_preOK hs) (hpreR fn hfn cl hcl) hreqS hconj
       (readsConfined_of_openCl hu hcl)
       (fun hany => by
         obtain ⟨i, hi, -⟩ := List.any_eq_true.mp hany

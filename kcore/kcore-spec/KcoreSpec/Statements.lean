@@ -254,12 +254,14 @@ def Rule.Witnessed (c : Semantics) (r : Rule) : Prop :=
     (∀ t, r.req = some t → EvalTerm c σ t (some (bool true))) ∧ Holds c r.vars.length σ r.pre true
 
 /-- Some values satisfy the clause's conditions, and at them its `requires` has no result but
-`true`: no evaluation makes the clause fail where its patterns match. -/
+`true` and its predicate no truth value but `true`: no evaluation makes the clause fail where its
+patterns match. -/
 def Clause.Witnessed (c : Semantics) (cl : Clause) : Prop :=
   ∃ σ, c.WellSortedAt cl.vars cl.condVars σ ∧
     (∀ t, cl.req = some t →
       EvalTerm c σ t (some (bool true)) ∧ ∀ r, EvalTerm c σ t r → r = some (bool true)) ∧
-    Holds c cl.vars.length σ cl.pre true
+    Holds c cl.vars.length σ cl.pre true ∧
+    ∀ b, Holds c cl.vars.length σ cl.pre b → b = true
 
 /-! ## What the statements assume of a semantics -/
 
