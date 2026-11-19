@@ -13,8 +13,9 @@
     symbol so named), `Int → K`, overloading nothing: every other condition of `coreOK`, `itesApart`
     among them, and `FnHyp` hold (`meets_others`, `ovlsButIte_c`), and
     `ovlsPlain` does not (`not_ovlsPlain`). So the conjunct is not implied by the others.
-  - `pattern_head`, `value_head`, `heads_differ`: for every semantics and every symbol named like
-    `ite` at a sort X, a pattern or right-hand side (`Term.kore`) applies it as `Lblite{SortX}(…)`,
+  - `pattern_head`, `value_head`, `heads_differ`: for every semantics and every symbol whose name
+    the decoder reads as `ite` at a sort X (`instDecode?` gives `("Lblite", [X])`), a pattern or
+    right-hand side (`Term.kore`) applies it as `Lblite{SortX}(…)`,
     while a value (`GroundTerm.kore`, hence `den`) and the constructor and overload items (`toK`,
     through `consItemsK`) write it under its own name `Lblite{X}(…)`, a different head.
 
@@ -23,7 +24,7 @@
     (`symArityItem`) and, through rules and clauses, what their right-hand sides apply it to; of
     the plain head it states the constructor items and overload equations. Reading both heads
     as the symbol's normal form (`norm`), as the canonical model's `resolve` does once
-    `itesApart` holds (`find_ite`), meets each of these as it does for a plainly named symbol.
+    `itesApart` holds (`resolve_inst`), meets each of these as it does for a plainly named symbol.
     Nothing else in `Γ` names `Lblite` at `SortX`: the registry's `Lblite` (`kIte`) is applied
     to a Bool's element first, and `itesApart` leaves no other symbol at X. Building that model in
     the kernel is the canonical model's construction without the conjunct, which it reads through
@@ -79,13 +80,14 @@ theorem overloadsOK_split (c : Semantics) : c.overloadsOK = (ovlsButIte c && ovl
 
 /-! ## The two heads of a symbol named like `ite` -/
 
-theorem lblite_plain : iteSort? "Lblite" = none := by decide
+theorem lblite_plain : instDecode? "Lblite" = none := by decide
 
 /-- A pattern applies a symbol named like `ite` at X as `Lblite{SortX}(…)`. -/
-theorem pattern_head {c : Semantics} {f : Sym} {X : String} (hi : iteSort? (c.symName f) = some X)
+theorem pattern_head {c : Semantics} {f : Sym} {X : String}
+    (hi : instDecode? (c.symName f) = some ("Lblite", [X]))
     (vs : List KoreAML.Var) (ts : List Term) :
     Term.kore c vs (.app f ts) = .app ⟨⟨"Lblite"⟩⟩ [KoreAML.srt X] (Term.koreList c vs ts) := by
-  simp only [Term.kore, hi]
+  rw [kore_app, symApp_inst hi]; rfl
 
 /-- A value writes every constructor term under its symbol's own name. -/
 theorem value_head (c : Semantics) (f : Sym) (vs : List GroundTerm) :
@@ -97,7 +99,8 @@ theorem toK_name (c : Semantics) (k : CtorSig) :
     toK c k = ⟨c.symName k.name, k.args.map c.sortName, c.sortName k.result⟩ := rfl
 
 /-- The two heads differ: the own name of a symbol named like `ite` at a sort is not `Lblite`. -/
-theorem heads_differ {c : Semantics} {f : Sym} {X : String} (hi : iteSort? (c.symName f) = some X) :
+theorem heads_differ {c : Semantics} {f : Sym} {X : String}
+    (hi : instDecode? (c.symName f) = some ("Lblite", [X])) :
     c.symName f ≠ "Lblite" := fun h => by rw [h, lblite_plain] at hi; cases hi
 
 /-! ## A semantics that fails the conjunct only -/
@@ -148,7 +151,7 @@ theorem not_ovlsPlain : ovlsPlain c = false := by decide +kernel
 theorem not_overloadsOK : c.overloadsOK = false := by
   rw [overloadsOK_split, not_ovlsPlain, Bool.and_false]
 
-theorem ite_f : iteSort? (c.symName fSig.name) = some "KCell" := by decide +kernel
+theorem ite_f : instDecode? (c.symName fSig.name) = some ("Lblite", ["KCell"]) := by decide +kernel
 
 /-- `itesApart` holds: `Lblite{KCell}` is the only symbol named like an instance, at a numbered
 sort. -/

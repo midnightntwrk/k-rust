@@ -5,16 +5,16 @@
   `lake env lean -j1 test/ItesNumbered.lean`.
 
   Kernel-checked here:
-  - `itesApart_split`: `itesApart` is the conjunction of its three leaves, `itesNumbered` (the
-    first), `itesArity` (one number of sorts per head) and `itesNotInj` (no head `inj`), for every
-    semantics.
+  - `itesApart_split`: `itesApart` is the conjunction of its four leaves, `itesNumbered` (the
+    first), `itesArity` (one number of sorts per head), `itesNotInj` (no head `inj`) and
+    `itesConstApart` (no constant plainly named by a head), for every semantics.
   - `instNamed_param`: under `namesNumbered` and `overloadsOK`, a symbol of `kernelSyms` whose name
     the decoder reads as an instance (`instDecode?`) is a parameter or a function: `namesNumbered`
     excludes the constructors, `overloadsOK` the overloading symbols, and no interpreted hook is so
     named (`hooks_plain`).
   - `c`, one parameter `Lblite{Foo}` (`ite` at `Foo`, which names no sort), implemented by `_+Int_`:
-    every other condition of `coreOK` and `FnHyp` hold (`meets_others`), `itesArity` and
-    `itesNotInj` hold and `itesNumbered` does not (`not_itesNumbered`). So the first leaf is not
+    every other condition of `coreOK` and `FnHyp` hold (`meets_others`), `itesArity`,
+    `itesNotInj` and `itesConstApart` hold and `itesNumbered` does not (`not_itesNumbered`). So the first leaf is not
     implied by the others.
   - `graph_head`: `Γ`'s graph of the parameter (`ΓDomains`, through `symApp`) is about `Lblite`
     applied to the sort symbol `SortFoo`; `foo_unnamed`: no numbered sort is named `Foo`.
@@ -23,7 +23,7 @@
   are parameters (`instNamed_param` leaves parameters and functions; a function so named, whose
   equations `Γ` writes at the same head, is not examined here): `Γ` of such a semantics has a model.
   `Γ` writes each application of such a parameter as `Lblite ⬝ SortX ⬝ …` (`symApp`, `symArityItem`,
-  `Term.kore`). The sort symbol `SortX` occurs
+  `Term.kore`; every instance name is written so, at its own head and sorts). The sort symbol `SortX` occurs
   in `Γ` nowhere else: the signature names the sort symbols of the numbered sorts only
   (`sigItems`, `sortConstantItem` over `kernelSorts`); every other sort `Γ` writes is
   `sortName` of a numbered sort (`srtOf`, `sortP`), or the fixed `Bool` of `reqPat`;
@@ -41,9 +41,10 @@
   numbered sort to nothing (`evalSymb` at `.sort n`: `sortOfName`), so there
   `Lblite ⬝ SortX ⬝ …` is empty and a defined graph would be false of `stdI`. The `itesApart`
   docstring's reason ("would leave the instance's graph without an element") is about `stdI`,
-  not about every model. An instance name at a head other than `Lblite`, or at several sorts, is
-  written plainly by `symApp`, so a semantics failing a leaf only there has the model of the
-  same semantics with that symbol renamed.
+  not about every model. An instance name at another head `h`, or at several sorts, is written
+  `h ⬝ SortX₁ ⬝ … ⬝ SortXₙ ⬝ …` by `symApp` as well (no longer plainly); the argument above is made
+  for `Lblite` at one sort only, and is not repeated for another head, which a plain symbol of
+  arguments named `h` may also apply in `Γ` (the fourth leaf excludes only a constant).
 
   The step is unaffected as well: a rule's or clause's application of the parameter is written
   with the same head as its graph (`Term.kore` and `symApp` both apply `Lblite` to `SortX`), so an
@@ -82,13 +83,23 @@ def itesNotInj (c : Semantics) : Bool :=
     | some (h, _) => h != "inj"
     | none => true
 
-/-- `itesApart` is its three leaves. -/
+/-- The fourth leaf of `itesApart`: no symbol of no arguments is plainly named by the head of an
+instance name. -/
+def itesConstApart (c : Semantics) : Bool :=
+  (kernelSyms c).all fun k =>
+    match instDecode? (c.symName k.name) with
+    | some (h, _) => (kernelSyms c).all fun k' => !k'.args.isEmpty || c.symName k'.name != h
+    | none => true
+
+/-- `itesApart` is its four leaves. -/
 theorem itesApart_split (c : Semantics) :
-    Model.itesApart c = (itesNumbered c && itesArity c && itesNotInj c) := by
+    Model.itesApart c = (itesNumbered c && itesArity c && itesNotInj c && itesConstApart c) := by
   rw [Bool.eq_iff_iff]
-  simp only [Model.itesApart, itesNumbered, itesArity, itesNotInj, List.all_eq_true, Bool.and_eq_true]
-  exact ⟨fun h => ⟨⟨fun k hk => (h k hk).1.1, fun k hk => (h k hk).1.2⟩, fun k hk => (h k hk).2⟩,
-    fun h k hk => ⟨⟨h.1.1 k hk, h.1.2 k hk⟩, h.2 k hk⟩⟩
+  simp only [Model.itesApart, itesNumbered, itesArity, itesNotInj, itesConstApart, List.all_eq_true,
+    Bool.and_eq_true]
+  exact ⟨fun h => ⟨⟨⟨fun k hk => (h k hk).1.1.1, fun k hk => (h k hk).1.1.2⟩, fun k hk => (h k hk).1.2⟩,
+      fun k hk => (h k hk).2⟩,
+    fun h k hk => ⟨⟨⟨h.1.1.1 k hk, h.1.1.2 k hk⟩, h.1.2 k hk⟩, h.2 k hk⟩⟩
 
 /-- No interpreted hook is named like an instance: their names are the registry's. -/
 theorem hooks_plain_dec :
@@ -163,33 +174,34 @@ theorem fnHyp : FnHyp c :=
     openDecided_of_readsConfined (by decide +kernel), openLaws_of_plain (by decide +kernel)⟩
 
 set_option maxHeartbeats 2000000 in
-/-- Every condition of `coreOK` but `itesApart` holds, the second and third leaves of `itesApart`
-hold, and `FnHyp`. -/
+/-- Every condition of `coreOK` but `itesApart` holds, the second, third and fourth leaves of
+`itesApart` hold, and `FnHyp`. -/
 theorem meets_others : c.sortedOK = true ∧ c.hooksApart = true ∧ c.predsApart = true ∧ c.idsOK = true ∧
     c.overloadsOK = true ∧
     namesNumbered c = true ∧ genWf c = true ∧ collSortsOK c = true ∧ collsOK c = true ∧
     patHeadsOK c = true ∧ Model.namesApartK c = true ∧ Model.LitsApart c = true ∧
     Model.sortsNumbered c = true ∧ Model.kindsApart c = true ∧ Model.ctorsOnce c = true ∧
-    Model.fnsApart c = true ∧ itesArity c = true ∧ itesNotInj c = true ∧ FnHyp c :=
+    Model.fnsApart c = true ∧ itesArity c = true ∧ itesNotInj c = true ∧ itesConstApart c = true ∧
+    FnHyp c :=
   ⟨sortedOK, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
     by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
     by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
-    by decide_cheap, by decide_cheap, by decide_cheap, fnHyp⟩
+    by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, fnHyp⟩
 
 /-- The first leaf of `itesApart` fails. -/
 theorem not_itesNumbered : itesNumbered c = false := by decide +kernel
 
 theorem not_itesApart : Model.itesApart c = false := by
-  rw [itesApart_split, not_itesNumbered, Bool.false_and, Bool.false_and]
+  rw [itesApart_split, not_itesNumbered, Bool.false_and, Bool.false_and, Bool.false_and]
 
-theorem ite_p : iteSort? (c.symName p.sig.name) = some "Foo" := by decide +kernel
+theorem ite_p : instDecode? (c.symName p.sig.name) = some ("Lblite", ["Foo"]) := by decide +kernel
 
 /-- No numbered sort is named `Foo`. -/
 theorem foo_unnamed : (kernelSorts c).all (fun s => c.sortName s != "Foo") = true := by decide +kernel
 
 /-- `Γ` writes an application of the parameter as `Lblite` applied to the sort symbol `SortFoo`. -/
 theorem graph_head (args : List Kore.Pattern) :
-    symApp c p.sig.name args = .app ⟨⟨"Lblite"⟩⟩ [KoreAML.srt "Foo"] args := by
-  unfold symApp; rw [ite_p]
+    symApp c p.sig.name args = .app ⟨⟨"Lblite"⟩⟩ [KoreAML.srt "Foo"] args :=
+  symApp_inst ite_p
 
 end KCore.Faithful.ItesNumbered

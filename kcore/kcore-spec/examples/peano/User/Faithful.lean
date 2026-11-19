@@ -102,8 +102,10 @@ theorem fns_ok : c.allFns.all (fun fn => fn.clauses.all (fun cl => plainPats c c
 
 theorem genWf_ok : genWf c = true := by decide +kernel
 
-theorem names_plain : c.ctorSigs.all (fun k => (iteSort? (c.symName k.name)).isNone) = true := by decide +kernel
-theorem names_fns : c.allFns.all (fun fn => (iteSort? (c.symName fn.label)).isNone &&
+theorem names_plain : c.ctorSigs.all (fun k => (instDecode? (c.symName k.name)).isNone) = true := by decide +kernel
+theorem names_ovls : c.ovls.all (fun o => o.over.all fun g => (instDecode? (c.symName g)).isNone) = true := by
+  decide +kernel
+theorem names_fns : c.allFns.all (fun fn =>
     (fn.result :: fn.args).all (· < nRegSorts + c.sortNames.length)) = true := by decide +kernel
 
 theorem clauses_prios : (pairs predFn.clauses).all (fun p => p.1.prio != p.2.prio) = true := by decide +kernel
@@ -111,15 +113,13 @@ theorem clauses_prios : (pairs predFn.clauses).all (fun p => p.1.prio != p.2.pri
 theorem clauses_notAside : (pairs predFn.clauses).all (fun p => !p.1.aside && !p.2.aside) = true := by decide +kernel
 
 theorem namesNumbered : NamesNumbered c := by
-  refine ⟨fun k hk => ?_, fun fn hfn => ?_, fun fn hfn s hs => ?_⟩
+  refine ⟨fun k hk => ?_, fun o ho g hg => ?_, fun fn hfn s hs => ?_⟩
   · have := List.all_eq_true.mp names_plain k hk
     exact Option.isNone_iff_eq_none.mp this
+  · have := List.all_eq_true.mp (List.all_eq_true.mp names_ovls o ho) g hg
+    exact Option.isNone_iff_eq_none.mp this
   · have := List.all_eq_true.mp names_fns fn hfn
-    simp only [Bool.and_eq_true] at this
-    exact Option.isNone_iff_eq_none.mp this.1
-  · have := List.all_eq_true.mp names_fns fn hfn
-    simp only [Bool.and_eq_true] at this
-    exact of_decide_eq_true (List.all_eq_true.mp this.2 s hs)
+    exact of_decide_eq_true (List.all_eq_true.mp this s hs)
 
 /-- **Peano satisfies `Hyp`.** -/
 theorem hyp : Hyp c := by

@@ -210,7 +210,8 @@ mutual
     | .app f ts => by
       rw [Term.kore]
       split
-      · exact .app (fun s hs => by rw [List.mem_singleton.mp hs]; exact ⟨_, rfl⟩) (kfrag_koreList_fg c vs ts)
+      · exact .app (fun s hs => by obtain ⟨x, -, rfl⟩ := List.mem_map.mp hs; exact ⟨_, rfl⟩)
+          (kfrag_koreList_fg c vs ts)
       · exact .app (fun s hs => absurd hs List.not_mem_nil) (kfrag_koreList_fg c vs ts)
     | .inj a b t => by
       rw [Term.kore]
