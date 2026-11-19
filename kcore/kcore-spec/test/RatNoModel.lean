@@ -28,6 +28,13 @@
   makeRat/3 alone (`no_model_makeRat3`; `no_model_of` takes any argument list and any two distinct
   values of Rat). `gt_both_at_merged`: `_>Rat_` is `false` at (<-1,-1>Rat, 0) and `true` at (1, 0),
   so identifying the two values would not give a model of the `_>Rat_` equations either.
+
+  rat.md:109, `#Ceil(@R1 /Rat @R2) => {(@R2 =/=Rat 0) #Equals true} #And #Ceil(@R1) #And
+  #Ceil(@R2)`, a sentence the reader leaves out of Γ, is refuted in every model of Γ, for every H,
+  at `@R1 = {0}`, `@R2 = {1, 0}` (`rcd_refuted_at`, by `LibEv.ceilFn_refuted_at`); at values,
+  rat.md:153 makes `1 /Rat <0,2>Rat` and `2 /Rat 0` one application (`rcd_pair_of_zero`), which the
+  sentence asks to be defined and undefined, and neither has a value the evaluator certifies
+  (`rcd_reads_rest`).
 -/import KcoreSpec
 
 set_option autoImplicit false
@@ -38,9 +45,14 @@ namespace KCore.RatNoModel
 open KCore ML Faithful KoreAML
 
 definition_of defn from "f2-examples/e6-param-rat.kompile.kore"
+kore_term kore from "f2-examples/e6-param-rat.kompile.kore"
+user_axioms U from "f2-examples/e6-param-rat.kompile.kore" module "E6-PARAM-RAT"
 
 noncomputable abbrev c : Semantics := defn.sem
 noncomputable abbrev cH (H : HookParams) : Semantics := c.withHooks H
+
+/-- `tr s`: the item `Theory.ofDefinition kore` holds for the sentence. -/
+noncomputable def trS (ad : AxiomDecl) : Item := trAxiom kore.symbolDecls kore.aliasNames ad
 
 theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
 theorem coreOK : c.coreOK = true := by decide_cheap
@@ -352,6 +364,142 @@ theorem gt_both_at_merged :
     Cert.evalFC c 60 gtRat [pair (-1), .inj Srt.int rat (int 0)] = some (some (bool false)) ∧
     Cert.evalFC c 60 gtRat [one, .inj Srt.int rat (int 0)] = some (some (bool true)) := by decide +kernel
 
+/-! ## rat.md:109 at /Rat: refuted at sets of values, and at values through `<0,2>Rat`
+
+rat.md:109-112, `#Ceil(@R1 /Rat @R2) => {(@R2 =/=Rat 0) #Equals true} #And #Ceil(@R1) #And
+#Ceil(@R2)`, is axiom 162 of the text (`axCeilDiv`), which the reader leaves out of Γ. At sets of
+values it fails in every model of Γ, for every H: at `@R1 = {0}`, `@R2 = {1, 0}` the left side holds
+(`0 /Rat 1` is `0`) and `@R2 =/=Rat 0` holds `false` (`rcd_refuted_at`, the instance of
+`LibEv.ceilFn_refuted_at`). At values, rat.md:153 (`I /Rat <J, D>Rat => (I *Int D) /Rat J`, no
+`requires`) makes `1 /Rat <0,2>Rat` and `2 /Rat 0` one application (`rcd_pair_of_zero`), while
+`<0,2>Rat =/=Rat 0` is `true` and `0 =/=Rat 0` is `false`: the sentence asks the first defined and
+the second not. Neither point has a value the evaluator certifies (`rcd_reads_rest`): both are
+`/Rat`'s rest. -/
+
+def divRat : Sym := 391
+def neRat : Sym := 394
+def ri (n : Int) : GroundTerm := .inj Srt.int rat (int n)
+def pr (a b : Int) : GroundTerm := .ctor ratCtor [int a, int b]
+
+theorem names_rcd : c.symName divRat = "Lbl'UndsSlsh'Rat'Unds'" ∧
+    c.symName neRat = "Lbl'UndsEqlsSlshEqls'Rat'Unds'" := by decide +kernel
+
+theorem sort_ri_rcd : c.sortOf (ri 0) = some rat ∧ c.sortOf (ri 1) = some rat := by decide +kernel
+theorem sort_riH_rcd (H : HookParams) (n : Int) (hn : n = 0 ∨ n = 1) : (cH H).sortOf (ri n) = some rat := by
+  rw [Semantics.sortOf_withHooks _ _ noRaw]; rcases hn with rfl | rfl
+  · exact sort_ri_rcd.1
+  · exact sort_ri_rcd.2
+
+/-- The names the sentence's pattern reads do not read the interpretation of the hooks. -/
+theorem srt_wh_rcd (c' : Semantics) (H : HookParams) (s : Srt) : srtOf (c'.withHooks H) s = srtOf c' s := rfl
+theorem sym_wh_rcd (c' : Semantics) (H : HookParams) (f : Sym) : (c'.withHooks H).symName f = c'.symName f := rfl
+theorem kore_wh_rcd (c' : Semantics) (H : HookParams) :
+    (ri 0).kore (c'.withHooks H) = (ri 0).kore c' ∧ (bool true).kore (c'.withHooks H) = (bool true).kore c' :=
+  ⟨rfl, rfl⟩
+theorem pat_wh_rcd (H : HookParams) : LibEv.ceilFnPat (cH H) rat divRat neRat "VarR1" "VarR2" (ri 0) =
+    LibEv.ceilFnPat c rat divRat neRat "VarR1" "VarR2" (ri 0) := by
+  simp only [LibEv.ceilFnPat, LibEv.ceilFnVar, symApp, srt_wh_rcd, sym_wh_rcd, kore_wh_rcd]
+theorem freeOK_wh_rcd (H : HookParams) (ks : List VarKey) :
+    LibEv.ceilFnFreeOK (cH H) rat ks = LibEv.ceilFnFreeOK c rat ks := by
+  unfold LibEv.ceilFnFreeOK; rw [srt_wh_rcd]
+
+theorem rcd_div_0_1 (H : HookParams) : Eval (cH H) divRat [ri 0, ri 1] (some (ri 0)) :=
+  eval_of (k := 60) (by decide +kernel) (by decide +kernel) (by decide +kernel) H
+theorem rcd_ne_0_0 (H : HookParams) : Eval (cH H) neRat [ri 0, ri 0] (some (bool false)) :=
+  eval_of (k := 60) (by decide +kernel) (by decide +kernel) (by decide +kernel) H
+theorem rcd_ne_1_0 (H : HookParams) : Eval (cH H) neRat [ri 1, ri 0] (some (bool true)) :=
+  eval_of (k := 60) (by decide +kernel) (by decide +kernel) (by decide +kernel) H
+theorem rcd_ne_pair_0 (H : HookParams) : Eval (cH H) neRat [pr 0 2, ri 0] (some (bool true)) :=
+  eval_of (k := 60) (by decide +kernel) (by decide +kernel) (by decide +kernel) H
+
+noncomputable abbrev axCeilDiv : AxiomDecl := U.ax162
+
+/-- Axiom 162 is the sentence `LibEv.ceilFnPat` writes at `/Rat`, `=/=Rat` and `inj{Int,Rat}(0)`, its
+free variables are the two set variables of Rat and the sort variables, and its item is the same
+under the text's declarations. -/
+theorem rcd_text : axCeilDiv.ax.pattern = LibEv.ceilFnPat c rat divRat neRat "VarR1" "VarR2" (ri 0) ∧
+    axCeilDiv.ax.sortVars = [Rv, LibEv.Q0v] ∧ (trS axCeilDiv).pat = (trAxiom [] [] axCeilDiv).pat ∧
+    LibEv.ceilFnFreeOK c rat (freeOf [] (LibEv.ceilFnPat c rat divRat neRat "VarR1" "VarR2" (ri 0))) = true := by
+  decide +kernel
+
+/-- **rat.md:109 is refuted at sets of values, for every H**: in every model of Γ it fails at
+`@R1 = {0}`, `@R2 = {1, 0}`. -/
+theorem rcd_refuted_at (H : HookParams) (M : Type) [Inhabited M] (I : Interpretation KoreAML.Sym M)
+    (hI : I ⊧ᴵP Γ (cH H)) :
+    ∃ e : Valuation M, AtValues (cH H) I e axCeilDiv.ax ∧ SetVarsAtValues (cH H) I e axCeilDiv.ax ∧
+      ¬ (trS axCeilDiv).pat.interpret I e default := by
+  rw [rcd_text.2.2.1]
+  exact LibEv.ceilFn_refuted_at (coreOKH H) (hokH H) rat divRat neRat "VarR1" "VarR2" (ri 0)
+    (by show rat < nRegSorts + c.sortNames.length; decide +kernel)
+    (by rw [pat_wh_rcd, freeOK_wh_rcd]; exact rcd_text.2.2.2)
+    (hfnH H divRat (by decide +kernel)) (hfnH H neRat (by decide +kernel)) (ri 0) (ri 1) (ri 0) (ri 0)
+    (sort_riH_rcd H 0 (.inl rfl)) (sort_riH_rcd H 1 (.inr rfl)) (sort_riH_rcd H 0 (.inl rfl)) (sort_riH_rcd H 0 (.inl rfl))
+    (sorts_args H divRat (by decide +kernel)) (rcd_div_0_1 H)
+    (sorts_args H neRat (by decide +kernel)) (rcd_ne_0_0 H)
+    axCeilDiv (by rw [pat_wh_rcd]; exact rcd_text.1) rcd_text.2.1 hI
+
+/-- Both points of the refutation at values are `/Rat`'s rest: the evaluator certifies no value. -/
+theorem rcd_reads_rest :
+    Cert.evalFC c 60 divRat [ri 2, ri 0] = none ∧ Cert.evalFC c 60 divRat [ri 1, pr 0 2] = none := by
+  decide +kernel
+
+/-- rat.md:153's clause, `I /Rat <J, D>Rat => (I *Int D) /Rat J`. -/
+noncomputable def cl153_rcd : Clause := (fnOf divRat).clauses[2]'(by decide +kernel)
+theorem cl153_rcd_mem : cl153_rcd ∈ (fnOf divRat).clauses := List.getElem_mem _
+theorem cl153_rcd_vars : cl153_rcd.vars = [Srt.int, Srt.int, Srt.int] := by decide +kernel
+theorem cl153_rcd_pats : cl153_rcd.pats = [.inj Srt.int rat (.var 0), .app ratCtor [.var 1, .var 2]] := by
+  with_unfolding_all rfl
+theorem cl153_rcd_rhs : cl153_rcd.rhs =
+    .app divRat [.inj Srt.int rat (.app KCore.intMul [.var 0, .var 2]), .inj Srt.int rat (.var 1)] := by
+  with_unfolding_all rfl
+theorem cl153_rcd_prio : ∀ cl' ∈ (fnOf divRat).clauses, ¬ cl'.prio < cl153_rcd.prio := by decide +kernel
+
+/-- **`1 /Rat <0,2>Rat` and `2 /Rat 0` are one application**: whatever `Eval` gives the second, it
+gives the first, by rat.md:153's clause. -/
+theorem rcd_pair_of_zero (H : HookParams) (r : Option GroundTerm) :
+    Eval (cH H) divRat [ri 2, ri 0] r → Eval (cH H) divRat [ri 1, pr 0 2] r := by
+  intro h
+  have hl : ∀ i : Nat, i < 3 → ∃ n : Int, List.lookup i [(0, int 1), (1, int 0), (2, int 2)] = some (int n) := by
+    intro i hi
+    match i, hi with
+    | 0, _ => exact ⟨1, rfl⟩
+    | 1, _ => exact ⟨0, rfl⟩
+    | 2, _ => exact ⟨2, rfl⟩
+  refine Eval.clause (cl := cl153_rcd) (σ := [(0, int 1), (1, int 0), (2, int 2)])
+    (hfnH H divRat (by decide +kernel)) cl153_rcd_mem ?_ ?_ ?_ ?_ ?_ (by with_unfolding_all rfl) ?_ ?_ ?_
+  · intro i t hi
+    rw [cl153_rcd_vars] at hi
+    have hlt : i < 3 := (List.getElem?_eq_some_iff.mp hi).1
+    have ht : t = Srt.int := by
+      match i, hlt, hi with
+      | 0, _, hi => simpa using hi.symm
+      | 1, _, hi => simpa using hi.symm
+      | 2, _, hi => simpa using hi.symm
+    subst ht
+    obtain ⟨n, hn⟩ := hl i hlt
+    exact ⟨int n, hn, sort_intH H n⟩
+  · rw [cl153_rcd_pats]
+    exact .cons (PatVal.inj (w := int 1) (.var rfl))
+      (.cons (PatVal.ctor (by show c.isCtor ratCtor = true; decide +kernel) (.cons (.var rfl) (.cons (.var rfl) .nil))) .nil)
+  · intro t ht
+    have : cl153_rcd.req = none := by with_unfolding_all rfl
+    rw [this] at ht; cases ht
+  · have : cl153_rcd.pre = .top := by with_unfolding_all rfl
+    rw [this]; exact .top
+  · intro cl' hcl' _ hlt; exact absurd hlt (cl153_rcd_prio cl' hcl')
+  · rw [cl153_rcd_rhs]
+    exact EvalTerm.call (rs := [some (ri 2), some (ri 0)])
+      (by show c.isCtor divRat = false; decide +kernel) (by decide +kernel)
+      (.cons (EvalTerm.inj (r := some (int 2)) (hook2_rmr (by show c.isCtor KCore.intMul = false; decide +kernel)
+          (by decide +kernel) EvalTerm.var EvalTerm.var (by decide +kernel)))
+        (.cons (EvalTerm.inj (r := some (int 0)) EvalTerm.var) .nil)) rfl h
+      (by show c.isParam divRat = false; decide +kernel)
+  · intro t ht
+    have : cl153_rcd.ens = none := by with_unfolding_all rfl
+    rw [this] at ht; cases ht
+  · have : cl153_rcd.post = .top := by with_unfolding_all rfl
+    rw [this]; exact .top
+
 /-! ## Identifying `<1,1>Rat` with `1` does not help: the same holds at `<2,2>Rat`, `<3,3>Rat` -/
 
 theorem both_at_2 : Cert.evalFC c 60 geRat [pair 2, one] = some (some (bool true)) ∧
@@ -385,6 +533,16 @@ theorem both_at_2 : Cert.evalFC c 60 geRat [pair 2, one] = some (some (bool true
 #check @makeRat3_at_pos
 #check @cl173_req
 #check @cl173_rhs
+#check @names_rcd
+#check @rcd_div_0_1
+#check @rcd_ne_0_0
+#check @rcd_ne_1_0
+#check @rcd_ne_pair_0
+#check @rcd_text
+#check @rcd_refuted_at
+#check @rcd_reads_rest
+#check @rcd_pair_of_zero
+#check @LibEv.ceilFn_refuted_at
 
 #print axioms maxRat_first
 #print axioms maxRat_second
@@ -404,5 +562,13 @@ theorem both_at_2 : Cert.evalFC c 60 geRat [pair 2, one] = some (some (bool true
 #print axioms eval_clause3_rmr
 #print axioms hook2_rmr
 #print axioms makeRat3_at_pos
+#print axioms rcd_div_0_1
+#print axioms rcd_ne_0_0
+#print axioms rcd_ne_1_0
+#print axioms rcd_ne_pair_0
+#print axioms rcd_text
+#print axioms rcd_refuted_at
+#print axioms rcd_reads_rest
+#print axioms rcd_pair_of_zero
 
 end KCore.RatNoModel
