@@ -97,6 +97,11 @@ theorem symApp_noInst {c : Semantics} {f : Sym} {ps : List Kore.Pattern}
     (h : instDecode? (c.symName f) = none) : symApp c f ps = .app ⟨⟨c.symName f⟩⟩ [] ps := by
   unfold symApp; rw [iteSort?_none_of_instDecode h]
 
+/-- `Term.kore` writes an application as `symApp` does. -/
+theorem kore_app (c : Semantics) (vs : List KoreAML.Var) (f : Sym) (ts : List Term) :
+    Term.kore c vs (.app f ts) = symApp c f (Term.koreList c vs ts) := by
+  rw [Term.kore]; unfold symApp; rfl
+
 /-- `KoreAML.srt` is injective. -/
 theorem srt_inj_iha {a b : String} (h : KoreAML.srt a = KoreAML.srt b) : a = b := by
   simpa [KoreAML.srt] using h
@@ -600,13 +605,13 @@ def eqnSentence (c : Semantics) (f : Fn) (prem rhs ens : Kore.Pattern) : Kore.Se
   KoreAML.equationAt (symApp c f.label (KoreAML.vars (KoreAML.numbered "X" 0 (f.args.map c.sortName))))
     (c.sortName f.result) prem rhs ens []
 
-/-- For a function that is not named like `ite` at a sort, the equation is `equationAx`'s at the
-function's name. -/
-theorem eqnSentence_plain {c : Semantics} {f : Fn} (h : iteSort? (c.symName f.label) = none)
+/-- For a function whose name the decoder reads as no instance, the equation is `equationAx`'s at
+the function's name. -/
+theorem eqnSentence_plain {c : Semantics} {f : Fn} (h : instDecode? (c.symName f.label) = none)
     (prem rhs ens : Kore.Pattern) :
     eqnSentence c f prem rhs ens =
       KoreAML.equationAx (c.symName f.label) (f.args.map c.sortName) (c.sortName f.result) prem rhs ens [] := by
-  unfold eqnSentence symApp; rw [h]; rfl
+  unfold eqnSentence; rw [symApp_noInst h]; rfl
 
 /-- The premise of an equation that competes with other clauses: none of them applies, its own
 `requires` holds and its patterns match, `¬ ⋁ competitors ∧ ⌈req = true⌉ ∧ X̄ ∈ p̄`: the premise
@@ -872,6 +877,18 @@ sort). A function no symbol overloads may be named like `ite` at a sort: its equ
 def NamesNumbered (c : Semantics) : Prop :=
   NamesPlain c ∧ (∀ o ∈ c.ovls, ∀ g ∈ o.over, iteSort? (c.symName g) = none) ∧
   ∀ fn ∈ c.allFns, ∀ s ∈ fn.result :: fn.args, s < nRegSorts + c.sortNames.length
+
+/-- Under `NamesPlain`, `symApp` writes a constructor at its name, at no sort. This is the one
+lemma that reads `NamesPlain`'s condition on the name; the readers of `NamesPlain` go through it. -/
+theorem namesPlain_writes_irs {c : Semantics} (hnm : NamesPlain c) {k : CtorSig} (hk : k ∈ c.ctorSigs) :
+    ∀ ps, symApp c k.name ps = .app ⟨⟨c.symName k.name⟩⟩ [] ps := by
+  intro ps; unfold symApp; rw [hnm k hk]
+
+/-- Under `NamesNumbered`, `symApp` writes a symbol an overloading symbol overloads at its name, at
+no sort. The one lemma that reads the overload conjunct's condition on the name. -/
+theorem namesNumbered_over_writes_irs {c : Semantics} (hnn : NamesNumbered c) {o : OvlSig} (ho : o ∈ c.ovls)
+    {g : Sym} (hg : g ∈ o.over) : ∀ ps, symApp c g ps = .app ⟨⟨c.symName g⟩⟩ [] ps := by
+  intro ps; unfold symApp; rw [hnn.2.1 o ho g hg]
 
 theorem namesNumbered_spec {c : Semantics} (h : namesNumbered c = true) : NamesNumbered c := by
   simp only [namesNumbered, Bool.and_eq_true, List.all_eq_true, Option.isNone_iff_eq_none,

@@ -1156,10 +1156,10 @@ theorem nameFreeB_of_unnumbered (c : Semantics) (ns : List String)
   obtain ⟨h1, h2, h3⟩ := good_lists H
   have hk : ∀ f, NameFree.kOKN c ns f = true := hsym
   have ha : ∀ f, NameFree.appOKN c ns f = true := fun f => by
-    unfold NameFree.appOKN
-    split
-    · exact hfix _ (.inr rfl)
-    · exact hk f
+    unfold NameFree.appOKN symApp
+    cases iteSort? (c.symName f) with
+    | some X => exact hfix _ (.inr rfl)
+    | none => exact hsym f
   simp only [nameFreeB, NameFree.listsN, NameFree.valuesN, NameFree.graphsN, Bool.and_eq_true,
     List.all_eq_true]
   simp only [Bool.and_eq_true, List.all_eq_true] at h1 h2

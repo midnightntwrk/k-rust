@@ -89,9 +89,9 @@ def gammaHeads (c : Semantics) : List (String × List Kore.KSort) :=
 def gammaHasHead (c : Semantics) (h : String × List Kore.KSort) : Bool :=
   (gammaHeads c).any fun g => decide (g = h)
 
-/-- `gammaHasHead` where no symbol of Γ has a name of an instance of `ite` (`iteSort?` none at each
-name, `gammaHasHead_eq_plain`): a head with no sort argument whose name is a name of Γ's symbols, or
-`inj` at a pair of `subsorts`. It reads no name with `iteSort?`. -/
+/-- `gammaHasHead` where the decoder reads no name of Γ's symbols as an instance
+(`gammaHasHead_eq_plain_irs`): a head with no sort argument whose name is a name of Γ's symbols, or
+`inj` at a pair of `subsorts`. It reads no name with the decoder. -/
 def gammaHasHeadPlain (c : Semantics) (h : String × List Kore.KSort) : Bool :=
   (h.2.isEmpty && (kernelSyms c).any fun k => c.symName k.name == h.1) ||
     (h.1 == "inj" && c.subsorts.any fun (a, b) =>
@@ -111,6 +111,35 @@ theorem gammaHasHead_eq_plain {c : Semantics}
     cases hX : iteSort? (c.symName k.name) with
     | none => rfl
     | some X => rw [hX] at h1; exact absurd h1 Bool.false_ne_true
+  simp only [gammaHasHead, gammaHeads, gammaHasHeadPlain, List.any_append, List.any_map]
+  congr 1
+  · apply Bool.eq_iff_iff.mpr
+    simp only [List.any_eq_true, Bool.and_eq_true, List.isEmpty_iff, decide_eq_true_eq, beq_iff_eq,
+      Function.comp_apply]
+    constructor
+    · rintro ⟨k, hk, he⟩
+      rw [hg k hk, Prod.mk.injEq] at he
+      exact ⟨he.2.symm, k, hk, he.1⟩
+    · rintro ⟨hs, k, hk, he⟩
+      exact ⟨k, hk, by rw [hg k hk, he, hs]⟩
+  · apply Bool.eq_iff_iff.mpr
+    simp only [List.any_eq_true, Bool.and_eq_true, decide_eq_true_eq, beq_iff_eq, Function.comp_apply,
+      Prod.exists, Prod.mk.injEq]
+    constructor
+    · rintro ⟨a, b, hab, h1, h2⟩
+      exact ⟨h1.symm, a, b, hab, h2⟩
+    · rintro ⟨h1, a, b, hab, h2⟩
+      exact ⟨a, b, hab, h1.symm, h2⟩
+
+/-- `gammaHasHead` where the decoder reads no name of Γ's symbols as an instance: each of Γ's
+symbols is applied at its name with no sort argument, and `gammaHasHead` is `gammaHasHeadPlain`. -/
+theorem gammaHasHead_eq_plain_irs {c : Semantics}
+    (hno : (kernelSyms c).all (fun k => (instDecode? (c.symName k.name)).isNone) = true) :
+    gammaHasHead c = gammaHasHeadPlain c := by
+  funext h
+  obtain ⟨n, ss⟩ := h
+  have hg : ∀ k ∈ kernelSyms c, gammaHead c k.name = (c.symName k.name, []) := fun k hk =>
+    gammaHead_noInst (Option.isNone_iff_eq_none.mp (List.all_eq_true.mp hno k hk))
   simp only [gammaHasHead, gammaHeads, gammaHasHeadPlain, List.any_append, List.any_map]
   congr 1
   · apply Bool.eq_iff_iff.mpr

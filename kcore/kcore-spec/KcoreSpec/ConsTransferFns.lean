@@ -334,9 +334,10 @@ theorem rfrag_prioEquation_fn (hB : S ("Sort" ++ "Bool")) {f : Fn} {cl : Clause}
     fun prem hp =>
     .implies hp (.equals (ha _ (List.mem_cons_self ..))
       (by
-        unfold symApp; split
-        · exact .app (fun s hs => by rw [List.mem_singleton.mp hs]; exact ⟨_, rfl⟩) (kfrag_numbered_fn "X" _ 0)
-        · exact .app (fun s hs => absurd hs List.not_mem_nil) (kfrag_numbered_fn "X" _ 0))
+        obtain ⟨h, xs, -, hw⟩ := symApp_head c f.label
+        rw [hw]
+        exact .app (fun s hs => by obtain ⟨x, -, rfl⟩ := List.mem_map.mp hs; exact ⟨_, rfl⟩)
+          (kfrag_numbered_fn "X" _ 0))
       (.and fun p hp => by
         rcases mem_two hp with rfl | rfl
         · exact hrhs.1
