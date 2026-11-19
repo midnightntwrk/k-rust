@@ -1468,11 +1468,11 @@ table above, on the tree before String and Bytes). Not investigated here.
 - `test/TieUnboundAtValues.lean`: on `f2-examples/unbound.kompile.kore` (fixture e2-unbound), the
   classes test/TieKimpAtValues.lean and the set-variable section of test/TieKimpRefuted.lean tie on
   kimp, over this text's indices, for every H: hooked functional 47 of 48 (`fun_entailed`), the 9
-  collection laws (`laws_entailed`) and library 80 of 84 (`lib_entailed`, `libSet_entailed`) at
-  values; the 6 set-variable lemmas refuted (`sN_refuted`) and held at sets of at most one value
-  (`sN_one`); the accounts against TieUnbound's class lists, owed 100 (`ite`'s functional) and 242,
-  243 (`ite{SortK}`) and 207, 263 (the equations of `bitRangeInt` and `signExtendBitRangeInt`); the `_c`
-  forms over `Γc`. 51 s, 3.4 GiB.
+  collection laws (`laws_entailed`) and library 82 of 84 (`lib_entailed`, `libSet_entailed`) at
+  values, the equations of `bitRangeInt` and `signExtendBitRangeInt` (207, 263) among them; the 6
+  set-variable lemmas refuted (`sN_refuted`) and held at sets of at most one value (`sN_one`); the
+  accounts against TieUnbound's class lists, of no direction 100 (`ite`'s functional) and 242, 243
+  (`ite{SortK}`); the `_c` forms over `Γc`. 51 s, 3.4 GiB.
 - `test/TieRuleCoolText.lean`, `TieRuleCoolWf.lean`, `TieRuleCoolCons.lean`, `TieRuleCoolAttrs.lean`,
   `TieRuleCoolAccount.lean`, `TieRuleCoolAtValues.lean`: the tie on `f2-examples/rulecool.kompile.kore`
   (fixture e2-rule) beside test/TieRuleCool.lean's rules and steps, ported from test/TieUnbound.lean
@@ -1481,9 +1481,9 @@ table above, on the tree before String and Bytes). Not investigated here.
   nine over generators, KItem's in another order), set idempotence refuted, the `_c` forms (Text,
   2.9 GiB); the 37 constructor sentences (Cons, 3.5 GiB); `attrs_agree`, `fn_prios` (Attrs, 6.2
   GiB: `attrsAgree` on the whole text); the account of the 282 sentences and the closed
-  no-direction class (Account, 4.1 GiB); hooked functional 47 of 48, collection laws, library 80
-  of 84 at values, the 6 set-variable lemmas refuted, owed 109, 225, 262, 263, 284 (AtValues, 3.5
-  GiB).
+  no-direction class (Account, 4.1 GiB); hooked functional 47 of 48, collection laws, library 82
+  of 84 at values (225, 284, the equations of `bitRangeInt` and `signExtendBitRangeInt`, among
+  them), the 6 set-variable lemmas refuted, of no direction 109, 262, 263 (AtValues, 3.5 GiB).
   243 (`ite{SortK}`); the `_c` forms over `Γc`. 37 s, 3.4 GiB.
   `c.withHooks H`; the expectations `b_step` (from `PreS`, the sentences as written) and `a_succs`
   (through the step's closure, from `Pre`). About 11 s, 2.9 GiB.
@@ -1900,6 +1900,11 @@ table above, on the tree before String and Bytes). Not investigated here.
   that tie the same sentences on ens: the 16 predicate equations of the equality symbols
   (`pred_entailed`), 58 term and function equations (`evN`), and the eight Bool predicate
   sentences over set variables at set values (`set_entailed`). 2.5 GiB, 39 s. Axioms guarded.
+- `test/LibEvRefutedFlt.lean`: the sentences of `f2-examples/silentflt.kompile.kore` that
+  test/LibEvClassesFlt.lean leaves out of its classes as refuted, each refuted for every H: set
+  idempotence 87 (`idem_refuted`, `setColl_idem_refuted_text`) and the six set-variable lemmas 196
+  to 200 and 381 (`sN_at`, `sN_refuted`, `sN_one`, as test/LibEvCeilEns.lean states them on ens).
+  Axioms guarded.
 - `test/FloatUnpack.lean`: facts of Lean core's float model at every format it covers
   (`KcoreSpec/FloatUnpack.lean`): the datum of every encoding is a normal or subnormal datum of the
   format (`datum_unpack`, `unpack_finite_bounds`), `unpack` after `pack` is the identity there

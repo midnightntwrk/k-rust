@@ -16,12 +16,13 @@
   - collection law (`lawIdx`, 9): associativity and the two units of `_List_`, `_Map_`, `_Set_`;
   - library (`libIdx`, 105): LibProbe's sentences of rows 17 (45) and 18 (66) over Γ, but for the six
     set-variable lemmas (196, 197, 198, 199, 200, 381: the `#Ceil` lemmas of `%Int`, `/Int`, `<<Int`,
-    `>>Int`, `modInt` and of `_Map_`, of the class set-variable lemma, refuted at sets of values on ens
-    and kimp: test/LibEvCeilEns.lean, test/TieKimpRefuted.lean).
+    `>>Int`, `modInt` and of `_Map_`, of the class set-variable lemma, refuted at sets of values:
+    test/LibEvRefutedFlt.lean).
   `classes_over`: every sentence of the three classes applies only Γ's heads (`appHeadsOf`,
   `gammaHasHead`). `absent_lacks`: the 31 other sentences of LibProbe's rows 9, 17 and 18 each apply a
   head Γ lacks, so they are of the no-direction class (`absentIdx`; the reason for each is recorded
-  in test/LibEvDeclsFlt.lean, test/LibEvStrFlt.lean or below). Set idempotence (87) is its own class.
+  in test/LibEvDeclsFlt.lean, test/LibEvStrFlt.lean or below). Set idempotence (87) is its own class,
+  refuted (test/LibEvRefutedFlt.lean `idem_refuted`).
 
   Hooked functional, `LibEv.functional_ev` (one kernel decision per list):
   - `fun_entailed`: the 63 sentences of symbols that are not partial, for every H;
