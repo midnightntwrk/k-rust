@@ -29,6 +29,11 @@
     nothing there); Γ's item states nothing there, its left side holding the conjunct `⌈right⌉`.
     The step relation gives such a configuration no successor: the rule applies and its
     `ensures` is not `true`.
+  - Γ refutes the sentence, for every H (`sentence157_refuted`): a model of Γ holds the element of
+    the configuration `go(0)`, which is an element of the sentence's left side at the valuation of
+    the match X = 0; there Γ gives `X >Int 0` the value `false`, so the sentence's right side holds
+    nothing, and the sentence would give the element a successor among its elements. So the text
+    has no model with Γ, while Γ with the step's closure has one.
   `consistent` for every H.
 
   The expectations (C7 form (a), through the reading), from `Pre H` (the function equations as
@@ -341,6 +346,59 @@ theorem and_stuck (H : HookParams) :
     (Pre H ∪ Γstep (cH H)) ⊧ (den (cH H) Go0.val ⇒ KoreAML.allNext (KoreAML.disjList (([] : List GroundTerm).map (den (cH H))))) :=
   stuck_from (x := Go0) (by decide +kernel) H
 
+/-! ## Γ refutes sentence 157 -/
+
+theorem r0_sorted : c.ruleSorted r0 = true := by decide +kernel
+
+-- The text's left side is the left side's term of the rule and `\top`, at the sort of configurations.
+kernel_rfl Ltext0_eq : Ltext0 = .and (srtOf c topCellSort)
+  [Term.kore c (canonVars c r0.vars) r0.lhs, .top (srtOf c topCellSort)]
+kernel_rfl q0C_eq : q0.1 = srtOf c topCellSort
+
+-- The table of Γ's axiom holds the rule's variables, and the sentence's guards are on them.
+theorem keys0 : (List.range r0.vars.length).all (fun i => (tableOf [] p0).contains (canonKey c r0.vars i)) = true := by
+  decide +kernel
+theorem fT0_keys : fT0.all (fun k => (List.range r0.vars.length).any (fun i => k == canonKey c r0.vars i)) = true := by
+  decide +kernel
+
+/-- The rule's left side matches the configuration. -/
+theorem match0 : ((Exec.matchP c 100 [] r0.lhs Go0.val).filter (Exec.wellSorted c r0.vars)).isEmpty = false := by
+  decide +kernel
+
+/-- The rule's `ensures`, `X >Int 0`. -/
+noncomputable def ens0 : Term := r0.ens.getD (.var 0)
+
+kernel_rfl ens0_eq : r0.ens = some ens0
+
+-- Γ's `ensures` is the equality of the `ensures`' term with `true` at the sort of configurations.
+kernel_rfl ensPat_eq : Kore.Pattern.equals (KoreAML.srt "Bool") q0.1 xy.1 xy.2 =
+  reqPat (srtOf c topCellSort) (some (Term.kore c (canonVars c r0.vars) ens0))
+
+/-- At each match of `go(0)` the `ensures` evaluates to `false`. -/
+theorem ens0_false : ((Exec.matchP c 100 [] r0.lhs Go0.val).filter (Exec.wellSorted c r0.vars)).all
+    (fun σ => Cert.evalTC c 50 σ ens0 == some (some (KCore.bool false))) = true := by
+  decide +kernel
+
+/-- **Γ refutes sentence 157, for every H**: no model of Γ is a model of the sentence. A model of Γ
+holds the element of the configuration `go(0)`, which the sentence's left side holds at the valuation
+of the match X = 0. There `X >Int 0` has the value `false` in the model, so the right side, which
+conjoins the predicate, holds nothing; the sentence gives the element a successor among its
+elements. -/
+theorem sentence157_refuted (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
+    (hΓ : I ⊧ᴵP Γ (cH H)) : ¬ (I ⊧ᴵ (trS U.ax157).pat) := by
+  intro hsen
+  rw [trS157, q0C_eq, Ltext0_eq] at hsen
+  exact TieRuleRhs.rhs_empty_refuted_everyH coreOK noRaw r0_sorted Go0 match0 keys0 fT0_keys H hΓ
+    (fun σ hσm hσ b hb => by
+      have hD := defOK hΓ
+      have h1 := right0_sub H hD (fun φ hφ => sat_sig hΓ hφ) _ b hb
+      rw [right0_eq, interp_and (List.cons_ne_nil _ _)] at h1
+      have h2 := h1 _ (List.mem_cons_of_mem _ (List.mem_cons_self ..))
+      rw [ensPat_eq] at h2
+      exact TieRuleRhs.ens_false_empty_everyH coreOK noRaw readsConfined_c hok hsr hmr
+        (List.getElem_mem _) r0_sorted ens0_eq (beq_iff_eq.mp (List.all_eq_true.mp ens0_false σ hσm))
+        keys0 H hΓ hσ b h2) hsen
+
 end KCore.TieRuleRhsAndPred
 
 #check @KCore.TieRuleRhsAndPred.rule_text0
@@ -361,3 +419,5 @@ end KCore.TieRuleRhsAndPred
 #print axioms KCore.TieRuleRhsAndPred.pre_model
 #print axioms KCore.TieRuleRhsAndPred.and_step
 #print axioms KCore.TieRuleRhsAndPred.and_stuck
+#check @KCore.TieRuleRhsAndPred.sentence157_refuted
+#print axioms KCore.TieRuleRhsAndPred.sentence157_refuted
