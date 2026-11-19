@@ -1,4 +1,4 @@
-// kk.k: the text of krs/semantics/kore/kore.k as it stands at k-rust commit de05a5c619dddfb60c510e85109d16e1a62e585b, with this line added
+// kk.k: the text of krs/semantics/kore/kore.k as it stands at k-rust commit e1e21f9055f9aabf50f2cad6ae670fff6e5de709, with this line added
 // kore.k: an interpreter, written in K, of a fragment of KORE as kompile writes it.
 //
 // A program is pgm(D, T): D an encoded object definition (its subsorts, its functions with their
@@ -15,10 +15,10 @@
 //   - an equation applies when its argument patterns match and its requires evaluates to true;
 //     among the applicable equations one of the least priority gives the result (an [owise]
 //     equation has priority 200, an equation without priority 50); an application no equation
-//     applies to is given no value here (bot): the equations leave it open, and this interpreter
-//     is the member of KCore's family whose interpretation gives nothing (HookParams.none), not
-//     the text's meaning for every interpretation; a function declared total is read the same,
-//     so at such a point the result is outside what the text admits;
+//     applies to is given no value here (bot): the text leaves that point open (the unsettled
+//     entry kk:t13-fn-no-equation), and this interpreter computes its reading closure-none; a
+//     function declared total is read the same, which is none of the readings of the unsettled
+//     entry kk:t14-total-no-equation (value-true, value-false, rest): outside what the text admits;
 //   - a rewrite rule applies when its left side matches and its requires evaluates to true; the
 //     successors are the defined results of the applicable rules of the least priority; a rule
 //     whose result is undefined still blocks the rules of larger priority;
@@ -500,8 +500,8 @@ module KORE
   rule [op-str-eq]: hookOp(80, tk(_, X) ; tk(_, Y) ; .Ts) => bv(X ==String Y)
   rule [op-str-lt]: hookOp(81, tk(_, X) ; tk(_, Y) ; .Ts) => bv(X <String Y)
   // No other case gives a value. Where the hook's text states none (/Int and %Int by zero, a
-  // missing key), bot is the text's \bottom; at a point the text leaves open, bot is the value
-  // of HookParams.none, the member of KCore's family this interpreter is, not the text's \bottom.
+  // missing key, two sets with a common element: the settled entry kk:t35-set-concat-overlap),
+  // bot is the text's \bottom; where it leaves the point open, bot is a reading of that point's entry.
   rule [op-undef]: hookOp(_, _) => bot [owise]
 
   syntax Ts ::= union(Ts, Ts) [function]

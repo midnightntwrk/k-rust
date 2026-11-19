@@ -1,11 +1,11 @@
 command: kompile --backend haskell --main-module KORE --syntax-module KORE-SYNTAX kk.k -o out  (cwd: the fixture directory)
 exit: 0
-seconds: 3.6
-external kcore/kcore-spec/kk/kk.k: sha256 abd85cb8920c8fb35a39e452be9cbe3c27eb3238fb094cb316aaa15fa5cb3b28
-definition.kore bytes: 916448
-definition.kore sha256: 4a54e0e83a34cb1738dac377fde1d32eb1a19145e40a130c9a452e2a84640073
+seconds: 6.6
+external kcore/kcore-spec/kk/kk.k: sha256 44c41e1e1bcb659c5ff24906eda07e814bfb107ec1ccc9f40b45b4e871f7aa24
+definition.kore bytes: 916456
+definition.kore sha256: 33244870b3e7e4306a56e564ed80298922fd41626ba125c4c36b1522b43200e2
 stripped sha256: 2712626d6d295ece47121a552163be07b20d6a5161e801c312cc565fcbc6e49a
-main module: 1176 sentences, 769 not in base's (676700 bytes, over 200000): kore.txt holds the 369 with a Source in the fixture
+main module: 1176 sentences, 769 not in base's (676708 bytes, over 200000): kore.txt holds the 369 with a Source in the fixture
 kore.txt: not written (fixture.toml kore_txt = false); the command regenerates the text
 output:
   
