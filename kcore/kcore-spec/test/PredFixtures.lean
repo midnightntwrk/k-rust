@@ -61,6 +61,17 @@
     of the landed reading), `go(1)` has no successor (`stuck_go1`: f(1) = 1, g(1) = -1), and the
     successor of `go(0)` is the one value `famEx` has (`famEx_one`: `sound_at` and `famEx_values`,
     with `FnHyp` from the deciders' empty obligation lists).
+
+  ## A conjunction on a rule's left side
+  Three texts read through the cut of a left side's conjunction (`Parse.lhsAndRuleBody`,
+  `ReadingNote.lhsAndCut`), each the text's one rule, each with `coreOK`; the steps from `StepBy`.
+  - e3-ml-rule-lhs-ceil-ctor (mllhsceil, `go(X) #And #Ceil(go(X)) => done`): `go(X) => done` with
+    `pre := ceil go(X)`. `go(i)` steps to `done` at every integer i (`LhsAnd.Ceil.step`).
+  - e3-ml-rule-lhs-equals (mllhseq, `go(X) #And {X #Equals 1} => done`): `go(X) => done` with
+    `pre := X = 1`. `go(i)` steps to `done` exactly at i = 1 (`LhsAnd.Eq.step_iff`).
+  - e3-ml-rule-lhs-and (mllhsandv, `c(X #And d(_, b())) => X`): `c(d(G, b) #as X) => X`, no
+    `pre`. `c(d(u, b))` steps to `d(u, b)` for every value u of Exp (`LhsAnd.Var.step`), and `c(a)`
+    has no successor (`LhsAnd.Var.stuck_a`).
 -/
 import KcoreSpec
 
@@ -1566,5 +1577,413 @@ theorem stuck_ca : ∀ y, ¬ Step c (C A sortOf_A) y :=
 #guard_msgs in #print axioms step_iff
 
 end LhsNotOther
+
+/-! ## A conjunction on a rule's left side -/
+
+namespace LhsAnd
+
+theorem holds_equals_inv {c : Semantics} {n : Nat} {σ : Subst} {s : Srt} {t u : Term} {b : Bool}
+    (h : Holds c n σ (.equals s t u) b) :
+    ∃ r r', EvalTerm c σ t r ∧ EvalTerm c σ u r' ∧ b = sameResult r r' := by
+  generalize hq : Cond.equals s t u = q at h
+  cases h with
+  | equals h h' => cases hq; exact ⟨_, _, h, h', rfl⟩
+  | _ => cases hq
+
+/-! ### e3-ml-rule-lhs-ceil-ctor -/
+
+namespace Ceil
+
+definition_of defn from "f2-examples/mllhsceil.kompile.kore"
+
+noncomputable abbrev c : Semantics := defn.sem
+
+def exp : Srt := 32
+def kCell : Sym := 383
+def symDone : Sym := 385
+def symGo : Sym := 386
+
+theorem names_ok : c.sortName exp = "Exp" ∧ c.symName kCell = "Lbl'-LT-'k'-GT-'" ∧
+    c.symName symDone = "Lbldone" ∧ c.symName symGo = "Lblgo" := by
+  decide +kernel
+
+/-- **Admitted**: the definition with the rule `go(X) => done`, `pre := ceil go(X)`, has `coreOK`. -/
+theorem coreOK : c.coreOK = true := by decide +kernel
+theorem prios : c.rules.length = 1 ∧ ∀ r ∈ c.rules, r.prio = 50 := by decide +kernel
+
+noncomputable def r0 : Rule := c.rules[0]'(by decide +kernel)
+theorem r0_mem : r0 ∈ c.rules := List.getElem_mem _
+
+theorem r0_vars : r0.vars = [Srt.int, Srt.k, 19] := by decide +kernel
+theorem r0_lhs : r0.lhs = cfgPat kCell exp (.app symGo [.var 0]) 1 2 := rfl
+theorem r0_rhs : r0.rhs = cfgPat kCell exp (.app symDone []) 1 2 := rfl
+/-- The predicate of the left side is `pre`: `ceil go(X)`, X the variable 0. -/
+theorem r0_shape : r0.req = none ∧ r0.ens = none ∧ r0.exs = [] ∧ r0.post = .top ∧
+    r0.pre = .ceil exp (.app symGo [.var 0]) :=
+  ⟨rfl, rfl, rfl, rfl, rfl⟩
+
+theorem syms_ok : c.isCtor topLabel = true ∧ c.isCtor kCell = true ∧ c.isCtor kseq = true ∧
+    c.isCtor symGo = true ∧ c.isCtor symDone = true := by
+  decide +kernel
+
+theorem lookups_ok : (lookupSig c.ctorSigs topLabel).isSome = true ∧ (lookupSig c.ctorSigs kCell).isSome = true ∧
+    (lookupSig c.ctorSigs kseq).isSome = true ∧ (lookupSig c.ctorSigs symGo).isSome = true := by
+  decide +kernel
+
+def ctr : GroundTerm := .ctor counterLabel [int 0]
+def cfg (st : GroundTerm) : GroundTerm := cfgOf kCell exp st
+
+theorem sortOf_go (i : Int) : c.sortOf (cfg (.ctor symGo [int i])) = some topCellSort := by
+  have h0 : c.sortOf (cfg (.ctor symGo [int 0])) = some topCellSort := by decide +kernel
+  rw [← h0]
+  exact sortOf_cfgOf_congr ⟨lookups_ok.1, lookups_ok.2.1, lookups_ok.2.2.1⟩
+    (sortOf_ctor_congr lookups_ok.2.2.2 (sortsOf_head_congr (by rw [sortOf_int, sortOf_int]))) rfl
+
+/-- `<k> go(i) </k>`; `<k> done </k>`. -/
+def Go (i : Int) : Config c := ⟨cfg (.ctor symGo [int i]), sortOf_go i⟩
+def Done : Config c := ⟨cfg (.ctor symDone []), by decide +kernel⟩
+
+def σ (i : Int) : Subst := [(0, int i), (1, .ctor dotk []), (2, ctr)]
+
+/-- **`go(i)` steps to `done` at every integer i**: `go(i)` has a value, so `ceil go(X)` holds at
+X := i. -/
+theorem step (i : Int) : Step c (Go i) Done := step_iff_by.mpr ⟨r0, σ i, {
+  mem := r0_mem
+  hσ := fun j s hs => by
+    rw [r0_vars] at hs
+    match j, hs with
+    | 0, hs => cases hs; exact ⟨_, rfl, sortOf_int i⟩
+    | 1, hs => cases hs; exact ⟨_, rfl, by decide +kernel⟩
+    | 2, hs => cases hs; exact ⟨_, rfl, by decide +kernel⟩
+  hmatch := by
+    rw [r0_lhs]
+    have hi : injNormal exp Srt.kitem (.ctor symGo [int i]) = .inj exp Srt.kitem (.ctor symGo [int i]) := rfl
+    exact .ctor syms_ok.1 (.cons (.ctor syms_ok.2.1 (.cons (.ctor syms_ok.2.2.1
+      (.cons (hi ▸ .inj (.ctor syms_ok.2.2.2.1 (.cons (.var rfl) .nil))) (.cons (.var rfl) .nil))) .nil))
+      (.cons (.var rfl) .nil))
+  hreq := fun t ht => by rw [r0_shape.1] at ht; cases ht
+  hpre := by
+    rw [r0_shape.2.2.2.2]
+    exact .ceil (.ctor syms_ok.2.2.2.1 (.cons .var .nil))
+  heval := by
+    rw [r0_rhs]
+    exact .ctor syms_ok.1 (.cons (.ctor syms_ok.2.1 (.cons (.ctor syms_ok.2.2.1
+      (.cons (.inj (.ctor syms_ok.2.2.2.2 .nil)) (.cons .var .nil))) .nil)) (.cons .var .nil))
+  hens := fun t ht => by rw [r0_shape.2.1] at ht; cases ht
+  hpost := by rw [r0_shape.2.2.2.1]; exact .top
+  hprio := fun r' hr' hlt => by
+    rw [prios.2 r' hr', prios.2 r0 r0_mem] at hlt; exact absurd hlt (Nat.lt_irrefl _) }⟩
+
+/-- info: 'PredFixtures.LhsAnd.Ceil.step' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms step
+
+end Ceil
+
+/-! ### e3-ml-rule-lhs-equals -/
+
+namespace Eq
+
+definition_of defn from "f2-examples/mllhseq.kompile.kore"
+
+noncomputable abbrev c : Semantics := defn.sem
+
+def exp : Srt := 32
+def kCell : Sym := 383
+def symDone : Sym := 385
+def symGo : Sym := 386
+
+theorem names_ok : c.sortName exp = "Exp" ∧ c.symName kCell = "Lbl'-LT-'k'-GT-'" ∧
+    c.symName symDone = "Lbldone" ∧ c.symName symGo = "Lblgo" := by
+  decide +kernel
+
+/-- **Admitted**: the definition with the rule `go(X) => done`, `pre := X = 1`, has `coreOK`. -/
+theorem coreOK : c.coreOK = true := by decide +kernel
+theorem prios : c.rules.length = 1 ∧ ∀ r ∈ c.rules, r.prio = 50 := by decide +kernel
+
+noncomputable def r0 : Rule := c.rules[0]'(by decide +kernel)
+theorem r0_mem : r0 ∈ c.rules := List.getElem_mem _
+theorem rule_eq {r : Rule} (hr : r ∈ c.rules) : r = r0 := by
+  obtain ⟨i, hi, rfl⟩ := List.getElem_of_mem hr
+  have : i = 0 := by have := prios.1; omega
+  subst this
+  rfl
+
+theorem r0_vars : r0.vars = [Srt.int, Srt.k, 19] := by decide +kernel
+theorem r0_lhs : r0.lhs = cfgPat kCell exp (.app symGo [.var 0]) 1 2 := rfl
+theorem r0_rhs : r0.rhs = cfgPat kCell exp (.app symDone []) 1 2 := rfl
+/-- The predicate of the left side is `pre`: `X = 1`, X the variable 0. -/
+theorem r0_shape : r0.req = none ∧ r0.ens = none ∧ r0.exs = [] ∧ r0.post = .top ∧
+    r0.pre = .equals Srt.int (.var 0) (.dv Srt.int (.int 1)) :=
+  ⟨rfl, rfl, rfl, rfl, rfl⟩
+
+theorem syms_ok : c.isCtor topLabel = true ∧ c.isCtor kCell = true ∧ c.isCtor kseq = true ∧
+    c.isCtor symGo = true ∧ c.isCtor symDone = true := by
+  decide +kernel
+
+theorem hooks_ok : patternHooks.contains topLabel = false ∧ patternHooks.contains kCell = false ∧
+    patternHooks.contains kseq = false ∧ patternHooks.contains symGo = false := by
+  decide +kernel
+
+theorem lookups_ok : (lookupSig c.ctorSigs topLabel).isSome = true ∧ (lookupSig c.ctorSigs kCell).isSome = true ∧
+    (lookupSig c.ctorSigs kseq).isSome = true ∧ (lookupSig c.ctorSigs symGo).isSome = true := by
+  decide +kernel
+
+def ctr : GroundTerm := .ctor counterLabel [int 0]
+def cfg (st : GroundTerm) : GroundTerm := cfgOf kCell exp st
+
+theorem sortOf_go (i : Int) : c.sortOf (cfg (.ctor symGo [int i])) = some topCellSort := by
+  have h0 : c.sortOf (cfg (.ctor symGo [int 0])) = some topCellSort := by decide +kernel
+  rw [← h0]
+  exact sortOf_cfgOf_congr ⟨lookups_ok.1, lookups_ok.2.1, lookups_ok.2.2.1⟩
+    (sortOf_ctor_congr lookups_ok.2.2.2 (sortsOf_head_congr (by rw [sortOf_int, sortOf_int]))) rfl
+
+/-- `<k> go(i) </k>`; `<k> done </k>`. -/
+def Go (i : Int) : Config c := ⟨cfg (.ctor symGo [int i]), sortOf_go i⟩
+def Done : Config c := ⟨cfg (.ctor symDone []), by decide +kernel⟩
+
+def σ (i : Int) : Subst := [(0, int i), (1, .ctor dotk []), (2, ctr)]
+
+theorem stepBy1 : StepBy c r0 (σ 1) (Go 1) Done where
+  mem := r0_mem
+  hσ := fun j s hs => by
+    rw [r0_vars] at hs
+    match j, hs with
+    | 0, hs => cases hs; exact ⟨_, rfl, sortOf_int 1⟩
+    | 1, hs => cases hs; exact ⟨_, rfl, by decide +kernel⟩
+    | 2, hs => cases hs; exact ⟨_, rfl, by decide +kernel⟩
+  hmatch := by
+    rw [r0_lhs]
+    have hi : injNormal exp Srt.kitem (.ctor symGo [int 1]) = .inj exp Srt.kitem (.ctor symGo [int 1]) := rfl
+    exact .ctor syms_ok.1 (.cons (.ctor syms_ok.2.1 (.cons (.ctor syms_ok.2.2.1
+      (.cons (hi ▸ .inj (.ctor syms_ok.2.2.2.1 (.cons (.var rfl) .nil))) (.cons (.var rfl) .nil))) .nil))
+      (.cons (.var rfl) .nil))
+  hreq := fun t ht => by rw [r0_shape.1] at ht; cases ht
+  hpre := by
+    rw [r0_shape.2.2.2.2]
+    have h : Holds c r0.vars.length (σ 1) (.equals Srt.int (.var 0) (.dv Srt.int (.int 1)))
+        (sameResult (some (int 1)) (some (int 1))) := .equals .var .dv
+    rw [sameResult_some] at h
+    simpa using h
+  heval := by
+    rw [r0_rhs]
+    exact .ctor syms_ok.1 (.cons (.ctor syms_ok.2.1 (.cons (.ctor syms_ok.2.2.1
+      (.cons (.inj (.ctor syms_ok.2.2.2.2 .nil)) (.cons .var .nil))) .nil)) (.cons .var .nil))
+  hens := fun t ht => by rw [r0_shape.2.1] at ht; cases ht
+  hpost := by rw [r0_shape.2.2.2.1]; exact .top
+  hprio := fun r' hr' hlt => by
+    rw [prios.2 r' hr', prios.2 r0 r0_mem] at hlt; exact absurd hlt (Nat.lt_irrefl _)
+
+/-- A match of the left side at `<k> go(i) </k>` gives X the value i. -/
+theorem lookup0 {τ : Subst} {i : Int} (hm : PatVal c τ r0.lhs (cfg (.ctor symGo [int i]))) :
+    τ.lookup 0 = some (int i) := by
+  rw [r0_lhs] at hm
+  have h1 := (patVal_ctor2 hooks_ok.1 syms_ok.1 hm).1
+  have h2 := patVal_ctor1 hooks_ok.2.1 syms_ok.2.1 h1
+  have h3 := (patVal_ctor2 hooks_ok.2.2.1 syms_ok.2.2.1 h2).1
+  obtain ⟨w, hw, he⟩ := PatVal.inj_inv h3
+  obtain ⟨-, vs, rfl, hs⟩ := PatVal.app_inv hooks_ok.2.2.2 hw syms_ok.2.2.2.1
+  have he' : GroundTerm.inj exp Srt.kitem (.ctor symGo [int i]) = .inj exp Srt.kitem (.ctor symGo vs) := he
+  cases he'
+  obtain ⟨_, _, he1, h4, _⟩ := PatVals.cons_inv hs
+  cases he1
+  exact PatVal.var_inv h4
+
+/-- **`go(i)` steps to `done` exactly at i = 1**: `pre` is `X = 1` at X := i. -/
+theorem step_iff (i : Int) : Step c (Go i) Done ↔ i = 1 := by
+  constructor
+  · intro h
+    obtain ⟨r, τ, hs⟩ := step_iff_by.mp h
+    have hr := rule_eq hs.mem
+    subst hr
+    have h0 := lookup0 hs.hmatch
+    have hp := hs.hpre
+    rw [r0_shape.2.2.2.2] at hp
+    obtain ⟨r₁, r₂, e₁, e₂, hb⟩ := holds_equals_inv hp
+    rw [EvalTerm.var_inv e₁, h0, EvalTerm.dv_inv e₂] at hb
+    have : int i = int 1 := by
+      have hb' := hb.symm
+      simp only [sameResult_some, decide_eq_true_eq] at hb'
+      exact hb'
+    simpa [int] using this
+  · rintro rfl
+    exact step_iff_by.mpr ⟨r0, σ 1, stepBy1⟩
+
+/-- info: 'PredFixtures.LhsAnd.Eq.step_iff' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms step_iff
+
+end Eq
+
+/-! ### e3-ml-rule-lhs-and -/
+
+namespace Var
+
+definition_of defn from "f2-examples/mllhsandv.kompile.kore"
+
+noncomputable abbrev c : Semantics := defn.sem
+
+def exp : Srt := 32
+def kCell : Sym := 383
+def symA : Sym := 385
+def symB : Sym := 386
+def symC : Sym := 387
+def symD : Sym := 388
+
+theorem names_ok : c.sortName exp = "Exp" ∧ c.symName kCell = "Lbl'-LT-'k'-GT-'" ∧
+    c.symName symA = "Lbla" ∧ c.symName symB = "Lblb" ∧ c.symName symC = "Lblc" ∧ c.symName symD = "Lbld" := by
+  decide +kernel
+
+/-- **Admitted**: the definition with the rule `c(d(G, b) #as X) => X` has `coreOK`. -/
+theorem coreOK : c.coreOK = true := by decide +kernel
+theorem prios : c.rules.length = 1 ∧ ∀ r ∈ c.rules, r.prio = 50 := by decide +kernel
+
+noncomputable def r0 : Rule := c.rules[0]'(by decide +kernel)
+theorem r0_mem : r0 ∈ c.rules := List.getElem_mem _
+theorem rule_eq {r : Rule} (hr : r ∈ c.rules) : r = r0 := by
+  obtain ⟨i, hi, rfl⟩ := List.getElem_of_mem hr
+  have : i = 0 := by have := prios.1; omega
+  subst this
+  rfl
+
+/-- `\and(X, d(G, b()))` read as `d(G, b()) #as X`: G the variable 0, X the variable 1. -/
+theorem r0_vars : r0.vars = [exp, exp, Srt.k, 19] := by decide +kernel
+theorem r0_lhs : r0.lhs = cfgPat kCell exp (.app symC [.as (.app symD [.var 0, .app symB []]) 1]) 2 3 := rfl
+theorem r0_rhs : r0.rhs = cfgPat kCell exp (.var 1) 2 3 := rfl
+theorem r0_shape : r0.req = none ∧ r0.ens = none ∧ r0.exs = [] ∧ r0.pre = .top ∧ r0.post = .top :=
+  ⟨rfl, rfl, rfl, rfl, rfl⟩
+
+theorem syms_ok : c.isCtor topLabel = true ∧ c.isCtor kCell = true ∧ c.isCtor kseq = true ∧
+    c.isCtor symB = true ∧ c.isCtor symC = true ∧ c.isCtor symD = true := by
+  decide +kernel
+
+theorem hooks_ok : patternHooks.contains topLabel = false ∧ patternHooks.contains kCell = false ∧
+    patternHooks.contains kseq = false ∧ patternHooks.contains symC = false ∧
+    patternHooks.contains symD = false := by
+  decide +kernel
+
+theorem lookups_ok : (lookupSig c.ctorSigs topLabel).isSome = true ∧ (lookupSig c.ctorSigs kCell).isSome = true ∧
+    (lookupSig c.ctorSigs kseq).isSome = true ∧ (lookupSig c.ctorSigs symC).isSome = true ∧
+    (lookupSig c.ctorSigs symD).isSome = true := by
+  decide +kernel
+
+theorem exp_bottom : ∀ p ∈ c.subsorts, p.2 ≠ exp := by
+  intro p hp
+  have h : c.subsorts.all (fun p => p.2 != exp) = true := by decide +kernel
+  simpa using List.all_eq_true.mp h p hp
+
+/-! #### The configurations -/
+
+def A : GroundTerm := .ctor symA []
+def B : GroundTerm := .ctor symB []
+def ctr : GroundTerm := .ctor counterLabel [int 0]
+def cfg (st : GroundTerm) : GroundTerm := cfgOf kCell exp st
+/-- `d(u, b)`. -/
+def D (u : GroundTerm) : GroundTerm := .ctor symD [u, B]
+
+theorem sortOf_A : c.sortOf A = some exp := by decide +kernel
+theorem sortOf_B : c.sortOf B = some exp := by decide +kernel
+
+theorem sortOf_D {u : GroundTerm} (hu : c.sortOf u = some exp) : c.sortOf (D u) = some exp := by
+  have h0 : c.sortOf (D B) = some exp := by decide +kernel
+  rw [← h0]
+  exact sortOf_ctor_congr lookups_ok.2.2.2.2 (sortsOf_head_congr (by rw [hu, sortOf_B]))
+
+theorem sortOf_cfg {g : GroundTerm} (hg : c.sortOf g = some exp) : c.sortOf (cfg g) = some topCellSort := by
+  have h0 : c.sortOf (cfg A) = some topCellSort := by decide +kernel
+  rw [← h0]
+  exact sortOf_cfgOf_congr ⟨lookups_ok.1, lookups_ok.2.1, lookups_ok.2.2.1⟩ (by rw [hg, sortOf_A])
+    (by rw [isInj_of_sort exp_bottom hg]; rfl)
+
+theorem sortOf_cfgC {z : GroundTerm} (hz : c.sortOf z = some exp) :
+    c.sortOf (cfg (.ctor symC [z])) = some topCellSort := by
+  have h0 : c.sortOf (cfg (.ctor symC [A])) = some topCellSort := by decide +kernel
+  rw [← h0]
+  exact sortOf_cfgOf_congr ⟨lookups_ok.1, lookups_ok.2.1, lookups_ok.2.2.1⟩
+    (sortOf_ctor_congr lookups_ok.2.2.2.1 (sortsOf_head_congr (by rw [hz, sortOf_A]))) rfl
+
+/-- `<k> c(z) </k>`. -/
+def C (z : GroundTerm) (hz : c.sortOf z = some exp) : Config c := ⟨cfg (.ctor symC [z]), sortOf_cfgC hz⟩
+/-- `<k> g </k>`. -/
+def G (g : GroundTerm) (hg : c.sortOf g = some exp) : Config c := ⟨cfg g, sortOf_cfg hg⟩
+
+/-! #### The steps -/
+
+def σ (u : GroundTerm) : Subst := [(0, u), (1, D u), (2, .ctor dotk []), (3, ctr)]
+
+/-- **`c(d(u, b))` steps to `d(u, b)`**, for every value u of Exp: X := d(u, b). -/
+theorem step {u : GroundTerm} (hu : c.sortOf u = some exp) :
+    Step c (C (D u) (sortOf_D hu)) (G (D u) (sortOf_D hu)) := step_iff_by.mpr ⟨r0, σ u, {
+  mem := r0_mem
+  hσ := fun j s hs => by
+    rw [r0_vars] at hs
+    match j, hs with
+    | 0, hs => cases hs; exact ⟨_, rfl, hu⟩
+    | 1, hs => cases hs; exact ⟨_, rfl, sortOf_D hu⟩
+    | 2, hs => cases hs; exact ⟨_, rfl, by decide +kernel⟩
+    | 3, hs => cases hs; exact ⟨_, rfl, by decide +kernel⟩
+  hmatch := by
+    rw [r0_lhs]
+    have hi : injNormal exp Srt.kitem (.ctor symC [D u]) = .inj exp Srt.kitem (.ctor symC [D u]) := rfl
+    exact .ctor syms_ok.1 (.cons (.ctor syms_ok.2.1 (.cons (.ctor syms_ok.2.2.1
+      (.cons (hi ▸ .inj (.ctor syms_ok.2.2.2.2.1 (.cons (.as (.ctor syms_ok.2.2.2.2.2
+        (.cons (.var rfl) (.cons (.ctor syms_ok.2.2.2.1 .nil) .nil))) rfl) .nil)))
+        (.cons (.var rfl) .nil))) .nil))
+      (.cons (.var rfl) .nil))
+  hreq := fun t ht => by rw [r0_shape.1] at ht; cases ht
+  hpre := by rw [r0_shape.2.2.2.1]; exact .top
+  heval := by
+    rw [r0_rhs]
+    have hig : injNormal exp Srt.kitem (D u) = .inj exp Srt.kitem (D u) := rfl
+    have he : EvalTerm c (σ u) (.inj exp Srt.kitem (.var 1)) (((σ u).lookup 1).map (injNormal exp Srt.kitem)) :=
+      .inj .var
+    have hv : ((σ u).lookup 1).map (injNormal exp Srt.kitem) = some (.inj exp Srt.kitem (D u)) := by
+      show (some (D u)).map _ = _
+      rw [Option.map_some, hig]
+    rw [hv] at he
+    exact .ctor syms_ok.1 (.cons (.ctor syms_ok.2.1 (.cons (.ctor syms_ok.2.2.1
+      (.cons he (.cons .var .nil))) .nil)) (.cons .var .nil))
+  hens := fun t ht => by rw [r0_shape.2.1] at ht; cases ht
+  hpost := by rw [r0_shape.2.2.2.2]; exact .top
+  hprio := fun r' hr' hlt => by
+    rw [prios.2 r' hr', prios.2 r0 r0_mem] at hlt; exact absurd hlt (Nat.lt_irrefl _) }⟩
+
+/-- A match of the left side at `<k> c(z) </k>`: z is `d(u, b)` for the value u of G. -/
+theorem match_inv {τ : Subst} {z : GroundTerm} (hm : PatVal c τ r0.lhs (cfg (.ctor symC [z]))) :
+    ∃ u, z = D u := by
+  rw [r0_lhs] at hm
+  have h1 := (patVal_ctor2 hooks_ok.1 syms_ok.1 hm).1
+  have h2 := patVal_ctor1 hooks_ok.2.1 syms_ok.2.1 h1
+  have h3 := (patVal_ctor2 hooks_ok.2.2.1 syms_ok.2.2.1 h2).1
+  obtain ⟨w, hw, he⟩ := PatVal.inj_inv h3
+  obtain ⟨-, vs, rfl, hs⟩ := PatVal.app_inv hooks_ok.2.2.2.1 hw syms_ok.2.2.2.2.1
+  have he' : GroundTerm.inj exp Srt.kitem (.ctor symC [z]) = .inj exp Srt.kitem (.ctor symC vs) := he
+  cases he'
+  obtain ⟨_, _, he1, h4, _⟩ := PatVals.cons_inv hs
+  cases he1
+  have h5 := (PatVal.as_inv h4).1
+  obtain ⟨-, ws, rfl, hs'⟩ := PatVal.app_inv hooks_ok.2.2.2.2 h5 syms_ok.2.2.2.2.2
+  obtain ⟨u, _, rfl, -, hs1⟩ := PatVals.cons_inv hs'
+  obtain ⟨v, _, rfl, hv, hs2⟩ := PatVals.cons_inv hs1
+  cases PatVals.nil_inv hs2
+  obtain ⟨-, vs', rfl, hs3⟩ := PatVal.app_inv (by decide +kernel) hv syms_ok.2.2.2.1
+  cases PatVals.nil_inv hs3
+  exact ⟨u, rfl⟩
+
+/-- **`c(a)` has no successor**: a is no `d(u, b)`. -/
+theorem stuck_a (y : Config c) : ¬ Step c (C A sortOf_A) y := by
+  intro h
+  obtain ⟨r, τ, hs⟩ := step_iff_by.mp h
+  have hr := rule_eq hs.mem
+  subst hr
+  obtain ⟨u, hu⟩ := match_inv hs.hmatch
+  cases hu
+
+/-- info: 'PredFixtures.LhsAnd.Var.step' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms step
+/-- info: 'PredFixtures.LhsAnd.Var.stuck_a' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms stuck_a
+
+end Var
+
+end LhsAnd
 
 end PredFixtures

@@ -2291,6 +2291,12 @@ def readingNote : ReadingNote → GuardEntry
         .test "test/PredReader.lean" "cut_right", .test "test/PredReader.lean" "cut_left",
         .decl ``KoreAML.cut_sorted, .decl ``KoreAML.MemOf.or, .decl ``KoreAML.MemOf.not],
       note := "a connective at a term position of a rule's side read through the cut (Parse.connRuleBody): on the right side an existential variable with its membership in post, on the left side a variable with its membership in pre; the steps at the parsed semantics are test/PredFixtures.lean's (LhsNot, RhsOr), the cut of a pattern under applications is KoreAML.cut_sorted and the membership through the connectives KoreAML.MemOf; no statement over c.withHooks H, no companion" }
+  | .lhsAndCut =>
+    { status := .pending "GUARD.final",
+      guard := [.test "test/PredFixtures.lean" "LhsAnd.Ceil.step", .test "test/PredFixtures.lean" "LhsAnd.Eq.step_iff",
+        .test "test/PredFixtures.lean" "LhsAnd.Var.step", .test "test/PredFixtures.lean" "LhsAnd.Var.stuck_a",
+        .test "test/PredReader.lean" "lhsAnd_pred", .test "test/PredReader.lean" "lhsAnd_var", .test "test/PredReader.lean" "lhsAnd_terms"],
+      note := "a conjunction at a term position of a rule's left side read through the cut (Parse.lhsAndRuleBody): a predicate operand a conjunct of pre, a variable operand binding the other (#as), two terms the first bound as a fresh variable whose value matches the second (exMatch, its own variables bound by the match) in pre; the steps at the parsed semantics are test/PredFixtures.lean's (LhsAnd), the cut of a left side test/PredReader.lean's; no statement over c.withHooks H, no companion" }
 
 def inertReason : InertReason → GuardEntry
   | .import =>
@@ -2376,7 +2382,7 @@ def readingNotes : List ReadingNote :=
    .requiresOrSplit, .setVarInDropped, .keyFunctionAsMember, .equationPriority, .owiseAsPriority,
    .owiseDisjunctNarrower, .identityAlias, .existsRenamedApart, .existsDropped,
    .overloadFunction, .tokKItem,
-   .notAsCondition, .andUnderAppCut, .connectiveCut]
+   .notAsCondition, .andUnderAppCut, .connectiveCut, .lhsAndCut]
 
 def inertReasons : List InertReason :=
   [.import, .claim, .simplification, .distinctCtors, .injectivity, .noJunk, .collectionLaw,
