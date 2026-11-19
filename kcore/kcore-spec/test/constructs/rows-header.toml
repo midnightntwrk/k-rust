@@ -174,7 +174,8 @@
 #             fixture's tie (owed-sentence rule item 7). The class is read from the tie's `classes`
 #             (the file of tie that reads f2-examples/FIXTURE.kompile.kore), never from whether a
 #             sentence applies a symbol. rest.py accepts such an entry only where tie_theorems names
-#             that file's account, account_absent and absent_closed, every index is in its
+#             that file's account, account_absent and absent_closed (of a tie split into files, each
+#             in a file of tie that reads the same text with the same classes), every index is in its
 #             no-direction class, every sentence `sentence` locates there is listed, and a `derived`
 #             table of form (a), kind "in a model", has exactly these indices as its sentences; it
 #             refuses a supported entry of which a sentence `sentence` locates is of that class and

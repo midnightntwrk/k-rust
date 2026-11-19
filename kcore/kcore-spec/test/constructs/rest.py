@@ -63,7 +63,9 @@ The evidence forms (DONE-0 C2's table), by status and list, and the items each n
                    counts neither way, one that does not occur in that text is missing (its class
                    is not read). `no_direction` a non-empty list of indices of that class holding
                    each one `sentence` locates there; that tie file in `tie`; its account,
-                   account_absent and absent_closed among tie_theorems; a `derived` table of form
+                   account_absent and absent_closed among tie_theorems (for a tie split into
+                   files, each declared in a file of `tie` reading that text with the same
+                   classes); a `derived` table of form
                    (a), kind "in a model", whose sentences are the no_direction indices
       tie          `tie` lists the C14 tie modules: files test/X.lean that test/integration.sh
                    builds (not in its skip list)
@@ -594,9 +596,12 @@ def nodir_items(fx, e, x, have, miss):
             + f" in {tf})")
     if tf not in ts:
         miss.append(f"tie ({tf}, the tie whose classes hold the no-direction sentences, not in tie)")
+    # a tie split into files (tiegen --split) states the account and the absent section in files of
+    # their own: each file of `tie` that reads the same text with the same classes is a part of it
+    parts = [f for f in ts if isinstance(f, str) and nodir_classes(f) == nodir_classes(tf)] if tf in ts else [tf]
     names = [n for n in (e.get("tie_theorems") or []) if isinstance(n, str)]
     lack = [t for t in ("account", "account_absent", "absent_closed")
-            if not any(n.endswith("." + t) and declared(n, [tf]) for n in names)]
+            if not any(n.endswith("." + t) and declared(n, parts) for n in names)]
     (have if not lack else miss).append(
         f"the class's statement ({tf}: account, account_absent, absent_closed)" if not lack else
         f"the class's statement ({', '.join(lack)} of {tf} not in tie_theorems)")
@@ -1546,6 +1551,12 @@ def self_test():
             open(os.path.join(fxd, name, "account.txt"), "w").write(clean)
             open(os.path.join(fxd, name, "kompile.txt"), "w").write("exit 0\n")
             open(os.path.join(fxd, name, "kore.txt"), "w").write(kore)
+        # a tie split into files: the account in the first, account_absent and absent_closed in the
+        # absent file (rdr-config-deep's 558, initGeneratedCounterCell's `functional` axiom)
+        os.makedirs(os.path.join(fxd, "rdr-config-deep"))
+        open(os.path.join(fxd, "rdr-config-deep", "account.txt"), "w").write(clean)
+        open(os.path.join(fxd, "rdr-config-deep", "kompile.txt"), "w").write("exit 0\n")
+        tsp = ["test/TieRdrConfigDeep.lean", "test/TieRdrConfigDeepAbsent.lean"]
         tbase, ts_ = "test/TieBase.lean", "test/TieE1Starinit.lean"
         acc3 = lambda ns: [f"KCore.{ns}.account", f"KCore.{ns}.account_absent", f"KCore.{ns}.absent_closed"]
         model = lambda ss, kind="in a model": {"form": "a", "kind": kind, "sentences": ss, "theorem": "KCore.C3EqReqEns.f_5",
@@ -1595,6 +1606,11 @@ def self_test():
             ("E7", "A", nd(tie_theorems=acc3("TieBase")[:2]), False),
             ("E7", "A", nd(tie=[tie], tie_theorems=acc3("TieBase")), False),
             ("E7", "A", nd(tie=[tbase, "test/TieE1Module.lean", tie], tie_theorems=acc3("TieE1Module")), False),
+            # a split tie: the class's statement over the files of `tie` reading the text
+            ("E1", "A", {"status": "supported", "fixture": "rdr-config-deep", "tie": tsp + [tie],
+                         "tie_theorems": acc3("TieRdrConfigDeep"), "no_direction": [558], "derived": [model([558])]}, True),
+            ("E1", "A", {"status": "supported", "fixture": "rdr-config-deep", "tie": tsp[:1] + [tie],
+                         "tie_theorems": acc3("TieRdrConfigDeep"), "no_direction": [558], "derived": [model([558])]}, False),
             # a declaration is no axiom and counts neither way: beside a no-direction sentence the entry
             # needs no_direction, alone it needs nothing
             ("E7", "A", {"status": "supported", "fixture": "base", "sentence": [nd_kd, nd_k], "tie": [tbase],
