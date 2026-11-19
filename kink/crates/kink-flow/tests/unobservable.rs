@@ -1443,9 +1443,9 @@ fn quad(
 /// PJ-11: a mutation the run kills on the union of the projections' cells is judged under each
 /// listed projection: `note-offset` changes `<scratch>` only, so it survives under `out` and is
 /// killed under `scratch`; `emit-offset` the reverse. Each kill under a projection is a kill of
-/// the run's own slots (a projection can turn a kill into a survival, never the reverse). A second
-/// run, which tier 1 decides from the outcome records, reads the mutant's ends from the ends store
-/// and gives the same statuses.
+/// the run's own slots (an `end` projection can turn a kill into a survival, never the reverse). A
+/// second run, which tier 1 decides from the outcome records, reads the mutant's ends from the
+/// ends store and gives the same statuses.
 #[test]
 fn kills_are_judged_under_each_listed_projection() {
     let text = plain_projected(
@@ -1533,7 +1533,8 @@ fn a_projection_over_the_runs_cells_gives_the_runners_verdict() {
 
 /// `[run] projections` selects the projections `run` judges under, in its order; a projection's
 /// `domain` keeps the programs outside it out of its judgement and its count (an executed entry
-/// names them `outside-domain`, as `compare` does); an `accepts` projection is not judged by `run`;
+/// names them `outside-domain`, as `compare` does); an `accepts` projection observes nothing under
+/// kink-flow's own front end, which declares no `finished` end (`unknown`, `no-finished-end`);
 /// a projection under which the search's first killing program agrees has the programs of its
 /// domain after it run (the search under the projections, `projection_search`), as has a
 /// projection that observes what the search does (`whole`) over its domain only. The corpus is
@@ -1561,7 +1562,7 @@ fn run_judges_the_listed_projections_within_their_domain() {
         note["projections"],
         json!([
             {"name": "mine", "status": "survived", "killer": null, "reason": null},
-            {"name": "acc", "status": "undecided", "killer": null, "reason": "kind-not-judged"},
+            {"name": "acc", "status": "unknown", "killer": null, "reason": "no-finished-end"},
             {"name": "out", "status": "survived", "killer": null, "reason": null},
             {"name": "whole", "status": "survived", "killer": null, "reason": null},
         ]),
@@ -1590,7 +1591,7 @@ fn run_judges_the_listed_projections_within_their_domain() {
         emit["projections"],
         json!([
             {"name": "mine", "status": "killed", "killer": "both", "reason": null},
-            {"name": "acc", "status": "undecided", "killer": null, "reason": "kind-not-judged"},
+            {"name": "acc", "status": "unknown", "killer": null, "reason": "no-finished-end"},
             {"name": "out", "status": "killed", "killer": "both", "reason": null},
             {"name": "whole", "status": "killed", "killer": "other", "reason": null},
         ]),
@@ -1954,6 +1955,55 @@ fn expecting(note: &str, emit: &str) -> String {
         )
     };
     with(with(list, "note-offset", note), "emit-offset", emit)
+}
+
+/// PJ-11 (U11e): `run` judges no snapshot projection (`compare`'s alone), so a flow whose every
+/// projection is a snapshot lists none: its rows carry `projections = []`, and the entries a lock
+/// recorded under an earlier projection are dropped, after which `--locked` is unchanged.
+#[test]
+fn a_flow_of_snapshot_projections_judges_its_mutations_under_none() {
+    let flow = |projections: &str| {
+        format!(
+            "{}\n[[program]]\nid = \"n2\"\ntext = \"note(5)\"\n",
+            plain_projected(projections)
+        )
+    };
+    let dir = fixture(
+        "snapshot-only",
+        &[(
+            "projected",
+            &flow("[[projection]]\nname = \"out\"\ncompare = [\"out\"]\n\n"),
+        )],
+    );
+    let manifest = dir.join("FLOW-projected.toml");
+    let list = expecting("", "");
+    let first = locked_search(&manifest, &list, false);
+    assert_eq!(first["lock"]["status"], "created", "{:#}", first["lock"]);
+    let lock = dir.join("kink.lock");
+    assert!(
+        fs::read_to_string(&lock)
+            .unwrap()
+            .contains("{ name = \"out\""),
+        "{first:#}"
+    );
+    fs::write(
+        &manifest,
+        flow("[[projection]]\nname = \"snap\"\nrelation = \"snapshot\"\n\n"),
+    )
+    .unwrap();
+    let snapshots = locked_search(&manifest, &list, false);
+    for row in snapshots["mutations"].as_array().unwrap() {
+        assert_eq!(row["projections"], json!([]), "{row:#}");
+    }
+    let text = fs::read_to_string(&lock).unwrap();
+    assert!(!text.contains("name = \"out\""), "{text}");
+    assert!(!text.contains("snap"), "{text}");
+    let locked = locked_search(&manifest, &list, true);
+    assert_eq!(
+        locked["lock"]["status"], "unchanged",
+        "{:#}",
+        locked["lock"]
+    );
 }
 
 /// PJ-11 (U11d): the lock records each mutation's status and killer under each listed

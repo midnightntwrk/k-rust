@@ -139,8 +139,9 @@ pub struct FlowManifest {
     /// key.
     pub projection_observations: BTreeMap<String, serde_json::Value>,
     /// `[run] projections`: the names of the projections `run` judges every mutation under, in
-    /// the order written, each a projection of [`Self::projections`] and none twice; `None`:
-    /// every projection the flow has ([`Self::run_projections`]).
+    /// the order written, each a projection of [`Self::projections`] that is no snapshot
+    /// projection, and none twice; `None`: every projection the flow has but its snapshot
+    /// projections ([`Self::run_projections`]).
     pub run_projections: Option<Vec<String>>,
     /// `[stop]`: where every program's run ends besides its own end, when the manifest says;
     /// `None`: every run ends where its paths end.
@@ -1248,7 +1249,10 @@ impl ManifestFile {
 }
 
 /// `[run]`: its `projections` (`None` when absent), each a name of `projections` (the flow's
-/// projections, the implicit `default` included), nonempty and without repeats.
+/// projections, the implicit `default` included) that is no snapshot projection, nonempty and
+/// without repeats. A snapshot projection relates an implementation's answer to a value a user
+/// accepted (`compare`'s alone); `run` judges mutants of the definition, which give no such
+/// answer.
 fn run_section(
     value: &Value,
     projections: &[ProjectionSection],
@@ -1266,6 +1270,19 @@ fn run_section(
         ));
     }
     for (index, name) in listed.iter().enumerate() {
+        if projections
+            .iter()
+            .any(|projection| &projection.name == name && projection.is_snapshot())
+        {
+            return Err(ManifestError::new(
+                format!("run.projections[{index}]"),
+                format!(
+                    "`{name}` is a snapshot projection (`relation = \"snapshot\"`): it relates an \
+                     implementation's answer to the value a user accepted, which `compare` judges; \
+                     `run` judges mutants of the definition under none"
+                ),
+            ));
+        }
         if !projections
             .iter()
             .any(|projection| &projection.name == name)
@@ -1368,13 +1385,17 @@ impl FlowManifest {
     }
 
     /// The projections `run` judges every mutation under (`[run] projections`), in the order
-    /// written; every projection of [`Self::projections`] when the flow does not say, which is
-    /// `default` alone for a flow that declares none.
+    /// written; when the flow does not say, every projection of [`Self::projections`] but the
+    /// snapshot projections, which `compare` alone judges (`default` alone for a flow that
+    /// declares none; none for a flow whose every projection is a snapshot).
     #[must_use]
     pub fn run_projections(&self) -> Vec<ProjectionSection> {
         let all = self.projections();
         match &self.run_projections {
-            None => all,
+            None => all
+                .into_iter()
+                .filter(|projection| !projection.is_snapshot())
+                .collect(),
             Some(names) => names
                 .iter()
                 .filter_map(|name| all.iter().find(|p| &p.name == name).cloned())

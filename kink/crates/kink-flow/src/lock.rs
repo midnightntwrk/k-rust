@@ -2980,7 +2980,7 @@ identity_sha256 = "aa"
             Some("t1"),
             &[
                 ("p", "killed", Some("t2"), None),
-                ("q", "undecided", None, Some("kind-not-judged")),
+                ("q", "undecided", None, Some("projection-search")),
             ],
         )]);
         let (value, _) = Lock::read(&path).unwrap().settle(&store, &decided, WRITE);
@@ -3003,7 +3003,7 @@ identity_sha256 = "aa"
             Some("t1"),
             &[
                 ("p", "undecided", None, Some("projection-search")),
-                ("q", "undecided", None, Some("kind-not-judged")),
+                ("q", "undecided", None, Some("projection-search")),
             ],
         )]);
         let (value, _) = Lock::read(&path)

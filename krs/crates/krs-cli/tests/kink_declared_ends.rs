@@ -21,7 +21,7 @@ use std::process::Output;
 use krs_test_support::{
     SharedFixtureTarget, TempDir, fixture_build_env, krs_command, shared_fixture_target, temp_dir,
 };
-use serde_json::Value;
+use serde_json::{Value, json};
 
 const PACKAGE: &str = "krs-cli-kink-declared-ends";
 
@@ -612,4 +612,116 @@ fn the_record_states_the_assumed_totalities() {
     );
     // The lock is still the one written, until a command without --locked rewrites it.
     assert_eq!(package.read("kink/kink.lock"), written);
+}
+
+/// `run` judges an `accepts` projection by the declared ends (projections PJ-11): a mutation
+/// is killed under it where the mutant and the baseline differ in whether they accept the
+/// program, each end classed by the baseline definition's own end functions. `trap-halts` sends
+/// `n = 1` to `halt` (finished) where the definition traps it (refused): killed under `accepts`
+/// by `trap`. `trap-rests` sends it to `rest`, which no end declares (a gap): the search kills it
+/// (the computation differs), yet both sides reject the program, so it survives under `accepts`.
+/// Neither changes `n`, so both survive under `n`. A second run reads every program from the
+/// stores and gives the same, and so does `--full`.
+#[test]
+fn run_judges_acceptance_by_the_declared_ends() {
+    let package = Package::new(None, &[("halt", "[inputs]\nn = 0\n")]);
+    package.write(
+        "accepts/FLOW.toml",
+        &format!(
+            "[spec]\nkrs = {{ package = \"{PACKAGE}\", definition = \"main\" }}\n\n[budget]\n\
+             time_ms = 600000\n\n[[program]]\ncases = \"cases/*.toml\"\n\n[[projection]]\nname = \
+             \"accepts\"\nkind = \"accepts\"\n\n[[projection]]\nname = \"n\"\ncompare = [\"n\"]\n"
+        ),
+    );
+    package.write("accepts/cases/halt.toml", "[inputs]\nn = 0\n");
+    package.write("accepts/cases/trap.toml", "[inputs]\nn = 1\n");
+    let mutation = |id: &str, into: &str| {
+        format!(
+            "[[mutation]]\nid = \"{id}\"\nmisunderstanding = \"a trap is {into}\"\n\n  \
+             [[mutation.edit]]\n  rule = \"trap\"\n  find = \"=> # trap\"\n  replace = \
+             \"=> # {into}\"\n\n"
+        )
+    };
+    package.write(
+        "accepts/mutations/trap.toml",
+        &format!(
+            "{}{}",
+            mutation("trap-halts", "halt"),
+            mutation("trap-rests", "rest")
+        ),
+    );
+    let run = |schedule: &[&str]| {
+        let mut arguments = vec!["--corpus", "accepts"];
+        arguments.extend_from_slice(schedule);
+        json_of(&package.kink("run", &arguments))
+    };
+    let expected = json!({
+        "trap/trap-halts": [
+            {"name": "accepts", "status": "killed", "killer": "cases/trap.toml", "reason": null},
+            {"name": "n", "status": "survived", "killer": null, "reason": null},
+        ],
+        "trap/trap-rests": [
+            {"name": "accepts", "status": "survived", "killer": null, "reason": null},
+            {"name": "n", "status": "survived", "killer": null, "reason": null},
+        ],
+    });
+    for document in [run(&[]), run(&[]), run(&["--full"])] {
+        let rows = document["mutations"]
+            .as_array()
+            .unwrap_or_else(|| panic!("{document:#}"));
+        assert_eq!(rows.len(), 2, "{document:#}");
+        for row in rows {
+            let id = row["id"].as_str().unwrap();
+            assert_eq!(row["status"], "killed", "{row:#}");
+            assert_eq!(row["projections"], expected[id], "{row:#}");
+        }
+    }
+}
+
+/// Under `[stop]` an end some path reached at the stop is accepted, a fact no slot of the search
+/// compares (projections PJ-11): the corpus stops before `halt`'s step, so the definition accepts
+/// `n = 0` at `#start`. `halt-narrowed` keeps `halt` from applying at `n = 0`, so the mutant is
+/// stuck at the same configuration, where no declared end holds (a gap): every slot agrees and
+/// the search lets it survive, yet it rejects the program the definition accepts, so `accepts`
+/// kills it, by `halt`. The same from the stores, and the lock it writes is confirmed by a
+/// `--locked` run.
+#[test]
+fn run_judges_acceptance_at_the_stop_where_no_slot_differs() {
+    let package = Package::new(None, &[("halt", "[inputs]\nn = 0\n")]);
+    package.write(
+        "stopped/FLOW.toml",
+        &format!(
+            "[spec]\nkrs = {{ package = \"{PACKAGE}\", definition = \"main\" }}\n\n[budget]\n\
+             time_ms = 600000\n\n[stop]\nbefore = [\"crate::halt\"]\ncount = 1\n\n[[program]]\n\
+             cases = \"cases/*.toml\"\n\n[[projection]]\nname = \"accepts\"\nkind = \"accepts\"\n"
+        ),
+    );
+    package.write("stopped/cases/halt.toml", "[inputs]\nn = 0\n");
+    package.write("stopped/cases/trap.toml", "[inputs]\nn = 1\n");
+    package.write(
+        "stopped/mutations/halt.toml",
+        "[[mutation]]\nid = \"halt-narrowed\"\nmisunderstanding = \"only a negative n halts\"\n\n  \
+         [[mutation.edit]]\n  rule = \"halt\"\n  find = \"<=Int 0\"\n  replace = \"<Int 0\"\n",
+    );
+    let run = |arguments: &[&str]| {
+        let mut all = vec!["--corpus", "stopped"];
+        all.extend_from_slice(arguments);
+        json_of(&package.kink("run", &all))
+    };
+    for document in [run(&[]), run(&[])] {
+        let row = &document["mutations"][0];
+        assert_eq!(row["status"], "survived", "{document:#}");
+        assert_eq!(
+            row["projections"],
+            json!([{"name": "accepts", "status": "killed", "killer": "cases/halt.toml",
+                    "reason": null}]),
+            "{row:#}"
+        );
+    }
+    let locked = run(&["--locked"]);
+    assert_eq!(
+        locked["lock"]["status"], "unchanged",
+        "{:#}",
+        locked["lock"]
+    );
 }

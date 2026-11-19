@@ -1223,3 +1223,44 @@ fn accept_writes_the_compared_values_as_snapshots() {
     assert_status(&refused, 2);
     assert_eq!(json_of(&refused)["refusal"]["reason"], "unknown-projection");
 }
+
+/// `krs kink run` over a definition that declares no `finished` end (projections PJ-11): an
+/// `accepts` projection observes nothing there, as `compare` refuses an acceptance view, so
+/// `tick-plus-2` is `unknown` under it (`no-finished-end`) and no program runs for it, while the
+/// search and `acc` kill it.
+#[test]
+fn run_judges_no_acceptance_over_a_definition_with_no_finished_end() {
+    let package = Package::new();
+    let corpus = "corpora/accepts";
+    package.corpus(
+        corpus,
+        "[[projection]]\nname = \"acc\"\ncompare = [\"acc\"]\n\n[[projection]]\nname = \
+         \"accepts\"\nkind = \"accepts\"\n\n",
+        &[("a", 2), ("b", 5)],
+    );
+    package.write(
+        &format!("{corpus}/mutations/tick.toml"),
+        "[[mutation]]\nid = \"tick-plus-2\"\nmisunderstanding = \"a tick adds 2 more\"\n\n  \
+         [[mutation.edit]]\n  rule = \"tick\"\n  find = \"+Int\"\n  replace = \"+Int 2 +Int\"\n",
+    );
+    let mut process = krs_command!();
+    fixture_build_env(&mut process, package.target.path());
+    let output = process
+        .current_dir(package.directory.path())
+        .args(["kink", "run", "--corpus", corpus])
+        .args(["--package", PACKAGE, "--definition", "main"])
+        .output()
+        .unwrap();
+    let document = json_of(&output);
+    let row = &document["mutations"][0];
+    assert_eq!(row["status"], "killed", "{document:#}");
+    assert_eq!(
+        row["projections"],
+        json!([
+            {"name": "acc", "status": "killed", "killer": row["killer"], "reason": null},
+            {"name": "accepts", "status": "unknown", "killer": null, "reason": "no-finished-end"},
+        ]),
+        "{row:#}"
+    );
+    assert_eq!(row.get("projection_search"), None, "{row:#}");
+}

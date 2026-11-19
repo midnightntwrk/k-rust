@@ -6,9 +6,10 @@
 //! cell when one keeps them all) and every channel of `[observe]`. A projection observes a
 //! function of what those slots compare: some of the record's cells, functions of those cells
 //! evaluated in one fixed observer (`views`, `observer`), some of the channels. So a difference
-//! under a projection is a difference under the run's slots, and an agreement of the run's slots
-//! is an agreement under every projection; a projection can turn a kill into a survival, never
-//! the reverse.
+//! under an `end` or `trace` projection is a difference under the run's slots, and an agreement
+//! of the run's slots is an agreement under it; such a projection can turn a kill into a
+//! survival, never the reverse. An `accepts` projection is the exception: under `[stop]` whether
+//! an end is accepted depends on how a path reached it (`halt`), which no slot compares.
 //!
 //! How each listed projection is judged ([`Judge`]):
 //!
@@ -29,8 +30,19 @@
 //!   through the projection's cells or views: a one-sided difference of the cells slot is
 //!   `unknown` under it. A one-sided difference of the exit stop slot kills under every `end`
 //!   projection, which reads that slot as the search does, with no view applied.
-//! - An `accepts` projection is not judged by `run` ([`Judge::NotJudged`]): its status is
-//!   `undecided`, reason [`KIND_NOT_JUDGED`].
+//! - An `accepts` projection ([`Judge::Accepts`]) is judged per executed program from the two
+//!   sides' ends, whatever the slots say: a program kills under it where the baseline and the
+//!   mutant differ in whether they accept it ([`accepts_verdict`]), each side's acceptance by
+//!   phase 0's rule (`crate::compare`'s acceptance of a definition's ends: an end reached at the
+//!   stop, or of a declared `finished` class, is accepted; one of a declared `refused` class, or
+//!   a gap, is rejected). The class of each end is read by the baseline definition's own
+//!   declared-end functions (the front end's renderer, `crate::evidence::EndRenderer::
+//!   declared_ends`) for both sides, one fixed observer, so an edit of a declared end's function
+//!   changes no class. Where the definition declares no `finished` end the projection observes
+//!   nothing ([`Judge::Unobservable`], reason [`NO_FINISHED_END`]): every status under it is
+//!   `unknown`.
+//! - A snapshot projection is `compare`'s alone and is never listed
+//!   ([`crate::FlowManifest::run_projections`]).
 //!
 //! The killer under a projection judged per program is its recorded killer while it kills under
 //! it, else the first program of its domain in the search order that kills under it (decision U2,
@@ -40,22 +52,28 @@
 //! Nothing is cached: a verdict under a projection is recomputed from each side's stored raw
 //! result on every run (projections package README, "Storage"), so no key names a projection.
 
+use crate::compare::{Acceptance, NotCompared, ends_acceptance, ends_acceptance_of};
+use crate::evidence::DeclaredEnd;
 use crate::manifest::{FlowManifest, ProjectionKind, ProjectionSection};
 use crate::mutant_ends::MutantEnds;
 use crate::observed::ResultProjection;
 use crate::outcomes::slot_name;
+use crate::results::ResultClass;
 use k_rust::kore::ast::Pattern;
 use kink_campaign::OracleOutcome;
 use serde_json::{Map, Value, json};
 use std::collections::BTreeSet;
 
-/// The reason of an `accepts` projection's status: `run` judges no acceptance.
-pub const KIND_NOT_JUDGED: &str = "kind-not-judged";
+/// The reason of an `accepts` projection's `unknown` status where the definition declares no
+/// `finished` end: no end of it can be told accepted from one it has no rule for, so the
+/// projection observes nothing (as `compare` refuses an acceptance view there).
+pub const NO_FINISHED_END: &str = "no-finished-end";
 
 /// The reason of an `undecided` status: some program of the projection's domain that its
-/// decision needs was not judged under it, because no call of the search under the projections
-/// could judge it (a call that met a corpus error, or a mutant-scope failure that ran no test;
-/// `crate::search`).
+/// decision needs was not judged under it, because a call of the search under the projections
+/// failed (a corpus error, or a mutant-scope failure that ran no test; `crate::search`), an
+/// event of the host, not a function of the run's inputs. The only `undecided` there is, so a
+/// lock keeps the recorded entry over it (`crate::clock`).
 pub const PROJECTION_SEARCH: &str = "projection-search";
 
 /// An executed entry's verdict under a projection whose domain does not hold its program, as
@@ -72,8 +90,12 @@ pub enum Judge {
     Run,
     /// Judged flow-side, per executed program ([`verdict`]).
     Flow(FlowJudge),
-    /// Not judged by `run`: the status is `undecided` with this reason.
-    NotJudged(&'static str),
+    /// An `accepts` projection: judged per executed program from both sides' ends
+    /// ([`accepts_verdict`]).
+    Accepts,
+    /// It observes nothing of the flow's runs: every status under it is `unknown` with this
+    /// reason, no program is judged or run for it.
+    Unobservable(&'static str),
 }
 
 /// What a projection judged flow-side reads of a run's slots.
@@ -121,7 +143,7 @@ impl Judge {
             Channels::Some(projection.channels.clone().unwrap_or_default())
         };
         match projection.kind {
-            ProjectionKind::Accepts => Self::NotJudged(KIND_NOT_JUDGED),
+            ProjectionKind::Accepts => Self::Accepts,
             ProjectionKind::Trace => Self::Flow(FlowJudge {
                 stop: false,
                 cells: false,
@@ -269,6 +291,17 @@ pub fn mutant_side(
     ends: &MutantEnds,
     result: &ResultProjection,
 ) -> Result<BTreeSet<Pattern>, String> {
+    whole(ends)?;
+    Ok(ends
+        .patterns()?
+        .iter()
+        .map(|end| project(result, end))
+        .collect())
+}
+
+/// Whether `ends` are every end of the mutant's run, data under the baseline's definition and
+/// the reverse ([`mutant_side`]); else why not.
+fn whole(ends: &MutantEnds) -> Result<(), String> {
     if let Some(not) = ends.across.mutant {
         return Err(format!(
             "the mutant's ends are not data under the baseline's definition (`{}`)",
@@ -288,11 +321,7 @@ pub fn mutant_side(
                 .to_owned(),
         );
     }
-    Ok(ends
-        .patterns()?
-        .iter()
-        .map(|end| project(result, end))
-        .collect())
+    Ok(())
 }
 
 /// `end` as `projection`'s slot reads it: its cells left out as `\top`, the counter erased.
@@ -324,6 +353,135 @@ pub fn native_cells(
         Verdict::Agree
     } else {
         Verdict::Killed
+    }
+}
+
+/// The baseline's acceptance of a program, from its program row (`row`, the results' row: its
+/// `class`, and its `ends` summaries with `halt` under `[stop]` and `declared` where the
+/// definition declares ends), as `compare` reads the definition's side: only a `comparable`
+/// row has ends.
+#[must_use]
+pub fn baseline_acceptance(row: &Value) -> Acceptance {
+    let class = row["class"].as_str().unwrap_or("error");
+    if class == ResultClass::ComparablePrefix.as_str() {
+        return Acceptance::NotCompared(NotCompared::Undecided(
+            "the baseline's run of the program is cut by its bounds before it ends \
+             (`comparable-prefix`): whether it accepts the program is not known yet"
+                .to_owned(),
+        ));
+    }
+    if class != ResultClass::Comparable.as_str() {
+        return Acceptance::NotCompared(NotCompared::Unreadable(format!(
+            "the baseline's run of the program is `{class}`: it has no end"
+        )));
+    }
+    ends_acceptance(row["ends"].as_array().map_or(&[][..], Vec::as_slice))
+}
+
+/// The mutant's acceptance of a program from its ends record (`ends`), by the rule the
+/// baseline's side follows ([`baseline_acceptance`], `crate::compare`'s acceptance of a
+/// definition's ends), read in the same observer: each end projected as the record's second
+/// slot keeps the baseline's (`result`); under `[stop]` (`stop`) an end reached at the stop by
+/// some path (the projection of one of the run's stop ends) is accepted, and every other end
+/// has the class `declared` gives it, the baseline definition's own functions of its ends (the
+/// front end's renderer, `None` where it reads none). An undefined step is no end in kink's
+/// record: a run with no listed end has no acceptance, and one that takes an undefined step
+/// beside ends it accepts at is not known to accept (an undefined step may reject); one that
+/// rejects at every listed end rejects whatever its undefined steps are.
+///
+/// # Errors
+///
+/// Why the record is no side: its ends are not every end of the run, or not data under the
+/// other definition ([`mutant_side`]), an end does not parse, the run lists no end, or the
+/// front end gives no class.
+pub fn mutant_acceptance(
+    ends: &MutantEnds,
+    result: &ResultProjection,
+    stop: bool,
+    declared: impl FnOnce(&[Pattern]) -> Option<Vec<DeclaredEnd>>,
+) -> Result<Acceptance, String> {
+    whole(ends)?;
+    let projected = ends
+        .patterns()?
+        .iter()
+        .map(|end| project(result, end))
+        .collect::<Vec<_>>();
+    if projected.is_empty() {
+        return Err(
+            "the mutant's run lists no end (every path takes an undefined step, which is no end \
+             in kink's record): whether it accepts the program is not known"
+                .to_owned(),
+        );
+    }
+    let stopped = ends
+        .stop_ends
+        .iter()
+        .filter_map(|&index| projected.get(index))
+        .collect::<BTreeSet<_>>();
+    let distinct = projected.iter().collect::<BTreeSet<_>>();
+    let halt = |end: &Pattern| stop.then(|| stopped.contains(end));
+    let mut summaries = distinct
+        .iter()
+        .map(|end| match halt(end) {
+            Some(at_stop) => json!({"halt": if at_stop { "stop" } else { "own" }}),
+            None => json!({}),
+        })
+        .collect::<Vec<_>>();
+    let own = distinct
+        .iter()
+        .enumerate()
+        .filter(|(_, end)| halt(end) != Some(true))
+        .collect::<Vec<_>>();
+    if !own.is_empty() {
+        let asked = own
+            .iter()
+            .map(|(_, end)| (**end).clone())
+            .collect::<Vec<_>>();
+        let classes = declared(&asked)
+            .filter(|classes| classes.len() == asked.len())
+            .ok_or_else(|| {
+                "the front end reads no declared end of the mutant's ends: whether it accepts \
+                 the program is not known"
+                    .to_owned()
+            })?;
+        for ((index, _), class) in own.iter().zip(&classes) {
+            class.annotate(&mut summaries[*index]);
+        }
+    }
+    let acceptance = ends_acceptance_of(
+        &summaries,
+        "the mutant's run",
+        "whether it accepts the program is a question of inclusion, which no verdict states",
+    )
+    .expect("a run with ends has summaries");
+    if ends.undefined_steps && acceptance == Acceptance::Accepted {
+        return Ok(Acceptance::NotCompared(NotCompared::Undecided(
+            "the mutant's run takes an undefined step beside ends it accepts the program at: an \
+             undefined step is no end in kink's record, and whether it rejects is not stated, so \
+             whether the run accepts the program is not known"
+                .to_owned(),
+        )));
+    }
+    Ok(acceptance)
+}
+
+/// The verdict under an `accepts` projection of a program whose baseline's acceptance is
+/// `baseline` and whose mutant's is `mutant`: killed where both are decided and differ, agree
+/// where both are decided and equal, `unknown` with the reason otherwise.
+#[must_use]
+pub fn accepts_verdict(baseline: &Acceptance, mutant: Result<Acceptance, String>) -> Verdict {
+    let decided = |acceptance: &Acceptance| match acceptance {
+        Acceptance::Accepted => Ok(true),
+        Acceptance::Rejected => Ok(false),
+        Acceptance::NotCompared(reason) => Err(reason.detail()),
+    };
+    match (
+        decided(baseline),
+        mutant.and_then(|mutant| decided(&mutant)),
+    ) {
+        (Err(reason), _) | (_, Err(reason)) => Verdict::Unknown(reason),
+        (Ok(baseline), Ok(mutant)) if baseline == mutant => Verdict::Agree,
+        (Ok(_), Ok(_)) => Verdict::Killed,
     }
 }
 
@@ -534,11 +692,7 @@ mod tests {
                  [[projection]]\nname = \"a\"\nkind = \"accepts\"\n\n\
                  [[projection]]\nname = \"o\"\ncompare = [\"out\"]\nchannels = [\"emits\", \"notes\"]\n"
             ),
-            [
-                Judge::Run,
-                Judge::NotJudged(KIND_NOT_JUDGED),
-                flow(true, true, Channels::All),
-            ]
+            [Judge::Run, Judge::Accepts, flow(true, true, Channels::All),]
         );
     }
 
@@ -628,5 +782,176 @@ mod tests {
             verdict(&judge, &[Distinguish, Distinguish], None, || None),
             Some(Verdict::Killed)
         );
+    }
+
+    /// A mutant's acceptance by phase 0's rule, its ends classed by the baseline definition's
+    /// functions (`declared`), against the baseline's from its program row: a kill where the two
+    /// differ in whether they accept, `unknown` where either is not decided.
+    #[test]
+    fn an_acceptance_is_read_from_both_sides_ends_by_one_rule() {
+        use crate::mutant_ends::{Across, MutantEnds};
+        use crate::outcomes::RunPolls;
+        let leaf = |n: u32| format!(r#"\dv{{SortInt{{}}}}("{n}")"#);
+        let ends = |count: u32| MutantEnds {
+            program_id: "p".into(),
+            ends: (0..count).map(leaf).collect(),
+            stop_ends: Vec::new(),
+            one_sided_ends: Vec::new(),
+            undefined_steps: false,
+            complete: true,
+            across: Across::default(),
+            polls: RunPolls {
+                count: 10,
+                bound: 100,
+                cut: false,
+            },
+        };
+        let whole = ResultProjection {
+            state: kink_campaign::StateProjection::WholeTerm,
+            compared: None,
+            not_compared: Vec::new(),
+            unobservable: Vec::new(),
+        };
+        let finished = || DeclaredEnd::Finished {
+            item: "crate::halted".into(),
+        };
+        let refused = || DeclaredEnd::Refused {
+            item: "crate::trapped".into(),
+            reason: None,
+            text: "1".into(),
+        };
+        let classes = |classes: Vec<DeclaredEnd>| move |_: &[Pattern]| Some(classes);
+        let of = |record: &MutantEnds, stop: bool, declared: Vec<DeclaredEnd>| {
+            mutant_acceptance(record, &whole, stop, classes(declared))
+        };
+        assert_eq!(
+            of(&ends(2), false, vec![finished(), finished()]),
+            Ok(Acceptance::Accepted)
+        );
+        assert_eq!(
+            of(&ends(2), false, vec![refused(), DeclaredEnd::None]),
+            Ok(Acceptance::Rejected)
+        );
+        assert!(matches!(
+            of(&ends(2), false, vec![finished(), refused()]),
+            Ok(Acceptance::NotCompared(NotCompared::SeveralEnds(reason)))
+                if reason.starts_with("the mutant's run accepts")
+        ));
+        assert!(matches!(
+            of(&ends(1), false, vec![DeclaredEnd::Undecided("open".into())]),
+            Ok(Acceptance::NotCompared(NotCompared::Undecided(_)))
+        ));
+        // Under `[stop]` an end some path reached at the stop is accepted and asks no class;
+        // the others have their declared class.
+        let stopped = MutantEnds {
+            stop_ends: vec![0],
+            ..ends(2)
+        };
+        let asked = |expected: usize, class: DeclaredEnd| {
+            move |asked: &[Pattern]| {
+                assert_eq!(asked.len(), expected);
+                Some(vec![class])
+            }
+        };
+        assert!(matches!(
+            mutant_acceptance(&stopped, &whole, true, asked(1, refused())),
+            Ok(Acceptance::NotCompared(NotCompared::SeveralEnds(_)))
+        ));
+        assert_eq!(
+            mutant_acceptance(&stopped, &whole, true, asked(1, finished())),
+            Ok(Acceptance::Accepted)
+        );
+        let every = MutantEnds {
+            stop_ends: vec![0, 1],
+            ..ends(2)
+        };
+        assert_eq!(
+            mutant_acceptance(&every, &whole, true, |_: &[Pattern]| -> Option<Vec<_>> {
+                panic!("asked")
+            }),
+            Ok(Acceptance::Accepted)
+        );
+        // An undefined step beside listed ends: rejected stays rejected, accepted is not known.
+        let undefined = MutantEnds {
+            undefined_steps: true,
+            ..ends(1)
+        };
+        assert_eq!(
+            of(&undefined, false, vec![refused()]),
+            Ok(Acceptance::Rejected)
+        );
+        assert!(matches!(
+            of(&undefined, false, vec![finished()]),
+            Ok(Acceptance::NotCompared(NotCompared::Undecided(_)))
+        ));
+        // No side: no listed end, an incomplete run, no class from the front end.
+        let none = MutantEnds {
+            undefined_steps: true,
+            ..ends(0)
+        };
+        assert!(
+            of(&none, false, Vec::new())
+                .unwrap_err()
+                .contains("lists no end")
+        );
+        let cut = MutantEnds {
+            complete: false,
+            ..ends(1)
+        };
+        assert!(
+            of(&cut, false, vec![refused()])
+                .unwrap_err()
+                .contains("not complete")
+        );
+        assert!(
+            mutant_acceptance(&ends(1), &whole, false, |_: &[Pattern]| None)
+                .unwrap_err()
+                .contains("no declared end")
+        );
+        // The baseline's side from its program row.
+        let row = |class: &str, ends: Value| json!({"class": class, "ends": ends});
+        let accepted = baseline_acceptance(&row("comparable", json!([{"declared": "finished"}])));
+        assert_eq!(accepted, Acceptance::Accepted);
+        let rejected = baseline_acceptance(&row(
+            "comparable",
+            json!([{"halt": "own", "declared": "none"}]),
+        ));
+        assert_eq!(rejected, Acceptance::Rejected);
+        assert_eq!(
+            baseline_acceptance(&row("comparable", json!([{"halt": "stop"}]))),
+            Acceptance::Accepted
+        );
+        assert!(matches!(
+            baseline_acceptance(&row("comparable-prefix", json!([]))),
+            Acceptance::NotCompared(NotCompared::Undecided(_))
+        ));
+        assert!(matches!(
+            baseline_acceptance(&row("timeout", Value::Null)),
+            Acceptance::NotCompared(NotCompared::Unreadable(_))
+        ));
+        // The verdict.
+        assert_eq!(
+            accepts_verdict(&accepted, Ok(Acceptance::Rejected)),
+            Verdict::Killed
+        );
+        assert_eq!(
+            accepts_verdict(&rejected, Ok(Acceptance::Accepted)),
+            Verdict::Killed
+        );
+        assert_eq!(
+            accepts_verdict(&rejected, Ok(Acceptance::Rejected)),
+            Verdict::Agree
+        );
+        assert!(matches!(
+            accepts_verdict(&accepted, Err("cut".into())),
+            Verdict::Unknown(reason) if reason == "cut"
+        ));
+        assert!(matches!(
+            accepts_verdict(
+                &Acceptance::NotCompared(NotCompared::SeveralEnds("both".into())),
+                Ok(Acceptance::Accepted)
+            ),
+            Verdict::Unknown(reason) if reason == "both"
+        ));
     }
 }

@@ -17,12 +17,14 @@
 //!
 //! A projection's `domain` is the programs it applies to ([`ProjectionSection::holds`]): those
 //! whose id, or whose case document's path, one of its case patterns matches. `compare` measures
-//! a view naming the projection on those programs only; `run` does not apply it yet.
+//! a view naming the projection on those programs only, and `run` judges a mutation under it on
+//! those programs only (`crate::projected`).
 //!
 //! A projection's `relation` says what its observed values are judged against: absent, each
 //! side's against the definition's; `snapshot`, an implementation's against the value a user
 //! accepted for the case, a file beside the flow (`crate::snapshot`). A snapshot relation reads no
-//! side of the definition.
+//! side of the definition, and `run`, which judges mutants of the definition, lists no snapshot
+//! projection ([`crate::FlowManifest::run_projections`]).
 //!
 //! kink-flow reads the declaration's shape and its own keys (`name`, `kind`, `compare`,
 //! `channels`, `domain`, `relation`); `views` and `observer` are the front end's, as a view's are

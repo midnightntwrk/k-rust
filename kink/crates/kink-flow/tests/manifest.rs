@@ -673,7 +673,8 @@ fn a_projection_that_compares_every_cell_keeps_every_cell_in_the_record() {
 }
 
 /// `[run] projections` lists the projections `run` judges under, in its order; without it, every
-/// projection the flow has (`default` alone for a flow that declares none).
+/// projection the flow has but its snapshot projections (`default` alone for a flow that declares
+/// none).
 #[test]
 fn run_lists_the_projections_it_judges_under() {
     let names = |manifest: &FlowManifest| {
@@ -719,6 +720,21 @@ fn run_lists_the_projections_it_judges_under() {
         "run.projections[0]",
         "`a` is no projection of the flow (it has `default`)",
     );
+    // A snapshot projection is `compare`'s alone: left out of the default, refused when named.
+    let snapshot = "[[projection]]\nname = \"msg\"\nkind = \"accepts\"\nrelation = \"snapshot\"\n\n\
+                    [[projection]]\nname = \"acc\"\nkind = \"accepts\"\n\n";
+    let snapshots = decode(&format!("{SPEC}{snapshot}")).unwrap();
+    assert_eq!(names(&snapshots), ["acc"]);
+    assert_error(
+        &format!("{SPEC}{snapshot}[run]\nprojections = [\"acc\", \"msg\"]\n"),
+        "run.projections[1]",
+        "`msg` is a snapshot projection",
+    );
+    let only = decode(&format!(
+        "{SPEC}[[projection]]\nname = \"msg\"\nkind = \"accepts\"\nrelation = \"snapshot\"\n"
+    ))
+    .unwrap();
+    assert_eq!(names(&only), Vec::<String>::new());
 }
 
 #[test]

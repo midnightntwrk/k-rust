@@ -41,8 +41,10 @@
 //! killer and its recorded killer under that projection, and the programs judged under it (the
 //! row's executed entries and those of its search under the projections that name it, not
 //! `outside-domain`) whose run on the mutant the clock stopped, with every baseline the clock
-//! stopped. An entry the run left `undecided` (it judged nothing there) keeps the verdict the
-//! lock records for it, if any, which the run neither confirms nor contradicts (`lock.failed`):
+//! stopped. An entry the run left `undecided` (it judged nothing there: a call of its search under
+//! the projections failed, which is the host's event, never a function of the run's inputs,
+//! `crate::projected::PROJECTION_SEARCH`) keeps the verdict the lock records for it, if any,
+//! which the run neither confirms nor contradicts (`lock.failed`):
 //! so a count per projection, which the section's rows give, moves only for a verdict a run
 //! decided.
 //!

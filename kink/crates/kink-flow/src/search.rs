@@ -2760,11 +2760,23 @@ impl<'a> Projected<'a> {
         if manifest.projections.is_empty() {
             return None;
         }
+        // Whether the definition declares a `finished` end, asked of the front end once and only
+        // where an `accepts` projection is listed: without one, acceptance is observed nowhere.
+        let mut finished = None;
         let listed = manifest
             .run_projections()
             .into_iter()
             .map(|projection| {
-                let judge = Judge::of(&projection, manifest);
+                let judge = match Judge::of(&projection, manifest) {
+                    Judge::Accepts
+                        if !*finished.get_or_insert_with(|| {
+                            vocabulary.is_some_and(|v| v.declares_finished_end())
+                        }) =>
+                    {
+                        Judge::Unobservable(projected::NO_FINISHED_END)
+                    }
+                    judge => judge,
+                };
                 (projection, judge)
             })
             .collect();
@@ -2808,6 +2820,10 @@ enum ProjectionNeed {
     Alone(usize),
     /// These programs of its domain, not judged under it (empty: none can be judged).
     Run(Vec<usize>),
+    /// The search order C, which no record gives (the outcome file keeps no compiled edit) and
+    /// the decision needs (several judged kills): a call of this program of its domain, judged
+    /// already, gives it, as tier 1's no-witness fallback runs the mutant live.
+    Order(usize),
 }
 
 /// What [`kill_decision`] decides for one projection judged per program, over its domain `order`
@@ -2817,7 +2833,9 @@ enum ProjectionNeed {
 /// first-kill its recorded killer alone while that is not judged (tried first while it kills),
 /// else the programs not judged, in C, before its first judged kill in C (a saving only, as the
 /// canonical call is cut before the first cached kill); under `Full` every program not judged.
-/// `Run` with no program (several judged kills and C unknown) is a decision no call can give.
+/// Where the decision needs C and no record gives it (`Call { records: false }`: several judged
+/// kills, C unknown), a call of the domain's first judged kill in corpus order gives it (`Order`):
+/// "C unknown" is a fact of the cache, which no verdict may rest on.
 fn projection_need(
     order: &[usize],
     judged: &BTreeMap<usize, Verdict>,
@@ -2836,6 +2854,10 @@ fn projection_need(
     );
     if decision.decides() {
         return (decision, ProjectionNeed::Nothing);
+    }
+    if decision == (Tier1::Call { records: false }) {
+        let first = order.iter().copied().find(killed).unwrap_or(order[0]);
+        return (decision, ProjectionNeed::Order(first));
     }
     let open = |c: &usize| order.contains(c) && !judged.contains_key(c);
     let need = match (schedule, recorded.filter(open), search) {
@@ -3006,6 +3028,7 @@ impl Search<'_, '_> {
             let Some(generation) = generation else {
                 break;
             };
+            let ordered = search.is_some();
             let call = match self.call(generation, &programs) {
                 (wall_ms, Err(failure)) => {
                     calls.push((programs, json!("error"), wall_ms));
@@ -3077,8 +3100,11 @@ impl Search<'_, '_> {
                 live.retain(|(again, _)| *again != c);
                 live.push((c, entry));
             }
-            if judged.iter().map(BTreeMap::len).sum::<usize>() == before {
-                // Nothing new is judged (a mutant-scope failure ran no test).
+            if judged.iter().map(BTreeMap::len).sum::<usize>() == before
+                && (ordered || search.is_none())
+            {
+                // Nothing new is judged and no search order learnt (a mutant-scope failure ran
+                // no test).
                 break;
             }
         }
@@ -3091,13 +3117,13 @@ impl Search<'_, '_> {
                 Judge::Run if projection.domain.is_none() => {
                     ProjectionStatus::of_row(&projection.name, row)
                 }
-                Judge::NotJudged(reason) => ProjectionStatus {
+                Judge::Unobservable(reason) => ProjectionStatus {
                     name: projection.name.clone(),
-                    status: projected::UNDECIDED.to_owned(),
+                    status: "unknown".to_owned(),
                     killer: None,
                     reason: Some((*reason).to_owned()),
                 },
-                Judge::Run | Judge::Flow(_) => {
+                Judge::Run | Judge::Flow(_) | Judge::Accepts => {
                     let (decision, _) = self.projection_decision(
                         projected,
                         projection,
@@ -3223,7 +3249,7 @@ impl Search<'_, '_> {
                 if !domains[index].contains(&c) {
                     // As `compare` names a view outside its domain (`outside-domain`): neither
                     // judged nor counted.
-                    if !matches!(judge, Judge::NotJudged(_)) {
+                    if !matches!(judge, Judge::Unobservable(_)) {
                         named
                             .entry(c)
                             .or_default()
@@ -3245,8 +3271,8 @@ impl Search<'_, '_> {
     }
 
     /// The verdict of candidate `c` under `projection` from `source`; `None` where it is not
-    /// judged (an `accepts` projection, a test skipped after the run's kill, a cells difference
-    /// whose mutant ends no store holds).
+    /// judged (a projection that observes nothing, a test skipped after the run's kill, a cells
+    /// difference or an acceptance whose mutant ends no store holds).
     fn judge(
         &self,
         projected: &mut Projected<'_>,
@@ -3258,7 +3284,7 @@ impl Search<'_, '_> {
     ) -> Option<Verdict> {
         let id = self.candidates[c].id;
         match (judge, source) {
-            (Judge::NotJudged(_), _) | (_, Executed::Live(TestRun::SkippedAfterKill, _)) => None,
+            (Judge::Unobservable(_), _) | (_, Executed::Live(TestRun::SkippedAfterKill, _)) => None,
             (_, Executed::Live(TestRun::Failed(kind), _)) => Some(Verdict::Unknown(format!(
                 "the mutant's run failed (`{}`)",
                 kebab(&format!("{kind:?}"))
@@ -3267,6 +3293,41 @@ impl Search<'_, '_> {
                 Some(Verdict::of_run(outcomes))
             }
             (Judge::Run, Executed::Cached(record)) => Some(Verdict::of_run(&record.slots)),
+            (Judge::Accepts, Executed::Live(run @ TestRun::Compared(_), evidence)) => self
+                .accepts_verdict(c, || {
+                    evidence
+                        .and_then(|evidence| MutantEnds::of(id, run, evidence))
+                        .map_or_else(
+                            || {
+                                EndsAt::Unusable(
+                                    "the mutant's run gave no ends to read (a slot or side timed \
+                                     out or failed, or its judgement was refused)"
+                                        .to_owned(),
+                                )
+                            },
+                            EndsAt::Record,
+                        )
+                }),
+            (Judge::Accepts, Executed::Cached(record)) => self.accepts_verdict(c, || {
+                if record.slots.is_empty()
+                    || record.slots.iter().any(|slot| {
+                        matches!(
+                            slot,
+                            OracleOutcome::Timeout
+                                | OracleOutcome::Error
+                                | OracleOutcome::Incomparable
+                        )
+                    })
+                {
+                    // No run with such a slot has an ends record (`MutantEnds::of`).
+                    return EndsAt::Unusable(
+                        "the mutant's run gave no ends to read (a slot timed out, failed or \
+                             was incomparable)"
+                            .to_owned(),
+                    );
+                }
+                self.stored_ends(identity, c)
+            }),
             (Judge::Flow(flow), Executed::Live(run @ TestRun::Compared(outcomes), evidence)) => {
                 let channel = evidence
                     .and_then(|evidence| observation_verdict(&evidence.notes))
@@ -3291,15 +3352,7 @@ impl Search<'_, '_> {
             (Judge::Flow(flow), Executed::Cached(record)) => {
                 let channel = record.observation["position"]["channel"].as_str();
                 projected::verdict(flow, &record.slots, channel, || {
-                    let ends = self
-                        .ends
-                        .as_ref()
-                        .zip(identity)
-                        .and_then(|(store, identity)| {
-                            store.read(identity, &self.candidates[c].digest.to_string())
-                        })
-                        .filter(|ends| ends.polls.serves(self.poll_bound(&self.candidates[c])))
-                        .map_or(EndsAt::Missing, EndsAt::Record);
+                    let ends = self.stored_ends(identity, c);
                     self.cells_verdict(projected, projection, c, ends)
                 })
             }
@@ -3351,9 +3404,9 @@ impl Search<'_, '_> {
         let mut run = BTreeSet::new();
         for (index, (projection, judge)) in listed.iter().enumerate() {
             let searched = match judge {
-                Judge::Flow(_) => true,
+                Judge::Flow(_) | Judge::Accepts => true,
                 Judge::Run => projection.domain.is_some(),
-                Judge::NotJudged(_) => false,
+                Judge::Unobservable(_) => false,
             };
             if !searched {
                 continue;
@@ -3374,6 +3427,9 @@ impl Search<'_, '_> {
                     alone.insert(c);
                 }
                 ProjectionNeed::Run(programs) => run.extend(programs),
+                ProjectionNeed::Order(c) => {
+                    run.insert(c);
+                }
             }
         }
         let programs = if alone.is_empty() { run } else { alone };
@@ -3455,6 +3511,46 @@ impl Search<'_, '_> {
                     .collect::<Vec<_>>()
             );
         }
+    }
+
+    /// The mutant's ends record of candidate `c` in the ends store, where it serves the program's
+    /// bound of polls; [`EndsAt::Missing`] otherwise.
+    fn stored_ends(&self, identity: Option<Sha256Digest>, c: usize) -> EndsAt {
+        self.ends
+            .as_ref()
+            .zip(identity)
+            .and_then(|(store, identity)| {
+                store.read(identity, &self.candidates[c].digest.to_string())
+            })
+            .filter(|ends| ends.polls.serves(self.poll_bound(&self.candidates[c])))
+            .map_or(EndsAt::Missing, EndsAt::Record)
+    }
+
+    /// The verdict of candidate `c` under an `accepts` projection ([`projected::accepts_verdict`]):
+    /// the baseline's acceptance from its program row first, so that a program whose baseline
+    /// accepts nothing knowable reads no mutant end; then the mutant's from its ends (`ends`),
+    /// classed by the front end's renderer, the baseline definition's functions of its ends.
+    /// `None` where the mutant's ends are not at hand (a cached program with no ends record).
+    fn accepts_verdict(&self, c: usize, ends: impl FnOnce() -> EndsAt) -> Option<Verdict> {
+        let baseline = projected::baseline_acceptance(&self.rows[self.candidates[c].index].row);
+        if let crate::compare::Acceptance::NotCompared(reason) = &baseline {
+            return Some(Verdict::Unknown(reason.detail()));
+        }
+        let mutant = match ends() {
+            EndsAt::Record(ends) => projected::mutant_acceptance(
+                &ends,
+                &self.spec.result,
+                self.manifest.stop.is_some(),
+                |ends| {
+                    self.manifest.end_renderer.get().and_then(|renderer| {
+                        renderer.declared_ends(ends, &self.spec.result.not_compared)
+                    })
+                },
+            ),
+            EndsAt::Unusable(reason) => Err(reason),
+            EndsAt::Missing => return None,
+        };
+        Some(projected::accepts_verdict(&baseline, mutant))
     }
 
     /// The verdict under `projection` of candidate `c`'s cells slot, which distinguished the
@@ -5911,6 +6007,24 @@ mod tests {
             .as_deref(),
             Some(crate::projected::PROJECTION_SEARCH)
         );
+        // C unknown with several judged kills (no record keeps the compiled edit): under either
+        // schedule a call of the first judged kill in corpus order gives C, rather than an
+        // `undecided` resting on what the cache holds; once C is known it decides.
+        let several = judged(&[
+            (0, Verdict::Agree),
+            (1, Verdict::Killed),
+            (2, Verdict::Killed),
+        ]);
+        for schedule in [ScheduleMode::FirstKill, ScheduleMode::Full] {
+            assert_eq!(
+                projection_need(&o, &several, None, None, schedule),
+                (Tier1::Call { records: false }, ProjectionNeed::Order(1))
+            );
+            assert_eq!(
+                killer(projection_need(&o, &several, Some(&c), None, schedule)),
+                (Some(Some(2)), ProjectionNeed::Nothing)
+            );
+        }
     }
 
     #[test]

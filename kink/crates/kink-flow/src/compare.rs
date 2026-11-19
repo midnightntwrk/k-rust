@@ -666,6 +666,27 @@ pub enum Acceptance {
 /// (a program row's `ends`, with `halt` under `[stop]` and `declared` where the definition
 /// declares ends).
 pub(crate) fn ends_acceptance(summaries: &[Value]) -> Acceptance {
+    match ends_acceptance_of(
+        summaries,
+        "the definition's run",
+        "one answer against both is a question of inclusion, which compare does not decide",
+    ) {
+        Some(acceptance) => acceptance,
+        None => Acceptance::NotCompared(NotCompared::Unreadable(
+            "the baseline's record names no end".to_owned(),
+        )),
+    }
+}
+
+/// [`ends_acceptance`] of the run `side` names (its reasons say whose run it is, and `several`
+/// why ends of both kinds decide nothing), `None` where `summaries` is empty: the same rule, for
+/// the baseline's ends and for a mutant's (`crate::projected`, a kill under an `accepts`
+/// projection).
+pub(crate) fn ends_acceptance_of(
+    summaries: &[Value],
+    side: &str,
+    several: &str,
+) -> Option<Acceptance> {
     let mut accepted = 0;
     let mut rejected = 0;
     for summary in summaries {
@@ -677,36 +698,31 @@ pub(crate) fn ends_acceptance(summaries: &[Value]) -> Acceptance {
             Some("finished") => accepted += 1,
             Some("refused" | "none") => rejected += 1,
             Some(class @ ("undecided" | "overlap")) => {
-                return Acceptance::NotCompared(NotCompared::Undecided(format!(
-                    "the class of an end of the definition's run is `{class}`{}: whether it \
-                     accepts the program is not known",
+                return Some(Acceptance::NotCompared(NotCompared::Undecided(format!(
+                    "the class of an end of {side} is `{class}`{}: whether it accepts the \
+                     program is not known",
                     summary["declared_detail"]
                         .as_str()
                         .map(|detail| format!(" ({detail})"))
                         .unwrap_or_default()
-                )));
+                ))));
             }
             _ => {
-                return Acceptance::NotCompared(NotCompared::Undecided(
-                    "an end of the definition's run has no declared class: whether it accepts \
-                     the program is not known"
-                        .to_owned(),
-                ));
+                return Some(Acceptance::NotCompared(NotCompared::Undecided(format!(
+                    "an end of {side} has no declared class: whether it accepts the program is \
+                     not known"
+                ))));
             }
         }
     }
-    match (accepted, rejected) {
-        (0, 0) => Acceptance::NotCompared(NotCompared::Unreadable(
-            "the baseline's record names no end".to_owned(),
-        )),
+    Some(match (accepted, rejected) {
+        (0, 0) => return None,
         (_, 0) => Acceptance::Accepted,
         (0, _) => Acceptance::Rejected,
-        _ => Acceptance::NotCompared(NotCompared::SeveralEnds(
-            "the definition's run accepts the program on some path and rejects it on another: \
-             one answer against both is a question of inclusion, which compare does not decide"
-                .to_owned(),
-        )),
-    }
+        _ => Acceptance::NotCompared(NotCompared::SeveralEnds(format!(
+            "{side} accepts the program on some path and rejects it on another: {several}"
+        ))),
+    })
 }
 
 /// The definition's acceptance of the program whose definition side is `definition` and whose

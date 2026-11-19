@@ -297,7 +297,10 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// projection, the rows per status under it and its survivors, [`projection_counts`]), a row's
 /// `expectation` per projection (`{verdict, detail, projections}` for `expect = {NAME: ..}`,
 /// [`mutation_expectation`]), and a run's lock `failed` (a projection's entry left `undecided`
-/// over a recorded verdict, [`crate::clock`]).
+/// over a recorded verdict, [`crate::clock`]). The same version also judges an `accepts`
+/// projection per program from both sides' ends (`unknown`, reason `no-finished-end`, over a
+/// definition that declares no `finished` end), and lists no snapshot projection by default
+/// (one is refused in `[run] projections`).
 /// 45 since a program whose entry states that it must be rejected before it runs (`expect = {
 /// rejected = ... }`, PJ-32) has the class `rejected` (admission rejected it at that stage) or
 /// `accepted` (admission admitted it), with its `expectation`, no record and no run: it is never
