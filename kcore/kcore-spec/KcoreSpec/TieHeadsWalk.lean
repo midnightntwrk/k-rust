@@ -593,10 +593,10 @@ theorem gammaHeads_sorts (c : Semantics) : ∀ h ∈ gammaHeads c, ∀ s ∈ h.2
   intro h hh s hs
   simp only [gammaHeads, List.mem_append, List.mem_map] at hh
   rcases hh with ⟨k, -, rfl⟩ | ⟨⟨a, b⟩, -, rfl⟩
-  · unfold gammaHead at hs
-    cases hX : iteSort? (c.symName k.name) with
-    | none => rw [hX] at hs; cases hs
-    | some X => rw [hX] at hs; exact ⟨X, List.mem_singleton.mp hs⟩
+  · obtain ⟨h, xs, -, hw⟩ := Faithful.symApp_head c k.name
+    rw [gammaHead_of_symApp hw] at hs
+    obtain ⟨X, -, rfl⟩ := List.mem_map.mp hs
+    exact ⟨X, rfl⟩
   · simp only [List.mem_cons, List.not_mem_nil, or_false] at hs
     rcases hs with rfl | rfl
     · exact ⟨_, rfl⟩

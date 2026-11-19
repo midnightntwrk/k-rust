@@ -594,7 +594,7 @@ theorem heldBack_collOvlCl (hIΓ : I ⊧ᴵP Γ c) [OvlOK c] (hsc : SortCtx c) (
       unfold Semantics.ovlHeld at hh; exact (Bool.and_eq_true_iff.mp hh).1
     obtain ⟨o, hlo, rfl⟩ := rhs_lookup_ovl hsc fns_headsOK hk ho
     obtain ⟨hom, hn, -, hit, -⟩ := OvlLaws.ovl_parts (OvlOK.ok (c := c)) hlo
-    refine ⟨hit, fun {w} hw {bs} hbl hbs hm =>
+    refine ⟨fun _ => symApp_noInst hit, fun {w} hw {bs} hbl hbs hm =>
       ovlHeld_backCl hIΓ hg hsc.trans (fun hne => hcf ?_) hlo hh hw hbl hbs hm⟩
     exact List.any_eq_true.mpr ⟨o, hom, by rw [hn, hne]; rfl⟩
 
@@ -605,7 +605,7 @@ end OvlHeldBack
 `hcf`: where an overload closure holds a function, every element of a confined sort is a value's. -/
 theorem heldBack_holdsCl {c : Semantics} {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
     (hIΓ : I ⊧ᴵP Γ c) [OvlOK c] (hsc : SortCtx c) (hnn : NamesNumbered c) (hg : genWf c = true)
-    (hn : Model.NamesApartK c) (hrw : ∀ k ∈ c.params, k.raw = true → iteSort? (c.symName k.sig.name) = none)
+    (hn : Model.NamesApartK c) (hrw : ∀ k ∈ c.params, k.raw = true → instDecode? (c.symName k.sig.name) = none)
     (hph : patHooksApart c = true) (hcs : collsOK c = true) (hcso : collSortsOK c = true)
     (hcf : c.ovls.any (fun o => !(c.fnOverloads o.sig.name).isEmpty) = true → ConfinedValsOB c I)
     (f : Sym) (k : CtorSig) (hc : c.isCtor f = false) (hh : c.holds f = true)

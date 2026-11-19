@@ -610,10 +610,10 @@ theorem ovl_result_cons (H : OvlHyp c) {f : Sym} {o : OvlSig} (ho : c.lookupOvl 
   exact List.contains_iff_mem.mp hoi.1.1.1.1.1.2
 
 /-- What `overloadsOK` alone gives of an overloading symbol's declaration: it is one of the list,
-an overloading symbol of no other kind, named plainly (not like `ite` at a sort), of a constructor
-sort. -/
+an overloading symbol of no other kind, whose name the decoder reads as no instance, of a
+constructor sort. -/
 theorem ovl_parts {f : Sym} {o : OvlSig} (hok : c.overloadsOK = true) (ho : c.lookupOvl f = some o) :
-    o ∈ c.ovls ∧ o.sig.name = f ∧ c.isOvl f = true ∧ iteSort? (c.symName f) = none ∧
+    o ∈ c.ovls ∧ o.sig.name = f ∧ c.isOvl f = true ∧ instDecode? (c.symName f) = none ∧
       o.sig.result ∈ Faithful.consSorts c := by
   obtain ⟨hn, i, hi, he, -⟩ := lookupOvl_spec ho
   simp only [Semantics.overloadsOK, Bool.and_eq_true] at hok; replace hok := hok.1; simp only [List.all_eq_true] at hok
@@ -621,7 +621,16 @@ theorem ovl_parts {f : Sym} {o : OvlSig} (hok : c.overloadsOK = true) (ho : c.lo
   simp only [Bool.and_eq_true, Option.isNone_iff_eq_none] at hoi
   refine ⟨he ▸ List.getElem_mem hi, hn, ?_, ?_, List.contains_iff_mem.mp hoi.1.1.1.1.1.2⟩
   · rw [← hn]; exact hoi.1.1.1.1.1.1.1.1
-  · rw [← hn]; exact iteSort?_none_of_instDecode hoi.1.1.1.1.1.1.2
+  · rw [← hn]; exact hoi.1.1.1.1.1.1.2
+
+/-- What `overloadsOK` gives of an overloading symbol's name: the decoder reads it as no instance. -/
+theorem ovl_noInst_irs {f : Sym} {o : OvlSig} (hok : c.overloadsOK = true) (ho : c.lookupOvl f = some o) :
+    instDecode? (c.symName f) = none := by
+  obtain ⟨hn, i, hi, he, -⟩ := lookupOvl_spec ho
+  simp only [Semantics.overloadsOK, Bool.and_eq_true] at hok; replace hok := hok.1; simp only [List.all_eq_true] at hok
+  have hoi := hok (o, i) (by simpa [List.mem_zipIdx_iff_getElem?, List.getElem?_eq_getElem hi] using he)
+  simp only [Bool.and_eq_true, Option.isNone_iff_eq_none] at hoi
+  rw [← hn]; exact hoi.1.1.1.1.1.1.2
 
 /-- A constructor is no overloading symbol (`overloadsOK`: an overloading symbol is of no other
 kind). -/

@@ -169,14 +169,14 @@ theorem patLookup_ofCtorX {f : Sym} {k : CtorSig} (h : lookupSig c.ctorSigs f = 
 
 /-- An application of `f` to the formal arguments `X0`, `X1` of sort K, at a valuation that gives
 them `x0` and `x1`: `f` applied to them. -/
-theorem symApp_x01X {fn : Fn} (hargs : fn.args = [Srt.k, Srt.k]) (hite : iteSort? (c.symName fn.label) = none)
+theorem symApp_x01X {fn : Fn} (hargs : fn.args = [Srt.k, Srt.k]) (hite : (∀ ps, symApp c fn.label ps = .app ⟨⟨c.symName fn.label⟩⟩ [] ps))
     {t : VarTable} {e : Valuation M} {x0 x1 : M}
     (h0 : e.evalEvar (t.ev (.evar ("X" ++ toString 0) (KoreAML.srt (c.sortName Srt.k)))) = x0)
     (h1 : e.evalEvar (t.ev (.evar ("X" ++ toString 1) (KoreAML.srt (c.sortName Srt.k)))) = x1) (m : M) :
     (KoreAML.tr ⟨t, []⟩ (symApp c fn.label
       (KoreAML.vars (KoreAML.numbered "X" 0 (fn.args.map c.sortName))))).interpret I e m ↔
     SymE I (c.symName fn.label) [x0, x1] m := by
-  rw [tr_symApp, symHead_none hite, trArgs_appList, hargs]
+  rw [tr_symApp, symHead_plain_irs hite, trArgs_appList, hargs]
   refine interp_symList _ _ _ (.cons (fun m => ?_) (.cons (fun m => ?_) .nil)) m
   · change m = e.evalEvar (t.ev (.evar ("X" ++ toString 0) (KoreAML.srt (c.sortName Srt.k)))) ↔ _; rw [h0]
   · change m = e.evalEvar (t.ev (.evar ("X" ++ toString 1) (KoreAML.srt (c.sortName Srt.k)))) ↔ _; rw [h1]
@@ -185,7 +185,7 @@ theorem symApp_x01X {fn : Fn} (hargs : fn.args = [Srt.k, Srt.k]) (hite : iteSort
 holds only `x1`. -/
 theorem appendDot_atX (hI : I ⊧ᴵP Γ c) [OvlOK c] (hnn : NamesNumbered c)
     {fn : Fn} (hfnm : fn ∈ c.allFns) (hargs : fn.args = [Srt.k, Srt.k]) (hres : fn.result = Srt.k)
-    (hite : iteSort? (c.symName fn.label) = none)
+    (hite : (∀ ps, symApp c fn.label ps = .app ⟨⟨c.symName fn.label⟩⟩ [] ps))
     {cl : Clause} (hcl : cl ∈ fn.clauses) (hlow : lowerClauses fn cl = [])
     (hv : cl.vars = [Srt.k]) (hp : cl.pats = [.app dotk [], .var 0]) (hreq : cl.req = none)
     (hr : cl.rhs = .var 0) (hens : cl.ens = none) (hpre : cl.pre = .top) (hexs : cl.exs = [])
@@ -256,7 +256,7 @@ theorem appendDot_atX (hI : I ⊧ᴵP Γ c) [OvlOK c] (hnn : NamesNumbered c)
 `f(ks, x1)`. -/
 theorem appendKseq_atX (hI : I ⊧ᴵP Γ c) [OvlOK c] (hnn : NamesNumbered c)
     {fn : Fn} (hfnm : fn ∈ c.allFns) (hargs : fn.args = [Srt.k, Srt.k]) (hres : fn.result = Srt.k)
-    (hite : iteSort? (c.symName fn.label) = none)
+    (hite : (∀ ps, symApp c fn.label ps = .app ⟨⟨c.symName fn.label⟩⟩ [] ps))
     {cl : Clause} (hcl : cl ∈ fn.clauses) (hlow : lowerClauses fn cl = [])
     (hv : cl.vars = [Srt.kitem, Srt.k, Srt.k]) (hp : cl.pats = [.app kseq [.var 0, .var 1], .var 2])
     (hreq : cl.req = none) (hr : cl.rhs = .app kseq [.var 0, .app fn.label [.var 1, .var 2]])
@@ -347,7 +347,7 @@ theorem appendKseq_atX (hI : I ⊧ᴵP Γ c) [OvlOK c] (hnn : NamesNumbered c)
       | nil =>
         rw [(hvar 0 i _ hV0).mp hb0] at happ
         refine ⟨_, ?_, h, hh, happ⟩
-        rw [kore_app, tr_symApp, symHead_none hite, trArgs_appList] at hb1
+        rw [kore_app, tr_symApp, symHead_plain_irs hite, trArgs_appList] at hb1
         simp only [Term.koreList, List.map] at hb1
         exact (interp_symList _ _ [ks, x1] (.cons (hvar 1 ks · hV1) (.cons (hvar 2 x1 · hV2) .nil)) _).mp hb1
 
@@ -363,13 +363,13 @@ theorem fnCover_ctorX [hO : OvlOK c] (htr : ∀ a b d, (a, b) ∈ c.subsorts →
   cases h1
 
 /-- A function's application to elements of its argument sorts gives elements of its result sort. -/
-theorem symE_arityX (hI : I ⊧ᴵP Γ c) {fn : Fn} (hfnm : fn ∈ c.allFns) (hite : iteSort? (c.symName fn.label) = none)
+theorem symE_arityX (hI : I ⊧ᴵP Γ c) {fn : Fn} (hfnm : fn ∈ c.allFns) (hite : (∀ ps, symApp c fn.label ps = .app ⟨⟨c.symName fn.label⟩⟩ [] ps))
     {xs : List M} (hxs : All2 (fun s x => InS I s x) (fn.args.map c.sortName) xs) {a : M}
     (ha : SymE I (c.symName fn.label) xs a) : InS I (c.sortName fn.result) a := by
   have h := symArity_at hI (fn_sig_mem hfnm) KoreAML.val0 a (by
     obtain ⟨h0, hh0, happ⟩ := ha
     rw [interp_appList]
-    refine ⟨h0, by show (symHead c fn.label).interpret I KoreAML.val0 h0; rw [symHead_none hite]; exact hh0, xs, ?_, happ⟩
+    refine ⟨h0, by show (symHead c fn.label).interpret I KoreAML.val0 h0; rw [symHead_plain_irs hite]; exact hh0, xs, ?_, happ⟩
     show All2 _ ((fn.args.map c.sortName).map _) xs
     clear happ
     generalize fn.args.map c.sortName = ss at hxs ⊢
@@ -386,10 +386,10 @@ sort K is in `f(x0, x1)` for elements x0, x1 of K, x0 and x1 are values' element
 induction on the value, splitting x0 by K's no-junk item. -/
 theorem appendHeld_backCoreX (hI : I ⊧ᴵP Γ c) [OvlOK c] (hnn : NamesNumbered c) (hg : genWf c = true)
     (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsorts → (a, d) ∈ c.subsorts) (hn : Model.NamesApartK c)
-    (hrw : ∀ k ∈ c.params, k.raw = true → iteSort? (c.symName k.sig.name) = none)
+    (hrw : ∀ k ∈ c.params, k.raw = true → instDecode? (c.symName k.sig.name) = none)
     (hK : Srt.k ∈ consSorts c) (hgens : c.gens Srt.k = [.ctor kseqSigX, .ctor dotkSigX])
     {fn : Fn} (hfnm : fn ∈ c.allFns) (hargs : fn.args = [Srt.k, Srt.k]) (hres : fn.result = Srt.k)
-    (hite : iteSort? (c.symName fn.label) = none)
+    (hite : (∀ ps, symApp c fn.label ps = .app ⟨⟨c.symName fn.label⟩⟩ [] ps))
     {cd ck : Clause} (hcd : cd ∈ fn.clauses) (hck : ck ∈ fn.clauses)
     (hld : lowerClauses fn cd = []) (hlk : lowerClauses fn ck = [])
     (hdv : cd.vars = [Srt.k]) (hdp : cd.pats = [.app dotk [], .var 0]) (hdq : cd.req = none)
@@ -529,14 +529,22 @@ theorem appendHeldX_spec {f : Sym} (h : c.appendHeldX f = true) :
       · cases hcm
     · cases hfm
 
+omit [Inhabited M] in
+/-- `symApp` writes the symbol `appendHeldX` accepts at its name, at no sort. This is the one lemma
+that reads `appendHeldX`'s condition on the name. -/
+theorem appendHeldX_writes_irs {f : Sym} (h : c.appendHeldX f = true) :
+    ∀ ps, symApp c f ps = .app ⟨⟨c.symName f⟩⟩ [] ps := by
+  intro ps; unfold symApp; rw [(appendHeldX_spec h).2.2.1]
+
 /-- **K's `append` has `HeldBack`** in a model of `Γ`: a symbol `appendHeldX` accepts, with the
 signature a right side's context gives it. -/
 theorem appendHeld_backX (hI : I ⊧ᴵP Γ c) [OvlOK c] (hsc : SortCtx c) (hnn : NamesNumbered c)
     (hg : genWf c = true) (hn : Model.NamesApartK c)
-    (hrw : ∀ k ∈ c.params, k.raw = true → iteSort? (c.symName k.sig.name) = none)
+    (hrw : ∀ k ∈ c.params, k.raw = true → instDecode? (c.symName k.sig.name) = none)
     {f : Sym} {k : CtorSig} (hc : c.isCtor f = false) (hh : c.appendHeldX f = true)
     (hk : lookupSig (c.rhsCtx (c.fns.map Fn.sig)).heads f = some k) : HeldBack c I f k := by
-  obtain ⟨hhk, hpa, hite, hK, hgens, fn, hfn, hargs, hres, cd, ck, hcd, hck, hld, hlk, hd, hkk⟩ :=
+  have hite := appendHeldX_writes_irs hh
+  obtain ⟨hhk, hpa, -, hK, hgens, fn, hfn, hargs, hres, cd, ck, hcd, hck, hld, hlk, hd, hkk⟩ :=
     appendHeldX_spec hh
   obtain ⟨fn', hfnm, rfl, hfn'⟩ := rhs_lookup_call hsc fns_headsOK hc hhk hpa (by rw [hfn]; simp) hk
   rw [hfn] at hfn'

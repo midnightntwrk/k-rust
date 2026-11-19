@@ -48,11 +48,16 @@ def valueNamesFB (c : Semantics) : List String :=
   c.allColls.flatMap (fun k => [c.symName k.unit, c.symName k.elem, c.symName k.concat]) ++
   ["inj"]
 
-/-- The name of the head `symApp` writes for `f` (`appOK`): `Lblite` for an `ite` instance. -/
+/-- The name of the head `symApp` writes for `f` (`appOK`). -/
 def appNameFB (c : Semantics) (f : Sym) : String :=
-  match iteSort? (c.symName f) with
-  | some _ => "Lblite"
-  | none => c.symName f
+  match symApp c f [] with
+  | .app σ _ _ => σ.ident.name
+  | _ => c.symName f
+
+/-- `appNameFB` is the head `symApp` writes. -/
+theorem appNameFB_of_symApp {c : Semantics} {f : Sym} {h : String} {xs : List String}
+    (hw : ∀ ps, symApp c f ps = .app ⟨⟨h⟩⟩ (xs.map KoreAML.srt) ps) : appNameFB c f = h := by
+  unfold appNameFB; rw [hw]
 
 /-- The names of the heads of the symbols applied at values (`graphsB`). -/
 def graphNamesFB (c : Semantics) : List String :=
@@ -130,10 +135,9 @@ theorem kOK_nil_FB (f : Sym) : kOK c [] ks f = true ↔ ∀ k ∈ ks, c.symName 
   simp [kOK, isName]
 
 theorem appOK_nil_FB (f : Sym) : appOK c [] ks f = true ↔ ∀ k ∈ ks, c.symName k ∉ [appNameFB c f] := by
-  unfold appOK appNameFB
-  cases iteSort? (c.symName f) with
-  | some X => simp [isName]
-  | none => exact kOK_nil_FB f
+  obtain ⟨h, xs, -, hw⟩ := symApp_head c f
+  rw [appOK_of_symApp (hw := hw), appNameFB_of_symApp hw]
+  simp [isName]
 
 theorem regSig_nil_FB (hH : ∀ k ∈ ks, c.symName k ∉ hookNamesFB c) (φ : KoreAML.P) :
     regSig c [] ks φ = false := by

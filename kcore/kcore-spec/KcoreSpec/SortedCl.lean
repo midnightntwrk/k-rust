@@ -130,7 +130,7 @@ theorem Semantics.raw_of_sortedOKCl {c : Semantics} (h : c.sortedOKCl = true) {k
     (hk : k ∈ c.params) (hr : k.raw = true) :
     k.impl = none ∧
     ((k.assoc || k.idem) = true → k.sig.args = [k.sig.result, k.sig.result]) ∧
-    nRegSyms ≤ k.sig.name ∧ iteSort? (c.symName k.sig.name) = none ∧
+    nRegSyms ≤ k.sig.name ∧ instDecode? (c.symName k.sig.name) = none ∧
     c.shapesOK = true :=
   Semantics.raw_of_paramsPlain (Semantics.sortedOKCl_parts h).2.2.2.2 hk hr
 
@@ -297,7 +297,7 @@ theorem Semantics.raw_of_sortedOKClEx {c : Semantics} (h : c.sortedOKClEx = true
     (hk : k ∈ c.params) (hr : k.raw = true) :
     k.impl = none ∧
     ((k.assoc || k.idem) = true → k.sig.args = [k.sig.result, k.sig.result]) ∧
-    nRegSyms ≤ k.sig.name ∧ iteSort? (c.symName k.sig.name) = none ∧
+    nRegSyms ≤ k.sig.name ∧ instDecode? (c.symName k.sig.name) = none ∧
     c.shapesOK = true :=
   Semantics.raw_of_paramsPlain (Semantics.sortedOKClEx_parts h).2.2.2.2 hk hr
 

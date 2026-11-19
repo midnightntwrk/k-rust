@@ -106,14 +106,14 @@ theorem Semantics.raw_of_paramsPlain {c : Semantics} (h : c.paramsPlain = true) 
     (hk : k ∈ c.params) (hr : k.raw = true) :
     k.impl = none ∧
     ((k.assoc || k.idem) = true → k.sig.args = [k.sig.result, k.sig.result]) ∧
-    nRegSyms ≤ k.sig.name ∧ iteSort? (c.symName k.sig.name) = none ∧
+    nRegSyms ≤ k.sig.name ∧ instDecode? (c.symName k.sig.name) = none ∧
     c.shapesOK = true := by
   simp only [Semantics.paramsPlain, Bool.and_eq_true, List.all_eq_true] at h
   have hp := h.1 k hk
   simp only [hr, ↓reduceIte, Bool.and_eq_true, Option.isNone_iff_eq_none, Bool.not_eq_true',
     Bool.or_eq_true, decide_eq_true_eq, beq_iff_eq] at hp
   obtain ⟨⟨⟨⟨h1, h3⟩, h4⟩, h5⟩, h6⟩ := hp
-  refine ⟨h1, fun hl => ?_, h4, iteSort?_none_of_instDecode h5, h6⟩
+  refine ⟨h1, fun hl => ?_, h4, h5, h6⟩
   rcases h3 with h3 | h3
   · rw [hl] at h3; cases h3
   · exact h3
@@ -123,7 +123,7 @@ theorem Semantics.raw_of_sortedOK {c : Semantics} (h : c.sortedOK = true) {k : P
     (hk : k ∈ c.params) (hr : k.raw = true) :
     k.impl = none ∧
     ((k.assoc || k.idem) = true → k.sig.args = [k.sig.result, k.sig.result]) ∧
-    nRegSyms ≤ k.sig.name ∧ iteSort? (c.symName k.sig.name) = none ∧
+    nRegSyms ≤ k.sig.name ∧ instDecode? (c.symName k.sig.name) = none ∧
     c.shapesOK = true := by
   simp only [Semantics.sortedOK, Bool.and_eq_true] at h
   exact Semantics.raw_of_paramsPlain h.2 hk hr
@@ -135,7 +135,13 @@ theorem Semantics.raw_of_core {c : Semantics} (h : c.coreOK = true) {k : ParamSi
     ((k.assoc || k.idem) = true → k.sig.args = [k.sig.result, k.sig.result]) ∧
     nRegSyms ≤ k.sig.name ∧ iteSort? (c.symName k.sig.name) = none ∧
     c.shapesOK = true :=
-  Semantics.raw_of_sortedOK (Semantics.coreOK_parts h).1 hk hr
+  have h := Semantics.raw_of_sortedOK (Semantics.coreOK_parts h).1 hk hr
+  ⟨h.1, h.2.1, h.2.2.1, iteSort?_none_of_instDecode h.2.2.2.1, h.2.2.2.2⟩
+
+/-- What `coreOK` asks of the name of an open generator: the decoder reads it as no instance. -/
+theorem Semantics.raw_noInst_core_irs {c : Semantics} (h : c.coreOK = true) {k : ParamSig}
+    (hk : k ∈ c.params) (hr : k.raw = true) : instDecode? (c.symName k.sig.name) = none :=
+  (Semantics.raw_of_sortedOK (Semantics.coreOK_parts h).1 hk hr).2.2.2.1
 
 /-- `idsOK` numbers each parameter outside the registry once: their names are without repetition. -/
 theorem Semantics.paramsOnce_of_ids {c : Semantics} (h : c.idsOK = true) :

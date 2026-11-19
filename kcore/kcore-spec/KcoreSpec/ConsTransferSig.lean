@@ -385,13 +385,14 @@ theorem ownSorted_clean_sg {D' : KoreAML.Sym → Prop} {V : List EVar} {W : List
 /-- The arity item of a symbol is of the class at no name. -/
 theorem own_arity_sg (c : Semantics) (k : CtorSig) :
     OwnSorted (fun _ => False) [] [] .pred (symArityItem c k).pat := by
-  rw [symArity_pat_rs]
-  refine .included (.appList ?_ ?_) (.toOld (.inhOf (.sortC id)))
-  · split
-    · exact .symC id
-    · exact .appE (.symC id) (.toOld (.sortC id))
-  · intro a ha
-    obtain ⟨s, -, rfl⟩ := List.mem_map.mp ha
+  obtain ⟨h, xs, -, hw⟩ := symApp_head c k.name
+  rw [symArity_pat_rs hw]
+  refine .included (.appList (.symC id) ?_) (.toOld (.inhOf (.sortC id)))
+  intro a ha
+  rcases List.mem_append.mp ha with ha | ha
+  · obtain ⟨x, -, rfl⟩ := List.mem_map.mp ha
+    exact .toOld (.sortC id)
+  · obtain ⟨s, -, rfl⟩ := List.mem_map.mp ha
     exact .toOld (.inhOf (.sortC id))
 
 /-- The arity item of next at a sort without parameters is of the class at no name. -/
