@@ -25,7 +25,10 @@
 #              alone where a family carries a fact no sentence states); a refutation stated over `Γc`
 #              and not `Γ` names `Γcl` (`boolClosed`, which no sentence of the text states)
 #   sentences  forms (a) and (r): the indices of the text's sentences that determine the
-#              expectation (that the refutation uses)
+#              expectation (that the refutation uses); `[]` on a form (a) table, kind "through the
+#              reading", of a supported E6 `hook:` row itself (not a nested table): a hook has no
+#              defining sentence, its in-domain value is stated from the builtin prose at a
+#              semantics, not at a text, and goes through Γ's graph of the symbol (its `family`)
 #   theorem    the theorem's full name (namespaces included); required for forms (a), (c) and (r)
 #   file       the Lean file holding it, relative to kcore-spec; required with `theorem`
 #   derivation form (b): the file holding the derivation, relative to kcore-spec
@@ -39,7 +42,8 @@
 # The checks, each on the text of the named file (no Lean is run):
 # - `form` is one of the four, `kind` one of the three for form (a) and absent, "through the
 #   reading" or "sentence against the reading" for form (r), `family` given for "through the
-#   reading" and for form (r), `sentences` a non-empty list of indices for forms (a) and (r),
+#   reading" and for form (r), `sentences` a non-empty list of indices for forms (a) and (r)
+#   (`[]` admitted on the supported `hook:` row's own form (a) table of kind "through the reading"),
 #   `derivation` an existing file for form (b), `theorem` and `file` given for forms (a), (c) and
 #   (r), `owed_refuted` on form (r) only, `consistent` and `owed_statement` given for kind
 #   "sentence against the reading" and on no other table;
@@ -220,6 +224,8 @@ def entries(node, where):
 def check(rows, base):
     t = tomllib.load(open(rows, "rb"))
     cache, bad, counts, nomodel = {}, [], {}, []
+    hookrows = {f"E6 {k}" for k, v in (t.get("E6") or {}).items()
+                if k.startswith("hook:") and isinstance(v, dict) and v.get("status") == "supported"}
 
     def theorem_ok(at, th, fl, path, what, form, kind=None, family=None):
         """The checks on a named theorem of `fl`: declared once, in no AtNone namespace, its statement
@@ -310,7 +316,8 @@ def check(rows, base):
                 if (form == "r" or kind == "through the reading") and not (isinstance(d.get("family"), str) and d["family"].strip()):
                     bad.append(f"{at}: " + ("form (r)" if form == "r" else "kind 'through the reading'") + " names no family")
                 ss = d.get("sentences")
-                if not (isinstance(ss, list) and ss and all(isinstance(x, int) and x >= 0 for x in ss)):
+                prose = form == "a" and kind == "through the reading" and where in hookrows and ss == []
+                if not prose and not (isinstance(ss, list) and ss and all(isinstance(x, int) and x >= 0 for x in ss)):
                     bad.append(f"{at}: form ({form}) without `sentences`, the indices of the sentences that determine it")
             elif kind is not None:
                 bad.append(f"{at}: kind {kind!r} on form ({form}); kinds are forms (a) and (r)'s")
@@ -483,13 +490,27 @@ end KCore.ProvT
         ({"form": "r", "kind": "through the reading", "sentences": [344], "family": "ΓCons", "theorem": "KCore.ProvT.noModel",
           "file": f, "owed_statement": "x"}, "`owed_statement` on form (r) kind"),
     ]
+    hk = ("E6", "hook:K.x:Lblx")
+    pr = {"form": "a", "kind": "through the reading", "family": "ΓDomains", "sentences": [], "theorem": "KCore.ProvT.good", "file": f}
+    cases += [  # a supported hook row's prose value (fourth item: the list and key of the row)
+        (pr, None, {}, hk),
+        (pr, "without `sentences`", {}),
+        (pr, "cases[0]: derived[0]: form (a) without `sentences`", {"cases": [{"case": "n", "status": "supported", "derived": [pr]}]}, hk),
+        (dict(pr, kind="from sentences"), "without `sentences`", {}, hk),
+        (pr, "without `sentences`", {"status": "parameter"}, hk),
+    ]
     ok = True
-    val = lambda v: f"{v!r}".replace("'", '"') if not isinstance(v, list) else "[" + ", ".join(val(x) for x in v) + "]"
+    val = lambda v: (f"{v!r}".replace("'", '"') if not isinstance(v, (list, dict)) else
+                     "[" + ", ".join(val(x) for x in v) + "]" if isinstance(v, list) else
+                     "{ " + ", ".join(f"{k} = {val(x)}" for k, x in v.items()) + " }")
     for i, (dt, want, *more) in enumerate(cases):
         rp = os.path.join(d, f"rows{i}.toml")
-        extra = "".join(f", {k} = {val(v)}" for k, v in (more[0] if more else {}).items())
+        fields = dict(more[0]) if more else {}
+        st = fields.pop("status", "supported")
+        lst, key = more[1] if len(more) > 1 else ("E2", "row")
+        extra = "".join(f", {k} = {val(v)}" for k, v in fields.items())
         with open(rp, "w") as o:
-            o.write("[E2]\n\"row\" = { status = \"supported\"" + extra + ", derived = [{ "
+            o.write(f"[{lst}]\n\"{key}\" = {{ status = \"{st}\"" + extra + ", derived = [{ "
                     + ", ".join(f"{k} = {val(v)}" for k, v in dt.items())
                     + " }] }\n")
         _, bad, _ = check(rp, K)

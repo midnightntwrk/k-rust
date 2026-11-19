@@ -222,7 +222,12 @@
 #   carried_by  C: "<list> <row key>", a row that is not erased, has its own evidence and whose
 #             fixture holds the entry's `sentence`.
 #   A parameter entry's param_undetermined instance is a `derived` table of form (c); a supported
-#   hook's in-domain value a `derived` table of form (a). A parameter entry whose fixture's text has
+#   hook's in-domain value a `derived` table of form (a). On the supported `hook:` row itself, a hook
+#   has no defining sentence (its expectation is the builtin prose's, trusted base 4): the form (a)
+#   table of a value stated at a semantics and not at a text (test/HooksX.lean) has kind "through
+#   the reading", family naming Γ's graph of the symbol (ΓDomains), and `sentences = []`; the
+#   param_undetermined instance of each region the prose excludes or leaves unstated is a table of
+#   form (c) beside it (test/provenance.sh). A parameter entry whose fixture's text has
 #   no model has no such instance: a `derived` table of form (r) stands in its place, and rest.py
 #   counts the entry apart (form "parameter (no model)").
 #   A supported table nested in an E6 `hook:` row whose fixture's reading takes the row's symbol for a
