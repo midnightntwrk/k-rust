@@ -1,0 +1,12 @@
+command: kompile --backend haskell t243-ceil-lemma-fn-undecided.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 8.3
+kk krs/semantics/kore/texts/t243-ceil-lemma-fn-undecided/t243-ceil-lemma-fn-undecided.k: sha256 83e67281088bbecf144f9f614aa71cda9b06a001ecd93dfe98b8a223ff41c8cf
+definition.kore bytes: 204127
+definition.kore sha256: 2c02c13ff4e023b931b826578e015d203cbea1cf235a67170df376a6a07eab58
+stripped sha256: 2f6b2791a063e4bd7bf7f20ed0de7dc495df4a344ce5e038d2e3eba53e33e4d3
+main module: 392 sentences, 35 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  T243-CEIL-LEMMA-FN-UNDECIDED-SYNTAX in definition.  Use --syntax-module to
+  specify one. Using T243-CEIL-LEMMA-FN-UNDECIDED as default.
