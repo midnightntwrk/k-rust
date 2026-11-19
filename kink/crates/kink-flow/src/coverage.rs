@@ -485,7 +485,10 @@ pub const COVERAGE_SCHEMA: &str = "kink-flow-coverage";
 /// 26 since the row of a case whose case document states `provenance` carries it, as the run
 /// document's does (`crate::report::RUN_VERSION` 43); a corpus that states none writes the
 /// document it wrote.
-pub const COVERAGE_VERSION: u64 = 26;
+/// 27 since a flow that declares `[[projection]]` names its projections (`projections`, as the run
+/// document does, `crate::report::RUN_VERSION` 44); a flow that declares none gives version 26's
+/// document but for its version.
+pub const COVERAGE_VERSION: u64 = 27;
 
 /// The status of a rule some comparable program fired.
 pub const FIRED: &str = "fired";
@@ -732,6 +735,9 @@ pub fn coverage_front(
         }
         if let Some(observe) = manifest.observe_value() {
             document["observe"] = observe;
+        }
+        if let Some(projections) = manifest.projections_value() {
+            document["projections"] = projections;
         }
         document
     };

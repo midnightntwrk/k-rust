@@ -74,11 +74,13 @@ use kink_flow::fuzz::FUZZ_VERSION;
 /// report version 13 (CF-33, the solver budget); the document's own keys are unchanged.
 /// Version 18 adds the refusal reason `chain-pattern` of a pattern job whose pattern is a chain;
 /// the digest is version 17's, since a refusal's reason is an argument of `Refusal::new`.
+/// Version 19 names the projections of a flow that declares `[[projection]]`; the digest moved by
+/// the key `projections` alone, whose value is computed (`FlowManifest::projections_value`).
 const DOCUMENT_SHAPE: (u32, u32, u32, &str) = (
-    18,
+    19,
     13,
     2,
-    "b57e997d75141191c20919677e86edae752f77be881dc9e018086e922f2ee4f2",
+    "a35495835093bb8501e27d5c3da6bb5974e749ffb01df625b2117e6290ca5df7",
 );
 
 /// `source` without `//` comments, string literals kept whole.

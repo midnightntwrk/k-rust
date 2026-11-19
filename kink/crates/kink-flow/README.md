@@ -345,6 +345,13 @@ A flow that declares projections has exactly those; one of them may be named `de
 `run` judges its kills on one second slot over the union of the cells the projections compare, and on every channel of `[observe]` ("Which cells are compared"); judging each projection apart is to come.
 An implementation's view may name a projection ("Comparing implementations").
 
+Every document of a flow that declares projections names them, `projections`: the `check`, `coverage`, `run` (and so `report`), `query`, `compare`, `fuzz` and `prune` documents, a refused one's too once the manifest decodes.
+It lists each declared projection in the order written, `{name, kind, compare?, views?, observer?, channels?, domain?}`, its keys as the manifest writes them.
+A projection with `views` or `observer` also has `observation`: the identity of the functions those keys name, as the front end that resolved them states it (`FlowManifest::with_projection_observation`), so that a changed observer or view function is a changed projection on the document's face, as `observe.functions` is for `[observe]`; it is null where the front end states none, and `krs kink` states none yet (its observer's Definition IR digest is to come).
+A projection that names no function has no `observation`: its keys are its whole observation, and its channels' functions are identified by `observe.functions`.
+A flow that declares no projection has no `projections` member: its projection, `default`, is every observable cell (`result`) and every channel of `[observe]` (`observe`), which the document names already, so its documents are the ones it wrote before projections existed but for their versions.
+`projections` is in no digest, key or lock section: no run of the definition reads a projection's functions, and a lock row of a flow with projections is the row it would be without them.
+
 ### Which cells are compared
 
 A program's run is compared by two oracle slots: the exit stop (no exit-code cell), then its final configurations.
@@ -384,6 +391,7 @@ The `check`, `coverage` and `run` documents (and so `report`) carry `result`, `{
 `slots` the slot names (`["exit-stop", "whole-term"]` or `["exit-stop", "cells"]`),
 `compared` the outermost cells compared (the named cells and the keys of the Maps that enclose them when the projections narrow them; a cell listed is compared except for the cells of `not_compared` inside it, in each instance; null for a `whole-term` slot whose cells cannot be placed),
 `not_compared` the cells left out, and `unobservable` every cell the specification declares unobservable, each in configuration order.
+Beside it, the documents of a flow that declares projections name them (`projections`, "Projections"), each with the cells its `compare` names, so a reader sees which projection keeps each compared cell.
 Where the slot is `cells`, a program's recorded final configurations and ends are the projected ones.
 A mutation that only adds or removes `unobservable` compiles to the same KORE and is `equivalent`.
 
@@ -686,6 +694,7 @@ Version 13 adds `observe` for a corpus with `[observe]` (absent without one), th
 Version 14 adds `z3` under the Z3 profile, the Z3 build, `{version, library_sha256}`, as the run document names it ("The report: the run document"); the portable document has no such member.
 Version 15 (KINK-FINDING-NAMES) names each finding by its kind, sentences and digest (`spec.assume_joined` above), gives each finding its `sentences` (`{part, at}`, `at` the generated K's position, information only), and refuses a `[spec] assume_joined` name with its own reason where version 14 refused every one as `name-refused`; a genuine finding's name is refused.
 Version 16 (PJ-22) gives the row of a case whose document states `provenance` its `provenance`, `{found_by, reason}` ("Provenance"); a row of a case without one is version 15's.
+Version 17 (PJ-10) replaces `[result]` by `[[projection]]` ("Projections"): a manifest that writes `[result]` is refused at stage `manifest`, a refusal at stage `result` names the projection whose `compare` names the cell, a projection with `views` or `observer` is refused at stage `projection` (`unsupported-front-end`), and a flow that declares projections names them (`projections`); a flow that declares none gives version 16's document.
 Each case's expectation and the coverage warnings are read from result records, whose classes and coverage the baseline runs decided by asking the solver, and a record is read only under a key that names the Z3 build ("The cache directory"), so under Z3 what `check` says is a function of the build as much as of the profile.
 The document every verb prints for a manifest that does not decode is built from the check document's header, so it names the build too.
 

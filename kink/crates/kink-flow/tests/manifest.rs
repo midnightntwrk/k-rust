@@ -519,6 +519,60 @@ fn projections_decode_as_written_and_the_record_keeps_their_cells() {
     );
 }
 
+/// Every document names the declared projections (`projections`), each its keys as written, and
+/// one with `views` or `observer` its `observation`, the identity the front end stated for those
+/// functions (null without one); a flow without `[[projection]]` names none, its `default` being
+/// what `result` and `observe` already name.
+#[test]
+fn documents_name_the_declared_projections_with_each_observation() {
+    assert_eq!(decode(SPEC).unwrap().projections_value(), None);
+    assert_eq!(
+        decode(&format!("{SPEC}{OBSERVE}"))
+            .unwrap()
+            .projections_value(),
+        None
+    );
+    let manifest = decode(&format!(
+        "{SPEC}{OBSERVE}[[projection]]\nname = \"regs\"\ncompare = [\"regs\", \"pc\"]\n\n\
+         [[projection]]\nname = \"bus\"\ncompare = [\"bus\"]\nviews = {{ bus = \"WritesView\" \
+         }}\nobserver = \"p:views\"\n\n[[projection]]\nname = \"t\"\nkind = \"trace\"\nchannels \
+         = [\"ticks\"]\n"
+    ))
+    .unwrap();
+    let bus = serde_json::json!({
+        "name": "bus", "kind": "end", "compare": ["bus"],
+        "views": {"bus": "WritesView"}, "observer": "p:views",
+    });
+    let named = |bus_observation: serde_json::Value| {
+        let mut bus = bus.clone();
+        bus["observation"] = bus_observation;
+        serde_json::json!([
+            {"name": "regs", "kind": "end", "compare": ["regs", "pc"]},
+            bus,
+            {"name": "t", "kind": "trace", "channels": ["ticks"]},
+        ])
+    };
+    // No front end stated the identity of `bus`'s functions: the document says so.
+    assert_eq!(
+        manifest.projections_value(),
+        Some(named(serde_json::Value::Null))
+    );
+    // A front end that resolved them states it; a projection that names no function has none.
+    let identity = serde_json::json!({
+        "observer": {"definition": "p:views", "definition_ir": "ab12"},
+        "views": {"bus": "WritesView"},
+    });
+    let resolved = manifest
+        .clone()
+        .with_projection_observation("bus", identity.clone());
+    assert_eq!(resolved.projections_value(), Some(named(identity)));
+    let other = manifest.with_projection_observation(
+        "bus",
+        serde_json::json!({"observer": {"definition": "p:views", "definition_ir": "cd34"}}),
+    );
+    assert_ne!(other.projections_value(), resolved.projections_value());
+}
+
 #[test]
 fn a_projection_that_compares_every_cell_keeps_every_cell_in_the_record() {
     for every in [

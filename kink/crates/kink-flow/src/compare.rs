@@ -150,7 +150,13 @@ pub const COMPARE_SCHEMA: &str = "kink-flow-compare";
 /// the definition refuses at every end is judged by acceptance), and a crash on a program
 /// whose acceptance the definition states is `different` on its acceptance views, its row
 /// keeping `failure` (with `decided`).
-pub const COMPARE_VERSION: u64 = 6;
+/// 7 since a flow declares named projections (projections PJ-10): a document of a flow that
+/// declares `[[projection]]` names them (`projections`, [`FlowManifest::projections_value`]: each
+/// projection's keys as written and, where it has `views` or `observer`, the identity of its
+/// `observation` as the front end resolved it), and a view written `{ projection, required }`
+/// carries the projection's keys and `projection` in `implementations[].views[]`. A flow that
+/// declares no projection gives version 6's document but for its version.
+pub const COMPARE_VERSION: u64 = 7;
 /// The protocol a request names (`protocol`) and its answer is read by, unless the
 /// implementation declares another ([`Protocol`]).
 pub const PROTOCOL: &str = "kink-implementation/1";
@@ -2218,10 +2224,10 @@ pub fn command(
             manifest.definition.as_deref(),
         ) {
             Ok(lock) => Some(lock.with_assumed_totals(&manifest.assumed_totals)),
-            Err(detail) => return lock_refused(manifest, path, &detail),
+            Err(detail) => return named(manifest, lock_refused(manifest, path, &detail)),
         },
     };
-    let mut document = compared(manifest, options, vocabulary);
+    let mut document = named(manifest, compared(manifest, options, vocabulary));
     if let Some(lock) = &lock {
         document["lock"] = if document["refusal"].is_object() || document["spec"].is_null() {
             lock.not_written("refused")
@@ -2235,6 +2241,17 @@ pub fn command(
             };
             lock.settle(&store, &document, settle).0
         };
+    }
+    document
+}
+
+/// `document` naming the projections the flow declares (`projections`,
+/// [`FlowManifest::projections_value`]), a refused document's too; absent without
+/// `[[projection]]`. A view that names a projection names it in `implementations` (`projection`),
+/// so a reader finds there the observation each such view measured under.
+fn named(manifest: &FlowManifest, mut document: Value) -> Value {
+    if let Some(projections) = manifest.projections_value() {
+        document["projections"] = projections;
     }
     document
 }

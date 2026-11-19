@@ -258,7 +258,10 @@ pub const PRUNE_SCHEMA: &str = "kink-flow-prune";
 /// `{held, refuted}`) in place of `others` and `dischargers`, and a kept case's reason may be
 /// `unknown-partner` (`{reason, family, id, with}`). A corpus whose coverage has no unique-cause
 /// requirement gives version 2's document but for its version.
-pub const PRUNE_VERSION: u64 = 3;
+/// Version 4 names the projections of a flow that declares `[[projection]]` (`projections`,
+/// [`FlowManifest::projections_value`]), as every kink-flow document does; a flow that declares
+/// none gives version 3's document but for its version.
+pub const PRUNE_VERSION: u64 = 4;
 
 /// The order the removable set is built in (`removable.order`, module docs).
 pub const REVERSE_MANIFEST_ORDER: &str = "reverse-manifest";
@@ -889,9 +892,26 @@ impl Inputs<'_> {
 /// [`EXIT_UNASKED`] when a lock does not decode, a list does not decode, or a family's own command
 /// could not ask its question (its exit status would be 2: a refused specification, program,
 /// mutation or pattern, a corpus or infrastructure error, also one a cell asked lazily met),
-/// whose document the refusal names. No status is 1: the report refutes nothing.
+/// whose document the refusal names. No status is 1: the report refutes nothing. Every document
+/// names the projections the flow declares (`projections`, [`FlowManifest::projections_value`]),
+/// a refused one's too: each family's facts are read from the records the projections keep.
 #[must_use]
 pub fn command(
+    manifest: &FlowManifest,
+    mutations: Option<&Path>,
+    patterns: Option<&Path>,
+    options: &PruneOptions,
+    front: &FrontEnd<'_>,
+) -> (Value, u8) {
+    let (mut document, status) = asked(manifest, mutations, patterns, options, front);
+    if let Some(projections) = manifest.projections_value() {
+        document["projections"] = projections;
+    }
+    (document, status)
+}
+
+/// [`command`] without the projections.
+fn asked(
     manifest: &FlowManifest,
     mutations: Option<&Path>,
     patterns: Option<&Path>,

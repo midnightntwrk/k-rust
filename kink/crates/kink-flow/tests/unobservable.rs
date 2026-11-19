@@ -15,7 +15,10 @@
 use kink_flow::{
     FlowManifest,
     admit::{FlowAdmission, admit},
-    cli::{EXIT_UNASKED, EXIT_YES, check},
+    cli::{
+        CommandFiles, EXIT_UNASKED, EXIT_YES, FlowCommand, FrontEnd, check, check_document,
+        dispatch,
+    },
     coverage::{CoverageOptions, coverage},
     digest::{EXECUTION_DIGEST_KIND, ExecutionDigest, outcome_context, spec_digest},
     manifest::Budget,
@@ -121,8 +124,10 @@ fn a_change_only_to_an_unobservable_cell_survives_and_every_document_names_the_c
 
     let (document, status) = check(&manifest);
     assert_eq!(status, EXIT_YES, "{document:#}");
-    assert_eq!(document["version"], 16);
+    assert_eq!(document["version"], 17);
     assert_eq!(document["result"], expected);
+    // A flow that declares no projection names none: its `default` is what `result` names.
+    assert_eq!(document.get("projections"), None, "{document:#}");
 
     let (document, ok) = coverage(
         &FlowManifest::read(&manifest).unwrap(),
@@ -130,6 +135,7 @@ fn a_change_only_to_an_unobservable_cell_survives_and_every_document_names_the_c
     );
     assert!(ok, "{document:#}");
     assert_eq!(document["result"], expected);
+    assert_eq!(document.get("projections"), None, "{document:#}");
     assert_eq!(document["programs"][0]["class"], "comparable");
     // The recorded final configuration is the projected one: <scratch>'s content is `\top`.
     let results = dir.join(".kink-flow/results");
@@ -151,6 +157,7 @@ fn a_change_only_to_an_unobservable_cell_survives_and_every_document_names_the_c
         pairs(&[("note-offset", "survived"), ("emit-offset", "killed")])
     );
     assert_eq!(document["result"], expected);
+    assert_eq!(document.get("projections"), None, "{document:#}");
     assert_eq!(document["survivors"], json!(["note-offset"]));
     let killed = &document["mutations"][1]["executed"][0];
     assert_eq!(
@@ -510,6 +517,82 @@ fn check_refuses_a_projection_with_views_under_the_k_front_end() {
         "{document:#}"
     );
     assert_eq!(document["result"], Value::Null);
+    // The refused document still names the projection, and says that no front end identified
+    // the functions it compares through.
+    assert_eq!(
+        document["projections"],
+        json!([{"name": "v", "kind": "end", "views": {"out": "OutView"}, "observation": null}]),
+        "{document:#}"
+    );
+    // A front end that resolves them states their identity, which the document names.
+    let identity = json!({"observer": {"definition": null, "definition_ir": "ab12"}});
+    let manifest = FlowManifest::read(&dir.join("FLOW-views.toml"))
+        .unwrap()
+        .with_projection_observation("v", identity.clone());
+    let document = check_document(&admit(&manifest));
+    assert_eq!(
+        document["projections"][0]["observation"], identity,
+        "{document:#}"
+    );
+}
+
+/// `verb` on `manifest` through the command line's dispatch, with the flow's mutation list for
+/// `run` and no pattern list.
+fn dispatched(manifest: &Path, verb: &str) -> (Value, u8) {
+    let files = CommandFiles {
+        mutations: (verb == "run").then(|| manifest.with_file_name("MUTATIONS.toml")),
+        patterns: None,
+        templates: None,
+    };
+    let command = FlowCommand::parse(verb, files, &[]).unwrap();
+    dispatch(
+        FlowManifest::read(manifest).unwrap(),
+        command,
+        FrontEnd::default(),
+    )
+    .unwrap()
+}
+
+/// Every document of a flow that declares projections names them, each with its keys as
+/// written (PJ-10): `check`, `coverage`, `run`, `query` (refused here: the flow has no pattern),
+/// `compare` (refused: kink-flow's front end compares no implementation) and `prune`. The
+/// identity a front end states for a projection's functions is in no digest.
+#[test]
+fn every_document_names_the_projections_it_measured_under() {
+    let declared = plain_with(
+        "[[projection]]\nname = \"p\"\ncompare = [\"k\"]\n\n[[projection]]\nname = \"q\"\n\
+         compare = [\"out\"]\ndomain = [\"cases/**\"]\n\n",
+    );
+    let dir = fixture("named", &[("named", &declared)]);
+    let manifest = dir.join("FLOW-named.toml");
+    let projections = json!([
+        {"name": "p", "kind": "end", "compare": ["k"]},
+        {"name": "q", "kind": "end", "compare": ["out"], "domain": ["cases/**"]},
+    ]);
+    for verb in ["check", "coverage", "run", "query", "compare", "prune"] {
+        let (document, _) = dispatched(&manifest, verb);
+        assert_eq!(document["projections"], projections, "{verb}: {document:#}");
+    }
+    // The documents of a flow without projections have none, whatever the verb.
+    for verb in ["query", "compare"] {
+        let (document, _) = dispatched(&dir.join("FLOW.toml"), verb);
+        assert_eq!(document.get("projections"), None, "{verb}: {document:#}");
+    }
+    let read = FlowManifest::read(&manifest).unwrap();
+    assert_eq!(
+        spec_digest(&read, &[]),
+        spec_digest(
+            &read.clone().with_projection_observation("p", json!("x")),
+            &[]
+        )
+    );
+}
+
+/// The unobservable fixture's `FLOW.toml` with `projections` before its program.
+fn plain_with(projections: &str) -> String {
+    fs::read_to_string(flow().join("FLOW.toml"))
+        .unwrap()
+        .replace("[[program]]", &format!("{projections}[[program]]"))
 }
 
 /// A flow whose projections are all `trace` projections keeps no cell of the end: every cell the

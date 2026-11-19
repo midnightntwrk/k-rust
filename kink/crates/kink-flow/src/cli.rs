@@ -2916,6 +2916,7 @@ pub fn check_corpus_mutations(
                 programs: Vec::new(),
                 stop: manifest.stop_value(),
                 observe: manifest.observe_value(),
+                projections: manifest.projections_value(),
             },
             list,
             mutations: None,
@@ -2945,6 +2946,7 @@ pub fn check_corpus_mutations(
             programs,
             stop: manifest.stop_value(),
             observe: manifest.observe_value(),
+            projections: manifest.projections_value(),
         },
         list,
         mutations,
@@ -3068,7 +3070,15 @@ fn admission_status(admission: &FlowAdmission) -> u8 {
 /// 16 gives the row of a case whose case document states `provenance` its `provenance`,
 /// `{found_by, reason}` ([`crate::manifest::Provenance`], PJ-22); a row of a case without one is
 /// version 15's.
-pub const CHECK_VERSION: u64 = 16;
+/// 17 since `[[projection]]` replaces `[result]` (projections PJ-10): a manifest that writes
+/// `[result]` is refused at stage `manifest`; a refusal at stage `result` names the projection
+/// whose `compare` names the cell; a projection with `views` or `observer` is refused in a K
+/// flow at stage `projection`, reason `unsupported-front-end`; and a flow that declares
+/// projections names them (`projections`, [`crate::FlowManifest::projections_value`]: each
+/// projection's keys as written and, where it has `views` or `observer`, the identity of its
+/// `observation` as the front end resolved it). A flow that declares no projection and writes
+/// no `[result]` gives version 16's document but for its version.
+pub const CHECK_VERSION: u64 = 17;
 
 /// The check document's members, and under the Z3 profile `z3` ([`crate::with_z3_build`]); every
 /// document a verb gives for a manifest that does not decode is built from it
@@ -3214,6 +3224,10 @@ pub fn check_document(admission: &FlowAdmission) -> Value {
     // The resolved observation declaration; absent without `[observe]`.
     if let Some(observe) = &admission.observe {
         document["observe"] = observe.clone();
+    }
+    // The projections the flow declares; absent without `[[projection]]`.
+    if let Some(projections) = &admission.projections {
+        document["projections"] = projections.clone();
     }
     document
 }

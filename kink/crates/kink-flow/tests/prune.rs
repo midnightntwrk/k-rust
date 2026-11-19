@@ -250,7 +250,7 @@ fn the_report_keeps_claims_unknowns_and_one_of_two_alternatives() {
     );
     assert_eq!(document["unanswered"]["complete"], true);
     assert_eq!(document["schema"], "kink-flow-prune");
-    assert_eq!(document["version"], 3);
+    assert_eq!(document["version"], 4);
     assert_eq!(document["cases"], 6);
     let redundant = document["redundant"]
         .as_array()

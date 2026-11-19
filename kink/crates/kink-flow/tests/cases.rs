@@ -1443,7 +1443,7 @@ fn a_case_expectation_is_checked_by_the_front_ends_renderer() {
         )
     });
     assert_eq!(status, kink_flow::cli::EXIT_YES, "{check:#}");
-    assert_eq!(check["version"], 16, "{check:#}");
+    assert_eq!(check["version"], 17, "{check:#}");
     assert_eq!(expectations(&check), reported, "{check:#}");
 
     // A refused expectation refuses its case.

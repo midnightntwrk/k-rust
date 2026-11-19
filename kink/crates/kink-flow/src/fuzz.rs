@@ -267,7 +267,11 @@ pub const FUZZ_SCHEMA: &str = "kink-flow-fuzz";
 /// units unless the campaign asks for the clock and names the Z3 build (CF-33).
 /// 18 refuses a pattern job whose pattern is a chain (`steps`), with the refusal stage `pattern`
 /// and reason `chain-pattern`: a fuzz goal is one state to reach.
-pub const FUZZ_VERSION: u32 = 18;
+/// 19 names the projections of a flow that declares `[[projection]]` (`projections`,
+/// [`crate::FlowManifest::projections_value`]), as every kink-flow document does: a kill job's
+/// confirmation compares the cells the projections keep; a flow that declares none gives version
+/// 18's document but for its version.
+pub const FUZZ_VERSION: u32 = 19;
 /// The cases of a campaign that names neither `--cases` nor `--work`.
 pub const DEFAULT_CASES: u64 = 1000;
 /// The `max_work` of every case when `--max-work` is not given.
@@ -2293,12 +2297,16 @@ pub fn fuzz_front(
         document["job"]["flip"] = json!(flip);
         document["job"]["expect"] = Value::Null;
     }
-    // The corpus's stop and observation declaration, as every kink-flow document names them.
+    // The corpus's stop, observation declaration and projections, as every kink-flow document
+    // names them.
     if let Some(stop) = manifest.stop_value() {
         document["stop"] = stop;
     }
     if let Some(observe) = manifest.observe_value() {
         document["observe"] = observe;
+    }
+    if let Some(projections) = manifest.projections_value() {
+        document["projections"] = projections;
     }
     if let Some((refusal, action)) = corpus_refusal(manifest, &job) {
         document["spec"] = refusal.value();

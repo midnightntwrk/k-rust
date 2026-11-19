@@ -2965,6 +2965,7 @@ pub(crate) fn run_session(
                 schedule: json!(schedule_name(options.schedule)),
                 stop: manifest.stop.as_ref().map(|_| manifest),
                 observe: manifest.observe_value(),
+                projections: manifest.projections_value(),
                 lock: lock
                     .as_ref()
                     .map_or(Value::Null, |lock| lock.not_written("refused")),
@@ -3294,6 +3295,7 @@ pub(crate) fn run_session(
                     execution: update.execution.value(),
                     stop: manifest.stop.as_ref().map(|_| manifest),
                     observe: manifest.observe_value(),
+                    projections: manifest.projections_value(),
                     // Nothing is written to the lock before the run ends.
                     lock: lock.as_ref().map_or(Value::Null, Lock::pending),
                     coverage: Some(&stop_coverage),
@@ -3343,6 +3345,7 @@ pub(crate) fn run_session(
             execution: update.execution.value(),
             stop: manifest.stop.as_ref().map(|_| manifest),
             observe: manifest.observe_value(),
+            projections: manifest.projections_value(),
             lock: Value::Null,
             coverage: Some(&stop_coverage),
             list: &list.mutations,
@@ -4395,6 +4398,9 @@ struct Accounting<'m> {
     /// The manifest's observation declaration (`FlowManifest::observe_value`), which the document
     /// names (`observe`); `None` without `[observe]`.
     observe: Option<Value>,
+    /// The manifest's projections (`FlowManifest::projections_value`), which the document names
+    /// (`projections`); `None` when it declares none.
+    projections: Option<Value>,
     /// The document's `lock`: null without a lock ([`crate::lock`]).
     lock: Value,
     /// The coverage of the programs' current records (`crate::check::rows_coverage`), from which a
@@ -4419,6 +4425,7 @@ impl Accounting<'_> {
         execution: Value::Null,
         stop: None,
         observe: None,
+        projections: None,
         lock: Value::Null,
         coverage: None,
         list: &[],
@@ -4519,6 +4526,9 @@ fn document(
     }
     if let Some(observe) = accounting.observe {
         document["observe"] = observe;
+    }
+    if let Some(projections) = accounting.projections {
+        document["projections"] = projections;
     }
     document
 }

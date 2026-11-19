@@ -400,6 +400,9 @@ pub struct FlowAdmission {
     /// (`FlowManifest::observe_value`), whether or not the specification is admitted; `None`
     /// without `[observe]`.
     pub observe: Option<serde_json::Value>,
+    /// The manifest's projections as documents name them (`FlowManifest::projections_value`),
+    /// whether or not the specification is admitted; `None` when it declares none.
+    pub projections: Option<serde_json::Value>,
 }
 
 impl FlowAdmission {
@@ -437,6 +440,7 @@ pub fn admit(manifest: &FlowManifest) -> FlowAdmission {
             programs: Vec::new(),
             stop: manifest.stop_value(),
             observe: manifest.observe_value(),
+            projections: manifest.projections_value(),
         };
     };
     let mut session = inputs.session(&spec);
@@ -451,6 +455,7 @@ pub fn admit(manifest: &FlowManifest) -> FlowAdmission {
         programs,
         stop: manifest.stop_value(),
         observe: manifest.observe_value(),
+        projections: manifest.projections_value(),
     }
 }
 

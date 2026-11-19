@@ -2525,6 +2525,38 @@ identity_sha256 = "aa"
         }
     }
 
+    /// The projections a document names are in no lock section (projections PJ-10): every
+    /// section of a flow that declares projections renders the rows and header it renders
+    /// without the member, so a flow without `[[projection]]` keeps its lock byte for byte and
+    /// `VERDICTS_VERSION` stays.
+    #[test]
+    fn projections_are_in_no_lock_section() {
+        let query = json!({
+            "schema": crate::query::QUERY_SCHEMA,
+            "profile": "no-z3",
+            "spec": {"outcome": "admitted"},
+            "obligations": [],
+        });
+        let projections = json!([
+            {"name": "p", "kind": "end", "compare": ["k"]},
+            {"name": "v", "kind": "end", "views": {"k": "KView"}, "observation": {"x": 1}},
+        ]);
+        for document in [
+            run_document(&[("m1", "killed", Some("p1"))]),
+            coverage_document(&[], &["r1"]),
+            compare_document(vec![answered("p1", "acc")]),
+            query,
+        ] {
+            let mut named = document.clone();
+            named["projections"] = projections.clone();
+            assert_eq!(
+                lock_section(&named).unwrap(),
+                lock_section(&document).unwrap(),
+                "{document:#}"
+            );
+        }
+    }
+
     /// A row of a run that gave no answer (the implementation failed, the clock cancelled it, or
     /// the clock stopped the definition's baseline) keeps its recorded verdicts: under `--locked`
     /// the section is `undecided` (exit 3), not stale, and a write leaves the file as it was.

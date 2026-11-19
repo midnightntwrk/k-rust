@@ -343,6 +343,7 @@ pub fn admit_checked(manifest: &FlowManifest, cache: Option<&Path>) -> FlowAdmis
             programs: Vec::new(),
             stop: manifest.stop_value(),
             observe: manifest.observe_value(),
+            projections: manifest.projections_value(),
         };
     };
     let programs = {
@@ -362,6 +363,7 @@ pub fn admit_checked(manifest: &FlowManifest, cache: Option<&Path>) -> FlowAdmis
         programs,
         stop: manifest.stop_value(),
         observe: manifest.observe_value(),
+        projections: manifest.projections_value(),
     }
 }
 

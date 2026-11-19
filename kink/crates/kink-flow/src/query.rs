@@ -245,7 +245,11 @@ pub const QUERY_SCHEMA: &str = "kink-flow-query";
 /// document it wrote, but for `version`.
 /// 14 since the row of a case whose case document states `provenance` carries it, as the run
 /// document's does; a corpus that states none writes the document it wrote, but for `version`.
-pub const QUERY_VERSION: u64 = 14;
+/// 15 since a flow that declares `[[projection]]` names its projections (`projections`, as the
+/// run document does): a pattern's answer is a fact of the definition's run, which no projection
+/// changes, but each program row reads its result record, which keeps the cells the projections
+/// compare; a flow that declares none writes the document it wrote, but for `version`.
+pub const QUERY_VERSION: u64 = 15;
 /// A cached answer's schema, and its key's `schema_version`.
 pub const RECORD_SCHEMA: &str = "kink-flow-pattern";
 /// The record's format and what its answers mean: it changes whenever what counts as a hit or a
@@ -568,15 +572,18 @@ pub const OBSERVE_IGNORED: &str = "a pattern query asks which states one definit
      reaches; observation channels compare two definitions' runs, and change neither which states \
      a run reaches nor where it ends";
 
-/// `document` naming the manifest's stop (`stop`) and observation (`observe`: the declaration,
-/// and why the query ignores it) when it has them, as every query document does, a refused one's
-/// too (version 5).
+/// `document` naming the manifest's stop (`stop`), observation (`observe`: the declaration,
+/// and why the query ignores it) and projections (`projections`, version 15) when it has them, as
+/// every query document does, a refused one's too (version 5).
 pub fn named(manifest: &FlowManifest, mut document: Value) -> Value {
     if let Some(stop) = manifest.stop_value() {
         document["stop"] = stop;
     }
     if let Some(observe) = manifest.observe_value() {
         document["observe"] = json!({"declaration": observe, "ignored": OBSERVE_IGNORED});
+    }
+    if let Some(projections) = manifest.projections_value() {
+        document["projections"] = projections;
     }
     document
 }

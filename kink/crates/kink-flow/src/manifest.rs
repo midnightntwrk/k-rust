@@ -129,6 +129,14 @@ pub struct FlowManifest {
     /// every cell (`projection::record_cells`). An implementation's views add none: an
     /// implementation is no input of the definition's runs.
     pub record_cells: Option<Vec<RecordCell>>,
+    /// The identity of each declared projection's functions of an observer (`views`,
+    /// `observer`), by projection name, as the front end that resolved them states it
+    /// ([`Self::with_projection_observation`]): what every document names as the projection's
+    /// `observation` ([`Self::projections_value`]). Empty for a decoded `FLOW.toml`: kink-flow
+    /// evaluates no function of a value, and admission refuses a projection that names one in a
+    /// K flow. No run of the definition reads a projection's functions, so it is in no digest or
+    /// key.
+    pub projection_observations: BTreeMap<String, serde_json::Value>,
     /// `[stop]`: where every program's run ends besides its own end, when the manifest says;
     /// `None`: every run ends where its paths end.
     pub stop: Option<StopSection>,
@@ -1127,6 +1135,7 @@ impl ManifestFile {
             programs: self.programs,
             projections: self.projections,
             record_cells: self.record_cells,
+            projection_observations: BTreeMap::new(),
             stop: self.stop,
             observe: self.observe,
             coverage: self.coverage,
@@ -1194,6 +1203,36 @@ impl FlowManifest {
     #[must_use]
     pub fn projections(&self) -> Vec<ProjectionSection> {
         effective_projections(&self.projections, self.observe.as_ref())
+    }
+
+    /// The projections every document names (`projections`): one entry per declared
+    /// projection, in the order written, its keys as written ([`ProjectionSection::value`]),
+    /// and, for one with `views` or `observer`, `observation`, the identity of those functions
+    /// as the front end resolved them ([`Self::with_projection_observation`]), null where no
+    /// front end stated one. `None` when the flow declares no projection: its one projection,
+    /// `default`, is every observable cell and every `[observe]` channel, which a document names
+    /// already (`result`, `observe`), so a document of such a flow has no member.
+    #[must_use]
+    pub fn projections_value(&self) -> Option<serde_json::Value> {
+        if self.projections.is_empty() {
+            return None;
+        }
+        Some(serde_json::Value::Array(
+            self.projections
+                .iter()
+                .map(|projection| {
+                    let mut value = projection.value();
+                    if projection.has_front_end_keys() {
+                        value["observation"] = self
+                            .projection_observations
+                            .get(&projection.name)
+                            .cloned()
+                            .unwrap_or(serde_json::Value::Null);
+                    }
+                    value
+                })
+                .collect(),
+        ))
     }
 
     /// The projection named `name` among [`Self::projections`].
@@ -1319,6 +1358,24 @@ impl FlowManifest {
     #[must_use]
     pub fn with_observe_functions(mut self, functions: kink_campaign::ObserveFunctions) -> Self {
         self.observe_functions = ObserveFunctionsSlot(Some(functions));
+        self
+    }
+
+    /// This manifest with `identity` naming what decides the functions of an observer of the
+    /// projection `projection` (its `views` and `observer`): a front end that reads the
+    /// definition's values (the krs front end) resolves a projection's functions and sets their
+    /// identity on the manifest it decoded (for krs, the observer's name and Definition IR digest
+    /// and the views as written), so that every document names the observation each projection
+    /// measured under and a changed observer is a changed projection
+    /// ([`Self::projections_value`]).
+    #[must_use]
+    pub fn with_projection_observation(
+        mut self,
+        projection: &str,
+        identity: serde_json::Value,
+    ) -> Self {
+        self.projection_observations
+            .insert(projection.to_owned(), identity);
         self
     }
 
