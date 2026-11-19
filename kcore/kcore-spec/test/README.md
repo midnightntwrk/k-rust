@@ -1729,6 +1729,15 @@ table above, on the tree before String and Bytes). Not investigated here.
   and `sl(sl(X)) => sl(X) [simplification, smt-lemma]` beside `f(X) => X`, `sl(X) => X`; each is
   inert, class `simplification`, carries its key, and is entailed by Γ at values, for every H
   (`ne_ev`, `sl_ev`, by `InertEvUser.EqnU.entailed`).
+- `test/InertE2Simplification.lean`: the C2 evidence of the inert rows E2 `comm`, `concrete`,
+  `preserves-definedness`, `symbolic` and `syntactic` at a simplification, on fixture
+  e2-simplification: axioms 149 (`f(X) *Int Y => Y *Int f(X) [concrete(Y), symbolic(X)]`), 150
+  (`f(X) *Int 0 => 0 [concrete]`), 169 (`f(X) -Int 0 => f(X) [preserves-definedness]`), 212
+  (`f(g(X, Y)) => g(X, Y) [syntactic(1)]`) and 215 (`g(X, Y) => g(Y, X)`, `comm` removed by
+  kompile) beside `f(X) => X` and `g(X, Y) => X +Int Y`; each is inert, class `simplification`,
+  carries its keys (`keys`), and is entailed by Γ at values, for every H (`s149_ev` to `s215_ev`,
+  by `InertEvUser.EqnU.entailed`). The text's two false simplifications (`test/InertE2SimpRefuted.lean`)
+  are not in Γ.
 - `test/C3SimpPrio.lean`, `test/C3OwiseSimp.lean`: the C2 evidence of the inert pairs
   `simplification` x `priority` and `[owise]` x `simplification` on their fixtures: the
   simplification sentence `f(f(X)) => f(X)` is entailed by Γ at values, for every H (`simp_ev`,
