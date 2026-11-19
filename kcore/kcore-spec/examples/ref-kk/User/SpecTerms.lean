@@ -565,7 +565,7 @@ theorem hookArgs_ne_float_kst {f : Sym} (hf : f ∈ boolNe :: hookCodes.map (·.
 theorem hookHeads_kst (hc : encodable d = true) {f : Sym} (hf : f ∈ boolNe :: hookCodes.map (·.1)) :
     d.isCtor f = false := by
   simp only [encodable, Bool.and_eq_true] at hc
-  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨-, -⟩, -⟩, h4⟩, -⟩, -⟩, -⟩, -⟩, -⟩, -⟩ := hc
+  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨-, -⟩, -⟩, h4⟩, -⟩, -⟩, -⟩, -⟩, -⟩, -⟩, -⟩ := hc
   simp only [headsOK, Bool.and_eq_true, List.all_eq_true] at h4
   have h := h4.2 f hf
   cases hct : d.isCtor f

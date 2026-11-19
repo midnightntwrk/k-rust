@@ -1,0 +1,61 @@
+id = "t243-ceil-lemma-fn-undecided"
+kind = "text"
+subject = "A function d with the one equation d(A, B) => A requires B =/=Int 0, and the [simplification] sentence #Ceil(d(A, B)) => {(B =/=Int 0) #Equals true} over element variables. What the sentence states of d(A, 0), of which no equation of d states anything, and how it stands to the equation."
+origin = "kcore-spec fixture kk-ceil-lemma-fn-undecided"
+rests_on = ["kk:t11-eq-applies", "kk:t91-set-variable-lemmas", "kk:t10-fn-innermost"]
+
+[text]
+files = ["t243-ceil-lemma-fn-undecided.k"]
+kompile = "accepts"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "The sentence states, for all integers a and b, that d(a, b) has a value exactly where b is not 0. Where b is not 0 the equation of d already states that (d(a, b) is a). At b = 0 no equation of d states anything, and the sentence states that d(a, 0) has no value. The sentence is not a consequence of the equation: the equation holds both where d(a, 0) denotes nothing and where it denotes an integer, and the sentence holds in the first and is false in the second. The text, which is the equation and the sentence together, has a model, and in each of its models d(a, 0) has no value for every integer a."
+reason = '''
+(1) The range. A and B are written without `@`: they are not set variables (kast.md:182-184), and each stands for one integer. The sentence carries the simplification attribute, which changes nothing of what it states (kk:t91-set-variable-lemmas). So it states its two sides equal at every pair of integers a, b.
+(2) The two sides. #Ceil of a pattern holds where the pattern denotes at least one element and holds nowhere otherwise (introduction-to-matching-logic.tex:840-845), so the left side holds exactly where d(a, b) has a value. =/=Int is total and b =/=Int 0 is true where b is not 0 and false at b = 0 (domains.md:1324-1325, 1333); #Equals of two patterns holds where they denote the same elements (introduction-to-matching-logic.tex:880-885), and false is not true (domains.md:1084), so the right side holds exactly where b is not 0. The sentence states: d(a, b) has a value exactly where b is not 0.
+(3) Where b is not 0. The equation's requires is true there and it states d(a, b) = a (kk:t11-eq-applies; an application at arguments that have values is the application at those values, kk:t10-fn-innermost). So d(a, b) has a value and the sentence adds nothing to the equation.
+(4) At b = 0. The equation's requires is false and the equation states nothing at (a, 0) (kk:t11-eq-applies); d has no other equation and is not declared total. The sentence's right side does not hold, so the sentence states that #Ceil(d(a, 0)) does not hold: d(a, 0) has no value. This is said by the sentence alone.
+(5) Not a consequence of the equation. A symbol is interpreted as a function from its arguments to the subsets of its result sort's carrier (introduction-to-matching-logic.tex:704-713). Take the integers with d(a, b) = {a} where b is not 0 and d(a, 0) = {7}: the equation holds, each application denotes at most one element, and the sentence is false at (a, 0), where its left side holds and its right side does not. Take instead d(a, 0) the empty set: the equation holds and the sentence holds at every pair. So the equation alone decides the sentence neither way.
+(6) The text has a model, the second of (5), and every model of the text satisfies the sentence at each (a, 0): there d(a, 0) has no value. What an application denotes where no sentence of a text speaks of it (kk:t13-fn-no-equation) does not arise here: the sentence speaks of d(a, 0).'''
+
+[[ruling.basis]]
+source = "manual"
+locator = "k-distribution/include/kframework/builtin/kast.md:182-184 (K 7.1.337)"
+quote = "Set variables. These are denoted by variables that begin with a `@`. These variables refer to a set of values and are generally used when writing simplification rules in the Haskell Backend."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1388-1389 (K 7.1.337)"
+quote = "The simplification attribute identifies rules outside the main semantics that are used to simplify function patterns."
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:840-845 (K 7.1.337)"
+quote = '''$\overline{\rho}(\lceil\varphi\rceil_{s_1}^{s_2})$ is either $\emptyset$ (i.e., $\overline{\rho}(\bot_{s_2})$) when $\overline{\rho}(\varphi) = \emptyset$ (i.e., $\varphi$ undefined in $\rho$), or is $M_{s_2}$ (i.e., $\overline{\rho}(\top_{s_2})$) when $\overline{\rho}(\varphi) \neq \emptyset$ (i.e., $\varphi$ defined).'''
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:880-885 (K 7.1.337)"
+quote = '''Equality is also a predicate. if $\varphi,\varphi' \in \Pattern_{s_1}$ and $\rho : \Var \ra M$ then $\overline{\rho}(\varphi =_{s_1}^{s_2} \varphi') = \emptyset$ iff $\overline{\rho}(\varphi) \neq \overline{\rho}(\varphi')$, and $\overline{\rho}(\varphi =_{s_1}^{s_2} \varphi') = M_{s_2}$ iff $\overline{\rho}(\varphi) = \overline{\rho}(\varphi')$.'''
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:704-713 (K 7.1.337)"
+quote = '''A \emph{matching logic $(S,\Sigma)$-model} $M$ consists of: An $S$-sorted set $\{M_s\}_{s\in S}$, where each set $M_s$, called the \emph{carrier of sort $s$ of $M$}, is assumed non-empty; and a function $\sigma_M:M_{s_1}\times\cdots\times M_{s_n} \rightarrow {\cal P}(M_s)$ for each symbol $\sigma\in\Sigma_{s_1\ldots s_n,s}$, called the \emph{interpretation} of $\sigma$ in $M$.'''
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1324-1325 (K 7.1.337)"
+quote = "You can compute whether two integers are less than or equal to, less than, greater than or equal to, greater than, equal, or unequal to another integer."
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1333 (K 7.1.337)"
+quote = '''| Int "=/=Int" Int [function, total, symbol(_=/=Int_), comm, smt-hook(distinct), hook(INT.ne)]'''
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1084 (K 7.1.337)"
+quote = "The boolean values are `true` and `false`."

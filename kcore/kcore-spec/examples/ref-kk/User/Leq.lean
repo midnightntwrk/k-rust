@@ -168,7 +168,7 @@ theorem subsortsOK_of_encDef_kleq {d : Semantics} {E : D} (hE : encDef d = some 
   have h : encodable d = true := by rw [← encDef_isSome, hE]; rfl
   unfold encodable at h
   simp only [Bool.and_eq_true] at h
-  exact h.1.1.1.1.2
+  exact h.1.1.1.1.1.2
 
 /-- **`leq` on the subsort table `encDef d` writes**: at two sorts `a`, `b` of `d`, the same sort or
 a stated subsort. -/
