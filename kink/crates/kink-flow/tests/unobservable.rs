@@ -1011,7 +1011,7 @@ fn a_view_compares_only_the_programs_of_its_projection_s_domain() {
         ..Default::default()
     };
     let document = kink_flow::compare::command(&read, &options, Some(&Equal), "compare");
-    assert_eq!(document["version"], 9, "{document:#}");
+    assert_eq!(document["version"], 10, "{document:#}");
     let views = |implementation: &str, program: &str| -> Vec<(String, String, Value)> {
         let row = document["rows"]
             .as_array()
@@ -1133,6 +1133,265 @@ fn a_view_compares_only_the_programs_of_its_projection_s_domain() {
         "compare",
     );
     assert_eq!(again["lock"]["status"], "unchanged", "{:#}", again["lock"]);
+}
+
+/// A front end for compare that reads acceptance: every end view is `equal`, the definition
+/// declares a `finished` end, and a `rejected` answer's `refused` is read as written.
+struct Accepting;
+
+impl kink_flow::compare::Vocabulary for Accepting {
+    fn check(
+        &self,
+        implementation: &kink_flow::manifest::ImplementationSection,
+    ) -> Result<(), String> {
+        Equal.check(implementation)
+    }
+    fn start(&self, state: &k_rust::kore::ast::Pattern) -> Result<Value, String> {
+        Equal.start(state)
+    }
+    fn inputs(
+        &self,
+        program: &kink_flow::manifest::Program,
+        files: &mut dyn kink_flow::admit::InputFiles,
+    ) -> Result<Value, String> {
+        Equal.inputs(program, files)
+    }
+    fn read_answer(
+        &self,
+        implementation: &kink_flow::manifest::ImplementationSection,
+        cells: &Value,
+    ) -> Result<(), String> {
+        Equal.read_answer(implementation, cells)
+    }
+    fn compare(
+        &self,
+        question: &kink_flow::compare::Question<'_>,
+    ) -> Result<kink_flow::compare::Judged, String> {
+        Equal.compare(question)
+    }
+    fn observe_request(&self, channels: &[String]) -> Result<Vec<Value>, String> {
+        Equal.observe_request(channels)
+    }
+    fn judge_trace(
+        &self,
+        question: &kink_flow::compare::TraceQuestion<'_>,
+    ) -> Result<kink_flow::compare::TraceAnswer, String> {
+        Equal.judge_trace(question)
+    }
+    fn declares_finished_end(&self) -> bool {
+        true
+    }
+    fn read_refusal(&self, refused: &Value) -> Result<Value, String> {
+        Ok(refused.clone())
+    }
+}
+
+/// A program whose entry states that it is rejected before it runs (projections PJ-32) and that
+/// admission rejected there is rejected on the definition's side: an implementation given the
+/// inputs is asked, its acceptance and end views judged by acceptance (`equal` for a rejection,
+/// whatever refused end it names, `different` for an end or a crash) and its snapshot view
+/// against its file (`pending`: none is accepted); one given `start` is not asked (`not-compared`, `rejected-before-run`, status 0). An unmet statement is
+/// asked of none, every view `not-compared` (`definition`, status 2). The lock holds the reason.
+#[test]
+fn a_program_rejected_before_it_runs_is_rejected_on_the_definition_side() {
+    const BOTH: &str = "{ name = \"accepts\", kind = \"accepts\", required = true }, \
+                        { name = \"end\", required = true }";
+    const ACCEPTS: &str = "{ name = \"accepts\", kind = \"accepts\", required = true }";
+    let answer = |log: &str, answer: &str| {
+        format!(
+            "[\"sh\", \"-c\", \"cat >> {log}; echo >> {log}; {answer}\"]",
+            answer = answer.replace('"', "\\\"")
+        )
+    };
+    let implementation = |name: &str, given: &str, command: &str, views: &str| {
+        format!(
+            "\n[[implementation]]\nname = \"{name}\"\nprotocol = \"kink-implementation/3\"\n\
+             given = \"{given}\"\ncommand = {command}\nviews = [{views}]\n"
+        )
+    };
+    let manifest = fs::read_to_string(flow().join("FLOW.toml")).unwrap()
+        + "\n[[program]]\nid = \"bad\"\ntext = \"emit(\"\nexpect = { rejected = \"parse\" }\n\n\
+           [[program]]\nid = \"good\"\ntext = \"emit(3)\"\nexpect = { rejected = \"parse\" }\n\n\
+           [[projection]]\nname = \"msg\"\nkind = \"accepts\"\nrelation = \"snapshot\"\n"
+        + &implementation(
+            "parser",
+            "inputs",
+            &answer(
+                "parser.log",
+                "echo '{\"end\": \"rejected\", \"message\": \"no\"}'",
+            ),
+            &format!("{BOTH}, {{ projection = \"msg\", required = false }}"),
+        )
+        + &implementation(
+            "named",
+            "inputs",
+            &answer(
+                "named.log",
+                "echo '{\"end\": \"rejected\", \"refused\": {\"end\": \"x\"}}'",
+            ),
+            ACCEPTS,
+        )
+        + &implementation(
+            "acceptor",
+            "inputs",
+            &answer("acceptor.log", "echo '{\"end\": \"final\", \"cells\": {}}'"),
+            BOTH,
+        )
+        + &implementation(
+            "crasher",
+            "inputs",
+            &answer("crasher.log", "exit 3"),
+            ACCEPTS,
+        )
+        + &implementation(
+            "starter",
+            "start",
+            &answer("starter.log", "echo '{\"end\": \"rejected\"}'"),
+            ACCEPTS,
+        );
+    let dir = fixture("rejected", &[("rejected", &manifest)]);
+    let read = FlowManifest::read(&dir.join("FLOW-rejected.toml")).unwrap();
+    let lock = dir.join("kink.lock");
+    let options = kink_flow::compare::CompareOptions {
+        lock: Some(lock.clone()),
+        ..Default::default()
+    };
+    let document = kink_flow::compare::command(&read, &options, Some(&Accepting), "compare");
+    assert_eq!(document["version"], 10, "{document:#}");
+    assert!(document["refusal"].is_null(), "{document:#}");
+    let class = |program: &str| {
+        document["programs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["id"] == program)
+            .unwrap()["class"]
+            .clone()
+    };
+    assert_eq!(
+        (class("both"), class("bad"), class("good")),
+        (json!("comparable"), json!("rejected"), json!("accepted"))
+    );
+    let row = |implementation: &str, program: &str| {
+        document["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["implementation"] == implementation && row["program"] == program)
+            .unwrap_or_else(|| panic!("{implementation} {program}: {document:#}"))
+            .clone()
+    };
+    let views = |implementation: &str, program: &str| -> Vec<(String, String, Value)> {
+        row(implementation, program)["views"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|view| {
+                (
+                    view["view"].as_str().unwrap().to_owned(),
+                    format!(
+                        "{}{}",
+                        view["verdict"].as_str().unwrap(),
+                        view["reason"]
+                            .as_str()
+                            .map(|reason| format!(" {reason}"))
+                            .unwrap_or_default()
+                    ),
+                    view["status"].clone(),
+                )
+            })
+            .collect()
+    };
+    let view =
+        |name: &str, verdict: &str, status: Value| (name.to_owned(), verdict.to_owned(), status);
+    let difference = |implementation: &str, index: usize| {
+        row(implementation, "bad")["views"][index]["difference"].clone()
+    };
+    let accepts = |implementation: &str| json!({"format": "kink-accepts/1", "definition": "rejects", "implementation": implementation});
+    // Asked with its inputs, and judged by acceptance.
+    assert_eq!(
+        views("parser", "bad")[..2],
+        [
+            view("accepts", "equal", Value::Null),
+            view("end", "equal", Value::Null)
+        ]
+    );
+    // Its snapshot view judges the answer alone: no value is accepted for it yet.
+    assert_eq!(views("parser", "bad")[2].1, "pending");
+    assert!(row("parser", "bad")["request_sha256"].is_string());
+    assert_eq!(
+        views("acceptor", "bad"),
+        [
+            view("accepts", "different", Value::Null),
+            view("end", "different", Value::Null)
+        ]
+    );
+    assert_eq!(
+        (difference("acceptor", 0), difference("acceptor", 1)),
+        (accepts("accepts"), accepts("accepts"))
+    );
+    // The definition's rejection states no declared class, so `refused` is compared with
+    // nothing.
+    assert_eq!(
+        views("named", "bad"),
+        [view("accepts", "equal", Value::Null)]
+    );
+    assert!(row("named", "bad")["views"][0].get("refused").is_none());
+    assert_eq!(
+        views("crasher", "bad"),
+        [view("accepts", "different", Value::Null)]
+    );
+    assert_eq!(difference("crasher", 0), accepts("crashed"));
+    assert_eq!(row("crasher", "bad")["failure"]["kind"], "exit");
+    // Given `start`: there is none, so it is not asked, and its required view decides nothing.
+    assert_eq!(
+        views("starter", "bad"),
+        [view(
+            "accepts",
+            "not-compared rejected-before-run",
+            json!(0)
+        )]
+    );
+    let detail = &row("starter", "bad")["views"][0]["detail"];
+    assert!(detail.as_str().unwrap().contains("no start"), "{detail}");
+    assert!(row("starter", "bad")["request_sha256"].is_null());
+    assert_eq!(
+        kink_flow::compare::row_status(&row("starter", "bad")),
+        EXIT_YES
+    );
+    // An unmet statement: nothing is asked of any implementation.
+    for implementation in ["parser", "named", "acceptor", "crasher", "starter"] {
+        assert!(row(implementation, "good")["request_sha256"].is_null());
+        assert!(
+            row(implementation, "good")["views"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|view| view["verdict"] == "not-compared"
+                    && view["reason"] == "definition"
+                    && view["status"] == EXIT_UNASKED),
+            "{implementation}: {document:#}"
+        );
+    }
+    let asked = |log: &str| {
+        fs::read_to_string(dir.join(log))
+            .unwrap_or_default()
+            .lines()
+            .filter(|line| !line.is_empty())
+            .map(|line| serde_json::from_str::<Value>(line).unwrap()["program"].clone())
+            .collect::<Vec<_>>()
+    };
+    for log in ["parser.log", "named.log", "acceptor.log", "crasher.log"] {
+        assert_eq!(asked(log), [json!("both"), json!("bad")], "{log}");
+    }
+    assert!(!asked("starter.log").contains(&json!("bad")));
+    assert_eq!(kink_flow::compare::compare_status(&document), EXIT_UNASKED);
+    let text = fs::read_to_string(&lock).unwrap();
+    assert_eq!(
+        text.matches("reason = \"rejected-before-run\"").count(),
+        1,
+        "{text}"
+    );
 }
 
 /// `FLOW-plain.toml` (every cell of `plain.k` observable) with `extra` (projections, `[run]`)

@@ -33,8 +33,12 @@
 //! ([`Protocol::V3`], with its own `message` and the definition's refusal it names,
 //! `refused`, compared by the front end where both sides state a part,
 //! [`Vocabulary::judge_refusal`]). An end view of a program the definition refuses at every end
-//! is judged so too. A run of the implementation that exits non-zero, writes no answer the
-//! protocol reads, cannot be started, or that the clock cancels is a failure of the
+//! is judged so too, and so is one of a program the definition rejects before it runs (its entry
+//! states `expect = { rejected = .. }` and admission rejected it there: [`Definition::Rejected`]),
+//! which has no end, no run and no start; a view that needs one of these is `not-compared`
+//! (`rejected-before-run`), and an implementation given `start` is not asked about it. A run of
+//! the implementation that exits non-zero, writes no answer the protocol reads, cannot be
+//! started, or that the clock cancels is a failure of the
 //! implementation, not a verdict: its row has `failure` and no verdicts, but for a crash (a
 //! failure of kind `exit`) on a program whose acceptance the definition states, which its
 //! acceptance views judge `different`. The clock (`time_ms`) only cancels a run, which then has
@@ -110,7 +114,7 @@ use crate::clock::Kept;
 use crate::lock::{Lock, LockKind, Settle, compare_row_id};
 use crate::manifest::{
     FlowManifest, Given, ImplementationSection, ObserveSection, Program, ProjectionSection,
-    Protocol, ViewSection,
+    Protocol, RejectedStage, ViewSection,
 };
 use crate::results::{
     BaselineRunner, ProgramRow, ResultClass, cache_directory, current_record,
@@ -181,7 +185,15 @@ pub const COMPARE_SCHEMA: &str = "kink-flow-compare";
 /// `snapshots` and counts `pending`; a crash has a verdict under an `accepts` snapshot view, its
 /// value `crashed`. A flow without a snapshot projection gives version 8's
 /// document but for its version.
-pub const COMPARE_VERSION: u64 = 9;
+/// 10 since a program's entry may state that it is rejected before it runs (projections PJ-32):
+/// its `programs` entry has the class `rejected` (met) or `accepted` (unmet); the definition
+/// rejects a met one, which its acceptance views and end views judge by acceptance (a `rejected`
+/// answer's `refused` compared with nothing: it states no declared class), and a view left
+/// without what it compares (the start of an implementation given
+/// `start`, a trace, inputs with a document) is `not-compared` for the reason
+/// `rejected-before-run` (status 0); every view of an unmet one is `not-compared` (`definition`).
+/// A flow whose entries state no rejection gives version 9's document but for its version.
+pub const COMPARE_VERSION: u64 = 10;
 /// The protocol a request names (`protocol`) and its answer is read by, unless the
 /// implementation declares another ([`Protocol`]).
 pub const PROTOCOL: &str = "kink-implementation/1";
@@ -283,7 +295,17 @@ pub enum NotCompared {
     /// A snapshot view whose snapshot file cannot be read as a value of its kind: fix the file
     /// (2).
     SnapshotUnreadable(String),
+    /// The definition rejects the program before it runs, as its entry states (class
+    /// `rejected`), and the view or the request needs what such a program does not have: a
+    /// start (`given = "start"`), a run whose channels a trace view compares, or inputs with a
+    /// document in the definition's vocabulary (a program rejected at `input`). Neither the
+    /// declaration nor the corpus is at fault and no run can answer, so it decides nothing (0).
+    RejectedBeforeRun(String),
 }
+
+/// The reason of a view a program rejected before it runs leaves without what it compares
+/// ([`NotCompared::RejectedBeforeRun`]).
+const REJECTED_BEFORE_RUN_REASON: &str = "rejected-before-run";
 
 /// The reason of a view outside its projection's domain ([`NotCompared::OutsideDomain`]).
 pub(crate) const OUTSIDE_DOMAIN_REASON: &str = "outside-domain";
@@ -303,6 +325,7 @@ impl NotCompared {
             Self::NoEnd { .. } => "no-end",
             Self::OutsideDomain { .. } => OUTSIDE_DOMAIN_REASON,
             Self::SnapshotUnreadable(_) => "snapshot-unreadable",
+            Self::RejectedBeforeRun(_) => REJECTED_BEFORE_RUN_REASON,
         }
     }
 
@@ -328,7 +351,8 @@ impl NotCompared {
             | Self::SeveralPaths(detail)
             | Self::ObservedNothing(detail)
             | Self::NoEnd { detail, .. }
-            | Self::SnapshotUnreadable(detail) => detail.clone(),
+            | Self::SnapshotUnreadable(detail)
+            | Self::RejectedBeforeRun(detail) => detail.clone(),
             Self::OutsideDomain { projection, domain } => format!(
                 "the program is outside the domain of the projection `{projection}` ({}): the \
                  projection does not apply to it",
@@ -345,8 +369,9 @@ impl NotCompared {
     /// another approach may answer (a view that did not end, several ends), [`EXIT_UNASKED`]
     /// where the declaration or the corpus must change. An end view of a program with no end
     /// ([`Self::NoEnd`]) is [`EXIT_YES`] where a required trace view carries the requirement, and
-    /// a view outside its projection's domain ([`Self::OutsideDomain`]) is [`EXIT_YES`]: it
-    /// decides nothing, as a view that is not required decides nothing.
+    /// a view outside its projection's domain ([`Self::OutsideDomain`]) or left without what it
+    /// compares by a program rejected before it runs ([`Self::RejectedBeforeRun`]) is
+    /// [`EXIT_YES`]: it decides nothing, as a view that is not required decides nothing.
     #[must_use]
     pub const fn status(&self) -> u8 {
         match self {
@@ -360,7 +385,9 @@ impl NotCompared {
             | Self::LeftOut(_)
             | Self::Unreadable(_)
             | Self::SnapshotUnreadable(_) => EXIT_UNASKED,
-            Self::NoEnd { carried: true, .. } | Self::OutsideDomain { .. } => EXIT_YES,
+            Self::NoEnd { carried: true, .. }
+            | Self::OutsideDomain { .. }
+            | Self::RejectedBeforeRun(_) => EXIT_YES,
         }
     }
 }
@@ -701,6 +728,8 @@ fn definition_acceptance(definition: &Definition, row: &Value) -> Acceptance {
         Definition::None { class, .. } => Acceptance::NotCompared(NotCompared::Unreadable(
             format!("the definition's run of the program is `{class}`: it has no end"),
         )),
+        // A rejection before the run is a rejection (README D2: the stage is not observed).
+        Definition::Rejected { .. } => Acceptance::Rejected,
     }
 }
 
@@ -1489,6 +1518,21 @@ enum Definition {
         class: String,
         cause: Option<String>,
     },
+    /// The definition rejects the program before it runs, at the stage its entry states (class
+    /// `rejected`; the `programs` entry's `cause` is the refusal): it has no start, no run and no
+    /// end, and it rejects the program, which its acceptance views and its end views judge
+    /// ([`acceptance_row`]).
+    Rejected { stage: RejectedStage },
+}
+
+impl Definition {
+    /// The stage at which the definition rejects the program before it runs, if it does.
+    const fn rejected_before_run(&self) -> Option<RejectedStage> {
+        match self {
+            Self::Rejected { stage } => Some(*stage),
+            _ => None,
+        }
+    }
 }
 
 /// The definition's side of `row`, the program's baseline row, with the ends of its record:
@@ -1510,6 +1554,14 @@ fn definition_side(
         return Definition::Prefix {
             cause: row.row["cause"].as_str().map(str::to_owned),
         };
+    }
+    // Admission rejected the program at the stage its entry states (`rejected`): the definition
+    // rejects it. One admission admitted (`accepted`, an unmet statement) runs nothing, so the
+    // whole pipeline's acceptance of it is not known, and it is `None` as every class with no end.
+    if class == ResultClass::Rejected.as_str()
+        && let Some(stage) = program.rejected
+    {
+        return Definition::Rejected { stage };
     }
     if class != ResultClass::Comparable.as_str() {
         return none(row.row["cause"].as_str().map(str::to_owned));
@@ -2331,6 +2383,13 @@ fn definition_rows(
             row["verdict"] = json!("not-compared");
             row["reason"] = json!("definition");
             row["detail"] = json!(match cause {
+                // An unmet statement: admission admitted the program, which by its statement runs
+                // nothing.
+                Some(cause) if class == ResultClass::Accepted.as_str() => format!(
+                    "the program's entry states that the definition rejects it before it runs, \
+                     and admission admits it ({cause}): it runs nothing, so the definition states \
+                     neither an end nor whether its pipeline accepts the program"
+                ),
                 Some(cause) => format!(
                     "the definition's run of the program is `{class}` ({cause}): it has no end \
                      to compare"
@@ -2932,7 +2991,11 @@ fn compared_selected(
         // Whether the definition accepts the program, which its acceptance views (and, where it
         // refuses the program at every end, its end views) compare.
         let acceptance = definition_acceptance(&definition, &row.row);
-        let refused_everywhere = matches!(definition, Definition::Ends { refused: true, .. });
+        // A program rejected before it runs states no end either: its end views ask whether the
+        // answer rejects it too.
+        let rejected_before_run = definition.rejected_before_run();
+        let refused_everywhere = rejected_before_run.is_some()
+            || matches!(definition, Definition::Ends { refused: true, .. });
         // The request's parts every implementation shares: its inputs and the start, each
         // read once.
         let mut shared: Option<RequestParts> = None;
@@ -2999,12 +3062,19 @@ fn compared_selected(
                     rows.push(out);
                     continue;
                 }
-                Definition::Prefix { .. } => None,
+                Definition::Prefix { .. } | Definition::Rejected { .. } => None,
                 Definition::Ends { ends, words, .. } => Some((ends, words)),
             };
             // The channels to ask for with their positions, or why the trace views are not
             // compared on this program; `None` for an implementation without a trace view.
             let trace = shapes.as_ref().map(|(channels, _)| {
+                if let Some(stage) = rejected_before_run {
+                    return Err(NotCompared::RejectedBeforeRun(format!(
+                        "the definition rejects the program before it runs (at `{}`): it has no \
+                         run, so no channel of it has an element to compare",
+                        stage.as_str()
+                    )));
+                }
                 let observed = observed.get_or_insert_with(|| {
                     observed_record(manifest, &runner, update.execution, program, row, &cache)
                 });
@@ -3022,8 +3092,10 @@ fn compared_selected(
             // Some view asks for an answer whatever its trace: an end view or an acceptance
             // view.
             let answered_views = implementation.views.iter().any(|view| !view.is_trace());
+            // A program rejected before it runs has no end, and its end views are judged by
+            // acceptance.
             if let Some(reason) = unasked
-                && (ends.is_none() || !answered_views)
+                && ((ends.is_none() && rejected_before_run.is_none()) || !answered_views)
             {
                 // No view can be compared, so nothing is asked: the trace views for their
                 // reason, an end view because the definition has no end.
@@ -3047,6 +3119,7 @@ fn compared_selected(
                     &cases,
                     program,
                     row,
+                    rejected_before_run,
                     selected.iter().any(|i| i.given == Given::Start),
                 )
             });
@@ -3054,7 +3127,7 @@ fn compared_selected(
                 .zip(shapes.as_ref())
                 .map(|(asked, (_, shapes))| observe_value(shapes, asked));
             let request = match parts {
-                Err(detail) => Err(NotCompared::Unreadable(detail.clone())),
+                Err(reason) => Err(reason.clone()),
                 Ok((typed, start)) => request(
                     manifest,
                     program,
@@ -3278,6 +3351,9 @@ fn compared_selected(
                                         not_compared: &not_compared,
                                     })
                                     .map(|judged| Some((canonical, judged))),
+                                // A program the definition rejects before it runs has no end,
+                                // so its rejection states no part of a declared class: an
+                                // answer's `refused` is compared with nothing (README D2).
                                 _ => Ok(None),
                             };
                             // Snapshot views judge the answer alone; the other views are judged
@@ -3361,25 +3437,32 @@ fn programs_failed(update: &crate::results::ResultsUpdate) -> bool {
 }
 
 /// A program's typed inputs and, where some implementation is given it, its start or why it has
-/// none ([`request_parts`]); `Err` when its inputs have no document.
-type RequestParts = Result<(Value, Option<Result<Value, NotCompared>>), String>;
+/// none ([`request_parts`]); `Err` when its inputs have no document: why no view is compared.
+type RequestParts = Result<(Value, Option<Result<Value, NotCompared>>), NotCompared>;
 
 /// The request's typed inputs and, where some selected implementation is given it, the start
-/// (or why it has none), for `program`; `Err` when its inputs have no document.
+/// (or why it has none), for `program`; `Err` when its inputs have no document. `rejected` is
+/// the stage at which the definition rejects the program before it runs, if it does: it then
+/// has no start, and, rejected at `input`, its inputs no document where the front end writes
+/// none, which no view needs to fail on.
 fn request_parts(
     vocabulary: &dyn Vocabulary,
     inputs: &mut crate::admit::InputSession<'_>,
     cases: &crate::manifest::CaseRoot,
     program: &Program,
     row: &ProgramRow,
+    rejected: Option<RejectedStage>,
     start: bool,
 ) -> RequestParts {
     let mut files = cases.case_files(program);
     let typed = vocabulary
         .inputs(program, &mut files)
-        .map_err(|detail| format!("the program's inputs have no document: {detail}"))?;
+        .map_err(|detail| no_inputs(rejected, &detail))?;
     if !start {
         return Ok((typed, None));
+    }
+    if let Some(stage) = rejected {
+        return Ok((typed, Some(Err(no_start(stage)))));
     }
     let test = match (&row.test, &row.inputs) {
         (Some(test), _) => Ok(test.clone()),
@@ -3402,6 +3485,31 @@ fn request_parts(
         Err(detail) => Err(unreadable(detail)),
     };
     Ok((typed, Some(start)))
+}
+
+/// Why no view of a program whose inputs the front end writes no document of (`detail`) is
+/// compared: the definition rejects a program rejected at `input` (`rejected`) for the value the
+/// request would carry, which no view needs to fail on (`rejected-before-run`); any other
+/// program's inputs decoded at admission, so their having no document is the front end's fault
+/// (`unreadable`).
+fn no_inputs(rejected: Option<RejectedStage>, detail: &str) -> NotCompared {
+    match rejected {
+        Some(RejectedStage::Input) => NotCompared::RejectedBeforeRun(format!(
+            "the definition rejects the program's input before it runs (at `input`), so the \
+             request has no document of it: {detail}"
+        )),
+        _ => NotCompared::Unreadable(format!("the program's inputs have no document: {detail}")),
+    }
+}
+
+/// Why an implementation given `start` is not asked about a program the definition rejects
+/// before it runs (at `stage`): it has no start.
+fn no_start(stage: RejectedStage) -> NotCompared {
+    NotCompared::RejectedBeforeRun(format!(
+        "the definition rejects the program before it runs (at `{}`): it has no start to give an \
+         implementation given `start`",
+        stage.as_str()
+    ))
 }
 
 /// The request to `implementation` for `program`: `{protocol, program, inputs, stop, start,
@@ -5554,6 +5662,142 @@ mod tests {
             verdict_rows(&document)
                 .iter()
                 .all(|row| row["reason"].is_null())
+        );
+    }
+
+    /// A program the definition rejects before it runs (projections PJ-32) is rejected on the
+    /// definition's side: its acceptance views and end views are judged by acceptance, a
+    /// `rejected` answer's `refused` is compared with nothing (the definition states no declared
+    /// class), and a view left without what it compares (a trace, the start of an
+    /// implementation given `start`, inputs rejected at `input` with no document) is
+    /// `not-compared` for `rejected-before-run`, status 0. An unmet statement's views are
+    /// `definition`, status 2, and say that the program runs nothing.
+    #[test]
+    fn a_program_rejected_before_it_runs_is_rejected_on_the_definition_side() {
+        let definition = Definition::Rejected {
+            stage: RejectedStage::Parse,
+        };
+        assert_eq!(definition.rejected_before_run(), Some(RejectedStage::Parse));
+        assert_eq!(
+            definition_acceptance(&definition, &json!({})),
+            Acceptance::Rejected
+        );
+        let implementation = second(&format!(
+            "{END}, {{ name = \"accepts\", kind = \"accepts\", required = true }}, {TICKS}"
+        ));
+        let no_trace = NotCompared::RejectedBeforeRun("no run".to_owned());
+        let side = AcceptanceSide {
+            definition: &Acceptance::Rejected,
+            refused_everywhere: true,
+            refusal: None,
+        };
+        let mock = Mock::judging(Vec::new());
+        let verdicts = |stated: &Stated, side: &AcceptanceSide<'_>| {
+            answered_rows(
+                &mock,
+                &implementation,
+                stated,
+                None,
+                &[],
+                Some(TraceSide::Not(&no_trace)),
+                Some(side),
+            )
+            .unwrap()
+            .iter()
+            .map(|row| {
+                (
+                    row["verdict"].as_str().unwrap().to_owned(),
+                    row["reason"].clone(),
+                    row["status"].clone(),
+                )
+            })
+            .collect::<Vec<_>>()
+        };
+        let not_compared = || {
+            (
+                "not-compared".to_owned(),
+                json!("rejected-before-run"),
+                json!(0),
+            )
+        };
+        let rejected = |refused: Option<Value>| Stated {
+            end: StatedEnd::Rejected {
+                message: Some("syntax error".to_owned()),
+                refused,
+            },
+            cells: None,
+            observations: None,
+        };
+        let equal = || ("equal".to_owned(), Value::Null, Value::Null);
+        let different = || ("different".to_owned(), Value::Null, Value::Null);
+        assert_eq!(
+            verdicts(&rejected(None), &side),
+            [equal(), equal(), not_compared()]
+        );
+        assert_eq!(
+            verdicts(
+                &stated(StatedEnd::Ended(EndWord::Final), true, false),
+                &side
+            ),
+            [different(), different(), not_compared()]
+        );
+        // An answer naming a declared refused end: the definition states no declared class, so
+        // the refusal is compared with nothing, and the row records none.
+        let named = json!({"end": "crate::trap", "reason": null});
+        assert_eq!(
+            verdicts(&rejected(Some(named)), &side),
+            [equal(), equal(), not_compared()]
+        );
+        // A crash disagrees with the definition's rejection (README D1).
+        assert_eq!(
+            crashed_row(&implementation.views[1], &Acceptance::Rejected).unwrap()["difference"],
+            acceptance_difference("rejects", "crashed")
+        );
+        // No start: an implementation given `start` is not asked, and its required views decide
+        // nothing.
+        let manifest = decoded(&format!("{PROGRAM}{ONE}")).unwrap();
+        let start = Err(no_start(RejectedStage::Parse));
+        let reason = request(
+            &manifest,
+            &manifest.programs[0],
+            &manifest.implementations[0],
+            &json!({}),
+            Some(&start),
+            None,
+        )
+        .unwrap_err();
+        assert_eq!(
+            (reason.reason(), reason.status()),
+            ("rejected-before-run", EXIT_YES)
+        );
+        assert!(reason.detail().contains("no start"), "{}", reason.detail());
+        let row = json!({"views": not_compared_rows(&manifest.implementations[0], &reason),
+                         "failure": null, "required": true});
+        assert_eq!(row_status(&row), EXIT_YES);
+        // Inputs with no document: the definition's own rejection at `input`, else the front
+        // end's fault as before.
+        assert_eq!(
+            no_inputs(Some(RejectedStage::Input), "bad value").reason(),
+            "rejected-before-run"
+        );
+        for rejected in [Some(RejectedStage::Parse), None] {
+            let reason = no_inputs(rejected, "bad value");
+            assert_eq!(
+                (reason.reason(), reason.status()),
+                ("unreadable", EXIT_UNASKED)
+            );
+        }
+        // An unmet statement: nothing is asked, and the corpus or the grammar must change.
+        let rows = definition_rows(
+            &manifest.implementations[0],
+            ResultClass::Accepted.as_str(),
+            Some("admission admits it"),
+        );
+        assert!(
+            rows.iter().all(|row| row["reason"] == "definition"
+                && row["status"] == EXIT_UNASKED
+                && row["detail"].as_str().unwrap().contains("it runs nothing")),
+            "{rows:#?}"
         );
     }
 

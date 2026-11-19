@@ -751,7 +751,8 @@ A *case* is a table of seven keys, each of which may be absent:
   (kink-flow's README, "Programs rejected before they run").
   Such a program runs nothing, whether the statement is met or not:
   its row's class is `rejected` or `accepted`, with its expectation,
-  and `run`, `coverage`, `query`, `fuzz` and `prune` skip it.
+  and `run`, `coverage`, `query`, `fuzz` and `prune` skip it;
+  `compare` judges a met one as a program the definition rejects (below, `[[implementation]]`).
 - `provenance`: which tool or person found the case and why it is in its corpus,
   a table of `found_by` and `reason`, each optional and a non-empty string,
   at least one given, and no other key (`CaseProvenance`).
@@ -1260,6 +1261,8 @@ An *acceptance view*, `{ name, kind = "accepts", required }`, compares whether e
 The two are `equal` where both accept, or both reject and agree on the parts of the refusal both state (compared as two ends' declared classes are), and `different` otherwise; a `message` is never compared or recorded.
 An end view of a case the definition refuses at every end is judged by acceptance too, and an acceptance view over a definition that declares no `finished` end is refused before any run.
 A crash (a run that exits with a failure status or that a signal ends) on a case whose acceptance the definition states is `different` on the acceptance views, and its row keeps the failure.
+A program whose `[[program]]` entry states `expect = { rejected = "parse" | "input" }` and that admission rejected there is one the definition rejects, judged by acceptance on its acceptance and end views (an answer's `refused` is compared with nothing: the program has no end); an implementation with `given = "start"` is not asked about it, since it has no start, and its views, a trace view, and the views of a program rejected at `input` whose inputs have no document for the request are `not-compared` (`rejected-before-run`, status 0).
+A program whose statement is unmet runs nothing, so nothing is asked about it (`not-compared`, `definition`).
 Each verdict also carries `distance`, which moves before the verdict does and decides nothing: for an end view that compares cells, `{differing_cells, compared_cells}`, the compared cells at which the ends differ (the first difference's cell and its `also_differ`, an instance of a `List` or `Map` collection counted at each index or key, a `Set` collection once) and the view's compared leaf cells by declared path, which are not on one scale where a collection differs at several instances; for a trace view, the first difference's channel and index, or the elements that agree on each channel.
 The document's `summary.views`, the text output and the `[compare]` section's `[[compare.view]]` rows count, per (implementation, view), the cases compared and those that agree, so a moved count is a finding under `--locked` as a moved verdict is.
 A command that cannot be started, exits with another status than 0, prints no answer the protocol reads, or is still running when `time_ms` passes gives no answer, which is a failure of the implementation and never a verdict: the clock only cancels.
