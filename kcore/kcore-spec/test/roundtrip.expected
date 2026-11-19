@@ -33,6 +33,8 @@ differs f2-examples/c3-eq-req-prio.kompile.kore
 differs f2-examples/c3-eq-req-total.kompile.kore
 differs f2-examples/c3-eq-symbolic-nosymbolic.kore
 differs f2-examples/c3-eq-symbolic.kompile.kore
+differs f2-examples/c3-hook-eq-param-owise.kompile.kore
+differs f2-examples/c3-hook-eq-param.kompile.kore
 differs f2-examples/c3-macro-rule-expanded.kompile.kore
 differs f2-examples/c3-macro-rule.kompile.kore
 differs f2-examples/c3-owise-simp.kompile.kore
