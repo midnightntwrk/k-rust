@@ -20,6 +20,12 @@
     closure has a model for every H (`consistent`).
 
   Layer 2, by class (indices are the text's axiom numbers, `AxiomDecl.index`).
+  - Function equations (27, and two sentences of the text's prelude modules, 1 (KSEQ), 2 (KSEQ),
+    which no user sentence is): each of Γ's items is the translation of one sentence, in the order
+    `fnText` lists them (`fn_shape`); its user-module sentences are the class, the others those
+    prelude sentences (`fns_account`, and `preludeKseq_eq`: they are the text's); `fns_entailed`
+    (E), `fns_from_text` (the converse), `fn_prios` (the priorities the sentences state are the
+    clauses').
   - Rewrite rules (6): each of Γ's rule items (with the premise `⌈rhs ∧ ens⌉`) is a consequence
     of its text sentence, `ruleText` in `ruleItems`' order (`rule_from_text`, W1, every H).
   - Constructor sentences (26): entailed by Γ (`cons_entailed`).
@@ -28,6 +34,8 @@
     order, `nojunk_kitem_entailed`).
   - Set idempotence (60): Γ with it has no model (`idem_refuted`).
   - Library sample, 165 (`I -Int 0 = I`): holds at values (`lib166`, `lib166_at_values`).
+  - The converse over Γ's content: each premise is a function sentence's translation, one of the
+    five parts Γ defines by predicates, or definedness (`gamma_origin`, `gamma_from`).
   - Hooked functional, collection law, library: at values (no theorem here); function functional:
     owed as `FnHyp` (no theorem); parameter functional: owed as `ParamsTotal`
     (`total_params`, `paramfunctional_account`, `paramfunctional_heads`); parameter lemma: owed as a hypothesis on H, at values
@@ -56,7 +64,7 @@
   them (`paramlemma_heads`).
 
   The sentences with no counterpart in f2-examples/ens.kompile.kore are `unmapped` (15);
-  the sentences of a class with a theorem that no theorem here holds of are `uncovered` (27).
+  the sentences of a class with a theorem that no theorem here holds of are `uncovered` (0).
 -/
 import KcoreSpec
 
@@ -70,6 +78,7 @@ open KCore ML Faithful KoreAML
 kore_term kore from "f2-examples/e6-param-int.kompile.kore"
 definition_of defn from "f2-examples/e6-param-int.kompile.kore"
 user_axioms U from "f2-examples/e6-param-int.kompile.kore" module "E6-PARAM-INT"
+user_axioms PreludeKseq from "f2-examples/e6-param-int.kompile.kore" module "KSEQ"
 
 noncomputable abbrev c : Semantics := defn.sem
 noncomputable abbrev cH (H : HookParams) : Semantics := c.withHooks H
@@ -180,15 +189,7 @@ def unmapped : List (Nat × String) :=
 /-- The sentences of a class with a theorem in the tie that no theorem of this file holds of: the
 tie's remainder on this text. -/
 def uncovered : List (Nat × String) :=
-  [(213, "function equation"), (214, "function equation"), (215, "function equation"),
-   (216, "function equation"), (217, "function equation"), (218, "function equation"),
-   (219, "function equation"), (220, "function equation"), (221, "function equation"),
-   (222, "function equation"), (223, "function equation"), (224, "function equation"),
-   (225, "function equation"), (226, "function equation"), (227, "function equation"),
-   (228, "function equation"), (229, "function equation"), (230, "function equation"),
-   (231, "function equation"), (232, "function equation"), (233, "function equation"),
-   (234, "function equation"), (235, "function equation"), (236, "function equation"),
-   (237, "function equation"), (238, "function equation"), (239, "function equation")]
+  []
 
 /-- Each listed sentence is in its class in the account. -/
 theorem lists_in_account : (unmapped ++ uncovered).all (fun ic => (classOf ic.2).contains ic.1) = true := by
@@ -328,6 +329,69 @@ kernel_rfl fnItems_withHooks : ∀ (c : Semantics) (H : HookParams), fnItems (c.
 kernel_rfl ruleItems_withHooks : ∀ (c : Semantics) (H : HookParams), ruleItems (c.withHooks H) = ruleItems c
 
 theorem mem_Γ_fns {c : Semantics} {φ : P} (h : ΓFns c φ) : Γ c φ := Or.inl (Or.inl (Or.inr h))
+
+/-! ## Function equations (27 sentences, and two of the prelude) -/
+
+/-- The axioms of Γ's equations, in `fnItems`'s order. -/
+noncomputable def fnAxioms (c : Semantics) : List Kore.Axiom :=
+  c.allFns.flatMap fun f => (fnEquationsK c f).filterMap fun
+    | .axiom a => some a
+    | _ => none
+
+theorem fnItems_eq : fnItems c = (fnAxioms c).map fun a => trAxiom [] [] ⟨0, "kernel", a⟩ := by kernel_rfl
+
+/-- The text sentences of Γ's 29 equations, in `fnItems`'s order. -/
+noncomputable def fnText : List AxiomDecl :=
+  [PreludeKseq.ax1, PreludeKseq.ax2, U.ax225, U.ax233, U.ax232, U.ax231, U.ax230, U.ax237, U.ax236,
+   U.ax239, U.ax238, U.ax235, U.ax234, U.ax214, U.ax213, U.ax224, U.ax223, U.ax220, U.ax219,
+   U.ax222, U.ax221, U.ax227, U.ax226, U.ax229, U.ax228, U.ax216, U.ax215, U.ax218, U.ax217]
+
+set_option maxHeartbeats 1000000 in
+/-- **Γ's equations are the text's sentences' translations, pattern for pattern** (one kernel
+decision). -/
+theorem fn_shape : (fnItems c).map (·.pat) = fnText.map (trS · |>.pat) := by
+  rw [fnItems_eq, List.map_map]
+  exact (by decide +kernel :
+    ((fnAxioms c).map fun a => (trAxiom [] [] ⟨0, "kernel", a⟩).pat) = fnText.map (trS · |>.pat))
+
+/-- The axioms of the prelude module KSEQ, in text order. -/
+theorem preludeKseq_eq : kore.axiomDecls.filter (·.module == "KSEQ") = PreludeKseq.all := by kernel_rfl
+
+/-- **`fnText`'s user-module sentences are the account's function-equation class**: the same
+indices, each once; its other sentences are the prelude's, which no user sentence is. -/
+theorem fns_account :
+    (classOf "function equation").isPerm ((fnText.filter (·.module == "E6-PARAM-INT")).map (·.index)) = true ∧
+    (fnText.filter (·.module != "E6-PARAM-INT")).map (fun ad => (ad.index, ad.module)) =
+      [(1, "KSEQ"), (2, "KSEQ")] := by decide +kernel
+
+/-- **E for the equations**: Γ entails each, for every H. -/
+theorem fns_entailed (H : HookParams) : ∀ ad ∈ fnText, Γ (cH H) ⊧ (trS ad).pat := by
+  intro ad had M _ I hI
+  have hmem : (trS ad).pat ∈ (fnItems c).map (·.pat) := by
+    rw [fn_shape]; exact List.mem_map.mpr ⟨ad, had, rfl⟩
+  obtain ⟨it, hit, he⟩ := List.mem_map.mp hmem
+  exact hI _ (mem_Γ_fns (Or.inl ⟨it, by rw [fnItems_withHooks]; exact hit, he⟩))
+
+/-- **The converse for `fnItems`**: the j-th item is a consequence of `fnText[j]`. -/
+theorem fns_from_text (H : HookParams) :
+    ∀ (j : Nat) (it : Item), (fnItems (cH H))[j]? = some it →
+      ∃ ad, fnText[j]? = some ad ∧ (itemsPremises [trS ad] ⊧ it.pat) := by
+  intro j it hj
+  rw [fnItems_withHooks] at hj
+  have h1 : ((fnItems c).map (·.pat))[j]? = some it.pat := by rw [List.getElem?_map, hj]; rfl
+  rw [fn_shape, List.getElem?_map] at h1
+  cases hf : fnText[j]? with
+  | none => rw [hf] at h1; cases h1
+  | some ad =>
+    rw [hf] at h1
+    refine ⟨ad, rfl, fun {M} _ {I} hI => ?_⟩
+    have he : (trS ad).pat = it.pat := Option.some.inj h1
+    exact hI _ (Or.inl ⟨trS ad, List.mem_singleton_self _, he⟩)
+
+/-- The priority each function sentence's attributes state is the priority of the clause whose
+item is the sentence's translation, item by item in `fnItems`'s order. -/
+theorem fn_prios : fnText.map (fun ad => AttrsAgree.prioOf ad.ax.attributes) =
+    c.allFns.flatMap (fun f => f.clauses.map (·.prio)) := by decide +kernel
 
 /-! ## The rules (6 sentences): W1 -/
 
@@ -865,6 +929,49 @@ theorem paramlemma_heads : userAxioms.all (fun ad =>
     (classOf "parameter lemma").contains ad.index) = true := by
   rw [userAxioms_eq]; decide +kernel
 
+/-! ## The converse over Γ's content -/
+
+/-- The parts of Γ that are no sentence's translation: the families. -/
+def Families (H : HookParams) : Premises KoreAML.Sym :=
+  ΓSig (cH H) ∪ ΓCons (cH H) ∪ ΓDomains (cH H) ∪ ΓColls (cH H) ∪ ΓFallback (cH H)
+
+/-- The function sentences as written, with definedness, Γ's rule items (each a consequence of its
+text sentence, `rule_from_text`), and the families. -/
+def Pre (H : HookParams) : Premises KoreAML.Sym :=
+  (fun φ => (∃ ad ∈ fnText, (trS ad).pat = φ) ∨ ∃ x : EVar, φ = @definedness KoreAML.Sym _ x) ∪ ΓRules (cH H) ∪ Families H
+
+/-- **The origin of each premise of Γ**: a function equation is the translation of a text
+sentence; a rule item is a consequence of a text sentence of `ruleText`; everything else is one of
+the five parts defined by predicates (`Families`), or definedness. -/
+theorem gamma_origin (H : HookParams) : ∀ φ, Γ (cH H) φ →
+    (∃ ad ∈ fnText, (trS ad).pat = φ) ∨ (ΓRules (cH H) φ ∧ ∃ ad ∈ ruleText, itemsPremises [trS ad] ⊧ φ) ∨
+      Families H φ ∨ (∃ x : EVar, φ = @definedness KoreAML.Sym _ x) := by
+  intro φ h
+  rcases h with ((((((h | h) | h) | h) | h) | h) | h)
+  · exact Or.inr (Or.inr (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl h))))))
+  · exact Or.inr (Or.inr (Or.inl (Or.inl (Or.inl (Or.inl (Or.inr h))))))
+  · exact Or.inr (Or.inr (Or.inl (Or.inl (Or.inl (Or.inr h)))))
+  · exact Or.inr (Or.inr (Or.inl (Or.inl (Or.inr h))))
+  · rcases h with ⟨it, hit, rfl⟩ | hx
+    · rw [fnItems_withHooks] at hit
+      have hmem : it.pat ∈ fnText.map (trS · |>.pat) := fn_shape ▸ List.mem_map.mpr ⟨it, hit, rfl⟩
+      obtain ⟨ad, had, he⟩ := List.mem_map.mp hmem
+      exact Or.inl ⟨ad, had, he⟩
+    · exact Or.inr (Or.inr (Or.inr hx))
+  · rcases h with ⟨it, hit, rfl⟩ | hx
+    · exact Or.inr (Or.inl ⟨Or.inl ⟨it, hit, rfl⟩, rule_from_text H it hit⟩)
+    · exact Or.inr (Or.inr (Or.inr hx))
+  · exact Or.inr (Or.inr (Or.inl (Or.inr h)))
+
+/-- Every premise of Γ is a consequence of `Pre`. -/
+theorem gamma_from (H : HookParams) : ∀ φ, Γ (cH H) φ → Pre H ⊧ φ := by
+  intro φ h M _ I hI
+  rcases gamma_origin H φ h with ⟨ad, had, he⟩ | ⟨hr, -⟩ | hf | hx
+  · exact hI _ (Or.inl (Or.inl (Or.inl ⟨ad, had, he⟩)))
+  · exact hI _ (Or.inl (Or.inr hr))
+  · exact hI _ (Or.inr hf)
+  · exact hI _ (Or.inl (Or.inl (Or.inr hx)))
+
 /-! ## The witness of the parameter lemma 156, by hand
 
 156 is INT-KORE's lemma `I1 &Int (I2 &Int C) = (I1 &Int I2) &Int C` (domains.md 1428). `&Int`
@@ -1042,6 +1149,12 @@ end KCore.TieE6ParamInt
 #check @KCore.TieE6ParamInt.sig_origin
 #check @KCore.TieE6ParamInt.decls_entailed
 #check @KCore.TieE6ParamInt.consistent
+#check @KCore.TieE6ParamInt.preludeKseq_eq
+#check @KCore.TieE6ParamInt.fn_shape
+#check @KCore.TieE6ParamInt.fns_account
+#check @KCore.TieE6ParamInt.fns_entailed
+#check @KCore.TieE6ParamInt.fns_from_text
+#check @KCore.TieE6ParamInt.fn_prios
 #check @KCore.TieE6ParamInt.nojunk_trivial_entailed
 #check @KCore.TieE6ParamInt.nojunk_items_entailed
 #check @KCore.TieE6ParamInt.nojunk_kitem_entailed
@@ -1051,6 +1164,8 @@ end KCore.TieE6ParamInt
 #check @KCore.TieE6ParamInt.idem_refuted
 #check @KCore.TieE6ParamInt.lib166
 #check @KCore.TieE6ParamInt.lib166_at_values
+#check @KCore.TieE6ParamInt.gamma_origin
+#check @KCore.TieE6ParamInt.gamma_from
 #check @KCore.TieE6ParamInt.total_params
 #check @KCore.TieE6ParamInt.paramfunctional_account
 #check @KCore.TieE6ParamInt.paramfunctional_heads
@@ -1073,6 +1188,12 @@ end KCore.TieE6ParamInt
 #print axioms KCore.TieE6ParamInt.sig_origin
 #print axioms KCore.TieE6ParamInt.decls_entailed
 #print axioms KCore.TieE6ParamInt.consistent
+#print axioms KCore.TieE6ParamInt.preludeKseq_eq
+#print axioms KCore.TieE6ParamInt.fn_shape
+#print axioms KCore.TieE6ParamInt.fns_account
+#print axioms KCore.TieE6ParamInt.fns_entailed
+#print axioms KCore.TieE6ParamInt.fns_from_text
+#print axioms KCore.TieE6ParamInt.fn_prios
 #print axioms KCore.TieE6ParamInt.nojunk_trivial_entailed
 #print axioms KCore.TieE6ParamInt.nojunk_items_entailed
 #print axioms KCore.TieE6ParamInt.nojunk_kitem_entailed
@@ -1082,6 +1203,8 @@ end KCore.TieE6ParamInt
 #print axioms KCore.TieE6ParamInt.idem_refuted
 #print axioms KCore.TieE6ParamInt.lib166
 #print axioms KCore.TieE6ParamInt.lib166_at_values
+#print axioms KCore.TieE6ParamInt.gamma_origin
+#print axioms KCore.TieE6ParamInt.gamma_from
 #print axioms KCore.TieE6ParamInt.total_params
 #print axioms KCore.TieE6ParamInt.paramfunctional_account
 #print axioms KCore.TieE6ParamInt.paramfunctional_heads
