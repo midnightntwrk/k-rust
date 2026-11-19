@@ -109,6 +109,24 @@
     values where no other equation applies and do not override one that applies (`owise_values`);
     the point is reached: with the `[owise]` equations not read, `f(1, 5)` is the interpretation's
     (`owise_unread_H9`).
+  - `orAsCases` (`DevOrCases`, `h(X) => f(X) #Or g(X)` with the clauses `Parse.frClauses` writes):
+    for every semantics holding h with those clauses and every H, a value of `f(x)` is a result of
+    `h(x)`, a value of `g(x)` is one, and where neither has a value `h(x)` has none
+    (`orCases_everyH`). On a hand-built semantics with f partial, for every H: `h(-1)` is the value
+    of `g(-1)`, and `h(1)` has the two results `f(1)` and `g(1)` (`orCases_values`); the point is
+    reached: read as its first alternative alone, `h(-1)` has no value (`orCases_first_none`).
+  - `existsAsCases` (`DevExCases`, `f(X) => #Exists B:Bool. (B #And {B #Equals notBool X})` with the
+    clauses `Parse.exClauses` writes): for every semantics holding f with those clauses and every
+    H, `f(b)` is `notBool(b)` (`exCases_everyH`, `exCases_values`); the point is reached: with the
+    binder read at its first instance alone, `f(true)` is the interpretation's (`exCases_first_Ht`).
+  - `andUnderAppCut` (`DevAndApp`, e3-ml-req-and-under-app's text): for every H, `go(1, 1)` steps
+    and `go(1, 2)`, `go(2, 2)` have no successor (`andApp_steps`); the point is reached: with the
+    conjunction read as its first conjunct alone, `go(1, 2)` steps (`andApp_first_steps`).
+  - `setVarInDropped` and `owiseDisjunctNarrower` (`DevSetVar`, e3-setvar-owise's text): for every
+    H, `f(a, b)` is `one` as `f(a, a)` is (`sv_values`), and is not `two` (`ow_values`); the points
+    are reached: with the first equation read at one element for both arguments, `f(a, b)` is `two`
+    (`sv_diagonal_two`); with the `[owise]` equation under the premise the text writes, `f(a, b)`
+    has both results (`ow_text_both`).
   - `tokKItem` (a sort below KItem that KItem's no-junk sentence does not list; the reading adds the
     subsort): for every semantics with `coreOK` and every H, a no-junk sentence without a non-open
     injection from a sort with a value, its generators injections from sorts apart from that one,
@@ -1559,6 +1577,95 @@ theorem not_dropped_steps (H : HookParams) :
 
 end DevNotCond
 
+/-! ### `andUnderAppCut`: a conjunction of terms under an application of a condition -/
+
+-- `go(X, Y) => done requires f(X #And Y) ==Int 0` beside `f(X) => X -Int 1` (the construct fixture
+-- e3-ml-req-and-under-app).
+namespace DevAndApp
+
+definition_of defn from "f2-examples/mlreqandapp.kompile.kore"
+noncomputable abbrev c : Semantics := defn.sem
+theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
+def done : Sym := 385
+def go : Sym := 386
+def f : Sym := 387
+def exp : Srt := 32
+theorem names_ok : c.symName done = "Lbldone" ∧ c.symName go = "Lblgo" ∧ c.symName f = "Lblf" ∧
+    c.sortName exp = "Exp" := by decide +kernel
+/-- The rule as read: the `requires` `f(X) ==Int 0`, and `pre` the membership `X ∈ Y` at Int. -/
+theorem read_shape : c.rules.map (fun r => (r.req, r.pre)) =
+    [(some (.app intEq [.app f [.var 0], .dv Srt.int (.int 0)]), .mem Srt.int (.var 0) (.var 1))] := rfl
+private theorem hready : CExec.execReady c = true := by decide +kernel
+kernel_rfl sortedOK_withHooksA : ∀ H : HookParams, (c.withHooks H).sortedOK = c.sortedOK
+
+/-- Evaluation has one result under every interpretation: the deciders on the data confirm
+coherence. -/
+private theorem fnDetH (H : HookParams) : FnDet (c.withHooks H) := by
+  have hag : (c.withHooks H).agreeObligations = [] := (Semantics.agreeObligations_withHooks c H).trans (by decide +kernel)
+  have hcf : (c.withHooks H).clausesFixed = true := (Semantics.clausesFixed_withHooks c H).trans (by decide +kernel)
+  have hso : (c.withHooks H).sortedOK = true := (sortedOK_withHooksA H).trans (by decide +kernel)
+  have hsr' : (c.withHooks H).srReady = true := (Semantics.srReady_withHooks c H).trans (by decide +kernel)
+  have hmr' : (c.withHooks H).matchReady = true := (Semantics.matchReady_withHooks c H).trans (by decide +kernel)
+  have hnx : (c.withHooks H).FnsNoExs := (Semantics.fnsNoExs_withHooks c H).mpr (Semantics.fnsNoExs_of_all (by decide +kernel))
+  refine fnDet_of_coherent (coherentAll_of_parts (matchIndependentAll_of_sortedOK hso hnx hmr'
+    (.of_fixed hcf (Exec.matchCtx_of hmr').noOvl)) fun g fn hfn => ?_)
+  obtain ⟨hmem, -⟩ := lookupFn_spec hfn
+  rcases List.mem_append.mp hmem with h | h
+  · exact clausesAgree_of_sortedOK hso hnx hsr' hmr' (fun g hg => by rw [hag] at hg; nomatch hg) fn h
+  · exact sortPreds_agree h
+
+def cfg (e : GroundTerm) : GroundTerm := cfgOf 383 (.inj exp Srt.kitem e)
+def Go11 : Config c := ⟨cfg (.ctor go [int 1, int 1]), by decide +kernel⟩
+def Go12 : Config c := ⟨cfg (.ctor go [int 1, int 2]), by decide +kernel⟩
+def Go22 : Config c := ⟨cfg (.ctor go [int 2, int 2]), by decide +kernel⟩
+def Done : Config c := ⟨cfg (.ctor done []), by decide +kernel⟩
+
+-- The executable step at these points reads no interpretation of the parameters: f's clause and
+-- the rule's conditions apply the registry's `_-Int_` and `_==Int_` only.
+kernel_rfl go11_withHooks : ∀ H : HookParams,
+  CExec.successorsN (c.withHooks H) 50 Go11.val = CExec.successorsN c 50 Go11.val
+kernel_rfl go12_withHooks : ∀ H : HookParams,
+  CExec.successorsN (c.withHooks H) 50 Go12.val = CExec.successorsN c 50 Go12.val
+kernel_rfl go22_withHooks : ∀ H : HookParams,
+  CExec.successorsN (c.withHooks H) 50 Go22.val = CExec.successorsN c 50 Go22.val
+kernel_rfl go12_fuel_withHooks : ∀ H : HookParams,
+  CExec.outOfFuel (c.withHooks H) 50 Go12.val = CExec.outOfFuel c 50 Go12.val
+kernel_rfl go22_fuel_withHooks : ∀ H : HookParams,
+  CExec.outOfFuel (c.withHooks H) 50 Go22.val = CExec.outOfFuel c 50 Go22.val
+
+/-- **`andUnderAppCut`, for every interpretation**: `go(1, 1)` steps to `done` (X and Y are one
+element and `f(1)` is 0); `go(1, 2)` has no successor (`1 ∧ 2` is empty, so `f` of it is, and the
+`requires` is not `true`), and neither has `go(2, 2)` (`f(2)` is 1). -/
+theorem andApp_steps (H : HookParams) :
+    Step (c.withHooks H) (cfgH noRaw Go11 H) (cfgH noRaw Done H) ∧
+    (∀ y, ¬ Step (c.withHooks H) (cfgH noRaw Go12 H) y) ∧
+    ∀ y, ¬ Step (c.withHooks H) (cfgH noRaw Go22 H) y := by
+  have hr := (CExec.execReady_withHooks c H).trans hready
+  refine ⟨?_, CExec.noStep_at hr (fnDetH H) (n := 50) (x := cfgH noRaw Go12 H)
+      ((go12_fuel_withHooks H).trans (by decide +kernel)) ((go12_withHooks H).trans (by decide +kernel)),
+    CExec.noStep_at hr (fnDetH H) (n := 50) (x := cfgH noRaw Go22 H)
+      ((go22_fuel_withHooks H).trans (by decide +kernel)) ((go22_withHooks H).trans (by decide +kernel))⟩
+  have hy : Done.val ∈ CExec.successorsN (c.withHooks H) 50 Go11.val := by
+    rw [go11_withHooks]; decide +kernel
+  obtain ⟨_, h⟩ := CExec.successorsN_step_ready hr (x := cfgH noRaw Go11 H) hy
+  exact h
+
+/-- The conjunction read as its first conjunct alone: the `requires` `f(X) ==Int 0`, no `pre`. -/
+noncomputable def c1 : Semantics := { c with rules := c.rules.map fun r => { r with pre := .top } }
+theorem noRaw1 : ∀ k ∈ c1.params, k.raw = false := by decide +kernel
+private theorem hok1 : c1.ok = true := by decide +kernel
+private theorem hsr1 : c1.srReady = true := by decide +kernel
+private theorem hmr1 : c1.matchReady = true := by decide +kernel
+def Go121 : Config c1 := ⟨Go12.val, by decide +kernel⟩
+def Done1 : Config c1 := ⟨Done.val, by decide +kernel⟩
+
+/-- **The point is reached**: read so, `go(1, 2)` steps to `done` under every interpretation. -/
+theorem andApp_first_steps (H : HookParams) :
+    Step (c1.withHooks H) (cfgH noRaw1 Go121 H) (cfgH noRaw1 Done1 H) :=
+  step_everyH hok1 hsr1 hmr1 noRaw1 (n := 50) (by decide +kernel) H
+
+end DevAndApp
+
 /-! ### `requiresOrSplit`: one rule per disjunct of a `requires` -/
 
 -- `go(X) => done requires X >=Int 0 #Or 10 /Int X >Int 0` (the construct fixture
@@ -1744,6 +1851,310 @@ theorem orBot_unread_H7 : Eval (c1.withHooks H7) f [int 3] (some (int 7)) :=
   eval_atH hok1 hsr1 hmr1 noRaw1 hfn1 (by decide +kernel) H7 (n := 10) (by decide +kernel)
 
 end DevOrBot
+
+/-! ### `orAsCases`: an equation's right side with `\or` is a clause for each alternative -/
+
+-- `h(X) => f(X) #Or g(X)`, h `total` (the shape of the construct fixture e3-ml-eq-rhs-or-total),
+-- with the clauses `Parse.frClauses` writes for the two alternatives.
+namespace DevOrCases
+
+def cellSorts : List Srt := [Srt.top, Srt.topFrag, nRegSorts, nRegSorts + 1, Srt.counter, Srt.counterOpt]
+def cellCtors : List CtorSig :=
+  [⟨topLabel, [nRegSorts, Srt.counter], Srt.top⟩, ⟨topFragLabel, [nRegSorts + 1, Srt.counterOpt], Srt.topFrag⟩,
+   ⟨nRegSyms + 2, [Srt.k], nRegSorts⟩, ⟨nRegSyms + 3, [], nRegSorts + 1⟩,
+   ⟨counterLabel, [Srt.int], Srt.counter⟩, ⟨noCounter, [], Srt.counterOpt⟩]
+def cellSubsorts : List (Srt × Srt) := [(nRegSorts, nRegSorts + 1), (Srt.counter, Srt.counterOpt)]
+
+def F : Sym := nRegSyms + 4
+def G : Sym := nRegSyms + 5
+def Hh : Sym := nRegSyms + 6
+def fX : Term := .app F [.var 0]
+def gX : Term := .app G [.var 0]
+/-- h, with the reading's clauses for the alternatives `f(X)` and `g(X)`. -/
+def hFn : Fn := ⟨Hh, [Srt.int], Srt.int, Parse.frClauses Srt.int [Srt.int] [.var 0] none 50 false [(fX, []), (gX, [])], true⟩
+/-- `h(X) => f(X)` where `⌈f(X)⌉`; `h(X) => g(X)` where `⌈g(X)⌉`; and `h(X) => f(X) ensures false`
+where neither is defined. -/
+def hCl1 : Clause := ⟨[Srt.int], [.var 0], none, fX, none, 50, false, [], .ceil Srt.int fX, .top⟩
+def hCl2 : Clause := ⟨[Srt.int], [.var 0], none, gX, none, 50, false, [], .ceil Srt.int gX, .top⟩
+def hCl3 : Clause := ⟨[Srt.int], [.var 0], none, fX, some (.dv Srt.bool (.bool false)), 50, false, [],
+  .and (.not (.ceil Srt.int fX)) (.not (.ceil Srt.int gX)), .top⟩
+theorem hFn_clauses : hFn.clauses = [hCl1, hCl2, hCl3] := rfl
+
+/-- The symbol is a function's: no constructor, hook or parameter. -/
+def IsFnOC (c : Semantics) (k : Sym) : Prop := c.isCtor k = false ∧ isHook k = false ∧ c.isParam k = false
+
+/-- The substitution that gives X the integer x. -/
+def σOC (x : Int) : Subst := [(0, int x)]
+
+theorem sortedOC (c : Semantics) (x : Int) : c.WellSorted [Srt.int] (σOC x) := by
+  intro i s hs
+  cases i with
+  | zero =>
+    simp only [List.getElem?_cons_zero, Option.some.injEq] at hs
+    subst hs
+    exact ⟨int x, rfl, rmS_sortOf_int c x⟩
+  | succ i => simp at hs
+
+theorem matchOC (c : Semantics) (x : Int) : PatVals c (σOC x) [.var 0] [int x] := .cons (.var rfl) .nil
+
+/-- A function applied to X has the function's result at x. -/
+theorem appOC {c : Semantics} {k : Sym} (hk : IsFnOC c k) {x : Int} {r : Option GroundTerm}
+    (he : Eval c k [int x] r) : EvalTerm c (σOC x) (.app k [.var 0]) r :=
+  .call hk.1 hk.2.1 (.cons .var .nil) rfl he hk.2.2
+
+theorem prioOC {c : Semantics} {x : Int} {cl : Clause} (hcl : cl ∈ hFn.clauses) :
+    ∀ cl' ∈ hFn.clauses, cl'.aside = false → cl'.prio < cl.prio → Fails c [int x] cl' := by
+  intro cl' hcl' _ hlt
+  simp only [hFn_clauses, List.mem_cons, List.not_mem_nil, or_false] at hcl hcl'
+  rcases hcl with rfl | rfl | rfl <;> rcases hcl' with rfl | rfl | rfl <;> exact absurd hlt (by decide)
+
+/-- h's results from f's and g's, in a semantics holding h with these clauses. -/
+theorem orCases_of {c : Semantics} (hH : c.lookupFn Hh = some hFn) (hF : IsFnOC c F) (hG : IsFnOC c G) (x : Int) :
+    (∀ a, Eval c F [int x] (some a) → Eval c Hh [int x] (some a)) ∧
+    (∀ b, Eval c G [int x] (some b) → Eval c Hh [int x] (some b)) ∧
+    (Eval c F [int x] none → Eval c G [int x] none → Eval c Hh [int x] none) := by
+  refine ⟨fun a he => ?_, fun b he => ?_, fun hf hg => ?_⟩
+  · exact .clause (cl := hCl1) hH (by simp [hFn_clauses]) (sortedOC c x) (matchOC c x) (fun _ ht => nomatch ht)
+      (.ceil (appOC hF he)) (prioOC (by simp [hFn_clauses])) rfl (appOC hF he) (fun _ ht => nomatch ht) .top
+  · exact .clause (cl := hCl2) hH (by simp [hFn_clauses]) (sortedOC c x) (matchOC c x) (fun _ ht => nomatch ht)
+      (.ceil (appOC hG he)) (prioOC (by simp [hFn_clauses])) rfl (appOC hG he) (fun _ ht => nomatch ht) .top
+  · exact .ensFails (cl := hCl3) hH (by simp [hFn_clauses]) (sortedOC c x) (matchOC c x) (fun _ ht => nomatch ht)
+      (.and (.not (.ceil (appOC hF hf))) (.not (.ceil (appOC hG hg)))) (prioOC (by simp [hFn_clauses])) rfl rfl .dv
+      (by decide)
+
+/-- **`orAsCases`, for every semantics holding h with the reading's clauses and every
+interpretation**: at every integer x, a value of `f(x)` is a result of `h(x)`, a value of `g(x)` is
+a result of `h(x)`, and where neither has a value `h(x)` has none. -/
+theorem orCases_everyH (c : Semantics) (Hk : HookParams) (hH : c.lookupFn Hh = some hFn) (hF : IsFnOC c F)
+    (hG : IsFnOC c G) (x : Int) :
+    (∀ a, Eval (c.withHooks Hk) F [int x] (some a) → Eval (c.withHooks Hk) Hh [int x] (some a)) ∧
+    (∀ b, Eval (c.withHooks Hk) G [int x] (some b) → Eval (c.withHooks Hk) Hh [int x] (some b)) ∧
+    (Eval (c.withHooks Hk) F [int x] none → Eval (c.withHooks Hk) G [int x] none →
+      Eval (c.withHooks Hk) Hh [int x] none) :=
+  orCases_of (c := c.withHooks Hk) (by rw [Semantics.lookupFn_withHooks]; exact hH) hF hG x
+
+/-- `f(X) => X ensures X >=Int 0`: no value at a negative integer. -/
+def fFn : Fn := ⟨F, [Srt.int], Srt.int,
+  [⟨[Srt.int], [.var 0], none, .var 0, some (.app intGe [.var 0, .dv Srt.int (.int 0)]), 50, false, [], .top, .top⟩], false⟩
+/-- `g(X) => 0 -Int X`. -/
+def gFn : Fn := ⟨G, [Srt.int], Srt.int,
+  [⟨[Srt.int], [.var 0], none, .app intSub [.dv Srt.int (.int 0), .var 0], none, 50, false, [], .top, .top⟩], true⟩
+
+/-- The semantics with f, g and the function `hf` for h. -/
+def sem (hf : Fn) : Semantics :=
+  { lib := {}
+    sortNames := ["KCell", "KCellOpt"]
+    symNames := ["LblisKCell", "LblisKCellOpt", "Lbl'-LT-'k'-GT-'", "LblnoKCell", "Lblf", "Lblg", "Lblh"]
+    userSorts := cellSorts
+    ctors := cellCtors
+    fns := [fFn, gFn, hf]
+    userSubsorts := cellSubsorts
+    pgmSort := Srt.k
+    rules := [] }
+def c : Semantics := sem hFn
+theorem coreOK : c.coreOK = true := by decide_cheap
+
+/-- A registry hook of two arguments at values where it has a value. -/
+theorem hook2OC {d : Semantics} {k : Sym} (hc : d.isCtor k = false) (hh : isHook k = true) {σ : Subst} {t u : Term}
+    {a b v : GroundTerm} (ht : EvalTerm d σ t (some a)) (hu : EvalTerm d σ u (some b))
+    (hv : hook k [a, b] = some (some v)) : EvalTerm d σ (.app k [t, u]) (some v) :=
+  .hook hc hh (.cons ht (.cons hu .nil))
+    (fun vs hvs => by
+      have : vs = [a, b] := Option.some.inj hvs.symm
+      subst this; exact Semantics.hookRes_of_value hv)
+    (fun hn => nomatch hn)
+
+section Values
+variable {d : Semantics} (hF : d.lookupFn F = some fFn) (hG : d.lookupFn G = some gFn)
+  (hge : d.isCtor intGe = false) (hsub : d.isCtor intSub = false)
+
+private theorem prio1 {fn : Fn} {cl : Clause} {vs : List GroundTerm} (h : fn.clauses = [cl]) :
+    ∀ cl' ∈ fn.clauses, cl'.aside = false → cl'.prio < cl.prio → Fails d vs cl' := by
+  intro cl' hcl' _ hlt
+  rw [h, List.mem_singleton] at hcl'
+  subst hcl'; exact absurd hlt (Nat.lt_irrefl _)
+
+include hF hge in
+/-- `f(x)` is x where `x >=Int 0` is `true`, and has no value where it is `false`. -/
+theorem evalF_OC (x : Int) (b : Bool) (hb : hook intGe [int x, int 0] = some (some (.dv Srt.bool (.bool b)))) :
+    Eval d F [int x] (if b then some (int x) else none) := by
+  have hens : EvalTerm d (σOC x) (.app intGe [.var 0, .dv Srt.int (.int 0)]) (some (.dv Srt.bool (.bool b))) :=
+    hook2OC hge rfl (.var : EvalTerm d (σOC x) (.var 0) _) .dv hb
+  cases b with
+  | true =>
+    exact .clause hF (List.mem_singleton_self _) (sortedOC d x) (matchOC d x) (fun _ ht => nomatch ht) .top
+      (prio1 rfl) rfl (.var : EvalTerm d (σOC x) (.var 0) _) (fun _ ht => by cases ht; exact hens) .top
+  | false =>
+    exact .ensFails hF (List.mem_singleton_self _) (sortedOC d x) (matchOC d x) (fun _ ht => nomatch ht) .top
+      (prio1 rfl) rfl rfl hens (by decide)
+
+include hG hsub in
+/-- `g(x)` is the value of `0 -Int x`. -/
+theorem evalG_OC (x : Int) (v : GroundTerm) (hv : hook intSub [int 0, int x] = some (some v)) :
+    Eval d G [int x] (some v) :=
+  .clause hG (List.mem_singleton_self _) (sortedOC d x) (matchOC d x) (fun _ ht => nomatch ht) .top
+    (prio1 rfl) rfl (hook2OC hsub rfl .dv (.var : EvalTerm d (σOC x) (.var 0) _) hv) (fun _ ht => nomatch ht) .top
+
+end Values
+
+theorem lookupsOC : c.lookupFn F = some fFn ∧ c.lookupFn G = some gFn ∧ c.lookupFn Hh = some hFn := by
+  refine ⟨?_, ?_, ?_⟩ <;> rw [Semantics.lookupFn_eq] <;> rfl
+theorem isFnOC : IsFnOC c F ∧ IsFnOC c G := by unfold IsFnOC; decide +kernel
+
+/-- **`orAsCases` on this semantics, for every interpretation**: `h(-1)` is 1, the value of
+`g(-1)`, where `f(-1)` has none (the second alternative's clause); and `h(1)` has the two results 1
+and -1, the values of `f(1)` and of `g(1)`: where the alternatives differ the reading keeps both,
+as the sentence does. -/
+theorem orCases_values (Hk : HookParams) :
+    Eval (c.withHooks Hk) Hh [int (-1)] (some (int 1)) ∧
+    Eval (c.withHooks Hk) Hh [int 1] (some (int 1)) ∧ Eval (c.withHooks Hk) Hh [int 1] (some (int (-1))) := by
+  have hl := lookupsOC
+  have hF : (c.withHooks Hk).lookupFn F = some fFn := by rw [Semantics.lookupFn_withHooks]; exact hl.1
+  have hG : (c.withHooks Hk).lookupFn G = some gFn := by rw [Semantics.lookupFn_withHooks]; exact hl.2.1
+  have hge : (c.withHooks Hk).isCtor intGe = false := by show c.isCtor intGe = false; decide +kernel
+  have hsub : (c.withHooks Hk).isCtor intSub = false := by show c.isCtor intSub = false; decide +kernel
+  have h1 := orCases_everyH c Hk hl.2.2 isFnOC.1 isFnOC.2 1
+  have hm := orCases_everyH c Hk hl.2.2 isFnOC.1 isFnOC.2 (-1)
+  exact ⟨hm.2.1 _ (evalG_OC hG hsub (-1) (int 1) (by decide +kernel)),
+    h1.1 _ (evalF_OC hF hge 1 true (by decide +kernel)),
+    h1.2.1 _ (evalG_OC hG hsub 1 (int (-1)) (by decide +kernel))⟩
+
+/-- The `\or` read as its first alternative alone: `h(X) => f(X)`. -/
+def hFn1 : Fn := ⟨Hh, [Srt.int], Srt.int, [⟨[Srt.int], [.var 0], none, fX, none, 50, false, [], .top, .top⟩], true⟩
+def c1 : Semantics := sem hFn1
+theorem lookupsOC1 : c1.lookupFn F = some fFn ∧ c1.lookupFn Hh = some hFn1 := by
+  refine ⟨?_, ?_⟩ <;> rw [Semantics.lookupFn_eq] <;> rfl
+
+/-- **The point is reached**: read so, `h(-1)` has no value under every interpretation, `f(-1)`
+having none. -/
+theorem orCases_first_none (Hk : HookParams) : Eval (c1.withHooks Hk) Hh [int (-1)] none := by
+  have hl := lookupsOC1
+  have hF : (c1.withHooks Hk).lookupFn F = some fFn := by rw [Semantics.lookupFn_withHooks]; exact hl.1
+  have hH : (c1.withHooks Hk).lookupFn Hh = some hFn1 := by rw [Semantics.lookupFn_withHooks]; exact hl.2
+  have hge : (c1.withHooks Hk).isCtor intGe = false := by show c1.isCtor intGe = false; decide +kernel
+  have hk : IsFnOC (c1.withHooks Hk) F := by
+    show c1.isCtor F = false ∧ isHook F = false ∧ c1.isParam F = false; decide +kernel
+  exact .clause hH (List.mem_singleton_self _) (sortedOC _ (-1)) (matchOC _ (-1)) (fun _ ht => nomatch ht) .top
+    (prio1 rfl) rfl (appOC hk (evalF_OC hF hge (-1) false (by decide +kernel))) (fun _ ht => nomatch ht) .top
+
+end DevOrCases
+
+/-! ### `existsAsCases`: an equation's right side `\exists B:Bool` is a clause for each instance -/
+
+-- `f(X) => #Exists B:Bool. (B #And {B #Equals notBool X})`, f `total` (the construct fixture
+-- e3-eq-exists-bool-ml), with the clauses `Parse.exClauses` writes for the instances `true` and
+-- `false` of the binder.
+namespace DevExCases
+
+def cellSorts : List Srt := [Srt.top, Srt.topFrag, nRegSorts, nRegSorts + 1, Srt.counter, Srt.counterOpt]
+def cellCtors : List CtorSig :=
+  [⟨topLabel, [nRegSorts, Srt.counter], Srt.top⟩, ⟨topFragLabel, [nRegSorts + 1, Srt.counterOpt], Srt.topFrag⟩,
+   ⟨nRegSyms + 2, [Srt.k], nRegSorts⟩, ⟨nRegSyms + 3, [], nRegSorts + 1⟩,
+   ⟨counterLabel, [Srt.int], Srt.counter⟩, ⟨noCounter, [], Srt.counterOpt⟩]
+def cellSubsorts : List (Srt × Srt) := [(nRegSorts, nRegSorts + 1), (Srt.counter, Srt.counterOpt)]
+
+def Fs : Sym := nRegSyms + 4
+def notX : Term := .app boolNot [.var 0]
+def litT (b : Bool) : Term := .dv Srt.bool (.bool b)
+def bv (b : Bool) : GroundTerm := .dv Srt.bool (.bool b)
+/-- The instance at the literal b: the term b, with the condition `b = notBool(X)`. -/
+def instOf (b : Bool) : Term × List Cond := (litT b, [.equals Srt.bool (litT b) notX])
+/-- The clause of the instance at b: `f(X) => b` where `⌈b⌉ ∧ b = notBool(X)`. -/
+def clOf (b : Bool) : Clause := ⟨[Srt.bool], [.var 0], none, litT b, none, 50, false, [],
+  .and (.ceil Srt.bool (litT b)) (.equals Srt.bool (litT b) notX), .top⟩
+/-- The clause where no instance has an element: `f(X) => true ensures false` where
+`¬∃B:Bool. ⌈B⌉ ∧ B = notBool(X)`. -/
+def clNone : Clause := ⟨[Srt.bool], [.var 0], none, litT true, some (litT false), 50, false, [],
+  .not (.ex Srt.bool (.and (.ceil Srt.bool (.var 1)) (.equals Srt.bool (.var 1) notX))), .top⟩
+/-- f, with the reading's clauses: the two instances, and the body with B the variable 1. -/
+def fFn : Fn := ⟨Fs, [Srt.bool], Srt.bool, Parse.exClauses Srt.bool [Srt.bool] [.var 0] none 50 false
+  [instOf true, instOf false] [(.var 1, [.equals Srt.bool (.var 1) notX])], true⟩
+theorem fFn_clauses : fFn.clauses = [clOf true, clOf false, clNone] := rfl
+
+/-- `notBool(X)` where X is b. -/
+theorem notX_at {d : Semantics} (hc : d.isCtor boolNot = false) {σ : Subst} {b : Bool}
+    (hl : σ.lookup 0 = some (bv b)) : EvalTerm d σ notX (some (bv !b)) := by
+  have hv : EvalTerm d σ (.var 0) (some (bv b)) := hl ▸ EvalTerm.var
+  exact .hook hc rfl (.cons hv .nil)
+    (fun vs hvs => by
+      have : vs = [bv b] := Option.some.inj hvs.symm
+      subst this; exact Semantics.hookRes_of_value (by cases b <;> rfl))
+    (fun hn => nomatch hn)
+
+theorem sortedEC (d : Semantics) (b : Bool) : d.WellSorted [Srt.bool] [(0, bv b)] := by
+  intro i s hs
+  cases i with
+  | zero =>
+    simp only [List.getElem?_cons_zero, Option.some.injEq] at hs
+    subst hs
+    exact ⟨bv b, rfl, rmS_sortOf_bool d b⟩
+  | succ i => simp at hs
+
+/-- **`existsAsCases`, for every semantics holding f with the reading's clauses and every
+interpretation**: `f(b)` is `notBool(b)`, the one instance of the binder whose condition holds. -/
+theorem exCases_everyH (c : Semantics) (Hk : HookParams) (hf : c.lookupFn Fs = some fFn)
+    (hc : c.isCtor boolNot = false) (b : Bool) : Eval (c.withHooks Hk) Fs [bv b] (some (bv !b)) := by
+  have hfH : (c.withHooks Hk).lookupFn Fs = some fFn := by rw [Semantics.lookupFn_withHooks]; exact hf
+  have hcH : (c.withHooks Hk).isCtor boolNot = false := hc
+  have hprio : ∀ cl ∈ fFn.clauses, ∀ cl' ∈ fFn.clauses, cl'.aside = false → cl'.prio < cl.prio →
+      Fails (c.withHooks Hk) [bv b] cl' := by
+    intro cl hcl cl' hcl' _ hlt
+    simp only [fFn_clauses, List.mem_cons, List.not_mem_nil, or_false] at hcl hcl'
+    rcases hcl with rfl | rfl | rfl <;> rcases hcl' with rfl | rfl | rfl <;> exact absurd hlt (by decide)
+  have hn := notX_at hcH (σ := [(0, bv b)]) (b := b) rfl
+  cases b with
+  | false =>
+    exact .clause (cl := clOf true) hfH (by simp [fFn_clauses]) (sortedEC _ false) (.cons (.var rfl) .nil)
+      (fun _ ht => nomatch ht) (.and (.ceil .dv) (.equals .dv hn)) (hprio _ (by simp [fFn_clauses])) rfl .dv
+      (fun _ ht => nomatch ht) .top
+  | true =>
+    exact .clause (cl := clOf false) hfH (by simp [fFn_clauses]) (sortedEC _ true) (.cons (.var rfl) .nil)
+      (fun _ ht => nomatch ht) (.and (.ceil .dv) (.equals .dv hn)) (hprio _ (by simp [fFn_clauses])) rfl .dv
+      (fun _ ht => nomatch ht) .top
+
+/-- The semantics with the one function `fn`. -/
+def sem (fn : Fn) : Semantics :=
+  { lib := {}
+    sortNames := ["KCell", "KCellOpt"]
+    symNames := ["LblisKCell", "LblisKCellOpt", "Lbl'-LT-'k'-GT-'", "LblnoKCell", "Lblf"]
+    userSorts := cellSorts
+    ctors := cellCtors
+    fns := [fn]
+    userSubsorts := cellSubsorts
+    pgmSort := Srt.k
+    rules := [] }
+def c : Semantics := sem fFn
+theorem coreOK : c.coreOK = true := by decide_cheap
+theorem lookupEC : c.lookupFn Fs = some fFn := by rw [Semantics.lookupFn_eq]; rfl
+
+/-- **`existsAsCases` on this semantics, for every interpretation**: `f(false)` is `true` and
+`f(true)` is `false`. -/
+theorem exCases_values (Hk : HookParams) :
+    Eval (c.withHooks Hk) Fs [bv false] (some (bv true)) ∧ Eval (c.withHooks Hk) Fs [bv true] (some (bv false)) :=
+  ⟨exCases_everyH c Hk lookupEC (by decide +kernel) false, exCases_everyH c Hk lookupEC (by decide +kernel) true⟩
+
+/-- The binder read at its first instance alone: `f(X) => true` where `true = notBool(X)`. -/
+def fFn1 : Fn := ⟨Fs, [Srt.bool], Srt.bool, [clOf true], true⟩
+def c1 : Semantics := sem fFn1
+theorem lookupEC1 : c1.lookupFn Fs = some fFn1 := by rw [Semantics.lookupFn_eq]; rfl
+
+/-- The interpretation that gives `f(true)` the value `true` and nothing else. -/
+def Ht : HookParams := ⟨fun g vs => if g = Fs ∧ vs = [bv true] then some (bv true) else none⟩
+
+/-- **The point is reached**: read so, `f(true)` is a point where the clause fails, the
+interpretation's: `true` under `Ht`. -/
+theorem exCases_first_Ht : Eval (c1.withHooks Ht) Fs [bv true] (some (bv true)) := by
+  have hfH : (c1.withHooks Ht).lookupFn Fs = some fFn1 := by rw [Semantics.lookupFn_withHooks]; exact lookupEC1
+  have hcH : (c1.withHooks Ht).isCtor boolNot = false := by decide +kernel
+  have hrest : (c1.withHooks Ht).fnRest fFn1 [bv true] = some (bv true) := by decide +kernel
+  refine hrest ▸ Eval.rest hfH fun cl hcl => ?_
+  obtain rfl := List.mem_singleton.mp hcl
+  refine .intro fun σ _ hm => .pre ?_
+  obtain ⟨v, vs, he, hv, -⟩ := PatVals.cons_inv hm
+  cases he
+  exact .and (.ceil .dv) (.equals .dv (notX_at hcH (b := true) (PatVal.var_inv hv)))
+
+end DevExCases
 
 /-! ## The other notes: `reflectionAsOwn`, `keyFunctionAsMember`, `equationPriority`, `owiseAsPriority` -/
 
@@ -1950,6 +2361,134 @@ theorem owise_unread_H9 : Eval (c1.withHooks H9) f [int 1, int 5] (some (int 9))
 
 end DevOwise
 
+/-! ### `setVarInDropped` and `owiseDisjunctNarrower`: an equation over one set variable at two arguments -/
+
+-- `f(@S, @S) => one()` beside `f(_, _) => two() [owise]` (the construct fixture e3-setvar-owise).
+namespace DevSetVar
+
+definition_of defn from "f2-examples/svowise.kompile.kore"
+noncomputable abbrev c : Semantics := defn.sem
+theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
+def f : Sym := 389
+def exp : Srt := 32
+def ca : GroundTerm := .ctor 385 []
+def cb : GroundTerm := .ctor 386 []
+def one : GroundTerm := .ctor 387 []
+def two : GroundTerm := .ctor 388 []
+theorem names_ok : c.symName f = "Lblf" ∧ c.symName 385 = "Lbla" ∧ c.symName 386 = "Lblb" ∧
+    c.symName 387 = "Lblone" ∧ c.symName 388 = "Lbltwo" ∧ c.sortName exp = "Exp" := by decide +kernel
+noncomputable abbrev fn : Fn := c.fns[0]'(by decide +kernel)
+/-- The clauses as read: the first equation with its two memberships dropped (two distinct
+variables, no condition), then the `[owise]` one, of priority 200. -/
+theorem read_shape : fn.clauses.map (fun cl => (cl.pats, cl.pre.isTop, cl.prio)) =
+    [([.var 0, .var 1], true, 50), ([.var 0, .var 1], true, 200)] := rfl
+private theorem hok : c.ok = true := by decide +kernel
+private theorem hsr : c.srReady = true := by decide +kernel
+private theorem hmr : c.matchReady = true := by decide +kernel
+private theorem hfn : c.lookupFn f = some fn := rfl
+
+/-- Evaluation has one result under every interpretation. -/
+theorem svCoherentH (H : HookParams) : CoherentAll (c.withHooks H) :=
+  Det.coherentAll_of_nil ((Semantics.ok_withHooks c H).trans hok) ((Semantics.srReady_withHooks c H).trans hsr)
+    ((Semantics.matchReady_withHooks c H).trans hmr) ((Semantics.clausesFixed_withHooks c H).trans (by decide +kernel))
+    ((Semantics.agreeObligations_withHooks c H).trans (by decide +kernel))
+
+/-- **`setVarInDropped`, for every interpretation**: `f(a, b)` is `one`, as `f(a, a)` is: the
+sentence `X₀ ∈ @S ∧ X₁ ∈ @S → f(X₀, X₁) = one` holds at every set `@S`, and a set holds two
+elements, so it states the value at every pair, equal or not. -/
+theorem sv_values (H : HookParams) :
+    Eval (c.withHooks H) f [ca, cb] (some one) ∧ Eval (c.withHooks H) f [ca, ca] (some one) :=
+  ⟨eval_everyH hok hsr hmr noRaw hfn (by decide +kernel) (n := 10) (by decide +kernel) H,
+   eval_everyH hok hsr hmr noRaw hfn (by decide +kernel) (n := 10) (by decide +kernel) H⟩
+
+/-- **`owiseDisjunctNarrower`, for every interpretation**: `f(a, b)` is `one` and not `two`: the
+`[owise]` equation is read as applying where the first equation as read does not, which is nowhere. -/
+theorem ow_values (H : HookParams) :
+    Eval (c.withHooks H) f [ca, cb] (some one) ∧ ¬ Eval (c.withHooks H) f [ca, cb] (some two) :=
+  ⟨(sv_values H).1, fun h => nomatch Eval.functional (svCoherentH H) h (sv_values H).1⟩
+
+/-- The first equation read with one element at both arguments (its two memberships kept as one
+element variable's), beside the `[owise]` equation. -/
+noncomputable def c1 : Semantics :=
+  { c with fns := c.fns.map fun g => if g.label = f then
+      { g with clauses := g.clauses.map fun cl => if cl.prio = 50 then { cl with pats := [.var 0, .var 0] } else cl }
+      else g }
+noncomputable abbrev fn1 : Fn := c1.fns[0]'(by decide +kernel)
+theorem noRaw1 : ∀ k ∈ c1.params, k.raw = false := by decide +kernel
+private theorem hfn1 : c1.lookupFn f = some fn1 := rfl
+def svDiag : Clause := ⟨[exp, exp], [.var 0, .var 0], none, .app 387 [], none, 50, false, [], .top, .top⟩
+def svOwise : Clause := ⟨[exp, exp], [.var 0, .var 1], none, .app 388 [], none, 200, false, [], .top, .top⟩
+theorem clauses1 : fn1.clauses = [svDiag, svOwise] := rfl
+def σab : Subst := [(0, ca), (1, cb)]
+
+/-- **The point is reached** (`setVarInDropped`): read so, the first equation does not apply at
+`(a, b)` (no element is both `a` and `b`), and `f(a, b)` is `two`, by the `[owise]` equation, under
+every interpretation. -/
+theorem sv_diagonal_two (H : HookParams) : Eval (c1.withHooks H) f [ca, cb] (some two) := by
+  have hfnH : (c1.withHooks H).lookupFn f = some fn1 := by rw [Semantics.lookupFn_withHooks]; exact hfn1
+  have hσ : (c1.withHooks H).WellSorted [exp, exp] σab := by
+    intro i s hs
+    match i with
+    | 0 => exact ⟨ca, rfl, by rw [Semantics.sortOf_withHooks _ _ noRaw1]; simp at hs; subst hs; decide +kernel⟩
+    | 1 => exact ⟨cb, rfl, by rw [Semantics.sortOf_withHooks _ _ noRaw1]; simp at hs; subst hs; decide +kernel⟩
+    | i + 2 => simp at hs
+  have hprio : ∀ cl' ∈ fn1.clauses, cl'.aside = false → cl'.prio < svOwise.prio →
+      Fails (c1.withHooks H) [ca, cb] cl' := by
+    intro cl' hcl' _ hlt
+    simp only [clauses1, List.mem_cons, List.not_mem_nil, or_false] at hcl'
+    rcases hcl' with rfl | rfl
+    · refine .intro fun σ _ hm => ?_
+      obtain ⟨v, vs, he, hv, hs⟩ := PatVals.cons_inv hm
+      obtain ⟨w, ws, he', hw, -⟩ := PatVals.cons_inv hs
+      cases he; cases he'
+      exact absurd ((PatVal.var_inv hv).symm.trans (PatVal.var_inv hw)) (by decide)
+    · exact absurd hlt (by decide)
+  have hc2 : (c1.withHooks H).isCtor 388 = true := by show c1.isCtor 388 = true; decide +kernel
+  exact .clause (cl := svOwise) hfnH (by simp [clauses1]) hσ (.cons (.var rfl) (.cons (.var rfl) .nil))
+    (fun _ ht => nomatch ht) .top hprio rfl (.ctor hc2 .nil) (fun _ ht => nomatch ht) .top
+
+/-- The `[owise]` equation with the premise the text writes: excluded where the two arguments are
+one element (the text's disjunct `∃G. X₀ ∈ G ∧ X₁ ∈ G`), and so a clause of the first equation's
+priority with the predicate `¬(X₀ ∈ X₁)`. -/
+def owText : Clause := ⟨[exp, exp], [.var 0, .var 1], none, .app 388 [], none, 50, false, [],
+  .not (.mem exp (.var 0) (.var 1)), .top⟩
+def owFirst : Clause := ⟨[exp, exp], [.var 0, .var 1], none, .app 387 [], none, 50, false, [], .top, .top⟩
+noncomputable def c2 : Semantics :=
+  { c with fns := c.fns.map fun g => if g.label = f then { g with clauses := [owFirst, owText] } else g }
+noncomputable abbrev fn2 : Fn := c2.fns[0]'(by decide +kernel)
+theorem noRaw2 : ∀ k ∈ c2.params, k.raw = false := by decide +kernel
+private theorem hfn2 : c2.lookupFn f = some fn2 := rfl
+theorem owFirst_read : fn.clauses.head? = some owFirst := rfl
+theorem clauses2 : fn2.clauses = [owFirst, owText] := rfl
+
+/-- **The point is reached** (`owiseDisjunctNarrower`): with the text's premise, `f(a, b)` has the
+two results `one` and `two` under every interpretation: off the diagonal the text states both. -/
+theorem ow_text_both (H : HookParams) :
+    Eval (c2.withHooks H) f [ca, cb] (some one) ∧ Eval (c2.withHooks H) f [ca, cb] (some two) := by
+  have hfnH : (c2.withHooks H).lookupFn f = some fn2 := by rw [Semantics.lookupFn_withHooks]; exact hfn2
+  have hσ : (c2.withHooks H).WellSorted [exp, exp] σab := by
+    intro i s hs
+    match i with
+    | 0 => exact ⟨ca, rfl, by rw [Semantics.sortOf_withHooks _ _ noRaw2]; simp at hs; subst hs; decide +kernel⟩
+    | 1 => exact ⟨cb, rfl, by rw [Semantics.sortOf_withHooks _ _ noRaw2]; simp at hs; subst hs; decide +kernel⟩
+    | i + 2 => simp at hs
+  have hm : PatVals (c2.withHooks H) σab [.var 0, .var 1] [ca, cb] := .cons (.var rfl) (.cons (.var rfl) .nil)
+  have hprio : ∀ cl ∈ fn2.clauses, ∀ cl' ∈ fn2.clauses, cl'.aside = false → cl'.prio < cl.prio →
+      Fails (c2.withHooks H) [ca, cb] cl' := by
+    intro cl hcl cl' hcl' _ hlt
+    simp only [clauses2, List.mem_cons, List.not_mem_nil, or_false] at hcl hcl'
+    rcases hcl with rfl | rfl <;> rcases hcl' with rfl | rfl <;> exact absurd hlt (by decide)
+  have hc1 : (c2.withHooks H).isCtor 387 = true := by show c2.isCtor 387 = true; decide +kernel
+  have hc2 : (c2.withHooks H).isCtor 388 = true := by show c2.isCtor 388 = true; decide +kernel
+  have hpre : Holds (c2.withHooks H) 2 σab owText.pre true :=
+    Holds.not (Holds.mem (s := exp) (EvalTerm.var (i := 0)) (EvalTerm.var (i := 1)))
+  exact ⟨.clause (cl := owFirst) hfnH (by simp [clauses2]) hσ hm (fun _ ht => nomatch ht) .top
+      (hprio _ (by simp [clauses2])) rfl (.ctor hc1 .nil) (fun _ ht => nomatch ht) .top,
+    .clause (cl := owText) hfnH (by simp [clauses2]) hσ hm (fun _ ht => nomatch ht) hpre
+      (hprio _ (by simp [clauses2])) rfl (.ctor hc2 .nil) (fun _ ht => nomatch ht) .top⟩
+
+end DevSetVar
+
 
 /-! ## G4: the inert constructor classes, for every interpretation -/
 
@@ -2059,6 +2598,18 @@ end KCore.Guards
 #print axioms KCore.Guards.DevBot.bot_unread_value
 #print axioms KCore.Guards.DevOrBot.orBot_value
 #print axioms KCore.Guards.DevOrBot.orBot_unread_H7
+#print axioms KCore.Guards.DevOrCases.orCases_everyH
+#print axioms KCore.Guards.DevOrCases.orCases_values
+#print axioms KCore.Guards.DevOrCases.orCases_first_none
+#print axioms KCore.Guards.DevExCases.exCases_everyH
+#print axioms KCore.Guards.DevExCases.exCases_values
+#print axioms KCore.Guards.DevExCases.exCases_first_Ht
+#print axioms KCore.Guards.DevAndApp.andApp_steps
+#print axioms KCore.Guards.DevAndApp.andApp_first_steps
+#print axioms KCore.Guards.DevSetVar.sv_values
+#print axioms KCore.Guards.DevSetVar.sv_diagonal_two
+#print axioms KCore.Guards.DevSetVar.ow_values
+#print axioms KCore.Guards.DevSetVar.ow_text_both
 #print axioms KCore.Guards.DevRefl.conf_value
 #print axioms KCore.Guards.DevRefl.go_step_Hk
 #print axioms KCore.Guards.DevKey.key_steps
@@ -2202,15 +2753,22 @@ def readingNote : ReadingNote → GuardEntry
       invariant := [``KCore.Semantics.fnRest, ``KCore.Cert.evalFC_withHooks],
       note := "on e3-ml-eq-rhs-or-bottom's text (f(X) = X ∨ ⊥), every H: f(3) = 3; the companion is the equation not read, where f has no clause and f(3) is the interpretation's, 7 under H7" }
   | .orAsCases =>
-    { status := .pending "GUARD.final",
-      guard := [.test "test/ReaderWire.lean" "orAsCases", .test "test/RhsReader.lean" "fr", .test "test/EqRhsOr.lean" "eval",
-        .decl ``KCore.Parse.frClauses],
-      note := "an equation's right side with \\or, of a function with its functional sentence, read as a clause for each alternative and one where none has an element (Parse.frRead through Parse.clausesBody); the clauses on e3-ml-eq-rhs-or-total's text and their values at the parsed semantics are the tests'; no statement over c.withHooks H, no companion" }
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.DevOrCases.orCases_everyH, .decl ``KCore.Guards.DevOrCases.orCases_values,
+        .test "test/ReaderWire.lean" "orAsCases", .test "test/RhsReader.lean" "fr", .test "test/EqRhsOr.lean" "eval",
+        .test "test/TieFR.lean" "gamma_of_text", .test "test/TieFR.lean" "text_of_gamma", .decl ``KCore.Parse.frClauses],
+      companion := [.decl ``KCore.Guards.DevOrCases.orCases_first_none,
+        .test "test/TieE3MlEqRhsOrTotalNoModel.lean" "no_model"],
+      invariant := [``KCore.Parse.frClauses, ``KCore.Eval.ensFails],
+      note := "an equation's right side with \\or, of a function with its functional sentence, read as a clause for each alternative and one where none has an element (Parse.frRead through Parse.clausesBody). For every semantics holding h(X) => f(X) #Or g(X) with the clauses Parse.frClauses writes and every H: a value of f(x) is a result of h(x), a value of g(x) is one, and where neither has a value h(x) has none (orCases_everyH); on a hand-built semantics with f(X) => X ensures X >=Int 0 and g(X) => 0 -Int X, every H: h(-1) is 1, g's value where f has none, and h(1) has the two results 1 and -1 (orCases_values); the companion is the \\or read as its first alternative alone, where h(-1) has no value under every H. The clauses on e3-ml-eq-rhs-or-total's text are the reader tests'; the sentence with the functional sentence and the clauses' items entail each other (test/TieFR.lean); on that text, where f and g are total and differ at 1, the text has no model and neither has the reading, for every H (test/TieE3MlEqRhsOrTotalNoModel.lean)" }
   | .existsAsCases =>
-    { status := .pending "GUARD.final",
-      guard := [.test "test/ReaderWire.lean" "existsAsCases", .test "test/RhsReader.lean" "ex", .test "test/ExTwoResults.lean" "no_model",
-        .decl ``KCore.Parse.exClauses],
-      note := "an equation's right side \\exists B:Bool, of a function with its functional sentence in a text whose Bool has its literals only, read as the clauses of its two instances and one whose pre keeps the binder (Parse.exRead through Parse.clausesBody); the clauses on e3-eq-exists-bool-ml's text are the tests', and where the instances differ the text has no model (test/ExTwoResults.lean); no statement over c.withHooks H, no companion" }
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.DevExCases.exCases_everyH, .decl ``KCore.Guards.DevExCases.exCases_values,
+        .test "test/ReaderWire.lean" "existsAsCases", .test "test/RhsReader.lean" "ex", .test "test/TieEX.lean" "gamma_of_text",
+        .test "test/TieEX.lean" "text_of_gamma", .decl ``KCore.Parse.exClauses],
+      companion := [.decl ``KCore.Guards.DevExCases.exCases_first_Ht, .test "test/ExTwoResults.lean" "no_model"],
+      invariant := [``KCore.Parse.exClauses, ``KCore.Semantics.fnRest],
+      note := "an equation's right side \\exists B:Bool, of a function with its functional sentence in a text whose Bool has its literals only, read as the clauses of its two instances and one whose pre keeps the binder (Parse.exRead through Parse.clausesBody). For every semantics holding f(X) => #Exists B:Bool. (B #And {B #Equals notBool X}) with the clauses Parse.exClauses writes (e3-eq-exists-bool-ml's, by the reader tests) and every H: f(b) is notBool(b), the one instance whose condition holds (exCases_everyH; on a hand-built semantics, exCases_values); the companion is the binder read at its first instance alone, where f(true) is a point the clause fails at, true under Ht. The sentence with the functional sentence and the clauses' items entail each other (test/TieEX.lean); where the instances differ Γc has no model (test/ExTwoResults.lean)" }
   | .predicateAtBool =>
     { status := .guarded,
       guard := [.decl ``KCore.Guards.DevCeil.ceil_steps, .test "test/Connectives.lean" "predicateAtBool"],
@@ -2231,9 +2789,12 @@ def readingNote : ReadingNote → GuardEntry
       invariant := [``KCore.Cert.checkStep_withHooks, ``KCore.Cert.stuckCheck_sound],
       note := "on e3-ml-req-or-undef's text (go(X) => done requires X >=Int 0 ∨ 10 /Int X >Int 0), every H: go(0) steps to done and go(-1) has no successor; the companion is the two disjuncts read as one requires A1 orBool A2, which has no value at 0 (10 /Int 0 has none), where go(0) has no successor under every H" }
   | .setVarInDropped =>
-    { status := .pending "GUARD.final",
-      guard := [.decl ``KCore.setvar_in_drop, .test "test/SetVarOwise.lean" "f_one"],
-      note := "setvar_in_drop is the entailment on the translated sentence, f_one an evaluation at the parsed semantics; no statement over c.withHooks H, no companion; no GUARD ticket names this constructor" }
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.DevSetVar.sv_values, .decl ``KCore.setvar_in_drop,
+        .decl ``KCore.setvar_in_drop_e3_owise, .test "test/SetVarOwise.lean" "f_one"],
+      companion := [.decl ``KCore.Guards.DevSetVar.sv_diagonal_two],
+      invariant := [``KCore.Cert.evalFC_withHooks, ``KCore.setvar_in_drop],
+      note := "on e3-setvar-owise's text (f(@S, @S) => one() beside f(_, _) => two() [owise]), every H: f(a, b) is one, as f(a, a) is; the sentence X0 ∈ @S ∧ X1 ∈ @S → f(X0, X1) = one at every set @S inside the sort is the sentence without the two memberships, at every valuation and point of a model of definedness (setvar_in_drop, at the fixture's sentence setvar_in_drop_e3_owise); the companion is the first equation read with one element at both arguments, where it does not apply at (a, b) and f(a, b) is two under every H" }
   | .keyFunctionAsMember =>
     { status := .guarded,
       guard := [.decl ``KCore.Guards.DevKey.key_steps, .test "test/KeyFunction.lean" "#guard_msgs"],
@@ -2254,10 +2815,12 @@ def readingNote : ReadingNote → GuardEntry
       invariant := [``KCore.Faithful.prioEquation, ``KCore.Cert.evalFC_withHooks, ``KCore.Semantics.fnRest],
       note := "on owise2's text (two equations and two [owise] equations), every H: f(1, 5) = 5 and f(7, 1) = 7 by the [owise] equations, f(1, 0) = 1 by the equation the [owise] one does not override; the companion is the [owise] equations not read, where f(1, 5) is a point every clause fails at, 9 under H9; that the text's premise (one negated disjunct per other equation) and Γ's (the clauses of a smaller priority) are one is the reader's check (fnFrom, fnPairs, excludes), stated by no theorem" }
   | .owiseDisjunctNarrower =>
-    { status := .pending "GUARD.final",
-      guard := [.decl ``KCore.owise_disjunct_narrower],
-      companion := [.decl ``KCore.owise_diag_svin],
-      note := "both are stated on translated sentences, not over c.withHooks H; no GUARD ticket names this constructor" }
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.DevSetVar.ow_values, .decl ``KCore.owise_disjunct_narrower,
+        .decl ``KCore.owise_disjunct_narrower_e3_owise, .test "test/SetVarOwise.lean" "f_not_two"],
+      companion := [.decl ``KCore.Guards.DevSetVar.ow_text_both, .decl ``KCore.owise_diag_svin],
+      invariant := [``KCore.Eval.functional, ``KCore.Det.coherentAll_of_nil, ``KCore.owise_disjunct_narrower],
+      note := "on e3-setvar-owise's text, every H: f(a, b) is one and not two: the [owise] equation is read as excluded wherever the first equation as read applies, which is at every pair, a premise narrower than the text's, whose disjunct holds one element variable at both arguments and so excludes the diagonal only (owise_diag_svin); the text's [owise] sentence entails the one read (owise_disjunct_narrower, at the fixture's sentence owise_disjunct_narrower_e3_owise); the companion is the [owise] equation under the text's premise, a clause of the first equation's priority with the predicate ¬(X0 ∈ X1), where f(a, b) has the two results one and two under every H" }
   | .identityAlias =>
     { status := .pending "GUARD.final",
       guard := [.test "test/AliasRhs.lean" "Semantics equal: true"],
@@ -2311,9 +2874,12 @@ def readingNote : ReadingNote → GuardEntry
       invariant := [``KCore.CExec.successorsN_step_ready, ``KCore.CExec.noStep_at, ``KCore.CExec.execReady_withHooks],
       note := "on e3-ml-req-not's text (go(X) => done requires #Not(X >Int 0), read with no requires and the conjunct X >Int 0 = false of pre), every H: go(0) and go(-3) step to done and go(1) has no successor; the companion is the requires read without its #Not, as X >Int 0, where go(1) steps to done under every H. For every integer, at the parsed semantics: test/CondCut.lean (ReqNot.step_iff)" }
   | .andUnderAppCut =>
-    { status := .pending "GUARD.final",
-      guard := [.test "test/CondCut.lean" "andUnderAppCut", .test "test/CondCut.lean" "ReqAndApp"],
-      note := "a conjunction of single-valued terms under an application of a condition read as its first conjunct with the memberships of the others (Parse.condAndCutT through Parse.condCuts); on e3-ml-req-and-under-app's text (go(X, Y) => done requires f(X #And Y) ==Int 0, f(X) => X -Int 1) at the parsed semantics: go(1, 1) steps to done and go(1, 2), go(2, 2), go(0, 0) have no successor (test/CondCut.lean ReqAndApp); no statement over c.withHooks H, no companion" }
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.DevAndApp.andApp_steps, .test "test/CondCut.lean" "andUnderAppCut",
+        .test "test/CondCut.lean" "ReqAndApp", .test "test/TieE3MlReqAndUnderApp.lean" "rule_from_text"],
+      companion := [.decl ``KCore.Guards.DevAndApp.andApp_first_steps],
+      invariant := [``KCore.CExec.successorsN_step_ready, ``KCore.CExec.noStep_at, ``KCore.CExec.execReady_withHooks],
+      note := "a conjunction of single-valued terms under an application of a condition read as its first conjunct with the memberships of the others (Parse.condAndCutT through Parse.condCuts); on e3-ml-req-and-under-app's text (go(X, Y) => done requires f(X #And Y) ==Int 0, f(X) => X -Int 1, read with the requires f(X) ==Int 0 and the conjunct X ∈ Y of pre), every H: go(1, 1) steps to done and go(1, 2) and go(2, 2) have no successor; the companion is the conjunction read as its first conjunct alone (no pre), where go(1, 2) steps to done under every H (no function of the interpretation is at the point). Γ's rule item from the text's sentence, for every H: test/TieE3MlReqAndUnderApp.lean (rule_from_text)" }
   | .connectiveCut =>
     { status := .pending "GUARD.final",
       guard := [.test "test/PredFixtures.lean" "step_iff", .test "test/PredFixtures.lean" "step_inv",
