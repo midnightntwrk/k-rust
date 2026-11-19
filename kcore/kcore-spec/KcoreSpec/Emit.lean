@@ -23,6 +23,7 @@ import KcoreSpec.DefinitionWf
 import KcoreSpec.Prelude
 import KcoreSpec.Builtins
 import KcoreSpec.Kore.Build
+import KcoreSpec.InstNameDecode
 
 set_option autoImplicit false
 
@@ -95,14 +96,67 @@ def reqPat (S : Kore.KSort) : Option Kore.Pattern → Kore.Pattern
 def premise (args : List String) (req : Option Kore.Pattern) (pats : List Kore.Pattern) : Kore.Pattern :=
   .and R [reqPat R req, argsConj 0 (args.zip pats)]
 
-/-- The sort X of an own symbol named `ite{X}` (`Parse.iteName`), which K writes `Lblite{SortX{}}`.
-A name `Lblite{…}` holding a comma has none: it is an instance at several sorts of a sort-parametric
-symbol the text names `Lblite` (`Parse.instName`), and `ite` takes one sort. -/
+/-- The sort X of an own symbol named `ite{X}` (`Parse.iteName`), which K writes `Lblite{SortX{}}`:
+the one sort name of a name the decoder reads as the head `Lblite` at one sort (`instDecode?`,
+`iteSort?_eq_some`). A name `Lblite{…}` at several sorts has none: it is an instance at several
+sorts of a sort-parametric symbol the text names `Lblite` (`Parse.instName`), and `ite` takes one
+sort; nor has a name the decoder reads as no instance. The decoder is read only on a name
+beginning `Lblite{`, as every name it reads with the head `Lblite` does: that changes no value, and
+every other name is told apart by its first seven characters. -/
 def iteSort? (n : String) : Option String :=
   match n.toList with
-  | 'L' :: 'b' :: 'l' :: 'i' :: 't' :: 'e' :: '{' :: rest =>
-    if rest.contains ',' then none else some (String.ofList rest.dropLast)
+  | 'L' :: 'b' :: 'l' :: 'i' :: 't' :: 'e' :: '{' :: _ =>
+    match instDecode? n with
+    | some (h, xs) => if h = "Lblite" && xs.length == 1 then xs.head? else none
+    | none => none
   | _ => none
+
+/-- The decoder read past the seven characters of `Lblite{`. -/
+def iteSortDec? (n : String) : Option String :=
+  match instDecode? n with
+  | some (h, xs) => if h = "Lblite" && xs.length == 1 then xs.head? else none
+  | none => none
+
+theorem iteSortDec?_eq_some {n X : String} : iteSortDec? n = some X ↔ instDecode? n = some ("Lblite", [X]) := by
+  unfold iteSortDec?
+  cases hd : instDecode? n with
+  | none => simp
+  | some p =>
+    obtain ⟨h, xs⟩ := p
+    simp only [Option.some.injEq, Prod.mk.injEq]
+    by_cases hh : h = "Lblite"
+    · subst hh
+      match xs with
+      | [] => simp
+      | [Y] => simp
+      | _ :: _ :: _ => simp
+    · simp [hh]
+
+theorem iteSort?_eq_dec (n : String) : iteSort? n = iteSortDec? n := by
+  unfold iteSort?
+  split
+  · rfl
+  · rename_i hne
+    cases hd : iteSortDec? n with
+    | none => rfl
+    | some X =>
+      have hn := (instDecode?_eq_some (iteSortDec?_eq_some.1 hd)).2
+      exact absurd (by rw [hn]; simp) (hne (X.toList ++ ['}']))
+
+/-- `iteSort?` gives X exactly when the decoder reads the head `Lblite` at the one sort X. -/
+theorem iteSort?_eq_some {n X : String} : iteSort? n = some X ↔ instDecode? n = some ("Lblite", [X]) := by
+  rw [iteSort?_eq_dec]; exact iteSortDec?_eq_some
+
+/-- A name the decoder reads as no instance is not read as `ite` at a sort. -/
+theorem iteSort?_none_of_instDecode {n : String} (h : instDecode? n = none) : iteSort? n = none := by
+  rw [iteSort?_eq_dec]; unfold iteSortDec?; rw [h]
+
+/-- A name read as `ite` at X is `Lblite{X}`, character by character. -/
+theorem iteSort?_toList {n X : String} (h : iteSort? n = some X) :
+    n.toList = 'L' :: 'b' :: 'l' :: 'i' :: 't' :: 'e' :: '{' :: (X.toList ++ ['}']) := by
+  have := (instDecode?_eq_some (iteSort?_eq_some.1 h)).2
+  subst this
+  simp
 
 mutual
   def Term.kore (c : Semantics) (vs : List KoreAML.Var) : Term → Kore.Pattern
@@ -578,6 +632,26 @@ def isEquations (c : Semantics) (X : Srt) (uTrue uFalse : String) : List Kore.Se
          [ev "VarK" (srt "K")])
        (KoreAML.dv "Bool" "false") (.top (srt "Bool")) [uidAttr uFalse, attr "owise"]]
 
+/-- X's predicate as a function of `c.fns`, with its presentation, where the reader holds it there
+(the text's equations of it are not exactly `Semantics.sortPreds`' clauses); `none` otherwise. -/
+def predFnOfPE (c : Semantics) (p : Presentation) (X : Srt) : Option (Fn × FnPres) :=
+  (predOf X).bind fun l => (withPres c.fns p.fns).find? (·.1.label == l)
+
+/-- A clause's equation (`clauseAx`) with the attributes of an equation kompile generates: its id,
+and `owise{}()` where it is of priority 200 (`clausePrioAttrs`). -/
+def genClauseAxPE (c : Semantics) (p : Presentation) (f : Fn) (fp : FnPres) (cl : Clause) (cp : ClausePres) :
+    Kore.Sentence :=
+  match clauseAx c p f fp cl cp with
+  | .axiom a => .axiom { a with attributes := sortAttrs (uidAttr cp.info.uid :: clausePrioAttrs cl cp) }
+  | s => s
+
+/-- The equations of X's predicate: where it is a function of `c.fns` (`predFnOfPE`), one per clause,
+each with its own id (`genClauseAxPE`); otherwise the two of `isEquations`, with the sort's ids. -/
+def predEquationsPE (c : Semantics) (p : Presentation) (X : Srt) : List Kore.Sentence :=
+  match predFnOfPE c p X with
+  | some (f, fp) => (withPres f.clauses fp.clauses).map fun (cl, cp) => genClauseAxPE c p f fp cl cp
+  | none => let u := uidsOf c p X; isEquations c X u.isTrue u.isFalse
+
 /-- `⊤ ∨ ⊥`: the no-junk axiom of a sort with domain values. -/
 def topBotAx (c : Semantics) (X : Srt) : Kore.Sentence :=
   axiom0 (.or (srtOf c X) [.top (srtOf c X), .bottom (srtOf c X)]) [attr "constructor"]
@@ -648,7 +722,7 @@ def userBlocks (c : Semantics) (p : Presentation) : List (List Kore.Sentence) :=
   ++ (ruleSentences c p).map (fun s => [s])
   ++ U.map (fun X => let u := (uidsOf c p X).proj
       if p.libProjs.contains X || u == "" then [] else projEquations p.simpArg (c.sortName X) u)
-  ++ U.map (fun X => let u := uidsOf c p X; isEquations c X u.isTrue u.isFalse)
+  ++ U.map (predEquationsPE c p)
 
 def userModule (c : Semantics) (p : Presentation) : Kore.Module :=
   { name := ⟨⟨p.moduleName⟩⟩

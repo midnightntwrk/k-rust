@@ -1195,7 +1195,10 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   over `Cond.boundV c val`) and `CE.holds_entails_fixed` (every condition) at `val := c.valued`,
   whose sorts have a value (`Semantics.valued_value`); with `val` admitting no sort,
   `holds_entails_fixed` gives the lemma over `Cond.bound` (`Cond.boundV_none`). The axioms of
-  these, of `holds_den_fixed`, `fixes_value_read` and `fixes_value`.
+  these, of `holds_den_fixed`, `fixes_value_read` and `fixes_value`. The reading of a truth value
+  with its terms' readings (KcoreSpec/HoldsDenFixed.lean): `CE.holdsAt_ex_fixed` and
+  `CE.holdsReadT_holdsAt_fixed` at `c.valued`, `CE.holdsReadT_holdsAt_bound` over `Cond.bound`,
+  `HoldsReadT.congr_NIR` at `TermAt`, and `holdsAt_allB` over `Cond.boundV`, with their axioms.
 - `test/HooksSet.lean`: the 10 supported hook rows of SET (the sort and nine operations) against
   domains.md's prose, cited by line: each operation at every argument list by the members of its
   result (the one set with them), with hand-derived values that `hook` gives, the result under
@@ -1819,6 +1822,22 @@ table above, on the tree before String and Bytes). Not investigated here.
   both sides are `hook`'s, the first position of one of S2's characters being `gLfc` of the first of
   its first character and of the others, `lfc_firstOr_or`), so it is entailed at values (`ev237`,
   `LibEv.FnEqn.entailedP`); `HookParams.lib` meets the condition (`ev237_lib`). Axioms guarded.
+- `test/LibEvDividesInt.lean`: on `f2-examples/e6-divides-int.kompile.kore` (the fixture
+  e6-divides-int), the reading's one parameter symbol is `dividesInt`, without implementation
+  (`params_div`); Γ entails each sort declaration without sort parameters (`decls_entailed`) and
+  `dividesInt`'s declaration (`lib_decls_entailed`), for every H; its library equation (domains.md
+  1454, axiom 183) is entailed at values for every H meeting `divEq` (`ev183`, `LibEv.FnEqn.entailedP`;
+  no value at a zero divisor, where `%Int` has none); `Hdiv` meets it (`ev183_Hdiv`); at
+  `HookParams.none` the left side has no value where the right side has one (`div_none`). Axioms
+  guarded.
+- `test/LibEvInt2BytesNoLen.lean`: on `f2-examples/e6-int2bytes-nolen.kompile.kore` (the fixture
+  e6-int2bytes-nolen), the reading's parameter symbols are `~Int` and `Int2BytesNoLen`, without
+  implementation (`params_i2b`); Γ entails each sort declaration without sort parameters
+  (`decls_entailed`) and `Int2BytesNoLen`'s declaration (`lib_decls_entailed`), for every H; the
+  library's equation at 0 (domains.md 2250, axiom 189) is entailed at values for every H meeting
+  `i2bZeroEq` (`ev189`); `Hi2b` meets it (`ev189_Hi2b`); at `HookParams.none` the left side has no
+  value at 0 where the right side has one (`zero_none`). The other four equations (2252-2258) match a
+  Signedness constructor, which no LibEv term expresses. Axioms guarded.
 - `test/LibEvCollSym.lean`: the lemmas of MAP-KORE-SYMBOLIC and SET-KORE-SYMBOLIC of
   `f2-examples/collsym.kompile.kore`, for every H, from the library's statements
   (`KcoreSpec/LibEvCollSym.lean`): entailed at values, without an `ensures` (`LibEv.Eqn`; domains.md

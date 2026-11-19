@@ -132,14 +132,6 @@ UNSHOWN = ("R2-release.C4", 3)
 PINNED = [
     # no stage of the reader produces it yet (ReadFns.hoistExists, its producer, has no caller there)
     ("RefusalReason.existentialEquation", "CE.reader-wire"),
-    # printed by fixtures hw-h1-*, hw-h8 and hw-h12-ctor; the rows of those shapes are owed
-    ("RefusalReason.constructorEquation", "KPROV.apply"),
-    ("RefusalReason.existentialAxiom", "KPROV.apply"),
-    ("RefusalReason.ctorResultSort", "KPROV.apply"),
-    # printed by e2-init-partial-fn (no entry cites it) and given at a registry sort's predicate
-    # equation that is no clause of its sortPreds function (hybrid at a registry sort, no fixture);
-    # the hybrid fixtures that printed it are read, and the row naming the registry case is owed
-    ("RefusalReason.generatedEquation", "C3.rows-hybrid-supported"),
 ]
 
 

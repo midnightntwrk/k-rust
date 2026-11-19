@@ -12,6 +12,7 @@
   (`elemOf_spec`). With the unit implemented by the library's unit, `coreOK` holds (`c0_coreOK`).
   The decidable facts are kernel decisions.
 -/
+import KcoreSpec.CoreDecide
 import KcoreSpec.Sound
 import KcoreSpec.ModelUndefRhsWitness
 
@@ -58,7 +59,8 @@ def c : Semantics := withUnit (builtinColl .list).elem
 /-- The unit parameter implemented by the library list's unit. -/
 def c0 : Semantics := withUnit (builtinColl .list).unit
 
-theorem c0_coreOK : c0.coreOK = true := by decide +kernel
+set_option maxHeartbeats 4000000 in
+theorem c0_coreOK : c0.coreOK = true := by decide_coreOK
 
 instance : OvlOK c := .of_nil rfl (by decide +kernel)
 

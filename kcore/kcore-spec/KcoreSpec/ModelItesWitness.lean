@@ -1,14 +1,17 @@
 /-
-  KCore. A semantics that meets every condition of `coreOK` but `itesApart`, and `FnHyp`, whose `Γ`
-  has no model because two parameter symbols are named like `ite` at one sort: so `SoundC` fails of
-  it (`not_sound`), and `itesApart` cannot be left out of `coreOK`.
+  KCore. A semantics with two parameters named `Lblite{Int}` and `Lblite{Int]`, both taking two
+  Ints to an Int, the first implemented by `_+Int_`, the second without an implementation. The
+  decoder of instance names (`instDecode?`) reads the first as the head `Lblite` at `Int` and the
+  second, whose sort list no `}` closes, as no instance: so `iteSort?` gives the first the sort
+  `Int` and the second none (`ite1`, `ite2`), and `Γ` writes their applications at two heads,
+  `Lblite{SortInt}(…)` and `Lblite{Int]}(…)` (`symApp_apart`). The semantics meets every condition
+  of `coreOK`, `itesApart` among them (`itesApart_holds`, `coreOK_holds`), and `FnHyp`, so it is
+  sound (`sound`, by `sound_hyp`).
 
-  The two parameters `Lblite{Int}` and `Lblite{Int]` take two Ints to an Int; the first is
-  implemented by `_+Int_`, the second has no implementation, so it is undefined everywhere
-  (`HookParams.none`). Their names differ, so `NamesApartK` holds, but `iteSort?` reads both as `ite`
-  at `Int`, and `Γ` writes the application of either as `Lblite{SortInt}(…)` (`symApp`). Its graphs
-  then say of `Lblite{SortInt}(1, 2)` both that it is `3` and that it is nothing (`ΓDomains`), while
-  `3` denotes an element. The decidable facts are kernel decisions.
+  Two symbols of `kernelSyms` that the decoder reads as one instance are one symbol (`instsApart`,
+  from `namesApartK` and the decoder's exactness), so no semantics meeting `namesApartK` names two
+  symbols at one head and the same sorts; `itesApart` asks no such condition. The decidable facts
+  are kernel decisions.
 -/
 import KcoreSpec.Sound
 
@@ -71,45 +74,31 @@ theorem meets_others : c.sortedOK = true ∧ c.hooksApart = true ∧ c.predsApar
     by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
     by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, fnHyp⟩
 
-theorem not_itesApart : Model.itesApart c = false := by decide +kernel
+/-- `itesApart` holds: `Lblite{Int}` is the one instance name, at the numbered sort `Int`. -/
+theorem itesApart_holds : Model.itesApart c = true := by decide +kernel
 
-def v1 : GroundTerm := .dv Srt.int (.int 1)
-def v2 : GroundTerm := .dv Srt.int (.int 2)
-def v3 : GroundTerm := .dv Srt.int (.int 3)
-
-theorem v3_sort : c.sortOf v3 = some Srt.int := by decide +kernel
-theorem p1_mem : p1 ∈ c.params := List.mem_cons_self ..
-theorem p2_mem : p2 ∈ c.params := List.mem_cons_of_mem _ (List.mem_cons_self ..)
-theorem args1 : c.sortsOf [v1, v2] = some p1.sig.args := by decide +kernel
-theorem args2 : c.sortsOf [v1, v2] = some p2.sig.args := by decide +kernel
-theorem val1 : c.paramVal p1.sig.name [v1, v2] = some v3 := by decide +kernel
-theorem val2 : c.paramVal p2.sig.name [v1, v2] = none := by decide +kernel
 theorem ite1 : iteSort? (c.symName p1.sig.name) = some "Int" := by decide +kernel
-theorem ite2 : iteSort? (c.symName p2.sig.name) = some "Int" := by decide +kernel
+theorem ite2 : iteSort? (c.symName p2.sig.name) = none := by decide +kernel
 
-/-- Both parameters' applications are written `Lblite{SortInt}(…)`. -/
-theorem symApp_same : symApp c p1.sig.name (GroundTerm.koreList c [v1, v2]) =
-    symApp c p2.sig.name (GroundTerm.koreList c [v1, v2]) := by
-  unfold symApp; rw [ite1, ite2]
+/-- The two parameters' applications are written at two heads. -/
+theorem symApp_apart (args : List Kore.Pattern) :
+    symApp c p1.sig.name args = .app ⟨⟨"Lblite"⟩⟩ [KoreAML.srt "Int"] args ∧
+      symApp c p2.sig.name args = .app ⟨⟨"Lblite{Int]"⟩⟩ [] args := by
+  constructor
+  · unfold symApp; rw [ite1]
+  · unfold symApp; rw [ite2]; rfl
 
-/-- **`Γ c` has no model.** -/
-theorem no_model : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), ¬ (I ⊧ᴵP Γ c) := by
-  intro M _ I hI
-  have hD := defOK hI
-  have ax1 := sat_dom hI (Or.inr (Or.inl ⟨p1, [v1, v2], p1_mem, args1, rfl⟩))
-  have ax2 := sat_dom hI (Or.inr (Or.inl ⟨p2, [v1, v2], p2_mem, args2, rfl⟩))
-  have g1 := (KoreAML.interp_equal hD).mp (ax1 KoreAML.val0 default) (elemOf c I v3)
-  have g2 := (KoreAML.interp_equal hD).mp (ax2 KoreAML.val0 default) (elemOf c I v3)
-  rw [val1] at g1
-  rw [val2, ← symApp_same] at g2
-  have h3 := ((elemOf_spec hI v3_sort KoreAML.val0).1 (elemOf c I v3)).mpr rfl
-  exact g2.mp (g1.mpr h3)
+theorem overloadsOK_holds : c.overloadsOK = true := by decide +kernel
 
-/-- **Soundness fails** of `c`, which meets every condition of `coreOK` but `itesApart`, and
-`FnHyp`. -/
-theorem not_sound : ¬ SoundC c := fun h => by
-  obtain ⟨⟨M, hM, I, hI⟩, -⟩ := h
-  exact no_model M hM I (fun φ hφ => hI φ (Or.inl (Or.inl hφ)))
+/-- **`c` meets `coreOK`.** -/
+theorem coreOK_holds : c.coreOK = true := by
+  obtain ⟨h1, h2, h3, h4, h5, h6, h7, h8, h9, h10, h11, h12, h13, h14, h15, -⟩ := meets_others
+  have h9' : Model.collsNotCtors c = true := by decide +kernel
+  simp only [Semantics.coreOK, Semantics.faithCoreOK, h1, h2, h3, h4, h5, h6, h7, h8, h9, h9', h10, h11,
+    h12, h13, h14, h15, itesApart_holds, overloadsOK_holds, Bool.and_self]
+
+/-- **`c` is sound.** -/
+theorem sound : SoundC c := sound_hyp c coreOK_holds fnHyp
 
 end ItesWitness
 

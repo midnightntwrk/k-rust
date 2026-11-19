@@ -3,7 +3,10 @@
   with three clauses: isKResult(pair(K0, K1)) = true requires isKResult(K0) andBool isKResult(K1);
   isKResult(inj{KResult,KItem}(V)) = true; false otherwise (priority 200). `sortPreds` builds no
   function of that number, `coreOK` holds, and evaluation applies the function's clauses.
-  The predicate's totality is owed (`totalObligations`).
+  Its self calls decrease in weight (`decreasingOKL`, so `decObligationsL` names nothing): the call
+  argument `kseq(inj(K0), dotk)` is lighter than the pattern `kseq(inj(pair(K0, K1)), dotk)`, an
+  injection against an injection over a constructor. `totalOK`'s older decider `decreasingOK`
+  does not see it (`totalObligations`), and no list of `FnObligations` reads that one.
   Sorts: KCell, KCellOpt, Exp, KResult; Int < KResult < Exp; pair : Exp Exp -> Exp.
   Run from the package root: `lake env lean -j1 test/PredHybrid.lean`.
 -/
@@ -66,8 +69,18 @@ theorem pair_result : Exec.evalT c 100 [] (.app isKR [item p12]) = some (some (.
 /-- isKResult(pair(pair(1, 2), 1)) = true. -/
 theorem pair_pair : Exec.evalT c 100 [] (.app isKR [item (.app pairS [p12, int 1])]) =
     some (some (.dv Srt.bool (.bool true))) := by decide +kernel
-/-- The predicate's totality is not confirmed by `totalOK` (its self calls are at no variable of the pattern): owed. -/
+/-- `totalOK`'s `decreasingOK` does not confirm the predicate (its self calls are at no variable of
+the pattern), so `totalObligations` names it; no list of `FnObligations` reads `decreasingOK`. -/
 theorem owed : c.totalObligations = [isKR] := by decide +kernel
+/-- The self calls `isKResult(kseq(inj(K0), dotk))` and at K1 decrease in weight against the
+pattern `kseq(inj(pair(K0, K1)), dotk)`: no function's termination is named by `decObligationsL`. -/
+theorem hybrid_term : c.decObligationsL = [] ∧ c.decreasingOKL isKRFn (some 0) = true := by decide +kernel
+/-- Outside the rule (not unsound): under the pattern's injection is a nested injection, which can
+denote an injected value, so `argLe` does not accept the injected variable although the variable
+lies on a path of the inner pattern. -/
+theorem inj_nested_outside :
+    c.argLe (.inj KRes Exp (.var 0)) (.inj KRes Exp (.inj Srt.int KRes (.var 0))) = false := by
+  decide +kernel
 
 /-- info: 'KCore.Faithful.PredHybrid.core' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in
@@ -76,5 +89,9 @@ theorem owed : c.totalObligations = [isKR] := by decide +kernel
 /-- info: 'KCore.Faithful.PredHybrid.pair_result' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in
 #print axioms pair_result
+
+/-- info: 'KCore.Faithful.PredHybrid.hybrid_term' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms hybrid_term
 
 end KCore.Faithful.PredHybrid

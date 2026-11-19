@@ -302,6 +302,99 @@ def consumedWith (generated : Bool) (S : Scan) (E : Env) (d : Definition) (s : K
       | none => (scanOr s).isSome
   | _ => false
 
+/-- `Semantics.symName` with the semantics' own names read from an array. -/
+def symNameArr (a : Array String) (f : Sym) : String :=
+  if f < nRegSyms then regSymNames.getD f "" else a.getD (f - nRegSyms) ""
+
+theorem symNameArr_toArray (c : Semantics) : symNameArr c.symNames.toArray = c.symName := by
+  funext f
+  simp only [symNameArr, Semantics.symName, Array.getD_eq_getD_getElem?, List.getElem?_toArray,
+    List.getD_eq_getElem?_getD]
+
+/-- `consumedWith` with the functions' labels read from an array of the semantics' names
+(`symNameArr`), built once per sentence, where `Semantics.symName` reads a list position by position;
+the compiled code computes `consumedWith` as it (`consumedWith_eq_arr`). -/
+def consumedWithArr (generated : Bool) (S : Scan) (E : Env) (d : Definition) (s : Kore.Sentence)
+    (pf : String → Bool := regProjFree d.sem) : Bool :=
+  let c := d.sem
+  let symA := symNameArr c.symNames.toArray
+  let sortHas := fun (X : String) => regSortNames.contains X || c.sortNames.contains X
+  let symHas := fun (f : String) => regSymNames.contains f || c.symNames.contains f
+  let sortOfName := fun (n : String) => (dropPrefix? "Sort" n).getD n
+  let cells := Cell.all d.pres.topCell
+  let initLabels := cells.map (·.initLabel c)
+  -- the cell whose initializer `f` is, where that is no symbol of the registry or of `d`
+  let initCell := fun (f : String) => if symOfDefn c f then none else cells.find? (·.initLabel c == f)
+  let fnLabels := c.fns.map fun f => symA f.label
+  -- `project:X` and a named argument's `project:#c:x` (`Lblproject'ColnHash'…`)
+  let isProj := fun (f : String) => (dropPrefix? "Lblproject'Coln" f).isSome
+  let isPredOrProj := fun (f : String) => isProj f || match dropPrefix? "Lblis" f with
+    | some X => sortHas X
+    | none => false
+  -- the definition's own parameters and their presentations: a `functional` axiom of one is what
+  -- its declared `total` states (`ParamPres.total`, `Definition.totalParams`)
+  let ownParams := withPres (c.params.filter fun k => decide (nRegSyms ≤ k.sig.name)) d.pres.params
+  let paramNotTotal := fun (f : String) => ownParams.any fun (k, kp) => c.symName k.sig.name == f && !kp.total
+  -- an open generator's `functional` axiom reads the sort at the interpretation's values: it is
+  -- stated at values under `OpenTotal`, not a parameter's declared total (`Definition.totalParams`
+  -- leaves it out)
+  let openGen := fun (f : String) => c.params.any fun k => k.raw && c.symName k.sig.name == f
+  -- the overloading symbol f overloads g (`Semantics.ovls`)
+  let ovlPair := fun (as : List Kore.AppPattern) => match overloadSyms? as with
+    | some (f, g) => c.ovls.any fun o => c.symName o.sig.name == f && o.over.any (c.symName · == g)
+    | none => false
+  match scanBuiltin s with
+  | some (src, l) => (moduleAt src l).isSome
+  | none => if isKBuiltin (sentenceAttrs s) && !isDefaultConfig s && !isOwnLibrarySentence s then (kBuiltinModule? s).isSome else match s with
+  | .sort x => sortHas (sortOfName x.sort.ident.name)
+  | .hookedSort x => sortHas (sortOfName x.sort.ident.name)
+  | .symbol x => let f := x.symbol.ident.ident.name
+    symHas f || isProj f || initLabels.contains f || f == "LblgetGeneratedCounterCell"
+  | .hookedSymbol x => symHas x.symbol.ident.ident.name
+  | .axiom a =>
+    if (scanRewrite s).isSome then true
+    else match ((rawEqn? a).orElse fun _ => overloadEqn? a).orElse fun _ => projDomainEqn? a with
+    | some e =>
+      -- every equation of a function is one of its clauses, each `[owise]` one among them (a
+      -- selector-domain axiom: a clause of the projection, or generated with it)
+      fnLabels.contains e.fn || ovlPair a.attributes ||
+      -- a user's equation of a symbol whose value the registry gives: a sentence the reader leaves
+      -- out of `Γ`, owed (`regLemmaEqn`)
+      regLemmaEqn S e ||
+      -- the getter's equation and a tree initializer's, by their content
+      (!symOfDefn c getterName && getterEqnOK c S.eqs e) ||
+      ((initCell e.fn).any fun x => initEqnOK E.N E.src S.eqs c x e) ||
+      -- a sort predicate's equation that is its clause, or an instance of one at a constructor
+      -- pattern with its `[owise]` equation (`predInstAcc`), or a sort's projection's that no symbol
+      -- of `d` reads and, registry-numbered, no premise of `Γ` names (`predProjAcc`), whoever
+      -- wrote it; or, generated (no user source), a
+      -- constructor argument's projection's (`genEqClassOK`) or a sentence of `kconfigModule`'s
+      -- text where `d` imports that module (`kconfigOwnSentence`)
+      (generated && (predProjAcc E.N E.src S.eqs c e pf || predInstAcc E.N E.src S.eqs c e ||
+        (!isUserSource a.attributes && !isOwnBuiltin s && (genEqClassOK E d S.eqs e pf || kconfigOwnSentence E s))))
+    | none => match scanEvent s with
+      -- a macro symbol's functional axiom: of a symbol that is not part of the reading
+      | some (.inl f) => S.macros.contains f || c.ctors.any (fun k => c.symName k.name == f) ||
+        (symHas f && (c.fns.all fun fn => symA fn.label != f || fn.total) && !paramNotTotal f) ||
+        openGen f ||
+        ((initCell f).any fun x => initFunctionalOK E.N E.src S.eqs (functionalSyms S.events) c x) ||
+        isProj f
+      | some (.inr (x, y)) =>
+        let libNames := ((importsOf E.imports).flatMap (·.sorts)).map (regSortNames.getD · "")
+        ((E.userSortNames.contains x || libNames.contains x) && E.userSortNames.contains y) ||
+        (E.userSortNames.contains x && libNames.contains y) ||
+        c.userSubsorts.any (fun (a, b) => c.sortName a == x && c.sortName b == y) ||
+        -- every sort of `d` is below KItem; the library's subsorts are `d.sem.lib`'s
+        (y == "KItem" && sortHas x) ||
+        d.pres.cellSubsorts.any (fun (a, b) => c.sortName a == x && c.sortName b == y) ||
+        c.lib.subsorts.any fun (a, b) => c.sortName a == x && c.sortName b == y
+      | none => (scanOr s).isSome
+  | _ => false
+
+@[csimp] theorem consumedWith_eq_arr : @consumedWith = @consumedWithArr := by
+  funext generated S E d s pf
+  simp only [consumedWith, consumedWithArr, symNameArr_toArray]
+
 /-- `consumedWith`, the arm for the equations no function of `d` holds (a sort predicate's or a
 projection's, and those without a user source) among the arms when `generated`. -/
 def consumed (S : Scan) (E : Env) (d : Definition) (s : Kore.Sentence) : Bool :=

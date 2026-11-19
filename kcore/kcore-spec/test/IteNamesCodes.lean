@@ -1,10 +1,10 @@
 /-
-  Names `iteIdx` lists (a code beginning `Lblite{`) on construct fixtures' kompiled texts,
-  decided on the names' codes (NameCodes.lean).
+  Names read as instances (`instDecode?`) on construct fixtures' kompiled texts, decided on the
+  names' codes (NameCodes.lean: `instIdx` lists the codes holding `{`).
   Run from the package root: `lake env lean test/IteNamesCodes.lean`.
   - rdr-ite-two-eq: the instance `Lblite{Foo,Foo}` of the text's own `Lblite{S1,S2}`, at two sorts,
-    with an equation, is a function of the reading. Its code is listed by `iteIdx`, and `iteSort?`
-    gives it no sort, so `namesNumbered` holds and its decision on codes (`namesNumberedC`) gives it.
+    with an equation, is a function of the reading. Its code is listed by `instIdx`, and `iteSort?`
+    gives it no sort; it is no constructor, so `namesNumbered` holds and its decision on codes (`namesNumberedC`) gives it.
   - rdr-ite-own: the instance `Lblite{Foo}` of the text's own `Lblite{S}`, at one sort, without an
     equation, is a parameter of the reading without an implementation; `namesNumbered` and
     `itesApart` from their decisions on codes.

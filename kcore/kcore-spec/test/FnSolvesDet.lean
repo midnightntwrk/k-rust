@@ -10,10 +10,17 @@
     `ClausePostDecided` and `OpenLaws`, one of its functions has two results at 0, and its `Γ` has
     no model. So `fnDet_of_fnSolves` cannot lose `clausesPreTop`, and `consistent_of` cannot lose
     `FnDet` (`consistent_needs_fnDet`).
-  - Whether `fnDet_of_fnSolves` can lose `FnsNoExs` is open: `coreOK` admits a clause with
-    existential variables, each of a confined sort or fixed by the clause's right-side predicate,
-    and `Eval.clauseEx` and `Eval.exNone` read that predicate by `Holds`, which has `ceil` and
-    `not`.
+  - `coreOK` also admits a clause with existential variables, each of a confined sort or fixed by
+    the clause's right-side predicate, and `Eval.clauseEx` and `Eval.exNone` read that predicate by
+    `Holds`, which has `ceil` and `not`. There too `FnSolves` does not give `FnDet`, every clause's
+    predicate being `\top` (`not_fnDet_of_fnSolves_preTop`): `FnDetExsWit.c` below, the same
+    definition with `¬⌈a(X)⌉` in the right-side predicate of `u`'s clause beside an existential
+    variable it fixes, meets `coreOK`, `clausesPreTop`, `FnSolves`, `ClausePreDecided`,
+    `ClausePostDecided` and `OpenLaws`, `a` has two results at 0, and its `Γc` has no model. So
+    `fnDet_of_fnSolves` cannot lose `FnsNoExs`, and `consistent_of` cannot lose `FnDet` where every
+    clause's predicate is `\top` (`consistent_needs_fnDet_preTop`). The existential variable has one
+    value there: what the right-side predicate adds is a reading that is true from a derivation of
+    none, as a premise's predicate does.
   Run from the package root: `lake env lean -j1 test/FnSolvesDet.lean`.
 
   Why the proof below stops at a predicate. It shows, by induction over one derivation, that every
@@ -35,12 +42,11 @@
   `pre` `\top` (`allFns_preTop`). So `Eval.clauseEx` and `Eval.exNone` do
   not occur, `FnSolves` is read as the value of the deciding clause's right-hand side where its
   `ensures` is `true` (`Clause.gives_iff_noExs`), the premise on `Clause.pre` (of `clause` and
-  `ensFails`) holds and the failure `ReqFails.pre` does not occur. Existential variables (which
-  `coreOK` admits, so `FnsNoExs` is a hypothesis here) or another `pre` (a `Cond` whose `Holds` has
-  `ceil` and `not`, so that a premise can hold because a term is undefined) can make a witness
-  possible; the recursor call below
-  stops elaborating when the block changes, which is the signal to decide the question again on the
-  new block.
+  `ensFails`) holds and the failure `ReqFails.pre` does not occur. A right-side predicate beside
+  existential variables (which `coreOK` admits, so `FnsNoExs` is a hypothesis here) or another
+  `pre` (each a `Cond` whose `Holds` has `ceil` and `not`, so that it can hold because a term is
+  undefined) gives a witness; the recursor call below stops elaborating when the block changes,
+  which is the signal to decide the question again on the new block.
 
   The argument, by one induction over the evaluation block (`Eval.rec`), shows of every result `r`
   of a function at `vs` that any value `some w` there is `r` (`V1`), and of every term's result
@@ -514,6 +520,367 @@ theorem instance_c0 : FnDet c0 :=
 
 end FnSolvesDet
 
+/-! ## With `clausesPreTop`, a clause with an existential variable
+
+`FnDetExsWit.c`: two functions over Int, every clause's predicate `\top`:
+- `a(X) => 1` (`aCl1`) and `a(X) => 1 ensures u(X)` (`aCl2`), of one priority;
+- `u(X) => true` with the existential variable `Z : Int` and the right-side predicate
+  `Z = 0 ∧ ¬⌈a(X)⌉` (`uCl`), which fixes `Z`.
+At an Int `w`:
+- `a(w)` is 1 by `aCl1` (`a_one`);
+- so the right-side predicate is false at every instance, an instance exists, and `u(w)` has no
+  value by `Eval.exNone` (`u_none`);
+- so `aCl2`'s `ensures` is not `true`, and `a(w)` has no value by `Eval.ensFails` (`a_none`);
+- so the right-side predicate is also true at `Z = 0`, every instance gives `true` or is read as
+  giving nothing, and `u(w)` is `true` by `Eval.clauseEx` (`u_true`).
+The existential variable has one value; what has two results is `a`, a value and none, through
+`Holds.not` over `Holds.ceil` in a right-side predicate, which `coreOK` admits only on a clause
+with an existential variable. `FnSolves` holds: it speaks of values only.
+
+In a model of `Γc`, `a(0)` would denote the element of 1 and nothing (`no_model_c`): `aCl1`'s
+sentence states `a(x) = 1`; then `¬⌈a(x)⌉` is nothing, so is `u(x)`, and `aCl2`'s states
+`a(x) = 1 ∧ ⌈u(x) = true⌉`, nothing. The definition reads a confined sort (its clause has a
+variable its patterns do not bind), so its theory is `Γc`, and `Consistent` is about `Γc`. -/
+
+namespace FnDetExsWit
+
+open Faithful.UndefRhsWitness (cellSorts cellCtors cellSubsorts)
+
+def A : Sym := nRegSyms + 4
+def Uu : Sym := nRegSyms + 5
+
+def one : GroundTerm := .dv Srt.int (.int 1)
+def zero : GroundTerm := .dv Srt.int (.int 0)
+def tt : GroundTerm := .dv Srt.bool (.bool true)
+
+/-- `a(X) => 1`. -/
+def aCl1 : Clause := ⟨[Srt.int], [.var 0], none, .dv Srt.int (.int 1), none, 50, false, [], .top, .top⟩
+/-- `a(X) => 1 ensures u(X)`. -/
+def aCl2 : Clause :=
+  ⟨[Srt.int], [.var 0], none, .dv Srt.int (.int 1), some (.app Uu [.var 0]), 50, false, [], .top, .top⟩
+def aFn : Fn := ⟨A, [Srt.int], Srt.int, [aCl1, aCl2], false⟩
+
+/-- `Z = 0 ∧ ¬⌈a(X)⌉`. -/
+def postU : Cond :=
+  .and (.equals Srt.int (.var 1) (.dv Srt.int (.int 0))) (.not (.ceil Srt.int (.app A [.var 0])))
+
+/-- `u(X) => true` with `Z` existential and the right-side predicate `Z = 0 ∧ ¬⌈a(X)⌉`. -/
+def uCl : Clause :=
+  ⟨[Srt.int, Srt.int], [.var 0], none, .dv Srt.bool (.bool true), none, 50, false, [1], .top, postU⟩
+def uFn : Fn := ⟨Uu, [Srt.int], Srt.bool, [uCl], false⟩
+
+def c : Semantics :=
+  { lib := {}
+    sortNames := ["KCell", "KCellOpt"]
+    symNames := ["LblisKCell", "LblisKCellOpt", "Lbl'-LT-'k'-GT-'", "LblnoKCell", "Lbla", "Lblu"]
+    userSorts := cellSorts
+    ctors := cellCtors
+    fns := [aFn, uFn]
+    userSubsorts := cellSubsorts
+    pgmSort := Srt.k
+    rules := [] }
+
+/-- `coreOK` accepts `c`. -/
+theorem coreOK : c.coreOK = true := by decide +kernel
+
+/-- Every clause's predicate is `\top`. -/
+theorem preTop : c.clausesPreTop = true := by decide +kernel
+
+/-- A clause of `c` has an existential variable. -/
+theorem not_noExs : ¬ c.FnsNoExs := fun h => by
+  have := h uFn (by simp [c]) uCl (by simp [uFn])
+  cases this
+
+theorem lookups : c.lookupFn A = some aFn ∧ c.lookupFn Uu = some uFn := ⟨rfl, rfl⟩
+
+theorem kinds : c.isCtor A = false ∧ isHook A = false ∧ c.isParam A = false ∧ c.isOvl A = false ∧
+    c.isCtor Uu = false ∧ isHook Uu = false ∧ c.isParam Uu = false ∧ c.isOvl Uu = false := by decide +kernel
+
+theorem aCl_of {cl : Clause} (h : cl ∈ aFn.clauses) : cl = aCl1 ∨ cl = aCl2 := by simpa [aFn] using h
+theorem uCl_of {cl : Clause} (h : cl ∈ uFn.clauses) : cl = uCl := by simpa [uFn] using h
+theorem mem_fns {fn : Fn} (h : fn ∈ c.fns) : fn = aFn ∨ fn = uFn := by simpa [c] using h
+
+theorem match0 {σ : Subst} {vs : List GroundTerm} (h : PatVals c σ [.var 0] vs) :
+    ∃ v, vs = [v] ∧ σ.lookup 0 = some v := by
+  obtain ⟨v, vs', rfl, hv, hs⟩ := PatVals.cons_inv h
+  rw [PatVals.nil_inv hs]
+  exact ⟨v, rfl, PatVal.var_inv hv⟩
+
+/-- A substitution that gives X the Int `w` and Z an Int is well sorted for `[Int, Int]`, and
+for `[Int]`. -/
+theorem sorted2 {σ : Subst} {w z : GroundTerm} (h0 : σ.lookup 0 = some w) (hw : c.sortOf w = some Srt.int)
+    (h1 : σ.lookup 1 = some z) (hz : c.sortOf z = some Srt.int) : c.WellSorted [Srt.int, Srt.int] σ := by
+  intro i s hs
+  match i, hs with
+  | 0, hs => cases hs; exact ⟨w, h0, hw⟩
+  | 1, hs => cases hs; exact ⟨z, h1, hz⟩
+  | i + 2, hs => simp at hs
+
+theorem sorted1 {σ : Subst} {w : GroundTerm} (h0 : σ.lookup 0 = some w) (hw : c.sortOf w = some Srt.int) :
+    c.WellSorted [Srt.int] σ := by
+  intro i s hs
+  match i, hs with
+  | 0, hs => cases hs; exact ⟨w, h0, hw⟩
+  | i + 1, hs => simp at hs
+
+/-- X is `w` and Z is 0. -/
+def sg (w : GroundTerm) : Subst := [(0, w), (1, zero)]
+
+theorem zero_int : c.sortOf zero = some Srt.int := by decide +kernel
+
+theorem sg_match (w : GroundTerm) : PatVals c (sg w) [.var 0] [w] := .cons (.var rfl) .nil
+
+/-- A call of `f` at the variable X, where X is `w`, has `f`'s result at `w`. -/
+theorem call_mk {f : Sym} (hk : c.isCtor f = false) (hh : isHook f = false) (hp : c.isParam f = false)
+    {σ : Subst} {w : GroundTerm} (hl : σ.lookup 0 = some w) {r : Option GroundTerm} (h : Eval c f [w] r) :
+    EvalTerm c σ (.app f [.var 0]) r :=
+  .call (vs := [w]) hk hh (.cons .var .nil) (by rw [hl]; rfl) h hp
+
+section Results
+
+variable {w : GroundTerm} (hw : c.sortOf w = some Srt.int)
+include hw
+
+omit hw in
+/-- No clause of `a` is of a smaller priority than another. -/
+theorem a_prio {cl : Clause} (hcl : cl ∈ aFn.clauses) :
+    ∀ cl' ∈ aFn.clauses, cl'.aside = false → cl'.prio < cl.prio → Fails c [w] cl' := by
+  intro cl' hcl' _ hlt
+  rcases aCl_of hcl with rfl | rfl <;> rcases aCl_of hcl' with rfl | rfl <;> exact absurd hlt (Nat.lt_irrefl _)
+
+omit hw in
+theorem u_prio : ∀ cl' ∈ uFn.clauses, cl'.aside = false → cl'.prio < uCl.prio → Fails c [w] cl' :=
+  fun cl' hcl' _ hlt => by rw [uCl_of hcl'] at hlt; exact absurd hlt (Nat.lt_irrefl _)
+
+/-- **`a(w)` is 1**, by its first clause. -/
+theorem a_one : Eval c A [w] (some one) :=
+  .clause (fn := aFn) (cl := aCl1) (σ := sg w) lookups.1 (List.mem_cons_self ..) (sorted1 rfl hw) (sg_match _)
+    (fun _ ht => nomatch ht) .top (a_prio (List.mem_cons_self ..)) rfl .dv (fun _ ht => nomatch ht) .top
+
+/-- `Z = 0 ∧ ¬⌈a(X)⌉` is false where X is `w`: `a(w)` has a value. -/
+theorem post_false {σ : Subst} (hl : σ.lookup 0 = some w) : Holds c 2 σ postU false := by
+  have h : Holds c 2 σ postU (sameResult (σ.lookup 1) (some zero) && !(some one).isSome) :=
+    .and (.equals .var .dv) (.not (.ceil (call_mk kinds.1 kinds.2.1 kinds.2.2.1 hl (a_one hw))))
+  simpa using h
+
+omit hw in
+/-- X is `w` at an instance of `u`'s clause at a match where X is `w`. -/
+theorem inst_x {σ σ' : Subst} (hl : σ.lookup 0 = some w) (ha : AgreeOff uCl.exsFree σ σ') :
+    σ'.lookup 0 = some w := (ha 0 (by decide)).trans hl
+
+/-- **`u(w)` has no value**: every instance of its clause's right side gives nothing. -/
+theorem u_none : Eval c Uu [w] none :=
+  .exNone (fn := uFn) (cl := uCl) (σ := sg w) lookups.2 (List.mem_singleton_self _) (by decide)
+    ((sorted2 rfl hw rfl zero_int).at _) (sg_match _) (fun _ ht => nomatch ht) .top u_prio
+    ⟨sg w, AgreeOff.refl _ _, sorted2 rfl hw rfl zero_int⟩
+    (fun _ ha _ => .fails (post_false hw (inst_x rfl ha)) (.post (post_false hw (inst_x rfl ha))))
+
+/-- **`a(w)` has no value**, by its second clause, whose `ensures` `u(X)` is not `true`. -/
+theorem a_none : Eval c A [w] none :=
+  .ensFails (fn := aFn) (cl := aCl2) (σ := sg w) (w := none) lookups.1
+    (List.mem_cons_of_mem _ (List.mem_singleton_self _)) (sorted1 rfl hw) (sg_match _)
+    (fun _ ht => nomatch ht) .top (a_prio (List.mem_cons_of_mem _ (List.mem_singleton_self _))) rfl rfl
+    (call_mk kinds.2.2.2.2.1 kinds.2.2.2.2.2.1 kinds.2.2.2.2.2.2.1 rfl (u_none hw)) (by intro h; cases h)
+
+/-- `Z = 0 ∧ ¬⌈a(X)⌉` is true where X is `w` and Z is 0: `a(w)` has the result none. -/
+theorem post_true {σ : Subst} (hl : σ.lookup 0 = some w) (hz : σ.lookup 1 = some zero) :
+    Holds c 2 σ postU true := by
+  have h : Holds c 2 σ postU (sameResult (σ.lookup 1) (some zero) && !(none : Option GroundTerm).isSome) :=
+    .and (.equals .var .dv) (.not (.ceil (call_mk kinds.1 kinds.2.1 kinds.2.2.1 hl (a_none hw))))
+  rw [hz] at h
+  exact h
+
+/-- **`u(w)` is `true`**: the instance at `Z = 0` gives it, and every instance is read as giving
+nothing. -/
+theorem u_true : Eval c Uu [w] (some tt) :=
+  .clauseEx (fn := uFn) (cl := uCl) (σ := sg w) lookups.2 (List.mem_singleton_self _)
+    (sorted2 rfl hw rfl zero_int) (sg_match _) (fun _ ht => nomatch ht) .top u_prio (by decide) .dv
+    (fun _ ht => nomatch ht) (post_true hw rfl rfl)
+    (fun _ ha _ => .fails (post_false hw (inst_x rfl ha)) (.post (post_false hw (inst_x rfl ha))))
+
+end Results
+
+/-- `a` has no result but 1 and none. -/
+theorem a_res {w : GroundTerm} {r : Option GroundTerm} (h : Eval c A [w] r) :
+    r = some one ∨ r = none := by
+  cases h with
+  | clause hfn hcl _ _ _ _ _ _ hrhs _ _ =>
+    obtain rfl := Option.some.inj (lookups.1.symm.trans hfn)
+    rcases aCl_of hcl with rfl | rfl <;> exact .inl (EvalTerm.dv_inv hrhs)
+  | rest hfn hnone =>
+    obtain rfl := Option.some.inj (lookups.1.symm.trans hfn)
+    exact .inr rfl
+  | ensFails => exact .inr rfl
+  | clauseEx hfn hcl _ _ _ _ _ hne _ _ _ _ =>
+    obtain rfl := Option.some.inj (lookups.1.symm.trans hfn)
+    rcases aCl_of hcl with rfl | rfl <;> exact absurd rfl hne
+  | exNone => exact .inr rfl
+
+/-- `u` has no result but `true` and none. -/
+theorem u_res {w : GroundTerm} {r : Option GroundTerm} (h : Eval c Uu [w] r) : r = some tt ∨ r = none := by
+  cases h with
+  | clause hfn hcl _ _ _ _ _ hex _ _ _ =>
+    obtain rfl := Option.some.inj (lookups.2.symm.trans hfn)
+    obtain rfl := uCl_of hcl
+    cases hex
+  | rest hfn hnone =>
+    obtain rfl := Option.some.inj (lookups.2.symm.trans hfn)
+    exact .inr rfl
+  | ensFails => exact .inr rfl
+  | clauseEx hfn hcl _ _ _ _ _ _ hrhs _ _ _ =>
+    obtain rfl := Option.some.inj (lookups.2.symm.trans hfn)
+    obtain rfl := uCl_of hcl
+    exact .inl (EvalTerm.dv_inv hrhs)
+  | exNone => exact .inr rfl
+
+/-! ### The hypotheses -/
+
+theorem i0_int : c.sortOf (.dv Srt.int (.int 0)) = some Srt.int := by decide +kernel
+
+/-- **Not `FnDet`**: `a(0)` has the results 1 and none. -/
+theorem not_fnDet : ¬ FnDet c := fun hd => by
+  have := hd _ _ _ _ (a_one i0_int) (a_none i0_int)
+  cases this
+
+/-- What a clause of `a` that applies gives: X is an Int `w`, and the argument list is `[w]`. -/
+theorem applies_a {cl : Clause} (hv : cl.vars = [Srt.int]) (hp : cl.pats = [.var 0]) (hex : cl.exs = [])
+    {σ : Subst} {vs : List GroundTerm} (ha : cl.AppliesAt c σ vs) :
+    ∃ w, σ.lookup 0 = some w ∧ c.sortOf w = some Srt.int ∧ vs = [w] ∧ c.WellSorted cl.vars σ := by
+  have hσ := (wellSortedAt_univ hex).mp ha.1
+  have hm := ha.2.1
+  rw [hp] at hm
+  obtain ⟨w', rfl, hl'⟩ := match0 hm
+  obtain ⟨w, hl, hw⟩ := hσ 0 Srt.int (by rw [hv]; rfl)
+  rw [hl] at hl'; cases hl'
+  exact ⟨_, hl, hw, rfl, hσ⟩
+
+/-- **Evaluation solves the equations of `c`**: the values of `a` at an Int are 1 alone, which each
+of its clauses gives at its match, `u(X)` having the value `true`; the values of `u` are `true`
+alone, which the instance of its clause at `Z = 0` gives. -/
+theorem fnSolves : FnSolves c := by
+  intro fn hfn vs _ cl hcl σ hdec v
+  rcases mem_fns hfn with rfl | rfl
+  · rcases aCl_of hcl with rfl | rfl
+    · obtain ⟨w, hl, hw, rfl, hσ⟩ := applies_a rfl rfl rfl hdec.1
+      refine Iff.trans ?_ (Clause.gives_iff_noExs (cl := aCl1) rfl rfl hσ v).symm
+      constructor
+      · intro h
+        rcases a_res h with h1 | h1
+        · cases h1; exact ⟨.dv, fun _ ht => nomatch ht⟩
+        · cases h1
+      · rintro ⟨hr, -⟩
+        cases (EvalTerm.dv_inv hr : some v = some one)
+        exact a_one hw
+    · obtain ⟨w, hl, hw, rfl, hσ⟩ := applies_a rfl rfl rfl hdec.1
+      refine Iff.trans ?_ (Clause.gives_iff_noExs (cl := aCl2) rfl rfl hσ v).symm
+      constructor
+      · intro h
+        rcases a_res h with h1 | h1
+        · cases h1
+          exact ⟨.dv, fun t ht => by
+            cases ht
+            exact call_mk kinds.2.2.2.2.1 kinds.2.2.2.2.2.1 kinds.2.2.2.2.2.2.1 hl (u_true hw)⟩
+        · cases h1
+      · rintro ⟨hr, -⟩
+        cases (EvalTerm.dv_inv hr : some v = some one)
+        exact a_one hw
+  · obtain rfl := uCl_of hcl
+    obtain ⟨w, rfl, hl⟩ := match0 hdec.1.2.1
+    have hw : c.sortOf w = some Srt.int := by
+      obtain ⟨w', hl', hw'⟩ := hdec.1.1 0 (by decide) Srt.int rfl
+      rw [hl] at hl'; cases hl'; exact hw'
+    constructor
+    · intro h
+      rcases u_res h with h1 | h1
+      · cases h1
+        have h0 : ((1, zero) :: σ).lookup 0 = some w := by simpa [List.lookup] using hl
+        have h1 : ((1, zero) :: σ).lookup 1 = some zero := by first | rfl | simp [List.lookup]
+        refine ⟨(1, zero) :: σ, fun i hi => ?_, sorted2 h0 hw h1 zero_int,
+          ⟨.dv, (fun _ ht => nomatch ht), post_true hw h0 h1⟩⟩
+        have hi1 : (i == 1) = false := by
+          cases hb : i == 1
+          · rfl
+          · exact absurd (by rw [beq_iff_eq.mp hb]; decide) hi
+        simp [List.lookup, hi1]
+      · cases h1
+    · rintro ⟨σ', -, -, hr, -, -⟩
+      cases (EvalTerm.dv_inv hr : some v = some tt)
+      exact u_true hw
+
+theorem clausePreDecided : ClausePreDecided c := clausePreDecided_of_isTop (by decide +kernel)
+
+theorem openLaws : OpenLaws c := openLaws_of_plain (by decide +kernel)
+
+/-- **Each clause's right-side predicate has a truth value at each well-sorted instance**:
+`Z = 0 ∧ ¬⌈a(X)⌉` is false there (and, at `Z = 0`, true). -/
+theorem clausePostDecided : ClausePostDecided c := by
+  intro fn hfn cl hcl σ hσ
+  rcases mem_fns hfn with rfl | rfl
+  · rcases aCl_of hcl with rfl | rfl <;> exact ⟨true, .top⟩
+  · obtain rfl := uCl_of hcl
+    obtain ⟨w, hl, hw⟩ := hσ 0 Srt.int rfl
+    exact ⟨false, post_false hw hl⟩
+
+/-! ### `Γc` has no model -/
+
+section NoModel
+
+open ML Faithful HoldsShape
+
+/-- No clause of `c` has conditions that need a witness. -/
+theorem noWitness : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c := by
+  intro fn hfn cl hcl h
+  have h0 : c.fns.all (fun f => f.clauses.all fun cl => !cl.needsWitness c) = true := by decide +kernel
+  have h1 := List.all_eq_true.mp (List.all_eq_true.mp h0 fn hfn) cl hcl
+  rw [h] at h1; cases h1
+
+/-- **`Γc` has no model**: `a(0)` would denote the element of 1, its result by the first clause,
+and nothing, its result by the second. -/
+theorem no_model_c : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), ¬ (I ⊧ᴵP Γc c) := by
+  intro M _ I hIc
+  have h := Semantics.coreOK_iff_ex.mp coreOK
+  have hI : I ⊧ᴵP Γ c := fun φ hφ => hIc φ (Or.inl hφ)
+  obtain ⟨hok, hsr, hnn, hg, hph, hcso, hcs, hph', hno⟩ := hypSoundEx_of_coreEx h
+  haveI : OvlOK c := hno
+  have hsc := sortCtx_of_allCEx hok hsr (OvlOK.ovlCase hno)
+  have hneg := neg_of_coreClEx hIc (Semantics.sortedOKClEx_of_sortedOKEx hok) hsr (Semantics.coreOKEx_parts h).2.1
+    hph noWitness (preReadAll_of_coreEx h hIc)
+  have hden := fun (r : Option GroundTerm) (hev : Eval c A [.dv Srt.int (.int 0)] r) (e : Valuation M) (m : M) =>
+    eval_den4ClQ hI hnn hsc hph (clauseOpenFactsQ_of_sortedOKEx hok) hneg (preReadAll_of_coreEx h hIc)
+      (clauseExRead_all_of_coreEx h hIc) hev lookups.1 (by decide +kernel) e m
+  let e : Valuation M := ⟨fun _ => default, fun _ _ => False⟩
+  obtain ⟨hone, -⟩ := elemOf_spec hI (v := one) (s := Srt.int) (by decide +kernel) e
+  have h1 := (hden _ (a_one i0_int) e (elemOf c I one)).mpr ((hone _).mpr rfl)
+  exact (hden _ (a_none i0_int) e (elemOf c I one)).mp h1
+
+/-- **Not `Consistent`**: `Γc` is part of `Γc ∪ Γstep`. -/
+theorem not_consistent : ¬ Consistent c := fun ⟨M, hM, I, hI⟩ =>
+  no_model_c M hM I (fun φ hφ => hI φ (Or.inl hφ))
+
+end NoModel
+
+end FnDetExsWit
+
+namespace FnSolvesDet
+
+/-- **`coreOK`, `clausesPreTop` and `FnSolves` do not give `FnDet`** where a clause has an
+existential variable: `FnDetExsWit.c` meets the three and not `FnDet`. So `fnDet_of_fnSolves`
+cannot lose `FnsNoExs`. -/
+theorem not_fnDet_of_fnSolves_preTop :
+    ¬ ∀ c : Semantics, c.coreOK = true → c.clausesPreTop = true → FnSolves c → FnDet c :=
+  fun h => FnDetExsWit.not_fnDet (h _ FnDetExsWit.coreOK FnDetExsWit.preTop FnDetExsWit.fnSolves)
+
+/-- **`consistent_of` cannot lose `FnDet` where every clause's predicate is `\top`**: its other
+hypotheses and `clausesPreTop` do not give `Consistent`. -/
+theorem consistent_needs_fnDet_preTop :
+    ¬ ∀ c : Semantics, c.coreOK = true → c.clausesPreTop = true → FnSolves c → ClausePreDecided c →
+      ClausePostDecided c → OpenLaws c → Consistent c :=
+  fun h => FnDetExsWit.not_consistent
+    (h _ FnDetExsWit.coreOK FnDetExsWit.preTop FnDetExsWit.fnSolves FnDetExsWit.clausePreDecided
+      FnDetExsWit.clausePostDecided FnDetExsWit.openLaws)
+
+end FnSolvesDet
+
 end KCore
 
 /-- info: 'KCore.FnSolvesDet.fnDet_of_fnSolves' depends on axioms: [propext, Classical.choice, Quot.sound] -/
@@ -524,3 +891,7 @@ end KCore
 #guard_msgs in #print axioms KCore.FnSolvesDet.not_fnDet_of_fnSolves
 /-- info: 'KCore.FnSolvesDet.consistent_needs_fnDet' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.FnSolvesDet.consistent_needs_fnDet
+/-- info: 'KCore.FnSolvesDet.not_fnDet_of_fnSolves_preTop' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.FnSolvesDet.not_fnDet_of_fnSolves_preTop
+/-- info: 'KCore.FnSolvesDet.consistent_needs_fnDet_preTop' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.FnSolvesDet.consistent_needs_fnDet_preTop

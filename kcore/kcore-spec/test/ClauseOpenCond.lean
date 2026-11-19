@@ -182,7 +182,7 @@ theorem req_only {σ : Subst} (h1 : σ.lookup 1 = some hole) {r : Option GroundT
 
 /-- **`clCool` is `Witnessed`** at HOLE := `kseq(inj{Int,KItem}(0), dotk)`. -/
 theorem witnessed : clCool.Witnessed c := by
-  refine ⟨[(1, hole)], fun j hj s hs => ?_, fun t ht => ?_, .top⟩
+  refine Clause.witnessed_of_top rfl (σ := [(1, hole)]) (fun j hj s hs => ?_) (fun t ht => ?_)
   · rw [needs.2.2] at hj
     cases List.mem_singleton.mp hj
     cases (show some Srt.k = some s from hs)
@@ -252,7 +252,8 @@ theorem int_value {v : GroundTerm} (h : c.sortOf v = some Srt.int) : ∃ n, v = 
 /-- **`clH` is not `Witnessed`**: at H := n the `requires` is `1 ==Int 2 *Int n`, which is `true`
 only where 1 = 2 * n, and no integer n is one. -/
 theorem not_witnessed : ¬ clH.Witnessed c := by
-  rintro ⟨σ, hσ, hreq, -⟩
+  intro hW
+  obtain ⟨σ, hσ, hreq, -⟩ := hW.conds
   obtain ⟨v, hv, hvs⟩ := hσ 0 (by rw [needs.2.2]; exact List.mem_singleton_self _) Srt.int rfl
   obtain ⟨n, rfl⟩ := int_value hvs
   have he := (hreq _ rfl).1
@@ -419,7 +420,8 @@ theorem isC_not_true (v : GroundTerm) : ¬ Eval c 390 [v] (some (bool true)) := 
 
 /-- **`clG` is not `Witnessed`**: H must be a value of S, and `isC` is `true` at none. -/
 theorem not_witnessed : ¬ clG.Witnessed c := by
-  rintro ⟨σ, hσ, hreq, -⟩
+  intro hW
+  obtain ⟨σ, hσ, hreq, -⟩ := hW.conds
   obtain ⟨v, hv, hvs⟩ := hσ 1 (by rw [needs.2.2]; exact List.mem_singleton_self _) 32 rfl
   have he := (hreq _ rfl).1
   generalize hr0 : some (bool true) = r at he

@@ -37,10 +37,8 @@ theorem HypModelCore.paramKinds (h : HypModelCore c) {kp : ParamSig} (hkp : kp �
   simpa using this.2 kp hkp
 
 theorem HypModelCore.iteSorted (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c) {X : String}
-    (hi : iteSort? (c.symName k.name) = some X) : ∃ s ∈ kernelSorts c, c.sortName s = X := by
-  have h3 := List.all_eq_true.mp h.ites k hk
-  simp only [Bool.and_eq_true, hi, List.any_eq_true, beq_iff_eq] at h3
-  exact h3.1
+    (hi : iteSort? (c.symName k.name) = some X) : ∃ s ∈ kernelSorts c, c.sortName s = X :=
+  itesApart_iteSorted h.ites hk hi
 
 theorem HypModelCore.collOf_self (h : HypModelCore c) {k : CollSig} (hk : k ∈ c.allColls) : c.collOf k.sort = some k := by
   rcases List.mem_append.mp hk with hb | hu
