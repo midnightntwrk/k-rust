@@ -17,6 +17,7 @@
   - The reading has no model either (`gamma_no_model`, `inconsistent`): Γ's clauses of h
     (`orAsCases`: h(X) = f(X) where f(X) is defined, h(X) = g(X) where g(X) is) both apply at 1, so
     h(1) is the element of f(1) and that of g(1), 1 and -1 (`eqn_readG` on Γ's items, `gAx`).
+    So `FnHyp` is false for every H (`not_fnHypH`).
 -/
 import KcoreSpec
 set_option autoImplicit false
@@ -536,8 +537,16 @@ theorem inconsistent (H : HookParams) : ¬ Consistent (cH H) := by
   rintro ⟨M, _, I, hI⟩
   exact gamma_no_model H fun φ hφ => hI φ (Or.inl (Or.inl hφ))
 
+/-- **`FnHyp` is false, for every H**: it gives `Γc` with the step's closure a model
+(`consistent_of_fnHyp`), and there is none. Every function of the text has a result at every
+argument list and `h` a value at every Int (test/FnHypPreTotal.lean, `OrTotal.terminatesH`,
+`OrTotal.total_hH`), so what the text lacks is not totality: `h`'s clauses for `f(X)` and `g(X)`
+both apply at 1, with the values 1 and -1. -/
+theorem not_fnHypH (H : HookParams) : ¬ FnHyp (cH H) := fun hf =>
+  inconsistent H (consistent_of_fnHyp _ (coreOKH H) hf)
 
 end KCore.TieE3MlEqRhsOrTotalNoModel
 
 #print axioms KCore.TieE3MlEqRhsOrTotalNoModel.no_model
 #print axioms KCore.TieE3MlEqRhsOrTotalNoModel.inconsistent
+#print axioms KCore.TieE3MlEqRhsOrTotalNoModel.not_fnHypH

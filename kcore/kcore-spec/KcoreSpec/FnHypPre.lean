@@ -31,6 +31,16 @@
     own clauses have the predicate `\top`, whatever the other functions' predicates
     (`sortPreds_totalFP`: the sort predicates).
 
+  - `total_of_partsPreFP`, `total_of_totalOKPreFP`, `totals_of_totalOKPreFP`: a function some of whose own clauses have a
+    predicate is total where its clauses whose predicate is `\top` cover its arguments
+    (`coverRowsFP`, `totalOKFP`): a clause applies where its patterns match, its `requires` is
+    `true` and its predicate is true, so a clause without `requires` whose predicate is `\top`
+    applies wherever its patterns match, and where such clauses cover the argument sorts some
+    clause applies at each argument list. The other clauses' predicates are decided at each match,
+    every function terminating, so each of them applies or fails, and the clause of least priority
+    that applies gives the value. Predicates that cover between themselves (one true wherever the
+    others are false) are no decided fact: that is shown on the text, by evaluation.
+
   The order here admits no call of a function to itself or to one placed after it: such a function
   is named. The rank argument for those (CallGroups.lean, DecreasingL.lean) reads `EvalCtxN`,
   whose field `pres` asks `\top` of every clause of the definition.
@@ -460,6 +470,177 @@ theorem total_of_totalOKFP (h : c.coreOK = true) (hnoEx : c.FnsNoExs) (hterm : �
     · exact htot g hg
     · exact sortPreds_totalFP hsc hok hnoEx hp
     · exact absurd hg hgl
+
+/-! ## Totality of a function whose own clauses have a predicate -/
+
+/-- The rows of a function that cover whatever its clauses' predicates are: the patterns of a
+clause without `requires` whose predicate is `\top` and whose pattern variables occur at most
+once. Such a clause applies at every argument list its patterns match. `Semantics.coverRows`
+keeps the rows of clauses with a predicate, which apply only where the predicate is true. -/
+def Semantics.coverRowsFP (f : Fn) : List (List Term) :=
+  (f.clauses.filter fun cl => cl.req.isNone && nodup (varOccsList cl.pats) && cl.pre.isTop).map (·.pats)
+
+/-- `Semantics.totalOK` with the rows of `coverRowsFP`: the check of a `[total]` function some of
+whose clauses have a predicate other than `\top`. -/
+def Semantics.totalOKFP (c : Semantics) (f : Fn) : Bool :=
+  let tot := c.totalBefore f ++ c.sortPreds.map (·.label) ++ [f.label]
+  c.shapesOK && decreasingOK c f (c.decArg f) &&
+  c.covers (Semantics.coverFuel f) f.args (Semantics.coverRowsFP f) &&
+  f.clauses.all (fun cl => c.totalTerm tot cl.rhs) && f.clauses.all (·.ens.isNone)
+
+kernel_rfl Semantics.totalOKFP_withHooks :
+  ∀ (c : Semantics) (H : HookParams) (f : Fn), (c.withHooks H).totalOKFP f = c.totalOKFP f
+
+theorem mem_coverRowsFP {fn : Fn} {r : List Term} (h : r ∈ Semantics.coverRowsFP fn) :
+    ∃ cl ∈ fn.clauses, cl.req = none ∧ cl.pre = .top ∧ (varOccsList cl.pats).Nodup ∧ cl.pats = r := by
+  simp only [Semantics.coverRowsFP, List.mem_map, List.mem_filter, Bool.and_eq_true,
+    Option.isNone_iff_eq_none] at h
+  obtain ⟨cl, ⟨hcl, ⟨hreq, hnd⟩, htop⟩, rfl⟩ := h
+  exact ⟨cl, hcl, hreq, Cond.eq_top_of_isTop htop, nodup_of_eq_true hnd, rfl⟩
+
+/-- **A function some of whose clauses have a predicate is total where the clauses whose
+predicate is `\top` cover its arguments**: `rows`, each the patterns of a clause without
+`requires`, with the predicate `\top` and pattern variables occurring once, cover its argument
+sorts; its right-hand sides are total over `tot`, whose functions but itself are total; its self
+calls decrease. At an argument list, some clause of `rows` applies; each other clause's predicate
+has a truth value at each match, being well sorted (`hpok`) and every function terminating
+(`hterm`, `hpov`), so each clause applies or fails; the clause of least priority that applies
+decides, and its right-hand side has a value. A predicate that is false at a match takes its
+clause out, and the covering clauses do not read one. -/
+theorem total_of_partsPreFP (hsc : SortCtx c) (hok : c.sortedOK = true) (hnoEx : c.FnsNoExs)
+    (hs : c.shapesOK = true) (hterm : ∀ g, Terminates c g)
+    {fn : Fn} (hfn : fn ∈ c.allFns) (hb : c.HeldFn fn)
+    (hpok : ∀ cl ∈ fn.clauses, c.condOK cl.vars cl.pre = true)
+    (hpov : ∀ g ∈ fn.preHeadsFP, OvlTerminates c g)
+    {dec : Option Nat} (hdec : decreasingOK c fn dec = true) {n : Nat} {rows : List (List Term)}
+    (hrows : ∀ r ∈ rows, ∃ cl ∈ fn.clauses, cl.req = none ∧ cl.pre = .top ∧
+      (varOccsList cl.pats).Nodup ∧ cl.pats = r)
+    (hcov : c.covers n fn.args rows = true) {tot : List Sym}
+    (hrhs : ∀ cl ∈ fn.clauses, c.totalTerm tot cl.rhs = true)
+    (hnoens : ∀ cl ∈ fn.clauses, cl.ens = none)
+    (htot : ∀ g ∈ tot, g ≠ fn.label → Total c g) : Total c fn.label := by
+  have hlook : c.lookupFn fn.label = some fn := by
+    rw [Semantics.lookupFn_eq]; exact find?_label hsc.nodupFns hfn
+  have hplain := Semantics.sortedOK_plainCl_of_noExs hok hnoEx fn hfn
+  have hpats : ∀ cl ∈ fn.clauses, sortsOfTerms c.patCtxAll cl.vars cl.pats = some fn.args :=
+    fun cl hcl => (clause_ctxOccE hok hfn hcl).1
+  intro fn' hfn' vs hvs
+  rw [hlook] at hfn'
+  cases hfn'
+  suffices h : ∀ m vs, c.sortsOf vs = some fn.args → decMeasure dec vs < m →
+      ∃ v, Eval c fn.label vs (some v) from h _ vs hvs (Nat.lt_succ_self _)
+  intro m
+  induction m with
+  | zero => intro _ _ h; exact absurd h (Nat.not_lt_zero _)
+  | succ m ih =>
+    intro vs hvs hlt
+    refine eval_defined hlook hplain hb (fun cl hcl σ hσ _ => ⟨fun t ht => ?_,
+        holds_of_callsFP hsc cl.pre (hpok cl hcl) hσ fun g hg =>
+          ⟨hterm g, hpov g (List.mem_flatMap.mpr ⟨cl, hcl, hg⟩)⟩⟩)
+      (fun cl hcl σ ha => ?_) ?_ hnoens
+    · obtain ⟨-, -, L, hL, hreqs, -, -⟩ := clause_ctxOccE hok hfn hcl
+      exact evalTerm_result hsc hL hσ t (hreqs t ht) (fun _ _ _ _ kg _ _ => hterm kg.name)
+        fun g _ _ gfn hg _ vs' _ _ hsrt => hterm g gfn hg vs' hsrt
+    · obtain ⟨-, -, L, hL, -, hrs, -⟩ := clause_ctxOccE hok hfn hcl
+      refine evalTerm_defined hsc hs hL ((wellSortedAt_univ (hplain cl hcl).1).mp ha.1) cl.rhs hrs (hrhs cl hcl)
+        fun g ts hts hgt gfn hg vs' hts' hsrt => ?_
+      by_cases hgl : g = fn.label
+      · subst hgl
+        rw [hlook] at hg
+        cases hg
+        obtain ⟨i, j, p, rfl, hti, hpi, hsi⟩ := decreasingOK_clause hdec hcl (Or.inl rfl) hts
+        obtain ⟨v, hvi, hpv⟩ := patVals_get ha.2.1 hpi
+        obtain ⟨w, hw, hwv⟩ := strictlyIn_size p hpv hsi
+        have hvi' : vs'[i]? = some w := (evalTerms_var hts' hti (allSome_map_some vs')).trans hw
+        refine ih vs' hsrt ?_
+        have h1 : decMeasure (some i) vs' = w.size := by simp [decMeasure, hvi']
+        have h2 : decMeasure (some i) vs = v.size := by simp [decMeasure, hvi]
+        omega
+      · exact htot g (List.contains_iff_mem.mp hgt) hgl gfn hg vs' hsrt
+    · have htyped : ∀ r ∈ rows, ∃ vars, RowTyped c vars fn.args r := by
+        intro r hr
+        obtain ⟨cl, hcl, _, _, _, rfl⟩ := hrows r hr
+        exact ⟨cl.vars, rowTyped_of_sorts (hpats cl hcl)⟩
+      obtain ⟨r, hr, hm⟩ := covers_sound n fn.args _ hcov htyped vs hvs
+      obtain ⟨cl, hcl, hreq, hpt, hnd, rfl⟩ := hrows r hr
+      exact ⟨cl, hcl, hreq, applies_of_rowRH (hb cl hcl) (hpats cl hcl) hreq hpt hnd hvs hm⟩
+
+/-- **A function `totalOKFP` confirms is total**, in a core `coreOK` accepts whose functions
+terminate, no symbol function-overloaded, the total functions before it total. Its own clauses
+and the other functions' may have a predicate. -/
+theorem total_of_totalOKPreFP (h : c.coreOK = true) (hnoEx : c.FnsNoExs) (hfo : c.fnOvlSyms = [])
+    (hterm : ∀ g, Terminates c g)
+    {fn : Fn} (hfn : fn ∈ c.fns) (hb : c.HeldFn fn) (hT : c.totalOKFP fn = true)
+    (htot : ∀ g ∈ c.totalBefore fn, Total c g) :
+    Total c fn.label := by
+  obtain ⟨hok, -, -, hp, hids⟩ := Semantics.coreOK_parts h
+  have hsr := NamesApart.srReady_of hp hids hok
+    (NamesApart.rangeKeys_genWf_of_faithCore (Semantics.coreOK_parts h).2.1) (Semantics.coreOK_ovls h)
+  have hsc := sortCtx_of_all hok hsr (Semantics.ovlCase_of_core h)
+  simp only [Semantics.totalOKFP, Bool.and_eq_true, List.all_eq_true] at hT
+  obtain ⟨⟨⟨⟨hs, hdec⟩, hcov⟩, hrhs⟩, hne⟩ := hT
+  refine total_of_partsPreFP hsc hok hnoEx hs hterm (List.mem_append_left _ hfn) hb
+    (Semantics.sortedOK_preOK hok fn hfn)
+    (fun g _ => ovlTerminates_of_not_fnOvl (by rw [hfo]; exact List.not_mem_nil)) hdec
+    (n := Semantics.coverFuel fn) (fun r hr => mem_coverRowsFP hr) hcov hrhs
+    (fun cl hcl => by simpa using hne cl hcl) (fun g hg hgl => ?_)
+  simp only [List.mem_append, List.mem_map, List.mem_singleton] at hg
+  rcases hg with (hg | ⟨p, hp, rfl⟩) | hg
+  · exact htot g hg
+  · exact sortPreds_totalFP hsc hok hnoEx hp
+  · exact absurd hg hgl
+
+/-- A function among those before the one labelled `x` has fewer functions before it. -/
+theorem takeWhile_label_ltFP : ∀ (l : List Fn) (x : Sym) (g : Fn), g ∈ l.takeWhile (·.label != x) →
+    (l.takeWhile (·.label != g.label)).length < (l.takeWhile (·.label != x)).length
+  | [], _, _, h => by simp at h
+  | a :: l, x, g, h => by
+    simp only [List.takeWhile_cons] at h ⊢
+    by_cases hax : (a.label != x) = true
+    · simp only [hax, ↓reduceIte] at h ⊢
+      by_cases hag : (a.label != g.label) = true
+      · simp only [hag, ↓reduceIte, List.length_cons]
+        rcases List.mem_cons.mp h with rfl | h
+        · simp at hag
+        · exact Nat.succ_lt_succ (takeWhile_label_ltFP l x g h)
+      · simp only [hag, List.length_cons]
+        exact Nat.succ_pos _
+    · simp only [hax] at h
+      cases h
+
+/-- **Every `[total]` function is total where `totalOKFP` confirms each**, in a core `coreOK`
+accepts with `RightHeld` whose functions terminate, no symbol function-overloaded: by induction on
+a function's place among the functions, the `[total]` ones before it being those its right-hand
+sides may apply. -/
+theorem totals_of_totalOKPreFP (h : c.coreOK = true) (hrh : c.RightHeld) (hnoEx : c.FnsNoExs)
+    (hfo : c.fnOvlSyms = []) (hterm : ∀ g, Terminates c g)
+    (hT : ∀ fn ∈ c.fns, fn.total = true → c.totalOKFP fn = true) :
+    ∀ fn ∈ c.fns, fn.total = true → Total c fn.label := by
+  suffices key : ∀ n, ∀ fn ∈ c.fns, fn.total = true →
+      (c.fns.takeWhile (·.label != fn.label)).length < n → Total c fn.label from
+    fun fn hfn ht => key _ fn hfn ht (Nat.lt_succ_self _)
+  intro n
+  induction n with
+  | zero => intro _ _ _ hlt; exact absurd hlt (Nat.not_lt_zero _)
+  | succ n ih =>
+    intro fn hfn ht hlt
+    refine total_of_totalOKPreFP h hnoEx hfo hterm hfn (hrh.heldFn hfn) (hT fn hfn ht) fun g hg => ?_
+    simp only [Semantics.totalBefore, List.mem_map, List.mem_filter] at hg
+    obtain ⟨fn', ⟨hmem, ht'⟩, rfl⟩ := hg
+    exact ih fn' ((List.takeWhile_sublist _).subset hmem) ht'
+      (Nat.lt_of_lt_of_le (takeWhile_label_ltFP c.fns fn.label fn' hmem) (Nat.le_of_lt_succ hlt))
+
+/-- `totals_of_totalOKPreFP` for an interpretation H of the parameters, of a semantics without an
+open generator (`hr`): the checks are the data's. -/
+theorem totals_of_totalOKPreFP_withHooks (h : c.coreOK = true) (hrh : c.RightHeld) (hfo : c.fnOvlSyms = [])
+    (H : HookParams) (hterm : ∀ g, Terminates (c.withHooks H) g)
+    (hT : ∀ fn ∈ c.fns, fn.total = true → c.totalOKFP fn = true)
+    (hr : ∀ k ∈ c.params, k.raw = false := by decide +kernel)
+    (hnoEx : c.FnsNoExs := by first | assumption | exact Semantics.fnsNoExs_of_all (by decide +kernel) | exact Semantics.fnsNoExs_of_all rfl) :
+    ∀ fn ∈ c.fns, fn.total = true → Total (c.withHooks H) fn.label :=
+  totals_of_totalOKPreFP (c := c.withHooks H) ((Semantics.coreOK_withHooks c H).trans h)
+    (Semantics.rightHeld_withHooks hrh H hr) ((Semantics.fnsNoExs_withHooks _ _).mpr hnoEx) hfo hterm
+    (fun fn hfn ht => (Semantics.totalOKFP_withHooks c H fn).trans (hT fn hfn ht))
 
 /-! ## `FnHyp` -/
 
