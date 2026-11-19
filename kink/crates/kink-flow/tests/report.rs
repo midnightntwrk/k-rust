@@ -372,6 +372,84 @@ fn report_reprints_the_same_bytes() {
     }
 }
 
+/// FX1 (projections review run-projection 1): a baseline run that ends on one path and takes an
+/// undefined step on another lists only the end (an undefined step is no end in kink's record),
+/// so its program row and result record state the undefined step (`undefined_steps`), which
+/// whether the definition accepts the program on every path rests on. `go(0)` steps to `left(0)`
+/// and to `right(0)`: the first ends at `done(0)`, and the second's only rule, `div`, has no
+/// defined successor (`10 /Int 0`), an undefined step; `go(1)` ends twice. The member is absent
+/// where no path takes one, and the row read back from the stored record says the same as the
+/// live one.
+#[test]
+fn a_baseline_undefined_step_is_stated_on_its_program_row() {
+    let dir = scratch("baseline-undefined-step");
+    fs::write(
+        dir.join("und.k"),
+        r"module UND-SYNTAX
+  imports INT-SYNTAX
+  syntax Prog ::= go(Int) [symbol(go)] | left(Int) [symbol(left)] | right(Int) [symbol(right)]
+                | done(Int) [symbol(done)]
+endmodule
+
+module UND
+  imports UND-SYNTAX
+  imports INT
+  configuration <k> $PGM:Prog </k>
+  rule [to-left]: <k> go(I) => left(I) </k>
+  rule [to-right]: <k> go(I) => right(I) </k>
+  rule [fin]: <k> left(I) => done(I) </k>
+  rule [div]: <k> right(I) => done(10 /Int I) </k>
+endmodule
+",
+    )
+    .unwrap();
+    fs::write(
+        dir.join("FLOW.toml"),
+        "[spec]\nentry = \"und.k\"\nmain_module = \"UND\"\nsyntax_module = \"UND-SYNTAX\"\n\n\
+         [[program]]\nid = \"zero\"\ntext = \"go(0)\"\n\n[[program]]\nid = \"one\"\ntext = \"go(1)\"\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.join("MUTATIONS.toml"),
+        "[[mutation]]\nid = \"fin-plus\"\nmisunderstanding = \"finishes one past\"\n\n  \
+         [[mutation.edit]]\n  rule = \"fin\"\n  find = \"done(I)\"\n  replace = \"done(I +Int 1)\"\n",
+    )
+    .unwrap();
+    let run_once = {
+        let dir = dir.clone();
+        move || {
+            let dir = dir.clone();
+            std::thread::Builder::new()
+                .stack_size(kink_corpus::cli::DEFINITION_STACK_BYTES)
+                .spawn(move || search(&dir.join("FLOW.toml"), &dir.join("MUTATIONS.toml"), &[]))
+                .unwrap()
+                .join()
+                .unwrap()
+        }
+    };
+    for cached in [false, true] {
+        let (document, ok) = run_once();
+        assert!(ok, "{document:#}");
+        let programs = document["programs"].as_array().unwrap();
+        let row = |id: &str| {
+            programs
+                .iter()
+                .find(|program| program["id"] == id)
+                .unwrap_or_else(|| panic!("{id}: {document:#}"))
+        };
+        let (zero, one) = (row("zero"), row("one"));
+        assert_eq!(
+            (&zero["class"], &zero["cached"]),
+            (&json!("comparable"), &json!(cached)),
+            "{zero:#}"
+        );
+        assert_eq!(zero["ends"].as_array().map(Vec::len), Some(1), "{zero:#}");
+        assert_eq!(zero["undefined_steps"], true, "{zero:#}");
+        assert_eq!(one["ends"].as_array().map(Vec::len), Some(2), "{one:#}");
+        assert!(one.get("undefined_steps").is_none(), "{one:#}");
+    }
+}
+
 /// CF-03, the mini control: a mutant whose skipped operand becomes undefined on one program and
 /// not on the other. The baseline's `at` applies `andThenBool` over `10 /Int (I +Int 1) >Int 0`,
 /// which the analysis flags and which is defined at 0 and 1; the mutant writes `10 /Int I`. On

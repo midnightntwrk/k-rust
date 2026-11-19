@@ -13,7 +13,7 @@
 //! - One the mutant does not parse (`rejected`; an ambiguous text is not parsed) kills in the
 //!   direction `mutant-rejects` where the baseline accepts it (README.md D2: acceptance is the
 //!   whole pipeline's, here the baseline's run, by phase 0's rule,
-//!   [`crate::projected::baseline_acceptance`]), agrees where the baseline rejects it (both
+//!   [`crate::projected::listed_acceptance`]), agrees where the baseline rejects it (both
 //!   reject, at different stages, which D2 does not observe), and is `unknown` where the
 //!   baseline's acceptance is not decided: in a flow without declared ends an end is accepted
 //!   only where a path reached it at the `[stop]`.
@@ -46,7 +46,7 @@
 
 use crate::admit::Reassembly;
 use crate::compare::Acceptance;
-use crate::projected::baseline_acceptance;
+use crate::projected::listed_acceptance;
 use k_rust::kore::ast::Pattern;
 use serde_json::{Map, Value, json};
 
@@ -187,7 +187,7 @@ pub(crate) fn listed(
              concrete, which kink does not run"
                 .to_owned(),
         ),
-        Reassembly::ParseRejected(detail) => match baseline_acceptance(row) {
+        Reassembly::ParseRejected(detail) => match listed_acceptance(row) {
             Acceptance::Accepted => case(
                 "rejected",
                 Verdict::Killed(Direction::MutantRejects),

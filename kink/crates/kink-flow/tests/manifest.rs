@@ -1023,6 +1023,22 @@ fn a_metric_projection_is_decoded_and_named() {
         "run.projections[0]",
         "`steps` is a metric projection",
     );
+    // A mutation's `expect` naming one could never be checked, so a list stating it is refused
+    // (FX1, review run-projection 4): a deterministic metric is a snapshot by its relation, and
+    // a host-dependent one is refused as a metric projection.
+    for (name, refusal) in [
+        ("steps", "`steps` is a snapshot projection"),
+        ("wall", "`wall` is a metric projection"),
+    ] {
+        let list = kink_flow::MutationList::decode(&format!(
+            "[[mutation]]\nid = \"m\"\nmisunderstanding = \"m\"\nexpect = {{ {name} = \"kill\" }}\n\n  \
+             [[mutation.edit]]\n  rule = \"r\"\n  find = \"a\"\n  replace = \"b\"\n"
+        ))
+        .unwrap();
+        let error = list.check_projections(&manifest).unwrap_err();
+        assert_eq!(error.key, format!("mutation \"m\".expect.{name}"));
+        assert!(error.message.contains(refusal), "{error:?}");
+    }
     let named = manifest.projections_value().unwrap();
     assert_eq!(
         named[0],

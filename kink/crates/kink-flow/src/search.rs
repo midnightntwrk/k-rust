@@ -1691,6 +1691,9 @@ impl Search<'_, '_> {
             value["reason"] = json!(error.reason);
             value["detail"] = json!(error.detail);
             value["action"] = json!(action("error", Some(&error.reason)));
+            // Its projections were judged with the row's search: an `error` has that status
+            // under every projection.
+            projected::restate(&mut value);
             return (value, true);
         }
         if let Some(row) = value.as_object_mut() {
@@ -2257,6 +2260,7 @@ impl Search<'_, '_> {
                         identity,
                         records: &records,
                         executed: &judged,
+                        scope_failure: false,
                     },
                 );
                 return Some((value, error));
@@ -2515,6 +2519,7 @@ impl Search<'_, '_> {
                 identity,
                 records: &[],
                 executed: &judged,
+                scope_failure: last_failure.is_some(),
             },
         );
         Some((value, error))
@@ -2723,6 +2728,9 @@ impl Search<'_, '_> {
                 identity: facts.identity,
                 records: &[],
                 executed: &judged,
+                scope_failure: live
+                    .as_ref()
+                    .is_some_and(|live| live.mutant.plan.mutant_failure.is_some()),
             },
         );
         (value, error)
@@ -3250,14 +3258,16 @@ enum Executed<'r> {
 /// What [`Search::project_row`] judges a row's projections from: O (`order`, corpus order),
 /// the search order C when it is known (`search`), the mutation's identity (the ends store's
 /// directory), valid tier-1 records of O that the projections may read besides the row's
-/// (`records`; one the row read is judged through `executed`) and the programs the row's status
-/// read (`executed`).
+/// (`records`; one the row read is judged through `executed`), the programs the row's status
+/// read (`executed`) and whether a mutant-scope failure of the row's call decided its status
+/// (`scope_failure`: it dominates every test, so no program decides the row).
 struct ProjectionInput<'r, 'e> {
     order: &'r [usize],
     search: Option<Vec<usize>>,
     identity: Option<Sha256Digest>,
     records: &'r [(usize, OutcomeRecord)],
     executed: &'r [(usize, Executed<'e>)],
+    scope_failure: bool,
 }
 
 /// What one projection judged per program needs before [`kill_decision`] decides it.
@@ -3321,14 +3331,18 @@ fn projection_need(
 }
 
 /// The status of a projection judged per program from what [`kill_decision`] decides over its
-/// domain: killed by the decided killer; with no killer, `unknown` with the reason of the first
-/// unknown program in the search order (`in_order`: the domain's verdicts in C), else
-/// `survived`; `error` (`no-comparable-program`) for an empty domain; [`projected::UNDECIDED`]
-/// (`projection-search`) while it needs a program no call judged.
+/// domain: killed by the decided killer; with no killer, `timeout` where some program of its
+/// domain judged under it ran on the mutant with the clock stopping it (`stopped`, why, for the
+/// first in C), as the row's own status is `timeout` where no program kills and the clock
+/// stopped one, else `unknown` with the reason of the first unknown program in the search order
+/// (`in_order`: the domain's verdicts in C), else `survived`; `error` (`no-comparable-program`)
+/// for an empty domain; [`projected::UNDECIDED`] (`projection-search`) while it needs a program
+/// no call judged.
 fn decision_status<'v>(
     name: &str,
     decision: &Tier1,
     mut in_order: impl Iterator<Item = &'v Verdict>,
+    stopped: Option<&str>,
     id: impl Fn(usize) -> &'v str,
 ) -> ProjectionStatus {
     let status = |status: &str, killer: Option<&str>, reason: Option<&str>| ProjectionStatus {
@@ -3343,6 +3357,9 @@ fn decision_status<'v>(
             killer: Some(killer),
             ..
         } => status("killed", Some(id(*killer)), None),
+        Tier1::Decided { killer: None, .. } if stopped.is_some() => {
+            status("timeout", None, stopped)
+        }
         Tier1::Decided { killer: None, .. } => match in_order.find_map(|verdict| match verdict {
             Verdict::Unknown(reason) => Some(reason),
             _ => None,
@@ -3355,6 +3372,51 @@ fn decision_status<'v>(
             None,
             Some(projected::PROJECTION_SEARCH),
         ),
+    }
+}
+
+/// The run document's `projection_domains`: for each listed projection with a `domain`, the ids
+/// of the programs of the corpus its domain holds, in the manifest's order, by projection name;
+/// `None` where no listed projection has a `domain` (a projection without one holds every
+/// program). The lock's clock rule reads it: a baseline the clock stopped matters to an entry
+/// under a projection only where its domain holds the program (`crate::clock`).
+fn projection_domains(manifest: &FlowManifest) -> Option<Value> {
+    let domains = manifest
+        .run_projections()
+        .into_iter()
+        .filter(|projection| projection.domain.is_some())
+        .map(|projection| {
+            let held = manifest
+                .programs
+                .iter()
+                .filter(|program| projection.holds(program))
+                .map(|program| json!(program.id))
+                .collect::<Vec<_>>();
+            (projection.name, Value::Array(held))
+        })
+        .collect::<Map<_, _>>();
+    (!manifest.projections.is_empty() && !domains.is_empty()).then_some(Value::Object(domains))
+}
+
+/// Notes in `stopped` each of `sources` whose run on the mutant the clock stopped (a failed test
+/// of kind `time-limit`, or a compared one with a `timeout` slot: what `crate::clock` reads as a
+/// stopped run from its executed entry), a later run of a program replacing an earlier; a test
+/// skipped after a kill is no run. A cached record never holds a timeout.
+fn note_stopped(stopped: &mut BTreeSet<usize>, sources: &[&(usize, Executed<'_>)]) {
+    for (c, source) in sources.iter().copied() {
+        let clock = match source {
+            Executed::Live(TestRun::SkippedAfterKill, _) => continue,
+            Executed::Live(TestRun::Failed(kind), _) => kind.status() == MutantStatus::Timeout,
+            Executed::Live(TestRun::Compared(outcomes), _) => {
+                outcomes.contains(&OracleOutcome::Timeout)
+            }
+            Executed::Cached(_) => false,
+        };
+        if clock {
+            stopped.insert(*c);
+        } else {
+            stopped.remove(c);
+        }
     }
 }
 
@@ -3422,10 +3484,15 @@ impl Search<'_, '_> {
         generation: Option<&CandidateGeneration<'_>>,
         input: &ProjectionInput<'_, '_>,
     ) -> bool {
+        // A row whose status no program decides has it under every projection: no program ran,
+        // a status no run gives (invalid, unkillable, equivalent, not-admitted), or a
+        // mutant-scope failure, which dominates every test. A `timeout` or an `error` its
+        // programs decide is judged per projection, on the projection's domain, as any other.
         let mutation_level = !matches!(
             row["status"].as_str(),
-            Some("killed" | "survived" | "unknown")
-        ) || input.executed.is_empty();
+            Some("killed" | "survived" | "unknown" | "timeout" | "error")
+        ) || input.executed.is_empty()
+            || input.scope_failure;
         let read = input
             .executed
             .iter()
@@ -3453,6 +3520,9 @@ impl Search<'_, '_> {
             input.identity,
             &mut judged,
         );
+        // The programs whose run on the mutant the clock stopped, among those judged.
+        let mut stopped = BTreeSet::new();
+        note_stopped(&mut stopped, &sources);
         let mut search = input.search.clone();
         let mut calls = Calls::new();
         let mut live = Vec::<(usize, Value)>::new();
@@ -3490,6 +3560,31 @@ impl Search<'_, '_> {
                         json!(status_name(call.mutant.report.status)),
                         wall_ms,
                     ));
+                    // The row's search ran this mutant (its own call, or valid outcome records
+                    // under the same key), so a failure that stops it before any test, a fact of
+                    // the mutant, contradicts it, as `assemble` finds for the row's own calls;
+                    // the host's `infrastructure` failure and a lowering time limit (a clock) do
+                    // not, and leave the projections that needed the call `undecided`.
+                    if let Some(failure) = call.mutant.plan.mutant_failure.filter(|failure| {
+                        !matches!(
+                            failure,
+                            MutantScopeFailure::Infrastructure
+                                | MutantScopeFailure::LoweringTimeLimit
+                        )
+                    }) {
+                        error = Some(CorpusError {
+                            reason: "outcome-conflict".into(),
+                            detail: format!(
+                                "a call of the search under the projections over {:?} did not \
+                                 run the mutant ({}), which the row's own search ran (its call or \
+                                 its cached outcomes): run `{} --verify`",
+                                self.ids(&programs),
+                                kebab(&format!("{failure:?}")),
+                                self.spelling.command(Verb::Run)
+                            ),
+                        });
+                        break;
+                    }
                     call
                 }
             };
@@ -3518,14 +3613,16 @@ impl Search<'_, '_> {
             );
             let before = judged.iter().map(BTreeMap::len).sum::<usize>();
             let tests = self.live_executed(&call.mutant);
+            let tests = tests.iter().collect::<Vec<_>>();
             let verdicts = self.judge_all(
                 projected,
                 listed,
                 &domains,
-                &tests.iter().collect::<Vec<_>>(),
+                &tests,
                 input.identity,
                 &mut judged,
             );
+            note_stopped(&mut stopped, &tests);
             // A projection's search entry: no KORE, its kill is not the row's. A test the call
             // skipped after its kill is judged under no projection and listed nowhere.
             for mut entry in executed_entries(
@@ -3581,12 +3678,27 @@ impl Search<'_, '_> {
                         search.as_deref(),
                         mutation,
                     );
+                    // The clock's rule over the programs judged under it (`crate::clock`).
+                    let clock = ids
+                        .iter()
+                        .find(|c| {
+                            domains[index].contains(c)
+                                && judged[index].contains_key(c)
+                                && stopped.contains(c)
+                        })
+                        .map(|c| {
+                            format!(
+                                "the clock (budget.time_ms) stopped the mutant's run of {}",
+                                self.candidates[*c].id
+                            )
+                        });
                     decision_status(
                         &projection.name,
                         &decision,
                         ids.iter()
                             .filter(|c| domains[index].contains(c))
                             .filter_map(|c| judged[index].get(c)),
+                        clock.as_deref(),
                         |c| self.candidates[c].id,
                     )
                 }
@@ -4990,6 +5102,11 @@ pub(crate) fn run_session(
     // corpus's largest baseline polls.
     document["work_factor"] = json!(manifest.budget.work_factor);
     document["poll_floor"] = json!(search.floor);
+    // The programs each listed projection with a `domain` holds, which the lock's clock rule
+    // reads (absent where none has one, and in a flow that declares no projection).
+    if let Some(domains) = projection_domains(manifest) {
+        document["projection_domains"] = domains;
+    }
     // The lock, compared and written once the run's rows are final (README, "The killer
     // record"): its text is the rendering of this document, which neither the `lock` member nor
     // a front end's annotation is part of.
@@ -6538,6 +6655,7 @@ mod tests {
                 "p",
                 &first(&none, Some(&c), None).0,
                 [Verdict::Agree, unknown()].iter(),
+                None,
                 |_| "x"
             ),
             ProjectionStatus {
@@ -6546,6 +6664,36 @@ mod tests {
                 killer: None,
                 reason: Some("u".to_owned()),
             }
+        );
+        // FX1: a program of the domain judged under it whose run the clock stopped makes it
+        // `timeout` where nothing kills (the row's own rule), whatever else is unknown; a kill
+        // under it is a kill whatever the clock stopped.
+        assert_eq!(
+            decision_status(
+                "p",
+                &first(&none, Some(&c), None).0,
+                [Verdict::Agree, unknown()].iter(),
+                Some("stopped"),
+                |_| "x"
+            ),
+            ProjectionStatus {
+                name: "p".to_owned(),
+                status: "timeout".to_owned(),
+                killer: None,
+                reason: Some("stopped".to_owned()),
+            }
+        );
+        let killed = judged(&[(2, Verdict::Killed)]);
+        assert_eq!(
+            decision_status(
+                "p",
+                &first(&killed, Some(&c), None).0,
+                std::iter::empty(),
+                Some("stopped"),
+                |_| "x"
+            )
+            .status,
+            "killed"
         );
         // U2: the recorded killer is kept while it kills under the projection, wherever it is
         // in C; while it is not judged it runs alone; once it agrees the first kill in C is the
@@ -6590,7 +6738,7 @@ mod tests {
         let (empty, need) = projection_need(&[], &judged(&[]), None, None, ScheduleMode::FirstKill);
         assert_eq!(need, ProjectionNeed::Nothing);
         assert_eq!(
-            decision_status("p", &empty, std::iter::empty(), |_| "x").status,
+            decision_status("p", &empty, std::iter::empty(), None, |_| "x").status,
             "error"
         );
         assert_eq!(
@@ -6598,6 +6746,7 @@ mod tests {
                 "p",
                 &Tier1::Call { records: true },
                 std::iter::empty(),
+                Some("stopped"),
                 |_| "x"
             )
             .reason

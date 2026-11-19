@@ -615,6 +615,13 @@ pub struct ProgramResult {
     /// comparable programs (FB45-KINK; `search`). `None` for every other class. A function of the
     /// key, as the class is, and outside the run digest.
     pub polls: Option<u64>,
+    /// Whether a path of the baseline run takes an undefined step (kink-campaign
+    /// `TestEvidence::undefined_steps`), which is no end in kink's record, so `ends` and the
+    /// baseline row do not show it: the result record and the program's row state it
+    /// (`undefined_steps`, only where it holds), since whether the definition accepts the program
+    /// on every path rests on it (`crate::compare::row_acceptance`). Comparable (or
+    /// comparable-prefix) only; false otherwise. A function of the key, as the ends are.
+    pub undefined_steps: bool,
     /// Why the result is not a function of its key ([`host_dependence`]); `None` when it is.
     /// Outside the record: a result with a host dependence is never written.
     pub host: Option<HostDependence>,
@@ -647,6 +654,7 @@ impl ProgramResult {
             decider_smt_unknowns: 0,
             polls: None,
             short_circuit_readings: json!([]),
+            undefined_steps: false,
             host: None,
         }
     }
@@ -1210,6 +1218,7 @@ impl<'a> BaselineRunner<'a> {
                         decider_smt_unknowns: evidence.notes.decider_smt_unknowns,
                         polls: None,
                         short_circuit_readings: json!([]),
+                        undefined_steps: false,
                         host: None,
                     };
                 }
@@ -1239,6 +1248,7 @@ impl<'a> BaselineRunner<'a> {
                     decider_smt_unknowns: evidence.notes.decider_smt_unknowns,
                     polls: evidence.notes.polls,
                     short_circuit_readings: json!([]),
+                    undefined_steps: evidence.undefined_steps,
                     host: None,
                 }
             }
@@ -1266,6 +1276,7 @@ impl<'a> BaselineRunner<'a> {
                     decider_smt_unknowns: 0,
                     polls: None,
                     short_circuit_readings: json!([]),
+                    undefined_steps: false,
                     host: Some(HostDependence::Time),
                 }
             }
@@ -1304,6 +1315,7 @@ impl<'a> BaselineRunner<'a> {
                     decider_smt_unknowns: 0,
                     polls: None,
                     short_circuit_readings: json!([]),
+                    undefined_steps: false,
                     host: None,
                 }
             }
@@ -1329,6 +1341,7 @@ impl<'a> BaselineRunner<'a> {
                 decider_smt_unknowns: 0,
                 polls: None,
                 short_circuit_readings: json!([]),
+                undefined_steps: false,
                 host: Some(HostDependence::StopCondition),
             },
             Err(failure) => self.diagnose(
@@ -1357,6 +1370,7 @@ impl<'a> BaselineRunner<'a> {
             decider_smt_unknowns: 0,
             polls: None,
             short_circuit_readings: json!([]),
+            undefined_steps: false,
             host: Some(HostDependence::Failure),
         }
     }
@@ -1441,6 +1455,7 @@ impl<'a> BaselineRunner<'a> {
                 decider_smt_unknowns: 0,
                 polls: None,
                 short_circuit_readings: json!([]),
+                undefined_steps: false,
                 host: Some(HostDependence::Time),
             };
         }
@@ -1566,6 +1581,7 @@ impl<'a> BaselineRunner<'a> {
             decider_smt_unknowns: execution.facts().decider_smt_unknowns,
             polls: None,
             short_circuit_readings: crate::exclusion::readings_value(&readings),
+            undefined_steps: false,
             host: host_dependence(
                 class,
                 exclusion,
@@ -2262,6 +2278,11 @@ fn record_facts(
     if !observations.is_null() {
         facts["observations"] = observations;
     }
+    // Whether a path of the baseline run takes an undefined step, which no end shows; absent
+    // where none does, so such a record has the members it had.
+    if result.undefined_steps {
+        facts["undefined_steps"] = json!(true);
+    }
     facts
 }
 
@@ -2417,6 +2438,14 @@ fn verify_record(record: &Value, result: &ProgramResult) -> Vec<String> {
             "polls: cached {}, now {}",
             record["polls"],
             json!(result.polls)
+        ));
+    }
+    // Whether a path takes an undefined step, which the definition's acceptance rests on.
+    let undefined = record["undefined_steps"] == true;
+    if undefined != result.undefined_steps {
+        differences.push(format!(
+            "undefined_steps: cached {undefined}, now {}",
+            result.undefined_steps
         ));
     }
     let now = result.run_sha256().map(|d| d.to_string());
@@ -2672,6 +2701,11 @@ fn program_row(
         // without a record, so a row without `[observe]` is the row it was.
         if let Some(observations) = record.get("observations").filter(|value| !value.is_null()) {
             row["observations"] = observations.clone();
+        }
+        // A path of the baseline run takes an undefined step (`ProgramResult::undefined_steps`);
+        // absent where none does.
+        if record.get("undefined_steps") == Some(&json!(true)) {
+            row["undefined_steps"] = json!(true);
         }
         row
     };
@@ -3208,6 +3242,7 @@ mod tests {
             decider_smt_unknowns: 0,
             polls: None,
             short_circuit_readings: json!([]),
+            undefined_steps: false,
             host: None,
         }
     }

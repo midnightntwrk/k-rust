@@ -451,6 +451,18 @@ impl MutationList {
                             ),
                         ));
                     }
+                    // A host-dependent metric (no relation: its value is reported only): `run`
+                    // never judges a metric projection, so the claim could never be checked.
+                    Some(projection) if projection.is_host_dependent() => {
+                        return Err(ManifestError::new(
+                            key(),
+                            format!(
+                                "`{name}` is a metric projection (`kind = \"metric\"`): it \
+                                 measures an implementation's answer, which `compare` reports; \
+                                 `run` judges mutants of the definition under none"
+                            ),
+                        ));
+                    }
                     Some(_) => {}
                 }
             }

@@ -328,6 +328,15 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// Still 46 since a list may name a generated grammar set (PJ-34, U34h, [`crate::grammar_set`]):
 /// each row it expands into follows the written mutations and has `generated`; a list with no
 /// set writes the document it wrote.
+/// Still 46 since FX1: a program row states a baseline's undefined step (`undefined_steps`, only
+/// where a path takes one); in a flow that declares `[[projection]]`, a `timeout` or `error` row
+/// its programs decide is judged per projection on the projection's domain (an entry may be
+/// `timeout` where the clock stopped a run judged under it), a continuation call's mutant-scope
+/// failure other than `infrastructure` and a lowering time limit is the corpus error
+/// `outcome-conflict`, the document has
+/// `projection_domains` where a listed projection has a `domain`, and `lock.failed` may name an
+/// entry `--verify` did not judge (`verify-judges-no-projection`). A flow without
+/// `[[projection]]` whose baseline runs take no undefined step gives the document it gave.
 pub const RUN_VERSION: u64 = 46;
 
 /// The name of the observation slot of an executed entry's `slots`, after the end slots

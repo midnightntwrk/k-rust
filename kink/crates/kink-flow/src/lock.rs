@@ -1421,6 +1421,10 @@ pub fn not_written(path: &Path, reason: &str) -> Value {
     })
 }
 
+/// The arrays of a compare section that count its rows (`crate::verdicts`, after the
+/// `[[compare.verdict]]` rows): a function of the rows, so no header key.
+const COMPARE_COUNT_ROWS: [&str; 3] = ["view", "snapshot", "metric"];
+
 /// The header of a decoded section of `kind` (or of a lock before version 24, its whole file):
 /// each key outside its rows (`mutation`, `flip`), the `schema` and `document` of a lock before
 /// version 24, and, for a coverage section, its family tables (`rules`, ...; [`head`]) and an old
@@ -1445,6 +1449,10 @@ fn header_values(table: &toml::Table, kind: LockKind) -> BTreeMap<String, Value>
             // name them.
             toml::Value::Array(_)
                 if kind == LockKind::Run && key == crate::verdicts::PROJECTION_COUNTS_ROW => {}
+            // So are a compare section's counts per view, snapshot and metric view
+            // (`[[compare.view]]`, `[[compare.snapshot]]`, `[[compare.metric]]`).
+            toml::Value::Array(_)
+                if kind == LockKind::Compare && COMPARE_COUNT_ROWS.contains(&key.as_str()) => {}
             toml::Value::Table(_)
                 if kind == LockKind::Coverage
                     && (crate::coverage::FAMILIES.contains(&key.as_str())
@@ -1775,6 +1783,9 @@ pub fn stale_lines(document: &Value) -> Vec<String> {
             side(&change["now"])
         ));
     }
+    // A row whose entries under its projections differ in their order alone (`[run]
+    // projections` reordered): named once, at the first.
+    let mut reordered = None;
     for change in changes {
         let id = kind.named(change);
         let (recorded, now) = (&change["recorded"], &change["now"]);
@@ -1821,11 +1832,33 @@ pub fn stale_lines(document: &Value) -> Vec<String> {
             lines.push(format!("{path}: {id}: {line}"));
         }
         if kind == LockKind::Run && !recorded.is_null() && !now.is_null() {
-            for (name, line) in projection_changes(&recorded["projections"], &now["projections"]) {
+            let moved = projection_changes(&recorded["projections"], &now["projections"]);
+            if moved.is_empty()
+                && recorded["projections"] != now["projections"]
+                && reordered.is_none()
+            {
+                let names = |side: &Value| {
+                    side.as_array()
+                        .into_iter()
+                        .flatten()
+                        .map(|entry| entry["name"].as_str().unwrap_or("?"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                };
+                reordered = Some(format!(
+                    "{path}: the entries under each projection are in another order than `[run] \
+                     projections` lists them (first at {id}: recorded [{}], now [{}]); a run \
+                     writes them in the listed order",
+                    names(&recorded["projections"]),
+                    names(&now["projections"])
+                ));
+            }
+            for (name, line) in moved {
                 lines.push(format!("{path}: {id}: under {name}: {line}"));
             }
         }
     }
+    lines.extend(reordered);
     lines
 }
 
@@ -2648,6 +2681,88 @@ identity_sha256 = "aa"
         assert_eq!(value["failed"], json!([]), "{value:#}");
     }
 
+    /// FX1 (review lock-clock 8): a host-dependent metric's view never has a row, so a crash
+    /// whose acceptance views judged it is decided where the implementation's other views are
+    /// such views only: the pair is not `failed` (exit 3 for ever) for a view that has no row.
+    #[test]
+    fn a_host_dependent_metric_view_does_not_keep_a_crash_undecided() {
+        let dir = scratch("compare-crash-host-metric");
+        let path = dir.join(LOCK_FILE);
+        let store = Store::new(&dir);
+        let document = |rows: Vec<Value>| {
+            let mut document = compare_document(rows);
+            document["implementations"][0]["views"] =
+                json!([{"name": "accepts"}, {"name": "wall", "projection": "wall"}]);
+            document["projections"] = json!([
+                {"name": "wall", "kind": "metric", "metric": "wall_ns", "direction": "lower",
+                 "host_dependent": true},
+            ]);
+            document
+        };
+        let accepts = |program: &str| {
+            compare_row(
+                program,
+                vec![view("accepts", true, "equal", json!({}))],
+                Value::Null,
+                Value::Null,
+            )
+        };
+        let read = || Lock::read_kind(&path, LockKind::Compare).unwrap();
+        let _ = read().settle(&store, &document(vec![accepts("p1"), accepts("p2")]), WRITE);
+        let crash = document(vec![
+            accepts("p1"),
+            compare_row(
+                "p2",
+                vec![view(
+                    "accepts",
+                    true,
+                    "different",
+                    json!({"difference": {"format": "kink-accepts/1", "definition": "accepts",
+                                          "implementation": "crashed"}}),
+                )],
+                json!({"kind": "exit", "detail": "status 3", "decided": true}),
+                Value::Null,
+            ),
+        ]);
+        let (value, _) = read().settle(&store, &crash, LOCKED);
+        assert_eq!(value["status"], "stale", "{value:#}");
+        assert_eq!(value["failed"], json!([]), "{value:#}");
+    }
+
+    /// FX1 (review lock-clock 7): a compare section's counts (`[[compare.view]]`, and likewise
+    /// `[[compare.snapshot]]` and `[[compare.metric]]`) are a function of its rows, so a moved
+    /// row moves no header key.
+    #[test]
+    fn a_compare_sections_counts_are_no_header_key() {
+        let dir = scratch("compare-counts-header");
+        let path = dir.join(LOCK_FILE);
+        let store = Store::new(&dir);
+        let read = || Lock::read_kind(&path, LockKind::Compare).unwrap();
+        let _ = read().settle(
+            &store,
+            &compare_document(vec![answered("p1", "acc"), answered("p2", "acc")]),
+            WRITE,
+        );
+        let written = fs::read_to_string(&path).unwrap();
+        assert!(written.contains("[[compare.view]]"), "{written}");
+        let moved = compare_row(
+            "p2",
+            vec![
+                view("whole", true, "equal", json!({})),
+                view("parity", false, "equal", json!({})),
+            ],
+            Value::Null,
+            Value::Null,
+        );
+        let (value, _) = read().settle(
+            &store,
+            &compare_document(vec![answered("p1", "acc"), moved]),
+            LOCKED,
+        );
+        assert_eq!(value["status"], "stale", "{value:#}");
+        assert_eq!(value["header_changes"], json!([]), "{value:#}");
+    }
+
     /// A view outside its projection's domain rests on no run (projections PJ-10): in a pair whose
     /// rows are kept, because the clock stopped the baseline or the implementation failed, its
     /// live `outside-domain` row is written, and every other view keeps its recorded row.
@@ -3110,8 +3225,12 @@ identity_sha256 = "aa"
         );
     }
 
-    /// A run of a flow that declares projections whose rows judge none (`--verify`) compares
-    /// the recorded entries as they are: its rows are given them.
+    /// A run of a flow that declares projections whose rows judge none (`--verify`) neither
+    /// confirms nor contradicts the recorded entries (FX1): a row its programs decide is given
+    /// them, each decided one named in `failed`, so `--locked` is `undecided` (exit 3) where
+    /// nothing else differs, never `unchanged`; a row no program decides (an `error` of
+    /// `--verify`'s own) has its status under every recorded projection, as a search run gives
+    /// it.
     #[test]
     fn a_verify_run_keeps_the_recorded_projections() {
         let dir = scratch("run-projections-verify");
@@ -3129,9 +3248,193 @@ identity_sha256 = "aa"
         let (value, _) = Lock::read(&path).unwrap().settle(&store, &decided, WRITE);
         assert_eq!(value["status"], "created", "{value:#}");
         let mut verified = run_document(&[("m1", "killed", Some("t1"))]);
+        verified["mutations"][0]["executed"] = json!([{"program": "t1", "outcome": "distinguish"}]);
         verified["projections"] = decided["projections"].clone();
         let (value, _) = Lock::read(&path).unwrap().settle(&store, &verified, LOCKED);
-        assert_eq!(value["status"], "unchanged", "{value:#}");
+        assert_eq!(value["status"], "undecided", "{value:#}");
+        assert_eq!(value["changes"], json!([]), "{value:#}");
+        assert_eq!(
+            value["failed"],
+            json!([
+                {"mutation": "m1", "projection": "p",
+                 "reason": crate::projected::VERIFY_JUDGES_NO_PROJECTION},
+                {"mutation": "m1", "projection": "q",
+                 "reason": crate::projected::VERIFY_JUDGES_NO_PROJECTION},
+            ]),
+            "{value:#}"
+        );
+        let mut document = verified.clone();
+        document["lock"] = value;
+        assert_eq!(
+            crate::clock::clock_lines(&document)[0],
+            format!(
+                "{}: m1 under p: undecided (verify-judges-no-projection): the recorded verdict \
+                 is kept, not confirmed",
+                path.display()
+            )
+        );
+        // `--verify`'s own `error` (a record that does not describe the live run): the row's
+        // status under every projection, no recorded `killed` entry kept beside it.
+        let mut mismatch = run_document(&[("m1", "error", None)]);
+        mismatch["mutations"][0]["reason"] = json!("outcome-mismatch:t1");
+        mismatch["projections"] = decided["projections"].clone();
+        let kept = crate::clock::keep(&Lock::read(&path).unwrap(), &mismatch);
+        assert_eq!(
+            kept.document["mutations"][0]["projections"],
+            json!([
+                {"name": "p", "status": "error", "killer": null, "reason": "outcome-mismatch:t1"},
+                {"name": "q", "status": "error", "killer": null, "reason": "outcome-mismatch:t1"},
+            ])
+        );
+        assert_eq!(kept.failed, Vec::<Value>::new());
+        // An `error` its programs gave (a slot's `error`, no kill), which the search judges per
+        // projection: the recorded entries, unconfirmed, never the row's status (`stale`).
+        let _ = fs::remove_file(&path);
+        let errored = projected_document(&[(
+            "m2",
+            "error",
+            None,
+            &[("p", "unknown", None, None), ("q", "unknown", None, None)],
+        )]);
+        let (value, _) = Lock::read(&path).unwrap().settle(&store, &errored, WRITE);
+        assert_eq!(value["status"], "created", "{value:#}");
+        let mut verified = run_document(&[("m2", "error", None)]);
+        verified["mutations"][0]["executed"] = json!([{"program": "t1", "outcome": "error"}]);
+        verified["projections"] = errored["projections"].clone();
+        let (value, _) = Lock::read(&path).unwrap().settle(&store, &verified, LOCKED);
+        assert_eq!(value["status"], "undecided", "{value:#}");
+        assert_eq!(
+            value["failed"].as_array().map(Vec::len),
+            Some(2),
+            "{value:#}"
+        );
+    }
+
+    /// FX1 (review lock-clock 4): an `undecided` entry keeps only a recorded verdict a run
+    /// decides (killed, survived, unknown, timeout); a recorded status no run of a row its
+    /// programs decide can give (here `error`, a row-level status) is contradicted, so the entry
+    /// is written `undecided` and is stale, never kept with exit 3 for ever.
+    #[test]
+    fn an_undecided_entry_keeps_no_status_a_run_does_not_decide() {
+        let dir = scratch("run-projections-undecided-guard");
+        let path = dir.join(LOCK_FILE);
+        let store = Store::new(&dir);
+        let recorded = projected_document(&[(
+            "m1",
+            "killed",
+            Some("t1"),
+            &[
+                ("p", "error", None, Some("infrastructure")),
+                ("q", "survived", None, None),
+            ],
+        )]);
+        let _ = Lock::read(&path).unwrap().settle(&store, &recorded, WRITE);
+        let undecided = projected_document(&[(
+            "m1",
+            "killed",
+            Some("t1"),
+            &[
+                ("p", "undecided", None, Some("projection-search")),
+                ("q", "undecided", None, Some("projection-search")),
+            ],
+        )]);
+        let (value, _) = Lock::read(&path)
+            .unwrap()
+            .settle(&store, &undecided, LOCKED);
+        assert_eq!(value["status"], "stale", "{value:#}");
+        assert_eq!(
+            value["failed"],
+            json!([{"mutation": "m1", "projection": "q", "reason": "projection-search"}]),
+            "{value:#}"
+        );
+    }
+
+    /// FX1 (review lock-clock 5): a baseline the clock stopped matters to an entry under a
+    /// projection only where its domain holds the program (`projection_domains`): `q`, whose
+    /// domain holds `t1` alone, is decided on this host whatever `t9`'s baseline would have
+    /// given, while `p`, which holds every program, keeps its recorded verdict.
+    #[test]
+    fn a_stopped_baseline_outside_a_domain_keeps_no_entry_under_it() {
+        let dir = scratch("run-projections-domain-baseline");
+        let path = dir.join(LOCK_FILE);
+        let store = Store::new(&dir);
+        let recorded = projected_document(&[(
+            "m1",
+            "survived",
+            None,
+            &[("p", "survived", None, None), ("q", "survived", None, None)],
+        )]);
+        let _ = Lock::read(&path).unwrap().settle(&store, &recorded, WRITE);
+        let mut now = projected_document(&[(
+            "m1",
+            "survived",
+            None,
+            &[
+                ("p", "unknown", None, Some("u")),
+                ("q", "unknown", None, Some("u")),
+            ],
+        )]);
+        now["programs"] = json!([
+            {"id": "t1", "class": "comparable"},
+            {"id": "t9", "class": "timeout"},
+        ]);
+        now["projection_domains"] = json!({"q": ["t1"]});
+        let kept = crate::clock::keep(&Lock::read(&path).unwrap(), &now);
+        let statuses = kept.document["mutations"][0]["projections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|entry| (entry["name"].clone(), entry["status"].clone()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            statuses,
+            [
+                (json!("p"), json!("survived")),
+                (json!("q"), json!("unknown"))
+            ]
+        );
+        assert!(
+            kept.kept.iter().all(|entry| entry["projection"] != "q"),
+            "{:#?}",
+            kept.kept
+        );
+        // Without `projection_domains` every projection holds every program, as before.
+        now.as_object_mut().unwrap().remove("projection_domains");
+        let kept = crate::clock::keep(&Lock::read(&path).unwrap(), &now);
+        assert_eq!(
+            kept.document["mutations"][0]["projections"][1]["status"],
+            "survived"
+        );
+    }
+
+    /// FX1 (review lock-clock 6): a reordered `[run] projections` moves every row's entries
+    /// and no entry's verdict: `stale`, with one line that says so.
+    #[test]
+    fn a_reordered_run_projections_is_named() {
+        let dir = scratch("run-projections-reordered");
+        let path = dir.join(LOCK_FILE);
+        let store = Store::new(&dir);
+        let entries: &[Entry<'_>] = &[
+            ("p", "killed", Some("t2"), None),
+            ("q", "survived", None, None),
+        ];
+        let recorded = projected_document(&[("m1", "killed", Some("t1"), entries)]);
+        let _ = Lock::read(&path).unwrap().settle(&store, &recorded, WRITE);
+        let reversed = entries.iter().rev().copied().collect::<Vec<_>>();
+        let now = projected_document(&[("m1", "killed", Some("t1"), &reversed)]);
+        let (value, _) = Lock::read(&path).unwrap().settle(&store, &now, LOCKED);
+        assert_eq!(value["status"], "stale", "{value:#}");
+        let mut document = now;
+        document["lock"] = value;
+        assert_eq!(
+            stale_lines(&document),
+            [format!(
+                "{}: the entries under each projection are in another order than `[run] \
+                 projections` lists them (first at m1: recorded [p, q], now [q, p]); a run \
+                 writes them in the listed order",
+                path.display()
+            )]
+        );
     }
 
     /// The projections a document names are in no lock section (projections PJ-10): every

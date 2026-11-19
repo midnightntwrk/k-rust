@@ -220,6 +220,10 @@ pub const COMPARE_SCHEMA: &str = "kink-flow-compare";
 /// keeps none) or omits every one; a word difference compared on no cell has a null `distance`.
 /// A flow none of whose end views compares no cell gives version 11's document but for its
 /// version.
+/// Still 12 (branch-only) since a program row states a baseline's undefined step
+/// (`undefined_steps`, only where a path takes one) and the definition's acceptance of such a
+/// program is `not-compared` (`undecided`) where every listed end is accepted (FX1): a corpus
+/// none of whose baseline runs takes an undefined step gives the document it gave.
 pub const COMPARE_VERSION: u64 = 12;
 /// The protocol a request names (`protocol`) and its answer is read by, unless the
 /// implementation declares another ([`Protocol`]).
@@ -720,6 +724,28 @@ pub(crate) fn ends_acceptance(summaries: &[Value]) -> Acceptance {
     }
 }
 
+/// The definition's acceptance of a program from its program row (`row`): [`ends_acceptance`]
+/// of the row's `ends`, where the baseline run takes no undefined step. An undefined step is no
+/// end in kink's record, so where the row says a path takes one (`undefined_steps`,
+/// `crate::results::ProgramResult::undefined_steps`) the listed ends are not every way the run
+/// stops: a run that accepts at every listed end is not known to accept the program (read as a
+/// rejection, the undefined step makes it accept on one path and reject on another, which
+/// decides nothing), and one that rejects at every listed end rejects it whatever the undefined
+/// step is read as. The mutant's side follows the same rule (`crate::projected::
+/// mutant_acceptance`).
+pub(crate) fn row_acceptance(row: &Value) -> Acceptance {
+    let acceptance = ends_acceptance(row["ends"].as_array().map_or(&[][..], Vec::as_slice));
+    if row["undefined_steps"] == true && acceptance == Acceptance::Accepted {
+        return Acceptance::NotCompared(NotCompared::Undecided(
+            "the definition's run takes an undefined step beside ends it accepts the program at: \
+             an undefined step is no end in kink's record, and whether it rejects is not stated, \
+             so whether the definition accepts the program is not known"
+                .to_owned(),
+        ));
+    }
+    acceptance
+}
+
 /// [`ends_acceptance`] of the run `side` names (its reasons say whose run it is, and `several`
 /// why ends of both kinds decide nothing), `None` where `summaries` is empty: the same rule, for
 /// the baseline's ends and for a mutant's (`crate::projected`, a kill under an `accepts`
@@ -771,12 +797,7 @@ pub(crate) fn ends_acceptance_of(
 /// baseline row is `row`.
 fn definition_acceptance(definition: &Definition, row: &Value) -> Acceptance {
     match definition {
-        Definition::Ends { .. } => ends_acceptance(
-            row["ends"]
-                .as_array()
-                .map(Vec::as_slice)
-                .unwrap_or_default(),
-        ),
+        Definition::Ends { .. } => row_acceptance(row),
         Definition::Prefix { .. } => Acceptance::NotCompared(NotCompared::NoEnd {
             detail: "the definition's run of the program is cut by its bounds before it ends \
                      (`comparable-prefix`): whether it accepts the program is not known yet"
@@ -4248,7 +4269,15 @@ pub fn keep(lock: &Lock, document: &Value) -> Kept {
     let mut stopped = Vec::new();
     let mut failed = Vec::new();
     let mut undecided = BTreeSet::new();
-    // The views of each implementation, in the declaration's order.
+    // A host-dependent metric's view has no row in the section ([`verdict_rows`]).
+    let metrics = metric_views(document);
+    let host = |implementation: &str, view: &str| {
+        metrics.iter().any(|metric| {
+            metric.host_dependent && metric.implementation == implementation && metric.view == view
+        })
+    };
+    // The views of each implementation that the section holds rows of, in the declaration's
+    // order.
     let declared = |implementation: &str| {
         document["implementations"]
             .as_array()
@@ -4260,6 +4289,7 @@ pub fn keep(lock: &Lock, document: &Value) -> Kept {
                 views
                     .iter()
                     .filter_map(|view| view["name"].as_str())
+                    .filter(|view| !host(implementation, view))
                     .map(str::to_owned)
                     .collect::<Vec<_>>()
             })
@@ -6352,6 +6382,76 @@ mod tests {
             rows.iter().all(|row| row["reason"] == "definition"
                 && row["status"] == EXIT_UNASKED
                 && row["detail"].as_str().unwrap().contains("it runs nothing")),
+            "{rows:#?}"
+        );
+    }
+
+    /// FX1 (PJ-02): a definition whose run of a program ends `finished` on one path and takes an
+    /// undefined step on another (`undefined_steps` on the program's row) is not known to accept
+    /// the program: an undefined step is no end in kink's record, and read as a rejection it
+    /// makes the run accept on one path and reject on another. So an acceptance view does not
+    /// call a `rejected` answer `different` there. A definition that rejects at every listed end
+    /// rejects whatever its undefined steps are, and a row with no undefined step is read by its
+    /// ends as before.
+    #[test]
+    fn a_definition_that_takes_an_undefined_step_beside_accepted_ends_is_not_known_to_accept() {
+        let definition = Definition::Ends {
+            ends: BTreeSet::new(),
+            words: BTreeSet::from([EndWord::Final.as_str()]),
+            refused: false,
+        };
+        let row = |declared: &str, undefined: bool| {
+            let mut row = json!({"class": "comparable", "ends": [{"declared": declared}]});
+            if undefined {
+                row["undefined_steps"] = json!(true);
+            }
+            row
+        };
+        assert_eq!(
+            definition_acceptance(&definition, &row("finished", false)),
+            Acceptance::Accepted
+        );
+        let undecided = definition_acceptance(&definition, &row("finished", true));
+        let Acceptance::NotCompared(NotCompared::Undecided(detail)) = &undecided else {
+            panic!("{undecided:?}");
+        };
+        assert!(detail.contains("undefined step"), "{detail}");
+        assert_eq!(
+            definition_acceptance(&definition, &row("refused", true)),
+            Acceptance::Rejected
+        );
+        // The acceptance view: a `rejected` answer against it is not compared, never different.
+        let implementation = second(&format!(
+            "{END}, {{ name = \"accepts\", kind = \"accepts\", required = true }}, {TICKS}"
+        ));
+        let side = AcceptanceSide {
+            definition: &undecided,
+            refused_everywhere: false,
+            refusal: None,
+        };
+        let rejected = Stated {
+            end: StatedEnd::Rejected {
+                message: Some("syntax error".to_owned()),
+                refused: None,
+            },
+            cells: None,
+            observations: None,
+            metrics: None,
+        };
+        let no_trace = NotCompared::RejectedBeforeRun("no run".to_owned());
+        let rows = answered_rows(
+            &Mock::judging(Vec::new()),
+            &implementation,
+            &rejected,
+            None,
+            &[],
+            Some(TraceSide::Not(&no_trace)),
+            Some(&side),
+        )
+        .unwrap();
+        assert_eq!(
+            (&rows[1]["verdict"], &rows[1]["reason"]),
+            (&json!("not-compared"), &json!("undecided")),
             "{rows:#?}"
         );
     }

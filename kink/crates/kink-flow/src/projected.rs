@@ -75,10 +75,16 @@ pub const METRIC_NOT_OBSERVED: &str = "metric-not-observed";
 
 /// The reason of an `undecided` status: some program of the projection's domain that its
 /// decision needs was not judged under it, because a call of the search under the projections
-/// failed (a corpus error, or a mutant-scope failure that ran no test; `crate::search`), an
-/// event of the host, not a function of the run's inputs. The only `undecided` there is, so a
-/// lock keeps the recorded entry over it (`crate::clock`).
+/// failed (a corpus error, which stops the run, or the host's `infrastructure` failure of the
+/// mutant or a lowering time limit; any other mutant-scope failure there contradicts the row's
+/// own search and is a corpus error, `crate::search`), an event of the host, not a function of the run's inputs.
+/// The only `undecided` there is, so a lock keeps the recorded entry over it (`crate::clock`).
 pub const PROJECTION_SEARCH: &str = "projection-search";
+
+/// The reason a `run --verify` names, in `lock.failed`, each recorded entry under a projection
+/// of a row whose programs decide its status: `--verify` judges no projection, so it neither
+/// confirms nor contradicts the entry (`crate::clock`), and `--locked` is `undecided` there.
+pub const VERIFY_JUDGES_NO_PROJECTION: &str = "verify-judges-no-projection";
 
 /// An executed entry's verdict under a projection whose domain does not hold its program, as
 /// `compare` names a view outside its domain: the program is neither judged nor counted.
@@ -160,7 +166,10 @@ impl Judge {
                 // The record's cells: every observable cell for a projection without `compare`
                 // when nothing narrows the record; else as many cells as the record keeps, which,
                 // since the record is the union of the projections' cells and a projection names
-                // no cell twice, are the record's cells.
+                // no cell twice, are the record's cells. A front end that reads a cell under two
+                // spellings keeps that: krs refuses one projection naming a cell by its path and
+                // its K name (`result-cell-repeated`) and keeps each bound cell once in the
+                // record, before the manifest reaches `run` (krs-cli `kink::cells::bind`).
                 let record = match (&projection.compare, &manifest.record_cells) {
                     (None, None) => true,
                     (Some(compare), Some(kept)) => compare.len() == kept.len(),
@@ -364,25 +373,42 @@ pub fn native_cells(
 }
 
 /// The baseline's acceptance of a program, from its program row (`row`, the results' row: its
-/// `class`, and its `ends` summaries with `halt` under `[stop]` and `declared` where the
-/// definition declares ends), as `compare` reads the definition's side: only a `comparable`
-/// row has ends.
+/// `class`, its `ends` summaries with `halt` under `[stop]` and `declared` where the definition
+/// declares ends, and `undefined_steps` where a path of the run takes one), as `compare` reads
+/// the definition's side (`crate::compare::row_acceptance`): only a `comparable` row has ends,
+/// and a run that takes an undefined step beside ends it accepts at is not known to accept the
+/// program, as on the mutant's side ([`mutant_acceptance`]).
 #[must_use]
 pub fn baseline_acceptance(row: &Value) -> Acceptance {
+    side_of(row).unwrap_or_else(|| crate::compare::row_acceptance(row))
+}
+
+/// [`baseline_acceptance`] read from the listed ends alone, with no regard to an undefined step
+/// the row states: the grammar reparse's reading (`crate::reparse`), which this rule leaves as it
+/// was (FX1: whether it should take the undefined step too is a question to the orchestrator,
+/// since it reaches flows without `[[projection]]`).
+#[must_use]
+pub fn listed_acceptance(row: &Value) -> Acceptance {
+    side_of(row)
+        .unwrap_or_else(|| ends_acceptance(row["ends"].as_array().map_or(&[][..], Vec::as_slice)))
+}
+
+/// The acceptance of a program row that is not `comparable` (it has no end); `None` for one that
+/// is.
+fn side_of(row: &Value) -> Option<Acceptance> {
     let class = row["class"].as_str().unwrap_or("error");
     if class == ResultClass::ComparablePrefix.as_str() {
-        return Acceptance::NotCompared(NotCompared::Undecided(
+        return Some(Acceptance::NotCompared(NotCompared::Undecided(
             "the baseline's run of the program is cut by its bounds before it ends \
              (`comparable-prefix`): whether it accepts the program is not known yet"
                 .to_owned(),
-        ));
-    }
-    if class != ResultClass::Comparable.as_str() {
-        return Acceptance::NotCompared(NotCompared::Unreadable(format!(
-            "the baseline's run of the program is `{class}`: it has no end"
         )));
     }
-    ends_acceptance(row["ends"].as_array().map_or(&[][..], Vec::as_slice))
+    (class != ResultClass::Comparable.as_str()).then(|| {
+        Acceptance::NotCompared(NotCompared::Unreadable(format!(
+            "the baseline's run of the program is `{class}`: it has no end"
+        )))
+    })
 }
 
 /// The mutant's acceptance of a program from its ends record (`ends`), by the rule the
@@ -527,6 +553,26 @@ impl ProjectionStatus {
             "reason": self.reason,
         })
     }
+}
+
+/// `row` with its `projections` (where it has them) restated from its own status, killer and
+/// reason, each entry as a row whose status no program decides has under every projection: for
+/// a row whose status is rewritten after its projections were judged (`crate::search`: a
+/// corpus error met after the row's search, which makes the row `error`).
+pub fn restate(row: &mut Value) {
+    let Some(names) = row["projections"].as_array().map(|entries| {
+        entries
+            .iter()
+            .filter_map(|entry| entry["name"].as_str().map(str::to_owned))
+            .collect::<Vec<_>>()
+    }) else {
+        return;
+    };
+    let entries = names
+        .iter()
+        .map(|name| ProjectionStatus::of_row(name, row).value())
+        .collect::<Vec<_>>();
+    row["projections"] = json!(entries);
 }
 
 /// An executed entry's `projections`: each projection's verdict of its program, by name
@@ -960,5 +1006,77 @@ mod tests {
             ),
             Verdict::Unknown(reason) if reason == "both"
         ));
+    }
+
+    /// FX1 (review run-projection 1): a baseline whose run of a program ends `finished` on one
+    /// path and takes an undefined step on another, against a mutant whose finished path ends
+    /// at a refused end (its undefined step kept), is not a kill under `accepts`: read as a
+    /// rejection, the baseline's undefined step makes it accept on one path and reject on
+    /// another, which decides nothing, so the baseline's acceptance is not known, as the mutant
+    /// side reads the same shape. The program row states the undefined step
+    /// (`undefined_steps`); the grammar reparse's reading of the listed ends is unchanged.
+    #[test]
+    fn a_baseline_undefined_step_beside_accepted_ends_kills_nothing_under_accepts() {
+        use crate::mutant_ends::{Across, MutantEnds};
+        use crate::outcomes::RunPolls;
+        let baseline = json!({
+            "class": "comparable",
+            "ends": [{"declared": "finished"}],
+            "undefined_steps": true,
+        });
+        let side = baseline_acceptance(&baseline);
+        assert!(
+            matches!(&side, Acceptance::NotCompared(NotCompared::Undecided(detail))
+                if detail.contains("undefined step")),
+            "{side:?}"
+        );
+        let mutant = MutantEnds {
+            program_id: "p".into(),
+            ends: vec![r#"\dv{SortInt{}}("1")"#.to_owned()],
+            stop_ends: Vec::new(),
+            one_sided_ends: Vec::new(),
+            undefined_steps: true,
+            complete: true,
+            across: Across::default(),
+            polls: RunPolls {
+                count: 10,
+                bound: 100,
+                cut: false,
+            },
+        };
+        let whole = ResultProjection {
+            state: kink_campaign::StateProjection::WholeTerm,
+            compared: None,
+            not_compared: Vec::new(),
+            unobservable: Vec::new(),
+        };
+        let refused = mutant_acceptance(&mutant, &whole, false, |_: &[Pattern]| {
+            Some(vec![DeclaredEnd::Refused {
+                item: "crate::trapped".into(),
+                reason: None,
+                text: "1".into(),
+            }])
+        });
+        assert_eq!(refused, Ok(Acceptance::Rejected));
+        assert!(matches!(
+            accepts_verdict(&side, refused),
+            Verdict::Unknown(reason) if reason.contains("undefined step")
+        ));
+        // A baseline that rejects at every listed end rejects whatever its undefined step is.
+        let rejecting = json!({
+            "class": "comparable",
+            "ends": [{"declared": "refused"}],
+            "undefined_steps": true,
+        });
+        assert_eq!(baseline_acceptance(&rejecting), Acceptance::Rejected);
+        // Without the undefined step the baseline accepts, and the same mutant kills.
+        let finished = json!({"class": "comparable", "ends": [{"declared": "finished"}]});
+        assert_eq!(baseline_acceptance(&finished), Acceptance::Accepted);
+        assert_eq!(
+            accepts_verdict(&baseline_acceptance(&finished), Ok(Acceptance::Rejected)),
+            Verdict::Killed
+        );
+        // The grammar reparse reads the listed ends alone (unchanged).
+        assert_eq!(listed_acceptance(&baseline), Acceptance::Accepted);
     }
 }

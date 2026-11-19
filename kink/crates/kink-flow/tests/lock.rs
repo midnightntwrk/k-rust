@@ -1090,6 +1090,103 @@ mod clock {
         assert_eq!(fs::read_to_string(&lock).unwrap(), recorded);
     }
 
+    /// FX1 (projections review lock-clock 1, run-projection 2): a row the clock made `timeout`
+    /// does not copy its status into every projection. Each is judged on its own domain:
+    /// `twice-only`, whose domain leaves out the `countdown` program the clock stops, is
+    /// `survived` on every host, and nothing the clock stopped is named under it; `countdown-only`,
+    /// whose domain holds it, is `timeout`, its stopped run named under it, so a verdict a host
+    /// that finished the run recorded there is kept, never stale; and the lock a run writes is
+    /// the lock the next run writes.
+    #[test]
+    #[ignore = "kink"]
+    fn a_timeout_moves_only_the_projections_whose_domain_holds_it() {
+        let manifest = looping(
+            "projection-timeout",
+            &[("countdown", "countdown(3)"), ("twice", "twice(4)")],
+        );
+        let mut text = fs::read_to_string(&manifest).unwrap();
+        text.push_str(
+            "\n[[projection]]\nname = \"twice-only\"\ndomain = [\"twice\"]\n\n\
+             [[projection]]\nname = \"countdown-only\"\ndomain = [\"countdown\"]\n",
+        );
+        fs::write(&manifest, text).unwrap();
+        let lock = lock_of(&manifest);
+        let (cold, _) = run_status(&manifest, false);
+        let row = row(&cold, "countdown-escapes");
+        assert_eq!(row["status"], "timeout", "{row:#}");
+        let entries = row["projections"]
+            .as_array()
+            .unwrap_or_else(|| panic!("{row:#}"))
+            .iter()
+            .map(|entry| (entry["name"].clone(), entry["status"].clone()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            entries,
+            [
+                (json!("twice-only"), json!("survived")),
+                (json!("countdown-only"), json!("timeout")),
+            ],
+            "{row:#}"
+        );
+        let named = |document: &Value, member: &str, projection: &str| {
+            document["lock"][member]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .any(|entry| entry["projection"] == projection)
+        };
+        assert!(
+            !named(&cold, "clock_stopped", "twice-only"),
+            "{:#}",
+            cold["lock"]
+        );
+        assert!(
+            named(&cold, "clock_stopped", "countdown-only"),
+            "{:#}",
+            cold["lock"]
+        );
+        let written = fs::read_to_string(&lock).unwrap();
+        let (again, _) = run_status(&manifest, false);
+        assert_eq!(again["lock"]["status"], "unchanged", "{:#}", again["lock"]);
+        assert_eq!(fs::read_to_string(&lock).unwrap(), written);
+
+        // A host that finished countdown's run recorded both projections survived.
+        let timeout = "{ name = \"countdown-only\", status = \"timeout\" }";
+        assert!(written.contains(timeout), "{written}");
+        let recorded = written
+            .replacen("status = \"timeout\"\n", "status = \"survived\"\n", 1)
+            .replace(
+                timeout,
+                "{ name = \"countdown-only\", status = \"survived\" }",
+            );
+        fs::write(&lock, &recorded).unwrap();
+        let (locked, status) = run_status(&manifest, true);
+        assert_eq!(
+            locked["lock"]["status"], "undecided",
+            "{:#}",
+            locked["lock"]
+        );
+        assert_eq!(status, EXIT_UNANSWERED, "{:#}", locked["lock"]);
+        assert!(
+            !named(&locked, "kept", "twice-only"),
+            "{:#}",
+            locked["lock"]
+        );
+        assert!(
+            !named(&locked, "clock_stopped", "twice-only"),
+            "{:#}",
+            locked["lock"]
+        );
+        assert!(
+            named(&locked, "kept", "countdown-only"),
+            "{:#}",
+            locked["lock"]
+        );
+        let (kept, _) = run_status(&manifest, false);
+        assert_eq!(kept["lock"]["status"], "unchanged", "{:#}", kept["lock"]);
+        assert_eq!(fs::read_to_string(&lock).unwrap(), recorded);
+    }
+
     fn coverage(manifest: &Path, locked: bool) -> (Value, u8) {
         coverage_of(manifest, locked, Derived::default())
     }

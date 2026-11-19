@@ -41,12 +41,16 @@
 //! killer and its recorded killer under that projection, and the programs judged under it (the
 //! row's executed entries and those of its search under the projections that name it, not
 //! `outside-domain`) whose run on the mutant the clock stopped, with every baseline the clock
-//! stopped. An entry the run left `undecided` (it judged nothing there: a call of its search under
-//! the projections failed, which is the host's event, never a function of the run's inputs,
-//! `crate::projected::PROJECTION_SEARCH`) keeps the verdict the lock records for it, if any,
-//! which the run neither confirms nor contradicts (`lock.failed`):
-//! so a count per projection, which the section's rows give, moves only for a verdict a run
-//! decided.
+//! stopped that its domain holds (the run document's `projection_domains`; every one where it has
+//! no `domain`). An entry the run left `undecided` (it judged nothing there: a call of its search
+//! under the projections failed, which is the host's event, never a function of the run's inputs,
+//! `crate::projected::PROJECTION_SEARCH`) keeps the verdict the lock records for it where that is
+//! one a run decides (killed, survived, unknown, timeout), which the run neither confirms nor
+//! contradicts (`lock.failed`): so a count per projection, which the section's rows give, moves
+//! only for a verdict a run decided. `run --verify` judges no projection: a row its programs
+//! decide is given the recorded entries, each named in `lock.failed`
+//! (`crate::projected::VERIFY_JUDGES_NO_PROJECTION`), and a row no program decides its own
+//! status under each.
 //!
 //! A coverage lock's obligations are existential over the comparable programs: an obligation is
 //! covered when some comparable program covers it. A covered obligation is decided; one that is
@@ -165,6 +169,9 @@ pub fn keep(lock: &Lock, document: &Value) -> Kept {
     };
     // A run of a flow that declares projections whose rows judge none (`--verify`).
     let unprojected = kind == LockKind::Run && document["projections"].is_array();
+    // The programs each projection with a `domain` holds (`crate::search`): a baseline the
+    // clock stopped outside it is no program of the projection.
+    let domains = document["projection_domains"].clone();
     for row in rows.into_iter().flatten() {
         let Some(id) = row["id"].as_str().map(str::to_owned) else {
             continue;
@@ -175,7 +182,7 @@ pub fn keep(lock: &Lock, document: &Value) -> Kept {
                 row,
                 &id,
                 record,
-                (&comparable, &baseline),
+                (&comparable, &baseline, &domains),
                 unprojected,
                 &mut Sinks {
                     stopped: &mut kept.stopped,
@@ -240,21 +247,24 @@ pub fn keep(lock: &Lock, document: &Value) -> Kept {
 
 /// Keep a run row's entries under its projections by the row's own rule, entry by entry (module
 /// documentation, "Under a projection"), with `record` the row's recorded entries; returns
-/// whether some entry depends on a baseline the clock stopped (`baseline`). A row with no
-/// `projections` in a run of a flow that declares them (`unprojected`: `--verify` judges no
-/// projection) is given the recorded entries, which it neither decides nor contradicts.
+/// whether some entry depends on a baseline the clock stopped (`baseline`, those its domain
+/// holds: `domains`, the run document's `projection_domains`). A row with no `projections` in a
+/// run of a flow that declares them (`unprojected`: `--verify` judges no projection) is given the
+/// recorded entries where its programs decide its status, each named in `failed` as not
+/// confirmed ([`crate::projected::VERIFY_JUDGES_NO_PROJECTION`]), and its own status under every
+/// recorded projection where no program decides it.
 fn keep_projections(
     row: &mut Value,
     id: &str,
     record: Option<&LockRow>,
-    (comparable, baseline): (&[&str], &[&str]),
+    (comparable, baseline, domains): (&[&str], &[&str], &Value),
     unprojected: bool,
     kept: &mut Sinks<'_>,
 ) -> bool {
     let recorded = record.and_then(|record| record.projections.as_deref());
     if row.get("projections").is_none() {
         if unprojected && let Some(recorded) = recorded {
-            row["projections"] = recorded.iter().map(recorded_entry).collect();
+            unjudged(row, id, recorded, kept);
         }
         return false;
     }
@@ -291,14 +301,15 @@ fn keep_projections(
             }
             *entry = recorded_entry(before);
         };
-        // Undecided: the run judged nothing there, which contradicts no recorded verdict
-        // (`lock.failed`; `--locked` cannot confirm it).
+        // Undecided: the run judged nothing there, which contradicts no recorded verdict a run
+        // decides (`lock.failed`; `--locked` cannot confirm it). A recorded status no run gives
+        // (one of a row no program decides) is contradicted by this row, whose programs decide
+        // it: the entry is written `undecided`.
         if entry["status"] == crate::projected::UNDECIDED {
             if let Some(before) = before.filter(|before| {
-                before
-                    .status
-                    .as_deref()
-                    .is_some_and(|status| status != crate::projected::UNDECIDED)
+                before.status.as_deref().is_some_and(|status| {
+                    status == "killed" || dependent_statuses(LockKind::Run).contains(&status)
+                })
             }) {
                 kept.failed
                     .push(json!({"mutation": id, "projection": name, "reason": entry["reason"]}));
@@ -324,10 +335,15 @@ fn keep_projections(
         let Some(stops) = row_stops(LockKind::Run, &under, killer, comparable) else {
             continue;
         };
-        if stops.is_empty() && baseline.is_empty() {
+        // The stopped baselines its domain holds: one outside it is no program of it.
+        let held = domains[name.as_str()].as_array();
+        let on_domain = baseline
+            .iter()
+            .any(|program| held.is_none_or(|held| held.iter().any(|id| id == *program)));
+        if stops.is_empty() && !on_domain {
             continue;
         }
-        on_baseline |= !baseline.is_empty();
+        on_baseline |= on_domain;
         for program in &stops {
             kept.stopped
                 .push(json!({"program": program, "run": "mutant", "mutation": id,
@@ -344,6 +360,47 @@ fn keep_projections(
         restore(entry, before, kept);
     }
     on_baseline
+}
+
+/// The entries of a `--verify` row under its projections, which `--verify` does not judge
+/// (README, "Kills under each projection"): a row its programs may decide is given the recorded
+/// entries, which it neither confirms nor contradicts, each decided one named in `failed`
+/// (`--locked` is then `undecided`); a row no program decides has its own status under every
+/// recorded projection, as a search run gives it: a status no run gives, a row no program ran,
+/// or an `error` of `--verify`'s own (a record that does not describe the live run, a memo that
+/// differs from the live resolution). An `error` its programs gave keeps the recorded entries,
+/// as the search judges such a row per projection.
+fn unjudged(row: &mut Value, id: &str, recorded: &[LockedProjection], kept: &mut Sinks<'_>) {
+    let reason = row["reason"].as_str().unwrap_or_default();
+    let verify_own = reason.starts_with("outcome-mismatch") || reason == "resolution-mismatch";
+    let ran = row["executed"]
+        .as_array()
+        .is_some_and(|entries| !entries.is_empty());
+    let decided = ran
+        && match row["status"].as_str() {
+            Some("killed" | "survived" | "unknown" | "timeout") => true,
+            Some("error") => !verify_own,
+            _ => false,
+        };
+    let entries = recorded
+        .iter()
+        .map(|before| {
+            if !decided {
+                return crate::projected::ProjectionStatus::of_row(&before.name, row).value();
+            }
+            if before
+                .status
+                .as_deref()
+                .is_some_and(|status| status != crate::projected::UNDECIDED)
+            {
+                kept.failed
+                    .push(json!({"mutation": id, "projection": before.name,
+                                        "reason": crate::projected::VERIFY_JUDGES_NO_PROJECTION}));
+            }
+            recorded_entry(before)
+        })
+        .collect::<Vec<_>>();
+    row["projections"] = json!(entries);
 }
 
 /// Where [`keep_projections`] lists what it finds: [`Kept`]'s `stopped`, `kept` and `failed`.

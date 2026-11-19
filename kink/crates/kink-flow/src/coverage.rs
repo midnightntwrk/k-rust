@@ -493,6 +493,9 @@ pub const COVERAGE_SCHEMA: &str = "kink-flow-coverage";
 /// (`crate::report::RUN_VERSION` 45): it covers nothing, its argued items' evidence reads no run
 /// of it, its class exits 0 and an unmet statement exits 1, as an unmet expectation does; a flow
 /// whose entries state no rejection gives version 27's document but for its version.
+/// Still 28 (branch-only) since a program row states a baseline's undefined step
+/// (`undefined_steps`, only where a path of its run takes one; FX1): a corpus none of whose
+/// baseline runs takes one gives the document it gave.
 pub const COVERAGE_VERSION: u64 = 28;
 
 /// The status of a rule some comparable program fired.
