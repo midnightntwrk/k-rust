@@ -25,14 +25,16 @@
   reads a silent point three ways: as `HookParams.none` (no value), and as the two interpretations
   giving, at every silent point, the first (`pick 0`) or the second (`pick 1`) grid value of the
   symbol's result sort; each is an interpretation (`HookParams.app` is any function, `fallback`
-  keeps a value of the result sort). A parameter symbol is read by `paramVal` and a function by
-  `Exec.evalF`, both under `HookParams.none`; a point reaching one is marked.
+  keeps a value of the result sort). A parameter symbol is read by `Cert.paramValC` and a function
+  by `Cert.evalFC`, which give the value (or ⊥) where no interpretation takes part in it; elsewhere
+  by `paramVal` and `Exec.evalF` under `HookParams.none`, and the point is marked as reading the
+  interpretation.
 
   A sentence holds at a point where its pattern denotes every element (`\top`): `\implies` with
   a premise that does not hold holds; `\equals` holds where both sides denote the same (no value
   and no value, one value and the same value); `\exists Val. Val = t` (the `functional` sentence)
-  holds where `t` has one value. A point where the sentence fails and no silent point, parameter
-  or function rest was reached is a counterexample for every interpretation: Γ with the sentence
+  holds where `t` has one value. A point where the sentence fails and nothing marked as reading the
+  interpretation was reached is a counterexample for every interpretation: Γ with the sentence
   has no model. A sentence's sort variables (`R`, `Q0`) are not instantiated: its predicates denote
   every element or none in any sort.
 
@@ -58,7 +60,7 @@
   have different values). Both check that the conditions on the interpretation are closed
   (`Reads`, `readsOK`): a sentence that reads the interpretation at a probed point is a `functional`
   sentence of a symbol of `totalSilentKeys` or at a line of `libSentences`, reads it only where its
-  left side is at a silent point, and every sentence at a line of `libSentences` that the text holds
+  left side does, and every sentence at a line of `libSentences` that the text holds
   and the probe evaluates reads it; and that under `HookParams.lib` only the control fails. One
   sentence is excepted from both (`unmet`): `countAllOccurrences`' second equation at the empty
   needle, which no interpretation that gives the count a value there meets. Two lines of
@@ -306,7 +308,16 @@ def dvVal (x : Ctx) (s : Kore.KSort) (t : String) : M D := do
   else if s == Srt.string then pure (.val (.dv Srt.string (.tok t)))
   else throw s!"literal of sort {x.c.sortName s}"
 
-/-- The meaning of Γ's symbol `k` at the values `vs`. -/
+def ofOpt : Option GroundTerm → D
+  | some v => .val v
+  | none => .bot
+
+/-- The meaning of Γ's symbol `k` at the values `vs`. A point is marked where the meaning depends on
+the interpretation: a silent point of an interpreted symbol, a parameter whose value is not its
+hook's at a point the hook's text decides (`Cert.paramValC`), a function whose value there is not
+one no interpretation takes part in (`Cert.evalFC`: its evaluation reaches a silent point, a
+parameter without hook or a function's rest). Where `Cert` gives a value or ⊥ (a ⊥ Γ states at
+every interpretation, as `/Int` by 0 in a function's right side), the point reads nothing. -/
 def applyAt (x : Ctx) (key : String) (k : CtorSig) (vs : List GroundTerm) : M D := do
   let c := x.c
   if c.sortsOf vs != some k.args then throw s!"{key} applied to arguments not of its sorts"
@@ -330,16 +341,19 @@ def applyAt (x : Ctx) (key : String) (k : CtorSig) (vs : List GroundTerm) : M D 
     else return .bot
   | none =>
     if (c.lookupParam k.name).isSome then
-      modify fun f => { f with param := f.param ++ [key] }
-      return match c.paramVal k.name vs with
-        | some v => .val v
-        | none => .bot
-    match Exec.evalF c 10000 k.name vs with
-    | some (some v) => return .val v
-    | some none =>
-      modify fun f => { f with param := f.param ++ [key ++ " (rest)"] }
-      return .bot
-    | none => throw s!"{key}: no meaning found (not a constructor, hook, parameter, or function with a result)"
+      match Cert.paramValC c k.name vs with
+      | some r => return ofOpt r
+      | none =>
+        modify fun f => { f with param := f.param ++ [key] }
+        return ofOpt (c.paramVal k.name vs)
+    match Cert.evalFC c 10000 k.name vs with
+    | some r => return ofOpt r
+    | none =>
+      match Exec.evalF c 10000 k.name vs with
+      | some r =>
+        modify fun f => { f with param := f.param ++ [key ++ " (reads H)"] }
+        return ofOpt r
+      | none => throw s!"{key}: no meaning found (not a constructor, hook, parameter, or function with a result)"
 
 partial def eval (x : Ctx) (env : List (String × D)) : Kore.Pattern → M D
   | .var (.evar v) => match env.lookup v.var.ident.name with
@@ -511,7 +525,7 @@ structure Res where
   /-- failures under some interpretation at points reaching a silent point or parameter -/
   hfail : List String := []
   /-- points reading the interpretation where the left side (the application the sentence states
-  the value of) is not at a silent point: the interpretation is read inside the right side only -/
+  the value of) is not marked as reading it: the interpretation is read elsewhere only -/
   hOff : Nat := 0
   /-- the readings under which it fails at some point -/
   failModes : List String := []
@@ -574,7 +588,8 @@ def probe (c : Semantics) (r : Res) (a : Kore.Axiom) (modes : List Mode := [.non
         let isDep := !fl.silent.isEmpty || !fl.param.isEmpty
         if isDep then
           dep := true
-          if !(leftKey.any fl.silent.contains) then off := true
+          let onLeft := leftKey.any fun k => fl.silent.contains k || fl.param.contains k || fl.param.contains (k ++ " (reads H)")
+          if !onLeft then off := true
         let holds := match d with | .top => true | _ => false
         if !holds then
           okAll := false
@@ -683,7 +698,7 @@ place (a `functional` sentence, which has none, by its symbol):
 - `unnamed`: those reading it at some point that are neither a `functional` sentence of a symbol of
   `totalSilentKeys` nor at a line of `libSentences`;
 - `unread`: those at a line of `libSentences`, probed, that read it at no point;
-- `off`: those reading it at a point where the left side is not at a silent point;
+- `off`: those reading it at a point where the left side is not marked as reading it;
 - `libFails`: those failing at some point under `HookParams.lib`. -/
 structure Reads where
   unnamed : List String
@@ -866,7 +881,7 @@ because no interpretation meets them: the second equation of `countAllOccurrence
 def unmet : List String := ["17 domains.md:1898"]
 
 /-- What a check requires of a run: every sentence reading the interpretation has a named
-condition, `unmet` aside, and reads it only where its left side is silent, every named sentence
+condition, `unmet` aside, and reads it only where its left side does, every named sentence
 the text holds reads it at some point of the grid, and under `HookParams.lib` only the control
 (set idempotence) and `unmet` fail. -/
 def readsOK (r : Reads) : Bool :=
