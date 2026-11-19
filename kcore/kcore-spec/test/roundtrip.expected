@@ -87,6 +87,7 @@ differs f2-examples/e1-tag.kompile.kore
 differs f2-examples/e2-binder-nobinder.kore
 differs f2-examples/e2-binder.kompile.kore
 differs f2-examples/e2-cells-exit.kompile.kore
+differs f2-examples/e2-cells-stream-in.kompile.kore
 differs f2-examples/e2-cells-stream.kompile.kore
 differs f2-examples/e2-cells.kompile.kore
 differs f2-examples/e2-clause-genless-wit.kompile.kore
@@ -161,6 +162,7 @@ differs f2-examples/e3-setvar.kompile.kore
 differs f2-examples/e3-userlist.kompile.kore
 differs f2-examples/e3-vars.kompile.kore
 differs f2-examples/e3-withconfig.kompile.kore
+differs f2-examples/e3-witnessed-pre.kompile.kore
 differs f2-examples/e5-ovl-fn-fn-ctor.kompile.kore
 differs f2-examples/e5-ovl-fn-fn-owise.kompile.kore
 differs f2-examples/e5-ovl-fn-fn.kompile.kore
@@ -338,6 +340,7 @@ exact f2-examples/prio.kore
 differs f2-examples/projapp.kore
 differs f2-examples/projuser.kompile.kore
 differs f2-examples/rdr-cell-star-sibling.kompile.kore
+differs f2-examples/rdr-config-deep.kompile.kore
 differs f2-examples/rdr-hook-assoc-sub.kompile.kore
 differs f2-examples/rdr-hook-assoc.kompile.kore
 differs f2-examples/rdr-ite-own-eq.kompile.kore

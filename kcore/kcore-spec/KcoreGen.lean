@@ -4789,15 +4789,26 @@ def encodableHookParametric (h : String) : Bool :=
       | some (_, h', p) => h' == h && p
       | none => false
 
+/-- A composition `KK.derivedHook` writes, from its value at the empty argument list: each code
+with the hook `KK.hookCodes` gives it, and `ARGS` where the arguments' forms go (`derivedHook`
+places the argument list unchanged as its innermost list). -/
+partial def derivedFormShow : KK.T → String
+  | .hk o [] => s!"hk {o} {codeHook o} ARGS"
+  | .hk o as => s!"hk {o} {codeHook o} [{", ".intercalate (as.map derivedFormShow)}]"
+  | _ => "?"
+where codeHook (o : Int) : String :=
+  ((KK.hookCodes.find? (·.2 == o)).bind fun (g, _) => (regHookNames.find? (·.1 == g)).map (·.2)).getD "?"
+
 /-- Where `KK.readApp` gives an application of the registered hook `f` a `kore.k` form, whatever its
 arguments' forms: as a collection construction (`KK.libCollOf`), an operation code
-(`KK.hookCodes`) or a composition of codes (`KK.derivedHook`); `none` where it gives none. -/
+(`KK.hookCodes`) or a composition of codes (`KK.derivedHook`, written out by `derivedFormShow`);
+`none` where it gives none. -/
 def encodableHookForm (f : Sym) : Option String :=
   if isHook f then
     match KK.libCollOf f, KK.opOf f, KK.derivedHook f [] with
     | some _, _, _ => some "KK.libCollOf"
     | none, some o, _ => some s!"KK.hookCodes {o}"
-    | none, none, some _ => some "KK.derivedHook"
+    | none, none, some t => some s!"KK.derivedHook {derivedFormShow t}"
     | none, none, none => none
   else none
 

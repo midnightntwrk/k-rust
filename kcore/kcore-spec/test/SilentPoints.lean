@@ -9,7 +9,8 @@
     `silentTable` calls silent, two interpretations (the one giving nothing, `HookParams.none`, and
     one giving a value `v` of the result sort) both have models of Γ, and the models differ there:
     the application is ⊥ in every model of the first and `v` in every model of the second.
-  - The schema at one point of every key of `silentTable` (`pts`), in the semantics of
+  - The schema at one point of every key of `silentTable` (`pts`; the six Float comparisons and
+    `isNaN` have a value at every Float literal, so no silent point: `fltValued`), in the semantics of
     `f2-examples/strbytes.kompile.kore` (`coreOK`, no function): `hook` gives no value, the point is
     silent, its arguments have the signature's sorts and `v` has exactly the result sort (decided),
     so neither `f(vs) = ⊥` nor `f(vs) = v` holds for every interpretation (`pts_undetermined`).
@@ -205,11 +206,11 @@ def f32 (n : Nat) : GroundTerm := .dv Srt.float (.float 24 8 n)
 exponent field the 8 bits below it, no significand field, the NaN the code 512. -/
 def f18 (n : Nat) : GroundTerm := .dv Srt.float (.float 1 8 n)
 def be : GroundTerm := .ctor bigEndianBytes []
-/-- `1.0p2x1` and `NaNp2x1`, values of a format of one exponent bit, where no operation is computed
-(neither the comparisons nor `isNaN`, `asDatum`, nor `isInfinite` and the operations of
-`thinHooks`, `thinAt`). -/
-def t21 : GroundTerm := .dv Srt.float (.float 2 1 1)
-def n21 : GroundTerm := .dv Srt.float (.float 2 1 8)
+/-- `0.0p1x1` and `NaNp1x1` (codes 0 and 4), values of the format of precision 1 and one exponent
+bit, whose finite data are the two zeros: `maxValueFloat(1, 1)`, and with it `isInfinite`, has no
+value there (`thinAt`, `tflInf`); `--Float` and the roundings to an integer have none at a NaN. -/
+def z11 : GroundTerm := .dv Srt.float (.float 1 1 0)
+def n11 : GroundTerm := .dv Srt.float (.float 1 1 4)
 def sig (f : Sym) : CtorSig := (lookupSig hookSigs f).getD default
 
 /-! ## The schema at one point of every key -/
@@ -221,7 +222,7 @@ structure Pt where
   v : GroundTerm
   deriving DecidableEq
 
-/-- One point per key of `silentTable` but `Bytes2Int` (some keys two). The value `v` has exactly
+/-- One point per key of `silentTable` but `Bytes2Int` and `fltValued` (some keys two). The value `v` has exactly
 the result sort: `ki 0` (`inj{Int,KItem}(0)`) for `L[I]`'s KItem, `.List`, `0.0`, `0`, `""`,
 `true`, `.Bytes`. -/
 def pts : List Pt :=
@@ -233,10 +234,10 @@ def pts : List Pt :=
    ⟨floatDiv, [f64 0x3FF0000000000000, f32 0x3F800000], f64 0⟩,
    ⟨floatRem, [f64 0x3FF0000000000000, f32 0x3F800000], f64 0⟩,
    ⟨floatRound, [f64 0x3FF0000000000000, int 0, int 8], f64 0⟩,
-   ⟨floatRound, [f64 0x3FF0000000000000, int 2, int 1], f64 0⟩,
+   ⟨floatRound, [f64 0x3FF0000000000000, int 1, int 1], f64 0⟩,
    ⟨int2Float, [int 1, int 24, int 0], f64 0⟩,
    ⟨floatMaxValue, [int 0, int 8], f64 0⟩,
-   ⟨floatMinValue, [int 53, int 1], f64 0⟩,
+   ⟨floatMinValue, [int 1, int 1], f64 0⟩,
    ⟨stringOrd, [s "ab"], int 0⟩,
    ⟨stringChr, [int (-1)], s ""⟩,
    ⟨stringChr, [int 55296], s ""⟩,
@@ -255,11 +256,9 @@ def pts : List Pt :=
    ⟨bytesMemset, [b "abc", int 0, int 1, int 200], b ""⟩,
    ⟨int2Bytes, [int (-1), int 0, be], b ""⟩,
    ⟨floatSqrt, [f64 0x8000000000000000], f64 0⟩, ⟨floatSqrt, [f64 0], f64 0⟩,
-   ⟨floatNeg, [t21], f64 0⟩, ⟨floatAbs, [t21], f64 0⟩, ⟨floatFloor, [t21], f64 0⟩,
-   ⟨floatCeil, [t21], f64 0⟩, ⟨floatTrunc, [t21], f64 0⟩,
-   ⟨floatLe, [t21, t21], bool true⟩, ⟨floatLt, [t21, f64 0], bool true⟩, ⟨floatGe, [f64 0, t21], bool true⟩,
-   ⟨floatGt, [t21, t21], bool true⟩, ⟨floatEq, [t21, t21], bool true⟩, ⟨floatNe, [t21, t21], bool false⟩,
-   ⟨floatIsNaN, [n21], bool false⟩, ⟨floatIsInfinite, [t21], bool true⟩,
+   ⟨floatNeg, [n11], f64 0⟩, ⟨floatAbs, [n11], f64 0⟩, ⟨floatFloor, [n11], f64 0⟩,
+   ⟨floatCeil, [n11], f64 0⟩, ⟨floatTrunc, [n11], f64 0⟩,
+   ⟨floatIsInfinite, [z11], bool true⟩,
    ⟨intPowMod, [int 2, int (-1), int 5], int 0⟩,
    ⟨intPow, [int 2, int (-1)], int 0⟩,
    ⟨listSet, [lst [ki 1], int 1, ki 3], lst []⟩, ⟨listSet, [lst [ki 1], int (-1), ki 3], lst []⟩,
@@ -270,10 +269,15 @@ def pts : List Pt :=
 /-- RANGEMAP's seven keys of `silentTable`. -/
 def rmKeysSilent : List Sym := [rmElem, rmConcat, rmLookup, rmFindRange, rmUpdate, rmRemove, rmRemoveAll]
 
-/-- Every key but `Bytes2Int` and RANGEMAP's has a point here (`Bytes2Int`'s are in `ptsB`,
-RANGEMAP's in `ptsR`, at other semantics: `ptsR_cover`). -/
+/-- The six Float comparisons and `isNaN`: keys of `silentTable` with a value at every Float literal
+(`asDatum` has a datum at every format), so with no silent point where every Float value is a
+literal. -/
+def fltValued : List Sym := [floatLe, floatLt, floatGe, floatGt, floatEq, floatNe, floatIsNaN]
+
+/-- Every key but `Bytes2Int`, RANGEMAP's and `fltValued` has a point here (`Bytes2Int`'s are in
+`ptsB`, RANGEMAP's in `ptsR`, at other semantics: `ptsR_cover`). -/
 theorem pts_cover : silentTable.all (fun e => e.1 == bytes2Int || pts.any (·.f == e.1) ||
-    rmKeysSilent.contains e.1) = true := by
+    rmKeysSilent.contains e.1 || fltValued.contains e.1) = true := by
   decide +kernel
 
 /-- E1 and E2 at every point: the symbol's signature, its arguments of the argument sorts, no value

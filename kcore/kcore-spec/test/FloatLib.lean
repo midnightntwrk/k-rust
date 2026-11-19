@@ -316,11 +316,13 @@ example : hook floatFloor [f64 0xC004000000000000] = some (some (f64 0xC00800000
     hook floatFloor [f64 0x3FE0000000000000] = some none := by decide +kernel
 /-- `Int2Float(2^53 + 1, 53, 11)`, which binary64 does not hold: no value; `5 %Float 3 = -1`; at
 precision 1 and 8 exponent bits, `Int2Float(1, 1, 8)` is `1.0p1x8` (the exponent field 127, no
-significand field); a format of one exponent bit gives no value. -/
+significand field); at precision 24 and one exponent bit, `Int2Float(1, 24, 1)` is `1.0p24x1` (bias
+0, every finite datum subnormal: the significand field 2^22, 2^22·2^-22). -/
 example : hook int2Float [int 9007199254740993, int 53, int 11] = some none ∧
     hook floatRem [f64 0x4014000000000000, f64 0x4008000000000000] = some (some (f64 0xBFF0000000000000)) ∧
     hook int2Float [int 1, int 1, int 8] = some (some (.dv Srt.float (.float 1 8 127))) ∧
-    hook int2Float [int 1, int 24, int 1] = some none := by decide +kernel
+    hook int2Float [int 1, int 24, int 1] = some (some (.dv Srt.float (.float 24 1 (2 ^ 22)))) := by
+  decide +kernel
 /-- `sqrtFloat` where the format holds the root: `sqrtFloat(4.0) = 2.0`, `sqrtFloat(2.25) = 1.5`,
 binary32's `sqrtFloat(9.0f) = 3.0f`, the least subnormal `2^-1074` to the normal `2^-537`. No value
 at a root the format does not hold (`sqrtFloat(2.0)`, the subnormal `2^-1073`), at NaN, at `-1.0`

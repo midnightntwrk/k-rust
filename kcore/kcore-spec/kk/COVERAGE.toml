@@ -180,7 +180,7 @@ item = "app"
 status = "covered"
 rules = ["ev-app", "apply-ctor", "apply-fn", "ev-hook", "ev-col", "m-app", "m-col"]
 cases = ["c01-fn-prio", "c05-hooks", "c19-map-choice", "c22-map-hooks"]
-note = "a constructor or function as ap, a hooked symbol of the listed hooks as hk, a collection symbol as cb; a parameter symbol (impl = none) and any other hook are refused by the encoder"
+note = "KK.readApp: a constructor as ap; a collection symbol as cb (an interpreted symbol of the library's Map, Set or List, KK.libCollOf, or a parameter whose impl is one, KK.collSymOf); an interpreted symbol with a code as hk (KK.hookCodes), and =/=Bool, which has none, as notBool of ==Bool, hk 22 [hk 23 ARGS] (KK.derivedHook); a function label as ap. Refused parameters (paramsOK, over d.params, whether or not a term applies one): every parameter that is no cell collection symbol, i.e. whose impl is no library Map, Set or List symbol of the kind of its result sort's collection: a parameter without impl, KEQUAL.ite (the reader writes ite{S} as a parameter with impl ite), a user symbol hooked to a registry hook other than such a collection symbol, a library hook the registry does not interpret. Refused applications (appsOK): of an interpreted symbol with no code and no derived form."
 
 [[row]]
 type = "Term"
@@ -415,8 +415,8 @@ note = "the reader refuses it (rows.toml E4 tree:Pattern.rightAssoc is refused),
 #            of KK.encodable (a fixture's or ref-kimp's text), the table's Bool, or the first
 #            uncovered hook row's; refused_on, the text or table entry; first_uncovered, the hook
 #            row a module row is refused by.
-# Entries: 1088; covered 425; refused 663 (paramsOK 406, appsOK 158, litsOK 48, shapesOK 42, ovlsOK 9).
-# By evidence: fixture 867, hook table 139, kimp 50, module hooks 19, sort table 13.
+# Entries: 1091; covered 427; refused 664 (paramsOK 405, appsOK 158, litsOK 48, shapesOK 44, ovlsOK 9).
+# By evidence: fixture 870, hook table 139, kimp 50, module hooks 19, sort table 13.
 # No evidence text, no verdict (a fixture is owed; check fails on them, check --report lists them): 0.
 
 [rows.E1."Require:kw:requires"]
@@ -986,6 +986,12 @@ verdict = "covered"
 by = "fixture"
 case = "e1-module"
 
+[rows.E3."ML-SYNTAX:Sort::=\"#Top\""]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e3-ml"
+
 [rows.E3."ML-SYNTAX:Sort::=\"#Top\"#cases[0]"]
 verdict = "covered"
 by = "fixture"
@@ -1015,10 +1021,9 @@ bool = "paramsOK"
 refused_on = "e3-ml"
 
 [rows.E3."ML-SYNTAX:Sort::=\"#Bottom\"#cases[2]"]
-verdict = "refused"
+verdict = "covered"
 by = "fixture"
-bool = "paramsOK"
-refused_on = "e3-ml"
+case = "e3-ml-eq-rhs-or-bottom"
 
 [rows.E3."ML-SYNTAX:Sort::=\"#Bottom\"#cases[3]"]
 verdict = "refused"
@@ -1153,10 +1158,9 @@ bool = "paramsOK"
 refused_on = "e3-ml"
 
 [rows.E3."ML-SYNTAX:Sort::=Sort \"#Or\" Sort#cases[4]"]
-verdict = "refused"
+verdict = "covered"
 by = "fixture"
-bool = "paramsOK"
-refused_on = "e3-ml"
+case = "e3-ml-eq-rhs-or-bottom"
 
 [rows.E3."ML-SYNTAX:Sort::=Sort \"#Or\" Sort#cases[5]"]
 verdict = "refused"
@@ -1167,8 +1171,8 @@ refused_on = "e3-ml-rule-rhs-or"
 [rows.E3."ML-SYNTAX:Sort::=Sort \"#Or\" Sort#cases[6]"]
 verdict = "refused"
 by = "fixture"
-bool = "paramsOK"
-refused_on = "e3-ml"
+bool = "shapesOK"
+refused_on = "e3-ml-eq-rhs-or-nest"
 
 [rows.E3."ML-SYNTAX:Sort::=Sort \"#Or\" Sort#cases[8]"]
 verdict = "refused"
@@ -1186,6 +1190,12 @@ refused_on = "e3-ml"
 verdict = "covered"
 by = "fixture"
 case = "e3-ml-eq-rhs-or-empty"
+
+[rows.E3."ML-SYNTAX:Sort::=Sort \"#Implies\" Sort"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e3-ml"
 
 [rows.E3."ML-SYNTAX:Sort::=Sort \"#Implies\" Sort#cases[0]"]
 verdict = "refused"
@@ -4292,7 +4302,7 @@ case = "STRING.lt: KK.hookCodes 81"
 [rows.E6."hook:BOOL.ne:Lbl'UndsEqlsSlshEqls'Bool'Unds'"]
 verdict = "covered"
 by = "hook table"
-case = "BOOL.ne: KK.derivedHook"
+case = "BOOL.ne: KK.derivedHook hk 22 BOOL.not [hk 23 BOOL.eq ARGS]; applied by ref-kimp's rule at expr.k:57:8"
 
 [rows.E6."symbol:FLOAT:Lbl'UndsEqlsSlshEqls'Float'UndsUnds'FLOAT'Unds'Bool'Unds'Float'Unds'Float"]
 verdict = "refused"
@@ -6435,6 +6445,12 @@ verdict = "refused"
 by = "fixture"
 bool = "shapesOK"
 refused_on = "e2-clause-genless-wit"
+
+[rows.C3."unboundVariables x requires variable#cases[3]"]
+verdict = "refused"
+by = "fixture"
+bool = "shapesOK"
+refused_on = "e3-witnessed-pre"
 
 [rows.C3."comm x constructor production"]
 verdict = "refused"

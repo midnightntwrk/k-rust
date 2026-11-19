@@ -102,8 +102,7 @@ theorem hasValue_value_of {c : Semantics} (hO : OvlOK c)
     (hn : Model.NamesApartK c) {s : Srt} (hs : c.hasValue s = true) :
     ∃ v, c.sortOf v = some s := by
   simp only [Semantics.hasValue, Bool.or_eq_true, List.contains_iff_mem] at hs
-  rcases hs with ((hs | hs) | hs) | hs
-  · exact Semantics.valued_value hs
+  rcases hs with (hs | hs) | hs
   · exact Semantics.hasLit_value hs
   · exact Semantics.hasEmpty_value hs
   · exact witnessed_value_of hO htr hn hs

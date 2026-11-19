@@ -1,0 +1,11 @@
+command: kompile --backend haskell e2-cells-stream-in.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 6.9
+definition.kore bytes: 793601
+definition.kore sha256: 1e293473b750e226377a1ec4500d33965929ac5342538c2d868f15189b482d7a
+stripped sha256: 8b8398ed952bf8dc212840c8b74cdd7dc3f0bc959ba0de3289fabf2c3851f9fd
+main module: 3338 sentences, 2819 not in base's (510092 bytes, over 200000): kore.txt holds the 23 with a Source in the fixture or matching keep ['parseInput|ostream|initInCell|initOutCell|STDIN|STDOUT']
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-CELLS-STREAM-IN-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E2-CELLS-STREAM-IN as default.

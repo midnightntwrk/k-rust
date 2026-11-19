@@ -137,8 +137,22 @@ no sentence; ...". A live sentence of the module's code (an uncommented `rule`, 
 or `claim`) that the text holds no sentence of is a sentence no theorem states, so the row is not
 tied: its e6_tie is the string "uncovered: MODULE; NAME (FILE:LINE), ... held by no tied text; on
 TEXT n of its m rules and its configuration are tied (FILES)", FILES the tie files of the theorems
-the items would name. STREAM_CONTROL controls it: STDOUT-STREAM is of form (m), and STDIN-STREAM,
-whose rule stdinUnblock (domains.md:2782) e2-cells-stream's text holds no sentence of, is uncovered.
+the items would name. A live rule the text holds no sentence of is tied where the row's field
+`instances` names an instance of it, {sentence = NAME (FILE:LINE), fixture = FIXTURE, axiom = N, why},
+that a tie on f2-examples/FIXTURE.kompile.kore ties (`instance_tie`): that tie leaves `uncovered`
+empty and its file of `ruleText` declares rules_account, rule_from_text and rule_prios; axiom N is
+of the sentence's shape (INSTANCE_SHAPES; for stdinUnblock, `unblock_shape`), carries a Source outside
+K's builtin directory and a Location at which the text holds another `\\rewrites` axiom (the user's
+rule), is held by that tie's `classes` under "rewrite rule" alone, is in its `ruleText`, and has a
+theorem stating `itemsPremises [trS U.axN] ⊧`. The items then name those theorems and the class's
+three on that text; an instance that fails a check is refused, and the row is uncovered with the
+reason after the rule's name ("(its instance FIXTURE axiom N: WHY: refused)"). That kompile writes the
+axiom for the module's rule rests on kompile (DONE-0 section 0 (3)), with the instance's fixture as
+evidence; the row's `why` says so. STREAM_CONTROL controls it: STDOUT-STREAM is of form (m);
+STDIN-STREAM, whose rule stdinUnblock (domains.md:2782) e2-cells-stream's text holds no sentence of,
+is tied through its instance on e2-cells-stream-in; computed, not rows: without `instances` it is
+uncovered for stdinUnblock, and with the instance's `axiom` set to a located rule of the module on
+that text the instance is refused (not the shape).
 e6_tie, on a row: a list of "THEOREM (FILE; TEXT axiom N)" or "THEOREM (FILE; TEXT sort|symbol
 declaration NAME)" strings, "refuted: MODULE; ..." (above), "no direction: MODULE; THEOREM (FILE;
 TEXT axiom N|symbol declaration NAME); ..." with the theorems of form (e), or "uncovered: MODULE" with,
@@ -661,8 +675,10 @@ def self_check(rows, res):
     nonempty list literal exists; and of MODULE_CONTROL, the first module (STDIN-STREAM, which E6
     keys no row to but whose code holds rules) is not of the form of a module of hooks and generated
     declarations only, and the second (SORT-BOOL, one hooked sort) is; and of STREAM_CONTROL, the
-    first module (STDOUT-STREAM) is of form (m), and the second (STDIN-STREAM) is uncovered by form (m)
-    for its rule stdinUnblock, a live rule its fixture text holds no sentence of."""
+    first module (STDOUT-STREAM) is of form (m), and the second (STDIN-STREAM) is tied by form (m)
+    through its row's instance of rule stdinUnblock, a live rule its fixture text holds no sentence of;
+    without `instances` the row is uncovered for that rule, and with the instance's `axiom` set to any
+    of the module's located rules on the instance's text the instance is refused, not of the shape."""
     forms, odd = decl_forms()
     bad = list(odd)
     for rel, (text, got) in sorted(forms.items()):
@@ -708,15 +724,31 @@ def self_check(rows, res):
         bad.append(f"control {mno}: of the form of a module of hooks and generated declarations only, or no row")
     if not (isinstance(res.get(myes), list) and res[myes][0].startswith(HOOKS_ONLY)):
         bad.append(f"control {myes}: not of the form of a module of hooks and generated declarations only")
-    fyes, fno, fname = STREAM_CONTROL
+    fyes, finst, fname = STREAM_CONTROL
     got = res.get(fyes)
     if not (isinstance(got, list) and got == module_text_tie(fyes.split(":")[1], rows.get(fyes, {}))
             and any("rule_from_text" in x for x in got)):
         bad.append(f"control {fyes}: not of form (m)")
-    got = res.get(fno)
-    if not (isinstance(got, str) and got == module_text_tie(fno.split(":")[1], rows.get(fno, {}))
-            and got.startswith(f"uncovered: {fno.split(':')[1]}; {fname} held by no tied text; ")):
-        bad.append(f"control {fno}: not uncovered by form (m) for {fname}")
+    im, irow = finst.split(":")[1], rows.get(finst, {})
+    got = res.get(finst)
+    if not (isinstance(got, list) and got == module_text_tie(im, irow)
+            and any(f"the instance of {fname}" in x for x in got)):
+        bad.append(f"control {finst}: not tied through its instance of {fname}")
+    got = module_text_tie(im, {k: v for k, v in irow.items() if k != "instances"})
+    if not (isinstance(got, str) and got.startswith(f"uncovered: {im}; {fname} held by no tied text; ")):
+        bad.append(f"control {finst} without `instances`: not uncovered for {fname}")
+    inst = next((x for x in irow.get("instances") or [] if x.get("sentence") == fname), {})
+    itext = f"f2-examples/{inst.get('fixture')}.kompile.kore"
+    located = [i for i, _mod, s in (axioms(itext) if os.path.isfile(os.path.join(K, itext)) else [])
+               if (k := e6_key(s)) and k.startswith(f"rule:{im}:")]
+    if not located:
+        bad.append(f"control {finst}: its instance's text holds no located rule of {im}")
+    for i in located:
+        row2 = dict(irow, instances=[dict(inst, axiom=i)])
+        got = module_text_tie(im, row2)
+        if not (isinstance(got, str) and got.startswith(f"uncovered: {im}; {fname} (its instance ")
+                and "not the shape" in got):
+            bad.append(f"control {finst} with `axiom` {i} (a located rule of {im}): not refused as not the shape")
     for b in bad:
         print(f"e6map self-check: {b}")
     print(f"e6map self-check: {len(forms)} declaration files ({sum(1 for _, g in forms.values() if g)} with a "
@@ -806,20 +838,14 @@ def code_name(f, kind, a, s):
     return f"{kind} ({f}:{a})"
 
 
-def module_text_tie(m, row):
-    """Form (m) for the module row of module m, or None: the module's sentences on the tie of its
-    `fixture` text, read from the tie files on the text (a tie split over several files included),
-    the sentences inside a block comment of the module's code listed apart; or the string
-    "uncovered: m; ..." where a live sentence of the module's code has no sentence in the text."""
-    fx = row.get("fixture")
-    text = f"f2-examples/{fx}.kompile.kore" if isinstance(fx, str) else None
-    if not text or not os.path.isfile(os.path.join(K, text)):
-        return None
-    f, code = module_code_sentences(m)
-    held = [(i, int(LOC.search(s).group(1)), s) for i, _mod, s in axioms(text)
-            if (k := e6_key(s)) and k.split(":")[1] == m]
-    if not held or len(held) != module_sentences(text).get(m, 0):
-        return None
+def text_tie(text):
+    """The tie on `text` as form (m) reads it, or None: (files, ties, cls, rfile, rlist, cl). files: the
+    files test/Tie*.lean and test/GenEqsNodir*.lean naming the text in `user_axioms U from`, each with
+    its text and theorems; ties: those of them that are not GenEqsNodir, of which at least one defines
+    `uncovered` and every one that does defines it as the literal empty list (else None); cls: index
+    -> the classes of the ties' `classes` holding it; rfile: the file defining the literal `ruleText`
+    (rlist: its indices); cl: that file's rules_account, rule_from_text and rule_prios ([None] where
+    no file defines `ruleText`, None in place of one it does not declare)."""
     files = {}
     for g in sorted(os.listdir(os.path.join(K, "test"))):
         if TIE_ANY_FILE.match(g) or g.startswith("GenEqsNodir"):
@@ -836,6 +862,167 @@ def module_text_tie(m, row):
         for c in re.finditer(r'\("([^"]+)", \[([\d,\s]*)\]\)', cm.group(1) if cm else ""):
             for n in re.findall(r"\d+", c.group(2)):
                 cls[int(n)].add(c.group(1))
+    rfile, rlist = None, set()
+    for r, (t, _) in ties.items():
+        lm = re.search(r"^noncomputable def ruleText : List AxiomDecl :=\s*\[([^\]]*)\]", t, re.M)
+        if lm:
+            rfile, rlist = r, {int(x) for x in re.findall(r"U\.ax(\d+)", lm.group(1))}
+    cl = [next((n for n, _ in ties[rfile][1] if n.split(".")[-1] == x), None)
+          for x in ("rules_account", "rule_from_text", "rule_prios")] if rfile else [None]
+    return files, ties, cls, rfile, rlist, cl
+
+
+def rule_theorems(tt, n, s):
+    """The theorems of the tie tt (`text_tie`) whose statement names U.axN, where axiom N (text s) is
+    a `\\rewrites` axiom held by the tie's `classes` under "rewrite rule" alone and listed in the
+    literal `ruleText`, and one of them states `itemsPremises [trS U.axN] ⊧` (Γ's rule item from the
+    sentence); else None."""
+    _files, ties, cls, rfile, rlist, _cl = tt
+    if not rfile or n not in rlist or cls.get(n) != {"rewrite rule"} or "\\rewrites{" not in s:
+        return None
+    own = [(nm, st) for nm, st in ties[rfile][1] if re.search(rf"\bU\.ax{n}\b", st)]
+    if not any(re.search(rf"itemsPremises \[trS U\.ax{n}\] ⊧", st) for _, st in own):
+        return None
+    return [nm for nm, _ in own]
+
+
+def kore_args(s, i):
+    """The top-level arguments of the KORE application whose `(` is at s[i], and the index after its
+    `)` (string literals skipped)."""
+    out, depth, cur, j = [], 0, i + 1, i
+    while j < len(s):
+        ch = s[j]
+        if ch == '"':
+            j += 1
+            while j < len(s) and s[j] != '"':
+                j += 2 if s[j] == "\\" else 1
+        elif ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                out.append(s[cur:j].strip())
+                return out, j + 1
+        elif ch == "," and depth == 1:
+            out.append(s[cur:j].strip()); cur = j + 1
+        j += 1
+    return out, j
+
+
+ITEM = "LblListItem{}(inj{SortStream{}, SortKItem{}}("
+BUFFER = "Lbl'Hash'buffer'LParUndsRParUnds'K-IO'Unds'Stream'Unds'K{}"
+PARSE_INPUT = "Lbl'Hash'parseInput'LParUndsCommUndsRParUnds'K-IO'Unds'Stream'Unds'String'Unds'String{}"
+STR_DV = re.compile(r'^\\dv\{SortString\{\}\}\("(?:[^"\\]|\\.)*"\)$')
+
+
+def unblock_shape(s):
+    """Why axiom text s is not of the shape of an instance of STDIN-STREAM's rule stdinUnblock
+    (domains.md:2782-2788: `<stdin> (.List => ListItem(#parseInput(?Sort, ?Delimiters)))
+    ListItem(#buffer(_:String)) ... </stdin>`) with ?Sort and ?Delimiters at literals, or None: a
+    `\\rewrites` axiom whose right side applies `#parseInput` at two `\\dv{SortString{}}` literals in an
+    item directly in front of an item `#buffer(B)`, and whose left side applies no `#parseInput` and
+    holds the item `#buffer(B)`, B the same argument. The other cells are not read: the axiom may
+    constrain them further than the rule's `...` (on e2-cells-stream-in, its `<k>` is the user's
+    rule's, `a() ~> _`)."""
+    i = s.find("\\rewrites{")
+    if i < 0:
+        return "not a \\rewrites axiom"
+    sides, _ = kore_args(s, s.index("(", s.index("}", i)))
+    if len(sides) != 2:
+        return "not a \\rewrites axiom of two sides"
+    left, right = sides
+    if PARSE_INPUT in left:
+        return "not the shape: its left side applies #parseInput"
+    pat = "Lbl'Unds'List'Unds'{}(" + ITEM + PARSE_INPUT + "("
+    for at in [k for k in range(len(right)) if right.startswith(pat, k)]:
+        lits, after = kore_args(right, at + len(pat) - 1)
+        rest = right[after:].lstrip()
+        if len(lits) != 2 or not all(STR_DV.match(x) for x in lits) or not rest.startswith("))"):
+            continue
+        rest = rest[2:].lstrip()
+        if not rest.startswith(","):
+            continue
+        rest = rest[1:].lstrip()
+        if not rest.startswith(ITEM + BUFFER + "("):
+            continue
+        buf, _ = kore_args(rest, len(ITEM + BUFFER))
+        if len(buf) == 1 and (ITEM + BUFFER + "(" + buf[0] + ")") in left:
+            return None
+    return "not the shape: no item #parseInput at two string literals in front of an item #buffer(B) its left side holds"
+
+
+# The shape of an instance of a module's rule, by the rule's name in an e6_tie item.
+INSTANCE_SHAPES = {"rule stdinUnblock (domains.md:2782)": unblock_shape}
+
+
+def instance_tie(name, row):
+    """(items, None) where the row's `instances` names an instance of the sentence `name` that ties it,
+    (None, why) where it names one that does not, (None, None) where it names none. An instance
+    {sentence, fixture, axiom = N} ties the sentence where the fixture's text
+    f2-examples/FIXTURE.kompile.kore has a tie (`text_tie`) whose file of `ruleText` declares
+    rules_account, rule_from_text and rule_prios, and axiom N of that text is of the sentence's shape
+    (INSTANCE_SHAPES), carries a Source outside K's builtin directory and a Location, at which the
+    text holds another `\\rewrites` axiom (the user's rule kompile instantiates the sentence for), and
+    has the rule theorems of `rule_theorems`. The items name those theorems, then the class's three."""
+    inst = [x for x in (row.get("instances") or []) if isinstance(x, dict) and x.get("sentence") == name]
+    if not inst:
+        return None, None
+    if len(inst) != 1:
+        return None, "more than one instance named"
+    fx, n = inst[0].get("fixture"), inst[0].get("axiom")
+    where = f"{fx} axiom {n}"
+    text = f"f2-examples/{fx}.kompile.kore" if isinstance(fx, str) else None
+    if not text or not isinstance(n, int) or not os.path.isfile(os.path.join(K, text)):
+        return None, f"{where}: no such text or axiom"
+    shape = INSTANCE_SHAPES.get(name)
+    if shape is None:
+        return None, f"{where}: no shape is known for the sentence"
+    tt = text_tie(text)
+    if tt is None or not all(tt[5]):
+        return None, f"{where}: no tie with `uncovered` empty and the rewrite rule class's theorems on the text"
+    axs = {i: s for i, _mod, s in axioms(text)}
+    s = axs.get(n)
+    if s is None:
+        return None, f"{where}: no such axiom"
+    why = shape(s)
+    if why:
+        return None, f"{where}: {why}"
+    sm, lm = SRC.search(s), LOC.search(s)
+    if not sm or not lm or "/include/kframework/builtin/" in sm.group(1):
+        return None, f"{where}: not at a Location of a user's file"
+    if not any(i != n and "\\rewrites{" in t and SRC.search(t) and SRC.search(t).group(1) == sm.group(1)
+               and LOC.search(t) and LOC.search(t).group(0) == lm.group(0) for i, t in axs.items()):
+        return None, f"{where}: no other rule of the text at its Location"
+    ths = rule_theorems(tt, n, s)
+    if ths is None:
+        return None, f"{where}: not a rewrite rule of the tie's ruleText with Γ's rule item from it"
+    rfile = tt[3]
+    what = f"{text} axiom {n}: the instance of {name} (row field `instances`)"
+    return ([f"{nm} ({rfile}; {what}; rewrite rule, Γ's rule item from the sentence)" for nm in ths]
+            + [f"{th} ({rfile}; {text} rewrite rule class, axiom {n}, the instance of {name}: Γ's rule items "
+               f"from the sentences)" for th in tt[5]]), None
+
+
+def module_text_tie(m, row):
+    """Form (m) for the module row of module m, or None: the module's sentences on the tie of its
+    `fixture` text, read from the tie files on the text (a tie split over several files included), a
+    live rule the text holds no sentence of tied through the row's `instances` (`instance_tie`), the
+    sentences inside a block comment of the module's code listed apart; or the string
+    "uncovered: m; ..." where a live sentence of the module's code has no sentence in the text and no
+    instance ties it."""
+    fx = row.get("fixture")
+    text = f"f2-examples/{fx}.kompile.kore" if isinstance(fx, str) else None
+    if not text or not os.path.isfile(os.path.join(K, text)):
+        return None
+    f, code = module_code_sentences(m)
+    held = [(i, int(LOC.search(s).group(1)), s) for i, _mod, s in axioms(text)
+            if (k := e6_key(s)) and k.split(":")[1] == m]
+    if not held or len(held) != module_sentences(text).get(m, 0):
+        return None
+    tt = text_tie(text)
+    if tt is None:
+        return None
+    files, ties, cls, rfile, rlist, cl = tt
 
     def thm(r, short):
         return next((n for n, _ in ties[r][1] if n.split(".")[-1] == short), None)
@@ -843,24 +1030,16 @@ def module_text_tie(m, row):
     items, used = [], set()
     # The rules: each sentence of the text placed in the module is a rule of the module's code and a
     # rewrite rule of the tie's `ruleText`, with a theorem giving Γ's rule item from it.
-    rfile, rlist = None, set()
-    for r, (t, _) in ties.items():
-        lm = re.search(r"^noncomputable def ruleText : List AxiomDecl :=\s*\[([^\]]*)\]", t, re.M)
-        if lm:
-            rfile, rlist = r, {int(x) for x in re.findall(r"U\.ax(\d+)", lm.group(1))}
-    cl = [thm(rfile, x) for x in ("rules_account", "rule_from_text", "rule_prios")] if rfile else [None]
     if not all(cl):
         return None
     for n, line, s in held:
         sent = next((x for x in code if x[0] == "rule" and not x[4] and x[1] <= line <= x[2]), None)
-        if sent is None or n not in rlist or cls.get(n) != {"rewrite rule"} or "\\rewrites{" not in s:
-            return None
-        own = [(nm, st) for nm, st in ties[rfile][1] if re.search(rf"\bU\.ax{n}\b", st)]
-        if not any(re.search(rf"itemsPremises \[trS U\.ax{n}\] ⊧", st) for _, st in own):
+        own = rule_theorems(tt, n, s) if sent else None
+        if own is None:
             return None
         used.add(sent[1])
         items += [f"{nm} ({rfile}; {text} axiom {n}: {code_name(f, *sent[:2], sent[3])}; rewrite rule, Γ's rule "
-                  f"item from the sentence)" for nm, _ in own]
+                  f"item from the sentence)" for nm in own]
     ns = ", ".join(str(n) for n, _, _ in held)
     items += [f"{th} ({rfile}; {text} rewrite rule class, axioms {ns} of {m}: Γ's rule items from the sentences)"
               for th in cl]
@@ -892,16 +1071,28 @@ def module_text_tie(m, row):
                 f"its {', '.join(v for v, _ in toks)}")
         items += [f"{thm(ndf, x)} ({ndf}; {what}; of no direction)" for x in ("account_absent", "absent_closed")]
         items += [f"{nm} ({r}; {what}; in a model)" for r, nm in model]
-    # A live sentence of the module (outside a block comment) that the text holds no sentence of is
-    # a sentence of the module no theorem states: the row is uncovered.
-    live = [code_name(f, *x[:2], x[3]) for x in code if x[1] not in used and not x[4]]
+    # A live rule the text holds no sentence of: tied where the row names an instance of it that a
+    # tie on the instance's text ties (`instance_tie`).
+    refused = {}
+    for x in code:
+        if x[0] == "rule" and not x[4] and x[1] not in used:
+            got, why = instance_tie(code_name(f, *x[:2], x[3]), row)
+            if got:
+                items += got
+                used.add(x[1])
+            elif why:
+                refused[x[1]] = why
+    # A live sentence of the module (outside a block comment) that no tied text holds a sentence of
+    # is a sentence of the module no theorem states: the row is uncovered.
+    live = [code_name(f, *x[:2], x[3]) + (f" (its instance {refused[x[1]]}: refused)" if x[1] in refused else "")
+            for x in code if x[1] not in used and not x[4]]
     if live:
         nr = sum(1 for x in code if x[0] == "rule" and not x[4])
         nc = sum(1 for x in code if x[0] == "configuration" and not x[4])
-        files = sorted({re.match(r"\S+ \((test/[^;]+\.lean); ", x)[1] for x in items})
+        fs = sorted({re.match(r"\S+ \((test/[^;]+\.lean); ", x)[1] for x in items})
         cfg = "" if not nc else " and its configuration" if nc == 1 else f" and its {nc} configurations"
         return (f"uncovered: {m}; {', '.join(live)} held by no tied text; on {text} {len(used) - nc} of its "
-                f"{nr} rules{cfg} are tied ({', '.join(files)})")
+                f"{nr} rules{cfg} are tied ({', '.join(fs)})")
     rest = [code_name(f, *x[:2], x[3]) + ": inside a block comment of the module's code, no sentence"
             for x in code if x[1] not in used]
     if rest:
