@@ -34,20 +34,20 @@ theorem clauses_bind : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, binds cl.vars.le
 
 theorem fns_empty : c.fns.isEmpty = true := by decide +kernel
 
-theorem names_plain : c.ctorSigs.all (fun k => (iteSort? (c.symName k.name)).isNone) = true := by decide +kernel
-theorem names_fns : c.allFns.all (fun fn => (iteSort? (c.symName fn.label)).isNone &&
+theorem names_plain : c.ctorSigs.all (fun k => (instDecode? (c.symName k.name)).isNone) = true := by decide +kernel
+theorem names_ovls : c.ovls.all (fun o => o.over.all fun g => (instDecode? (c.symName g)).isNone) = true := by
+  decide +kernel
+theorem names_fns : c.allFns.all (fun fn =>
     (fn.result :: fn.args).all (· < nRegSorts + c.sortNames.length)) = true := by decide +kernel
 
 theorem namesNumbered : NamesNumbered c := by
-  refine ⟨fun k hk => ?_, fun fn hfn => ?_, fun fn hfn s hs => ?_⟩
+  refine ⟨fun k hk => ?_, fun o ho g hg => ?_, fun fn hfn s hs => ?_⟩
   · have := List.all_eq_true.mp names_plain k hk
     exact Option.isNone_iff_eq_none.mp this
+  · have := List.all_eq_true.mp (List.all_eq_true.mp names_ovls o ho) g hg
+    exact Option.isNone_iff_eq_none.mp this
   · have := List.all_eq_true.mp names_fns fn hfn
-    simp only [Bool.and_eq_true] at this
-    exact Option.isNone_iff_eq_none.mp this.1
-  · have := List.all_eq_true.mp names_fns fn hfn
-    simp only [Bool.and_eq_true] at this
-    exact of_decide_eq_true (List.all_eq_true.mp this.2 s hs)
+    exact of_decide_eq_true (List.all_eq_true.mp this s hs)
 
 /-- **Kimp satisfies `Hyp`**: it has no function of its own, so the obligations on functions hold
 vacuously. -/

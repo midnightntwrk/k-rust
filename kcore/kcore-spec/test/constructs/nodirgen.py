@@ -216,7 +216,7 @@ def ndgOpt : Option (Srt × Bool) → String
   IO.println s!"CHK coreOK {c.coreOK}"
   IO.println s!"CHK noRaw {c.params.all (!·.raw)}"
   IO.println s!"CHK obligations {(c.rankObligations co ++ c.decObligationsL).isEmpty && (c.totalObligationsRP co []).isEmpty && c.agreeObligationsI.isEmpty && c.matchObligationsL.isEmpty}"
-  IO.println s!"CHK iteFree {gsym.all (fun x => !Faithful.iteCoded x)}"
+  IO.println s!"CHK iteFree {gsym.all (fun x => !Faithful.instCoded x)}"
   IO.println s!"CHK sents {decide (sents.map (·.index) = listed)}"
   IO.println s!"CHK absent {sents.all (fun ad => !(appHeadsOf ad.ax.pattern).all (gammaHasHead c))}"
   IO.println s!"CHK names {names.all (nodLackedB c)}"
@@ -766,25 +766,26 @@ theorem anySym_codes (n : String) :
   · rintro ⟨k, hk, he⟩; exact ⟨k, hk, by rw [beq_iff_eq.mp he]⟩
   · rintro ⟨k, hk, he⟩; exact ⟨k, hk, beq_iff_eq.mpr (KoreAML.Distinct.strCode_inj he)⟩
 
-/-- `nodLackedB` on the codes. -/
+/-- No symbol of the semantics has a name the decoder reads as an instance (`instDecode?`: no code
+of `gSymCodes` holds the byte of `{{`, `noInst_of_codes`), so Γ's heads are its symbols' names at no
+sort argument and `inj` at its subsorts (`gammaHasHead_eq_plain`). -/
+theorem iteFree : (Faithful.kernelSyms c).all (fun k => (instDecode? (c.symName k.name)).isNone) = true :=
+  noInst_of_codes gSymCodes_eq (by decide +kernel)
+
+/-- `nodLackedB` on the codes: no symbol is named as an instance (`iteFree`), so its last conjunct
+holds. -/
 theorem lacked_codes (n : String) :
     nodLackedB c n = (n != "inj" && n != "Lblite" && !gSymCodes.contains (KoreAML.Distinct.strCode n)) := by
+  have hi : ∀ k ∈ Faithful.kernelSyms c, instDecode? (c.symName k.name) = none := fun k hk =>
+    Option.isNone_iff_eq_none.mp (List.all_eq_true.mp iteFree k hk)
+  apply Bool.eq_iff_iff.mpr
   unfold nodLackedB
   rw [← anySym_codes]
-  congr 1
-  apply Bool.eq_iff_iff.mpr
-  simp only [List.all_eq_true, bne_iff_ne, ne_eq, Bool.not_eq_true', List.any_eq_false, beq_iff_eq]
-
-/-- No symbol of the semantics has a name `iteSort?` reads as an instance of `ite` (no code of
-`gSymCodes` has the low digits of `Lblite{{`, `Faithful.iteSort_none_of_code`), so Γ's heads are its
-symbols' names at no sort argument and `inj` at its subsorts (`gammaHasHead_eq_plain`). -/
-theorem iteFree : (Faithful.kernelSyms c).all (fun k => (iteSort? (c.symName k.name)).isNone) = true := by
-  have h : gSymCodes.all (fun x => !Faithful.iteCoded x) = true := by decide +kernel
-  rw [← gSymCodes_eq, List.all_map] at h
-  refine List.all_eq_true.mpr fun k hk => ?_
-  have hk' := List.all_eq_true.mp h k hk
-  simp only [Function.comp, Bool.not_eq_true'] at hk'
-  rw [Faithful.iteSort_none_of_code hk']; rfl
+  simp only [Bool.and_eq_true, List.all_eq_true, bne_iff_ne, ne_eq, Bool.not_eq_true', List.any_eq_false,
+    beq_iff_eq]
+  constructor
+  · rintro ⟨⟨⟨a, b⟩, d⟩, -⟩; exact ⟨⟨a, b⟩, d⟩
+  · rintro ⟨⟨a, b⟩, d⟩; exact ⟨⟨⟨a, b⟩, d⟩, fun k hk => by rw [hi k hk]⟩
 
 set_option maxHeartbeats 4000000 in
 /-- **Each listed sentence applies a symbol Γ lacks**, the no-direction class's defining property

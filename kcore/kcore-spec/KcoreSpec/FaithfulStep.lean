@@ -325,16 +325,17 @@ theorem elemOf_spec [Inhabited M] (hI : I ⊧ᴵP Γ c) {v : GroundTerm} {s : Sr
   · rw [(den_closed c v).interp e ⟨fun _ => default, fun _ _ => False⟩ m, heq]; exact ha m
   · rw [heq]; exact (((Closed.sym _).app (Closed.sym _)).interp _ _ a).mp has
 
-/-- The head `symApp` applies, as the translation writes it. -/
-def symHead (c : Semantics) (f : Sym) : KoreAML.P :=
-  match iteSort? (c.symName f) with
-  | some X => KoreAML.sym (.symbol "Lblite") ⬝ KoreAML.sym (.sort ("Sort" ++ X))
-  | none => KoreAML.sym (.symbol (c.symName f))
-
 /-- The head `h` applied to the sorts `SortX` of `xs`, left-nested: the translation of the head of an
 application of `h` at the sort arguments `xs` (`tr_instApp`). -/
 def instHeadP (h : String) (xs : List String) : KoreAML.P :=
   xs.foldl (fun a x => a ⬝ KoreAML.sym (.sort ("Sort" ++ x))) (KoreAML.sym (.symbol h))
+
+/-- The head `symApp` applies, as the translation writes it: the head and the sorts the decoder
+reads from the symbol's name (`instDecode?`, `instHeadP`), or the name at no sort. -/
+def symHead (c : Semantics) (f : Sym) : KoreAML.P :=
+  match instDecode? (c.symName f) with
+  | some (h, xs) => instHeadP h xs
+  | none => KoreAML.sym (.symbol (c.symName f))
 
 theorem instHeadP_nil (h : String) : instHeadP h [] = KoreAML.sym (.symbol h) := rfl
 
@@ -376,14 +377,14 @@ theorem tr_instApp {t : VarTable} (h : String) (xs : List String) (ps : List Kor
 theorem symHead_of_symApp {f : Sym} {h : String} {xs : List String}
     (hw : ∀ ps, symApp c f ps = .app ⟨⟨h⟩⟩ (xs.map KoreAML.srt) ps) : symHead c f = instHeadP h xs := by
   unfold symHead
-  cases hX : iteSort? (c.symName f) with
-  | some X =>
-    obtain ⟨rfl, rfl⟩ := symApp_writes_eq_iha hw (h' := "Lblite") (xs' := [X])
-      (fun ps => by unfold symApp; rw [hX]; rfl)
+  cases hX : instDecode? (c.symName f) with
+  | some p =>
+    obtain ⟨h', xs'⟩ := p
+    obtain ⟨rfl, rfl⟩ := symApp_writes_eq_iha hw (h' := h') (xs' := xs') (fun ps => symApp_inst hX)
     rfl
   | none =>
     obtain ⟨rfl, rfl⟩ := symApp_writes_eq_iha hw (h' := c.symName f) (xs' := [])
-      (fun ps => by unfold symApp; rw [hX]; rfl)
+      (fun ps => symApp_noInst hX)
     rfl
 
 /-- A symbol `symApp` writes at its name, at no sort, has its name as head. -/
@@ -394,7 +395,7 @@ theorem symHead_plain_irs {f : Sym} (hw : ∀ ps, symApp c f ps = .app ⟨⟨c.s
 /-- A symbol whose name the decoder reads as no instance has its name as head. -/
 theorem symHead_noInst {f : Sym} (h : instDecode? (c.symName f) = none) :
     symHead c f = KoreAML.sym (.symbol (c.symName f)) := by
-  unfold symHead; rw [iteSort?_none_of_instDecode h]
+  unfold symHead; rw [h]
 
 theorem symHead_closed (f : Sym) : Closed (symHead c f) := by
   obtain ⟨h, xs, -, hw⟩ := symApp_head c f
@@ -412,14 +413,14 @@ theorem symArityItem_of_symApp {k : CtorSig} {h : String} {xs : List String}
         (k.args.map fun s => KoreAML.inhOf (sortP (c.sortName s))) ⊆⊆
       KoreAML.inhOf (sortP (c.sortName k.result))) := by
   unfold symArityItem
-  cases hX : iteSort? (c.symName k.name) with
-  | some X =>
-    obtain ⟨rfl, rfl⟩ := symApp_writes_eq_iha hw (h' := "Lblite") (xs' := [X])
-      (fun ps => by unfold symApp; rw [hX]; rfl)
+  cases hX : instDecode? (c.symName k.name) with
+  | some p =>
+    obtain ⟨h', xs'⟩ := p
+    obtain ⟨rfl, rfl⟩ := symApp_writes_eq_iha hw (h' := h') (xs' := xs') (fun ps => symApp_inst hX)
     rfl
   | none =>
     obtain ⟨rfl, rfl⟩ := symApp_writes_eq_iha hw (h' := c.symName k.name) (xs' := [])
-      (fun ps => by unfold symApp; rw [hX]; rfl)
+      (fun ps => symApp_noInst hX)
     simp only [KoreAML.arityItem, KoreAML.guarded, List.map_nil, KoreAML.appList, List.map_map]
     simp [Function.comp_def, srtOf, KoreAML.srt, KoreAML.trSort_const, sortP, instHeadP]
 

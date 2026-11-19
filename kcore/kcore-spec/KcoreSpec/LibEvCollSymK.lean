@@ -91,12 +91,11 @@ mutual
 end
 
 mutual
-  /-- The term's symbols and sorts are the registry's, and none of its symbols is named like an
-  `ite` at a sort. -/
+  /-- The term's symbols and sorts are the registry's. -/
   def kreg : KReq → Bool
     | .term t => reg t
     | .kseq1 t => reg t
-    | .app f qs => decide (f < nRegSyms) && (iteSort? (regSymNames.getD f "")).isNone && kregs qs
+    | .app f qs => decide (f < nRegSyms) && kregs qs
     termination_by structural q => q
   def kregs : List KReq → Bool
     | [] => true
@@ -180,8 +179,8 @@ mutual
           exact sortOf_kseqV h (d.2 v hv)
       · simp [hk] at ht
     | .app f qs, s, hr, ht => by
-      simp only [kreg, Bool.and_eq_true, decide_eq_true_eq, Option.isNone_iff_eq_none] at hr
-      obtain ⟨⟨hf, -⟩, hrs⟩ := hr
+      simp only [kreg, Bool.and_eq_true, decide_eq_true_eq] at hr
+      obtain ⟨hf, hrs⟩ := hr
       rw [ksrt?] at ht
       obtain ⟨k, hk, hk2⟩ := Option.bind_eq_some_iff.mp ht
       by_cases hargs : ksrts? c vars qs = some k.args

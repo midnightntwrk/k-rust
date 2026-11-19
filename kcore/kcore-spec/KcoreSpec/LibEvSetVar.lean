@@ -152,8 +152,8 @@ mutual
           exact hd
       · simp [hd] at ht
     | .app f ts, s, hr, ht => by
-      simp only [reg, Bool.and_eq_true, decide_eq_true_eq, Option.isNone_iff_eq_none] at hr
-      obtain ⟨⟨hf, -⟩, hrs⟩ := hr
+      simp only [reg, Bool.and_eq_true, decide_eq_true_eq] at hr
+      obtain ⟨hf, hrs⟩ := hr
       simp only [srt?] at ht
       obtain ⟨k, hk, hk2⟩ := Option.bind_eq_some_iff.mp ht
       by_cases hargs : srts? c vars ts = some k.args

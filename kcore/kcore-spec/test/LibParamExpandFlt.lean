@@ -99,7 +99,7 @@ theorem lacked_names :
     lacked.all (fun k => (library.any fun m => m.params.any (· == k)) && !isHook k.name &&
       (kore.symbolDecls.filter (·.name == c.symName k.name)).length == 1 &&
       sigNamed c lacked (c.symName k.name) == some k && lackedNameB c (c.symName k.name) &&
-      GenEqs.unresolvedB c (c.symName k.name) && (iteSort? (c.symName k.name)).isNone) = true := by
+      GenEqs.unresolvedB c (c.symName k.name) && (instDecode? (c.symName k.name)).isNone) = true := by
   decide +kernel
 
 theorem names_text : c.symName 219 = "Lbl'Unds'dividesInt'UndsUnds'INT-COMMON'Unds'Bool'Unds'Int'Unds'Int" ∧
@@ -544,8 +544,8 @@ theorem G_sorted (H : HookParams) : ∀ k ∈ lacked, ∀ ws, (cH H).sortsOf ws 
     · exact hv_sorted (coreOKH H) sigs_hook.2.2 (sortsOf1.mpr hx) hv
     · cases hv
 
-theorem ctor_facts : ((cH default).symName signedBytes = "LblsignedBytes" ∧ iteSort? "LblsignedBytes" = none) ∧
-    ((cH default).symName unsignedBytes = "LblunsignedBytes" ∧ iteSort? "LblunsignedBytes" = none) ∧
+theorem ctor_facts : ((cH default).symName signedBytes = "LblsignedBytes" ∧ instDecode? "LblsignedBytes" = none) ∧
+    ((cH default).symName unsignedBytes = "LblunsignedBytes" ∧ instDecode? "LblunsignedBytes" = none) ∧
     c.sortOf (.ctor signedBytes []) = some Srt.signedness ∧ c.sortOf (.ctor unsignedBytes []) = some Srt.signedness := by
   decide +kernel
 
@@ -564,7 +564,7 @@ theorem ctorDen (H : HookParams) {M : Type} (I : Interpretation KoreAML.Sym M) :
   have hG : G H k.name [] = some (.ctor k.name []) := by
     simp only [ctorsL, List.mem_cons, List.not_mem_nil, or_false] at hk
     rcases hk with rfl | rfl <;> simp (config := { decide := true }) [G]
-  have hite : iteSort? ((cH H).symName k.name) = none := by
+  have hite : instDecode? ((cH H).symName k.name) = none := by
     simp only [ctorsL, List.mem_cons, List.not_mem_nil, or_false] at hk
     rcases hk with rfl | rfl
     · exact ctor_facts.1.1 ▸ ctor_facts.1.2
@@ -631,7 +631,7 @@ theorem noLen_total (H : HookParams) : ∀ ws, (cH H).sortsOf ws = some noLenSig
 
 theorem lacked_ok (H : HookParams) : ∀ k ∈ lacked, sigNamed (cH H) lacked ((cH H).symName k.name) = some k ∧
     lackedNameB (cH H) ((cH H).symName k.name) = true ∧ GenEqs.unresolvedB (cH H) ((cH H).symName k.name) = true ∧
-    iteSort? ((cH H).symName k.name) = none := by
+    instDecode? ((cH H).symName k.name) = none := by
   intro k hk
   have h := List.all_eq_true.mp lacked_names k hk
   simp only [Bool.and_eq_true, beq_iff_eq, Option.isNone_iff_eq_none] at h
@@ -772,13 +772,13 @@ theorem lackedS6_names :
     lackedS6.all (fun k => (library.any fun m => m.params.any (· == k)) && !isHook k.name &&
       (kore.symbolDecls.filter (·.name == c.symName k.name)).length == 1 &&
       sigNamed c lackedS6 (c.symName k.name) == some k && lackedNameB c (c.symName k.name) &&
-      GenEqs.unresolvedB c (c.symName k.name) && (iteSort? (c.symName k.name)).isNone) = true ∧
+      GenEqs.unresolvedB c (c.symName k.name) && (instDecode? (c.symName k.name)).isNone) = true ∧
     c.symName 213 = "Lbl'UndsAnd-'Int'Unds'" ∧ isHook 213 = false := by
   decide +kernel
 
 theorem lackedS6_ok (H : HookParams) : ∀ k ∈ lackedS6, sigNamed (cH H) lackedS6 ((cH H).symName k.name) = some k ∧
     lackedNameB (cH H) ((cH H).symName k.name) = true ∧ GenEqs.unresolvedB (cH H) ((cH H).symName k.name) = true ∧
-    iteSort? ((cH H).symName k.name) = none := by
+    instDecode? ((cH H).symName k.name) = none := by
   intro k hk
   have h := List.all_eq_true.mp lackedS6_names.1 k hk
   simp only [Bool.and_eq_true, beq_iff_eq, Option.isNone_iff_eq_none] at h

@@ -100,7 +100,7 @@ def names : List String := [initK, initT, initTop, initCtr, initOne, initEc, get
 
 /-- **None of the names is a symbol of the semantics**, nor `inj` or `Lblite`. -/
 theorem unnumbered : ∀ n ∈ names, (regSymNames ++ c.symNames).contains n = false ∧ n ≠ "" ∧ n ≠ "inj" ∧
-    n ≠ "Lblite" := by decide +kernel
+    n ≠ "Lblite" ∧ c.instHeadFree n = true := by decide +kernel
 
 /-- The arities the text declares. -/
 def ar : String → Nat := fun n => if n = initCtr ∨ n = initOne ∨ n = initEc then 0 else 1
@@ -177,7 +177,7 @@ theorem gvals : lookupV w1 = some pgm ∧ hook mapLookup [w1, key] = some (some 
     gK w0 = none ∧ gT w0 = none ∧ gTop w0 = none := by
   decide +kernel
 
-theorem iteNone : iteSort? (c.symName mapLookup) = none := by decide +kernel
+theorem iteNone : instDecode? (c.symName mapLookup) = none := by decide +kernel
 
 theorem constSorts : c.sortOf oneV = some oneS ∧ c.sortOf ecV = some ecS := by decide +kernel
 
@@ -282,7 +282,7 @@ theorem fnHyp : FnHyp c :=
 def names : List String := [initK, initId, initTop, initCtr, getter, projExp]
 
 theorem unnumbered : ∀ n ∈ names, (regSymNames ++ c.symNames).contains n = false ∧ n ≠ "" ∧ n ≠ "inj" ∧
-    n ≠ "Lblite" := by decide +kernel
+    n ≠ "Lblite" ∧ c.instHeadFree n = true := by decide +kernel
 
 /-- The arities the text declares: `initIdCell` and `initGeneratedTopCell` take `(Init, #Configuration)`. -/
 def ar : String → Nat := fun n => if n = initCtr then 0 else if n = initId ∨ n = initTop then 2 else 1
@@ -339,7 +339,7 @@ theorem gvals : hook mapLookup [w1, key] = some (some pgm) ∧ hook mapLookup [w
     gK w0 = none ∧ gTop w0 = none := by
   decide +kernel
 
-theorem iteNone : iteSort? (c.symName mapLookup) = none := by decide +kernel
+theorem iteNone : instDecode? (c.symName mapLookup) = none := by decide +kernel
 
 open InitModel in
 /-- **One model of the theory, whose steps are the semantics' steps, holds the initializers'

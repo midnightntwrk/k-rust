@@ -99,11 +99,11 @@ theorem coreOKH (H : HookParams) : (cH H).coreOK = true := (Semantics.coreOK_wit
 theorem names (H : HookParams) : (cH H).symName fS = "Lblf" ∧ (cH H).symName krS = "LblisKResult" ∧
     (cH H).symName andS = "Lbl'Unds'andBool'Unds'" ∧ (cH H).sortName Srt.int = "Int" ∧ (cH H).sortName Srt.k = "K" ∧
     (cH H).sortName krSort = "KResult" ∧ (cH H).sortName Srt.bool = "Bool" ∧
-    iteSort? "Lbl'Unds'andBool'Unds'" = none ∧ iteSort? "Lblf" = none ∧ iteSort? "LblisKResult" = none :=
+    instDecode? "Lbl'Unds'andBool'Unds'" = none ∧ instDecode? "Lblf" = none ∧ instDecode? "LblisKResult" = none :=
   (by decide +kernel : c.symName fS = "Lblf" ∧ c.symName krS = "LblisKResult" ∧
     c.symName andS = "Lbl'Unds'andBool'Unds'" ∧ c.sortName Srt.int = "Int" ∧ c.sortName Srt.k = "K" ∧
     c.sortName krSort = "KResult" ∧ c.sortName Srt.bool = "Bool" ∧
-    iteSort? "Lbl'Unds'andBool'Unds'" = none ∧ iteSort? "Lblf" = none ∧ iteSort? "LblisKResult" = none)
+    instDecode? "Lbl'Unds'andBool'Unds'" = none ∧ instDecode? "Lblf" = none ∧ instDecode? "LblisKResult" = none)
 
 theorem numbered (H : HookParams) : Srt.int < nRegSorts + (cH H).sortNames.length ∧
     Srt.k < nRegSorts + (cH H).sortNames.length ∧ Srt.bool < nRegSorts + (cH H).sortNames.length :=

@@ -133,10 +133,9 @@ theorem Semantics.raw_of_core {c : Semantics} (h : c.coreOK = true) {k : ParamSi
     (hk : k ∈ c.params) (hr : k.raw = true) :
     k.impl = none ∧
     ((k.assoc || k.idem) = true → k.sig.args = [k.sig.result, k.sig.result]) ∧
-    nRegSyms ≤ k.sig.name ∧ iteSort? (c.symName k.sig.name) = none ∧
+    nRegSyms ≤ k.sig.name ∧ instDecode? (c.symName k.sig.name) = none ∧
     c.shapesOK = true :=
-  have h := Semantics.raw_of_sortedOK (Semantics.coreOK_parts h).1 hk hr
-  ⟨h.1, h.2.1, h.2.2.1, iteSort?_none_of_instDecode h.2.2.2.1, h.2.2.2.2⟩
+  Semantics.raw_of_sortedOK (Semantics.coreOK_parts h).1 hk hr
 
 /-- What `coreOK` asks of the name of an open generator: the decoder reads it as no instance. -/
 theorem Semantics.raw_noInst_core_irs {c : Semantics} (h : c.coreOK = true) {k : ParamSig}

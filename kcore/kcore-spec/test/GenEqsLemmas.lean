@@ -184,10 +184,11 @@ namespace General
 /-- Every semantics' lists are rooted. -/
 example (c : Semantics) : rootedListsB c = true := rootedListsB_holds c
 
-/-- The symbols a premise holds are the semantics' own, `inj` or `Lblite`. -/
+/-- The symbols a premise holds are the semantics' own, `inj`, `Lblite`, or the head of a symbol of
+the semantics named as an instance. -/
 example (c : Semantics) (h : c.coreOK = true) :
     ∀ φ, (Faithful.Γc c ∪ Faithful.Γstep c) φ → ∀ n, KoreAML.Sym.symbol n ∈ psyms φ →
-      n ∈ regSymNames ++ c.symNames ∨ n = "" ∨ n = "inj" ∨ n = "Lblite" :=
+      n ∈ regSymNames ++ c.symNames ∨ n = "" ∨ n = "inj" ∨ n = "Lblite" ∨ c.instHeadFree n = false :=
   premise_symbols c h
 
 /-- `HandArg`'s model, from the arm's conditions on the two names alone. -/
@@ -201,7 +202,7 @@ theorem handArg_eqns :
   obtain ⟨I, h1, h2, h3⟩ := model_with_eqns_argProj HandArg.c HandArg.coreOK HandArg.fnHyp HandArg.argNames
     HandArg.argG (fun n hn => by
       simp only [HandArg.argNames, HandArg.names, List.mem_cons, List.not_mem_nil, or_false] at hn
-      rcases hn with rfl | rfl <;> exact ⟨by decide, by decide +kernel, by decide +kernel⟩)
+      rcases hn with rfl | rfl <;> exact ⟨by decide, by decide +kernel, by decide +kernel, by decide +kernel⟩)
   refine ⟨I, h1, h2 _ (by simp [HandArg.argNames, HandArg.names]) _ _ _ _ hp hl ?_, h3⟩
   simp only [HandArg.argG, ↓reduceIte, HandArg.pairV, argFn_ctor]
   rfl

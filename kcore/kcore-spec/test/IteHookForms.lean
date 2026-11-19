@@ -24,14 +24,11 @@
   - `rdr-ite-two-eq` (`syntax {S1, S2} S2 ::= cast(S1) [function, symbol(ite)]`, `rule cast(a) =>
     b`, `rule f(X) => cast(X)`): the instance `Lblite{Foo,Foo}` is a function of the reading with
     the text's equation, not K's `ite`. The reading's values: `TwoEq.ite_value` (`Lblite{Foo,Foo}`
-    at `a` is `b`) and `TwoEq.f_value` (f at `a` is `b`), for every H. They are facts of the reading
-    only, not of the text: Γ writes the instance as the plain symbol `Lblite{Foo,Foo}`
-    (`Faithful.symApp`: `iteSort?` gives a name holding a comma no sort), while the text's
-    sentences apply the symbol `Lblite` at the sort arguments `SortFoo{}, SortFoo{}`, which the
-    translation keeps (`tr`, T-app with S-args). So Γ's equation items of f and of the instance are
-    not the translations of sentence 137 (f's, whose right side applies the instance) and sentence
-    171 (the instance's equation), even with a variable renamed (`TwoEq.not_tied`), and no tie of
-    these sentences is stated.
+    at `a` is `b`) and `TwoEq.f_value` (f at `a` is `b`), for every H. No tie of the text's
+    sentences 137 (f's, whose right side applies the instance) and 171 (the instance's equation)
+    is stated here.
+    TwoEq.not_tied removed by KRN.ihw-writers: Γ writes the instance head Lblite{SortFoo,SortFoo}
+    the text uses, so the head no longer separates them; KRN.ihw-ties states the positive tie.
   The symbol numbers are the reader's for each text, found by name.
 -/
 import KcoreSpec
@@ -159,13 +156,6 @@ theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
 /-- `tr s`: the item `Theory.ofDefinition kore` holds for the sentence. -/
 noncomputable def trS (ad : AxiomDecl) : Item := trAxiom kore.symbolDecls kore.aliasNames ad
 
-/-- **Γ's equation items of f and of `Lblite{Foo,Foo}` (the first two, in `fnItems`'s order) are not
-the translations of their sentences 137 (`f(X) = Lblite{Foo,Foo}(X)`) and 171 (`Lblite{Foo,Foo}(a) =
-b`)**, even with one variable renamed (`TiePair.sameB`; kernel): Γ applies the plain symbol
-`Lblite{Foo,Foo}`, the sentences `Lblite` at two sorts. -/
-theorem not_tied : (((TiePair.gammaPats c).take 2).zip [(trS U.ax137).pat, (trS U.ax171).pat]).all
-    (fun p => !TiePair.sameB p.1 p.2) = true := by decide +kernel
-
 /-- f and `Lblite{Foo,Foo}` are the first two functions, one clause each. -/
 theorem fns_first : (c.allFns.take 2).map (fun fn => (c.symName fn.label, fn.clauses.length)) =
     [("Lblf", 1), ("Lblite{Foo,Foo}", 1)] := by decide +kernel
@@ -208,7 +198,6 @@ end KCore.IteHookForms
 #check @KCore.IteHookForms.OwnHook.ite_value
 #check @KCore.IteHookForms.OwnHook.f_rhs_value
 #check @KCore.IteHookForms.OwnHook.f_value
-#check @KCore.IteHookForms.TwoEq.not_tied
 #check @KCore.IteHookForms.TwoEq.fns_first
 #check @KCore.IteHookForms.TwoEq.ite_value
 #check @KCore.IteHookForms.TwoEq.f_value
@@ -218,8 +207,6 @@ end KCore.IteHookForms
 #guard_msgs in #print axioms KCore.IteHookForms.OwnHook.f_rhs_value
 /-- info: 'KCore.IteHookForms.OwnHook.f_value' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.IteHookForms.OwnHook.f_value
-/-- info: 'KCore.IteHookForms.TwoEq.not_tied' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms KCore.IteHookForms.TwoEq.not_tied
 /-- info: 'KCore.IteHookForms.TwoEq.ite_value' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.IteHookForms.TwoEq.ite_value
 /-- info: 'KCore.IteHookForms.TwoEq.f_value' depends on axioms: [propext, Classical.choice, Quot.sound] -/

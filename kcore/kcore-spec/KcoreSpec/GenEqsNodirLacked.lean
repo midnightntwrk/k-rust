@@ -31,9 +31,13 @@ namespace GenEqs
 
 open Faithful.Model
 
-/-- The name is neither `inj` nor `Lblite`, and no symbol of the semantics bears it. -/
+/-- The name is neither `inj` nor `Lblite`, no symbol of the semantics bears it, and none is named
+as an instance of it (`instDecode?`: the theory applies such a symbol at its head). -/
 def nodLackedB (c : Semantics) (n : String) : Bool :=
-  n != "inj" && n != "Lblite" && (kernelSyms c).all (fun k => c.symName k.name != n)
+  n != "inj" && n != "Lblite" && (kernelSyms c).all (fun k => c.symName k.name != n) &&
+    (kernelSyms c).all fun k => match instDecode? (c.symName k.name) with
+      | some (h, _) => h != n
+      | none => true
 
 /-- **A name `nodLackedB` accepts occurs in no premise of the theory and no symbol resolves to
 it.** -/
@@ -41,22 +45,28 @@ theorem nodLacked_free {c : Semantics} (hc : c.coreOK = true) {n : String} (h : 
     (∀ φ, (Γc c ∪ Γstep c) φ → KoreAML.Sym.symbol n ∉ psyms φ) ∧ unresolvedB c n = true := by
   unfold nodLackedB at h
   simp only [Bool.and_eq_true, bne_iff_ne, ne_eq] at h
-  obtain ⟨⟨hinj, hl⟩, hall⟩ := h
+  obtain ⟨⟨⟨hinj, hl⟩, hall⟩, hhd⟩ := h
   have hk : ∀ k ∈ kernelSyms c, c.symName k.name ≠ n := fun k hk =>
     bne_iff_ne.mp (List.all_eq_true.mp hall k hk)
+  have hh : ∀ k ∈ kernelSyms c, ∀ xs, instDecode? (c.symName k.name) ≠ some (n, xs) := fun k hk' xs hd => by
+    have := List.all_eq_true.mp hhd k hk'
+    rw [hd] at this
+    exact bne_iff_ne.mp this rfl
   refine ⟨fun φ hφ hm => ?_, ?_⟩
   · rcases GHComplete.premise_symbol_names c hc φ hφ n hm with h1 | ⟨k, hk', he⟩
     · exact hinj h1
-    · unfold gammaHead at he
-      split at he
-      · exact hl he
-      · exact hk k hk' he.symm
+    · obtain ⟨h', xs, hof, hw⟩ := symApp_head c k.name
+      rw [gammaHead_of_symApp hw] at he
+      have he' : n = h' := he
+      rcases hof with ⟨-, rfl⟩ | ⟨-, hd⟩
+      · exact hk k hk' he'.symm
+      · subst he'
+        exact hh k hk' xs hd
   · have hres : Faithful.Model.resolve c n [] = none := by
       rw [Faithful.Model.resolve_nil, Option.map_eq_none_iff, List.find?_eq_none]
       intro k hk' hn
       exact hk k hk' (beq_iff_eq.mp hn)
-    simp only [unresolvedB, hres, Option.isNone_none, Bool.and_true, Bool.and_eq_true, bne_iff_ne, ne_eq]
-    exact ⟨hinj, hl⟩
+    exact unresolvedB_of_parts hinj hl hres hh
 
 /-- **`nod_instance` at names `nodLackedB` accepts.** -/
 theorem nod_instance_lacked (c : Semantics) (hc : c.coreOK = true) (hf : FnHyp c) (Nm : Parse.Names)

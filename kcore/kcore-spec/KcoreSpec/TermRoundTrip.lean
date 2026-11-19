@@ -11,10 +11,11 @@
 
   This holds of a pattern that is `rtPat`, a decision on the pattern. A pattern that is not is read
   as a term that `Term.kore` writes otherwise than the text does:
-  - an application at sort arguments other than `inj`'s and `Lblite`'s one: the reader numbers the
-    instance's name `f{X̄}` (`Parse.instName`), which `Term.kore` writes with no sort argument;
-  - an application without sort arguments of a name `Term.kore` writes as `Lblite` at a sort
-    (`iteSort?`), and `Lblite` at a sort whose name `iteSort?` does not give back;
+  - an application at sort arguments other than `inj`'s whose instance name `f{X̄}`
+    (`Parse.instName`, under which the reader numbers it) the decoder does not read back as `f` at
+    `X̄` (`instDecode?`): `Term.kore` writes the head and the sorts the decoder reads;
+  - an application without sort arguments of a name the decoder reads as an instance, which
+    `Term.kore` writes at that instance's head and sorts;
   - a domain value whose text is not the text of the literal read of it (`Lit.text`).
 
   The variable lists: `term` appends to `vs` the variables it meets first (`vs <+: vs'`), so the
@@ -207,17 +208,18 @@ def dvRT (N : Parse.Names) (s : Kore.KSort) (text : String) : Bool :=
 
 mutual
   /-- Every application of the pattern, under applications and conjunctions, is `inj`'s, one
-  without sort arguments of a name `Term.kore` writes without (`iteSort?`), or `Lblite`'s at one
-  sort whose name `iteSort?` gives back; every domain value is `dvRT`. -/
+  without sort arguments of a name `Term.kore` writes without (the decoder reads it as no instance,
+  `instDecode?`), or one at sort arguments whose instance name (`Parse.instName`, the name the
+  reader numbers it under) the decoder reads back as that head at those sorts, which is how
+  `Term.kore` writes it; every domain value is `dvRT`. -/
   def rtPat (N : Parse.Names) : Kore.Pattern → Bool
     | .app h ss ps =>
       (h.ident.name == "inj" ||
         (match ss with
-          | [] => (iteSort? h.ident.name).isNone
-          | [S] => h.ident.name == "Lblite" && (match KoreAML.Parse.sortName? S with
-            | some X => iteSort? (Parse.iteName X) == some X
-            | none => false)
-          | _ => false)) && rtPatList N ps
+          | [] => (instDecode? h.ident.name).isNone
+          | _ => match ss.mapM KoreAML.Parse.sortName? with
+            | some xs => instDecode? (Parse.instName h.ident.name xs) == some (h.ident.name, xs)
+            | none => false)) && rtPatList N ps
     | .and _ ps => rtPatList N ps
     | .dv s text => dvRT N s text
     | _ => true
@@ -241,6 +243,23 @@ theorem alignOK_spec {c : Semantics} {tbl tblT : VarTable} {vars : List Srt} {vs
   exact of_decide_eq_true (List.all_eq_true.mp h i (List.mem_range.mpr hi))
 
 /-! ## The round trip -/
+
+/-- The name of `ite` at a sort is the instance name of `Lblite` at that sort. -/
+theorem iteName_eq_instName (X : String) : Parse.iteName X = Parse.instName "Lblite" [X] := by
+  unfold Parse.iteName Parse.instName
+  rw [show ",".intercalate [X] = X from rfl, show ("Lblite{" : String) = "Lblite" ++ "{" from by decide]
+
+/-- Sorts whose names `sortName?` reads are the sorts of those names. -/
+theorem sortNames_srt : ∀ {ss : List Kore.KSort} {xs : List String},
+    ss.mapM KoreAML.Parse.sortName? = some xs → ss = xs.map srt
+  | [], xs, h => by
+    simp only [List.mapM_nil, Option.pure_def, Option.some.injEq] at h
+    subst h; rfl
+  | S :: ss, xs, h => by
+    simp only [List.mapM_cons, Option.pure_def, Option.bind_eq_bind, Option.bind_eq_some_iff,
+      Option.some.injEq] at h
+    obtain ⟨X, hX, ys, hys, rfl⟩ := h
+    rw [List.map_cons, ← sortName_srt hX, ← sortNames_srt hys]
 
 theorem tr_app_nil (tbl : VarTable) (h : Kore.SymbolIdent) (ss : List Kore.KSort) (ps : List Kore.Pattern) :
     tr ⟨tbl, []⟩ (.app h ss ps) = trArgs ⟨tbl, []⟩ (trSortApp tbl (sym (.symbol h.ident.name)) ss) ps := by
@@ -317,11 +336,10 @@ theorem termRT_all (p : Kore.Pattern) : TermRT N c tbl tblT vars vsF p := by
   | app h ss ps ih =>
     have hR : rtPat N (.app h ss ps) = true → (h.ident.name == "inj" ||
         (match ss with
-          | [] => (iteSort? h.ident.name).isNone
-          | [S] => h.ident.name == "Lblite" && (match KoreAML.Parse.sortName? S with
-            | some X => iteSort? (Parse.iteName X) == some X
-            | none => false)
-          | _ => false)) = true ∧ rtPatList N ps = true := by
+          | [] => (instDecode? h.ident.name).isNone
+          | _ => match ss.mapM KoreAML.Parse.sortName? with
+            | some xs => instDecode? (Parse.instName h.ident.name xs) == some (h.ident.name, xs)
+            | none => false)) = true ∧ rtPatList N ps = true := by
       intro hrt
       rw [rtPat.eq_def] at hrt
       simpa only [Bool.and_eq_true] using hrt
@@ -364,7 +382,7 @@ theorem termRT_all (p : Kore.Pattern) : TermRT N c tbl tblT vars vsF p := by
         have hss : ss = [] := List.isEmpty_iff.mp hem
         subst hss
         replace hrt := hR hrt
-        have hnone : iteSort? h.ident.name = none := by
+        have hnone : instDecode? h.ident.name = none := by
           have h0 := hrt.1
           simpa [hinj] using h0
         have hn := symName_of_sym hsy (symE_ok hf)
@@ -389,32 +407,37 @@ theorem termRT_all (p : Kore.Pattern) : TermRT N c tbl tblT vars vsF p := by
             refine ⟨p1, fun hrt hp => ?_⟩
             have hXs : KoreAML.Parse.sortName? S = some X := need_ok hX
             replace hrt := hR hrt
-            simp only [hXs] at hrt
-            have hite' : iteSort? (Parse.iteName X) = some X := by
-              have h0 := hrt.1
-              simp [hinj] at h0
-              exact h0.2
             have hl : h.ident.name = "Lblite" := by
               have h0 := hite
               simp only [Bool.and_eq_true, beq_iff_eq] at h0
               exact h0.1
+            have hite' : instDecode? (Parse.iteName X) = some ("Lblite", [X]) := by
+              have h0 := hrt.1
+              simp [hinj, hXs, hl] at h0
+              rw [iteName_eq_instName]
+              exact h0
             have hn := symName_of_sym hsy (symE_ok hf)
             rw [Term.kore, hn, hite']
             rw [tr_app_nil, tr_app_nil, r1 hrt.2 hp, hl, sortName_srt hXs]
-            simp only [trSortApp, Faithful.trSort_srt]
+            simp only [trSortApp, Faithful.trSort_srt, List.map_cons, List.map_nil]
           · rw [ifN hite] at hrd
             split at hrd
-            · obtain ⟨⟨ts, vs1⟩, h1, hrd⟩ := bind_ok hrd
+            · rename_i f hfs
+              obtain ⟨⟨ts, vs1⟩, h1, hrd⟩ := bind_ok hrd
               cases hrd
-              refine ⟨(ih.2 _ _ _ h1).1, fun hrt => ?_⟩
-              exfalso
-              have h0 := (hR hrt).1
-              cases ss with
-              | nil => simp at hem
-              | cons S ss' =>
-                cases ss' with
-                | nil => simp [hinj] at h0 hite; exact hite h0.1
-                | cons _ _ => simp [hinj] at h0
+              obtain ⟨p1, r1⟩ := ih.2 _ _ _ h1
+              refine ⟨p1, fun hrt hp => ?_⟩
+              obtain ⟨xs, hxs, hf⟩ := Option.bind_eq_some_iff.mp hfs
+              replace hrt := hR hrt
+              have hdec : instDecode? (Parse.instName h.ident.name xs) = some (h.ident.name, xs) := by
+                have h0 := hrt.1
+                cases ss with
+                | nil => simp at hem
+                | cons S ss' => simpa [hinj, hxs] using h0
+              have hn := symName_of_sym hsy hf
+              rw [Term.kore, hn, hdec]
+              rw [tr_app_nil, tr_app_nil, r1 hrt.2 hp, sortNames_srt hxs, Faithful.trSortApp_srts_iha,
+                Faithful.trSortApp_srts_iha]
             · cases hrd
   | and s ps ih =>
     intro vs t vs' hrd

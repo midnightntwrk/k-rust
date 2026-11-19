@@ -42,6 +42,62 @@ theorem resolve_plain (n : String) (args : List Elem) (h : ∀ s, args.head? ≠
   · rename_i s _; exact absurd rfl (h s)
   · rfl
 
+/-- What `instPrefix` finds: a symbol of `kernelSyms` named as an instance of the head at more
+sorts than the arguments. -/
+theorem instPrefix_spec {n : String} {args : List Elem} (h : instPrefix c n args = true) :
+    ∃ k ∈ kernelSyms c, ∃ xs, instDecode? (c.symName k.name) = some (n, xs) ∧ args.length < xs.length ∧
+      leadSorts c args.length args = some (xs.take args.length) := by
+  obtain ⟨k, hk, hp⟩ := List.any_eq_true.mp h
+  refine ⟨k, hk, ?_⟩
+  cases hd : instDecode? (c.symName k.name) with
+  | none => rw [hd] at hp; cases hp
+  | some p =>
+    obtain ⟨h', xs⟩ := p
+    rw [hd] at hp
+    simp only [Bool.and_eq_true, beq_iff_eq, decide_eq_true_eq] at hp
+    obtain ⟨⟨rfl, hl⟩, he⟩ := hp
+    exact ⟨xs, rfl, hl, he⟩
+
+/-- What `instAt` finds: the symbol's name decodes to the head at the sort names the arguments
+begin with. -/
+theorem instAt_spec {n : String} {args : List Elem} {k : CtorSig} {p : Nat} (h : instAt c n args k = some p) :
+    ∃ xs, instDecode? (c.symName k.name) = some (n, xs) ∧ xs.length = p ∧ leadSorts c p args = some xs := by
+  unfold instAt at h
+  cases hd : instDecode? (c.symName k.name) with
+  | none => rw [hd] at h; cases h
+  | some q =>
+    obtain ⟨h', xs⟩ := q
+    rw [hd] at h
+    dsimp only at h
+    split at h
+    · rename_i hc
+      simp only [Bool.and_eq_true, beq_iff_eq] at hc
+      obtain ⟨rfl, he⟩ := hc
+      cases h
+      exact ⟨xs, rfl, rfl, he⟩
+    · cases h
+
+/-- A list that begins with `m` sorts has their names as `leadSorts`, and at least `m` elements. -/
+theorem leadSorts_length : ∀ {m : Nat} {args : List Elem} {xs : List String}, leadSorts c m args = some xs →
+    xs.length = m ∧ m ≤ args.length
+  | 0, _, _, h => by cases h; exact ⟨rfl, Nat.zero_le _⟩
+  | m + 1, [], _, h => by cases h
+  | m + 1, .val _ :: _, _, h => by cases h
+  | m + 1, .app _ _ :: _, _, h => by cases h
+  | m + 1, .srt s :: es, xs, h => by
+    simp only [leadSorts, Option.map_eq_some_iff] at h
+    obtain ⟨ys, hy, rfl⟩ := h
+    have := leadSorts_length hy
+    simp only [List.length_cons]
+    omega
+
+/-- The sort elements of a list of sorts, before anything, have the sorts' names as `leadSorts`. -/
+theorem leadSorts_srts : ∀ (ss : List Srt) (tail : List Elem),
+    leadSorts c ss.length (ss.map Elem.srt ++ tail) = some (ss.map c.sortName)
+  | [], _ => rfl
+  | s :: ss, tail => by
+    simp only [List.length_cons, List.map_cons, List.cons_append, leadSorts, leadSorts_srts ss tail, Option.map_some]
+
 /-- A symbol of the semantics is the first one of its name. -/
 theorem find_name (hn : NamesApartK c) {k : CtorSig} (hk : k ∈ kernelSyms c) :
     (kernelSyms c).find? (fun k' => c.symName k'.name == c.symName k.name) = some k := by
@@ -117,11 +173,10 @@ theorem symAt_cases {n : String} {args : List Elem} {x : Elem} (hx : symAt c n a
     have hx' := (ite_mem _ _ _).mp hx
     split at hx'
     · rename_i ha; rw [ha]; exact hx'
-    · split at hx'
-      · exact hx'
-      · rename_i hneg
-        exact (cast (congrFun (symAt.match_3.eq_2 (fun _ _ => Set Elem) n args
-          (fun _ => fun x => x = Elem.app (.sym n) args) (fun _ _ => fun _ => False) hneg) x) hx').elim
+    · have hx2 := (ite_mem _ _ _).mp hx'
+      split at hx2
+      · exact hx2
+      · exact hx2.elim
   | some kp =>
     obtain ⟨k, p⟩ := kp
     rw [hr] at hx
@@ -145,26 +200,35 @@ theorem symAt_none_app {n : String} {args : List Elem} {x : Elem} (hr : resolve 
   · exact h
   · rw [hr] at hr'; cases hr'
 
-/-- Where no symbol resolves at arguments, `symAt` holds something there only for `Lblite` at one
-argument. -/
+/-- Where no symbol resolves at arguments, `symAt` holds something there only where the arguments
+are sorts, fewer than and the first of the sorts of an instance of the head (`instPrefix`). -/
 theorem symAt_none_late {n : String} {args : List Elem} {x : Elem} (hr : resolve c n args = none)
-    (ha : args ≠ []) (hx : symAt c n args x) : n = "Lblite" ∧ args.length = 1 := by
+    (ha : args ≠ []) (hx : symAt c n args x) : instPrefix c n args = true := by
   unfold symAt at hx
   rw [hr] at hx
   have hx' := (ite_mem _ _ _).mp hx
   rw [if_neg ha] at hx'
-  split at hx'
-  · exact ⟨rfl, rfl⟩
-  · rename_i hneg
-    exact (cast (congrFun (symAt.match_3.eq_2 (fun _ _ => Set Elem) n args
-      (fun _ => fun x => x = Elem.app (.sym n) args) (fun _ _ => fun _ => False) hneg) x) hx').elim
+  have hx2 := (ite_mem _ _ _).mp hx'
+  split at hx2
+  · assumption
+  · exact hx2.elim
+
+/-- The head of an instance before all its sort arguments is its partial application. -/
+theorem symAt_instPrefix {n : String} {args : List Elem} (hr : resolve c n args = none) (ha : args ≠ [])
+    (hp : instPrefix c n args = true) (x : Elem) : symAt c n args x ↔ x = .app (.sym n) args := by
+  unfold symAt
+  rw [hr]
+  show (if args = [] then (fun x => x = Elem.app (.sym n) []) else
+    if instPrefix c n args = true then (fun x => x = Elem.app (.sym n) args) else fun _ => False) x ↔ _
+  rw [if_neg ha, if_pos hp]
 
 /-- Where no symbol of `kernelSyms` is an instance at the head `n` and no symbol resolves at two
 arguments or more, `symAt` holds nothing there. -/
 theorem symAt_none_noInst {n : String} {args : List Elem} (hr : resolve c n args = none)
-    (_hi : ∀ k ∈ kernelSyms c, ∀ xs, instDecode? (c.symName k.name) ≠ some (n, xs))
-    (hl : 2 ≤ args.length) (x : Elem) : ¬ symAt c n args x := fun hx =>
-  absurd (symAt_none_late hr (fun h => by rw [h] at hl; cases hl) hx).2 (by omega)
+    (hi : ∀ k ∈ kernelSyms c, ∀ xs, instDecode? (c.symName k.name) ≠ some (n, xs))
+    (hl : 2 ≤ args.length) (x : Elem) : ¬ symAt c n args x := fun hx => by
+  obtain ⟨k, hk, xs, hd, -⟩ := instPrefix_spec (symAt_none_late hr (fun h => by rw [h] at hl; cases hl) hx)
+  exact hi k hk xs hd
 
 
 namespace AtT

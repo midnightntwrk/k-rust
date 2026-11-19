@@ -84,7 +84,7 @@ theorem symApp_apart (args : List Kore.Pattern) :
     symApp c p1.sig.name args = .app ⟨⟨"Lblite"⟩⟩ [KoreAML.srt "Int"] args ∧
       symApp c p2.sig.name args = .app ⟨⟨"Lblite{Int]"⟩⟩ [] args := by
   constructor
-  · unfold symApp; rw [iteSort?_eq_some.2 ite1]
+  · exact symApp_inst ite1
   · exact symApp_noInst ite2
 
 theorem overloadsOK_holds : c.overloadsOK = true := by decide +kernel

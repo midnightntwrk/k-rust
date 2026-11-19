@@ -145,12 +145,12 @@ theorem account_sizes : classes.map (fun cl => (cl.1, cl.2.length)) =
 /-- The classes are the tie's (`tieClasses`, which gives each its direction), in its order. -/
 theorem account_classes : classes.map (·.1) = tieClasses.map (·.1) := by decide +kernel
 
-/-- The symbol `k` of Γ has no name `iteSort?` reads as an instance of `ite`. -/
-noncomputable def plainName (k : CtorSig) : Bool := (iteSort? (c.symName k.name)).isNone
+/-- The symbol `k` of Γ has no name `instDecode?` reads as an instance of `ite`. -/
+noncomputable def plainName (k : CtorSig) : Bool := (instDecode? (c.symName k.name)).isNone
 
-/-- No symbol of Γ has a name `iteSort?` reads as an instance of `ite`, so each is applied at its
+/-- No symbol of Γ has a name `instDecode?` reads as an instance of `ite`, so each is applied at its
 name with no sort argument (`gammaHasHead_eq_plain`). In parts of 50 symbols, each one kernel
-decision: `iteSort?` reads a name as its characters, and one decision over every name exceeds
+decision: `instDecode?` reads a name as its characters, and one decision over every name exceeds
 12 GiB. -/
 theorem noIte₁ : ((kernelSyms c).take 50).all plainName = true := by decide +kernel
 theorem noIte₂ : (((kernelSyms c).drop 50).take 50).all plainName = true := by decide +kernel

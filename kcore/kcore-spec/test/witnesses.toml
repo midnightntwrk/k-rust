@@ -100,14 +100,19 @@ evidence = "test/ItesNumbered.lean"
 [[conjunct]]
 key = "itesApart.2"
 text = "match KCore.instDecode? (c.symName k.name) with | some (h, xs) => (KCore.Faithful.kernelSyms c).all fun k' => match KCore.instDecode? (c.symName k'.name) with | some (h', xs') => h' != h || xs'.length == xs.length | none => true | none => true"
-witness = "none: not found; Γ writes an instance name other than Lblite at one sort plainly, so a semantics failing this leaf alone has the model of the same semantics with the symbol renamed (argued, not kernel-checked)"
+witness = "none: not found; Γ writes every instance name at its head and sorts, so whether a semantics failing this leaf alone has a model is open (not argued)"
 evidence = "test/ItesNumbered.lean"
 
 [[conjunct]]
 key = "itesApart.3"
 text = "match KCore.instDecode? (c.symName k.name) with | some (h, snd) => h != \"inj\" | none => true"
-witness = "none: not found; Γ writes an instance name with the head inj plainly, under its own name, which is not inj (namesApartK), so a semantics failing this leaf alone has the model of the same semantics with the symbol renamed (argued, not kernel-checked)"
+witness = "none: not found; Γ writes every instance name at its head and sorts, so whether a semantics failing this leaf alone has a model is open (not argued)"
 evidence = "test/ItesNumbered.lean"
+
+[[conjunct]]
+key = "itesApart.4"
+text = "match KCore.instDecode? (c.symName k.name) with | some (h, snd) => (KCore.Faithful.kernelSyms c).all fun k' => !k'.args.isEmpty || c.symName k'.name != h | none => true"
+witness = "KcoreSpec.ModelInstConstWitness"
 
 [[conjunct]]
 key = "faithCoreOK.9"

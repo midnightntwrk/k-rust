@@ -37,8 +37,8 @@ theorem HypModelCore.paramKinds (h : HypModelCore c) {kp : ParamSig} (hkp : kp �
   simpa using this.2 kp hkp
 
 theorem HypModelCore.iteSorted (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c) {X : String}
-    (hi : iteSort? (c.symName k.name) = some X) : ∃ s ∈ kernelSorts c, c.sortName s = X :=
-  itesApart_iteSorted h.ites hk hi
+    (hi : instDecode? (c.symName k.name) = some ("Lblite", [X])) : ∃ s ∈ kernelSorts c, c.sortName s = X :=
+  (itesApart_inst h.ites hk hi).1 X (List.mem_singleton_self X)
 
 theorem HypModelCore.collOf_self (h : HypModelCore c) {k : CollSig} (hk : k ∈ c.allColls) : c.collOf k.sort = some k := by
   rcases List.mem_append.mp hk with hb | hu
@@ -88,12 +88,6 @@ theorem hook_noInst {k : CtorSig} (hk : k ∈ hookSigs) : instDecode? (c.symName
   rw [if_pos h1]
   exact h2
 
-/-- The interpreted hooks have registry names, none named like `ite` at a sort. -/
-theorem hookSigs_plain : ∀ k ∈ hookSigs, k.name < nRegSyms ∧ iteSort? (regSymNames.getD k.name "") = none :=
-  fun k hk => ⟨(hookSigs_noInst k hk).1, iteSort?_none_of_instDecode (hookSigs_noInst k hk).2⟩
-
-theorem hook_plain {k : CtorSig} (hk : k ∈ hookSigs) : iteSort? (c.symName k.name) = none :=
-  iteSort?_none_of_instDecode (hook_noInst hk)
 
 /-! ## Applications at values, as the graphs write them -/
 

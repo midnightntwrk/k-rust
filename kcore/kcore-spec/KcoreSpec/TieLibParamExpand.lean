@@ -215,12 +215,12 @@ theorem sortsOf_each_lk {c : Semantics} : ∀ {ws : List GroundTerm} {ss : List 
 
 /-- **One model of the theory, with `Step`'s steps, in which the symbols of `ls` denote `G` at
 values.** For a semantics `coreOK` accepts under `FnHyp`, signatures `ls` each the first of `ls`
-under its name, whose names Γ lacks, resolve to no symbol and are no instance of `ite`, and a
+under its name, whose names Γ lacks, resolve to no symbol and decode to no instance, and a
 partial function `G` whose values at values of a symbol's argument sorts are of its result sort. -/
 theorem model_lacked (c : Semantics) (h : c.coreOK = true) (hf : FnHyp c) (ls : List CtorSig)
     (G : Sym → List GroundTerm → Option GroundTerm)
     (hls : ∀ k ∈ ls, sigNamed c ls (c.symName k.name) = some k ∧ lackedNameB c (c.symName k.name) = true ∧
-      GenEqs.unresolvedB c (c.symName k.name) = true ∧ iteSort? (c.symName k.name) = none)
+      GenEqs.unresolvedB c (c.symName k.name) = true ∧ instDecode? (c.symName k.name) = none)
     (hG : ∀ k ∈ ls, ∀ ws, c.sortsOf ws = some k.args → ∀ v, G k.name ws = some v → c.sortOf v = some k.result) :
     ∃ I : Interpretation KoreAML.Sym Faithful.Model.Elem, (I ⊧ᴵP (Γc c ∪ Γstep c)) ∧
       (∀ x y : Config c, Step c x y ↔ ¬ (I ⊧ᴵ (den c x.val ⇒ ∼ KoreAML.sNext (den c y.val)))) ∧

@@ -6774,6 +6774,12 @@ def boolLitsOf (S : Scan) (ovl : List String) : Bool :=
     | .inl _ => true) &&
   !S.tokenSorts.contains "Bool" && S.colls.all (·.1 != "Bool") && S.carriers.all (·.1 != "Bool")
 
+/-- The name is `Lblite` at one sort (`iteName`), as the decoder reads it. -/
+def iteNamed (n : String) : Bool :=
+  match instDecode? n with
+  | some ("Lblite", [_]) => true
+  | _ => false
+
 /-- A hooked symbol that is the registry's `ite` declared again: named `Lblite`, with exactly one
 sort variable S, arguments `Bool, S, S`, result S, and the hook the registry gives `kIte`
 (`regHookOf`). Name, shape and hook are `kIte`'s, so the declaration states the meaning the
@@ -6968,10 +6974,10 @@ def envOf (m : Kore.Module) (S : Scan) : Rd Env := do
   -- sort the definition does not have has no declaration and no number, and is refused, not read
   -- as K's `ite`
   let ownIte := S.paramDecls.any fun d => d.symbol.ident.ident.name == "Lblite" && d.symbol.sortVars.length == 1
-  match (if ownIte then extra.find? (fun n => (iteSort? n).isSome && !clauseless.contains n) else none) with
+  match (if ownIte then extra.find? (fun n => iteNamed n && !clauseless.contains n) else none) with
   | some n => fail .iteShape n
   | none => pure ()
-  let iteNames := extra.filter fun n => (iteSort? n).isSome && !clauseless.contains n
+  let iteNames := extra.filter fun n => iteNamed n && !clauseless.contains n
   -- a generated function's argument and result sort names: its declaration's, or K's for
   -- `append`, which the kernel module declares
   let genDecls := (extra.filter (!iteNames.contains ·)).filterMap fun n =>
@@ -7475,7 +7481,8 @@ holds it as a clause, is a sentence `c` accounts for; `none` for an equation of 
   or its selector-domain axiom (`projDomainEqn?`, whose form `projectionDomain?` checks:
   `project:X(K)` is defined exactly where K is such a P), where `c` does not number `project:X`
   (no sentence `c` reads applies it; one that does makes it a function of `c` with this equation,
-  `Presentation.libProjs`): the symbol is in no sentence of `Γ` (the registry's `projectSym X`,
+  `Presentation.libProjs`) and no own symbol of `c` is named as an instance of `project:X`
+  (`Semantics.instHeadFree`: `Γ` applies such a symbol at its head): the symbol is in no sentence of `Γ` (the registry's `projectSym X`,
   or, for a library sort whose projection the registry numbers no symbol for, such as Range and
   RangeMap, a symbol of no signature `Γ` has), and the equation defines it on the image of the
   injection. -/
@@ -7483,7 +7490,7 @@ def predProjOK? (N : Names) (msrc : String) (eqs : List RawEqn) (c : Semantics) 
   match dropPrefix? "Lblproject'Coln'" e.fn with
   | some X =>
     if regSortNames.contains X || c.sortNames.contains X then
-      some (!c.symNames.contains e.fn && (projEqnShape X e || e.dom))
+      some (!c.symNames.contains e.fn && (projEqnShape X e || e.dom) && c.instHeadFree e.fn)
     else none
   | none =>
     if (dropPrefix? "Lblis" e.fn).isSome then

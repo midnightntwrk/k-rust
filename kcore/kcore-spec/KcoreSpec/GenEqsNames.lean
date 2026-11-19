@@ -18,6 +18,7 @@
 -/
 import KcoreSpec.GenEqsModel
 import KcoreSpec.ExChoice
+import KcoreSpec.CoreDecide
 
 set_option autoImplicit false
 
@@ -476,6 +477,28 @@ theorem symName_ne_of_unnumbered (c : Semantics) {n : String}
     · exact List.mem_append_right _ (getD_mem_of_ne h he)
   rw [List.contains_iff_mem.mpr hm] at hn
   cases hn
+
+/-- `Semantics.instHeadFree`, read: no symbol's name decodes as an instance of the head `n`. The
+registry's names decode as no instance (`regSym_noInst_irs`), nor does the empty name of a symbol
+that is not numbered. -/
+theorem instHeadFree_spec {c : Semantics} {n : String} (h : c.instHeadFree n = true) (f : Sym) {hd : String}
+    {xs : List String} (hi : instDecode? (c.symName f) = some (hd, xs)) : hd ≠ n := by
+  unfold Semantics.symName at hi
+  split at hi
+  · rename_i hf
+    rw [Faithful.regSym_noInst_irs hf] at hi
+    cases hi
+  · rw [List.getD_eq_getElem?_getD] at hi
+    cases hg : c.symNames[f - nRegSyms]? with
+    | none =>
+      have h0 : instDecode? "" = none := by decide
+      rw [hg, Option.getD_none, h0] at hi
+      cases hi
+    | some m =>
+      rw [hg, Option.getD_some] at hi
+      have := List.all_eq_true.mp h m (List.mem_of_getElem? hg)
+      rw [hi] at this
+      exact bne_iff_ne.mp this
 
 /-- **A name no symbol bears resolves to no constant** (`spareSymB`): it is not `inj`'s, and no
 symbol of `kernelSyms` has it. -/

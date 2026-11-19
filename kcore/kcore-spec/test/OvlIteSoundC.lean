@@ -127,7 +127,7 @@ theorem ovlsButIte_c : ovlsButIte c = true := by decide +kernel
 /-- The conjunct fails: the overloading symbol is named like `ite` at `KCell`. -/
 theorem not_ovlsPlain : ovlsPlain c = false := by decide +kernel
 
-theorem ite_f : iteSort? (c.symName fSig.name) = some "KCell" := by decide +kernel
+theorem ite_f : instDecode? (c.symName fSig.name) = some ("Lblite", ["KCell"]) := by decide +kernel
 
 theorem not_overloadsOK : c.overloadsOK = false := by
   rw [overloadsOK_split, not_ovlsPlain, Bool.and_false]
@@ -449,27 +449,27 @@ theorem satI_colls {φ : KoreAML.P} (h : ΓColls c φ) : I ⊧ᴵ φ := by
 /-! ## The domains and the fallback -/
 
 theorem hooks_dec : hookSigs.all (fun k => decide (k.name < nRegSyms) &&
-    (iteSort? (regSymNames.getD k.name "")).isNone) = true := by
+    (instDecode? (regSymNames.getD k.name "")).isNone) = true := by
   decide_cheap 20
 
 theorem hook_names {k : CtorSig} (hk : k ∈ hookSigs) :
-    iteSort? (c.symName k.name) = none ∧ iteSort? (c2.symName k.name) = none := by
+    instDecode? (c.symName k.name) = none ∧ instDecode? (c2.symName k.name) = none := by
   have h := List.all_eq_true.mp hooks_dec k hk
   simp only [Bool.and_eq_true, decide_eq_true_eq, Option.isNone_iff_eq_none] at h
   simp only [Semantics.symName, h.1, ite_true]
   exact ⟨h.2, h.2⟩
 
-theorem ren_symApp {f : Sym} (hf : iteSort? (c.symName f) = none) (hf2 : iteSort? (c2.symName f) = none)
+theorem ren_symApp {f : Sym} (hf : instDecode? (c.symName f) = none) (hf2 : instDecode? (c2.symName f) = none)
     (vs : List GroundTerm) :
     ren (KoreAML.den (symApp c f (GroundTerm.koreList c vs))) = KoreAML.den (symApp c2 f (GroundTerm.koreList c2 vs)) := by
-  simp only [symApp, hf, hf2]
+  rw [symApp_noInst hf, symApp_noInst hf2]
   unfold KoreAML.den
   rw [KoreAML.tr_app0, KoreAML.tr_app0]
   exact ren_trArgs vs _ _ (ren_sym f)
 
 theorem ren_equal (φ ψ : KoreAML.P) : ren (φ ≡ ψ) = (ren φ ≡ ren ψ) := rfl
 
-theorem ren_hookGraph {f : Sym} (hf : iteSort? (c.symName f) = none) (hf2 : iteSort? (c2.symName f) = none)
+theorem ren_hookGraph {f : Sym} (hf : instDecode? (c.symName f) = none) (hf2 : instDecode? (c2.symName f) = none)
     (vs : List GroundTerm) (B B' : KoreAML.P) (hB : ren B = B') :
     ren (KoreAML.den (symApp c f (GroundTerm.koreList c vs)) ≡ B) =
       (KoreAML.den (symApp c2 f (GroundTerm.koreList c2 vs)) ≡ B') := by

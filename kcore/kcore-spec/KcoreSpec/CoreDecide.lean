@@ -109,19 +109,8 @@ theorem Faithful.namesApartK_of_codesCD (h : namesApartC c (symCodesCD c) (sortC
 
 /-- `itesApart`, decided on the names' codes. -/
 theorem Faithful.itesApart_of_codesCD
-    (h : itesApartC c (instIdxCD c) (sortCodesCD c) = true) : itesApart c = true :=
+    (h : itesApartC c (instIdxCD c) (symCodesCD c) (sortCodesCD c) = true) : itesApart c = true :=
   itesApart_of_codes (symCodesCD_eq c) (sortCodesCD_eq c) (instIdx_symCodesCD c) h
-
-/-- No symbol is named like `ite` at a sort when no name's code is one of such a name
-(`iteIdx` empty). -/
-theorem Faithful.iteSort_none_of_iteIdxCD (h : iteIdx (symCodesCD c) = []) (f : Sym) :
-    iteSort? (c.symName f) = none := by
-  cases hs : iteSort? (c.symName f) with
-  | none => rfl
-  | some X =>
-    have := mem_iteIdx (symCodesCD_eq c) (f := f) (by rw [hs]; exact Option.some_ne_none X)
-    rw [h] at this
-    exact absurd this List.not_mem_nil
 
 /-! ## `sigItems` by name -/
 

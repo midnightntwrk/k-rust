@@ -120,10 +120,10 @@ theorem int_name (H : HookParams) : (cH H).sortName Srt.int = "Int" := (by decid
 theorem bool_numbered (H : HookParams) : Srt.bool < nRegSorts + (cH H).sortNames.length :=
   (by decide +kernel : Srt.bool < nRegSorts + c.sortNames.length)
 theorem bool_name (H : HookParams) : (cH H).sortName Srt.bool = "Bool" := (by decide +kernel : c.sortName Srt.bool = "Bool")
-theorem mod_name (H : HookParams) : (cH H).symName intTMod = modN ∧ iteSort? modN = none :=
-  (by decide +kernel : c.symName intTMod = modN ∧ iteSort? modN = none)
-theorem ne_name (H : HookParams) : (cH H).symName intNe = neN ∧ iteSort? neN = none :=
-  (by decide +kernel : c.symName intNe = neN ∧ iteSort? neN = none)
+theorem mod_name (H : HookParams) : (cH H).symName intTMod = modN ∧ instDecode? modN = none :=
+  (by decide +kernel : c.symName intTMod = modN ∧ instDecode? modN = none)
+theorem ne_name (H : HookParams) : (cH H).symName intNe = neN ∧ instDecode? neN = none :=
+  (by decide +kernel : c.symName intNe = neN ∧ instDecode? neN = none)
 theorem den_int0 (H : HookParams) : den (cH H) (KCore.int 0) = KoreAML.sym (.dv "0") ⬝ KoreAML.sym (.sort "SortInt") := by
   show den c (KCore.int 0) = _; decide +kernel
 theorem den_true (H : HookParams) : den (cH H) (KCore.bool true) = TRUEp := by

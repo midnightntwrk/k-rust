@@ -68,13 +68,14 @@ def kernelItems (ss : List Kore.Sentence) : List KoreAML.Item :=
     | .axiom a => some (KoreAML.trAxiom [] [] ⟨0, "kernel", a⟩)
     | _ => none
 
-/-- An application of `f` as `Term.kore` writes it: `Lblite{SortX}(…)` for a symbol named
-`ite{X}`, `f(…)` with no sort argument otherwise. The registry's `kIte` is named `Lblite`, with no
+/-- An application of `f` as `Term.kore` writes it: `h{Sortx₁{},…,Sortxₙ{}}(…)` for a symbol whose
+name the decoder reads as the instance `h{x₁,…,xₙ}` of a sort-parametric symbol (`instDecode?`),
+`f(…)` with no sort argument otherwise. The registry's `kIte` is named `Lblite`, with no
 sort in its name, so `Term.kore` applies it, if at all, as the sortless `Lblite(…)` written here;
-a definition applies `ite` at a sort through its own parameter symbol `ite{X}`. -/
+a definition applies `ite` at a sort through its own parameter symbol `Lblite{X}`. -/
 def symApp (c : Semantics) (f : Sym) (args : List Kore.Pattern) : Kore.Pattern :=
-  match iteSort? (c.symName f) with
-  | some X => .app ⟨⟨"Lblite"⟩⟩ [KoreAML.srt X] args
+  match instDecode? (c.symName f) with
+  | some (h, xs) => .app ⟨⟨h⟩⟩ (xs.map KoreAML.srt) args
   | none => .app ⟨⟨c.symName f⟩⟩ [] args
 
 /-- `symApp` writes a symbol named `n` at the head `h` and the sort names `xs`: `n` itself at no
@@ -88,14 +89,23 @@ theorem symApp_head (c : Semantics) (f : Sym) :
     ∃ h xs, InstHeadOf (c.symName f) h xs ∧
       ∀ ps, symApp c f ps = .app ⟨⟨h⟩⟩ (xs.map KoreAML.srt) ps := by
   unfold symApp
-  cases hX : iteSort? (c.symName f) with
-  | some X => exact ⟨"Lblite", [X], .inr ⟨List.cons_ne_nil _ _, iteSort?_eq_some.1 hX⟩, fun _ => rfl⟩
+  cases hX : instDecode? (c.symName f) with
+  | some p =>
+    obtain ⟨h, xs⟩ := p
+    exact ⟨h, xs, .inr ⟨(instDecode?_eq_some hX).1.2.2.1, hX⟩, fun _ => rfl⟩
   | none => exact ⟨c.symName f, [], .inl ⟨rfl, rfl⟩, fun _ => rfl⟩
 
 /-- A symbol whose name the decoder reads as no instance is applied at its name, at no sort. -/
 theorem symApp_noInst {c : Semantics} {f : Sym} {ps : List Kore.Pattern}
     (h : instDecode? (c.symName f) = none) : symApp c f ps = .app ⟨⟨c.symName f⟩⟩ [] ps := by
-  unfold symApp; rw [iteSort?_none_of_instDecode h]
+  unfold symApp; rw [h]
+
+/-- A symbol whose name the decoder reads as the instance of `h` at `xs` is applied at `h` and the
+sorts of `xs`. -/
+theorem symApp_inst {c : Semantics} {f : Sym} {h : String} {xs : List String} {ps : List Kore.Pattern}
+    (hd : instDecode? (c.symName f) = some (h, xs)) :
+    symApp c f ps = .app ⟨⟨h⟩⟩ (xs.map KoreAML.srt) ps := by
+  unfold symApp; rw [hd]
 
 /-- `Term.kore` writes an application as `symApp` does. -/
 theorem kore_app (c : Semantics) (vs : List KoreAML.Var) (f : Sym) (ts : List Term) :
@@ -129,14 +139,15 @@ theorem symApp_writes_eq_iha {c : Semantics} {f : Sym} {h h' : String} {xs xs' :
 def sortDeclOf (c : Semantics) (s : Srt) : KoreAML.SortDecl := ⟨"Sort" ++ c.sortName s, [], false⟩
 
 /-- G-arity of a symbol, `f ⟦s₁⟧ … ⟦sₙ⟧ ⊆ ⟦s⟧`, at the head `Term.kore` applies: `arityItem` of
-its declaration for an ordinary symbol; for a symbol named `ite{X}`, the same inclusion with the
-head `Lblite` applied to the sort `SortX`, which is how the translation of a term applies it. -/
+its declaration for an ordinary symbol; for a symbol whose name the decoder reads as the instance
+`h{x₁,…,xₙ}` (`instDecode?`), the same inclusion with the head `h` applied to the sorts
+`Sortx₁`, …, `Sortxₙ`, which is how the translation of a term applies it. -/
 def symArityItem (c : Semantics) (k : CtorSig) : KoreAML.Item :=
-  match iteSort? (c.symName k.name) with
+  match instDecode? (c.symName k.name) with
   | none => KoreAML.arityItem ⟨c.symName k.name, [], k.args.map (srtOf c), srtOf c k.result, false, []⟩
-  | some X =>
-    { label := "arity Lblite at Sort" ++ X, rule := "G-arity", names := []
-      pat := KoreAML.appList (KoreAML.sym (.symbol "Lblite") ⬝ sortP X)
+  | some (h, xs) =>
+    { label := "arity " ++ h ++ " at " ++ ", ".intercalate (xs.map ("Sort" ++ ·)), rule := "G-arity", names := []
+      pat := KoreAML.appList (xs.foldl (fun a x => a ⬝ sortP x) (KoreAML.sym (.symbol h)))
           (k.args.map fun s => KoreAML.inhOf (sortP (c.sortName s))) ⊆⊆
         KoreAML.inhOf (sortP (c.sortName k.result)) }
 
@@ -144,7 +155,7 @@ def symArityItem (c : Semantics) (k : CtorSig) : KoreAML.Item :=
 theorem symArityItem_noInst {c : Semantics} {k : CtorSig} (h : instDecode? (c.symName k.name) = none) :
     symArityItem c k =
       KoreAML.arityItem ⟨c.symName k.name, [], k.args.map (srtOf c), srtOf c k.result, false, []⟩ := by
-  unfold symArityItem; rw [iteSort?_none_of_instDecode h]
+  unfold symArityItem; rw [h]
 
 /-- The signature's items: definedness; per sort, that its name denotes one sort (G-sort); per
 symbol, its arity; the arity and definedness of the definedness symbols; the arity of next at the
@@ -863,38 +874,37 @@ def famOpen (c : Semantics) (r : Rule) (σ : Subst) : KoreAML.P :=
 
 /-! ## The statements -/
 
-/-- No constructor is named like `ite` at a sort (`iteSort?`): `Term.kore` and the KORE of a value
-then write a constructor's application alike. -/
-def NamesPlain (c : Semantics) : Prop := ∀ k ∈ c.ctorSigs, iteSort? (c.symName k.name) = none
+/-- No constructor is named like an instance of a sort-parametric symbol (`instDecode?`):
+`Term.kore` and the KORE of a value then write a constructor's application alike. -/
+def NamesPlain (c : Semantics) : Prop := ∀ k ∈ c.ctorSigs, instDecode? (c.symName k.name) = none
 
 /-- The well-formedness of names and sort numbers that the soundness proof reads: no constructor
-is named like `ite` at a sort (so `Term.kore` and the KORE of a value write its applications
-alike), no symbol that an overloading symbol overloads is (an overload's equation, `ovlEqItem`,
-writes the overloaded symbol under its name with no sort argument, which is how `symApp` writes it
-then), and the sorts of every function are numbered sorts (so `ΓSig` says that each denotes one
-sort). A function no symbol overloads may be named like `ite` at a sort: its equations
-(`eqnSentence`) and its applications are both written by `symApp`. -/
+is named like an instance of a sort-parametric symbol (`instDecode?`; so `Term.kore` and the KORE
+of a value write its applications alike), no symbol that an overloading symbol overloads is (an
+overload's equation, `ovlEqItem`, writes the overloaded symbol under its name with no sort
+argument, which is how `symApp` writes it then), and the sorts of every function are numbered sorts
+(so `ΓSig` says that each denotes one sort). A function no symbol overloads may be named like an
+instance: its equations (`eqnSentence`) and its applications are both written by `symApp`. -/
 def NamesNumbered (c : Semantics) : Prop :=
-  NamesPlain c ∧ (∀ o ∈ c.ovls, ∀ g ∈ o.over, iteSort? (c.symName g) = none) ∧
+  NamesPlain c ∧ (∀ o ∈ c.ovls, ∀ g ∈ o.over, instDecode? (c.symName g) = none) ∧
   ∀ fn ∈ c.allFns, ∀ s ∈ fn.result :: fn.args, s < nRegSorts + c.sortNames.length
 
 /-- Under `NamesPlain`, `symApp` writes a constructor at its name, at no sort. This is the one
 lemma that reads `NamesPlain`'s condition on the name; the readers of `NamesPlain` go through it. -/
 theorem namesPlain_writes_irs {c : Semantics} (hnm : NamesPlain c) {k : CtorSig} (hk : k ∈ c.ctorSigs) :
     ∀ ps, symApp c k.name ps = .app ⟨⟨c.symName k.name⟩⟩ [] ps := by
-  intro ps; unfold symApp; rw [hnm k hk]
+  intro ps; exact symApp_noInst (hnm k hk)
 
 /-- Under `NamesNumbered`, `symApp` writes a symbol an overloading symbol overloads at its name, at
 no sort. The one lemma that reads the overload conjunct's condition on the name. -/
 theorem namesNumbered_over_writes_irs {c : Semantics} (hnn : NamesNumbered c) {o : OvlSig} (ho : o ∈ c.ovls)
     {g : Sym} (hg : g ∈ o.over) : ∀ ps, symApp c g ps = .app ⟨⟨c.symName g⟩⟩ [] ps := by
-  intro ps; unfold symApp; rw [hnn.2.1 o ho g hg]
+  intro ps; exact symApp_noInst (hnn.2.1 o ho g hg)
 
 theorem namesNumbered_spec {c : Semantics} (h : namesNumbered c = true) : NamesNumbered c := by
   simp only [namesNumbered, Bool.and_eq_true, List.all_eq_true, Option.isNone_iff_eq_none,
     decide_eq_true_eq] at h
-  exact ⟨fun k hk => iteSort?_none_of_instDecode (h.1.1 k hk),
-    fun o ho g hg => iteSort?_none_of_instDecode (h.1.2 o ho g hg), h.2⟩
+  exact ⟨h.1.1, h.1.2, h.2⟩
 
 /-- What the statements assume of a semantics: it is well formed (`okAll`), its function labels
 are distinct and its subsorts closed (`srReady`), and what the decided conditions do not settle

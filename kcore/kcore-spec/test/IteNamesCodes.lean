@@ -3,8 +3,8 @@
   names' codes (NameCodes.lean: `instIdx` lists the codes holding `{`).
   Run from the package root: `lake env lean test/IteNamesCodes.lean`.
   - rdr-ite-two-eq: the instance `Lblite{Foo,Foo}` of the text's own `Lblite{S1,S2}`, at two sorts,
-    with an equation, is a function of the reading. Its code is listed by `instIdx`, and `iteSort?`
-    gives it no sort; it is no constructor, so `namesNumbered` holds and its decision on codes (`namesNumberedC`) gives it.
+    with an equation, is a function of the reading. Its code is listed by `instIdx`, and `instDecode?`
+    reads it at the head `Lblite` and two sorts; it is no constructor, so `namesNumbered` holds and its decision on codes (`namesNumberedC`) gives it.
   - rdr-ite-own: the instance `Lblite{Foo}` of the text's own `Lblite{S}`, at one sort, without an
     equation, is a parameter of the reading without an implementation; `namesNumbered` and
     `itesApart` from their decisions on codes.
@@ -12,7 +12,8 @@
     name, shape and hook, K-EQUAL not imported: its instance `Lblite{Foo}` is K's `ite` at Foo, a
     parameter implemented by `kIte`; `namesNumbered` and `itesApart` from their decisions on codes.
   - rdr-ite-own-eq: the instance `Lblite{Foo}` of the text's own `Lblite{S}`, at one sort, with an
-    equation, is a function of the reading named `Lblite{Foo}`, which `iteSort?` reads at Foo;
+    equation, is a function of the reading named `Lblite{Foo}`, which `instDecode?` reads at the
+    head `Lblite` and the one sort Foo;
     `namesNumbered` (which asks nothing of a function's name) and `itesApart` from their decisions
     on codes.
 -/
@@ -84,7 +85,8 @@ noncomputable abbrev c : Semantics := defn.sem
 theorem fn_named : c.allFns.any (fun fn => c.symName fn.label == "Lblite{Foo}") = true := by
   decide +kernel
 
-theorem fn_ite : c.allFns.any (fun fn => iteSort? (c.symName fn.label) == some "Foo") = true := by
+theorem fn_ite :
+    c.allFns.any (fun fn => instDecode? (c.symName fn.label) == some ("Lblite", ["Foo"])) = true := by
   decide +kernel
 
 theorem namesNumbered : Faithful.namesNumbered c = true :=
