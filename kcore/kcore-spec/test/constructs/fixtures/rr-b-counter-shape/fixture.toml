@@ -1,0 +1,9 @@
+# Hand-written KORE: f2-examples/base.kompile.kore with two edits: getGeneratedCounterCell's declaration
+# carries a Location and the user file's Source (a function of the user's file, so of the definition,
+# and not checked as the generated getter is: initFaults skips a getter the definition has), and the
+# right side of its equation is <generatedCounter>(0) instead of the pattern's last variable.
+# With the first edit alone the text reads with wf false (names declared once, none named like a
+# hook, functions named apart, own sorts and symbols numbered in order); with the generated getter's
+# declaration kept, the second edit alone is refused generatedEquation at the equation.
+# Expected: refused counterShape (sentence 194, LblgetGeneratedCounterCell).
+kore = "f2-examples/rr-b-counter-shape.kore"

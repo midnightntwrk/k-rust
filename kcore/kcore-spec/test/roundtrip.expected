@@ -372,6 +372,15 @@ differs f2-examples/rhsemptyowise.kompile.kore
 differs f2-examples/rhsemptypeer.kompile.kore
 differs f2-examples/rhsint.kompile.kore
 differs f2-examples/rhsunit.kompile.kore
+cannot f2-examples/rr-b-counter-shape.kore
+cannot f2-examples/rr-b-hook-attribute.kore
+cannot f2-examples/rr-b-inj-shape.kore
+cannot f2-examples/rr-b-module-location.kore
+cannot f2-examples/rr-b-module-source.kore
+cannot f2-examples/rr-b-prelude-differs.kore
+cannot f2-examples/rr-b-priority-alias.kore
+cannot f2-examples/rr-b-variable-name.kore
+cannot f2-examples/rr-b-variable-sort.kore
 cannot f2-examples/rsn.kompile.kore
 differs f2-examples/rulecool.kompile.kore
 differs f2-examples/setcat.kompile.kore

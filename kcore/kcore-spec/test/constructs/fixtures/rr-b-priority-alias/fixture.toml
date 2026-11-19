@@ -1,0 +1,8 @@
+# Hand-written KORE: f2-examples/e7-implicitk.kompile.kore with the two alias sentences
+# --enable-kore-antileft adds for a rule followed by another priority group (ModuleToKORE.java:1453-1496
+# genAliasForSemanticsRuleLHS, :1549-1585 genPriorityGroups): rule0LHS, the rule's left side, before the
+# rule, and the priority group's alias priorityLE50{}() : SortGeneratedTopCell{}, the disjunction of
+# the rule's left side over its free variables, before endmodule. The rule's axiom is kept as kompile
+# writes it without the option (no alias applied), so only the declarations are refused.
+# Expected: 2 refused aliasDeclaration (rule0LHS, priorityLE50).
+kore = "f2-examples/rr-b-priority-alias.kore"

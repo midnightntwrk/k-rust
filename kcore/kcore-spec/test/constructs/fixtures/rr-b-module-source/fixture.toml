@@ -1,0 +1,4 @@
+# Hand-written KORE: f2-examples/base.kompile.kore with the Source attribute of the user module (its
+# endmodule line) removed; its Location kept.
+# Expected: refused moduleSource (the module BASE).
+kore = "f2-examples/rr-b-module-source.kore"

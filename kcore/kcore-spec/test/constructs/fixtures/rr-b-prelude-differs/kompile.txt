@@ -1,0 +1,3 @@
+command: none: fixture.toml kore = 'f2-examples/rr-b-prelude-differs.kore', a KORE text kompile does not write; account.txt is `kcore account f2-examples/rr-b-prelude-differs.kore` (cwd: kcore-spec)
+definition.kore bytes: 85386
+definition.kore sha256: 9edfb9fc9f2e92c12e8105a9d920e9b87fb740a1be06806455b0776879223476

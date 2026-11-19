@@ -1,0 +1,3 @@
+command: none: fixture.toml kore = 'f2-examples/rr-b-hook-attribute.kore', a KORE text kompile does not write; account.txt is `kcore account f2-examples/rr-b-hook-attribute.kore` (cwd: kcore-spec)
+definition.kore bytes: 85440
+definition.kore sha256: fe6d324de1e964ed946e7cbe3d2c1a42016d3079e391166e1b2614960bb6501e

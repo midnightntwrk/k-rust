@@ -1,0 +1,5 @@
+# Hand-written KORE: f2-examples/base.kompile.kore (the kompiled text of fixture base) with one edit in
+# the prelude: KSEQ's append declared [function{}()] without functional{}(). The modules before the
+# user module then differ from K's prelude (Parse.preludeModules).
+# Expected: refused preludeDiffers (sentence 5, append).
+kore = "f2-examples/rr-b-prelude-differs.kore"

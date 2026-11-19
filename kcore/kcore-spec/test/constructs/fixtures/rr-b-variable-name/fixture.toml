@@ -1,0 +1,5 @@
+# Hand-written KORE: f2-examples/e7-implicitk.kompile.kore (the kompiled text of fixture e7-implicitk)
+# with the rule's variable Var'Unds'DotVar1 renamed DotVar1 at both its occurrences: the same rule
+# with a variable whose name does not begin with Var.
+# Expected: refused variableName (sentence 204, DotVar1).
+kore = "f2-examples/rr-b-variable-name.kore"

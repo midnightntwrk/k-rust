@@ -1,0 +1,15 @@
+f2-examples/rr-b-module-source.kore: 5 modules; prelude agrees
+user module BASE: 225 sentences
+  1 inert import [generated]
+  148 read [generated]
+  52 read [builtin]
+  4 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  9 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 moduleSource
+      the module (BASE): moduleSource
+finish: the module (BASE): moduleSource
+(exit 0)

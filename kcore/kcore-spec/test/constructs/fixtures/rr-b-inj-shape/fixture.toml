@@ -1,0 +1,4 @@
+# Hand-written KORE: f2-examples/e7-implicitk.kompile.kore with the left side's injection
+# inj{SortExp{}, SortKItem{}}(Lbla{}()) written inj{SortExp{}}(Lbla{}()), at one sort.
+# Expected: refused injShape (sentence 204).
+kore = "f2-examples/rr-b-inj-shape.kore"

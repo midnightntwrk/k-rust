@@ -1,0 +1,6 @@
+# Hand-written KORE: f2-examples/e7-implicitk.kompile.kore with the rule's counter-cell variable
+# Var'Unds'DotVar0:SortGeneratedCounterCell{} renamed Var'Unds'DotVar1 at both its occurrences: the
+# same rule (in KORE a variable is its name and its sort, so the two remain distinct) with one name
+# at the sorts SortK and SortGeneratedCounterCell.
+# Expected: refused variableSort (sentence 204, 'Unds'DotVar1).
+kore = "f2-examples/rr-b-variable-sort.kore"

@@ -1,0 +1,3 @@
+command: none: fixture.toml kore = 'f2-examples/rr-b-variable-name.kore', a KORE text kompile does not write; account.txt is `kcore account f2-examples/rr-b-variable-name.kore` (cwd: kcore-spec)
+definition.kore bytes: 90851
+definition.kore sha256: 07c402e04635a1426ee8c87b7342ab5ccb1868530907b031f46b7d13a832899e
