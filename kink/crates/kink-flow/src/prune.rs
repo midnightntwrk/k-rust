@@ -7,7 +7,9 @@
 //! A corpus discharges existential obligations, each of the shape "some case does X":
 //!
 //! - `mutations`: a mutation is killed, discharged by every case whose cell of the full kill
-//!   matrix is a proved difference ([`crate::report::kill_cells`]);
+//!   matrix is a proved difference ([`crate::report::kill_cells`]); in a flow that declares
+//!   `[[projection]]`, a mutation is killed under a projection `run` lists ("Projections"
+//!   below);
 //! - `patterns`: a pattern is hit, discharged by every case whose answer is a hit
 //!   ([`crate::query::hit_cells`]); every pattern is an obligation of the corpus, with or without
 //!   `programs` ([`crate::query`], "The obligation");
@@ -136,6 +138,55 @@
 //! The coverage rows are the same in both modes (one coverage run, complete), so a lazy report
 //! and a `--full` one read the same pairs and decide the same.
 //!
+//! # Projections
+//!
+//! In a flow that declares `[[projection]]`, a kill obligation is a (mutation, projection) pair,
+//! for each mutation of the list and each projection `[run] projections` lists
+//! ([`FlowManifest::run_projections`]): "some case of the projection's domain kills the mutation
+//! under it". The document names it by `family`, `id` (the mutation's) and `projection`, in every
+//! entry and reason that names an obligation, and the text rendering as `mutations ID under
+//! NAME`. The row's own status, the search over the union of the projections' observations, is
+//! no obligation there: a kill under a projection is a difference of what the run's slots
+//! compare ([`crate::projected`]), so a kill only the union gives is one no listed projection
+//! observes.
+//!
+//! Under a projection P a case's cell is a decided discharge where `run`'s verdict of it under P
+//! is `killed`, unknown where it is `unknown`, and a decided non-discharge where it is `agree`.
+//! A case outside P's domain has no cell under P: it is neither a discharger nor unknown, and its
+//! undecided baseline keeps it for no obligation under P. A projection judged as the run's own
+//! with no `domain` takes the row's status, so its cells are the row's own; one `run` does not
+//! judge (`undecided`) leaves each comparable case of its domain unknown
+//! ([`crate::report::projection_kill_cells`]). Every rule above then reads each pair as one
+//! obligation, so a case is removable only when every (mutation, projection) kill it gives is
+//! given by another kept case, which is one of that projection's domain: a case that is the only
+//! killer of a mutation under one projection is kept, whoever kills it under another.
+//!
+//! A string `expect = "survive"` is a claim on the row's own status: a killed row is no
+//! obligation under any projection, and the killers of the row's own search refute it, since
+//! survival under the union is survival under every projection. A table `expect = { NAME =
+//! "survive" }` of a mutation killed under NAME makes that pair no obligation, and each case that
+//! kills it there refutes it (`refutes` naming the projection).
+//!
+//! Lazily, a pair with a known killer under its projection is read as a killed row is, its cells
+//! not judged asked one at a time ("Lazy cells"); one ask runs the mutation's full row over the
+//! one program and answers it under every listed projection, each its status there
+//! ([`crate::search::KillCells`]), so a cell is asked once whatever the number of projections,
+//! and `accounting.cells` counts (mutation, case) cells. `--lock` gives the search each
+//! (mutation, projection)'s recorded killer too, and a run row moves where its killer under a
+//! projection is removed.
+//!
+//! # Grammar mutations
+//!
+//! `run` judges a grammar mutation (PJ-34) only in its default search, first-kill over the whole
+//! corpus in a flow that declares no projection; `run --full` and a flow that declares
+//! projections give its row `error` (`grammar-not-run`) and exit 2, so `prune --full`, and
+//! `prune` of such a flow, refuse the list as their `run` does. The default search parses every
+//! case again under the mutant's grammar before it runs anything, so its row states each case's
+//! verdict (`grammar`), and prune reads that row whole, asking none of its cells (a cell asked one
+//! at a time is refused too) ([`crate::report::grammar_kill_cells`]): a case whose reparse kills
+//! discharges, the row's killer discharges, and a case whose reparse is undecided, or left to a
+//! campaign call that did not run every case (any status but `survived`), is unknown.
+//!
 //! # Redundant alone, and removable together
 //!
 //! A case is redundant alone when it is not kept by any rule above against the whole corpus:
@@ -238,13 +289,15 @@ use crate::{
     manifest::FlowManifest,
     mutation::{Expect, MutationList},
     pattern::{PatternExpect, PatternList},
+    projected::Judge,
     query::{HitCell, HitCells, QueryOptions},
     results::ResultClass,
-    search::{KillCell, KillCells, RunMode, RunOptions},
+    search::{KillCell, KillCells, Recorded, RunMode, RunOptions},
 };
 use kink_campaign::ScheduleMode;
 use kink_native::execution::SolverProfile;
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 /// The `schema` of the prune document.
@@ -270,7 +323,15 @@ pub const PRUNE_SCHEMA: &str = "kink-flow-prune";
 /// (classes `rejected` and `accepted`, PJ-32), with the reason `rejected-before-run`
 /// (`{reason, class}`), and asks no cell of it; a flow whose entries state no rejection gives
 /// version 4's document but for its version.
-pub const PRUNE_VERSION: u64 = 5;
+/// Version 6 reads the `mutations` obligations of a flow that declares `[[projection]]` as
+/// (mutation, projection) pairs, one per projection `[run] projections` lists (module docs,
+/// "Projections"): each entry and reason naming one has `projection`, and a run row of the
+/// record moves where its killer under a projection is removed (`lock`). It reads a grammar
+/// mutation's row whole (module docs, "Grammar mutations"), and `expect = { default =
+/// "survive" }` in a flow that declares no projection as `expect = "survive"`. A flow that
+/// declares no projection and whose list has neither gives version 5's document but for its
+/// version.
+pub const PRUNE_VERSION: u64 = 6;
 
 /// The order the removable set is built in (`removable.order`, module docs).
 pub const REVERSE_MANIFEST_ORDER: &str = "reverse-manifest";
@@ -401,7 +462,7 @@ pub enum Reading {
 
 /// Where a cell of an obligation not yet asked is asked: the list's mutation, or the selected
 /// pattern, at this index.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum Source {
     Mutation(usize),
     Pattern(usize),
@@ -418,13 +479,21 @@ enum Cell {
     Unknown,
 }
 
+/// One asked cell: a pattern's, or a mutation's under the run's own slots (`cell`) and under each
+/// projection `run` lists (`projections`, by name; empty in a flow that declares none).
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct Answer {
+    cell: Cell,
+    projections: Vec<(String, Cell)>,
+}
+
 /// Why a cell could not be asked: the family and the detail of its refusal.
 type Refusal = (&'static str, String);
 
 /// The commands a lazy report asks its cells through.
 trait Ask {
     /// The cell of `source` on the case at `case`, and whether a cache served it.
-    fn ask(&mut self, source: Source, case: usize) -> Result<(Cell, bool), Refusal>;
+    fn ask(&mut self, source: Source, case: usize) -> Result<(Answer, bool), Refusal>;
     /// A progress line.
     fn announce(&self, line: &str);
     /// The run's `outcome_cache` and `baseline_runs` and the query's `pattern_cache` as they
@@ -437,7 +506,7 @@ trait Ask {
 struct Complete([Value; 3]);
 
 impl Ask for Complete {
-    fn ask(&mut self, _: Source, _: usize) -> Result<(Cell, bool), Refusal> {
+    fn ask(&mut self, _: Source, _: usize) -> Result<(Answer, bool), Refusal> {
         Err((
             "mutations",
             "a complete row has no cell left to ask".to_owned(),
@@ -460,21 +529,28 @@ struct Askers<'c, 'k, 'h> {
 }
 
 impl Ask for Askers<'_, '_, '_> {
-    fn ask(&mut self, source: Source, case: usize) -> Result<(Cell, bool), Refusal> {
+    fn ask(&mut self, source: Source, case: usize) -> Result<(Answer, bool), Refusal> {
         match source {
             Source::Mutation(index) => {
                 let kills = self
                     .kills
                     .as_deref_mut()
                     .ok_or_else(|| ("mutations", "no search asks the mutations".to_owned()))?;
-                let (cell, cached) = kills
+                let (cell, projections, cached) = kills
                     .cell(index, &self.cases[case])
                     .map_err(|row| ("mutations", row_refusal(&row)))?;
+                let of = |cell: KillCell| match cell {
+                    KillCell::Kill => Cell::Discharges,
+                    KillCell::Agree => Cell::Not,
+                    KillCell::Unknown => Cell::Unknown,
+                };
                 Ok((
-                    match cell {
-                        KillCell::Kill => Cell::Discharges,
-                        KillCell::Agree => Cell::Not,
-                        KillCell::Unknown => Cell::Unknown,
+                    Answer {
+                        cell: of(cell),
+                        projections: projections
+                            .into_iter()
+                            .map(|(name, cell)| (name, of(cell)))
+                            .collect(),
                     },
                     cached,
                 ))
@@ -488,10 +564,13 @@ impl Ask for Askers<'_, '_, '_> {
                     .cell(index, case)
                     .map_err(|row| ("patterns", row_refusal(&row)))?;
                 Ok((
-                    match cell {
-                        HitCell::Hit => Cell::Discharges,
-                        HitCell::No => Cell::Not,
-                        HitCell::Unknown => Cell::Unknown,
+                    Answer {
+                        cell: match cell {
+                            HitCell::Hit => Cell::Discharges,
+                            HitCell::No => Cell::Not,
+                            HitCell::Unknown => Cell::Unknown,
+                        },
+                        projections: Vec::new(),
                     },
                     cached,
                 ))
@@ -545,6 +624,9 @@ fn row_refusal(row: &Value) -> String {
 struct Obligation {
     family: &'static str,
     id: String,
+    /// For a `mutations` obligation of a flow that declares `[[projection]]`, the listed
+    /// projection it is under ([`Facts::projections`]; module docs, "Projections").
+    projection: Option<usize>,
     /// The known decided dischargers, in manifest order.
     dischargers: Vec<usize>,
     /// The known unknown cells, in manifest order.
@@ -616,8 +698,9 @@ impl Obligation {
 enum Keep {
     /// A pattern's `programs` names it.
     Claimed(String),
-    /// Its decided cell refutes a universal claim (family, id).
-    Refutes(&'static str, String),
+    /// Its decided cell refutes a universal claim (family, id, and the listed projection the
+    /// claim is under, if any).
+    Refutes(&'static str, String, Option<usize>),
     /// It is the only kept decided discharger of the obligation at this index (a pair
     /// obligation: no kept decided pair holds without it).
     Sole(usize),
@@ -846,7 +929,12 @@ impl Inputs<'_> {
             return f(None);
         };
         self.announce("prune: run of the mutation list (the first-kill search)");
-        let recorded = self.lock(LockKind::Run).map(Lock::killers);
+        // The lock's killers order the search, the mutations' own and each (mutation,
+        // projection)'s (decision U2); none is a cell.
+        let recorded = self.lock(LockKind::Run).map(|lock| Recorded {
+            killers: lock.killers(),
+            projections: lock.projection_killers(),
+        });
         let mut out = None;
         let (document, _) = crate::search::run_session(
             self.manifest,
@@ -1096,6 +1184,24 @@ struct Facts {
     lazy: bool,
     /// What the `mutations` and the `patterns` cells cost.
     cells: [Asked; 2],
+    /// The projections `run` lists (`[run] projections`) in a flow that declares
+    /// `[[projection]]`, in listed order; empty in a flow that declares none (module docs,
+    /// "Projections").
+    projections: Vec<Listed>,
+    /// Each cell asked one at a time, by source and case: one ask of a mutation's cell answers
+    /// it under every listed projection.
+    answers: BTreeMap<(Source, usize), Answer>,
+}
+
+/// A projection `run` lists, as the `mutations` obligations under it read it.
+struct Listed {
+    name: String,
+    /// It is judged as the run's own and has no `domain` ([`Judge::Run`]): its status is the
+    /// row's, and its cells are the row's own.
+    own: bool,
+    /// Whether its `domain` holds each case, in manifest order: a case outside it has no cell
+    /// under it.
+    domain: Vec<bool>,
 }
 
 /// Insert `at` into the sorted `into`, once.
@@ -1106,6 +1212,293 @@ fn insert(into: &mut Vec<usize>, at: usize) {
 }
 
 impl Facts {
+    /// The index of the case `id`.
+    fn index(&self, id: &str) -> Option<usize> {
+        self.cases.iter().position(|case| case == id)
+    }
+
+    /// The indices of the cases `ids`, sorted, once each.
+    fn indices(&self, ids: &[String]) -> Vec<usize> {
+        let mut found = ids
+            .iter()
+            .filter_map(|id| self.index(id))
+            .collect::<Vec<_>>();
+        found.sort_unstable();
+        found.dedup();
+        found
+    }
+
+    /// Add what `reading` states of the row `id` of `family`, under the listed projection
+    /// `projection` (a `mutations` row of a flow that declares projections).
+    fn add(
+        &mut self,
+        family: &'static str,
+        id: &Value,
+        reading: Reading,
+        projection: Option<usize>,
+    ) {
+        match reading {
+            Reading::None => {}
+            Reading::Refuted(by) => {
+                for at in self.indices(&by) {
+                    self.keeps[at].push(Keep::Refutes(family, text(id), projection));
+                }
+            }
+            Reading::Obligation(cells) => {
+                let (dischargers, unknown) = if cells.unnamed {
+                    (Vec::new(), (0..self.cases.len()).collect())
+                } else {
+                    let dischargers = self.indices(&cells.dischargers);
+                    let mut unknown = self.indices(&cells.unknown);
+                    unknown.retain(|at| !dischargers.contains(at));
+                    (dischargers, unknown)
+                };
+                self.obligations.push(Obligation {
+                    family,
+                    id: text(id),
+                    projection,
+                    dischargers,
+                    unknown,
+                    unasked: Vec::new(),
+                    source: None,
+                    stopped: false,
+                    pairing: None,
+                });
+            }
+            Reading::Pairs(cells) => {
+                let pairs = cells
+                    .pairs
+                    .iter()
+                    .map(|sides| sides.each_ref().map(|side| self.indices(side)))
+                    .filter(|[one, other]| !one.is_empty() && !other.is_empty())
+                    .collect::<Vec<_>>();
+                let mut dischargers = Vec::new();
+                for at in pairs.iter().flatten().flatten() {
+                    insert(&mut dischargers, *at);
+                }
+                // A case on a pair's side may still hold a side its rows do not show, so
+                // its unknown cell stays one (module docs, "Pair obligations").
+                let unknown = self.indices(&cells.unknown);
+                let sides = self.indices(&cells.sides);
+                self.obligations.push(Obligation {
+                    family,
+                    id: text(id),
+                    projection,
+                    dischargers,
+                    unknown,
+                    unasked: Vec::new(),
+                    source: None,
+                    stopped: false,
+                    pairing: Some(Pairing { pairs, sides }),
+                });
+            }
+        }
+    }
+
+    /// The `mutations` obligation of the run's `row` (the list's mutation at `mutation`, when
+    /// the list has it): the row's own (`projection` `None`, a flow that declares no projection
+    /// or a row whose `expect = "survive"` its killers refute), or the one under the listed
+    /// projection at `projection`. A lazy report reads a row with a known killer as the search
+    /// left it, its cells not judged asked as decisions need them (module docs, "Lazy cells");
+    /// every other row is read whole. A row whose claim of survival its killers refute is asked
+    /// whole, and each of its killers is kept for it.
+    fn read_mutation(
+        &mut self,
+        row: &Value,
+        mutation: Option<usize>,
+        projection: Option<usize>,
+        comparable: &[bool],
+        ask: &mut dyn Ask,
+    ) -> Result<(), Refusal> {
+        let listed = projection.map(|at| &self.projections[at]);
+        let name = listed.map(|listed| listed.name.clone());
+        let own = listed.is_none_or(|listed| listed.own);
+        // The comparable cases of the projection's domain: the cases a cell under it is of.
+        let domain = (0..self.cases.len())
+            .filter(|at| comparable[*at] && listed.is_none_or(|listed| listed.domain[*at]))
+            .collect::<Vec<_>>();
+        let survive = match &name {
+            None => crate::report::expects_survival(row),
+            Some(name) => row["expect"][name] == Expect::Survive.as_str(),
+        };
+        // A grammar mutation's row is read whole (module docs, "Grammar mutations").
+        if row["grammar"].is_array() {
+            let reading = crate::report::grammar_kill_cells(row);
+            self.add("mutations", &row["id"], reading, projection);
+            return Ok(());
+        }
+        let lazy = match mutation.filter(|_| self.lazy) {
+            Some(mutation) if own && row["status"] == "killed" => {
+                Some(self.lazy_killed(row, mutation, comparable))
+            }
+            Some(mutation) if !own => {
+                self.lazy_projected(row, mutation, projection, name.as_deref(), &domain)
+            }
+            _ => None,
+        };
+        let Some(mut obligation) = lazy else {
+            let reading = match &name {
+                None => crate::report::kill_cells(row),
+                Some(name) => crate::report::projection_kill_cells(
+                    row,
+                    name,
+                    (!own).then(|| self.ids(domain.iter().copied())).as_deref(),
+                ),
+            };
+            self.add("mutations", &row["id"], reading, projection);
+            return Ok(());
+        };
+        obligation.projection = projection;
+        self.obligations.push(obligation);
+        if survive {
+            // Every killer refutes the claim: the row is asked whole.
+            let at = self.obligations.len() - 1;
+            self.learn_all(at, ask)?;
+            let obligation = self.obligations.pop().expect("just pushed");
+            for case in obligation.dischargers {
+                self.keeps[case].push(Keep::Refutes(
+                    "mutations",
+                    obligation.id.clone(),
+                    projection,
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// The programs that witness the edit of `row`, which the search order asks first.
+    fn witnesses(&self, row: &Value) -> Vec<usize> {
+        self.indices(
+            &row["witnesses"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect::<Vec<_>>(),
+        )
+    }
+
+    /// A killed row of the first-kill search, read lazily under the run's own slots: its killer
+    /// and the cells it asked before it; a cached kill it read past the killer is asked again.
+    fn lazy_killed(&self, row: &Value, mutation: usize, comparable: &[bool]) -> Obligation {
+        let killer = row["killer"].as_str().and_then(|id| self.index(id));
+        let mut obligation = Obligation {
+            family: "mutations",
+            id: text(&row["id"]),
+            projection: None,
+            dischargers: killer.into_iter().collect(),
+            unknown: Vec::new(),
+            unasked: Vec::new(),
+            source: Some(Source::Mutation(mutation)),
+            stopped: false,
+            pairing: None,
+        };
+        let mut known = killer.into_iter().collect::<Vec<_>>();
+        for entry in row["executed"].as_array().into_iter().flatten() {
+            let Some(at) = entry["program"].as_str().and_then(|id| self.index(id)) else {
+                continue;
+            };
+            match entry["outcome"].as_str() {
+                Some("distinguish") => {}
+                Some("agree") => insert(&mut known, at),
+                _ => {
+                    insert(&mut known, at);
+                    if Some(at) != killer {
+                        insert(&mut obligation.unknown, at);
+                    }
+                }
+            }
+        }
+        // The search order: the programs that witness the edit first, each group in
+        // manifest order.
+        let witnesses = self.witnesses(row);
+        obligation.unasked = (0..self.cases.len())
+            .filter(|at| comparable[*at] && !known.contains(at))
+            .collect();
+        obligation.unasked.sort_by_key(|at| !witnesses.contains(at));
+        obligation
+    }
+
+    /// The row's obligation under the projection `name`, judged per program, read lazily when
+    /// some case is known to kill under it (its killer, or a program judged `killed` under it):
+    /// the verdicts the run gave under it (the row's `executed` and its `projection_search`'s),
+    /// the cases of `domain` (comparable, in the projection's domain) it judged nothing of asked
+    /// as decisions need them. `None` where no case is known to kill under it, or the row's
+    /// status no program decides (the projection then has the row's): it is read whole.
+    fn lazy_projected(
+        &self,
+        row: &Value,
+        mutation: usize,
+        projection: Option<usize>,
+        name: Option<&str>,
+        domain: &[usize],
+    ) -> Option<Obligation> {
+        let name = name?;
+        let executed = row["executed"].as_array().map_or(&[][..], Vec::as_slice);
+        if !matches!(
+            row["status"].as_str(),
+            Some("killed" | "survived" | "unknown")
+        ) || executed.is_empty()
+        {
+            return None;
+        }
+        let mut verdicts = BTreeMap::new();
+        for entry in executed.iter().chain(
+            row["projection_search"]["executed"]
+                .as_array()
+                .into_iter()
+                .flatten(),
+        ) {
+            if let (Some(at), Some(verdict)) = (
+                entry["program"].as_str().and_then(|id| self.index(id)),
+                entry["projections"][name].as_str(),
+            ) && domain.contains(&at)
+            {
+                verdicts.insert(at, verdict);
+            }
+        }
+        let status = row["projections"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|entry| entry["name"] == name)?;
+        let killer = status["killer"]
+            .as_str()
+            .filter(|_| status["status"] == "killed")
+            .and_then(|id| self.index(id))
+            .filter(|at| domain.contains(at));
+        let mut obligation = Obligation {
+            family: "mutations",
+            id: text(&row["id"]),
+            projection,
+            dischargers: killer.into_iter().collect(),
+            unknown: Vec::new(),
+            unasked: Vec::new(),
+            source: Some(Source::Mutation(mutation)),
+            stopped: false,
+            pairing: None,
+        };
+        for (at, verdict) in &verdicts {
+            match *verdict {
+                "killed" => insert(&mut obligation.dischargers, *at),
+                "unknown" if Some(*at) != killer => insert(&mut obligation.unknown, *at),
+                _ => {}
+            }
+        }
+        if obligation.dischargers.is_empty() {
+            return None;
+        }
+        let witnesses = self.witnesses(row);
+        obligation.unasked = domain
+            .iter()
+            .copied()
+            .filter(|at| Some(*at) != killer && !verdicts.contains_key(at))
+            .collect();
+        obligation.unasked.sort_by_key(|at| !witnesses.contains(at));
+        Some(obligation)
+    }
+
     #[allow(clippy::too_many_lines)]
     fn read(
         inputs: &Inputs<'_>,
@@ -1122,12 +1515,6 @@ impl Facts {
             .map(|program| program.id.clone())
             .collect::<Vec<_>>();
         let index = |id: &str| cases.iter().position(|case| case == id);
-        let indices = |ids: &[String]| {
-            let mut found = ids.iter().filter_map(|id| index(id)).collect::<Vec<_>>();
-            found.sort_unstable();
-            found.dedup();
-            found
-        };
         let rows = coverage["programs"]
             .as_array()
             .map_or(&[][..], Vec::as_slice);
@@ -1169,9 +1556,28 @@ impl Facts {
             if row["expectation"]["verdict"] == "unmet"
                 && let Some(at) = row["id"].as_str().and_then(index)
             {
-                keeps[at].push(Keep::Refutes("expectations", cases[at].clone()));
+                keeps[at].push(Keep::Refutes("expectations", cases[at].clone(), None));
             }
         }
+        // The projections `run` lists, in a flow that declares any (module docs, "Projections").
+        let projections = if manifest.projections.is_empty() {
+            Vec::new()
+        } else {
+            manifest
+                .run_projections()
+                .iter()
+                .map(|projection| Listed {
+                    name: projection.name.clone(),
+                    own: projection.domain.is_none()
+                        && Judge::of(projection, manifest) == Judge::Run,
+                    domain: manifest
+                        .programs
+                        .iter()
+                        .map(|program| projection.holds(program))
+                        .collect(),
+                })
+                .collect()
+        };
         let mut facts = Self {
             classes,
             obligations: Vec::new(),
@@ -1180,74 +1586,35 @@ impl Facts {
             lazy,
             cells: [Asked::default(); 2],
             cases: cases.clone(),
+            projections,
+            answers: BTreeMap::new(),
         };
-        let add =
-            |facts: &mut Self, family: &'static str, id: &Value, reading: Reading| match reading {
-                Reading::None => {}
-                Reading::Refuted(by) => {
-                    for at in indices(&by) {
-                        facts.keeps[at].push(Keep::Refutes(family, text(id)));
-                    }
-                }
-                Reading::Obligation(cells) => {
-                    let (dischargers, unknown) = if cells.unnamed {
-                        (Vec::new(), (0..cases.len()).collect())
-                    } else {
-                        let dischargers = indices(&cells.dischargers);
-                        let mut unknown = indices(&cells.unknown);
-                        unknown.retain(|at| !dischargers.contains(at));
-                        (dischargers, unknown)
-                    };
-                    facts.obligations.push(Obligation {
-                        family,
-                        id: text(id),
-                        dischargers,
-                        unknown,
-                        unasked: Vec::new(),
-                        source: None,
-                        stopped: false,
-                        pairing: None,
-                    });
-                }
-                Reading::Pairs(cells) => {
-                    let pairs = cells
-                        .pairs
-                        .iter()
-                        .map(|sides| sides.each_ref().map(|side| indices(side)))
-                        .filter(|[one, other]| !one.is_empty() && !other.is_empty())
-                        .collect::<Vec<_>>();
-                    let mut dischargers = Vec::new();
-                    for at in pairs.iter().flatten().flatten() {
-                        insert(&mut dischargers, *at);
-                    }
-                    // A case on a pair's side may still hold a side its rows do not show, so
-                    // its unknown cell stays one (module docs, "Pair obligations").
-                    facts.obligations.push(Obligation {
-                        family,
-                        id: text(id),
-                        dischargers,
-                        unknown: indices(&cells.unknown),
-                        unasked: Vec::new(),
-                        source: None,
-                        stopped: false,
-                        pairing: Some(Pairing {
-                            pairs,
-                            sides: indices(&cells.sides),
-                        }),
-                    });
-                }
-            };
         if let Some(run) = run {
             let comparable_count = comparable.iter().filter(|c| **c).count();
             facts.cells[0].matrix =
                 inputs.list.map_or(0, |list| list.mutations.len()) * comparable_count;
             for row in run["mutations"].as_array().into_iter().flatten() {
+                // The cells the search held: the programs it ran or read, for the row or for
+                // its projections, and each killer.
                 let held = row["executed"]
                     .as_array()
                     .into_iter()
                     .flatten()
+                    .chain(
+                        row["projection_search"]["executed"]
+                            .as_array()
+                            .into_iter()
+                            .flatten(),
+                    )
                     .filter_map(|entry| entry["program"].as_str().and_then(index))
                     .chain(row["killer"].as_str().and_then(index))
+                    .chain(
+                        row["projections"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter_map(|entry| entry["killer"].as_str().and_then(index)),
+                    )
                     .filter(|at| comparable[*at])
                     .collect::<std::collections::BTreeSet<_>>();
                 facts.cells[0].searched += held.len();
@@ -1256,67 +1623,16 @@ impl Facts {
                         .iter()
                         .position(|mutation| row["id"] == mutation.id.as_str())
                 });
-                let (true, Some(mutation)) = (lazy && row["status"] == "killed", mutation) else {
-                    add(
-                        &mut facts,
-                        "mutations",
-                        &row["id"],
-                        crate::report::kill_cells(row),
-                    );
-                    continue;
-                };
-                // A killed row of the first-kill search: its killer and the cells it asked
-                // before it; a cached kill it read past the killer is asked again.
-                let killer = row["killer"].as_str().and_then(index);
-                let mut obligation = Obligation {
-                    family: "mutations",
-                    id: text(&row["id"]),
-                    dischargers: killer.into_iter().collect(),
-                    unknown: Vec::new(),
-                    unasked: Vec::new(),
-                    source: Some(Source::Mutation(mutation)),
-                    stopped: false,
-                    pairing: None,
-                };
-                let mut known = killer.into_iter().collect::<Vec<_>>();
-                for entry in row["executed"].as_array().into_iter().flatten() {
-                    let Some(at) = entry["program"].as_str().and_then(index) else {
-                        continue;
-                    };
-                    match entry["outcome"].as_str() {
-                        Some("distinguish") => {}
-                        Some("agree") => insert(&mut known, at),
-                        _ => {
-                            insert(&mut known, at);
-                            if Some(at) != killer {
-                                insert(&mut obligation.unknown, at);
-                            }
-                        }
-                    }
-                }
-                // The search order: the programs that witness the edit first, each group in
-                // manifest order.
-                let witnesses = indices(
-                    &row["witnesses"]
-                        .as_array()
-                        .into_iter()
-                        .flatten()
-                        .filter_map(Value::as_str)
-                        .map(str::to_owned)
-                        .collect::<Vec<_>>(),
-                );
-                obligation.unasked = (0..cases.len())
-                    .filter(|at| comparable[*at] && !known.contains(at))
-                    .collect();
-                obligation.unasked.sort_by_key(|at| !witnesses.contains(at));
-                facts.obligations.push(obligation);
-                if row["expect"] == Expect::Survive.as_str() {
-                    // Every killer refutes the claim: the row is asked whole.
-                    let at = facts.obligations.len() - 1;
-                    facts.learn_all(at, ask)?;
-                    let obligation = facts.obligations.pop().expect("just pushed");
-                    for case in obligation.dischargers {
-                        facts.keeps[case].push(Keep::Refutes("mutations", obligation.id.clone()));
+                // A flow that declares projections: an obligation per listed projection, but
+                // for a row whose claim of survival (on the row's own status) its killers
+                // refute, which is no obligation under any (module docs, "Projections").
+                if facts.projections.is_empty()
+                    || (row["status"] == "killed" && row["expect"] == Expect::Survive.as_str())
+                {
+                    facts.read_mutation(row, mutation, None, &comparable, ask)?;
+                } else {
+                    for projection in 0..facts.projections.len() {
+                        facts.read_mutation(row, mutation, Some(projection), &comparable, ask)?;
                     }
                 }
             }
@@ -1335,11 +1651,11 @@ impl Facts {
                         .position(|entry| obligation["id"] == entry.id.as_str())
                 });
                 let (true, Some(pattern)) = (lazy && obligation["status"] == "hit", pattern) else {
-                    add(
-                        &mut facts,
+                    facts.add(
                         "patterns",
                         &obligation["id"],
                         crate::query::hit_cells(obligation),
+                        None,
                     );
                     continue;
                 };
@@ -1348,6 +1664,7 @@ impl Facts {
                 let mut lazy = Obligation {
                     family: "patterns",
                     id: text(&obligation["id"]),
+                    projection: None,
                     dischargers: Vec::new(),
                     unknown: Vec::new(),
                     unasked: Vec::new(),
@@ -1376,7 +1693,11 @@ impl Facts {
                     facts.learn_all(at, ask)?;
                     let obligation = facts.obligations.pop().expect("just pushed");
                     for case in obligation.dischargers {
-                        facts.keeps[case].push(Keep::Refutes("patterns", obligation.id.clone()));
+                        facts.keeps[case].push(Keep::Refutes(
+                            "patterns",
+                            obligation.id.clone(),
+                            None,
+                        ));
                     }
                 }
             }
@@ -1393,11 +1714,11 @@ impl Facts {
             let binders = value["binders"].as_array().map_or(&[][..], Vec::as_slice);
             for item in value["items"].as_array().into_iter().flatten() {
                 let before = facts.obligations.len();
-                add(
-                    &mut facts,
+                facts.add(
                     family,
                     &item["id"],
                     crate::coverage::cover_cells(family, item, binders, rules),
+                    None,
                 );
                 if family == "flips"
                     && facts.obligations.len() > before
@@ -1413,11 +1734,11 @@ impl Facts {
                 .into_iter()
                 .flatten()
             {
-                add(
-                    &mut facts,
+                facts.add(
                     "arguments",
                     &item["id"],
                     crate::coverage::argument_cells(item),
+                    None,
                 );
             }
         }
@@ -1446,29 +1767,55 @@ impl Facts {
         let source = obligation
             .source
             .expect("a row with an unasked cell has a source");
-        let (cell, cached) = ask.ask(source, case)?;
-        let counted = match source {
-            Source::Mutation(_) => &mut self.cells[0],
-            Source::Pattern(_) => &mut self.cells[1],
+        // One ask of a mutation's cell answers it under every listed projection: an answer
+        // already asked for another projection is read again, not asked again.
+        let cached = match self.answers.get(&(source, case)) {
+            Some(_) => None,
+            None => {
+                let (answer, cached) = ask.ask(source, case)?;
+                let counted = match source {
+                    Source::Mutation(_) => &mut self.cells[0],
+                    Source::Pattern(_) => &mut self.cells[1],
+                };
+                counted.asked += 1;
+                counted.from_cache += usize::from(cached);
+                self.answers.insert((source, case), answer);
+                Some(cached)
+            }
         };
-        counted.asked += 1;
-        counted.from_cache += usize::from(cached);
+        let answer = &self.answers[&(source, case)];
+        let listed = obligation.projection.map(|at| &self.projections[at]);
+        let cell = match listed {
+            // A case outside the projection's domain has no cell under it.
+            Some(listed) if !listed.domain[case] => Cell::Not,
+            Some(listed) if !listed.own => answer
+                .projections
+                .iter()
+                .find(|(name, _)| *name == listed.name)
+                .map_or(Cell::Unknown, |(_, cell)| *cell),
+            _ => answer.cell,
+        };
         match cell {
             Cell::Discharges => insert(&mut obligation.dischargers, case),
             Cell::Unknown => insert(&mut obligation.unknown, case),
             Cell::Not => {}
         }
         ask.announce(&format!(
-            "prune: {} `{}` on `{}`: {}{}",
+            "prune: {} `{}`{} on `{}`: {}{}",
             obligation.family,
             obligation.id,
+            listed.map_or_else(String::new, |listed| format!(" under `{}`", listed.name)),
             self.cases[case],
             match cell {
                 Cell::Discharges => "discharges",
                 Cell::Not => "does not discharge",
                 Cell::Unknown => "unknown",
             },
-            if cached { " (cached)" } else { "" }
+            match cached {
+                Some(true) => " (cached)",
+                Some(false) => "",
+                None => " (asked for another projection)",
+            }
         ));
         Ok(())
     }
@@ -1549,7 +1896,7 @@ impl Facts {
                 if !with.is_empty() {
                     keeps.push(Keep::Partner(index, with));
                 }
-            } else if self.undecided(at) {
+            } else if self.undecided(at) && self.in_domain(obligation, at) {
                 open.push(index);
             }
         }
@@ -1559,16 +1906,45 @@ impl Facts {
         Ok(keeps)
     }
 
+    /// Whether the case at `at` has a cell of `obligation`: not when the obligation is under a
+    /// projection whose domain does not hold it (module docs, "Projections").
+    fn in_domain(&self, obligation: &Obligation, at: usize) -> bool {
+        obligation
+            .projection
+            .is_none_or(|projection| self.projections[projection].domain[at])
+    }
+
+    /// How the document names an obligation: `{family, id}`, and `projection` for one under a
+    /// listed projection.
+    fn named(&self, family: &str, id: &str, projection: Option<usize>) -> Value {
+        let mut value = json!({"family": family, "id": id});
+        if let Some(projection) = projection {
+            value["projection"] = json!(self.projections[projection].name);
+        }
+        value
+    }
+
     fn reference(&self, index: usize) -> Value {
         let obligation = &self.obligations[index];
-        json!({"family": obligation.family, "id": obligation.id})
+        self.named(obligation.family, &obligation.id, obligation.projection)
     }
 
     fn keep_value(&self, keep: &Keep) -> Value {
         match keep {
             Keep::Claimed(pattern) => json!({"reason": "claimed", "family": "patterns",
                                              "id": pattern}),
-            Keep::Refutes(family, id) => json!({"reason": "refutes", "family": family, "id": id}),
+            Keep::Refutes(family, id, projection) => {
+                let mut value = json!({"reason": "refutes"});
+                for (key, named) in self
+                    .named(family, id, *projection)
+                    .as_object()
+                    .into_iter()
+                    .flatten()
+                {
+                    value[key] = named.clone();
+                }
+                value
+            }
             Keep::Sole(index) => {
                 let mut value = self.reference(*index);
                 value["reason"] = json!("sole-discharger");
@@ -1652,40 +2028,43 @@ impl Facts {
                     .obligations
                     .iter()
                     .filter(|obligation| obligation.dischargers.contains(&at))
-                    .map(|obligation| match obligation.pairs_without(at) {
-                        None => json!({
-                            "family": obligation.family,
-                            "id": obligation.id,
-                            "others": self.ids(
-                                obligation.dischargers.iter().copied().filter(|other| *other != at)
-                            ),
-                            "complete": obligation.complete(),
-                        }),
-                        Some(pairs) => json!({
-                            "family": obligation.family,
-                            "id": obligation.id,
-                            "pairs": self.pairs_value(&pairs),
-                            "complete": obligation.complete(),
-                        }),
+                    .map(|obligation| {
+                        let mut value =
+                            self.named(obligation.family, &obligation.id, obligation.projection);
+                        match obligation.pairs_without(at) {
+                            None => {
+                                value["others"] = json!(
+                                    self.ids(
+                                        obligation
+                                            .dischargers
+                                            .iter()
+                                            .copied()
+                                            .filter(|other| *other != at)
+                                    )
+                                );
+                            }
+                            Some(pairs) => value["pairs"] = self.pairs_value(&pairs),
+                        }
+                        value["complete"] = json!(obligation.complete());
+                        value
                     })
                     .collect::<Vec<_>>();
                 let unknown = self
                     .obligations
                     .iter()
                     .filter(|obligation| obligation.unknown.contains(&at))
-                    .map(|obligation| match obligation.pairs_without(at) {
-                        None => json!({
-                            "family": obligation.family,
-                            "id": obligation.id,
-                            "dischargers": self.ids(obligation.dischargers.iter().copied()),
-                            "complete": obligation.complete(),
-                        }),
-                        Some(pairs) => json!({
-                            "family": obligation.family,
-                            "id": obligation.id,
-                            "pairs": self.pairs_value(&pairs),
-                            "complete": obligation.complete(),
-                        }),
+                    .map(|obligation| {
+                        let mut value =
+                            self.named(obligation.family, &obligation.id, obligation.projection);
+                        match obligation.pairs_without(at) {
+                            None => {
+                                value["dischargers"] =
+                                    json!(self.ids(obligation.dischargers.iter().copied()));
+                            }
+                            Some(pairs) => value["pairs"] = self.pairs_value(&pairs),
+                        }
+                        value["complete"] = json!(obligation.complete());
+                        value
                     })
                     .collect::<Vec<_>>();
                 json!({
@@ -1844,9 +2223,14 @@ fn lock_rows(locks: &[Lock], case: &str) -> Value {
             .rows
             .iter()
             .filter_map(|row| match lock.kind {
-                LockKind::Run | LockKind::Coverage => {
-                    (row.killer.as_deref() == Some(case)).then(|| json!(row.id))
-                }
+                // A run row moves where its own killer or its killer under a projection is the case.
+                LockKind::Run | LockKind::Coverage => (row.killer.as_deref() == Some(case)
+                    || row
+                        .projections
+                        .iter()
+                        .flatten()
+                        .any(|entry| entry.killer.as_deref() == Some(case)))
+                .then(|| json!(row.id)),
                 LockKind::Query => (row.witness.as_deref() == Some(case)).then(|| json!(row.id)),
                 LockKind::Compare => {
                     let parts: Vec<String> = serde_json::from_str(&row.id).ok()?;
@@ -1982,9 +2366,12 @@ pub fn text_rendering(document: &Value) -> Result<String, String> {
     }
     let reference = |value: &Value| {
         format!(
-            "{} {}",
+            "{} {}{}",
             value["family"].as_str().unwrap_or("?"),
-            value["id"].as_str().unwrap_or("?")
+            value["id"].as_str().unwrap_or("?"),
+            value["projection"]
+                .as_str()
+                .map_or_else(String::new, |projection| format!(" under {projection}"))
         )
     };
     text.push_str("redundant alone:\n");
@@ -2178,6 +2565,7 @@ mod tests {
             obligations: vec![Obligation {
                 family: "requirements",
                 id: "requirement:r:A:mcdc".to_owned(),
+                projection: None,
                 dischargers,
                 unknown: unknown.to_vec(),
                 unasked: Vec::new(),
@@ -2192,6 +2580,8 @@ mod tests {
             families: Vec::new(),
             lazy: false,
             cells: [Asked::default(); 2],
+            projections: Vec::new(),
+            answers: BTreeMap::new(),
         }
     }
 
@@ -2288,6 +2678,172 @@ mod tests {
             value,
             json!({"reason": "unknown-partner", "family": "requirements",
                    "id": "requirement:r:A:mcdc", "with": ["u", "b"]})
+        );
+    }
+    /// A row's cells under a projection judged per program: its verdicts, the killer, nothing
+    /// outside the domain; `undecided` leaves the programs with no verdict unknown; a table
+    /// `expect` of survival under the projection is refuted by its killers; a row whose status
+    /// no program decides gives its own cells, within the domain; the run's own projection reads
+    /// the row's cells.
+    #[test]
+    fn a_row_is_read_under_each_projection_within_its_domain() {
+        use crate::report::projection_kill_cells;
+        let domain = ["x".to_owned(), "y".to_owned(), "z".to_owned()];
+        let row = |status: &str, expect: Value| {
+            json!({
+                "id": "m", "status": "killed", "killer": "x", "killed_by": ["x", "w"],
+                "expect": expect,
+                "executed": [
+                    {"program": "x", "outcome": "distinguish",
+                     "projections": {"p": "agree", "q": "killed"}},
+                    {"program": "w", "outcome": "distinguish",
+                     "projections": {"p": "killed", "q": "outside-domain"}},
+                ],
+                "projection_search": {"executed": [
+                    {"program": "y", "outcome": "timeout", "projections": {"p": "unknown"}},
+                ]},
+                "projections": [
+                    {"name": "p", "status": status, "killer": null, "reason": null},
+                    {"name": "q", "status": "killed", "killer": "x", "reason": null},
+                ],
+            })
+        };
+        let cells = |dischargers: &[&str], unknown: &[&str]| {
+            Reading::Obligation(Cells {
+                dischargers: dischargers.iter().map(|id| (*id).to_owned()).collect(),
+                unknown: unknown.iter().map(|id| (*id).to_owned()).collect(),
+                unnamed: false,
+            })
+        };
+        // `w` kills under `p` but is outside the domain given.
+        assert_eq!(
+            projection_kill_cells(&row("unknown", Value::Null), "p", Some(&domain)),
+            cells(&[], &["y"])
+        );
+        assert_eq!(
+            projection_kill_cells(&row("undecided", Value::Null), "p", Some(&domain)),
+            cells(&[], &["y", "z"])
+        );
+        assert_eq!(
+            projection_kill_cells(&row("unknown", Value::Null), "q", Some(&domain)),
+            cells(&["x"], &[])
+        );
+        assert_eq!(
+            projection_kill_cells(&row("unknown", json!({"q": "survive"})), "q", Some(&domain)),
+            Reading::Refuted(vec!["x".to_owned()])
+        );
+        // The string claim is the row's, read by the caller, not a projection's.
+        assert_eq!(
+            projection_kill_cells(&row("unknown", json!("survive")), "q", Some(&domain)),
+            cells(&["x"], &[])
+        );
+        assert_eq!(
+            projection_kill_cells(&row("equivalent", Value::Null), "p", Some(&domain)),
+            Reading::None
+        );
+        // The run's own projection: the row's killers, `w` among them.
+        assert_eq!(
+            projection_kill_cells(&row("unknown", Value::Null), "q", None),
+            cells(&["x", "w"], &[])
+        );
+        // A row no program decides gives every projection its own status and cells.
+        let timed_out = json!({
+            "id": "m", "status": "timeout",
+            "executed": [{"program": "z", "outcome": "timeout"},
+                         {"program": "w", "outcome": "timeout"}],
+            "projections": [{"name": "p", "status": "timeout"}],
+        });
+        assert_eq!(
+            projection_kill_cells(&timed_out, "p", Some(&domain)),
+            cells(&[], &["z"])
+        );
+        // In a flow that declares no projection, `{ default = "survive" }` is the row's claim; in
+        // one that declares projections, `default` names a projection of its own.
+        let claimed = json!({"id": "m", "status": "killed", "killer": "x",
+                             "expect": {"default": "survive"}});
+        assert_eq!(
+            crate::report::kill_cells(&claimed),
+            Reading::Refuted(vec!["x".to_owned()])
+        );
+        let mut projected = claimed;
+        projected["projections"] = json!([]);
+        assert_eq!(crate::report::kill_cells(&projected), cells(&["x"], &[]));
+    }
+    /// An `accepts` projection is judged per program as any flow-side projection: prune reads
+    /// its verdicts from the executed entries. The run's own slots agree on every program
+    /// (`survived`), and `y` alone is accepted on one side and rejected on the other, so it is
+    /// kept as the only discharger of `m` under `acc`; `x` and `z` are removable. A snapshot
+    /// projection (`msg`) and a metric one (`alloc`) are in no default `[run] projections`, so
+    /// they give no obligation: `m`'s only one is under `acc`.
+    #[test]
+    fn an_acceptance_kill_keeps_its_only_killer() {
+        let manifest = FlowManifest::decode(
+            "[spec]\nentry = \"calc.k\"\nmain_module = \"CALC\"\nsyntax_module = \"CALC-SYNTAX\"\n\n\
+             [[projection]]\nname = \"acc\"\nkind = \"accepts\"\n\n\
+             [[projection]]\nname = \"msg\"\nkind = \"accepts\"\nrelation = \"snapshot\"\n\n\
+             [[projection]]\nname = \"alloc\"\nkind = \"metric\"\nmetric = \"bytes\"\n\
+             direction = \"lower\"\n\n\
+             [[program]]\nid = \"x\"\ntext = \"1\"\n\n\
+             [[program]]\nid = \"y\"\ntext = \"2\"\n\n\
+             [[program]]\nid = \"z\"\ntext = \"3\"\n",
+            Path::new("."),
+        )
+        .unwrap();
+        let entry = |program: &str, verdict: &str| json!({"program": program, "outcome": "agree", "projections": {"acc": verdict}});
+        let run = json!({"mutations": [{
+            "id": "m", "status": "survived", "killer": null,
+            "executed": [entry("x", "agree"), entry("y", "killed"), entry("z", "agree")],
+            "projections": [{"name": "acc", "status": "killed", "killer": "y", "reason": null}],
+        }]});
+        let programs = ["x", "y", "z"].map(|id| json!({"id": id, "class": "comparable"}));
+        let coverage = json!({ "programs": programs });
+        let options = PruneOptions::default();
+        let front = FrontEnd::default();
+        let inputs = Inputs {
+            manifest: &manifest,
+            options: &options,
+            front: &front,
+            locks: &[],
+            list: None,
+            pattern_list: None,
+            coverage: &coverage,
+            skipped: &[],
+            lists: [Value::Null, Value::Null],
+        };
+        let mut facts = Facts::read(
+            &inputs,
+            Some(&run),
+            None,
+            Vec::new(),
+            false,
+            &mut complete(),
+        )
+        .unwrap();
+        let document = facts
+            .document(&[], &[Value::Null, Value::Null], &mut complete())
+            .unwrap();
+        assert_eq!(
+            facts
+                .obligations
+                .iter()
+                .filter(|obligation| obligation.family == "mutations")
+                .map(|obligation| {
+                    facts.named(obligation.family, &obligation.id, obligation.projection)
+                })
+                .collect::<Vec<_>>(),
+            [json!({"family": "mutations", "id": "m", "projection": "acc"})]
+        );
+        assert_eq!(
+            document["removable"]["cases"],
+            json!(["x", "z"]),
+            "{document:#}"
+        );
+        assert_eq!(
+            document["kept"],
+            json!([{"case": "y", "class": "comparable", "reasons": [
+                {"reason": "sole-discharger", "family": "mutations", "id": "m",
+                 "projection": "acc"}]}]),
+            "{document:#}"
         );
     }
 }

@@ -1940,13 +1940,28 @@ pub fn matrix(programs: &[Value], mutations: &[Value]) -> Value {
 ///   `distinguish` (a timeout, an unknown, an incomparable, an error or a failed run), as the
 ///   kill matrix's `undecided` lists them ([`matrix`]). A killed row whose `killed_by` is null
 ///   (no full fold decided it) names its `killer` alone.
-/// - A killed row of a mutation that expects to survive (`expect = "survive"`) is no obligation:
+/// - A killed row of a mutation that expects to survive ([`expects_survival`]) is no obligation:
 ///   its killers refute the expectation, a finding each of them is evidence of.
 /// - Every other row (`equivalent`, `unkillable`, `not-admitted`, `invalid-mutation`, `error`) is
 ///   none: no program of any corpus kills it, or no verdict was reached; a row with no cell, a
 ///   mutant that failed as a whole, has the same status whatever programs the corpus holds.
 #[must_use]
 pub fn kill_cells(row: &Value) -> crate::prune::Reading {
+    row_kill_cells(row, expects_survival(row))
+}
+
+/// Whether `row` states that its mutation survives on the row's own status: `expect =
+/// "survive"`, or, in a flow that declares no projection (a row with no `projections`), `expect =
+/// { default = "survive" }`, whose `default` is the row.
+#[must_use]
+pub fn expects_survival(row: &Value) -> bool {
+    let survive = crate::Expect::Survive.as_str();
+    row["expect"] == survive
+        || (row["projections"].is_null() && row["expect"]["default"] == survive)
+}
+
+/// [`kill_cells`], the row's killers refuting a claim of survival where `survive`.
+fn row_kill_cells(row: &Value, survive: bool) -> crate::prune::Reading {
     use crate::prune::{Cells, Reading};
     let status = row["status"].as_str().unwrap_or_default();
     let strings = |value: &Value| {
@@ -1969,7 +1984,7 @@ pub fn kill_cells(row: &Value) -> crate::prune::Reading {
                 .collect()
         }
     };
-    if status == "killed" && row["expect"] == crate::Expect::Survive.as_str() {
+    if status == "killed" && survive {
         return Reading::Refuted(killers());
     }
     if status != "killed" && !SURVIVOR_STATUSES.contains(&status) {
@@ -1990,6 +2005,168 @@ pub fn kill_cells(row: &Value) -> crate::prune::Reading {
     } else {
         Vec::new()
     };
+    unknown.retain(|program| !dischargers.contains(program));
+    Reading::Obligation(Cells {
+        dischargers,
+        unknown,
+        unnamed: false,
+    })
+}
+
+/// What a run's mutation `row` states of each program under the listed projection
+/// `projection`, in a flow that declares `[[projection]]`, as the obligation "some program of the
+/// projection's domain kills the mutation under it" ([`crate::prune`], "Projections"). A table
+/// `expect` naming the projection `survive` is the claim its killers refute, as `expect =
+/// "survive"` is the row's ([`kill_cells`]).
+///
+/// - `domain` `None`: the projection is judged as the run's own (`projected::Judge::Run`, no
+///   `domain`), so its status is the row's and its cells are the row's own, read as
+///   [`kill_cells`] reads them.
+/// - `domain` the comparable programs of the projection's domain (corpus order): the cells are
+///   the verdicts `run` gave each program under the projection, from the row's `executed` and
+///   its `projection_search.executed` (a later entry for a program replaces an earlier):
+///   `killed` discharges, `unknown` is an unknown cell, `agree` neither; the projection's
+///   `killer` discharges where it is `killed`. A program outside the domain has no cell. A
+///   status that is no kill obligation (`equivalent`, `unkillable`, `invalid-mutation`,
+///   `not-admitted`, `error`, `no-comparable-program` among them) is none; `undecided` (a
+///   projection `run` does not judge, or a search under the projections that judged nothing)
+///   leaves each program of the domain with no verdict unknown. A row whose status no program
+///   decides (a mutant-scope status, or no executed program) gives every projection its own
+///   status, so its cells are the row's, restricted to the domain.
+#[must_use]
+pub fn projection_kill_cells(
+    row: &Value,
+    projection: &str,
+    domain: Option<&[String]>,
+) -> crate::prune::Reading {
+    use crate::prune::{Cells, Reading};
+    let survive = row["expect"][projection] == crate::Expect::Survive.as_str();
+    let Some(domain) = domain else {
+        return row_kill_cells(row, survive);
+    };
+    let within = |ids: Vec<String>| {
+        ids.into_iter()
+            .filter(|id| domain.contains(id))
+            .collect::<Vec<_>>()
+    };
+    let executed = row["executed"].as_array().map_or(&[][..], Vec::as_slice);
+    if !matches!(
+        row["status"].as_str(),
+        Some("killed" | "survived" | "unknown")
+    ) || executed.is_empty()
+    {
+        return match row_kill_cells(row, survive) {
+            Reading::Refuted(by) => Reading::Refuted(within(by)),
+            Reading::Obligation(cells) => Reading::Obligation(Cells {
+                dischargers: within(cells.dischargers),
+                unknown: within(cells.unknown),
+                unnamed: cells.unnamed,
+            }),
+            reading => reading,
+        };
+    }
+    let entry = row["projections"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|entry| entry["name"] == projection);
+    let status = entry.and_then(|entry| entry["status"].as_str());
+    let mut verdicts = BTreeMap::<&str, &str>::new();
+    for judged in executed.iter().chain(
+        row["projection_search"]["executed"]
+            .as_array()
+            .into_iter()
+            .flatten(),
+    ) {
+        if let (Some(program), Some(verdict)) = (
+            judged["program"].as_str(),
+            judged["projections"][projection].as_str(),
+        ) {
+            verdicts.insert(program, verdict);
+        }
+    }
+    let killer = entry
+        .filter(|_| status == Some("killed"))
+        .and_then(|entry| entry["killer"].as_str());
+    let dischargers = domain
+        .iter()
+        .filter(|id| verdicts.get(id.as_str()) == Some(&"killed") || killer == Some(id.as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
+    if status == Some("killed") && survive {
+        return Reading::Refuted(dischargers);
+    }
+    let undecided = status == Some(crate::projected::UNDECIDED);
+    if status != Some("killed")
+        && !undecided
+        && !status.is_some_and(|status| SURVIVOR_STATUSES.contains(&status))
+    {
+        return Reading::None;
+    }
+    let unknown = domain
+        .iter()
+        .filter(|id| !dischargers.contains(id))
+        .filter(|id| match verdicts.get(id.as_str()) {
+            Some(verdict) => *verdict == "unknown",
+            None => undecided,
+        })
+        .cloned()
+        .collect();
+    Reading::Obligation(Cells {
+        dischargers,
+        unknown,
+        unnamed: false,
+    })
+}
+
+/// What a grammar mutation's `row` of `run`'s default search states of each program, as the
+/// obligation "some program kills the mutation" ([`crate::prune`], "Grammar mutations"): the
+/// row's `grammar` gives each case's verdict from parsing it again under the mutant's grammar,
+/// and no cell of it can be asked one at a time. Its dischargers are the cases whose reparse
+/// kills and the row's killer where it is `killed`; its unknown cells the cases whose reparse is
+/// `unknown`, the cases left to the campaign call (`run`) unless the call ran every case and
+/// none killed (`survived`), and the executed entries neither `agree` nor `distinguish`. A
+/// killed row whose mutation expects to survive is refuted by its dischargers; a row of another
+/// status than [`kill_cells`] reads as an obligation is none.
+#[must_use]
+pub fn grammar_kill_cells(row: &Value) -> crate::prune::Reading {
+    use crate::prune::{Cells, Reading};
+    let status = row["status"].as_str().unwrap_or_default();
+    let cases = row["grammar"].as_array().map_or(&[][..], Vec::as_slice);
+    let program = |case: &Value| case["program"].as_str().map(str::to_owned);
+    let mut dischargers = cases
+        .iter()
+        .filter(|case| case["verdict"] == "killed")
+        .filter_map(program)
+        .collect::<Vec<_>>();
+    if status == "killed"
+        && let Some(killer) = row["killer"].as_str()
+        && !dischargers.iter().any(|known| known == killer)
+    {
+        dischargers.push(killer.to_owned());
+    }
+    if status == "killed" && expects_survival(row) {
+        return Reading::Refuted(dischargers);
+    }
+    if status != "killed" && !SURVIVOR_STATUSES.contains(&status) {
+        return Reading::None;
+    }
+    let mut unknown = cases
+        .iter()
+        .filter(|case| {
+            case["verdict"] == "unknown" || (case["verdict"] == "run" && status != "survived")
+        })
+        .filter_map(program)
+        .collect::<Vec<_>>();
+    for entry in row["executed"].as_array().into_iter().flatten() {
+        if entry["outcome"] != "agree"
+            && entry["outcome"] != "distinguish"
+            && let Some(program) = entry["program"].as_str()
+            && !unknown.iter().any(|known| known == program)
+        {
+            unknown.push(program.to_owned());
+        }
+    }
     unknown.retain(|program| !dischargers.contains(program));
     Reading::Obligation(Cells {
         dischargers,

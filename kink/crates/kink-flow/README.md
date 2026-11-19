@@ -3086,6 +3086,26 @@ An unknown cell never discharges.
 An obligation no program of any corpus can discharge (an `equivalent`, `unkillable`, `not-admitted` or `invalid-mutation` mutation, a refused or equivalent flip, an out-of-scope rule) is none.
 A flip's kill search stops at its first killer, so its killer is its only decided discharger.
 
+### Kill obligations under each projection
+
+In a flow that declares `[[projection]]` ("Projections"), a kill obligation is a pair of a mutation and a projection `[run] projections` lists: "some program of the projection's domain kills the mutation under it" ("Kills under each projection").
+Every entry and reason that names such an obligation has `projection` beside `family` and `id` (the mutation's id), and `--output text` names it `mutations ID under NAME`.
+The row's own status, the search over the union of the projections' observations, is no obligation there: a kill under a projection is a difference of what the run's slots compare, so a kill only the union gives is one no listed projection observes.
+
+Under a projection, a program's cell is a decided discharge where `run`'s verdict of it under that projection is `killed` (the projection's `killer` included), unknown where it is `unknown`, and a decided non-discharge where it is `agree`.
+A program outside the projection's domain has no cell under it: it is neither a discharger nor unknown, and an undecided baseline of it keeps it for no obligation under that projection.
+A projection judged as the run's own with no `domain` takes the row's status, so its cells are the row's own; a projection `run` does not judge (`undecided`, `kind-not-judged`) leaves every comparable program of its domain unknown, so it keeps every program for which it has no decided discharger.
+The rules below then read each pair as one obligation: a program is removable only when every kill it gives under every listed projection is given by another kept program of that projection's domain, so the only killer of a mutation under one projection is kept whoever kills it under another.
+
+A mutation's `expect = "survive"` is a claim on the row's own status: a killed row is then no obligation under any projection, and every killer of the row's search refutes it, since survival under the union is survival under every projection.
+A table `expect = { NAME = "survive" }` of a mutation killed under NAME makes that pair no obligation, and each program that kills it there refutes it (`refutes` naming the projection).
+In a flow that declares no projection, `expect = { default = "survive" }` is read as `expect = "survive"`: its `default` is the row.
+
+### Grammar mutations
+
+`run` judges a grammar mutation only in its default search (first-kill, over the whole corpus, in a flow that declares no projection); `run --full` and a flow that declares projections give its row `error` (`grammar-not-run`), so `prune --full`, and `prune` of such a flow, refuse the list as their `run` does.
+The default search parses every case again under the mutant's grammar before it runs anything, so its row states each case's verdict (`grammar`), and `prune` reads that row whole and asks none of its cells: a case whose reparse kills discharges, as does the row's killer, and a case whose reparse is undecided, or which is left to a campaign call that did not run every case (any status but `survived`), is unknown.
+
 The report is computed, never read from a stored document, since a stored document can be stale: `prune` runs `coverage` (tier 2, the flips where the front end derives them, each flip's killer read from `--lock`'s `[coverage]` section), then `run`'s first-kill search of the mutation list and `query`'s walk of each pattern to its first hit, and asks each further cell of their rows only where a decision needs it ("Lazy cells" below); with `--full` it runs `run --full` and `query --full` instead.
 Each runs in process, through its own command's code and caches, so the report is a function of the definition, the corpus and the counted budgets, as their verdicts are; the document's `mode` is `lazy` or `full`.
 A family whose input is absent is skipped, and `families` says so (`run: false`, `reason`): `no-mutation-list` where a front end's layout has none, `no-patterns` where no pattern list is named and the manifest declares none, `not-computed` for a coverage family the document does not compute (a depth-dependent family at depth 1, the flips without a front end that derives them).
@@ -3156,6 +3176,8 @@ None needs every cell, so without `--full` the `mutations` and `patterns` rows a
   Each cell is asked through the code its full command asks it with: a mutation's full row over the one program, under the corpus's floor of polls, served by the outcome cache when its record is current; a pattern's one row, served by the pattern cache likewise.
   `--lock`'s records only order the searches (each recorded killer and witness first); none is read as a cell.
 - A mutation that expects to survive and is killed, and a pattern that expects `no` and is hit, keep every refuting program: their rows are asked whole.
+- Under projections, a (mutation, projection) pair with a known killer under its projection is read as a killed row is, over the comparable programs of the projection's domain, and every other pair whole from the run's verdicts under it.
+  One ask runs the mutation's full row over the one program and judges it under every listed projection, each cell under a projection being its status there, so a cell is asked once whatever the number of projections; `accounting.cells` counts (mutation, program) cells.
 - A program that is not redundant alone is kept by the walk with nothing asked: a rule of a single-program obligation only weakens as the programs considered shrink, and a pair obligation's rules keep, at each step of the walk, every program they keep against the whole corpus ("Pair obligations").
 
 The evidence then holds the cells asked: `others` and `unknown` are the known ones, `unasked` counts the obligations a program's own cell was not asked on, and each family's and `unanswered`'s `complete` say whether every cell was asked; `limits` adds `lazy`.
@@ -3164,8 +3186,8 @@ A distinguished flip's row is never complete in either mode, since its kill sear
 
 ### The corpus record
 
-`--lock FILE` names the corpus record, which `prune` reads and never writes; its `[run]` killers and `[query]` witnesses also order the lazy searches.
-A removable program that the record names as a killer (`[run]`, a `[coverage]` flip), a witness (`[query]`) or the program of a compare row (`[compare]`) moves those rows when it is removed: `--locked` fails once, until a command without it records them again.
+`--lock FILE` names the corpus record, which `prune` reads and never writes; its `[run]` killers (each mutation's and, under projections, each pair's) and `[query]` witnesses also order the lazy searches.
+A removable program that the record names as a killer (`[run]`, a row's own or under a projection; a `[coverage]` flip), a witness (`[query]`) or the program of a compare row (`[compare]`) moves those rows when it is removed: `--locked` fails once, until a command without it records them again.
 Each `redundant` entry's `lock` and each `removable.lock` entry name those rows by section (`{run, coverage, query, compare}`, null where none); the document's `lock` names the file and the sections it holds.
 
 ### Exit status

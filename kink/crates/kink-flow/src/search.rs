@@ -4239,8 +4239,17 @@ pub(crate) fn run_stored(
     )
 }
 
-/// [`run_stored`], with `recorded`, when given, as each mutation's recorded killer in place of
-/// the lock's (`options.lock` is then still the one settled, if any), and with `then`, when
+/// The recorded killers a caller passes [`run_session`] in place of the lock's: each mutation's
+/// (by mutation id) and each (mutation, projection)'s (by mutation id, then projection name), as
+/// [`Lock::killers`] and [`Lock::projection_killers`] give them.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Recorded {
+    pub killers: BTreeMap<String, String>,
+    pub projections: BTreeMap<String, BTreeMap<String, String>>,
+}
+
+/// [`run_stored`], with `recorded`, when given, as the recorded killers in place of the lock's
+/// (`options.lock` is then still the one settled, if any), and with `then`, when
 /// given, called once the document is final, before it is returned, with the document, whether
 /// the run found no corpus or infrastructure error, and the command's search, still open, to ask
 /// further cells of its kill matrix through ([`KillCells`]). `then` is not called when the
@@ -4253,7 +4262,7 @@ pub(crate) fn run_session(
     mode: RunMode,
     front: &FrontEnd<'_>,
     store_report: bool,
-    recorded: Option<BTreeMap<String, String>>,
+    recorded: Option<Recorded>,
     then: Option<&mut RunThen<'_>>,
 ) -> (Value, bool) {
     let annotated = |mut document: Value| {
@@ -4436,7 +4445,10 @@ pub(crate) fn run_session(
         mode,
         tier1,
         ends,
-        recorded: recorded.unwrap_or_else(|| lock.as_ref().map(Lock::killers).unwrap_or_default()),
+        recorded: recorded.as_ref().map_or_else(
+            || lock.as_ref().map(Lock::killers).unwrap_or_default(),
+            |recorded| recorded.killers.clone(),
+        ),
         store: Store::new(&cache),
         stats: Stats::default(),
         mismatches: Vec::new(),
@@ -4446,16 +4458,21 @@ pub(crate) fn run_session(
         spelling: front.spelling,
         projected: (mode == RunMode::Search)
             .then(|| {
-                // Each (mutation, projection)'s recorded killer is the lock's (decision U2, per
-                // projection), whoever gives the mutations' own.
+                // Each (mutation, projection)'s recorded killer (decision U2, per projection):
+                // the caller's where it gives them, else the lock's.
                 Projected::of(
                     manifest,
                     front.implementations,
                     update.execution,
                     &cache,
-                    lock.as_ref()
-                        .map(Lock::projection_killers)
-                        .unwrap_or_default(),
+                    recorded.map_or_else(
+                        || {
+                            lock.as_ref()
+                                .map(Lock::projection_killers)
+                                .unwrap_or_default()
+                        },
+                        |recorded| recorded.projections,
+                    ),
                 )
             })
             .flatten(),
@@ -4760,9 +4777,8 @@ pub(crate) fn run_session(
         ok = false;
     }
     if let Some(then) = then {
-        // The cells `prune` asks are judged under no projection (U12 makes its obligations
-        // per projection).
-        search.projected = None;
+        // The cells `prune` asks are judged under every listed projection too (its obligations
+        // are (mutation, projection) pairs, [`KillCells::cell`]).
         let mut session = Session {
             search: &mut search,
             list,
@@ -4791,6 +4807,10 @@ pub(crate) enum KillCell {
     Unknown,
 }
 
+/// One cell of the kill matrix under each listed projection, by projection name in listed order
+/// ([`KillCells::cell`]); empty in a flow that declares no projection.
+pub(crate) type ProjectedCells = Vec<(String, KillCell)>;
+
 /// What [`run_session`] calls once the run's document is final: the document, whether the run
 /// found no corpus or infrastructure error, and the open search.
 pub(crate) type RunThen<'f> = dyn FnMut(&Value, bool, &mut dyn KillCells) + 'f;
@@ -4807,11 +4827,22 @@ pub(crate) trait KillCells {
     /// from it. A program that is no candidate (not comparable) has no cell of the matrix and
     /// is read as [`KillCell::Agree`], as the full matrix reads it, with no call.
     ///
+    /// In a flow that declares `[[projection]]` the row is also judged under each listed
+    /// projection ([`Search::project_row`]), and the cell under each is that projection's status
+    /// in the row: `killed` a kill, `survived` an agreement, any other status unknown. For a
+    /// projection whose `domain` does not hold `program` that status is `error`
+    /// (`no-comparable-program`), which is no cell of the program: a caller reads a projection's
+    /// cell only for a program of its domain.
+    ///
     /// # Errors
     ///
     /// The row of the corpus error the ask met (a baseline that drifted, an outcome that
     /// conflicts, a record that could not be written), which would stop a run.
-    fn cell(&mut self, mutation: usize, program: &str) -> Result<(KillCell, bool), Value>;
+    fn cell(
+        &mut self,
+        mutation: usize,
+        program: &str,
+    ) -> Result<(KillCell, ProjectedCells, bool), Value>;
 
     /// The run document's `outcome_cache` as it stands, every cell asked so far counted.
     fn outcome_cache(&self) -> Value;
@@ -4838,9 +4869,13 @@ struct Session<'x, 'a, 's> {
 }
 
 impl KillCells for Session<'_, '_, '_> {
-    fn cell(&mut self, mutation: usize, program: &str) -> Result<(KillCell, bool), Value> {
+    fn cell(
+        &mut self,
+        mutation: usize,
+        program: &str,
+    ) -> Result<(KillCell, ProjectedCells, bool), Value> {
         let Some(candidate) = self.search.position(program) else {
-            return Ok((KillCell::Agree, false));
+            return Ok((KillCell::Agree, Vec::new(), false));
         };
         let entry = &self.list.mutations[mutation];
         let (manifest, spec) = (self.search.manifest, self.search.spec);
@@ -4900,7 +4935,20 @@ impl KillCells for Session<'_, '_, '_> {
             Some(outcome) if outcome == "agree" || outcome == "distinguish" => KillCell::Agree,
             _ => KillCell::Unknown,
         };
-        Ok((cell, cached))
+        let projections = row["projections"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|entry| {
+                let cell = match entry["status"].as_str() {
+                    Some("killed") => KillCell::Kill,
+                    Some("survived") => KillCell::Agree,
+                    _ => KillCell::Unknown,
+                };
+                (entry["name"].as_str().unwrap_or_default().to_owned(), cell)
+            })
+            .collect();
+        Ok((cell, projections, cached))
     }
 
     fn outcome_cache(&self) -> Value {

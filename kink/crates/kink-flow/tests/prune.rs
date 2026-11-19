@@ -250,7 +250,7 @@ fn the_report_keeps_claims_unknowns_and_one_of_two_alternatives() {
     );
     assert_eq!(document["unanswered"]["complete"], true);
     assert_eq!(document["schema"], "kink-flow-prune");
-    assert_eq!(document["version"], 5);
+    assert_eq!(document["version"], 6);
     assert_eq!(document["cases"], 6);
     let redundant = document["redundant"]
         .as_array()
@@ -800,4 +800,314 @@ fn each_side_of_a_unique_cause_pair_is_kept() {
         )),
         "{text}"
     );
+}
+
+/// The unobservable fixture's `plain.k` (`emit` adds to `<out>`, `note` sets `<scratch>`) with
+/// three projections: `out` and `scratch`, each comparing one cell and judged per program, and
+/// `all`, comparing both, which is the run's own observation. `scratch`'s domain is `noted`
+/// alone. `both-offset` changes both cells.
+const PROJECTED: &str = r#"[spec]
+entry = "plain.k"
+main_module = "UNOBS"
+syntax_module = "UNOBS-SYNTAX"
+
+[[projection]]
+name = "out"
+compare = ["out"]
+
+[[projection]]
+name = "scratch"
+compare = ["scratch"]
+domain = ["noted"]
+
+[[projection]]
+name = "all"
+compare = ["out", "scratch"]
+
+[[program]]
+id = "noted"
+text = "note(5)"
+
+[[program]]
+id = "emitted"
+text = "emit(3)"
+
+[[program]]
+id = "emitted2"
+text = "emit(4)"
+
+[[program]]
+id = "mixed"
+text = "emit(1) ; note(2)"
+"#;
+
+const PROJECTED_MUTATIONS: &str = r#"[[mutation]]
+id = "note-offset"
+misunderstanding = "note records its argument plus one"
+  [[mutation.edit]]
+  rule = "note"
+  find = "_ => I </scratch>"
+  replace = "_ => I +Int 1 </scratch>"
+
+[[mutation]]
+id = "emit-offset"
+misunderstanding = "emit adds its argument plus one"
+  [[mutation.edit]]
+  rule = "emit"
+  find = "O => O +Int I </out>"
+  replace = "O => O +Int I +Int 1 </out>"
+
+[[mutation]]
+id = "both-offset"
+misunderstanding = "emit and note each record one more"
+  [[mutation.edit]]
+  rule = "emit"
+  find = "O => O +Int I </out>"
+  replace = "O => O +Int I +Int 1 </out>"
+  [[mutation.edit]]
+  rule = "note"
+  find = "_ => I </scratch>"
+  replace = "_ => I +Int 1 </scratch>"
+"#;
+
+/// A fresh corpus of `plain.k` with `manifest` and the projected mutations.
+fn projected_corpus(name: &str, manifest: &str) -> PathBuf {
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("kink-flow-prune-{}", std::process::id()))
+        .join(name);
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    fs::copy(flow("unobservable").join("plain.k"), dir.join("plain.k")).unwrap();
+    fs::write(dir.join("FLOW.toml"), manifest).unwrap();
+    fs::write(dir.join("MUTATIONS.toml"), PROJECTED_MUTATIONS).unwrap();
+    dir
+}
+
+fn mutations_only(dir: &Path) -> CommandFiles {
+    CommandFiles {
+        mutations: Some(dir.join("MUTATIONS.toml")),
+        ..CommandFiles::default()
+    }
+}
+
+/// PJ-12: in a flow that declares `[[projection]]` a kill obligation is a (mutation,
+/// projection) pair. `noted` kills `note-offset` and `both-offset` under `scratch`, and is the
+/// only case of `scratch`'s domain that does: `mixed` changes `<scratch>` too, but outside the
+/// domain it gives no kill under `scratch`. So `noted` is kept as their only discharger under
+/// `scratch`, though `mixed` kills both under `all`; without projections (the same corpus, the
+/// row's own obligations) `mixed` stands in for it and `noted` is removable. `mixed` is kept
+/// by coverage (it alone fires `seq`); `emitted` and `emitted2` are each other's and `mixed`'s
+/// alternatives under `out` and `all`. Lazily and with `--full` the decisions are the same, a
+/// cell asked once answers every projection, and a second lazy report runs no mutant.
+#[test]
+fn a_kill_obligation_is_a_mutation_under_a_projection() {
+    let dir = projected_corpus("projected", PROJECTED);
+    let lines = std::sync::Mutex::new(Vec::<String>::new());
+    let progress = |line: &str| lines.lock().unwrap().push(line.to_owned());
+    let manifest = || FlowManifest::read(&dir.join("FLOW.toml")).unwrap();
+    let command = |options: &[&str]| {
+        let options = options.iter().map(|o| (*o).to_owned()).collect::<Vec<_>>();
+        FlowCommand::parse("prune", mutations_only(&dir), &options).unwrap()
+    };
+    let (lazy, status) = dispatch(
+        manifest(),
+        command(&[]),
+        FrontEnd {
+            progress: Some(&progress),
+            ..FrontEnd::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(status, EXIT_YES, "{lazy:#}");
+    let (full, status) = prune(&dir, mutations_only(&dir), &["--full"]);
+    assert_eq!(status, EXIT_YES, "{full:#}");
+    assert_eq!(decisions(&lazy), decisions(&full));
+    assert_eq!(full["version"], 6);
+    assert_eq!(
+        ids(&full["removable"]["cases"]),
+        ["emitted", "emitted2"],
+        "{full:#}"
+    );
+    // Three mutations under three projections; `note-offset` survives under `out` and
+    // `emit-offset` under `scratch`.
+    let mutations = family(&full, "mutations");
+    assert_eq!(mutations["obligations"], 9, "{mutations:#}");
+    assert_eq!(mutations["discharged"], 7, "{mutations:#}");
+    let sole = |id: &str| {
+        json!({"reason": "sole-discharger", "family": "mutations", "id": id,
+               "projection": "scratch"})
+    };
+    assert_eq!(
+        entry(&full["kept"], "noted")["reasons"],
+        json!([sole("note-offset"), sole("both-offset")]),
+        "{full:#}"
+    );
+    // `mixed` is no discharger under `scratch`, outside its domain; under `all` it is one.
+    let emitted = entry(&full["redundant"], "emitted");
+    assert!(
+        emitted["obligations"].as_array().unwrap().contains(&json!({
+            "family": "mutations", "id": "both-offset", "projection": "all",
+            "others": ["noted", "emitted2", "mixed"], "complete": true
+        })),
+        "{emitted:#}"
+    );
+    let text = kink_flow::prune::text_rendering(&full).unwrap();
+    assert!(
+        text.contains("noted: the only discharger of mutations note-offset under scratch"),
+        "{text}"
+    );
+    // Lazily, every cell is asked once whatever the projections that read it: the matrix is
+    // (mutation, case) cells, and an answer one projection asked is read again for another.
+    let cells = &lazy["accounting"]["cells"]["mutations"];
+    assert_eq!(cells["matrix"], 12, "{cells:#}");
+    let lines = lines.into_inner().unwrap();
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.ends_with("(asked for another projection)")),
+        "{lines:#?}"
+    );
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.starts_with("prune: mutations `") && line.contains("` under `")),
+        "{lines:#?}"
+    );
+    let (again, status) = prune(&dir, mutations_only(&dir), &[]);
+    assert_eq!(status, EXIT_YES, "{again:#}");
+    assert_eq!(decisions(&again), decisions(&lazy));
+    assert_eq!(
+        again["accounting"]["mutations"]["outcome_cache"]["records_written"], 0,
+        "{:#}",
+        again["accounting"]
+    );
+
+    // The same corpus without projections: the row's own obligations, `mixed` stands in for
+    // `noted`, and no entry names a projection.
+    let plain = PROJECTED
+        .split("[[program]]")
+        .enumerate()
+        .map(|(at, part)| {
+            if at == 0 {
+                part.split("[[projection]]").next().unwrap().to_owned()
+            } else {
+                format!("[[program]]{part}")
+            }
+        })
+        .collect::<String>();
+    let dir = projected_corpus("projected-plain", &plain);
+    let (unprojected, status) = prune(&dir, mutations_only(&dir), &["--full"]);
+    assert_eq!(status, EXIT_YES, "{unprojected:#}");
+    assert_eq!(
+        ids(&unprojected["removable"]["cases"]),
+        ["noted", "emitted", "emitted2"],
+        "{unprojected:#}"
+    );
+    assert!(
+        entry(&unprojected["redundant"], "noted")["obligations"]
+            .as_array()
+            .unwrap()
+            .contains(
+                &json!({"family": "mutations", "id": "note-offset", "others": ["mixed"],
+                              "complete": true})
+            ),
+        "{unprojected:#}"
+    );
+    assert!(!unprojected.to_string().contains("\"projection\""));
+}
+
+/// A removable case that the record names as a mutation's killer under a projection moves that
+/// row: `run --lock` records `emitted` as `both-offset`'s killer under `out` (the row's own
+/// killer is `noted`), and `prune --lock` names the row for `emitted`. The lazy search tries the
+/// recorded killers first, and decides as `--full` does.
+#[test]
+fn a_removable_killer_under_a_projection_moves_its_row() {
+    let dir = projected_corpus("projected-lock", PROJECTED);
+    let lock = dir.join(LOCK_FILE);
+    let (_, ok) = run_with(
+        &FlowManifest::read(&dir.join("FLOW.toml")).unwrap(),
+        &MutationList::read(&dir.join("MUTATIONS.toml")).unwrap(),
+        &RunOptions {
+            lock: Some(lock.clone()),
+            compile_workers: Some(1),
+            ..RunOptions::default()
+        },
+        RunMode::Search,
+    );
+    assert!(ok);
+    let recorded = fs::read_to_string(&lock).unwrap();
+    assert!(
+        recorded.contains(
+            "killer = \"noted\"\nprojections = [\n  { name = \"out\", status = \"killed\", \
+             killer = \"emitted\" },"
+        ),
+        "{recorded}"
+    );
+    let before = fs::read(&lock).unwrap();
+    let (document, status) = prune(
+        &dir,
+        mutations_only(&dir),
+        &["--lock", lock.to_str().unwrap()],
+    );
+    assert_eq!(status, EXIT_YES, "{document:#}");
+    let (full, _) = prune(
+        &dir,
+        mutations_only(&dir),
+        &["--full", "--lock", lock.to_str().unwrap()],
+    );
+    assert_eq!(decisions(&full), decisions(&document));
+    let rows = &entry(&document["redundant"], "emitted")["lock"]["run"];
+    assert!(
+        rows.as_array()
+            .is_some_and(|rows| rows.contains(&json!("both-offset"))),
+        "{recorded}\n{document:#}"
+    );
+    assert_eq!(fs::read(&lock).unwrap(), before);
+}
+
+/// PJ-34: prune reads a grammar mutation as `run`'s default search judges it. Under a `[stop]`
+/// the baseline's run of each case reaches, the mutant that spells `+` as `plus` rejects both
+/// cases at parse, so `run`'s first-kill search kills it by its reparse, and its row states both
+/// cases' verdicts: prune reads that row whole and asks none of its cells, so `add` and `add2`
+/// are each other's alternative, and the walk removes `add2`. `run --full` refuses a grammar
+/// mutation (`grammar-not-run`, exit 2), so `prune --full` refuses the list.
+#[test]
+fn a_grammar_mutation_is_read_from_its_reparse() {
+    let manifest = "[spec]\nentry = \"calc.k\"\nmain_module = \"CALC\"\nsyntax_module = \"CALC-SYNTAX\"\n\n\
+                    [stop]\nbefore = [\"CALC.add\"]\n\n\
+                    [[program]]\nid = \"add\"\ntext = \"1 + 2\"\n\n\
+                    [[program]]\nid = \"add2\"\ntext = \"3 + 4\"\n";
+    let dir = corpus_of("grammar", manifest, PATTERNS);
+    fs::write(
+        dir.join("MUTATIONS.toml"),
+        "[[mutation]]\nid = \"plus-literal\"\nmisunderstanding = \"addition is spelled plus\"\n\
+         \x20 [[mutation.edit]]\n  production = \"add\"\n  find = \"\\\"+\\\"\"\n  \
+         replace = \"\\\"plus\\\"\"\n",
+    )
+    .unwrap();
+    let files = || CommandFiles {
+        mutations: Some(dir.join("MUTATIONS.toml")),
+        ..CommandFiles::default()
+    };
+    let (lazy, status) = prune(&dir, files(), &[]);
+    assert_eq!(status, EXIT_YES, "{lazy:#}");
+    let mutations = family(&lazy, "mutations");
+    assert_eq!(mutations["obligations"], 1, "{mutations:#}");
+    assert_eq!(mutations["complete"], true, "{mutations:#}");
+    assert_eq!(
+        lazy["accounting"]["cells"]["mutations"]["asked"], 0,
+        "{lazy:#}"
+    );
+    assert_eq!(ids(&lazy["removable"]["cases"]), ["add2"], "{lazy:#}");
+    assert!(
+        entry(&lazy["redundant"], "add")["kept_for"]
+            .as_array()
+            .unwrap()
+            .contains(&json!({"reason": "sole-discharger", "family": "mutations",
+                              "id": "plus-literal"})),
+        "{lazy:#}"
+    );
+    let (full, status) = prune(&dir, files(), &["--full"]);
+    assert_eq!(status, EXIT_UNASKED, "{full:#}");
+    assert_eq!(full["refused"]["family"], "mutations", "{full:#}");
 }
