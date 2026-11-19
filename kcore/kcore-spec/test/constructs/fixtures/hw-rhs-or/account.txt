@@ -1,0 +1,19 @@
+test/constructs/fixtures/hw-rhs-or/hw-rhs-or.kore: 5 modules; prelude agrees
+user module HW-BASE: 426 sentences
+  1 inert import [generated]
+  196 read [generated]
+  183 read [builtin]
+  13 read [user]
+  8 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  2 inert distinctCtors [generated]
+  1 inert parametricFunctional [generated]
+  11 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 rhsOperandSort
+      sentence 378 (Lblf): rhsOperandSort (\or{SortExp{}}: an operand \and of sort SortInt{})
+        [user] (no label) at hw-base.k:19: axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, VarX:SortInt{}), \top{R}())), \equals{SortExp{}, R}(Lblf{}(X0:SortInt{}), \and{SortExp{}}(\or{SortExp{}}(Lbla{}(VarX:SortInt{}), \and{SortInt{}}(VarX:SortInt{}, \top{SortInt{}}())), \top{SortExp{}}()))) [UNIQUE'Unds'ID{}("b9bdb7fbfd467bed71a894cf53e0819aa7a43d033da61c71fa7f5dd8bac1547a"), org'Stop'kframework'Stop'attri …
+finish: sentence 378 (Lblf): rhsOperandSort (\or{SortExp{}}: an operand \and of sort SortInt{})
+(exit 0)

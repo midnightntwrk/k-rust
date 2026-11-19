@@ -1,0 +1,1145 @@
+//@ 0
+module E6-REFUSED-MINT
+//@ 4
+  sort SortSignedness{} []
+//@ 10
+  sort SortEndianness{} []
+//@ 11
+  hooked-sort SortMInt{SortS0} [hasDomainValues{}(), hook{}("MINT.MInt")]
+//@ 16
+  sort Sort16{} [nat{}("16")]
+//@ 19
+  sort Sort8{} [nat{}("8")]
+//@ 135
+  symbol Lblgo{}(SortInt{}) : SortKItem{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(11,20,11,40)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-refused-mint.k)"), symbol'Kywd'{}("go")]
+//@ 140
+  symbol Lblis16{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
+//@ 141
+  symbol Lblis8{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
+//@ 143
+  symbol LblisBytes{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
+//@ 144
+  symbol LblisEndianness{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
+//@ 156
+  symbol LblisMInt'LBra'16'RBra'{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
+//@ 157
+  symbol LblisMInt'LBra'8'RBra'{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
+//@ 160
+  symbol LblisSignedness{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
+//@ 161
+  symbol LblisString{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
+//@ 181
+  symbol Lblproject'Coln'Bytes{}(SortK{}) : SortBytes{} [function{}()]
+//@ 182
+  symbol Lblproject'Coln'Endianness{}(SortK{}) : SortEndianness{} [function{}()]
+//@ 193
+  symbol Lblproject'Coln'MInt'LBra'16'RBra'{}(SortK{}) : SortMInt{Sort16{}} [function{}()]
+//@ 194
+  symbol Lblproject'Coln'MInt'LBra'8'RBra'{}(SortK{}) : SortMInt{Sort8{}} [function{}()]
+//@ 197
+  symbol Lblproject'Coln'Signedness{}(SortK{}) : SortSignedness{} [function{}()]
+//@ 198
+  symbol Lblproject'Coln'String{}(SortK{}) : SortString{} [function{}()]
+//@ 233
+  axiom{R} \exists{R} (Val:SortKItem{}, \equals{SortKItem{}, R} (Val:SortKItem{}, inj{SortEndianness{}, SortKItem{}} (From:SortEndianness{}))) [subsort{SortEndianness{}, SortKItem{}}()] // subsort
+//@ 236
+  axiom{R} \exists{R} (Val:SortKItem{}, \equals{SortKItem{}, R} (Val:SortKItem{}, inj{SortBytes{}, SortKItem{}} (From:SortBytes{}))) [subsort{SortBytes{}, SortKItem{}}()] // subsort
+//@ 239
+  axiom{R} \exists{R} (Val:SortKItem{}, \equals{SortKItem{}, R} (Val:SortKItem{}, inj{SortMInt{Sort16{}}, SortKItem{}} (From:SortMInt{Sort16{}}))) [subsort{SortMInt{Sort16{}}, SortKItem{}}()] // subsort
+//@ 245
+  axiom{R} \exists{R} (Val:SortKItem{}, \equals{SortKItem{}, R} (Val:SortKItem{}, inj{SortSignedness{}, SortKItem{}} (From:SortSignedness{}))) [subsort{SortSignedness{}, SortKItem{}}()] // subsort
+//@ 247
+  axiom{R} \exists{R} (Val:SortKItem{}, \equals{SortKItem{}, R} (Val:SortKItem{}, inj{SortString{}, SortKItem{}} (From:SortString{}))) [subsort{SortString{}, SortKItem{}}()] // subsort
+//@ 250
+  axiom{R} \exists{R} (Val:SortKItem{}, \equals{SortKItem{}, R} (Val:SortKItem{}, inj{SortMInt{Sort8{}}, SortKItem{}} (From:SortMInt{Sort8{}}))) [subsort{SortMInt{Sort8{}}, SortKItem{}}()] // subsort
+//@ 252
+  axiom{R, SortWidth} \exists{R} (Val:SortMInt{SortWidth}, \equals{SortMInt{SortWidth}, R} (Val:SortMInt{SortWidth}, Lbl--MInt'UndsUnds'MINT'Unds'MInt'Unds'MInt{SortWidth}(K0:SortMInt{SortWidth}))) [functional{}()] // functional
+//@ 253
+  axiom{R} \exists{R} (Val:SortBytes{}, \equals{SortBytes{}, R} (Val:SortBytes{}, Lbl'Stop'Bytes'Unds'BYTES-HOOKED'Unds'Bytes{}())) [functional{}()] // functional
+//@ 265
+  axiom{R} \exists{R} (Val:SortString{}, \equals{SortString{}, R} (Val:SortString{}, LblBytes2Hex'LParUndsRParUnds'BYTES-HOOKED'Unds'String'Unds'Bytes{}(K0:SortBytes{}))) [functional{}()] // functional
+//@ 266
+  axiom{R} \exists{R} (Val:SortInt{}, \equals{SortInt{}, R} (Val:SortInt{}, LblBytes2Int'LParUndsCommUndsCommUndsRParUnds'BYTES-HOOKED'Unds'Int'Unds'Bytes'Unds'Endianness'Unds'Signedness{}(K0:SortBytes{}, K1:SortEndianness{}, K2:SortSignedness{}))) [functional{}()] // functional
+//@ 267
+  axiom{R, SortWidth} \exists{R} (Val:SortMInt{SortWidth}, \equals{SortMInt{SortWidth}, R} (Val:SortMInt{SortWidth}, LblBytes2MInt'LParUndsRParUnds'MINT'Unds'MInt'Unds'Bytes{SortWidth}(K0:SortBytes{}))) [functional{}()] // functional
+//@ 268
+  axiom{R} \exists{R} (Val:SortString{}, \equals{SortString{}, R} (Val:SortString{}, LblBytes2String'LParUndsRParUnds'BYTES-HOOKED'Unds'String'Unds'Bytes{}(K0:SortBytes{}))) [functional{}()] // functional
+//@ 269
+  axiom{R} \exists{R} (Val:SortBytes{}, \equals{SortBytes{}, R} (Val:SortBytes{}, LblInt2Bytes'LParUndsCommUndsCommUndsRParUnds'BYTES-HOOKED'Unds'Bytes'Unds'Int'Unds'Int'Unds'Endianness{}(K0:SortInt{}, K1:SortInt{}, K2:SortEndianness{}))) [functional{}()] // functional
+//@ 270
+  axiom{R} \exists{R} (Val:SortBytes{}, \equals{SortBytes{}, R} (Val:SortBytes{}, LblInt2BytesNoLen{}(K0:SortInt{}, K1:SortEndianness{}, K2:SortSignedness{}))) [functional{}()] // functional
+//@ 271
+  axiom{R, SortWidth} \exists{R} (Val:SortMInt{SortWidth}, \equals{SortMInt{SortWidth}, R} (Val:SortMInt{SortWidth}, LblInt2MInt'LParUndsRParUnds'MINT'Unds'MInt'Unds'Int{SortWidth}(K0:SortInt{}))) [functional{}()] // functional
+//@ 273
+  axiom{R, SortWidth} \exists{R} (Val:SortBytes{}, \equals{SortBytes{}, R} (Val:SortBytes{}, LblMInt2Bytes'LParUndsRParUnds'MINT'Unds'Bytes'Unds'MInt{SortWidth}(K0:SortMInt{SortWidth}))) [functional{}()] // functional
+//@ 274
+  axiom{R, SortWidth} \exists{R} (Val:SortInt{}, \equals{SortInt{}, R} (Val:SortInt{}, LblMInt2Signed'LParUndsRParUnds'MINT'Unds'Int'Unds'MInt{SortWidth}(K0:SortMInt{SortWidth}))) [functional{}()] // functional
+//@ 275
+  axiom{R, SortWidth} \exists{R} (Val:SortInt{}, \equals{SortInt{}, R} (Val:SortInt{}, LblMInt2Unsigned'LParUndsRParUnds'MINT'Unds'Int'Unds'MInt{SortWidth}(K0:SortMInt{SortWidth}))) [functional{}()] // functional
+//@ 281
+  axiom{R} \exists{R} (Val:SortBytes{}, \equals{SortBytes{}, R} (Val:SortBytes{}, LblString2Bytes'LParUndsRParUnds'BYTES-HOOKED'Unds'Bytes'Unds'String{}(K0:SortString{}))) [functional{}()] // functional
+//@ 282
+  axiom{R} \exists{R} (Val:SortInt{}, \equals{SortInt{}, R} (Val:SortInt{}, Lbl'UndsAnd-'Int'Unds'{}(K0:SortInt{}, K1:SortInt{}))) [functional{}()] // functional
+//@ 283
+  axiom{R, SortWidth} \exists{R} (Val:SortMInt{SortWidth}, \equals{SortMInt{SortWidth}, R} (Val:SortMInt{SortWidth}, Lbl'UndsAnd-'MInt'UndsUnds'MINT'Unds'MInt'Unds'MInt'Unds'MInt{SortWidth}(K0:SortMInt{SortWidth}, K1:SortMInt{SortWidth}))) [functional{}()] // functional
+//@ 284
+  axiom{R} \exists{R} (Val:SortInt{}, \equals{SortInt{}, R} (Val:SortInt{}, Lbl'UndsStar'Int'Unds'{}(K0:SortInt{}, K1:SortInt{}))) [functional{}()] // functional
+//@ 285
+  axiom{R, SortWidth} \exists{R} (Val:SortMInt{SortWidth}, \equals{SortMInt{SortWidth}, R} (Val:SortMInt{SortWidth}, Lbl'UndsStar'MInt'UndsUnds'MINT'Unds'MInt'Unds'MInt'Unds'MInt{SortWidth}(K0:SortMInt{SortWidth}, K1:SortMInt{SortWidth}))) [functional{}()] // functional
+//@ 286
+  axiom{R} \exists{R} (Val:SortBytes{}, \equals{SortBytes{}, R} (Val:SortBytes{}, Lbl'UndsPlus'Bytes'UndsUnds'BYTES-HOOKED'Unds'Bytes'Unds'Bytes'Unds'Bytes{}(K0:SortBytes{}, K1:SortBytes{}))) [functional{}()] // functional
+//@ 287
+  axiom{R} \exists{R} (Val:SortInt{}, \equals{SortInt{}, R} (Val:SortInt{}, Lbl'UndsPlus'Int'Unds'{}(K0:SortInt{}, K1:SortInt{}))) [functional{}()] // functional
+//@ 288
+  axiom{R, SortWidth} \exists{R} (Val:SortMInt{SortWidth}, \equals{SortMInt{SortWidth}, R} (Val:SortMInt{SortWidth}, Lbl'UndsPlus'MInt'UndsUnds'MINT'Unds'MInt'Unds'MInt'Unds'MInt{SortWidth}(K0:SortMInt{SortWidth}, K1:SortMInt{SortWidth}))) [functional{}()] // functional
+//@ 289
+  axiom{R} \exists{R} (Val:SortInt{}, \equals{SortInt{}, R} (Val:SortInt{}, Lbl'Unds'-Int'Unds'{}(K0:SortInt{}, K1:SortInt{}))) [functional{}()] // functional
+//@ 290
+  axiom{R, SortWidth} \exists{R} (Val:SortMInt{SortWidth}, \equals{SortMInt{SortWidth}, R} (Val:SortMInt{SortWidth}, Lbl'Unds'-MInt'UndsUnds'MINT'Unds'MInt'Unds'MInt'Unds'MInt{SortWidth}(K0:SortMInt{SortWidth}, K1:SortMInt{SortWidth}))) [functional{}()] // functional
+//@ 292
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds-LT-Eqls'Int'Unds'{}(K0:SortInt{}, K1:SortInt{}))) [functional{}()] // functional
+//@ 295
+  axiom{R, SortWidth} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds-LT-Eqls'sMInt'UndsUnds'MINT'Unds'Bool'Unds'MInt'Unds'MInt{SortWidth}(K0:SortMInt{SortWidth}, K1:SortMInt{SortWidth}))) [functional{}()] // functional
+//@ 296
+  axiom{R, SortWidth} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds-LT-Eqls'uMInt'UndsUnds'MINT'Unds'Bool'Unds'MInt'Unds'MInt{SortWidth}(K0:SortMInt{SortWidth}, K1:SortMInt{SortWidth}))) [functional{}()] // functional
+//@ 297
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds-LT-'Int'Unds'{}(K0:SortInt{}, K1:SortInt{}))) [functional{}()] // functional
+//@ 298
+  axiom{R, SortWidth} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds-LT-'sMInt'UndsUnds'MINT'Unds'Bool'Unds'MInt'Unds'MInt{SortWidth}(K0:SortMInt{SortWidth}, K1:SortMInt{SortWidth}))) [functional{}()] // functional
+//@ 299
+  axiom{R, SortWidth} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds-LT-'uMInt'UndsUnds'MINT'Unds'Bool'Unds'MInt'Unds'MInt{SortWidth}(K0:SortMInt{SortWidth}, K1:SortMInt{SortWidth}))) [functional{}()] // functional
+//@ 300
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'UndsEqlsSlshEqls'Bool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 301
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'UndsEqlsSlshEqls'Int'Unds'{}(K0:SortInt{}, K1:SortInt{}))) [functional{}()] // functional
+//@ 302
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'UndsEqlsSlshEqls'K'Unds'{}(K0:SortK{}, K1:SortK{}))) [functional{}()] // functional
+//@ 303
+  axiom{R, SortWidth} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'UndsEqlsSlshEqls'MInt'UndsUnds'MINT'Unds'Bool'Unds'MInt'Unds'MInt{SortWidth}(K0:SortMInt{SortWidth}, K1:SortMInt{SortWidth}))) [functional{}()] // functional
+//@ 304
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'UndsEqlsEqls'Bool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 305
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'UndsEqlsEqls'Int'Unds'{}(K0:SortInt{}, K1:SortInt{}))) [functional{}()] // functional
+//@ 306
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'UndsEqlsEqls'K'Unds'{}(K0:SortK{}, K1:SortK{}))) [functional{}()] // functional
+//@ 307
+  axiom{R, SortWidth} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'UndsEqlsEqls'MInt'UndsUnds'MINT'Unds'Bool'Unds'MInt'Unds'MInt{SortWidth}(K0:SortMInt{SortWidth}, K1:SortMInt{SortWidth}))) [functional{}()] // functional
+//@ 308
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds-GT-Eqls'Int'Unds'{}(K0:SortInt{}, K1:SortInt{}))) [functional{}()] // functional
+//@ 309
+  axiom{R, SortWidth} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds-GT-Eqls'sMInt'UndsUnds'MINT'Unds'Bool'Unds'MInt'Unds'MInt{SortWidth}(K0:SortMInt{SortWidth}, K1:SortMInt{SortWidth}))) [functional{}()] // functional
+//@ 310
+  axiom{R, SortWidth} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds-GT-Eqls'uMInt'UndsUnds'MINT'Unds'Bool'Unds'MInt'Unds'MInt{SortWidth}(K0:SortMInt{SortWidth}, K1:SortMInt{SortWidth}))) [functional{}()] // functional
+//@ 311
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds-GT-'Int'Unds'{}(K0:SortInt{}, K1:SortInt{}))) [functional{}()] // functional
+//@ 312
+  axiom{R, SortWidth} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds-GT-'sMInt'UndsUnds'MINT'Unds'Bool'Unds'MInt'Unds'MInt{SortWidth}(K0:SortMInt{SortWidth}, K1:SortMInt{SortWidth}))) [functional{}()] // functional
+//@ 313
+  axiom{R, SortWidth} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds-GT-'uMInt'UndsUnds'MINT'Unds'Bool'Unds'MInt'Unds'MInt{SortWidth}(K0:SortMInt{SortWidth}, K1:SortMInt{SortWidth}))) [functional{}()] // functional
+//@ 326
+  axiom{R, SortWidth} \exists{R} (Val:SortMInt{SortWidth}, \equals{SortMInt{SortWidth}, R} (Val:SortMInt{SortWidth}, Lbl'UndsXor-'MInt'UndsUnds'MINT'Unds'MInt'Unds'MInt'Unds'MInt{SortWidth}(K0:SortMInt{SortWidth}, K1:SortMInt{SortWidth}))) [functional{}()] // functional
+//@ 327
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds'andBool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 328
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds'andThenBool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 329
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds'impliesBool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 332
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds'orBool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 333
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds'orElseBool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 334
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds'xorBool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 335
+  axiom{R} \exists{R} (Val:SortInt{}, \equals{SortInt{}, R} (Val:SortInt{}, Lbl'Unds'xorInt'Unds'{}(K0:SortInt{}, K1:SortInt{}))) [functional{}()] // functional
+//@ 336
+  axiom{R, SortWidth} \exists{R} (Val:SortMInt{SortWidth}, \equals{SortMInt{SortWidth}, R} (Val:SortMInt{SortWidth}, Lbl'Unds'xorMInt'UndsUnds'MINT'Unds'MInt'Unds'MInt'Unds'MInt{SortWidth}(K0:SortMInt{SortWidth}, K1:SortMInt{SortWidth}))) [functional{}()] // functional
+//@ 338
+  axiom{R} \exists{R} (Val:SortInt{}, \equals{SortInt{}, R} (Val:SortInt{}, Lbl'UndsPipe'Int'Unds'{}(K0:SortInt{}, K1:SortInt{}))) [functional{}()] // functional
+//@ 339
+  axiom{R, SortWidth} \exists{R} (Val:SortMInt{SortWidth}, \equals{SortMInt{SortWidth}, R} (Val:SortMInt{SortWidth}, Lbl'UndsPipe'MInt'UndsUnds'MINT'Unds'MInt'Unds'MInt'Unds'MInt{SortWidth}(K0:SortMInt{SortWidth}, K1:SortMInt{SortWidth}))) [functional{}()] // functional
+//@ 341
+  axiom{R} \exists{R} (Val:SortInt{}, \equals{SortInt{}, R} (Val:SortInt{}, LblabsInt'LParUndsRParUnds'INT-COMMON'Unds'Int'Unds'Int{}(K0:SortInt{}))) [functional{}()] // functional
+//@ 342
+  axiom{R} \exists{R} (Val:SortEndianness{}, \equals{SortEndianness{}, R} (Val:SortEndianness{}, LblbigEndianBytes{}())) [functional{}()] // functional
+//@ 343
+  axiom{}\not{SortEndianness{}} (\and{SortEndianness{}} (LblbigEndianBytes{}(), LbllittleEndianBytes{}())) [constructor{}()] // no confusion different constructors
+//@ 344
+  axiom{R, SortWidth} \exists{R} (Val:SortInt{}, \equals{SortInt{}, R} (Val:SortInt{}, LblbitwidthMInt'LParUndsRParUnds'MINT'Unds'Int'Unds'MInt{SortWidth}(K0:SortMInt{SortWidth}))) [functional{}()] // functional
+//@ 345
+  axiom{R} \exists{R} (Val:SortInt{}, \equals{SortInt{}, R} (Val:SortInt{}, LblfreshInt'LParUndsRParUnds'INT'Unds'Int'Unds'Int{}(K0:SortInt{}))) [functional{}()] // functional
+//@ 346
+  axiom{R} \exists{R} (Val:SortKItem{}, \equals{SortKItem{}, R} (Val:SortKItem{}, Lblgo{}(K0:SortInt{}))) [functional{}()] // functional
+//@ 347
+  axiom{}\implies{SortKItem{}} (\and{SortKItem{}} (Lblgo{}(X0:SortInt{}), Lblgo{}(Y0:SortInt{})), Lblgo{}(\and{SortInt{}} (X0:SortInt{}, Y0:SortInt{}))) [constructor{}()] // no confusion same constructor
+//@ 350
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lblis16{}(K0:SortK{}))) [functional{}()] // functional
+//@ 351
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lblis8{}(K0:SortK{}))) [functional{}()] // functional
+//@ 353
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, LblisBytes{}(K0:SortK{}))) [functional{}()] // functional
+//@ 354
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, LblisEndianness{}(K0:SortK{}))) [functional{}()] // functional
+//@ 366
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, LblisMInt'LBra'16'RBra'{}(K0:SortK{}))) [functional{}()] // functional
+//@ 367
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, LblisMInt'LBra'8'RBra'{}(K0:SortK{}))) [functional{}()] // functional
+//@ 370
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, LblisSignedness{}(K0:SortK{}))) [functional{}()] // functional
+//@ 371
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, LblisString{}(K0:SortK{}))) [functional{}()] // functional
+//@ 372
+  axiom{R, SortSort} \exists{R} (Val:SortSort, \equals{SortSort, R} (Val:SortSort, Lblite{SortSort}(K0:SortBool{}, K1:SortSort, K2:SortSort))) [functional{}()] // functional
+//@ 374
+  axiom{R} \exists{R} (Val:SortInt{}, \equals{SortInt{}, R} (Val:SortInt{}, LbllengthBytes'LParUndsRParUnds'BYTES-HOOKED'Unds'Int'Unds'Bytes{}(K0:SortBytes{}))) [functional{}()] // functional
+//@ 375
+  axiom{R, SortWidth} \exists{R} (Val:SortMInt{SortWidth}, \equals{SortMInt{SortWidth}, R} (Val:SortMInt{SortWidth}, LbllengthBytes'LParUndsRParUnds'BYTES-HOOKED'Unds'MInt'Unds'Bytes{SortWidth}(K0:SortBytes{}))) [functional{}()] // functional
+//@ 376
+  axiom{R} \exists{R} (Val:SortEndianness{}, \equals{SortEndianness{}, R} (Val:SortEndianness{}, LbllittleEndianBytes{}())) [functional{}()] // functional
+//@ 377
+  axiom{R} \exists{R} (Val:SortInt{}, \equals{SortInt{}, R} (Val:SortInt{}, LblmaxInt'LParUndsCommUndsRParUnds'INT-COMMON'Unds'Int'Unds'Int'Unds'Int{}(K0:SortInt{}, K1:SortInt{}))) [functional{}()] // functional
+//@ 378
+  axiom{R} \exists{R} (Val:SortInt{}, \equals{SortInt{}, R} (Val:SortInt{}, LblminInt'LParUndsCommUndsRParUnds'INT-COMMON'Unds'Int'Unds'Int'Unds'Int{}(K0:SortInt{}, K1:SortInt{}))) [functional{}()] // functional
+//@ 381
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, LblnotBool'Unds'{}(K0:SortBool{}))) [functional{}()] // functional
+//@ 384
+  axiom{R} \exists{R} (Val:SortBytes{}, \equals{SortBytes{}, R} (Val:SortBytes{}, LblreverseBytes'LParUndsRParUnds'BYTES-HOOKED'Unds'Bytes'Unds'Bytes{}(K0:SortBytes{}))) [functional{}()] // functional
+//@ 385
+  axiom{R, SortWidth1, SortWidth2} \exists{R} (Val:SortMInt{SortWidth1}, \equals{SortMInt{SortWidth1}, R} (Val:SortMInt{SortWidth1}, LblroundMInt'LParUndsRParUnds'MINT'Unds'MInt'Unds'MInt{SortWidth1, SortWidth2}(K0:SortMInt{SortWidth2}))) [functional{}()] // functional
+//@ 386
+  axiom{R, SortWidth} \exists{R} (Val:SortMInt{SortWidth}, \equals{SortMInt{SortWidth}, R} (Val:SortMInt{SortWidth}, LblsMaxMInt'LParUndsCommUndsRParUnds'MINT'Unds'MInt'Unds'MInt'Unds'MInt{SortWidth}(K0:SortMInt{SortWidth}, K1:SortMInt{SortWidth}))) [functional{}()] // functional
+//@ 387
+  axiom{R, SortWidth} \exists{R} (Val:SortMInt{SortWidth}, \equals{SortMInt{SortWidth}, R} (Val:SortMInt{SortWidth}, LblsMinMInt'LParUndsCommUndsRParUnds'MINT'Unds'MInt'Unds'MInt'Unds'MInt{SortWidth}(K0:SortMInt{SortWidth}, K1:SortMInt{SortWidth}))) [functional{}()] // functional
+//@ 388
+  axiom{R, SortWidth1, SortWidth2} \exists{R} (Val:SortMInt{SortWidth1}, \equals{SortMInt{SortWidth1}, R} (Val:SortMInt{SortWidth1}, LblsignExtendMInt'LParUndsRParUnds'MINT'Unds'MInt'Unds'MInt{SortWidth1, SortWidth2}(K0:SortMInt{SortWidth2}))) [functional{}()] // functional
+//@ 389
+  axiom{R} \exists{R} (Val:SortSignedness{}, \equals{SortSignedness{}, R} (Val:SortSignedness{}, LblsignedBytes{}())) [functional{}()] // functional
+//@ 390
+  axiom{}\not{SortSignedness{}} (\and{SortSignedness{}} (LblsignedBytes{}(), LblunsignedBytes{}())) [constructor{}()] // no confusion different constructors
+//@ 394
+  axiom{R, SortWidth} \exists{R} (Val:SortMInt{SortWidth}, \equals{SortMInt{SortWidth}, R} (Val:SortMInt{SortWidth}, LbluMaxMInt'LParUndsCommUndsRParUnds'MINT'Unds'MInt'Unds'MInt'Unds'MInt{SortWidth}(K0:SortMInt{SortWidth}, K1:SortMInt{SortWidth}))) [functional{}()] // functional
+//@ 395
+  axiom{R, SortWidth} \exists{R} (Val:SortMInt{SortWidth}, \equals{SortMInt{SortWidth}, R} (Val:SortMInt{SortWidth}, LbluMinMInt'LParUndsCommUndsRParUnds'MINT'Unds'MInt'Unds'MInt'Unds'MInt{SortWidth}(K0:SortMInt{SortWidth}, K1:SortMInt{SortWidth}))) [functional{}()] // functional
+//@ 396
+  axiom{R} \exists{R} (Val:SortSignedness{}, \equals{SortSignedness{}, R} (Val:SortSignedness{}, LblunsignedBytes{}())) [functional{}()] // functional
+//@ 398
+  axiom{R} \exists{R} (Val:SortInt{}, \equals{SortInt{}, R} (Val:SortInt{}, Lbl'Tild'Int'Unds'{}(K0:SortInt{}))) [functional{}()] // functional
+//@ 399
+  axiom{R, SortWidth} \exists{R} (Val:SortMInt{SortWidth}, \equals{SortMInt{SortWidth}, R} (Val:SortMInt{SortWidth}, Lbl'Tild'MInt'UndsUnds'MINT'Unds'MInt'Unds'MInt{SortWidth}(K0:SortMInt{SortWidth}))) [functional{}()] // functional
+//@ 401
+  axiom{} \or{SortBytes{}} (\top{SortBytes{}}(), \bottom{SortBytes{}}()) [constructor{}()] // no junk (TODO: fix bug with \dv)
+//@ 402
+  axiom{} \or{SortEndianness{}} (LblbigEndianBytes{}(), LbllittleEndianBytes{}(), \bottom{SortEndianness{}}()) [constructor{}()] // no junk
+//@ 411
+  axiom{} \or{SortKItem{}} (\exists{SortKItem{}} (X0:SortInt{}, Lblgo{}(X0:SortInt{})), \exists{SortKItem{}} (Val:SortBool{}, inj{SortBool{}, SortKItem{}} (Val:SortBool{})), \exists{SortKItem{}} (Val:SortBytes{}, inj{SortBytes{}, SortKItem{}} (Val:SortBytes{})), \exists{SortKItem{}} (Val:SortEndianness{}, inj{SortEndianness{}, SortKItem{}} (Val:SortEndianness{})), \exists{SortKItem{}} (Val:SortGeneratedCounterCell{}, inj{SortGeneratedCounterCell{}, SortKItem{}} (Val:SortGeneratedCounterCell{})), \exists{SortKItem{}} (Val:SortGeneratedCounterCellOpt{}, inj{SortGeneratedCounterCellOpt{}, SortKItem{}} (Val:SortGeneratedCounterCellOpt{})), \exists{SortKItem{}} (Val:SortGeneratedTopCell{}, inj{SortGeneratedTopCell{}, SortKItem{}} (Val:SortGeneratedTopCell{})), \exists{SortKItem{}} (Val:SortGeneratedTopCellFragment{}, inj{SortGeneratedTopCellFragment{}, SortKItem{}} (Val:SortGeneratedTopCellFragment{})), \exists{SortKItem{}} (Val:SortInt{}, inj{SortInt{}, SortKItem{}} (Val:SortInt{})), \exists{SortKItem{}} (Val:SortKCell{}, inj{SortKCell{}, SortKItem{}} (Val:SortKCell{})), \exists{SortKItem{}} (Val:SortKCellOpt{}, inj{SortKCellOpt{}, SortKItem{}} (Val:SortKCellOpt{})), \exists{SortKItem{}} (Val:SortKConfigVar{}, inj{SortKConfigVar{}, SortKItem{}} (Val:SortKConfigVar{})), \exists{SortKItem{}} (Val:SortList{}, inj{SortList{}, SortKItem{}} (Val:SortList{})), \exists{SortKItem{}} (Val:SortMInt{Sort16{}}, inj{SortMInt{Sort16{}}, SortKItem{}} (Val:SortMInt{Sort16{}})), \exists{SortKItem{}} (Val:SortMInt{Sort8{}}, inj{SortMInt{Sort8{}}, SortKItem{}} (Val:SortMInt{Sort8{}})), \exists{SortKItem{}} (Val:SortMap{}, inj{SortMap{}, SortKItem{}} (Val:SortMap{})), \exists{SortKItem{}} (Val:SortSet{}, inj{SortSet{}, SortKItem{}} (Val:SortSet{})), \exists{SortKItem{}} (Val:SortSignedness{}, inj{SortSignedness{}, SortKItem{}} (Val:SortSignedness{})), \exists{SortKItem{}} (Val:SortString{}, inj{SortString{}, SortKItem{}} (Val:SortString{})), \bottom{SortKItem{}}()) [constructor{}()] // no junk
+//@ 412
+  axiom{} \or{SortMInt{Sort16{}}} (\top{SortMInt{Sort16{}}}(), \bottom{SortMInt{Sort16{}}}()) [constructor{}()] // no junk (TODO: fix bug with \dv)
+//@ 413
+  axiom{} \or{SortMInt{Sort8{}}} (\top{SortMInt{Sort8{}}}(), \bottom{SortMInt{Sort8{}}}()) [constructor{}()] // no junk (TODO: fix bug with \dv)
+//@ 414
+  axiom{} \or{SortSignedness{}} (LblsignedBytes{}(), LblunsignedBytes{}(), \bottom{SortSignedness{}}()) [constructor{}()] // no junk
+//@ 415
+  axiom{} \or{SortString{}} (\top{SortString{}}(), \bottom{SortString{}}()) [constructor{}()] // no junk (TODO: fix bug with \dv)
+//@ 448
+// rule `<generatedTop>`(`<k>`(go(#token("1","Int"))~>inj{MInt,KItem}(X)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{MInt,KItem}(`~MInt__MINT_MInt_MInt`{8}(X))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(c21ae7974271df2261778ee39c9eff6778b46e4ebad6885d2ed14c0137f9876b), label(E6-REFUSED-MINT.mint-not), org.kframework.attributes.Location(Location(12,27,12,70)), org.kframework.attributes.Source(Source(FIXTURE/e6-refused-mint.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("1")),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarX:SortMInt{Sort8{}}),Var'Unds'DotVar1:SortK{}))),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(Lbl'Tild'MInt'UndsUnds'MINT'Unds'MInt'Unds'MInt{Sort8{}}(VarX:SortMInt{Sort8{}})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("c21ae7974271df2261778ee39c9eff6778b46e4ebad6885d2ed14c0137f9876b"), label{}("E6-REFUSED-MINT.mint-not"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(12,27,12,70)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-refused-mint.k)")]
+//@ 449
+// rule `<generatedTop>`(`<k>`(go(#token("10","Int"))~>inj{MInt,KItem}(X)~>inj{MInt,KItem}(Y)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{MInt,KItem}(`_-MInt__MINT_MInt_MInt_MInt`{8}(X,Y))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(721b6130cf1126654b92232e0f66267e36e395216c886003ccd5fdc09f8d9109), label(E6-REFUSED-MINT.mint-sub), org.kframework.attributes.Location(Location(21,27,21,85)), org.kframework.attributes.Source(Source(FIXTURE/e6-refused-mint.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("10")),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarX:SortMInt{Sort8{}}),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarY:SortMInt{Sort8{}}),Var'Unds'DotVar1:SortK{})))),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(Lbl'Unds'-MInt'UndsUnds'MINT'Unds'MInt'Unds'MInt'Unds'MInt{Sort8{}}(VarX:SortMInt{Sort8{}},VarY:SortMInt{Sort8{}})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("721b6130cf1126654b92232e0f66267e36e395216c886003ccd5fdc09f8d9109"), label{}("E6-REFUSED-MINT.mint-sub"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(21,27,21,85)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-refused-mint.k)")]
+//@ 450
+// rule `<generatedTop>`(`<k>`(go(#token("11","Int"))~>inj{MInt,KItem}(X)~>inj{MInt,KItem}(Y)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{MInt,KItem}(`_<<MInt__MINT_MInt_MInt_MInt`{8}(X,Y))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(b621cc6b8eb8c33180fa0f5f84b3a4721336debbc39d4608dd4a635e647b7c84), label(E6-REFUSED-MINT.mint-shl), org.kframework.attributes.Location(Location(22,27,22,86)), org.kframework.attributes.Source(Source(FIXTURE/e6-refused-mint.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("11")),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarX:SortMInt{Sort8{}}),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarY:SortMInt{Sort8{}}),Var'Unds'DotVar1:SortK{})))),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(Lbl'Unds-LT--LT-'MInt'UndsUnds'MINT'Unds'MInt'Unds'MInt'Unds'MInt{Sort8{}}(VarX:SortMInt{Sort8{}},VarY:SortMInt{Sort8{}})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("b621cc6b8eb8c33180fa0f5f84b3a4721336debbc39d4608dd4a635e647b7c84"), label{}("E6-REFUSED-MINT.mint-shl"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(22,27,22,86)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-refused-mint.k)")]
+//@ 451
+// rule `<generatedTop>`(`<k>`(go(#token("12","Int"))~>inj{MInt,KItem}(X)~>inj{MInt,KItem}(Y)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{MInt,KItem}(`_>>aMInt__MINT_MInt_MInt_MInt`{8}(X,Y))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(51e8f6e987cb50bb4027a8111e7b44c1095f1587c1f0be0cd21e206b05cf7163), label(E6-REFUSED-MINT.mint-ashr), org.kframework.attributes.Location(Location(23,27,23,87)), org.kframework.attributes.Source(Source(FIXTURE/e6-refused-mint.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("12")),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarX:SortMInt{Sort8{}}),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarY:SortMInt{Sort8{}}),Var'Unds'DotVar1:SortK{})))),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(Lbl'Unds-GT--GT-'aMInt'UndsUnds'MINT'Unds'MInt'Unds'MInt'Unds'MInt{Sort8{}}(VarX:SortMInt{Sort8{}},VarY:SortMInt{Sort8{}})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("51e8f6e987cb50bb4027a8111e7b44c1095f1587c1f0be0cd21e206b05cf7163"), label{}("E6-REFUSED-MINT.mint-ashr"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(23,27,23,87)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-refused-mint.k)")]
+//@ 452
+// rule `<generatedTop>`(`<k>`(go(#token("13","Int"))~>inj{MInt,KItem}(X)~>inj{MInt,KItem}(Y)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{MInt,KItem}(`_>>lMInt__MINT_MInt_MInt_MInt`{8}(X,Y))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(1b5416740a77c36adc743e85bee025c49e4dc5a4d3c5cce9cf53dc1d68f8b099), label(E6-REFUSED-MINT.mint-lshr), org.kframework.attributes.Location(Location(24,27,24,87)), org.kframework.attributes.Source(Source(FIXTURE/e6-refused-mint.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("13")),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarX:SortMInt{Sort8{}}),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarY:SortMInt{Sort8{}}),Var'Unds'DotVar1:SortK{})))),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(Lbl'Unds-GT--GT-'lMInt'UndsUnds'MINT'Unds'MInt'Unds'MInt'Unds'MInt{Sort8{}}(VarX:SortMInt{Sort8{}},VarY:SortMInt{Sort8{}})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("1b5416740a77c36adc743e85bee025c49e4dc5a4d3c5cce9cf53dc1d68f8b099"), label{}("E6-REFUSED-MINT.mint-lshr"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(24,27,24,87)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-refused-mint.k)")]
+//@ 453
+// rule `<generatedTop>`(`<k>`(go(#token("14","Int"))~>inj{MInt,KItem}(X)~>inj{MInt,KItem}(Y)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{MInt,KItem}(`_&MInt__MINT_MInt_MInt_MInt`{8}(X,Y))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(7eacaf3b060cbcde7c9efd3e4fe871b6f530184ad5fd0c6e758e798f93a39a60), label(E6-REFUSED-MINT.mint-and), org.kframework.attributes.Location(Location(25,27,25,85)), org.kframework.attributes.Source(Source(FIXTURE/e6-refused-mint.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("14")),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarX:SortMInt{Sort8{}}),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarY:SortMInt{Sort8{}}),Var'Unds'DotVar1:SortK{})))),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(Lbl'UndsAnd-'MInt'UndsUnds'MINT'Unds'MInt'Unds'MInt'Unds'MInt{Sort8{}}(VarX:SortMInt{Sort8{}},VarY:SortMInt{Sort8{}})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("7eacaf3b060cbcde7c9efd3e4fe871b6f530184ad5fd0c6e758e798f93a39a60"), label{}("E6-REFUSED-MINT.mint-and"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(25,27,25,85)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-refused-mint.k)")]
+//@ 454
+// rule `<generatedTop>`(`<k>`(go(#token("15","Int"))~>inj{MInt,KItem}(X)~>inj{MInt,KItem}(Y)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{MInt,KItem}(`_xorMInt__MINT_MInt_MInt_MInt`{8}(X,Y))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(fb434e237708403eed5ddcfb34ebfeeda69f49b934d86ad3aa9f9b8ed1f6a3f0), label(E6-REFUSED-MINT.mint-xor), org.kframework.attributes.Location(Location(26,27,26,87)), org.kframework.attributes.Source(Source(FIXTURE/e6-refused-mint.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("15")),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarX:SortMInt{Sort8{}}),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarY:SortMInt{Sort8{}}),Var'Unds'DotVar1:SortK{})))),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(Lbl'Unds'xorMInt'UndsUnds'MINT'Unds'MInt'Unds'MInt'Unds'MInt{Sort8{}}(VarX:SortMInt{Sort8{}},VarY:SortMInt{Sort8{}})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("fb434e237708403eed5ddcfb34ebfeeda69f49b934d86ad3aa9f9b8ed1f6a3f0"), label{}("E6-REFUSED-MINT.mint-xor"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(26,27,26,87)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-refused-mint.k)")]
+//@ 455
+// rule `<generatedTop>`(`<k>`(go(#token("16","Int"))~>inj{MInt,KItem}(X)~>inj{MInt,KItem}(Y)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{MInt,KItem}(`_|MInt__MINT_MInt_MInt_MInt`{8}(X,Y))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(2821e1c67255f6805ba771f3dff02e691c4047a76a5292e127693d18412afa64), label(E6-REFUSED-MINT.mint-or), org.kframework.attributes.Location(Location(27,27,27,85)), org.kframework.attributes.Source(Source(FIXTURE/e6-refused-mint.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("16")),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarX:SortMInt{Sort8{}}),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarY:SortMInt{Sort8{}}),Var'Unds'DotVar1:SortK{})))),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(Lbl'UndsPipe'MInt'UndsUnds'MINT'Unds'MInt'Unds'MInt'Unds'MInt{Sort8{}}(VarX:SortMInt{Sort8{}},VarY:SortMInt{Sort8{}})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("2821e1c67255f6805ba771f3dff02e691c4047a76a5292e127693d18412afa64"), label{}("E6-REFUSED-MINT.mint-or"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(27,27,27,85)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-refused-mint.k)")]
+//@ 456
+// rule `<generatedTop>`(`<k>`(go(#token("17","Int"))~>inj{MInt,KItem}(X)~>inj{MInt,KItem}(Y)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{Bool,KItem}(`_<sMInt__MINT_Bool_MInt_MInt`{8}(X,Y))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(07391188795bad099d955a54dedf60c34f7a4c332c96e9b4e45904d22f6daf22), label(E6-REFUSED-MINT.mint-slt), org.kframework.attributes.Location(Location(28,27,28,86)), org.kframework.attributes.Source(Source(FIXTURE/e6-refused-mint.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("17")),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarX:SortMInt{Sort8{}}),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarY:SortMInt{Sort8{}}),Var'Unds'DotVar1:SortK{})))),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortBool{}, SortKItem{}}(Lbl'Unds-LT-'sMInt'UndsUnds'MINT'Unds'Bool'Unds'MInt'Unds'MInt{Sort8{}}(VarX:SortMInt{Sort8{}},VarY:SortMInt{Sort8{}})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("07391188795bad099d955a54dedf60c34f7a4c332c96e9b4e45904d22f6daf22"), label{}("E6-REFUSED-MINT.mint-slt"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(28,27,28,86)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-refused-mint.k)")]
+//@ 457
+// rule `<generatedTop>`(`<k>`(go(#token("18","Int"))~>inj{MInt,KItem}(X)~>inj{MInt,KItem}(Y)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{Bool,KItem}(`_<uMInt__MINT_Bool_MInt_MInt`{8}(X,Y))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(c38d902fb63e9d950ec4ce70e224ad5acfb305acade29513fb2dedf2461b405d), label(E6-REFUSED-MINT.mint-ult), org.kframework.attributes.Location(Location(29,27,29,86)), org.kframework.attributes.Source(Source(FIXTURE/e6-refused-mint.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("18")),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarX:SortMInt{Sort8{}}),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarY:SortMInt{Sort8{}}),Var'Unds'DotVar1:SortK{})))),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortBool{}, SortKItem{}}(Lbl'Unds-LT-'uMInt'UndsUnds'MINT'Unds'Bool'Unds'MInt'Unds'MInt{Sort8{}}(VarX:SortMInt{Sort8{}},VarY:SortMInt{Sort8{}})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("c38d902fb63e9d950ec4ce70e224ad5acfb305acade29513fb2dedf2461b405d"), label{}("E6-REFUSED-MINT.mint-ult"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(29,27,29,86)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-refused-mint.k)")]
+//@ 458
+// rule `<generatedTop>`(`<k>`(go(#token("19","Int"))~>inj{MInt,KItem}(X)~>inj{MInt,KItem}(Y)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{Bool,KItem}(`_<=sMInt__MINT_Bool_MInt_MInt`{8}(X,Y))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(e0a787067d93c43d8083a6c575da2a9b06ac8109ecca57a028dd471984d07440), label(E6-REFUSED-MINT.mint-sle), org.kframework.attributes.Location(Location(30,27,30,87)), org.kframework.attributes.Source(Source(FIXTURE/e6-refused-mint.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("19")),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarX:SortMInt{Sort8{}}),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarY:SortMInt{Sort8{}}),Var'Unds'DotVar1:SortK{})))),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortBool{}, SortKItem{}}(Lbl'Unds-LT-Eqls'sMInt'UndsUnds'MINT'Unds'Bool'Unds'MInt'Unds'MInt{Sort8{}}(VarX:SortMInt{Sort8{}},VarY:SortMInt{Sort8{}})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("e0a787067d93c43d8083a6c575da2a9b06ac8109ecca57a028dd471984d07440"), label{}("E6-REFUSED-MINT.mint-sle"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(30,27,30,87)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-refused-mint.k)")]
+//@ 459
+// rule `<generatedTop>`(`<k>`(go(#token("2","Int"))~>inj{MInt,KItem}(X)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{MInt,KItem}(`--MInt__MINT_MInt_MInt`{8}(X))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(09c3e28b7e850180ed99819c8ada5c71d2db85eace71559fe151981983f9996d), label(E6-REFUSED-MINT.mint-neg), org.kframework.attributes.Location(Location(13,27,13,71)), org.kframework.attributes.Source(Source(FIXTURE/e6-refused-mint.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("2")),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarX:SortMInt{Sort8{}}),Var'Unds'DotVar1:SortK{}))),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(Lbl--MInt'UndsUnds'MINT'Unds'MInt'Unds'MInt{Sort8{}}(VarX:SortMInt{Sort8{}})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("09c3e28b7e850180ed99819c8ada5c71d2db85eace71559fe151981983f9996d"), label{}("E6-REFUSED-MINT.mint-neg"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(13,27,13,71)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-refused-mint.k)")]
+//@ 460
+// rule `<generatedTop>`(`<k>`(go(#token("20","Int"))~>inj{MInt,KItem}(X)~>inj{MInt,KItem}(Y)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{Bool,KItem}(`_<=uMInt__MINT_Bool_MInt_MInt`{8}(X,Y))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(a6ddefb0dddccad35a5c6b1312a5686223dfa7084dc5ee9d43a4ddaea4ba8286), label(E6-REFUSED-MINT.mint-ule), org.kframework.attributes.Location(Location(31,27,31,87)), org.kframework.attributes.Source(Source(FIXTURE/e6-refused-mint.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("20")),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarX:SortMInt{Sort8{}}),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarY:SortMInt{Sort8{}}),Var'Unds'DotVar1:SortK{})))),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortBool{}, SortKItem{}}(Lbl'Unds-LT-Eqls'uMInt'UndsUnds'MINT'Unds'Bool'Unds'MInt'Unds'MInt{Sort8{}}(VarX:SortMInt{Sort8{}},VarY:SortMInt{Sort8{}})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("a6ddefb0dddccad35a5c6b1312a5686223dfa7084dc5ee9d43a4ddaea4ba8286"), label{}("E6-REFUSED-MINT.mint-ule"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(31,27,31,87)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-refused-mint.k)")]
+//@ 461
+// rule `<generatedTop>`(`<k>`(go(#token("21","Int"))~>inj{MInt,KItem}(X)~>inj{MInt,KItem}(Y)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{Bool,KItem}(`_>sMInt__MINT_Bool_MInt_MInt`{8}(X,Y))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(749071e3089fd9010659265dc6ddece101ef8a0ccb31401c84e59adfcb7fc449), label(E6-REFUSED-MINT.mint-sgt), org.kframework.attributes.Location(Location(32,27,32,86)), org.kframework.attributes.Source(Source(FIXTURE/e6-refused-mint.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("21")),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarX:SortMInt{Sort8{}}),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarY:SortMInt{Sort8{}}),Var'Unds'DotVar1:SortK{})))),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortBool{}, SortKItem{}}(Lbl'Unds-GT-'sMInt'UndsUnds'MINT'Unds'Bool'Unds'MInt'Unds'MInt{Sort8{}}(VarX:SortMInt{Sort8{}},VarY:SortMInt{Sort8{}})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("749071e3089fd9010659265dc6ddece101ef8a0ccb31401c84e59adfcb7fc449"), label{}("E6-REFUSED-MINT.mint-sgt"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(32,27,32,86)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-refused-mint.k)")]
+//@ 462
+// rule `<generatedTop>`(`<k>`(go(#token("22","Int"))~>inj{MInt,KItem}(X)~>inj{MInt,KItem}(Y)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{Bool,KItem}(`_>uMInt__MINT_Bool_MInt_MInt`{8}(X,Y))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(c99e21499b8d8e977de200037c34399bd03ed2151bfb1c9607dcf65ff858921c), label(E6-REFUSED-MINT.mint-ugt), org.kframework.attributes.Location(Location(33,27,33,86)), org.kframework.attributes.Source(Source(FIXTURE/e6-refused-mint.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("22")),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarX:SortMInt{Sort8{}}),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarY:SortMInt{Sort8{}}),Var'Unds'DotVar1:SortK{})))),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortBool{}, SortKItem{}}(Lbl'Unds-GT-'uMInt'UndsUnds'MINT'Unds'Bool'Unds'MInt'Unds'MInt{Sort8{}}(VarX:SortMInt{Sort8{}},VarY:SortMInt{Sort8{}})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("c99e21499b8d8e977de200037c34399bd03ed2151bfb1c9607dcf65ff858921c"), label{}("E6-REFUSED-MINT.mint-ugt"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(33,27,33,86)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-refused-mint.k)")]
+//@ 463
+// rule `<generatedTop>`(`<k>`(go(#token("23","Int"))~>inj{MInt,KItem}(X)~>inj{MInt,KItem}(Y)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{Bool,KItem}(`_>=sMInt__MINT_Bool_MInt_MInt`{8}(X,Y))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(b2e95000902ab68bcc9a9c6b2ec3efc43749aed83c1a408eaca773dc03fbe795), label(E6-REFUSED-MINT.mint-sge), org.kframework.attributes.Location(Location(34,27,34,87)), org.kframework.attributes.Source(Source(FIXTURE/e6-refused-mint.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("23")),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarX:SortMInt{Sort8{}}),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarY:SortMInt{Sort8{}}),Var'Unds'DotVar1:SortK{})))),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortBool{}, SortKItem{}}(Lbl'Unds-GT-Eqls'sMInt'UndsUnds'MINT'Unds'Bool'Unds'MInt'Unds'MInt{Sort8{}}(VarX:SortMInt{Sort8{}},VarY:SortMInt{Sort8{}})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("b2e95000902ab68bcc9a9c6b2ec3efc43749aed83c1a408eaca773dc03fbe795"), label{}("E6-REFUSED-MINT.mint-sge"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(34,27,34,87)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-refused-mint.k)")]
+//@ 464
+// rule `<generatedTop>`(`<k>`(go(#token("24","Int"))~>inj{MInt,KItem}(X)~>inj{MInt,KItem}(Y)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{Bool,KItem}(`_>=uMInt__MINT_Bool_MInt_MInt`{8}(X,Y))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(b28c88bd328c767c97397699ac577b35e89bc6eb2e3d514939a30107c0f3f391), label(E6-REFUSED-MINT.mint-uge), org.kframework.attributes.Location(Location(35,27,35,87)), org.kframework.attributes.Source(Source(FIXTURE/e6-refused-mint.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("24")),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarX:SortMInt{Sort8{}}),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarY:SortMInt{Sort8{}}),Var'Unds'DotVar1:SortK{})))),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortBool{}, SortKItem{}}(Lbl'Unds-GT-Eqls'uMInt'UndsUnds'MINT'Unds'Bool'Unds'MInt'Unds'MInt{Sort8{}}(VarX:SortMInt{Sort8{}},VarY:SortMInt{Sort8{}})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("b28c88bd328c767c97397699ac577b35e89bc6eb2e3d514939a30107c0f3f391"), label{}("E6-REFUSED-MINT.mint-uge"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(35,27,35,87)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-refused-mint.k)")]
+//@ 465
+// rule `<generatedTop>`(`<k>`(go(#token("25","Int"))~>inj{MInt,KItem}(X)~>inj{MInt,KItem}(Y)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{Bool,KItem}(`_==MInt__MINT_Bool_MInt_MInt`{8}(X,Y))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(0a0050b34160f9bc594e55a21adf9c57097223b30c0add6201b8ca59a2107adc), label(E6-REFUSED-MINT.mint-eq), org.kframework.attributes.Location(Location(36,27,36,86)), org.kframework.attributes.Source(Source(FIXTURE/e6-refused-mint.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("25")),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarX:SortMInt{Sort8{}}),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarY:SortMInt{Sort8{}}),Var'Unds'DotVar1:SortK{})))),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortBool{}, SortKItem{}}(Lbl'UndsEqlsEqls'MInt'UndsUnds'MINT'Unds'Bool'Unds'MInt'Unds'MInt{Sort8{}}(VarX:SortMInt{Sort8{}},VarY:SortMInt{Sort8{}})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("0a0050b34160f9bc594e55a21adf9c57097223b30c0add6201b8ca59a2107adc"), label{}("E6-REFUSED-MINT.mint-eq"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(36,27,36,86)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-refused-mint.k)")]
+//@ 466
+// rule `<generatedTop>`(`<k>`(go(#token("26","Int"))~>inj{MInt,KItem}(X)~>inj{MInt,KItem}(Y)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{Bool,KItem}(`_=/=MInt__MINT_Bool_MInt_MInt`{8}(X,Y))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(8c0eb4f28d6606abc86eff94ed5ac6d46e903edae3436037d2f92e74ce3fa080), label(E6-REFUSED-MINT.mint-ne), org.kframework.attributes.Location(Location(37,27,37,87)), org.kframework.attributes.Source(Source(FIXTURE/e6-refused-mint.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("26")),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarX:SortMInt{Sort8{}}),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarY:SortMInt{Sort8{}}),Var'Unds'DotVar1:SortK{})))),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortBool{}, SortKItem{}}(Lbl'UndsEqlsSlshEqls'MInt'UndsUnds'MINT'Unds'Bool'Unds'MInt'Unds'MInt{Sort8{}}(VarX:SortMInt{Sort8{}},VarY:SortMInt{Sort8{}})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("8c0eb4f28d6606abc86eff94ed5ac6d46e903edae3436037d2f92e74ce3fa080"), label{}("E6-REFUSED-MINT.mint-ne"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(37,27,37,87)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-refused-mint.k)")]
+//@ 467
+// rule `<generatedTop>`(`<k>`(go(#token("27","Int"))~>inj{MInt,KItem}(X)~>inj{MInt,KItem}(Y)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{MInt,KItem}(`sMaxMInt(_,_)_MINT_MInt_MInt_MInt`{8}(X,Y))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(ed90aca5bee4f2ec77eeebe924bbd4e4b88496033411d065e5ea2bde7a41eeb3), label(E6-REFUSED-MINT.mint-smax), org.kframework.attributes.Location(Location(38,27,38,90)), org.kframework.attributes.Source(Source(FIXTURE/e6-refused-mint.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("27")),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarX:SortMInt{Sort8{}}),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarY:SortMInt{Sort8{}}),Var'Unds'DotVar1:SortK{})))),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(LblsMaxMInt'LParUndsCommUndsRParUnds'MINT'Unds'MInt'Unds'MInt'Unds'MInt{Sort8{}}(VarX:SortMInt{Sort8{}},VarY:SortMInt{Sort8{}})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("ed90aca5bee4f2ec77eeebe924bbd4e4b88496033411d065e5ea2bde7a41eeb3"), label{}("E6-REFUSED-MINT.mint-smax"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(38,27,38,90)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-refused-mint.k)")]
+//@ 468
+// rule `<generatedTop>`(`<k>`(go(#token("28","Int"))~>inj{MInt,KItem}(X)~>inj{MInt,KItem}(Y)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{MInt,KItem}(`sMinMInt(_,_)_MINT_MInt_MInt_MInt`{8}(X,Y))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(871fff6b23fc38a743f93d41fa34d2bbd0c471f99111847910a268cbbcb18199), label(E6-REFUSED-MINT.mint-smin), org.kframework.attributes.Location(Location(39,27,39,90)), org.kframework.attributes.Source(Source(FIXTURE/e6-refused-mint.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("28")),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarX:SortMInt{Sort8{}}),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarY:SortMInt{Sort8{}}),Var'Unds'DotVar1:SortK{})))),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(LblsMinMInt'LParUndsCommUndsRParUnds'MINT'Unds'MInt'Unds'MInt'Unds'MInt{Sort8{}}(VarX:SortMInt{Sort8{}},VarY:SortMInt{Sort8{}})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("871fff6b23fc38a743f93d41fa34d2bbd0c471f99111847910a268cbbcb18199"), label{}("E6-REFUSED-MINT.mint-smin"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(39,27,39,90)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-refused-mint.k)")]
+//@ 469
+// rule `<generatedTop>`(`<k>`(go(#token("29","Int"))~>inj{MInt,KItem}(X)~>inj{MInt,KItem}(Y)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{MInt,KItem}(`uMaxMInt(_,_)_MINT_MInt_MInt_MInt`{8}(X,Y))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(0505aee9f6c50785d202d25aefe0422ad357a7753636d1945c89045558dc2589), label(E6-REFUSED-MINT.mint-umax), org.kframework.attributes.Location(Location(40,27,40,90)), org.kframework.attributes.Source(Source(FIXTURE/e6-refused-mint.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("29")),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarX:SortMInt{Sort8{}}),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarY:SortMInt{Sort8{}}),Var'Unds'DotVar1:SortK{})))),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(LbluMaxMInt'LParUndsCommUndsRParUnds'MINT'Unds'MInt'Unds'MInt'Unds'MInt{Sort8{}}(VarX:SortMInt{Sort8{}},VarY:SortMInt{Sort8{}})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("0505aee9f6c50785d202d25aefe0422ad357a7753636d1945c89045558dc2589"), label{}("E6-REFUSED-MINT.mint-umax"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(40,27,40,90)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-refused-mint.k)")]
+//@ 470
+// rule `<generatedTop>`(`<k>`(go(#token("3","Int"))~>inj{MInt,KItem}(X)~>inj{MInt,KItem}(Y)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{MInt,KItem}(`_^MInt__MINT_MInt_MInt_MInt`{8}(X,Y))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(8723e795d609f5265de188787ba61ac9ee00db5e474908dfdf0c1087fd477c8d), label(E6-REFUSED-MINT.mint-pow), org.kframework.attributes.Location(Location(14,27,14,85)), org.kframework.attributes.Source(Source(FIXTURE/e6-refused-mint.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("3")),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarX:SortMInt{Sort8{}}),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarY:SortMInt{Sort8{}}),Var'Unds'DotVar1:SortK{})))),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(Lbl'UndsXor-'MInt'UndsUnds'MINT'Unds'MInt'Unds'MInt'Unds'MInt{Sort8{}}(VarX:SortMInt{Sort8{}},VarY:SortMInt{Sort8{}})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("8723e795d609f5265de188787ba61ac9ee00db5e474908dfdf0c1087fd477c8d"), label{}("E6-REFUSED-MINT.mint-pow"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(14,27,14,85)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-refused-mint.k)")]
+//@ 471
+// rule `<generatedTop>`(`<k>`(go(#token("30","Int"))~>inj{MInt,KItem}(X)~>inj{MInt,KItem}(Y)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{MInt,KItem}(`uMinMInt(_,_)_MINT_MInt_MInt_MInt`{8}(X,Y))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(bc962ada0eac97d07baa47e1b495aa0ecd4285793d21463985182c3485235eed), label(E6-REFUSED-MINT.mint-umin), org.kframework.attributes.Location(Location(41,27,41,90)), org.kframework.attributes.Source(Source(FIXTURE/e6-refused-mint.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("30")),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarX:SortMInt{Sort8{}}),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarY:SortMInt{Sort8{}}),Var'Unds'DotVar1:SortK{})))),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(LbluMinMInt'LParUndsCommUndsRParUnds'MINT'Unds'MInt'Unds'MInt'Unds'MInt{Sort8{}}(VarX:SortMInt{Sort8{}},VarY:SortMInt{Sort8{}})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("bc962ada0eac97d07baa47e1b495aa0ecd4285793d21463985182c3485235eed"), label{}("E6-REFUSED-MINT.mint-umin"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(41,27,41,90)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-refused-mint.k)")]
+//@ 472
+// rule `<generatedTop>`(`<k>`(go(#token("31","Int"))~>inj{MInt,KItem}(X)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{MInt,KItem}(`roundMInt(_)_MINT_MInt_MInt`{16,8}(X))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(b7bfb14f7a35c702de3e6bf0c7842dacb8e5415ef7763f8381d2e5b92921b680), label(E6-REFUSED-MINT.mint-round), org.kframework.attributes.Location(Location(42,27,42,85)), org.kframework.attributes.Source(Source(FIXTURE/e6-refused-mint.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("31")),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarX:SortMInt{Sort8{}}),Var'Unds'DotVar1:SortK{}))),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortMInt{Sort16{}}, SortKItem{}}(LblroundMInt'LParUndsRParUnds'MINT'Unds'MInt'Unds'MInt{Sort16{}, Sort8{}}(VarX:SortMInt{Sort8{}})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("b7bfb14f7a35c702de3e6bf0c7842dacb8e5415ef7763f8381d2e5b92921b680"), label{}("E6-REFUSED-MINT.mint-round"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(42,27,42,85)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-refused-mint.k)")]
+//@ 473
+// rule `<generatedTop>`(`<k>`(go(#token("32","Int"))~>inj{MInt,KItem}(X)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{MInt,KItem}(`signExtendMInt(_)_MINT_MInt_MInt`{16,8}(X))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(629049280c2a6fff17c78c962343bddb7fecce23b1cc4505b07e53e720e93bc6), label(E6-REFUSED-MINT.mint-sext), org.kframework.attributes.Location(Location(43,27,43,90)), org.kframework.attributes.Source(Source(FIXTURE/e6-refused-mint.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("32")),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarX:SortMInt{Sort8{}}),Var'Unds'DotVar1:SortK{}))),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortMInt{Sort16{}}, SortKItem{}}(LblsignExtendMInt'LParUndsRParUnds'MINT'Unds'MInt'Unds'MInt{Sort16{}, Sort8{}}(VarX:SortMInt{Sort8{}})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("629049280c2a6fff17c78c962343bddb7fecce23b1cc4505b07e53e720e93bc6"), label{}("E6-REFUSED-MINT.mint-sext"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(43,27,43,90)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-refused-mint.k)")]
+//@ 474
+// rule `<generatedTop>`(`<k>`(go(#token("33","Int"))~>inj{MInt,KItem}(X)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{Int,KItem}(`bitwidthMInt(_)_MINT_Int_MInt`{8}(X))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(0b6bf26d93ca835ba9065173d7d76324ff519c08b1505827d52e1397e4a92e69), label(E6-REFUSED-MINT.mint-bitwidth), org.kframework.attributes.Location(Location(44,27,44,78)), org.kframework.attributes.Source(Source(FIXTURE/e6-refused-mint.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("33")),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarX:SortMInt{Sort8{}}),Var'Unds'DotVar1:SortK{}))),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortInt{}, SortKItem{}}(LblbitwidthMInt'LParUndsRParUnds'MINT'Unds'Int'Unds'MInt{Sort8{}}(VarX:SortMInt{Sort8{}})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("0b6bf26d93ca835ba9065173d7d76324ff519c08b1505827d52e1397e4a92e69"), label{}("E6-REFUSED-MINT.mint-bitwidth"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(44,27,44,78)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-refused-mint.k)")]
+//@ 475
+// rule `<generatedTop>`(`<k>`(go(#token("34","Int"))~>inj{MInt,KItem}(X)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{Int,KItem}(`MInt2Signed(_)_MINT_Int_MInt`{8}(X))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(300100b359c1cc83368d081304d0f263083f2594fb7bc367fe28c084057f099e), label(E6-REFUSED-MINT.mint-svalue), org.kframework.attributes.Location(Location(45,27,45,77)), org.kframework.attributes.Source(Source(FIXTURE/e6-refused-mint.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("34")),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarX:SortMInt{Sort8{}}),Var'Unds'DotVar1:SortK{}))),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortInt{}, SortKItem{}}(LblMInt2Signed'LParUndsRParUnds'MINT'Unds'Int'Unds'MInt{Sort8{}}(VarX:SortMInt{Sort8{}})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("300100b359c1cc83368d081304d0f263083f2594fb7bc367fe28c084057f099e"), label{}("E6-REFUSED-MINT.mint-svalue"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(45,27,45,77)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-refused-mint.k)")]
+//@ 476
+// rule `<generatedTop>`(`<k>`(go(#token("35","Int"))~>inj{MInt,KItem}(X)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{Int,KItem}(`MInt2Unsigned(_)_MINT_Int_MInt`{8}(X))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(ef545bc4cb3a35f0a1ed461d65af7124ea2e52b18004069f2267a2365c09bc92), label(E6-REFUSED-MINT.mint-uvalue), org.kframework.attributes.Location(Location(46,27,46,79)), org.kframework.attributes.Source(Source(FIXTURE/e6-refused-mint.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("35")),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarX:SortMInt{Sort8{}}),Var'Unds'DotVar1:SortK{}))),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortInt{}, SortKItem{}}(LblMInt2Unsigned'LParUndsRParUnds'MINT'Unds'Int'Unds'MInt{Sort8{}}(VarX:SortMInt{Sort8{}})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("ef545bc4cb3a35f0a1ed461d65af7124ea2e52b18004069f2267a2365c09bc92"), label{}("E6-REFUSED-MINT.mint-uvalue"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(46,27,46,79)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-refused-mint.k)")]
+//@ 477
+// rule `<generatedTop>`(`<k>`(go(#token("36","Int"))~>inj{Int,KItem}(I)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{MInt,KItem}(`Int2MInt(_)_MINT_MInt_Int`{8}(I))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(e5321eef9e3beafc7eef3164d854d5638be0a0e9946887a360a7c4ac891ecc27), label(E6-REFUSED-MINT.mint-integer), org.kframework.attributes.Location(Location(47,27,47,79)), org.kframework.attributes.Source(Source(FIXTURE/e6-refused-mint.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("36")),kseq{}(inj{SortInt{}, SortKItem{}}(VarI:SortInt{}),Var'Unds'DotVar1:SortK{}))),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(LblInt2MInt'LParUndsRParUnds'MINT'Unds'MInt'Unds'Int{Sort8{}}(VarI:SortInt{})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("e5321eef9e3beafc7eef3164d854d5638be0a0e9946887a360a7c4ac891ecc27"), label{}("E6-REFUSED-MINT.mint-integer"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(47,27,47,79)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-refused-mint.k)")]
+//@ 478
+// rule `<generatedTop>`(`<k>`(go(#token("37","Int"))~>inj{MInt,KItem}(X)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{Bytes,KItem}(`MInt2Bytes(_)_MINT_Bytes_MInt`{8}(X))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(7d5a4283046a1ff36f2e719d706f4fb4d9e4f29a98d05738720609d85a3aebb8), label(E6-REFUSED-MINT.mint-MInt2bytes), org.kframework.attributes.Location(Location(48,27,48,76)), org.kframework.attributes.Source(Source(FIXTURE/e6-refused-mint.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("37")),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarX:SortMInt{Sort8{}}),Var'Unds'DotVar1:SortK{}))),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortBytes{}, SortKItem{}}(LblMInt2Bytes'LParUndsRParUnds'MINT'Unds'Bytes'Unds'MInt{Sort8{}}(VarX:SortMInt{Sort8{}})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("7d5a4283046a1ff36f2e719d706f4fb4d9e4f29a98d05738720609d85a3aebb8"), label{}("E6-REFUSED-MINT.mint-MInt2bytes"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(48,27,48,76)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-refused-mint.k)")]
+//@ 479
+// rule `<generatedTop>`(`<k>`(go(#token("38","Int"))~>inj{Bytes,KItem}(B)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{MInt,KItem}(`Bytes2MInt(_)_MINT_MInt_Bytes`{8}(B))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(c33932cbcafca7f8f210e725466242bf984320f367b0deb52556416cdd3b68be), label(E6-REFUSED-MINT.mint-bytes2MInt), org.kframework.attributes.Location(Location(49,27,49,83)), org.kframework.attributes.Source(Source(FIXTURE/e6-refused-mint.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("38")),kseq{}(inj{SortBytes{}, SortKItem{}}(VarB:SortBytes{}),Var'Unds'DotVar1:SortK{}))),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(LblBytes2MInt'LParUndsRParUnds'MINT'Unds'MInt'Unds'Bytes{Sort8{}}(VarB:SortBytes{})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("c33932cbcafca7f8f210e725466242bf984320f367b0deb52556416cdd3b68be"), label{}("E6-REFUSED-MINT.mint-bytes2MInt"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(49,27,49,83)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-refused-mint.k)")]
+//@ 480
+// rule `<generatedTop>`(`<k>`(go(#token("39","Int"))~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{MInt,KItem}(#token("3p8","MInt{8}"))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(a36f6627836c2ed6bdd81fc333a83c35129670c22cfe9855a5e9955729f6340c), label(E6-REFUSED-MINT.mint-literal), org.kframework.attributes.Location(Location(50,27,50,53)), org.kframework.attributes.Source(Source(FIXTURE/e6-refused-mint.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("39")),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(\dv{SortMInt{Sort8{}}}("3p8")),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("a36f6627836c2ed6bdd81fc333a83c35129670c22cfe9855a5e9955729f6340c"), label{}("E6-REFUSED-MINT.mint-literal"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(50,27,50,53)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-refused-mint.k)")]
+//@ 481
+// rule `<generatedTop>`(`<k>`(go(#token("4","Int"))~>inj{MInt,KItem}(X)~>inj{MInt,KItem}(Y)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{MInt,KItem}(`_*MInt__MINT_MInt_MInt_MInt`{8}(X,Y))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(3efc7ceacbe720caa3373c7ab2aa3de491c23b7b2ca7368087e924b455e3d393), label(E6-REFUSED-MINT.mint-mul), org.kframework.attributes.Location(Location(15,27,15,85)), org.kframework.attributes.Source(Source(FIXTURE/e6-refused-mint.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("4")),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarX:SortMInt{Sort8{}}),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarY:SortMInt{Sort8{}}),Var'Unds'DotVar1:SortK{})))),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(Lbl'UndsStar'MInt'UndsUnds'MINT'Unds'MInt'Unds'MInt'Unds'MInt{Sort8{}}(VarX:SortMInt{Sort8{}},VarY:SortMInt{Sort8{}})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("3efc7ceacbe720caa3373c7ab2aa3de491c23b7b2ca7368087e924b455e3d393"), label{}("E6-REFUSED-MINT.mint-mul"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(15,27,15,85)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-refused-mint.k)")]
+//@ 482
+// rule `<generatedTop>`(`<k>`(go(#token("5","Int"))~>inj{MInt,KItem}(X)~>inj{MInt,KItem}(Y)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{MInt,KItem}(`_/sMInt__MINT_MInt_MInt_MInt`{8}(X,Y))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(286a5a869e8dba28e0146f47e6c44864f98e94006b61115191eae5a2bf9b1a50), label(E6-REFUSED-MINT.mint-sdiv), org.kframework.attributes.Location(Location(16,27,16,86)), org.kframework.attributes.Source(Source(FIXTURE/e6-refused-mint.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("5")),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarX:SortMInt{Sort8{}}),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarY:SortMInt{Sort8{}}),Var'Unds'DotVar1:SortK{})))),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(Lbl'UndsSlsh'sMInt'UndsUnds'MINT'Unds'MInt'Unds'MInt'Unds'MInt{Sort8{}}(VarX:SortMInt{Sort8{}},VarY:SortMInt{Sort8{}})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("286a5a869e8dba28e0146f47e6c44864f98e94006b61115191eae5a2bf9b1a50"), label{}("E6-REFUSED-MINT.mint-sdiv"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(16,27,16,86)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-refused-mint.k)")]
+//@ 483
+// rule `<generatedTop>`(`<k>`(go(#token("6","Int"))~>inj{MInt,KItem}(X)~>inj{MInt,KItem}(Y)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{MInt,KItem}(`_%sMInt__MINT_MInt_MInt_MInt`{8}(X,Y))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(1a2b83b01468418f4138de1922fe653f3c066003e553f4ec5649f1858baf9100), label(E6-REFUSED-MINT.mint-srem), org.kframework.attributes.Location(Location(17,27,17,86)), org.kframework.attributes.Source(Source(FIXTURE/e6-refused-mint.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("6")),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarX:SortMInt{Sort8{}}),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarY:SortMInt{Sort8{}}),Var'Unds'DotVar1:SortK{})))),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(Lbl'UndsPerc'sMInt'UndsUnds'MINT'Unds'MInt'Unds'MInt'Unds'MInt{Sort8{}}(VarX:SortMInt{Sort8{}},VarY:SortMInt{Sort8{}})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("1a2b83b01468418f4138de1922fe653f3c066003e553f4ec5649f1858baf9100"), label{}("E6-REFUSED-MINT.mint-srem"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(17,27,17,86)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-refused-mint.k)")]
+//@ 484
+// rule `<generatedTop>`(`<k>`(go(#token("7","Int"))~>inj{MInt,KItem}(X)~>inj{MInt,KItem}(Y)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{MInt,KItem}(`_/uMInt__MINT_MInt_MInt_MInt`{8}(X,Y))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(230c220de523f519a76bff36da7e7610ff7e23dd7795a8ce4f874027ad18f5bf), label(E6-REFUSED-MINT.mint-udiv), org.kframework.attributes.Location(Location(18,27,18,86)), org.kframework.attributes.Source(Source(FIXTURE/e6-refused-mint.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("7")),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarX:SortMInt{Sort8{}}),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarY:SortMInt{Sort8{}}),Var'Unds'DotVar1:SortK{})))),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(Lbl'UndsSlsh'uMInt'UndsUnds'MINT'Unds'MInt'Unds'MInt'Unds'MInt{Sort8{}}(VarX:SortMInt{Sort8{}},VarY:SortMInt{Sort8{}})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("230c220de523f519a76bff36da7e7610ff7e23dd7795a8ce4f874027ad18f5bf"), label{}("E6-REFUSED-MINT.mint-udiv"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(18,27,18,86)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-refused-mint.k)")]
+//@ 485
+// rule `<generatedTop>`(`<k>`(go(#token("8","Int"))~>inj{MInt,KItem}(X)~>inj{MInt,KItem}(Y)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{MInt,KItem}(`_%uMInt__MINT_MInt_MInt_MInt`{8}(X,Y))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(3609b6161cff6e34c11f668c176513733b0a8f824f6046be0863193a7ef4223b), label(E6-REFUSED-MINT.mint-urem), org.kframework.attributes.Location(Location(19,27,19,86)), org.kframework.attributes.Source(Source(FIXTURE/e6-refused-mint.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("8")),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarX:SortMInt{Sort8{}}),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarY:SortMInt{Sort8{}}),Var'Unds'DotVar1:SortK{})))),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(Lbl'UndsPerc'uMInt'UndsUnds'MINT'Unds'MInt'Unds'MInt'Unds'MInt{Sort8{}}(VarX:SortMInt{Sort8{}},VarY:SortMInt{Sort8{}})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("3609b6161cff6e34c11f668c176513733b0a8f824f6046be0863193a7ef4223b"), label{}("E6-REFUSED-MINT.mint-urem"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(19,27,19,86)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-refused-mint.k)")]
+//@ 486
+// rule `<generatedTop>`(`<k>`(go(#token("9","Int"))~>inj{MInt,KItem}(X)~>inj{MInt,KItem}(Y)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{MInt,KItem}(`_+MInt__MINT_MInt_MInt_MInt`{8}(X,Y))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(9c17791fc821d26b663817b8a656ca852fa0a78a2f239d9a0c67afecf944b8c0), label(E6-REFUSED-MINT.mint-add), org.kframework.attributes.Location(Location(20,27,20,85)), org.kframework.attributes.Source(Source(FIXTURE/e6-refused-mint.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("9")),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarX:SortMInt{Sort8{}}),kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarY:SortMInt{Sort8{}}),Var'Unds'DotVar1:SortK{})))),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(Lbl'UndsPlus'MInt'UndsUnds'MINT'Unds'MInt'Unds'MInt'Unds'MInt{Sort8{}}(VarX:SortMInt{Sort8{}},VarY:SortMInt{Sort8{}})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("9c17791fc821d26b663817b8a656ca852fa0a78a2f239d9a0c67afecf944b8c0"), label{}("E6-REFUSED-MINT.mint-add"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(20,27,20,85)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-refused-mint.k)")]
+//@ 550
+// rule is16(K)=>#token("false","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(d4353d78193f078d1571e93972f2a4262d2ed50e303134283048c641a7b67b1a), owise]
+  axiom{R} \implies{R} (
+    \and{R} (
+      \not{R} (
+        \or{R} (
+          \exists{R} (Var'Unds'Gen1:Sort16{},
+            \and{R} (
+              \top{R}(),
+              \and{R} (
+                \in{SortK{}, R} (
+                  X0:SortK{},
+                  kseq{}(inj{Sort16{}, SortKItem{}}(Var'Unds'Gen1:Sort16{}),dotk{}())
+                ),
+                \top{R} ()
+              )
+          )),
+          \bottom{R}()
+        )
+      ),
+      \and{R}(
+        \top{R}(),
+        \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            VarK:SortK{}
+          ),
+          \top{R} ()
+        )
+    )),
+    \equals{SortBool{},R} (
+      Lblis16{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("false"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("d4353d78193f078d1571e93972f2a4262d2ed50e303134283048c641a7b67b1a"), owise{}()]
+//@ 551
+// rule is16(inj{16,KItem}(16))=>#token("true","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(1de151f862ddd6d2185297ed8ffb76f9b27d1fd8d2d58586ae225875c47e717b)]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{Sort16{}, SortKItem{}}(Var16:Sort16{}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortBool{},R} (
+      Lblis16{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("true"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("1de151f862ddd6d2185297ed8ffb76f9b27d1fd8d2d58586ae225875c47e717b")]
+//@ 552
+// rule is8(K)=>#token("false","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(2693b34deac73e1411d745533a5673c7108f2ffdf2d1de825a8f339042505087), owise]
+  axiom{R} \implies{R} (
+    \and{R} (
+      \not{R} (
+        \or{R} (
+          \exists{R} (Var'Unds'Gen0:Sort8{},
+            \and{R} (
+              \top{R}(),
+              \and{R} (
+                \in{SortK{}, R} (
+                  X0:SortK{},
+                  kseq{}(inj{Sort8{}, SortKItem{}}(Var'Unds'Gen0:Sort8{}),dotk{}())
+                ),
+                \top{R} ()
+              )
+          )),
+          \bottom{R}()
+        )
+      ),
+      \and{R}(
+        \top{R}(),
+        \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            VarK:SortK{}
+          ),
+          \top{R} ()
+        )
+    )),
+    \equals{SortBool{},R} (
+      Lblis8{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("false"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("2693b34deac73e1411d745533a5673c7108f2ffdf2d1de825a8f339042505087"), owise{}()]
+//@ 553
+// rule is8(inj{8,KItem}(8))=>#token("true","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(42dbfef0cc222566717dc14d605a28a13cd4f1ae758af6b7068bd1b5a4b7af24)]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{Sort8{}, SortKItem{}}(Var8:Sort8{}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortBool{},R} (
+      Lblis8{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("true"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("42dbfef0cc222566717dc14d605a28a13cd4f1ae758af6b7068bd1b5a4b7af24")]
+//@ 556
+// rule isBytes(K)=>#token("false","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(7b64e4dd7c4feb3f2de6be193043beffb53ede0465701be9cadd48a9abe0e27f), owise]
+  axiom{R} \implies{R} (
+    \and{R} (
+      \not{R} (
+        \or{R} (
+          \exists{R} (Var'Unds'Gen1:SortBytes{},
+            \and{R} (
+              \top{R}(),
+              \and{R} (
+                \in{SortK{}, R} (
+                  X0:SortK{},
+                  kseq{}(inj{SortBytes{}, SortKItem{}}(Var'Unds'Gen1:SortBytes{}),dotk{}())
+                ),
+                \top{R} ()
+              )
+          )),
+          \bottom{R}()
+        )
+      ),
+      \and{R}(
+        \top{R}(),
+        \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            VarK:SortK{}
+          ),
+          \top{R} ()
+        )
+    )),
+    \equals{SortBool{},R} (
+      LblisBytes{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("false"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("7b64e4dd7c4feb3f2de6be193043beffb53ede0465701be9cadd48a9abe0e27f"), owise{}()]
+//@ 557
+// rule isBytes(inj{Bytes,KItem}(Bytes))=>#token("true","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(cf9557048af554522e5d8df98ce08e94bee4e83a204d7d8282e6546ab477e7af)]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{SortBytes{}, SortKItem{}}(VarBytes:SortBytes{}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortBool{},R} (
+      LblisBytes{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("true"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("cf9557048af554522e5d8df98ce08e94bee4e83a204d7d8282e6546ab477e7af")]
+//@ 558
+// rule isEndianness(K)=>#token("false","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(1e0c7b51dfff4f4f81e007d23b825ea5a0aac1580bcc8afdf28a2ab4b982dbe7), owise]
+  axiom{R} \implies{R} (
+    \and{R} (
+      \not{R} (
+        \or{R} (
+          \exists{R} (Var'Unds'Gen1:SortEndianness{},
+            \and{R} (
+              \top{R}(),
+              \and{R} (
+                \in{SortK{}, R} (
+                  X0:SortK{},
+                  kseq{}(inj{SortEndianness{}, SortKItem{}}(Var'Unds'Gen1:SortEndianness{}),dotk{}())
+                ),
+                \top{R} ()
+              )
+          )),
+          \bottom{R}()
+        )
+      ),
+      \and{R}(
+        \top{R}(),
+        \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            VarK:SortK{}
+          ),
+          \top{R} ()
+        )
+    )),
+    \equals{SortBool{},R} (
+      LblisEndianness{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("false"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("1e0c7b51dfff4f4f81e007d23b825ea5a0aac1580bcc8afdf28a2ab4b982dbe7"), owise{}()]
+//@ 559
+// rule isEndianness(inj{Endianness,KItem}(Endianness))=>#token("true","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(046f538ac22bdf3ccf0a2eb4a68371a574a4365990ffba4473d6583c31396757)]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{SortEndianness{}, SortKItem{}}(VarEndianness:SortEndianness{}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortBool{},R} (
+      LblisEndianness{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("true"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("046f538ac22bdf3ccf0a2eb4a68371a574a4365990ffba4473d6583c31396757")]
+//@ 581
+// rule `isMInt{16}`(K)=>#token("false","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(20de5e5e484667176bd81d716c77879037f6960ff36b1266164a88dd3e5fd5ba), owise]
+  axiom{R} \implies{R} (
+    \and{R} (
+      \not{R} (
+        \or{R} (
+          \exists{R} (Var'Unds'Gen0:SortMInt{Sort16{}},
+            \and{R} (
+              \top{R}(),
+              \and{R} (
+                \in{SortK{}, R} (
+                  X0:SortK{},
+                  kseq{}(inj{SortMInt{Sort16{}}, SortKItem{}}(Var'Unds'Gen0:SortMInt{Sort16{}}),dotk{}())
+                ),
+                \top{R} ()
+              )
+          )),
+          \bottom{R}()
+        )
+      ),
+      \and{R}(
+        \top{R}(),
+        \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            VarK:SortK{}
+          ),
+          \top{R} ()
+        )
+    )),
+    \equals{SortBool{},R} (
+      LblisMInt'LBra'16'RBra'{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("false"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("20de5e5e484667176bd81d716c77879037f6960ff36b1266164a88dd3e5fd5ba"), owise{}()]
+//@ 582
+// rule `isMInt{16}`(inj{MInt,KItem}(MInt))=>#token("true","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(f115f9b713bfedfa4556cdc91579acb06da76af118eeba675403f804cb0634b4)]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{SortMInt{Sort16{}}, SortKItem{}}(VarMInt:SortMInt{Sort16{}}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortBool{},R} (
+      LblisMInt'LBra'16'RBra'{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("true"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("f115f9b713bfedfa4556cdc91579acb06da76af118eeba675403f804cb0634b4")]
+//@ 583
+// rule `isMInt{8}`(K)=>#token("false","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(c524ef7af377d50f6e353d4405ff96ab03c5f8bf1a73f9de692ab8bce7eb8172), owise]
+  axiom{R} \implies{R} (
+    \and{R} (
+      \not{R} (
+        \or{R} (
+          \exists{R} (Var'Unds'Gen1:SortMInt{Sort8{}},
+            \and{R} (
+              \top{R}(),
+              \and{R} (
+                \in{SortK{}, R} (
+                  X0:SortK{},
+                  kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(Var'Unds'Gen1:SortMInt{Sort8{}}),dotk{}())
+                ),
+                \top{R} ()
+              )
+          )),
+          \bottom{R}()
+        )
+      ),
+      \and{R}(
+        \top{R}(),
+        \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            VarK:SortK{}
+          ),
+          \top{R} ()
+        )
+    )),
+    \equals{SortBool{},R} (
+      LblisMInt'LBra'8'RBra'{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("false"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("c524ef7af377d50f6e353d4405ff96ab03c5f8bf1a73f9de692ab8bce7eb8172"), owise{}()]
+//@ 584
+// rule `isMInt{8}`(inj{MInt,KItem}(MInt))=>#token("true","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(023f885d6950498760bc9a5ab8b2d471d0ce16dacec268c553169b40e375df70)]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarMInt:SortMInt{Sort8{}}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortBool{},R} (
+      LblisMInt'LBra'8'RBra'{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("true"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("023f885d6950498760bc9a5ab8b2d471d0ce16dacec268c553169b40e375df70")]
+//@ 589
+// rule isSignedness(K)=>#token("false","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(fdb4f75eac954bf992f8bef0826d300214e56ed18582ea34e002f78ab98c8a0f), owise]
+  axiom{R} \implies{R} (
+    \and{R} (
+      \not{R} (
+        \or{R} (
+          \exists{R} (Var'Unds'Gen0:SortSignedness{},
+            \and{R} (
+              \top{R}(),
+              \and{R} (
+                \in{SortK{}, R} (
+                  X0:SortK{},
+                  kseq{}(inj{SortSignedness{}, SortKItem{}}(Var'Unds'Gen0:SortSignedness{}),dotk{}())
+                ),
+                \top{R} ()
+              )
+          )),
+          \bottom{R}()
+        )
+      ),
+      \and{R}(
+        \top{R}(),
+        \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            VarK:SortK{}
+          ),
+          \top{R} ()
+        )
+    )),
+    \equals{SortBool{},R} (
+      LblisSignedness{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("false"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("fdb4f75eac954bf992f8bef0826d300214e56ed18582ea34e002f78ab98c8a0f"), owise{}()]
+//@ 590
+// rule isSignedness(inj{Signedness,KItem}(Signedness))=>#token("true","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(d1de4cb84bd34d2dbc5bcaae03818af056fd81a68d3b9738c7a3f06055d74e93)]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{SortSignedness{}, SortKItem{}}(VarSignedness:SortSignedness{}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortBool{},R} (
+      LblisSignedness{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("true"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("d1de4cb84bd34d2dbc5bcaae03818af056fd81a68d3b9738c7a3f06055d74e93")]
+//@ 591
+// rule isString(K)=>#token("false","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(fbe29b27977283e8cb5b35f1b17a6b7b2abc92a7fca608d496b346f7b6918961), owise]
+  axiom{R} \implies{R} (
+    \and{R} (
+      \not{R} (
+        \or{R} (
+          \exists{R} (Var'Unds'Gen0:SortString{},
+            \and{R} (
+              \top{R}(),
+              \and{R} (
+                \in{SortK{}, R} (
+                  X0:SortK{},
+                  kseq{}(inj{SortString{}, SortKItem{}}(Var'Unds'Gen0:SortString{}),dotk{}())
+                ),
+                \top{R} ()
+              )
+          )),
+          \bottom{R}()
+        )
+      ),
+      \and{R}(
+        \top{R}(),
+        \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            VarK:SortK{}
+          ),
+          \top{R} ()
+        )
+    )),
+    \equals{SortBool{},R} (
+      LblisString{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("false"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("fbe29b27977283e8cb5b35f1b17a6b7b2abc92a7fca608d496b346f7b6918961"), owise{}()]
+//@ 592
+// rule isString(inj{String,KItem}(String))=>#token("true","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(109ced650ead4a5092ddba090e1b8e181633ed0aa5c5f93bce9f88be215668ef)]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{SortString{}, SortKItem{}}(VarString:SortString{}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortBool{},R} (
+      LblisString{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("true"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("109ced650ead4a5092ddba090e1b8e181633ed0aa5c5f93bce9f88be215668ef")]
+//@ 600
+// rule `project:Bytes`(inj{Bytes,KItem}(K))=>K requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(3dd796c6a5f8b672e77ec1deefb73e210491fa6a6b575e55995906d5853e0412), projection]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{SortBytes{}, SortKItem{}}(VarK:SortBytes{}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortBytes{},R} (
+      Lblproject'Coln'Bytes{}(X0:SortK{}),
+     \and{SortBytes{}} (
+       VarK:SortBytes{},
+        \top{SortBytes{}}())))
+  [UNIQUE'Unds'ID{}("3dd796c6a5f8b672e77ec1deefb73e210491fa6a6b575e55995906d5853e0412")]
+//@ 601
+// rule `project:Endianness`(inj{Endianness,KItem}(K))=>K requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(dbd19bfafbdcba20fb8bf650b93158c4bed0b9af2a0b7476d20cf061c0be7da3), projection]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{SortEndianness{}, SortKItem{}}(VarK:SortEndianness{}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortEndianness{},R} (
+      Lblproject'Coln'Endianness{}(X0:SortK{}),
+     \and{SortEndianness{}} (
+       VarK:SortEndianness{},
+        \top{SortEndianness{}}())))
+  [UNIQUE'Unds'ID{}("dbd19bfafbdcba20fb8bf650b93158c4bed0b9af2a0b7476d20cf061c0be7da3")]
+//@ 612
+// rule `project:MInt{16}`(inj{MInt,KItem}(K))=>K requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(5f19fce40a4e6f56f3a57a57b443e0b2cc8c8e754f383750452680c833010b48), projection]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{SortMInt{Sort16{}}, SortKItem{}}(VarK:SortMInt{Sort16{}}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortMInt{Sort16{}},R} (
+      Lblproject'Coln'MInt'LBra'16'RBra'{}(X0:SortK{}),
+     \and{SortMInt{Sort16{}}} (
+       VarK:SortMInt{Sort16{}},
+        \top{SortMInt{Sort16{}}}())))
+  [UNIQUE'Unds'ID{}("5f19fce40a4e6f56f3a57a57b443e0b2cc8c8e754f383750452680c833010b48")]
+//@ 613
+// rule `project:MInt{8}`(inj{MInt,KItem}(K))=>K requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(1a08906672ed661e62b7898cc2e6c229203893f6e04c898ae5e5517f2cd0451a), projection]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{SortMInt{Sort8{}}, SortKItem{}}(VarK:SortMInt{Sort8{}}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortMInt{Sort8{}},R} (
+      Lblproject'Coln'MInt'LBra'8'RBra'{}(X0:SortK{}),
+     \and{SortMInt{Sort8{}}} (
+       VarK:SortMInt{Sort8{}},
+        \top{SortMInt{Sort8{}}}())))
+  [UNIQUE'Unds'ID{}("1a08906672ed661e62b7898cc2e6c229203893f6e04c898ae5e5517f2cd0451a")]
+//@ 616
+// rule `project:Signedness`(inj{Signedness,KItem}(K))=>K requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(829c38fa75d4ab0af8ef1602244b1e03c3ba7cb56ef7ad938953f9b07c83161a), projection]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{SortSignedness{}, SortKItem{}}(VarK:SortSignedness{}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortSignedness{},R} (
+      Lblproject'Coln'Signedness{}(X0:SortK{}),
+     \and{SortSignedness{}} (
+       VarK:SortSignedness{},
+        \top{SortSignedness{}}())))
+  [UNIQUE'Unds'ID{}("829c38fa75d4ab0af8ef1602244b1e03c3ba7cb56ef7ad938953f9b07c83161a")]
+//@ 617
+// rule `project:String`(inj{String,KItem}(K))=>K requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(e491dad8f644d2344f08cb72af01ade1e6ce9f564010a2de7909b3b6c7e2ae85), projection]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{SortString{}, SortKItem{}}(VarK:SortString{}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortString{},R} (
+      Lblproject'Coln'String{}(X0:SortK{}),
+     \and{SortString{}} (
+       VarK:SortString{},
+        \top{SortString{}}())))
+  [UNIQUE'Unds'ID{}("e491dad8f644d2344f08cb72af01ade1e6ce9f564010a2de7909b3b6c7e2ae85")]
+//@ 626
+// rule #Ceil{Map,#SortParam}(`_Map_`(`_|->_`(@K0,@K1),@Rest))=>#And{#SortParam}(#Equals{Bool,#SortParam}(`_in_keys(_)_MAP_Bool_KItem_Map`(@K0,@Rest),#token("false","Bool")),#And{#SortParam}(#Top{#SortParam}(.KList),#Ceil{KItem,#SortParam}(@K1))) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(c3ef047673d1123119fa107febfbe8f250dbfbcfa1df4d2f44d28ce4e740e233), simplification, sortParams({Q0})]
+  axiom{R,Q0} \implies{R} (
+    \top{R}(),
+    \equals{Q0,R} (
+      \ceil{SortMap{}, Q0}(Lbl'Unds'Map'Unds'{}(Lbl'UndsPipe'-'-GT-Unds'{}(@VarK0:SortKItem{},@VarK1:SortKItem{}),@VarRest:SortMap{})),
+     \and{Q0} (
+       \and{Q0}(\equals{SortBool{}, Q0}(Lbl'Unds'in'Unds'keys'LParUndsRParUnds'MAP'Unds'Bool'Unds'KItem'Unds'Map{}(@VarK0:SortKItem{},@VarRest:SortMap{}),\dv{SortBool{}}("false")),\and{Q0}(\top{Q0}(),\ceil{SortKItem{}, Q0}(@VarK1:SortKItem{}))),
+        \top{Q0}())))
+  [UNIQUE'Unds'ID{}("c3ef047673d1123119fa107febfbe8f250dbfbcfa1df4d2f44d28ce4e740e233"), simplification{}("")]
+//@ 627
+endmodule [org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,1,51,10)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-refused-mint.k)")]

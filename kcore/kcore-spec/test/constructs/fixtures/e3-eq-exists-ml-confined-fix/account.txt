@@ -1,0 +1,18 @@
+out/definition.kore: 5 modules; prelude agrees
+user module E3-EQ-EXISTS-ML-CONFINED-FIX: 395 sentences
+  1 inert import [generated]
+  178 read [generated]
+  184 read [builtin]
+  7 read [user]
+  4 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert parametricFunctional [generated]
+  9 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 manyValuedRightSide
+      sentence 352 (Lblf): manyValuedRightSide (\exists)
+        [user] (no label) at e3-eq-exists-ml-confined-fix.k:13: axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortBool{}, R}(X0:SortBool{}, VarX:SortBool{}), \top{R}())), \equals{SortInt{}, R}(Lblf{}(X0:SortBool{}), \and{SortInt{}}(\exists{SortInt{}}(VarB:SortBool{}, \exists{SortInt{}}(VarZ:SortInt{}, \and{SortInt{}}(\and{SortInt{}}(\and{SortInt{}}(VarZ:SortInt{}, Lblg{}(VarB:SortBool{})), Lblh{}(VarB:SortBool{})), \equals{SortBool{}, SortInt{}}(VarB:Sor …
+finish: sentence 352 (Lblf): manyValuedRightSide (\exists)
+(exit 0)

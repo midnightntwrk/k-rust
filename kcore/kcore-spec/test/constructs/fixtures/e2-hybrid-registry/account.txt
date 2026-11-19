@@ -1,0 +1,21 @@
+out/definition.kore: 5 modules; prelude agrees
+user module E2-HYBRID-REGISTRY: 421 sentences
+  1 inert import [generated]
+  200 read [generated]
+  184 read [builtin]
+  5 read [user]
+  7 inert injectivity [generated]
+  1 inert distinctCtors [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert parametricFunctional [generated]
+  11 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 2
+  2 generatedEquation
+      sentence 392 (LblisInt): generatedEquation (LblisInt: LblisInt(_) = "false" [owise])
+        [generated] (no label) at :0: axiom{R} \implies{R}(\and{R}(\not{R}(\or{R}(\exists{R}(Var'Unds'Gen1:SortInt{}, \and{R}(\top{R}(), \and{R}(\in{SortK{}, R}(X0:SortK{}, kseq{}(inj{SortInt{}, SortKItem{}}(Var'Unds'Gen1:SortInt{}), dotk{}())), \top{R}()))), \or{R}(\exists{R}(Var'Unds'Gen2:SortExp{}, \exists{R}(Var'Unds'Gen3:SortExp{}, \and{R}(\equals{SortBool{}, R}(Lbl'Unds'andBool'Unds'{}(LblisInt{}(kseq{}(inj{SortExp{}, SortKItem{ …
+      sentence 393 (LblisInt): generatedEquation (LblisInt: LblisInt(kseq(inj(Lblpair(_, _)), dotk)) = "true" requires Lbl'Unds'andBool'Unds'(LblisInt(kseq(inj(…), dotk)), LblisInt(kseq(inj(…), dotk))))
+        [generated] (no label) at :0: axiom{R} \implies{R}(\and{R}(\equals{SortBool{}, R}(Lbl'Unds'andBool'Unds'{}(LblisInt{}(kseq{}(inj{SortExp{}, SortKItem{}}(VarK0:SortExp{}), dotk{}())), LblisInt{}(kseq{}(inj{SortExp{}, SortKItem{}}(VarK1:SortExp{}), dotk{}()))), \dv{SortBool{}}("true")), \and{R}(\in{SortK{}, R}(X0:SortK{}, kseq{}(inj{SortExp{}, SortKItem{}}(Lblpair{}(VarK0:SortExp{}, VarK1:SortExp{})), dotk{}())), \top{R}())), \e …
+finish: sentence 392 (LblisInt): generatedEquation (LblisInt: LblisInt(_) = "false" [owise])
+(exit 0)

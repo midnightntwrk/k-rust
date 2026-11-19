@@ -1,0 +1,18 @@
+out/definition.kore: 5 modules; prelude agrees
+user module E6-LIST-SET-LHS: 405 sentences
+  1 inert import [generated]
+  188 read [generated]
+  183 read [builtin]
+  5 read [user]
+  6 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert parametricFunctional [generated]
+  10 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 openRequires
+      sentence 308 (Lbl'-LT-'generatedTop'-GT-'): openRequires (Var'Unds'Gen0:List: in a condition with a variable the left side binds (V ∈ LblList'Coln'set(…)), under LblList'Coln'set, of a sort the text leaves unconfined)
+        [user] (no label) at e6-list-set-lhs.k:8: axiom{} \rewrites{SortGeneratedTopCell{}}(\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lbll{}(VarI:SortInt{}, VarJ:SortInt{}), Var'Unds'DotVar1:SortK{})), \and{SortListCell{}}(Lbl'-LT-'list'-GT-'{}(LblList'Coln'set{}(Var'Unds'Gen0:SortList{}, VarI:SortInt{}, inj{SortInt{}, SortKItem{}}(VarJ:SortInt{}))), Var'Unds'Gen4:SortListCell{}), Var'Unds'DotVar0:SortGe …
+finish: sentence 308 (Lbl'-LT-'generatedTop'-GT-'): openRequires (Var'Unds'Gen0:List: in a condition with a variable the left side binds (V ∈ LblList'Coln'set(…)), under LblList'Coln'set, of a sort the text leaves unconfined)
+(exit 0)

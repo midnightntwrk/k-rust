@@ -1,0 +1,11 @@
+command: kompile --backend haskell e6-refused-bytes-mint.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 3.4
+definition.kore bytes: 291681
+definition.kore sha256: 2babc85b9cb60f42fac452b148357f8307505a5d1a72f985f7ed737bcb8ba8c2
+stripped sha256: aadff957b648d893acaf7678e3914a0e8514e8cb40a6a2c0ab3358ce09a2d109
+main module: 583 sentences, 139 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-REFUSED-BYTES-MINT-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using E6-REFUSED-BYTES-MINT as default.
