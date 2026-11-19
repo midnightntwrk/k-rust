@@ -1,0 +1,20 @@
+f2-examples/rr-a-proj-domain-shape.kore: 5 modules; prelude agrees
+user module PROJUSER: 316 sentences
+  1 inert import [generated]
+  179 read [generated]
+  97 read [builtin]
+  6 read [user]
+  7 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  2 inert distinctCtors [generated]
+  1 inert parametricFunctional [generated]
+  11 inert noJunk [generated]
+  1 read projectionDomainAsClause [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 projectionDomainShape
+      sentence 316 (Lblproject'Coln'Exp): projectionDomainShape (Lblproject'Coln'Exp)
+        [generated] (no label) at :0: axiom{R} \implies{R}(\top{R}(), \equals{R, R}(\ceil{SortExp{}, R}(Lblproject'Coln'Exp{}(SelectorInput:SortK{})), \exists{R}(VarK:SortExp{}, \equals{SortK{}, R}(SelectorInput:SortK{}, kseq{}(inj{SortExp{}, SortKItem{}}(VarK:SortExp{}), dotk{}()))))) [UNIQUE'Unds'ID{}("9cd2bc2f2919e88b7c91858d910ebc06ec69505e24015e7346a27913f6b3d0c7.selector-domain")]
+finish: sentence 316 (Lblproject'Coln'Exp): projectionDomainShape (Lblproject'Coln'Exp)
+(exit 0)

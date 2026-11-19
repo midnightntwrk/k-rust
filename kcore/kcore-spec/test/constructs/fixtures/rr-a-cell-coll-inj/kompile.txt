@@ -1,0 +1,3 @@
+command: none: fixture.toml kore = 'f2-examples/rr-a-cell-coll-inj.kore', a KORE text kompile does not write; account.txt is `kcore account f2-examples/rr-a-cell-coll-inj.kore` (cwd: kcore-spec)
+definition.kore bytes: 267757
+definition.kore sha256: 90359d74c8794093ddfc1e9a822289cb5a0fab7f494a5594c615ca8964910cf6

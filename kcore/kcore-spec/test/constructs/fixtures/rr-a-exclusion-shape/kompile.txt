@@ -1,0 +1,3 @@
+command: none: fixture.toml kore = 'f2-examples/rr-a-exclusion-shape.kore', a KORE text kompile does not write; account.txt is `kcore account f2-examples/rr-a-exclusion-shape.kore` (cwd: kcore-spec)
+definition.kore bytes: 93514
+definition.kore sha256: 4523ddc0b24b03828be75199bb0788aeb0f1fe9bd202416f1d21e74ba970c685

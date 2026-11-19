@@ -1,0 +1,4 @@
+# Hand-written KORE: f2-examples/colls.kore with rule bump's AcctCellMapItem(<id>(I), <acct>(...)) made
+# inj{SortAcctCell{}, SortAcctCellMap{}}(<acct>(...)), on both sides of the rule, as test/CellCollection.lean
+# edits the parsed text; nothing else changed. Refused (cellCollectionInjection).
+kore = "f2-examples/rr-a-cell-coll-inj.kore"

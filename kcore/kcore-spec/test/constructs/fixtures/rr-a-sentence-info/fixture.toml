@@ -1,0 +1,4 @@
+# Hand-written KORE: f2-examples/base.kompile.kore (the kompiled text of fixture base, an empty module) with
+# the UNIQUE'Unds'ID attribute of initKCell's equation removed (its attribute list made []); nothing else
+# changed. Refused (sentenceInfo).
+kore = "f2-examples/rr-a-sentence-info.kore"

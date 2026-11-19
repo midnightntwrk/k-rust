@@ -1,0 +1,4 @@
+# Hand-written KORE: f2-examples/base.kompile.kore (the kompiled text of fixture base, an empty module) with
+# the equation of getGeneratedCounterCell (and its // rule comment) removed; the getter's declaration kept,
+# nothing else changed. Refused (missingEquation).
+kore = "f2-examples/rr-a-missing-equation.kore"

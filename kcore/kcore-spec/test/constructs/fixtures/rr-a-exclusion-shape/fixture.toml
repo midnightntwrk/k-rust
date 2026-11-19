@@ -1,0 +1,5 @@
+# Hand-written KORE: f2-examples/owisenx.kompile.kore (the kompiled text of fixture e5-owise-nonexec) with the
+# [owise] equation choose(X, _) => X's exclusion \not(\or(\exists _Gen1. ..., \bottom)) made \not(\bottom): no
+# disjunct, where the function has one executable equation other than the [owise] one; nothing else changed.
+# Refused (exclusionShape).
+kore = "f2-examples/rr-a-exclusion-shape.kore"

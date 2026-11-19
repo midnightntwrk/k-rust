@@ -1,0 +1,16 @@
+f2-examples/rr-a-sentence-info.kore: 5 modules; prelude agrees
+user module BASE: 225 sentences
+  1 inert import [generated]
+  148 read [generated]
+  52 read [builtin]
+  4 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  9 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 sentenceInfo
+      sentence 197 (LblinitKCell): sentenceInfo
+        [generated] (no label) at :0: axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortMap{}, R}(X0:SortMap{}, VarInit:SortMap{}), \top{R}())), \equals{SortKCell{}, R}(LblinitKCell{}(X0:SortMap{}), \and{SortKCell{}}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblproject'Coln'KItem{}(kseq{}(LblMap'Coln'lookup{}(VarInit:SortMap{}, inj{SortKConfigVar{}, SortKItem{}}(\dv{SortKConfigVar{}}("$PGM"))), dotk{}())), dotk{}())), \top{SortKCell{}}()))) []
+finish: sentence 197 (LblinitKCell): sentenceInfo
+(exit 0)

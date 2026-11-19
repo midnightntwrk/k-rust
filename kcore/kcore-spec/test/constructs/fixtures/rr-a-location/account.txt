@@ -1,0 +1,16 @@
+f2-examples/rr-a-location.kore: 5 modules; prelude agrees
+user module BASE: 225 sentences
+  1 inert import [generated]
+  148 read [generated]
+  52 read [builtin]
+  4 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  9 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 location
+      sentence 35 (Lbl'-LT-'k'-GT-'): location
+        [builtin] (no label) at kast.md:0: symbol Lbl'-LT-'k'-GT-'{}(SortK{}) : SortKCell{} [cell{}(), constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/kast.md)")]
+finish: sentence 35 (Lbl'-LT-'k'-GT-'): location
+(exit 0)

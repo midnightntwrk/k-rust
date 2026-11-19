@@ -1,0 +1,18 @@
+f2-examples/rr-a-exclusion-shape.kore: 5 modules; prelude agrees
+user module E5-OWISE-NONEXEC: 243 sentences
+  1 inert import [generated]
+  158 read [generated]
+  52 read [builtin]
+  6 read [user]
+  4 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert distinctCtors [generated]
+  10 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 exclusionShape
+      sentence 206 (Lblchoose): exclusionShape
+        [user] (no label) at e5-owise-nonexec.k:6: axiom{R} \implies{R}(\and{R}(\not{R}(\bottom{R}()), \and{R}(\top{R}(), \and{R}(\in{SortFoo{}, R}(X0:SortFoo{}, VarX:SortFoo{}), \and{R}(\in{SortFoo{}, R}(X1:SortFoo{}, Var'Unds'Gen0:SortFoo{}), \top{R}())))), \equals{SortFoo{}, R}(Lblchoose{}(X0:SortFoo{}, X1:SortFoo{}), \and{SortFoo{}}(VarX:SortFoo{}, \top{SortFoo{}}()))) [UNIQUE'Unds'ID{}("be97e95a6b2af2328fa15e8e113f3b25d3f45e0c9e0fd7a325cb30cc …
+finish: sentence 206 (Lblchoose): exclusionShape
+(exit 0)

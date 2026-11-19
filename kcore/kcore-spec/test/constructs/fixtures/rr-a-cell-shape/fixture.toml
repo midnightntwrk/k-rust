@@ -1,0 +1,4 @@
+# Hand-written KORE: f2-examples/rdr-nopgm.kompile.kore (the kompiled text of fixture rdr-nopgm, whose <k> cell
+# is declared in the user's file) with the <k> cell's declaration made symbol <k>(SortK{}, SortInt{}) :
+# SortKCell{}; nothing else changed. A cell of two arguments neither of which is a cell: refused (cellShape).
+kore = "f2-examples/rr-a-cell-shape.kore"

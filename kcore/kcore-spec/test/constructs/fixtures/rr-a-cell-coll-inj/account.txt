@@ -1,0 +1,21 @@
+f2-examples/rr-a-cell-coll-inj.kore: 5 modules; prelude agrees
+user module COLLS: 672 sentences
+  1 inert import [generated]
+  352 read [generated]
+  188 read [builtin]
+  16 read [user]
+  1 inert parametricFunctional [generated]
+  15 inert injectivity [generated]
+  12 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  3 inert distinctCtors [generated]
+  2 unread cellCollectionInjection [generated]
+  23 inert noJunk [generated]
+  28 read projectionDomainAsClause [generated]
+  30 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 cellCollectionInjection
+      sentence 568 (Lbl'-LT-'generatedTop'-GT-'): cellCollectionInjection (AcctCellMap)
+        [user] (no label) at colls.k:15: axiom{} \rewrites{SortGeneratedTopCell{}}(\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortOp{}, SortKItem{}}(Lblbump{}(VarI:SortInt{})), Var'Unds'DotVar1:SortK{})), Var'Unds'Gen4:SortStackCell{}, Var'Unds'Gen5:SortSumCell{}, Lbl'-LT-'accts'-GT-'{}(Lbl'Unds'AcctCellMap'Unds'{}(inj{SortAcctCell{}, SortAcctCellMap{}}(Lbl'-LT-'acct'-GT-'{}(Lbl'-LT-'id'-GT-' …
+finish: sentence 568 (Lbl'-LT-'generatedTop'-GT-'): cellCollectionInjection (AcctCellMap)
+(exit 0)

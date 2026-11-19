@@ -1,0 +1,5 @@
+# Hand-written KORE: f2-examples/projuser.kompile.kore (a rule applying project:Exp) with project:Exp's
+# selector-domain axiom added after its equation (the form krust writes, as in f2-examples/projapp.kore) and
+# that equation's requires \top made \equals{SortBool{},R}(\dv{SortBool{}}("true"), \dv{SortBool{}}("true"));
+# nothing else changed. The projection's one equation has a requires: refused (projectionDomainShape).
+kore = "f2-examples/rr-a-proj-domain-shape.kore"

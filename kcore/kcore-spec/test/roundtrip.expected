@@ -372,6 +372,15 @@ differs f2-examples/rhsemptyowise.kompile.kore
 differs f2-examples/rhsemptypeer.kompile.kore
 differs f2-examples/rhsint.kompile.kore
 differs f2-examples/rhsunit.kompile.kore
+cannot f2-examples/rr-a-cell-coll-inj.kore
+cannot f2-examples/rr-a-cell-shape.kore
+cannot f2-examples/rr-a-configuration.kore
+cannot f2-examples/rr-a-exclusion-shape.kore
+cannot f2-examples/rr-a-location.kore
+cannot f2-examples/rr-a-missing-equation.kore
+cannot f2-examples/rr-a-pgm-sort.kore
+cannot f2-examples/rr-a-proj-domain-shape.kore
+cannot f2-examples/rr-a-sentence-info.kore
 cannot f2-examples/rr-b-counter-shape.kore
 cannot f2-examples/rr-b-hook-attribute.kore
 cannot f2-examples/rr-b-inj-shape.kore
