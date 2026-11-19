@@ -1,0 +1,2 @@
+out/definition.kore: refused: sentence 30 (SortName): userHookedSort (SortName: hook KVAR.KVar)
+(exit 1)

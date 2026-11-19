@@ -1,0 +1,20 @@
+out/definition.kore: 5 modules; prelude agrees
+user module RDR-ITE-OWN-HOOKED-SORT: 304 sentences
+  1 inert import [generated]
+  174 read [generated]
+  95 read [builtin]
+  1 refused userHookedSort [user]
+      e.g. hooked-sort SortName{} [hasDomainValues{}(), hook{}("KVAR.KVar"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,3,7,39)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/rdr-ite-own-hooked-sort.k)"), token{}()]
+  4 read [user]
+  1 unread parametricUnused [user]
+  5 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert distinctCtors [generated]
+  11 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 iteShape
+      the module (RDR-ITE-OWN-HOOKED-SORT): iteShape (Lblite{Name})
+finish: the module (RDR-ITE-OWN-HOOKED-SORT): iteShape (Lblite{Name})
+(exit 0)
