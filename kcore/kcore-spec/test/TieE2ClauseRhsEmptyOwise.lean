@@ -29,9 +29,9 @@
     clauses are held, or it has a result at every argument list of its sorts); the match independence of
     a clause (`match_named`), which no decider confirms. The consistency section, written by hand,
     proves that `Γc` with the step's closure has a model for every H (`consistent`), without `FnHyp`,
-    which it does not state (its comment says why): the function functional sentences, the sort
-    predicates' `functional` sentences, hold at values in every model of `Γc` from the sort predicates'
-    own results (`fnFun_at_values`).
+    which is false for every H (`not_fnHypH`): the function functional sentences, the sort predicates'
+    `functional` sentences, hold at values in every model of `Γc` from the sort predicates' own results
+    (`fnFun_at_values`).
 
   Layer 2, by class (indices are the text's axiom numbers, `AxiomDecl.index`).
   - Function equations (33): each of Γ's items is the translation of one sentence, in the
@@ -333,9 +333,9 @@ theorem decls_entailed (H : HookParams) : ∀ it ∈ declItems, Γ (cH H) ⊧ it
 value has sort Empty (`no_E`), so `f(0) => g(Y)` applies under no substitution, under every H
 (`cl0_not_applies`). The fact of the held-named `f` holds in neither form: Y's sort has no value,
 and `f(0)` has no result (the clause over Empty neither applies nor fails at 0, and the `[owise]`
-one is excluded there: test/ClauseRhsEmpty.lean, `Owise.f0_none`, at the parsed interpretation), so
-`FnHyp`, whose first conjunct asks a result at every argument list, fails there and is not stated
-here. `Γc` with the step's closure has a model for every H by `consistent_of` instead: `f`'s equations agree and are match
+one is excluded there: `f0_no_result`, below), so `FnHyp`, whose first conjunct asks a result at
+every argument list, is false for every H (`not_fnHypH`). `Γc` with the step's closure has a model
+for every H by `consistent_of` instead: `f`'s equations agree and are match
 independent (`fnDetH`), and evaluation solves them (`fnSolvesH`): the clause over Empty decides
 nowhere, and the `[owise]` clause's instance is `a`. -/
 
@@ -570,6 +570,84 @@ theorem consistent (H : HookParams) : Consistent (cH H) :=
     (clausePostDecided_of_isTop (c := cH H)
       (by decide +kernel : (c.fns.all fun f => f.clauses.all fun cl => cl.post.isTop) = true))
     (openLaws_of_plain noRaw)
+
+/-! ## `FnHyp` is false, for every H: `f(0)` has no result -/
+
+/- `f(0) => g(Y)` is not `aside`, has no `requires`, its predicate is `\top`, and its pattern is the
+literal 0: the empty substitution, well sorted on its left variables (it has none), matches `[0]`,
+so the clause does not fail at `[0]` (`cl0_not_fails`). Its variable Y is of Empty, which has no
+value, so no substitution is well sorted on all its variables: no derivation of `Eval` applies it.
+The `[owise]` clause has the larger priority, so every derivation applying it asks `f(0) => g(Y)`,
+of a smaller priority and not `aside`, to fail at `[0]`, and `Eval.rest` asks every clause to fail
+there. So `f(0)` has no result (`f0_no_result`), which `FnHyp`'s first conjunct asks at the
+argument list `[0]` of `f`'s sorts (`not_fnHypH`). -/
+
+/-- The argument `0`. -/
+def zeroV : GroundTerm := .dv Srt.int (.int 0)
+
+/-- No σ is well sorted on Y, of Empty. -/
+theorem cl0_not_wellSorted (H : HookParams) (σ : Subst) : ¬ (cH H).WellSorted cl0.vars σ := by
+  intro h
+  obtain ⟨v, -, hv⟩ := h 0 33 (by rw [shape.2.2.2.2.1]; rfl)
+  exact no_E H v hv
+
+/-- `f(0) => g(Y)` does not fail at `[0]`, under every H. -/
+theorem cl0_not_fails (H : HookParams) : ¬ Fails (cH H) [zeroV] cl0 := by
+  intro h
+  cases h with
+  | intro h =>
+    have hws : (cH H).WellSortedAt cl0.vars cl0.leftVars [] := fun i hi => by
+      rw [shape.2.2.2.2.2.1] at hi; cases hi
+    have hm : PatVals (cH H) [] cl0.pats [zeroV] := by rw [cl0_pats]; exact .cons .dv .nil
+    cases h [] hws hm with
+    | intro ht _ _ => rw [cl0_req] at ht; cases ht
+    | pre h => rw [cl0_pre] at h; exact absurd (Holds.top_eq h) (by simp)
+
+/-- **`f(0)` has no result, under every H.** -/
+theorem f0_no_result (H : HookParams) : ¬ ∃ r, Eval (cH H) fS [zeroV] r := by
+  have hnf := cl0_not_fails H
+  have htwo : ∀ {fn : Fn} {cl : Clause}, (cH H).lookupFn fS = some fn → cl ∈ fn.clauses →
+      fn = fF ∧ (cl = cl0 ∨ cl = clX) := fun hfn hmem => by
+    obtain rfl := lookupFH_eq hfn
+    rw [clauses_eq] at hmem
+    simpa using hmem
+  -- a derivation applying the `[owise]` clause asks `f(0) => g(Y)` to fail at `[0]`
+  have hX : ∀ {fn : Fn}, fn = fF →
+      (∀ cl' ∈ fn.clauses, cl'.aside = false → cl'.prio < clX.prio → Fails (cH H) [zeroV] cl') → False := by
+    rintro fn rfl hp
+    obtain ⟨-, -, -, -, -, -, -, -, -, -, h0, hX, a0, -, -⟩ := shape
+    exact hnf (hp cl0 cl0_mem a0 (by rw [h0, hX]; decide))
+  rintro ⟨r, h⟩
+  cases h with
+  | @clauseEx _ fn' _ cl' σ' _ hfn' hmem hσ' _ _ _ hprio _ _ _ _ _ =>
+    obtain ⟨hf, rfl | rfl⟩ := htwo hfn' hmem
+    · exact cl0_not_wellSorted H σ' hσ'
+    · exact hX hf hprio
+  | @exNone _ fn' _ cl' σ' hfn' hmem _ _ _ _ _ hprio hsome _ =>
+    obtain ⟨hf, rfl | rfl⟩ := htwo hfn' hmem
+    · obtain ⟨σ₁, -, hσ₁⟩ := hsome
+      exact cl0_not_wellSorted H σ₁ hσ₁
+    · exact hX hf hprio
+  | @clause _ fn' _ cl' σ' _ hfn' hmem hσ' _ _ _ hprio _ _ _ _ =>
+    obtain ⟨hf, rfl | rfl⟩ := htwo hfn' hmem
+    · exact cl0_not_wellSorted H σ' hσ'
+    · exact hX hf hprio
+  | @rest _ fn' _ hfn' hnone =>
+    obtain rfl := lookupFH_eq hfn'
+    exact hnf (hnone cl0 cl0_mem)
+  | @ensFails _ fn' _ cl' σ' t w hfn' hmem hσ' _ _ _ hprio _ _ _ _ =>
+    obtain ⟨hf, rfl | rfl⟩ := htwo hfn' hmem
+    · exact cl0_not_wellSorted H σ' hσ'
+    · exact hX hf hprio
+
+/-- **`FnHyp` is false, for every H**: its first conjunct asks `f(0)` a result. -/
+theorem not_fnHypH (H : HookParams) : ¬ FnHyp (cH H) := fun hf => by
+  have hs : (cH H).sortsOf [zeroV] = some fF.args := by
+    rw [Semantics.sortsOf_withHooks c H noRaw, shape.2.2.1]
+    decide +kernel
+  obtain ⟨r, hr⟩ := hf.1 fF (by rw [fnsH]; exact List.mem_singleton_self _) [zeroV] hs
+  rw [shape.2.1] at hr
+  exact f0_no_result H ⟨r, hr⟩
 
 /-! ## Function functional (16): the sort predicates' `functional` sentences, at values in every model of Γc -/
 
@@ -1112,6 +1190,7 @@ end KCore.TieE2ClauseRhsEmptyOwise
 #check @KCore.TieE2ClauseRhsEmptyOwise.decls_entailed
 #check @KCore.TieE2ClauseRhsEmptyOwise.consistent
 #check @KCore.TieE2ClauseRhsEmptyOwise.held_named
+#check @KCore.TieE2ClauseRhsEmptyOwise.not_fnHypH
 #check @KCore.TieE2ClauseRhsEmptyOwise.fnFun_indices
 #check @KCore.TieE2ClauseRhsEmptyOwise.fnFun_account
 #check @KCore.TieE2ClauseRhsEmptyOwise.fnFun_checked
@@ -1161,6 +1240,7 @@ end KCore.TieE2ClauseRhsEmptyOwise
 #print axioms KCore.TieE2ClauseRhsEmptyOwise.decls_entailed
 #print axioms KCore.TieE2ClauseRhsEmptyOwise.consistent
 #print axioms KCore.TieE2ClauseRhsEmptyOwise.held_named
+#print axioms KCore.TieE2ClauseRhsEmptyOwise.not_fnHypH
 #print axioms KCore.TieE2ClauseRhsEmptyOwise.fnFun_indices
 #print axioms KCore.TieE2ClauseRhsEmptyOwise.fnFun_account
 #print axioms KCore.TieE2ClauseRhsEmptyOwise.fnFun_checked
