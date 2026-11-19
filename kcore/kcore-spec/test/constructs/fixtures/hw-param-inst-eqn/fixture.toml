@@ -1,6 +1,6 @@
 # Hand-written KORE: the kompiled text of fixture e1-param-two-sort (K 7.1.337, sha256 27cb390cd18ff5c5b3b261c66aed0b74f72a7b0e9b34a5eefae160cacb5deaca), the Source of its own
 # sentences written as its fixture's path, and one sentence changed: the equation of same{K, K}(_, _) = true written at the instance
 # same{K, KResult}, at a sort the definition does not declare. kompile writes an instance only at sorts the text has.
-# Expected: the equation refused parametricSymbol (Lblsame). Observed: the equation read and not accounted for (sentence 417),
-# coreOK true.
+# Expected: the equation refused parametricSymbol (Lblsame): the instance same{K, KResult} is no symbol of the definition (KResult is no
+# sort of it), so no clause reads the equation.
 kore = "test/constructs/fixtures/hw-param-inst-eqn/hw-param-inst-eqn.kore"
