@@ -4,7 +4,9 @@
 Usage (from anywhere; the library and `kcore` built first):
   python3 -I test/constructs/tiegen.py FIXTURE [--sig-chunk N] [--decl-chunk N] [--chunk N]
                                                [--hand consistency=FILE] [--at-values N,...] [--cons-head] [--wf-parts]
-                                               [--split] [--account-sorted] [--heads-literal] [--out DIR] [--print]
+                                               [--split] [--account-sorted] [--heads-literal] [--heads-codes]
+                                               [--attrs-parts] [--attrs-blocks N] [--decl-parts] [--fn-blocks N]
+                                               [--absent-file] [--out DIR] [--print]
   (the probe, a run of the Lean definitions on the text, is stopped after $TIEGEN_PROBE_TIMEOUT seconds, 900 by default)
   python3 -I test/constructs/tiegen.py --self-test   (the law search below, on three fixtures)
 
@@ -44,6 +46,24 @@ which compare every pair of sentences; a text whose indices are no range is refu
 --heads-literal (with --chunk) writes Γ's heads as a literal (`gHeads`, `gHeads_eq : gammaHeads c =
 gHeads`) and decides `account_absent`'s ranges on it (`absentPL`, equal to `absentP` by `gHeads_eq`),
 so that no range recomputes Γ's heads.
+--heads-codes (with --heads-literal) also writes Γ's heads with each name as its code
+(`KoreAML.Distinct.strCode`, `gCodes`, `gCodes_eq : gHeads.map … = gCodes`) and decides the ranges
+on a membership that compares a sentence's head name with Γ's by their codes, numbers, and the sort
+arguments only where the codes are equal (`absentPC`, equal to `absentPL` by `strCode_inj`): a String
+comparison runs over the names' characters, and a sentence of many heads compares each with all of Γ's.
+--attrs-parts states `attrs_agree` from its five conjuncts (`attrs_ctors`, `attrs_fns`, `attrs_hooks`,
+`attrs_colls`, `attrs_prios`), each a decision of its own.
+--attrs-blocks N (implies --attrs-parts) decides `attrs_ctors`, `attrs_fns` and `attrs_hooks` over the
+symbol declarations (`AttrsAgree.symDeclsAt`) by blocks of N, and `attrs_prios` conjunct by conjunct
+with each list by blocks of N (`decide_cheap N`): each conjunct compares every declaration with the
+semantics' symbols, which in one decision exceeds a 12 GiB scope on a text of many symbols.
+--decl-parts states `decl_counts` from six theorems, one per component of its tuple, each a decision of
+its own; with --split they and `decl_counts` are in a file of their own, Tie<Fixture>DeclCounts.
+--absent-file (with --split) puts the absent section (`absentP`, the heads' literals, the ranges,
+`account_absent`, `absent_closed`, `absent_proj_below`) in a file of its own, Tie<Fixture>Absent.
+--fn-blocks N decides `fn_shape` by `decide_map_blocks N K`, K = (Γ's equations) / N: K blocks of N
+equations and the rest, each a decision of its own; refused for a text whose equations are aligned
+up to a renaming (`fn_shape_but_owise`) or that states no `fn_shape`.
 --hand consistency=FILE puts FILE in place of the consistency section, for a text that owes an
 agreement, a clause's match independence, or a rule's or clause's condition (`owed_rules`,
 `owed_clauses`): FILE proves the owed facts and states `consistent` for every H, with `facts` for an
@@ -173,6 +193,14 @@ What it states where the text:
   the probe tries every permutation of a sort of at most 5 generators, and for a larger sort the
   one order the sentence's disjuncts apply the generators in (each disjunct's symbol, or `inj` from
   its sort), taken where the item over that order is the sentence;
+- has an overload axiom `f(lift K̄) = lift(g(K̄))` of an overloading symbol f over g (`tieOvlEqB`), or
+  a no-confusion sentence of two symbols with values of their argument sorts at which the two have
+  one normal form (`tieOvlNcB`; an overloading symbol and a symbol it overloads, the values exhibited
+  for g's arguments and lifted to f's): the account's classes in `tieClassesOvl`'s order (`tieClasses`
+  with the class overload equation, direction entailed, before no direction); the overload axioms in
+  that class with `ovleq_account` and `ovleq_entailed`; the no-confusion sentences in no class,
+  listed apart in the account (`ovlRefuted`), with `ovlnc_refuted` (no model of Γ satisfies one, for
+  every H). The account of a text with neither lists the classes in `tieClasses`' order;
 - has the `functional` sentence of a parameter symbol no registry hook implements that the text
   declares total (`isParamFunctional`, the class `parameter functional`, direction hypothesis):
   `total_params` (`Definition.totalParams`), `paramfunctional_account`, `paramfunctional_heads`; it is
@@ -288,6 +316,18 @@ USER_LEMMA_VALUES_CLASS = "user lemma at values"
 USER_LEMMA_CLASSES = (USER_LEMMA_CLASS, USER_LEMMA_VALUES_CLASS)
 # the name of the projection `project:X` of a sort X is this prefix and X
 PROJ_PREFIX = "Lblproject'Coln'"
+# The sentences of an overloading symbol and a symbol it overloads. The overload axiom
+# `f(lift K̄) = lift(g(K̄))` is the class `overload equation` (direction entailed): Γ's overload item
+# states it at every element, the sentence within f's result sort, and Γ entails the sentence
+# (`tieOvlEq_entailed`, where `tieOvlEqB` holds). That class is not one of `tieClasses`: the account
+# of a text with such a sentence lists its classes in `tieClassesOvl`'s order (KcoreSpec/TieOvlEq.lean,
+# the class before no direction), every other text's account lists `tieClasses`. The no-confusion sentence of
+# two such symbols states them disjoint where the overload axiom equates them: Γ refutes it
+# (`tieOvlNc_refuted`, where `tieOvlNcB` holds and `tieConsB` does not). It is in no class (a sentence
+# the reader can decide contradicts what the semantics states of its symbols claims none): the account
+# lists it apart (`ovlRefuted`), with the theorem that no model of Γ satisfies it.
+OVL_EQ_CLASS = "overload equation"
+OVL_NC = "refuted, no class"
 
 
 class Refused(Exception):
@@ -306,6 +346,7 @@ def nested(s):
 RESERVED = {"c", "cH", "kore", "defn", "U", "trS", "fn", "f", "at", "by", "do", "fun", "let", "in", "if", "then",
             "else", "have", "show", "from", "end", "def", "theorem", "match", "with", "open", "namespace", "where",
             "instance", "structure", "class", "import", "names", "classes", "consText", "fnText", "ruleText",
+            "ovlEqText", "ovlNcText", "ovlRefuted",
             "lawText", "lawIdx", "callOrder", "Pre", "Families", "hasSym", "declItems", "plainSorts", "plainSyms"}
 
 
@@ -770,7 +811,11 @@ def tgNjOrder (gs : List KoreAML.Gen) : List Kore.Pattern → Option (List Nat)
     let pl := isParamLemma c (Parse.classify nmK (.axiom ad.ax)) (.axiom ad.ax) || (rl && appliesNoImplParam c ad.ax.pattern) || lpl
     let simp := Parse.classify nmK (.axiom ad.ax) == .inert .simplification
     let usrc := Parse.isUserSource ad.ax.attributes
-    IO.println s!"S {ad.index}\t{absent}\t{fnJ}\t{cons}\t{plain}\t{consItem}\t{triv}\t{kitem}\t{rw}\t{eh}\t{kind eh}\t{fh}\t{kind fh}\t{AttrsAgree.prioOf ad.ax.attributes}\t{pl}\t{simp}\t{usrc}\t{rl}"
+    -- an overload axiom Γ entails (`tieOvlEqB`), and a no-confusion sentence of two symbols that meet
+    -- at values (`tieOvlNcB`), which Γ refutes; neither where the semantics has no overloading symbol
+    let ovlEq := !c.ovls.isEmpty && tieOvlEqB c ad.ax
+    let ovlNc := !c.ovls.isEmpty && !cons && tieOvlNcB c ad.ax
+    IO.println s!"S {ad.index}\t{absent}\t{fnJ}\t{cons}\t{plain}\t{consItem}\t{triv}\t{kitem}\t{rw}\t{eh}\t{kind eh}\t{fh}\t{kind fh}\t{AttrsAgree.prioOf ad.ax.attributes}\t{pl}\t{simp}\t{usrc}\t{rl}\t{ovlEq}\t{ovlNc}"
     if !consItem && triv.isEmpty && !kitem then
       match njCands.find? (fun (_, o, _) => o == p) with
       | some (s, _, _) => IO.println s!"N {ad.index}\t{s}\t{c.sortName s}\torder\t[]\t{(c.gens s).length}"
@@ -854,7 +899,8 @@ def probe(name, path, um, order="[]", cons_head=False):
                                     consItem=f[5] == "true", triv=re.findall(r"Sort[^,\]\s]+", f[6]),
                                     kitem=f[7] == "true", rw=f[8] == "true", eh=f[9], ehk=f[10], fh=f[11],
                                     fhk=f[12], prio=int(f[13]), pl=f[14] == "true",
-                                    simp=f[15] == "true", usrc=f[16] == "true", rl=f[17] == "true")
+                                    simp=f[15] == "true", usrc=f[16] == "true", rl=f[17] == "true",
+                                    ovlEq=f[18] == "true", ovlNc=f[19] == "true")
     return head, sents
 
 
@@ -874,6 +920,10 @@ def form_class(s, raw, builtin, laws=(), open_laws=(), raw_names=(), at_values=(
     # applying `ite{SortInt}`: the condition `Semantics.findCharEq` on H), that is owed apart.
     if s["absent"]:
         return "no direction"
+    if s["ovlEq"]:
+        return OVL_EQ_CLASS
+    if s["ovlNc"]:
+        return OVL_NC
     if s["idx"] in laws:
         return LAW_FN_CLASS
     if s["idx"] in open_laws:
@@ -958,7 +1008,7 @@ def classify(name, text, sents, laws=(), open_laws=(), raw_names=(), at_values=(
             # lemma whatever ens's class of the same sentence (the parameters are the text's), and a
             # lemma of a user's file is a user lemma (the `Source` is this text's), and the functional
             # sentence of a parameter this text declares total is a parameter functional
-            ec = fc if fc in (PARAM_LEMMA_CLASS, PARAM_FUNCTIONAL_CLASS) or fc in USER_LEMMA_CLASSES else ecls[j]
+            ec = fc if fc in (PARAM_LEMMA_CLASS, PARAM_FUNCTIONAL_CLASS, OVL_EQ_CLASS, OVL_NC) or fc in USER_LEMMA_CLASSES else ecls[j]
             # where the probe decides the class (a head Γ lacks, an item of Γ), it must agree with ens's
             decided = fc if fc in ("no direction", "function equation", "rewrite rule") or (fc == "no junk" and ec == "no junk") else None
             if decided and decided != ec:
@@ -1002,6 +1052,15 @@ def head_lit(h):
     return "(" + lean_str(h[0]) + ", [" + ", ".join(f".ctor ⟨⟨{lean_str(s)}⟩⟩ []" for s in h[1]) + "])"
 
 
+def head_code_lit(h):
+    """A head of `gammaHeads` with its name as `KoreAML.Distinct.strCode` codes it (its UTF-8 bytes in
+    base 256, the first byte the lowest digit, behind a leading 1), as a Lean literal."""
+    code = 1
+    for b in reversed(h[0].encode("utf-8")):
+        code = code * 256 + b
+    return f"({code}, [" + ", ".join(f".ctor ⟨⟨{lean_str(s)}⟩⟩ []" for s in h[1]) + "])"
+
+
 def ax_list(nums, indent=3, pre=None):
     """The literals of the axioms `nums`: `U.axN`, or `pre[N].axN` for an axiom of a prelude module."""
     pre = pre or {}
@@ -1043,19 +1102,30 @@ def by_ranges(prefix, lst, pred, rs, lem="tieAllE", named=False):
 
 def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, failing, ob, chunks, raws=None,
              hand=None, chunk=0, at_values=(), cons_head=False, wf_parts=None, split=False,
-             account_sorted=None, heads_literal=False):
+             account_sorted=None, heads_literal=False, heads_codes=False, attrs_parts=False, decl_parts=False,
+             fn_blocks=0, attrs_blocks=0, absent_file=False):
     """The Lean text of the tie. `ob`: what `obligations` read; `raws`: each sentence's text as
     written; `hand`: hand-written sections by name (`consistency`), each in place of the generated
     one; `chunk`: the length of the ranges the decisions over the whole user module are cut into
     (0: one decision each); `account_sorted`: `(a, n)` where the user module's indices, in text
     order, are `a, ..., a+n-1`, to prove the account from the sorted class lists; `heads_literal`:
-    decide `account_absent`'s ranges on Γ's heads as a literal (`gHeads`)."""
+    decide `account_absent`'s ranges on Γ's heads as a literal (`gHeads`); `heads_codes`: and on
+    their names' codes (`gCodes`); `attrs_parts`, `decl_parts`: `attrs_agree` and `decl_counts` from
+    one decision per conjunct or component; `fn_blocks`: decide `fn_shape` by blocks of that many
+    equations (0: one decision)."""
     raws = raws or {}
     hand = hand or {}
     call_order = ob["call_order"]
     ns = "Tie" + camel(name)
     idx = sorted(cls)
-    by_class = {c: [i for i in idx if cls[i] == c] for c in CLASSES}
+    # a sentence of an overloading symbol: the account's classes in `tieClassesOvl`'s order (the class
+    # overload equation before no direction), and the refuted no-confusion sentences apart
+    ovl_eq = [i for i in idx if cls[i] == OVL_EQ_CLASS]
+    ovl_nc = [i for i in idx if cls[i] == OVL_NC]
+    ovl_any = bool(ovl_eq or ovl_nc)
+    classes_list = CLASSES[:-1] + [OVL_EQ_CLASS, CLASSES[-1]] if ovl_any else CLASSES
+    unmapped = [i for i in unmapped if cls[i] != OVL_NC]
+    by_class = {c: [i for i in idx if cls[i] == c] for c in classes_list}
     # the no-direction sentences that are equations of a projection (`AttrsAgree.eqnHead`), each with
     # the projection's sort X
     abs_proj = [(i, sents[i]["eh"][len(PROJ_PREFIX):]) for i in by_class["no direction"]
@@ -1095,6 +1165,9 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             nonlit = [j for j in range(nfn) if j not in sents[txt[j]]["fnJ"]]
             if nonlit and all("owise{}()" in raws.get(txt[j], "") for j in nonlit):
                 fn_align, fn_text, fn_nonlit = True, txt, nonlit
+    if fn_blocks and not fn_full:
+        raise Refused(f"{name}: --fn-blocks: the tie states no `fn_shape` (Γ's equations are not the text's "
+                      f"sentences one for one" + (", but up to a renaming: `fn_shape_but_owise`)" if fn_align else ")"))
     raw = head["raw"]
     law_idx = [l[0] for l in nested(head["lawIx"])]
     open_law = [l[0] for l in nested(head["openLawIx"])]
@@ -1261,9 +1334,19 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w("  - `wf_defn`: `wf defn = true`.")
     else:
         w(f"  - `coreOK`: `coreOK`; `wf` fails at the conjuncts {', '.join(failing)} (`wfFailing`).")
-    w(f"  - The account: the class lists partition the {len(idx)} sentences of the user module {um}, in")
-    w("    `tieClasses`' order (`account`, `account_sizes`, `account_classes`); the no-direction class holds")
-    w("    exactly the sentences that apply a symbol Γ lacks (`account_absent`, `absent_closed`).")
+    if ovl_nc:
+        w(f"  - The account: the class lists and the {numword(len(ovl_nc))} refuted sentence{'s' if len(ovl_nc) > 1 else ''} in no class (`ovlRefuted`)")
+        w(f"    partition the {len(idx)} sentences of the user module {um}, the classes in `tieClassesOvl`'s order")
+        w("    (`account`, `account_sizes`, `account_classes`); the no-direction class holds exactly the")
+        w("    sentences that apply a symbol Γ lacks (`account_absent`, `absent_closed`).")
+    elif ovl_any:
+        w(f"  - The account: the class lists partition the {len(idx)} sentences of the user module {um}, in")
+        w("    `tieClassesOvl`' order (`account`, `account_sizes`, `account_classes`); the no-direction class holds")
+        w("    exactly the sentences that apply a symbol Γ lacks (`account_absent`, `absent_closed`).")
+    else:
+        w(f"  - The account: the class lists partition the {len(idx)} sentences of the user module {um}, in")
+        w("    `tieClasses`' order (`account`, `account_sizes`, `account_classes`); the no-direction class holds")
+        w("    exactly the sentences that apply a symbol Γ lacks (`account_absent`, `absent_closed`).")
     if abs_proj:
         w(f"  - `absent_proj_below`: the {len(abs_proj)} no-direction sentences that are equations of a projection")
         w("    `project:X` are of sorts X that are K, KItem or below KItem in Γ (`GenEqs.projBelowB`).")
@@ -1434,6 +1517,13 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                 width=100, initial_indent="    ", subsequent_indent="    ", break_on_hyphens=False,
                 break_long_words=False).replace("\0", " "))
     w(f"  - Constructor sentences ({len(cons_text)}): entailed by Γ (`cons_entailed`).")
+    if ovl_eq:
+        w(f"  - Overload axioms ({', '.join(map(str, ovl_eq))}): entailed by Γ, whose overload equation states each at every")
+        w("    element (`ovleq_entailed`).")
+    if ovl_nc:
+        w(f"  - No-confusion sentences of two symbols that meet at values ({', '.join(map(str, ovl_nc))}; an overloading")
+        w("    symbol and a symbol it overloads, which the overload axiom equates there): refuted by every model")
+        w("    of Γ (`ovlnc_refuted`), in no class.")
     w(f"  - No junk ({len(nj_triv)} of a sort without generators, `nojunk_trivial_entailed`; {len(nj_items)} equal to")
     w(f"    one of Γ's constructor items, `nojunk_items`; {len(nj_kitem)} KItem's with its disjuncts in the text's")
     w("    order, `nojunk_kitem_entailed`).")
@@ -1678,17 +1768,35 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     mark("Account")
     w("/-! ## The account: every sentence of the user module is in exactly one class -/")
     w("")
-    w("/-- Per class of the tie (`tieClasses`), the indices (`AxiomDecl.index`) of its sentences. -/")
+    if ovl_any:
+        w("/-- Per class of the tie (`tieClassesOvl`: `tieClasses` with the class overload equation), the")
+        w("indices (`AxiomDecl.index`) of its sentences. -/")
+    else:
+        w("/-- Per class of the tie (`tieClasses`), the indices (`AxiomDecl.index`) of its sentences. -/")
     w("def classes : List (String × List Nat) :=")
     rows = []
-    for c_ in CLASSES:
+    for c_ in classes_list:
         rows.append(f'("{c_}", [' + wrap_nums(by_class[c_], 6) + "])")
     w("  [" + ",\n   ".join(rows) + "]")
     w("")
     w("/-- The indices of a class. -/")
     w("def classOf (n : String) : List Nat := (classes.filter (·.1 == n)).flatMap (·.2)")
     w("")
-    if account_sorted:
+    if ovl_nc:
+        w("/-- The no-confusion sentences of two symbols that meet at values (an overloading symbol and a")
+        w("symbol it overloads), which Γ refutes (`ovlnc_refuted`): in no class. -/")
+        w("def ovlRefuted : List Nat := [" + ", ".join(map(str, ovl_nc)) + "]")
+        w("")
+    if account_sorted and ovl_nc:
+        raise Refused(f"{name}: --account-sorted with sentences in no class (`ovlRefuted`): not stated")
+    if ovl_nc:
+        w("/-- **The account**: the class lists and the refuted sentences partition the user module's")
+        w("sentences. Their concatenation is a permutation of the sentences' indices, which are distinct, so")
+        w("each sentence is in one class or among the refuted ones, and there once. -/")
+        w("theorem account : (classes.flatMap (·.2) ++ ovlRefuted).isPerm (userAxioms.map (·.index)) = true ∧")
+        w("    (userAxioms.map (·.index)).Nodup := by")
+        w("  rw [userAxioms_eq]; decide +kernel")
+    elif account_sorted:
         a0, n0 = account_sorted
         w(f"/-- The indices of the user module's sentences, in text order, are {a0}, …, {a0 + n0 - 1}. -/")
         w(f"theorem indices_eq : U.all.map (·.index) = List.range' {a0} {n0} := by decide +kernel")
@@ -1713,12 +1821,19 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     w("")
     w("/-- The class sizes. -/")
     w("theorem account_sizes : classes.map (fun cl => (cl.1, cl.2.length)) =")
-    w("    [" + ", ".join(f'("{c_}", {len(by_class[c_])})' for c_ in CLASSES) + "] := by")
+    w("    [" + ", ".join(f'("{c_}", {len(by_class[c_])})' for c_ in classes_list) + "] := by")
     w("  decide +kernel")
     w("")
-    w("/-- The classes are the tie's (`tieClasses`, which gives each its direction), in its order. -/")
-    w("theorem account_classes : classes.map (·.1) = tieClasses.map (·.1) := by decide +kernel")
+    if ovl_any:
+        w("/-- The classes are the tie's for a text with a sentence of an overloading symbol (`tieClassesOvl`,")
+        w("which gives each its direction), in its order. -/")
+        w("theorem account_classes : classes.map (·.1) = tieClassesOvl.map (·.1) := by decide +kernel")
+    else:
+        w("/-- The classes are the tie's (`tieClasses`, which gives each its direction), in its order. -/")
+        w("theorem account_classes : classes.map (·.1) = tieClasses.map (·.1) := by decide +kernel")
     w("")
+    if absent_file:
+        mark("Absent")
     if chunk:
         w("/-- The sentence is in the no-direction class exactly where it applies a head Γ lacks. -/")
         w("noncomputable def absentP (ad : AxiomDecl) : Bool :=")
@@ -1741,7 +1856,41 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             w("theorem absentPL_eq : absentPL = absentP := by")
             w("  funext ad; unfold absentPL absentP gammaHasHead; rw [gHeads_eq]")
             w("")
-        thms, body = by_ranges("absentE", "U.all", "absentPL" if heads_literal else "absentP",
+        if heads_codes:
+            w("/-- Γ's heads (`gHeads`), each name as its code (`KoreAML.Distinct.strCode`), written out. -/")
+            w("def gCodes : List (Nat × List Kore.KSort) :=")
+            w("  [" + wrap_nums([head_code_lit(h) for h in head["gHeads"]], 3) + "]")
+            w("")
+            w("/-- The literal is `gHeads` with each name coded. -/")
+            w("theorem gCodes_eq : gHeads.map (fun g => (KoreAML.Distinct.strCode g.1, g.2)) = gCodes := by")
+            w("  decide +kernel")
+            w("")
+            w("/-- `absentPL` with each head compared with Γ's by the code of its name (a number), and by its")
+            w("sort arguments only where the codes are equal. -/")
+            w("noncomputable def absentPC (ad : AxiomDecl) : Bool :=")
+            w('  (classOf "no direction").contains ad.index !=')
+            w("    (appHeadsOf ad.ax.pattern).all (fun h =>")
+            w("      gCodes.any fun g => g.1 == KoreAML.Distinct.strCode h.1 && decide (g.2 = h.2))")
+            w("")
+            w("/-- Two heads are equal exactly where their names' codes and their sort arguments are")
+            w("(`strCode_inj`). -/")
+            w("theorem headCode_eq (g h : String × List Kore.KSort) :")
+            w("    (KoreAML.Distinct.strCode g.1 == KoreAML.Distinct.strCode h.1 && decide (g.2 = h.2)) = decide (g = h) := by")
+            w("  obtain ⟨g1, g2⟩ := g")
+            w("  obtain ⟨h1, h2⟩ := h")
+            w("  by_cases e : g1 = h1")
+            w("  · subst e; simp")
+            w("  · have hc : KoreAML.Distinct.strCode g1 ≠ KoreAML.Distinct.strCode h1 :=")
+            w("      fun hc => e (KoreAML.Distinct.strCode_inj hc)")
+            w("    simp [hc, e]")
+            w("")
+            w("/-- `absentPC` is `absentPL`: the membership in `gCodes` is the membership in `gHeads`. -/")
+            w("theorem absentPC_eq : absentPC = absentPL := by")
+            w("  funext ad; unfold absentPC absentPL; rw [← gCodes_eq]")
+            w("  simp only [List.any_map, Function.comp_def, headCode_eq]")
+            w("")
+        thms, body = by_ranges("absentE", "U.all",
+                               "absentPC" if heads_codes else "absentPL" if heads_literal else "absentP",
                                ranges(len(idx), 0, chunk), "tieAll", True)
         w(thms)
         w("")
@@ -1750,7 +1899,12 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     w("Γ lacks. -/")
     w("theorem account_absent : userAxioms.all (fun ad =>")
     w('    (classOf "no direction").contains ad.index != (appHeadsOf ad.ax.pattern).all (gammaHasHead c)) = true := by')
-    if chunk and heads_literal:
+    if chunk and heads_codes:
+        w("  rw [userAxioms_eq]")
+        w("  have h : (U.all).all absentPC = true :=")
+        w("    " + body.replace("\n    ", "\n      "))
+        w("  rw [absentPC_eq, absentPL_eq] at h; exact h")
+    elif chunk and heads_literal:
         w("  rw [userAxioms_eq]")
         w("  have h : (U.all).all absentPL = true :=")
         w("    " + body.replace("\n    ", "\n      "))
@@ -1795,6 +1949,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w("    absentProj.all (fun p => GenEqs.projBelowB (cH H) p.2) = true :=")
         w("  ⟨by rw [userAxioms_eq]; decide +kernel, absent_proj_below_c⟩")
         w("")
+    if absent_file:
+        mark("Account")
     w("/-- The sentences whose text is none of f2-examples/ens.kompile.kore's user module, with their class. -/")
     w("def unmapped : List (Nat × String) :=")
     w("  [" + wrap_nums([f'({i}, "{cls[i]}")' for i in unmapped], 3) + "]")
@@ -1815,6 +1971,29 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     mark("Attrs")
     w("/-! ## The attributes -/")
     w("")
+    if attrs_parts:
+        if attrs_blocks:
+            w("/-- The conjuncts of `attrsAgree`, each its own decision; `ctors`, `fns` and")
+            w(f"`hooks` over the symbol declarations (`symDeclsAt`) by blocks of {attrs_blocks}, `prios` conjunct by")
+            w(f"conjunct, each list by blocks of {attrs_blocks} (`decide_cheap`). Each block is a decision with a")
+            w("heartbeat budget of its own, and their number is not known here: the theorems set no bound of")
+            w("their own (the run's time limit bounds them). -/")
+            w("theorem attrs_colls : AttrsAgree.colls kore defn.sem = true := by decide +kernel")
+            for cj in ("ctors", "fns", "hooks"):
+                w("set_option maxHeartbeats 0 in")
+                w(f"theorem attrs_{cj} : AttrsAgree.{cj} kore defn.sem = true := by")
+                w(f"  unfold AttrsAgree.{cj}; decide_cheap {attrs_blocks}")
+            w("set_option maxHeartbeats 0 in")
+            w("theorem attrs_prios : AttrsAgree.prios kore defn = true := by")
+            w(f"  unfold AttrsAgree.prios; dsimp only; decide_cheap {attrs_blocks}")
+        else:
+            w("/-- The conjuncts of `attrsAgree`, each its own decision. -/")
+            w("theorem attrs_ctors : AttrsAgree.ctors kore defn.sem = true := by decide +kernel")
+            w("theorem attrs_fns : AttrsAgree.fns kore defn.sem = true := by decide +kernel")
+            w("theorem attrs_hooks : AttrsAgree.hooks kore defn.sem = true := by decide +kernel")
+            w("theorem attrs_colls : AttrsAgree.colls kore defn.sem = true := by decide +kernel")
+            w("theorem attrs_prios : AttrsAgree.prios kore defn = true := by decide +kernel")
+        w("")
     if law_idx:
         what = law_what(law_idx, raws, sents)
         w(f"/-- The law sentences of the text: {what}. -/")
@@ -1835,7 +2014,13 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     else:
         w("/-- **The attributes of the text agree with `defn`** (`attrsAgree`): constructors, functions,")
         w("hooks, collection symbols, priorities. -/")
-    w("theorem attrs_agree : attrsAgree kore defn = true := by decide +kernel")
+    if attrs_parts:
+        w("theorem attrs_agree : attrsAgree kore defn = true := by")
+        w("  unfold attrsAgree")
+        w("  rw [attrs_ctors, attrs_fns, attrs_hooks, attrs_colls, attrs_prios]")
+        w("  rfl")
+    else:
+        w("theorem attrs_agree : attrsAgree kore defn = true := by decide +kernel")
     w("")
     # ---- signature
     mark("Sig")
@@ -1903,14 +2088,30 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     w("/-- The item is one of `sigItems c`, pattern for pattern. -/")
     w("noncomputable def inSigItems (it : Item) : Bool := (sigItems c).any (·.pat == it.pat)")
     w("")
+    dparts = [("decl_count_sorts", "kore.sortDecls.length"), ("decl_count_plain_sorts", "plainSorts.length"),
+              ("decl_count_syms", "kore.symbolDecls.length"), ("decl_count_plain_syms", "plainSyms.length"),
+              ("decl_count_param_syms", "(kore.symbolDecls.filter fun sd => !sd.params.isEmpty).length"),
+              ("decl_count_lacked_syms", "(kore.symbolDecls.filter fun sd => sd.params.isEmpty && !hasSym sd.name).length")]
+    if decl_parts and split:
+        mark("DeclCounts")
+    if decl_parts:
+        w("/-- The components of `decl_counts`, each its own decision. -/")
+        for (dn, de), dv in zip(dparts, dc):
+            w(f"theorem {dn} : {de} = {dv} := by decide +kernel")
+        w("")
     w("/-- The declarations of the text: sorts, sorts without parameters, symbols, symbols without")
     w("parameters that Γ has, symbols with parameters, symbols without parameters that Γ lacks. -/")
     w("theorem decl_counts :")
     w("    (kore.sortDecls.length, plainSorts.length, kore.symbolDecls.length, plainSyms.length,")
     w("      (kore.symbolDecls.filter fun sd => !sd.params.isEmpty).length,")
     w(f"      (kore.symbolDecls.filter fun sd => sd.params.isEmpty && !hasSym sd.name).length) = ({', '.join(dc)}) := by")
-    w("  decide +kernel")
+    if decl_parts:
+        w("  rw [" + ", ".join(dn for dn, _ in reversed(dparts)) + "]")
+    else:
+        w("  decide +kernel")
     w("")
+    if decl_parts and split:
+        mark("Decls")
     thms, body = by_ranges("declsE", "declItems", "inSigItems", decl_rs)
     w(thms)
     w("")
@@ -2094,12 +2295,18 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w("noncomputable def fnText : List AxiomDecl :=")
         w("  " + ax_list(fn_text, pre={i: pre_mods[m] for i, m in fn_pre.items()}))
         w("")
-        w("set_option maxHeartbeats 1000000 in")
-        w("/-- **Γ's equations are the text's sentences' translations, pattern for pattern** (one kernel")
-        w("decision). -/")
+        # the heartbeats of each block's decision count in the theorem's budget: each of the K + 1
+        # decisions gets the budget of the single one
+        w(f"set_option maxHeartbeats {1000000 * (nfn // fn_blocks + 1) if fn_blocks else 1000000} in")
+        if fn_blocks:
+            w("/-- **Γ's equations are the text's sentences' translations, pattern for pattern** (a kernel")
+            w(f"decision per block of {fn_blocks} equations, each with the budget of the single one). -/")
+        else:
+            w("/-- **Γ's equations are the text's sentences' translations, pattern for pattern** (one kernel")
+            w("decision). -/")
         w("theorem fn_shape : (fnItems c).map (·.pat) = fnText.map (trS · |>.pat) := by")
         w("  rw [fnItems_eq, List.map_map]")
-        w("  exact (by decide +kernel :")
+        w(f"  exact (by decide_map_blocks {fn_blocks} {nfn // fn_blocks} :" if fn_blocks else "  exact (by decide +kernel :")
         w('    ((fnAxioms c).map fun a => (trAxiom [] [] ⟨0, "kernel", a⟩).pat) = fnText.map (trS · |>.pat))')
         w("")
         if fn_pre:
@@ -2333,6 +2540,10 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w("")
     # ---- idem
     mark("Rest")
+    if ovl_eq:
+        w(ovl_eq_section(ovl_eq))
+    if ovl_nc:
+        w(ovl_nc_section(ovl_nc))
     if idem is not None:
         sec = ens_section("/-! ## Set idempotence (61): refuted -/", "/-! ## Consistency for every H -/",
                           IDEM_DROP).replace("@I@", str(idem))
@@ -2376,14 +2587,14 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     cnames = []
     if confined:
         sec, cnames = gamma_c_section(gamma, fn_align, nrules, fn_any, nj_triv, nj_items, nj_kitem, cons_text, idem,
-                                      own_idem)
+                                      own_idem, ovl_eq, ovl_nc)
         w(sec)
     w(f"end KCore.{ns}")
     w("")
     names = ["params_raw" if raw else "noRaw", "readsConfined_c", "userAxioms_eq", "coreOK"] + (["wf_defn"] if wf_ok else []) + \
         ["account", "account_sizes", "account_classes", "account_absent", "absent_closed"] + \
         (["absent_proj_below_c", "absent_proj_below"] if abs_proj else []) + ["lists_in_account"] + \
-        ["attrs_agree"] + \
+        ["attrs_agree"] + (["decl_counts"] if decl_parts else []) + \
         ["sig_origin_but_next" if head["sigAll"] != "true" else "sig_origin", "decls_entailed",
          "consistent"] + (["text_nextless"] if head["sigAll"] != "true" else [])
     if fn_full:
@@ -2397,6 +2608,10 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         names.append("nojunk_kitem_entailed")
     if cons_text:
         names.append("cons_entailed")
+    if ovl_eq:
+        names += ["ovleq_account", "ovleq_entailed"]
+    if ovl_nc:
+        names += ["ovlnc_index", "ovlnc_refuted"]
     if rules_full and nrules:
         names += ["rules_account", "rule_from_text"]
     if comp_map:
@@ -2481,7 +2696,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     if user_lem_v:
         owed.append(f"the user lemmas {', '.join(map(str, user_lem_v))} hold at values for every H (UserLemmaAtValues)")
     summary = dict(fixture=name, sentences=len(idx), mapped=len(mapped), unmapped=len(unmapped),
-                   classes={c_: len(by_class[c_]) for c_ in CLASSES}, fn_full=fn_full, fn_prelude=sorted(fn_pre), fn_align=fn_align,
+                   classes={c_: len(by_class[c_]) for c_ in classes_list}, fn_full=fn_full, fn_prelude=sorted(fn_pre), fn_align=fn_align,
                    fn_pair=fn_pair, **({"fn_pairs": dict(w1=pair_ws, ac=pair_ac)} if fn_pairs else {}),
                    cons=len(cons_text), nojunk=[len(nj_triv), len(nj_items), len(nj_kitem), len(nj_sorts)],
                    idem=idem, own_idem=[i for i, _, _ in own_idem], lib166=lib166, gamma=gamma, laws=law_idx, open_generators=[k["name"] for k in raw],
@@ -2495,13 +2710,13 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
 
 # the files of `--split` beside the first, in this order; a file holds the sections `generate` marks
 # with its name (`mark`), and the declarations of the later sections that read their decisions
-SPLIT_PARTS = ["Attrs", "Sig", "Decls", "Fns", "Rules", "NoJunk", "Cons"]
+SPLIT_PARTS = ["Attrs", "Sig", "Decls", "Fns", "Rules", "NoJunk", "Cons", "Absent", "DeclCounts"]
 # the marks of the first file: `Head` and `Consistency` may be repeated where a part reads them, the
 # account's decisions may not, `Rest` (the sections after the constructors) follows what it reads
 SPLIT_FIRST = ["Head", "Account", "Consistency", "Rest"]
 SPLIT_DECL = re.compile(r"(?:@\[[^\]]*\]\s*)?(?:(?:private|protected|noncomputable)\s+)*"
                         r"(theorem|lemma|def|abbrev|instance|kernel_rfl)\s+([^\s:({\[]+)")
-SPLIT_DECIDES = re.compile(r"\bdecide(?:_cheap\b|\s*\+kernel\b)|\bby\s+decide\b")
+SPLIT_DECIDES = re.compile(r"\bdecide(?:_cheap\b|_map_blocks\b|_all_blocks\b|\s*\+kernel\b)|\bby\s+decide\b")
 SPLIT_IDENT = re.compile(r"(?<![\w'.!?])([^\W\d][\w'!?]*)")
 
 
@@ -3146,6 +3361,73 @@ IDEM_RAW = [
 ]
 
 
+def ovl_eq_section(ovl_eq):
+    """The overload axioms: each `tieOvlEqB` (kernel), Γ entails it for every H."""
+    return "\n".join([
+        "/-! ## The overload axioms -/",
+        "",
+        "/-- The sentences of the class overload equation, in text order. -/",
+        "noncomputable def ovlEqText : List AxiomDecl :=",
+        "  " + ax_list(ovl_eq),
+        "",
+        "theorem ovleq_account : (classOf \"overload equation\").isPerm (ovlEqText.map (·.index)) = true := by",
+        "  decide +kernel",
+        "",
+        "/-- Each is an overload axiom of the semantics: of an overloading symbol over a symbol it overloads,",
+        "in the form `tieOvlEq_entailed` reads (`tieOvlEqB`; kernel). -/",
+        "theorem ovleq_checked : ovlEqText.all (fun ad => tieOvlEqB c ad.ax) = true := by decide +kernel",
+        "",
+        "theorem ovleq_trS : ovlEqText.all (fun ad => decide ((trS ad).pat = (trAxiom [] [] ad).pat)) = true := by",
+        "  decide +kernel",
+        "",
+        "/-- **E for the overload axioms**: Γ entails each, for every H. Γ's overload equation states, at",
+        "every element of the overloaded symbol's argument sorts, that the overloading symbol applied to",
+        "their lifts is the lift of the overloaded symbol applied to them (`tieOvlEq_entailed`). -/",
+        "theorem ovleq_entailed (H : HookParams) : ∀ ad ∈ ovlEqText, Γ (cH H) ⊧ (trS ad).pat := by",
+        "  intro ad had M _ I hI",
+        "  rw [of_decide_eq_true (List.all_eq_true.mp ovleq_trS ad had)]",
+        "  haveI : OvlOK (cH H) := ovlOK_of_core (coreOKH H)",
+        "  exact tieOvlEq_entailed (c := cH H) (a := ad.ax)",
+        "    ((tieOvlEqB_withHooks c H ad.ax).trans (List.all_eq_true.mp ovleq_checked ad had)) ad.index ad.module hI",
+        ""])
+
+
+def ovl_nc_section(ovl_nc):
+    """The no-confusion sentences of two symbols that meet at values: each `tieOvlNcB` (kernel), refuted
+    by every model of Γ for every H."""
+    return "\n".join([
+        "/-! ## The no-confusion sentences of two symbols that meet: refuted -/",
+        "",
+        "/-- The sentences of `ovlRefuted`, in text order. -/",
+        "noncomputable def ovlNcText : List AxiomDecl :=",
+        "  " + ax_list(ovl_nc),
+        "",
+        "theorem ovlnc_index : ovlNcText.map (·.index) = ovlRefuted := by decide +kernel",
+        "",
+        "/-- Each is the no-confusion sentence of two symbols, at values of whose argument sorts the two",
+        "have one normal form: values of the overloaded symbol's argument sorts and their lifts to the",
+        "overloading symbol's (`tieOvlNcB`; kernel). -/",
+        "theorem ovlnc_checked : ovlNcText.all (fun ad => tieOvlNcB c ad.ax) = true := by decide +kernel",
+        "",
+        "kernel_rfl ovlnc_wh : ∀ H : HookParams,",
+        "  ovlNcText.all (fun ad => tieOvlNcB (cH H) ad.ax) = ovlNcText.all (fun ad => tieOvlNcB c ad.ax)",
+        "",
+        "theorem ovlnc_trS : ovlNcText.all (fun ad => decide ((trS ad).pat = (trAxiom [] [] ad).pat)) = true := by",
+        "  decide +kernel",
+        "",
+        "/-- **Γ refutes each**, for every H: in every model of Γ the two symbols build the element of the",
+        "values' normal form from the values' elements (`Faithful.norm_gs`, by the overload equation), so the",
+        "sentence's conjunction holds of it at the valuation sending its variables to those elements",
+        "(`tieOvlNc_refuted`): Γ with the sentence has no model. -/",
+        "theorem ovlnc_refuted (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}",
+        "    (hI : I ⊧ᴵP Γ (cH H)) : ∀ ad ∈ ovlNcText, ¬ (I ⊧ᴵ (trS ad).pat) := by",
+        "  intro ad had",
+        "  rw [of_decide_eq_true (List.all_eq_true.mp ovlnc_trS ad had)]",
+        "  haveI : OvlOK (cH H) := ovlOK_of_core (coreOKH H)",
+        "  exact tieOvlNc_refuted hI (List.all_eq_true.mp ((ovlnc_wh H).trans ovlnc_checked) ad had) ad.index ad.module",
+        ""])
+
+
 def law_section(law_idx):
     il = ", ".join(map(str, law_idx))
     lt = ", ".join(f"U.ax{i}" for i in law_idx)
@@ -3332,7 +3614,8 @@ theorem open_functional_not_item : {ax_list(open_fun, 4)}.all (fun ad => !(consI
 """
 
 
-def gamma_c_section(gamma, fn_align, nrules, fn_any, nj_triv, nj_items, nj_kitem, cons_text, idem, own_idem=()):
+def gamma_c_section(gamma, fn_align, nrules, fn_any, nj_triv, nj_items, nj_kitem, cons_text, idem, own_idem=(),
+                    ovl_eq=(), ovl_nc=()):
     """The statements over `Γc = Γ ∪ Γcl`, the theory of a definition that reads a confined sort: each
     entailment over Γ holds over `Γc`; `Γcl` holds `boolClosed` alone; the origin of `Γc`'s premises."""
     L = ["/-! ## Over `Γc`, the theory the statements are about -/", "",
@@ -3405,6 +3688,16 @@ def gamma_c_section(gamma, fn_align, nrules, fn_any, nj_triv, nj_items, nj_kitem
               f"    I ⊧ᴵP Γc (cH H) → ¬ (I ⊧ᴵ (trS U.ax{i}).pat) :=",
               f"  fun M hM I hI => own_idem_refuted_{i} H M hM I fun φ hφ => hI φ (Γ_sub_Γc _ hφ)"]
         names.append(f"own_idem_refuted_{i}_c")
+    if ovl_eq:
+        L += ["theorem ovleq_entailed_c (H : HookParams) : ∀ ad ∈ ovlEqText, Γc (cH H) ⊧ (trS ad).pat :=",
+              "  fun ad had => entails_c (ovleq_entailed H ad had)"]
+        names.append("ovleq_entailed_c")
+    if ovl_nc:
+        L += ["/-- **The sentences of `ovlRefuted` are refuted over `Γc`, for every H**: a model of `Γc` is one of Γ. -/",
+              "theorem ovlnc_refuted_c (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}",
+              "    (hI : I ⊧ᴵP Γc (cH H)) : ∀ ad ∈ ovlNcText, ¬ (I ⊧ᴵ (trS ad).pat) :=",
+              "  @ovlnc_refuted H M _ I fun φ hφ => hI φ (Γ_sub_Γc _ hφ)"]
+        names.append("ovlnc_refuted_c")
     return "\n".join(L) + "\n", names
 
 
@@ -3679,6 +3972,9 @@ def index_range(order):
 # `index_range` on lists that are a range and lists that are not
 INDEX_RANGE_TEST = [([7, 8, 9], (7, 3)), ([0], (0, 1)), ([], None), ([7, 9, 10], None), ([8, 7, 9], None),
                     ([7, 7, 8], None)]
+# `head_code_lit` against `KoreAML.Distinct.strCode` as the kernel computes it (decided on these heads)
+HEAD_CODE_TEST = [(("kseq", []), "(6197441387, [])"),
+                  (("inj", ["SortA", "SortB"]), '(23752297, [.ctor ⟨⟨"SortA"⟩⟩ [], .ctor ⟨⟨"SortB"⟩⟩ []])')]
 
 
 def self_test():
@@ -3687,6 +3983,10 @@ def self_test():
         if index_range(order) != want:
             print(f"tiegen self-test: index_range({order}) is {index_range(order)}, not {want}  FAILS")
             bad.append(f"index_range {order}")
+    for h, want in HEAD_CODE_TEST:
+        if head_code_lit(h) != want:
+            print(f"tiegen self-test: head_code_lit({h}) is {head_code_lit(h)}, not {want}  FAILS")
+            bad.append(f"head_code_lit {h}")
     for name, want in SELF_TEST.items():
         text = restored_text(name)
         with tempfile.TemporaryDirectory(prefix="tiegen-self-") as d:
@@ -3704,7 +4004,8 @@ def self_test():
               + ("" if ok else "  FAILS"))
         if not ok:
             bad.append(name)
-    print(f"tiegen self-test: {len(SELF_TEST)} fixtures and {len(INDEX_RANGE_TEST)} index lists, {len(bad)} failing")
+    print(f"tiegen self-test: {len(SELF_TEST)} fixtures, {len(INDEX_RANGE_TEST)} index lists and "
+          f"{len(HEAD_CODE_TEST)} head codes, {len(bad)} failing")
     return 1 if bad else 0
 
 
@@ -3789,10 +4090,19 @@ def main(argv):
     if heads_literal and (not head["gHeads"] or any("?" in ss for _, ss in head["gHeads"])):
         raise Refused(f"{name}: --heads-literal: the probe gives no heads of Γ, or a head with a sort argument "
                       f"that is no sort constructor without arguments")
+    heads_codes = "--heads-codes" in argv
+    if heads_codes and not heads_literal:
+        raise Refused(f"{name}: --heads-codes codes the literal of Γ's heads: it needs --heads-literal")
+    fn_blocks = opt("--fn-blocks", 0)
+    attrs_blocks = opt("--attrs-blocks", 0)
+    absent_file = "--absent-file" in argv
+    if absent_file and "--split" not in argv:
+        raise Refused(f"{name}: --absent-file puts the absent section in a file of `--split`: it needs --split")
     ns, lean, summary = generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, failing,
                                  ob, chunks, {i: raw for i, _, _, raw in ua}, hand, chunk,
                                  at_values, cons_head, wf_parts, "--split" in argv, account_sorted,
-                                 heads_literal)
+                                 heads_literal, heads_codes, "--attrs-parts" in argv or attrs_blocks > 0, "--decl-parts" in argv,
+                                 fn_blocks, attrs_blocks, absent_file)
     outdir = argv[argv.index("--out") + 1] if "--out" in argv else None
     if outdir is None and (not os.path.exists(final) or open(final).read() != text):
         open(final, "w").write(text)

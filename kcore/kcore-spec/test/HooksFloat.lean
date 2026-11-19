@@ -30,19 +30,22 @@
   The rows, by the region where `hook` gives no value (the `*_none` theorems, at every argument list
   of literals; under `floatShapeOK`, which `coreOK` gives, every value of sort Float is a literal of
   a format `(p, e)`, `float_only`). A format has a model here when `p ≥ 2` and `e ≥ 2`; a *thin*
-  format has `p = 1` or `e = 1`, both positive.
+  format has `p = 1` or `e = 1`, both positive. At a thin format of precision 1 and at least 2
+  exponent bits (`thinAt`) `hook` computes by the same formulas over the rounding to the nearest
+  datum of that format (`thinHooks`); "of one exponent bit" below is a thin format `thinAt` does not
+  name.
 
   | rows | prose | where `hook` gives no value |
   |---|---|---|
   | `FLOAT.precision`, `FLOAT.exponentBits` | DOM 1508, 1516; `total` 1511, 1519 | nowhere at a Float value (`covered_fmt`) |
-  | `FLOAT.neg`, `abs` | DOM 1552-1554, 1578; `total` 1562, 1608 | a thin operand; the NaN (`negAbs_none`) |
-  | `FLOAT.floor`, `ceil`, `trunc` | DOM 1583-1588; `total` 1610-1612 | a thin operand; an infinity or NaN; a zero result of a nonzero operand; an integer the format does not hold (`roundings_none`, `convert_special`) |
+  | `FLOAT.neg`, `abs` | DOM 1552-1554, 1578; `total` 1562, 1608 | an operand of one exponent bit; the NaN (`negAbs_none`) |
+  | `FLOAT.floor`, `ceil`, `trunc` | DOM 1583-1588; `total` 1610-1612 | an operand of one exponent bit; an infinity or NaN; a zero result of a nonzero operand; an integer the format does not hold (`roundings_none`, `convert_special`) |
   | `FLOAT.isNaN` | DOM 1541; `total` 1544 | a thin operand of one exponent bit (`isNaN_none`) |
   | `FLOAT.le`, `lt`, `ge`, `gt`, `eq` | DOM 1631-1638; 1641-1645, no `total` | a thin operand of one exponent bit (`cmp_none`) |
-  | `FLOAT.add`, `sub`, `mul`, `div`, `rem` | DOM 1556-1559; 1565-1570, no `total` | a thin operand; two formats; an infinite or NaN operand; a zero divisor; a zero result, but `0.0 -Float 0.0`; an exact result above the largest finite datum, or one rounding to zero; for `%Float` a quotient halfway between two integers (`arith_none`, `arith_special`, `div_rem_zero`, `exact_zero_none`, `above_max_none`) |
-  | `FLOAT.round` | DOM 1579-1582; 1609, no `total` | a thin operand; a precision or exponentBits below 2; a value the target does not hold, an infinity, NaN (`round_none`, `convert_special`, `held_exact`) |
-  | `FLOAT.int2float` | DOM 1653-1654; 1661, no `total` | a precision or exponentBits below 2; an Int the target does not hold (`int2Float_none`) |
-  | `FLOAT.maxValue`, `FLOAT.minValue` | DOM 1601-1604; 1625, 1626, no `total` | a precision or exponentBits below 2 (`at_none`) |
+  | `FLOAT.add`, `sub`, `mul`, `div`, `rem` | DOM 1556-1559; 1565-1570, no `total` | an operand of one exponent bit; two formats; an infinite or NaN operand; a zero divisor; a zero result, but `0.0 -Float 0.0`; an exact result above the largest finite datum, or one rounding to zero; for `%Float` a quotient halfway between two integers; at precision 1 an exact result halfway between two data (`arith_none`, `arith_special`, `div_rem_zero`, `exact_zero_none`, `above_max_none`) |
+  | `FLOAT.round` | DOM 1579-1582; 1609, no `total` | an operand of one exponent bit; a precision or exponentBits below 2 but precision 1 with at least 2 exponent bits; a value the target does not hold, an infinity, NaN (`round_none`, `convert_special`, `held_exact`) |
+  | `FLOAT.int2float` | DOM 1653-1654; 1661, no `total` | a precision or exponentBits below 2 but precision 1 with at least 2 exponent bits; an Int the target does not hold (`int2Float_none`) |
+  | `FLOAT.maxValue`, `FLOAT.minValue` | DOM 1601-1604; 1625, 1626, no `total` | a precision or exponentBits below 2 but precision 1 with at least 2 exponent bits (`at_none`) |
 
   `precisionFloat` and `exponentBitsFloat` are no key of `silentTable`. The other twenty are keys
   whose predicate is true at every argument list (`keys_silent`), so the silent points of each are
@@ -54,9 +57,9 @@
     exponentBits ≤ 0): `pNxM` names a format for positive N and M only (1475): unstated. Points:
     `pts`.
   - **what the prose does not describe at a format with a model**: findings 2, 3 and 5. Points: `pts`.
-  - **a thin format** (every key but `isNaN` and the comparisons: an operand of one, or a precision
-    or exponentBits of 1; `isNaN` and the comparisons: an operand of one exponent bit): finding 1.
-    Here the silent region is NOT shown to be a region the prose leaves unstated. Points: `thin`.
+  - **a thin format** (an operand of one exponent bit, or a precision and exponentBits naming such a
+    format; at precision 1 an exact result halfway between two data): finding 1. Here the silent
+    region of one exponent bit is NOT shown to be a region the prose leaves unstated. Points: `thin`.
 
   Statements:
   - **(1)** `vals`: points with the value derived as marked; `hook` gives it (`vals_ok`), it is the
@@ -92,11 +95,11 @@
      1.0p1x8` is `-1.0p1x8`, `maxValueFloat(1, 8)` is 2^127, and Γ states less than the prose at
      every point of `thin` (unstated there: a tie at p = 1, `maxValueFloat(1, 1)`,
      `minValueFloat(1, 1)`). KCore's carrier holds values of thin formats (`KFloat.thinOK`); at
-     precision 1 and at least 2 exponent bits `hook` reads their data for `isNaN` and the five
-     comparisons (`thinVals`, `thinVals_gamma`; the data are R read at p = 1: ±0, ±2^x, ±∞, the
-     NaN), and computes none of the other operations on a thin format; at one exponent bit it
-     computes nothing (the data there rest on the encoding rule read at one exponent bit, not
-     confirmed). The reader takes no literal of a thin format (test/FloatLib.lean). `precisionFloat` and `exponentBitsFloat` have their values there
+     precision 1 and at least 2 exponent bits `hook` computes every operation on their data by the
+     formulas of a format with a model over the rounding to the nearest datum of the format
+     (`thinHooks`; `thinVals`, `thinVals_gamma`; the data are R read at p = 1: ±0, ±2^x, ±∞, the
+     NaN), a tie there giving no value; at one exponent bit it computes nothing (the data there
+     rest on the encoding rule read at one exponent bit, not confirmed). The reader takes no literal of a thin format (test/FloatLib.lean). `precisionFloat` and `exponentBitsFloat` have their values there
      (`covered_fmt`).
   2. Rounding. The prose gives a direction only for literals ("rounded to the nearest possible
      value", 1481-1482, naming no rule for a tie and not saying whether an infinity or which zero is
@@ -235,26 +238,34 @@ theorem asFloat_fv (p e b : Nat) :
 
 /-! ## `hook` by the helper of each row -/
 
-theorem hk_add (vs : List GroundTerm) : hook floatAdd vs = some (fl2 KFloat.sum? vs) :=
+theorem hk_add (vs : List GroundTerm) : hook floatAdd vs =
+    some (flOr (fl2 KFloat.sum?) (tfl2 fun p e => KFloat.sumBy (KFloat.tnNearest? p e)) vs) :=
   hook_at rfl vs
-theorem hk_sub (vs : List GroundTerm) : hook floatSub vs = some (fl2 KFloat.diff? vs) :=
+theorem hk_sub (vs : List GroundTerm) : hook floatSub vs =
+    some (flOr (fl2 KFloat.diff?) (tfl2 fun p e => KFloat.diffBy (KFloat.tnNearest? p e)) vs) :=
   hook_at rfl vs
-theorem hk_mul (vs : List GroundTerm) : hook floatMul vs = some (fl2 KFloat.prod? vs) :=
+theorem hk_mul (vs : List GroundTerm) : hook floatMul vs =
+    some (flOr (fl2 KFloat.prod?) (tfl2 fun p e => KFloat.prodBy (KFloat.tnNearest? p e)) vs) :=
   hook_at rfl vs
-theorem hk_div (vs : List GroundTerm) : hook floatDiv vs = some (fl2 KFloat.quot? vs) :=
+theorem hk_div (vs : List GroundTerm) : hook floatDiv vs =
+    some (flOr (fl2 KFloat.quot?) (tfl2 KFloat.tnQuot?) vs) :=
   hook_at rfl vs
-theorem hk_rem (vs : List GroundTerm) : hook floatRem vs = some (fl2 KFloat.remainder vs) :=
+theorem hk_rem (vs : List GroundTerm) : hook floatRem vs =
+    some (flOr (fl2 KFloat.remainder) (tfl2 fun p e => KFloat.remainderBy (KFloat.tnHeld? p e)) vs) :=
   hook_at rfl vs
 theorem hk_neg (vs : List GroundTerm) :
-    hook floatNeg vs = some (fl1 (fun _ => KFloat.neg?) vs) := hook_at rfl vs
+    hook floatNeg vs = some (flOr (fl1 fun _ => KFloat.neg?) (tfl1 fun _ _ => KFloat.neg?) vs) := hook_at rfl vs
 theorem hk_abs (vs : List GroundTerm) :
-    hook floatAbs vs = some (fl1 (fun _ => KFloat.abs?) vs) := hook_at rfl vs
+    hook floatAbs vs = some (flOr (fl1 fun _ => KFloat.abs?) (tfl1 fun _ _ => KFloat.abs?) vs) := hook_at rfl vs
 theorem hk_floor (vs : List GroundTerm) :
-    hook floatFloor vs = some (fl1 (fun s => KFloat.roundToIntegral s .down) vs) := hook_at rfl vs
+    hook floatFloor vs = some (flOr (fl1 fun s => KFloat.roundToIntegral s .down)
+      (tfl1 fun p e => KFloat.roundToIntegralBy (KFloat.tnHeld? p e) .down) vs) := hook_at rfl vs
 theorem hk_ceil (vs : List GroundTerm) :
-    hook floatCeil vs = some (fl1 (fun s => KFloat.roundToIntegral s .up) vs) := hook_at rfl vs
+    hook floatCeil vs = some (flOr (fl1 fun s => KFloat.roundToIntegral s .up)
+      (tfl1 fun p e => KFloat.roundToIntegralBy (KFloat.tnHeld? p e) .up) vs) := hook_at rfl vs
 theorem hk_trunc (vs : List GroundTerm) :
-    hook floatTrunc vs = some (fl1 (fun s => KFloat.roundToIntegral s .zero) vs) := hook_at rfl vs
+    hook floatTrunc vs = some (flOr (fl1 fun s => KFloat.roundToIntegral s .zero)
+      (tfl1 fun p e => KFloat.roundToIntegralBy (KFloat.tnHeld? p e) .zero) vs) := hook_at rfl vs
 theorem hk_le (vs : List GroundTerm) :
     hook floatLe vs = some (flCmp (fun o => o == some .lt || o == some .eq) vs) := hook_at rfl vs
 theorem hk_lt (vs : List GroundTerm) : hook floatLt vs = some (flCmp (fun o => o == some .lt) vs) :=
@@ -271,12 +282,14 @@ theorem hk_prec (vs : List GroundTerm) : hook floatPrecision vs = some (flFmt (f
   hook_at rfl vs
 theorem hk_expb (vs : List GroundTerm) : hook floatExponentBits vs = some (flFmt (fun _ e => (e : Int)) vs) :=
   hook_at rfl vs
-theorem hk_round (vs : List GroundTerm) : hook floatRound vs = some (flTo KFloat.convertFormat vs) :=
+theorem hk_round (vs : List GroundTerm) : hook floatRound vs = some (flOr (flTo KFloat.convertFormat) tflTo vs) :=
   hook_at rfl vs
-theorem hk_ofInt (vs : List GroundTerm) : hook int2Float vs = some (flOfInt vs) := hook_at rfl vs
-theorem hk_max (vs : List GroundTerm) : hook floatMaxValue vs = some (flAt KFloat.maxValue vs) :=
+theorem hk_ofInt (vs : List GroundTerm) : hook int2Float vs = some (flOr flOfInt tflOfInt vs) := hook_at rfl vs
+theorem hk_max (vs : List GroundTerm) : hook floatMaxValue vs =
+    some (flOr (flAt KFloat.maxValue) (tflAt KFloat.tnMax?) vs) :=
   hook_at rfl vs
-theorem hk_min (vs : List GroundTerm) : hook floatMinValue vs = some (flAt KFloat.minValue vs) :=
+theorem hk_min (vs : List GroundTerm) : hook floatMinValue vs =
+    some (flOr (flAt KFloat.minValue) (tflAt KFloat.tnMin?) vs) :=
   hook_at rfl vs
 
 /-! ## Where the helpers give no value -/
@@ -364,6 +377,82 @@ theorem flOfInt_none (n x y : Int) :
   simp only [flOfInt, asInt_int, Option.bind_some]
   cases KFloat.spec? x.toNat y.toNat <;> simp
 
+/-! ### At the formats `thinAt` names (`thinHooks`) -/
+
+theorem flOr_none {f g : List GroundTerm → Option GroundTerm} {vs : List GroundTerm} :
+    flOr f g vs = none ↔ (f vs = none ∧ g vs = none) := by
+  unfold flOr; split <;> simp_all
+
+theorem flOr_some {f g : List GroundTerm → Option GroundTerm} {vs : List GroundTerm} {v : GroundTerm}
+    (h : flOr f g vs = some v) : f vs = some v ∨ g vs = some v := by
+  unfold flOr at h; split at h
+  · rename_i w hw; cases h; exact Or.inl hw
+  · exact Or.inr h
+
+/-- `thinAt` at a format given by two Ints: precision 1 and at least 2 exponent bits. -/
+theorem thinAt_toNat (x y : Int) : thinAt x.toNat y.toNat = true ↔ (x = 1 ∧ 2 ≤ y) := by
+  simp only [thinAt, decide_eq_true_eq]; omega
+
+theorem asThin_fv (p e b : Nat) :
+    asThin (fv p e b) = if thinAt p e = true then some (p, e, KFloat.tnUnpack p e b) else none := by
+  simp [asThin, fv]
+
+theorem tfl1_none (op : Nat → Nat → Float.Model.UnpackedFloat → Option Float.Model.UnpackedFloat)
+    (p e b : Nat) : tfl1 op [fv p e b] = none ↔ (thinAt p e = true → op p e (KFloat.tnUnpack p e b) = none) := by
+  simp only [tfl1, asThin_fv]
+  cases thinAt p e <;> simp
+
+theorem tfl2_none
+    (op : Nat → Nat → Float.Model.UnpackedFloat → Float.Model.UnpackedFloat → Option Float.Model.UnpackedFloat)
+    (p e b p' e' b' : Nat) : tfl2 op [fv p e b, fv p' e' b'] = none ↔
+      (thinAt p e = true → thinAt p' e' = true → p = p' ∧ e = e' →
+        op p e (KFloat.tnUnpack p e b) (KFloat.tnUnpack p' e' b') = none) := by
+  simp only [tfl2, asThin_fv]
+  cases thinAt p e <;> cases thinAt p' e' <;>
+    simp only [Bool.false_eq_true, ↓reduceIte, Option.bind_none, Option.bind_some, false_implies,
+      true_implies]
+  by_cases hpe : p = p' ∧ e = e'
+  · simp only [hpe, and_self, ↓reduceIte, Option.map_eq_none_iff, true_implies]
+  · simp only [hpe, ↓reduceIte, false_implies]
+
+theorem tflAt_none (op : Nat → Nat → Option Float.Model.UnpackedFloat) (x y : Int) :
+    tflAt op [int x, int y] = none ↔ (thinAt x.toNat y.toNat = true → op x.toNat y.toNat = none) := by
+  simp only [tflAt, asInt_int, Option.bind_some]
+  cases thinAt x.toNat y.toNat <;> simp
+
+theorem tflTo_none (p e b : Nat) (x y : Int) : tflTo [fv p e b, int x, int y] = none ↔
+    ∀ u, asDatum (fv p e b) = some u →
+      (∀ sq, KFloat.spec? x.toNat y.toNat = some sq → KFloat.convertFormat sq u = none) ∧
+      (thinAt x.toNat y.toNat = true → KFloat.convertBy (KFloat.tnHeld? x.toNat y.toNat) u = none) := by
+  simp only [tflTo, asInt_int, Option.bind_some]
+  cases asDatum (fv p e b) with
+  | none => simp
+  | some u =>
+    simp only [Option.bind_some, Option.some.injEq, forall_eq']
+    cases hs : KFloat.spec? x.toNat y.toNat with
+    | some sq =>
+      have ht : thinAt x.toNat y.toNat = false := by
+        cases h : thinAt x.toNat y.toNat
+        · rfl
+        · rw [thinAt_spec_none h] at hs; cases hs
+      simp [ht]
+    | none => cases thinAt x.toNat y.toNat <;> simp
+
+theorem tflOfInt_none (n x y : Int) : tflOfInt [int n, int x, int y] = none ↔
+    (thinAt x.toNat y.toNat = true → KFloat.ofIntBy (KFloat.tnHeld? x.toNat y.toNat) n = none) := by
+  simp only [tflOfInt, asInt_int, Option.bind_some]
+  cases thinAt x.toNat y.toNat <;> simp
+
+/-- At a format `thinAt` names, `maxValueFloat` and `minValueFloat` have a datum. -/
+theorem tnMax_thin {p e : Nat} (ht : thinAt p e = true) : ∃ m, KFloat.tnMax? p e = some m := by
+  simp only [thinAt, decide_eq_true_eq] at ht
+  obtain ⟨_, hm⟩ := KFloat.tnMax?_normal (p := p) (e := e) (by omega) ht.2
+  exact ⟨_, hm⟩
+
+theorem tnMin_thin {p e : Nat} (ht : thinAt p e = true) : ∃ m, KFloat.tnMin? p e = some m := by
+  simp only [thinAt, decide_eq_true_eq] at ht
+  exact ⟨_, KFloat.tnMin?_eq (by omega) (by omega) (Or.inr ht.2)⟩
+
 /-! ## The rows -/
 
 /-- The twenty-two supported operation rows: the symbol and its `hook` attribute in the prose's
@@ -445,31 +534,42 @@ theorem spec_all_iff {p e : Nat} {P Q : Float.Model.Format → Prop} (h : ∀ sp
     · exact Or.inr
     · rintro (h' | h') <;> first | omega | exact h'
 
-/-- `--Float`, `absFloat`: no value exactly at an operand of a format without a model and at the NaN,
-of which the text says nothing (1552-1554, 1578). -/
+/-- `--Float`, `absFloat`: no value exactly at the NaN, of which the text says nothing (1552-1554,
+1578), and at an operand of a format without a model that `thinAt` does not name (the first
+conjunct: of a format with a model; the second: of a format `thinAt` names). -/
 theorem negAbs_none : ∀ f ∈ [floatNeg, floatAbs], ∀ p e b : Nat, hook f [fv p e b] = some none ↔
-    ((p < 2 ∨ e < 2) ∨ ∀ sp, KFloat.spec? p e = some sp → KFloat.unpackBits sp b = .notANumber) := by
+    ((p < 2 ∨ e < 2) ∨ ∀ sp, KFloat.spec? p e = some sp → KFloat.unpackBits sp b = .notANumber) ∧
+    (thinAt p e = true → KFloat.tnUnpack p e b = .notANumber) := by
   intro f hf p e b
   simp only [List.mem_cons, List.not_mem_nil, or_false] at hf
   rcases hf with rfl | rfl
-  · rw [hk_neg, Option.some.injEq, fl1_none]; exact spec_all_iff fun _ => neg?_none _
-  · rw [hk_abs, Option.some.injEq, fl1_none]; exact spec_all_iff fun _ => abs?_none _
+  · rw [hk_neg, Option.some.injEq, flOr_none, fl1_none, tfl1_none]
+    exact and_congr (spec_all_iff fun _ => neg?_none _) (imp_congr_right fun _ => neg?_none _)
+  · rw [hk_abs, Option.some.injEq, flOr_none, fl1_none, tfl1_none]
+    exact and_congr (spec_all_iff fun _ => abs?_none _) (imp_congr_right fun _ => abs?_none _)
 
 /-- The direction of each of the three roundings to an integer. -/
 def dirOf (f : Sym) : KFloat.Dir := if f == floatFloor then .down else if f == floatCeil then .up else .zero
 
 /-- `floorFloat`, `ceilFloat`, `truncFloat`: no value exactly at an operand of a format without a model
-and where `KFloat.roundToIntegral` gives none: an infinity or NaN (`roundToIntegral_special`), a zero
-result of a nonzero operand, an integer the format does not hold (points in `pts`). -/
+that `thinAt` does not name and where the rounding to an integer gives none (`KFloat.roundToIntegral`
+at a format with a model, `KFloat.roundToIntegralBy` at one `thinAt` names): an infinity or NaN
+(`roundToIntegral_special`), a zero result of a nonzero operand, an integer the format does not hold
+(points in `pts`). -/
 theorem roundings_none : ∀ f ∈ [floatFloor, floatCeil, floatTrunc], ∀ p e b : Nat,
     hook f [fv p e b] = some none ↔ ((p < 2 ∨ e < 2) ∨
-      ∀ sp, KFloat.spec? p e = some sp → KFloat.roundToIntegral sp (dirOf f) (KFloat.unpackBits sp b) = none) := by
+      ∀ sp, KFloat.spec? p e = some sp → KFloat.roundToIntegral sp (dirOf f) (KFloat.unpackBits sp b) = none) ∧
+      (thinAt p e = true →
+        KFloat.roundToIntegralBy (KFloat.tnHeld? p e) (dirOf f) (KFloat.tnUnpack p e b) = none) := by
   intro f hf p e b
   simp only [List.mem_cons, List.not_mem_nil, or_false] at hf
   rcases hf with rfl | rfl | rfl
-  · rw [hk_floor, Option.some.injEq, fl1_none]; exact spec_all_iff fun _ => Iff.rfl
-  · rw [hk_ceil, Option.some.injEq, fl1_none]; exact spec_all_iff fun _ => Iff.rfl
-  · rw [hk_trunc, Option.some.injEq, fl1_none]; exact spec_all_iff fun _ => Iff.rfl
+  · rw [hk_floor, Option.some.injEq, flOr_none, fl1_none, tfl1_none]
+    exact and_congr (spec_all_iff fun _ => Iff.rfl) Iff.rfl
+  · rw [hk_ceil, Option.some.injEq, flOr_none, fl1_none, tfl1_none]
+    exact and_congr (spec_all_iff fun _ => Iff.rfl) Iff.rfl
+  · rw [hk_trunc, Option.some.injEq, flOr_none, fl1_none, tfl1_none]
+    exact and_congr (spec_all_iff fun _ => Iff.rfl) Iff.rfl
 
 /-- `isNaN`: no value exactly at an operand of a format without a model but precision 1 and at
 least 2 exponent bits (`asDatum`, `KFloat.thinUnpack`). -/
@@ -497,38 +597,55 @@ def arithOp (f : Sym) : Float.Model.Format → Float.Model.UnpackedFloat → Flo
   if f == floatAdd then KFloat.sum? else if f == floatSub then KFloat.diff?
   else if f == floatMul then KFloat.prod? else if f == floatDiv then KFloat.quot? else KFloat.remainder
 
+/-- The datum operation of each arithmetic row at a format `thinAt` names (`thinHooks`). -/
+def thinArithOp (f : Sym) : Nat → Nat → Float.Model.UnpackedFloat → Float.Model.UnpackedFloat →
+    Option Float.Model.UnpackedFloat :=
+  if f == floatAdd then fun p e => KFloat.sumBy (KFloat.tnNearest? p e)
+  else if f == floatSub then fun p e => KFloat.diffBy (KFloat.tnNearest? p e)
+  else if f == floatMul then fun p e => KFloat.prodBy (KFloat.tnNearest? p e)
+  else if f == floatDiv then KFloat.tnQuot? else fun p e => KFloat.remainderBy (KFloat.tnHeld? p e)
+
 /-- The five arithmetic operations: no value exactly where an operand is of a format without a
-model, the two operands are of two formats, or the datum operation gives none (the regions of
-`arith_special`, `div_rem_zero`, `exact_zero_none`, `above_max_none`, and the points of `pts`). -/
+model that `thinAt` does not name, the two operands are of two formats, or the datum operation gives
+none (the regions of `arith_special`, `div_rem_zero`, `exact_zero_none`, `above_max_none`, and the
+points of `pts`; at a format `thinAt` names also an exact result halfway between two data, `thin`). -/
 theorem arith_none : ∀ f ∈ arith, ∀ p e b p' e' b' : Nat,
     hook f [fv p e b, fv p' e' b'] = some none ↔
       ((p < 2 ∨ e < 2) ∨ (p' < 2 ∨ e' < 2) ∨ ¬(p = p' ∧ e = e') ∨
-        ∀ sp, KFloat.spec? p e = some sp → arithOp f sp (KFloat.unpackBits sp b) (KFloat.unpackBits sp b') = none) := by
+        ∀ sp, KFloat.spec? p e = some sp → arithOp f sp (KFloat.unpackBits sp b) (KFloat.unpackBits sp b') = none) ∧
+      (thinAt p e = true → thinAt p' e' = true → p = p' ∧ e = e' →
+        thinArithOp f p e (KFloat.tnUnpack p e b) (KFloat.tnUnpack p' e' b') = none) := by
   intro f hf p e b p' e' b'
   simp only [arith, List.mem_cons, List.not_mem_nil, or_false] at hf
   rcases hf with rfl | rfl | rfl | rfl | rfl
-  · rw [hk_add, Option.some.injEq, fl2_none, spec_none, spec_none]; rfl
-  · rw [hk_sub, Option.some.injEq, fl2_none, spec_none, spec_none]; rfl
-  · rw [hk_mul, Option.some.injEq, fl2_none, spec_none, spec_none]; rfl
-  · rw [hk_div, Option.some.injEq, fl2_none, spec_none, spec_none]; rfl
-  · rw [hk_rem, Option.some.injEq, fl2_none, spec_none, spec_none]; rfl
+  · rw [hk_add, Option.some.injEq, flOr_none, fl2_none, tfl2_none, spec_none, spec_none]; rfl
+  · rw [hk_sub, Option.some.injEq, flOr_none, fl2_none, tfl2_none, spec_none, spec_none]; rfl
+  · rw [hk_mul, Option.some.injEq, flOr_none, fl2_none, tfl2_none, spec_none, spec_none]; rfl
+  · rw [hk_div, Option.some.injEq, flOr_none, fl2_none, tfl2_none, spec_none, spec_none]; rfl
+  · rw [hk_rem, Option.some.injEq, flOr_none, fl2_none, tfl2_none, spec_none, spec_none]; rfl
 
-/-- `roundFloat`: no value exactly where the operand is of a format without a model, the precision or
-the exponent bits asked for are below 2, or the target format does not hold the operand's value
-(`KFloat.convertFormat`: also at an infinity and NaN, `convert_special`). -/
+/-- `roundFloat`: no value exactly where the operand has no datum (`asDatum`), the format asked for
+has no model and is not one `thinAt` names, or the target format does not hold the operand's value
+(`KFloat.convertFormat` at a format with a model, `KFloat.convertBy` at one `thinAt` names: also at an
+infinity and NaN, `convert_special`). The first conjunct is Lean core's model on both sides; the
+second reads the operand's datum at every format that has one. -/
 theorem round_none (p e b : Nat) (x y : Int) : hook floatRound [fv p e b, int x, int y] = some none ↔
     ((p < 2 ∨ e < 2) ∨ (x < 2 ∨ y < 2) ∨
       ∀ sp sq, KFloat.spec? p e = some sp → KFloat.spec? x.toNat y.toNat = some sq →
-        KFloat.convertFormat sq (KFloat.unpackBits sp b) = none) := by
-  rw [hk_round, Option.some.injEq, flTo_none, spec_none, spec_none]
+        KFloat.convertFormat sq (KFloat.unpackBits sp b) = none) ∧
+    (∀ u, asDatum (fv p e b) = some u →
+      (∀ sq, KFloat.spec? x.toNat y.toNat = some sq → KFloat.convertFormat sq u = none) ∧
+      (thinAt x.toNat y.toNat = true → KFloat.convertBy (KFloat.tnHeld? x.toNat y.toNat) u = none)) := by
+  rw [hk_round, Option.some.injEq, flOr_none, flTo_none, tflTo_none, spec_none, spec_none]
   have : (x.toNat < 2 ∨ y.toNat < 2) ↔ (x < 2 ∨ y < 2) := by omega
   rw [this]
 
-/-- `Int2Float`: no value exactly at a precision or exponent bits below 2 and at an Int the format
-does not hold (`KFloat.ofInt?`). -/
+/-- `Int2Float`: no value exactly at a precision or exponent bits below 2 that `thinAt` does not
+name and at an Int the format does not hold (`KFloat.ofInt?`, `KFloat.ofIntBy`). -/
 theorem int2Float_none (n x y : Int) : hook int2Float [int n, int x, int y] = some none ↔
-    ((x < 2 ∨ y < 2) ∨ ∀ sq, KFloat.spec? x.toNat y.toNat = some sq → KFloat.ofInt? sq n = none) := by
-  rw [hk_ofInt, Option.some.injEq, flOfInt_none, spec_none]
+    ((x < 2 ∨ y < 2) ∨ ∀ sq, KFloat.spec? x.toNat y.toNat = some sq → KFloat.ofInt? sq n = none) ∧
+    (thinAt x.toNat y.toNat = true → KFloat.ofIntBy (KFloat.tnHeld? x.toNat y.toNat) n = none) := by
+  rw [hk_ofInt, Option.some.injEq, flOr_none, flOfInt_none, tflOfInt_none, spec_none]
   have : (x.toNat < 2 ∨ y.toNat < 2) ↔ (x < 2 ∨ y < 2) := by omega
   rw [this]
 
@@ -608,13 +725,30 @@ theorem held_exact (s : Format) (a q : Int) (r : UnpackedFloat) (h : KFloat.held
       · simp [Option.filter, he, hc] at h; subst h; exact ⟨b, e, he, hc⟩
       · simp [Option.filter, he, hc] at h
 
-/-- `maxValueFloat`, `minValueFloat`: the same. -/
-theorem at_none : ∀ f ∈ ats, ∀ x y : Int, hook f [int x, int y] = some none ↔ (x < 2 ∨ y < 2) := by
+/-- `maxValueFloat`, `minValueFloat`: no value exactly at a precision or exponent bits below 2 but
+precision 1 and at least 2 exponent bits (`thinAt`, where `KFloat.tnMax?` and `KFloat.tnMin?` have a
+datum). -/
+theorem at_none : ∀ f ∈ ats, ∀ x y : Int, hook f [int x, int y] = some none ↔
+    ((x < 2 ∨ y < 2) ∧ ¬(x = 1 ∧ 2 ≤ y)) := by
   intro f hf x y
   simp only [ats, List.mem_cons, List.not_mem_nil, or_false] at hf
   rcases hf with rfl | rfl
-  · rw [hk_max, Option.some.injEq, flAt_none, spec_none]; constructor <;> intro h <;> omega
-  · rw [hk_min, Option.some.injEq, flAt_none, spec_none]; constructor <;> intro h <;> omega
+  · rw [hk_max, Option.some.injEq, flOr_none, flAt_none, tflAt_none, spec_none]
+    constructor
+    · rintro ⟨h1, h2⟩
+      refine ⟨by omega, fun h => ?_⟩
+      have ht := (thinAt_toNat x y).mpr h
+      obtain ⟨m, hm⟩ := tnMax_thin ht
+      rw [h2 ht] at hm; cases hm
+    · rintro ⟨h1, h2⟩; exact ⟨by omega, fun ht => absurd ((thinAt_toNat x y).mp ht) h2⟩
+  · rw [hk_min, Option.some.injEq, flOr_none, flAt_none, tflAt_none, spec_none]
+    constructor
+    · rintro ⟨h1, h2⟩
+      refine ⟨by omega, fun h => ?_⟩
+      have ht := (thinAt_toNat x y).mpr h
+      obtain ⟨m, hm⟩ := tnMin_thin ht
+      rw [h2 ht] at hm; cases hm
+    · rintro ⟨h1, h2⟩; exact ⟨by omega, fun ht => absurd ((thinAt_toNat x y).mp ht) h2⟩
 
 /-! ## The sort row `FLOAT.Float` -/
 
@@ -677,12 +811,41 @@ theorem fmt_floatV (p e : Nat) (sp : Float.Model.Format) (u : Float.Model.Unpack
       hook floatExponentBits [floatV p e sp u] = some (some (int e)) :=
   fmt_at p e _ hp he
 
+/-- A literal of the format `thinAt` names given by two Ints has that precision and those exponent
+bits. -/
+theorem fmt_thin (x y : Int) (ht : thinAt x.toNat y.toNat = true) (w : Float.Model.UnpackedFloat) :
+    hook floatPrecision [tnFloatV x.toNat y.toNat w] = some (some (int x)) ∧
+      hook floatExponentBits [tnFloatV x.toNat y.toNat w] = some (some (int y)) := by
+  obtain ⟨hx, hy⟩ := (thinAt_toNat x y).mp ht
+  have hx' : (x.toNat : Int) = x := Int.toNat_of_nonneg (by omega)
+  have hy' : (y.toNat : Int) = y := Int.toNat_of_nonneg (by omega)
+  have := fmt_at x.toNat y.toNat (KFloat.tnPack x.toNat y.toNat w) (by omega) (by omega)
+  rw [hx', hy'] at this
+  exact this
+
 /-- **"The resulting `Float` will yield the specified values when calling `precisionFloat` and
 `exponentBitsFloat`"** (DOM 1580-1582), at every value of `roundFloat`. -/
 theorem round_format (p e b : Nat) (x y : Int) {v : GroundTerm}
     (h : hook floatRound [fv p e b, int x, int y] = some (some v)) :
     hook floatPrecision [v] = some (some (int x)) ∧ hook floatExponentBits [v] = some (some (int y)) := by
   rw [hk_round, Option.some.injEq] at h
+  rcases (flOr_some h).symm with h | h
+  · simp only [tflTo, asInt_int, Option.bind_some] at h
+    obtain ⟨u, -, h⟩ := Option.bind_eq_some_iff.mp h
+    split at h
+    · rename_i sq h2
+      obtain ⟨w, -, rfl⟩ := Option.map_eq_some_iff.mp h
+      obtain ⟨hx, hy⟩ := spec_pos h2
+      have hx' : (x.toNat : Int) = x := Int.toNat_of_nonneg (by omega)
+      have hy' : (y.toNat : Int) = y := Int.toNat_of_nonneg (by omega)
+      have := fmt_floatV x.toNat y.toNat sq w (by omega) (by omega)
+      rw [hx', hy'] at this
+      exact this
+    · split at h
+      · rename_i ht
+        obtain ⟨w, -, rfl⟩ := Option.map_eq_some_iff.mp h
+        exact fmt_thin x y ht w
+      · cases h
   simp only [flTo, asFloat_fv, asInt_int, Option.bind_some] at h
   cases h1 : KFloat.spec? p e with
   | none => rw [h1] at h; simp at h
@@ -705,6 +868,13 @@ theorem int2Float_format (n x y : Int) {v : GroundTerm}
     (h : hook int2Float [int n, int x, int y] = some (some v)) :
     hook floatPrecision [v] = some (some (int x)) ∧ hook floatExponentBits [v] = some (some (int y)) := by
   rw [hk_ofInt, Option.some.injEq] at h
+  rcases (flOr_some h).symm with h | h
+  · simp only [tflOfInt, asInt_int, Option.bind_some] at h
+    split at h
+    · rename_i ht
+      obtain ⟨w, -, rfl⟩ := Option.map_eq_some_iff.mp h
+      exact fmt_thin x y ht w
+    · cases h
   simp only [flOfInt, asInt_int, Option.bind_some] at h
   cases h2 : KFloat.spec? x.toNat y.toNat with
   | none => rw [h2] at h; simp at h
@@ -739,11 +909,27 @@ theorem at_format : ∀ f ∈ ats, ∀ (x y : Int) {v : GroundTerm}, hook f [int
       have := fmt_floatV x.toNat y.toNat sq (op sq) (by omega) (by omega)
       rw [h, hx', hy'] at this
       exact this
+  have keyT : ∀ (op : Nat → Nat → Option Float.Model.UnpackedFloat) (x y : Int) {v : GroundTerm},
+      tflAt op [int x, int y] = some v →
+      hook floatPrecision [v] = some (some (int x)) ∧ hook floatExponentBits [v] = some (some (int y)) := by
+    intro op x y v h
+    simp only [tflAt, asInt_int, Option.bind_some] at h
+    split at h
+    · rename_i ht
+      obtain ⟨w, -, rfl⟩ := Option.map_eq_some_iff.mp h
+      exact fmt_thin x y ht w
+    · cases h
   intro f hf x y v h
   simp only [ats, List.mem_cons, List.not_mem_nil, or_false] at hf
   rcases hf with rfl | rfl
-  · rw [hk_max, Option.some.injEq] at h; exact key _ x y h
-  · rw [hk_min, Option.some.injEq] at h; exact key _ x y h
+  · rw [hk_max, Option.some.injEq] at h
+    rcases flOr_some h with h | h
+    · exact key _ x y h
+    · exact keyT _ x y h
+  · rw [hk_min, Option.some.injEq] at h
+    rcases flOr_some h with h | h
+    · exact key _ x y h
+    · exact keyT _ x y h
 
 /-! ## The semantics of `strbytes` (`coreOK`, no function) -/
 
@@ -1017,27 +1203,46 @@ theorem pts_undetermined : ∀ p ∈ pts,
 /-! ## Finding 1: the thin formats -/
 
 /-- Values of the thin format `p1x8` [R]: sign bit 8, exponent field the 8 bits below it (bias 127),
-no significand field. `1.0p1x8` (field 127, 1.0 × 2^0), `-1.0p1x8`, `2.0p1x8` (field 128),
-`Infinityp1x8` (field 255), and its NaN, the code 2^9 (`KFloat.thinOK`). `1.0p2x1`: a value of the
-format of one exponent bit and precision 2 (the significand field 1). -/
+no significand field, so a datum is ±2^x, ±0 or ±∞. `1.0p1x8` (field 127, 2^0), `-1.0p1x8`, `2.0p1x8`
+(field 128), `4.0p1x8` (field 129), `0.5p1x8` (field 126), `Infinityp1x8` (field 255), the largest
+finite datum 2^127 (field 254) and the smallest positive one 2^-126 (field 1: with no significand
+field there is no subnormal datum), and its NaN, the code 2^9 (`KFloat.thinOK`). `1.0p2x1`: a value of
+the format of one exponent bit and precision 2 (the significand field 1). -/
 def t18 : GroundTerm := fv 1 8 127
 def mt18 : GroundTerm := fv 1 8 (256 + 127)
 def two18 : GroundTerm := fv 1 8 128
+def four18 : GroundTerm := fv 1 8 129
+def half18 : GroundTerm := fv 1 8 126
 def inf18 : GroundTerm := fv 1 8 255
+def max18 : GroundTerm := fv 1 8 254
+def min18 : GroundTerm := fv 1 8 1
 def nan18 : GroundTerm := fv 1 8 512
 def t21 : GroundTerm := fv 2 1 1
 
-/-- **At precision 1 and at least 2 exponent bits the tests and comparisons have the values the
-prose states** (finding 1; [P] as in `vals`, the data [R]): `isNaN(1.0p1x8)` false, `isNaN(NaNp1x8)`
-true, `isNaN(Infinityp1x8)` false; `1.0p1x8 ==Float 1.0` true, `2.0p1x8 ==Float 2.0f` true,
+/-- **At precision 1 and at least 2 exponent bits the operations have the values the prose states**
+(finding 1; [P] and [A] as in `vals`, the data [R]): `isNaN(1.0p1x8)` false, `isNaN(NaNp1x8)` true,
+`isNaN(Infinityp1x8)` false; `1.0p1x8 ==Float 1.0` true, `2.0p1x8 ==Float 2.0f` true,
 `-1.0p1x8 <Float 1.0p1x8` true, `1.0p1x8 <=Float 1.0f` true, `2.0p1x8 >Float 1.5` true,
-`Infinityp1x8 >=Float max32` true, `NaNp1x8 ==Float NaNp1x8` false, `NaNp1x8 <Float 1.0p1x8` false. -/
+`Infinityp1x8 >=Float max32` true, `NaNp1x8 ==Float NaNp1x8` false, `NaNp1x8 <Float 1.0p1x8` false;
+`--Float 1.0p1x8` is `-1.0p1x8`, `absFloat(-1.0p1x8)` is `1.0p1x8`; 1 + 1 = 2, 2 - 1 = 1, 2 × 2 = 4,
+1 / 2 = 0.5, all data of `p1x8`; `1.0p1x8 %Float 4.0p1x8`: 1 / 4 = 0.25, the nearest integer is 0, and
+1 - 4 × 0 = 1; `floorFloat(1.0p1x8)` is itself, `ceilFloat(0.5p1x8)` is 1, `truncFloat(2.0p1x8)` is
+itself; `roundFloat(1.0, 1, 8)` is `1.0p1x8` and `roundFloat(1.0p1x8, 24, 8)` is `1.0f`, values the
+target holds; `Int2Float(2, 1, 8)` is `2.0p1x8`; `maxValueFloat(1, 8)` and `minValueFloat(1, 8)` are
+the largest finite and the smallest positive datum. -/
 def thinVals : List Pt :=
   [⟨floatIsNaN, [t18], bool false⟩, ⟨floatIsNaN, [nan18], bool true⟩, ⟨floatIsNaN, [inf18], bool false⟩,
    ⟨floatEq, [t18, one64], bool true⟩, ⟨floatEq, [two18, two], bool true⟩, ⟨floatLt, [mt18, t18], bool true⟩,
    ⟨floatLe, [t18, one], bool true⟩, ⟨floatGt, [two18, oneHalf64], bool true⟩,
    ⟨floatGe, [inf18, max32], bool true⟩, ⟨floatEq, [nan18, nan18], bool false⟩,
-   ⟨floatLt, [nan18, t18], bool false⟩]
+   ⟨floatLt, [nan18, t18], bool false⟩,
+   ⟨floatNeg, [t18], mt18⟩, ⟨floatAbs, [mt18], t18⟩,
+   ⟨floatAdd, [t18, t18], two18⟩, ⟨floatSub, [two18, t18], t18⟩, ⟨floatMul, [two18, two18], four18⟩,
+   ⟨floatDiv, [t18, two18], half18⟩, ⟨floatRem, [t18, four18], t18⟩,
+   ⟨floatFloor, [t18], t18⟩, ⟨floatCeil, [half18], t18⟩, ⟨floatTrunc, [two18], two18⟩,
+   ⟨floatRound, [one64, int 1, int 8], t18⟩, ⟨floatRound, [t18, int 24, int 8], one⟩,
+   ⟨int2Float, [int 2, int 1, int 8], two18⟩,
+   ⟨floatMaxValue, [int 1, int 8], max18⟩, ⟨floatMinValue, [int 1, int 8], min18⟩]
 
 theorem thinVals_ok : thinVals.all (fun p => decide (sig p.f ∈ hookSigs) && (sig p.f).name == p.f &&
     c.sortsOf p.vs == some (sig p.f).args && hook p.f p.vs == some (some p.v)) = true := by
@@ -1053,18 +1258,20 @@ theorem thinVals_gamma : ∀ p ∈ thinVals, ∀ H : HookParams,
   exact gamma_val (c.withHooks H) hk (by rw [Semantics.sortsOf_withHooks _ _ noRaw]; exact hvs)
     (by rw [hname]; exact hh)
 
-/-- A point of each of the twenty keys at a thin format: an operand of `p1x8` (of `p2x1` for
-`isNaN` and the comparisons, which compute at `p1x8`), or a precision or exponent bits of 1. -/
+/-- A point of each of the twenty keys at a thin format where `hook` gives no value: an operand of
+`p2x1`, a format of one exponent bit, or a precision or exponent bits naming one; and at `p1x8`
+`1.0p1x8 +Float 2.0p1x8`, exactly 3, halfway between the data 2 and 4 (finding 1: a tie at
+precision 1). -/
 def thin : List Pt :=
-  [⟨floatNeg, [t18], z64⟩, ⟨floatAbs, [t18], z64⟩, ⟨floatFloor, [t18], z64⟩, ⟨floatCeil, [t18], z64⟩,
-   ⟨floatTrunc, [t18], z64⟩, ⟨floatIsNaN, [t21], bool false⟩,
+  [⟨floatNeg, [t21], z64⟩, ⟨floatAbs, [t21], z64⟩, ⟨floatFloor, [t21], z64⟩, ⟨floatCeil, [t21], z64⟩,
+   ⟨floatTrunc, [t21], z64⟩, ⟨floatIsNaN, [t21], bool false⟩,
    ⟨floatLe, [t21, t21], bool true⟩, ⟨floatLt, [t21, one], bool true⟩, ⟨floatGe, [one, t21], bool true⟩,
    ⟨floatGt, [t21, t21], bool true⟩, ⟨floatEq, [t21, t21], bool false⟩,
-   ⟨floatAdd, [t18, t18], z64⟩, ⟨floatSub, [t18, t18], z64⟩, ⟨floatMul, [t18, t18], z64⟩,
-   ⟨floatDiv, [t18, t18], z64⟩, ⟨floatRem, [t18, t18], z64⟩,
-   ⟨floatRound, [t18, int 24, int 8], z64⟩, ⟨floatRound, [one64, int 1, int 8], z64⟩,
+   ⟨floatAdd, [t21, t21], z64⟩, ⟨floatSub, [t21, t21], z64⟩, ⟨floatMul, [t21, t21], z64⟩,
+   ⟨floatDiv, [t21, t21], z64⟩, ⟨floatRem, [t21, t21], z64⟩, ⟨floatAdd, [t18, two18], z64⟩,
+   ⟨floatRound, [t21, int 24, int 8], z64⟩, ⟨floatRound, [one64, int 2, int 1], z64⟩,
    ⟨int2Float, [int 1, int 24, int 1], z64⟩,
-   ⟨floatMaxValue, [int 1, int 8], z64⟩, ⟨floatMinValue, [int 53, int 1], z64⟩]
+   ⟨floatMaxValue, [int 2, int 1], z64⟩, ⟨floatMinValue, [int 53, int 1], z64⟩]
 
 theorem thin_keys : (keys.all (fun f => thin.any (·.f == f)) && thin.all (fun p => keys.contains p.f)) = true := by
   decide +kernel
@@ -1074,8 +1281,9 @@ theorem thin_ok : thin.all (fun p => lookupSig hookSigs p.f == some (sig p.f) &&
     c.sortOf p.v == some (sig p.f).result) = true := by
   decide +kernel
 
-/-- **At a thin format Γ determines none of the twenty operations** (a fact about Γ; under reading
-(A) of finding 1 the prose states a value at each of these points). -/
+/-- **At a thin format where `hook` gives no value Γ determines none of the twenty operations** (a
+fact about Γ; under reading (A) of finding 1 the prose states a value at each of these points but
+the tie). -/
 theorem thin_undetermined : ∀ p ∈ thin,
     ¬ (∀ H : HookParams, Γ (c.withHooks H) ⊧ (appP (c.withHooks H) (sig p.f) p.vs ≡ ⊥)) ∧
     ¬ (∀ H : HookParams, Γ (c.withHooks H) ⊧

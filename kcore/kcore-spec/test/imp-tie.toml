@@ -130,14 +130,11 @@ indices = ["law_indices"]
 name = "library"
 count = 82
 direction = "atValues"
-at_values = 80
+at_values = 82
 file = "test/TieKimpAtValues.lean"
-theorems = ["lib_entailed", "libSet_entailed", "pred_entailed", "ev_entailed", "pred_indices", "lib_indices"]
+theorems = ["lib_entailed", "libSet_entailed", "pred_entailed", "ev_entailed", "ev831", "ev903", "pred_indices", "lib_indices"]
 indices = ["lib_indices"]
-note = "72 entailed at values (lib_entailed: the 16 predicate equations of ==Int, =/=Int, ==K, =/=K and 56 term and function equations, the shift simplifications 794, 795, 801, 802 among them); 8, the Bool predicate sentences over set variables (684 to 687, 692, 693, 698, 699), entailed at set values (libSet_entailed, EntailsAtSetValues: each free set variable at a set of values of its sort)"
-remainder = 2
-remainder_indices = [831, 903]
-reason = "831 (bitRangeInt), 903 (signExtendBitRangeInt, bitRangeInt): over symbols Gamma interprets (the registry interprets bitRangeInt and signExtendBitRangeInt), not yet stated at values in test/TieKimpAtValues.lean"
+note = "74 entailed at values (lib_entailed: the 16 predicate equations of ==Int, =/=Int, ==K, =/=K and 58 term and function equations, the shift simplifications 794, 795, 801, 802 and the equations of bitRangeInt (831) and signExtendBitRangeInt (903) among them); 8, the Bool predicate sentences over set variables (684 to 687, 692, 693, 698, 699), entailed at set values (libSet_entailed, EntailsAtSetValues: each free set variable at a set of values of its sort)"
 
 [[class]]
 name = "set idempotence"

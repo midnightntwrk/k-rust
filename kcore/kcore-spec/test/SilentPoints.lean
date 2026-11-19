@@ -201,11 +201,13 @@ def s (t : String) : GroundTerm := strV t.toList
 def b (t : String) : GroundTerm := bytesV t.toList
 def f64 (n : Nat) : GroundTerm := .dv Srt.float (.float 53 11 n)
 def f32 (n : Nat) : GroundTerm := .dv Srt.float (.float 24 8 n)
+/-- A value of `p1x8`, precision 1 and 8 exponent bits (`KFloat.thinOK`): the sign bit 8, the
+exponent field the 8 bits below it, no significand field, the NaN the code 512. -/
+def f18 (n : Nat) : GroundTerm := .dv Srt.float (.float 1 8 n)
 def be : GroundTerm := .ctor bigEndianBytes []
-/-- `1.0p1x8`, a value of a format with a field of 1 (`KFloat.thinOK`). -/
-def t18 : GroundTerm := .dv Srt.float (.float 1 8 127)
-/-- `1.0p2x1` and `NaNp2x1`, values of a format of one exponent bit, where neither the comparisons
-nor `isNaN` and `isInfinite` are computed (`asDatum`). -/
+/-- `1.0p2x1` and `NaNp2x1`, values of a format of one exponent bit, where no operation is computed
+(neither the comparisons nor `isNaN`, `asDatum`, nor `isInfinite` and the operations of
+`thinHooks`, `thinAt`). -/
 def t21 : GroundTerm := .dv Srt.float (.float 2 1 1)
 def n21 : GroundTerm := .dv Srt.float (.float 2 1 8)
 def sig (f : Sym) : CtorSig := (lookupSig hookSigs f).getD default
@@ -231,7 +233,7 @@ def pts : List Pt :=
    ⟨floatDiv, [f64 0x3FF0000000000000, f32 0x3F800000], f64 0⟩,
    ⟨floatRem, [f64 0x3FF0000000000000, f32 0x3F800000], f64 0⟩,
    ⟨floatRound, [f64 0x3FF0000000000000, int 0, int 8], f64 0⟩,
-   ⟨floatRound, [f64 0x3FF0000000000000, int 1, int 8], f64 0⟩,
+   ⟨floatRound, [f64 0x3FF0000000000000, int 2, int 1], f64 0⟩,
    ⟨int2Float, [int 1, int 24, int 0], f64 0⟩,
    ⟨floatMaxValue, [int 0, int 8], f64 0⟩,
    ⟨floatMinValue, [int 53, int 1], f64 0⟩,
@@ -253,8 +255,8 @@ def pts : List Pt :=
    ⟨bytesMemset, [b "abc", int 0, int 1, int 200], b ""⟩,
    ⟨int2Bytes, [int (-1), int 0, be], b ""⟩,
    ⟨floatSqrt, [f64 0x8000000000000000], f64 0⟩, ⟨floatSqrt, [f64 0], f64 0⟩,
-   ⟨floatNeg, [t18], f64 0⟩, ⟨floatAbs, [t18], f64 0⟩, ⟨floatFloor, [t18], f64 0⟩,
-   ⟨floatCeil, [t18], f64 0⟩, ⟨floatTrunc, [t18], f64 0⟩,
+   ⟨floatNeg, [t21], f64 0⟩, ⟨floatAbs, [t21], f64 0⟩, ⟨floatFloor, [t21], f64 0⟩,
+   ⟨floatCeil, [t21], f64 0⟩, ⟨floatTrunc, [t21], f64 0⟩,
    ⟨floatLe, [t21, t21], bool true⟩, ⟨floatLt, [t21, f64 0], bool true⟩, ⟨floatGe, [f64 0, t21], bool true⟩,
    ⟨floatGt, [t21, t21], bool true⟩, ⟨floatEq, [t21, t21], bool true⟩, ⟨floatNe, [t21, t21], bool false⟩,
    ⟨floatIsNaN, [n21], bool false⟩, ⟨floatIsInfinite, [t21], bool true⟩,
@@ -507,12 +509,14 @@ def isInfRule (F : GroundTerm) : Option GroundTerm := do
   (hook boolOr [x, y]).join
 
 /-- `isInfinite` agrees with its equation on ±0, ±∞, NaN, ±the largest finite value, the least
-subnormal and 1.0 of binary64 and binary32. -/
+subnormal and 1.0 of binary64 and binary32, and on ±0, ±∞, NaN, ±the largest finite value (exponent
+field 254), the least positive value (exponent field 1) and 1.0 of `p1x8`. -/
 theorem isInfinite_rule :
     ([f64 0, f64 0x8000000000000000, f64 0x7FF0000000000000, f64 0xFFF0000000000000, f64 0x7FF8000000000000,
       f64 0x7FEFFFFFFFFFFFFF, f64 0xFFEFFFFFFFFFFFFF, f64 1, f64 0x3FF0000000000000,
       f32 0, f32 0x80000000, f32 0x7F800000, f32 0xFF800000, f32 0x7FC00000,
-      f32 0x7F7FFFFF, f32 0xFF7FFFFF, f32 1, f32 0x3F800000].all fun F =>
+      f32 0x7F7FFFFF, f32 0xFF7FFFFF, f32 1, f32 0x3F800000,
+      f18 0, f18 256, f18 255, f18 (256 + 255), f18 512, f18 254, f18 (256 + 254), f18 1, f18 127].all fun F =>
       (hook floatIsInfinite [F]).join == isInfRule F && (isInfRule F).isSome) = true := by
   decide +kernel
 

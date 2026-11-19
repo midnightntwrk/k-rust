@@ -1,0 +1,11 @@
+command: kompile --backend haskell e3-ml-req-floor.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 6.0
+definition.kore bytes: 208998
+definition.kore sha256: 911c2577acf5f72f48b7635b8ee1fbeffa62c1c7349633a814063a6f75225195
+stripped sha256: 03ca4477b7980d826ea3b36564c0dfaa4e7901d659c0a78dc8249cf243165bdd
+main module: 410 sentences, 54 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-ML-REQ-FLOOR-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E3-ML-REQ-FLOOR as default.
