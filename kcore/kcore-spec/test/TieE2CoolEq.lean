@@ -41,9 +41,11 @@
   - Library sample, 161 (`I -Int 0 = I`): holds at values (`lib166`, `lib166_at_values`).
   - The converse over Γ's content: each premise is a function sentence's translation, one of the
     five parts Γ defines by predicates, or definedness (`gamma_origin`, `gamma_from`).
-  - Hooked functional, collection law, library: at values (no theorem here); function functional:
-    owed as `FnHyp` (no theorem); user lemma: owed, by hand
-    (`userlemma_account`, `UserLemmaEntailed`, `UserLemmaAtValues`); no direction: `absent_closed`.
+  - Function functional: at values in every model of `Γc`, from `FnHyp`, which holds for every H
+    (`fnHypH`), and the sort predicates' results (`fnFun_at_values`, `fnFun_account`).
+  - Hooked functional, collection law, library: at values (no theorem here); user lemma: owed, by
+    hand (`userlemma_account`, `UserLemmaEntailed`, `UserLemmaAtValues`); no direction:
+    `absent_closed`.
 
   The user lemmas (205) are sentences of a user's file that the reader leaves out of Γ as lemmas
   (inert simplification) and that apply no parameter symbol without `impl`. Of the class `user
@@ -506,6 +508,66 @@ theorem fnHypH (H : HookParams) : FnHyp (cH H) := fnHyp_withHooks coreOK (Semant
 
 /-- **`Γc` with the step's closure has a model, for every H.** -/
 theorem consistent (H : HookParams) : Consistent (cH H) := consistent_of_fnHyp _ (coreOKH H) (fnHypH H)
+
+/-! ## Function functional (15): the `functional` sentences, at values in every model of Γc, from `FnHyp` -/
+
+/- The class holds 15 `functional` sentences, `\exists{R}(Val:S, \equals{S, R}(Val:S, f(K0, …)))`:
+each that of a sort predicate `isX` (KCore builds them, `Semantics.sortPreds`). A model of `Γc`
+reads the application of a function with a value at every argument list of its sorts, at values'
+elements, as that value's element (`LibEv.fnFun_evC`, under `coreOK`, the clauses' predicates
+`\top`, no `\exists` in a clause, and the clauses' conditions decided where `needsWitness` holds). A
+sort predicate has those values from its own clauses (`LibEv.sortPredFun_evC`). `FnHyp`, which the
+tie states for every H (`fnHypH`), decides the conditions (its `OpenDecided`). So each sentence
+holds in every model of `Γc`, and of `Γc` with the step's closure, at every valuation sending its
+variables to values, for every H. -/
+
+/-- The sentences' indices. -/
+def fnFunIdx : List Nat := [82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96]
+
+/-- The sentences, in text order. -/
+noncomputable def fnFunText : List AxiomDecl := U.all.filter fun ad => fnFunIdx.contains ad.index
+
+theorem fnFun_indices : fnFunText.map (·.index) = fnFunIdx := by decide +kernel
+
+/-- **`fnFunText` is the account's function functional class**: the same indices, each once. -/
+theorem fnFun_account : (classOf "function functional").isPerm (fnFunText.map (·.index)) = true := by
+  decide +kernel
+
+/-- The sentence is the `functional` sentence of a sort predicate of `c`, over the one sort
+variable `R`, with its variables' sorts the registry's. -/
+noncomputable def fnFunOK (ad : AxiomDecl) : Bool :=
+  decide (ad.ax.sortVars = [Rv]) &&
+    c.sortPreds.any fun fn => decide (ad.ax.pattern = LibEv.funPat c fn.sig) && LibEv.predFunReg c fn.sig
+
+theorem fnFun_checked : fnFunText.all fnFunOK = true := by decide +kernel
+
+/-- None of the 15 reads a declaration or an alias. -/
+theorem fnFun_trS : fnFunText.all (fun ad => decide ((trS ad).pat = (trAxiom [] [] ad).pat)) = true := by
+  decide +kernel
+
+/-- The clauses' predicates are `\top` and no clause binds a variable by `\exists`. -/
+theorem fnFun_clauses : c.clausesPreTop = true ∧
+    (c.fns.all fun f => f.clauses.all fun cl => cl.exs.isEmpty) = true := by
+  decide +kernel
+
+/-- **The function functional sentences hold at values in every model of `Γc`, for every H**
+(`EntailsAtValuesΓc`), from `FnHyp` (`fnHypH`). -/
+theorem fnFun_at_values (H : HookParams) : ∀ ad ∈ fnFunText, EntailsAtValuesΓc (cH H) ad (trS ad).pat := by
+  intro ad had
+  rw [of_decide_eq_true (List.all_eq_true.mp fnFun_trS ad had)]
+  have hok := List.all_eq_true.mp fnFun_checked ad had
+  simp only [fnFunOK, Bool.and_eq_true, decide_eq_true_eq] at hok
+  obtain ⟨hsv, hany⟩ := hok
+  obtain ⟨fn, hfn, hfp⟩ := List.any_eq_true.mp hany
+  simp only [Bool.and_eq_true, decide_eq_true_eq] at hfp
+  exact LibEv.sortPredFun_evC_withHooks H coreOK fnFun_clauses.1 (Semantics.fnsNoExs_of_all fnFun_clauses.2)
+    (fnHypH H).2.2.2.2.1.2 hfn hfp.2 ad hfp.1 hsv
+
+/-- The same in every model of `Γc` with the step's closure, the theory `Consistent` asks a model of. -/
+theorem fnFun_at_values_step (H : HookParams) : ∀ ad ∈ fnFunText,
+    ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), I ⊧ᴵP (Γc (cH H) ∪ Γstep (cH H)) →
+      ∀ e, AtValues (cH H) I e ad.ax → ∀ m, (trS ad).pat.interpret I e m :=
+  fun ad had M hM I hI => fnFun_at_values H ad had M hM I (fun φ hφ => hI φ (Or.inl hφ))
 
 /-! ## Γ under every interpretation reads the same equations and rules -/
 
@@ -1010,6 +1072,12 @@ end KCore.TieE2CoolEq
 #check @KCore.TieE2CoolEq.sig_origin_but_next
 #check @KCore.TieE2CoolEq.decls_entailed
 #check @KCore.TieE2CoolEq.consistent
+#check @KCore.TieE2CoolEq.fnFun_indices
+#check @KCore.TieE2CoolEq.fnFun_account
+#check @KCore.TieE2CoolEq.fnFun_checked
+#check @KCore.TieE2CoolEq.fnFun_trS
+#check @KCore.TieE2CoolEq.fnFun_at_values
+#check @KCore.TieE2CoolEq.fnFun_at_values_step
 #check @KCore.TieE2CoolEq.text_nextless
 #check @KCore.TieE2CoolEq.fn_shape
 #check @KCore.TieE2CoolEq.fns_account
@@ -1058,6 +1126,12 @@ end KCore.TieE2CoolEq
 #print axioms KCore.TieE2CoolEq.sig_origin_but_next
 #print axioms KCore.TieE2CoolEq.decls_entailed
 #print axioms KCore.TieE2CoolEq.consistent
+#print axioms KCore.TieE2CoolEq.fnFun_indices
+#print axioms KCore.TieE2CoolEq.fnFun_account
+#print axioms KCore.TieE2CoolEq.fnFun_checked
+#print axioms KCore.TieE2CoolEq.fnFun_trS
+#print axioms KCore.TieE2CoolEq.fnFun_at_values
+#print axioms KCore.TieE2CoolEq.fnFun_at_values_step
 #print axioms KCore.TieE2CoolEq.text_nextless
 #print axioms KCore.TieE2CoolEq.fn_shape
 #print axioms KCore.TieE2CoolEq.fns_account
