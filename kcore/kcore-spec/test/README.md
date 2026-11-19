@@ -1195,7 +1195,10 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   over `Cond.boundV c val`) and `CE.holds_entails_fixed` (every condition) at `val := c.valued`,
   whose sorts have a value (`Semantics.valued_value`); with `val` admitting no sort,
   `holds_entails_fixed` gives the lemma over `Cond.bound` (`Cond.boundV_none`). The axioms of
-  these, of `holds_den_fixed`, `fixes_value_read` and `fixes_value`.
+  these, of `holds_den_fixed`, `fixes_value_read` and `fixes_value`. The reading of a truth value
+  with its terms' readings (KcoreSpec/HoldsDenFixed.lean): `CE.holdsAt_ex_fixed` and
+  `CE.holdsReadT_holdsAt_fixed` at `c.valued`, `CE.holdsReadT_holdsAt_bound` over `Cond.bound`,
+  `HoldsReadT.congr_NIR` at `TermAt`, and `holdsAt_allB` over `Cond.boundV`, with their axioms.
 - `test/HooksSet.lean`: the 10 supported hook rows of SET (the sort and nine operations) against
   domains.md's prose, cited by line: each operation at every argument list by the members of its
   result (the one set with them), with hand-derived values that `hook` gives, the result under

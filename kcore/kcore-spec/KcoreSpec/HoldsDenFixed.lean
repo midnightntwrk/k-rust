@@ -15,6 +15,13 @@
   The lemma is stated as the other cases are (`HoldsDenB`): only the variables the condition holds
   are read of the substitution and of the valuation. It reads the atoms' facts as a hypothesis, so
   the modules that prove them (TermSoundCEx.lean) import this one.
+
+  The same reading at one truth value that comes with the readings of its terms (`HoldsRead`),
+  with the constructors' facts in place of the atoms' (`holdsAt_ex_fixed`,
+  `holdsReadT_holdsAt_fixed`, and `holdsReadT_holdsAt_bound` over `Cond.bound`): a recursion that
+  proves the soundness of `EvalTerm` reads its own clauses' predicates through it. The fixing term's
+  result at a substitution of values is the one the body's truth value at an extension of σ
+  evaluates, which that substitution agrees with at the body's variables (`HoldsReadT.congr_NIR`).
 -/
 import KcoreSpec.FixesValue
 import KcoreSpec.HoldsCongr
@@ -254,6 +261,416 @@ theorem holdsAt_den_fixed (h : c.coreOK = true) (hIc : I ⊧ᴵP Γc c) (F : Ato
 theorem holds_den_bound (h : c.coreOK = true) (hIc : I ⊧ᴵP Γc c) (F : AtomFacts c I) (p : Cond)
     (hrc : hasBinder p = true → c.readsConfined = true) : HoldsDenB (Cond.bound c) c I p :=
   HoldsDenB.mono (Cond.boundV_valued_of_bound c p) (holds_den_fixed h hIc F (fun _ => Semantics.valued_value) p hrc)
+
+omit [Inhabited M] in
+/-- An evaluation read in I (`TermAt`) is read whatever σ is sorted on: `TermAt` asks of σ only
+the values `Reads` gives the term's variables. -/
+theorem termUse_termAtW {w : Prop} : TermUse c I w (TermAt c I) :=
+  fun hT _ _ _ _ _ _ hP hr ht m => hT hP hr ht m
+
+set_option maxHeartbeats 800000 in
+/-- **A truth value with what holds of its term evaluations reads the substitution at the
+condition's variables only**, where what holds of an evaluation reads the substitution at the
+term's variables only: `Holds.congr_NI` with T beside each evaluation. A binder pairs the
+extensions of the two substitutions as `Holds.congr_NI_aux` does (`mixSubst`). -/
+theorem _root_.KCore.HoldsShape.HoldsReadT.congr_NIR {T : Subst → Term → Option GroundTerm → Prop}
+    (hT : ∀ {σ σ' : Subst} {t : Term} {r : Option GroundTerm}, T σ t r →
+      (∀ i ∈ varOccs t, σ.lookup i = σ'.lookup i) → T σ' t r)
+    {n : Nat} {σ₁ : Subst} {p : Cond} {b : Bool} (h : HoldsReadT c T n σ₁ p b) :
+    ∀ σ₂ : Subst, (∀ j ∈ varOccsCond n p, σ₁.lookup j = σ₂.lookup j) → HoldsReadT c T n σ₂ p b := by
+  induction h with
+  | top => exact fun _ _ => .top
+  | bot => exact fun _ _ => .bot
+  | not _ ih => exact fun _ ha => .not (ih _ fun j hj => ha j (by simpa [varOccsCond] using hj))
+  | and _ _ ih ih' =>
+    exact fun _ ha => .and (ih _ fun j hj => ha j (by simp [varOccsCond, hj]))
+      (ih' _ fun j hj => ha j (by simp [varOccsCond, hj]))
+  | or _ _ ih ih' =>
+    exact fun _ ha => .or (ih _ fun j hj => ha j (by simp [varOccsCond, hj]))
+      (ih' _ fun j hj => ha j (by simp [varOccsCond, hj]))
+  | implies _ _ ih ih' =>
+    exact fun _ ha => .implies (ih _ fun j hj => ha j (by simp [varOccsCond, hj]))
+      (ih' _ fun j hj => ha j (by simp [varOccsCond, hj]))
+  | ceil he h1 =>
+    exact fun _ ha => .ceil (Exec.EvalTerm.congr he fun j hj => ha j (by simpa [varOccsCond] using hj))
+      (hT h1 fun j hj => ha j (by simpa [varOccsCond] using hj))
+  | equals he h1 he' h2 =>
+    exact fun _ ha => .equals (Exec.EvalTerm.congr he fun j hj => ha j (by simp [varOccsCond, hj]))
+      (hT h1 fun j hj => ha j (by simp [varOccsCond, hj]))
+      (Exec.EvalTerm.congr he' fun j hj => ha j (by simp [varOccsCond, hj]))
+      (hT h2 fun j hj => ha j (by simp [varOccsCond, hj]))
+  | mem he h1 he' h2 =>
+    exact fun _ ha => .mem (Exec.EvalTerm.congr he fun j hj => ha j (by simp [varOccsCond, hj]))
+      (hT h1 fun j hj => ha j (by simp [varOccsCond, hj]))
+      (Exec.EvalTerm.congr he' fun j hj => ha j (by simp [varOccsCond, hj]))
+      (hT h2 fun j hj => ha j (by simp [varOccsCond, hj]))
+  | exNone he h1 =>
+    exact fun _ ha => .exNone (Exec.EvalTerm.congr he fun j hj => ha j (by simp [varOccsCond, hj]))
+      (hT h1 fun j hj => ha j (by simp [varOccsCond, hj]))
+  | @exSome n σ₁ ys s p t body v b g he h1 _ hr ih =>
+    intro σ₂ ha
+    let R : Subst → Subst → Prop := fun σ₁' σ₂' => Extends c n ys σ₁ σ₁' ∧
+      ∀ j ∈ varOccs p ++ varOccsCond (n + ys.length) body, σ₁'.lookup j = σ₂'.lookup j
+    have hagr : ∀ σ₁' σ₂', Extends c n ys σ₁ σ₁' → Extends c n ys σ₂ σ₂' →
+        (∀ j, n ≤ j → σ₁'.lookup j = σ₂'.lookup j) →
+        ∀ j ∈ varOccs p ++ varOccsCond (n + ys.length) body, σ₁'.lookup j = σ₂'.lookup j := by
+      intro σ₁' σ₂' h1 h2 hge j hj
+      by_cases hjn : j < n
+      · rw [h1.1 j hjn, h2.1 j hjn]
+        exact ha j (by rw [varOccsCond, List.mem_append, List.mem_filter]; exact Or.inr ⟨hj, decide_eq_true hjn⟩)
+      · exact hge j (Nat.le_of_not_lt hjn)
+    have hR₁ : ∀ σ₂', Extends c n ys σ₂ σ₂' → R (mixSubst n σ₁ σ₂') σ₂' := fun σ₂' h2 =>
+      ⟨extends_mix h2, hagr _ _ (extends_mix h2) h2 fun j hj => by
+        simp only [mixSubst_lookup, Nat.not_lt.mpr hj, if_false]⟩
+    have hR₂ : ∀ σ₁', Extends c n ys σ₁ σ₁' → R σ₁' (mixSubst n σ₂ σ₁') := fun σ₁' h1 =>
+      ⟨h1, hagr _ _ h1 (extends_mix h1) fun j hj => by
+        simp only [mixSubst_lookup, Nat.not_lt.mpr hj, if_false]⟩
+    have hpv : ∀ σ₁' σ₂', R σ₁' σ₂' → (PatVal c σ₁' p v ↔ PatVal c σ₂' p v) := fun σ₁' σ₂' hr' =>
+      ⟨fun hm => PatVal.congr_varsRH hm fun j hj => (hr'.2 j (List.mem_append_left _ hj)).symm,
+       fun hm => PatVal.congr_varsRH hm fun j hj => hr'.2 j (List.mem_append_left _ hj)⟩
+    have hbod : ∀ σ₁' σ₂', R σ₁' σ₂' → PatVal c σ₁' p v → HoldsReadT c T (n + ys.length) σ₂' body (g σ₁') :=
+      fun σ₁' σ₂' hr' hm => ih σ₁' hr'.1 hm σ₂' fun j hj => hr'.2 j (List.mem_append_right _ hj)
+    classical
+    let g₂ : Subst → Bool := fun σ₂' => decide (∃ σ₁', R σ₁' σ₂' ∧ PatVal c σ₁' p v ∧ g σ₁' = true)
+    have hta : ∀ j ∈ varOccs t, σ₁.lookup j = σ₂.lookup j :=
+      fun j hj => ha j (by rw [varOccsCond, List.mem_append]; exact Or.inl hj)
+    refine .exSome g₂ (Exec.EvalTerm.congr he hta) (hT h1 hta) (fun σ₂' h2 hm => ?_) ?_
+    · by_cases hx : ∃ σ₁', R σ₁' σ₂' ∧ PatVal c σ₁' p v ∧ g σ₁' = true
+      · obtain ⟨σ₁', hr', hm', hg⟩ := hx
+        have := hbod σ₁' σ₂' hr' hm'
+        rw [hg] at this
+        have hd : g₂ σ₂' = true := decide_eq_true ⟨σ₁', hr', hm', hg⟩
+        rw [hd]; exact this
+      · have hr' := hR₁ σ₂' h2
+        have hm' := (hpv _ _ hr').mpr hm
+        have hg : g (mixSubst n σ₁ σ₂') = false := by
+          cases hgv : g (mixSubst n σ₁ σ₂')
+          · rfl
+          · exact absurd ⟨_, hr', hm', hgv⟩ hx
+        have := hbod _ σ₂' hr' hm'
+        rw [hg] at this
+        have hd : g₂ σ₂' = false := decide_eq_false hx
+        rw [hd]; exact this
+    · rw [hr]
+      constructor
+      · rintro ⟨σ₁', h1, hm, hg⟩
+        have hr' := hR₂ σ₁' h1
+        exact ⟨mixSubst n σ₂ σ₁', extends_mix h1, (hpv _ _ hr').mp hm,
+          by simp only [g₂, decide_eq_true_eq]; exact ⟨σ₁', hr', hm, hg⟩⟩
+      · rintro ⟨σ₂', -, -, hg⟩
+        simp only [g₂, decide_eq_true_eq] at hg
+        obtain ⟨σ₁', hr', hm, hg⟩ := hg
+        exact ⟨σ₁', hr'.1, hm, hg⟩
+  | @ex n σ₁ s body b g _ hr ih =>
+    intro σ₂ ha
+    let R : Subst → Subst → Prop := fun σ₁' σ₂' => Extends c n [s] σ₁ σ₁' ∧
+      ∀ j ∈ varOccsCond (n + 1) body, σ₁'.lookup j = σ₂'.lookup j
+    have hagr : ∀ σ₁' σ₂', Extends c n [s] σ₁ σ₁' → Extends c n [s] σ₂ σ₂' →
+        (∀ j, n ≤ j → σ₁'.lookup j = σ₂'.lookup j) →
+        ∀ j ∈ varOccsCond (n + 1) body, σ₁'.lookup j = σ₂'.lookup j := by
+      intro σ₁' σ₂' h1 h2 hge j hj
+      by_cases hjn : j < n
+      · rw [h1.1 j hjn, h2.1 j hjn]
+        exact ha j (by rw [varOccsCond, List.mem_filter]; exact ⟨hj, decide_eq_true hjn⟩)
+      · exact hge j (Nat.le_of_not_lt hjn)
+    have hR₁ : ∀ σ₂', Extends c n [s] σ₂ σ₂' → R (mixSubst n σ₁ σ₂') σ₂' := fun σ₂' h2 =>
+      ⟨extends_mix h2, hagr _ _ (extends_mix h2) h2 fun j hj => by
+        simp only [mixSubst_lookup, Nat.not_lt.mpr hj, if_false]⟩
+    have hR₂ : ∀ σ₁', Extends c n [s] σ₁ σ₁' → R σ₁' (mixSubst n σ₂ σ₁') := fun σ₁' h1 =>
+      ⟨h1, hagr _ _ h1 (extends_mix h1) fun j hj => by
+        simp only [mixSubst_lookup, Nat.not_lt.mpr hj, if_false]⟩
+    have hbod : ∀ σ₁' σ₂', R σ₁' σ₂' → HoldsReadT c T (n + 1) σ₂' body (g σ₁') :=
+      fun σ₁' σ₂' hr' => ih σ₁' hr'.1 σ₂' hr'.2
+    classical
+    let g₂ : Subst → Bool := fun σ₂' => decide (∃ σ₁', R σ₁' σ₂' ∧ g σ₁' = true)
+    refine .ex g₂ (fun σ₂' h2 => ?_) ?_
+    · by_cases hx : ∃ σ₁', R σ₁' σ₂' ∧ g σ₁' = true
+      · obtain ⟨σ₁', hr', hg⟩ := hx
+        have := hbod σ₁' σ₂' hr'
+        rw [hg] at this
+        have hd : g₂ σ₂' = true := decide_eq_true ⟨σ₁', hr', hg⟩
+        rw [hd]; exact this
+      · have hr' := hR₁ σ₂' h2
+        have hg : g (mixSubst n σ₁ σ₂') = false := by
+          cases hgv : g (mixSubst n σ₁ σ₂')
+          · rfl
+          · exact absurd ⟨_, hr', hgv⟩ hx
+        have := hbod _ σ₂' hr'
+        rw [hg] at this
+        have hd : g₂ σ₂' = false := decide_eq_false hx
+        rw [hd]; exact this
+    · rw [hr]
+      constructor
+      · rintro ⟨σ₁', h1, hg⟩
+        exact ⟨_, extends_mix h1, by simp only [g₂, decide_eq_true_eq]; exact ⟨σ₁', hR₂ σ₁' h1, hg⟩⟩
+      · rintro ⟨σ₂', -, hg⟩
+        simp only [g₂, decide_eq_true_eq] at hg
+        obtain ⟨σ₁', hr', hg⟩ := hg
+        exact ⟨σ₁', hr'.1, hg⟩
+  | @all n σ₁ s body b g _ hr ih =>
+    intro σ₂ ha
+    let R : Subst → Subst → Prop := fun σ₁' σ₂' => Extends c n [s] σ₁ σ₁' ∧
+      ∀ j ∈ varOccsCond (n + 1) body, σ₁'.lookup j = σ₂'.lookup j
+    have hagr : ∀ σ₁' σ₂', Extends c n [s] σ₁ σ₁' → Extends c n [s] σ₂ σ₂' →
+        (∀ j, n ≤ j → σ₁'.lookup j = σ₂'.lookup j) →
+        ∀ j ∈ varOccsCond (n + 1) body, σ₁'.lookup j = σ₂'.lookup j := by
+      intro σ₁' σ₂' h1 h2 hge j hj
+      by_cases hjn : j < n
+      · rw [h1.1 j hjn, h2.1 j hjn]
+        exact ha j (by rw [varOccsCond, List.mem_filter]; exact ⟨hj, decide_eq_true hjn⟩)
+      · exact hge j (Nat.le_of_not_lt hjn)
+    have hR₁ : ∀ σ₂', Extends c n [s] σ₂ σ₂' → R (mixSubst n σ₁ σ₂') σ₂' := fun σ₂' h2 =>
+      ⟨extends_mix h2, hagr _ _ (extends_mix h2) h2 fun j hj => by
+        simp only [mixSubst_lookup, Nat.not_lt.mpr hj, if_false]⟩
+    have hR₂ : ∀ σ₁', Extends c n [s] σ₁ σ₁' → R σ₁' (mixSubst n σ₂ σ₁') := fun σ₁' h1 =>
+      ⟨h1, hagr _ _ h1 (extends_mix h1) fun j hj => by
+        simp only [mixSubst_lookup, Nat.not_lt.mpr hj, if_false]⟩
+    have hbod : ∀ σ₁' σ₂', R σ₁' σ₂' → HoldsReadT c T (n + 1) σ₂' body (g σ₁') :=
+      fun σ₁' σ₂' hr' => ih σ₁' hr'.1 σ₂' hr'.2
+    classical
+    let g₂ : Subst → Bool := fun σ₂' => decide (∀ σ₁', R σ₁' σ₂' → g σ₁' = true)
+    refine .all g₂ (fun σ₂' h2 => ?_) ?_
+    · by_cases hx : ∀ σ₁', R σ₁' σ₂' → g σ₁' = true
+      · have hr' := hR₁ σ₂' h2
+        have := hbod _ σ₂' hr'
+        rw [hx _ hr'] at this
+        have hd : g₂ σ₂' = true := decide_eq_true hx
+        rw [hd]; exact this
+      · have hx' : ¬ ∀ σ₁', R σ₁' σ₂' → g σ₁' = true := hx
+        obtain ⟨σ₁', hr', hg⟩ : ∃ σ₁', R σ₁' σ₂' ∧ g σ₁' = false := by
+          obtain ⟨σ₁', hσ⟩ := Classical.not_forall.mp hx
+          obtain ⟨hr', hg⟩ := Classical.not_imp.mp hσ
+          exact ⟨σ₁', hr', by simpa using hg⟩
+        have := hbod σ₁' σ₂' hr'
+        rw [hg] at this
+        have hd : g₂ σ₂' = false := decide_eq_false hx'
+        rw [hd]; exact this
+    · rw [hr]
+      constructor
+      · intro hall σ₂' _
+        simp only [g₂, decide_eq_true_eq]
+        exact fun σ₁' hr' => hall σ₁' hr'.1
+      · intro hall σ₁' h1
+        have := hall _ (extends_mix h1)
+        simp only [g₂, decide_eq_true_eq] at this
+        exact this σ₁' (hR₂ σ₁' h1)
+
+/-- **The `ex` case of reading a truth value with its terms' readings over `Cond.boundV`, in every
+model of `Γc`** of a definition with `coreOK` that reads confined sorts, with the constructors'
+facts and `val` true only at sorts with a value: `holdsAt_ex` where the binder's sort is confined,
+and, where `val` admits it and the body fixes the bound variable, the argument of
+`holds_binder_fixed` with the body's truth values read through their terms (`HoldsRead`) in place
+of the soundness of `EvalTerm`. An element of the sort that satisfies the body is a value's
+(`fixes_value_readT` over `TermAt`): the body has a truth value at each substitution that gives
+the variables read the values the valuation reads and the bound variable a value, the one it has
+at the extension of σ by that value, by `HoldsReadT.congr_NIR`. -/
+theorem holdsAt_ex_fixed (h : c.coreOK = true) (hrc : c.readsConfined = true) (hIc : I ⊧ᴵP Γc c)
+    (N : NodeFacts c I) {val : Srt → Bool} (hval : ∀ s, val s = true → ∃ v, c.sortOf v = some s)
+    {n : Nat} {σ : Subst} {s : Srt} {body : Cond} {b : Bool} (g : Subst → Bool)
+    (hb : ∀ σ', Extends c n [s] σ σ' → HoldsRead c I (n + 1) σ' body (g σ'))
+    (ih : ∀ σ', Extends c n [s] σ σ' → HoldsAtB (Cond.boundV c val) c I (n + 1) σ' body (g σ'))
+    (hr' : b = true ↔ ∃ σ', Extends c n [s] σ σ' ∧ g σ' = true) :
+    HoldsAtB (Cond.boundV c val) c I n σ (.ex s body) b := by
+  have hI : I ⊧ᴵP Γ c := fun φ hφ => hIc φ (Or.inl hφ)
+  have G : BinderFacts c I := binderFacts_of_core h hrc hIc
+  intro vars P tbl e S hlenN hok hbd hP hr hk hS a ha
+  subst hlenN
+  rw [Semantics.condOK] at hok
+  rw [Cond.boundV, Bool.and_eq_true, Bool.or_eq_true, Bool.and_eq_true] at hbd
+  have hlen : (vars ++ [s]).length = vars.length + 1 := by simp
+  have hsn : s < nRegSorts + c.sortNames.length := by
+    rcases hbd.1 with hc | ⟨hv, -⟩
+    · exact G.confinedNum hc
+    · obtain ⟨v, hv⟩ := hval s hv
+      exact N.valNum hv
+  obtain ⟨τ, hτ, hτd⟩ := N.sort hsn
+  obtain ⟨τS, hτS, hτSd⟩ := N.sort hS
+  let K := canonKey c (vars ++ [s]) vars.length
+  have hkb : KoreAML.evarKey (Cond.binder c (canonVars c vars).length s).kore = K := Model.binder_keyStdI vars s
+  have hkore : Cond.kore c (canonVars c vars) (srtOf c S) (.ex s body) =
+      .exist (srtOf c S) (Cond.binder c (canonVars c vars).length s).kore
+        (Cond.kore c (canonVars c (vars ++ [s])) (srtOf c S) body) := by
+    rw [← Model.canonVars_snocStdI c vars s]; rfl
+  rw [hkore] at hk ⊢
+  have hK : K ∈ tbl := hk _ (by rw [KoreAML.varsOf, hkb]; simp)
+  have hkB : ∀ k ∈ KoreAML.varsOf (Cond.kore c (canonVars c (vars ++ [s])) (srtOf c S) body), k ∈ tbl :=
+    fun k hk0 => hk k (by rw [KoreAML.varsOf]; exact List.mem_append_right _ hk0)
+  have hPB : ∀ i ∈ varOccsCond (vars ++ [s]).length body, i < (vars ++ [s]).length → P i ∨ i = vars.length := by
+    intro i hi hl
+    rw [hlen] at hi hl
+    by_cases hlt : i < vars.length
+    · exact .inl (hP i (by rw [varOccsCond]; exact List.mem_filter.mpr ⟨hi, by simpa using hlt⟩) hlt)
+    · exact .inr (by omega)
+  have haS : ∀ e' : Valuation M, (KoreAML.inhOf (KoreAML.trSort tbl (srtOf c S))).interpret I e' a :=
+    fun e' => (KoreAML.interp_inhOf_of (hτSd tbl e')).mpr ((KoreAML.interp_inhOf_of (hτSd tbl e)).mp ha)
+  have hread : ∀ σ' v a0, (∀ i < vars.length, σ'.lookup i = σ.lookup i) → σ'.lookup vars.length = some v →
+      c.sortOf v = some s → (∀ m, (den c v).interpret I e m ↔ m = a0) → Extends c vars.length [s] σ σ' →
+      ((KoreAML.tr ⟨tbl, []⟩ (Cond.kore c (canonVars c (vars ++ [s])) (srtOf c S) body)).interpret I
+        ⟨Function.update e.evalEvar (tbl.ev K) a0, e.evalSvar⟩ a ↔ g σ' = true) := by
+    intro σ' v a0 hσ' hn hv hd hx
+    exact ih σ' hx hlen hok (by rw [hlen]; exact hbd.2) hPB (hr.snoc hK hσ' hn hv hd) hkB hS a (haS _)
+  have hsrt : ∀ (e' : Valuation M) m,
+      (KoreAML.inhOf (KoreAML.trSort tbl (Cond.binder c (canonVars c vars).length s).kore.sort)).interpret I e' m ↔
+        KoreAML.Inh I τ m := fun e' m => by
+    show (KoreAML.inhOf (KoreAML.trSort tbl (srtOf c s))).interpret _ _ m ↔ _
+    exact KoreAML.interp_inhOf_of (hτd tbl e')
+  have hextOne : ∀ v, c.sortOf v = some s → Extends c vars.length [s] σ (Model.extOneStdI σ vars.length v) :=
+    fun v hv => ⟨fun i hi => Model.extOneStdI_off σ v (by omega), fun j s' hj => by
+      cases j with
+      | zero => simp at hj; subst hj; exact ⟨v, Model.extOneStdI_at σ _ v, hv⟩
+      | succ j => simp at hj⟩
+  -- an element of s that satisfies the body is a value's
+  have hE : ∀ m, KoreAML.Inh I τ m →
+      (KoreAML.tr ⟨tbl, []⟩ (Cond.kore c (canonVars c (vars ++ [s])) (srtOf c S) body)).interpret I
+        ⟨Function.update e.evalEvar (tbl.ev K) m, e.evalSvar⟩ a →
+      ∃ v, c.sortOf v = some s ∧ ∀ m', (den c v).interpret I e m' ↔ m' = m := by
+    intro m hm hbody
+    have hms : (KoreAML.inhOf (KoreAML.trSort tbl (srtOf c s))).interpret I e m :=
+      (KoreAML.interp_inhOf_of (hτd tbl e)).mpr hm
+    rcases hbd.1 with hc | ⟨hv, hfx⟩
+    · exact G.confined hc tbl e m hms
+    · obtain ⟨v0, hv0⟩ := hval s hv
+      have hkey : ∀ j, j < vars.length → canonKey c (vars ++ [s]) j = canonKey c vars j :=
+        fun j hj => Model.canonKey_appendStdI (c := c) (ys := [s]) hj
+      have hev : ∀ j, P j →
+          Function.update e.evalEvar (tbl.ev K) m (tbl.ev (canonKey c vars j)) =
+            e.evalEvar (tbl.ev (canonKey c vars j)) := by
+        intro j hPj
+        obtain ⟨hl, hkj, -⟩ := hr j hPj
+        rw [Function.update_noteq]
+        intro he
+        have := canonKey_inj (vars := vars ++ [s]) (c := c) (i := j) (j := vars.length) (by simp; omega) (by simp)
+          ((hkey j hl).trans (ev_inj hkj hK he))
+        omega
+      have hgd : ∀ j, j < vars.length → (vars ++ [s]).getD j 0 = vars.getD j 0 :=
+        fun j hj => Model.getD_appendL_stdI _ _ _ hj
+      have hat : ∀ j, P j → ∃ w, σ.lookup j = some w ∧ c.sortOf w = some (vars.getD j 0) ∧
+          elemOf c I w = e.evalEvar (tbl.ev (canonKey c vars j)) := by
+        intro j hPj
+        obtain ⟨-, -, w, hw, hsw, hd⟩ := hr j hPj
+        exact ⟨w, hw, hsw, (((elemOf_spec hI hsw e).1 _).mp ((hd _).mp rfl)).symm⟩
+      have hσP : SortedOn c vars P σ := fun j s' hPj hj => by
+        obtain ⟨w, hw, hsw, -⟩ := hat j hPj
+        exact ⟨w, hw, by rw [hsw, List.getD_eq_getElem?_getD, hj]; rfl⟩
+      have hW := fixes_value_readT h hrc hIc N (w := False) termUse_termAtW hval [] body
+        (fun j => j != vars.length) (fun j => P j ∨ j = vars.length) vars.length (vars ++ [s]) tbl
+        ⟨Function.update e.evalEvar (tbl.ev K) m, e.evalSvar⟩ S hok (by rw [hlen]; exact hbd.2)
+        (by rw [hlen]; exact hfx) (by rw [hlen]; omega) (Or.inr rfl) hPB
+        ⟨_, (sortedOn_snocFV hσP hv0).mono fun _ hj => hj.elim id False.elim⟩
+        (fun σ' _ hσ' hat' => by
+          -- the body has the truth value it has at the extension of σ by the value σ' gives the
+          -- bound variable, σ' being that extension at the body's variables
+          obtain ⟨v, hσ'n, hv⟩ := hσ' vars.length s (.inl (Or.inr rfl)) (by simp)
+          refine ⟨g (Model.extOneStdI σ vars.length v), ?_⟩
+          rw [hlen]
+          refine (hb _ (hextOne v hv)).congr_NIR (fun hT ha => hT.congr_occ fun i hi => (ha i hi).symm) _
+            fun j hj => ?_
+          have hjl : j < vars.length + 1 := by
+            have := varOccsCond_lt_twoT body hok j (by rw [hlen]; exact hj)
+            rwa [hlen] at this
+          by_cases hjn : j = vars.length
+          · subst hjn
+            rw [Model.extOneStdI_at, hσ'n]
+          · have hl : j < vars.length := by omega
+            have hPj : P j := (hPB j (by rw [hlen]; exact hj) (by rw [hlen]; exact hjl)).resolve_right hjn
+            rw [Model.extOneStdI_off σ v hjn]
+            obtain ⟨w, hw, hsw, hew⟩ := hat j hPj
+            obtain ⟨w', hw', hew'⟩ := hat' j (by simpa using hjn) (Or.inl hPj) (by rw [hlen]; exact hjl)
+            obtain ⟨w'', hw'', hsw''⟩ := hσ' j (vars.getD j 0) (.inl (Or.inl hPj)) (by
+              rw [List.getElem?_append_left hl, List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hl]; rfl)
+            rw [hw', Option.some.injEq] at hw''
+            subst hw''
+            have hew'' : elemOf c I w' = e.evalEvar (tbl.ev (canonKey c vars j)) := by
+              rw [← hev j hPj, ← hkey j hl]; exact hew'
+            have hww : w = w' := N.apart hsw hsw'' e (e.evalEvar (tbl.ev (canonKey c vars j)))
+              (((elemOf_spec hI hsw e).1 _).mpr hew.symm) (((elemOf_spec hI hsw'' e).1 _).mpr hew''.symm)
+            rw [hw, hw', hww])
+        (fun j hj hRj hjl => by
+          have hjn : j ≠ vars.length := by simpa using hj
+          have hPj : P j := hRj.resolve_right hjn
+          obtain ⟨hl, -, -⟩ := hr j hPj
+          obtain ⟨w, -, hsw, hew⟩ := hat j hPj
+          refine ⟨w, by rw [hgd j hl]; exact hsw, ?_⟩
+          show elemOf c I w = Function.update e.evalEvar (tbl.ev K) m (tbl.ev (canonKey c (vars ++ [s]) j))
+          rw [hkey j hl, hev j hPj]; exact hew)
+        (fun j hRj hjl => by
+          rw [hlen] at hjl
+          by_cases hjn : j = vars.length
+          · subst hjn
+            refine ⟨hK, ?_⟩
+            show InS I (c.sortName ((vars ++ [s]).getD vars.length 0))
+              (Function.update e.evalEvar (tbl.ev K) m (tbl.ev K))
+            rw [Function.update_same, Model.getD_appendR_stdI _ _ _ (Nat.le_refl _)]
+            simpa using inhOf_srtOf_inS.mp hms
+          · have hPj : P j := hRj.resolve_right hjn
+            obtain ⟨hl, hkj, -⟩ := hr j hPj
+            refine ⟨by rw [hkey j hl]; exact hkj, ?_⟩
+            show InS I (c.sortName ((vars ++ [s]).getD j 0))
+              (Function.update e.evalEvar (tbl.ev K) m (tbl.ev (canonKey c (vars ++ [s]) j)))
+            rw [hgd j hl, hkey j hl, hev j hPj]
+            exact inhOf_srtOf_inS.mp (Reads.inSortN N hr hPj))
+        hkB hS ⟨a, haS _, hbody⟩
+      obtain ⟨v, hv, hve⟩ := hW
+      have hv' : c.sortOf v = some s := by
+        rw [Model.getD_appendR_stdI _ _ _ (Nat.le_refl _)] at hv; simpa using hv
+      have hve' : elemOf c I v = m := by
+        have : elemOf c I v = Function.update e.evalEvar (tbl.ev K) m (tbl.ev K) := hve
+        rwa [Function.update_same] at this
+      exact ⟨v, hv', fun m' => by rw [(elemOf_spec hI hv' e).1 m', hve']⟩
+  rw [KoreAML.tr, KoreAML.interp_sExists, hkb]
+  simp only [KoreAML.interp_member N.defOK, Function.update_same, hsrt]
+  constructor
+  · rintro ⟨m, hm, hbody⟩
+    obtain ⟨v, hv, hdv⟩ := hE m hm hbody
+    have hext := hextOne v hv
+    exact hr'.mpr ⟨_, hext, (hread _ v m hext.1 (Model.extOneStdI_at σ _ v) hv hdv hext).mp hbody⟩
+  · intro hbt
+    obtain ⟨σ', hext, hg⟩ := hr'.mp hbt
+    obtain ⟨v, hv, hsv⟩ := hext.2 0 s rfl
+    rw [Nat.add_zero] at hv
+    obtain ⟨a0, ha0, hin⟩ := N.val hsv tbl e
+    exact ⟨a0, (KoreAML.interp_inhOf_of (hτd tbl e)).mp hin, (hread σ' v a0 hext.1 hv hsv ha0 hext).mpr hg⟩
+
+/-- **A truth value with its terms' readings is read in I over `Cond.boundV`, in every model of
+`Γc`** of a definition with `coreOK` that reads confined sorts, with the constructors' facts and
+`val` true only at sorts with a value: each constructor by its lemma over the Bool
+(`holdsAt_notB`, …, `holdsAt_exMatchB`, `holdsAt_allB`; an atom does not read the Bool), the `ex`
+binder by `holdsAt_ex_fixed`. -/
+theorem holdsReadT_holdsAt_fixed (h : c.coreOK = true) (hrc : c.readsConfined = true) (hIc : I ⊧ᴵP Γc c)
+    (N : NodeFacts c I) {val : Srt → Bool} (hval : ∀ s, val s = true → ∃ v, c.sortOf v = some s)
+    {n : Nat} {σ : Subst} {p : Cond} {b : Bool} (hh : HoldsRead c I n σ p b) :
+    HoldsAtB (Cond.boundV c val) c I n σ p b := by
+  have G : BinderFacts c I := binderFacts_of_core h hrc hIc
+  induction hh with
+  | top => exact holdsAt_top N
+  | bot => exact holdsAt_bot N
+  | not _ ih => exact holdsAt_notB (fun hb => by rw [Cond.boundV] at hb; exact hb) ih
+  | and _ _ ih ih' => exact holdsAt_andB (fun hb => by rw [Cond.boundV, Bool.and_eq_true] at hb; exact hb) ih ih'
+  | or _ _ ih ih' => exact holdsAt_orB (fun hb => by rw [Cond.boundV, Bool.and_eq_true] at hb; exact hb) ih ih'
+  | implies _ _ ih ih' =>
+    exact holdsAt_impliesB (fun hb => by rw [Cond.boundV, Bool.and_eq_true] at hb; exact hb) ih ih'
+  | ceil he hT => exact HoldsAtB.mono (fun _ _ => rfl) (holdsAt_ceil N he hT)
+  | equals he hT he' hT' => exact HoldsAtB.mono (fun _ _ => rfl) (holdsAt_equals N he hT he' hT')
+  | mem he hT he' hT' => exact HoldsAtB.mono (fun _ _ => rfl) (holdsAt_mem N he hT he' hT')
+  | exNone he hT =>
+    exact holdsAt_exMatchB N G (fun hb => by rw [Cond.boundV, Bool.and_eq_true] at hb; exact hb) he hT
+      (Or.inl ⟨rfl, rfl⟩)
+  | exSome g he hT _ hr ih =>
+    exact holdsAt_exMatchB N G (fun hb => by rw [Cond.boundV, Bool.and_eq_true] at hb; exact hb) he hT
+      (Or.inr ⟨_, g, rfl, ih, hr⟩)
+  | ex g hb hr ih => exact holdsAt_ex_fixed h hrc hIc N hval g hb ih hr
+  | all g _ hr ih =>
+    exact holdsAt_allB N
+      (fun hb => by rw [Cond.boundV, Bool.and_eq_true] at hb; exact ⟨G.elemsValues hb.1, hb.2⟩) g ih hr
+
+/-- **A truth value with its terms' readings is read in I over `Cond.bound`, in every model of
+`Γc`**: `holdsReadT_holdsAt_fixed` at `Semantics.valued`, whose Bool bounds every condition
+`Cond.bound` bounds. -/
+theorem holdsReadT_holdsAt_bound (h : c.coreOK = true) (hrc : c.readsConfined = true) (hIc : I ⊧ᴵP Γc c)
+    (N : NodeFacts c I) {n : Nat} {σ : Subst} {p : Cond} {b : Bool} (hh : HoldsRead c I n σ p b) :
+    HoldsAtB (Cond.bound c) c I n σ p b :=
+  HoldsAtB.mono (fun m hb => Cond.boundV_valued_of_bound c p m hb)
+    (holdsReadT_holdsAt_fixed h hrc hIc N (fun _ => Semantics.valued_value) hh)
 
 end HoldsDenFixed
 
