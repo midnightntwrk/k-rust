@@ -430,6 +430,79 @@ namespace AtT
 
 variable {T : GroundTerm → GroundTerm → Prop}
 
+/-- `Lblite` applied to the sort X, for a symbol the decoder reads as the head `Lblite` at the one
+sort X, then to values: what the symbol gives. -/
+theorem lbliteHead_app (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c) {X : String}
+    (hi : instDecode? (c.symName k.name) = some ("Lblite", [X])) {vs : List GroundTerm}
+    (hl : vs.length = k.args.length) (e : Valuation Elem) (m : Elem) :
+    (∃ a, (KoreAML.sym (.symbol "Lblite") ⬝ KoreAML.sym (.sort ("Sort" ++ X))).interpret (stdI_T c T) e a ∧
+      AppE (stdI_T c T) a (vs.map Elem.val) m) ↔ result c k vs m := by
+  have hn := h.namesK
+  obtain ⟨s', hs'm, rfl⟩ := (itesApart_inst h.ites hk hi).1 X (List.mem_singleton_self X)
+  have hr : ∀ tail, resolve c "Lblite" (.srt s' :: tail) = some (k, 1) := fun tail =>
+    resolve_ite h hk (iteSort?_eq_some.2 hi) tail
+  have hhead : ∀ a, (KoreAML.sym (.symbol "Lblite") ⬝ KoreAML.sym (.sort ("Sort" ++ c.sortName s'))).interpret
+      (stdI_T c T) e a ↔ symAt c "Lblite" [.srt s'] a := by
+    intro a
+    rw [KoreAML.interp_app]
+    simp only [KoreAML.interp_sym, stdI_symb]
+    constructor
+    · rintro ⟨h0, b0, hh0, hb0, hab⟩
+      rw [(evalSymb_lblite hn h0).mp hh0] at hab
+      have hb0' : b0 = .srt s' := (sort_den (T := T) hn (List.mem_range.mp hs'm) e b0).mp hb0
+      subst hb0'
+      exact hab
+    · intro ha
+      exact ⟨_, _, (evalSymb_lblite hn _).mpr rfl,
+        (sort_den (T := T) hn (List.mem_range.mp hs'm) e _).mpr rfl, ha⟩
+  simp only [hhead]
+  by_cases h0 : k.args = []
+  · rw [h0] at hl
+    obtain rfl : vs = [] := List.eq_nil_of_length_eq_zero hl
+    simp only [symAt_full (hr []) (by simp [h0]) (show vals ([Elem.srt s'].drop 1) = some [] from rfl),
+      List.map_nil, AppE]
+    constructor
+    · rintro ⟨a, ha, rfl⟩; exact ha
+    · intro hm; exact ⟨m, hm, rfl⟩
+  · simp only [symAt_partial (hr []) (by simp; exact List.length_pos_iff.mpr h0)]
+    have := appE_symP (T := T) (P := [.srt s']) (n := "Lblite") (k := k) (fun pre _ => hr _) [] vs
+      (by simp; exact List.length_pos_iff.mpr h0) (by simpa using hl) m
+    simp only [List.map_nil, List.append_nil, List.nil_append] at this
+    constructor
+    · rintro ⟨a, rfl, ha⟩; exact this.mp ha
+    · intro hm; exact ⟨_, rfl, this.mpr hm⟩
+
+/-- The head `symApp` writes for an instance-named symbol of `kernelSyms`, at its sorts, applied to
+values: what the symbol gives. -/
+theorem instHead_app_inst (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c) {hd : String}
+    {xs : List String} (hw : ∀ ps, symApp c k.name ps = .app ⟨⟨hd⟩⟩ (xs.map KoreAML.srt) ps)
+    (_hx : xs ≠ []) (_hi : instDecode? (c.symName k.name) = some (hd, xs)) {vs : List GroundTerm}
+    (hl : vs.length = k.args.length) (e : Valuation Elem) (m : Elem) :
+    (∃ a, (instHeadP hd xs).interpret (stdI_T c T) e a ∧ AppE (stdI_T c T) a (vs.map Elem.val) m) ↔
+      result c k vs m := by
+  cases hX : iteSort? (c.symName k.name) with
+  | some X =>
+    obtain ⟨rfl, rfl⟩ := symApp_writes_eq_iha hw (h' := "Lblite") (xs' := [X])
+      (fun ps => by unfold symApp; rw [hX]; rfl)
+    exact lbliteHead_app h hk (iteSort?_eq_some.1 hX) hl e m
+  | none =>
+    obtain ⟨-, rfl⟩ := symApp_writes_eq_iha hw (h' := c.symName k.name) (xs' := [])
+      (fun ps => by unfold symApp; rw [hX]; rfl)
+    exact absurd rfl _hx
+
+/-- **The head `symApp` writes**, at its sorts, applied to the values of a symbol of `kernelSyms`:
+what the symbol gives. -/
+theorem instHead_app (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c) {hd : String}
+    {xs : List String} (hw : ∀ ps, symApp c k.name ps = .app ⟨⟨hd⟩⟩ (xs.map KoreAML.srt) ps)
+    {vs : List GroundTerm} (hl : vs.length = k.args.length) (e : Valuation Elem) (m : Elem) :
+    (∃ a, (instHeadP hd xs).interpret (stdI_T c T) e a ∧ AppE (stdI_T c T) a (vs.map Elem.val) m) ↔
+      result c k vs m := by
+  obtain ⟨hd', xs', hof, hw'⟩ := symApp_head c k.name
+  obtain ⟨rfl, rfl⟩ := symApp_writes_eq_iha hw hw'
+  rcases hof with ⟨rfl, rfl⟩ | ⟨hx, hi⟩
+  · exact symE_vals h.namesK hk hl m
+  · exact instHead_app_inst h hk hw hx hi hl e m
+
 /-- **Arity**: every symbol maps the values of its argument sorts into its result sort. -/
 theorem sat_symArity (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c) :
     stdI_T c T ⊧ᴵ (symArityItem c k).pat := by
@@ -437,58 +510,30 @@ theorem sat_symArity (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c
   have hsorts := h.symSorts hk
   have hargs : ∀ s ∈ k.args, s < nRegSorts + c.sortNames.length := fun s hs => hsorts s (List.mem_cons_of_mem _ hs)
   have hres := hsorts k.result (List.mem_cons_self ..)
+  obtain ⟨hd, xs, -, hw⟩ := symApp_head c k.name
   intro e m
-  unfold symArityItem
-  cases hi : iteSort? (c.symName k.name) with
-  | none =>
-    show (KoreAML.appList (KoreAML.sym (.symbol (c.symName k.name)))
-        ((k.args.map (srtOf c)).map fun s => KoreAML.inhOf (KoreAML.trSort [] s)) ⊆⊆
-      KoreAML.inhOf (KoreAML.trSort [] (srtOf c k.result))).interpret (stdI_T c T) e m
-    rw [map_inh, KoreAML.interp_included defOK_std]
-    intro a ha
-    rw [srtOf, trSort_srt, inhOf_sort hn hres]
-    rw [interp_appList] at ha
-    obtain ⟨a0, ha0, bs, hbs, happ⟩ := ha
-    obtain ⟨vs, rfl, hvs⟩ := args_vals (T := T) hn k.args hargs bs hbs
-    exact result_sorted h hk hvs ((symE_vals hn hk (sortsOf_length hvs) a).mp ⟨a0, ha0, happ⟩)
-  | some X =>
-    show (KoreAML.appList (KoreAML.sym (.symbol "Lblite") ⬝ KoreAML.sym (.sort ("Sort" ++ X)))
+  rw [symArityItem_of_symApp hw]
+  show (KoreAML.appList (instHeadP hd xs)
         (k.args.map fun s => KoreAML.inhOf (KoreAML.sym (.sort ("Sort" ++ c.sortName s)))) ⊆⊆
       KoreAML.inhOf (KoreAML.sym (.sort ("Sort" ++ c.sortName k.result)))).interpret (stdI_T c T) e m
-    rw [KoreAML.interp_included defOK_std]
-    intro a ha
-    rw [inhOf_sort hn hres]
-    rw [interp_appList] at ha
-    obtain ⟨a0, ha0, bs, hbs, happ⟩ := ha
-    obtain ⟨vs, rfl, hvs⟩ := args_vals (T := T) hn k.args hargs bs hbs
-    rw [KoreAML.interp_app] at ha0
-    obtain ⟨h0, b0, hh0, hb0, hab⟩ := ha0
-    have hb0' : ∃ s', sortOfName c ("Sort" ++ X) = some s' ∧ b0 = .srt s' := hb0
-    obtain ⟨s', hs', rfl⟩ := hb0'
-    have hs'n : c.sortName s' = X := by
-      unfold sortOfName at hs'
-      exact append_cancel (a := "Sort") (by simpa using List.find?_some hs')
-    have hh0' : h0 = .app (.sym "Lblite") [] := (evalSymb_lblite hn h0).mp hh0
-    subst hh0'
-    have hr : ∀ tail, resolve c "Lblite" (.srt s' :: tail) = some (k, 1) := fun tail =>
-      resolve_ite h hk (by rw [hs'n]; exact hi) tail
-    have hab' : symAt c "Lblite" [.srt s'] a0 := hab
-    have hl := sortsOf_length hvs
-    by_cases h0 : k.args = []
-    · rw [h0] at hl
-      obtain rfl : vs = [] := List.eq_nil_of_length_eq_zero hl
-      rw [symAt_full (hr []) (by simp [h0]) (show vals ([Elem.srt s'].drop 1) = some [] from rfl)] at hab'
-      have : a = a0 := happ
-      subst this
-      exact result_sorted h hk hvs hab'
-    · rw [symAt_partial (hr []) (by simp; exact List.length_pos_iff.mpr h0)] at hab'
-      subst hab'
-      have := appE_symP (T := T) (P := [.srt s']) (n := "Lblite") (k := k) (fun pre _ => hr _) [] vs
-        (by simp; exact List.length_pos_iff.mpr h0) (by simpa using hl) a
-      simp only [List.map_nil, List.append_nil, List.nil_append] at this
-      exact result_sorted h hk hvs (this.mp happ)
+  rw [KoreAML.interp_included defOK_std]
+  intro a ha
+  rw [inhOf_sort hn hres]
+  rw [interp_appList] at ha
+  obtain ⟨a0, ha0, bs, hbs, happ⟩ := ha
+  obtain ⟨vs, rfl, hvs⟩ := args_vals (T := T) hn k.args hargs bs hbs
+  exact result_sorted h hk hvs ((instHead_app h hk hw (sortsOf_length hvs) e a).mp ⟨a0, ha0, happ⟩)
 
 end AtT
+
+/-- The head `symApp` writes, at its sorts, applied to the values of a symbol of `kernelSyms`: what
+the symbol gives. -/
+theorem instHead_app (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c) {hd : String}
+    {xs : List String} (hw : ∀ ps, symApp c k.name ps = .app ⟨⟨hd⟩⟩ (xs.map KoreAML.srt) ps)
+    {vs : List GroundTerm} (hl : vs.length = k.args.length) (e : Valuation Elem) (m : Elem) :
+    (∃ a, (instHeadP hd xs).interpret (stdI c) e a ∧ AppE (stdI c) a (vs.map Elem.val) m) ↔
+      result c k vs m :=
+  AtT.instHead_app (c := c) (T := StepM c) h hk hw hl e m
 
 /-- **Arity**: every symbol maps the values of its argument sorts into its result sort. -/
 theorem sat_symArity (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c) :

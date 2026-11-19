@@ -156,13 +156,11 @@ symbol gives on their values. -/
 theorem head_app (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c) {tbl : KoreAML.VarTable}
     {vs : List KoreAML.Var} {ts : List Term} {e : Valuation Elem} {ws : List GroundTerm}
     (hl : ws.length = k.args.length) (m : Elem) :
-    (∃ a, (match iteSort? (c.symName k.name) with
-        | some X => KoreAML.sym (.symbol "Lblite") ⬝ KoreAML.sym (.sort ("Sort" ++ X))
-        | none => KoreAML.sym (.symbol (c.symName k.name))).interpret (stdI_T c T) e a ∧
+    (∃ a, (symHead c k.name).interpret (stdI_T c T) e a ∧
       AppE (stdI_T c T) a (ws.map Elem.val) m) ↔ result c k ws m := by
-  cases hi : iteSort? (c.symName k.name) with
-  | none => exact symE_vals h.namesK hk hl m
-  | some X => exact lblite_app h hk hi hl e m
+  obtain ⟨hd, xs, -, hw⟩ := symApp_head c k.name
+  rw [symHead_of_symApp hw]
+  exact instHead_app h hk hw hl e m
 
 end AtT
 
@@ -171,31 +169,14 @@ symbol gives on their values. -/
 theorem head_app (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c) {tbl : KoreAML.VarTable}
     {vs : List KoreAML.Var} {ts : List Term} {e : Valuation Elem} {ws : List GroundTerm}
     (hl : ws.length = k.args.length) (m : Elem) :
-    (∃ a, (match iteSort? (c.symName k.name) with
-        | some X => KoreAML.sym (.symbol "Lblite") ⬝ KoreAML.sym (.sort ("Sort" ++ X))
-        | none => KoreAML.sym (.symbol (c.symName k.name))).interpret (stdI c) e a ∧
+    (∃ a, (symHead c k.name).interpret (stdI c) e a ∧
       AppE (stdI c) a (ws.map Elem.val) m) ↔ result c k ws m :=
   AtT.head_app (c := c) (T := StepM c) (h := h) (k := k) (hk := hk) (tbl := tbl) (vs := vs) (ts := ts) (e := e) (ws := ws) (hl := hl) (m := m)
 
 theorem kore_app_tr {tbl : KoreAML.VarTable} {vs : List KoreAML.Var} (f : Sym) (ts : List Term) :
     KoreAML.tr ⟨tbl, []⟩ (Term.kore c vs (.app f ts)) =
-      KoreAML.appList (match iteSort? (c.symName f) with
-        | some X => KoreAML.sym (.symbol "Lblite") ⬝ KoreAML.sym (.sort ("Sort" ++ X))
-        | none => KoreAML.sym (.symbol (c.symName f)))
-        ((Term.koreList c vs ts).map (KoreAML.tr ⟨tbl, []⟩)) := by
-  rw [Term.kore]
-  cases hi : iteSort? (c.symName f) with
-  | none =>
-    dsimp only
-    rw [show (Kore.Pattern.app ⟨⟨c.symName f⟩⟩ [] (Term.koreList c vs ts)) =
-      KoreAML.ap (c.symName f) (Term.koreList c vs ts) from rfl, tr_ap_tbl]
-  | some X =>
-    dsimp only
-    rw [KoreAML.tr]
-    simp only [List.contains_nil, Bool.false_eq_true, if_false]
-    rw [trArgs_appList]
-    show KoreAML.appList (KoreAML.sym (.symbol "Lblite") ⬝ KoreAML.trSort tbl (KoreAML.srt X)) _ = _
-    rw [trSort_srt]
+      KoreAML.appList (symHead c f) ((Term.koreList c vs ts).map (KoreAML.tr ⟨tbl, []⟩)) := by
+  rw [kore_app, tr_symApp, trArgs_appList]
 
 namespace AtT
 
@@ -321,9 +302,7 @@ theorem tr_term (h : HypModelCore c) {P : Nat → Prop} {vs : List KoreAML.Var} 
     · rintro ⟨v, hv, rfl⟩
       have key : ∀ (rs : List (Option GroundTerm)) (ws : List GroundTerm), EvalTerms c σ ts rs →
           allSome rs = some ws → result c k ws (.val v) →
-          ∃ a, (match iteSort? (c.symName k.name) with
-            | some X => KoreAML.sym (.symbol "Lblite") ⬝ KoreAML.sym (.sort ("Sort" ++ X))
-            | none => KoreAML.sym (.symbol (c.symName k.name))).interpret (stdI_T c T) e a ∧
+          ∃ a, (symHead c k.name).interpret (stdI_T c T) e a ∧
             ∃ bs, All2 (fun φ b => φ.interpret (stdI_T c T) e b)
               ((Term.koreList c vs ts).map (KoreAML.tr ⟨tbl, []⟩)) bs ∧ AppE (stdI_T c T) a bs (.val v) := by
         intro rs ws hts hws hres
