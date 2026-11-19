@@ -249,7 +249,7 @@ evidence = "test/SortedNF.lean"
 key = "FnDet"
 text = "KCore.FnDet"
 witness = "KcoreSpec.ModelFnDetWitness"
-note = "the witness has a clause whose predicate is not ⊤ (u(X) => true where ¬⌈a(X)⌉, beside a(X) => 1 and a(X) => 1 ensures u(X)): it meets coreOK, FnSolves, ClausePreDecided, ClausePostDecided and OpenLaws, a(0) has the results 1 and none, and Γ has no model. Where every clause's predicate is ⊤ (clausesPreTop) and no clause has an existential variable there is no witness: coreOK and FnSolves give FnDet (fnDet_of_fnSolves, test/FnSolvesDet.lean)"
+note = "the witness has a clause whose predicate is not ⊤ (u(X) => true where ¬⌈a(X)⌉, beside a(X) => 1 and a(X) => 1 ensures u(X)) and no clause with an existential variable: it meets coreOK, FnSolves, ClausePreDecided, ClausePostDecided (FnDetWitness.clausePostDecided: every clause's right-side predicate is ⊤) and OpenLaws, a(0) has the results 1 and none, and Γ has no model; so consistent_of cannot lose FnDet (consistent_needs_fnDet). Where every clause's predicate is ⊤ (clausesPreTop) and no clause has an existential variable (FnsNoExs) there is no witness: coreOK and FnSolves give FnDet (fnDet_of_fnSolves, test/FnSolvesDet.lean). Open: whether FnsNoExs can be dropped there, coreOK admitting a clause with existential variables whose right-side predicate (read by Holds, which has ceil and not) fixes them; a witness would be such a text with clausesPreTop, FnSolves, ClausePreDecided, ClausePostDecided and OpenLaws, without FnDet, whose Γ has no model"
 evidence = "test/FnSolvesDet.lean"
 
 [[conjunct]]
