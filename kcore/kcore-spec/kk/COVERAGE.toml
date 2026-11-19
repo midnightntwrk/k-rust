@@ -415,8 +415,8 @@ note = "the reader refuses it (rows.toml E4 tree:Pattern.rightAssoc is refused),
 #            of KK.encodable (a fixture's or ref-kimp's text), the table's Bool, or the first
 #            uncovered hook row's; refused_on, the text or table entry; first_uncovered, the hook
 #            row a module row is refused by.
-# Entries: 1072; covered 418; refused 654 (paramsOK 400, appsOK 158, litsOK 48, shapesOK 40, ovlsOK 8).
-# By evidence: fixture 851, hook table 139, kimp 50, module hooks 19, sort table 13.
+# Entries: 1077; covered 419; refused 658 (paramsOK 403, appsOK 158, litsOK 48, shapesOK 41, ovlsOK 8).
+# By evidence: fixture 856, hook table 139, kimp 50, module hooks 19, sort table 13.
 # No evidence text, no verdict (a fixture is owed; check fails on them, check --report lists them): 8:
 #   E3 ML-SYNTAX:Sort::="#Top"#cases[1]
 #   E3 ML-SYNTAX:Sort::="#Not" "(" Sort ")"#cases[2]
@@ -819,6 +819,12 @@ verdict = "covered"
 by = "fixture"
 case = "e2-macro-plain"
 
+[rows.E2."ML_OP(mlOp)@frontend"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e3-ml"
+
 [rows.E2."MULTIPLICITY(multiplicity)=*@frontend"]
 verdict = "refused"
 by = "fixture"
@@ -1035,6 +1041,12 @@ by = "fixture"
 bool = "shapesOK"
 refused_on = "e3-ml-req-not"
 
+[rows.E3."ML-SYNTAX:Sort2::=\"#Ceil\" \"(\" Sort1 \")\""]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e3-ml"
+
 [rows.E3."ML-SYNTAX:Sort2::=\"#Ceil\" \"(\" Sort1 \")\"#cases[0]"]
 verdict = "covered"
 by = "fixture"
@@ -1046,6 +1058,12 @@ by = "fixture"
 bool = "shapesOK"
 refused_on = "e3-ml-rule-lhs-ceil-ctor"
 
+[rows.E3."ML-SYNTAX:Sort2::=\"{\" Sort1 \"#Equals\" Sort1 \"}\""]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e3-ml"
+
 [rows.E3."ML-SYNTAX:Sort2::=\"{\" Sort1 \"#Equals\" Sort1 \"}\"#cases[0]"]
 verdict = "covered"
 by = "fixture"
@@ -1056,6 +1074,12 @@ verdict = "refused"
 by = "fixture"
 bool = "paramsOK"
 refused_on = "e3-ml-req-forall"
+
+[rows.E3."ML-SYNTAX:Sort2::=\"{\" Sort1 \"#Equals\" Sort1 \"}\"#cases[2]"]
+verdict = "refused"
+by = "fixture"
+bool = "shapesOK"
+refused_on = "e3-ml-rule-lhs-equals"
 
 [rows.E3."ML-SYNTAX:Sort::=Sort \"#And\" Sort#cases[0]"]
 verdict = "covered"
@@ -1079,6 +1103,11 @@ verdict = "refused"
 by = "fixture"
 bool = "shapesOK"
 refused_on = "e3-ml-req-and-under-app"
+
+[rows.E3."ML-SYNTAX:Sort::=Sort \"#And\" Sort#cases[5]"]
+verdict = "covered"
+by = "fixture"
+case = "e3-ml-rule-lhs-and"
 
 [rows.E3."ML-SYNTAX:Sort::=Sort \"#And\" Sort#cases[6]"]
 verdict = "covered"

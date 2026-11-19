@@ -618,9 +618,9 @@ def faithCoreParts : List String := ["namesNumbered", "genWf", "collSortsOK", "c
 /-- The conjuncts of `faithCoreOK` that read names, each with the lemma that gives it from its
 decision on codes and that decision's arguments. -/
 def nameParts : List (String × String × String) :=
-  [("namesNumbered", "Model.namesNumbered_of_codes sym_codes ite_idx", "Model.namesNumberedC defn.sem iteIdxs"),
+  [("namesNumbered", "Model.namesNumbered_of_codes sym_codes inst_idx", "Model.namesNumberedC defn.sem instIdxs"),
    ("namesApartK", "Model.namesApartK_of_codes sym_codes sort_codes", "Model.namesApartC defn.sem symCodes sortCodes"),
-   ("itesApart", "Model.itesApart_of_codes sym_codes sort_codes ite_idx", "Model.itesApartC defn.sem iteIdxs sortCodes")]
+   ("itesApart", "Model.itesApart_of_codes sym_codes sort_codes inst_idx", "Model.itesApartC defn.sem instIdxs sortCodes")]
 
 /-- A list of numbers as Lean source, a few to a line. -/
 def natListSrc (l : List Nat) : String :=
@@ -1390,15 +1390,15 @@ end {ns}
   let srtNs := Faithful.allSortNames c
   let symCs := symNs.map KoreAML.Distinct.strCode
   let srtCs := srtNs.map KoreAML.Distinct.strCode
-  let iteIs := Faithful.iteIdx symCs
-  o ← o.write s!"{ns}.CoreOK.Codes" (s!"import {ns}.Core\nimport KcoreSpec.NameCodes\n" ++ hdr s!"The codes (`strCode`) of the names of the {symCs.length} numbered symbols and {srtCs.length} numbered sorts, and the symbols whose codes may be of a name read as `ite` at a sort; data, checked in `{ns}.CoreOK.NameCodes`." ++ s!"
+  let instIs := Faithful.instIdx symCs
+  o ← o.write s!"{ns}.CoreOK.Codes" (s!"import {ns}.Core\nimport KcoreSpec.NameCodes\n" ++ hdr s!"The codes (`strCode`) of the names of the {symCs.length} numbered symbols and {srtCs.length} numbered sorts, and the symbols whose codes may be of a name read as an instance (`instIdx`); data, checked in `{ns}.CoreOK.NameCodes`." ++ s!"
 namespace {ns}
 
 def symCodes : List Nat := {natListSrc symCs}
 
 def sortCodes : List Nat := {natListSrc srtCs}
 
-def iteIdxs : List Nat := {reprStr iteIs}
+def instIdxs : List Nat := {reprStr instIs}
 
 end {ns}
 ")
@@ -1432,7 +1432,7 @@ end {ns}
     lines := lines.push s!"private theorem {p}Codes_length : {p}Codes.length = {n} := by decide +kernel"
     lines := lines.push s!"theorem {p}_codes : (all{pfx}Names defn.sem).map KoreAML.Distinct.strCode = {p}Codes :=\n  codeRows_all {p}Names_length {p}Codes_length {acc}"
     return "\n".intercalate lines.toList
-  o ← o.write s!"{ns}.CoreOK.NameCodes" (String.join ((symMods ++ srtMods).toList.map (s!"import {·}\n")) ++ hdr "The codes of the numbered names, one fact for the symbols and one for the sorts, joined from their blocks; the symbols whose codes may be of a name read as `ite` at a sort." ++ s!"
+  o ← o.write s!"{ns}.CoreOK.NameCodes" (String.join ((symMods ++ srtMods).toList.map (s!"import {·}\n")) ++ hdr "The codes of the numbered names, one fact for the symbols and one for the sorts, joined from their blocks; the symbols whose codes may be of a name read as an instance (`instIdx`)." ++ s!"
 namespace {ns}
 open KCore KCore.Faithful
 
@@ -1440,7 +1440,7 @@ open KCore KCore.Faithful
 
 {joinCodes "Sort" srtBs srtCs.length}
 
-theorem ite_idx : iteIdx symCodes = iteIdxs := by decide +kernel
+theorem inst_idx : instIdx symCodes = instIdxs := by decide +kernel
 
 end {ns}
 ")

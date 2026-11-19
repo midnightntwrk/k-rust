@@ -98,6 +98,7 @@ differs f2-examples/e2-comm-rule.kompile.kore
 differs f2-examples/e2-concrete-rule-noconcrete.kore
 differs f2-examples/e2-concrete-rule.kompile.kore
 differs f2-examples/e2-cool-eq.kompile.kore
+differs f2-examples/e2-equation.kompile.kore
 differs f2-examples/e2-fn-assoc-bad.kompile.kore
 differs f2-examples/e2-fn-assoc-rest.kompile.kore
 differs f2-examples/e2-fn-assoc-unit.kompile.kore
@@ -129,6 +130,7 @@ differs f2-examples/e2-symbol-nosymbol.kore
 differs f2-examples/e2-symbol.kompile.kore
 differs f2-examples/e2-symbolic-rule-nosymbolic.kore
 differs f2-examples/e2-symbolic-rule.kompile.kore
+differs f2-examples/e2-token.kompile.kore
 differs f2-examples/e2-unit-ctor.kompile.kore
 differs f2-examples/e3-casts.kompile.kore
 differs f2-examples/e3-cells-dotbag.kompile.kore
