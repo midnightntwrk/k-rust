@@ -151,24 +151,27 @@ theorem holdsAt_bot (F : NodeFacts c I) {bd : Nat → Cond → Bool} {n : Nat} {
   rw [KoreAML.interp_sNot, KoreAML.interp_sTop F.defOK Model.srtOf_free_stdI]
   exact ⟨fun hn => absurd ha hn.1, fun hf => by cases hf⟩
 
-theorem holdsAt_not {n : Nat} {σ : Subst} {p : Cond} {b' : Bool} (ih : HoldsAt c I n σ p b') :
-    HoldsAt c I n σ (.not p) (!b') := by
+/-- **`not`** where the Bool `bd` bounds the binders: `bd` at `not p` gives it at p. -/
+theorem holdsAt_notB {bd : Nat → Cond → Bool} {p : Cond} (L : ∀ {n}, bd n (.not p) = true → bd n p = true)
+    {n : Nat} {σ : Subst} {b' : Bool} (ih : HoldsAtB bd c I n σ p b') : HoldsAtB bd c I n σ (.not p) (!b') := by
   intro vars P tbl e S hlenN hok hbd hP hr hk hS a ha
   subst hlenN
   rw [Semantics.condOK] at hok
-  rw [Cond.boundConf] at hbd
+  replace hbd := L hbd
   have hk' : ∀ k ∈ KoreAML.varsOf (Cond.kore c (canonVars c vars) (srtOf c S) p), k ∈ tbl := fun k hk0 =>
     hk k (by rw [Cond.kore, KoreAML.varsOf]; exact List.mem_append_right _ hk0)
   have := ih rfl hok hbd (fun i hi hl => hP i (by rw [varOccsCond]; exact hi) hl) hr hk' hS a ha
   rw [Cond.kore, KoreAML.tr, KoreAML.interp_sNot, this]
   cases b' <;> simp [ha]
 
-theorem holdsAt_and {n : Nat} {σ : Subst} {p q : Cond} {b1 b2 : Bool} (ihp : HoldsAt c I n σ p b1)
-    (ihq : HoldsAt c I n σ q b2) : HoldsAt c I n σ (.and p q) (b1 && b2) := by
+/-- **`and`** where the Bool `bd` bounds the binders: `bd` at `and p q` gives it at p and q. -/
+theorem holdsAt_andB {bd : Nat → Cond → Bool} {p q : Cond}
+    (L : ∀ {n}, bd n (.and p q) = true → bd n p = true ∧ bd n q = true) {n : Nat} {σ : Subst} {b1 b2 : Bool}
+    (ihp : HoldsAtB bd c I n σ p b1) (ihq : HoldsAtB bd c I n σ q b2) : HoldsAtB bd c I n σ (.and p q) (b1 && b2) := by
   intro vars P tbl e S hlenN hok hbd hP hr hk hS a ha
   subst hlenN
   rw [Semantics.condOK, Bool.and_eq_true] at hok
-  rw [Cond.boundConf, Bool.and_eq_true] at hbd
+  replace hbd := L hbd
   have hkp : ∀ k ∈ KoreAML.varsOf (Cond.kore c (canonVars c vars) (srtOf c S) p), k ∈ tbl := fun k hk0 =>
     hk k (by rw [Cond.kore, KoreAML.varsOf, KoreAML.varsOfList]
              exact List.mem_append_right _ (List.mem_append_left _ hk0))
@@ -182,12 +185,14 @@ theorem holdsAt_and {n : Nat} {σ : Subst} {p q : Cond} {b1 b2 : Bool} (ihp : Ho
   rw [Cond.kore, tr_and2, KoreAML.interp_sAnd, h1, h2]
   cases b1 <;> cases b2 <;> simp
 
-theorem holdsAt_or {n : Nat} {σ : Subst} {p q : Cond} {b1 b2 : Bool} (ihp : HoldsAt c I n σ p b1)
-    (ihq : HoldsAt c I n σ q b2) : HoldsAt c I n σ (.or p q) (b1 || b2) := by
+/-- **`or`** where the Bool `bd` bounds the binders: `bd` at `or p q` gives it at p and q. -/
+theorem holdsAt_orB {bd : Nat → Cond → Bool} {p q : Cond}
+    (L : ∀ {n}, bd n (.or p q) = true → bd n p = true ∧ bd n q = true) {n : Nat} {σ : Subst} {b1 b2 : Bool}
+    (ihp : HoldsAtB bd c I n σ p b1) (ihq : HoldsAtB bd c I n σ q b2) : HoldsAtB bd c I n σ (.or p q) (b1 || b2) := by
   intro vars P tbl e S hlenN hok hbd hP hr hk hS a ha
   subst hlenN
   rw [Semantics.condOK, Bool.and_eq_true] at hok
-  rw [Cond.boundConf, Bool.and_eq_true] at hbd
+  replace hbd := L hbd
   have hkp : ∀ k ∈ KoreAML.varsOf (Cond.kore c (canonVars c vars) (srtOf c S) p), k ∈ tbl := fun k hk0 =>
     hk k (by rw [Cond.kore, KoreAML.varsOf, KoreAML.varsOfList]
              exact List.mem_append_right _ (List.mem_append_left _ hk0))
@@ -201,12 +206,14 @@ theorem holdsAt_or {n : Nat} {σ : Subst} {p q : Cond} {b1 b2 : Bool} (ihp : Hol
   rw [Cond.kore, Model.tr_or2Stdi, KoreAML.interp_sOr, h1, h2]
   cases b1 <;> cases b2 <;> simp [ha]
 
-theorem holdsAt_implies {n : Nat} {σ : Subst} {p q : Cond} {b1 b2 : Bool} (ihp : HoldsAt c I n σ p b1)
-    (ihq : HoldsAt c I n σ q b2) : HoldsAt c I n σ (.implies p q) (!b1 || b2) := by
+/-- **`implies`** where the Bool `bd` bounds the binders: `bd` at `implies p q` gives it at p and q. -/
+theorem holdsAt_impliesB {bd : Nat → Cond → Bool} {p q : Cond}
+    (L : ∀ {n}, bd n (.implies p q) = true → bd n p = true ∧ bd n q = true) {n : Nat} {σ : Subst} {b1 b2 : Bool}
+    (ihp : HoldsAtB bd c I n σ p b1) (ihq : HoldsAtB bd c I n σ q b2) : HoldsAtB bd c I n σ (.implies p q) (!b1 || b2) := by
   intro vars P tbl e S hlenN hok hbd hP hr hk hS a ha
   subst hlenN
   rw [Semantics.condOK, Bool.and_eq_true] at hok
-  rw [Cond.boundConf, Bool.and_eq_true] at hbd
+  replace hbd := L hbd
   have hkp : ∀ k ∈ KoreAML.varsOf (Cond.kore c (canonVars c vars) (srtOf c S) p), k ∈ tbl := fun k hk0 =>
     hk k (by rw [Cond.kore, KoreAML.varsOf]
              exact List.mem_append_left _ (List.mem_append_right _ hk0))
@@ -218,6 +225,22 @@ theorem holdsAt_implies {n : Nat} {σ : Subst} {p q : Cond} {b1 b2 : Bool} (ihp 
     hr hkq hS a ha
   rw [Cond.kore, KoreAML.tr, KoreAML.interp_sImp, h1, h2]
   cases b1 <;> cases b2 <;> simp [ha]
+
+theorem holdsAt_not {n : Nat} {σ : Subst} {p : Cond} {b' : Bool} (ih : HoldsAt c I n σ p b') :
+    HoldsAt c I n σ (.not p) (!b') :=
+  holdsAt_notB (fun hb => by rw [Cond.boundConf] at hb; exact hb) ih
+
+theorem holdsAt_and {n : Nat} {σ : Subst} {p q : Cond} {b1 b2 : Bool} (ihp : HoldsAt c I n σ p b1)
+    (ihq : HoldsAt c I n σ q b2) : HoldsAt c I n σ (.and p q) (b1 && b2) :=
+  holdsAt_andB (fun hb => by rw [Cond.boundConf, Bool.and_eq_true] at hb; exact hb) ihp ihq
+
+theorem holdsAt_or {n : Nat} {σ : Subst} {p q : Cond} {b1 b2 : Bool} (ihp : HoldsAt c I n σ p b1)
+    (ihq : HoldsAt c I n σ q b2) : HoldsAt c I n σ (.or p q) (b1 || b2) :=
+  holdsAt_orB (fun hb => by rw [Cond.boundConf, Bool.and_eq_true] at hb; exact hb) ihp ihq
+
+theorem holdsAt_implies {n : Nat} {σ : Subst} {p q : Cond} {b1 b2 : Bool} (ihp : HoldsAt c I n σ p b1)
+    (ihq : HoldsAt c I n σ q b2) : HoldsAt c I n σ (.implies p q) (!b1 || b2) :=
+  holdsAt_impliesB (fun hb => by rw [Cond.boundConf, Bool.and_eq_true] at hb; exact hb) ihp ihq
 
 /-- **`ceil`**, from the reading of its term's evaluation. -/
 theorem holdsAt_ceil (F : NodeFacts c I) {n : Nat} {σ : Subst} {s : Srt} {t : Term} {r : Option GroundTerm}
@@ -445,15 +468,16 @@ theorem holdsAt_ex (F : NodeFacts c I) (G : BinderFacts c I) {n : Nat} {σ : Sub
     obtain ⟨a0, ha0, hin⟩ := F.val hsv tbl e
     exact ⟨a0, (KoreAML.interp_inhOf_of (hτd tbl e)).mp hin, (hread σ' v a0 hext.1 hv hsv ha0 hext).mpr hg⟩
 
-/-- **`all`**, from the readings of its body at the extensions of σ. -/
-theorem holdsAt_all (F : NodeFacts c I) (G : BinderFacts c I) {n : Nat} {σ : Subst} {s : Srt} {body : Cond} {b : Bool}
-    (g : Subst → Bool) (ih : ∀ σ', Extends c n [s] σ σ' → HoldsAt c I (n + 1) σ' body (g σ'))
-    (hr' : b = true ↔ ∀ σ', Extends c n [s] σ σ' → g σ' = true) : HoldsAt c I n σ (.all s body) b := by
+/-- **`all`** where the Bool `bd` bounds the binders: `bd` at `all s body` gives that the
+elements of s are values' and `bd` at the body. -/
+theorem holdsAt_allB (F : NodeFacts c I) {bd : Nat → Cond → Bool} {s : Srt} {body : Cond}
+    (L : ∀ {n}, bd n (.all s body) = true → ElemsValues c I s ∧ bd (n + 1) body = true) {n : Nat} {σ : Subst}
+    {b : Bool} (g : Subst → Bool) (ih : ∀ σ', Extends c n [s] σ σ' → HoldsAtB bd c I (n + 1) σ' body (g σ'))
+    (hr' : b = true ↔ ∀ σ', Extends c n [s] σ σ' → g σ' = true) : HoldsAtB bd c I n σ (.all s body) b := by
   intro vars P tbl e S hlenN hok hbd hP hr hk hS a ha
   subst hlenN
   rw [Semantics.condOK] at hok
-  rw [Cond.boundConf, Bool.and_eq_true] at hbd
-  replace hbd : ElemsValues c I s ∧ Cond.boundConf c (vars.length + 1) body = true := ⟨G.elemsValues hbd.1, hbd.2⟩
+  replace hbd := L hbd
   have hlen : (vars ++ [s]).length = vars.length + 1 := by simp
   have hsn : s < nRegSorts + c.sortNames.length := hbd.1.1
   obtain ⟨τ, hτ, hτd⟩ := F.sort hsn
@@ -513,21 +537,33 @@ theorem holdsAt_all (F : NodeFacts c I) (G : BinderFacts c I) {n : Nat} {σ : Su
         | succ j => simp at hj⟩
     exact (hread _ v m hσ'' (Model.extOneStdI_at σ _ v) hv hdv hext).mpr (hr'.mp hbt _ hext)
 
-/-- **`exMatch`**, from the reading of its term's evaluation and, where the term has a value,
-the readings of its body at the extensions of σ under which the pattern denotes the value. -/
-theorem holdsAt_exMatch (F : NodeFacts c I) (G : BinderFacts c I) {n : Nat} {σ : Subst} {ys : List Srt} {s : Srt}
-    {p t : Term} {body : Cond} {r : Option GroundTerm} {b : Bool}
+/-- **`all`**, from the readings of its body at the extensions of σ. -/
+theorem holdsAt_all (F : NodeFacts c I) (G : BinderFacts c I) {n : Nat} {σ : Subst} {s : Srt} {body : Cond} {b : Bool}
+    (g : Subst → Bool) (ih : ∀ σ', Extends c n [s] σ σ' → HoldsAt c I (n + 1) σ' body (g σ'))
+    (hr' : b = true ↔ ∀ σ', Extends c n [s] σ σ' → g σ' = true) : HoldsAt c I n σ (.all s body) b :=
+  holdsAt_allB F (fun hb => by rw [Cond.boundConf, Bool.and_eq_true] at hb; exact ⟨G.elemsValues hb.1, hb.2⟩)
+    g ih hr'
+
+/-- **`exMatch`** where the Bool `bd` bounds the binders: `bd` at the match gives that each match
+variable is held by its pattern under constructors and injections or is of a confined sort, and
+`bd` at the body. -/
+theorem holdsAt_exMatchB (F : NodeFacts c I) (G : BinderFacts c I) {bd : Nat → Cond → Bool} {ys : List Srt}
+    {s : Srt} {p t : Term} {body : Cond}
+    (L : ∀ {n}, bd n (.exMatch ys s p t body) = true →
+      (List.range ys.length).all (fun j =>
+        (ctorOccs c p).contains (n + j) || (ys[j]?.map c.confined).getD false) = true ∧
+      bd (n + ys.length) body = true)
+    {n : Nat} {σ : Subst} {r : Option GroundTerm} {b : Bool}
     (hev : EvalTerm c σ t r) (hT : TermAt c I σ t r)
     (hh : (r = none ∧ b = false) ∨ ∃ (v : GroundTerm) (g : Subst → Bool), r = some v ∧
-      (∀ σ', Extends c n ys σ σ' → PatVal c σ' p v → HoldsAt c I (n + ys.length) σ' body (g σ')) ∧
+      (∀ σ', Extends c n ys σ σ' → PatVal c σ' p v → HoldsAtB bd c I (n + ys.length) σ' body (g σ')) ∧
       (b = true ↔ ∃ σ', Extends c n ys σ σ' ∧ PatVal c σ' p v ∧ g σ' = true)) :
-    HoldsAt c I n σ (.exMatch ys s p t body) b := by
+    HoldsAtB bd c I n σ (.exMatch ys s p t body) b := by
   intro vars P tbl e S hlenN hok hbd hP hr hk hS a ha
   subst hlenN
   simp only [Semantics.condOK, Bool.and_eq_true, beq_iff_eq] at hok
   obtain ⟨⟨⟨hpS, htS⟩, hokB⟩, -⟩ := hok
-  rw [Cond.boundConf, Bool.and_eq_true] at hbd
-  obtain ⟨hbnd, hbdB⟩ := hbd
+  obtain ⟨hbnd, hbdB⟩ := L hbd
   have hlen : (vars ++ ys).length = vars.length + ys.length := by simp
   let Bs := (List.range' vars.length ys.length).map fun i => ((canonVars c (vars ++ ys)).getD i default).kore
   have hkore : Cond.kore c (canonVars c vars) (srtOf c S) (.exMatch ys s p t body) =
@@ -792,6 +828,17 @@ theorem holdsAt_exMatch (F : NodeFacts c I) (G : BinderFacts c I) {n : Nat} {σ 
         show InS I _ (e'.evalEvar (tbl.ev (canonKey c (vars ++ ys) i)))
         rw [setV_on hkis (by simp; omega) hix]
         exact (hfe i h1 h2).2
+
+/-- **`exMatch`**, from the reading of its term's evaluation and, where the term has a value,
+the readings of its body at the extensions of σ under which the pattern denotes the value. -/
+theorem holdsAt_exMatch (F : NodeFacts c I) (G : BinderFacts c I) {n : Nat} {σ : Subst} {ys : List Srt} {s : Srt}
+    {p t : Term} {body : Cond} {r : Option GroundTerm} {b : Bool}
+    (hev : EvalTerm c σ t r) (hT : TermAt c I σ t r)
+    (hh : (r = none ∧ b = false) ∨ ∃ (v : GroundTerm) (g : Subst → Bool), r = some v ∧
+      (∀ σ', Extends c n ys σ σ' → PatVal c σ' p v → HoldsAt c I (n + ys.length) σ' body (g σ')) ∧
+      (b = true ↔ ∃ σ', Extends c n ys σ σ' ∧ PatVal c σ' p v ∧ g σ' = true)) :
+    HoldsAt c I n σ (.exMatch ys s p t body) b :=
+  holdsAt_exMatchB F G (fun hb => by rw [Cond.boundConf, Bool.and_eq_true] at hb; exact hb) hev hT hh
 
 /-- **A term's evaluation is read where its translation denotes its result at every valuation
 that agrees with σ on the term's variables, σ well sorted on them** (the form a recursion on

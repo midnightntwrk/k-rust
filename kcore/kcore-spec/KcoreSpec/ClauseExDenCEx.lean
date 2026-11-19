@@ -68,7 +68,6 @@ theorem eval_den_exReadCEx (h : c.coreOKEx = true) (hrc : c.readsConfined = true
   have N : NodeFacts c I := nodeFacts_of_coreEx h hIc
   have hfnm := (lookupFn_spec hfn).1
   have hS : fn.result < nRegSorts + c.sortNames.length := hnn.2.2 fn hfnm fn.result (List.mem_cons_self ..)
-  have G : hasBinder cl.post = true → BinderFacts c I := fun _ => binderFacts_of_coreEx h hrc hIc
   -- the clause's facts
   have hs' := hs
   simp only [Semantics.clauseExOK, Bool.and_eq_true] at hs'
@@ -149,7 +148,7 @@ theorem eval_den_exReadCEx (h : c.coreOKEx = true) (hrc : c.readsConfined = true
         (fun t ht m' => allOf (hensT t ht) hσ₀ hag hkeys (henss t ht) m') m).mpr hm, fun _ => ?_⟩
       have hrd := reads_of_agrees hσ₀ hag (P := fun i => i ∈ varOccsCond cl.vars.length cl.post)
         fun i hi => ⟨varOccsCond_lt_twoT cl.post hokQ i hi, hkeys i (varOccsCond_lt_twoT cl.post hokQ i hi)⟩
-      exact (hpost.holdsAt N G rfl hokQ (by rw [← Cond.bound_eq_boundConf]; exact hb)
+      exact (CE.holdsReadT_holdsAt_bound (Semantics.coreOK_iff_ex.mpr h) hrc hIc N hpost rfl hokQ hb
         (fun i hi _ => hi) hrd (hkQ hkB) hS m (hinSort hmS)).mpr rfl
   · -- an instance at elements that holds `m` is one at values, which gives `r` or nothing
     intro tbl e hag hkeys hkB e'' m hoff hin hmS hb''
@@ -200,7 +199,7 @@ theorem eval_den_exReadCEx (h : c.coreOKEx = true) (hrc : c.readsConfined = true
         | false =>
           have hrd := reads_of_agrees hw' hag' (P := fun i => i ∈ varOccsCond cl.vars.length cl.post)
             fun i hi => ⟨varOccsCond_lt_twoT cl.post hokQ i hi, hkeys i (varOccsCond_lt_twoT cl.post hokQ i hi)⟩
-          exact absurd ((hf'.holdsAt N G rfl hokQ (by rw [← Cond.bound_eq_boundConf]; exact hb)
+          exact absurd ((CE.holdsReadT_holdsAt_bound (Semantics.coreOK_iff_ex.mpr h) hrc hIc N hf' rfl hokQ hb
             (fun i hi _ => hi) hrd (hkQ hkB) hS m (hinSort hmS)).mp (hQ hpt))
             (by simp)
       | rhs hn hTn =>
