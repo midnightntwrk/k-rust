@@ -36,11 +36,11 @@ def Semantics.clauseSortedOpen (c : Semantics) (f : Fn) (rhsHeads : List CtorSig
   c.condOK cl.vars cl.pre
 
 /-- What `clausesPlain` asks of one clause, with the conjunct on its open condition variables: no
-variable bound by `\exists`, a `\top` predicate on the right side, a `\top` predicate in the premise
-or conditions that need no witness, and no open condition variable, or closed conditions, or each
-open condition variable of a confined sort or held by a cut of the premise predicate (`memHeld`). -/
+variable bound by `\exists`, a `\top` predicate on the right side, and no open condition variable,
+or closed conditions, or each open condition variable of a confined sort or held by a cut of the
+premise predicate (`memHeld`). -/
 def Semantics.clausePlainOpen (c : Semantics) (cl : Clause) : Bool :=
-  cl.exs.isEmpty && (cl.pre.isTop || !cl.needsWitness c) && cl.post.isTop &&
+  cl.exs.isEmpty && cl.post.isTop &&
   (!cl.reqOpen || cl.reqClosed || cl.openCondVars.all fun i => (cl.vars[i]?.map c.confined).getD false ||
       memHeld c (varOccsList cl.pats) cl.pre i)
 
@@ -61,19 +61,14 @@ theorem Semantics.clauseSortedOpen_parts {c : Semantics} {f : Fn} {H : List Ctor
   · rw [ht] at hens; simpa [reqOK] using hens
 
 /-- What `clausePlainOpen` gives of a clause: no existential variable, the right side's predicate
-`\top`, the conjunct on its open condition variables, and where its premise's predicate is not
-`\top`, conditions that need no witness (`needsWitness`). -/
+`\top`, and the conjunct on its open condition variables. -/
 theorem Semantics.clausePlainOpen_partsP {c : Semantics} {cl : Clause} (h : c.clausePlainOpen cl = true) :
     cl.exs = [] ∧ cl.post = .top ∧
       (!cl.reqOpen || cl.reqClosed || cl.openCondVars.all fun i => (cl.vars[i]?.map c.confined).getD false ||
-      memHeld c (varOccsList cl.pats) cl.pre i) = true ∧
-      (cl.pre ≠ .top → cl.needsWitness c = false) := by
+      memHeld c (varOccsList cl.pats) cl.pre i) = true := by
   simp only [Semantics.clausePlainOpen, Bool.and_eq_true] at h
-  obtain ⟨⟨⟨hex, hpre⟩, hpost⟩, hrest⟩ := h
-  refine ⟨List.isEmpty_iff.mp hex, Cond.eq_top_of_isTop hpost, hrest, fun hne => ?_⟩
-  rcases Bool.or_eq_true_iff.mp hpre with ht | hn
-  · exact absurd (Cond.eq_top_of_isTop ht) hne
-  · simpa using hn
+  obtain ⟨⟨hex, hpost⟩, hrest⟩ := h
+  exact ⟨List.isEmpty_iff.mp hex, Cond.eq_top_of_isTop hpost, hrest⟩
 
 /-- The patterns of a clause with `clauseSortedOpen` have the argument sorts over `patCtxNF`: they
 are well sorted and apply no function-overloaded symbol. -/
@@ -152,7 +147,7 @@ theorem Semantics.sortedOKCl_of_sortedOK_noExs {c : Semantics} (h : c.sortedOK =
     have hex := hx f hf cl hcl
     have hpost := (Semantics.sortedOK_clauseEx h hf hcl).2 hex
     have hcp : c.clausePlainOpen cl = true := by
-      rw [Semantics.clausePlainOpen, hex, hpost, hsp.2.2.1, hsp.2.2.2]
+      rw [Semantics.clausePlainOpen, hex, hpost, hsp.2.2]
       rfl
     rw [Bool.and_eq_true]
     exact ⟨Semantics.clauseSortedOpen_of_sorted hcs, hcp⟩
@@ -172,11 +167,10 @@ theorem Semantics.sortedOKCl_exsNil {c : Semantics} (h : c.sortedOKCl = true) {r
 
 /-- `clausePlainOpen` with "no variable bound by `\exists`, a `\top` predicate on the right side"
 asked only together: a clause without existential variables has a `\top` predicate on its right
-side, and a clause with existential variables has any. In both cases `clauseExOK`, a `\top`
-predicate in the premise or conditions that need no witness, and the conjunct on the open condition
-variables. -/
+side, and a clause with existential variables has any. In both cases `clauseExOK` and the conjunct
+on the open condition variables. -/
 def Semantics.clausePlainOpenEx (c : Semantics) (cl : Clause) : Bool :=
-  (!cl.exs.isEmpty || cl.post.isTop) && c.clauseExOK cl && (cl.pre.isTop || !cl.needsWitness c) &&
+  (!cl.exs.isEmpty || cl.post.isTop) && c.clauseExOK cl &&
   (!cl.reqOpen || cl.reqClosed || cl.openCondVars.all fun i => (cl.vars[i]?.map c.confined).getD false ||
       memHeld c (varOccsList cl.pats) cl.pre i)
 
@@ -200,22 +194,17 @@ theorem Semantics.clausePlainOpenEx_of_plainOpen {c : Semantics} {cl : Clause}
   rw [Semantics.clausePlainOpenEx_eq_of_noExs (Semantics.clausePlainOpen_partsP h).1]; exact h
 
 /-- What `clausePlainOpenEx` gives of a clause: `clauseExOK`, a `\top` predicate on the right side
-where it has no existential variable, the conjunct on its open condition variables, and where its
-premise's predicate is not `\top`, conditions that need no witness. -/
+where it has no existential variable, and the conjunct on its open condition variables. -/
 theorem Semantics.clausePlainOpenEx_parts {c : Semantics} {cl : Clause} (h : c.clausePlainOpenEx cl = true) :
     c.clauseExOK cl = true ∧ (cl.exs = [] → cl.post = .top) ∧
       (!cl.reqOpen || cl.reqClosed || cl.openCondVars.all fun i => (cl.vars[i]?.map c.confined).getD false ||
-      memHeld c (varOccsList cl.pats) cl.pre i) = true ∧
-      (cl.pre ≠ .top → cl.needsWitness c = false) := by
+      memHeld c (varOccsList cl.pats) cl.pre i) = true := by
   simp only [Semantics.clausePlainOpenEx, Bool.and_eq_true] at h
-  obtain ⟨⟨⟨hex, hok⟩, hpre⟩, hrest⟩ := h
-  refine ⟨hok, fun he => ?_, hrest, fun hne => ?_⟩
-  · rcases Bool.or_eq_true_iff.mp hex with hn | ht
-    · simp [he] at hn
-    · exact Cond.eq_top_of_isTop ht
-  · rcases Bool.or_eq_true_iff.mp hpre with ht | hn
-    · exact absurd (Cond.eq_top_of_isTop ht) hne
-    · simpa using hn
+  obtain ⟨⟨hex, hok⟩, hrest⟩ := h
+  refine ⟨hok, fun he => ?_, hrest⟩
+  rcases Bool.or_eq_true_iff.mp hex with hn | ht
+  · simp [he] at hn
+  · exact Cond.eq_top_of_isTop ht
 
 /-- A clause with `clausePlainOpenEx` and no existential variable has `clausePlainOpen`. -/
 theorem Semantics.clausePlainOpen_of_ex_noExs {c : Semantics} {cl : Clause}
@@ -262,10 +251,10 @@ theorem Semantics.sortedOKClEx_of_sortedOKEx {c : Semantics} (h : c.sortedOKEx =
   obtain ⟨h1, h2, h3, h4, h5, h6⟩ := Semantics.sortedOKEx_parts h
   refine Semantics.sortedOKClEx_of_parts h1
     (fun f hf cl hcl => ⟨Semantics.clauseSortedOpen_of_sorted (h2 f hf cl hcl), ?_⟩) h3 h4 h6
-  obtain ⟨hp, hs, hpre, hopen⟩ := Semantics.clausesPlainEx_spec h5 hf hcl
+  obtain ⟨hp, hs, hopen⟩ := Semantics.clausesPlainEx_spec h5 hf hcl
   simp only [Semantics.clausePlainEx, Bool.and_eq_true] at hp
   simp only [Semantics.clausePlainOpenEx, Bool.and_eq_true]
-  exact ⟨⟨⟨hp.1, hs⟩, hpre⟩, hopen⟩
+  exact ⟨⟨hp.1, hs⟩, hopen⟩
 
 /-- **Where no clause has an existential variable, `sortedOKClEx` is `sortedOKCl`.** -/
 theorem Semantics.sortedOKClEx_eq_of_noExs {c : Semantics}

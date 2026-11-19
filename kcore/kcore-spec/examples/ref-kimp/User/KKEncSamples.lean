@@ -67,7 +67,7 @@ open Lean Elab Command in
   let c ← semanticsOfFile "RefKimp/definition.kore"
   let conds := [("C1", ovlsOK c), ("C2", paramsOK c), ("C3", appsOK c), ("C4", headsOK c),
     ("C5", litsOK c), ("C7", subsortsOK c), ("C8", colPatsOK c), ("C10", asOK c), ("C11", ensOK c),
-    ("C12", shapesOK c)]
+    ("C12", shapesOK c), ("C13", collFormOK c)]
   for (n, b) in conds do
     unless b do throwError "kimp: condition {n} of KK.encodable fails"
   let unread := (lhsTerms c ++ rhsTerms c ++ ensTerms c).filter fun t => (encTerm c t).isNone

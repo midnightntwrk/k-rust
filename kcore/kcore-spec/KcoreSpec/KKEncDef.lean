@@ -41,6 +41,11 @@ The conditions (`none` where one fails):
   written as `en (rhs) (ensures)` at the top of its right side, and `encTerm` writes `en` nowhere
   else.
 - C12 `shapesOK`: every rule and clause has the fields `rl` and `cl` hold.
+- C13 `collFormOK`: the definition's collections are what `cb` and `co` can hold, which carry a
+  kind and a sort and nothing else: each collection of the definition has its unit, element and
+  concatenation declared at the collection's sorts (`Faithful.collsOK`), and a collection sort
+  holds collections only: no domain value (`Faithful.collSortsOK`), no constructor's result and no
+  upper sort of a subsort pair is one.
 -/
 
 set_option autoImplicit false
@@ -307,10 +312,16 @@ def asOK (d : Semantics) : Bool := (rhsTerms d).all asFree
 /-- C11. -/
 def ensOK (d : Semantics) : Bool := (ensTerms d).all fun e => (encTerm d e).isSome && asFree e
 
+/-- C13. -/
+def collFormOK (d : Semantics) : Bool :=
+  Faithful.collsOK d && Faithful.collSortsOK d &&
+    d.ctorSigs.all (fun k => (d.collOf k.result).isNone) &&
+    d.subsorts.all fun p => (d.collOf p.2).isNone
+
 /-- Every condition: `encDef d` is `some` exactly here (`encDef_isSome`). -/
 def encodable (d : Semantics) : Bool :=
   ovlsOK d && paramsOK d && appsOK d && headsOK d && litsOK d && subsortsOK d && colPatsOK d &&
-    asOK d && ensOK d && shapesOK d
+    asOK d && ensOK d && shapesOK d && collFormOK d
 
 /-! ## The definition -/
 
@@ -349,5 +360,34 @@ theorem encDef_isSome (d : Semantics) : (encDef d).isSome = encodable d := by
 set_option smartUnfolding false in
 /-- `encDef` reads no interpretation. -/
 theorem encDef_withHooks (d : Semantics) (H : HookParams) : encDef (d.withHooks H) = encDef d := rfl
+
+/-- C13 reads no interpretation. -/
+example (d : Semantics) (H : HookParams) : collFormOK (d.withHooks H) = collFormOK d := rfl
+
+/-- What C13 states, read off `encodable`. -/
+theorem encodable_colls_c13 {d : Semantics} (h : encodable d = true) :
+    Faithful.collsOK d = true ∧ Faithful.collSortsOK d = true ∧
+      (∀ k ∈ d.ctorSigs, d.collOf k.result = none) ∧ (∀ p ∈ d.subsorts, d.collOf p.2 = none) := by
+  simp only [encodable, Bool.and_eq_true] at h
+  have h13 := h.2
+  simp only [collFormOK, Bool.and_eq_true, List.all_eq_true, Option.isNone_iff_eq_none] at h13
+  exact ⟨h13.1.1.1, h13.1.1.2, h13.1.2, h13.2⟩
+
+open Faithful Faithful.Model in
+/-- `coreOK` gives C13: `collsOK` and `collSortsOK` are conjuncts of `faithCoreOK`, and `genWf`
+makes every constructor's result and every subsort pair's upper sort a constructor sort, which is
+no collection sort. -/
+theorem collFormOK_of_coreOK {c : Semantics} (h : c.coreOK = true) : collFormOK c = true := by
+  obtain ⟨-, hf, -, -, -⟩ := Semantics.coreOK_parts h
+  unfold Semantics.faithCoreOK at hf
+  simp only [Bool.and_eq_true] at hf
+  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨-, hg⟩, hcs⟩, hco⟩, -⟩, -⟩, -⟩, -⟩, -⟩, -⟩, -⟩, -⟩ := hf
+  unfold genWf at hg
+  simp only [Bool.and_eq_true, List.all_eq_true] at hg
+  have hcons : ∀ s ∈ consSorts c, (c.collOf s).isNone = true := fun s hs => by
+    exact (hg.1.1.2 s hs).1.1.1.2
+  simp only [collFormOK, hcs, hco, Bool.and_true, Bool.true_and, Bool.and_eq_true, List.all_eq_true]
+  exact ⟨fun k hk => hcons _ (List.contains_iff_mem.mp (hg.1.1.1.1 k hk)),
+    fun p hp => hcons _ (List.contains_iff_mem.mp (hg.1.1.1.2 p hp).1)⟩
 
 end KCore.KK

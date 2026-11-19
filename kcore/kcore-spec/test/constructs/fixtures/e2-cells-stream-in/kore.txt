@@ -1,0 +1,108 @@
+//@ 145
+  symbol Lbl'-LT-'in'-GT-'{}(SortList{}) : SortInCell{} [cell{}(), constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,39,5,70)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-cells-stream-in.k)")]
+//@ 146
+  symbol Lbl'-LT-'k'-GT-'{}(SortK{}) : SortKCell{} [cell{}(), constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,21,5,38)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-cells-stream-in.k)")]
+//@ 147
+  symbol Lbl'-LT-'out'-GT-'{}(SortList{}) : SortOutCell{} [cell{}(), constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,71,5,105)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-cells-stream-in.k)")]
+//@ 148
+  symbol Lbl'-LT-'t'-GT-'{}(SortKCell{}, SortInCell{}, SortOutCell{}) : SortTCell{} [cell{}(), constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,17,5,110)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-cells-stream-in.k)")]
+//@ 222
+  symbol Lbla{}() : SortExp{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,18,4,33)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-cells-stream-in.k)"), symbol'Kywd'{}("a")]
+//@ 237
+  symbol LblinitInCell{}(SortMap{}) : SortInCell{} [function{}()]
+//@ 239
+  symbol LblinitOutCell{}(SortMap{}) : SortOutCell{} [function{}()]
+//@ 2930
+  axiom{}\not{SortStream{}} (\and{SortStream{}} (Lbl'Hash'buffer'LParUndsRParUnds'K-IO'Unds'Stream'Unds'K{}(X0:SortK{}), Lbl'Hash'ostream'LParUndsRParUnds'K-IO'Unds'Stream'Unds'Int{}(Y0:SortInt{}))) [constructor{}()] // no confusion different constructors
+//@ 2931
+  axiom{}\not{SortStream{}} (\and{SortStream{}} (Lbl'Hash'buffer'LParUndsRParUnds'K-IO'Unds'Stream'Unds'K{}(X0:SortK{}), Lbl'Hash'parseInput'LParUndsCommUndsRParUnds'K-IO'Unds'Stream'Unds'String'Unds'String{}(Y0:SortString{}, Y1:SortString{}))) [constructor{}()] // no confusion different constructors
+//@ 2934
+  axiom{}\not{SortStream{}} (\and{SortStream{}} (Lbl'Hash'istream'LParUndsRParUnds'K-IO'Unds'Stream'Unds'Int{}(X0:SortInt{}), Lbl'Hash'ostream'LParUndsRParUnds'K-IO'Unds'Stream'Unds'Int{}(Y0:SortInt{}))) [constructor{}()] // no confusion different constructors
+//@ 2935
+  axiom{}\not{SortStream{}} (\and{SortStream{}} (Lbl'Hash'istream'LParUndsRParUnds'K-IO'Unds'Stream'Unds'Int{}(X0:SortInt{}), Lbl'Hash'parseInput'LParUndsCommUndsRParUnds'K-IO'Unds'Stream'Unds'String'Unds'String{}(Y0:SortString{}, Y1:SortString{}))) [constructor{}()] // no confusion different constructors
+//@ 2941
+  axiom{R} \exists{R} (Val:SortStream{}, \equals{SortStream{}, R} (Val:SortStream{}, Lbl'Hash'ostream'LParUndsRParUnds'K-IO'Unds'Stream'Unds'Int{}(K0:SortInt{}))) [functional{}()] // functional
+//@ 2942
+  axiom{}\implies{SortStream{}} (\and{SortStream{}} (Lbl'Hash'ostream'LParUndsRParUnds'K-IO'Unds'Stream'Unds'Int{}(X0:SortInt{}), Lbl'Hash'ostream'LParUndsRParUnds'K-IO'Unds'Stream'Unds'Int{}(Y0:SortInt{})), Lbl'Hash'ostream'LParUndsRParUnds'K-IO'Unds'Stream'Unds'Int{}(\and{SortInt{}} (X0:SortInt{}, Y0:SortInt{}))) [constructor{}()] // no confusion same constructor
+//@ 2943
+  axiom{}\not{SortStream{}} (\and{SortStream{}} (Lbl'Hash'ostream'LParUndsRParUnds'K-IO'Unds'Stream'Unds'Int{}(X0:SortInt{}), Lbl'Hash'parseInput'LParUndsCommUndsRParUnds'K-IO'Unds'Stream'Unds'String'Unds'String{}(Y0:SortString{}, Y1:SortString{}))) [constructor{}()] // no confusion different constructors
+//@ 2944
+  axiom{R} \exists{R} (Val:SortStream{}, \equals{SortStream{}, R} (Val:SortStream{}, Lbl'Hash'parseInput'LParUndsCommUndsRParUnds'K-IO'Unds'Stream'Unds'String'Unds'String{}(K0:SortString{}, K1:SortString{}))) [functional{}()] // functional
+//@ 2945
+  axiom{}\implies{SortStream{}} (\and{SortStream{}} (Lbl'Hash'parseInput'LParUndsCommUndsRParUnds'K-IO'Unds'Stream'Unds'String'Unds'String{}(X0:SortString{}, X1:SortString{}), Lbl'Hash'parseInput'LParUndsCommUndsRParUnds'K-IO'Unds'Stream'Unds'String'Unds'String{}(Y0:SortString{}, Y1:SortString{})), Lbl'Hash'parseInput'LParUndsCommUndsRParUnds'K-IO'Unds'Stream'Unds'String'Unds'String{}(\and{SortString{}} (X0:SortString{}, Y0:SortString{}), \and{SortString{}} (X1:SortString{}, Y1:SortString{}))) [constructor{}()] // no confusion same constructor
+//@ 3110
+  axiom{} \or{SortStream{}} (\exists{SortStream{}} (X0:SortK{}, Lbl'Hash'buffer'LParUndsRParUnds'K-IO'Unds'Stream'Unds'K{}(X0:SortK{})), \exists{SortStream{}} (X0:SortInt{}, Lbl'Hash'istream'LParUndsRParUnds'K-IO'Unds'Stream'Unds'Int{}(X0:SortInt{})), \exists{SortStream{}} (X0:SortInt{}, Lbl'Hash'ostream'LParUndsRParUnds'K-IO'Unds'Stream'Unds'Int{}(X0:SortInt{})), \exists{SortStream{}} (X0:SortString{}, \exists{SortStream{}} (X1:SortString{}, Lbl'Hash'parseInput'LParUndsCommUndsRParUnds'K-IO'Unds'Stream'Unds'String'Unds'String{}(X0:SortString{}, X1:SortString{}))), \bottom{SortStream{}}()) [constructor{}()] // no junk
+//@ 3149
+// rule `<generatedTop>`(`<t>`(`<k>`(inj{Exp,KItem}(a(.KList))~>_DotVar2) #as _Gen2,`<in>`(`_List_`(`ListItem`(inj{Stream,KItem}(`#buffer(_)_K-IO_Stream_K`(inj{String,KItem}(_Gen0)))),_DotVar3)),_DotVar1),_DotVar0)=>`<generatedTop>`(`<t>`(_Gen2,`<in>`(`_List_`(`_List_`(`ListItem`(inj{Stream,KItem}(`#parseInput(_,_)_K-IO_Stream_String_String`(#token("\"Int\"","String"),#token("\" \\n\\t\\r\"","String")))),`ListItem`(inj{Stream,KItem}(`#buffer(_)_K-IO_Stream_K`(inj{String,KItem}(_Gen0))))),_DotVar3)),_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(54acb081b121b084f579a656c949a72dbc418a055ff7e9ebdba64a43e0959bec), org.kframework.attributes.Location(Location(6,8,6,70)), org.kframework.attributes.Source(Source(FIXTURE/e2-cells-stream-in.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'t'-GT-'{}(\and{SortKCell{}}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}}(Lbla{}()),Var'Unds'DotVar2:SortK{})),Var'Unds'Gen2:SortKCell{}),Lbl'-LT-'in'-GT-'{}(Lbl'Unds'List'Unds'{}(LblListItem{}(inj{SortStream{}, SortKItem{}}(Lbl'Hash'buffer'LParUndsRParUnds'K-IO'Unds'Stream'Unds'K{}(kseq{}(inj{SortString{}, SortKItem{}}(Var'Unds'Gen0:SortString{}),dotk{}())))),Var'Unds'DotVar3:SortList{})),Var'Unds'DotVar1:SortOutCell{}),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'t'-GT-'{}(Var'Unds'Gen2:SortKCell{},Lbl'-LT-'in'-GT-'{}(Lbl'Unds'List'Unds'{}(Lbl'Unds'List'Unds'{}(LblListItem{}(inj{SortStream{}, SortKItem{}}(Lbl'Hash'parseInput'LParUndsCommUndsRParUnds'K-IO'Unds'Stream'Unds'String'Unds'String{}(\dv{SortString{}}("Int"),\dv{SortString{}}(" \n\t\r")))),LblListItem{}(inj{SortStream{}, SortKItem{}}(Lbl'Hash'buffer'LParUndsRParUnds'K-IO'Unds'Stream'Unds'K{}(kseq{}(inj{SortString{}, SortKItem{}}(Var'Unds'Gen0:SortString{}),dotk{}()))))),Var'Unds'DotVar3:SortList{})),Var'Unds'DotVar1:SortOutCell{}),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("54acb081b121b084f579a656c949a72dbc418a055ff7e9ebdba64a43e0959bec"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(6,8,6,70)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-cells-stream-in.k)")]
+//@ 3158
+// rule `<generatedTop>`(`<t>`(`<k>`(inj{Exp,KItem}(a(.KList))~>_DotVar2),`<in>`(`_List_`(`ListItem`(inj{Int,KItem}(_Gen0)),_DotVar3)),_DotVar1),_DotVar0)=>`<generatedTop>`(`<t>`(`<k>`(_DotVar2),`<in>`(_DotVar3),_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(30e48ffa886f51fbd140c811f1955f89c3da238d37413e45b3b32b61f59bb690), org.kframework.attributes.Location(Location(6,8,6,70)), org.kframework.attributes.Source(Source(FIXTURE/e2-cells-stream-in.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'t'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}}(Lbla{}()),Var'Unds'DotVar2:SortK{})),Lbl'-LT-'in'-GT-'{}(Lbl'Unds'List'Unds'{}(LblListItem{}(inj{SortInt{}, SortKItem{}}(Var'Unds'Gen0:SortInt{})),Var'Unds'DotVar3:SortList{})),Var'Unds'DotVar1:SortOutCell{}),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'t'-GT-'{}(Lbl'-LT-'k'-GT-'{}(Var'Unds'DotVar2:SortK{}),Lbl'-LT-'in'-GT-'{}(Var'Unds'DotVar3:SortList{}),Var'Unds'DotVar1:SortOutCell{}),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("30e48ffa886f51fbd140c811f1955f89c3da238d37413e45b3b32b61f59bb690"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(6,8,6,70)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-cells-stream-in.k)")]
+//@ 3229
+// rule initInCell(Init)=>`<in>`(`_List_`(`_List_`(`ListItem`(inj{Stream,KItem}(`#buffer(_)_K-IO_Stream_K`(inj{String,KItem}(`project:String`(`Map:lookup`(Init,inj{KConfigVar,KItem}(#token("$STDIN","KConfigVar")))))))),`ListItem`(inj{String,KItem}(`project:String`(`Map:lookup`(Init,inj{KConfigVar,KItem}(#token("$IO","KConfigVar"))))))),`ListItem`(inj{Stream,KItem}(`#istream(_)_K-IO_Stream_Int`(`#stdin_K-IO_Int`(.KList)))))) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(3830e65c71a8445e62da52be32bfcb07c34db7f1d1fd2a083f2b68ccbe86bf28), initializer]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortMap{}, R} (
+            X0:SortMap{},
+            VarInit:SortMap{}
+          ),
+          \top{R} ()
+        )),
+    \equals{SortInCell{},R} (
+      LblinitInCell{}(X0:SortMap{}),
+     \and{SortInCell{}} (
+       Lbl'-LT-'in'-GT-'{}(Lbl'Unds'List'Unds'{}(Lbl'Unds'List'Unds'{}(LblListItem{}(inj{SortStream{}, SortKItem{}}(Lbl'Hash'buffer'LParUndsRParUnds'K-IO'Unds'Stream'Unds'K{}(kseq{}(inj{SortString{}, SortKItem{}}(Lblproject'Coln'String{}(kseq{}(LblMap'Coln'lookup{}(VarInit:SortMap{},inj{SortKConfigVar{}, SortKItem{}}(\dv{SortKConfigVar{}}("$STDIN"))),dotk{}()))),dotk{}())))),LblListItem{}(inj{SortString{}, SortKItem{}}(Lblproject'Coln'String{}(kseq{}(LblMap'Coln'lookup{}(VarInit:SortMap{},inj{SortKConfigVar{}, SortKItem{}}(\dv{SortKConfigVar{}}("$IO"))),dotk{}()))))),LblListItem{}(inj{SortStream{}, SortKItem{}}(Lbl'Hash'istream'LParUndsRParUnds'K-IO'Unds'Stream'Unds'Int{}(Lbl'Hash'stdin'Unds'K-IO'Unds'Int{}()))))),
+        \top{SortInCell{}}())))
+  [UNIQUE'Unds'ID{}("3830e65c71a8445e62da52be32bfcb07c34db7f1d1fd2a083f2b68ccbe86bf28")]
+//@ 3231
+// rule initOutCell(Init)=>`<out>`(`_List_`(`_List_`(`ListItem`(inj{Stream,KItem}(`#ostream(_)_K-IO_Stream_Int`(`#stdout_K-IO_Int`(.KList)))),`ListItem`(inj{String,KItem}(`project:String`(`Map:lookup`(Init,inj{KConfigVar,KItem}(#token("$IO","KConfigVar"))))))),`ListItem`(inj{Stream,KItem}(`#buffer(_)_K-IO_Stream_K`(inj{String,KItem}(#token("\"\"","String"))))))) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(b69bc85c6b7429bd88e37a4e6d1a09159c8e9c97ba0d8b54dd1c8403cdf7fb66), initializer]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortMap{}, R} (
+            X0:SortMap{},
+            VarInit:SortMap{}
+          ),
+          \top{R} ()
+        )),
+    \equals{SortOutCell{},R} (
+      LblinitOutCell{}(X0:SortMap{}),
+     \and{SortOutCell{}} (
+       Lbl'-LT-'out'-GT-'{}(Lbl'Unds'List'Unds'{}(Lbl'Unds'List'Unds'{}(LblListItem{}(inj{SortStream{}, SortKItem{}}(Lbl'Hash'ostream'LParUndsRParUnds'K-IO'Unds'Stream'Unds'Int{}(Lbl'Hash'stdout'Unds'K-IO'Unds'Int{}()))),LblListItem{}(inj{SortString{}, SortKItem{}}(Lblproject'Coln'String{}(kseq{}(LblMap'Coln'lookup{}(VarInit:SortMap{},inj{SortKConfigVar{}, SortKItem{}}(\dv{SortKConfigVar{}}("$IO"))),dotk{}()))))),LblListItem{}(inj{SortStream{}, SortKItem{}}(Lbl'Hash'buffer'LParUndsRParUnds'K-IO'Unds'Stream'Unds'K{}(kseq{}(inj{SortString{}, SortKItem{}}(\dv{SortString{}}("")),dotk{}())))))),
+        \top{SortOutCell{}}())))
+  [UNIQUE'Unds'ID{}("b69bc85c6b7429bd88e37a4e6d1a09159c8e9c97ba0d8b54dd1c8403cdf7fb66")]
+//@ 3232
+// rule initTCell(Init)=>`<t>`(initKCell(Init),initInCell(Init),initOutCell(Init)) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(da771b0abcd7027d0585680c2ca01a92a08d3fc7351ce3ac2e8d6fe1864ac92a), initializer]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortMap{}, R} (
+            X0:SortMap{},
+            VarInit:SortMap{}
+          ),
+          \top{R} ()
+        )),
+    \equals{SortTCell{},R} (
+      LblinitTCell{}(X0:SortMap{}),
+     \and{SortTCell{}} (
+       Lbl'-LT-'t'-GT-'{}(LblinitKCell{}(VarInit:SortMap{}),LblinitInCell{}(VarInit:SortMap{}),LblinitOutCell{}(VarInit:SortMap{})),
+        \top{SortTCell{}}())))
+  [UNIQUE'Unds'ID{}("da771b0abcd7027d0585680c2ca01a92a08d3fc7351ce3ac2e8d6fe1864ac92a")]
+//@ 3337
+endmodule [org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1,1,7,10)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-cells-stream-in.k)")]

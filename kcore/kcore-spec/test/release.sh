@@ -19,6 +19,10 @@
 #                stepDecided_all and the sum_spec_ml theorems, whose route through consistent,
 #                sound_at and complete_at proves FnHyp as a theorem); a failing check fails the build;
 #                kimp-ni's noninterference modules
+#   pins-kk      test/pins-kk.sh: C10's statements (succs_sound, succs_stuck, succs_complete, kk_step at
+#                KK.sig, sig's fields, succs_name, enc_injective, emb_injective, embSt_injective,
+#                emb_sorted, embD_sorted, encDef_isSome) pinned in test/PinsKk.lean on the package
+#                `kcore gen --core` writes for kore.k, with ref-kk's User modules up to User.KkThree
 #   axioms-*     `#print axioms` of the examples' statements: peano's tie, sound_hyp, complete_hyp,
 #                sound, complete; ref-kimp's sum_spec, sum_spec_entailed, sum_N, run_instance,
 #                sum_spec_holds, sum_spec_kore, stepDecided_all, sum_spec_ml, sum_spec_ml_closure,
@@ -108,6 +112,7 @@ NS
 step integration test/integration.sh
 LP=$(lake env printenv LEAN_PATH)
 step examples examples/run.sh --build-only
+step pins-kk test/pins-kk.sh
 # the axioms steps read the packages' oleans: only after every package was built by this run
 if grep -q '|ok|' "$R/examples.res"; then
   step axioms-peano axioms axioms-peano peano 'Peano.Tie Peano.Sound' \
@@ -128,7 +133,7 @@ step tripwire tripwire
 
 printf '%-16s %-7s %7s  %s\n' step verdict seconds note
 fail=0
-for n in integration examples axioms-peano axioms-sumspec axioms-refkimp axioms-refkk axioms-ni tripwire; do
+for n in integration examples pins-kk axioms-peano axioms-sumspec axioms-refkimp axioms-refkk axioms-ni tripwire; do
   IFS='|' read -r a b c d < "$R/$n.res"
   printf '%-16s %-7s %7s  %s\n' "$a" "$b" "$c" "$d"
   [ "$b" = ok ] || fail=1

@@ -288,7 +288,8 @@ def outsideWhy (d : Semantics) : List String :=
     (readApp d f (some []) (some [])).isNone)
   let rows : List (String × Bool × List String) := [("ovls", ovlsOK d, ([] : List String)), ("params", paramsOK d, params), ("apps", appsOK d, heads.map nm),
    ("heads", headsOK d, []), ("lits", litsOK d, []), ("subsorts", subsortsOK d, []),
-   ("colPats", colPatsOK d, []), ("as", asOK d, []), ("ens", ensOK d, []), ("shapes", shapesOK d, [])]
+   ("colPats", colPatsOK d, []), ("as", asOK d, []), ("ens", ensOK d, []), ("shapes", shapesOK d, []),
+   ("collForm", collFormOK d, [])]
   rows.filter (!·.2.1) |>.map fun (b, _, ns) => if ns.isEmpty then b else s!"{b} ({", ".intercalate ns})"
 
 end KCore.KK.Native

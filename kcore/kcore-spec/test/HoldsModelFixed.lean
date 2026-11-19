@@ -125,6 +125,7 @@ end
 #print axioms KCore.Cond.boundV_hasValue_of_bound
 #print axioms KCore.Cond.bound_of_boundV_valued
 #print axioms KCore.Semantics.clausePlainEx_of_valued
+#print axioms KCore.Semantics.hasValue_of_valued
 #print axioms KCore.hasValue_value_of
 #print axioms KCore.Faithful.Model.boundReads_bound_stdI
 

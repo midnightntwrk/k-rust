@@ -156,7 +156,7 @@ def rangeMapV (es : List (Int × Int × Int)) : GroundTerm := rmV (es.map fun (a
 /-- Float values (precision, exponent width, encoding): binary32's 1.0, the largest finite value,
 +∞ and NaN; `p1x2`'s (a format with a field of 1, `KFloat.thinOK`) 1.0, ∞ and NaN; and the `p2x1`
 encoding 1 (sign 0, the one exponent bit 0, the fraction bit 1), of a format with one exponent bit,
-at which no Float has a datum (`asDatum`), so that the comparisons are silent there. -/
+also a field of 1, at which every Float has a datum (`asDatum`, `KFloat.tnUnpack`). -/
 def floats : List (Nat × Nat × Nat) :=
   [(24, 8, 0x3F800000), (24, 8, 0x7F7FFFFF), (24, 8, 0x7F800000), (24, 8, 0x7FC00000),
    (1, 2, 1), (1, 2, 3), (1, 2, 8), (2, 1, 1)]
@@ -546,7 +546,9 @@ or parameter with a hook (`constructor functional`, `function functional`, `para
 lemma` where it applies a parameter without hook and of `user lemma` otherwise; an equation of a
 function of Γ of `function equation`, or of `priority equation` where it carries a `priority` and is
 not `owise`. A `user lemma` the probe then refutes at a point where a set variable holds two values
-is of `set-variable lemma` (`reclass`). -/
+is of `set-variable lemma`, and one over element variables that the probe finds holding at every
+point under some reading and failing only at points reading the interpretation is of `parameter
+lemma` (`reclass`). -/
 def tieClassOf (c : Semantics) (syms : List (String × CtorSig)) (absent : List String) (a : Kore.Axiom) : String :=
   if !absent.isEmpty then "no direction" else
   let noImpl (n : String) : Bool := match syms.lookup n with
@@ -567,12 +569,33 @@ def tieClassOf (c : Semantics) (syms : List (String × CtorSig)) (absent : List 
     else if hasAttr a.attributes "priority" && !hasAttr a.attributes "owise" then "priority equation"
     else "function equation"
 
-/-- The class of a sentence once probed: a lemma the reader leaves out of Γ (`user lemma`) that fails
-at a point reading nothing of the interpretation where a set variable holds two values is of
-`set-variable lemma`, whose direction is `refuted`: Γ with it has no model, at a valuation sending
-each free set variable to a set of values. -/
-def reclass (cls : String) (ncexTwo : Nat) : String :=
-  if cls == "user lemma" && ncexTwo > 0 then "set-variable lemma" else cls
+/-- The class of a sentence once probed, from a lemma the reader leaves out of Γ (`user lemma`):
+- one that fails at a point reading nothing of the interpretation where a set variable holds two
+  values (`ncexTwo`) is of `set-variable lemma`, whose direction is `refuted`: Γ with it has no
+  model, at a valuation sending each free set variable to a set of values;
+- one without a free set variable (`setVar`) that fails at no point reading nothing of the
+  interpretation (`ncex`), fails under some reading at a point reading it (`nhfail`) and holds at
+  every point under some reading (`met`) is of `parameter lemma`, whose direction is `hypothesis`:
+  its truth at values reads a value the interpretation gives, some readings meet it and others do
+  not, so it is no consequence of Γ for every interpretation and a hypothesis on it;
+- one failing at a point reading nothing of the interpretation otherwise stays `user lemma`, and
+  the verdict says that Γ with it has no model (`owes`).
+Every other class is the probe's as `tieClassOf` gives it. -/
+def reclass (cls : String) (ncexTwo ncex nhfail : Nat) (setVar met : Bool) : String :=
+  if cls == "user lemma" && ncexTwo > 0 then "set-variable lemma"
+  else if cls == "user lemma" && !setVar && ncex == 0 && nhfail > 0 && met then "parameter lemma"
+  else cls
+
+-- a user lemma the probe finds failing only under some readings, at points reading the
+-- interpretation, and holding under another, is a parameter lemma; one failing at a point reading
+-- nothing of it, or with a free set variable, is not; a set variable holding two values at a failure
+-- makes it a set-variable lemma; another class is not changed
+#guard reclass "user lemma" 0 0 3 false true == "parameter lemma"
+#guard reclass "user lemma" 0 0 3 false false == "user lemma"
+#guard reclass "user lemma" 0 2 3 false true == "user lemma"
+#guard reclass "user lemma" 0 0 3 true true == "user lemma"
+#guard reclass "user lemma" 1 1 0 true true == "set-variable lemma"
+#guard reclass "function equation" 0 0 3 false true == "function equation"
 
 /-- The direction of a class (`KCore.tieClasses`). -/
 def dirOf (cls : String) : Option TieDir := (tieClasses.find? (·.1 == cls)).map (·.2)
@@ -889,7 +912,8 @@ def run (path : String) (sel : Nat → Bool := fun _ => true) : IO (List (Res ×
     let r : Res := { index := ad.index, place, name, cls, syms, absent }
     let t0 ← IO.monoMsNow
     let r := if absent.isEmpty then probe x0 xs r ad.ax else { r with skip := some s!"applies symbols Γ does not have: {absent}" }
-    let r := { r with cls := reclass r.cls r.ncexTwo }
+    let met := modes.any fun m => !r.failModes.contains m.name
+    let r := { r with cls := reclass r.cls r.ncexTwo r.ncex r.nhfail r.setVar met }
     let pinnedAt ← match (pinned x0).lookup name with
       | none => pure []
       | some pts => pts.mapM fun pt => match failsAt xs ad.ax pt with

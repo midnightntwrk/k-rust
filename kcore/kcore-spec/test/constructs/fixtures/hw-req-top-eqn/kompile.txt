@@ -1,0 +1,3 @@
+command: none: fixture.toml kore = 'test/constructs/fixtures/hw-req-top-eqn/hw-req-top-eqn.kore', a KORE text kompile does not write; account.txt is `kcore account test/constructs/fixtures/hw-req-top-eqn/hw-req-top-eqn.kore` (cwd: kcore-spec)
+definition.kore bytes: 247503
+definition.kore sha256: 9f5fbf61d1488ce1b628a63ca006382aef3ddead1afb12f5626da6f13ba84d93

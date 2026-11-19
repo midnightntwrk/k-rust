@@ -1,0 +1,17 @@
+command: kompile --backend haskell e3-witnessed-pre.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 12.9
+definition.kore bytes: 215608
+definition.kore sha256: ab41d013a649191739dc54ce039fe2f3c01ce871c9ec8d86270814abc35bcf71
+stripped sha256: 3d874dc3c9c94c0fd473be28674f5b859f37603827424df9a1a048d74a8984e7
+main module: 426 sentences, 70 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Variable 'H' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/e3-witnessed-pre.k)
+  	Location(11,31,11,32)
+  	11 |	  rule f(_) => 1 requires isC(H:S #And d) [unboundVariables(H)]
+  	   .	                              ^
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-WITNESSED-PRE-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E3-WITNESSED-PRE as default.

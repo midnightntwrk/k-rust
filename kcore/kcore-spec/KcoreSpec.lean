@@ -167,6 +167,8 @@ import KcoreSpec.ModelOvlLibCtorWitness
 import KcoreSpec.ModelOvlIncohWitness
 import KcoreSpec.ModelOvlClosedWitness
 import KcoreSpec.ModelPredTwiceWitness
+import KcoreSpec.ModelExShadowWitness
+import KcoreSpec.ModelRawBoundWitness
 import KcoreSpec.FaithfulCompleteAt
 import KcoreSpec.StepCompleteAt
 import KcoreSpec.LibAdmitted
@@ -295,6 +297,7 @@ import KcoreSpec.LibEvInt
 import KcoreSpec.FixesValue
 import KcoreSpec.HasValue
 import KcoreSpec.HasValueValue
+import KcoreSpec.HasValueOfValued
 import KcoreSpec.TieHeadsAml
 import KcoreSpec.TieHeadsValues
 import KcoreSpec.KKStatements
@@ -348,6 +351,7 @@ import KcoreSpec.TieHeads
 import KcoreSpec.TieHeadsWalk
 import KcoreSpec.TieHeadsKore
 import KcoreSpec.TieHeadsComplete
+import KcoreSpec.TieCodes
 import KcoreSpec.TieParamLemma
 import KcoreSpec.CondPredAt
 import KcoreSpec.CondCross
@@ -403,6 +407,8 @@ import KcoreSpec.TermRoundTrip
 import KcoreSpec.TieFRTermRT
 import KcoreSpec.GenEqsNodirFun
 import KcoreSpec.GenEqsNodirLacked
+import KcoreSpec.GenEqsNodirTbl
+import KcoreSpec.GenEqsNodirFunLacked
 import KcoreSpec.ParamSchema
 import KcoreSpec.InjApart
 import KcoreSpec.TieEX

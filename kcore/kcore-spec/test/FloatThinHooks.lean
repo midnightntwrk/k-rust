@@ -1,6 +1,6 @@
 /-
   The combinators of the formats with a field of 1 (KcoreSpec/Hooks.lean, `thinHooks`), at the
-  formats `thinAt` names (precision 1, at least 2 exponent bits), each value decided by the kernel.
+  formats `thinAt` names (here `p1x3`), each value decided by the kernel.
   These are the values of `thinHooks`' entries; `floatHooks` pairs each with its entry of a format
   with a model by `flOr`, so they are `hook`'s values at these formats.
 

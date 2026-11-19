@@ -311,7 +311,7 @@ theorem encodable_heads_kev {d : Semantics} (h : encodable d = true) :
     d.ovls = [] ∧ ∀ f ∈ fnLabels d, d.isCtor f = false := by
   have ho := (encodable_facts h).1
   simp only [encodable, Bool.and_eq_true] at h
-  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨-, -⟩, -⟩, h4⟩, -⟩, -⟩, -⟩, -⟩, -⟩, -⟩ := h
+  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨-, -⟩, -⟩, h4⟩, -⟩, -⟩, -⟩, -⟩, -⟩, -⟩, -⟩ := h
   simp only [headsOK, Bool.and_eq_true, List.all_eq_true, Bool.not_eq_true'] at h4
   exact ⟨ho, h4.1⟩
 
@@ -329,7 +329,7 @@ theorem noRaw_kev {d : Semantics} {E : D} (hr : CExec.execReady d = true) (hE : 
     exact hs.2
   have h2 : paramsOK d = true := by
     simp only [encodable, Bool.and_eq_true] at hc
-    exact hc.1.1.1.1.1.1.1.1.2
+    exact hc.1.1.1.1.1.1.1.1.1.2
   cases hraw : k.raw
   · rfl
   · have hi := (Semantics.raw_of_paramsPlain hp hk hraw).1
