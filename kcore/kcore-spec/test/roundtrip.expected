@@ -128,6 +128,7 @@ differs f2-examples/e3-k-unify.kompile.kore
 differs f2-examples/e3-k.kompile.kore
 differs f2-examples/e3-kast.kompile.kore
 differs f2-examples/e3-kseq.kompile.kore
+differs f2-examples/e3-ml.kompile.kore
 differs f2-examples/e3-param-cases.kompile.kore
 differs f2-examples/e3-reqens.kompile.kore
 cannot f2-examples/e3-setvar-rewrite-fn.kompile.kore
