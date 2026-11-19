@@ -942,3 +942,64 @@ mod kink_tier {
         });
     }
 }
+
+/// PJ-34 U34f: a fresh constructor inserted over a definition that imports the prelude has a
+/// source reading known symbol by symbol (`SourceEffect::affected` is `Some`, where it was `None`,
+/// every symbol), so the admission reads it: every affected symbol is one of the compiled
+/// mutant's, the inserted production gives no compiled equation it does not explain, and the
+/// claim-free mutant is admitted.
+#[test]
+fn an_inserted_constructor_is_admitted_on_its_source_reading() {
+    use k_rust::definition::{Attributes, ProductionItem, Sentence};
+    use kink_patch::InsertPosition;
+
+    on_a_big_stack(|| {
+        let baseline = support::load_path(
+            &Path::new(support::DIR).join("insertion/insertion.k"),
+            "INSERTION",
+        );
+        let validator = NativeValidator::bind(baseline, CompileOptions::default());
+        let compiled = validator.compile_baseline().unwrap();
+        let baseline = validator.baseline();
+        let patch = Patch::new(vec![Edit::InsertSentence {
+            position: InsertPosition::ModuleEnd("INSERTION-SYNTAX".to_owned()),
+            ordinal: 0,
+            sentence: Sentence::Production {
+                label: Some(Label::new("w")),
+                parameters: Vec::new(),
+                sort: Sort::new("Val"),
+                items: vec![
+                    ProductionItem::Terminal("w".to_owned()),
+                    ProductionItem::Terminal("(".to_owned()),
+                    ProductionItem::NonTerminal {
+                        sort: Sort::new("Val"),
+                        name: None,
+                    },
+                    ProductionItem::Terminal(")".to_owned()),
+                ],
+                attributes: Attributes::default(),
+            },
+        }])
+        .unwrap();
+        let support = ClaimSupport::new(baseline);
+        let withdrawal = support.withdraw(baseline, &patch).unwrap();
+        assert!(withdrawal.trusted(), "{:?}", withdrawal.unsupported);
+        let effect = support.effect(baseline, &patch).unwrap();
+        let affected = effect.affected.as_ref().expect("known symbol by symbol");
+        assert!(affected.contains("depth") && !affected.contains("twice"));
+        let mutant = validator
+            .validate(withdrawal.patch().expect("claims are withdrawn"))
+            .unwrap();
+        let admitted = admit_mutant(
+            &CompiledEquations::of(&compiled).unwrap(),
+            &facts(&compiled),
+            &mutant,
+            &effect,
+        )
+        .unwrap();
+        let checked = admitted
+            .checked
+            .expect("the heads read by the source reading");
+        assert!(checked.contains(&k_rust::kast::identifier::encode_label("depth")));
+    });
+}

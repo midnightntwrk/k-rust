@@ -301,8 +301,11 @@ fn units(only: Option<&[&str]>) -> Vec<Unit> {
                 // The Z3 fixtures and R0b's, R0c's, re-pin adoption A-1's and fz26
                 // KINK-BASELINE-FINDINGS' own fixtures are pinned by their own tests (A-1's
                 // `marks.k` is flagged by design; KBF's `listrow.k` rewrites a term headed by a
-                // collection, a role-rooted axiom, by design: kink-native `tests/data.rs`).
+                // collection, a role-rooted axiom, by design: kink-native `tests/data.rs`). PJ-34
+                // U34f's `insertion` fixtures are a mutation's baseline, read by kink-patch
+                // `tests/insertion.rs` and `tests/premise.rs` and kink-native `tests/consistency.rs`.
                 if !path.ends_with("testdata/k/z3")
+                    && !path.ends_with("testdata/k/insertion")
                     && !path.ends_with("testdata/k/r0b")
                     && !path.ends_with("testdata/k/r0c")
                     && !path.ends_with("testdata/k/a1")

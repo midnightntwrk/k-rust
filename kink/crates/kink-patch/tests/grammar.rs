@@ -347,8 +347,10 @@ fn the_program_parser_gate_refuses_what_k_rust_builds_no_parser_for() {
 /// imports INT (whose hooked and `concrete` equations make an edit of unknown effect
 /// unsupported): every generated priority, associativity, lexical, regex and literal edit. A
 /// deleted production, which changes its sort's values, still withdraws every claim and is
-/// refused, and so is an inserted one, which adds values to its sort (a constructor no equation
-/// of a function over it covers): the two insertion forms are refused over this definition.
+/// refused. An inserted one adds values to its sort and to the sorts that hold them, which only
+/// the symbols taking a value of one see (U34f): grammar.k has no claim of its own, and the
+/// prelude's rest on the parametric premise (kink `trust.md`), so the two insertion forms are
+/// trusted and withdraw nothing.
 #[test]
 fn a_parse_only_edit_leaves_every_claim() {
     let baseline = baseline();
@@ -382,9 +384,15 @@ fn a_parse_only_edit_leaves_every_claim() {
         GrammarForm::AlternativeWithoutTerminal,
         GrammarForm::MergeAlternative,
     ] {
-        for (at, patch) in grammar_variants(&baseline, form, &[]) {
+        let variants = grammar_variants(&baseline, form, &[]);
+        assert!(!variants.is_empty(), "{}", form.name());
+        for (at, patch) in variants {
             let withdrawal = support.withdraw(&baseline, &patch).expect("applies");
-            assert!(!withdrawal.trusted(), "{} {at:?}", form.name());
+            assert!(
+                withdrawal.trusted() && withdrawal.withdrawn.is_empty(),
+                "{} {at:?}: {withdrawal:?}",
+                form.name()
+            );
         }
     }
 }
