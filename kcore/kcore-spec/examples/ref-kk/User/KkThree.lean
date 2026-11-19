@@ -2,7 +2,7 @@
   **The three statements at `KK.sig`**: kore.k's `succs`, read from its kompiled text, is sound,
   stuck exactly where no rule applies (the half without `hco`), and complete, for every object
   definition `d` that `execReady` accepts and `encDef` encodes (`succs_sound : SuccsSound sig`,
-  `succs_stuck : SuccsStuck sig`, `succs_complete : SuccsComplete sig`; the propositions of
+  `succs_stuck : SuccsStuck sig`, `succs_complete : SuccsComplete sig`, together `kk_step`; the propositions of
   KKStatements.lean, not restated).
 
   - Soundness and stuckness are `succs_char` (User.SuccsChar) with `firedBy_step_krw`: a member
@@ -106,6 +106,10 @@ theorem succs_complete : SuccsComplete sig := by
     exact this
   exact ⟨L, Option.some.inj hL, hin hnb⟩
 
+/-- **The three statements at `KK.sig`** (DONE-0's `KK.kk_step`). -/
+theorem kk_step : SuccsSound sig ∧ SuccsStuck sig ∧ SuccsComplete sig :=
+  ⟨succs_sound, succs_stuck, succs_complete⟩
+
 /-! ## With `hco`: stuck exactly where no rule applies, and the empty list -/
 
 section
@@ -143,20 +147,17 @@ end
 
 /-! ## Checks -/
 
-/-- The three theorems are the propositions of KKStatements.lean at `KK.sig`. -/
-example : SuccsSound sig ∧ SuccsStuck sig ∧ SuccsComplete sig :=
-  ⟨succs_sound, succs_stuck, succs_complete⟩
-
 #check @succs_sound
 #check @succs_stuck
 #check @succs_complete
+#check @kk_step
 #check @succs_stuck_iff
 #check @succs_applies_no_result
 
 open Lean in
 #eval show CoreM Unit from do
   for n in [``ruleReqFails_false_kkt, ``applies_notApplies_kkt, ``embSt_next_ne_stuck_kkt,
-      ``succs_sound, ``succs_stuck, ``succs_complete, ``succs_stuck_iff,
+      ``succs_sound, ``succs_stuck, ``succs_complete, ``kk_step, ``succs_stuck_iff,
       ``succs_applies_no_result] do
     let axs ← collectAxioms n
     unless axs.all ([``propext, ``Classical.choice, ``Quot.sound].contains ·) do
