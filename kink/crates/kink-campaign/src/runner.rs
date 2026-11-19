@@ -1889,7 +1889,14 @@ pub fn run_campaign_multi_with(
     options: &CampaignOptions,
     session: &mut BaselineSession<'_>,
 ) -> Result<CampaignRun, CampaignFailure> {
-    run_campaign_session(campaign, generations, options, session, None)
+    run_campaign_session(
+        campaign,
+        generations,
+        options,
+        session,
+        None,
+        &MutantStarts::new(),
+    )
 }
 
 /// A caller's order of a mutant's tests, chosen once the mutant's claim-free side, the definition
@@ -1923,7 +1930,106 @@ pub fn run_campaign_multi_ordered(
             "a caller's test order and a selection policy would be two orders of a mutant's tests",
         ));
     }
-    run_campaign_session(campaign, generations, options, session, Some(first))
+    run_campaign_session(
+        campaign,
+        generations,
+        options,
+        session,
+        Some(first),
+        &MutantStarts::new(),
+    )
+}
+
+/// The initial configuration the mutant side of a test starts from, by test id, where it is not
+/// the test's own ([`run_campaign_multi_started`]).
+pub type MutantStarts = BTreeMap<String, Pattern>;
+
+/// [`run_campaign_multi_ordered`] with the mutant side of each test `starts` names run from its
+/// start there instead of the test's initial state (PJ-34: a grammar mutant parses a program to
+/// a term of its own, which the baseline never produced).
+///
+/// A start changes the mutant side's run of its test and nothing else: its execution, its
+/// judgement (the decider's initial variables, the exclusion of its initial state on the
+/// mutant's definition, its one-sided evidence) and [`no_start`] read the start, under the test's
+/// id and oracles. The baseline side runs the test's own initial state, through `session` as in
+/// every call, and the mutant's bound of polls is the one of that baseline run
+/// ([`WorkBudget::limit`]). Before its run the start passes the input gate every baseline start
+/// passes (`validate_test_initial_state`), on the mutant's backend; a start it refuses makes the
+/// test's mutant side failed (`Infrastructure`, as an adapter's refusal of a state is), so the
+/// test contributes `error` to the fold, never a kill or an agreement. A test `starts` does not name runs exactly as in
+/// [`run_campaign_multi_ordered`], which is this call with no start.
+///
+/// Refused before anything runs (`InvalidDeclaration`): a start naming no test of the campaign,
+/// a started test with a pattern oracle (its stepped runs read the test on both sides) or with
+/// a free variable, a start with a free variable, evidence sharing (its cache does not name the
+/// start), and more than one candidate (a start is one mutant's).
+///
+/// # Errors
+///
+/// [`run_campaign_multi_ordered`]'s, and the refusals of `starts` above.
+pub fn run_campaign_multi_started(
+    campaign: &Campaign<'_>,
+    generations: &[CandidateGeneration<'_>],
+    options: &CampaignOptions,
+    session: &mut BaselineSession<'_>,
+    first: &mut FirstTests<'_>,
+    starts: &MutantStarts,
+) -> Result<CampaignRun, CampaignFailure> {
+    if options.selection != SelectionPolicy::None {
+        return Err(CampaignFailure::new(
+            CampaignFailureKind::InvalidDeclaration,
+            "a caller's test order and a selection policy would be two orders of a mutant's tests",
+        ));
+    }
+    run_campaign_session(campaign, generations, options, session, Some(first), starts)
+}
+
+/// Why `starts` cannot start the mutant sides of a call of `campaign` over `generations` under
+/// `options` ([`run_campaign_multi_started`]); nothing when `starts` is empty.
+fn starts_refusal(
+    campaign: &Campaign<'_>,
+    generations: &[CandidateGeneration<'_>],
+    options: &CampaignOptions,
+    starts: &MutantStarts,
+) -> Option<String> {
+    if starts.is_empty() {
+        return None;
+    }
+    if options.share_evidence {
+        return Some("a mutant start with evidence sharing, whose cache names no start".into());
+    }
+    let candidates = generations
+        .iter()
+        .map(|generation| generation.candidates().len())
+        .sum::<usize>();
+    if candidates > 1 {
+        return Some(format!(
+            "mutant starts for {candidates} candidates: a start is one mutant's"
+        ));
+    }
+    for (id, start) in starts {
+        let Some(test) = campaign.tests.iter().find(|test| &test.id == id) else {
+            return Some(format!(
+                "a mutant start names no test of the campaign: {id}"
+            ));
+        };
+        if test
+            .oracles
+            .iter()
+            .any(|declaration| matches!(declaration.projection(), Projection::Pattern { .. }))
+        {
+            return Some(format!(
+                "a mutant start for {id}, which has a pattern oracle (its stepped runs read the \
+                 test on both sides)"
+            ));
+        }
+        if !test.initial_state.free_variables().is_empty() || !start.free_variables().is_empty() {
+            return Some(format!(
+                "a mutant start for {id}: the test and its start must be concrete"
+            ));
+        }
+    }
+    None
 }
 
 fn run_campaign_session(
@@ -1932,6 +2038,7 @@ fn run_campaign_session(
     options: &CampaignOptions,
     session: &mut BaselineSession<'_>,
     mut first: Option<&mut FirstTests<'_>>,
+    starts: &MutantStarts,
 ) -> Result<CampaignRun, CampaignFailure> {
     session.last_call = CallRecording::default();
     session.admit(campaign)?;
@@ -1966,6 +2073,12 @@ fn run_campaign_session(
         return Err(CampaignFailure::new(
             CampaignFailureKind::ForeignGeneration,
             "the generation was derived from another baseline than the validator's",
+        ));
+    }
+    if let Some(refusal) = starts_refusal(campaign, generations, options, starts) {
+        return Err(CampaignFailure::new(
+            CampaignFailureKind::InvalidDeclaration,
+            refusal,
         ));
     }
     // Every mutant is built claim-free (re-pin R0c-fix-2): the support relation is needed for
@@ -2207,6 +2320,11 @@ fn run_campaign_session(
                     baseline,
                     coverage,
                     mutant_max_polls: polls.and_then(|polls| options.run.work.limit(polls)),
+                    mutant_test: starts.get(&test.id).map(|start| TestCase {
+                        id: test.id.clone(),
+                        initial_state: start.clone(),
+                        oracles: test.oracles.clone(),
+                    }),
                 },
             )
         })
@@ -2699,7 +2817,14 @@ pub fn observed_values(
         channels: channels.to_vec(),
         taken: None,
     });
-    let run = run_campaign_session(campaign, generations, options, session, None);
+    let run = run_campaign_session(
+        campaign,
+        generations,
+        options,
+        session,
+        None,
+        &MutantStarts::new(),
+    );
     let taken = session.capture.take().and_then(|capture| capture.taken);
     session.last_call = last_call;
     let run = run.map_err(|failure| capture(format!("the value run was refused: {failure}")))?;
@@ -3063,6 +3188,10 @@ struct PairedTest<'a> {
     /// The bound of polls of every mutant's result run of this test ([`WorkBudget::limit`] of the
     /// baseline run's polls; `None` without a budget or without a baseline count).
     mutant_max_polls: Option<u64>,
+    /// The test the mutant side runs where it starts from another initial configuration than
+    /// `test` ([`run_campaign_multi_started`]): `test`'s id and oracles with that start. `None`
+    /// for every other test, whose mutant side runs `test` itself.
+    mutant_test: Option<TestCase>,
 }
 
 struct MutantExecution {
@@ -3686,6 +3815,12 @@ fn run_tests(
             .as_ref()
             .and_then(|entries| entries.get(&key))
             .cloned();
+        // A started test's mutant side runs from its start, once the start passes on the
+        // mutant's backend the input gate every baseline start passed; every other test's runs
+        // the test itself ([`run_campaign_multi_started`]).
+        let gated = pair.mutant_test.as_ref().is_some_and(|started| {
+            validate_test_initial_state(&mut sides.runtime.backend, &started.initial_state).is_err()
+        });
         let (mut mutant, cache) = match &cached {
             Some(cached) => (
                 cached.evidence.clone(),
@@ -3698,9 +3833,22 @@ fn run_tests(
                     one_sided: cached.one_sided.clone(),
                 },
             ),
+            None if gated => (
+                TestEvidence {
+                    test_id: test.id.clone(),
+                    run: SideRun::Failed(ExecutionFailureKind::Infrastructure),
+                    notes: RunNotes::default(),
+                    ends: BTreeSet::new(),
+                    undefined_steps: false,
+                    one_sided_ends: BTreeSet::new(),
+                    stop_ends: BTreeSet::new(),
+                    payloads: BTreeMap::new(),
+                },
+                RunCache::default(),
+            ),
             None => sides.runtime.run_compared(
                 campaign,
-                test,
+                pair.mutant_test.as_ref().unwrap_or(test),
                 RunBounds {
                     max_work: None,
                     max_polls: pair.mutant_max_polls,
@@ -7119,6 +7267,7 @@ mod tests {
                         baseline: &baseline,
                         coverage: &coverage,
                         mutant_max_polls: None,
+                        mutant_test: None,
                     },
                 )]);
                 // The total definition as the mutant side.
@@ -8116,6 +8265,7 @@ mod tests {
                                         baseline,
                                         coverage,
                                         mutant_max_polls: None,
+                                        mutant_test: None,
                                     },
                                 )
                             })

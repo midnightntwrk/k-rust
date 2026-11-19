@@ -1091,6 +1091,123 @@ fn run_parses_each_case_again_under_a_grammar_mutant() {
     );
 }
 
+/// PJ-34 (U34c2): a case the mutant's grammar parses to another term runs on the mutant from
+/// that term, its baseline side from the baseline's: `+` and `-` made right-associative parse
+/// `10 - 4 - 3` as `10 - (4 - 3)`, whose run ends at 9 where the baseline's ends at 3, so the
+/// case kills, direction `parses-differently`; `*` made right-associative parses `2 * 3 * 4`
+/// apart too, but both runs end at 24, so every case agrees and the mutant survives. A warm run
+/// gives the cold rows, and the rule mutation of the list is judged as before.
+#[test]
+fn a_grammar_mutant_that_parses_a_case_differently_is_killed_by_its_run() {
+    use serde_json::json;
+    let dir = scratch("run-grammar-differently");
+    write(&dir.join("calc.k"), CALC_K);
+    write(
+        &dir.join("FLOW.toml"),
+        "[spec]\nentry = \"calc.k\"\nmain_module = \"CALC\"\nsyntax_module = \"CALC-SYNTAX\"\n\n\
+         [[program]]\nid = \"add\"\ntext = \"1 + 2\"\n\n\
+         [[program]]\nid = \"sub\"\ntext = \"10 - 4 - 3\"\n\n\
+         [[program]]\nid = \"chain\"\ntext = \"2 * 3 * 4\"\n\n\
+         [[program]]\nid = \"bad\"\ntext = \"1 + * 2\"\nexpect = { rejected = \"parse\" }\n",
+    );
+    let manifest = dir.join("FLOW.toml");
+    let mutations = dir.join("MUTATIONS.toml");
+    write(
+        &mutations,
+        &[
+            one_edit("add-becomes-sub", ARITH),
+            one_edit(
+                "right-plus",
+                "  production = \"add\"\n  find = \"> left:\\n                 Exp \\\"+\\\"\"\n  \
+                 replace = \"> right:\\n                 Exp \\\"+\\\"\"",
+            ),
+            one_edit(
+                "right-mul",
+                "  production = \"mul\"\n  find = \"> left:\\n                 Exp \\\"*\\\"\"\n  \
+                 replace = \"> right:\\n                 Exp \\\"*\\\"\"",
+            ),
+        ]
+        .concat(),
+    );
+    let (check, _) = check_list(&manifest, &mutations, None);
+    for id in ["right-plus", "right-mul"] {
+        assert_eq!(row(&check, id)["outcome"], "ok", "{id}: {check:#}");
+    }
+    let (document, _) = flow_support::corpus_run(&manifest, &mutations);
+    let plus = row(&document, "right-plus");
+    assert_eq!(
+        killed_as(plus),
+        json!(["killed", "sub", "parses-differently"]),
+        "{plus:#}"
+    );
+    assert_eq!(
+        reparsed(plus),
+        json!([
+            ["add", "same", "run"],
+            ["sub", "different", "run"],
+            ["chain", "same", "run"],
+            ["bad", "rejected", "agree"]
+        ]),
+        "{plus:#}"
+    );
+    let mul = row(&document, "right-mul");
+    assert_eq!(killed_as(mul), json!(["survived", null, null]), "{mul:#}");
+    assert_eq!(
+        reparsed(mul),
+        json!([
+            ["add", "same", "run"],
+            ["sub", "same", "run"],
+            ["chain", "different", "run"],
+            ["bad", "rejected", "agree"]
+        ]),
+        "{mul:#}"
+    );
+    let rule = row(&document, "add-becomes-sub");
+    assert_eq!(rule["status"], "killed", "{rule:#}");
+    assert!(rule.get("grammar").is_none(), "{rule:#}");
+    assert!(rule.get("direction").is_none(), "{rule:#}");
+    assert_eq!(plus["killer_source"], "search", "{plus:#}");
+    // Warm, the kill is served from the outcome cache (keyed by the pinned patch and the
+    // program, which fix the mutant's term), with the cold run's verdict.
+    let (warm, _) = flow_support::corpus_run(&manifest, &mutations);
+    assert_eq!(
+        row(&warm, "right-plus")["killer_source"],
+        "outcome-cache",
+        "{warm:#}"
+    );
+    for id in ["right-plus", "right-mul"] {
+        let verdict = |document: &Value| {
+            let mut verdict = grammar_verdict(row(document, id));
+            verdict.as_object_mut().unwrap().remove("killer_source");
+            verdict
+        };
+        assert_eq!(verdict(&warm), verdict(&document), "{id}: {warm:#}");
+    }
+    assert_eq!(
+        row(&warm, "add-becomes-sub")["status"],
+        "killed",
+        "{warm:#}"
+    );
+    // The cache names the program's text, which the mutant's term is parsed from: with `sub`
+    // bracketed, the baseline's term (and its run) is unchanged, the mutant parses it alike, and
+    // the cached kill of the old text is not served.
+    let flow = std::fs::read_to_string(&manifest).unwrap();
+    write(
+        &manifest,
+        &flow.replace("\"10 - 4 - 3\"", "\"(10 - 4) - 3\""),
+    );
+    let (bracketed, _) = flow_support::corpus_run(&manifest, &mutations);
+    let plus = row(&bracketed, "right-plus");
+    assert_eq!(killed_as(plus), json!(["survived", null, null]), "{plus:#}");
+    assert_eq!(plus["grammar"][1]["reparse"], "same", "{plus:#}");
+    // The other records are still served: the edit moved no context, only `sub`'s key.
+    assert_eq!(
+        row(&bracketed, "add-becomes-sub")["killer_source"],
+        "outcome-cache",
+        "{bracketed:#}"
+    );
+}
+
 /// PJ-34 (U34c): under a `[stop]` the baseline's run of `1 + 2` reaches, the baseline accepts
 /// the case, so a mutant that rejects it at parse is killed by it, direction `mutant-rejects`,
 /// with no run (`killer_source` `reparse`); an ambiguous text is a rejection (dropping `left`

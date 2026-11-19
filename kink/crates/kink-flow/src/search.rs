@@ -179,7 +179,9 @@
 //! A grammar mutation (PJ-34) parses every case again under the mutant's grammar before step 2
 //! ([`crate::reparse`], `Search::search_grammar`): a kill or an undecided case its reparse gives
 //! decides the row with no call, and otherwise steps 2 to 7 run as above on the baseline's test
-//! cases, which are then the mutant's. It is never memoised (its generation is not
+//! cases, the mutant side of each program the mutant parses to another term started from that
+//! term (kink-campaign `run_campaign_multi_started`; the baseline side, its record and the drift
+//! check stay the baseline's). It is never memoised (its generation is not
 //! [`ResolvedMutation::generation`]'s) and never compiled ahead, and only the first-kill search
 //! over the whole O, without `--verify`, in a flow that declares no `[[projection]]`, judges it.
 
@@ -561,6 +563,11 @@ struct Search<'a, 's> {
     /// The judgement under each listed projection ([`crate::projected`]); `None` for a flow that
     /// declares no projection, under `--verify`, and in the searches of `coverage` and `prune`.
     projected: Option<Projected<'a>>,
+    /// The start of each program's mutant side, by program id, while a grammar mutation's search
+    /// runs ([`Search::search_grammar`]): the mutant's own term of each program its grammar
+    /// parses to another configuration. Empty otherwise, so every rule mutant runs the
+    /// baseline's test cases.
+    starts: kink_campaign::MutantStarts,
 }
 
 impl Search<'_, '_> {
@@ -766,11 +773,19 @@ impl Search<'_, '_> {
             witness = Some(read);
             first
         };
+        // A grammar mutant's starts, of the programs this call runs.
+        let starts = self
+            .starts
+            .iter()
+            .filter(|(id, _)| tests.iter().any(|test| &test.id == *id))
+            .map(|(id, start)| (id.clone(), start.clone()))
+            .collect();
         let run = self.runner.call_ordered(
             &tests,
             std::slice::from_ref(generation),
             &options,
             &mut first,
+            &starts,
         );
         let mut run = run.map_err(|failure| CorpusError {
             reason: "campaign-refused".into(),
@@ -1521,8 +1536,9 @@ impl Search<'_, '_> {
     /// The search of a grammar mutation ([`crate::reparse`]): every case is assembled again under
     /// the mutant's grammar, built once for the mutation from the mutant's definition, and
     /// judged from both sides' outcomes before anything runs. A kill the cases decide, or a case
-    /// they leave undecided, gives the row with no call. Otherwise every case agrees or parses
-    /// alike, so the mutant's runs of O are its runs of the baseline's test cases, and the search
+    /// they leave undecided, gives the row with no call. Otherwise every case agrees or is run:
+    /// the mutant's runs of O are its runs of the baseline's test cases, each case parsed to
+    /// another term run from that term on the mutant's side ([`Search::starts`]), and the search
     /// of a rule mutant over them decides ([`Search::search_facts`] with the grammar generation,
     /// [`ResolvedMutation::grammar_generation`]), read for a grammar mutant
     /// ([`crate::reparse::read_call`]) whichever path, a call or tier 1, gave its status. Only the
@@ -1589,11 +1605,18 @@ impl Search<'_, '_> {
         };
         if decision == reparse::Decision::Call {
             let rules = row["rules"].clone();
-            let (mut value, error) = self
-                .search_facts(mutation, row, &facts, Some(&generation))
-                .expect("a live resolution's search always gives a row");
+            // Each case parsed to another term runs its mutant side from that term; the
+            // baseline side, its record and the drift check stay the baseline's test case's.
+            self.starts = cases
+                .iter()
+                .filter_map(|case| Some((case.program.clone(), case.start.clone()?)))
+                .collect();
+            let searched = self.search_facts(mutation, row, &facts, Some(&generation));
+            self.starts.clear();
+            let (mut value, error) =
+                searched.expect("a live resolution's search always gives a row");
             if let Some(row) = value.as_object_mut() {
-                reparse::read_call(row, &rules);
+                reparse::read_call(row, &rules, &cases);
             }
             return (value, error);
         }
@@ -4407,6 +4430,7 @@ pub(crate) fn run_session(
         runner: &runner,
         rows: &update.rows,
         tests: vec![None; candidates.len()],
+        starts: kink_campaign::MutantStarts::new(),
         floor: poll_floor(&candidates),
         candidates,
         mode,
@@ -4960,6 +4984,7 @@ pub(crate) fn search_derived(
         runner,
         rows: &update.rows,
         tests: vec![None; candidates.len()],
+        starts: kink_campaign::MutantStarts::new(),
         floor: poll_floor(&candidates),
         candidates,
         mode,

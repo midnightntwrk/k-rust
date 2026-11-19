@@ -98,7 +98,7 @@ use kink_campaign::{
     BaselineSession, CallRecording, Campaign, CampaignFailure, CampaignFailureKind,
     CampaignOptions, CampaignReport, CampaignRun, ChannelEnd, CrashPolicy, FinalResult, FirstTests,
     OracleDeclaration, OracleSide, OracleValue, Projection, RunStop, ScheduleMode, SideRun,
-    StateProjection, TestCase, TestEvidence, run_campaign_multi_ordered, run_campaign_multi_with,
+    StateProjection, TestCase, TestEvidence, run_campaign_multi_started, run_campaign_multi_with,
 };
 use kink_corpus::{Store, StoreError, runner::all_normal};
 use kink_native::{
@@ -958,13 +958,17 @@ impl<'a> BaselineRunner<'a> {
 
     /// [`Self::call`] with each mutant's programs ordered once it compiles: `first` gets the
     /// compiled edit of the side the programs run on and names the programs that run first
-    /// (kink-campaign `run_campaign_multi_ordered`; the kill search's witness order).
+    /// (kink-campaign `run_campaign_multi_ordered`; the kill search's witness order). The mutant
+    /// side of each test `starts` names runs from its start there (kink-campaign
+    /// `run_campaign_multi_started`: a grammar mutant's own term of a program, PJ-34); with no
+    /// start every mutant side runs its test.
     pub fn call_ordered(
         &self,
         tests: &[TestCase],
         generations: &[CandidateGeneration<'_>],
         options: &CampaignOptions,
         first: &mut FirstTests<'_>,
+        starts: &kink_campaign::MutantStarts,
     ) -> Result<CampaignRun, CampaignFailure> {
         let mut options = options.clone();
         options.run.baseline_max_work = self.baseline_max_work;
@@ -982,12 +986,13 @@ impl<'a> BaselineRunner<'a> {
             tests,
             budget: self.budget,
         };
-        run_campaign_multi_ordered(
+        run_campaign_multi_started(
             &campaign,
             generations,
             &options,
             &mut self.session.borrow_mut(),
             first,
+            starts,
         )
     }
 

@@ -17,7 +17,7 @@ mod support;
 #[path = "../../../testdata/k/step_support.rs"]
 mod step_support;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
 
 use k_rust::definition::AttributeKey;
@@ -27,9 +27,10 @@ use k_rust::kompile::initial_configuration::{kore_application, kore_sort};
 use k_rust::kore::ast::Pattern;
 use kink_campaign::{
     BaselineSession, CallRecording, Campaign, CampaignFailure, CampaignFailureKind,
-    CampaignOptions, CampaignRun, CrashPolicy, MutantId, OracleDeclaration, Projection, RunStop,
-    ScheduleMode, SelectionPolicy as Selection, StateProjection, TestCase, TestRun,
-    run_campaign_multi, run_campaign_multi_with,
+    CampaignOptions, CampaignRun, CrashPolicy, MutantId, MutantStarts, OracleDeclaration,
+    Projection, RunStop, ScheduleMode, SelectionPolicy as Selection, StateProjection, TestCase,
+    TestRun, run_campaign_multi, run_campaign_multi_ordered, run_campaign_multi_started,
+    run_campaign_multi_with,
 };
 use kink_native::NativeValidator;
 use kink_native::execution::{ExecutionBudget, HaltClass};
@@ -867,6 +868,172 @@ mod kink_tier {
             assert!(
                 hit.is_err(),
                 "a hit classifies and panics as the fresh call"
+            );
+        });
+    }
+
+    /// The ordered call through a fresh session with `starts`, and the session's counts after it.
+    fn started(
+        validator: &NativeValidator,
+        tests: &[TestCase],
+        options: &CampaignOptions,
+        starts: &MutantStarts,
+    ) -> (Result<CampaignRun, CampaignFailure>, (usize, usize, usize)) {
+        let classify: &Classify = &normal;
+        let generation = generation(validator.baseline());
+        let inputs = Inputs::new(tests, classify);
+        let campaign = inputs.campaign(validator);
+        let mut session = BaselineSession::new(validator);
+        let run = run_campaign_multi_started(
+            &campaign,
+            std::slice::from_ref(&generation),
+            options,
+            &mut session,
+            &mut |_| BTreeSet::new(),
+            starts,
+        );
+        (run, counts(&session))
+    }
+
+    /// PJ-34 (U34c2): a call with no mutant start is the ordered call, run for run, and so is one
+    /// whose start is the test's own initial state: a mutant side with no start of its own runs
+    /// its test exactly as before, so no rule mutant's inputs move.
+    #[test]
+    #[ignore = "kink"]
+    fn a_call_with_no_start_is_the_ordered_call() {
+        with_stack(|| {
+            let classify: &Classify = &normal;
+            let validator = validator();
+            let tests = tests();
+            let generation = generation(validator.baseline());
+            for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                let options = options(schedule, false);
+                let inputs = Inputs::new(&tests, classify);
+                let campaign = inputs.campaign(&validator);
+                let mut session = BaselineSession::new(&validator);
+                let ordered = run_campaign_multi_ordered(
+                    &campaign,
+                    std::slice::from_ref(&generation),
+                    &options,
+                    &mut session,
+                    &mut |_| BTreeSet::new(),
+                )
+                .expect("ordered call");
+                let ordered_counts = counts(&session);
+                let (none, none_counts) =
+                    started(&validator, &tests, &options, &MutantStarts::new());
+                assert_eq!(none.expect("no start"), ordered, "{schedule:?}");
+                assert_eq!(none_counts, ordered_counts);
+                let own = MutantStarts::from([("t1".to_owned(), counter_state(3))]);
+                let (own, own_counts) = started(&validator, &tests, &options, &own);
+                assert_eq!(own.expect("own start"), ordered, "{schedule:?}");
+                assert_eq!(own_counts, ordered_counts);
+            }
+        });
+    }
+
+    /// PJ-34 (U34c2): a started test's mutant side runs from its start, and its baseline side is
+    /// the baseline's run of the test, served by the session: the baseline evidence is the
+    /// unstarted call's, and the mutant's evidence is the one a call whose test starts there
+    /// gives its mutant.
+    #[test]
+    #[ignore = "kink"]
+    fn a_started_test_runs_its_mutant_side_from_its_start() {
+        with_stack(|| {
+            let classify: &Classify = &normal;
+            let validator = validator();
+            let tests = tests();
+            let generation = generation(validator.baseline());
+            let options = options(ScheduleMode::Full, false);
+            let inputs = Inputs::new(&tests, classify);
+            let campaign = inputs.campaign(&validator);
+            let mut session = BaselineSession::new(&validator);
+            let plain = run_campaign_multi_with(
+                &campaign,
+                std::slice::from_ref(&generation),
+                &options,
+                &mut session,
+            )
+            .expect("plain call");
+            assert_eq!(counts(&session), (2, 0, 2));
+            let starts = MutantStarts::from([("t1".to_owned(), counter_state(5))]);
+            let run = run_campaign_multi_started(
+                &campaign,
+                std::slice::from_ref(&generation),
+                &options,
+                &mut session,
+                &mut |_| BTreeSet::new(),
+                &starts,
+            )
+            .expect("started call");
+            assert_eq!(counts(&session), (2, 2, 2), "both baselines are reused");
+            assert_eq!(run.baseline, plain.baseline);
+            // The reference: t1 starting at five increments on both sides.
+            let moved = vec![test("t1", counter_state(5)), tests[1].clone()];
+            let inputs = Inputs::new(&moved, classify);
+            let reference = run_campaign_multi(
+                &inputs.campaign(&validator),
+                std::slice::from_ref(&generation),
+                &options,
+            )
+            .expect("reference call");
+            let mutant = |run: &CampaignRun, id: &str| {
+                run.mutants[0]
+                    .evidence
+                    .iter()
+                    .find(|evidence| evidence.test_id == id)
+                    .cloned()
+                    .expect("mutant evidence")
+            };
+            assert_eq!(mutant(&run, "t1"), mutant(&reference, "t1"));
+            assert_ne!(mutant(&run, "t1").ends, mutant(&plain, "t1").ends);
+            assert_eq!(mutant(&run, "t2"), mutant(&plain, "t2"));
+            // t1's sides now end apart: the whole-term slot distinguishes.
+            assert!(
+                run.mutants[0]
+                    .plan
+                    .tests
+                    .iter()
+                    .any(|plan| plan.test_id == "t1"
+                        && plan.run
+                            == TestRun::Compared(vec![
+                                kink_campaign::OracleOutcome::Agree,
+                                kink_campaign::OracleOutcome::Distinguish
+                            ])),
+                "{:?}",
+                run.mutants[0].plan.tests
+            );
+        });
+    }
+
+    /// PJ-34 (U34c2): a start the call cannot honour is refused before anything runs.
+    #[test]
+    #[ignore = "kink"]
+    fn a_start_the_call_cannot_honour_is_refused() {
+        with_stack(|| {
+            let validator = validator();
+            let tests = tests();
+            let elsewhere = MutantStarts::from([("t9".to_owned(), counter_state(1))]);
+            let (refused, refused_counts) = started(
+                &validator,
+                &tests,
+                &options(ScheduleMode::Full, false),
+                &elsewhere,
+            );
+            let refused = refused.expect_err("a start of no test");
+            assert_eq!(refused.kind(), CampaignFailureKind::InvalidDeclaration);
+            assert!(refused.to_string().contains("t9"), "{refused:?}");
+            assert_eq!(refused_counts, (0, 0, 0));
+            let starts = MutantStarts::from([("t1".to_owned(), counter_state(1))]);
+            let (shared, _) = started(
+                &validator,
+                &tests,
+                &options(ScheduleMode::Full, true),
+                &starts,
+            );
+            assert_eq!(
+                shared.expect_err("evidence sharing").kind(),
+                CampaignFailureKind::InvalidDeclaration
             );
         });
     }

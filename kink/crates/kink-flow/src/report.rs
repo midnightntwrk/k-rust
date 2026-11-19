@@ -312,7 +312,10 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// a kill the reparse decides has `killer_source` `reparse`, and the reasons
 /// `grammar-acceptance-not-decided`, `grammar-run-not-supported`, `grammar-mutant-refuses`,
 /// `same-parse-run-differs` and `same-parse-equivalent-compilation` are new; a flow whose lists
-/// edit no grammar gives version 45's document but for its version.
+/// edit no grammar gives version 45's document but for its version. Still 46 (branch-only) since a
+/// program of O the mutant parses to another configuration runs from it on the mutant's side
+/// (PJ-34, U34c2): a grammar row may be killed `parses-differently` by the search, with the
+/// search's `killer_source`, where it was `unknown` (`grammar-run-not-supported`).
 pub const RUN_VERSION: u64 = 46;
 
 /// The name of the observation slot of an executed entry's `slots`, after the end slots
@@ -691,9 +694,10 @@ pub fn action(status: &str, reason: Option<&str>) -> Option<&'static str> {
              own at a later layer (acceptance ignores the stage)"
         }
         "unknown" if reason == Some(crate::reparse::RUN_NOT_SUPPORTED) => {
-            "keep the mutation: a case parses under the mutant's grammar to another term than \
-             the specification's (grammar), and kink does not yet run a mutant from a term the \
-             specification never produced, which its verdict needs"
+            "keep the mutation: its verdict needs a run of the mutant kink does not make yet \
+             (grammar): its run alone of a case the specification rejects at parse and its \
+             grammar parses, or, for a mutant compiled to the specification's definition, its \
+             run of a case its grammar parses to another term"
         }
         "unknown" if reason == Some(crate::reparse::MUTANT_REFUSES) => {
             "change the mutation: the mutant's grammar refuses a case otherwise than at parse \

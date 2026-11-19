@@ -75,10 +75,11 @@ pub use oracle::{
 pub use runner::{
     AHEAD_PER_WORKER, BaselineRecording, BaselineSession, CallRecording, Campaign, CampaignOptions,
     CampaignRun, ClaimFreeMutant, CrossCause, CrossEnd, CrossRefusal, FirstTests, LeafCensus,
-    MutantAdmission, MutantRefusal, MutantRun, MutantStage, ONE_SIDED_VERSION, ObservedDifference,
-    OneSided, OracleDeclaration, Projection, RunNotes, RunOptions, RunRecording, RunStop,
-    STOP_VERSION, SideRun, StateProjection, Stop, Tally, TestCase, TestEvidence, ValuesRefusal,
-    WorkBudget, claim_free_mutant, mutant_compiles, observed_difference, observed_values,
-    pattern_side, run_campaign, run_campaign_multi, run_campaign_multi_ordered,
-    run_campaign_multi_with, run_campaign_with, slot_outcome, state_side, tally,
+    MutantAdmission, MutantRefusal, MutantRun, MutantStage, MutantStarts, ONE_SIDED_VERSION,
+    ObservedDifference, OneSided, OracleDeclaration, Projection, RunNotes, RunOptions,
+    RunRecording, RunStop, STOP_VERSION, SideRun, StateProjection, Stop, Tally, TestCase,
+    TestEvidence, ValuesRefusal, WorkBudget, claim_free_mutant, mutant_compiles,
+    observed_difference, observed_values, pattern_side, run_campaign, run_campaign_multi,
+    run_campaign_multi_ordered, run_campaign_multi_started, run_campaign_multi_with,
+    run_campaign_with, slot_outcome, state_side, tally,
 };

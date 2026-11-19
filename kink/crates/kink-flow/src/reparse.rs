@@ -17,21 +17,24 @@
 //!   reject, at different stages, which D2 does not observe), and is `unknown` where the
 //!   baseline's acceptance is not decided: in a flow without declared ends an end is accepted
 //!   only where a path reached it at the `[stop]`.
-//! - One the mutant parses to another configuration (`different`) is a `parses-differently`
-//!   witness only where the runs differ under the projection, which needs the mutant's run from
-//!   its own term: `unknown` until kink runs a mutant from a term the baseline never produced.
+//! - One the mutant parses to another configuration (`different`) is run: in the campaign call
+//!   its test's mutant side starts from the mutant's configuration (kink-campaign
+//!   `run_campaign_multi_started`) while its baseline side runs the baseline's, and a kill by it
+//!   is a `parses-differently` witness: both sides parse the case, to different terms, and the
+//!   runs differ under the projection, the run's own slots in a flow with no `[[projection]]`.
+//!   A configuration that is not concrete is not run (`grammar-mutant-refuses`).
 //! - A program stating `expect = { rejected = "parse" }` whose statement is met is not run, but
 //!   it is parsed: the mutant rejecting it too agrees, and the mutant parsing it is a
 //!   `mutant-accepts` witness only where the mutant's whole pipeline accepts it (D2: a later
-//!   layer may reject it), which needs the mutant's admission checks and run on its own term:
-//!   `unknown` until then.
+//!   layer may reject it), which needs a run of the mutant alone on its own term, with no
+//!   baseline run beside it, which the campaign's pairs do not make: `unknown` until then.
 //! - Any other refusal of the mutant's assembly (no parser for a variable's module, a missing
 //!   variable) is a fault of the mutant's grammar, not of the text: `unknown`.
 //!
 //! The direction is read from the witness, never from the edit's form. A row is killed by the
 //! recorded killer while it kills, else by the first killing case in O's order; `unknown` while
-//! some case is undecided; and otherwise left to the campaign call over O, which `read_call`
-//! reads for a grammar mutant.
+//! some case is undecided; and otherwise left to the campaign call over O, each `different`
+//! case's mutant side started from its own term, which `read_call` reads for a grammar mutant.
 
 use crate::admit::Reassembly;
 use crate::compare::Acceptance;
@@ -45,8 +48,10 @@ pub const SOURCE_REPARSE: &str = "reparse";
 /// Reason: the mutant rejects a program of O at parse, and whether the baseline accepts it is
 /// not decided (its acceptance's own reason in the detail).
 pub const ACCEPTANCE_NOT_DECIDED: &str = "grammar-acceptance-not-decided";
-/// Reason: a case's verdict needs the mutant's run from a term the baseline never produced
-/// (`parses-differently`, `mutant-accepts`), which kink does not run yet.
+/// Reason: a case's verdict needs a run of the mutant kink does not make: its run alone of a
+/// case the baseline rejects at parse (`mutant-accepts`), or, for a mutant that compiles to the
+/// baseline's definition (which the runner runs no test of), its run of a case parsed to
+/// another term.
 pub const RUN_NOT_SUPPORTED: &str = "grammar-run-not-supported";
 /// Reason: the mutant's assembly of a case is refused otherwise than at parse.
 pub const MUTANT_REFUSES: &str = "grammar-mutant-refuses";
@@ -86,7 +91,9 @@ pub(crate) enum Verdict {
     Killed(Direction),
     Agree,
     Unknown(&'static str),
-    /// Parsed alike: the mutant's run of the baseline's test case decides (the campaign call).
+    /// The campaign call decides: by the mutant's run of the baseline's test case where the
+    /// case is parsed alike, from the case's own [`Case::start`] where it is parsed to another
+    /// term.
     Run,
 }
 
@@ -100,6 +107,9 @@ pub(crate) struct Case {
     pub reparse: &'static str,
     pub verdict: Verdict,
     pub detail: String,
+    /// The initial configuration the mutant's grammar assembles where it is not the baseline's
+    /// (`different`) and is concrete: the start of the case's mutant side in the campaign call.
+    pub start: Option<Pattern>,
 }
 
 impl Case {
@@ -137,6 +147,7 @@ pub(crate) fn listed(
         reparse,
         verdict,
         detail,
+        start: None,
     };
     match reassembly {
         Reassembly::Assembled(mutant) if mutant == *initial => case(
@@ -145,12 +156,21 @@ pub(crate) fn listed(
             "the mutant's grammar parses the case to the baseline's initial configuration"
                 .to_owned(),
         ),
+        Reassembly::Assembled(mutant) if mutant.free_variables().is_empty() => Case {
+            start: Some(mutant),
+            ..case(
+                "different",
+                Verdict::Run,
+                "the mutant's grammar parses the case to another initial configuration, which \
+                 the mutant runs from: a kill by it is `parses-differently`"
+                    .to_owned(),
+            )
+        },
         Reassembly::Assembled(_) => case(
             "different",
-            Verdict::Unknown(RUN_NOT_SUPPORTED),
-            "the mutant's grammar parses the case to another initial configuration: a kill \
-             (`parses-differently`) needs the mutant's run from that configuration, which kink \
-             does not run yet"
+            Verdict::Unknown(MUTANT_REFUSES),
+            "the mutant's grammar parses the case to an initial configuration that is not \
+             concrete, which kink does not run"
                 .to_owned(),
         ),
         Reassembly::ParseRejected(detail) => match baseline_acceptance(row) {
@@ -196,6 +216,7 @@ pub(crate) fn stated(program: &str, reassembly: Reassembly) -> Case {
         reparse,
         verdict,
         detail,
+        start: None,
     };
     match reassembly {
         Reassembly::ParseRejected(detail) => case(
@@ -208,7 +229,7 @@ pub(crate) fn stated(program: &str, reassembly: Reassembly) -> Case {
             Verdict::Unknown(RUN_NOT_SUPPORTED),
             "the baseline rejects the case at parse and the mutant's grammar parses it: a kill \
              (`mutant-accepts`) needs the mutant's whole pipeline to accept it (its admission \
-             checks and its run), which kink does not run yet"
+             checks and its run alone, with no baseline run), which kink does not run yet"
                 .to_owned(),
         ),
         Reassembly::Refused(detail) => case(
@@ -249,19 +270,46 @@ pub(crate) fn decide<'c>(cases: &'c [Case], recorded: Option<&str>) -> Decision<
         .map_or(Decision::Call, Decision::Unknown)
 }
 
-/// The campaign call's row of a grammar mutation whose every case agrees or parses alike, read
-/// for a grammar mutant (module documentation): `equivalent` (by its compilation) is a survivor
-/// (every case parses alike and executes as the baseline does), and a kill is `unknown`, since
-/// the killing case parses alike and the kill has no grammar direction. `rules` is the row's
-/// rule texts, which a killed row drops. Every other row is the call's.
-pub(crate) fn read_call(row: &mut Map<String, Value>, rules: &Value) {
+/// The campaign call's row of a grammar mutation whose every case (`cases`) agrees or is run,
+/// read for a grammar mutant (module documentation). A kill by a case parsed to another term is
+/// `parses-differently`, with the call's killer. A kill by a case parsed alike is `unknown`,
+/// since its parse outcome does not differ and the kill has no grammar direction. `equivalent`
+/// (by its compilation: the runner runs no test of the mutant) is a survivor where every case
+/// parses alike, since each then executes as the baseline does, and `unknown` where a case is
+/// parsed to another term, whose run from that term was not made. `rules` is the row's rule
+/// texts, which an unknown row keeps. Every other row is the call's.
+pub(crate) fn read_call(row: &mut Map<String, Value>, rules: &Value, cases: &[Case]) {
     let status = row["status"].as_str().unwrap_or_default().to_owned();
+    let different = |program: &str| {
+        cases
+            .iter()
+            .any(|case| case.program == program && case.start.is_some())
+    };
     match status.as_str() {
+        "equivalent" if cases.iter().any(|case| case.start.is_some()) => {
+            row.insert("status".into(), json!("unknown"));
+            row.insert("reason".into(), json!(RUN_NOT_SUPPORTED));
+            row.insert(
+                "detail".into(),
+                json!(
+                    "the mutant compiles to the baseline's definition, so no test of it runs, and \
+                     a case its grammar parses to another term is judged only by a run from that \
+                     term"
+                ),
+            );
+        }
         // Only `equivalent-compilation` gives a grammar mutant this status (no grammar edit
         // weakens an equation), and no reason makes a mutant whose parser differs equivalent.
         "equivalent" => {
             row.insert("status".into(), json!("survived"));
             row.insert("reason".into(), json!(SAME_PARSE_EQUIVALENT));
+        }
+        "killed" if row["killer"].as_str().is_some_and(different) => {
+            row.insert(
+                "direction".into(),
+                json!(Direction::ParsesDifferently.as_str()),
+            );
+            return;
         }
         "killed" => {
             let killer = row["killer"].clone();
@@ -312,8 +360,25 @@ mod tests {
         let one = int("1");
         let same = listed("p", &one, &row("own"), Reassembly::Assembled(int("1")));
         assert_eq!((same.reparse, &same.verdict), ("same", &Verdict::Run));
+        assert_eq!(same.start, None);
         let different = listed("p", &one, &row("own"), Reassembly::Assembled(int("2")));
-        assert_eq!(different.verdict, Verdict::Unknown(RUN_NOT_SUPPORTED));
+        assert_eq!(
+            (different.reparse, &different.verdict, &different.start),
+            ("different", &Verdict::Run, &Some(int("2")))
+        );
+        let open = Pattern::Variable(k_rust::kore::ast::Variable {
+            kind: k_rust::kore::ast::VariableKind::Element,
+            name: "VarX".into(),
+            sort: k_rust::kore::ast::Sort::Application {
+                name: "SortInt".into(),
+                arguments: Vec::new(),
+            },
+        });
+        let symbolic = listed("p", &one, &row("own"), Reassembly::Assembled(open));
+        assert_eq!(
+            (&symbolic.verdict, &symbolic.start),
+            (&Verdict::Unknown(MUTANT_REFUSES), &None)
+        );
         let rejects = listed(
             "p",
             &one,
@@ -362,6 +427,7 @@ mod tests {
             reparse: "rejected",
             verdict,
             detail: String::new(),
+            start: None,
         };
         let cases = [
             case("a", Verdict::Unknown(ACCEPTANCE_NOT_DECIDED)),
@@ -378,10 +444,27 @@ mod tests {
 
     #[test]
     fn a_call_is_read_for_a_grammar_mutant() {
+        let one = int("1");
+        let alike = [listed(
+            "p",
+            &one,
+            &row("own"),
+            Reassembly::Assembled(int("1")),
+        )];
+        let apart = [
+            alike[0].clone(),
+            listed("q", &one, &row("own"), Reassembly::Assembled(int("2"))),
+        ];
         let mut equivalent = Map::new();
         equivalent.insert("status".into(), json!("equivalent"));
         equivalent.insert("reason".into(), json!("equivalent-compilation"));
-        read_call(&mut equivalent, &Value::Null);
+        let mut unrun = equivalent.clone();
+        read_call(&mut unrun, &Value::Null, &apart);
+        assert_eq!(
+            (&unrun["status"], &unrun["reason"]),
+            (&json!("unknown"), &json!(RUN_NOT_SUPPORTED))
+        );
+        read_call(&mut equivalent, &Value::Null, &alike);
         assert_eq!(
             (&equivalent["status"], &equivalent["reason"]),
             (&json!("survived"), &json!(SAME_PARSE_EQUIVALENT))
@@ -390,7 +473,15 @@ mod tests {
         killed.insert("status".into(), json!("killed"));
         killed.insert("reason".into(), Value::Null);
         killed.insert("killer".into(), json!("p"));
-        read_call(&mut killed, &json!(["r"]));
+        let mut differently = killed.clone();
+        differently.insert("killer".into(), json!("q"));
+        read_call(&mut differently, &json!(["r"]), &apart);
+        assert_eq!(
+            (&differently["status"], &differently["killer"]),
+            (&json!("killed"), &json!("q"))
+        );
+        assert_eq!(differently["direction"], "parses-differently");
+        read_call(&mut killed, &json!(["r"]), &apart);
         assert_eq!(killed["status"], "unknown");
         assert_eq!(killed["reason"], SAME_PARSE_RUN_DIFFERS);
         assert_eq!(killed["killer"], Value::Null);
@@ -398,7 +489,7 @@ mod tests {
         let mut survived = Map::new();
         survived.insert("status".into(), json!("survived"));
         survived.insert("reason".into(), Value::Null);
-        read_call(&mut survived, &Value::Null);
+        read_call(&mut survived, &Value::Null, &apart);
         assert!(!survived.contains_key("action"));
     }
 }
