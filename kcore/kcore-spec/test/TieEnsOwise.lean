@@ -184,6 +184,7 @@ def classes : List (String × List Nat) :=
    ("function law", []),
    ("open generator law", []),
    ("open generator functional", []),
+   ("parameter functional", []),
    ("parameter lemma", []),
    ("user lemma", []),
    ("user lemma at values", []),

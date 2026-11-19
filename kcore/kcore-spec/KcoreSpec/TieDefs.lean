@@ -379,8 +379,9 @@ inductive TieDir where
   (`EntailsAtValues`). -/
   | atValues
   /-- `Γ` does not hold `s`: it is owed as a hypothesis (`FnHyp` for a function's `functional`
-  sentence, `FnLaws` for a law, `OpenTotal` for an open generator's `functional` sentence, and for
-  a parameter lemma the sentence itself at the member, `Γ (c.withHooks H) ⊧ tr s`). -/
+  sentence, `FnLaws` for a law, `OpenTotal` for an open generator's `functional` sentence,
+  `ParamsTotal` for the `functional` sentence of a parameter the text declares total, and for a
+  parameter lemma the sentence itself at the member, `Γ (c.withHooks H) ⊧ tr s`). -/
   | hypothesis
   /-- `Γ` with `s` has no model. -/
   | refuted
@@ -408,6 +409,11 @@ sentences under these names, in this order.
 - open generator law: the `assoc` or `idem` sentence of an open generator, of which `Γ`'s law item
   is the translation;
 - open generator functional: the `functional` sentence of an open generator, owed as `OpenTotal`;
+- parameter functional: the `functional` sentence of a parameter symbol no registry hook interprets
+  that the text declares total (`Definition.totalParams`), which the reader reads as that
+  declaration; `Γ` states the parameter's graph at values from the interpretation, so the sentence
+  holds at values where `H` gives it a value at every argument list of its sorts: owed as
+  `ParamsTotal`, the hypothesis on `H` the statements take;
 - parameter lemma: a sentence the reader leaves out of `Γ` (a lemma) that applies a parameter
   symbol no registry hook interprets (`impl = none`), whose value the interpretation gives: owed as
   a hypothesis on `H`, the sentence itself at the member (`Γ (c.withHooks H) ⊧ tr s`);
@@ -424,7 +430,7 @@ def tieClasses : List (String × TieDir) :=
    ("hooked functional", .atValues), ("collection law", .atValues), ("library", .atValues),
    ("set idempotence", .refuted), ("set-variable lemma", .refuted), ("function law", .hypothesis),
    ("open generator law", .equal), ("open generator functional", .hypothesis),
-   ("parameter lemma", .hypothesis), ("user lemma", .entailed), ("user lemma at values", .atValues),
+   ("parameter functional", .hypothesis), ("parameter lemma", .hypothesis), ("user lemma", .entailed), ("user lemma at values", .atValues),
    ("no direction", .none)]
 
 /-! ## The no-direction class is closed -/

@@ -554,7 +554,7 @@ example : tieClasses =
      ("hooked functional", .atValues), ("collection law", .atValues), ("library", .atValues),
      ("set idempotence", .refuted), ("set-variable lemma", .refuted), ("function law", .hypothesis),
      ("open generator law", .equal), ("open generator functional", .hypothesis),
-     ("parameter lemma", .hypothesis), ("user lemma", .entailed), ("user lemma at values", .atValues),
+     ("parameter functional", .hypothesis), ("parameter lemma", .hypothesis), ("user lemma", .entailed), ("user lemma at values", .atValues),
      ("no direction", .none)] := rfl
 
 /-- The directions, by their constructors: seven, in this order. -/

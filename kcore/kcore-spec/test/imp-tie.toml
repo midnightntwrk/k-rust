@@ -178,6 +178,12 @@ direction = "hypothesis"
 note = "the text has no open generator"
 
 [[class]]
+name = "parameter functional"
+count = 0
+direction = "hypothesis"
+note = "the text has no functional sentence of a parameter without impl that it declares total"
+
+[[class]]
 name = "parameter lemma"
 count = 0
 direction = "hypothesis"
