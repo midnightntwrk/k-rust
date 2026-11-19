@@ -84,8 +84,8 @@ if on ref-kimp; then gen f2-examples/ref-kimp.kore ref-kimp RefKimp --wf
 # the other mirrors' embeddings with emb's inversion (User.EmbKit); `leq` on an embedded subsort
 # table (User.Leq: `KCore.KK.leq_eval_leqF`, `KCore.KK.leq_eval`); the text gen/kkcascade.py emits
 # over kore.k's mirrors (User.KkGenEmb, from User/cascade-emb.toml) and its measurement by hand
-# (User.SpikeEmb)
+# (User.SpikeEmb); the walk and lookup helpers over the mirrors (User.HelpWalk)
 if on ref-kk; then gen examples/ref-kk/RefKk/definition.kore ref-kk RefKk --core
   step gen/build.sh examples/ref-kk User.Coherent User.EvalInversion User.FnSolves User.PrioDecided User.CoDefined User.Consistent \
-    User.KkKit User.KkFacts User.KkCascade User.SpikeBase User.SpikeHand User.SpikeCascade User.Emb User.Sig User.EmbKit User.Leq User.HelpTerms User.KkGenEmb User.SpikeEmb; fi
+    User.KkKit User.KkFacts User.KkCascade User.SpikeBase User.SpikeHand User.SpikeCascade User.Emb User.Sig User.EmbKit User.Leq User.HelpTerms User.KkGenEmb User.SpikeEmb User.HelpWalk; fi
 echo "all built"
