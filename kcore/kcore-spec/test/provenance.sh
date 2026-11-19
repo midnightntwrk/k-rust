@@ -15,12 +15,15 @@
 #              values in a model of Γ whose steps are Step's: owed-sentence rule item 7);
 #              form (r), optional: "through the reading" (the refutation is of the reading's theory,
 #              the sentence-level statement owed) or "sentence against the reading" (a text without a
-#              model whose reading has one: for every H no model of Γ satisfies the one sentence
-#              named first in `sentences`, as written; the reading is consistent, `consistent`)
+#              model whose reading has one: for every H no model of the theory the statements are
+#              about (`Γc (c.withHooks H)`; `Γ` where the proof reads no `boolClosed`, which is the
+#              stronger form) satisfies the one sentence named first in `sentences`, as written; the
+#              reading is consistent, `consistent`)
 #   family     kind "through the reading": the family the expectation goes through (`Γstep`, the
 #              premise ⌈rhs ∧ ens⌉, ...); form (r): the families of the reading the refutation uses
 #              beside the sentences, each named (always required: no refutation is from sentences
-#              alone where a family carries a fact no sentence states)
+#              alone where a family carries a fact no sentence states); a refutation stated over `Γc`
+#              and not `Γ` names `Γcl` (`boolClosed`, which no sentence of the text states)
 #   sentences  forms (a) and (r): the indices of the text's sentences that determine the
 #              expectation (that the refutation uses)
 #   theorem    the theorem's full name (namespaces included); required for forms (a), (c) and (r)
@@ -50,11 +53,15 @@
 #   type in scope that the statement mentions;
 # - a form (a) statement does not mention `FnShape` (C7: no form (a) theorem is stated under
 #   `FnShape` or a hypothesis of that kind);
+# - a form (r) statement, and that of `owed_refuted`, has no hypothesis `FnHyp`: it mentions `FnHyp`
+#   only as its whole conclusion `¬ FnHyp …` (the refutation of that owed fact), and nowhere else; a
+#   hypothesis on the hook interpretation makes it a statement at some H, not for every H;
 # - a kind "in a model" statement states an interpretation satisfying the theory with Step's steps:
 #   it has an `∃`, a satisfaction of a theory (`⊧ᴵP`, or `InitModel`, whose field `sat` is one) and
 #   mentions `Step`;
-# - kind "sentence against the reading": the theorem's statement mentions Γ, a satisfaction of a
-#   theory (`⊧ᴵP`) and a negation (`¬`): no model of Γ satisfies the sentence; `consistent` is
+# - kind "sentence against the reading": the theorem's statement mentions Γ or Γc, a satisfaction
+#   of a theory (`⊧ᴵP`) and a negation (`¬`): no model of that theory satisfies the sentence; one
+#   that mentions Γc and not Γ names `Γcl` in `family`; `consistent` is
 #   declared once in `file`, mentions H and `Consistent` and negates nothing (`¬`); the entry claims
 #   no inconsistency: none of its `tie_theorems` is named `inconsistent` or, declared in a file of its
 #   `tie`, states `¬ Consistent`.
@@ -136,6 +143,36 @@ def mentions(name, text):
     return re.search(rf"(?<![\w.'₀-₉]){re.escape(name)}(?![\w'₀-₉!?])", text) is not None
 
 
+def split_type(text):
+    """(binders, type) of a statement: the text before and after its first `:` at bracket depth 0."""
+    depth = 0
+    for i, ch in enumerate(text):
+        if ch in "([{⟨":
+            depth += 1
+        elif ch in ")]}⟩":
+            depth -= 1
+        elif depth == 0 and ch == ":" and not text.startswith(":=", i):
+            return text[:i], text[i + 1:]
+    return text, ""
+
+
+def fn_hyp(stmt):
+    """Whether the statement has `FnHyp` as a hypothesis: it mentions FnHyp other than as the head of
+    its whole conclusion `¬ FnHyp …`."""
+    binders, typ = split_type(stmt)
+    m = re.match(r"\s*¬\s*\(?\s*FnHyp(?![\w'₀-₉!?])", typ)
+    if m:
+        depth, top = 0, []
+        for ch in typ[m.end():]:
+            depth += ch in "([{⟨"
+            depth -= ch in ")]}⟩"
+            top.append(ch if depth <= 0 else " ")
+        if "→" in "".join(top):
+            m = None
+    rest = typ[m.end():] if m else typ
+    return mentions("FnHyp", binders) or mentions("FnHyp", rest)
+
+
 def declarations(path):
     """{full name: (namespaces, statement, HookParams variables in scope)} of the file's theorems and lemmas."""
     src = strip_comments(open(path, encoding="utf-8").read())
@@ -184,9 +221,9 @@ def check(rows, base):
     t = tomllib.load(open(rows, "rb"))
     cache, bad, counts, nomodel = {}, [], {}, []
 
-    def theorem_ok(at, th, fl, path, what, form, kind=None):
+    def theorem_ok(at, th, fl, path, what, form, kind=None, family=None):
         """The checks on a named theorem of `fl`: declared once, in no AtNone namespace, its statement
-        mentioning H (and, for form (a), not FnShape). Returns its statement, or None."""
+        mentioning H (for form (a), not FnShape; for form (r), not FnHyp). Returns its statement, or None."""
         if path not in cache:
             cache[path] = declarations(path)
         found = cache[path].get(th, [])
@@ -200,12 +237,19 @@ def check(rows, base):
             bad.append(f"{at}: the statement of {what}{th} does not mention H (no name of type HookParams it uses)")
         if form == "a" and mentions("FnShape", stmt):
             bad.append(f"{at}: the form (a) theorem {th} is stated under FnShape")
+        if form == "r" and what != "consistent " and fn_hyp(stmt):
+            bad.append(f"{at}: the form (r) statement of {what}{th} mentions FnHyp other than as its"
+                       " conclusion ¬ FnHyp (a hypothesis on H)")
         if kind == "in a model" and not ("∃" in stmt and ("⊧ᴵP" in stmt or mentions("InitModel", stmt))
                                          and mentions("Step", stmt)):
             bad.append(f"{at}: the kind 'in a model' theorem {th} states no interpretation satisfying the"
                        " theory with Step's steps (an ∃, ⊧ᴵP or InitModel, and Step)")
-        if kind == AGAINST and not (mentions("Γ", stmt) and "⊧ᴵP" in stmt and "¬" in stmt):
-            bad.append(f"{at}: the kind '{AGAINST}' theorem {th} states no refutation against Γ (Γ, ⊧ᴵP and ¬)")
+        if kind == AGAINST:
+            if not ((mentions("Γ", stmt) or mentions("Γc", stmt)) and "⊧ᴵP" in stmt and "¬" in stmt):
+                bad.append(f"{at}: the kind '{AGAINST}' theorem {th} states no refutation against Γ or Γc"
+                           " (Γ or Γc, ⊧ᴵP and ¬)")
+            elif mentions("Γc", stmt) and not mentions("Γ", stmt) and not (isinstance(family, str) and mentions("Γcl", family)):
+                bad.append(f"{at}: the kind '{AGAINST}' theorem {th} is a refutation against Γc: it names Γcl in `family`")
         return stmt
 
     def tie_statement(name, e):
@@ -296,7 +340,8 @@ def check(rows, base):
                 if (form, kind) == ("r", AGAINST):
                     against(at, d, e, fl, None)
                 continue
-            theorem_ok(at, th, fl, path, "", form, kind if form == "a" or (form, kind) == ("r", AGAINST) else None)
+            theorem_ok(at, th, fl, path, "", form, kind if form == "a" or (form, kind) == ("r", AGAINST) else None,
+                       d.get("family"))
             if (form, kind) == ("r", AGAINST):
                 against(at, d, e, fl, path)
             if ow is not None and form == "r":
@@ -339,6 +384,14 @@ theorem modelInit (H : HookParams) : ∃ I, InitModel (cH H) N ar G I ∧ ∀ x 
 theorem modelNoStep (H : HookParams) : ∃ I : Interpretation KoreAML.Sym Elem, I ⊧ᴵP (Γc (cH H)) ∧ I ⊧ᴵ φ := sorry
 theorem against (H : HookParams) : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation Sym M),
     I ⊧ᴵP Γ (cH H) → ¬ (I ⊧ᴵ (trS ax).pat) := sorry
+theorem againstC (H : HookParams) : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation Sym M),
+    I ⊧ᴵP Γc (cH H) → ¬ (I ⊧ᴵ (trS ax).pat) := sorry
+theorem againstFn (H : HookParams) (hf : FnHyp (cH H)) : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation Sym M),
+    I ⊧ᴵP Γ (cH H) → ¬ (I ⊧ᴵ (trS ax).pat) := sorry
+theorem noModelFn (H : HookParams) (hf : FnHyp (cH H)) : ¬ ∃ (M : Type) (_ : Inhabited M) (I : Interpretation Sym M), I ⊧ᴵP Pre H := sorry
+theorem refutedFn (H : HookParams) (hf : FnHyp (cH H)) : ¬ MatchIndependent (cH H) cl := sorry
+theorem notFn (H : HookParams) : ¬ FnHyp (cH H) := sorry
+theorem notFnImp (H : HookParams) : ¬ FnHyp (cH H) → ¬ MatchIndependent (cH H) cl := sorry
 theorem consistent (H : HookParams) : Consistent (cH H) := sorry
 theorem inconsistent (H : HookParams) : ¬ Consistent (cH H) := sorry
 theorem noCons (H : HookParams) : ¬Consistent (cH H) := sorry
@@ -413,6 +466,16 @@ end KCore.ProvT
         (agw(consistent="KCore.ProvT.inconsistent"), "does not state Consistent"),
         (agw(consistent="KCore.ProvT.missing"), "0 theorems named KCore.ProvT.missing"),
         (agw(theorem="KCore.ProvT.noModel"), "states no refutation against Γ"),
+        (agw(theorem="KCore.ProvT.againstC", family="ΓDomains, Γcl"), None),
+        (agw(theorem="KCore.ProvT.againstC"), "names Γcl in `family`"),
+        (agw(theorem="KCore.ProvT.againstC", family="ΓDomains, Γclosed"), "names Γcl in `family`"),
+        (agw(theorem="KCore.ProvT.againstFn"), "mentions FnHyp"),
+        (agw(owed_refuted="KCore.ProvT.refutedFn"), "statement of owed_refuted KCore.ProvT.refutedFn mentions FnHyp"),
+        ({"form": "r", "sentences": [344], "family": "ΓCons", "theorem": "KCore.ProvT.noModelFn", "file": f}, "mentions FnHyp"),
+        ({"form": "r", "sentences": [344], "family": "ΓCons", "theorem": "KCore.ProvT.noModel", "file": f,
+          "owed_refuted": "KCore.ProvT.notFn"}, None),
+        ({"form": "r", "sentences": [344], "family": "ΓCons", "theorem": "KCore.ProvT.noModel", "file": f,
+          "owed_refuted": "KCore.ProvT.notFnImp"}, "mentions FnHyp"),
         (agw(), "claims the reading inconsistent", {"tie": [f], "tie_theorems": ["KCore.ProvT.inconsistent"]}),
         (agw(), "claims the reading inconsistent", {"tie": [f], "tie_theorems": ["KCore.ProvT.noCons"]}),
         ({"form": "r", "sentences": [344], "family": "ΓCons", "theorem": "KCore.ProvT.noModel", "file": f,

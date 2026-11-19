@@ -145,8 +145,9 @@
 #             each named, so that it is not read as "from sentences alone"; kind optional, "through
 #             the reading" where only the reading's theory is refuted (the sentence-level statement
 #             then owed, named in the row); owed_refuted optional, the full name of a theorem of the
-#             same file refuting the fact the package names as owed (stated for every H). The
-#             entry's status stays the reading's (`supported` where the reading agrees with the
+#             same file refuting the fact the package names as owed (stated for every H). Neither
+#             statement has a hypothesis FnHyp (one would make it a statement at some H): FnHyp
+#             appears in it only as its whole conclusion `¬ FnHyp …`. The entry's status stays the reading's (`supported` where the reading agrees with the
 #             text that it has no model); K-coverage.md prints "(no model)" beside it and lists
 #             such entries with their fixtures. An owed_refuted is the state "refuted" of an owed fact
 #             (owed_state below, one rule for both): it puts the entry in the group false unless
@@ -155,9 +156,14 @@
 #             Form (r), kind "sentence against the reading", for a text without a model whose
 #             reading has one (findings/work/decision-ovl-fun-classes.md section 3; the reading
 #             holds the refuted sentence at fewer arguments, so nothing of Γ's is refuted): theorem
-#             states, for every H, that no model of Γ satisfies the one refuted sentence as written
-#             (`I ⊧ᴵP Γ (c.withHooks H) → ¬ (I ⊧ᴵ tr s)`); sentences that sentence first, then the
-#             sentences whose items the proof reads; family (required) as above; consistent
+#             states, for every H, that no model of the theory the statements are about
+#             (`Γc (c.withHooks H)`; `Γ` where the proof reads no `boolClosed`, which is the stronger
+#             form) satisfies the one refuted sentence as written
+#             (`I ⊧ᴵP Γ (c.withHooks H) → ¬ (I ⊧ᴵ tr s)`, or the same over `Γc`), with no hypothesis
+#             `FnHyp`; sentences that sentence first, then the sentences whose items the proof reads;
+#             family (required) as above, naming `Γcl` (`boolClosed`, which no sentence of the text
+#             states) when the theorem is over `Γc` and not `Γ`, and owed_statement then counts it
+#             among the named families; consistent
 #             (required) the full name of a theorem of the same file stating, for every H, that the
 #             reading is Consistent; owed_statement (required) in words, the sentence-level
 #             statement left owed (no model of the translated sentences and the named families, with
@@ -165,8 +171,9 @@
 #             named so or states ¬ Consistent. The entry says in words that the text has no model
 #             while KCore's theory of it has one, under its note. K-coverage.md prints "(no model;
 #             the reading has one)" beside the status. test/provenance.sh checks the fields and the
-#             statements' shapes (Γ, ⊧ᴵP and ¬ in the theorem's own statement, so the model of Γ is
-#             bound there and not by a section variable; Consistent, not negated, in consistent);
+#             statements' shapes (Γ or Γc, ⊧ᴵP and ¬ in the theorem's own statement, so the model is
+#             bound there and not by a section variable; Γcl in family for a statement over Γc alone;
+#             no FnHyp hypothesis, in it or in owed_refuted; Consistent, not negated, in consistent);
 #             rest.py counts consistent among the entry's theorems.
 # Fields of DONE-0 C2's evidence (test/constructs/rest.py, whose docstring gives each form's items):
 #   tie       on a row or a nested table: the C14 tie modules of the entry's fixture, a list of
