@@ -169,10 +169,15 @@ and neither the narrowed nor the reordered pairs (`fn_pairs`) cover them: each o
 sentence as written (`shape`), or the narrowed or reordered pair as there, or (`rd<j>_*`) the item
 whose right side `\\and{s'}(x, y)` the sentence writes with an alternative beside x that holds nothing,
 `\\bottom{S}()` or an application with such an argument (the reading `orBottom`, `Parse.dropEmptyAlts`:
-`TieRhs.orEmptyIn`, `TieRhs.orEmptyOK_iff`, the same models of definedness), or (`un<j>_differs`) an
-item no reading here ties, whose sentence is `uncovered` and which `fns_entailed` and `fns_from_text`
-leave out; on a text that reads a confined sort too (its statements over Γ, which `Γc` holds). The
-probe then also writes, per item, whether the empty-alternative reading ties it (`WR` lines).
+`TieRhs.orEmptyIn`, `TieRhs.orEmptyOK_iff`, the same models of definedness), or (`cut<j>_*`) the item
+whose premise Γ writes through a cut of the clause's `requires`, the sentence being the premise as the
+text writes it (`andUnderAppCut`, `notAsCondition`: `TieCutEq.textItem`, up to the names of the
+variables; each direction over what it reads, definedness, the constructors' facts of a model of the
+theory, and for `notAsCondition` the closure of Bool, `boolClosed`, a premise the theorems name and the
+summary's `owed` lists), or (`un<j>_differs`) an item no reading here ties, whose sentence is
+`uncovered` and which `fns_entailed` and `fns_from_text` leave out; on a text that reads a confined
+sort too (its statements over Γ, which `Γc` holds). The probe then also writes, per item, whether the
+empty-alternative reading ties it (`WR` lines) and the cuts that tie it (`WC` lines).
 Without the flag the output is unchanged.
 --at-values N,... names the user lemmas (by `AxiomDecl.index`) that are of the class `user lemma at
 values` in place of `user lemma`; an index that is no user lemma of the text is refused.
@@ -1122,7 +1127,10 @@ def tgNjOrder (gs : List KoreAML.Gen) : List Kore.Pattern → Option (List Nat)
 
 # with --fn-readings: for each of Γ's equations, whether the text's sentence at its position (`TiePair.fnTextOf`) is
 # Γ's item with an alternative beside its right side's first conjunct that holds nothing (`TieRhs.emptyAltOf`,
-# `TieRhs.orEmptyOK`, the item mapped by `TieRhs.orEmptyIn` and `TiePair.sameB`)
+# `TieRhs.orEmptyOK`, the item mapped by `TieRhs.orEmptyIn` and `TiePair.sameB`); and, for each equation whose item
+# is not its sentence, the cuts of its premise (`TieCutEq.Cut`: `andApp` at an argument path of at most four steps,
+# `notCond`) at a place (`TieCutEq.Place`: `own`, or `under i n` for i < 4, n < 8) where the sentence is the item's
+# text form up to the names of its variables (`TieCutEq.textItem`, `shapeOK`, `factsOK`, `TieAlpha.acEqB`: `WC` lines)
 PROBE_READINGS = r'''  for j in List.range fis.length do
     match pairText[j]?, fax[j]? with
     | some ad, some a =>
@@ -1132,7 +1140,40 @@ PROBE_READINGS = r'''  for j in List.range fis.length do
             TiePair.sameB (trAxiom [] [] ⟨0, "kernel", TieRhs.rhsMap (TieRhs.orEmptyIn le p) a⟩).pat t
         | none => false
       IO.println s!"WR {j}\t{oe}"
-    | _, _ => pure ()'''
+    | _, _ => pure ()
+''' + r'''  for j in List.range fis.length do
+    match pairText[j]?, fax[j]?, fis[j]? with
+    | some ad, some a, some it =>
+      let t := (trS ad).pat
+      if it.pat != t then
+        let ix := List.range 4
+        let p1 := ix.map fun x => [x]
+        let p2 := p1.flatMap fun p => ix.map fun x => p ++ [x]
+        let p3 := p2.flatMap fun p => ix.map fun x => p ++ [x]
+        let p4 := p3.flatMap fun p => ix.map fun x => p ++ [x]
+        let cuts := TieCutEq.Cut.notCond :: (p1 ++ p2 ++ p3 ++ p4).map TieCutEq.Cut.andApp
+        let pls := TieCutEq.Place.own :: ix.flatMap fun i => (List.range 8).map fun n => TieCutEq.Place.under i n
+        let prem := match a.pattern with
+          | .implies _ q _ => some q
+          | _ => none
+        for pl in pls do
+          match prem.bind (TieCutEq.cutBody pl) with
+          | some (_, body) =>
+            for k in cuts do
+              if (TieCutEq.textPrem k body).isSome then
+                let ok := match TieCutEq.textItem k pl a with
+                  | some g => TieCutEq.shapeOK k pl a && TieCutEq.factsOK c k pl a && TieAlpha.acEqB g t
+                  | none => false
+                if ok then
+                  let ks := match k with
+                    | .andApp p => s!"andApp\t{p}"
+                    | .notCond => "notCond\t[]"
+                  let ps := match pl with
+                    | .own => "own"
+                    | .under i n => s!"under\t{i}\t{n}"
+                  IO.println s!"WC {j}\t{ks}\t{ps}"
+          | none => pure ()
+    | _, _, _ => pure ()'''
 
 
 def probe(name, path, um, order="[]", cons_head=False, sig_pos=False, decl_pos=False, reads_h=(), readings=False):
@@ -1206,6 +1247,11 @@ def probe(name, path, um, order="[]", cons_head=False, sig_pos=False, decl_pos=F
         elif l.startswith("WR "):
             f = l[3:].split("\t")
             head.setdefault("fnRd", {})[int(f[0])] = dict(orEmpty=f[1] == "true")
+        elif l.startswith("WC "):
+            f = l[3:].split("\t")
+            head.setdefault("fnCut", {}).setdefault(int(f[0]), dict(
+                kind=f[1], path=[int(x) for x in re.findall(r"\d+", f[2])],
+                place=("own",) if f[3] == "own" else ("under", int(f[4]), int(f[5]))))
         elif l.startswith("W "):
             f = l[2:].split("\t")
             head["fnW"][int(f[0])] = dict(idx=None if f[1] == "none" else int(f[1]), same=f[2] == "true",
@@ -1616,7 +1662,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     # without that premise it is the sentence (`TiePair.minusNeg`), which entails it (W1)
     fn_pair, pair_text, pair_w = False, [], None
     fn_pairs, pair_ws, pair_ac = False, [], []
-    fn_rds, pair_rd, pair_un = False, [], []
+    fn_rds, pair_rd, pair_un, pair_cut = False, [], [], []
     fw = head["fnW"]
     if not fn_full and not fn_align and nfn and (not confined or fn_readings) and not raw and \
             sorted(fw) == list(range(nfn)) and int(head.get("pairTextLen", -1)) == nfn and \
@@ -1647,7 +1693,12 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             pair_ac = [j for j in ws if ac_ok(j)]
             pair_ws = [j for j in ws if not ac_ok(j) and w1_ok(j)]
             pair_rd = [j for j in ws if not ac_ok(j) and not w1_ok(j) and rd_ok(j)]
-            pair_un = [j for j in ws if j not in pair_ac + pair_ws + pair_rd]
+            # an item whose premise Γ writes through a cut of the clause's `requires` (`TieCutEq`: the
+            # readings `andUnderAppCut` and `notAsCondition`), the sentence being the premise as written
+            pair_cut = [j for j in ws if j not in pair_ac + pair_ws + pair_rd and j in head.get("fnCut", {})
+                        and fw[j]["differs"]]
+            pair_un = [j for j in ws if j not in pair_ac + pair_ws + pair_rd + pair_cut]
+    pair_cut_l = [(j, pair_text[j], head["fnCut"][j]) for j in pair_cut]
     agree = ob["agree"]
     facts_kind = ob["kind"]
     # a held-named function's fact or a `[total]` function's totality owed (`--hand consistency`
@@ -2039,7 +2090,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w(textwrap.fill(txt_, width=100, initial_indent="  - ", subsequent_indent="    ", break_on_hyphens=False,
                         break_long_words=False))
     if fn_rds:
-        w(readings_header(by_class, pair_text, pair_ws, pair_ac, pair_rd, pair_un))
+        w(readings_header(by_class, pair_text, pair_ws, pair_ac, pair_rd, pair_un, pair_cut_l, confined))
     if rules_full and nrules:
         w(f"  - Rewrite rules ({nrules}): each of Γ's rule items (with the premise `⌈rhs ∧ ens⌉`) is a consequence")
         w("    of its text sentence, `ruleText` in `ruleItems`' order (`rule_from_text`, W1, every H).")
@@ -2095,7 +2146,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             f"parts Γ defines by predicates, or definedness (`gamma_from`).",
             width=100, initial_indent="  - ", subsequent_indent="    ", break_on_hyphens=False, break_long_words=False))
     if fn_rds:
-        w(readings_gamma_header(pair_text, pair_ws, pair_ac, pair_rd, pair_un))
+        w(readings_gamma_header(pair_text, pair_ws, pair_ac, pair_rd, pair_un, pair_cut_l))
     owed_more = ""
     if law_idx:
         owed_more += "; function law: owed as `FnLaws` (`law_account`)"
@@ -3518,7 +3569,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w(readings_section([(j, pair_text[j], sents[pair_text[j]]["prio"]) for j in pair_ws],
                            [(j, pair_text[j]) for j in pair_ac], [(j, pair_text[j]) for j in pair_rd],
                            [(j, pair_text[j]) for j in pair_un], len(by_class["function equation"]),
-                           len(by_class["priority equation"])))
+                           len(by_class["priority equation"]), pair_cut_l, confined))
         mark("Rest")
     if gamma:
         w(GAMMA_ALIGN if fn_align else GAMMA_RULES if nrules else GAMMA)
@@ -3615,7 +3666,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             [n.format(j) for j in pair_ac for n in ("ac{}_same", "ac{}_differs", "ac{}_iff", "ac{}_entailed")] + \
             ["shape", "fns_entailed", "fns_from_text", "fn_prios", "gamma_from"]
     if fn_rds:
-        pair_names = readings_names(pair_ws, pair_ac, pair_rd, pair_un)
+        pair_names = readings_names(pair_ws, pair_ac, pair_rd, pair_un, pair_cut_l)
     for block in (names, pair_names):
         for n in block:
             w(f"#check @KCore.{ns}.{n}")
@@ -3652,10 +3703,16 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         owed.append(f"the sentence{'s' if len(ovl_fn_hand['hypothesis']) > 1 else ''} "
                     f"{', '.join(map(str, ovl_fn_hand['hypothesis']))} of a function-overloaded symbol "
                     f"at covered arguments, under the hypotheses on H the hand section names (OvlFnHyp<i>)")
+    cut_not = [i for _, i, k in pair_cut_l if k["kind"] == "notCond"]
+    if cut_not:
+        owed.append(f"Bool closed in the model (`boolClosed`), a premise of the sentence{'s' if len(cut_not) > 1 else ''} "
+                    f"{', '.join(map(str, cut_not))} read through `notAsCondition` (cut<j>_iff, cut<j>_entailed)")
     summary = dict(fixture=name, sentences=len(idx), mapped=len(mapped), unmapped=len(unmapped),
                    classes={c_: len(by_class[c_]) for c_ in classes_list}, fn_full=fn_full, fn_prelude=sorted(fn_pre), fn_align=fn_align,
                    fn_pair=fn_pair, **({"fn_pairs": dict(w1=pair_ws, ac=pair_ac)} if fn_pairs else {}),
-                   **({"fn_readings": dict(w1=pair_ws, ac=pair_ac, or_empty=pair_rd, untied=pair_un)} if fn_rds else {}),
+                   **({"fn_readings": dict(w1=pair_ws, ac=pair_ac, or_empty=pair_rd, untied=pair_un,
+                                           **({"cut": {j: dict(sentence=i, **k) for j, i, k in pair_cut_l}}
+                                              if pair_cut_l else {}))} if fn_rds else {}),
                    cons=len(cons_text), nojunk=[len(nj_triv), len(nj_items), len(nj_kitem), len(nj_sorts)],
                    idem=idem, own_idem=[i for i, _, _ in own_idem], lib166=lib166, gamma=gamma, laws=law_idx, open_generators=[k["name"] for k in raw],
                    confined=confined, uncovered=uncovered, owed=owed, theorems=names,
@@ -4356,13 +4413,33 @@ def pairs_section(ws, acs, nfe, npe):
     return "\n".join(out) + "\n"
 
 
-def readings_header(by_class, pair_text, ws, acs, rds, uns):
+def cut_form(k):
+    """The kind of a cut item (`fnCut`): `andApp` at the equation's own premise, `andApp` under a
+    competitor's negation, or `notCond`."""
+    return "not" if k["kind"] == "notCond" else "own" if k["place"] == ("own",) else "under"
+
+
+def cut_lits(k):
+    """The Lean literals of a cut item's `TieCutEq.Cut` and `TieCutEq.Place`."""
+    kl = ".notCond" if k["kind"] == "notCond" else f"(.andApp [{', '.join(map(str, k['path']))}])"
+    pl = ".own" if k["place"] == ("own",) else f"(.under {k['place'][1]} {k['place'][2]})"
+    return kl, pl
+
+
+def cut_in_entailed(k, confined):
+    """Whether `fns_entailed` (over Γ) holds the cut item's sentence: an `andApp` cut, the one at the
+    equation's own premise only on a text whose theory is Γ (its entailment reads the constructors'
+    facts, which a model of the theory has)."""
+    return cut_form(k) == "under" or (cut_form(k) == "own" and not confined)
+
+
+def readings_header(by_class, pair_text, ws, acs, rds, uns, cuts=(), confined=False):
     """The header's paragraph of the function equations `readings_section` ties."""
     nfe, npe = len(by_class["function equation"]), len(by_class["priority equation"])
     lst = lambda js: ", ".join(f"{j} ({pair_text[j]})" for j in js)
     pl = lambda js, a, b: a if len(js) > 1 else b
     txt_ = (f"Function equations ({nfe}) and priority equations ({npe}), in the order `fnText` lists them "
-            f"(`fns_account`): each of Γ's items but {', '.join(map(str, sorted(ws + acs + rds + uns)))} is the "
+            f"(`fns_account`): each of Γ's items but {', '.join(map(str, sorted(ws + acs + rds + uns + [j for j, _, _ in cuts])))} is the "
             f"translation of one sentence (`shape`), so Γ entails it (`fns_entailed`).")
     if ws:
         txt_ += (f" Item{pl(ws, 's', '')} {lst(ws)} (sentence in parentheses) {pl(ws, 'are', 'is')} the clause "
@@ -4380,6 +4457,27 @@ def readings_header(by_class, pair_text, ws, acs, rds, uns):
                  f"(`orBottom`): the sentence is the item so written (`rd<j>_text`, up to the indices of its "
                  f"variables; `rd<j>_ok`), the two hold in the same models of definedness (`rd<j>_iff`, "
                  f"`TieRhs.orEmptyOK_iff`), so Γ entails the sentence (`rd<j>_entailed`) and it gives the item.")
+    if cuts:
+        cjs = [j for j, _, _ in cuts]
+        txt_ += (f" Item{pl(cjs, 's', '')} {lst(cjs)} {pl(cjs, 'are equations', 'is the equation')} whose premise Γ writes "
+                 f"through a cut of the clause's `requires` (`andUnderAppCut`, `notAsCondition`): each sentence is its "
+                 f"item with the premise as the text writes it (`cut<j>_same`, `TieCutEq.textItem`, up to the names "
+                 f"of its variables).")
+        for j, i, k in cuts:
+            f = cut_form(k)
+            if f == "own":
+                txt_ += (f" Item {j}: the sentence gives the item in every model of definedness (`cut{j}_from_text`), "
+                         f"and {'Γc' if confined else 'Γ'} entails the sentence (`cut{j}_entailed`, its models "
+                         f"having the constructors' facts).")
+            elif f == "under":
+                txt_ += (f" Item {j}, the cut premise a competitor's under the negation: Γ entails the sentence "
+                         f"(`cut{j}_entailed`, definedness only) and the sentence gives the item in a model with the "
+                         f"constructors' facts (`cut{j}_from_text`), which `fns_from_text` leaves out.")
+            else:
+                txt_ += (f" Item {j}: the two hold in the same models with the constructors' facts in which every "
+                         f"element of Bool is `true` or `false` (`cut{j}_iff`; `boolClosed`, a premise named there, "
+                         f"is not Γ's), so the sentence holds in a model of the theory in which Bool is closed "
+                         f"(`cut{j}_entailed`); `fns_entailed` and `fns_from_text` leave it out.")
     if uns:
         txt_ += (f" Item{pl(uns, 's', '')} {lst(uns)} {pl(uns, 'are', 'is')} not {pl(uns, 'their sentences', 'its sentence')} "
                  f"(`un<j>_differs`) and no reading here ties {pl(uns, 'them', 'it')}: {pl(uns, 'those sentences are', 'the sentence is')} "
@@ -4389,37 +4487,52 @@ def readings_header(by_class, pair_text, ws, acs, rds, uns):
                          break_long_words=False)
 
 
-def readings_gamma_header(pair_text, ws, acs, rds, uns):
+def readings_gamma_header(pair_text, ws, acs, rds, uns, cuts=()):
     """The header's paragraph of `readings_section`'s converse over Γ's content."""
+    cno = [j for j, _, k in cuts if cut_form(k) != "own"]
     via = (([f"{', '.join(str(pair_text[j]) for j in ws)} through W1"] if ws else [])
-           + [f"{pair_text[j]} through `ac{j}_iff`" for j in acs] + [f"{pair_text[j]} through `rd{j}_iff`" for j in rds])
+           + [f"{pair_text[j]} through `ac{j}_iff`" for j in acs] + [f"{pair_text[j]} through `rd{j}_iff`" for j in rds]
+           + [f"{i} through `cut{j}_from_text`" for j, i, k in cuts if cut_form(k) == "own"])
     txt_ = ("The converse over Γ's content: each premise is a consequence of the function sentences"
             + (f" ({', '.join(via)})" if via else "")
             + (f", Γ's own item{'s' if len(uns) > 1 else ''} {', '.join(map(str, uns))} (whose sentence"
                f"{'s are' if len(uns) > 1 else ' is'} uncovered)" if uns else "")
+            + (f", Γ's own item{'s' if len(cno) > 1 else ''} {', '.join(map(str, cno))} (whose sentence"
+               f"{'s give' if len(cno) > 1 else ' gives'} it with the constructors' facts: `cut<j>_from_text`, "
+               f"`cut<j>_iff`)" if cno else "")
             + ", Γ's rule items, the five parts Γ defines by predicates, or definedness (`gamma_from`).")
     return textwrap.fill(txt_, width=100, initial_indent="  - ", subsequent_indent="    ", break_on_hyphens=False,
                          break_long_words=False)
 
 
-def readings_names(ws, acs, rds, uns):
+def readings_names(ws, acs, rds, uns, cuts=()):
     """The theorems `readings_section` states, in its order."""
+    dirs = {"own": ("cut{}_from_text", "cut{}_entailed"), "under": ("cut{}_entailed", "cut{}_from_text"),
+            "not": ("cut{}_iff", "cut{}_entailed")}
     return (["fns_account"] + [n.format(j) for j in ws for n in
                                ("prio{}_narrowed", "prio{}_text", "prio{}_differs", "prio{}_w1")] +
             [n.format(j) for j in acs for n in ("ac{}_same", "ac{}_differs", "ac{}_iff", "ac{}_entailed")] +
             [n.format(j) for j in rds for n in ("rd{}_ok", "rd{}_text", "rd{}_differs", "rd{}_iff", "rd{}_entailed")] +
+            [n.format(j) for j, _, k in cuts for n in
+             ("cut{}_shape", "cut{}_facts", "cut{}_same", "cut{}_differs") + dirs[cut_form(k)]] +
             [f"un{j}_differs" for j in uns] +
             ["shape", "fns_entailed", "fns_from_text", "fn_prios", "gamma_from"])
 
 
-def readings_section(ws, acs, rds, uns, nfe, npe):
+def readings_section(ws, acs, rds, uns, nfe, npe, cuts=(), confined=False):
     """`pairs_section` with two more kinds of Γ's items beside the narrowed ones `ws` and those `acs`
     equal up to the operands' order and the variables' names: the items `rds` (each `(j, i)`: item
     `j`, sentence `i`), whose sentence writes an alternative that holds nothing beside the right
     side's first conjunct (`TieRhs.orEmptyOK_iff`, every model of definedness: E and its converse),
     and the items `uns`, which no reading here ties: their sentences are left out of `fns_entailed`
-    and `fns_from_text` (uncovered), and the premise set holds Γ's item there."""
-    at = sorted([j for j, _, _ in ws] + [j for j, _ in acs] + [j for j, _ in rds] + [j for j, _ in uns])
+    and `fns_from_text` (uncovered), and the premise set holds Γ's item there. And the items `cuts`
+    (each `(j, i, k)`, `k` the probe's `fnCut`), whose premise Γ writes through a cut of the clause's
+    `requires` (`TieCutEq`): each direction is stated over what it reads, definedness, the
+    constructors' facts of a model of the theory (Γ, or `Γc` on a text that reads a confined sort), and
+    for `notCond` the closure of Bool as a named premise; the sentences whose direction reads more than
+    definedness are left out of `fns_entailed` or `fns_from_text`."""
+    at = sorted([j for j, _, _ in ws] + [j for j, _ in acs] + [j for j, _ in rds] + [j for j, _ in uns] +
+                [j for j, _, _ in cuts])
     wjs = [j for j, _, _ in ws]
     ujs = [j for j, _ in uns]
     parts = []
@@ -4457,6 +4570,24 @@ def readings_section(ws, acs, rds, uns, nfe, npe):
                      f"{'them' if len(uns) > 1 else 'it'}: the sentence{'s are' if len(uns) > 1 else ' is'} uncovered, "
                      f"`fns_entailed` and `fns_from_text` leave {'them' if len(uns) > 1 else 'it'} out, and the premise "
                      f"set of `gamma_from` holds Γ's item there.")
+    if cuts:
+        cl = ", ".join(f"{j} (sentence {i}, {'`notAsCondition`' if k['kind'] == 'notCond' else '`andUnderAppCut`'}"
+                       f"{'' if k['place'] == ('own',) else ', under a competitor' + chr(39) + 's negation'})"
+                       for j, i, k in cuts)
+        th = "Γc" if confined else "Γ"
+        parts.append(f"Γ's item{'s' if len(cuts) > 1 else ''} {cl} {'are equations' if len(cuts) > 1 else 'is the equation'} "
+                     f"whose premise Γ writes through a cut of the clause's `requires` (`KcoreSpec/TieCutEq.lean`): "
+                     f"`andUnderAppCut` reads `K[\\and{{S}}(x, u)]` as `K[x]` with the membership `x ∈ u`, and "
+                     f"`notAsCondition` reads `\\not{{SortBool{{}}}}(b)` as `b = false`. The sentence is the item "
+                     f"with the premise as the text writes it (`cut<j>_same`: `TieCutEq.textItem`, up to the names of "
+                     f"its variables, free and bound), and it is not the item (`cut<j>_differs`). Of the two "
+                     f"premises, Γ's is inside the text's in every model; the text's is inside Γ's where definedness "
+                     f"is read and, for `notAsCondition`, every element of Bool is `true` or `false`; under a "
+                     f"competitor's negation the inclusions swap sides. So for `andUnderAppCut` one direction reads "
+                     f"definedness only and the other the constructors' facts (`HoldsShape.NodeFacts`, which a model "
+                     f"of {th} has: `cut_nodeFacts`), and for `notAsCondition` both read the constructors' facts and "
+                     f"the closure of Bool (`boolClosed`), a premise named in `cut<j>_iff` and `cut<j>_entailed`, "
+                     f"not Γ's.")
     parts.append("Every other item is the translation of its function sentence (`shape`). -/")
     intro = "\n\n".join(textwrap.fill(x, width=100, break_on_hyphens=False, break_long_words=False) for x in parts)
     out = [f"/-! ## Function equations ({nfe} sentences) and priority equations ({npe} sentences)", "", intro, "",
@@ -4468,7 +4599,7 @@ def readings_section(ws, acs, rds, uns, nfe, npe):
            "theorem fns_account :",
            '    (classOf "function equation" ++ classOf "priority equation").isPerm (fnText.map (·.index)) = true := by',
            "  decide +kernel", ""]
-    if acs or rds:
+    if acs or rds or cuts:
         out += ["/-- A model of Γ satisfies each of Γ's equations. -/",
                 "theorem fnItem_sat {H : HookParams} {M : Type} {I : Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP Γ (cH H))",
                 "    {j : Nat} {g : P} (hg : (TiePair.gammaPats c)[j]? = some g) : I ⊧ᴵ g := by",
@@ -4544,6 +4675,80 @@ def readings_section(ws, acs, rds, uns, nfe, npe):
                 f"theorem rd{j}_entailed (H : HookParams) : Γ (cH H) ⊧ (trS U.ax{i}).pat := by",
                 "  intro M _ I hI",
                 f"  exact (rd{j}_iff (defOK hI)).mpr (fnItem_sat hI rdItem{j}_at)", ""]
+    if cuts:
+        th = "Γc" if confined else "Γ"
+        out += ["theorem cut_sortOf_true (H : HookParams) : (cH H).sortOf (KCore.bool true) = some Srt.bool := by",
+                "  rw [Semantics.sortOf_withHooks _ _ noRaw]; decide +kernel"]
+        if any(k["kind"] == "notCond" for _, _, k in cuts):
+            out += ["theorem cut_sortOf_false (H : HookParams) : (cH H).sortOf (KCore.bool false) = some Srt.bool := by",
+                    "  rw [Semantics.sortOf_withHooks _ _ noRaw]; decide +kernel"]
+        out += ["", f"/-- A model of {th} has the constructors' facts. -/",
+                "theorem cut_nodeFacts (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}",
+                f"    (hI : I ⊧ᴵP {th} (cH H)) : HoldsShape.NodeFacts (cH H) I :="]
+        out += (["  HoldsShape.nodeFacts_of_core (coreOKH H) hI", ""] if confined else
+                ["  HoldsShape.nodeFacts_of_core (coreOKH H)",
+                 "    (by rw [Γc_plain ((Semantics.readsConfined_withHooks c H).trans readsConfined_c)]; exact hI)", ""])
+    # a model of the theory as a model of Γ, for `fnItem_sat`
+    gm = "(fun φ hφ => hI φ (Or.inl hφ))" if confined else "hI"
+    for j, i, k in cuts:
+        kl, pl = cut_lits(k)
+        f = cut_form(k)
+        what = ("the `requires` `\\not{SortBool{}}(b)`" if f == "not" else
+                "the conjunction at the argument path " + str(k["path"]) + " of the `requires`")
+        where = ("" if k["place"] == ("own",) else
+                 f", the cut premise the competitor {k['place'][1]}'s under its {k['place'][2]} binders")
+        out += [f"/-- Γ's axiom of item {j} (sentence {i}). -/",
+                f"noncomputable def cutAx{j} : Kore.Axiom := ((TiePair.fnAxioms c)[{j}]?).getD ⟨[], .top KoreAML.R, []⟩",
+                f"theorem cutAx{j}_at : (TiePair.fnAxioms c)[{j}]? = some cutAx{j} := by decide +kernel",
+                f"noncomputable def cutItem{j} : P := (trAxiom [] [] ⟨0, \"kernel\", cutAx{j}⟩).pat",
+                f"theorem cutItem{j}_at : (TiePair.gammaPats c)[{j}]? = some cutItem{j} := TiePair.gammaPats_at cutAx{j}_at",
+                f"kernel_rfl fnText_at{j} : fnText[{j}]? = some U.ax{i}",
+                f"/-- The text's form of item {j}: {what}{where}. -/",
+                f"noncomputable def cutText{j} : P := (TieCutEq.textItem {kl} {pl} cutAx{j}).getD .bottom",
+                f"kernel_rfl cut{j}_text_eq : TieCutEq.textItem {kl} {pl} cutAx{j} = some cutText{j}",
+                "/-- The two forms have the same free variables, and the cut premise is of the form the converse",
+                "inclusions read (kernel). -/",
+                f"theorem cut{j}_shape : TieCutEq.shapeOK {kl} {pl} cutAx{j} = true := by decide +kernel",
+                f"theorem cut{j}_facts : TieCutEq.factsOK c {kl} {pl} cutAx{j} = true := by decide +kernel",
+                f"/-- **Sentence {i} is the text's form of item {j}** up to the names of the variables (kernel), and",
+                "is not the item. -/",
+                f"theorem cut{j}_same : TieAlpha.acEqB cutText{j} (trS U.ax{i}).pat = true := by decide +kernel",
+                f"theorem cut{j}_differs : cutItem{j} ≠ (trS U.ax{i}).pat := by decide +kernel", ""]
+        facts = f"((TieCutEq.factsOK_withHooks c H _ _ _).trans cut{j}_facts)"
+        if f == "own":
+            out += [f"/-- **Sentence {i} gives Γ's item {j}** in every model of definedness. -/",
+                    f"theorem cut{j}_from_text {{M : Type}} {{I : Interpretation KoreAML.Sym M}} (hD : DefOK I)",
+                    f"    (h : I ⊧ᴵ (trS U.ax{i}).pat) : I ⊧ᴵ cutItem{j} :=",
+                    f"  TieCutEq.cutEq_from_text_pure hD cut{j}_text_eq cut{j}_shape ((TieAlpha.acEqB_sat cut{j}_same).mpr h)", "",
+                    f"/-- **E for sentence {i}**: {th} entails it, for every H (`cut_nodeFacts`). -/",
+                    f"theorem cut{j}_entailed (H : HookParams) : {th} (cH H) ⊧ (trS U.ax{i}).pat := by",
+                    "  intro M _ I hI",
+                    f"  exact (TieAlpha.acEqB_sat cut{j}_same).mp (TieCutEq.cutEq_entailed (k := {kl}) (cut_nodeFacts H hI)",
+                    f"    (cut_sortOf_true H) (fun h => nomatch h) cut{j}_text_eq cut{j}_shape {facts}",
+                    f"    (fnItem_sat {gm} cutItem{j}_at))", ""]
+        elif f == "under":
+            out += [f"/-- **E for sentence {i}**: Γ entails it, for every H; of the model only definedness is read. -/",
+                    f"theorem cut{j}_entailed (H : HookParams) : Γ (cH H) ⊧ (trS U.ax{i}).pat := by",
+                    "  intro M _ I hI",
+                    f"  exact (TieAlpha.acEqB_sat cut{j}_same).mp",
+                    f"    (TieCutEq.cutEq_entailed_pure (defOK hI) cut{j}_text_eq cut{j}_shape (fnItem_sat hI cutItem{j}_at))", "",
+                    f"/-- **Sentence {i} gives Γ's item {j}** in a model with the constructors' facts, for every H. -/",
+                    f"theorem cut{j}_from_text (H : HookParams) {{M : Type}} [Inhabited M] {{I : Interpretation KoreAML.Sym M}}",
+                    f"    (N : HoldsShape.NodeFacts (cH H) I) (h : I ⊧ᴵ (trS U.ax{i}).pat) : I ⊧ᴵ cutItem{j} :=",
+                    f"  TieCutEq.cutEq_from_text (k := {kl}) N (cut_sortOf_true H) (fun h => nomatch h) cut{j}_text_eq cut{j}_shape",
+                    f"    {facts} ((TieAlpha.acEqB_sat cut{j}_same).mpr h)", ""]
+        else:
+            out += [f"/-- **Sentence {i} and Γ's item {j} hold in the same models** among those with the constructors'",
+                    "facts in which every element of Bool is `true` or `false`, for every H. -/",
+                    f"theorem cut{j}_iff (H : HookParams) {{M : Type}} [Inhabited M] {{I : Interpretation KoreAML.Sym M}}",
+                    "    (N : HoldsShape.NodeFacts (cH H) I) (hcl : I ⊧ᴵ boolClosed (cH H)) :",
+                    f"    (I ⊧ᴵ (trS U.ax{i}).pat) ↔ (I ⊧ᴵ cutItem{j}) :=",
+                    f"  (TieAlpha.acEqB_sat cut{j}_same).symm.trans (TieCutEq.cutEq_iff N (cut_sortOf_true H)",
+                    f"    (fun _ => ⟨cut_sortOf_false H, hcl⟩) cut{j}_text_eq cut{j}_shape {facts})", "",
+                    f"/-- Sentence {i} holds in a model of {th} in which Bool is closed, for every H. -/",
+                    f"theorem cut{j}_entailed (H : HookParams) {{M : Type}} [Inhabited M] {{I : Interpretation KoreAML.Sym M}}",
+                    f"    (hI : I ⊧ᴵP {th} (cH H)) (hcl : I ⊧ᴵ boolClosed (cH H)) : I ⊧ᴵ (trS U.ax{i}).pat :=",
+                    f"  (cut{j}_iff H (cut_nodeFacts H hI) hcl).mpr (fnItem_sat {gm} cutItem{j}_at)", ""]
     for j, i in uns:
         out += [f"/-- Γ's item {j} (sentence {i}): no reading here ties it. -/",
                 f"noncomputable def unItem{j} : P := (TiePair.gammaPats c).getD {j} ⊥",
@@ -4552,7 +4757,7 @@ def readings_section(ws, acs, rds, uns, nfe, npe):
                 f"/-- **Γ's item {j} is not the text's sentence {i}** (kernel): the sentence is uncovered. -/",
                 f"theorem un{j}_differs : unItem{j} ≠ (trS U.ax{i}).pat := by decide +kernel", ""]
     item = ({j: f"prioItem{j}" for j, _, _ in ws} | {j: f"acItem{j}" for j, _ in acs} |
-            {j: f"rdItem{j}" for j, _ in rds} | {j: f"unItem{j}" for j, _ in uns})
+            {j: f"rdItem{j}" for j, _ in rds} | {j: f"unItem{j}" for j, _ in uns} | {j: f"cutItem{j}" for j, _, _ in cuts})
     tp = "(fnText.map (trS · |>.pat))"
     for j in at:
         tp = f"({tp}.set {j} {item[j]})"
@@ -4577,18 +4782,30 @@ def readings_section(ws, acs, rds, uns, nfe, npe):
             "  unfold textPats",
             f"  rw [{ne}, List.getElem?_map, hj]",
             "  rfl", ""]
-    out_l = ", ".join(map(str, sorted(wjs + ujs)))
+    # the cut items whose sentence Γ entails (`fns_entailed` holds them), the others; those whose sentence
+    # gives the item in every model of definedness (`fns_from_text` holds them), the others
+    ce = [(j, i) for j, i, k in cuts if cut_in_entailed(k, confined)]
+    cx = [j for j, _, k in cuts if not cut_in_entailed(k, confined)]
+    cf = [j for j, _, k in cuts if cut_form(k) == "own"]
+    cy = [j for j, _, k in cuts if cut_form(k) != "own"]
+    ex_f = sorted(ujs + cy)
+    out_l = ", ".join(map(str, sorted(wjs + ujs + cx)))
     via = [f"item {j} through `ac{j}_iff`" for j, _ in acs] + [f"item {j} through `rd{j}_iff`" for j, _ in rds]
+    via_e = via + [f"item {j} by `cut{j}_entailed`" for j, _ in ce]
+    via_f = via + [f"item {j} by `cut{j}_from_text`" for j in cf]
     but = ([f"the narrowed ones (items {', '.join(map(str, wjs))})"] if ws else []) + \
-        ([f"the untied ones (items {', '.join(map(str, ujs))})"] if uns else [])
+        ([f"the untied ones (items {', '.join(map(str, ujs))})"] if uns else []) + \
+        ([f"the cut ones whose entailment reads more than Γ (items {', '.join(map(str, cx))})"] if cx else [])
+    but_f = ([f"the untied ones (items {', '.join(map(str, ujs))})"] if uns else []) + \
+        ([f"the cut ones given with the constructors' facts (items {', '.join(map(str, cy))})"] if cy else [])
     out += [f"/-- **E for the function equations**: Γ entails each sentence of `fnText`"
             + (f" but {' and '.join(but)}" if but else "") + ", for every H"
-            + ("; " + ", ".join(via) if via else "") + ". -/",
+            + ("; " + ", ".join(via_e) if via_e else "") + ". -/",
             "theorem fns_entailed (H : HookParams) : ∀ (j : Nat) (ad : AxiomDecl), fnText[j]? = some ad →",
             f"    j ∉ ([{out_l}] : List Nat) → Γ (cH H) ⊧ (trS ad).pat := by",
             "  intro j ad hj hn"]
-    for j, i in acs + rds:
-        ent = f"ac{j}_entailed" if (j, i) in acs else f"rd{j}_entailed"
+    for j, i in acs + rds + ce:
+        ent = f"ac{j}_entailed" if (j, i) in acs else f"rd{j}_entailed" if (j, i) in rds else f"cut{j}_entailed"
         out += [f"  by_cases h{j} : j = {j}",
                 f"  · subst h{j}",
                 f"    rw [fnText_at{j}] at hj",
@@ -4599,22 +4816,22 @@ def readings_section(ws, acs, rds, uns, nfe, npe):
     out += ["  have hn' : j ∉ pairSetAt := by",
             "    simp only [pairSetAt, List.mem_cons, List.not_mem_nil, or_false] at hn ⊢",
             "    omega"]
-    out += (["  exact TiePair.entailed (shapeH H) _ (List.mem_of_getElem? (textPats_of hj hn'))", ""] if acs or rds else
+    out += (["  exact TiePair.entailed (shapeH H) _ (List.mem_of_getElem? (textPats_of hj hn'))", ""] if acs or rds or ce else
             ["  intro M _ I hI",
              "  exact TiePair.entailed (shapeH H) _ (List.mem_of_getElem? (textPats_of hj hn')) hI", ""])
     out += ["/-- **The converse for `fnItems`**: each item"
-            + (f" but the untied ones (items {', '.join(map(str, ujs))})" if uns else "")
+            + (f" but {' and '.join(but_f)}" if but_f else "")
             + " is a consequence of a text sentence, the j-th of `fnText`"
-            + ("; the narrowed ones by W1" if ws else "") + ("; " + ", ".join(via) if via else "")
+            + ("; the narrowed ones by W1" if ws else "") + ("; " + ", ".join(via_f) if via_f else "")
             + "; the others by their translation. -/",
             "theorem fns_from_text (H : HookParams) :",
             "    ∀ (j : Nat) (it : Item), (fnItems (cH H))[j]? = some it →"
-            + (f" j ∉ ([{', '.join(map(str, ujs))}] : List Nat) →" if uns else ""),
+            + (f" j ∉ ([{', '.join(map(str, ex_f))}] : List Nat) →" if ex_f else ""),
             "      ∃ ad, fnText[j]? = some ad ∧ (TiePair.Texts [(trS ad).pat] ⊧ it.pat) := by",
-            "  intro j it hj" + (" hu" if uns else "")]
+            "  intro j it hj" + (" hu" if ex_f else "")]
     # `hg` and `pick` only where an item set to Γ's is given by its sentence (unused, `pick`'s statement
     # does not elaborate)
-    if len(at) > len(ujs):
+    if len(at) > len(ex_f):
         out += ["  have hg : (TiePair.gammaPats c)[j]? = some it.pat := by",
                 "    rw [← TiePair.gammaPats_withHooks c H]",
                 "    unfold TiePair.gammaPats; rw [List.getElem?_map, hj]; rfl",
@@ -4629,8 +4846,12 @@ def readings_section(ws, acs, rds, uns, nfe, npe):
         out.append(f"  by_cases h{j} : j = {j}")
         if j in wjs:
             out.append(f"  · exact pick prioItem{j}_at fnText_at{j} prio{j}_w1 h{j}")
-        elif j in ujs:
+        elif j in ex_f:
             out.append(f"  · subst h{j}; simp at hu")
+        elif j in cf:
+            out.append(f"  · exact pick cutItem{j}_at fnText_at{j}")
+            out.append(f"      (fun {{M}} _ {{I}} hI => cut{j}_from_text (TiePair.defOK_texts hI)")
+            out.append(f"        (hI _ (Or.inl (List.mem_singleton_self _)))) h{j}")
         elif j in [x for x, _ in acs]:
             out.append(f"  · exact pick acItem{j}_at fnText_at{j}")
             out.append(f"      (fun {{M}} _ {{I}} hI => ac{j}_iff.mp (hI _ (Or.inl (List.mem_singleton_self _)))) h{j}")
