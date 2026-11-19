@@ -149,8 +149,8 @@ theorem clauseCtx_of_okM (hok : c.okM = true) : ClauseCtx c := by
       ⟨h1, h2, h3, h4, h5, h6, Semantics.sortPreds_pre hfn cl hcl, Semantics.sortPreds_exs hfn cl hcl,
         Semantics.sortPreds_post hfn cl hcl⟩⟩
   have hok := (List.all_eq_true.mp hfns) fn hfn
-  simp only [Semantics.fnOK, Bool.and_eq_true, List.all_eq_true] at hok
-  obtain ⟨hcls, _⟩ := hok
+  simp only [Semantics.fnOK, List.all_eq_true] at hok
+  have hcls := hok
   refine ⟨c.fns.map Fn.sig, fun k hk => ?_, fun cl hcl => ?_⟩
   · obtain ⟨g, hg, rfl⟩ := List.mem_map.mp hk
     exact ⟨g, List.mem_append_left _ hg, rfl⟩

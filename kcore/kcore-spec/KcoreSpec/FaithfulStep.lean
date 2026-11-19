@@ -1163,8 +1163,8 @@ theorem _root_.KCore.Semantics.okM_clauseBinds {c : Semantics} (h : c.okM = true
   intro fn hfn cl hcl
   simp only [Semantics.okM, Bool.and_eq_true] at h
   have hf := h.1.1.2
-  simp only [Semantics.fnsOK, Semantics.fnOK, Bool.and_eq_true, List.all_eq_true] at hf
-  have h2 := (hf fn hfn).1 cl hcl
+  simp only [Semantics.fnsOK, Semantics.fnOK, List.all_eq_true] at hf
+  have h2 := hf fn hfn cl hcl
   simp only [Semantics.clauseOK, Bool.and_eq_true] at h2
   exact h2.1.1.1.2
 
