@@ -243,7 +243,7 @@
 //!
 //! A *case document* is a TOML or a JSON document, by its file's extension,
 //! that states one case or several named cases ([`CaseDocument`]).
-//! A *case* is a table of six keys, each of which may be absent:
+//! A *case* is a table of seven keys, each of which may be absent:
 //!
 //! - `inputs`: a value for each input, by name
 //!   (a parameter's Rust name, or its configuration variable's K name with or without `$`),
@@ -275,6 +275,13 @@
 //! - `instances`: the instances the run starts with, of the optional and repeated cells it names
 //!   ("Instances", below).
 //! - `expect`: the end the case expects of its run ("Expectations", below).
+//! - `expect_for`: ends the case expects of its run on a named definition,
+//!   a non-empty table of expected ends by non-empty definition name (a facet, as `--definition` names it),
+//!   each a table read as `expect` is;
+//!   a flow of `krs kink` checks `expect` and the one scoped to its own definition, both where both are given.
+//!   This reader checks the shape and then refuses the document that holds the case, every case of it:
+//!   `krs run --case`, `krs cases` and `krs compare` do not select an expectation by their definition,
+//!   and refusing the document is how they avoid checking a case without that expectation.
 //! - `provenance`: which tool or person found the case and why it is in its corpus,
 //!   a table of `found_by` and `reason`, each optional and a non-empty string,
 //!   at least one given, and no other key ([`CaseProvenance`]).
@@ -799,12 +806,13 @@ pub struct Expectation {
 }
 
 /// The keys of a case, besides a named case's `name`.
-const CASE_KEYS: [&str; 6] = [
+const CASE_KEYS: [&str; 7] = [
     "inputs",
     "run",
     "observe",
     "instances",
     "expect",
+    "expect_for",
     "provenance",
 ];
 
@@ -860,7 +868,7 @@ impl Case {
         }
         let Json::Object(top) = document else {
             return Err(InputError::document(
-                "a case document is a table: one case's `inputs`, `run`, `observe`, `instances`, `expect` and `provenance`, or named cases under `case`".to_owned(),
+                "a case document is a table: one case's `inputs`, `run`, `observe`, `instances`, `expect`, `expect_for` and `provenance`, or named cases under `case`".to_owned(),
             ));
         };
         case_table(top, "", None, Shared::default(), None)
@@ -1053,11 +1061,11 @@ fn case_table(
             "a document of one case names none; named cases are listed under `case`".to_owned()
         } else if named {
             format!(
-                "unknown key `{key}` in a case; a named case has the keys `name`, `inputs`, `run`, `observe`, `instances`, `expect` and `provenance`"
+                "unknown key `{key}` in a case; a named case has the keys `name`, `inputs`, `run`, `observe`, `instances`, `expect`, `expect_for` and `provenance`"
             )
         } else {
             format!(
-                "unknown key `{key}` in a case; a case has the keys `inputs`, `run`, `observe`, `instances`, `expect` and `provenance`"
+                "unknown key `{key}` in a case; a case has the keys `inputs`, `run`, `observe`, `instances`, `expect`, `expect_for` and `provenance`"
             )
         };
         return Err(at(position, message));
@@ -1112,6 +1120,17 @@ fn case_table(
         .remove("provenance")
         .map(|document| provenance(&document, &key_position(position, "provenance")))
         .transpose()?;
+    if let Some(document) = top.remove("expect_for") {
+        let position = key_position(position, "expect_for");
+        expect_for(&document, &position)?;
+        return Err(at(
+            &position,
+            "an expectation scoped to a definition is checked by `krs kink`, whose flow names its \
+             definition; `krs run --case`, `krs cases` and `krs compare` do not select one by \
+             their definition, so they refuse the case rather than check it without it"
+                .to_owned(),
+        ));
+    }
     Ok(Case {
         name,
         inputs,
@@ -1122,6 +1141,41 @@ fn case_table(
         provenance,
         file: file.map(str::to_owned),
     })
+}
+
+/// Checks the `expect_for` table `document` at `position` (module documentation): a non-empty
+/// table of tables by non-empty definition name, as kink-flow's case reader reads it.
+fn expect_for(document: &Json, position: &str) -> Result<(), InputError> {
+    let Json::Object(table) = document else {
+        return Err(at(
+            position,
+            "`expect_for` is a table of expected ends by definition name: `[expect_for.<definition>]`"
+                .to_owned(),
+        ));
+    };
+    if table.is_empty() {
+        return Err(at(
+            position,
+            "`expect_for` scopes no expectation to a definition; give one, or remove it".to_owned(),
+        ));
+    }
+    for (definition, expect) in table {
+        let here = key_position(position, definition);
+        if definition.is_empty() {
+            return Err(at(
+                &here,
+                "a definition name is a non-empty string".to_owned(),
+            ));
+        }
+        if !expect.is_object() {
+            return Err(at(
+                &here,
+                "an expectation scoped to a definition is a table of the expected end, as `expect` is"
+                    .to_owned(),
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// The `provenance` table `document` at `position`: `found_by` and `reason`, each a non-empty
@@ -2104,7 +2158,7 @@ impl CaseReader<'_> {
             let Json::Object(table) = item else {
                 return Err(at(
                     &here,
-                    "a named case is a table of `name`, `inputs`, `run`, `observe`, `instances`, `expect` and `provenance`"
+                    "a named case is a table of `name`, `inputs`, `run`, `observe`, `instances`, `expect`, `expect_for` and `provenance`"
                         .to_owned(),
                 ));
             };
@@ -3916,7 +3970,7 @@ mod tests {
         let refusal = |text: &str| Case::from_toml(text).unwrap_err().to_string();
         assert_eq!(
             refusal("[inputs]\n[other]\n"),
-            "unknown key `other` in a case; a case has the keys `inputs`, `run`, `observe`, `instances`, `expect` and `provenance`"
+            "unknown key `other` in a case; a case has the keys `inputs`, `run`, `observe`, `instances`, `expect`, `expect_for` and `provenance`"
         );
         assert_eq!(
             refusal("name = \"boot\"\n"),
@@ -4094,7 +4148,7 @@ mod tests {
         );
         assert_eq!(
             refusal(r#"[{"name": "x", "other": 1}]"#),
-            "at `[0]`: unknown key `other` in a case; a named case has the keys `name`, `inputs`, `run`, `observe`, `instances`, `expect` and `provenance`"
+            "at `[0]`: unknown key `other` in a case; a named case has the keys `name`, `inputs`, `run`, `observe`, `instances`, `expect`, `expect_for` and `provenance`"
         );
         assert_eq!(
             refusal(r#"[{"name": "x"}, {"$data-file": "a.json"}]"#),
@@ -4122,7 +4176,7 @@ mod tests {
         );
         assert_eq!(
             refusal(r"[1]"),
-            "at `[0]`: a named case is a table of `name`, `inputs`, `run`, `observe`, `instances`, `expect` and `provenance`"
+            "at `[0]`: a named case is a table of `name`, `inputs`, `run`, `observe`, `instances`, `expect`, `expect_for` and `provenance`"
         );
         assert_eq!(
             refusal("true"),
@@ -4218,6 +4272,69 @@ mod tests {
             (
                 "provenance = { found_by = \"a\" }\n[[case]]\nname = \"a\"\n",
                 "a document of named cases holds `case`, `run` and `observe` only; one case's `provenance` belongs in its table in `case`",
+            ),
+        ] {
+            assert_eq!(
+                CaseDocument::from_toml(text, None, &mut files)
+                    .unwrap_err()
+                    .to_string(),
+                refusal,
+                "{text}"
+            );
+        }
+    }
+
+    /// `expect_for` is a case key with kink-flow's shape rule (kink-flow
+    /// `manifest::case_document::tests`, `EXPECT_FOR_ACCEPTED` and `EXPECT_FOR_REFUSED`): each
+    /// malformed document refused at the same key, and a well-formed one refused, since this
+    /// reader's commands do not select an expectation by their definition.
+    #[test]
+    fn a_case_expect_for_is_read_as_kink_reads_it() {
+        let mut files = Files(BTreeMap::new());
+        let pending = "an expectation scoped to a definition is checked by `krs kink`";
+        for (text, position) in [
+            (
+                "[expect]\nhalt = \"stuck\"\n[expect_for.X]\nclass = \"refused\"\n[expect_for.Y]\nhalt = \"stopped\"\n",
+                "expect_for",
+            ),
+            (
+                "[[case]]\nname = \"a\"\n[case.expect_for.X]\nhalt = \"stuck\"\n[[case]]\nname = \"b\"\n",
+                "case[0].expect_for",
+            ),
+            ("[expect_for.Y]\nhalt = \"stuck\"\n", "expect_for"),
+        ] {
+            let refusal = CaseDocument::from_toml(text, None, &mut files)
+                .unwrap_err()
+                .to_string();
+            assert!(
+                refusal.starts_with(&format!("at `{position}`: {pending}")),
+                "{text}: {refusal}"
+            );
+        }
+        for (text, refusal) in [
+            (
+                "expect_for = 1\n",
+                "at `expect_for`: `expect_for` is a table of expected ends by definition name: `[expect_for.<definition>]`",
+            ),
+            (
+                "expect_for = {}\n",
+                "at `expect_for`: `expect_for` scopes no expectation to a definition; give one, or remove it",
+            ),
+            (
+                "expect_for = { X = 1 }\n",
+                "at `expect_for.X`: an expectation scoped to a definition is a table of the expected end, as `expect` is",
+            ),
+            (
+                "[expect_for.\"\"]\nhalt = \"stuck\"\n",
+                "at `expect_for.`: a definition name is a non-empty string",
+            ),
+            (
+                "[[case]]\nname = \"a\"\nexpect_for = { X = [1] }\n",
+                "at `case[0].expect_for.X`: an expectation scoped to a definition is a table of the expected end, as `expect` is",
+            ),
+            (
+                "expect_for = { X = { halt = \"stuck\" } }\n[[case]]\nname = \"a\"\n",
+                "a document of named cases holds `case`, `run` and `observe` only; one case's `expect_for` belongs in its table in `case`",
             ),
         ] {
             assert_eq!(

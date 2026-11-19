@@ -2801,6 +2801,7 @@ endmodule
                     case: None,
                     case_file: None,
                     expect: None,
+                    expect_for: Default::default(),
                     provenance: None,
                     stop_count: None,
                 };

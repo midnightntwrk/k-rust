@@ -114,6 +114,7 @@ text = "2"
             case: None,
             case_file: None,
             expect: None,
+            expect_for: Default::default(),
             provenance: None,
             stop_count: None,
         }
@@ -437,6 +438,7 @@ fn a_case_document_is_the_whole_case() {
                 case: Some("cases/boot/case.toml".into()),
                 case_file: None,
                 expect: None,
+                expect_for: Default::default(),
                 provenance: None,
                 stop_count: None,
             },
@@ -449,6 +451,7 @@ fn a_case_document_is_the_whole_case() {
                 case: Some("cases/empty/case.toml".into()),
                 case_file: None,
                 expect: None,
+                expect_for: Default::default(),
                 provenance: None,
                 stop_count: None,
             }
@@ -470,7 +473,7 @@ fn a_case_document_is_the_whole_case() {
     refused(
         "program = 1",
         &format!("{id}.program"),
-        "a case has the keys `inputs`, `expect` and `provenance`",
+        "a case has the keys `inputs`, `expect`, `expect_for` and `provenance`",
     );
     refused("[inputs", id, "no TOML document");
 
@@ -1226,7 +1229,7 @@ fn named_cases_are_programs_named_by_their_document_and_name() {
     refused(
         "[[case]]\nname = \"a\"\nfile = \"x\"\n",
         &format!("{id}.case[0].file"),
-        "it has the keys `name`, `inputs`, `expect` and `provenance`",
+        "it has the keys `name`, `inputs`, `expect`, `expect_for` and `provenance`",
     );
     refused(
         "[[case]]\nname = \"a\"\nexpect = 1\n",
@@ -1475,6 +1478,113 @@ fn a_case_expectation_is_checked_by_the_front_ends_renderer() {
         "{check:#}"
     );
     assert_eq!(row["expectation"]["verdict"], "inconclusive", "{check:#}");
+}
+
+/// A flow checks a case's `expect` and the expectation its `expect_for` scopes to the flow's
+/// definition (the main module, `CASES`), both where the case states both, and no expectation
+/// scoped to another definition: that one is neither read at admission nor reported. Without a
+/// renderer of ends, a case with an expectation scoped to the flow's definition is refused
+/// (`typed-expectation`) as one with `expect` is, and one scoped to another definition only is
+/// admitted. With one, a scoped expectation the renderer refuses refuses its case, naming it.
+#[test]
+fn a_flow_checks_the_expectation_scoped_to_its_definition() {
+    let dir = scratch("expect-for");
+    write(&dir.join("cases.k"), CASES_K);
+    fs::create_dir_all(dir.join("cases")).unwrap();
+    fs::write(dir.join("cases/rom.bin"), [0x07]).unwrap();
+    let case = |name: &str, expect: &str| {
+        format!(
+            "[[case]]\nname = \"{name}\"\ninputs = {{ entry = {{ \"$go\" = true }}, n = 1, rom = {{ \"$file\" = \"rom.bin\" }} }}\n{expect}\n"
+        )
+    };
+    write(
+        &dir.join("FLOW.toml"),
+        "[spec]\nentry = \"cases.k\"\nmain_module = \"CASES\"\n\n[[program]]\ncases = \"cases/*.toml\"\n",
+    );
+    let runs = dir.join("cases/runs.toml");
+    write(
+        &runs,
+        &[
+            case("scoped", "expect_for = { CASES = { ends = 1 } }"),
+            case(
+                "both",
+                "expect = { ends = 1 }\nexpect_for = { CASES = { ends = 2 } }",
+            ),
+            case("other", "expect_for = { OTHER = { bad = 1 } }"),
+        ]
+        .concat(),
+    );
+    let k_level = read(&dir)
+        .unwrap()
+        .with_input_decoder(std::sync::Arc::new(TestDecoder));
+    let admission = on_stack(move || admit(&k_level));
+    let typed = Some(("inputs".to_owned(), "typed-expectation".to_owned()));
+    assert_eq!(
+        outcomes(&admission),
+        [
+            ("cases/runs.toml#scoped".to_owned(), typed.clone()),
+            ("cases/runs.toml#both".to_owned(), typed),
+            ("cases/runs.toml#other".to_owned(), None),
+        ]
+    );
+
+    let manifest = read(&dir)
+        .unwrap()
+        .with_input_decoder(std::sync::Arc::new(TestDecoder))
+        .with_end_renderer(std::sync::Arc::new(TestRenderer));
+    let (results, results_ok) =
+        on_stack(move || kink_flow::coverage::coverage(&manifest, &CoverageOptions::default()));
+    assert!(results_ok, "{results:#}");
+    let expectation = |id: &str| {
+        results["programs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["id"] == id)
+            .unwrap()
+            .get("expectation")
+            .cloned()
+    };
+    assert_eq!(
+        expectation("cases/runs.toml#scoped"),
+        Some(serde_json::json!({"verdict": "met", "detail": null, "difference": null})),
+        "{results:#}"
+    );
+    assert_eq!(
+        expectation("cases/runs.toml#both"),
+        Some(serde_json::json!({
+            "verdict": "unmet",
+            "detail": "`expect_for.CASES` is unmet",
+            "difference": {"format": "test/1", "ends": 1},
+        })),
+        "{results:#}"
+    );
+    assert_eq!(expectation("cases/runs.toml#other"), None, "{results:#}");
+    assert_eq!(
+        kink_flow::cli::coverage_status(&results),
+        kink_flow::cli::EXIT_NO,
+        "{results:#}"
+    );
+
+    write(&runs, &case("bad", "expect_for = { CASES = { bad = 1 } }"));
+    let manifest = read(&dir)
+        .unwrap()
+        .with_input_decoder(std::sync::Arc::new(TestDecoder))
+        .with_end_renderer(std::sync::Arc::new(TestRenderer));
+    let (check, status) = on_stack(move || {
+        kink_flow::cli::run_command(
+            &manifest,
+            &kink_flow::FlowCommand::Check(kink_flow::cli::CheckOptions::default()),
+            &kink_flow::FrontEnd::default(),
+        )
+    });
+    assert_eq!(status, kink_flow::cli::EXIT_UNASKED, "{check:#}");
+    let row = &check["programs"][0];
+    assert_eq!(row["reason"], "expectation-value", "{check:#}");
+    assert_eq!(
+        row["detail"], "expect_for.CASES: `bad` is no part of an expectation",
+        "{check:#}"
+    );
 }
 
 /// A case's `provenance` is shown in its row of `coverage` and `check` as its document states

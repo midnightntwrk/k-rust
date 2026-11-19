@@ -646,7 +646,7 @@ fn refusals_name_parameter_type_and_position() {
     assert_eq!(
         stderr(&odd).lines().next(),
         Some(
-            "error[krs::exec::case]: case `odd.toml`: unknown key `other` in a case; a case has the keys `inputs`, `run`, `observe`, `instances`, `expect` and `provenance`"
+            "error[krs::exec::case]: case `odd.toml`: unknown key `other` in a case; a case has the keys `inputs`, `run`, `observe`, `instances`, `expect`, `expect_for` and `provenance`"
         )
     );
 }

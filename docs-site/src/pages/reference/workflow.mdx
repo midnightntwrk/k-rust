@@ -701,7 +701,7 @@ so that it is byte-identical across runs and hosts.
 
 A *case document* is a TOML or a JSON document, by its file's extension,
 that states one case or several named cases (`CaseDocument`).
-A *case* is a table of six keys, each of which may be absent:
+A *case* is a table of seven keys, each of which may be absent:
 
 - `inputs`: a value for each input, by name
   (a parameter's Rust name, or its configuration variable's K name with or without `$`),
@@ -733,6 +733,15 @@ A *case* is a table of six keys, each of which may be absent:
 - `instances`: the instances the run starts with, of the optional and repeated cells it names
   ("Instances", below).
 - `expect`: the end the case expects of its run ("Expectations", below).
+- `expect_for`: the ends the case expects of its run on named definitions,
+  a non-empty table of expected ends by non-empty definition name, each written as `expect` is,
+  a definition named by its facet, as `--definition` names it (`[expect_for.static]`).
+  `expect` is a claim about the case on every definition that runs it, and a scoped expectation a claim about it on that definition,
+  so `krs kink` checks `expect` and the expectation scoped to the flow's own definition, both where both are given,
+  and reads none scoped to another definition;
+  its row's `expectation` is `unmet` where either is unmet, else `inconclusive` where either is, else `met`.
+  `krs run --case`, `krs cases` and `krs compare` refuse a case document in which a case gives `expect_for`, every case of it:
+  they do not select an expectation by their definition, and refusing the document keeps them from checking a case without that expectation.
 - `provenance`: which tool or person found the case and why it is in its corpus,
   a table of `found_by` and `reason`, each optional and a non-empty string,
   at least one given, and no other key (`CaseProvenance`).
@@ -1182,6 +1191,8 @@ No digest or cache key holds the root's path or the flow's.
 `fuzz` reads a template that names a `[[program]]` from that program's file under the root, `query` and `prune` name each case by its id under the root, and `compare` states each case's inputs to an implementation from the files under the root.
 Without `[corpus]` the root is the flow's directory, the layout above, with the same documents and the same `kink.lock`.
 
+A case's `expect` is checked by every flow that reads the case; an expectation true of one definition only is written `[expect_for.<facet>]`, which only the flows of that facet check ([Case documents](#case-documents)).
+
 What the layout does not give:
 
 - It does not compare two KRS definitions.
@@ -1190,7 +1201,6 @@ What the layout does not give:
 - `prune` answers for one flow.
   A case redundant in this flow may be the only one that discharges an obligation of another flow, so a case is removable from the root only when the cases kept discharge every flow's obligations.
   The document of a flow that names a root carries `scope` (`{flow_only: true, corpus_root, detail}`), and `--output text` a `note:` line saying that the report holds for this flow alone.
-- A case's `expect` is checked by every flow that reads the case, so an expectation true of one definition only is unmet in the others.
 - A case added under the root is run by every flow that reads it, on that flow's next command, and each flow's `--locked` commands judge it for that flow's definition.
 
 Every verb but `emit` and `report` builds the package in process, as `emit-k` does, and kink judges `kink/definition.k`, which must hold exactly that emission: a command finds it `unchanged`, or writes it and says `written` in the document's `definition` object.

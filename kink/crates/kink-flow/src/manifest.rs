@@ -114,6 +114,9 @@ pub struct FlowManifest {
     /// record's header states ([`crate::lock`]); `None` for a K flow, whose `[spec]` is the
     /// specification itself.
     pub definition: Option<String>,
+    /// The name a case's `expect_for` scopes an expectation to this flow's definition by
+    /// ([`SpecDecl::expect_scope`]): a K flow's main module as written, a KRS flow's facet.
+    pub expect_scope: String,
     pub budget: Budget,
     pub programs: Vec<Program>,
     /// `[[projection]]`: the projections the flow declares, in the order written; empty when it
@@ -696,6 +699,11 @@ pub struct Program {
     /// on it, so it is in no digest. `None` for a case without one and for every program that is
     /// no case of a case document.
     pub expect: Option<Table>,
+    /// `expect_for`: the expectations the case document scopes to definitions, of which the flow
+    /// checks the one of its own definition beside `expect` ([`ExpectFor`]). Like `expect`, in no
+    /// digest. Empty for a case without one and for every program that is no case of a case
+    /// document.
+    pub expect_for: ExpectFor,
     /// `provenance`: who found the case and why it is in the corpus, as its case document states
     /// it ([`Provenance`]); every report that shows the case's row shows it, and no run, digest
     /// or key reads it. `None` for a case without one and for every program that is no case of a
@@ -705,6 +713,19 @@ pub struct Program {
     /// count is a property of the observation of one program (a console ROM that needs more
     /// frames than another), while the rules are the corpus's. Only with `[stop]`.
     pub stop_count: Option<std::num::NonZeroU64>,
+}
+
+/// A case's `expect_for` as one flow reads it: a table of expected ends by definition name, of
+/// which the flow checks the one scoped to its own definition ([`FlowManifest::expect_scope`]),
+/// beside the case's `expect`, and no other.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ExpectFor {
+    /// The expectation the case scopes to the flow's definition, with that definition's name, as
+    /// written; only a front end's end renderer reads it, as it reads `expect`.
+    pub scoped: Option<(String, Table)>,
+    /// The name of every definition the case scopes an expectation to, the flow's own included,
+    /// as written.
+    pub definitions: BTreeSet<String>,
 }
 
 /// A case's `provenance`, `{ found_by, reason }`: which tool or person found the case, and why it
@@ -907,6 +928,20 @@ pub struct KrsSpec {
     pub assume_joined: Vec<String>,
 }
 
+impl SpecDecl {
+    /// The name a case's `expect_for` scopes an expectation to this specification by: a K
+    /// specification's main module as written, a KRS declaration's facet (`definition`), as
+    /// `krs run --definition` names it; never the module of the K a KRS package emits, which
+    /// changes with the emitter.
+    #[must_use]
+    pub fn expect_scope(&self) -> &str {
+        match self {
+            Self::K(spec) => &spec.main_module,
+            Self::Krs(spec) => &spec.definition,
+        }
+    }
+}
+
 impl KrsSpec {
     /// The definition the flow is for, `PACKAGE:FACET`, as `krs --dependency` spells a facet of a
     /// package.
@@ -971,6 +1006,7 @@ impl ManifestFile {
             .map(|value| corpus(value, directory))
             .transpose()?;
         let cases = CaseRoot::of(directory, corpus.as_ref());
+        let scope = spec.expect_scope().to_owned();
         let budget = match top.get("budget") {
             None => Budget::default(),
             Some(value) => budget(value)?,
@@ -1012,7 +1048,7 @@ impl ManifestFile {
         // The entry each id came from (`program[0]`, `program[2].files`), for a duplicate's error.
         let mut origins = BTreeMap::<String, String>::new();
         for (index, entry) in entries.iter().enumerate() {
-            for (program, origin) in program_entry(index, entry, &cases)? {
+            for (program, origin) in program_entry(index, entry, &cases, &scope)? {
                 if let Some(first) = origins.get(&program.id) {
                     return Err(ManifestError::new(
                         program_key(&program.id),
@@ -1053,6 +1089,7 @@ impl ManifestFile {
     /// is refused without one. A K declaration is the specification, so `spec` must be absent.
     /// Every other key is carried over as decoded.
     pub fn bind(self, spec: Option<SpecSection>) -> Result<FlowManifest, ManifestError> {
+        let expect_scope = self.spec.expect_scope().to_owned();
         let (spec, definition) = match (self.spec, spec) {
             (SpecDecl::K(declared), None) => (declared, None),
             (SpecDecl::K(_), Some(_)) => {
@@ -1085,6 +1122,7 @@ impl ManifestFile {
             corpus: self.corpus,
             spec,
             definition,
+            expect_scope,
             budget: self.budget,
             programs: self.programs,
             projections: self.projections,
@@ -2234,11 +2272,13 @@ fn stop_count(entry: &Table, key: &str) -> Result<Option<std::num::NonZeroU64>, 
 }
 
 /// One `[[program]]` entry: a listed program, or the matches of its `files` or `cases` pattern
-/// under the case root `cases` in the order of their ids, each with the entry it came from.
+/// under the case root `cases` in the order of their ids, each with the entry it came from; `scope`
+/// is the flow's definition name ([`SpecDecl::expect_scope`]).
 fn program_entry(
     index: usize,
     value: &Value,
     cases: &CaseRoot,
+    scope: &str,
 ) -> Result<Vec<(Program, String)>, ManifestError> {
     let position = format!("program[{index}]");
     let entry = table(value, &position)?;
@@ -2249,7 +2289,7 @@ fn program_entry(
             "has both files and cases; give one",
         )),
         (Some(pattern), None) => files_entry(&position, entry, pattern, cases),
-        (None, Some(pattern)) => cases_entry(&position, entry, pattern, cases),
+        (None, Some(pattern)) => cases_entry(&position, entry, pattern, cases, scope),
     }
 }
 
@@ -2379,6 +2419,7 @@ fn files_entry(
                 case: None,
                 case_file: None,
                 expect: None,
+                expect_for: ExpectFor::default(),
                 provenance: None,
                 stop_count,
             };
@@ -2389,12 +2430,14 @@ fn files_entry(
 
 /// `cases = "<pattern>"`: each match is a case document, each of its cases a program (the one
 /// case of a document is the program the match names, a named case `<match>#<name>`), observed
-/// with the entry's `stop_count` when it has one.
+/// with the entry's `stop_count` when it has one, and with the expectation its `expect_for` scopes
+/// to `scope`, the flow's definition name.
 fn cases_entry(
     position: &str,
     entry: &Table,
     pattern: &Value,
     cases: &CaseRoot,
+    scope: &str,
 ) -> Result<Vec<(Program, String)>, ManifestError> {
     no_id(entry, position)?;
     // The count of stop events is how the corpus observes a program, not part of the case, so
@@ -2417,7 +2460,7 @@ fn cases_entry(
         .map_err(|e| ManifestError::new(&key, format!("cannot resolve {}: {e}", cases.name)))?;
     let mut programs = Vec::new();
     for document in matches {
-        for case in case_document::case_document(&root, &document)? {
+        for mut case in case_document::case_document(&root, &document)? {
             let id = match &case.name {
                 Some(name) => format!("{document}#{name}"),
                 None => document.clone(),
@@ -2427,6 +2470,10 @@ fn cases_entry(
                 case: Some(document.clone()),
                 case_file: case.file,
                 expect: case.expect,
+                expect_for: ExpectFor {
+                    definitions: case.expect_for.keys().cloned().collect(),
+                    scoped: case.expect_for.remove_entry(scope),
+                },
                 provenance: case.provenance,
                 source: None,
                 start_sort: None,
@@ -2496,6 +2543,7 @@ fn program(position: &str, entry: &Table, cases: &CaseRoot) -> Result<Program, M
         case: None,
         case_file: None,
         expect: None,
+        expect_for: ExpectFor::default(),
         provenance: None,
         stop_count,
     })

@@ -188,11 +188,12 @@ Without `[corpus]` the root is the manifest's directory: the layout every corpus
 No digest and no cache key holds the root or the manifest's directory, as written or resolved: a program's digest is of its bytes and its decoded inputs, the specification's of its files by their names relative to the manifest's directory, and a request to an implementation names the program by its id.
 A flow moved to another depth, naming the same root by another path, reads the cache it had.
 
+A case's `expect` is checked by every flow that reads the case; an expectation true of one definition only is written `[expect_for.<definition>]`, which only the flows of that definition check ("Expectations").
+
 What the layout does not give:
 
 - No comparison between the definitions. Each flow runs the cases on its own definition and records its own verdicts; nothing checks that two definitions end a case alike. An `[[implementation]]` compares a definition with one other system ("Comparing implementations"). A statement about two definitions (that one refines the other) is a claim about every run of both, not a verdict on the corpus's runs: it belongs to the proof tool, and no kink command makes it.
 - No shared verdicts. Each flow has its own record and cache; a case added under the root is run by every flow that reads it on that flow's next command, and each flow's `--locked` gate judges it for that flow's definition.
-- No shared expectation scope. A case's `expect` is checked by every flow that reads the case, so an expectation true of one definition only is unmet in the others.
 - No corpus-wide `prune`. A flow's report is of that flow's obligations and answers for that flow only; a case redundant in one flow may be the only discharger of an obligation of another, so a case is removable from the root only when the cases kept discharge every flow's obligations ("Redundant programs").
 - No check that two flows are of one interface. A definition that cannot read a case's inputs refuses that case (`inputs`), naming it.
 
@@ -226,8 +227,8 @@ A pattern that matches nothing is an error, not an empty corpus: a typo or a run
 
 `files` takes `start_sort`, `variables` and `inputs` beside it (`file` and `text` are the matches').
 `cases` takes no other key but `stop_count`: a match is a case document, the document `krs run --case` reads, so the document is the whole case in every tool.
-A document of one case holds the case's typed inputs under `[inputs]` by input name, the end it expects under `[expect]` ("Expectations", below) and who found it under `provenance` ("Provenance", below), and no other top-level key.
-A document of named cases holds only `case`, the list of its cases: an array (`[[case]]` tables) of named cases, each a table of `name`, `inputs`, `expect` and `provenance`, and of includes, `{ "$data-file" = "path" }`, each naming a `.toml` or `.json` file whose document is such a list (an array, or a table whose one key is `case`), whose cases stand at the include's place; `case` may itself be an include.
+A document of one case holds the case's typed inputs under `[inputs]` by input name, the end it expects under `[expect]` and of a named definition under `[expect_for.<definition>]` ("Expectations", below) and who found it under `provenance` ("Provenance", below), and no other top-level key.
+A document of named cases holds only `case`, the list of its cases: an array (`[[case]]` tables) of named cases, each a table of `name`, `inputs`, `expect`, `expect_for` and `provenance`, and of includes, `{ "$data-file" = "path" }`, each naming a `.toml` or `.json` file whose document is such a list (an array, or a table whose one key is `case`), whose cases stand at the include's place; `case` may itself be an include.
 A name is a nonempty string that no other case of the document has, the included files' cases included, so that the document's path and the name identify the case; the cases are programs in document order.
 A case's `run`, how `krs run --case` runs it on its own, is refused, in a case and beside `case`: kink runs every program as the corpus says (`[stop]`, `stop_count`, `[budget]`), and the ends a kill compares are those of that one observation.
 A `stop_count` beside `cases` is not part of the case but of how the corpus observes it ("Where a run ends"), and applies to every case the entry matches.
@@ -268,6 +269,22 @@ After the baseline runs, the renderer checks the expectation against the baselin
 `detail` of a met or unmet verdict says how the check compared what kink does not observe in full: under `[stop]` an end is stuck or stopped at a rule of the stop, which the ends do not say, so the krs front end compares only the cells of an expectation of either halt (unmet when they differ, inconclusive when they agree, since met is agreement on the halt as well) and finds an expectation of another halt unmet at the class, since no end has it.
 In a definition that declares ends, an expectation may state the declared class of a stuck end, `class`, `end` and `reason` ("Declared ends"), each compared only where it states it, as `krs cases` compares them: without `[stop]` the krs front end reads each baseline end's class from the definition's own end functions before it compares, and a class it cannot decide (or ends of both classes) makes the check inconclusive; under `[stop]` the halt, and so the class, is not observed, as above.
 `check` runs nothing: it checks each expectation against the case's current result record, and is inconclusive for a case without one.
+
+A case read by flows of several definitions ("The corpus root") may scope an expectation to one of them:
+
+```toml
+[expect_for.static]           # checked only by a flow whose definition is `static`
+class = "refused"
+reason = "type-error"
+```
+
+`expect_for` is a table of expected ends by definition name, each written as `expect` is; a flow's definition name is its `[spec] main_module` as written for a K corpus, and its facet (`[spec] krs`'s `definition`) for a KRS corpus, never `PACKAGE:FACET` nor the module of the emitted K.
+`expect` is a claim about the case in every flow that reads it, and an expectation scoped to a definition a claim about it in that definition's flows, so a flow checks `expect` and the expectation scoped to its own definition, both where the case states both, and reads no expectation scoped to another definition, at admission or after.
+A scoped expectation adds a check and replaces none.
+The row's one `expectation` member then reports both: `unmet` where either is unmet, else `inconclusive` where either is, else `met`, its `detail` naming the expectation that decides it (`` `expect_for.static` is unmet ``); a case with one expectation its flow checks has the row it has without `expect_for`.
+A scope is never inferred from `expect`'s own keys: `[expect.static]` is a member of the expected end, which the front end refuses as it refuses any key an end does not have.
+`expect_for` that is no table, scopes no definition, names a definition by an empty string or scopes one to a value that is no table is refused at the case document, before any front end reads it.
+Like `expect`, it is in no digest, cache key or lock.
 
 A baseline that misses its own expectation is a finding about the specification against the reference the case was written from; it is reported, and the case is kept.
 Every kill by the case is still a difference between a mutant's ends and the baseline's, which is what a kill means whatever the case expects, so no verdict or status depends on an expectation.
@@ -810,7 +827,7 @@ In a definition that declares ends, each such entry of a program row's `ends` ad
 The krs front end evaluates each end's function with `krs run`'s default budget of polls; where the slot leaves cells out, each cell it replaced by `\top` is a variable of its sort, so a class decided there holds whatever the cell holds, and one that depends on it is `undecided`.
 The class is computed again by every command, from the ends the result record holds: it is in no record, digest or key, and the result schema is unchanged.
 
-A row whose classes are a finding has `declared_end`, `{finding, detail}`: `undeclared-end` for an end of class `none` that the case does not expect (its `expect` does not state `class = "none"`), `end-classes-overlap` for one of both classes, `end-undecided` for one whose class is not decided; where several ends are findings, the first of the most severe (overlap, gap, undecided).
+A row whose classes are a finding has `declared_end`, `{finding, detail}`: `undeclared-end` for an end of class `none` that the case does not expect (no expectation its flow checks, `expect` or its flow's `expect_for`, states `class = "none"`), `end-classes-overlap` for one of both classes, `end-undecided` for one whose class is not decided; where several ends are findings, the first of the most severe (overlap, gap, undecided).
 `coverage` exits by it, as by an expectation: 1, 2 and 3 respectively ("Exit status"); the other commands report it, since they ask about the mutations, the patterns and the implementations.
 This answers a case as `krs cases` answers one that states no expectation; unlike `krs cases`, an expectation that states no class does not replace the finding, since it says nothing of whether the definition accounts for the end.
 

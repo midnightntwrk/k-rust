@@ -61,6 +61,7 @@ fn a_minimal_manifest_takes_every_default() {
             case: None,
             case_file: None,
             expect: None,
+            expect_for: Default::default(),
             provenance: None,
             stop_count: None,
         }]
@@ -156,6 +157,7 @@ text = "1 + 2"
                 case: None,
                 case_file: None,
                 expect: None,
+                expect_for: Default::default(),
                 provenance: None,
                 stop_count: None,
             },
@@ -168,6 +170,7 @@ text = "1 + 2"
                 case: None,
                 case_file: None,
                 expect: None,
+                expect_for: Default::default(),
                 provenance: None,
                 stop_count: None,
             },
@@ -275,6 +278,7 @@ fn a_program_without_file_or_text_is_a_program_less_case() {
             case: None,
             case_file: None,
             expect: None,
+            expect_for: Default::default(),
             provenance: None,
             stop_count: None,
         }]
@@ -793,10 +797,15 @@ fn binding_a_krs_spec_is_decoding_the_spec_written_out() {
     // The bound manifest also names the definition the flow is for, which a K flow has none of.
     assert_eq!(bound.definition.as_deref(), Some("plus:main"));
     assert_eq!(written.definition, None);
+    // A case's `expect_for` names the KRS flow's definition by its facet, the K flow's by its
+    // main module.
+    assert_eq!(bound.expect_scope, "main");
+    assert_eq!(written.expect_scope, "PLUS");
     assert_eq!(
         bound,
         FlowManifest {
             definition: bound.definition.clone(),
+            expect_scope: bound.expect_scope.clone(),
             ..written
         }
     );

@@ -566,9 +566,10 @@ impl ProgramInputs {
 /// program ([`InputDecoder::program`]) reads its bytes; one that refuses them, or binds them
 /// otherwise than as `$PGM` text on a program with a `start_sort` (which reads `$PGM` text
 /// only), refuses the program (`inputs`/`input-value`). Without a decoder, or where it keeps
-/// kink's rule, the bytes are UTF-8 text bound to `$PGM`. A program with an expectation is
-/// refused without a renderer of ends (`inputs`/`typed-expectation`), and where the renderer
-/// refuses it (`inputs`/`expectation-value`; `crate::expect`).
+/// kink's rule, the bytes are UTF-8 text bound to `$PGM`. A program with an expectation its flow
+/// checks (`expect`, or the one its `expect_for` scopes to the flow's definition) is refused
+/// without a renderer of ends (`inputs`/`typed-expectation`), and where the renderer refuses one
+/// (`inputs`/`expectation-value`; `crate::expect`).
 fn read_inputs(
     root: &Result<CaseRoot, AdmissionRefusal>,
     decoder: &Decoder,
@@ -576,7 +577,7 @@ fn read_inputs(
     program: &Program,
 ) -> Result<CaseInputs, AdmissionRefusal> {
     let inputs = read_typed_inputs(root, decoder, program)?;
-    if program.expect.is_some() {
+    if !crate::expect::expectations(program).is_empty() {
         crate::expect::admit_expectation(renderer, &root.clone()?, program)?;
     }
     Ok(inputs)

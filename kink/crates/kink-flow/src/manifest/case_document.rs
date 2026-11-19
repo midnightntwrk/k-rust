@@ -1,9 +1,10 @@
 //! A case document a `cases` pattern matched: one case, or named cases (the krs case document,
 //! read here with kink's containment rule).
 //!
-//! A document of one case holds `inputs`, `expect` and `provenance` at its top. A document of named
-//! cases holds `case`, the list of its cases: an array (TOML's `[[case]]` tables) of named cases,
-//! each a table of `name`, `inputs`, `expect` and `provenance`, and of includes, `{ "$data-file" = "path" }`, each naming a
+//! A document of one case holds `inputs`, `expect`, `expect_for` and `provenance` at its top. A
+//! document of named cases holds `case`, the list of its cases: an array (TOML's `[[case]]` tables)
+//! of named cases, each a table of `name`, `inputs`, `expect`, `expect_for` and `provenance`, and
+//! of includes, `{ "$data-file" = "path" }`, each naming a
 //! `.toml` or `.json` file whose document is a list (an array, or a table whose one key is
 //! `case`, as TOML writes a list), whose cases stand at the include's place; `case` may itself be
 //! an include. A path an included file names, an include's or one in a case's values, is
@@ -22,6 +23,12 @@
 //! in the corpus ([`Provenance`]): each member optional and a nonempty string, at least one given,
 //! and no other member. It is read as written and changes no run: a report shows it, and no digest
 //! or key holds it.
+//!
+//! A case's `expect_for` scopes expectations to definitions: a nonempty table whose keys are
+//! nonempty definition names (the flow's [`super::SpecDecl::expect_scope`]: a K corpus's main
+//! module, a KRS corpus's facet), each value a table, the expected end, which the reader keeps as
+//! written and reads no member of, as it reads none of `expect`. A flow checks `expect` and the
+//! expectation `expect_for` scopes to its own definition (`crate::expect`).
 
 use super::{CaseRoot, ManifestError, Provenance, join, program_key};
 use crate::admit::{InputFiles, ManifestFiles};
@@ -58,6 +65,9 @@ pub(super) struct DocumentCase {
     pub(super) inputs: Table,
     /// `expect`: the end the case expects, kept as written.
     pub(super) expect: Option<Table>,
+    /// `expect_for`: the ends the case expects of a run on each definition it names, by
+    /// definition name, each kept as written; empty without one.
+    pub(super) expect_for: BTreeMap<String, Table>,
     /// `provenance`, when given.
     pub(super) provenance: Option<Provenance>,
     /// The name of the included file the case is written in, as [`InputFiles::read`] gives it
@@ -115,7 +125,7 @@ pub(super) fn case_document(root: &CaseRoot, id: &str) -> Result<Vec<DocumentCas
 }
 
 /// The keys of a case, besides a named case's `name`.
-const CASE_KEYS: [&str; 3] = ["inputs", "expect", "provenance"];
+const CASE_KEYS: [&str; 4] = ["inputs", "expect", "expect_for", "provenance"];
 
 /// The one case of a document whose top is `document`, named `key`.
 fn one_case(mut document: Table, key: &str) -> Result<DocumentCase, ManifestError> {
@@ -128,8 +138,8 @@ fn one_case(mut document: Table, key: &str) -> Result<DocumentCase, ManifestErro
             "name" => {
                 "a document of one case names none; named cases are listed under `case`".to_owned()
             }
-            _ => "unknown key in a case document; a case has the keys `inputs`, `expect` and \
-                  `provenance`"
+            _ => "unknown key in a case document; a case has the keys `inputs`, `expect`, \
+                  `expect_for` and `provenance`"
                 .to_owned(),
         };
         return Err(ManifestError::new(join(key, other), message));
@@ -138,6 +148,7 @@ fn one_case(mut document: Table, key: &str) -> Result<DocumentCase, ManifestErro
         name: None,
         inputs: super::inputs(&document, key)?,
         expect: expect(&mut document, key)?,
+        expect_for: expect_for(&mut document, key)?,
         provenance: provenance(&mut document, key)?,
         file: None,
     })
@@ -153,6 +164,44 @@ fn expect(case: &mut Table, key: &str) -> Result<Option<Table>, ManifestError> {
             "expected a table of the expected end: `halt`, `rule`, `cells` and `compare`",
         )),
     }
+}
+
+/// `expect_for` of a case named `key`: a nonempty table of tables by nonempty definition name,
+/// when given (module documentation); empty when absent.
+fn expect_for(case: &mut Table, key: &str) -> Result<BTreeMap<String, Table>, ManifestError> {
+    let at = join(key, "expect_for");
+    let table = match case.remove("expect_for") {
+        None => return Ok(BTreeMap::new()),
+        Some(Value::Table(table)) => table,
+        Some(_) => {
+            return Err(ManifestError::new(
+                at,
+                "`expect_for` is a table of expected ends by definition name: \
+                 `[expect_for.<definition>]`",
+            ));
+        }
+    };
+    if table.is_empty() {
+        return Err(ManifestError::new(
+            at,
+            "scopes no expectation to a definition; give one, or remove `expect_for`",
+        ));
+    }
+    table
+        .into_iter()
+        .map(|(definition, expect)| match expect {
+            _ if definition.is_empty() => Err(ManifestError::new(
+                join(&at, &definition),
+                "a definition name is a nonempty string",
+            )),
+            Value::Table(expect) => Ok((definition, expect)),
+            _ => Err(ManifestError::new(
+                join(&at, &definition),
+                "an expectation scoped to a definition is a table of the expected end, as \
+                 `expect` is",
+            )),
+        })
+        .collect()
 }
 
 /// `provenance` of a case named `key`, when given: a table of `found_by` and `reason`, each a
@@ -233,7 +282,8 @@ impl CaseList<'_> {
             let Value::Table(case) = item else {
                 return Err(ManifestError::new(
                     here,
-                    "a named case is a table of `name`, `inputs`, `expect` and `provenance`",
+                    "a named case is a table of `name`, `inputs`, `expect`, `expect_for` and \
+                     `provenance`",
                 ));
             };
             let mut case = case.clone();
@@ -268,8 +318,8 @@ impl CaseList<'_> {
                 let message = if other == "run" {
                     run_refused(case.get("run"))
                 } else {
-                    "unknown key in a named case; it has the keys `name`, `inputs`, `expect` and \
-                     `provenance`"
+                    "unknown key in a named case; it has the keys `name`, `inputs`, `expect`, \
+                     `expect_for` and `provenance`"
                         .to_owned()
                 };
                 return Err(ManifestError::new(join(&here, other), message));
@@ -278,6 +328,7 @@ impl CaseList<'_> {
             self.cases.push(DocumentCase {
                 inputs: super::inputs(&case, &here)?,
                 expect: expect(&mut case, &here)?,
+                expect_for: expect_for(&mut case, &here)?,
                 provenance: provenance(&mut case, &here)?,
                 name: Some(name),
                 file: from.map(str::to_owned),
@@ -371,7 +422,9 @@ fn include<'v>(value: &'v Value, key: &str) -> Result<Option<&'v str>, ManifestE
 
 #[cfg(test)]
 mod tests {
-    use super::super::{FlowManifest, ManifestError, Provenance};
+    use super::super::{
+        ExpectFor, FlowManifest, ManifestError, ManifestFile, Provenance, SpecSection,
+    };
     use crate::admit::CaseInputs;
     use crate::digest::{program_digest, program_payload};
     use std::{fs, path::PathBuf};
@@ -535,6 +588,222 @@ mod tests {
         assert_eq!(
             program_digest(&bare, &inputs),
             program_digest(&stated, &inputs)
+        );
+    }
+
+    /// The documents of scoped expectations krs-exec's case table reads alike (krs-exec
+    /// `inputs::tests::a_case_expect_for_is_read_as_kink_reads_it`): each accepted, or refused at
+    /// the key named (relative to the case document's key) with the message given.
+    const EXPECT_FOR_ACCEPTED: [&str; 3] = [
+        "[expect]\nhalt = \"stuck\"\n[expect_for.X]\nclass = \"refused\"\n[expect_for.Y]\nhalt = \"stopped\"\n",
+        "[[case]]\nname = \"a\"\n[case.expect_for.X]\nhalt = \"stuck\"\n[[case]]\nname = \"b\"\n",
+        "[expect_for.Y]\nhalt = \"stuck\"\n",
+    ];
+    const EXPECT_FOR_REFUSED: [(&str, &str, &str); 6] = [
+        (
+            "expect_for = 1\n",
+            "expect_for",
+            "`expect_for` is a table of expected ends by definition name",
+        ),
+        (
+            "expect_for = {}\n",
+            "expect_for",
+            "scopes no expectation to a definition",
+        ),
+        (
+            "expect_for = { X = 1 }\n",
+            "expect_for.X",
+            "an expectation scoped to a definition is a table",
+        ),
+        (
+            "[expect_for.\"\"]\nhalt = \"stuck\"\n",
+            "expect_for.",
+            "a definition name is a nonempty string",
+        ),
+        (
+            "[[case]]\nname = \"a\"\nexpect_for = { X = [1] }\n",
+            "case[0].expect_for.X",
+            "an expectation scoped to a definition is a table",
+        ),
+        (
+            "expect_for = { X = { halt = \"stuck\" } }\n[[case]]\nname = \"a\"\n",
+            "expect_for",
+            "a document of named cases holds `case` only",
+        ),
+    ];
+
+    fn scoped(definition: &str, document: &str) -> Option<(String, toml::Table)> {
+        Some((definition.to_owned(), toml::from_str(document).unwrap()))
+    }
+
+    fn names(names: &[&str]) -> std::collections::BTreeSet<String> {
+        names.iter().map(|name| (*name).to_owned()).collect()
+    }
+
+    /// A K flow (main module `X`) reads the expectation a case scopes to `X`, beside the case's
+    /// `expect`, in a document of one case, a named case and an included file's case; it keeps the
+    /// name of every definition a case scopes one to, and reads no other's expectation. A
+    /// mistyped `[expect.X]` is a member of `expect`, never a scope.
+    #[test]
+    fn a_flow_reads_the_expectation_scoped_to_its_main_module() {
+        let manifest = read(
+            "expect-for-k",
+            &[
+                ("both.toml", EXPECT_FOR_ACCEPTED[0]),
+                ("named.toml", EXPECT_FOR_ACCEPTED[1]),
+                ("other.toml", EXPECT_FOR_ACCEPTED[2]),
+                (
+                    "included.toml",
+                    "case = [{ \"$data-file\" = \"data/more.toml\" }]\n",
+                ),
+                (
+                    "data/more.toml",
+                    "[[case]]\nname = \"c\"\nexpect_for = { X = { halt = \"stuck\" } }\n",
+                ),
+                ("mistyped.toml", "[expect.X]\nhalt = \"stuck\"\n"),
+            ],
+        )
+        .unwrap();
+        let read = manifest
+            .programs
+            .iter()
+            .map(|program| {
+                (
+                    program.id.as_str(),
+                    program.expect.clone(),
+                    program.expect_for.clone(),
+                )
+            })
+            .collect::<Vec<_>>();
+        let stuck = || scoped("X", "halt = \"stuck\"");
+        assert_eq!(
+            read,
+            [
+                (
+                    "cases/both.toml",
+                    Some(toml::from_str("halt = \"stuck\"").unwrap()),
+                    ExpectFor {
+                        scoped: scoped("X", "class = \"refused\""),
+                        definitions: names(&["X", "Y"]),
+                    }
+                ),
+                (
+                    "cases/included.toml#c",
+                    None,
+                    ExpectFor {
+                        scoped: stuck(),
+                        definitions: names(&["X"]),
+                    }
+                ),
+                (
+                    "cases/mistyped.toml",
+                    Some(toml::from_str("[X]\nhalt = \"stuck\"").unwrap()),
+                    ExpectFor::default()
+                ),
+                (
+                    "cases/named.toml#a",
+                    None,
+                    ExpectFor {
+                        scoped: stuck(),
+                        definitions: names(&["X"]),
+                    }
+                ),
+                ("cases/named.toml#b", None, ExpectFor::default()),
+                (
+                    "cases/other.toml",
+                    None,
+                    ExpectFor {
+                        scoped: None,
+                        definitions: names(&["Y"]),
+                    }
+                ),
+            ]
+        );
+        assert_eq!(manifest.expect_scope, "X");
+    }
+
+    /// A KRS flow selects by its facet (`definition`), not by `PACKAGE:FACET` nor by the main
+    /// module of the K its front end binds.
+    #[test]
+    fn a_krs_flow_reads_the_expectation_scoped_to_its_facet() {
+        let dir = corpus(
+            "expect-for-krs",
+            &[(
+                "case.toml",
+                "[expect_for.main]\nhalt = \"stuck\"\n[expect_for.\"pkg:main\"]\nhalt = \"stopped\"\n\
+                 [expect_for.EMITTED]\nclass = \"refused\"\n",
+            )],
+        );
+        fs::write(
+            dir.join("FLOW.toml"),
+            "[spec]\nkrs = { package = \"pkg\", definition = \"main\" }\n\n[[program]]\ncases = \"cases/*.toml\"\n",
+        )
+        .unwrap();
+        let file = ManifestFile::read(&dir.join("FLOW.toml")).unwrap();
+        assert_eq!(file.spec.expect_scope(), "main");
+        let bound = file
+            .bind(Some(SpecSection {
+                entry: "emitted.k".to_owned(),
+                main_module: "EMITTED".to_owned(),
+                syntax_module: None,
+                include_dirs: Vec::new(),
+                md_selector: "k".to_owned(),
+                assume_joined: Vec::new(),
+            }))
+            .unwrap();
+        assert_eq!(bound.expect_scope, "main");
+        assert_eq!(bound.definition.as_deref(), Some("pkg:main"));
+        assert_eq!(
+            bound.programs[0].expect_for,
+            ExpectFor {
+                scoped: scoped("main", "halt = \"stuck\""),
+                definitions: names(&["EMITTED", "main", "pkg:main"]),
+            }
+        );
+    }
+
+    /// An `expect_for` that is no table, scopes nothing, has an empty definition name or a value
+    /// that is no table, or stands at the top of a document of named cases is refused, naming its
+    /// position.
+    #[test]
+    fn a_malformed_expect_for_is_refused() {
+        let id = "program \"cases/case.toml\"";
+        for (document, key, message) in EXPECT_FOR_REFUSED {
+            let error = read("expect-for-refused", &[("case.toml", document)]).expect_err(document);
+            assert_eq!(error.key, format!("{id}.{key}"), "{document}: {error}");
+            assert!(error.message.contains(message), "{document}: {error}");
+        }
+    }
+
+    /// Two cases that differ only in their scoped expectations are one program to every store:
+    /// the same program payload and digest.
+    #[test]
+    fn a_scoped_expectation_is_in_no_program_digest() {
+        let program = |name: &str, document: &str| {
+            read(name, &[("case.toml", document)])
+                .unwrap()
+                .programs
+                .remove(0)
+        };
+        let bare = program("expect-for-bare", "[inputs]\nn = 1\n");
+        let scoped = program(
+            "expect-for-scoped",
+            "[inputs]\nn = 1\n[expect_for.X]\nhalt = \"stuck\"\n[expect_for.Y]\nhalt = \"stuck\"\n",
+        );
+        assert_ne!(bare.expect_for, scoped.expect_for);
+        let inputs = CaseInputs {
+            text: None,
+            typed: Vec::new(),
+            bound: None,
+            defaults: Vec::new(),
+        };
+        assert_eq!(
+            program_payload(&bare, &inputs),
+            program_payload(&scoped, &inputs)
+        );
+        assert_eq!(
+            program_digest(&bare, &inputs),
+            program_digest(&scoped, &inputs)
         );
     }
 }

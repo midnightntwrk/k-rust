@@ -113,7 +113,7 @@ pub use kink_campaign::{
 pub use kink_campaign::{StopOracle, StopWhen};
 pub use kink_native::data::SentenceNames;
 pub use manifest::{
-    Budget, CaseRoot, CorpusSection, Decoder, FlowManifest, Given, IdentitySection,
+    Budget, CaseRoot, CorpusSection, Decoder, ExpectFor, FlowManifest, Given, IdentitySection,
     ImplementationSection, KrsSpec, LogSection, ManifestError, ManifestFile, ObserveFunctionsSlot,
     ObserveSection, PatternsEntry, PointSection, Program, ProjectionKind, ProjectionSection,
     Protocol, RecordCell, SpecDecl, SpecSection, StopSection, StopWhenSection, StopWhenSlot,

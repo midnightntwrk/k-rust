@@ -351,6 +351,7 @@ fn a_program_digest_changes_with_its_text_start_sort_and_variables_only() {
         case: None,
         case_file: None,
         expect: None,
+        expect_for: Default::default(),
         provenance: None,
         stop_count: None,
     };

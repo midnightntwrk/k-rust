@@ -1,6 +1,14 @@
 //! Expectations: the end a case document states its case's run ends in (`expect`), checked
 //! against the ends of the case's baseline run.
 //!
+//! A case may also scope an expectation to one definition, `[expect_for.<definition>]`, the name a
+//! flow's definition goes by ([`crate::manifest::SpecDecl::expect_scope`]: a K flow's main module,
+//! a KRS flow's facet). `expect` is a claim about the case in every flow that reads it, and a
+//! scoped one a claim about it in the flows of that definition, so a flow checks `expect` and the
+//! expectation scoped to its own definition, both where the case states both: a scoped
+//! expectation adds a check and replaces none. An expectation scoped to another definition is not
+//! read: it is no claim about this flow's runs.
+//!
 //! An expectation states what the specification computes for its case, so a baseline that does
 //! not meet it is a finding about the specification against the reference the case was written
 //! from. It is reported, and the case is kept: every kill by the case is still a difference
@@ -20,14 +28,18 @@
 //! decoder, and one whose expectation the renderer refuses is refused (`inputs`,
 //! `expectation-value`), as a case `krs run --case` refuses before it runs.
 //!
-//! A program with `expect` has an `expectation` member in its row of the coverage, run and query
-//! documents and in its row of the check document: `{verdict, detail, difference}`, `verdict`
+//! A program with an expectation its flow checks has an `expectation` member in its row of the
+//! coverage, run and query documents and in its row of the check document: `{verdict, detail,
+//! difference}`, `verdict`
 //! `met`, `unmet` or `inconclusive`, `difference` the front end's document of the first
 //! difference where it is `unmet` (null otherwise), and `detail` why it is inconclusive, or how
 //! the check compared what kink does not observe in full (null when there is nothing to say). Only a `comparable` baseline
 //! has ends kink compares: every other case's expectation is inconclusive, saying why. The check
 //! document runs nothing, so it checks an expectation against the program's current result
-//! record, and is inconclusive for a program without one.
+//! record, and is inconclusive for a program without one. A program with two expectations (`expect`
+//! and its flow's `expect_for`) has one member for both ([`combined`]): `unmet` where either is
+//! unmet, else `inconclusive` where either is, else `met`, its `detail` naming the expectation
+//! that decides it, since both are claims the baseline must meet.
 
 use crate::admit::InputFiles;
 use crate::evidence::{DeclaredEnd, EndRenderer, Renderer};
@@ -149,17 +161,36 @@ impl<'a> Baseline<'a> {
     }
 }
 
-/// The admission of `program`'s expectation, when it has one: refused without a renderer
-/// (`typed-expectation`), or where the renderer refuses it (`expectation-value`). `root` is the
-/// canonical case root.
+/// The expectations `program`'s flow checks (module documentation), each with the key a case
+/// document writes it at: the case's `expect`, then the expectation its `expect_for` scopes to the
+/// flow's definition (`expect_for.<definition>`).
+pub(crate) fn expectations(program: &Program) -> Vec<(String, &Table)> {
+    program
+        .expect
+        .iter()
+        .map(|expect| ("expect".to_owned(), expect))
+        .chain(
+            program
+                .expect_for
+                .scoped
+                .iter()
+                .map(|(definition, expect)| (format!("expect_for.{definition}"), expect)),
+        )
+        .collect()
+}
+
+/// The admission of the expectations `program`'s flow checks ([`expectations`]), when it has one:
+/// refused without a renderer (`typed-expectation`), or where the renderer refuses one
+/// (`expectation-value`, naming it). `root` is the canonical case root.
 pub(crate) fn admit_expectation(
     renderer: &Renderer,
     root: &CaseRoot,
     program: &Program,
 ) -> Result<(), AdmissionRefusal> {
-    let Some(expect) = &program.expect else {
+    let expectations = expectations(program);
+    if expectations.is_empty() {
         return Ok(());
-    };
+    }
     let Some(renderer) = renderer.get() else {
         return Err(AdmissionRefusal {
             stage: "inputs".into(),
@@ -169,17 +200,21 @@ pub(crate) fn admit_expectation(
                 .into(),
         });
     };
-    renderer
-        .read_expectation(expect, &mut root.case_files(program))
-        .map_err(|message| AdmissionRefusal {
-            stage: "inputs".into(),
-            reason: "expectation-value".into(),
-            detail: format!("expect: {message}"),
-        })
+    for (key, expect) in expectations {
+        renderer
+            .read_expectation(expect, &mut root.case_files(program))
+            .map_err(|message| AdmissionRefusal {
+                stage: "inputs".into(),
+                reason: "expectation-value".into(),
+                detail: format!("{key}: {message}"),
+            })?;
+    }
+    Ok(())
 }
 
-/// The `expectation` member of `program`'s row (module documentation), when it has `expect`:
-/// checked against `baseline`, the program's baseline result, or why it has none. `root` is the
+/// The `expectation` member of `program`'s row (module documentation), when its flow checks an
+/// expectation of it ([`expectations`]): each checked against `baseline`, the program's baseline
+/// result, or why it has none, and the checks [`combined`]. `root` is the
 /// canonical case root, or why it is unavailable, `not_compared` the cells the second slot
 /// leaves out and `stop` the manifest's `[stop]`.
 pub(crate) fn expectation_value(
@@ -190,21 +225,63 @@ pub(crate) fn expectation_value(
     not_compared: &[String],
     stop: Option<&StopSection>,
 ) -> Option<Value> {
-    let expect = program.expect.as_ref()?;
-    let checked = match baseline {
-        Err(reason) => CheckedExpectation::inconclusive(reason),
-        Ok(baseline) => check(
-            renderer,
-            root,
-            program,
-            expect,
-            &baseline,
-            not_compared,
-            stop,
-        )
-        .unwrap_or_else(CheckedExpectation::inconclusive),
+    let expectations = expectations(program);
+    if expectations.is_empty() {
+        return None;
+    }
+    let checked = expectations
+        .into_iter()
+        .map(|(key, expect)| {
+            let checked = match &baseline {
+                Err(reason) => CheckedExpectation::inconclusive(*reason),
+                Ok(baseline) => check(
+                    renderer,
+                    root,
+                    program,
+                    expect,
+                    baseline,
+                    not_compared,
+                    stop,
+                )
+                .unwrap_or_else(CheckedExpectation::inconclusive),
+            };
+            (key, checked)
+        })
+        .collect();
+    Some(combined(checked).value())
+}
+
+/// The one check of the expectations a flow checks of a case, each named by its key: one
+/// expectation's check as it is; of two, the first unmet one, else the first inconclusive one,
+/// else `met`, since the baseline meets the case's expectations only where it meets each. The
+/// detail of two names the expectation it is of: the deciding one's, or every met one's that
+/// has one.
+fn combined(mut checked: Vec<(String, CheckedExpectation)>) -> CheckedExpectation {
+    if checked.len() == 1 {
+        return checked.remove(0).1;
+    }
+    let named = |key: &str, detail: Option<&str>, verdict: &str| match detail {
+        Some(detail) => format!("`{key}`: {detail}"),
+        None => format!("`{key}` is {verdict}"),
     };
-    Some(checked.value())
+    for verdict in [ExpectationVerdict::Unmet, ExpectationVerdict::Inconclusive] {
+        if let Some((key, deciding)) = checked.iter().find(|(_, c)| c.verdict == verdict) {
+            return CheckedExpectation {
+                verdict,
+                detail: Some(named(key, deciding.detail.as_deref(), verdict.as_str())),
+                difference: deciding.difference.clone(),
+            };
+        }
+    }
+    let details = checked
+        .iter()
+        .filter_map(|(key, c)| Some(named(key, Some(c.detail.as_deref()?), "met")))
+        .collect::<Vec<_>>();
+    CheckedExpectation {
+        verdict: ExpectationVerdict::Met,
+        detail: (!details.is_empty()).then(|| details.join("; ")),
+        difference: None,
+    }
 }
 
 /// The finding a program row states of its ends' declared classes (`declared_end`): an end in no
@@ -218,11 +295,11 @@ pub const END_CLASSES_OVERLAP: &str = "end-classes-overlap";
 /// `row`, a program row whose `ends` are the summaries of `baseline`'s ends, with each end at
 /// which no rule applies given its declared class (`crate::evidence`, "Declared ends"), and with
 /// `declared_end`, `{finding, detail}`, where those classes are a finding: an end of class
-/// `none` that the case does not expect (`expect.class = "none"`) is [`UNDECLARED_END`], since
-/// the definition has no rule there and does not call the state an end; one of both classes is
-/// [`END_CLASSES_OVERLAP`]; one whose class is not decided is [`END_UNDECIDED`]. Where several
-/// ends are findings the row names the first of the most severe (overlap, then a gap, then an
-/// undecided class), by exit status. A row of a definition that declares no end, and one with no
+/// `none` that the case does not expect (no expectation the flow checks states `class = "none"`)
+/// is [`UNDECLARED_END`], since the definition has no rule there and does not call the state an
+/// end; one of both classes is [`END_CLASSES_OVERLAP`]; one whose class is not decided is
+/// [`END_UNDECIDED`]. Where several ends are findings the row names the first of the most severe
+/// (overlap, then a gap, then an undecided class), by exit status. A row of a definition that declares no end, and one with no
 /// ends, is left as it is. `stop` is whether the corpus has a `[stop]`: an end then has a class
 /// only where its `halt` is `own`.
 pub(crate) fn with_declared(
@@ -263,11 +340,10 @@ pub(crate) fn with_declared(
     let Some(declared) = renderer.declared_ends(&ends, not_compared) else {
         return;
     };
-    let gap_expected = program
-        .expect
-        .as_ref()
-        .and_then(|expect| renderer.expected_class(expect))
-        .is_some_and(|class| class == "none");
+    // Either expectation the flow checks may state that the gap is meant.
+    let gap_expected = expectations(program)
+        .into_iter()
+        .any(|(_, expect)| renderer.expected_class(expect).is_some_and(|c| c == "none"));
     let mut finding: Option<(u8, &'static str, String)> = None;
     for (index, class) in asked.into_iter().zip(&declared) {
         class.annotate(&mut row["ends"][index]);
@@ -359,4 +435,59 @@ fn check(
             stop,
         })
         .map_err(|e| format!("the expectation cannot be checked: {e}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CheckedExpectation, ExpectationVerdict, combined};
+    use serde_json::json;
+
+    fn checked(verdict: ExpectationVerdict, detail: Option<&str>) -> CheckedExpectation {
+        CheckedExpectation {
+            verdict,
+            detail: detail.map(str::to_owned),
+            difference: (verdict == ExpectationVerdict::Unmet).then(|| json!({"at": detail})),
+        }
+    }
+
+    /// One expectation's check is the row's as it is; of two, an unmet one decides, then an
+    /// inconclusive one, and both must be met for `met`; the detail names the expectation.
+    #[test]
+    fn two_expectations_are_met_only_where_each_is() {
+        use ExpectationVerdict::{Inconclusive, Met, Unmet};
+        let one = checked(Inconclusive, Some("no end"));
+        assert_eq!(combined(vec![("expect".into(), one.clone())]), one);
+        let unscoped = "expect".to_owned();
+        let scoped = "expect_for.X".to_owned();
+        let unmet = combined(vec![
+            (unscoped.clone(), checked(Inconclusive, Some("no end"))),
+            (scoped.clone(), checked(Unmet, None)),
+        ]);
+        assert_eq!(unmet.verdict, Unmet);
+        assert_eq!(unmet.detail.as_deref(), Some("`expect_for.X` is unmet"));
+        assert_eq!(unmet.difference, Some(json!({"at": null})));
+        let inconclusive = combined(vec![
+            (unscoped.clone(), checked(Met, None)),
+            (scoped.clone(), checked(Inconclusive, Some("no end"))),
+        ]);
+        assert_eq!(
+            inconclusive,
+            CheckedExpectation {
+                verdict: Inconclusive,
+                detail: Some("`expect_for.X`: no end".to_owned()),
+                difference: None,
+            }
+        );
+        let met = combined(vec![
+            (unscoped.clone(), checked(Met, Some("cells only"))),
+            (scoped.clone(), checked(Met, None)),
+        ]);
+        assert_eq!(met.verdict, Met);
+        assert_eq!(met.detail.as_deref(), Some("`expect`: cells only"));
+        let bare = combined(vec![
+            (unscoped, checked(Met, None)),
+            (scoped, checked(Met, None)),
+        ]);
+        assert_eq!(bare.detail, None);
+    }
 }
