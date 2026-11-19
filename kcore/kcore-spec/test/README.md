@@ -2153,3 +2153,12 @@ table above, on the tree before String and Bytes). Not investigated here.
   bound only inside the key, keyfn-both and keyfn-partial the class is `read keyFunctionAsMember`
   exactly where the rule read holds the fresh variable of a cut key (`keyCutFns`), and the account's
   line (`keysAsMember`) lists those axioms.
+- `test/TieE3MlRuleLhsImplies.lean`, `test/TieRuleImplies.lean`: the tie (C14) of construct fixture
+  e3-ml-rule-lhs-implies (`c(a() #Implies b()) => b()`, read through `connectiveCut`). The first
+  is tiegen's, with the rule (axiom 104) uncovered. The second ties the rule on the same text:
+  `memOf_implies` (`\implies` of memberships is the membership in the implication), the
+  instance of `KoreAML.rule_cut_mem` at the left side in test/TieRuleConn.lean's form (`read`,
+  `left_eq`, `left_tie`, `tie`, `at_rule`, in an interpretation under the theorem's premises), W1
+  for every H (`rule_text`, `left_sub`, `rule_from_text`), and the steps for every H
+  (`implies_steps`: `c(b)` steps to `b` and to `a`, `c(a)` has no successor). The converse of W1
+  in every model of Γ is not stated.
