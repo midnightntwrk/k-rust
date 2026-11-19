@@ -468,6 +468,337 @@ patch = '''
        | .rewrites _ (.and _ [l, _]) _ => vacuous l
 '''
 
+# The reading of each ReadingNote that a note fixture ties (test/Note*.lean), changed in the
+# function that reads it, not in the code that prints the note (connNotes), so the account changes
+# only where the reading's result does; for streamRule and reflectionAsOwn the classification
+# (classifyKBuiltin) is the reading, as it decides that the sentence is read. ruleRightDefined has
+# none: its premise ⌈rhs ∧ ens⌉ is Γ's (Faithful.prioRuleK), not the reader's.
+[mutant."note-or-split-first"]
+summary = "a rewrite axiom whose left side holds \\or is read as the rule of its first disjunct only"
+breaks = "ReadingNote.orSplit: (φ ∨ ψ) → •R is (φ → •R) ∧ (ψ → •R), one rule per disjunct (splitRule); read with the first only, a configuration matching another disjunct has no step by the axiom"
+row = 'E3 ML-SYNTAX:Sort::=Sort "#Or" Sort'
+fixture = "f2-examples/mlor.kompile.kore"
+theorems = "test/NoteOrSplit.lean"
+expect = "killed"
+killed_by = "account: `rules read with the premise ⌈rhs ∧ ens⌉ (ruleRightDefined): 2` becomes `1` (f2-examples/mlor.kompile.kore; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -2213,7 +2213,7 @@
+     let ro := reqOrSplit? a.pattern r0
+     if ro.isNone && !hasOr l && (exUnheld? l).isNone then [a]
+     else
+-      let ls := if hasOr l then (orAlts l).filter (!vacuous ·) else [l]
++      let ls := if hasOr l then ((orAlts l).filter (!vacuous ·)).take 1 else [l]
+       let reqs := (ro.map (·.2)).getD [r0]
+       let consumed := (ro.map (·.1)).toList
+       let used := evarNames a.pattern
+'''
+
+[mutant."note-top-plain"]
+summary = "\\top{S}() on a rule's left side is left as written, not read as a fresh variable of the rule"
+breaks = "ReadingNote.topAsVariable: C[⊤] = ∃z. C[z], and (∃z. φ) → •R is ∀z. (φ → •R) (lhsBind): the rule c(Z) => a() for every Z; left as written the left side is no pattern of a rule"
+row = 'E3 ML-SYNTAX:Sort::="#Top"'
+fixture = "f2-examples/mltop.kompile.kore"
+theorems = "test/NoteTopVar.lean"
+expect = "killed"
+killed_by = "account: the stage refusal `1 patternConnective` (sentence 215, \\top) (f2-examples/mltop.kompile.kore; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -1876,7 +1876,7 @@
+   variable, under applications and conjunctions (`topAsVariable`, `existsAsVariable`): names not
+   in `used`, the n-th and later. -/
+   def lhsBind (used : List String) (n : Nat) : Kore.Pattern → Kore.Pattern × Nat
+-    | .top s => (KoreAML.ev (freshIn used (used.length + 1) s!"Var'Hash'Top{n}") s, n + 1)
++    | .top s => (.top s, n)
+     | .exist _ x p =>
+       let y := KoreAML.evar (freshIn used (used.length + 1) s!"Var'Hash'Ex{n}") x.sort
+       let (p', m) := lhsBind used (n + 1) p
+'''
+
+[mutant."note-exists-kept"]
+summary = "\\exists{_}(Y, φ) on a rule's left side is left as written, its variable not read as one of the rule"
+breaks = "ReadingNote.existsAsVariable: C[∃y. φ] = ∃y. C[φ], and (∃y. φ) → •R is ∀y. (φ → •R) (lhsBind): the rule c(d(Y, b())) => a() for every Y; left as written the left side is no pattern of a rule"
+row = 'E3 ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2'
+fixture = "f2-examples/mlex.kompile.kore"
+theorems = "test/NoteExVar.lean"
+expect = "killed"
+killed_by = "account: the stage refusal `1 patternConnective` (sentence 215, \\exists) (f2-examples/mlex.kompile.kore; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -1877,10 +1877,9 @@
+   in `used`, the n-th and later. -/
+   def lhsBind (used : List String) (n : Nat) : Kore.Pattern → Kore.Pattern × Nat
+     | .top s => (KoreAML.ev (freshIn used (used.length + 1) s!"Var'Hash'Top{n}") s, n + 1)
+-    | .exist _ x p =>
+-      let y := KoreAML.evar (freshIn used (used.length + 1) s!"Var'Hash'Ex{n}") x.sort
++    | .exist s0 x p =>
+       let (p', m) := lhsBind used (n + 1) p
+-      (renameEVar x y p', m)
++      (.exist s0 x p', m)
+     | .app h ss ps => let (ps', m) := lhsBindList used n ps; (.app h ss ps', m)
+     | .and s ps => let (ps', m) := lhsBindList used n ps; (.and s ps', m)
+     | p => (p, n)
+'''
+
+[mutant."note-and-ens-dropped"]
+summary = "an equation's right side t ∧ {B #Equals true} is read as t, the lifted condition dropped from the ensures"
+breaks = "ReadingNote.andAsEnsures: σ(…, φ ∧ P, …) = σ(…, φ, …) ∧ P for a predicate P, so f(X) = X ∧ (X >Int 0 = true) is the clause f(X) = X with the ensures X >Int 0 (clauseBody); dropped, f(X) is X at every X, where the text gives f no value at X ≤ 0"
+row = 'E3 ML-SYNTAX:Sort::=Sort "#And" Sort'
+fixture = "f2-examples/mleqand.kompile.kore"
+theorems = "test/NoteAndEns.lean"
+expect = "killed"
+killed_by = "theorems: w_text, f_0 (test/NoteAndEns.lean; the account of the text unchanged; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -3667,7 +3667,7 @@
+       unless conds.all (fun c => match c with | .isTrue b => eqnCondOK N b | .same .. => true) do
+         fail .patternConnective "\\and"
+       if ens.toList.length + cs.length > 1 then N.hookEqE kEq
+-      pure (rhs, if cs.isEmpty then ens else conjTerms (ens.toList ++ cs), vs)
++      pure (rhs, ens, vs)
+   -- a `non-executable` equation: a clause that no `[owise]` premise negates (`Clause.aside`)
+   clauseExcl N msrc e excl vs { vars := [], pats, req, rhs, ens, prio := (eqnPrio e).2, aside := nonExec e,
+                                 pre := conjC reqCs }
+'''
+
+[mutant."note-bot-ens-dropped"]
+summary = "an equation whose right side is empty (\\bottom) is read without its ensures false: its placeholder right side is its value"
+breaks = "ReadingNote.bottomAsEnsures: f(X) = ⊥ under X <Int 0 states that f has no value there, the clause's ensures false (Eval.ensFails); without it the placeholder is f's value at X < 0"
+row = 'E3 ML-SYNTAX:Sort::="#Bottom"'
+fixture = "f2-examples/mleqbot.kompile.kore"
+theorems = "test/NoteBotEns.lean"
+expect = "killed"
+killed_by = "theorems: qW_eq, f_neg1 (test/NoteBotEns.lean; the account of the text unchanged; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -3654,8 +3654,8 @@
+   let (rhs, ens, vs) ← if empty then do
+       let f ← N.symE e.fn
+       match eqnPlaceholder N vs f r with
+-      | some r' => do let (t, vs) ← term N vs r'; pure (t, some (Term.dv Srt.bool (.bool false)), vs)
+-      | none => pure (Term.app f (stripAsList pats), some (Term.dv Srt.bool (.bool false)), vs)
++      | some r' => do let (t, vs) ← term N vs r'; pure (t, ens, vs)
++      | none => pure (Term.app f (stripAsList pats), ens, vs)
+     else do
+       if let some c := manyValued? r then fail .manyValuedRightSide c
+       -- `t ∧ u` of two terms is `t ∩ u`: no clause's `rhs` and `ens` state it (`andAsEnsures`)
+'''
+
+[mutant."note-or-bottom-empty"]
+summary = "an equation's right side t ∨ ⊥ is read as empty (⊥), not as t"
+breaks = "ReadingNote.orBottom: ⊥ ∨ φ = φ (dropEmptyAlts, hoist), so f(X) = X ∨ ⊥ is the clause f(X) = X; read as empty, f has no value anywhere (the ensures false)"
+row = 'E3 ML-SYNTAX:Sort::="#Bottom"'
+fixture = "f2-examples/mleqorb.kompile.kore"
+theorems = "test/NoteOrBot.lean"
+expect = "killed"
+killed_by = "theorems: w_text, f_3 (test/NoteOrBot.lean; the account of the text unchanged; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -1917,8 +1917,8 @@
+     | .bottom s => (.bottom s, [], true)
+     | .app h ss ps => let (ps', cs, b) := hoistList ps; (.app h ss ps', cs, b)
+     | .or s [t, u] => match t, u with
+-      | _, .bottom _ => hoist t
+-      | .bottom _, _ => hoist u
++      | _, .bottom _ => (.bottom s, [], true)
++      | .bottom _, _ => (.bottom s, [], true)
+       | _, _ => (.or s [t, u], [], false)
+     | .and s [t, u] => match isTrueOf? u, isTrueOf? t, u with
+       | some b, _, _ => let (t', cs, e) := hoist t; (t', cs ++ [.isTrue b], e)
+@@ -3701,7 +3701,7 @@
+     Rd (List (Clause × ClausePres)) := do
+   rhsSortGuard e.rhs
+   if let some d := eqnAttrFault? e.attrs then fail .equationAttribute d
+-  let e' : RawEqn := { e with rhs := dropEmptyAlts e.rhs }
++  let e' : RawEqn := { e with rhs := e.rhs }
+   let byEx ← match exEqn? N e' with
+     | some eX => if N.boolLits && eqnFnl N eX then exRead N eX else pure none
+     | none => pure none
+'''
+
+[mutant."note-pred-true"]
+summary = "a rule's requires that is a predicate at Bool (\\equals{Bool}(⌈φ⌉, true)) is read as true, not false"
+breaks = "ReadingNote.predicateAtBool: a predicate at sort Bool is all of Bool or empty, so it equals the single value true in no model of ΓDomains (Bool has two values), and the rule's requires is false (ruleCondTermsCnj); read as true, go(X) => done applies at every X before the priority-60 rule"
+row = 'E3 ML-SYNTAX:Sort2::="#Ceil" "(" Sort1 ")"'
+fixture = "f2-examples/mlceil.kompile.kore"
+theorems = "test/NotePredBool.lean"
+expect = "killed"
+killed_by = "theorems: l0_eq, ceil_other (test/NotePredBool.lean; the account of the text unchanged; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -3903,7 +3903,7 @@
+ (`andAtBool`), else `[B]`. -/
+ def ruleCondTermsCnj (N : Names) (vs : List Var) (b : Kore.Pattern) :
+     Rd (List Term × List Cond × List Var) :=
+-  if isPred b then pure ([.dv Srt.bool (.bool false)], [], vs)
++  if isPred b then pure ([.dv Srt.bool (.bool true)], [], vs)
+   else if condCutTaken b then do
+     let (ts, cs, _, vs) ← condCuts N vs b
+     pure (ts, cs, vs)
+'''
+
+[mutant."note-and-bool-first"]
+summary = "a rule's requires \\and{Bool}(A, B) is read with its first conjunct only"
+breaks = "ReadingNote.andAtBool: (A ∧ B) = true is A = true ∧ B = true for terms A and B of Bool (ruleCondTermsCnj, the conjuncts after the first in pre); with the first only, go(B) => done applies where B is false"
+row = 'E3 ML-SYNTAX:Sort::=Sort "#And" Sort'
+fixture = "f2-examples/mlreqv.kompile.kore"
+theorems = "test/NoteAndBool.lean"
+expect = "killed"
+killed_by = "account: the line `rules read with conjuncts B = true of pre or post … (andAtBool): 1` and its `rule 0: 1 in pre` gone (f2-examples/mlreqv.kompile.kore; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -3908,7 +3908,7 @@
+     let (ts, cs, _, vs) ← condCuts N vs b
+     pure (ts, cs, vs)
+   else do
+-    let (ts, vs) ← terms N vs (boolConj b)
++    let (ts, vs) ← terms N vs ((boolConj b).take 1)
+     pure (if ts.isEmpty then [.dv Srt.bool (.bool true)] else ts, [], vs)
+ 
+ /-- The conditions `hoist` lifted out of a rule's right side, as Bool terms: each conjunct of a
+'''
+
+[mutant."note-key-member-dropped"]
+summary = "a map key applying a function is read as a fresh variable Key without its membership Key ∈ f(t̄)"
+breaks = "ReadingNote.keyFunctionAsMember: C[f(t̄)] is ∃Key. C[Key] ∧ Key ∈ f(t̄) (keyCut), the membership a conjunct of the rule's pre; dropped, get(X) => V applies at any key of the map, not only at key(X)"
+row = "E6 hook:MAP.element:Lbl'UndsPipe'-'-GT-Unds'"
+fixture = "f2-examples/mapkeyfn.kompile.kore"
+theorems = "test/NoteMapKeyFn.lean"
+expect = "killed"
+killed_by = "theorems: l0_eq, get_absent (test/NoteMapKeyFn.lean; the account of the text unchanged; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -3979,6 +3979,7 @@
+     -- a map key of the left side applying a function of the definition's own: a fresh variable,
+     -- its membership in the application a conjunct of `pre` (`keyCut`)
+     let (lhs, vs, keys) ← keyCut N lhs vs
++    let keys : List Cond := keys.take 0
+     -- an application of a function-overloaded symbol in the left side: a fresh variable, its
+     -- membership in the application a conjunct of `pre` (`ovlCut`)
+     let (lhs, vs, pre) ← ovlCut N lhs vs
+'''
+
+[mutant."note-proj-dom-dropped"]
+summary = "a projection's selector-domain axiom is not read as its clause project:X(K) = r ensures false of priority 200"
+breaks = "ReadingNote.projectionDomainAsClause: the axiom states ⌈project:X(K)⌉ = ∃V. K = kseq(inj(V), dotk), so the projection has no value where K is no injected X (the read clause's ensures false, Eval.ensFails); without the clause the function's rest decides there"
+row = 'E4 grammar:<matching-logic-pattern>::="\ceil" "{" <sort> "," <sort> "}" "(" <pattern> ")"'
+fixture = "f2-examples/projapp.kore"
+theorems = "test/NoteProjDom.lean"
+expect = "killed"
+killed_by = "theorems: prios_read_clause, gammaPats_length, a1_pattern, tr1_eq, shape, dec_named, clauses_eq, proj_dotk (test/NoteProjDom.lean; the account of the text unchanged; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -3753,7 +3753,7 @@
+     (args : List String) (res : String) (l : KoreAML.Loc) (total : Bool) : Rd (Fn × FnPres) := do
+   let own := eqs.filter fun e => e.fn == label && !e.dom
+   -- the clauses read from selector-domain axioms (`ReadingNote.projectionDomainAsClause`)
+-  let doms := eqs.filter fun e => e.fn == label && e.dom
++  let doms := eqs.filter fun e => e.fn == label && e.dom && false
+   -- the `[owise]` equations, in text order
+   let ows := own.filter (·.competitors.isSome)
+   -- each `[owise]` equation's exclusion names the function's other equations but those declared
+'''
+
+[mutant."note-stream-plain"]
+summary = "a stream module's rule (isStreamRule) is classified as any other sentence of a K installation's builtin file, not read as a rule of the definition"
+breaks = "ReadingNote.streamRule: kompile writes the stream module's rules into the user module as rewrite axioms of the definition's top cell, so the text states them as its own rules; classified as builtin text, the rules are not the definition's"
+row = 'E2 STREAM(stream)=stdin@frontend'
+fixture = "f2-examples/cellsstream.kompile.kore"
+theorems = "test/NoteStream.lean"
+expect = "killed"
+killed_by = "account: `8 read streamRule [builtin]` becomes `8 refused builtinText [builtin]`, `ruleRightDefined: 8` becomes `0` (f2-examples/cellsstream.kompile.kore; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -5554,7 +5554,7 @@
+   let own := fun (_ : Unit) => if ownBuiltinNamed s then none else some (.refused .builtinText)
+   if (kBuiltinModule? s).isSome then some .read
+   else match s with
+-    | .axiom a => if isStreamRule a then some (.readAs .streamRule) else own ()
++    | .axiom _ => own ()
+     | .hookedSymbol h => if !isReflectionSentence s then
+           (if !h.symbol.sortVars.isEmpty && ownBuiltinNamed s then some (.unread .parametricUnused) else own ())
+         else if !h.symbol.sortVars.isEmpty then some (.unread .parametricUnused)
+'''
+
+[mutant."note-refl-plain"]
+summary = "a K-REFLECTION sentence (isReflectionSentence) is classified as any other sentence of a K installation's builtin file, not read as the definition's own"
+breaks = "ReadingNote.reflectionAsOwn: the text declares K-REFLECTION's hooked symbols as functions of the definition, which the library does not hold; classified as builtin text they are not read as its parameter symbols"
+row = 'E6 module:K-REFLECTION'
+fixture = "f2-examples/cellsstream.kompile.kore"
+theorems = "test/NoteStream.lean"
+expect = "killed"
+killed_by = "account: `8 read reflectionAsOwn [builtin]` becomes `8 refused builtinText [builtin]`, and #noParse's functional axiom unaccounted (f2-examples/cellsstream.kompile.kore; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -5558,8 +5558,8 @@
+     | .hookedSymbol h => if !isReflectionSentence s then
+           (if !h.symbol.sortVars.isEmpty && ownBuiltinNamed s then some (.unread .parametricUnused) else own ())
+         else if !h.symbol.sortVars.isEmpty then some (.unread .parametricUnused)
+-        else some (.readAs .reflectionAsOwn)
+-    | _ => if isReflectionSentence s then some (.readAs .reflectionAsOwn) else own ()
++        else own ()
++    | _ => own ()
+ 
+ /-- The cell `<k>` of `kast.md`'s module `DEFAULT-CONFIGURATION` (`configuration <k> $PGM:K </k>`),
+ which K imports into a definition that declares no configuration, as kompile declares it, without
+'''
+
+[mutant."note-eq-prio-default"]
+summary = "an equation's priority{}(n) is not read: every equation at the default priority 50 (0 for an overload, 200 for [owise])"
+breaks = "ReadingNote.equationPriority: an equation of priority p is read with the premise that no executable clause of a smaller priority applies (Faithful.prioEquation, eqnPrio's p); read at 50, f(1) at priority 10 and f(0) at 50 are of one priority"
+row = 'E2 PRIORITY(priority)@equation'
+fixture = "f2-examples/eqprio.kompile.kore"
+theorems = "test/NoteEqPrio.lean"
+expect = "killed"
+killed_by = "account: `function equations read with the premise that no clause of a smaller priority applies (equationPriority): 4` gone, agree_named `0:` becomes `1: h` (f2-examples/eqprio.kompile.kore; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -2910,7 +2910,7 @@
+ def eqnPrio (e : RawEqn) : Option Nat × Nat :=
+   -- `digitsVal`, not `String.toNat?` (`ruleBody`)
+   let explicit := (attrStr? e.attrs "priority").bind fun s => digitsVal s.toList 0
+-  (explicit, explicit.getD (if (overloadSyms? e.attrs).isSome then 0
++  (explicit, (if (overloadSyms? e.attrs).isSome then 0
+     else if e.competitors.isSome || e.dom then 200 else 50))
+ 
+ /-- The names of the two variables read in the set variable `X`'s place (`svinShape`): `X`'s name
+'''
+
+[mutant."note-owise-at-default"]
+summary = "an [owise] equation is read at the default priority 50, not 200"
+breaks = "ReadingNote.owiseAsPriority: the [owise] equation's premise in the text negates every other executable equation, which Γ states as the priority 200 above each of them (eqnPrio); at 50 it is below f(3)'s priority 60"
+row = 'E2 OWISE(owise)@equation'
+fixture = "f2-examples/eqprio.kompile.kore"
+theorems = "test/NoteEqPrio.lean"
+expect = "killed"
+killed_by = "account: the stage refusal `1 owisePriority` (sentence 357, f's [owise] equation) (f2-examples/eqprio.kompile.kore; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -2911,7 +2911,7 @@
+   -- `digitsVal`, not `String.toNat?` (`ruleBody`)
+   let explicit := (attrStr? e.attrs "priority").bind fun s => digitsVal s.toList 0
+   (explicit, explicit.getD (if (overloadSyms? e.attrs).isSome then 0
+-    else if e.competitors.isSome || e.dom then 200 else 50))
++    else if e.dom then 200 else 50))
+ 
+ /-- The names of the two variables read in the set variable `X`'s place (`svinShape`): `X`'s name
+ with primes and 0, 1, the fewest primes for which neither is an element variable the equation
+'''
+
 # Kernel mutants (DONE-0 C8 part 1, "Only kernel mutants (a change of `Eval`, `Step`) are shown by
 # argument, through the refutation instance"): each a named change of a constructor or a premise of
 # `Eval` (KcoreSpec/Evaluation.lean) or of `Step.rule` (KcoreSpec/Step.lean). A kernel mutant is
