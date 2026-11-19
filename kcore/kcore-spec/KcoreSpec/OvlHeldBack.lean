@@ -25,7 +25,8 @@
     where the symbol's closure holds a function) gives what `ovlCovered_values` takes and the
     proof is `ovlBackConfOB`.
   - `heldBackAll_collOvl`: the `collHeld` and the `ovlHeld` symbols have `HeldBack` in every model
-    of `Γc`. They are the symbols `Semantics.holds` names: `heldBackAll_holds`, `backO_of_core`.
+    of `Γc`. With K's `append` (`appendHeld_backX`) they are the symbols `Semantics.holds` names:
+    `heldBack_holdsCl`, `heldBackAll_holds`, `backO_of_core`.
   - `Semantics.heldFacts_of_core`: what `coreOK` alone gives the statements over a set of held
     symbols, some set with the rules' facts and `HeldBackAll`.
   - `heldOccsO_witnessed`: the variables a term holds (`heldOccs`), at a value.
@@ -34,6 +35,7 @@
 -/
 import KcoreSpec.HeldBackAll
 import KcoreSpec.OpenSuccessor
+import KcoreSpec.AppendHeldBack
 
 set_option autoImplicit false
 set_option linter.unusedSectionVars false
@@ -631,12 +633,33 @@ theorem heldBackAll_collOvl {c : Semantics} (h : c.coreOK = true)
   exact heldBack_collOvlCl (fun φ hφ => hI φ (Or.inl hφ)) (sortCtx_of_all hok hsr (OvlOK.ovlCase hno)) hg hph hcs
     hcso (fun hany => confinedAt_value h (hrc hany) hI) f k hc hh hk
 
+/-- **The symbols `Semantics.holds` names have `HeldBack`**, from the facts a proof reads: the
+`collHeld` and the `ovlHeld` symbols (`heldBack_collOvlCl`) and K's `append` (`appendHeld_backX`).
+`hcf`: where an overload closure holds a function, every element of a confined sort is a value's. -/
+theorem heldBack_holdsCl {c : Semantics} {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
+    (hIΓ : I ⊧ᴵP Γ c) [OvlOK c] (hsc : SortCtx c) (hnn : NamesNumbered c) (hg : genWf c = true)
+    (hn : Model.NamesApartK c) (hrw : ∀ k ∈ c.params, k.raw = true → iteSort? (c.symName k.sig.name) = none)
+    (hph : patHooksApart c = true) (hcs : collsOK c = true) (hcso : collSortsOK c = true)
+    (hcf : c.ovls.any (fun o => !(c.fnOverloads o.sig.name).isEmpty) = true → ConfinedValsOB c I)
+    (f : Sym) (k : CtorSig) (hc : c.isCtor f = false) (hh : c.holds f = true)
+    (hk : lookupSig (c.rhsCtx (c.fns.map Fn.sig)).heads f = some k) : HeldBack c I f k := by
+  rw [holds_eq_collOvl] at hh
+  rcases Bool.or_eq_true_iff.mp hh with hh | hh
+  · exact heldBack_collOvlCl hIΓ hsc hg hph hcs hcso hcf f k hc hh hk
+  · exact appendHeld_backX hIΓ hsc hnn hg hn hrw hc hh hk
+
 /-- **The symbols `Semantics.holds` names have `HeldBack` in every model of `Γc`.** `hrc`: the
 definition reads a confined sort where an overload closure holds a function. -/
 theorem heldBackAll_holds {c : Semantics} (h : c.coreOK = true)
     (hrc : c.ovls.any (fun o => !(c.fnOverloads o.sig.name).isEmpty) = true → c.readsConfined = true) :
-    HeldBackAll c c.holds :=
-  heldBackAll_collOvl h hrc
+    HeldBackAll c c.holds := by
+  intro M _ I hI f k hc hh hk
+  obtain ⟨hok, hsr, hnn, hg, hph, hcso, hcs, hph', hno⟩ := hypSound_of_core h
+  haveI : OvlOK c := hno
+  exact heldBack_holdsCl (fun φ hφ => hI φ (Or.inl hφ)) (sortCtx_of_all hok hsr (OvlOK.ovlCase hno)) hnn hg
+    (Model.namesApartK_spec (faithCoreOK_parts (Semantics.coreOK_parts h).2.1).2.2.2.2.2.1)
+    (fun k hk hkr => (Semantics.raw_of_core h hk hkr).2.2.2.1) hph hcs hcso
+    (fun hany => confinedAt_value h (hrc hany) hI) f k hc hh hk
 
 /-- **Each symbol `Semantics.holds` names has `HeldBack`** in a model of `Γc`. `hrc`: the
 definition reads a confined sort where an overload closure holds a function. -/

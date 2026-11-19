@@ -29,12 +29,15 @@
   one, and `kseq(inj(V), dotk)` denotes one element (Cons-Fun, `GenEqs.projPat_fun`); conversely
   the projection's equation (sentence 178) gives `project:Int(kseq(inj(V), dotk)) = V`. The other
   function equations (the projection's equation 178 and the sort predicates') are Γ's items
-  (`shape`, `fns_entailed`, `fns_from_text`). Constructor sentences: `cons_entailed`. `consistent`
-  is not derived: the deciders name `project:Int`'s termination (`dec_named`).
+  (`shape`, `fns_entailed`, `fns_from_text`). Constructor sentences: `cons_entailed`. The deciders
+  name `project:Int`'s termination (`dec_named`), which holds for every H (`terminatesP`): at an
+  element of K the projection's equation applies, or it fails and the read clause decides with its
+  `ensures` false, its right side never evaluated. So `FnHyp` holds (`fnHypH`) and Γ with the step's
+  closure has a model (`consistent`), and so has `Pre` (`pre_model`).
 
   The expectations (C7 form (a)), from `Pre H` (the function equations as written, Γ's item `g1`
-  in the place of the selector-domain axiom, which entails it by `w1`, and the families; its
-  model, through `Consistent`, waits on `project:Int`'s termination): `proj_5`, `project:Int(kseq(inj(5), dotk)) = 5`, from sentence 178 as
+  in the place of the selector-domain axiom, which entails it by `w1`, and the families; it has a
+  model, `pre_model`): `proj_5`, `project:Int(kseq(inj(5), dotk)) = 5`, from sentence 178 as
   written; `proj_dotk`, `project:Int(.K)` has no value, through the reading (the read clause).
 -/
 import KcoreSpec
@@ -752,11 +755,102 @@ theorem eval_of {v : GroundTerm} {k : Nat} {r : Option GroundTerm} (hv : c.sortO
 
 /-- The one fact the deciders leave: `project:Int`'s termination is named
 (`decObligationsL`), since the read clause's right side is `project:Int(K)` itself, a call no
-argument shows smaller (the clause decides with its `ensures` false and never evaluates it). So
-`FnHyp`, and with it `Consistent`, are not derived here. -/
+argument shows smaller (the clause decides with its `ensures` false and never evaluates it);
+`terminatesP` proves it. -/
 theorem dec_named : c.decObligationsL = [projInt] ∧ c.rankObligations [387] = [] ∧ c.agreeObligationsI = [] ∧
     c.matchObligationsL = ([] : List (Nat × Nat)) ∧ c.totalObligationsRP [387] [] = [] := by
   decide +kernel
+
+/-! ## `project:Int` terminates -/
+
+/-- `project:Int(kseq(inj{Int,KItem}(V), dotk)) => V`, the projection's equation (priority 50). -/
+def clV : Clause :=
+  { vars := [Srt.int], pats := [.app kseq [.inj Srt.int Srt.kitem (.var 0), .app dotk []]], req := none,
+    rhs := .var 0, ens := none, prio := 50 }
+/-- `project:Int(K) => project:Int(K) ensures false`, the clause read from the selector-domain
+axiom (priority 200). -/
+def clK : Clause :=
+  { vars := [Srt.k], pats := [.var 0], req := none, rhs := .app projInt [.var 0],
+    ens := some (.dv Srt.bool (.bool false)), prio := 200 }
+
+kernel_rfl clauses_eq : fnP.clauses = [clV, clK]
+theorem args_eq : fnP.args = [Srt.k] := by decide +kernel
+theorem clV_left : clV.leftVars = [0] := by decide +kernel
+
+theorem prio_cases {P : Clause → Prop} (hV : P clV) (hK : P clK) : ∀ cl ∈ fnP.clauses, P cl := by
+  intro cl hcl
+  rw [clauses_eq] at hcl
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hcl
+  rcases hcl with rfl | rfl
+  · exact hV
+  · exact hK
+
+/-- **`project:Int` terminates**, under every H: at an element v of K, either the projection's
+equation applies (its result is the injected Int), or it fails and the clause read from the
+selector-domain axiom decides with its `ensures` false, so `project:Int(v)` has no value; its
+right side, the call `project:Int(v)`, is never evaluated. -/
+theorem terminatesP (H : HookParams) : Terminates (cH H) projInt := by
+  intro fn hfn' vs hvs
+  have e : fn = fnP := Option.some.inj (hfn'.symm.trans (hfnH H))
+  subst e
+  rw [args_eq] at hvs
+  obtain ⟨v, rest, rfl⟩ : ∃ v rest, vs = v :: rest := by
+    cases vs with
+    | nil => simp [Semantics.sortsOf] at hvs
+    | cons v rest => exact ⟨v, rest, rfl⟩
+  obtain ⟨hv, hrest⟩ := OvlLaws.sortsOf_cons_iff.mp hvs
+  obtain rfl := sortsOf_nil_eq hrest
+  have hmemV : clV ∈ fnP.clauses := by rw [clauses_eq]; exact List.mem_cons_self
+  have hmemK : clK ∈ fnP.clauses := by rw [clauses_eq]; exact List.mem_cons_of_mem _ List.mem_cons_self
+  by_cases hm : ∃ σ, (cH H).WellSortedAt clV.vars clV.leftVars σ ∧ PatVals (cH H) σ clV.pats [v]
+  · obtain ⟨σ, hws, hpv⟩ := hm
+    have hσ : (cH H).WellSorted clV.vars σ := fun i s hs => by
+      have hi : i = 0 := by
+        have := (List.getElem?_eq_some_iff.mp hs).1
+        simp [clV] at this; omega
+      subst hi
+      exact hws 0 (by rw [clV_left]; exact List.mem_singleton_self _) s hs
+    exact ⟨_, Eval.clause (hfnH H) hmemV hσ hpv (fun t h => by cases h) .top
+      (prio_cases (P := fun cl' => cl'.aside = false → cl'.prio < clV.prio → Fails (cH H) [v] cl')
+        (fun _ h => absurd h (by decide)) (fun _ h => absurd h (by decide)))
+      rfl EvalTerm.var (fun t h => by cases h) .top⟩
+  · have hfail : Fails (cH H) [v] clV := .intro fun σ hws hpv => absurd ⟨σ, hws, hpv⟩ hm
+    have hσ : (cH H).WellSorted clK.vars [(0, v)] := fun i s hs => by
+      have hi : i = 0 := by
+        have := (List.getElem?_eq_some_iff.mp hs).1
+        simp [clK] at this; omega
+      subst hi
+      simp only [clK, List.getElem?_cons_zero, Option.some.injEq] at hs
+      subst hs
+      exact ⟨v, rfl, hv⟩
+    exact ⟨none, Eval.ensFails (t := .dv Srt.bool (.bool false)) (hfnH H) hmemK hσ
+      (.cons (.var rfl) .nil) (fun t h => by cases h) .top
+      (prio_cases (P := fun cl' => cl'.aside = false → cl'.prio < clK.prio → Fails (cH H) [v] cl')
+        (fun _ _ => hfail) (fun _ h => absurd h (by decide)))
+      rfl rfl EvalTerm.dv (by simp [KCore.bool])⟩
+
+/-- **The facts the deciders leave of `FnHyp`**, under every H: the one named, `project:Int`'s
+termination (`terminatesP`). -/
+theorem obl (H : HookParams) : FnObligations (cH H) [387] [] := by
+  obtain ⟨hd, hr, ha, hm, ht⟩ := dec_named
+  have hpl : (cH H).plain = true := by rw [Semantics.plain_withHooks]; decide +kernel
+  refine ⟨fun f hf => ?_, fun f hf => ?_, fun f hf => ?_, fun p hp => ?_,
+    openDecided_of_plain (fun r hr => needsWitness_of_binds ((Semantics.plain_parts hpl).1 r hr))
+      (fun fn hfn cl hcl => Clause.needsWitness_of_binds ((Semantics.plain_parts hpl).2.1 fn hfn cl hcl)),
+    openLaws_of_plain (Semantics.plain_parts hpl).2.2⟩
+  · rw [Semantics.rankObligations_withHooks, Semantics.decObligationsL_withHooks, hr, hd,
+      List.nil_append, List.mem_singleton] at hf
+    subst hf
+    exact terminatesP H
+  · rw [Semantics.totalObligationsRP_withHooks, ht] at hf; cases hf
+  · rw [Det.Semantics.agreeObligationsI_withHooks, ha] at hf; cases hf
+  · rw [Det.Semantics.matchObligationsL_withHooks, hm] at hp; cases hp
+
+theorem fnHypH (H : HookParams) : FnHyp (cH H) :=
+  fnHyp_withHooks coreOK (Semantics.rightHeld_of_valued (by decide +kernel)) H ParamsTotal.nil (obl H)
+
+/-- **Γ with the step's closure has a model, for every H** (C14 closure (a)). -/
+theorem consistent (H : HookParams) : Consistent (cH H) := consistent_of_fnHyp _ (coreOKH H) (fnHypH H)
 
 /-! ## The expectations (C7 form (a)) -/
 
@@ -764,6 +858,11 @@ theorem dec_named : c.decObligationsL = [projInt] ∧ c.rankObligations [387] = 
 place of the selector-domain axiom (which entails it with the signature, `w1`), Γ's rule items and
 the families. -/
 noncomputable abbrev Pre (H : HookParams) : Premises KoreAML.Sym := TiePair.Pre (cH H) textPats
+
+/-- **`Pre` with the step's closure has a model, for every H.** -/
+theorem pre_model (H : HookParams) :
+    ∃ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), I ⊧ᴵP (Pre H ∪ Γstep (cH H)) :=
+  TiePair.pre_model (shapeH H) (consistent H)
 
 noncomputable abbrev projAt (H : HookParams) (v : GroundTerm) : P := TiePair.app (cH H) projInt [v]
 
@@ -794,5 +893,8 @@ end KCore.NoteProjDom
 #print axioms KCore.NoteProjDom.dom_entailed
 #print axioms KCore.NoteProjDom.cons_entailed
 #print axioms KCore.NoteProjDom.dec_named
+#print axioms KCore.NoteProjDom.terminatesP
+#print axioms KCore.NoteProjDom.consistent
+#print axioms KCore.NoteProjDom.pre_model
 #print axioms KCore.NoteProjDom.proj_5
 #print axioms KCore.NoteProjDom.proj_dotk

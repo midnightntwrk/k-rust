@@ -56,7 +56,13 @@ noncomputable def trS (ad : AxiomDecl) : Item := trAxiom kore.symbolDecls kore.a
 - no direction: a sentence that applies a symbol Γ does not have (281, `ite{Sort}`'s `functional`
   sentence, 549, which applies `ite{Int}`, and 686, 687, `ite{K}`'s equations, among them: a symbol
   with sort parameters is one symbol at each instance, and Γ applies its `ite`, `kIte`, at no sort
-  argument). -/
+  argument). A class gives the direction between Γ and the sentence, which for these is none, since
+  no symbol of Γ, its parameters among them, is an instance of `ite` (`noIte`): no item of Γ states
+  anything of the head, and H gives it no value. The class is not what the text owes. 686 and 687
+  state `ite{K}`'s value at each Bool, and 281 only that it is total, so they constrain the
+  instances alone. 549 is `findChar`'s equation: with `ite{Int}` eliminated, what it states of
+  Γ's symbols is a value of `findChar` at its silent points, owed as the condition
+  `Semantics.findCharEq` on H (`libSentences`). -/
 def classes : List (String × List Nat) :=
   [("function equation", [479, 480, 481, 482, 483, 484, 485, 486, 487, 488, 489, 490, 491, 492, 493, 494, 495, 497, 498, 499, 500,
       501, 502, 503, 504, 505, 506, 507, 508, 509, 510, 511, 512, 513, 514, 515, 516, 517, 518, 519, 520,

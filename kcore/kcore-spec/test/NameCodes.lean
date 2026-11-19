@@ -1,10 +1,12 @@
 /-
   The conjuncts of `faithCoreOK` that read names, decided on the names' codes (NameCodes.lean).
   Run from the package root: `lake env lean test/NameCodes.lean`.
-  - A code `iteCoded` accepts is that of a name beginning `Lblite{`, whatever follows.
+  - A code `iteCoded` accepts is that of a name beginning `Lblite{`, whatever follows; a code
+    `instCoded` accepts is that of a name holding `{`.
   - The semantics of ModelItesWitness.lean (two parameters named `Lblite{Int}` and `Lblite{Int]`):
-    both are the symbols `iteIdx` lists, and the decision on codes refuses `itesApart` as the
-    conjunct does, while it gives `namesNumbered` and `namesApartK`.
+    both are the symbols `iteIdx` and `instIdx` list, and the decisions on codes give
+    `namesNumbered`, `namesApartK` and `itesApart` (the decoder reads `Lblite{Int]` as no
+    instance).
   - kompile's text of `f2-examples/libsub.k`: the three conjuncts from their decisions on codes, and
     `faithCoreOK` from them (`faithCoreOK_of_partsK`).
   The codes are given by `rfl` here (`(allSymNames c).map strCode` itself); a generated package
@@ -23,21 +25,27 @@ theorem coded : iteCoded (strCode "Lblite{Int}") = true ∧ iteCoded (strCode "L
     iteCoded (strCode "Lblite") = false ∧ iteCoded (strCode "Lblit{e") = false ∧
     iteCoded (strCode "XLblite{Int}") = false ∧ iteCoded (strCode "") = false := by decide
 
+theorem instCodedT : instCoded (strCode "Lblite{Int}") = true ∧ instCoded (strCode "{") = true ∧
+    instCoded (strCode "ab{") = true ∧ instCoded (strCode "Lblite") = false ∧
+    instCoded (strCode "") = false := by decide +kernel
+
 namespace Ites
 
 abbrev c : Semantics := ItesWitness.c
 
 theorem ite_idx : iteIdx ((allSymNames c).map strCode) = [nRegSyms + 4, nRegSyms + 5] := by decide +kernel
 
+theorem inst_idx : instIdx ((allSymNames c).map strCode) = [nRegSyms + 4, nRegSyms + 5] := by decide +kernel
+
 theorem namesNumbered : Faithful.namesNumbered c = true :=
-  namesNumbered_of_codes rfl ite_idx (by decide +kernel)
+  namesNumbered_of_codes rfl inst_idx (by decide +kernel)
 
 theorem namesApartK : Model.namesApartK c = true :=
   namesApartK_of_codes rfl rfl (by decide +kernel)
 
-/-- The decision on codes refuses the semantics `itesApart` refuses (`ItesWitness.not_itesApart`). -/
-theorem itesApartC_false : itesApartC c [nRegSyms + 4, nRegSyms + 5] ((allSortNames c).map strCode) = false := by
-  decide +kernel
+/-- The decision on codes gives `itesApart` (`ItesWitness.itesApart_holds`). -/
+theorem itesApart : Model.itesApart c = true :=
+  itesApart_of_codes rfl rfl inst_idx (by decide +kernel)
 
 end Ites
 
@@ -47,7 +55,7 @@ definition_of defn from "f2-examples/libsub.kompile.kore"
 
 noncomputable abbrev c : Semantics := defn.sem
 
-theorem ite_idx : iteIdx ((allSymNames c).map strCode) = [] := by decide +kernel
+theorem ite_idx : instIdx ((allSymNames c).map strCode) = [] := by decide +kernel
 
 theorem faithCoreOK : c.faithCoreOK = true :=
   Semantics.faithCoreOK_of_partsK (namesNumbered_of_codes rfl ite_idx (by decide +kernel))

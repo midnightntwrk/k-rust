@@ -49,8 +49,10 @@ theorem heldBackAll_holdsCEx {c : Semantics} (h : c.coreOKEx = true)
   intro M _ I hI f k hc hh hk
   obtain ⟨hok, hsr, hnn, hg, hph, hcso, hcs, hph', hno⟩ := hypSoundEx_of_coreEx h
   haveI : OvlOK c := hno
-  exact heldBack_collOvlCl (fun φ hφ => hI φ (Or.inl hφ)) (sortCtx_of_allCEx hok hsr (OvlOK.ovlCase hno)) hg hph hcs
-    hcso (fun hany => confinedAt_valueCEx h (hrc hany) hI) f k hc hh hk
+  exact heldBack_holdsCl (fun φ hφ => hI φ (Or.inl hφ)) (sortCtx_of_allCEx hok hsr (OvlOK.ovlCase hno)) hnn hg
+    (Model.namesApartK_spec (faithCoreOK_parts (Semantics.coreOKEx_parts h).2.1).2.2.2.2.2.1)
+    (fun k hk hkr => (Semantics.raw_of_coreEx h hk hkr).2.2.2.1) hph hcs hcso
+    (fun hany => confinedAt_valueCEx h (hrc hany) hI) f k hc hh hk
 
 /-- What `coreOKEx` gives the statements over a set of held symbols: some set at which the rules
 have `ruleSorted` and `rulePlainHeldH` and whose symbols have `HeldBack` in every model of `Γc`. -/

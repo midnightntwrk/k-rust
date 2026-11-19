@@ -10,8 +10,8 @@
   - `overloadsOK_split`: `overloadsOK` is the conjunction of `ovlsButIte` (its conditions but this
     one) and `ovlsPlain` (this one), for every semantics.
   - `c`, one overloading symbol `Lblite{KCell}` (`ite` at the numbered sort `KCell`, the only
-    symbol so named), `Int → K`, overloading nothing: every other condition of `coreOK`, both halves
-    of `itesApart` among them, and `FnHyp` hold (`meets_others`, `ovlsButIte_c`), and
+    symbol so named), `Int → K`, overloading nothing: every other condition of `coreOK`, `itesApart`
+    among them, and `FnHyp` hold (`meets_others`, `ovlsButIte_c`), and
     `ovlsPlain` does not (`not_ovlsPlain`). So the conjunct is not implied by the others.
   - `pattern_head`, `value_head`, `heads_differ`: for every semantics and every symbol named like
     `ite` at a sort X, a pattern or right-hand side (`Term.kore`) applies it as `Lblite{SortX}(…)`,
@@ -58,9 +58,10 @@ def ovlsButIte (c : Semantics) : Bool :=
     (c.ovlClosure o.sig.name).all fun g => !c.fns.any (·.label == g) || o.over.contains g) &&
   c.ovlPatsOK
 
-/-- "An overloading symbol is not named like `ite` at a sort." -/
+/-- "An overloading symbol is not named like an instance" (`instDecode?`), which excludes a name
+like `ite` at a sort. -/
 def ovlsPlain (c : Semantics) : Bool :=
-  c.ovls.zipIdx.all fun (o, _) => (iteSort? (c.symName o.sig.name)).isNone
+  c.ovls.zipIdx.all fun (o, _) => (instDecode? (c.symName o.sig.name)).isNone
 
 /-- `overloadsOK` is `ovlsButIte` and `ovlsPlain`. -/
 theorem overloadsOK_split (c : Semantics) : c.overloadsOK = (ovlsButIte c && ovlsPlain c) := by
@@ -149,8 +150,8 @@ theorem not_overloadsOK : c.overloadsOK = false := by
 
 theorem ite_f : iteSort? (c.symName fSig.name) = some "KCell" := by decide +kernel
 
-/-- Both halves of `itesApart` hold: `Lblite{KCell}` is the only symbol named like `ite`, at a
-numbered sort. -/
+/-- `itesApart` holds: `Lblite{KCell}` is the only symbol named like an instance, at a numbered
+sort. -/
 theorem itesApart_c : Model.itesApart c = true := by decide_cheap
 
 /-- In `c`, a right-hand side applying the symbol and the value it builds have different heads. -/

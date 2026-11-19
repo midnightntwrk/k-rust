@@ -400,11 +400,7 @@ theorem find_ite (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c) {X
   | some k' =>
     have h1 : iteSort? (c.symName k'.name) = some X := by simpa using List.find?_some hf
     have h2 := List.mem_of_find?_eq_some hf
-    have h3 := List.all_eq_true.mp h.ites k' h2
-    simp only [Bool.and_eq_true] at h3
-    have := List.all_eq_true.mp h3.2 k hk
-    simp only [h1, hi, Option.isNone_some, bne_self_eq_false, Bool.false_or, beq_iff_eq] at this
-    rw [this]
+    rw [itesOnce_of_namesApartK h.names h2 hk h1 hi]
 
 theorem resolve_ite (s : Srt) (tail : List Elem) :
     resolve c "Lblite" (.srt s :: tail) =

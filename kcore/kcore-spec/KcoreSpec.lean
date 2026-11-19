@@ -275,6 +275,7 @@ import KcoreSpec.LibEvLawRm
 import KcoreSpec.LibEvFnKNe
 import KcoreSpec.LibEvFnOwise
 import KcoreSpec.TieCmd
+import KcoreSpec.AppendHeldBack
 import KcoreSpec.OvlHeldBack
 import KcoreSpec.ConsExtModel
 import KcoreSpec.ConsOwnValues
@@ -410,3 +411,6 @@ import KcoreSpec.StepClosurePadIx
 import KcoreSpec.InstNameDecode
 import KcoreSpec.LibEvParam
 import KcoreSpec.TieLibParamExpand
+import KcoreSpec.TieAcct
+import KcoreSpec.TieNoJunkBlk
+import KcoreSpec.WitnessedGivers

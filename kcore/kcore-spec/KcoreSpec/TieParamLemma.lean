@@ -3,9 +3,12 @@
   (`tieClasses`): a lemma, which the reader leaves out of Γ (`InertReason.simplification`), that
   applies a parameter symbol no registry hook interprets (`impl = none`). Such a symbol's value is
   the interpretation's at every argument list, so whether the lemma holds depends on `H`: it is owed
-  as a hypothesis on `H`, the sentence itself at the member (`Γ (c.withHooks H) ⊧ tr s`). The
-  account (`kcore account`) and test/constructs/tiegen.py's probe class a sentence by these two
-  definitions.
+  as a hypothesis on `H` at values: some `H` meets the functions' obligations (`FnObligations`) and
+  at it every sentence of the class holds at the valuations sending its variables to values
+  (`EntailsAtValues (c.withHooks H) s (tr s)`). `Γ` states the parameter's graph at values only and
+  says nothing of it at an element of its sort that is no value's, where a model of `Γ` may give it
+  nothing, so the sentence is not owed at every valuation. The account (`kcore account`) and
+  test/constructs/tiegen.py's probe class a sentence by these two definitions.
 
   Beside it, the tie class `parameter functional`: the `functional` sentence of a parameter symbol
   that no registry hook interprets and that the text declares total (`Definition.totalParams`). The

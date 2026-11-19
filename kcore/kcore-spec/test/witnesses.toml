@@ -90,14 +90,21 @@ witness = "KcoreSpec.ModelSortsWitness"
 
 [[conjunct]]
 key = "itesApart.1"
-text = "match KCore.iteSort? (c.symName k.name) with | some X => (KCore.Faithful.kernelSorts c).any fun s => c.sortName s == X | none => true"
-witness = "none: not found; the half is not implied by the others, and Γ of a semantics failing it alone has a model (argued, not kernel-checked)"
+text = "match KCore.instDecode? (c.symName k.name) with | some (fst, xs) => xs.all fun x => (KCore.Faithful.kernelSorts c).any fun s => c.sortName s == x | none => true"
+witness = "none: not found; the leaf is not implied by the others, and Γ of a semantics failing it alone has a model (argued, not kernel-checked)"
 evidence = "test/ItesNumbered.lean"
 
 [[conjunct]]
 key = "itesApart.2"
-text = "(KCore.iteSort? (c.symName k.name)).isNone || KCore.iteSort? (c.symName k.name) != KCore.iteSort? (c.symName k'.name) || k == k'"
-witness = "KcoreSpec.ModelItesWitness"
+text = "match KCore.instDecode? (c.symName k.name) with | some (h, xs) => (KCore.Faithful.kernelSyms c).all fun k' => match KCore.instDecode? (c.symName k'.name) with | some (h', xs') => h' != h || xs'.length == xs.length | none => true | none => true"
+witness = "none: not found; Γ writes an instance name other than Lblite at one sort plainly, so a semantics failing this leaf alone has the model of the same semantics with the symbol renamed (argued, not kernel-checked)"
+evidence = "test/ItesNumbered.lean"
+
+[[conjunct]]
+key = "itesApart.3"
+text = "match KCore.instDecode? (c.symName k.name) with | some (h, snd) => h != \"inj\" | none => true"
+witness = "none: not found; Γ writes an instance name with the head inj plainly, under its own name, which is not inj (namesApartK), so a semantics failing this leaf alone has the model of the same semantics with the symbol renamed (argued, not kernel-checked)"
+evidence = "test/ItesNumbered.lean"
 
 [[conjunct]]
 key = "faithCoreOK.9"
@@ -198,7 +205,7 @@ evidence = "test/WitRestOvlA.lean"
 
 [[conjunct]]
 key = "overloadsOK.3"
-text = "(KCore.iteSort? (c.symName o.sig.name)).isNone"
+text = "(KCore.instDecode? (c.symName o.sig.name)).isNone"
 witness = "none: not found in the no-model form; the conjunct is needed for soundness instead: a semantics failing it alone, with FnHyp, has a theory with a model and SoundC false, the successor of a step to a value applying the symbol not being entailed to be in the family (kernel-checked: test/OvlIteSoundC.lean, consistent and not_sound)"
 evidence = "test/OvlIteName.lean, test/OvlIteSoundC.lean"
 
@@ -249,7 +256,7 @@ evidence = "test/SortedNF.lean"
 key = "FnDet"
 text = "KCore.FnDet"
 witness = "KcoreSpec.ModelFnDetWitness"
-note = "the witness has a clause whose predicate is not ⊤ (u(X) => true where ¬⌈a(X)⌉, beside a(X) => 1 and a(X) => 1 ensures u(X)) and no clause with an existential variable: it meets coreOK, FnSolves, ClausePreDecided, ClausePostDecided (FnDetWitness.clausePostDecided: every clause's right-side predicate is ⊤) and OpenLaws, a(0) has the results 1 and none, and Γ has no model; so consistent_of cannot lose FnDet (consistent_needs_fnDet). Where every clause's predicate is ⊤ (clausesPreTop) and no clause has an existential variable (FnsNoExs) there is no witness: coreOK and FnSolves give FnDet (fnDet_of_fnSolves, test/FnSolvesDet.lean). Open: whether FnsNoExs can be dropped there, coreOK admitting a clause with existential variables, each of a confined sort or fixed by the clause's right-side predicate (read by Holds, which has ceil and not); a witness would be such a text with clausesPreTop, FnSolves, ClausePreDecided, ClausePostDecided and OpenLaws, without FnDet, whose Γ has no model"
+note = "the witness has a clause whose predicate is not ⊤ (u(X) => true where ¬⌈a(X)⌉, beside a(X) => 1 and a(X) => 1 ensures u(X)) and no clause with an existential variable: it meets coreOK, FnSolves, ClausePreDecided, ClausePostDecided (FnDetWitness.clausePostDecided: every clause's right-side predicate is ⊤) and OpenLaws, a(0) has the results 1 and none, and Γ has no model; so consistent_of cannot lose FnDet (consistent_needs_fnDet). Where every clause's predicate is ⊤ (clausesPreTop) and no clause has an existential variable (FnsNoExs) there is no witness: coreOK and FnSolves give FnDet (fnDet_of_fnSolves, test/FnSolvesDet.lean). FnsNoExs cannot be dropped there: FnDetExsWit.c (test/FnSolvesDet.lean; the same definition with u(X) => true beside an existential variable Z : Int and the right-side predicate Z = 0 ∧ ¬⌈a(X)⌉, which fixes Z, every clause's predicate ⊤) meets coreOK, clausesPreTop, FnSolves, ClausePreDecided, ClausePostDecided and OpenLaws, a(0) has the results 1 and none (not_fnDet_of_fnSolves_preTop), and Γc has no model, so it is not Consistent (consistent_needs_fnDet_preTop; that text reads a confined sort, so its theory is Γc, and that Γ alone has no model is argued from the three sentences, not kernel-checked). The existential variable has one value; the two results come from the right-side predicate, which Holds reads with not over ceil and which coreOK admits only beside an existential variable"
 evidence = "test/FnSolvesDet.lean"
 
 [[conjunct]]
