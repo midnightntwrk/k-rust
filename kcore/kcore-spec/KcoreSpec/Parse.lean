@@ -6746,18 +6746,24 @@ def unheldRefusal (c : Semantics) (N : Names) (a : Kore.Axiom) : Option (Refusal
 
 /-- Why a function's clause is not read, with the variable, its sort and where it occurs; `none`
 where it is read. A variable the arguments do not bind is read where the values decide the clause:
-in its conditions, where they are closed or each such variable of them is of a confined sort
-(`clausesPlain`'s conjunct, else `openRequires`: the condition's truth at given arguments differs
-between models of the text); and where the clause has a predicate in its premise, its conditions
-are not closed over such a variable of a sort that is not confined (`Clause.needsWitness`, which
-`clausesPlain` refuses beside a predicate, with `openRequires`). One held only by the right side or the `ensures` is read at every
+in its conditions, where they are closed or each such variable of them is of a confined sort or
+held by a cut (`clausesPlain`'s conjunct, else `openRequires`: the condition's truth at given
+arguments differs between models of the text); and where the clause has a predicate in its premise,
+its conditions are not closed over such a variable of a sort that is not confined
+(`Clause.needsWitness`, which `clausesPlain` refuses beside a predicate, with `openRequires`). A cut
+is a top-level conjunct `V ∈ t` of `pre` with V bound by the arguments, and it holds the variables
+of t under constructors, injections and the symbols `heldOccs` reads (`memHeld`): at arguments that
+are values V is a value's element, the conjunct puts that element in t, and an application of such
+a symbol that is a value's element has values' elements as its arguments, so the variable ranges
+over values' elements only, as one of a confined sort does. One held only by the right side or the `ensures` is read at every
 sort: it is universal over the elements of its sort, so on values the clause has an instance for
 each value of the sort and none where the sort has no value; the function is then named
 (`Semantics.heldObligations`) where the sort has no exhibited value. For a variable in the term of
 a membership `V ∈ f(…)` of `pre`, V bound by the arguments (a cut, `ovlCutList`), the detail names
 the symbol f (`openRefusalCutSym`). -/
 def clauseRefusal (c : Semantics) (cl : Clause) (names : List String) : Option (RefusalReason × String) :=
-  let conf := fun i => (cl.vars[i]?.map c.confined).getD false
+  let confS := fun i => (cl.vars[i]?.map c.confined).getD false
+  let conf := fun i => confS i || memHeld c (varOccsList cl.pats) cl.pre i
   let what := fun i => s!"Var{names.getD i ""}:{c.sortName (cl.vars.getD i 0)}"
   let cut := fun i => match openRefusalCutSym (varOccsList cl.pats) i cl.pre with
     | some f => s!" (V ∈ {c.symName f}(…)), under {c.symName f}"
@@ -6767,7 +6773,7 @@ def clauseRefusal (c : Semantics) (cl : Clause) (names : List String) : Option (
     some (.openRequires,
       s!"{what i}: in a condition with a variable the arguments bind{cut i}, not bound by the arguments, of a sort the text leaves unconfined")
   else if !cl.pre.isTop && cl.needsWitness c then
-    let i := (cl.openCondVars.find? (fun i => !conf i)).getD 0
+    let i := (cl.openCondVars.find? (fun i => !confS i)).getD 0
     some (.openRequires,
       s!"{what i}: in a closed condition of a clause with a predicate in its premise, not bound by the arguments, of a sort the text leaves unconfined (the condition is neither witnessed nor refuted where the predicate is read)")
   else none

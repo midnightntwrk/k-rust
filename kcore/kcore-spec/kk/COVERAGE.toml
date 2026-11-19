@@ -415,8 +415,8 @@ note = "the reader refuses it (rows.toml E4 tree:Pattern.rightAssoc is refused),
 #            of KK.encodable (a fixture's or ref-kimp's text), the table's Bool, or the first
 #            uncovered hook row's; refused_on, the text or table entry; first_uncovered, the hook
 #            row a module row is refused by.
-# Entries: 1087; covered 425; refused 662 (paramsOK 406, appsOK 158, litsOK 48, shapesOK 42, ovlsOK 8).
-# By evidence: fixture 866, hook table 139, kimp 50, module hooks 19, sort table 13.
+# Entries: 1088; covered 425; refused 663 (paramsOK 406, appsOK 158, litsOK 48, shapesOK 42, ovlsOK 9).
+# By evidence: fixture 867, hook table 139, kimp 50, module hooks 19, sort table 13.
 # No evidence text, no verdict (a fixture is owed; check fails on them, check --report lists them): 0.
 
 [rows.E1."Require:kw:requires"]
@@ -2354,6 +2354,12 @@ refused_on = "e5-owise-nonexec"
 verdict = "covered"
 by = "fixture"
 case = "base"
+
+[rows.E5."convertRule:axiom#1#cases[10]"]
+verdict = "refused"
+by = "fixture"
+bool = "ovlsOK"
+refused_on = "e5-ovl-fun-clause"
 
 [rows.E5."convertRule:axiom#1#cases[11]"]
 verdict = "covered"

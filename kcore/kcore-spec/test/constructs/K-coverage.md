@@ -33,12 +33,12 @@ Nested entries by status:
 | E2 | 63 | 9 | 0 | 1 | 0 | 53 | 0 | 0 |
 | E3 | 86 | 46 | 0 | 2 | 0 | 38 | 0 | 0 |
 | E4 | 56 | 20 | 0 | 4 | 0 | 32 | 0 | 0 |
-| E5 | 70 | 36 | 1 | 2 | 0 | 31 | 0 | 0 |
+| E5 | 70 | 37 | 1 | 2 | 0 | 30 | 0 | 0 |
 | E6 | 35 | 9 | 2 | 0 | 0 | 24 | 0 | 0 |
 | E7 | 9 | 4 | 1 | 0 | 0 | 4 | 0 | 0 |
 | E8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 36 | 16 | 0 | 2 | 1 | 17 | 0 | 0 |
-| all | 363 | 143 | 4 | 11 | 1 | 204 | 0 | 0 |
+| all | 363 | 144 | 4 | 11 | 1 | 203 | 0 | 0 |
 
 Refused rows by class:
 
@@ -63,18 +63,18 @@ Refused nested entries by class:
 | E2 | 53 | 4 | 0 | 1 | 48 |
 | E3 | 38 | 14 | 0 | 20 | 4 |
 | E4 | 32 | 14 | 10 | 0 | 8 |
-| E5 | 31 | 13 | 2 | 2 | 14 |
+| E5 | 30 | 13 | 2 | 1 | 14 |
 | E6 | 24 | 5 | 2 | 0 | 17 |
 | E7 | 4 | 0 | 0 | 0 | 4 |
 | E8 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 17 | 8 | 4 | 0 | 5 |
-| all | 204 | 59 | 18 | 24 | 103 |
+| all | 203 | 59 | 18 | 23 | 103 |
 
-Supported entries (rows and nested): 981; 14 of them have an owed fact and are counted by their best fixture: **13 proved** (the owed fact proved on a fixture the entry names: these count as supported under the headline statements), 0 open and 1 false (counted apart: the headline statements' hypothesis is not shown on their fixtures). The other 967 have no owed fact.
+Supported entries (rows and nested): 982; 14 of them have an owed fact and are counted by their best fixture: **13 proved** (the owed fact proved on a fixture the entry names: these count as supported under the headline statements), 0 open and 1 false (counted apart: the headline statements' hypothesis is not shown on their fixtures). The other 968 have no owed fact.
 
 E6 library rows by their `e6_tie` (test/constructs/e6map.py; rows-header.toml): 480, of which 294 tied, 3 of no direction (the tie's no-direction class, owed-sentence rule item 7: never tied, counted apart), 10 refuted and 173 uncovered.
 
-## Entries of class R-c (29)
+## Entries of class R-c (28)
 
 Each names the notion the kernel lacks, the cone declaration that would change, and the ticket or unit that supports it (`unit`, checked by `units.py`).
 
@@ -108,7 +108,6 @@ Each names the notion the kernel lacks, the cone declaration that would change, 
 | E3 | `ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2` | cases[21] | refused |  |  | RDR.eq-binders |  |
 | E3 | `ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2` | cases[22] | refused |  |  | RDR.eq-binders |  |
 | E5 | `genOverloadedAxiom:axiom#1` | cases[4] | refused |  | KCore.EvalTerm, KCore.Semantics.overloadsOK, KCore.Semantics.ovlOver, KCore.Semantics.fnOvlSyms, KCore.Semantics.plain (OVP.kernel, findings/work/ovp-kernel-plan.md sections 0 and 1; plain is no cone line but the pinned statement of Statements.lean, whose rfl pin test/Pins.lean:203 changes by its la… | OVP.kernel |  |
-| E5 | `convertRule:axiom#1` | cases[10] | refused |  | KCore.Semantics.clausesPlain (a variable held by memHeld through the cut where the covering sorts are confined, designs/CN-4b-rc-units.md section 3.3) | CE.flip |  |
 
 ## Rows not yet decided (0)
 
@@ -941,7 +940,7 @@ Not core:
 | cases[7]: non-executable beside [owise] | supported |  | Side by side. The text: the [owise] equation states choose(X0, X1) = X0 wherever X0 is not a (the one disjunct, for //@ 194), at X0 = b too. The reading: the [owise] clause decides where every clause of a smaller priority that is not aside fails (Eval.clause hprio; Faithful.lowerClauses, the clauses… | none (reader only) |  | e5-owise-nonexec |  |  | fixtures/e5-owise-nonexec/kore.txt //@ 193 (the [owise] equation choose(X, \_) => X), its premise's exclusion: \`\\not{R} (\\or{R} (\\exists{R} (Var'Unds'Gen1:SortFoo{}, \\and{R} (\\top{R}(), \\and{R} (\\in{SortFoo{}, R} (X0:SortFoo{}, Lbla{}()),\\and{R} (\\in{SortFoo{}, R} (X1:SortFoo{}, Var'Unds'Gen1:SortFoo… |
 | cases[8]: B39 equation of a sort-parametric user function | refused | R-a |  |  | none (R-a): an application of a sort-parametric symbol at an instance that is hooked or a constructor, or at sorts the definition does not have, names no symbol of the definition (KCORE-SPEC.md Q11) | hw-param-inst-eqn |  |  | fixtures/hw-param-inst-eqn/account.txt: \`sentence 417 (Lblsame{K,KResult}): parametricSymbol (Lblsame: an equation of its instance Lblsame{K,KResult}, at KResult, no sort of the definition)\` (hand-written KORE: e1-param-two-sort's text with the equation of same{K, K} written at the instance same{K,… |
 | cases[9]: B44 generated initializer applying a projection | supported |  | the projection is a parameter symbol; fixtures e2-cells, e3-withconfig parse ok |  |  |  |  |  |  |
-| cases[10]: an application of a function-overloaded symbol in an equation's argument pattern | refused | R-c | a covered application of the symbol is the function's value, and matching it would need the function's inverse. The reader reads the cut (Parse.ovlCutList): uncap(Ovl0) => G with Clause.pre Ovl0 ∈ capGas(G). G is then a variable the argument does not bind, in a condition with one it binds, of the so… | KCore.Semantics.clausesPlain (a variable held by memHeld through the cut where the covering sorts are confined, designs/CN-4b-rc-units.md section 3.3) | CE.flip | e5-ovl-fun-clause |  |  | fixtures/e5-ovl-fun-clause/account.txt: \`sentence 271 (Lbluncap): openRequires (VarG:Gas: in a condition with a variable the arguments bind (V ∈ LblcapGas(…)), under LblcapGas, not bound by the arguments, of a sort the text leaves unconfined)\` (rule uncap(cap(G:Gas)) => G, capGas overloading the fun… |
+| cases[10]: an application of a function-overloaded symbol in an equation's argument pattern | supported |  |  | KCore.Semantics.clausesPlain (its conjunct on open condition variables: of a confined sort, or held by memHeld through the cut) | CE.clause-memheld | e5-ovl-fun-clause |  |  | fixtures/e5-ovl-fun-clause/account.txt: \`stage refusals (of sentences classified read): 0\`, \`rules and clauses applying a function symbol in their left side: 0\`, \`parse: ok; wf false; failing: [clauses' premise predicates \\top (clausesPreTop): the checks outside coreOK read no clause predicate]\`, \`c… |
 | cases[11]: B58 heat/cool rule written as an equation | supported |  | it is an equation in the text. Fixture e2-cool-eq is read with wf and coreOK true and one owed CondDecided: its requires is closed over HOLE, which the arguments do not bind (fixtures/e2-cool-eq/account.txt \`function f, clause 0 at e2-cool-eq.k:5: CondDecided open, over VarHOLE:K\`, \`parse: ok; wf tr… |  |  |  |  |  |  |
 | cases[12]: B29 MAP #Ceil simplification | supported |  | refuted and recorded (tie class set-variable lemma, direction refuted; findings/LIB-ev-F1-decision.md section 1.3): kompile's lemma \`#Ceil(@K0 \|-> @K1 @Rest)\`, the sentence of E4 \\ceil cases[1]. Γ with it has no model, for every H (s312\_refuted); it holds where its set variables hold at most one ele… |  |  | e8-ref |  |  | fixtures/e8-ref/account.txt \`1 inert simplification [generated]\` |
 | cases[13]: an equation whose left side is headed by a constructor of the text and whose right side is headed by a constructor, anot… | refused | R-a | The text's constructor axioms state that two constructors build distinct values and that a constructor is injective. hw-h1-ctors, a(X) = b(X): with the functional sentence of a it gives a(X) ∧ b(X) = a(X), which is not ⊥, while the no-confusion sentence makes it ⊥: no model. hw-h1-same, a(X) = a(0)… |  | none (R-a): with another constructor heading the right side the equation and the text's distinctness axiom have no common model; with the same constructor, injectivity equates the arguments at every element, so the argument sort's values that differ there are one element, which no free term model is | hw-h1-ctors |  |  | fixtures/hw-h1-ctors/account.txt: \`sentence 441 (Lbla): constructorEquation (Lbla: a constructor; right side headed by the constructor Lblb)\`; fixtures/hw-h1-same/account.txt: \`sentence 441 (Lbla): constructorEquation (Lbla: a constructor; right side headed by the same constructor)\`; kompile writes… |
