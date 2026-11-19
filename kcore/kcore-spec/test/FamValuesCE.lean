@@ -49,7 +49,7 @@ example : ∀ (c : Semantics) (h : c.coreOK = true) (hf : FnHyp c) (x y : Config
     (r : Rule) (σ : Subst) (hs : ∃ y₀, StepBy c r σ x y₀)
     (hy : Γc c ⊧ (den c y.val ⇒ famEx c r σ)),
     ∃ σ', (∀ i, ¬ i ∈ r.exs → σ'.lookup i = σ.lookup i) ∧ StepBy c r σ' x y :=
-  fun c h hf => famEx_values_ce c (Semantics.coreOKEx_of_coreOK h) hf
+  fun c h hf => famEx_values_ce c (Semantics.coreOK_iff_ex.mp h) hf
 
 example : ∀ (c : Semantics) (h : c.coreOK = true) (hf : FnHyp c)
     (x : Config c) (r : Rule) (hr : r ∈ c.rules) (σ : Subst) (hu : Unblocked c r σ x.val)
@@ -58,7 +58,7 @@ example : ∀ (c : Semantics) (h : c.coreOK = true) (hf : FnHyp c)
     (hys : ∀ y : Config c, (∃ σ', (∀ i ∈ varOccs r.lhs, σ'.lookup i = σ.lookup i) ∧ StepBy c r σ' x y) →
       y.val ∈ ys),
     Γc c ⊧ (famOpen c r σ ⇒ KoreAML.disjList (ys.map (den c))) :=
-  fun c h hf => famOpen_values_ce c (Semantics.coreOKEx_of_coreOK h) hf
+  fun c h hf => famOpen_values_ce c (Semantics.coreOK_iff_ex.mp h) hf
 
 /-- info: 'KCore.famEx_values_ce' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms famEx_values_ce

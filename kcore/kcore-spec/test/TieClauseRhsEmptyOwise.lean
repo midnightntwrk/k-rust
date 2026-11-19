@@ -460,6 +460,8 @@ theorem preTop_all : (c.fns.all fun f => f.clauses.all fun cl => cl.pre.isTop) =
 `FnSolves`, the clauses' predicates `\top`, no open generator). -/
 theorem consistent (H : HookParams) : Consistent (cH H) :=
   consistent_of (cH H) (coreOKH H) (fnDetH H) (fnSolvesH H) (clausePreDecided_of_isTop preTop_all)
+    (clausePostDecided_of_isTop (c := cH H)
+      (by decide +kernel : (c.fns.all fun f => f.clauses.all fun cl => cl.post.isTop) = true))
     (openLaws_of_plain noRaw)
 
 /-! ## The expectation for `f(1)` (C7 form (a)) -/

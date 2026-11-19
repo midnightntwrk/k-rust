@@ -166,6 +166,7 @@ import KcoreSpec.ModelLitsWitness
 import KcoreSpec.ModelOvlLibCtorWitness
 import KcoreSpec.ModelOvlIncohWitness
 import KcoreSpec.ModelOvlClosedWitness
+import KcoreSpec.ModelPredTwiceWitness
 import KcoreSpec.FaithfulCompleteAt
 import KcoreSpec.StepCompleteAt
 import KcoreSpec.LibAdmitted
@@ -218,6 +219,7 @@ import KcoreSpec.HoldsCongr
 import KcoreSpec.PredPlain
 import KcoreSpec.OvlHeldDefs
 import KcoreSpec.HoldsAtoms
+import KcoreSpec.BoundConf
 import KcoreSpec.HoldsFacts
 import KcoreSpec.HoldsFactsCore
 import KcoreSpec.CondTwoTables
@@ -301,6 +303,7 @@ import KcoreSpec.LawConsistent
 import KcoreSpec.TiePairs
 import KcoreSpec.ClausePreFn
 import KcoreSpec.InertEv
+import KcoreSpec.HoldsDenFixed
 import KcoreSpec.HoldsBinderFixed
 import KcoreSpec.LibEvBoolK
 import KcoreSpec.ExsValues
@@ -405,3 +408,5 @@ import KcoreSpec.FreeNames
 import KcoreSpec.LibEvFnBitRange
 import KcoreSpec.StepClosurePadIx
 import KcoreSpec.InstNameDecode
+import KcoreSpec.LibEvParam
+import KcoreSpec.TieLibParamExpand

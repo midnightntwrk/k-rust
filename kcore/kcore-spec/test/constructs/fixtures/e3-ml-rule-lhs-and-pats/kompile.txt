@@ -1,0 +1,11 @@
+command: kompile --backend haskell e3-ml-rule-lhs-and-pats.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.7
+definition.kore bytes: 86877
+definition.kore sha256: 512d65217032304ff2eb102fe438262641aad6c172e4328639c222870bdb7108
+stripped sha256: 812fcc29409d9bc50e05adf440fbd53504aafd30fd9a73cb00ae616c3ca7b678
+main module: 254 sentences, 29 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-ML-RULE-LHS-AND-PATS-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using E3-ML-RULE-LHS-AND-PATS as default.

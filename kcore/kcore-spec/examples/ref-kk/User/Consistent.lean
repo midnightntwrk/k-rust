@@ -26,7 +26,7 @@ theorem tops : (c₀.fns.all fun f => f.clauses.all fun cl => cl.pre.isTop && cl
 /-- **Evaluation solves kore.k's equations at `HookParams.none`** (`FnSolves`). -/
 theorem fnSolves : FnSolves c₀ :=
   fnSolves_of_parts_lookup (fun _ h => CoDef.lookup_self h) fnDet
-    (fun fn hfn cl hcl => ⟨Semantics.fnsNoExs_of_sortedOK hsorted _ hfn _ hcl,
+    (fun fn hfn cl hcl => ⟨fnsNoExs₀ _ hfn _ hcl,
       Cond.eq_top_of_isTop (Bool.and_eq_true _ _ ▸ List.all_eq_true.mp (List.all_eq_true.mp tops fn hfn) cl hcl).2⟩)
     prioDecided coDefined
 
@@ -36,12 +36,18 @@ theorem clausePreDecided : ClausePreDecided c₀ :=
     refine List.all_eq_true.mpr fun f hf => List.all_eq_true.mpr fun cl hcl => ?_
     exact (Bool.and_eq_true _ _ ▸ List.all_eq_true.mp (List.all_eq_true.mp tops f hf) cl hcl).1)
 
+/-- Every clause's right-side predicate `post` has a truth value: it is `\top`. -/
+theorem clausePostDecided : ClausePostDecided c₀ :=
+  clausePostDecided_of_isTop (by
+    refine List.all_eq_true.mpr fun f hf => List.all_eq_true.mpr fun cl hcl => ?_
+    exact (Bool.and_eq_true _ _ ▸ List.all_eq_true.mp (List.all_eq_true.mp tops f hf) cl hcl).2)
+
 /-- kore.k declares no parameter symbol, so no open generator has a law to meet. -/
 theorem openLaws : OpenLaws c₀ := fun k hk => by rw [Prio.hparams] at hk; cases hk
 
 /-- **kore.k's theory with its step's closure has a model at `HookParams.none`** (`Consistent`). -/
 theorem consistent : Consistent (defn.sem.withHooks HookParams.none) :=
-  consistent_of c₀ hcore fnDet fnSolves clausePreDecided openLaws
+  consistent_of c₀ hcore fnDet fnSolves clausePreDecided clausePostDecided openLaws
 
 open Lean in
 #eval show CoreM Unit from do

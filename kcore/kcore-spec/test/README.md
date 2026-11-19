@@ -951,11 +951,25 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   reading gives it (`Semantics.sortPreds`): `Parse.predEqnOK`, `Parse.predProjOK?` and
   `Parse.predEqnFaults` on hand-written equations by the kernel (the two standard equations are the
   clauses; an equation with a `requires` is none, first or second in the text; an `[owise]`
-  equation is the clause only with one disjunct for the clause before it); the reader's refusal
-  (`coreOf`, `generatedEquation`, two refusals) of the cached kompiled texts of c3-strict-hybrid
-  and e2-frontend-effect and of the first with its standard equation moved first, c3-strict-base
-  read; the account's arm alone, the definition of c3-strict-base against the sentences of
-  c3-strict-hybrid.
+  equation is the clause only with one disjunct for the clause before it); the reader's choice
+  (`predFnNamesPR`, `fnFrom`) by the kernel: the standard equations, with or without an instance,
+  keep `sortPreds`' function, a third equation that is no instance or a missing `[owise]` equation
+  makes the predicate the function of its equations (read, or refused by `fnFrom`), and a hybrid
+  predicate so read evaluates `isRes(pair(v, v))` to true; the cached kompiled texts of
+  c3-strict-hybrid (both orders) and e2-frontend-effect read with isKResult a function of three
+  clauses (`isKResult(pair(1, 2))` true), c3-strict-base and rdr-pred-rule with `sortPreds`'
+  function, rdr-pred-rule with its rule giving false read with the agreement owed; the account's
+  arm alone, the definition of c3-strict-base against the sentences of c3-strict-hybrid.
+- `test/PredFnCone.lean`: a sort predicate held as a function of `c.fns`, by the kernel: every
+  semantics `idsOK` accepted with `ownSyms` listing every function is accepted
+  (`idsOK_of_before`); a function under an own sort's predicate number replaces the one
+  `sortPreds` builds and `coreOK` holds; two such functions fail `predsApart` alone; a function
+  labelled `isK` fails `predsApart` and `idsOK`; one labelled as a registry sort's predicate fails
+  only `idsOK`'s conjunct on the functions' labels (test/witnesses.toml, predsApart.1, idsOK.4).
+- `test/PredHybrid.lean`: a hand-built semantics whose predicate isKResult is a function of
+  `c.fns` of three clauses (the pair clause under a `requires`, the standard one, `false`
+  otherwise): `coreOK` holds, `isKResult(pair(1, 2))` and `isKResult(pair(pair(1, 2), 1))` evaluate
+  to true by the kernel, and its totality is owed.
 - `test/ExClauseReader.lean`: `Parse.ceRead` (`KcoreSpec/ReadFns.lean`, not called by `clauseBody`):
   an equation's right side under `\exists` as one clause with `exs` and `post`, and a conjunction
   of terms at a term position as its `\exists` variable conjunct or a fresh existential variable,
@@ -1778,6 +1792,33 @@ table above, on the tree before String and Bytes). Not investigated here.
   parameters (`decls_entailed`) and STRING-BUFFER-IN-K's three symbol declarations
   (`lib_decls_entailed`), which the rule applies and the reading has as parameter symbols
   (`params_sb`). Axioms printed.
+- `test/LibEvStrBufEqs.lean`: STRING-BUFFER-IN-K's three equations (domains.md 1963-1965) of
+  `f2-examples/e6sb.kompile.kore`, which apply the reading's parameter symbols without
+  implementation: each is entailed at values for every H meeting its condition (`sbUnitEq`,
+  `sbConcatEq`, `sbToStrEq`; `ev179`, `ev195`, `ev185`), through `LibEv.FnEqn.entailedP`
+  (`KcoreSpec/LibEvParam.lean`, terms applying parameter symbols and injections); `Hsb`, reading the
+  three as the String operations, meets the three (`hsb_meets`, `ev_Hsb`); at `HookParams.none` the
+  left sides of 1964 and 1965 have no value where the right sides have one (`unit_none`,
+  `toStr_none`, statements about the sides' values). Axioms guarded.
+- `test/IteIntParam.lean`: on `f2-examples/e6ite.kompile.kore` (the fixture e6-ite-int), the
+  reading's one parameter symbol is `ite{Int}`, implemented by `kIte` (`params_ite`); Γ holds it
+  and applies it at the head `Lblite{SortInt{}}`, for every H (`ite_int_in_gamma`); the module's
+  sentences applying that head are the rule and `findChar`'s equation (domains.md 1891), every head
+  of which is Γ's (`ite_int_sentences`, `findChar_heads_in_gamma`). Axioms printed.
+- `test/LibParamExpandFlt.lean`: the sentences of four library parameters Γ lacks on
+  `f2-examples/silentflt.kompile.kore` (`dividesInt`, `~Int`, `Int2BytesNoLen`, `rootFloat`), for
+  every H, in one model of `Γc ∪ Γstep` whose steps are `Step`'s (`expansion`, kind "in a model";
+  `KcoreSpec/TieLibParamExpand.lean`, `TieLibParam.model_lacked`, read through
+  `KcoreSpec/LibEvLacked.lean`): 274 (shape s3), 380 (s5), 228 to 232 with the `functional`
+  sentences 45 and 176 (s4), each at values as the text's translation writes it. The header says
+  why the form for every model of Γ is not stated. Axioms guarded.
+- `test/LibEvFindCharIte.lean`: `findChar`'s equation (domains.md 1891), axiom 237 of
+  `f2-examples/e6ite.kompile.kore`, where `#if` at Int is the parameter symbol `ite{Int}` implemented
+  by `kIte`: in the function form over terms applying it (`E237`, `LibEv.FnEqn.patternP`), its sides
+  have the same value for every H meeting `Semantics.findCharEq` (`holds237`; at a position of S1
+  both sides are `hook`'s, the first position of one of S2's characters being `gLfc` of the first of
+  its first character and of the others, `lfc_firstOr_or`), so it is entailed at values (`ev237`,
+  `LibEv.FnEqn.entailedP`); `HookParams.lib` meets the condition (`ev237_lib`). Axioms guarded.
 - `test/LibEvCollSym.lean`: the lemmas of MAP-KORE-SYMBOLIC and SET-KORE-SYMBOLIC of
   `f2-examples/collsym.kompile.kore`, for every H, from the library's statements
   (`KcoreSpec/LibEvCollSym.lean`): entailed at values, without an `ensures` (`LibEv.Eqn`; domains.md

@@ -137,7 +137,7 @@ theorem fnHyp : FnHyp c :=
 /-- **The value model is a model of the theory** (`Γc` with the step's closure). -/
 theorem value_model : Faithful.Model.stdI c ⊧ᴵP (Γc c ∪ Γstep c) :=
   stdI_model_exCEx c (hypModel_of_fnHyp coreOK fnHyp) (clausePreDecided_of_fnHyp coreOK fnHyp)
-    (clausePostDecided_of_fnHypCEx (Semantics.coreOKEx_of_coreOK coreOK) fnHyp)
+    (clausePostDecided_of_fnHypCEx (Semantics.coreOK_iff_ex.mp coreOK) fnHyp)
     (openLaws_of_plain (fun k hk => (by rw [facts.2.2.2.2] at hk; cases hk)))
     (Semantics.ruleFactsEx_of_coreAll coreOK (by decide +kernel))
 

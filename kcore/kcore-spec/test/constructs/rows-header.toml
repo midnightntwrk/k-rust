@@ -322,11 +322,26 @@
 #      (`Builtins.libParams`); for the use test see `Parse.usedLibParams`. A library equation or
 #      lemma is not such a use. Its declaration, its `functional` axiom, and every sentence of the
 #      text that applies it are of the no-direction class and are not owed.
-#      They need what no sentence of the no-direction class may lack: for every H the text admits,
-#      every model of Γ (c.withHooks H) has a choice of the lacked symbols' meanings under which
-#      they all hold together. No item of Γ or of Step applies a lacked symbol (`gamma_lacks_head`),
-#      so the choice keeps the model and its steps, and Γ and the text have the same consequences
-#      over Γ's symbols. The choice is by shape:
+#      They need what no sentence of the no-direction class may lack, the expansion condition (E):
+#      for every H the text admits, every model of Γ (c.withHooks H) extends, possibly gaining
+#      elements, to a model of Γ and of the lacked symbols' sentences that is elementary for Γ's
+#      language at the model's elements: every pattern over Γ's symbols, at every valuation into
+#      the model's elements, denotes in the extension, restricted to those elements, what it
+#      denotes in the model. Agreement of Γ's symbols at the model's elements alone does not give
+#      that, since a quantifier and a complement also range over the gained elements. The carrier
+#      may grow because Γ states no element giving a lacked symbol its values. (E) is what
+#      omitting the lacked symbols needs to lose no consequence over Γ's symbols: a pattern over
+#      them that fails in a model of Γ at an element and a valuation fails at the same ones in the
+#      extension, a model of Γ and of the lacked symbols' sentences. (E) is argued, not
+#      kernel-checked.
+#      Kernel-checked: no item of Γ or of Step applies a lacked symbol (`gamma_lacks_head`); an
+#      interpretation changed at the lacked names only, keeping its carrier and its application,
+#      stays a model of Γ with the same steps (`TieLibParam.expand_lacked`); and, for every H, one
+#      model of Γ with `Step`'s steps in which the lacked symbols' sentences hold together at values
+#      (`test/LibParamExpandFlt.lean` `expansion`, on silentflt: sentences 274, 228 to 232 and 380
+#      with the `functional` sentences 45 and 176, the second, third and fourth shapes below). That
+#      model is the floor the evidence below asks for. The lacked symbols' values are chosen by
+#      shape:
 #      - freely, for a declaration alone or with its `functional` axiom;
 #      - by its defining equation (`dividesInt`);
 #      - by cases over exclusive conditions, with a value elsewhere where the symbol is `functional`

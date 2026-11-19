@@ -775,8 +775,8 @@ info: 'OpenFixtures.Unbound.exact_b' depends on axioms: [propext, Classical.choi
 definition reads a confined sort, so `holds_entailsCEx` reads the binders' facts (`binderFacts_of_core`);
 the clause hypothesis is empty, the definition having no function. -/
 theorem entails_ex {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M} (hIc : I ⊧ᴵP Γc c) :
-    HoldsShape.HoldsDen' c I (.ex Srt.bool .top) :=
-  HoldsShape.holds_entailsCEx (Semantics.coreOKEx_of_coreOK coreOK) hIc
+    HoldsShape.HoldsDenB (Cond.bound c) c I (.ex Srt.bool .top) :=
+  HoldsShape.holds_entailsCEx (Semantics.coreOK_iff_ex.mp coreOK) hIc
     (fun fn hfn => absurd hfn (by rw [arm_A.2.2.2.2.2.2]; exact List.not_mem_nil)) _
     fun _ => arm_A.2.2.2.2.2.1
 

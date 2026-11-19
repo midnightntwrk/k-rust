@@ -148,7 +148,7 @@ theorem model2 : stdI c2 ⊧ᴵP (Γc c2 ∪ Γstep c2) :=
     c2_fnHyp.2.2.2.2.2 (fun _ h => absurd h List.not_mem_nil)
     (satFnsGoal_decided
       (hypModel_of_fn c2_core (fnModel_of_fnHyp c2_core c2_fnHyp).1 (fnModel_of_fnHyp c2_core c2_fnHyp).2)
-      (Semantics.fnsNoExs_of_coreOK c2_core) (clausePreDecided_of_fnHyp c2_core c2_fnHyp))
+      (Semantics.fnsNoExs_of_all (by decide +kernel)) (clausePreDecided_of_fnHyp c2_core c2_fnHyp))
 
 theorem inΓ2 {φ : KoreAML.P} (h : φ ∈ Γ c2) : stdI c2 ⊧ᴵ φ := model2 φ (Or.inl (Or.inl h))
 

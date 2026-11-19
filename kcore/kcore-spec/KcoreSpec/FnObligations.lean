@@ -326,11 +326,14 @@ theorem fnModel_of_fnFacts {c : Semantics} {ord tp : List Sym} (h : c.coreOK = t
     (hob : FnFacts c ord tp) (hpreTop : c.clausesPreTop = true := by first | decide +kernel | (simp only [Semantics.clausesPreTop_withHooks]; decide +kernel) | exact rfl) (hnoEx : c.FnsNoExs := by first | assumption | exact Semantics.fnsNoExs_of_all (by decide +kernel) | exact (Semantics.fnsNoExs_withHooks _ _).mpr (Semantics.fnsNoExs_of_all (by decide +kernel)) | exact Semantics.fnsNoExs_of_all rfl) : FnDet c ∧ FnSolves c :=
   fnModel_of_fnFactsN (hpreTop := hpreTop) (hnoEx := hnoEx) h (fun f _ => hrh.heldOwed f) hob
 
-/-- **Consistency from `FnFacts`** (`consistent_of`): no owed condition is read. -/
+/-- **Consistency from `FnFacts`** (`consistent_of`): no owed condition is read. A clause without
+existential variables has the right-side predicate `\top` (`sortedOK_clauseEx`), so
+`ClausePostDecided` holds. -/
 theorem consistent_of_fnFacts {c : Semantics} {ord tp : List Sym} (h : c.coreOK = true) (hrh : c.RightHeld)
     (hob : FnFacts c ord tp) (hpreTop : c.clausesPreTop = true := by first | decide +kernel | (simp only [Semantics.clausesPreTop_withHooks]; decide +kernel) | exact rfl) (hnoEx : c.FnsNoExs := by first | assumption | exact Semantics.fnsNoExs_of_all (by decide +kernel) | exact (Semantics.fnsNoExs_withHooks _ _).mpr (Semantics.fnsNoExs_of_all (by decide +kernel)) | exact Semantics.fnsNoExs_of_all rfl) : Consistent c :=
   consistent_of c h (fnModel_of_fnFacts (hpreTop := hpreTop) (hnoEx := hnoEx) h hrh hob).1 (fnModel_of_fnFacts (hpreTop := hpreTop) (hnoEx := hnoEx) h hrh hob).2
-    (clausePreDecided_of_fnFactsN (hpreTop := hpreTop) (hnoEx := hnoEx) h (fun f _ => hrh.heldOwed f) hob) hob.2.2.2.2
+    (clausePreDecided_of_fnFactsN (hpreTop := hpreTop) (hnoEx := hnoEx) h (fun f _ => hrh.heldOwed f) hob)
+    (clausePostDecided_of_top fun _ hfn _ hcl => (Semantics.sortedOK_clauseEx (Semantics.coreOK_parts h).1 hfn hcl).2 (hnoEx _ hfn _ hcl)) hob.2.2.2.2
 
 /-- `consistent_of_fnFacts` for an interpretation H of the parameters: `coreOK` and `RightHeld` of
 the data, of a semantics without an open generator (`hr`). -/
@@ -345,7 +348,8 @@ theorem consistent_of_fnFacts_withHooks {c : Semantics} {ord tp : List Sym} (h :
 theorem consistent_of_fnFactsN {c : Semantics} {ord tp : List Sym} (h : c.coreOK = true)
     (hheld : ∀ f ∈ c.heldObligations, HeldOwed c f) (hob : FnFacts c ord tp) (hpreTop : c.clausesPreTop = true := by first | decide +kernel | (simp only [Semantics.clausesPreTop_withHooks]; decide +kernel) | exact rfl) (hnoEx : c.FnsNoExs := by first | assumption | exact Semantics.fnsNoExs_of_all (by decide +kernel) | exact (Semantics.fnsNoExs_withHooks _ _).mpr (Semantics.fnsNoExs_of_all (by decide +kernel)) | exact Semantics.fnsNoExs_of_all rfl) : Consistent c :=
   consistent_of c h (fnModel_of_fnFactsN (hpreTop := hpreTop) (hnoEx := hnoEx) h hheld hob).1 (fnModel_of_fnFactsN (hpreTop := hpreTop) (hnoEx := hnoEx) h hheld hob).2
-    (clausePreDecided_of_fnFactsN (hpreTop := hpreTop) (hnoEx := hnoEx) h hheld hob) hob.2.2.2.2
+    (clausePreDecided_of_fnFactsN (hpreTop := hpreTop) (hnoEx := hnoEx) h hheld hob)
+    (clausePostDecided_of_top fun _ hfn _ hcl => (Semantics.sortedOK_clauseEx (Semantics.coreOK_parts h).1 hfn hcl).2 (hnoEx _ hfn _ hcl)) hob.2.2.2.2
 
 /-- `fnModel_of_fnFactsN` for an interpretation H of the parameters: the list of the held-named
 functions is the data's, their owed facts are stated for the interpretation. -/

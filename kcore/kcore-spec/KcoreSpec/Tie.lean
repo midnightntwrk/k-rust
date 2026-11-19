@@ -59,53 +59,6 @@ def Semantics.rulesPlain (c : Semantics) : Bool := c.rules.all fun r =>
   r.opens.all (fun i => (heldOccs c r.rhs).contains i || conf i || (r.condVars.contains i && condApart)) &&
   (!r.reqOpen || !c.rules.any (fun r' => r.prio < r'.prio) || r.openCondVars.all conf || r.reqClosed)
 
-/-- Clauses bind no variable by `\exists` and have no predicate on the right side; a clause with a
-predicate in its premise is not one whose conditions need a witness (`needsWitness`); and a clause's
-open condition variables are of confined sorts, or its conditions are closed (`OpenDecided`). -/
-def Semantics.clausesPlain (c : Semantics) : Bool := c.fns.all fun f => f.clauses.all fun cl =>
-  cl.exs.isEmpty && (cl.pre.isTop || !cl.needsWitness c) && cl.post.isTop &&
-  (!cl.reqOpen || cl.reqClosed ||
-    cl.openCondVars.all fun i => (cl.vars[i]?.map c.confined).getD false)
-
-/-- Every clause's predicate is `\top`: what the checks outside `coreOK` ask of the clauses (`ok`,
-`okM`, `okAll`), and the statements whose proofs read no predicate of a clause. -/
-def Semantics.clausesPreTop (c : Semantics) : Bool :=
-  c.fns.all fun f => f.clauses.all fun cl => cl.pre.isTop
-
-theorem Semantics.clausesPreTop_spec {c : Semantics} (h : c.clausesPreTop = true) {f : Fn} (hf : f ∈ c.fns)
-    {cl : Clause} (hcl : cl ∈ f.clauses) : cl.pre = .top :=
-  Cond.eq_top_of_isTop (List.all_eq_true.mp (List.all_eq_true.mp h f hf) cl hcl)
-
-/-- Each sort hooked to a library carrier is an own sort of the definition, named once, neither a
-token, a byte nor a collection sort, and its carrier is Int, Bool, Float, String or Bytes. -/
-def Semantics.carriersOK (c : Semantics) : Bool :=
-  c.lib.carriers.all (fun p => decide (nRegSorts ≤ p.1) && c.userSorts.contains p.1 &&
-    [Srt.int, Srt.bool, Srt.float, Srt.string, Srt.bytes].contains p.2 &&
-    !c.lib.tokenSorts.contains p.1 && !c.lib.byteSorts.contains p.1 && !c.colls.any (·.sort == p.1)) &&
-  nodup (c.lib.carriers.map (·.1))
-
-/-- The parameters' shapes, and the carriers. A parameter that is no open generator has no
-associativity or idempotence axiom. An open generator (`raw`) has no registry hook,
-two arguments of its result sort where it has a law (associativity, idempotence or both), a number outside the registry (so `lookupOpen`
-answers for it) and no name like an instance of a sort-parametric symbol (`instDecode?`), and the semantics has `shapesOK` (no value
-of a sort the library's sentences read, other than Float, applies it). The sorts hooked to a
-library carrier are well formed (`carriersOK`). -/
-def Semantics.paramsPlain (c : Semantics) : Bool :=
-  c.params.all (fun k =>
-    if k.raw then k.impl.isNone &&
-      (!(k.assoc || k.idem) || k.sig.args == [k.sig.result, k.sig.result]) &&
-      decide (nRegSyms ≤ k.sig.name) && (instDecode? (c.symName k.sig.name)).isNone &&
-      c.shapesOK
-    else !k.assoc && !k.idem) && c.carriersOK
-
-/-- The core is well-formed: declarations over declared sorts, its rules, clauses and parameters
-plain (`rulesPlain`, `clausesPlain`, `paramsPlain`), every clause's predicate `\top`
-(`clausesPreTop`), subsorts, functions and rules. No sort is
-required to have a value (`Semantics.valueless`, which the account prints). -/
-def Semantics.ok (c : Semantics) : Bool :=
-  c.declsOK && (c.rulesPlain && (c.clausesPlain && c.clausesPreTop) && c.paramsPlain) && c.subsortsOK && c.fnsOK &&
-    c.rules.all c.ruleOK
-
 namespace Semantics
 variable (c : Semantics)
 
@@ -137,6 +90,81 @@ the left side, and its right-side predicate is sorted. -/
 def clauseExOK (cl : Clause) : Bool :=
   cl.exs.all (· < cl.vars.length) && nodup cl.exs && cl.exs.all (fun i => !cl.leftVars.contains i) &&
     c.condOK cl.vars cl.post
+
+end Semantics
+
+/-- What is asked of the clauses beyond their sorts: each existential variable is of a confined
+sort or fixed by the right-side predicate, which is `\top` where there is none (`clausePlainEx`);
+the existential variables are in scope, apart and outside the left side, and the right-side
+predicate is sorted (`clauseExOK`); a clause with a predicate in its premise is not one whose
+conditions need a witness (`needsWitness`); and a clause's open condition variables are of
+confined sorts, or its conditions are closed (`OpenDecided`). -/
+def Semantics.clausesPlain (c : Semantics) : Bool := c.fns.all fun f => f.clauses.all fun cl =>
+  c.clausePlainEx cl && c.clauseExOK cl && (cl.pre.isTop || !cl.needsWitness c) &&
+  (!cl.reqOpen || cl.reqClosed || cl.openCondVars.all fun i => (cl.vars[i]?.map c.confined).getD false)
+
+/-- What `clausesPlain` asks of one clause. -/
+theorem Semantics.clausesPlain_spec {c : Semantics} (h : c.clausesPlain = true) {f : Fn} (hf : f ∈ c.fns)
+    {cl : Clause} (hcl : cl ∈ f.clauses) :
+    c.clausePlainEx cl = true ∧ c.clauseExOK cl = true ∧ (cl.pre.isTop || !cl.needsWitness c) = true ∧
+      (!cl.reqOpen || cl.reqClosed || cl.openCondVars.all fun i => (cl.vars[i]?.map c.confined).getD false) = true := by
+  have := List.all_eq_true.mp (List.all_eq_true.mp h f hf) cl hcl
+  simp only [Bool.and_eq_true] at this
+  exact ⟨this.1.1.1, this.1.1.2, this.1.2, this.2⟩
+
+/-- Every clause's predicate is `\top`: what the checks outside `coreOK` ask of the clauses (`ok`,
+`okM`, `okAll`), and the statements whose proofs read no predicate of a clause. -/
+def Semantics.clausesPreTop (c : Semantics) : Bool :=
+  c.fns.all fun f => f.clauses.all fun cl => cl.pre.isTop
+
+theorem Semantics.clausesPreTop_spec {c : Semantics} (h : c.clausesPreTop = true) {f : Fn} (hf : f ∈ c.fns)
+    {cl : Clause} (hcl : cl ∈ f.clauses) : cl.pre = .top :=
+  Cond.eq_top_of_isTop (List.all_eq_true.mp (List.all_eq_true.mp h f hf) cl hcl)
+
+/-- No clause binds a variable by `\exists` and every clause's right-side predicate is `\top`:
+what the checks outside `coreOK` ask of the clauses beside `clausesPreTop`. -/
+def Semantics.clausesNoExsTop (c : Semantics) : Bool :=
+  c.fns.all fun f => f.clauses.all fun cl => cl.exs.isEmpty && cl.post.isTop
+
+theorem Semantics.clausesNoExsTop_spec {c : Semantics} (h : c.clausesNoExsTop = true) {f : Fn} (hf : f ∈ c.fns)
+    {cl : Clause} (hcl : cl ∈ f.clauses) : cl.exs = [] ∧ cl.post = .top := by
+  have := List.all_eq_true.mp (List.all_eq_true.mp h f hf) cl hcl
+  simp only [Bool.and_eq_true] at this
+  exact ⟨List.isEmpty_iff.mp this.1, Cond.eq_top_of_isTop this.2⟩
+
+/-- Each sort hooked to a library carrier is an own sort of the definition, named once, neither a
+token, a byte nor a collection sort, and its carrier is Int, Bool, Float, String or Bytes. -/
+def Semantics.carriersOK (c : Semantics) : Bool :=
+  c.lib.carriers.all (fun p => decide (nRegSorts ≤ p.1) && c.userSorts.contains p.1 &&
+    [Srt.int, Srt.bool, Srt.float, Srt.string, Srt.bytes].contains p.2 &&
+    !c.lib.tokenSorts.contains p.1 && !c.lib.byteSorts.contains p.1 && !c.colls.any (·.sort == p.1)) &&
+  nodup (c.lib.carriers.map (·.1))
+
+/-- The parameters' shapes, and the carriers. A parameter that is no open generator has no
+associativity or idempotence axiom. An open generator (`raw`) has no registry hook,
+two arguments of its result sort where it has a law (associativity, idempotence or both), a number outside the registry (so `lookupOpen`
+answers for it) and no name like an instance of a sort-parametric symbol (`instDecode?`), and the semantics has `shapesOK` (no value
+of a sort the library's sentences read, other than Float, applies it). The sorts hooked to a
+library carrier are well formed (`carriersOK`). -/
+def Semantics.paramsPlain (c : Semantics) : Bool :=
+  c.params.all (fun k =>
+    if k.raw then k.impl.isNone &&
+      (!(k.assoc || k.idem) || k.sig.args == [k.sig.result, k.sig.result]) &&
+      decide (nRegSyms ≤ k.sig.name) && (instDecode? (c.symName k.sig.name)).isNone &&
+      c.shapesOK
+    else !k.assoc && !k.idem) && c.carriersOK
+
+/-- The core is well-formed: declarations over declared sorts, its rules, clauses and parameters
+plain (`rulesPlain`, `clausesPlain`, `paramsPlain`), every clause's predicate `\top`
+(`clausesPreTop`) and no clause with an existential variable or a right-side predicate
+(`clausesNoExsTop`), subsorts, functions and rules. No sort is
+required to have a value (`Semantics.valueless`, which the account prints). -/
+def Semantics.ok (c : Semantics) : Bool :=
+  c.declsOK && (c.rulesPlain && (c.clausesPlain && (c.clausesPreTop && c.clausesNoExsTop)) && c.paramsPlain) && c.subsortsOK && c.fnsOK &&
+    c.rules.all c.ruleOK
+
+namespace Semantics
+variable (c : Semantics)
 
 /-- A clause of `f` is well sorted over the function signatures `rhsHeads`: its patterns have the
 argument sorts in the context of a pattern that applies no function-overloaded symbol (`patCtxNF`),
@@ -308,13 +336,12 @@ theorem clauseSorted_of_all {f : Fn} {H : List CtorSig} {cl : Clause} (h : c.cla
   · exact Or.inl (Or.inr h1)
 
 /-- A clause whose predicates are `\top` has its binders where values and elements agree
-(`Cond.bound`): it has none; `clausesPlain` gives the right side's, `clausesPreTop` the premise's. -/
-theorem clauseBound_of_plain (hp : c.clausesPlain = true) (ht : c.clausesPreTop = true) {f : Fn} (hf : f ∈ c.fns)
+(`Cond.bound`): it has none; `clausesNoExsTop` gives the right side's, `clausesPreTop` the
+premise's. -/
+theorem clauseBound_of_plain (hn : c.clausesNoExsTop = true) (ht : c.clausesPreTop = true) {f : Fn} (hf : f ∈ c.fns)
     {cl : Clause} (hcl : cl ∈ f.clauses) :
     (Cond.bound c cl.vars.length cl.pre && Cond.bound c cl.vars.length cl.post) = true := by
-  simp only [clausesPlain, Bool.and_eq_true, List.all_eq_true] at hp
-  obtain ⟨⟨-, hpost⟩, -⟩ := hp f hf cl hcl
-  rw [clausesPreTop_spec ht hf hcl, Cond.eq_top_of_isTop hpost]
+  rw [clausesPreTop_spec ht hf hcl, (clausesNoExsTop_spec hn hf hcl).2]
   rfl
 
 /-- A clause whose premise's predicate is `\top` (`clausesPreTop`) has it well sorted (`condOK`). -/
@@ -378,10 +405,8 @@ in scope, apart and outside the left side with the predicate sorted (`clauseExOK
 predicate is `\top` where the clause has no existential variable. -/
 theorem clausesPlain_clauseEx {c : Semantics} (h : c.clausesPlain = true) {f : Fn} (hf : f ∈ c.fns)
     {cl : Clause} (hcl : cl ∈ f.clauses) : c.clauseExOK cl = true ∧ (cl.exs = [] → cl.post = .top) := by
-  simp only [clausesPlain, Bool.and_eq_true, List.all_eq_true] at h
-  have hx := List.isEmpty_iff.mp (h f hf cl hcl).1.1.1
-  have hp := Cond.eq_top_of_isTop (h f hf cl hcl).1.2
-  exact ⟨by simp [clauseExOK, hx, hp, nodup, condOK], fun _ => hp⟩
+  have h' := clausesPlain_spec h hf hcl
+  exact ⟨h'.2.1, fun hex => Cond.eq_top_of_isTop ((Semantics.clausePlainEx_nil_iff hex).mp h'.1)⟩
 
 /-- `clausesPlain_clauseEx` from `sortedOK`, which holds `clausesPlain`. -/
 theorem sortedOK_clauseEx {c : Semantics} (h : c.sortedOK = true) {f : Fn} (hf : f ∈ c.fns)
@@ -400,6 +425,23 @@ theorem exs_nil_of_patBinds {c : Semantics} {cl : Clause} (hx : c.clauseExOK cl 
     have hi : i ∈ cl.exs := by rw [he]; exact List.mem_cons_self ..
     have h1 : i ∉ cl.leftVars := by simpa using hout i hi
     have h2 := List.all_eq_true.mp hb i (List.mem_range.mpr (by simpa using hlt i hi))
+    exact absurd (List.mem_append_left _ (List.contains_iff_mem.mp h2)) h1
+
+/-- A clause none of whose variables is open binds none by `\exists`. -/
+theorem exs_nil_of_opens_nil {c : Semantics} {cl : Clause} (hx : c.clauseExOK cl = true)
+    (ho : cl.opens = []) : cl.exs = [] := by
+  simp only [clauseExOK, Bool.and_eq_true, List.all_eq_true] at hx
+  obtain ⟨⟨⟨hlt, -⟩, hout⟩, -⟩ := hx
+  cases he : cl.exs with
+  | nil => rfl
+  | cons i l =>
+    have hi : i ∈ cl.exs := by rw [he]; exact List.mem_cons_self ..
+    have h1 : i ∉ cl.leftVars := by simpa using hout i hi
+    have hil : i < cl.vars.length := by simpa using hlt i hi
+    have h2 : (varOccsList cl.pats).contains i = true := by
+      have hno : i ∉ cl.opens := by rw [ho]; exact List.not_mem_nil
+      simp only [Clause.opens, List.mem_filter, List.mem_range, Bool.not_eq_true', not_and] at hno
+      simpa using hno hil
     exact absurd (List.mem_append_left _ (List.contains_iff_mem.mp h2)) h1
 
 /-- A clause of a semantics with `clausesPlain` whose patterns bind every variable has no
@@ -460,7 +502,7 @@ collection pattern symbols too (`ruleOKAll`: a list's `ListItem(P) L`, a cell ma
 predicates well sorted (`rulePredsOK`). `ok` is the narrower condition the executable matcher's
 theorems read; `okAll` is what the tie checks. -/
 def Semantics.okAll (c : Semantics) : Bool :=
-  c.declsOK && (c.rulesPlain && (c.clausesPlain && c.clausesPreTop) && c.paramsPlain) && c.subsortsOK && c.fnsOKAll &&
+  c.declsOK && (c.rulesPlain && (c.clausesPlain && (c.clausesPreTop && c.clausesNoExsTop)) && c.paramsPlain) && c.subsortsOK && c.fnsOKAll &&
     c.rules.all c.ruleOKAll && c.rules.all c.rulePredsOK
 
 /-- The rules, clauses and parameters of a core `okAll` accepts are plain. -/
@@ -472,7 +514,13 @@ theorem Semantics.plain_of_okAll {c : Semantics} (h : c.okAll = true) :
 /-- Every clause of a core `okAll` accepts has the predicate `\top`. -/
 theorem Semantics.preTop_of_okAll {c : Semantics} (h : c.okAll = true) : c.clausesPreTop = true := by
   simp only [Semantics.okAll, Bool.and_eq_true] at h
-  exact h.1.1.1.1.2.1.2.2
+  exact h.1.1.1.1.2.1.2.2.1
+
+/-- No clause of a core `okAll` accepts binds a variable by `\exists` or has a right-side
+predicate. -/
+theorem Semantics.noExsTop_of_okAll {c : Semantics} (h : c.okAll = true) : c.clausesNoExsTop = true := by
+  simp only [Semantics.okAll, Bool.and_eq_true] at h
+  exact h.1.1.1.1.2.1.2.2.2
 
 theorem Semantics.okAll_of_ok {c : Semantics} (h : c.ok = true) : c.okAll = true := by
   simp only [Semantics.ok, Semantics.okAll, Bool.and_eq_true, List.all_eq_true] at h ⊢
@@ -485,7 +533,7 @@ theorem Semantics.okAll_of_ok {c : Semantics} (h : c.ok = true) : c.okAll = true
 `ruleOKM` (`ruleOK` less its two `\top` predicates) and its predicates well sorted
 (`rulePredsOK`). -/
 def Semantics.okM (c : Semantics) : Bool :=
-  c.declsOK && (c.rulesPlain && (c.clausesPlain && c.clausesPreTop) && c.paramsPlain) && c.subsortsOK && c.fnsOK &&
+  c.declsOK && (c.rulesPlain && (c.clausesPlain && (c.clausesPreTop && c.clausesNoExsTop)) && c.paramsPlain) && c.subsortsOK && c.fnsOK &&
     c.rules.all c.ruleOKM && c.rules.all c.rulePredsOK
 
 theorem Semantics.okM_of_ok {c : Semantics} (h : c.ok = true) : c.okM = true := by
@@ -508,11 +556,9 @@ theorem Semantics.okM_rule {c : Semantics} (h : c.okM = true) {r : Rule} (hr : r
   exact ⟨List.isEmpty_iff.mp hro.2, hro.1.1.1.1.2⟩
 
 /-- No clause of a function of a core `okAll` accepts binds a variable by `\exists`
-(`clausesPlain`). -/
-theorem Semantics.fnsNoExs_of_okAll {c : Semantics} (h : c.okAll = true) : c.FnsNoExs := by
-  have hp := (Semantics.plain_of_okAll h).2.1
-  simp only [Semantics.clausesPlain, Bool.and_eq_true, List.all_eq_true] at hp
-  exact fun fn hfn cl hcl => List.isEmpty_iff.mp (hp fn hfn cl hcl).1.1.1
+(`clausesNoExsTop`). -/
+theorem Semantics.fnsNoExs_of_okAll {c : Semantics} (h : c.okAll = true) : c.FnsNoExs :=
+  fun _ hfn _ hcl => (Semantics.clausesNoExsTop_spec (Semantics.noExsTop_of_okAll h) hfn hcl).1
 
 /-- The decided form of `FnsNoExs`. -/
 theorem Semantics.fnsNoExs_of_all {c : Semantics}
@@ -539,6 +585,7 @@ theorem Semantics.sortedOK_of_okAll {c : Semantics} (h : c.okAll = true) (hov : 
     c.sortedOK = true := by
   obtain ⟨hrp, hcp, hpp⟩ := Semantics.plain_of_okAll h
   have hpt := Semantics.preTop_of_okAll h
+  have hnt := Semantics.noExsTop_of_okAll h
   simp only [Semantics.okAll, Bool.and_eq_true] at h
   obtain ⟨⟨⟨⟨-, hs⟩, hf⟩, hr⟩, hq⟩ := h
   simp only [Semantics.fnsOKAll, List.all_eq_true] at hf
@@ -548,7 +595,7 @@ theorem Semantics.sortedOK_of_okAll {c : Semantics} (h : c.okAll = true) (hov : 
       (Semantics.ovlPats_lhs hov hr')⟩
   have := hf f hf'
   simp only [Semantics.fnOKAll, Bool.and_eq_true, List.all_eq_true] at this
-  exact c.clauseSorted_of_all (this.1 cl hcl) (c.clauseBound_of_plain hcp hpt hf' hcl) (c.clausePreOK_of_plain hpt hf' hcl)
+  exact c.clauseSorted_of_all (this.1 cl hcl) (c.clauseBound_of_plain hnt hpt hf' hcl) (c.clausePreOK_of_plain hpt hf' hcl)
     (Semantics.ovlPats_pats hov hf' hcl)
 
 /-- A rule of a semantics `ok` accepts has the plain shapes and a left side that binds every
@@ -622,7 +669,7 @@ def Definition.report (d : Definition) : List (String × Bool) :=
   [("names declared once, none named like a hook, functions named apart, own sorts and symbols numbered in order", d.namesOK),
    ("declarations over declared sorts", d.sem.declsOK),
    ("rules plain (rulesPlain): open and existential variables held, open condition variables confined or closed conditions apart", d.sem.rulesPlain),
-   ("clauses plain (clausesPlain): no existential variable, \\top predicates, open condition variables confined or closed conditions", d.sem.clausesPlain),
+   ("clauses plain (clausesPlain): existential variables confined or fixed by the predicate, in scope and outside the left side; no witness needed beside a predicate; open condition variables confined or closed conditions", d.sem.clausesPlain),
    ("parameters plain (paramsPlain): no law on a parameter that is no open generator, an open generator of the admitted shape; carriers well formed", d.sem.paramsPlain),
    ("subsorts: a strict partial order into user sorts and library constructor sorts, closed", d.sem.subsortsOK),
    ("functions: well-sorted, covering", d.sem.fnsOKAll),
@@ -645,7 +692,8 @@ def Definition.report (d : Definition) : List (String × Bool) :=
    ("hooked functions: no registry hook interprets their hook", d.hookFnsUnregOK),
    ("parameter symbols (paramsOK): the imported modules' and the user's, each as its hook names", d.paramsOK),
    ("overloading symbols (overloadsOK)", d.sem.overloadsOK),
-   ("clauses' premise predicates \\top (clausesPreTop): the checks outside coreOK read no clause predicate", d.sem.clausesPreTop)]
+   ("clauses' premise predicates \\top (clausesPreTop): the checks outside coreOK read no clause predicate", d.sem.clausesPreTop),
+   ("clauses without an existential variable or a right-side predicate (clausesNoExsTop): the checks outside coreOK read neither", d.sem.clausesNoExsTop)]
 
 /-- **A well-formed definition**: its names (`namesOK`), its core (`okAll`), its certificate, its
 presentation and its parameters are well formed, its semantics meets the decidable conditions

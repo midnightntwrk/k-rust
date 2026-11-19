@@ -1,6 +1,7 @@
 /-
   KCore. A witness that `FnDet` cannot be dropped from `consistent_of`: a semantics with `coreOK`,
-  `FnSolves`, `ClausePreDecided` and `OpenLaws`, without `FnDet`, whose `Γ` has no model. A clause
+  `FnSolves`, `ClausePreDecided`, `ClausePostDecided` (its clauses' right-side predicates are `\top`)
+  and `OpenLaws`, without `FnDet`, whose `Γ` has no model. A clause
   of it has a predicate in its premise that is not `\top`; where every clause's predicate is `\top`
   there is no such semantics.
 
@@ -326,6 +327,9 @@ theorem clausePreDecided : ClausePreDecided c := by
 
 /-- `OpenLaws`, from `coreOK`. -/
 theorem openLaws : OpenLaws c := openLaws_of_plain (by decide +kernel)
+
+/-- `ClausePostDecided`: every clause's right-side predicate is `\top`. -/
+theorem clausePostDecided : ClausePostDecided c := clausePostDecided_of_isTop (by decide +kernel)
 
 /-! ## `Γ` has no model -/
 

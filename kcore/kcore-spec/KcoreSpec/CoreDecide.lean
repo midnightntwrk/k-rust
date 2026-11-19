@@ -177,8 +177,9 @@ theorem wf_of_partsCD {d : Definition}
     (f7 : LitsApart d.sem = true) (f8 : sortsNumbered d.sem = true) (f9 : collsNotCtors d.sem = true)
     (f10 : itesApart d.sem = true) (f11 : kindsApart d.sem = true) (f12 : ctorsOnce d.sem = true)
     (f13 : fnsApart d.sem = true) (ho : d.sem.overloadsOK = true)
-    (o9 : d.sem.clausesPreTop = true := by decide +kernel) : wf d = true := by
-  simp only [wf, Definition.namesOK, Semantics.okAll, Semantics.faithOK, n1, n2, n3, n4, n5, o1, o2, o3, o9,
+    (o9 : d.sem.clausesPreTop = true := by decide +kernel)
+    (o10 : d.sem.clausesNoExsTop = true := by decide +kernel) : wf d = true := by
+  simp only [wf, Definition.namesOK, Semantics.okAll, Semantics.faithOK, n1, n2, n3, n4, n5, o1, o2, o3, o9, o10,
     o4, o5, o6, o7, o8, hc, hp, hpa, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, ho,
     Bool.and_self]
 

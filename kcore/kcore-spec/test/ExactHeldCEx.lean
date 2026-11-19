@@ -44,7 +44,7 @@ example (c : Semantics) {H : Sym → Bool} (hm : HypModelCore c) (hp : ClausePre
 /-! ## Over `coreOK`: the statements of `exact_hyp` and `has_model_choice` -/
 
 example : ∀ (c : Semantics), c.coreOK = true → FnHyp c → ExactC c :=
-  fun c h hf => exact_ce c (Semantics.coreOKEx_of_coreOK h) hf
+  fun c h hf => exact_ce c (Semantics.coreOK_iff_ex.mp h) hf
 
 example (c : Semantics) (h : c.coreOK = true) (hf : FnHyp c) (T : Config c → Config c → Prop)
     (hsub : ∀ x y, T x y → Step c x y)
@@ -53,7 +53,7 @@ example (c : Semantics) (h : c.coreOK = true) (hf : FnHyp c) (T : Config c → C
        (∀ i, ¬ i ∈ r.exs → σ'.lookup i = σ.lookup i) ∧ StepBy c r σ' x y' ∧ T x y') :
     ∃ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), (I ⊧ᴵP (Γc c ∪ Γstep c)) ∧
       ∀ x y : Config c, T x y ↔ ¬ (I ⊧ᴵ (den c x.val ⇒ ∼ KoreAML.sNext (den c y.val))) :=
-  has_model_choice_ce c (Semantics.coreOKEx_of_coreOK h) hf T hsub hall hsome
+  has_model_choice_ce c (Semantics.coreOK_iff_ex.mp h) hf T hsub hall hsome
 
 /-- info: 'KCore.exact_ce' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms exact_ce

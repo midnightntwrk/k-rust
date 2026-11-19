@@ -174,12 +174,12 @@ theorem conf_open : ok1.opens.any (fun i => (ok1.vars[i]?.map c.confined).getD f
 reads a confined sort is asked only at `okB`, whose open variable is of a confined sort. -/
 example (hft : FnTerminates c) {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP Faithful.Γc c)
     (hrc : c.readsConfined = true) : True := by
-  have := @Faithful.rule_step_valuesSSx c M _ I (Semantics.coreOKEx_of_coreOK coreOK) hft hI hcT ok1 ok1_open.1 ok1_open.2.1
+  have := @Faithful.rule_step_valuesSSx c M _ I (Semantics.coreOK_iff_ex.mp coreOK) hft hI hcT ok1 ok1_open.1 ok1_open.2.1
     (fun h' => by rw [conf_open.1] at h'; cases h')
-  have := @Faithful.rule_step_valuesSSx c M _ I (Semantics.coreOKEx_of_coreOK coreOK) hft hI hcT okB okB_open.1 okB_open.2 (fun _ => hrc)
-  have := @Faithful.rule_step_valuesSSx c M _ I (Semantics.coreOKEx_of_coreOK coreOK) hft hI hcT ok2 ok2_C.1 ok2_C.2.1
+  have := @Faithful.rule_step_valuesSSx c M _ I (Semantics.coreOK_iff_ex.mp coreOK) hft hI hcT okB okB_open.1 okB_open.2 (fun _ => hrc)
+  have := @Faithful.rule_step_valuesSSx c M _ I (Semantics.coreOK_iff_ex.mp coreOK) hft hI hcT ok2 ok2_C.1 ok2_C.2.1
     (fun h' => by rw [conf_open.2.1] at h'; cases h')
-  have := @Faithful.rule_step_valuesSSx c M _ I (Semantics.coreOKEx_of_coreOK coreOK) hft hI hcT ok4 ok4_C.1 ok4_C.2.1
+  have := @Faithful.rule_step_valuesSSx c M _ I (Semantics.coreOK_iff_ex.mp coreOK) hft hI hcT ok4 ok4_C.1 ok4_C.2.1
     (fun h' => by rw [conf_open.2.2.1] at h'; cases h')
   trivial
 
@@ -222,7 +222,7 @@ theorem conf_open2 : ok1.opens.any (fun i => (ok1.vars[i]?.map c2.confined).getD
 
 /-- The lemma at the competitor `ok2`. -/
 example {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP Faithful.Γc c2) : True := by
-  have := @Faithful.notApplies_of_not_appliesSSx c2 M _ I (Semantics.coreOKEx_of_coreOK coreOK2) hI hcT2 ok2
+  have := @Faithful.notApplies_of_not_appliesSSx c2 M _ I (Semantics.coreOK_iff_ex.mp coreOK2) hI hcT2 ok2
     competitors.2.2.1 competitors.2.2.2.1
   trivial
 

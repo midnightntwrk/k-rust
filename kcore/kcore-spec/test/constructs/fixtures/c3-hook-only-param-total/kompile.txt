@@ -1,0 +1,11 @@
+command: kompile --backend haskell c3-hook-only-param-total.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 3.4
+definition.kore bytes: 201587
+definition.kore sha256: 5463d11912bceaf5d364a72a275dd9e485d3ac58c19808fee924712e07a1c8d5
+stripped sha256: 481a674cb6a6835d9beabfb99676f004d11cdea65116e23e621cdb4429927496
+main module: 391 sentences, 34 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-HOOK-ONLY-PARAM-TOTAL-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using C3-HOOK-ONLY-PARAM-TOTAL as default.

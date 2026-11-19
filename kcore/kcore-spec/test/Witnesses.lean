@@ -59,7 +59,7 @@ def unfolded : List Name :=
    ``KCore.Semantics.overloadsOK, ``KCore.Faithful.Model.itesApart]
 
 /-- The hypotheses on the functions the table lists (`consistent_of`'s `OpenLaws` is not listed). -/
-def hyps : List Name := [``KCore.FnDet, ``KCore.FnSolves, ``KCore.ClausePreDecided]
+def hyps : List Name := [``KCore.FnDet, ``KCore.FnSolves, ``KCore.ClausePreDecided, ``KCore.ClausePostDecided]
 
 def lastName : Name → String
   | .str _ s => s

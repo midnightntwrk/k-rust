@@ -18,6 +18,7 @@ import KcoreSpec.ExsValues
 import KcoreSpec.SoundPP
 import KcoreSpec.ModelChoicePP
 import KcoreSpec.OpenClauseDen
+import KcoreSpec.HoldsDenFixed
 
 set_option autoImplicit false
 
@@ -799,7 +800,8 @@ theorem eval_den_exRead (h : c.coreOK = true) (hrc : c.readsConfined = true) (hI
         (fun t ht m' => allOf (hensT t ht) hσ₀ hag hkeys (henss t ht) m') m).mpr hm, fun _ => ?_⟩
       have hrd := reads_of_agrees hσ₀ hag (P := fun i => i ∈ varOccsCond cl.vars.length cl.post)
         fun i hi => ⟨varOccsCond_lt_twoT cl.post hokQ i hi, hkeys i (varOccsCond_lt_twoT cl.post hokQ i hi)⟩
-      exact (hpost.holdsAt N G rfl hokQ hb (fun i hi _ => hi) hrd (hkQ hkB) hS m (hinSort hmS)).mpr rfl
+      exact (hpost.holdsAt N G rfl hokQ (by rw [← Cond.bound_eq_boundConf]; exact hb)
+        (fun i hi _ => hi) hrd (hkQ hkB) hS m (hinSort hmS)).mpr rfl
   · -- an instance at elements that holds `m` is one at values, which gives `r` or nothing
     intro tbl e hag hkeys hkB e'' m hoff hin hmS hb''
     obtain ⟨hR, hQ⟩ := hbody.mp hb''
@@ -813,7 +815,7 @@ theorem eval_den_exRead (h : c.coreOK = true) (hrc : c.readsConfined = true) (hI
       | true =>
         have hrd : Reads c I cl.vars (fun i => i ∈ varOccsCond cl.vars.length cl.post) σ₀ tbl e'' := fun i hi => by
           rw [Cond.eq_top_of_isTop hpt] at hi; simp [varOccsCond] at hi
-        have hpT : HoldsAt c I cl.vars.length σ₀ cl.post true := by
+        have hpT : HoldsAtB (Cond.bound c) c I cl.vars.length σ₀ cl.post true := by
           rw [Cond.eq_top_of_isTop hpt]; exact holdsAt_top N
         exact (hpT rfl hokQ hb (fun i hi _ => hi) hrd (hkQ hkB) hS m (hinSort hmS)).mpr rfl
     have hwit := CE.exs_values_hr h hrc hIc N hs hb hp (σ := σ₀) (hσ₀.at _) ⟨σ₀, AgreeOff.refl _ _, hσ₀⟩
@@ -849,7 +851,8 @@ theorem eval_den_exRead (h : c.coreOK = true) (hrc : c.readsConfined = true) (hI
         | false =>
           have hrd := reads_of_agrees hw' hag' (P := fun i => i ∈ varOccsCond cl.vars.length cl.post)
             fun i hi => ⟨varOccsCond_lt_twoT cl.post hokQ i hi, hkeys i (varOccsCond_lt_twoT cl.post hokQ i hi)⟩
-          exact absurd ((hf'.holdsAt N G rfl hokQ hb (fun i hi _ => hi) hrd (hkQ hkB) hS m (hinSort hmS)).mp (hQ hpt))
+          exact absurd ((hf'.holdsAt N G rfl hokQ (by rw [← Cond.bound_eq_boundConf]; exact hb)
+            (fun i hi _ => hi) hrd (hkQ hkB) hS m (hinSort hmS)).mp (hQ hpt))
             (by simp)
       | rhs hn hTn =>
         unfold clauseRight at hR
@@ -926,13 +929,13 @@ theorem eval_den_ex (h : c.coreOK = true) (hrc : c.readsConfined = true) (hIc : 
     Holds.congr_NI hpre fun j hj => (hl j (Clause.pre_leftVarsRH j hj)).symm
   have hall0 : ∀ σ', AgreeOff cl.exs σ₀ σ' → c.WellSorted cl.vars σ' → InstIs c σ' cl r := fun σ' ha hw =>
     hall σ' (hag0.trans (hfree ▸ ha)) hw
-  have HD : ∀ p : Cond, HoldsDen' c I p := fun p =>
-    holds_den_binders' F p fun _ => binderFacts_of_core h hrc hIc
+  have HD : ∀ p : Cond, HoldsDenB (Cond.bound c) c I p := fun p =>
+    CE.holds_den_bound h hIc F p fun _ => hrc
   exact eval_den_exRead h hrc hIc hfn hcl hws hpats hpreOK hs hb hp hne hocc hreqs hrhss henss hσ₀ hmatch0
     (fun t ht tbl e' hag m' => hT (hreq0 t ht) hσ₀ (canonVars_length c cl.vars) hag (hreqs t ht) m')
     (fun hpt tbl e' σr m0 hag hkp hRk hRv hσr hm0 =>
-      (preRead_agreesCl (hpreR (ne_top_of_isTop_false hpt)) hpreOK (holdsAt_of_den (HD _) hpre0) hσ₀ hag hkp hRk hRv hσr
-        hm0).mpr rfl)
+      (preRead_agreesCl (hpreR (ne_top_of_isTop_false hpt)) hpreOK
+        (HoldsAtB.mono (Cond.bound_of_boundConf c _) (holdsAt_of_den (HD _) hpre0)) hσ₀ hag hkp hRk hRv hσr hm0).mpr rfl)
     hlow (fun σ' ha hw => InstIsRead.of_instIs F (hall0 σ' ha hw))
     (fun v hv => by
       obtain ⟨hrhs, hens, hpost⟩ := hgive0 v hv

@@ -553,14 +553,15 @@ section
 variable {c : Semantics} {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
 
 /-- **The Holds lemma at the sort variable `R`**: for a condition with the Holds lemma in I
-(`HoldsDen'`, at a numbered sort), in an interpretation with the atoms' facts where a well-sorted
+(`HoldsDenB` over a Bool that bounds its binders, at a numbered sort), in an interpretation with the atoms' facts where a well-sorted
 term's elements lie in its sort, at a valuation that reads the condition's free variables as their
 values under σ and gives `R` a sort `σr`, through a table holding `R` and the variables of the
 pattern at `R`: an element of `σr` is in `Cond.kore … R p` exactly where the truth value `Holds`
 gives is `true`. -/
-theorem holds_atR (F : AtomFacts c I) (hT : TermsInSort c I) {p : Cond} (hp : HoldsDen' c I p)
+theorem holds_atR (F : AtomFacts c I) (hT : TermsInSort c I) {bd : Nat → Cond → Bool} {p : Cond}
+    (hp : HoldsDenB bd c I p)
     {vars : List Srt} {P : Nat → Prop} {σ : Subst} {b : Bool} {tbl : KoreAML.VarTable} {e : Valuation M}
-    (hok : c.condOK vars p = true) (hbd : Cond.bound c vars.length p = true)
+    (hok : c.condOK vars p = true) (hbd : bd vars.length p = true)
     (hP : ∀ i ∈ varOccsCond vars.length p, i < vars.length → P i) (hr : Reads c I vars P σ tbl e)
     (hk : ∀ k ∈ KoreAML.varsOf (Cond.kore c (canonVars c vars) KoreAML.R p), k ∈ tbl)
     (hRm : KoreAML.VarKey.sortVar "R" ∈ tbl) {σr : M}

@@ -39,6 +39,13 @@ theorem clausePostDecided_of_top {c : Semantics}
   intro fn hfn cl hcl σ _
   exact ⟨true, by rw [h fn hfn cl hcl]; exact Holds.top⟩
 
+/-- `ClausePostDecided` where the check that every clause's right-side predicate is `\top`
+holds. -/
+theorem clausePostDecided_of_isTop {c : Semantics}
+    (h : (c.fns.all fun f => f.clauses.all fun cl => cl.post.isTop) = true) : ClausePostDecided c :=
+  clausePostDecided_of_top fun fn hfn cl hcl =>
+    Cond.eq_top_of_isTop (List.all_eq_true.mp (List.all_eq_true.mp h fn hfn) cl hcl)
+
 namespace Faithful
 
 namespace Model

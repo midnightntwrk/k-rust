@@ -80,8 +80,8 @@ theorem hypModelCore_of_coreEx (h : c.coreOKEx = true) (hd : FnDet c) (hs : FnSo
     hsd.model, hn, hl, hids, hs', collsNotCtors_of hk hcs, hi, hk, hc, hf', Semantics.coreOKEx_ovls h,
     ovlsOnce_of_ids hids⟩
 
-/-- **`HypModel` asks every clause to bind no variable by `\exists`**: it holds `okAll`, which with
-the overloading symbols' patterns gives `sortedOK` (`Hyp.core`), whose `clausesPlain` asks it. -/
+/-- **`HypModel` asks every clause to bind no variable by `\exists`**: it holds `okAll`, whose
+`clausesNoExsTop` asks it. -/
 theorem HypModel.fnsNoExs (h : HypModel c) : c.FnsNoExs :=
   Semantics.fnsNoExs_of_okAll h.hyp.1
 

@@ -72,7 +72,7 @@ theorem shape : c3.ctorSigs.all (·.result != 33) = true ∧ c3.valued 33 = fals
 /-- No clause of a function of `c3` has an existential variable or a right side's predicate other
 than `\top`. -/
 theorem plain3 : ∀ fn ∈ c3.fns, ∀ cl ∈ fn.clauses, cl.exs = [] ∧ cl.post = .top :=
-  fun fn hfn => Semantics.sortedOK_plainCl shape.2.2.2.2.1 fn (List.mem_append_left _ hfn)
+  fun fn hfn => Semantics.sortedOK_plainCl_of_noExs shape.2.2.2.2.1 (Semantics.fnsNoExs_of_all (by decide +kernel)) fn (List.mem_append_left _ hfn)
 
 /-- What the lemmas ask of `c3`, decided, and no clause of `c3` needs a witness. -/
 theorem decided : c3.sortedOKCl = true ∧ c3.srReady = true ∧ c3.ovls = [] ∧
@@ -586,7 +586,7 @@ example : (Faithful.Γc c3 ∪ Faithful.Γstep c3) ⊧
 has a model. -/
 example : FnDet c3 ∧ FnSolves c3 := fnModel_of_fnHyp core3 fnHyp3
 example : Consistent c3 := consistent_of c3 core3 fnModel3.1 fnModel3.2 (clausePreDecided_of_fnHyp core3 fnHyp3)
-  (openLaws_of_plain (by decide +kernel))
+  (clausePostDecided_of_fnHypCEx (Semantics.coreOK_iff_ex.mp core3) fnHyp3) (openLaws_of_plain (by decide +kernel))
 
 /-- **The headline statements at `c3`.** -/
 example : SoundC c3 := sound_hyp c3 core3 fnHyp3
@@ -894,7 +894,7 @@ theorem coherent_dv5 {cl : Clause} (hx : cl.exs = []) (hn : cl.ens = none) {s : 
 /-- No clause of a function of `c5` has an existential variable or a right side's predicate other
 than `\top`. -/
 theorem plain5 : ∀ fn ∈ c5.fns, ∀ cl ∈ fn.clauses, cl.exs = [] ∧ cl.post = .top :=
-  fun fn hfn => Semantics.sortedOK_plainCl (Semantics.coreOK_parts shape5.2.2.1).1 fn (List.mem_append_left _ hfn)
+  fun fn hfn => Semantics.sortedOK_plainCl_of_noExs (Semantics.coreOK_parts shape5.2.2.1).1 (Semantics.fnsNoExs_of_all (by decide +kernel)) fn (List.mem_append_left _ hfn)
 
 theorem agree5 : ∀ fn ∈ c5.fns, ClausesAgree c5 fn := by
   intro fn hfn

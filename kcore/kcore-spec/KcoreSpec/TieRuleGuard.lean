@@ -154,11 +154,11 @@ theorem ruleGuard_of_stepBy_held {H : Sym → Bool} (h : c.coreOK = true)
     subst hφ'
     have hr := reads_of_agrees hσ hag (P := fun i => i ∈ varOccsCond r.vars.length r.pre)
       fun i hi => ⟨varOccsCond_lt_twoT r.pre hokP i hi, hkeys i (varOccsCond_lt_twoT r.pre hokP i hi)⟩
-    exact (HoldsShape.holds_entailsCEx (Semantics.coreOKEx_of_coreOK h) hIc hcw r.pre hrcP hokP hbdP (fun i hi _ => hi) hr hkP top_numbered
+    exact (HoldsShape.holds_entailsCEx (Semantics.coreOK_iff_ex.mp h) hIc hcw r.pre hrcP hokP hbdP (fun i hi _ => hi) hr hkP top_numbered
       hpre _ (elemOf_top hIΓ x tbl e')).mpr rfl
   · rcases hext p hp with rfl | rfl
     · -- the right side is defined: it evaluates and the `ensures` is `true`
-      have hyR := ruleRight_at_ppCEx (Semantics.coreOKEx_of_coreOK h) hIc hcw hs hrcQ hσ heval hens hpost hkeys hkQ hval hag
+      have hyR := ruleRight_at_ppCEx (Semantics.coreOK_iff_ex.mp h) hIc hcw hs hrcQ hσ heval hens hpost hkeys hkQ hval hag
       exact ceil_right_pp h hIΓ hs hσ hkeys (fun i hi _ => hval i hi) hyR (elemOf_top hIΓ x tbl e')
     · -- no rule of a smaller priority applies at x
       have hnot : Kore.Pattern.not C (anyOfC C comps) ∈ left ++ ext := List.mem_append_right _ hp
@@ -178,7 +178,7 @@ theorem ruleGuard_of_stepBy_held {H : Sym → Bool} (h : c.coreOK = true)
           hvarsL _ (Model.varsOf_and_mem hnot (by
             simp only [KoreAML.varsOf]
             exact List.mem_append_right _ (mem_varsOf_anyOfC (hcomp r' hr'm hlt') hk)))
-        exact not_applies_guarded_heldCEx (Semantics.coreOKEx_of_coreOK h) hIc hback hcw (hrules r' hr'm).1 (hrules r' hr'm).2 (hlarger r' hr'm hlt') hrc'
+        exact not_applies_guarded_heldCEx (Semantics.coreOK_iff_ex.mp h) hIc hback hcw (hrules r' hr'm).1 (hrules r' hr'm).2 (hlarger r' hr'm hlt') hrc'
           (readsConfined_of_pre hr'm) (hw r' hr'm hlt') (hprio r' hr'm hlt')
           (fun i hi hil => hvC ((Model.varsOf_applies_pp r').1 i hi hil))
           (fun k hk => hvC ((Model.varsOf_applies_pp r').2 k hk)) e'

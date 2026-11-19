@@ -43,10 +43,11 @@ theorem complete_hyp_of_at (c : Semantics) (ref : OutFn) (h : c.coreOK = true) (
 
 /-- **Consistency** of a semantics that `coreOK` accepts and whose functions meet `FnHyp`:
 `consistent_of`, `FnHyp` giving `FnDet` and `FnSolves` (`fnModel_of_fnHyp`), `ClausePreDecided`
-(`clausePreDecided_of_fnHyp`) and `OpenLaws`. -/
+(`clausePreDecided_of_fnHyp`), `ClausePostDecided` (`clausePostDecided_of_fnHypCEx`) and
+`OpenLaws`. -/
 theorem consistent_of_fnHyp (c : Semantics) (h : c.coreOK = true) (hf : FnHyp c) : Consistent c :=
   consistent_of c h (fnModel_of_fnHyp h hf).1 (fnModel_of_fnHyp h hf).2 (clausePreDecided_of_fnHyp h hf)
-    hf.2.2.2.2.2
+    (clausePostDecided_of_fnHypCEx (Semantics.coreOK_iff_ex.mp h) hf) hf.2.2.2.2.2
 
 namespace CExec
 
@@ -80,7 +81,8 @@ theorem hasBinder_of_predAtoms : ∀ {p : Cond}, predAtoms p = true → p.hasBin
 /-- A semantics `coreOK` accepts and `execReady` makes ready reads no confined sort: `execReady`
 asks every rule's left side and every clause's patterns to bind each of its variables and every
 rule's predicates to be conjunctions of atoms, which hold no binder, and every clause's predicate
-to be `\top`; `coreOK`'s `sortedOK` asks every clause's right side's predicate to be `\top`. -/
+to be `\top`; such a clause has no existential variable, so `coreOK`'s `sortedOK` gives its right
+side's predicate `\top`. -/
 theorem readsConfined_of_execReady (h : c.coreOK = true) (hr : execReady c = true) :
     c.readsConfined = false := by
   have hpreTop := KCore.CExec.clausesPreTop_of_execReady hr
@@ -96,8 +98,9 @@ theorem readsConfined_of_execReady (h : c.coreOK = true) (hr : execReady c = tru
   · simp only [List.any_eq_true, not_exists, not_and]
     intro cl hcl
     have hpre := Semantics.clausesPreTop_spec hpreTop hfn' hcl
-    have hpost := Semantics.sortedOK_clausePost hok hfn' hcl
     have hb := (hfn fn (by simp [Semantics.allFns, hfn']) cl hcl).2
+    have hpost := Semantics.sortedOK_clausePost hok hfn' hcl
+      (Semantics.exs_nil_of_patBinds (Semantics.sortedOK_clauseEx hok hfn' hcl).1 hb)
     simp [Clause.opens_of_binds hb, hpre, hpost, Cond.hasBinder]
 
 /-- **A run at a fuel where nothing ran out is exact in matching logic**: with the step's closure,

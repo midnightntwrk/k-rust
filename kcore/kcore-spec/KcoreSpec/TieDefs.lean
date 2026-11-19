@@ -174,9 +174,44 @@ def isRewrite : Kore.Pattern → Bool
   | .rewrites _ _ _ => true
   | _ => false
 
-/-- `constructor{}` is on exactly the symbols the semantics has as constructors. -/
+/-- A sort-parametric symbol declaration (`symbol f{S₁,…,Sₙ}(…) : … […]`, n > 0): its name and
+attributes. -/
+def paramSymDecls (k : Kore.Definition) : List (String × List Kore.AppPattern) :=
+  k.modules.flatMap fun m => m.sentences.filterMap fun
+    | .symbol s => if s.symbol.sortVars.isEmpty then none else some (s.symbol.ident.ident.name, s.attributes)
+    | .hookedSymbol s => if s.symbol.sortVars.isEmpty then none else some (s.symbol.ident.ident.name, s.attributes)
+    | _ => none
+
+/-- The declared name of the instance the semantics names `m` (`f` of `f{X₁,…,Xₙ}`, as
+`instHeadName` writes an instance); none where `m` does not end with a closing brace. KORE's
+identifiers hold no brace, so a name with braces is no declared symbol's. -/
+def instBase (m : String) : Option String :=
+  let l := m.toList
+  if l.getLast? == some '}' then some (String.ofList (l.takeWhile (· != '{'))) else none
+
+/-- The instances of sort-parametric symbols among the semantics' own symbols, each as its name in
+the semantics and the attributes of the text's sort-parametric declaration of its declared name
+(`instBase`, `paramSymDecls`). In KORE one sentence `symbol f{S}(…) : … [as]` declares the symbol
+`f{s}` at every sort `s`, and no other sentence declares one of them: the attributes an instance
+is declared with are that sentence's. -/
+def instDecls (k : Kore.Definition) (c : Semantics) : List (String × List Kore.AppPattern) :=
+  match paramSymDecls k with
+  | [] => []
+  | ps => c.symNames.filterMap fun m =>
+      (instBase m).bind fun f => (ps.find? (·.1 == f)).map fun p => (m, p.2)
+
+/-- The symbols the attributes are compared at: each declaration of the text at its declared name
+(`symDecls`), and each instance of a sort-parametric declaration that the semantics has, at the
+instance's name with the declaration's attributes (`instDecls`). The semantics names an own symbol
+of a sort-parametric declaration by its instance, never by the declared name, so no row of
+`symDecls` compares it. -/
+def symDeclsAt (k : Kore.Definition) (c : Semantics) : List (String × List Kore.AppPattern) :=
+  symDecls k ++ instDecls k c
+
+/-- `constructor{}` is on exactly the symbols the semantics has as constructors, at each
+declaration and at each instance of a sort-parametric one (`symDeclsAt`). -/
 def ctors (k : Kore.Definition) (c : Semantics) : Bool :=
-  (symDecls k).all fun (n, as) => has as "constructor" == c.ctorSigs.any (c.symName ·.name == n)
+  (symDeclsAt k c).all fun (n, as) => has as "constructor" == c.ctorSigs.any (c.symName ·.name == n)
 
 /-- A law sentence: an equation without premise between terms, marked `assoc`, `comm`, `unit` or
 `idem`, that states no priority (no `owise`, no `priority`). It states a law of the symbol at its
@@ -215,46 +250,62 @@ def eqnHeadIs (n : String) : Kore.Pattern → Bool
 
 /-- The text's equations of the symbol `n`: the axioms with `n` at the head of their left side
 (`eqnHeadIs`: a declared symbol, or one of its instances at sort arguments, where `n` names it as
-the semantics names an instance) that are no law sentence (`isLaw`). For a declared name the
-equations of all its instances are its equations; for an instance's name, only the equations at
-that instance's sort arguments. -/
+the semantics names an instance) that are no law sentence (`isLaw`) and no `simplification`
+sentence. A sentence carrying `simplification` is a lemma about the symbol at its head and no
+equation of it: the attribute alone tells the two apart, for a symbol with other equations and for
+one without. For a declared name the equations of all its instances are its equations; for an
+instance's name, only the equations at that instance's sort arguments. -/
 def eqnsOf (k : Kore.Definition) (n : String) : List Kore.Axiom :=
-  (k.axiomDecls.map (·.ax)).filter fun a => eqnHeadIs n a.pattern && !isLaw a
+  (k.axiomDecls.map (·.ax)).filter fun a =>
+    eqnHeadIs n a.pattern && !isLaw a && !has a.attributes "simplification"
 
-/-- A function of the semantics is declared `function{}` without a hook, and a symbol declared so
-that the theory has as a constructor, function, parameter or overloading symbol is a function of
-the semantics, or a function without equations: a symbol the theory has only as a parameter that
-no registry hook interprets (`impl = none`) and that is no open generator (`raw = false`), of
-which the text states no equation (`eqnsOf`; a law sentence is no equation). Such a parameter's
-value is the interpretation's, as is the value of a function where no clause applies, which with
-no clause is everywhere. Two kinds of symbol declared so are not compared here: one the theory does
-not have (its sentences have no direction), and one the registry interprets (`hookSigs`), which
-`hooks` admits only where the registry holds it under no hook name (a library function such as
-`freshInt`, which the text defines by an equation and the theory states by its graph; the equation
-is a library sentence of the tie, entailed at values). -/
+/-- A function of the semantics is declared `function{}`, without a hook or with a `hook`
+attribute that names no registry hook (`regHookOf`): of such a symbol the registry states nothing,
+so what the theory holds of it is what the text states, its equations. A symbol declared
+`function{}` without a hook that the theory has as a constructor, function, parameter or
+overloading symbol is a function of the semantics, or a function without equations: a symbol the
+theory has only as a parameter that no registry hook interprets (`impl = none`) and that is no
+open generator (`raw = false`), of which the text states no equation (`eqnsOf`; a law sentence is
+no equation, and neither is a `simplification` sentence, a lemma that a tie's account holds as a
+parameter lemma, a hypothesis on the interpretation). Such a parameter's value is the
+interpretation's, as is the value of a function where no clause applies, which with no clause is
+everywhere. Two kinds of symbol declared `function{}` without a hook are not compared here: one
+the theory does not have (its sentences have no direction), and one the registry interprets
+(`hookSigs`), which `hooks` admits only where the registry holds it under no hook name (a library
+function such as `freshInt`, which the text defines by an equation and the theory states by its
+graph; the equation is a library sentence of the tie, entailed at values). An instance of a
+sort-parametric declaration is compared at its own name with the declaration's attributes
+(`symDeclsAt`), and its equations are those at its sort arguments (`eqnsOf`): one instance may be
+a function and another a function without equations. -/
 def fns (k : Kore.Definition) (c : Semantics) : Bool :=
-  (symDecls k).all fun (n, as) =>
+  (symDeclsAt k c).all fun (n, as) =>
     let fn := has as "function" && !has as "hook"
     let isFn := c.allFns.any (c.symName ·.label == n)
     let own := (c.ctorSigs ++ c.params.map (·.sig) ++ c.ovlSigs).any (c.symName ·.name == n)
     let par := !(c.ctorSigs ++ c.ovlSigs).any (c.symName ·.name == n) &&
       (c.params.all fun p => c.symName p.sig.name != n || (p.impl.isNone && !p.raw)) && (eqnsOf k n).isEmpty
-    (!isFn || fn) && (!(fn && own) || isFn || par)
+    (!isFn || (has as "function" && (!has as "hook" || (strArg as "hook").any (regHookOf · == none)))) &&
+      (!(fn && own) || isFn || par)
 
 /-- The interpreted hooked symbol `g` is one the registry holds under no hook name
 (`regHookNames`): a function of the library's text with equations and no `hook` attribute. -/
 def libFn (g : CtorSig) : Bool := !regHookNames.any (·.1 == g.name)
 
-/-- A symbol declared with `hook{}("h")` that the theory has is an interpreted hooked symbol whose
-registry hook is `h`'s (`regHookOf`), or a parameter symbol whose `impl` is `h`'s registry hook.
-A symbol declared without a hook is an interpreted hooked symbol only where the registry holds it
-under no hook name (`libFn`) and the text declares it `function{}`; it is a parameter symbol only
-where no registry hook interprets the parameter (`impl = none`), the text states no equation of it
-(`eqnsOf`), and it is an open generator (`raw`) exactly where the text does not declare it
+/-- A symbol declared with `hook{}("h")` that the theory has as an interpreted hooked symbol is the
+one of `h`'s registry hook (`regHookOf`), and one it has as a parameter symbol has `impl` `h`'s
+registry hook. One it has as a function is compared by `fns`, which admits it where `h` names
+no registry hook. A symbol declared without a hook is an interpreted hooked symbol only where the
+registry holds it under no hook name (`libFn`) and the text declares it `function{}`; it is a
+parameter symbol only where no registry hook interprets the parameter (`impl = none`), the text
+states no equation of it (`eqnsOf`, which leaves out a `simplification` sentence: a lemma with the
+parameter at its head is a parameter lemma of a tie's account, a hypothesis on the
+interpretation), and it is an open generator (`raw`) exactly where the text does not declare it
 `function{}`: an open generator is a parameter declared without hook and without function, and a
-parameter declared `function{}` without hook is a function without equations. -/
+parameter declared `function{}` without hook is a function without equations. An instance of a
+sort-parametric declaration is compared at its own name with the declaration's attributes
+(`symDeclsAt`). -/
 def hooks (k : Kore.Definition) (c : Semantics) : Bool :=
-  (symDecls k).all (fun (n, as) =>
+  (symDeclsAt k c).all (fun (n, as) =>
     match strArg as "hook" with
     | some h =>
       (hookSigs.all fun g => c.symName g.name != n || regHookOf h == some g.name) &&
@@ -289,9 +340,9 @@ whose id the rule's presentation holds (`RulePres.info`; the rules a reading mak
 `orSplit`'s, each hold that axiom's id), and every rewrite axiom of the text is read as some rule.
 For each function of the semantics, the priorities of the text's equations of the function
 (`eqnsOf`: with the function at the head of their left side, for an instance of a sort-parametric
-function at that instance's sort arguments, and no law sentence, which states a law and no
-priority), less the `simplification` ones, are its clauses' priorities, as lists up to
-order. The semantics need not hold a function's clauses in text order, so which equation has
+function at that instance's sort arguments, no law sentence, which states a law and no
+priority, and no `simplification` sentence, which is a lemma and no clause) are its clauses'
+priorities, as lists up to order. The semantics need not hold a function's clauses in text order, so which equation has
 which priority is not compared here. It is decided where a tie pairs each clause's item with its
 sentence: for an `owise` equation by the pattern, which states the exclusion; for two equations of
 one function with distinct `priority{}` numbers, where the text states the attribute only, by the
@@ -303,8 +354,7 @@ def prios (k : Kore.Definition) (d : Definition) : Bool :=
   ((c.rules.zip d.pres.rules).all fun (r, rp) => rewritePrioOf k rp.info.uid == some r.prio) &&
   ((axs.filter (isRewrite ·.pattern)).all fun a => d.pres.rules.any fun rp => uidOf a.attributes == some rp.info.uid) &&
   c.allFns.all fun f =>
-    (((eqnsOf k (c.symName f.label)).filter (!has ·.attributes "simplification")).map
-        (prioOf ·.attributes)).isPerm (f.clauses.map (·.prio))
+    ((eqnsOf k (c.symName f.label)).map (prioOf ·.attributes)).isPerm (f.clauses.map (·.prio))
 
 end AttrsAgree
 
@@ -329,8 +379,9 @@ inductive TieDir where
   (`EntailsAtValues`). -/
   | atValues
   /-- `Γ` does not hold `s`: it is owed as a hypothesis (`FnHyp` for a function's `functional`
-  sentence, `FnLaws` for a law, `OpenTotal` for an open generator's `functional` sentence, and for
-  a parameter lemma the sentence itself at the member, `Γ (c.withHooks H) ⊧ tr s`). -/
+  sentence, `FnLaws` for a law, `OpenTotal` for an open generator's `functional` sentence,
+  `ParamsTotal` for the `functional` sentence of a parameter the text declares total, and for a
+  parameter lemma the sentence itself at the member, `Γ (c.withHooks H) ⊧ tr s`). -/
   | hypothesis
   /-- `Γ` with `s` has no model. -/
   | refuted
@@ -358,6 +409,11 @@ sentences under these names, in this order.
 - open generator law: the `assoc` or `idem` sentence of an open generator, of which `Γ`'s law item
   is the translation;
 - open generator functional: the `functional` sentence of an open generator, owed as `OpenTotal`;
+- parameter functional: the `functional` sentence of a parameter symbol no registry hook interprets
+  that the text declares total (`Definition.totalParams`), which the reader reads as that
+  declaration; `Γ` states the parameter's graph at values from the interpretation, so the sentence
+  holds at values where `H` gives it a value at every argument list of its sorts: owed as
+  `ParamsTotal`, the hypothesis on `H` the statements take;
 - parameter lemma: a sentence the reader leaves out of `Γ` (a lemma) that applies a parameter
   symbol no registry hook interprets (`impl = none`), whose value the interpretation gives: owed as
   a hypothesis on `H`, the sentence itself at the member (`Γ (c.withHooks H) ⊧ tr s`);
@@ -374,7 +430,7 @@ def tieClasses : List (String × TieDir) :=
    ("hooked functional", .atValues), ("collection law", .atValues), ("library", .atValues),
    ("set idempotence", .refuted), ("set-variable lemma", .refuted), ("function law", .hypothesis),
    ("open generator law", .equal), ("open generator functional", .hypothesis),
-   ("parameter lemma", .hypothesis), ("user lemma", .entailed), ("user lemma at values", .atValues),
+   ("parameter functional", .hypothesis), ("parameter lemma", .hypothesis), ("user lemma", .entailed), ("user lemma at values", .atValues),
    ("no direction", .none)]
 
 /-! ## The no-direction class is closed -/

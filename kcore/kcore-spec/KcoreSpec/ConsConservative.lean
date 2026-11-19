@@ -120,37 +120,40 @@ end
 
 end Cons
 
-/-- What the transfer of the functions' equations reads of the clauses, from `coreOK`, `FnHyp`,
-`clausesPreTop` and `FnsNoExs`:
-every clause of a function has `\top` for its predicate, every clause variable's sort is numbered,
-and no clause binds a variable on its right. -/
-theorem Cons.clauseFacts_cv {c : Semantics} (hpreTop : c.clausesPreTop = true) (hnoEx : c.FnsNoExs) (h : c.coreOK = true) (hf : FnHyp c) :
+/-- What the transfer of the functions' equations reads of the clauses, from `coreOK`, `FnHyp` and
+`clausesPreTop`: every clause of a function has `\top` for its predicate, and every clause
+variable's sort is numbered. A variable of a user's clause, existential or not, has its sort from
+the clause's sorting (`eqnFactsEx_of_sorted`, with `clauseExOK` from `sortedOK`); a sort
+predicate's clause has no existential variable. -/
+theorem Cons.clauseFacts_cv {c : Semantics} (hpreTop : c.clausesPreTop = true) (h : c.coreOK = true) (hf : FnHyp c) :
     (∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, cl.pre = .top) ∧
-    (∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, ∀ s ∈ cl.vars, s < nRegSorts + c.sortNames.length) ∧
-    (∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, cl.exs = []) := by
+    (∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, ∀ s ∈ cl.vars, s < nRegSorts + c.sortNames.length) := by
   have hm : HypModelCore c := hypModel_of_fnHyp h hf
   have hpre := Semantics.allFns_preTop hpreTop
-  have hF : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, EqnFactsPre c fn cl := fun fn hfn cl hcl =>
-    clause_eqnFactsPre hm hfn hcl (hnoEx.allFns fn hfn cl hcl) (by
-      rcases List.mem_append.mp hfn with hu | hp
-      · exact hm.preOK fn hu cl hcl
-      · rw [Semantics.sortPreds_pre hp cl hcl]; rfl)
-  refine ⟨hpre, fun fn hfn cl hcl s hs => ?_, fun fn hfn cl hcl => (hF fn hfn cl hcl).exs⟩
+  refine ⟨hpre, fun fn hfn cl hcl s hs => ?_⟩
   obtain ⟨i, hi, rfl⟩ := List.mem_iff_getElem.mp hs
-  have := vars_numPre hm hfn (hF fn hfn cl hcl) i hi
-  rwa [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hi] at this
+  have hnum : cl.vars.getD i 0 < nRegSorts + c.sortNames.length := by
+    rcases List.mem_append.mp hfn with hu | hp
+    · obtain ⟨-, hfns, -, -, -⟩ := Semantics.sortedOKClEx_parts hm.hyp.1
+      have hL : HeadsOK c (c.fns.map Fn.sig) := fun k hk => by
+        obtain ⟨g, hg, rfl⟩ := List.mem_map.mp hk
+        exact ⟨g, List.mem_append_left _ hg, rfl⟩
+      exact vars_numEx hm hfn (eqnFactsEx_of_sorted hm hfn hL (hfns fn hu cl hcl).1
+        (Semantics.sortedOK_clauseEx (Semantics.coreOK_parts h).1 hu hcl).1) i hi
+    · exact vars_numPre hm hfn (clause_eqnFactsPre hm hfn hcl (Semantics.sortPreds_exs hp cl hcl) (by
+        rw [Semantics.sortPreds_pre hp cl hcl]; rfl)) i hi
+  rwa [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hi] at hnum
 
 open Cons in
 /-- **The extension of a model of the theory without the detached names is a model of the whole
 theory**, at the decided form of `Detached`, for a definition `coreOK` accepts whose functions meet
-`FnHyp`. The three facts
+`FnHyp`. The two facts
 of the clauses the functions' equations are transferred by are hypotheses (`clauseFacts_cv` gives
 them). -/
 theorem Cons.ext_model_cv {c : Semantics} {ss : List Srt} {ks : List Sym} (h : c.coreOK = true) (hf : FnHyp c)
     (hd : detachedB c ss ks = true)
     (hpre : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, cl.pre = .top)
     (hvars : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, ∀ s ∈ cl.vars, s < nRegSorts + c.sortNames.length)
-    (hexs : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, cl.exs = [])
     {M : Type} [Inhabited M]
     {I : Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP Γown c (DetachedB.names c ss ks)) :
     extModel c (DetachedB.names c ss ks) I ⊧ᴵP (Γc c ∪ Γstep c) := by
@@ -189,7 +192,7 @@ theorem Cons.ext_model_cv {c : Semantics} {ss : List Srt} {ks : List Sym} (h : c
   by_cases hcl : ∀ σ ∈ psyms φ, ¬ DetachedB.names c ss ks σ
   · have hfr : ΓFns c φ ∨ ΓRules c φ ∨ Γstep c φ ∨ ΓDomains c φ ∨ ΓFallback c φ ∨ Γcl c φ →
         extModel c (DetachedB.names c ss ks) I ⊧ᴵ φ := fun hφ' =>
-      sat_own_fns_rules hD hI hne (fun fn hfn => hm.fnSorts hfn) hvars hpre hexs hφ' hcl
+      sat_own_fns_rules hD hI hne (fun fn hfn => hm.fnSorts hfn) hvars hpre hφ' hcl
     rcases hφ with (((((((hφ | hφ) | hφ) | hφ) | hφ) | hφ) | hφ) | hφ) | hφ
     · exact sat_own_sig_cons hD hlaw hI (.inl hφ) hcl
     · exact sat_own_sig_cons hD hlaw hI (.inr (.inl hφ)) hcl
@@ -209,16 +212,16 @@ open Cons in
 a model of the theory without the premises that name a sort of `ss` or a hook of `ks` embeds into
 a model of the whole theory, its extension, in which a symbol outside those names and application
 hold of old elements what they held. For a definition `coreOK` accepts whose functions meet
-`FnHyp`; `coreOK` gives that no clause of a function has an existential variable
-(`Semantics.fnsNoExs_of_coreOK`), which the transfer of the functions' equations reads. -/
+`FnHyp` and whose clauses' predicates are `\top`; a clause may bind variables by `\exists` on its
+right side. -/
 theorem registry_conservative (c : Semantics) (hpreTop : c.clausesPreTop = true) (ss : List Srt) (ks : List Sym) (h : c.coreOK = true)
     (hf : FnHyp c) (hd : detachedB c ss ks = true) :
     RegistryConservative c (DetachedB.names c ss ks) := by
   intro M _ I hI
   have hemb := ext_embeds c (DetachedB.names c ss ks) I
-  have hc := clauseFacts_cv (hpreTop := hpreTop) (hnoEx := Semantics.fnsNoExs_of_coreOK h) h hf
+  have hc := clauseFacts_cv (hpreTop := hpreTop) h hf
   exact ⟨Ext M, ⟨.inl default⟩, extModel c (DetachedB.names c ss ks) I, Sum.inl, hemb.1,
-    ext_model_cv h hf hd hc.1 hc.2.1 hc.2.2 hI, hemb.2.1, hemb.2.2⟩
+    ext_model_cv h hf hd hc.1 hc.2 hI, hemb.2.1, hemb.2.2⟩
 
 open Cons in
 /-- **No step at values rests on the registry family at detached names**, at the decided form of
@@ -234,7 +237,7 @@ theorem exact_own (c : Semantics) (hpreTop : c.clausesPreTop = true) (ss : List 
   refine ⟨exact_own_mp c _ h hf, ?_⟩
   rintro ⟨M, _, I, hI, hn⟩
   have hD : ∀ σ, DetachedB.names c ss ks σ → plainSym σ := names_plain_rs
-  have hc := clauseFacts_cv (hpreTop := hpreTop) (hnoEx := Semantics.fnsNoExs_of_coreOK h) h hf
+  have hc := clauseFacts_cv (hpreTop := hpreTop) h hf
   have hV : valuesB c ss ks = true := by
     simp only [detachedB, Bool.and_eq_true] at hd
     exact hd.1.2
@@ -247,7 +250,7 @@ theorem exact_own (c : Semantics) (hpreTop : c.clausesPreTop = true) (ss : List 
       (den c x.val ⇒ ∼ KoreAML.sNext (den c y.val)) :=
     .impEO (hden x) (OwnSorted.toOld (.neg_ex (.appE (.sym trivial hnext) (hden y).toOld)))
   refine (exact_hyp c h hf x y).mpr ⟨Ext M, ⟨.inl default⟩, extModel c (DetachedB.names c ss ks) I,
-    ext_model_cv h hf hd hc.1 hc.2.1 hc.2.2 hI, fun hall => hn ?_⟩
+    ext_model_cv h hf hd hc.1 hc.2 hI, fun hall => hn ?_⟩
   exact transfer_back (gs := []) hD (defOK_own_sg hD hI) nil_sub hb hall
 
 open Classical in

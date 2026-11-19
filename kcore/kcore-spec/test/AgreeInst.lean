@@ -301,8 +301,8 @@ theorem pa_agree : ClausesAgree pa fnPa :=
       have := Semantics.sortedOK_sorted pa_sorted.1
       simp only [Bool.and_eq_true, List.all_eq_true] at this
       exact this.1.2 fnPa (by simp [pa, core]) cl h)
-    (Semantics.fnsNoExs_of_sortedOK pa_sorted.1 fnPa (by simp [pa, core]))
-    (by decide +kernel)).agree (Semantics.fnsNoExs_of_sortedOK pa_sorted.1 fnPa (by simp [pa, core]))
+    (Semantics.fnsNoExs_of_all (c := pa) (by decide +kernel) fnPa (by simp [pa, core]))
+    (by decide +kernel)).agree (Semantics.fnsNoExs_of_all (c := pa) (by decide +kernel) fnPa (by simp [pa, core]))
 
 end KCore.AgreeInstTest
 

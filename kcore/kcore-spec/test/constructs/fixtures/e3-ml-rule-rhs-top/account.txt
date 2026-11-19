@@ -3,16 +3,19 @@ user module E3-ML-RULE-RHS-TOP: 257 sentences
   1 inert import [generated]
   161 read [generated]
   52 read [builtin]
-  6 read [user]
+  5 read [user]
   6 inert injectivity [generated]
   9 inert collectionLaw [generated]
   1 unread setIdempotence [generated]
   10 inert distinctCtors [generated]
   10 inert noJunk [generated]
+  1 read connectiveCut [user]
   1 inert simplification [generated]
+connective readings per sentence: 1
+      sentence 221: connectiveCut
 stage refusals (of sentences classified read): 1
-  1 patternConnective
-      sentence 221 (Lbl'-LT-'generatedTop'-GT-'): patternConnective (\top)
+  1 openRight
+      sentence 221 (Lbl'-LT-'generatedTop'-GT-'): openRight (Var'Hash'Cut0:K: bound by \exists on the right side, held there or in the ensures under no constructor, of a sort the text leaves unconfined: the successor is a value through an element that is no value's)
         [user] (no label) at e3-ml-rule-rhs-top.k:4: axiom{} \rewrites{SortGeneratedTopCell{}}(\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}}(Lblgo{}()), Var'Unds'DotVar1:SortK{})), Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()), \and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(append{}(\top{SortK{}}(), Var'Unds'DotVar1:SortK …
-finish: sentence 221 (Lbl'-LT-'generatedTop'-GT-'): patternConnective (\top)
+finish: sentence 221 (Lbl'-LT-'generatedTop'-GT-'): openRight (Var'Hash'Cut0:K: bound by \exists on the right side, held there or in the ensures under no constructor, of a sort the text leaves unconfined: the successor is a value through an element that is no value's)
 (exit 0)

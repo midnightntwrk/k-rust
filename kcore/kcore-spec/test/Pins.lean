@@ -7,8 +7,9 @@
   `Γstep`, `den`, `KoreAML.denB`, `Step`, `NotApplies`, `RuleApplies`, `Holds`, `Eval`, `confined`,
   `ruleRight`, `applies`, `prioRuleK`, `boolClosed`, the conjuncts of `coreOK`, and the `₀`
   declarations) is pinned by the review cones (test/ReviewCone.lean, cones (iv) to (vii)), not here.
-  `FnDet`, `FnSolves` and `ClausePreDecided`, hypotheses of `consistent_of` and of `CExec.run_exact`
-  that no cone root reaches, are restated here, with `Clause.DecidesAt`. So are the statement definitions of the tie
+  `FnDet` and `FnSolves`, hypotheses of `consistent_of` and of `CExec.run_exact` that no cone root
+  reaches, and `ClausePreDecided` and `ClausePostDecided`, hypotheses of `consistent_of` (roots of
+  cone (v)), are restated here, with `Clause.DecidesAt`. So are the statement definitions of the tie
   to a KORE text (`AtValues`, `EntailsAtValues`, `SetVarsAtValues`, `EntailsAtSetValues`,
   `SetVarsAtMostOne`, `symbolsOf`, the heads `appHeadsOf`, `gammaHead`, `gammaHeads`,
   `gammaHasHead`, `surplusItem`, `attrsAgree` with the
@@ -225,6 +226,11 @@ example (c : Semantics) : FnDet c = (∀ f vs r r', Eval c f vs r → Eval c f v
 example (c : Semantics) : ClausePreDecided c =
     (∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, ∀ σ vs, c.WellSortedAt cl.vars cl.leftVars σ → PatVals c σ cl.pats vs →
       ∃ b, Holds c cl.vars.length σ cl.pre b) := rfl
+
+/-- `ClausePostDecided`: each clause's right-side predicate has a truth value at each well-sorted
+instance. -/
+example (c : Semantics) : ClausePostDecided c =
+    (∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, ∀ σ, c.WellSorted cl.vars σ → ∃ b, Holds c cl.vars.length σ cl.post b) := rfl
 
 /-- `FnSolves`: where a clause decides, the function's values are the values the instances of that
 clause's right side give. `Clause.DecidesAt`, `Clause.Gives`, `AgreeOff` and `Clause.exsFree`,
@@ -467,24 +473,44 @@ example (s s' s'' : Kore.KSort) (prem rhs : Kore.Pattern) (h : Kore.SymbolIdent)
     eqnHeadIs n (.rewrites s prem rhs) = false ∧ eqnHeadIs n (.and s ps) = false := ⟨rfl, rfl, rfl, rfl⟩
 
 example (k : Kore.Definition) (n : String) : eqnsOf k n =
-    (k.axiomDecls.map (·.ax)).filter (fun a => eqnHeadIs n a.pattern && !isLaw a) := rfl
+    (k.axiomDecls.map (·.ax)).filter (fun a =>
+      eqnHeadIs n a.pattern && !isLaw a && !has a.attributes "simplification") := rfl
+
+example (k : Kore.Definition) : paramSymDecls k =
+    (k.modules.flatMap fun m => m.sentences.filterMap fun
+      | .symbol s => if s.symbol.sortVars.isEmpty then none else some (s.symbol.ident.ident.name, s.attributes)
+      | .hookedSymbol s => if s.symbol.sortVars.isEmpty then none else some (s.symbol.ident.ident.name, s.attributes)
+      | _ => none) := rfl
+
+example (m : String) : instBase m =
+    (let l := m.toList
+     if l.getLast? == some '}' then some (String.ofList (l.takeWhile (· != '{'))) else none) := rfl
+
+example (k : Kore.Definition) (c : Semantics) : instDecls k c =
+    (match paramSymDecls k with
+     | [] => []
+     | ps => c.symNames.filterMap fun m =>
+         (instBase m).bind fun f => (ps.find? (·.1 == f)).map fun p => (m, p.2)) := rfl
+
+example (k : Kore.Definition) (c : Semantics) : symDeclsAt k c = symDecls k ++ instDecls k c := rfl
 
 example (k : Kore.Definition) (c : Semantics) : ctors k c =
-    ((symDecls k).all fun (n, as) => has as "constructor" == c.ctorSigs.any (c.symName ·.name == n)) := rfl
+    ((symDeclsAt k c).all fun (n, as) => has as "constructor" == c.ctorSigs.any (c.symName ·.name == n)) := rfl
 
 example (k : Kore.Definition) (c : Semantics) : fns k c =
-    ((symDecls k).all fun (n, as) =>
+    ((symDeclsAt k c).all fun (n, as) =>
       let fn := has as "function" && !has as "hook"
       let isFn := c.allFns.any (c.symName ·.label == n)
       let own := (c.ctorSigs ++ c.params.map (·.sig) ++ c.ovlSigs).any (c.symName ·.name == n)
       let par := !(c.ctorSigs ++ c.ovlSigs).any (c.symName ·.name == n) &&
         (c.params.all fun p => c.symName p.sig.name != n || (p.impl.isNone && !p.raw)) && (eqnsOf k n).isEmpty
-      (!isFn || fn) && (!(fn && own) || isFn || par)) := rfl
+      (!isFn || (has as "function" && (!has as "hook" || (strArg as "hook").any (regHookOf · == none)))) &&
+        (!(fn && own) || isFn || par)) := rfl
 
 example (g : CtorSig) : libFn g = !regHookNames.any (·.1 == g.name) := rfl
 
 example (k : Kore.Definition) (c : Semantics) : hooks k c =
-    ((symDecls k).all (fun (n, as) =>
+    ((symDeclsAt k c).all (fun (n, as) =>
       match strArg as "hook" with
       | some h =>
         (hookSigs.all fun g => c.symName g.name != n || regHookOf h == some g.name) &&
@@ -517,8 +543,7 @@ example (k : Kore.Definition) (d : Definition) : prios k d =
      ((c.rules.zip d.pres.rules).all fun (r, rp) => rewritePrioOf k rp.info.uid == some r.prio) &&
      ((axs.filter (isRewrite ·.pattern)).all fun a => d.pres.rules.any fun rp => uidOf a.attributes == some rp.info.uid) &&
      c.allFns.all fun f =>
-       (((eqnsOf k (c.symName f.label)).filter (!has ·.attributes "simplification")).map
-           (prioOf ·.attributes)).isPerm (f.clauses.map (·.prio))) := rfl
+       ((eqnsOf k (c.symName f.label)).map (prioOf ·.attributes)).isPerm (f.clauses.map (·.prio))) := rfl
 
 end AttrsAgreePins
 
@@ -529,7 +554,7 @@ example : tieClasses =
      ("hooked functional", .atValues), ("collection law", .atValues), ("library", .atValues),
      ("set idempotence", .refuted), ("set-variable lemma", .refuted), ("function law", .hypothesis),
      ("open generator law", .equal), ("open generator functional", .hypothesis),
-     ("parameter lemma", .hypothesis), ("user lemma", .entailed), ("user lemma at values", .atValues),
+     ("parameter functional", .hypothesis), ("parameter lemma", .hypothesis), ("user lemma", .entailed), ("user lemma at values", .atValues),
      ("no direction", .none)] := rfl
 
 /-- The directions, by their constructors: seven, in this order. -/
@@ -657,8 +682,8 @@ example : ∀ (c : Semantics) (h : c.coreOK = true) (x : Config c) (hd : StepDec
     (Γc c ∪ Γstep c) ⊧ (den c x.val ⇒ KoreAML.allNext (KoreAML.disjList (os.map (Outcome.pat c)))) :=
   @complete_at
 
-example : ∀ (c : Semantics), c.coreOK = true → FnDet c → FnSolves c → ClausePreDecided c → OpenLaws c →
-    Consistent c :=
+example : ∀ (c : Semantics), c.coreOK = true → FnDet c → FnSolves c → ClausePreDecided c →
+    ClausePostDecided c → OpenLaws c → Consistent c :=
   @consistent_of
 
 example : ∀ (c : Semantics) (h : c.coreOK = true) (hf : FnHyp c)

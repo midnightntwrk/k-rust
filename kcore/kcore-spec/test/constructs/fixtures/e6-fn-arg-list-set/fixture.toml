@@ -1,0 +1,2 @@
+# List:set (hook LIST.update) in a function equation's argument pattern: kompile's frontend writes the equation and its validator refuses it (not delivered)
+expect = "error"

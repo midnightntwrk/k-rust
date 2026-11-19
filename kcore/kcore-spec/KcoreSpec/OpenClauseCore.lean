@@ -31,6 +31,7 @@ theorem Semantics.readsConfined_of_coreCl {c : Semantics} (hpreTop : c.clausesPr
     intro cl hcl'
     have hpre := Semantics.clausesPreTop_spec hpreTop hfn hcl'
     have hpost := Semantics.sortedOK_clausePost hok hfn hcl'
+      (Semantics.exs_nil_of_opens_nil (Semantics.sortedOK_clauseEx hok hfn hcl').1 (hcl fn hfn cl hcl'))
     simp [hcl fn hfn cl hcl', hpre, hpost, Cond.hasBinder]
 
 /-- **The theory of such a semantics is `Γ`.** -/

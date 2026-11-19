@@ -5,8 +5,9 @@
   - `Semantics.clauseSortedOpen`: `clauseSorted` with "each variable occurs in the clause" (its
     patterns, conditions, right side, `ensures` or right side's predicate) in place of "the patterns
     bind each variable";
-  - `Semantics.clausePlainOpen`: what `clausesPlain` asks of one clause, with the conjunct on open
-    condition variables: none, or closed conditions, or each of a confined sort.
+  - `Semantics.clausePlainOpen`: no existential variable and the right side's predicate `\top`, with
+    what `clausesPlain` asks of a clause's premise and of its open condition variables: none, or
+    closed conditions, or each of a confined sort.
 
   A clause's exclusion `∃ȳ. ⌈req = true⌉ ∧ X̄ ∈ p̄` binds the variables of its patterns and
   conditions (`leftVars`) only. At an element of it, those binders are elements of their sorts:

@@ -125,15 +125,16 @@ def clauseKeys (c : Semantics) : List (String × Nat) :=
   c.allFns.flatMap fun f => f.clauses.map fun cl => (c.symName f.label, cl.prio)
 
 /-- The first of the axioms `us` that is an equation with the symbol named `k.1` at the head of its
-left side, of the priority `k.2` by its attributes, and not a `simplification`. -/
+left side (`AttrsAgree.eqnHeadIs`: for an instance of a sort-parametric function, the head at that
+instance's sort arguments), of the priority `k.2` by its attributes, and not a `simplification`. -/
 def findEqn (us : List AxiomDecl) (k : String × Nat) : Option AxiomDecl :=
-  us.find? fun ad => AttrsAgree.eqnHead ad.ax.pattern == some k.1 &&
+  us.find? fun ad => AttrsAgree.eqnHeadIs k.1 ad.ax.pattern &&
     AttrsAgree.prioOf ad.ax.attributes == k.2 && !AttrsAgree.has ad.ax.attributes "simplification"
 
-/-- `findEqn`'s test: `ad` is an equation with the symbol named `k.1` at the head of its left side,
-of the priority `k.2`, and not a `simplification`. -/
+/-- `findEqn`'s test: `ad` is an equation with the symbol named `k.1` at the head of its left side
+(`AttrsAgree.eqnHeadIs`), of the priority `k.2`, and not a `simplification`. -/
 def eqnKeyB (k : String × Nat) (ad : AxiomDecl) : Bool :=
-  AttrsAgree.eqnHead ad.ax.pattern == some k.1 && AttrsAgree.prioOf ad.ax.attributes == k.2 &&
+  AttrsAgree.eqnHeadIs k.1 ad.ax.pattern && AttrsAgree.prioOf ad.ax.attributes == k.2 &&
     !AttrsAgree.has ad.ax.attributes "simplification"
 
 /-- The first of `us` that `eqnKeyB k` accepts, with the others in their order. -/

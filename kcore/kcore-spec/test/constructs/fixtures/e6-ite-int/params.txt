@@ -1,0 +1,2 @@
+param	Lblite{Int}	args=[Bool, Int, Int]	result=Int	impl=Lblite	raw=false	assoc=false	idem=false
+(exit 0)
