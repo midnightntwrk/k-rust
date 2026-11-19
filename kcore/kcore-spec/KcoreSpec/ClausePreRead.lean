@@ -3,12 +3,13 @@
 
   A clause's premise carries its predicate at the sort variable `R` (`withPre`), and its conditions
   `∃ō. (⌈req = true⌉ ∧ pre)` carry it at Bool (`Clause.condK`). `PreRead c I cl` is what the lemmas
-  on a clause's sentences read of the predicate in I: the constructors' facts (`NodeFacts`), the
-  binders' where the predicate holds a binder, the truth value `Holds` gives it read at `R`
-  (`atR`), and the predicate at `R` moved to Bool through another table (`toBool`). It is asked of
-  the clauses whose predicate is not `\top` only.
+  on a clause's sentences read of the predicate in I: a truth value `Holds` gives it, with the
+  readings of the terms it evaluates (`HoldsRead`), read at `R` (`atR`), and the predicate at `R`
+  moved to Bool through another table (`toBool`). It is asked of the clauses whose predicate is not
+  `\top` only.
 -/
 import KcoreSpec.HoldsNode
+import KcoreSpec.HoldsRead
 import KcoreSpec.HoldsCongr
 import KcoreSpec.CondKoreVars
 import KcoreSpec.CondVarsCongr
@@ -23,17 +24,13 @@ namespace HoldsShape
 
 /-- **What the clause lemmas read of a clause's predicate in I.** -/
 structure PreRead (c : Semantics) {M : Type} [Inhabited M] (I : Interpretation KoreAML.Sym M) (cl : Clause) : Prop where
-  /-- the constructors' facts -/
-  node : NodeFacts c I
-  /-- the binders' facts, where the predicate holds a binder -/
-  binder : hasBinder cl.pre = true → BinderFacts c I
-  /-- The truth value b that `Holds` gives the predicate under σ, read in I (`HoldsAt`), is read at
-  the sort variable `R`: σ well sorted over sorts that agree with the clause's at the variables of
-  its patterns and conditions, at a valuation that gives each variable of the predicate the
-  element of its value under σ and `R` a sort, an element of that sort is in the predicate's
-  pattern exactly where b is `true`. -/
+  /-- The truth value b that `Holds` gives the predicate under σ, with the readings in I of the
+  terms it evaluates (`HoldsRead`), is read at the sort variable `R`: σ well sorted over sorts that
+  agree with the clause's at the variables of its patterns and conditions, at a valuation that
+  gives each variable of the predicate the element of its value under σ and `R` a sort, an element
+  of that sort is in the predicate's pattern exactly where b is `true`. -/
   atR : ∀ {vars : List Srt} {σ : Subst} {b : Bool} {tbl : KoreAML.VarTable} {e : Valuation M} {σr : M},
-    HoldsAt c I cl.vars.length σ cl.pre b → vars.length = cl.vars.length →
+    HoldsRead c I cl.vars.length σ cl.pre b → vars.length = cl.vars.length →
     (∀ i ∈ cl.leftVars, vars[i]? = cl.vars[i]?) → c.WellSorted vars σ →
     (∀ i ∈ varOccsCond cl.vars.length cl.pre, ∀ v, σ.lookup i = some v →
       ∀ m, m = e.evalEvar (tbl.ev (canonKey c cl.vars i)) ↔ (den c v).interpret I e m) →

@@ -588,6 +588,26 @@ example : FnDet c3 ∧ FnSolves c3 := fnModel_of_fnHyp core3 fnHyp3
 example : Consistent c3 := consistent_of c3 core3 fnModel3.1 fnModel3.2 (clausePreDecided_of_fnHyp core3 fnHyp3)
   (clausePostDecided_of_fnHypCEx (Semantics.coreOK_iff_ex.mp core3) fnHyp3) (openLaws_of_plain (by decide +kernel))
 
+/-- **`Clause.witnessed_of_coherent` at `clR`**: `FnHyp c3` with `coreOK` makes the clauses of `c3`
+coherent, so the result `true` of `clR`'s `requires` at H := 0 is its only one. -/
+example : clR.Witnessed c3 :=
+  have hco : CoherentAll c3 := Faithful.CoherentAll_of (hyp_of_fnHyp core3 fnHyp3)
+  have he : EvalTerm c3 [(0, .dv Srt.int (.int 0))] (.app intEq [.var 0, .dv Srt.int (.int 0)])
+      (some (bool true)) :=
+    .hook (by decide +kernel) (by decide +kernel) (.cons .var (.cons .dv .nil))
+      (fun vs hvs => by cases hvs; rfl) (fun h => by cases h)
+  Clause.witnessed_of_coherent hco (σ := [(0, .dv Srt.int (.int 0))])
+    (fun j _ s hs => by
+      cases j with
+      | zero => cases (show some Srt.int = some s from hs); exact ⟨_, rfl, sortOf_int 0⟩
+      | succ j => cases (show (none : Option Srt) = some s from hs))
+    (fun t ht => by cases ht; exact ⟨he, fun r hr => EvalTerm.functional hco hr he⟩) .top
+
+/-- **`Clause.pre_not_false_of_only_true` at `\top`**: true is its only truth value under the empty
+substitution, and it reads no variable, so it is false under no substitution. -/
+example (σ' : Subst) : ¬ Holds c3 1 σ' .top false :=
+  Clause.pre_not_false_of_only_true (σ := []) (fun _ hb => hb.top_eq) (fun j hj => by simp [varOccsCond] at hj)
+
 /-- **The headline statements at `c3`.** -/
 example : SoundC c3 := sound_hyp c3 core3 fnHyp3
 example : ExactC c3 := exact_hyp c3 core3 fnHyp3
@@ -719,7 +739,7 @@ theorem shapeW : c3W.coreOK = true ∧ clW0.needsWitness c3W = true ∧ clW0.con
 
 /-- **`clW0` is `Witnessed`** at H := 0: `0 ==Int 0` is `true`, and by inversion of the hook nothing else. -/
 theorem witW0 : clW0.Witnessed c3W := by
-  refine ⟨[(0, .dv Srt.int (.int 0))], fun j hj s hs => ?_, fun t ht => ?_, .top⟩
+  refine Clause.witnessed_of_top rfl (σ := [(0, .dv Srt.int (.int 0))]) (fun j hj s hs => ?_) (fun t ht => ?_)
   · rw [shapeW.2.2.1] at hj
     cases List.mem_singleton.mp hj
     cases (show some Srt.int = some s from hs); exact ⟨_, rfl, sortOf_int 0⟩

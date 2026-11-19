@@ -10,12 +10,19 @@ supports it, in one of these forms, the word in parentheses being the entry's ow
   none (R-b): shape at <list> <row key>[, case <name>]   (a passage of K's documentation; the row
                                                          key a key of that list in ROWS.toml)
   none (R-b): no shape (ill-formed)                     (a passage of the KORE syntax document)
+  none (R-b): no shape (refused before any sentence)    (a passage of K's documentation, for a form
+                                                         no KORE text kompile writes can hold)
   none (scope): rejected | none (scope): never written | none (scope): option |
   none (scope): not delivered
 The ground not delivered is a sentence kompile's frontend wrote and its validation step refused
 (KPROV-reopen-decision R2): the text exists, but the command delivers no definition, so no
 kompiled definition carries the sentence; the reader's verdict is on a hand-written KORE text that
 holds the frontend's sentence.
+An entry with the third R-b form carries `shape` "none: <path>:<a>-<b>: <what the site shows>", the
+path a file of the k-rust checkout (K_RUST) under k/ with at least b lines: the site that refuses
+the form before any sentence is written (findings/KPROV-citations.md section 8 R1). The form is used
+for a bag cell collection only, whose claim that no builtin file declares a hooked sort of bags is
+checked as: no key of E6 contains "BAG".
 An entry of class scope has unit "none (scope): <ground>" and carries, by its ground:
   place      "DONE-0 R-10" (rejected, not delivered), "DONE-0 R-1" (never written), "DONE-0 R-12"
              (option)
@@ -80,6 +87,7 @@ EMITTER = re.compile(r"none: \S+:\d+(?:-\d+)?: .+", re.S)
 MEANING = re.compile(r"\S+:\d+(?:-\d+)?: \".+\"$", re.S)
 UNDELIVERED = re.compile(r"fixtures/[^/\s]+/kompile\.txt: exit [1-9]\d*, \S+ \S+ .+", re.S)
 ACCOUNT = re.compile(r"fixtures/[^/\s]+/account\.txt: ")
+BEFORE = re.compile(r"none: (k/\S+):(\d+)-(\d+): .+", re.S)
 
 t = tomllib.load(open(rows, "rb"))
 
@@ -87,17 +95,7 @@ t = tomllib.load(open(rows, "rb"))
 # "nounit" (an entry of status refused or class R-c without unit), "class" (a refused entry whose
 # class is outside CLASSES); every other failure is of kind "other" and is never allowed. A failure
 # is counted under the first allowance whose test holds.
-ALLOWANCE = [
-    # 46: the entries of class R-b without unit, each of which findings/KPROV-citations.md,
-    # KPROV-scope.md and KPROV-reopen-decision.md decide and KPROV.apply writes: most become
-    # scope (rejected, never written, not delivered or option), a class change with its fields,
-    # so no `none (R-b)` unit is theirs; BAG(bag)@frontend and TYPE(type)=Bag@frontend take the
-    # third R-b spelling of KPROV-citations section 8 R1; SMT_LEMMA(smt-lemma)@rule's `shape at`
-    # names a key KPROV.apply creates. E7 26:genCoverage and 30:removeAnywhereRules carry the
-    # status and class of their E8 rows --coverage and --allow-anywhere-haskell.
-    ("KPROV.apply", 46, "entries of class R-b without unit, relabelled or spelled by the ticket",
-     lambda l, e, k: k == "nounit" and e.get("class") == "R-b"),
-]
+ALLOWANCE = []
 
 
 def rowref(s):
@@ -184,12 +182,26 @@ def check_rest(where, e):
     elif word == "R-b":
         if rest == ": no shape (ill-formed)":
             pass
+        elif rest == ": no shape (refused before any sentence)":
+            sh = e.get("shape")
+            m2 = BEFORE.match(sh) if isinstance(sh, str) else None
+            if not m2:
+                bad.append(f"{where}: unit {u!r}: shape {sh!r} is not \"none: k/<path>:<a>-<b>: <what the site shows>\"")
+            else:
+                f = os.path.join(KR, m2[1])
+                n = sum(1 for _ in open(f, errors="replace")) if os.path.isfile(f) else None
+                if n is None:
+                    bad.append(f"{where}: shape names {m2[1]}, no file under {KR}")
+                elif n < int(m2[3]) or int(m2[2]) > int(m2[3]):
+                    bad.append(f"{where}: shape names {m2[1]}:{m2[2]}-{m2[3]}, the file has {n} lines")
+            if bags := [k for k in t.get("E6", {}) if "BAG" in k]:
+                bad.append(f"{where}: unit {u!r}: E6 names a sort of bags ({bags[0]!r})")
         elif rest.startswith(": shape at "):
             if w := rowref(rest[len(": shape at "):]):
                 bad.append(f"{where}: unit {u!r}: shape at {w}")
         else:
             bad.append(f"{where}: unit {u!r} is not none (R-b): shape at <list> <row key>[, case <name>]"
-                       " | none (R-b): no shape (ill-formed)")
+                       " | none (R-b): no shape (ill-formed) | none (R-b): no shape (refused before any sentence)")
     else:
         g = rest[2:] if rest.startswith(": ") else None
         if g not in GROUNDS:

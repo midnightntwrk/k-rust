@@ -315,7 +315,8 @@ theorem not_fnDet : ¬ FnDet c5 := fun h => by
 
 /-- **`clC` is not `Witnessed`**: at each value of S its `requires` also has the result `false`. -/
 theorem not_witDet : ¬ clC.Witnessed c5 := by
-  rintro ⟨σ, hσ, hreq, -⟩
+  intro hW
+  obtain ⟨σ, hσ, hreq, -⟩ := hW.conds
   obtain ⟨v, hl, hv⟩ := hσ 0 (by decide +kernel) 32 rfl
   have hF : EvalTerm c5 σ (.app boolOr [.app 390 [.var 0], .app intEq [.app 389 [i 0], i 1]])
       (some (.dv Srt.bool (.bool false))) :=
@@ -349,7 +350,7 @@ instance ovl6 : OvlOK c6 := OvlOK.of_nil dec6.2.2.1 dec6.2.2.2.1
 /-- **`clW` is `Witnessed`** at H := 0: `0 ==Int 0` evaluates to `true`, and by inversion of the
 hook to nothing else. -/
 theorem witW : clW.Witnessed c6 := by
-  refine ⟨[(0, .dv Srt.int (.int 0))], fun j _ s hs => ?_, fun t ht => ?_, .top⟩
+  refine Clause.witnessed_of_top rfl (σ := [(0, .dv Srt.int (.int 0))]) (fun j _ s hs => ?_) (fun t ht => ?_)
   · cases j with
     | zero => cases (show some Srt.int = some s from hs); exact ⟨_, rfl, sortOf_int 0⟩
     | succ j => cases (show (none : Option Srt) = some s from hs)

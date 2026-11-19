@@ -122,7 +122,7 @@ open Faithful.Model in
 /-- `coreOK` from its conjuncts, `itesApart` decided on the names' codes (`itesApart_of_codes`): a
 direct decision of `itesApart` compares every pair of symbols' names, the interpreted ones among
 them. -/
-theorem rmkCoreOK {c : Semantics} {I : List Nat} (hI : iteIdx ((allSymNames c).map KoreAML.Distinct.strCode) = I)
+theorem rmkCoreOK {c : Semantics} {I : List Nat} (hI : instIdx ((allSymNames c).map KoreAML.Distinct.strCode) = I)
     (hite : itesApartC c I ((allSortNames c).map KoreAML.Distinct.strCode) = true) (hs : c.sortedOK = true)
     (h1 : namesNumbered c = true) (h2 : genWf c = true) (h3 : collSortsOK c = true)
     (h4 : collsOK c = true) (h5 : patHeadsOK c = true) (h6 : namesApartK c = true)

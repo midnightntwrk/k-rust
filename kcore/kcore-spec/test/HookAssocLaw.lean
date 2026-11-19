@@ -90,7 +90,8 @@ def minus : Sym := 384
 
 theorem names : c.symName minus = "Lblminus" := by decide +kernel
 
-theorem coreOK_text : c.coreOK = true := by decide +kernel
+set_option maxHeartbeats 4000000 in
+theorem coreOK_text : c.coreOK = true := by decide_coreOK
 
 /-- The reader's laws of the text: its one law axiom, the associativity of `minus`. -/
 theorem laws_eq : defn.laws = [Parse.hookAssocLawOf minus] := by kernel_rfl

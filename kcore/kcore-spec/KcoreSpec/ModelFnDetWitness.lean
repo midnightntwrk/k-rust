@@ -31,10 +31,11 @@
 -/
 import KcoreSpec.HypWf
 import KcoreSpec.SubjectReduction
+import KcoreSpec.CoreDecide
 import KcoreSpec.Sound
 import KcoreSpec.Obligations
 import KcoreSpec.OpenClauseFn
-import KcoreSpec.ClausePreCore
+import KcoreSpec.PreReadBound
 import KcoreSpec.ClausePreFn
 import KcoreSpec.ModelUndefRhsWitness
 
@@ -79,8 +80,9 @@ def c : Semantics :=
     pgmSort := Srt.k
     rules := [] }
 
+set_option maxHeartbeats 4000000 in
 /-- `coreOK` accepts `c`. -/
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_coreOK
 
 /-- A clause of `c` has a predicate that is not `\top`. -/
 theorem not_preTop : c.clausesPreTop = false := by decide +kernel

@@ -308,7 +308,7 @@ theorem coreOC : cOC.coreOK = true ∧ cOC.readsConfined = true ∧ rB.opens = [
 /-- **`clW` is `Witnessed`** at H := 0: `0 ==Int 0` evaluates to `true`, and by inversion of the
 hook to nothing else. -/
 theorem witW : clW.Witnessed cOC := by
-  refine ⟨[(0, .dv Srt.int (.int 0))], fun j _ s hs => ?_, fun t ht => ?_, .top⟩
+  refine Clause.witnessed_of_top rfl (σ := [(0, .dv Srt.int (.int 0))]) (fun j _ s hs => ?_) (fun t ht => ?_)
   · cases j with
     | zero => cases (show some Srt.int = some s from hs); exact ⟨_, rfl, sortOf_int 0⟩
     | succ j => cases (show (none : Option Srt) = some s from hs)
@@ -378,7 +378,7 @@ example : Parse.owedCondDecided cOW = [] ∧ Parse.owedClauseCondDecided cOW = [
 
 /-- `clW` is `Witnessed` in `cOW` at H := 0 (as `witW` in `cOC`). -/
 theorem witOW : clW.Witnessed cOW := by
-  refine ⟨[(0, .dv Srt.int (.int 0))], fun j _ s hs => ?_, fun t ht => ?_, .top⟩
+  refine Clause.witnessed_of_top rfl (σ := [(0, .dv Srt.int (.int 0))]) (fun j _ s hs => ?_) (fun t ht => ?_)
   · cases j with
     | zero => cases (show some Srt.int = some s from hs); exact ⟨_, rfl, sortOf_int 0⟩
     | succ j => cases (show (none : Option Srt) = some s from hs)

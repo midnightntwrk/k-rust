@@ -63,7 +63,8 @@ noncomputable def trS (ad : AxiomDecl) : Item := trAxiom kore.symbolDecls kore.a
 /-! ## Layer 1 -/
 
 theorem wf_defn : wf defn = true := by decide +kernel
-theorem coreOK : c.coreOK = true := by decide +kernel
+set_option maxHeartbeats 4000000 in
+theorem coreOK : c.coreOK = true := by decide_coreOK
 theorem coreOKH (H : HookParams) : (cH H).coreOK = true := (Semantics.coreOK_withHooks c H).trans coreOK
 
 /-- The attributes of the text agree with `defn` (`attrsAgree`). -/

@@ -13,6 +13,7 @@
   kernel decisions.
 -/
 import KcoreSpec.Sound
+import KcoreSpec.CoreDecide
 
 set_option autoImplicit false
 set_option maxRecDepth 100000
@@ -63,7 +64,7 @@ set_option maxHeartbeats 1000000 in
 `FnHyp`. -/
 theorem meets_others : c.sortedOK = true ∧ c.faithCoreOK = true ∧ c.hooksApart = true ∧
     c.predsApart = true ∧ c.overloadsOK = true ∧ FnHyp c :=
-  ⟨sortedOK, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, fnHyp⟩
+  ⟨sortedOK, by decide_faithCoreOK, by decide +kernel, by decide +kernel, by decide +kernel, fnHyp⟩
 
 /-- `idsOK` refuses `c`: its own symbols list f twice. -/
 theorem not_idsOK : c.idsOK = false := by decide +kernel

@@ -1822,6 +1822,22 @@ table above, on the tree before String and Bytes). Not investigated here.
   both sides are `hook`'s, the first position of one of S2's characters being `gLfc` of the first of
   its first character and of the others, `lfc_firstOr_or`), so it is entailed at values (`ev237`,
   `LibEv.FnEqn.entailedP`); `HookParams.lib` meets the condition (`ev237_lib`). Axioms guarded.
+- `test/LibEvDividesInt.lean`: on `f2-examples/e6-divides-int.kompile.kore` (the fixture
+  e6-divides-int), the reading's one parameter symbol is `dividesInt`, without implementation
+  (`params_div`); Γ entails each sort declaration without sort parameters (`decls_entailed`) and
+  `dividesInt`'s declaration (`lib_decls_entailed`), for every H; its library equation (domains.md
+  1454, axiom 183) is entailed at values for every H meeting `divEq` (`ev183`, `LibEv.FnEqn.entailedP`;
+  no value at a zero divisor, where `%Int` has none); `Hdiv` meets it (`ev183_Hdiv`); at
+  `HookParams.none` the left side has no value where the right side has one (`div_none`). Axioms
+  guarded.
+- `test/LibEvInt2BytesNoLen.lean`: on `f2-examples/e6-int2bytes-nolen.kompile.kore` (the fixture
+  e6-int2bytes-nolen), the reading's parameter symbols are `~Int` and `Int2BytesNoLen`, without
+  implementation (`params_i2b`); Γ entails each sort declaration without sort parameters
+  (`decls_entailed`) and `Int2BytesNoLen`'s declaration (`lib_decls_entailed`), for every H; the
+  library's equation at 0 (domains.md 2250, axiom 189) is entailed at values for every H meeting
+  `i2bZeroEq` (`ev189`); `Hi2b` meets it (`ev189_Hi2b`); at `HookParams.none` the left side has no
+  value at 0 where the right side has one (`zero_none`). The other four equations (2252-2258) match a
+  Signedness constructor, which no LibEv term expresses. Axioms guarded.
 - `test/LibEvCollSym.lean`: the lemmas of MAP-KORE-SYMBOLIC and SET-KORE-SYMBOLIC of
   `f2-examples/collsym.kompile.kore`, for every H, from the library's statements
   (`KcoreSpec/LibEvCollSym.lean`): entailed at values, without an `ensures` (`LibEv.Eqn`; domains.md

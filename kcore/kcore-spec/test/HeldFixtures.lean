@@ -845,12 +845,12 @@ elab "held_base_of " id:ident " from " path:str : command => do
     hints := .regular 0, safety := .safe }
 
 /-- In every semantics, `_[_<-_]` and the unit, element and concatenation symbols of the range map
-are not held: each is an interpreted hooked symbol, so no overloading symbol, and neither a pattern
-hook of a map nor a collection pattern hook of a list or a set. -/
+are not held: each is an interpreted hooked symbol, so no overloading symbol, not K's `append`, and
+neither a pattern hook of a map nor a collection pattern hook of a list or a set. -/
 theorem not_held_fxv (c : Semantics) :
     c.holds mapUpdate = false ∧ c.holds rmUnit = false ∧ c.holds rmElem = false ∧ c.holds rmConcat = false := by
   have key : ∀ f, collHeld c f = false → isHook f = true → c.holds f = false := fun f h1 h2 => by
-    rw [holds_eq_collOvl, h1]; simp [Semantics.ovlHeld, Semantics.isOvl, h2]
+    rw [holds_eq_collOvl, h1]; simp [Semantics.ovlHeld, Semantics.isOvl, Semantics.appendHeldX, h2]
   exact ⟨key _ rfl rfl, key _ rfl rfl, key _ rfl rfl, key _ rfl rfl⟩
 
 /-- info: 'HeldFixtures.not_held_fxv' depends on axioms: [propext, Classical.choice, Quot.sound] -/

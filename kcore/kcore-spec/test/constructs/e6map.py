@@ -25,6 +25,16 @@ a theorem when one of these holds, read from the files' text:
       its remainder given by `remainder_indices` and N not among them, and neither (a) nor (b) ties N
       there, and the class's list has the class's count; the theorems are the class's in
       imp-tie.toml (its file and theorems, those stating the class's list of indices left out).
+  (f) N is a sentence of the class `parameter lemma` (direction hypothesis: it applies a parameter
+      symbol without `impl`, whose value the interpretation gives, so it is owed as a hypothesis on
+      H, at values) of a tie file test/Tie*.lean on the text that defines
+      `paramLemmaText : List AxiomDecl` as a literal list holding U.axN, `ParamLemmaWitnessAtValues`
+      as `∃ H : HookParams, FnObligations (cH H) callOrder [] ∧ ∀ ad ∈ paramLemmaText,
+      EntailsAtValues (cH H) ad (trS ad).pat`, has N under "parameter lemma" in its `classes`, and
+      declares `paramlemma_account` (the class is that list) and a theorem whose statement is
+      `ParamLemmaWitnessAtValues` (some H meets the hypothesis: the text with it has a model). The
+      definition alone ties nothing. The theorems are those two, each item ending in
+      "; direction hypothesis".
 A theorem whose statement holds `¬` refutes the sentence (Γ with it has no model, or it fails at a
 valuation), one stating `SvAtMostOne` holds it only where its set variables hold one value at most, and
 so does a theorem of a class of direction refuted: neither ties it. A row whose only theorems are such
@@ -71,18 +81,17 @@ that applies a symbol Γ lacks is of the tie's no-direction class, which no theo
        declaration file on the text has a statement holding `hasSym NAME = false` (NAME a string
        literal or a `String` def), or `(X.filter (!hasSym ·.name)).map (·.name) = L` with L a literal
        list holding NAME.
-A row that a form of (a) to (d) ties on any text is tied; else one that a theorem only refutes is
+A row that a form of (a) to (d) or (f) ties on any text is tied; else one that a theorem only refutes is
 "refuted: ..."; else one of the no-direction class on some text is "no direction: ...", never tied;
 else it is uncovered.
 The self-check: each theorem `decls_entailed` of a declaration file is in a form of (d); each name of
 a symbol statement's list is an unhooked symbol declaration of the file's text with a builtin Source
 and without sort parameters; every symbol row held by a text of (d) that no list of (d) names is not
 tied, and is of no direction exactly where a declaration fact of (e) names it on a text holding it.
-No row serves as a control that no list names and Γ has: of the symbol rows held by a text of (d),
-the two no list names (dividesInt, Int2BytesNoLen) are both lacked by Γ there. So the control is
-stated as: a declaration no list of (d) names is neither tied nor of no direction unless form (e)
-holds, and the control row DECL_CONTROL (dividesInt, declared on those texts without sort parameters)
-is held by a text of (d), not tied, and of no direction, its form (e) case. AX_CONTROL controls (e2):
+The control is stated on one text: a declaration no list of (d) on a text names is not tied there,
+and is of no direction there only where form (e) holds; the control DECL_CONTROL (dividesInt on
+silentflt, which declares it without sort parameters and whose Γ lacks it) is held by that text's
+declaration files, named by no list of (d) on that text, and of form (e) there. AX_CONTROL controls (e2):
 on silentflt, dividesInt's equation (274) is of (e2), and findChar's (296), whose absent heads are
 `ite{SortInt}`, is not, although a statement names it with absentOf and a nonempty list literal.
 A module row is tied when every row of the module in this scope (axiom, lemma, sort, symbol) is tied
@@ -246,6 +255,41 @@ def lean_ties():
             for n in ns_:
                 ties[text][n].append((name, rel, kind))
     return ties
+
+
+PL_FILE = re.compile(r"^Tie\w*\.lean$")
+PL_WITNESS = ("def ParamLemmaWitnessAtValues : Prop := ∃ H : HookParams, FnObligations (cH H) callOrder [] ∧ "
+              "∀ ad ∈ paramLemmaText, EntailsAtValues (cH H) ad (trS ad).pat")
+
+
+def paramlemma_ties():
+    """text -> index -> [(theorem, file)]: the sentences of the class `parameter lemma` tied as a
+    direction hypothesis (form (f))."""
+    out = defaultdict(lambda: defaultdict(list))
+    for f in sorted(os.listdir(os.path.join(K, "test"))):
+        if not PL_FILE.match(f):
+            continue
+        rel = "test/" + f
+        t = open(os.path.join(K, rel)).read()
+        um = re.search(r'user_axioms U from "([^"]+)"', t)
+        if not um or " ".join(PL_WITNESS.split()) not in " ".join(t.split()):
+            continue
+        lm = re.search(r"^noncomputable def paramLemmaText : List AxiomDecl := \[([^\]]*)\]", t, re.M)
+        cm = re.search(r"^def classes : List \(String × List Nat\) :=\n(.*?)\n\n", t, re.M | re.S)
+        if not lm or not cm:
+            continue
+        lit = {int(x) for x in re.findall(r"U\.ax(\d+)", lm.group(1))}
+        cls = {int(x) for m in re.finditer(r'\("parameter lemma", \[([\d,\s]*)\]\)', cm.group(1))
+               for x in re.findall(r"\d+", m.group(1))}
+        ths = file_theorems(t)
+        acc = [n for n, _ in ths if n.split(".")[-1] == "paramlemma_account"]
+        wit = [n for n, st in ths if re.fullmatch(r"\s*(?:private )?theorem \S+\s*:\s*ParamLemmaWitnessAtValues\s*", st)]
+        if not acc or not wit:
+            continue
+        for n in sorted(lit & cls):
+            for th in acc + wit:
+                out[um.group(1)][n].append((th, rel))
+    return out
 
 
 def kimp_ties():
@@ -503,7 +547,9 @@ def model_theorems():
     return out
 
 
-DECL_CONTROL = "symbol:INT-COMMON:Lbl'Unds'dividesInt'UndsUnds'INT-COMMON'Unds'Bool'Unds'Int'Unds'Int"
+DECL_CONTROL = ("f2-examples/silentflt.kompile.kore",
+                "symbol:INT-COMMON:Lbl'Unds'dividesInt'UndsUnds'INT-COMMON'Unds'Bool'Unds'Int'Unds'Int",
+                "Lbl'Unds'dividesInt'UndsUnds'INT-COMMON'Unds'Bool'Unds'Int'Unds'Int")
 AX_CONTROL = ("f2-examples/silentflt.kompile.kore", 274, 296)
 
 
@@ -512,9 +558,9 @@ def self_check(rows, res):
     of (d); each name of a symbol statement's list is a declaration of the file's text with a builtin
     Source, unhooked and without sort parameters; every symbol row held by a text of (d) that no list
     of (d) names is not tied, and is of no direction exactly where a fact of form (e) on a text holding
-    it names its declaration; the control row DECL_CONTROL (`dividesInt`, which those texts declare
-    without sort parameters, no list names, and Γ lacks) is held by a text of (d), not tied, and of no
-    direction; and of AX_CONTROL's text, form (e2) takes the first sentence (`dividesInt`'s equation)
+    it names its declaration; the control DECL_CONTROL (`dividesInt` on silentflt, which declares it
+    without sort parameters and whose Γ lacks it) is held by that text's declaration files, named by no
+    list of (d) on that text, and of form (e) there; and of AX_CONTROL's text, form (e2) takes the first sentence (`dividesInt`'s equation)
     and not the second (`findChar`'s, whose absent heads are `ite{SortInt}`, an instance of a symbol
     declared with sort parameters), although a statement naming the second and absentOf with a
     nonempty list literal exists."""
@@ -539,12 +585,15 @@ def self_check(rows, res):
                 for k2, _k, nm, _p in declarations(t2) if k2 == key)
         if e != is_nodir(res[key]):
             bad.append(f"{key}: of no direction {is_nodir(res[key])}, a fact of form (e) {e}")
-    if not any(DECL_CONTROL in h for h in held.values()):
-        bad.append(f"control {DECL_CONTROL}: held by no text of form (d)")
-    elif DECL_CONTROL not in rows or isinstance(res.get(DECL_CONTROL), list):
-        bad.append(f"control {DECL_CONTROL}: not a row, or tied")
-    elif not is_nodir(res.get(DECL_CONTROL)):
-        bad.append(f"control {DECL_CONTROL}: not of no direction (form (e))")
+    ctext, ckey, cname = DECL_CONTROL
+    if ckey not in rows:
+        bad.append(f"control {ckey}: not a row")
+    elif ckey not in held.get(ctext, set()):
+        bad.append(f"control {ckey}: not held by {ctext} in a file of form (d)")
+    elif dties.get(ctext, {}).get(ckey):
+        bad.append(f"control {ckey}: named by a list of form (d) on {ctext}")
+    elif not ndd[ctext].get(cname):
+        bad.append(f"control {ckey}: no fact of form (e) on {ctext}")
     text, yes, no = AX_CONTROL
     nda = nodir_axioms()
     stmts = [s for f in os.listdir(os.path.join(K, "test")) if ND_FILE.match(f)
@@ -572,9 +621,10 @@ def compute():
             ties[ktext][n] += l
     dties, dheld_by = decl_ties(decl_forms()[0])
     nda, ndd, models = nodir_axioms(), nodir_decls(), model_theorems()
+    pla = paramlemma_ties()
     # key -> text -> [index]
     where = defaultdict(lambda: defaultdict(list))
-    for text in sorted(set(ties) | set(nda) | {ktext}):
+    for text in sorted(set(ties) | set(nda) | set(pla) | {ktext}):
         seen = defaultdict(int)
         for i, _m, s in axioms(text):
             k = e6_key(s)
@@ -601,6 +651,8 @@ def compute():
                     for th, f, kind in ties[text].get(n, []):
                         (got if kind == "ties" else other).append(f"{th} ({f}; {text} axiom {n})" + (
                             "" if kind == "ties" else f" [{kind}]"))
+                    for th, f in pla[text].get(n, []):
+                        got.append(f"{th} ({f}; {text} axiom {n}; direction hypothesis)")
                     for th, f in nda[text].get(n, []):
                         nd.append(f"{th} ({f}; {text} axiom {n})")
                         inm = inm or any(re.search(rf"\bU\.ax{n}\b", s) for _, _, s in models.get(text, []))

@@ -1,7 +1,9 @@
 /-
   A clause with a predicate in its premise, in a model: the clause lemmas (KcoreSpec/OpenClause.lean,
   OpenClauseEval.lean, OpenClauseDen.lean) and what they ask of the model for the predicate
-  (`PreRead`, KcoreSpec/ClausePreRead.lean; given by `preRead_of`, KcoreSpec/ClausePreTie.lean), on
+  (`PreRead`, KcoreSpec/ClausePreRead.lean; given by `preRead_of` at a predicate without a binder,
+  KcoreSpec/ClausePreTie.lean, and over `Cond.bound` in a model of `Γc` by `preRead_of_bound`,
+  KcoreSpec/PreReadBound.lean), on
   CN-4 §4.9's semantics: `u(X:Int) => X ensures X >Int 0`, and `g(X:Int)` with the clauses `gCl1`
   (`pre := ⌈u(X)⌉`, `rhs := 1`, priority 50) and `gCl2` (`rhs := 0`, priority 200), which negates
   `gCl1`'s exclusion `∃X'. ((⊤ ∧ X0 ∈ X') ∧ ⌈u(X')⌉)`.
@@ -13,6 +15,7 @@
 -/
 import KcoreSpec.ClausePreTie
 import KcoreSpec.ClausePreCore
+import KcoreSpec.PreReadBound
 import KcoreSpec.ModelUndefRhsWitness
 
 set_option autoImplicit false
@@ -66,9 +69,10 @@ section
 variable {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M}
 
 /-- **`PreRead` of `gCl1`** in an interpretation with the constructors' facts where the elements
-of well-sorted terms lie in their sorts (`preRead_of`). -/
+of well-sorted terms lie in their sorts (`preRead_of`, its predicate holding no binder). -/
 theorem preRead_gCl1 (F : NodeFacts c I) (hT : TermsInSort c I) : PreRead c I gCl1 :=
-  preRead_of F (fun h => by rw [gCl1_facts.2.2.1] at h; cases h) hT gCl1_facts.2.1 gCl1_facts.2.2.2.1
+  preRead_of F (fun h => by rw [gCl1_facts.2.2.1] at h; cases h) hT gCl1_facts.2.1
+    (Cond.boundConf_of_noBinder c gCl1.pre gCl1.vars.length gCl1_facts.2.2.1)
 
 /-- **`gCl1`'s exclusion is empty where it fails** (`exclEmptyCl_ofCl` at a clause whose predicate
 is not `\top`), in a model of `Γc c` with the context `coreOK` gives a semantics. -/
@@ -88,6 +92,16 @@ end
 
 /-- info: 'KCore.HoldsShape.preRead_of' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms preRead_of
+/-- info: 'KCore.HoldsShape.preRead_ofB' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms preRead_ofB
+/-- info: 'KCore.HoldsShape.preRead_of_bound' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms preRead_of_bound
+/-- info: 'KCore.HoldsShape.preReadAll_of_core' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms preReadAll_of_core
+/-- info: 'KCore.Cond.boundConf_of_noBinder' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Cond.boundConf_of_noBinder
+/-- info: 'KCore.Faithful.reqFails_den4ClPre' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms reqFails_den4ClPre
 /-- info: 'KCore.Faithful.exclEmptyCl_ofCl' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms exclEmptyCl_ofCl
 /-- info: 'KCore.Faithful.clause_den4Cl' depends on axioms: [propext, Classical.choice, Quot.sound] -/

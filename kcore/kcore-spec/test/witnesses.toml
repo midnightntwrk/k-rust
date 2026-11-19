@@ -90,14 +90,21 @@ witness = "KcoreSpec.ModelSortsWitness"
 
 [[conjunct]]
 key = "itesApart.1"
-text = "match KCore.iteSort? (c.symName k.name) with | some X => (KCore.Faithful.kernelSorts c).any fun s => c.sortName s == X | none => true"
-witness = "none: not found; the half is not implied by the others, and Γ of a semantics failing it alone has a model (argued, not kernel-checked)"
+text = "match KCore.instDecode? (c.symName k.name) with | some (fst, xs) => xs.all fun x => (KCore.Faithful.kernelSorts c).any fun s => c.sortName s == x | none => true"
+witness = "none: not found; the leaf is not implied by the others, and Γ of a semantics failing it alone has a model (argued, not kernel-checked)"
 evidence = "test/ItesNumbered.lean"
 
 [[conjunct]]
 key = "itesApart.2"
-text = "(KCore.iteSort? (c.symName k.name)).isNone || KCore.iteSort? (c.symName k.name) != KCore.iteSort? (c.symName k'.name) || k == k'"
-witness = "KcoreSpec.ModelItesWitness"
+text = "match KCore.instDecode? (c.symName k.name) with | some (h, xs) => (KCore.Faithful.kernelSyms c).all fun k' => match KCore.instDecode? (c.symName k'.name) with | some (h', xs') => h' != h || xs'.length == xs.length | none => true | none => true"
+witness = "none: not found; Γ writes an instance name other than Lblite at one sort plainly, so a semantics failing this leaf alone has the model of the same semantics with the symbol renamed (argued, not kernel-checked)"
+evidence = "test/ItesNumbered.lean"
+
+[[conjunct]]
+key = "itesApart.3"
+text = "match KCore.instDecode? (c.symName k.name) with | some (h, snd) => h != \"inj\" | none => true"
+witness = "none: not found; Γ writes an instance name with the head inj plainly, under its own name, which is not inj (namesApartK), so a semantics failing this leaf alone has the model of the same semantics with the symbol renamed (argued, not kernel-checked)"
+evidence = "test/ItesNumbered.lean"
 
 [[conjunct]]
 key = "faithCoreOK.9"
@@ -198,7 +205,7 @@ evidence = "test/WitRestOvlA.lean"
 
 [[conjunct]]
 key = "overloadsOK.3"
-text = "(KCore.iteSort? (c.symName o.sig.name)).isNone"
+text = "(KCore.instDecode? (c.symName o.sig.name)).isNone"
 witness = "none: not found in the no-model form; the conjunct is needed for soundness instead: a semantics failing it alone, with FnHyp, has a theory with a model and SoundC false, the successor of a step to a value applying the symbol not being entailed to be in the family (kernel-checked: test/OvlIteSoundC.lean, consistent and not_sound)"
 evidence = "test/OvlIteName.lean, test/OvlIteSoundC.lean"
 
