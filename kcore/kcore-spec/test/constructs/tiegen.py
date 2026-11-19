@@ -174,10 +174,17 @@ whose premise Γ writes through a cut of the clause's `requires`, the sentence b
 text writes it (`andUnderAppCut`, `notAsCondition`: `TieCutEq.textItem`, up to the names of the
 variables; each direction over what it reads, definedness, the constructors' facts of a model of the
 theory, and for `notAsCondition` the closure of Bool, `boolClosed`, a premise the theorems name and the
-summary's `owed` lists), or (`un<j>_differs`) an item no reading here ties, whose sentence is
+summary's `owed` lists), or (`ens<j>_*`) the item whose right side r the sentence writes
+`\\and{s}(r, \\top{s}())` (`andAsEnsures`: `TieRhs.rhsMap TieRhs.andTop`, `TieRhs.rhsMap_iff` with
+`TieRhs.andTop_agree`, the same models of definedness), or (`sv<j>_*`) test/NoteSetVarIn.lean's item
+`nsvAxG` whose sentence is that file's `nsvAxS` (`setVarInDropped`: two memberships in one set variable
+against two element variables; its section `Bridge` copied, `nsv_iff`, with the definition of `\\ceil`
+and the sort constant `SortExp`, items of Γ: in `fns_entailed`, `sv<j>_w1`, left out of
+`fns_from_text`), or (`un<j>_differs`) an item no reading here ties, whose sentence is
 `uncovered` and which `fns_entailed` and `fns_from_text` leave out; on a text that reads a confined
 sort too (its statements over Γ, which `Γc` holds). The probe then also writes, per item, whether the
-empty-alternative reading ties it (`WR` lines) and the cuts that tie it (`WC` lines).
+empty-alternative reading ties it (`WR` lines), the cuts that tie it (`WC` lines) and whether the
+`andAsEnsures` or the `setVarInDropped` form ties it (`WE` lines).
 Without the flag the output is unchanged.
 --at-values N,... names the user lemmas (by `AxiomDecl.index`) that are of the class `user lemma at
 values` in place of `user lemma`; an index that is no user lemma of the text is refused.
@@ -758,7 +765,7 @@ def obligations(name, path, hand=False):
 
 PROBE = r'''import KcoreSpec
 open KCore ML Faithful KoreAML
-
+@READINGS_DEFS@
 def tgOrTopBot (S : P) : P := conjList [] ⇒ (sOr S (sTop S) (sBot S) ≡ inhOf S)
 def tgRuleParts : Kore.Pattern → Option (Kore.KSort × Kore.Pattern × Kore.Pattern × Kore.Pattern × Kore.Pattern)
   | .rewrites C (.and _ [l, t, x]) r => some (C, l, t, x, r)
@@ -1147,7 +1154,11 @@ def tgNjOrder (gs : List KoreAML.Gen) : List Kore.Pattern → Option (List Nat)
 # `TieRhs.orEmptyOK`, the item mapped by `TieRhs.orEmptyIn` and `TiePair.sameB`); and, for each equation whose item
 # is not its sentence, the cuts of its premise (`TieCutEq.Cut`: `andApp` at an argument path of at most four steps,
 # `notCond`) at a place (`TieCutEq.Place`: `own`, or `under i n` for i < 4, n < 8) where the sentence is the item's
-# text form up to the names of its variables (`TieCutEq.textItem`, `shapeOK`, `factsOK`, `TieAlpha.acEqB`: `WC` lines)
+# text form up to the names of its variables (`TieCutEq.textItem`, `shapeOK`, `factsOK`, `TieAlpha.acEqB`: `WC` lines);
+# and, per equation (`WE` lines), whether the sentence is Γ's item with its right side r written `\and{s}(r, \top{s}())`
+# (`TieRhs.rhsMap TieRhs.andTop`, up to the indices of its variables, with the item's table, free variables and sort,
+# and a sort s whose translation leaves the variable of `\top` unbound), and whether Γ's axiom is test/NoteSetVarIn.lean's
+# `nsvAxG` and the sentence's translation that of its `nsvAxS` (`setvar_probe_defs`)
 PROBE_READINGS = r'''  for j in List.range fis.length do
     match pairText[j]?, fax[j]? with
     | some ad, some a =>
@@ -1190,7 +1201,24 @@ PROBE_READINGS = r'''  for j in List.range fis.length do
                     | .under i n => s!"under\t{i}\t{n}"
                   IO.println s!"WC {j}\t{ks}\t{ps}"
           | none => pure ()
-    | _, _, _ => pure ()'''
+    | _, _, _ => pure ()
+''' + r'''  for j in List.range fis.length do
+    match pairText[j]?, fax[j]? with
+    | some ad, some a =>
+      let t := (trS ad).pat
+      let aT := TieRhs.rhsMap TieRhs.andTop a
+      let ae := match TieRhs.eqParts a.pattern with
+        | some (_, _, s, _, _, _) =>
+          TiePair.sameB (trAxiom [] [] ⟨0, "kernel", aT⟩).pat t &&
+            decide (tableOf aT.sortVars aT.pattern = tableOf a.sortVars a.pattern) &&
+            decide ((aT.sortVars.map sortVarKey ++ freeOf [] aT.pattern).eraseDups =
+              (a.sortVars.map sortVarKey ++ freeOf [] a.pattern).eraseDups) &&
+            decide (sortOf [] aT.pattern = sortOf [] a.pattern) &&
+            !(trSort (tableOf a.sortVars a.pattern) s).isFreeEvar topVar
+        | none => false
+      let sv := decide (a = nsvAxG) && decide (t = (trAxiom [] [] ⟨0, "kernel", nsvAxS⟩).pat)
+      IO.println s!"WE {j}\t{ae}\t{sv}"
+    | _, _ => pure ()'''
 
 
 def probe(name, path, um, order="[]", cons_head=False, sig_pos=False, decl_pos=False, reads_h=(), readings=False):
@@ -1202,7 +1230,8 @@ def probe(name, path, um, order="[]", cons_head=False, sig_pos=False, decl_pos=F
                            .replace("@SIGPOS@", "true" if sig_pos else "false")
                            .replace("@DECLPOS@", "true" if decl_pos else "false")
                            .replace("@READSH@", "[" + ", ".join(map(str, reads_h)) + "]")
-                           .replace("@READINGS@", PROBE_READINGS if readings else ""))
+                           .replace("@READINGS@", PROBE_READINGS if readings else "")
+                           .replace("@READINGS_DEFS@", setvar_probe_defs() if readings else ""))
         env = dict(os.environ, LEAN_NUM_THREADS="1")
         r = run(WRAP + ["timeout", os.environ.get("TIEGEN_PROBE_TIMEOUT", "900"), "lake", "env", "lean", "-j1", f], cwd=KS, env=env)
     if r.returncode != 0:
@@ -1264,6 +1293,9 @@ def probe(name, path, um, order="[]", cons_head=False, sig_pos=False, decl_pos=F
         elif l.startswith("WR "):
             f = l[3:].split("\t")
             head.setdefault("fnRd", {})[int(f[0])] = dict(orEmpty=f[1] == "true")
+        elif l.startswith("WE "):
+            f = l[3:].split("\t")
+            head.setdefault("fnEns", {})[int(f[0])] = dict(andTop=f[1] == "true", setvar=f[2] == "true")
         elif l.startswith("WC "):
             f = l[3:].split("\t")
             head.setdefault("fnCut", {}).setdefault(int(f[0]), dict(
@@ -1679,7 +1711,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     # without that premise it is the sentence (`TiePair.minusNeg`), which entails it (W1)
     fn_pair, pair_text, pair_w = False, [], None
     fn_pairs, pair_ws, pair_ac = False, [], []
-    fn_rds, pair_rd, pair_un, pair_cut = False, [], [], []
+    fn_rds, pair_rd, pair_un, pair_cut, pair_ens, pair_sv = False, [], [], [], [], []
     fw = head["fnW"]
     if not fn_full and not fn_align and nfn and (not confined or fn_readings) and not raw and \
             sorted(fw) == list(range(nfn)) and int(head.get("pairTextLen", -1)) == nfn and \
@@ -1714,7 +1746,16 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             # readings `andUnderAppCut` and `notAsCondition`), the sentence being the premise as written
             pair_cut = [j for j in ws if j not in pair_ac + pair_ws + pair_rd and j in head.get("fnCut", {})
                         and fw[j]["differs"]]
-            pair_un = [j for j in ws if j not in pair_ac + pair_ws + pair_rd + pair_cut]
+            # an item whose sentence writes its right side r as `\and{s}(r, \top{s}())` (`andAsEnsures`:
+            # `TieRhs.rhsMap TieRhs.andTop`), and one whose sentence holds two memberships in one set variable
+            # where Γ's item has two element variables (`setVarInDropped`: test/NoteSetVarIn.lean's literal
+            # axioms `nsvAxS` and `nsvAxG`, `nsv_iff`)
+            done = pair_ac + pair_ws + pair_rd + pair_cut
+            fe = head.get("fnEns", {})
+            pair_ens = [j for j in ws if j not in done and fe.get(j, {}).get("andTop", False) and fw[j]["differs"]]
+            pair_sv = [j for j in ws if j not in done + pair_ens and fe.get(j, {}).get("setvar", False)
+                       and fw[j]["differs"]]
+            pair_un = [j for j in ws if j not in done + pair_ens + pair_sv]
     pair_cut_l = [(j, pair_text[j], head["fnCut"][j]) for j in pair_cut]
     agree = ob["agree"]
     facts_kind = ob["kind"]
@@ -2152,7 +2193,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w(textwrap.fill(txt_, width=100, initial_indent="  - ", subsequent_indent="    ", break_on_hyphens=False,
                         break_long_words=False))
     if fn_rds:
-        w(readings_header(by_class, pair_text, pair_ws, pair_ac, pair_rd, pair_un, pair_cut_l, confined))
+        w(readings_header(by_class, pair_text, pair_ws, pair_ac, pair_rd, pair_un, pair_cut_l, confined,
+                          pair_ens, pair_sv))
     if rules_full and nrules:
         w(f"  - Rewrite rules ({nrules}): each of Γ's rule items (with the premise `⌈rhs ∧ ens⌉`) is a consequence")
         w("    of its text sentence, `ruleText` in `ruleItems`' order (`rule_from_text`, W1, every H).")
@@ -2208,7 +2250,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             f"parts Γ defines by predicates, or definedness (`gamma_from`).",
             width=100, initial_indent="  - ", subsequent_indent="    ", break_on_hyphens=False, break_long_words=False))
     if fn_rds:
-        w(readings_gamma_header(pair_text, pair_ws, pair_ac, pair_rd, pair_un, pair_cut_l))
+        w(readings_gamma_header(pair_text, pair_ws, pair_ac, pair_rd, pair_un, pair_cut_l, pair_ens, pair_sv))
     owed_more = ""
     if law_idx:
         owed_more += "; function law: owed as `FnLaws` (`law_account`)"
@@ -3676,7 +3718,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w(readings_section([(j, pair_text[j], sents[pair_text[j]]["prio"]) for j in pair_ws],
                            [(j, pair_text[j]) for j in pair_ac], [(j, pair_text[j]) for j in pair_rd],
                            [(j, pair_text[j]) for j in pair_un], len(by_class["function equation"]),
-                           len(by_class["priority equation"]), pair_cut_l, confined))
+                           len(by_class["priority equation"]), pair_cut_l, confined,
+                           [(j, pair_text[j]) for j in pair_ens], [(j, pair_text[j]) for j in pair_sv]))
         mark("Rest")
     if gamma:
         w(GAMMA_ALIGN if fn_align else GAMMA_RULES if nrules else GAMMA)
@@ -3775,7 +3818,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             [n.format(j) for j in pair_ac for n in ("ac{}_same", "ac{}_differs", "ac{}_iff", "ac{}_entailed")] + \
             ["shape", "fns_entailed", "fns_from_text", "fn_prios", "gamma_from"]
     if fn_rds:
-        pair_names = readings_names(pair_ws, pair_ac, pair_rd, pair_un, pair_cut_l)
+        pair_names = readings_names(pair_ws, pair_ac, pair_rd, pair_un, pair_cut_l, pair_ens, pair_sv)
     for block in (names, pair_names):
         for n in block:
             w(f"#check @KCore.{ns}.{n}")
@@ -3821,7 +3864,9 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                    fn_pair=fn_pair, **({"fn_pairs": dict(w1=pair_ws, ac=pair_ac)} if fn_pairs else {}),
                    **({"fn_readings": dict(w1=pair_ws, ac=pair_ac, or_empty=pair_rd, untied=pair_un,
                                            **({"cut": {j: dict(sentence=i, **k) for j, i, k in pair_cut_l}}
-                                              if pair_cut_l else {}))} if fn_rds else {}),
+                                              if pair_cut_l else {}),
+                                           **({"and_top": pair_ens} if pair_ens else {}),
+                                           **({"setvar_in": pair_sv} if pair_sv else {}))} if fn_rds else {}),
                    cons=len(cons_text), nojunk=[len(nj_triv), len(nj_items), len(nj_kitem), len(nj_sorts)],
                    idem=idem, own_idem=[i for i, _, _ in own_idem], lib166=lib166, gamma=gamma, laws=law_idx, open_generators=[k["name"] for k in raw],
                    confined=confined, uncovered=uncovered, owed=owed, theorems=names,
@@ -4542,13 +4587,14 @@ def cut_in_entailed(k, confined):
     return cut_form(k) == "under" or (cut_form(k) == "own" and not confined)
 
 
-def readings_header(by_class, pair_text, ws, acs, rds, uns, cuts=(), confined=False):
+def readings_header(by_class, pair_text, ws, acs, rds, uns, cuts=(), confined=False, enss=(), svs=()):
     """The header's paragraph of the function equations `readings_section` ties."""
     nfe, npe = len(by_class["function equation"]), len(by_class["priority equation"])
     lst = lambda js: ", ".join(f"{j} ({pair_text[j]})" for j in js)
     pl = lambda js, a, b: a if len(js) > 1 else b
     txt_ = (f"Function equations ({nfe}) and priority equations ({npe}), in the order `fnText` lists them "
-            f"(`fns_account`): each of Γ's items but {', '.join(map(str, sorted(ws + acs + rds + uns + [j for j, _, _ in cuts])))} is the "
+            f"(`fns_account`): each of Γ's items but "
+            f"{', '.join(map(str, sorted(ws + acs + rds + uns + [j for j, _, _ in cuts] + list(enss) + list(svs))))} is the "
             f"translation of one sentence (`shape`), so Γ entails it (`fns_entailed`).")
     if ws:
         txt_ += (f" Item{pl(ws, 's', '')} {lst(ws)} (sentence in parentheses) {pl(ws, 'are', 'is')} the clause "
@@ -4587,6 +4633,19 @@ def readings_header(by_class, pair_text, ws, acs, rds, uns, cuts=(), confined=Fa
                          f"element of Bool is `true` or `false` (`cut{j}_iff`; `boolClosed`, a premise named there, "
                          f"is not Γ's), so the sentence holds in a model of the theory in which Bool is closed "
                          f"(`cut{j}_entailed`); `fns_entailed` and `fns_from_text` leave it out.")
+    if enss:
+        txt_ += (f" Item{pl(enss, 's', '')} {lst(enss)} {pl(enss, 'are equations', 'is the equation')} whose right side r "
+                 f"the sentence writes `\\and{{s}}(r, \\top{{s}}())` (`andAsEnsures`): the sentence is the item so "
+                 f"written (`ens<j>_text`, `TieRhs.rhsMap TieRhs.andTop`, up to the indices of its variables), the two "
+                 f"hold in the same models of definedness (`ens<j>_iff`, `TieRhs.rhsMap_iff`, `TieRhs.andTop_agree`), "
+                 f"so Γ entails the sentence (`ens<j>_entailed`) and it gives the item.")
+    if svs:
+        txt_ += (f" Item{pl(svs, 's', '')} {lst(svs)} {pl(svs, 'are equations', 'is the equation')} whose sentence binds "
+                 f"two arguments by memberships in one set variable where Γ's item binds them by two element variables "
+                 f"(`setVarInDropped`; test/NoteSetVarIn.lean's `nsvAxS`, `nsvAxG`): the two hold in the same models of "
+                 f"definedness, of the definition of `\\ceil` and of the sort constant `SortExp` (`sv<j>_iff`, "
+                 f"`nsv_iff`), items of Γ (`sv_sig_pats`), so Γ entails the sentence (`sv<j>_entailed`), and the "
+                 f"sentence with those two items gives the item (`sv<j>_w1`), which `fns_from_text` leaves out.")
     if uns:
         txt_ += (f" Item{pl(uns, 's', '')} {lst(uns)} {pl(uns, 'are', 'is')} not {pl(uns, 'their sentences', 'its sentence')} "
                  f"(`un<j>_differs`) and no reading here ties {pl(uns, 'them', 'it')}: {pl(uns, 'those sentences are', 'the sentence is')} "
@@ -4596,12 +4655,13 @@ def readings_header(by_class, pair_text, ws, acs, rds, uns, cuts=(), confined=Fa
                          break_long_words=False)
 
 
-def readings_gamma_header(pair_text, ws, acs, rds, uns, cuts=()):
+def readings_gamma_header(pair_text, ws, acs, rds, uns, cuts=(), enss=(), svs=()):
     """The header's paragraph of `readings_section`'s converse over Γ's content."""
     cno = [j for j, _, k in cuts if cut_form(k) != "own"]
     via = (([f"{', '.join(str(pair_text[j]) for j in ws)} through W1"] if ws else [])
            + [f"{pair_text[j]} through `ac{j}_iff`" for j in acs] + [f"{pair_text[j]} through `rd{j}_iff`" for j in rds]
-           + [f"{i} through `cut{j}_from_text`" for j, i, k in cuts if cut_form(k) == "own"])
+           + [f"{i} through `cut{j}_from_text`" for j, i, k in cuts if cut_form(k) == "own"]
+           + [f"{pair_text[j]} through `ens{j}_iff`" for j in enss])
     txt_ = ("The converse over Γ's content: each premise is a consequence of the function sentences"
             + (f" ({', '.join(via)})" if via else "")
             + (f", Γ's own item{'s' if len(uns) > 1 else ''} {', '.join(map(str, uns))} (whose sentence"
@@ -4609,12 +4669,15 @@ def readings_gamma_header(pair_text, ws, acs, rds, uns, cuts=()):
             + (f", Γ's own item{'s' if len(cno) > 1 else ''} {', '.join(map(str, cno))} (whose sentence"
                f"{'s give' if len(cno) > 1 else ' gives'} it with the constructors' facts: `cut<j>_from_text`, "
                f"`cut<j>_iff`)" if cno else "")
+            + (f", Γ's own item{'s' if len(svs) > 1 else ''} {', '.join(map(str, svs))} (whose sentence"
+               f"{'s give' if len(svs) > 1 else ' gives'} it with the definition of `\\ceil` and the sort constant "
+               f"`SortExp`: `sv<j>_w1`)" if svs else "")
             + ", Γ's rule items, the five parts Γ defines by predicates, or definedness (`gamma_from`).")
     return textwrap.fill(txt_, width=100, initial_indent="  - ", subsequent_indent="    ", break_on_hyphens=False,
                          break_long_words=False)
 
 
-def readings_names(ws, acs, rds, uns, cuts=()):
+def readings_names(ws, acs, rds, uns, cuts=(), enss=(), svs=()):
     """The theorems `readings_section` states, in its order."""
     dirs = {"own": ("cut{}_from_text", "cut{}_entailed"), "under": ("cut{}_entailed", "cut{}_from_text"),
             "not": ("cut{}_iff", "cut{}_entailed")}
@@ -4624,11 +4687,15 @@ def readings_names(ws, acs, rds, uns, cuts=()):
             [n.format(j) for j in rds for n in ("rd{}_ok", "rd{}_text", "rd{}_differs", "rd{}_iff", "rd{}_entailed")] +
             [n.format(j) for j, _, k in cuts for n in
              ("cut{}_shape", "cut{}_facts", "cut{}_same", "cut{}_differs") + dirs[cut_form(k)]] +
+            [n.format(j) for j in enss for n in ("ens{}_sort", "ens{}_table", "ens{}_free", "ens{}_srt", "ens{}_text",
+                                                 "ens{}_differs", "ens{}_iff", "ens{}_entailed")] +
+            (["nsv_iff", "sv_sig_pats"] if svs else []) +
+            [n.format(j) for j in svs for n in ("sv{}_text", "sv{}_differs", "sv{}_iff", "sv{}_w1", "sv{}_entailed")] +
             [f"un{j}_differs" for j in uns] +
             ["shape", "fns_entailed", "fns_from_text", "fn_prios", "gamma_from"])
 
 
-def readings_section(ws, acs, rds, uns, nfe, npe, cuts=(), confined=False):
+def readings_section(ws, acs, rds, uns, nfe, npe, cuts=(), confined=False, enss=(), svs=()):
     """`pairs_section` with two more kinds of Γ's items beside the narrowed ones `ws` and those `acs`
     equal up to the operands' order and the variables' names: the items `rds` (each `(j, i)`: item
     `j`, sentence `i`), whose sentence writes an alternative that holds nothing beside the right
@@ -4639,9 +4706,13 @@ def readings_section(ws, acs, rds, uns, nfe, npe, cuts=(), confined=False):
     `requires` (`TieCutEq`): each direction is stated over what it reads, definedness, the
     constructors' facts of a model of the theory (Γ, or `Γc` on a text that reads a confined sort), and
     for `notCond` the closure of Bool as a named premise; the sentences whose direction reads more than
-    definedness are left out of `fns_entailed` or `fns_from_text`."""
+    definedness are left out of `fns_entailed` or `fns_from_text`. And the items `enss` (each `(j, i)`),
+    whose sentence writes the right side r as `\\and{s}(r, \\top{s}())` (`TieRhs.rhsMap_iff`,
+    `TieRhs.andTop_agree`, every model of definedness), and `svs` (each `(j, i)`), test/NoteSetVarIn.lean's
+    literal sentence and item (`nsv_iff`, with two signature items of Γ: in `fns_entailed`, and left out of
+    `fns_from_text`, whose premise set is the sentence alone)."""
     at = sorted([j for j, _, _ in ws] + [j for j, _ in acs] + [j for j, _ in rds] + [j for j, _ in uns] +
-                [j for j, _, _ in cuts])
+                [j for j, _, _ in cuts] + [j for j, _ in enss] + [j for j, _ in svs])
     wjs = [j for j, _, _ in ws]
     ujs = [j for j, _ in uns]
     parts = []
@@ -4697,6 +4768,32 @@ def readings_section(ws, acs, rds, uns, nfe, npe, cuts=(), confined=False):
                      f"of {th} has: `cut_nodeFacts`), and for `notAsCondition` both read the constructors' facts and "
                      f"the closure of Bool (`boolClosed`), a premise named in `cut<j>_iff` and `cut<j>_entailed`, "
                      f"not Γ's.")
+    if enss:
+        el = ", ".join(f"{j} (sentence {i})" for j, i in enss)
+        parts.append(f"Γ's item{'s' if len(enss) > 1 else ''} {el} {'are equations' if len(enss) > 1 else 'is the equation'} "
+                     f"whose right side r the sentence writes `\\and{{s}}(r, \\top{{s}}())`, s the result sort "
+                     f"(`andAsEnsures`: the clause's right side with its `ensures`, the conjunction kompile writes "
+                     f"under `\\top`). The sentence is the item so written (`ens<j>_text`, `TieRhs.rhsMap "
+                     f"TieRhs.andTop`, up to the indices of its variables), with one variable table, free variable "
+                     f"list and sort (`ens<j>_table`, `ens<j>_free`, `ens<j>_srt`), and s a sort whose translation "
+                     f"leaves the variable of `\\top` unbound (`ens<j>_sort`), so the two hold in the same models of "
+                     f"definedness (`ens<j>_iff`, `TieRhs.rhsMap_iff` with `TieRhs.andTop_agree`): Γ entails the "
+                     f"sentence (`ens<j>_entailed`) and the sentence entails the item. It is not the item as written "
+                     f"(`ens<j>_differs`).")
+    if svs:
+        sl_ = ", ".join(f"{j} (sentence {i})" for j, i in svs)
+        parts.append(f"Γ's item{'s' if len(svs) > 1 else ''} {sl_} {'are' if len(svs) > 1 else 'is'} test/NoteSetVarIn.lean's "
+                     f"`nsvAxG`, `X0 ∈ V0 ∧ X1 ∈ V1 → f(X0, X1) = r` with V0 and V1 element variables, and "
+                     f"{'their sentences are' if len(svs) > 1 else 'its sentence is'} `nsvAxS`, `X0 ∈ @S ∧ X1 ∈ @S → "
+                     f"f(X0, X1) = r` with the set variable `@S` free (`setVarInDropped`; `sv<j>_text`, kernel). Each "
+                     f"holds exactly where `f(X0, X1) = r` holds at every pair of elements of `SortExp`, the sentence "
+                     f"by `KCore.setvar_in_drop` (the set of the two elements holds both), the item by "
+                     f"`nsv_evar_in_drop`: the two hold in the same models of definedness, of the definition of "
+                     f"`\\ceil` and of the sort constant `SortExp` (`sv<j>_iff`, `nsv_iff`, the section `Bridge` "
+                     f"as test/NoteSetVarIn.lean writes it). Those two items are Γ's (`sv_sig_pats`), so Γ entails "
+                     f"the sentence (`sv<j>_entailed`), and the sentence with them gives the item (`sv<j>_w1`), "
+                     f"which `fns_from_text` leaves out (its premise set is the sentence alone). It is not the item "
+                     f"(`sv<j>_differs`).")
     parts.append("Every other item is the translation of its function sentence (`shape`). -/")
     intro = "\n\n".join(textwrap.fill(x, width=100, break_on_hyphens=False, break_long_words=False) for x in parts)
     out = [f"/-! ## Function equations ({nfe} sentences) and priority equations ({npe} sentences)", "", intro, "",
@@ -4708,7 +4805,9 @@ def readings_section(ws, acs, rds, uns, nfe, npe, cuts=(), confined=False):
            "theorem fns_account :",
            '    (classOf "function equation" ++ classOf "priority equation").isPerm (fnText.map (·.index)) = true := by',
            "  decide +kernel", ""]
-    if acs or rds or cuts:
+    if svs:
+        out += [setvar_bridge_block().replace("\n/-! ## ", "\n/-! ### ")]
+    if acs or rds or cuts or enss or svs:
         out += ["/-- A model of Γ satisfies each of Γ's equations. -/",
                 "theorem fnItem_sat {H : HookParams} {M : Type} {I : Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP Γ (cH H))",
                 "    {j : Nat} {g : P} (hg : (TiePair.gammaPats c)[j]? = some g) : I ⊧ᴵ g := by",
@@ -4858,6 +4957,93 @@ def readings_section(ws, acs, rds, uns, nfe, npe, cuts=(), confined=False):
                     f"theorem cut{j}_entailed (H : HookParams) {{M : Type}} [Inhabited M] {{I : Interpretation KoreAML.Sym M}}",
                     f"    (hI : I ⊧ᴵP {th} (cH H)) (hcl : I ⊧ᴵ boolClosed (cH H)) : I ⊧ᴵ (trS U.ax{i}).pat :=",
                     f"  (cut{j}_iff H (cut_nodeFacts H hI) hcl).mpr (fnItem_sat {gm} cutItem{j}_at)", ""]
+    for j, i in enss:
+        out += [f"/-- Γ's axiom of item {j} (sentence {i}). -/",
+                f"noncomputable def ensAx{j} : Kore.Axiom := ((TiePair.fnAxioms c)[{j}]?).getD ⟨[], .top KoreAML.R, []⟩",
+                f"theorem ensAx{j}_at : (TiePair.fnAxioms c)[{j}]? = some ensAx{j} := by decide +kernel",
+                f"noncomputable def ensItem{j} : P := (trAxiom [] [] ⟨0, \"kernel\", ensAx{j}⟩).pat",
+                f"theorem ensItem{j}_at : (TiePair.gammaPats c)[{j}]? = some ensItem{j} := TiePair.gammaPats_at ensAx{j}_at",
+                f"kernel_rfl fnText_at{j} : fnText[{j}]? = some U.ax{i}",
+                f"/-- Its parts `\\implies{{R}}(prem, \\equals{{s, R'}}(l, r))`. -/",
+                f"noncomputable def ensParts{j} : Kore.KSort × Kore.Pattern × Kore.KSort × Kore.KSort × Kore.Pattern × Kore.Pattern :=",
+                f"  (TieRhs.eqParts ensAx{j}.pattern).getD",
+                "    (KoreAML.R, .top KoreAML.R, KoreAML.R, KoreAML.R, .top KoreAML.R, .top KoreAML.R)",
+                f"kernel_rfl ensParts{j}_eq : TieRhs.eqParts ensAx{j}.pattern = some ensParts{j}",
+                f"theorem ensAx{j}_pattern : ensAx{j}.pattern = .implies ensParts{j}.1 ensParts{j}.2.1",
+                f"    (.equals ensParts{j}.2.2.1 ensParts{j}.2.2.2.1 ensParts{j}.2.2.2.2.1 ensParts{j}.2.2.2.2.2) :=",
+                f"  TieRhs.eqParts_eq ensParts{j}_eq",
+                f"/-- The result sort's translation leaves the variable of `\\top` unbound (kernel). -/",
+                f"theorem ens{j}_sort : (trSort (tableOf ensAx{j}.sortVars ensAx{j}.pattern) ensParts{j}.2.2.1).isFreeEvar topVar",
+                "    = false := by decide +kernel",
+                f"/-- The item with its right side written `\\and{{s}}(r, \\top{{s}}())` has the item's variable table, free",
+                "variables and sort (kernel). -/",
+                f"theorem ens{j}_table : tableOf (TieRhs.rhsMap TieRhs.andTop ensAx{j}).sortVars",
+                f"    (TieRhs.rhsMap TieRhs.andTop ensAx{j}).pattern = tableOf ensAx{j}.sortVars ensAx{j}.pattern := by decide +kernel",
+                f"theorem ens{j}_free : ((TieRhs.rhsMap TieRhs.andTop ensAx{j}).sortVars.map sortVarKey ++",
+                f"    freeOf [] (TieRhs.rhsMap TieRhs.andTop ensAx{j}).pattern).eraseDups =",
+                f"    (ensAx{j}.sortVars.map sortVarKey ++ freeOf [] ensAx{j}.pattern).eraseDups := by decide +kernel",
+                f"theorem ens{j}_srt : sortOf [] (TieRhs.rhsMap TieRhs.andTop ensAx{j}).pattern = sortOf [] ensAx{j}.pattern := by",
+                "  decide +kernel",
+                f"/-- **The text's sentence {i} is Γ's item {j} with its right side r written `\\and{{s}}(r, \\top{{s}}())`**",
+                "(up to the indices of its variables; kernel), and the item is not the sentence. -/",
+                f"theorem ens{j}_text : TiePair.sameB (trAxiom [] [] ⟨0, \"kernel\", TieRhs.rhsMap TieRhs.andTop ensAx{j}⟩).pat",
+                f"    (trS U.ax{i}).pat = true := by decide +kernel",
+                f"theorem ens{j}_differs : ensItem{j} ≠ (trS U.ax{i}).pat := by decide +kernel",
+                f"/-- **Sentence {i} and Γ's item {j} hold in the same models of definedness.** -/",
+                f"theorem ens{j}_iff {{M : Type}} {{I : Interpretation KoreAML.Sym M}} (hD : DefOK I) :",
+                f"    (I ⊧ᴵ (trS U.ax{i}).pat) ↔ (I ⊧ᴵ ensItem{j}) :=",
+                f"  (TiePair.sameB_iff ens{j}_text).trans",
+                f"    (TieRhs.rhsMap_iff hD ensAx{j}_pattern (fun e b hb => TieRhs.andTop_agree hD ens{j}_sort e b hb)",
+                f"      ens{j}_table ens{j}_free ens{j}_srt)", "",
+                f"/-- **E for sentence {i}**: Γ entails it, for every H (`ens{j}_iff`). -/",
+                f"theorem ens{j}_entailed (H : HookParams) : Γ (cH H) ⊧ (trS U.ax{i}).pat := by",
+                "  intro M _ I hI",
+                f"  exact (ens{j}_iff (defOK hI)).mpr (fnItem_sat hI ensItem{j}_at)", ""]
+    if svs:
+        out += ["/-- The two signature items `nsv_iff` reads: the definition of `\\ceil` and the sort constant `SortExp`. -/",
+                "noncomputable def svSigPats : List P := [ceilDefItem.pat, (sortConstantItem ⟨\"SortExp\", [], false⟩).pat]", "",
+                "kernel_rfl sv_sigItems_withHooks : ∀ (c : Semantics) (H : HookParams), sigItems (c.withHooks H) = sigItems c", "",
+                "theorem sv_sig_exp : (sigItems c).any",
+                "    (fun it => decide (it.pat = (sortConstantItem ⟨\"SortExp\", [], false⟩).pat)) = true := by decide +kernel", "",
+                "/-- **The two signature items are items of Γ** (`ΓSig`; kernel for the sort constant). -/",
+                "theorem sv_sig_pats (H : HookParams) : ∀ φ ∈ svSigPats, ΓSig (cH H) φ := by",
+                "  intro φ hφ",
+                "  simp only [svSigPats, List.mem_cons, List.mem_nil_iff, or_false] at hφ",
+                "  refine Or.inl (Or.inl ?_)",
+                "  rw [sv_sigItems_withHooks]",
+                "  rcases hφ with rfl | rfl",
+                "  · exact ⟨_, sig_ceilDef, rfl⟩",
+                "  · obtain ⟨it, hit, h⟩ := List.any_eq_true.mp sv_sig_exp",
+                "    exact ⟨it, hit, of_decide_eq_true h⟩", ""]
+    for j, i in svs:
+        out += [f"/-- **Γ's axiom of item {j} (sentence {i}) is `nsvAxG`**, the clause with two distinct variables (kernel). -/",
+                f"theorem svAx{j}_at : (TiePair.fnAxioms c)[{j}]? = some nsvAxG := by decide +kernel",
+                f"noncomputable def svItem{j} : P := (trAxiom [] [] ⟨0, \"kernel\", nsvAxG⟩).pat",
+                f"theorem svItem{j}_at : (TiePair.gammaPats c)[{j}]? = some svItem{j} := TiePair.gammaPats_at svAx{j}_at",
+                f"kernel_rfl fnText_at{j} : fnText[{j}]? = some U.ax{i}",
+                f"/-- **The translation of the text's sentence {i} is that of `nsvAxS`**, the axiom with the two memberships",
+                "in the set variable `@VarS` (kernel), and the sentence is not Γ's item. -/",
+                f"theorem sv{j}_text : (trS U.ax{i}).pat = (trAxiom [] [] ⟨0, \"kernel\", nsvAxS⟩).pat := by decide +kernel",
+                f"theorem sv{j}_differs : svItem{j} ≠ (trS U.ax{i}).pat := by decide +kernel",
+                f"/-- **Sentence {i} and Γ's item {j} hold in the same models** of definedness, of the definition of",
+                "`\\ceil` and of the sort constant `SortExp`. -/",
+                f"theorem sv{j}_iff {{M : Type}} [Inhabited M] {{I : Interpretation KoreAML.Sym M}} (hD : DefOK I)",
+                "    (hc : I ⊧ᴵ ceilDefItem.pat) (hE : I ⊧ᴵ (sortConstantItem ⟨\"SortExp\", [], false⟩).pat) :",
+                f"    (I ⊧ᴵ (trS U.ax{i}).pat) ↔ (I ⊧ᴵ svItem{j}) := by",
+                f"  rw [sv{j}_text]; exact nsv_iff hD hc hE",
+                f"/-- **W1**: the sentence, with the definition of `\\ceil` and the sort constant `SortExp`, entails",
+                f"Γ's item {j}. -/",
+                f"theorem sv{j}_w1 : TiePair.Texts ((trS U.ax{i}).pat :: svSigPats) ⊧ svItem{j} :=",
+                f"  fun {{M}} _ {{I}} hI => (sv{j}_iff (TiePair.defOK_texts hI)",
+                "    (hI _ (Or.inl (by simp [svSigPats]))) (hI _ (Or.inl (by simp [svSigPats])))).mp",
+                "    (hI _ (Or.inl (List.mem_cons_self ..)))", "",
+                f"/-- **E for sentence {i}**: Γ entails it, for every H (`sv{j}_iff`, `sv_sig_pats`). -/",
+                f"theorem sv{j}_entailed (H : HookParams) : Γ (cH H) ⊧ (trS U.ax{i}).pat := by",
+                "  intro M _ I hI",
+                "  have hs : ∀ φ ∈ svSigPats, I ⊧ᴵ φ := fun φ hφ =>",
+                "    hI _ (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (sv_sig_pats H φ hφ)))))))",
+                f"  exact (sv{j}_iff (defOK hI) (hs _ (by simp [svSigPats])) (hs _ (by simp [svSigPats]))).mpr",
+                f"    (fnItem_sat hI svItem{j}_at)", ""]
     for j, i in uns:
         out += [f"/-- Γ's item {j} (sentence {i}): no reading here ties it. -/",
                 f"noncomputable def unItem{j} : P := (TiePair.gammaPats c).getD {j} ⊥",
@@ -4866,7 +5052,8 @@ def readings_section(ws, acs, rds, uns, nfe, npe, cuts=(), confined=False):
                 f"/-- **Γ's item {j} is not the text's sentence {i}** (kernel): the sentence is uncovered. -/",
                 f"theorem un{j}_differs : unItem{j} ≠ (trS U.ax{i}).pat := by decide +kernel", ""]
     item = ({j: f"prioItem{j}" for j, _, _ in ws} | {j: f"acItem{j}" for j, _ in acs} |
-            {j: f"rdItem{j}" for j, _ in rds} | {j: f"unItem{j}" for j, _ in uns} | {j: f"cutItem{j}" for j, _, _ in cuts})
+            {j: f"rdItem{j}" for j, _ in rds} | {j: f"unItem{j}" for j, _ in uns} | {j: f"cutItem{j}" for j, _, _ in cuts} |
+            {j: f"ensItem{j}" for j, _ in enss} | {j: f"svItem{j}" for j, _ in svs})
     tp = "(fnText.map (trS · |>.pat))"
     for j in at:
         tp = f"({tp}.set {j} {item[j]})"
@@ -4897,24 +5084,28 @@ def readings_section(ws, acs, rds, uns, nfe, npe, cuts=(), confined=False):
     cx = [j for j, _, k in cuts if not cut_in_entailed(k, confined)]
     cf = [j for j, _, k in cuts if cut_form(k) == "own"]
     cy = [j for j, _, k in cuts if cut_form(k) != "own"]
-    ex_f = sorted(ujs + cy)
+    svjs = [j for j, _ in svs]
+    ex_f = sorted(ujs + cy + svjs)
     out_l = ", ".join(map(str, sorted(wjs + ujs + cx)))
-    via = [f"item {j} through `ac{j}_iff`" for j, _ in acs] + [f"item {j} through `rd{j}_iff`" for j, _ in rds]
-    via_e = via + [f"item {j} by `cut{j}_entailed`" for j, _ in ce]
+    via = [f"item {j} through `ac{j}_iff`" for j, _ in acs] + [f"item {j} through `rd{j}_iff`" for j, _ in rds] + \
+        [f"item {j} through `ens{j}_iff`" for j, _ in enss]
+    via_e = via + [f"item {j} by `cut{j}_entailed`" for j, _ in ce] + [f"item {j} by `sv{j}_entailed`" for j in svjs]
     via_f = via + [f"item {j} by `cut{j}_from_text`" for j in cf]
     but = ([f"the narrowed ones (items {', '.join(map(str, wjs))})"] if ws else []) + \
         ([f"the untied ones (items {', '.join(map(str, ujs))})"] if uns else []) + \
         ([f"the cut ones whose entailment reads more than Γ (items {', '.join(map(str, cx))})"] if cx else [])
     but_f = ([f"the untied ones (items {', '.join(map(str, ujs))})"] if uns else []) + \
-        ([f"the cut ones given with the constructors' facts (items {', '.join(map(str, cy))})"] if cy else [])
+        ([f"the cut ones given with the constructors' facts (items {', '.join(map(str, cy))})"] if cy else []) + \
+        ([f"the set-variable ones given with two signature items (items {', '.join(map(str, svjs))})"] if svs else [])
     out += [f"/-- **E for the function equations**: Γ entails each sentence of `fnText`"
             + (f" but {' and '.join(but)}" if but else "") + ", for every H"
             + ("; " + ", ".join(via_e) if via_e else "") + ". -/",
             "theorem fns_entailed (H : HookParams) : ∀ (j : Nat) (ad : AxiomDecl), fnText[j]? = some ad →",
             f"    j ∉ ([{out_l}] : List Nat) → Γ (cH H) ⊧ (trS ad).pat := by",
             "  intro j ad hj hn"]
-    for j, i in acs + rds + ce:
-        ent = f"ac{j}_entailed" if (j, i) in acs else f"rd{j}_entailed" if (j, i) in rds else f"cut{j}_entailed"
+    for j, i in acs + rds + ce + list(enss) + list(svs):
+        ent = f"ac{j}_entailed" if (j, i) in acs else f"rd{j}_entailed" if (j, i) in rds else \
+            f"ens{j}_entailed" if (j, i) in enss else f"sv{j}_entailed" if (j, i) in svs else f"cut{j}_entailed"
         out += [f"  by_cases h{j} : j = {j}",
                 f"  · subst h{j}",
                 f"    rw [fnText_at{j}] at hj",
@@ -4925,7 +5116,8 @@ def readings_section(ws, acs, rds, uns, nfe, npe, cuts=(), confined=False):
     out += ["  have hn' : j ∉ pairSetAt := by",
             "    simp only [pairSetAt, List.mem_cons, List.not_mem_nil, or_false] at hn ⊢",
             "    omega"]
-    out += (["  exact TiePair.entailed (shapeH H) _ (List.mem_of_getElem? (textPats_of hj hn'))", ""] if acs or rds or ce else
+    out += (["  exact TiePair.entailed (shapeH H) _ (List.mem_of_getElem? (textPats_of hj hn'))", ""]
+            if acs or rds or ce or enss or svs else
             ["  intro M _ I hI",
              "  exact TiePair.entailed (shapeH H) _ (List.mem_of_getElem? (textPats_of hj hn')) hI", ""])
     out += ["/-- **The converse for `fnItems`**: each item"
@@ -4964,6 +5156,10 @@ def readings_section(ws, acs, rds, uns, nfe, npe, cuts=(), confined=False):
         elif j in [x for x, _ in acs]:
             out.append(f"  · exact pick acItem{j}_at fnText_at{j}")
             out.append(f"      (fun {{M}} _ {{I}} hI => ac{j}_iff.mp (hI _ (Or.inl (List.mem_singleton_self _)))) h{j}")
+        elif j in [x for x, _ in enss]:
+            out.append(f"  · exact pick ensItem{j}_at fnText_at{j}")
+            out.append(f"      (fun {{M}} _ {{I}} hI => (ens{j}_iff (TiePair.defOK_texts hI)).mp")
+            out.append(f"        (hI _ (Or.inl (List.mem_singleton_self _)))) h{j}")
         else:
             out.append(f"  · exact pick rdItem{j}_at fnText_at{j}")
             out.append(f"      (fun {{M}} _ {{I}} hI => (rd{j}_iff (TiePair.defOK_texts hI)).mp")
@@ -4986,6 +5182,38 @@ def readings_section(ws, acs, rds, uns, nfe, npe, cuts=(), confined=False):
             "theorem gamma_from (H : HookParams) : ∀ φ, Γ (cH H) φ → TiePair.Pre (cH H) textPats ⊧ φ :=",
             "  TiePair.gamma_from (shapeH H)", ""]
     return "\n".join(out) + "\n"
+
+
+NSV_TIE = os.path.join(KS, "test/NoteSetVarIn.lean")
+
+
+def setvar_bridge_block():
+    """test/NoteSetVarIn.lean's section `Bridge`, as written there: the sentence `nsvAxS` (two memberships
+    in one set variable, `KCore.svinAx`) and Γ's axiom `nsvAxG` (two distinct element variables) hold in
+    the same models of definedness, of the definition of `\\ceil` and of the sort constant `SortExp`
+    (`nsv_iff`)."""
+    t = open(NSV_TIE).read()
+    try:
+        a = t.index("\nsection Bridge\n") + 1
+        b = t.index("\nend Bridge\n", a) + len("\nend Bridge\n")
+    except ValueError:
+        raise Refused("test/NoteSetVarIn.lean has changed: no section Bridge to copy")
+    s = t[a:b]
+    if "def nsvAxS" not in s or "def nsvAxG" not in s or "theorem nsv_iff" not in s:
+        raise Refused("test/NoteSetVarIn.lean has changed: its section Bridge lacks nsvAxS, nsvAxG or nsv_iff")
+    return s
+
+
+def setvar_probe_defs():
+    """The definitions of `nsvAxS` and `nsvAxG` from test/NoteSetVarIn.lean's section `Bridge`, for the
+    probe (`WE` lines)."""
+    s = setvar_bridge_block()
+    try:
+        a = s.index("\ndef nsvRv") + 1
+        b = s.index("\ndef nsvCtxG", a) + 1
+    except ValueError:
+        raise Refused("test/NoteSetVarIn.lean has changed: its section Bridge lacks nsvRv or nsvCtxG")
+    return "section\nopen Kore (KSort Pattern)\n" + s[a:b] + "end\n"
 
 
 def alpha_block():

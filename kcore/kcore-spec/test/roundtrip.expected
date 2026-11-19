@@ -153,6 +153,7 @@ differs f2-examples/e3-kast.kompile.kore
 differs f2-examples/e3-kseq.kompile.kore
 differs f2-examples/e3-ml-eq-req-and-under-app.kompile.kore
 differs f2-examples/e3-ml-eq-req-not.kompile.kore
+differs f2-examples/e3-ml-eq-rhs-and-pred.kompile.kore
 differs f2-examples/e3-ml-eq-rhs-or-bottom.kompile.kore
 differs f2-examples/e3-ml-eq-rhs-or-empty.kompile.kore
 differs f2-examples/e3-ml-lhs-or-rhs-var.kompile.kore
@@ -188,6 +189,7 @@ differs f2-examples/e3-ml-rule-rhs-top.kompile.kore
 differs f2-examples/e3-ml.kompile.kore
 differs f2-examples/e3-param-cases.kompile.kore
 differs f2-examples/e3-reqens.kompile.kore
+differs f2-examples/e3-setvar-nonlinear.kompile.kore
 cannot f2-examples/e3-setvar-rewrite-fn.kompile.kore
 cannot f2-examples/e3-setvar-rewrite-req.kompile.kore
 differs f2-examples/e3-setvar-rewrite.kompile.kore
