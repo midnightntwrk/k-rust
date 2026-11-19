@@ -609,6 +609,147 @@ fn a_new_case_is_compared_with_no_other_edit() {
     assert_eq!(verdict(added, "whole")["verdict"], "equal", "{added:#}");
 }
 
+/// The projections of the projections corpus: `every` compares every observable cell (no
+/// `compare`), `parity` compares `n` and `acc` through `acc`'s parity.
+const PROJECTIONS: &str = "[[projection]]\nname = \"every\"\n\n[[projection]]\nname = \
+                           \"parity\"\ncompare = [\"n\", \"acc\"]\nviews = { acc = \
+                           \"Parity\" }\n\n";
+
+/// Views naming the projections, beside an inline view of every stated cell.
+const BY_PROJECTION: &str = "[{ name = \"whole\", required = true }, { projection = \"every\" \
+                             }, { projection = \"parity\", required = true }]";
+
+/// `krs kink compare --counters` on `corpus` with `arguments`: the document and the counters.
+fn compare_counting(package: &Package, corpus: &str, arguments: &[&str]) -> (Output, Value) {
+    let counters = package.directory.path().join("counters.json");
+    let counted = counters.to_str().unwrap();
+    let output = package.compare(corpus, &[&["--counters", counted][..], arguments].concat());
+    let counters: Value = serde_json::from_str(&fs::read_to_string(&counters).unwrap()).unwrap();
+    // The front end's resolution of projections and views; the build's counters are krs's.
+    let kink = counters["counters"]
+        .as_object()
+        .unwrap()
+        .iter()
+        .filter(|(name, _)| name.starts_with("kink."))
+        .map(|(name, count)| (name.clone(), count.clone()))
+        .collect();
+    (output, Value::Object(kink))
+}
+
+/// A view may name a projection: it compares what the projection compares, through its views.
+/// A projection without `compare` compares every observable cell, so an implementation that
+/// omits one (`k`) is not compared under it (`omitted`), where an inline view without `compare`
+/// compares every cell the implementation states. Each projection and each view is resolved
+/// once for the command, however many programs are compared: the counters do not move with
+/// the number of programs.
+#[test]
+fn a_view_naming_a_projection_is_resolved_once_per_command() {
+    let package = Package::new();
+    let corpus = "corpora/projections";
+    let implementations = format!(
+        "{}{}{PROJECTIONS}",
+        implementation("equal", "equal", "inputs", BY_PROJECTION),
+        implementation("different", "different", "inputs", BY_PROJECTION),
+    );
+    package.corpus(corpus, &implementations, &[("a", 2), ("b", 5), ("z", 0)]);
+    let (output, counters) = compare_counting(&package, corpus, &[]);
+    assert_status(&output, 1);
+    let document = json_of(&output);
+    for program in PROGRAMS {
+        let equal = row(&document, "equal", program);
+        assert_eq!(verdict(equal, "whole")["verdict"], "equal", "{equal:#}");
+        assert_eq!(
+            verdict(equal, "whole")["omitted"],
+            json!(["k"]),
+            "{equal:#}"
+        );
+        let every = verdict(equal, "every");
+        assert_eq!(every["verdict"], "not-compared", "{equal:#}");
+        assert_eq!(every["reason"], "omitted", "{equal:#}");
+        assert_eq!(verdict(equal, "parity")["verdict"], "equal", "{equal:#}");
+        let different = row(&document, "different", program);
+        assert_eq!(
+            verdict(different, "whole")["verdict"],
+            "different",
+            "{different:#}"
+        );
+        // `acc` differs by 2: its parity agrees.
+        assert_eq!(
+            verdict(different, "parity")["verdict"],
+            "equal",
+            "{different:#}"
+        );
+    }
+    // One projection has functions to resolve; each implementation's three end views are
+    // resolved (`every` and `parity` looked up, `whole` read from its keys) and decided once.
+    assert_eq!(counters["kink.projections.resolved"], 1, "{counters:#}");
+    assert_eq!(counters["kink.views.resolved"], 6, "{counters:#}");
+    assert_eq!(counters["kink.views.decided"], 6, "{counters:#}");
+    let one = "corpora/projections-one";
+    package.corpus(one, &implementations, &[("b", 5)]);
+    let (output, counted) = compare_counting(&package, one, &[]);
+    assert_eq!(json_of(&output)["rows"].as_array().map(Vec::len), Some(2));
+    assert_eq!(counted, counters, "one program against three");
+}
+
+/// A projection is resolved before anything runs, whether or not a view names it: a view
+/// function that does not resolve refuses the corpus (stage `projection`), and so does a
+/// `compare` naming no cell, also where another projection keeps every cell, so that the result
+/// record is not narrowed and kink-flow judges no projection's cells.
+#[test]
+fn a_projection_is_checked_before_any_run() {
+    let package = Package::new();
+    let views = "[{ name = \"whole\", required = true }]";
+    package.corpus(
+        "corpora/unresolved",
+        &format!(
+            "{}[[projection]]\nname = \"every\"\n\n[[projection]]\nname = \"bad\"\nviews = \
+             {{ acc = \"NoSuchView\" }}\n",
+            implementation("equal", "equal", "inputs", views)
+        ),
+        &[("a", 2)],
+    );
+    let output = package.compare("corpora/unresolved", &[]);
+    assert_status(&output, 2);
+    let document = json_of(&output);
+    assert_eq!(document["spec"]["stage"], "projection", "{document:#}");
+    assert_eq!(
+        document["spec"]["reason"], "projection-unresolved",
+        "{document:#}"
+    );
+    assert_eq!(
+        document["spec"]["detail"],
+        "the projection `bad`: the view `NoSuchView` of the cell `acc`: no function is named \
+         `NoSuchView`"
+    );
+    assert_eq!(document["programs"], json!([]), "{document:#}");
+
+    package.corpus(
+        "corpora/unknown-projection-cell",
+        &format!(
+            "{}[[projection]]\nname = \"every\"\n\n[[projection]]\nname = \"typo\"\ncompare \
+             = [\"nope\"]\n",
+            implementation("equal", "equal", "inputs", views)
+        ),
+        &[("a", 2)],
+    );
+    let output = package.compare("corpora/unknown-projection-cell", &[]);
+    assert_status(&output, 2);
+    let document = json_of(&output);
+    assert_eq!(document["spec"]["stage"], "result", "{document:#}");
+    assert_eq!(
+        document["spec"]["reason"], "result-cell-unknown",
+        "{document:#}"
+    );
+    assert!(
+        document["spec"]["detail"]
+            .as_str()
+            .unwrap()
+            .starts_with("the projection `typo` compares `nope`"),
+        "{document:#}"
+    );
+}
+
 /// A declaration the definition refutes, or one that does not decode, is refused before any run.
 #[test]
 fn a_declaration_is_checked_before_any_run() {

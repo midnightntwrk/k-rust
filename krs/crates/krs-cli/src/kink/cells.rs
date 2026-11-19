@@ -37,10 +37,12 @@ use serde_json::{Map, Value, json};
 
 use super::stop::Unbound;
 
-/// The configuration's cells: each declared path with its K name, in configuration preorder.
+/// The configuration's cells: each declared path with its K name, in configuration preorder, and
+/// the K name of the nearest unobservable cell at or above each (none for an observable cell).
 #[derive(Clone, Debug, Default)]
 pub(crate) struct CellNames {
     cells: Vec<(String, String)>,
+    hidden: Vec<Option<String>>,
 }
 
 impl CellNames {
@@ -52,31 +54,50 @@ impl CellNames {
                 krs_ir_levels::SymbolId,
             >],
             prefix: &str,
-            output: &mut Vec<(String, String)>,
+            above: Option<&str>,
+            output: &mut CellNames,
         ) {
             for cell in cells {
                 let path = format!("{prefix}{}", cell.field().unwrap_or(cell.name()));
-                output.push((path.clone(), cell.name().to_owned()));
+                let hidden = if cell.is_unobservable() {
+                    Some(cell.name())
+                } else {
+                    above
+                };
+                output.cells.push((path.clone(), cell.name().to_owned()));
+                output.hidden.push(hidden.map(str::to_owned));
                 if let krs_ir::FixedCellContent::Children { children } = cell.content() {
-                    walk(children, &format!("{path}."), output);
+                    walk(children, &format!("{path}."), hidden, output);
                 }
             }
         }
-        let mut cells = Vec::new();
+        let mut cells = Self::default();
         for sentence in ir
             .modules()
             .iter()
             .flat_map(krs_ir_levels::DefinitionModule::sentences)
         {
             if let DefinitionSentence::Configuration(configuration) = sentence {
-                walk(configuration.cells(), "", &mut cells);
+                walk(configuration.cells(), "", None, &mut cells);
             }
         }
-        Self { cells }
+        cells
+    }
+
+    /// The cells `cells`, each `(path, K name)`, none unobservable.
+    #[cfg(test)]
+    pub(crate) fn of_names(cells: &[(&str, &str)]) -> Self {
+        Self {
+            cells: cells
+                .iter()
+                .map(|(path, name)| ((*path).to_owned(), (*name).to_owned()))
+                .collect(),
+            hidden: vec![None; cells.len()],
+        }
     }
 
     /// The K name an entry of a projection's `compare` reads as (module documentation).
-    fn read(&self, written: &str) -> Option<&str> {
+    pub(crate) fn read(&self, written: &str) -> Option<&str> {
         self.cells
             .iter()
             .find(|(path, _)| path == written)
@@ -100,6 +121,15 @@ impl CellNames {
             .map(|(path, _)| path.as_str())
     }
 
+    /// The K name of the unobservable cell the cell whose K name is `name` is or lies inside, the
+    /// nearest one; `None` for an observable cell.
+    fn hidden(&self, name: &str) -> Option<&str> {
+        self.cells
+            .iter()
+            .position(|(_, k)| k == name)
+            .and_then(|at| self.hidden[at].as_deref())
+    }
+
     /// Every cell as `path (<name>)`, for a refusal.
     fn listed(&self) -> String {
         self.cells
@@ -115,20 +145,24 @@ impl CellNames {
 /// projection's `compare` (`result.krs.cells`: each entry as written to its K name); `manifest`
 /// unchanged and no reading when its projections narrow nothing. Each projection's `compare`
 /// stays as written: a view naming the projection reads its cells by path, as a view written
-/// inline does.
+/// inline does ([`super::projections`]).
+///
+/// Every projection's `compare` is checked, whether or not the record is narrowed. Where it is
+/// not (some projection keeps every cell), kink-flow's admission judges no projection's cells, so
+/// an unobservable cell, or a cell inside one, is refused here: a projection may narrow the
+/// compared cells but never compare one no use of the definition may observe.
 ///
 /// # Errors
 ///
-/// `result-cell-unknown` for an entry that is neither a cell's path nor its K name, and
+/// `result-cell-unknown` for an entry that is neither a cell's path nor its K name,
 /// `result-cell-repeated` for two entries of one projection that name one cell (by its path and
-/// by its K name).
+/// by its K name), and, where the record is not narrowed, `result-cell-unobservable` for an entry
+/// that is or lies inside an unobservable cell.
 pub(crate) fn bind(
     mut manifest: FlowManifest,
     names: &CellNames,
 ) -> Result<(FlowManifest, Option<BTreeMap<String, String>>), Unbound> {
-    let Some(kept) = manifest.record_cells.as_mut() else {
-        return Ok((manifest, None));
-    };
+    let narrowed = manifest.record_cells.is_some();
     let mut readings = BTreeMap::new();
     for projection in &manifest.projections {
         // The K name each entry of this projection reads as, with the entry, for a repeat.
@@ -157,10 +191,29 @@ pub(crate) fn bind(
                     ),
                 });
             }
+            if !narrowed && let Some(hidden) = names.hidden(name) {
+                let refusal = kink_flow::ResultRefusal::CellUnobservable {
+                    cell: name.to_owned(),
+                    projection: projection.name.clone(),
+                    unobservable: hidden.to_owned(),
+                };
+                let detail = if written == name {
+                    refusal.to_string()
+                } else {
+                    format!("{refusal} (as the projection writes it: `{written}` is <{name}>)")
+                };
+                return Err(Unbound {
+                    reason: refusal.reason(),
+                    detail,
+                });
+            }
             read.insert(name, written);
             readings.insert(written.clone(), name.to_owned());
         }
     }
+    let Some(kept) = manifest.record_cells.as_mut() else {
+        return Ok((manifest, None));
+    };
     // Every kept cell is an entry of some projection's `compare`, so it has a reading; two
     // projections may name one cell by two spellings, which the record keeps once.
     let mut bound = Vec::<kink_flow::RecordCell>::with_capacity(kept.len());
@@ -269,12 +322,72 @@ mod tests {
     use super::*;
 
     fn names(cells: &[(&str, &str)]) -> CellNames {
-        CellNames {
-            cells: cells
-                .iter()
-                .map(|(path, name)| ((*path).to_owned(), (*name).to_owned()))
-                .collect(),
-        }
+        CellNames::of_names(cells)
+    }
+
+    /// A manifest of a KRS corpus whose `[[projection]]`s are `projections`.
+    fn manifest(projections: &str) -> FlowManifest {
+        FlowManifest::decode(
+            &format!("[spec]\nentry = \"calc.k\"\nmain_module = \"CALC\"\n\n{projections}"),
+            std::path::Path::new("corpus"),
+        )
+        .unwrap()
+    }
+
+    /// Where another projection keeps every cell, the record is not narrowed and kink-flow judges
+    /// no projection's cells: an unknown, repeated or unobservable entry of any projection is
+    /// refused here, an unobservable one with the cell kink-flow would name; and no reading is
+    /// stated, so the documents keep their bytes.
+    #[test]
+    fn a_projection_that_narrows_nothing_has_its_cells_checked() {
+        let mut names = names(&[
+            ("k", "k"),
+            ("cpu", "cpu"),
+            ("cpu.regs", "regs"),
+            ("cache", "cache"),
+            ("cache.lines", "lines"),
+        ]);
+        names.hidden[3] = Some("cache".to_owned());
+        names.hidden[4] = Some("cache".to_owned());
+        let every = "[[projection]]\nname = \"every\"\n\n";
+        let refused = |second: &str| {
+            let manifest = manifest(&format!("{every}[[projection]]\nname = \"p\"\n{second}"));
+            assert!(manifest.record_cells.is_none());
+            let Err(unbound) = bind(manifest, &names) else {
+                panic!("the projection's cells must be refused");
+            };
+            unbound
+        };
+        let unknown = refused("compare = [\"pc\"]\n");
+        assert_eq!(unknown.reason, "result-cell-unknown", "{}", unknown.detail);
+        let repeated = refused("compare = [\"cpu.regs\", \"regs\"]\n");
+        assert_eq!(
+            repeated.reason, "result-cell-repeated",
+            "{}",
+            repeated.detail
+        );
+        let inside = refused("compare = [\"cache.lines\"]\n");
+        assert_eq!(inside.reason, "result-cell-unobservable");
+        assert!(
+            inside
+                .detail
+                .contains("<lines>, which lies inside the unobservable cell <cache>")
+                && inside
+                    .detail
+                    .ends_with("(as the projection writes it: `cache.lines` is <lines>)"),
+            "{}",
+            inside.detail
+        );
+        let whole = refused("compare = [\"cache\"]\n");
+        assert_eq!(whole.reason, "result-cell-unobservable", "{}", whole.detail);
+        let manifest = manifest(&format!(
+            "{every}[[projection]]\nname = \"p\"\ncompare = [\"regs\", \"k\"]\n"
+        ));
+        let Ok((bound, readings)) = bind(manifest, &names) else {
+            panic!("every entry names an observable cell");
+        };
+        assert!(bound.record_cells.is_none());
+        assert_eq!(readings, None);
     }
 
     /// A path is read first, and a K name only where it is no cell's path.

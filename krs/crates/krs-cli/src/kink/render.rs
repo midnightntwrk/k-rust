@@ -132,7 +132,7 @@
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use k_rust::kast::identifier::label_or_name;
@@ -143,8 +143,8 @@ use kink_flow::{
     ObserveSection, ObservedDifference, StopSection,
 };
 use krs_exec::{
-    CellInfo, Compared, Comparison, CompiledStage, DIFFERENCE_FORMAT, End, EndClass, EndError,
-    Ends, Expectation, Halt, Semantics, Side,
+    CellInfo, CellViews, Compared, Comparison, CompiledStage, DIFFERENCE_FORMAT, End, EndClass,
+    EndError, Ends, Expectation, Halt, Semantics, Side,
 };
 use krs_ir::measure::Timings;
 use krs_ir_levels::DefinitionIr;
@@ -194,11 +194,11 @@ impl KrsEnds {
         };
         if let Some(observer) = observer {
             observer.with_loaded(|loaded| {
-                resolve_views(semantics, Some(loaded), expectation)?;
+                resolve_views(&self.observers, semantics, Some(loaded), expectation)?;
                 body(semantics, Some(loaded), expectation)
             })
         } else {
-            resolve_views(semantics, None, expectation)?;
+            resolve_views(&self.observers, semantics, None, expectation)?;
             body(semantics, None, expectation)
         }
     }
@@ -208,6 +208,9 @@ impl KrsEnds {
 /// composed with the definition) and compiled once per command, on first use, and loaded once
 /// per thread that checks an expectation (module documentation, "Views"). Preparing one observer
 /// holds back only the threads that need that observer.
+///
+/// Also the views bound so far ([`Self::bound_views`]): a case's expectation, an
+/// implementation's view and a projection bind their functions here, once per loaded instance.
 pub(crate) struct Observers {
     /// The command's selection, which an observer is composed with.
     request: CommandRequest,
@@ -215,6 +218,19 @@ pub(crate) struct Observers {
     sources: DiagnosticSources,
     /// Each observer named so far, by name, set once its preparation ends.
     prepared: Mutex<BTreeMap<String, Arc<OnceLock<Prepared>>>>,
+    /// Each set of views bound so far, with the instances it was bound in.
+    bound: Mutex<Vec<BoundViews>>,
+    /// How many sets of views were bound: one per set and pair of instances.
+    bindings: AtomicUsize,
+}
+
+/// Views bound in one observer instance for one compared definition instance, each named by the
+/// address of its value index; the views hold both indexes, so neither address is reused while
+/// they are kept.
+struct BoundViews {
+    named: BTreeMap<String, String>,
+    at: (usize, usize),
+    views: CellViews,
 }
 
 /// An observer named by a corpus: compiled, `None` for the definition itself, or why it cannot be
@@ -227,7 +243,54 @@ impl Observers {
             request,
             sources,
             prepared: Mutex::new(BTreeMap::new()),
+            bound: Mutex::new(Vec::new()),
+            bindings: AtomicUsize::new(0),
         }
+    }
+
+    /// The views `named` (a function by declared cell path) resolved in `observer` (else
+    /// `semantics`) for ends of `semantics` ([`Semantics::cell_views`]), bound once per pair of
+    /// instances and cloned for each use, since an evaluation writes the views' values into its
+    /// copy. A resolved view is evaluated only in the instances it was resolved in, and both are
+    /// loaded per thread, so one binding per command cannot serve every thread.
+    ///
+    /// # Errors
+    ///
+    /// krs-exec's refusal of a view.
+    pub(crate) fn bound_views(
+        &self,
+        semantics: &Semantics,
+        observer: Option<&Semantics>,
+        named: &BTreeMap<String, String>,
+    ) -> Result<CellViews, EndError> {
+        if named.is_empty() {
+            return Ok(CellViews::default());
+        }
+        let observer = observer.unwrap_or(semantics);
+        let at = (
+            Arc::as_ptr(observer.values()) as usize,
+            Arc::as_ptr(semantics.values()) as usize,
+        );
+        let mut bound = self.bound.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(found) = bound
+            .iter()
+            .find(|bound| bound.at == at && bound.named == *named)
+        {
+            return Ok(found.views.clone());
+        }
+        let views = semantics.cell_views(observer, named)?;
+        self.bindings.fetch_add(1, Ordering::Relaxed);
+        bound.push(BoundViews {
+            named: named.clone(),
+            at,
+            views: views.clone(),
+        });
+        Ok(views)
+    }
+
+    /// How many sets of views were bound ([`Self::bound_views`]).
+    pub(crate) fn bindings(&self) -> usize {
+        self.bindings.load(Ordering::Relaxed)
     }
 
     /// The observer `name`, prepared and compiled the first time an expectation names it;
@@ -329,16 +392,18 @@ thread_local! {
 }
 
 /// Resolve the views `expectation` names into its comparison, in `observer` when it names one
-/// and in `semantics` otherwise, refusing, as `krs run --case` does before the case runs, a view
-/// that does not apply to its cell or applies to a cell the expectation does not compare.
+/// and in `semantics` otherwise, bound once per pair of instances in `observers`, refusing, as
+/// `krs run --case` does before the case runs, a view that does not apply to its cell or applies
+/// to a cell the expectation does not compare.
 fn resolve_views(
+    observers: &Observers,
     semantics: &Semantics,
     observer: Option<&Semantics>,
     expectation: &mut Expectation,
 ) -> Result<(), String> {
     let refuse = |error: EndError| format!("`expect.views`: {error}");
-    expectation.comparison.views = semantics
-        .cell_views(observer.unwrap_or(semantics), &expectation.views)
+    expectation.comparison.views = observers
+        .bound_views(semantics, observer, &expectation.views)
         .map_err(refuse)?;
     semantics
         .check_stated(&expectation.comparison, &expectation.end, "expected")

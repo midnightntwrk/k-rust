@@ -134,6 +134,7 @@ mod inputs;
 mod invariant;
 mod observe;
 mod patterns;
+mod projections;
 mod render;
 mod spelling;
 mod stop;
@@ -1007,6 +1008,9 @@ fn run_flow(
     let dispatched = measurement
         .timings
         .span(&span, |_| kink_flow::dispatch(manifest, command, front));
+    for (name, count) in resolvers.implementations.counters() {
+        measurement.counters.set(name, count);
+    }
     let (document, status_code) = match dispatched {
         Ok(result) => result,
         Err(panicked) => {
@@ -1264,7 +1268,7 @@ fn bound_manifest(
     let names = cells::CellNames::of(&emitted.ir);
     let (manifest, readings) = cells::bind(manifest, &names)
         .map_err(|unbound| refused(command, "result", unbound.reason, &unbound.detail))?;
-    let result_names = cells::ResultNames::new(names, readings);
+    let result_names = cells::ResultNames::new(names.clone(), readings);
     // The decoder reads typed inputs and binds programs, and fuzz templates' own, to the main
     // parameter; it compiles nothing until one needs it, and the stop's names resolve over the
     // same compile.
@@ -1279,10 +1283,15 @@ fn bound_manifest(
     let (manifest, observe_items, observations) =
         observe::bind(manifest, &decoder, &observers, &emitted.ir)
             .map_err(|unbound| refused(command, "observe", unbound.reason, &unbound.detail))?;
+    // Every end projection resolved once for the command, before anything runs.
+    let projections =
+        projections::KrsProjections::resolve(&manifest, &decoder, &observers, &names, &emitted.ir)
+            .map_err(|unbound| refused(command, "projection", unbound.reason, &unbound.detail))?;
     let implementations = implementations::KrsImplementations::new(
         Arc::clone(&decoder),
         Arc::clone(&observers),
         observations,
+        Arc::new(projections),
     );
     let invariants = invariant::KrsInvariants::new(decoder);
     Ok((

@@ -16,8 +16,16 @@
 //!   that it does not omit (`omits`), among the observable leaf cells, which every view may read.
 //! - A view compares its `compare` cells (default: every observable leaf cell the implementation
 //!   states), through its `views` functions, resolved in its `observer` (default: the
-//!   definition). A compared cell the implementation omits makes the view `not-compared`
-//!   (`omitted`), as does one the corpus's ends leave out (the projections' cells, `left-out`).
+//!   definition). A view naming a projection compares what the projection does, resolved once
+//!   for the command ([`super::projections`]), and a projection without `compare` compares every
+//!   observable leaf cell. A compared cell the implementation omits makes the view
+//!   `not-compared` (`omitted`), as does one the corpus's ends leave out (the projections' cells,
+//!   `left-out`).
+//! - Each end view is resolved once per command: its observation and observer on first use, and
+//!   what it compares (its cells, the refusals above, its comparison checked) once per set of
+//!   cells the corpus's ends leave out, which a command does not change; a question only binds
+//!   the view's functions in the instances loaded on its thread, once per pair of instances
+//!   ([`super::render::Observers::bound_views`]).
 //! - The definition's ends are kink's (its baseline run, truncated at `[stop]`), each read as a
 //!   krs-exec end with the cells kink leaves out unstated; both sides are compared by their
 //!   cells, since kink-flow compares the words `stopped` and `final` itself. Where the definition
@@ -32,7 +40,8 @@
 //!   cells it likes: those it states are read as an end's, and none is demanded.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use k_rust::kore::ast::Pattern;
 use kink_flow::{
@@ -40,14 +49,14 @@ use kink_flow::{
     RefusalQuestion, TraceAnswer, TraceQuestion, ViewSection, Vocabulary,
 };
 use krs_exec::{
-    CellInfo, Compared, Comparison, ConfigValue, End, EndClass, EndError, Ends, Halt, Semantics,
-    Side,
+    Compared, Comparison, ConfigValue, End, EndClass, EndError, Ends, Halt, Semantics, Side,
 };
 use serde_json::{Value, json};
 
 use super::inputs::{KrsInputs, ManifestFiles};
 use super::observe::KrsObservations;
-use super::render::{Observers, read_ends, unstated, with_declared_classes};
+use super::projections::{KrsProjections, Observation, leaves, within};
+use super::render::{Observer, Observers, read_ends, unstated, with_declared_classes};
 use crate::DEFAULT_VIEW_BUDGET;
 
 /// The vocabulary of one emission, over the decoder's native compile and the corpus's
@@ -57,19 +66,60 @@ pub(crate) struct KrsImplementations {
     observers: Arc<Observers>,
     /// The corpus's `[observe]`, which a trace view's channels are of; `None` without one.
     observations: Option<Arc<KrsObservations>>,
+    /// The corpus's end projections, resolved once for the command.
+    projections: Arc<KrsProjections>,
+    /// Each end view resolved so far, by implementation and view name ([`Self::view`]).
+    views: Mutex<BTreeMap<(String, String), Arc<ResolvedView>>>,
+    /// How many end views were resolved, and how many decisions of what one compares were made
+    /// ([`Self::decided`]).
+    counts: [AtomicUsize; 2],
 }
 
+/// One end view of one implementation, resolved once per command: its observation (a named
+/// projection's, or its own keys' for an inline view), its observer prepared (`None`: the
+/// definition), and what it compares given the cells the corpus's ends leave out, decided once
+/// per such set ([`KrsImplementations::decided`]).
+struct ResolvedView {
+    observation: Arc<Observation>,
+    observer: Option<Arc<Observer>>,
+    decided: Mutex<Vec<(Vec<String>, Decision)>>,
+}
+
+/// What one end view compares: its compared cells by path and the cells it leaves out because
+/// the implementation omits them (the row's `omits`), or why it is not compared.
+type Decision = Result<(Vec<String>, Vec<String>), NotCompared>;
+
 impl KrsImplementations {
-    pub(crate) const fn new(
+    pub(crate) fn new(
         inputs: Arc<KrsInputs>,
         observers: Arc<Observers>,
         observations: Option<Arc<KrsObservations>>,
+        projections: Arc<KrsProjections>,
     ) -> Self {
         Self {
             inputs,
             observers,
             observations,
+            projections,
+            views: Mutex::new(BTreeMap::new()),
+            counts: [AtomicUsize::new(0), AtomicUsize::new(0)],
         }
+    }
+
+    /// The work counters of the command's resolution of projections and views, by name: each a
+    /// function of the corpus's declarations, never of how many programs were compared
+    /// (`kink.projections.resolved`, `kink.views.resolved`, `kink.views.decided`,
+    /// `kink.views.bound`).
+    pub(crate) fn counters(&self) -> [(&'static str, usize); 4] {
+        [
+            ("kink.projections.resolved", self.projections.resolved()),
+            (
+                "kink.views.resolved",
+                self.counts[0].load(Ordering::Relaxed),
+            ),
+            ("kink.views.decided", self.counts[1].load(Ordering::Relaxed)),
+            ("kink.views.bound", self.observers.bindings()),
+        ]
     }
 
     /// The corpus's `[observe]`, which a trace is a record of.
@@ -79,23 +129,101 @@ impl KrsImplementations {
             .ok_or_else(|| "the corpus declares no `[observe]`, so it has no channel".to_owned())
     }
 
-    /// `body` with the definition's semantics and the observer `view` names, when it names one
-    /// other than the definition.
+    /// The end view `view` of `implementation`, resolved on first use: a view naming a projection
+    /// takes the projection's resolution, by name; an inline view is read from its keys and its
+    /// observer prepared.
+    fn view(
+        &self,
+        implementation: &ImplementationSection,
+        view: &ViewSection,
+    ) -> Result<Arc<ResolvedView>, String> {
+        let key = (implementation.name.clone(), view.name.clone());
+        let mut views = self.views.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(resolved) = views.get(&key) {
+            return Ok(Arc::clone(resolved));
+        }
+        let (observation, observer) = if let Some(name) = &view.projection {
+            let projection = self.projections.get(name).ok_or_else(|| {
+                format!(
+                    "view `{}`: `{name}` is no end projection of the flow",
+                    view.name
+                )
+            })?;
+            (
+                Arc::clone(&projection.observation),
+                projection.observer.clone(),
+            )
+        } else {
+            let observation = Observation::of_view(view);
+            let observer = match &observation.observer {
+                Some(name) => self
+                    .observers
+                    .get(name)
+                    .map_err(|reason| format!("view `{}`: `observer`: {reason}", view.name))?,
+                None => None,
+            };
+            (Arc::new(observation), observer)
+        };
+        let resolved = Arc::new(ResolvedView {
+            observation,
+            observer,
+            decided: Mutex::new(Vec::new()),
+        });
+        self.counts[0].fetch_add(1, Ordering::Relaxed);
+        views.insert(key, Arc::clone(&resolved));
+        Ok(resolved)
+    }
+
+    /// What `resolved`, the end view `view` of `implementation`, compares given the cells the
+    /// corpus's ends leave out (`left_out`, by declared path), decided on first use for that set
+    /// ([`comparison`]); `semantics` and `observer` the instances loaded on this thread.
+    fn decided(
+        &self,
+        resolved: &ResolvedView,
+        semantics: &Semantics,
+        observer: Option<&Semantics>,
+        (implementation, view): (&ImplementationSection, &ViewSection),
+        left_out: &[&str],
+    ) -> Result<Decision, String> {
+        let mut decided = resolved
+            .decided
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if let Some((_, decision)) = decided.iter().find(|(cells, _)| {
+            cells
+                .iter()
+                .map(String::as_str)
+                .eq(left_out.iter().copied())
+        }) {
+            return Ok(decision.clone());
+        }
+        let decision = comparison(
+            &self.observers,
+            semantics,
+            observer,
+            implementation,
+            view,
+            &resolved.observation,
+            left_out,
+        )?;
+        self.counts[1].fetch_add(1, Ordering::Relaxed);
+        decided.push((
+            left_out.iter().map(|&cell| cell.to_owned()).collect(),
+            decision.clone(),
+        ));
+        Ok(decision)
+    }
+
+    /// `body` with the definition's semantics and the observer of `resolved`, when it has one
+    /// other than the definition, each loaded on this thread.
     fn with_observer<T>(
         &self,
         need: &str,
-        view: &ViewSection,
+        resolved: &ResolvedView,
         body: impl FnOnce(&mut Semantics, Option<&mut Semantics>) -> Result<T, String>,
     ) -> Result<T, String> {
-        let observer = match view.front_end.get("observer").and_then(Value::as_str) {
-            Some(name) => self
-                .observers
-                .get(name)
-                .map_err(|reason| format!("view `{}`: `observer`: {reason}", view.name))?,
-            None => None,
-        };
         self.inputs
-            .with_semantics_mut(need, |semantics| match observer {
+            .with_semantics_mut(need, |semantics| match &resolved.observer {
                 Some(observer) => observer.with_loaded(|loaded| body(semantics, Some(loaded))),
                 None => body(semantics, None),
             })
@@ -111,75 +239,30 @@ const fn stuck() -> EndClass {
     }
 }
 
-/// Whether the cell at `path` is `cell` or lies inside it.
-fn within(path: &str, cell: &str) -> bool {
-    path == cell
-        || path
-            .strip_prefix(cell)
-            .is_some_and(|rest| rest.starts_with('.'))
-}
-
 /// Whether the cells at `left` and `right` overlap: one is, or holds, the other.
 fn overlap(left: &str, right: &str) -> bool {
     within(left, right) || within(right, left)
 }
 
-/// The observable leaf cells, by declared path, none inside a cell of `left_out`.
-fn leaves<'c>(cells: &'c [CellInfo], left_out: &[&str]) -> Vec<&'c str> {
-    cells
-        .iter()
-        .filter(|cell| cell.ty.is_some() && !cell.unobservable)
-        .map(|cell| cell.path.as_str())
-        .filter(|path| !left_out.iter().any(|out| within(path, out)))
-        .collect()
-}
-
-/// A view's `views`, a function by cell.
-fn named_views(view: &ViewSection) -> BTreeMap<String, String> {
-    view.front_end
-        .get("views")
-        .and_then(Value::as_object)
-        .map(|views| {
-            views
-                .iter()
-                .filter_map(|(cell, function)| Some((cell.clone(), function.as_str()?.to_owned())))
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-/// A view's `compare`, when it names its cells.
-fn named_compare(view: &ViewSection) -> Option<Vec<String>> {
-    view.front_end
-        .get("compare")
-        .and_then(Value::as_array)
-        .map(|cells| {
-            cells
-                .iter()
-                .filter_map(|cell| cell.as_str().map(str::to_owned))
-                .collect()
-        })
-}
-
-/// The comparison `view` of `implementation` states, its views resolved in `observer` (else
-/// `semantics`), given the cells the corpus's ends leave out (`left_out`, by declared path):
-/// `Ok(Err(..))` when it is not compared, `Err` when it is no comparison of the definition.
+/// What the end view `view` of `implementation`, observing `observation`, compares, its views
+/// bound in `observer` (else `semantics`) through `observers`, given the cells the corpus's ends
+/// leave out (`left_out`, by declared path): `Ok(Err(..))` when it is not compared, `Err` when it
+/// is no comparison of the definition.
 fn comparison(
+    observers: &Observers,
     semantics: &Semantics,
     observer: Option<&Semantics>,
     implementation: &ImplementationSection,
     view: &ViewSection,
+    observation: &Observation,
     left_out: &[&str],
-) -> Result<Result<(Comparison, Vec<String>), NotCompared>, String> {
+) -> Result<Decision, String> {
     let refuse = |error: EndError| format!("view `{}`: {error}", view.name);
     let cells = semantics.cells();
-    let views = named_views(view);
-    let named = named_compare(view);
-    // The compared cells the implementation omits, and those the corpus's ends leave out.
-    let compared: Vec<String> = match &named {
-        Some(named) => named.clone(),
-        None => views.keys().cloned().collect(),
-    };
+    // The compared cells the implementation omits, and those the corpus's ends leave out: a
+    // projection without `compare` compares every observable cell, whichever the implementation
+    // states.
+    let compared = observation.named(&cells, left_out);
     let omitted = compared
         .iter()
         .filter(|path| implementation.omits.iter().any(|cell| overlap(path, cell)))
@@ -197,17 +280,19 @@ fn comparison(
              compares, unobservable cells): the definition's side does not state it"
         ))));
     }
-    let left_out_or_omitted = left_out
-        .iter()
-        .copied()
-        .chain(implementation.omits.iter().map(String::as_str))
-        .collect::<Vec<_>>();
-    let compare = named.unwrap_or_else(|| {
+    let compare = if observation.cells == super::projections::Cells::Stated {
+        let left_out_or_omitted = left_out
+            .iter()
+            .copied()
+            .chain(implementation.omits.iter().map(String::as_str))
+            .collect::<Vec<_>>();
         leaves(&cells, &left_out_or_omitted)
             .into_iter()
             .map(str::to_owned)
             .collect()
-    });
+    } else {
+        compared
+    };
     // What the comparison leaves out because the implementation omits it, for the row.
     let omits = implementation
         .omits
@@ -215,15 +300,14 @@ fn comparison(
         .filter(|cell| compare.iter().all(|path| !overlap(path, cell)))
         .cloned()
         .collect::<Vec<_>>();
-    let mut comparison = Comparison {
+    let comparison = Comparison {
         compare: Some(compare),
-        ..Comparison::default()
+        views: observers
+            .bound_views(semantics, observer, &observation.views)
+            .map_err(refuse)?,
     };
-    comparison.views = semantics
-        .cell_views(observer.unwrap_or(semantics), &views)
-        .map_err(refuse)?;
     semantics.check_comparison(&comparison).map_err(refuse)?;
-    Ok(Ok((comparison, omits)))
+    Ok(Ok((comparison.compare.unwrap_or_default(), omits)))
 }
 
 /// An answer's `cells` read as an end of the definition.
@@ -288,12 +372,19 @@ impl Vocabulary for KrsImplementations {
                     })?;
                 continue;
             }
+            let resolved = self.view(implementation, view)?;
             self.with_observer(
                 "resolving an implementation's views",
-                view,
+                &resolved,
                 |semantics, observer| {
-                    comparison(semantics, observer.as_deref(), implementation, view, &[])
-                        .map(|_| ())
+                    self.decided(
+                        &resolved,
+                        semantics,
+                        observer.as_deref(),
+                        (implementation, view),
+                        &[],
+                    )
+                    .map(|_| ())
                 },
             )?;
         }
@@ -425,9 +516,10 @@ impl Vocabulary for KrsImplementations {
             ends,
             not_compared,
         } = *question;
+        let resolved = self.view(implementation, view)?;
         self.with_observer(
             "comparing an implementation's end",
-            view,
+            &resolved,
             |semantics, observer| {
                 let all = semantics.cells();
                 let unstated = unstated(&all, not_compared);
@@ -435,15 +527,22 @@ impl Vocabulary for KrsImplementations {
                     .iter()
                     .map(|cell| cell.path.as_str())
                     .collect::<Vec<_>>();
-                let (mut comparison, omitted) = match comparison(
+                let (compare, omitted) = match self.decided(
+                    &resolved,
                     semantics,
                     observer.as_deref(),
-                    implementation,
-                    view,
+                    (implementation, view),
                     &left_out,
                 )? {
-                    Ok(comparison) => comparison,
+                    Ok(decided) => decided,
                     Err(reason) => return Ok(Judged::NotCompared(reason)),
+                };
+                let mut comparison = Comparison {
+                    compare: Some(compare),
+                    views: self
+                        .observers
+                        .bound_views(semantics, observer.as_deref(), &resolved.observation.views)
+                        .map_err(|error| format!("view `{}`: {error}", view.name))?,
                 };
                 let definition = match read_ends(semantics, ends, &stuck(), &unstated) {
                     Ok(ends) => Ends {
