@@ -334,6 +334,7 @@ import KcoreSpec.ClausePreRead
 import KcoreSpec.TieRuleLhs
 import KcoreSpec.TieRuleCut
 import KcoreSpec.TieRuleConnText
+import KcoreSpec.TieRuleUnheld
 import KcoreSpec.LibEvSetVar
 import KcoreSpec.LibEvCeil
 import KcoreSpec.LibEvBoolSet
