@@ -22,6 +22,13 @@ clauses, the constructors' signatures and the functions' symbols. From those alo
   `Option` result) and `F.eval`, `F.eval_iff`; `--no-table` decides the symbol facts at each use
   instead of reading the table, `--hb` (or `hb = true` in SPEC) reports each `F.eval`'s heartbeats.
 - `check` emits into a temporary file and compares with the committed module.
+- A SPEC with `hsort` and `hctor` (examples/ref-kk/User/cascade-emb.toml) emits, per function, the
+  cascade over sorted values (namespace `namespace`) and then, over kore.k's mirrors (User.Emb,
+  User.EmbKit; namespace `hnamespace`): `F` (the same cascade, each constructor written as its
+  mirror's), `F.bridge` (the cascade over values at the mirrors' terms gives the term of `F`'s
+  result: `fun_induction` and one `simp only` set where F recurses, otherwise a `by_cases` per guard
+  and `cases` per matched argument, then `rfl`), `F.eval` at `K₀ sig` over the embeddings (from the
+  sorted-value theorem, whose hypotheses `emb_sorted` discharges) and `F.eval_iff` (`evalF_iff`).
 
 The proof of `F.eval` follows F: an induction on the list argument F recurses on, then per branch
 of the cascade (a `split` per constructor pattern on a term argument, a `by_cases` per `requires`)
@@ -1105,6 +1112,282 @@ class Gen:
         return out
 
 
+# ---------------------------------------------------------------------------------------------
+# Over kore.k's mirrors (`hsort` and `hctor` in SPEC): `F` over the Lean mirrors of User.Emb and
+# User.EmbKit, `F.bridge` (the cascade over values at the mirrors' terms is `F`'s result's term),
+# `F.eval` at `K₀ sig` over the mirrors' embeddings from the sorted-value theorem, `F.eval_iff`.
+
+BRIDGE_SIMP = ["List.map_cons", "List.map_nil", "Option.bind_map", "Option.map_bind", "Option.map_some",
+               "Option.map_none", "eq_self_iff_true", "ne_eq", "not_true_eq_false", "not_false_eq_true",
+               "↓reduceIte"]
+
+
+class EmbGen(Gen):
+    def __init__(self, spec, ctors, fns, fn_labels, hb=False):
+        super().__init__(spec, ctors, fns, fn_labels, table=True, hb=hb)
+        self.hs = {int(k): v for k, v in spec["hsort"].items()}
+        self.hc = {int(k): v for k, v in spec["hctor"].items()}
+        self.gns = spec["namespace"]
+
+    def htype(self, s):
+        if s not in self.hs:
+            raise Refused(f"sort {s}: no mirror (hsort)")
+        return self.hs[s]["type"]
+
+    def hemb(self, s):
+        """The embedding of sort s as a function."""
+        self.htype(s)
+        e = self.hs[s]["emb"]
+        return f"(fun x => {e.format('x')})" if "{}" in e else e
+
+    def hemb_at(self, s, x):
+        """The embedding of sort s at the value x."""
+        self.htype(s)
+        e = self.hs[s]["emb"]
+        return e.format(paren(x)) if "{}" in e else f"{e} {paren(x)}"
+
+    def hname(self, sym):
+        return self.specs[sym]["name"] + "F"
+
+    def htemplate(self, g, fields):
+        if g not in self.hc:
+            raise Refused(f"constructor {g}: no mirror constructor (hctor)")
+        return self.hc[g].format(*fields)
+
+    # the value of a mirror at a sort as the cascade over values takes it
+    def to_g(self, mk, s, x, paren_=True):
+        if mk == "int":
+            return x
+        if mk == "raw":
+            out = self.hemb_at(s, x)
+            return paren(out) if paren_ else out
+        m = self.mir.m[mk]
+        conv = self.elem_conv(m)
+        if conv is None:
+            return x
+        out = f"{paren(x)}.map {conv}"
+        return f"({out})" if paren_ else out
+
+    def elem_conv(self, m):
+        comps = m["comps"]
+        if len(comps) == 1:
+            return self.hemb(comps[0])
+        parts = []
+        for i, c in enumerate(comps):
+            parts.append(f"p.{i + 1}" if c == 3 else f"{self.hemb(c)} p.{i + 1}")
+        return f"(fun p => ({', '.join(parts)}))"
+
+    def res_conv(self, sh):
+        """The function `F`'s result is mapped by in the bridge, or None for the identity."""
+        mk, s = sh["res"], self.fns[sh["sym"]]["result"]
+        if mk == "raw":
+            return self.hemb(s)
+        m = self.mir.m[mk]
+        conv = self.elem_conv(m)
+        if m["kind"] == "list":
+            return f"(·.map {conv})"
+        return f"(·.map {conv})"
+
+    # ---------------------------------------------------------------- F over mirrors
+    def tr_h(self, t, b, s, hole=None):
+        if hole is not None and t == hole[0]:
+            return hole[1]
+        k = t[0]
+        if k == "var":
+            v = b[t[1]]
+            if v.sort != s and not (v.mk == "int" and s == 3):
+                raise Refused(f"a variable of sort {v.sort} at sort {s}")
+            return v.f
+        if k == "dvi" and s == 3:
+            return str(t[2]) if t[2] >= 0 else f"({t[2]})"
+        if k == "dvb" and s == 2:
+            return "true" if t[2] else "false"
+        if k == "app" and t[1] in self.ctors:
+            fargs, res = self.ctors[t[1]]
+            if res != s:
+                raise Refused(f"constructor {t[1]} of sort {res} at sort {s}")
+            return paren(self.htemplate(t[1], [self.tr_h(a, b, fs, hole) for a, fs in zip(t[2], fargs)]))
+        raise Refused(f"a right side of kind {k} at sort {s} over mirrors")
+
+    def rhs_h(self, sh, t, b):
+        s = self.fns[sh["sym"]]["result"]
+        calls = call_calls(t, self.specs.keys())
+        if not calls:
+            return f"some {paren(self.tr_h(t, b, s))}"
+        c = calls[0]
+        cf = self.call_h(c, b)
+        if t == c:
+            return cf
+        body = self.tr_h(t, b, s, hole=(c, "r"))
+        return f"{paren(cf)}.bind fun r => some {paren(body)}"
+
+    def call_h(self, c, b):
+        return f"{self.hname(c[1])} " + " ".join(paren(self.tr_h(a, b, fs)) for a, fs in zip(c[2], self.fns[c[1]]["args"]))
+
+    def render_h(self, node):
+        k = node[0]
+        if k == "rest":
+            return ["none"]
+        if k == "leaf":
+            _, cl, b, vals, _ = node
+            return [self.rhs_h(self.cur, cl["rhs"], b)]
+        if k == "guard":
+            _, key, h, pos, neg = node
+            p, n = self.render_h(pos), self.render_h(neg)
+            if len(p) == 1 and len(n) == 1:
+                return [f"if {self.guard_text(key)} then {p[0]} else {n[0]}"]
+            return [f"if {self.guard_text(key)} then"] + ["  " + l for l in p] + ["else"] + ["  " + l for l in n]
+        if k == "split":
+            _, kk, g, names, fpat, fields, v, pos, neg, hn = node
+            p, n = self.render_h(pos), self.render_h(neg)
+            out = [f"match {v.f} with"]
+            alt = f"| {self.htemplate(g, fpat)} =>"
+            out += [f"{alt} {p[0]}"] if len(p) == 1 else [alt] + ["  " + l for l in p]
+            if sum(1 for _, res in self.ctors.values() if res == v.sort) > 1:
+                out += [f"| _ => {n[0]}"] if len(n) == 1 else ["| _ =>"] + ["  " + l for l in n]
+            return out
+        raise AssertionError(k)
+
+    def f_h(self, sh, tree):
+        name, r = sh["name"], sh["rec"]
+        F = self.hname(sh["sym"])
+        tys = [self.htype(s) for s in sh["args"]]
+        restype = f"Option {paren(self.htype(self.fns[sh['sym']]['result']))}"
+        out = [f"/-- kore.k's `{name}` over its mirrors. -/"]
+        if r is None:
+            out.append(f"def {F} {binders(sh['names'], tys)} : {restype} :=")
+            out += ["  " + l for l in self.render_h(tree)]
+        else:
+            out.append(f"def {F} : {' → '.join(tys)} → {restype}")
+            for case, sub in tree:
+                lines = self.render_h(sub)
+                used = lambda n: any(re.search(rf"(?<![\w.']){re.escape(n)}(?![\w'])", l) for l in lines)
+                pats = [n if used(n) else "_" for n in sh["names"]]
+                pats[r] = case["fpat"]
+                head = f"  | {', '.join(pats)} =>"
+                if len(lines) == 1:
+                    out.append(f"{head} {lines[0]}")
+                else:
+                    out.append(head)
+                    out += ["    " + l for l in lines]
+        return out
+
+    def guard_keys(self, node, acc):
+        k = node[0]
+        if k == "guard":
+            if node[1] not in acc:
+                acc.append(node[1])
+            self.guard_keys(node[3], acc)
+            self.guard_keys(node[4], acc)
+        elif k == "split":
+            self.guard_keys(node[7], acc)
+            self.guard_keys(node[8], acc)
+
+    def split_args(self, node, acc):
+        k = node[0]
+        if k == "split":
+            acc.add(node[1])
+            self.split_args(node[7], acc)
+            self.split_args(node[8], acc)
+        elif k == "guard":
+            self.split_args(node[3], acc)
+            self.split_args(node[4], acc)
+        return acc
+
+    # ---------------------------------------------------------------- the bridge and the statements
+    def bridge_h(self, sh, tree):
+        F, G = self.hname(sh["sym"]), f"_root_.{self.gns}.{self.fname(sh['sym'])}"
+        tys = [self.htype(s) for s in sh["args"]]
+        gargs = " ".join(self.to_g(m, s, n) for n, m, s in zip(sh["names"], sh["mks"], sh["args"]))
+        conv = self.res_conv(sh)
+        rhs = f"({F} {' '.join(sh['names'])}).map {conv}" if conv else f"{F} {' '.join(sh['names'])}"
+        callees = sorted({c[1] for cl in sh["clauses"] for c in call_calls(cl["rhs"], self.specs.keys())
+                          if c[1] != sh["sym"]})
+        simp = [F, G] + BRIDGE_SIMP + [f"{self.hname(c)}.bridge" for c in callees]
+        out = []
+        if self.hb:
+            out.append("spike_hb in")
+        out.append(f"theorem {F}.bridge {binders(sh['names'], tys)} :")
+        out.append(f"    {G} {gargs} = {rhs} := by")
+        if sh["rec"] is not None:
+            out.append(f"  fun_induction {F} {' '.join(sh['names'])} <;> (try simp only [{', '.join(simp + ['*'])}]) <;> rfl")
+        else:
+            ks = sorted(self.split_args(tree, set()))
+            gs = []
+            self.guard_keys(tree, gs)
+            def leaf(pol):
+                hs = [f"{'eq_true' if p else 'eq_false'} hg{i + 1}" for i, p in enumerate(pol)]
+                return " <;> ".join([f"cases {sh['names'][k]}" for k in ks] +
+                                    [f"first | rfl | ((try simp only [{', '.join(simp + hs)}]) <;> rfl)"])
+
+            def cases_(i, pol):
+                if i == len(gs):
+                    return [leaf(pol)]
+                out_ = [f"by_cases hg{i + 1} : {self.guard_text(gs[i])}"]
+                for p in (True, False):
+                    sub = cases_(i + 1, pol + [p])
+                    out_ += ["· " + l if j == 0 else "  " + l for j, l in enumerate(sub)]
+                return out_
+            out += ["  " + l for l in cases_(0, [])]
+        return out
+
+    def hyp_proof(self, n, m, s):
+        if m == "int":
+            return None
+        if m == "raw":
+            return f"({self.hs[s]['sorted']} {n})"
+        mm = self.mir.m[m]
+        c = mm["comps"][mm["raw"]]
+        e = "e" if len(mm["comps"]) == 1 else f"e.{mm['raw'] + 1}"
+        return f"(by simp only [List.mem_map]; rintro _ ⟨e, -, rfl⟩; exact {self.hs[c]['sorted']} {e})"
+
+    def eval_h(self, sh):
+        F, G = self.hname(sh["sym"]), f"_root_.{self.gns}.{self.fname(sh['sym'])}"
+        sym = sh["sym"]
+        tys = [self.htype(s) for s in sh["args"]]
+        bs = binders(sh["names"], tys)
+        vs = "[" + ", ".join(self.hemb_at(s, n) for n, s in zip(sh["names"], sh["args"])) + "]"
+        call = f"{F} {' '.join(sh['names'])}"
+        res = f"(({call}).map {self.hemb(self.fns[sym]['result'])})"
+        gargs = [self.to_g(m, s, n) for n, m, s in zip(sh["names"], sh["mks"], sh["args"])]
+        hps = [h for h in (self.hyp_proof(n, m, s) for n, m, s in zip(sh["names"], sh["mks"], sh["args"])) if h]
+        eqs = []
+        for s in list(sh["args"]) + [self.fns[sym]["result"]]:
+            e = self.hs[s].get("fun")
+            if e and e not in eqs:
+                eqs.append(e)
+        out = []
+        if self.hb:
+            out.append("spike_hb in")
+        out.append(f"theorem {F}.eval {bs} :")
+        out.append(f"    Eval (K₀ sig) {sym} {vs} {res} := by")
+        out.append(f"  have h := {G}.eval {' '.join(gargs + hps)}")
+        out.append(f"  rw [{F}.bridge] at h")
+        out.append("  try rw [Option.map_map] at h")
+        if eqs:
+            out.append(f"  rw [{', '.join(eqs)}]")
+        out.append("  exact h")
+        out.append("")
+        rr = res[1:-1]
+        out.append(f"theorem {F}.eval_iff {bs} {{r : Option GroundTerm}} :")
+        out.append(f"    Eval (K₀ sig) {sym} {vs} r ↔ r = {rr} :=")
+        out.append(f"  evalF_iff ({F}.eval {' '.join(sh['names'])})")
+        return out
+
+    def function_h(self, sym):
+        sh = self.setup(sym)
+        self.cur = sh
+        tree = self.build(sh)
+        out = [f"/-! ## `{sh['name']}` over its mirrors -/", ""]
+        out += self.f_h(sh, tree)
+        out.append("")
+        out += self.bridge_h(sh, tree)
+        out.append("")
+        out += self.eval_h(sh)
+        out.append("")
+        return out
+
+
 class Unknown(Exception):
     pass
 
@@ -1216,6 +1499,29 @@ def emit_text(spec, ctors, fns, fn_labels, table, hb, spec_path):
     return "\n".join(out)
 
 
+def emb_text(spec, ctors, fns, fn_labels, hb, spec_path):
+    g = Gen(spec, ctors, fns, fn_labels, table=True, hb=hb)
+    h = EmbGen(spec, ctors, fns, fn_labels, hb=hb)
+    names = ", ".join(f"`{f['name']}`" for f in spec["fn"])
+    out = ["/-", "  Generated by kcore-spec/gen/kkcascade.py from the KORE text and "
+           f"{os.path.relpath(spec_path, KS)}; not edited", f"  by hand. kore.k's {names} over its mirrors: per function, the cascade over sorted",
+           "  values (namespace " + spec["namespace"] + ", as User.KkCascade writes it), `F` over the mirrors of",
+           "  User.Emb and User.EmbKit (namespace " + spec["hnamespace"] + "), `F.bridge` (the cascade over values at the",
+           "  mirrors' terms gives the term of `F`'s result), `F.eval` at `K₀ sig` over the embeddings and `F.eval_iff`.", "-/",
+           "import User.KkKit", "import User.KkFacts", "import User.EmbKit",
+           "", "set_option autoImplicit false", "set_option maxRecDepth 1000000", "set_option Elab.async false",
+           "set_option linter.unusedSimpArgs false", "",
+           f"namespace {spec['namespace']}", "",
+           "open KCore KCore.Det RefKk KK KK.Kit KK.Facts", ""]
+    for f in spec["fn"]:
+        out += g.function(f["sym"])
+    out += [f"end {spec['namespace']}", "", f"namespace {spec['hnamespace']}", ""]
+    for f in spec["fn"]:
+        out += h.function_h(f["sym"])
+    out += [f"end {spec['hnamespace']}", ""]
+    return "\n".join(out)
+
+
 def main(argv):
     if len(argv) < 2 or argv[0] not in ("facts", "emit", "check"):
         print(__doc__)
@@ -1234,7 +1540,8 @@ def main(argv):
         else:
             table = "--no-table" not in rest
             hb = "--hb" in rest or spec.get("hb", False)
-            text = emit_text(spec, ctors, fns, labels, table, hb, spec_path)
+            text = (emb_text(spec, ctors, fns, labels, hb, spec_path) if "hsort" in spec
+                    else emit_text(spec, ctors, fns, labels, table, hb, spec_path))
             out = os.path.join(pkg, spec["module"])
             if "--out" in rest:
                 out = os.path.abspath(rest[rest.index("--out") + 1])
