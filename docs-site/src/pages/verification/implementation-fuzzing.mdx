@@ -1,0 +1,284 @@
+---
+title: Fuzzing an implementation
+description: Search an implementation with an existing fuzzer, and bring what it finds into the corpus with krs kink admit.
+---
+
+# Fuzzing an implementation, and admitting what it finds
+
+This guide is for an author, a person or an LLM agent, who has a KRS specification with a kink corpus and an implementation of the same system, such as an emulator written in Rust, and wants to search the implementation for inputs its tests miss.
+It covers three jobs:
+
+- **Choose the fuzzer.** kink's own `fuzz` answers questions about the specification; an existing implementation fuzzer answers questions about the implementation's code.
+- **Search the implementation.** Write a harness that calls the implementation's entry point on bytes, and give the fuzzer an objective: a crash, or an extreme such as the largest allocation peak.
+- **Admit what it finds.** Turn a found input into a case document, ask `krs kink admit` what the specification says of it and what it would add to the corpus, and save it as a case.
+
+[Mutation testing a KRS specification](/verification/mutation-testing) teaches the corpus loop this guide adds a case to.
+kink-flow's README, ["Admitting a case found elsewhere"](https://github.com/midnightntwrk/k-rust/blob/main/kink/crates/kink-flow/README.md#admitting-a-case-found-elsewhere-kink-flow-admit-flowtoml-file---found-by-text---reason-text---cache-dir), states every field and exit status of `admit`; this guide teaches the round trip and links there for details.
+
+## Which fuzzer asks which question
+
+| Question | Tool | What the search looks for | What confirms a find |
+| --- | --- | --- | --- |
+| About the specification: which case kills this survivor, matches or fires this rule, covers this open obligation, hits this pattern | `krs kink fuzz` (`kink-flow fuzz` on a K flow) | hole values of a case template of the corpus | kink's own run, on the flow as it stands |
+| About the implementation's code: which input crashes it, trips a sanitizer, reaches a branch of its own code, or drives a resource it uses to an extreme | an existing implementation fuzzer: libFuzzer through cargo-fuzz, LibAFL, bolero, proptest | inputs to the implementation's entry point | the fuzzer's own objective, on the implementation |
+
+Use kink's `fuzz` when the target is an obligation of the specification: each of its jobs is stated in the specification's terms, and kink confirms the witness ([When no case comes to mind](/verification/mutation-testing#when-no-case-comes-to-mind)).
+Use an implementation fuzzer when the target is a property of the implementation's code.
+Such inputs matter only to the implementation's internals (its buffers, caches, allocation strategy, the branches of its decoder), which the specification does not state, so no obligation of the specification can force them and kink cannot search for them.
+Select one of the existing fuzzers for that search rather than writing one: they carry coverage instrumentation, mutation strategies and minimizers that kink does not have.
+
+An input found either way becomes a case of the corpus.
+kink's `fuzz` prints the case it confirmed; an input another tool found enters through `admit`, which is where the specification says what the input is.
+
+## Bytes in, a case document out
+
+An implementation fuzzer works on bytes; the corpus works on case documents ([Case documents](/reference/workflow#case-documents)).
+Where an input of the definition is `Bytes`, the encoding's `{ "$file" = "path" }` binds it to a file's bytes, unchanged, so a file the fuzzer writes is an input with no conversion.
+Where the inputs are structured, the harness decodes the bytes into the implementation's input (with the `arbitrary` crate, for instance), and the case document states the same value in the [typed encoding](/reference/workflow#the-encoding); that conversion is the harness author's to write.
+
+The examples below assume a package `my-cpu` whose facet `main` has one input, `rom: Bytes`, and an implementation crate `my_cpu_impl` whose entry point is `pub fn run(rom: &[u8]) -> Result<State, Fault>`.
+Neither is a fixture of this repository.
+
+## A harness on the implementation's entry point
+
+A cargo-fuzz target calls the entry point on the bytes libFuzzer gives it:
+
+```rust
+// fuzz/fuzz_targets/run_rom.rs
+#![no_main]
+use libfuzzer_sys::fuzz_target;
+
+fuzz_target!(|rom: &[u8]| {
+    let _ = my_cpu_impl::run(rom);
+});
+```
+
+`cargo fuzz run run_rom` searches for an input on which `run` panics, aborts or exceeds libFuzzer's limits, and writes each one under `fuzz/artifacts/run_rom/`.
+`cargo fuzz tmin run_rom FILE` minimizes a found input against the same objective.
+A bolero harness has the same shape and can run under libFuzzer, AFL or honggfuzz; a proptest failure gives a value rather than bytes, which the case document states in the typed encoding.
+
+## An extremes objective: the largest allocation peak
+
+A crash is one objective; an extreme of a measured quantity is another.
+To find the input on which `run` holds the most memory at once, count the bytes live through a global allocator, and keep every input that raises the peak above all earlier ones.
+The allocator uses only the standard library:
+
+```rust
+use std::alloc::{GlobalAlloc, Layout, System};
+use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
+
+/// The system allocator, counting the bytes live and their peak.
+pub struct Counting;
+
+static LIVE: AtomicUsize = AtomicUsize::new(0);
+static PEAK: AtomicUsize = AtomicUsize::new(0);
+
+unsafe impl GlobalAlloc for Counting {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        let pointer = unsafe { System.alloc(layout) };
+        if !pointer.is_null() {
+            let live = LIVE.fetch_add(layout.size(), Relaxed) + layout.size();
+            PEAK.fetch_max(live, Relaxed);
+        }
+        pointer
+    }
+
+    unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
+        unsafe { System.dealloc(pointer, layout) };
+        LIVE.fetch_sub(layout.size(), Relaxed);
+    }
+}
+
+#[global_allocator]
+static ALLOCATOR: Counting = Counting;
+
+/// Starts a measurement; returns the bytes live now, which the peak is measured above.
+pub fn start() -> usize {
+    let live = LIVE.load(Relaxed);
+    PEAK.store(live, Relaxed);
+    live
+}
+
+/// The most bytes live at once since `start` returned `base`, above `base`.
+pub fn peak_above(base: usize) -> usize {
+    PEAK.load(Relaxed).saturating_sub(base)
+}
+```
+
+`GlobalAlloc`'s provided `realloc` and `alloc_zeroed` go through `alloc` and `dealloc`, so they are counted too.
+The counts are process-wide, so the measurement is exact for a harness that runs one input at a time on one thread, as LibAFL's in-process executor does.
+
+LibAFL lets the objective be a feedback of your own.
+The harness measures each run and leaves the peak where the feedback reads it; the feedback calls an input interesting when its peak is above every earlier one.
+Written against LibAFL 0.16.1 (the `Feedback` trait's parameters and methods change between LibAFL releases, so check them against the version you depend on):
+
+```rust
+use std::{borrow::Cow, sync::atomic::{AtomicUsize, Ordering::Relaxed}};
+use libafl::{
+    Error,
+    executors::ExitKind,
+    feedbacks::{Feedback, StateInitializer},
+    inputs::{BytesInput, HasTargetBytes},
+};
+use libafl_bolts::Named;
+
+/// The peak of the last run, which the harness writes and the feedback reads.
+static LAST_PEAK: AtomicUsize = AtomicUsize::new(0);
+
+// In the fuzzer's main function:
+let mut harness = |input: &BytesInput| {
+    let rom = input.target_bytes();
+    let base = start();
+    let _ = my_cpu_impl::run(&rom);
+    LAST_PEAK.store(peak_above(base), Relaxed);
+    ExitKind::Ok
+};
+
+/// Interesting when the last run's peak is above every earlier run's.
+pub struct PeakFeedback {
+    name: Cow<'static, str>,
+    highest: usize,
+    last: bool,
+}
+
+impl PeakFeedback {
+    pub fn new() -> Self {
+        Self { name: Cow::Borrowed("PeakFeedback"), highest: 0, last: false }
+    }
+}
+
+impl Named for PeakFeedback {
+    fn name(&self) -> &Cow<'static, str> {
+        &self.name
+    }
+}
+
+impl<S> StateInitializer<S> for PeakFeedback {}
+
+impl<EM, I, OT, S> Feedback<EM, I, OT, S> for PeakFeedback {
+    fn is_interesting(
+        &mut self,
+        _state: &mut S,
+        _manager: &mut EM,
+        _input: &I,
+        _observers: &OT,
+        _exit_kind: &ExitKind,
+    ) -> Result<bool, Error> {
+        let peak = LAST_PEAK.load(Relaxed);
+        self.last = peak > self.highest;
+        if self.last {
+            self.highest = peak;
+        }
+        Ok(self.last)
+    }
+
+    fn last_result(&self) -> Result<bool, Error> {
+        Ok(self.last)
+    }
+}
+```
+
+`StdFuzzer::new(scheduler, feedback, objective)` takes two feedbacks: `feedback` decides which inputs join the search corpus, which the fuzzer mutates from, and `objective` which inputs are solutions, written to the solutions corpus.
+To climb toward larger peaks, the peak feedback must be in the `feedback` slot, joined with coverage: `feedback_or!(MaxMapFeedback::new(&edges), PeakFeedback::new())`, where `edges` is the edge-coverage observer.
+A second `PeakFeedback::new()` as `objective`, with the solutions corpus on disk, writes each input whose peak was the highest yet, so the last one written is the largest found.
+Whether a solution also joins the search corpus depends on the LibAFL release, so the `feedback` slot, not the objective, is what makes the search climb.
+`highest` lives in the feedback, not in LibAFL's state, so a restarted fuzzer starts it from 0 again; a long campaign keeps it in state metadata instead (`init_state`).
+Minimize a solution with LibAFL's minimizers, or with `cargo fuzz tmin` under a harness that crashes when the peak exceeds a bound, before admitting it.
+
+## The round trip through `admit`
+
+A found input enters the corpus in five steps.
+
+1. **Place it under the corpus root.**
+   Copy the fuzzer's file into the corpus, in a directory no `cases` pattern of `FLOW.toml` matches while you decide, such as `kink/found/peak-1.bin`, and write a case document of one case beside it, `kink/found/peak-1.toml`:
+
+   ```toml
+   [inputs]
+   rom = { "$file" = "peak-1.bin" }
+   ```
+
+   The path is relative to the case document, and both files must lie inside the corpus root, links resolved: `admit` refuses a FILE outside it ("The corpus root" in kink-flow's README).
+   A candidate may also be placed where a `cases` pattern already matches it; `admit` then judges it as if it were absent from the corpus.
+
+2. **Ask the specification.**
+
+   ```console
+   krs kink admit --package my-cpu --definition main kink/found/peak-1.toml \
+     --found-by "LibAFL, allocation-peak objective" \
+     --reason "the largest allocation peak of run found so far" > admit.json
+   ```
+
+   The document goes to standard output; here it is kept in `admit.json`, outside the corpus.
+   FILE is a path relative to the working directory, and several may be given; `--found-by` and `--reason` apply to every candidate of the command.
+   Each case of each FILE is one candidate, admitted and run on the baseline as `coverage` admits and runs a case.
+   Like every `krs kink` verb but `report`, `admit` rewrites a stale `definition.k` unless `--locked` is given.
+
+3. **Read the candidate's row.**
+   Its `outcome` is one of:
+
+   | `outcome` | Meaning | What to do |
+   | --- | --- | --- |
+   | `refused` | Today's admission refuses the case, with its `stage`, `reason` and `detail` (`inputs`/`input-value`, for instance). | Fix the case document if it misstates the input. A refused candidate has no fragment, and a refused case judges nothing. |
+   | `accepted` | The baseline is `comparable` and every end is accepted: reached at the corpus's `[stop]`, or of a declared `finished` class. | Keep it if it discharges something, or to hold the implementation to the specification on it. |
+   | `rejected` | Every end is rejected (a declared `refused` class, or `none`), and the definition declares a `finished` end; `stage` is `end`, and `ends` gives each end's class, item and reason. | Keep it as a case the implementation must reject. |
+   | `unknown` | Neither is known, with the `reason`: an end with no declared class, `undecided` or `overlap`, ends of both kinds, `no-finished-end`, or a baseline that is not `comparable`. | Read `reason` and `detail` before keeping it. |
+
+   `newly_discharged` lists the obligations the candidate's baseline run would discharge that no case of the corpus discharges, each `{family, item}`, with `corpus_unknown` naming corpus cases whose cell on it is unknown and may discharge it too.
+   The document's `families` says which families were computed: the tier-1 coverage families, argued evidence and declared patterns are; kills of a mutation list and condition flips are not (`computed: false`, with the reason), since they need mutant runs and `admit` runs only the baseline.
+   Each candidate is judged against the corpus alone, never against the other candidates, so two candidates of one command can each newly discharge the same obligation; admit the second again after saving the first.
+   The command exits 1 where a candidate's expectation is `unmet`, else 3 where an outcome is `unknown` or an expectation `inconclusive`, else 0; it exits 2 where a question could not be asked: a FILE that is no case document, a refused specification, or a candidate whose baseline is `error`.
+   A refused candidate decides no exit status.
+   A case whose `newly_discharged` is empty can still be worth keeping: an input the implementation's fuzzer found interesting is a case `compare` holds the implementation to.
+
+4. **Save the fragment.**
+   A candidate that is not `refused` has a `fragment`: the case as a document of one case: `provenance` (from the flags, over the case's own), then `inputs`, `expect` and `expect_for` as its document states them.
+   Paths in its inputs stay as written, so it reads the same saved beside the file it was read from:
+
+   ```console
+   jq -r '.candidates[0].fragment' admit.json > kink/found/peak-1.toml
+   ```
+
+   Then move both files where a `cases` pattern of `FLOW.toml` matches the case document, keeping them side by side so the relative path still resolves.
+   `provenance` is shown on the case's row of the `check`, `coverage`, `run` and `query` documents, and is in no digest, cache key or lock, so editing it later reruns nothing.
+
+5. **Run the loop.**
+   `admit` wrote nothing: no case file, lock or cache entry, and its candidate's baseline record is not kept, so the first `krs kink coverage` that reads the saved case runs it.
+   Run `krs kink coverage`, `krs kink run` and, where `FLOW.toml` declares an `[[implementation]]`, `krs kink compare`; review `kink.lock`'s diff and commit it with the case.
+
+## What kink adds after admission
+
+Once saved, the case is a case of the corpus for every command:
+
+- `coverage` counts what its baseline discharges, and checks its `expect` where it states one;
+- `run` tries it as a killer of every mutation, which `admit` did not judge, on one comparison over the union of the cells the flow's projections compare (judging each projection apart is to come);
+- `query` checks the declared patterns on it;
+- `compare` runs each declared implementation on it and compares its answer with the definition's ends under each of the implementation's views, so the implementation is held to the specification on the input its own fuzzer found;
+- tier-2 `coverage` asks which condition flips it kills.
+
+A projection's `domain`, the cases it applies to, is checked and not yet applied by any command, so no projection leaves the case out, whatever its domain says ("Projections" in kink-flow's README).
+
+## What `admit` does not do
+
+- It minimizes nothing.
+  Minimizing is the finder's job (cargo-fuzz `tmin`, LibAFL's minimizers), against an objective of the implementation that kink cannot evaluate; `admit` judges the candidate as written.
+- It takes no program text.
+  A candidate is a case of a case document under the corpus root; a `[[program]]` of `FLOW.toml` carries no `provenance`.
+  On a K flow, `kink-flow admit FLOW.toml FILE...` refuses a case with typed inputs (`inputs`/`typed-inputs`), since kink-flow's own front end has no decoder, and reads no declared end, so without `[stop]` every comparable candidate is `unknown`: a K flow of program texts admits nothing today.
+- It discharges no kill or flip: those need mutant runs, which `run` and tier-2 `coverage` make once the case is saved.
+- It writes no case file, lock or cache entry (`krs kink admit` keeps `definition.k` fresh, as every verb but `report` does), and it does not search: an input reaches it from a tool or a person.
+
+## Checklist for an agent
+
+1. Ask whether the target is an obligation of the specification (use `krs kink fuzz`) or a property of the implementation's code (use an existing implementation fuzzer).
+2. Write the harness on the implementation's entry point, and minimize each find with the fuzzer's own minimizer.
+3. Place the find and a one-case document under the corpus root, outside the `cases` patterns.
+4. Run `krs kink admit` with `--found-by` and `--reason`; read `outcome`, `newly_discharged` and `families`.
+5. A `refused` candidate has no fragment: fix its case document or drop it. Keep an `unknown` one only after reading its `reason`.
+6. For a candidate that is not `refused`, save `fragment` over the case document, move both files under a `cases` pattern, and run `coverage`, `run` and `compare`.
+7. Commit the case, its file and `kink.lock`'s diff together.
+
+## How this page is checked
+
+- No output on this page is recorded: the package `my-cpu` and the crate `my_cpu_impl` are examples, not fixtures, and the document fields named are those of `kink-flow-admit` version 1 (kink-flow `src/candidates.rs`).
+- The counting allocator was compiled and run with `rustc`; the LibAFL feedback was checked against LibAFL 0.16.1's documented `Feedback`, `StateInitializer`, `Named` and `HasTargetBytes`, not compiled.
+- `bun run check` checks the page's internal links and anchors.

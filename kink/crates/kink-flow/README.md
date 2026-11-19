@@ -3013,6 +3013,7 @@ The same command can also look for a program that matches or fires a rule, or hi
 A mutation expected to survive (`expect = "survive"`, a control) is not refused: a search for its kill is the most direct attempt to refute the control's claim, so the document warns `expected-to-survive` before the search, and a witness kink's own run confirms, on the flow as it stands, is a finding (exit status 1), a program on which what the edit changes is observable.
 A witness `--no-confirm` left unconfirmed, or one whose kill rests on a premise `FLOW.toml`'s `[spec] assume_joined` lacks, is only a candidate: the corpus as it stands has not been shown to distinguish the mutant, so the claim is neither refuted nor confirmed (exit status 3), and the `action` says what is left to decide.
 k-rust's [docs/fuzzing.md](../../../docs/fuzzing.md) is the user guide: it walks through the three jobs on `testdata/flow/fuzz/imp` and `impu`, how to choose a template, and how to read the document; this section is the reference.
+A search of an implementation's code, rather than of the specification, is an implementation fuzzer's job, and its finds enter the corpus through `admit` (below); the site's guide [Fuzzing an implementation](../../../docs-site/src/pages/verification/implementation-fuzzing.mdx) walks through both.
 
 ### `TEMPLATES.toml`
 
@@ -3132,6 +3133,7 @@ Version 16 (KINK-FINDING-NAMES) names every finding (`findings`, `assumed`, `spe
 Asks what the flow says of each candidate case, a case another tool found (an implementation-side fuzzer: cargo-fuzz, LibAFL, bolero, proptest) or a person wrote, and what adding it to the corpus would discharge.
 Such a case matters to the corpus only once the specification has said what it is, and the command is where kink says it.
 It writes nothing.
+The site's guide [Fuzzing an implementation](../../../docs-site/src/pages/verification/implementation-fuzzing.mdx) walks through the round trip from an implementation fuzzer's find to a case.
 
 Each FILE is a case document, of one case or of named cases ("Programs from a pattern"), and each of its cases is one candidate.
 A FILE is read by the flow's own case reader inside the case root ("The corpus root"): the files a case document's inputs name are relative to it and stay inside the root, so a FILE outside the root is no case of the flow.

@@ -423,6 +423,7 @@ Each row of a pattern and a case is `hit`, with a reached state that matches, `n
 `no` says that no run of the case reaches a matching state: kink explored the case's whole state space within the budget, with no solver answer left undecided; when the case is among the pattern's `programs`, the claim is refuted and `krs kink query` exits 1.
 A run cut by a bound, or one that leaves a value open, is `unknown`, never `no`.
 The [fuzzing guide](/k-rust/fuzzing) teaches templates and holes at the K level, and kink-flow's README, ["Killing a survivor with `fuzz`"](https://github.com/midnightntwrk/k-rust/blob/main/kink/crates/kink-flow/README.md#killing-a-survivor-with-fuzz), states every option.
+A case another tool found, such as an implementation fuzzer searching the implementation's code, enters the corpus through `krs kink admit`: [Fuzzing an implementation](/verification/implementation-fuzzing) walks through it.
 
 ## Why mutations are K patches, not Rust edits
 

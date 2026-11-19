@@ -58,6 +58,7 @@ export default defineConfig({
       items: [
         { text: 'Reachability claims', link: '/verification/reachability-claims' },
         { text: 'Mutation testing', link: '/verification/mutation-testing' },
+        { text: 'Fuzzing an implementation', link: '/verification/implementation-fuzzing' },
       ],
     },
     {

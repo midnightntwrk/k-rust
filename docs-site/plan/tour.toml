@@ -851,9 +851,21 @@ replaced_by = []
 retired = false
 
 [[page]]
-id = "scale"
+id = "implementation-fuzzing"
 owner = "KRS language and documentation maintainers"
 order = 13
+route = "/verification/implementation-fuzzing"
+title = "Fuzzing an implementation, and admitting what it finds"
+outcome = "Choose kink's fuzz or an implementation fuzzer by the question, search the implementation from a harness on its entry point, and bring a find into the corpus with `krs kink admit`."
+specimen = "../kink/crates/kink-flow/src/candidates.rs and crates/krs-cli/tests/kink.rs"
+disposition = "keep"
+replaced_by = []
+retired = false
+
+[[page]]
+id = "scale"
+owner = "KRS language and documentation maintainers"
+order = 14
 route = "/advanced/language-scale"
 title = "Language-scale state and builtins"
 outcome = "Use nested and repeated cells, fragments, Bytes, List, Set, and the bounded hook catalog."
@@ -865,7 +877,7 @@ retired = false
 [[page]]
 id = "composition"
 owner = "KRS language and documentation maintainers"
-order = 14
+order = 15
 route = "/advanced/composition"
 title = "Compose definitions"
 outcome = "Use multiple packages, named facets, dependency facets, cfg values, stable symbols, and backend selection."
@@ -877,7 +889,7 @@ retired = false
 [[page]]
 id = "workflow"
 owner = "KRS language and documentation maintainers"
-order = 15
+order = 16
 route = "/reference/workflow"
 title = "Daily workflow"
 outcome = "Use fmt, check, expand, emit-k, build, source maps, diagnostics, and rust-analyzer within their supported boundaries."
@@ -889,7 +901,7 @@ retired = false
 [[page]]
 id = "reference"
 owner = "KRS language and documentation maintainers"
-order = 16
+order = 17
 route = "/reference/language"
 title = "Feature and builtin reference"
 outcome = "Find every current macro, attribute, builtin sort, builtin operation, and explicit surface form."
@@ -901,7 +913,7 @@ retired = false
 [[page]]
 id = "limits"
 owner = "KRS language and documentation maintainers"
-order = 17
+order = 18
 route = "/reference/boundaries"
 title = "Current boundaries and open questions"
 outcome = "Recognize intentional restrictions, qualified subsets, open decisions, and syntax that does not exist yet."

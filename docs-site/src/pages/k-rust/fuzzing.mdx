@@ -27,6 +27,7 @@ This guide teaches the jobs and links there for details.
 - They do not prove that no input exists. "No witness" means none was found within the budget. No input may kill a mutation that keeps surviving, or your template may be unable to show the difference; the tool cannot tell which.
 - They do not decide a mutation's status. `kink-flow run` decides it with kink's own oracle, on the program you append. The fuzz searches for a program that `run` will confirm.
 - They do not change the definition or its claims.
+- They do not search an implementation's code. An input that matters only to an implementation's internals is found by an implementation fuzzer (cargo-fuzz, LibAFL, bolero, proptest) and brought into a corpus with `kink-flow admit`; the site's guide [Fuzzing an implementation](https://github.com/midnightntwrk/k-rust/blob/main/docs-site/src/pages/verification/implementation-fuzzing.mdx) walks through it.
 
 ## Before you start
 
