@@ -35,8 +35,18 @@
   - Hooked functional, collection law, library: at values (no theorem here); function functional:
     owed as `FnHyp` (no theorem); no direction: `absent_closed`.
 
+  - Rewrite rule (155, `go(X, Y) => done requires f(X #And Y) ==Int 0`), by hand: Γ's item is the
+    reading's rule, the requires `f(X) ==Int 0` with `X ∈ Y` in `pre` (`andUnderAppCut`). The
+    sentence is the item of the text's left side at the table of Γ's axiom (`rule_text0`, kernel).
+    W1: Γ's item is a consequence of the sentence with the signature, for every H
+    (`rule_from_text`), since Γ's left side is inside the text's (`left_sub`: where X ∈ Y, `X #And Y`
+    is the element X). W2, with the guard: in a model of Γ the sentence holds at each valuation at
+    which `⌈R⌉` holds wherever the text's left side does (`rule_w2`), since the text's left side
+    with `⌈R⌉` is inside Γ's (`left_sup`: `f(X #And Y) ==Int 0 = true` holds of the element `true`
+    of Bool, so `X #And Y` has an element and X, Y are one).
+
   The sentences with no counterpart in f2-examples/ens.kompile.kore are `unmapped` (15);
-  the sentences of a class with a theorem that no theorem here holds of are `uncovered` (1).
+  the sentences of a class with a theorem that no theorem here holds of are `uncovered` (none).
 -/
 import KcoreSpec
 
@@ -186,7 +196,7 @@ def unmapped : List (Nat × String) :=
 /-- The sentences of a class with a theorem in the tie that no theorem of this file holds of: the
 tie's remainder on this text. -/
 def uncovered : List (Nat × String) :=
-  [(155, "rewrite rule")]
+  []
 
 /-- Each listed sentence is in its class in the account. -/
 theorem lists_in_account : (unmapped ++ uncovered).all (fun ic => (classOf ic.2).contains ic.1) = true := by
@@ -694,6 +704,233 @@ theorem lib166_at_values (H : HookParams) : EntailsAtValues (cH H) U.ax166 (trS 
   exact lib166 H hI n e (((elemOf_spec hI hv e).1 _).mp hden) m
 
 
+/-! ## The rule (sentence 155): W1 and W2
+
+The reading (`andUnderAppCut`, `Parse.condAndCutT`) writes the rule's `requires`
+`f(X #And Y) ==Int 0` as `f(X) ==Int 0` with the membership `X ∈ Y` in `pre`; Γ's axiom
+(`prioRuleK`) is `\rewrites(K[go(X, Y)] ∧ (f(X) ==Int 0 = true) ∧ X ∈ Y ∧ ⌈R⌉, R)`. X and Y are
+element variables, so where X ∈ Y holds `X #And Y` is the element X, and where it does not
+`X #And Y` is empty, and so are the applications over it and the condition. -/
+
+noncomputable def r0 : Rule := c.rules[0]'(by decide +kernel)
+/-- Γ's axiom of the rule. -/
+noncomputable def p0 : Kore.Pattern := prioRuleK c r0
+/-- Its parts `\rewrites{C}(L', r)`. -/
+noncomputable def q0 : Kore.KSort × Kore.Pattern × Kore.Pattern :=
+  (TieRuleLhs.rwParts p0).getD (KoreAML.R, .top KoreAML.R, .top KoreAML.R)
+kernel_rfl q0_eq : TieRuleLhs.rwParts p0 = some q0
+theorem ruleItems_eq : ruleItems c = [trAxiom [] [] ⟨0, "kernel", ⟨[], p0, []⟩⟩] := by kernel_rfl
+
+/-- X and Y, the rule's variables at Int, as Γ's axiom names them. -/
+def xP : Kore.Pattern := ev "VarV0" (srt "Int")
+def yP : Kore.Pattern := ev "VarV1" (srt "Int")
+def xV : Kore.EVar := evar "VarV0" (srt "Int")
+def yV : Kore.EVar := evar "VarV1" (srt "Int")
+/-- `f(a) ==Int 0` for the argument a. -/
+def eqZ (a : Kore.Pattern) : Kore.Pattern := ap "Lbl'UndsEqlsEqls'Int'Unds'" [ap "Lblf" [a], .dv (srt "Int") "0"]
+def tC : Kore.KSort := srt "GeneratedTopCell"
+/-- The condition at the top cell's sort: `t = true`. -/
+def eqTrue (t : Kore.Pattern) : Kore.Pattern := .equals (srt "Bool") tC t (.dv (srt "Bool") "true")
+/-- Γ's membership `X ∈ Y` of `pre`. -/
+def inXY : Kore.Pattern := .in (srt "Int") tC xP yP
+
+kernel_rfl C_eq : q0.1 = tC
+/-- Γ's left side: the term, the `requires` `f(X) ==Int 0 = true`, the membership `X ∈ Y`, `⌈R⌉`. -/
+theorem l0_eq : q0.2.1 = .and tC (TieRuleLhs.andHead q0.2.1 :: eqTrue (eqZ xP) :: inXY ::
+    (TieRuleLhs.andTail q0.2.1).drop 2) := by decide +kernel
+/-- The left side as the text writes it: the term and `f(X #And Y) ==Int 0 = true`. -/
+noncomputable def Ltext0 : Kore.Pattern := .and tC [TieRuleLhs.andHead q0.2.1, eqTrue (eqZ (.and (srt "Int") [xP, yP]))]
+noncomputable def fT0 : List VarKey := (freeOf [] (.rewrites q0.1 Ltext0 q0.2.2)).eraseDups
+
+/-- **The rule sentence is the item of `\rewrites{C}(Ltext, r)` at the table of Γ's axiom** (kernel). -/
+theorem rule_text0 : TiePair.renSeq (TieRuleLhs.itemAt (tableOf [] p0) fT0 q0.1 Ltext0 q0.2.2) [] = some (trS U.ax155).pat := by
+  decide +kernel
+theorem fT_free0 : fT0.all (fun k => (freeOf [] p0).eraseDups.contains k) = true := by decide +kernel
+theorem x_free : evarKey xV ∈ (freeOf [] p0).eraseDups ∧ evarKey yV ∈ (freeOf [] p0).eraseDups := by decide +kernel
+theorem x_sort : xV.sort = srt "Int" ∧ yV.sort = srt "Int" := ⟨rfl, rfl⟩
+kernel_rfl xP_eq : xP = .var (.evar xV)
+kernel_rfl yP_eq : yP = .var (.evar yV)
+
+theorem top_name (H : HookParams) : (cH H).sortName topCellSort = "GeneratedTopCell" :=
+  (by decide +kernel : c.sortName topCellSort = "GeneratedTopCell")
+
+section
+variable {M : Type} {I : Interpretation KoreAML.Sym M}
+
+/-- `sEquals` reads its operands only through the sets they denote. -/
+theorem sEquals_congrW {e : Valuation M} {S S' φ φ' ψ : P} (h : ∀ b, φ.interpret I e b ↔ φ'.interpret I e b) (m : M) :
+    (sEquals S S' φ ψ).interpret I e m ↔ (sEquals S S' φ' ψ).interpret I e m := by
+  unfold sEquals sFloor sIff sImp sOr sCeil
+  simp only [interp_sNot, interp_sAnd, interp_app, h]
+
+/-- `f(a) ==Int 0` reads `a` only through the set it denotes. -/
+theorem eqZ_congr {t : VarTable} {e : Valuation M} {a a' : Kore.Pattern}
+    (h : ∀ b, (tr ⟨t, []⟩ a).interpret I e b ↔ (tr ⟨t, []⟩ a').interpret I e b) (m : M) :
+    (tr ⟨t, []⟩ (eqZ a)).interpret I e m ↔ (tr ⟨t, []⟩ (eqZ a')).interpret I e m := by
+  unfold eqZ ap
+  simp only [tr_app0, trArgs_cons, trArgs_nil]
+  exact interp_app_congr (interp_app_congr (fun _ => Iff.rfl) (interp_app_congr (fun _ => Iff.rfl) h)) (fun _ => Iff.rfl) m
+
+/-- `X #And Y` is X where X and Y are one element. -/
+theorem and_xy {t : VarTable} {e : Valuation M}
+    (hxy : e.evalEvar (t.ev (evarKey xV)) = e.evalEvar (t.ev (evarKey yV))) (b : M) :
+    (tr ⟨t, []⟩ (.and (srt "Int") [xP, yP])).interpret I e b ↔ (tr ⟨t, []⟩ xP).interpret I e b := by
+  rw [interp_and (List.cons_ne_nil _ _), xP_eq, yP_eq]
+  simp only [List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp, forall_eq, tr, interp_evar]
+  constructor
+  · exact fun h => h.1
+  · intro h; exact ⟨h, h.trans hxy⟩
+end
+
+theorem inXY_tr (t : VarTable) : tr ⟨t, []⟩ inXY =
+    sIn (trSort t (srt "Int")) (trSort t tC) (.evar (t.ev (evarKey xV))) (.evar (t.ev (evarKey yV))) := by
+  unfold inXY; rw [tr, xP_eq, yP_eq, tr, tr]
+
+theorem eqTrue_tr (t : VarTable) (p : Kore.Pattern) : tr ⟨t, []⟩ (eqTrue p) =
+    sEquals (trSort t (srt "Bool")) (trSort t tC) (tr ⟨t, []⟩ p) (tr ⟨t, []⟩ (.dv (srt "Bool") "true")) := by
+  unfold eqTrue; rw [tr]
+
+/-- **Γ's left side of the rule is inside the text's**, at a valuation where the guards of Γ's
+axiom hold, in a model of definedness and the signature: `X ∈ Y` makes `X #And Y` the element X,
+so `f(X #And Y) ==Int 0` and `f(X) ==Int 0` denote one set. -/
+theorem left_sub (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hD : DefOK I)
+    (hc : I ⊧ᴵ ceilDefItem.pat) (hSig : I ⊧ᴵP ΓSig (cH H)) (e : Valuation M) (m : M)
+    (hg : ∀ k ∈ (freeOf [] p0).eraseDups, (guardOf (tableOf [] p0) k).interpret I e m) (a : M)
+    (h : (tr ⟨tableOf [] p0, []⟩ q0.2.1).interpret I e a) : (tr ⟨tableOf [] p0, []⟩ Ltext0).interpret I e a := by
+  haveI : OvlOK (cH H) := ovlOK_of_core (coreOKH H)
+  obtain ⟨σI, hσI1, hσI2⟩ := TieRhs.sortSing_sig hD hSig
+    (Nat.lt_of_lt_of_le (by decide : Srt.int < nRegSorts) (Nat.le_add_right _ _) : Srt.int < nRegSorts + (cH H).sortNames.length)
+  rw [int_name] at hσI1
+  obtain ⟨σ, hσ1, hσ2⟩ := TieRhs.sortSing_sig hD hSig (top_numbered (c := cH H))
+  rw [top_name] at hσ1
+  have hSI : ∀ b, (trSort (tableOf [] p0) (srt "Int")).interpret I e b ↔ b = σI := by rw [trSort_srt]; exact hσI1
+  have hSC : ∀ b, (trSort (tableOf [] p0) tC).interpret I e b ↔ b = σ := by unfold tC; rw [trSort_srt]; exact hσ1
+  rw [l0_eq, interp_and (List.cons_ne_nil _ _)] at h
+  have hx : Inh I σI (e.evalEvar ((tableOf [] p0).ev (evarKey xV))) :=
+    (interp_inhOf_of hSI).mp ((TieRuleLhs.guard_evarKey hD).mp (hg _ x_free.1))
+  have hin := h inXY (by simp)
+  rw [inXY_tr] at hin
+  have hxy := ((interp_sIn_evar_svin hD hc hSI hSC hσI2 hσ2 hx a).mp hin).1
+  unfold Ltext0
+  rw [interp_and (List.cons_ne_nil _ _)]
+  intro p hp
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hp
+  rcases hp with hp | hp
+  · rw [hp]; exact h _ (List.mem_cons_self ..)
+  · rw [hp]
+    have hr := h (eqTrue (eqZ xP)) (by simp)
+    rw [eqTrue_tr] at hr ⊢
+    exact (sEquals_congrW (fun b => eqZ_congr (and_xy hxy) b) a).mpr hr
+
+/-- **W1 for the rule, and the converse for `ruleItems`**: Γ's one rule item is a consequence of
+sentence 155 with the signature, for every H. -/
+theorem rule_from_text (H : HookParams) :
+    ∀ it ∈ ruleItems (cH H), (TiePair.Texts [(trS U.ax155).pat] ∪ ΓSig (cH H)) ⊧ it.pat := by
+  intro it hit M _ I hI
+  rw [TiePair.ruleItems_withHooks, ruleItems_eq] at hit
+  have hD : DefOK I := TiePair.defOK_texts fun φ hφ => hI φ (Or.inl hφ)
+  have hSig : I ⊧ᴵP ΓSig (cH H) := fun φ hφ => hI φ (Or.inr hφ)
+  have hc : I ⊧ᴵ ceilDefItem.pat := hSig _ (Or.inl (Or.inl ⟨_, sig_ceilDef, rfl⟩))
+  rw [List.mem_singleton.mp hit]
+  exact TieRuleLhs.rule_w1 hD q0_eq rule_text0 fT_free0 (hI _ (Or.inl (Or.inl (List.mem_singleton_self _))))
+    fun e m hg a ha => left_sub H hD hc hSig e m hg a ha
+
+theorem bool_name (H : HookParams) : (cH H).sortName Srt.bool = "Bool" := (by decide +kernel : c.sortName Srt.bool = "Bool")
+theorem sortOf_true (H : HookParams) : (cH H).sortOf (KCore.bool true) = some Srt.bool := by
+  rw [Semantics.sortOf_withHooks _ _ (by decide +kernel : ∀ k ∈ c.params, k.raw = false)]; decide +kernel
+theorem den_true (H : HookParams) : den (cH H) (KCore.bool true) = KoreAML.sym (.dv "true") ⬝ KoreAML.sym (.sort "SortBool") := by
+  show den c (KCore.bool true) = _; decide +kernel
+
+/-- **The text's left side with `⌈R⌉` is inside Γ's**, at a valuation where the guards of Γ's
+axiom hold, in a model of definedness, the signature and the domains: `f(X #And Y) ==Int 0 = true`
+makes `f(X #And Y) ==Int 0` hold of the element `true` of Bool, so `X #And Y` has an element and X
+and Y are one, which is the membership `X ∈ Y`; then the two conditions denote one set. The
+conjuncts after the membership (`⌈R⌉`) are the hypothesis `hR`. -/
+theorem left_sup (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hD : DefOK I)
+    (hc : I ⊧ᴵ ceilDefItem.pat) (hSig : I ⊧ᴵP ΓSig (cH H)) (hDom : I ⊧ᴵP ΓDomains (cH H)) (e : Valuation M) (m : M)
+    (hg : ∀ k ∈ (freeOf [] p0).eraseDups, (guardOf (tableOf [] p0) k).interpret I e m) (a : M)
+    (h : (tr ⟨tableOf [] p0, []⟩ Ltext0).interpret I e a)
+    (hR : ∀ x ∈ (TieRuleLhs.andTail q0.2.1).drop 2, (tr ⟨tableOf [] p0, []⟩ x).interpret I e a) :
+    (tr ⟨tableOf [] p0, []⟩ q0.2.1).interpret I e a := by
+  haveI : OvlOK (cH H) := ovlOK_of_core (coreOKH H)
+  obtain ⟨σI, hσI1, hσI2⟩ := TieRhs.sortSing_sig hD hSig
+    (Nat.lt_of_lt_of_le (by decide : Srt.int < nRegSorts) (Nat.le_add_right _ _) : Srt.int < nRegSorts + (cH H).sortNames.length)
+  rw [int_name] at hσI1
+  obtain ⟨σB, hσB1, hσB2⟩ := TieRhs.sortSing_sig hD hSig
+    (Nat.lt_of_lt_of_le (by decide : Srt.bool < nRegSorts) (Nat.le_add_right _ _) : Srt.bool < nRegSorts + (cH H).sortNames.length)
+  rw [bool_name] at hσB1
+  obtain ⟨σ, hσ1, hσ2⟩ := TieRhs.sortSing_sig hD hSig (top_numbered (c := cH H))
+  rw [top_name] at hσ1
+  have hSI : ∀ b, (trSort (tableOf [] p0) (srt "Int")).interpret I e b ↔ b = σI := by rw [trSort_srt]; exact hσI1
+  have hSB : ∀ b, (trSort (tableOf [] p0) (srt "Bool")).interpret I e b ↔ b = σB := by rw [trSort_srt]; exact hσB1
+  have hSC : ∀ b, (trSort (tableOf [] p0) tC).interpret I e b ↔ b = σ := by unfold tC; rw [trSort_srt]; exact hσ1
+  have hx : Inh I σI (e.evalEvar ((tableOf [] p0).ev (evarKey xV))) :=
+    (interp_inhOf_of hSI).mp ((TieRuleLhs.guard_evarKey hD).mp (hg _ x_free.1))
+  unfold Ltext0 at h
+  rw [interp_and (List.cons_ne_nil _ _)] at h
+  have h0 := h _ (List.mem_cons_self ..)
+  have h1 := h (eqTrue (eqZ (.and (srt "Int") [xP, yP]))) (by simp)
+  rw [eqTrue_tr] at h1
+  have h1' := (interp_sEquals hD hc hSB hSC hσB2 hσ2 a).mp h1
+  -- the element `true` of Bool
+  obtain ⟨t0, ht0, ht0s⟩ := TieRhs.den_single_dom hD hDom (sortOf_true H) e
+  rw [den_true] at ht0
+  rw [bool_name] at ht0s
+  have htr : (tr ⟨tableOf [] p0, []⟩ (.dv (srt "Bool") "true")).interpret I e t0 := by
+    rw [tr_dv]; exact (ht0 t0).mpr rfl
+  have hφ := (h1'.2 t0 ((interp_inhOf_of (S := sortP "Bool") hσB1).mp ht0s)).mpr htr
+  -- `X #And Y` has an element
+  unfold eqZ ap at hφ
+  simp only [tr_app0, trArgs_cons, trArgs_nil, interp_app] at hφ
+  obtain ⟨_, _, ⟨_, _, -, ⟨_, z, -, hz, -⟩, -⟩, -, -⟩ := hφ
+  rw [interp_and (List.cons_ne_nil _ _), xP_eq, yP_eq] at hz
+  have hzx := hz _ (List.mem_cons_self ..)
+  have hzy := hz _ (List.mem_cons_of_mem _ (List.mem_cons_self ..))
+  rw [tr, interp_evar] at hzx hzy
+  have hxy : e.evalEvar ((tableOf [] p0).ev (evarKey xV)) = e.evalEvar ((tableOf [] p0).ev (evarKey yV)) :=
+    hzx.symm.trans hzy
+  rw [l0_eq, interp_and (List.cons_ne_nil _ _)]
+  intro p hp
+  simp only [List.mem_cons] at hp
+  rcases hp with hp | hp | hp | hp
+  · rw [hp]; exact h0
+  · rw [hp, eqTrue_tr]
+    exact (sEquals_congrW (fun b => eqZ_congr (and_xy hxy) b) a).mp h1
+  · rw [hp, inXY_tr]
+    exact (interp_sIn_evar_svin hD hc hSI hSC hσI2 hσ2 hx a).mpr ⟨hxy, h1'.1⟩
+  · exact hR p hp
+
+/-- Sentence 155 is the item of the text's left side at the table of Γ's axiom. -/
+theorem trS155 : (trS U.ax155).pat = TieRuleLhs.itemAt (tableOf [] p0) fT0 q0.1 Ltext0 q0.2.2 := by
+  have h := rule_text0
+  simp only [TiePair.renSeq, Option.some.injEq] at h
+  exact h.symm
+
+theorem free_sub : ∀ k ∈ (freeOf [] p0).eraseDups, k ∈ fT0 := by decide +kernel
+
+/-- **W2 for the rule, with the guard**: in a model of Γ, sentence 155 holds at each valuation at
+which `⌈R⌉` (the conjuncts of Γ's left side after the membership) holds wherever the text's left
+side holds, for every H. -/
+theorem rule_w2 (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP Γ (cH H))
+    (e : Valuation M)
+    (hR : ∀ a, (tr ⟨tableOf [] p0, []⟩ Ltext0).interpret I e a →
+      ∀ x ∈ (TieRuleLhs.andTail q0.2.1).drop 2, (tr ⟨tableOf [] p0, []⟩ x).interpret I e a) (m : M) :
+    (trS U.ax155).pat.interpret I e m := by
+  haveI : OvlOK (cH H) := ovlOK_of_core (coreOKH H)
+  have hD := defOK hI
+  have hc : I ⊧ᴵ ceilDefItem.pat := sat_sigItem hI (sig_ceilDef (c := cH H))
+  have hSig : I ⊧ᴵP ΓSig (cH H) := fun φ hφ => sat_sig hI hφ
+  have hDom : I ⊧ᴵP ΓDomains (cH H) := fun φ hφ => sat_dom hI hφ
+  have hit : trAxiom [] [] ⟨0, "kernel", ⟨[], p0, []⟩⟩ ∈ ruleItems (cH H) := by
+    rw [TiePair.ruleItems_withHooks, ruleItems_eq]; exact List.mem_singleton_self _
+  have hg : I ⊧ᴵ (trAxiom [] [] ⟨0, "kernel", ⟨[], p0, []⟩⟩).pat :=
+    hI _ (Or.inl (Or.inr (Or.inl ⟨_, hit, rfl⟩)))
+  rw [TieRuleLhs.rwParts_eq q0_eq, TieRuleLhs.trAxiom_rule] at hg
+  rw [trS155]
+  exact TieRuleLhs.lhs_entails hD free_sub hg e m fun hgs a ha =>
+    left_sup H hD hc hSig hDom e m hgs a ha (hR a ha)
+
+
 end KCore.TieE3MlReqAndUnderApp
 
 #check @KCore.TieE3MlReqAndUnderApp.noRaw
@@ -760,3 +997,8 @@ end KCore.TieE3MlReqAndUnderApp
 #print axioms KCore.TieE3MlReqAndUnderApp.owed_rules
 #print axioms KCore.TieE3MlReqAndUnderApp.owed_clauses
 #print axioms KCore.TieE3MlReqAndUnderApp.openDecidedH
+#print axioms KCore.TieE3MlReqAndUnderApp.rule_text0
+#print axioms KCore.TieE3MlReqAndUnderApp.left_sub
+#print axioms KCore.TieE3MlReqAndUnderApp.left_sup
+#print axioms KCore.TieE3MlReqAndUnderApp.rule_from_text
+#print axioms KCore.TieE3MlReqAndUnderApp.rule_w2
