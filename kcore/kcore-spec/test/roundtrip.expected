@@ -162,8 +162,10 @@ differs f2-examples/e3-ml-req-or.kompile.kore
 differs f2-examples/e3-ml-req-top.kompile.kore
 differs f2-examples/e3-ml-rule-lhs-exists.kompile.kore
 differs f2-examples/e3-ml-rule-lhs-implies.kompile.kore
+differs f2-examples/e3-ml-rule-lhs-or-rhs-and.kompile.kore
 differs f2-examples/e3-ml-rule-lhs-or.kompile.kore
 differs f2-examples/e3-ml-rule-lhs-top.kompile.kore
+differs f2-examples/e3-ml-rule-rhs-and-fn.kompile.kore
 differs f2-examples/e3-ml-rule-rhs-or.kompile.kore
 differs f2-examples/e3-ml.kompile.kore
 differs f2-examples/e3-param-cases.kompile.kore
