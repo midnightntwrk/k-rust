@@ -726,7 +726,7 @@ partition the 263 sentences; what holds of a class is its own theorem, stated ov
 - function functional: the `functional` sentence of a function of the definition (the 15 sort
   predicates), which Γ does not hold;
 - hooked functional: the `functional` sentence of a symbol Γ states by its graph (`freshInt`'s
-  among them, 83: the registry interprets it);
+  among them, 81: the registry interprets it);
 - collection law: associativity and the two units of `_List_`, `_Map_`, `_Set_`;
 - library: an equation or a lemma of the builtin library over symbols Γ has;
 - set idempotence: 61, refuted;

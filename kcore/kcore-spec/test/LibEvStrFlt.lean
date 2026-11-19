@@ -21,10 +21,11 @@
     same value exactly where the interpretation gives the count no value (`cr0_iff`), so under
     `HookParams.none` (`count294_none`) and under no interpretation meeting `silentTotal`
     (`count294_not_holds`, the function form fails). These are statements about the values of the
-    sides (`LibEv.val`), not about models of Γ: no refutation in models is stated. The argument
-    that Γ refutes the sentence for every interpretation does not go through, since the sides
-    agree at the empty needle under an interpretation giving the count no value there; so the
-    sentence is put in no refuted class.
+    sides (`LibEv.val`), not about models of Γ: no refutation in models is stated here. Γ alone
+    does not refute the sentence for every interpretation, since the sides agree at the empty
+    needle under an interpretation giving the count no value there. With the text's `functional`
+    sentence of the count (113), which asks a value there, it has no model for any H:
+    test/LibEvCountAllEmptyFlt.lean (`s294_113_refuted`).
   - 296 (`findChar`, 1891): its right side applies `#if` at Int, `ite{SortInt}`, a symbol Γ does
     not have here: the reader numbers an instance of `ite` from its use in a sentence it reads, a
     parameter symbol of the text (`Parse.iteName`, implemented by `kIte`), and no such sentence of

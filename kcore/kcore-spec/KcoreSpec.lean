@@ -419,3 +419,5 @@ import KcoreSpec.LibEvParamPT
 import KcoreSpec.TieAcct
 import KcoreSpec.TieNoJunkBlk
 import KcoreSpec.WitnessedGivers
+import KcoreSpec.KKNative
+import KcoreSpec.LibEvSortPred
