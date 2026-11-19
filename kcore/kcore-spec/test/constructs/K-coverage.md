@@ -31,14 +31,14 @@ Nested entries by status:
 |---|---|---|---|---|---|---|---|---|
 | E1 | 8 | 3 | 0 | 0 | 0 | 5 | 0 | 0 |
 | E2 | 63 | 9 | 0 | 1 | 0 | 53 | 0 | 0 |
-| E3 | 86 | 41 | 0 | 2 | 0 | 43 | 0 | 0 |
+| E3 | 86 | 42 | 0 | 2 | 0 | 42 | 0 | 0 |
 | E4 | 54 | 20 | 0 | 4 | 0 | 30 | 0 | 0 |
 | E5 | 70 | 36 | 1 | 2 | 0 | 31 | 0 | 0 |
 | E6 | 35 | 9 | 2 | 0 | 0 | 24 | 0 | 0 |
 | E7 | 9 | 4 | 1 | 0 | 0 | 4 | 0 | 0 |
 | E8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 36 | 16 | 0 | 2 | 1 | 17 | 0 | 0 |
-| all | 361 | 138 | 4 | 11 | 1 | 207 | 0 | 0 |
+| all | 361 | 139 | 4 | 11 | 1 | 206 | 0 | 0 |
 
 Refused rows by class:
 
@@ -61,20 +61,20 @@ Refused nested entries by class:
 |---|---|---|---|---|---|
 | E1 | 5 | 1 | 0 | 1 | 3 |
 | E2 | 53 | 4 | 0 | 1 | 48 |
-| E3 | 43 | 14 | 0 | 25 | 4 |
+| E3 | 42 | 14 | 0 | 24 | 4 |
 | E4 | 30 | 14 | 8 | 0 | 8 |
 | E5 | 31 | 13 | 2 | 2 | 14 |
 | E6 | 24 | 5 | 2 | 0 | 17 |
 | E7 | 4 | 0 | 0 | 0 | 4 |
 | E8 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 17 | 8 | 4 | 0 | 5 |
-| all | 207 | 59 | 16 | 29 | 103 |
+| all | 206 | 59 | 16 | 28 | 103 |
 
-Supported entries (rows and nested): 972; 14 of them have an owed fact and are counted by their best fixture: **13 proved** (the owed fact proved on a fixture the entry names: these count as supported under the headline statements), 0 open and 1 false (counted apart: the headline statements' hypothesis is not shown on their fixtures). The other 958 have no owed fact.
+Supported entries (rows and nested): 973; 14 of them have an owed fact and are counted by their best fixture: **13 proved** (the owed fact proved on a fixture the entry names: these count as supported under the headline statements), 0 open and 1 false (counted apart: the headline statements' hypothesis is not shown on their fixtures). The other 959 have no owed fact.
 
 E6 library rows by their `e6_tie` (test/constructs/e6map.py; rows-header.toml): 480, of which 199 tied, 7 of no direction (the tie's no-direction class, owed-sentence rule item 7: never tied, counted apart), 9 refuted and 265 uncovered.
 
-## Entries of class R-c (39)
+## Entries of class R-c (38)
 
 Each names the notion the kernel lacks, the cone declaration that would change, and the ticket or unit that supports it (`unit`, checked by `units.py`).
 
@@ -88,7 +88,6 @@ Each names the notion the kernel lacks, the cone declaration that would change, 
 | E3 | `ML-SYNTAX:Sort::="#Top"` | cases[2] | refused |  | KCore.Semantics.holds (read by coreOK through rulesPlain/heldOccs and memHeld) | SEM.held-append | R-5 |
 | E3 | `ML-SYNTAX:Sort::="#Not" "(" Sort ")"` | row | refused |  | none (reader only): the connective goes to Rule.pre or Rule.post | RDR.rule-conn-wire | CN-3 R3 (e2: L-7, \`pre := not (exMatch ..)\`; R-5 as \`?Z\` with \`post\`); e3 (\`Clause.pre\`) |
 | E3 | `ML-SYNTAX:Sort2::="#Ceil" "(" Sort1 ")"` | row | refused |  | none (reader only): the connective goes to Rule.pre or Rule.post | RDR.rule-lhs-and | CN-3 R3 (e2: L-9 into \`Rule.pre\`, R-4 into \`Rule.post\`); e3 (\`Clause.pre\`, \`Clause.post\`); P1 (e1: C-2 \`req := false\`, reader only) |
-| E3 | `ML-SYNTAX:Sort2::="#Ceil" "(" Sort1 ")"` | cases[2] | refused |  |  | RDR.rule-lhs-and | L-9 |
 | E3 | `ML-SYNTAX:Sort2::="{" Sort1 "#Equals" Sort1 "}"` | row | refused |  | none (reader only): the connective goes to Rule.pre or Rule.post | RDR.rule-lhs-and | CN-3 P1 (e1: R-1, FR-1 as \`ens\`, reader only); R3 (e2: \`Cond.equals\` in \`pre\`, \`post\`); e3 |
 | E3 | `ML-SYNTAX:Sort2::="{" Sort1 "#Equals" Sort1 "}"` | cases[2] | refused |  |  | RDR.rule-lhs-and | L-5 |
 | E3 | `ML-SYNTAX:Sort::=Sort "#And" Sort` | row | refused |  | none (reader only): the connective goes to Rule.pre or Rule.post | RDR.rule-lhs-and | CN-3 P1 (e1: R-1, R-2, FR-1, FR-2 as \`ens\`, C-1 as andBool, reader only); R3 (e2: L-5, L-6 into \`Rule.pre\`, R-4 into \`Rule.post\`); e3 (FR-4) |
@@ -537,7 +536,7 @@ Not core:
 | `ML-SYNTAX:Sort2::="#Ceil" "(" Sort1 ")"` | refused | R-c | a predicate is the whole carrier or nothing, so a term t conjoined with it on a rule's left side under applications denotes C[t] where the predicate holds and nothing elsewhere (kk:t234-lhs-and-pred): the position holds t and the predicate is a conjunct of Rule.pre. Cond has ceil, so no cone declara… | none (reader only): the connective goes to Rule.pre or Rule.post | RDR.rule-lhs-and | e3-ml | no | no | fixtures/e3-ml-req-ceil: account \`1 read predicateAtBool [user]\`, \`parse: ok; wf true\`; test/Connectives.lean MlCeil; fixtures/e3-ml-rule-lhs-ceil: kompile.txt \`Illegal function symbol \_/Int\_ on LHS of rule\`; fixtures/e3-ml-rule-lhs-ceil-ctor: account \`1 read lhsAndCut [user]\`, \`coreOK: true; failin… |
 | cases[0]: a requires or ensures (a predicate at Bool) | supported |  |  |  |  |  |  |  | fixtures/e3-ml-req-ceil |
 | cases[1]: a rule's left side, #Ceil of a function application | refused | scope | go(X) #And #Ceil(1 /Int X) on a rule's left side states that the rule applies where 1 /Int X is defined; the function term is the subject of a predicate, not a pattern to match, so the aside of k/docs/user\_manual.md:2214 (functions on a rule's left side) does not reach it, and no passage excludes it… |  | none (scope): rejected | e3-ml-rule-lhs-ceil |  |  | fixtures/e3-ml-rule-lhs-ceil/kompile.txt: exit 113, "[Error] Compiler: Illegal function symbol \_/Int\_ on LHS of rule. Consider adding \`simplification\` attribute to the rule if this is intended." (K 7.1.337, --backend haskell, default options); fixtures/e8-llvm-e3-ml-rule-lhs-ceil/kompile.txt: --back… |
-| cases[2]: a rule's left side, #Ceil of constructors | refused | R-c |  |  | RDR.rule-lhs-and |  |  |  | fixtures/e3-ml-rule-lhs-ceil-ctor (go(X) #And #Ceil(go(X)) => done): go(i) steps to done at every integer i (test/PredFixtures.lean LhsAnd.Ceil.step) |
+| cases[2]: a rule's left side, #Ceil of constructors | supported |  | no C14 tie reads the text yet: test/PredFixtures.lean states the step at the semantics read, not for every H |  | RDR.rule-lhs-and | e3-ml-rule-lhs-ceil-ctor |  |  | fixtures/e3-ml-rule-lhs-ceil-ctor/account.txt (equal to a fresh account, 2026-11-19): \`1 read lhsAndCut [user]\`, \`sentence 310: lhsAndCut\`, \`stage refusals (of sentences classified read): 0\`, \`parse: ok; wf true; failing: []\`, \`coreOK: true; failing: []\`, \`refused by the account: 0\`; test/PredFixtur… |
 | `ML-SYNTAX:Sort2::="#Floor" "(" Sort1 ")"` | refused | R-a | a quantifier or a \\floor of a term over a sort other than Bool: its truth at given values depends on which elements the sort has, which the reader does not decide while reading a sentence (Semantics.confined is decided on the read definition); refused openExtent with the sort (CN-3 section 5). Of pr… | none (refused on principle, openExtent) | none (R-a): a quantifier or \\floor of a term over an unconfined sort: its truth at given values depends on which elements the sort has, which no sentence of the text states (designs/CN-3-merged-constructs.md section 5, openExtent) | e3-ml | no | no | Parse.term: \\floor of a term over a sort other than Bool refused openExtent with the sort; fixtures/e3-ml-floor-lhs: kompile.txt (kore-exec refuses it on a left side); fixtures/e3-ml: account \`4 inert simplification [user]\`, \`4 parameter lemma [user]\` |
 | cases[0]: \\floor of a term over a sort other than Bool | refused | R-a |  |  | none (R-a): a quantifier or \\floor of a term over an unconfined sort: its truth at given values depends on which elements the sort has, which no sentence of the text states (designs/CN-3-merged-constructs.md section 5, openExtent) |  |  |  | Parse.term (no fixture holds it outside [simplification]: e3-ml-floor-lhs is rejected by kore-exec) |
 | cases[1]: a requires or ensures (a predicate at Bool) | supported |  |  |  |  |  |  |  | Parse.isPred |
@@ -755,7 +754,7 @@ Not core:
 | `grammar:<pattern>::=<application-pattern>` | supported |  | Lexical and list productions and the node-forming productions with no meaning of their own (characters, identifiers, separators, \`&lt;sorts>\`, \`&lt;patterns>\`, \`&lt;attribute>\`, \`&lt;attributes>\`, \`&lt;symbol>\`, \`&lt;symbol-or-alias>\`, \`&lt;modules>\`, \`&lt;element-variable>\`, the three alternatives of \`&lt;pattern>\` that only… | none (reader only) |  | base |  |  | kore-lean KoreParser/Parser.lean reads the production into Kore.Pattern / Kore.Sentence (trusted base 2 of DONE-0 section 0); test/ConstructsE4.lean maps each tree constructor to a row |
 | `grammar:<pattern>::=<string-literal>` | supported |  | A string literal as a pattern is the argument form of attributes (\`Source{}("...")\`, \`priority{}("50")\`, \`hook{}("INT.add")\`), and the reader reads it there (attrStr?, KcoreSpec/Kore/Read.lean:21). kompile writes it nowhere else; elsewhere it is a text form outside R-12 and \`term\` refuses it (unkomp… | none (reader only) |  | base |  |  | Parse.lean:1240 (connective), :1264 (isUnkompiledForm), :1313 (term's last arm); KcoreSpec/Kore/Read.lean:21 (attrStr?); any fixture's kore.txt attribute lists |
 | cases[0]: argument of an attribute | supported |  |  |  |  |  |  |  |  |
-| cases[1]: in an axiom body | refused | scope | The KORE syntax document admits a string literal as a pattern (:166) and gives a string a role only as a domain value's argument (:210, a &lt;string-literal>, not a &lt;pattern>) and in attributes (:228, whose meaning it leaves to the implementation); it gives a bare string in an axiom body no meaning and… |  | none (scope): never written |  |  |  | fixtures/hw-scope-string/account.txt: \`unkompiledForm (string)\`; 0 of the 295 kompiled fixture texts and 0 of the 381 corpus texts hold a string literal outside an attribute list and a domain value (test/constructs/scope-count.txt); Parse.lean:1240, :1264, :1313 |
+| cases[1]: in an axiom body | refused | scope | The KORE syntax document admits a string literal as a pattern (:166) and gives a string a role only as a domain value's argument (:210, a &lt;string-literal>, not a &lt;pattern>) and in attributes (:228, whose meaning it leaves to the implementation); it gives a bare string in an axiom body no meaning and… |  | none (scope): never written |  |  |  | fixtures/hw-scope-string/account.txt: \`unkompiledForm (string)\`; 0 of the 506 kompiled fixture texts and 0 of the 381 corpus texts hold a string literal outside an attribute list and a domain value (test/constructs/scope-count.txt); Parse.lean:1240, :1264, :1313 |
 | `grammar:<patterns>::=<[pattern]-sep-by-[","]>` | supported |  | Lexical and list productions and the node-forming productions with no meaning of their own (characters, identifiers, separators, \`&lt;sorts>\`, \`&lt;patterns>\`, \`&lt;attribute>\`, \`&lt;attributes>\`, \`&lt;symbol>\`, \`&lt;symbol-or-alias>\`, \`&lt;modules>\`, \`&lt;element-variable>\`, the three alternatives of \`&lt;pattern>\` that only… | none (reader only) |  | base |  |  | kore-lean KoreParser/Parser.lean reads the production into Kore.Pattern / Kore.Sentence (trusted base 2 of DONE-0 section 0); test/ConstructsE4.lean maps each tree constructor to a row |
 | `grammar:<variable-pattern>::=<element-variable>` | supported |  |  |  |  | base | yes | yes | K-coverage.md A.2 element variable |
 | `grammar:<variable-pattern>::=<set-variable>` | refused | R-a | A set variable ranges over sets of values. A sentence holding one is read through its instances at single elements where they entail it: a function equation of the \\in form whose set variable is in no right side, requires or ensures (its memberships dropped: some set holds the arguments), and a rewr… | none (reader only): Rule.exs and Rule.post, which the kernel has, carry the reading of the rewrite axiom | none (R-a): the sentence at a larger set is not entailed by its instance at a smaller one, so its truth reads every subset of the sort (designs/CN-4b section 13, setVariable) | e3-setvar-rewrite-req | yes | yes | fixtures/e3-setvar-rewrite-req/account.txt: \`setVariable (VarS: in the requires: its truth at a larger set is not entailed by its truth at a smaller one, so the sentence reads every subset of the sort)\`; fixtures/e3-setvar-read/account.txt: \`setVariable (VarS: in the right side, the requires, the en… |
@@ -851,7 +850,7 @@ Not core:
 | `tree:Pattern.app` | supported |  |  |  |  | base |  |  | K-coverage.md A.2 application |
 | `tree:Pattern.string` | supported |  | A string literal as a pattern is the argument form of attributes (\`Source{}("...")\`, \`priority{}("50")\`, \`hook{}("INT.add")\`), and the reader reads it there (attrStr?, KcoreSpec/Kore/Read.lean:21). kompile writes it nowhere else; elsewhere it is a text form outside R-12 and \`term\` refuses it (unkomp… | none (reader only) |  | base |  |  | Parse.lean:1240 (connective), :1264 (isUnkompiledForm), :1313 (term's last arm); KcoreSpec/Kore/Read.lean:21 (attrStr?); any fixture's kore.txt attribute lists |
 | cases[0]: argument of an attribute | supported |  |  |  |  |  |  |  |  |
-| cases[1]: in an axiom body | refused | scope | The KORE syntax document admits a string literal as a pattern (:166) and gives a string a role only as a domain value's argument (:210, a &lt;string-literal>, not a &lt;pattern>) and in attributes (:228, whose meaning it leaves to the implementation); it gives a bare string in an axiom body no meaning and… |  | none (scope): never written |  |  |  | fixtures/hw-scope-string/account.txt: \`unkompiledForm (string)\`; 0 of the 295 kompiled fixture texts and 0 of the 381 corpus texts hold a string literal outside an attribute list and a domain value (test/constructs/scope-count.txt); Parse.lean:1240, :1264, :1313 |
+| cases[1]: in an axiom body | refused | scope | The KORE syntax document admits a string literal as a pattern (:166) and gives a string a role only as a domain value's argument (:210, a &lt;string-literal>, not a &lt;pattern>) and in attributes (:228, whose meaning it leaves to the implementation); it gives a bare string in an axiom body no meaning and… |  | none (scope): never written |  |  |  | fixtures/hw-scope-string/account.txt: \`unkompiledForm (string)\`; 0 of the 506 kompiled fixture texts and 0 of the 381 corpus texts hold a string literal outside an attribute list and a domain value (test/constructs/scope-count.txt); Parse.lean:1240, :1264, :1313 |
 | `tree:Pattern.top` | supported |  |  |  |  | base | yes | yes | K-coverage.md A.2 \\top |
 | `tree:Pattern.bottom` | supported |  |  |  |  | base | yes | yes | K-coverage.md A.2 \\bottom |
 | `tree:Pattern.not` | supported |  |  |  |  | base | yes | yes | K-coverage.md A.2 \\not |

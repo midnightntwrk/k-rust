@@ -4450,6 +4450,15 @@ structure ScopeCount where
   /-- axioms without `simplification` of the form `\equals(f(…), _)` (under an `\implies` or not)
   with a set variable under the application of f -/
   svarEqn : Nat := 0
+  /-- axioms without `simplification` or `symbol-overload` of the form `\equals(c(…), r)` (under an
+  `\implies` or not), c a symbol the text declares `constructor`, r (the first conjunct where it is
+  an `\and`) no application of such a symbol: an equation headed by a constructor -/
+  ctorEqn : Nat := 0
+  /-- axioms `∃B. (φ₁ ∧ … ∧ φₙ)`, n ≥ 2, one conjunct equating an application to B
+  (`Parse.existentialAxiom?`) -/
+  existEqn : Nat := 0
+  /-- axioms carrying `smt-lemma` whose pattern holds a `\rewrites` -/
+  smtRewrites : Nat := 0
 
 partial def scopePat (c : ScopeCount) (p : Kore.Pattern) : ScopeCount :=
   let sub := fun (c : ScopeCount) (ps : List Kore.Pattern) => ps.foldl scopePat c
@@ -4480,9 +4489,37 @@ def svarEqn (a : Kore.Axiom) : Bool :=
   | .implies _ _ (.equals _ _ (.app _ _ args) _) | .equals _ _ (.app _ _ args) _ => args.any hasSetVar
   | _ => false
 
-def scopeSentence (c : ScopeCount) : Kore.Sentence → ScopeCount
+partial def hasRewrites : Kore.Pattern → Bool
+  | .rewrites _ _ _ => true
+  | .app _ _ ps | .and _ ps | .or _ ps | .leftAssoc _ _ ps | .rightAssoc _ _ ps => ps.any hasRewrites
+  | .not _ q | .exist _ _ q | .forall _ _ q | .ceil _ _ q | .floor _ _ q | .mu _ q | .nu _ q
+  | .next _ q => hasRewrites q
+  | .implies _ a b | .iff _ a b | .equals _ _ a b | .in _ _ a b => hasRewrites a || hasRewrites b
+  | _ => false
+
+def scopeHasAttr (a : Kore.Axiom) (n : String) : Bool := a.attributes.any (·.head.ident.name == n)
+
+def ctorEqn (ctors : List String) (a : Kore.Axiom) : Bool :=
+  let isCtor := fun (p : Kore.Pattern) => match p with
+    | .app h _ _ => ctors.contains h.ident.name
+    | _ => false
+  let first := fun (r : Kore.Pattern) => match r with
+    | .and _ (q :: _) => q
+    | q => q
+  !scopeHasAttr a "simplification" && !scopeHasAttr a "symbol-overload" &&
+  match a.pattern with
+  | .implies _ _ (.equals _ _ l r) | .equals _ _ l r => isCtor l && !isCtor (first r)
+  | _ => false
+
+def scopeSentence (ctors : List String) (c : ScopeCount) : Kore.Sentence → ScopeCount
   | .alias a => scopePat { c with alias := c.alias + 1 } a.body
-  | .axiom a => scopePat (if svarEqn a then { c with svarEqn := c.svarEqn + 1 } else c) a.pattern
+  | .axiom a =>
+    let c := if svarEqn a then { c with svarEqn := c.svarEqn + 1 } else c
+    let c := if ctorEqn ctors a then { c with ctorEqn := c.ctorEqn + 1 } else c
+    let c := if (Parse.existentialAxiom? a).isSome then { c with existEqn := c.existEqn + 1 } else c
+    let c := if scopeHasAttr a "smt-lemma" && hasRewrites a.pattern then
+      { c with smtRewrites := c.smtRewrites + 1 } else c
+    scopePat c a.pattern
   | .claim a => scopePat c a.pattern
   | _ => c
 
@@ -4492,8 +4529,11 @@ def scopeCountCmd (koreFile : String) : IO UInt32 := do
   let .ok k := Kore.parseDefinition (← IO.FS.readFile koreFile) | IO.eprintln s!"{koreFile}: KORE read error"; return 1
   let pre := preludeModules.map (·.name)
   let ms := k.modules.filter fun m => !pre.contains m.name
-  let c := (ms.flatMap (·.sentences)).foldl scopeSentence {}
-  IO.println s!"modules={ms.length}\tiff={c.iff}\tmu={c.mu}\tnu={c.nu}\tnext={c.next}\tleftAssoc={c.leftAssoc}\trightAssoc={c.rightAssoc}\tstring={c.string}\talias={c.alias}\tsvarEqn={c.svarEqn}"
+  let ctors := (k.modules.flatMap (·.sentences)).filterMap fun s => match s with
+    | .symbol x => if x.attributes.any (·.head.ident.name == "constructor") then some x.symbol.ident.ident.name else none
+    | _ => none
+  let c := (ms.flatMap (·.sentences)).foldl (scopeSentence ctors) {}
+  IO.println s!"modules={ms.length}\tiff={c.iff}\tmu={c.mu}\tnu={c.nu}\tnext={c.next}\tleftAssoc={c.leftAssoc}\trightAssoc={c.rightAssoc}\tstring={c.string}\talias={c.alias}\tsvarEqn={c.svarEqn}\tctorEqn={c.ctorEqn}\texistEqn={c.existEqn}\tsmtRewrites={c.smtRewrites}"
   return 0
 
 /-! ## `kcore sentence-heads`: each sentence's kind, attribute heads, Source and Location -/
