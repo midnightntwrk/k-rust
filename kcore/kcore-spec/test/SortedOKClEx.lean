@@ -36,7 +36,8 @@ example (c : Semantics) : HypSoundModel c =
 
 example (c : Semantics) (cl : Clause) : c.clausePlainOpenEx cl =
     ((!cl.exs.isEmpty || cl.post.isTop) && c.clauseExOK cl && (cl.pre.isTop || !cl.needsWitness c) &&
-    (!cl.reqOpen || cl.reqClosed || cl.openCondVars.all fun i => (cl.vars[i]?.map c.confined).getD false)) := rfl
+    (!cl.reqOpen || cl.reqClosed || cl.openCondVars.all fun i => (cl.vars[i]?.map c.confined).getD false ||
+      memHeld c (varOccsList cl.pats) cl.pre i)) := rfl
 example (c : Semantics) : c.sortedOKClEx =
     (c.subsortsOK && c.fns.all (fun f => f.clauses.all fun cl =>
       c.clauseSortedOpen f (c.fns.map Fn.sig) cl && c.clausePlainOpenEx cl) &&
@@ -49,7 +50,8 @@ example (c : Semantics) : c.FnsNoExs → c.sortedOKClEx = c.sortedOKCl := Semant
 example (c : Semantics) : c.sortedOKCl = true → c.FnsNoExs := Semantics.fnsNoExs_of_sortedOKCl
 example (c : Semantics) (cl : Clause) : c.clausePlainOpenEx cl = true →
     c.clauseExOK cl = true ∧ (cl.exs = [] → cl.post = .top) ∧
-      (!cl.reqOpen || cl.reqClosed || cl.openCondVars.all fun i => (cl.vars[i]?.map c.confined).getD false) = true ∧
+      (!cl.reqOpen || cl.reqClosed || cl.openCondVars.all fun i => (cl.vars[i]?.map c.confined).getD false ||
+      memHeld c (varOccsList cl.pats) cl.pre i) = true ∧
       (cl.pre ≠ .top → cl.needsWitness c = false) := Semantics.clausePlainOpenEx_parts
 
 /-- The two bundles differ by `FnsNoExs` exactly: `sortedOKCl` is `sortedOKClEx` with no clause
