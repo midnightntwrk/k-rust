@@ -109,10 +109,10 @@ theorem neg_of_coreCl (hI : I ⊧ᴵP Γc c) (hok : c.sortedOKCl = true) (hsr : 
   rcases List.mem_append.mp hfn with hu | hp
   · obtain ⟨hs, hpl⟩ := (Semantics.sortedOKCl_parts hok).2.1 fn hu cl hcl
     obtain ⟨hpats, -, hreqS, -, -⟩ := Semantics.clauseSortedOpen_parts hs
-    obtain ⟨-, -, hconj, hnw⟩ := Semantics.clausePlainOpen_partsP hpl
+    obtain ⟨-, -, hconj, -⟩ := Semantics.clausePlainOpen_partsP hpl
     exact exclEmptyCl_ofCl hI (namesNumbered_spec hnn) hg hsc hph hcso hcs hph' hcv
       (Semantics.clauseSortedOpen_pats_nf hs)
-      (Semantics.clauseSortedOpen_preOK hs) (fun hne => ⟨hpreR fn hfn cl hcl hne, hnw hne⟩) hreqS hconj
+      (Semantics.clauseSortedOpen_preOK hs) (hpreR fn hfn cl hcl) hreqS hconj
       (readsConfined_of_openCl hu hcl)
       (fun hany => by
         obtain ⟨i, hi, -⟩ := List.any_eq_true.mp hany
