@@ -36,10 +36,13 @@
   - Set idempotence (47): Γ with it has no model (`idem_refuted`).
   - Rewrite rule (1): Γ's rule is the text's read through the cut (`Parse.ovlCut`), the variable
     `Open0` in the place of `and(X, Y)` with `pre := Open0 ∈ and(X, Y)`. Γ's item is a
-    consequence of sentence 99 (`rule_from_text`, W1, every H), and in a model of the signature
-    where the right side is defined at the text's left side (`RightDefined`: the conjunct `⌈r⌉`
-    of every rule's item) the sentence and the item hold together (`rule_tie`, `rule_to_text`,
-    W2, every H; `KCore.TieRuleCut.openCut_tie`). This section is written by hand.
+    consequence of sentence 99 (`rule_from_text`, W1, every H), and in a model of Γ the sentence
+    and the item hold together (`rule_tie`, `rule_to_text`, W2, every H;
+    `KCore.TieRuleCut.openCut_tie`): the conjunct `⌈r⌉` of every rule's item holds of every
+    element of the text's left side (`RightDefined`, `right_defined`), the right side being built
+    of X, the counter cell's variable and the constructors `d`, `kseq`, `dotk`, `<k>` and
+    `<generatedTop>`, whose Cons-Fun items Γ has (`KCore.TieRuleCut.rightDefined_of_Γ`). This
+    section is written by hand.
   - Function functional: at values in every model of `Γc`, from the sort predicates' results, not
     from `FnHyp` (`fnFun_at_values`, `fnFun_account`).
   - Hooked functional, collection law, library: at values (no theorem here); open generator
@@ -714,10 +717,12 @@ theorem open_functional_not_item : !(consItemsK c).any (·.pat == (trS U.ax55).p
 `\rewrites(K[φ] ∧ ⊤, r)` at the table of Γ's axiom, its variables renamed (`rule_text`).
 `K[φ]` is the union of `K[b]` over the elements b of φ (`KoreAML.cut_sem`), so:
 the sentence gives Γ's item (`rule_from_text`, W1, every H); and Γ's item gives the sentence in a
-model of the signature where `⌈r⌉` holds of every element of the text's left side
-(`rule_to_text`, W2, every H, under `RightDefined`: the premise `⌈rhs ∧ ens⌉` every rule's item
-carries), every element of `and(X, Y)` being in B by `and`'s arity item (`and_inB`).
-`rule_tie`: the two as one statement. -/
+model of Γ (`rule_to_text`, W2, every H), every element of `and(X, Y)` being in B by `and`'s arity
+item (`and_inB`) and `⌈r⌉` (the premise `⌈rhs ∧ ens⌉` every rule's item carries) holding of every
+element of the text's left side (`RightDefined`, `right_defined`): the right side is
+`<generatedTop>(<k>(kseq(d(X), dotk)), C) ∧ ⊤`, built of variables of the text and of constructors
+whose Cons-Fun items Γ has, so it holds one element where the variables' guards hold
+(`TieRuleCut.rightDefined_of_Γ`). `rule_tie`: the two as one statement. -/
 
 noncomputable def r0 : Rule := c.rules[0]'(by decide +kernel)
 
@@ -836,12 +841,59 @@ def RightDefined {M : Type} (I : Interpretation KoreAML.Sym M) : Prop :=
     ∀ a, (tr ⟨tableOf [] p0, []⟩ Ltext).interpret I e a →
       (tr ⟨tableOf [] p0, []⟩ (.ceil q0.1 q0.1 q0.2.2)).interpret I e a
 
-/-- **The tie of the rule's sentence**: in a model of the signature where the right side is
-defined at the text's left side (`RightDefined`), the text's sentence 99 and Γ's rule item hold
-together, for every H. -/
-theorem rule_tie (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hD : DefOK I)
-    (hSig : I ⊧ᴵP ΓSig (cH H)) (hdef : RightDefined I) :
+/-- The term of the right side, `<generatedTop>(<k>(kseq(d(X), dotk)), C)`. -/
+noncomputable def rr : Kore.Pattern :=
+  match q0.2.2 with
+  | .and _ (p :: _) => p
+  | p => p
+
+/-- **The right side is `rr ∧ ⊤`**, of the sort of the top cell (kernel). -/
+theorem right_parts : q0.1 = srtOf c topSrt ∧ q0.2.2 = .and (srtOf c topSrt) [rr, .top (srtOf c topSrt)] := by
+  decide +kernel
+
+/-- The constructors of the right side, each with the name of its sort. -/
+def rightCtors : List (String × KoreAML.CtorSig) :=
+  [("GeneratedTopCell", ⟨"Lbl'-LT-'generatedTop'-GT-'", ["KCell", "GeneratedCounterCell"], "GeneratedTopCell"⟩),
+   ("KCell", ⟨"Lbl'-LT-'k'-GT-'", ["K"], "KCell"⟩),
+   ("K", ⟨"kseq", ["KItem", "K"], "K"⟩),
+   ("K", ⟨"dotk", [], "K"⟩),
+   ("KItem", ⟨"Lbld", ["B"], "KItem"⟩)]
+
+/-- Γ has the Cons-Fun item of each (kernel). -/
+theorem right_funs : TieRuleCut.funsInB c rightCtors = true := by decide +kernel
+
+/-- The right side's term is built of the text's variables and of those constructors, at arguments
+of their sorts (kernel). -/
+theorem right_built : TieRuleCut.builtB rightCtors fT rr "GeneratedTopCell" = true := by decide +kernel
+
+/-- **The premise of W2 holds in every model of Γ**, for every H: the right side holds one
+element where the guards of the text's variables hold, by the Cons-Fun items of its constructors. -/
+theorem right_defined (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
+    (hI : I ⊧ᴵP Γ (cH H)) : RightDefined I := by
+  intro e m hg a ha
+  haveI : OvlOK (cH H) := ovlOK_of_core (coreOKH H)
+  have hD := defOK hI
+  have hb : TieRuleCut.builtB rightCtors fT rr ((cH H).sortName topSrt) = true := by
+    rw [top_name]; exact right_built
+  have haT : (inhOf (trSort (tableOf [] p0) (srtOf (cH H) topSrt))).interpret I e a := by
+    have h1 := (interp_and (List.cons_ne_nil _ _)).mp ha (.top q0.1) (List.mem_cons_of_mem _ List.mem_cons_self)
+    have h2 : tr ⟨tableOf [] p0, []⟩ (.top q0.1) = sTop (trSort (tableOf [] p0) q0.1) := by rw [tr]
+    rw [h2, interp_sTop hD (by rw [sortTop_tr]; rfl)] at h1
+    rw [right_parts.1] at h1
+    exact h1
+  have h := TieRuleCut.rightDefined_of_Γ hI (top_numbered H)
+    ((TieRuleCut.funsInB_withHooks c H rightCtors).trans right_funs) hb e m hg a haT
+  rw [right_parts.1, right_parts.2]
+  exact h
+
+/-- **The tie of the rule's sentence**: in a model of Γ, the text's sentence 99 and Γ's rule item
+hold together, for every H. -/
+theorem rule_tie (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
+    (hI : I ⊧ᴵP Γ (cH H)) :
     (I ⊧ᴵ (trS U.ax99).pat) ↔ (I ⊧ᴵ (trAxiom [] [] ⟨0, "kernel", ⟨[], p0, []⟩⟩).pat) := by
+  have hD := defOK hI
+  have hSig : I ⊧ᴵP ΓSig (cH H) := fun φ hφ => sat_sig hI hφ
+  have hdef := right_defined H hI
   have hc : I ⊧ᴵ ceilDefItem.pat := hSig _ (Or.inl (Or.inl ⟨_, sig_ceilDef, rfl⟩))
   haveI : OvlOK (cH H) := ovlOK_of_core (coreOKH H)
   obtain ⟨σB, hσB1, hσB2⟩ := TieRhs.sortSing_sig hD hSig (b_numbered H)
@@ -859,15 +911,14 @@ theorem rule_tie (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation K
     exact (interp_inhOf_of (hB e)).mp h1
   · rw [List.mem_singleton.mp hq]; exact hdef e m hg a ha
 
-/-- **W2 for the rule**: Γ's rule item gives the text's sentence 99, in a model of the signature
-with `RightDefined`, for every H. -/
-theorem rule_to_text (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hD : DefOK I)
-    (hSig : I ⊧ᴵP ΓSig (cH H)) (hdef : RightDefined I) :
+/-- **W2 for the rule**: Γ's rule item gives the text's sentence 99 in a model of Γ, for every H. -/
+theorem rule_to_text (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
+    (hI : I ⊧ᴵP Γ (cH H)) :
     ∀ it ∈ ruleItems (cH H), (I ⊧ᴵ it.pat) → (I ⊧ᴵ (trS U.ax99).pat) := by
-  intro it hit hI
+  intro it hit hIt
   rw [TiePair.ruleItems_withHooks, ruleItems_eq] at hit
-  rw [List.mem_singleton.mp hit] at hI
-  exact (rule_tie H hD hSig hdef).mpr hI
+  rw [List.mem_singleton.mp hit] at hIt
+  exact (rule_tie H hI).mpr hIt
 
 end KCore.TieE2OpenRecHeld
 
