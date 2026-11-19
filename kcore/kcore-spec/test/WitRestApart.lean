@@ -1,6 +1,8 @@
 /-
-  The rows hooksApart.1, hooksApart.2 and predsApart.1 of test/witnesses.toml: no witness exists in
-  the no-model form, since each is implied by other leaf conditions of `coreOK`, for every semantics.
+  The rows hooksApart.1, hooksApart.2 and predsApart.1 of test/witnesses.toml: the first two are
+  implied by other leaf conditions of `coreOK`, for every semantics, so no witness exists in the
+  no-model form; predsApart.1 is implied by `idsOK` for every semantics whose functions of `c.fns`
+  are labelled apart.
   Run from the package root: `lake env lean -j1 test/WitRestApart.lean`.
 
   Kernel-checked here, for every semantics:
@@ -9,16 +11,19 @@
     the definition is one of `ctorSigs`, `isCtor_of_mem`).
   - `hooksApart2_of_fnsApart`: no function of the definition is named like an interpreted hook, where
     `fnsApart` holds (no function of `allFns`, the definition's among them, is a hook; `isHook_iff`).
-  - `predsApart_of_idsOK`: the functions evaluation reads are named apart, where `idsOK` holds. The
-    definition's functions are among its own symbols, which `idsOK` numbers `symBase, symBase + 1, …`
-    once each; the sort predicates are `isK`, `isKItem` and `predOf X` for X a sort below KItem: the
-    library's and the definition's sorts are apart and each once (`NamesApart.sorts_facts`), a
-    registry sort's predicate is the registry's (`regPred`: distinct for distinct sorts, below
-    `nRegSyms`, neither `isK` nor `isKItem`, decided over the registry's sorts), and an own sort,
-    numbered below `nRegSorts + sortNames.length` (`idsOK`'s first conjunct), has the predicate
+  - `predsApart_of_idsOK`: the functions evaluation reads are named apart, where `idsOK` holds and
+    the functions of `c.fns` are labelled apart. No function of `c.fns` bears a registry symbol
+    (`idsOK`), so none is `isK` or `isKItem`; the other sort predicates are `predOf X` for X a sort
+    below KItem that labels no function of `c.fns` (`sortPreds`): the library's and the
+    definition's sorts are apart and each once (`NamesApart.sorts_facts`), a registry sort's
+    predicate is the registry's (`regPred`: distinct for distinct sorts, below `nRegSyms`, neither
+    `isK` nor `isKItem`, decided over the registry's sorts), and an own sort, numbered below
+    `nRegSorts + sortNames.length` (`idsOK`'s first conjunct), has the predicate
     `X - nRegSorts + nRegSyms`, below `symBase`.
-  So the three conjuncts can be dropped from `coreOK` without changing what it accepts; they stay
-  as stated (`hooksApart` and `predsApart` are also read by `Definition.namesOK`, outside `coreOK`).
+  So the two hooksApart conjuncts can be dropped from `coreOK` without changing what it accepts;
+  predsApart.1 cannot: two functions of `c.fns` under one own sort's predicate number meet `idsOK`
+  (test/PredFnCone.lean, `Twice`). They stay as stated (`hooksApart` and `predsApart` are also read
+  by `Definition.namesOK`, outside `coreOK`).
 -/
 import KcoreSpec
 
@@ -80,22 +85,44 @@ theorem aux_inj (X Y A B : Nat) (h1 : ¬ X < A) (h2 : ¬ Y < A) (h : X - A + B =
 theorem aux_cross (X A B : Nat) (_h1 : ¬ X < A) (h : X - A + B < B) : False := by omega
 theorem aux_ge (B n k : Nat) (hk : k < B) (h : B + n ≤ k) : False := by omega
 
+/-- The predicate `sortPreds` builds for the sort `X`: `predOf X` where it labels no function of
+`c.fns`. -/
+def predIn (c : Semantics) (X : Srt) : Option Sym := (predOf X).filter fun p => !c.fns.any (·.label == p)
+
 theorem sortPreds_labels (c : Semantics) :
-    c.sortPreds.map (·.label) = isK :: isKItem :: c.sortsBelowKItem.filterMap predOf := by
+    c.sortPreds.map (·.label) = isK :: isKItem :: c.sortsBelowKItem.filterMap (predIn c) := by
   simp only [Semantics.sortPreds, List.map_cons, List.map_filterMap, List.cons_append, List.nil_append]
   congr 2
   congr 1
   funext X
-  cases predOf X <;> rfl
+  unfold predIn
+  cases (predOf X).filter fun p => !c.fns.any (·.label == p) <;> rfl
 
-theorem predsApart_of_idsOK {c : Semantics} (h : c.idsOK = true) : c.predsApart = true := by
+/-- A predicate `sortPreds` builds is `predOf`'s and labels no function of `c.fns`. -/
+theorem predIn_some {c : Semantics} {X : Srt} {p : Sym} (h : predIn c X = some p) :
+    predOf X = some p ∧ ∀ f ∈ c.fns, f.label ≠ p := by
+  unfold predIn at h
+  cases hX : predOf X with
+  | none => rw [hX] at h; cases h
+  | some a =>
+    rw [hX] at h
+    simp only [Option.filter] at h
+    split at h
+    · rename_i hq
+      cases h
+      refine ⟨rfl, fun f hf heq => ?_⟩
+      rw [Bool.not_eq_true', List.any_eq_false] at hq
+      exact hq f hf (by rw [heq]; exact beq_self_eq_true _)
+    · cases h
+
+theorem predsApart_of_idsOK {c : Semantics} (h : c.idsOK = true)
+    (hfn : nodup (c.fns.map (·.label)) = true) : c.predsApart = true := by
   have hnd := (NamesApart.sorts_facts h).1
   have hlt := NamesApart.lib_sorts_lt (NamesApart.lib_ok h)
   have hids := h
   unfold Semantics.idsOK at hids
   simp only [Bool.and_eq_true, beq_iff_eq] at hids
   have hown : c.ownSorts = List.range' nRegSorts c.sortNames.length := hids.1.1.1
-  have hsyms : c.ownSyms = List.range' c.symBase (c.symNames.length - c.sortNames.length) := hids.1.1.2
   -- the sorts below KItem: a registry sort, or an own sort numbered below `nRegSorts + n`
   have hS : ∀ X ∈ c.sortsBelowKItem, nRegSorts ≤ X → X < nRegSorts + c.sortNames.length := by
     intro X hX hge
@@ -147,26 +174,21 @@ theorem predsApart_of_idsOK {c : Semantics} (h : c.idsOK = true) : c.predsApart 
       have h1 := Option.some.inj hpX
       have h2 := Option.some.inj hpY
       exact aux_inj X Y nRegSorts nRegSyms hXr hYr (h1.trans h2.symm)
-  -- the definition's functions: once each, from `symBase` on
-  have hF : (c.fns.map (·.label)).Nodup ∧ ∀ l ∈ c.fns.map (·.label), c.symBase ≤ l := by
-    have hn : c.ownSyms.Nodup := by rw [hsyms]; exact List.nodup_range' ..
-    have hm : ∀ l ∈ c.fns.map (·.label), l ∈ c.ownSyms := fun l hl => by
-      simp only [Semantics.ownSyms, List.mem_append]; exact .inl (.inl (.inr hl))
-    refine ⟨?_, fun l hl => ?_⟩
-    · unfold Semantics.ownSyms at hn
-      exact ((List.nodup_append.mp (List.nodup_append.mp (List.nodup_append.mp hn).1).1).2.1)
-    · have := hm l hl
-      rw [hsyms, List.mem_range'_1] at this
-      exact this.1
+  -- the definition's functions: once each, none a registry symbol
+  have hF : (c.fns.map (·.label)).Nodup ∧ ∀ l ∈ c.fns.map (·.label), nRegSyms ≤ l := by
+    refine ⟨(NamesApart.nodupB_iff _).mp hfn, fun l hl => ?_⟩
+    obtain ⟨f, hf, rfl⟩ := List.mem_map.mp hl
+    exact of_decide_eq_true (List.all_eq_true.mp hids.1.2.2 f hf)
   unfold Semantics.predsApart Semantics.allFns
   rw [NamesApart.nodupB_iff, List.map_append, sortPreds_labels]
-  have hP := nodup_filterMap hnd (f := predOf) (by
+  have hP := nodup_filterMap hnd (f := predIn c) (by
     intro X hX Y hY p hpX hpY
-    exact hinj X (by simpa [Semantics.sortsBelowKItem] using hX) Y (by simpa [Semantics.sortsBelowKItem] using hY) p hpX hpY)
-  have hmemP : ∀ q ∈ c.sortsBelowKItem.filterMap predOf, q < c.symBase ∧ q ≠ isK ∧ q ≠ isKItem := by
+    exact hinj X (by simpa [Semantics.sortsBelowKItem] using hX) Y (by simpa [Semantics.sortsBelowKItem] using hY) p
+      (predIn_some hpX).1 (predIn_some hpY).1)
+  have hmemP : ∀ q ∈ c.sortsBelowKItem.filterMap (predIn c), (∀ f ∈ c.fns, f.label ≠ q) ∧ q ≠ isK ∧ q ≠ isKItem := by
     intro q hq
     obtain ⟨X, hX, hq⟩ := List.mem_filterMap.mp hq
-    exact hbound X hX q hq
+    exact ⟨(predIn_some hq).2, (hbound X hX q (predIn_some hq).1).2⟩
   refine List.nodup_append.mpr ⟨hF.1, ?_, ?_⟩
   · refine List.nodup_cons.mpr ⟨?_, List.nodup_cons.mpr ⟨fun hm => (hmemP _ hm).2.2 rfl, hP⟩⟩
     intro hm
@@ -177,10 +199,11 @@ theorem predsApart_of_idsOK {c : Semantics} (h : c.idsOK = true) : c.predsApart 
     subst heq
     have h1 := hF.2 a ha
     rcases List.mem_cons.mp hb with hb | hb
-    · subst hb; rw [hsb] at h1; exact (aux_ge nRegSyms c.sortNames.length 51 (by decide) h1).elim
+    · subst hb; exact (aux_ge nRegSyms 0 51 (by decide) h1).elim
     rcases List.mem_cons.mp hb with hb | hb
-    · subst hb; rw [hsb] at h1; exact (aux_ge nRegSyms c.sortNames.length 52 (by decide) h1).elim
-    · exact absurd h1 (Nat.not_le.mpr (hmemP a hb).1)
+    · subst hb; exact (aux_ge nRegSyms 0 52 (by decide) h1).elim
+    · obtain ⟨f, hf, rfl⟩ := List.mem_map.mp ha
+      exact (hmemP _ hb).1 f hf rfl
 
 /-- info: 'KCore.Faithful.WitRestApart.hooksApart1_of_kindsApart' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in

@@ -93,7 +93,7 @@ CHOICE (Q31, revised by P2.3): one entry per K module, any union of them; not on
 
 ### 2.3 Generated sort predicates are functions
 
-kompile writes, for every sort X below KItem, `isX(kseq(inj{X,KItem}(V), dotk)) = true` and an `[owise]` equation giving `false`; and `isK(K) = true`, `isKItem(kseq(I, dotk)) = true` with its `owise`. They are functions of the definition: `Semantics.sortPreds` builds exactly those clauses, `allFns = fns ++ sortPreds`, and `lookupFn` reads `allFns`. So `isKResult(kseq(inj{Int,KItem}(5), dotk))` is `true` exactly when the item's value injected into KResult is a value of KResult (`inj{Int,KResult}(5)`, since `Int < KResult`).
+kompile writes, for every sort X below KItem, `isX(kseq(inj{X,KItem}(V), dotk)) = true` and an `[owise]` equation giving `false`; and `isK(K) = true`, `isKItem(kseq(I, dotk)) = true` with its `owise`. They are functions of the definition: `Semantics.sortPreds` builds exactly those clauses for each predicate that labels no function of `fns` (one that does is that function; `idsOK` keeps every function of `fns` off a registry symbol), `allFns = fns ++ sortPreds`, and `lookupFn` reads `allFns`. So `isKResult(kseq(inj{Int,KItem}(5), dotk))` is `true` exactly when the item's value injected into KResult is a value of KResult (`inj{Int,KResult}(5)`, since `Int < KResult`).
 Why [I]: the equations are axioms of the KORE, so evaluation must give `isKResult` their meaning; reading them through the generic clauses adds no new meaning to review (Q27).
 
 ### 2.4 Several top-level cells

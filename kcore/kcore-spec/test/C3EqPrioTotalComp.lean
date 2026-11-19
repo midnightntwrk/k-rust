@@ -293,7 +293,7 @@ up to the indices of its variables; kernel). -/
 theorem written_clB : TiePair.sameB (trAxiom [] [] ⟨0, "kernel", clauseAxiom c fn clB⟩).pat (trS U.ax202).pat = true := by
   decide +kernel
 
-theorem clauseAxiom_withHooks (H : HookParams) : clauseAxiom (cH H) fn clB = clauseAxiom c fn clB := rfl
+kernel_rfl clauseAxiom_withHooks : ∀ (H : HookParams), clauseAxiom (cH H) fn clB = clauseAxiom c fn clB
 theorem int_sort (H : HookParams) (n : Int) : (cH H).sortOf (int n) = some Srt.int := rfl
 theorem clB_plain : plainPats c clB.pats = true := by decide +kernel
 theorem clB_sorts : sortsOfTerms c.patCtxAll clB.vars clB.pats = some fn.args := by decide +kernel

@@ -18,6 +18,9 @@
     parameter symbol (`c.params = []`: no rule or function of the reading applies either), so Γ
     has neither. The library's equation of `dividesInt` (sentence 274, domains.md 1454) applies
     it, the one head of the sentence Γ lacks.
+  - `rootFloat_absent`: FLOAT's equation of `sqrtFloat` (sentence 380, domains.md 1671) applies
+    `rootFloat`, a symbol the text declares without sort parameters and Γ lacks, the one head of the
+    sentence Γ lacks.
 -/
 import KcoreSpec
 
@@ -145,6 +148,14 @@ theorem int2BytesNoLen_absent_decl :
     hasSym "LblInt2BytesNoLen" = false := by
   decide +kernel
 
+def rootFloatName : String := "LblrootFloat'LParUndsCommUndsRParUnds'FLOAT'Unds'Float'Unds'Float'Unds'Int"
+
+/-- **`sqrtFloat`'s equation applies `rootFloat`, which Γ lacks**: 380 (domains.md 1671,
+`sqrtFloat(F) => rootFloat(F, 2)`) applies `rootFloat`, the one head of the sentence Γ lacks;
+`sqrtFloat`, its left side's head, is Γ's. -/
+theorem rootFloat_absent : absentOf U.ax380 = [rootFloatName] := by
+  decide +kernel
+
 end KCore.LibEvDeclsFlt
 
 #check @KCore.LibEvDeclsFlt.decls_entailed
@@ -154,3 +165,5 @@ end KCore.LibEvDeclsFlt
 #print axioms KCore.LibEvDeclsFlt.lib_decls_entailed
 #print axioms KCore.LibEvDeclsFlt.dividesInt_absent
 #print axioms KCore.LibEvDeclsFlt.int2BytesNoLen_absent_decl
+#check @KCore.LibEvDeclsFlt.rootFloat_absent
+#print axioms KCore.LibEvDeclsFlt.rootFloat_absent

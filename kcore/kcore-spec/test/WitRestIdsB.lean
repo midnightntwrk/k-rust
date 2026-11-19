@@ -1,18 +1,18 @@
 /-
-  The rows idsOK.5, idsOK.6 and idsOK.7 of test/witnesses.toml (the registry sorts of `userSorts`
+  The rows idsOK.6, idsOK.7 and idsOK.8 of test/witnesses.toml (the registry sorts of `userSorts`
   generated ones, the registry constructors of `ctors` generated ones, the library's facts). Run
   from the package root: `lake env lean -j1 test/WitRestIdsB.lean`.
 
   Kernel-checked here, each a semantics meeting every other leaf condition of `coreOK`
-  (`sortedOK`, `faithCoreOK`, `hooksApart`, `predsApart`, the other six leaves of `idsOK`,
+  (`sortedOK`, `faithCoreOK`, `hooksApart`, `predsApart`, the other seven leaves of `idsOK`,
   `overloadsOK`) and `FnHyp`, with the leaf false, beside a semantics `c0` meeting `coreOK`:
-  - idsOK.5, `Reg.c`: the registry sort Id (no generated one) listed among `userSorts`; `Reg.c0`
+  - idsOK.6, `Reg.c`: the registry sort Id (no generated one) listed among `userSorts`; `Reg.c0`
     lists it among the library's sorts below KItem instead. The constructor items of the two have,
     in order, the same patterns (`Reg.cons_align`).
-  - idsOK.6, `Ctor.c`: the registry constructor `#KConfigValue : K → KItem` listed among the
+  - idsOK.7, `Ctor.c`: the registry constructor `#KConfigValue : K → KItem` listed among the
     definition's constructors; `Ctor.c0` lists it among the library's. The constructor items of the two have,
     in order, the same patterns (`Ctor.cons_align`).
-  - idsOK.7, `Dup.c`: the library's sorts below KItem list MInt twice (`Lib.ok`'s second part);
+  - idsOK.8, `Dup.c`: the library's sorts below KItem list MInt twice (`Lib.ok`'s second part);
     `Dup.c0` lists it once.
   Of `Lib.ok`'s other parts (kernel decisions, `Other`): a library sort KItem, or a library subsort
   outside the library's sorts, fails `genWf` too; a library sort numbered as an own sort fails
@@ -49,14 +49,15 @@ open Faithful.UndefRhsWitness (cellSorts cellCtors cellSubsorts)
 def ids1 (c : Semantics) : Bool := c.ownSorts == List.range' nRegSorts c.sortNames.length
 def ids2 (c : Semantics) : Bool := c.ownSyms == List.range' c.symBase (c.symNames.length - c.sortNames.length)
 def ids3 (c : Semantics) : Bool := decide (c.sortNames.length ≤ c.symNames.length)
-def ids4 (c : Semantics) : Bool := nodup (c.userSorts.filter fun s => decide (s < nRegSorts))
-def ids5 (c : Semantics) : Bool := (c.userSorts.filter fun s => decide (s < nRegSorts)).all genSorts.contains
-def ids6 (c : Semantics) : Bool := c.ctors.all fun k => decide (nRegSyms ≤ k.name) || genSyms.contains k.name
-def ids7 (c : Semantics) : Bool := c.lib.ok
+def ids4 (c : Semantics) : Bool := c.fns.all fun f => decide (nRegSyms ≤ f.label)
+def ids5 (c : Semantics) : Bool := nodup (c.userSorts.filter fun s => decide (s < nRegSorts))
+def ids6 (c : Semantics) : Bool := (c.userSorts.filter fun s => decide (s < nRegSorts)).all genSorts.contains
+def ids7 (c : Semantics) : Bool := c.ctors.all fun k => decide (nRegSyms ≤ k.name) || genSyms.contains k.name
+def ids8 (c : Semantics) : Bool := c.lib.ok
 
-/-- The seven are `idsOK`'s leaves. -/
+/-- The eight are `idsOK`'s leaves. -/
 theorem idsOK_eq (c : Semantics) :
-    c.idsOK = (ids1 c && ids2 c && ids3 c && (ids4 c && ids5 c && ids6 c && ids7 c)) := rfl
+    c.idsOK = (ids1 c && ids2 c && (ids3 c && ids4 c) && (ids5 c && ids6 c && ids7 c && ids8 c)) := rfl
 
 /-- Every leaf condition of `coreOK` outside `idsOK`. -/
 def outside (c : Semantics) : Prop :=
@@ -80,7 +81,7 @@ def base : Semantics :=
     pgmSort := Srt.k
     rules := [] }
 
-/-! ## idsOK.5: a registry sort that is no generated one among `userSorts` -/
+/-! ## idsOK.6: a registry sort that is no generated one among `userSorts` -/
 
 namespace Reg
 
@@ -96,12 +97,12 @@ theorem fnHyp : FnHyp c := fnHyp_of_nil rfl (by decide +kernel) (by decide +kern
 
 set_option maxHeartbeats 1000000 in
 theorem meets_others : outside c ∧ ids1 c = true ∧ ids2 c = true ∧ ids3 c = true ∧ ids4 c = true ∧
-    ids6 c = true ∧ ids7 c = true ∧ FnHyp c :=
+    ids5 c = true ∧ ids7 c = true ∧ ids8 c = true ∧ FnHyp c :=
   ⟨⟨sortedOK, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap⟩,
     by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
-    by decide +kernel, fnHyp⟩
+    by decide +kernel, by decide +kernel, fnHyp⟩
 
-theorem not_ids5 : ids5 c = false := by decide +kernel
+theorem not_ids6 : ids6 c = false := by decide +kernel
 
 /-- Id is the registry's, a sort below KItem of both, without generator in `c`. -/
 theorem id_facts : Id < nRegSorts ∧ !genSorts.contains Id ∧ c.sortsBelowKItem.contains Id ∧
@@ -111,7 +112,7 @@ theorem cons_align : (consItemsK c).map (·.pat) = (consItemsK c0).map (·.pat) 
 
 end Reg
 
-/-! ## idsOK.6: a registry constructor that is no generated one among `ctors` -/
+/-! ## idsOK.7: a registry constructor that is no generated one among `ctors` -/
 
 namespace Ctor
 
@@ -126,12 +127,12 @@ theorem fnHyp : FnHyp c := fnHyp_of_nil rfl (by decide +kernel) (by decide +kern
 
 set_option maxHeartbeats 1000000 in
 theorem meets_others : outside c ∧ ids1 c = true ∧ ids2 c = true ∧ ids3 c = true ∧ ids4 c = true ∧
-    ids5 c = true ∧ ids7 c = true ∧ FnHyp c :=
+    ids5 c = true ∧ ids6 c = true ∧ ids8 c = true ∧ FnHyp c :=
   ⟨⟨sortedOK, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap⟩,
     by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
-    by decide +kernel, fnHyp⟩
+    by decide +kernel, by decide +kernel, fnHyp⟩
 
-theorem not_ids6 : ids6 c = false := by decide +kernel
+theorem not_ids7 : ids7 c = false := by decide +kernel
 
 /-- The two have the same constructors, in another order. -/
 theorem ctors_perm : c.ctorSigs.Perm c0.ctorSigs := by
@@ -143,7 +144,7 @@ theorem cons_align : (consItemsK c).map (·.pat) = (consItemsK c0).map (·.pat) 
 
 end Ctor
 
-/-! ## idsOK.7: the library's facts -/
+/-! ## idsOK.8: the library's facts -/
 
 namespace Dup
 
@@ -159,12 +160,12 @@ theorem fnHyp : FnHyp c := fnHyp_of_nil rfl (by decide +kernel) (by decide +kern
 
 set_option maxHeartbeats 1000000 in
 theorem meets_others : outside c ∧ ids1 c = true ∧ ids2 c = true ∧ ids3 c = true ∧ ids4 c = true ∧
-    ids5 c = true ∧ ids6 c = true ∧ FnHyp c :=
+    ids5 c = true ∧ ids6 c = true ∧ ids7 c = true ∧ FnHyp c :=
   ⟨⟨sortedOK, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap⟩,
     by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
-    by decide +kernel, fnHyp⟩
+    by decide +kernel, by decide +kernel, fnHyp⟩
 
-theorem not_ids7 : ids7 c = false := by decide +kernel
+theorem not_ids8 : ids8 c = false := by decide +kernel
 
 theorem no_pred : regPred MInt = none := by decide
 

@@ -166,6 +166,7 @@ import KcoreSpec.ModelLitsWitness
 import KcoreSpec.ModelOvlLibCtorWitness
 import KcoreSpec.ModelOvlIncohWitness
 import KcoreSpec.ModelOvlClosedWitness
+import KcoreSpec.ModelPredTwiceWitness
 import KcoreSpec.FaithfulCompleteAt
 import KcoreSpec.StepCompleteAt
 import KcoreSpec.LibAdmitted
@@ -404,3 +405,6 @@ import KcoreSpec.TieConsHd
 import KcoreSpec.FreeNames
 import KcoreSpec.LibEvFnBitRange
 import KcoreSpec.StepClosurePadIx
+import KcoreSpec.InstNameDecode
+import KcoreSpec.LibEvParam
+import KcoreSpec.TieLibParamExpand
