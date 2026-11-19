@@ -25,6 +25,10 @@
     of the right side); Γ's item states nothing of the left side, since its own left side holds
     nothing in a model of `ΓSig` and `ΓDomains` (`left0_empty`). The step relation gives the
     configuration no successor: the rule applies and its `ensures` is not `true`.
+  - Γ refutes the sentence, for every H (`sentence155_refuted`): a model of Γ holds the element of
+    the configuration `go(1)`, which is an element of the sentence's left side at the valuation of
+    the match, and the sentence would give it a successor among the elements of a right side that
+    holds nothing. So the text has no model with Γ, while Γ with the step's closure has one.
   `consistent` for every H.
 
   The expectation (C7 form (a), through the reading), from `Pre H` (the function equations as
@@ -294,6 +298,36 @@ theorem bot_stuck (H : HookParams) :
     (Pre H ∪ Γstep (cH H)) ⊧ (den (cH H) Go1.val ⇒ KoreAML.allNext (KoreAML.disjList (([] : List GroundTerm).map (den (cH H))))) :=
   stuck_from (x := Go1) (by decide +kernel) H
 
+/-! ## Γ refutes sentence 155 -/
+
+theorem r0_sorted : c.ruleSorted r0 = true := by decide +kernel
+
+-- The text's left side is the left side's term of the rule and `\top`, at the sort of configurations.
+kernel_rfl Ltext0_eq : Ltext0 = .and (srtOf c topCellSort)
+  [Term.kore c (canonVars c r0.vars) r0.lhs, .top (srtOf c topCellSort)]
+kernel_rfl q0C_eq : q0.1 = srtOf c topCellSort
+
+-- The table of Γ's axiom holds the rule's variables, and the sentence's guards are on them.
+theorem keys0 : (List.range r0.vars.length).all (fun i => (tableOf [] p0).contains (canonKey c r0.vars i)) = true := by
+  decide +kernel
+theorem fT0_keys : fT0.all (fun k => (List.range r0.vars.length).any (fun i => k == canonKey c r0.vars i)) = true := by
+  decide +kernel
+
+/-- The rule's left side matches the configuration. -/
+theorem match0 : ((Exec.matchP c 100 [] r0.lhs Go1.val).filter (Exec.wellSorted c r0.vars)).isEmpty = false := by
+  decide +kernel
+
+/-- **Γ refutes sentence 155, for every H**: no model of Γ is a model of the sentence. A model of Γ
+holds the element of the configuration `go(1)`, which the sentence's left side holds at the valuation
+of the match; the sentence gives it a successor among the elements of its right side, which holds
+nothing. -/
+theorem sentence155_refuted (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
+    (hΓ : I ⊧ᴵP Γ (cH H)) : ¬ (I ⊧ᴵ (trS U.ax155).pat) := by
+  intro hsen
+  rw [trS155, q0C_eq, Ltext0_eq] at hsen
+  exact TieRuleRhs.rhs_empty_refuted_everyH coreOK noRaw r0_sorted Go1 match0 keys0 fT0_keys H hΓ
+    (fun _ _ _ b => rtext0_empty (defOK hΓ) _ b) hsen
+
 end KCore.TieRuleRhsBottomFn
 
 #check @KCore.TieRuleRhsBottomFn.rule_text0
@@ -315,3 +349,5 @@ end KCore.TieRuleRhsBottomFn
 #print axioms KCore.TieRuleRhsBottomFn.consistent
 #print axioms KCore.TieRuleRhsBottomFn.pre_model
 #print axioms KCore.TieRuleRhsBottomFn.bot_stuck
+#check @KCore.TieRuleRhsBottomFn.sentence155_refuted
+#print axioms KCore.TieRuleRhsBottomFn.sentence155_refuted
