@@ -353,6 +353,7 @@ fn a_program_digest_changes_with_its_text_start_sort_and_variables_only() {
         expect: None,
         expect_for: Default::default(),
         provenance: None,
+        rejected: None,
         stop_count: None,
     };
     let base = program_digest(&program("p"), &"1 + 2".into());

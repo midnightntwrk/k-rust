@@ -3134,7 +3134,13 @@ fn admission_status(admission: &FlowAdmission) -> u8 {
 /// case scopes an expectation to (`expect_for`) that no flow given has while reading the case;
 /// both are absent without `--with`. A case whose only expectation its flow checks is scoped to
 /// the flow's definition now has its row's `expectation`, which version 17 left out.
-pub const CHECK_VERSION: u64 = 18;
+/// 19 (PJ-32) adds the program outcomes `rejected` and `accepted` of a program whose
+/// `[[program]]` or `files` entry states `expect = { rejected = "parse" | "input" }`: rejected at
+/// that stage (the refusal's `stage`, `reason` and `detail`), or admitted (null), each with its
+/// `expectation`, met or unmet ([`crate::expect::rejection_check`]); neither decides the exit
+/// status. A flow whose entries state no rejection gives version 18's document but for its
+/// version.
+pub const CHECK_VERSION: u64 = 19;
 
 /// The check document's members, and under the Z3 profile `z3` ([`crate::with_z3_build`]); every
 /// document a verb gives for a manifest that does not decode is built from it
@@ -3229,6 +3235,22 @@ pub fn check_document(admission: &FlowAdmission) -> Value {
         .programs
         .iter()
         .map(|program| match (&program.outcome, &program.exclusion) {
+            // A program rejected before it runs, as its entry states (met), or admitted though
+            // its entry states it is not (unmet): neither is refused, and neither runs.
+            (Err(refusal), _) if program.rejected.is_some() => json!({
+                "id": program.id,
+                "outcome": "rejected",
+                "stage": refusal.stage,
+                "reason": refusal.reason,
+                "detail": refusal.detail,
+            }),
+            (Ok(_), _) if program.rejected.is_some() => json!({
+                "id": program.id,
+                "outcome": "accepted",
+                "stage": null,
+                "reason": null,
+                "detail": null,
+            }),
             (Err(refusal), _) => json!({
                 "id": program.id,
                 "outcome": "refused",

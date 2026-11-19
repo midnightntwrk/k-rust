@@ -6436,7 +6436,7 @@ fn a_case_expectation_is_reported_and_its_case_kept() {
     let output = project.kink("check", &[]);
     assert_status(&output, 0);
     let check = json(&output);
-    assert_eq!(check["version"], 18, "{check:#}");
+    assert_eq!(check["version"], 19, "{check:#}");
     assert_eq!(results["result_cache"]["enabled"], true, "{results:#}");
     assert_eq!(verdicts(&check), expected, "{check:#}");
 

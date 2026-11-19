@@ -281,6 +281,10 @@
 //!   a command on a definition checks `expect` and the one scoped to its own definition,
 //!   both where both are given ([`Case::expectations`]), and reads none scoped to another,
 //!   so an expectation true of one definition only is unmet on no other.
+//!   Neither `expect` nor a scoped expectation holds `rejected`, which is refused at its position:
+//!   it is how a kink flow's `[[program]]` or `files` entry states that a program must be rejected
+//!   before it runs, at the parse of its text or at the reading of its inputs,
+//!   which a case document, whose typed inputs are never parsed, does not state.
 //! - `provenance`: which tool or person found the case and why it is in its corpus,
 //!   a table of `found_by` and `reason`, each optional and a non-empty string,
 //!   at least one given, and no other key ([`CaseProvenance`]).
@@ -1125,7 +1129,10 @@ fn case_table(
         None => None,
     };
     let expect = match top.remove("expect") {
-        Some(Json::Object(expect)) => Some(Json::Object(expect)),
+        Some(Json::Object(expect)) => {
+            no_rejected(&expect, &key_position(position, "expect"))?;
+            Some(Json::Object(expect))
+        }
         Some(_) => {
             return Err(at(
                 position,
@@ -1181,15 +1188,33 @@ fn expect_for(document: Json, position: &str) -> Result<BTreeMap<String, Json>, 
                 "a definition name is a non-empty string".to_owned(),
             ));
         }
-        if !expect.is_object() {
+        let Json::Object(expect) = expect else {
             return Err(at(
                 &here,
                 "an expectation scoped to a definition is a table of the expected end, as `expect` is"
                     .to_owned(),
             ));
-        }
+        };
+        no_rejected(expect, &here)?;
     }
     Ok(table.into_iter().collect())
+}
+
+/// Why a case's expectation holds no `rejected`, with kink-flow's case reader's text: a program
+/// that must be rejected before it runs is stated on a kink flow's `[[program]]` or `files`
+/// entry, whose program text kink parses, while a case document's typed inputs never are.
+const REJECTED_IN_CASE: &str = "a case document's expectation states the end of its run: a program that must be rejected before it runs is stated on a `[[program]]` or `files` entry of the flow's manifest, `expect = { rejected = \"parse\" }` or `{ rejected = \"input\" }` (a case document's typed inputs are never parsed)";
+
+/// The expectation `expect` at `position`, refused where it holds `rejected`
+/// ([`REJECTED_IN_CASE`]).
+fn no_rejected(expect: &serde_json::Map<String, Json>, position: &str) -> Result<(), InputError> {
+    if expect.contains_key("rejected") {
+        return Err(at(
+            &key_position(position, "rejected"),
+            REJECTED_IN_CASE.to_owned(),
+        ));
+    }
+    Ok(())
 }
 
 /// The `provenance` table `document` at `position`: `found_by` and `reason`, each a non-empty
@@ -3754,8 +3779,8 @@ mod tests {
     use std::num::NonZeroU64;
 
     use super::{
-        Case, CaseDocument, CaseProvenance, CaseRun, InputFiles, Json, json_document, parse_hex,
-        parse_int, toml_document,
+        Case, CaseDocument, CaseProvenance, CaseRun, InputFiles, Json, REJECTED_IN_CASE,
+        json_document, parse_hex, parse_int, toml_document,
     };
     use num_bigint::BigInt;
     use serde_json::json;
@@ -4395,6 +4420,40 @@ mod tests {
                     .unwrap_err()
                     .to_string(),
                 refusal,
+                "{text}"
+            );
+        }
+    }
+
+    /// `rejected` in a case's `expect` or a scoped expectation is refused at its position, as
+    /// kink-flow's case reader refuses it (its `EXPECT_FOR_REFUSED`, PJ-32): a program that must
+    /// be rejected before it runs is stated on a kink flow's `[[program]]` or `files` entry.
+    #[test]
+    fn a_case_expectation_holding_rejected_is_refused_as_kink_refuses_it() {
+        let mut files = Files(BTreeMap::new());
+        for (text, refusal) in [
+            (
+                "[expect]\nrejected = \"parse\"\n",
+                &format!("at `expect.rejected`: {REJECTED_IN_CASE}"),
+            ),
+            (
+                "[expect]\nhalt = \"stuck\"\nrejected = \"input\"\n",
+                &format!("at `expect.rejected`: {REJECTED_IN_CASE}"),
+            ),
+            (
+                "[expect_for.X]\nrejected = \"parse\"\n",
+                &format!("at `expect_for.X.rejected`: {REJECTED_IN_CASE}"),
+            ),
+            (
+                "[[case]]\nname = \"a\"\n[case.expect]\nrejected = \"input\"\n",
+                &format!("at `case[0].expect.rejected`: {REJECTED_IN_CASE}"),
+            ),
+        ] {
+            assert_eq!(
+                CaseDocument::from_toml(text, None, &mut files)
+                    .unwrap_err()
+                    .to_string(),
+                *refusal,
                 "{text}"
             );
         }

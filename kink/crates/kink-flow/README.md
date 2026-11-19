@@ -77,6 +77,7 @@ file = "programs/add.calc"    # or: text = "1 + 2"; neither on a definition with
 start_sort = "Exp"            # optional; only with file or text
 variables = { N = "42" }      # optional; configuration variable $N = 42
 stop_count = 120              # optional; only with [stop]: this program's count
+expect = { rejected = "parse" }   # optional; or "input": the program must be rejected before it runs ("Programs rejected before they run")
 
 [[patterns]]                  # optional; the patterns `query` and `fuzz --pattern` ask
 files = "patterns/*.toml"     # kink pattern lists, matched as a [[program]] glob matches cases
@@ -295,6 +296,30 @@ A baseline that misses its own expectation is a finding about the specification 
 Every kill by the case is still a difference between a mutant's ends and the baseline's, which is what a kill means whatever the case expects, so no verdict or status depends on an expectation.
 Only `coverage`, which asks whether each baseline meets its expectation, exits by it: 1 for an `unmet` one, 3 for an `inconclusive` one ("Exit status").
 No run depends on one either: it is in no digest, no cache key and no stored record, and every command that reports it checks it again from the baseline's ends.
+
+### Programs rejected before they run
+
+A grammar is part of a specification, so that a text is no program is a statement a corpus can hold.
+A `[[program]]` entry, listed or `files`, may state that its program must be rejected before it runs:
+
+```toml
+[[program]]
+files = "malformed/*.imp"     # every matched text must be rejected
+expect = { rejected = "parse" }
+```
+
+`expect` has this one form on a `[[program]]` entry: a table whose one key is `rejected`, `parse` or `input`; any other form is a manifest error naming the key, since an expected end is a case document's.
+A case document's typed inputs are never parsed, so a case document states no rejection: `rejected` in its `expect` or a scoped expectation is refused at its position, by kink's case reader and by `krs run --case`'s alike.
+
+Admission runs its stages in order: the front end's decoder reads the program's bytes and each typed input, then every K text the program binds (its program text at its start sort, each `variables` text at its sort) is parsed in assembly, then the initial configuration is checked.
+A program is rejected at `input` where the decoder refuses its program's bytes or a typed input's document (`inputs`/`input-value`), and at `parse` where a K text it binds does not parse (`inputs`/`parse`).
+Neither is met by a refusal that is not about what the stage reads: a decoder's refusal after a file the document names could not be read, kink's own refusals of a binding (a variable bound twice), or a grammar that gives no parser for the text.
+Decoding comes before parsing, so a program rejected at `input` says nothing of whether its text parses.
+
+A program rejected at the stage it states meets its statement and is not refused; one admission admits does not meet it, a finding about the specification, which accepts what the corpus says it must not, and is not refused either.
+A program refused at the other stage, or for any other reason, is refused as any program is, its detail naming the statement, since that refusal may be the corpus's own error.
+`check` reports each (below), and its exit status depends on neither verdict.
+The statement is in no digest, cache key or lock.
 
 ### Provenance
 
@@ -613,6 +638,7 @@ Then each program is admitted on its own (file read: stage `load`; typed inputs:
 a program text on a definition without `$PGM`: `inputs`/`stray-program`; other assembly failures: `inputs`/`assemble`; the concrete-state check and the input gate: `inputs`/`input-gate`;
 an initial configuration with no value: `inputs`/`initial-undefined`).
 A refused specification skips the programs; a refused program never stops the others.
+A program whose entry states that it must be rejected before it runs ("Programs rejected before they run") is not refused when it is rejected at that stage or admitted, and runs nothing, so it is left out of whether every program can be judged.
 
 A test's expected result is what the specification computes from its inputs.
 When the baseline's initial configuration has no value (an input divides by zero, directly or through a function), the specification computes no start, so the case has no expected result: a kill by it would be false.
@@ -663,7 +689,7 @@ It prints one JSON document:
  "mutation_list": null, "mutations": null, "coverage": null}
 ```
 
-A program's `outcome` is `ok`; `refused`, with the stage, reason and detail of the refusal; or `excluded`: admitted, but every run of it on the baseline is excluded, with stage `definition` (the definition exclusion) or `initial-state` (its initial configuration's), the exclusion's name as `reason` (`implementation-chosen-hook`, `equals-condition`, `load-stack-stop` at stage `definition`; `implementation-chosen-hook` or `short-circuit-reading` at stage `initial-state`) and why as `detail`.
+A program's `outcome` is `ok`; `refused`, with the stage, reason and detail of the refusal; `rejected` or `accepted`, for a program whose entry states that it must be rejected before it runs: rejected at that stage (the refusal's stage, reason and detail) or admitted (null), each with its `expectation`, `met` or `unmet`, `detail` saying why and `difference` null; or `excluded`: admitted, but every run of it on the baseline is excluded, with stage `definition` (the definition exclusion) or `initial-state` (its initial configuration's), the exclusion's name as `reason` (`implementation-chosen-hook`, `equals-condition`, `load-stack-stop` at stage `definition`; `implementation-chosen-hook` or `short-circuit-reading` at stage `initial-state`) and why as `detail`.
 
 `spec.exclusion` is the definition exclusion, null when there is none (or the specification is refused): `{exclusion, detail, causes}`.
 `detail` says what makes it hold, naming each sentence with its position (`file:start_line:start_column-end_line:end_column`, the file as the load named it; a builtin's is `krust-builtin://...`), at most eight causes; `causes` lists every one.
@@ -706,6 +732,7 @@ Version 15 (KINK-FINDING-NAMES) names each finding by its kind, sentences and di
 Version 16 (PJ-22) gives the row of a case whose document states `provenance` its `provenance`, `{found_by, reason}` ("Provenance"); a row of a case without one is version 15's.
 Version 17 (PJ-10) replaces `[result]` by `[[projection]]` ("Projections"): a manifest that writes `[result]` is refused at stage `manifest`, a refusal at stage `result` names the projection whose `compare` names the cell, a projection with `views` or `observer` is refused at stage `projection` (`unsupported-front-end`; under `krs kink`, `projection-unresolved` where its observer or a view does not resolve), and a flow that declares projections names them (`projections`); a flow that declares none gives version 16's document.
 Version 18 (PJ-30) adds `--with` ("Other flows on the corpus root"): `with`, each flow given, and a case row's `warnings`, with `unread-scope`, both absent without `--with`; and a case whose only expectation its flow checks is scoped to the flow's definition has its row's `expectation`, which version 17 left out.
+Version 19 (PJ-32) adds the outcomes `rejected` and `accepted` of a program whose `[[program]]` entry states `expect = { rejected = "parse" | "input" }` ("Programs rejected before they run"); a flow whose entries state none gives version 18's document.
 Each case's expectation and the coverage warnings are read from result records, whose classes and coverage the baseline runs decided by asking the solver, and a record is read only under a key that names the Z3 build ("The cache directory"), so under Z3 what `check` says is a function of the build as much as of the profile.
 The document every verb prints for a manifest that does not decode is built from the check document's header, so it names the build too.
 

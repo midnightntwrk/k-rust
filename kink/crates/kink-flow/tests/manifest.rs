@@ -4,7 +4,7 @@
 use kink_corpus::ProgramSource;
 use kink_flow::manifest::{
     Budget, DEFAULT_MAX_DEPTH, DEFAULT_TIME_MS, FlowManifest, KrsSpec, ManifestError, ManifestFile,
-    Program, ProjectionKind, ProjectionSection, RecordCell, SpecDecl, SpecSection,
+    Program, ProjectionKind, ProjectionSection, RecordCell, RejectedStage, SpecDecl, SpecSection,
 };
 use std::path::{Path, PathBuf};
 
@@ -63,6 +63,7 @@ fn a_minimal_manifest_takes_every_default() {
             expect: None,
             expect_for: Default::default(),
             provenance: None,
+            rejected: None,
             stop_count: None,
         }]
     );
@@ -159,6 +160,7 @@ text = "1 + 2"
                 expect: None,
                 expect_for: Default::default(),
                 provenance: None,
+                rejected: None,
                 stop_count: None,
             },
             Program {
@@ -172,6 +174,7 @@ text = "1 + 2"
                 expect: None,
                 expect_for: Default::default(),
                 provenance: None,
+                rejected: None,
                 stop_count: None,
             },
         ]
@@ -280,6 +283,7 @@ fn a_program_without_file_or_text_is_a_program_less_case() {
             expect: None,
             expect_for: Default::default(),
             provenance: None,
+            rejected: None,
             stop_count: None,
         }]
     );
@@ -323,6 +327,78 @@ fn typed_inputs_are_kept_as_written() {
     );
     // A decoded manifest has no decoder: kink reads K text only.
     assert!(manifest.input_decoder.get().is_none());
+}
+
+/// A listed program may state that it must be rejected before it runs, `expect = { rejected =
+/// "parse" | "input" }` (PJ-32), and in that form only: a table whose one key is `rejected`, the
+/// string `parse` or `input`. It is read as `Program::rejected` and leaves `expect` (a case
+/// document's expected end) empty; every other form is refused, naming the key.
+#[test]
+fn a_listed_program_may_state_that_it_is_rejected_before_it_runs() {
+    let manifest = decode(&format!(
+        "{SPEC}[[program]]\nid = \"bad\"\ntext = \"1 +\"\nexpect = {{ rejected = \"parse\" }}\n\
+         [[program]]\nid = \"typed\"\ninputs = {{ n = \"one\" }}\n[program.expect]\nrejected = \"input\"\n\
+         [[program]]\nid = \"plain\"\ntext = \"1\"\n"
+    ))
+    .unwrap();
+    let stated = manifest
+        .programs
+        .iter()
+        .map(|program| {
+            (
+                program.id.as_str(),
+                program.rejected,
+                program.expect.is_none(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        stated,
+        [
+            ("bad", Some(RejectedStage::Parse), true),
+            ("typed", Some(RejectedStage::Input), true),
+            ("plain", None, true),
+        ]
+    );
+    let form = "a program entry's `expect` states only that the program is rejected";
+    for (expect, key) in [
+        ("expect = 1", "program \"p\".expect"),
+        ("expect = {}", "program \"p\".expect"),
+        ("expect = { halt = \"stuck\" }", "program \"p\".expect.halt"),
+        (
+            "expect = { rejected = \"parse\", halt = \"stuck\" }",
+            "program \"p\".expect.halt",
+        ),
+        (
+            "expect = { rejected = \"run\" }",
+            "program \"p\".expect.rejected",
+        ),
+        (
+            "expect = { rejected = true }",
+            "program \"p\".expect.rejected",
+        ),
+    ] {
+        assert_error(
+            &format!("{SPEC}[[program]]\nid = \"p\"\ntext = \"1\"\n{expect}\n"),
+            key,
+            form,
+        );
+    }
+    // The statement is in no program digest: a program that states it is one program to every
+    // store with the same program that does not.
+    let bare = decode(&format!(
+        "{SPEC}[[program]]\nid = \"bad\"\ntext = \"1 +\"\n"
+    ))
+    .unwrap();
+    let inputs = kink_flow::admit::CaseInputs::text("1 +");
+    assert_eq!(
+        kink_flow::digest::program_payload(&manifest.programs[0], &inputs),
+        kink_flow::digest::program_payload(&bare.programs[0], &inputs)
+    );
+    assert_eq!(
+        kink_flow::digest::program_digest(&manifest.programs[0], &inputs),
+        kink_flow::digest::program_digest(&bare.programs[0], &inputs)
+    );
 }
 
 #[test]

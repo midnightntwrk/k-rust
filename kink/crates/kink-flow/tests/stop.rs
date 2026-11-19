@@ -608,7 +608,7 @@ fn mutations_of_the_clock_are_judged_relative_to_the_stop() {
             ..CheckOptions::default()
         },
     );
-    assert_eq!(check["version"], 18);
+    assert_eq!(check["version"], 19);
     assert!(
         warnings(&check, "clock/frame-jump").contains(&"stop-hides-edit".to_owned()),
         "{check:#}"

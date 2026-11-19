@@ -32,6 +32,23 @@
 //! document of the front end's encoding of ends likewise, read by the manifest's renderer of
 //! ends, and refused without one (`typed-expectation`; `crate::expect`).
 //!
+//! A `[[program]]` or `files` entry may state that its program must be rejected before it runs,
+//! `expect = { rejected = "parse" }` or `{ rejected = "input" }` ([`RejectedStage`]). Admission
+//! runs its stages in order (the program's bytes and each typed input read by the decoder, then
+//! every K text parsed in assembly, then the checks of the initial configuration), and the program
+//! is rejected at a stage where it is refused there for what the stage reads: `input` where the
+//! decoder refuses its program's bytes or a typed input's document (not after a file the document
+//! names failed to be read, and not for kink's own refusals of a binding), `parse` where a K text
+//! it binds does not parse (not where the grammar gives no parser, `InputError::Grammar`, nor where
+//! the program text is read at a `start_sort` no module declares, at which no text parses). Such a
+//! program is not refused: its statement is met ([`ProgramAdmission::rejected`]). One that
+//! admission admits is not refused either: its statement is unmet, a finding about the
+//! specification, which accepts what the corpus says it must not. One refused at the other stage
+//! or for any other reason is refused as any program is, the refusal naming its statement, since
+//! that refusal may be the corpus's own error. Either way it runs nothing: by its statement it has
+//! no run, so it is left out of whether every program can be judged
+//! ([`FlowAdmission::all_judgeable`]).
+//!
 //! A test's expected result is what the specification computes from its inputs. When the
 //! baseline's initial configuration has no value (an input divides by zero, directly or through
 //! a function), the specification computes no start, so the case has no expected result, and a
@@ -52,7 +69,9 @@
 
 use crate::evidence::Renderer;
 pub use crate::exclusion::ExclusionScope;
-use crate::manifest::{CaseRoot, Decoder, FlowManifest, Program, ProjectionKind, RecordCell};
+use crate::manifest::{
+    CaseRoot, Decoder, FlowManifest, Program, ProjectionKind, RecordCell, RejectedStage,
+};
 use crate::observed::{ResultProjection, result_projection};
 use k_rust::{
     backend::Backend, k_rust_backend::definition::BackendDefinition, kast::Term, kore::ast::Pattern,
@@ -367,13 +386,27 @@ pub struct ProgramAdmission {
     /// The check document's warnings about the case (`unread-scope`,
     /// [`crate::check::unread_scopes`]); empty for a program `check` warns nothing about.
     pub warnings: Vec<crate::check::CaseWarning>,
+    /// The stage of a program whose entry states that it must be rejected before it runs
+    /// (`Program::rejected`), when admission decided the statement (module documentation): met,
+    /// where `outcome` is the refusal that rejected it at that stage, or unmet, where `outcome` is
+    /// its test case; `expectation` says which. `None` for every other program, one with a
+    /// statement that admission refused otherwise included. Such a program is not refused, and
+    /// runs nothing.
+    pub rejected: Option<RejectedStage>,
 }
 
 impl ProgramAdmission {
     /// Whether the program can be judged on the baseline as far as admission shows without
-    /// running a step of it: it is admitted and no exclusion holds for every run of it.
+    /// running a step of it: it is admitted, no exclusion holds for every run of it, and it states
+    /// no rejection before its run (which gives it none).
     pub fn judgeable(&self) -> bool {
-        self.outcome.is_ok() && self.exclusion.is_none()
+        self.outcome.is_ok() && self.exclusion.is_none() && self.rejected.is_none()
+    }
+
+    /// Whether admission refused the program: it is not admitted, and it is not a program
+    /// rejected at the stage its entry states.
+    pub fn refused(&self) -> bool {
+        self.outcome.is_err() && self.rejected.is_none()
     }
 }
 
@@ -421,16 +454,25 @@ pub struct FlowAdmission {
 }
 
 impl FlowAdmission {
-    /// The specification is admitted and every program is admitted.
+    /// The specification is admitted and no program is refused ([`ProgramAdmission::refused`]):
+    /// a program rejected before it runs, whether or not at the stage it states, counts as
+    /// admitted when admission decided its statement.
     pub fn all_admitted(&self) -> bool {
-        self.spec.is_some() && self.programs.iter().all(|p| p.outcome.is_ok())
+        self.spec.is_some() && !self.programs.iter().any(ProgramAdmission::refused)
     }
 
     /// The specification is admitted and every program can be judged on the baseline as far as
     /// admission shows ([`ProgramAdmission::judgeable`]): no program is refused, and no exclusion
-    /// holds for every run of one, the definition exclusion included.
+    /// holds for every run of one, the definition exclusion included. A program whose statement
+    /// that it is rejected before it runs admission decided is left out: by its statement it has
+    /// no run to judge.
     pub fn all_judgeable(&self) -> bool {
-        self.spec.is_some() && self.programs.iter().all(ProgramAdmission::judgeable)
+        self.spec.is_some()
+            && self
+                .programs
+                .iter()
+                .filter(|program| program.rejected.is_none())
+                .all(ProgramAdmission::judgeable)
     }
 
     /// No fact known before any mutant runs makes a verdict impossible: every program can be
@@ -598,6 +640,16 @@ fn read_inputs(
     renderer: &Renderer,
     program: &Program,
 ) -> Result<CaseInputs, AdmissionRefusal> {
+    read_inputs_staged(root, decoder, renderer, program).map_err(|refused| refused.refusal)
+}
+
+/// [`read_inputs`], its refusal saying whether it rejects the program at the stage `input`.
+fn read_inputs_staged(
+    root: &Result<CaseRoot, AdmissionRefusal>,
+    decoder: &Decoder,
+    renderer: &Renderer,
+    program: &Program,
+) -> Result<CaseInputs, Refused> {
     let inputs = read_typed_inputs(root, decoder, program)?;
     if !crate::expect::expectations(program).is_empty() {
         crate::expect::admit_expectation(renderer, &root.clone()?, program)?;
@@ -605,18 +657,57 @@ fn read_inputs(
     Ok(inputs)
 }
 
+/// A refusal of a program's admission, with the stage it rejects the program at where it is one
+/// a `[[program]]` entry may state (module documentation): `input` for the decoder's refusal of
+/// the program's bytes or of a typed input's document, `parse` for a K text that does not parse;
+/// `None` for every other refusal.
+#[derive(Debug)]
+struct Refused {
+    refusal: AdmissionRefusal,
+    stage: Option<RejectedStage>,
+}
+
+impl From<AdmissionRefusal> for Refused {
+    fn from(refusal: AdmissionRefusal) -> Self {
+        Self {
+            refusal,
+            stage: None,
+        }
+    }
+}
+
+/// The file reader a decoder is handed, recording whether a read failed: a decoder's refusal
+/// after one is about a file the document names (missing, or outside the case root), not about
+/// the input's value, so it rejects nothing at the stage `input`.
+struct WatchedFiles<'a> {
+    files: ManifestFiles<'a>,
+    failed: bool,
+}
+
+impl InputFiles for WatchedFiles<'_> {
+    fn read(&mut self, from: Option<&str>, path: &str) -> Result<(String, Vec<u8>), String> {
+        let read = self.files.read(from, path);
+        self.failed |= read.is_err();
+        read
+    }
+}
+
 /// [`read_inputs`] without the expectation.
 fn read_typed_inputs(
     root: &Result<CaseRoot, AdmissionRefusal>,
     decoder: &Decoder,
     program: &Program,
-) -> Result<CaseInputs, AdmissionRefusal> {
+) -> Result<CaseInputs, Refused> {
     let root = root.clone()?;
-    let value_refusal = |detail: String| AdmissionRefusal {
-        stage: "inputs".into(),
-        reason: "input-value".into(),
-        detail,
+    let refusal = |detail: String, stage: Option<RejectedStage>| Refused {
+        refusal: AdmissionRefusal {
+            stage: "inputs".into(),
+            reason: "input-value".into(),
+            detail,
+        },
+        stage,
     };
+    let value_refusal = |detail: String| refusal(detail, None);
     let (text, bound) = match &program.source {
         None => (None, None),
         Some(source) => {
@@ -638,7 +729,11 @@ fn read_typed_inputs(
             {
                 None => (Some(program_text(source, bytes)?), None),
                 Some(Err(message)) => {
-                    return Err(value_refusal(format!("{}: {message}", described())));
+                    // The decoder refuses the program's bytes at its main input's type.
+                    return Err(refusal(
+                        format!("{}: {message}", described()),
+                        Some(RejectedStage::Input),
+                    ));
                 }
                 Some(Ok(binding)) => {
                     let (variable, value) = match binding {
@@ -710,15 +805,28 @@ fn read_typed_inputs(
             detail: "typed inputs are read by the front end that knows the inputs' declared types \
                      (the krs front end, `krs kink`); at the K level bind K text under `variables`"
                 .into(),
-        });
+        }
+        .into());
     };
-    let mut files = root.case_files(program);
+    let mut files = WatchedFiles {
+        files: root.case_files(program),
+        failed: false,
+    };
     // By K name, with the input name each came from.
     let mut typed = BTreeMap::<String, (String, Term)>::new();
     for (name, document) in &program.inputs {
-        let (variable, term) = decoder_ref
-            .decode(name, document, &mut files)
-            .map_err(|message| value_refusal(format!("input `{name}`: {message}")))?;
+        files.failed = false;
+        let (variable, term) =
+            decoder_ref
+                .decode(name, document, &mut files)
+                .map_err(|message| {
+                    // The decoder refuses the document, at its input's declared type unless a file
+                    // it names could not be read.
+                    refusal(
+                        format!("input `{name}`: {message}"),
+                        (!files.failed).then_some(RejectedStage::Input),
+                    )
+                })?;
         let variable = variable.strip_prefix('$').unwrap_or(&variable).to_owned();
         if let Some((bound, by)) = program_variable
             && bound == variable
@@ -821,21 +929,43 @@ impl<'a> InputSession<'a> {
     /// The admission of one program: its inputs ([`Self::read`]), its test case
     /// ([`Self::test_case`]) and, when it is admitted, its exclusion ([`Self::exclusion`]),
     /// which the test case's value check has already read.
+    ///
+    /// A program whose entry states that it is rejected before it runs (`Program::rejected`) is
+    /// decided here (module documentation): rejected at the stage it states, its `outcome` is the
+    /// refusal and its statement met; admitted, its statement is unmet; refused otherwise, it is
+    /// refused, the refusal's detail naming its statement. Its `expectation` says which.
     pub fn admit(&mut self, program: &Program) -> ProgramAdmission {
-        let (outcome, exclusion) = match self
-            .read(program)
-            .and_then(|inputs| self.case(program, &inputs))
-        {
-            Ok((test, exclusion)) => (Ok(test), exclusion),
-            Err(refusal) => (Err(refusal), None),
+        let admitted = match read_inputs_staged(self.root, self.decoder, self.renderer, program) {
+            Ok(inputs) => self.case(program, &inputs),
+            Err(refused) => Err(refused),
         };
+        let (outcome, exclusion, rejected) = match (program.rejected, admitted) {
+            (stated, Ok((test, _))) if stated.is_some() => (Ok(test), None, stated),
+            (_, Ok((test, exclusion))) => (Ok(test), exclusion, None),
+            (Some(stated), Err(refused)) if refused.stage == Some(stated) => {
+                (Err(refused.refusal), None, Some(stated))
+            }
+            (Some(stated), Err(Refused { mut refusal, .. })) => {
+                refusal.detail = format!(
+                    "the program states `expect = {{ rejected = \"{}\" }}`, and is refused \
+                     otherwise: {}",
+                    stated.as_str(),
+                    refusal.detail
+                );
+                (Err(refusal), None, None)
+            }
+            (None, Err(refused)) => (Err(refused.refusal), None, None),
+        };
+        let expectation = rejected
+            .map(|stage| crate::expect::rejection_check(stage, outcome.as_ref().err()).value());
         ProgramAdmission {
             id: program.id.clone(),
             outcome,
             exclusion,
-            expectation: None,
+            expectation,
             provenance: program.provenance.clone(),
             warnings: Vec::new(),
+            rejected,
         }
     }
 
@@ -877,7 +1007,7 @@ impl<'a> InputSession<'a> {
         &self,
         program: &Program,
     ) -> Result<CaseInputs, AdmissionRefusal> {
-        read_typed_inputs(self.root, self.decoder, program)
+        read_typed_inputs(self.root, self.decoder, program).map_err(|refused| refused.refusal)
     }
 
     /// The `expectation` member of `program`'s row, when it has `expect` (`crate::expect`):
@@ -934,17 +1064,27 @@ impl<'a> InputSession<'a> {
         program: &Program,
         inputs: &CaseInputs,
     ) -> Result<TestCase, AdmissionRefusal> {
-        self.case(program, inputs).map(|(test, _)| test)
+        self.case(program, inputs)
+            .map(|(test, _)| test)
+            .map_err(|refused| refused.refusal)
     }
 
     /// [`Self::test_case`] with the initial configuration's exclusion ([`Self::exclusion`]),
-    /// read once for both the value check and the program's admission.
+    /// read once for both the value check and the program's admission; a refusal of a K text
+    /// that does not parse rejects the program at the stage `parse` ([`Refused`]), and one of a
+    /// grammar that gives no parser does not (`InputError::Grammar`).
     fn case(
         &mut self,
         program: &Program,
         inputs: &CaseInputs,
-    ) -> Result<(TestCase, Option<ProgramExclusion>), AdmissionRefusal> {
+    ) -> Result<(TestCase, Option<ProgramExclusion>), Refused> {
         let grammar = self.grammar()?;
+        // A program text read at a start sort no module declares fails to parse whatever the
+        // text, so its failure says nothing of the text and rejects nothing at `parse`.
+        let start_declared = program
+            .start_sort
+            .as_deref()
+            .is_none_or(|sort| declares_sort(self.spec.loaded.baseline.definition(), sort));
         let assembler = self
             .assembler
             .get_or_insert_with(|| InputAssembler::new(grammar));
@@ -956,7 +1096,11 @@ impl<'a> InputSession<'a> {
                     .map(|text| (text, program.start_sort.as_deref())),
                 &bindings(program, inputs),
             )
-            .map_err(input_refusal)?;
+            .map_err(|error| Refused {
+                stage: (start_declared && matches!(error, InputError::Parse(_)))
+                    .then_some(RejectedStage::Parse),
+                refusal: input_refusal(error),
+            })?;
         check_initial_state(self.backend, &initial_state)?;
         let exclusion = match self.exclusion(&initial_state) {
             Some(exclusion) => Some(exclusion),
@@ -1015,6 +1159,24 @@ impl<'a> InputSession<'a> {
             .as_ref()
             .map_err(|e| input_refusal(e.clone()))
     }
+}
+
+/// Whether a module of `definition` declares the sort named `name`: a `syntax` declaration of it,
+/// a production of it, or a synonym naming it.
+fn declares_sort(definition: &k_rust::definition::Definition, name: &str) -> bool {
+    use k_rust::definition::Sentence;
+    definition.modules.iter().any(|module| {
+        module
+            .local_sentences
+            .iter()
+            .any(|sentence| match &**sentence {
+                Sentence::SyntaxSort { sort, .. } | Sentence::Production { sort, .. } => {
+                    sort.name == name
+                }
+                Sentence::SortSynonym { new_sort, .. } => new_sort.name == name,
+                _ => false,
+            })
+    })
 }
 
 /// A program's bindings by name, in binding order: the program where the front end binds it

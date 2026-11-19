@@ -722,10 +722,63 @@ pub struct Program {
     /// or key reads it. `None` for a case without one and for every program that is no case of a
     /// case document.
     pub provenance: Option<Provenance>,
+    /// `expect = { rejected = STAGE }` of a `[[program]]` or `files` entry: the program must be
+    /// rejected before it runs, at the stage named ([`RejectedStage`]); admission decides whether
+    /// it is (`crate::admit::InputSession::admit`). Like `expect`, in no digest. `None` for every
+    /// other program, a case of a case document included (whose `expect` states an end).
+    pub rejected: Option<RejectedStage>,
     /// `stop_count`: the stop event this program's run ends at, in place of `[stop] count`: the
     /// count is a property of the observation of one program (a console ROM that needs more
     /// frames than another), while the rules are the corpus's. Only with `[stop]`.
     pub stop_count: Option<std::num::NonZeroU64>,
+}
+
+/// The admission stage at which a program must be rejected before it runs (`expect = { rejected
+/// = "parse" }` or `{ rejected = "input" }` of a `[[program]]` or `files` entry): `parse`, a K
+/// text it binds (its program text, a `variables` text) does not parse; `input`, the front end's
+/// decoder refuses its program's bytes or a typed input's document.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RejectedStage {
+    Parse,
+    Input,
+}
+
+impl RejectedStage {
+    /// The stage's name, as a manifest writes it.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Parse => "parse",
+            Self::Input => "input",
+        }
+    }
+}
+
+/// What a `[[program]]` or `files` entry's `expect` may state, the one form it has.
+const REJECTED_FORM: &str = "a program entry's `expect` states only that the program is rejected \
+     before it runs: `expect = { rejected = \"parse\" }` (a K text it binds does not parse) or \
+     `{ rejected = \"input\" }` (the front end's decoder refuses an input); an expected end is a \
+     case document's";
+
+/// `expect` of the `[[program]]` or `files` entry `entry` named `key`, when given: the one form
+/// [`REJECTED_FORM`] says, a table whose one key is `rejected`, `parse` or `input`.
+fn rejected(entry: &Table, key: &str) -> Result<Option<RejectedStage>, ManifestError> {
+    let Some(expect) = entry.get("expect") else {
+        return Ok(None);
+    };
+    let at = join(key, "expect");
+    let Value::Table(table) = expect else {
+        return Err(ManifestError::new(at, REJECTED_FORM));
+    };
+    if let Some(other) = table.keys().find(|name| *name != "rejected") {
+        return Err(ManifestError::new(join(&at, other), REJECTED_FORM));
+    }
+    match table.get("rejected") {
+        Some(Value::String(stage)) if stage == "parse" => Ok(Some(RejectedStage::Parse)),
+        Some(Value::String(stage)) if stage == "input" => Ok(Some(RejectedStage::Input)),
+        Some(_) => Err(ManifestError::new(join(&at, "rejected"), REJECTED_FORM)),
+        None => Err(ManifestError::new(at, REJECTED_FORM)),
+    }
 }
 
 /// A case's `expect_for` as one flow reads it: a table of expected ends by definition name, of
@@ -2538,9 +2591,17 @@ fn files_entry(
     known_keys(
         entry,
         position,
-        &["files", "start_sort", "variables", "inputs", "stop_count"],
+        &[
+            "files",
+            "start_sort",
+            "variables",
+            "inputs",
+            "stop_count",
+            "expect",
+        ],
     )?;
     let key = join(position, "files");
+    let rejected = rejected(entry, position)?;
     let start_sort = optional_string(entry, position, "start_sort")?;
     let stop_count = stop_count(entry, position)?;
     let variables = variables(entry, position)?;
@@ -2559,6 +2620,7 @@ fn files_entry(
                 expect: None,
                 expect_for: ExpectFor::default(),
                 provenance: None,
+                rejected,
                 stop_count,
             };
             (program, key.clone())
@@ -2613,6 +2675,7 @@ fn cases_entry(
                     scoped: case.expect_for.remove_entry(scope),
                 },
                 provenance: case.provenance,
+                rejected: None,
                 source: None,
                 start_sort: None,
                 variables: Vec::new(),
@@ -2640,6 +2703,7 @@ fn program(position: &str, entry: &Table, cases: &CaseRoot) -> Result<Program, M
             "variables",
             "inputs",
             "stop_count",
+            "expect",
         ],
     )?;
     // Neither `file` nor `text`: a case of a definition without `$PGM`, whose variables are all
@@ -2672,6 +2736,7 @@ fn program(position: &str, entry: &Table, cases: &CaseRoot) -> Result<Program, M
     let inputs = inputs(entry, &key)?;
     let variables = variables(entry, &key)?;
     let stop_count = stop_count(entry, &key)?;
+    let rejected = rejected(entry, &key)?;
     Ok(Program {
         id,
         source,
@@ -2683,6 +2748,7 @@ fn program(position: &str, entry: &Table, cases: &CaseRoot) -> Result<Program, M
         expect: None,
         expect_for: ExpectFor::default(),
         provenance: None,
+        rejected,
         stop_count,
     })
 }

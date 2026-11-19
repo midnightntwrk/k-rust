@@ -134,6 +134,24 @@ fn configuration_variables_are_required_and_parsed() {
     ));
 }
 
+/// A grammar that gives no parser is told apart from a text that does not parse
+/// (`InputError::Grammar`), and refused with the same stage and reason, `inputs`/`parse`, so its
+/// refusal reads as a parse failure's always has.
+#[test]
+fn a_grammar_without_a_parser_is_refused_as_a_parse_failure() {
+    for error in [
+        InputError::Parse("no parse".into()),
+        InputError::Grammar("no parser".into()),
+    ] {
+        let refusal = kink_corpus::admission::input_refusal(error.clone());
+        assert_eq!(
+            (refusal.stage.as_str(), refusal.reason.as_str()),
+            ("inputs", "parse")
+        );
+        assert_eq!(refusal.detail, error.to_string());
+    }
+}
+
 #[test]
 fn program_file_escape_is_refused() {
     let loaded = load("program.k", "PROGRAM");

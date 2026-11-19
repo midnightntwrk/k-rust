@@ -40,10 +40,15 @@
 //! and its flow's `expect_for`) has one member for both ([`combined`]): `unmet` where either is
 //! unmet, else `inconclusive` where either is, else `met`, its `detail` naming the expectation
 //! that decides it, since both are claims the baseline must meet.
+//!
+//! A `[[program]]` or `files` entry has no expected end; it may state only that its program is
+//! rejected before it runs (`expect = { rejected = "parse" | "input" }`, `Program::rejected`),
+//! which kink reads itself and admission decides ([`rejection_check`]: met or unmet, never by a
+//! run), so no renderer reads it and it is no expectation of this module's other functions.
 
 use crate::admit::InputFiles;
 use crate::evidence::{DeclaredEnd, EndRenderer, Renderer};
-use crate::manifest::{CaseRoot, Program, StopSection};
+use crate::manifest::{CaseRoot, Program, RejectedStage, StopSection};
 use crate::results::{ProgramResult, ResultClass, record_final_configuration};
 use k_rust::kore::{ast::Pattern, parser::parse_pattern};
 use kink_corpus::admission::AdmissionRefusal;
@@ -281,6 +286,45 @@ fn combined(mut checked: Vec<(String, CheckedExpectation)>) -> CheckedExpectatio
         verdict: ExpectationVerdict::Met,
         detail: (!details.is_empty()).then(|| details.join("; ")),
         difference: None,
+    }
+}
+
+/// The check of the statement of a program's `[[program]]` or `files` entry that it is rejected
+/// before it runs at `stage` (`expect = { rejected = STAGE }`, `crate::admit`, module
+/// documentation), as admission decided it: met where `refusal` is the refusal that rejected it
+/// at that stage, unmet where admission admitted it (`refusal` is `None`): the specification then
+/// accepts what the corpus says it must not. No run decides it, so it is never inconclusive, and it
+/// has no difference: no end exists to show.
+#[must_use]
+pub fn rejection_check(
+    stage: RejectedStage,
+    refusal: Option<&AdmissionRefusal>,
+) -> CheckedExpectation {
+    let stated = format!("`expect = {{ rejected = \"{}\" }}`", stage.as_str());
+    match refusal {
+        Some(refusal) => CheckedExpectation {
+            verdict: ExpectationVerdict::Met,
+            detail: Some(format!(
+                "rejected at `{}`, as the program states ({stated}): {}/{}: {}",
+                stage.as_str(),
+                refusal.stage,
+                refusal.reason,
+                refusal.detail
+            )),
+            difference: None,
+        },
+        None => CheckedExpectation {
+            verdict: ExpectationVerdict::Unmet,
+            detail: Some(format!(
+                "the program states {stated}, and admission admits it: {}, so the \
+                 specification accepts what the corpus says it must not",
+                match stage {
+                    RejectedStage::Parse => "every K text it binds parses",
+                    RejectedStage::Input => "the front end's decoder reads every input it binds",
+                }
+            )),
+            difference: None,
+        },
     }
 }
 

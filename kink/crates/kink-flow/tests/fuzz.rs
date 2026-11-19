@@ -2803,6 +2803,7 @@ endmodule
                     expect: None,
                     expect_for: Default::default(),
                     provenance: None,
+                    rejected: None,
                     stop_count: None,
                 };
                 confirm_program(

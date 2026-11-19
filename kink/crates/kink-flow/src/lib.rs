@@ -119,8 +119,8 @@ pub use manifest::{
     Budget, CaseRoot, CorpusSection, Decoder, ExpectFor, FlowManifest, Given, IdentitySection,
     ImplementationSection, KrsSpec, LogSection, ManifestError, ManifestFile, ObserveFunctionsSlot,
     ObserveSection, PatternsEntry, PointSection, Program, ProjectionKind, ProjectionSection,
-    Protocol, RecordCell, SpecDecl, SpecSection, StopSection, StopWhenSection, StopWhenSlot,
-    ViewSection,
+    Protocol, RecordCell, RejectedStage, SpecDecl, SpecSection, StopSection, StopWhenSection,
+    StopWhenSlot, ViewSection,
 };
 pub use mutation::{
     EditAction, EditSpec, EditedRule, Expect, InvalidMutation, InvalidReason, LabelMatch, Mutation,

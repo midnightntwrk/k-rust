@@ -29,6 +29,11 @@
 //! module, a KRS corpus's facet), each value a table, the expected end, which the reader keeps as
 //! written and reads no member of, as it reads none of `expect`. A flow checks `expect` and the
 //! expectation `expect_for` scopes to its own definition (`crate::expect`).
+//!
+//! An expectation of a case document states the end of the case's run, so neither `expect` nor
+//! a scoped one holds `rejected`, which is refused at its position: that a program must be
+//! rejected before it runs is stated on a `[[program]]` or `files` entry (`expect = { rejected =
+//! "parse" }`), whose program text kink parses, while a case document's typed inputs never are.
 
 use super::{CaseRoot, ManifestError, Provenance, join, program_key};
 use crate::admit::{InputFiles, ManifestFiles};
@@ -154,11 +159,26 @@ fn one_case(mut document: Table, key: &str) -> Result<DocumentCase, ManifestErro
     })
 }
 
-/// `expect` of a case named `key`: a table, when given.
+/// Why a case's expectation holds no `rejected` (module documentation); krs-exec's case table
+/// refuses it with the same text.
+const REJECTED_IN_CASE: &str = "a case document's expectation states the end of its run: a \
+     program that must be rejected before it runs is stated on a `[[program]]` or `files` entry \
+     of the flow's manifest, `expect = { rejected = \"parse\" }` or `{ rejected = \"input\" }` \
+     (a case document's typed inputs are never parsed)";
+
+/// The expectation `expect` at `at`, refused where it holds `rejected` ([`REJECTED_IN_CASE`]).
+fn no_rejected(expect: Table, at: &str) -> Result<Table, ManifestError> {
+    if expect.contains_key("rejected") {
+        return Err(ManifestError::new(join(at, "rejected"), REJECTED_IN_CASE));
+    }
+    Ok(expect)
+}
+
+/// `expect` of a case named `key`: a table, when given, without `rejected`.
 fn expect(case: &mut Table, key: &str) -> Result<Option<Table>, ManifestError> {
     match case.remove("expect") {
         None => Ok(None),
-        Some(Value::Table(expect)) => Ok(Some(expect)),
+        Some(Value::Table(expect)) => no_rejected(expect, &join(key, "expect")).map(Some),
         Some(_) => Err(ManifestError::new(
             join(key, "expect"),
             "expected a table of the expected end: `halt`, `rule`, `cells` and `compare`",
@@ -194,7 +214,9 @@ fn expect_for(case: &mut Table, key: &str) -> Result<BTreeMap<String, Table>, Ma
                 join(&at, &definition),
                 "a definition name is a nonempty string",
             )),
-            Value::Table(expect) => Ok((definition, expect)),
+            Value::Table(expect) => {
+                no_rejected(expect, &join(&at, &definition)).map(|expect| (definition, expect))
+            }
             _ => Err(ManifestError::new(
                 join(&at, &definition),
                 "an expectation scoped to a definition is a table of the expected end, as \
@@ -599,7 +621,27 @@ mod tests {
         "[[case]]\nname = \"a\"\n[case.expect_for.X]\nhalt = \"stuck\"\n[[case]]\nname = \"b\"\n",
         "[expect_for.Y]\nhalt = \"stuck\"\n",
     ];
-    const EXPECT_FOR_REFUSED: [(&str, &str, &str); 6] = [
+    const EXPECT_FOR_REFUSED: [(&str, &str, &str); 10] = [
+        (
+            "[expect]\nrejected = \"parse\"\n",
+            "expect.rejected",
+            "a program that must be rejected before it runs is stated on a `[[program]]`",
+        ),
+        (
+            "[expect]\nhalt = \"stuck\"\nrejected = \"input\"\n",
+            "expect.rejected",
+            "a program that must be rejected before it runs is stated on a `[[program]]`",
+        ),
+        (
+            "[expect_for.X]\nrejected = \"parse\"\n",
+            "expect_for.X.rejected",
+            "a program that must be rejected before it runs is stated on a `[[program]]`",
+        ),
+        (
+            "[[case]]\nname = \"a\"\n[case.expect]\nrejected = \"input\"\n",
+            "case[0].expect.rejected",
+            "a program that must be rejected before it runs is stated on a `[[program]]`",
+        ),
         (
             "expect_for = 1\n",
             "expect_for",
@@ -764,7 +806,8 @@ mod tests {
 
     /// An `expect_for` that is no table, scopes nothing, has an empty definition name or a value
     /// that is no table, or stands at the top of a document of named cases is refused, naming its
-    /// position.
+    /// position, and so is `rejected` in `expect` or a scoped expectation (PJ-32: it is stated on
+    /// a `[[program]]` or `files` entry).
     #[test]
     fn a_malformed_expect_for_is_refused() {
         let id = "program \"cases/case.toml\"";

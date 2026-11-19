@@ -112,7 +112,7 @@ fn calc_is_admitted_with_every_program_ok_and_the_document_is_exact() {
         })
     );
     assert_eq!(document["schema"], "kink-flow-check");
-    assert_eq!(document["version"], 18);
+    assert_eq!(document["version"], 19);
     // Without --mutations no list is checked.
     for key in ["mutation_list", "mutations", "coverage"] {
         assert!(document[key].is_null(), "{key}");
@@ -820,7 +820,7 @@ fn check_resolves_every_mutation_and_runs_no_program() {
     );
     let (document, status) = check_list(&manifest, &mutations, None);
     assert_eq!(status, EXIT_UNASKED, "{document:#}");
-    assert_eq!(document["version"], 18);
+    assert_eq!(document["version"], 19);
     assert_eq!(document["spec"]["outcome"], "admitted");
     assert_eq!(document["mutation_list"]["outcome"], "ok");
     // Nothing ran and nothing was written: no cache, so no unmatched-rule warning.
@@ -1141,7 +1141,7 @@ fn a_flagged_definition_names_its_cause_chains_and_passes_check() {
     assert!(exclusions.short_circuit_flagged());
     assert_eq!(exclusions.definition_exclusion(), None);
     assert_eq!(status, EXIT_YES, "{document:#}");
-    assert_eq!(document["version"], 18);
+    assert_eq!(document["version"], 19);
     assert_eq!(document["spec"]["outcome"], "admitted");
     assert!(document["spec"]["exclusion"].is_null(), "{document:#}");
     for program in document["programs"].as_array().unwrap() {
@@ -2453,4 +2453,124 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
             }
         }
     }
+}
+
+/// A `[[program]]` or `files` entry may state that its programs must be rejected before they run
+/// (PJ-32): a text that does not parse meets `expect = { rejected = "parse" }` and is `rejected`
+/// in the check document, with the refusal; one that parses is `accepted`, its statement unmet; a
+/// `files` entry's statement applies to every text it matches. Neither is refused, so `check`
+/// passes as on the same flow without them; one refused at another stage (typed inputs at the K
+/// level) is refused, naming the statement.
+#[test]
+fn check_reports_a_program_rejected_at_the_stage_it_states() {
+    let dir = scratch("rejected-stage");
+    fs::copy(flow("calc/calc.k"), dir.join("calc.k")).unwrap();
+    write(&dir.join("bad/a.calc"), "1 +");
+    write(&dir.join("bad/b.calc"), "2 * 3");
+    let flow_text = |extra: &str| {
+        format!(
+            "[spec]\nentry = \"calc.k\"\nmain_module = \"CALC\"\nsyntax_module = \"CALC-SYNTAX\"\n\n\
+             [[program]]\nid = \"inline\"\ntext = \"2 * 3 + 1\"\n{extra}"
+        )
+    };
+    let manifest = dir.join("FLOW.toml");
+    write(
+        &manifest,
+        &flow_text(
+            "\n[[program]]\nid = \"bad-inline\"\ntext = \"+ +\"\nexpect = { rejected = \"parse\" }\n\n\
+             [[program]]\nfiles = \"bad/*.calc\"\nexpect = { rejected = \"parse\" }\n",
+        ),
+    );
+    let (document, status) = on_stack({
+        let manifest = manifest.clone();
+        move || check(&manifest)
+    });
+    assert_eq!(status, EXIT_YES, "{document:#}");
+    assert_eq!(document["version"], 19);
+    let rows = document["programs"].as_array().unwrap();
+    let outcome = |id: &str| {
+        let row = rows.iter().find(|row| row["id"] == id).unwrap();
+        (
+            row["outcome"].as_str().unwrap().to_owned(),
+            row["reason"].clone(),
+            row.get("expectation").map(|e| e["verdict"].clone()),
+        )
+    };
+    let met = (
+        "rejected".to_owned(),
+        Value::from("parse"),
+        Some(Value::from("met")),
+    );
+    assert_eq!(outcome("inline"), ("ok".to_owned(), Value::Null, None));
+    assert_eq!(outcome("bad-inline"), met);
+    assert_eq!(outcome("bad/a.calc"), met);
+    assert_eq!(
+        outcome("bad/b.calc"),
+        (
+            "accepted".to_owned(),
+            Value::Null,
+            Some(Value::from("unmet"))
+        )
+    );
+    let unmet = rows.iter().find(|row| row["id"] == "bad/b.calc").unwrap();
+    assert!(
+        unmet["expectation"]["detail"]
+            .as_str()
+            .unwrap()
+            .contains("every K text it binds parses"),
+        "{unmet:#}"
+    );
+
+    // A statement whose program is refused at another stage is refused with that refusal.
+    write(
+        &manifest,
+        &flow_text(
+            "\n[[program]]\nid = \"typed\"\ntext = \"1\"\ninputs = { n = 1 }\nexpect = { rejected = \"parse\" }\n",
+        ),
+    );
+    let (document, status) = on_stack({
+        let manifest = manifest.clone();
+        move || check(&manifest)
+    });
+    assert_eq!(status, EXIT_UNASKED, "{document:#}");
+    let typed = &document["programs"][1];
+    assert_eq!(typed["outcome"], "refused", "{document:#}");
+    assert_eq!(typed["reason"], "typed-inputs", "{document:#}");
+    assert!(
+        typed["detail"]
+            .as_str()
+            .unwrap()
+            .starts_with("the program states `expect = { rejected = \"parse\" }`"),
+        "{document:#}"
+    );
+    assert_eq!(typed.get("expectation"), None, "{document:#}");
+
+    // A program text read at a start sort no module declares fails to parse whatever the text:
+    // that refusal rejects nothing at `parse`, so the program is refused, naming the statement,
+    // while the same text that does not parse at a declared sort meets it.
+    write(
+        &manifest,
+        &flow_text(
+            "\n[[program]]\nid = \"undeclared\"\ntext = \"1 + 2\"\nstart_sort = \"Pgmm\"\n\
+             expect = { rejected = \"parse\" }\n\n\
+             [[program]]\nid = \"declared\"\ntext = \"+ +\"\nstart_sort = \"Exp\"\n\
+             expect = { rejected = \"parse\" }\n",
+        ),
+    );
+    let (document, status) = on_stack(move || check(&manifest));
+    assert_eq!(status, EXIT_UNASKED, "{document:#}");
+    let undeclared = &document["programs"][1];
+    assert_eq!(undeclared["outcome"], "refused", "{document:#}");
+    assert_eq!(undeclared["reason"], "parse", "{document:#}");
+    assert!(
+        undeclared["detail"]
+            .as_str()
+            .unwrap()
+            .starts_with("the program states `expect = { rejected = \"parse\" }`"),
+        "{document:#}"
+    );
+    assert_eq!(
+        document["programs"][2]["outcome"], "rejected",
+        "{document:#}"
+    );
 }

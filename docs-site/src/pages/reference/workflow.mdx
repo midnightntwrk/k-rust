@@ -744,6 +744,11 @@ A *case* is a table of seven keys, each of which may be absent:
   and the verdict is `unmet` where either is unmet, else `inconclusive` where either is, else `met`;
   of two, the verdict's line names the expectation that decided it (``expectation `expect_for.static` unmet``),
   and an inconclusive verdict's `reason` starts with that expectation's key.
+  Neither `expect` nor a scoped expectation holds `rejected`, which is refused at its position:
+  a case document's typed inputs are never parsed,
+  so that a program must be rejected before it runs is stated on a flow's `[[program]]` or `files` entry,
+  `expect = { rejected = "parse" }` or `{ rejected = "input" }`, whose text `krs kink` parses
+  (kink-flow's README, "Programs rejected before they run").
 - `provenance`: which tool or person found the case and why it is in its corpus,
   a table of `found_by` and `reason`, each optional and a non-empty string,
   at least one given, and no other key (`CaseProvenance`).

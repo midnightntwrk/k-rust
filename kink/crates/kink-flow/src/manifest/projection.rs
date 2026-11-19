@@ -467,6 +467,7 @@ mod tests {
             expect: None,
             expect_for: super::super::ExpectFor::default(),
             provenance: None,
+            rejected: None,
             stop_count: None,
         }
     }

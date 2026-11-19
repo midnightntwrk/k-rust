@@ -61,7 +61,16 @@ impl From<String> for VariableInput {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum InputError {
+    /// A K text does not parse: the program text at its start sort, or a variable's text at its
+    /// sort (k-rust `ConfigurationError::Program`, `ConfigurationError::Parse`); from
+    /// [`assemble_input_with`] also a program file that cannot be read as UTF-8 text.
     Parse(String),
+    /// The definition's grammar gives no parser for a text (k-rust
+    /// `ConfigurationError::Parser`: a missing module, a grammar the parser generator refuses):
+    /// a fault of the definition, not of the text, which was not read. Refused with the reason
+    /// of a parse failure, `parse` ([`crate::admission::input_refusal`]), and told apart from one
+    /// so that a statement that a text must not parse is never met by it.
+    Grammar(String),
     Assemble(String),
     Streams(String),
     /// The program binds `$IO` on a definition with stream cells (`stream-mode`): kink runs
@@ -77,6 +86,7 @@ impl fmt::Display for InputError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Parse(message)
+            | Self::Grammar(message)
             | Self::Assemble(message)
             | Self::Streams(message)
             | Self::StreamMode(message)
@@ -348,9 +358,10 @@ fn has_stream_cells(definition: &Definition) -> bool {
 fn input_error(error: ConfigurationError) -> InputError {
     let message = error.to_string();
     match error {
-        ConfigurationError::Program(_)
-        | ConfigurationError::Parse { .. }
-        | ConfigurationError::Parser(_) => InputError::Parse(message),
+        ConfigurationError::Program(_) | ConfigurationError::Parse { .. } => {
+            InputError::Parse(message)
+        }
+        ConfigurationError::Parser(_) => InputError::Grammar(message),
         ConfigurationError::Missing { names }
             if names
                 .iter()

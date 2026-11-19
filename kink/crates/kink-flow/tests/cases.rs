@@ -116,6 +116,7 @@ text = "2"
             expect: None,
             expect_for: Default::default(),
             provenance: None,
+            rejected: None,
             stop_count: None,
         }
     );
@@ -440,6 +441,7 @@ fn a_case_document_is_the_whole_case() {
                 expect: None,
                 expect_for: Default::default(),
                 provenance: None,
+                rejected: None,
                 stop_count: None,
             },
             Program {
@@ -453,6 +455,7 @@ fn a_case_document_is_the_whole_case() {
                 expect: None,
                 expect_for: Default::default(),
                 provenance: None,
+                rejected: None,
                 stop_count: None,
             }
         ]
@@ -1443,7 +1446,7 @@ fn a_case_expectation_is_checked_by_the_front_ends_renderer() {
         )
     });
     assert_eq!(status, kink_flow::cli::EXIT_YES, "{check:#}");
-    assert_eq!(check["version"], 18, "{check:#}");
+    assert_eq!(check["version"], 19, "{check:#}");
     assert_eq!(expectations(&check), reported, "{check:#}");
 
     // A refused expectation refuses its case.
@@ -1713,7 +1716,7 @@ fn check_with_warns_of_a_scope_no_flow_given_reads() {
 
     let (alone, status) = checked(Vec::new(), None);
     assert_eq!(status, kink_flow::cli::EXIT_YES, "{alone:#}");
-    assert_eq!(alone["version"], 18, "{alone:#}");
+    assert_eq!(alone["version"], 19, "{alone:#}");
     assert_eq!(alone.get("with"), None, "{alone:#}");
     assert!(warnings(&alone).is_empty(), "{alone:#}");
 
@@ -1887,4 +1890,137 @@ fn a_case_provenance_is_shown_and_in_no_digest_or_key() {
     assert_eq!(status, kink_flow::cli::EXIT_YES, "{check:#}");
     assert_eq!(check["programs"][0]["provenance"], stated, "{check:#}");
     assert_eq!(check["programs"][1].get("provenance"), None, "{check:#}");
+}
+
+/// A listed program may state that it must be rejected before it runs (PJ-32). With a decoder,
+/// `input` is met where the decoder refuses a typed input's document, and `parse` where a K text
+/// the program binds (a `variables` text) does not parse; such a program is not refused, and its
+/// statement is met. One admission admits is not refused either, its statement unmet. One refused
+/// at the other stage, or by a decoder that could not read a file the document names, is refused
+/// as any program is, its detail naming the statement. Only refused programs keep `check` from
+/// passing; neither a met nor an unmet statement decides its exit status.
+#[test]
+fn a_listed_program_is_rejected_at_the_stage_it_states() {
+    let dir = scratch("rejected-stage");
+    write(&dir.join("cases.k"), CASES_K);
+    fs::write(dir.join("rom.bin"), [0xaa]).unwrap();
+    let entry = "entry = { \"$go\" = true }\nrom = { \"$file\" = \"rom.bin\" }\n";
+    write(
+        &dir.join("FLOW.toml"),
+        &format!(
+            r#"[spec]
+entry = "cases.k"
+main_module = "CASES"
+
+[[program]]
+id = "input-met"
+expect = {{ rejected = "input" }}
+[program.inputs]
+{entry}n = "one"
+
+[[program]]
+id = "input-unmet"
+expect = {{ rejected = "input" }}
+[program.inputs]
+{entry}n = 1
+
+[[program]]
+id = "parse-met"
+variables = {{ N = "true" }}
+expect = {{ rejected = "parse" }}
+[program.inputs]
+{entry}
+[[program]]
+id = "input-missing-file"
+expect = {{ rejected = "input" }}
+[program.inputs]
+entry = {{ "$go" = true }}
+n = 1
+rom = {{ "$file" = "missing.bin" }}
+
+[[program]]
+id = "input-at-parse"
+variables = {{ N = "true" }}
+expect = {{ rejected = "input" }}
+[program.inputs]
+{entry}
+[[program]]
+id = "plain"
+[program.inputs]
+{entry}n = 2
+"#
+        ),
+    );
+    let manifest = read(&dir)
+        .unwrap()
+        .with_input_decoder(std::sync::Arc::new(TestDecoder));
+    let admission = on_stack(move || admit(&manifest));
+    let decided = admission
+        .programs
+        .iter()
+        .map(|p| {
+            (
+                p.id.as_str(),
+                p.rejected.map(kink_flow::RejectedStage::as_str),
+                p.outcome
+                    .as_ref()
+                    .err()
+                    .map(|r| format!("{}/{}", r.stage, r.reason)),
+                p.expectation.as_ref().map(|e| e["verdict"].clone()),
+            )
+        })
+        .collect::<Vec<_>>();
+    let refusal = |name: &str| Some(name.to_owned());
+    let verdict = |name: &str| Some(Value::from(name));
+    assert_eq!(
+        decided,
+        [
+            (
+                "input-met",
+                Some("input"),
+                refusal("inputs/input-value"),
+                verdict("met")
+            ),
+            ("input-unmet", Some("input"), None, verdict("unmet")),
+            (
+                "parse-met",
+                Some("parse"),
+                refusal("inputs/parse"),
+                verdict("met")
+            ),
+            (
+                "input-missing-file",
+                None,
+                refusal("inputs/input-value"),
+                None
+            ),
+            ("input-at-parse", None, refusal("inputs/parse"), None),
+            ("plain", None, None, None),
+        ]
+    );
+    let program = |id: &str| admission.programs.iter().find(|p| p.id == id).unwrap();
+    let detail = program("input-met").expectation.as_ref().unwrap()["detail"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(
+        detail.starts_with("rejected at `input`") && detail.contains("input `n`"),
+        "{detail}"
+    );
+    for id in ["input-missing-file", "input-at-parse"] {
+        let detail = &program(id).outcome.as_ref().unwrap_err().detail;
+        assert!(
+            detail.starts_with("the program states `expect = { rejected = \"input\" }`"),
+            "{id}: {detail}"
+        );
+    }
+    assert!(!admission.all_admitted());
+    // Without the two programs refused otherwise, every program is admitted and `check` can pass:
+    // a met or unmet statement decides no exit status.
+    let mut admission = admission;
+    admission
+        .programs
+        .retain(|p| !p.id.starts_with("input-missing") && p.id != "input-at-parse");
+    assert!(admission.all_admitted());
+    assert!(admission.all_judgeable());
 }
