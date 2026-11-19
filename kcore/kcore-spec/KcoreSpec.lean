@@ -323,6 +323,7 @@ import KcoreSpec.GenEqsModel
 import KcoreSpec.CondResort
 import KcoreSpec.CondResortModel
 import KcoreSpec.TieRhs
+import KcoreSpec.TieRhsEmpty
 import KcoreSpec.HoldsNode
 import KcoreSpec.HoldsRead
 import KcoreSpec.ClausePreTie
