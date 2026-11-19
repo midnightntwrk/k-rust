@@ -6,7 +6,8 @@ Usage (from anywhere; the library and `kcore` built first):
                                                [--hand consistency=FILE] [--at-values N,...] [--cons-head] [--wf-parts]
                                                [--split] [--account-sorted] [--heads-literal] [--heads-codes]
                                                [--attrs-parts] [--attrs-blocks N] [--decl-parts] [--fn-blocks N]
-                                               [--absent-file] [--out DIR] [--print]
+                                               [--absent-file] [--decl-syms-literal] [--nojunk-eq]
+                                               [--nojunk-blocks N] [--out DIR] [--print]
   (the probe, a run of the Lean definitions on the text, is stopped after $TIEGEN_PROBE_TIMEOUT seconds, 900 by default)
   python3 -I test/constructs/tiegen.py --self-test   (the law search below, on three fixtures)
 
@@ -64,6 +65,21 @@ its own; with --split they and `decl_counts` are in a file of their own, Tie<Fix
 --fn-blocks N decides `fn_shape` by `decide_map_blocks N K`, K = (Γ's equations) / N: K blocks of N
 equations and the rest, each a decision of its own; refused for a text whose equations are aligned
 up to a renaming (`fn_shape_but_owise`) or that states no `fn_shape`.
+--decl-syms-literal writes Γ's symbol names as a literal of their codes (`gSymCodes`, `gSymCodes_eq :
+(kernelSyms c).map (strCode ∘ c.symName ∘ name) = gSymCodes`) and decides `decl_counts` and the
+`declsE` ranges on `hasSymL`, `plainSymsL` and `declItemsL`, which read it and are equal to `hasSym`,
+`plainSyms` and `declItems` (`strCode_inj`): `hasSym` otherwise computes Γ's symbols once per symbol
+declaration of the text. With --split the literal's decision is repeated in each file that reads it.
+--nojunk-eq proves `nojunk_items` from the equation of each sentence's translation to Γ's no-junk
+item of its sort over `Semantics.gens` (`njEq`, `njEqB`, `tnjItem_any_of_eq`), so that no decision
+scans `consItemsK c`; the probe names each sentence's sort, and a sentence it names none for is
+refused. With --chunk N the equations are decided by ranges of N sentences.
+--nojunk-blocks N proves `nojunk_kitem_order`, and `nojunk_<sort>_order` of a sort with more than N
+generators, from the translations of the sentence's disjuncts and of the item's, compared by ranges
+of N (`tieEq_range`, `njTrOr_pat`): the text names the variable of each injection's disjunct `Val`
+whatever its sort, where `noJunkDisjuncts` numbers a name it has given at another sort, so the
+disjuncts agree only up to their translation. Both flags state the text's alias names once
+(`aliasLit`, `aliasLit_eq`).
 --hand consistency=FILE puts FILE in place of the consistency section, for a text that owes an
 agreement, a clause's match independence, or a rule's or clause's condition (`owed_rules`,
 `owed_clauses`): FILE proves the owed facts and states `consistent` for every H, with `facts` for an
@@ -755,6 +771,26 @@ def tgNjOrder (gs : List KoreAML.Gen) : List Kore.Pattern → Option (List Nat)
   -- constructor without arguments), for `--heads-literal`
   for g in gh do
     IO.println s!"G {g.1}\t{"\t".intercalate (g.2.map fun s => match s with | .ctor h [] => h.ident.name | _ => "?")}"
+  -- Γ's symbol names in `kernelSyms`' order (`--decl-syms-literal`) and the text's alias names
+  -- (`--nojunk-eq`, `--nojunk-blocks`)
+  for g in ks do
+    IO.println s!"Y {c.symName g.name}"
+  for a in k.aliasNames do
+    IO.println s!"A {a}"
+  -- KItem's name and generators, and the tables of its no-junk item and sentence, written out by
+  -- `--nojunk-blocks`
+  IO.println s!"H kitemName {c.sortName Srt.kitem}"
+  for g in kg do
+    match g with
+    | .ctor k => IO.println s!"K C\t{k.name}\t{k.result}\t{"\t".intercalate k.args}"
+    | .inj a => IO.println s!"K I\t{a}"
+  let tgSortName := fun (s : Kore.KSort) => match s with | .ctor h [] => h.ident.name | _ => "?"
+  let tgKey := fun (vk : VarKey) => match vk with
+    | .sortVar n => s!"S\t{n}\t"
+    | .evar n s => s!"E\t{n}\t{tgSortName s}"
+    | .svar n s => s!"V\t{n}\t{tgSortName s}"
+  for vk in tableOf [] (.or (srtOf c Srt.kitem) (KoreAML.noJunkDisjuncts (c.sortName Srt.kitem) [] kg)) do
+    IO.println s!"TI {tgKey vk}"
   for kp in c.params.filter (·.raw) do
     IO.println s!"P {kp.sig.name}\t{c.symName kp.sig.name}\t{kp.sig.args}\t{kp.sig.result}\t{c.sortName kp.sig.result}\t{kp.assoc}\t{kp.idem}\t{c.isOpenGen (.ctor kp.sig)}"
   for (it, j) in fis.zip (List.range fis.length) do
@@ -816,6 +852,18 @@ def tgNjOrder (gs : List KoreAML.Gen) : List Kore.Pattern → Option (List Nat)
     let ovlEq := !c.ovls.isEmpty && tieOvlEqB c ad.ax
     let ovlNc := !c.ovls.isEmpty && !cons && tieOvlNcB c ad.ax
     IO.println s!"S {ad.index}\t{absent}\t{fnJ}\t{cons}\t{plain}\t{consItem}\t{triv}\t{kitem}\t{rw}\t{eh}\t{kind eh}\t{fh}\t{kind fh}\t{AttrsAgree.prioOf ad.ax.attributes}\t{pl}\t{simp}\t{usrc}\t{rl}\t{ovlEq}\t{ovlNc}"
+    if kitem then
+      for vk in tableOf [] ad.ax.pattern do
+        IO.println s!"TT {ad.index}\t{tgKey vk}"
+    -- a sentence that is a constructor item and a `\or` at a sort with generators: the sort whose
+    -- no-junk item over `Semantics.gens` it is (`--nojunk-eq`)
+    if consItem then
+      match ad.ax.pattern with
+      | .or S _ =>
+        for s in (consSorts c).filter fun s => !(c.gens s).isEmpty && srtOf c s == S do
+          if (KoreAML.Cons.noJunkItem (c.sortName s) ((c.gens s).map (Gen.toK c))).pat == p then
+            IO.println s!"J {ad.index}\t{s}\t{(c.gens s).length}"
+      | _ => pure ()
     if !consItem && triv.isEmpty && !kitem then
       match njCands.find? (fun (_, o, _) => o == p) with
       | some (s, _, _) => IO.println s!"N {ad.index}\t{s}\t{c.sortName s}\torder\t[]\t{(c.gens s).length}"
@@ -856,11 +904,28 @@ def probe(name, path, um, order="[]", cons_head=False):
     head["rules"], head["raw"], head["fnA"], head["nj"], head["lawRef"], head["fnW"] = [], [], {}, {}, [], {}
     head["fnQ"] = {}
     head["gHeads"] = []
+    head["gSyms"], head["aliases"], head["njEq"] = [], [], {}
+    head["kGens"], head["tabI"], head["tabT"] = [], [], {}
     nums = lambda s: [int(x) for x in re.findall(r"\d+", s)]
     for l in r.stdout.split("\n"):
         if l.startswith("G "):
             f = l[2:].split("\t")
             head["gHeads"].append((f[0], [x for x in f[1:] if x]))
+        elif l.startswith("Y "):
+            head["gSyms"].append(l[2:])
+        elif l.startswith("A "):
+            head["aliases"].append(l[2:])
+        elif l.startswith("K "):
+            f = l[2:].split("\t")
+            head["kGens"].append(("ctor", f[1], f[2], [x for x in f[3:] if x]) if f[0] == "C" else ("inj", f[1]))
+        elif l.startswith("TI "):
+            head["tabI"].append(tuple(l[3:].split("\t")))
+        elif l.startswith("TT "):
+            f = l[3:].split("\t")
+            head["tabT"].setdefault(int(f[0]), []).append(tuple(f[1:]))
+        elif l.startswith("J "):
+            f = l[2:].split("\t")
+            head["njEq"].setdefault(int(f[0]), []).append((int(f[1]), int(f[2])))
         elif l.startswith("H "):
             k, _, v = l[2:].partition(" ")
             head[k] = v
@@ -1052,13 +1117,18 @@ def head_lit(h):
     return "(" + lean_str(h[0]) + ", [" + ", ".join(f".ctor ⟨⟨{lean_str(s)}⟩⟩ []" for s in h[1]) + "])"
 
 
-def head_code_lit(h):
-    """A head of `gammaHeads` with its name as `KoreAML.Distinct.strCode` codes it (its UTF-8 bytes in
-    base 256, the first byte the lowest digit, behind a leading 1), as a Lean literal."""
+def str_code(name):
+    """The name as `KoreAML.Distinct.strCode` codes it: its UTF-8 bytes in base 256, the first byte
+    the lowest digit, behind a leading 1."""
     code = 1
-    for b in reversed(h[0].encode("utf-8")):
+    for b in reversed(name.encode("utf-8")):
         code = code * 256 + b
-    return f"({code}, [" + ", ".join(f".ctor ⟨⟨{lean_str(s)}⟩⟩ []" for s in h[1]) + "])"
+    return code
+
+
+def head_code_lit(h):
+    """A head of `gammaHeads` with its name as `KoreAML.Distinct.strCode` codes it, as a Lean literal."""
+    return f"({str_code(h[0])}, [" + ", ".join(f".ctor ⟨⟨{lean_str(s)}⟩⟩ []" for s in h[1]) + "])"
 
 
 def ax_list(nums, indent=3, pre=None):
@@ -1103,7 +1173,7 @@ def by_ranges(prefix, lst, pred, rs, lem="tieAllE", named=False):
 def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, failing, ob, chunks, raws=None,
              hand=None, chunk=0, at_values=(), cons_head=False, wf_parts=None, split=False,
              account_sorted=None, heads_literal=False, heads_codes=False, attrs_parts=False, decl_parts=False,
-             fn_blocks=0, attrs_blocks=0, absent_file=False):
+             fn_blocks=0, attrs_blocks=0, absent_file=False, decl_syms=False, nojunk_eq=False, nojunk_blocks=0):
     """The Lean text of the tie. `ob`: what `obligations` read; `raws`: each sentence's text as
     written; `hand`: hand-written sections by name (`consistency`), each in place of the generated
     one; `chunk`: the length of the ranges the decisions over the whole user module are cut into
@@ -1112,7 +1182,10 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     decide `account_absent`'s ranges on Γ's heads as a literal (`gHeads`); `heads_codes`: and on
     their names' codes (`gCodes`); `attrs_parts`, `decl_parts`: `attrs_agree` and `decl_counts` from
     one decision per conjunct or component; `fn_blocks`: decide `fn_shape` by blocks of that many
-    equations (0: one decision)."""
+    equations (0: one decision); `decl_syms`: decide `decl_counts` and the `declsE` ranges on Γ's
+    symbol names as a literal (`gSymCodes`); `nojunk_eq`: `nojunk_items` from each sentence's
+    equation to its sort's item (`njEq`); `nojunk_blocks`: the no-junk orders of KItem and of a sort
+    of more generators than that by blocks of that many disjuncts (0: one decision)."""
     raws = raws or {}
     hand = hand or {}
     call_order = ob["call_order"]
@@ -2077,6 +2150,28 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     w("")
     w("kernel_rfl sigItems_withHooks : ∀ (c : Semantics) (H : HookParams), sigItems (c.withHooks H) = sigItems c")
     w("")
+    if decl_syms:
+        # read by `decl_counts`' parts and by the `declsE` ranges, which `--split` may put in two files:
+        # repeated in each, as the head's literals are
+        mark("Head")
+        w("/-! ## Γ's symbol names, as a literal -/")
+        w("")
+        w("/-- Γ's symbol names (`c.symName` of each of `kernelSyms c`, in its order), each as its code")
+        w("(`KoreAML.Distinct.strCode`), written out. -/")
+        w("def gSymCodes : List Nat :=")
+        w("  [" + wrap_nums([str(str_code(n)) for n in head["gSyms"]], 3) + "]")
+        w("")
+        w("theorem gSymCodes_eq :")
+        w("    (kernelSyms c).map (fun k => KoreAML.Distinct.strCode (c.symName k.name)) = gSymCodes := by")
+        w("  decide +kernel")
+        w("")
+        w("/-- Two names are equal exactly where their codes are (`strCode_inj`). -/")
+        w("theorem symCode_beq (a b : String) :")
+        w("    (KoreAML.Distinct.strCode a == KoreAML.Distinct.strCode b) = (a == b) := by")
+        w("  apply Bool.eq_iff_iff.mpr")
+        w("  simp only [beq_iff_eq]")
+        w("  exact ⟨fun h => KoreAML.Distinct.strCode_inj h, fun h => h ▸ rfl⟩")
+        w("")
     mark("Decls")
     w("/-- Γ has a symbol under the name `n`. -/")
     w("noncomputable def hasSym (n : String) : Bool := (kernelSyms c).any fun k => c.symName k.name == n")
@@ -2088,6 +2183,23 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     w("/-- The item is one of `sigItems c`, pattern for pattern. -/")
     w("noncomputable def inSigItems (it : Item) : Bool := (sigItems c).any (·.pat == it.pat)")
     w("")
+    if decl_syms:
+        w("/-- `hasSym` read from the literal: the code of `n` is one of Γ's names' codes. -/")
+        w("noncomputable def hasSymL (n : String) : Bool := gSymCodes.any (· == KoreAML.Distinct.strCode n)")
+        w("")
+        w("theorem hasSymL_eq : hasSymL = hasSym := by")
+        w("  funext n")
+        w("  unfold hasSymL hasSym")
+        w("  rw [← gSymCodes_eq]")
+        w("  simp only [List.any_map, Function.comp_def, symCode_beq]")
+        w("")
+        w("noncomputable def plainSymsL : List SymbolDecl :=")
+        w("  kore.symbolDecls.filter fun sd => sd.params.isEmpty && hasSymL sd.name")
+        w("noncomputable def declItemsL : List Item := plainSorts.map sortConstantItem ++ plainSymsL.map arityItem")
+        w("")
+        w("theorem plainSymsL_eq : plainSymsL = plainSyms := by unfold plainSymsL plainSyms; rw [hasSymL_eq]")
+        w("theorem declItemsL_eq : declItemsL = declItems := by unfold declItemsL declItems; rw [plainSymsL_eq]")
+        w("")
     dparts = [("decl_count_sorts", "kore.sortDecls.length"), ("decl_count_plain_sorts", "plainSorts.length"),
               ("decl_count_syms", "kore.symbolDecls.length"), ("decl_count_plain_syms", "plainSyms.length"),
               ("decl_count_param_syms", "(kore.symbolDecls.filter fun sd => !sd.params.isEmpty).length"),
@@ -2095,9 +2207,12 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     if decl_parts and split:
         mark("DeclCounts")
     if decl_parts:
-        w("/-- The components of `decl_counts`, each its own decision. -/")
+        w("/-- The components of `decl_counts`, each its own decision" +
+          (" (where they read Γ's symbols, on the literal `gSymCodes`)" if decl_syms else "") + ". -/")
         for (dn, de), dv in zip(dparts, dc):
-            w(f"theorem {dn} : {de} = {dv} := by decide +kernel")
+            rw_ = {"decl_count_plain_syms": "rw [← plainSymsL_eq]; ",
+                   "decl_count_lacked_syms": "rw [← hasSymL_eq]; "}.get(dn, "") if decl_syms else ""
+            w(f"theorem {dn} : {de} = {dv} := by {rw_}decide +kernel")
         w("")
     w("/-- The declarations of the text: sorts, sorts without parameters, symbols, symbols without")
     w("parameters that Γ has, symbols with parameters, symbols without parameters that Γ lacks. -/")
@@ -2107,16 +2222,24 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     w(f"      (kore.symbolDecls.filter fun sd => sd.params.isEmpty && !hasSym sd.name).length) = ({', '.join(dc)}) := by")
     if decl_parts:
         w("  rw [" + ", ".join(dn for dn, _ in reversed(dparts)) + "]")
+    elif decl_syms:
+        w("  rw [← plainSymsL_eq, ← hasSymL_eq]")
+        w("  decide +kernel")
     else:
         w("  decide +kernel")
     w("")
     if decl_parts and split:
         mark("Decls")
-    thms, body = by_ranges("declsE", "declItems", "inSigItems", decl_rs)
+    thms, body = by_ranges("declsE", "declItemsL" if decl_syms else "declItems", "inSigItems", decl_rs)
     w(thms)
     w("")
-    w("theorem decls_in_sig : declItems.all inSigItems = true :=")
-    w("  " + body)
+    if decl_syms:
+        w("theorem decls_in_sig : declItems.all inSigItems = true := by")
+        w("  rw [← declItemsL_eq]")
+        w("  exact " + body.replace("\n    ", "\n      "))
+    else:
+        w("theorem decls_in_sig : declItems.all inSigItems = true :=")
+        w("  " + body)
     w("")
     w("/-- **E for the declarations**: Γ entails the item of each declaration without sort parameters of")
     w("a symbol Γ has, for every H. -/")
@@ -2457,13 +2580,62 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         for i, _ in nj_triv:
             w(f"  · rw [nj{i}]; exact orTopBot_valid hD rfl")
         w("")
-    if nj_items:
+    nj_big = [i for i, e in nj_sorts if nojunk_blocks and e["ngens"] > nojunk_blocks]
+    if (nojunk_eq and nj_items) or (nojunk_blocks and nj_kitem) or nj_big:
+        w(NJ_ALIAS.replace("@ALIASES@", ", ".join(lean_str(a) for a in head["aliases"])))
+    if (nojunk_blocks and nj_kitem) or nj_big:
+        w(NJ_TR)
+    if nj_items and nojunk_eq:
+        miss = [i for i in nj_items if not head["njEq"].get(i)]
+        if miss:
+            raise Refused(f"{name}: --nojunk-eq: the no-junk sentences {miss} are constructor items of Γ but the probe "
+                          f"finds no sort whose item over `Semantics.gens` they are")
+        w("/-- The no-junk sentences that are Γ's constructor items, each with the sort whose no-junk item")
+        w("over `Semantics.gens` it is. -/")
+        w("noncomputable def njEq : List (AxiomDecl × Srt) :=")
+        w("  [" + wrap_nums([f"(U.ax{i}, {head['njEq'][i][0][0]})" for i in nj_items], 3) + "]")
+        w("")
+        w("/-- The sentence `p.1` translates (with the alias names written out) to the no-junk item of the sort")
+        w("`p.2` over `Semantics.gens`, and `p.2` is a constructor sort with generators. -/")
+        w("noncomputable def njEqB (p : AxiomDecl × Srt) : Bool :=")
+        w("  decide ((trAxiom kore.symbolDecls aliasLit p.1).pat =")
+        w("      (KoreAML.Cons.noJunkItem (c.sortName p.2) ((c.gens p.2).map (Gen.toK c))).pat) &&")
+        w("    decide (p.2 ∈ consSorts c) && !(c.gens p.2).isEmpty")
+        w("")
+        if chunk and len(nj_items) > chunk:
+            thms, body = by_ranges("njEqE", "njEq", "njEqB", ranges(len(nj_items), 0, chunk), "tieAll", True)
+            w(thms)
+            w("theorem njEq_all : njEq.all njEqB = true :=")
+            w("  " + body)
+        else:
+            w("theorem njEq_all : njEq.all njEqB = true := by decide +kernel")
+        w("")
+        w("/-- A sentence `njEqB` holds of is Γ's no-junk item of its sort, an item of `consItemsK c`")
+        w("(`tnjItem_any_of_eq`). -/")
+        w("theorem njEq_any {l : List (AxiomDecl × Srt)} (h : l.all njEqB = true) :")
+        w("    ∀ ad ∈ l.map (·.1), (consItemsK c).any (·.pat == (trS ad).pat) = true := by")
+        w("  intro ad had")
+        w("  obtain ⟨⟨ad', N⟩, hm, rfl⟩ := List.mem_map.mp had")
+        w("  have hb := List.all_eq_true.mp h _ hm")
+        w("  simp only [njEqB, Bool.and_eq_true, decide_eq_true_eq, Bool.not_eq_eq_eq_not, Bool.not_true] at hb")
+        w("  obtain ⟨⟨he, hN⟩, hg⟩ := hb")
+        w("  rw [← aliasLit_eq] at he")
+        w("  exact tnjItem_any_of_eq hN hg he")
+        w("")
+        w("/-- **No junk of the sorts with generators**: the translation of each sentence is the pattern of")
+        w("one of Γ's constructor items, its sort's no-junk item (`njEq_any`). -/")
+        w(f"theorem nojunk_items : ∀ ad ∈ {ax_list(nj_items, 6)},")
+        w("    (consItemsK c).any (·.pat == (trS ad).pat) = true :=")
+        w("  njEq_any njEq_all")
+        w("")
+    elif nj_items:
         w("set_option maxHeartbeats 1000000 in")
         w("/-- **No junk of the sorts with generators**: the translation of each sentence is the pattern of")
         w("one of Γ's constructor items. -/")
         w(f"theorem nojunk_items : ∀ ad ∈ {ax_list(nj_items, 6)},")
         w("    (consItemsK c).any (·.pat == (trS ad).pat) = true := by decide +kernel")
         w("")
+    if nj_items:
         w("kernel_rfl consItemsK_withHooks : ∀ (c : Semantics) (H : HookParams), consItemsK (c.withHooks H) = consItemsK c")
         w("")
         w("/-- **E for those**: Γ entails each, for every H. -/")
@@ -2477,9 +2649,32 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     for i in nj_kitem:
         w("/-- KItem's no-junk sentence is the item over KItem's generators in the text's order, the same")
         w("generators as `Semantics.gens` lists, in another order. -/")
+        gk = "((gensInOrder c defn.pres Srt.kitem).map (Gen.toK c))"
+        if nojunk_blocks:
+            tabs = (head["tabT"].get(i), head["tabI"])
+            if not tabs[0] or not tabs[1] or not head["kGens"] or \
+                    any(k[2] == "?" for k in tabs[0] + tabs[1] if k[0] != "S"):
+                raise Refused(f"{name}: --nojunk-blocks: the probe gives no table of KItem's no-junk sentence "
+                              f"{i} or of its item, or a variable of a sort that is no sort constructor "
+                              f"without arguments")
+            kn = lean_str(head["kitemName"])
+            w(f"theorem nojunk_kitem_name : c.sortName Srt.kitem = {kn} := by decide +kernel")
+            w("")
+            w("/-- KItem's generators in the text's order (`gensInOrder`), written out. -/")
+            w("def nojunk_kitem_gens : List KoreAML.Gen :=")
+            w("  [" + wrap_nums([gen_lit(g) for g in head["kGens"]], 3) + "]")
+            w(f"theorem nojunk_kitem_gens_eq : {gk} = nojunk_kitem_gens := by decide +kernel")
+            w("")
+            thms, proof = nj_blocks("nojunk_kitem", i, kn, "nojunk_kitem_gens", len(head["kGens"]) + 1,
+                                    nojunk_blocks, tabs)
+            w(thms)
         w(f"theorem nojunk_kitem_order : (trS U.ax{i}).pat =")
-        w("    (KoreAML.Cons.noJunkItem (c.sortName Srt.kitem) ((gensInOrder c defn.pres Srt.kitem).map (Gen.toK c))).pat := by")
-        w("  decide +kernel")
+        w(f"    (KoreAML.Cons.noJunkItem (c.sortName Srt.kitem) {gk}).pat := by")
+        if nojunk_blocks:
+            w("  rw [nojunk_kitem_name, nojunk_kitem_gens_eq]")
+            w(proof)
+        else:
+            w("  decide +kernel")
         w("theorem nojunk_kitem_members :")
         w("    ((gensInOrder c defn.pres Srt.kitem).map (Gen.toK c)).isPerm ((c.gens Srt.kitem).map (Gen.toK c)) = true := by")
         w("  decide +kernel")
@@ -2495,7 +2690,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w("")
     nj_names = []
     for i, e in nj_sorts:
-        sec, nn = nojunk_sort_section(i, e, sn, rawd, e["srt"] in nj_sort_new)
+        sec, nn = nojunk_sort_section(i, e, sn, rawd, e["srt"] in nj_sort_new, nojunk_blocks if i in nj_big else 0)
         w(sec)
         nj_names += nn
     # ---- cons
@@ -3295,9 +3490,132 @@ theorem fn_prios : fnText.map (fun ad => AttrsAgree.prioOf ad.ax.attributes) =
 """
 
 
-def nojunk_sort_section(i, e, sn, rawd, new):
+NJ_ALIAS = """/-- The text's alias names, written out. -/
+def aliasLit : List String := [@ALIASES@]
+
+theorem aliasLit_eq : kore.aliasNames = aliasLit := by decide +kernel
+"""
+
+NJ_TR = """/-- The pattern is a `\\or` at the sort `S`. -/
+def njIsOr (S : Kore.KSort) : Kore.Pattern → Bool
+  | .or S' _ => decide (S' = S)
+  | _ => false
+
+/-- The disjuncts of a `\\or`. -/
+def njOrArgs : Kore.Pattern → List Kore.Pattern
+  | .or _ ds => ds
+  | _ => []
+
+theorem njOr_eq {S : Kore.KSort} {p : Kore.Pattern} (h : njIsOr S p = true) : p = .or S (njOrArgs p) := by
+  cases p <;> simp_all [njIsOr, njOrArgs]
+
+/-- Two disjunctions whose operands translate to the same patterns translate to the same pattern. -/
+theorem njTrOrList_eq {c1 c2 : Ctx} {s : P} : ∀ {ds1 ds2 : List Kore.Pattern},
+    ds1.map (tr c1) = ds2.map (tr c2) → trOrList c1 s ds1 = trOrList c2 s ds2
+  | [], [], _ => rfl
+  | [], _ :: _, h => by simp at h
+  | _ :: _, [], h => by simp at h
+  | [_], [_], h => by simp only [List.map_cons, List.map_nil, List.cons.injEq, and_true] at h; simp [trOrList, h]
+  | [_], _ :: _ :: _, h => by simp at h
+  | _ :: _ :: _, [_], h => by simp at h
+  | p1 :: q1 :: qs1, p2 :: q2 :: qs2, h => by
+    rw [List.map_cons, List.map_cons] at h
+    obtain ⟨h1, h2⟩ := List.cons.inj h
+    have ih := njTrOrList_eq (c1 := c1) (c2 := c2) (s := s) (ds1 := q1 :: qs1) (ds2 := q2 :: qs2) h2
+    simp only [trOrList] at ih ⊢
+    rw [h1, ih]
+
+/-- **Two `\\or` sentences at a sort `N` translate to the same pattern** where neither has a sort
+variable or a free variable and their disjuncts translate to the same patterns, each under its own
+sentence's table: the guards are none, the sort is `N`'s, and the disjunction is the operands'. The
+disjuncts need not be equal: the table makes the variables' names positions. -/
+theorem njTrOr_pat {d1 d2 : List SymbolDecl} {al1 al2 : List String} {a1 a2 : AxiomDecl} {N : String}
+    {ds1 ds2 : List Kore.Pattern}
+    (hsv1 : a1.ax.sortVars = []) (hsv2 : a2.ax.sortVars = [])
+    (hp1 : a1.ax.pattern = .or (KoreAML.srt N) ds1) (hp2 : a2.ax.pattern = .or (KoreAML.srt N) ds2)
+    (hf1 : freeOfList [] ds1 = []) (hf2 : freeOfList [] ds2 = [])
+    (hds : ds1.map (tr ⟨tableOf [] (.or (KoreAML.srt N) ds1), al1⟩) =
+      ds2.map (tr ⟨tableOf [] (.or (KoreAML.srt N) ds2), al2⟩)) :
+    (trAxiom d1 al1 a1).pat = (trAxiom d2 al2 a2).pat := by
+  simp only [trAxiom, hsv1, hsv2, hp1, hp2, List.map_nil, List.nil_append, freeOf, hf1, hf2, sortOf, tr]
+  rw [njTrOrList_eq hds]
+  simp [trSort, trSortApp, KoreAML.srt]
+"""
+
+
+def key_lit(k):
+    """A `VarKey` the probe printed (`S`, `E` or `V`, the name, the sort's name), as a Lean literal."""
+    kind, n, srt = k
+    if kind == "S":
+        return f".sortVar {lean_str(n)}"
+    return f".{'evar' if kind == 'E' else 'svar'} {lean_str(n)} (.ctor ⟨⟨{lean_str(srt)}⟩⟩ [])"
+
+
+def gen_lit(g):
+    """A `KoreAML.Gen` the probe printed, as a Lean literal."""
+    if g[0] == "inj":
+        return f".inj {lean_str(g[1])}"
+    return f".ctor ⟨{lean_str(g[1])}, [{', '.join(lean_str(x) for x in g[3])}], {lean_str(g[2])}⟩"
+
+
+def nj_blocks(nm, i, srt_name, gs, ndisj, n, tabs=None):
+    """The no-junk sentence `i`'s translation is the item over `gs` at the sort named `srt_name`
+    (`njTrOr_pat`), the translations of its `ndisj` disjuncts compared with the item's by ranges of
+    `n` (`tieEq_range`): the definitions and range theorems, and the tactic lines that prove the
+    equation from them. `tabs`: the sentence's and the item's tables as the probe printed them,
+    written out with an equation each (`{nm}_tabT_eq`, `{nm}_tabI_eq`) so that no range recomputes
+    them; `srt_name` and `gs` are then literals."""
+    ds_t, ds_i = f"(njOrArgs U.ax{i}.ax.pattern)", f"(KoreAML.noJunkDisjuncts {srt_name} [] {gs})"
+    tab_t = f"tableOf [] (.or (KoreAML.srt {srt_name}) {ds_t})"
+    tab_i = f"tableOf [] (.or (KoreAML.srt {srt_name}) {ds_i})"
+    lt, li = f"{nm}_trT", f"{nm}_trI"
+    out = [f"theorem {nm}_sv : U.ax{i}.ax.sortVars = [] := by decide +kernel",
+           f"theorem {nm}_or : njIsOr (KoreAML.srt {srt_name}) U.ax{i}.ax.pattern = true := by decide +kernel",
+           f"theorem {nm}_free : freeOfList [] {ds_t} = [] := by decide +kernel",
+           f"theorem {nm}_ifree : freeOfList [] {ds_i} = [] := by decide +kernel",
+           ""]
+    if tabs:
+        out += ["/-- The tables of the sentence and of the item, written out. -/",
+                f"def {nm}_tabT : VarTable :=",
+                "  [" + wrap_nums([key_lit(k) for k in tabs[0]], 3) + "]",
+                f"theorem {nm}_tabT_eq : {tab_t} = {nm}_tabT := by",
+                "  decide +kernel",
+                f"def {nm}_tabI : VarTable :=",
+                "  [" + wrap_nums([key_lit(k) for k in tabs[1]], 3) + "]",
+                f"theorem {nm}_tabI_eq :",
+                f"    {tab_i} = {nm}_tabI := by",
+                "  decide +kernel",
+                ""]
+        tab_t, tab_i = f"{nm}_tabT", f"{nm}_tabI"
+    out += ["/-- The translations of the sentence's disjuncts, under its table, and of the item's. -/",
+            f"noncomputable def {lt} : List P :=",
+            f"  {ds_t}.map (tr ⟨{tab_t}, aliasLit⟩)",
+            f"noncomputable def {li} : List P :=",
+            f"  {ds_i}.map",
+            f"    (tr ⟨{tab_i}, []⟩)",
+            ""]
+    rs = ranges(ndisj, 0, n)
+    for a, ln in rs:
+        if ln is None:
+            out.append(f"theorem {nm}_d{a} : {lt}.drop {a} = {li}.drop {a} := by decide +kernel")
+        else:
+            out.append(f"theorem {nm}_d{a} : ({lt}.drop {a}).take {ln} = ({li}.drop {a}).take {ln} := by decide +kernel")
+    out += [f"/-- The translations of the disjuncts are the item's, by ranges of {n}. -/",
+            f"theorem {nm}_ds : {lt} = {li} :="]
+    chain = "".join(f"    tieEq_range (l := {lt}) (m := {li}) (a := {a}) (n := {ln}) {nm}_d{a} <|\n"
+                    for a, ln in rs[:-1])
+    out[-1] += "\n" + (chain + f"    {nm}_d{rs[-1][0]}")[2:]
+    out.append("")
+    rw = f"rw [{nm}_tabT_eq, {nm}_tabI_eq, aliasLit_eq]" if tabs else "rw [aliasLit_eq]"
+    proof = (f"  exact njTrOr_pat (d2 := []) (al2 := []) (a2 := ⟨0, \"kernel\", KoreAML.Cons.noJunkAx {srt_name} {gs}⟩)\n"
+             f"    {nm}_sv rfl (njOr_eq {nm}_or) rfl {nm}_free {nm}_ifree (by {rw}; exact {nm}_ds)")
+    return "\n".join(out), proof
+
+
+def nojunk_sort_section(i, e, sn, rawd, new, blocks=0):
     """The no-junk sentence `i` of a sort with generators other than KItem (`e`: the probe's
-    match): the item over the sort's generators in the text's order, entailed by Γ for every H."""
+    match): the item over the sort's generators in the text's order, entailed by Γ for every H.
+    `blocks`: the order by ranges of that many disjuncts (`nj_blocks`; 0: one decision)."""
     s, S = sn[e["srt"]], e["sort"]
     gr = [(k, r) for k, r, _ in rawd if k["res"] == e["srt"]]
     srt = lambda x: sn.get(x, str(x))
@@ -3318,17 +3636,23 @@ def nojunk_sort_section(i, e, sn, rawd, new):
         out += [f"/-- {S}'s generators in the order the text's no-junk sentence ({i}) lists them, a permutation",
                 "of those `Semantics.gens` lists. -/",
                 f"noncomputable def {s}TextGens : List KoreAML.Gen :="] + body + ["",
+                ] + ([nj_blocks(f"nojunk_{s}", i, f"(c.sortName {s})", f"{s}TextGens", e["ngens"] + 1, blocks)[0]]
+                     if blocks else []) + [
                 f"/-- {S}'s no-junk sentence ({i}) is the item over {S}'s generators in the text's order. -/",
                 f"theorem nojunk_{s}_order : (trS U.ax{i}).pat = (KoreAML.Cons.noJunkItem (c.sortName {s}) {s}TextGens).pat := by",
-                "  decide +kernel",
+                nj_blocks(f"nojunk_{s}", i, f"(c.sortName {s})", f"{s}TextGens", e["ngens"] + 1, blocks)[1]
+                if blocks else "  decide +kernel",
                 f"theorem nojunk_{s}_members : {s}TextGens.isPerm ((c.gens {s}).map (Gen.toK c)) = true := by",
                 "  decide +kernel"]
     else:
-        out += [f"/-- {S}'s no-junk sentence ({i}) is the item over {S}'s generators in the text's order, the same",
+        go = f"((gensInOrder c defn.pres {s}).map (Gen.toK c))"
+        nb = nj_blocks(f"nojunk_{s}", i, f"(c.sortName {s})", go, e["ngens"] + 1, blocks) if blocks else None
+        out += ([nb[0]] if blocks else []) + [
+                f"/-- {S}'s no-junk sentence ({i}) is the item over {S}'s generators in the text's order, the same",
                 "generators as `Semantics.gens` lists. -/",
                 f"theorem nojunk_{s}_order : (trS U.ax{i}).pat =",
-                f"    (KoreAML.Cons.noJunkItem (c.sortName {s}) ((gensInOrder c defn.pres {s}).map (Gen.toK c))).pat := by",
-                "  decide +kernel",
+                f"    (KoreAML.Cons.noJunkItem (c.sortName {s}) {go}).pat := by",
+                nb[1] if blocks else "  decide +kernel",
                 f"theorem nojunk_{s}_members :",
                 f"    ((gensInOrder c defn.pres {s}).map (Gen.toK c)).isPerm ((c.gens {s}).map (Gen.toK c)) = true := by",
                 "  decide +kernel"]
@@ -4102,7 +4426,8 @@ def main(argv):
                                  ob, chunks, {i: raw for i, _, _, raw in ua}, hand, chunk,
                                  at_values, cons_head, wf_parts, "--split" in argv, account_sorted,
                                  heads_literal, heads_codes, "--attrs-parts" in argv or attrs_blocks > 0, "--decl-parts" in argv,
-                                 fn_blocks, attrs_blocks, absent_file)
+                                 fn_blocks, attrs_blocks, absent_file, "--decl-syms-literal" in argv,
+                                 "--nojunk-eq" in argv, opt("--nojunk-blocks", 0))
     outdir = argv[argv.index("--out") + 1] if "--out" in argv else None
     if outdir is None and (not os.path.exists(final) or open(final).read() != text):
         open(final, "w").write(text)
