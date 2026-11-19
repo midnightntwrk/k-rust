@@ -33,6 +33,20 @@
     `c(\implies{Exp}(a(), \and{Exp}(b(), _Gen6))) => _Gen6`): read as `c(Z) => G` with
     `pre := implies (mem Z a) (and (mem Z b) (mem Z G))`. Kernel: `cut_implies`.
 
+  ## lhs-and
+  `Parse.lhsAndRuleBody` reads a left side's conjunction at a position under applications through
+  the cut (`Parse.lhsAndCut`, `ReadingNote.lhsAndCut`), where the axiom is not read without it.
+  - `mllhsceil` (e3-ml-rule-lhs-ceil-ctor, `go(X) #And #Ceil(go(X)) => done`): `pre := ceil go(X)`;
+    `mllhseq` (e3-ml-rule-lhs-equals, `go(X) #And {X #Equals 1} => done`): `pre := X = 1`.
+  - `mllhsandv` (e3-ml-rule-lhs-and, `c(X #And d(_, b())) => X`): `c(d(G, b) #as X) => X`, no
+    `pre`.
+  - `mllhsandp` (e3-ml-rule-lhs-and-pats, `c(d(X, _) #And d(_, b())) => X`): `c(d(X, G) #as Z) => X`
+    with `pre := exMatch [Exp] Exp d(Y, b) Z top`, Y (the second wildcard, held by nothing else)
+    bound by the match, held under the constructor d, so `Cond.bound` admits it.
+  - hand-written on `mlimpl`'s text, the left side's `c(…)` conjoined with `{_Gen6 #Equals b()}` at
+    KItem: both cuts, `pre` the connective's membership and then the predicate; the notes are
+    `connectiveCut` and `lhsAndCut`.
+  Kernel: `lhsAnd_pred`, `lhsAnd_var`, `lhsAnd_terms` (the cut of a left side).
 
   ## rhs-and
   `Parse.andRuleOf` (which `ruleBody` takes where `Parse.andCutOK` holds) reads a right side's
@@ -304,11 +318,30 @@ no number is used. -/
 theorem and_var : Parse.andCut [] 0 (injI (.and intS [gX, xI])) =
     (injI xI, 0, [⟨KoreAML.evar "VarX" intS, intS, false, [gX]⟩]) := by decide +kernel
 
-/-! ## lhs-implies -/
+/-! ## lhs-implies and lhs-and -/
 
 /-- On a left side `\implies` is cut, as `\not` is. -/
 theorem cut_implies : Parse.connCut true [] 0 (KoreAML.ap "Lblc" [.implies expS aP bP]) =
     (KoreAML.ap "Lblc" [.var (.evar Z0)], 1, [(Z0, expS, .implies expS aP bP)]) := by decide +kernel
+
+def xE : Kore.Pattern := .var (.evar (KoreAML.evar "VarX" expS))
+def yE : Kore.Pattern := .var (.evar (KoreAML.evar "VarY" expS))
+def dP (p q : Kore.Pattern) : Kore.Pattern := KoreAML.ap "Lbld" [p, q]
+def eqXa : Kore.Pattern := .equals expS expS xE aP
+
+/-- A predicate operand of a left side's conjunction is taken out, the other at its place. -/
+theorem lhsAnd_pred : Parse.lhsAndCut [] 0 (KoreAML.ap "Lblc" [.and expS [dP xE bP, eqXa]]) =
+    (KoreAML.ap "Lblc" [dP xE bP], 0, [eqXa], []) := by decide +kernel
+
+/-- A variable operand binds the other: `\and(X, p)` is `\and(p, X)`, which `term` reads as
+`p #as X`. -/
+theorem lhsAnd_var : Parse.lhsAndCut [] 0 (KoreAML.ap "Lblc" [.and expS [xE, dP yE bP]]) =
+    (KoreAML.ap "Lblc" [.and expS [dP yE bP, xE]], 0, [], []) := by decide +kernel
+
+/-- Two terms: the second's place holds a fresh variable, with the cut. -/
+theorem lhsAnd_terms : Parse.lhsAndCut [] 0 (KoreAML.ap "Lblc" [.and expS [dP xE yE, dP yE bP]]) =
+    (KoreAML.ap "Lblc" [.and expS [dP xE yE, .var (.evar Z0)]], 1, [], [(Z0, expS, dP yE bP)]) := by
+  decide +kernel
 
 /-- The notes of each rewrite axiom of the user's source in the last module of `k`. -/
 def showNotes (n : String) (k : Kore.Definition) : IO Unit := do
@@ -343,5 +376,60 @@ mlimpl: notes [connectiveCut]
   if let some k ← load "mlimpl" then
     showDef "mlimpl" k
     showNotes "mlimpl" k
+
+/-- `mlimpl`'s text with the left side's `c(…)` conjoined with `{_Gen6 #Equals b()}` at KItem. -/
+def editImplEq (k : Kore.Definition) : Kore.Definition :=
+  editRule (repl (injE cImpl) (.and kitemS [injE cImpl, .equals expS kitemS gen6 bP])) id k
+
+/--
+info: ## lhs-and
+mllhsceil rule 0: names [X, 'Unds'DotVar1, 'Unds'DotVar0] vars [Int, K, GeneratedCounterCell] exs [] opens []
+  pre KCore.Cond.ceil 32 (KCore.Term.app 386 [KCore.Term.var 0])
+  post KCore.Cond.top
+  ruleSorted true; rulePlainPP true; openRefusal none
+mllhsceil: wf failing []; rulesPlain true; coreOK true
+mllhsceil: notes [lhsAndCut]
+mllhseq rule 0: names [X, 'Unds'DotVar1, 'Unds'DotVar0] vars [Int, K, GeneratedCounterCell] exs [] opens []
+  pre KCore.Cond.equals 3 (KCore.Term.var 0) (KCore.Term.dv 3 (KCore.Lit.int 1))
+  post KCore.Cond.top
+  ruleSorted true; rulePlainPP true; openRefusal none
+mllhseq: wf failing []; rulesPlain true; coreOK true
+mllhseq: notes [lhsAndCut]
+mllhsandv: wf failing []; rulesPlain true; coreOK true
+mllhsandv: notes [lhsAndCut]
+mllhsandp rule 0: names [X, 'Unds'Gen0, 'Hash'Cut0, 'Unds'DotVar1, 'Unds'DotVar0] vars [Exp, Exp, Exp, K, GeneratedCounterCell] exs [] opens []
+  pre KCore.Cond.exMatch
+  [32]
+  32
+  (KCore.Term.app 388 [KCore.Term.var 5, KCore.Term.app 386 []])
+  (KCore.Term.var 2)
+  (KCore.Cond.top)
+  post KCore.Cond.top
+  ruleSorted true; rulePlainPP true; openRefusal none
+mllhsandp: wf failing []; rulesPlain true; coreOK true
+mllhsandp: notes [lhsAndCut]
+mlimpl and-eq rule 0: names ['Hash'Cut0, 'Unds'DotVar1, 'Unds'DotVar0, 'Unds'Gen6] vars [Exp, K, GeneratedCounterCell, Exp] exs [] opens [3]
+  pre KCore.Cond.and
+  (KCore.Cond.implies
+    (KCore.Cond.mem 32 (KCore.Term.var 0) (KCore.Term.app 385 []))
+    (KCore.Cond.and
+      (KCore.Cond.mem 32 (KCore.Term.var 0) (KCore.Term.app 386 []))
+      (KCore.Cond.mem 32 (KCore.Term.var 0) (KCore.Term.var 3))))
+  (KCore.Cond.equals 32 (KCore.Term.var 3) (KCore.Term.app 386 []))
+  post KCore.Cond.top
+  ruleSorted true; rulePlainPP true; openRefusal none
+mlimpl and-eq: wf failing []; rulesPlain true; coreOK true
+mlimpl and-eq: notes [connectiveCut, lhsAndCut]
+-/
+#guard_msgs (whitespace := lax) in
+#eval show IO Unit from do
+  IO.println "## lhs-and"
+  for n in ["mllhsceil", "mllhseq", "mllhsandv", "mllhsandp"] do
+    if let some k ← load n then
+      showDef n k
+      showNotes n k
+  if let some k ← load "mlimpl" then
+    showDef "mlimpl and-eq" (editImplEq k)
+    showNotes "mlimpl and-eq" (editImplEq k)
 
 end PredReader

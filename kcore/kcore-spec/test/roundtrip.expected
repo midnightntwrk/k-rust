@@ -245,6 +245,10 @@ differs f2-examples/mleqorb.kompile.kore
 differs f2-examples/mleqort.kompile.kore
 differs f2-examples/mlex.kompile.kore
 differs f2-examples/mlimpl.kompile.kore
+differs f2-examples/mllhsandp.kompile.kore
+differs f2-examples/mllhsandv.kompile.kore
+differs f2-examples/mllhsceil.kompile.kore
+differs f2-examples/mllhseq.kompile.kore
 differs f2-examples/mlmacro.kompile.kore
 cannot f2-examples/mlmixed.kompile.kore
 differs f2-examples/mlnot.kompile.kore

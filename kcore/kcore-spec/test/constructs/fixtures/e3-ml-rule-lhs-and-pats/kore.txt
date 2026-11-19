@@ -1,0 +1,131 @@
+//@ 0
+module E3-ML-RULE-LHS-AND-PATS
+//@ 14
+  sort SortExp{} []
+//@ 48
+  symbol Lbla{}() : SortExp{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,18,2,33)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e3-ml-rule-lhs-and-pats.k)"), symbol'Kywd'{}("a")]
+//@ 49
+  symbol Lblb{}() : SortExp{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,36,2,51)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e3-ml-rule-lhs-and-pats.k)"), symbol'Kywd'{}("b")]
+//@ 50
+  symbol Lblc{}(SortExp{}) : SortExp{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,54,2,72)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e3-ml-rule-lhs-and-pats.k)"), symbol'Kywd'{}("c")]
+//@ 51
+  symbol Lbld{}(SortExp{}, SortExp{}) : SortExp{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,75,2,98)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e3-ml-rule-lhs-and-pats.k)"), symbol'Kywd'{}("d")]
+//@ 59
+  symbol LblisExp{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
+//@ 79
+  symbol Lblproject'Coln'Exp{}(SortK{}) : SortExp{} [function{}()]
+//@ 111
+  axiom{R} \exists{R} (Val:SortKItem{}, \equals{SortKItem{}, R} (Val:SortKItem{}, inj{SortExp{}, SortKItem{}} (From:SortExp{}))) [subsort{SortExp{}, SortKItem{}}()] // subsort
+//@ 152
+  axiom{R} \exists{R} (Val:SortExp{}, \equals{SortExp{}, R} (Val:SortExp{}, Lbla{}())) [functional{}()] // functional
+//@ 153
+  axiom{}\not{SortExp{}} (\and{SortExp{}} (Lbla{}(), Lblb{}())) [constructor{}()] // no confusion different constructors
+//@ 154
+  axiom{}\not{SortExp{}} (\and{SortExp{}} (Lbla{}(), Lblc{}(Y0:SortExp{}))) [constructor{}()] // no confusion different constructors
+//@ 155
+  axiom{}\not{SortExp{}} (\and{SortExp{}} (Lbla{}(), Lbld{}(Y0:SortExp{}, Y1:SortExp{}))) [constructor{}()] // no confusion different constructors
+//@ 156
+  axiom{R} \exists{R} (Val:SortExp{}, \equals{SortExp{}, R} (Val:SortExp{}, Lblb{}())) [functional{}()] // functional
+//@ 157
+  axiom{}\not{SortExp{}} (\and{SortExp{}} (Lblb{}(), Lblc{}(Y0:SortExp{}))) [constructor{}()] // no confusion different constructors
+//@ 158
+  axiom{}\not{SortExp{}} (\and{SortExp{}} (Lblb{}(), Lbld{}(Y0:SortExp{}, Y1:SortExp{}))) [constructor{}()] // no confusion different constructors
+//@ 159
+  axiom{R} \exists{R} (Val:SortExp{}, \equals{SortExp{}, R} (Val:SortExp{}, Lblc{}(K0:SortExp{}))) [functional{}()] // functional
+//@ 160
+  axiom{}\implies{SortExp{}} (\and{SortExp{}} (Lblc{}(X0:SortExp{}), Lblc{}(Y0:SortExp{})), Lblc{}(\and{SortExp{}} (X0:SortExp{}, Y0:SortExp{}))) [constructor{}()] // no confusion same constructor
+//@ 161
+  axiom{}\not{SortExp{}} (\and{SortExp{}} (Lblc{}(X0:SortExp{}), Lbld{}(Y0:SortExp{}, Y1:SortExp{}))) [constructor{}()] // no confusion different constructors
+//@ 162
+  axiom{R} \exists{R} (Val:SortExp{}, \equals{SortExp{}, R} (Val:SortExp{}, Lbld{}(K0:SortExp{}, K1:SortExp{}))) [functional{}()] // functional
+//@ 163
+  axiom{}\implies{SortExp{}} (\and{SortExp{}} (Lbld{}(X0:SortExp{}, X1:SortExp{}), Lbld{}(Y0:SortExp{}, Y1:SortExp{})), Lbld{}(\and{SortExp{}} (X0:SortExp{}, Y0:SortExp{}), \and{SortExp{}} (X1:SortExp{}, Y1:SortExp{}))) [constructor{}()] // no confusion same constructor
+//@ 167
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, LblisExp{}(K0:SortK{}))) [functional{}()] // functional
+//@ 191
+  axiom{} \or{SortExp{}} (Lbla{}(), Lblb{}(), \exists{SortExp{}} (X0:SortExp{}, Lblc{}(X0:SortExp{})), \exists{SortExp{}} (X0:SortExp{}, \exists{SortExp{}} (X1:SortExp{}, Lbld{}(X0:SortExp{}, X1:SortExp{}))), \bottom{SortExp{}}()) [constructor{}()] // no junk
+//@ 200
+  axiom{} \or{SortKItem{}} (\exists{SortKItem{}} (Val:SortBool{}, inj{SortBool{}, SortKItem{}} (Val:SortBool{})), \exists{SortKItem{}} (Val:SortExp{}, inj{SortExp{}, SortKItem{}} (Val:SortExp{})), \exists{SortKItem{}} (Val:SortGeneratedCounterCell{}, inj{SortGeneratedCounterCell{}, SortKItem{}} (Val:SortGeneratedCounterCell{})), \exists{SortKItem{}} (Val:SortGeneratedCounterCellOpt{}, inj{SortGeneratedCounterCellOpt{}, SortKItem{}} (Val:SortGeneratedCounterCellOpt{})), \exists{SortKItem{}} (Val:SortGeneratedTopCell{}, inj{SortGeneratedTopCell{}, SortKItem{}} (Val:SortGeneratedTopCell{})), \exists{SortKItem{}} (Val:SortGeneratedTopCellFragment{}, inj{SortGeneratedTopCellFragment{}, SortKItem{}} (Val:SortGeneratedTopCellFragment{})), \exists{SortKItem{}} (Val:SortInt{}, inj{SortInt{}, SortKItem{}} (Val:SortInt{})), \exists{SortKItem{}} (Val:SortKCell{}, inj{SortKCell{}, SortKItem{}} (Val:SortKCell{})), \exists{SortKItem{}} (Val:SortKCellOpt{}, inj{SortKCellOpt{}, SortKItem{}} (Val:SortKCellOpt{})), \exists{SortKItem{}} (Val:SortKConfigVar{}, inj{SortKConfigVar{}, SortKItem{}} (Val:SortKConfigVar{})), \exists{SortKItem{}} (Val:SortList{}, inj{SortList{}, SortKItem{}} (Val:SortList{})), \exists{SortKItem{}} (Val:SortMap{}, inj{SortMap{}, SortKItem{}} (Val:SortMap{})), \exists{SortKItem{}} (Val:SortSet{}, inj{SortSet{}, SortKItem{}} (Val:SortSet{})), \bottom{SortKItem{}}()) [constructor{}()] // no junk
+//@ 202
+// rule `<generatedTop>`(`<k>`(inj{Exp,KItem}(c(#And{Exp}(d(X,_Gen0),d(_Gen1,b(.KList)))))~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{Exp,KItem}(X)~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(2c46feea8e72f18a5f1a98fe6ff1381ba1ce37f81f34445f1d2dd1cb5fb955a1), org.kframework.attributes.Location(Location(3,8,3,51)), org.kframework.attributes.Source(Source(FIXTURE/e3-ml-rule-lhs-and-pats.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}}(Lblc{}(\and{SortExp{}}(Lbld{}(VarX:SortExp{},Var'Unds'Gen0:SortExp{}),Lbld{}(Var'Unds'Gen1:SortExp{},Lblb{}())))),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}}(VarX:SortExp{}),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("2c46feea8e72f18a5f1a98fe6ff1381ba1ce37f81f34445f1d2dd1cb5fb955a1"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,8,3,51)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e3-ml-rule-lhs-and-pats.k)")]
+//@ 210
+// rule isExp(K)=>#token("false","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(9e2a259ff2d6434bfe264d9e99ba0f82d9109ec7c26ae247655c5599fc9ef8b1), owise]
+  axiom{R} \implies{R} (
+    \and{R} (
+      \not{R} (
+        \or{R} (
+          \exists{R} (Var'Unds'Gen1:SortExp{},
+            \and{R} (
+              \top{R}(),
+              \and{R} (
+                \in{SortK{}, R} (
+                  X0:SortK{},
+                  kseq{}(inj{SortExp{}, SortKItem{}}(Var'Unds'Gen1:SortExp{}),dotk{}())
+                ),
+                \top{R} ()
+              )
+          )),
+          \bottom{R}()
+        )
+      ),
+      \and{R}(
+        \top{R}(),
+        \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            VarK:SortK{}
+          ),
+          \top{R} ()
+        )
+    )),
+    \equals{SortBool{},R} (
+      LblisExp{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("false"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("9e2a259ff2d6434bfe264d9e99ba0f82d9109ec7c26ae247655c5599fc9ef8b1"), owise{}()]
+//@ 211
+// rule isExp(inj{Exp,KItem}(Exp))=>#token("true","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(5113a02f7660a72f8eec77fb75db8556ae809f64d13e8478319e14b277319d5c)]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{SortExp{}, SortKItem{}}(VarExp:SortExp{}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortBool{},R} (
+      LblisExp{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("true"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("5113a02f7660a72f8eec77fb75db8556ae809f64d13e8478319e14b277319d5c")]
+//@ 238
+// rule `project:Exp`(inj{Exp,KItem}(K))=>K requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(9cd2bc2f2919e88b7c91858d910ebc06ec69505e24015e7346a27913f6b3d0c7), projection]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{SortExp{}, SortKItem{}}(VarK:SortExp{}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortExp{},R} (
+      Lblproject'Coln'Exp{}(X0:SortK{}),
+     \and{SortExp{}} (
+       VarK:SortExp{},
+        \top{SortExp{}}())))
+  [UNIQUE'Unds'ID{}("9cd2bc2f2919e88b7c91858d910ebc06ec69505e24015e7346a27913f6b3d0c7")]
+//@ 253
+endmodule [org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1,1,4,10)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e3-ml-rule-lhs-and-pats.k)")]
