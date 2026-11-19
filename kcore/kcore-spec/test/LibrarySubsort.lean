@@ -60,7 +60,7 @@ open Faithful Faithful.Model in
 theorem coreOK : c.coreOK = true :=
   Semantics.coreOK_of_T T_eq (by decide +kernel) (by decide +kernel) (by decide +kernel)
     (by decide_cheap)
-    (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
+    (by decide +kernel) (by decide +kernel) (by decide +kernel)
 
 /-- `acct(5)`, and it injected into JSON. -/
 def acct5 : GroundTerm := .ctor acct [.dv Srt.int (.int 5)]

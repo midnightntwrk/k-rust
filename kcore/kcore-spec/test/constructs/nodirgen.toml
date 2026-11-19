@@ -1,0 +1,57 @@
+# nodirgen.py's per-fixture records: what a fixture's file takes that its text and tie do not give.
+#   cuts      the user module's cut list (`kore_term … cut`), in place of the computed one
+#   header    the file's header, in place of the generated one
+#   about     the text's configuration, for the generated header
+#   lacked    how the docs name the symbols given their first argument or a value (`fs`, `fv`)
+#   env_note  the end of the instance's doc: why it does not state `envOf m S = .ok E`
+
+# test/GenEqsNodirRdrConfigDeep.lean: its cuts and prose as the file was written and measured
+["rdr-config-deep"]
+cuts = [50, 100, 150, 200, 250, 300, 350, 400, 450, 500, 550, 600, 650, 700, 750, 800, 850, 900, 950, 1000, 1050, 1100, 1150, 1200, 1250, 1300, 1350, 1400, 1450, 1500, 1550, 1600, 1650, 1700, 1750, 1800, 1850, 1900, 1943, 1977, 2010, 2050, 2100, 2150, 2200, 2250, 2300, 2350, 2400, 2415, 2465, 2515, 2565, 2617]
+lacked = "the hooked map functions"
+env_note = "no consumer reads that conjunct, and its decision alone exceeds 12 GiB on this text."
+header = '''
+  The no-direction sentences of rdr-config-deep.kompile.kore, all 273 of the class of its tie
+  (`test/TieRdrConfigDeep.lean`, `classes`), in one model of the theory, for every interpretation H
+  of the parameters: the equations that define a generated symbol (the cell initializers, the
+  counter's getter, the sorts' projections), the counter initializer's `functional` axiom, and the
+  `functional` axioms of the hooked map functions `_-Map_` (539), `_<=Map_` (540) and `updateMap`
+  (834), which no read sentence applies. Run from the package root:
+  `lake env lean -j1 test/GenEqsNodirRdrConfigDeep.lean`.
+
+  The text is the construct fixture rdr-config-deep, a configuration of 63 nested cells around
+  `<k> $PGM:K </k>`, by K 7.1.337's kompile. Its user module is read as the account reads it
+  (`consumedWith`, `Account.lean`): its scan `S = scan m.sentences` block by block (`scan_eq`),
+  computed by compiled code (`parse_stages`) and checked by the kernel. The model reads the listed
+  equations from the scan's blocks that hold exactly the listed equations (`eqsN`, a sublist of
+  `S.eqs`: `eqsN_sub`); the names `E` that `envOf` gives (computed, not checked here) are data for
+  the checks (`nodSentEqB` reads them), and the instance holds whatever names they read.
+
+  The sentences are named by index (`AxiomDecl.index`, the text's axiom numbers): `eqIdx` the
+  equations (as `Parse.scanEqn` reads each), `funIdx` the constants' `functional` axioms
+  (`GenEqs.nodFunctional?`), `funAtIdx` and `funValIdx` the hooked map functions' `functional`
+  axioms (`GenEqs.nodFunctionalAt?`). They are the no-direction class of the tie (`listed_class`),
+  each applies a symbol Γ lacks (`listed_absent`), and `sents` are the user module's axioms of
+  these indices (`sents_eq`).
+
+  Nothing here writes a right side, a value or a `G` by hand but the value of `_<=Map_`. The model
+  is the arm's (`GenEqs.model_with_inits_arm`): `G` read from the equations along the cell tree
+  (`GenEqs.armG`), the getter and the projections by `GenEqs.armBase`. The names are the tree's
+  initializers bottom up (`order`, the presentation's: `order_eq`) and the listed equations' other
+  symbols, each borne by no symbol of the semantics (`GenEqs.nodLackedB`), so that no premise of the
+  theory names it. The text states nothing of the hooked map functions but that they are
+  `functional`, and Γ lacks them: the model gives `_-Map_` and `updateMap` their first argument
+  (a map) and `_<=Map_` the value `false` (`GenEqs.nod_instance_funv_lacked`). The sorts of each
+  right side are read from the text (`GenEqs.nodTy`, `nodR`) and checked (`nodOrderB`), and each
+  listed equation is one of the shapes `GenEqs.nod_eqB` takes (`nodSentEqB`): so each holds at every
+  list of values of its variables' sorts (`GenEqs.NodEqn`). The checks read no interpretation, so
+  they are decided once on the data and the model is had for every H
+  (`GenEqs.nod_instance_funv_lacked_withHooks`), with `FnHyp` under every H as the tie has it
+  (`fnHypH`).
+
+  The decisions read names by their codes where they compare them with Γ's symbols (`gSymCodes`,
+  `KoreAML.Distinct.strCode`), read the names' sorts from a table checked once (`tbl_ok`,
+  `GenEqs.nodR_eq_tbl`) rather than reading the tree below each name again, and are cut into blocks.'''
+
+["e2-cells-stream"]
+about = '`configuration <t> <k> $PGM:Exp </k> <in stream="stdin"> .List </in> <out stream="stdout"> .List </out> </t>`'

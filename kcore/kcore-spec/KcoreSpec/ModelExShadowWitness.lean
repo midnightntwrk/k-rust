@@ -190,9 +190,9 @@ set_option maxHeartbeats 1000000 in
 theorem meets_others : c.subsortsOK = true ∧
     c.fns.all (fun f => f.clauses.all (c.clauseSorted f (c.fns.map Fn.sig))) = true ∧
     c.rules.all c.ruleSorted = true ∧ c.rulesPlain = true ∧ c.paramsPlain = true ∧
-    c.faithCoreOK = true ∧ c.hooksApart = true ∧ c.predsApart = true ∧ c.idsOK = true ∧
+    c.faithCoreOK = true ∧ c.predsApart = true ∧ c.idsOK = true ∧
     c.overloadsOK = true ∧ FnHyp c :=
-  ⟨by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
+  ⟨by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
     by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, fnHyp⟩
 
 theorem not_clausesPlain : c.clausesPlain = false := by decide +kernel

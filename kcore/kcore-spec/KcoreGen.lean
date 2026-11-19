@@ -637,7 +637,7 @@ def coreParts (c : Semantics) (T : Tables) : List (String × Bool) :=
    ("collsOK", collsOK c), ("patHeadsOK", patHeadsOK c), ("namesApartK", namesApartFast c),
    ("LitsApart", LitsApart c), ("sortsNumbered", sortsNumbered c), ("itesApart", itesApart c),
    ("kindsApart", kindsApart c), ("ctorsOnce", ctorsOnce c), ("fnsApart", fnsApart c),
-   ("hooksApart", c.hooksApart), ("predsApart", c.predsApart), ("idsOK", c.idsOK),
+   ("predsApart", c.predsApart), ("idsOK", c.idsOK),
    ("overloadsOK", c.overloadsOK), ("rulesPlain", c.rulesPlain), ("clausesPlain", c.clausesPlain),
    ("paramsPlain", c.paramsPlain)]
 
@@ -1457,7 +1457,7 @@ end {ns}
 ")
     | none =>
       o ← thm o p s!"`coreOK`: `{p}`, by the kernel." s!"theorem core_{p} : {p} defn.sem = true := by decide +kernel"
-  for p in ["hooksApart", "predsApart", "idsOK"] do
+  for p in ["predsApart", "idsOK"] do
     o ← thm o p s!"`coreOK`: `{p}`, by the kernel." s!"theorem core_{p} : defn.sem.{p} = true := by decide +kernel"
   -- joined: the blocks by their boundaries, then `coreOK_defn`
   let join := fun (bs : List (Nat × Nat)) (pfx joinL : String) (stmt : Nat → String) => Id.run do
@@ -1475,7 +1475,7 @@ end {ns}
   let ruleAll := if ruleBlocks.isEmpty then "theorem core_rules : c.ruleRowsSortedT T 0 c.rules.length = true := by decide +kernel"
     else s!"{ruleJ.1}\ntheorem rules_length : c.rules.length = {ruleSizes.size} := by decide +kernel\ntheorem core_rules : c.ruleRowsSortedT T 0 c.rules.length = true := Semantics.ruleRowsSortedT_all rules_length {ruleJ.2}"
   let parts := [s!"{ns}.CoreOK.Subsorts"] ++ clMods.toList ++ ruleMods.toList ++
-    (faithCoreParts ++ ["hooksApart", "predsApart", "idsOK"]).map (s!"{ns}.CoreOK.{·}")
+    (faithCoreParts ++ ["predsApart", "idsOK"]).map (s!"{ns}.CoreOK.{·}")
   o ← o.write s!"{ns}.CoreOK" (String.join (parts.map (s!"import {·}\n")) ++
     hdr "`coreOK` of the definition's semantics, joined from its conjuncts, each decided by the kernel on its own (`NS.CoreOK.*`); not `wf`, which this package does not state." ++ s!"
 namespace {ns}
@@ -1490,7 +1490,7 @@ open KCore
 theorem coreOK_defn : defn.sem.coreOK = true :=
   Semantics.coreOK_of_T T_eq core_subsortsOK core_clauses core_rules
     (Semantics.faithCoreOK_of_partsK {" ".intercalate (faithCoreParts.map (s!"core_{·}"))})
-    core_hooksApart core_predsApart core_idsOK (by decide +kernel)
+    core_predsApart core_idsOK (by decide +kernel)
 
 end {ns}
 ")
@@ -4811,15 +4811,26 @@ def encodableHookParametric (h : String) : Bool :=
       | some (_, h', p) => h' == h && p
       | none => false
 
+/-- A composition `KK.derivedHook` writes, from its value at the empty argument list: each code
+with the hook `KK.hookCodes` gives it, and `ARGS` where the arguments' forms go (`derivedHook`
+places the argument list unchanged as its innermost list). -/
+partial def derivedFormShow : KK.T → String
+  | .hk o [] => s!"hk {o} {codeHook o} ARGS"
+  | .hk o as => s!"hk {o} {codeHook o} [{", ".intercalate (as.map derivedFormShow)}]"
+  | _ => "?"
+where codeHook (o : Int) : String :=
+  ((KK.hookCodes.find? (·.2 == o)).bind fun (g, _) => (regHookNames.find? (·.1 == g)).map (·.2)).getD "?"
+
 /-- Where `KK.readApp` gives an application of the registered hook `f` a `kore.k` form, whatever its
 arguments' forms: as a collection construction (`KK.libCollOf`), an operation code
-(`KK.hookCodes`) or a composition of codes (`KK.derivedHook`); `none` where it gives none. -/
+(`KK.hookCodes`) or a composition of codes (`KK.derivedHook`, written out by `derivedFormShow`);
+`none` where it gives none. -/
 def encodableHookForm (f : Sym) : Option String :=
   if isHook f then
     match KK.libCollOf f, KK.opOf f, KK.derivedHook f [] with
     | some _, _, _ => some "KK.libCollOf"
     | none, some o, _ => some s!"KK.hookCodes {o}"
-    | none, none, some _ => some "KK.derivedHook"
+    | none, none, some t => some s!"KK.derivedHook {derivedFormShow t}"
     | none, none, none => none
   else none
 

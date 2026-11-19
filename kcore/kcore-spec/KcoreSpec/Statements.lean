@@ -19,6 +19,7 @@
     from a common lower bound.
 -/
 import KcoreSpec.Tie
+import KcoreSpec.HooksApart
 import KcoreSpec.ClausesAgree
 import KcoreSpec.EvalFunctional
 import KcoreSpec.Step
@@ -267,34 +268,35 @@ def Clause.Witnessed (c : Semantics) (cl : Clause) : Prop :=
 
 /-- **The decidable conditions soundness and completeness assume of a semantics**: its subsorts,
 clauses and rules are well sorted (`sortedOK`), the decidable conditions of its theory that the
-proofs read hold (`faithCoreOK`), no user symbol is named like an interpreted hook (`hooksApart`),
-the functions evaluation reads are named apart (`predsApart`), and its own sorts and symbols are
-numbered in order (`idsOK`), and its overloading symbols are well formed (`overloadsOK`). -/
+proofs read hold (`faithCoreOK`), the functions evaluation reads are named apart (`predsApart`),
+its own sorts and symbols are numbered in order (`idsOK`), and its overloading symbols are well
+formed (`overloadsOK`). No user symbol is then named like an interpreted hook (`hooksApart`, which
+`faithCoreOK` implies: `Semantics.hooksApart_of_faithCoreOK`). -/
 def Semantics.coreOK (c : Semantics) : Bool :=
-  c.sortedOK && c.faithCoreOK && c.hooksApart && c.predsApart && c.idsOK && c.overloadsOK
+  c.sortedOK && c.faithCoreOK && c.predsApart && c.idsOK && c.overloadsOK
 
 theorem Semantics.coreOK_parts {c : Semantics} (h : c.coreOK = true) :
     c.sortedOK = true ∧ c.faithCoreOK = true ∧ c.hooksApart = true ∧ c.predsApart = true ∧ c.idsOK = true := by
   simp only [Semantics.coreOK, Bool.and_eq_true] at h
-  exact ⟨h.1.1.1.1.1, h.1.1.1.1.2, h.1.1.1.2, h.1.1.2, h.1.2⟩
+  exact ⟨h.1.1.1.1, h.1.1.1.2, Semantics.hooksApart_of_faithCoreOK h.1.1.1.2, h.1.1.2, h.1.2⟩
 
 /-- `coreOK`'s condition on the overloading symbols. -/
 theorem Semantics.coreOK_ovls {c : Semantics} (h : c.coreOK = true) : c.overloadsOK = true := by
   simp only [Semantics.coreOK, Bool.and_eq_true] at h
   exact h.2
 
-/-- `okAll`, `faithOK`, the three name conditions and the overloading symbols' give `coreOK`. -/
+/-- `okAll`, `faithOK`, the two name conditions and the overloading symbols' give `coreOK`. -/
 theorem Semantics.coreOK_of_okAll {c : Semantics} (hok : c.okAll = true) (hfa : c.faithOK = true)
-    (hha : c.hooksApart = true) (hpa : c.predsApart = true) (hids : c.idsOK = true)
+    (hpa : c.predsApart = true) (hids : c.idsOK = true)
     (hov : c.overloadsOK = true) : c.coreOK = true := by
-  simp only [Semantics.coreOK, Semantics.sortedOK_of_okAll hok (Semantics.overloadsOK_pats hov), Semantics.faithCoreOK_of_faithOK hfa, hha,
+  simp only [Semantics.coreOK, Semantics.sortedOK_of_okAll hok (Semantics.overloadsOK_pats hov), Semantics.faithCoreOK_of_faithOK hfa,
     hpa, hids, hov, Bool.and_self]
 
 /-- A well-formed definition's semantics meets `coreOK`: `wf` checks each of its conditions. -/
 theorem Definition.coreOK_of_wf {d : Definition} (h : wf d = true) : d.sem.coreOK = true := by
   simp only [wf, Definition.namesOK, Bool.and_eq_true] at h
-  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨-, hha⟩, hpa⟩, hids⟩, hok⟩, -⟩, -⟩, -⟩, hfa⟩, hov⟩ := h
-  exact Semantics.coreOK_of_okAll hok hfa hha hpa hids hov
+  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨-, -⟩, hpa⟩, hids⟩, hok⟩, -⟩, -⟩, -⟩, hfa⟩, hov⟩ := h
+  exact Semantics.coreOK_of_okAll hok hfa hpa hids hov
 
 /-- The step relation's successors, as a step function (any enumeration of `Step`'s successors;
 the checked layer gives the executable one, `Exec.successorsN`, with `Exec.step_iff`). -/

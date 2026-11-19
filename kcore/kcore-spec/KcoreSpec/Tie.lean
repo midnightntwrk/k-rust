@@ -142,27 +142,27 @@ def Semantics.carriersOK (c : Semantics) : Bool :=
     !c.lib.tokenSorts.contains p.1 && !c.lib.byteSorts.contains p.1 && !c.colls.any (·.sort == p.1)) &&
   nodup (c.lib.carriers.map (·.1))
 
-/-- The parameters' shapes, and the carriers. A parameter that is no open generator has no
+/-- The parameters' shapes. A parameter that is no open generator has no
 associativity or idempotence axiom. An open generator (`raw`) has no registry hook,
 two arguments of its result sort where it has a law (associativity, idempotence or both), a number outside the registry (so `lookupOpen`
 answers for it) and no name like an instance of a sort-parametric symbol (`instDecode?`), and the semantics has `shapesOK` (no value
-of a sort the library's sentences read, other than Float, applies it). The sorts hooked to a
-library carrier are well formed (`carriersOK`). -/
+of a sort the library's sentences read, other than Float, applies it). -/
 def Semantics.paramsPlain (c : Semantics) : Bool :=
   c.params.all (fun k =>
     if k.raw then k.impl.isNone &&
       (!(k.assoc || k.idem) || k.sig.args == [k.sig.result, k.sig.result]) &&
       decide (nRegSyms ≤ k.sig.name) && (instDecode? (c.symName k.sig.name)).isNone &&
       c.shapesOK
-    else !k.assoc && !k.idem) && c.carriersOK
+    else !k.assoc && !k.idem)
 
 /-- The core is well-formed: declarations over declared sorts, its rules, clauses and parameters
-plain (`rulesPlain`, `clausesPlain`, `paramsPlain`), every clause's predicate `\top`
+plain (`rulesPlain`, `clausesPlain`, `paramsPlain`), the sorts hooked to a library carrier well
+formed (`carriersOK`), every clause's predicate `\top`
 (`clausesPreTop`) and no clause with an existential variable or a right-side predicate
 (`clausesNoExsTop`), subsorts, functions and rules. No sort is
 required to have a value (`Semantics.valueless`, which the account prints). -/
 def Semantics.ok (c : Semantics) : Bool :=
-  c.declsOK && (c.rulesPlain && (c.clausesPlain && (c.clausesPreTop && c.clausesNoExsTop)) && c.paramsPlain) && c.subsortsOK && c.fnsOK &&
+  c.declsOK && (c.rulesPlain && (c.clausesPlain && (c.clausesPreTop && c.clausesNoExsTop)) && (c.paramsPlain && c.carriersOK)) && c.subsortsOK && c.fnsOK &&
     c.rules.all c.ruleOK
 
 namespace Semantics
@@ -504,14 +504,14 @@ collection pattern symbols too (`ruleOKAll`: a list's `ListItem(P) L`, a cell ma
 predicates well sorted (`rulePredsOK`). `ok` is the narrower condition the executable matcher's
 theorems read; `okAll` is what the tie checks. -/
 def Semantics.okAll (c : Semantics) : Bool :=
-  c.declsOK && (c.rulesPlain && (c.clausesPlain && (c.clausesPreTop && c.clausesNoExsTop)) && c.paramsPlain) && c.subsortsOK && c.fnsOKAll &&
+  c.declsOK && (c.rulesPlain && (c.clausesPlain && (c.clausesPreTop && c.clausesNoExsTop)) && (c.paramsPlain && c.carriersOK)) && c.subsortsOK && c.fnsOKAll &&
     c.rules.all c.ruleOKAll && c.rules.all c.rulePredsOK
 
 /-- The rules, clauses and parameters of a core `okAll` accepts are plain. -/
 theorem Semantics.plain_of_okAll {c : Semantics} (h : c.okAll = true) :
     c.rulesPlain = true ∧ c.clausesPlain = true ∧ c.paramsPlain = true := by
   simp only [Semantics.okAll, Bool.and_eq_true] at h
-  exact ⟨h.1.1.1.1.2.1.1, h.1.1.1.1.2.1.2.1, h.1.1.1.1.2.2⟩
+  exact ⟨h.1.1.1.1.2.1.1, h.1.1.1.1.2.1.2.1, h.1.1.1.1.2.2.1⟩
 
 /-- Every clause of a core `okAll` accepts has the predicate `\top`. -/
 theorem Semantics.preTop_of_okAll {c : Semantics} (h : c.okAll = true) : c.clausesPreTop = true := by
@@ -535,7 +535,7 @@ theorem Semantics.okAll_of_ok {c : Semantics} (h : c.ok = true) : c.okAll = true
 `ruleOKM` (`ruleOK` less its two `\top` predicates) and its predicates well sorted
 (`rulePredsOK`). -/
 def Semantics.okM (c : Semantics) : Bool :=
-  c.declsOK && (c.rulesPlain && (c.clausesPlain && (c.clausesPreTop && c.clausesNoExsTop)) && c.paramsPlain) && c.subsortsOK && c.fnsOK &&
+  c.declsOK && (c.rulesPlain && (c.clausesPlain && (c.clausesPreTop && c.clausesNoExsTop)) && (c.paramsPlain && c.carriersOK)) && c.subsortsOK && c.fnsOK &&
     c.rules.all c.ruleOKM && c.rules.all c.rulePredsOK
 
 theorem Semantics.okM_of_ok {c : Semantics} (h : c.ok = true) : c.okM = true := by
@@ -672,7 +672,7 @@ def Definition.report (d : Definition) : List (String × Bool) :=
    ("declarations over declared sorts", d.sem.declsOK),
    ("rules plain (rulesPlain): open and existential variables held, open condition variables confined or closed conditions apart", d.sem.rulesPlain),
    ("clauses plain (clausesPlain): existential variables confined or fixed by the predicate, in scope and outside the left side; open condition variables confined or closed conditions", d.sem.clausesPlain),
-   ("parameters plain (paramsPlain): no law on a parameter that is no open generator, an open generator of the admitted shape; carriers well formed", d.sem.paramsPlain),
+   ("parameters plain (paramsPlain): no law on a parameter that is no open generator, an open generator of the admitted shape; carriers well formed", d.sem.paramsPlain && d.sem.carriersOK),
    ("subsorts: a strict partial order into user sorts and library constructor sorts, closed", d.sem.subsortsOK),
    ("functions: well-sorted", d.sem.fnsOKAll),
    ("rules: well-sorted over the configuration sort", d.sem.rules.all fun r => d.sem.ruleOKAll r && d.sem.rulePredsOK r),

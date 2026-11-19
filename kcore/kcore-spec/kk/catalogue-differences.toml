@@ -11,3 +11,7 @@
 # side = "kk.k"           kk.k or kcore
 # computes = "..."        what the side gives instead
 # reason = "..."          why the side is not at the ruling
+#
+# No line: kk/compare.py at PIN.toml's `catalogue_compared` (408f1ab9c, R2-release.kk-catalogue-compare)
+# finds no difference: every settled case where a side has a verdict is at its ruling, and every
+# unsettled one at a reading, on both sides (PIN.toml records the run's counts).
