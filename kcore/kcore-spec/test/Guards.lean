@@ -75,6 +75,25 @@
     occur in R" for every sentence needs the translation's invariance under renumbering, which
     no theorem states. Instance at a sort the instance's signature gives no constructor:
     `existsDropped_empty`, `c(X:Int) => \exists Z:Empty. d(X:Int)`.
+  - G8 for every rule and every H (`ruleRightDefined_everyH`, from `ruleRightDefined_weaker_all`): the
+    axiom of any rule without the premise `⌈right⌉` (`textRuleKAll`), existential variables, `pre`
+    and `post` included, entails the one `Γ (c.withHooks H)` reads; an appended conjunct changes
+    neither the variable table nor the guards (`table_ceil`, `free_ceil`) and only narrows
+    (`trAndList_init`).
+  - The rule-side readings through a cut or a binder, each on a text (namespaces `DevAndWeak` to
+    `DevAlias`), for every H about `c.withHooks H`: `andTermsWeaker` (e3-ml-rule-rhs-and-fn's text,
+    f2-examples/mlandfn, the kompiled text its fixture's kompile.txt records with its paths
+    restored), `andTermsCut` (`DevAndCut`), `connectiveCut` on a left side (`DevConnNot`) and on a
+    right side (`DevConnOr`), `lhsAndCut` with a predicate operand (`DevLhsAnd`) and a variable
+    operand (`DevLhsAndVar`), `existsDropped` (`DevExDrop`, hand-written text), `existsRenamedApart`
+    (`DevExApart`, hand-written text) and `identityAlias` (`DevAlias`, hand-written text). A rule
+    the step checks read (`Cert`, or `CExec` for a `pre` or `post` of `\equals` and `\in` atoms)
+    is carried to every H as the devices are. A rule with an existential variable, or a `pre` or
+    `post` under `\not` or `\or`, is read by neither check: its steps are from `Step.rule` and
+    `Holds` at `c.withHooks H` directly (`DevConnNot`, `DevConnOr`, `DevExApart`), the rule
+    applying no function. The companions are the same text read by the rival law (the predicate
+    of the cut dropped, the binder's variable taken for the left side's); `existsDropped` and
+    `identityAlias` have none, their table entries saying why.
   - The reader's devices (`orSplit`, `topAsVariable`, `existsAsVariable`, `andAsEnsures`,
     `bottomAsEnsures`, `orBottom`, `predicateAtBool`, `andAtBool`, `requiresOrSplit`), each on the
     kompiled text of its construct fixture (namespaces `DevOr` to `DevOrBot`): the steps, or the
@@ -1075,6 +1094,103 @@ theorem ruleRightDefined_weaker (c : Semantics) (r : Rule) (hex : r.exs = []) (h
 
 end RightDefined
 
+/-! ## G8 for every rule and every interpretation -/
+
+section RightDefinedAll
+
+/-- A rule's axiom as the text writes it, for any rule: `prioRuleK` without its conjunct `⌈right⌉`,
+`\rewrites(lhs ∧ ⌈req = true⌉ ∧ pre ∧ ¬ ⋁ competitors, right)`, `right` the right side under its
+binder with the `ensures` and `post` (`ruleRight`). -/
+def textRuleKAll (c : Semantics) (r : Rule) : Kore.Pattern :=
+  let C := srtOf c topCellSort
+  let vs := canonVars c r.vars
+  let comps := (c.rules.filter (·.prio < r.prio)).map fun r' => applies c r' (canonRulePres r')
+  let left := [Term.kore c vs r.lhs, reqPat C (r.req.map (Term.kore c vs))] ++ Cond.conj c vs C r.pre
+  if comps.isEmpty then .rewrites C (.and C left) (ruleRight c r)
+  else .rewrites C (.and C (left ++ [.not C (anyOfC C comps)])) (ruleRight c r)
+
+/-- In every semantics, for every rule: `prioRuleK` is `textRuleKAll` with `⌈right⌉` appended to
+its left side, which has a conjunct. -/
+theorem prio_eq_textAll (c : Semantics) (r : Rule) : ∃ (C : Kore.KSort) (R : Kore.Pattern) (ps : List Kore.Pattern),
+    ps ≠ [] ∧ textRuleKAll c r = .rewrites C (.and C ps) R ∧
+      prioRuleK c r = .rewrites C (.and C (ps ++ [.ceil C C R])) R := by
+  unfold textRuleKAll prioRuleK
+  dsimp only
+  by_cases hc : ((c.rules.filter (·.prio < r.prio)).map fun r' => applies c r' (canonRulePres r')).isEmpty = true
+  · rw [ite_eq_left hc, ite_eq_left hc]; exact ⟨_, _, _, by simp, rfl, rfl⟩
+  · rw [ite_eq_right hc, ite_eq_right hc]
+    refine ⟨_, _, _, ?_, rfl, ?_⟩
+    · simp
+    · simp only [List.append_assoc, List.cons_append, List.nil_append]
+
+/-- A conjunction with one more conjunct at its end holds only of elements of the conjunction
+without it. -/
+theorem trAndList_init {M : Type} {I : Interpretation KoreAML.Sym M} (ctx : KoreAML.Ctx) (s : KoreAML.P)
+    (x : Kore.Pattern) (e : Valuation M) (a : M) : ∀ (ps : List Kore.Pattern), ps ≠ [] →
+    (KoreAML.trAndList ctx s (ps ++ [x])).interpret I e a → (KoreAML.trAndList ctx s ps).interpret I e a
+  | [], h, _ => absurd rfl h
+  | [p], _, h => by
+    simp only [List.cons_append, List.nil_append, KoreAML.trAndList] at h ⊢
+    exact (KoreAML.interp_sAnd.mp h).1
+  | p :: q :: ps, _, h => by
+    simp only [List.cons_append, KoreAML.trAndList] at h ⊢
+    rw [KoreAML.interp_sAnd] at h ⊢
+    exact ⟨h.1, trAndList_init ctx s x e a (q :: ps) (by simp) h.2⟩
+
+/-- **G8 for every rule** (`ReadingNote.ruleRightDefined`): in every semantics, for every rule,
+with existential variables, a `pre` and a `post` or without, the rule's axiom as the text writes
+it (`textRuleKAll`: no premise `⌈right⌉`), with the definedness axioms, entails the axiom `Γ`
+reads (`prioRuleK`). -/
+theorem ruleRightDefined_weaker_all (c : Semantics) (r : Rule) :
+    (fun φ => φ = (KoreAML.trAxiom [] [] ⟨0, "kernel", { sortVars := [], pattern := textRuleKAll c r, attributes := [] }⟩).pat ∨
+        ∃ x : EVar, φ = @definedness KoreAML.Sym _ x) ⊧
+      (KoreAML.trAxiom [] [] ⟨0, "kernel", { sortVars := [], pattern := prioRuleK c r, attributes := [] }⟩).pat := by
+  intro M _ I hI
+  have hD : KoreAML.DefOK I := KoreAML.defOK_of fun x => hI _ (.inr ⟨x, rfl⟩)
+  have h := hI _ (.inl rfl)
+  obtain ⟨C, R, ps, hps, ht, hp⟩ := prio_eq_textAll c r
+  intro e m
+  have h1 := h e m
+  unfold KoreAML.trAxiom at h1
+  unfold KoreAML.trAxiom
+  dsimp only at h1 ⊢
+  rw [ht] at h1
+  rw [hp, table_ceil, free_ceil]
+  have hs : ∀ L, KoreAML.sortOf [] (.rewrites C L R) = some C := fun _ => rfl
+  simp only [hs] at h1 ⊢
+  rw [interpret_impl] at h1 ⊢
+  intro hg
+  have h2 := h1 hg
+  rw [KoreAML.interp_equal hD] at h2 ⊢
+  intro a
+  have h3 := h2 a
+  generalize KoreAML.tableOf [] (.rewrites C (.and C ps) R) = tb at h3 ⊢
+  rw [KoreAML.tr] at h3 ⊢
+  unfold KoreAML.sRewrites at h3 ⊢
+  rw [KoreAML.interp_sImp] at h3 ⊢
+  refine ⟨fun h' => h'.1, fun ha => ⟨ha, fun hL => (h3.mpr ha).2 ?_⟩⟩
+  rw [KoreAML.tr] at hL ⊢
+  exact trAndList_init _ _ _ _ _ ps hps hL
+
+/-- **`ruleRightDefined`, for every interpretation**: under every H, for every rule of every
+semantics, the text's axiom of the rule entails the axiom `Γ (c.withHooks H)` reads. -/
+theorem ruleRightDefined_everyH (c : Semantics) (H : HookParams) (r : Rule) :
+    (fun φ => φ = (KoreAML.trAxiom [] [] ⟨0, "kernel",
+          { sortVars := [], pattern := textRuleKAll (c.withHooks H) r, attributes := [] }⟩).pat ∨
+        ∃ x : EVar, φ = @definedness KoreAML.Sym _ x) ⊧
+      (KoreAML.trAxiom [] [] ⟨0, "kernel",
+        { sortVars := [], pattern := prioRuleK (c.withHooks H) r, attributes := [] }⟩).pat :=
+  ruleRightDefined_weaker_all (c.withHooks H) r
+
+/-- On a rule with no existential variables and `\top` predicates, `textRuleKAll` is
+`UndefRhsWitness.textRuleK`, the text's axiom of G8. -/
+theorem textRuleKAll_top (c : Semantics) (r : Rule) (hex : r.exs = []) (hpre : r.pre = .top)
+    (hpost : r.post = .top) : textRuleKAll c r = UndefRhsWitness.textRuleK c r := by
+  simp only [textRuleKAll, UndefRhsWitness.textRuleK, ruleRight, hex, hpre, hpost, Cond.conj, Cond.isTop, ite_true,
+    List.filterMap_nil, List.foldr_nil, List.append_nil, List.cons_append, List.nil_append]
+
+end RightDefinedAll
+
 /-! ## G9: `existsDropped`, the text's rewrite axiom entails the one without the binder -/
 
 section ExistsDropped
@@ -1373,6 +1489,619 @@ theorem ex_unread_stuck (H : HookParams) : ∀ y, ¬ Step (c0.withHooks H) (cfgH
     (by decide +kernel) H
 
 end DevEx
+
+/-! ### `andTermsWeaker`: a conjunction of terms on a right side, with the `ensures` of their equality -/
+
+-- `go(X) => f(f(X) #And g(X))`, f the identity and g the negation (the construct fixture
+-- e3-ml-rule-rhs-and-fn), read as `go(X) => f(f(X)) ensures f(X) ==Int g(X)`.
+namespace DevAndWeak
+
+definition_of defn from "f2-examples/mlandfn.kompile.kore"
+noncomputable abbrev c : Semantics := defn.sem
+theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
+def go : Sym := 386
+def f : Sym := 388
+def g : Sym := 389
+def exp : Srt := 32
+theorem names_ok : c.symName go = "Lblgo" ∧ c.symName f = "Lblf" ∧ c.symName g = "Lblg" ∧
+    c.sortName exp = "Exp" := by decide +kernel
+/-- The rule as read: the `ensures` `f(X) ==Int g(X)`, no existential variable, no `post`. -/
+theorem read_shape : c.rules.map (fun r => (r.ens, r.exs, r.post.isTop)) =
+    [(some (.app intEq [.app f [.var 0], .app g [.var 0]]), [], true)] := rfl
+private theorem hok : c.ok = true := by decide +kernel
+private theorem hsr : c.srReady = true := by decide +kernel
+private theorem hmr : c.matchReady = true := by decide +kernel
+def cfg (e : GroundTerm) : GroundTerm := cfgOf 383 (.inj exp Srt.kitem e)
+def Go0 : Config c := ⟨cfg (.ctor go [.dv Srt.int (.int 0)]), by decide +kernel⟩
+def Go1 : Config c := ⟨cfg (.ctor go [.dv Srt.int (.int 1)]), by decide +kernel⟩
+def Zero : Config c := ⟨cfgOf 383 (.inj Srt.int Srt.kitem (.dv Srt.int (.int 0))), by decide +kernel⟩
+def One : Config c := ⟨cfgOf 383 (.inj Srt.int Srt.kitem (.dv Srt.int (.int 1))), by decide +kernel⟩
+
+/-- **`andTermsWeaker`, for every interpretation**: `go(0)` steps to 0, where `f(0)` and `g(0)`
+are one Int, and `go(1)` has no successor, where `f(1) ∧ g(1)` is empty. -/
+theorem andWeak_steps (H : HookParams) :
+    Step (c.withHooks H) (cfgH noRaw Go0 H) (cfgH noRaw Zero H) ∧ ∀ y, ¬ Step (c.withHooks H) (cfgH noRaw Go1 H) y :=
+  ⟨step_everyH hok hsr hmr noRaw (n := 50) (by decide +kernel) H,
+   stuck_everyH hok hsr hmr noRaw (by decide +kernel) (by decide +kernel) (by decide +kernel) (n := 50)
+    (by decide +kernel) H⟩
+
+/-- The right side read as its first conjunct alone, `f(f(X))`: no `ensures`. -/
+noncomputable def c1 : Semantics := { c with rules := c.rules.map fun r => { r with ens := none } }
+theorem noRaw1 : ∀ k ∈ c1.params, k.raw = false := by decide +kernel
+private theorem hok1 : c1.ok = true := by decide +kernel
+private theorem hsr1 : c1.srReady = true := by decide +kernel
+private theorem hmr1 : c1.matchReady = true := by decide +kernel
+def Go11 : Config c1 := ⟨Go1.val, by decide +kernel⟩
+def One1 : Config c1 := ⟨One.val, by decide +kernel⟩
+
+/-- **The point is reached**: read so, `go(1)` steps to 1 under every interpretation. -/
+theorem andWeak_first_steps (H : HookParams) : Step (c1.withHooks H) (cfgH noRaw1 Go11 H) (cfgH noRaw1 One1 H) :=
+  step_everyH hok1 hsr1 hmr1 noRaw1 (n := 50) (by decide +kernel) H
+
+end DevAndWeak
+
+/-! ### `andTermsCut`: a conjunction of terms on a right side, through the cut -/
+
+-- `c(X) => X #And a()` (the construct fixture e3-ml-rule-rhs-and-ctor), read as `c(X) => X` with
+-- `post := X ∈ a()`.
+namespace DevAndCut
+
+definition_of defn from "f2-examples/mlandc.kompile.kore"
+noncomputable abbrev c : Semantics := defn.sem
+theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
+def a : Sym := 385
+def b : Sym := 386
+def cc : Sym := 387
+def exp : Srt := 32
+theorem names_ok : c.symName a = "Lbla" ∧ c.symName b = "Lblb" ∧ c.symName cc = "Lblc" ∧
+    c.sortName exp = "Exp" := by decide +kernel
+/-- The rule as read: no `ensures`, `post` the membership `X ∈ a()`. -/
+theorem read_shape : c.rules.map (fun r => (r.ens.isNone, r.exs, r.post)) =
+    [(true, [], .mem exp (.var 0) (.app a []))] := rfl
+private theorem hready : CExec.execReady c = true := by decide +kernel
+private theorem noFns : c.fns = [] := by decide +kernel
+private theorem fnDetH (H : HookParams) : FnDet (c.withHooks H) :=
+  fnDet_of_agree (fun _ h => by rw [show (c.withHooks H).fns = c.fns from rfl, noFns] at h; cases h)
+    (fun _ h => by rw [show (c.withHooks H).fns = c.fns from rfl, noFns] at h; cases h)
+def cfg (e : GroundTerm) : GroundTerm := cfgOf 383 (.inj exp Srt.kitem e)
+def CA : Config c := ⟨cfg (.ctor cc [.ctor a []]), by decide +kernel⟩
+def CB : Config c := ⟨cfg (.ctor cc [.ctor b []]), by decide +kernel⟩
+def A : Config c := ⟨cfg (.ctor a []), by decide +kernel⟩
+def B : Config c := ⟨cfg (.ctor b []), by decide +kernel⟩
+
+kernel_rfl ca_withHooks : ∀ H : HookParams,
+  CExec.successorsN (c.withHooks H) 50 CA.val = CExec.successorsN c 50 CA.val
+kernel_rfl cb_withHooks : ∀ H : HookParams,
+  CExec.successorsN (c.withHooks H) 50 CB.val = CExec.successorsN c 50 CB.val
+kernel_rfl cb_fuel_withHooks : ∀ H : HookParams,
+  CExec.outOfFuel (c.withHooks H) 50 CB.val = CExec.outOfFuel c 50 CB.val
+
+/-- **`andTermsCut`, for every interpretation**: `c(a)` steps to `a` and `c(b)` has no successor:
+`X ∧ a()` is X where X is `a` and is empty elsewhere. -/
+theorem andCut_steps (H : HookParams) :
+    Step (c.withHooks H) (cfgH noRaw CA H) (cfgH noRaw A H) ∧ ∀ y, ¬ Step (c.withHooks H) (cfgH noRaw CB H) y := by
+  have hr := (CExec.execReady_withHooks c H).trans hready
+  refine ⟨?_, CExec.noStep_at hr (fnDetH H) (n := 50) (x := cfgH noRaw CB H)
+    ((cb_fuel_withHooks H).trans (by decide +kernel)) ((cb_withHooks H).trans (by decide +kernel))⟩
+  have hy : A.val ∈ CExec.successorsN (c.withHooks H) 50 CA.val := by
+    rw [ca_withHooks]; decide +kernel
+  obtain ⟨_, h⟩ := CExec.successorsN_step_ready hr (x := cfgH noRaw CA H) hy
+  exact h
+
+/-- The right side read as its first conjunct alone, X: no `post`. -/
+noncomputable def c1 : Semantics := { c with rules := c.rules.map fun r => { r with post := .top } }
+theorem noRaw1 : ∀ k ∈ c1.params, k.raw = false := by decide +kernel
+private theorem hok1 : c1.ok = true := by decide +kernel
+private theorem hsr1 : c1.srReady = true := by decide +kernel
+private theorem hmr1 : c1.matchReady = true := by decide +kernel
+def CB1 : Config c1 := ⟨CB.val, by decide +kernel⟩
+def B1 : Config c1 := ⟨B.val, by decide +kernel⟩
+
+/-- **The point is reached**: read so, `c(b)` steps to `b` under every interpretation. -/
+theorem andCut_first_steps (H : HookParams) : Step (c1.withHooks H) (cfgH noRaw1 CB1 H) (cfgH noRaw1 B1 H) :=
+  step_everyH hok1 hsr1 hmr1 noRaw1 (n := 50) (by decide +kernel) H
+
+end DevAndCut
+
+/-! ### `connectiveCut`: a connective at a term position of a rule's side, through the cut -/
+
+section RuleSideInv
+
+/-- A negation's truth value is its operand's, negated. -/
+theorem rsHolds_not_inv {c : Semantics} {n : Nat} {σ : Subst} {p : Cond} {b : Bool}
+    (h : Holds c n σ (.not p) b) : ∃ b', Holds c n σ p b' ∧ b = !b' := by
+  generalize hq : Cond.not p = q at h
+  cases h with
+  | not h => cases hq; exact ⟨_, h, rfl⟩
+  | _ => cases hq
+
+/-- A membership's truth value, from the two terms' results. -/
+theorem rsHolds_mem_inv {c : Semantics} {n : Nat} {σ : Subst} {s : Srt} {t u : Term} {b : Bool}
+    (h : Holds c n σ (.mem s t u) b) :
+    ∃ r r', EvalTerm c σ t r ∧ EvalTerm c σ u r' ∧ b = (r.isSome && sameResult r r') := by
+  generalize hq : Cond.mem s t u = q at h
+  cases h with
+  | mem h h' => cases hq; exact ⟨_, _, h, h', rfl⟩
+  | _ => cases hq
+
+/-- A nullary constructor evaluates to itself. -/
+theorem rsEvalTerm_const {c : Semantics} {σ : Subst} {f : Sym} {r : Option GroundTerm}
+    (hc : c.isCtor f = true) (h : EvalTerm c σ (.app f []) r) : r = some (.ctor f []) := by
+  obtain ⟨rs, hrs, rfl⟩ := EvalTerm.ctor_inv hc h
+  cases EvalTerms.nil_inv hrs
+  rfl
+
+/-- `sameResult` of two results is their equality. -/
+theorem rsSameResult_some {v w : GroundTerm} : sameResult (some v) (some w) = decide (v = w) := by
+  unfold sameResult
+  by_cases h : v = w
+  · subst h; simp [cmp_eq_iff]
+  · simp [cmp_eq_iff, h]
+
+/-- The pattern of a constructor application of two arguments at a constructor term. -/
+theorem rsPatVal_ctor2 {c : Semantics} {σ : Subst} {f : Sym} {p q : Term} {v w : GroundTerm}
+    (hf : patternHooks.contains f = false) (hc : c.isCtor f = true)
+    (h : PatVal c σ (.app f [p, q]) (.ctor f [v, w])) : PatVal c σ p v ∧ PatVal c σ q w := by
+  obtain ⟨-, vs, he, hs⟩ := PatVal.app_inv hf h hc
+  cases he
+  obtain ⟨_, _, he1, h1, hs1⟩ := PatVals.cons_inv hs
+  cases he1
+  obtain ⟨_, _, he2, h2, _⟩ := PatVals.cons_inv hs1
+  cases he2
+  exact ⟨h1, h2⟩
+
+/-- The pattern of a constructor application of one argument at a constructor term. -/
+theorem rsPatVal_ctor1 {c : Semantics} {σ : Subst} {f : Sym} {p : Term} {v : GroundTerm}
+    (hf : patternHooks.contains f = false) (hc : c.isCtor f = true)
+    (h : PatVal c σ (.app f [p]) (.ctor f [v])) : PatVal c σ p v := by
+  obtain ⟨-, vs, he, hs⟩ := PatVal.app_inv hf h hc
+  cases he
+  obtain ⟨_, _, he1, h1, _⟩ := PatVals.cons_inv hs
+  cases he1
+  exact h1
+
+end RuleSideInv
+
+-- `c(#Not(a())) => b()` (the construct fixture e3-ml-rule-lhs-not-other), read as `c(Z) => b` with
+-- `pre := ¬(Z ∈ a())`.
+namespace DevConnNot
+
+definition_of defn from "f2-examples/mlnoto.kompile.kore"
+noncomputable abbrev c : Semantics := defn.sem
+theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
+def a : Sym := 385
+def b : Sym := 386
+def cc : Sym := 387
+def exp : Srt := 32
+theorem names_ok : c.symName a = "Lbla" ∧ c.symName b = "Lblb" ∧ c.symName cc = "Lblc" ∧
+    c.sortName exp = "Exp" := by decide +kernel
+
+noncomputable def r0 : Rule := c.rules[0]'(by decide +kernel)
+theorem r0_mem : r0 ∈ c.rules := List.getElem_mem _
+/-- The text has the one rule. -/
+theorem rule_eq {r : Rule} (hr : r ∈ c.rules) : r = r0 := by
+  obtain ⟨i, hi, rfl⟩ := List.getElem_of_mem hr
+  have h1 : c.rules.length = 1 := by decide +kernel
+  have : i = 0 := by omega
+  subst this
+  rfl
+theorem r0_lhs : r0.lhs =
+    .app topLabel [.app 383 [.app kseq [.inj exp Srt.kitem (.app cc [.var 0]), .var 1]], .var 2] := rfl
+theorem r0_rhs : r0.rhs =
+    .app topLabel [.app 383 [.app kseq [.inj exp Srt.kitem (.app b []), .var 1]], .var 2] := rfl
+/-- The rule as read: `c(Z) => b` with `pre := ¬(Z ∈ a())`, Z the variable 0. -/
+theorem read_shape : r0.req = none ∧ r0.ens = none ∧ r0.exs = [] ∧ r0.post = .top ∧
+    r0.pre = .not (.mem exp (.var 0) (.app a [])) := ⟨rfl, rfl, rfl, rfl, rfl⟩
+theorem syms_ok : c.isCtor topLabel = true ∧ c.isCtor 383 = true ∧ c.isCtor kseq = true ∧
+    c.isCtor a = true ∧ c.isCtor b = true ∧ c.isCtor cc = true := by decide +kernel
+theorem hooks_ok : patternHooks.contains topLabel = false ∧ patternHooks.contains 383 = false ∧
+    patternHooks.contains kseq = false ∧ patternHooks.contains cc = false := by decide +kernel
+theorem symsH (H : HookParams) : (c.withHooks H).isCtor topLabel = true ∧ (c.withHooks H).isCtor 383 = true ∧
+    (c.withHooks H).isCtor kseq = true ∧ (c.withHooks H).isCtor a = true ∧ (c.withHooks H).isCtor b = true ∧
+    (c.withHooks H).isCtor cc = true := syms_ok
+
+def cfg (e : GroundTerm) : GroundTerm := cfgOf 383 (.inj exp Srt.kitem e)
+def CA : Config c := ⟨cfg (.ctor cc [.ctor a []]), by decide +kernel⟩
+def CB : Config c := ⟨cfg (.ctor cc [.ctor b []]), by decide +kernel⟩
+def B : Config c := ⟨cfg (.ctor b []), by decide +kernel⟩
+def σ (z : GroundTerm) : Subst := [(0, z), (1, .ctor dotk []), (2, .ctor counterLabel [.dv Srt.int (.int 0)])]
+
+/-- `pre` under H where Z has the value z: true exactly where z is not `a`. -/
+theorem pre_at (H : HookParams) {τ : Subst} {z : GroundTerm} (h0 : τ.lookup 0 = some z) {v : Bool} :
+    Holds (c.withHooks H) r0.vars.length τ r0.pre v ↔ v = !(decide (z = .ctor a [])) := by
+  rw [read_shape.2.2.2.2]
+  constructor
+  · intro h
+    obtain ⟨b', hp, rfl⟩ := rsHolds_not_inv h
+    obtain ⟨r₁, r₁', e₁, e₁', rfl⟩ := rsHolds_mem_inv hp
+    rw [EvalTerm.var_inv e₁, rsEvalTerm_const (symsH H).2.2.2.1 e₁', h0]
+    simp only [Option.isSome_some, Bool.true_and, rsSameResult_some]
+  · intro hb
+    have h : Holds (c.withHooks H) r0.vars.length τ (.not (.mem exp (.var 0) (.app a [])))
+        (!((τ.lookup 0).isSome && sameResult (τ.lookup 0) (some (.ctor a [])))) :=
+      .not (.mem .var (.ctor (symsH H).2.2.2.1 .nil))
+    rw [h0] at h
+    simp only [Option.isSome_some, Bool.true_and, rsSameResult_some] at h
+    rw [hb]; exact h
+
+/-- A match of the left side under H at `c(z)` gives Z the value z. -/
+theorem lookup0 (H : HookParams) {τ : Subst} {z : GroundTerm}
+    (hm : PatVal (c.withHooks H) τ r0.lhs (cfg (.ctor cc [z]))) : τ.lookup 0 = some z := by
+  rw [r0_lhs] at hm
+  have h1 := (rsPatVal_ctor2 hooks_ok.1 (symsH H).1 hm).1
+  have h2 := rsPatVal_ctor1 hooks_ok.2.1 (symsH H).2.1 h1
+  have h3 := (rsPatVal_ctor2 hooks_ok.2.2.1 (symsH H).2.2.1 h2).1
+  obtain ⟨w, hw, he⟩ := PatVal.inj_inv h3
+  obtain ⟨-, vs, rfl, hs⟩ := PatVal.app_inv hooks_ok.2.2.2 hw (symsH H).2.2.2.2.2
+  have he' : GroundTerm.inj exp Srt.kitem (.ctor cc [z]) = .inj exp Srt.kitem (.ctor cc vs) := he
+  cases he'
+  obtain ⟨_, _, he1, h4, _⟩ := PatVals.cons_inv hs
+  cases he1
+  exact PatVal.var_inv h4
+
+/-- **`connectiveCut` on a left side, for every interpretation**: `c(b)` steps to `b` and `c(a)`
+has no successor: `c(¬a)` holds `c(v)` for the values v of Exp other than `a`. -/
+theorem not_steps (H : HookParams) :
+    Step (c.withHooks H) (cfgH noRaw CB H) (cfgH noRaw B H) ∧ ∀ y, ¬ Step (c.withHooks H) (cfgH noRaw CA H) y := by
+  constructor
+  · refine .rule r0 r0_mem (σ (.ctor b [])) ?_ ?_ (fun t ht => by rw [read_shape.1] at ht; cases ht) ?_ ?_
+      (fun t ht => by rw [read_shape.2.1] at ht; cases ht) (by rw [read_shape.2.2.2.1]; exact .top)
+      (fun r' hr' hlt => absurd hlt (by rw [rule_eq hr']; exact Nat.lt_irrefl _))
+    · exact Exec.wellSorted_iff.mp ((congrFun (Cert.wellSorted_withHooks_hr c H noRaw r0.vars) _).trans
+        (by decide +kernel))
+    · rw [r0_lhs]
+      have hiz : injNormal exp Srt.kitem (.ctor cc [.ctor b []]) = .inj exp Srt.kitem (.ctor cc [.ctor b []]) := rfl
+      exact .ctor (symsH H).1 (.cons (.ctor (symsH H).2.1 (.cons (.ctor (symsH H).2.2.1
+        (.cons (hiz ▸ .inj (.ctor (symsH H).2.2.2.2.2 (.cons (.var rfl) .nil))) (.cons (.var rfl) .nil))) .nil))
+        (.cons (.var rfl) .nil))
+    · exact (pre_at H (τ := σ (.ctor b [])) rfl).mpr (by decide)
+    · rw [r0_rhs]
+      have he : EvalTerm (c.withHooks H) (σ (.ctor b [])) (.inj exp Srt.kitem (.app b []))
+          (some (.inj exp Srt.kitem (.ctor b []))) := .inj (.ctor (symsH H).2.2.2.2.1 .nil)
+      exact .ctor (symsH H).1 (.cons (.ctor (symsH H).2.1 (.cons (.ctor (symsH H).2.2.1
+        (.cons he (.cons .var .nil))) .nil)) (.cons .var .nil))
+  · intro y h
+    obtain ⟨r, τ, hs⟩ := step_iff_by.mp h
+    have hr := rule_eq hs.mem
+    subst hr
+    have hp := (pre_at H (lookup0 H hs.hmatch)).mp hs.hpre
+    simp at hp
+
+/-- The connective not read: the position a variable of the rule, no `pre`. -/
+noncomputable def c1 : Semantics := { c with rules := c.rules.map fun r => { r with pre := .top } }
+theorem noRaw1 : ∀ k ∈ c1.params, k.raw = false := by decide +kernel
+private theorem hok1 : c1.ok = true := by decide +kernel
+private theorem hsr1 : c1.srReady = true := by decide +kernel
+private theorem hmr1 : c1.matchReady = true := by decide +kernel
+def CA1 : Config c1 := ⟨CA.val, by decide +kernel⟩
+def B1 : Config c1 := ⟨B.val, by decide +kernel⟩
+
+/-- **The point is reached**: read so, `c(a)` steps to `b` under every interpretation. -/
+theorem not_dropped_steps (H : HookParams) : Step (c1.withHooks H) (cfgH noRaw1 CA1 H) (cfgH noRaw1 B1 H) :=
+  step_everyH hok1 hsr1 hmr1 noRaw1 (n := 50) (by decide +kernel) H
+
+end DevConnNot
+
+-- `go => a() #Or b()` (the construct fixture e3-ml-rule-rhs-or), read as `go => ?Z` with
+-- `post := Z ∈ a() ∨ Z ∈ b()`, Z an existential variable of the rule.
+namespace DevConnOr
+
+definition_of defn from "f2-examples/mlror.kompile.kore"
+noncomputable abbrev c : Semantics := defn.sem
+theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
+def a : Sym := 385
+def b : Sym := 386
+def go : Sym := 389
+def exp : Srt := 32
+theorem names_ok : c.symName a = "Lbla" ∧ c.symName b = "Lblb" ∧ c.symName go = "Lblgo" ∧
+    c.sortName exp = "Exp" := by decide +kernel
+
+noncomputable def r0 : Rule := c.rules[0]'(by decide +kernel)
+theorem r0_mem : r0 ∈ c.rules := List.getElem_mem _
+theorem prios : ∀ r ∈ c.rules, r.prio = 50 := by decide +kernel
+theorem r0_lhs : r0.lhs =
+    .app topLabel [.app 383 [.app kseq [.inj exp Srt.kitem (.app go []), .var 0]], .var 1] := rfl
+theorem r0_rhs : r0.rhs =
+    .app topLabel [.app 383 [.app kseq [.inj exp Srt.kitem (.var 2), .var 0]], .var 1] := rfl
+/-- The rule as read: `go => ?Z`, Z the variable 2, with `post := Z ∈ a() ∨ Z ∈ b()`. -/
+theorem read_shape : r0.req = none ∧ r0.ens = none ∧ r0.exs = [2] ∧ r0.pre = .top ∧
+    r0.post = .or (.mem exp (.var 2) (.app a [])) (.mem exp (.var 2) (.app b [])) := ⟨rfl, rfl, rfl, rfl, rfl⟩
+theorem syms_ok : c.isCtor topLabel = true ∧ c.isCtor 383 = true ∧ c.isCtor kseq = true ∧
+    c.isCtor a = true ∧ c.isCtor b = true ∧ c.isCtor go = true := by decide +kernel
+theorem symsH (H : HookParams) : (c.withHooks H).isCtor topLabel = true ∧ (c.withHooks H).isCtor 383 = true ∧
+    (c.withHooks H).isCtor kseq = true ∧ (c.withHooks H).isCtor a = true ∧ (c.withHooks H).isCtor b = true ∧
+    (c.withHooks H).isCtor go = true := syms_ok
+
+def cfg (e : GroundTerm) : GroundTerm := cfgOf 383 (.inj exp Srt.kitem e)
+def Go : Config c := ⟨cfg (.ctor go []), by decide +kernel⟩
+def A : Config c := ⟨cfg (.ctor a []), by decide +kernel⟩
+def B : Config c := ⟨cfg (.ctor b []), by decide +kernel⟩
+def σ (z : GroundTerm) : Subst := [(0, .ctor dotk []), (1, .ctor counterLabel [.dv Srt.int (.int 0)]), (2, z)]
+
+/-- `go` steps under H to the configuration of z where `post` is true of the value z of Z. -/
+theorem step_at (H : HookParams) (z : GroundTerm) (y : Config c) (hy : y.val = cfg z)
+    (hz : Exec.wellSorted c r0.vars (σ z) = true) (hi : injNormal exp Srt.kitem z = .inj exp Srt.kitem z)
+    (hp : ((some z).isSome && sameResult (some z) (some (.ctor a [])) ||
+      (some z).isSome && sameResult (some z) (some (.ctor b []))) = true) :
+    Step (c.withHooks H) (cfgH noRaw Go H) (cfgH noRaw y H) := by
+  refine .rule r0 r0_mem (σ z) ?_ ?_ (fun t ht => by rw [read_shape.1] at ht; cases ht)
+    (by rw [read_shape.2.2.2.1]; exact .top) ?_
+    (fun t ht => by rw [read_shape.2.1] at ht; cases ht) ?_
+    (fun r' hr' hlt => absurd hlt (by rw [prios r' hr', prios r0 r0_mem]; exact Nat.lt_irrefl _))
+  · exact Exec.wellSorted_iff.mp ((congrFun (Cert.wellSorted_withHooks_hr c H noRaw r0.vars) _).trans hz)
+  · rw [r0_lhs]
+    exact .ctor (symsH H).1 (.cons (.ctor (symsH H).2.1 (.cons (.ctor (symsH H).2.2.1
+      (.cons (.inj (.ctor (symsH H).2.2.2.2.2 .nil)) (.cons (.var rfl) .nil))) .nil)) (.cons (.var rfl) .nil))
+  · rw [r0_rhs]
+    show EvalTerm (c.withHooks H) (σ z) _ (some y.val)
+    rw [hy]
+    have he : EvalTerm (c.withHooks H) (σ z) (.inj exp Srt.kitem (.var 2)) (some (.inj exp Srt.kitem z)) := by
+      have h : EvalTerm (c.withHooks H) (σ z) (.inj exp Srt.kitem (.var 2)) (some (injNormal exp Srt.kitem z)) :=
+        .inj .var
+      rw [hi] at h; exact h
+    exact .ctor (symsH H).1 (.cons (.ctor (symsH H).2.1 (.cons (.ctor (symsH H).2.2.1
+      (.cons he (.cons .var .nil))) .nil)) (.cons .var .nil))
+  · rw [read_shape.2.2.2.2]
+    have h : Holds (c.withHooks H) r0.vars.length (σ z)
+        (.or (.mem exp (.var 2) (.app a [])) (.mem exp (.var 2) (.app b []))) _ :=
+      .or (.mem .var (.ctor (symsH H).2.2.2.1 .nil)) (.mem .var (.ctor (symsH H).2.2.2.2.1 .nil))
+    exact hp ▸ h
+
+/-- **`connectiveCut` on a right side, for every interpretation**: `go` steps to `a` and to `b`,
+the elements of `a ∨ b`. -/
+theorem or_steps (H : HookParams) :
+    Step (c.withHooks H) (cfgH noRaw Go H) (cfgH noRaw A H) ∧ Step (c.withHooks H) (cfgH noRaw Go H) (cfgH noRaw B H) :=
+  ⟨step_at H (.ctor a []) A rfl (by decide +kernel) rfl (by decide +kernel),
+   step_at H (.ctor b []) B rfl (by decide +kernel) rfl (by decide +kernel)⟩
+
+end DevConnOr
+
+/-! ### `lhsAndCut`: a conjunction at a term position of a left side -/
+
+-- `go(X) #And {X #Equals 1} => done` (the construct fixture e3-ml-rule-lhs-equals), read as
+-- `go(X) => done` with `pre := X = 1`.
+namespace DevLhsAnd
+
+definition_of defn from "f2-examples/mllhseq.kompile.kore"
+noncomputable abbrev c : Semantics := defn.sem
+theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
+def done : Sym := 385
+def go : Sym := 386
+def exp : Srt := 32
+theorem names_ok : c.symName done = "Lbldone" ∧ c.symName go = "Lblgo" ∧ c.sortName exp = "Exp" := by
+  decide +kernel
+/-- The rule as read: no `requires`, `pre` the predicate `X = 1`. -/
+theorem read_shape : c.rules.map (fun r => (r.req.isNone, r.pre)) =
+    [(true, .equals Srt.int (.var 0) (.dv Srt.int (.int 1)))] := rfl
+private theorem hready : CExec.execReady c = true := by decide +kernel
+private theorem noFns : c.fns = [] := by decide +kernel
+private theorem fnDetH (H : HookParams) : FnDet (c.withHooks H) :=
+  fnDet_of_agree (fun _ h => by rw [show (c.withHooks H).fns = c.fns from rfl, noFns] at h; cases h)
+    (fun _ h => by rw [show (c.withHooks H).fns = c.fns from rfl, noFns] at h; cases h)
+def cfg (e : GroundTerm) : GroundTerm := cfgOf 383 (.inj exp Srt.kitem e)
+def Go1 : Config c := ⟨cfg (.ctor go [.dv Srt.int (.int 1)]), by decide +kernel⟩
+def Go2 : Config c := ⟨cfg (.ctor go [.dv Srt.int (.int 2)]), by decide +kernel⟩
+def Done : Config c := ⟨cfg (.ctor done []), by decide +kernel⟩
+
+kernel_rfl go1_withHooks : ∀ H : HookParams,
+  CExec.successorsN (c.withHooks H) 50 Go1.val = CExec.successorsN c 50 Go1.val
+kernel_rfl go2_withHooks : ∀ H : HookParams,
+  CExec.successorsN (c.withHooks H) 50 Go2.val = CExec.successorsN c 50 Go2.val
+kernel_rfl go2_fuel_withHooks : ∀ H : HookParams,
+  CExec.outOfFuel (c.withHooks H) 50 Go2.val = CExec.outOfFuel c 50 Go2.val
+
+/-- **`lhsAndCut` with a predicate operand, for every interpretation**: `go(1)` steps to `done`
+and `go(2)` has no successor: `go(X) ∧ (X = 1)` is `go(X)` where X is 1 and is empty elsewhere. -/
+theorem lhsAnd_steps (H : HookParams) :
+    Step (c.withHooks H) (cfgH noRaw Go1 H) (cfgH noRaw Done H) ∧ ∀ y, ¬ Step (c.withHooks H) (cfgH noRaw Go2 H) y := by
+  have hr := (CExec.execReady_withHooks c H).trans hready
+  refine ⟨?_, CExec.noStep_at hr (fnDetH H) (n := 50) (x := cfgH noRaw Go2 H)
+    ((go2_fuel_withHooks H).trans (by decide +kernel)) ((go2_withHooks H).trans (by decide +kernel))⟩
+  have hy : Done.val ∈ CExec.successorsN (c.withHooks H) 50 Go1.val := by
+    rw [go1_withHooks]; decide +kernel
+  obtain ⟨_, h⟩ := CExec.successorsN_step_ready hr (x := cfgH noRaw Go1 H) hy
+  exact h
+
+/-- The conjunction read as its term operand alone, `go(X)`: no `pre`. -/
+noncomputable def c1 : Semantics := { c with rules := c.rules.map fun r => { r with pre := .top } }
+theorem noRaw1 : ∀ k ∈ c1.params, k.raw = false := by decide +kernel
+private theorem hok1 : c1.ok = true := by decide +kernel
+private theorem hsr1 : c1.srReady = true := by decide +kernel
+private theorem hmr1 : c1.matchReady = true := by decide +kernel
+def Go21 : Config c1 := ⟨Go2.val, by decide +kernel⟩
+def Done1 : Config c1 := ⟨Done.val, by decide +kernel⟩
+
+/-- **The point is reached**: read so, `go(2)` steps to `done` under every interpretation. -/
+theorem lhsAnd_term_steps (H : HookParams) : Step (c1.withHooks H) (cfgH noRaw1 Go21 H) (cfgH noRaw1 Done1 H) :=
+  step_everyH hok1 hsr1 hmr1 noRaw1 (n := 50) (by decide +kernel) H
+
+end DevLhsAnd
+
+-- `c(X #And d(_, b())) => X` (the construct fixture e3-ml-rule-lhs-and), read as
+-- `c(d(G, b()) #as X) => X`.
+namespace DevLhsAndVar
+
+definition_of defn from "f2-examples/mllhsandv.kompile.kore"
+noncomputable abbrev c : Semantics := defn.sem
+theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
+def a : Sym := 385
+def b : Sym := 386
+def cc : Sym := 387
+def d : Sym := 388
+def exp : Srt := 32
+theorem names_ok : c.symName a = "Lbla" ∧ c.symName b = "Lblb" ∧ c.symName cc = "Lblc" ∧ c.symName d = "Lbld" ∧
+    c.sortName exp = "Exp" := by decide +kernel
+private theorem hok : c.ok = true := by decide +kernel
+private theorem hsr : c.srReady = true := by decide +kernel
+private theorem hmr : c.matchReady = true := by decide +kernel
+def cfg (e : GroundTerm) : GroundTerm := cfgOf 383 (.inj exp Srt.kitem e)
+def CD : Config c := ⟨cfg (.ctor cc [.ctor d [.ctor a [], .ctor b []]]), by decide +kernel⟩
+def CA : Config c := ⟨cfg (.ctor cc [.ctor a []]), by decide +kernel⟩
+def D : Config c := ⟨cfg (.ctor d [.ctor a [], .ctor b []]), by decide +kernel⟩
+
+/-- **`lhsAndCut` with a variable operand, for every interpretation**: `c(d(a, b))` steps to
+`d(a, b)` and `c(a)` has no successor: `X ∧ d(_, b)` is X where X is a `d(_, b)` and is empty
+elsewhere. -/
+theorem lhsAndVar_steps (H : HookParams) :
+    Step (c.withHooks H) (cfgH noRaw CD H) (cfgH noRaw D H) ∧ ∀ y, ¬ Step (c.withHooks H) (cfgH noRaw CA H) y :=
+  ⟨step_everyH hok hsr hmr noRaw (n := 50) (by decide +kernel) H,
+   stuck_everyH hok hsr hmr noRaw (by decide +kernel) (by decide +kernel) (by decide +kernel) (n := 50)
+    (by decide +kernel) H⟩
+
+end DevLhsAndVar
+
+/-! ### `existsDropped`: a right side's binder that binds nothing -/
+
+-- `c(_, _Y) => \exists ?Z:Int. d(_Y)` (the hand-written fixture hw-ex-unused-int), read as
+-- `c(_, Y) => d(Y)`.
+namespace DevExDrop
+
+definition_of defn from "test/constructs/fixtures/hw-ex-unused-int/hw-ex-unused-int.kore"
+noncomputable abbrev c : Semantics := defn.sem
+theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
+def cc : Sym := 391
+def d : Sym := 392
+def exp : Srt := 34
+theorem names_ok : c.symName cc = "Lblc" ∧ c.symName d = "Lbld" ∧ c.symName 385 = "Lbl'-LT-'k'-GT-'" ∧
+    c.symName 387 = "Lbl'-LT-'n'-GT-'" ∧ c.sortName exp = "Exp" := by decide +kernel
+/-- No rule has an existential variable: the binder is not one. -/
+theorem read_shape : c.rules.map (·.exs) = [[], [], []] := by decide +kernel
+private theorem hok : c.ok = true := by decide +kernel
+private theorem hsr : c.srReady = true := by decide +kernel
+private theorem hmr : c.matchReady = true := by decide +kernel
+/-- The configuration with `e` of sort Exp in the k cell, the n cell at 0 and the counter at 0. -/
+def cfg (e : GroundTerm) : GroundTerm :=
+  .ctor topLabel [.ctor 385 [.ctor kseq [.inj exp Srt.kitem e, .ctor dotk []]], .ctor 387 [.dv Srt.int (.int 0)],
+    .ctor counterLabel [.dv Srt.int (.int 0)]]
+def C12 : Config c := ⟨cfg (.ctor cc [.dv Srt.int (.int 1), .dv Srt.int (.int 2)]), by decide +kernel⟩
+def D2 : Config c := ⟨cfg (.ctor d [.dv Srt.int (.int 2)]), by decide +kernel⟩
+def D7 : Config c := ⟨cfg (.ctor d [.dv Srt.int (.int 7)]), by decide +kernel⟩
+
+/-- **`existsDropped`, for every interpretation**: `c(1, 2)` steps to `d(2)`, with no value asked
+of the binder's sort. -/
+theorem drop_steps (H : HookParams) : Step (c.withHooks H) (cfgH noRaw C12 H) (cfgH noRaw D2 H) :=
+  step_everyH hok hsr hmr noRaw (n := 50) (by decide +kernel) H
+
+/-- Every successor of `c(1, 2)` is `d(2)`, under every interpretation. -/
+theorem drop_only (H : HookParams) : ∀ y, Step (c.withHooks H) (cfgH noRaw C12 H) y → y.val = D2.val := by
+  intro y hy
+  have h := TieRulePair.listed_sound hok hsr hmr H
+    (Det.coherentAll_of_nil ((Semantics.ok_withHooks c H).trans hok) ((Semantics.srReady_withHooks c H).trans hsr)
+      ((Semantics.matchReady_withHooks c H).trans hmr) ((Semantics.clausesFixed_withHooks c H).trans (by decide +kernel))
+      ((Semantics.agreeObligations_withHooks c H).trans (by decide +kernel)))
+    (x := C12) (ys := [D2.val]) (n := 50) (by decide +kernel) (by decide +kernel) noRaw y hy
+  exact List.mem_singleton.mp h
+
+end DevExDrop
+
+/-! ### `existsRenamedApart`: a right side's binder of a name the left side holds -/
+
+-- `c(_, _Y) => \exists _Y:Int. d(_Y)` (the hand-written fixture hw-ex-shadow), read as
+-- `c(_, Y) => d(?Y')`, the binder's variable an existential variable of the rule.
+namespace DevExApart
+
+definition_of defn from "test/constructs/fixtures/hw-ex-shadow/hw-ex-shadow.kore"
+noncomputable abbrev c : Semantics := defn.sem
+theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
+def cc : Sym := 391
+def d : Sym := 392
+def exp : Srt := 34
+theorem names_ok : c.symName cc = "Lblc" ∧ c.symName d = "Lbld" ∧ c.symName 385 = "Lbl'-LT-'k'-GT-'" ∧
+    c.symName 387 = "Lbl'-LT-'n'-GT-'" ∧ c.sortName exp = "Exp" := by decide +kernel
+
+noncomputable def r2 : Rule := c.rules[2]'(by decide +kernel)
+theorem r2_mem : r2 ∈ c.rules := List.getElem_mem _
+theorem prios : ∀ r ∈ c.rules, r.prio = 50 := by decide +kernel
+theorem r2_lhs : r2.lhs = .app topLabel [.app 385 [.app kseq [.inj exp Srt.kitem (.app cc [.var 0, .var 1]), .var 2]],
+    .var 3, .var 4] := rfl
+theorem r2_rhs : r2.rhs = .app topLabel [.app 385 [.app kseq [.inj exp Srt.kitem (.app d [.var 5]), .var 2]],
+    .var 3, .var 4] := rfl
+/-- The rule as read: the binder's variable, the sixth, is the rule's one existential variable, and
+the right side holds it and not the left side's second variable. -/
+theorem read_shape : r2.vars = [Srt.int, Srt.int, Srt.k, 32, 19, Srt.int] ∧ r2.exs = [5] ∧ r2.req = none ∧
+    r2.ens = none ∧ r2.pre = .top ∧ r2.post = .top := ⟨by decide +kernel, rfl, rfl, rfl, rfl, rfl⟩
+theorem syms_ok : c.isCtor topLabel = true ∧ c.isCtor 385 = true ∧ c.isCtor kseq = true ∧
+    c.isCtor cc = true ∧ c.isCtor d = true := by decide +kernel
+theorem symsH (H : HookParams) : (c.withHooks H).isCtor topLabel = true ∧ (c.withHooks H).isCtor 385 = true ∧
+    (c.withHooks H).isCtor kseq = true ∧ (c.withHooks H).isCtor cc = true ∧ (c.withHooks H).isCtor d = true :=
+  syms_ok
+
+def int (n : Int) : GroundTerm := .dv Srt.int (.int n)
+def nCell : GroundTerm := .ctor 387 [int 0]
+def ctr : GroundTerm := .ctor counterLabel [int 0]
+/-- The configuration with `e` of sort Exp in the k cell, the n cell at 0 and the counter at 0. -/
+def cfg (e : GroundTerm) : GroundTerm :=
+  .ctor topLabel [.ctor 385 [.ctor kseq [.inj exp Srt.kitem e, .ctor dotk []]], nCell, ctr]
+def C12 : Config c := ⟨cfg (.ctor cc [int 1, int 2]), by decide +kernel⟩
+def D2 : Config c := ⟨cfg (.ctor d [int 2]), by decide +kernel⟩
+def D7 : Config c := ⟨cfg (.ctor d [int 7]), by decide +kernel⟩
+def σ (z : Int) : Subst := [(0, int 1), (1, int 2), (2, .ctor dotk []), (3, nCell), (4, ctr), (5, int z)]
+
+/-- `c(1, 2)` steps to `d(z)` under H where the binder's variable has the value z, a configuration. -/
+theorem step_at (H : HookParams) (z : Int) (y : Config c) (hy : y.val = cfg (.ctor d [int z]))
+    (hz : Exec.wellSorted c r2.vars (σ z) = true) : Step (c.withHooks H) (cfgH noRaw C12 H) (cfgH noRaw y H) := by
+  refine .rule r2 r2_mem (σ z) ?_ ?_ (fun t ht => by rw [read_shape.2.2.1] at ht; cases ht)
+    (by rw [read_shape.2.2.2.2.1]; exact .top) ?_
+    (fun t ht => by rw [read_shape.2.2.2.1] at ht; cases ht) (by rw [read_shape.2.2.2.2.2]; exact .top)
+    (fun r' hr' hlt => absurd hlt (by rw [prios r' hr', prios r2 r2_mem]; exact Nat.lt_irrefl _))
+  · exact Exec.wellSorted_iff.mp ((congrFun (Cert.wellSorted_withHooks_hr c H noRaw r2.vars) _).trans hz)
+  · rw [r2_lhs]
+    have hi : injNormal exp Srt.kitem (.ctor cc [int 1, int 2]) = .inj exp Srt.kitem (.ctor cc [int 1, int 2]) := rfl
+    exact .ctor (symsH H).1 (.cons (.ctor (symsH H).2.1 (.cons (.ctor (symsH H).2.2.1
+      (.cons (hi ▸ .inj (.ctor (symsH H).2.2.2.1 (.cons (.var rfl) (.cons (.var rfl) .nil)))) (.cons (.var rfl) .nil)))
+      .nil)) (.cons (.var rfl) (.cons (.var rfl) .nil)))
+  · rw [r2_rhs]
+    show EvalTerm (c.withHooks H) (σ z) _ (some y.val)
+    rw [hy]
+    have he : EvalTerm (c.withHooks H) (σ z) (.inj exp Srt.kitem (.app d [.var 5]))
+        (some (.inj exp Srt.kitem (.ctor d [int z]))) := .inj (.ctor (symsH H).2.2.2.2 (.cons .var .nil))
+    exact .ctor (symsH H).1 (.cons (.ctor (symsH H).2.1 (.cons (.ctor (symsH H).2.2.1
+      (.cons he (.cons .var .nil))) .nil)) (.cons .var (.cons .var .nil)))
+
+/-- **`existsRenamedApart`, for every interpretation**: `c(1, 2)` steps to `d(7)` and to `d(2)`:
+the binder's variable is not the left side's `_Y`, whose value is 2, and takes every value of Int. -/
+theorem apart_steps (H : HookParams) :
+    Step (c.withHooks H) (cfgH noRaw C12 H) (cfgH noRaw D7 H) ∧ Step (c.withHooks H) (cfgH noRaw C12 H) (cfgH noRaw D2 H) :=
+  ⟨step_at H 7 D7 rfl (by decide +kernel), step_at H 2 D2 rfl (by decide +kernel)⟩
+
+/-- **The point is reached**: with the binder's variable read as the left side's `_Y`, the rule is
+`c(_, Y) => d(Y)`, the rule of `DevExDrop`'s text, where `d(7)` is no successor of `c(1, 2)` under
+any interpretation. -/
+theorem captured_not_seven (H : HookParams) :
+    ¬ Step (DevExDrop.c.withHooks H) (cfgH DevExDrop.noRaw DevExDrop.C12 H) (cfgH DevExDrop.noRaw DevExDrop.D7 H) :=
+  fun h => absurd (DevExDrop.drop_only H _ h) (show DevExDrop.D7.val ≠ DevExDrop.D2.val by decide +kernel)
+
+end DevExApart
+
+/-! ### `identityAlias`: a right side under an alias the text defines as the identity -/
+
+-- `a => b` of a module carrying all-path, its right side `weakAlwaysFinally{C}(\and(b, \top))`
+-- (the hand-written fixture hw-allpath-alias).
+namespace DevAlias
+
+definition_of defn from "test/constructs/fixtures/hw-allpath-alias/hw-allpath-alias.kore"
+noncomputable abbrev c : Semantics := defn.sem
+theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
+def a : Sym := 385
+def b : Sym := 386
+def exp : Srt := 32
+theorem names_ok : c.symName a = "Lbla" ∧ c.symName b = "Lblb" ∧ c.sortName exp = "Exp" := by decide +kernel
+private theorem hok : c.ok = true := by decide +kernel
+private theorem hsr : c.srReady = true := by decide +kernel
+private theorem hmr : c.matchReady = true := by decide +kernel
+def cfg (e : GroundTerm) : GroundTerm := cfgOf 383 (.inj exp Srt.kitem e)
+def A : Config c := ⟨cfg (.ctor a []), by decide +kernel⟩
+def B : Config c := ⟨cfg (.ctor b []), by decide +kernel⟩
+
+/-- **`identityAlias`, for every interpretation**: `a` steps to `b`, the alias's argument, and `b`
+has no successor. -/
+theorem alias_steps (H : HookParams) :
+    Step (c.withHooks H) (cfgH noRaw A H) (cfgH noRaw B H) ∧ ∀ y, ¬ Step (c.withHooks H) (cfgH noRaw B H) y :=
+  ⟨step_everyH hok hsr hmr noRaw (n := 50) (by decide +kernel) H,
+   stuck_everyH hok hsr hmr noRaw (by decide +kernel) (by decide +kernel) (by decide +kernel) (n := 50)
+    (by decide +kernel) H⟩
+
+end DevAlias
 
 /-! ### `predicateAtBool`: a predicate at sort Bool is never `true` -/
 
@@ -2047,6 +2776,24 @@ end KCore.Guards
 #print axioms KCore.Guards.DevTop.top_unread_stuck
 #print axioms KCore.Guards.DevEx.ex_steps
 #print axioms KCore.Guards.DevEx.ex_unread_stuck
+#print axioms KCore.Guards.ruleRightDefined_weaker_all
+#print axioms KCore.Guards.ruleRightDefined_everyH
+#print axioms KCore.Guards.textRuleKAll_top
+#print axioms KCore.Guards.DevAndWeak.andWeak_steps
+#print axioms KCore.Guards.DevAndWeak.andWeak_first_steps
+#print axioms KCore.Guards.DevAndCut.andCut_steps
+#print axioms KCore.Guards.DevAndCut.andCut_first_steps
+#print axioms KCore.Guards.DevConnNot.not_steps
+#print axioms KCore.Guards.DevConnNot.not_dropped_steps
+#print axioms KCore.Guards.DevConnOr.or_steps
+#print axioms KCore.Guards.DevLhsAnd.lhsAnd_steps
+#print axioms KCore.Guards.DevLhsAnd.lhsAnd_term_steps
+#print axioms KCore.Guards.DevLhsAndVar.lhsAndVar_steps
+#print axioms KCore.Guards.DevExDrop.drop_steps
+#print axioms KCore.Guards.DevExDrop.drop_only
+#print axioms KCore.Guards.DevExApart.apart_steps
+#print axioms KCore.Guards.DevExApart.captured_not_seven
+#print axioms KCore.Guards.DevAlias.alias_steps
 #print axioms KCore.Guards.DevCeil.ceil_steps
 #print axioms KCore.Guards.DevCeil.ceil_defined_steps
 #print axioms KCore.Guards.DevAndBool.and_steps
@@ -2143,12 +2890,13 @@ def readingNote : ReadingNote → GuardEntry
       guard := [.test "test/StreamIO.lean" "#guard_msgs"],
       note := "the sentence is a rule of the definition read as written, its hooks parameter symbols (REVIEW-RN RN7): no value-level claim" }
   | .ruleRightDefined =>
-    { status := .pending "GUARD.final",
-      guard := [.decl ``KCore.Guards.ruleRightDefined_weaker],
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.ruleRightDefined_everyH, .decl ``KCore.Guards.ruleRightDefined_weaker_all,
+        .decl ``KCore.Guards.ruleRightDefined_weaker, .test "test/NoteOrVar.lean" "rule_from_text"],
       companion := [.decl ``KCore.Faithful.UndefRhsWitness.not_model_text,
         .decl ``KCore.Faithful.UndefRhsWitness.gamma_of_text],
-      invariant := [``KCore.Faithful.prioRuleK],
-      note := "G8 names no H and covers only rules with exs = [] and pre and post top; owed: a statement about c.withHooks H for every H, and the rules with existential variables, pre or post once R3.flip lands; the companion is a semantics whose text reading has no model while Γ's does" }
+      invariant := [``KCore.Faithful.prioRuleK, ``KCore.Faithful.ruleRight],
+      note := "for every semantics, every H and every rule, with existential variables, a pre and a post or without: the rule's axiom without the premise ⌈right⌉ (textRuleKAll: prioRuleK without that conjunct, the competitors' negation in both), with the definedness axioms, entails the axiom Γ (c.withHooks H) reads (ruleRightDefined_everyH); the axiom reads no hook, and the premise only narrows; on a rule with no existential variable and ⊤ predicates textRuleKAll is G8's text axiom (textRuleKAll_top); that the text's sentence is that axiom is per text: on e3-ml-rule-lhs-or's, each read rule's item follows from the text's sentence 104 with the signature and the domains, for every H (test/NoteOrVar.lean); the companion is a semantics whose text reading has no model while Γ's does" }
   | .projectionDomainAsClause =>
     { status := .guarded,
       guard := [.decl ``KCore.Guards.ProjK.projInt_none_off, .decl ``KCore.Guards.ProjK.projInt_off_gamma,
@@ -2181,14 +2929,20 @@ def readingNote : ReadingNote → GuardEntry
       invariant := [``KCore.Eval.ensFails, ``KCore.Semantics.fnRest, ``KCore.Cert.evalFC_withHooks],
       note := "on e3-ml-eq-rhs-and-pred's text (f(X) = X ∧ ⌈X >Int 0 = true⌉), every H: f(1) = 1, f(0) has no value and Γ entails f(0) = ⊥; the companion is the predicate read as a requires, where f(0) is a point every clause fails at, 7 under H7" }
   | .andTermsWeaker =>
-    { status := .pending "GUARD.final",
-      guard := [.test "test/Connectives.lean" "andTermsWeaker"],
-      note := "a CE reader device (CE.note-rule-and-weaker); reader tests at the parsed semantics only; the entailment of the read rule by the text's sentence (its docstring) is stated by no theorem, no statement over c.withHooks H, no companion" }
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.DevAndWeak.andWeak_steps, .test "test/Connectives.lean" "andTermsWeaker",
+        .test "test/RuleAndSame.lean" "step_and_same"],
+      companion := [.decl ``KCore.Guards.DevAndWeak.andWeak_first_steps],
+      invariant := [``KCore.Cert.checkStep_withHooks, ``KCore.Cert.stuckCheck_sound],
+      note := "on e3-ml-rule-rhs-and-fn's text (go(X) => f(f(X) ∧ g(X)), f the identity and g the negation, read as go(X) => f(f(X)) with the ensures f(X) ==Int g(X)), every H: go(0) steps to 0, where f(0) and g(0) are one Int, and go(1) has no successor, where f(1) ∧ g(1) is empty; the companion is the right side read as its first conjunct alone, no ensures, where go(1) steps to 1 under every H (no parameter is at the point); that the reading with the ensures and the reading through the cut have the same steps is test/RuleAndSame.lean's, at the parsed semantics of two texts; the entailment of the read rule's sentence by the text's (the note's docstring) is stated by no theorem" }
   | .andTermsCut =>
-    { status := .pending "GUARD.final",
-      guard := [.test "test/PredFixtures.lean" "parsed", .test "test/Connectives.lean" "andTermsCut",
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.DevAndCut.andCut_steps, .test "test/PredFixtures.lean" "parsed",
+        .test "test/Connectives.lean" "andTermsCut", .test "test/RuleAndIn.lean" "rule_and_var",
         .decl ``KoreAML.rule_and_in, .decl ``KoreAML.rule_and_var],
-      note := "a rule's right side's conjunction of terms read through the cut where the test at reading time holds (Parse.andCutOK); the steps at the parsed semantics are test/PredFixtures.lean's (RhsAnd), the read right side is the text's under the cut's premises (KoreAML.rule_and_in, rule_and_var); no statement over c.withHooks H, no companion" }
+      companion := [.decl ``KCore.Guards.DevAndCut.andCut_first_steps],
+      invariant := [``KCore.CExec.successorsN_step_ready, ``KCore.CExec.noStep_at, ``KCore.CExec.execReady_withHooks],
+      note := "on e3-ml-rule-rhs-and-ctor's text (c(X) => X ∧ a(), read as c(X) => X with post X ∈ a()), every H: c(a) steps to a and c(b) has no successor; the companion is the right side read as its first conjunct alone, no post, where c(b) steps to b under every H (no function is at the point); the read right side is the text's under the cut's premises, in every interpretation (KoreAML.rule_and_var at this text, rule_and_in at e3-ml-rule-rhs-and-term's: test/RuleAndIn.lean); the form with a fresh existential variable (no conjunct a variable, e3-ml-rule-rhs-and-term) has its steps at the parsed semantics only (test/PredFixtures.lean, RhsAnd)" }
   | .bottomAsEnsures =>
     { status := .guarded,
       guard := [.decl ``KCore.Guards.DevBot.bot_values, .test "test/Connectives.lean" "bottomAsEnsures"],
@@ -2259,19 +3013,24 @@ def readingNote : ReadingNote → GuardEntry
       companion := [.decl ``KCore.owise_diag_svin],
       note := "both are stated on translated sentences, not over c.withHooks H; no GUARD ticket names this constructor" }
   | .identityAlias =>
-    { status := .pending "GUARD.final",
-      guard := [.test "test/AliasRhs.lean" "Semantics equal: true"],
-      note := "reader tests only: the alias sentence decided the identity on the sentence (aliasIsIdentity), and hw-allpath-alias's Semantics equal to that of its text with the alias removed; no statement over c.withHooks H, no companion; no GUARD ticket names this constructor (added by FIX-core.allpath-alias-read)" }
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.DevAlias.alias_steps, .test "test/AliasRhs.lean" "Semantics equal: true"],
+      invariant := [``KCore.Cert.checkStep_withHooks, ``KCore.Cert.stuckCheck_sound, ``KCore.Parse.aliasIsIdentity],
+      note := "on hw-allpath-alias's text (a => b of a module carrying all-path, the right side weakAlwaysFinally{C}(b ∧ ⊤)), every H: a steps to b and b has no successor; the Semantics read is that of the text with the alias removed (test/AliasRhs.lean); no companion, because no rival reading exists: the text's own alias sentence defines the alias as its argument, the reading is made only where that sentence is the identity (aliasIsIdentity, decided on the sentence), and an alias application denotes the alias's body, so the axiom with the argument in the alias's place is the text's axiom; an alias with another body or arity is refused (aliasApplication)" }
 
   | .existsRenamedApart =>
-    { status := .pending "GUARD.final",
-      guard := [.test "test/ExReader.lean" "exApart_shadow"],
-      note := "reader tests only (test/ExReader.lean, site a: the rule read is the rule of the text with the binder spelled with another name; exApart in the kernel); that the axiom and its α-variant denote the same is argued (C3-existentialRhs-decision L1) and stated by no theorem, as for the left side's lhsBind; no statement over c.withHooks H, no companion; no GUARD ticket names this constructor (added by C3.reader-exists-binders)" }
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.DevExApart.apart_steps, .test "test/ExReader.lean" "exApart_shadow"],
+      companion := [.decl ``KCore.Guards.DevExApart.captured_not_seven, .decl ``KCore.Guards.DevExDrop.drop_only],
+      invariant := [``KCore.Step, ``KCore.Cert.wellSorted_withHooks_hr, ``KCore.TieRulePair.listed_sound],
+      note := "on hw-ex-shadow's text (e3-vars' with the binder and its occurrence spelled as the left side's second variable: c(_, _Y) => ∃_Y:Int. d(_Y), read as c(_, Y) => d(?Y'), the binder's variable the rule's existential variable), every H: c(1, 2) steps to d(7) and to d(2), the binder's variable taking a value that is not the left side's; the companion is the binder's variable read as the left side's, which gives the rule c(_, Y) => d(Y), the rule hw-ex-unused-int's text is read as (that the two texts' other rules are the same is stated by no theorem), where every successor of c(1, 2) is d(2) and d(7) is none, under every H; the renaming on the sentence is test/ExReader.lean's (exApart_shadow); that the axiom and its α-variant denote the same is the scoping of a binder (the note's docstring), stated by no theorem" }
   | .existsDropped =>
-    { status := .pending "GUARD.final",
-      guard := [.decl ``KCore.Guards.existsDropped_weaker, .decl ``KCore.Guards.existsDropped_empty,
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.DevExDrop.drop_steps, .decl ``KCore.Guards.DevExDrop.drop_only,
+        .decl ``KCore.Guards.existsDropped_weaker, .decl ``KCore.Guards.existsDropped_empty,
         .test "test/ExReader.lean" "exKept_drop"],
-      note := "G9 is stated on translated sentences, not over c.withHooks H, with no premise on the binder's sort and five premises on the numbering of the two sentences' variables, decided by computation at the instance (a sort without a constructor); no companion (the read sentence is the weaker: nothing is refuted); no GUARD ticket names this constructor (added by C3.reader-exists-binders)" }
+      invariant := [``KCore.Cert.checkStep_withHooks, ``KCore.TieRulePair.listed_sound],
+      note := "on hw-ex-unused-int's text (c(_, _Y) => ∃?Z:Int. d(_Y), the binder binding nothing, read as c(_, Y) => d(Y) with no existential variable), every H: c(1, 2) steps to d(2) and has no other successor; G9: the text's rewrite axiom with the definedness axioms entails the one without the binder in every interpretation, with no premise on the binder's sort (existsDropped_weaker, on translated sentences under five premises on the numbering of their variables, decided at the instance existsDropped_empty, a sort without a constructor); no companion, because no rival reading is refuted: a reading keeping the binder as an existential variable of the rule asks a value of the binder's sort for a step, the same step where the sort has a value; where it has none the text's right side is empty and its sentence states that the left side has no instance, of which the read sentence is a consequence (G9), so the read sentence is the weaker" }
   | .overloadFunction =>
     { status := .pending "GUARD.final",
       guard := [.decl ``KCore.Faithful.funUncItem_of_funItem, .decl ``KCore.Faithful.injUncItem_of_injItem,
@@ -2302,17 +3061,28 @@ def readingNote : ReadingNote → GuardEntry
       guard := [.test "test/CondCut.lean" "andUnderAppCut", .test "test/CondCut.lean" "ReqAndApp"],
       note := "a conjunction of single-valued terms under an application of a condition read as its first conjunct with the memberships of the others (Parse.condAndCutT through Parse.condCuts); on e3-ml-req-and-under-app's text (go(X, Y) => done requires f(X #And Y) ==Int 0, f(X) => X -Int 1) at the parsed semantics: go(1, 1) steps to done and go(1, 2), go(2, 2), go(0, 0) have no successor (test/CondCut.lean ReqAndApp); no statement over c.withHooks H, no companion" }
   | .connectiveCut =>
-    { status := .pending "GUARD.final",
-      guard := [.test "test/PredFixtures.lean" "step_iff", .test "test/PredFixtures.lean" "step_inv",
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.DevConnNot.not_steps, .decl ``KCore.Guards.DevConnOr.or_steps,
+        .test "test/PredFixtures.lean" "step_iff", .test "test/PredFixtures.lean" "step_inv",
         .test "test/PredReader.lean" "cut_right", .test "test/PredReader.lean" "cut_left",
-        .decl ``KoreAML.cut_sorted, .decl ``KoreAML.MemOf.or, .decl ``KoreAML.MemOf.not],
-      note := "a connective at a term position of a rule's side read through the cut (Parse.connRuleBody): on the right side an existential variable with its membership in post, on the left side a variable with its membership in pre; the steps at the parsed semantics are test/PredFixtures.lean's (LhsNot, RhsOr), the cut of a pattern under applications is KoreAML.cut_sorted and the membership through the connectives KoreAML.MemOf; no statement over c.withHooks H, no companion" }
+        .test "test/TieRuleConn.lean" "TieRuleConn.RhsOr.tie", .test "test/TieRuleConn.lean" "TieRuleConn.LhsNot.at_rule",
+        .test "test/TieRuleConn.lean" "TieRuleConn.LhsNotOther.at_rule",
+        .decl ``KoreAML.rule_cut_mem, .decl ``KoreAML.cut_sorted, .decl ``KoreAML.MemOf.or, .decl ``KoreAML.MemOf.not],
+      companion := [.decl ``KCore.Guards.DevConnNot.not_dropped_steps],
+      invariant := [``KCore.Step, ``KCore.Holds, ``KCore.Cert.wellSorted_withHooks_hr],
+      note := "on a left side, e3-ml-rule-lhs-not-other's text (c(¬a()) => b(), read as c(Z) => b with pre ¬(Z ∈ a())), every H: c(b) steps to b and c(a) has no successor; on a right side, e3-ml-rule-rhs-or's text (go => a() ∨ b(), read as go => ?Z with post Z ∈ a() ∨ Z ∈ b()), every H: go steps to a and to b; each from Step's rule and Holds on the read rule, which applies no function; the companion is the left side's connective not read, the position a variable of the rule and no pre, where c(a) steps to b under every H; the right side has no companion here, and that go has no other successor is at the parsed semantics (test/PredFixtures.lean, RhsOr.step_inv), as are the steps of e3-ml-rule-lhs-not's text; the read side is the text's under the cut's premises, in every interpretation (KoreAML.rule_cut_mem at the three fixtures, test/TieRuleConn.lean)" }
   | .lhsAndCut =>
-    { status := .pending "GUARD.final",
-      guard := [.test "test/PredFixtures.lean" "LhsAnd.Ceil.step", .test "test/PredFixtures.lean" "LhsAnd.Eq.step_iff",
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.DevLhsAnd.lhsAnd_steps, .decl ``KCore.Guards.DevLhsAndVar.lhsAndVar_steps,
+        .test "test/PredFixtures.lean" "LhsAnd.Ceil.step", .test "test/PredFixtures.lean" "LhsAnd.Eq.step_iff",
         .test "test/PredFixtures.lean" "LhsAnd.Var.step", .test "test/PredFixtures.lean" "LhsAnd.Var.stuck_a",
-        .test "test/PredReader.lean" "lhsAnd_pred", .test "test/PredReader.lean" "lhsAnd_var", .test "test/PredReader.lean" "lhsAnd_terms"],
-      note := "a conjunction at a term position of a rule's left side read through the cut (Parse.lhsAndRuleBody): a predicate operand a conjunct of pre, a variable operand binding the other (#as), two terms the first bound as a fresh variable whose value matches the second (exMatch, its own variables bound by the match) in pre; the steps at the parsed semantics are test/PredFixtures.lean's (LhsAnd), the cut of a left side test/PredReader.lean's; no statement over c.withHooks H, no companion" }
+        .test "test/PredReader.lean" "lhsAnd_pred", .test "test/PredReader.lean" "lhsAnd_var", .test "test/PredReader.lean" "lhsAnd_terms",
+        .test "test/TieRuleLhsAnd.lean" "TieRuleLhsAnd.Equals.tie", .test "test/TieRuleLhsAnd.lean" "TieRuleLhsAnd.Var.tie",
+        .decl ``KoreAML.rule_and_pred, .decl ``KoreAML.rule_and_as],
+      companion := [.decl ``KCore.Guards.DevLhsAnd.lhsAnd_term_steps],
+      invariant := [``KCore.CExec.successorsN_step_ready, ``KCore.CExec.noStep_at, ``KCore.CExec.execReady_withHooks,
+        ``KCore.Cert.checkStep_withHooks, ``KCore.Cert.stuckCheck_sound],
+      note := "a predicate operand, on e3-ml-rule-lhs-equals' text (go(X) ∧ (X = 1) => done, read as go(X) => done with pre X = 1), every H: go(1) steps to done and go(2) has no successor; the companion is the conjunction read as its term operand alone, no pre, where go(2) steps to done under every H (no function is at the point); a variable operand, on e3-ml-rule-lhs-and's text (c(X ∧ d(_, b())) => X, read as c(d(G, b()) #as X) => X), every H: c(d(a, b)) steps to d(a, b) and c(a) has no successor, with no companion here; the read left side is the text's in every interpretation (KoreAML.rule_and_pred, rule_and_as at the fixtures, test/TieRuleLhsAnd.lean); two term operands (exMatch in pre) and a ⌈ ⌉ operand have their steps at the parsed semantics only (test/PredFixtures.lean, LhsAnd)" }
 
 def inertReason : InertReason → GuardEntry
   | .import =>
