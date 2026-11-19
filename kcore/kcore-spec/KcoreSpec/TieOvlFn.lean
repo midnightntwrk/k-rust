@@ -26,9 +26,19 @@
   What is asked of the interpretation beside the sentences (`TieOvlFnBase`, `TieOvlFnArity`):
   definedness, the definition of ceiling, the sort constant of N denoting one sort, some sort with
   an inhabitant (the sentence is closed over a sort variable R and says nothing where every sort is
-  empty), and the arity of the generator. The first three and the arity are stated by the text's
-  declarations or its encoding; that some sort has an inhabitant is an assumption on the
-  interpretation that no sentence states. None is one of Γ's constructor items.
+  empty), and the arity of the generator. None is one of Γ's constructor items; a model of Γ meets
+  all of them. The first three are items of Γ's signature (`tieOvlFnBase_of_Γ_dotk`). Γ states no
+  sort's nonemptiness, but the sort K has the value `.K` (a constructor of K with no arguments in
+  every semantics), whose element Γ's domains put in K (`tieOvlFnInh_of_Γ`). The arity is the
+  generator's G-arity item, which Γ holds for every symbol of `kernelSyms`, the overloading
+  symbols among them (`tieOvlFnArity_of_Γ`, decided by `tieOvlFnArityB`). Outside the models of Γ
+  neither is implied by the sentences: where every sort is empty the `functional` sentence holds
+  and Cons-Fun fails at a nullary generator, and an application holding one element of N and one
+  outside it satisfies the `functional` sentence, whose equality compares within N only.
+
+  Conversely Cons-Fun, Cons-Inj and Cons-Dist give the sentences (`tieOvlFnFun_sent_of`,
+  `tieOvlFnInj_sent_of`, `tieOvlFnDist_sent_of`), so the hypotheses of the weaker lemmas are met
+  together wherever the generators are free constructors.
 
   `tieOvlFnFunB`, `tieOvlFnInjB`, `tieOvlFnDistB` decide on a text that an axiom is such a
   sentence of a function-overloaded generator, in the form the lemmas read, and that the matching
@@ -439,7 +449,7 @@ theorem tieOvlFnDist_at (hD : KoreAML.DefOK I) {N : String} {g g' : KoreAML.Gen}
 /-- The part of the encoding the sentences of the sort named `N` are read under: definedness, the
 definition of ceiling, the sort constant of `N` denoting one sort, and some sort with an inhabitant
 (a `functional` sentence is closed over a sort variable, and says nothing where every sort is
-empty). A model of Γ meets the first three (`tieOvlFnBase_of_Γ`). -/
+empty). A model of Γ meets all four (`tieOvlFnBase_of_Γ_dotk`). -/
 structure TieOvlFnBase (I : Interpretation KoreAML.Sym M) (N : String) : Prop where
   defOK : KoreAML.DefOK I
   ceil : I ⊧ᴵ KoreAML.ceilDefItem.pat
@@ -457,6 +467,136 @@ theorem tieOvlFnBase_of_Γ {c : Semantics} [OvlOK c] (hI : I ⊧ᴵP Γ c) {N : 
     (hN : N < nRegSorts + c.sortNames.length) (hinh : ∃ σ x, KoreAML.IsSort I σ ∧ KoreAML.Inh I σ x) :
     TieOvlFnBase I (c.sortName N) :=
   ⟨defOK hI, sat_sigItem hI (sig_ceilDef (c := c)), sortSing hI hN, hinh⟩
+
+/-- A numbered sort's constant denotes one sort in a model of Γ (G-sort, an item of `sigItems`). -/
+theorem tieOvlFn_sortSing {c : Semantics} (hI : I ⊧ᴵP Γ c) {s : Srt} (hs : s < nRegSorts + c.sortNames.length) :
+    ∃ σ, (∀ a, I.evalSymb (.sort ("Sort" ++ c.sortName s)) a ↔ a = σ) ∧ KoreAML.IsSort I σ :=
+  KoreAML.sortConst_of (defOK hI) (sat_sigItem hI (sig_sortConst hs))
+
+/-- `.K` is a value of K in every semantics: `dotk`, with no arguments and the result K, is the
+second of the fixed constructors that head `ctorSigs`. -/
+theorem tieOvlFn_dotk_sortOf (c : Semantics) : c.sortOf (.ctor dotk []) = some Srt.k := by
+  unfold Semantics.sortOf
+  rw [lookupSig_eq]
+  rfl
+
+/-- **Some sort is inhabited in every model of Γ.** Γ states no sort's nonemptiness (`sigItems`
+holds no G-nonempty item); the sort K is inhabited because it has a value: `ΓDomains` states that
+the value `.K` denotes one element of K (`den_single`). -/
+theorem tieOvlFnInh_of_Γ {c : Semantics} (hI : I ⊧ᴵP Γ c) :
+    ∃ σ x, KoreAML.IsSort I σ ∧ KoreAML.Inh I σ x := by
+  obtain ⟨σ, hσ1, hσ2⟩ := tieOvlFn_sortSing hI (s := Srt.k)
+    (Nat.lt_of_lt_of_le (by decide) (Nat.le_add_right _ _))
+  obtain ⟨a, -, ha⟩ := den_single hI (tieOvlFn_dotk_sortOf c) KoreAML.val0
+  exact ⟨σ, a, hσ2, (KoreAML.interp_inhOf_of (S := KoreAML.Cons.sortP (c.sortName Srt.k)) (fun b => hσ1 b)).mp ha⟩
+
+/-- **A model of Γ meets `TieOvlFnBase`** at every numbered sort, with no assumption on the
+interpretation: some sort is inhabited by `tieOvlFnInh_of_Γ`. -/
+theorem tieOvlFnBase_of_Γ_dotk {c : Semantics} (hI : I ⊧ᴵP Γ c) {N : Srt}
+    (hN : N < nRegSorts + c.sortNames.length) : TieOvlFnBase I (c.sortName N) :=
+  ⟨defOK hI, sat_sigItem hI (sig_ceilDef (c := c)), tieOvlFn_sortSing hI hN, tieOvlFnInh_of_Γ hI⟩
+
+/-- **G-arity gives the arity of a generator**: Γ holds `symArityItem c k` for every symbol of
+`kernelSyms c` (`sig_arity`; the overloading symbols are among them, `c.ovlSigs`), and where the
+symbol's name is no instance (`symApp` writes it at its name) the item says that the symbol applied
+to elements of its argument sorts holds elements of its result sort only. -/
+theorem tieOvlFnArity_of_Γ {c : Semantics} (hI : I ⊧ᴵP Γ c) {k : CtorSig} (hkm : k ∈ kernelSyms c)
+    (hit0 : instDecode? (c.symName k.name) = none) :
+    TieOvlFnArity I (c.sortName k.result) (Gen.toK c (.ctor k)) := by
+  intro bs hbl hbs m hm
+  have hD := defOK hI
+  have hit := sat_sigItem hI (sig_arity (c := c) (k := k) hkm)
+  rw [symArityItem_plain_irs (fun _ => symApp_noInst hit0)] at hit
+  have hinc := (KoreAML.interp_included hD).mp (hit KoreAML.val0 default) m
+  apply hinc
+  obtain ⟨a, ha, hm⟩ := hm
+  rw [interp_appList]
+  refine ⟨a, ha, bs, ?_, hm⟩
+  clear ha hm hinc hit
+  have : ∀ (ss : List Srt) (bs : List M), bs.length = (ss.map c.sortName).length →
+      (∀ (i : Nat) x s, bs[i]? = some x → (ss.map c.sortName)[i]? = some s → InS I s x) →
+      All2 (fun φ b => φ.interpret I KoreAML.val0 b)
+        (ss.map fun s => KoreAML.inhOf (sortP (c.sortName s))) bs := by
+    intro ss
+    induction ss with
+    | nil => intro bs hl _; cases bs with
+      | nil => exact .nil
+      | cons _ _ => simp at hl
+    | cons s ss ih =>
+      intro bs hl hb
+      cases bs with
+      | nil => simp at hl
+      | cons b bs =>
+        refine .cons ?_ (ih bs (by simpa using hl) (fun i x s' h1 h2 => hb (i + 1) x s' (by simpa using h1) (by simpa using h2)))
+        exact hb 0 b (c.sortName s) rfl rfl
+  exact this k.args bs hbl hbs
+
+/-! ## The items give the sentences -/
+
+/-- **Cons-Fun gives the `functional` sentence**, in every interpretation with `TieOvlFnBase`: the
+converse of `tieOvlFnFun_funItem`, which needs the arity besides. -/
+theorem tieOvlFnFun_sent_of_funItem {N : String} {g : KoreAML.Gen} (hB : TieOvlFnBase I N)
+    (hitem : I ⊧ᴵ (KoreAML.Cons.funItem N g).pat)
+    {i : Nat} {mod : String} {a : Kore.Axiom} {val : Kore.EVar} {ks : List Kore.EVar} {body : Kore.Pattern}
+    (hpat : a.pattern = .exist KoreAML.R val (.equals (KoreAML.srt N) KoreAML.R (.var (.evar val)) body))
+    (hfree : (a.sortVars.map KoreAML.sortVarKey ++ KoreAML.freeOf [] a.pattern).eraseDups =
+      .sortVar "R" :: ks.map KoreAML.evarKey)
+    (hval : val.sort = KoreAML.srt N)
+    (hks : ks.map (·.sort) = g.argSorts.map KoreAML.srt)
+    (hbody : KoreAML.tr ⟨KoreAML.tableOf a.sortVars a.pattern, []⟩ body =
+      KoreAML.Cons.genPat N g
+        ((ks.map fun k => (KoreAML.tableOf a.sortVars a.pattern).ev (KoreAML.evarKey k)).map .evar))
+    (hfresh : (KoreAML.tableOf a.sortVars a.pattern).ev (KoreAML.evarKey val) ∉
+      (KoreAML.tableOf a.sortVars a.pattern).ev (.sortVar "R") ::
+        ks.map fun k => (KoreAML.tableOf a.sortVars a.pattern).ev (KoreAML.evarKey k)) :
+    I ⊧ᴵ (KoreAML.trAxiom [] [] ⟨i, mod, a⟩).pat := by
+  have hD := hB.defOK
+  have hc := hB.ceil
+  obtain ⟨σN, hσN1, hσN2⟩ := hB.sortN
+  refine tieAxiom_intro hD fun e hg x => ?_
+  generalize ht : KoreAML.tableOf a.sortVars a.pattern = t at hg hbody hfresh ⊢
+  rw [hfree] at hg
+  have hR : KoreAML.IsSort I (e.evalEvar (t.ev (.sortVar "R"))) :=
+    (KoreAML.interp_guard_sortVar hD).mp (hg _ (List.mem_cons_self ..) default)
+  have hargs := tieArgs_inS hD (fun k hk m => hg k (List.mem_cons_of_mem _ hk) m)
+    (ks := ks) (ss := g.argSorts) (fun k hk => List.mem_map.mpr ⟨k, hk, rfl⟩) hks
+  have hl : ((ks.map fun k => t.ev (KoreAML.evarKey k)).map e.evalEvar).length = g.argSorts.length := by
+    have := congrArg List.length hks
+    simpa using this
+  obtain ⟨y, hyN, hy⟩ := fun_at hD hitem hl hargs
+  rw [hpat]
+  show (KoreAML.tr ⟨t, []⟩ (.exist KoreAML.R val (.equals (KoreAML.srt N) KoreAML.R (.var (.evar val)) body))).interpret I e x ↔
+    (KoreAML.inhOf (KoreAML.trSort t KoreAML.R)).interpret I e x
+  have hRv : ∀ (e' : Valuation M) b, (KoreAML.trSort t KoreAML.R).interpret I e' b ↔ b = e'.evalEvar (t.ev (.sortVar "R")) :=
+    fun e' b => by rw [trSort_R, KoreAML.interp_evar]
+  have hS : ∀ (e' : Valuation M) b, (KoreAML.trSort t (KoreAML.srt N)).interpret I e' b ↔ b = σN :=
+    fun e' b => by rw [trSort_srt]; exact hσN1 b
+  rw [KoreAML.tr, KoreAML.interp_sExists, KoreAML.interp_inhOf_of (hRv e)]
+  have hne : t.ev (.sortVar "R") ≠ t.ev (KoreAML.evarKey val) := fun h => hfresh (h ▸ List.mem_cons_self ..)
+  have hupd : ∀ v : M, (⟨Function.update e.evalEvar (t.ev (KoreAML.evarKey val)) v, e.evalSvar⟩ : Valuation M).evalEvar
+      (t.ev (.sortVar "R")) = e.evalEvar (t.ev (.sortVar "R")) := fun v => Function.update_noteq hne _ _
+  have hmap : ∀ v : M, (ks.map fun k => t.ev (KoreAML.evarKey k)).map
+      (⟨Function.update e.evalEvar (t.ev (KoreAML.evarKey val)) v, e.evalSvar⟩ : Valuation M).evalEvar =
+      (ks.map fun k => t.ev (KoreAML.evarKey k)).map e.evalEvar := fun v =>
+    List.map_congr_left fun z hz => Function.update_noteq
+      (fun (h : z = t.ev (KoreAML.evarKey val)) => hfresh (List.mem_cons_of_mem _ (h ▸ hz))) _ _
+  have hbodyI : ∀ (v b : M), (KoreAML.tr ⟨t, []⟩ body).interpret I
+      ⟨Function.update e.evalEvar (t.ev (KoreAML.evarKey val)) v, e.evalSvar⟩ b ↔ b = y := fun v b => by
+    rw [hbody, tieGen_vars, hmap]; exact hy b
+  constructor
+  · rintro ⟨v, -, h2⟩
+    rw [KoreAML.tr, KoreAML.interp_sEquals hD hc (hS _) (hRv _) hσN2 (by rw [hupd]; exact hR)] at h2
+    rw [← hupd v]; exact h2.1
+  · intro hx
+    refine ⟨y, ?_, ?_⟩
+    · rw [KoreAML.interp_member hD]
+      simp only [Function.update_same]
+      rw [hval, trSort_srt]
+      exact (inS_iff _).mpr hyN
+    · rw [KoreAML.tr, KoreAML.interp_sEquals hD hc (hS _) (hRv _) hσN2 (by rw [hupd]; exact hR)]
+      refine ⟨by rw [hupd]; exact hx, fun b _ => ?_⟩
+      rw [hbodyI, KoreAML.tr, KoreAML.interp_evar]
+      simp only [Function.update_same]
 
 /-! ## The sentences give the items -/
 
@@ -595,6 +735,13 @@ generator** of a constructor sort of the semantics, whose Cons-Dist at uncovered
 holds. -/
 def tieOvlFnDistB (c : Semantics) (a : Kore.Axiom) : Bool :=
   (consSorts c).any fun N => (c.gens N).any fun g => (c.gens N).any fun g' => tieOvlFnDistAtB c N g g' a
+
+/-- **Γ holds the generator's G-arity in the form `tieOvlFnArity_of_Γ` reads**: `g` is a symbol of
+`kernelSyms c` of result N whose name is no instance. A function-overloaded generator is a symbol
+(`Semantics.fnOvl` is false at an injection). -/
+def tieOvlFnArityB (c : Semantics) (N : Srt) : Gen → Bool
+  | .ctor k => decide (k ∈ kernelSyms c) && decide (k.result = N) && (instDecode? (c.symName k.name)).isNone
+  | .inj _ => false
 
 theorem tieOvlFnFunB_at {c : Semantics} {a : Kore.Axiom} (h : tieOvlFnFunB c a = true) :
     ∃ N g, tieOvlFnFunAtB c N g a = true := by
@@ -742,6 +889,103 @@ theorem tieOvlFnDist_weaker {N : Srt} {g g' : Gen} {gf : KoreAML.Gen} {af a : Ko
     (hgf.elim (fun e => .inl (e ▸ hfun)) fun e => .inr (e ▸ hfun)) hsent
   exact ⟨tieOvlFn_distUncItem_of_distItem ug ug' hd.1, tieOvlFn_distUncItem_of_distItem ug' ug hd.2⟩
 
+/-- **The arity in a model of Γ**, from `tieOvlFnArityB`. -/
+theorem tieOvlFnArity_of_ΓB (hI : I ⊧ᴵP Γ c) {N : Srt} {g : Gen} (h : tieOvlFnArityB c N g = true) :
+    TieOvlFnArity I (c.sortName N) (Gen.toK c g) := by
+  cases g with
+  | inj _ => cases h
+  | ctor k =>
+    simp only [tieOvlFnArityB, Bool.and_eq_true, decide_eq_true_eq, Option.isNone_iff_eq_none] at h
+    obtain ⟨⟨hk, rfl⟩, hi⟩ := h
+    exact tieOvlFnArity_of_Γ hI hk hi
+
+/-- **A model of Γ that satisfies the `functional` sentence of a function-overloaded generator
+satisfies Γ's Cons-Fun at uncovered arguments by the sentence**: `tieOvlFnFun_weaker` with its
+hypotheses discharged by Γ (`tieOvlFnBase_of_Γ_dotk`, `tieOvlFnArity_of_ΓB`). -/
+theorem tieOvlFnFun_weaker_Γ (hI : I ⊧ᴵP Γ c) {N : Srt} {g : Gen} {a : Kore.Axiom}
+    (h : tieOvlFnFunAtB c N g a = true) (hN : N < nRegSorts + c.sortNames.length) (hA : tieOvlFnArityB c N g = true)
+    {i : Nat} {mod : String} (hsent : I ⊧ᴵ (KoreAML.trAxiom [] [] ⟨i, mod, a⟩).pat) (covs : List (List String)) :
+    I ⊧ᴵ (KoreAML.Cons.funUncItem (c.sortName N) (Gen.toK c g) covs).pat :=
+  tieOvlFnFun_weaker h (tieOvlFnBase_of_Γ_dotk hI hN) (tieOvlFnArity_of_ΓB hI hA) hsent covs
+
+/-- Cons-Inj at uncovered arguments, in a model of Γ that satisfies the two sentences. -/
+theorem tieOvlFnInj_weaker_Γ (hI : I ⊧ᴵP Γ c) {N : Srt} {g : Gen} {af a : Kore.Axiom}
+    (hf : tieOvlFnFunAtB c N g af = true) (h : tieOvlFnInjAtB c N g a = true)
+    (hN : N < nRegSorts + c.sortNames.length) (hA : tieOvlFnArityB c N g = true)
+    {j i : Nat} {modf mod : String} (hsf : I ⊧ᴵ (KoreAML.trAxiom [] [] ⟨j, modf, af⟩).pat)
+    (hsent : I ⊧ᴵ (KoreAML.trAxiom [] [] ⟨i, mod, a⟩).pat) (covs : List (List String)) :
+    I ⊧ᴵ (KoreAML.Cons.injUncItem (c.sortName N) (Gen.toK c g) covs).pat :=
+  tieOvlFnInj_weaker hf h (tieOvlFnBase_of_Γ_dotk hI hN) (tieOvlFnArity_of_ΓB hI hA) hsf hsent covs
+
+/-- Cons-Dist at uncovered arguments, in both orders, in a model of Γ that satisfies the
+different-constructors sentence and the `functional` sentence of `gf`, one of the two generators. -/
+theorem tieOvlFnDist_weaker_Γ (hI : I ⊧ᴵP Γ c) {N : Srt} {g g' gf : Gen} {af a : Kore.Axiom}
+    (hgf : gf = g ∨ gf = g') (hf : tieOvlFnFunShapeB c N (Gen.toK c gf) af = true)
+    (h : tieOvlFnDistAtB c N g g' a = true)
+    (hN : N < nRegSorts + c.sortNames.length) (hA : tieOvlFnArityB c N gf = true)
+    {j i : Nat} {modf mod : String} (hsf : I ⊧ᴵ (KoreAML.trAxiom [] [] ⟨j, modf, af⟩).pat)
+    (hsent : I ⊧ᴵ (KoreAML.trAxiom [] [] ⟨i, mod, a⟩).pat) (ug ug' : Option (List (List String))) :
+    (I ⊧ᴵ (KoreAML.Cons.distUncItem (c.sortName N) (Gen.toK c g) (Gen.toK c g') ug ug').pat) ∧
+    (I ⊧ᴵ (KoreAML.Cons.distUncItem (c.sortName N) (Gen.toK c g') (Gen.toK c g) ug' ug).pat) :=
+  tieOvlFnDist_weaker (hgf.elim (fun e => .inl (congrArg _ e)) fun e => .inr (congrArg _ e)) hf h
+    (tieOvlFnBase_of_Γ_dotk hI hN) (tieOvlFnArity_of_ΓB hI hA) hsf hsent ug ug'
+
+/-- **Cons-Fun gives the `functional` sentence in the form `tieOvlFnFunShapeB` decides**, in every
+interpretation with `TieOvlFnBase`. -/
+theorem tieOvlFnFun_sent_of {N : Srt} {g : KoreAML.Gen} {a : Kore.Axiom}
+    (h : tieOvlFnFunShapeB c N g a = true) (hB : TieOvlFnBase I (c.sortName N))
+    (hitem : I ⊧ᴵ (KoreAML.Cons.funItem (c.sortName N) g).pat) {i : Nat} {mod : String} :
+    I ⊧ᴵ (KoreAML.trAxiom [] [] ⟨i, mod, a⟩).pat := by
+  unfold tieOvlFnFunShapeB at h
+  split at h
+  · rename_i r val s r' val' body hp
+    simp only [Bool.and_eq_true, decide_eq_true_eq] at h
+    obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, -⟩, h6⟩, h7⟩, h8⟩, h9⟩, h10⟩, -⟩ := h
+    subst h1 h2 h3 h4
+    exact tieOvlFnFun_sent_of_funItem hB hitem hp h6 h7 h8 h9 h10
+  · cases h
+
+/-- **Under `TieOvlFnBase` and the arity, the `functional` sentence and Cons-Fun are equivalent.** -/
+theorem tieOvlFnFun_sent_iff {N : Srt} {g : KoreAML.Gen} {a : Kore.Axiom}
+    (h : tieOvlFnFunShapeB c N g a = true) (hB : TieOvlFnBase I (c.sortName N))
+    (hA : TieOvlFnArity I (c.sortName N) g) {i : Nat} {mod : String} :
+    (I ⊧ᴵ (KoreAML.trAxiom [] [] ⟨i, mod, a⟩).pat) ↔ (I ⊧ᴵ (KoreAML.Cons.funItem (c.sortName N) g).pat) :=
+  ⟨tieOvlFnFun_funItem_of h hB hA, fun hf => tieOvlFnFun_sent_of h hB hf⟩
+
+/-- **Cons-Fun and Cons-Inj give the same-constructor sentence in the form `tieOvlFnInjShapeB`
+decides**, in every interpretation with definedness. -/
+theorem tieOvlFnInj_sent_of {N : Srt} {g : KoreAML.Gen} {a : Kore.Axiom}
+    (h : tieOvlFnInjShapeB c N g a = true) (hD : KoreAML.DefOK I)
+    (hfun : I ⊧ᴵ (KoreAML.Cons.funItem (c.sortName N) g).pat)
+    (hinj : I ⊧ᴵ (KoreAML.Cons.injItem (c.sortName N) g).pat) {i : Nat} {mod : String} :
+    I ⊧ᴵ (KoreAML.trAxiom [] [] ⟨i, mod, a⟩).pat := by
+  unfold tieOvlFnInjShapeB at h
+  split at h
+  · rename_i s s' p1 p2 q hp
+    simp only [Bool.and_eq_true, decide_eq_true_eq] at h
+    obtain ⟨⟨⟨⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩, h7⟩, h8⟩, -⟩ := h
+    subst h1 h2
+    exact tieInj_entailed hD hfun hinj hp h3 h4 h5 h6 h7 h8
+  · cases h
+
+/-- **Cons-Fun of both generators and Cons-Dist in one order give the different-constructors
+sentence in the form `tieOvlFnDistShapeB` decides**, in every interpretation with definedness. -/
+theorem tieOvlFnDist_sent_of {N : Srt} {g g' : KoreAML.Gen} {a : Kore.Axiom}
+    (h : tieOvlFnDistShapeB c N g g' a = true) (hD : KoreAML.DefOK I)
+    (hfun : I ⊧ᴵ (KoreAML.Cons.funItem (c.sortName N) g).pat)
+    (hfun' : I ⊧ᴵ (KoreAML.Cons.funItem (c.sortName N) g').pat)
+    (hdist : (I ⊧ᴵ (KoreAML.Cons.distItem (c.sortName N) g g').pat) ∨
+      (I ⊧ᴵ (KoreAML.Cons.distItem (c.sortName N) g' g).pat)) {i : Nat} {mod : String} :
+    I ⊧ᴵ (KoreAML.trAxiom [] [] ⟨i, mod, a⟩).pat := by
+  unfold tieOvlFnDistShapeB at h
+  split at h
+  · rename_i s s' p1 p2 hp
+    simp only [Bool.and_eq_true, decide_eq_true_eq] at h
+    obtain ⟨⟨⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩, h7⟩, -⟩ := h
+    subst h1 h2
+    exact tieDist_entailed hD hfun hfun' hdist hp h3 h4 h5 h6 h7
+  · cases h
+
 end
 
 end Faithful
@@ -765,6 +1009,9 @@ kernel_rfl Faithful.tieOvlFnInjB_withHooks : ∀ (c : Semantics) (H : HookParams
 
 kernel_rfl Faithful.tieOvlFnDistB_withHooks : ∀ (c : Semantics) (H : HookParams) (a : Kore.Axiom),
   Faithful.tieOvlFnDistB (c.withHooks H) a = Faithful.tieOvlFnDistB c a
+
+kernel_rfl Faithful.tieOvlFnArityB_withHooks : ∀ (c : Semantics) (H : HookParams) (N : Srt) (g : Gen),
+  Faithful.tieOvlFnArityB (c.withHooks H) N g = Faithful.tieOvlFnArityB c N g
 
 namespace Faithful
 

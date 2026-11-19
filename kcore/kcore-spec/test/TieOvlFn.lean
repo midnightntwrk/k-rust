@@ -16,6 +16,16 @@
   weaker lemmas at the literal generators, for every interpretation and every interpretation of
   the hooks' parameters (`fun_weaker`, `inj_weaker`, `dist_weaker`, the last from `capGas`'s
   `functional` sentence and from `inf`'s).
+
+  On `Lhs`, the hypotheses of the weaker lemmas:
+  - in every model of Γ, at every interpretation of the hooks' parameters, `TieOvlFnBase` and the
+    arities of `capGas` and `inf` hold (`base_arity_Γ`, from Γ's signature items: G-sort, G-ceil-def,
+    G-arity, and the value `.K` of K), so the three sentences alone give Γ's three items
+    (`weaker_Γ`);
+  - non-vacuity: a term model of Gas (`TermModel`: `inf` is `gas 0`, `capGas(gas n)` is
+    `gas (n + 1)`) meets `TieOvlFnBase`, both arities and the sentences 81, 82, 83 and 89
+    (`TermModel.nonvacuous`), the sentences from Cons-Fun, Cons-Inj and Cons-Dist of the two
+    generators there; the weaker lemmas fire on it (`TermModel.nonvacuous_weaker`).
 -/
 import KcoreSpec
 
@@ -113,6 +123,266 @@ theorem items (H : HookParams) :
 /-- The overloads the items name: `capGas` is covered at the lifts of N. -/
 theorem covs : ovlArgsOf c capGas = some [["N"]] ∧ ovlArgsOf c inf = none := by decide +kernel
 
+/-! ### In a model of Γ the hypotheses hold -/
+
+/-- `capGas` and `inf` are symbols of `kernelSyms` of result Gas, at their names. -/
+theorem arity_checked : tieOvlFnArityB c gasS capGas = true ∧ tieOvlFnArityB c gasS inf = true := by
+  decide +kernel
+
+theorem gas_numbered : gasS < nRegSorts + c.sortNames.length := by decide +kernel
+
+/-- `TieOvlFnBase` and the arities in every model of Γ, at every interpretation of the hooks'
+parameters. -/
+theorem base_arity_Γ {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (H : HookParams)
+    (hI : I ⊧ᴵP Γ (c.withHooks H)) :
+    TieOvlFnBase I ((c.withHooks H).sortName gasS) ∧
+    TieOvlFnArity I ((c.withHooks H).sortName gasS) (Gen.toK (c.withHooks H) capGas) ∧
+    TieOvlFnArity I ((c.withHooks H).sortName gasS) (Gen.toK (c.withHooks H) inf) :=
+  ⟨tieOvlFnBase_of_Γ_dotk hI gas_numbered,
+    tieOvlFnArity_of_ΓB hI ((tieOvlFnArityB_withHooks c H _ _).trans arity_checked.1),
+    tieOvlFnArity_of_ΓB hI ((tieOvlFnArityB_withHooks c H _ _).trans arity_checked.2)⟩
+
+/-- In a model of Γ, at every interpretation of the hooks' parameters, the three sentences give
+Γ's three items at uncovered arguments, with no other hypothesis. -/
+theorem weaker_Γ {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (H : HookParams)
+    (hI : I ⊧ᴵP Γ (c.withHooks H))
+    (h81 : I ⊧ᴵ (trAxiom [] [] U.ax81).pat) (h82 : I ⊧ᴵ (trAxiom [] [] U.ax82).pat)
+    (h83 : I ⊧ᴵ (trAxiom [] [] U.ax83).pat) (covs : List (List String)) (ug ug' : Option (List (List String))) :
+    (I ⊧ᴵ (Cons.funUncItem ((c.withHooks H).sortName gasS) (Gen.toK (c.withHooks H) capGas) covs).pat) ∧
+    (I ⊧ᴵ (Cons.injUncItem ((c.withHooks H).sortName gasS) (Gen.toK (c.withHooks H) capGas) covs).pat) ∧
+    (I ⊧ᴵ (Cons.distUncItem ((c.withHooks H).sortName gasS) (Gen.toK (c.withHooks H) capGas)
+      (Gen.toK (c.withHooks H) inf) ug ug').pat) := by
+  have hf := (tieOvlFnFunAtB_withHooks c H _ _ _).trans fun_checked
+  have hA := (tieOvlFnArityB_withHooks c H _ _).trans arity_checked.1
+  refine ⟨tieOvlFnFun_weaker_Γ hI hf gas_numbered hA h81 covs,
+    tieOvlFnInj_weaker_Γ hI hf ((tieOvlFnInjAtB_withHooks c H _ _ _).trans inj_checked) gas_numbered hA h81 h82 covs,
+    (tieOvlFnDist_weaker_Γ hI (gf := capGas) (.inl rfl) (by
+        simp only [tieOvlFnFunAtB, Bool.and_eq_true] at hf; exact hf.1.2)
+      ((tieOvlFnDistAtB_withHooks c H _ _ _ _).trans dist_checked) gas_numbered hA h81 h83 ug ug').1⟩
+
+/-! ### Non-vacuity: a term model of Gas -/
+
+theorem inj_shape : tieOvlFnInjShapeB c gasS (Gen.toK c capGas) U.ax82.ax = true := by decide +kernel
+theorem dist_shape : tieOvlFnDistShapeB c gasS (Gen.toK c capGas) (Gen.toK c inf) U.ax83.ax = true := by
+  decide +kernel
+
+namespace TermModel
+
+/-- The carrier: the elements `gas n` of Gas (`inf` is `gas 0` and `capGas(gas n)` is
+`gas (n + 1)`: the terms `inf` and `capGas` build), the sort Gas, the element of the sort of
+sorts, the heads `⌈_⌉`, `⊤_` and `capGas`, and the partial applications of ceiling. -/
+inductive E where
+  | gas (n : Nat)
+  | srt
+  | sorts
+  | dfd
+  | inh
+  | cap
+  | ceil0
+  | ceil1
+  | ceil2
+
+instance : Inhabited E := ⟨.gas 0⟩
+
+/-- The symbols: Gas is the one sort, `Lblinf` denotes `gas 0`. -/
+def symb : KoreAML.Sym → Set E
+  | .defined => fun m => m = .dfd
+  | .inh => fun m => m = .inh
+  | .sortSort => fun m => m = .sorts
+  | .sort n => fun m => n = "SortGas" ∧ m = .srt
+  | .symbol n => fun m => (n = "LblcapGas" ∧ m = .cap) ∨ (n = "Lblinf" ∧ m = .gas 0)
+  | .ceil => fun m => m = .ceil0
+  | _ => fun _ => False
+
+/-- Application: `⌈_⌉` holds everything; `⊤_` of Gas is the `gas n`, of the sort of sorts Gas;
+`capGas` adds one; `⌈_⌉{Gas,Gas}` of anything is Gas. -/
+def app : E → E → Set E
+  | .dfd, _ => fun _ => True
+  | .inh, .srt => fun m => ∃ n, m = .gas n
+  | .inh, .sorts => fun m => m = .srt
+  | .cap, .gas n => fun m => m = .gas (n + 1)
+  | .ceil0, .srt => fun m => m = .ceil1
+  | .ceil1, .srt => fun m => m = .ceil2
+  | .ceil2, _ => fun m => ∃ n, m = .gas n
+  | _, _ => fun _ => False
+
+def I : Interpretation KoreAML.Sym E := ⟨symb, app⟩
+
+theorem inh_iff {σ m : E} : Inh I σ m ↔ (σ = .srt ∧ ∃ n, m = .gas n) ∨ (σ = .sorts ∧ m = .srt) := by
+  constructor
+  · rintro ⟨i, hi, h⟩
+    change i = .inh at hi
+    subst hi
+    change app .inh σ m at h
+    cases σ with
+    | srt => exact .inl ⟨rfl, h⟩
+    | sorts => exact .inr ⟨rfl, h⟩
+    | gas _ => exact (h : False).elim
+    | dfd => exact (h : False).elim
+    | inh => exact (h : False).elim
+    | cap => exact (h : False).elim
+    | ceil0 => exact (h : False).elim
+    | ceil1 => exact (h : False).elim
+    | ceil2 => exact (h : False).elim
+  · rintro (⟨rfl, h⟩ | ⟨rfl, rfl⟩)
+    · exact ⟨.inh, rfl, h⟩
+    · exact ⟨.inh, rfl, rfl⟩
+
+theorem isSort_iff {σ : E} : IsSort I σ ↔ σ = .srt := by
+  constructor
+  · rintro ⟨s0, hs0, h⟩
+    change s0 = .sorts at hs0
+    subst hs0
+    rcases inh_iff.mp h with ⟨h1, -⟩ | ⟨-, h2⟩
+    · cases h1
+    · exact h2
+  · rintro rfl
+    exact ⟨.sorts, rfl, inh_iff.mpr (.inr ⟨rfl, rfl⟩)⟩
+
+theorem defOK : DefOK I := fun _ _ => ⟨.dfd, rfl, trivial⟩
+
+theorem sortGas (b : E) : I.evalSymb (.sort ("Sort" ++ "Gas")) b ↔ b = .srt :=
+  ⟨fun h => h.2, fun h => ⟨rfl, h⟩⟩
+
+theorem inS_gas {m : E} : InS I "Gas" m ↔ ∃ n, m = .gas n := by
+  unfold InS
+  rw [interp_inhOf_of (S := Cons.sortP "Gas") (σ := .srt) sortGas, inh_iff]
+  simp
+
+theorem ceil : I ⊧ᴵ ceilDefItem.pat := by
+  intro e m
+  unfold ceilDefItem
+  dsimp only
+  refine tieOvlFn_guarded_intro fun hg => ?_
+  have h1 := hg _ (List.mem_cons_self ..)
+  have h2 := hg _ (List.mem_cons_of_mem _ (List.mem_cons_self ..))
+  unfold sortGuard at h1 h2
+  rw [interp_member defOK, interp_sortsDomain, isSort_iff] at h1 h2
+  rw [interp_equal defOK]
+  intro a
+  rw [interp_sCeil_raw, interp_inhOf]
+  constructor
+  · rintro ⟨σ, σ', x, hσ, hσ', -, b, ⟨b', ⟨h, hh, hb'⟩, hb⟩, ha⟩
+    rw [interp_evar] at hσ hσ'
+    change h = .ceil0 at hh
+    subst hh
+    rw [hσ, h1] at hb'
+    change b' = .ceil1 at hb'
+    subst hb'
+    rw [hσ', h2] at hb
+    change b = .ceil2 at hb
+    subst hb
+    exact ⟨.srt, by rw [interp_evar, h2], inh_iff.mpr (.inl ⟨rfl, ha⟩)⟩
+  · rintro ⟨σ', hσ', ha⟩
+    rw [interp_evar, h2] at hσ'
+    subst hσ'
+    rcases inh_iff.mp ha with ⟨-, ha⟩ | ⟨h3, -⟩
+    · exact ⟨.srt, .srt, e.evalEvar ⟨3⟩, by rw [interp_evar, h1], by rw [interp_evar, h2], rfl,
+        .ceil2, ⟨.ceil1, ⟨.ceil0, rfl, rfl⟩, rfl⟩, ha⟩
+    · cases h3
+
+/-- `capGas` as the KORE generator. -/
+abbrev capK : KoreAML.Gen := .ctor ⟨"LblcapGas", ["Gas"], "Gas"⟩
+/-- `inf` as the KORE generator. -/
+abbrev infK : KoreAML.Gen := .ctor ⟨"Lblinf", [], "Gas"⟩
+
+theorem gs_cap {x m : E} : GS I "Gas" capK [x] m ↔ app .cap x m := by
+  constructor
+  · rintro ⟨a, ha, a', hx, rfl⟩
+    rcases ha with ⟨-, rfl⟩ | ⟨h, -⟩
+    · exact hx
+    · exact absurd h (by decide)
+  · intro h
+    exact ⟨.cap, .inl ⟨rfl, rfl⟩, m, h, rfl⟩
+
+theorem gs_inf {m : E} : GS I "Gas" infK [] m ↔ m = .gas 0 := by
+  constructor
+  · rintro ⟨a, ha, rfl⟩
+    rcases ha with ⟨h, -⟩ | ⟨-, rfl⟩
+    · exact absurd h (by decide)
+    · rfl
+  · rintro rfl
+    exact ⟨.gas 0, .inr ⟨rfl, rfl⟩, rfl⟩
+
+theorem one {xs : List E} (hl : xs.length = 1)
+    (hxs : ∀ (i : Nat) x s, xs[i]? = some x → ["Gas"][i]? = some s → InS I s x) : ∃ n, xs = [.gas n] := by
+  rcases xs with _ | ⟨x, _ | ⟨_, _⟩⟩
+  · simp at hl
+  · obtain ⟨n, rfl⟩ := inS_gas.mp (hxs 0 x "Gas" rfl rfl)
+    exact ⟨n, rfl⟩
+  · simp at hl
+
+theorem base : TieOvlFnBase I "Gas" :=
+  ⟨defOK, ceil, ⟨.srt, sortGas, isSort_iff.mpr rfl⟩, ⟨.srt, .gas 0, isSort_iff.mpr rfl, inh_iff.mpr (.inl ⟨rfl, 0, rfl⟩)⟩⟩
+
+theorem arity_cap : TieOvlFnArity I "Gas" capK := by
+  intro xs hl hxs m hm
+  obtain ⟨n, rfl⟩ := one hl hxs
+  exact inS_gas.mpr ⟨n + 1, gs_cap.mp hm⟩
+
+theorem arity_inf : TieOvlFnArity I "Gas" infK := fun xs hl _ m hm => by
+  cases xs with
+  | nil => exact inS_gas.mpr ⟨0, gs_inf.mp hm⟩
+  | cons _ _ => exact absurd (hl.trans (rfl : infK.argSorts.length = 0)) (Nat.succ_ne_zero _)
+
+theorem fun_cap : I ⊧ᴵ (Cons.funItem "Gas" capK).pat :=
+  tieOvlFn_funItem_intro defOK fun xs hl hxs => by
+    obtain ⟨n, rfl⟩ := one hl hxs
+    exact ⟨.gas (n + 1), inS_gas.mpr ⟨n + 1, rfl⟩, fun m => gs_cap⟩
+
+theorem fun_inf : I ⊧ᴵ (Cons.funItem "Gas" infK).pat :=
+  tieOvlFn_funItem_intro defOK fun xs hl _ => by
+    cases xs with
+    | nil => exact ⟨.gas 0, inS_gas.mpr ⟨0, rfl⟩, fun m => gs_inf⟩
+    | cons _ _ => exact absurd (hl.trans (rfl : infK.argSorts.length = 0)) (Nat.succ_ne_zero _)
+
+theorem inj_cap : I ⊧ᴵ (Cons.injItem "Gas" capK).pat :=
+  tieOvlFn_injItem_intro defOK fun xs ys hl hl' hxs hys heq => by
+    obtain ⟨n, rfl⟩ := one hl hxs
+    obtain ⟨k, rfl⟩ := one hl' hys
+    have h := (heq (.gas (n + 1))).mp (gs_cap.mpr rfl)
+    have h' : E.gas (n + 1) = .gas (k + 1) := gs_cap.mp h
+    cases h'
+    rfl
+
+theorem dist_cap_inf : I ⊧ᴵ (Cons.distItem "Gas" capK infK).pat :=
+  tieOvlFn_distItem_intro defOK fun xs ys hl hl' hxs _ heq => by
+    obtain ⟨n, rfl⟩ := one hl hxs
+    cases ys with
+    | nil => exact nomatch gs_inf.mp ((heq (.gas (n + 1))).mp (gs_cap.mpr rfl))
+    | cons _ _ => exact absurd (hl'.trans (rfl : infK.argSorts.length = 0)) (Nat.succ_ne_zero _)
+
+theorem toK : c.sortName gasS = "Gas" ∧ Gen.toK c capGas = capK ∧ Gen.toK c inf = infK := by decide +kernel
+
+/-- **The term model meets `TieOvlFnBase`, both arities and the four sentences of the text**
+(`capGas`'s `functional`, same-constructor and different-constructors sentences, and `inf`'s
+`functional` sentence): the hypotheses of the weaker lemmas are met together. -/
+theorem nonvacuous :
+    TieOvlFnBase I (c.sortName gasS) ∧ TieOvlFnArity I (c.sortName gasS) (Gen.toK c capGas) ∧
+    TieOvlFnArity I (c.sortName gasS) (Gen.toK c inf) ∧
+    (I ⊧ᴵ (trAxiom [] [] U.ax81).pat) ∧ (I ⊧ᴵ (trAxiom [] [] U.ax82).pat) ∧
+    (I ⊧ᴵ (trAxiom [] [] U.ax83).pat) ∧ (I ⊧ᴵ (trAxiom [] [] U.ax89).pat) := by
+  obtain ⟨h1, h2, h3⟩ := toK
+  have hB : TieOvlFnBase I (c.sortName gasS) := by rw [h1]; exact base
+  have fc : I ⊧ᴵ (Cons.funItem (c.sortName gasS) (Gen.toK c capGas)).pat := by rw [h1, h2]; exact fun_cap
+  have fi : I ⊧ᴵ (Cons.funItem (c.sortName gasS) (Gen.toK c inf)).pat := by rw [h1, h3]; exact fun_inf
+  have ic : I ⊧ᴵ (Cons.injItem (c.sortName gasS) (Gen.toK c capGas)).pat := by rw [h1, h2]; exact inj_cap
+  have dc : I ⊧ᴵ (Cons.distItem (c.sortName gasS) (Gen.toK c capGas) (Gen.toK c inf)).pat := by
+    rw [h1, h2, h3]; exact dist_cap_inf
+  refine ⟨hB, by rw [h1, h2]; exact arity_cap, by rw [h1, h3]; exact arity_inf,
+    tieOvlFnFun_sent_of capGas_fun_checked hB fc, tieOvlFnInj_sent_of inj_shape defOK fc ic,
+    tieOvlFnDist_sent_of dist_shape defOK fc fi (.inl dc), tieOvlFnFun_sent_of inf_fun_checked hB fi⟩
+
+/-- The weaker lemmas fire on the term model, from the sentences alone. -/
+theorem nonvacuous_weaker (covs : List (List String)) (ug ug' : Option (List (List String))) :
+    (I ⊧ᴵ (Cons.funUncItem (c.sortName gasS) (Gen.toK c capGas) covs).pat) ∧
+    (I ⊧ᴵ (Cons.injUncItem (c.sortName gasS) (Gen.toK c capGas) covs).pat) ∧
+    (I ⊧ᴵ (Cons.distUncItem (c.sortName gasS) (Gen.toK c capGas) (Gen.toK c inf) ug ug').pat) :=
+  let ⟨hB, hA, _, h81, h82, h83, _⟩ := nonvacuous
+  ⟨fun_weaker I hB hA h81 covs, inj_weaker I hB hA h81 h82 covs, (dist_weaker I hB hA h81 h83 ug ug').1⟩
+
+end TermModel
+
 end Lhs
 
 namespace Keep
@@ -177,3 +447,23 @@ end KCore.TieOvlFnTest
 #print axioms KCore.TieOvlFnTest.Keep.dist_only
 #print axioms KCore.TieOvlFnTest.Keep.ovleq_checked
 #print axioms KCore.TieOvlFnTest.Keep.checked_withHooks
+#print axioms KCore.Faithful.tieOvlFnArity_of_Γ
+#print axioms KCore.Faithful.tieOvlFnArity_of_ΓB
+#print axioms KCore.Faithful.tieOvlFnArityB_withHooks
+#print axioms KCore.Faithful.tieOvlFn_dotk_sortOf
+#print axioms KCore.Faithful.tieOvlFnInh_of_Γ
+#print axioms KCore.Faithful.tieOvlFnBase_of_Γ_dotk
+#print axioms KCore.Faithful.tieOvlFnFun_weaker_Γ
+#print axioms KCore.Faithful.tieOvlFnInj_weaker_Γ
+#print axioms KCore.Faithful.tieOvlFnDist_weaker_Γ
+#print axioms KCore.Faithful.tieOvlFnFun_sent_of_funItem
+#print axioms KCore.Faithful.tieOvlFnFun_sent_of
+#print axioms KCore.Faithful.tieOvlFnFun_sent_iff
+#print axioms KCore.Faithful.tieOvlFnInj_sent_of
+#print axioms KCore.Faithful.tieOvlFnDist_sent_of
+#print axioms KCore.TieOvlFnTest.Lhs.arity_checked
+#print axioms KCore.TieOvlFnTest.Lhs.base_arity_Γ
+#print axioms KCore.TieOvlFnTest.Lhs.weaker_Γ
+#print axioms KCore.TieOvlFnTest.Lhs.TermModel.ceil
+#print axioms KCore.TieOvlFnTest.Lhs.TermModel.nonvacuous
+#print axioms KCore.TieOvlFnTest.Lhs.TermModel.nonvacuous_weaker
