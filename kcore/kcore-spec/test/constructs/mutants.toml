@@ -885,3 +885,438 @@ breaks = "Step.rule's premise hpre: a requires read conjunct by conjunct has its
 refutation = ["test/Guards.lean: KCore.Guards.DevAndBool.and_steps"]
 at = "every H"
 argument = "on K 7.1.337's mlreqv text (go(B) => done requires true #And B, the text's only rule) the rule's req is true and its pre is B = true; at go(false) the left side matches with B false, req evaluates to true, and only pre is false. The changed Step.rule's premises there are those the kernel as written has on DevAndBool.c1, the same rules with pre read as \\top (evaluation and matching read no rules, test/EnsBridge.lean's evalTerm_rules and patVal_rules), where and_first_steps derives the step from go(false) to done for every H; so the changed kernel steps go(false) to done for every H, against and_steps' second conjunct. Its first conjunct, the step from go(true), holds in both."
+
+# Reader mutants of the held entries whose constructors no mutant above reads, second half: the
+# constructors of the E3 rows KSEQ-SYMBOLIC #existential-? and #set-@, of the E6 rows and of the C3
+# rows. Each mutant changes the reader line that gives the constructor on its fixture; where several
+# lines give it (setVariable at classifyAxiom, svinPats and ruleBodyUncut; owisePriority for the
+# [owise] equation and for its sibling; ruleAttribute at ruleOwisePrioFault? and at attrVerdict's
+# anywhere arm), one mutant for each line a fixture reaches. test/mutants.sh does not rebuild the
+# modules importing the patched one, and their compiled code names the patched module's
+# specializations: where `false &&` would drop code holding one (openRefusal's, envOf's), the check
+# is made false by a condition false at every input it sees. Parse.term's `| _ => fail .iteShape`
+# arm of `Lblite` is unreachable (taken only at one sort, which the arm before it matches), so
+# iteShape's mutant is envOf's check of a text's own Lblite. UnreadReason.overloadConfusion is given
+# by Account.ovlConfused.
+[mutant."held-setvar-lhs-read"]
+summary = "an equation applying its function to a set variable on the left side, without the memberships kompile writes, is not refused setVariable: it is classified by the arms after it"
+breaks = "RefusalReason.setVariable at classifyAxiom (lhsSetVar?): f(@S, @S) = r as an axiom holds at every valuation of @S, a set, so at {a, b} it states only that f(a, b) is r or undefined; no clause states that"
+row = "E3 KSEQ-SYMBOLIC:#KVariable::=r\"(\\\\!|\\\\?|@)?([A-Z][A-Za-z0-9'_]*|_|_[A-Z][A-Za-z0-9'_]*)\"#set-@"
+fixture = "hw-scope-setvar-eq"
+expect = "killed"
+killed_by = "account: `1 refused setVariable [user]` becomes `1 refused axiomShape [user]` (hw-scope-setvar-eq; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -6298,7 +6298,7 @@
+   -- refuses it (`ruleAttrFault?`) instead of the step being dropped as an inert lemma
+   else if hasAttr a.attributes "simplification" && (scanRewrite s).isNone then .inert .simplification
+   -- an equation applying its function to a set variable on the left side (`lhsSetVar?`)
+-  else if (lhsSetVar? a).isSome then .refused .setVariable
++  else if false && (lhsSetVar? a).isSome then .refused .setVariable
+   else if hasAttr a.attributes "symbol-overload" then
+     if (overloadEqn? a).isSome then .read else .refused .overloadAxiom
+   else if (source? a.attributes).isNone && (projectionDomain? a).isSome then .readAs .projectionDomainAsClause
+'''
+
+[mutant."held-setvar-rest-read"]
+summary = "an equation whose set variable stands in its right side, requires, ensures or exclusion is not refused by svinShape's check: its argument patterns are read as terms"
+breaks = "RefusalReason.setVariable at svinPats (svinShape): w(@S) = @S states w's value at every set holding the argument; with the set as the value it has no model at a sort with two elements, so no clause of w states it"
+row = "E3 KSEQ-SYMBOLIC:#KVariable::=r\"(\\\\!|\\\\?|@)?([A-Z][A-Za-z0-9'_]*|_|_[A-Z][A-Za-z0-9'_]*)\"#set-@"
+fixture = "e3-setvar-read"
+expect = "killed"
+killed_by = "account: the stage refusal's detail only, `setVariable (VarS: in the right side, …)` becomes `setVariable (VarS)`: the sentence is refused setVariable again by Parse.term's set-variable arm, a second check of the same reading (e3-setvar-read; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -2974,7 +2974,7 @@
+ (`clauseBody`). -/
+ def svinPats (N : Names) (e : RawEqn) : Rd (List Term × List Var) :=
+   match svinShape e with
+-  | .error d => fail .setVariable d
++  | .error _ => terms N [] e.pats
+   | .ok none => terms N [] e.pats
+   | .ok (some X) => do
+     let s ← sortNameE X.sort
+'''
+
+[mutant."held-setvar-rewrite-read"]
+summary = "a rewrite axiom holding a set variable where svRewrite? refuses it (its requires) is read by ruleBodyRead as written"
+breaks = "RefusalReason.setVariable at ruleBodyUncut (svRewrite?): with @S in the requires, the requires' truth at a larger set is not entailed by its truth at a smaller one, so the axiom reads every subset of the sort, where the semantics reads patterns of at most one element"
+row = "E3 KSEQ-SYMBOLIC:#KVariable::=r\"(\\\\!|\\\\?|@)?([A-Z][A-Za-z0-9'_]*|_|_[A-Z][A-Za-z0-9'_]*)\"#set-@"
+fixture = "e3-setvar-rewrite-req"
+expect = "killed"
+killed_by = "account: the stage refusal's detail only, `setVariable (VarS: in the requires: …)` becomes `setVariable (VarS)`: the axiom is refused setVariable again by Parse.term's set-variable arm, a second check of the same reading (e3-setvar-rewrite-req; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -4665,7 +4665,7 @@
+ def ruleBodyUncut (N : Names) (msrc : String) (a : Kore.Axiom) : Rd (Rule × RulePres) :=
+   match svRewrite? a with
+   | none => ruleBodyRead N msrc a
+-  | some (.error d) => fail .setVariable d
++  | some (.error _) => ruleBodyRead N msrc a
+   | some (.ok (a', X, ls, rs)) => do
+     let (r, p) ← ruleBodyRead N msrc a'
+     let s ← N.sortE X.sort
+'''
+
+[mutant."held-svin-names-merged"]
+summary = "the two variables read in a set variable's place (svinNames) get one name: f(@S, @S) => r is read as the clause f(A, A) => r"
+breaks = "ReadingNote.setVarInDropped: \\in(X₀, @S) ∧ \\in(X₁, @S) → f(X₀, X₁) = r, @S standing nowhere else, is f(A, B) = r for every A, B (KCore.setvar_in_drop): two distinct variables; read as one, f has no value at two distinct arguments"
+row = "E3 KSEQ-SYMBOLIC:#KVariable::=r\"(\\\\!|\\\\?|@)?([A-Z][A-Za-z0-9'_]*|_|_[A-Z][A-Za-z0-9'_]*)\"#set-@"
+fixture = "f2-examples/svnonlinear.kompile.kore"
+theorems = "test/NoteSetVarIn.lean"
+expect = "killed"
+killed_by = "account: `wf true` becomes `wf false` (presentation: variable names distinct) (f2-examples/svnonlinear.kompile.kore; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -2956,7 +2956,7 @@
+   -- each held name is at most one candidate, so one of the first `held.length + 1` is free
+   let j := ((List.range (held.length + 1)).find? fun j =>
+     !held.contains ("Var" ++ cand j 0) && !held.contains ("Var" ++ cand j 1)).getD held.length
+-  (cand j 0, cand j 1)
++  (cand j 0, cand j 0)
+ 
+ /-- The first attribute of a function equation that `attrVerdict` refuses at class `equation`
+ (`equationAttribute`), with its name and why. An inert key is one whose verdict is that the
+'''
+
+[mutant."held-svin-owise-unmatched"]
+summary = "the [owise] exclusion's disjunct of kompile's one-variable form (∃G. X₀ ∈ G ∧ X₁ ∈ G) is not matched to the setVarInDropped equation it excludes (svinExcl? none)"
+breaks = "ReadingNote.owiseDisjunctNarrower: the text's disjunct entails the read one (KCore.owise_disjunct_narrower), so the text's [owise] sentence entails the one Γ reads; unmatched, the [owise] equation's exclusion names no equation of the function"
+row = "E3 KSEQ-SYMBOLIC:#KVariable::=r\"(\\\\!|\\\\?|@)?([A-Z][A-Za-z0-9'_]*|_|_[A-Z][A-Za-z0-9'_]*)\"#set-@"
+fixture = "f2-examples/svowise.kompile.kore"
+theorems = "test/SetVarOwise.lean"
+expect = "killed"
+killed_by = "account: the stage refusal `1 exclusionShape` (sentence 215, Lblf) (f2-examples/svowise.kompile.kore; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -2768,7 +2768,7 @@
+               | some p, some q => (alpha ρ p q).isSome
+               | _, _ => false
+             if !reqOk then none
+-            else if decide (g₀ = g₁) then some (true, svinSplit g₀ (svinFresh d g₀) eqnFuel d)
++            else if decide (g₀ = g₁) then none
+             else some (false, d)
+           | _, _ => none
+         | _, _ => none
+'''
+
+[mutant."held-ex-dropped-kept"]
+summary = "every \\exists binder heading a rule's right side is kept (exKept), one that binds nothing read as an existential variable of the rule"
+breaks = "ReadingNote.existsDropped: ∃y. φ with y not free in φ is φ, so the binder is read dropped; kept, the rule has an existential variable that no part of it holds"
+row = "E3 KSEQ-SYMBOLIC:#KVariable::=r\"(\\\\!|\\\\?|@)?([A-Z][A-Za-z0-9'_]*|_|_[A-Z][A-Za-z0-9'_]*)\"#existential-?"
+fixture = "hw-ex-unused-int"
+expect = "killed"
+killed_by = "account: `1 read existsDropped [user]` gone, `9 read [user]` becomes `10` (hw-ex-unused-int; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -4358,7 +4358,7 @@
+   let rec last : List Kore.EVar → List Kore.EVar
+     | [] => []
+     | x :: xs => if xs.any (fun y => decide (y = x)) then last xs else x :: last xs
+-  last (xs.filter fun x => held.any fun y => decide (y = x))
++  last xs
+ 
+ /-- The indices in `vs` of the binders `xs` of a right side, in the text's order of nesting: each
+ looked up by name and sort among the variables read after the left side's and the `requires`'
+'''
+
+[mutant."held-ex-not-apart"]
+summary = "a rule's right-side \\exists binder whose name the left side or the requires holds is not renamed apart (rhsApart gives rx)"
+breaks = "ReadingNote.existsRenamedApart: in (lhs ∧ req) → •(∃X. rhs), the binder X is bound in the right side only, so it is another variable than the left side's X; not renamed, the reader reads it as the left side's"
+row = "E3 KSEQ-SYMBOLIC:#KVariable::=r\"(\\\\!|\\\\?|@)?([A-Z][A-Za-z0-9'_]*|_|_[A-Z][A-Za-z0-9'_]*)\"#existential-?"
+fixture = "hw-ex-shadow"
+theorems = "test/Guards.lean"
+expect = "killed"
+killed_by = "theorems: DevExApart.r2_rhs, DevExApart.read_shape (test/Guards.lean: the rule's right side, and its variables and existential variables, are not those of c(_, Y) => d(?Y') as stated; the account of the text unchanged; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -4331,7 +4331,7 @@
+ are none of the axiom's nor of the left side as read (`lhsBound`, whose fresh names are primed
+ from the axiom's names too). -/
+ def rhsApart (ax l r0 rx : Kore.Pattern) : Kore.Pattern :=
+-  if exRenamed l r0 rx then
++  if false && exRenamed l r0 rx then
+     (exApart (evarNames l ++ evarNames r0) (evarNames ax ++ evarNames (lhsBound ax l)) rx).1
+   else rx
+ 
+'''
+
+[mutant."held-param-unused-read"]
+summary = "K-REFLECTION's sort-parametric hooked symbol (#unparseKORE) is classified by the next arm, read as the definition's own (reflectionAsOwn)"
+breaks = "UnreadReason.parametricUnused: K-REFLECTION's hooked #unparseKORE{S} is a symbol at each sort, part of the reading only through the instances a read sentence applies; read as the definition's own, it is one declaration at a sort variable"
+row = 'E6 module:K-REFLECTION'
+fixture = "e2-cells-stream"
+expect = "killed"
+killed_by = "account: `1 unread parametricUnused [builtin]` gone and `8 read reflectionAsOwn [builtin]` becomes `9`; the later sections of the account differ too (e2-cells-stream; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -6032,7 +6032,7 @@
+     | .axiom a => if isStreamRule a then some (.readAs .streamRule) else own ()
+     | .hookedSymbol h => if !isReflectionSentence s then
+           (if !h.symbol.sortVars.isEmpty && ownBuiltinNamed s then some (.unread .parametricUnused) else own ())
+-        else if !h.symbol.sortVars.isEmpty then some (.unread .parametricUnused)
++        else if false && !h.symbol.sortVars.isEmpty then some (.unread .parametricUnused)
+         else some (.readAs .reflectionAsOwn)
+     | _ => if isReflectionSentence s then some (.readAs .reflectionAsOwn) else own ()
+ 
+'''
+
+[mutant."held-user-hooked-sort-read"]
+summary = "a hooked sort of the user module whose hook no reading of the reader gives (KVAR.KVar here) is read as a sort"
+breaks = "RefusalReason.userHookedSort: a hooked sort of the user's text whose hook is no collection's, no library carrier's and no builtin token sort's is a sort the hook says is interpreted, by a domain the reader does not give it; read as a plain sort, its elements are the terms of the text's constructors only"
+row = 'E6 hook:KVAR.KVar:SortKVar'
+fixture = "e6-user-kvar-hook"
+expect = "killed"
+killed_by = "account: `1 refused userHookedSort [user]` gone, `1 read [user]` becomes `2` (e6-user-kvar-hook; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -6397,7 +6397,7 @@
+       else if isBuiltinSource s.attributes || ((attrStr? s.attributes "hook").bind collKind?).isSome ||
+         (placelessModule? (.hookedSort s)).isSome || (scanCarrier (.hookedSort s)).isSome ||
+         (ownTokenHookedSort? (.hookedSort s)).isSome then .read
+-      else .refused .userHookedSort
++      else .read
+   | .axiom a => classifyAxiom N a
+ 
+ /-- The names of no definition. With them `classify` gives each sentence its class but for the note
+'''
+
+[mutant."held-open-requires-as-right"]
+summary = "an open variable of a rule held in its conditions is not refused openRequires (the arm's condition false at every rule that has a variable): the refusal is classified by the next arm (openRight)"
+breaks = "RefusalReason.openRequires: a variable the left side does not bind, of a sort the text leaves unconfined (List), in a condition that also holds a bound variable (V ∈ List:set(…)): the condition's truth at given values differs between models of the text; openRight is the reason of such a variable in the right side or the ensures"
+row = "E6 hook:LIST.update:LblList'Coln'set"
+fixture = "e6-list-set-lhs"
+expect = "killed"
+killed_by = "account: the stage refusal `1 openRequires` becomes `1 openRight` (sentence 308) (e6-list-set-lhs; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -7227,7 +7227,7 @@
+   match r.opens.find? (fun i => !((heldOccs c r.rhs).contains i || conf i ||
+       (r.condVars.contains i && condApart))) with
+   | some i =>
+-    if r.condVars.contains i then
++    if r.condVars.contains i && r.vars.isEmpty then
+       some (.openRequires, if r.reqClosed then
+           let j := (r.condVars.find? rest.contains).getD i
+           s!"{what i}: in a closed condition that holds {what j}, which the right side, the ensures or post holds; of a sort the text leaves unconfined"
+'''
+
+[mutant."held-fn-in-clause-pattern"]
+summary = "a function applied in a function equation's argument patterns (List:set) is not refused functionInPattern (functionInPattern gives its rules' refusals only, clauseRs dropped)"
+breaks = "RefusalReason.functionInPattern: a clause's argument pattern denotes the values it matches; an application of the function LblList'Coln'set denotes the values the function takes at some arguments, and matching it needs what the function's inverse says, which no part of the semantics gives"
+row = "E6 hook:LIST.update:LblList'Coln'set"
+fixture = "hw-fn-arg-list-set"
+expect = "killed"
+killed_by = "account: `rules and clauses applying a function symbol in their left side: 1` becomes `0` (sentence 350, Lblh, gone) (hw-fn-arg-list-set; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Account.lean
++++ b/KcoreSpec/Account.lean
+@@ -680,7 +680,7 @@
+             | some (s, j) => (some (off + j), headOf s)
+             | none => (none, c.symName fn.label)
+           (⟨i, h, .functionInPattern, f⟩ : Refusal)
+-    ruleRs ++ clauseRs
++    ruleRs
+ 
+ /-! ## An open generator in a left side
+ 
+'''
+
+[mutant."held-sort-var-as-k"]
+summary = "a sort variable is read as the sort K (Names.sortE), not refused parametricSort: the text's sort-parametric hooked symbol pick{S} (KEQUAL.ite) is read as a parameter at K, and f's equation applying pick{Foo} is refused in its place"
+breaks = "RefusalReason.parametricSort: a sort variable names no sort of the definition; read as K, the declaration pick{S}(Bool, S, S) : S, one symbol at each sort S, is read as one parameter at Bool, K, K → K, which the text does not declare"
+row = 'E6 hook:KEQUAL.ite:Lblite'
+fixture = "rdr-ite-pick-hook"
+expect = "killed"
+killed_by = "account: the stage refusal `1 parametricSort` (sentence 100, Lblpick) becomes `parametricSymbol (Lblpick)` at sentence 257 (Lblf) (rdr-ite-pick-hook; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -1148,7 +1148,7 @@
+   | none => pure ()
+ /-- The number of the sort `s`, or why it has none. -/
+ def sortE (N : Names) (s : Kore.KSort) : Rd Srt := do
+-  N.srtE (← need (sortName? s) .parametricSort)
++  N.srtE ((sortName? s).getD "K")
+ end Names
+ 
+ /-- A sort's name, or why it has none. -/
+'''
+
+[mutant."held-own-ite-other-sort"]
+summary = "in a text declaring its own sort-parametric Lblite, an application of Lblite at a sort the definition does not have is not refused iteShape (the check's condition false at every text that declares Lblite): it is taken among K's ite instances, at a sort the definition does not have"
+breaks = "RefusalReason.iteShape (the module's): the text's Lblite is its own function; an application at a sort without a declaration of it has no number, and read as K's ite it is a function the text does not declare"
+row = 'E6 hook:KEQUAL.ite:Lblite'
+fixture = "rdr-ite-own-hooked-sort"
+expect = "killed"
+killed_by = "account: the module's refusal `iteShape (Lblite{Name})` becomes `unknownSort (Name)` (rdr-ite-own-hooked-sort; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -6968,7 +6968,7 @@
+   -- sort the definition does not have has no declaration and no number, and is refused, not read
+   -- as K's `ite`
+   let ownIte := S.paramDecls.any fun d => d.symbol.ident.ident.name == "Lblite" && d.symbol.sortVars.length == 1
+-  match (if ownIte then extra.find? (fun n => (iteSort? n).isSome && !clauseless.contains n) else none) with
++  match (if ownIte && S.paramDecls.isEmpty then extra.find? (fun n => (iteSort? n).isSome && !clauseless.contains n) else none) with
+   | some n => fail .iteShape n
+   | none => pure ()
+   let iteNames := extra.filter fun n => (iteSort? n).isSome && !clauseless.contains n
+'''
+
+[mutant."held-owise-priority-own"]
+summary = "an [owise] equation with priority(n), n other than 200, is not refused owisePriority"
+breaks = "RefusalReason.owisePriority (the [owise] equation's): the exclusion orders the [owise] equation after every other equation, priority(n) after those of a smaller priority only; with n other than 200 the two marks give different clauses"
+row = 'C3 equation priority x equation owise'
+fixture = "c3-eq-prio-owise-one"
+expect = "killed"
+killed_by = "account: the stage refusal `1 owisePriority` (sentence 348) gone, the text read (c3-eq-prio-owise-one; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -4241,7 +4241,7 @@
+       Rd.within (.attrs e.attrs) (fail .exclusionShape)
+     -- the exclusion orders the `[owise]` equation after every other one; priority 200 orders it
+     -- after the smaller priorities only, so it must have priority 200 and no other 200 or more
+-    unless (eqnPrio e).2 == 200 do
++    unless true || (eqnPrio e).2 == 200 do
+       Rd.within (.attrs e.attrs) (fail .owisePriority)
+   if !ows.isEmpty then
+     if let some e' := plain.find? (fun e' => 200 ≤ (eqnPrio e').2) then
+'''
+
+[mutant."held-owise-priority-sibling"]
+summary = "beside an [owise] equation, an equation of priority 200 or more is not refused owisePriority"
+breaks = "RefusalReason.owisePriority (the sibling's): the [owise] equation's exclusion orders it after every other equation, and its priority 200 orders it before the sibling of priority 250; the two orders give different values where both equations apply"
+row = 'C3 equation priority x equation owise'
+fixture = "c3-eq-owise-sib-prio250"
+expect = "killed"
+killed_by = "account: the stage refusal `1 owisePriority` (sentence 348) gone, the text read (c3-eq-owise-sib-prio250; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -4244,7 +4244,7 @@
+     unless (eqnPrio e).2 == 200 do
+       Rd.within (.attrs e.attrs) (fail .owisePriority)
+   if !ows.isEmpty then
+-    if let some e' := plain.find? (fun e' => 200 ≤ (eqnPrio e').2) then
++    if let some e' := plain.find? (fun e' => false && 200 ≤ (eqnPrio e').2) then
+       Rd.within (.attrs e'.attrs) (fail .owisePriority)
+   -- the second and later `[owise]` equations' exclusions, matched by content as the first's is
+   -- (`fnPairs`, checked by `clauseBody`): an `[owise]` equation's premise negates the other
+'''
+
+[mutant."held-rule-owise-priority-read"]
+summary = "a rewrite axiom carrying owise beside priority(40) is not refused ruleAttribute"
+breaks = "RefusalReason.ruleAttribute (ruleOwisePrioFault?): owise sets the rule's priority to 200 and priority to 40, two priorities that order the rule differently against a rule of a priority between them, and no sentence of the text chooses"
+row = 'C3 rule priority x rule owise'
+fixture = "c3-rule-prio-owise-one"
+expect = "killed"
+killed_by = "account: the stage refusal `1 ruleAttribute` (sentence 311) gone, the text read (c3-rule-prio-owise-one; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -4419,7 +4419,7 @@
+     rhsSortGuard r
+     let ens ← need (req? en) .ruleShape
+     if let some d := ruleAttrFault? a.attributes then fail .ruleAttribute d
+-    if let some d := ruleOwisePrioFault? a.attributes then fail .ruleAttribute d
++    if let some d := ruleOwisePrioFault? [] then fail .ruleAttribute d
+     -- `\top` and `\exists` in the left side as variables of the rule (`lhsBound`)
+     let (lhs, vs) ← term N [] (lhsBound a.pattern l)
+     -- a variable the left side does not bind (in the `requires`, the `ensures` or the right side)
+'''
+
+[mutant."held-rule-anywhere-inert"]
+summary = "anywhere on a rewrite axiom is inert: the axiom read as a rule at the top cell"
+breaks = "RefusalReason.ruleAttribute (attrVerdict, rule, anywhere): the key's meaning is the rule applied in every context of the configuration, which the axiom, one rewrite at the top cell, does not state"
+row = 'C3 anywhere rule x constructor'
+fixture = "hw-anywhere-rewrites"
+expect = "killed"
+killed_by = "account: the stage refusal `1 ruleAttribute` (sentence 308, ENS.go) gone, the text read (hw-anywhere-rewrites; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/ParseAttr.lean
++++ b/KcoreSpec/ParseAttr.lean
+@@ -430,7 +430,7 @@
+   | .rule, .colors | .rule, .format => .inert printedForm
+   | .rule, .symbol => .inert productionName
+   | .rule, .concat | .rule, .hasDomainValues | .rule, .symbolOverload => .refused .ruleAttribute declarationKey
+-  | .rule, .anywhere => .refused .ruleAttribute "the key's meaning is the rule applied in every context of the configuration, an equation's closure under contexts, which the axiom, one rewrite at the top cell, does not state; reading the axiom with the key dropped would assert its step without that meaning"
++  | .rule, .anywhere => .inert printedForm
+   | .rule, .comm => .inert "K gives comm on a rule no meaning (it is a production's attribute); the axiom states the rule"
+   | .rule, .label | .rule, .location | .rule, .source | .rule, .owise | .rule, .priority
+   | .rule, .uniqueId =>
+'''
+
+[mutant."held-open-generator-equation-read"]
+summary = "an equation of an open generator is not refused openGeneratorEquation (eqnHeadFault? none)"
+breaks = "RefusalReason.openGeneratorEquation: Lbland is an open generator (declared neither function nor constructor, its declaration refused openGenerator); an equation headed by it is a law between terms the generator builds, which no part of the semantics states and which is no clause of a function"
+row = 'C3 hook x equation'
+fixture = "hw-h2"
+expect = "killed"
+killed_by = "account: the stage refusal `1 openGeneratorEquation` (sentence 256, Lbland) gone, the text read (hw-h2; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -6660,7 +6660,7 @@
+       some (.constructorEquation, s!"{e.fn}: a constructor; right side headed by {right}")
+     else if S.refused.any (fun (r, n) => r == .openGenerator && n == e.fn) ||
+         S.userSyms.any (fun s => isOpenGenerator s && s.symbol.ident.ident.name == e.fn) then
+-      some (.openGeneratorEquation, s!"{e.fn}: an open generator")
++      none
+     else none
+ 
+ /-- Every equation `eqnHeadFault?` refuses, as a stage's failure at the equation. -/
+'''
+
+[mutant."held-hook-equation-read"]
+summary = "an equation of a hooked symbol of the text declared without a hook attribute is not refused hookEquation"
+breaks = "RefusalReason.hookEquation: Lblplus is a hooked symbol of the text declared without a hook attribute, so the text names no hook whose value the equation would state (regLemmaEqn does not hold), and the reader reads the equation neither as a clause nor as a user's sentence about values a registry gives"
+row = 'C3 hook x equation'
+fixture = "hw-hook-eq-nohook"
+expect = "killed"
+killed_by = "account: the stage refusal `1 hookEquation` (sentence 387) becomes `1 hookAttribute` (sentence 125, the declaration of Lblplus) (hw-hook-eq-nohook; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -6648,7 +6648,7 @@
+       (RefusalReason.hookEquation, s!"{e.fn}: {inst}a hooked symbol of the text, " ++
+         if (attrStr? h.attributes "hook").isNone then "without a hook attribute"
+         else s!"hook {hk}, an equation without a user source")
+-    if hooked.isSome then hooked
++    if false && hooked.isSome then hooked
+     else if isCtor e.fn then
+       let right := match e.rhs with
+         | .app h _ _ =>
+'''
+
+[mutant."held-overload-confusion-refused"]
+summary = "a distinctness axiom of two symbols whose overload closures meet is not recognized (ovlConfused false): it is an inert sentence Γ does not state (inertMismatch), and the account's overloadConfusion count is 0"
+breaks = "UnreadReason.overloadConfusion: ¬(sumEE(X0, X1) ∧ sumEI(Y0, Y1)) is the distinctness of two symbols whose overload closures meet; beside the overload axiom sumEE(E, inj(I)) = sumEI(E, I), which identifies the two applications at sumEI's arguments, it holds only where those sorts have no element, so it is stated by the text and not read (what remains of it is the distinctness at uncovered arguments, KoreAML.Cons.distUncItem)"
+row = 'C3 anywhere rule x constructor'
+fixture = "c3-anywhere-ctor"
+expect = "killed"
+killed_by = "account: `distinctness axioms an overload contradicts, stated by the text and not read (overloadConfusion): 1` gone, `inert constructor axioms not induced by the constructors: 0` becomes `1` (sentence 263, inertMismatch) (c3-anywhere-ctor; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Account.lean
++++ b/KcoreSpec/Account.lean
+@@ -1231,7 +1231,7 @@
+ /-- A distinctness axiom `¬(f(X̄) ∧ g(Ȳ))` of two symbols of `c` whose overload closures meet
+ (`UnreadReason.overloadConfusion`). -/
+ def ovlConfused (c : Semantics) (a : Kore.Axiom) : Bool :=
+-  !c.ovls.isEmpty && match a.pattern with
++  false && !c.ovls.isEmpty && match a.pattern with
+     | .not _ (.and _ [.app f [] _, .app g [] _]) => match symOfName c f.ident.name, symOfName c g.ident.name with
+       | some f', some g' => ovlMeet c f' g'
+       | _, _ => false
+'''
