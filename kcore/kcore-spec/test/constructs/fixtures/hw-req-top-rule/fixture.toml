@@ -1,0 +1,6 @@
+# Hand-written KORE: the kompiled text of fixture e7-implicitk (rule a() => b()), as hw-ens-top-rule writes it, with its ensures at the
+# rewrite's sort, and one sentence changed: the rewrite axiom's requires \top{SortGeneratedTopCell{}}() written \top{SortExp{}}(), an operand of
+# \and{SortGeneratedTopCell{}}(<the left side>, _) of another sort than the conjunction's. The conjunction is the left operand of
+# \rewrites{SortGeneratedTopCell{}} and the KORE syntax document gives each argument of a connective the connective's sort parameter
+# (kore-syntax.md:195, :330); kompile writes the requires at the rewrite's sort and writes none of this. Expected: rhsOperandSort.
+kore = "test/constructs/fixtures/hw-req-top-rule/hw-req-top-rule.kore"

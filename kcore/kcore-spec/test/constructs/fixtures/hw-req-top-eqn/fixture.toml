@@ -1,0 +1,6 @@
+# Hand-written KORE: the kompiled text of fixture hw-base (K 7.1.337, sha256 f7b0b1ea8582afef5915bc78f2d34d936b8701180b90fbb1cb66675f9240c68c), the Source of its own
+# sentences written as its fixture's path, and one sentence changed: f's equation f(X) = a(X), its requires \top{R}() written \top{SortInt{}}(),
+# an operand of the premise's conjunction \and{R}(_, <the arguments>) of another sort than the conjunction's. The premise is the left operand of
+# \implies{R} and so of sort R, and the KORE syntax document gives each argument of a connective the connective's sort parameter
+# (kore-syntax.md:195, :330); kompile writes the requires at R and writes none of this. Expected: rhsOperandSort.
+kore = "test/constructs/fixtures/hw-req-top-eqn/hw-req-top-eqn.kore"

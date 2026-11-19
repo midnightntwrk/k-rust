@@ -34,6 +34,10 @@
     `\equals{S1,s}` with an operand of another sort than S1, among them the B of a lifted conjunct
     `\equals{SortBool{},s}(B, \dv{SortBool{}}("true"))`. Refused by `clauseBody`, `ruleBodyRead`
     and `frRead`; their twins are read.
+  - The conjunction of the right side with its `ensures` (`ensRule`, `ensEqn`) and of the left
+    side or the arguments with the `requires` (`reqRule`, `reqEqn`, `reqOwise`), of another sort
+    than the axiom gives it or with an operand of another sort: faults (`bodyConjFault?`,
+    `reqConjFault?`), refused `rhsOperandSort` by `classifyAxiom`; their twins have no fault.
   Kernel-checked (`decide +kernel`): the reasons, `rhsSorted` on each side, and that a read
   clause's, `frRead`'s, `exRead`'s, `ceRead`'s or `ruleBodyAnd`'s right side is `rhsSorted`
   (`clauseBody_rhsSorted`, `frRead_rhsSorted`, `exRead_rhsSorted`, `ceRead_rhsSorted`,
@@ -589,6 +593,75 @@ theorem ensConj_hand :
     classifyShape (.axiom (ensRule (srt "Int") (.top (srt "Int")))) ≠ .refused .rhsOperandSort := by
   decide +kernel
 
+/-! ## The conjunction of the left side or the arguments with the `requires`: `reqConjFault?`
+
+kompile writes a rewrite axiom's left side l with its `requires` req as `\and{s}(l, req)`, the left
+operand of `\rewrites{s}`, and an equation's `requires` with its arguments' memberships as
+`\and{R}(req, args)`, the premise of `\implies{R}`; each operand of `\and{s}` is of the sort s
+(kore-syntax.md:195, 330). The readers take req (`req?`) without its sort, so the conjunction is
+checked on the axiom (`reqConjFault?`), and `classifyAxiom` refuses such an equation or rewrite
+axiom `rhsOperandSort`.
+- `reqRule Int (\top{SortFoo})`, `reqRule Int (\equals{SortBool,SortFoo}(X >Int 0, true))`: the
+  requires of another sort than its conjunction's; `reqRule Foo (\top{SortFoo})`: the conjunction
+  of another sort than the rewrite's. Refused; the twins at Int have no fault.
+- `reqEqn Int (\top{SortFoo})`: an equation's requires of another sort than the premise's
+  conjunction; `reqEqn Foo (\top{SortFoo})`: the conjunction of another sort than the `\implies`;
+  `reqOwise`: the same requires in an `[owise]` equation's premise. Refused; the twins at Int have
+  no fault. -/
+
+def reqRule (s : Kore.KSort) (rq : Kore.Pattern) : Kore.Axiom :=
+  ⟨[], .rewrites (srt "Int") (.and s [X, rq]) (.and (srt "Int") [X, .top (srt "Int")]), [uid, loc]⟩
+
+def X0 : Kore.Pattern := ev "X0" (srt "Int")
+def argsX : Kore.Pattern := .and (srt "Int") [.in (srt "Int") (srt "Int") X0 X, .top (srt "Int")]
+def eqnConcl : Kore.Pattern :=
+  .equals (srt "Int") (srt "Int") (ap "Lblf" [X0]) (.and (srt "Int") [gX, .top (srt "Int")])
+
+def reqEqn (s : Kore.KSort) (rq : Kore.Pattern) : Kore.Axiom :=
+  ⟨[], .implies (srt "Int") (.and s [rq, argsX]) eqnConcl, [uid]⟩
+
+def reqOwise (rq : Kore.Pattern) : Kore.Axiom :=
+  ⟨[], .implies (srt "Int") (.and (srt "Int") [.not (srt "Int") (.bottom (srt "Int")), .and (srt "Int") [rq, argsX]])
+    eqnConcl, [uid]⟩
+
+/--
+info: some "\\and{SortInt{}}: an operand \\top of sort SortFoo{}, the requires"
+some "\\and{SortInt{}}: an operand \\equals of sort SortFoo{}, the requires"
+some "\\rewrites{SortInt{}}: an operand \\and of sort SortFoo{}, the conjunction of the left side with its requires"
+some "\\and{SortInt{}}: an operand \\top of sort SortFoo{}, the requires"
+some "\\implies{SortInt{}}: an operand \\and of sort SortFoo{}, the conjunction of the requires with the arguments"
+some "\\and{SortInt{}}: an operand \\top of sort SortFoo{}, the requires"
+-/
+#guard_msgs in
+#eval show IO Unit from do
+  IO.println (repr (reqConjFault? (reqRule (srt "Int") (.top (srt "Foo")))))
+  IO.println (repr (reqConjFault? (reqRule (srt "Int") (isTrueAt (srt "Foo") gt0))))
+  IO.println (repr (reqConjFault? (reqRule (srt "Foo") (.top (srt "Foo")))))
+  IO.println (repr (reqConjFault? (reqEqn (srt "Int") (.top (srt "Foo")))))
+  IO.println (repr (reqConjFault? (reqEqn (srt "Foo") (.top (srt "Foo")))))
+  IO.println (repr (reqConjFault? (reqOwise (.top (srt "Foo")))))
+
+/-- The ill-sorted conjunctions are faults and the axioms holding them are refused
+`rhsOperandSort` by `classifyAxiom`; their twins are not. -/
+theorem reqConj_hand :
+    (reqConjFault? (reqRule (srt "Int") (.top (srt "Foo")))).isSome ∧
+    (reqConjFault? (reqRule (srt "Int") (isTrueAt (srt "Foo") gt0))).isSome ∧
+    (reqConjFault? (reqRule (srt "Foo") (.top (srt "Foo")))).isSome ∧
+    (reqConjFault? (reqEqn (srt "Int") (.top (srt "Foo")))).isSome ∧
+    (reqConjFault? (reqEqn (srt "Foo") (.top (srt "Foo")))).isSome ∧
+    (reqConjFault? (reqOwise (.top (srt "Foo")))).isSome ∧
+    reqConjFault? (reqRule (srt "Int") (.top (srt "Int"))) = none ∧
+    reqConjFault? (reqRule (srt "Int") (isTrueAt (srt "Int") gt0)) = none ∧
+    reqConjFault? (reqEqn (srt "Int") (.top (srt "Int"))) = none ∧
+    reqConjFault? (reqEqn (srt "Int") (isTrueAt (srt "Int") gt0)) = none ∧
+    reqConjFault? (reqOwise (.top (srt "Int"))) = none ∧
+    classifyShape (.axiom (reqRule (srt "Int") (.top (srt "Foo")))) = .refused .rhsOperandSort ∧
+    classifyShape (.axiom (reqRule (srt "Foo") (.top (srt "Foo")))) = .refused .rhsOperandSort ∧
+    classifyShape (.axiom (reqEqn (srt "Int") (.top (srt "Foo")))) = .refused .rhsOperandSort ∧
+    classifyShape (.axiom (reqRule (srt "Int") (.top (srt "Int")))) ≠ .refused .rhsOperandSort ∧
+    classifyShape (.axiom (reqEqn (srt "Int") (.top (srt "Int")))) ≠ .refused .rhsOperandSort := by
+  decide +kernel
+
 end RhsSortCheck
 
 /-- info: 'RhsSortCheck.refused_hand' depends on axioms: [propext, Classical.choice, Quot.sound] -/
@@ -613,3 +686,5 @@ end RhsSortCheck
 #guard_msgs in #print axioms RhsSortCheck.ensConj_hand
 /-- info: 'KCore.Parse.clauseBody_rhsSorted' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms clauseBody_rhsSorted
+/-- info: 'RhsSortCheck.reqConj_hand' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RhsSortCheck.reqConj_hand

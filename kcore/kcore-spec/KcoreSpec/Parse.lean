@@ -416,7 +416,10 @@ inductive RefusalReason where
   (`eqnBinderSortGuard`) with T not s; or a conjunction `\and{s}(rhs, ens)` of the right side
   with its `ensures` (under a rewrite axiom's `\exists` binders) of another sort than the
   sentence's, or whose `ensures` ens, or rhs at its head, is not of the sort s (`bodyConjFault?`,
-  refused by `classifyAxiom`).
+  refused by `classifyAxiom`); or the conjunction `\and{s}(l, req)` of a rewrite axiom's left side
+  with its `requires`, or `\and{s}(req, args)` of an equation's `requires` with its arguments'
+  memberships, of another sort than the axiom's, or whose `requires` req, or l or args at its
+  head, is not of the sort s (`reqConjFault?`, refused by `classifyAxiom`).
   In a valid KORE pattern the sort of each
   argument of a connective is the connective's sort parameter (kore-syntax.md:330: "In any
   matching logic pattern, the sort of pattern arguments agrees with the specified argument sort
@@ -5768,6 +5771,44 @@ def bodyConjFault? (a : Kore.Axiom) : Option String :=
   | .rewrites S _ rx => atSort S s!"\\rewrites\{{Kore.Printer.sort S}}" (peelExists rx).2
   | _ => none
 
+/-- The conjunction of a rewrite axiom's left side with its `requires`
+(`\rewrites{S}(\and{s}(l, req), _)`), or of an equation's `requires` with its arguments'
+memberships (`\implies{R}(\and{s}(req, args), \equals{…}(f(…), _))`; in an `[owise]` equation the
+second operand of `\and{s}(\not{s'}(_), _)`), where it is not of the sorts KORE gives it, named: the
+left operand of `\rewrites{S}` is of its sort S and the premise of `\implies{R}` of its sort R, and
+each operand of `\and{s}` and of `\not{s}` is of the sort s (kore-syntax.md:195, 330). Of l, args,
+the exclusion and its negation their heads are looked at (`rhsOpFault?`); of req all `rhsOpSort`
+reads (its head, and the operands of `\equals{SortBool{},s}(C, \dv{SortBool{}}("true"))` at Bool).
+kompile writes the conjunction at the axiom's sort, with `\top{s}()` or that `\equals` as req;
+another form is no valid KORE axiom, refused `rhsOperandSort` by `classifyAxiom`. `none` for an
+axiom of neither form. -/
+def reqConjFault? (a : Kore.Axiom) : Option String :=
+  let reqAt := fun (s : Kore.KSort) (req : Kore.Pattern) =>
+    if rhsOpSort s req then none else
+      some s!"{(rhsSortFault? (.and s [req])).getD (rhsHead2 "\\and" s s)}, the requires"
+  let argsConj := fun (b : Kore.Pattern) => match b with
+    | .and s [req, args] =>
+      ((rhsOpFault? "\\and" s [args]).map (s!"{·}, the arguments' memberships")).orElse fun _ =>
+        reqAt s req
+    | _ => none
+  match a.pattern with
+  | .rewrites S (.and s [l, req]) _ =>
+    ((rhsOpFaultAt? s!"\\rewrites\{{Kore.Printer.sort S}}" S [.and s [l, req]]).map
+        (s!"{·}, the conjunction of the left side with its requires")).orElse fun _ =>
+      ((rhsOpFault? "\\and" s [l]).map (s!"{·}, the left side")).orElse fun _ => reqAt s req
+  | .implies R prem (.equals _ _ (.app ..) _) =>
+    let outer := s!"\\implies\{{Kore.Printer.sort R}}"
+    match prem with
+    | .and s [.not s' ds, inner] =>
+      ((rhsOpFaultAt? outer R [prem]).map (s!"{·}, the premise")).orElse fun _ =>
+        ((rhsOpFault? "\\and" s [.not s' ds, inner]).map (s!"{·}, the premise")).orElse fun _ =>
+          ((rhsOpFault? "\\not" s' [ds]).map (s!"{·}, the exclusion")).orElse fun _ => argsConj inner
+    | .and _ [_, _] =>
+      ((rhsOpFaultAt? outer R [prem]).map (s!"{·}, the conjunction of the requires with the arguments")).orElse
+        fun _ => argsConj prem
+    | _ => none
+  | _ => none
+
 def classifyAxiom (N : Names) (a : Kore.Axiom) : SentenceClass :=
   let s := Kore.Sentence.axiom a
   if (sortAboveKOf? a).isSome then .refused .sortAboveK
@@ -5788,8 +5829,11 @@ def classifyAxiom (N : Names) (a : Kore.Axiom) : SentenceClass :=
       | .rewrites _ (.and _ [l, _]) _ => vacuous l
       | _ => false) then .inert .vacuousLeft
   -- the conjunction of an equation's or a rewrite axiom's right side with its `ensures`, of another
-  -- sort than KORE gives it or with an operand of another sort (`bodyConjFault?`)
-  else if (bodyConjFault? a).isSome && ((scanRewrite s).isSome || (scanEqn s).isSome) then
+  -- sort than KORE gives it or with an operand of another sort (`bodyConjFault?`), and likewise
+  -- the conjunction of a rewrite axiom's left side or an equation's arguments with the `requires`
+  -- (`reqConjFault?`)
+  else if ((bodyConjFault? a).isSome || (reqConjFault? a).isSome) &&
+      ((scanRewrite s).isSome || (scanEqn s).isSome) then
     .refused .rhsOperandSort
   else if (scanRewrite s).isSome || (scanEqn s).isSome then
     match connNote? N a with
@@ -7710,7 +7754,7 @@ generator (`openGenerator`, `isOpenGenerator`), the law axioms `m` states of the
 writes none for `comm`);
 for a set variable on an equation's left side (`setVariable`, `lhsSetVar?`), the variable, the
 function and why; for the conjunction of a right side with its `ensures` (`rhsOperandSort`,
-`bodyConjFault?`), the operand of another sort; for an attribute of a declaration (`symAttrFault?`, also an `openGenerator`
+`bodyConjFault?`, `reqConjFault?`), the operand of another sort; for an attribute of a declaration (`symAttrFault?`, also an `openGenerator`
 refusal of a symbol that is no open generator) or of a claim (`attrFault?`), the attribute and
 why; "" for the other reasons. -/
 def classDetail (m : Kore.Module) (s : Kore.Sentence) (r : RefusalReason) : String :=
@@ -7738,7 +7782,7 @@ def classDetail (m : Kore.Module) (s : Kore.Sentence) (r : RefusalReason) : Stri
         {f} at every set's elements, at a set of two elements a, b only that {f}(a, b) is the right \
         side or undefined; no clause states that"
     | none => ""
-  | .rhsOperandSort, .axiom a => (bodyConjFault? a).getD ""
+  | .rhsOperandSort, .axiom a => ((bodyConjFault? a).orElse fun _ => reqConjFault? a).getD ""
   | .sortAboveK, .axiom a => match sortAboveKOf? a with
     | some b => s!"{b}: the axiom states K < {b}, inj\{K, {b}} total"
     | none => ""
