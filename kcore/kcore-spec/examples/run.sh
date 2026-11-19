@@ -84,5 +84,5 @@ if on ref-kimp; then gen f2-examples/ref-kimp.kore ref-kimp RefKimp --wf
 # the other mirrors' embeddings with emb's inversion (User.EmbKit)
 if on ref-kk; then gen examples/ref-kk/RefKk/definition.kore ref-kk RefKk --core
   step gen/build.sh examples/ref-kk User.Coherent User.EvalInversion User.FnSolves User.PrioDecided User.CoDefined User.Consistent \
-    User.KkKit User.KkFacts User.KkCascade User.SpikeBase User.SpikeHand User.SpikeCascade User.Emb User.Sig User.EmbKit; fi
+    User.KkKit User.KkFacts User.KkCascade User.SpikeBase User.SpikeHand User.SpikeCascade User.Emb User.Sig User.EmbKit User.HelpTerms; fi
 echo "all built"
