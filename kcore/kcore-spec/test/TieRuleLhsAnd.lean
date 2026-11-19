@@ -15,6 +15,21 @@
     `K[t ∧ P] ∧ ⊤`, the two predicates being one truth value at their sorts (`interp_sCeil`:
     go(X) has an element; `interp_sEquals`: X and 1 have the same elements of Int). `at_rule`:
     Γ's left side is the text's left side and `⌈R⌉`.
+    The sentence (157 of each user module, `U.ax157`), for every H: Γ's axiom `p0` is
+    `\rewrites(Lg, R)`, `Lg` := `K[t] ∧ ⊤ ∧ P' ∧ ⌈R⌉` (`p0_parts`), and the sentence is the item of
+    `\rewrites(left, R)` at `p0`'s table (`rule_text0`, kernel). `left_iff`: `K[t] ∧ ⊤ ∧ P'` is `left`
+    at that table in a model of the signature, at a valuation where every element of t is in KItem
+    (and, `Ceil`, every element of go(X) in Exp): `and_pred_inTop`, `rule_and_pred`'s statement with
+    the top cell's sort read from the `requires` `\top`; the sorts denote sorts by `ΓSig`
+    (`TieRuleConnText.sort_sig`). `terms_in`: in a model of Γ, where X's guard holds, the
+    inclusions hold (`condTerm_inh`: go's result sort from the signature, the injection's from its
+    constructor item). `rule_w2` (W2): in a model of Γ the sentence holds where `⌈R⌉` holds wherever
+    the text's left side holds (under the guards). `rule_from_text_in` (W1, under the inclusions):
+    in a model of the sentence and `ΓSig` in which the inclusions hold under the guards, Γ's rule
+    item holds. The inclusions are premises there: they are not derived from `ΓSig` here
+    (`condTerm_inh` reads the injection's result sort from Γ's constructor item), and at an element
+    of `inj{Exp,KItem}(go(X))` outside KItem, which is not one of `t ∧ P`, P a predicate at KItem,
+    the sentence's left side is smaller than Γ's.
   - `Var` (e3-ml-rule-lhs-and, `c(X #And d(_, b())) => X`, f2-examples/mllhsandv): the rule with
     the position holding `d(G, b()) #as X` (`read`), whose pattern is `\and{Exp}(d(G, b()), X)`.
     `left_eq`: Γ's axiom is `\rewrites(K[d(G, b()) ∧ X] ∧ ⊤ ∧ ⌈R⌉, R)`. `left_text`, `left_tie`:
@@ -28,13 +43,12 @@
   - Γ's axiom and the text's sentence have the same right side and no variable of Γ's left side is
     bound beyond the rule's own, so Γ's axiom `∀x̄. (L' ∧ ⌈R⌉ → •R)` is the text's
     `∀x̄. (L → •R)` with the premise `⌈R⌉` every rule's axiom carries (`Var`: `rule_from_text`,
-    `rule_w2`; `Ceil`, `Equals`: argued from `at_rule`, no statement at the level of the sentences'
-    validity is written here).
+    `rule_w2`; `Ceil`, `Equals`: `rule_from_text_in`, `rule_w2`).
   - The theorems hold at any table and leave as premises what `rule_and_pred` lists of the table
     and the interpretation: definedness, the sorts' patterns, every element of t in KItem, every
-    element of `K[t]` in the top cell's sort, and (Ceil) every element of go(X) in Exp. Nothing here
-    relates the table of Γ's axiom to the table of the text's sentence beyond `left_tie`'s renaming
-    and `Var`'s `rule_text0`.
+    element of `K[t]` in the top cell's sort, and (Ceil) every element of go(X) in Exp. The
+    statements on the sentences (`rule_text0`, `left_iff`, `rule_from_text`, `rule_from_text_in`,
+    `rule_w2`) are at the table of Γ's axiom.
 -/
 import KcoreSpec
 
@@ -87,6 +101,26 @@ theorem and_pred_reassoc {M : Type} {I : Interpretation KoreAML.Sym M} (ctx : Ct
   rw [e3, interp_sAnd] at h
   rw [e1, e2, interp_sAnd, interp_sAnd, interp_sAnd, h]
   exact ⟨fun ⟨h1, h2, h3⟩ => ⟨⟨h1, h3⟩, h2⟩, fun ⟨⟨h1, h3⟩, h2⟩ => ⟨h1, h2, h3⟩⟩
+
+/-- **A predicate conjoined at a position under applications, the outer sort read from E**:
+`K[t] ∧ E ∧ P'` is `K[t ∧ P] ∧ E`, where P is p at every element of the sort σ and P' is p at every
+element of the sort σ', every element of t is in σ and every element of E is in σ'. -/
+theorem and_pred_inTop {M : Type} {I : Interpretation KoreAML.Sym M} (ctx : Ctx) (K : KoreCutCtx)
+    (hK : K.noAlias ctx = true) (S C : Kore.KSort) (t P P' E : Kore.Pattern) (e : Valuation M) {σ σ' : M}
+    (p : Prop)
+    (hP : ∀ a, Inh I σ a → ((tr ctx P).interpret I e a ↔ p))
+    (hP' : ∀ m, Inh I σ' m → ((tr ctx P').interpret I e m ↔ p))
+    (hin : ∀ a, (tr ctx t).interpret I e a → Inh I σ a)
+    (hEin : ∀ m, (tr ctx E).interpret I e m → Inh I σ' m) (m : M) :
+    (tr ctx (.and C [K.fill t, E, P'])).interpret I e m ↔
+      (tr ctx (.and C [K.fill (.and S [t, P]), E])).interpret I e m := by
+  have e1 : tr ctx (.and C [K.fill t, E, P']) = sAnd (tr ctx (K.fill t)) (sAnd (tr ctx E) (tr ctx P')) := rfl
+  have e2 : tr ctx (.and C [K.fill (.and S [t, P]), E]) = sAnd (tr ctx (K.fill (.and S [t, P]))) (tr ctx E) := rfl
+  have hl : tr ctx (.and S [t, P]) = sAnd (tr ctx t) (tr ctx P) := by simp only [tr, trAndList]
+  rw [e1, e2, interp_sAnd, interp_sAnd, interp_sAnd, tr_cutCtx ctx (.and S [t, P]) K hK, hl,
+    cutCtx_fill_and_pred (fun a ha => hP a (hin a ha)) (K.toCut ctx) m, ← tr_cutCtx ctx t K hK]
+  exact ⟨fun ⟨h1, h2, h3⟩ => ⟨⟨h1, (hP' m (hEin m h2)).mp h3⟩, h2⟩,
+    fun ⟨⟨h1, hp⟩, h2⟩ => ⟨h1, h2, (hP' m (hEin m h2)).mpr hp⟩⟩
 
 namespace Ceil
 
@@ -183,6 +217,196 @@ theorem at_rule {M : Type} {I : Interpretation KoreAML.Sym M} [Inhabited M] (hD 
       (tr ⟨tbl, []⟩ left).interpret I e m ∧ (tr ⟨tbl, []⟩ (.ceil topC topC R)).interpret I e m := by
   rw [and4_iff, tie hD hc tbl e hX hK hC hσx hσk hσ' hgo hin hout m]
 
+/-! ## The rule's sentence (157), for every H: W1 under the term's sort, and W2 -/
+
+user_axioms U from "f2-examples/mllhsceil.kompile.kore" module "E3-ML-RULE-LHS-CEIL-CTOR"
+
+noncomputable abbrev cH (H : HookParams) : Semantics := c.withHooks H
+
+/-- `tr s`: the item `Theory.ofDefinition kore` holds for the sentence. -/
+noncomputable def trS (ad : AxiomDecl) : Item := trAxiom kore.symbolDecls kore.aliasNames ad
+
+theorem coreOK : c.coreOK = true := by decide_cheap
+theorem coreOKH (H : HookParams) : (cH H).coreOK = true := (Semantics.coreOK_withHooks c H).trans coreOK
+
+/-- Γ's axiom of the rule. -/
+noncomputable def p0 : Kore.Pattern := prioRuleK c rz
+
+theorem ruleItems_eq : ruleItems c = [trAxiom [] [] ⟨0, "kernel", ⟨[], p0, []⟩⟩] := by kernel_rfl
+
+/-- Γ's left side: `K[t] ∧ ⊤ ∧ P' ∧ ⌈R⌉`. -/
+def Lg : Kore.Pattern := .and topC [K.fill t, E, P', .ceil topC topC R]
+
+theorem p0_parts : TieRuleLhs.rwParts p0 = some (topC, Lg, R) := by decide +kernel
+
+/-- The free variables of the text's form. -/
+def fT : List VarKey := (freeOf [] (.rewrites topC left R)).eraseDups
+
+/-- **The text's sentence 157 is the item of `\rewrites{C}(left, R)` at the table of Γ's axiom**
+(kernel). -/
+theorem rule_text0 : TiePair.renSeq (TieRuleLhs.itemAt (tableOf [] p0) fT topC left R) [] =
+    some (trS U.ax157).pat := by
+  decide +kernel
+theorem fT_free0 : fT.all (fun k => (freeOf [] p0).eraseDups.contains k) = true := by decide +kernel
+theorem free_sub0 : ∀ k ∈ (freeOf [] p0).eraseDups, k ∈ fT := by decide +kernel
+theorem x_free0 : VarKey.evar "VarV0" (srt "Int") ∈ fT := by decide +kernel
+
+/-- The terms as the reading's terms: `go(X)` and `inj{Exp,KItem}(go(X))` over the rule's variables. -/
+theorem terms_kore : Term.kore c (canonVars c rz.vars) (.app 386 [.var 0]) = goX ∧
+    Term.kore c (canonVars c rz.vars) (.inj 32 Srt.kitem (.app 386 [.var 0])) = t ∧
+    sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) rz.vars (.app 386 [.var 0]) = some 32 ∧
+    sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) rz.vars (.inj 32 Srt.kitem (.app 386 [.var 0])) = some Srt.kitem ∧
+    canonKey c rz.vars 0 = .evar "VarV0" (srt "Int") := by
+  decide +kernel
+
+/-- The two terms' patterns do not read the interpretation of the hooks. -/
+theorem terms_koreF :
+    (fun H : HookParams => (Term.kore (c.withHooks H) (canonVars (c.withHooks H) rz.vars) (.app 386 [.var 0]),
+      Term.kore (c.withHooks H) (canonVars (c.withHooks H) rz.vars) (.inj 32 Srt.kitem (.app 386 [.var 0])))) =
+    fun _ => (Term.kore c (canonVars c rz.vars) (.app 386 [.var 0]),
+      Term.kore c (canonVars c rz.vars) (.inj 32 Srt.kitem (.app 386 [.var 0]))) := by
+  kernel_rfl
+
+theorem terms_koreH (H : HookParams) :
+    Term.kore (cH H) (canonVars (cH H) rz.vars) (.app 386 [.var 0]) =
+      Term.kore c (canonVars c rz.vars) (.app 386 [.var 0]) ∧
+    Term.kore (cH H) (canonVars (cH H) rz.vars) (.inj 32 Srt.kitem (.app 386 [.var 0])) =
+      Term.kore c (canonVars c rz.vars) (.inj 32 Srt.kitem (.app 386 [.var 0])) :=
+  ⟨congrArg Prod.fst (congrFun terms_koreF H), congrArg Prod.snd (congrFun terms_koreF H)⟩
+
+/-- **Γ's left side without `⌈R⌉` is the text's left side**, at the table of Γ's axiom, in a model
+of the signature, at a valuation where every element of `go(X)` is in Exp and every element of the
+term at the position in KItem: `and_pred_inTop`, the outer sort read from the `requires` `\top`. -/
+theorem left_iff (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hD : DefOK I)
+    (hSig : I ⊧ᴵP ΓSig (cH H)) (e : Valuation M)
+    (hgo : ∀ a, (tr ⟨tableOf [] p0, []⟩ goX).interpret I e a →
+      (inhOf (trSort (tableOf [] p0) (srt "Exp"))).interpret I e a)
+    (hin : ∀ a, (tr ⟨tableOf [] p0, []⟩ t).interpret I e a →
+      (inhOf (trSort (tableOf [] p0) kitemS)).interpret I e a) (m : M) :
+    (tr ⟨tableOf [] p0, []⟩ (.and topC [K.fill t, E, P'])).interpret I e m ↔
+      (tr ⟨tableOf [] p0, []⟩ left).interpret I e m := by
+  haveI : OvlOK (cH H) := ovlOK_of_core (coreOKH H)
+  have hc : I ⊧ᴵ ceilDefItem.pat := hSig _ (Or.inl (Or.inl ⟨_, sig_ceilDef (c := cH H), rfl⟩))
+  obtain ⟨σx, hσx, hX, -⟩ := TieRuleConnText.sort_sig hD hSig (s := 32)
+    (by decide +kernel : (32 : Srt) < nRegSorts + c.sortNames.length)
+    (show (cH H).sortName 32 = "Exp" from (by decide +kernel : c.sortName 32 = "Exp"))
+  obtain ⟨σk, hσk, hK, -⟩ := TieRuleConnText.sort_sig hD hSig (s := Srt.kitem)
+    (by decide +kernel : Srt.kitem < nRegSorts + c.sortNames.length)
+    (show (cH H).sortName Srt.kitem = "KItem" from (by decide +kernel : c.sortName Srt.kitem = "KItem"))
+  obtain ⟨σ', hσ', hC, -⟩ := TieRuleConnText.sort_sig hD hSig (s := topCellSort)
+    (by decide +kernel : topCellSort < nRegSorts + c.sortNames.length)
+    (show (cH H).sortName topCellSort = "GeneratedTopCell" from
+      (by decide +kernel : c.sortName topCellSort = "GeneratedTopCell"))
+  have hK' : ∀ a, (trSort (tableOf [] p0) kitemS).interpret I e a ↔ a = σk := hK _ e
+  have hC' : ∀ a, (trSort (tableOf [] p0) topC).interpret I e a ↔ a = σ' := hC _ e
+  have hgo' : ∀ a, (tr ⟨tableOf [] p0, []⟩ goX).interpret I e a → Inh I σx a :=
+    fun a ha => (interp_inhOf_of (hX _ e)).mp (hgo a ha)
+  have hin' : ∀ a, (tr ⟨tableOf [] p0, []⟩ t).interpret I e a → Inh I σk a :=
+    fun a ha => (interp_inhOf_of (hK _ e)).mp (hin a ha)
+  have hP : ∀ a, Inh I σk a → ((tr ⟨tableOf [] p0, []⟩ P).interpret I e a ↔
+      ∃ b, (tr ⟨tableOf [] p0, []⟩ goX).interpret I e b) :=
+    fun a ha => by
+      show (sCeil (trSort (tableOf [] p0) (srt "Exp")) (trSort (tableOf [] p0) kitemS)
+        (tr ⟨tableOf [] p0, []⟩ goX)).interpret I e a ↔ _
+      rw [interp_sCeil hD hc (hX _ e) hK' hσx hσk hgo' a]
+      exact ⟨fun h => h.1, fun h => ⟨h, ha⟩⟩
+  have hP' : ∀ m, Inh I σ' m → ((tr ⟨tableOf [] p0, []⟩ P').interpret I e m ↔
+      ∃ b, (tr ⟨tableOf [] p0, []⟩ goX).interpret I e b) :=
+    fun m hm => by
+      show (sCeil (trSort (tableOf [] p0) (srt "Exp")) (trSort (tableOf [] p0) topC)
+        (tr ⟨tableOf [] p0, []⟩ goX)).interpret I e m ↔ _
+      rw [interp_sCeil hD hc (hX _ e) hC' hσx hσ' hgo' m]
+      exact ⟨fun h => h.1, fun h => ⟨h, hm⟩⟩
+  exact and_pred_inTop ⟨tableOf [] p0, []⟩ K rfl kitemS topC t P P' E e _ hP hP' hin'
+    (fun m hm => TieRuleConnText.top_inh hD (hC _ e) m hm) m
+
+/-- **In a model of Γ, where X's guard holds**, every element of `go(X)` is in Exp and every element
+of `inj{Exp,KItem}(go(X))` in KItem (`condTerm_inh`: the symbols' result sorts, from Γ's items of
+the signature and of the constructors). -/
+theorem terms_in (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP Γ (cH H))
+    (e : Valuation M) (m : M) (hg : ∀ k ∈ fT, (guardOf (tableOf [] p0) k).interpret I e m) :
+    (∀ a, (tr ⟨tableOf [] p0, []⟩ goX).interpret I e a →
+      (inhOf (trSort (tableOf [] p0) (srt "Exp"))).interpret I e a) ∧
+    (∀ a, (tr ⟨tableOf [] p0, []⟩ t).interpret I e a →
+      (inhOf (trSort (tableOf [] p0) kitemS)).interpret I e a) := by
+  haveI : OvlOK (cH H) := ovlOK_of_core (coreOKH H)
+  have hD := defOK hI
+  have hgw : genWf (cH H) = true := (faithCoreOK_parts (Semantics.coreOK_parts (coreOKH H)).2.1).2.1
+  obtain ⟨hk1, hk2, hs1, hs2, hkey⟩ := terms_kore
+  have hx := hg _ x_free0
+  rw [interp_guard_evar hD, trSort_srt] at hx
+  have hvars : ∀ i ∈ varOccs (.app 386 [.var 0]),
+      InS I ((cH H).sortName (rz.vars.getD i 0)) (e.evalEvar ((tableOf [] p0).ev (canonKey (cH H) rz.vars i))) := by
+    intro i hi
+    have : i = 0 := by simpa [varOccs, varOccsList] using hi
+    subst this
+    show InS I (c.sortName (rz.vars.getD 0 0)) (e.evalEvar ((tableOf [] p0).ev (canonKey c rz.vars 0)))
+    rw [hkey]
+    exact (inS_iff e).mp hx
+  obtain ⟨τx, -, hτx⟩ := srt_den hI (s := 32) (by decide +kernel : (32 : Srt) < nRegSorts + c.sortNames.length)
+  obtain ⟨τk, -, hτk⟩ := srt_den hI (s := Srt.kitem)
+    (by decide +kernel : Srt.kitem < nRegSorts + c.sortNames.length)
+  have h1 := condTerm_inh hI hgw (tbl := tableOf [] p0) (e := e) hτx
+    (show sortOfTerm ((cH H).rhsCtx ((cH H).fns.map Fn.sig)) rz.vars (.app 386 [.var 0]) = some 32 from hs1) hvars
+  have h2 := condTerm_inh hI hgw (tbl := tableOf [] p0) (e := e) hτk
+    (show sortOfTerm ((cH H).rhsCtx ((cH H).fns.map Fn.sig)) rz.vars (.inj 32 Srt.kitem (.app 386 [.var 0])) =
+      some Srt.kitem from hs2)
+    (fun i hi => hvars i (by simpa [varOccs, varOccsList] using hi))
+  rw [(terms_koreH H).1, hk1] at h1
+  rw [(terms_koreH H).2, hk2] at h2
+  exact ⟨fun a ha => (interp_inhOf_of (hτx _ e)).mpr (h1 a ha), fun a ha => (interp_inhOf_of (hτk _ e)).mpr (h2 a ha)⟩
+
+/-- **W1 for the rule, under the term's sort**: in a model of sentence 157 and the signature in
+which, where the guards hold, every element of `go(X)` is in Exp and every element of the term at
+the position in KItem, Γ's rule item holds, for every H. (The two inclusions hold in every model of
+Γ, `terms_in`; they are not derived from the signature alone here.) -/
+theorem rule_from_text_in (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
+    (hI : I ⊧ᴵP (TiePair.Texts [(trS U.ax157).pat] ∪ ΓSig (cH H)))
+    (hT : ∀ (e : Valuation M) (m : M),
+      (∀ k ∈ (freeOf [] p0).eraseDups, (guardOf (tableOf [] p0) k).interpret I e m) →
+        (∀ a, (tr ⟨tableOf [] p0, []⟩ goX).interpret I e a →
+          (inhOf (trSort (tableOf [] p0) (srt "Exp"))).interpret I e a) ∧
+        (∀ a, (tr ⟨tableOf [] p0, []⟩ t).interpret I e a →
+          (inhOf (trSort (tableOf [] p0) kitemS)).interpret I e a)) :
+    ∀ it ∈ ruleItems (cH H), I ⊧ᴵ it.pat := by
+  intro it hit
+  rw [TiePair.ruleItems_withHooks, ruleItems_eq] at hit
+  have hD : DefOK I := TiePair.defOK_texts fun φ hφ => hI φ (Or.inl hφ)
+  have hSig : I ⊧ᴵP ΓSig (cH H) := fun φ hφ => hI φ (Or.inr hφ)
+  rw [List.mem_singleton.mp hit]
+  exact TieRuleConnText.rule_w1_sides hD p0_parts rule_text0 fT_free0
+    (hI _ (Or.inl (Or.inl (List.mem_singleton_self _))))
+    (fun e m hg x hx => (left_iff H hD hSig e (hT e m hg).1 (hT e m hg).2 x).mp ((and4_iff _ _ _ _ _ _ _ _).mp hx).1)
+    (fun e m _ x hx => hx)
+
+/-- **W2 for the rule, with the guard**: in a model of Γ, sentence 157 holds where, at each
+valuation at which the guards of its variables hold, `⌈R⌉` (the conjunct Γ's left side adds) holds
+wherever the text's left side holds, for every H. -/
+theorem rule_w2 (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP Γ (cH H))
+    (hR : ∀ (e : Valuation M) (m : M), (∀ k ∈ fT, (guardOf (tableOf [] p0) k).interpret I e m) →
+      ∀ x, (tr ⟨tableOf [] p0, []⟩ left).interpret I e x →
+        (tr ⟨tableOf [] p0, []⟩ (.ceil topC topC R)).interpret I e x) :
+    I ⊧ᴵ (trS U.ax157).pat := by
+  have hD := defOK hI
+  have hSig : I ⊧ᴵP ΓSig (cH H) := fun φ hφ => sat_sig hI hφ
+  have hit : trAxiom [] [] ⟨0, "kernel", ⟨[], p0, []⟩⟩ ∈ ruleItems (cH H) := by
+    rw [TiePair.ruleItems_withHooks, ruleItems_eq]; exact List.mem_singleton_self _
+  have hg : I ⊧ᴵ (trAxiom [] [] ⟨0, "kernel", ⟨[], p0, []⟩⟩).pat :=
+    hI _ (Or.inl (Or.inr (Or.inl ⟨_, hit, rfl⟩)))
+  exact TieRuleConnText.rule_w2_sides hD p0_parts rule_text0 free_sub0 hg
+    (fun e m hgs x hx => (and4_iff _ _ _ _ _ _ _ _).mpr
+      ⟨(left_iff H hD hSig e (terms_in H hI e m hgs).1 (terms_in H hI e m hgs).2 x).mpr hx, hR e m hgs x hx⟩)
+    (fun e m _ x hx => hx)
+
+/-- info: 'TieRuleLhsAnd.Ceil.rule_from_text_in' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms rule_from_text_in
+/-- info: 'TieRuleLhsAnd.Ceil.rule_w2' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms rule_w2
+#check @left_iff
+#check @terms_in
+#check @rule_from_text_in
+#check @rule_w2
+
 end Ceil
 
 namespace Equals
@@ -276,6 +500,174 @@ theorem at_rule {M : Type} {I : Interpretation KoreAML.Sym M} [Inhabited M] (hD 
     (tr ⟨tbl, []⟩ (.and topC [K.fill t, E, P', .ceil topC topC R])).interpret I e m ↔
       (tr ⟨tbl, []⟩ left).interpret I e m ∧ (tr ⟨tbl, []⟩ (.ceil topC topC R)).interpret I e m := by
   rw [and4_iff, tie hD hc tbl e hI hK hC hσi hσk hσ' hin hout m]
+
+/-! ## The rule's sentence (157), for every H: W1 under the term's sort, and W2 -/
+
+user_axioms U from "f2-examples/mllhseq.kompile.kore" module "E3-ML-RULE-LHS-EQUALS"
+
+noncomputable abbrev cH (H : HookParams) : Semantics := c.withHooks H
+
+/-- `tr s`: the item `Theory.ofDefinition kore` holds for the sentence. -/
+noncomputable def trS (ad : AxiomDecl) : Item := trAxiom kore.symbolDecls kore.aliasNames ad
+
+theorem coreOK : c.coreOK = true := by decide_cheap
+theorem coreOKH (H : HookParams) : (cH H).coreOK = true := (Semantics.coreOK_withHooks c H).trans coreOK
+
+/-- Γ's axiom of the rule. -/
+noncomputable def p0 : Kore.Pattern := prioRuleK c rz
+
+theorem ruleItems_eq : ruleItems c = [trAxiom [] [] ⟨0, "kernel", ⟨[], p0, []⟩⟩] := by kernel_rfl
+
+/-- Γ's left side: `K[t] ∧ ⊤ ∧ P' ∧ ⌈R⌉`. -/
+def Lg : Kore.Pattern := .and topC [K.fill t, E, P', .ceil topC topC R]
+
+theorem p0_parts : TieRuleLhs.rwParts p0 = some (topC, Lg, R) := by decide +kernel
+
+/-- The free variables of the text's form. -/
+def fT : List VarKey := (freeOf [] (.rewrites topC left R)).eraseDups
+
+/-- **The text's sentence 157 is the item of `\rewrites{C}(left, R)` at the table of Γ's axiom**
+(kernel). -/
+theorem rule_text0 : TiePair.renSeq (TieRuleLhs.itemAt (tableOf [] p0) fT topC left R) [] =
+    some (trS U.ax157).pat := by
+  decide +kernel
+theorem fT_free0 : fT.all (fun k => (freeOf [] p0).eraseDups.contains k) = true := by decide +kernel
+theorem free_sub0 : ∀ k ∈ (freeOf [] p0).eraseDups, k ∈ fT := by decide +kernel
+theorem x_free0 : VarKey.evar "VarV0" (srt "Int") ∈ fT := by decide +kernel
+
+/-- The term at the position as the reading's term, `inj{Exp,KItem}(go(X))` over the rule's variables. -/
+theorem terms_kore : Term.kore c (canonVars c rz.vars) (.inj 32 Srt.kitem (.app 386 [.var 0])) = t ∧
+    sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) rz.vars (.inj 32 Srt.kitem (.app 386 [.var 0])) = some Srt.kitem ∧
+    canonKey c rz.vars 0 = .evar "VarV0" (srt "Int") := by
+  decide +kernel
+
+/-- The term's pattern does not read the interpretation of the hooks. -/
+theorem terms_koreF :
+    (fun H : HookParams =>
+      Term.kore (c.withHooks H) (canonVars (c.withHooks H) rz.vars) (.inj 32 Srt.kitem (.app 386 [.var 0]))) =
+    fun _ => Term.kore c (canonVars c rz.vars) (.inj 32 Srt.kitem (.app 386 [.var 0])) := by
+  kernel_rfl
+
+/-- **Γ's left side without `⌈R⌉` is the text's left side**, at the table of Γ's axiom, in a model
+of the signature, at a valuation where every element of the term at the position is in KItem:
+`and_pred_inTop`, the outer sort read from the `requires` `\top`. -/
+theorem left_iff (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hD : DefOK I)
+    (hSig : I ⊧ᴵP ΓSig (cH H)) (e : Valuation M)
+    (hin : ∀ a, (tr ⟨tableOf [] p0, []⟩ t).interpret I e a →
+      (inhOf (trSort (tableOf [] p0) kitemS)).interpret I e a) (m : M) :
+    (tr ⟨tableOf [] p0, []⟩ (.and topC [K.fill t, E, P'])).interpret I e m ↔
+      (tr ⟨tableOf [] p0, []⟩ left).interpret I e m := by
+  haveI : OvlOK (cH H) := ovlOK_of_core (coreOKH H)
+  have hc : I ⊧ᴵ ceilDefItem.pat := hSig _ (Or.inl (Or.inl ⟨_, sig_ceilDef (c := cH H), rfl⟩))
+  obtain ⟨σi, hσi, hInt, -⟩ := TieRuleConnText.sort_sig hD hSig (s := Srt.int)
+    (by decide +kernel : Srt.int < nRegSorts + c.sortNames.length)
+    (show (cH H).sortName Srt.int = "Int" from (by decide +kernel : c.sortName Srt.int = "Int"))
+  obtain ⟨σk, hσk, hK, -⟩ := TieRuleConnText.sort_sig hD hSig (s := Srt.kitem)
+    (by decide +kernel : Srt.kitem < nRegSorts + c.sortNames.length)
+    (show (cH H).sortName Srt.kitem = "KItem" from (by decide +kernel : c.sortName Srt.kitem = "KItem"))
+  obtain ⟨σ', hσ', hC, -⟩ := TieRuleConnText.sort_sig hD hSig (s := topCellSort)
+    (by decide +kernel : topCellSort < nRegSorts + c.sortNames.length)
+    (show (cH H).sortName topCellSort = "GeneratedTopCell" from
+      (by decide +kernel : c.sortName topCellSort = "GeneratedTopCell"))
+  have hK' : ∀ a, (trSort (tableOf [] p0) kitemS).interpret I e a ↔ a = σk := hK _ e
+  have hC' : ∀ a, (trSort (tableOf [] p0) topC).interpret I e a ↔ a = σ' := hC _ e
+  have hin' : ∀ a, (tr ⟨tableOf [] p0, []⟩ t).interpret I e a → Inh I σk a :=
+    fun a ha => (interp_inhOf_of (hK _ e)).mp (hin a ha)
+  have hP : ∀ a, Inh I σk a → ((tr ⟨tableOf [] p0, []⟩ P).interpret I e a ↔
+      ∀ b, Inh I σi b → ((tr ⟨tableOf [] p0, []⟩ x).interpret I e b ↔ (tr ⟨tableOf [] p0, []⟩ one).interpret I e b)) :=
+    fun a ha => by
+      show (sEquals (trSort (tableOf [] p0) (srt "Int")) (trSort (tableOf [] p0) kitemS)
+        (tr ⟨tableOf [] p0, []⟩ x) (tr ⟨tableOf [] p0, []⟩ one)).interpret I e a ↔ _
+      rw [interp_sEquals hD hc (hInt _ e) hK' hσi hσk a]
+      exact ⟨fun h => h.2, fun h => ⟨ha, h⟩⟩
+  have hP' : ∀ m, Inh I σ' m → ((tr ⟨tableOf [] p0, []⟩ P').interpret I e m ↔
+      ∀ b, Inh I σi b → ((tr ⟨tableOf [] p0, []⟩ x).interpret I e b ↔ (tr ⟨tableOf [] p0, []⟩ one).interpret I e b)) :=
+    fun m hm => by
+      show (sEquals (trSort (tableOf [] p0) (srt "Int")) (trSort (tableOf [] p0) topC)
+        (tr ⟨tableOf [] p0, []⟩ x) (tr ⟨tableOf [] p0, []⟩ one)).interpret I e m ↔ _
+      rw [interp_sEquals hD hc (hInt _ e) hC' hσi hσ' m]
+      exact ⟨fun h => h.2, fun h => ⟨hm, h⟩⟩
+  exact and_pred_inTop ⟨tableOf [] p0, []⟩ K rfl kitemS topC t P P' E e _ hP hP' hin'
+    (fun m hm => TieRuleConnText.top_inh hD (hC _ e) m hm) m
+
+/-- **In a model of Γ, where X's guard holds**, every element of `inj{Exp,KItem}(go(X))` is in KItem
+(`condTerm_inh`: the symbols' result sorts, from Γ's items of the signature and of the
+constructors). -/
+theorem terms_in (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP Γ (cH H))
+    (e : Valuation M) (m : M) (hg : ∀ k ∈ fT, (guardOf (tableOf [] p0) k).interpret I e m) :
+    ∀ a, (tr ⟨tableOf [] p0, []⟩ t).interpret I e a →
+      (inhOf (trSort (tableOf [] p0) kitemS)).interpret I e a := by
+  haveI : OvlOK (cH H) := ovlOK_of_core (coreOKH H)
+  have hD := defOK hI
+  have hgw : genWf (cH H) = true := (faithCoreOK_parts (Semantics.coreOK_parts (coreOKH H)).2.1).2.1
+  obtain ⟨hk2, hs2, hkey⟩ := terms_kore
+  have hx := hg _ x_free0
+  rw [interp_guard_evar hD, trSort_srt] at hx
+  have hvars : ∀ i ∈ varOccs (.inj 32 Srt.kitem (.app 386 [.var 0])),
+      InS I ((cH H).sortName (rz.vars.getD i 0)) (e.evalEvar ((tableOf [] p0).ev (canonKey (cH H) rz.vars i))) := by
+    intro i hi
+    have : i = 0 := by simpa [varOccs, varOccsList] using hi
+    subst this
+    show InS I (c.sortName (rz.vars.getD 0 0)) (e.evalEvar ((tableOf [] p0).ev (canonKey c rz.vars 0)))
+    rw [hkey]
+    exact (inS_iff e).mp hx
+  obtain ⟨τk, -, hτk⟩ := srt_den hI (s := Srt.kitem)
+    (by decide +kernel : Srt.kitem < nRegSorts + c.sortNames.length)
+  have h2 := condTerm_inh hI hgw (tbl := tableOf [] p0) (e := e) hτk
+    (show sortOfTerm ((cH H).rhsCtx ((cH H).fns.map Fn.sig)) rz.vars (.inj 32 Srt.kitem (.app 386 [.var 0])) =
+      some Srt.kitem from hs2) hvars
+  rw [show Term.kore (cH H) (canonVars (cH H) rz.vars) (.inj 32 Srt.kitem (.app 386 [.var 0])) =
+    Term.kore c (canonVars c rz.vars) (.inj 32 Srt.kitem (.app 386 [.var 0])) from congrFun terms_koreF H, hk2] at h2
+  exact fun a ha => (interp_inhOf_of (hτk _ e)).mpr (h2 a ha)
+
+/-- **W1 for the rule, under the term's sort**: in a model of sentence 157 and the signature in
+which, where the guards hold, every element of the term at the position is in KItem, Γ's rule item
+holds, for every H. (The inclusion holds in every model of Γ, `terms_in`; it is not derived from
+the signature alone here.) -/
+theorem rule_from_text_in (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
+    (hI : I ⊧ᴵP (TiePair.Texts [(trS U.ax157).pat] ∪ ΓSig (cH H)))
+    (hT : ∀ (e : Valuation M) (m : M),
+      (∀ k ∈ (freeOf [] p0).eraseDups, (guardOf (tableOf [] p0) k).interpret I e m) →
+        ∀ a, (tr ⟨tableOf [] p0, []⟩ t).interpret I e a →
+          (inhOf (trSort (tableOf [] p0) kitemS)).interpret I e a) :
+    ∀ it ∈ ruleItems (cH H), I ⊧ᴵ it.pat := by
+  intro it hit
+  rw [TiePair.ruleItems_withHooks, ruleItems_eq] at hit
+  have hD : DefOK I := TiePair.defOK_texts fun φ hφ => hI φ (Or.inl hφ)
+  have hSig : I ⊧ᴵP ΓSig (cH H) := fun φ hφ => hI φ (Or.inr hφ)
+  rw [List.mem_singleton.mp hit]
+  exact TieRuleConnText.rule_w1_sides hD p0_parts rule_text0 fT_free0
+    (hI _ (Or.inl (Or.inl (List.mem_singleton_self _))))
+    (fun e m hg x hx => (left_iff H hD hSig e (hT e m hg) x).mp ((and4_iff _ _ _ _ _ _ _ _).mp hx).1)
+    (fun e m _ x hx => hx)
+
+/-- **W2 for the rule, with the guard**: in a model of Γ, sentence 157 holds where, at each
+valuation at which the guards of its variables hold, `⌈R⌉` (the conjunct Γ's left side adds) holds
+wherever the text's left side holds, for every H. -/
+theorem rule_w2 (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP Γ (cH H))
+    (hR : ∀ (e : Valuation M) (m : M), (∀ k ∈ fT, (guardOf (tableOf [] p0) k).interpret I e m) →
+      ∀ x, (tr ⟨tableOf [] p0, []⟩ left).interpret I e x →
+        (tr ⟨tableOf [] p0, []⟩ (.ceil topC topC R)).interpret I e x) :
+    I ⊧ᴵ (trS U.ax157).pat := by
+  have hD := defOK hI
+  have hSig : I ⊧ᴵP ΓSig (cH H) := fun φ hφ => sat_sig hI hφ
+  have hit : trAxiom [] [] ⟨0, "kernel", ⟨[], p0, []⟩⟩ ∈ ruleItems (cH H) := by
+    rw [TiePair.ruleItems_withHooks, ruleItems_eq]; exact List.mem_singleton_self _
+  have hg : I ⊧ᴵ (trAxiom [] [] ⟨0, "kernel", ⟨[], p0, []⟩⟩).pat :=
+    hI _ (Or.inl (Or.inr (Or.inl ⟨_, hit, rfl⟩)))
+  exact TieRuleConnText.rule_w2_sides hD p0_parts rule_text0 free_sub0 hg
+    (fun e m hgs x hx => (and4_iff _ _ _ _ _ _ _ _).mpr
+      ⟨(left_iff H hD hSig e (terms_in H hI e m hgs) x).mpr hx, hR e m hgs x hx⟩)
+    (fun e m _ x hx => hx)
+
+/-- info: 'TieRuleLhsAnd.Equals.rule_from_text_in' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms rule_from_text_in
+/-- info: 'TieRuleLhsAnd.Equals.rule_w2' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms rule_w2
+#check @left_iff
+#check @terms_in
+#check @rule_from_text_in
+#check @rule_w2
 
 end Equals
 
