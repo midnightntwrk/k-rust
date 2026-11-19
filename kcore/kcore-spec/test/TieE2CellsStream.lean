@@ -72,9 +72,8 @@
   each of which repeats the literals and the definitions and facts it reads, as a test file imports
   no test file.
 
-  Measured alone (LEAN_NUM_THREADS=1, `lake env lean -j1`, a 12G memory scope): killed at 12 GiB
-  after 166 s, in `lists_in_account` (one kernel decision over the 2758 sentences of `unmapped`).
-  The file without that theorem: 99 s, peak 8.9 GiB.
+  Measured alone (LEAN_NUM_THREADS=1, `lake env lean -j1`, a 12G memory scope): 122 s, peak
+  9.0 GiB.
 -/
 import KcoreSpec
 
@@ -1080,9 +1079,19 @@ tie's remainder on this text. -/
 def uncovered : List (Nat × String) :=
   []
 
-/-- Each listed sentence is in its class in the account. -/
-theorem lists_in_account : (unmapped ++ uncovered).all (fun ic => (classOf ic.2).contains ic.1) = true := by
+/-- Each listed sentence's class is a class of the account. -/
+theorem lists_classes : (unmapped ++ uncovered).all (fun ic => (classes.map (·.1)).contains ic.2) = true := by
   decide +kernel
+
+/-- For each class of the account, the listed sentences of it, in their order, are a sublist of its
+indices: one pass over each class's list. -/
+theorem lists_sub : (classes.map (·.1)).all (fun n =>
+    (((unmapped ++ uncovered).filter (·.2 == n)).map (·.1)).isSublist (classOf n)) = true := by
+  decide +kernel
+
+/-- Each listed sentence is in its class in the account (`tieAll_of_groups`). -/
+theorem lists_in_account : (unmapped ++ uncovered).all (fun ic => (classOf ic.2).contains ic.1) = true :=
+  tieAll_of_groups lists_classes lists_sub
 
 /-! ## Γ's symbol names, as a literal -/
 
