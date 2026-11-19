@@ -16,14 +16,14 @@ Rows by status:
 |---|---|---|---|---|---|---|---|---|
 | E1 | 58 | 36 | 3 | 1 | 18 | 0 | 0 | 0 |
 | E2 | 182 | 54 | 0 | 44 | 68 | 16 | 0 | 0 |
-| E3 | 98 | 68 | 2 | 11 | 3 | 14 | 0 | 0 |
+| E3 | 98 | 70 | 2 | 11 | 3 | 12 | 0 | 0 |
 | E4 | 123 | 89 | 0 | 8 | 0 | 26 | 0 | 0 |
 | E5 | 22 | 9 | 1 | 8 | 2 | 2 | 0 | 0 |
 | E6 | 826 | 515 | 95 | 116 | 40 | 60 | 0 | 0 |
 | E7 | 42 | 32 | 0 | 4 | 4 | 2 | 0 | 0 |
 | E8 | 63 | 3 | 1 | 0 | 48 | 11 | 0 | 0 |
 | C3 | 44 | 32 | 0 | 8 | 2 | 2 | 0 | 0 |
-| all | 1458 | 838 | 102 | 200 | 185 | 133 | 0 | 0 |
+| all | 1458 | 840 | 102 | 200 | 185 | 131 | 0 | 0 |
 
 Nested entries by status:
 
@@ -46,14 +46,14 @@ Refused rows by class:
 |---|---|---|---|---|---|
 | E1 | 0 | 0 | 0 | 0 | 0 |
 | E2 | 16 | 1 | 4 | 1 | 10 |
-| E3 | 14 | 8 | 0 | 4 | 2 |
+| E3 | 12 | 8 | 0 | 2 | 2 |
 | E4 | 26 | 8 | 0 | 0 | 18 |
 | E5 | 2 | 0 | 0 | 0 | 2 |
 | E6 | 60 | 60 | 0 | 0 | 0 |
 | E7 | 2 | 0 | 0 | 0 | 2 |
 | E8 | 11 | 0 | 0 | 0 | 11 |
 | C3 | 2 | 2 | 0 | 0 | 0 |
-| all | 133 | 79 | 4 | 5 | 45 |
+| all | 131 | 79 | 4 | 3 | 45 |
 
 Refused nested entries by class:
 
@@ -70,11 +70,11 @@ Refused nested entries by class:
 | C3 | 17 | 8 | 4 | 0 | 5 |
 | all | 203 | 59 | 18 | 23 | 103 |
 
-Supported entries (rows and nested): 982; 14 of them have an owed fact and are counted by their best fixture: **13 proved** (the owed fact proved on a fixture the entry names: these count as supported under the headline statements), 0 open and 1 false (counted apart: the headline statements' hypothesis is not shown on their fixtures). The other 968 have no owed fact.
+Supported entries (rows and nested): 984; 14 of them have an owed fact and are counted by their best fixture: **13 proved** (the owed fact proved on a fixture the entry names: these count as supported under the headline statements), 0 open and 1 false (counted apart: the headline statements' hypothesis is not shown on their fixtures). The other 970 have no owed fact.
 
 E6 library rows by their `e6_tie` (test/constructs/e6map.py; rows-header.toml): 480, of which 294 tied, 3 of no direction (the tie's no-direction class, owed-sentence rule item 7: never tied, counted apart), 10 refuted and 173 uncovered.
 
-## Entries of class R-c (28)
+## Entries of class R-c (26)
 
 Each names the notion the kernel lacks, the cone declaration that would change, and the ticket or unit that supports it (`unit`, checked by `units.py`).
 
@@ -83,7 +83,6 @@ Each names the notion the kernel lacks, the cone declaration that would change, 
 | E1 | `Sentence:kw:syntax` | cases[0] | refused |  | KCore.Faithful.sigItems, KCore.Faithful.ΓDomains, KCore.Faithful.ΓFallback, KCore.Faithful.ΓColls, KCore.Faithful.Model.namesApartK, KCore.Faithful.Model.itesApart, KCore.gammaHeads, KCore.AttrsAgree.hooks (REGN.rows; the declarations findings/work/decision-regn.md changes: Γ's library family guarde… | REGN.rows |  |
 | E2 | `ML_BINDER(mlBinder)@frontend` | row | refused |  | Term (Core.lean:58): a term has variables, applications, injections, \`as\` and domain values, no connective; and with it Rule.lhs/rhs/req/ens, Clause.pats/req/rhs, Eval and Step, which read terms | CE |  |
 | E2 | `SYMBOL(symbol)@symbol` | cases[0] | refused |  | KCore.Faithful.sigItems, KCore.Faithful.ΓDomains, KCore.Faithful.ΓFallback, KCore.Faithful.ΓColls, KCore.Faithful.Model.namesApartK, KCore.Faithful.Model.itesApart, KCore.gammaHeads, KCore.AttrsAgree.hooks (REGN.rows; the declarations findings/work/decision-regn.md changes: Γ's library family guarde… | REGN.rows |  |
-| E3 | `ML-SYNTAX:Sort::="#Top"` | row | refused |  | none (reader only): the connective goes to Rule.pre or Rule.post | RDR.rule-conn-wire | CN-3 P1 (e0, e1: L-2, an anonymous variable, reader only); R3 (e2: R-5, a right side as \`?Z\` with \`post\`) |
 | E3 | `ML-SYNTAX:Sort::=Sort "#And" Sort` | row | refused |  | none at the row: each refused case, an equation's right side, names its cone declaration (KCore.Semantics.clausesPlain, Term, KCore.Cond.bound) | CE | CN-3 e3 (FR-4); the refused cases' units (CE, CE.reader-wire, CE.bound-fixed) |
 | E3 | `ML-SYNTAX:Sort::=Sort "#And" Sort` | cases[1] | refused |  | KCore.Semantics.clausesPlain (a clause's rhs and ens state no t ∩ u) | CE | CE.reader-and-eq (u ∈ post with a fresh existential variable) |
 | E3 | `ML-SYNTAX:Sort::=Sort "#And" Sort` | cases[7] | refused |  |  | CE.reader-wire |  |
@@ -92,7 +91,6 @@ Each names the notion the kernel lacks, the cone declaration that would change, 
 | E3 | `ML-SYNTAX:Sort::=Sort "#And" Sort` | cases[10] | refused |  | none (reader only): KCore.Cond.bound's .ex arm admits the binder (its sort has a value, Semantics.hasValue, and its body fixes it by Z ∈ t) | RDR.and-not-ceil-binder |  |
 | E3 | `ML-SYNTAX:Sort::=Sort "#Or" Sort` | cases[7] | refused |  |  | CE.reader-wire |  |
 | E3 | `ML-SYNTAX:Sort::=Sort "#Or" Sort` | cases[10] | refused |  |  | CE.reader-wire |  |
-| E3 | `ML-SYNTAX:Sort::=Sort "#Implies" Sort` | row | refused |  | none (reader only): the connective goes to Rule.pre or Rule.post | RDR.rule-conn-implies | CN-3 R3 (e2: L-8 as L-7 and L-1) |
 | E3 | `ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2` | row | refused |  | Term (Core.lean:58): a term has variables, applications, injections, \`as\` and domain values, no connective; and with it Rule.lhs/rhs/req/ens, Clause.pats/req/rhs, Eval and Step, which read terms | CE | CN-3 P1 (e1: L-3, a variable of the rule, reader only); R2 (A3: R-5 as \`?Z\`); 4.5 d4 (\`Cond.ex\` over a confined sort) |
 | E3 | `ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2` | cases[4] | refused |  |  | CE.reader-wire |  |
 | E3 | `ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2` | cases[5] | refused |  |  | CE.reader-wire |  |
@@ -507,7 +505,7 @@ Not core:
 
 | row | status | class | reason | cone | unit | fixture | kimp | kk.k | evidence |
 |---|---|---|---|---|---|---|---|---|---|
-| `ML-SYNTAX:Sort::="#Top"` | refused | R-c | a connective at a term position of a rule's side denotes a set of values where a term denotes one. Under applications it is the cut (kk:t233-rule-conn-cut): the position holds a variable Z of the rule, and Z's membership in the connective is a conjunct of Rule.pre on a left side and of Rule.post on… | none (reader only): the connective goes to Rule.pre or Rule.post | RDR.rule-conn-wire | e3-ml | no | no | fixtures/e3-ml-rule-lhs-top: account \`1 read topAsVariable [user]\`, \`parse: ok; wf true\`; fixtures/e3-ml-rule-rhs-top: account \`1 read connectiveCut [user]\`, \`coreOK: true\`; fixtures/e3-ml: account \`4 inert simplification [user]\`, \`4 parameter lemma [user]\`; test/Connectives.lean |
+| `ML-SYNTAX:Sort::="#Top"` | supported |  | a connective at a term position of a rule's side denotes a set of values where a term denotes one. Under applications it is the cut (kk:t233-rule-conn-cut): the position holds a variable Z of the rule, and Z's membership in the connective is a conjunct of Rule.pre on a left side and of Rule.post on… | none (reader only): the connective goes to Rule.pre or Rule.post | RDR.rule-conn-wire | e3-ml | no | no | fixtures/e3-ml-rule-lhs-top: account \`1 read topAsVariable [user]\`, \`parse: ok; wf true\`; fixtures/e3-ml-rule-rhs-top: account \`1 read connectiveCut [user]\`, \`coreOK: true\`; fixtures/e3-ml: account \`4 inert simplification [user]\`, \`4 parameter lemma [user]\`; test/Connectives.lean; test/TieE3Ml.lean… |
 | cases[0]: a rule's left side, under applications and conjunctions | supported |  |  |  |  | e3-ml-rule-lhs-top |  |  | fixtures/e3-ml-rule-lhs-top |
 | cases[1]: a requires or ensures \\equals{SortBool{},S}(\\top{SortBool{}}, true) | supported |  |  |  |  | e3-ml-req-top |  |  | Parse.isPred; fixtures/e3-ml-req-top (go(\_) => done requires #Top): account.txt \`1 read predicateAtBool [user]\`, \`sentence 310: predicateAtBool\`, \`parse: ok; wf true; failing: []\`, \`coreOK: true; failing: []\`, \`refused by the account: 0\`; fixtures/e3-ml-req-ceil, -req-forall (other predicates at Boo… |
 | cases[2]: a rule's right side | supported |  |  |  |  | e3-ml-rule-rhs-top |  |  | fixtures/e3-ml-rule-rhs-top (go => #Top): account.txt \`1 read connectiveCut [user]\`, \`sentence 221: connectiveCut\`, \`coreOK: true\`, read as go \~> R => ?Z ++ R (Z:K existential, post \\top); test/TieRuleRhsTop.lean at f2-examples/heldrhstop (read, rz\_shape: the reader's rule; coreOK; fnHypH: FnHyp for… |
@@ -559,7 +557,7 @@ Not core:
 | cases[9]: a requires, a variable one disjunct holds and nothing else of the rule | supported (owed fact proved) |  |  |  |  |  |  |  | fixtures/e3-ml-req-or-unheld (go(X) => done requires X >Int 0 #Or Y:Int >Int 2): account.txt \`1 read requiresOrSplit [user]\`, \`stage refusals (of sentences classified read): 0\`, \`rule 1: CondDecided open, over VarY:Int\`, \`parse: ok; wf true; failing: []\`, \`coreOK: true; failing: []\`; the rule of the… |
 | cases[10]: an equation's right side, an \\exists in an alternative | refused | R-c |  |  | CE.reader-wire | e3-eq-exists-ml-in-or |  |  | fixtures/e3-eq-exists-ml-in-or, e3-eq-exists-ml-in-or-int: kompile.txt exit 0, the binder inside the \\or's second alternative (kore.txt //@ 233, 234; //@ 335); account.txt \`manyValuedRightSide (\\or: the sentence gives the function every element of each side; the text holds no functional sentence of… |
 | cases[11]: an equation's right side, an alternative that is \\bottom without being the literal (g(#Bottom) #Or t) | supported |  |  |  |  | e3-ml-eq-rhs-or-empty |  |  | fixtures/e3-ml-eq-rhs-or-empty (h(X) => g(#Bottom) #Or X): kompile.txt exit 0; kore.txt //@ 341, \\or{SortInt{}}(Lblg{}(\\bottom{SortInt{}}()),VarX:SortInt{}); account.txt \`1 read orBottom [user]\`, \`sentence 354: orBottom\`, \`stage refusals (of sentences classified read): 0\`, \`coreOK: true; failing: []… |
-| `ML-SYNTAX:Sort::=Sort "#Implies" Sort` | refused | R-c | a connective at a term position of a rule's side denotes a set of values where a term denotes one. Under applications it is the cut (kk:t233-rule-conn-cut): the position holds a variable Z of the rule, and Z's membership in the connective, which goes through \\implies as (Z ∈ p) → (Z ∈ q), is a conju… | none (reader only): the connective goes to Rule.pre or Rule.post | RDR.rule-conn-implies | e3-ml | no | no | fixtures/e3-ml: account \`4 inert simplification [user]\`, \`4 parameter lemma [user]\`; fixtures/e3-ml-rule-lhs-implies: account \`1 read connectiveCut [user]\`, \`coreOK: true; failing: []\` |
+| `ML-SYNTAX:Sort::=Sort "#Implies" Sort` | supported |  | a connective at a term position of a rule's side denotes a set of values where a term denotes one. Under applications it is the cut (kk:t233-rule-conn-cut): the position holds a variable Z of the rule, and Z's membership in the connective, which goes through \\implies as (Z ∈ p) → (Z ∈ q), is a conju… | none (reader only): the connective goes to Rule.pre or Rule.post | RDR.rule-conn-implies | e3-ml | no | no | fixtures/e3-ml: account \`4 inert simplification [user]\`, \`4 parameter lemma [user]\`; fixtures/e3-ml-rule-lhs-implies: account \`1 read connectiveCut [user]\`, \`coreOK: true; failing: []\`; test/TieE3Ml.lean (the row's sentence of fixtures/e3-ml, a lemma of the user's file: of the class user lemma, Γ en… |
 | cases[0]: a rule's left side | supported |  | no C14 tie reads the text yet: test/PredReader.lean states the reading at the semantics read, not a Step for every H |  | RDR.rule-conn-implies | e3-ml-rule-lhs-implies |  |  | fixtures/e3-ml-rule-lhs-implies/account.txt (equal to a fresh account, 2026-11-19): \`1 read connectiveCut [user]\`, \`sentence 215: connectiveCut\`, \`stage refusals (of sentences classified read): 0\`, \`parse: ok; wf true; failing: []\`, \`coreOK: true; failing: []\`, \`refused by the account: 0\`; test/Pred… |
 | cases[1]: a requires or ensures of predicates | supported |  |  |  |  | e3-ml-req-implies |  |  | Parse.isPred; fixtures/e3-ml-req-implies (go(X) => done requires {X #Equals 1} #Implies #Ceil(1 /Int X)): account.txt \`1 read predicateAtBool [user]\`, \`sentence 310: predicateAtBool\`, \`parse: ok; wf true; failing: []\`, \`coreOK: true; failing: []\`, \`refused by the account: 0\` |
 | `ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2` | refused | R-c | in a rule or a function equation a connective makes the side a matching-logic pattern that is not a term: a set of values given by definedness, negation or quantification. The kernel's sides are terms with one value under a substitution. | Term (Core.lean:58): a term has variables, applications, injections, \`as\` and domain values, no connective; and with it Rule.lhs/rhs/req/ens, Clause.pats/req/rhs, Eval and Step, which read terms | CE | e3-ml | no | no | fixtures/e3-ml-rule-lhs-exists: account \`1 read existsAsVariable [user]\`, \`parse: ok; wf true\`; test/Connectives.lean MlEx; fixtures/e3-ml-lhs-value-sort: account \`1 read existsAsVariable [user]\`, \`coreOK: true\`, test/Connectives.lean MlValue; fixtures/e3-ml-lhs-empty-sort: account \`read existsAsVar… |
