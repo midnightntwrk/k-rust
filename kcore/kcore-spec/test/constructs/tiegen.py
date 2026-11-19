@@ -121,6 +121,9 @@ What it states where the text:
 - has the no-junk sentence of a sort with generators other than KItem that is not Γ's item as
   written: the item over its generators in the text's order, a permutation of `Semantics.gens`
   (`<sort>TextGens`), `nojunk_<sort>_entailed` (for an open generator's sort also that it is open);
+  the probe tries every permutation of a sort of at most 5 generators, and for a larger sort the
+  one order the sentence's disjuncts apply the generators in (each disjunct's symbol, or `inj` from
+  its sort), taken where the item over that order is the sentence;
 - has the `functional` sentence of a parameter symbol no registry hook implements that the text
   declares total (`isParamFunctional`, the class `parameter functional`, direction hypothesis):
   `total_params` (`Definition.totalParams`), `paramfunctional_account`, `paramfunctional_heads`; it is
@@ -513,6 +516,24 @@ def tgMinusNeg (a : Kore.Axiom) : P :=
     conjList (((a.sortVars.map sortVarKey ++ freeOf [] a.pattern).eraseDups).map (guardOf t)) ⇒
       (tr ⟨t, []⟩ (.implies R prem concl) ≡ inhOf (trSort t R))
   | none => (trAxiom [] [] ⟨0, "kernel", a⟩).pat
+def tgNjBody : Kore.Pattern → Kore.Pattern
+  | .exist _ _ b => tgNjBody b
+  | p => p
+/-- The generator a disjunct of a no-junk sentence applies: its symbol, or `inj` from its sort. -/
+def tgNjIsGen (g : KoreAML.Gen) (d : Kore.Pattern) : Bool :=
+  match g, tgNjBody d with
+  | .ctor k, .app h _ _ => h.ident.name == k.name
+  | .inj a, .app h (s0 :: _) _ => h.ident.name == "inj" && s0 == KoreAML.srt a
+  | _, _ => false
+/-- The positions in `gs` of the generators the disjuncts apply, in the disjuncts' order, the closing
+`\bottom` dropped; none where a disjunct applies none of them. -/
+def tgNjOrder (gs : List KoreAML.Gen) : List Kore.Pattern → Option (List Nat)
+  | [] => some []
+  | [.bottom _] => some []
+  | d :: ds => do
+    let j ← (List.range gs.length).find? fun j => (gs[j]?.map (tgNjIsGen · d)).getD false
+    let rest ← tgNjOrder gs ds
+    pure (j :: rest)
 
 #eval show IO Unit from do
   let input ← IO.FS.readFile "@PATH@"
@@ -665,6 +686,21 @@ def tgMinusNeg (a : Kore.Axiom) : P :=
           match pms.find? (·.2 == p) with
           | some (pm, _) => IO.println s!"N {ad.index}\t{s}\t{c.sortName s}\tperm\t{pm}\t{(c.gens s).length}"
           | none => pure ()
+        -- a sort of more than 5 generators: the text's order (`gensInOrder`), or the order its
+        -- disjuncts apply the generators in, taken where the item over it is the sentence
+        match ad.ax.pattern with
+        | .or S ds =>
+          for s in (consSorts c).filter fun s => s != Srt.kitem && (c.gens s).length > 5 && srtOf c s == S do
+            let gs := (c.gens s).map (Gen.toK c)
+            if (KoreAML.Cons.noJunkItem (c.sortName s) ((gensInOrder c d.pres s).map (Gen.toK c))).pat == p then
+              IO.println s!"N {ad.index}\t{s}\t{c.sortName s}\torder\t[]\t{gs.length}"
+            else match tgNjOrder gs ds with
+              | some pm =>
+                if pm.length == gs.length && pm.eraseDups.length == pm.length &&
+                    (KoreAML.Cons.noJunkItem (c.sortName s) (pm.filterMap (gs[·]?))).pat == p then
+                  IO.println s!"N {ad.index}\t{s}\t{c.sortName s}\tperm\t{pm}\t{gs.length}"
+              | none => pure ()
+        | _ => pure ()
 '''
 
 
@@ -2258,12 +2294,16 @@ def nojunk_sort_section(i, e, sn, rawd, new):
     if e["form"] == "perm":
         pm = e["perm"]
         gs = ", ".join(f"g{j}" for j in range(len(pm)))
+        # a list pattern of many elements is no pattern Lean takes: past 5 generators (the probe's
+        # enumeration) the order is the generators' positions
+        body = [f"  match (c.gens {s}).map (Gen.toK c) with",
+                f"  | [{gs}] => [{', '.join(f'g{j}' for j in pm)}]",
+                "  | gs => gs"] if len(pm) <= 5 else \
+            [f"  ([{wrap_nums([str(j) for j in pm], 4)}] : List Nat).filterMap",
+             f"    (((c.gens {s}).map (Gen.toK c))[·]?)"]
         out += [f"/-- {S}'s generators in the order the text's no-junk sentence ({i}) lists them, a permutation",
                 "of those `Semantics.gens` lists. -/",
-                f"noncomputable def {s}TextGens : List KoreAML.Gen :=",
-                f"  match (c.gens {s}).map (Gen.toK c) with",
-                f"  | [{gs}] => [{', '.join(f'g{j}' for j in pm)}]",
-                "  | gs => gs", "",
+                f"noncomputable def {s}TextGens : List KoreAML.Gen :="] + body + ["",
                 f"/-- {S}'s no-junk sentence ({i}) is the item over {S}'s generators in the text's order. -/",
                 f"theorem nojunk_{s}_order : (trS U.ax{i}).pat = (KoreAML.Cons.noJunkItem (c.sortName {s}) {s}TextGens).pat := by",
                 "  decide +kernel",
