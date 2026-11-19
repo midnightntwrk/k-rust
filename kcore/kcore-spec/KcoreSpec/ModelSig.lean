@@ -402,9 +402,23 @@ theorem find_ite (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c) {X
     have h2 := List.mem_of_find?_eq_some hf
     rw [itesOnce_of_namesApartK h.names h2 hk h1 hi]
 
-theorem resolve_ite (s : Srt) (tail : List Elem) :
-    resolve c "Lblite" (.srt s :: tail) =
-      ((kernelSyms c).find? fun k => iteSort? (c.symName k.name) == some (c.sortName s)).map (·, 1) := rfl
+/-- `Lblite` applied to the sort `s`, then to arguments, resolves to the symbol named like `ite` at
+`s`, after one sort argument. -/
+theorem resolve_ite (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c) {s : Srt}
+    (hi : iteSort? (c.symName k.name) = some (c.sortName s)) (tail : List Elem) :
+    resolve c "Lblite" (.srt s :: tail) = some (k, 1) := by
+  show ((kernelSyms c).find? fun k => iteSort? (c.symName k.name) == some (c.sortName s)).map (·, 1) = _
+  rw [find_ite h hk hi]; rfl
+
+/-- Where no symbol of `kernelSyms` is an instance at the head `Lblite`, `Lblite` applied to a sort
+resolves to none. -/
+theorem resolve_lblite_noInst
+    (hi : ∀ k ∈ kernelSyms c, ∀ xs, instDecode? (c.symName k.name) ≠ some ("Lblite", xs))
+    (s : Srt) (tail : List Elem) : resolve c "Lblite" (.srt s :: tail) = none := by
+  show ((kernelSyms c).find? fun k => iteSort? (c.symName k.name) == some (c.sortName s)).map (·, 1) = none
+  rw [Option.map_eq_none_iff, List.find?_eq_none]
+  intro k hk he
+  exact hi k hk [c.sortName s] (iteSort?_eq_some.mp (beq_iff_eq.mp he))
 
 /-- `inhOf (SortX)` of the sorts of a list, as the arity item writes them. -/
 theorem map_inh (ss : List Srt) :
@@ -456,8 +470,8 @@ theorem sat_symArity (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c
       exact append_cancel (a := "Sort") (by simpa using List.find?_some hs')
     have hh0' : h0 = .app (.sym "Lblite") [] := (evalSymb_lblite hn h0).mp hh0
     subst hh0'
-    have hr : ∀ tail, resolve c "Lblite" (.srt s' :: tail) = some (k, 1) := fun tail => by
-      rw [resolve_ite, hs'n, find_ite h hk hi]; rfl
+    have hr : ∀ tail, resolve c "Lblite" (.srt s' :: tail) = some (k, 1) := fun tail =>
+      resolve_ite h hk (by rw [hs'n]; exact hi) tail
     have hab' : symAt c "Lblite" [.srt s'] a0 := hab
     have hl := sortsOf_length hvs
     by_cases h0 : k.args = []

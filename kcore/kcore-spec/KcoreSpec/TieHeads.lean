@@ -63,6 +63,20 @@ theorem symApp_gammaHead (c : Semantics) (f : Sym) (args : List Kore.Pattern) :
   unfold symApp gammaHead
   cases iteSort? (c.symName f) <;> rfl
 
+/-- `gammaHead` is the head `symApp` writes, with its sorts. -/
+theorem gammaHead_of_symApp {c : Semantics} {f : Sym} {h : String} {xs : List String}
+    (hw : ∀ ps, Faithful.symApp c f ps = .app ⟨⟨h⟩⟩ (xs.map KoreAML.srt) ps) :
+    gammaHead c f = (h, xs.map KoreAML.srt) := by
+  have he := (hw []).symm.trans (symApp_gammaHead c f [])
+  simp only [Kore.Pattern.app.injEq] at he
+  obtain ⟨h1, h2, -⟩ := he
+  exact Prod.ext (by simpa using h1.symm) h2.symm
+
+/-- A symbol whose name the decoder reads as no instance is Γ's at its name, at no sort. -/
+theorem gammaHead_noInst {c : Semantics} {f : Sym} (h : instDecode? (c.symName f) = none) :
+    gammaHead c f = (c.symName f, []) := by
+  unfold gammaHead; rw [iteSort?_none_of_instDecode h]
+
 /-- The heads at which Γ applies its symbols: the head of each of its symbols (`kernelSyms`) and the
 injection `inj` at each pair of `subsorts`, the order over which Γ's constructor items state the
 injections of a sort's generators and the coherence triangles (`inj` is no member of `kernelSyms`;

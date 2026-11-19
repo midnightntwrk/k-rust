@@ -8,7 +8,8 @@ unit of PROGRESS/units.toml (`[unit]`'s keys), or, for an entry not of class R-c
 supports it, in one of these forms, the word in parentheses being the entry's own class:
   none (R-a)[: reason]
   none (R-b): shape at <list> <row key>[, case <name>]   (a passage of K's documentation; the row
-                                                         key a key of that list in ROWS.toml)
+                                                         key a key of that list in ROWS.toml, the
+                                                         name the `case` of a table nested in it)
   none (R-b): no shape (ill-formed)                     (a passage of the KORE syntax document)
   none (R-b): no shape (refused before any sentence)    (a passage of K's documentation, for a form
                                                          no KORE text kompile writes can hold)
@@ -27,7 +28,8 @@ An entry of class scope has unit "none (scope): <ground>" and carries, by its gr
   place      "DONE-0 R-10" (rejected, not delivered), "DONE-0 R-1" (never written), "DONE-0 R-12"
              (option)
   reversal   the event that ends the scope
-  shape      rejected, option: "<list> <row key>[, case <name>]" (the key a key of ROWS.toml) or
+  shape      rejected, option: "<list> <row key>[, case <name>]" (the key a key of ROWS.toml, the
+             name a case of that row) or
              "none: <emitter file>:<lines>: <what the site shows>"
   meaning    never written: "<path>:<line>: \"<passage>\"" (the KORE syntax document's passage)
   refused_by "kompile" (rejected); the reader's reason (never written, not delivered)
@@ -99,12 +101,15 @@ ALLOWANCE = []
 
 
 def rowref(s):
-    """None when s is "<list> <row key>[, case <name>]" with the key a key of that list, else why not."""
+    """None when s is "<list> <row key>[, case <name>]" with the key a key of that list and, where a
+    case is named, the name the `case` of a table nested in that row (`nested`), else why not."""
     m = ROWREF.match(s)
     if not m:
         return f"{s!r} is not \"<list> <row key>[, case <name>]\""
     if m[2] not in t.get(m[1], {}):
         return f"{m[2]!r} is no key of {m[1]}"
+    if m[3] is not None and not any(c.get("case") == m[3] for _, c in nested(t[m[1]][m[2]])):
+        return f"{m[3]!r} is no case of {m[1]} {m[2]!r}"
     return None
 
 

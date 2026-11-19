@@ -217,7 +217,7 @@ def clauseCE (c : Semantics) (cl : Clause) : Bool :=
   let conf := fun i => (cl.vars[i]?.map c.confined).getD false
   (!cl.exs.isEmpty || cl.post.isTop) &&
   cl.exs.all (fun i => conf i || (cl.fixedExs c.confined c.valued).contains i) &&
-  (!cl.reqOpen || cl.reqClosed || cl.openCondVars.all conf)
+  (!cl.reqOpen || cl.reqClosed || cl.openCondVars.all fun i => conf i || memHeld c (varOccsList cl.pats) cl.pre i)
 
 /-- CN-4b §1.3's additions to `clauseSorted`. -/
 def sortedCE (c : Semantics) (cl : Clause) : Bool :=

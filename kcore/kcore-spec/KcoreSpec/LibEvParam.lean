@@ -7,12 +7,16 @@
   states the graph of each parameter symbol (`ΓDomains`, its value `Semantics.paramVal`, which reads
   the interpretation `c.hooks` for a parameter without implementation), and of each injection
   (`inj{a, b}` at the pattern of a value is the pattern of the injected value). The terms here
-  apply those too.
+  apply those too, and nullary constructors: the pattern `f()` of a symbol f that is neither
+  hooked nor a parameter is, by the definition of `den`, the pattern of the value `.ctor f []`,
+  where that is a value (`Semantics.sortOf`).
   - `LibEv.koreP`, `LibEv.valP`, `LibEv.srtP?`: such a term as a KORE pattern, its value at a
     substitution, its sort. An application of a symbol of `hookSigs` has `Semantics.hv`'s value, an
-    application of a parameter symbol `paramVal`'s, an injection `inj{a, b}(t)` the value
-    `.inj a b v` of t's value v, where `(a, b)` is one of the subsorts and no sort is below a (so v
-    is no injection).
+    application of a parameter symbol `paramVal`'s, an application of any other symbol f to no
+    arguments the value `.ctor f []` where it is a value of some sort (and f's name is not an
+    `ite{X}` instance, which `symApp` writes with a sort argument), an injection `inj{a, b}(t)` the
+    value `.inj a b v` of t's value v, where `(a, b)` is one of the subsorts and no sort is below a
+    (so v is no injection).
   - `LibEv.den_valP`: in a model of `Γ c`, at a valuation that gives each variable its value's
     element, the translated term denotes its value's element, or nothing where it has none.
   - `LibEv.FnEqn.entailedP`: an equation in the function form (`LibEv.FnEqn`, over these terms)
@@ -46,24 +50,40 @@ mutual
     termination_by structural ts => ts
 end
 
+/-- The sort of the value `.ctor f []`, for a symbol f whose application `symApp` writes without a
+sort argument (its name no `ite{X}` instance). -/
+def ctorSortP? (c : Semantics) (f : Sym) : Option Srt :=
+  match iteSort? (c.symName f) with
+  | some _ => none
+  | none => c.sortOf (.ctor f [])
+
 /-- Γ's value of the symbol `f` at `ws`: an interpreted hooked symbol's (`Semantics.hv`), a
-parameter symbol's (`Semantics.paramVal`) otherwise. -/
+parameter symbol's (`Semantics.paramVal`), and for any other symbol at no arguments the value
+`.ctor f []` where it is a value (`ctorSortP?`). -/
 def appValP (c : Semantics) (f : Sym) (ws : List GroundTerm) : Option GroundTerm :=
   match lookupSig hookSigs f with
   | some _ => c.hv f ws
-  | none => c.paramVal f ws
+  | none => match c.lookupParam f with
+    | some _ => c.paramVal f ws
+    | none => match ws with
+      | [] => (ctorSortP? c f).map fun _ => .ctor f []
+      | _ :: _ => none
 
 /-- The argument and result sorts of the symbol `f`: an interpreted hooked symbol's, a parameter
-symbol's otherwise. -/
+symbol's, and for any other symbol no arguments and the sort of the value `.ctor f []`
+(`ctorSortP?`). -/
 def sigOfP (c : Semantics) (f : Sym) : Option (List Srt × Srt) :=
   match lookupSig hookSigs f with
   | some k => some (k.args, k.result)
-  | none => (c.lookupParam f).map fun kp => (kp.sig.args, kp.sig.result)
+  | none => match c.lookupParam f with
+    | some kp => some (kp.sig.args, kp.sig.result)
+    | none => (ctorSortP? c f).map fun s => ([], s)
 
 mutual
   /-- The value of such a term at σ: Γ's value of an interpreted symbol (`Semantics.hv`) or of a
-  parameter symbol (`Semantics.paramVal`) at its arguments' values, the injected value of an
-  injection, none where an argument has none. -/
+  parameter symbol (`Semantics.paramVal`) at its arguments' values, the value `.ctor f []` of a
+  nullary constructor application (`appValP`), the injected value of an injection, none where an
+  argument has none. -/
   def valP (c : Semantics) (σ : Subst) : Term → Option GroundTerm
     | .var i => σ.lookup i
     | .app f ts => (allSome (valPList c σ ts)).bind (appValP c f)
@@ -80,7 +100,8 @@ end
 mutual
   /-- The sort of such a term: a variable's, a domain value's where it is a value of its sort, the
   result sort of an interpreted hooked symbol or of a parameter symbol applied to terms of its
-  argument sorts, `b` for `inj{a, b}(t)` with t of the sort a, `(a, b)` one of the subsorts and no
+  argument sorts, the sort of the value `.ctor f []` for any other symbol f applied to no terms
+  (`sigOfP`), `b` for `inj{a, b}(t)` with t of the sort a, `(a, b)` one of the subsorts and no
   sort below a. -/
   def srtP? (c : Semantics) (vars : Vars) : Term → Option Srt
     | .var i => vars[i]?.map (·.2)
@@ -210,44 +231,81 @@ mutual
               exact hookRes_sorted (fun _ => rangeBelow_of_core h) hl hws (ho' ▸ ho)
         · simp [hargs] at ht
       | none =>
-        rw [sigOfP, hl] at hkk
-        obtain ⟨kp, hkp, rfl⟩ := Option.map_eq_some_iff.mp hkk
-        have ht2 := ht
-        dsimp only at ht2
-        by_cases hargs : srtsP? c vars ts = some kp.sig.args
-        · simp only [hargs, beq_self_eq_true, ite_true, Option.some.injEq] at ht2
-          subst ht2
-          obtain ⟨hkpm, hkn⟩ := lookupParam_some_paramP hkp
-          have hih := den_valsP ts hargs
-          refine ⟨fun m => ?_, fun w hw => ?_⟩
-          · rw [koreP, tr_symApp, valP]
-            cases hall : allSome (valPList c σ ts) with
+        cases hkp : c.lookupParam f with
+        | some kp =>
+          rw [sigOfP, hl, hkp] at hkk
+          cases hkk
+          have ht2 := ht
+          dsimp only at ht2
+          by_cases hargs : srtsP? c vars ts = some kp.sig.args
+          · simp only [hargs, beq_self_eq_true, ite_true, Option.some.injEq] at ht2
+            subst ht2
+            obtain ⟨hkpm, hkn⟩ := lookupParam_some_paramP hkp
+            have hih := den_valsP ts hargs
+            refine ⟨fun m => ?_, fun w hw => ?_⟩
+            · rw [koreP, tr_symApp, valP]
+              cases hall : allSome (valPList c σ ts) with
+              | none =>
+                simp only [Option.bind_none, Res, iff_false]
+                exact hih.2 hall _ m
+              | some ws =>
+                obtain ⟨hws, hcong⟩ := hih.1 ws hall
+                have hax := sat_dom hI (Or.inr (Or.inl ⟨kp, ws, hkpm, hws, rfl⟩))
+                have hgr := (KoreAML.interp_equal (defOK hI)).mp (hax e default) m
+                rw [hkn] at hgr
+                unfold KoreAML.den at hgr
+                rw [tr_symApp] at hgr
+                rw [hcong _ _ (fun _ => Iff.rfl) m, hgr]
+                simp only [Option.bind_some, appValP, hl, hkp]
+                cases c.paramVal f ws with
+                | none => simp [Res, Pattern.interpret]
+                | some v => rfl
+            · rw [valP] at hw
+              cases hall : allSome (valPList c σ ts) with
+              | none => rw [hall] at hw; cases hw
+              | some ws =>
+                rw [hall] at hw
+                simp only [Option.bind_some, appValP, hl, hkp] at hw
+                obtain ⟨k', hk', hs'⟩ := c.paramVal_sorted hw
+                rw [hkp] at hk'
+                cases hk'
+                exact hs'
+          · simp [hargs] at ht2
+        | none =>
+          rw [sigOfP, hl, hkp] at hkk
+          obtain ⟨s', hs', rfl⟩ := Option.map_eq_some_iff.mp hkk
+          dsimp only at ht
+          by_cases hargs : srtsP? c vars ts = some []
+          · simp only [hargs, beq_self_eq_true, ite_true, Option.some.injEq] at ht
+            subst ht
+            have hts : ts = [] := by
+              cases ts with
+              | nil => rfl
+              | cons t ts' =>
+                simp only [srtsP?] at hargs
+                obtain ⟨_, _, h'⟩ := Option.bind_eq_some_iff.mp hargs
+                obtain ⟨_, _, h''⟩ := Option.map_eq_some_iff.mp h'
+                cases h''
+            subst hts
+            have hval : valP c σ (.app f []) = some (.ctor f []) := by
+              rw [valP, valPList]
+              simp only [allSome, Option.bind_some, appValP, hl, hkp, hs', Option.map_some]
+            unfold ctorSortP? at hs'
+            cases hi : iteSort? (c.symName f) with
+            | some _ => rw [hi] at hs'; cases hs'
             | none =>
-              simp only [Option.bind_none, Res, iff_false]
-              exact hih.2 hall _ m
-            | some ws =>
-              obtain ⟨hws, hcong⟩ := hih.1 ws hall
-              have hax := sat_dom hI (Or.inr (Or.inl ⟨kp, ws, hkpm, hws, rfl⟩))
-              have hgr := (KoreAML.interp_equal (defOK hI)).mp (hax e default) m
-              rw [hkn] at hgr
-              unfold KoreAML.den at hgr
-              rw [tr_symApp] at hgr
-              rw [hcong _ _ (fun _ => Iff.rfl) m, hgr]
-              simp only [Option.bind_some, appValP, hl]
-              cases c.paramVal f ws with
-              | none => simp [Res, Pattern.interpret]
-              | some v => rfl
-          · rw [valP] at hw
-            cases hall : allSome (valPList c σ ts) with
-            | none => rw [hall] at hw; cases hw
-            | some ws =>
-              rw [hall] at hw
-              simp only [Option.bind_some, appValP, hl] at hw
-              obtain ⟨k', hk', hs'⟩ := c.paramVal_sorted hw
-              rw [hkp] at hk'
-              cases hk'
-              exact hs'
-        · simp [hargs] at ht2
+              rw [hi] at hs'
+              refine ⟨fun m => ?_, fun w hw => ?_⟩
+              · rw [hval, koreP, tr_symApp, korePList, KoreAML.trArgs_nil]
+                show _ ↔ (KoreAML.den (GroundTerm.kore c (.ctor f []))).interpret I e m
+                unfold KoreAML.den
+                rw [GroundTerm.kore, GroundTerm.koreList, KoreAML.tr_app0, KoreAML.trArgs_nil]
+                unfold symHead
+                rw [hi]
+              · rw [hval] at hw
+                cases hw
+                exact hs'
+          · simp [hargs] at ht
     | .inj a b t, s, ht => by
       simp only [srtP?] at ht
       by_cases hc : (c.subsorts.contains (a, b) && c.subsorts.all (fun p => p.2 != a) &&

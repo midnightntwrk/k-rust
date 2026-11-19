@@ -4,7 +4,7 @@
 Usage (from anywhere; the library and `kcore` built first):
   python3 -I test/constructs/tiegen.py FIXTURE [--sig-chunk N] [--decl-chunk N] [--chunk N]
                                                [--hand consistency=FILE] [--at-values N,...] [--cons-head] [--wf-parts]
-                                               [--split] [--out DIR] [--print]
+                                               [--split] [--account-sorted] [--heads-literal] [--out DIR] [--print]
   (the probe, a run of the Lean definitions on the text, is stopped after $TIEGEN_PROBE_TIMEOUT seconds, 900 by default)
   python3 -I test/constructs/tiegen.py --self-test   (the law search below, on three fixtures)
 
@@ -37,17 +37,30 @@ is never repeated: a declaration of the later sections goes to the file of the d
 and sections that read each other's decisions share one file (the rules with the functions where
 the converse over Γ reads both, `gamma_origin`). `--print` lists the files, the merges and what each
 file repeats. Without --split the output is the single file.
+--account-sorted proves the account from the class lists sorted (`KoreAML.Distinct.msort`, as
+`tacAccount_of_msort` reads it) where the user module's indices, in text order, are a range
+a, ..., a+n-1 (`indices_eq`, `classes_sorted`), in place of the decisions of `isPerm` and `Nodup`,
+which compare every pair of sentences; a text whose indices are no range is refused.
+--heads-literal (with --chunk) writes Γ's heads as a literal (`gHeads`, `gHeads_eq : gammaHeads c =
+gHeads`) and decides `account_absent`'s ranges on it (`absentPL`, equal to `absentP` by `gHeads_eq`),
+so that no range recomputes Γ's heads.
 --hand consistency=FILE puts FILE in place of the consistency section, for a text that owes an
 agreement, a clause's match independence, or a rule's or clause's condition (`owed_rules`,
 `owed_clauses`): FILE proves the owed facts and states `consistent` for every H, with `facts` for an
 agreement, and `owed_rules`, `owed_clauses` and `openDecidedH` (`OpenDecided` for every H) otherwise.
+It also takes a text that owes a held-named function's fact (`Held`, `HeldOwed`) or the totality of a
+`[total]` function (`total_named` not empty), beside any of those: FILE then states
+`theorem consistent (H : HookParams) : Consistent (cH H)` (refused otherwise), with `held_named` or
+`total_named`, and `fnHypH` (`FnHyp` for every H) where its route is `FnHyp`. Where it is not (a
+held-named function's fact false, so `FnHyp` fails), the header and the summary say that the
+function functional sentences, owed as `FnHyp`, are not shown by the tie.
 --at-values N,... names the user lemmas (by `AxiomDecl.index`) that are of the class `user lemma at
 values` in place of `user lemma`; an index that is no user lemma of the text is refused.
 
 It refuses, with the reason, a fixture without a kompiled text, a text whose `kcore account` is not
 the fixture's account.txt, a text the reader refuses, a text whose obligations `kcore gen --core`
-states in a form not in OBL_FORMS, or which owes termination, totality or a held-named function's
-fact, or, without --hand consistency, a match independence or a rule's or clause's condition;
+states in a form not in OBL_FORMS, or which owes termination, or, without --hand consistency,
+totality, a held-named function's fact, a match independence or a rule's or clause's condition;
 a text whose `attrsAgree` fails; a law of the reader or a law item of Γ that is not one sentence as
 written; a text with a law of a function that the probe refutes at values (Function laws, below).
 
@@ -179,7 +192,9 @@ probe evaluates of it (a run of the Lean definitions on the text: the heads it a
 with its sort arguments (`appHeadsOf`), against Γ's (`gammaHasHead`),
 its place among Γ's function items, `tieConsB`, the constructor items; a symbol the registry interprets
 is a registry hook or a parameter symbol a registry hook implements, `MtCellMap:in_keys` with
-`MAP.in_keys`) and from its form (kompile's
+`MAP.in_keys`; an overloading symbol is a generator, and its functional sentence is of the class
+constructor functional where `tieConsB` accepts it, which it does where the symbol overloads no
+function) and from its form (kompile's
 `// functional`, `// subsort`, `// no confusion` and `// no junk` comments, the `assoc`, `unit`, `idem`,
 `priority` and `owise` attributes, set variables, a builtin `Source`); a sentence that neither gives a
 class is refused by name. A mapped sentence whose probe class differs from ens's is refused too.
@@ -449,10 +464,11 @@ def named_list(src, thm):
 def obligations(name, path, hand=False):
     """What `kcore gen --core` names of the text: the obligation form, the call order, the
     functions its agreement list names, whether it names a clause's match independence (`match`) and
-    whether it owes a rule's or clause's condition (`owed`). Refused: a form not in OBL_FORMS,
-    termination or totality named, a held-named function (`Held`); without `hand` (a consistency
-    section written by hand that proves them), a match independence named or an owed condition
-    (`Owed`)."""
+    whether it owes a rule's or clause's condition (`owed`), the held-named functions (`held`,
+    `held_names`) and the `[total]` functions whose totality is owed (`total`, `total_names`).
+    Refused: a form not in OBL_FORMS, termination named; without `hand` (a consistency section
+    written by hand that proves them), totality named, a held-named function (`Held`), a match
+    independence named or an owed condition (`Owed`)."""
     with tempfile.TemporaryDirectory(prefix="tiegen-") as d:
         g = run([KCORE, "gen", path, d, "TieGenProbe", "--core"], cwd=KS)
         if g.returncode != 0:
@@ -460,7 +476,7 @@ def obligations(name, path, hand=False):
         fh = open(os.path.join(d, "TieGenProbe/FnHyp.lean")).read()
         order = open(os.path.join(d, "TieGenProbe/FnHyp/Order.lean")).read()
         mods = {}
-        for m in ("Term", "Total", "Agree", "Match", "Owed"):
+        for m in ("Term", "Total", "Agree", "Match", "Owed", "Held"):
             p = os.path.join(d, f"TieGenProbe/FnHyp/{m}.lean")
             mods[m] = open(p).read() if os.path.exists(p) else ""
     form = None
@@ -470,8 +486,12 @@ def obligations(name, path, hand=False):
     if form is None:
         m = re.search(r"^abbrev Obl.*$", fh, re.M)
         raise Refused(f"{name}: the obligations are in a form tiegen does not state ({m[0] if m else 'no Obl'})")
-    if re.search(r"^abbrev Held\b", fh, re.M):
-        raise Refused(f"{name}: a held-named function (`kcore gen --core` states `Held`)")
+    form["held"] = bool(re.search(r"^abbrev Held\b", fh, re.M))
+    hm = re.search(r"^theorem held_named : .*?=\s*(\[.*?\])", mods["Held"], re.M | re.S)
+    form["held_names"] = re.findall(r"\d+ /- (.*?) -/", hm[1]) if hm else []
+    if form["held"] and not hand:
+        raise Refused(f"{name}: a held-named function (`kcore gen --core` states `Held`): its proof goes in "
+                      f"--hand consistency")
     if re.search(r"^abbrev Owed\b", fh, re.M) and not hand:
         raise Refused(f"{name}: an owed condition (`kcore gen --core` states `Owed`): its proof goes in "
                       f"--hand consistency")
@@ -479,11 +499,15 @@ def obligations(name, path, hand=False):
                                                    ("agree_named", "Agree"), ("match_named", "Match"))}
     if any(v is None for v in lists.values()):
         raise Refused(f"{name}: `kcore gen --core` states no list of {[k for k, v in lists.items() if v is None]}")
-    others = [k for k in ("term_named", "total_named") + (() if hand else ("match_named",)) if lists[k]]
+    others = [k for k in ("term_named",) + (() if hand else ("total_named", "match_named")) if lists[k]]
     if others:
         raise Refused(f"{name}: an owed fact other than an agreement ({', '.join(others)} not empty)"
-                      + ("" if hand or others != ["match_named"] else ": its proof goes in --hand consistency"))
+                      + ("" if hand or not set(others) <= {"total_named", "match_named"}
+                         else ": its proof goes in --hand consistency"))
     form["match"] = bool(lists["match_named"])
+    form["total"] = lists["total_named"]
+    tm = re.search(r"^theorem total_named : .*?=\s*(\[.*?\])", mods["Total"], re.M | re.S)
+    form["total_names"] = re.findall(r"\d+ /- (.*?) -/", tm[1]) if tm else []
     form["agree"] = lists["agree_named"]
     am = re.search(r"^theorem agree_named : .*?=\s*(\[.*?\])", mods["Agree"], re.M | re.S)
     form["agree_names"] = re.findall(r"\d+ /- (.*?) -/", am[1]) if am else []
@@ -596,7 +620,8 @@ def tgNjOrder (gs : List KoreAML.Gen) : List Kore.Pattern → Option (List Nat)
   let isCtor := fun (n : String) => css.any (c.symName ·.name == n)
   let isHook := fun (n : String) => hookSigs.any (c.symName ·.name == n)
   let isImplParam := fun (n : String) => c.params.any fun k => c.symName k.sig.name == n && k.impl.isSome && !k.raw
-  let kind := fun (n : String) => if isFn n then "fn" else if isCtor n then "ctor" else if isHook n || isImplParam n then "hook" else if has n then "other" else "absent"
+  let isOvlN := fun (n : String) => c.ovlSigs.any (c.symName ·.name == n)
+  let kind := fun (n : String) => if isFn n then "fn" else if isCtor n then "ctor" else if isHook n || isImplParam n then "hook" else if isOvlN n then "ovl" else if has n then "other" else "absent"
   let kg := (gensInOrder c d.pres Srt.kitem).map (Gen.toK c)
   let kitemPat := (KoreAML.Cons.noJunkItem (c.sortName Srt.kitem) kg).pat
   let tsig := (Theory.ofDefinition k).signature
@@ -672,6 +697,10 @@ def tgNjOrder (gs : List KoreAML.Gen) : List Kore.Pattern → Option (List Nat)
   IO.println s!"H litBool {c.litSort Srt.bool}"
   IO.println s!"H owedNil {c.owedRules.isEmpty && c.owedClauses.isEmpty}"
   IO.println s!"H fnClauses {afs.map fun f => c.symName f.label ++ "=" ++ toString f.clauses.length}"
+  -- Γ's heads in `gammaHeads`' order, each sort argument by its name (`?` for a sort that is no
+  -- constructor without arguments), for `--heads-literal`
+  for g in gh do
+    IO.println s!"G {g.1}\t{"\t".intercalate (g.2.map fun s => match s with | .ctor h [] => h.ident.name | _ => "?")}"
   for kp in c.params.filter (·.raw) do
     IO.println s!"P {kp.sig.name}\t{c.symName kp.sig.name}\t{kp.sig.args}\t{kp.sig.result}\t{c.sortName kp.sig.result}\t{kp.assoc}\t{kp.idem}\t{c.isOpenGen (.ctor kp.sig)}"
   for (it, j) in fis.zip (List.range fis.length) do
@@ -768,9 +797,13 @@ def probe(name, path, um, order="[]", cons_head=False):
     head, sents = {}, {}
     head["rules"], head["raw"], head["fnA"], head["nj"], head["lawRef"], head["fnW"] = [], [], {}, {}, [], {}
     head["fnQ"] = {}
+    head["gHeads"] = []
     nums = lambda s: [int(x) for x in re.findall(r"\d+", s)]
     for l in r.stdout.split("\n"):
-        if l.startswith("H "):
+        if l.startswith("G "):
+            f = l[2:].split("\t")
+            head["gHeads"].append((f[0], [x for x in f[1:] if x]))
+        elif l.startswith("H "):
             k, _, v = l[2:].partition(" ")
             head[k] = v
         elif l.startswith("L "):
@@ -857,6 +890,12 @@ def form_class(s, raw, builtin, laws=(), open_laws=(), raw_names=(), at_values=(
         return "injectivity"
     if "// no confusion different constructors" in raw:
         return "distinctness"
+    # an overloading symbol is a generator of its result sort (`Semantics.gens`); where it overloads
+    # no function, Γ holds its Cons-Fun item at every argument list (`consItemsK`), so its functional
+    # sentence is that item where `tieConsB` accepts it. Where it overloads a function (`fnOvl`), Γ
+    # holds the item at uncovered arguments only, and the sentence has no class here.
+    if "[functional{}()]" in raw and s["fh"] and s["fhk"] == "ovl":
+        return "constructor functional" if s["cons"] else None
     if "[functional{}()]" in raw and s["fh"]:
         return {"ctor": "constructor functional", "fn": "function functional", "hook": "hooked functional"}.get(s["fhk"])
     if s["ehk"] == "fn" and not builtin:
@@ -935,6 +974,16 @@ def wrap_nums(nums, indent, width=100):
     return ("\n" + " " * indent).join(lines)
 
 
+def lean_str(x):
+    """`x` as a Lean string literal."""
+    return '"' + x.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\t", "\\t") + '"'
+
+
+def head_lit(h):
+    """A head of `gammaHeads` (a name and its sort arguments' names) as a Lean literal."""
+    return "(" + lean_str(h[0]) + ", [" + ", ".join(f".ctor ⟨⟨{lean_str(s)}⟩⟩ []" for s in h[1]) + "])"
+
+
 def ax_list(nums, indent=3, pre=None):
     """The literals of the axioms `nums`: `U.axN`, or `pre[N].axN` for an axiom of a prelude module."""
     pre = pre or {}
@@ -975,11 +1024,14 @@ def by_ranges(prefix, lst, pred, rs, lem="tieAllE", named=False):
 
 
 def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, failing, ob, chunks, raws=None,
-             hand=None, chunk=0, at_values=(), cons_head=False, wf_parts=None, split=False):
+             hand=None, chunk=0, at_values=(), cons_head=False, wf_parts=None, split=False,
+             account_sorted=None, heads_literal=False):
     """The Lean text of the tie. `ob`: what `obligations` read; `raws`: each sentence's text as
     written; `hand`: hand-written sections by name (`consistency`), each in place of the generated
     one; `chunk`: the length of the ranges the decisions over the whole user module are cut into
-    (0: one decision each)."""
+    (0: one decision each); `account_sorted`: `(a, n)` where the user module's indices, in text
+    order, are `a, ..., a+n-1`, to prove the account from the sorted class lists; `heads_literal`:
+    decide `account_absent`'s ranges on Γ's heads as a literal (`gHeads`)."""
     raws = raws or {}
     hand = hand or {}
     call_order = ob["call_order"]
@@ -1047,6 +1099,15 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             fn_pair, pair_text, pair_w = True, txt, ws[0]
     agree = ob["agree"]
     facts_kind = ob["kind"]
+    # a held-named function's fact or a `[total]` function's totality owed (`--hand consistency`
+    # only): the hand section states `consistent` for every H, by `FnHyp` (`fnHypH`) or otherwise
+    held_total = "consistency" in hand and bool(ob.get("held") or ob.get("total"))
+    held_hand = held_total and bool(ob.get("held"))
+    hand_c = hand.get("consistency", "")
+    if held_total and not re.search(r"^theorem consistent \(H : HookParams\) : Consistent \(cH H\)", hand_c, re.M):
+        raise Refused(f"{name}: the consistency section does not state `consistent` for every H "
+                      f"(`theorem consistent (H : HookParams) : Consistent (cH H)`)")
+    fnhyp_hand = held_total and bool(re.search(r"^theorem fnHypH \(H : HookParams\) : FnHyp \(cH H\)", hand_c, re.M))
     tp_params = ob["hform"] and head["totalNil"] != "true"
     # where a `[total]` function applies a parameter the text declares total, its totality holds
     # under the interpretations total on those parameters (`totalObligationsRP callOrder
@@ -1126,7 +1187,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     if raw and (agree or confined or facts_kind != "FnFacts"):
         raise Refused(f"{name}: an open generator beside an owed agreement or a confined sort: tiegen states "
                       f"neither together")
-    if agree and confined:
+    if agree and confined and not held_hand:
         raise Refused(f"{name}: an owed agreement beside a confined sort: tiegen states not both")
     if confined and head["litBool"] != "true":
         raise Refused(f"{name}: the definition reads a confined sort and Bool holds other than its literals (`Γcl` empty)")
@@ -1205,6 +1266,29 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             w("    has no law, so that is every H (`openLaws_any`, `consistent_any`).")
         else:
             w("    `consistent`), at `lawHooks c H` for every H (`lawHooks_laws`, `consistent_lawHooks`).")
+    elif held_total:
+        th = "`Γc`" if confined else "Γ"
+        owes = []
+        if ob.get("held"):
+            hn = " and ".join(f"`{x}`" for x in ob["held_names"])
+            owes.append(f"the fact of the held-named function {hn} (`held_named`, `HeldOwed`: the variables of its "
+                        f"clauses are held, or it has a result at every argument list of its sorts)")
+        if ob.get("total"):
+            tn = " and ".join(f"`{x}`" for x in ob["total_names"])
+            owes.append(f"the totality of the `[total]` function {tn} (`total_named`)")
+        if agree:
+            owes.append("the agreement of " + " and ".join(f"`{x}`" for x in ob["agree_names"]) + " (`agree_named`)")
+        if ob["match"]:
+            owes.append("the match independence of a clause (`match_named`)")
+        if ob["owed"]:
+            owes.append("the condition of a rule or clause (`owed_rules`, `owed_clauses`)")
+        w(f"  - The definition reads {'a' if confined else 'no'} confined sort (`readsConfined_c`) and has no open generator (`noRaw`).")
+        para = (f"It owes {'; '.join(owes)}, which no decider confirms. The consistency section, written by hand, "
+                f"proves that {th} with the step's closure has a model for every H (`consistent`), ")
+        para += ("through `FnHyp` for every H (`fnHypH`)." if fnhyp_hand else
+                 "without `FnHyp`, which it does not state (its comment says why): the function functional "
+                 "sentences, owed as `FnHyp`, are not shown by this tie where `FnHyp` fails.")
+        w(textwrap.fill(para, 104, initial_indent="    ", subsequent_indent="    "))
     elif agree:
         an = " and ".join(f"`{x}`" for x in ob["agree_names"])
         w("  - The definition reads no confined sort (`readsConfined_c`) and has no open generator (`noRaw`).")
@@ -1331,7 +1415,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         owed_more += ("; user lemma: owed, by hand\n    (`userlemma_account`, `UserLemmaEntailed`, "
                       "`UserLemmaAtValues`)")
     w("  - Hooked functional, collection law, library: at values (no theorem here); function functional:")
-    w(f"    owed as `FnHyp` (no theorem){owed_more}; no direction: `absent_closed`.")
+    w(f"    owed as `FnHyp` ({'not stated here; ' if held_total and not fnhyp_hand else ''}no theorem){owed_more}; no direction: `absent_closed`.")
     w("")
     if law_idx:
         what = law_what(law_idx, raws, sents)
@@ -1532,12 +1616,28 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     w("/-- The indices of a class. -/")
     w("def classOf (n : String) : List Nat := (classes.filter (·.1 == n)).flatMap (·.2)")
     w("")
-    w("/-- **The account**: the class lists partition the user module's sentences. Their concatenation is")
-    w("a permutation of the sentences' indices, which are distinct, so each sentence is in one class and")
-    w("in it once. -/")
-    w("theorem account : (classes.flatMap (·.2)).isPerm (userAxioms.map (·.index)) = true ∧")
-    w("    (userAxioms.map (·.index)).Nodup := by")
-    w("  rw [userAxioms_eq]; decide +kernel")
+    if account_sorted:
+        a0, n0 = account_sorted
+        w(f"/-- The indices of the user module's sentences, in text order, are {a0}, …, {a0 + n0 - 1}. -/")
+        w(f"theorem indices_eq : U.all.map (·.index) = List.range' {a0} {n0} := by decide +kernel")
+        w("")
+        w(f"/-- The class lists, sorted ({n0.bit_length() + 1} passes of `KoreAML.Distinct.msort`), are the same range. -/")
+        w(f"theorem classes_sorted : KoreAML.Distinct.msort {n0.bit_length() + 1} (classes.flatMap (·.2)) = List.range' {a0} {n0} := by")
+        w("  decide +kernel")
+        w("")
+        w("/-- **The account**: the class lists partition the user module's sentences. Their concatenation is")
+        w("a permutation of the sentences' indices, which are distinct, so each sentence is in one class and")
+        w("in it once: sorted, the class lists are the range the indices are (`tacAccount_of_msort`). -/")
+        w("theorem account : (classes.flatMap (·.2)).isPerm (userAxioms.map (·.index)) = true ∧")
+        w("    (userAxioms.map (·.index)).Nodup :=")
+        w("  tacAccount_of_msort classes_sorted (by rw [userAxioms_eq]; exact indices_eq)")
+    else:
+        w("/-- **The account**: the class lists partition the user module's sentences. Their concatenation is")
+        w("a permutation of the sentences' indices, which are distinct, so each sentence is in one class and")
+        w("in it once. -/")
+        w("theorem account : (classes.flatMap (·.2)).isPerm (userAxioms.map (·.index)) = true ∧")
+        w("    (userAxioms.map (·.index)).Nodup := by")
+        w("  rw [userAxioms_eq]; decide +kernel")
     w("")
     w("/-- The class sizes. -/")
     w("theorem account_sizes : classes.map (fun cl => (cl.1, cl.2.length)) =")
@@ -1552,7 +1652,25 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w("noncomputable def absentP (ad : AxiomDecl) : Bool :=")
         w('  (classOf "no direction").contains ad.index != (appHeadsOf ad.ax.pattern).all (gammaHasHead c)')
         w("")
-        thms, body = by_ranges("absentE", "U.all", "absentP", ranges(len(idx), 0, chunk), "tieAll", True)
+        if heads_literal:
+            w("/-- The heads at which Γ applies its symbols (`gammaHeads c`), written out. -/")
+            w("def gHeads : List (String × List Kore.KSort) :=")
+            w("  [" + wrap_nums([head_lit(h) for h in head["gHeads"]], 3) + "]")
+            w("")
+            w("/-- The literal is Γ's heads. -/")
+            w("theorem gHeads_eq : gammaHeads c = gHeads := by decide +kernel")
+            w("")
+            w("/-- `absentP` with Γ's heads read from the literal `gHeads`. -/")
+            w("noncomputable def absentPL (ad : AxiomDecl) : Bool :=")
+            w('  (classOf "no direction").contains ad.index !=')
+            w("    (appHeadsOf ad.ax.pattern).all (fun h => gHeads.any fun g => decide (g = h))")
+            w("")
+            w("/-- `absentPL` is `absentP`: `gammaHasHead c` is membership in `gammaHeads c`, which is `gHeads`. -/")
+            w("theorem absentPL_eq : absentPL = absentP := by")
+            w("  funext ad; unfold absentPL absentP gammaHasHead; rw [gHeads_eq]")
+            w("")
+        thms, body = by_ranges("absentE", "U.all", "absentPL" if heads_literal else "absentP",
+                               ranges(len(idx), 0, chunk), "tieAll", True)
         w(thms)
         w("")
     w("/-- **A sentence outside the no-direction class applies only symbols Γ has**, each a head with its")
@@ -1560,7 +1678,12 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     w("Γ lacks. -/")
     w("theorem account_absent : userAxioms.all (fun ad =>")
     w('    (classOf "no direction").contains ad.index != (appHeadsOf ad.ax.pattern).all (gammaHasHead c)) = true := by')
-    if chunk:
+    if chunk and heads_literal:
+        w("  rw [userAxioms_eq]")
+        w("  have h : (U.all).all absentPL = true :=")
+        w("    " + body.replace("\n    ", "\n      "))
+        w("  rw [absentPL_eq] at h; exact h")
+    elif chunk:
         w("  rw [userAxioms_eq]; exact")
         w("    " + body.replace("\n    ", "\n      "))
     else:
@@ -2208,7 +2331,10 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     if gamma and not fn_align:
         names += ["gamma_origin", "gamma_from"]
     after = []
-    if agree:
+    if held_total:
+        after += (["held_named"] if ob.get("held") else []) + (["total_named"] if ob.get("total") else []) + \
+            (["fnHypH"] if fnhyp_hand else [])
+    elif agree:
         after += ["agree_named"] + (["agree"] if "consistency" in hand else []) + ["facts"]
     if tp_held:
         after += ["total_named", "paramsTotal_witness", "consistent_witness"]
@@ -2232,7 +2358,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         names += ["paramlemma_account", "paramlemma_heads", "ParamLemmaWitnessAtValues"]
     if user_lem or user_lem_v:
         names += ["userlemma_account", "UserLemmaEntailed", "UserLemmaAtValues"]
-    if facts_kind == "FnFacts" and not agree and not raw:
+    if facts_kind == "FnFacts" and not agree and not raw and not held_total:
         names += ["owed_rules", "owed_clauses", "openDecidedH"]
     names += cnames
     pair_names = ["fns_account", "aW_narrowed", "w_text", "w_differs", "w1", "shape", "fns_entailed",
@@ -2259,6 +2385,9 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         marks = [(o if o <= a else o + len(new) - (b - a), m) for o, m in marks]
         lean = lean[:a] + new + lean[b:]
     owed = ([f"the agreement of {', '.join(ob['agree_names'])} (AgreeOwed)"] if agree and "consistency" not in hand else [])
+    if held_total and not fnhyp_hand:
+        owed.append("FnHyp, the hypothesis the function functional sentences are owed under (not stated: the "
+                    "consistency section shows `consistent` without it)")
     if param_lem:
         owed.append(f"one H at which FnObligations hold and the parameter lemmas {', '.join(map(str, param_lem))} "
                     f"hold at values (ParamLemmaWitnessAtValues)")
@@ -3289,8 +3418,22 @@ SELF_TEST = {"e2-fn-assoc-bad": "at var 0 = 0, var 1 = 0, var 2 = 1 its left sid
              "e2-fn-assoc": None, "e2-fn-assoc-rest": None}
 
 
+def index_range(order):
+    """`(a, n)` where `order` is `a, a+1, ..., a+n-1` with n > 0, else None (`--account-sorted`)."""
+    return (order[0], len(order)) if order and order == list(range(order[0], order[0] + len(order))) else None
+
+
+# `index_range` on lists that are a range and lists that are not
+INDEX_RANGE_TEST = [([7, 8, 9], (7, 3)), ([0], (0, 1)), ([], None), ([7, 9, 10], None), ([8, 7, 9], None),
+                    ([7, 7, 8], None)]
+
+
 def self_test():
     bad = []
+    for order, want in INDEX_RANGE_TEST:
+        if index_range(order) != want:
+            print(f"tiegen self-test: index_range({order}) is {index_range(order)}, not {want}  FAILS")
+            bad.append(f"index_range {order}")
     for name, want in SELF_TEST.items():
         text = restored_text(name)
         with tempfile.TemporaryDirectory(prefix="tiegen-self-") as d:
@@ -3308,7 +3451,7 @@ def self_test():
               + ("" if ok else "  FAILS"))
         if not ok:
             bad.append(name)
-    print(f"tiegen self-test: {len(SELF_TEST)} fixtures, {len(bad)} failing")
+    print(f"tiegen self-test: {len(SELF_TEST)} fixtures and {len(INDEX_RANGE_TEST)} index lists, {len(bad)} failing")
     return 1 if bad else 0
 
 
@@ -3352,9 +3495,9 @@ def main(argv):
         nsyms = len(re.findall(r"^\s*(?:(?:hooked-)?symbol|alias) ", text, re.M))
         wf_parts = (nsorts.bit_length() + 1, nsyms.bit_length() + 1)
     head, sents = probe(name, path, um0, ob["order_list"], cons_head)
-    if "consistency" in hand and not (ob["agree"] or ob["match"] or ob["owed"]):
-        raise Refused(f"{name}: --hand consistency is for a text that owes an agreement, a match independence or a "
-                      f"condition")
+    if "consistency" in hand and not (ob["agree"] or ob["match"] or ob["owed"] or ob["held"] or ob["total"]):
+        raise Refused(f"{name}: --hand consistency is for a text that owes an agreement, a match independence, a "
+                      f"condition, a held-named function's fact or a totality")
     laws, open_laws = nested(head["lawIx"]), nested(head["openLawIx"])
     if any(len(l) != 1 for l in laws) or len({l[0] for l in laws}) != len(laws):
         raise Refused(f"{name}: a law of the reader (`Definition.laws`) is not, as written, exactly one sentence of the user module")
@@ -3377,9 +3520,22 @@ def main(argv):
     for i in law_set | open_set:
         if sents[i]["fnJ"] or (i in law_set and sents[i]["consItem"]):
             raise Refused(f"{name}: law sentence {i} is a function equation's item or a constructor item of Γ")
+    account_sorted = None
+    if "--account-sorted" in argv:
+        account_sorted = index_range([a[0] for a in ua])
+        if account_sorted is None:
+            raise Refused(f"{name}: --account-sorted: the indices of the user module's sentences, in text order, "
+                          f"are no range a, ..., a+n-1")
+    heads_literal = "--heads-literal" in argv
+    if heads_literal and not chunk:
+        raise Refused(f"{name}: --heads-literal decides `account_absent` by ranges: it needs --chunk N")
+    if heads_literal and (not head["gHeads"] or any("?" in ss for _, ss in head["gHeads"])):
+        raise Refused(f"{name}: --heads-literal: the probe gives no heads of Γ, or a head with a sort argument "
+                      f"that is no sort constructor without arguments")
     ns, lean, summary = generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, failing,
                                  ob, chunks, {i: raw for i, _, _, raw in ua}, hand, chunk,
-                                 at_values, cons_head, wf_parts, "--split" in argv)
+                                 at_values, cons_head, wf_parts, "--split" in argv, account_sorted,
+                                 heads_literal)
     outdir = argv[argv.index("--out") + 1] if "--out" in argv else None
     if outdir is None and (not os.path.exists(final) or open(final).read() != text):
         open(final, "w").write(text)

@@ -23,6 +23,10 @@
     sentence Γ lacks.
   - `andInt_absent`: INT's `&Int`, declared without sort parameters, is the one head Γ lacks of its
     `functional` sentence 54 and of INT-KORE's associativity lemma 236 (domains.md 1428).
+  - `floatParams_absent`: FLOAT's `total` symbols `Float2Int`, `atanFloat`, `cosFloat`,
+    `expFloat`, `exponentFloat`, `signFloat` and `sinFloat` are declared without sort parameters
+    and name no symbol of Γ; each is the one head Γ lacks of its `functional` sentence (42, 105,
+    112, 116, 118, 165, 168).
 -/
 import KcoreSpec
 
@@ -167,11 +171,33 @@ theorem andInt_absent :
     [U.ax54, U.ax236].map absentOf = [[andIntName], [andIntName, andIntName, andIntName, andIntName]] := by
   decide +kernel
 
+/-- The names of seven of FLOAT's `total` symbols, in the order of their `functional` sentences in
+the text. -/
+def floatParamNamesFlt : List String :=
+  ["LblFloat2Int'LParUndsRParUnds'FLOAT'Unds'Int'Unds'Float",
+   "LblatanFloat'LParUndsRParUnds'FLOAT'Unds'Float'Unds'Float",
+   "LblcosFloat'LParUndsRParUnds'FLOAT'Unds'Float'Unds'Float",
+   "LblexpFloat'LParUndsRParUnds'FLOAT'Unds'Float'Unds'Float",
+   "LblexponentFloat'LParUndsRParUnds'FLOAT'Unds'Int'Unds'Float",
+   "LblsignFloat'LParUndsRParUnds'FLOAT'Unds'Bool'Unds'Float",
+   "LblsinFloat'LParUndsRParUnds'FLOAT'Unds'Float'Unds'Float"]
+
+/-- **The `functional` sentences of seven of FLOAT's `total` symbols apply a symbol Γ lacks**: 42 (`Float2Int`), 105 (`atanFloat`), 112 (`cosFloat`), 116 (`expFloat`), 118
+(`exponentFloat`), 165 (`signFloat`) and 168 (`sinFloat`) each apply their own symbol, declared
+without sort parameters, and no other head Γ lacks; Γ has no symbol under any of the seven names. -/
+theorem floatParams_absent :
+    [U.ax42, U.ax105, U.ax112, U.ax116, U.ax118, U.ax165, U.ax168].map absentOf =
+      floatParamNamesFlt.map (fun n => [n]) ∧
+    floatParamNamesFlt.all (fun n => (kore.symbolDecls.filter (·.name == n)).map (·.params.isEmpty) == [true]) ∧
+    floatParamNamesFlt.all (fun n => !hasSym n) := by
+  decide +kernel
+
 end KCore.LibEvDeclsFlt
 
 #check @KCore.LibEvDeclsFlt.decls_entailed
 #check @KCore.LibEvDeclsFlt.lib_decls_entailed
 #check @KCore.LibEvDeclsFlt.dividesInt_absent
+#check @KCore.LibEvDeclsFlt.floatParams_absent
 #print axioms KCore.LibEvDeclsFlt.decls_entailed
 #print axioms KCore.LibEvDeclsFlt.lib_decls_entailed
 #print axioms KCore.LibEvDeclsFlt.dividesInt_absent
@@ -179,3 +205,4 @@ end KCore.LibEvDeclsFlt
 #check @KCore.LibEvDeclsFlt.rootFloat_absent
 #print axioms KCore.LibEvDeclsFlt.rootFloat_absent
 #print axioms KCore.LibEvDeclsFlt.andInt_absent
+#print axioms KCore.LibEvDeclsFlt.floatParams_absent

@@ -315,35 +315,27 @@ theorem ren_den (v : GroundTerm) : ren (den c v) = den c2 v := ren_kore v
 
 /-! ## `Lblite` applied to `SortKCell` and an argument denotes nothing -/
 
-/-- No name of `c2` has the code of a name like `ite` at a sort. -/
-theorem iteIdx2 : iteIdx (symCodesCD c2) = [] := by decide +kernel
+/-- No name of `c2` has a code holding `{`. -/
+theorem instIdx2 : instIdx (symCodesCD c2) = [] := by rw [instIdx_symCodesCD]; decide +kernel
 
-theorem noIte2_all : (kernelSyms c2).all (fun k => (iteSort? (c2.symName k.name)).isNone) = true :=
-  List.all_eq_true.mpr fun k _ => by rw [iteSort_none_of_iteIdxCD iteIdx2 k.name]; rfl
+/-- No symbol of `c2` is an instance at the head `Lblite`. -/
+theorem noInst2 : ∀ k ∈ kernelSyms c2, ∀ xs, instDecode? (c2.symName k.name) ≠ some ("Lblite", xs) := by
+  intro k _ xs he
+  have hm := mem_instIdx (symCodesCD_eq c2) (f := k.name) (by rw [he]; exact Option.some_ne_none _)
+  rw [instIdx2] at hm
+  exact List.not_mem_nil hm
 
-theorem noIte2 (X : String) : (kernelSyms c2).find? (fun k => iteSort? (c2.symName k.name) == some X) = none := by
-  rw [List.find?_eq_none]
-  intro k hk
-  have := List.all_eq_true.mp noIte2_all k hk
-  rw [Option.isNone_iff_eq_none] at this
-  simp [this]
-
-theorem resolve_ite2 (s : Srt) (tail : List Elem) : resolve c2 "Lblite" (.srt s :: tail) = none := by
-  rw [resolve_ite, noIte2]; rfl
+theorem resolve_ite2 (s : Srt) (tail : List Elem) : resolve c2 "Lblite" (.srt s :: tail) = none :=
+  resolve_lblite_noInst noInst2 s tail
 
 theorem names2 : namesApartK c2 = true := by decide_cheap
 
 theorem symAt_one {u x : Elem} (hr : resolve c2 "Lblite" [u] = none) (h : symAt c2 "Lblite" [u] x) :
-    x = .app (.sym "Lblite") [u] := by
-  unfold symAt at h
-  rw [hr] at h
-  exact h
+    x = .app (.sym "Lblite") [u] :=
+  symAt_none_app hr h
 
-theorem symAt_two {u w x : Elem} (hr : resolve c2 "Lblite" [u, w] = none) : ¬ symAt c2 "Lblite" [u, w] x := by
-  intro h
-  unfold symAt at h
-  rw [hr] at h
-  exact h
+theorem symAt_two {u w x : Elem} (hr : resolve c2 "Lblite" [u, w] = none) : ¬ symAt c2 "Lblite" [u, w] x :=
+  symAt_none_noInst hr noInst2 (by simp) x
 
 theorem I_app_sym (n : String) (args : List Elem) (b x : Elem) :
     I.evalApp (.app (.sym n) args) b x ↔ symAt c2 n (args ++ [b]) x := Iff.rfl

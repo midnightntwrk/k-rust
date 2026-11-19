@@ -618,9 +618,9 @@ def faithCoreParts : List String := ["namesNumbered", "genWf", "collSortsOK", "c
 /-- The conjuncts of `faithCoreOK` that read names, each with the lemma that gives it from its
 decision on codes and that decision's arguments. -/
 def nameParts : List (String × String × String) :=
-  [("namesNumbered", "Model.namesNumbered_of_codes sym_codes ite_idx", "Model.namesNumberedC defn.sem iteIdxs"),
+  [("namesNumbered", "Model.namesNumbered_of_codes sym_codes inst_idx", "Model.namesNumberedC defn.sem instIdxs"),
    ("namesApartK", "Model.namesApartK_of_codes sym_codes sort_codes", "Model.namesApartC defn.sem symCodes sortCodes"),
-   ("itesApart", "Model.itesApart_of_codes sym_codes sort_codes ite_idx", "Model.itesApartC defn.sem iteIdxs sortCodes")]
+   ("itesApart", "Model.itesApart_of_codes sym_codes sort_codes inst_idx", "Model.itesApartC defn.sem instIdxs sortCodes")]
 
 /-- A list of numbers as Lean source, a few to a line. -/
 def natListSrc (l : List Nat) : String :=
@@ -1390,15 +1390,15 @@ end {ns}
   let srtNs := Faithful.allSortNames c
   let symCs := symNs.map KoreAML.Distinct.strCode
   let srtCs := srtNs.map KoreAML.Distinct.strCode
-  let iteIs := Faithful.iteIdx symCs
-  o ← o.write s!"{ns}.CoreOK.Codes" (s!"import {ns}.Core\nimport KcoreSpec.NameCodes\n" ++ hdr s!"The codes (`strCode`) of the names of the {symCs.length} numbered symbols and {srtCs.length} numbered sorts, and the symbols whose codes may be of a name read as `ite` at a sort; data, checked in `{ns}.CoreOK.NameCodes`." ++ s!"
+  let instIs := Faithful.instIdx symCs
+  o ← o.write s!"{ns}.CoreOK.Codes" (s!"import {ns}.Core\nimport KcoreSpec.NameCodes\n" ++ hdr s!"The codes (`strCode`) of the names of the {symCs.length} numbered symbols and {srtCs.length} numbered sorts, and the symbols whose codes may be of a name read as an instance (`instIdx`); data, checked in `{ns}.CoreOK.NameCodes`." ++ s!"
 namespace {ns}
 
 def symCodes : List Nat := {natListSrc symCs}
 
 def sortCodes : List Nat := {natListSrc srtCs}
 
-def iteIdxs : List Nat := {reprStr iteIs}
+def instIdxs : List Nat := {reprStr instIs}
 
 end {ns}
 ")
@@ -1432,7 +1432,7 @@ end {ns}
     lines := lines.push s!"private theorem {p}Codes_length : {p}Codes.length = {n} := by decide +kernel"
     lines := lines.push s!"theorem {p}_codes : (all{pfx}Names defn.sem).map KoreAML.Distinct.strCode = {p}Codes :=\n  codeRows_all {p}Names_length {p}Codes_length {acc}"
     return "\n".intercalate lines.toList
-  o ← o.write s!"{ns}.CoreOK.NameCodes" (String.join ((symMods ++ srtMods).toList.map (s!"import {·}\n")) ++ hdr "The codes of the numbered names, one fact for the symbols and one for the sorts, joined from their blocks; the symbols whose codes may be of a name read as `ite` at a sort." ++ s!"
+  o ← o.write s!"{ns}.CoreOK.NameCodes" (String.join ((symMods ++ srtMods).toList.map (s!"import {·}\n")) ++ hdr "The codes of the numbered names, one fact for the symbols and one for the sorts, joined from their blocks; the symbols whose codes may be of a name read as an instance (`instIdx`)." ++ s!"
 namespace {ns}
 open KCore KCore.Faithful
 
@@ -1440,7 +1440,7 @@ open KCore KCore.Faithful
 
 {joinCodes "Sort" srtBs srtCs.length}
 
-theorem ite_idx : iteIdx symCodes = iteIdxs := by decide +kernel
+theorem inst_idx : instIdx symCodes = instIdxs := by decide +kernel
 
 end {ns}
 ")
@@ -3165,13 +3165,14 @@ def wfParts (koreFile : String) : IO UInt32 := do
   let names := fun (l : List String) => ", ".intercalate (l.take 6) ++ (if l.length > 6 then ", …" else "")
   let heads := c.fns.map Fn.sig
   let used := c.appliedSyms
-  let badFn := c.fns.filter fun f => !c.fnOKAll heads used f
+  let badFn := c.fns.filter fun f => !c.fnOKAll heads f
   let badCl := c.fns.flatMap fun f => f.clauses.filter fun cl => !c.clauseOKAll f heads cl
   let unclaused := c.fns.filter fun f => f.clauses.isEmpty && used.contains f.label
-  out s!"okAll.fnsOKAll: {n badFn.isEmpty} (functions failing {badFn.length}: clauses failing {badCl.length}, applied functions without clauses {unclaused.length})"
+  out s!"okAll.fnsOKAll: {n badFn.isEmpty} (functions failing {badFn.length}: clauses failing {badCl.length})"
+  out s!"note (not a condition of wf): applied functions without an equation, each its rest everywhere: {unclaused.length}"
   for (f, fp) in withPres c.fns d.pres.fns do
     if f.clauses.isEmpty && used.contains f.label then
-      out s!"  function {decodeK (c.symName f.label)} ({(fp.src.getD d.pres.source).splitOn "/" |>.getLast!}:{fp.loc.l1}): applied, no equation, declared total"
+      out s!"  function {decodeK (c.symName f.label)} ({(fp.src.getD d.pres.source).splitOn "/" |>.getLast!}:{fp.loc.l1}): applied, no equation{if f.total then ", declared total" else ""}"
     for (cl, cp) in withPres f.clauses fp.clauses do
       unless c.clauseOKAll f heads cl do
         let fns := c.rhsCtx heads
@@ -4453,6 +4454,15 @@ structure ScopeCount where
   /-- axioms without `simplification` of the form `\equals(f(…), _)` (under an `\implies` or not)
   with a set variable under the application of f -/
   svarEqn : Nat := 0
+  /-- axioms without `simplification` or `symbol-overload` of the form `\equals(c(…), r)` (under an
+  `\implies` or not), c a symbol the text declares `constructor`, r (the first conjunct where it is
+  an `\and`) no application of such a symbol: an equation headed by a constructor -/
+  ctorEqn : Nat := 0
+  /-- axioms `∃B. (φ₁ ∧ … ∧ φₙ)`, n ≥ 2, one conjunct equating an application to B
+  (`Parse.existentialAxiom?`) -/
+  existEqn : Nat := 0
+  /-- axioms carrying `smt-lemma` whose pattern holds a `\rewrites` -/
+  smtRewrites : Nat := 0
 
 partial def scopePat (c : ScopeCount) (p : Kore.Pattern) : ScopeCount :=
   let sub := fun (c : ScopeCount) (ps : List Kore.Pattern) => ps.foldl scopePat c
@@ -4483,9 +4493,37 @@ def svarEqn (a : Kore.Axiom) : Bool :=
   | .implies _ _ (.equals _ _ (.app _ _ args) _) | .equals _ _ (.app _ _ args) _ => args.any hasSetVar
   | _ => false
 
-def scopeSentence (c : ScopeCount) : Kore.Sentence → ScopeCount
+partial def hasRewrites : Kore.Pattern → Bool
+  | .rewrites _ _ _ => true
+  | .app _ _ ps | .and _ ps | .or _ ps | .leftAssoc _ _ ps | .rightAssoc _ _ ps => ps.any hasRewrites
+  | .not _ q | .exist _ _ q | .forall _ _ q | .ceil _ _ q | .floor _ _ q | .mu _ q | .nu _ q
+  | .next _ q => hasRewrites q
+  | .implies _ a b | .iff _ a b | .equals _ _ a b | .in _ _ a b => hasRewrites a || hasRewrites b
+  | _ => false
+
+def scopeHasAttr (a : Kore.Axiom) (n : String) : Bool := a.attributes.any (·.head.ident.name == n)
+
+def ctorEqn (ctors : List String) (a : Kore.Axiom) : Bool :=
+  let isCtor := fun (p : Kore.Pattern) => match p with
+    | .app h _ _ => ctors.contains h.ident.name
+    | _ => false
+  let first := fun (r : Kore.Pattern) => match r with
+    | .and _ (q :: _) => q
+    | q => q
+  !scopeHasAttr a "simplification" && !scopeHasAttr a "symbol-overload" &&
+  match a.pattern with
+  | .implies _ _ (.equals _ _ l r) | .equals _ _ l r => isCtor l && !isCtor (first r)
+  | _ => false
+
+def scopeSentence (ctors : List String) (c : ScopeCount) : Kore.Sentence → ScopeCount
   | .alias a => scopePat { c with alias := c.alias + 1 } a.body
-  | .axiom a => scopePat (if svarEqn a then { c with svarEqn := c.svarEqn + 1 } else c) a.pattern
+  | .axiom a =>
+    let c := if svarEqn a then { c with svarEqn := c.svarEqn + 1 } else c
+    let c := if ctorEqn ctors a then { c with ctorEqn := c.ctorEqn + 1 } else c
+    let c := if (Parse.existentialAxiom? a).isSome then { c with existEqn := c.existEqn + 1 } else c
+    let c := if scopeHasAttr a "smt-lemma" && hasRewrites a.pattern then
+      { c with smtRewrites := c.smtRewrites + 1 } else c
+    scopePat c a.pattern
   | .claim a => scopePat c a.pattern
   | _ => c
 
@@ -4495,8 +4533,11 @@ def scopeCountCmd (koreFile : String) : IO UInt32 := do
   let .ok k := Kore.parseDefinition (← IO.FS.readFile koreFile) | IO.eprintln s!"{koreFile}: KORE read error"; return 1
   let pre := preludeModules.map (·.name)
   let ms := k.modules.filter fun m => !pre.contains m.name
-  let c := (ms.flatMap (·.sentences)).foldl scopeSentence {}
-  IO.println s!"modules={ms.length}\tiff={c.iff}\tmu={c.mu}\tnu={c.nu}\tnext={c.next}\tleftAssoc={c.leftAssoc}\trightAssoc={c.rightAssoc}\tstring={c.string}\talias={c.alias}\tsvarEqn={c.svarEqn}"
+  let ctors := (k.modules.flatMap (·.sentences)).filterMap fun s => match s with
+    | .symbol x => if x.attributes.any (·.head.ident.name == "constructor") then some x.symbol.ident.ident.name else none
+    | _ => none
+  let c := (ms.flatMap (·.sentences)).foldl (scopeSentence ctors) {}
+  IO.println s!"modules={ms.length}\tiff={c.iff}\tmu={c.mu}\tnu={c.nu}\tnext={c.next}\tleftAssoc={c.leftAssoc}\trightAssoc={c.rightAssoc}\tstring={c.string}\talias={c.alias}\tsvarEqn={c.svarEqn}\tctorEqn={c.ctorEqn}\texistEqn={c.existEqn}\tsmtRewrites={c.smtRewrites}"
   return 0
 
 /-! ## `kcore sentence-heads`: each sentence's kind, attribute heads, Source and Location -/

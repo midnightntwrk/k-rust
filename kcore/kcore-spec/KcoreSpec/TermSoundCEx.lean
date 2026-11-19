@@ -59,7 +59,7 @@ theorem clauseExRead_all_of_coreEx (h : c.coreOKEx = true) (hIc : I ⊧ᴵP Γc 
 
 /-- `neg_of_coreCl` over `sortedOKClEx`: the clauses a clause negates are empty in the model where
 they fail; what it reads of a clause (`clausePlainOpenEx_parts`) is what it read of
-`clausePlainOpen`. -/
+`clausePlainOpen`, and a cut variable is a value's as there (`heldBack_holdsCl`). -/
 theorem neg_of_coreClEx (hI : I ⊧ᴵP Γc c) (hok : c.sortedOKClEx = true) (hsr : c.srReady = true) [hov : OvlOK c]
     (hfa : c.faithCoreOK = true) (hph : patHooksApart c = true)
     (hc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c)
@@ -71,6 +71,9 @@ theorem neg_of_coreClEx (hI : I ⊧ᴵP Γc c) (hok : c.sortedOKClEx = true) (hs
       ∃ v, c.sortOf v = some s ∧ elemOf c I v = x := fun hr s hs x hx =>
     confinedAt_valueCl hsc.trans (Model.namesApartK_spec hnk)
       (fun k hk hkr => (Semantics.raw_of_sortedOKClEx hok hk hkr).2.2.2.1) hr hI _ s hs x hx
+  have hIΓ : I ⊧ᴵP Γ c := fun φ hφ => hI φ (Or.inl hφ)
+  have hrw : ∀ k ∈ c.params, k.raw = true → iteSort? (c.symName k.sig.name) = none :=
+    fun k hk hkr => (Semantics.raw_of_sortedOKClEx hok hk hkr).2.2.2.1
   intro fn hfn cl hcl _ ws
   rcases List.mem_append.mp hfn with hu | hp
   · obtain ⟨hs, hpl⟩ := (Semantics.sortedOKClEx_parts hok).2.1 fn hu cl hcl
@@ -79,7 +82,13 @@ theorem neg_of_coreClEx (hI : I ⊧ᴵP Γc c) (hok : c.sortedOKClEx = true) (hs
     exact exclEmptyCl_ofCl hI (namesNumbered_spec hnn) hg hsc hph hcso hcs hph' hcv
       (Semantics.clauseSortedOpen_pats_nf hs)
       (Semantics.clauseSortedOpen_preOK hs) (fun hne => ⟨hpreR fn hfn cl hcl hne, hnw hne⟩) hreqS hconj
-      (readsConfined_of_openCl hu hcl) (hc fn hu cl hcl)
+      (readsConfined_of_openCl hu hcl)
+      (fun hany => by
+        obtain ⟨i, hi, -⟩ := List.any_eq_true.mp hany
+        exact heldBack_holdsCl hIΓ hsc (namesNumbered_spec hnn) hg (Model.namesApartK_spec hnk) hrw hph hcs hcso
+          (fun _ => confinedAt_valueCl hsc.trans (Model.namesApartK_spec hnk) hrw
+            (readsConfined_of_opensCl hu hcl (List.ne_nil_of_mem hi)) hI))
+      (hc fn hu cl hcl)
   · obtain ⟨hpats, -, hb, hreq, -, -⟩ := sortPreds_ctx hp cl hcl
     have hoc := openCondVars_of_bindsCl hb
     have hnw : cl.needsWitness c = false := by simp [Clause.needsWitness, Clause.reqOpen, hoc]
@@ -87,7 +96,9 @@ theorem neg_of_coreClEx (hI : I ⊧ᴵP Γc c) (hok : c.sortedOKClEx = true) (hs
       (Semantics.sortPredPats_nf (hov.hyp hsc.trans).fnFacts hp hcl)
       (by rw [(sortPreds_topCl hp cl hcl).1, Semantics.condOK]) (fun hne => absurd (sortPreds_topCl hp cl hcl).1 hne)
       (fun t ht => by rw [ht] at hreq; simpa [reqOK] using hreq) (by simp [Clause.reqOpen, hoc])
-      (fun h' => by simp [hoc] at h') (fun h' => by rw [hnw] at h'; cases h')
+      (fun h' => by simp [hoc] at h')
+      (fun h' => by simp [hoc] at h')
+      (fun h' => by rw [hnw] at h'; cases h')
 
 /-- `termsInSort_of_core` for a semantics `coreOKEx` accepts. -/
 theorem termsInSort_of_coreEx (h : c.coreOKEx = true) (hI : I ⊧ᴵP Γ c) : TermsInSort c I := by

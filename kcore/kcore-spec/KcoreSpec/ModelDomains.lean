@@ -148,8 +148,8 @@ theorem lblite_app (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c) 
       AppE (stdI_T c T) a (vs.map Elem.val) m) ↔ result c k vs m := by
   have hn := h.namesK
   obtain ⟨s', hs'm, rfl⟩ := h.iteSorted hk hi
-  have hr : ∀ tail, resolve c "Lblite" (.srt s' :: tail) = some (k, 1) := fun tail => by
-    rw [resolve_ite, find_ite h hk hi]; rfl
+  have hr : ∀ tail, resolve c "Lblite" (.srt s' :: tail) = some (k, 1) := fun tail =>
+    resolve_ite h hk hi tail
   have hhead : ∀ a, (KoreAML.sym (.symbol "Lblite") ⬝ KoreAML.sym (.sort ("Sort" ++ c.sortName s'))).interpret
       (stdI_T c T) e a ↔ symAt c "Lblite" [.srt s'] a := by
     intro a

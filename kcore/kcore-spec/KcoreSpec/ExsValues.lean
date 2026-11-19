@@ -45,7 +45,8 @@ condition variables gives
 sort or fixed by the predicate", which the value model does not read. -/
 theorem Semantics.clausePlainOpenEx_of_plainEx {c : Semantics} {cl : Clause}
     (h : (c.clausePlainEx cl && c.clauseExOK cl && (cl.pre.isTop || !cl.needsWitness c) &&
-      (!cl.reqOpen || cl.reqClosed || cl.openCondVars.all fun i => (cl.vars[i]?.map c.confined).getD false)) = true) :
+      (!cl.reqOpen || cl.reqClosed || cl.openCondVars.all fun i => (cl.vars[i]?.map c.confined).getD false ||
+      memHeld c (varOccsList cl.pats) cl.pre i)) = true) :
     c.clausePlainOpenEx cl = true := by
   simp only [Semantics.clausePlainEx, Bool.and_eq_true] at h
   obtain ⟨⟨⟨⟨h1, -⟩, h2⟩, h3⟩, h4⟩ := h
