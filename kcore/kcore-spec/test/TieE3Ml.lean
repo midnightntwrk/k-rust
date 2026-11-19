@@ -587,8 +587,8 @@ theorem s166_pattern : U.ax163.ax.pattern = .implies KoreAML.R (.top KoreAML.R)
 theorem s166_free : (U.ax163.ax.sortVars.map sortVarKey ++ freeOf [] U.ax163.ax.pattern).eraseDups = [.sortVar "R", kI] := by
   decide +kernel
 theorem s166_sortVars : U.ax163.ax.sortVars = [KoreAML.Rv] := by decide +kernel
-theorem sub_name (H : HookParams) : (cH H).symName intSub = "Lbl'Unds'-Int'Unds'" ∧ iteSort? "Lbl'Unds'-Int'Unds'" = none :=
-  (by decide +kernel : c.symName intSub = "Lbl'Unds'-Int'Unds'" ∧ iteSort? "Lbl'Unds'-Int'Unds'" = none)
+theorem sub_name (H : HookParams) : (cH H).symName intSub = "Lbl'Unds'-Int'Unds'" ∧ instDecode? "Lbl'Unds'-Int'Unds'" = none :=
+  (by decide +kernel : c.symName intSub = "Lbl'Unds'-Int'Unds'" ∧ instDecode? "Lbl'Unds'-Int'Unds'" = none)
 theorem den_int0 (H : HookParams) : den (cH H) (KCore.int 0) = KoreAML.sym (.dv "0") ⬝ KoreAML.sym (.sort "SortInt") := by
   show den c (KCore.int 0) = _; decide +kernel
 theorem int_numbered (H : HookParams) : Srt.int < nRegSorts + (cH H).sortNames.length :=
@@ -639,7 +639,7 @@ theorem lib166 (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation Kor
         (KoreAML.sym (.symbol "Lbl'Unds'-Int'Unds'") ⬝ .evar (t.ev kI)) ⬝ (KoreAML.sym (.dv "0") ⬝ KoreAML.sym (.sort "SortInt")) := rfl
     have h2 : KoreAML.den (symApp (cH H) intSub (GroundTerm.koreList (cH H) [KCore.int n, KCore.int 0])) =
         (KoreAML.sym (.symbol "Lbl'Unds'-Int'Unds'") ⬝ den (cH H) (KCore.int n)) ⬝ den (cH H) (KCore.int 0) := by
-      unfold symApp; rw [(sub_name H).1, (sub_name H).2]; rfl
+      rw [symApp_noInst (c := cH H) (f := intSub) (by rw [(sub_name H).1]; exact (sub_name H).2), (sub_name H).1]; rfl
     rw [h1, h2]
     refine interp_app_congr (fun m => interp_app_congr (fun _ => Iff.rfl) (fun m => ?_) m) (fun m => ?_) b
     · rw [interp_evar, he, hes]
@@ -860,17 +860,14 @@ theorem eqn_val_eml {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} 
 
 /-- `f`, `g` and `h`: the symbols `Lblf`, `Lblg` (functions) and `Lblh` (a parameter). -/
 theorem f_head (H : HookParams) : symHead (cH H) 384 = KoreAML.sym (.symbol "Lblf") := by
-  unfold symHead
-  rw [show (cH H).symName 384 = "Lblf" from (by decide +kernel : c.symName 384 = "Lblf")]
-  rfl
+  have hn : (cH H).symName 384 = "Lblf" := (by decide +kernel : c.symName 384 = "Lblf")
+  rw [symHead_noInst (c := cH H) (f := 384) (by rw [hn]; decide +kernel), hn]
 theorem g_head (H : HookParams) : symHead (cH H) 385 = KoreAML.sym (.symbol "Lblg") := by
-  unfold symHead
-  rw [show (cH H).symName 385 = "Lblg" from (by decide +kernel : c.symName 385 = "Lblg")]
-  rfl
+  have hn : (cH H).symName 385 = "Lblg" := (by decide +kernel : c.symName 385 = "Lblg")
+  rw [symHead_noInst (c := cH H) (f := 385) (by rw [hn]; decide +kernel), hn]
 theorem h_head (H : HookParams) : symHead (cH H) 386 = KoreAML.sym (.symbol "Lblh") := by
-  unfold symHead
-  rw [show (cH H).symName 386 = "Lblh" from (by decide +kernel : c.symName 386 = "Lblh")]
-  rfl
+  have hn : (cH H).symName 386 = "Lblh" := (by decide +kernel : c.symName 386 = "Lblh")
+  rw [symHead_noInst (c := cH H) (f := 386) (by rw [hn]; decide +kernel), hn]
 theorem f_kernel (H : HookParams) : (⟨384, [Srt.int], Srt.int⟩ : CtorSig) ∈ kernelSyms (cH H) := by
   show _ ∈ kernelSyms c; decide +kernel
 theorem g_kernel (H : HookParams) : (⟨385, [Srt.int], Srt.int⟩ : CtorSig) ∈ kernelSyms (cH H) := by
