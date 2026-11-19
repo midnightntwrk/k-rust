@@ -17,6 +17,8 @@
   - The account: the class lists partition the 267 sentences of the user module E2-CLAUSE-RHS-EMPTY-PEER, in
     `tieClasses`' order (`account`, `account_sizes`, `account_classes`); the no-direction class holds
     exactly the sentences that apply a symbol Γ lacks (`account_absent`, `absent_closed`).
+  - `absent_proj_below`: the 15 no-direction sentences that are equations of a projection
+    `project:X` are of sorts X that are K, KItem or below KItem in Γ (`GenEqs.projBelowB`).
   - `attrs_agree`: the attributes the translation does not read agree with `defn`.
   - `sig_origin_but_next`: each of the 210 items of `sigItems c` but one is a declaration's item
     of the text or a surplus one; the one is next's arity at the configuration sort, which Γ states
@@ -41,8 +43,10 @@
   - Library sample, 166 (`I -Int 0 = I`): holds at values (`lib166`, `lib166_at_values`).
   - The converse over Γ's content: each premise is a function sentence's translation, one of the
     five parts Γ defines by predicates, or definedness (`gamma_origin`, `gamma_from`).
-  - Hooked functional, collection law, library: at values (no theorem here); function functional:
-    owed as `FnHyp` (no theorem); no direction: `absent_closed`.
+  - Function functional: at values in every model of `Γc`, from the sort predicates' results, not
+    from `FnHyp` (`fnFun_at_values`, `fnFun_account`).
+  - Hooked functional, collection law, library: at values (no theorem here); no direction:
+    `absent_closed`.
 
   The sentences with no counterpart in f2-examples/ens.kompile.kore are `unmapped` (19);
   the sentences of a class with a theorem that no theorem here holds of are `uncovered` (0).
@@ -157,6 +161,33 @@ theorem absent_closed :
     (userAxioms.filter (fun ad => !(classOf "no direction").contains ad.index)).all
       (fun ad => (appHeadsOf ad.ax.pattern).all (gammaHasHead c)) = true :=
   tieAbsent_of_account userAxioms _ _ account_absent
+
+/-- The sentences of the no-direction class that are equations of a projection `project:X` (their
+left side applies `Lblproject'Coln'X`), each with X. -/
+def absentProj : List (Nat × String) :=
+  [(253, "Bool"), (254, "Empty"), (255, "GeneratedCounterCell"), (256, "GeneratedCounterCellOpt"),
+   (257, "GeneratedTopCell"), (258, "GeneratedTopCellFragment"), (259, "Int"), (260, "K"),
+   (261, "KCell"), (262, "KCellOpt"), (263, "KItem"), (264, "List"), (265, "Map"), (266, "Set"),
+   (267, "T")]
+
+/-- Each sort of `absentProj` is K, KItem or a sort below KItem of Γ, with K and KItem
+constructor sorts. -/
+theorem absent_proj_below_c : absentProj.all (fun p => GenEqs.projBelowB c p.2) = true := by
+  decide +kernel
+
+/-- **The projections the no-direction class defines are of sorts below KItem**: `absentProj` is
+the list of the no-direction sentences whose left side applies a symbol `Lblproject'Coln'X`, each
+with that X, and each such X is K, KItem or a sort below KItem of Γ, with K and KItem constructor
+sorts (`GenEqs.projBelowB`). So the pattern each of these equations is at is functional and
+injective on X in every model of Γ (`GenEqs.projSel_fun`, `GenEqs.projSel_inj`): what the
+equation states of the pattern's symbols, Γ entails. -/
+theorem absent_proj_below (H : HookParams) :
+    (userAxioms.filter (fun ad => (classOf "no direction").contains ad.index &&
+        ((AttrsAgree.eqnHead ad.ax.pattern).getD "").startsWith "Lblproject'Coln'")).map
+      (fun ad => (ad.index, AttrsAgree.eqnHead ad.ax.pattern)) =
+      absentProj.map (fun p => (p.1, some ("Lblproject'Coln'" ++ p.2))) ∧
+    absentProj.all (fun p => GenEqs.projBelowB (cH H) p.2) = true :=
+  ⟨by rw [userAxioms_eq]; decide +kernel, absent_proj_below_c⟩
 
 /-- The sentences whose text is none of f2-examples/ens.kompile.kore's user module, with their class. -/
 def unmapped : List (Nat × String) :=
@@ -529,6 +560,73 @@ theorem fnHypH (H : HookParams) : FnHyp (cH H) := fnHyp_withHooksN coreOK H (hel
 
 /-- **Γ with the step's closure has a model, for every H** (C14 closure (a)). -/
 theorem consistent (H : HookParams) : Consistent (cH H) := consistent_of_fnHyp _ (coreOKH H) (fnHypH H)
+
+/-! ## Function functional (16): the sort predicates' `functional` sentences, at values in every model of Γc -/
+
+/- The class holds the `functional` sentences of 16 sort predicates `isX`,
+`\exists{R}(Val:SortBool{}, \equals{SortBool{}, R}(Val:SortBool{}, LblisX{}(K0:SortK{})))`. KCore builds
+the sort predicates (`Semantics.sortPreds`): each has a value at every K, and a model of `Γc` reads
+its application at a value's element as that value's element (`LibEv.sortPredFun_evC`, under
+`coreOK`, the clauses' predicates `\top`, no `\exists` in a clause, and no condition over a
+variable the patterns leave open). So each sentence holds in every model of `Γc`, and of `Γc` with
+the step's closure, at every valuation sending K0 to a value, for every H, from the sort predicates'
+own results and without `FnHyp`. -/
+
+/-- The sentences' indices. -/
+def fnFunIdx : List Nat := [86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101]
+
+/-- The sentences, in text order. -/
+noncomputable def fnFunText : List AxiomDecl := U.all.filter fun ad => fnFunIdx.contains ad.index
+
+theorem fnFun_indices : fnFunText.map (·.index) = fnFunIdx := by decide +kernel
+
+/-- **`fnFunText` is the account's function functional class**: the same indices, each once. -/
+theorem fnFun_account : (classOf "function functional").isPerm (fnFunText.map (·.index)) = true := by
+  decide +kernel
+
+/-- The sentence is the `functional` sentence of a sort predicate of `c`, over the one sort
+variable `R`, with its variables' sorts the registry's. -/
+noncomputable def fnFunOK (ad : AxiomDecl) : Bool :=
+  decide (ad.ax.sortVars = [Rv]) &&
+    c.sortPreds.any fun fn => decide (ad.ax.pattern = LibEv.funPat c fn.sig) && LibEv.predFunReg c fn.sig
+
+theorem fnFun_checked : fnFunText.all fnFunOK = true := by decide +kernel
+
+/-- None of the 16 reads a declaration or an alias. -/
+theorem fnFun_trS : fnFunText.all (fun ad => decide ((trS ad).pat = (trAxiom [] [] ad).pat)) = true := by
+  decide +kernel
+
+/-- The clauses' predicates are `\top`, no clause binds a variable by `\exists`, and no clause has
+a condition over a variable its patterns leave open. -/
+theorem fnFun_clauses : c.clausesPreTop = true ∧
+    (c.fns.all fun f => f.clauses.all fun cl => cl.exs.isEmpty) = true ∧
+    (c.fns.all fun f => f.clauses.all fun cl => !cl.reqOpen) = true := by
+  decide +kernel
+
+theorem fnFun_noWitH (H : HookParams) : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness (cH H) = false := by
+  intro fn hfn cl hcl
+  have h := List.all_eq_true.mp (List.all_eq_true.mp fnFun_clauses.2.2 fn hfn) cl hcl
+  simp only [Bool.not_eq_eq_eq_not, Bool.not_true] at h
+  simp [Clause.needsWitness, h]
+
+/-- **The function functional sentences hold at values in every model of `Γc`, for every H**
+(`EntailsAtValuesΓc`), without `FnHyp`. -/
+theorem fnFun_at_values (H : HookParams) : ∀ ad ∈ fnFunText, EntailsAtValuesΓc (cH H) ad (trS ad).pat := by
+  intro ad had
+  rw [of_decide_eq_true (List.all_eq_true.mp fnFun_trS ad had)]
+  have hok := List.all_eq_true.mp fnFun_checked ad had
+  simp only [fnFunOK, Bool.and_eq_true, decide_eq_true_eq] at hok
+  obtain ⟨hsv, hany⟩ := hok
+  obtain ⟨fn, hfn, hfp⟩ := List.any_eq_true.mp hany
+  simp only [Bool.and_eq_true, decide_eq_true_eq] at hfp
+  exact LibEv.sortPredFun_evC_withHooks H coreOK fnFun_clauses.1 (Semantics.fnsNoExs_of_all fnFun_clauses.2.1)
+    (fun fn hfn cl hcl hw => absurd hw (by rw [fnFun_noWitH H fn hfn cl hcl]; decide)) hfn hfp.2 ad hfp.1 hsv
+
+/-- The same in every model of `Γc` with the step's closure, the theory `Consistent` asks a model of. -/
+theorem fnFun_at_values_step (H : HookParams) : ∀ ad ∈ fnFunText,
+    ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), I ⊧ᴵP (Γc (cH H) ∪ Γstep (cH H)) →
+      ∀ e, AtValues (cH H) I e ad.ax → ∀ m, (trS ad).pat.interpret I e m :=
+  fun ad had M hM I hI => fnFun_at_values H ad had M hM I (fun φ hφ => hI φ (Or.inl hφ))
 
 /-! ## Γ under every interpretation reads the same equations and rules -/
 
@@ -1001,6 +1099,8 @@ end KCore.TieE2ClauseRhsEmptyPeer
 #check @KCore.TieE2ClauseRhsEmptyPeer.account_classes
 #check @KCore.TieE2ClauseRhsEmptyPeer.account_absent
 #check @KCore.TieE2ClauseRhsEmptyPeer.absent_closed
+#check @KCore.TieE2ClauseRhsEmptyPeer.absent_proj_below_c
+#check @KCore.TieE2ClauseRhsEmptyPeer.absent_proj_below
 #check @KCore.TieE2ClauseRhsEmptyPeer.lists_in_account
 #check @KCore.TieE2ClauseRhsEmptyPeer.attrs_agree
 #check @KCore.TieE2ClauseRhsEmptyPeer.sig_origin_but_next
@@ -1008,6 +1108,12 @@ end KCore.TieE2ClauseRhsEmptyPeer
 #check @KCore.TieE2ClauseRhsEmptyPeer.consistent
 #check @KCore.TieE2ClauseRhsEmptyPeer.held_named
 #check @KCore.TieE2ClauseRhsEmptyPeer.fnHypH
+#check @KCore.TieE2ClauseRhsEmptyPeer.fnFun_indices
+#check @KCore.TieE2ClauseRhsEmptyPeer.fnFun_account
+#check @KCore.TieE2ClauseRhsEmptyPeer.fnFun_checked
+#check @KCore.TieE2ClauseRhsEmptyPeer.fnFun_trS
+#check @KCore.TieE2ClauseRhsEmptyPeer.fnFun_at_values
+#check @KCore.TieE2ClauseRhsEmptyPeer.fnFun_at_values_step
 #check @KCore.TieE2ClauseRhsEmptyPeer.text_nextless
 #check @KCore.TieE2ClauseRhsEmptyPeer.fn_shape
 #check @KCore.TieE2ClauseRhsEmptyPeer.fns_account
@@ -1043,6 +1149,8 @@ end KCore.TieE2ClauseRhsEmptyPeer
 #print axioms KCore.TieE2ClauseRhsEmptyPeer.account_classes
 #print axioms KCore.TieE2ClauseRhsEmptyPeer.account_absent
 #print axioms KCore.TieE2ClauseRhsEmptyPeer.absent_closed
+#print axioms KCore.TieE2ClauseRhsEmptyPeer.absent_proj_below_c
+#print axioms KCore.TieE2ClauseRhsEmptyPeer.absent_proj_below
 #print axioms KCore.TieE2ClauseRhsEmptyPeer.lists_in_account
 #print axioms KCore.TieE2ClauseRhsEmptyPeer.attrs_agree
 #print axioms KCore.TieE2ClauseRhsEmptyPeer.sig_origin_but_next
@@ -1050,6 +1158,12 @@ end KCore.TieE2ClauseRhsEmptyPeer
 #print axioms KCore.TieE2ClauseRhsEmptyPeer.consistent
 #print axioms KCore.TieE2ClauseRhsEmptyPeer.held_named
 #print axioms KCore.TieE2ClauseRhsEmptyPeer.fnHypH
+#print axioms KCore.TieE2ClauseRhsEmptyPeer.fnFun_indices
+#print axioms KCore.TieE2ClauseRhsEmptyPeer.fnFun_account
+#print axioms KCore.TieE2ClauseRhsEmptyPeer.fnFun_checked
+#print axioms KCore.TieE2ClauseRhsEmptyPeer.fnFun_trS
+#print axioms KCore.TieE2ClauseRhsEmptyPeer.fnFun_at_values
+#print axioms KCore.TieE2ClauseRhsEmptyPeer.fnFun_at_values_step
 #print axioms KCore.TieE2ClauseRhsEmptyPeer.text_nextless
 #print axioms KCore.TieE2ClauseRhsEmptyPeer.fn_shape
 #print axioms KCore.TieE2ClauseRhsEmptyPeer.fns_account

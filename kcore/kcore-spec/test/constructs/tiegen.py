@@ -99,6 +99,12 @@ function functional sentences, owed as `FnHyp`, are not shown by the tie, unless
 values in every model of `Γc` from the sort predicates' own results (`theorem fnFun_at_values (H :
 HookParams) : ∀ ad ∈ fnFunText, EntailsAtValuesΓc (cH H) ad (trS ad).pat`, LibEvSortPred.lean), which
 they then say, with `not_fnHypH` where FILE states `FnHyp` false for every H.
+Where each sentence of the class function functional is, as written, a sort predicate's `functional`
+sentence (`LibEv.funPat`), the clauses' predicates are `\\top`, no clause binds a variable by
+`\\exists` and no clause's condition reads a variable its patterns leave open, the tie states those
+sentences at values in every model of `Γc` for every H from the sort predicates' own results
+(`fnFun_at_values`, by `LibEv.sortPredFun_evC_withHooks`), whatever FILE states, unless FILE states
+them itself.
 --at-values N,... names the user lemmas (by `AxiomDecl.index`) that are of the class `user lemma at
 values` in place of `user lemma`; an index that is no user lemma of the text is refused.
 
@@ -369,7 +375,8 @@ RESERVED = {"c", "cH", "kore", "defn", "U", "trS", "fn", "f", "at", "by", "do", 
             "else", "have", "show", "from", "end", "def", "theorem", "match", "with", "open", "namespace", "where",
             "instance", "structure", "class", "import", "names", "classes", "consText", "fnText", "ruleText",
             "ovlEqText", "ovlNcText", "ovlRefuted",
-            "lawText", "lawIdx", "callOrder", "Pre", "Families", "hasSym", "declItems", "plainSorts", "plainSyms"}
+            "lawText", "lawIdx", "callOrder", "Pre", "Families", "hasSym", "declItems", "plainSorts", "plainSyms",
+            "fnFunIdx", "fnFunText", "fnFunOK"}
 
 
 def short_sym(n):
@@ -773,6 +780,10 @@ def tgNjOrder (gs : List KoreAML.Gen) : List Kore.Pattern → Option (List Nat)
     IO.println s!"L {j}\t{gate}\t{σs.length}\t{ws}"
   IO.println s!"H litBool {c.litSort Srt.bool}"
   IO.println s!"H owedNil {c.owedRules.isEmpty && c.owedClauses.isEmpty}"
+  -- the conditions `LibEv.sortPredFun_evC` reads of the clauses, and the user sentences that are, as
+  -- written, a sort predicate's `functional` sentence (`LibEv.funPat`, over the sort variable `R`)
+  IO.println s!"H fnFunGate {c.clausesPreTop && (c.fns.all fun f => f.clauses.all fun cl => cl.exs.isEmpty) && (c.fns.all fun f => f.clauses.all fun cl => !cl.reqOpen)}"
+  IO.println s!"H fnFunOK {(us.filter fun ad => decide (ad.ax.sortVars = [Rv]) && c.sortPreds.any fun fn => decide (ad.ax.pattern = LibEv.funPat c fn.sig) && LibEv.predFunReg c fn.sig).map (·.index)}"
   IO.println s!"H fnClauses {afs.map fun f => c.symName f.label ++ "=" ++ toString f.clauses.length}"
   -- Γ's heads in `gammaHeads`' order, each sort argument by its name (`?` for a sort that is no
   -- constructor without arguments), for `--heads-literal`
@@ -1323,6 +1334,14 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         hand_c, re.M))
     notfnhyp_hand = held_total and not fnhyp_hand and bool(re.search(
         r"^theorem not_fnHypH \(H : HookParams\) : ¬ FnHyp \(cH H\)", hand_c, re.M))
+    # otherwise, where each function functional sentence is, as written, a sort predicate's
+    # `functional` sentence and the clauses meet what `LibEv.sortPredFun_evC` reads, the tie states
+    # them at values in every model of `Γc` (`fnFun_section`)
+    fnfun_idx = by_class["function functional"]
+    fnfun_ok = {int(x) for x in re.findall(r"\d+", head.get("fnFunOK", ""))}
+    fnfun_gen = (not fnfun_hand and "fnFun" not in hand_c and bool(fnfun_idx) and head.get("fnFunGate") == "true"
+                 and all(i in fnfun_ok and sents[i]["plain"] for i in fnfun_idx))
+    fnfun_any = fnfun_hand or fnfun_gen
     tp_params = ob["hform"] and head["totalNil"] != "true"
     # where a `[total]` function applies a parameter the text declares total, its totality holds
     # under the interpretations total on those parameters (`totalObligationsRP callOrder
@@ -1515,7 +1534,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                                         "which it does not state (its comment says why)") +
                  (": the function functional sentences, the sort predicates' `functional` sentences, hold at "
                   "values in every model of `Γc` from the sort predicates' own results (`fnFun_at_values`)."
-                  if fnfun_hand else
+                  if fnfun_any else
                   ": the function functional sentences, owed as `FnHyp`, are not shown by this tie where `FnHyp` fails."))
         w(textwrap.fill(para, 104, initial_indent="    ", subsequent_indent="    "))
     elif agree:
@@ -1677,11 +1696,17 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     if user_lem or user_lem_v:
         owed_more += ("; user lemma: owed, by hand\n    (`userlemma_account`, `UserLemmaEntailed`, "
                       "`UserLemmaAtValues`)")
-    if fnfun_hand:
+    if fnfun_any:
         w("  - Function functional: at values in every model of `Γc`, from the sort predicates' results, not")
         w("    from `FnHyp` (`fnFun_at_values`, `fnFun_account`).")
-        w(f"  - Hooked functional, collection law, library: at values (no theorem here){owed_more}; no direction:")
-        w("    `absent_closed`.")
+        if owed_more:
+            w(textwrap.fill("Hooked functional, collection law, library: at values (no theorem here)" +
+                            owed_more.replace("\n    ", " ") + "; no direction: `absent_closed`.",
+                            width=100, initial_indent="  - ", subsequent_indent="    ",
+                            break_on_hyphens=False, break_long_words=False))
+        else:
+            w("  - Hooked functional, collection law, library: at values (no theorem here); no direction:")
+            w("    `absent_closed`.")
     else:
         w("  - Hooked functional, collection law, library: at values (no theorem here); function functional:")
         w(f"    owed as `FnHyp` ({'not stated here; ' if held_total and not fnhyp_hand else ''}no theorem){owed_more}; no direction: `absent_closed`.")
@@ -2441,6 +2466,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             w(f"/-- **{'`Γc`' if confined else 'Γ'} with the step's closure has a model, for every H.** -/")
             w("theorem consistent (H : HookParams) : Consistent (cH H) := consistent_of_fnHyp _ (coreOKH H) (fnHypH H)")
             w("")
+    if fnfun_gen:
+        w(fnfun_section(fnfun_idx))
     mark("Fns")
     if fn_align:
         w(alpha_block())
@@ -2878,6 +2905,9 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
               "fnFun_at_values_step"] if fnfun_hand else [])
     elif agree:
         after += ["agree_named"] + (["agree"] if "consistency" in hand else []) + ["facts"]
+    if fnfun_gen:
+        after += ["fnFun_indices", "fnFun_account", "fnFun_checked", "fnFun_trS", "fnFun_at_values",
+                  "fnFun_at_values_step"]
     if tp_held:
         after += ["total_named", "paramsTotal_witness", "consistent_witness"]
     if fn_align:
@@ -2932,7 +2962,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         marks = [(o if o <= a else o + len(new) - (b - a), m) for o, m in marks]
         lean = lean[:a] + new + lean[b:]
     owed = ([f"the agreement of {', '.join(ob['agree_names'])} (AgreeOwed)"] if agree and "consistency" not in hand else [])
-    if held_total and not fnhyp_hand and not fnfun_hand:
+    if held_total and not fnhyp_hand and not fnfun_any:
         owed.append("FnHyp, the hypothesis the function functional sentences are owed under (not stated: the "
                     "consistency section shows `consistent` without it)")
     if param_lem:
@@ -3169,6 +3199,79 @@ def split_tie(ns, lean, marks, text_rel, cmd, blocks):
 HAND_SECTIONS = {"consistency": "/-! ## Consistency for every H"}
 
 NEX_TIE = os.path.join(KS, "test/NonExecOwiseTie.lean")
+
+
+def fnfun_section(idx):
+    """The function functional sentences, each a sort predicate's `functional` sentence as written, at
+    values in every model of `Γc` for every H (`LibEv.sortPredFun_evC_withHooks`)."""
+    n = len(idx)
+    return f"""/-! ## Function functional ({n}): the sort predicates' `functional` sentences, at values in every model of Γc -/
+
+/- The class holds the `functional` sentences of {n} sort predicates `isX`,
+`\\exists{{R}}(Val:SortBool{{}}, \\equals{{SortBool{{}}, R}}(Val:SortBool{{}}, LblisX{{}}(K0:SortK{{}})))`. KCore builds
+the sort predicates (`Semantics.sortPreds`): each has a value at every K, and a model of `Γc` reads
+its application at a value's element as that value's element (`LibEv.sortPredFun_evC`, under
+`coreOK`, the clauses' predicates `\\top`, no `\\exists` in a clause, and no condition over a
+variable the patterns leave open). So each sentence holds in every model of `Γc`, and of `Γc` with
+the step's closure, at every valuation sending K0 to a value, for every H, from the sort predicates'
+own results and without `FnHyp`. -/
+
+/-- The sentences' indices. -/
+def fnFunIdx : List Nat := [{wrap_nums(idx, 3)}]
+
+/-- The sentences, in text order. -/
+noncomputable def fnFunText : List AxiomDecl := U.all.filter fun ad => fnFunIdx.contains ad.index
+
+theorem fnFun_indices : fnFunText.map (·.index) = fnFunIdx := by decide +kernel
+
+/-- **`fnFunText` is the account's function functional class**: the same indices, each once. -/
+theorem fnFun_account : (classOf "function functional").isPerm (fnFunText.map (·.index)) = true := by
+  decide +kernel
+
+/-- The sentence is the `functional` sentence of a sort predicate of `c`, over the one sort
+variable `R`, with its variables' sorts the registry's. -/
+noncomputable def fnFunOK (ad : AxiomDecl) : Bool :=
+  decide (ad.ax.sortVars = [Rv]) &&
+    c.sortPreds.any fun fn => decide (ad.ax.pattern = LibEv.funPat c fn.sig) && LibEv.predFunReg c fn.sig
+
+theorem fnFun_checked : fnFunText.all fnFunOK = true := by decide +kernel
+
+/-- None of the {n} reads a declaration or an alias. -/
+theorem fnFun_trS : fnFunText.all (fun ad => decide ((trS ad).pat = (trAxiom [] [] ad).pat)) = true := by
+  decide +kernel
+
+/-- The clauses' predicates are `\\top`, no clause binds a variable by `\\exists`, and no clause has
+a condition over a variable its patterns leave open. -/
+theorem fnFun_clauses : c.clausesPreTop = true ∧
+    (c.fns.all fun f => f.clauses.all fun cl => cl.exs.isEmpty) = true ∧
+    (c.fns.all fun f => f.clauses.all fun cl => !cl.reqOpen) = true := by
+  decide +kernel
+
+theorem fnFun_noWitH (H : HookParams) : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness (cH H) = false := by
+  intro fn hfn cl hcl
+  have h := List.all_eq_true.mp (List.all_eq_true.mp fnFun_clauses.2.2 fn hfn) cl hcl
+  simp only [Bool.not_eq_eq_eq_not, Bool.not_true] at h
+  simp [Clause.needsWitness, h]
+
+/-- **The function functional sentences hold at values in every model of `Γc`, for every H**
+(`EntailsAtValuesΓc`), without `FnHyp`. -/
+theorem fnFun_at_values (H : HookParams) : ∀ ad ∈ fnFunText, EntailsAtValuesΓc (cH H) ad (trS ad).pat := by
+  intro ad had
+  rw [of_decide_eq_true (List.all_eq_true.mp fnFun_trS ad had)]
+  have hok := List.all_eq_true.mp fnFun_checked ad had
+  simp only [fnFunOK, Bool.and_eq_true, decide_eq_true_eq] at hok
+  obtain ⟨hsv, hany⟩ := hok
+  obtain ⟨fn, hfn, hfp⟩ := List.any_eq_true.mp hany
+  simp only [Bool.and_eq_true, decide_eq_true_eq] at hfp
+  exact LibEv.sortPredFun_evC_withHooks H coreOK fnFun_clauses.1 (Semantics.fnsNoExs_of_all fnFun_clauses.2.1)
+    (fun fn hfn cl hcl hw => absurd hw (by rw [fnFun_noWitH H fn hfn cl hcl]; decide)) hfn hfp.2 ad hfp.1 hsv
+
+/-- The same in every model of `Γc` with the step's closure, the theory `Consistent` asks a model of. -/
+theorem fnFun_at_values_step (H : HookParams) : ∀ ad ∈ fnFunText,
+    ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), I ⊧ᴵP (Γc (cH H) ∪ Γstep (cH H)) →
+      ∀ e, AtValues (cH H) I e ad.ax → ∀ m, (trS ad).pat.interpret I e m :=
+  fun ad had M hM I hI => fnFun_at_values H ad had M hM I (fun φ hφ => hI φ (Or.inl hφ))
+"""
 
 
 def pair_section(j, i, prio, nonexec, nfe):
