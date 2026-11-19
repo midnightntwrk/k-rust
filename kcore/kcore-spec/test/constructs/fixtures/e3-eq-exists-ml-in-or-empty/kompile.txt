@@ -1,0 +1,11 @@
+command: kompile --backend haskell e3-eq-exists-ml-in-or-empty.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 3.7
+definition.kore bytes: 126546
+definition.kore sha256: 4c784528d5875e074ae7f26a125d3813eb298f02e2bf84d5b2e47c7b3705af04
+stripped sha256: 2d687934f74dd241163133d9d121039c563cff29cab119a78f44f1b4b76d113b
+main module: 296 sentences, 28 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-EQ-EXISTS-ML-IN-OR-EMPTY-SYNTAX in definition.  Use --syntax-module to
+  specify one. Using E3-EQ-EXISTS-ML-IN-OR-EMPTY as default.

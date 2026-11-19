@@ -1,0 +1,37 @@
+out/definition.kore: 5 modules; prelude agrees
+user module E6-REFUSED-BYTES-MINT: 580 sentences
+  1 inert import [generated]
+  232 read [generated]
+  222 read [builtin]
+  1 refused sortAttribute [generated]
+      e.g. sort Sort64{} [nat{}("64")]
+  38 unread parametricUnused [own builtin]
+  8 read [user]
+  12 read [own builtin]
+  1 refused parametricSort [generated]
+      e.g. axiom{R} \exists{R}(Val:SortKItem{}, \equals{SortKItem{}, R}(Val:SortKItem{}, inj{SortMInt{Sort64{}}, SortKItem{}}(From:SortMInt{Sort64{}}))) [subsort{SortMInt{Sort64{}}, SortKItem{}}()]
+  33 inert parametricFunctional [generated]
+  5 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  2 inert distinctCtors [generated]
+  14 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 7
+  7 parametricSort
+      sentence 453 (E6-REFUSED-BYTES-MINT.bytes-updateMInt): parametricSort
+        [user] E6-REFUSED-BYTES-MINT.bytes-updateMInt at e6-refused-bytes-mint.k:9: axiom{} \rewrites{SortGeneratedTopCell{}}(\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("1")), kseq{}(inj{SortBytes{}, SortKItem{}}(VarB:SortBytes{}), kseq{}(inj{SortMInt{Sort64{}}, SortKItem{}}(VarI:SortMInt{Sort64{}}), kseq{}(inj{SortMInt{Sort64{}}, SortKItem{}}(VarV:SortMInt{Sort64{}}), Var'Unds'DotVar1:SortK{}))))), Var'Unds'DotVar0 …
+      sentence 454 (E6-REFUSED-BYTES-MINT.bytes-getMInt): parametricSort
+        [user] E6-REFUSED-BYTES-MINT.bytes-getMInt at e6-refused-bytes-mint.k:10: axiom{} \rewrites{SortGeneratedTopCell{}}(\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("2")), kseq{}(inj{SortBytes{}, SortKItem{}}(VarB:SortBytes{}), kseq{}(inj{SortMInt{Sort64{}}, SortKItem{}}(VarI:SortMInt{Sort64{}}), Var'Unds'DotVar1:SortK{})))), Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()), \and{Sor …
+      sentence 455 (E6-REFUSED-BYTES-MINT.bytes-substrMInt): parametricSort
+        [user] E6-REFUSED-BYTES-MINT.bytes-substrMInt at e6-refused-bytes-mint.k:11: axiom{} \rewrites{SortGeneratedTopCell{}}(\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("3")), kseq{}(inj{SortBytes{}, SortKItem{}}(VarB:SortBytes{}), kseq{}(inj{SortMInt{Sort64{}}, SortKItem{}}(VarI:SortMInt{Sort64{}}), kseq{}(inj{SortMInt{Sort64{}}, SortKItem{}}(VarJ:SortMInt{Sort64{}}), Var'Unds'DotVar1:SortK{}))))), Var'Unds'DotVar0 …
+      sentence 456 (E6-REFUSED-BYTES-MINT.bytes-replaceAtMInt): parametricSort
+        [user] E6-REFUSED-BYTES-MINT.bytes-replaceAtMInt at e6-refused-bytes-mint.k:12: axiom{} \rewrites{SortGeneratedTopCell{}}(\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("4")), kseq{}(inj{SortBytes{}, SortKItem{}}(VarB:SortBytes{}), kseq{}(inj{SortMInt{Sort64{}}, SortKItem{}}(VarI:SortMInt{Sort64{}}), kseq{}(inj{SortBytes{}, SortKItem{}}(VarC:SortBytes{}), Var'Unds'DotVar1:SortK{}))))), Var'Unds'DotVar0:SortGenerated …
+      sentence 457 (E6-REFUSED-BYTES-MINT.bytes-padRightMInt): parametricSort
+        [user] E6-REFUSED-BYTES-MINT.bytes-padRightMInt at e6-refused-bytes-mint.k:13: axiom{} \rewrites{SortGeneratedTopCell{}}(\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("5")), kseq{}(inj{SortBytes{}, SortKItem{}}(VarB:SortBytes{}), kseq{}(inj{SortMInt{Sort64{}}, SortKItem{}}(VarI:SortMInt{Sort64{}}), kseq{}(inj{SortMInt{Sort64{}}, SortKItem{}}(VarV:SortMInt{Sort64{}}), Var'Unds'DotVar1:SortK{}))))), Var'Unds'DotVar0 …
+      sentence 458 (E6-REFUSED-BYTES-MINT.bytes-padLeftMInt): parametricSort
+        [user] E6-REFUSED-BYTES-MINT.bytes-padLeftMInt at e6-refused-bytes-mint.k:14: axiom{} \rewrites{SortGeneratedTopCell{}}(\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("6")), kseq{}(inj{SortBytes{}, SortKItem{}}(VarB:SortBytes{}), kseq{}(inj{SortMInt{Sort64{}}, SortKItem{}}(VarI:SortMInt{Sort64{}}), kseq{}(inj{SortMInt{Sort64{}}, SortKItem{}}(VarV:SortMInt{Sort64{}}), Var'Unds'DotVar1:SortK{}))))), Var'Unds'DotVar0 …
+      sentence 459 (E6-REFUSED-BYTES-MINT.bytes-lengthMInt): parametricSort
+        [user] E6-REFUSED-BYTES-MINT.bytes-lengthMInt at e6-refused-bytes-mint.k:15: axiom{} \rewrites{SortGeneratedTopCell{}}(\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("7")), kseq{}(inj{SortBytes{}, SortKItem{}}(VarB:SortBytes{}), Var'Unds'DotVar1:SortK{}))), Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()), \and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(k …
+finish: sentence 453 (E6-REFUSED-BYTES-MINT.bytes-updateMInt): parametricSort
+(exit 0)

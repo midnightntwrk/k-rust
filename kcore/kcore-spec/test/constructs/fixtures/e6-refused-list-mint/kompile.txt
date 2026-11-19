@@ -1,0 +1,11 @@
+command: kompile --backend haskell e6-refused-list-mint.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 3.1
+definition.kore bytes: 283646
+definition.kore sha256: c1e0d02edbb3daf00c1cb6194c995932bd058c2ac37f8a08df75b0a457336ea2
+stripped sha256: 462a67ed6842d214fbe12069ab6d8ef82c318d9cea34c7e38f823152edf8ffb5
+main module: 579 sentences, 135 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-REFUSED-LIST-MINT-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E6-REFUSED-LIST-MINT as default.

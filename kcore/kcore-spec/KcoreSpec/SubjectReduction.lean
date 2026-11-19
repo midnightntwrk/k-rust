@@ -29,6 +29,7 @@ import KcoreSpec.Step
 import KcoreSpec.Tie
 import KcoreSpec.OvlLawsFn
 import KcoreSpec.RangeMapSorted
+import KcoreSpec.FloatThinLaws
 
 set_option autoImplicit false
 
@@ -651,6 +652,158 @@ theorem flFmt_sorted {f} {vs : List GroundTerm} {v : GroundTerm} (h : flFmt f vs
     · cases h; exact sortOf_int _
     · cases h
   · cases h
+
+/-! The combinators of the formats with a field of 1 (`thinHooks`): a result is the encoding of a
+datum of its format (`KFloat.ok_tnPack`), stated from `thinAt_tnFormat` alone, so that it holds for
+every format `thinAt` names. -/
+
+theorem tnFloatV_sorted {p e : Nat} (h : thinAt p e = true) {u : Float.Model.UnpackedFloat}
+    (hu : KFloat.tnIsDatum p e u = true) : c.sortOf (tnFloatV p e u) = some Srt.float := by
+  rw [tnFloatV, Semantics.sortOf]
+  simp [dvOK, KFloat.ok_tnPack (thinAt_tnFormat h) u hu]
+
+/-- A Float of a format `thinAt` names has a datum of its format. -/
+theorem asThin_datum {a : GroundTerm} {p e : Nat} {u : Float.Model.UnpackedFloat}
+    (h : asThin a = some (p, e, u)) : thinAt p e = true ∧ KFloat.tnIsDatum p e u = true := by
+  match a, h with
+  | .dv s (.float p' e' b), h =>
+    simp only [asThin] at h
+    split at h
+    · rename_i ht
+      simp only [Option.some.injEq, Prod.mk.injEq] at h
+      obtain ⟨rfl, rfl, rfl⟩ := h
+      have hp : 1 ≤ p' := by
+        have := thinAt_tnFormat ht.2
+        simp only [KFloat.tnFormat, decide_eq_true_eq] at this
+        omega
+      exact ⟨ht.2, KFloat.tnIsDatum_unpack hp b⟩
+    · cases h
+
+theorem tfl1_sorted {op : Nat → Nat → Float.Model.UnpackedFloat → Option Float.Model.UnpackedFloat}
+    (hop : ∀ p e u r, thinAt p e = true → KFloat.tnIsDatum p e u = true → op p e u = some r →
+      KFloat.tnIsDatum p e r = true)
+    {vs : List GroundTerm} {v : GroundTerm} (h : tfl1 op vs = some v) : c.sortOf v = some Srt.float := by
+  unfold tfl1 at h
+  split at h
+  · obtain ⟨⟨p, e, u⟩, ha, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨r, hr, rfl⟩ := Option.map_eq_some_iff.mp h
+    obtain ⟨ht, hu⟩ := asThin_datum ha
+    exact tnFloatV_sorted ht (hop p e u r ht hu hr)
+  · cases h
+
+theorem tfl2_sorted
+    {op : Nat → Nat → Float.Model.UnpackedFloat → Float.Model.UnpackedFloat → Option Float.Model.UnpackedFloat}
+    (hop : ∀ p e u w r, thinAt p e = true → KFloat.tnIsDatum p e u = true → KFloat.tnIsDatum p e w = true →
+      op p e u w = some r → KFloat.tnIsDatum p e r = true)
+    {vs : List GroundTerm} {v : GroundTerm} (h : tfl2 op vs = some v) : c.sortOf v = some Srt.float := by
+  unfold tfl2 at h
+  split at h
+  · obtain ⟨⟨p, e, u⟩, ha, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨⟨p', e', w⟩, hb, h⟩ := Option.bind_eq_some_iff.mp h
+    dsimp only at h
+    by_cases hpe : p = p' ∧ e = e'
+    · rw [if_pos hpe] at h
+      obtain ⟨rfl, rfl⟩ := hpe
+      obtain ⟨r, hr, rfl⟩ := Option.map_eq_some_iff.mp h
+      obtain ⟨ht, hu⟩ := asThin_datum ha
+      obtain ⟨-, hw⟩ := asThin_datum hb
+      exact tnFloatV_sorted ht (hop p e u w r ht hu hw hr)
+    · rw [if_neg hpe] at h; cases h
+  · cases h
+
+theorem tflInf_sorted {vs : List GroundTerm} {v : GroundTerm} (h : tflInf vs = some v) :
+    c.sortOf v = some Srt.bool := by
+  unfold tflInf at h
+  split at h
+  · obtain ⟨_, -, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨_, -, rfl⟩ := Option.map_eq_some_iff.mp h
+    exact sortOf_bool _
+  · cases h
+
+theorem tflAt_sorted {op : Nat → Nat → Option Float.Model.UnpackedFloat}
+    (hop : ∀ p e r, thinAt p e = true → op p e = some r → KFloat.tnIsDatum p e r = true)
+    {vs : List GroundTerm} {v : GroundTerm} (h : tflAt op vs = some v) : c.sortOf v = some Srt.float := by
+  unfold tflAt at h
+  split at h
+  · obtain ⟨p, -, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨e, -, h⟩ := Option.bind_eq_some_iff.mp h
+    split at h
+    · rename_i ht
+      obtain ⟨r, hr, rfl⟩ := Option.map_eq_some_iff.mp h
+      exact tnFloatV_sorted ht (hop _ _ r ht hr)
+    · cases h
+  · cases h
+
+theorem tflTo_sorted {vs : List GroundTerm} {v : GroundTerm} (h : tflTo vs = some v) :
+    c.sortOf v = some Srt.float := by
+  unfold tflTo at h
+  split at h
+  · obtain ⟨_, -, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨p, -, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨e, -, h⟩ := Option.bind_eq_some_iff.mp h
+    split at h
+    · rename_i sp hs
+      obtain ⟨_, -, rfl⟩ := Option.map_eq_some_iff.mp h
+      exact floatV_sorted hs _
+    · split at h
+      · rename_i ht
+        obtain ⟨r, hr, rfl⟩ := Option.map_eq_some_iff.mp h
+        exact tnFloatV_sorted ht (KFloat.convertBy_datum (KFloat.tnHeld?_datum' _ _) hr)
+      · cases h
+  · cases h
+
+theorem tflOfInt_sorted {vs : List GroundTerm} {v : GroundTerm} (h : tflOfInt vs = some v) :
+    c.sortOf v = some Srt.float := by
+  unfold tflOfInt at h
+  split at h
+  · obtain ⟨_, -, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨p, -, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨e, -, h⟩ := Option.bind_eq_some_iff.mp h
+    split at h
+    · rename_i ht
+      obtain ⟨r, hr, rfl⟩ := Option.map_eq_some_iff.mp h
+      exact tnFloatV_sorted ht (KFloat.ofIntBy_datum (KFloat.tnHeld?_datum' _ _) hr)
+    · cases h
+  · cases h
+
+/-- `flOr f g` has a value of sort `s` where each of `f` and `g` does. -/
+theorem flOr_sorted {f g : List GroundTerm → Option GroundTerm} {vs : List GroundTerm} {s : Srt}
+    (hf : ∀ v, f vs = some v → c.sortOf v = some s) (hg : ∀ v, g vs = some v → c.sortOf v = some s)
+    {v : GroundTerm} (h : flOr f g vs = some v) : c.sortOf v = some s := by
+  unfold flOr at h
+  split at h
+  · rename_i w hw
+    cases h
+    exact hf _ hw
+  · exact hg _ h
+
+/-- Each entry of `thinHooks` returns a value of the sort its symbol's entry in `floatHooks` does:
+Float, or Bool for `isInfinite`. -/
+theorem thinHooks_sorted_ftw {f : Sym} {g : List GroundTerm → Option GroundTerm} {ws : List GroundTerm}
+    {v : GroundTerm} (hmem : (f, g) ∈ thinHooks) (hev : g ws = some v) :
+    c.sortOf v = some (if f = floatIsInfinite then Srt.bool else Srt.float) := by
+  simp only [thinHooks, List.mem_cons, Prod.mk.injEq, List.not_mem_nil, or_false] at hmem
+  rcases hmem with ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ |
+    ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ |
+    ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩
+  · exact tfl2_sorted (fun p e _ _ _ _ _ _ h => KFloat.sumBy_datum (KFloat.tnNearest?_datum' p e) h) hev
+  · exact tfl2_sorted (fun p e _ _ _ _ _ _ h => KFloat.diffBy_datum (KFloat.tnNearest?_datum' p e) h) hev
+  · exact tfl2_sorted (fun p e _ _ _ _ _ _ h => KFloat.prodBy_datum (KFloat.tnNearest?_datum' p e) h) hev
+  · exact tfl2_sorted (fun _ _ _ _ _ _ _ _ h => KFloat.tnQuot?_datum h) hev
+  · exact tfl2_sorted (fun p e _ _ _ _ _ _ h => KFloat.remainderBy_datum (KFloat.tnHeld?_datum' p e) h) hev
+  · exact tfl1_sorted (fun _ _ u _ _ hu h => by
+      unfold KFloat.neg? at h; split at h <;> cases h <;> exact KFloat.tnIsDatum_neg hu) hev
+  · exact tfl1_sorted (fun _ _ u _ _ hu h => by
+      unfold KFloat.abs? at h; split at h <;> cases h <;> exact KFloat.tnIsDatum_abs hu) hev
+  · exact tfl1_sorted (fun p e _ _ _ hu h => KFloat.roundToIntegralBy_datum (KFloat.tnHeld?_datum' p e) hu h) hev
+  · exact tfl1_sorted (fun p e _ _ _ hu h => KFloat.roundToIntegralBy_datum (KFloat.tnHeld?_datum' p e) hu h) hev
+  · exact tfl1_sorted (fun p e _ _ _ hu h => KFloat.roundToIntegralBy_datum (KFloat.tnHeld?_datum' p e) hu h) hev
+  · exact tfl1_sorted (fun _ _ _ _ _ _ h => KFloat.tnSqrt?_datum h) hev
+  · exact tflInf_sorted hev
+  · exact tflTo_sorted hev
+  · exact tflOfInt_sorted hev
+  · exact tflAt_sorted (fun _ _ _ _ h => KFloat.tnMax?_datum h) hev
+  · exact tflAt_sorted (fun _ _ _ _ h => KFloat.tnMin?_datum h) hev
 
 theorem floatSigs_result : ∀ k ∈ hookSigs, (floatResFloat.contains k.name → k.result = Srt.float) ∧
     (floatResBool.contains k.name → k.result = Srt.bool) ∧ (floatResInt.contains k.name → k.result = Srt.int) := by

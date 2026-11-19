@@ -208,4 +208,41 @@ example : fracs.all (fun (N, D) =>
 rounding has none. -/
 example : fracs.all (fun (N, D) => (tnRound 1 1 .positive N D).isNone) = true := by decide +kernel
 
+/-! ## The callers' guard gives the region's upper bound (`tn_guard_le`), and `tnNearest?`, `tnQuot?`
+have a value on the region (`tnNearest?_isSome`, `tnQuot?_isSome`)
+
+At `p1x3` the largest finite datum is `1·2^3` (64 units); at `p3x1` it is `3·2^(−1)` (6 units). -/
+
+/-- The guard of `tnNearest?` at 5 in `p1x3`, and of `tnQuot?` at 1.5 / 1 in `p3x1`, give the bound
+`tnRound_isSome` asks. -/
+example : 5 * 2 ^ ((0 : Int) - min 0 0).toNat * 2 ^ shift 1 3 ≤ 64 * (1 * 2 ^ ((0 : Int) - min 0 0).toNat) :=
+  tn_guard_le (p := 1) (e := 3) (M := 1) (Q := 3) (by decide +kernel) (by decide +kernel) (by decide)
+example : 3 * 2 ^ ((-1 : Int) - min (-1) (-1)).toNat * 2 ^ shift 3 1 ≤
+    6 * (2 * 2 ^ ((-1 : Int) - min (-1) (-1)).toNat) :=
+  tn_guard_le (p := 3) (e := 1) (M := 3) (Q := -1) (by decide +kernel) (by decide +kernel) (by decide)
+
+/-- At `p1x3`: 5 (rounds to 4) and 4 / 2. -/
+example : (tnNearest? 1 3 5 0).isSome = true :=
+  tnNearest?_isSome (M := 1) (Q := 3) (by decide) (by decide) (by decide +kernel) (by decide) (by decide)
+    (fun _ X _ => show 2 * 40 ≠ 3 * 2 ^ X * 1 by omega)
+example : (tnQuot? 1 3 (a 5) (a 4)).isSome = true :=
+  tnQuot?_isSome (a := 1) (qa := 2) (b := 1) (qb := 1) (M := 1) (Q := 3) (by decide) (by decide)
+    (by decide +kernel) (by decide +kernel) (by decide) (by decide +kernel) (by decide) (by decide)
+    (fun _ X _ => show 2 * 16 ≠ 3 * 2 ^ X * 1 by omega)
+
+/-- At `p3x1`: the tie 3/4 (to the even significand) and 1.5 / 1. -/
+example : (tnNearest? 3 1 3 (-2)).isSome = true :=
+  tnNearest?_isSome (M := 3) (Q := -1) (by decide) (by decide) (by decide +kernel) (by decide) (by decide)
+    (fun h => absurd h (by decide))
+example : (tnQuot? 3 1 (s 3) (s 2)).isSome = true :=
+  tnQuot?_isSome (a := 3) (qa := -1) (b := 2) (qb := -1) (M := 3) (Q := -1) (by decide) (by decide)
+    (by decide +kernel) (by decide +kernel) (by decide) (by decide +kernel) (by decide) (by decide)
+    (fun h => absurd h (by decide))
+
+/-- At `p1x1` the format has no largest finite datum, so the region of the three statements is empty
+(their hypothesis on `tnMax?` fails), and neither operation has a value. -/
+example : (tnMax? 1 1).bind exact = none ∧ tnNearest? 1 1 1 0 = none ∧
+    tnQuot? 1 1 (.finite .positive 1 0 (by decide)) (.finite .positive 1 0 (by decide)) = none := by
+  decide +kernel
+
 end KCore.FloatThinTest

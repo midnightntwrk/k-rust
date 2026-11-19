@@ -33,9 +33,15 @@ differs f2-examples/c3-eq-req-prio.kompile.kore
 differs f2-examples/c3-eq-req-total.kompile.kore
 differs f2-examples/c3-eq-symbolic-nosymbolic.kore
 differs f2-examples/c3-eq-symbolic.kompile.kore
+differs f2-examples/c3-hook-eq-coll.kompile.kore
+differs f2-examples/c3-hook-eq-false.kompile.kore
+differs f2-examples/c3-hook-eq-ground.kompile.kore
 differs f2-examples/c3-hook-eq-lib.kompile.kore
+differs f2-examples/c3-hook-eq-owise.kompile.kore
 differs f2-examples/c3-hook-eq-param-owise.kompile.kore
 differs f2-examples/c3-hook-eq-param.kompile.kore
+differs f2-examples/c3-hook-eq-req.kompile.kore
+differs f2-examples/c3-hook-eq.kompile.kore
 differs f2-examples/c3-hook-only-param-total.kompile.kore
 differs f2-examples/c3-macro-rule-expanded.kompile.kore
 differs f2-examples/c3-macro-rule.kompile.kore
@@ -90,6 +96,7 @@ differs f2-examples/e2-comm-rule-nocomm.kore
 differs f2-examples/e2-comm-rule.kompile.kore
 differs f2-examples/e2-concrete-rule-noconcrete.kore
 differs f2-examples/e2-concrete-rule.kompile.kore
+differs f2-examples/e2-cool-eq.kompile.kore
 differs f2-examples/e2-fn-assoc-bad.kompile.kore
 differs f2-examples/e2-fn-assoc-rest.kompile.kore
 differs f2-examples/e2-fn-assoc-unit.kompile.kore
@@ -317,6 +324,7 @@ differs f2-examples/rdr-cell-star-sibling.kompile.kore
 differs f2-examples/rdr-hook-assoc-sub.kompile.kore
 differs f2-examples/rdr-hook-assoc.kompile.kore
 differs f2-examples/rdr-ite-own-eq.kompile.kore
+differs f2-examples/rdr-ite-own-hook-eq.kompile.kore
 differs f2-examples/rdr-ite-own-hook.kompile.kore
 differs f2-examples/rdr-ite-own.kompile.kore
 differs f2-examples/rdr-ite-two-eq.kompile.kore

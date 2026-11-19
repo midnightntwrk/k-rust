@@ -1,7 +1,11 @@
-# python3 -I test/constructs/scope-count.py (kcore at FIX-core.allpath-alias-read + scope-count), 2026-11-17
-kompiled: 295 texts, 0 unreadable; iff 0, mu 0, nu 0, next 0, leftAssoc 0, rightAssoc 0, string 0, alias 2, svarEqn 0
+# python3 -I test/constructs/scope-count.py (kcore at q-kpf: ctorEqn, existEqn, smtRewrites added), 2026-11-19
+kompiled: 506 texts, 0 unreadable; iff 0, mu 0, nu 0, next 0, leftAssoc 0, rightAssoc 0, string 0, alias 2, svarEqn 0, ctorEqn 0, existEqn 0, smtRewrites 0
   e8-enable-kore-antileft: alias 2
-hand: 35 texts, 0 unreadable; iff 2, mu 1, nu 1, next 1, leftAssoc 3, rightAssoc 1, string 1, alias 0, svarEqn 2
+hand: 65 texts, 0 unreadable; iff 2, mu 1, nu 1, next 1, leftAssoc 3, rightAssoc 1, string 1, alias 1, svarEqn 2, ctorEqn 2, existEqn 1, smtRewrites 1
+  hw-ex-left-alias: alias 1
+  hw-h1-fun: ctorEqn 1
+  hw-h8: existEqn 1
+  hw-law-ctor: ctorEqn 1
   hw-scope-iff: iff 1
   hw-scope-iff-top: iff 1
   hw-scope-left-assoc: leftAssoc 1
@@ -14,4 +18,5 @@ hand: 35 texts, 0 unreadable; iff 2, mu 1, nu 1, next 1, leftAssoc 3, rightAssoc
   hw-scope-setvar-eq: svarEqn 1
   hw-scope-setvar-eq-memb: svarEqn 1
   hw-scope-string: string 1
-corpus: 381 texts, 0 unreadable; iff 0, mu 0, nu 0, next 0, leftAssoc 0, rightAssoc 0, string 0, alias 0, svarEqn 0
+  hw-smt-lemma-rewrites: smtRewrites 1
+corpus: 381 texts, 0 unreadable; iff 0, mu 0, nu 0, next 0, leftAssoc 0, rightAssoc 0, string 0, alias 0, svarEqn 0, ctorEqn 0, existEqn 0, smtRewrites 0

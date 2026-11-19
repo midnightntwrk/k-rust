@@ -1,0 +1,1 @@
+# e3-eq-exists-ml-under-app with f not total: f(X) => g(#Exists B:Bool. (B #And {B #Equals X})), g total

@@ -1,0 +1,5 @@
+# Hand-written KORE: the kompiled text of fixture e1-param-two-sort (K 7.1.337, sha256 27cb390cd18ff5c5b3b261c66aed0b74f72a7b0e9b34a5eefae160cacb5deaca), the Source of its own
+# sentences written as its fixture's path, and one sentence changed: the rule's application same{Int, Exp}(X, a(X)) written at the instance
+# same{Int, KResult}, at a sort the definition does not declare. kompile writes an instance only at sorts the text has.
+# Expected: the rule refused parametricSymbol (Lblsame).
+kore = "test/constructs/fixtures/hw-param-inst-app/hw-param-inst-app.kore"

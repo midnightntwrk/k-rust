@@ -1,0 +1,5 @@
+# Hand-written KORE: the kompiled text of fixture e7-implicitk (rule a() => b()), as hw-scope-iff writes it with b() in its
+# term position, and one sentence changed: the rewrite axiom's right side, the right side written \exists{SortExp{}}(VarY:SortExp{}, <the right side>), a binder of the sort Exp heading the right side of \rewrites{SortGeneratedTopCell{}}.
+# The KORE syntax document gives each argument of a connective the connective's sort parameter (kore-syntax.md:195, :330); kompile writes a
+# rule's binders at the rewrite's sort and writes none of this. Expected: rhsOperandSort.
+kore = "test/constructs/fixtures/hw-rhs-exists-binder/hw-rhs-exists-binder.kore"

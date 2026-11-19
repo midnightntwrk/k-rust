@@ -1192,12 +1192,15 @@ def clauseOKAll (f : Fn) (rhsHeads : List CtorSig) (cl : Clause) : Bool :=
   sortOfTerm (c.rhsCtx rhsHeads) cl.vars cl.rhs == some f.result &&
   reqOK (c.rhsCtx rhsHeads) cl.vars cl.ens
 
-/-- `fnOK`, its clauses as `clauseOKAll`. -/
-def fnOKAll (heads : List CtorSig) (used : List Sym) (f : Fn) : Bool :=
-  f.clauses.all (c.clauseOKAll f heads) &&
-  (!f.clauses.isEmpty || !used.contains f.label)
+/-- A function's clauses, each as `clauseOKAll` over the functions `heads`. A function with no
+clause is admitted whether or not something applies it: its value at every argument list of its
+sorts is its rest, the interpretation's (`Eval.rest`, `Semantics.fnRest`, Evaluation.lean), which
+is what a declaration with no equation states of it; where it is declared total, its totality is
+one of `totalObligations` (it holds under `RestTotal`: `total_of_restTotal_nil`, ParamsTotal.lean). -/
+def fnOKAll (heads : List CtorSig) (f : Fn) : Bool :=
+  f.clauses.all (c.clauseOKAll f heads)
 
-def fnsOKAll : Bool := c.fns.all (c.fnOKAll (c.fns.map Fn.sig) c.appliedSyms)
+def fnsOKAll : Bool := c.fns.all (c.fnOKAll (c.fns.map Fn.sig))
 
 theorem clauseOKAll_of {f : Fn} {H : List CtorSig} {cl : Clause} (h : c.clauseOK f H cl = true) :
     c.clauseOKAll f H cl = true := by
@@ -1212,7 +1215,7 @@ theorem fnsOKAll_of (h : c.fnsOK = true) : c.fnsOKAll = true := by
   intro f hf
   have := h f hf
   simp only [fnOK, fnOKAll, Bool.and_eq_true, List.all_eq_true] at this ⊢
-  exact ⟨fun cl hcl => c.clauseOKAll_of (this.1 cl hcl), this.2⟩
+  exact fun cl hcl => c.clauseOKAll_of (this.1 cl hcl)
 
 /-- `ruleOKAll_of` from `ruleOKM`: it reads no predicate. -/
 theorem ruleOKAll_of_M {r : Rule} (h : c.ruleOKM r = true) : c.ruleOKAll r = true := by

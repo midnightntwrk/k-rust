@@ -1,0 +1,6 @@
+# Hand-written KORE: the kompiled text of fixture e3-eq-exists-bool-ml (K 7.1.337, sha256 29c8642071ba1f90c2773d795896f0231d1b06db22a3af3a22b91dbce7105955), the Source of its own
+# sentences written as its fixture's path, and two sentences added after f's declaration: a sort Foo and the subsort axiom
+# Foo < Bool, in kompile's form. The text's declarations then give Bool an element beside its literals. kompile writes none
+# (on `syntax Bool ::= Foo` kompile exits 113, "Cannot add new constructors to hooked sort Bool").
+# Expected: f(X) = #Exists B:Bool. (B #And {B #Equals notBool X}) refused manyValuedRightSide (\exists).
+kore = "test/constructs/fixtures/hw-ex-bool-subsort/hw-ex-bool-subsort.kore"
