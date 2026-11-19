@@ -25,10 +25,17 @@
     field of 1, which has no model, `isInfinite` is at a silent point and the condition is the
     sentence there.
 
-  Not tied here: 380 (`sqrtFloat(F) => rootFloat(F, 2)`, 1671), whose right side is `rootFloat`, a
-  parameter symbol no FLOAT sentence gives a value, and whose sides are the standard's square root
-  and root only if the naming of IEEE 754 incorporates its operations (rulings section 7, G12),
-  which the text leaves open.
+  Not tied here:
+  - 380 (`sqrtFloat(F) => rootFloat(F, 2)`, 1671), whose right side is `rootFloat`, a parameter
+    symbol no FLOAT sentence gives a value and Γ lacks (`LibEvDeclsFlt.rootFloat_absent`), and whose
+    sides are the standard's square root and root only if the naming of IEEE 754 incorporates its
+    operations (rulings section 7, G12), which the text leaves open.
+  - The `functional` sentences of FLOAT's other `total` symbols, `Float2Int` 42, `atanFloat` 105,
+    `cosFloat` 112, `expFloat` 116, `exponentFloat` 118, `signFloat` 165, `sinFloat` 168: each
+    applies its own symbol, which Γ lacks (`LibEvDeclsFlt.floatParams_absent`), so it has no
+    direction.
+  With the sentences above, these are the axioms of FLOAT's library text that silentflt holds: the
+  `functional` sentences of its sixteen `total` symbols and its three equations (1648, 1671, 1673).
 -/
 import KcoreSpec
 
