@@ -1801,6 +1801,20 @@ table above, on the tree before String and Bytes). Not investigated here.
   and applies it at the head `Lblite{SortInt{}}`, for every H (`ite_int_in_gamma`); the module's
   sentences applying that head are the rule and `findChar`'s equation (domains.md 1891), every head
   of which is Γ's (`ite_int_sentences`, `findChar_heads_in_gamma`). Axioms printed.
+- `test/LibParamExpandFlt.lean`: the sentences of four library parameters Γ lacks on
+  `f2-examples/silentflt.kompile.kore` (`dividesInt`, `~Int`, `Int2BytesNoLen`, `rootFloat`), for
+  every H, in one model of `Γc ∪ Γstep` whose steps are `Step`'s (`expansion`, kind "in a model";
+  `KcoreSpec/TieLibParamExpand.lean`, `TieLibParam.model_lacked`, read through
+  `KcoreSpec/LibEvLacked.lean`): 274 (shape s3), 380 (s5), 228 to 232 with the `functional`
+  sentences 45 and 176 (s4), each at values as the text's translation writes it. The header says
+  why the form for every model of Γ is not stated. Axioms guarded.
+- `test/LibEvFindCharIte.lean`: `findChar`'s equation (domains.md 1891), axiom 237 of
+  `f2-examples/e6ite.kompile.kore`, where `#if` at Int is the parameter symbol `ite{Int}` implemented
+  by `kIte`: in the function form over terms applying it (`E237`, `LibEv.FnEqn.patternP`), its sides
+  have the same value for every H meeting `Semantics.findCharEq` (`holds237`; at a position of S1
+  both sides are `hook`'s, the first position of one of S2's characters being `gLfc` of the first of
+  its first character and of the others, `lfc_firstOr_or`), so it is entailed at values (`ev237`,
+  `LibEv.FnEqn.entailedP`); `HookParams.lib` meets the condition (`ev237_lib`). Axioms guarded.
 - `test/LibEvCollSym.lean`: the lemmas of MAP-KORE-SYMBOLIC and SET-KORE-SYMBOLIC of
   `f2-examples/collsym.kompile.kore`, for every H, from the library's statements
   (`KcoreSpec/LibEvCollSym.lean`): entailed at values, without an `ensures` (`LibEv.Eqn`; domains.md

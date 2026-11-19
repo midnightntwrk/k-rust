@@ -10,7 +10,8 @@
   - `One.c`: a function of `c.fns` labelled as the predicate of the own sort KCell: `sortPreds`
     builds no function of that label, and `coreOK` holds.
   - `Twice.c`: two functions of `c.fns` under that label, one giving true and one false: every leaf
-    of `coreOK` holds but `predsApart` (test/witnesses.toml, predsApart.1).
+    of `coreOK` holds but `predsApart` (test/witnesses.toml, predsApart.1); it is the semantics of
+    KcoreSpec/ModelPredTwiceWitness.lean, whose `Γ` has no model.
   - `IsK.c`: a function of `c.fns` labelled `isK`, which `sortPreds` builds whatever `c.fns` holds:
     `predsApart` refuses it (two functions of one label), and `idsOK` too (a registry symbol).
   - `Reg.c`: a function of `c.fns` labelled as the registry's predicate of Int: every leaf of
@@ -93,6 +94,9 @@ set_option maxHeartbeats 1000000 in
 theorem meets_others : c.sortedOK = true ∧ c.faithCoreOK = true ∧ c.hooksApart = true ∧ c.idsOK = true ∧
     c.overloadsOK = true :=
   ⟨by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel⟩
+
+/-- The semantics of the witness module KcoreSpec/ModelPredTwiceWitness.lean. -/
+theorem eq_witness : c = PredTwiceWitness.c := rfl
 
 end Twice
 
