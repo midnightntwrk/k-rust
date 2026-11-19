@@ -180,7 +180,7 @@ item = "app"
 status = "covered"
 rules = ["ev-app", "apply-ctor", "apply-fn", "ev-hook", "ev-col", "m-app", "m-col"]
 cases = ["c01-fn-prio", "c05-hooks", "c19-map-choice", "c22-map-hooks"]
-note = "a constructor or function as ap, a hooked symbol of the listed hooks as hk, a collection symbol as cb; a parameter symbol (impl = none) and any other hook are refused by the encoder"
+note = "KK.readApp: a constructor as ap; a collection symbol as cb (an interpreted symbol of the library's Map, Set or List, KK.libCollOf, or a parameter whose impl is one, KK.collSymOf); an interpreted symbol with a code as hk (KK.hookCodes), and =/=Bool, which has none, as notBool of ==Bool, hk 22 [hk 23 ARGS] (KK.derivedHook); a function label as ap. Refused parameters (paramsOK, over d.params, whether or not a term applies one): every parameter that is no cell collection symbol, i.e. whose impl is no library Map, Set or List symbol of the kind of its result sort's collection: a parameter without impl, KEQUAL.ite (the reader writes ite{S} as a parameter with impl ite), a user symbol hooked to a registry hook other than such a collection symbol, a library hook the registry does not interpret. Refused applications (appsOK): of an interpreted symbol with no code and no derived form."
 
 [[row]]
 type = "Term"
@@ -4304,7 +4304,7 @@ case = "STRING.lt: KK.hookCodes 81"
 [rows.E6."hook:BOOL.ne:Lbl'UndsEqlsSlshEqls'Bool'Unds'"]
 verdict = "covered"
 by = "hook table"
-case = "BOOL.ne: KK.derivedHook"
+case = "BOOL.ne: KK.derivedHook hk 22 BOOL.not [hk 23 BOOL.eq ARGS]; applied by ref-kimp's rule at expr.k:57:8"
 
 [rows.E6."symbol:FLOAT:Lbl'UndsEqlsSlshEqls'Float'UndsUnds'FLOAT'Unds'Bool'Unds'Float'Unds'Float"]
 verdict = "refused"
