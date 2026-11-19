@@ -151,11 +151,10 @@ def reqsExclusiveT (heads : List CtorSig) (vs : List Srt) : Option Term → Opti
 def clausesExclusiveT (heads : List CtorSig) (cl cl' : Clause) : Bool :=
   cl.vars == cl'.vars && Term.beqList cl.pats cl'.pats && c.reqsExclusiveT T heads cl.vars cl.req cl'.req
 
-def fnOKT (heads : List CtorSig) (used : List Sym) (f : Fn) : Bool :=
-  f.clauses.all (c.clauseOKT T f heads) &&
-  (!f.clauses.isEmpty || !used.contains f.label)
+def fnOKT (heads : List CtorSig) (f : Fn) : Bool :=
+  f.clauses.all (c.clauseOKT T f heads)
 
-def fnsOKT : Bool := c.fns.all (c.fnOKT T (c.fns.map Fn.sig) c.appliedSyms)
+def fnsOKT : Bool := c.fns.all (c.fnOKT T (c.fns.map Fn.sig))
 
 def fnExclusiveOKT (heads : List CtorSig) (f : Fn) : Bool :=
   (pairs f.clauses).all (fun (cl, cl') => (cl.prio != cl'.prio && !cl.aside && !cl'.aside) ||
@@ -203,12 +202,12 @@ theorem coversT_tables : ∀ n ss rows, c.coversT (tables c) n ss rows = c.cover
 theorem totalOKT_tables (f : Fn) : c.totalOKT (tables c) f = c.totalOK f := by
   simp only [Semantics.totalOKT, Semantics.totalOK, coversT_tables]
 
-theorem fnOKT_tables (heads : List CtorSig) (used : List Sym) (f : Fn) : c.fnOKT (tables c) heads used f = c.fnOK heads used f := by
+theorem fnOKT_tables (heads : List CtorSig) (f : Fn) : c.fnOKT (tables c) heads f = c.fnOK heads f := by
   simp only [Semantics.fnOKT, Semantics.fnOK]; rfl
 
 theorem fnsOKT_tables : c.fnsOKT (tables c) = c.fnsOK := by
   simp only [Semantics.fnsOKT, Semantics.fnsOK]
-  exact congrArg (c.fns.all ·) (funext fun f => fnOKT_tables _ _ f)
+  exact congrArg (c.fns.all ·) (funext fun f => fnOKT_tables _ f)
 
 theorem fnExclusiveOKT_tables (heads : List CtorSig) (f : Fn) :
     c.fnExclusiveOKT (tables c) heads f = c.fnExclusiveOK heads f := by

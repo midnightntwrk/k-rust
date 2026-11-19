@@ -11,7 +11,7 @@ Usage (from kcore-spec):
   python3 -I test/constructs/e6map.py --self-check   the self-check of forms (d) and (e) only (below)
 
 Tied texts and their tie files: the Lean files test/TieEns*.lean, test/TieKimp*.lean,
-test/TieKk*.lean and test/LibEv*.lean, each on the text its `user_axioms U from "TEXT"` names.
+test/TieKk*.lean, test/TieE6*.lean and test/LibEv*.lean, each on the text its `user_axioms U from "TEXT"` names.
 A sentence of a text is its axiom of index N (KCore's AxiomDecl.index: the 1-based position among
 the text's axioms, every module counted, in text order; U.axN in a tie file). A sentence is tied by
 a theorem when one of these holds, read from the files' text:
@@ -19,7 +19,9 @@ a theorem when one of these holds, read from the files' text:
       U.axN, and N is among the U.axM it names;
   (b) the theorem's statement is `∀ ad ∈ X, ...` with H, where the file defines
       `X : List AxiomDecl := U.all.filter fun ad => I.contains ad.index` and `I : List Nat` as a
-      literal list holding N;
+      literal list holding N, or, in a file test/TieE6*.lean (tiegen's output on a construct fixture),
+      `X : List AxiomDecl := [U.axA, ...]` as a literal list holding U.axN (beside the axioms of other
+      `user_axioms` literals, `PreludeKseq.ax1`, which tie no row here);
   (c) on kimp's text, N is in a class of test/TieKimp.lean's `classes` for which test/imp-tie.toml
       records the class's sentences proved, entailed at values or refuted with no remainder, or with
       its remainder given by `remainder_indices` and N not among them, and neither (a) nor (b) ties N
@@ -46,7 +48,7 @@ N-th sentence of a text with that key where rows.toml has a row of that name, as
 numbers the sentences of one location, a `comm` rule's two among them), is the row's key.
 A declaration is not an axiom, so (a) to (c) tie none. A row of a declaration (sort, symbol, token) is
 tied by form (d), on the declaration files: the Lean files test/TieEns*.lean, test/TieKimp*.lean,
-test/TieKk*.lean, test/TieRangeMap*.lean and test/LibEv*.lean, each on the text its
+test/TieKk*.lean, test/TieE6*.lean, test/TieRangeMap*.lean and test/LibEv*.lean, each on the text its
 `kore_term kore from "TEXT"` names. A row's declarations are the text's sort and symbol declarations
 with a builtin Source whose key, computed as extract.py computes E6's (the declaration's kind, the
 module of its Location line, its name; a hooked one is a hook row's, outside this scope), is the
@@ -133,8 +135,8 @@ ROWS = os.path.join(K, "test/constructs/rows.toml")
 KR = relsource.krust_root() or "K_RUST-unset"
 KOMPILE = os.environ.get("K_KOMPILE", os.path.join(KR, "k/result/bin/kompile"))
 BUILTIN = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(KOMPILE))), "include/kframework/builtin")
-TIE_FILE = re.compile(r"^(TieEns|TieKimp|TieKk|LibEv)\w*\.lean$")
-DECL_FILE = re.compile(r"^(TieEns|TieKimp|TieKk|TieRangeMap|LibEv)\w*\.lean$")
+TIE_FILE = re.compile(r"^(TieEns|TieKimp|TieKk|TieE6|LibEv)\w*\.lean$")
+DECL_FILE = re.compile(r"^(TieEns|TieKimp|TieKk|TieE6|TieRangeMap|LibEv)\w*\.lean$")
 SRC = re.compile(r"Source\{\}\(\"Source\(([^)]*)\)\"\)")
 LOC = re.compile(r"Location\{\}\(\"Location\((\d+),(\d+),(\d+),(\d+)\)\"\)")
 
@@ -299,6 +301,10 @@ def lean_ties():
         lists = {m.group(1): idx[m.group(2)] for m in re.finditer(
             r"^(?:noncomputable )?def (\w+) : List AxiomDecl :=\s*U\.all\.filter fun ad => (\w+)\.contains ad\.index\s*$",
             t, re.M) if m.group(2) in idx}
+        if f.startswith("TieE6"):
+            lists.update({m.group(1): [int(x) for x in re.findall(r"U\.ax(\d+)", m.group(2))] for m in re.finditer(
+                r"^(?:noncomputable )?def (\w+) : List AxiomDecl :=\s*\[((?:\s*\w+\.ax\d+\s*,)*\s*\w+\.ax\d+\s*)\]\s*$",
+                t, re.M)})
         for name, stmt in file_theorems(t):
             if "HookParams" not in stmt:
                 continue

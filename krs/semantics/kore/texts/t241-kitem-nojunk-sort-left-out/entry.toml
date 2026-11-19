@@ -1,0 +1,129 @@
+id = "t241-kitem-nojunk-sort-left-out"
+kind = "text"
+subject = "A text holding two declared sorts that no production of it puts below KItem: KBott, which it gets by importing SORT-KBOTT and which has no production, and the token sort #Tok, taken by the constructor tok. What the K text states of the two below KItem, and what KItem's no-junk axiom states of them when the kompiled text writes neither a subsort axiom of them into KItem nor a disjunct for them, while it applies inj{KBott, KItem} and inj{#Tok, KItem}."
+origin = "kcore-spec fixtures e6-mod-sort-kbott and e3-hash-sort"
+rests_on = ["kk:t192-sort-no-constructor", "kk:t232-sort-above-k"]
+
+[text]
+files = ["t241-kitem-nojunk-sort-left-out.k"]
+kompile = "accepts"
+frontend = "differs"
+frontend_difference = "The K text makes KBott and #Tok subsorts of KItem (the production syntax KItem ::= S K inserts for every declared sort S other than K and KItem). The kompiled text holds no subsort axiom of either into KItem (no sentence with subsort{SortKBott{}, SortKItem{}} or subsort{Sort'Hash'Tok{}, SortKItem{}}), and KItem's no-junk axiom (kore.txt:32) has no disjunct for either, while is#Tok's and isKBott's equations apply inj{Sort'Hash'Tok{}, SortKItem{}} and inj{SortKBott{}, SortKItem{}} (kore.txt:77, 185)."
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "KBott (kast.md:70) and #Tok are sorts of the text other than K and KItem, so each is a subsort of KItem: every element of KBott and every element of #Tok is also a KItem, through an injection. The elements of #Tok are its tokens, domain values, and tok takes each to an Exp. KBott has no production, so no term denotes an element of it; it has an element in every model, of which the text states nothing more (kk:t192-sort-no-constructor). So KItem holds the injection of every token of #Tok and of every element of KBott. The text states no subsort between KBott or #Tok and any other sort but KItem and the sorts above it."
+reason = """
+(1) For every sort S declared in a definition, K and KItem excepted, K inserts the production syntax KItem ::= S, so every such sort is a subsort of KItem (13_rewrite_rules/README.md:58-68). A production syntax S ::= S2 is a subsort production: every S2 is also an S, through an injection (11_casts/README.md:164-170). The text declares #Tok (syntax #Tok [token]) and, through its import of SORT-KBOTT, KBott (kast.md:68-71). Neither is K or KItem, and the sentence names every declared sort but those two, a sort whose name begins with # among them: both are subsorts of KItem, and each element of either is, injected, an element of KItem.
+(2) The token attribute states that #Tok is inhabited by domain values and has no constructors (user_manual.md:610-612): its elements are its tokens. Exp's one production, tok(#Tok), takes a #Tok as an argument: it is a constructor of Exp, not a subsort production, so #Tok is not below Exp.
+(3) SORT-KBOTT declares KBott with no production (kast.md:68-71), and the text gives it none: no term denotes an element of KBott. Every carrier of a model is non-empty (introduction-to-matching-logic.tex:704-707), so KBott has an element in every model, and the text states nothing more of it (kk:t192-sort-no-constructor, point (1)).
+(4) The text holds no other subsort production naming KBott or #Tok, so each is below KItem, and through KItem below K (kast.md:39), and below no other sort, and no sort is below either."""
+
+[[ruling.basis]]
+source = "tutorial"
+locator = "k-distribution/k-tutorial/1_basic/13_rewrite_rules/README.md:58-68 (K 7.1.337)"
+quote = '''For every sort `S` declared in a definition (with the exception of `K` and `KItem`), K will implicitly insert the following production: ``` syntax KItem ::= S ``` In other words, every sort is a subsort of the sort `KItem`'''
+
+[[ruling.basis]]
+source = "tutorial"
+locator = "k-distribution/k-tutorial/1_basic/11_casts/README.md:164-170 (K 7.1.337)"
+quote = '''Remember from above that such a production looks like `syntax S ::= S2`. This type of production, called a **subsort production**, can be thought of as a type of inheritance involving constructors. If we have the above production in our grammar, we say that `S2` is a subsort of `S`, or that any `S2` is also an `S`. K implicitly maintains a symbol at runtime which keeps track of where such subsortings occur; this symbol is called an **injection**.'''
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/kast.md:68-71 (K 7.1.337)"
+quote = '''module SORT-KBOTT imports SORT-K syntax KBott endmodule'''
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/kast.md:35-39 (K 7.1.337)"
+quote = '''module BASIC-K imports ML-SYNTAX imports SORT-BOOL syntax KItem [hook(K.KItem)] syntax K ::= KItem'''
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:610-612 (K 7.1.337)"
+quote = '''The `token` attribute signals to the Kore generator that the associated sort will be inhabited by domain values. Sorts inhabited by domain values must not have any constructors declared.'''
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:704-707 (K 7.1.337)"
+quote = '''An $S$-sorted set $\{M_s\}_{s\in S}$, where each set $M_s$, called the \emph{carrier of sort $s$ of $M$}, is assumed non-empty'''
+
+[ruling.kore]
+statement = """The kompiled text holds no subsort axiom of KBott or of #Tok into KItem: no sentence carries subsort{SortKBott{}, SortKItem{}} or subsort{Sort'Hash'Tok{}, SortKItem{}}, where Exp's subsort into KItem has its axiom (kore.txt:16). It applies inj{Sort'Hash'Tok{}, SortKItem{}} and inj{SortKBott{}, SortKItem{}} in the equations of is#Tok and isKBott (kore.txt:77, 185). So, as of inj{#RuleBody, KItem} (kk:t232-sort-above-k), it states neither that these injections give an element of KBott or #Tok an element of KItem, nor one only, nor how their images stand to the other injections' images.
+KItem's no-junk axiom (kore.txt:32) is a disjunction over thirteen injections into KItem, of Bool, Exp, GeneratedCounterCell, GeneratedCounterCellOpt, GeneratedTopCell, GeneratedTopCellFragment, Int, KCell, KCellOpt, KConfigVar, List, Map and Set, none of KBott or #Tok. A model satisfies it where it denotes the whole carrier of KItem (introduction-to-matching-logic.tex:767-768), and a disjunction of existentials denotes the union of the images (introduction-to-matching-logic.tex:684, 737-741): every element of KItem is in the image of one of the thirteen.
+Against the K text: with X one of KBott and #Tok, the subsort X < KItem the K text states makes inj{X, KItem} give each element of X exactly one element of KItem, as a subsort axiom would state it (introduction-to-matching-logic.tex:960-964). The no-junk axiom then states that this element is in the image of one of the thirteen listed injections: that the injection of each token of #Tok, and of each element of KBott, of which there is one in every model, is also the injection of a Bool, an Exp, an Int or an element of another listed sort. Neither text states that the image of inj{X, KItem} meets those images, nor that it is apart from them; X is below none of the thirteen sorts and none of them is below X. Where the image is apart from theirs, the axiom is false at the image of each element of X: of every token of #Tok, and of every element of KBott, which no term denotes. The written sentences alone do not make the axiom false there: they hold no sentence giving inj{X, KItem} an element, or one apart from the listed images."""
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:32"
+quote = '''axiom{} \or{SortKItem{}} (\exists{SortKItem{}} (Val:SortBool{}, inj{SortBool{}, SortKItem{}} (Val:SortBool{})), \exists{SortKItem{}} (Val:SortExp{}, inj{SortExp{}, SortKItem{}} (Val:SortExp{})), ... \exists{SortKItem{}} (Val:SortSet{}, inj{SortSet{}, SortKItem{}} (Val:SortSet{})), \bottom{SortKItem{}}()) [constructor{}()] // no junk'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:16"
+quote = '''axiom{R} \exists{R} (Val:SortKItem{}, \equals{SortKItem{}, R} (Val:SortKItem{}, inj{SortExp{}, SortKItem{}} (From:SortExp{}))) [subsort{SortExp{}, SortKItem{}}()] // subsort'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:77"
+quote = '''kseq{}(inj{Sort'Hash'Tok{}, SortKItem{}}(Var'Hash'Tok:Sort'Hash'Tok{}),dotk{}())'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:185"
+quote = '''kseq{}(inj{SortKBott{}, SortKItem{}}(VarKBott:SortKBott{}),dotk{}())'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:2"
+quote = '''sort Sort'Hash'Tok{} [hasDomainValues{}(), token{}()]'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:767-768 (K 7.1.337)"
+quote = '''Model $M$ \emph{satisfies} $\varphi_s$, written ${M}\models \varphi_s$, iff $\overline{\rho}(\varphi_s) = M_s$ for all $\rho:\Var\rightarrow M$.'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:684 (K 7.1.337)"
+quote = '''\varphi_1 \vee \varphi_2 & \equiv & \neg(\neg\varphi_1\wedge\neg\varphi_2) &'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:737-741 (K 7.1.337)"
+quote = '''\item $\overline{\rho}(\exists x . \varphi) = \bigcup\{\overline{\rho'}(\varphi) \mid \rho':\Var\rightarrow M,\ \rho'\!\!\upharpoonright_{\Var\backslash\{x\}} = \rho\!\!\upharpoonright_{\Var\backslash\{x\}}\} = \bigcup_{a\in M} \overline{\rho[a/x]}(\varphi)'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:960-964 (K 7.1.337)"
+quote = '''For example, if $f$ is a unary symbol, then the pattern equation ``$\forall x\,.\,\exists y\,.\,f(x) = y$'' (the convention for free variables allows us to drop the universal quantifier) states that in any model $M$, the set $f_M(a)$ contains precisely one element for any $a\in M$; i.e. $f$ is a total function.'''
+
+[[observe]]
+file = "kore.txt"
+absent = "subsort{SortKBott{}, SortKItem{}}"
+
+[[observe]]
+file = "kore.txt"
+absent = "subsort{Sort'Hash'Tok{}, SortKItem{}}"
+
+[[observe]]
+file = "kore.txt"
+absent = '\exists{SortKItem{}} (Val:SortKBott{}'
+
+[[observe]]
+file = "kore.txt"
+absent = "\\exists{SortKItem{}} (Val:Sort'Hash'Tok{}"
+
+[[observe]]
+file = "kore.txt"
+contains = "[subsort{SortExp{}, SortKItem{}}()]"
+
+[[observe]]
+file = "kore.txt"
+contains = "inj{SortKBott{}, SortKItem{}}(VarKBott:SortKBott{})"
+
+[[observe]]
+file = "kore.txt"
+contains = "inj{Sort'Hash'Tok{}, SortKItem{}}(Var'Hash'Tok:Sort'Hash'Tok{})"

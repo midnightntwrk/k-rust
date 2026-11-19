@@ -1077,20 +1077,19 @@ def orderObligations : List Sym :=
 
 /-- Well-formed clauses over constructors, hooks and the functions `heads` (`fnsOK`: every
 function of the definition, in any order: functions may call one another, mutually recursively,
-since `Eval` is an inductive relation and the proofs about it proceed by induction on derivations);
-at least one clause, unless no rule, `requires` or function applies it (`used`, `appliedSyms`:
-then its meaning is never read, and kompile's declared-only symbols, such as macros expanded away,
-are admitted; a used function with neither would be read as undefined everywhere, which is not what
-the KORE says of it, so it is refused). That two equations of one priority which both apply give
+since `Eval` is an inductive relation and the proofs about it proceed by induction on derivations).
+A function with no clause is admitted whether or not something applies it: its value at every
+argument list of its sorts is its rest, the interpretation's (`Eval.rest`, `Semantics.fnRest`,
+Evaluation.lean), which is what a declaration with no equation states of it. That two equations of
+one priority which both apply give
 one result is not checked here: `fnExclusiveOK` decides it where it can, and the functions it does not confirm are
 `agreeObligations`. A function declared total and not confirmed by `totalOK` is not refused: it is
 one of `totalObligations`. -/
-def fnOK (heads : List CtorSig) (used : List Sym) (f : Fn) : Bool :=
-  f.clauses.all (c.clauseOK f heads) &&
-  (!f.clauses.isEmpty || !used.contains f.label)
+def fnOK (heads : List CtorSig) (f : Fn) : Bool :=
+  f.clauses.all (c.clauseOK f heads)
 
 /-- Every function's clauses, over every function's signature. -/
-def fnsOK : Bool := c.fns.all (c.fnOK (c.fns.map Fn.sig) c.appliedSyms)
+def fnsOK : Bool := c.fns.all (c.fnOK (c.fns.map Fn.sig))
 
 /-- Each two of f's equations that compete give one result wherever both apply (`ClausesAgree`,
 ClausesAgree.lean; `Det.fnExclusiveOK_sound`), clauses of different priorities neither of which is
@@ -1214,8 +1213,8 @@ theorem fnsOKAll_of (h : c.fnsOK = true) : c.fnsOKAll = true := by
   simp only [fnsOK, fnsOKAll, List.all_eq_true] at h ⊢
   intro f hf
   have := h f hf
-  simp only [fnOK, fnOKAll, Bool.and_eq_true, List.all_eq_true] at this ⊢
-  exact fun cl hcl => c.clauseOKAll_of (this.1 cl hcl)
+  simp only [fnOK, fnOKAll, List.all_eq_true] at this ⊢
+  exact fun cl hcl => c.clauseOKAll_of (this cl hcl)
 
 /-- `ruleOKAll_of` from `ruleOKM`: it reads no predicate. -/
 theorem ruleOKAll_of_M {r : Rule} (h : c.ruleOKM r = true) : c.ruleOKAll r = true := by

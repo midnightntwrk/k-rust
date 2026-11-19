@@ -87,11 +87,14 @@ if on ref-kimp; then gen f2-examples/ref-kimp.kore ref-kimp RefKimp --wf
 # (User.SpikeEmb); the embeddings `kcore kk-native` runs are sig's (User.NativeTie); the walk and lookup helpers over the mirrors (User.HelpWalk)
 # `match`, `matchTs` and `matchK` on embedded mirrors at a pattern without a collection pattern (User.MatchEval: `KCore.KK.match_eval`);
 # kore.k's order functions over the mirrors and insert and member on encodings (User.HelpOrder);
-# a term's instance under a substitution, as kore.k's `inst` gives it (User.Inst: `KCore.KK.Inst`, `KCore.KK.inst_Inst`);
+# a term's instance under a substitution, as kore.k's `inst` gives it (User.Inst: `KCore.KK.Inst`, `KCore.KK.inst_Inst`)
 # the motive of the induction on an evaluation of kore.k and its step cases (User.SpecMotive: `KCore.KK.Spec`, `KCore.KK.StepCase`, `KCore.KK.spec_of_steps`);
-# kore.k's collection helpers over the mirrors and colOf against the collection value of the same items (User.HelpColl);
-# `matchCol`, `choose`, `split`, `splitOn`, `rest` on embedded mirrors, and `match` at every pattern (User.ColMatchEval: `KCore.KK.match_eval_col`)
+# kore.k's `eval` is the identity on encoded values (User.EvalValue: `KCore.KK.eval_value`);
+# strictHook at the Int, Bool, ite, K-equality and String operation codes against KCore's hooks, and =/=Bool as notBool (B1 ==Bool B2) (User.HooksScalar: `KCore.KK.hooks_scalar`, `KCore.KK.boolNe_comp`);
+# ; kore.k's collection helpers over the mirrors and colOf against the collection value of the same items (User.HelpColl);
+# kore.k's collection helpers over the mirrors and colOf against the collection value of the same items (User.HelpColl) colOf against the value a collection symbol builds from its arguments' values (User.CollVal: `KCore.KK.colOf_collVal`);
+# ; the motive of the induction on an evaluation of kore.k and its step cases (User.SpecMotive: `KCore.KK.Spec`, `KCore.KK.StepCase`, `KCore.KK.spec_of_steps`); kore.k's collection helpers over the mirrors and colOf against the collection value of the same items (User.HelpColl); `matchCol`, `choose`, `split`, `splitOn`, `rest` on embedded mirrors, and `match` at every pattern (User.ColMatchEval: `KCore.KK.match_eval_col`)
 if on ref-kk; then gen examples/ref-kk/RefKk/definition.kore ref-kk RefKk --core
   step gen/build.sh examples/ref-kk User.Coherent User.EvalInversion User.FnSolves User.PrioDecided User.CoDefined User.Consistent \
-    User.KkKit User.KkFacts User.KkCascade User.SpikeBase User.SpikeHand User.SpikeCascade User.Emb User.Sig User.EmbKit User.Leq User.HelpTerms User.KkGenEmb User.SpikeEmb User.NativeTie User.HelpWalk User.MatchEval User.HelpOrder User.Inst User.SpecMotive User.HelpColl User.ColMatchEval; fi
+    User.KkKit User.KkFacts User.KkCascade User.SpikeBase User.SpikeHand User.SpikeCascade User.Emb User.Sig User.EmbKit User.Leq User.HelpTerms User.KkGenEmb User.SpikeEmb User.NativeTie User.HelpWalk User.MatchEval User.HelpOrder User.Inst User.SpecMotive User.EvalValue User.HooksScalar User.HelpColl User.CollVal User.ColMatchEval; fi
 echo "all built"
