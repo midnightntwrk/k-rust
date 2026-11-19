@@ -100,7 +100,10 @@ def classes : List (String × List Nat) :=
    ("function law", []),
    ("open generator law", []),
    ("open generator functional", []),
+   ("parameter functional", []),
    ("parameter lemma", []),
+   ("user lemma", []),
+   ("user lemma at values", []),
    ("no direction", [36, 37, 56, 57, 58, 83, 96, 97, 98, 99, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138,
       139, 140, 141, 142])]
 
@@ -116,7 +119,7 @@ theorem account : (classes.flatMap (·.2)).isPerm (userAxioms.map (·.index)) = 
 
 /-- The class sizes. -/
 theorem account_sizes : classes.map (fun cl => (cl.1, cl.2.length)) =
-    [("function equation", 29), ("rewrite rule", 0), ("priority equation", 0), ("constructor functional", 7), ("subsort", 15), ("injectivity", 4), ("distinctness", 0), ("no junk", 11), ("function functional", 15), ("hooked functional", 23), ("collection law", 9), ("library", 2), ("set idempotence", 1), ("set-variable lemma", 1), ("function law", 0), ("open generator law", 0), ("open generator functional", 0), ("parameter lemma", 0), ("no direction", 24)] := by
+    [("function equation", 29), ("rewrite rule", 0), ("priority equation", 0), ("constructor functional", 7), ("subsort", 15), ("injectivity", 4), ("distinctness", 0), ("no junk", 11), ("function functional", 15), ("hooked functional", 23), ("collection law", 9), ("library", 2), ("set idempotence", 1), ("set-variable lemma", 1), ("function law", 0), ("open generator law", 0), ("open generator functional", 0), ("parameter functional", 0), ("parameter lemma", 0), ("user lemma", 0), ("user lemma at values", 0), ("no direction", 24)] := by
   decide +kernel
 
 /-- The classes are the tie's (`tieClasses`, which gives each its direction), in its order. -/
@@ -385,6 +388,7 @@ theorem nojunk_trivial_entailed (H : HookParams) :
   · rw [nj90]; exact orTopBot_valid hD rfl
   · rw [nj93]; exact orTopBot_valid hD rfl
 
+set_option maxHeartbeats 1000000 in
 /-- **No junk of the sorts with generators**: the translation of each sentence is the pattern of
 one of Γ's constructor items. -/
 theorem nojunk_items : ∀ ad ∈ [U.ax85, U.ax86, U.ax87, U.ax88, U.ax89, U.ax91, U.ax92],

@@ -110,7 +110,10 @@ def classes : List (String × List Nat) :=
    ("function law", []),
    ("open generator law", []),
    ("open generator functional", []),
+   ("parameter functional", []),
    ("parameter lemma", []),
+   ("user lemma", []),
+   ("user lemma at values", []),
    ("no direction", [50, 54, 56, 87, 89, 98, 99, 121, 135, 136, 180, 212, 235, 236, 237, 238, 239, 240, 280, 281,
       286, 287, 288, 289, 290, 291, 292, 293, 294, 295, 296, 297, 298, 299, 300, 301, 302, 303,
       304])]
@@ -127,7 +130,7 @@ theorem account : (classes.flatMap (·.2)).isPerm (userAxioms.map (·.index)) = 
 
 /-- The class sizes. -/
 theorem account_sizes : classes.map (fun cl => (cl.1, cl.2.length)) =
-    [("function equation", 41), ("rewrite rule", 2), ("priority equation", 0), ("constructor functional", 13), ("subsort", 23), ("injectivity", 9), ("distinctness", 1), ("no junk", 16), ("function functional", 20), ("hooked functional", 47), ("collection law", 9), ("library", 82), ("set idempotence", 1), ("set-variable lemma", 0), ("function law", 0), ("open generator law", 0), ("open generator functional", 0), ("parameter lemma", 0), ("no direction", 39)] := by
+    [("function equation", 41), ("rewrite rule", 2), ("priority equation", 0), ("constructor functional", 13), ("subsort", 23), ("injectivity", 9), ("distinctness", 1), ("no junk", 16), ("function functional", 20), ("hooked functional", 47), ("collection law", 9), ("library", 82), ("set idempotence", 1), ("set-variable lemma", 0), ("function law", 0), ("open generator law", 0), ("open generator functional", 0), ("parameter functional", 0), ("parameter lemma", 0), ("user lemma", 0), ("user lemma at values", 0), ("no direction", 39)] := by
   decide +kernel
 
 /-- The classes are the tie's (`tieClasses`, which gives each its direction), in its order. -/
@@ -338,6 +341,7 @@ noncomputable def fnText : List AxiomDecl :=
    U.ax258, U.ax267, U.ax266, U.ax269, U.ax268, U.ax246, U.ax245, U.ax248, U.ax247, U.ax244,
    U.ax243]
 
+set_option maxHeartbeats 1000000 in
 /-- **Γ's equations are the text's sentences' translations, pattern for pattern** (one kernel
 decision). -/
 theorem fn_shape : (fnItems c).map (·.pat) = fnText.map (trS · |>.pat) := by
@@ -513,6 +517,7 @@ theorem nojunk_trivial_entailed (H : HookParams) :
   · rw [nj143]; exact orTopBot_valid hD rfl
   · rw [nj146]; exact orTopBot_valid hD rfl
 
+set_option maxHeartbeats 1000000 in
 /-- **No junk of the sorts with generators**: the translation of each sentence is the pattern of
 one of Γ's constructor items. -/
 theorem nojunk_items : ∀ ad ∈ [U.ax138, U.ax139, U.ax140, U.ax141, U.ax142, U.ax144, U.ax145, U.ax148, U.ax149, U.ax150,
