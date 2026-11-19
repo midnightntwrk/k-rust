@@ -51,6 +51,42 @@ def consSorts (c : Semantics) : List Srt :=
   ([Srt.k, Srt.kitem] ++ sortBy c.sortName (c.userSorts ++ c.libCtorSorts)).filter
     fun s => !(c.colls.any (·.sort == s)) && !c.lib.tokenSorts.contains s && c.lib.carriers.all (·.1 != s)
 
+/-- `Semantics.sortName` with the semantics' own names read from an array. -/
+def sortNameArrCs (a : Array String) (s : Srt) : String :=
+  if s < nRegSorts then regSortNames.getD s "" else a.getD (s - nRegSorts) ""
+
+theorem sortNameArrCs_toArray (c : Semantics) : sortNameArrCs c.sortNames.toArray = c.sortName := by
+  funext s
+  simp only [sortNameArrCs, Semantics.sortName, Array.getD_eq_getD_getElem?, List.getElem?_toArray,
+    List.getD_eq_getElem?_getD]
+
+/-- Inserting by a key is inserting the element paired with its key by the pair's first component. -/
+theorem insertBy_keyedCs {α β : Type} [LT β] [DecidableRel (α := β) (· < ·)] (key : α → β) (a : α)
+    (l : List α) :
+    insertBy Prod.fst (key a, a) (l.map fun x => (key x, x)) = (insertBy key a l).map fun x => (key x, x) := by
+  induction l with
+  | nil => rfl
+  | cons b bs ih => by_cases h : key a < key b <;> simp [insertBy, h, ih]
+
+/-- Sorting by a key is sorting the elements paired with their keys by the pairs' first components. -/
+theorem sortBy_keyedCs {α β : Type} [LT β] [DecidableRel (α := β) (· < ·)] (key : α → β) (l : List α) :
+    sortBy Prod.fst (l.map fun x => (key x, x)) = (sortBy key l).map fun x => (key x, x) := by
+  induction l with
+  | nil => rfl
+  | cons a l ih => simp only [sortBy, List.map_cons, List.foldr_cons] at ih ⊢; rw [ih, insertBy_keyedCs]
+
+/-- `consSorts`, with each sort's name computed once, from an array, and sorted as a pair with it. -/
+def consSortsArr (c : Semantics) : List Srt :=
+  let nm := c.sortNames.toArray
+  ([Srt.k, Srt.kitem] ++
+      (sortBy Prod.fst ((c.userSorts ++ c.libCtorSorts).map fun s => (sortNameArrCs nm s, s))).map Prod.snd).filter
+    fun s => !(c.colls.any (·.sort == s)) && !c.lib.tokenSorts.contains s && c.lib.carriers.all (·.1 != s)
+
+@[csimp] theorem consSorts_eq_arr : @consSorts = @consSortsArr := by
+  funext c
+  simp only [consSorts, consSortsArr, sortNameArrCs_toArray, sortBy_keyedCs, List.map_map, Function.comp_def,
+    List.map_id']
+
 /-- A constructor sort is its own carrier. -/
 theorem carrier_of_consSorts {c : Semantics} {s : Srt} (h : s ∈ consSorts c) : c.lib.carrier s = s := by
   unfold consSorts at h

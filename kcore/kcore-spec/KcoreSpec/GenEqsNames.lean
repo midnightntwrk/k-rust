@@ -487,12 +487,9 @@ theorem spareSymB_of_unnumbered (c : Semantics) {n : String}
     (hn : (regSymNames ++ c.symNames).contains n = false) (he : n ≠ "") (hi : n ≠ "inj") :
     spareSymB c n = true := by
   have hres : resolve c n [] = none := by
-    unfold resolve
-    split
-    · rename_i h; cases h
-    · rw [Option.map_eq_none_iff, List.find?_eq_none]
-      intro k _ hk
-      exact symName_ne_of_unnumbered c hn he k.name (beq_iff_eq.mp hk)
+    rw [resolve_nil, Option.map_eq_none_iff, List.find?_eq_none]
+    intro k _ hk
+    exact symName_ne_of_unnumbered c hn he k.name (beq_iff_eq.mp hk)
   simp only [spareSymB, hres, Bool.and_true]
   exact bne_iff_ne.mpr hi
 
