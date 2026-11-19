@@ -433,3 +433,4 @@ import KcoreSpec.KKNative
 import KcoreSpec.LibEvSortPred
 import KcoreSpec.LibEvCeilFn
 import KcoreSpec.FnHypPre
+import KcoreSpec.TiePriosBut
