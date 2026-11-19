@@ -8,7 +8,7 @@ Usage (from anywhere; the library and `kcore` built first):
                                                [--attrs-parts] [--attrs-blocks N] [--decl-parts] [--fn-blocks N]
                                                [--absent-file] [--builtin-decls] [--decl-syms-literal] [--nojunk-eq]
                                                [--nojunk-blocks N] [--lists-by-class] [--sig-positions] [--fnfun-chunk N]
-                                               [--out DIR] [--print]
+                                               [--decl-positions] [--out DIR] [--print]
   (the probe, a run of the Lean definitions on the text, is stopped after $TIEGEN_PROBE_TIMEOUT seconds, 900 by default)
   python3 -I test/constructs/tiegen.py --self-test   (the law search below, on three fixtures)
 
@@ -94,6 +94,11 @@ are decided on `sigFromAt`, which compares each item with the one item its origi
 `sig_origin` follows (`sigFromAt_sound`, `tieSigPos_all`), its statement unchanged. Otherwise each item
 is searched for in the whole of the text's signature and then in each disjunct of `surplusItem`, each of
 which scans the text's declarations.
+--decl-positions writes the position in `sigItems c` of each item of `declItems` as a literal
+(`declPos`); the `declsE` ranges are decided on `inSigItemsAt`, which compares each item with the one
+item of `sigItems c` at its position, and `decls_in_sig` follows (`inSigItemsAt_sound`,
+`tieDeclPos_all`, `decl_sizes`), its statement unchanged. Otherwise each item is searched for in
+`sigItems c` up to its own position.
 --fnfun-chunk N decides `fnFun_checked` and `fnFun_trS` (the function functional sentences as sort
 predicates' `functional` sentences) by ranges of N sentences, each its own kernel decision
 (`tieAll_range`): `fnFunOK` searches the sort predicates for each sentence's.
@@ -768,6 +773,10 @@ def tgNjOrder (gs : List KoreAML.Gen) : List Kore.Pattern → Option (List Nat)
   IO.println s!"H textNext {k.axiomDecls.any fun ad => !(nextSortsOf ad.ax.pattern).isEmpty}"
   IO.println s!"H nDecl {declItems.length}"
   IO.println s!"H declAll {declItems.all fun it => si.any (·.pat == it.pat)}"
+  -- each declaration item's first position in Γ's signature (`--decl-positions`)
+  if @DECLPOS@ then
+    for it in declItems do
+      IO.println s!"DP {(si.findIdx? (·.pat == it.pat)).map toString |>.getD "x"}"
   IO.println s!"H declCounts {k.sortDecls.length} {plainSorts.length} {k.symbolDecls.length} {plainSyms.length} {(k.symbolDecls.filter fun sd => !sd.params.isEmpty).length} {(k.symbolDecls.filter fun sd => sd.params.isEmpty && !hasSym sd.name).length}"
   IO.println s!"H kitemCons {decide (Srt.kitem ∈ consSorts c)} {(c.gens Srt.kitem).isEmpty}"
   IO.println s!"H kitemPerm {kg.isPerm ((c.gens Srt.kitem).map (Gen.toK c))} {decide ((c.gens Srt.kitem).map (Gen.toK c) ≠ kg)}"
@@ -945,13 +954,14 @@ def tgNjOrder (gs : List KoreAML.Gen) : List Kore.Pattern → Option (List Nat)
 '''
 
 
-def probe(name, path, um, order="[]", cons_head=False, sig_pos=False):
+def probe(name, path, um, order="[]", cons_head=False, sig_pos=False, decl_pos=False):
     with tempfile.TemporaryDirectory(prefix="tiegen-") as d:
         f = os.path.join(d, "Probe.lean")
         open(f, "w").write(PROBE.replace("@PATH@", os.path.abspath(path)).replace("@MOD@", um)
                            .replace("@ORDER@", f"({order} : List Nat)")
                            .replace("@CONS@", "tchConsB" if cons_head else "tieConsB")
-                           .replace("@SIGPOS@", "true" if sig_pos else "false"))
+                           .replace("@SIGPOS@", "true" if sig_pos else "false")
+                           .replace("@DECLPOS@", "true" if decl_pos else "false"))
         env = dict(os.environ, LEAN_NUM_THREADS="1")
         r = run(WRAP + ["timeout", os.environ.get("TIEGEN_PROBE_TIMEOUT", "900"), "lake", "env", "lean", "-j1", f], cwd=KS, env=env)
     if r.returncode != 0:
@@ -969,6 +979,9 @@ def probe(name, path, um, order="[]", cons_head=False, sig_pos=False):
             head["gHeads"].append((f[0], [x for x in f[1:] if x]))
         elif l.startswith("Y "):
             head["gSyms"].append(l[2:])
+        elif l.startswith("DP "):
+            f = l[3:].strip()
+            head.setdefault("declPos", []).append(int(f) if f.isdigit() else None)
         elif l.startswith("SP "):
             f = l[3:].split()
             head.setdefault("sigPos", []).append((f[0], int(f[1]) if len(f) > 1 else None))
@@ -1235,6 +1248,23 @@ def ranges(n, first, chunk):
     return out
 
 
+def pos_join(name, pty, at_p, pred, sound):
+    """The lemma `name`: `pred` holds of each item of a list where `at_p` holds of each item paired
+    with its position (of type `pty`) in a list at least as long, from `sound`, which gives `pred` of
+    an item from `at_p` of it with any position (`--sig-positions`, `--decl-positions`)."""
+    return "\n".join([
+        f"theorem {name} {{l : List Item}} {{ps : List {pty}}} (hl : l.length ≤ ps.length)",
+        f"    (h : (l.zip ps).all {at_p} = true) : l.all {pred} = true := by",
+        "  induction l generalizing ps with",
+        "  | nil => rfl",
+        "  | cons it l ih =>",
+        "    cases ps with",
+        "    | nil => exact absurd hl (by simp)",
+        "    | cons p ps =>",
+        "      simp only [List.zip_cons_cons, List.all_cons, Bool.and_eq_true] at h ⊢",
+        f"      exact ⟨{sound} h.1, ih (by simpa using hl) h.2⟩"])
+
+
 def by_ranges(prefix, lst, pred, rs, lem="tieAllE", named=False):
     """The range theorems of `{lst}.all {pred} = true` over `rs`, each its own kernel decision, and
     the term that joins them. `named`: the join names the list and the predicate at every step, so
@@ -1259,7 +1289,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
              hand=None, chunk=0, at_values=(), cons_head=False, wf_parts=None, split=False,
              account_sorted=None, heads_literal=False, heads_codes=False, attrs_parts=False, decl_parts=False,
              fn_blocks=0, attrs_blocks=0, absent_file=False, builtin_decls=(), decl_syms=False, nojunk_eq=False,
-             nojunk_blocks=0, lists_by_class=False, sig_pos=False, fnfun_chunk=0):
+             nojunk_blocks=0, lists_by_class=False, sig_pos=False, fnfun_chunk=0, decl_pos=False):
     """The Lean text of the tie. `ob`: what `obligations` read; `raws`: each sentence's text as
     written; `hand`: hand-written sections by name (`consistency`), each in place of the generated
     one; `chunk`: the length of the ranges the decisions over the whole user module are cut into
@@ -1272,7 +1302,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     symbol names as a literal (`gSymCodes`); `nojunk_eq`: `nojunk_items` from each sentence's
     equation to its sort's item (`njEq`); `nojunk_blocks`: the no-junk orders of KItem and of a sort
     of more generators than that by blocks of that many disjuncts (0: one decision); `lists_by_class`:
-    `lists_in_account` from one check per class (`tieAll_of_groups`)."""
+    `lists_in_account` from one check per class (`tieAll_of_groups`); `decl_pos`: the `declsE` ranges
+    on each declaration item's position in `sigItems c` (`declPos`, `inSigItemsAt`)."""
     raws = raws or {}
     hand = hand or {}
     call_order = ob["call_order"]
@@ -2313,16 +2344,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             w("    exact absurd h Bool.false_ne_true")
         w("")
         w(f"/-- `{pred}` holds of each item where `sigFromAtP` holds of each item with its origin. -/")
-        w("theorem tieSigPos_all {l : List Item} {ps : List TieSigAt} (hl : l.length ≤ ps.length)")
-        w(f"    (h : (l.zip ps).all sigFromAtP = true) : l.all {pred} = true := by")
-        w("  induction l generalizing ps with")
-        w("  | nil => rfl")
-        w("  | cons it l ih =>")
-        w("    cases ps with")
-        w("    | nil => exact absurd hl (by simp)")
-        w("    | cons p ps =>")
-        w("      simp only [List.zip_cons_cons, List.all_cons, Bool.and_eq_true] at h ⊢")
-        w("      exact ⟨sigFromAt_sound h.1, ih (by simpa using hl) h.2⟩")
+        w(pos_join("tieSigPos_all", "TieSigAt", "sigFromAtP", pred, "sigFromAt_sound"))
         w("")
         thms, body = by_ranges("sigE", "(sigItems c).zip sigPos", "sigFromAtP", sig_rs)
         body = "tieSigPos_all (Nat.le_of_eq (sig_sizes.trans sigPos_length.symm)) <|\n    " + body
@@ -2430,7 +2452,35 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     w("")
     if decl_parts and split:
         mark("Decls")
-    thms, body = by_ranges("declsE", "declItemsL" if decl_syms else "declItems", "inSigItems", decl_rs)
+    dl = "declItemsL" if decl_syms else "declItems"
+    if decl_pos:
+        n_decl = int(head["nDecl"])
+        w("/-- The position in `sigItems c` of each item of `declItems`, in its order. -/")
+        w("def declPos : List Nat :=")
+        w("  [" + wrap_nums([str(p) for p in head["declPos"]], 3) + "]")
+        w("")
+        w(f"theorem declPos_length : declPos.length = {n_decl} := rfl")
+        w("")
+        w(f"theorem decl_sizes : {dl}.length = {n_decl} := by decide +kernel")
+        w("")
+        w("/-- The item is the one of `sigItems c` at the position: one comparison. -/")
+        w("noncomputable def inSigItemsAt (it : Item) (p : Nat) : Bool := ((sigItems c)[p]?).any (·.pat == it.pat)")
+        w("")
+        w("/-- An item with its position. -/")
+        w("noncomputable def inSigItemsAtP (x : Item × Nat) : Bool := inSigItemsAt x.1 x.2")
+        w("")
+        w("theorem inSigItemsAt_sound {it : Item} {p : Nat} (h : inSigItemsAt it p = true) : inSigItems it = true := by")
+        w("  obtain ⟨x, hx, he⟩ := (Option.any_eq_true _ _).mp h")
+        w("  unfold inSigItems")
+        w("  exact List.any_eq_true.mpr ⟨x, List.mem_of_getElem? hx, he⟩")
+        w("")
+        w("/-- `inSigItems` holds of each item where `inSigItemsAtP` holds of each item with its position. -/")
+        w(pos_join("tieDeclPos_all", "Nat", "inSigItemsAtP", "inSigItems", "inSigItemsAt_sound"))
+        w("")
+        thms, body = by_ranges("declsE", f"{dl}.zip declPos", "inSigItemsAtP", decl_rs)
+        body = "tieDeclPos_all (Nat.le_of_eq (decl_sizes.trans declPos_length.symm)) <|\n    " + body
+    else:
+        thms, body = by_ranges("declsE", dl, "inSigItems", decl_rs)
     w(thms)
     w("")
     if decl_syms:
@@ -4686,7 +4736,8 @@ def main(argv):
         nsyms = len(re.findall(r"^\s*(?:(?:hooked-)?symbol|alias) ", text, re.M))
         wf_parts = (nsorts.bit_length() + 1, nsyms.bit_length() + 1)
     sig_pos = "--sig-positions" in argv
-    head, sents = probe(name, path, um0, ob["order_list"], cons_head, sig_pos)
+    decl_pos = "--decl-positions" in argv
+    head, sents = probe(name, path, um0, ob["order_list"], cons_head, sig_pos, decl_pos)
     # the sentences whose item is narrowed by the priority premise and is the sentence without it
     for w_ in head["fnW"].values():
         if w_["idx"] in sents and not w_["same"] and w_["narrowed"] and w_["wtext"] and w_["differs"]:
@@ -4745,6 +4796,8 @@ def main(argv):
                           f"Source, without a hook and without sort parameters")
     if sig_pos and (len(head.get("sigPos", [])) != int(head["nSig"]) or any(k == "x" for k, _ in head["sigPos"])):
         raise Refused(f"{name}: --sig-positions: the probe gives no origin for each item of the signature")
+    if decl_pos and (len(head.get("declPos", [])) != int(head["nDecl"]) or None in head["declPos"]):
+        raise Refused(f"{name}: --decl-positions: the probe gives no position in Γ's signature for each declaration item")
     ns, lean, summary = generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, failing,
                                  ob, chunks, {i: raw for i, _, _, raw in ua}, hand, chunk,
                                  at_values, cons_head, wf_parts, "--split" in argv, account_sorted,
@@ -4752,7 +4805,7 @@ def main(argv):
                                  fn_blocks, attrs_blocks, absent_file, builtin_decls=builtin_decls,
                                  decl_syms="--decl-syms-literal" in argv, nojunk_eq="--nojunk-eq" in argv,
                                  nojunk_blocks=opt("--nojunk-blocks", 0), lists_by_class="--lists-by-class" in argv,
-                                 sig_pos=sig_pos, fnfun_chunk=opt("--fnfun-chunk", 0))
+                                 sig_pos=sig_pos, fnfun_chunk=opt("--fnfun-chunk", 0), decl_pos=decl_pos)
     outdir = argv[argv.index("--out") + 1] if "--out" in argv else None
     if outdir is None and (not os.path.exists(final) or open(final).read() != text):
         open(final, "w").write(text)
