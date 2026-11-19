@@ -15,6 +15,8 @@
   - The account: the class lists partition the 276 sentences of the user module E2-CLAUSE-GENLESS-WIT, in
     `tieClasses`' order (`account`, `account_sizes`, `account_classes`); the no-direction class holds
     exactly the sentences that apply a symbol Γ lacks (`account_absent`, `absent_closed`).
+  - `absent_proj_below`: the 15 no-direction sentences that are equations of a projection
+    `project:X` are of sorts X that are K, KItem or below KItem in Γ (`GenEqs.projBelowB`).
   - `attrs_agree`: the attributes the translation does not read agree with `defn`.
   - `sig_origin`: each of the 213 items of `sigItems c` is a declaration's item of the text or a
     surplus one; `decls_entailed`: Γ entails the item of each declaration without sort parameters
@@ -155,6 +157,33 @@ theorem absent_closed :
     (userAxioms.filter (fun ad => !(classOf "no direction").contains ad.index)).all
       (fun ad => (appHeadsOf ad.ax.pattern).all (gammaHasHead c)) = true :=
   tieAbsent_of_account userAxioms _ _ account_absent
+
+/-- The sentences of the no-direction class that are equations of a projection `project:X` (their
+left side applies `Lblproject'Coln'X`), each with X. -/
+def absentProj : List (Nat × String) :=
+  [(262, "Bool"), (263, "Empty"), (264, "GeneratedCounterCell"), (265, "GeneratedCounterCellOpt"),
+   (266, "GeneratedTopCell"), (267, "GeneratedTopCellFragment"), (268, "Int"), (269, "K"),
+   (270, "KCell"), (271, "KCellOpt"), (272, "KItem"), (273, "List"), (274, "Map"), (275, "S"),
+   (276, "Set")]
+
+/-- Each sort of `absentProj` is K, KItem or a sort below KItem of Γ, with K and KItem
+constructor sorts. -/
+theorem absent_proj_below_c : absentProj.all (fun p => GenEqs.projBelowB c p.2) = true := by
+  decide +kernel
+
+/-- **The projections the no-direction class defines are of sorts below KItem**: `absentProj` is
+the list of the no-direction sentences whose left side applies a symbol `Lblproject'Coln'X`, each
+with that X, and each such X is K, KItem or a sort below KItem of Γ, with K and KItem constructor
+sorts (`GenEqs.projBelowB`). So the pattern each of these equations is at is functional and
+injective on X in every model of Γ (`GenEqs.projSel_fun`, `GenEqs.projSel_inj`): what the
+equation states of the pattern's symbols, Γ entails. -/
+theorem absent_proj_below (H : HookParams) :
+    (userAxioms.filter (fun ad => (classOf "no direction").contains ad.index &&
+        ((AttrsAgree.eqnHead ad.ax.pattern).getD "").startsWith "Lblproject'Coln'")).map
+      (fun ad => (ad.index, AttrsAgree.eqnHead ad.ax.pattern)) =
+      absentProj.map (fun p => (p.1, some ("Lblproject'Coln'" ++ p.2))) ∧
+    absentProj.all (fun p => GenEqs.projBelowB (cH H) p.2) = true :=
+  ⟨by rw [userAxioms_eq]; decide +kernel, absent_proj_below_c⟩
 
 /-- The sentences whose text is none of f2-examples/ens.kompile.kore's user module, with their class. -/
 def unmapped : List (Nat × String) :=
@@ -807,6 +836,7 @@ theorem nojunk_trivial_entailed (H : HookParams) :
   · rw [nj126]; exact orTopBot_valid hD rfl
   · rw [nj129]; exact orTopBot_valid hD rfl
 
+set_option maxHeartbeats 1000000 in
 /-- **No junk of the sorts with generators**: the translation of each sentence is the pattern of
 one of Γ's constructor items. -/
 theorem nojunk_items : ∀ ad ∈ [U.ax122, U.ax123, U.ax124, U.ax125, U.ax127, U.ax128, U.ax131],
@@ -1121,6 +1151,8 @@ end KCore.TieE2ClauseGenlessWit
 #check @KCore.TieE2ClauseGenlessWit.account_classes
 #check @KCore.TieE2ClauseGenlessWit.account_absent
 #check @KCore.TieE2ClauseGenlessWit.absent_closed
+#check @KCore.TieE2ClauseGenlessWit.absent_proj_below_c
+#check @KCore.TieE2ClauseGenlessWit.absent_proj_below
 #check @KCore.TieE2ClauseGenlessWit.lists_in_account
 #check @KCore.TieE2ClauseGenlessWit.attrs_agree
 #check @KCore.TieE2ClauseGenlessWit.sig_origin
@@ -1163,6 +1195,8 @@ end KCore.TieE2ClauseGenlessWit
 #print axioms KCore.TieE2ClauseGenlessWit.account_classes
 #print axioms KCore.TieE2ClauseGenlessWit.account_absent
 #print axioms KCore.TieE2ClauseGenlessWit.absent_closed
+#print axioms KCore.TieE2ClauseGenlessWit.absent_proj_below_c
+#print axioms KCore.TieE2ClauseGenlessWit.absent_proj_below
 #print axioms KCore.TieE2ClauseGenlessWit.lists_in_account
 #print axioms KCore.TieE2ClauseGenlessWit.attrs_agree
 #print axioms KCore.TieE2ClauseGenlessWit.sig_origin

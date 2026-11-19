@@ -10,6 +10,8 @@
   - The account: the class lists partition the 143 sentences of the user module C3-CTOR-ASSOC, in
     `tieClasses`' order (`account`, `account_sizes`, `account_classes`); the no-direction class holds
     exactly the sentences that apply a symbol Γ lacks (`account_absent`, `absent_closed`).
+  - `absent_proj_below`: the 14 no-direction sentences that are equations of a projection
+    `project:X` are of sorts X that are K, KItem or below KItem in Γ (`GenEqs.projBelowB`).
   - `attrs_agree`: the attributes the translation does not read agree with `defn`; the open
     generator `plus` is a parameter declared without `hook` and without `function`, of which the
     text states no equation.
@@ -160,6 +162,32 @@ theorem absent_closed :
     (userAxioms.filter (fun ad => !(classOf "no direction").contains ad.index)).all
       (fun ad => (appHeadsOf ad.ax.pattern).all (gammaHasHead c)) = true :=
   tieAbsent_of_account userAxioms _ _ account_absent
+
+/-- The sentences of the no-direction class that are equations of a projection `project:X` (their
+left side applies `Lblproject'Coln'X`), each with X. -/
+def absentProj : List (Nat × String) :=
+  [(131, "Bool"), (132, "Exp"), (133, "GeneratedCounterCell"), (134, "GeneratedCounterCellOpt"),
+   (135, "GeneratedTopCell"), (136, "GeneratedTopCellFragment"), (137, "Int"), (138, "K"),
+   (139, "KCell"), (140, "KCellOpt"), (141, "KItem"), (142, "List"), (143, "Map"), (144, "Set")]
+
+/-- Each sort of `absentProj` is K, KItem or a sort below KItem of Γ, with K and KItem
+constructor sorts. -/
+theorem absent_proj_below_c : absentProj.all (fun p => GenEqs.projBelowB c p.2) = true := by
+  decide +kernel
+
+/-- **The projections the no-direction class defines are of sorts below KItem**: `absentProj` is
+the list of the no-direction sentences whose left side applies a symbol `Lblproject'Coln'X`, each
+with that X, and each such X is K, KItem or a sort below KItem of Γ, with K and KItem constructor
+sorts (`GenEqs.projBelowB`). So the pattern each of these equations is at is functional and
+injective on X in every model of Γ (`GenEqs.projSel_fun`, `GenEqs.projSel_inj`): what the
+equation states of the pattern's symbols, Γ entails. -/
+theorem absent_proj_below (H : HookParams) :
+    (userAxioms.filter (fun ad => (classOf "no direction").contains ad.index &&
+        ((AttrsAgree.eqnHead ad.ax.pattern).getD "").startsWith "Lblproject'Coln'")).map
+      (fun ad => (ad.index, AttrsAgree.eqnHead ad.ax.pattern)) =
+      absentProj.map (fun p => (p.1, some ("Lblproject'Coln'" ++ p.2))) ∧
+    absentProj.all (fun p => GenEqs.projBelowB (cH H) p.2) = true :=
+  ⟨by rw [userAxioms_eq]; decide +kernel, absent_proj_below_c⟩
 
 /-- The sentences whose text is none of f2-examples/ens.kompile.kore's user module, with their class. -/
 def unmapped : List (Nat × String) :=
@@ -349,6 +377,7 @@ noncomputable def fnText : List AxiomDecl :=
    U.ax125, U.ax103, U.ax102, U.ax115, U.ax114, U.ax111, U.ax110, U.ax113, U.ax112, U.ax118,
    U.ax117, U.ax120, U.ax119, U.ax107, U.ax106, U.ax109, U.ax108, U.ax105, U.ax104]
 
+set_option maxHeartbeats 1000000 in
 /-- **Γ's equations are the text's sentences' translations, pattern for pattern** (one kernel
 decision). -/
 theorem fn_shape : (fnItems c).map (·.pat) = fnText.map (trS · |>.pat) := by
@@ -420,6 +449,7 @@ theorem nojunk_trivial_entailed (H : HookParams) :
   · rw [nj92]; exact orTopBot_valid hD rfl
   · rw [nj95]; exact orTopBot_valid hD rfl
 
+set_option maxHeartbeats 1000000 in
 /-- **No junk of the sorts with generators**: the translation of each sentence is the pattern of
 one of Γ's constructor items. -/
 theorem nojunk_items : ∀ ad ∈ [U.ax88, U.ax89, U.ax90, U.ax91, U.ax93, U.ax94],
@@ -683,6 +713,8 @@ end KCore.TieC3CtorAssoc
 #check @KCore.TieC3CtorAssoc.account_classes
 #check @KCore.TieC3CtorAssoc.account_absent
 #check @KCore.TieC3CtorAssoc.absent_closed
+#check @KCore.TieC3CtorAssoc.absent_proj_below_c
+#check @KCore.TieC3CtorAssoc.absent_proj_below
 #check @KCore.TieC3CtorAssoc.lists_in_account
 #check @KCore.TieC3CtorAssoc.sig_origin_but_next
 #check @KCore.TieC3CtorAssoc.decls_entailed
@@ -724,6 +756,8 @@ end KCore.TieC3CtorAssoc
 #print axioms KCore.TieC3CtorAssoc.account_classes
 #print axioms KCore.TieC3CtorAssoc.account_absent
 #print axioms KCore.TieC3CtorAssoc.absent_closed
+#print axioms KCore.TieC3CtorAssoc.absent_proj_below_c
+#print axioms KCore.TieC3CtorAssoc.absent_proj_below
 #print axioms KCore.TieC3CtorAssoc.lists_in_account
 #print axioms KCore.TieC3CtorAssoc.sig_origin_but_next
 #print axioms KCore.TieC3CtorAssoc.decls_entailed

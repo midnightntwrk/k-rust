@@ -10,6 +10,8 @@
   - The account: the class lists partition the 270 sentences of the user module E3-KSEQ, in
     `tieClasses`' order (`account`, `account_sizes`, `account_classes`); the no-direction class holds
     exactly the sentences that apply a symbol Γ lacks (`account_absent`, `absent_closed`).
+  - `absent_proj_below`: the 14 no-direction sentences that are equations of a projection
+    `project:X` are of sorts X that are K, KItem or below KItem in Γ (`GenEqs.projBelowB`).
   - `attrs_agree`: the attributes the translation does not read agree with `defn`.
   - `sig_origin`: each of the 209 items of `sigItems c` is a declaration's item of the text or a
     surplus one; `decls_entailed`: Γ entails the item of each declaration without sort parameters
@@ -148,6 +150,32 @@ theorem absent_closed :
     (userAxioms.filter (fun ad => !(classOf "no direction").contains ad.index)).all
       (fun ad => (appHeadsOf ad.ax.pattern).all (gammaHasHead c)) = true :=
   tieAbsent_of_account userAxioms _ _ account_absent
+
+/-- The sentences of the no-direction class that are equations of a projection `project:X` (their
+left side applies `Lblproject'Coln'X`), each with X. -/
+def absentProj : List (Nat × String) :=
+  [(257, "Bool"), (258, "Exp"), (259, "GeneratedCounterCell"), (260, "GeneratedCounterCellOpt"),
+   (261, "GeneratedTopCell"), (262, "GeneratedTopCellFragment"), (263, "Int"), (264, "K"),
+   (265, "KCell"), (266, "KCellOpt"), (267, "KItem"), (268, "List"), (269, "Map"), (270, "Set")]
+
+/-- Each sort of `absentProj` is K, KItem or a sort below KItem of Γ, with K and KItem
+constructor sorts. -/
+theorem absent_proj_below_c : absentProj.all (fun p => GenEqs.projBelowB c p.2) = true := by
+  decide +kernel
+
+/-- **The projections the no-direction class defines are of sorts below KItem**: `absentProj` is
+the list of the no-direction sentences whose left side applies a symbol `Lblproject'Coln'X`, each
+with that X, and each such X is K, KItem or a sort below KItem of Γ, with K and KItem constructor
+sorts (`GenEqs.projBelowB`). So the pattern each of these equations is at is functional and
+injective on X in every model of Γ (`GenEqs.projSel_fun`, `GenEqs.projSel_inj`): what the
+equation states of the pattern's symbols, Γ entails. -/
+theorem absent_proj_below (H : HookParams) :
+    (userAxioms.filter (fun ad => (classOf "no direction").contains ad.index &&
+        ((AttrsAgree.eqnHead ad.ax.pattern).getD "").startsWith "Lblproject'Coln'")).map
+      (fun ad => (ad.index, AttrsAgree.eqnHead ad.ax.pattern)) =
+      absentProj.map (fun p => (p.1, some ("Lblproject'Coln'" ++ p.2))) ∧
+    absentProj.all (fun p => GenEqs.projBelowB (cH H) p.2) = true :=
+  ⟨by rw [userAxioms_eq]; decide +kernel, absent_proj_below_c⟩
 
 /-- The sentences whose text is none of f2-examples/ens.kompile.kore's user module, with their class. -/
 def unmapped : List (Nat × String) :=
@@ -318,6 +346,7 @@ noncomputable def fnText : List AxiomDecl :=
    U.ax245, U.ax223, U.ax222, U.ax235, U.ax234, U.ax231, U.ax230, U.ax233, U.ax232, U.ax238,
    U.ax237, U.ax240, U.ax239, U.ax227, U.ax226, U.ax229, U.ax228, U.ax225, U.ax224]
 
+set_option maxHeartbeats 1000000 in
 /-- **Γ's equations are the text's sentences' translations, pattern for pattern** (one kernel
 decision). -/
 theorem fn_shape : (fnItems c).map (·.pat) = fnText.map (trS · |>.pat) := by
@@ -531,6 +560,7 @@ theorem nojunk_trivial_entailed (H : HookParams) :
   · rw [nj126]; exact orTopBot_valid hD rfl
   · rw [nj129]; exact orTopBot_valid hD rfl
 
+set_option maxHeartbeats 1000000 in
 /-- **No junk of the sorts with generators**: the translation of each sentence is the pattern of
 one of Γ's constructor items. -/
 theorem nojunk_items : ∀ ad ∈ [U.ax121, U.ax122, U.ax123, U.ax124, U.ax125, U.ax127, U.ax128],
@@ -855,6 +885,8 @@ end KCore.TieE3Kseq
 #check @KCore.TieE3Kseq.account_classes
 #check @KCore.TieE3Kseq.account_absent
 #check @KCore.TieE3Kseq.absent_closed
+#check @KCore.TieE3Kseq.absent_proj_below_c
+#check @KCore.TieE3Kseq.absent_proj_below
 #check @KCore.TieE3Kseq.lists_in_account
 #check @KCore.TieE3Kseq.attrs_agree
 #check @KCore.TieE3Kseq.sig_origin
@@ -886,6 +918,8 @@ end KCore.TieE3Kseq
 #print axioms KCore.TieE3Kseq.account_classes
 #print axioms KCore.TieE3Kseq.account_absent
 #print axioms KCore.TieE3Kseq.absent_closed
+#print axioms KCore.TieE3Kseq.absent_proj_below_c
+#print axioms KCore.TieE3Kseq.absent_proj_below
 #print axioms KCore.TieE3Kseq.lists_in_account
 #print axioms KCore.TieE3Kseq.attrs_agree
 #print axioms KCore.TieE3Kseq.sig_origin
