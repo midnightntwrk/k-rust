@@ -67,6 +67,17 @@ The evidence forms (DONE-0 C2's table), by status and list, and the items each n
                    or in a file of `tie` with the same text and classes (a tie --split writes over
                    several files); a `derived` table of form (a), kind "in a model", whose
                    sentences are the no_direction indices
+      own sentence (B21, findings/work/wave-B-audit.md; also on supported E4, E5 and a function of
+                   the text) an axiom of a fixture's text (`fixture`, `also_fixtures`) that a
+                   `sentence` locates is not in `def uncovered` of a file of `tie` reading that
+                   text (reads_own_text: its path, or a text byte for byte that fixture's), unless
+                   another file of `tie` reading that text, not of the same text and classes as
+                   that file (the same tie split over files) and not listing the axiom uncovered
+                   itself, declares a theorem the entry names (`tie_theorems`, or a `derived`
+                   table's theorem or consistent whose `file` it is): the sentence-level tie
+                   (TieRuleLhsAnd, TieRuleConn, a Note file) of the sentence tiegen leaves out.
+                   An entry with no `sentence` is not checked; check --report lists the failures
+                   apart
       tie          `tie` lists the C14 tie modules: files test/X.lean that test/integration.sh
                    builds (not in its skip list)
       theorems     the theorems the entry names, `tie_theorems` (full names, each declared in a
@@ -616,6 +627,64 @@ def nodir_items(fx, e, x, have, miss):
         + (f" ({len(tabs)} of that kind with other sentences)" if tabs else ""))
 
 
+_unc = {}
+
+
+def tie_uncovered(f):
+    """(the text the tie file reads by `kore_term kore from`, the indices of its `def uncovered`),
+    or None where it has no such text or no `uncovered` (a file tiegen does not write)."""
+    if f not in _unc:
+        p = os.path.join(K, f) if isinstance(f, str) else None
+        r = None
+        if p and os.path.isfile(p):
+            src = open(p).read()
+            m = re.search(r'^kore_term kore from "([^"]+)"', src, re.M)
+            i = src.find("\ndef uncovered : List (Nat × String) :=")
+            if m and i >= 0:
+                body = src[i + 1:].split("\n\n", 1)[0].split(":=", 1)[1]
+                r = (m[1], {int(n) for n in re.findall(r"\(\s*(\d+)\s*,", body)})
+        _unc[f] = r
+    return _unc[f]
+
+
+def uncovered_items(fx, e, own, have, miss):
+    """B21 (findings/work/wave-B-audit.md) on a supported entry: an axiom of a fixture's text that
+    the entry's `sentence` locates is not in `uncovered` of a file of `tie` reading that text
+    (reads_own_text), unless another file of `tie` that reads the text, and is not that tie (a file
+    of the same text and classes is the same tie split over files), declares a theorem the entry
+    names (`tie_theorems`, or a `derived` table's theorem or consistent whose `file` it is): the
+    sentence-level tie of the sentence that tiegen's account leaves uncovered."""
+    ss = e.get("sentence")
+    ss = ss if isinstance(ss, list) else [ss] if isinstance(ss, str) else []
+    ts = e.get("tie")
+    ts = list(dict.fromkeys(f for f in (ts if isinstance(ts, list) else [ts] if ts else []) if isinstance(f, str)))
+    if not ss or not ts:
+        return
+    names = [n for n in (e.get("tie_theorems") or []) if isinstance(n, str)]
+    by_file = collections.defaultdict(list)
+    for d in e.get("derived") or []:
+        if isinstance(d, dict) and isinstance(d.get("file"), str):
+            by_file[d["file"]] += [d[k] for k in ("theorem", "consistent") if isinstance(d.get(k), str)]
+    out, ok = [], []
+    for x in own:
+        for f in ts:
+            u = tie_uncovered(f)
+            if not u or not u[1] or not reads_own_text(f, x):
+                continue
+            loc, _ = fx.located(u[0], ss)
+            for i in sorted(loc & u[1]):
+                comp = [g for g in ts if g != f and reads_own_text(g, x)
+                        and not (nodir_classes(g) and nodir_classes(g) == nodir_classes(f))
+                        and i not in ((tie_uncovered(g) or ("", set()))[1])
+                        and any(declared(n, [g]) for n in names + by_file.get(g, []))]
+                (ok if comp else out).append((x, f, i, comp))
+    for x, f, i, comp in ok:
+        have.append(f"own sentence {i} of {x}, uncovered in {f}, tied by {comp[0]}")
+    for x, f, i, _ in out:
+        miss.append(f"uncovered sentence: {i} of {x}, which `sentence` locates, is in `uncovered` of {f},"
+                    " and no other file of `tie` reading that text declares a theorem the entry names")
+
+
 def declared(name, files):
     """Whether the full name is declared in one of the files (a declaration's name may also be a
     suffix of it)."""
@@ -773,6 +842,7 @@ def evidence(fx, l, key, e, row):
     elif f == "supported":
         x = fixture_items(True); ties()
         nodir_items(fx, e, x, have, miss)
+        uncovered_items(fx, e, own, have, miss)
     elif f == "supported E4/E5":
         x = fixture_items(True)
         if x:
@@ -780,11 +850,13 @@ def evidence(fx, l, key, e, row):
             item(ok, f"node ({how})", f"node ({how})")
         ties()
         nodir_items(fx, e, x, have, miss)
+        uncovered_items(fx, e, own, have, miss)
     elif f == "supported hook":
         derived(["a"])
     elif f == "supported function of the text":
         x = fixture_items(True); ties()
         nodir_items(fx, e, x, have, miss)
+        uncovered_items(fx, e, own, have, miss)
     elif f == "supported E6":
         ties()
     elif f == "parameter":
@@ -1050,6 +1122,11 @@ def print_check(res, fresh, report, out):
         print(ln)
     if len(flines) > 40:
         print(f"    ... and {len(flines) - 40} more")
+    unc = [(r, [m for m in r[6] if m.startswith("uncovered sentence: ")]) for r in sorted(fails, key=order)]
+    unc = [(r, ms) for r, ms in unc if ms]
+    print(f"c2-evidence: {len(unc)} entries whose `sentence` locates an axiom their tie leaves uncovered (B21)")
+    for r, ms in unc:
+        print(f"    {r[3]}: " + "; ".join(m[len("uncovered sentence: "):] for m in ms))
     return 0 if report or not fails else 1
 
 
@@ -1596,8 +1673,31 @@ def self_test():
                 == "[a{}(), c{}()] [] [x{}()]"):
             print("rest self-test: FAILS: without_attribute")
             return 1
+        # B21: e3-ml-rule-lhs-and, whose rule (sentence 104 of the text test/TieLhsAndVar.lean reads,
+        # f2-examples/mllhsandv.kompile.kore, byte for byte the fixture's) that tie leaves uncovered,
+        # and test/TieRuleLhsAnd.lean (reading the same text) ties; 94, a no-junk axiom, it covers
+        un_r = "\\and{SortExp{}}(VarX:SortExp{},Lbld{}(Var'Unds'Gen0:SortExp{},Lblb{}()))"
+        un_c = "axiom{} \\or{SortExp{}} (Lbla{}(), Lblb{}()"
+        os.makedirs(os.path.join(fxd, "e3-ml-rule-lhs-and"))
+        for f_, c_ in (("account.txt", clean), ("kompile.txt", "exit 0\n"), ("kore.txt", f"{un_r}\n{un_c}\n")):
+            open(os.path.join(fxd, "e3-ml-rule-lhs-and", f_), "w").write(c_)
+        tlv, trl = "test/TieLhsAndVar.lean", "test/TieRuleLhsAnd.lean"
+        un = lambda **kw: dict({"status": "supported", "fixture": "e3-ml-rule-lhs-and", "sentence": [un_r],
+                                "tie": [tlv, trl], "tie_theorems": ["KCore.TieLhsAndVar.account",
+                                                                    "TieRuleLhsAnd.Var.tie"]}, **kw)
         cases = [
             # (list, key, entry, accepted)
+            # B21: the rule uncovered by tiegen's tie and tied by a companion the entry names a theorem of
+            ("E3", "A", un(), True),
+            ("E3", "A", un(tie=[tlv], tie_theorems=["KCore.TieLhsAndVar.account"]), False),
+            ("E3", "A", un(tie_theorems=["KCore.TieLhsAndVar.account"]), False),
+            ("E3", "A", un(tie_theorems=["KCore.TieLhsAndVar.account"],
+                           derived=[{"form": "a", "theorem": "TieRuleLhsAnd.Var.tie", "file": trl}]), True),
+            # a file of `tie` declaring a named theorem but reading another text is no companion
+            ("E3", "A", un(tie=[tlv, "test/TieE3MlReqTop.lean"],
+                           tie_theorems=["KCore.TieLhsAndVar.account", "KCore.TieE3MlReqTop.consistent"]), False),
+            # a sentence locating an axiom the tie covers needs no companion
+            ("E3", "A", un(sentence=[un_c], tie=[tlv], tie_theorems=["KCore.TieLhsAndVar.account"]), True),
             # item 7: a no-direction sentence with its class's statement and a table 'in a model'
             ("E7", "A", ndok, True),
             ("E7", "A", nd(no_direction=None, derived=None), False),
