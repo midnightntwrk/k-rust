@@ -36,6 +36,7 @@
 import KcoreSpec.OpenCompete
 import KcoreSpec.ModelFns
 import KcoreSpec.ClausePreRead
+import KcoreSpec.MemHeldClause
 
 set_option autoImplicit false
 
@@ -323,9 +324,12 @@ theorem exclEmptyCl_ofCl (hI : I ⊧ᴵP Γc c) (hnn : NamesNumbered c) (hg : ge
     (hpreOK : c.condOK cl.vars cl.pre = true)
     (hpR : cl.pre ≠ .top → HoldsShape.PreRead c I cl ∧ cl.needsWitness c = false)
     (hreqS : ∀ t, cl.req = some t → sortOfTerm (c.rhsCtx L) cl.vars t = some Srt.bool)
-    (hconj : (!cl.reqOpen || cl.reqClosed ||
-      cl.openCondVars.all fun i => (cl.vars[i]?.map c.confined).getD false) = true)
+    (hconj : (!cl.reqOpen || cl.reqClosed || cl.openCondVars.all fun i =>
+      (cl.vars[i]?.map c.confined).getD false || memHeld c (varOccsList cl.pats) cl.pre i) = true)
     (hrc : cl.openCondVars.any (fun i => (cl.vars[i]?.map c.confined).getD false) = true → c.readsConfined = true)
+    (hback : (cl.openCondVars.any fun i => memHeld c (varOccsList cl.pats) cl.pre i) = true →
+      ∀ f k, c.isCtor f = false → c.holds f = true →
+        lookupSig (c.rhsCtx (c.fns.map Fn.sig)).heads f = some k → HeldBack c I f k)
     (hw : cl.needsWitness c = true → cl.CondDecided c) : ExclEmptyCl c I fn cl := by
   have hpats := sortsOfTerms_all_of_nf hpatsN
   intro ws hws hf hmf tbl hkeys hpkeys hXkeys hRkey e hX σR hR hσR m hm
@@ -480,17 +484,50 @@ theorem exclEmptyCl_ofCl (hI : I ⊧ᴵP Γc c) (hnn : NamesNumbered c) (hg : ge
     have hiff := (hpR hne).1.atR (vars := cl.leftSortsB) (tbl := tbl) (e := e') hF (Clause.leftSortsB_length cl)
       (fun i hi => Clause.leftSortsB_getElem? (hleftlt i hi) hi) hσ hrd (hpkeys hpt) hRkey hRv' hσR m hmR
     exact absurd (hiff.mp (hpreE hpt)) (by decide)
-  by_cases hconf : cl.openCondVars.all (fun i => (cl.vars[i]?.map c.confined).getD false) = true
-  · -- every open condition variable is of a confined sort: the binders are values'
+  -- each cut `V ∈ t` of the predicate with V a variable of the patterns: at e1, V's element is in
+  -- t's translation
+  have hcut1 : cl.pre.isTop = false → ∀ s v t, Cond.mem s (.var v) t ∈ cl.pre.conjuncts →
+      v ∈ varOccsList cl.pats → cl.leftSortsB[v]? = some s ∧
+      sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) cl.leftSortsB t = some s ∧
+      (KoreAML.tr ⟨tbl, []⟩ (Term.kore c vs t)).interpret I e1 (e1.evalEvar (tbl.ev (keyAt vs v))) := by
+    intro hpt s v t hq _
+    obtain ⟨hvs', hts, hsn⟩ := conjuncts_memOK hpreOK hq
+    have hvarsQ : ∀ j ∈ varOccsCond cl.vars.length (Cond.mem s (.var v) t), j < n ∧ j ∈ cl.leftVars :=
+      fun j hj => by
+        have hj' := conjuncts_varOccs cl.vars.length cl.pre _ hq j hj
+        exact ⟨hprelt j hj', Clause.pre_leftVarsRH j hj'⟩
+    have hv := hvarsQ v (by
+      rw [varOccsCond, varOccs]; exact List.mem_append_left _ (List.mem_singleton.mpr rfl))
+    have htv : ∀ j ∈ varOccs t, j < n ∧ j ∈ cl.leftVars := fun j hj =>
+      hvarsQ j (by rw [varOccsCond]; exact List.mem_append_right _ hj)
+    have hqm := conjuncts_spec (fun q => (KoreAML.tr ⟨tbl, []⟩ (Cond.kore c vs KoreAML.R q)).interpret I e' m)
+      (fun p q hp => by rw [Cond.kore, tr_and2, KoreAML.interp_sAnd] at hp; exact hp) cl.pre (hpreE hpt) _ hq
+    have hinv := hinL v hv.1 hv.2
+    rw [List.getD_eq_getElem?_getD, hvs', Option.getD_some] at hinv
+    have hmt := memHeldCl_mem_elem hIΓ hsn hRv' hσR hinv hqm
+    refine ⟨by rw [Clause.leftSortsB_getElem? hv.1 hv.2]; exact hvs', ?_, ?_⟩
+    · rw [sortOfTerm_congr t (fun j hj => Clause.leftSortsB_getElem? (htv j hj).1 (htv j hj).2)]; exact hts
+    · rw [hoff1 v hv.1 hv.2]
+      exact (tr_kore_congr t (fun j hj => (hoff1 j (htv j hj).1 (htv j hj).2).symm) _).mp hmt
+  by_cases hconf : ∀ i ∈ cl.openCondVars, (cl.vars[i]?.map c.confined).getD false = true ∨
+      memHeld c (varOccsList cl.pats) cl.pre i = true
+  · -- every open condition variable is of a confined sort or held by a cut: the binders are values'
     have hwit2 : ∀ i < cl.leftSortsB.length, Witnessed c I tbl vs cl.leftSortsB e1 i := fun i hi => by
       rw [Clause.leftSortsB_length] at hi
       by_cases hil : i ∈ cl.leftVars
       · by_cases hP : i ∈ varOccsList cl.pats
         · exact hwitP i hP
         · have hoc := hopen i hi hil hP
+          rcases hconf i hoc with hcf | hM
+          rotate_left
+          · -- held by a cut of the predicate: the cut's variable is a pattern's, a value's
+            have hM' : memHeldH c c.holds (varOccsList cl.pats) cl.pre i = true := by
+              rw [← memHeld_eq_H]; exact hM
+            exact memHeld_clause_valuesCut hIΓ hnn hg hsc hph hcso hcs hph'
+              (hback (List.any_eq_true.mpr ⟨i, hoc, hM⟩)) hpatsN' hvsl hin1 hws hall
+              (hcut1 (memHeldH_not_top hM')) i hM'
           obtain ⟨s, hvs⟩ : ∃ s, cl.vars[i]? = some s := ⟨_, List.getElem?_eq_getElem hi⟩
-          have hcs' : c.confined s = true := by
-            have := List.all_eq_true.mp hconf i hoc; rw [hvs] at this; exact this
+          have hcs' : c.confined s = true := by rw [hvs] at hcf; exact hcf
           have hin' := hin1 i (by rw [Clause.leftSortsB_length]; exact hi)
           rw [Clause.leftSortsB_getD hi hil, List.getD_eq_getElem?_getD, hvs, Option.getD_some] at hin'
           obtain ⟨v, hv, hel⟩ := hcv (hrc (List.any_eq_true.mpr ⟨i, hoc, by rw [hvs]; exact hcs'⟩)) s hcs' _ hin'
@@ -503,18 +540,21 @@ theorem exclEmptyCl_ofCl (hI : I ⊧ᴵP Γc c) (hnn : NamesNumbered c) (hg : ge
       exact reqFalse_empty hIΓ (S' := KoreAML.R) hRv1 hσR hr hrs hden m (hreq1 t ht)
     · exact hpreNo hne hσ2 hag2 hpreF
   -- otherwise the conditions are closed, and `needsWitness` holds
-  have hall' : cl.openCondVars.all (fun i => (cl.vars[i]?.map c.confined).getD false) = false := by
-    cases hb : cl.openCondVars.all (fun i => (cl.vars[i]?.map c.confined).getD false) with
-    | false => rfl
-    | true => exact absurd hb hconf
-  obtain ⟨i0, hi0, -⟩ := List.all_eq_false.mp hall'
+  obtain ⟨i0, hi0, hi0n⟩ : ∃ i ∈ cl.openCondVars, ¬ ((cl.vars[i]?.map c.confined).getD false = true ∨
+      memHeld c (varOccsList cl.pats) cl.pre i = true) :=
+    Classical.byContradiction fun hne => hconf fun i hi => Classical.byContradiction fun hg' => hne ⟨i, hi, hg'⟩
+  have hall' : cl.openCondVars.all (fun i => (cl.vars[i]?.map c.confined).getD false) = false :=
+    List.all_eq_false.mpr ⟨i0, hi0, fun hc => hi0n (Or.inl hc)⟩
+  have hallM : (cl.openCondVars.all fun i =>
+      (cl.vars[i]?.map c.confined).getD false || memHeld c (varOccsList cl.pats) cl.pre i) = false :=
+    List.all_eq_false.mpr ⟨i0, hi0, fun hc => hi0n (Bool.or_eq_true_iff.mp hc)⟩
   have hro : cl.reqOpen = true := by
     unfold Clause.reqOpen
     cases h' : cl.openCondVars with
     | nil => rw [h'] at hi0; cases hi0
     | cons _ _ => rfl
   have hrcl : cl.reqClosed = true := by
-    rw [hro, hall'] at hconj; simpa using hconj
+    rw [hro, hallM] at hconj; simpa using hconj
   have hnw : cl.needsWitness c = true := by
     unfold Clause.needsWitness; rw [hro, hrcl, hall']; rfl
   have hcvp : ∀ j ∈ cl.condVars, j ∉ varOccsList cl.pats := fun j hj hjp => by
@@ -614,7 +654,13 @@ theorem exclEmptyCl_of (h : c.coreOK = true) (hI : I ⊧ᴵP Γc c) {fn : Fn} {c
   intro ws
   exact exclEmptyCl_ofCl hI hnn hg (sortCtx_of_all hok hsr (OvlOK.ovlCase hno)) hph hcso hcs hph' hcv
     (Semantics.clauseSortedOpen_pats_nf hs)
-    (by rw [hpre, Semantics.condOK]) (fun hne => absurd hpre hne) hreqS hconj hrc hw
+    (by rw [hpre, Semantics.condOK]) (fun hne => absurd hpre hne) hreqS hconj hrc
+    (fun hany => by
+      obtain ⟨i, -, hM⟩ := List.any_eq_true.mp hany
+      have hM' : memHeldH c c.holds (varOccsList cl.pats) cl.pre i = true := by rw [← memHeld_eq_H]; exact hM
+      have ht := memHeldH_not_top hM'
+      rw [hpre] at ht; cases ht)
+    hw
 
 /-- **For a semantics `coreOK` accepts, a clause that fails fails in the model at the
 substitutions of values on its patterns and conditions** (`evalTerm_den4`), where its predicate is

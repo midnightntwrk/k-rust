@@ -98,16 +98,19 @@ sort or fixed by the right-side predicate, which is `\top` where there is none (
 the existential variables are in scope, apart and outside the left side, and the right-side
 predicate is sorted (`clauseExOK`); a clause with a predicate in its premise is not one whose
 conditions need a witness (`needsWitness`); and a clause's open condition variables are of
-confined sorts, or its conditions are closed (`OpenDecided`). -/
+confined sorts or held by a cut of its premise predicate (`memHeld`), or its conditions are closed
+(`OpenDecided`). -/
 def Semantics.clausesPlain (c : Semantics) : Bool := c.fns.all fun f => f.clauses.all fun cl =>
   c.clausePlainEx cl && c.clauseExOK cl && (cl.pre.isTop || !cl.needsWitness c) &&
-  (!cl.reqOpen || cl.reqClosed || cl.openCondVars.all fun i => (cl.vars[i]?.map c.confined).getD false)
+  (!cl.reqOpen || cl.reqClosed || cl.openCondVars.all fun i => (cl.vars[i]?.map c.confined).getD false ||
+      memHeld c (varOccsList cl.pats) cl.pre i)
 
 /-- What `clausesPlain` asks of one clause. -/
 theorem Semantics.clausesPlain_spec {c : Semantics} (h : c.clausesPlain = true) {f : Fn} (hf : f ∈ c.fns)
     {cl : Clause} (hcl : cl ∈ f.clauses) :
     c.clausePlainEx cl = true ∧ c.clauseExOK cl = true ∧ (cl.pre.isTop || !cl.needsWitness c) = true ∧
-      (!cl.reqOpen || cl.reqClosed || cl.openCondVars.all fun i => (cl.vars[i]?.map c.confined).getD false) = true := by
+      (!cl.reqOpen || cl.reqClosed || cl.openCondVars.all fun i => (cl.vars[i]?.map c.confined).getD false ||
+      memHeld c (varOccsList cl.pats) cl.pre i) = true := by
   have := List.all_eq_true.mp (List.all_eq_true.mp h f hf) cl hcl
   simp only [Bool.and_eq_true] at this
   exact ⟨this.1.1.1, this.1.1.2, this.1.2, this.2⟩

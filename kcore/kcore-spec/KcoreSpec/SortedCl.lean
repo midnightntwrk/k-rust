@@ -38,10 +38,11 @@ def Semantics.clauseSortedOpen (c : Semantics) (f : Fn) (rhsHeads : List CtorSig
 /-- What `clausesPlain` asks of one clause, with the conjunct on its open condition variables: no
 variable bound by `\exists`, a `\top` predicate on the right side, a `\top` predicate in the premise
 or conditions that need no witness, and no open condition variable, or closed conditions, or each
-open condition variable of a confined sort. -/
+open condition variable of a confined sort or held by a cut of the premise predicate (`memHeld`). -/
 def Semantics.clausePlainOpen (c : Semantics) (cl : Clause) : Bool :=
   cl.exs.isEmpty && (cl.pre.isTop || !cl.needsWitness c) && cl.post.isTop &&
-  (!cl.reqOpen || cl.reqClosed || cl.openCondVars.all fun i => (cl.vars[i]?.map c.confined).getD false)
+  (!cl.reqOpen || cl.reqClosed || cl.openCondVars.all fun i => (cl.vars[i]?.map c.confined).getD false ||
+      memHeld c (varOccsList cl.pats) cl.pre i)
 
 theorem Semantics.clauseSortedOpen_parts {c : Semantics} {f : Fn} {H : List CtorSig} {cl : Clause}
     (h : c.clauseSortedOpen f H cl = true) :
@@ -64,7 +65,8 @@ theorem Semantics.clauseSortedOpen_parts {c : Semantics} {f : Fn} {H : List Ctor
 `\top`, conditions that need no witness (`needsWitness`). -/
 theorem Semantics.clausePlainOpen_partsP {c : Semantics} {cl : Clause} (h : c.clausePlainOpen cl = true) :
     cl.exs = [] ∧ cl.post = .top ∧
-      (!cl.reqOpen || cl.reqClosed || cl.openCondVars.all fun i => (cl.vars[i]?.map c.confined).getD false) = true ∧
+      (!cl.reqOpen || cl.reqClosed || cl.openCondVars.all fun i => (cl.vars[i]?.map c.confined).getD false ||
+      memHeld c (varOccsList cl.pats) cl.pre i) = true ∧
       (cl.pre ≠ .top → cl.needsWitness c = false) := by
   simp only [Semantics.clausePlainOpen, Bool.and_eq_true] at h
   obtain ⟨⟨⟨hex, hpre⟩, hpost⟩, hrest⟩ := h
@@ -175,7 +177,8 @@ predicate in the premise or conditions that need no witness, and the conjunct on
 variables. -/
 def Semantics.clausePlainOpenEx (c : Semantics) (cl : Clause) : Bool :=
   (!cl.exs.isEmpty || cl.post.isTop) && c.clauseExOK cl && (cl.pre.isTop || !cl.needsWitness c) &&
-  (!cl.reqOpen || cl.reqClosed || cl.openCondVars.all fun i => (cl.vars[i]?.map c.confined).getD false)
+  (!cl.reqOpen || cl.reqClosed || cl.openCondVars.all fun i => (cl.vars[i]?.map c.confined).getD false ||
+      memHeld c (varOccsList cl.pats) cl.pre i)
 
 /-- A clause without existential variables and with a `\top` predicate on its right side has
 `clauseExOK`. -/
@@ -201,7 +204,8 @@ where it has no existential variable, the conjunct on its open condition variabl
 premise's predicate is not `\top`, conditions that need no witness. -/
 theorem Semantics.clausePlainOpenEx_parts {c : Semantics} {cl : Clause} (h : c.clausePlainOpenEx cl = true) :
     c.clauseExOK cl = true ∧ (cl.exs = [] → cl.post = .top) ∧
-      (!cl.reqOpen || cl.reqClosed || cl.openCondVars.all fun i => (cl.vars[i]?.map c.confined).getD false) = true ∧
+      (!cl.reqOpen || cl.reqClosed || cl.openCondVars.all fun i => (cl.vars[i]?.map c.confined).getD false ||
+      memHeld c (varOccsList cl.pats) cl.pre i) = true ∧
       (cl.pre ≠ .top → cl.needsWitness c = false) := by
   simp only [Semantics.clausePlainOpenEx, Bool.and_eq_true] at h
   obtain ⟨⟨⟨hex, hok⟩, hpre⟩, hrest⟩ := h
