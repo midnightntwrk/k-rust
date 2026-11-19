@@ -3165,13 +3165,14 @@ def wfParts (koreFile : String) : IO UInt32 := do
   let names := fun (l : List String) => ", ".intercalate (l.take 6) ++ (if l.length > 6 then ", …" else "")
   let heads := c.fns.map Fn.sig
   let used := c.appliedSyms
-  let badFn := c.fns.filter fun f => !c.fnOKAll heads used f
+  let badFn := c.fns.filter fun f => !c.fnOKAll heads f
   let badCl := c.fns.flatMap fun f => f.clauses.filter fun cl => !c.clauseOKAll f heads cl
   let unclaused := c.fns.filter fun f => f.clauses.isEmpty && used.contains f.label
-  out s!"okAll.fnsOKAll: {n badFn.isEmpty} (functions failing {badFn.length}: clauses failing {badCl.length}, applied functions without clauses {unclaused.length})"
+  out s!"okAll.fnsOKAll: {n badFn.isEmpty} (functions failing {badFn.length}: clauses failing {badCl.length})"
+  out s!"note (not a condition of wf): applied functions without an equation, each its rest everywhere: {unclaused.length}"
   for (f, fp) in withPres c.fns d.pres.fns do
     if f.clauses.isEmpty && used.contains f.label then
-      out s!"  function {decodeK (c.symName f.label)} ({(fp.src.getD d.pres.source).splitOn "/" |>.getLast!}:{fp.loc.l1}): applied, no equation, declared total"
+      out s!"  function {decodeK (c.symName f.label)} ({(fp.src.getD d.pres.source).splitOn "/" |>.getLast!}:{fp.loc.l1}): applied, no equation{if f.total then ", declared total" else ""}"
     for (cl, cp) in withPres f.clauses fp.clauses do
       unless c.clauseOKAll f heads cl do
         let fns := c.rhsCtx heads

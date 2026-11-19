@@ -594,8 +594,8 @@ theorem Semantics.sortedOK_of_okAll {c : Semantics} (h : c.okAll = true) (hov : 
     c.ruleSorted_of_allPreds (List.all_eq_true.mp hr r hr') (List.all_eq_true.mp hq r hr')
       (Semantics.ovlPats_lhs hov hr')⟩
   have := hf f hf'
-  simp only [Semantics.fnOKAll, Bool.and_eq_true, List.all_eq_true] at this
-  exact c.clauseSorted_of_all (this.1 cl hcl) (c.clauseBound_of_plain hnt hpt hf' hcl) (c.clausePreOK_of_plain hpt hf' hcl)
+  simp only [Semantics.fnOKAll, List.all_eq_true] at this
+  exact c.clauseSorted_of_all (this cl hcl) (c.clauseBound_of_plain hnt hpt hf' hcl) (c.clausePreOK_of_plain hpt hf' hcl)
     (Semantics.ovlPats_pats hov hf' hcl)
 
 /-- A rule of a semantics `ok` accepts has the plain shapes and a left side that binds every
@@ -672,7 +672,7 @@ def Definition.report (d : Definition) : List (String × Bool) :=
    ("clauses plain (clausesPlain): existential variables confined or fixed by the predicate, in scope and outside the left side; no witness needed beside a predicate; open condition variables confined or closed conditions", d.sem.clausesPlain),
    ("parameters plain (paramsPlain): no law on a parameter that is no open generator, an open generator of the admitted shape; carriers well formed", d.sem.paramsPlain),
    ("subsorts: a strict partial order into user sorts and library constructor sorts, closed", d.sem.subsortsOK),
-   ("functions: well-sorted, covering", d.sem.fnsOKAll),
+   ("functions: well-sorted", d.sem.fnsOKAll),
    ("rules: well-sorted over the configuration sort", d.sem.rules.all fun r => d.sem.ruleOKAll r && d.sem.rulePredsOK r),
    ("certificate: self calls decrease", d.cert.ok d.sem),
    ("presentation: variable names distinct; cells named apart, the cell holding $PGM of content K or its sort, each with its kind's sorts and symbols, the core's first sorts, constructors and subsorts", d.pres.ok d.sem),
