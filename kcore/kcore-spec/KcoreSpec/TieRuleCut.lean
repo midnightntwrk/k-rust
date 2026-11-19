@@ -19,8 +19,14 @@
     smaller priority, the definedness of the right side) hold of every element of the text's left
     side. `openCut_tie`: the two together.
   - `cutFreshB`: the decisions that V is free in nothing but its own occurrence and membership.
+  - `rightDefined_of_Γ`: the conjunct `⌈r ∧ ⊤⌉` of `extra` holds in every model of Γ, of every
+    element of the rule's sort, where the guards of the variables hold, for a right side `r` built
+    of variables and of constructors whose Cons-Fun items Γ has (`builtB`, `funsInB`): such a
+    pattern denotes one element of its sort (`builtB_one`, by Cons-Fun at the arguments' elements).
+    `rightDefined_of_funs`: the same from the Cons-Fun items alone.
 -/
 import KcoreSpec.TieRuleLhs
+import KcoreSpec.TieFRRead
 
 set_option autoImplicit false
 
@@ -271,6 +277,161 @@ theorem openCut_tie [Inhabited M] (hD : DefOK I) (hc : I ⊧ᴵ ceilDefItem.pat)
    openCut_w2 hD hc hp hK hsame hfG htop hfresh hS hS' hσ hσ' hφs hguard⟩
 
 end
+
+/-! ## The definedness of a right side built of constructors -/
+
+mutual
+/-- `p` is of the sort named `s` and is built of the element variables of `fT` and of
+applications, without sort arguments, of the constructors of `gs` (each with the name of the sort
+its Cons-Fun item is of) to arguments built so, of the constructor's argument sorts. -/
+def builtB (gs : List (String × KoreAML.CtorSig)) (fT : List VarKey) : Kore.Pattern → String → Bool
+  | .var (.evar x), s => decide (x.sort = srt s) && fT.contains (evarKey x)
+  | .app h ss ps, s =>
+    match ss, gs.find? (fun g => g.1 == s && g.2.name == h.ident.name) with
+    | [], some g => builtArgsB gs fT ps g.2.args
+    | _, _ => false
+  | _, _ => false
+  termination_by structural p => p
+def builtArgsB (gs : List (String × KoreAML.CtorSig)) (fT : List VarKey) : List Kore.Pattern → List String → Bool
+  | [], [] => true
+  | p :: ps, s :: ss => builtB gs fT p s && builtArgsB gs fT ps ss
+  | _, _ => false
+  termination_by structural ps => ps
+end
+
+section
+variable {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
+
+/-- ψ denotes one element, an element of the sort named `s`. -/
+def OneIn (I : Interpretation KoreAML.Sym M) (e : Valuation M) (s : String) (ψ : P) : Prop :=
+  ∃ y, InS I s y ∧ ∀ m, ψ.interpret I e m ↔ m = y
+
+omit [Inhabited M] in
+/-- Patterns that each denote one element denote, as a list, the list of those elements. -/
+theorem all2_one {t : VarTable} {e : Valuation M} {ps : List Kore.Pattern} {xs : List M}
+    (h : All2 (fun p x => ∀ m, (tr ⟨t, []⟩ p).interpret I e m ↔ m = x) ps xs) :
+    ∀ bs, All2 (fun p b => (tr ⟨t, []⟩ p).interpret I e b) ps bs ↔ bs = xs := by
+  induction h with
+  | nil => intro bs; constructor
+           · intro h; cases h; rfl
+           · rintro rfl; exact .nil
+  | cons h1 _ ih =>
+    intro bs; constructor
+    · intro h; cases h with
+      | cons hb hbs => rw [(h1 _).mp hb, (ih _).mp hbs]
+    · rintro rfl; exact .cons ((h1 _).mpr rfl) ((ih _).mpr rfl)
+
+variable {gs : List (String × KoreAML.CtorSig)} {fT : List VarKey} {t : VarTable}
+  {e : Valuation M} {m0 : M}
+
+mutual
+/-- A pattern with `builtB` denotes one element, of its sort, where the guards of `fT` hold and
+each constructor of `gs` has its Cons-Fun item. -/
+theorem builtB_one (hD : DefOK I) (hgs : ∀ g ∈ gs, I ⊧ᴵ (KoreAML.Cons.funItem g.1 (.ctor g.2)).pat)
+    (hg : ∀ k ∈ fT, (guardOf t k).interpret I e m0) :
+    ∀ (p : Kore.Pattern) (s : String), builtB gs fT p s = true → OneIn I e s (tr ⟨t, []⟩ p)
+  | .var (.evar x), s, h => by
+    rw [builtB, Bool.and_eq_true, decide_eq_true_eq] at h
+    have h1 := (TieRuleLhs.guard_evarKey hD).mp (hg _ (List.contains_iff_mem.mp h.2))
+    rw [h.1, trSort_srt] at h1
+    refine ⟨_, (inS_iff e).mp h1, fun m => ?_⟩
+    rw [tr_evarCut, interp_evar]
+  | .app hd ss ps, s, h => by
+    cases ss with
+    | cons => simp [builtB] at h
+    | nil =>
+    cases hf : gs.find? (fun g => g.1 == s && g.2.name == hd.ident.name) with
+    | none => simp [builtB, hf] at h
+    | some g =>
+      simp only [builtB, hf] at h
+      have hmem := List.mem_of_find?_eq_some hf
+      have hp := List.find?_some hf
+      rw [Bool.and_eq_true, beq_iff_eq, beq_iff_eq] at hp
+      obtain ⟨xs, hall, hl, hxs⟩ := builtArgsB_one hD hgs hg ps g.2.args h
+      obtain ⟨y, hy, hyu⟩ := fun_at hD (hgs g hmem) hl hxs
+      refine ⟨y, hp.1 ▸ hy, fun m => ?_⟩
+      rw [TieFRRead.tr_app, TieFRRead.trArgs_iff, ← hyu m]
+      unfold GS
+      simp only [trSortApp, genHead, interp_sym, hp.2]
+      constructor
+      · rintro ⟨a, ha, bs, hbs, happ⟩
+        rw [(all2_one hall bs).mp hbs] at happ
+        exact ⟨a, ha, happ⟩
+      · rintro ⟨a, ha, happ⟩
+        exact ⟨a, ha, xs, (all2_one hall xs).mpr rfl, happ⟩
+  | .var (.svar _), _, h => by simp [builtB] at h
+  | .string _, _, h => by simp [builtB] at h
+theorem builtArgsB_one (hD : DefOK I) (hgs : ∀ g ∈ gs, I ⊧ᴵ (KoreAML.Cons.funItem g.1 (.ctor g.2)).pat)
+    (hg : ∀ k ∈ fT, (guardOf t k).interpret I e m0) :
+    ∀ (ps : List Kore.Pattern) (ss : List String), builtArgsB gs fT ps ss = true →
+      ∃ xs : List M, All2 (fun p x => ∀ m, (tr ⟨t, []⟩ p).interpret I e m ↔ m = x) ps xs ∧
+        xs.length = ss.length ∧ ∀ (i : Nat) x s, xs[i]? = some x → ss[i]? = some s → InS I s x
+  | [], [], _ => ⟨[], .nil, rfl, fun i x s hx _ => by simp at hx⟩
+  | p :: ps, s :: ss, h => by
+    rw [builtArgsB, Bool.and_eq_true] at h
+    obtain ⟨y, hy, hyu⟩ := builtB_one hD hgs hg p s h.1
+    obtain ⟨xs, hall, hl, hxs⟩ := builtArgsB_one hD hgs hg ps ss h.2
+    refine ⟨y :: xs, .cons hyu hall, by simp [hl], fun i x s' hx hs => ?_⟩
+    cases i with
+    | zero => simp at hx hs; rw [← hx, ← hs]; exact hy
+    | succ i => simp at hx hs; exact hxs i x s' hx hs
+  | [], _ :: _, h => by simp [builtArgsB] at h
+  | _ :: _, [], h => by simp [builtArgsB] at h
+end
+
+/-- **The right side of a rule is defined, from Cons-Fun.** In a model of definedness where each
+constructor of `gs` has its Cons-Fun item, at a valuation where the guards of `fT` hold, the
+right side `\and{s}(r, \top{s}())` with `r` built of the variables of `fT` and the constructors
+of `gs` (`builtB`) holds one element of the sort `s`, so `⌈r ∧ ⊤⌉` holds of every element of
+`s`. -/
+theorem rightDefined_of_funs (hD : DefOK I) (hc : I ⊧ᴵ ceilDefItem.pat)
+    (hgs : ∀ g ∈ gs, I ⊧ᴵ (KoreAML.Cons.funItem g.1 (.ctor g.2)).pat) {s : String} {r : Kore.Pattern}
+    (hb : builtB gs fT r s = true) {σ : M} (hS : ∀ a, I.evalSymb (.sort ("Sort" ++ s)) a ↔ a = σ)
+    (hσ : IsSort I σ) (hg : ∀ k ∈ fT, (guardOf t k).interpret I e m0) (a : M)
+    (ha : (inhOf (trSort t (srt s))).interpret I e a) :
+    (tr ⟨t, []⟩ (.ceil (srt s) (srt s) (.and (srt s) [r, .top (srt s)]))).interpret I e a := by
+  obtain ⟨y, hy, hyu⟩ := builtB_one hD hgs hg r s hb
+  have hS' : ∀ (e' : Valuation M) b, (trSort t (srt s)).interpret I e' b ↔ b = σ := fun e' b => by
+    rw [trSort_srt, interp_sym]; exact hS b
+  have hyσ : Inh I σ y := (interp_inhOf_of (hS' e)).mp (by rw [trSort_srt]; exact (inS_iff e).mpr hy)
+  have hT : ∀ φ, tr ⟨t, []⟩ (.ceil (srt s) (srt s) φ) =
+      sCeil (trSort t (srt s)) (trSort t (srt s)) (tr ⟨t, []⟩ φ) := fun φ => by rw [tr]
+  have htop : ∀ b, (tr ⟨t, []⟩ (.top (srt s))).interpret I e b ↔ Inh I σ b := fun b => by
+    have h1 : tr ⟨t, []⟩ (.top (srt s)) = sTop (trSort t (srt s)) := by rw [tr]
+    rw [h1, interp_sTop hD (by rw [trSort_srt]; rfl), interp_inhOf_of (hS' e)]
+  rw [hT, interp_sCeil hD hc (hS' e) (hS' e) hσ hσ (fun b hb' =>
+    (htop b).mp ((interp_and (List.cons_ne_nil _ _)).mp hb' _ (List.mem_cons_of_mem _ List.mem_cons_self)))]
+  refine ⟨⟨y, (interp_and (List.cons_ne_nil _ _)).mpr fun p hp => ?_⟩, (interp_inhOf_of (hS' e)).mp ha⟩
+  rcases List.mem_cons.mp hp with rfl | hp
+  · exact (hyu y).mpr rfl
+  · rw [List.mem_singleton.mp hp]; exact (htop y).mpr hyσ
+
+end
+
+/-- Γ of `c` has the Cons-Fun item of each constructor of `gs`, of the sort named beside it. -/
+def funsInB (c : Semantics) (gs : List (String × KoreAML.CtorSig)) : Bool :=
+  gs.all fun g => (consItemsK c).any fun it => decide (it.pat = (KoreAML.Cons.funItem g.1 (.ctor g.2)).pat)
+
+kernel_rfl funsInB_withHooks : ∀ (c : Semantics) (H : HookParams) (gs : List (String × KoreAML.CtorSig)),
+  funsInB (c.withHooks H) gs = funsInB c gs
+
+/-- **The right side of a rule is defined, in a model of Γ.** For a right side
+`\and{N}(r, \top{N}())` whose `r` is built of the variables of `fT` and of constructors whose
+Cons-Fun items Γ has (`funsInB`, `builtB`): where the guards of `fT` hold, `⌈r ∧ ⊤⌉` holds of
+every element of the sort N. This is the conjunct Γ's item of a rule adds to the text's left
+side, of every element of that left side (which `\top{N}()` keeps in N). -/
+theorem rightDefined_of_Γ {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} {c : Semantics} [OvlOK c]
+    (hI : I ⊧ᴵP Γ c) {gs : List (String × KoreAML.CtorSig)} {fT : List VarKey} {t : VarTable} {N : Srt}
+    {r : Kore.Pattern} (hN : N < nRegSorts + c.sortNames.length) (hin : funsInB c gs = true)
+    (hb : builtB gs fT r (c.sortName N) = true) (e : Valuation M) (m : M)
+    (hg : ∀ k ∈ fT, (guardOf t k).interpret I e m) (a : M)
+    (ha : (inhOf (trSort t (srtOf c N))).interpret I e a) :
+    (tr ⟨t, []⟩ (.ceil (srtOf c N) (srtOf c N) (.and (srtOf c N) [r, .top (srtOf c N)]))).interpret I e a := by
+  obtain ⟨σ, hσ1, hσ2⟩ := sortSing hI hN
+  refine rightDefined_of_funs (defOK hI) (sat_sigItem hI sig_ceilDef) (fun g hg' => ?_) hb hσ1 hσ2 hg a ha
+  obtain ⟨it, hit, hpat⟩ := List.any_eq_true.mp (List.all_eq_true.mp hin g hg')
+  rw [← of_decide_eq_true hpat]
+  exact sat_cons hI (Or.inl ⟨it, hit, rfl⟩)
 
 end TieRuleCut
 
