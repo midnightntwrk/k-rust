@@ -3,16 +3,34 @@ user module C3-HOOK-EQ-COLL: 404 sentences
   1 inert import [generated]
   186 read [generated]
   184 read [builtin]
-  5 read [user]
+  4 read [user]
   4 inert injectivity [generated]
   12 inert collectionLaw [generated]
   1 unread setIdempotence [generated]
   1 inert parametricFunctional [generated]
   9 inert noJunk [generated]
+  1 user lemma at values [user]: owed at values, not in Γ (EntailsAtValues: Γ (c.withHooks H) entails it at the valuations sending its variables to values, or Γ with it has no model; the tie on the text proves it or fails), not decided by the reader
   1 inert simplification [generated]
-stage refusals (of sentences classified read): 1
-  1 hookEquation
-      sentence 308 (LblMyListItem): hookEquation (LblMyListItem: a hooked symbol of the text, hook LIST.element interpreted by the registry)
-        [user] (no label) at c3-hook-eq-coll.k:8: axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortKItem{}, R}(X0:SortKItem{}, inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("0"))), \top{R}())), \equals{SortMyList{}, R}(LblMyListItem{}(X0:SortKItem{}), \and{SortMyList{}}(Lbl'Stop'MyList{}(), \top{SortMyList{}}()))) [UNIQUE'Unds'ID{}("a942b8a67abd64ebd4cad757c20311ac1cebcec6c77fde7281834c6f466d044e"), org'Stop'kframework'Stop'attributes'Stop'Lo …
-finish: sentence 308 (LblMyListItem): hookEquation (LblMyListItem: a hooked symbol of the text, hook LIST.element interpreted by the registry)
+stage refusals (of sentences classified read): 0
+read and not accounted for: 0
+inert constructor axioms not induced by the constructors: 0
+cell collection injections not of a collection of the definition: 0
+law axioms of no collection's concatenation: 0
+rules with an `ensures`: 0
+rules read with the premise ⌈rhs ∧ ens⌉ (ruleRightDefined): 0
+rules and clauses applying a function symbol in their left side: 0
+sentences the library's data induces that the text does not hold: 0
+library sentences of the modules held that the text does not hold: 0
+sentences every definition holds (kernelText) that the text does not: 4
+      axiom{R} \implies{R}(\top{R}(), \equals{R, R}(\ceil{SortK{}, R}(Lblproject'Coln'K{}(SelectorInput:SortK{})), \exists{R}(VarK:SortK{}, \equals{SortK{}, R}(SelectorInput:SortK{}, VarK:SortK{})))) [UNIQUE'Unds'ID{}("25b529ddcefd25ef63f99a62040145ef27638e7679ea9202218fe14be98dff3a.selector-domain")]
+      axiom{R} \implies{R}(\ceil{SortK{}, R}(Lblproject'Coln'K{}(SelectorInput:SortK{})), \equals{SortK{}, R}(Lblproject'Coln'K{}(SelectorInput:SortK{}), \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}()))) [UNIQUE'Unds'ID{}("25b529ddcefd25ef63f99a62040145ef27638e7679ea9202218fe14be98dff3a.selector-inv …
+      axiom{R} \implies{R}(\top{R}(), \equals{R, R}(\ceil{SortKItem{}, R}(Lblproject'Coln'KItem{}(SelectorInput:SortK{})), \exists{R}(VarK:SortKItem{}, \equals{SortK{}, R}(SelectorInput:SortK{}, kseq{}(VarK:SortKItem{}, dotk{}()))))) [UNIQUE'Unds'ID{}("1242e49c17638c9a66a35e3bb8c237288f7e9aa9a6499101e8cdc …
+      axiom{R} \implies{R}(\ceil{SortKItem{}, R}(Lblproject'Coln'KItem{}(SelectorInput:SortK{})), \equals{SortK{}, R}(kseq{}(Lblproject'Coln'KItem{}(SelectorInput:SortK{}), dotk{}()), \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}()))) [UNIQUE'Unds'ID{}("1242e49c17638c9a66a35e3bb8c237288f7e9aa9a649910 …
+sorts without a value (not a condition of wf; the text's G-nonempty for them is not in Γ): 0: 
+functions declared [total] whose totality no decider confirms (the package's total_named, Semantics.totalObligationsRP at kcore gen's call order; not a condition of wf: the text's functional axiom for each is in no part of Γ and is owed as Total): 0: 
+functions with an equation holding a variable its arguments and conditions do not bind, of a sort without an exhibited value (the package's held_named, Semantics.heldObligations; not a condition of wf or coreOK: owed for each is that every such variable's sort has a value, or that the function has a result at every argument list, a value where it is [total]): 0: 
+functions whose equations' agreement no decider confirms (the package's agree_named, Semantics.agreeObligationsI; not a condition of wf or coreOK: where two competing equations both decide, their agreement is owed as ClausesAgree): 0: 
+parse: ok; wf true; failing: []
+coreOK: true; failing: []
+refused by the account: 0
 (exit 0)

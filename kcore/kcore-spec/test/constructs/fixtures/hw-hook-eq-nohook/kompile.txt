@@ -1,0 +1,3 @@
+command: none: fixture.toml kore = 'test/constructs/fixtures/hw-hook-eq-nohook/hw-hook-eq-nohook.kore', a KORE text kompile does not write; account.txt is `kcore account test/constructs/fixtures/hw-hook-eq-nohook/hw-hook-eq-nohook.kore` (cwd: kcore-spec)
+definition.kore bytes: 234189
+definition.kore sha256: 43ea07df489d1ebcdfb44d03e317ff7a31119b6a02574c195ac925f1eb4f0b7a

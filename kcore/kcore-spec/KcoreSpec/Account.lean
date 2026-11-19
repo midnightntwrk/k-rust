@@ -49,11 +49,12 @@ def unheldFaults (S : Scan) (E : Env) : List Fault :=
   | _, _ => []
 
 /-- Every equation of a sort's predicate or projection that the core does not state
-(`predEqnFaults`), where the productions, the rules and the core are read. -/
+(`predEqnFaults`), where the productions, the rules and the core are read (with the sort
+predicates read as functions, `predCoreOfPR`). -/
 def predFaults (S : Scan) (E : Env) : List Fault :=
   match (prodSyms S E).mapM (symProd E S.eqs), S.rewrites.mapM (ruleOf E.N E.src) with
-  | .ok sp, .ok rules => match coreBase S E (prodsOf S E sp) rules with
-    | .ok core => predEqnFaults E.N E.src S.eqs core
+  | .ok sp, .ok rules => match predCoreOfPR S E (prodsOf S E sp) rules with
+    | .ok (core, _) => predEqnFaults E.N E.src S.eqs core
     | .error _ => []
   | _, _ => []
 
@@ -196,8 +197,9 @@ as `S`, named as `E`) accounts for:
 - a symbol-overload axiom of an overloading symbol is one of `d`'s overloads (`Semantics.ovls`: the
   symbol, and the symbol it overloads among its `over`), which `Γ` states (`KoreAML.Cons.ovlEqItem`);
 - a function equation is one of `d`'s functions' clauses (each `[owise]` equation of a function is
-  one), or the equation of `getGeneratedCounterCell` or of a cell's initializer, each no symbol of
-  `d`, of the shape under which it states nothing of another symbol (`getterEqnOK`, `initEqnOK`); or an equation of a sort predicate `isX` that is a clause
+  one), or a user's equation of a symbol whose value the registry gives (`regLemmaEqn`), which the
+  reader leaves out of `Γ` as an owed sentence, or the equation of `getGeneratedCounterCell` or of a
+  cell's initializer, each no symbol of `d`, of the shape under which it states nothing of another symbol (`getterEqnOK`, `initEqnOK`); or an equation of a sort predicate `isX` that is a clause
   of that predicate (which KCore defines from the sort order), or an instance of such a clause at a
   constructor pattern, or that predicate's `[owise]` equation whose exclusion names those
   instances too (`predInstAcc`), or of a sort's projection that `d`
@@ -267,6 +269,9 @@ def consumedWith (generated : Bool) (S : Scan) (E : Env) (d : Definition) (s : K
       -- every equation of a function is one of its clauses, each `[owise]` one among them (a
       -- selector-domain axiom: a clause of the projection, or generated with it)
       fnLabels.contains e.fn || ovlPair a.attributes ||
+      -- a user's equation of a symbol whose value the registry gives: a sentence the reader leaves
+      -- out of `Γ`, owed (`regLemmaEqn`)
+      regLemmaEqn S e ||
       -- the getter's equation and a tree initializer's, by their content
       (!symOfDefn c getterName && getterEqnOK c S.eqs e) ||
       ((initCell e.fn).any fun x => initEqnOK E.N E.src S.eqs c x e) ||
@@ -534,10 +539,11 @@ def tokKItemOmitted (k : Kore.Definition) (d : Definition) : List (Nat × List (
 
 A rule's left side and a clause's argument patterns are patterns, which the matcher reads as
 constructors, injections, variables, literals and the collections' symbols (`patCtxAll`). A
-function symbol applied there (`List:set(L, I, J)` in a list cell's left side) denotes the values
-the function takes at some arguments: the pattern matches a value when some arguments give it, and
-matching it needs what the function's inverse says (for `List:set`, that the element at I is J),
-which no part of the semantics gives. Such a sentence is refused with a reason of its own, the
+function symbol applied there (`List:set(L, I, J)` in an equation's argument pattern) denotes the
+values the function takes at some arguments: the pattern matches a value when some arguments give
+it, and matching it needs what the function's inverse says (for `List:set`, that the element at I
+is J), which no part of the semantics gives. (In a rule's left side a hooked symbol of the registry
+is read through the cut, `Parse.ovlCut`, and is not named here.) Such a sentence is refused with a reason of its own, the
 function named; it is not read. The collections' symbols (a set's concatenation and element, a cell
 set's element) are not named here: they are collection patterns, which the pattern context
 decides (`collPatternHooks`). -/
@@ -549,8 +555,9 @@ function's value; no constructor, no collection's symbol and no open generator, 
 `openGeneratorInPattern` names) in their left side: one refusal (`functionInPattern`) for each, the
 symbol named. A rule's left side and a clause's argument patterns are read through the cut
 (`Parse.ovlCut`, `Parse.ovlCutList`), which takes every outermost application of a
-function-overloaded symbol, its arguments' `#as` bindings read as conditions (`Parse.cutOvlApps`),
-so they apply none. -/
+function-overloaded symbol, and in a rule's left side of a hooked symbol of the registry that is no
+collection's symbol (`Parse.regCutSyms`), its arguments' `#as` bindings read as conditions
+(`Parse.cutOvlApps`), so they apply none. -/
 def functionInPattern (k : Kore.Definition) (d : Definition) : List Refusal :=
   match k.modules.getLast? with
   | none => []

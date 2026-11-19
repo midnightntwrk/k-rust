@@ -284,13 +284,13 @@ example (hI : I ⊧ᴵP Γc c)
     (heval : EvalTerm c σ rPost.rhs (some y.val)) (hpost : Holds c rPost.vars.length σ rPost.post true)
     (e : ML.Valuation M) (m : M) :
     (famEx c rPost σ).interpret I e m ↔ (den c y.val).interpret I e m :=
-  famEx_denPPCEx (Semantics.coreOKEx_of_coreOK coreOK) rPost_facts.1 rPost_facts.2.1 (fun h => absurd h (by rw [rPost_facts.2.2.2]; decide))
+  famEx_denPPCEx (Semantics.coreOK_iff_ex.mp coreOK) rPost_facts.1 rPost_facts.2.1 (fun h => absurd h (by rw [rPost_facts.2.2.2]; decide))
     hσ heval (fun t ht => by cases ht) hpost hI hcw e m
 
 example {x y : Config c} {r : Rule} {σ : Subst} (hs : StepBy c r σ x y) (hex : r.exs = [])
     (hcw : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c) :
     Γc c ⊧ (famEx c r σ ≡ den c y.val) :=
-  famEx_closed_postCEx c (Semantics.coreOKEx_of_coreOK coreOK) hs hex hcw
+  famEx_closed_postCEx c (Semantics.coreOK_iff_ex.mp coreOK) hs hex hcw
 
 end FamExPost
 
@@ -316,7 +316,7 @@ example (hI : I ⊧ᴵP Γc c)
     (hkP : ∀ k ∈ KoreAML.varsOf (Cond.kore c (canonVars c rNot.vars) (srtOf c topCellSort) rNot.pre), k ∈ tbl)
     (e : ML.Valuation M) :
     (KoreAML.tr ⟨tbl, []⟩ (applies c rNot (canonRulePres rNot))).interpret I e (elemOf c I x.val) :=
-  applies_of_values_ppCEx (Semantics.coreOKEx_of_coreOK coreOK) hI hcw rNot_pp.1 (fun h => absurd h (by rw [compete_facts.2.1]; decide)) hσ hpv
+  applies_of_values_ppCEx (Semantics.coreOK_iff_ex.mp coreOK) hI hcw rNot_pp.1 (fun h => absurd h (by rw [compete_facts.2.1]; decide)) hσ hpv
     (fun t ht => nomatch (show (none : Option Term) = some t from ht)) hpre hkeys hkP e
 
 end Compete
@@ -393,7 +393,7 @@ example := rule_parts_pp (c := c) (I := I) rNot_pp.1
 
 example (x : Config c) (hd : StepDecided c x.val) (hI : I ⊧ᴵP Γc c)
     (hcw : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c) :=
-  successor_split_ppCEx (r := rNot) (Semantics.coreOKEx_of_coreOK coreOK) (fun r hr => (rules_pp r hr).1) x hd hI hcw rNot_pp.1
+  successor_split_ppCEx (r := rNot) (Semantics.coreOK_iff_ex.mp coreOK) (fun r hr => (rules_pp r hr).1) x hd hI hcw rNot_pp.1
     (fun h => absurd h (by rw [stepValues_facts.2.1]; decide))
     (fun h => absurd h (by rw [stepValues_facts.2.2.1]; decide))
 
@@ -440,7 +440,7 @@ example (hft : FnTerminates c) (hI : I ⊧ᴵP Γc c)
       Holds c rOpenB.vars.length σ' rOpenB.pre true ∧ EvalTerm c σ' rOpenB.rhs (some y.val) ∧
       (∀ t, rOpenB.ens = some t → EvalTerm c σ' t (some (bool true))) ∧
       Holds c rOpenB.vars.length σ' rOpenB.post true ∧ (den c y.val).interpret I e m :=
-  famOpen_stepPPCEx (Semantics.coreOKEx_of_coreOK coreOK) hft hI hcw rOpenB_facts.1 (List.all_eq_true.mp rOpenB_facts.2.2.2.2.2) (fun _ => hrc)
+  famOpen_stepPPCEx (Semantics.coreOK_iff_ex.mp coreOK) hft hI hcw rOpenB_facts.1 (List.all_eq_true.mp rOpenB_facts.2.2.2.2.2) (fun _ => hrc)
     (fun h => absurd h (by rw [rOpenB_facts.2.2.2.1]; decide))
     (fun h => absurd h (by rw [rOpenB_facts.2.2.2.2.1]; decide)) hσ hmatch e m hm
 
@@ -452,7 +452,7 @@ example : ∀ (hf : FnHyp c)
     (hys : ∀ y : Config c, (∃ σ', (∀ i ∈ varOccs r.lhs, σ'.lookup i = σ.lookup i) ∧ StepBy c r σ' x y) →
       y.val ∈ ys),
     Γc c ⊧ (famOpen c r σ ⇒ KoreAML.disjList (ys.map (den c))) :=
-  fun hf x r hr => famOpen_values_ppCEx c (Semantics.coreOKEx_of_coreOK coreOK) hf x r hr (rules_pp r hr).1
+  fun hf x r hr => famOpen_values_ppCEx c (Semantics.coreOK_iff_ex.mp coreOK) hf x r hr (rules_pp r hr).1
 
 end FamOpenValues
 
@@ -478,7 +478,7 @@ example (hI : I ⊧ᴵP Γc c)
     {σ : Subst} (hσ : c.WellSorted rOr.vars σ) {y : Config c}
     (heval : EvalTerm c σ rOr.rhs (some y.val)) (hpost : Holds c rOr.vars.length σ rOr.post true)
     (e : ML.Valuation M) : (famEx c rOr σ).interpret I e (elemOf c I y.val) :=
-  famEx_mem_ppCEx (Semantics.coreOKEx_of_coreOK coreOK) rOr_pp.1 (fun h => absurd h (by rw [famExValues_facts.2.1]; decide)) hσ heval
+  famEx_mem_ppCEx (Semantics.coreOK_iff_ex.mp coreOK) rOr_pp.1 (fun h => absurd h (by rw [famExValues_facts.2.1]; decide)) hσ heval
     (fun t ht => nomatch (show (none : Option Term) = some t from ht)) hpost hI hcw e
 
 end SoundPP

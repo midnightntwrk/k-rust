@@ -717,7 +717,8 @@ theorem openLaws : OpenLaws c := openLaws_of_plain (by decide +kernel)
 
 /-- **`Γ` of `c` has a model**: `consistent_of` at a definition one of whose clauses has a
 predicate that is not `\top`. -/
-theorem consistent : Consistent c := consistent_of c coreOK_ok fnDet fnSolves clausePreDecided openLaws
+theorem consistent : Consistent c := consistent_of c coreOK_ok fnDet fnSolves clausePreDecided
+  (clausePostDecided_of_isTop (by decide +kernel)) openLaws
 
 /-! ## The predicate lemmas at `g`
 
@@ -742,7 +743,7 @@ theorem noWitness : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c =
 
 /-- `hcls` of `eval_den4ClPre` at `c`: each clause's facts with its predicate well sorted. -/
 theorem hcls_c : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, ∃ L, HeadsOK c L ∧ ClauseOpenFactsP c fn L cl :=
-  clauseOpenFactsP_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK (Semantics.coreOK_parts coreOK_ok).1)
+  clauseOpenFactsP_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK_noExs (Semantics.coreOK_parts coreOK_ok).1 (Semantics.fnsNoExs_of_all (by decide +kernel)))
 
 /-- `hpreR` of `eval_den4ClPre` at `c`: every model of `Γc c` reads `gCl1`'s predicate. -/
 theorem hpreR_c (hIc : I ⊧ᴵP Γc c) :
@@ -755,7 +756,7 @@ theorem hneg_c (hIc : I ⊧ᴵP Γc c) :
     ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, ClauseNeg c fn cl → ExclEmptyCl c I fn cl := by
   obtain ⟨hok, hsr, hnn, hg, hph, hcso, hcs, hph', hno⟩ := hypSound_of_core coreOK_ok
   haveI : OvlOK c := hno
-  exact neg_of_coreCl hIc (Semantics.sortedOKCl_of_sortedOK hok) hsr (Semantics.coreOK_parts coreOK_ok).2.1 hph
+  exact neg_of_coreCl hIc (Semantics.sortedOKCl_of_sortedOK_noExs hok (Semantics.fnsNoExs_of_all (by decide +kernel))) hsr (Semantics.coreOK_parts coreOK_ok).2.1 hph
     noWitness (hpreR_c hIc)
 
 theorem gFn_all : gFn ∈ c.allFns := List.mem_append_left _ (by simp [c])
@@ -808,7 +809,7 @@ theorem preDec_c : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, ∀ σ ws, c.WellSor
 
 /-- **`satFnsGoalPre` at `c`**: the value model satisfies the functions' equations with their
 predicates. -/
-theorem satFns : SatFnsGoal c := satFnsGoalPre hypModel (Semantics.fnsNoExs_of_coreOK coreOK_ok) preOK_c preDec_c
+theorem satFns : SatFnsGoal c := satFnsGoalPre hypModel (Semantics.fnsNoExs_of_all (by decide +kernel)) preOK_c preDec_c
 
 theorem gFn_mem : gFn ∈ c.fns := by simp [c]
 theorem gCl1_mem : gCl1 ∈ gFn.clauses := List.mem_cons_self ..

@@ -1,0 +1,72 @@
+command: kompile --backend haskell e6-fn-arg-list-set.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 4.4
+output:
+  kore-exec: [85574] Error (ErrorVerify):
+      Error:
+        module 'E6-FN-ARG-LIST-SET':
+        axiom declaration:
+        (definition.kore 1434:13):
+          Found invalid subterm in argument of function equation:
+              LblList'Coln'set{}(
+                  VarL:SortList{},
+                  \dv{SortInt{}}("0"),
+                  /* Inj: */ inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("1"))
+              )
+          The equation that the above occurs in is:
+              requires:
+                  \top{_}()
+              argument:
+                  \in{SortList{}, _}(
+                      X0:SortList{},
+                      LblList'Coln'set{}(
+                          VarL:SortList{},
+                          \dv{SortInt{}}("0"),
+                          /* Inj: */ inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("1"))
+                      )
+                  )
+              antiLeft:
+                  
+              left:
+                  Lblh{}(X0:SortList{})
+              right:
+                  VarL:SortList{}
+              ensures:
+                  \top{_}()
+  Error:
+    module 'E6-FN-ARG-LIST-SET':
+    axiom declaration:
+    (definition.kore 1434:13):
+      Found invalid subterm in argument of function equation:
+          LblList'Coln'set{}(
+              VarL:SortList{},
+              \dv{SortInt{}}("0"),
+              /* Inj: */ inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("1"))
+          )
+      The equation that the above occurs in is:
+          requires:
+              \top{_}()
+          argument:
+              \in{SortList{}, _}(
+                  X0:SortList{},
+                  LblList'Coln'set{}(
+                      VarL:SortList{},
+                      \dv{SortInt{}}("0"),
+                      /* Inj: */ inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("1"))
+                  )
+              )
+          antiLeft:
+              
+          left:
+              Lblh{}(X0:SortList{})
+          right:
+              VarL:SortList{}
+          ensures:
+              \top{_}()
+  Created bug report: kore-exec.tar.gz
+  [Error] Critical: Haskell backend reported errors validating compiled
+  definition.
+  Examine output to see errors.
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-FN-ARG-LIST-SET-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E6-FN-ARG-LIST-SET as default.

@@ -1,0 +1,18 @@
+test/constructs/fixtures/hw-hook-eq-nohook/hw-hook-eq-nohook.kore: 5 modules; prelude agrees
+user module C3-HOOK-EQ: 389 sentences
+  1 inert import [generated]
+  177 read [generated]
+  184 read [builtin]
+  2 read [user]
+  4 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert parametricFunctional [generated]
+  9 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 hookEquation
+      sentence 387 (Lblplus): hookEquation (Lblplus: a hooked symbol of the text, without a hook attribute)
+        [user] (no label) at c3-hook-eq.k:5: axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, VarX:SortInt{}), \and{R}(\in{SortInt{}, R}(X1:SortInt{}, \dv{SortInt{}}("0")), \top{R}()))), \equals{SortInt{}, R}(Lblplus{}(X0:SortInt{}, X1:SortInt{}), \and{SortInt{}}(VarX:SortInt{}, \top{SortInt{}}()))) [UNIQUE'Unds'ID{}("c48969bf401007a50220091c13dcef88d553f6ca41e524227fe2336858f548f6"), org'Stop'kframework'Stop'a …
+finish: sentence 387 (Lblplus): hookEquation (Lblplus: a hooked symbol of the text, without a hook attribute)
+(exit 0)

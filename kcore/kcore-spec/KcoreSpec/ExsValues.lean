@@ -39,7 +39,8 @@ namespace KCore
 
 open ML Faithful HoldsShape
 
-/-- **`clausePlainEx` with `clauseExOK` and `clausesPlain`'s other two conjuncts gives
+/-- **`clausePlainEx` with `clauseExOK` and `clausesPlain`'s two conjuncts on the premise and the open
+condition variables gives
 `clausePlainOpenEx`**: the latter is the former without "each existential variable is of a confined
 sort or fixed by the predicate", which the value model does not read. -/
 theorem Semantics.clausePlainOpenEx_of_plainEx {c : Semantics} {cl : Clause}

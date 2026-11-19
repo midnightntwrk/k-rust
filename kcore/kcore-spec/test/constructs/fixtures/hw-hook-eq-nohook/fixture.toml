@@ -1,0 +1,2 @@
+# Hand-written KORE: c3-hook-eq's kompiled text (f2 paths restored) with the attribute hook{}("INT.add") removed from the declaration of plus: a hooked symbol of the text declared without a hook attribute, with the user's equation plus(X, 0) => X. No text kompile 7.1.337 delivers holds the shape (kompile writes a hooked-symbol declaration with its hook).
+kore = "test/constructs/fixtures/hw-hook-eq-nohook/hw-hook-eq-nohook.kore"

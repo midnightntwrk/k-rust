@@ -1,8 +1,9 @@
 /-
   `coreOKEx` admits a clause with an existential variable, kernel-checked: `f() => g(?Z:Int)` with `post := Z ∈ lp()`, beside
   `lp() => lp()` and `g(X:Int) => X` (in test/ExClauses.lean `g` is not declared, so that semantics is
-  not well sorted). `coreOK` refuses the semantics (its clause binds `Z` by `\exists`) and `coreOKEx`
-  accepts it; it reads confined sorts. With `f() => g(0)` in place of the clause, `coreOK` accepts it.
+  not well sorted). `coreOKEx` accepts the semantics, and so does `coreOK`, which is `coreOKEx`
+  (`coreOK_iff_ex`): `Z` is fixed by the predicate `Z ∈ lp()`. It reads confined sorts. With
+  `f() => g(0)` in place of the clause, `coreOK` accepts it as well.
   So in every model of `Γc` the clause has `ClauseExRead` (`clauseExRead_of_coreEx`) and every clause
   `ClauseOpenFactsQ`: the hypotheses of OpenClauseDenQ.lean's block hold of a clause with an
   existential variable.
@@ -60,11 +61,14 @@ theorem clCf_exs : clCf.exs ≠ [] := by decide
 theorem cCeG_coreOKEx : cCeG.coreOKEx = true := by
   unfold Semantics.coreOKEx Semantics.sortedOKEx; decide_cheap
 
-/-- `coreOK` does not: `clausesPlain` asks that no clause bind a variable by `\exists`. -/
-theorem cCeG_clausesPlain : cCeG.clausesPlain = false := by decide +kernel
+/-- `clausesPlain` accepts the clause: its existential variable `Z` is fixed by the predicate. -/
+theorem cCeG_clausesPlain : cCeG.clausesPlain = true := by decide +kernel
 
-theorem cCeG_not_coreOK : cCeG.coreOK = false := by
-  simp only [Semantics.coreOK, Semantics.sortedOK, cCeG_clausesPlain, Bool.and_false, Bool.false_and]
+/-- So does `coreOK`: it is `coreOKEx`. -/
+theorem cCeG_coreOK : cCeG.coreOK = true := Semantics.coreOK_iff_ex.mpr cCeG_coreOKEx
+
+/-- `clausesPlain` and `clausesPlainEx` agree on the semantics, as `clausesPlain_iff_ex` says. -/
+example : cCeG.clausesPlainEx = true := Semantics.clausesPlain_iff_ex.mp cCeG_clausesPlain
 
 theorem cCeG_readsConfined : cCeG.readsConfined = true := by decide +kernel
 

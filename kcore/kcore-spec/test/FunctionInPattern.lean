@@ -3,9 +3,12 @@
   root: `lake env lean test/FunctionInPattern.lean`.
   - `f2-examples/lset.kompile.kore` (`lset.k`): the rule `<k> l(I, J) => done() </k> <list> _ [ I <- J ]
     </list>` applies LIST's update `List:set` (a hooked function of the registry) in its left side.
-    The text is read (nothing refused or unaccounted); the account refuses the rule with a reason of
-    its own (`functionInPattern`), naming `List:set`, where before it showed only as `coreOK`'s
-    failing rule sorts.
+    The reader reads the application through the cut (`Parse.ovlCut`, `Parse.regCutSyms`): the list
+    cell's content a fresh variable V with `V ∈ List:set(_Gen0, I, J)` a conjunct of the rule's `pre`.
+    `_Gen0` is held by nothing else in the rule and List is not confined, so the rule is refused
+    `openRequires`, the variable and the symbol named: at an element of List that is no value's the
+    registry states nothing of `List:set`, and whether some such element gives the list cell's list
+    differs between models of the text.
   - the same text with the rule's left side `List:set(_, I, J)` replaced by its first argument
     (`_Gen0:List`): no refusal.
 -/
@@ -53,7 +56,7 @@ def verdict (path : String) (edit : Kore.Definition → Kore.Definition := id) :
       | .error r => s!"{r.reason.name} {r.detail}"
 
 /--
-info: read; unaccounted []; [LSET.set: functionInPattern LblList'Coln'set]
+info: openRequires Var'Unds'Gen0:List: in a condition with a variable the left side binds (V ∈ LblList'Coln'set(…)), under LblList'Coln'set, of a sort the text leaves unconfined
 read; unaccounted []; []
 -/
 #guard_msgs in

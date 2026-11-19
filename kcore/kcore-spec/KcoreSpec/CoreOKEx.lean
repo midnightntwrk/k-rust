@@ -1,15 +1,16 @@
 /-
-  KCore. A well-sortedness that admits clauses with existential variables (`Semantics.coreOKEx`).
+  KCore. `Semantics.coreOKEx`, the well-sortedness that admits clauses with existential variables,
+  stated apart from `coreOK`.
 
-  `clausesPlain` asks every clause to bind no variable by `\exists` and to have the right-side
-  predicate `\top`. `clausesPlainEx` asks instead what a clause's existential variables and its
-  right-side predicate need for the function's values to be the values its instances give
-  (`clausePlainEx`: an existential variable is of a confined sort or fixed by the predicate, and a
-  clause without one has the predicate `\top`), that they are in scope, apart, outside the left side
-  and that the predicate is sorted (`clauseExOK`), with `clausesPlain`'s two other conjuncts
-  unchanged. `sortedOKEx` is `sortedOK` with `clausesPlainEx` in place of `clausesPlain`, and
-  `coreOKEx` is `coreOK` with `sortedOKEx` in place of `sortedOK`; `coreOK` gives `coreOKEx`
-  (`Semantics.coreOKEx_of_coreOK`).
+  `clausesPlainEx` asks what a clause's existential variables and its right-side predicate need
+  for the function's values to be the values its instances give (`clausePlainEx`: an existential
+  variable is of a confined sort or fixed by the predicate, and a clause without one has the
+  predicate `\top`), that they are in scope, apart, outside the left side and that the predicate
+  is sorted (`clauseExOK`), with the two other conjuncts on a clause's premise and open condition
+  variables. `sortedOKEx` is `sortedOK` with `clausesPlainEx` in place of `clausesPlain`, and
+  `coreOKEx` is `coreOK` with `sortedOKEx` in place of `sortedOK`. `clausesPlain` has the body of
+  `clausesPlainEx`, so each is the other (`Semantics.clausesPlain_iff_ex`, `sortedOK_iff_ex`,
+  `coreOK_iff_ex`).
 -/
 import KcoreSpec.Statements
 import KcoreSpec.Obligations
@@ -55,30 +56,14 @@ theorem Semantics.clauseExOK_of_nil {c : Semantics} {cl : Clause} (hex : cl.exs 
   rw [Cond.eq_top_of_isTop hpost, hex]
   simp [nodup, Semantics.condOK]
 
-/-- `clausesPlain` asks what `clausesPlainEx` asks. -/
-theorem Semantics.clausesPlainEx_of_clausesPlain {c : Semantics} (h : c.clausesPlain = true) :
-    c.clausesPlainEx = true := by
-  unfold Semantics.clausesPlain at h
-  unfold Semantics.clausesPlainEx
-  simp only [List.all_eq_true, Bool.and_eq_true] at h ⊢
-  intro f hf cl hcl
-  obtain ⟨⟨⟨hex, hpre⟩, hpost⟩, hopen⟩ := h f hf cl hcl
-  have hex' := List.isEmpty_iff.mp hex
-  exact ⟨⟨⟨Semantics.clausePlainEx_of_nil hex' hpost, Semantics.clauseExOK_of_nil hex' hpost⟩, hpre⟩, hopen⟩
+/-- `clausesPlain` is `clausesPlainEx`. -/
+theorem Semantics.clausesPlain_iff_ex {c : Semantics} : c.clausesPlain = true ↔ c.clausesPlainEx = true := Iff.rfl
 
-/-- `sortedOK` gives `sortedOKEx`. -/
-theorem Semantics.sortedOKEx_of_sortedOK {c : Semantics} (h : c.sortedOK = true) : c.sortedOKEx = true := by
-  simp only [Semantics.sortedOK, Bool.and_eq_true] at h
-  obtain ⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩ := h
-  simp only [Semantics.sortedOKEx, Bool.and_eq_true]
-  exact ⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, Semantics.clausesPlainEx_of_clausesPlain h5⟩, h6⟩
+/-- `sortedOK` is `sortedOKEx`. -/
+theorem Semantics.sortedOK_iff_ex {c : Semantics} : c.sortedOK = true ↔ c.sortedOKEx = true := Iff.rfl
 
-/-- **`coreOK` gives `coreOKEx`.** -/
-theorem Semantics.coreOKEx_of_coreOK {c : Semantics} (h : c.coreOK = true) : c.coreOKEx = true := by
-  simp only [Semantics.coreOK, Bool.and_eq_true] at h
-  obtain ⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩ := h
-  simp only [Semantics.coreOKEx, Bool.and_eq_true]
-  exact ⟨⟨⟨⟨⟨Semantics.sortedOKEx_of_sortedOK h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩
+/-- **`coreOK` is `coreOKEx`.** -/
+theorem Semantics.coreOK_iff_ex {c : Semantics} : c.coreOK = true ↔ c.coreOKEx = true := Iff.rfl
 
 /-- What `sortedOKEx` says of the sorts, the clauses and the rules: what `sortedOK` says
 (`Semantics.sortedOK_sorted`). -/

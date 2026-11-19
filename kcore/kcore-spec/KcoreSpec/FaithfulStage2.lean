@@ -747,10 +747,10 @@ mutual
       have hrhsv := varOccs_lt _ hrhss
       have hensv : ∀ t, cl.ens = some t → ∀ i ∈ varOccs t, i < cl.vars.length := fun t ht => varOccs_lt t (henss t ht)
       by_cases hlow : lowerClauses fn' cl = []
-      · exact plain_eq hI hnn hsc.trans hfn (clauseEquation_mem hcl hlow) (clause_preTop (hpreTop := hpreTop) hok hmem hcl) (clause_exsNil hok hmem hcl) hws hσ' hmatch hplain hpats
+      · exact plain_eq hI hnn hsc.trans hfn (clauseEquation_mem hcl hlow) (clause_preTop (hpreTop := hpreTop) hok hmem hcl) (clause_exsNil hok hbc hmem hcl) hws hσ' hmatch hplain hpats
           hbinds hreqv hrhsv hensv hr ihreq ihrhs e m
       · refine compete_eq hI hnn hst.1 hsc.trans hfn (competingEquation_mem hcl hlow) (clause_preTop (hpreTop := hpreTop) hok hmem hcl)
-          (clause_exsNil hok hmem hcl)
+          (clause_exsNil hok hbc hmem hcl)
           (fun cl' hcl' => clause_preTop (hpreTop := hpreTop) hok hmem (mem_lowerClauses.mp hcl').1) hws (fun cl' hcl' => ?_)
           hσ' hmatch hplain hpats hbinds hreqv hrhsv hensv hr ihreq ihrhs e m
         obtain ⟨hcl'', hna'', hlt⟩ := mem_lowerClauses.mp hcl'
@@ -768,10 +768,10 @@ mutual
       exact absurd (Eval.functional hmi h hv) (by simp)
     | _, _, _, .clauseEx (fn := fn') hfn' hcl _ _ _ _ _ hne _ _ _ _, fn, hfn, _, _, _, _ => by
       rw [hfn] at hfn'; cases hfn'
-      exact absurd (clause_exsNil hok (lookupFn_spec hfn).1 hcl) hne
+      exact absurd (clause_exsNil hok hbc (lookupFn_spec hfn).1 hcl) hne
     | _, _, _, .exNone (fn := fn') hfn' hcl hne _ _ _ _ _ _ _, fn, hfn, _, _, _, _ => by
       rw [hfn] at hfn'; cases hfn'
-      exact absurd (clause_exsNil hok (lookupFn_spec hfn).1 hcl) hne
+      exact absurd (clause_exsNil hok hbc (lookupFn_spec hfn).1 hcl) hne
   termination_by structural _ _ _ h => h
   /-- A clause that fails at arguments of its function's sorts fails in the model. -/
   theorem fails_den2 (hpreTop : c.clausesPreTop = true) : ∀ {ws : List GroundTerm} {cl : Clause}, Fails c ws cl →

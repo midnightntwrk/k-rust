@@ -111,8 +111,8 @@ theorem pairOK_of_pairAgreeL (hmc : Exec.MatchCtxO c) (hd : FnDet c) {heads : Li
 result: the second's right-hand side is the instance of the first's, or the instance of the
 first's `requires` excludes the second's. -/
 theorem pairOK_of_instAgree (hmc : Exec.MatchCtxO c) (hd : FnDet c) {heads : List CtorSig} {cl cl' : Clause}
-    {ss ss' : List Srt} (hpt : sortsOfTerms c.patCtxAll cl.vars cl.pats = some ss)
-    (hpt' : sortsOfTerms c.patCtxAll cl'.vars cl'.pats = some ss')
+    {ss ss' : List Srt} (hpt : sortsOfTerms c.patCtxNF cl.vars cl.pats = some ss)
+    (hpt' : sortsOfTerms c.patCtxNF cl'.vars cl'.pats = some ss')
     (hx : cl.exs = []) (hx' : cl'.exs = [])
     (h : c.instAgree heads cl cl' = true) : PairOK c cl cl' := by
   unfold Semantics.instAgree at h
@@ -168,7 +168,7 @@ theorem pairOK_of_dec (hmc : Exec.MatchCtxO c) (hd : FnDet c) {heads : List Ctor
 /-- **One clause that `clauseFixedL` accepts is one instance against itself**: its two matches
 at one argument list agree on every variable. -/
 theorem oneInst_self (hmc : Exec.MatchCtxO c) {cl : Clause} {ss : List Srt} {x : TermCtx} {s : Srt}
-    (hpt : sortsOfTerms c.patCtxAll cl.vars cl.pats = some ss)
+    (hpt : sortsOfTerms c.patCtxNF cl.vars cl.pats = some ss)
     (hrt : sortOfTerm x cl.vars cl.rhs = some s) (hfx : c.clauseFixedL cl = true) (hx : cl.exs = []) :
     OneInst c cl cl := by
   intro vs σ σ' ⟨hσ, hm, _⟩ ⟨hσ', hm', _⟩ r h
@@ -243,7 +243,7 @@ theorem pairOK_of_parts {fn : Fn} (hfn : fn ∈ c₀.fns)
     ∀ p ∈ pairs fn.clauses, p.1.prio = p.2.prio → PairOK c₀ p.1 p.2 := by
   intro p hp hprio
   obtain ⟨h1, h2⟩ := mem_pairs hp
-  have hx := Semantics.fnsNoExs_of_sortedOK hsorted _ hfn
+  have hx := fnsNoExs₀ _ hfn
   rcases h p hp with hdc | ha
   · exact pairOK_of_dec hmc fnDet (hfr _ _ h1) (hfr _ _ h2) (hcls hfn _ h1) (hcls hfn _ h2)
       (hx _ h1) (hx _ h2) hdc hprio
@@ -308,7 +308,7 @@ at `HookParams.none`** (`CoDefined`): of two clause instances of one function th
 point, if one has a value, the other has a result. -/
 theorem coDefined : CoDefined c₀ := by
   intro fn hfn vs cl σ cl' σ' hcl hcl' hd hd' ⟨v, hv⟩
-  have hx := Semantics.fnsNoExs_of_sortedOK hsorted _ hfn
+  have hx := fnsNoExs₀ _ hfn
   obtain ⟨ha1, he1⟩ := aside_ens hfn hcl
   obtain ⟨ha2, he2⟩ := aside_ens hfn hcl'
   have hprio : cl.prio = cl'.prio := by
@@ -326,7 +326,13 @@ theorem coDefined : CoDefined c₀ := by
     ⟨some v, .inl ⟨fun t ht => (by rw [he2] at ht; cases ht), h vs σ σ' hd.1 hd'.1 _ hrhs⟩⟩
   by_cases he : cl = cl'
   · subst he
-    obtain ⟨hpt, -, L, -, -, hrt, -⟩ := Faithful.clause_ctxOccE hsorted (List.mem_append_left _ hfn) hcl
+    obtain ⟨-, -, L, -, -, hrt, -⟩ := Faithful.clause_ctxOccE hsorted (List.mem_append_left _ hfn) hcl
+    have hpt : sortsOfTerms c₀.patCtxNF cl.vars cl.pats = some fn.args := by
+      have hs := Semantics.sortedOK_sorted hsorted
+      simp only [Bool.and_eq_true, List.all_eq_true] at hs
+      have hcs := hs.1.2 fn hfn cl hcl
+      simp only [Semantics.clauseSorted, Bool.and_eq_true, beq_iff_eq] at hcs
+      exact hcs.1.1.1.1.1.1
     exact oneInst_self hmc hpt hrt (fixed_all hfn hcl) (hx cl hcl)
   · rcases mem_pairs_of_ne hcl hcl' he with hp | hp
     · rcases pairOK_all hfn _ hp hprio with ha | ⟨h, -⟩

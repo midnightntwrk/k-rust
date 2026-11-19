@@ -39,6 +39,10 @@ roots = [
   "KCore.StepDecided",
   "KCore.Total",
   "KCore.CExec.execReady",
+  # C9: consistent_of's hypotheses on the truth values of the clauses' predicates, on the premise
+  # and on the right side
+  "KCore.ClausePreDecided",
+  "KCore.ClausePostDecided",
   # C9 part 5, the consumer's statement: all-path claims over Step, its configurations built by Tm
   "KCore.Reachability.AllPath",
   "KCore.Tm",

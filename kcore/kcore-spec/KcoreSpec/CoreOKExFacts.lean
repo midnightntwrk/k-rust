@@ -103,7 +103,7 @@ def HypSoundCoreEx (c : Semantics) : Prop :=
 
 /-- `HypSoundCore` gives `HypSoundCoreEx`. -/
 theorem HypSoundCore.toEx {c : Semantics} (h : HypSoundCore c) : HypSoundCoreEx c :=
-  ⟨Semantics.sortedOKEx_of_sortedOK h.1, h.2⟩
+  ⟨Semantics.sortedOK_iff_ex.mp h.1, h.2⟩
 
 end Faithful
 

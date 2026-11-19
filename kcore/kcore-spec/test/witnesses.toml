@@ -1,4 +1,4 @@
-# The leaf conjuncts of coreOK and the hypotheses FnDet, FnSolves and ClausePreDecided, each with the witness module
+# The leaf conjuncts of coreOK and the hypotheses FnDet, FnSolves, ClausePreDecided and ClausePostDecided, each with the witness module
 # that shows it cannot be dropped (a semantics meeting the others whose Γ has no model), or `none`
 # with the reason. Keys and texts are computed by test/Witnesses.lean from the definitions:
 # coreOK, sortedOK, faithCoreOK, hooksApart, predsApart, idsOK, overloadsOK and itesApart are
@@ -131,7 +131,8 @@ evidence = "test/WitRestApart.lean"
 [[conjunct]]
 key = "predsApart.1"
 text = "KCore.nodup (List.map (fun x => x.label) c.allFns)"
-witness = "none: not proved in the no-model form; the conjunct is not implied by the others (kernel-checked: two functions of c.fns under the predicate number of the own sort KCell, one giving true and one false at every K, meet every other leaf of coreOK; FnHyp not examined); Γ then has no model (argued, not kernel-checked: the two equations give the one symbol both values at the term dotk, and true and false are distinct values of Bool); implied by idsOK where the functions of c.fns are labelled apart, for every semantics (kernel-checked: predsApart_of_idsOK): no function bears a registry symbol, so none is isK or isKItem, every other sort predicate labels no function of c.fns (sortPreds), the registry's are distinct and below nRegSyms (regPred), the own sorts' below symBase, the sorts below KItem each once (NamesApart.sorts_facts)"
+witness = "KcoreSpec.ModelPredTwiceWitness"
+note = "two functions of c.fns under the predicate number of the own sort KCell, one giving true and one false at every K: the module shows every other conjunct of coreOK as a whole and FnHyp, predsApart false, and Γ without a model (its two equations give the predicate's application to dotk the values true and false, distinct values of Bool); test/PredFnCone.lean Twice is the same semantics; implied by idsOK where the functions of c.fns are labelled apart, for every semantics (kernel-checked: predsApart_of_idsOK): no function bears a registry symbol, so none is isK or isKItem, every other sort predicate labels no function of c.fns (sortPreds), the registry's are distinct and below nRegSyms (regPred), the own sorts' below symBase, the sorts below KItem each once (NamesApart.sorts_facts)"
 evidence = "test/WitRestApart.lean, test/PredFnCone.lean"
 
 [[conjunct]]
@@ -241,14 +242,14 @@ evidence = "test/OvlFun.lean"
 [[conjunct]]
 key = "overloadsOK.10"
 text = "c.ovlPatsOK"
-witness = "none: no witness exists: implied by sortedOK.2, sortedOK.3 and sortedOK.5, for every semantics (kernel-checked: Semantics.ovlPatsOK_of_sortedOK): ruleSorted sorts a rule's left side, clauseSorted a clause's patterns and condOK each exMatch pattern of a rule's pre and post and of a clause's pre over patCtxNF, which holds no function-overloaded symbol, and clausesPlain asks that a clause's right side hold no predicate (post.isTop), so it holds no pattern"
+witness = "none: no witness exists: implied by sortedOK.2, sortedOK.3 and sortedOK.5, for every semantics (kernel-checked: Semantics.ovlPatsOK_of_sortedOK): ruleSorted sorts a rule's left side, clauseSorted a clause's patterns and condOK each exMatch pattern of a rule's pre and post and of a clause's pre and post (clauseExOK, which clausesPlain asks) over patCtxNF, which holds no function-overloaded symbol"
 evidence = "test/SortedNF.lean"
 
 [[conjunct]]
 key = "FnDet"
 text = "KCore.FnDet"
 witness = "KcoreSpec.ModelFnDetWitness"
-note = "the witness has a clause whose predicate is not ⊤ (u(X) => true where ¬⌈a(X)⌉, beside a(X) => 1 and a(X) => 1 ensures u(X)): it meets coreOK, FnSolves, ClausePreDecided and OpenLaws, a(0) has the results 1 and none, and Γ has no model. Where every clause's predicate is ⊤ (clausesPreTop) there is no witness: coreOK and FnSolves give FnDet (fnDet_of_fnSolves, test/FnSolvesDet.lean)"
+note = "the witness has a clause whose predicate is not ⊤ (u(X) => true where ¬⌈a(X)⌉, beside a(X) => 1 and a(X) => 1 ensures u(X)): it meets coreOK, FnSolves, ClausePreDecided, ClausePostDecided and OpenLaws, a(0) has the results 1 and none, and Γ has no model. Where every clause's predicate is ⊤ (clausesPreTop) and no clause has an existential variable there is no witness: coreOK and FnSolves give FnDet (fnDet_of_fnSolves, test/FnSolvesDet.lean)"
 evidence = "test/FnSolvesDet.lean"
 
 [[conjunct]]
@@ -261,4 +262,10 @@ key = "ClausePreDecided"
 text = "KCore.ClausePreDecided"
 witness = "none: no witness module. The semantics d of test/ClausePreUndecided.lean meets coreOK (the predicate of its clause is not ⊤ and its conditions need no witness, which clausesPlain admits), FnDet, FnSolves and OpenLaws and not ClausePreDecided (not_clausePreDecided), and Γ has no model there (argued in that file's header, not proved: the two clauses' sentences state h(x) = 1 and h(x) = 2 at every Int, the premise ⌈l(X)⌉ ∨ ¬⌈l(X)⌉ being ⊤ in every interpretation). Where every clause's predicate is ⊤ the hypothesis holds (clausePreDecided_of_isTop)"
 evidence = "test/ClausePreUndecided.lean"
+
+[[conjunct]]
+key = "ClausePostDecided"
+text = "KCore.ClausePostDecided"
+witness = "none: no witness module. The semantics cCeU of test/CeNoModel.lean (f() => ?B:Bool with the right-side predicate ¬ (B ∈ f())) meets coreOK (cCeU_coreOK), FnDet, FnSolves, ClausePreDecided and OpenLaws and not ClausePostDecided (not_postDecided), and Γ has no model (not_consistent, kernel-checked). Where every clause's right-side predicate is ⊤ the hypothesis holds (clausePostDecided_of_isTop)"
+evidence = "test/CeNoModel.lean"
 

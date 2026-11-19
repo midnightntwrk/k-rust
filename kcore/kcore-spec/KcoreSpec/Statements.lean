@@ -276,10 +276,6 @@ theorem Semantics.coreOK_parts {c : Semantics} (h : c.coreOK = true) :
   simp only [Semantics.coreOK, Bool.and_eq_true] at h
   exact ⟨h.1.1.1.1.1, h.1.1.1.1.2, h.1.1.1.2, h.1.1.2, h.1.2⟩
 
-/-- No clause of a function of a definition `coreOK` accepts has an existential variable. -/
-theorem Semantics.fnsNoExs_of_coreOK {c : Semantics} (h : c.coreOK = true) : c.FnsNoExs :=
-  Semantics.fnsNoExs_of_sortedOK (Semantics.coreOK_parts h).1
-
 /-- `coreOK`'s condition on the overloading symbols. -/
 theorem Semantics.coreOK_ovls {c : Semantics} (h : c.coreOK = true) : c.overloadsOK = true := by
   simp only [Semantics.coreOK, Bool.and_eq_true] at h

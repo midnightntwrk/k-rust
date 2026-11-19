@@ -256,7 +256,7 @@ theorem no_model : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.
   haveI : OvlOK c := hno
   have F := HoldsShape.nodeFacts_of_core coreOK_now hIc
   have hden := fun (r : Option GroundTerm) (hev : Eval c fS [] r) (e : Valuation M) (m : M) =>
-    eval_den4_coreCl hIc (Semantics.sortedOKCl_of_sortedOK hok) hsr (Semantics.coreOK_parts coreOK_now).2.1 hph
+    eval_den4_coreCl hIc (Semantics.sortedOKCl_of_sortedOK_noExs hok (Semantics.fnsNoExs_of_all (by decide +kernel))) hsr (Semantics.coreOK_parts coreOK_now).2.1 hph
       noWit (HoldsShape.preReadAll_of_core coreOK_now hIc) hev lookupF (by decide +kernel) e m
   let e : Valuation M := ⟨fun _ => default, fun _ _ => False⟩
   obtain ⟨a, ha, -⟩ := F.val (rmS_sortOf_bool c true) [] e

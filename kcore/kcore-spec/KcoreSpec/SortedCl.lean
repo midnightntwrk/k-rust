@@ -6,8 +6,8 @@
     bind each variable";
   - `Semantics.clausePlainOpen`: what `clausesPlain` asks of one clause, with the conjunct on open
     condition variables: none, or closed conditions, or each of a confined sort;
-  - `Semantics.sortedOKCl`: `sortedOK` with each clause asked these two; `sortedOK` gives it
-    (`Semantics.sortedOKCl_of_sortedOK`).
+  - `Semantics.sortedOKCl`: `sortedOK` with each clause asked these two; `sortedOK` gives it where
+    no clause binds a variable by `\exists` (`Semantics.sortedOKCl_of_sortedOK_noExs`).
 -/
 import KcoreSpec.Obligations
 import KcoreSpec.FaithOK
@@ -132,9 +132,12 @@ theorem Semantics.raw_of_sortedOKCl {c : Semantics} (h : c.sortedOKCl = true) {k
     c.shapesOK = true :=
   Semantics.raw_of_paramsPlain (Semantics.sortedOKCl_parts h).2.2.2.2 hk hr
 
-/-- **`sortedOK` gives `sortedOKCl`**: the two ask the same of each clause (`clauseSorted` is
-`clauseSortedOpen`, and `clausesPlain` asks `clausePlainOpen` of each clause). -/
-theorem Semantics.sortedOKCl_of_sortedOK {c : Semantics} (h : c.sortedOK = true) : c.sortedOKCl = true := by
+/-- **`sortedOK` gives `sortedOKCl`** where no clause binds a variable by `\exists`: the two then
+ask the same of each clause (`clauseSorted` is `clauseSortedOpen`, and `clausesPlain` asks of a
+clause without existential variables what `clausePlainOpen` asks, its right-side predicate `\top`
+by `sortedOK_clauseEx`). -/
+theorem Semantics.sortedOKCl_of_sortedOK_noExs {c : Semantics} (h : c.sortedOK = true) (hx : c.FnsNoExs) :
+    c.sortedOKCl = true := by
   have hs := Semantics.sortedOK_sorted h
   have hp : c.clausesPlain = true := by
     simp only [Semantics.sortedOK, Bool.and_eq_true] at h; exact h.1.2
@@ -143,7 +146,12 @@ theorem Semantics.sortedOKCl_of_sortedOK {c : Semantics} (h : c.sortedOK = true)
     have hcs : c.clauseSorted f (c.fns.map Fn.sig) cl = true := by
       simp only [Bool.and_eq_true, List.all_eq_true] at hs
       exact hs.1.2 f hf cl hcl
-    have hcp : c.clausePlainOpen cl = true := List.all_eq_true.mp (List.all_eq_true.mp hp f hf) cl hcl
+    have hsp := Semantics.clausesPlain_spec hp hf hcl
+    have hex := hx f hf cl hcl
+    have hpost := (Semantics.sortedOK_clauseEx h hf hcl).2 hex
+    have hcp : c.clausePlainOpen cl = true := by
+      rw [Semantics.clausePlainOpen, hex, hpost, hsp.2.2.1, hsp.2.2.2]
+      rfl
     rw [Bool.and_eq_true]
     exact ⟨Semantics.clauseSortedOpen_of_sorted hcs, hcp⟩
   simp only [Semantics.sortedOK, Bool.and_eq_true] at h

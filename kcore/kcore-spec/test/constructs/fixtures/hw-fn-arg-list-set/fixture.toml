@@ -1,0 +1,4 @@
+# The text kompile's frontend writes for fixtures/e6-fn-arg-list-set (List:set in a function equation's argument
+# pattern, h(L [ 0 <- 1 ]) => L), which kore-exec refuses in kompile's validation step (e6-fn-arg-list-set/kompile.txt):
+# out/definition.kore of that run with the fixture directory's path made relative.
+kore = "test/constructs/fixtures/hw-fn-arg-list-set/hw-fn-arg-list-set.kore"

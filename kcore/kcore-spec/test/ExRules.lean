@@ -299,7 +299,7 @@ example (hd : FnDet c) (hs : FnSolves c) : stdI c ⊧ᴵP (Γc c ∪ Γstep c) :
 example (hf : FnHyp c) : ∃ (M : Type) (_ : Inhabited M) (I : ML.Interpretation KoreAML.Sym M),
     (I ⊧ᴵP (Γc c ∪ Γstep c)) ∧
       ∀ x y : Config c, Step c x y ↔ ¬ (I ⊧ᴵ (den c x.val ⇒ ∼ KoreAML.sNext (den c y.val))) :=
-  has_model_choice_exCEx c (Semantics.coreOKEx_of_coreOK coreOK) hf hrulesC (Step c) (fun _ _ hst => hst)
+  has_model_choice_exCEx c (Semantics.coreOK_iff_ex.mp coreOK) hf hrulesC (Step c) (fun _ _ hst => hst)
     (fun _ _ r σ hb _ => step_iff_by.mpr ⟨r, σ, hb⟩)
     (fun _ y r σ hb => ⟨y, σ, fun _ _ => rfl, hb, step_iff_by.mpr ⟨r, σ, hb⟩⟩)
 
@@ -325,7 +325,7 @@ theorem hrulesEx_of_coreC {c : Semantics} (h : c.coreOK = true)
     ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainEx r = true :=
   Semantics.ruleFactsEx_of_coreAll h hex
 
-example (c : Semantics) (hex : c.rules.all c.rulePlainEx = true) : type_of% (@has_model_choice c) := fun h hf => has_model_choice_exCEx c (Semantics.coreOKEx_of_coreOK h) hf (hrulesEx_of_coreC h hex)
+example (c : Semantics) (hex : c.rules.all c.rulePlainEx = true) : type_of% (@has_model_choice c) := fun h hf => has_model_choice_exCEx c (Semantics.coreOK_iff_ex.mp h) hf (hrulesEx_of_coreC h hex)
 
 end ExRules
 
@@ -517,21 +517,21 @@ open Faithful
 variable {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M}
 
 example (hft : FnTerminates cR) (hI : I ⊧ᴵP Γc cR) := fun hcw =>
-  @stepVals_of_right_exSSx cR M _ I (Semantics.coreOKEx_of_coreOK coreR.1) hft hI hcw exA coreR.2.2.1.1 coreR.2.2.1.2 (fun _ => coreR.2.1)
+  @stepVals_of_right_exSSx cR M _ I (Semantics.coreOK_iff_ex.mp coreR.1) hft hI hcw exA coreR.2.2.1.1 coreR.2.2.1.2 (fun _ => coreR.2.1)
     (fun hn => absurd hn (by rw [noWitR.1]; decide))
 example (hft : FnTerminates cR) (hI : I ⊧ᴵP Γc cR) := fun hcw =>
-  @stepVals_of_right_exSSx cR M _ I (Semantics.coreOKEx_of_coreOK coreR.1) hft hI hcw exB coreR.2.2.2.1.1 coreR.2.2.2.1.2 (fun _ => coreR.2.1)
+  @stepVals_of_right_exSSx cR M _ I (Semantics.coreOK_iff_ex.mp coreR.1) hft hI hcw exB coreR.2.2.2.1.1 coreR.2.2.2.1.2 (fun _ => coreR.2.1)
     (fun hn => absurd hn (by rw [noWitR.2.1]; decide))
 example (hft : FnTerminates cR) (hI : I ⊧ᴵP Γc cR) := fun hcw =>
-  @stepVals_of_right_exSSx cR M _ I (Semantics.coreOKEx_of_coreOK coreR.1) hft hI hcw exTwo coreR.2.2.2.2.1.1 coreR.2.2.2.2.1.2 (fun _ => coreR.2.1)
+  @stepVals_of_right_exSSx cR M _ I (Semantics.coreOK_iff_ex.mp coreR.1) hft hI hcw exTwo coreR.2.2.2.2.1.1 coreR.2.2.2.2.1.2 (fun _ => coreR.2.1)
     (fun hn => absurd hn (by rw [noWitR.2.2]; decide))
 
 end ExactEx
 
 example (hf : FnHyp c) {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M} :=
-  @step_of_successor_exCEx c (Semantics.coreOKEx_of_coreOK coreOK) hf hrulesC M _ I
+  @step_of_successor_exCEx c (Semantics.coreOK_iff_ex.mp coreOK) hf hrulesC M _ I
 example (hf : FnHyp cR) {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M} :=
-  @step_of_successor_exCEx cR (Semantics.coreOKEx_of_coreOK coreR.1) hf (hrulesEx_of_coreC coreR.1 (by decide +kernel)) M _ I
+  @step_of_successor_exCEx cR (Semantics.coreOK_iff_ex.mp coreR.1) hf (hrulesEx_of_coreC coreR.1 (by decide +kernel)) M _ I
 
 end ExRules
 
@@ -584,14 +584,14 @@ example (hd : FnDet cX) (hs : FnSolves cX) : stdI cX ⊧ᴵP (Γc cX ∪ Γstep 
 
 /-- The pinned `consistent_of` at `cX`. -/
 example (hd : FnDet cX) (hs : FnSolves cX) (hp : ClausePreDecided cX) (hl : OpenLaws cX) : Consistent cX :=
-  consistent_of cX coreX.1 hd hs hp hl
+  consistent_of cX coreX.1 hd hs hp (clausePostDecided_of_isTop_exr (by decide +kernel)) hl
 
 /-- `has_model_choice_exCEx` and the pinned `has_model_choice` at `T := Step cX`: `hsome` read at
 `exTwo`'s steps. -/
 example (hf : FnHyp cX) : ∃ (M : Type) (_ : Inhabited M) (I : ML.Interpretation KoreAML.Sym M),
     (I ⊧ᴵP (Γc cX ∪ Γstep cX)) ∧
       ∀ x y : Config cX, Step cX x y ↔ ¬ (I ⊧ᴵ (den cX x.val ⇒ ∼ KoreAML.sNext (den cX y.val))) :=
-  has_model_choice_exCEx cX (Semantics.coreOKEx_of_coreOK coreX.1) hf hrulesX (Step cX) (fun _ _ hst => hst)
+  has_model_choice_exCEx cX (Semantics.coreOK_iff_ex.mp coreX.1) hf hrulesX (Step cX) (fun _ _ hst => hst)
     (fun _ _ r σ hb _ => step_iff_by.mpr ⟨r, σ, hb⟩)
     (fun _ y r σ hb => ⟨y, σ, fun _ _ => rfl, hb, step_iff_by.mpr ⟨r, σ, hb⟩⟩)
 

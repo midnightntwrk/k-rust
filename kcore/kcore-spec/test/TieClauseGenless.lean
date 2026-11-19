@@ -365,7 +365,7 @@ theorem f0_is_1 {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hΓ
   haveI : OvlOK cP := hno
   have htr := (sortCtx_of_all hsok hsr' (OvlOK.ovlCase hno)).trans
   have hfnm := (lookupFn_spec lookupFP).1
-  have hts : HoldsShape.TermSound cP I := HoldsShape.termSoundEx (Semantics.coreOKEx_of_coreOK coreP) hΓc
+  have hts : HoldsShape.TermSound cP I := HoldsShape.termSoundEx (Semantics.coreOK_iff_ex.mp coreP) hΓc
     (openClauses_of_owed (by rw [namedP.2.2.2.2.2.2.2]; intro p hp; cases hp))
   have hr1 : ∀ v, some i1 = some v → cP.sortOf v = some fG.result := fun v hv => by
     cases hv; exact sortOf_plus i1_sort
@@ -453,10 +453,10 @@ theorem owed_false : ¬ clG.CondDecided c := by
   have hI : I ⊧ᴵP Γ c := fun φ hφ => hIc φ (Or.inl hφ)
   obtain ⟨hok, hsr, hnn, -, hph, -, -, -, hno⟩ := hypSound_of_core hcore
   have hsc := sortCtx_of_all hok hsr (OvlOK.ovlCase hno)
-  have hneg := neg_of_coreCl hIc (Semantics.sortedOKCl_of_sortedOK hok) hsr (Semantics.coreOK_parts hcore).2.1 hph
+  have hneg := neg_of_coreCl hIc (Semantics.sortedOKCl_of_sortedOK_noExs hok (Semantics.fnsNoExs_of_all (by decide +kernel))) hsr (Semantics.coreOK_parts hcore).2.1 hph
     hcw (HoldsShape.preReadAll_of_core hcore hIc)
   have h0 := eval_den4ClPre hI hnn hsc hph
-    (clauseOpenFactsP_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK hok)) hneg
+    (clauseOpenFactsP_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK_noExs hok (Semantics.fnsNoExs_of_all (by decide +kernel)))) hneg
     (HoldsShape.preReadAll_of_core hcore hIc) eval_f0 lookupF (sortsOf_cons.mpr ⟨_, _, i0_sort, sortsOf_nil, rfl⟩)
   have hspec1 := elemOf_spec hΓP (sortOf_plus i1_sort) KoreAML.val0
   have hspec0 := elemOf_spec hΓP (sortOf_plus i0_sort) KoreAML.val0

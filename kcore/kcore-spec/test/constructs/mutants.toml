@@ -385,25 +385,21 @@ patch = '''
             plain.filter (· != "owise"), explicit.isSome,
 '''
 
-[mutant."hook-equation-read"]
-summary = "an equation of a hooked symbol of the text is not refused (hookEquation)"
-breaks = "the refusal hookEquation: an equation plus(X, 0) => X of a symbol hooked to INT.add states a value of a symbol the registry interprets, which the reader does not read as a clause; not refused, the text is read with the equation unaccounted or as a clause of the hook"
+[mutant."hook-equation-owed"]
+summary = "a user's equation of a symbol whose value the registry gives is refused again (regLemmaEqn false): hookEquation"
+breaks = "the owed reading of the equation (Parse.regLemmaEqn): plus(X, 0) => X of a symbol hooked to INT.add is a user's sentence about values the registry gives, which the reader leaves out of Γ, neither claiming it true nor refusing it for being false, and the account lists it owed at values (user lemma at values); refused, the text is not read"
 row = 'C3 hook x equation'
 fixture = "c3-hook-eq"
 expect = "killed"
-killed_by = "account: the stage refusal `1 hookEquation` gone (c3-hook-eq; 2026-11-18)"
+killed_by = "not run yet (expected: account, the line `1 user lemma at values [user]` gone and the stage refusal `1 hookEquation` back on c3-hook-eq)"
 patch = '''
 --- a/KcoreSpec/Parse.lean
 +++ b/KcoreSpec/Parse.lean
-@@ -4124,7 +4124,7 @@
-         if (attrStr? h.attributes "hook").isNone then "without a hook attribute"
-         else if (regHookOf hk).isSome then s!"hook {hk} interpreted by the registry"
-         else s!"hook {hk}, a unit, element or concatenation symbol of a collection sort")
--    if hooked.isSome then hooked
-+    if false then hooked
-     else if isUserSource e.attrs && regSymNames.contains e.fn then
-       some (.hookEquation, s!"{e.fn}: a symbol of the registry")
-     else if isCtor e.fn then
+@@ -5594,3 +5594,3 @@
+ def regLemmaEqn (S : Scan) (e : RawEqn) : Bool :=
+-  !e.dom && !hasAttr e.attrs "symbol-overload" && isUserSource e.attrs &&
++  false && !e.dom && !hasAttr e.attrs "symbol-overload" && isUserSource e.attrs &&
+     (regSymNames.contains e.fn || (eqnHookedHead? S e).any (fun h => (attrStr? h.attributes "hook").isSome))
 '''
 
 [mutant."simplification-read-owise"]

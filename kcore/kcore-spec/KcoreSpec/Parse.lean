@@ -126,11 +126,10 @@ inductive RefusalReason where
   /-- `inj` not applied to two sorts and one argument. -/
   | injShape
   /-- `Lblite` applied to one sort X in a text that declares its own sort-parametric function
-  `Lblite` at one sort, where the instance `Lblite{X}` is not a parameter of the definition: the
-  text states an equation of it, which would make it a function named like `ite` at X
-  (`Faithful.NamesNumbered` excludes one), or X is no sort the definition has, so no instance is
-  declared. The application is that function's instance (the text declares no other
-  `Lblite`), not K's `ite`. The detail is the instance's name. -/
+  `Lblite` at one sort, where the instance `Lblite{X}` is neither a parameter nor a function of
+  the definition: X is no sort the definition has, so no instance is declared. The application is
+  that function's instance (the text declares no other `Lblite`), not K's `ite`. The detail is the
+  instance's name. -/
   | iteShape
   /-- A connective that no term has, of those kompile 7.1.337 writes: `\or`, `\not`, `\ceil`,
   `\exists`, … (the others are `unkompiledForm`). -/
@@ -157,7 +156,9 @@ inductive RefusalReason where
   | owisePriority
   /-- A rule's left side or a clause's argument pattern that applies a function symbol (a function
   or sort predicate of the definition, a parameter that is no open generator, a hooked symbol of the
-  registry), neither a constructor nor a collection's symbol: K's `List:set(L, I, J)` in a cell. A pattern denotes the
+  registry in a clause's argument pattern; a rule's left side applying a hooked symbol of the
+  registry is read through the cut, `ovlCut`), neither a constructor nor a collection's symbol. A
+  pattern denotes the
   values it matches; a function's application denotes the values the function takes at some
   arguments, and matching it needs what the function's inverse says, which no part of the semantics
   gives (the account's check, `Account.functionInPattern`). -/
@@ -228,7 +229,10 @@ inductive RefusalReason where
   of the text states which elements it has), in a condition: its truth at given values differs
   between models of the text. The reader refuses one over every sort but Bool: which sorts a text confines
   is decided on the read definition (`Semantics.confined`), not while reading a sentence. The
-  detail names the sort. -/
+  detail names the sort. Also a condition `\not{SortBool{}}(B)` of a term
+  (`ReadingNote.notAsCondition`) in a definition whose Bool has an element beside its literals
+  (`Names.boolLits` false while reading, `Semantics.litSort` at Bool false on the read definition,
+  `coreOf`): the complement of B then depends on that element; the detail is Bool. -/
   | openExtent
   /-- A variable the left side does not bind, of a sort the text leaves unconfined, in a condition
   that also holds a bound variable, or in a closed condition neither witnessed nor refuted: the
@@ -355,15 +359,12 @@ inductive RefusalReason where
   `Faithful.genWf` (its first conjunct) excludes such a definition; this is its message. The detail
   names the constructor, the sort and which of these it is. -/
   | ctorResultSort
-  /-- An equation (`eqnHeadFault?`) whose left side is headed by a hooked symbol of the text whose
-  hook a registry hook interprets, or that is a collection sort's unit, element or concatenation
-  symbol, or that has no hook attribute, or, written in a user's file, by a symbol of the registry.
-  (A hooked symbol of the text whose hook no registry hook interprets and that is no collection
-  symbol is read as a function with its equations, `hookFnSym`.) The sentence is a premise about
-  an interpreted symbol at every element of its sorts. `Γ` states such a symbol's graph at values
-  only, so it does not entail the premise (a model may hold elements of an argument sort that are
-  no value's, where the symbol is unconstrained), and the semantics has no place for the premise or
-  for the obligation that the graph satisfies it. The detail names the symbol and which it is. -/
+  /-- An equation (`eqnHeadFault?`) whose left side is headed by a hooked symbol of the text that
+  `hookFnSym` does not read as a function, where the equation is no user's sentence about a symbol
+  whose value the registry gives (`regLemmaEqn`): the symbol declared without a hook attribute, or
+  the equation without a user source. Of a symbol without a hook attribute the text names no hook
+  whose value it would be, and an equation without a user source is the compiler's, no sentence of
+  the user's: the reader reads neither. The detail names the symbol and which it is. -/
   | hookEquation
   /-- A rule or equation whose read `requires` or `ensures` holds an equality `_==K_` or `_==Int_`
   that the reader writes for what the text states (an equation's strict conjunction, `conjTerms`;
@@ -382,8 +383,9 @@ inductive RefusalReason where
   projection equation, the projection no symbol of `d`), and no sentence of `kconfigModule`'s text
   where `d` imports it (`Account.kconfigOwnSentence`). The sentence says more or other of a symbol
   than `Γ` states; the detail names the symbol and the shape. A sort predicate's or a sort's
-  projection's is refused by the reader (`coreOf`, `predEqnFaults`), the others by the account
-  (`Account.unconsumed`). -/
+  projection's is refused by the reader (`coreOf`, `predEqnFaults`; an own sort's predicate whose
+  equations are not its `sortPreds` clauses is read as the function they define instead,
+  `predCoreOfPR`), the others by the account (`Account.unconsumed`). -/
   | generatedEquation
   /-- An attribute of a symbol declaration, of an axiom carrying `simplification`, of a claim or of
   the module that no kompiled text carries there: a key the frontend erases, a key whose K text
@@ -873,6 +875,31 @@ inductive ReadingNote where
   own sorts only (`Names.sorts`), so the sentence and the names do not decide whether it leaves one
   out. The account lists the sentences and the sorts (`tokKItemOmitted`). -/
   | tokKItem
+  /-- A `requires` or `ensures` `\equals{SortBool{},S}(\not{SortBool{}}(B), true)`, B a Bool term
+  (`notCondTerm?`), read as the condition `B = false` (`Cond.equals` at Bool with the literal
+  `false`): of a rule's `requires` a conjunct of `pre`, of its `ensures` or a condition its right
+  side lifts a conjunct of `post`, of an equation's `requires` a conjunct of `Clause.pre`; no
+  `requires` or `ensures` term is read from it. `\not{SortBool{}}(B)` is the complement of B in the
+  elements of Bool, and the equality holds where that complement is `{true}`. Where the elements
+  of Bool are its two literals (`Names.boolLits` while reading, `Semantics.litSort` at Bool on the
+  read definition, `coreOf`), the complement of `{false}` is `{true}`, of `{true}` is `{false}`,
+  of `{true, false}` is nothing and of nothing is `{true, false}`: it is `{true}` exactly where B
+  is `{false}`, which is `\equals(B, false)`, for every B. Where Bool has an element beside its
+  literals the complement of `{false}` holds it too and the text's condition holds nowhere; the
+  sentence is then refused (`RefusalReason.openExtent`, Bool). A `\not{SortBool{}}(B)` that is one
+  conjunct of several is not read so (`\and{SortBool{}}(A, \not(B))` holds where B has no element,
+  `B = false` does not): it is refused, `patternConnective`. -/
+  | notAsCondition
+  /-- A `requires` or `ensures` B (`\equals{SortBool{},S}(B, true)`) a conjunct of which holds,
+  under applications, a conjunction of terms `t₁ ∧ … ∧ tₙ` each `singleValued`
+  (`condAndCutT`): the conjunction's place holds t₁, and the condition gains `t₁ ∈ tⱼ`
+  (`Cond.mem`) for each other conjunct, a conjunct of `pre` for a rule's `requires`, of `post` for
+  its `ensures` or a condition its right side lifts, of `Clause.pre` for an equation's `requires`.
+  Each tⱼ has at most one element, so `t₁ ∧ … ∧ tₙ` is t₁ where every `t₁ ∈ tⱼ` holds and nothing
+  otherwise; an application of a symbol to nothing is nothing, so there the conjunct, and B with
+  it, is nothing, which is not `{true}`. Where a conjunct of the conjunction may have two elements
+  the conjunction is refused, `patternConnective`. -/
+  | andUnderAppCut
   /-- A rewrite axiom holding a matching-logic connective φ of sort S at a term position `C[·]`
   under applications (`connCut`): on the right side `\or`, `\not`, `\implies` or `\top`, on the
   left side `\not` or `\implies`. A pattern under an application denotes the applications at the
@@ -1483,7 +1510,19 @@ confined (`Semantics.confinedAt`: the generators of a confined sort take argumen
 sorts), so the variables the cut leaves open are of confined sorts and `rulesPlain` reads them.
 Where it is not, a variable of P̄ that the rest of the left side does not hold may be matched by an
 element that is no value's which the interpretation sends to a value, and which elements those are
-the text does not say: `openCutRefusal` refuses such a rule (`openGeneratorPattern`). -/
+the text does not say: `openCutRefusal` refuses such a rule (`openGeneratorPattern`).
+
+A hooked symbol g of the registry that is no collection's unit, element or concatenation
+(`regCutSyms`: `List:set`, `Map:update`, `_+Int_`, …) is cut the same way in a rule's left side:
+`C[g(P̄)]` is `∃V. C[V] ∧ V ∈ g(P̄)` in every interpretation, and the membership's term is evaluated
+through the registry's value of g, the graph `Γ` states at values. Where every variable of P̄ is
+held by another part of the left side, the membership is a condition over variables the left side
+binds, decided at the values they match. A variable of P̄ that nothing else holds (`List:set`'s list
+argument written `_`) ranges over every element of its sort, among them, where the sort is not
+confined, elements that are no value's, at which `Γ` states nothing of g: `rulesPlain` decides it as
+any variable the left side does not bind, and refuses the rule `openRequires` there. A collection's
+symbols are patterns the matcher reads and are not cut; a clause's argument patterns are not cut
+for g (`ovlCutList`), so an equation applying it there stays refused (`functionInPattern`). -/
 
 mutual
   /-- `t` with each `#as` binding `p #as V` replaced by its variable V: the term, and each
@@ -1537,15 +1576,25 @@ def ovlCutConj : List Cond → Cond
   | [p] => p
   | p :: ps => .and p (ovlCutConj ps)
 
+/-- The hooked symbols of the registry (`hookSigs`) that are no collection's unit, element or
+concatenation (`builtinColls`: those are collection patterns, which the matcher reads), each with its
+result sort's name: the symbols whose application in a rule's left side `ovlCut` cuts. -/
+def regCutSyms : List (Sym × String) :=
+  let colls := builtinColls.flatMap fun cs => [cs.unit, cs.elem, cs.concat]
+  (hookSigs.filter (!colls.contains ·.name)).map fun g => (g.name, regSortNames.getD g.result "")
+
 /-- The cut `xs` (`cutOvlApps`) of a term over the variables `vs`: the variables with the fresh
 ones after them (`Ovl0`, `Ovl1`, … for a function-overloaded symbol, `Open0`, `Open1`, … for an open
-generator, numbered by position among the fresh ones, primed until new), and the conjunction of
+generator, `Hooked0`, `Hooked1`, … for a hooked symbol of the registry, numbered by position among
+the fresh ones, primed until new), and the conjunction of
 the memberships, each fresh variable's `V ∈ g(P̄)` (`Cond.mem` at g's result sort) followed by
 each binding's `Z ∈ p` of its arguments (at Z's sort). -/
 def ovlCutMemsAs (N : Names) (vs : List Var) (xs : List (Nat × String × Term × List (Nat × Term))) :
     Rd (List Var × Cond) := do
   let pfx := fun (app : Term) => match app with
-    | .app f _ => if (N.ovlCutSyms.lookup f).isSome then "Ovl" else "Open"
+    | .app f _ =>
+      if (N.ovlCutSyms.lookup f).isSome then "Ovl"
+      else if (N.openCutSyms.lookup f).isSome then "Open" else "Hooked"
     | _ => "Ovl"
   let vs' := xs.foldl (fun acc (_, X, app, _) =>
     acc ++ [⟨freshName acc (acc.length + 1) (pfx app ++ toString (acc.length - vs.length)), X⟩]) vs
@@ -1556,14 +1605,15 @@ def ovlCutMemsAs (N : Names) (vs : List Var) (xs : List (Nat × String × Term �
   pure (vs', ovlCutConj mems.flatten)
 
 /-- A rule's left side `lhs` and its variables `vs`, read with each application of a
-function-overloaded symbol (`Names.ovlCutSyms`) or of an open generator (`Names.openCutSyms`) cut
-(`cutOvlApps`): the left side, the variables with the fresh ones after them (`Ovl0`, `Ovl1`, … for
-the first, `Open0`, `Open1`, … for the second, numbered by position among the fresh ones, primed until
-new), and the conjunction of the memberships `V ∈ g(P̄)` of the fresh variables in their
+function-overloaded symbol (`Names.ovlCutSyms`), of an open generator (`Names.openCutSyms`) or of a
+hooked symbol of the registry that is no collection's symbol (`regCutSyms`) cut (`cutOvlApps`): the
+left side, the variables with the fresh ones after them (`Ovl0`, `Ovl1`, … for the first, `Open0`,
+`Open1`, … for the second, `Hooked0`, `Hooked1`, … for the third, numbered by position among the
+fresh ones, primed until new), and the conjunction of the memberships `V ∈ g(P̄)` of the fresh variables in their
 applications, each followed by the memberships `Z ∈ p` of its arguments' `#as` bindings
 (`ovlCutMemsAs`), `\top` where nothing is cut. -/
 def ovlCut (N : Names) (lhs : Term) (vs : List Var) : Rd (Term × List Var × Cond) :=
-  match N.ovlCutSyms ++ N.openCutSyms with
+  match N.ovlCutSyms ++ N.openCutSyms ++ regCutSyms with
   | [] => pure (lhs, vs, .top)
   | cs => match cutOvlApps cs vs.length lhs with
     | (_, _, []) => pure (lhs, vs, .top)
@@ -1657,8 +1707,12 @@ reader reads those so, each with its note (`ReadingNote`), and refuses the other
   element. A rule's is read so conjunct by conjunct, B₁ its `requires` (`ensures`) and the others
   conjuncts `Bᵢ = true` of `pre` (`post`); an equation's as the strict conjunction of the Bᵢ, and
   only where every Bᵢ is `singleValued` (`eqnCondTerm`), refused `patternConnective` (`\and`)
-  otherwise. A conjunction
-  under an application of a condition is refused (`patternConnective`).
+  otherwise. A conjunction of `singleValued` terms under an application of a condition is its
+  first conjunct with the memberships of the others beside it (`andUnderAppCut`), of any other
+  terms refused (`patternConnective`); a condition `\not{SortBool{}}(B)` of a term is `B = false`
+  where Bool's elements are its literals (`notAsCondition`), refused `openExtent` (Bool) where
+  they are not. Both put their conditions in a rule's `pre` (`post` for an `ensures`) and an
+  equation's `Clause.pre`; an equation's `ensures` of either form is refused.
 - A rule's sides under applications (`connectiveCut`, `lhsAndCut`): a pattern φ of sort S at a
   position `C[·]` denotes what `∃Z:S. C[Z] ∧ Z ∈ φ` denotes. A connective there is cut: a variable Z
   at the position and Z ∈ φ a conjunct of `pre` (left side) or of `post` (right side, Z then
@@ -2213,7 +2267,7 @@ rule's is `ruleCondTermsCnj`): `false` where B is
 a predicate (`predicateAtBool`), the strict conjunction of B's conjuncts where B is `\and{SortBool{}}`
 of several (`andAtBool`), else B. A conjunction under an application of a conjunct is refused
 (`patternConnective`): `term` reads `\and(t, X)` as `t #as X`, a binding, which only a left side
-makes. -/
+makes (an equation's `requires` reads one through `eqnReqCut`). -/
 def condTerm (N : Names) (vs : List Var) (b : Kore.Pattern) : Rd (Term × List Var) :=
   if isPred b then pure (.dv Srt.bool (.bool false), vs)
   else if (boolConj b).any hasAnd then fail .patternConnective "\\and"
@@ -2256,6 +2310,88 @@ def eqnCondTerm (N : Names) (vs : List Var) (b : Kore.Pattern) : Rd (Term × Lis
   let r ← condTerm N vs b
   unless eqnCondOK N b do fail .patternConnective "\\and"
   pure r
+
+/-! ## A condition `\not{SortBool{}}(B)`, and conjunctions under an application of a condition -/
+
+/-- The term B of a condition `\not{SortBool{}}(B)` (`ReadingNote.notAsCondition`): B no predicate
+(`isPred`) and holding no conjunction under applications (`hasAnd`). -/
+def notCondTerm? : Kore.Pattern → Option Kore.Pattern
+  | .not s b => if sortName? s == some "Bool" && !isPred b && !hasAnd b then some b else none
+  | _ => none
+
+mutual
+  /-- A conjunct of a condition with each conjunction `\and{S}(t₁, …, tₙ)` (n ≥ 2) under
+  applications replaced by its first conjunct t₁, and the memberships `t₁ ∈ tⱼ` of the others, as
+  (S, t₁, tⱼ) (`ReadingNote.andUnderAppCut`); none where a conjunction has a conjunct that is not
+  `singleValued` (a conjunction among them) or fewer than two conjuncts. -/
+  def condAndCutT (N : Names) : Kore.Pattern →
+      Option (Kore.Pattern × List (Kore.KSort × Kore.Pattern × Kore.Pattern))
+    | .app h ss ps => (condAndCutTList N ps).map fun (ps', ms) => (.app h ss ps', ms)
+    | .and s ps => match ps with
+      | t :: us@(_ :: _) =>
+        if singleValuedList N ps then some (t, us.map fun u => (s, t, u)) else none
+      | _ => none
+    | p => some (p, [])
+    termination_by structural p => p
+  def condAndCutTList (N : Names) : List Kore.Pattern →
+      Option (List Kore.Pattern × List (Kore.KSort × Kore.Pattern × Kore.Pattern))
+    | [] => some ([], [])
+    | p :: ps => do
+      let (p', m) ← condAndCutT N p
+      let (ps', ms) ← condAndCutTList N ps
+      pure (p' :: ps', m ++ ms)
+    termination_by structural ps => ps
+end
+
+/-- The condition B reads through `notAsCondition` or `andUnderAppCut`: B is `\not{SortBool{}}` of
+a term (`notCondTerm?`), or no predicate with a conjunct holding a conjunction under applications. -/
+def condCutTaken (b : Kore.Pattern) : Bool :=
+  (notCondTerm? b).isSome || (!isPred b && (boolConj b).any hasAnd)
+
+/-- The memberships `t ∈ u` at the sort S of a cut (`condAndCutT`), as conditions. -/
+def condCutMems (N : Names) : List Var → List (Kore.KSort × Kore.Pattern × Kore.Pattern) →
+    Rd (List Cond × List Var)
+  | vs, [] => pure ([], vs)
+  | vs, (s, t, u) :: ms => do
+    let (t', vs) ← term N vs t
+    let (u', vs) ← term N vs u
+    let (cs, vs) ← condCutMems N vs ms
+    pure (.mem (← N.sortE s) t' u' :: cs, vs)
+
+/-- A condition B (`\equals{SortBool{},S}(B, true)`) that `condCutTaken` holds, as Bool terms, each
+`B' = true`, and conditions beside them: `\not{SortBool{}}(B')` of a term as no term and the
+condition `B' = false` (`ReadingNote.notAsCondition`), refused `openExtent` (Bool) where the
+declarations give Bool an element beside its literals (`Names.boolLits`); otherwise B's conjuncts
+(`boolConj`) with their conjunctions under applications cut (`condAndCutT`,
+`ReadingNote.andUnderAppCut`) and the memberships of the cut, refused `patternConnective` (`\and`)
+where the cut is none. Also returns the conjuncts as cut, for `singleValued`. -/
+def condCuts (N : Names) (vs : List Var) (b : Kore.Pattern) :
+    Rd (List Term × List Cond × List Kore.Pattern × List Var) :=
+  match notCondTerm? b with
+  | some b' => do
+    unless N.boolLits do fail .openExtent "Bool"
+    let (t, vs) ← term N vs b'
+    pure ([], [.equals Srt.bool t (.dv Srt.bool (.bool false))], [], vs)
+  | none => do
+    let some (ps, ms) := condAndCutTList N (boolConj b) | fail .patternConnective "\\and"
+    let (ts, vs) ← terms N vs ps
+    let (cs, vs) ← condCutMems N vs ms
+    pure (ts, cs, ps, vs)
+
+/-- An equation's `requires` B: where `condCutTaken` holds, the strict conjunction of the terms
+`condCuts` gives (none for none) and its conditions, which are `Clause.pre`'s, refused
+`patternConnective` (`\and`) where two or more terms are read and a conjunct as cut is not
+`singleValued` (as `eqnCondOK`); otherwise `eqnCondTerm` and no condition. -/
+def eqnReqCut (N : Names) (vs : List Var) (b : Kore.Pattern) :
+    Rd (Option Term × List Cond × List Var) :=
+  if condCutTaken b then do
+    let (ts, cs, ps, vs) ← condCuts N vs b
+    unless ps.length ≤ 1 || singleValuedList N ps do fail .patternConnective "\\and"
+    if ts.length > 1 then N.hookEqE kEq
+    pure (conjTerms ts, cs, vs)
+  else do
+    let (t, vs) ← eqnCondTerm N vs b
+    pure (some t, [], vs)
 
 /-- The conditions `hoist` lifted out of a right side, as Bool terms: B (`condTerm`), and `t ==Int
 u` at Int, otherwise `==K` of t and u each a one-item K sequence (`kseq(inj{S,KItem}(t), dotk)`,
@@ -2429,6 +2565,7 @@ mutual
       else none
     | .app f ss ps, .app g ts qs => if decide (f = g) && decide (ss = ts) then alphaList ρ ps qs else none
     | .and s ps, .and t qs => if decide (s = t) then alphaList ρ ps qs else none
+    | .not s p, .not t q => if decide (s = t) then alpha ρ p q else none
     | .equals a b p p', .equals c d q q' =>
       if decide (a = c) && decide (b = d) then (alpha ρ p q).bind (alpha · p' q') else none
     | .in a b p p', .in c d q q' =>
@@ -3465,7 +3602,9 @@ def clauseExcl (N : Names) (msrc : String) (e : RawEqn) (excl : Option Kore.Patt
         let (ps, evs) ← terms N [] (← need (argPats eqnFuel args) .exclusionShape)
         match ← need (req? r) .requiresShape with
         | none => pure (ps, evs)
-        | some rq => do let (_, evs) ← condTerm N evs rq; pure (ps, evs)
+        | some rq =>
+          if condCutTaken rq then do let (_, _, _, evs) ← condCuts N evs rq; pure (ps, evs)
+          else do let (_, evs) ← condTerm N evs rq; pure (ps, evs)
       | _ => fail .exclusionShape
     let π ← need (bs.mapM fun b => do
       let n ← dropPrefix? "Var" b.var.ident.name
@@ -3491,9 +3630,11 @@ def clauseBody (N : Names) (msrc : String) (e : RawEqn) (excl : Option Kore.Patt
   if let some d := eqnAttrFault? e.attrs then fail .equationAttribute d
   let (pats, vs) ← svinPats N e
   let np := vs.length
-  let (req, vs) ← match e.req with
-    | none => pure (none, vs)
-    | some r => do let (t, vs) ← eqnCondTerm N vs r; pure (some t, vs)
+  -- the `requires`: its term, and the conditions of `notAsCondition` and `andUnderAppCut`, which
+  -- are `Clause.pre`'s (`eqnReqCut`)
+  let (req, reqCs, vs) ← match e.req with
+    | none => pure (none, [], vs)
+    | some r => eqnReqCut N vs r
   -- a variable the arguments do not bind is read; in a condition the values do not decide it is
   -- refused once the definition is built (`clauseRefusal`)
   -- the `ensures`, the clause's `ens`: part of the right side, not of whether it applies
@@ -3522,7 +3663,8 @@ def clauseBody (N : Names) (msrc : String) (e : RawEqn) (excl : Option Kore.Patt
       if ens.toList.length + cs.length > 1 then N.hookEqE kEq
       pure (rhs, if cs.isEmpty then ens else conjTerms (ens.toList ++ cs), vs)
   -- a `non-executable` equation: a clause that no `[owise]` premise negates (`Clause.aside`)
-  clauseExcl N msrc e excl vs { vars := [], pats, req, rhs, ens, prio := (eqnPrio e).2, aside := nonExec e }
+  clauseExcl N msrc e excl vs { vars := [], pats, req, rhs, ens, prio := (eqnPrio e).2, aside := nonExec e,
+                                pre := conjC reqCs }
 
 /-- A function's clause from its equation (and the `[owise]` equation's exclusion of it). -/
 def clause? (N : Names) (msrc : String) (e : RawEqn) (excl : Option Kore.Pattern) : Rd (Clause × ClausePres) :=
@@ -3749,33 +3891,43 @@ def exIndices (vs : List Var) (n0 : Nat) (xs : List Kore.EVar) : List Nat :=
     | _, _ => none
 
 /-- A rule's `requires` or `ensures` B (`\equals{SortBool{},S}(B, true)`) as the list of its
-conjuncts, Bool terms: `[false]` where B is a predicate (`predicateAtBool`), each conjunct of B
-where B is `\and{SortBool{}}` of several (`andAtBool`), else `[B]`. A conjunction under an
-application of a conjunct is refused (`patternConnective`), as by `condTerm`. -/
-def ruleCondTermsCnj (N : Names) (vs : List Var) (b : Kore.Pattern) : Rd (List Term × List Var) :=
-  if isPred b then pure ([.dv Srt.bool (.bool false)], vs)
-  else if (boolConj b).any hasAnd then fail .patternConnective "\\and"
+conjuncts, Bool terms, and conditions beside them: `[false]` where B is a predicate
+(`predicateAtBool`); where `condCutTaken` holds, `condCuts`' terms and conditions
+(`notAsCondition`, `andUnderAppCut`); each conjunct of B where B is `\and{SortBool{}}` of several
+(`andAtBool`), else `[B]`. -/
+def ruleCondTermsCnj (N : Names) (vs : List Var) (b : Kore.Pattern) :
+    Rd (List Term × List Cond × List Var) :=
+  if isPred b then pure ([.dv Srt.bool (.bool false)], [], vs)
+  else if condCutTaken b then do
+    let (ts, cs, _, vs) ← condCuts N vs b
+    pure (ts, cs, vs)
   else do
     let (ts, vs) ← terms N vs (boolConj b)
-    pure (if ts.isEmpty then [.dv Srt.bool (.bool true)] else ts, vs)
+    pure (if ts.isEmpty then [.dv Srt.bool (.bool true)] else ts, [], vs)
 
 /-- The conditions `hoist` lifted out of a rule's right side, as Bool terms: each conjunct of a
-`{B #Equals true}` (`ruleCondTermsCnj`), and the term `sideConds` writes for a `t ∧ u` of two terms
-(`.same`). -/
-def ruleSideCondsCnj (N : Names) : List Var → List SideCond → Rd (List Term × List Var)
-  | vs, [] => pure ([], vs)
+`{B #Equals true}` (`ruleCondTermsCnj`) with its conditions, and the term `sideConds` writes for a
+`t ∧ u` of two terms (`.same`). -/
+def ruleSideCondsCnj (N : Names) : List Var → List SideCond → Rd (List Term × List Cond × List Var)
+  | vs, [] => pure ([], [], vs)
   | vs, .isTrue b :: cs => do
-    let (ts, vs) ← ruleCondTermsCnj N vs b
-    let (us, vs) ← ruleSideCondsCnj N vs cs
-    pure (ts ++ us, vs)
+    let (ts, ds, vs) ← ruleCondTermsCnj N vs b
+    let (us, es, vs) ← ruleSideCondsCnj N vs cs
+    pure (ts ++ us, ds ++ es, vs)
   | vs, c :: cs => do
     let (ts, vs) ← sideConds N vs [c]
-    let (us, vs) ← ruleSideCondsCnj N vs cs
-    pure (ts ++ us, vs)
+    let (us, es, vs) ← ruleSideCondsCnj N vs cs
+    pure (ts ++ us, es, vs)
 
 /-- The conjunction of the conditions `B = true`, one per term B, `\top` for none. -/
 def ruleEqTrueCnj (ts : List Term) : Cond :=
   ovlCutConj (ts.map fun t => Cond.equals Srt.bool t (.dv Srt.bool (.bool true)))
+
+/-- `ruleEqTrueCnj ts` with the conditions `cs` after its conjuncts; `ruleEqTrueCnj ts` where `cs`
+is empty. -/
+def ruleEqTrueCnjWith (ts : List Term) (cs : List Cond) : Cond :=
+  if cs.isEmpty then ruleEqTrueCnj ts
+  else ovlCutConj (ts.map (fun t => Cond.equals Srt.bool t (.dv Srt.bool (.bool true))) ++ cs)
 
 /-- A rewrite axiom `\rewrites(\and(lhs, req), \exists(x̄, \and(rhs, ens)))`, x̄ possibly empty and
 renamed apart from the names the left side and the `requires` hold (`rhsApart`). Refused
@@ -3792,28 +3944,29 @@ def ruleBodyAnd (N : Names) (msrc : String) (a : Kore.Axiom) (l r0 : Kore.Patter
     -- a variable the left side does not bind (in the `requires`, the `ensures` or the right side)
     -- is read after the left side's; where the values do not decide the rule it is refused once
     -- the definition is built (`openRefusal`)
-    -- the `requires`' conjuncts: the first is `req`, each other `B = true` a conjunct of `pre`
-    let (reqs, vs) ← match ← need (req? r0) .requiresShape with
-      | none => pure ([], vs)
+    -- the `requires`' conjuncts: the first is `req`, each other `B = true` a conjunct of `pre`, and
+    -- the conditions `ruleCondTermsCnj` gives beside them conjuncts of `pre`
+    let (reqs, reqCs, vs) ← match ← need (req? r0) .requiresShape with
+      | none => pure ([], [], vs)
       | some q => ruleCondTermsCnj N vs q
     let n0 := vs.length
-    let (enss, vs) ← match ens with
-      | none => pure ([], vs)
+    let (enss, ensCs, vs) ← match ens with
+      | none => pure ([], [], vs)
       | some e => ruleCondTermsCnj N vs e
     -- the right side's binders that bind something
     let kept := exKept xs r en
     -- the right side's conjunctions as conditions, and an empty right side as the `ensures` false
     -- (`hoist`), the left side without `#as` in its place (after `keyCut`); of the right side's
     -- conditions (the `ensures`' conjuncts, then the lifted ones) the first is `ens`, each other
-    -- `B = true` a conjunct of `post`
+    -- `B = true` a conjunct of `post`, and so is each condition `ruleCondTermsCnj` gives beside them
     let (r, conds, empty) := hoist r
     let (rhs, ens, post, vs) ← if empty then
         pure (stripAs lhs, some (Term.dv Srt.bool (.bool false)), Cond.top, vs)
       else do
         let (rhs, vs) ← term N vs r
-        let (cs, vs) ← ruleSideCondsCnj N vs conds
+        let (cs, csCs, vs) ← ruleSideCondsCnj N vs conds
         let es := enss ++ cs
-        pure (rhs, es.head?, ruleEqTrueCnj es.tail, vs)
+        pure (rhs, es.head?, ruleEqTrueCnjWith es.tail (ensCs ++ csCs), vs)
     -- the right side's existential variables, in the text's order of nesting: the binders that
     -- bind something, looked up before `keyCut` adds its variables
     let exs := exIndices vs n0 kept
@@ -3824,7 +3977,7 @@ def ruleBodyAnd (N : Names) (msrc : String) (a : Kore.Axiom) (l r0 : Kore.Patter
     -- membership in the application a conjunct of `pre` (`ovlCut`)
     let (lhs, vs, pre) ← ovlCut N lhs vs
     let pre := ovlCutConj (keys ++ (if pre.isTop then [] else [pre]) ++
-      (if reqs.length ≤ 1 then [] else [ruleEqTrueCnj reqs.tail]))
+      (if reqs.length ≤ 1 then [] else [ruleEqTrueCnj reqs.tail]) ++ reqCs)
     let req := reqs.head?
     let rhs := if empty then stripAs lhs else rhs
     let plain := a.attributes.filterMap fun ap =>
@@ -5452,7 +5605,8 @@ conditions it lifts: a lifted predicate is `andAsEnsures`; on a rule a lifted `t
 is `andTermsCut` where the rules the axiom gives are read through the cut (`andCutTaken`, which
 reads the names), `andTermsWeaker` where they are not, and both where some are, on an equation it is
 refused), the `requires`'
-(`requiresOrSplit` and its disjuncts', else `predicateAtBool`, `andAtBool`) and the `ensures`',
+(`requiresOrSplit` and its disjuncts', else `predicateAtBool`, `notAsCondition`, `andAtBool`,
+`andUnderAppCut`) and the `ensures`',
 `orBottom`; each once. An equation read by cases has `existsAsCases` or `orAsCases` in place of
 its right side's notes, and `orBottom` for an alternative left out as `\bottom` (`hasEmptyAlt`). -/
 def connNotes (N : Names) (a₀ : Kore.Axiom) : List ReadingNote :=
@@ -5462,7 +5616,9 @@ def connNotes (N : Names) (a₀ : Kore.Axiom) : List ReadingNote :=
     | _ => []
   let cond := fun (b : Kore.Pattern) =>
     if isPred b then [ReadingNote.predicateAtBool]
-    else if (boolConj b).length > 1 then [ReadingNote.andAtBool] else []
+    else if (notCondTerm? b).isSome then [ReadingNote.notAsCondition]
+    else (if (boolConj b).length > 1 then [ReadingNote.andAtBool] else []) ++
+      (if (boolConj b).any hasAnd then [ReadingNote.andUnderAppCut] else [])
   -- `eqn`: an equation's `t ∧ u` of two terms is refused (`clauseBody`), so it gives no note
   -- the rules the axiom gives (`scanRewrites`) whose conjunction of terms is read through the cut
   let cuts := (scanRewrites (.axiom a₀)).map (andCutTaken N)
@@ -5891,30 +6047,52 @@ def hookImplAt (stands : List (Srt × Srt)) (hk : String) (k : CtorSig) : Option
 def hookFnDecls (S : Scan) : List Kore.SentenceSymbol :=
   (S.userHooked.filter (hookFnSym S)).map fun h => ⟨h.symbol, h.sorts, h.sort, h.attributes⟩
 
+/-- The hooked symbol of the text heading an equation's left side that `hookFnSym` does not read as
+a function: the symbol named `e.fn`, or, where it is sort-parametric, the one whose instance `e.fn`
+names (`instNameOf`: the symbol the text applies is the declared one at sort arguments). -/
+def eqnHookedHead? (S : Scan) (e : RawEqn) : Option Kore.HookedSymbol :=
+  (S.userHooked.filter (!hookFnSym S ·)).find? fun h =>
+    h.symbol.ident.ident.name == e.fn ||
+      (!h.symbol.sortVars.isEmpty && instNameOf h.symbol.ident.ident.name e.fn)
+
+/-- **An equation that is a user's sentence about a symbol whose value the registry gives**: written
+in a user's file, no symbol-overload or selector-domain axiom, its left side headed by a symbol of
+the registry (`regSymNames`), or by a hooked symbol of the text that `hookFnSym` does not read as a
+function and that carries a hook (`eqnHookedHead?`: one whose hook a registry hook interprets, a
+collection sort's unit, element or concatenation symbol among them). Such a symbol is read as it
+is without the equation: a registry symbol, or a parameter symbol whose value is its `impl`'s graph
+(`hookImplAt`) or, without one, the interpretation's. The equation states the symbol's value at
+every element of its argument sorts, a claim about values the registry (or `H`) gives, true or false
+of them; the attribute `simplification` does not change what an equation states, so it is the same
+kind of sentence as a user's `simplification` lemma. The reader does not put it in `Γ` and neither
+claims it true nor refuses it for being false: it is owed. Where it applies no parameter symbol
+without `impl` it rests on an interpreted symbol's graph, which `Γ` states at values, so the tie's
+class is `user lemma at values` (`EntailsAtValues`; the tie proves it, or `Γ` with it has no model
+and the text is not tied); where it applies one it is a parameter lemma, owed as a hypothesis on
+`H` (the account's class, `isParamLemma`'s condition). -/
+def regLemmaEqn (S : Scan) (e : RawEqn) : Bool :=
+  !e.dom && !hasAttr e.attrs "symbol-overload" && isUserSource e.attrs &&
+    (regSymNames.contains e.fn || (eqnHookedHead? S e).any (fun h => (attrStr? h.attributes "hook").isSome))
+
 /-- The refusal of an equation by the symbol heading its left side, with its detail: a hooked
-symbol of the text not read as a function (`hookFnSym`), applied at no sort argument or, where it is
-sort-parametric, at sort arguments (the equation then named by the instance, `instNameOf`: the
-symbol the text applies is the declared one), or a registry symbol where the equation is written in a user's file
-(`hookEquation`), a constructor (`constructorEquation`) or an open generator
-(`openGeneratorEquation`); none for an equation of any other symbol, a symbol-overload axiom or a
+symbol of the text not read as a function (`eqnHookedHead?`) where the equation is no user's
+sentence about it (`regLemmaEqn`: the symbol declared without a hook attribute, or the equation
+without a user source) (`hookEquation`), a constructor (`constructorEquation`) or an open
+generator (`openGeneratorEquation`); none for an equation of any other symbol, a user's equation
+of a symbol whose value the registry gives (`regLemmaEqn`), a symbol-overload axiom or a
 selector-domain axiom. -/
 def eqnHeadFault? (S : Scan) (e : RawEqn) : Option (RefusalReason × String) :=
-  if e.dom || hasAttr e.attrs "symbol-overload" then none
+  if e.dom || hasAttr e.attrs "symbol-overload" || regLemmaEqn S e then none
   else
     let isCtor := fun (n : String) =>
       S.syms.any fun s => s.symbol.ident.ident.name == n && hasAttr s.attributes "constructor"
-    let hooked := ((S.userHooked.filter (!hookFnSym S ·)).find? fun h =>
-        h.symbol.ident.ident.name == e.fn ||
-          (!h.symbol.sortVars.isEmpty && instNameOf h.symbol.ident.ident.name e.fn)).map fun h =>
+    let hooked := (eqnHookedHead? S e).map fun h =>
       let hk := (attrStr? h.attributes "hook").getD ""
       let inst := if h.symbol.ident.ident.name == e.fn then "" else s!"an instance of {h.symbol.ident.ident.name}, "
       (RefusalReason.hookEquation, s!"{e.fn}: {inst}a hooked symbol of the text, " ++
         if (attrStr? h.attributes "hook").isNone then "without a hook attribute"
-        else if (regHookOf hk).isSome then s!"hook {hk} interpreted by the registry"
-        else s!"hook {hk}, a unit, element or concatenation symbol of a collection sort")
+        else s!"hook {hk}, an equation without a user source")
     if hooked.isSome then hooked
-    else if isUserSource e.attrs && regSymNames.contains e.fn then
-      some (.hookEquation, s!"{e.fn}: a symbol of the registry")
     else if isCtor e.fn then
       let right := match e.rhs with
         | .app h _ _ =>
@@ -6210,11 +6388,12 @@ def envOf (m : Kore.Module) (S : Scan) : Rd Env := do
   let extra := (heads.flatten).eraseDups.filter fun n => (N₀.sym? n).isNone
   -- a text that declares its own sort-parametric function `Lblite` at one sort: each application
   -- of `Lblite` at a sort is that function's instance (the text declares no other `Lblite`), read
-  -- as its own parameter where `instSyms` has it without an equation; one it has with an equation
-  -- would be a function named like `ite` at a sort (`Faithful.NamesNumbered`), and one at a sort
-  -- the definition does not have has no declaration, so either is refused, not read as K's `ite`
+  -- as its own parameter where `instSyms` has it without an equation (`clauseless`) and as a
+  -- function of the definition where it has it with one (`fnNames`, so not in `extra`); one at a
+  -- sort the definition does not have has no declaration and no number, and is refused, not read
+  -- as K's `ite`
   let ownIte := S.paramDecls.any fun d => d.symbol.ident.ident.name == "Lblite" && d.symbol.sortVars.length == 1
-  match (if ownIte then (heads.flatten).find? (fun n => (iteSort? n).isSome && !clauseless.contains n) else none) with
+  match (if ownIte then extra.find? (fun n => (iteSort? n).isSome && !clauseless.contains n) else none) with
   | some n => fail .iteShape n
   | none => pure ()
   let iteNames := extra.filter fun n => (iteSort? n).isSome && !clauseless.contains n
@@ -6805,6 +6984,52 @@ def predEqnFaults (N : Names) (msrc : String) (eqs : List RawEqn) (c : Semantics
         else ⟨.generatedEquation, s!"{e.fn}: {eqnShape e}", .attrs e.attrs⟩)
     else none
 
+/-- The text's equations `eqs` of the sort predicate `fn` (a function of `Semantics.sortPreds` of
+`c`) state what `fn`'s clauses state, no more and no less:
+- (a) each equation of `fn`'s symbol is one `predEqnFaults` passes: a clause of `fn` (`predEqnOK`,
+  an `[owise]` one with its exclusion) or an instance of one that `Γ` entails (`predInstAcc`), so
+  the text says nothing of the predicate beyond what `fn` entails;
+- (b) each clause of `fn` is the reading (`clause?` without an exclusion, as `predEqnOK` reads an
+  equation without `requires` and `ensures`) of an equation of the text, so `fn` says nothing the
+  text does not (an `[owise]` equation's exclusion is (a)'s to check). -/
+def predStdHeldPR (N : Names) (msrc : String) (eqs : List RawEqn) (c : Semantics) (fn : Fn) : Bool :=
+  let n := c.symName fn.label
+  let own := eqs.filter (·.fn == n)
+  own.all (fun e => predEqnOK N msrc own fn e || predInstAcc N msrc own c e) &&
+  fn.clauses.all fun cl => own.any fun e =>
+    e.req.isNone && e.ens.isNone && !e.dom && (clause? N msrc e none).toOption.any (clauseSame ·.1 cl)
+
+/-- The names of the definition's own sorts' predicates (the functions of `Semantics.sortPreds`
+numbered from `nRegSyms`) whose equations in the text are not exactly the clauses `sortPreds`
+gives (`predStdHeldPR`): each is the function its equations define. A registry sort's predicate is
+not among them (`idsOK` numbers every function of `c.fns` from `nRegSyms`). -/
+def predFnNamesPR (N : Names) (msrc : String) (eqs : List RawEqn) (c : Semantics) : List String :=
+  let peqs := eqs.filter fun e => (dropPrefix? "Lblis" e.fn).isSome
+  (c.sortPreds.filter fun fn => decide (nRegSyms ≤ fn.label) && !predStdHeldPR N msrc peqs c fn).map
+    (c.symName ·.label)
+
+/-- The sort predicates `names` read as functions from the text's equations (`fnFrom`: the
+exclusion's disjuncts matched by content, the priorities), each at its declaration. -/
+def predFnsOfPR (S : Scan) (E : Env) (names : List String) : Rd (List (Fn × FnPres)) :=
+  names.mapM fun n => do
+    let d ← need (S.syms.find? (·.symbol.ident.ident.name == n)) .missingEquation n
+    Rd.within (.sentence (.symbol d)) (fnFrom E.N E.src (srcOver E.src d.attributes) S.eqs (fnClauses E.N E.src S.eqs n) n
+      none (← d.sorts.mapM sortNameE) (← sortNameE d.sort) ((loc? d.attributes).getD noLoc)
+      (hasAttr d.attributes "total" || hasAttr d.attributes "functional"))
+
+/-- The core from the productions and the rules (`coreBase`), with each own sort's predicate whose
+equations are not exactly `Semantics.sortPreds`' clauses (`predFnNamesPR`, decided on `coreBase`'s
+core) read from its equations as a function of `c.fns`, after the generated functions; with those
+functions and their presentations. `sortPreds` then builds no function for that sort. -/
+def predCoreOfPR (S : Scan) (E : Env) (prods : List Prod) (rules : List (Rule × RulePres)) :
+    Rd (Semantics × List (Fn × FnPres)) := do
+  let core ← coreBase S E prods rules
+  match predFnNamesPR E.N E.src S.eqs core with
+  | [] => pure (core, [])
+  | ns =>
+    let pfs ← predFnsOfPR S E ns
+    pure (← coreBase S { E with genFns := E.genFns ++ pfs } prods rules, pfs)
+
 /-- The open generator `k`'s sort is flat and no constructor or overloading symbol bears its
 name: `Faithful.genWf`'s last conjunct at `k`. -/
 def openFlat (c : Semantics) (k : ParamSig) : Bool :=
@@ -6848,23 +7073,53 @@ theorem openGenFault_none {c : Semantics} {k : ParamSig} (h : openGenFault c k =
     | false => unfold openGenFault at h; rw [hc, hf] at h; simp at h
     | true => exact ⟨rfl, rfl⟩
 
+/-- A rewrite axiom one of whose rules (`scanRewrites`, and each disjunct of a `requires` split by
+`reqOrSplit?`) has a `requires`, an `ensures` or a condition its right side lifts (`hoist`, the
+right side's binders peeled) that is `\not{SortBool{}}` of a term (`notCondTerm?`): a rule read
+through `ReadingNote.notAsCondition`. -/
+def notCondRule (a : Kore.Axiom) : Bool :=
+  let isNot := fun (p : Kore.Pattern) => match req? p with
+    | some (some q) => (notCondTerm? q).isSome
+    | _ => false
+  (scanRewrites (.axiom a)).any fun b => match b.pattern with
+    | .rewrites _ (.and _ [_, r0]) rx =>
+      (isNot r0 || match reqOrSplit? b.pattern r0 with
+        | some (_, qs) => qs.any isNot
+        | none => false) ||
+      match (peelExists rx).2 with
+      | .and _ [r, en] => isNot en || (hoist r).2.1.any fun c => match c with
+        | .isTrue q => (notCondTerm? q).isSome
+        | .same .. => false
+      | _ => false
+    | _ => false
+
 /-- The core from the productions and the rules. The configuration's cells are ordinary sorts,
 constructors and subsorts of it, before the user's (`Cell.topSorts`, `Cell.topSigs`,
 `Cell.topSubs` of the cell tree). The definition's token sorts (`Env.tokenSorts`) are token sorts
 of the semantics after the imported modules' (`Lib.tokenSorts`): their values are their literals.
-A rule that is not read (`ruleRefusal`) is refused at its axiom; then the first clause of a
-function that is not read (`openCutRefusalCl`, then `clauseRefusal`), at its equation; then the first equation of a sort's
-predicate or projection that the core does not state (`predEqnFaults`), at that equation: the core
-defines the sort predicates from the sorts (`Semantics.sortPreds`), so a text whose equations of
-one are others is a text one of whose sentences the core would not state. -/
+An own sort's predicate whose equations in the text are not exactly the clauses
+`Semantics.sortPreds` gives is the function its equations define (`predCoreOfPR`), and a
+`fnFrom` refusal of them refuses the text. A rule that is not read (`ruleRefusal`) is refused at
+its axiom; then the first clause of a function that is not read (`openCutRefusalCl`, then
+`clauseRefusal`), at its equation, the sort predicates read as functions among them; then the
+first equation of a sort's predicate or projection that the core does not state
+(`predEqnFaults`), at that equation: the core defines a registry sort's predicate from the sorts,
+so a text whose equations of one are others is a text one of whose sentences the core would not
+state. -/
 def coreOf (S : Scan) (E : Env) (prods : List Prod) (rules : List (Rule × RulePres)) : Rd Semantics := do
-  let core ← coreBase S E prods rules
+  let (core, pfs) ← predCoreOfPR S E prods rules
   -- the names' test of Bool (`Names.boolLits`, on which `exRead` is entered) against the built
   -- definition's: reading `\exists B:Bool` by cases states the text only where Bool's values are
   -- its literals, so an equation so read is refused where they are not
   if !core.litSort Srt.bool then
     if let some e := S.eqs.find? (exCases E.N) then
       Rd.within (.attrs e.attrs) (fail .existentialEquation "Bool: the text's declarations give the sort no value beside its literals (Names.boolLits), and the definition read has one (litSort): the equation, read by cases over a Bool variable (existsAsCases), would state more than the text")
+    -- the same test for a condition `\not{SortBool{}}(B)` read as `B = false` (`notAsCondition`),
+    -- which is the text's only where Bool's elements are its literals
+    if let some a := S.rewrites.find? notCondRule then
+      Rd.within (.sentence (.axiom a)) (fail .openExtent "Bool")
+    if let some e := S.eqs.find? (fun e => (e.req.bind notCondTerm?).isSome) then
+      Rd.within (.attrs e.attrs) (fail .openExtent "Bool")
   -- a constructor of the text into a sort that is no constructor sort (`ctorResultSort`)
   match core.ctors.find? (fun k => !(Faithful.consSorts core).contains k.result) with
   | some k =>
@@ -6892,7 +7147,8 @@ def coreOf (S : Scan) (E : Env) (prods : List Prod) (rules : List (Rule × RuleP
   match (S.rewrites.zip rules).findSome? (fun (a, r, rp) => (ruleRefusal core E.N a r rp.names).map (a, ·)) with
   | some (a, reason, detail) => Rd.within (.sentence (.axiom a)) (fail reason detail)
   | none =>
-    let fnCls := prods.flatMap fun | .fn f fp => withPres f.clauses fp.clauses | _ => []
+    let fnCls := (prods.flatMap fun | .fn f fp => withPres f.clauses fp.clauses | _ => []) ++
+      pfs.flatMap fun (f, fp) => withPres f.clauses fp.clauses
     match fnCls.findSome? (fun (cl, cp) =>
         ((openCutRefusalCl core cl cp.names).orElse fun _ => clauseRefusal core cl cp.names).map (cp, ·)) with
     | some (cp, reason, detail) =>
@@ -7287,6 +7543,10 @@ def presOf (m : Kore.Module) (S : Scan) (E : Env) (prods : List Prod) (rules : L
   match initFaults E.N E.src m.sentences eqs (functionalSyms S.events) core (Cell.top E.config) with
   | f :: _ => .error f
   | [] => pure ()
+  -- the sort predicates `coreOf` reads as functions (`predCoreOfPR`): the functions of the core
+  -- after the productions' and the generated ones, with the generated ones'
+  let nFns := (prods.filterMap fun | .fn f _ => some f | _ => none).length + E.genFns.length
+  let E := { E with genFns := E.genFns ++ (← predFnsOfPR S E ((core.fns.drop nFns).map (core.symName ·.label))) }
   pure { source := E.src, moduleName := m.name.ident.name, moduleLoc := ← need (loc? m.attributes) .moduleLocation
          imports := E.imports, simpArg := E.simpArg
          sortUids := cp.sortUids
