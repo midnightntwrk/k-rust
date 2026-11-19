@@ -77,13 +77,25 @@
 
   - `e3-ml-eq-rhs-ceil-and`, `h(X) => X #And #Ceil(f(X) #And g(X))`: `[X:Int, #Cut0:Int]`,
     `exs [1]`, `rhs X`, `post ⌈#Cut0⌉ ∧ #Cut0 ∈ f(X) ∧ #Cut0 ∈ g(X)`, `fixedExs [1]`.
-  - `e3-ml-eq-rhs-equals-and` (the conjunction in an operand of `\equals`) and
-    `e3-ml-eq-rhs-not-ceil-and` (the `\ceil` under `\not`): refused `patternConnective`.
+  - `e3-ml-eq-rhs-equals-and` (the conjunction in an operand of `\equals`): refused
+    `patternConnective`.
+  - `e3-ml-eq-rhs-not-ceil-and`, `h(X) => X #And #Not(#Ceil(f(X) #And g(X)))`, the `\ceil` under
+    `\not`: the cut's binder stays inside the predicate (`ceilExCond`), `[X:Int]`, `exs []`,
+    `rhs X`, `post ¬∃Z:Int. (⌈Z⌉ ∧ Z ∈ f(X) ∧ Z ∈ g(X))`, Z at the index 1 past the clause's one
+    variable. `Cond.bound` admits the binder (Int has a value and `Z ∈ f(X)` fixes Z by a term over
+    X), but `clauseCE` is false: the clause has no existential variable and a `post` that is not
+    `\top` (`Semantics.clausePlainEx`'s first conjunct; a clause without existential variables is
+    read with no right-side predicate).
+  Hand-written (`HandAnd`): `eqNotCeilCut`, `h(X) => (f(X) #And g(X)) #And #Not(#Ceil(f(X) #And
+    g(X)))`, put in that text: the body's cut `#Cut0` in `exs`, the kept binder past it at index 2,
+    and `clausePlainEx`, `clauseCE` and `clausesPlain` true.
   Hand-written (`HandAnd`): `eqCeilUnder`, `h(X) => X #And #Ceil(f(X #And g(X)))`: the operand is
   `f(#Cut0)`; `eqCeilBoth`, `h(X) => (f(X) #And g(X)) #And #Ceil(g(X #And f(X)))`: the body's
   variable before the `\ceil`'s in `exs`.
   Kernel-checked: `ceRead` on the fixture's equation written by hand (`HandAnd.eqCeil`, tied to the
-  text).
+  text), and on `e3-ml-eq-rhs-not-ceil-and`'s (`HandAnd.eqNotCeil`, tied), with `Cond.bound` of its
+  `post` true and `clausePlainEx` of the clause false at the unconfined Int (`notCeil_bound`), and
+  both true of the same predicate beside an existential variable `Z ∈ X` (`notCeilCut_ok`).
 
   ## left: right sides `Parse.frRead` and `Parse.exRead` give `none` on (test/RhsReader.lean)
 
@@ -791,6 +803,11 @@ namespace HandAnd
 def eqCeil : RawEqn := eqn (.and int [X, .ceil int int (.and int [f X, g X])])
 def eqCeilUnder : RawEqn := eqn (.and int [X, .ceil int int (f (.and int [X, g X]))])
 def eqCeilBoth : RawEqn := eqn (.and int [.and int [f X, g X], .ceil int int (g (.and int [X, f X]))])
+/-- `h(X) => X #And #Not(#Ceil(f(X) #And g(X)))`: the equation of `e3-ml-eq-rhs-not-ceil-and` (`tie`). -/
+def eqNotCeil : RawEqn := eqn (.and int [X, .not int (.ceil int int (.and int [f X, g X]))])
+/-- `h(X) => (f(X) #And g(X)) #And #Not(#Ceil(f(X) #And g(X)))`. -/
+def eqNotCeilCut : RawEqn :=
+  eqn (.and int [.and int [f X, g X], .not int (.ceil int int (.and int [f X, g X]))])
 
 /-- **`ceRead` on the fixture's equation, in the kernel**: one clause over `[X:Int, #Cut0:Int]`,
 `rhs X`, the fresh variable existential, `post` the `\ceil` of it and its two memberships. -/
@@ -802,10 +819,60 @@ theorem ceRead_eqCeil : ceRead N2 eqCeil = .ok
      [⟨"X", "Int"⟩, ⟨"'Hash'Cut0", "Int"⟩]) := by
   kernel_rfl
 
+/-- `post` of `e3-ml-eq-rhs-not-ceil-and`'s clause: `¬∃Z:Int. (⌈Z⌉ ∧ Z ∈ f(X) ∧ Z ∈ g(X))`, Z at the
+index 1. -/
+def notCeilPost : Cond :=
+  .not (.ex Srt.int (.and (.ceil Srt.int (.var 1))
+    (.and (.mem Srt.int (.var 1) (.app F [x])) (.mem Srt.int (.var 1) (.app G [x])))))
+
+/-- **`ceRead` on `e3-ml-eq-rhs-not-ceil-and`'s equation, in the kernel**: one clause over `[X:Int]`,
+`rhs X`, no existential variable, `post` the negated `\ceil` with the cut's binder kept inside it. -/
+theorem ceRead_eqNotCeil : ceRead N2 eqNotCeil = .ok
+    ({ vars := [Srt.int], pats := [.var 0], req := none, rhs := .var 0, ens := none, prio := 50,
+       aside := false, exs := [], post := notCeilPost }, [⟨"X", "Int"⟩]) := by
+  kernel_rfl
+
+/-- A definition with the library's Int below KItem and nothing else: Int is not confined and has
+a value. -/
+def semNotCeil : Semantics :=
+  { lib := { sortsBelowKItem := [Srt.int] }, sortNames := [], symNames := [], userSorts := [], ctors := [],
+    fns := [], userSubsorts := [], pgmSort := Srt.k, rules := [] }
+
+/-- That clause. -/
+def notCeilCl : Clause :=
+  { vars := [Srt.int], pats := [.var 0], req := none, rhs := .var 0, ens := none, post := notCeilPost }
+
+/-- **The binder is admitted by `Cond.bound`, the clause is not by `clausePlainEx`**: Int is not
+confined, has a value, and `Z ∈ f(X)` fixes Z by a term over X; but the clause has no existential
+variable and its `post` is not `\top`. -/
+theorem notCeil_bound : semNotCeil.confined Srt.int = false ∧ Cond.bound semNotCeil 1 notCeilPost = true ∧
+    semNotCeil.clausePlainEx notCeilCl = false := by
+  decide +kernel
+
+/-- The same predicate in a clause with an existential variable: `h(X) = ∃Z. Z ∧ Z ∈ X ∧ ¬∃W. (⌈W⌉ ∧
+W ∈ f(X) ∧ W ∈ g(X))`, W at the index 2. -/
+def notCeilCutCl : Clause :=
+  { vars := [Srt.int, Srt.int], pats := [.var 0], req := none, rhs := .var 1, ens := none, exs := [1],
+    post := .and (.mem Srt.int (.var 1) x)
+      (.not (.ex Srt.int (.and (.ceil Srt.int (.var 2))
+        (.and (.mem Srt.int (.var 2) (.app F [x])) (.mem Srt.int (.var 2) (.app G [x])))))) }
+
+/-- **Beside an existential variable the clause is admitted**: `clausePlainEx` true, and the kept
+binder (index 2) admitted by `Cond.bound`. -/
+theorem notCeilCut_ok : semNotCeil.clausePlainEx notCeilCutCl = true ∧
+    Cond.bound semNotCeil 2 notCeilCutCl.post = true := by
+  decide +kernel
+
 end HandAnd
 
 /-- info: 'ExClauseReader.HandAnd.ceRead_eqCeil' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms HandAnd.ceRead_eqCeil
+/-- info: 'ExClauseReader.HandAnd.ceRead_eqNotCeil' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms HandAnd.ceRead_eqNotCeil
+/-- info: 'ExClauseReader.HandAnd.notCeil_bound' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms HandAnd.notCeil_bound
+/-- info: 'ExClauseReader.HandAnd.notCeilCut_ok' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms HandAnd.notCeilCut_ok
 
 /--
 info: e3-ml-eq-rhs-ceil-and Lblh: the hand-written equation is the text's: true
@@ -816,7 +883,19 @@ e3-ml-eq-rhs-ceil-and Lblh: functional sentence false; clauses 1
       clauseSorted true; condOK post true; sortedCE true; fixedExs [1]; confined [false]; clauseCE true
   sortedOK but clausesPlain true; clausesPlain true; every clause clauseCE true; readsConfined true
 e3-ml-eq-rhs-equals-and Lblh: refused KCore.Parse.RefusalReason.patternConnective (\and)
-e3-ml-eq-rhs-not-ceil-and Lblh: refused KCore.Parse.RefusalReason.patternConnective (\and)
+e3-ml-eq-rhs-not-ceil-and Lblh: the hand-written equation is the text's: true
+e3-ml-eq-rhs-not-ceil-and Lblh: functional sentence false; clauses 1
+  [0] vars [X:Int] pats [X] req none prio 50 aside false
+      pre ⊤
+      rhs X ens none exs [] post ¬∃.(⌈#1⌉:Int ∧ ((#1 ∈[Int] Lblf(X)) ∧ (#1 ∈[Int] Lblg(X))))
+      clauseSorted true; condOK post true; sortedCE true; fixedExs []; confined []; clauseCE false
+  sortedOK but clausesPlain true; clausesPlain false; every clause clauseCE false; readsConfined true
+e3-ml-eq-rhs-not-ceil-and Lblh: functional sentence false; clauses 1
+  [0] vars [X:Int, 'Hash'Cut0:Int] pats [X] req none prio 50 aside false
+      pre ⊤
+      rhs 'Hash'Cut0 ens none exs [1] post (('Hash'Cut0 ∈[Int] Lblf(X)) ∧ (('Hash'Cut0 ∈[Int] Lblg(X)) ∧ ¬∃.(⌈#2⌉:Int ∧ ((#2 ∈[Int] Lblf(X)) ∧ (#2 ∈[Int] Lblg(X))))))
+      clauseSorted true; condOK post true; sortedCE true; fixedExs [1]; confined [false]; clauseCE true; clausePlainEx true
+  sortedOK but clausesPlain true; clausesPlain true; every clause clauseCE true; readsConfined true
 eqCeilUnder:
   [0] vars [X:Int, 'Hash'Cut0:Int] pats [X] req none prio 50 aside false
       pre ⊤
@@ -832,7 +911,9 @@ open HandAnd in
   tie "e3-ml-eq-rhs-ceil-and" "Lblh" eqCeil
   run "e3-ml-eq-rhs-ceil-and" ["Lblh"]
   run "e3-ml-eq-rhs-equals-and" ["Lblh"]
+  tie "e3-ml-eq-rhs-not-ceil-and" "Lblh" eqNotCeil
   run "e3-ml-eq-rhs-not-ceil-and" ["Lblh"]
+  run "e3-ml-eq-rhs-not-ceil-and" ["Lblh"] (fun e => { e with rhs := eqNotCeilCut.rhs }) (plainEx := true)
   showHand "eqCeilUnder" (ceRead N2 eqCeilUnder)
   showHand "eqCeilBoth" (ceRead N2 eqCeilBoth)
 

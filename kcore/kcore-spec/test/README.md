@@ -973,7 +973,8 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
 - `test/ExClauseReader.lean`: `Parse.ceRead` (`KcoreSpec/ReadFns.lean`, not called by `clauseBody`):
   an equation's right side under `\exists` as one clause with `exs` and `post`, and a conjunction
   of terms at a term position as its `\exists` variable conjunct or a fresh existential variable,
-  with the memberships (`Parse.cutAnd`), a `\ceil` conjunct's operand likewise (`Parse.cutCeils`), on the cached kompiled texts of the fixtures its header names and on hand-written equations, each clause printed with
+  with the memberships (`Parse.cutAnd`), a `\ceil` conjunct's operand likewise (`Parse.cutCeils`), and
+  under `\not`, `\or` or `\implies` with the binder kept inside the predicate (`Parse.ceilExCond`), on the cached kompiled texts of the fixtures its header names and on hand-written equations, each clause printed with
   `clauseSorted`, CN-4b §1.3's added conjuncts, `Clause.fixedExs` and a stand-in for
   `Semantics.clausePlainEx` (false for `e3-eq-exists-int-ml` alone); kernel-checked instances.
   `Parse.hoistExists` (section hoist): an `\exists` under an application, in an `\and` conjunct and
