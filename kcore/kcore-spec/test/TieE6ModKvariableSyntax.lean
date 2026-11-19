@@ -7,9 +7,10 @@
 
   Layer 1.
   - `wf_defn`: `wf defn = true`.
-  - The account: the class lists partition the 135 sentences of the user module E6-MOD-KVARIABLE-SYNTAX, in
-    `tieClasses`' order (`account`, `account_sizes`, `account_classes`); the no-direction class holds
-    exactly the sentences that apply a symbol Γ lacks (`account_absent`, `absent_closed`).
+  - The account: the class lists and KItem's no-junk sentence 89, listed apart (`tokKItemApart`),
+    partition the 135 sentences of the user module E6-MOD-KVARIABLE-SYNTAX, the classes in
+    `tieClasses`' order (`account`, `account_sizes`, `account_classes`); the no-direction class
+    holds exactly the sentences that apply a symbol Γ lacks (`account_absent`, `absent_closed`).
   - `absent_proj_below`: the 13 no-direction sentences that are equations of a projection
     `project:X` are of sorts X that are K, KItem or below KItem in Γ (`GenEqs.projBelowB`).
   - `attrs_agree`: the attributes the translation does not read agree with `defn`.
@@ -26,6 +27,17 @@
     order `fnText` lists them (`fn_shape`); `fns_entailed` (E), `fns_from_text` (the converse),
     `fn_prios` (the priorities the sentences state are the clauses').
   - Constructor sentences (24): entailed by Γ (`cons_entailed`).
+  - KItem's no-junk sentence (89), weaker under tokKItem, listed apart: it lists KItem's generators
+    but `inj{X, KItem}` for X in `tokKItemSorts` ('Hash'KVariable), a sort the definition holds
+    below KItem (`Parse.ReadingNote.tokKItem`, `tokkitem_sub`; `tokkitem_text`). It entails Γ's
+    no-junk item of KItem in every interpretation with definedness (`tokkitem_entails_item`), an
+    item of Γ for every H (`tokkitem_item_in_gamma`). In a model of Γ it holds exactly where no sort
+    of `tokKItemSorts` has an element (`tokkitem_holds_iff_empty`): Γ's Cons-Fun item of `inj{X,
+    KItem}` gives an element of X an image in KItem, and Γ's Cons-Dist items, which it holds through
+    the reading's subsort, put that image apart from the image of each injection the sentence lists;
+    the text states neither that the image is apart from those nor that it meets them. No model of Γ
+    satisfies it together with the text's G-nonempty item of a sort of `tokKItemSorts`
+    (`tokkitem_nonempty_in_text`, `tokkitem_refuted_with_nonempty`), for every H.
   - No junk (3 of a sort without generators, `nojunk_trivial_entailed`; 6 equal to
     one of Γ's constructor items, `nojunk_items`; 0 KItem's with its disjuncts in the text's
     order, `nojunk_kitem_entailed`).
@@ -35,8 +47,8 @@
   - Hooked functional, collection law, library: at values (no theorem here); function functional:
     owed as `FnHyp` (no theorem); no direction: `absent_closed`.
 
-  The sentences with no counterpart in f2-examples/ens.kompile.kore are `unmapped` (6);
-  the sentences of a class with a theorem that no theorem here holds of are `uncovered` (1).
+  The sentences with no counterpart in f2-examples/ens.kompile.kore are `unmapped` (5);
+  the sentences of a class with a theorem that no theorem here holds of are `uncovered` (0).
 -/
 import KcoreSpec
 
@@ -92,7 +104,7 @@ def classes : List (String × List Nat) :=
    ("subsort", [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]),
    ("injectivity", [22, 24, 26, 28]),
    ("distinctness", []),
-   ("no junk", [80, 81, 82, 83, 84, 85, 86, 87, 88, 89]),
+   ("no junk", [80, 81, 82, 83, 84, 85, 86, 87, 88]),
    ("function functional", [56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70]),
    ("hooked functional", [18, 19, 20, 29, 30, 31, 32, 33, 34, 37, 41, 49, 50, 51, 52, 53, 55, 71, 74, 75, 76, 77, 78]),
    ("collection law", [38, 39, 40, 42, 43, 44, 45, 47, 48]),
@@ -112,16 +124,20 @@ def classes : List (String × List Nat) :=
 /-- The indices of a class. -/
 def classOf (n : String) : List Nat := (classes.filter (·.1 == n)).flatMap (·.2)
 
-/-- **The account**: the class lists partition the user module's sentences. Their concatenation is
-a permutation of the sentences' indices, which are distinct, so each sentence is in one class and
-in it once. -/
-theorem account : (classes.flatMap (·.2)).isPerm (userAxioms.map (·.index)) = true ∧
+/-- KItem's no-junk sentence that leaves out the injections from sorts the definition holds below
+KItem (`tokKItemSorts`), which Γ's no-junk item of KItem has: weaker under tokKItem, in no class. -/
+def tokKItemApart : List Nat := [89]
+
+/-- **The account**: the class lists and the sentence listed apart partition the user module's
+sentences. Their concatenation is a permutation of the sentences' indices, which are distinct, so
+each sentence is in one class or listed apart, and there once. -/
+theorem account : (classes.flatMap (·.2) ++ tokKItemApart).isPerm (userAxioms.map (·.index)) = true ∧
     (userAxioms.map (·.index)).Nodup := by
   rw [userAxioms_eq]; decide +kernel
 
 /-- The class sizes. -/
 theorem account_sizes : classes.map (fun cl => (cl.1, cl.2.length)) =
-    [("function equation", 29), ("rewrite rule", 0), ("priority equation", 0), ("constructor functional", 6), ("subsort", 14), ("injectivity", 4), ("distinctness", 0), ("no junk", 10), ("function functional", 15), ("hooked functional", 23), ("collection law", 9), ("library", 2), ("set idempotence", 1), ("set-variable lemma", 1), ("function law", 0), ("open generator law", 0), ("open generator functional", 0), ("parameter functional", 0), ("parameter lemma", 0), ("user lemma", 0), ("user lemma at values", 0), ("no direction", 21)] := by
+    [("function equation", 29), ("rewrite rule", 0), ("priority equation", 0), ("constructor functional", 6), ("subsort", 14), ("injectivity", 4), ("distinctness", 0), ("no junk", 9), ("function functional", 15), ("hooked functional", 23), ("collection law", 9), ("library", 2), ("set idempotence", 1), ("set-variable lemma", 1), ("function law", 0), ("open generator law", 0), ("open generator functional", 0), ("parameter functional", 0), ("parameter lemma", 0), ("user lemma", 0), ("user lemma at values", 0), ("no direction", 21)] := by
   decide +kernel
 
 /-- The classes are the tie's (`tieClasses`, which gives each its direction), in its order. -/
@@ -171,13 +187,13 @@ theorem absent_proj_below (H : HookParams) :
 
 /-- The sentences whose text is none of f2-examples/ens.kompile.kore's user module, with their class. -/
 def unmapped : List (Nat × String) :=
-  [(56, "function functional"), (89, "no junk"), (94, "no direction"), (95, "function equation"),
+  [(56, "function functional"), (94, "no direction"), (95, "function equation"),
    (96, "function equation"), (138, "set-variable lemma")]
 
 /-- The sentences of a class with a theorem in the tie that no theorem of this file holds of: the
 tie's remainder on this text. -/
 def uncovered : List (Nat × String) :=
-  [(89, "no junk")]
+  []
 
 /-- Each listed sentence is in its class in the account. -/
 theorem lists_in_account : (unmapped ++ uncovered).all (fun ic => (classOf ic.2).contains ic.1) = true := by
@@ -466,6 +482,69 @@ theorem cons_entailed (H : HookParams) : ∀ ad ∈ consText, Γ (cH H) ⊧ (trS
   exact tieCons_entailed (c := cH H) (a := ad.ax)
     ((tieConsB_withHooks c H ad.ax).trans (List.all_eq_true.mp cons_checked ad had)) ad.index ad.module hI
 
+/-! ## KItem's no-junk sentence (89) without the injections from sorts below KItem: weaker under
+tokKItem, listed apart -/
+
+/-- The sorts of the definition whose injections into KItem sentence 89 does not list. -/
+def tokKItemSorts : List Srt := [32]
+
+theorem tokkitem_index : tokKItemApart = [89] := by decide +kernel
+theorem tokkitem_sorts_named : tokKItemSorts.map c.sortName = ["'Hash'KVariable"] := by decide +kernel
+
+/-- Each is a sort of the definition below KItem (`Parse.ReadingNote.tokKItem`). -/
+theorem tokkitem_sub : tokKItemSorts.all (fun x => c.subsorts.contains (x, Srt.kitem)) = true := by
+  decide +kernel
+
+/-- The generators of KItem sentence 89 lists: KItem's generators in kompile's order but the
+injections from `tokKItemSorts`. -/
+noncomputable def tokKItemGens : List Gen := kitemOmitGens c defn.pres tokKItemSorts
+
+/-- Sentence 89 is the no-junk sentence of KItem over `tokKItemGens`. -/
+theorem tokkitem_text : (trS U.ax89).pat =
+    (KoreAML.Cons.noJunkItem (c.sortName Srt.kitem) (tokKItemGens.map (Gen.toK c))).pat := by decide +kernel
+
+/-- The left-out sorts and the listed generators are as the lemmas of `kitemOmitB` ask: each
+listed generator an injection that is not open, from a sort incomparable with each left-out sort
+and with no lower bound in common with it; each generator of KItem listed or from a left-out sort. -/
+theorem tokkitem_ok : kitemOmitB c tokKItemSorts tokKItemGens = true := by decide +kernel
+theorem tokkitem_kitem_cons : Srt.kitem ∈ consSorts c := by decide +kernel
+theorem tokkitem_noFnOvl : c.fnOvlSyms = [] := by decide +kernel
+
+/-- **The sentence entails Γ's no-junk item of KItem, in every interpretation with definedness**
+(`kitemOmit_entails_item`). -/
+theorem tokkitem_entails_item {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hD : KoreAML.DefOK I)
+    (h : I ⊧ᴵ (trS U.ax89).pat) :
+    I ⊧ᴵ (KoreAML.Cons.noJunkItem (c.sortName Srt.kitem) ((c.gens Srt.kitem).map (Gen.toK c))).pat := by
+  rw [tokkitem_text] at h
+  exact kitemOmit_entails_item tokkitem_ok hD h
+
+/-- That item is Γ's, for every H. -/
+theorem tokkitem_item_in_gamma (H : HookParams) :
+    KoreAML.Cons.noJunkItem (c.sortName Srt.kitem) ((c.gens Srt.kitem).map (Gen.toK c)) ∈ consItemsK (cH H) :=
+  kitemOmit_item_in_gamma tokkitem_ok tokkitem_kitem_cons H
+
+/-- **In a model of Γ, sentence 89 holds exactly where no sort of `tokKItemSorts` has an element**,
+for every H (`kitemOmit_holds_iff_empty`). -/
+theorem tokkitem_holds_iff_empty (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
+    (hI : I ⊧ᴵP Γ (cH H)) : (I ⊧ᴵ (trS U.ax89).pat) ↔ ∀ x ∈ tokKItemSorts, ¬ ∃ y, InS I (c.sortName x) y := by
+  rw [tokkitem_text]
+  exact kitemOmit_holds_iff_empty tokkitem_ok tokkitem_kitem_cons tokkitem_noFnOvl H hI
+
+/-- The text's G-nonempty item of each sort of `tokKItemSorts` is one of its translation's
+signature items. -/
+theorem tokkitem_nonempty_in_text : tokKItemSorts.all (fun x => (Theory.ofDefinition kore).signature.any
+    (·.pat == (nonemptyItem ⟨"Sort" ++ c.sortName x, [], false⟩).pat)) = true := by
+  decide +kernel
+
+/-- **For every H, no model of Γ satisfies sentence 89 together with the text's G-nonempty item
+of a sort of `tokKItemSorts`** (`kitemOmit_refuted_nonempty`). -/
+theorem tokkitem_refuted_with_nonempty (H : HookParams) {M : Type} [Inhabited M]
+    {I : Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP Γ (cH H)) (h : I ⊧ᴵ (trS U.ax89).pat) :
+    ∀ x ∈ tokKItemSorts, ¬ (I ⊧ᴵ (nonemptyItem ⟨"Sort" ++ c.sortName x, [], false⟩).pat) := by
+  intro x hx hne
+  rw [tokkitem_text] at h
+  exact kitemOmit_refuted_nonempty tokkitem_ok tokkitem_kitem_cons tokkitem_noFnOvl H hx hI hne h
+
 /-! ## Set idempotence (61): refuted -/
 
 section Idem
@@ -637,6 +716,16 @@ end KCore.TieE6ModKvariableSyntax
 #check @KCore.TieE6ModKvariableSyntax.nojunk_trivial_entailed
 #check @KCore.TieE6ModKvariableSyntax.nojunk_items_entailed
 #check @KCore.TieE6ModKvariableSyntax.cons_entailed
+#check @KCore.TieE6ModKvariableSyntax.tokkitem_index
+#check @KCore.TieE6ModKvariableSyntax.tokkitem_sorts_named
+#check @KCore.TieE6ModKvariableSyntax.tokkitem_sub
+#check @KCore.TieE6ModKvariableSyntax.tokkitem_text
+#check @KCore.TieE6ModKvariableSyntax.tokkitem_ok
+#check @KCore.TieE6ModKvariableSyntax.tokkitem_entails_item
+#check @KCore.TieE6ModKvariableSyntax.tokkitem_item_in_gamma
+#check @KCore.TieE6ModKvariableSyntax.tokkitem_holds_iff_empty
+#check @KCore.TieE6ModKvariableSyntax.tokkitem_nonempty_in_text
+#check @KCore.TieE6ModKvariableSyntax.tokkitem_refuted_with_nonempty
 #check @KCore.TieE6ModKvariableSyntax.idem_refuted
 #check @KCore.TieE6ModKvariableSyntax.gamma_origin
 #check @KCore.TieE6ModKvariableSyntax.gamma_from
@@ -667,6 +756,16 @@ end KCore.TieE6ModKvariableSyntax
 #print axioms KCore.TieE6ModKvariableSyntax.nojunk_trivial_entailed
 #print axioms KCore.TieE6ModKvariableSyntax.nojunk_items_entailed
 #print axioms KCore.TieE6ModKvariableSyntax.cons_entailed
+#print axioms KCore.TieE6ModKvariableSyntax.tokkitem_index
+#print axioms KCore.TieE6ModKvariableSyntax.tokkitem_sorts_named
+#print axioms KCore.TieE6ModKvariableSyntax.tokkitem_sub
+#print axioms KCore.TieE6ModKvariableSyntax.tokkitem_text
+#print axioms KCore.TieE6ModKvariableSyntax.tokkitem_ok
+#print axioms KCore.TieE6ModKvariableSyntax.tokkitem_entails_item
+#print axioms KCore.TieE6ModKvariableSyntax.tokkitem_item_in_gamma
+#print axioms KCore.TieE6ModKvariableSyntax.tokkitem_holds_iff_empty
+#print axioms KCore.TieE6ModKvariableSyntax.tokkitem_nonempty_in_text
+#print axioms KCore.TieE6ModKvariableSyntax.tokkitem_refuted_with_nonempty
 #print axioms KCore.TieE6ModKvariableSyntax.idem_refuted
 #print axioms KCore.TieE6ModKvariableSyntax.gamma_origin
 #print axioms KCore.TieE6ModKvariableSyntax.gamma_from
