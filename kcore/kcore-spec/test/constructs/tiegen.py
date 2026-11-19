@@ -192,7 +192,9 @@ probe evaluates of it (a run of the Lean definitions on the text: the heads it a
 with its sort arguments (`appHeadsOf`), against Γ's (`gammaHasHead`),
 its place among Γ's function items, `tieConsB`, the constructor items; a symbol the registry interprets
 is a registry hook or a parameter symbol a registry hook implements, `MtCellMap:in_keys` with
-`MAP.in_keys`) and from its form (kompile's
+`MAP.in_keys`; an overloading symbol is a generator, and its functional sentence is of the class
+constructor functional where `tieConsB` accepts it, which it does where the symbol overloads no
+function) and from its form (kompile's
 `// functional`, `// subsort`, `// no confusion` and `// no junk` comments, the `assoc`, `unit`, `idem`,
 `priority` and `owise` attributes, set variables, a builtin `Source`); a sentence that neither gives a
 class is refused by name. A mapped sentence whose probe class differs from ens's is refused too.
@@ -618,7 +620,8 @@ def tgNjOrder (gs : List KoreAML.Gen) : List Kore.Pattern → Option (List Nat)
   let isCtor := fun (n : String) => css.any (c.symName ·.name == n)
   let isHook := fun (n : String) => hookSigs.any (c.symName ·.name == n)
   let isImplParam := fun (n : String) => c.params.any fun k => c.symName k.sig.name == n && k.impl.isSome && !k.raw
-  let kind := fun (n : String) => if isFn n then "fn" else if isCtor n then "ctor" else if isHook n || isImplParam n then "hook" else if has n then "other" else "absent"
+  let isOvlN := fun (n : String) => c.ovlSigs.any (c.symName ·.name == n)
+  let kind := fun (n : String) => if isFn n then "fn" else if isCtor n then "ctor" else if isHook n || isImplParam n then "hook" else if isOvlN n then "ovl" else if has n then "other" else "absent"
   let kg := (gensInOrder c d.pres Srt.kitem).map (Gen.toK c)
   let kitemPat := (KoreAML.Cons.noJunkItem (c.sortName Srt.kitem) kg).pat
   let tsig := (Theory.ofDefinition k).signature
@@ -887,6 +890,12 @@ def form_class(s, raw, builtin, laws=(), open_laws=(), raw_names=(), at_values=(
         return "injectivity"
     if "// no confusion different constructors" in raw:
         return "distinctness"
+    # an overloading symbol is a generator of its result sort (`Semantics.gens`); where it overloads
+    # no function, Γ holds its Cons-Fun item at every argument list (`consItemsK`), so its functional
+    # sentence is that item where `tieConsB` accepts it. Where it overloads a function (`fnOvl`), Γ
+    # holds the item at uncovered arguments only, and the sentence has no class here.
+    if "[functional{}()]" in raw and s["fh"] and s["fhk"] == "ovl":
+        return "constructor functional" if s["cons"] else None
     if "[functional{}()]" in raw and s["fh"]:
         return {"ctor": "constructor functional", "fn": "function functional", "hook": "hooked functional"}.get(s["fhk"])
     if s["ehk"] == "fn" and not builtin:
