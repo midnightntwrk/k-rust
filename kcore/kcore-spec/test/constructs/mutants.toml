@@ -1320,3 +1320,444 @@ patch = '''
        | some f', some g' => ovlMeet c f' g'
        | _, _ => false
 '''
+
+# Reader mutants of the constructors named by the entries of E1, E2 and E3's #Exists row that
+# test/constructs/rest.py `core` holds: each a change of one reader line, the line that gives the
+# constructor or decides the reading it names (for Account.unconsumed also the same line of
+# unconsumedIdx, the form the compiled code runs), on a fixture whose account names the
+# constructor. No reader mutant is given for ruleRightDefined (its premise ⌈rhs ∧ ens⌉ is Γ's,
+# Faithful.prioRuleK) or
+# overloadFunction (the restriction to uncovered arguments is Γ's, KoreAML.Cons.funUncItem,
+# injUncItem, distUncItem): a change of the reader cannot reach either. manyValuedRightSide's
+# mutant is at manyValued?'s \not arm: no fixture and no f2-examples text reaches its \exists
+# sites (Parse.ceRead's hasExists and orManyValued? checks, Parse.exRead's alternative count and
+# boundByArgs, manyValued?'s \exists arm), so a mutant there survives on every text.
+
+[mutant."e123-law-axiom-unrecorded"]
+summary = "a law axiom of a symbol the definition reads as no collection's concatenation, no open generator and no function is accounted for with no refusal (Account.lawUnmatched's last arm gives none)"
+breaks = "Account.lawUnmatched: a law axiom states an equation between applications of its symbol; where the reading takes the symbol as none of a collection's concatenation, an open generator with ParamSig's laws or a function with Presentation.laws, no item of Γ states that equation, so the sentence is stated by the text and not held by the reading, and the account refuses it lawAxiom (here Lblor's associativity, Lblor's declaration being refused for its assoc key)"
+row = "E2 ASSOC(assoc)@symbol"
+fixture = "hw-open-decl-laws"
+expect = "killed"
+killed_by = "account: `law axioms of no collection's concatenation: 1` becomes 0, the line `sentence 186 (Lblor): lawAxiom (Lblor: assoc)` gone (hw-open-decl-laws; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Account.lean
++++ b/KcoreSpec/Account.lean
+@@ -871,7 +871,7 @@
+         else if openGen h then some ⟨some (off + i), headOf s, .openLaw, s!"{h}: {keys}"⟩
+         else if ctor h && hasAttr a.attributes "idem" then
+           some ⟨some (off + i), headOf s, .lawAxiom, s!"{h}: {keys}: idempotence of a constructor contradicts its no-confusion axioms"⟩
+-        else some ⟨some (off + i), headOf s, .lawAxiom, s!"{h}: {keys}"⟩
++        else none
+       | _, _ => none
+ 
+ /-- The law axioms of the open generators of `d` (`openLawAxioms`), each an axiom of `Γ`
+'''
+
+[mutant."e123-open-law-assoc-unread"]
+summary = "an open generator's associativity axiom is not taken as the law ParamSig.assoc holds (Parse.openLawRead's assoc arm false)"
+breaks = "openLawRead: kompile writes assoc on a production that is no function as the associativity axiom of a generator under a law (e2-comm-ctor's Lblor); the reading holds the sentence as an axiom of Γ (ParamSig.assoc, Faithful.lawItemsK) and owes it at values as OpenLaws. Not taken as that law, the sentence Γ states is accounted as a law of an open generator the reading has no field for, refused openLaw, and the law axioms read as Γ's are none"
+row = "E2 ASSOC(assoc)@symbol"
+fixture = "e2-comm-ctor"
+expect = "killed"
+killed_by = "account: `law axioms of open generators, read as axioms of Γ (…): 1` and `sentence 186 (Lblor): openLaw (assoc): OpenLaws owed` gone, `sentence 186 (Lblor): openLaw (Lblor: assoc)` a law axiom of no collection's concatenation, `refused by the account: 0` becomes 1 (e2-comm-ctor; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -8057,7 +8057,7 @@
+   c.params.any fun k =>
+     let f := c.symName k.sig.name
+     let s := KoreAML.srt (c.sortName k.sig.result)
+-    k.raw && ((k.assoc && lawSentenceIs "assoc" (openAssocAx f s) a) ||
++    k.raw && ((false && k.assoc && lawSentenceIs "assoc" (openAssocAx f s) a) ||
+       (k.idem && lawSentenceIs "idem" (openIdemAx f s) a))
+ 
+ /-- The law axioms of the sentences `ss` read as the laws of an open generator of `c`
+'''
+
+[mutant."e123-open-law-refusal-dropped"]
+summary = "a law axiom of an open generator other than the associativity and idempotence ParamSig holds (a unit law) is accounted for with no refusal (Account.lawUnmatched's openLaw arm gives none)"
+breaks = "Account.lawUnmatched: an open generator's laws are read into ParamSig.assoc and ParamSig.idem only; a unit law or(K, x) = K of the generator is stated by the text and by no item of Γ, so the reading does not hold it and the account refuses it openLaw"
+row = "E2 ASSOC(assoc)@symbol"
+fixture = "hw-open-unit"
+expect = "killed"
+killed_by = "account: `sentence 187 (Lblor): openLaw (Lblor: unit)` gone, `refused by the account: 1` becomes 0 (hw-open-unit; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Account.lean
++++ b/KcoreSpec/Account.lean
+@@ -868,7 +868,7 @@
+         let h := (lawHead? a).getD ""
+         let keys := ", ".intercalate (lawKeys a)
+         if concatOf h (hasAttr a.attributes "idem") || openLawRead c a || fnLawHead c h then none
+-        else if openGen h then some ⟨some (off + i), headOf s, .openLaw, s!"{h}: {keys}"⟩
++        else if openGen h then none
+         else if ctor h && hasAttr a.attributes "idem" then
+           some ⟨some (off + i), headOf s, .lawAxiom, s!"{h}: {keys}: idempotence of a constructor contradicts its no-confusion axioms"⟩
+         else some ⟨some (off + i), headOf s, .lawAxiom, s!"{h}: {keys}"⟩
+'''
+
+[mutant."e123-open-gen-decl-assoc-read"]
+summary = "assoc on the declaration of a symbol that is no function gets the verdict read in place of refused openGenerator (Parse.attrVerdictOf at class symbol)"
+breaks = "attrVerdictOf at class symbol: an attribute on a declaration is no sentence and states no law; the associativity of a production is the axiom kompile writes beside the declaration, without the key. A declaration carrying assoc{}() is a hand-written text's, which no text gives a meaning there, and read it would be taken as a plain symbol of the text with the key ignored; the reader refuses it openGenerator"
+row = "E2 ASSOC(assoc)@symbol"
+fixture = "hw-open-decl-laws"
+expect = "killed"
+killed_by = "account: `2 refused openGenerator [user]` becomes 1 and `1 read [user]` becomes 2 (Lblor's declaration read), `read and not accounted for: 2` changes (hw-open-decl-laws; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/ParseAttr.lean
++++ b/KcoreSpec/ParseAttr.lean
+@@ -362,7 +362,7 @@
+   | .symbol, .simplification | .symbol, .smtLemma | .symbol, .syntactic | .symbol, .trusted =>
+     .refused .outsideE2 unwritten
+   | .symbol, .anywhere => .read
+-  | .symbol, .assoc => .refused .openGenerator (ruled "ASSOC(assoc)@symbol")
++  | .symbol, .assoc => .read
+   | .symbol, .binder => .inert (ruled "BINDER(binder)@symbol")
+   | .symbol, .bracket => .refused .outsideE2 (erased "BRACKET(bracket)@symbol")
+   | .symbol, .cell | .symbol, .concat | .symbol, .constructor | .symbol, .element
+'''
+
+[mutant."e123-open-gen-decl-comm-read"]
+summary = "comm on the declaration of a symbol that is no function gets the verdict read in place of refused openGenerator (Parse.attrVerdictOf at class symbol)"
+breaks = "attrVerdictOf at class symbol: comm on a declaration is no sentence and states no law, and kompile writes it on no declaration; read, the declaration of Lbland carrying comm{}() would be taken as a plain symbol of the text with the key ignored, while the key, on a hand-written text, says the symbol commutes; the reader refuses it openGenerator"
+row = "E2 COMM(comm)@symbol"
+fixture = "hw-open-decl-laws"
+expect = "killed"
+killed_by = "account: `2 refused openGenerator [user]` becomes 1 and `1 read [user]` becomes 2 (Lbland's declaration read) (hw-open-decl-laws; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/ParseAttr.lean
++++ b/KcoreSpec/ParseAttr.lean
+@@ -371,7 +371,7 @@
+   | .symbol, .token | .symbol, .total | .symbol, .uniqueId | .symbol, .unit =>
+     .read
+   | .symbol, .colors => .refused .outsideE2 (erased "COLORS(colors)@symbol")
+-  | .symbol, .comm => .refused .openGenerator (ruled "COMM(comm)@symbol")
++  | .symbol, .comm => .read
+   | .symbol, .concrete => .inert (ruled "CONCRETE(concrete)@symbol")
+   | .symbol, .coolLike => .inert (ruled "COOL_LIKE(cool-like)@any")
+   | .symbol, .deprecated => .inert (ruled "DEPRECATED(deprecated)@symbol")
+'''
+
+[mutant."e123-open-gen-fault-unchecked"]
+summary = "an open generator into a sort that is no flat constructor sort is read (coreOf's openGenFault check not taken)"
+breaks = "openGenFault: an open generator is one of its sort's generators by the no-junk axiom, with no no-confusion axiom; where the sort has a constructor with arguments, an overloading symbol or a subsort, the text writes no sentence that keeps the generator's applications out of the constructor's or the injection's image at an element no term denotes, so models of the text differ on whether and(x, y) is such an image, and the reading of the generator as Γ's ParamSig.raw states more than the text; refused openGenerator"
+row = "E2 COMM(comm)@symbol"
+fixture = "e2-open-ctor-arg"
+expect = "killed"
+killed_by = "account: `stage refusals (of sentences classified read): 1` (sentence 62 (Lbland): openGenerator) becomes 0 (e2-open-ctor-arg; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -7747,7 +7747,7 @@
+     Rd.within site (fail .ctorResultSort s!"{n}: result sort {core.sortName s}, {kind}")
+   | none => pure ()
+   -- an open generator into a sort that is no flat constructor sort (`openGenFault`)
+-  match core.params.findSome? (fun k => if k.raw then (openGenFault core k).map (k, ·) else none) with
++  match core.params.findSome? (fun k => if false && k.raw then (openGenFault core k).map (k, ·) else none) with
+   | some (k, why) =>
+     let n := core.symName k.sig.name
+     let site := match S.syms.find? (·.symbol.ident.ident.name == n) with
+'''
+
+[mutant."e123-fn-decl-assoc-as-open-gen"]
+summary = "assoc on the declaration of a function is refused by the verdict of a symbol that is no function (openGenerator) in place of attrOutsideE2 (Parse.symAttrFault?'s function arm not taken)"
+breaks = "symAttrFault?: kompile writes a function production's assoc as the associativity axiom beside its declaration (read as a law of the function, owed as FnLaws) and comm as no sentence, never as a key on the declaration; on a function's declaration the key is outside E2, attrOutsideE2. openGenerator is the refusal of a generator under a law, which a function is not"
+row = "E2 ASSOC(assoc)@symbol"
+fixture = "hw-fn-decl-assoc"
+expect = "killed"
+killed_by = "account: `1 refused attrOutsideE2 [user]` becomes `1 refused openGenerator [user]` (hw-fn-decl-assoc; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -6356,7 +6356,7 @@
+   if hasKey as .function then
+     as.findSome? fun ap =>
+       let n := ap.head.ident.name
+-      if n == AttrKeyE2.assoc.kore || n == AttrKeyE2.comm.kore then some (.attrOutsideE2, s!"{n}: {fnDeclLawWhy}")
++      if false && (n == AttrKeyE2.assoc.kore || n == AttrKeyE2.comm.kore) then some (.attrOutsideE2, s!"{n}: {fnDeclLawWhy}")
+       else match attrVerdictOf .symbol .symbolAttribute n with
+         | .refused r' w => some (r'.reason, s!"{n}: {w}")
+         | _ => none
+'''
+
+[mutant."e123-unconsumed-unchecked"]
+summary = "a sentence classified read that no part of the definition accounts for is not refused (the consumed check not taken in Account.unconsumed and in unconsumedIdx, the form the compiled code runs, unconsumed_eq_idx)"
+breaks = "Account.unconsumed: a sentence classified read must be held by the definition read (consumed); with Lblpl's declaration refused, Lblpl's functional axiom and equation are stated by the text and by no item of Γ, so the account refuses each unaccounted"
+row = "E2 ASSOC(assoc)@symbol"
+fixture = "hw-fn-decl-assoc"
+expect = "killed"
+killed_by = "account: `read and not accounted for: 2` becomes 0, `sentence 250 (Lblpl): unaccounted (functional axiom)` and `sentence 388 (Lblpl): unaccounted (equation)` gone (hw-fn-decl-assoc; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Account.lean
++++ b/KcoreSpec/Account.lean
+@@ -496,7 +496,7 @@
+       let off := preludeLength k
+       let P := cellCollPairs m.sentences
+       m.sentences.zipIdx.filterMap fun (s, i) =>
+-        if isReadIn P s && !consumed S E d s then
++        if false && isReadIn P s && !consumed S E d s then
+           let (r, why) := unconsumedWhy s
+           some ⟨some (off + i), headOf s, r, why⟩
+         else none
+@@ -517,7 +517,7 @@
+       let P := cellCollPairs m.sentences
+       let pf := regProjFreeIdx (Thunk.mk fun _ => Std.HashSet.ofList (GenEqs.freeBlockNames d.sem)) d.sem
+       m.sentences.zipIdx.filterMap fun (s, i) =>
+-        if isReadIn P s && !consumedWith true S E d s pf then
++        if false && isReadIn P s && !consumedWith true S E d s pf then
+           let (r, why) := unconsumedWhy s
+           some ⟨some (off + i), headOf s, r, why⟩
+         else none
+'''
+
+[mutant."e123-open-gen-pattern-unchecked"]
+summary = "a rule whose left side holds V ∈ g(P̄), g an open generator of an unconfined sort, with a variable of P̄ held nowhere else, is read (Parse.openCutRefusal's check not taken)"
+breaks = "openCutRefusal: in the membership V ∈ g(P̄) of the left side, g an open generator of a recursive or unconfined sort, a variable of P̄ that no other part of the left side holds ranges over elements of g's argument sorts that the interpretation may send to V's value, elements that are no value's among them; which they are the text does not say, so the rule's steps differ between models of the text; refused openGeneratorPattern"
+row = "E2 COMM(comm)@symbol"
+fixture = "e2-open-rec"
+expect = "killed"
+killed_by = "account: sentence 210's stage refusal `openGeneratorPattern (Lbland: …)` becomes `openRequires (VarY:B: in a condition with a variable the left side binds (V ∈ Lbland(…)), …)` (e2-open-rec; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -7343,7 +7343,7 @@
+   (openCutMemsOf r.pre).findSome? fun (v, g, as) =>
+     match c.params.find? (fun k => k.raw && k.sig.name == g) with
+     | some k =>
+-      if held.contains v && !c.confined k.sig.result then
++      if false && held.contains v && !c.confined k.sig.result then
+         ((varOccs (.app g as)).find? (!held.contains ·)).map fun i =>
+           let sn := c.sortName k.sig.result
+           (.openGeneratorPattern, s!"{c.symName g}: its sort {sn} is recursive or reaches an unconfined sort: the arguments it matches depend on elements of {sn} the text does not name (Var{names.getD i ""}:{c.sortName (r.vars.getD i 0)}, under {c.symName g}, held by no other part of the left side)")
+'''
+
+[mutant."e123-pred-eqn-fault-unchecked"]
+summary = "an equation of a sort predicate or projection that the core does not state is accepted (Parse.predEqnFaults gives no fault)"
+breaks = "predEqnFaults: the core defines a sort's predicate from the sorts (Semantics.sortPreds); an equation of it that is no clause of that definition and no instance predInstAcc accepts, here the isInt equations hybrid(Int) adds at a registry sort, states what the definition read does not, so it is refused generatedEquation (unaccounted where a user's file writes it)"
+row = "E2 HYBRID(hybrid)@frontend"
+fixture = "e2-hybrid-registry"
+expect = "killed"
+killed_by = "account: `stage refusals (of sentences classified read): 2` (generatedEquation at LblisInt's sentences 392 and 393) becomes 0, and the account then has `read and not accounted for: 2` (e2-hybrid-registry; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -7581,7 +7581,7 @@
+ the symbol and the shape (`eqnShape`), or `unaccounted` for an equation written in a user's file. -/
+ def predEqnFaults (N : Names) (msrc : String) (eqs : List RawEqn) (c : Semantics) : List Fault :=
+   eqs.filterMap fun e =>
+-    if predProjOK? N msrc eqs c e == some false && !predInstAcc N msrc eqs c e &&
++    if false && predProjOK? N msrc eqs c e == some false && !predInstAcc N msrc eqs c e &&
+         !c.fns.any (c.symName ·.label == e.fn) then
+       some (if isUserSource e.attrs then
+           ⟨.unaccounted, s!"equation of {e.fn}, which the definition reads from its sorts: {eqnShape e}", .attrs e.attrs⟩
+'''
+
+[mutant."e123-owise-exclusion-count-unchecked"]
+summary = "an [owise] equation whose exclusion has another number of disjuncts than the function has executable equations is read (Parse.fnFrom's count check not taken)"
+breaks = "the exclusion \\not(∨ …) of an [owise] equation names the function's other executable equations, one disjunct each, so the equation applies exactly where none of them does, which the reading states as the [owise] premise (Clause.prio 200 under the others' negation). The exclusion \\not(\\bottom) beside one other equation states choose(X, _) = X wherever its pattern matches, the other equation's arguments among them, which that premise does not state; refused exclusionShape"
+row = "E2 OWISE(owise)@equation"
+fixture = "rr-a-exclusion-shape"
+expect = "killed"
+killed_by = "account: the stage refusal exclusionShape moves from sentence 206 (the [owise] equation, e5-owise-nonexec.k:6) to sentence 207 (e5-owise-nonexec.k:4) (rr-a-exclusion-shape; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -4237,7 +4237,7 @@
+   let plain := own.filter (·.competitors.isNone)
+   let exec := plain.filter (!nonExec ·)
+   for e in ows do
+-    unless (e.competitors.getD []).length == exec.length do
++    unless true || (e.competitors.getD []).length == exec.length do
+       Rd.within (.attrs e.attrs) (fail .exclusionShape)
+     -- the exclusion orders the `[owise]` equation after every other one; priority 200 orders it
+     -- after the smaller priorities only, so it must have priority 200 and no other 200 or more
+'''
+
+[mutant."e123-ex-binder-twice-read"]
+summary = "an equation's right side that binds one name twice (\\exists B. \\exists B. φ) is read (Parse.ceRead's dupBinder check not taken)"
+breaks = "ceRead names the binders of the right side by their names (exBind): in \\exists B. \\exists B. φ the outer binder binds nothing, the inner one B in φ, and read by name the two are one variable of the clause, which is no reading of the pattern's scopes; refused patternConnective"
+row = 'E3 ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2'
+fixture = "e3-eq-exists-twice-ml"
+expect = "killed"
+killed_by = "account: `stage refusals (of sentences classified read): 1` (sentence 278 (Lblp): patternConnective (VarB: bound twice)) becomes 0 (e3-eq-exists-twice-ml; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -3891,7 +3891,7 @@
+   let (xs, body) := peelExists e.rhs
+   if hasExists body then fail .manyValuedRightSide "\\exists"
+   if isPred body then fail .manyValuedRightSide "\\top"
+-  if let some x := dupBinder xs then fail .patternConnective s!"{x.var.ident.name}: bound twice"
++  if let some x := dupBinder (xs.take 0) then fail .patternConnective s!"{x.var.ident.name}: bound twice"
+   let bound := xs.map (·.var.ident.name)
+   let used := evarNamesList (e.rhs :: e.pats ++ e.req.toList ++ e.ens.toList)
+   let (t, n, cuts, ps) := cutAnd used bound 0 body
+'''
+
+[mutant."e123-unheld-rule-binder-read"]
+summary = "a rule read without a variable of its left side's \\exists whose sort has no value the reader exhibits is read (Parse.unheldRefusal gives none)"
+breaks = "unheldRefusal: the rewrite axiom with \\exists Y:Empty on its left side holds for every element of Empty; where Empty has none the axiom states nothing, while the rule read without Y steps. Γ entails neither an element of Empty nor its emptiness, so the rule states more than the text; refused unheldVariable"
+row = 'E3 ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2'
+fixture = "e3-ml-lhs-empty-sort"
+expect = "killed"
+killed_by = "account: `stage refusals (of sentences classified read): 2` (unheldVariable at sentences 226 and 227, Var'Unds'Gen0:Empty and VarY':Empty) becomes 0 and the reading finishes (`rules read with the premise ⌈rhs ∧ ens⌉ (ruleRightDefined): 3`) (e3-ml-lhs-empty-sort; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -7262,7 +7262,7 @@
+       let ok := match N.sortOf? x.sort with
+         | some s => (exhibit? c s).isSome
+         | none => false
+-      if ok then none else some (.unheldVariable,
++      if true || ok then none else some (.unheldVariable,
+         s!"{x.var.ident.name}:{((sortName? x.sort).getD "?")}: a variable of the axiom that a rule read from it does not hold, of a sort of which the reader exhibits no value: the axiom holds for every element of the sort, so where the sort has none it states nothing while the rule would step, and Γ entails neither an element of the sort nor its emptiness (the text's sorted theory gives every sort an element, which Γ does not state)")
+     | _ => none
+   | _ => none
+'''
+
+[mutant."e123-unheld-eq-binder-read"]
+summary = "an equation's right side \\exists Z. X, Z not in the body, is read (Parse.ceRead's held check not taken)"
+breaks = "\\exists Z:Int. X denotes X where Int has an element and nothing where the sort has none; read as X, with Z an existential variable of the clause bound by nothing, the clause states p(X) = X whatever the sort, which the text states only through Z's sort; refused unheldVariable"
+row = 'E3 ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2'
+fixture = "e3-eq-exists-unheld-ml"
+expect = "killed"
+killed_by = "account: `stage refusals (of sentences classified read): 2` becomes 1: sentence 387's `unheldVariable (VarZ: bound by \\exists, not held by its body)` becomes `existentialEquation (VarZ:Int: …)` and sentence 402's (Z:Bool) is gone (e3-eq-exists-unheld-ml; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -3897,7 +3897,7 @@
+   let (t, n, cuts, ps) := cutAnd used bound 0 body
+   let (t, cuts) := orCutAll used t cuts
+   if let some c := (t :: cuts.flatMap (·.2.2)).findSome? orManyValued? then fail .manyValuedRightSide c
+-  if let some x := xs.find? (fun x => !(evarNames body).contains x.var.ident.name) then
++  if let some x := xs.find? (fun x => false && !(evarNames body).contains x.var.ident.name) then
+     fail .unheldVariable s!"{x.var.ident.name}: bound by \\exists, not held by its body"
+   let (ps, _, ccuts) := cutCeils used bound n ps
+   let cuts := cuts ++ ccuts
+'''
+
+[mutant."e123-exists-cases-true-only"]
+summary = "\\exists B:Bool. φ on an equation's right side is read by the case B = true only (Parse.exRead's instances of the literal false dropped)"
+breaks = "existsAsCases: Bool's elements are its two literals (boolClosed, an axiom of Γcl where the reading reads the binder's sort as confined), so \\exists B:Bool. φ is φ[true/B] ∨ φ[false/B]: a clause for each case and one where neither has an element. With the false case dropped, f(true) = false, which the text states (B := false, notBool true = false), is read as no value (the last clause's ens false)"
+row = 'E3 ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2'
+fixture = "e3-eq-exists-bool-ml"
+expect = "killed"
+killed_by = "account: the clauses whose predicate is not \\top (Semantics.clausesPreTop false) are 2, `f clause 0, f clause 1`, in place of 3, `f clause 0, f clause 1, f clause 2` (e3-eq-exists-bool-ml; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -3457,7 +3457,7 @@
+   let some (B, t, ps) := exShape? e | pure none
+   if !eqnFnl N e then pure none else
+   let (pats, req, ens, vs, np) ← eqnHead N e
+-  let insts := [true, false].flatMap fun b => (orAlts (substVal B (boolDv b) t)).map (b, ·)
++  let insts := [true].flatMap fun b => (orAlts (substVal B (boolDv b) t)).map (b, ·)
+   if insts.length > 8 then fail .manyValuedRightSide s!"\\exists: {insts.length} alternatives, more than 8"
+   let (alts, vs) ← exAlts N B ps vs insts
+   boundByArgs vs np "\\exists"
+'''
+
+[mutant."e123-existential-eq-unchecked"]
+summary = "a clause with an existential variable of an unconfined sort that its right-side predicate does not fix is read (Parse.clauseRefusal refuses a clause outside clausePlainEx only where it has no existential variable)"
+breaks = "clauseRefusal: h(X) => #Exists Z:Int. (Z #And {Z *Int 2 ==Int X #Equals true}) gives h(X) every element Z of Int that the predicate holds of; no conjunct equates Z with a term, so the value ranges over elements of Int, a sort the text leaves unconfined, among them elements no value names, and models of the text that differ there give h different values; refused existentialEquation"
+row = 'E3 ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2'
+fixture = "e3-eq-exists-int-ml"
+expect = "killed"
+killed_by = "account: `stage refusals (of sentences classified read): 1` (sentence 350 (Lblh): existentialEquation (VarZ:Int: …)) becomes 0 (e3-eq-exists-int-ml; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -7309,7 +7309,7 @@
+     let i := (cl.openCondVars.find? (fun i => !conf i)).getD 0
+     some (.openRequires,
+       s!"{what i}: in a condition with a variable the arguments bind{cut i}, not bound by the arguments, of a sort the text leaves unconfined")
+-  else if !c.clausePlainEx cl then
++  else if !c.clausePlainEx cl && cl.exs.isEmpty then
+     match cl.exs.find? (fun i => !(confS i || (cl.fixedExs c.confined c.hasValue).contains i)) with
+     | some i =>
+       let sn := c.sortName (cl.vars.getD i 0)
+'''
+
+[mutant."e123-open-right-read"]
+summary = "a rule whose right side holds a variable bound by \\exists, of an unconfined sort, under no constructor is read (Parse.openRefusal's openRight arm gives none)"
+breaks = "openRefusal: ?V:Int bound by \\exists on the right side and held there under a range map's symbols only, no constructor, ranges over elements of Int, which the text leaves unconfined; the successor is a value through an element that may be no value's, so the step differs between models of the text; refused openRight"
+row = 'E3 ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2'
+fixture = "e3-vars-rangemap"
+expect = "killed"
+killed_by = "account: `stage refusals (of sentences classified read): 1` (sentence 356: openRight (Var'Ques'V:Int: bound by \\exists on the right side, …)) becomes 0 (e3-vars-rangemap; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -7232,7 +7232,7 @@
+           let j := (r.condVars.find? rest.contains).getD i
+           s!"{what i}: in a closed condition that holds {what j}, which the right side, the ensures or post holds; of a sort the text leaves unconfined"
+         else s!"{what i}: in a condition with a variable the left side binds{cut i}, of a sort the text leaves unconfined")
+-    else some (.openRight, if r.exs.contains i then
++    else if true then none else some (.openRight, if r.exs.contains i then
+         s!"{what i}: bound by \\exists on the right side, held there or in the ensures under no constructor, of a sort the text leaves unconfined: the successor is a value through an element that is no value's"
+       else
+         s!"{what i}: in the right side or the ensures under no constructor, not bound by the left side, of a sort the text leaves unconfined: the successor is a value through an element that is no value's")
+'''
+
+[mutant."e123-identity-alias-kept"]
+summary = "a rewrite axiom's right side under an identity alias of the prelude is read with the alias application kept (Parse.unaliasRule's some arm gives the axiom unchanged)"
+breaks = "identityAlias: weakAlwaysFinally{A}(@X:A) := @X:A, an alias of the prelude whose body is its argument, so weakAlwaysFinally(φ) denotes φ and the rule's right side is φ; with the application kept the right side applies an alias, which is no symbol of the definition, and the rule the text states is not read (aliasApplication)"
+row = "E2 ALL_PATH(all-path)@frontend"
+fixture = "hw-allpath-alias"
+expect = "killed"
+killed_by = "account: `stage refusals (of sentences classified read): 0` becomes 1, `sentence 305 (Lbl'-LT-'generatedTop'-GT-'): aliasApplication (weakAlwaysFinally: an alias of K's prelude heading the right side of the rewrite axiom …)`, and the reading does not finish (hw-allpath-alias; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -1117,7 +1117,7 @@
+ def unaliasRule (a : Kore.Axiom) : Kore.Axiom :=
+   match a.pattern with
+   | .rewrites s l r => match unaliasRhs? r with
+-    | some φ => { a with pattern := .rewrites s l φ }
++    | some _ => a
+     | none => a
+   | _ => a
+ 
+'''
+
+[mutant."e123-many-valued-not-single"]
+summary = "\\not on an equation's right side is not taken as a connective with several values or none (Parse.manyValued?'s \\not arm gives none)"
+breaks = "manyValued?: f(X) => #Not(g(X)) states that f(X) is every element of Int but g(X)'s value, many elements, where a function has one value at each argument; the reader refuses such a right side manyValuedRightSide naming the connective. The #Exists row names the same refusal at manyValued?'s \\exists arm and ceRead's checks, which no fixture's text reaches, so the mutant of the constructor is the \\not arm, on the #Not row's fixture"
+row = 'E3 ML-SYNTAX:Sort::="#Not" "(" Sort ")"'
+fixture = "e3-ml-eq-rhs-not"
+expect = "killed"
+killed_by = "account: sentence 349's stage refusal `manyValuedRightSide (\\not)` becomes `patternConnective (\\not)` (e3-ml-eq-rhs-not; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -2105,7 +2105,7 @@
+   def manyValued? : Kore.Pattern → Option String
+     | .or .. => some "\\or"
+     | .top _ => some "\\top"
+-    | .not .. => some "\\not"
++    | .not .. => none
+     | .exist .. => some "\\exists"
+     | .app _ _ ps => manyValuedList? ps
+     | _ => none
+'''
+
+[mutant."e123-overload-confusion-checked"]
+summary = "a distinctness axiom between two symbols whose overload closures meet is compared with the constructor axioms the definition induces, and refused inertMismatch, in place of accounted overloadConfusion (Account.uninduced without ovlConfused)"
+breaks = "overloadConfusion: where the overload closures of two symbols meet, Γ states their distinctness at uncovered arguments only (KoreAML.Cons.distUncItem), the overload equation identifying their applications elsewhere; the text's unguarded distinctness axiom is stated by the text and not read (Account.overloadConfusions), not a constructor axiom that Γ ought to induce"
+row = "E2 OVERLOAD(overload)@frontend"
+fixture = "c3-anywhere-ctor"
+expect = "killed"
+killed_by = "account: `inert constructor axioms not induced by the constructors: 0` becomes 1 (`sentence 263 (LblsumEE): inertMismatch (distinctCtors)`), `refused by the account: 0` becomes 1 (c3-anywhere-ctor; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Account.lean
++++ b/KcoreSpec/Account.lean
+@@ -1299,7 +1299,7 @@
+     let off := preludeLength k
+     m.sentences.zipIdx.filterMap fun (s, i) => match s, ctorInert? P s with
+       | .axiom a, some r =>
+-        if induced.contains (r.name, canon a.pattern) || (r == .distinctCtors && ovlConfused c a) then none
++        if induced.contains (r.name, canon a.pattern) || (r == .distinctCtors && false && ovlConfused c a) then none
+         else some ⟨some (off + i), headOf s, .inertMismatch, r.name⟩
+       | _, _ => none
+ 
+'''
