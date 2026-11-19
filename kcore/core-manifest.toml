@@ -26,7 +26,7 @@
 [tree]
 # commit: the git tree at which cone_size was computed (kcore-spec/test/ConeV.lean, cone (v)); no release run
 # has yet passed on a git tree, so it names no release-gated tree
-commit = "560686e5e"
+commit = "fc6544cc1"
 # frozen_at: the git trees the review cone was frozen at, in order: the release freeze, then each
 # re-freeze after a cone declaration is fixed. Its last entry is the revision named by core-cone.txt's
 # `# computed at git REV` line, which kcore-spec/test/cone-row.sh (integration's cone row) checks
@@ -46,6 +46,8 @@ roots = [
   "KCore.StepDecided",
   "KCore.Total",
   "KCore.CExec.execReady",
+  "KCore.ClausePreDecided",
+  "KCore.ClausePostDecided",
   "KCore.Reachability.AllPath",
   "KCore.Tm",
   "KCore.Tm.val",
@@ -108,7 +110,7 @@ left_out = [
   { declaration = "the packages' declarations (RefKimp.defn, RefKimp.Syntax's constructors, the kk package's)", reason = "generated per text, not library: the rows' statements name them, and C14 ties each package's literal to its KORE text, per text" },
 ]
 headline = ["KCore.sound_hyp (c) (h : c.coreOK = true) (hf : FnHyp c) : SoundC c", "KCore.complete_hyp (c) (ref) (h : c.coreOK = true) (hf : FnHyp c) : CompleteC c ref"]
-cone_size = "6,551 lines in 1,096 declarations"
+cone_size = "6,608 lines in 1,103 declarations"
 declarations_authority = "core-cone.txt beside this file lists every declaration of the cone by module with its line range (cone (v), which kcore-spec/test/ReviewCone.lean writes to kcore-spec/.lake/review-cone-core-hyp.txt and kcore-spec/test/ConeV.lean to kcore-spec/.lake/cone-v.txt, the NEW that kcore-spec/test/cone.py compares with this file, at the commit); the declarations fields below name the main ones of each layer"
 changed = "2026-11-14, from 82f6879b (release run passed on c68b1a1a; release gate by a Fable agent: PASS): silent points, the mechanism with an EMPTY table: silentTable, silent, Semantics.fallback, Semantics.hookRes and Faithful.ΓFallback are added; EvalTerm's hook case, Faithful.Γ, ΓDomains and Semantics.paramVal read them; with the table empty every definition means what it meant at 82f6879b. The deciders handle overloading symbols (no cone change). The two theorems' statements are unchanged"
 
