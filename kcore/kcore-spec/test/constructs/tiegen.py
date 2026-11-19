@@ -7,7 +7,7 @@ Usage (from anywhere; the library and `kcore` built first):
                                                [--split] [--account-sorted] [--heads-literal] [--heads-codes]
                                                [--attrs-parts] [--attrs-blocks N] [--decl-parts] [--fn-blocks N]
                                                [--absent-file] [--builtin-decls] [--decl-syms-literal] [--nojunk-eq]
-                                               [--nojunk-blocks N] [--lists-by-class] [--out DIR] [--print]
+                                               [--nojunk-blocks N] [--lists-by-class] [--heads-plain] [--out DIR] [--print]
   (the probe, a run of the Lean definitions on the text, is stopped after $TIEGEN_PROBE_TIMEOUT seconds, 900 by default)
   python3 -I test/constructs/tiegen.py --self-test   (the law search below, on three fixtures)
 
@@ -52,6 +52,14 @@ so that no range recomputes Γ's heads.
 on a membership that compares a sentence's head name with Γ's by their codes, numbers, and the sort
 arguments only where the codes are equal (`absentPC`, equal to `absentPL` by `strCode_inj`): a String
 comparison runs over the names' characters, and a sentence of many heads compares each with all of Γ's.
+--heads-plain (with --chunk; in place of --heads-literal and --heads-codes) decides `account_absent`'s
+ranges on two literals of codes, each with one equation: Γ's symbol names (`gSymCodes`, as
+--decl-syms-literal writes it, `symCodesOf c`) and its subsort pairs, each sort as the code of the
+identifier `KoreAML.srt` writes (`gInjCodes`, `injCodesOf c`), read by `hasHeadCoded` (`absentPH`,
+equal to `absentP` by `gammaHasHead_coded`, KcoreSpec/TieCodes.lean, with `gSymCodes_noInst`: no
+code holds the byte of `{`). It builds no list of Γ's heads and decodes no name: a head is compared
+with Γ's names (or, for `inj`, its subsort pairs) by numbers. Refused where a name of Γ's symbols
+holds `{` (today's --heads-literal path is kept for such a text).
 --attrs-parts states `attrs_agree` from its five conjuncts (`attrs_ctors`, `attrs_fns`, `attrs_hooks`,
 `attrs_colls`, `attrs_prios`), each a decision of its own.
 --attrs-blocks N (implies --attrs-parts) decides `attrs_ctors`, `attrs_fns` and `attrs_hooks` over the
@@ -1224,7 +1232,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
              hand=None, chunk=0, at_values=(), cons_head=False, wf_parts=None, split=False,
              account_sorted=None, heads_literal=False, heads_codes=False, attrs_parts=False, decl_parts=False,
              fn_blocks=0, attrs_blocks=0, absent_file=False, builtin_decls=(), decl_syms=False, nojunk_eq=False,
-             nojunk_blocks=0, lists_by_class=False):
+             nojunk_blocks=0, lists_by_class=False, heads_plain=False):
     """The Lean text of the tie. `ob`: what `obligations` read; `raws`: each sentence's text as
     written; `hand`: hand-written sections by name (`consistency`), each in place of the generated
     one; `chunk`: the length of the ranges the decisions over the whole user module are cut into
@@ -1237,7 +1245,9 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     symbol names as a literal (`gSymCodes`); `nojunk_eq`: `nojunk_items` from each sentence's
     equation to its sort's item (`njEq`); `nojunk_blocks`: the no-junk orders of KItem and of a sort
     of more generators than that by blocks of that many disjuncts (0: one decision); `lists_by_class`:
-    `lists_in_account` from one check per class (`tieAll_of_groups`)."""
+    `lists_in_account` from one check per class (`tieAll_of_groups`); `heads_plain`: decide
+    `account_absent`'s ranges on the codes of Γ's symbol names and subsort pairs (`gSymCodes`,
+    `gInjCodes`, `hasHeadCoded`, by `gammaHasHead_coded`), in place of `gHeads`/`gCodes`."""
     raws = raws or {}
     hand = hand or {}
     call_order = ob["call_order"]
@@ -1442,6 +1452,29 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     w = L.append
     marks = []
     mark = lambda m: marks.append((len(L), m))  # the section of the file `--split` puts what follows in
+
+    def gsym_block(beq):
+        """The literal `gSymCodes` of Γ's symbol names' codes and its equation (`--decl-syms-literal`,
+        `--heads-plain`), with `symCode_beq` where `beq` (`hasSymL_eq` reads it)."""
+        w("/-! ## Γ's symbol names, as a literal -/")
+        w("")
+        w("/-- Γ's symbol names (`c.symName` of each of `kernelSyms c`, in its order), each as its code")
+        w("(`KoreAML.Distinct.strCode`), written out. -/")
+        w("def gSymCodes : List Nat :=")
+        w("  [" + wrap_nums([str(str_code(n)) for n in head["gSyms"]], 3) + "]")
+        w("")
+        w("theorem gSymCodes_eq :")
+        w("    (kernelSyms c).map (fun k => KoreAML.Distinct.strCode (c.symName k.name)) = gSymCodes := by")
+        w("  decide +kernel")
+        w("")
+        if beq:
+            w("/-- Two names are equal exactly where their codes are (`strCode_inj`). -/")
+            w("theorem symCode_beq (a b : String) :")
+            w("    (KoreAML.Distinct.strCode a == KoreAML.Distinct.strCode b) = (a == b) := by")
+            w("  apply Bool.eq_iff_iff.mpr")
+            w("  simp only [beq_iff_eq]")
+            w("  exact ⟨fun h => KoreAML.Distinct.strCode_inj h, fun h => h ▸ rfl⟩")
+            w("")
     # ---- header
     w("/-")
     w(f"  The tie (C14) on `{text_rel}`, the kompiled text of construct fixture {name}")
@@ -1971,6 +2004,12 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w("/-- The classes are the tie's (`tieClasses`, which gives each its direction), in its order. -/")
         w("theorem account_classes : classes.map (·.1) = tieClasses.map (·.1) := by decide +kernel")
     w("")
+    if heads_plain and decl_syms:
+        # the literal is read by the absent section and by `decl_counts`' parts and the `declsE` ranges:
+        # written once, before its first reader, and repeated in each file that reads it
+        mark("Head")
+        gsym_block(True)
+        mark("Account")
     if absent_file:
         mark("Absent")
     if chunk:
@@ -1978,6 +2017,30 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w("noncomputable def absentP (ad : AxiomDecl) : Bool :=")
         w('  (classOf "no direction").contains ad.index != (appHeadsOf ad.ax.pattern).all (gammaHasHead c)')
         w("")
+        if heads_plain:
+            if not decl_syms:
+                gsym_block(False)
+            w("/-- Γ's subsort pairs (`c.subsorts`, in its order), each sort as the code of the identifier")
+            w("`KoreAML.srt` writes for it (`injCodesOf`), written out. -/")
+            w("def gInjCodes : List (Nat × Nat) :=")
+            w("  [" + wrap_nums([f"({str_code(a)}, {str_code(b)})" for _, (a, b) in head["gHeads"][len(head["gSyms"]):]], 3) + "]")
+            w("")
+            w("theorem gInjCodes_eq : injCodesOf c = gInjCodes := by decide +kernel")
+            w("")
+            w("/-- No code of Γ's symbol names holds the byte of `{`, so the decoder reads none of the names as an")
+            w("instance (`noInst_of_codes`). -/")
+            w("theorem gSymCodes_noInst : gSymCodes.all (fun x => !Faithful.instCoded x) = true := by decide +kernel")
+            w("")
+            w("/-- `absentP` with Γ's heads read on the codes of its symbol names and subsort pairs (`hasHeadCoded`). -/")
+            w("noncomputable def absentPH (ad : AxiomDecl) : Bool :=")
+            w('  (classOf "no direction").contains ad.index !=')
+            w("    (appHeadsOf ad.ax.pattern).all (hasHeadCoded gSymCodes gInjCodes)")
+            w("")
+            w("/-- `absentPH` is `absentP`: `gammaHasHead c` is `hasHeadCoded gSymCodes gInjCodes` (`gammaHasHead_coded`). -/")
+            w("theorem absentPH_eq : absentPH = absentP := by")
+            w("  funext ad; unfold absentPH absentP")
+            w("  rw [gammaHasHead_coded gSymCodes_eq gInjCodes_eq gSymCodes_noInst]")
+            w("")
         if heads_literal:
             w("/-- The heads at which Γ applies its symbols (`gammaHeads c`), written out. -/")
             w("def gHeads : List (String × List Kore.KSort) :=")
@@ -2029,7 +2092,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             w("  simp only [List.any_map, Function.comp_def, headCode_eq]")
             w("")
         thms, body = by_ranges("absentE", "U.all",
-                               "absentPC" if heads_codes else "absentPL" if heads_literal else "absentP",
+                               "absentPH" if heads_plain else "absentPC" if heads_codes else
+                               "absentPL" if heads_literal else "absentP",
                                ranges(len(idx), 0, chunk), "tieAll", True)
         w(thms)
         w("")
@@ -2038,7 +2102,12 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     w("Γ lacks. -/")
     w("theorem account_absent : userAxioms.all (fun ad =>")
     w('    (classOf "no direction").contains ad.index != (appHeadsOf ad.ax.pattern).all (gammaHasHead c)) = true := by')
-    if chunk and heads_codes:
+    if chunk and heads_plain:
+        w("  rw [userAxioms_eq]")
+        w("  have h : (U.all).all absentPH = true :=")
+        w("    " + body.replace("\n    ", "\n      "))
+        w("  rw [absentPH_eq] at h; exact h")
+    elif chunk and heads_codes:
         w("  rw [userAxioms_eq]")
         w("  have h : (U.all).all absentPC = true :=")
         w("    " + body.replace("\n    ", "\n      "))
@@ -2239,28 +2308,11 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     w("")
     w("kernel_rfl sigItems_withHooks : ∀ (c : Semantics) (H : HookParams), sigItems (c.withHooks H) = sigItems c")
     w("")
-    if decl_syms:
+    if decl_syms and not heads_plain:
         # read by `decl_counts`' parts and by the `declsE` ranges, which `--split` may put in two files:
-        # repeated in each, as the head's literals are
+        # repeated in each, as the head's literals are (with --heads-plain written before the absent section)
         mark("Head")
-        w("/-! ## Γ's symbol names, as a literal -/")
-        w("")
-        w("/-- Γ's symbol names (`c.symName` of each of `kernelSyms c`, in its order), each as its code")
-        w("(`KoreAML.Distinct.strCode`), written out. -/")
-        w("def gSymCodes : List Nat :=")
-        w("  [" + wrap_nums([str(str_code(n)) for n in head["gSyms"]], 3) + "]")
-        w("")
-        w("theorem gSymCodes_eq :")
-        w("    (kernelSyms c).map (fun k => KoreAML.Distinct.strCode (c.symName k.name)) = gSymCodes := by")
-        w("  decide +kernel")
-        w("")
-        w("/-- Two names are equal exactly where their codes are (`strCode_inj`). -/")
-        w("theorem symCode_beq (a b : String) :")
-        w("    (KoreAML.Distinct.strCode a == KoreAML.Distinct.strCode b) = (a == b) := by")
-        w("  apply Bool.eq_iff_iff.mpr")
-        w("  simp only [beq_iff_eq]")
-        w("  exact ⟨fun h => KoreAML.Distinct.strCode_inj h, fun h => h ▸ rfl⟩")
-        w("")
+        gsym_block(True)
     mark("Decls")
     w("/-- Γ has a symbol under the name `n`. -/")
     w("noncomputable def hasSym (n : String) : Bool := (kernelSyms c).any fun k => c.symName k.name == n")
@@ -4602,6 +4654,20 @@ def main(argv):
     heads_codes = "--heads-codes" in argv
     if heads_codes and not heads_literal:
         raise Refused(f"{name}: --heads-codes codes the literal of Γ's heads: it needs --heads-literal")
+    heads_plain = "--heads-plain" in argv
+    if heads_plain:
+        if not chunk:
+            raise Refused(f"{name}: --heads-plain decides `account_absent` by ranges: it needs --chunk N")
+        if heads_literal:
+            raise Refused(f"{name}: --heads-plain replaces --heads-literal and --heads-codes: give one of them")
+        gs, gh = head["gSyms"], head["gHeads"]
+        if any("{" in n for n in gs):
+            raise Refused(f"{name}: --heads-plain: a name of Γ's symbols holds `{{` (the decoder may read it as an "
+                          f"instance, which Γ applies at sort arguments): use --heads-literal")
+        if (not gs or gh[:len(gs)] != [(n, []) for n in gs] or
+                any(n != "inj" or len(ss) != 2 for n, ss in gh[len(gs):])):
+            raise Refused(f"{name}: --heads-plain: the probe's heads of Γ are not its symbols' names at no sort "
+                          f"argument followed by `inj` at the subsort pairs")
     fn_blocks = opt("--fn-blocks", 0)
     attrs_blocks = opt("--attrs-blocks", 0)
     absent_file = "--absent-file" in argv
@@ -4620,7 +4686,8 @@ def main(argv):
                                  heads_literal, heads_codes, "--attrs-parts" in argv or attrs_blocks > 0, "--decl-parts" in argv,
                                  fn_blocks, attrs_blocks, absent_file, builtin_decls=builtin_decls,
                                  decl_syms="--decl-syms-literal" in argv, nojunk_eq="--nojunk-eq" in argv,
-                                 nojunk_blocks=opt("--nojunk-blocks", 0), lists_by_class="--lists-by-class" in argv)
+                                 nojunk_blocks=opt("--nojunk-blocks", 0), lists_by_class="--lists-by-class" in argv,
+                                 heads_plain=heads_plain)
     outdir = argv[argv.index("--out") + 1] if "--out" in argv else None
     if outdir is None and (not os.path.exists(final) or open(final).read() != text):
         open(final, "w").write(text)
