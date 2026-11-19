@@ -162,6 +162,10 @@ cannot f2-examples/e3-setvar-rewrite-req.kompile.kore
 differs f2-examples/e3-setvar-rewrite.kompile.kore
 differs f2-examples/e3-setvar.kompile.kore
 differs f2-examples/e3-userlist.kompile.kore
+differs f2-examples/e3-vars-list.kompile.kore
+differs f2-examples/e3-vars-map-rest.kompile.kore
+differs f2-examples/e3-vars-map.kompile.kore
+differs f2-examples/e3-vars-set.kompile.kore
 differs f2-examples/e3-vars.kompile.kore
 differs f2-examples/e3-withconfig.kompile.kore
 differs f2-examples/e3-witnessed-pre.kompile.kore
