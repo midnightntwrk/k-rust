@@ -1960,6 +1960,9 @@ fn expecting(note: &str, emit: &str) -> String {
 /// PJ-11 (U11e): `run` judges no snapshot projection (`compare`'s alone), so a flow whose every
 /// projection is a snapshot lists none: its rows carry `projections = []`, and the entries a lock
 /// recorded under an earlier projection are dropped, after which `--locked` is unchanged.
+/// U11f: a snapshot projection keeps no cell of the result record, so such a flow's search
+/// compares no cell of the end, as a flow of trace projections does, and an `expect` naming a
+/// snapshot projection refuses the list, since `run` never judges under one.
 #[test]
 fn a_flow_of_snapshot_projections_judges_its_mutations_under_none() {
     let flow = |projections: &str| {
@@ -1991,10 +1994,30 @@ fn a_flow_of_snapshot_projections_judges_its_mutations_under_none() {
         flow("[[projection]]\nname = \"snap\"\nrelation = \"snapshot\"\n\n"),
     )
     .unwrap();
+    let admission = admit(&FlowManifest::read(&manifest).unwrap());
+    let spec = admission
+        .spec
+        .as_ref()
+        .unwrap_or_else(|| panic!("{:?}", admission.record.refusal));
+    assert_eq!(
+        spec.result.value(),
+        result("cells", &[], &["k", "out", "scratch"], &[])
+    );
     let snapshots = locked_search(&manifest, &list, false);
     for row in snapshots["mutations"].as_array().unwrap() {
         assert_eq!(row["projections"], json!([]), "{row:#}");
     }
+    assert_eq!(
+        statuses(&first),
+        pairs(&[("note-offset", "survived"), ("emit-offset", "killed")]),
+        "{first:#}"
+    );
+    // No cell of the end is compared: `emit-offset`, which `out` kills, survives the search.
+    assert_eq!(
+        statuses(&snapshots),
+        pairs(&[("note-offset", "survived"), ("emit-offset", "survived")]),
+        "{snapshots:#}"
+    );
     let text = fs::read_to_string(&lock).unwrap();
     assert!(!text.contains("name = \"out\""), "{text}");
     assert!(!text.contains("snap"), "{text}");
@@ -2003,6 +2026,23 @@ fn a_flow_of_snapshot_projections_judges_its_mutations_under_none() {
         locked["lock"]["status"], "unchanged",
         "{:#}",
         locked["lock"]
+    );
+    fs::write(
+        dir.join("MUTATIONS.toml"),
+        expecting("{ snap = \"kill\" }", ""),
+    )
+    .unwrap();
+    let (refused, status) = dispatched(&manifest, "run");
+    assert_eq!(status, EXIT_UNASKED, "{refused:#}");
+    assert_eq!(
+        refused["mutation_list"]["outcome"], "refused",
+        "{refused:#}"
+    );
+    let detail = refused["mutation_list"]["detail"].as_str().unwrap();
+    assert!(
+        detail.contains("mutation \"note-offset\".expect.snap")
+            && detail.contains("`snap` is a snapshot projection"),
+        "{detail}"
     );
 }
 

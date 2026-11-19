@@ -100,7 +100,8 @@ pub enum Expected {
     /// some.
     Row(Expect),
     /// `expect = { NAME = "survive" | "kill", ... }`: the status under each named projection of
-    /// the flow (projections PJ-11), in the table's key order.
+    /// the flow (projections PJ-11), in the table's key order; never a snapshot projection
+    /// ([`MutationList::check_projections`]).
     Projections(Vec<(String, Expect)>),
 }
 
@@ -284,29 +285,45 @@ impl MutationList {
 
     /// Whether every projection a mutation's `expect` names ([`Expected::Projections`]) is one
     /// `manifest` declares ([`FlowManifest::projections`]: `default` alone for a flow that declares
-    /// none): the list decodes without its flow, so a command that reads both checks it, and a
-    /// name no projection has is an error naming its key, since its claim could never be checked.
+    /// none) and no snapshot projection, which `run` never judges
+    /// ([`FlowManifest::run_projections`]): the list decodes without its flow, so a command that
+    /// reads both checks it, and either name is an error naming its key, since its claim could
+    /// never be checked.
     pub fn check_projections(&self, manifest: &FlowManifest) -> Result<(), ManifestError> {
-        let declared = manifest
-            .projections()
-            .into_iter()
-            .map(|projection| projection.name)
+        let declared = manifest.projections();
+        let names = declared
+            .iter()
+            .map(|projection| projection.name.as_str())
             .collect::<Vec<_>>();
         for mutation in &self.mutations {
             let Some(expect) = &mutation.expect else {
                 continue;
             };
-            if let Some(name) = expect
-                .projection_names()
-                .find(|name| !declared.iter().any(|declared| declared == name))
-            {
-                return Err(ManifestError::new(
-                    join(&join(&mutation_key(&mutation.id), "expect"), name),
-                    format!(
-                        "names no projection of the flow (its projections: {})",
-                        declared.join(", ")
-                    ),
-                ));
+            for name in expect.projection_names() {
+                let key = || join(&join(&mutation_key(&mutation.id), "expect"), name);
+                match declared.iter().find(|projection| projection.name == name) {
+                    None => {
+                        return Err(ManifestError::new(
+                            key(),
+                            format!(
+                                "names no projection of the flow (its projections: {})",
+                                names.join(", ")
+                            ),
+                        ));
+                    }
+                    Some(projection) if projection.is_snapshot() => {
+                        return Err(ManifestError::new(
+                            key(),
+                            format!(
+                                "`{name}` is a snapshot projection (`relation = \"snapshot\"`): it \
+                                 relates an implementation's answer to the value a user accepted, \
+                                 which `compare` judges; `run` judges mutants of the definition \
+                                 under none"
+                            ),
+                        ));
+                    }
+                    Some(_) => {}
+                }
             }
         }
         Ok(())
@@ -417,8 +434,9 @@ fn mutation(index: usize, value: &Value) -> Result<Mutation, ManifestError> {
 }
 
 /// A mutation's `expect` at `key`: `"survive"` or `"kill"`, or a nonempty table of those per
-/// projection name ([`Expected`]). Whether each name is a projection of the flow is checked
-/// where the list is read with its manifest ([`MutationList::check_projections`]).
+/// projection name ([`Expected`]). Whether each name is a projection of the flow, and none a
+/// snapshot projection, is checked where the list is read with its manifest
+/// ([`MutationList::check_projections`]).
 fn expected(key: &str, value: &Value) -> Result<Expected, ManifestError> {
     const VERDICT: &str =
         "expected \"survive\" or \"kill\": the verdict the corpus gives the mutation";

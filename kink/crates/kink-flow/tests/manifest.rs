@@ -672,6 +672,35 @@ fn a_projection_that_compares_every_cell_keeps_every_cell_in_the_record() {
     assert_eq!(traces.record_cells, Some(Vec::new()));
 }
 
+/// A snapshot projection (projections PJ-20) reads no side of the definition, so it keeps no cell
+/// of the result record, whatever its kind (PJ-11, U11f): a flow whose every projection is a
+/// snapshot keeps none, as one of trace projections does, and beside definition projections the
+/// record is their union.
+#[test]
+fn a_snapshot_projection_keeps_no_cell_in_the_record() {
+    let snapshots = "[[projection]]\nname = \"msg\"\nkind = \"accepts\"\nrelation = \"snapshot\"\n\n\
+                     [[projection]]\nname = \"end\"\nrelation = \"snapshot\"\n\n";
+    let only = decode(&format!("{SPEC}{snapshots}")).unwrap();
+    assert_eq!(only.record_cells, Some(Vec::new()));
+    let narrowed = decode(&format!(
+        "{SPEC}{snapshots}[[projection]]\nname = \"regs\"\ncompare = [\"k\"]\n"
+    ))
+    .unwrap();
+    assert_eq!(
+        narrowed.record_cells,
+        Some(vec![RecordCell {
+            cell: "k".into(),
+            projection: "regs".into(),
+        }])
+    );
+    // A definition projection that keeps every cell keeps them still.
+    let every = decode(&format!(
+        "{SPEC}{snapshots}[[projection]]\nname = \"acc\"\nkind = \"accepts\"\n"
+    ))
+    .unwrap();
+    assert_eq!(every.record_cells, None);
+}
+
 /// `[run] projections` lists the projections `run` judges under, in its order; without it, every
 /// projection the flow has but its snapshot projections (`default` alone for a flow that declares
 /// none).
@@ -888,7 +917,8 @@ fn a_snapshot_projection_is_decoded_and_named() {
     assert_eq!(named[0]["relation"], "snapshot");
     assert_eq!(named[1]["relation"], "snapshot");
     assert!(named[2].get("relation").is_none(), "{named}");
-    // A snapshot projection keeps the record as its kind does: nothing is re-keyed.
+    // A snapshot projection keeps no cell; `acc`, an `accepts` projection of the definition,
+    // keeps every cell.
     assert_eq!(manifest.record_cells, None);
     let p = "[[projection]]\nname = \"p\"\n";
     for (text, key, message) in [

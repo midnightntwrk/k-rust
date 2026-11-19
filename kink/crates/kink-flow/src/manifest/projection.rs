@@ -12,8 +12,9 @@
 //! `accepts` projection keeps every observable cell, since acceptance is the class of the
 //! definition's declared ends, which the front end reads from the end's cells by functions
 //! kink-flow cannot name; a `trace` projection keeps no cell, since channels are recorded during
-//! the run, independent of the end. An implementation's views are not projections of the flow and
-//! keep nothing: an `[[implementation]]` is no input of the definition's runs.
+//! the run, independent of the end; a snapshot projection keeps no cell, since it reads no side of
+//! the definition (below). An implementation's views are not projections of the flow and keep
+//! nothing: an `[[implementation]]` is no input of the definition's runs.
 //!
 //! A projection's `domain` is the programs it applies to ([`ProjectionSection::holds`]): those
 //! whose id, or whose case document's path, one of its case patterns matches. `compare` measures
@@ -23,8 +24,9 @@
 //! A projection's `relation` says what its observed values are judged against: absent, each
 //! side's against the definition's; `snapshot`, an implementation's against the value a user
 //! accepted for the case, a file beside the flow (`crate::snapshot`). A snapshot relation reads no
-//! side of the definition, and `run`, which judges mutants of the definition, lists no snapshot
-//! projection ([`crate::FlowManifest::run_projections`]).
+//! side of the definition: it keeps nothing in the result record, `run`, which judges mutants of
+//! the definition, lists no snapshot projection ([`crate::FlowManifest::run_projections`]), and a
+//! mutation's `expect` names none (`crate::MutationList::check_projections`).
 //!
 //! kink-flow reads the declaration's shape and its own keys (`name`, `kind`, `compare`,
 //! `channels`, `domain`, `relation`); `views` and `observer` are the front end's, as a view's are
@@ -124,9 +126,13 @@ impl ProjectionSection {
     }
 
     /// Whether every observable cell must be in the result record for this projection to be
-    /// read from it (module documentation).
+    /// read from it (module documentation): never for a snapshot projection, which no command
+    /// reads from the record.
     #[must_use]
     pub const fn keeps_every_cell(&self) -> bool {
+        if matches!(self.relation, Relation::Snapshot) {
+            return false;
+        }
         match self.kind {
             ProjectionKind::End => self.compare.is_none(),
             ProjectionKind::Accepts => true,
@@ -196,7 +202,8 @@ pub fn default_projection(observe: Option<&ObserveSection>) -> ProjectionSection
 /// The cells the result record keeps for `declared` (module documentation): `None`, every
 /// observable cell, when no projection is declared or one keeps every cell; otherwise the union
 /// of the `end` projections' `compare`, in the order written, each cell once with the first
-/// projection that names it (empty when every projection is a `trace` projection).
+/// projection that names it (empty when every projection is a `trace` or a snapshot projection,
+/// none of which reads a cell of the record).
 #[must_use]
 pub fn record_cells(declared: &[ProjectionSection]) -> Option<Vec<RecordCell>> {
     if declared.is_empty() || declared.iter().any(ProjectionSection::keeps_every_cell) {

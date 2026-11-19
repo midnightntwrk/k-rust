@@ -421,7 +421,7 @@ An exit status is a function of the binary and the request, and so is a signal t
 An `end` snapshot projection names no `compare`, `views`, `observer` or `channels`: narrowing the cells or comparing functions of their values is the front end's comparison with the definition, which states no value to store, so it holds every cell the answer states.
 A `trace` projection has no snapshot.
 The path names no implementation, so one implementation names a snapshot projection: a view of a second one naming it is refused (`implementation[i].views[j].projection`).
-A snapshot projection keeps the result record as its kind does (above), and `run` judges no snapshot projection: the snapshot relation is `compare`'s alone, since a mutant of the definition gives no implementation's answer ("Kills under each projection").
+A snapshot projection keeps no cell of the result record, whatever its kind ("Which cells are compared"), `run` judges no snapshot projection, and a mutation's `expect` names none: the snapshot relation is `compare`'s alone, since a mutant of the definition gives no implementation's answer ("Kills under each projection").
 How `compare` judges a snapshot view: "Comparing implementations", "Snapshot views".
 
 ### Which cells are compared
@@ -440,8 +440,9 @@ Whether an end is data is still judged on the whole end: an unobservable cell ho
 The flow's projections narrow the compared cells to the union of the cells they compare and the cells inside them ("Projections"):
 an `end` projection compares the cells its `compare` names, every observable cell without `compare`;
 an `accepts` projection needs every observable cell, since whether a run accepts is the class of its declared end, which the front end reads from the end's cells by functions kink-flow cannot name, and a declared end that reads a left-out cell is undecided;
-a `trace` projection compares no cell of the end, since its channels are recorded during the run.
-So the second slot is narrowed only when every projection is an `end` projection with `compare` or a `trace` projection, and to no cell (every declared cell left out) when every projection is a `trace` projection.
+a `trace` projection compares no cell of the end, since its channels are recorded during the run;
+a snapshot projection ("Snapshots") compares no cell of the end, whatever its kind, since it reads no side of the definition.
+So the second slot is narrowed only when every projection is an `end` projection with `compare`, a `trace` projection or a snapshot projection, and to no cell (every declared cell left out) when every projection is a `trace` or a snapshot projection.
 An implementation's views narrow nothing: an implementation is no input of the definition's runs.
 A name is a cell's K name, whether or not the cell lies inside a `?` or `*` cell: a cell inside one is compared in each instance, with no index.
 A Map collection holds each instance by its key, the instance's key cell, so a cell compared inside a Map's instances is compared per key: the key of every Map that encloses a named cell is compared too.
@@ -1543,7 +1544,7 @@ A run that fails on an expectation still writes its lock (without `--locked`), w
 expect = { writes = "survive", full = "kill" }   # survives under `writes`, killed under `full`
 ```
 
-Each name must be a projection the flow declares (`default` for a flow that declares none); a list that names another is refused by `run` and by `check --mutations` (`mutation "ID".expect.NAME: names no projection of the flow`), since its claim could never be checked.
+Each name must be a projection the flow declares (`default` for a flow that declares none) and no snapshot projection, which `run` never judges ("Kills under each projection"); a list that names another is refused by `run` and by `check --mutations` (`mutation "ID".expect.NAME: names no projection of the flow`, or ``mutation "ID".expect.NAME: `NAME` is a snapshot projection``), since its claim could never be checked.
 `run` checks each against the row's entry under that projection ("Kills under each projection") by the table above, the entry's status in place of the row's (a survivor's limits being the row's `stop_hides_edit` and the horizons of the programs that agreed under that projection); an entry `undecided` is inconclusive, and so is a projection `[run] projections` does not list.
 The row's `expectation` is then `{verdict, detail, projections}`: `projections` gives each named projection's `{name, verdict, detail}`, `verdict` is the worst of them (unmet, then inconclusive, then met) and `detail` the details of those with that verdict, each prefixed `under NAME: `.
 The string form keeps its meaning: it is checked against the row's own status, which in a flow that declares projections is the search's own, over the union of what they observe.
@@ -1742,7 +1743,7 @@ A first-kill row's `killed_by` is null, not a one-element list, because first-ki
 ### Kills under each projection
 
 `[run] projections` names the projections `run` judges every mutation under, in the order written, each a projection of the flow; by default every projection the flow has but its snapshot projections, which is `default` alone for a flow that declares none.
-A snapshot projection relates an implementation's answer to a value a user accepted ("Snapshots"), which no mutant of the definition gives, so `run` judges none: naming one in `[run] projections` is refused (`run.projections[i]`), and a flow whose every projection is a snapshot judges its mutations under none (each row's `projections` is empty).
+A snapshot projection relates an implementation's answer to a value a user accepted ("Snapshots"), which no mutant of the definition gives, so `run` judges none: naming one in `[run] projections` is refused (`run.projections[i]`), and so is naming one in a mutation's `expect` (MUTATIONS.toml); a flow whose every projection is a snapshot judges its mutations under none (each row's `projections` is empty), and its search compares no cell of the end, since a snapshot projection keeps none in the record ("Which cells are compared").
 A flow that declares no `[[projection]]` is judged as it was before projections existed: its one projection is the search's own observation, and no row names it.
 
 A flow that declares projections gives each row `projections`, one `{name, status, killer, reason}` per listed projection, and each executed entry `projections`, the verdict of its program under each listed projection (`killed`, `agree` or `unknown`; `outside-domain` where the projection's domain does not hold the program, which is then neither judged nor counted under it, as `compare` leaves a view outside its domain out).

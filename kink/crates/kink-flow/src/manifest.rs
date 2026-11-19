@@ -127,8 +127,9 @@ pub struct FlowManifest {
     /// declared projections compare, each with the first projection naming it, by the front
     /// end's names (K names once a front end bound them); `None`, every cell the specification
     /// does not declare unobservable, when the flow declares no projection or one that keeps
-    /// every cell (`projection::record_cells`). An implementation's views add none: an
-    /// implementation is no input of the definition's runs.
+    /// every cell (`projection::record_cells`). A snapshot projection adds none, since it reads no
+    /// side of the definition, and an implementation's views add none: an implementation is no
+    /// input of the definition's runs.
     pub record_cells: Option<Vec<RecordCell>>,
     /// The identity of each declared projection's functions of an observer (`views`,
     /// `observer`), by projection name, as the front end that resolved them states it
