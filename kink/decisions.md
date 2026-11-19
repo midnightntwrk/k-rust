@@ -63,7 +63,7 @@ A proposal to change an entry must answer the entry's reasons and meet its reope
      A KORE state bypasses the initializer: it can be a configuration no input produces, so a kill from it can be a difference only on configurations the specification never reaches, a fact about the rewrite relation rather than about the specification's behavior; and it names compiled symbols, so a corpus written that way breaks whenever the way the specification compiles changes.
      A term path names a child-index position of the compiled configuration: it depends on the compiled cell layout, a path an end lacks makes the slot an error rather than a value, and a term-path slot gives no one-sided kill.
      Typed inputs name the specification's declared configuration variables and the constructors of their declared types, so they are stable under compilation and every one is a start the initializer builds.
-     Cells named in the specification or in `[result] cells` are stable under compilation, a projection by them is defined on every configuration, and it is compatible with one-sided kills.
+     Cells named in the specification or in a projection's `compare` are stable under compilation, a slot that compares them is defined on every configuration, and it is compatible with one-sided kills.
   3. *The harness keeps forms that kink's own tests need and no user corpus does.*
      Campaigns of generated mutants over many definitions, pinned sources, process isolation, a digest-checked store, resume and `replay-check` exercise engine paths that have no other end-to-end route; a user's corpus tests one specification, and kink-flow's caches are keyed by content digests and kink's build.
 
