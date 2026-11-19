@@ -179,6 +179,15 @@
 #             bound there and not by a section variable; Γcl in family for a statement over Γc alone;
 #             no FnHyp hypothesis, in it or in owed_refuted; Consistent, not negated, in consistent);
 #             rest.py counts consistent among the entry's theorems.
+#             fixture (optional, any form with `file` and non-empty `sentences`): the fixture whose
+#             kompiled text the table's sentences are, where it is another fixture than the entry's
+#             `fixture` (a theorem stated on a companion text: the entry's also_fixtures, or a fixture
+#             its notes name); without it the sentences are the entry's fixture's. test/provenance.sh
+#             checks that it names a directory of fixtures/ other than the entry's fixture, that
+#             `file` reads that fixture's text (f2-examples/FIXTURE.kompile.kore, or a text carrying
+#             the Source of fixtures/FIXTURE/FIXTURE.k) and that each index of `sentences` is an
+#             axiom of it; provenance.sh and K-coverage.md list a form (r) table, and its
+#             owed_refuted, under this fixture.
 # Fields of DONE-0 C2's evidence (test/constructs/rest.py, whose docstring gives each form's items):
 #   tie       on a row or a nested table: the C14 tie modules of the entry's fixture, a list of
 #             files test/X.lean that test/integration.sh builds.

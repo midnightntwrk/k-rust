@@ -39,6 +39,11 @@
 #   owed_statement  kind "sentence against the reading" only, required: in words, the sentence-level
 #              statement left owed (no model of the translated sentences and the named families,
 #              with no other item of Γ)
+#   fixture    optional, on a table whose sentences are another fixture's text than the entry's (its
+#              `fixture`): that fixture, a directory of test/constructs/fixtures/. The indices of
+#              `sentences` are axioms of that fixture's kompiled text, and the entry is listed under
+#              it where its tables are listed by fixture (the form (r) tables below, K-coverage.md).
+#              Without it the table's sentences are taken to be the entry's fixture's (not checked).
 # The checks, each on the text of the named file (no Lean is run):
 # - `form` is one of the four, `kind` one of the three for form (a) and absent, "through the
 #   reading" or "sentence against the reading" for form (r), `family` given for "through the
@@ -77,9 +82,14 @@
 # - `silent_statement` (rows-header.toml), on a supported E6 `hook:` row only: a non-empty list of
 #   tables { theorem, file }, each checked as a form (c) table's theorem (declared once, no AtNone,
 #   for every H as above).
+# - a table's `fixture`: a directory of test/constructs/fixtures/, not the entry's own `fixture`, on a
+#   table with `file` and non-empty `sentences`; the file reads that fixture's text (a `from "PATH"`
+#   with PATH f2-examples/FIXTURE.kompile.kore, or a text that carries the Source of the fixture's own
+#   fixtures/FIXTURE/FIXTURE.k), and each index of `sentences` is an axiom of each such text (1 to
+#   its number of axioms, as AxiomDecl.index counts them).
 # Prints the entries by form and kind (the counts C7 asks for: forms (b), (r) and "through the
-# reading" counted apart), the fixtures of the form (r) entries (texts without a model), and every
-# failure. Exit 1 on a failure.
+# reading" counted apart), the fixtures of the form (r) entries (texts without a model: the table's
+# `fixture`, else the entry's), and every failure. Exit 1 on a failure.
 #
 # Usage (from anywhere): test/provenance.sh [ROWS.toml]   (default test/constructs/rows.toml)
 #                        test/provenance.sh --self-test   (the checks on cases written to a scratch
@@ -341,6 +351,36 @@ def check(rows, base):
             if n.split(".")[-1] == "inconsistent" or (st is not None and re.search(r"¬\s*\(?\s*Consistent\b", st)):
                 bad.append(f"{at}: kind '{AGAINST}' beside tie_theorems {n}, which claims the reading inconsistent")
 
+    def fixture_ok(at, d, e):
+        """A table's `fixture`: another fixture than the entry's, whose text the table's `file` reads
+        and whose axioms the indices of `sentences` are."""
+        fx = d["fixture"]
+        if not (isinstance(fx, str) and fx and "/" not in fx
+                and os.path.isdir(os.path.join(base, "test/constructs/fixtures", fx))):
+            bad.append(f"{at}: `fixture` {fx!r} names no directory of test/constructs/fixtures"); return
+        if fx == e.get("fixture"):
+            bad.append(f"{at}: `fixture` {fx} is the entry's own fixture; it names another"); return
+        ss, fl = d.get("sentences"), d.get("file")
+        if not (isinstance(fl, str) and isinstance(ss, list) and ss and all(isinstance(x, int) for x in ss)):
+            bad.append(f"{at}: `fixture` on a table without `file` and non-empty `sentences`"); return
+        path = os.path.join(base, fl)
+        if not os.path.isfile(path):
+            return  # reported as no file
+        src = re.compile(r'Source\((?:[^()"]*/)?fixtures/' + re.escape(fx) + "/" + re.escape(fx) + r"\.k\)")
+        texts = {}
+        for p in sorted(set(re.findall(r'\bfrom\s+"([^"]+)"', strip_comments(open(path, encoding="utf-8").read())))):
+            q = os.path.join(base, p)
+            body = open(q, encoding="utf-8").read() if os.path.isfile(q) else None
+            if body is not None and (p == f"f2-examples/{fx}.kompile.kore" or src.search(body)):
+                texts[p] = sum(1 for l in body.split("\n") if re.match(r"\s*axiom\s*\{", l))
+        if not texts:
+            bad.append(f"{at}: `fixture` {fx}: {fl} reads no text of it (f2-examples/{fx}.kompile.kore, or a"
+                       f" text carrying the Source of fixtures/{fx}/{fx}.k)"); return
+        out = [(x, p, n) for p, n in texts.items() for x in ss if not 1 <= x <= n]
+        if out:
+            x, p, n = out[0]
+            bad.append(f"{at}: `fixture` {fx}: sentence {x} is no axiom of {p} ({n} axioms)")
+
     for where, e in entries(t, ""):
         ds = e["derived"]
         if not isinstance(ds, list) or not ds:
@@ -355,7 +395,9 @@ def check(rows, base):
             key = f"({form})" + (f" {kind}" if form == "a" or (form == "r" and kind is not None) else "")
             counts[key] = counts.get(key, 0) + 1
             if form == "r":
-                nomodel.append((where, e.get("fixture"), d.get("theorem")))
+                nomodel.append((where, d.get("fixture") or e.get("fixture"), d.get("theorem")))
+            if "fixture" in d:
+                fixture_ok(at, d, e)
             if form in ("a", "r"):
                 if form == "a" and kind not in KINDS:
                     bad.append(f"{at}: form (a) with kind {kind!r}, not 'from sentences', 'through the reading' or 'in a model'")
@@ -605,6 +647,41 @@ end KCore.ProvT
         (pr, "not a non-empty list", {"silent_statement": []}, hk),
         (sa("good"), "no supported E6 hook: row", {"silent_statement": [{"theorem": "KCore.ProvT.noSem", "file": f}]}),
     ]
+    # a table's `fixture` (fixtures of test/constructs/fixtures, read by name; the text by its Source in S.kore)
+    sk = os.path.relpath(os.path.join(d, "S.kore"), K)
+    src = "Source(kcore-spec/test/constructs/fixtures/e3-ml-eq-rhs-or-total/e3-ml-eq-rhs-or-total.k)"
+    open(os.path.join(d, "S.kore"), "w").write(
+        f"[org'Stop'kframework'Stop'attributes'Stop'Source{{}}(\"{src}\")]\nmodule M\n"
+        "  axiom{R} \\top{R}() []\n  axiom{R} \\top{R}() []\n\n  axiom{R} \\top{R}() []\nendmodule []\n")
+    open(os.path.join(d, "F.lean"), "w").write(
+        'namespace KCore.ProvF\n-- kore_term k0 from "f2-examples/c3-anywhere-ctor.kompile.kore"\n'
+        'kore_term kore from "f2-examples/e5-ovl-fun.kompile.kore"\n'
+        "theorem lit (H : HookParams) : Eval (cH H) e v := sorry\n"
+        "theorem noModel (H : HookParams) : ¬ ∃ (M : Type) (_ : Inhabited M) (I : Interpretation Sym M), I ⊧ᴵP Pre H := sorry\n"
+        "end KCore.ProvF\n")
+    open(os.path.join(d, "G.lean"), "w").write(
+        f'namespace KCore.ProvG\ndefinition_of defn from "{sk}"\n'
+        "theorem src (H : HookParams) : Eval (cH H) e v := sorry\nend KCore.ProvG\n")
+    ff, fg = (os.path.relpath(os.path.join(d, x), K) for x in ("F.lean", "G.lean"))
+    fa = lambda fx, ss, th="KCore.ProvF.lit", fl=ff: {"form": "a", "kind": "from sentences", "sentences": ss,
+                                                     "theorem": th, "file": fl, "fixture": fx}
+    own = {"fixture": "c3-anywhere-ctor"}
+    cases += [
+        (fa("e5-ovl-fun", [1, 2]), None, own),
+        (fa("e5-ovl-fun", [1]), None),
+        (fa("e3-ml-eq-rhs-or-total", [1, 3], "KCore.ProvG.src", fg), None, own),
+        (fa("e3-ml-eq-rhs-or-total", [3, 4], "KCore.ProvG.src", fg), "sentence 4 is no axiom of", own),
+        (fa("e5-ovl-fun", [1, 100000]), "sentence 100000 is no axiom of f2-examples/e5-ovl-fun.kompile.kore", own),
+        (fa("c3-anywhere-ctor", [1]), "reads no text of it"),
+        (fa("e5-ovl-fun", [1], "KCore.ProvG.src", fg), "reads no text of it", own),
+        (fa("c3-anywhere-ctor", [1]), "is the entry's own fixture", own),
+        (fa("no-such-fixture", [1]), "names no directory of test/constructs/fixtures", own),
+        (fa("../constructs", [1]), "names no directory of test/constructs/fixtures", own),
+        ({"form": "c", "theorem": "KCore.ProvT.pair", "file": f, "fixture": "e5-ovl-fun"},
+         "`fixture` on a table without `file` and non-empty `sentences`", own),
+        ({"form": "r", "sentences": [105], "family": "ΓCons", "theorem": "KCore.ProvF.noModel", "file": ff,
+          "fixture": "e5-ovl-fun"}, None, own),
+    ]
     ok = True
     val = lambda v: (f"{v!r}".replace("'", '"') if not isinstance(v, (list, dict)) else
                      "[" + ", ".join(val(x) for x in v) + "]" if isinstance(v, list) else
@@ -619,11 +696,15 @@ end KCore.ProvT
             o.write(f"[{lst}]\n\"{key}\" = {{ status = \"{st}\"" + extra + ", derived = [{ "
                     + ", ".join(f"{k} = {val(v)}" for k, v in dt.items())
                     + " }] }\n")
-        _, bad, _ = check(rp, K)
-        got = bad[0] if bad else None
+        _, bad, nomodel = check(rp, K)
         if (want is None and bad) or (want is not None and (len(bad) != 1 or want not in bad[0])):
             ok = False
             print(f"self-test case {i}: expected {want!r}, got {bad}")
+        # a form (r) table is listed under its own `fixture`, else under the entry's
+        fx = [dt.get("fixture") or fields.get("fixture")] if dt.get("form") == "r" else []
+        if [x for _, x, _ in nomodel] != fx:
+            ok = False
+            print(f"self-test case {i}: form (r) listed under {[x for _, x, _ in nomodel]}, expected {fx}")
     for x in os.listdir(d):
         os.remove(os.path.join(d, x))
     os.rmdir(d)

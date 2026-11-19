@@ -16,14 +16,16 @@ The document holds, in this order:
              changes (`cone`), the ticket or unit that supports it (`unit`) and the planned lane.
   undecided  the rows of status pending-fixture and not-handled, by list.
   no model   every entry (row or nested) with a `derived` table of form (r), the text's sentences
-             having no model (DONE-0 C7, rows-header.toml): its fixture, the sentences and families
+             having no model (DONE-0 C7, rows-header.toml): the fixture whose text the sentences
+             are (the table's `fixture`, else the entry's), the sentences and families
              the refutation uses, the theorem, its kind where given, and `owed_refuted`. Such an
              entry's status cell in its list reads "STATUS (no model)", or "STATUS (no model; the
              reading has one)" where every such table is of kind "sentence against the reading" (Γ
              has a model and refutes one sentence of the text as written).
   owed facts every entry (row or nested) with an `owed_state` (rows-header.toml: per fixture, the
              state of the CondDecided its account lists as owed, or a MatchIndependent proved on
-             the text of a fixture of the same shape) or an `owed_refuted`: the count
+             the text of a fixture of the same shape) or an `owed_refuted` (a refuted owed fact of
+             its table's fixture, as under no model): the count
              of entries by their best fixture (rows-header.toml: proved where one of its states is
              proved, else open where one is, else false; an owed_refuted is false), and each false
              or open owed fact, one line per fixture: the entry's group, the state, and the
@@ -121,15 +123,21 @@ def no_model_mark(e):
     return "no model; the reading has one" if all(d.get("kind") == AGAINST for d in ds) else "no model"
 
 
+def table_fixture(e, d):
+    """The fixture whose text a `derived` table's sentences are: its own `fixture` (another
+    fixture's text than the entry's, rows-header.toml), else the entry's."""
+    return d.get("fixture") or e.get("fixture", "")
+
+
 def owed_facts(e):
     """[(fixture, state, theorem or reason)] of an entry: its `owed_state`, then each owed_refuted
-    of its form (r) tables, a refuted owed fact of its fixture."""
+    of its form (r) tables, a refuted owed fact of the table's fixture."""
     out = []
     st = e.get("owed_state")
     for x, v in (st.items() if isinstance(st, dict) else []):
         word, _, rest = str(v).partition(": ")
         out.append((x, "false" if word == "refuted" else word, rest))
-    out += [(e.get("fixture", ""), "false", d["owed_refuted"]) for d in no_model(e) if d.get("owed_refuted")]
+    out += [(table_fixture(e, d), "false", d["owed_refuted"]) for d in no_model(e) if d.get("owed_refuted")]
     return out
 
 
@@ -284,6 +292,8 @@ def generate(rows_path, manifest_path):
           "A `derived` table of form (r): a kernel-checked theorem that the premise set form (a) "
           "would use has no model, from the sentences named (by index) and the families named "
           "beside them; `owed_refuted` the theorem refuting the fact the package names as owed. "
+          "The fixture is the one whose text the sentences are: the table's `fixture` where they are "
+          "another fixture's than the entry's, else the entry's. "
           "The entry's status is the reading's, and its list prints \"(no model)\" beside it. "
           f"Of kind \"{AGAINST}\": the reading has a model (`consistent`), and no model of it satisfies "
           "the first sentence named as written; the sentence-level statement stays owed "
@@ -293,7 +303,7 @@ def generate(rows_path, manifest_path):
     else:
         o += table(["list", "row", "entry", "status", "fixture", "sentences", "families", "kind",
                     "theorem", "owed refuted"], [
-            [l, code(key), text(w) if w else "row", text(e.get("status", "")), text(e.get("fixture", "")),
+            [l, code(key), text(w) if w else "row", text(e.get("status", "")), text(table_fixture(e, d)),
              text(", ".join(str(x) for x in d.get("sentences", [])) if isinstance(d.get("sentences"), list) else ""),
              text(d.get("family", ""), CUT), text(d.get("kind", "")), text(d.get("theorem", "")),
              text(d.get("owed_refuted", ""))]
