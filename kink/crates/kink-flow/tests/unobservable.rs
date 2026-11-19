@@ -2214,3 +2214,230 @@ fn a_crash_is_a_snapshot_value_and_could_not_apply_is_its_own_verdict() {
         kink_flow::cli::EXIT_NO
     );
 }
+
+/// `accept` (projections PJ-20) writes the value compare judges under a snapshot projection as
+/// each case's snapshot, and nothing else beside the flow: a compare before it finds `pending`
+/// and `different`, one after it `equal`. A file that holds the value as a JSON value is left as
+/// written; `--only` limits the cases; a case answered `could-not-apply` is not accepted (exit 3)
+/// and its file is left as it is; a file of no case is reported stale and never removed; a
+/// projection that is unknown, not a snapshot, or that no view names, and an unknown case, refuse
+/// the command (exit 2). The command line reaches it through `FlowCommand::parse` and `dispatch`.
+#[test]
+fn accept_writes_the_compared_values_as_snapshots() {
+    let answer = |answer: &str| format!("[\"sh\", \"-c\", \"cat > /dev/null; echo '{answer}'\"]");
+    let manifest = fs::read_to_string(flow().join("FLOW.toml"))
+        .unwrap()
+        .replace(
+            "[[program]]",
+            "[[projection]]\nname = \"msg\"\nkind = \"accepts\"\nrelation = \"snapshot\"\n\n\
+             [[projection]]\nname = \"end\"\nrelation = \"snapshot\"\n\n\
+             [[projection]]\nname = \"declined\"\nrelation = \"snapshot\"\n\n\
+             [[projection]]\nname = \"orphan\"\nrelation = \"snapshot\"\n\n\
+             [[projection]]\nname = \"cells\"\n\n\
+             [[program]]",
+        )
+        + &format!(
+            "\n[[program]]\nid = \"two\"\ntext = \"emit(2)\"\n\n\
+             [[implementation]]\nname = \"diag\"\ngiven = \"inputs\"\nprotocol = \
+             \"kink-implementation/3\"\ncommand = {}\nviews = [{{ projection = \"msg\", required = \
+             true }}]\n\n\
+             [[implementation]]\nname = \"ends\"\ngiven = \"inputs\"\ncommand = {}\nviews = [\n  \
+             {{ projection = \"end\", required = true }},\n  {{ name = \"all\" }},\n]\n\n\
+             [[implementation]]\nname = \"later\"\ngiven = \"inputs\"\ncommand = {}\nviews = \
+             [{{ projection = \"declined\" }}]\n",
+            answer(r#"{\"end\": \"rejected\", \"message\": \"bad token\"}"#),
+            answer(r#"{\"end\": \"final\", \"cells\": {\"x\": 2, \"y\": [1, 2]}}"#),
+            answer(r#"{\"end\": \"could-not-apply\", \"reason\": \"not yet\"}"#),
+        );
+    let dir = fixture("accept", &[("accept", &manifest)]);
+    let snapshots = dir.join("snapshots");
+    // Re-spaced and re-ordered: it holds the value, and `accept` leaves its text as it is.
+    let respaced = "{\"message\": \"bad token\",\n\"answer\":\"rejected\"}";
+    for (file, text) in [
+        ("msg/both.json", respaced),
+        ("msg/gone.json", "{\"answer\": \"accepted\"}\n"),
+        (
+            "end/both.json",
+            "{\"cells\": {\"x\": 1, \"y\": [1, 2]}, \"end\": \"final\"}\n",
+        ),
+        ("declined/both.json", "{\"end\": \"final\"}\n"),
+    ] {
+        let path = snapshots.join(file);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, text).unwrap();
+    }
+    let path = dir.join("FLOW-accept.toml");
+    let read = FlowManifest::read(&path).unwrap();
+    let compare = || {
+        let document = kink_flow::compare::command(
+            &read,
+            &kink_flow::compare::CompareOptions::default(),
+            Some(&Equal),
+            "compare",
+        );
+        assert_eq!(document["refusal"], Value::Null, "{document:#}");
+        document
+    };
+    let verdicts = |document: &Value, implementation: &str, view: &str| {
+        document["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|row| row["implementation"] == implementation)
+            .map(|row| {
+                let entry = row["views"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|entry| entry["view"] == view)
+                    .unwrap_or_else(|| panic!("{row:#}"));
+                format!(
+                    "{} {}",
+                    row["program"].as_str().unwrap(),
+                    entry["verdict"].as_str().unwrap()
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    let before = compare();
+    assert_eq!(
+        verdicts(&before, "diag", "msg"),
+        ["both equal", "two pending"]
+    );
+    assert_eq!(
+        verdicts(&before, "ends", "end"),
+        ["both different", "two pending"]
+    );
+    let accept = |projection: &str, only: &[&str]| {
+        let mut args = vec!["--projection".to_owned(), projection.to_owned()];
+        for case in only {
+            args.extend(["--only".to_owned(), (*case).to_owned()]);
+        }
+        let command = FlowCommand::parse("accept", CommandFiles::default(), &args).unwrap();
+        let front = FrontEnd {
+            implementations: Some(&Equal),
+            ..FrontEnd::default()
+        };
+        dispatch(FlowManifest::read(&path).unwrap(), command, front).unwrap()
+    };
+    let outcomes = |document: &Value| {
+        document["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|case| {
+                format!(
+                    "{} {}",
+                    case["case"].as_str().unwrap(),
+                    case["outcome"].as_str().unwrap()
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+
+    let (msg, status) = accept("msg", &[]);
+    assert_eq!(status, EXIT_YES, "{msg:#}");
+    assert_eq!(msg["schema"], "kink-flow-accept");
+    assert_eq!(msg["implementation"], "diag");
+    assert_eq!(outcomes(&msg), ["both unchanged", "two created"], "{msg:#}");
+    assert_eq!(msg["cases"][1]["verdict"], "pending");
+    assert_eq!(msg["changed"], json!(["snapshots/msg/two.json"]));
+    assert_eq!(msg["stale"], json!(["snapshots/msg/gone.json"]));
+    assert_eq!(
+        fs::read_to_string(snapshots.join("msg/two.json")).unwrap(),
+        "{\n  \"answer\": \"rejected\",\n  \"message\": \"bad token\"\n}\n"
+    );
+    assert_eq!(
+        fs::read_to_string(snapshots.join("msg/both.json")).unwrap(),
+        respaced
+    );
+    assert!(
+        snapshots.join("msg/gone.json").is_file(),
+        "a stale file is kept"
+    );
+
+    // `--only` accepts the cases it names: `end/two.json` stays absent.
+    let (only, status) = accept("end", &["both"]);
+    assert_eq!(status, EXIT_YES, "{only:#}");
+    assert_eq!(outcomes(&only), ["both replaced"], "{only:#}");
+    assert_eq!(only["cases"][0]["verdict"], "different");
+    assert!(!snapshots.join("end/two.json").exists());
+    let (end, status) = accept("end", &[]);
+    assert_eq!(status, EXIT_YES, "{end:#}");
+    assert_eq!(outcomes(&end), ["both unchanged", "two created"], "{end:#}");
+    let text = kink_flow::cli::text(&end).unwrap();
+    assert_eq!(
+        text,
+        "created snapshots/end/two.json\n\
+         accept end (ends): 1 created, 0 replaced, 1 unchanged, 0 not accepted, 0 stale\n"
+    );
+
+    let after = compare();
+    assert_eq!(verdicts(&after, "diag", "msg"), ["both equal", "two equal"]);
+    assert_eq!(verdicts(&after, "ends", "end"), ["both equal", "two equal"]);
+    // The view judged against the definition is as it was.
+    assert_eq!(
+        verdicts(&after, "ends", "all"),
+        verdicts(&before, "ends", "all")
+    );
+
+    // `could-not-apply` states no value: nothing is written, the accepted file stays.
+    let (declined, status) = accept("declined", &[]);
+    assert_eq!(status, kink_flow::cli::EXIT_UNANSWERED, "{declined:#}");
+    assert_eq!(
+        outcomes(&declined),
+        ["both not-accepted", "two not-accepted"],
+        "{declined:#}"
+    );
+    assert_eq!(declined["cases"][0]["verdict"], "could-not-apply");
+    assert_eq!(declined["cases"][0]["detail"], "not yet");
+    assert_eq!(declined["changed"], json!([]));
+    assert_eq!(
+        fs::read_to_string(snapshots.join("declined/both.json")).unwrap(),
+        "{\"end\": \"final\"}\n"
+    );
+    assert!(!snapshots.join("declined/two.json").exists());
+    let text = kink_flow::cli::text(&declined).unwrap();
+    assert!(
+        text.starts_with("not accepted both (could-not-apply): not yet\n"),
+        "{text}"
+    );
+
+    for (projection, only, reason) in [
+        ("nope", &[][..], "unknown-projection"),
+        ("cells", &[][..], "not-a-snapshot"),
+        ("orphan", &[][..], "no-producer"),
+        ("msg", &["three"][..], "unknown-case"),
+    ] {
+        let (refused, status) = accept(projection, only);
+        assert_eq!(status, EXIT_UNASKED, "{refused:#}");
+        assert_eq!(refused["refusal"]["reason"], reason, "{refused:#}");
+        assert_eq!(refused["cases"], json!([]));
+    }
+    // Nothing but snapshots was written beside the flow: no lock.
+    assert!(!dir.join("kink.lock").exists());
+    let mut written = Vec::new();
+    let mut pending = vec![snapshots.clone()];
+    while let Some(directory) = pending.pop() {
+        for entry in fs::read_dir(directory).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                pending.push(path);
+            } else {
+                written.push(path.strip_prefix(&snapshots).unwrap().display().to_string());
+            }
+        }
+    }
+    written.sort();
+    assert_eq!(
+        written,
+        [
+            "declined/both.json",
+            "end/both.json",
+            "end/two.json",
+            "msg/both.json",
+            "msg/gone.json",
+            "msg/two.json"
+        ]
+    );
+}

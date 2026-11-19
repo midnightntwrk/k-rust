@@ -55,6 +55,7 @@
 //! projection `[run] projections` lists ([`projected`]), from the run's slot outcomes and both
 //! sides' ends (the mutant's live, or from that store).
 
+pub mod accept;
 pub mod admit;
 pub mod candidates;
 pub mod check;

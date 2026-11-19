@@ -286,7 +286,7 @@ pub enum NotCompared {
 }
 
 /// The reason of a view outside its projection's domain ([`NotCompared::OutsideDomain`]).
-const OUTSIDE_DOMAIN_REASON: &str = "outside-domain";
+pub(crate) const OUTSIDE_DOMAIN_REASON: &str = "outside-domain";
 
 impl NotCompared {
     /// The reason's name in documents.
@@ -1941,6 +1941,17 @@ fn snapshot_kind(manifest: &FlowManifest, view: &ViewSection) -> Option<Snapshot
     }
 }
 
+/// The value a snapshot view observed of one (implementation, program): what `accept` writes
+/// ([`crate::accept`]), the value [`snapshot_rows`] judged.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct SnapshotObserved {
+    /// The program's id.
+    pub program: String,
+    /// The snapshot projection the view names.
+    pub projection: String,
+    pub value: snapshot::SnapshotValue,
+}
+
 /// What a snapshot view of one (implementation, program) judges: the implementation's answer,
 /// or its run that crashed (a failure of kind `exit`).
 enum Observation<'a> {
@@ -1955,12 +1966,14 @@ enum Observation<'a> {
 /// reads no side of the definition: `equal`, `different` (`kink-snapshot/1`: both values and a
 /// line diff), `pending` (no file: no answer, status 3), `not-compared` (`snapshot-unreadable`),
 /// or `could-not-apply` (README D6). A crash gives an `end` snapshot view no row: it states no
-/// end. Each row names its file (`snapshot`, relative to the flow's directory).
+/// end. Each row names its file (`snapshot`, relative to the flow's directory). Each value judged
+/// is also pushed on `observed_values`.
 fn snapshot_rows(
     manifest: &FlowManifest,
     implementation: &ImplementationSection,
     program: &Program,
     observation: &Observation<'_>,
+    observed_values: &mut Vec<SnapshotObserved>,
 ) -> Vec<Option<Value>> {
     implementation
         .views
@@ -1991,7 +2004,13 @@ fn snapshot_rows(
                 return Some(row);
             };
             let file = snapshot::path(&manifest.directory, projection, &program.id);
-            match snapshot::judge(&observed, &snapshot::read(&file)) {
+            let judgement = snapshot::judge(&observed, &snapshot::read(&file));
+            observed_values.push(SnapshotObserved {
+                program: program.id.clone(),
+                projection: projection.to_owned(),
+                value: observed,
+            });
+            match judgement {
                 Judgement::Equal => row["verdict"] = json!("equal"),
                 Judgement::Different(difference) => {
                     row["verdict"] = json!("different");
@@ -2459,7 +2478,10 @@ pub fn command(
             Err(detail) => return named(manifest, lock_refused(manifest, path, &detail)),
         },
     };
-    let mut document = named(manifest, compared(manifest, options, vocabulary));
+    let mut document = named(
+        manifest,
+        compared(manifest, options, vocabulary, &mut Vec::new()),
+    );
     if let Some(lock) = &lock {
         document["lock"] = if document["refusal"].is_object() || document["spec"].is_null() {
             lock.not_written("refused")
@@ -2475,6 +2497,23 @@ pub fn command(
         };
     }
     document
+}
+
+/// [`command`] without its lock, with the value each snapshot view judged
+/// ([`SnapshotObserved`]), in the order compare judged them: the run `accept` writes the values
+/// of ([`crate::accept`]). The run is compare's own (requests, the answer cache, the result
+/// cache), so the values are those a `compare` of the same flow, cache and build judges.
+pub(crate) fn observed_snapshots(
+    manifest: &FlowManifest,
+    options: &CompareOptions,
+    vocabulary: Option<&dyn Vocabulary>,
+) -> (Value, Vec<SnapshotObserved>) {
+    let mut observed = Vec::new();
+    let document = named(
+        manifest,
+        compared(manifest, options, vocabulary, &mut observed),
+    );
+    (document, observed)
 }
 
 /// `document` naming the projections the flow declares (`projections`,
@@ -2507,8 +2546,9 @@ fn compared(
     manifest: &FlowManifest,
     options: &CompareOptions,
     vocabulary: Option<&dyn Vocabulary>,
+    observed: &mut Vec<SnapshotObserved>,
 ) -> Value {
-    let mut document = compared_selected(manifest, options, vocabulary);
+    let mut document = compared_selected(manifest, options, vocabulary, observed);
     let protocols = manifest
         .implementations
         .iter()
@@ -2689,11 +2729,13 @@ enum Trouble {
     Command(&'static str, String),
 }
 
-/// [`compared`]'s document before its protocols are named.
+/// [`compared`]'s document before its protocols are named; each value a snapshot view judged is
+/// pushed on `observed_values`.
 fn compared_selected(
     manifest: &FlowManifest,
     options: &CompareOptions,
     vocabulary: Option<&dyn Vocabulary>,
+    observed_values: &mut Vec<SnapshotObserved>,
 ) -> Value {
     let Some(vocabulary) = vocabulary else {
         return refused(
@@ -3112,6 +3154,7 @@ fn compared_selected(
                             implementation,
                             program,
                             &Observation::Crash(&failure),
+                            observed_values,
                         );
                         let crashed = implementation
                             .views
@@ -3244,6 +3287,7 @@ fn compared_selected(
                                 implementation,
                                 program,
                                 &Observation::Answer(&stated),
+                                observed_values,
                             );
                             let judged = without_snapshot_views(implementation, &snapshots);
                             let rows = refusal.and_then(|refusal| {

@@ -267,6 +267,8 @@ Usage:
                    [--output json|text] [--locked]
   krs kink admit   --package P --definition D [--corpus DIR] FILE... [--found-by TEXT]
                    [--reason TEXT] [--cache DIR] [--locked]
+  krs kink accept  --package P --definition D [--corpus DIR] --projection NAME [--only CASE]...
+                   [--cache DIR] [--output json|text] [--locked]
 
 The corpus is <package>/kink (or --corpus DIR):
   FLOW.toml         [spec] krs = { package = \"P\", definition = \"D\" }, [budget], and the
@@ -305,6 +307,10 @@ The corpus is <package>/kink (or --corpus DIR):
                     one recorded witness, which query asks first and keeps while it still
                     hits, written by krs kink query; krs kink prune reads it and writes
                     no section
+  snapshots/        values a user accepted, one file per (projection, case), for each
+                    [[projection]] with relation = \"snapshot\": compare judges an
+                    implementation's value against its file, and only krs kink accept
+                    writes one; committed with the corpus
   .kink-flow/       kink-flow's caches, never committed (a .gitignore beside FLOW.toml
                     holding /.kink-flow/ keeps them out)
 
@@ -382,7 +388,13 @@ or a person found, and reports whether today's admission refuses each of its cas
 the definition accepts or rejects it (or neither is known), and which obligations its baseline
 run would newly discharge (no kill or flip, which need mutant runs); it prints each admitted case
 as a case document carrying provenance from --found-by and --reason, and writes no case file,
-lock or cache entry.
+lock or cache entry. accept --projection NAME writes the value each case's implementation states
+under a snapshot projection of FLOW.toml (relation = \"snapshot\") as the case's snapshot,
+snapshots/<projection>/<case id>.json in the corpus, from compare's own run of the implementation
+whose view names it (--only CASE accepts only those cases); it lists the files it created or
+replaced, each case with no value (could-not-apply, a failure), whose file it leaves as it is,
+and each stale file, the snapshot of no case of the projection's domain, which it never
+removes; it is the only command that writes a snapshot, and it writes no lock.
 A kink/verdicts.lock or kink/coverage.lock of an earlier kink is read for its killers by the
 command that kept it, which moves them into kink.lock and says to delete the old file; under
 --locked the command is refused while it is there. report builds nothing: it
@@ -428,7 +440,7 @@ unless KRS_NO_REUSE=1.
 
 /// Each verb of `krs kink` with its usage line, as [`KINK_USAGE`] lists it.
 #[cfg(feature = "kink")]
-const KINK_VERB_USAGE: [(&str, &str); 10] = [
+const KINK_VERB_USAGE: [(&str, &str); 11] = [
     (
         "emit",
         "krs kink emit --package P --definition D [--corpus DIR] [--check]",
@@ -480,6 +492,11 @@ const KINK_VERB_USAGE: [(&str, &str); 10] = [
         "admit",
         "krs kink admit --package P --definition D [--corpus DIR] FILE... [--found-by TEXT] \
          [--reason TEXT] [--cache DIR] [--locked]",
+    ),
+    (
+        "accept",
+        "krs kink accept --package P --definition D [--corpus DIR] --projection NAME [--only \
+         CASE]... [--cache DIR] [--output json|text] [--locked]",
     ),
 ];
 
@@ -2495,7 +2512,8 @@ fn unlisted_option(verb: kink_flow::Verb, args: &[String]) -> Option<&str> {
         | kink_flow::Verb::Coverage
         | kink_flow::Verb::Report
         | kink_flow::Verb::Compare
-        | kink_flow::Verb::Admit => &[],
+        | kink_flow::Verb::Admit
+        | kink_flow::Verb::Accept => &[],
     };
     let mut args = args.iter();
     while let Some(argument) = args.next() {
@@ -3163,12 +3181,13 @@ mod tests {
                     help.contains(&kink_flow::cli::options_text(flow.options())),
                     "{help}"
                 );
-                // A usage line that spells kink-flow's options out spells every one; fuzz's
-                // names them as a group.
+                // A usage line that spells kink-flow's options out spells every one, a required
+                // one (accept's --projection) without brackets; fuzz's names them as a group.
                 if flow != kink_flow::Verb::Fuzz {
                     for option in flow.options() {
                         assert!(
-                            usage.contains(&format!("[{}", option.flag())),
+                            usage.contains(&format!("[{}", option.flag()))
+                                || usage.contains(&format!(" {} ", option.spelling)),
                             "{verb}: {usage} lacks {}",
                             option.flag()
                         );

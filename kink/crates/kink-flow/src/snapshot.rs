@@ -156,11 +156,18 @@ pub fn crashed(failure: &Failure) -> SnapshotValue {
 /// path and none leaves `snapshots/<projection>/`.
 #[must_use]
 pub fn relative(projection: &str, case: &str) -> String {
-    let mut path = format!("{SNAPSHOTS_DIRECTORY}/{}/", component(projection));
+    let mut path = format!("{}/", directory(projection));
     path.push_str(&case.split('/').map(component).collect::<Vec<_>>().join("/"));
     path.push('.');
     path.push_str(SNAPSHOT_EXTENSION);
     path
+}
+
+/// The directory of `projection`'s snapshots, relative to the flow's directory:
+/// `snapshots/<projection>`, the prefix of every [`relative`] path of the projection.
+#[must_use]
+pub fn directory(projection: &str) -> String {
+    format!("{SNAPSHOTS_DIRECTORY}/{}", component(projection))
 }
 
 /// The snapshot of `case` under `projection` in the flow whose directory is `directory`

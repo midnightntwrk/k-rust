@@ -24,6 +24,7 @@ the corpus record, a `kink.lock` with one section per command that `run --lock`,
 the comparison of other implementations of a corpus's system with the definition, over its programs, inputs and `[stop]`, under declared views, with `compare` (FB-47; "Comparing implementations" below),
 the report of which programs are redundant, from the mutations the corpus kills, the patterns it hits and the items `coverage` covers, each cell of the kill and pattern matrices asked only where a decision needs it (`--full`: `run --full` and `query --full`, with the same decisions), with `prune` (FB54-PRUNE, FB56; "Redundant programs" below),
 the admission of a case found elsewhere: what the flow says of a candidate case document, the obligations its baseline run would newly discharge, and the case document to save, written nowhere, with `admit` (PJ-22; "Admitting a case found elsewhere" below),
+the snapshots of a projection whose relation is a snapshot, values a user accepted that `compare` judges an implementation's value against, written only by `accept` (PJ-20; "Snapshots" and "Accepting snapshots" below),
 and the library for both front ends, kink-flow's command line and the krs front end (`krs kink <verb>`): one manifest schema with a K or a KRS `[spec]`, one command layer, and the deterministic `--output verdicts` rendering (CF-40; "Front ends" and "Verdicts" below).
 
 ## Building
@@ -402,7 +403,7 @@ A flow that declares no projection has no `projections` member: its projection, 
 #### Snapshots
 
 A projection with `relation = "snapshot"` judges an implementation's value against a value a user accepted for the case, a *snapshot*, and reads no side of the definition.
-A snapshot is an input of the relation, as a case's `expect` is, not a derivation, so it is never in the record ("The corpus record"): each (projection, case) has one file beside the flow, `snapshots/<projection>/<case id>.json`, which only an explicit command writes, and which `compare` reads.
+A snapshot is an input of the relation, as a case's `expect` is, not a derivation, so it is never in the record ("The corpus record"): each (projection, case) has one file beside the flow, `snapshots/<projection>/<case id>.json`, which only `accept` writes ("Accepting snapshots"), and which `compare` reads.
 The projection's name is one path component and the case id's `/` separates directories, so the snapshots mirror the cases; each component is percent-escaped outside `[A-Za-z0-9._#-]`, a component `.` or `..` has its dots escaped and an empty one is written `%`, so no two cases share a file and none is outside `snapshots/<projection>/`.
 
 | Kind | Value |
@@ -627,6 +628,7 @@ What else is a finding, or no answer, follows from what each command asks:
 | `compare` | whether each implementation ends as the definition does on every program, under each required view, and whether its record of the `[observe]` channels agrees with the definition's up to the definition's horizon, under each required trace view ("Comparing implementations") | a `different` verdict of a required view | a required view `not-compared` with no answer (`several-ends`, `several-paths`, `observed-nothing`, `undecided`, a baseline `timeout` or `unknown`); a required trace view `agree-up-to` a horizon the implementation's answer set; a `timeout` of an implementation with a required view |
 | `prune` | which programs are redundant, from what the corpus discharges ("Redundant programs") | none: the report refutes nothing | none: an unknown cell makes the report conservative, and the report it states holds |
 | `admit` | what the flow says of each candidate case and what its baseline run would newly discharge ("Admitting a case found elsewhere") | an `unmet` expectation of a candidate | a candidate whose outcome is `unknown`; an `inconclusive` expectation |
+| `accept` | the value of each selected case under a snapshot projection, written as its snapshot ("Accepting snapshots") | none: a value written is an answer | a case with no value to accept (`not-accepted`) |
 | `fuzz` | which hole values of the template are a witness of the job | a witness of a kill job whose mutation expects to survive (it refutes the expectation); otherwise none: a witness and `equivalent` are answers | a search that ended without a witness kink accepts (table under "The document") |
 
 `check`'s warnings, and a case's expectation in `check` and `run`, decide no status: `check` runs nothing and asks only whether verdicts are possible, and `run` asks about the mutations.
@@ -3517,6 +3519,30 @@ The cache holds answers, not verdicts: each run reads the answer again by the pr
 A failure or a cancelled run is never cached: it is no answer, and a host on which the implementation answers must not be told otherwise.
 Without `identity` nothing names the build that answered, so the implementation runs on every command.
 The lock is not the cache: a lock row states a verdict, which also depends on the definition's ends, and a cache in the lock would make `--locked` compare a row with itself.
+
+## Accepting snapshots: `kink-flow accept FLOW.toml --projection NAME [--only CASE]... [--cache DIR] [--output json|text]`
+
+Writes the value each case's implementation states under the snapshot projection NAME ("Snapshots") as the case's snapshot, the value a user accepts.
+It is the only command that writes a snapshot.
+The producer is the one implementation whose views name the projection.
+`accept` runs `compare` of that implementation on the selected cases (every case of the flow, or those `--only` names) and writes the value each of the projection's snapshot views judged: the run is `compare`'s own, its requests, its answer cache and its result cache, so the value written is the value a `compare` of the same flow, cache and build judges, and a `compare` after `accept` finds the case `equal`.
+A file that already holds the value, as a JSON value, is left as it is, re-spaced or re-ordered text included; every other value is written as "Snapshots" renders it, to a temporary file beside its path renamed over it.
+So `accept` changes exactly the files a `compare` judges `pending` (`created`), `different` or `snapshot-unreadable` (`replaced`).
+
+A case whose run gives no value is `not-accepted`, with the verdict, reason and detail `compare` gives its snapshot view, and its file is left as it is, absent or the value accepted before.
+An answer `could-not-apply` states nothing of the program (D6), so it is no value to accept and no reason to drop the one accepted.
+Neither does a failure other than a crash under an `accepts` projection (`spawn`, `malformed`, `timeout`, or a crash under an `end` projection, which states no end), nor a case `compare` does not ask (its baseline has no end, its inputs cannot be read).
+A case outside the projection's `domain` has no snapshot, and is listed only where `--only` names it.
+A file under `snapshots/<projection>/` that is the snapshot of no case of the flow in the projection's domain (its case was removed, renamed or left the domain) is listed in `stale` and never removed: no command reads it, so it decides no verdict, and whether its case is gone or will return is the user's to decide, as is deleting a value they accepted.
+
+The document (`schema: kink-flow-accept`, `version: 1`) names the `projection`, the producing `implementation` and the `spec` as `compare` admitted it, and lists `cases[]`, each `{case, snapshot, outcome, verdict, reason, detail}`: `outcome` is `created`, `replaced`, `unchanged`, `not-accepted`, or `unwritten` (the file cannot be written, with why), and `verdict` and `reason` are `compare`'s for the case before the command wrote.
+`changed` lists the files created or replaced and `stale` the stale files, each relative to the flow's directory; `summary` counts each outcome and the stale files.
+`--output text` prints one line per file changed (`created snapshots/msg/two.json`), per case not accepted and per stale file, then the counts.
+
+`accept` writes nothing under the flow but the projection's snapshots, and no lock: a snapshot is an input, the lock holds what kink derives ("The record and the cache").
+The cache is `compare`'s (`--cache DIR`, else `.kink-flow/`), written as `compare` writes it: each entry is a function of its key, the entry a `compare` of the same run writes, so no later verdict changes, and a later `compare` reads the answer `accept` accepted where the implementation declares `identity`.
+An unknown projection, one whose relation is not a snapshot or that no view names, a `--only` case the flow does not hold, and a refused manifest, specification or comparison (kink-flow's own front end has no cell vocabulary: `unsupported-front-end`) refuse the command (`refusal: {stage, reason, detail}`, exit 2), and nothing is written.
+Otherwise it exits 2 where a snapshot or a result record cannot be written, else 3 where a selected case is `not-accepted`, else 0.
 
 ## Front ends
 

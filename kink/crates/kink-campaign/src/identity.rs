@@ -325,7 +325,7 @@ pub struct Outside {
 
 /// Every versioned constant outside [`KINK_IDENTITY`]. Each reason names the path that checks
 /// the constant, or says why nothing has to.
-pub const OUTSIDE_IDENTITY: [Outside; 52] = [
+pub const OUTSIDE_IDENTITY: [Outside; 53] = [
     Outside {
         krate: "kink-patch",
         constant: "TEST_MANIFEST_DOMAIN",
@@ -690,6 +690,13 @@ pub const OUTSIDE_IDENTITY: [Outside; 52] = [
         constant: "ADMIT_VERSION",
         reason: "the admit document's format (candidates.rs): no command reads an admit document \
                  back, and admit writes nothing a later command reads",
+    },
+    Outside {
+        krate: "kink-flow",
+        constant: "ACCEPT_VERSION",
+        reason: "the accept document's format (accept.rs): no command reads an accept document \
+                 back; the snapshots accept writes are values compare reads as JSON values \
+                 (snapshot.rs), whatever the document's version",
     },
     Outside {
         krate: "kink-flow",

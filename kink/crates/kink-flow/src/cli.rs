@@ -85,8 +85,9 @@ macro_rules! usage_line {
          [--locked]] [--cache DIR] [--output json|text|verdicts] | kink-flow prune FLOW.toml \
          MUTATIONS [PATTERNS.toml] [--full] [--lock FILE] [--compile-workers N] [--progress] \
          [--cache DIR] [--output json|text] | kink-flow admit FLOW.toml FILE... [--found-by TEXT] \
-         [--reason TEXT] [--cache DIR]; --help (or -h), anywhere, prints the loop, the mutation format \
-         and the exit statuses"
+         [--reason TEXT] [--cache DIR] | kink-flow accept FLOW.toml --projection NAME [--only \
+         CASE]... [--cache DIR] [--output json|text]; --help (or -h), anywhere, prints the loop, \
+         the mutation format and the exit statuses"
     };
 }
 
@@ -142,7 +143,8 @@ Reference: kink/crates/kink-flow/README.md; guide: kink/README.md, \"Using kink-
 /// What a usage error prints on stderr after its message when the command line names no verb:
 /// the shape of every command line, and where the rest is.
 const GENERAL_USAGE: &str = "usage: kink-flow --version | kink-flow VERB FLOW.toml [OPERAND] \
-     [OPTIONS], VERB one of check, coverage, run, report, query, fuzz, compare, prune, admit\n\
+     [OPTIONS], VERB one of check, coverage, run, report, query, fuzz, compare, prune, admit, \
+     accept\n\
      `kink-flow --help` explains the loop; `kink-flow VERB --help` lists a verb's options";
 
 /// Run one command; returns the process exit status.
@@ -308,7 +310,12 @@ fn operands(args: &[String]) -> Option<(Verb, PathBuf, CommandFiles, &[String])>
         }
         // `admit`'s FILEs are among its options: its parser takes each argument that is no
         // option or option value as one ([`admit_options`]), whichever front end passes them.
-        Verb::Check | Verb::Coverage | Verb::Report | Verb::Compare | Verb::Admit => rest,
+        Verb::Check
+        | Verb::Coverage
+        | Verb::Report
+        | Verb::Compare
+        | Verb::Admit
+        | Verb::Accept => rest,
     };
     Some((verb, PathBuf::from(manifest), files, rest))
 }
@@ -638,6 +645,27 @@ const ADMIT_OPTIONS: &[VerbOption] = &[
     ),
 ];
 
+const ACCEPT_OPTIONS: &[VerbOption] = &[
+    option(
+        "--projection NAME",
+        "the snapshot projection whose values are accepted (required)",
+    ),
+    option(
+        "--only CASE",
+        "accept only this case of the flow (repeatable; default: every case)",
+    ),
+    option(
+        "--cache DIR",
+        "compare's cache, read and written as compare does (default: .kink-flow beside \
+         FLOW.toml)",
+    ),
+    option(
+        "--output json|text",
+        "print the JSON document (default), or one line per file changed, per case not \
+         accepted and per stale file, and the counts",
+    ),
+];
+
 const PRUNE_OPTIONS: &[VerbOption] = &[
     option(
         "--full",
@@ -723,11 +751,12 @@ pub enum Verb {
     Compare,
     Prune,
     Admit,
+    Accept,
 }
 
 impl Verb {
     /// Every verb, in the order the usage lists them.
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::Check,
         Self::Coverage,
         Self::Run,
@@ -737,6 +766,7 @@ impl Verb {
         Self::Compare,
         Self::Prune,
         Self::Admit,
+        Self::Accept,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -750,6 +780,7 @@ impl Verb {
             Self::Compare => "compare",
             Self::Prune => "prune",
             Self::Admit => "admit",
+            Self::Accept => "accept",
         }
     }
 
@@ -809,6 +840,10 @@ impl Verb {
             }
             Self::Admit => {
                 "admit FLOW.toml FILE... [--found-by TEXT] [--reason TEXT] [--cache DIR]"
+            }
+            Self::Accept => {
+                "accept FLOW.toml --projection NAME [--only CASE]... [--cache DIR] [--output \
+                 json|text]"
             }
         }
     }
@@ -886,6 +921,17 @@ impl Verb {
                  as a case document fragment carrying provenance = { found_by, reason } from \
                  --found-by and --reason. It writes nothing: no case file, lock or cache entry."
             }
+            Self::Accept => {
+                "Write the value each case's implementation states under a snapshot projection \
+                 (relation = \"snapshot\") as the case's snapshot, \
+                 snapshots/<projection>/<case id>.json beside FLOW.toml: the value compare \
+                 judges, from compare's own run of the implementation whose view names the \
+                 projection. Lists each file created or replaced (a file that holds the value is \
+                 left as it is), each case with no value (could-not-apply, a failure, a case \
+                 compare does not ask), whose file is left as it is, and each stale file, the \
+                 snapshot of no case of the projection's domain, which is never removed. The \
+                 only command that writes a snapshot; it writes no lock."
+            }
         }
     }
 
@@ -903,6 +949,7 @@ impl Verb {
             Self::Compare => COMPARE_OPTIONS,
             Self::Prune => PRUNE_OPTIONS,
             Self::Admit => ADMIT_OPTIONS,
+            Self::Accept => ACCEPT_OPTIONS,
         }
     }
 
@@ -929,13 +976,16 @@ impl Verb {
             Self::Compare => "Comparing implementations: kink-flow compare",
             Self::Prune => "Redundant programs: kink-flow prune",
             Self::Admit => "Admitting a case found elsewhere: kink-flow admit",
+            Self::Accept => "Accepting snapshots: kink-flow accept",
         }
     }
 
     /// The operands `kink-flow <verb>` takes before its options.
     pub const fn operands(self) -> &'static str {
         match self {
-            Self::Check | Self::Coverage | Self::Report | Self::Compare => "FLOW.toml",
+            Self::Check | Self::Coverage | Self::Report | Self::Compare | Self::Accept => {
+                "FLOW.toml"
+            }
             Self::Run => "FLOW.toml MUTATIONS.toml",
             Self::Query => "FLOW.toml [PATTERNS.toml]",
             Self::Fuzz => "FLOW.toml TEMPLATES.toml",
@@ -960,6 +1010,7 @@ impl Verb {
             Self::Query => crate::query::QUERY_SCHEMA,
             Self::Compare => crate::compare::COMPARE_SCHEMA,
             Self::Admit => crate::candidates::ADMIT_SCHEMA,
+            Self::Accept => crate::accept::ACCEPT_SCHEMA,
         };
         // Under the Z3 profile the document names the build (`crate::with_z3_build`), as every
         // document of every verb does; a refused `coverage` or `run` document is also rendered
@@ -981,6 +1032,7 @@ impl Verb {
             Self::Compare => "compare",
             Self::Prune => "prune",
             Self::Admit => "admit",
+            Self::Accept => "accept",
         }
     }
 }
@@ -1151,6 +1203,10 @@ pub enum FlowCommand {
         progress: bool,
     },
     Admit(crate::candidates::AdmitOptions),
+    Accept {
+        options: crate::accept::AcceptOptions,
+        output: OutputFormat,
+    },
 }
 
 impl FlowCommand {
@@ -1325,6 +1381,16 @@ impl FlowCommand {
                 }
                 Ok(Self::Admit(options))
             }
+            Verb::Accept => {
+                let (options, output) = accept_options(options)?;
+                if options.projection.is_empty() {
+                    return Err(
+                        "accept needs --projection NAME, the snapshot projection to accept"
+                            .to_owned(),
+                    );
+                }
+                Ok(Self::Accept { options, output })
+            }
         }
     }
 
@@ -1341,6 +1407,7 @@ impl FlowCommand {
             Self::Compare { .. } => Verb::Compare,
             Self::Prune { .. } => Verb::Prune,
             Self::Admit(_) => Verb::Admit,
+            Self::Accept { .. } => Verb::Accept,
         }
     }
 
@@ -1405,7 +1472,8 @@ impl FlowCommand {
             | Self::Run { output, .. }
             | Self::Report { output, .. }
             | Self::Compare { output, .. }
-            | Self::Prune { output, .. } => *output,
+            | Self::Prune { output, .. }
+            | Self::Accept { output, .. } => *output,
             _ => OutputFormat::Json,
         }
     }
@@ -1664,6 +1732,13 @@ pub fn run_command(
             front,
         ),
         FlowCommand::Admit(options) => crate::candidates::command(manifest, options, front),
+        FlowCommand::Accept { options, .. } => crate::accept::command(
+            manifest,
+            options,
+            front
+                .implementations
+                .map(|vocabulary| vocabulary as &dyn crate::compare::Vocabulary),
+        ),
     };
     let mut document = front.annotated(document);
     if matches!(command, FlowCommand::Coverage { .. }) {
@@ -2507,6 +2582,8 @@ pub fn text(document: &Value) -> Result<String, String> {
         crate::prune::text_rendering(document)
     } else if document["schema"] == crate::compare::COMPARE_SCHEMA {
         crate::compare::text(document)
+    } else if document["schema"] == crate::accept::ACCEPT_SCHEMA {
+        crate::accept::text(document)
     } else {
         crate::coverage::text(document)
     }
@@ -2833,6 +2910,46 @@ fn admit_options(args: &[String]) -> Result<crate::candidates::AdmitOptions, Str
         }
     }
     Ok(options)
+}
+
+/// `accept`'s options: `--projection NAME` (checked present by [`FlowCommand::parse`]),
+/// `--only CASE` (repeatable, each case once), `--cache DIR` and `--output json|text`.
+fn accept_options(args: &[String]) -> Result<(crate::accept::AcceptOptions, OutputFormat), String> {
+    let mut options = crate::accept::AcceptOptions::default();
+    let mut output = None;
+    let mut args = args.iter();
+    while let Some(arg) = args.next() {
+        listed(Verb::Accept, arg)?;
+        match arg.as_str() {
+            "--projection" if options.projection.is_empty() => {
+                let name = args
+                    .next()
+                    .filter(|name| !name.is_empty())
+                    .ok_or("--projection needs a projection's name")?;
+                options.projection.clone_from(name);
+            }
+            "--only" => {
+                let case = args.next().ok_or("--only needs a case's id")?;
+                if !options.only.contains(case) {
+                    options.only.push(case.clone());
+                }
+            }
+            "--cache" if options.cache.is_none() => {
+                let directory = args.next().ok_or("--cache needs a directory")?;
+                options.cache = Some(PathBuf::from(directory));
+            }
+            "--output" if output.is_none() => {
+                let value = args.next().ok_or("--output needs json or text")?;
+                output = Some(match value.as_str() {
+                    "json" => OutputFormat::Json,
+                    "text" => OutputFormat::Text,
+                    _ => return Err(format!("--output {value:?}: expected json or text")),
+                });
+            }
+            _ => return Err(repeated(arg)),
+        }
+    }
+    Ok((options, output.unwrap_or_default()))
 }
 
 fn report_options(args: &[String]) -> Result<(ReportOptions, OutputFormat), String> {
@@ -3567,6 +3684,7 @@ mod tests {
                     Verb::Compare => compare_options(&args).err(),
                     Verb::Prune => prune_options(&args).err(),
                     Verb::Admit => admit_options(&args).err(),
+                    Verb::Accept => accept_options(&args).err(),
                 };
                 assert!(
                     !error.as_deref().is_some_and(|error| {
@@ -3588,6 +3706,7 @@ mod tests {
                 Verb::Compare => compare_options(&unlisted).err(),
                 Verb::Prune => prune_options(&unlisted).err(),
                 Verb::Admit => admit_options(&unlisted).err(),
+                Verb::Accept => accept_options(&unlisted).err(),
             };
             assert_eq!(error.as_deref(), Some("invalid option '--unlisted'"));
         }
@@ -3628,6 +3747,36 @@ mod tests {
         assert_eq!(error, format!("{} is not a file", missing.display()));
     }
 
+    /// `accept --only` keeps each case once, in order; `--projection` is required and given once.
+    #[test]
+    fn accept_takes_one_projection_and_its_cases_once() {
+        let args = [
+            "--only",
+            "b",
+            "--projection",
+            "p",
+            "--only",
+            "a",
+            "--only",
+            "b",
+        ]
+        .map(str::to_owned);
+        let (options, output) = accept_options(&args).unwrap();
+        assert_eq!(options.projection, "p");
+        assert_eq!(options.only, ["b", "a"]);
+        assert_eq!(output, OutputFormat::Json);
+        let twice = ["--projection", "p", "--projection", "q"].map(str::to_owned);
+        assert_eq!(
+            accept_options(&twice).err().as_deref(),
+            Some("--projection specified more than once")
+        );
+        let error = FlowCommand::parse("accept", CommandFiles::default(), &[]).unwrap_err();
+        assert!(
+            error.starts_with("accept needs --projection NAME"),
+            "{error}"
+        );
+    }
+
     /// A listed option given twice is refused as a repetition, never as an option the verb does
     /// not take; `--cases` and `--work` set one budget, so either after the other is refused for
     /// that.
@@ -3645,6 +3794,7 @@ mod tests {
                 Verb::Compare => compare_options(&twice).err(),
                 Verb::Prune => prune_options(&twice).err(),
                 Verb::Admit => admit_options(&twice).err(),
+                Verb::Accept => accept_options(&twice).err(),
             };
             assert_eq!(
                 error.as_deref(),

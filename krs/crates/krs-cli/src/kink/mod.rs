@@ -1200,6 +1200,7 @@ fn command_cache(command: &FlowCommand) -> Option<&Path> {
         FlowCommand::Compare { options, .. } => options.cache.as_deref(),
         FlowCommand::Prune { options, .. } => options.cache.as_deref(),
         FlowCommand::Admit(options) => options.cache.as_deref(),
+        FlowCommand::Accept { options, .. } => options.cache.as_deref(),
     }
 }
 
@@ -1542,7 +1543,12 @@ const fn operand_flags(verb: Verb) -> &'static [&'static str] {
         Verb::Query => &["--patterns"],
         Verb::Fuzz => &["--templates"],
         Verb::Prune => &["--mutations", "--patterns"],
-        Verb::Check | Verb::Coverage | Verb::Report | Verb::Compare | Verb::Admit => &[],
+        Verb::Check
+        | Verb::Coverage
+        | Verb::Report
+        | Verb::Compare
+        | Verb::Admit
+        | Verb::Accept => &[],
     }
 }
 

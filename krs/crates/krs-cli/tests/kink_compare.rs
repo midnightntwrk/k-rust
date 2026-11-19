@@ -1112,3 +1112,114 @@ fn run_judges_a_kill_under_a_projection_through_its_views() {
     assert_eq!(row["status"], "killed", "{document:#}");
     assert_eq!(row["projections"], expected(row), "{row:#}");
 }
+
+/// `krs kink accept --projection NAME` (projections PJ-20) writes the value compare judges under
+/// a snapshot projection as each case's snapshot beside FLOW.toml, and no lock: a compare before
+/// it is `pending` (3), one after it `equal` (0). `--only` accepts the cases it names; a case
+/// answered `could-not-apply` is not accepted (3) and gets no file; `--output text` lists the
+/// files written.
+#[test]
+fn accept_writes_the_compared_values_as_snapshots() {
+    let package = Package::new();
+    let corpus = "corpora/accept";
+    package.corpus(
+        corpus,
+        &format!(
+            "[[projection]]\nname = \"end\"\nrelation = \"snapshot\"\n\n[[projection]]\nname = \
+             \"declined\"\nkind = \"accepts\"\nrelation = \"snapshot\"\n\n{}{}",
+            implementation(
+                "equal",
+                "equal",
+                "inputs",
+                "[{ projection = \"end\", required = true }]"
+            ),
+            implementation(
+                "could-not-apply",
+                "could-not-apply",
+                "inputs",
+                "[{ projection = \"declined\" }]"
+            ),
+        ),
+        &[("a", 2), ("b", 5), ("z", 0)],
+    );
+    let kink = |verb: &str, arguments: &[&str]| {
+        let mut process = krs_command!();
+        fixture_build_env(&mut process, package.target.path());
+        process
+            .current_dir(package.directory.path())
+            .args(["kink", verb])
+            .args(arguments)
+            .args(["--corpus", corpus])
+            .args(["--package", PACKAGE, "--definition", "main"])
+            .output()
+            .unwrap()
+    };
+    let verdicts = |document: &Value| {
+        PROGRAMS
+            .iter()
+            .map(|program| {
+                verdict(row(document, "equal", program), "end")["verdict"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned()
+            })
+            .collect::<Vec<_>>()
+    };
+    let before = kink("compare", &["--only", "equal"]);
+    assert_status(&before, 3);
+    assert_eq!(verdicts(&json_of(&before)), ["pending"; 3]);
+    let snapshots = package.directory.path().join(corpus).join("snapshots");
+    let lock = package.directory.path().join(corpus).join("kink.lock");
+    let recorded = fs::read(&lock).ok();
+
+    let first = kink(
+        "accept",
+        &["--projection", "end", "--only", "cases/a/case.toml"],
+    );
+    assert_status(&first, 0);
+    let document = json_of(&first);
+    assert_eq!(document["schema"], "kink-flow-accept", "{document:#}");
+    assert_eq!(
+        document["changed"],
+        json!(["snapshots/end/cases/a/case.toml.json"]),
+        "{document:#}"
+    );
+    let accepted: Value = serde_json::from_str(
+        &fs::read_to_string(snapshots.join("end/cases/a/case.toml.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        accepted,
+        json!({"end": "final", "cells": {"n": 0, "acc": 3}}),
+        "{accepted:#}"
+    );
+    assert!(!snapshots.join("end/cases/b").exists());
+    let all = kink("accept", &["--projection", "end", "--output", "text"]);
+    assert_status(&all, 0);
+    assert_eq!(
+        String::from_utf8_lossy(&all.stdout),
+        "created snapshots/end/cases/b/case.toml.json\n\
+         created snapshots/end/cases/z/case.toml.json\n\
+         accept end (equal): 2 created, 0 replaced, 1 unchanged, 0 not accepted, 0 stale\n"
+    );
+    assert_eq!(fs::read(&lock).ok(), recorded, "accept wrote the lock");
+    let after = kink("compare", &["--only", "equal"]);
+    assert_status(&after, 0);
+    assert_eq!(verdicts(&json_of(&after)), ["equal"; 3]);
+
+    let declined = kink("accept", &["--projection", "declined"]);
+    assert_status(&declined, 3);
+    let document = json_of(&declined);
+    assert_eq!(
+        document["cases"][0]["outcome"], "not-accepted",
+        "{document:#}"
+    );
+    assert_eq!(
+        document["cases"][0]["verdict"], "could-not-apply",
+        "{document:#}"
+    );
+    assert!(!snapshots.join("declined").exists());
+    let refused = kink("accept", &["--projection", "nope"]);
+    assert_status(&refused, 2);
+    assert_eq!(json_of(&refused)["refusal"]["reason"], "unknown-projection");
+}

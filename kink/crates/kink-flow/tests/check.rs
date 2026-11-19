@@ -2638,3 +2638,70 @@ fn admit_reads_its_candidates_from_the_command_line() {
         assert!(help.contains(option.spelling), "{help}");
     }
 }
+
+/// PJ-20: `kink-flow accept FLOW.toml --projection NAME` as a command line gives it. kink-flow's
+/// own front end has no cell vocabulary, so the comparison `accept` runs is refused
+/// (`unsupported-front-end`, exit 2) and no snapshot is written; an unknown projection is
+/// refused before anything runs. A missing `--projection`, an `--output` other than json or text
+/// and an unlisted flag are usage errors; the verb's help lists its options.
+#[test]
+fn accept_reads_its_projection_from_the_command_line() {
+    let dir = scratch("accept");
+    for file in ["FLOW.toml", "calc.k"] {
+        fs::copy(flow(&format!("calc/{file}")), dir.join(file)).unwrap();
+    }
+    for program in fs::read_dir(flow("calc/programs")).unwrap() {
+        let program = program.unwrap().path();
+        let target = dir.join("programs").join(program.file_name().unwrap());
+        fs::create_dir_all(target.parent().unwrap()).unwrap();
+        fs::copy(&program, target).unwrap();
+    }
+    let manifest = dir.join("FLOW.toml");
+    let mut text = fs::read_to_string(&manifest).unwrap();
+    text.push_str(
+        "\n[[projection]]\nname = \"msg\"\nkind = \"accepts\"\nrelation = \"snapshot\"\n\n\
+         [[implementation]]\nname = \"diag\"\ngiven = \"inputs\"\nprotocol = \
+         \"kink-implementation/3\"\ncommand = [\"true\"]\nviews = [{ projection = \"msg\" }]\n",
+    );
+    fs::write(&manifest, text).unwrap();
+    let accept = |extra: &[&str]| {
+        let mut line = vec!["accept".as_ref(), manifest.as_os_str()];
+        line.extend(extra.iter().map(std::ffi::OsStr::new));
+        binary(&line)
+    };
+    let (code, stdout, stderr) = accept(&["--projection", "msg"]);
+    assert_eq!(code, Some(EXIT_UNASKED.into()), "{stdout}{stderr}");
+    let document: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(document["schema"], "kink-flow-accept", "{document:#}");
+    assert_eq!(
+        document["refusal"]["reason"], "unsupported-front-end",
+        "{document:#}"
+    );
+    assert!(!dir.join("snapshots").exists(), "accept wrote a snapshot");
+    let (code, stdout, stderr) = accept(&["--projection", "nope", "--output", "text"]);
+    assert_eq!(code, Some(EXIT_UNASKED.into()), "{stdout}{stderr}");
+    assert!(
+        stdout.starts_with("accept nope: refused (accept/unknown-projection): --projection nope"),
+        "{stdout}"
+    );
+    for (args, message) in [
+        (&[][..], "accept needs --projection NAME"),
+        (
+            &["--projection", "msg", "--output", "verdicts"][..],
+            "--output \"verdicts\": expected json or text",
+        ),
+        (
+            &["--projection", "msg", "--bogus"][..],
+            "invalid option '--bogus'",
+        ),
+    ] {
+        let (code, stdout, stderr) = accept(args);
+        assert_eq!(code, Some(EXIT_UNASKED.into()), "{stdout}{stderr}");
+        assert!(stderr.contains(message), "{stderr}");
+    }
+    let (code, help, _) = binary(&["accept".as_ref(), "--help".as_ref()]);
+    assert_eq!(code, Some(EXIT_YES.into()));
+    for option in Verb::Accept.options() {
+        assert!(help.contains(option.spelling), "{help}");
+    }
+}
