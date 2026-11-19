@@ -720,7 +720,8 @@ def evidence(fx, l, key, e, row):
     def e6_ties():
         """An E6 library row's `e6_tie` (test/constructs/e6map.py): "THEOREM (FILE; TEXT axiom N)" items,
         "every ... row of MODULE (n) is tied" or "module of hooks and generated declarations only: ..."
-        on a module row, or "uncovered: ..."."""
+        on a module row, or "uncovered: ..."; a module row of form (m) also has a last item "not held
+        by TEXT: ..." (the module's sentences the text does not hold), which names no theorem."""
         v = e.get("e6_tie")
         v = v if isinstance(v, list) else [v]
         unc = [x for x in v if isinstance(x, str) and x.startswith("uncovered")]
@@ -740,6 +741,7 @@ def evidence(fx, l, key, e, row):
         if len(v) == 1 and isinstance(v[0], str) and v[0].startswith("module of hooks and generated declarations only: "):
             have.append("module of hooks and generated declarations only, accounted by its declarations' rows (e6_tie)")
             return True
+        v = [x for x in v if not (isinstance(x, str) and x.startswith("not held by "))] or [None]
         thms = [re.match(r"(\S+) \((test/[^;]+\.lean); .+\)$", x) if isinstance(x, str) else None for x in v]
         if not all(thms):
             miss.append(f"theorems (e6_tie item of no known form: {next(x for x, m in zip(v, thms) if not m)!r:.80})")
@@ -1787,6 +1789,9 @@ def self_test():
             ("E6", "axiom:X", {"status": "supported", "e6_tie": ["uncovered: INT; no tied text holds the sentence"]}, False),
             ("E6", "lemma:X", {"status": "inert", "e6_tie": ["refuted: M; no theorem entails the sentence"]}, False),
             ("E6", "module:M", {"status": "supported", "e6_tie": ["every axiom, lemma, sort and symbol row of M (3) is tied"]}, True),
+            ("E6", "module:M", {"status": "supported", "e6_tie": ["KCore.C3EqReqEns.f_5 (test/C3EqReqEns.lean; t axiom 3)",
+                                                                  "not held by t: M; rule r (m.md:1): reason"]}, True),
+            ("E6", "module:M", {"status": "supported", "e6_tie": ["not held by t: M; rule r (m.md:1): reason"]}, False),
             ("E6", "module:M", {"status": "supported", "e6_tie": ["every axiom, lemma, sort and symbol row of M (3) is tied, "
                                                                   "or of no direction with a theorem in a model (1)"]}, True),
             ("E6", "axiom:X", {"status": "supported", "e6_tie": "no direction: INT; KCore.C3EqReqEns.f_5 "

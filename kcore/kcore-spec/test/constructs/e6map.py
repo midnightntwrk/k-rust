@@ -122,6 +122,28 @@ kompile generates carries no builtin Source), and whose selected code holds no `
 `configuration`, `context` or `claim` sentence (a module whose rules E6's text leaves out, such as
 STDIN-STREAM, is not of the form; MODULE_CONTROL checks it). Its hook rows are those of the hooks the
 module's selected code names in `hook(...)`.
+Form (m), tried after (w) and before the form above, accounts such a module row (no axiom, lemma,
+sort or symbol row of its module in this scope) sentence by sentence of the module's selected code
+(`//` comments dropped; a sentence inside `/* ... */` is marked commented), on its `fixture` text
+f2-examples/FIXTURE.kompile.kore and the tie files on that text (test/Tie*.lean and
+test/GenEqsNodir*.lean naming it in `user_axioms U from`, a tie split over several files included),
+where every one of these holds: a tie file defines `uncovered` as the literal empty list and none
+defines it otherwise; the text's sentences the module's code places in the module (builtin Source
+and Location) are axioms only, each in the span of an uncommented `rule` of the module, a `\\rewrites`
+axiom N held by the tie's `classes` under "rewrite rule" alone and listed in the file's literal
+`ruleText`, that file declaring `rules_account`, `rule_from_text` and `rule_prios` (Γ's rule items
+follow from the sentences, `ruleText` is the class, their priorities are the sentences') and a
+theorem stating `itemsPremises [trS U.axN] ⊧`; and each uncommented `configuration` of the module
+gives the content of its cell as the right side of exactly one cell initializer's equation of the
+text (an axiom without Source, `\\equals` of `initXCell`, holding each `$VAR` of the configuration
+as a string and each constant `#name` as a symbol `Lbl'Hash'name'Unds'...`), whose index N the
+tie's `classes` hold under "no direction" alone, with `account_absent` and `absent_closed`
+declared, and which a test/GenEqsNodir*.lean file's literal `eqIdx` holds, that file declaring a
+theorem stating `∀ i ∈ eqIdx`, ∃ and ⊧ᴵP (the equation holds in a model). The items name, per rule
+sentence, the theorems whose statement names U.axN, then the class's three theorems, then per
+configuration those of the no-direction class and in a model; the module's other sentences are
+listed in one last item "not held by TEXT: MODULE; NAME (FILE:LINE): REASON; ...", the reason
+being that the text holds no sentence at its location, or that it lies in a block comment.
 e6_tie, on a row: a list of "THEOREM (FILE; TEXT axiom N)" or "THEOREM (FILE; TEXT sort|symbol
 declaration NAME)" strings (form (w): "THEOREM (FILE; TEXT whole text: ...; the text holds n
 sentences of MODULE)"), "refuted: MODULE; ..." (above), "no direction: MODULE; THEOREM (FILE;
@@ -682,7 +704,7 @@ def self_check(rows, res):
         bad.append(f"control {text} axiom {no}: of form (e2), or no statement names it with absentOf and a "
                    f"nonempty list literal")
     mno, myes = MODULE_CONTROL
-    if res.get(mno) is None or (isinstance(res[mno], list) and res[mno][0].startswith(HOOKS_ONLY)):
+    if res.get(mno) is None or hooks_only(mno.split(":")[1], rows, *module_hooks()) is not None:
         bad.append(f"control {mno}: of the form of a module of hooks and generated declarations only, or no row")
     if not (isinstance(res.get(myes), list) and res[myes][0].startswith(HOOKS_ONLY)):
         bad.append(f"control {myes}: not of the form of a module of hooks and generated declarations only")
@@ -765,6 +787,152 @@ def whole_tie(m, row, wties):
 
 
 WHOLE = "every axiom of its user module in one class of the account, none uncovered"
+
+
+MSENT = re.compile(r"\s*(rule|configuration|syntax|context|claim)\b")
+NOT_HELD = "not held by "
+
+
+def module_code_sentences(m):
+    """(file, [(kind, first line, last line, text, commented)]) of module m's selected code: each
+    sentence from its `rule`, `configuration`, `syntax`, `context` or `claim` line to the line before
+    the next such line, block-comment boundary or `endmodule` (`//` comments dropped), `commented`
+    where it lies inside `/* ... */`; ("?", []) where no builtin file has the module."""
+    for f, st in MODLINES.items():
+        for a, b, n in st:
+            if n != m:
+                continue
+            out, cur, inc = [], None, False
+            for ln, l in code_lines(f):
+                if not a <= ln <= (b or 10 ** 9):
+                    continue
+                s = re.sub(r"//.*$", "", l)
+                if not inc and "/*" in s:
+                    if cur:
+                        out.append(cur); cur = None
+                    inc = "*/" not in s.split("/*", 1)[1]
+                    continue
+                if inc and "*/" in s:
+                    if cur:
+                        out.append(cur); cur = None
+                    inc = False
+                    continue
+                if MSENT.match(s) or re.match(r"\s*endmodule", s):
+                    if cur:
+                        out.append(cur); cur = None
+                    if MSENT.match(s):
+                        cur = [MSENT.match(s).group(1), ln, ln, s.strip(), inc]
+                elif cur:
+                    cur[2], cur[3] = ln, (cur[3] + " " + s.strip()).strip()
+            if cur:
+                out.append(cur)
+            return f, [tuple(x) for x in out]
+    return "?", []
+
+
+def code_name(f, kind, a, s):
+    """A module sentence's name in an e6_tie item: a rule's label, a syntax sentence's first
+    production, else its kind; with its file and line."""
+    if kind == "rule":
+        lm = re.match(r"rule \[([\w.-]+)\]", s)
+        return f"rule {lm.group(1) if lm else '(no label)'} ({f}:{a})"
+    if kind == "syntax" and " ::= " in s:
+        lhs, rhs = s.split(" ::= ", 1)
+        return f"{lhs} ::= {rhs.split()[0]} ({f}:{a})"
+    return f"{kind} ({f}:{a})"
+
+
+def module_text_tie(m, row):
+    """Form (m) for the module row of module m, or None: the module's sentences on the tie of its
+    `fixture` text, read from the tie files on the text (a tie split over several files included);
+    the module's sentences the text does not hold listed with the reason."""
+    fx = row.get("fixture")
+    text = f"f2-examples/{fx}.kompile.kore" if isinstance(fx, str) else None
+    if not text or not os.path.isfile(os.path.join(K, text)):
+        return None
+    f, code = module_code_sentences(m)
+    held = [(i, int(LOC.search(s).group(1)), s) for i, _mod, s in axioms(text)
+            if (k := e6_key(s)) and k.split(":")[1] == m]
+    if not held or len(held) != module_sentences(text).get(m, 0):
+        return None
+    files = {}
+    for g in sorted(os.listdir(os.path.join(K, "test"))):
+        if WHOLE_FILE.match(g) or g.startswith("GenEqsNodir"):
+            t = open(os.path.join(K, "test", g)).read()
+            if re.search(rf'^user_axioms U from "{re.escape(text)}"', t, re.M):
+                files["test/" + g] = (t, file_theorems(t))
+    ties = {r: v for r, v in files.items() if not r.startswith("test/GenEqsNodir")}
+    unc = [r for r, (t, _) in ties.items() if re.search(r"^def uncovered : List \(Nat × String\) :=", t, re.M)]
+    if not unc or any(not WHOLE_UNCOVERED.search(ties[r][0]) for r in unc):
+        return None
+    cls = defaultdict(set)
+    for r, (t, _) in ties.items():
+        cm = re.search(r"^def classes : List \(String × List Nat\) :=\n(.*?)\n\n", t, re.M | re.S)
+        for c in re.finditer(r'\("([^"]+)", \[([\d,\s]*)\]\)', cm.group(1) if cm else ""):
+            for n in re.findall(r"\d+", c.group(2)):
+                cls[int(n)].add(c.group(1))
+
+    def thm(r, short):
+        return next((n for n, _ in ties[r][1] if n.split(".")[-1] == short), None)
+
+    items, used = [], set()
+    # The rules: each sentence of the text placed in the module is a rule of the module's code and a
+    # rewrite rule of the tie's `ruleText`, with a theorem giving Γ's rule item from it.
+    rfile, rlist = None, set()
+    for r, (t, _) in ties.items():
+        lm = re.search(r"^noncomputable def ruleText : List AxiomDecl :=\s*\[([^\]]*)\]", t, re.M)
+        if lm:
+            rfile, rlist = r, {int(x) for x in re.findall(r"U\.ax(\d+)", lm.group(1))}
+    cl = [thm(rfile, x) for x in ("rules_account", "rule_from_text", "rule_prios")] if rfile else [None]
+    if not all(cl):
+        return None
+    for n, line, s in held:
+        sent = next((x for x in code if x[0] == "rule" and not x[4] and x[1] <= line <= x[2]), None)
+        if sent is None or n not in rlist or cls.get(n) != {"rewrite rule"} or "\\rewrites{" not in s:
+            return None
+        own = [(nm, st) for nm, st in ties[rfile][1] if re.search(rf"\bU\.ax{n}\b", st)]
+        if not any(re.search(rf"itemsPremises \[trS U\.ax{n}\] ⊧", st) for _, st in own):
+            return None
+        used.add(sent[1])
+        items += [f"{nm} ({rfile}; {text} axiom {n}: {code_name(f, *sent[:2], sent[3])}; rewrite rule, Γ's rule "
+                  f"item from the sentence)" for nm, _ in own]
+    ns = ", ".join(str(n) for n, _, _ in held)
+    items += [f"{th} ({rfile}; {text} rewrite rule class, axioms {ns} of {m}: Γ's rule items from the sentences)"
+              for th in cl]
+    # A configuration: the content it gives its cell is the right side of one cell initializer's
+    # equation of the text (which holds each `$` variable and each constant `#name` of it), of the
+    # no-direction class, with a theorem in a model naming it.
+    ndf = next((r for r in ties if thm(r, "account_absent") and thm(r, "absent_closed")), None)
+    inits = [(i, s) for i, _mod, s in axioms(text) if not SRC.search(s)
+             and re.search(r"\\equals\{Sort\w+Cell\{\}, ?R\} \(\s*Lblinit\w+Cell\{\}\(", s)]
+    for sent in code:
+        if sent[0] != "configuration" or sent[4]:
+            continue
+        body = re.sub(r"^configuration\s*", "", sent[3])
+        toks = [("$" + v, f'"${v}"') for v in re.findall(r"\$(\w+)", body)] + \
+               [("#" + v, f"Lbl'Hash'{v}'Unds'") for v in re.findall(r"#(\w+)\b(?!\s*\()", body)]
+        hit = [i for i, s in inits if toks and all(k in s for _, k in toks)]
+        if len(hit) != 1 or not ndf or cls.get(hit[0]) != {"no direction"}:
+            return None
+        n = hit[0]
+        model = []
+        for r, (t, ths) in files.items():
+            lm = re.search(r"^def eqIdx : List Nat := \[([\d,\s]*)\]", t, re.M)
+            if r.startswith("test/GenEqsNodir") and lm and n in {int(x) for x in re.findall(r"\d+", lm.group(1))}:
+                model += [(r, nm) for nm, st in ths if "∀ i ∈ eqIdx" in st and "∃" in st and "⊧ᴵP" in st]
+        if not model:
+            return None
+        used.add(sent[1])
+        what = (f"{text} axiom {n}: {code_name(f, *sent[:2], sent[3])}, the cell initializer equation holding "
+                f"its {', '.join(v for v, _ in toks)}")
+        items += [f"{thm(ndf, x)} ({ndf}; {what}; of no direction)" for x in ("account_absent", "absent_closed")]
+        items += [f"{nm} ({r}; {what}; in a model)" for r, nm in model]
+    rest = [code_name(f, *x[:2], x[3]) + (": inside a block comment of the module's code, no sentence" if x[4]
+                                         else f": the text holds no sentence at its location")
+            for x in code if x[1] not in used]
+    if rest:
+        items.append(f"{NOT_HELD}{text}: {m}; " + "; ".join(rest))
+    return items
 
 
 def compute():
@@ -859,7 +1027,8 @@ def compute():
                 res[k] = [f"every axiom, lemma, sort and symbol row of {m} ({len(mine)}) is tied"
                           + (f", or of no direction with a theorem in a model ({ndm})" if ndm else "")]
             elif not mine:
-                res[k] = (whole_tie(m, rows[k], wties) or hooks_only(m, rows, mhooks, msents)
+                res[k] = (whole_tie(m, rows[k], wties) or module_text_tie(m, rows[k])
+                          or hooks_only(m, rows, mhooks, msents)
                           or f"uncovered: {m}; no axiom, lemma, sort or symbol row of the module")
             else:
                 res[k] = (f"uncovered: {m}; {left} of its {len(mine)} axiom, lemma, sort and symbol rows uncovered"
