@@ -23,8 +23,9 @@
   Bool and `true` (`Clause.leftSortsB`, `fillV`).
 
   Where the clause's predicate is not `\top` the exclusion's body carries it at `R` (`withPre`), and
-  the clause fails also where `Holds` gives its predicate `false` (`ReqFails.pre`): the model's
-  reading of that truth value (`HoldsAt`, `ModelFailsCl`'s second case) at `R` (`PreRead.atR`) makes
+  the clause fails also where `Holds` gives its predicate `false` (`ReqFails.pre`): that truth value
+  with its terms' readings in the model (`HoldsRead`, `ModelFailsCl`'s second case) read at `R`
+  (`PreRead.atR`) makes
   the predicate empty; a clause with a predicate other than `\top` is not one whose conditions need
   a witness (`needsWitness`); and the predicate at the binders moves to Bool (`PreRead.toBool`)
   against `Refuted`.
@@ -100,8 +101,9 @@ theorem exclusion_canonPre (c : Semantics) (fn : Fn) (cl : Clause) :
 conditions**: under every σ well sorted over a list of sorts that agrees with the clause's at the
 variables of its patterns and conditions, under which the patterns denote `ws`: at every valuation
 that agrees with σ, the clause has a `requires` whose translation denotes a result other than
-`true`; or its predicate is not `\top` and the truth value `false` that `Holds` gives it under σ
-is read in I (`HoldsAt`). `ModelFails` with the clause's other variables at any sort. -/
+`true`; or its predicate is not `\top` and `Holds` gives it the truth value `false` under σ with
+the reading in I of each term it evaluates (`HoldsRead`). `ModelFails` with the clause's other
+variables at any sort. -/
 def ModelFailsCl {M : Type} (c : Semantics) (I : Interpretation KoreAML.Sym M) (cl : Clause) (ws : List GroundTerm) :
     Prop :=
   ∀ vars : List Srt, vars.length = cl.vars.length → (∀ i ∈ cl.leftVars, vars[i]? = cl.vars[i]?) →
@@ -109,7 +111,7 @@ def ModelFailsCl {M : Type} (c : Semantics) (I : Interpretation KoreAML.Sym M) (
     (∀ (tbl : VarTable) (e : Valuation M), Agrees c I tbl (canonVars c cl.vars) σ e →
       ∃ t r, cl.req = some t ∧ r ≠ some (bool true) ∧ (∀ v, r = some v → c.sortOf v = some Srt.bool) ∧
         ∀ m, (KoreAML.tr ⟨tbl, []⟩ (Term.kore c (canonVars c cl.vars) t)).interpret I e m ↔ Res c I e r m) ∨
-    (cl.pre ≠ .top ∧ HoldsShape.HoldsAt c I cl.vars.length σ cl.pre false)
+    (cl.pre ≠ .top ∧ HoldsShape.HoldsRead c I cl.vars.length σ cl.pre false)
 
 /-- **A clause's exclusion is empty where it fails**, in the model `I`: at arguments of `fn`'s
 sorts where the clause fails (`Fails`, and in the model `ModelFailsCl`), its exclusion is empty, at
@@ -467,7 +469,7 @@ theorem exclEmptyCl_ofCl (hI : I ⊧ᴵP Γc c) (hnn : NamesNumbered c) (hg : ge
     simp only [Clause.opens, List.mem_filter, List.mem_range]; exact ⟨hi, by simpa using hnl⟩
   -- the predicate is not given `false` under a substitution of values that e1 agrees with
   have hpreNo : cl.pre ≠ .top → ∀ {σ : Subst}, c.WellSorted cl.leftSortsB σ → Agrees c I tbl vs σ e1 →
-      HoldsShape.HoldsAt c I cl.vars.length σ cl.pre false → False := fun hne σ hσ hag hF => by
+      HoldsShape.HoldsRead c I cl.vars.length σ cl.pre false → False := fun hne σ hσ hag hF => by
     have hpt := HoldsShape.isTop_false_of_ne hne
     have hrd : ∀ i ∈ varOccsCond cl.vars.length cl.pre, ∀ v, σ.lookup i = some v →
         ∀ m', m' = e'.evalEvar (tbl.ev (canonKey c cl.vars i)) ↔ (den c v).interpret I e' m' := fun i hi v hv m' => by
