@@ -6,7 +6,7 @@
   KcoreSpec/ModelLitsWitness.lean. Run from the package root: `lake env lean -j1 test/WitRestFaithB.lean`.
 
   Kernel-checked here: `DupParam.c` meets every other leaf condition of `coreOK` (`sortedOK`, the
-  other eleven conjuncts of `faithCoreOK`, `hooksApart`, `predsApart`, `idsOK`, `overloadsOK`) and
+  other eleven conjuncts of `faithCoreOK`, `predsApart`, `idsOK`, `overloadsOK`) and
   `FnHyp`, with `patHeadsOK` false; so it is not implied by the others. `DupParam.c0`, `c` without
   the repeated declaration, meets `coreOK`.
 
@@ -84,11 +84,11 @@ theorem fnHyp : FnHyp c :=
     openDecided_of_readsConfined (by decide +kernel), openLaws_of_plain (by decide +kernel)⟩
 
 set_option maxHeartbeats 1000000 in
-theorem meets_others : c.sortedOK = true ∧ c.hooksApart = true ∧ c.predsApart = true ∧ c.idsOK = true ∧
+theorem meets_others : c.sortedOK = true ∧ c.predsApart = true ∧ c.idsOK = true ∧
     c.overloadsOK = true ∧ namesNumbered c = true ∧ genWf c = true ∧ collSortsOK c = true ∧
     collsOK c = true ∧ namesApartK c = true ∧ LitsApart c = true ∧ sortsNumbered c = true ∧
     itesApart c = true ∧ kindsApart c = true ∧ ctorsOnce c = true ∧ fnsApart c = true ∧ FnHyp c :=
-  ⟨sortedOK, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
+  ⟨sortedOK, by decide_cheap, by decide_cheap, by decide_cheap,
     by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
     by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
     by decide_cheap, fnHyp⟩

@@ -5,7 +5,7 @@
 
   Kernel-checked here:
   - idsOK.1, `Perm.c`: the cells with the two own sorts listed in the other order in `userSorts`
-    meet every other leaf condition of `coreOK` (`sortedOK`, `faithCoreOK`, `hooksApart`,
+    meet every other leaf condition of `coreOK` (`sortedOK`, `faithCoreOK`,
     `predsApart`, the other seven leaves of `idsOK`, `overloadsOK`) and `FnHyp`, with idsOK.1 false;
     `Perm.c0`, the same sorts in order, meets `coreOK`. (An own sort listed twice repeats its
     predicate among `allFns`, so `predsApart` refuses it as well: `Perm.dup_preds`.)
@@ -59,7 +59,7 @@ theorem idsOK_eq (c : Semantics) :
 
 /-- Every leaf condition of `coreOK` outside `idsOK`. -/
 def outside (c : Semantics) : Prop :=
-  c.sortedOK = true ∧ c.faithCoreOK = true ∧ c.hooksApart = true ∧ c.predsApart = true ∧ c.overloadsOK = true
+  c.sortedOK = true ∧ c.faithCoreOK = true ∧ c.predsApart = true ∧ c.overloadsOK = true
 
 theorem fnHyp_of_nil {c : Semantics} (hf : c.fns = []) (hp : ∀ k ∈ c.params, k.raw = false) (hr : c.readsConfined = false) :
     FnHyp c :=
@@ -96,7 +96,7 @@ theorem fnHyp : FnHyp c := fnHyp_of_nil rfl (by decide +kernel) (by decide +kern
 set_option maxHeartbeats 1000000 in
 theorem meets_others : outside c ∧ ids2 c = true ∧ ids3 c = true ∧ ids4 c = true ∧
     ids5 c = true ∧ ids6 c = true ∧ ids7 c = true ∧ ids8 c = true ∧ FnHyp c :=
-  ⟨⟨sortedOK, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap⟩,
+  ⟨⟨sortedOK, by decide_cheap, by decide_cheap, by decide_cheap⟩,
     by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
     by decide_cheap, by decide_cheap, fnHyp⟩
 
@@ -140,7 +140,7 @@ theorem fnHyp : FnHyp c := fnHyp_of_nil rfl (by decide +kernel) (by decide +kern
 set_option maxHeartbeats 1000000 in
 theorem meets_others : outside c ∧ ids1 c = true ∧ ids2 c = true ∧ ids4 c = true ∧
     ids5 c = true ∧ ids6 c = true ∧ ids7 c = true ∧ ids8 c = true ∧ FnHyp c :=
-  ⟨⟨sortedOK, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap⟩,
+  ⟨⟨sortedOK, by decide_cheap, by decide_cheap, by decide_cheap⟩,
     by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
     by decide_cheap, by decide_cheap, fnHyp⟩
 

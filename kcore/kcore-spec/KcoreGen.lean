@@ -637,7 +637,7 @@ def coreParts (c : Semantics) (T : Tables) : List (String × Bool) :=
    ("collsOK", collsOK c), ("patHeadsOK", patHeadsOK c), ("namesApartK", namesApartFast c),
    ("LitsApart", LitsApart c), ("sortsNumbered", sortsNumbered c), ("itesApart", itesApart c),
    ("kindsApart", kindsApart c), ("ctorsOnce", ctorsOnce c), ("fnsApart", fnsApart c),
-   ("hooksApart", c.hooksApart), ("predsApart", c.predsApart), ("idsOK", c.idsOK),
+   ("predsApart", c.predsApart), ("idsOK", c.idsOK),
    ("overloadsOK", c.overloadsOK), ("rulesPlain", c.rulesPlain), ("clausesPlain", c.clausesPlain),
    ("paramsPlain", c.paramsPlain)]
 
@@ -1457,7 +1457,7 @@ end {ns}
 ")
     | none =>
       o ← thm o p s!"`coreOK`: `{p}`, by the kernel." s!"theorem core_{p} : {p} defn.sem = true := by decide +kernel"
-  for p in ["hooksApart", "predsApart", "idsOK"] do
+  for p in ["predsApart", "idsOK"] do
     o ← thm o p s!"`coreOK`: `{p}`, by the kernel." s!"theorem core_{p} : defn.sem.{p} = true := by decide +kernel"
   -- joined: the blocks by their boundaries, then `coreOK_defn`
   let join := fun (bs : List (Nat × Nat)) (pfx joinL : String) (stmt : Nat → String) => Id.run do
@@ -1475,7 +1475,7 @@ end {ns}
   let ruleAll := if ruleBlocks.isEmpty then "theorem core_rules : c.ruleRowsSortedT T 0 c.rules.length = true := by decide +kernel"
     else s!"{ruleJ.1}\ntheorem rules_length : c.rules.length = {ruleSizes.size} := by decide +kernel\ntheorem core_rules : c.ruleRowsSortedT T 0 c.rules.length = true := Semantics.ruleRowsSortedT_all rules_length {ruleJ.2}"
   let parts := [s!"{ns}.CoreOK.Subsorts"] ++ clMods.toList ++ ruleMods.toList ++
-    (faithCoreParts ++ ["hooksApart", "predsApart", "idsOK"]).map (s!"{ns}.CoreOK.{·}")
+    (faithCoreParts ++ ["predsApart", "idsOK"]).map (s!"{ns}.CoreOK.{·}")
   o ← o.write s!"{ns}.CoreOK" (String.join (parts.map (s!"import {·}\n")) ++
     hdr "`coreOK` of the definition's semantics, joined from its conjuncts, each decided by the kernel on its own (`NS.CoreOK.*`); not `wf`, which this package does not state." ++ s!"
 namespace {ns}
@@ -1490,7 +1490,7 @@ open KCore
 theorem coreOK_defn : defn.sem.coreOK = true :=
   Semantics.coreOK_of_T T_eq core_subsortsOK core_clauses core_rules
     (Semantics.faithCoreOK_of_partsK {" ".intercalate (faithCoreParts.map (s!"core_{·}"))})
-    core_hooksApart core_predsApart core_idsOK (by decide +kernel)
+    core_predsApart core_idsOK (by decide +kernel)
 
 end {ns}
 ")
@@ -2781,8 +2781,8 @@ def userLemmaValuesClass : String := "user lemma at values"
 /-- What the account says after a class line beyond the class: for a sentence of the user's text
 classed `inert simplification`, that the class claims `Γ ⊧ tr s` and the reader does not decide it:
 the sentence is owed, entailed by Γ, and the tie on the text (C14) proves it or fails; for a
-parameter lemma, that it is owed as a hypothesis on `H` at values (some `H` meets `FnObligations`
-and at it each sentence of the class is `EntailsAtValues (c.withHooks H) s (tr s)`); for a user's
+parameter lemma, that it is owed as a hypothesis on `H` at values (some `H` meets `FnHyp` and at
+it each sentence of the class is `EntailsAtValues (c.withHooks H) s (tr s)`); for a user's
 equation of a symbol whose value the registry gives, that it is owed at values. -/
 def classLineOwed (c o : String) : String :=
   if c == "inert simplification" && o == "user" then
@@ -2790,7 +2790,7 @@ def classLineOwed (c o : String) : String :=
   else if c == userLemmaValuesClass then
     ": owed at values, not in Γ (EntailsAtValues: Γ (c.withHooks H) entails it at the valuations sending its variables to values, or Γ with it has no model; the tie on the text proves it or fails), not decided by the reader"
   else if c == paramLemmaClass then
-    ": owed as a hypothesis on H at values (some H meets FnObligations and at it each sentence of the class is EntailsAtValues (c.withHooks H) s (tr s); the tie shows an H at which the text's hypotheses hold), not decided by the reader"
+    ": owed as a hypothesis on H at values (some H meets FnHyp and at it each sentence of the class is EntailsAtValues (c.withHooks H) s (tr s); the tie shows an H at which the text's hypotheses hold), not decided by the reader"
   else ""
 
 /-- `s` cut after its first `n` characters, a `Source(PATH)`'s PATH counted as none and never cut

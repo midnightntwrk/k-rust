@@ -1,0 +1,11 @@
+command: kompile --backend haskell e5-ovl-fun-partial.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.8
+definition.kore bytes: 88566
+definition.kore sha256: 427c6d4d11120b4093ad6dea034e3669e4f5f243f8c319ade94f537939dc89ff
+stripped sha256: 678ee5313b9a020f10cf42caf1580cc807f8e9db5843abe10dc9f50b63af9813
+main module: 258 sentences, 33 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E5-OVL-FUN-PARTIAL-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E5-OVL-FUN-PARTIAL as default.

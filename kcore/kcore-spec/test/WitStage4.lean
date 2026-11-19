@@ -136,8 +136,6 @@ theorem rules_of (o : List Sym) (h : o = [fB] ∨ o = []) : ((c o).rules.all (c 
 theorem clausesPlain_of (o : List Sym) : (c o).clausesPlain = true := rfl
 theorem paramsPlain_of (o : List Sym) (h : o = [fB] ∨ o = []) : (c o).paramsPlain = true := by
   rcases h with rfl | rfl <;> decide_cheap
-theorem hooksApart_of (o : List Sym) (h : o = [fB] ∨ o = []) : (c o).hooksApart = true := by
-  rcases h with rfl | rfl <;> decide_cheap
 theorem predsApart_of (o : List Sym) (h : o = [fB] ∨ o = []) : (c o).predsApart = true := by
   rcases h with rfl | rfl <;> decide_cheap
 theorem idsOK_of (o : List Sym) (h : o = [fB] ∨ o = []) : (c o).idsOK = true := by
@@ -203,10 +201,10 @@ theorem fnHyp : FnHyp (c [fB]) := by
 theorem meets_others : (c [fB]).subsortsOK = true ∧
     ((c [fB]).fns.all fun f => f.clauses.all ((c [fB]).clauseSorted f (List.map Fn.sig (c [fB]).fns))) = true ∧
     ((c [fB]).rules.all (c [fB]).ruleSorted) = true ∧ (c [fB]).clausesPlain = true ∧
-    (c [fB]).paramsPlain = true ∧ (c [fB]).faithCoreOK = true ∧ (c [fB]).hooksApart = true ∧
+    (c [fB]).paramsPlain = true ∧ (c [fB]).faithCoreOK = true ∧
     (c [fB]).predsApart = true ∧ (c [fB]).idsOK = true ∧ (c [fB]).overloadsOK = true ∧ FnHyp (c [fB]) :=
   ⟨subsortsOK_of _ (.inl rfl), clauses_of _, rules_of _ (.inl rfl), clausesPlain_of _, paramsPlain_of _ (.inl rfl),
-    faithCoreOK_of _ (.inl rfl), hooksApart_of _ (.inl rfl), predsApart_of _ (.inl rfl), idsOK_of _ (.inl rfl),
+    faithCoreOK_of _ (.inl rfl), predsApart_of _ (.inl rfl), idsOK_of _ (.inl rfl),
     overloadsOK_of _ (.inl rfl), fnHyp⟩
 
 /-! ## The conjunct alone refuses `c [fB]` -/
@@ -233,7 +231,7 @@ theorem c0_coreOK : (c []).coreOK = true := by
     rw [subsortsOK_of _ (.inr rfl), clauses_of, rules_of _ (.inr rfl), c0_rulesPlain, clausesPlain_of,
       paramsPlain_of _ (.inr rfl)]; rfl
   unfold Semantics.coreOK
-  rw [hs, faithCoreOK_of _ (.inr rfl), hooksApart_of _ (.inr rfl), predsApart_of _ (.inr rfl),
+  rw [hs, faithCoreOK_of _ (.inr rfl), predsApart_of _ (.inr rfl),
     idsOK_of _ (.inr rfl), overloadsOK_of _ (.inr rfl)]; rfl
 
 end KCore.WitStage4Gen

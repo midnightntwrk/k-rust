@@ -102,7 +102,7 @@ theorem clO_ens : clO.ens = none := by rfl
 witness and no other clause does. -/
 theorem dec : c5.sortedOKCl = true ∧ c5.srReady = true ∧ c5.ovls = [] ∧
     c5.subsorts.all (fun p => p.1 != p.2) = true ∧ c5.faithCoreOK = true ∧ patHooksApart c5 = true ∧
-    c5.hooksApart = true ∧ c5.predsApart = true ∧ c5.idsOK = true ∧ c5.overloadsOK = true ∧
+    c5.predsApart = true ∧ c5.idsOK = true ∧ c5.overloadsOK = true ∧
     clC.needsWitness c5 = true ∧ cl1.needsWitness c5 = false ∧ cl2.needsWitness c5 = false ∧
     clO.needsWitness c5 = false ∧ (∀ fn ∈ c.fns.drop 1, ∀ cl ∈ fn.clauses, cl.needsWitness c5 = false) ∧
     clC.reqClosed = true ∧ c5.confined 32 = false := by
@@ -294,11 +294,11 @@ theorem hc5 : ∀ fn ∈ c5.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c5 = tru
   · rw [g5_clauses] at hcl
     simp only [List.mem_cons, List.not_mem_nil, or_false] at hcl
     rcases hcl with rfl | rfl | rfl | rfl
+    · rw [dec.2.2.2.2.2.2.2.2.2.2.1] at hw; cases hw
     · rw [dec.2.2.2.2.2.2.2.2.2.2.2.1] at hw; cases hw
-    · rw [dec.2.2.2.2.2.2.2.2.2.2.2.2.1] at hw; cases hw
     · exact Or.inl witC
-    · rw [dec.2.2.2.2.2.2.2.2.2.2.2.2.2.1] at hw; cases hw
-  · rw [dec.2.2.2.2.2.2.2.2.2.2.2.2.2.2.1 fn hfn cl hcl] at hw; cases hw
+    · rw [dec.2.2.2.2.2.2.2.2.2.2.2.2.1] at hw; cases hw
+  · rw [dec.2.2.2.2.2.2.2.2.2.2.2.2.2.1 fn hfn cl hcl] at hw; cases hw
 
 /-- At the same values the `requires` also evaluates to `false`, reading `g(0)` as 0. -/
 theorem reqC_false : EvalTerm c5 [(0, .ctor 386 [])]
@@ -340,7 +340,7 @@ noncomputable abbrev c6 : Semantics := { c with fns := g6 :: c.fns.drop 1 }
 
 theorem dec6 : c6.sortedOKCl = true ∧ c6.srReady = true ∧ c6.ovls = [] ∧
     c6.subsorts.all (fun p => p.1 != p.2) = true ∧ c6.faithCoreOK = true ∧ patHooksApart c6 = true ∧
-    c6.hooksApart = true ∧ c6.predsApart = true ∧ c6.idsOK = true ∧ c6.overloadsOK = true ∧
+    c6.predsApart = true ∧ c6.idsOK = true ∧ c6.overloadsOK = true ∧
     clW.needsWitness c6 = true ∧ clO.needsWitness c6 = false ∧
     (∀ fn ∈ c.fns.drop 1, ∀ cl ∈ fn.clauses, cl.needsWitness c6 = false) ∧ c6.confined Srt.int = false := by
   decide_cheap
@@ -384,8 +384,8 @@ theorem hc6 : ∀ fn ∈ c6.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c6 = tru
   · have hcl' : cl = clW ∨ cl = clO := by simpa [g6] using hcl
     rcases hcl' with rfl | rfl
     · exact Or.inl witW
-    · rw [dec6.2.2.2.2.2.2.2.2.2.2.2.1] at hw; cases hw
-  · rw [dec6.2.2.2.2.2.2.2.2.2.2.2.2.1 fn hfn cl hcl] at hw; cases hw
+    · rw [dec6.2.2.2.2.2.2.2.2.2.2.1] at hw; cases hw
+  · rw [dec6.2.2.2.2.2.2.2.2.2.2.2.1 fn hfn cl hcl] at hw; cases hw
 
 /-- Every clause of `c6`, the sort predicates' included, has the predicate `\top`: `neg_of_coreCl`'s
 reading of the predicates asks nothing of the model. -/

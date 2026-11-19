@@ -1,24 +1,25 @@
 /-
-  The rows overloadsOK.5 to overloadsOK.8 of test/witnesses.toml (the symbols an overloading
-  symbol overloads are constructors, overloading symbols listed before it or functions, `ovlOver`
-  finds them all, each pair is well formed, the overloads agree). Run from the
-  package root: `lake env lean -j1 test/WitRestOvlB.lean`.
+  The rows overloadsOK.5 to overloadsOK.7 of test/witnesses.toml (the symbols an overloading
+  symbol overloads are constructors, overloading symbols listed before it or functions, each pair
+  is well formed, the overloads agree), and the condition `ov6` that `overloadsOK` does not ask
+  (`ovlOver` finds them all). Run from the package root: `lake env lean -j1 test/WitRestOvlB.lean`.
 
-  overloadsOK.8 has a witness module, KcoreSpec/ModelOvlIncohWitness.lean (two constructors
-  overloaded by one symbol, meeting at Int: `Γ` has no model). The leaves `ov1` to `ov9` are those of
-  KcoreSpec/ModelOvlLibCtorWitness.lean.
+  overloadsOK.7 has a witness module, KcoreSpec/ModelOvlIncohWitness.lean (two constructors
+  overloaded by one symbol, meeting at Int: `Γ` has no model). The conditions `ov1` to `ov9` are
+  those of KcoreSpec/ModelOvlLibCtorWitness.lean (`ov7` to `ov9` the rows overloadsOK.6 to .8).
 
   Kernel-checked here:
-  - overloadsOK.6: implied by overloadsOK.5 at the same overloading symbol, for every semantics
+  - `ov6`: implied by overloadsOK.5 at the same overloading symbol, for every semantics
     (`ov6_of_ov5`): a symbol found among the constructors, among the overloading symbols listed
     before or among the functions is found by `ovlOver`'s lookup in the constructors, every
-    overloading symbol and the functions, so no overloaded symbol is dropped.
+    overloading symbol and the functions, so no overloaded symbol is dropped. So `overloadsOK`
+    does not ask it.
   - overloadsOK.5, `Self.c`: the overloading symbol `f : Int → K` overloading itself meets every
-    other leaf condition of `coreOK` (`sortedOK`, `faithCoreOK`, `hooksApart`, `predsApart`,
-    `idsOK`, the other nine leaves of `overloadsOK`) and `FnHyp`, with overloadsOK.5 false.
-  - overloadsOK.7, `Pair.c`: `f : Int → KCellOpt` overloading the counter cell's constructor
+    other leaf condition of `coreOK` (`sortedOK`, `faithCoreOK`, `predsApart`,
+    `idsOK`, the other leaves of `overloadsOK`) and `FnHyp`, with overloadsOK.5 false.
+  - overloadsOK.6, `Pair.c`: `f : Int → KCellOpt` overloading the counter cell's constructor
     `<generatedCounter> : Int → GeneratedCounterCell`, whose result sort is not below KCellOpt,
-    meets every other leaf and `FnHyp`, with overloadsOK.7 false.
+    meets every other leaf and `FnHyp`, with overloadsOK.6 false.
   `Self.c0` and `Pair.c0`, the same symbols overloading nothing, meet `coreOK`.
 
   Argued, not kernel-checked: `Γ` of `Self.c` and of `Pair.c` has a model.
@@ -46,7 +47,7 @@ open ML Faithful.Model
 open Faithful.OvlLibCtorWitness (ov1 ov2 ov3 ov4 ov5 ov6 ov7 ov8 ov9)
 open Faithful.OvlTwiceWitness (cellSorts cellCtors cellSubsorts fSig)
 
-/-! ## overloadsOK.6: implied by overloadsOK.5 -/
+/-! ## `ov6`: implied by overloadsOK.5 -/
 
 theorem length_filterMap {α β : Type} (f : α → Option β) :
     ∀ (l : List α), (∀ x ∈ l, (f x).isSome = true) → (l.filterMap f).length = l.length
@@ -56,7 +57,7 @@ theorem length_filterMap {α β : Type} (f : α → Option β) :
     rw [List.filterMap_cons_some hb, List.length_cons, List.length_cons,
       length_filterMap f l fun x hx => h x (List.mem_cons_of_mem _ hx)]
 
-/-- **overloadsOK.6 is implied by overloadsOK.5** at each overloading symbol `o` (at any place `i`),
+/-- **`ov6` is implied by overloadsOK.5** at each overloading symbol `o` (at any place `i`),
 for every semantics. -/
 theorem ov6_of_ov5 (c : Semantics) (o : OvlSig) (i : Nat)
     (h : o.over.all (fun g => (lookupSig c.ctorSigs g).isSome || (c.ovls.take i).any (·.sig.name == g) ||
@@ -116,10 +117,10 @@ theorem sortedOK : c.sortedOK = true := by decide_cheap
 theorem fnHyp : FnHyp c := fnHyp_of rfl (by decide +kernel) (by decide +kernel)
 
 set_option maxHeartbeats 1000000 in
-theorem meets_others : c.sortedOK = true ∧ c.faithCoreOK = true ∧ c.hooksApart = true ∧
+theorem meets_others : c.sortedOK = true ∧ c.faithCoreOK = true ∧
     c.predsApart = true ∧ c.idsOK = true ∧ ov1 c = true ∧ ov2 c = true ∧ ov3 c = true ∧ ov4 c = true ∧
-    ov6 c = true ∧ ov7 c = true ∧ ov8 c = true ∧ c.ovlPatsOK = true ∧ FnHyp c :=
-  ⟨sortedOK, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
+    ov7 c = true ∧ ov8 c = true ∧ c.ovlPatsOK = true ∧ FnHyp c :=
+  ⟨sortedOK, by decide_cheap, by decide_cheap,
     by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
     by decide_cheap, by decide_cheap, by decide_cheap, fnHyp⟩
 
@@ -134,7 +135,7 @@ theorem f_covered : c0.sortOf (.ctor fSig.name [int 0]) = some Srt.k ∧ c.sortO
 
 end Self
 
-/-! ## overloadsOK.7: an overload whose result sort is not below the overloading symbol's -/
+/-! ## overloadsOK.6: an overload whose result sort is not below the overloading symbol's -/
 
 namespace Pair
 
@@ -149,10 +150,10 @@ theorem sortedOK : c.sortedOK = true := by decide_cheap
 theorem fnHyp : FnHyp c := fnHyp_of rfl (by decide +kernel) (by decide +kernel)
 
 set_option maxHeartbeats 1000000 in
-theorem meets_others : c.sortedOK = true ∧ c.faithCoreOK = true ∧ c.hooksApart = true ∧
+theorem meets_others : c.sortedOK = true ∧ c.faithCoreOK = true ∧
     c.predsApart = true ∧ c.idsOK = true ∧ ov1 c = true ∧ ov2 c = true ∧ ov3 c = true ∧ ov4 c = true ∧
-    ov5 c = true ∧ ov6 c = true ∧ ov8 c = true ∧ c.ovlPatsOK = true ∧ FnHyp c :=
-  ⟨sortedOK, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
+    ov5 c = true ∧ ov8 c = true ∧ c.ovlPatsOK = true ∧ FnHyp c :=
+  ⟨sortedOK, by decide_cheap, by decide_cheap,
     by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
     by decide_cheap, by decide_cheap, by decide_cheap, fnHyp⟩
 

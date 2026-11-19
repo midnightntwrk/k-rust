@@ -5,7 +5,7 @@
   `lake env lean -j1 test/WitRestPlain.lean`.
 
   Kernel-checked here, for each: a semantics meeting every other leaf condition of `coreOK` (the
-  other conjuncts of `sortedOK`, `faithCoreOK`, `hooksApart`, `predsApart`, `idsOK`, `overloadsOK`)
+  other conjuncts of `sortedOK`, `faithCoreOK`, `predsApart`, `idsOK`, `overloadsOK`)
   and `FnHyp`, with the conjunct false. So neither part is implied by the others.
   - `rulesPlain`: `Rules.c` has the one rule
     `<k> X </k> <generatedCounter> N </generatedCounter> => <k> X </k> <generatedCounter> N </generatedCounter>
@@ -80,9 +80,9 @@ set_option maxHeartbeats 1000000 in
 theorem meets_others : c.subsortsOK = true ∧
     c.fns.all (fun f => f.clauses.all (c.clauseSorted f (c.fns.map Fn.sig))) = true ∧
     c.rules.all c.ruleSorted = true ∧ c.clausesPlain = true ∧ c.paramsPlain = true ∧
-    c.faithCoreOK = true ∧ c.hooksApart = true ∧ c.predsApart = true ∧ c.idsOK = true ∧
+    c.faithCoreOK = true ∧ c.predsApart = true ∧ c.idsOK = true ∧
     c.overloadsOK = true ∧ FnHyp c :=
-  ⟨by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
+  ⟨by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
     by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, fnHyp⟩
 
 theorem not_rulesPlain : c.rulesPlain = false := by decide +kernel
@@ -144,9 +144,9 @@ set_option maxHeartbeats 1000000 in
 theorem meets_others : c.subsortsOK = true ∧
     c.fns.all (fun f => f.clauses.all (c.clauseSorted f (c.fns.map Fn.sig))) = true ∧
     c.rules.all c.ruleSorted = true ∧ c.rulesPlain = true ∧ c.clausesPlain = true ∧
-    c.faithCoreOK = true ∧ c.hooksApart = true ∧ c.predsApart = true ∧ c.idsOK = true ∧
+    c.faithCoreOK = true ∧ c.predsApart = true ∧ c.idsOK = true ∧
     c.overloadsOK = true ∧ FnHyp c :=
-  ⟨by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
+  ⟨by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
     by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, fnHyp⟩
 
 theorem not_paramsPlain : c.paramsPlain = false := by decide +kernel

@@ -4,7 +4,7 @@
   model). Run from the package root: `lake env lean -j1 test/WitRestSorted.lean`.
 
   Kernel-checked here, for each conjunct: a semantics meeting every other leaf condition of
-  `coreOK` (the other conjuncts of `sortedOK`, `faithCoreOK`, `hooksApart`, `predsApart`, `idsOK`,
+  `coreOK` (the other conjuncts of `sortedOK`, `faithCoreOK`, `predsApart`, `idsOK`,
   `overloadsOK`) and `FnHyp`, with the conjunct false. So none of the three is implied by the others.
   - `c.subsortsOK`: `Dup.c` lists the subsort `KCell < KCellOpt` twice (`nodup` fails). `Dup.c0`,
     the list without the repetition, meets `coreOK` (`c0_core`); every constructor item of `Dup.c`
@@ -90,9 +90,9 @@ set_option maxHeartbeats 1000000 in
 /-- Every leaf condition of `coreOK` but `subsortsOK` holds, and `FnHyp`. -/
 theorem meets_others : c.fns.all (fun f => f.clauses.all (c.clauseSorted f (c.fns.map Fn.sig))) = true ∧
     c.rules.all c.ruleSorted = true ∧ c.rulesPlain = true ∧ c.clausesPlain = true ∧ c.paramsPlain = true ∧
-    c.faithCoreOK = true ∧ c.hooksApart = true ∧ c.predsApart = true ∧ c.idsOK = true ∧
+    c.faithCoreOK = true ∧ c.predsApart = true ∧ c.idsOK = true ∧
     c.overloadsOK = true ∧ FnHyp c :=
-  ⟨by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
+  ⟨by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
     by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, fnHyp⟩
 
 theorem not_subsortsOK : c.subsortsOK = false := by decide +kernel
@@ -183,9 +183,9 @@ set_option maxHeartbeats 1000000 in
 /-- Every leaf condition of `coreOK` but `clauseSorted` holds, and `FnHyp`. -/
 theorem meets_others : c.subsortsOK = true ∧
     c.rules.all c.ruleSorted = true ∧ c.rulesPlain = true ∧ c.clausesPlain = true ∧ c.paramsPlain = true ∧
-    c.faithCoreOK = true ∧ c.hooksApart = true ∧ c.predsApart = true ∧ c.idsOK = true ∧
+    c.faithCoreOK = true ∧ c.predsApart = true ∧ c.idsOK = true ∧
     c.overloadsOK = true ∧ FnHyp c :=
-  ⟨by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
+  ⟨by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
     by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, fnHyp⟩
 
 theorem not_clauseSorted : c.fns.all (fun f => f.clauses.all (c.clauseSorted f (c.fns.map Fn.sig))) = false := by
@@ -216,9 +216,9 @@ set_option maxHeartbeats 1000000 in
 theorem meets_others : c.subsortsOK = true ∧
     c.fns.all (fun f => f.clauses.all (c.clauseSorted f (c.fns.map Fn.sig))) = true ∧
     c.rulesPlain = true ∧ c.clausesPlain = true ∧ c.paramsPlain = true ∧
-    c.faithCoreOK = true ∧ c.hooksApart = true ∧ c.predsApart = true ∧ c.idsOK = true ∧
+    c.faithCoreOK = true ∧ c.predsApart = true ∧ c.idsOK = true ∧
     c.overloadsOK = true ∧ FnHyp c :=
-  ⟨by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
+  ⟨by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
     by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, fnHyp⟩
 
 theorem not_ruleSorted : c.rules.all c.ruleSorted = false := by decide +kernel

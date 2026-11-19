@@ -8,7 +8,7 @@
   rests on the parameter's value as a user's lemma does, and is not of the class `library`, whose
   sentences hold at values over symbols Γ interprets for every `H`. Such a symbol's value is
   the interpretation's at every argument list, so whether the lemma holds depends on `H`: it is owed
-  as a hypothesis on `H` at values: some `H` meets the functions' obligations (`FnObligations`) and
+  as a hypothesis on `H` at values: some `H` meets the hypothesis on the functions (`FnHyp`) and
   at it every sentence of the class holds at the valuations sending its variables to values
   (`EntailsAtValues (c.withHooks H) s (tr s)`). `Γ` states the parameter's graph at values only and
   says nothing of it at an element of its sort that is no value's, where a model of `Γ` may give it

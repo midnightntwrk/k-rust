@@ -36,7 +36,7 @@ def Semantics.sortedOKEx (c : Semantics) : Bool :=
 
 /-- `coreOK` with `sortedOKEx` in place of `sortedOK`. -/
 def Semantics.coreOKEx (c : Semantics) : Bool :=
-  c.sortedOKEx && c.faithCoreOK && c.hooksApart && c.predsApart && c.idsOK && c.overloadsOK
+  c.sortedOKEx && c.faithCoreOK && c.predsApart && c.idsOK && c.overloadsOK
 
 /-- What `clausesPlainEx` asks of one clause of a function of the semantics. -/
 theorem Semantics.clausesPlainEx_spec {c : Semantics} (h : c.clausesPlainEx = true) {fn : Fn}
@@ -109,7 +109,7 @@ theorem Semantics.sortedOKEx_post_of_nil {c : Semantics} (h : c.sortedOKEx = tru
 theorem Semantics.coreOKEx_parts {c : Semantics} (h : c.coreOKEx = true) :
     c.sortedOKEx = true ∧ c.faithCoreOK = true ∧ c.hooksApart = true ∧ c.predsApart = true ∧ c.idsOK = true := by
   simp only [Semantics.coreOKEx, Bool.and_eq_true] at h
-  exact ⟨h.1.1.1.1.1, h.1.1.1.1.2, h.1.1.1.2, h.1.1.2, h.1.2⟩
+  exact ⟨h.1.1.1.1, h.1.1.1.2, Semantics.hooksApart_of_faithCoreOK h.1.1.1.2, h.1.1.2, h.1.2⟩
 
 /-- `coreOKEx`'s condition on the overloading symbols. -/
 theorem Semantics.coreOKEx_ovls {c : Semantics} (h : c.coreOKEx = true) : c.overloadsOK = true := by

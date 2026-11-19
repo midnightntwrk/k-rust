@@ -31,7 +31,7 @@ a theorem when one of these holds, read from the files' text:
       symbol without `impl`, whose value the interpretation gives, so it is owed as a hypothesis on
       H, at values) of a tie file test/Tie*.lean on the text that defines
       `paramLemmaText : List AxiomDecl` as a literal list holding U.axN, `ParamLemmaWitnessAtValues`
-      as `∃ H : HookParams, FnObligations (cH H) callOrder [] ∧ ∀ ad ∈ paramLemmaText,
+      as `∃ H : HookParams, FnHyp (cH H) ∧ ∀ ad ∈ paramLemmaText,
       EntailsAtValues (cH H) ad (trS ad).pat`, has N under "parameter lemma" in its `classes`, and
       declares `paramlemma_account` (the class is that list) and a theorem whose statement is
       `ParamLemmaWitnessAtValues` (some H meets the hypothesis: the text with it has a model). The
@@ -365,7 +365,7 @@ def lean_ties():
 
 
 PL_FILE = re.compile(r"^Tie\w*\.lean$")
-PL_WITNESS = ("def ParamLemmaWitnessAtValues : Prop := ∃ H : HookParams, FnObligations (cH H) callOrder [] ∧ "
+PL_WITNESS = ("def ParamLemmaWitnessAtValues : Prop := ∃ H : HookParams, FnHyp (cH H) ∧ "
               "∀ ad ∈ paramLemmaText, EntailsAtValues (cH H) ad (trS ad).pat")
 
 

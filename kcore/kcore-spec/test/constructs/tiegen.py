@@ -60,7 +60,12 @@ identifier `KoreAML.srt` writes (`gInjCodes`, `injCodesOf c`), read by `hasHeadC
 equal to `absentP` by `gammaHasHead_coded`, KcoreSpec/TieCodes.lean, with `gSymCodes_noInst`: no
 code holds the byte of `{`). It builds no list of Γ's heads and decodes no name: a head is compared
 with Γ's names (or, for `inj`, its subsort pairs) by numbers. Refused where a name of Γ's symbols
-holds `{` (today's --heads-literal path is kept for such a text).
+holds `{` (today's --heads-literal path is kept for such a text). It also decides `absent_proj_below`'s
+first conjunct (the no-direction sentences that are equations of a projection, mapped, are
+`absentProj` mapped) by the same ranges of the user module, `absProjE_a` each its own decision with
+the members of `absentProj` in its range, joined by `tieFilterMap_range` (KcoreSpec/TieChunks.lean):
+in one decision `(classOf "no direction").contains` scans the class once per sentence of the text,
+all in one reduction (rcd's Absent file: 7.5 GiB with the one decision, 2.8 GiB by ranges of 50).
 --attrs-parts states `attrs_agree` from its five conjuncts (`attrs_ctors`, `attrs_fns`, `attrs_hooks`,
 `attrs_colls`, `attrs_prios`), each a decision of its own.
 --attrs-blocks N (implies --attrs-parts) decides `attrs_ctors`, `attrs_fns` and `attrs_hooks` over the
@@ -193,7 +198,7 @@ What it states where the text:
 - has a lemma applying a parameter symbol no hook implements (`isParamLemma`, or a `simplification`
   sentence of K's builtin library applying one, which the reader reads as the library's text and of
   which Γ holds no item; the class `parameter lemma`, direction hypothesis): `paramlemma_account`, and `ParamLemmaWitnessAtValues`, one H at
-  which `FnObligations` hold and every parameter lemma holds at values (`EntailsAtValues`), stated
+  which `FnHyp` holds and every parameter lemma holds at values (`EntailsAtValues`), stated
   and owed (`owed` in the summary); and
   `paramlemma_heads`: every `simplification` equation of the user module whose left side's head is
   a parameter symbol without `impl` is in that class;
@@ -378,7 +383,7 @@ PARAM_FUNCTIONAL_CLASS = "parameter functional"
 # on H (direction hypothesis), at values: Γ states the parameter's graph at values only (`ΓDomains`),
 # so a model of Γ may hold an element of an unconfined sort that is no value's, at which no item of Γ
 # constrains the parameter, and the sentence at every valuation can fail there at every H. The tie of
-# a text with one owes one H at which `FnObligations` hold and every one of them holds at the
+# a text with one owes one H at which `FnHyp` holds and every one of them holds at the
 # valuations sending its variables to values (`ParamLemmaWitnessAtValues`, `EntailsAtValues`), since
 # a hypothesis no H satisfies would tie a text without a model.
 PARAM_LEMMA_CLASS = "parameter lemma"
@@ -1349,9 +1354,10 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     of more generators than that by blocks of that many disjuncts (0: one decision); `lists_by_class`:
     `lists_in_account` from one check per class (`tieAll_of_groups`); `heads_plain`: decide
     `account_absent`'s ranges on the codes of Γ's symbol names and subsort pairs (`gSymCodes`,
-    `gInjCodes`, `hasHeadCoded`, by `gammaHasHead_coded`), in place of `gHeads`/`gCodes`; `fn_readings`:
-    tie the function equations whose sentence is Γ's item by a reading (`readings_section`), the
-    others one by one, where `fn_pairs` does not apply."""
+    `gInjCodes`, `hasHeadCoded`, by `gammaHasHead_coded`), in place of `gHeads`/`gCodes`, and
+    `absent_proj_below`'s first conjunct by the same ranges (`absProjE_a`, `tieFilterMap_range`);
+    `fn_readings`: tie the function equations whose sentence is Γ's item by a reading
+    (`readings_section`), the others one by one, where `fn_pairs` does not apply."""
     raws = raws or {}
     hand = hand or {}
     call_order = ob["call_order"]
@@ -1968,7 +1974,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                 "valuations sending its variables to values (`EntailsAtValues (cH H) ad (trS ad).pat`), since Γ "
                 "states the parameter's graph at values only (`ΓDomains`). The account holds them in the class "
                 f"`{PARAM_LEMMA_CLASS}`, of the direction `hypothesis`. A hypothesis no H satisfies would tie a text "
-                "without a model, so the tie owes one H at which the functions' obligations hold and every "
+                "without a model, so the tie owes one H at which `FnHyp` holds and every "
                 "parameter lemma holds at values (`ParamLemmaWitnessAtValues`, stated here and proved by hand: "
                 "owed). Every `simplification` equation of the user module whose left side's head is a parameter "
                 "symbol without `impl` is one of them (`paramlemma_heads`)."]
@@ -2321,6 +2327,40 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w("theorem absent_proj_below_c : absentProj.all (fun p => GenEqs.projBelowB c p.2) = true := by")
         w("  decide +kernel")
         w("")
+        if chunk and heads_plain:
+            # the first conjunct by the ranges of `account_absent`, each its own decision: one decision
+            # over the whole text scans the class once per sentence, all in one reduction
+            # `U.all` is the user module's sentences in text order (`userAxioms_eq`), and an `index` is
+            # the position in text order (`AxiomDecl.index`), so its j-th member is idx[j]
+            pos = {i: j for j, i in enumerate(idx)}
+            w("/-- `absent_proj_below`'s filter, named for the ranges below. -/")
+            w("noncomputable def absProjP (ad : AxiomDecl) : Bool :=")
+            w('  (classOf "no direction").contains ad.index &&')
+            w(f'    ((AttrsAgree.eqnHead ad.ax.pattern).getD "").startsWith "{PROJ_PREFIX}"')
+            w("")
+            w("/-- `absent_proj_below`'s map of the sentences. -/")
+            w("noncomputable def absProjF (ad : AxiomDecl) : Nat × Option String :=")
+            w("  (ad.index, AttrsAgree.eqnHead ad.ax.pattern)")
+            w("")
+            w("/-- `absent_proj_below`'s map of `absentProj`. -/")
+            w("def absProjG (p : Nat × String) : Nat × Option String :=")
+            w(f'  (p.1, some ("{PROJ_PREFIX}" ++ p.2))')
+            w("")
+            w("/-- `absent_proj_below`'s first conjunct range by range of the user module (the ranges of")
+            w("`account_absent`), each with the members of `absentProj` in it, joined by `tieFilterMap_range`. -/")
+            rs, steps, b = ranges(len(idx), 0, chunk), [], 0
+            lp = "(l := U.all) (p := absProjP) (f := absProjF) (m := absentProj) (g := absProjG)"
+            for a, ln in rs:
+                if ln is None:
+                    w(f"theorem absProjE_{a} : (((U.all).drop {a}).filter absProjP).map absProjF =")
+                    w(f"    (absentProj.drop {b}).map absProjG := by decide +kernel")
+                else:
+                    k = sum(1 for i, _ in abs_proj if a <= pos[i] < a + ln)
+                    w(f"theorem absProjE_{a} : ((((U.all).drop {a}).take {ln}).filter absProjP).map absProjF =")
+                    w(f"    ((absentProj.drop {b}).take {k}).map absProjG := by decide +kernel")
+                    steps.append(f"      tieFilterMap_range {lp}\n        (a := {a}) (n := {ln}) (b := {b}) (k := {k}) absProjE_{a} <|")
+                    b += k
+            w("")
         w("/-- **The projections the no-direction class defines are of sorts below KItem**: `absentProj` is")
         w(f"the list of the no-direction sentences whose left side applies a symbol `{PROJ_PREFIX}X`, each")
         w("with that X, and each such X is K, KItem or a sort below KItem of Γ, with K and KItem constructor")
@@ -2333,7 +2373,16 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w("      (fun ad => (ad.index, AttrsAgree.eqnHead ad.ax.pattern)) =")
         w(f'      absentProj.map (fun p => (p.1, some ("{PROJ_PREFIX}" ++ p.2))) ∧')
         w("    absentProj.all (fun p => GenEqs.projBelowB (cH H) p.2) = true :=")
-        w("  ⟨by rw [userAxioms_eq]; decide +kernel, absent_proj_below_c⟩")
+        if chunk and heads_plain:
+            w("  ⟨by")
+            w("    rw [userAxioms_eq]")
+            w(f"    exact tieFilterMap_whole {lp} <|")
+            for st in steps:
+                w(st)
+            w(f"      absProjE_{rs[-1][0]},")
+            w("    absent_proj_below_c⟩")
+        else:
+            w("  ⟨by rw [userAxioms_eq]; decide +kernel, absent_proj_below_c⟩")
         w("")
     if absent_file:
         mark("Account")
@@ -3242,7 +3291,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         owed.append("FnHyp, the hypothesis the function functional sentences are owed under (not stated: the "
                     "consistency section shows `consistent` without it)")
     if param_lem:
-        owed.append(f"one H at which FnObligations hold and the parameter lemmas {', '.join(map(str, param_lem))} "
+        owed.append(f"one H at which FnHyp holds and the parameter lemmas {', '.join(map(str, param_lem))} "
                     f"hold at values (ParamLemmaWitnessAtValues)")
     if user_lem:
         owed.append(f"Γ entails the user lemmas {', '.join(map(str, user_lem))} for every H (UserLemmaEntailed)")
@@ -4782,13 +4831,13 @@ noncomputable def paramLemmaText : List AxiomDecl := [{lt}]
 theorem paramlemma_account : paramLemmaText.map (·.index) = classOf "{PARAM_LEMMA_CLASS}" := by
   decide +kernel
 
-/-- **What the tie owes of the parameter lemmas**: one interpretation `H` at which the functions'
-obligations hold and every parameter lemma holds in every model of Γ at the valuations sending its
+/-- **What the tie owes of the parameter lemmas**: one interpretation `H` at which `FnHyp` holds
+and every parameter lemma holds in every model of Γ at the valuations sending its
 free element variables to values (`EntailsAtValues`), so that the text with its hypotheses has a
 model. Γ states a parameter's graph at values only (`ΓDomains`), so the lemma is owed there. Stated,
 not proved here: the proof is owed. -/
 def ParamLemmaWitnessAtValues : Prop :=
-  ∃ H : HookParams, FnObligations (cH H) callOrder [] ∧
+  ∃ H : HookParams, FnHyp (cH H) ∧
     ∀ ad ∈ paramLemmaText, EntailsAtValues (cH H) ad (trS ad).pat
 
 /-- Every sentence of the user module that carries `simplification`, is an equation

@@ -76,7 +76,7 @@ theorem decided : c4.sortedOKCl = true ∧ c4.srReady = true ∧ c4.ovls = [] �
   decide_cheap
 
 /-- `coreOK`'s conjuncts other than `sortedOK` hold at `c4`. -/
-example : c4.faithCoreOK = true ∧ c4.hooksApart = true ∧ c4.predsApart = true ∧ c4.idsOK = true ∧
+example : c4.faithCoreOK = true ∧ c4.predsApart = true ∧ c4.idsOK = true ∧
     c4.overloadsOK = true := by
   decide_cheap
 

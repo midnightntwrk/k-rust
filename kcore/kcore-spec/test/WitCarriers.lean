@@ -1,8 +1,7 @@
 /-
-  The conjunct `carriersOK` of `paramsPlain` (row sortedOK.6 of test/witnesses.toml): no witness
-  found in the no-model form (a semantics meeting every other condition of `coreOK` and `FnHyp`,
-  failing the conjunct, whose `Γ` has no model). Run from the package root:
-  `lake env lean -j1 test/WitCarriers.lean`.
+  `carriersOK`, which `Semantics.ok`, `okAll` and `okM` ask beside `paramsPlain` and `coreOK` does
+  not: each instance here meets `coreOK` and `FnHyp` and fails `carriersOK`, and `okAll` (so `wf`)
+  refuses it. Run from the package root: `lake env lean -j1 test/WitCarriers.lean`.
 
   `carriersOK` says of each pair `(s, b)` of `c.lib.carriers`: `s` is an own sort (`carOwn`), a
   user sort (`carUser`), `b` is Int, Bool, Float, String or Bytes (`carLib`), `s` is no token sort
@@ -10,25 +9,25 @@
   sort is hooked twice (`carOnce`). `carriersOK_eq`: the conjunct is these seven, by `rfl`.
 
   Kernel-checked here.
-  - Two parts are implied by other conditions of `coreOK`, for every semantics:
+  - Two parts are implied by conditions of `coreOK`, for every semantics:
     `carUser_of_numbered` (an own sort hooked to a carrier is numbered, `sortsNumbered`, and the own
     sorts of `userSorts` are the numbered ones, `idsOK`'s first leaf) and `carColl_of_collSortsOK`
     (`collSortOK` asks of every collection sort that no pair hooks it).
-  - The other five are not implied: for each a semantics without rule, function or parameter that
-    meets every other condition of `coreOK` and `FnHyp` (`Others`) with the part false, the other
-    six true except where noted. `Reg.c`: Int hooked to Int (`carOwn` false, and `carUser`, Int
-    being no user sort). `Tgt.c`: the own sort MyInt hooked to K (`carLib`); `TgtVar.c`: MyInt hooked
-    to KConfigVar (`carLib`). `Tok.c`, `Byte.c`: MyInt hooked to Int and a token sort, a byte sort
-    (`carTok`, `carByte`). `Dup.c`, `Dup2.c`: MyInt hooked to Int twice, to Int then to Bool
-    (`carOnce`).
+  - The other five are not: for each a semantics without rule, function or parameter that meets
+    every condition of `coreOK` and `FnHyp` (`Others`, and `coreOK` itself: `core`) with the part
+    false, the other six true except where noted, and `okAll` false (`not_carriersOK`). `Reg.c`:
+    Int hooked to Int (`carOwn` false, and `carUser`, Int being no user sort). `Tgt.c`: the own sort
+    MyInt hooked to K (`carLib`); `TgtVar.c`: MyInt hooked to KConfigVar (`carLib`). `Tok.c`,
+    `Byte.c`: MyInt hooked to Int and a token sort, a byte sort (`carTok`, `carByte`). `Dup.c`,
+    `Dup2.c`: MyInt hooked to Int twice, to Int then to Bool (`carOnce`).
   - `c0` (MyInt hooked to Int once) and `c00` (MyInt hooked to nothing) meet `coreOK`.
   - What the values of MyInt are in each (`vals`): in `c0`, `Reg.c` aside, `Tok.c`, `Byte.c`,
     `Dup.c`, `Dup2.c` the integers at the sort MyInt and no token; in `Tgt.c` neither; in `TgtVar.c`
     the tokens.
 
-  The semantics have no parameter, so `paramsPlain`'s first part, over `c.params`, holds of them
-  whatever it asks of a parameter; `rulesPlain` and `clausesPlain` hold of a semantics without
-  rule and function.
+  The semantics have no parameter, so `paramsPlain`, over `c.params`, holds of them whatever it
+  asks of a parameter; `rulesPlain` and `clausesPlain` hold of a semantics without rule and
+  function.
 
   Argued, not kernel-checked: `Γ` of each has a model. `Γ` reads `c.lib.carriers` through
   `Lib.carrier` (the literals of a sort, `dvOK`, and the arguments a hook reads, `toLib`), through
@@ -55,9 +54,8 @@
   second sort that is a registry collection sort, Range, MInt or a registry token sort; any of
   the failures beside a parameter implemented by a hook over the hooked sort.
 
-  No theorem of the library reads the conjunct: `paramsPlain` is read by `raw_of_paramsPlain`
-  alone, which reads its first part. So the headline statements hold of a semantics failing
-  `carriersOK` alone by the proofs they have (argued from the text of the proofs, not restated).
+  No theorem of the library reads the conjunct, so the headline statements hold of these
+  semantics by the proofs they have; the tie to a text goes through `wf`, which refuses them.
 -/
 import KcoreSpec.Tie
 import KcoreSpec.Obligations
@@ -138,20 +136,20 @@ def mk (l : Lib) : Semantics :=
 
 def base : Lib := { sortsBelowKItem := [Srt.int, Srt.bool] }
 
-/-- Every condition of `coreOK` but `paramsPlain`'s `carriersOK`, and `FnHyp`, of a semantics
-without rule, function or parameter. -/
+/-- Every condition of `coreOK`, and `FnHyp`, of a semantics without rule, function or
+parameter. -/
 def Others (c : Semantics) : Prop :=
   c.subsortsOK = true ∧ c.rules = [] ∧ c.fns = [] ∧ c.params = [] ∧ c.rulesPlain = true ∧
-    c.clausesPlain = true ∧ c.hooksApart = true ∧ c.predsApart = true ∧ c.idsOK = true ∧
+    c.clausesPlain = true ∧ c.predsApart = true ∧ c.idsOK = true ∧
     c.overloadsOK = true ∧ c.faithCoreOK = true ∧ FnHyp c
 
 theorem others (l : Lib)
-    (h : ((mk l).subsortsOK && (mk l).rulesPlain && (mk l).clausesPlain && (mk l).hooksApart &&
+    (h : ((mk l).subsortsOK && (mk l).rulesPlain && (mk l).clausesPlain &&
       (mk l).predsApart && (mk l).idsOK && (mk l).overloadsOK && (mk l).faithCoreOK) = true)
     (hrc : (mk l).readsConfined = false) : Others (mk l) := by
   simp only [Bool.and_eq_true] at h
-  obtain ⟨⟨⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩, h7⟩, h8⟩ := h
-  exact ⟨h1, rfl, rfl, rfl, h2, h3, h4, h5, h6, h7, h8,
+  obtain ⟨⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h5⟩, h6⟩, h7⟩, h8⟩ := h
+  exact ⟨h1, rfl, rfl, rfl, h2, h3, h5, h6, h7, h8,
     fun _ hf => absurd hf List.not_mem_nil, fun _ hf => absurd hf List.not_mem_nil,
     fun _ hf => absurd hf List.not_mem_nil, fun _ hf => absurd hf List.not_mem_nil,
     openDecided_of_readsConfined hrc, openLaws_of_plain (fun _ hk => absurd hk List.not_mem_nil)⟩
@@ -180,7 +178,9 @@ def l : Lib := { base with carriers := [(Srt.int, Srt.int)] }
 def c : Semantics := mk l
 set_option maxHeartbeats 1000000 in
 theorem meets_others : Others c := others l (by decide_cheap) (by decide +kernel)
-theorem not_carriersOK : c.carriersOK = false ∧
+set_option maxHeartbeats 1000000 in
+theorem core : c.coreOK = true := by decide_cheap
+theorem not_carriersOK : c.carriersOK = false ∧ c.okAll = false ∧
     parts c (Srt.int, Srt.int) = [false, false, true, true, true, true, true] := by decide +kernel
 /-- The pair is not read: each sort is its own carrier. -/
 theorem carrier_reg (s : Srt) : c.lib.carrier s = s := by
@@ -197,7 +197,9 @@ def l : Lib := { base with carriers := [(myInt, Srt.k)] }
 def c : Semantics := mk l
 set_option maxHeartbeats 1000000 in
 theorem meets_others : Others c := others l (by decide_cheap) (by decide +kernel)
-theorem not_carriersOK : c.carriersOK = false ∧
+set_option maxHeartbeats 1000000 in
+theorem core : c.coreOK = true := by decide_cheap
+theorem not_carriersOK : c.carriersOK = false ∧ c.okAll = false ∧
     parts c (myInt, Srt.k) = [true, true, false, true, true, true, true] := by decide +kernel
 theorem c_vals : vals c = [false, false, false] ∧ (consSorts c).contains myInt = false ∧
     (c.collOf myInt).isNone = true := by decide +kernel
@@ -209,7 +211,9 @@ def l : Lib := { base with carriers := [(myInt, Srt.kconfigVar)] }
 def c : Semantics := mk l
 set_option maxHeartbeats 1000000 in
 theorem meets_others : Others c := others l (by decide_cheap) (by decide +kernel)
-theorem not_carriersOK : c.carriersOK = false ∧
+set_option maxHeartbeats 1000000 in
+theorem core : c.coreOK = true := by decide_cheap
+theorem not_carriersOK : c.carriersOK = false ∧ c.okAll = false ∧
     parts c (myInt, Srt.kconfigVar) = [true, true, false, true, true, true, true] := by decide +kernel
 theorem c_vals : vals c = [false, false, true] := by decide +kernel
 end TgtVar
@@ -220,7 +224,9 @@ def l : Lib := { base with carriers := [(myInt, Srt.int)], tokenSorts := [myInt]
 def c : Semantics := mk l
 set_option maxHeartbeats 1000000 in
 theorem meets_others : Others c := others l (by decide_cheap) (by decide +kernel)
-theorem not_carriersOK : c.carriersOK = false ∧
+set_option maxHeartbeats 1000000 in
+theorem core : c.coreOK = true := by decide_cheap
+theorem not_carriersOK : c.carriersOK = false ∧ c.okAll = false ∧
     parts c (myInt, Srt.int) = [true, true, true, false, true, true, true] := by decide +kernel
 theorem c_vals : vals c = [true, false, false] := by decide +kernel
 end Tok
@@ -231,7 +237,9 @@ def l : Lib := { base with carriers := [(myInt, Srt.int)], byteSorts := [myInt] 
 def c : Semantics := mk l
 set_option maxHeartbeats 1000000 in
 theorem meets_others : Others c := others l (by decide_cheap) (by decide +kernel)
-theorem not_carriersOK : c.carriersOK = false ∧
+set_option maxHeartbeats 1000000 in
+theorem core : c.coreOK = true := by decide_cheap
+theorem not_carriersOK : c.carriersOK = false ∧ c.okAll = false ∧
     parts c (myInt, Srt.int) = [true, true, true, true, false, true, true] := by decide +kernel
 theorem c_vals : vals c = [true, false, false] := by decide +kernel
 end Byte
@@ -242,7 +250,9 @@ def l : Lib := { base with carriers := [(myInt, Srt.int), (myInt, Srt.int)] }
 def c : Semantics := mk l
 set_option maxHeartbeats 1000000 in
 theorem meets_others : Others c := others l (by decide_cheap) (by decide +kernel)
-theorem not_carriersOK : c.carriersOK = false ∧
+set_option maxHeartbeats 1000000 in
+theorem core : c.coreOK = true := by decide_cheap
+theorem not_carriersOK : c.carriersOK = false ∧ c.okAll = false ∧
     parts c (myInt, Srt.int) = [true, true, true, true, true, true, false] := by decide +kernel
 theorem c_vals : vals c = [true, false, false] := by decide +kernel
 end Dup
@@ -253,7 +263,9 @@ def l : Lib := { base with carriers := [(myInt, Srt.int), (myInt, Srt.bool)] }
 def c : Semantics := mk l
 set_option maxHeartbeats 1000000 in
 theorem meets_others : Others c := others l (by decide_cheap) (by decide +kernel)
-theorem not_carriersOK : c.carriersOK = false ∧
+set_option maxHeartbeats 1000000 in
+theorem core : c.coreOK = true := by decide_cheap
+theorem not_carriersOK : c.carriersOK = false ∧ c.okAll = false ∧
     parts c (myInt, Srt.int) = [true, true, true, true, true, true, false] ∧
     parts c (myInt, Srt.bool) = [true, true, true, true, true, true, false] := by decide +kernel
 theorem c_vals : vals c = [true, false, false] := by decide +kernel

@@ -31,6 +31,11 @@
     three points: test/Guards.lean `DevNotCond`.)
   - `ReqAndApp`: `go(1, 1)` steps to `done`; `go(1, 2)`, `go(2, 2)` and `go(0, 0)` have no
     successor: the rule applies exactly where X = Y and f(X) = 0.
+
+  The same, for every interpretation H, at `c.withHooks H` (the expectations through the reading):
+  `ReqNot.step_iffH`, `ReqNot.stuckH`; `ReqAndApp.step_go11H`, `ReqAndApp.stuckH`. Neither reading
+  has a parameter: the rule, the sorts of values and the graphs of the registry's hooks it calls are
+  the same under every H, and `ReqAndApp.coherentH` gives evaluation one result under every H.
 -/
 import KcoreSpec
 
@@ -355,6 +360,148 @@ theorem stuck {i : Int} (hi : 0 < i) (y : Config c) : ¬ Step c (Go i) y :=
 /-- info: 'CondCut.ReqNot.stuck' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms stuck
 
+/-! ### Under every interpretation H
+
+The same steps at `c.withHooks H`: the reading has no parameter, so a value's sort, the rule and
+the graph of `_>Int_` (a registry hook) are the same under every H. -/
+
+noncomputable abbrev cH (H : HookParams) : Semantics := c.withHooks H
+
+/-- No parameter of the definition is an open generator. -/
+theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
+
+theorem sortOfH (H : HookParams) (v : GroundTerm) : (cH H).sortOf v = c.sortOf v := by
+  rw [Semantics.sortOf_withHooks _ _ noRaw]
+
+/-- `<k> go(i) </k>` and `<k> done </k>` under H. -/
+def GoH (H : HookParams) (i : Int) : Config (cH H) := ⟨cfg (.ctor symGo [iv i]), by rw [sortOfH]; exact sortOf_go i⟩
+def DoneH (H : HookParams) : Config (cH H) := ⟨cfg (.ctor symDone []), by rw [sortOfH]; exact Done.property⟩
+
+theorem symsH (H : HookParams) : (cH H).isCtor topLabel = true ∧ (cH H).isCtor kCell = true ∧
+    (cH H).isCtor kseq = true ∧ (cH H).isCtor symGo = true ∧ (cH H).isCtor symDone = true := syms_ok
+
+theorem r0_memH (H : HookParams) : r0 ∈ (cH H).rules := r0_mem
+theorem rule_eqH (H : HookParams) {r : Rule} (hr : r ∈ (cH H).rules) : r = r0 := rule_eq hr
+
+/-- `X >Int 0` has the result `i > 0` under H where X is the Int i. -/
+theorem evalGt_mkH (H : HookParams) {τ : Subst} {i : Int} (hl : τ.lookup 0 = some (iv i)) :
+    EvalTerm (cH H) τ (.app intGt [.var 0, .dv Srt.int (.int 0)]) (some (bool (decide (i > 0)))) :=
+  .hook kinds.2.1 kinds.1 (.cons .var (.cons .dv .nil))
+    (fun vs hvs => by
+      rw [hl] at hvs
+      have hv : vs = [iv i, iv 0] := Option.some.inj (hvs.symm.trans (allSome2 _ _))
+      subst hv; exact Semantics.hookRes_of_value (by rw [Det.hook_intGt]; rfl))
+    (fun hn => by rw [hl] at hn; exact absurd (hn.symm.trans (allSome2 _ _)) (by simp))
+
+/-- `X >Int 0` has no other result under H. -/
+theorem evalGt_invH (H : HookParams) {τ : Subst} {i : Int} (hl : τ.lookup 0 = some (iv i))
+    {w : Option GroundTerm} (h : EvalTerm (cH H) τ (.app intGt [.var 0, .dv Srt.int (.int 0)]) w) :
+    w = some (bool (decide (i > 0))) := by
+  cases h with
+  | ctor hk _ => exact absurd (kinds.2.1.symm.trans hk) (by simp)
+  | hook _ _ hts hh _ =>
+    cases hts with
+    | cons h1 hs =>
+      cases hs with
+      | cons h2 hs2 =>
+        cases hs2; cases h1; cases h2
+        rw [hl] at hh
+        have := (hh _ (allSome2 _ _)).symm.trans
+          (Semantics.hookRes_of_value (c := cH H) (by rw [Det.hook_intGt]; rfl))
+        exact (Option.some.inj this)
+  | param _ hhk _ _ _ => exact absurd (kinds.1.symm.trans hhk) (by simp)
+  | call _ hhk _ _ _ _ => exact absurd (kinds.1.symm.trans hhk) (by simp)
+  | callUndef _ hhk _ _ _ => exact absurd (kinds.1.symm.trans hhk) (by simp)
+  | ovl _ ho _ _ => exact absurd (kinds.2.2.symm.trans ho) (by simp)
+  | ovlFn _ ho _ _ _ _ _ => exact absurd (kinds.2.2.symm.trans ho) (by simp)
+
+/-- `pre` holds under H exactly where X is an Int i ≤ 0. -/
+theorem pre_iffH (H : HookParams) {τ : Subst} {i : Int} (hl : τ.lookup 0 = some (iv i)) :
+    Holds (cH H) r0.vars.length τ r0.pre true ↔ i ≤ 0 := by
+  rw [r0_shape.2.2.2]
+  constructor
+  · intro h
+    obtain ⟨r, r', e, e', hb⟩ := holds_equals_inv h
+    rw [evalGt_invH H hl e] at hb
+    cases e'
+    rw [sameResult_some] at hb
+    cases hd : decide (i > 0) with
+    | false => have := of_decide_eq_false hd; omega
+    | true => rw [hd] at hb; exact absurd hb (by decide)
+  · intro hi
+    have h := Holds.equals (n := r0.vars.length) (s := Srt.bool) (evalGt_mkH H hl)
+      (EvalTerm.dv (c := cH H) (σ := τ) (s := Srt.bool) (lit := .bool false))
+    have hd : decide (i > 0) = false := decide_eq_false (by omega)
+    rw [hd] at h
+    have hs : sameResult (some (bool false)) (some (GroundTerm.dv Srt.bool (.bool false))) = true := by
+      rw [sameResult_some]; rfl
+    rw [hs] at h
+    exact h
+
+/-- A match of the left side under H at `<k> go(i) </k>` gives X the value i. -/
+theorem lookup0H (H : HookParams) {τ : Subst} {i : Int} (hm : PatVal (cH H) τ r0.lhs (cfg (.ctor symGo [iv i]))) :
+    τ.lookup 0 = some (iv i) := by
+  rw [r0_lhs] at hm
+  have h1 := (patVal_ctor2 hooks_ok.1 (symsH H).1 hm).1
+  have h2 := patVal_ctor1 hooks_ok.2.1 (symsH H).2.1 h1
+  have h3 := (patVal_ctor2 hooks_ok.2.2.1 (symsH H).2.2.1 h2).1
+  obtain ⟨w, hw, he⟩ := PatVal.inj_inv h3
+  obtain ⟨-, vs, rfl, hs⟩ := PatVal.app_inv hooks_ok.2.2.2 hw (symsH H).2.2.2.1
+  have he' : GroundTerm.inj exp Srt.kitem (.ctor symGo [iv i]) = .inj exp Srt.kitem (.ctor symGo vs) := he
+  cases he'
+  obtain ⟨_, _, he1, h4, _⟩ := PatVals.cons_inv hs
+  cases he1
+  exact PatVal.var_inv h4
+
+theorem stepByH (H : HookParams) {i : Int} (hi : i ≤ 0) : StepBy (cH H) r0 (σ i) (GoH H i) (DoneH H) where
+  mem := r0_memH H
+  hσ := fun j s hs => by
+    rw [r0_vars] at hs
+    match j, hs with
+    | 0, hs => cases hs; exact ⟨_, rfl, by rw [sortOfH]; exact sortOf_int i⟩
+    | 1, hs => cases hs; exact ⟨_, rfl, by rw [sortOfH]; decide +kernel⟩
+    | 2, hs => cases hs; exact ⟨_, rfl, by rw [sortOfH]; decide +kernel⟩
+  hmatch := by
+    rw [r0_lhs]
+    have hig : injNormal exp Srt.kitem (.ctor symGo [iv i]) = .inj exp Srt.kitem (.ctor symGo [iv i]) := rfl
+    exact .ctor (symsH H).1 (.cons (.ctor (symsH H).2.1 (.cons (.ctor (symsH H).2.2.1
+      (.cons (hig ▸ .inj (.ctor (symsH H).2.2.2.1 (.cons (.var rfl) .nil))) (.cons (.var rfl) .nil))) .nil))
+      (.cons (.var rfl) .nil))
+  hreq := fun t ht => by rw [r0_shape.1] at ht; cases ht
+  hpre := (pre_iffH H rfl).mpr hi
+  heval := by
+    rw [r0_rhs]
+    have he : EvalTerm (cH H) (σ i) (.inj exp Srt.kitem (.app symDone []))
+        (some (.inj exp Srt.kitem (.ctor symDone []))) :=
+      .inj (.ctor (symsH H).2.2.2.2 .nil)
+    exact .ctor (symsH H).1 (.cons (.ctor (symsH H).2.1 (.cons (.ctor (symsH H).2.2.1
+      (.cons he (.cons .var .nil))) .nil)) (.cons .var .nil))
+  hens := fun t ht => by rw [r0_shape.2.1] at ht; cases ht
+  hpost := by rw [r0_shape.2.2.1]; exact .top
+  hprio := fun r' hr' hlt => (prio_none hr' hlt).elim
+
+/-- **A step from `<k> go(i) </k>` is at an i ≤ 0, for every H**: the rule's `pre` holds there
+only. -/
+theorem step_leH (H : HookParams) {i : Int} {y : Config (cH H)} (h : Step (cH H) (GoH H i) y) : i ≤ 0 := by
+  obtain ⟨r, τ, hs⟩ := step_iff_by.mp h
+  have hr := rule_eqH H hs.mem
+  subst hr
+  exact (pre_iffH H (lookup0H H hs.hmatch)).mp hs.hpre
+
+/-- **`<k> go(i) </k>` steps to `<k> done </k>` exactly where i ≤ 0, for every H** and every
+integer i. -/
+theorem step_iffH (H : HookParams) (i : Int) : Step (cH H) (GoH H i) (DoneH H) ↔ i ≤ 0 :=
+  ⟨step_leH H, fun hi => step_iff_by.mpr ⟨r0, σ i, stepByH H hi⟩⟩
+
+/-- **Where i > 0, `<k> go(i) </k>` has no successor, for every H.** -/
+theorem stuckH (H : HookParams) {i : Int} (hi : 0 < i) (y : Config (cH H)) : ¬ Step (cH H) (GoH H i) y :=
+  fun h => absurd (step_leH H h) (by omega)
+
+/-- info: 'CondCut.ReqNot.step_iffH' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms step_iffH
+/-- info: 'CondCut.ReqNot.stuckH' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms stuckH
+
 end ReqNot
 
 /-! ## `andUnderAppCut`: `go(X, Y) => done requires f(X #And Y) ==Int 0`, `f(X) => X -Int 1` -/
@@ -423,6 +570,90 @@ theorem stuck : (∀ y, ¬ Step c Go12 y) ∧ (∀ y, ¬ Step c Go22 y) ∧ (∀
 
 /-- info: 'CondCut.ReqAndApp.stuck' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms stuck
+
+/-! ### Under every interpretation H
+
+The same steps at `c.withHooks H`: the reading has no parameter, so the executable step at these
+configurations (f's clause, the registry's `_-Int_` and `_==Int_`, the membership of `pre`) reads no
+interpretation, and evaluation has one result under every H. -/
+
+noncomputable abbrev cH (H : HookParams) : Semantics := c.withHooks H
+
+/-- No parameter of the definition is an open generator. -/
+theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
+
+kernel_rfl sortedOK_withHooksL : ∀ H : HookParams, (c.withHooks H).sortedOK = c.sortedOK
+
+/-- Evaluation has one result under every H: the deciders on the data confirm coherence. -/
+theorem coherentH (H : HookParams) : CoherentAll (cH H) := by
+  have hag : (cH H).agreeObligations = [] := (Semantics.agreeObligations_withHooks c H).trans (by decide +kernel)
+  have hcf : (cH H).clausesFixed = true := (Semantics.clausesFixed_withHooks c H).trans (by decide +kernel)
+  have hso : (cH H).sortedOK = true := (sortedOK_withHooksL H).trans sortedOK
+  have hsr' : (cH H).srReady = true := (Semantics.srReady_withHooks c H).trans srReady
+  have hmr' : (cH H).matchReady = true := (Semantics.matchReady_withHooks c H).trans matchReady
+  have hnx : (cH H).FnsNoExs := (Semantics.fnsNoExs_withHooks c H).mpr (Semantics.fnsNoExs_of_all (by decide +kernel))
+  refine coherentAll_of_parts (matchIndependentAll_of_sortedOK hso hnx hmr'
+    (.of_fixed hcf (Exec.matchCtx_of hmr').noOvl)) fun f fn hfn => ?_
+  obtain ⟨hmem, -⟩ := lookupFn_spec hfn
+  rcases List.mem_append.mp hmem with h | h
+  · exact clausesAgree_of_sortedOK hso hnx hsr' hmr' (fun f hf => by rw [hag] at hf; nomatch hf) fn h
+  · exact sortPreds_agree h
+
+theorem fnDetH (H : HookParams) : FnDet (cH H) := fnDet_of_coherent (coherentH H)
+
+/-- A configuration of the reading is one under every H (no open generator). -/
+def cfgH (x : Config c) (H : HookParams) : Config (cH H) :=
+  ⟨x.val, by rw [Semantics.sortOf_withHooks _ _ noRaw]; exact x.property⟩
+
+kernel_rfl succsGo11_withHooks : ∀ H : HookParams,
+  CExec.successorsN (c.withHooks H) 50 Go11.val = CExec.successorsN c 50 Go11.val
+kernel_rfl succsGo12_withHooks : ∀ H : HookParams,
+  CExec.successorsN (c.withHooks H) 50 Go12.val = CExec.successorsN c 50 Go12.val
+kernel_rfl succsGo22_withHooks : ∀ H : HookParams,
+  CExec.successorsN (c.withHooks H) 50 Go22.val = CExec.successorsN c 50 Go22.val
+kernel_rfl succsGo00_withHooks : ∀ H : HookParams,
+  CExec.successorsN (c.withHooks H) 50 Go00.val = CExec.successorsN c 50 Go00.val
+kernel_rfl fuelGo12_withHooks : ∀ H : HookParams,
+  CExec.outOfFuel (c.withHooks H) 50 Go12.val = CExec.outOfFuel c 50 Go12.val
+kernel_rfl fuelGo22_withHooks : ∀ H : HookParams,
+  CExec.outOfFuel (c.withHooks H) 50 Go22.val = CExec.outOfFuel c 50 Go22.val
+kernel_rfl fuelGo00_withHooks : ∀ H : HookParams,
+  CExec.outOfFuel (c.withHooks H) 50 Go00.val = CExec.outOfFuel c 50 Go00.val
+
+theorem listed :
+    Done.val ∈ CExec.successorsN c 50 Go11.val ∧
+    CExec.successorsN c 50 Go12.val = [] ∧ CExec.outOfFuel c 50 Go12.val = false ∧
+    CExec.successorsN c 50 Go22.val = [] ∧ CExec.outOfFuel c 50 Go22.val = false ∧
+    CExec.successorsN c 50 Go00.val = [] ∧ CExec.outOfFuel c 50 Go00.val = false := by
+  decide +kernel
+
+/-- **`go(1, 1)` steps to `done`, for every H.** -/
+theorem step_go11H (H : HookParams) : Step (cH H) (cfgH Go11 H) (cfgH Done H) := by
+  have hy : Done.val ∈ CExec.successorsN (cH H) 50 (cfgH Go11 H).val := by
+    show Done.val ∈ CExec.successorsN (c.withHooks H) 50 Go11.val
+    rw [succsGo11_withHooks]; exact listed.1
+  obtain ⟨_, h⟩ := CExec.successorsN_step_ready ((CExec.execReady_withHooks c H).trans hready)
+    (x := cfgH Go11 H) hy
+  exact h
+
+/-- **`go(1, 2)`, `go(2, 2)` and `go(0, 0)` have no successor, for every H.** -/
+theorem stuckH (H : HookParams) : (∀ y, ¬ Step (cH H) (cfgH Go12 H) y) ∧ (∀ y, ¬ Step (cH H) (cfgH Go22 H) y) ∧
+    (∀ y, ¬ Step (cH H) (cfgH Go00 H) y) :=
+  have hr := (CExec.execReady_withHooks c H).trans hready
+  ⟨CExec.noStep_at (n := 50) (x := cfgH Go12 H) hr (fnDetH H)
+      (by show CExec.outOfFuel (c.withHooks H) 50 Go12.val = false; rw [fuelGo12_withHooks]; exact listed.2.2.1)
+      (by show CExec.successorsN (c.withHooks H) 50 Go12.val = []; rw [succsGo12_withHooks]; exact listed.2.1),
+   CExec.noStep_at (n := 50) (x := cfgH Go22 H) hr (fnDetH H)
+      (by show CExec.outOfFuel (c.withHooks H) 50 Go22.val = false; rw [fuelGo22_withHooks]; exact listed.2.2.2.2.1)
+      (by show CExec.successorsN (c.withHooks H) 50 Go22.val = []; rw [succsGo22_withHooks]; exact listed.2.2.2.1),
+   CExec.noStep_at (n := 50) (x := cfgH Go00 H) hr (fnDetH H)
+      (by show CExec.outOfFuel (c.withHooks H) 50 Go00.val = false; rw [fuelGo00_withHooks]; exact listed.2.2.2.2.2.2)
+      (by show CExec.successorsN (c.withHooks H) 50 Go00.val = []; rw [succsGo00_withHooks]; exact listed.2.2.2.2.2.1)⟩
+
+/-- info: 'CondCut.ReqAndApp.step_go11H' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms step_go11H
+/-- info: 'CondCut.ReqAndApp.stuckH' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms stuckH
 
 end ReqAndApp
 

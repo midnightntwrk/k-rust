@@ -22,7 +22,6 @@ RefKk.CoreOK.itesApart
 RefKk.CoreOK.kindsApart
 RefKk.CoreOK.ctorsOnce
 RefKk.CoreOK.fnsApart
-RefKk.CoreOK.hooksApart
 RefKk.CoreOK.predsApart
 RefKk.CoreOK.idsOK
 RefKk.CoreOK

@@ -535,7 +535,7 @@ open Faithful.Model in
 theorem coreOK : c.coreOK = true :=
   Semantics.coreOK_of_T T_eq (by decide +kernel) (by decide +kernel) (by decide +kernel)
     (by decide_cheap)
-    (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
+    (by decide +kernel) (by decide +kernel) (by decide +kernel)
 
 theorem fns_nil : c.fns = [] := by decide +kernel
 

@@ -13,7 +13,11 @@
   - what the statements rest on: `KK.enc_injective` (two configurations of `d₀ d` with one encoding
     are one, under `encDef d = some E`), `KK.emb_injective`, `KK.embSt_injective`, `KK.emb_sorted`,
     `KK.embD_sorted` (the embeddings are values of kore.k's sorts `Term` and `Def`) and
-    `KK.encDef_isSome` (`encDef` has a value exactly where `encodable` holds).
+    `KK.encDef_isSome` (`encDef` has a value exactly where `encodable` holds);
+  - `KK.encodable`, equal by `rfl` to its eleven conjuncts named (`ovlsOK`, `paramsOK`, `appsOK`,
+    `headsOK`, `litsOK`, `subsortsOK`, `colPatsOK`, `asOK`, `ensOK`, `shapesOK`, `collFormOK`):
+    a condition added to it narrows the hypothesis `encDef d = some E` of the three statements, and
+    fails this file.
 
   Their axioms are within `propext`, `Classical.choice`, `Quot.sound` (the loop at the end).
   test/pins-kk.sh generates the package under the namespace `RefKk` into .lake/pins/kk, builds it
@@ -61,6 +65,9 @@ example : Function.Injective embSt := embSt_injective
 example : ∀ t : T, (K₀ sig).sortOf (emb t) = some 33 := emb_sorted
 example : ∀ E : D, (K₀ sig).sortOf (embD E) = some 45 := embD_sorted
 example : ∀ d : Semantics, (encDef d).isSome = encodable d := encDef_isSome
+example (d : Semantics) : encodable d = (ovlsOK d && paramsOK d && appsOK d && headsOK d &&
+    litsOK d && subsortsOK d && colPatsOK d && asOK d && ensOK d && shapesOK d && collFormOK d) :=
+  rfl
 
 /-! ## Axioms -/
 
