@@ -400,7 +400,9 @@ sentences under these names, in this order.
 - function functional: the `functional` sentence of a function of the semantics;
 - hooked functional: the `functional` sentence of a symbol the registry interprets;
 - collection law: associativity and the units of a collection's concatenation;
-- library: an equation or a lemma of the builtin library over symbols `Γ` has;
+- library: an equation or a lemma of the builtin library over symbols `Γ` has, but for a
+  `simplification` sentence applying a parameter symbol no registry hook interprets (a parameter
+  lemma);
 - set idempotence: `_Set_(K, K) = K`, against which `Γ` states the concatenation of two sets with
   a common member undefined;
 - set-variable lemma: a library lemma over set variables that `Γ` refutes at a valuation sending
@@ -415,8 +417,10 @@ sentences under these names, in this order.
   declaration; `Γ` states the parameter's graph at values from the interpretation, so the sentence
   holds at values where `H` gives it a value at every argument list of its sorts: owed as
   `ParamsTotal`, the hypothesis on `H` the statements take;
-- parameter lemma: a sentence the reader leaves out of `Γ` (a lemma) that applies a parameter
-  symbol no registry hook interprets (`impl = none`), whose value the interpretation gives: owed as
+- parameter lemma: a sentence the reader leaves out of `Γ` (a lemma), or a `simplification`
+  sentence of K's builtin library, which the reader reads as the library's text and of which `Γ`
+  holds no item, that applies a parameter symbol no registry hook interprets (`impl = none`), whose
+  value the interpretation gives: owed as
   a hypothesis on `H` at values: some `H` meets the functions' obligations (`FnObligations`) and at
   it every sentence of the class holds at the valuations sending its variables to values
   (`EntailsAtValues (c.withHooks H) s (tr s)`). `Γ` states the parameter's graph at values only and
