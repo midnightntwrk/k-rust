@@ -1836,8 +1836,13 @@ table above, on the tree before String and Bytes). Not investigated here.
   (`decls_entailed`) and `Int2BytesNoLen`'s declaration (`lib_decls_entailed`), for every H; the
   library's equation at 0 (domains.md 2250, axiom 189) is entailed at values for every H meeting
   `i2bZeroEq` (`ev189`); `Hi2b` meets it (`ev189_Hi2b`); at `HookParams.none` the left side has no
-  value at 0 where the right side has one (`zero_none`). The other four equations (2252-2258) match a
-  Signedness constructor, which no LibEv term expresses. Axioms guarded.
+  value at 0 where the right side has one (`zero_none`). The other four equations (2252-2258, axioms
+  185-188), which match a Signedness constructor (a nullary constructor term of
+  `KcoreSpec/LibEvParam.lean`), are entailed at values for every H meeting `i2bMinEq`
+  (`Int2BytesNoLen` is `Int2Bytes` at the fewest bytes holding the Int, `MinLenI2b`), 2256 also
+  under `notEqI2b` (`~Int I` is `-I - 1`) (`ev185`-`ev188`); `Hi2bAll` meets the three conditions,
+  so the five equations hold together at values at one H (`hi2bAll_meets`, `ev_Hi2bAll`). Axioms
+  guarded.
 - `test/LibEvCollSym.lean`: the lemmas of MAP-KORE-SYMBOLIC and SET-KORE-SYMBOLIC of
   `f2-examples/collsym.kompile.kore`, for every H, from the library's statements
   (`KcoreSpec/LibEvCollSym.lean`): entailed at values, without an `ensures` (`LibEv.Eqn`; domains.md
