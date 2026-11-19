@@ -721,7 +721,9 @@ def evidence(fx, l, key, e, row):
         """An E6 library row's `e6_tie` (test/constructs/e6map.py): "THEOREM (FILE; TEXT axiom N)" items,
         "every ... row of MODULE (n) is tied" or "module of hooks and generated declarations only: ..."
         on a module row, or "uncovered: ..."; a module row of form (m) also has a last item "not held
-        by TEXT: ..." (the module's sentences the text does not hold), which names no theorem."""
+        by TEXT: ..." (the module's sentences inside a block comment of its code, no sentences of the
+        module), which names no theorem; a live sentence the text does not hold makes the row
+        "uncovered: ..." instead."""
         v = e.get("e6_tie")
         v = v if isinstance(v, list) else [v]
         unc = [x for x in v if isinstance(x, str) and x.startswith("uncovered")]
@@ -1792,6 +1794,8 @@ def self_test():
             ("E6", "module:M", {"status": "supported", "e6_tie": ["KCore.C3EqReqEns.f_5 (test/C3EqReqEns.lean; t axiom 3)",
                                                                   "not held by t: M; rule r (m.md:1): reason"]}, True),
             ("E6", "module:M", {"status": "supported", "e6_tie": ["not held by t: M; rule r (m.md:1): reason"]}, False),
+            ("E6", "module:M", {"status": "supported", "e6_tie": "uncovered: M; rule r (m.md:1) held by no tied text; on t "
+                                                                 "1 of its 2 rules are tied (test/C3EqReqEns.lean)"}, False),
             ("E6", "module:M", {"status": "supported", "e6_tie": ["every axiom, lemma, sort and symbol row of M (3) is tied, "
                                                                   "or of no direction with a theorem in a model (1)"]}, True),
             ("E6", "axiom:X", {"status": "supported", "e6_tie": "no direction: INT; KCore.C3EqReqEns.f_5 "

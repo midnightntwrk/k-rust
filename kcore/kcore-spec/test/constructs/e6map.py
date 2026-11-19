@@ -130,9 +130,15 @@ tie's `classes` hold under "no direction" alone, with `account_absent` and `abse
 declared, and which a test/GenEqsNodir*.lean file's literal `eqIdx` holds, that file declaring a
 theorem stating `∀ i ∈ eqIdx`, ∃ and ⊧ᴵP (the equation holds in a model). The items name, per rule
 sentence, the theorems whose statement names U.axN, then the class's three theorems, then per
-configuration those of the no-direction class and in a model; the module's other sentences are
-listed in one last item "not held by TEXT: MODULE; NAME (FILE:LINE): REASON; ...", the reason
-being that the text holds no sentence at its location, or that it lies in a block comment.
+configuration those of the no-direction class and in a model. A sentence of the module's code inside
+a block comment is no sentence of the module and is owed nothing: such sentences are listed in one
+last item "not held by TEXT: MODULE; NAME (FILE:LINE): inside a block comment of the module's code,
+no sentence; ...". A live sentence of the module's code (an uncommented `rule`, `syntax`, `context`
+or `claim`) that the text holds no sentence of is a sentence no theorem states, so the row is not
+tied: its e6_tie is the string "uncovered: MODULE; NAME (FILE:LINE), ... held by no tied text; on
+TEXT n of its m rules and its configuration are tied (FILES)", FILES the tie files of the theorems
+the items would name. STREAM_CONTROL controls it: STDOUT-STREAM is of form (m), and STDIN-STREAM,
+whose rule stdinUnblock (domains.md:2782) e2-cells-stream's text holds no sentence of, is uncovered.
 e6_tie, on a row: a list of "THEOREM (FILE; TEXT axiom N)" or "THEOREM (FILE; TEXT sort|symbol
 declaration NAME)" strings, "refuted: MODULE; ..." (above), "no direction: MODULE; THEOREM (FILE;
 TEXT axiom N|symbol declaration NAME); ..." with the theorems of form (e), or "uncovered: MODULE" with,
@@ -639,6 +645,7 @@ DECL_CONTROL = ("f2-examples/silentflt.kompile.kore",
                 "Lbl'Unds'dividesInt'UndsUnds'INT-COMMON'Unds'Bool'Unds'Int'Unds'Int")
 AX_CONTROL = ("f2-examples/silentflt.kompile.kore", 274, 296)
 MODULE_CONTROL = ("module:STDIN-STREAM", "module:SORT-BOOL")
+STREAM_CONTROL = ("module:STDOUT-STREAM", "module:STDIN-STREAM", "rule stdinUnblock (domains.md:2782)")
 
 
 def self_check(rows, res):
@@ -653,7 +660,9 @@ def self_check(rows, res):
     declared with sort parameters), although a statement naming the second and absentOf with a
     nonempty list literal exists; and of MODULE_CONTROL, the first module (STDIN-STREAM, which E6
     keys no row to but whose code holds rules) is not of the form of a module of hooks and generated
-    declarations only, and the second (SORT-BOOL, one hooked sort) is."""
+    declarations only, and the second (SORT-BOOL, one hooked sort) is; and of STREAM_CONTROL, the
+    first module (STDOUT-STREAM) is of form (m), and the second (STDIN-STREAM) is uncovered by form (m)
+    for its rule stdinUnblock, a live rule its fixture text holds no sentence of."""
     forms, odd = decl_forms()
     bad = list(odd)
     for rel, (text, got) in sorted(forms.items()):
@@ -699,6 +708,15 @@ def self_check(rows, res):
         bad.append(f"control {mno}: of the form of a module of hooks and generated declarations only, or no row")
     if not (isinstance(res.get(myes), list) and res[myes][0].startswith(HOOKS_ONLY)):
         bad.append(f"control {myes}: not of the form of a module of hooks and generated declarations only")
+    fyes, fno, fname = STREAM_CONTROL
+    got = res.get(fyes)
+    if not (isinstance(got, list) and got == module_text_tie(fyes.split(":")[1], rows.get(fyes, {}))
+            and any("rule_from_text" in x for x in got)):
+        bad.append(f"control {fyes}: not of form (m)")
+    got = res.get(fno)
+    if not (isinstance(got, str) and got == module_text_tie(fno.split(":")[1], rows.get(fno, {}))
+            and got.startswith(f"uncovered: {fno.split(':')[1]}; {fname} held by no tied text; ")):
+        bad.append(f"control {fno}: not uncovered by form (m) for {fname}")
     for b in bad:
         print(f"e6map self-check: {b}")
     print(f"e6map self-check: {len(forms)} declaration files ({sum(1 for _, g in forms.values() if g)} with a "
@@ -790,8 +808,9 @@ def code_name(f, kind, a, s):
 
 def module_text_tie(m, row):
     """Form (m) for the module row of module m, or None: the module's sentences on the tie of its
-    `fixture` text, read from the tie files on the text (a tie split over several files included);
-    the module's sentences the text does not hold listed with the reason."""
+    `fixture` text, read from the tie files on the text (a tie split over several files included),
+    the sentences inside a block comment of the module's code listed apart; or the string
+    "uncovered: m; ..." where a live sentence of the module's code has no sentence in the text."""
     fx = row.get("fixture")
     text = f"f2-examples/{fx}.kompile.kore" if isinstance(fx, str) else None
     if not text or not os.path.isfile(os.path.join(K, text)):
@@ -873,8 +892,17 @@ def module_text_tie(m, row):
                 f"its {', '.join(v for v, _ in toks)}")
         items += [f"{thm(ndf, x)} ({ndf}; {what}; of no direction)" for x in ("account_absent", "absent_closed")]
         items += [f"{nm} ({r}; {what}; in a model)" for r, nm in model]
-    rest = [code_name(f, *x[:2], x[3]) + (": inside a block comment of the module's code, no sentence" if x[4]
-                                         else f": the text holds no sentence at its location")
+    # A live sentence of the module (outside a block comment) that the text holds no sentence of is
+    # a sentence of the module no theorem states: the row is uncovered.
+    live = [code_name(f, *x[:2], x[3]) for x in code if x[1] not in used and not x[4]]
+    if live:
+        nr = sum(1 for x in code if x[0] == "rule" and not x[4])
+        nc = sum(1 for x in code if x[0] == "configuration" and not x[4])
+        files = sorted({re.match(r"\S+ \((test/[^;]+\.lean); ", x)[1] for x in items})
+        cfg = "" if not nc else " and its configuration" if nc == 1 else f" and its {nc} configurations"
+        return (f"uncovered: {m}; {', '.join(live)} held by no tied text; on {text} {len(used) - nc} of its "
+                f"{nr} rules{cfg} are tied ({', '.join(files)})")
+    rest = [code_name(f, *x[:2], x[3]) + ": inside a block comment of the module's code, no sentence"
             for x in code if x[1] not in used]
     if rest:
         items.append(f"{NOT_HELD}{text}: {m}; " + "; ".join(rest))
