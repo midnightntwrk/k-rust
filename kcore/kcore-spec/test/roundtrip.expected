@@ -168,8 +168,11 @@ differs f2-examples/e3-ml-req-not-pred.kompile.kore
 differs f2-examples/e3-ml-req-or-unheld.kompile.kore
 differs f2-examples/e3-ml-req-or.kompile.kore
 differs f2-examples/e3-ml-req-top.kompile.kore
+differs f2-examples/e3-ml-rule-lhs-and-pats.kompile.kore
 differs f2-examples/e3-ml-rule-lhs-exists.kompile.kore
 differs f2-examples/e3-ml-rule-lhs-implies.kompile.kore
+differs f2-examples/e3-ml-rule-lhs-not-other.kompile.kore
+differs f2-examples/e3-ml-rule-lhs-not.kompile.kore
 differs f2-examples/e3-ml-rule-lhs-or-rhs-and.kompile.kore
 differs f2-examples/e3-ml-rule-lhs-or.kompile.kore
 differs f2-examples/e3-ml-rule-lhs-top.kompile.kore
@@ -181,6 +184,7 @@ differs f2-examples/e3-ml-rule-rhs-and-var.kompile.kore
 differs f2-examples/e3-ml-rule-rhs-bottom-fn.kompile.kore
 differs f2-examples/e3-ml-rule-rhs-bottom.kompile.kore
 differs f2-examples/e3-ml-rule-rhs-or.kompile.kore
+differs f2-examples/e3-ml-rule-rhs-top.kompile.kore
 differs f2-examples/e3-ml.kompile.kore
 differs f2-examples/e3-param-cases.kompile.kore
 differs f2-examples/e3-reqens.kompile.kore
