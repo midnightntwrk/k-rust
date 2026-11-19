@@ -12,11 +12,14 @@
   Layer 1. `wf_defn`, `coreOK` (kernel); `defs_attrsAgree_parts` (constructors, functions, hooks,
   collections); `attrsAgree` itself is false here (`prios_read_clause`): the read clause's
   priority, 200, is stated by no equation of the text whose left side applies `project:Int` (the
-  selector-domain axiom's left side is a `\ceil`). `account`: the function equations, the
-  selector-domain axiom of `project:Int` and the constructor sentences are sentences of the user
-  module, apart, with the count of the rest; the 13 other selector-domain axioms are about
-  projections that are no symbol of the definition (`other_domains`), so they have no direction,
-  as a sentence applying a symbol Γ lacks.
+  selector-domain axiom's left side is a `\ceil`). `AttrsAgree.priosBut` with `project:Int`'s
+  clause at position 1 (the read clause, Γ's item 1: `read_clause_item`) left out of the clause side
+  and no sentence left out is true (`priosBut_read`); the clause left out is tied to its sentence,
+  the selector-domain axiom 179, by `w1` and `dom_entailed` (class *equal*; `read_clause_tie`).
+  `account`: the function equations, the selector-domain axiom of `project:Int` and the
+  constructor sentences are sentences of the user module, apart, with the count of the rest; the
+  13 other selector-domain axioms are about projections that are no symbol of the definition
+  (`other_domains`), so they have no direction, as a sentence applying a symbol Γ lacks.
 
   Layer 2. Γ's item of the read clause (`g1`, item 1) is
   `¬(∃V:Int. X0 ∈ kseq(inj(V), dotk)) ∧ X0 ∈ W → project:Int(X0) = project:Int(W) ∧ ⌈false = true⌉`.
@@ -85,6 +88,21 @@ priorities 50 (its equation) and 200 (the clause read from the selector-domain a
 text's equations whose left side applies `project:Int` state 50 only. -/
 theorem prios_read_clause : AttrsAgree.prios kore defn = false ∧ attrsAgree kore defn = false ∧
     (c.allFns.filter (c.symName ·.label == "Lblproject'Coln'Int")).map (·.clauses.map (·.prio)) = [[50, 200]] := by
+  decide +kernel
+
+/-- **With the read clause left out of the clause side, the priorities agree**: `prios` with
+`project:Int`'s clause at position 1 (of priority 200) left out, and no sentence of the text left
+out. The clause left out is tied to its sentence by `read_clause_tie`. -/
+theorem priosBut_read : AttrsAgree.priosBut [] [("Lblproject'Coln'Int", 1)] kore defn = true := by
+  decide +kernel
+
+/-- The clause left out by `priosBut_read` is Γ's item 1: `project:Int` is the first function of
+the definition, with the clauses of priorities 50 and 200, so Γ's items 0 and 1 are its clauses 0
+and 1 (`fnItems` takes each function's clauses in order, one item each). -/
+theorem read_clause_item :
+    (c.allFns.head?.map fun f => (c.symName f.label, f.clauses.map (·.prio))) =
+      some ("Lblproject'Coln'Int", [50, 200]) ∧
+    (TiePair.clauseKeys c).take 2 = [("Lblproject'Coln'Int", 50), ("Lblproject'Coln'Int", 200)] := by
   decide +kernel
 
 /-! ## The function equations -/
@@ -675,6 +693,13 @@ theorem dom_entailed (H : HookParams) : Γ (cH H) ⊧ (trS U.ax179).pat := by
     exact interp_sCeil_raw.mpr ⟨σI, σR, v, (hInt e σI).mpr rfl, (hRv σR).mpr rfl,
       (projP_iff (by rw [e0X, hsv]) v).mp hpv, (ceilE_of hD hc hσI2 hR hvI y).mpr hyR⟩
 
+/-- **The clause `priosBut_read` leaves out is tied to its sentence**, for every H: Γ's item 1
+(`g1_at`, the read clause by `read_clause_item`) follows from the selector-domain axiom 179 with the
+signature (`w1`), and Γ entails that axiom (`dom_entailed`). -/
+theorem read_clause_tie (H : HookParams) : (TiePair.gammaPats c)[1]? = some g1 ∧
+    ((TiePair.Texts [(trS U.ax179).pat] ∪ ΓSig (cH H)) ⊧ g1) ∧ (Γ (cH H) ⊧ (trS U.ax179).pat) :=
+  ⟨g1_at, w1 H, dom_entailed H⟩
+
 /-! ## The constructor sentences -/
 
 noncomputable def consText : List AxiomDecl := U.all.filter fun ad => tieConsB c ad.ax
@@ -881,6 +906,9 @@ end KCore.NoteProjDom
 #print axioms KCore.NoteProjDom.wf_defn
 #print axioms KCore.NoteProjDom.defs_attrsAgree_parts
 #print axioms KCore.NoteProjDom.prios_read_clause
+#print axioms KCore.NoteProjDom.priosBut_read
+#print axioms KCore.NoteProjDom.read_clause_item
+#print axioms KCore.NoteProjDom.read_clause_tie
 #print axioms KCore.NoteProjDom.account
 #print axioms KCore.NoteProjDom.other_domains
 #print axioms KCore.NoteProjDom.shape

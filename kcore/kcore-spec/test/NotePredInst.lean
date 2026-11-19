@@ -15,11 +15,12 @@
   Layer 1. `wf_defn`, `coreOK` (kernel); `defs_attrsAgree_parts` (constructors, functions, hooks,
   collections); `attrsAgree` itself is false (`prios_user_eqn`): the text states the priorities
   [200, 50, 50] for `isFoo` and the definition's clauses [50, 200], sentence 146 being an equation
-  of `isFoo` that the definition holds as no clause. `priosBut` is `prios` with sentences of the
-  text left out by index: with 146 left out it is true (`priosBut_user`), with nothing left out it
-  is `prios` (`priosBut_nil`). What is left out is tied by its own theorem: Γ entails 146
-  (`inst146_entailed`). `account`: the function equations (Γ's 29 items' sentences and 146) and the
-  constructor sentences are sentences of the user module, apart, with the count of the rest.
+  of `isFoo` that the definition holds as no clause. `AttrsAgree.priosBut` is `prios` with
+  sentences of the text left out by index and clauses left out by position: with 146 left out and
+  no clause it is true (`priosBut_user`), with nothing left out it is `prios` (`priosBut_nil`).
+  What is left out is tied by its own theorem: Γ entails 146 (`inst146_entailed`). `account`: the
+  function equations (Γ's 29 items' sentences and 146) and the constructor sentences are sentences
+  of the user module, apart, with the count of the rest.
 
   Layer 2. The function equations (`fnText`, written out: the sentence of each of Γ's 29 items in
   `fnItems`'s order; for item 27, `isFoo`'s clause of 50, `TiePair.fnTextOf` would pick 145 only by
@@ -88,27 +89,13 @@ theorem prios_user_eqn : AttrsAgree.prios kore defn = false ∧ attrsAgree kore 
     (c.allFns.filter (c.symName ·.label == "LblisFoo")).map (·.clauses.map (·.prio)) = [[50, 200]] := by
   decide +kernel
 
-/-- `AttrsAgree.prios` with the sentences of the text whose index (`AxiomDecl.index`) is in `out`
-left out of the text side: the rules' priorities as `prios` reads them, and for each function the
-priorities the remaining equations of the text state against its clauses'. -/
-def priosBut (out : List Nat) (k : Kore.Definition) (d : Definition) : Bool :=
-  let c := d.sem
-  let axs := k.axiomDecls.map (·.ax)
-  let kept := (k.axiomDecls.filter fun ad => !out.contains ad.index).map (·.ax)
-  d.pres.rules.length == c.rules.length &&
-  ((c.rules.zip d.pres.rules).all fun (r, rp) => AttrsAgree.rewritePrioOf k rp.info.uid == some r.prio) &&
-  ((axs.filter (AttrsAgree.isRewrite ·.pattern)).all fun a =>
-    d.pres.rules.any fun rp => AttrsAgree.uidOf a.attributes == some rp.info.uid) &&
-  c.allFns.all fun f =>
-    (((kept.filter fun a => AttrsAgree.eqnHeadIs (c.symName f.label) a.pattern && !AttrsAgree.isLaw a).filter
-        (!AttrsAgree.has ·.attributes "simplification")).map (AttrsAgree.prioOf ·.attributes)).isPerm
-      (f.clauses.map (·.prio))
-
-/-- **With the user's sentence 146 left out, the priorities agree.** -/
-theorem priosBut_user : priosBut [U.ax146.index] kore defn = true := by decide +kernel
+/-- **With the user's sentence 146 left out of the text side, the priorities agree**
+(`AttrsAgree.priosBut`, no clause left out). What is left out is tied by `inst146_entailed`. -/
+theorem priosBut_user : AttrsAgree.priosBut [U.ax146.index] [] kore defn = true := by decide +kernel
 
 /-- With nothing left out, `priosBut` is `AttrsAgree.prios` on this text. -/
-theorem priosBut_nil : priosBut [] kore defn = AttrsAgree.prios kore defn := by decide +kernel
+theorem priosBut_nil : AttrsAgree.priosBut [] [] kore defn = AttrsAgree.prios kore defn :=
+  AttrsAgree.priosBut_nil kore defn
 
 /-! ## The function equations -/
 
