@@ -209,7 +209,7 @@ def generate(rows_path, manifest_path):
             if r.get("status") in ("pending-fixture", "not-handled"):
                 undecided[l].append((key, r))
             for w, e in [("", r)] + list(nested(r)):
-                if w:
+                if w and e.get("status") is not None:  # a nested table without status records a shape (rest.py)
                     st_nest[l][e.get("status")] += 1
                     if e.get("status") == "refused":
                         cl_nest[l][e.get("class")] += 1

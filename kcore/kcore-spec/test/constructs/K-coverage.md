@@ -32,13 +32,13 @@ Nested entries by status:
 | E1 | 8 | 3 | 0 | 0 | 0 | 5 | 0 | 0 |
 | E2 | 64 | 9 | 0 | 2 | 0 | 53 | 0 | 0 |
 | E3 | 86 | 46 | 0 | 2 | 0 | 38 | 0 | 0 |
-| E4 | 58 | 20 | 0 | 4 | 0 | 34 | 0 | 0 |
+| E4 | 57 | 20 | 0 | 4 | 0 | 33 | 0 | 0 |
 | E5 | 70 | 37 | 1 | 2 | 0 | 30 | 0 | 0 |
 | E6 | 35 | 9 | 2 | 0 | 0 | 24 | 0 | 0 |
 | E7 | 9 | 4 | 1 | 0 | 0 | 4 | 0 | 0 |
 | E8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 37 | 17 | 0 | 2 | 1 | 17 | 0 | 0 |
-| all | 367 | 145 | 4 | 12 | 1 | 205 | 0 | 0 |
+| all | 366 | 145 | 4 | 12 | 1 | 204 | 0 | 0 |
 
 Refused rows by class:
 
@@ -62,13 +62,13 @@ Refused nested entries by class:
 | E1 | 5 | 1 | 0 | 1 | 3 |
 | E2 | 53 | 4 | 0 | 1 | 48 |
 | E3 | 38 | 14 | 0 | 20 | 4 |
-| E4 | 34 | 14 | 12 | 0 | 8 |
+| E4 | 33 | 14 | 11 | 0 | 8 |
 | E5 | 30 | 13 | 2 | 1 | 14 |
 | E6 | 24 | 5 | 2 | 0 | 17 |
 | E7 | 4 | 0 | 0 | 0 | 4 |
 | E8 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 17 | 8 | 4 | 0 | 5 |
-| all | 205 | 59 | 20 | 23 | 103 |
+| all | 204 | 59 | 19 | 23 | 103 |
 
 Supported entries (rows and nested): 985; 16 of them have an owed fact and are counted by their best fixture: **15 proved** (the owed fact proved on a fixture the entry names: these count as supported under the headline statements), 0 open and 1 false (counted apart: the headline statements' hypothesis is not shown on their fixtures). The other 969 have no owed fact.
 
@@ -829,7 +829,7 @@ Not core:
 | cases[0]: the user module without a Source attribute | refused | scope | attributes carry no meaning of their own (kore-syntax.md:224-228), so a module without its Source has the meaning of one with it. kompile writes the main module's attributes on its endmodule line (ModuleToKORE.java:373-374) and reads its Source while writing the text (:164), which every module of a… |  | none (scope): never written |  |  |  | k/k-frontend/src/main/java/org/kframework/backend/kore/ModuleToKORE.java:164 and :373-374; k/k-frontend/src/main/java/org/kframework/kore/convertors/KILtoKORE.java:86; the endmodule line of 381 of the 381 corpus texts carries Source and Location; 0 of the 381 corpus texts print it (test/corpus.py's… |
 | cases[1]: the user module without a well-formed Location attribute | refused | scope | as for moduleSource: the Location attribute carries no meaning (kore-syntax.md:224-228), kompile writes the main module's Location on its endmodule line (ModuleToKORE.java:373-374, from KILtoKORE.java:86), and the reader takes the presentation's place from it (\`presOf\`), refusing a module without on… |  | none (scope): never written |  |  |  | k/k-frontend/src/main/java/org/kframework/backend/kore/ModuleToKORE.java:373-374; k/k-frontend/src/main/java/org/kframework/kore/convertors/KILtoKORE.java:86; 381 of the 381 corpus texts' endmodule lines carry Location; 0 of the 381 corpus texts print it (test/corpus.py's logs with a kcore built at… |
 | `grammar:<modules>::=<[module]-sep-by-1-[whitespace]>` | supported (owed fact proved) |  | Lexical and list productions and the node-forming productions with no meaning of their own (characters, identifiers, separators, \`&lt;sorts>\`, \`&lt;patterns>\`, \`&lt;attribute>\`, \`&lt;attributes>\`, \`&lt;symbol>\`, \`&lt;symbol-or-alias>\`, \`&lt;modules>\`, \`&lt;element-variable>\`, the three alternatives of \`&lt;pattern>\` that only… | none (reader only) |  | hw-ex-unused-empty |  |  | kore-lean KoreParser/Parser.lean reads the production into Kore.Pattern / Kore.Sentence (trusted base 2 of DONE-0 section 0); test/ConstructsE4.lean maps each tree constructor to a row; the owed fact proved on a text holding the same node: fixtures/e2-rule, whose kompiled text f2-examples/rulecool.k… |
-| cases[0]: a definition of no module | refused | R-b | A definition is a non-empty sequence of modules (kore-syntax.md:286; &lt;modules> is sep-by-1, :295-296), so a text of no module is no KORE definition and has no meaning to read. KCore's KORE parser reads none (\`many1 module\`, kore-lean/KoreParser/Parser.lean:376): \`kcore account\` stops at the read err… |  | none (R-b): no shape (ill-formed) |  |  |  | k/haskell-backend/src/main/native/haskell-backend/docs/kore-syntax.md:286: "A definition is a non-empty sequence of modules."; kcore/kore-lean/KoreParser/Parser.lean:376 (\`many1 module\`); KcoreSpec/Parse.lean \`parse\`'s arm \`\| none => .error ⟨none, "", .noModule, ""⟩\` |
+| cases[0]: a definition of no module |  | R-b | A definition is a non-empty sequence of modules (kore-syntax.md:286; &lt;modules> is sep-by-1, :295-296), so a text of no module is no KORE definition and has no meaning to read. KCore's KORE parser reads none (\`many1 module\`, kore-lean/KoreParser/Parser.lean:376): \`kcore account\` stops at the read err… |  | none (R-b): no shape (ill-formed) |  |  |  | k/haskell-backend/src/main/native/haskell-backend/docs/kore-syntax.md:286: "A definition is a non-empty sequence of modules."; kcore/kore-lean/KoreParser/Parser.lean:376 (\`many1 module\`); KcoreSpec/Parse.lean \`parse\`'s arm \`\| none => .error ⟨none, "", .noModule, ""⟩\` |
 | `tree:KSort.var` | supported |  | The row says refused (parametricSort, Q11), but every equation and rule kompile writes holds a sort variable: \`axiom{R} \\implies{R}(..., \\equals{SortInt{}, R}(...))\`. There R is the sort of a predicate's result, which no reading uses, and the reader accepts it. A sort variable is refused only where… | none (reader only) |  | base | yes | yes | any fixture's kore.txt (\`axiom{R}\`); Parse.lean:395 sortNameE, :86 parametricSort; fixture e3-mint for the refused position |
 | cases[0]: result sort of a predicate connective, bound by \`axiom{R}\` | supported |  |  |  |  | base |  |  |  |
 | cases[1]: sort of a value (symbol signature, variable, sort argument) | refused | R-a | KCore's sorts are single sorts without parameters. A sort variable, or a sort with sort arguments such as MInt{8}, as the sort of a value (a symbol's argument or result sort, a variable's sort, a sort argument of an application) names no sort of KCore: the sentence holding it speaks of every instanc… |  | none (R-a): a sort variable, or a sort with sort arguments, as the sort of a value (a symbol's argument or result sort, a variable's sort, a sort argument of an application) names no sort of KCore, so the sentence is sort-parametric and outside the fragment (KCORE-SPEC.md Q11) | e3-mint |  |  | fixtures/e3-mint/account.txt: \`sentence 140 (Lbla): parametricSort\` |
