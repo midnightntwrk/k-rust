@@ -20,7 +20,11 @@
     hook's text decides (`Cert.paramValC`), and a function application whose value no interpretation
     takes part in (`Cert.evalFC`), read nothing of it; any other is evaluated under the reading
     (`Semantics.paramVal`, `Exec.evalF` of `c.withHooks`) and the point is marked as reading it.
-  - The definition's own sorts have grids (`ownGrids`: Rat, KVar, Array, FFIType).
+  - The definition's own sorts have grids (`ownGrids`: Rat, with a pair `<0, 2>Rat` that is no
+    fraction in lowest terms, KVar, Array, FFIType).
+  - A set variable takes ∅, each value's singleton and each set of two values of its grid.
+  - `#Ceil(p)` reads nothing of the interpretation where p has a value under every interpretation
+    (`sureVals`), whatever p's other values read.
   - A variable an equation's premise binds by a conjunct `\in(X, p)` takes the values of p at each
     point of the other variables (`inBinds`): elsewhere the premise denotes nothing and the
     sentence holds.
@@ -33,8 +37,10 @@
   probe, whether it holds at every point under every reading, holds only under some interpretations
   (a condition on H, with the readings that meet it), or fails at a point reading nothing of the
   interpretation (no model). The check compares the sentences whose verdict is not their class's
-  plain one with `expectedNoted` and the counts with `expectedTally`, and requires every
-  counterexample to be one the text states (`refutedByText`: rat.md:173 at J = D < 0).
+  plain one with `expectedNoted` and the counts with `expectedTally`, rat.md:109 at two points with
+  `expectedPinned`, and requires every counterexample to be one the text states (`refutedByText`:
+  rat.md:173 at J = D < 0, rat.md:109 where `@R2` is 0 and a value no `<0, J>Rat`, rat.md:221 and 224 at
+  `<0, 2>Rat` and 0).
 
   On `allbuiltins.kompile.kore` (kompile's text of a definition importing every module of the K
   7.1.337 installation's builtin files), 140 sentences. None that holds at every point reads the
@@ -216,16 +222,18 @@ def appKey (h : Kore.SymbolIdent) (sorts : List Kore.KSort) : String :=
   else h.ident.name ++ "{" ++ ",".intercalate (sorts.map (stripSort ∘ ksortName)) ++ "}"
 
 /-- The values of a sort the definition declares in a builtin file of its own (`Rat`, `KVar`, `Array`,
-`FFIType`), each checked to be of it: `Rat`'s Int values -1 … 2 and the fractions `<1, 2>Rat`,
-`<-3, 2>Rat`, `<2, 3>Rat` (numerator and denominator coprime, denominator at least 2); two `KVar`
-tokens; three arrays `arr(L, N, D)`; two nullary `FFIType` constructors. -/
+`FFIType`), each checked to be of it: `Rat`'s Int values -1 … 2, the fractions `<1, 2>Rat`,
+`<-3, 2>Rat`, `<2, 3>Rat` (numerator and denominator coprime, denominator at least 2) and `<0, 2>Rat`,
+a pair whose first component is 0 (`<_,_>Rat` takes any two integers; that a pair is a fraction in
+lowest terms is a comment of rat.md, not a sentence, so the text's sentences range over it too); two
+`KVar` tokens; three arrays `arr(L, N, D)`; two nullary `FFIType` constructors. -/
 def ownGrids (c : Semantics) (syms : List (String × CtorSig)) : List (Srt × List GroundTerm) :=
   let srt (n : String) : Option Srt := (kernelSorts c).find? (c.sortName · == n)
   let sym (n : String) : Option Sym := (syms.lookup n).map (·.name)
   let of (s : Srt) (vs : List GroundTerm) : Srt × List GroundTerm := (s, vs.filter fun v => c.sortOf v == some s)
   let rat := match srt "Rat", sym ratCtorName with
     | some r, some q => [of r ([-1, 0, 1, 2].map (fun i => .inj Srt.int r (int i)) ++
-        [(1, 2), (-3, 2), (2, 3)].map fun (a, b) => .ctor q [int a, int b])]
+        [(1, 2), (-3, 2), (2, 3), (0, 2)].map fun (a, b) => .ctor q [int a, int b])]
     | _, _ => []
   let kvar := match srt "KVar" with
     | some s => [of s (["x", "_0"].map fun t => .dv s (.tok t))]
@@ -362,6 +370,40 @@ def applyAt (x : Ctx) (key : String) (k : CtorSig) (vs : List GroundTerm) : M D 
         return ofOpt r
       | none => throw s!"{key}: no meaning found (not a constructor, hook, parameter, or function with a result)"
 
+def pairsOf {α : Type} : List α → List (α × α)
+  | [] => []
+  | a :: as => as.map (a, ·) ++ pairsOf as
+
+/-- Values a term pattern denotes under every interpretation: those of a variable, a literal, an
+injection of such a value, and an application at such values whose meaning reads nothing of the
+interpretation (`applyAt` marks nothing). Under every reading each is among the values `eval` gives
+the pattern, whatever the interpretation gives elsewhere in it. -/
+partial def sureVals (x : Ctx) (env : List (String × D)) : Kore.Pattern → List GroundTerm
+  | .var (.evar v) => ((env.lookup v.var.ident.name).bind D.elems).getD []
+  | .var (.svar v) => ((env.lookup ("@" ++ v.var.ident.name)).bind D.elems).getD []
+  | .dv s t => match (dvVal x s t).run {} with
+    | .ok (d, _) => d.elems.getD []
+    | .error _ => []
+  | .app h sorts args =>
+    let ass := args.map (sureVals x env)
+    if h.ident.name == "inj" then
+      match sorts, ass, x.sort (sorts.headD default), (sorts.getLast?.map x.sort) with
+      | [_, _], [vs], .ok A, some (.ok B) => vs.filterMap fun v =>
+        let w := match v with
+          | .inj a0 _ t => GroundTerm.inj a0 B t
+          | _ => GroundTerm.inj A B v
+        if x.c.sortOf w == some B then some w else none
+      | _, _, _, _ => []
+    else
+      let key := appKey h sorts
+      match x.syms.lookup key with
+      | none => []
+      | some k => (ass.foldr (fun vs acc => vs.flatMap fun v => acc.map (v :: ·)) [[]]).flatMap fun vs =>
+        match (applyAt x key k vs).run {} with
+        | .ok (d, fl) => if fl.silent.isEmpty && fl.param.isEmpty then d.elems.getD [] else []
+        | .error _ => []
+  | _ => []
+
 partial def eval (x : Ctx) (env : List (String × D)) : Kore.Pattern → M D
   | .var (.evar v) => match env.lookup v.var.ident.name with
     | some d => pure d
@@ -394,9 +436,14 @@ partial def eval (x : Ctx) (env : List (String × D)) : Kore.Pattern → M D
     let b ← eval x env q
     pure (match a.meet b with | .bot => .bot | _ => .top)
   | .ceil _ _ p => do
+    let fl0 ← get
     match ← eval x env p with
     | .bot => pure .bot
-    | _ => pure .top
+    | _ =>
+      -- where `p` has a value under every interpretation (`sureVals`), `#Ceil(p)` holds whatever the
+      -- interpretation gives elsewhere in `p`: what `p`'s evaluation read of it is not read
+      if !(sureVals x env p).isEmpty then set fl0
+      pure .top
   | .exist _ v (.equals _ _ (.var (.evar v')) t) => do
     if v != v' then throw "\\exists of another shape"
     match ← eval x env t with
@@ -498,7 +545,8 @@ or parameter with a hook (`constructor functional`, `function functional`, `para
 `hooked functional`); a lemma the reader leaves out of Γ (`inert simplification`) of `parameter
 lemma` where it applies a parameter without hook and of `user lemma` otherwise; an equation of a
 function of Γ of `function equation`, or of `priority equation` where it carries a `priority` and is
-not `owise`. -/
+not `owise`. A `user lemma` the probe then refutes at a point where a set variable holds two values
+is of `set-variable lemma` (`reclass`). -/
 def tieClassOf (c : Semantics) (syms : List (String × CtorSig)) (absent : List String) (a : Kore.Axiom) : String :=
   if !absent.isEmpty then "no direction" else
   let noImpl (n : String) : Bool := match syms.lookup n with
@@ -518,6 +566,13 @@ def tieClassOf (c : Semantics) (syms : List (String × CtorSig)) (absent : List 
       if (appsOf a.pattern).any noImpl then "parameter lemma" else "user lemma"
     else if hasAttr a.attributes "priority" && !hasAttr a.attributes "owise" then "priority equation"
     else "function equation"
+
+/-- The class of a sentence once probed: a lemma the reader leaves out of Γ (`user lemma`) that fails
+at a point reading nothing of the interpretation where a set variable holds two values is of
+`set-variable lemma`, whose direction is `refuted`: Γ with it has no model, at a valuation sending
+each free set variable to a set of values. -/
+def reclass (cls : String) (ncexTwo : Nat) : String :=
+  if cls == "user lemma" && ncexTwo > 0 then "set-variable lemma" else cls
 
 /-- The direction of a class (`KCore.tieClasses`). -/
 def dirOf (cls : String) : Option TieDir := (tieClasses.find? (·.1 == cls)).map (·.2)
@@ -567,9 +622,12 @@ structure Res where
   not at a silent point -/
   hOff : Nat := 0
   /-- failures at points reading nothing of the interpretation: how many, how many of them at a
-  point holding a `<I, J>Rat` no fraction in lowest terms (`nonCanon`), and the first eight -/
+  point holding a `<I, J>Rat` no fraction in lowest terms (`nonCanon`), and the first eight (a
+  failure under `HookParams.none`, which is then one under every reading) -/
   ncex : Nat := 0
   ncexNC : Nat := 0
+  /-- of those, how many at a point where a set variable holds two values -/
+  ncexTwo : Nat := 0
   cex : List String := []
   /-- every point of those failures -/
   cexPts : List (List (String × D)) := []
@@ -581,6 +639,9 @@ structure Res where
   bound : List String := []
   skip : Option String := none
   setVar : Bool := false
+  /-- at each point of `pinned` for the sentence: the readings it fails under there, and whether
+  its evaluation under `HookParams.none` reads the interpretation (`failsAt`) -/
+  pinnedAt : List (List String × Bool) := []
 
 def showPoint (c : Semantics) (pt : List (String × D)) : String :=
   ", ".intercalate (pt.map fun (n, d) => s!"{n} = {showD c d}")
@@ -617,9 +678,11 @@ def probe (x0 : Ctx) (xs : List Ctx) (r : Res) (a : Kore.Axiom) : Res := Id.run 
       | some g => full := full ++ [(n, srt, g)]
   -- past `bigGrid` points, every variable takes the smaller grid of its sort
   let big := (full.map (fun (n, _, g) => if n.startsWith "@" then g.length + 1 else g.length)).foldl (· * ·) 1 > bigGrid
+  -- a set variable at ∅, at each value's singleton and at each set of two values
   let grids : List (String × List D) := full.map fun (n, srt, g) =>
-    let ds := (if big then reduceGrid x0 srt g else g).map D.val
-    (n, if n.startsWith "@" then D.bot :: ds else ds)
+    let g := if big then reduceGrid x0 srt g else g
+    let ds := g.map D.val
+    (n, if n.startsWith "@" then D.bot :: ds ++ (pairsOf g).map (fun (v, w) => D.many [v, w]) else ds)
   -- each point of the grid, with the bound variables at each value of their patterns
   let mut pts : List (List (String × D)) := []
   for pt in points grids do
@@ -672,6 +735,7 @@ def probe (x0 : Ctx) (xs : List Ctx) (r : Res) (a : Kore.Axiom) : Res := Id.run 
           else
             let nc := pt.any fun (_, d) => match d with | .val v => nonCanon v | _ => false
             r := { r with ncex := r.ncex + 1, ncexNC := r.ncexNC + (if nc then 1 else 0),
+                          ncexTwo := r.ncexTwo + (if pt.any (·.2.isMany) then 1 else 0),
                           cex := if first then r.cex ++ [msg] else r.cex, cexPts := r.cexPts ++ [pt] }
     match (eval x0 pt premise).run {} with
     | .ok (.top, _) => r := { r with active := r.active + 1 }
@@ -696,7 +760,7 @@ then what the probe finds:
 - `no model`: it fails at a point reading nothing of the interpretation, so Γ with it has no model
   whatever the interpretation (for a hypothesis: no interpretation meets it); `no model, at
   non-canonical fractions only` where every such point holds a `<I, J>Rat` that is no fraction in
-  lowest terms;
+  lowest terms; `refuted` for a class of direction `refuted`, whose claim that is;
 - `; not probed: R`: the probe has no value of a variable's sort or no meaning for a construct. -/
 def owes (allModes : List String) (r : Res) : String :=
   if r.cls == "no direction" then "no direction" else
@@ -711,7 +775,8 @@ def owes (allModes : List String) (r : Res) : String :=
     s!"{base}; not probed: {e}"
   | none =>
     if r.ncex > 0 then
-      if r.ncexNC == r.ncex then "no model, at non-canonical fractions only" else "no model"
+      if dirOf r.cls == some .refuted then "refuted"
+      else if r.ncexNC == r.ncex then "no model, at non-canonical fractions only" else "no model"
     else if r.nhfail > 0 then
       let met := allModes.filter (!r.failModes.contains ·)
       s!"{base}; holds only under some H, met by {if met.isEmpty then "none probed" else toString met}"
@@ -739,6 +804,31 @@ def verdict (r : Res) : String :=
 
 /-- The readings: `HookParams.none` first, the two constant ones, `HookParams.lib` and the hash. -/
 def modes : List Mode := [.none, .pick 0, .pick 1, .lib, .hash]
+
+/-- The readings under which a sentence fails at a point, each evaluated, and whether its evaluation
+under `HookParams.none` reads the interpretation there (where it does not, it evaluates the same
+under every reading). -/
+def failsAt (xs : List Ctx) (a : Kore.Axiom) (pt : List (String × D)) : Except String (List String × Bool) := do
+  let mut ms : List String := []
+  let mut dep := false
+  for x in xs do
+    let (d, fl) ← (eval x pt a.pattern).run {}
+    if x.mode == Mode.none then dep := !fl.silent.isEmpty || !fl.param.isEmpty
+    match d with
+    | .top => pure ()
+    | _ => ms := ms ++ [x.mode.name]
+  return (ms, dep)
+
+/-- Points of a sentence checked one by one (`failsAt`, `expectedPinned`): rat.md:109's two of
+`kk:t240-rat-ceil-div`, `@R1 = {1}`, `@R2 = {<0, 2>Rat}` and `@R1 = {0}`, `@R2 = {0, 1}`. -/
+def pinned (x : Ctx) : List (String × List (List (String × D))) :=
+  match (kernelSorts x.c).find? (x.c.sortName · == "Rat"), x.syms.lookup ownGrids.ratCtorName with
+  | some r, some q =>
+    let ri (i : Int) : GroundTerm := .inj Srt.int r (int i);
+    [("rat.md:109",
+      [[("@VarR1", .val (ri 1)), ("@VarR2", .val (.ctor q.name [int 0, int 2]))],
+       [("@VarR1", .val (ri 0)), ("@VarR2", .many [ri 0, ri 1])]])]
+  | _, _ => []
 
 /-- The text without the user module's sentences the reader refuses as builtin sentences outside
 the library's text (`builtinText`) or as a subsort axiom whose lower sort is K (`sortAboveK`), none
@@ -799,6 +889,13 @@ def run (path : String) (sel : Nat → Bool := fun _ => true) : IO (List (Res ×
     let r : Res := { index := ad.index, place, name, cls, syms, absent }
     let t0 ← IO.monoMsNow
     let r := if absent.isEmpty then probe x0 xs r ad.ax else { r with skip := some s!"applies symbols Γ does not have: {absent}" }
+    let r := { r with cls := reclass r.cls r.ncexTwo }
+    let pinnedAt ← match (pinned x0).lookup name with
+      | none => pure []
+      | some pts => pts.mapM fun pt => match failsAt xs ad.ax pt with
+        | .ok v => pure v
+        | .error e => throw (IO.userError s!"{name} at {showPoint c pt}: {e}")
+    let r := { r with pinnedAt }
     let t1 ← IO.monoMsNow
     if r.setVar then setVars := setVars ++ [name]
     let o := owes (modes.map (·.name)) r
@@ -826,12 +923,39 @@ where rat.md:171 (`=> I /Int D requires J ==Int D`) also applies and the text st
 `makeRat(I, J, D)`, the integer I /Int D and the pair `<0 -Int (I /Int D), -1>Rat` (at I = J = D = -3,
 1 and `<-1, -1>Rat`, which Γ holds apart): the reading reads the three equations of `makeRat/3` as
 written, all of one priority, and a text holding them has no model (Kore-in-K entry
-`kk:t239-rat-makerat-overlap`). A counterexample at another point, or of another sentence, is a
-finding. -/
+`kk:t239-rat-makerat-overlap`); rat.md:109 (`#Ceil(@R1 /Rat @R2) => {(@R2 =/=Rat 0) #Equals true}
+#And #Ceil(@R1) #And #Ceil(@R2)`) where `@R1` holds a value and `@R2` is `{0, y}` with y no pair
+`<0, J>Rat`: the quotient by y is a value whatever the interpretation gives a quotient by 0 (a
+quotient by `<0, J>Rat` is one by 0, rat.md:152, 153), so the left side holds, and `@R2 =/=Rat 0`
+denotes both `false` and `true`, so the right side does not (Kore-in-K entry `kk:t240-rat-ceil-div`); minRat's second equation (rat.md:221, `minRat(R, S) => S requires
+S <=Rat R`) and maxRat's (rat.md:224, `maxRat(R, S) => S requires S >=Rat R`) where one argument is
+`<0, J>Rat` and the other the integer 0: each is `<=Rat` (and `>=Rat`) the other, so both equations
+of the function apply, the first (rat.md:220, 223) gives R and the second S, two elements Γ holds
+apart. That is the disagreement test/RatNoModel.lean shows at `<1, 1>Rat` and 1 (`no_model`,
+`no_model_min`: Γ of a text holding RAT has no model), here at a pair whose first component is 0. A
+counterexample at another point, or of another sentence, is a finding. -/
 def refutedByText : List (String × (List (String × D) → Bool)) :=
   [("rat.md:173", fun pt => match intAt pt "VarJ", intAt pt "VarD" with
     | some j, some d => j == d && j < 0
-    | _, _ => false)]
+    | _, _ => false),
+   ("rat.md:109", fun pt => match pt.lookup "@VarR1", pt.lookup "@VarR2" with
+    | some d1, some (.many vs) =>
+      let zero (v : GroundTerm) : Bool := match v with | .inj _ _ (.dv _ (.int 0)) => true | _ => false
+      let zeroPair (v : GroundTerm) : Bool := match v with | .ctor _ [.dv _ (.int 0), _] => true | _ => false
+      (match d1 with | .val _ | .many _ => true | _ => false) &&
+        vs.length == 2 && vs.any zero && !vs.any zeroPair
+    | _, _ => false),
+   ("rat.md:221", zeroPairAndZero), ("rat.md:224", zeroPairAndZero)]
+where
+  /-- `{VarR, VarS}` is `{<0, J>Rat, 0}`. -/
+  zeroPairAndZero (pt : List (String × D)) : Bool :=
+    let zp (d : Option D) : Bool := match d with
+      | some (.val (.ctor _ [.dv _ (.int 0), _])) => true
+      | _ => false
+    let z (d : Option D) : Bool := match d with
+      | some (.val (.inj _ _ (.dv _ (.int 0)))) => true
+      | _ => false
+    (zp (pt.lookup "VarR") && z (pt.lookup "VarS")) || (z (pt.lookup "VarR") && zp (pt.lookup "VarS"))
 
 /-- The sentences whose verdict is not their class's plain one (`plain`), by name with their verdict:
 - the `functional` sentences of REQUIRES-ENSURES' constructors `#ruleEnsures`, `#ruleNoConditions`,
@@ -842,18 +966,28 @@ def refutedByText : List (String × (List (String × D) → Bool)) :=
   hypothesis on H the statements take, `ParamsTotal`): it holds under the readings that give
   `String2KVar` a `KVar` value at every string (`pick0`, `pick1`, `hash`) and fails under those that
   give it none (`HookParams.none`, `HookParams.lib`), which are no witness against it;
+- `^Rat`'s `functional` sentence (function functional, `FnHyp`; `^Rat` is declared `total`): at
+  `<0, 2>Rat ^Rat N` with N negative, rat.md:192 gives `(1 /Rat <0, 2>Rat) ^Rat (0 -Int N)` (the pair
+  is `=/=Rat 0`), and rat.md:153 makes `1 /Rat <0, 2>Rat` the rest of `/Rat` at `(2, 0)`: the readings
+  giving that rest a value (`pick0`, `pick1`, `hash`) meet it, and those giving none do not;
 - `freshKVar`'s `functional` sentence (function functional, `FnHyp`): its one equation
   (substitution.md:54) gives it `String2KVar`'s value, so the same readings meet it;
 - rat.md:109 (`#Ceil(@R1 /Rat @R2) = {(@R2 =/=Rat 0) #Equals true} #And #Ceil(@R1) #And
-  #Ceil(@R2)`, a lemma: user lemma, owed as entailed for every H): at `@R2 = 0` no equation of `/Rat`
-  applies, so `@R1 /Rat 0` is the function's rest, the interpretation's value; under a reading that
-  gives it a value (`pick0`, `pick1`, `hash`) the left side holds and the right side does not, so the
-  lemma holds only for an interpretation that gives `/Rat` no value at a zero divisor (`HookParams.none`,
-  `HookParams.lib`): a condition on H, not a consequence of Γ for every H;
+  #Ceil(@R2)`, a lemma): refuted, at the points where `@R1` holds a value and `@R2` is 0 and a value
+  no `<0, J>Rat` (`refutedByText`, `kk:t240-rat-ceil-div`), so of set-variable lemma (`reclass`). It also
+  fails under every reading at points of one value each, there reading the interpretation: at
+  `@R2 = {0}` `@R1 /Rat 0` is the function's rest, and under a reading giving it a value (`pick0`,
+  `pick1`, `hash`) the left side holds and the right side does not; at `@R2 = {<0, 2>Rat}` rat.md:153
+  makes `@R1 /Rat <0, 2>Rat` the rest at `(2 *Int @R1) /Rat 0`, and under a reading giving it none
+  (`HookParams.none`, `HookParams.lib`) the left side does not hold and the right side does
+  (`expectedPinned`);
 - domains.md:171 (`arr(_, _, D)[_] => D [owise]`, function equation), not probed: its premise negates
   the other equation's (`\or`), which the probe does not evaluate;
 - rat.md:173: no model, at the 21 points with J = D < 0 (`refutedByText`; first I = J = D = -3: left
-  1, by rat.md:171, right `<-1, -1>Rat`). -/
+  1, by rat.md:171, right `<-1, -1>Rat`);
+- rat.md:224 and rat.md:221: no model, at the two points where one argument is `<0, 2>Rat` and the
+  other 0 (`refutedByText`; at `R = <0, 2>Rat`, `S = 0`: left `<0, 2>Rat`, by rat.md:223 or 220,
+  right 0). -/
 def expectedNoted : List (String × String) :=
   [("Lbl'Hash'ruleEnsures", "owed; not probed: no grid for sort 'Hash'RuleBody (variable K0)"),
    ("Lbl'Hash'ruleNoConditions", "owed; not probed: no grid for sort 'Hash'RuleBody (variable K0)"),
@@ -861,27 +995,39 @@ def expectedNoted : List (String × String) :=
    ("Lbl'Hash'ruleRequiresEnsures", "owed; not probed: no grid for sort 'Hash'RuleBody (variable K0)"),
    ("LblString2KVar'LParUndsRParUnds'KVAR-COMMON'Unds'KVar'Unds'String",
      "hypothesis; holds only under some H, met by [H=pick0, H=pick1, H=hash]"),
+   ("Lbl'UndsXor-'Rat'Unds'", "hypothesis; holds only under some H, met by [H=pick0, H=pick1, H=hash]"),
    ("LblfreshKVar'LParUndsRParUnds'KVAR-COMMON'Unds'KVar'Unds'Int",
      "hypothesis; holds only under some H, met by [H=pick0, H=pick1, H=hash]"),
-   ("rat.md:109", "owed; holds only under some H, met by [H=none, H=lib]"),
+   ("rat.md:109", "refuted"),
    ("domains.md:171", "Γ's item; not probed: \\or not evaluated"),
-   ("rat.md:173", "no model")]
+   ("rat.md:173", "no model"),
+   ("rat.md:224", "no model, at non-canonical fractions only"),
+   ("rat.md:221", "no model, at non-canonical fractions only")]
 
 /-- The count per class and verdict kind (`tally`) of the 140 sentences: 77 `functional` sentences
 (31 of constructors, 27 of them probed; 31 of MINT's sort-parametric symbols, which Γ does not have;
-14 of functions, 13 holding everywhere; `String2KVar`'s), 62 equations (60 holding at every point
-under every reading, domains.md:171 not probed, rat.md:173 refuted) and one lemma. -/
+14 of functions, 12 holding everywhere; `String2KVar`'s), 62 equations (58 holding at every point
+under every reading, domains.md:171 not probed, rat.md:173 refuted, rat.md:221 and 224 refuted at
+`<0, 2>Rat` and 0) and one lemma, refuted. -/
 def expectedTally : List (String × String × Nat) :=
   [("constructor functional", "owed", 27),
    ("constructor functional", "owed; not probed", 4),
    ("no direction", "no direction", 31),
    ("parameter functional", "hypothesis; holds only under some H, met by some", 1),
-   ("function functional", "hypothesis", 13),
-   ("function functional", "hypothesis; holds only under some H, met by some", 1),
-   ("user lemma", "owed; holds only under some H, met by some", 1),
-   ("function equation", "Γ's item", 60),
+   ("function functional", "hypothesis", 12),
+   ("function functional", "hypothesis; holds only under some H, met by some", 2),
+   ("set-variable lemma", "refuted", 1),
+   ("function equation", "Γ's item", 58),
    ("function equation", "Γ's item; not probed", 1),
-   ("function equation", "no model", 1)]
+   ("function equation", "no model", 1),
+   ("function equation", "no model, at non-canonical fractions only", 2)]
+
+/-- What `failsAt` gives at the points of `pinned`: rat.md:109 at `@R1 = {1}`, `@R2 = {<0, 2>Rat}`
+fails under `HookParams.none` and `HookParams.lib`, reading the interpretation (the rest of `/Rat` at
+`(2, 0)`, which rat.md:153 makes `1 /Rat <0, 2>Rat`); at `@R1 = {0}`, `@R2 = {0, 1}` it fails under
+every reading, reading nothing of the interpretation (`0 /Rat 1` is `0`). -/
+def expectedPinned : List (String × List (List String × Bool)) :=
+  [("rat.md:109", [(["H=none", "H=lib"], true), (modes.map (·.name), false)])]
 
 def plain (o : String) : Bool := ["Γ's item", "owed", "hypothesis", "no direction"].contains o
 
@@ -901,6 +1047,9 @@ def check (path : String) : IO Unit := do
         unless out.isEmpty do
           throw (IO.userError s!"{path}: {r.name} refuted outside the points the text refutes it at: {out.take 3 |>.map fun pt => pt.map fun (n, _) => (n, intAt pt n)}")
         IO.println s!"{r.name}: {r.ncex} counterexamples, each where the text refutes it"
+  let pins := (rs.filter fun (r, _) => !r.pinnedAt.isEmpty).map fun (r, _) => (r.name, r.pinnedAt)
+  IO.println s!"at the pinned points: {reprStr pins}"
+  if pins != expectedPinned then throw (IO.userError s!"{path}: at the pinned points {reprStr pins}, expected {reprStr expectedPinned}")
   if noted != expectedNoted then throw (IO.userError s!"{path}: verdicts {reprStr noted}, expected {reprStr expectedNoted}")
   if t != expectedTally then throw (IO.userError s!"{path}: tally {reprStr t}, expected {reprStr expectedTally}")
   IO.println s!"{path}: verdicts as expected; every counterexample is the text's own"
