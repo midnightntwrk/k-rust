@@ -152,9 +152,9 @@ theorem fnHyp : FnHyp c := by
 
 set_option maxHeartbeats 1000000 in
 /-- Every condition of `coreOK` but `predsApart` holds, and `FnHyp`. -/
-theorem meets_others : c.sortedOK = true ∧ c.faithCoreOK = true ∧ c.hooksApart = true ∧ c.idsOK = true ∧
+theorem meets_others : c.sortedOK = true ∧ c.faithCoreOK = true ∧ c.idsOK = true ∧
     c.overloadsOK = true ∧ FnHyp c :=
-  ⟨by decide_sortedOK, by decide_faithCoreOK, by decide +kernel, by decide +kernel, by decide +kernel, fnHyp⟩
+  ⟨by decide_sortedOK, by decide_faithCoreOK, by decide +kernel, by decide +kernel, fnHyp⟩
 
 section NoModel
 

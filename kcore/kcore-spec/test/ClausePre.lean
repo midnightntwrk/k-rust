@@ -140,7 +140,7 @@ def sortedRest (c : Semantics) : Bool :=
 
 /-- `coreOK` without `sortedOK`. -/
 def coreRest (c : Semantics) : Bool :=
-  c.faithCoreOK && c.hooksApart && c.predsApart && c.idsOK && c.overloadsOK
+  c.faithCoreOK && c.predsApart && c.idsOK && c.overloadsOK
 
 /-- `sortedOK` is `sortedRest` with `clausesPlain`. -/
 theorem sortedOK_eq (c : Semantics) : c.sortedOK = (sortedRest c && c.clausesPlain) := by

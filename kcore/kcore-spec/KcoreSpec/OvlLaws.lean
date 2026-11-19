@@ -576,7 +576,7 @@ theorem knownSig_cases {k : CtorSig} (hk : KnownSig c k) :
       simp only [Semantics.overloadsOK, Bool.and_eq_true] at hok; replace hok := hok.1; simp only [List.all_eq_true] at hok
       have := hok (o, i) (by simpa [List.mem_zipIdx_iff_getElem?, List.getElem?_eq_getElem hi] using he)
       simp only [Bool.and_eq_true] at this
-      have hio := this.1.1.1.1.1.1.1.1
+      have hio := this.1.1.1.1.1.1.1
       rw [hn] at hio
       have := (c.isOvl_parts hio).1
       simp [Semantics.isCtor, lookupSig_eq, hc] at this
@@ -597,7 +597,7 @@ theorem lookupOvl_of_mem (H : OvlHyp c) {o : OvlSig} (ho : o ∈ c.ovls) : c.loo
   simp only [Semantics.overloadsOK, Bool.and_eq_true] at hok; replace hok := hok.1; simp only [List.all_eq_true] at hok
   have hoi := hok (o, i) (by simpa [List.mem_zipIdx_iff_getElem?, List.getElem?_eq_getElem hi] using he)
   simp only [Bool.and_eq_true, beq_iff_eq] at hoi
-  exact hoi.1.1.1.1.1.1.1.2
+  exact hoi.1.1.1.1.1.1.2
 
 /-- An overloading symbol's result sort is a constructor sort. -/
 theorem ovl_result_cons (H : OvlHyp c) {f : Sym} {o : OvlSig} (ho : c.lookupOvl f = some o) :
@@ -607,7 +607,7 @@ theorem ovl_result_cons (H : OvlHyp c) {f : Sym} {o : OvlSig} (ho : c.lookupOvl 
   simp only [Semantics.overloadsOK, Bool.and_eq_true] at hok; replace hok := hok.1; simp only [List.all_eq_true] at hok
   have hoi := hok (o, i) (by simpa [List.mem_zipIdx_iff_getElem?, List.getElem?_eq_getElem hi] using he)
   simp only [Bool.and_eq_true] at hoi
-  exact List.contains_iff_mem.mp hoi.1.1.1.1.1.2
+  exact List.contains_iff_mem.mp hoi.1.1.1.1.2
 
 /-- What `overloadsOK` alone gives of an overloading symbol's declaration: it is one of the list,
 an overloading symbol of no other kind, whose name the decoder reads as no instance, of a
@@ -619,9 +619,9 @@ theorem ovl_parts {f : Sym} {o : OvlSig} (hok : c.overloadsOK = true) (ho : c.lo
   simp only [Semantics.overloadsOK, Bool.and_eq_true] at hok; replace hok := hok.1; simp only [List.all_eq_true] at hok
   have hoi := hok (o, i) (by simpa [List.mem_zipIdx_iff_getElem?, List.getElem?_eq_getElem hi] using he)
   simp only [Bool.and_eq_true, Option.isNone_iff_eq_none] at hoi
-  refine ⟨he ▸ List.getElem_mem hi, hn, ?_, ?_, List.contains_iff_mem.mp hoi.1.1.1.1.1.2⟩
-  · rw [← hn]; exact hoi.1.1.1.1.1.1.1.1
-  · rw [← hn]; exact hoi.1.1.1.1.1.1.2
+  refine ⟨he ▸ List.getElem_mem hi, hn, ?_, ?_, List.contains_iff_mem.mp hoi.1.1.1.1.2⟩
+  · rw [← hn]; exact hoi.1.1.1.1.1.1.1
+  · rw [← hn]; exact hoi.1.1.1.1.1.2
 
 /-- What `overloadsOK` gives of an overloading symbol's name: the decoder reads it as no instance. -/
 theorem ovl_noInst_irs {f : Sym} {o : OvlSig} (hok : c.overloadsOK = true) (ho : c.lookupOvl f = some o) :
@@ -630,7 +630,7 @@ theorem ovl_noInst_irs {f : Sym} {o : OvlSig} (hok : c.overloadsOK = true) (ho :
   simp only [Semantics.overloadsOK, Bool.and_eq_true] at hok; replace hok := hok.1; simp only [List.all_eq_true] at hok
   have hoi := hok (o, i) (by simpa [List.mem_zipIdx_iff_getElem?, List.getElem?_eq_getElem hi] using he)
   simp only [Bool.and_eq_true, Option.isNone_iff_eq_none] at hoi
-  rw [← hn]; exact hoi.1.1.1.1.1.1.2
+  rw [← hn]; exact hoi.1.1.1.1.1.2
 
 /-- A constructor is no overloading symbol (`overloadsOK`: an overloading symbol is of no other
 kind). -/
@@ -659,7 +659,7 @@ theorem ovl_leaves_fad (hok : c.overloadsOK = true) {o : OvlSig} {i : Nat} (hi :
   simp only [Semantics.overloadsOK, Bool.and_eq_true] at hok; replace hok := hok.1; simp only [List.all_eq_true] at hok
   have hoi := hok (o, i) (List.mem_zipIdx_iff_getElem?.mpr hi)
   simp only [Bool.and_eq_true, List.all_eq_true, beq_iff_eq, Bool.or_eq_true] at hoi
-  obtain ⟨⟨⟨⟨⟨⟨⟨⟨h1, h2⟩, -⟩, -⟩, h5⟩, -⟩, h7⟩, h8⟩, h9⟩ := hoi
+  obtain ⟨⟨⟨⟨⟨⟨⟨h1, h2⟩, -⟩, -⟩, h5⟩, h7⟩, h8⟩, h9⟩ := hoi
   refine ⟨h1, h2, fun g hg => or_assoc.mp (h5 g hg), h7, h8, fun g hg hf => ?_⟩
   rcases h9 g hg with h | h
   · rw [hf] at h; cases h
@@ -825,7 +825,7 @@ theorem fnOver_of_apart {c : Semantics} (hok : c.overloadsOK = true)
     obtain ⟨i, hi, he⟩ := List.getElem_of_mem ho'
     have hoi := hok' (o', i) (by simpa [List.mem_zipIdx_iff_getElem?, List.getElem?_eq_getElem hi] using he)
     simp only [Bool.and_eq_true, beq_iff_eq] at hoi
-    exact ⟨hoi.1.1.1.1.1.1.1.1, hoi.1.1.1.1.1.1.1.2⟩
+    exact ⟨hoi.1.1.1.1.1.1.1, hoi.1.1.1.1.1.1.2⟩
   unfold Semantics.fnOvlSyms at hm
   obtain ⟨o', ho', hn⟩ := List.mem_map.mp hm
   obtain ⟨ho'm, hany⟩ := List.mem_filter.mp ho'

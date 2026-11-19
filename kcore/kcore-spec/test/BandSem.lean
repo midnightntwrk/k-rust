@@ -109,7 +109,7 @@ theorem coreOK : c.coreOK = true := by decide_cheap
 /-- `paramsPlain` at `c` with what its raw branch reads (and `floatShapeOK`, which `coreOK` gives),
 and that the branch is read at a parameter with both laws. -/
 theorem paramsPlain_band : c.paramsPlain = true ∧ c.shapesOK = true ∧ c.floatShapeOK = true ∧
-    c.carriersOK = true ∧ c.params.all (fun k => k.raw && k.assoc && k.idem && k.impl.isNone &&
+    c.params.all (fun k => k.raw && k.assoc && k.idem && k.impl.isNone &&
       k.sig.args == [k.sig.result, k.sig.result] && decide (nRegSyms ≤ k.sig.name) &&
       (instDecode? (c.symName k.sig.name)).isNone) = true := by
   decide +kernel

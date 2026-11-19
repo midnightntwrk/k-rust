@@ -5,7 +5,7 @@
   Run from the package root: `lake env lean -j1 test/WitRestFaithA.lean`.
 
   Kernel-checked here, for each conjunct: a semantics meeting every other leaf condition of `coreOK`
-  (`sortedOK`, the other eleven conjuncts of `faithCoreOK`, `hooksApart`, `predsApart`, `idsOK`,
+  (`sortedOK`, the other eleven conjuncts of `faithCoreOK`, `predsApart`, `idsOK`,
   `overloadsOK`) and `FnHyp`, with the conjunct false. So none of the three is implied by the others.
   - `namesNumbered`: `CtorIte.c` has a constructor named `Lblite{KCell}` (its first part fails).
     `FnIte.c` has a function so named, without clauses, that no symbol overloads: `namesNumbered`
@@ -97,7 +97,7 @@ theorem fnHyp_of_nil {c : Semantics} (hf : c.fns = []) (hp : ∀ k ∈ c.params,
 
 /-- Every leaf condition of `coreOK` outside `faithCoreOK`. -/
 def outside (c : Semantics) : Prop :=
-  c.sortedOK = true ∧ c.hooksApart = true ∧ c.predsApart = true ∧ c.idsOK = true ∧ c.overloadsOK = true
+  c.sortedOK = true ∧ c.predsApart = true ∧ c.idsOK = true ∧ c.overloadsOK = true
 
 /-! ## `namesNumbered`: a constructor named like `ite` at a sort -/
 
@@ -113,7 +113,7 @@ theorem meets_others : outside c ∧
     genWf c = true ∧ collSortsOK c = true ∧ collsOK c = true ∧ patHeadsOK c = true ∧
     namesApartK c = true ∧ LitsApart c = true ∧ sortsNumbered c = true ∧ itesApart c = true ∧
     kindsApart c = true ∧ ctorsOnce c = true ∧ fnsApart c = true ∧ FnHyp c :=
-  ⟨⟨by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap⟩,
+  ⟨⟨by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap⟩,
     by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
     by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
     by decide_cheap, fnHyp⟩
@@ -147,7 +147,7 @@ theorem meets_others : outside c ∧
     genWf c = true ∧ collSortsOK c = true ∧ collsOK c = true ∧ patHeadsOK c = true ∧
     namesApartK c = true ∧ LitsApart c = true ∧ sortsNumbered c = true ∧ itesApart c = true ∧
     kindsApart c = true ∧ ctorsOnce c = true ∧ fnsApart c = true ∧ FnHyp c :=
-  ⟨⟨by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap⟩,
+  ⟨⟨by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap⟩,
     by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
     by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
     by decide_cheap, fnHyp⟩
@@ -170,7 +170,7 @@ theorem meets_others : outside c ∧
     namesNumbered c = true ∧ collSortsOK c = true ∧ collsOK c = true ∧ patHeadsOK c = true ∧
     namesApartK c = true ∧ LitsApart c = true ∧ sortsNumbered c = true ∧ itesApart c = true ∧
     kindsApart c = true ∧ ctorsOnce c = true ∧ fnsApart c = true ∧ FnHyp c :=
-  ⟨⟨by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap⟩,
+  ⟨⟨by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap⟩,
     by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
     by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
     by decide_cheap, fnHyp⟩
@@ -202,7 +202,7 @@ theorem meets_others : outside c ∧
     namesNumbered c = true ∧ collSortsOK c = true ∧ collsOK c = true ∧ patHeadsOK c = true ∧
     namesApartK c = true ∧ LitsApart c = true ∧ sortsNumbered c = true ∧ itesApart c = true ∧
     kindsApart c = true ∧ ctorsOnce c = true ∧ fnsApart c = true ∧ FnHyp c :=
-  ⟨⟨by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap⟩,
+  ⟨⟨by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap⟩,
     by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
     by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
     by decide_cheap, fnHyp⟩
@@ -238,7 +238,7 @@ theorem meets_others : outside c ∧
     namesNumbered c = true ∧ genWf c = true ∧ collsOK c = true ∧ patHeadsOK c = true ∧
     namesApartK c = true ∧ LitsApart c = true ∧ sortsNumbered c = true ∧ itesApart c = true ∧
     kindsApart c = true ∧ ctorsOnce c = true ∧ fnsApart c = true ∧ FnHyp c :=
-  ⟨⟨by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap⟩,
+  ⟨⟨by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap⟩,
     by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
     by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
     by decide_cheap, fnHyp⟩

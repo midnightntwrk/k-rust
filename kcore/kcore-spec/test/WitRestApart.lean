@@ -1,16 +1,9 @@
 /-
-  The rows hooksApart.1, hooksApart.2 and predsApart.1 of test/witnesses.toml: the first two are
-  implied by other leaf conditions of `coreOK`, for every semantics, so no witness exists in the
-  no-model form; predsApart.1 is implied by `idsOK` for every semantics whose functions of `c.fns`
-  are labelled apart.
+  The row predsApart.1 of test/witnesses.toml: it is implied by `idsOK` for every semantics whose
+  functions of `c.fns` are labelled apart.
   Run from the package root: `lake env lean -j1 test/WitRestApart.lean`.
 
   Kernel-checked here, for every semantics:
-  - `hooksApart1_of_kindsApart`: no constructor of the definition is named like an interpreted hook,
-    where `kindsApart` holds (its first part: no hook is a constructor, and every constructor of
-    the definition is one of `ctorSigs`, `isCtor_of_mem`).
-  - `hooksApart2_of_fnsApart`: no function of the definition is named like an interpreted hook, where
-    `fnsApart` holds (no function of `allFns`, the definition's among them, is a hook; `isHook_iff`).
   - `predsApart_of_idsOK`: the functions evaluation reads are named apart, where `idsOK` holds and
     the functions of `c.fns` are labelled apart. No function of `c.fns` bears a registry symbol
     (`idsOK`), so none is `isK` or `isKItem`; the other sort predicates are `predOf X` for X a sort
@@ -20,10 +13,10 @@
     `isK` nor `isKItem`, decided over the registry's sorts), and an own sort, numbered below
     `nRegSorts + sortNames.length` (`idsOK`'s first conjunct), has the predicate
     `X - nRegSorts + nRegSyms`, below `symBase`.
-  So the two hooksApart conjuncts can be dropped from `coreOK` without changing what it accepts;
-  predsApart.1 cannot: two functions of `c.fns` under one own sort's predicate number meet `idsOK`
-  (test/PredFnCone.lean, `Twice`). They stay as stated (`hooksApart` and `predsApart` are also read
-  by `Definition.namesOK`, outside `coreOK`).
+  predsApart.1 cannot be dropped from `coreOK`: two functions of `c.fns` under one own sort's
+  predicate number meet `idsOK` (test/PredFnCone.lean, `Twice`). `hooksApart` is not a conjunct
+  of `coreOK`: `faithCoreOK` implies it (`Semantics.hooksApart_of_faithCoreOK`, HooksApart.lean),
+  and `Definition.namesOK` asks it beside `predsApart`.
 -/
 import KcoreSpec
 
@@ -33,29 +26,6 @@ set_option maxRecDepth 100000
 namespace KCore.Faithful.WitRestApart
 
 open Faithful.Model
-
-theorem hooksApart1_of_kindsApart (c : Semantics) (h : kindsApart c = true) :
-    (c.ctors.all fun k => !hookSigs.any (·.name == k.name)) = true := by
-  unfold kindsApart at h
-  simp only [Bool.and_eq_true, List.all_eq_true, Bool.not_eq_true'] at h
-  simp only [List.all_eq_true, Bool.not_eq_true', List.any_eq_false, beq_iff_eq]
-  intro k hk hs hhs heq
-  have hc : c.isCtor k.name = true :=
-    isCtor_of_mem (c := c) (by simp only [Semantics.ctorSigs, List.mem_append]; exact .inr hk)
-  rw [← heq, h.1 hs hhs] at hc
-  cases hc
-
-theorem hooksApart2_of_fnsApart (c : Semantics) (h : fnsApart c = true) :
-    (c.fns.all fun f => !hookSigs.any (·.name == f.label)) = true := by
-  unfold fnsApart at h
-  simp only [List.all_eq_true, Bool.and_eq_true, Bool.not_eq_true'] at h
-  simp only [List.all_eq_true, Bool.not_eq_true']
-  intro fn hfn
-  cases hh : hookSigs.any (·.name == fn.label)
-  · rfl
-  · have := (isHook_iff fn.label).mpr hh
-    rw [(h fn (by simp only [Semantics.allFns, List.mem_append]; exact .inl hfn)).1.2] at this
-    cases this
 
 /-- A list without repetition keeps none under a map that is injective where it is defined. -/
 theorem nodup_filterMap {f : Nat → Option Nat} : ∀ {l : List Nat}, l.Nodup →
@@ -204,14 +174,6 @@ theorem predsApart_of_idsOK {c : Semantics} (h : c.idsOK = true)
     · subst hb; exact (aux_ge nRegSyms 0 52 (by decide) h1).elim
     · obtain ⟨f, hf, rfl⟩ := List.mem_map.mp ha
       exact (hmemP _ hb).1 f hf rfl
-
-/-- info: 'KCore.Faithful.WitRestApart.hooksApart1_of_kindsApart' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in
-#print axioms hooksApart1_of_kindsApart
-
-/-- info: 'KCore.Faithful.WitRestApart.hooksApart2_of_fnsApart' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in
-#print axioms hooksApart2_of_fnsApart
 
 /-- info: 'KCore.Faithful.WitRestApart.predsApart_of_idsOK' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in

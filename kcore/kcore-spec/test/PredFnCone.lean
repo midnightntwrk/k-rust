@@ -91,9 +91,9 @@ def c : Semantics := withFns [predFn nRegSyms true, predFn nRegSyms false]
 
 theorem not_predsApart : c.predsApart = false := by decide +kernel
 set_option maxHeartbeats 1000000 in
-theorem meets_others : c.sortedOK = true ∧ c.faithCoreOK = true ∧ c.hooksApart = true ∧ c.idsOK = true ∧
+theorem meets_others : c.sortedOK = true ∧ c.faithCoreOK = true ∧ c.idsOK = true ∧
     c.overloadsOK = true :=
-  ⟨by decide_sortedOK, by decide_faithCoreOK, by decide +kernel, by decide +kernel, by decide +kernel⟩
+  ⟨by decide_sortedOK, by decide_faithCoreOK, by decide +kernel, by decide +kernel⟩
 
 /-- The semantics of the witness module KcoreSpec/ModelPredTwiceWitness.lean. -/
 theorem eq_witness : c = PredTwiceWitness.c := rfl
@@ -128,9 +128,9 @@ theorem ids_others : (c.ownSorts == List.range' nRegSorts c.sortNames.length) = 
       c.ctors.all fun k => decide (nRegSyms ≤ k.name) || genSyms.contains k.name) && c.lib.ok) = true :=
   ⟨by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel⟩
 set_option maxHeartbeats 1000000 in
-theorem meets_others : c.sortedOK = true ∧ c.faithCoreOK = true ∧ c.hooksApart = true ∧ c.predsApart = true ∧
+theorem meets_others : c.sortedOK = true ∧ c.faithCoreOK = true ∧ c.predsApart = true ∧
     c.overloadsOK = true :=
-  ⟨by decide_sortedOK, by decide_faithCoreOK, by decide +kernel, by decide +kernel, by decide +kernel⟩
+  ⟨by decide_sortedOK, by decide_faithCoreOK, by decide +kernel, by decide +kernel⟩
 
 end Reg
 

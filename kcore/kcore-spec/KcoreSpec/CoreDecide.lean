@@ -160,7 +160,7 @@ theorem Semantics.sortedOK_of_conjCD (h1 : c.subsortsOK = true)
   simp only [Semantics.sortedOK, h1, h2, h3, h4, h5, h6, Bool.and_self]
 
 /-- `coreOK` from the conjuncts of its conjuncts: those of `sortedOK`, those of `faithCoreOK`, and
-the other four. -/
+the other three. -/
 theorem Semantics.coreOK_of_partsCD (s1 : c.subsortsOK = true)
     (s2 : c.fns.all (fun f => f.clauses.all (c.clauseSorted f (c.fns.map Fn.sig))) = true)
     (s3 : c.rules.all c.ruleSorted = true) (s4 : c.rulesPlain = true) (s5 : c.clausesPlain = true)
@@ -169,10 +169,10 @@ theorem Semantics.coreOK_of_partsCD (s1 : c.subsortsOK = true)
     (h4 : collsOK c = true) (h5 : patHeadsOK c = true) (h6 : namesApartK c = true)
     (h7 : LitsApart c = true) (h8 : sortsNumbered c = true) (h10 : itesApart c = true)
     (h11 : kindsApart c = true) (h12 : ctorsOnce c = true) (h13 : fnsApart c = true)
-    (hh : c.hooksApart = true) (hp : c.predsApart = true) (hi : c.idsOK = true)
+    (hp : c.predsApart = true) (hi : c.idsOK = true)
     (ho : c.overloadsOK = true) : c.coreOK = true := by
   simp only [Semantics.coreOK, Semantics.sortedOK_of_conjCD s1 s2 s3 s4 s5 s6,
-    Semantics.faithCoreOK_of_partsK h1 h2 h3 h4 h5 h6 h7 h8 h10 h11 h12 h13, hh, hp, hi, ho, Bool.and_self]
+    Semantics.faithCoreOK_of_partsK h1 h2 h3 h4 h5 h6 h7 h8 h10 h11 h12 h13, hp, hi, ho, Bool.and_self]
 
 /-- `wf` from the conjuncts of its conjuncts: those of `namesOK`, of `okAll` and of `faithOK`, and
 the other four. -/
@@ -181,7 +181,7 @@ theorem wf_of_partsCD {d : Definition}
     (n2 : KoreAML.nodup (d.emit.symbolDecls.map (·.name) ++ d.emit.aliasNames) = true)
     (n3 : d.sem.hooksApart = true) (n4 : d.sem.predsApart = true) (n5 : d.sem.idsOK = true)
     (o1 : d.sem.declsOK = true) (o2 : d.sem.rulesPlain = true) (o3 : d.sem.clausesPlain = true)
-    (o4 : d.sem.paramsPlain = true) (o5 : d.sem.subsortsOK = true) (o6 : d.sem.fnsOKAll = true)
+    (o4 : (d.sem.paramsPlain && d.sem.carriersOK) = true) (o5 : d.sem.subsortsOK = true) (o6 : d.sem.fnsOKAll = true)
     (o7 : d.sem.rules.all d.sem.ruleOKAll = true) (o8 : d.sem.rules.all d.sem.rulePredsOK = true)
     (hc : d.cert.ok d.sem = true) (hp : d.pres.ok d.sem = true) (hpa : d.paramsOK = true)
     (f1 : namesNumbered d.sem = true) (f2 : genWf d.sem = true) (f3 : collSortsOK d.sem = true)
@@ -252,7 +252,7 @@ macro "decide_faithCoreOK" : tactic =>
 /-- Closes `c.coreOK = true`, each conjunct of its conjuncts by a decision of its own
 (`decide_leafCD`). -/
 macro "decide_coreOK" : tactic =>
-  `(tactic| (refine KCore.Semantics.coreOK_of_partsCD ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ <;> decide_leafCD))
+  `(tactic| (refine KCore.Semantics.coreOK_of_partsCD ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ <;> decide_leafCD))
 
 /-- Closes `wf d = true`, each conjunct of its conjuncts by a decision of its own (`decide_leafCD`). -/
 macro "decide_wf" : tactic =>
@@ -358,7 +358,7 @@ partial def splitCD (n : Nat) (g : MVarId) : TacticM (List MVarId) := g.withCont
   match lhs.getAppFn.constName? with
   | some ``and => more (← onGoalCD g (evalTactic (← `(tactic| refine KCore.and_true_of_CD ?_ ?_))))
   | some ``KCore.Semantics.coreOK =>
-    more (← onGoalCD g (evalTactic (← `(tactic| refine KCore.Semantics.coreOK_of_partsCD ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_))))
+    more (← onGoalCD g (evalTactic (← `(tactic| refine KCore.Semantics.coreOK_of_partsCD ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_))))
   | some ``KCore.Semantics.faithCoreOK =>
     more (← onGoalCD g (evalTactic (← `(tactic| refine KCore.Semantics.faithCoreOK_of_partsK ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_))))
   | some ``KCore.Semantics.sortedOK =>

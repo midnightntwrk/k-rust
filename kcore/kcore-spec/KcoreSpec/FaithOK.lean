@@ -680,7 +680,6 @@ def overloadsOK : Bool :=
     (Faithful.consSorts c).contains o.sig.result &&
     o.over.all (fun g => (lookupSig c.ctorSigs g).isSome || (c.ovls.take i).any (·.sig.name == g) ||
       c.fns.any (·.label == g)) &&
-    (c.ovlOver o).length == o.over.length &&
     (c.ovlOver o).all (c.ovlPairOK o) &&
     ((c.ovlOver o).all fun k1 => (c.ovlOver o).all fun k2 => c.ovlCoherent k1 k2) &&
     (c.ovlClosure o.sig.name).all fun g => !c.fns.any (·.label == g) || o.over.contains g) &&
