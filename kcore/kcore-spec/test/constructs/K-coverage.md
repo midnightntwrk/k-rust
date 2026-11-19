@@ -31,14 +31,14 @@ Nested entries by status:
 |---|---|---|---|---|---|---|---|---|
 | E1 | 8 | 3 | 0 | 0 | 0 | 5 | 0 | 0 |
 | E2 | 63 | 9 | 0 | 1 | 0 | 53 | 0 | 0 |
-| E3 | 86 | 43 | 0 | 2 | 0 | 41 | 0 | 0 |
-| E4 | 54 | 20 | 0 | 4 | 0 | 30 | 0 | 0 |
+| E3 | 86 | 44 | 0 | 2 | 0 | 40 | 0 | 0 |
+| E4 | 56 | 20 | 0 | 4 | 0 | 32 | 0 | 0 |
 | E5 | 70 | 36 | 1 | 2 | 0 | 31 | 0 | 0 |
 | E6 | 35 | 9 | 2 | 0 | 0 | 24 | 0 | 0 |
 | E7 | 9 | 4 | 1 | 0 | 0 | 4 | 0 | 0 |
 | E8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 36 | 16 | 0 | 2 | 1 | 17 | 0 | 0 |
-| all | 361 | 140 | 4 | 11 | 1 | 205 | 0 | 0 |
+| all | 363 | 141 | 4 | 11 | 1 | 206 | 0 | 0 |
 
 Refused rows by class:
 
@@ -61,20 +61,20 @@ Refused nested entries by class:
 |---|---|---|---|---|---|
 | E1 | 5 | 1 | 0 | 1 | 3 |
 | E2 | 53 | 4 | 0 | 1 | 48 |
-| E3 | 41 | 14 | 0 | 23 | 4 |
-| E4 | 30 | 14 | 8 | 0 | 8 |
+| E3 | 40 | 14 | 0 | 22 | 4 |
+| E4 | 32 | 14 | 10 | 0 | 8 |
 | E5 | 31 | 13 | 2 | 2 | 14 |
 | E6 | 24 | 5 | 2 | 0 | 17 |
 | E7 | 4 | 0 | 0 | 0 | 4 |
 | E8 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 17 | 8 | 4 | 0 | 5 |
-| all | 205 | 59 | 16 | 27 | 103 |
+| all | 206 | 59 | 18 | 26 | 103 |
 
-Supported entries (rows and nested): 974; 14 of them have an owed fact and are counted by their best fixture: **13 proved** (the owed fact proved on a fixture the entry names: these count as supported under the headline statements), 0 open and 1 false (counted apart: the headline statements' hypothesis is not shown on their fixtures). The other 960 have no owed fact.
+Supported entries (rows and nested): 975; 14 of them have an owed fact and are counted by their best fixture: **13 proved** (the owed fact proved on a fixture the entry names: these count as supported under the headline statements), 0 open and 1 false (counted apart: the headline statements' hypothesis is not shown on their fixtures). The other 961 have no owed fact.
 
 E6 library rows by their `e6_tie` (test/constructs/e6map.py; rows-header.toml): 480, of which 203 tied, 3 of no direction (the tie's no-direction class, owed-sentence rule item 7: never tied, counted apart), 9 refuted and 265 uncovered.
 
-## Entries of class R-c (36)
+## Entries of class R-c (35)
 
 Each names the notion the kernel lacks, the cone declaration that would change, and the ticket or unit that supports it (`unit`, checked by `units.py`).
 
@@ -99,7 +99,6 @@ Each names the notion the kernel lacks, the cone declaration that would change, 
 | E3 | `ML-SYNTAX:Sort::=Sort "#Or" Sort` | cases[7] | refused |  |  | CE.reader-wire |  |
 | E3 | `ML-SYNTAX:Sort::=Sort "#Or" Sort` | cases[10] | refused |  |  | CE.reader-wire |  |
 | E3 | `ML-SYNTAX:Sort::=Sort "#Implies" Sort` | row | refused |  | none (reader only): the connective goes to Rule.pre or Rule.post | RDR.rule-conn-implies | CN-3 R3 (e2: L-8 as L-7 and L-1) |
-| E3 | `ML-SYNTAX:Sort::=Sort "#Implies" Sort` | cases[0] | refused |  |  | RDR.rule-conn-implies | L-8 |
 | E3 | `ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2` | row | refused |  | Term (Core.lean:58): a term has variables, applications, injections, \`as\` and domain values, no connective; and with it Rule.lhs/rhs/req/ens, Clause.pats/req/rhs, Eval and Step, which read terms | CE | CN-3 P1 (e1: L-3, a variable of the rule, reader only); R2 (A3: R-5 as \`?Z\`); 4.5 d4 (\`Cond.ex\` over a confined sort) |
 | E3 | `ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2` | cases[4] | refused |  |  | CE.reader-wire |  |
 | E3 | `ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2` | cases[5] | refused |  |  | CE.reader-wire |  |
@@ -568,7 +567,7 @@ Not core:
 | cases[10]: an equation's right side, an \\exists in an alternative | refused | R-c |  |  | CE.reader-wire | e3-eq-exists-ml-in-or |  |  | fixtures/e3-eq-exists-ml-in-or, e3-eq-exists-ml-in-or-int: kompile.txt exit 0, the binder inside the \\or's second alternative (kore.txt //@ 233, 234; //@ 335); account.txt \`manyValuedRightSide (\\or: the sentence gives the function every element of each side; the text holds no functional sentence of… |
 | cases[11]: an equation's right side, an alternative that is \\bottom without being the literal (g(#Bottom) #Or t) | supported |  |  |  |  | e3-ml-eq-rhs-or-empty |  |  | fixtures/e3-ml-eq-rhs-or-empty (h(X) => g(#Bottom) #Or X): kompile.txt exit 0; kore.txt //@ 341, \\or{SortInt{}}(Lblg{}(\\bottom{SortInt{}}()),VarX:SortInt{}); account.txt \`1 read orBottom [user]\`, \`sentence 354: orBottom\`, \`stage refusals (of sentences classified read): 0\`, \`coreOK: true; failing: []… |
 | `ML-SYNTAX:Sort::=Sort "#Implies" Sort` | refused | R-c | a connective at a term position of a rule's side denotes a set of values where a term denotes one. Under applications it is the cut (kk:t233-rule-conn-cut): the position holds a variable Z of the rule, and Z's membership in the connective, which goes through \\implies as (Z ∈ p) → (Z ∈ q), is a conju… | none (reader only): the connective goes to Rule.pre or Rule.post | RDR.rule-conn-implies | e3-ml | no | no | fixtures/e3-ml: account \`4 inert simplification [user]\`, \`4 parameter lemma [user]\`; fixtures/e3-ml-rule-lhs-implies: account \`1 read connectiveCut [user]\`, \`coreOK: true; failing: []\` |
-| cases[0]: a rule's left side | refused | R-c |  |  | RDR.rule-conn-implies |  |  |  | fixtures/e3-ml-rule-lhs-implies (c(a() #Implies b()) => b(), kompiled to c(\\implies{Exp}(a(), \\and{Exp}(b(), \_Gen6))) => \_Gen6, \_Gen6 held by the connective and the right side: Z ∈ (a → (b ∧ G)) is Z ≠ a at every G, since a and b are apart, so the sentence's expectation is Step (c(z)) g iff z ≠ a, f… |
+| cases[0]: a rule's left side | supported |  | no C14 tie reads the text yet: test/PredReader.lean states the reading at the semantics read, not a Step for every H |  | RDR.rule-conn-implies | e3-ml-rule-lhs-implies |  |  | fixtures/e3-ml-rule-lhs-implies/account.txt (equal to a fresh account, 2026-11-19): \`1 read connectiveCut [user]\`, \`sentence 215: connectiveCut\`, \`stage refusals (of sentences classified read): 0\`, \`parse: ok; wf true; failing: []\`, \`coreOK: true; failing: []\`, \`refused by the account: 0\`; test/Pred… |
 | cases[1]: a requires or ensures of predicates | supported |  |  |  |  |  |  |  | Parse.isPred |
 | `ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2` | refused | R-c | in a rule or a function equation a connective makes the side a matching-logic pattern that is not a term: a set of values given by definedness, negation or quantification. The kernel's sides are terms with one value under a substitution. | Term (Core.lean:58): a term has variables, applications, injections, \`as\` and domain values, no connective; and with it Rule.lhs/rhs/req/ens, Clause.pats/req/rhs, Eval and Step, which read terms | CE | e3-ml | no | no | fixtures/e3-ml-rule-lhs-exists: account \`1 read existsAsVariable [user]\`, \`parse: ok; wf true\`; test/Connectives.lean MlEx; fixtures/e3-ml-lhs-value-sort: account \`1 read existsAsVariable [user]\`, \`coreOK: true\`, test/Connectives.lean MlValue; fixtures/e3-ml-lhs-empty-sort: account \`read existsAsVar… |
 | cases[0]: a rule's left side, under applications and conjunctions, the variable in the body | supported |  |  |  |  |  |  |  | fixtures/e3-ml-rule-lhs-exists |
@@ -774,11 +773,13 @@ Not core:
 | `grammar:<application-pattern>::=<symbol-identifier> "{" <sorts> "}" "(" <patterns> ")"` | supported |  |  |  |  | base |  |  | K-coverage.md A.2 application |
 | `grammar:<matching-logic-pattern>::="\top" "{" <sort> "}" "(" ")"` | supported |  |  |  |  | base | yes | yes | K-coverage.md A.2 \\top |
 | cases[0]: a \\top{s'} on an equation's or a rewrite axiom's right side, as an operand of \\and{s} or \\or{s} with s' not s | refused | R-b | \\top{s'}() is of the sort s', and an operand of \\and{s} or \\or{s} is of the sort s (kore-syntax.md:330), so the sentence is no valid KORE axiom and has no meaning to read. rhsOpSort checks the sort a \\top states at its head as it checks an \\and's (Parse.rhsSortGuard, the first step of clauseBody, fr… |  | none (R-b): no shape (ill-formed) | hw-rhs-top |  |  | fixtures/hw-rhs-top/account.txt: \`sentence 378 (Lblf): rhsOperandSort (\\and{SortExp{}}: an operand \\top of sort SortInt{})\` (hand-written KORE: f's equation in hw-base's text); k/haskell-backend/src/main/native/haskell-backend/docs/kore-syntax.md:330 (rule 4); test/RhsSortCheck.lean topOp\_hand: \\and… |
+| cases[1]: a \\top{s'} as the ensures of an equation or a rewrite axiom, the operand of the conjunction \\and{s}(rhs, ens) with s' no… | refused | R-b | \\top{s'}() is of the sort s', and the ensures is an operand of the conjunction \\and{s}(rhs, ens) that kompile writes as an equation's right side (the operand of \\equals{s,R}) and as a rewrite axiom's (the body of \\rewrites{s} under its binders); an operand of \\and{s} is of the sort s (kore-syntax.md… |  | none (R-b): no shape (ill-formed) | hw-ens-top-eqn |  |  | fixtures/hw-ens-top-eqn/account.txt: \`1 refused rhsOperandSort [user]\` (e.g. f's equation, \`\\and{SortExp{}}(Lbla{}(VarX:SortInt{}), \\top{SortInt{}}())\`), \`stage refusals (of sentences classified read): 0\`, and no coreOK line (the text is refused) (hand-written KORE: hw-base's text, f's ensures writt… |
 | `grammar:<matching-logic-pattern>::="\bottom" "{" <sort> "}" "(" ")"` | supported |  |  |  |  | base | yes | yes | K-coverage.md A.2 \\bottom |
 | cases[0]: a \\bottom{s'} on an equation's or a rewrite axiom's right side, as an operand of \\and{s} or \\or{s} with s' not s | refused | R-b | \\bottom{s'}() is of the sort s', and an operand of \\and{s} or \\or{s} is of the sort s (kore-syntax.md:330), so the sentence is no valid KORE axiom and has no meaning to read. rhsOpSort checks the sort a \\bottom states at its head as it checks an \\and's (Parse.rhsSortGuard, the first step of clauseBo… |  | none (R-b): no shape (ill-formed) | hw-rhs-bottom |  |  | fixtures/hw-rhs-bottom/account.txt: \`sentence 378 (Lblf): rhsOperandSort (\\and{SortExp{}}: an operand \\bottom of sort SortInt{})\` (hand-written KORE: f's equation in hw-base's text); k/haskell-backend/src/main/native/haskell-backend/docs/kore-syntax.md:330 (rule 4); test/RhsSortCheck.lean topOp\_hand… |
 | `grammar:<matching-logic-pattern>::="\not" "{" <sort> "}" "(" <pattern> ")"` | supported |  |  |  |  | base | yes | yes | K-coverage.md A.2 \\not |
 | `grammar:<matching-logic-pattern>::="\and" "{" <sort> "}" "(" <patterns> ")"` | supported |  |  |  |  | base | yes | yes | K-coverage.md A.2 \\and |
 | cases[0]: an operand of \\and{s} of another sort on an equation's or a rewrite axiom's right side | refused | R-b | An equation's or a rewrite axiom's right side (under its \`\\exists\` binders) with an operand of \`\\and{s}\` (under applications, conjunctions and disjunctions) that states a sort other than s at its head: an \`\\and\`, \`\\or\`, \`\\exists\`, \`\\top\` or \`\\bottom\` of another sort, an \`\\exists{s}\` whose body state… |  | none (R-b): no shape (ill-formed) | hw-rhs-and |  |  | fixtures/hw-rhs-and/account.txt: \`sentence 378 (Lblf): rhsOperandSort (\\and{SortExp{}}: an operand \\equals of sort SortInt{})\` (hand-written KORE: f's equation in hw-base's text); k/haskell-backend/src/main/native/haskell-backend/docs/kore-syntax.md:330: "In any matching logic pattern, the sort of p… |
+| cases[1]: the conjunction \\and{s}(rhs, ens) of an equation's or a rewrite axiom's right side with its ensures, of another sort tha… | refused | R-b | The conjunction \\and{s}(rhs, ens) of a right side with its ensures is the operand of the equation's \\equals{S1,R} and of its sort S1, or the body of a rewrite axiom's right side and of the sort of its \\rewrites{S}; each of its operands is of the sort s (kore-syntax.md:195, 330). A conjunction of ano… |  | none (R-b): no shape (ill-formed) | hw-ens-top-eqn |  |  | fixtures/hw-ens-top-eqn/account.txt: \`1 refused rhsOperandSort [user]\` (e.g. f's equation, \`\\and{SortExp{}}(Lbla{}(VarX:SortInt{}), \\top{SortInt{}}())\`), \`stage refusals (of sentences classified read): 0\`, and no coreOK line (the text is refused) (hand-written KORE: hw-base's text, f's ensures writt… |
 | `grammar:<matching-logic-pattern>::="\or" "{" <sort> "}" "(" <patterns> ")"` | supported |  |  |  |  | base | yes | yes | K-coverage.md A.2 \\or |
 | cases[0]: an operand of \\or{s} of another sort on an equation's or a rewrite axiom's right side | refused | R-b | An equation's or a rewrite axiom's right side (under its \`\\exists\` binders) with an operand of \`\\or{s}\` (under applications, conjunctions and disjunctions) that states a sort other than s at its head: an \`\\and\`, \`\\or\`, \`\\exists\`, \`\\top\` or \`\\bottom\` of another sort, an \`\\exists{s}\` whose body states… |  | none (R-b): no shape (ill-formed) | hw-rhs-or |  |  | fixtures/hw-rhs-or/account.txt: \`sentence 378 (Lblf): rhsOperandSort (\\or{SortExp{}}: an operand \\and of sort SortInt{})\` (hand-written KORE: f's equation in hw-base's text); k/haskell-backend/src/main/native/haskell-backend/docs/kore-syntax.md:330: "In any matching logic pattern, the sort of patter… |
 | `grammar:<matching-logic-pattern>::="\implies" "{" <sort> "}" "(" <pattern> "," <pattern> ")"` | supported |  |  |  |  | base | yes | yes | K-coverage.md A.2 \\implies |
@@ -944,7 +945,7 @@ Not core:
 | cases[5]: B36 ensures | supported |  | Clause.ens (lane CE) |  |  |  |  |  |  |
 | cases[6]: B38 non-executable equation | supported |  | an axiom of the text; \`non-executable\` restricts a backend, not the theory. Fixture e2-equation, sentence \`non-executable{}()\` |  |  |  |  |  |  |
 | cases[7]: non-executable beside [owise] | supported |  | Side by side. The text: the [owise] equation states choose(X0, X1) = X0 wherever X0 is not a (the one disjunct, for //@ 194), at X0 = b too. The reading: the [owise] clause decides where every clause of a smaller priority that is not aside fails (Eval.clause hprio; Faithful.lowerClauses, the clauses… | none (reader only) |  | e5-owise-nonexec |  |  | fixtures/e5-owise-nonexec/kore.txt //@ 193 (the [owise] equation choose(X, \_) => X), its premise's exclusion: \`\\not{R} (\\or{R} (\\exists{R} (Var'Unds'Gen1:SortFoo{}, \\and{R} (\\top{R}(), \\and{R} (\\in{SortFoo{}, R} (X0:SortFoo{}, Lbla{}()),\\and{R} (\\in{SortFoo{}, R} (X1:SortFoo{}, Var'Unds'Gen1:SortFoo… |
-| cases[8]: B39 equation of a sort-parametric user function | refused | R-a |  |  | none (R-a): an application of a sort-parametric symbol at an instance that is hooked or a constructor, or at sorts the definition does not have, names no symbol of the definition (KCORE-SPEC.md Q11) |  |  |  |  |
+| cases[8]: B39 equation of a sort-parametric user function | refused | R-a |  |  | none (R-a): an application of a sort-parametric symbol at an instance that is hooked or a constructor, or at sorts the definition does not have, names no symbol of the definition (KCORE-SPEC.md Q11) | hw-param-inst-eqn |  |  | fixtures/hw-param-inst-eqn/account.txt: \`sentence 417 (Lblsame{K,KResult}): parametricSymbol (Lblsame: an equation of its instance Lblsame{K,KResult}, at KResult, no sort of the definition)\` (hand-written KORE: e1-param-two-sort's text with the equation of same{K, K} written at the instance same{K,… |
 | cases[9]: B44 generated initializer applying a projection | supported |  | the projection is a parameter symbol; fixtures e2-cells, e3-withconfig parse ok |  |  |  |  |  |  |
 | cases[10]: an application of a function-overloaded symbol in an equation's argument pattern | refused | R-c | a covered application of the symbol is the function's value, and matching it would need the function's inverse. The reader reads the cut (Parse.ovlCutList): uncap(Ovl0) => G with Clause.pre Ovl0 ∈ capGas(G). G is then a variable the argument does not bind, in a condition with one it binds, of the so… | KCore.Semantics.clausesPlain (a variable held by memHeld through the cut where the covering sorts are confined, designs/CN-4b-rc-units.md section 3.3) | CE.flip | e5-ovl-fun-clause |  |  | fixtures/e5-ovl-fun-clause/account.txt: \`sentence 271 (Lbluncap): openRequires (VarG:Gas: in a condition with a variable the arguments bind (V ∈ LblcapGas(…)), under LblcapGas, not bound by the arguments, of a sort the text leaves unconfined)\` (rule uncap(cap(G:Gas)) => G, capGas overloading the fun… |
 | cases[11]: B58 heat/cool rule written as an equation | supported |  | it is an equation in the text. Fixture e2-cool-eq is read with wf and coreOK true and one owed CondDecided: its requires is closed over HOLE, which the arguments do not bind (fixtures/e2-cool-eq/account.txt \`function f, clause 0 at e2-cool-eq.k:5: CondDecided open, over VarHOLE:K\`, \`parse: ok; wf tr… |  |  |  |  |  |  |
