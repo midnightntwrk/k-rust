@@ -10,6 +10,8 @@
   - The account: the class lists partition the 260 sentences of the user module E3-ML, in
     `tieClasses`' order (`account`, `account_sizes`, `account_classes`); the no-direction class holds
     exactly the sentences that apply a symbol Γ lacks (`account_absent`, `absent_closed`).
+  - `absent_proj_below`: the 13 no-direction sentences that are equations of a projection
+    `project:X` are of sorts X that are K, KItem or below KItem in Γ (`GenEqs.projBelowB`).
   - `attrs_agree`: the attributes the translation does not read agree with `defn`.
   - `sig_origin_but_next`: each of the 206 items of `sigItems c` but one is a declaration's item
     of the text or a surplus one; the one is next's arity at the configuration sort, which Γ states
@@ -169,6 +171,32 @@ theorem absent_closed :
     (userAxioms.filter (fun ad => !(classOf "no direction").contains ad.index)).all
       (fun ad => (appHeadsOf ad.ax.pattern).all (gammaHasHead c)) = true :=
   tieAbsent_of_account userAxioms _ _ account_absent
+
+/-- The sentences of the no-direction class that are equations of a projection `project:X` (their
+left side applies `Lblproject'Coln'X`), each with X. -/
+def absentProj : List (Nat × String) :=
+  [(248, "Bool"), (249, "GeneratedCounterCell"), (250, "GeneratedCounterCellOpt"),
+   (251, "GeneratedTopCell"), (252, "GeneratedTopCellFragment"), (253, "Int"), (254, "K"),
+   (255, "KCell"), (256, "KCellOpt"), (257, "KItem"), (258, "List"), (259, "Map"), (260, "Set")]
+
+/-- Each sort of `absentProj` is K, KItem or a sort below KItem of Γ, with K and KItem
+constructor sorts. -/
+theorem absent_proj_below_c : absentProj.all (fun p => GenEqs.projBelowB c p.2) = true := by
+  decide +kernel
+
+/-- **The projections the no-direction class defines are of sorts below KItem**: `absentProj` is
+the list of the no-direction sentences whose left side applies a symbol `Lblproject'Coln'X`, each
+with that X, and each such X is K, KItem or a sort below KItem of Γ, with K and KItem constructor
+sorts (`GenEqs.projBelowB`). So the pattern each of these equations is at is functional and
+injective on X in every model of Γ (`GenEqs.projSel_fun`, `GenEqs.projSel_inj`): what the
+equation states of the pattern's symbols, Γ entails. -/
+theorem absent_proj_below (H : HookParams) :
+    (userAxioms.filter (fun ad => (classOf "no direction").contains ad.index &&
+        ((AttrsAgree.eqnHead ad.ax.pattern).getD "").startsWith "Lblproject'Coln'")).map
+      (fun ad => (ad.index, AttrsAgree.eqnHead ad.ax.pattern)) =
+      absentProj.map (fun p => (p.1, some ("Lblproject'Coln'" ++ p.2))) ∧
+    absentProj.all (fun p => GenEqs.projBelowB (cH H) p.2) = true :=
+  ⟨by rw [userAxioms_eq]; decide +kernel, absent_proj_below_c⟩
 
 /-- The sentences whose text is none of f2-examples/ens.kompile.kore's user module, with their class. -/
 def unmapped : List (Nat × String) :=
@@ -1629,6 +1657,8 @@ end KCore.TieE3Ml
 #check @KCore.TieE3Ml.account_classes
 #check @KCore.TieE3Ml.account_absent
 #check @KCore.TieE3Ml.absent_closed
+#check @KCore.TieE3Ml.absent_proj_below_c
+#check @KCore.TieE3Ml.absent_proj_below
 #check @KCore.TieE3Ml.lists_in_account
 #check @KCore.TieE3Ml.attrs_agree
 #check @KCore.TieE3Ml.sig_origin_but_next
@@ -1665,6 +1695,8 @@ end KCore.TieE3Ml
 #print axioms KCore.TieE3Ml.account_classes
 #print axioms KCore.TieE3Ml.account_absent
 #print axioms KCore.TieE3Ml.absent_closed
+#print axioms KCore.TieE3Ml.absent_proj_below_c
+#print axioms KCore.TieE3Ml.absent_proj_below
 #print axioms KCore.TieE3Ml.lists_in_account
 #print axioms KCore.TieE3Ml.attrs_agree
 #print axioms KCore.TieE3Ml.sig_origin_but_next
