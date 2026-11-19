@@ -9,7 +9,7 @@ user module T243-CEIL-LEMMA-FN-UNDECIDED: 389 sentences
   1 unread setIdempotence [generated]
   1 inert parametricFunctional [generated]
   9 inert noJunk [generated]
-  1 inert simplification [user]: owed, entailed by Γ (the tie on the text proves it or fails), not decided by the reader
+  1 inert simplification [user]: owed: entailed by Γ, or a hypothesis on H where its truth reads the interpretation (it applies the rest of Lbld'LParUndsCommUndsRParUnds'T243-CEIL-LEMMA-FN-UNDECIDED'Unds'Int'Unds'Int'Unds'Int: its value where its clauses are not shown to apply is the interpretation's); the tie on the text names which, not decided by the reader
   1 inert simplification [generated]
 stage refusals (of sentences classified read): 0
 read and not accounted for: 0

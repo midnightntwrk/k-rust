@@ -5,9 +5,9 @@
   `TIEGEN_PROBE_TIMEOUT=3000 python3 -I test/constructs/tiegen.py rdr-config-deep --split --cons-head
   --wf-parts --sig-chunk-first 13 --account-sorted --heads-literal --heads-codes --chunk 50
   --attrs-blocks 50 --decl-parts --fn-blocks 27 --absent-file --decl-syms-literal --nojunk-eq
-  --nojunk-blocks 25`;
+  --nojunk-blocks 25 --sig-positions --fnfun-chunk 34 --decl-positions`;
   run from the package root: `lake env lean -j1 test/TieRdrConfigDeepDecls.lean`
-  (1127 s, peak 11.0 GiB under a 12 GiB scope with one Lean thread).
+  (479 s, peak 4.3 GiB under a 12 GiB scope with one Lean thread).
 -/
 import KcoreSpec
 
@@ -445,36 +445,100 @@ noncomputable def declItemsL : List Item := plainSorts.map sortConstantItem ++ p
 theorem plainSymsL_eq : plainSymsL = plainSyms := by unfold plainSymsL plainSyms; rw [hasSymL_eq]
 theorem declItemsL_eq : declItemsL = declItems := by unfold declItemsL declItems; rw [plainSymsL_eq]
 
-theorem declsE_0 : (((declItemsL).drop 0).take 25).all inSigItems = true := by decide +kernel
-theorem declsE_25 : (((declItemsL).drop 25).take 25).all inSigItems = true := by decide +kernel
-theorem declsE_50 : (((declItemsL).drop 50).take 25).all inSigItems = true := by decide +kernel
-theorem declsE_75 : (((declItemsL).drop 75).take 25).all inSigItems = true := by decide +kernel
-theorem declsE_100 : (((declItemsL).drop 100).take 25).all inSigItems = true := by decide +kernel
-theorem declsE_125 : (((declItemsL).drop 125).take 25).all inSigItems = true := by decide +kernel
-theorem declsE_150 : (((declItemsL).drop 150).take 25).all inSigItems = true := by decide +kernel
-theorem declsE_175 : (((declItemsL).drop 175).take 25).all inSigItems = true := by decide +kernel
-theorem declsE_200 : (((declItemsL).drop 200).take 25).all inSigItems = true := by decide +kernel
-theorem declsE_225 : (((declItemsL).drop 225).take 25).all inSigItems = true := by decide +kernel
-theorem declsE_250 : (((declItemsL).drop 250).take 25).all inSigItems = true := by decide +kernel
-theorem declsE_275 : (((declItemsL).drop 275).take 25).all inSigItems = true := by decide +kernel
-theorem declsE_300 : (((declItemsL).drop 300).take 25).all inSigItems = true := by decide +kernel
-theorem declsE_325 : (((declItemsL).drop 325).take 25).all inSigItems = true := by decide +kernel
-theorem declsE_350 : (((declItemsL).drop 350).take 25).all inSigItems = true := by decide +kernel
-theorem declsE_375 : (((declItemsL).drop 375).take 25).all inSigItems = true := by decide +kernel
-theorem declsE_400 : (((declItemsL).drop 400).take 25).all inSigItems = true := by decide +kernel
-theorem declsE_425 : (((declItemsL).drop 425).take 25).all inSigItems = true := by decide +kernel
-theorem declsE_450 : (((declItemsL).drop 450).take 25).all inSigItems = true := by decide +kernel
-theorem declsE_475 : (((declItemsL).drop 475).take 25).all inSigItems = true := by decide +kernel
-theorem declsE_500 : (((declItemsL).drop 500).take 25).all inSigItems = true := by decide +kernel
-theorem declsE_525 : (((declItemsL).drop 525).take 25).all inSigItems = true := by decide +kernel
-theorem declsE_550 : (((declItemsL).drop 550).take 25).all inSigItems = true := by decide +kernel
-theorem declsE_575 : (((declItemsL).drop 575).take 25).all inSigItems = true := by decide +kernel
-theorem declsE_600 : (((declItemsL).drop 600).take 25).all inSigItems = true := by decide +kernel
-theorem declsE_625 : ((declItemsL).drop 625).all inSigItems = true := by decide +kernel
+/-- The position in `sigItems c` of each item of `declItems`, in its order. -/
+def declPos : List Nat :=
+  [1, 2, 152, 127, 66, 53, 195, 104, 79, 115, 191, 65, 198, 105, 167, 113, 60, 134, 62, 181, 117,
+   61, 103, 67, 221, 217, 197, 44, 111, 140, 144, 116, 58, 126, 188, 107, 123, 186, 207, 157, 59,
+   180, 131, 114, 192, 118, 156, 202, 57, 81, 209, 174, 215, 40, 48, 201, 189, 151, 99, 69, 162,
+   170, 132, 34, 137, 219, 177, 179, 106, 45, 190, 171, 161, 138, 19, 173, 6, 120, 41, 70, 149,
+   213, 71, 93, 175, 220, 112, 178, 18, 119, 94, 97, 141, 68, 20, 184, 42, 211, 210, 153, 124, 91,
+   37, 38, 88, 47, 72, 204, 89, 203, 101, 159, 95, 64, 148, 83, 77, 7, 85, 165, 128, 50, 122, 214,
+   92, 109, 98, 21, 163, 82, 49, 55, 46, 5, 32, 154, 142, 194, 75, 121, 193, 160, 4, 185, 63, 102,
+   206, 136, 110, 169, 218, 133, 145, 8, 35, 100, 187, 56, 80, 182, 96, 78, 139, 150, 158, 199,
+   166, 54, 74, 172, 205, 87, 212, 143, 183, 129, 164, 52, 73, 36, 168, 108, 125, 76, 147, 31, 208,
+   200, 3, 155, 216, 84, 176, 146, 51, 135, 43, 86, 130, 90, 39, 196, 33, 222, 223, 678, 657, 668,
+   253, 255, 256, 258, 259, 261, 262, 264, 265, 267, 268, 270, 271, 273, 274, 276, 277, 279, 280,
+   282, 226, 228, 283, 285, 286, 288, 289, 291, 292, 294, 295, 297, 298, 300, 301, 303, 304, 306,
+   307, 309, 310, 312, 229, 231, 313, 315, 316, 318, 319, 321, 322, 324, 325, 327, 328, 330, 331,
+   333, 334, 336, 337, 339, 340, 342, 232, 234, 343, 345, 346, 348, 349, 351, 352, 354, 355, 357,
+   358, 360, 361, 363, 364, 366, 367, 369, 370, 372, 235, 237, 373, 375, 376, 378, 379, 381, 382,
+   384, 385, 387, 388, 390, 391, 393, 394, 396, 397, 399, 400, 402, 238, 240, 403, 405, 406, 408,
+   409, 411, 412, 414, 241, 243, 244, 246, 247, 249, 250, 252, 417, 224, 225, 415, 681, 682, 685,
+   679, 662, 663, 660, 673, 674, 669, 675, 677, 659, 670, 661, 683, 664, 658, 671, 688, 672, 425,
+   456, 458, 457, 459, 461, 460, 462, 464, 463, 465, 467, 466, 468, 470, 469, 471, 473, 472, 474,
+   476, 475, 477, 479, 478, 480, 482, 481, 483, 485, 484, 429, 431, 430, 486, 488, 487, 489, 491,
+   490, 492, 494, 493, 495, 497, 496, 498, 500, 499, 501, 503, 502, 504, 506, 505, 507, 509, 508,
+   510, 512, 511, 513, 515, 514, 432, 434, 433, 516, 518, 517, 519, 521, 520, 522, 524, 523, 525,
+   527, 526, 528, 530, 529, 531, 533, 532, 534, 536, 535, 537, 539, 538, 540, 542, 541, 543, 545,
+   544, 435, 437, 436, 546, 548, 547, 549, 551, 550, 552, 554, 553, 555, 557, 556, 558, 560, 559,
+   561, 563, 562, 564, 566, 565, 567, 569, 568, 570, 572, 571, 573, 575, 574, 438, 440, 439, 576,
+   578, 577, 579, 581, 580, 582, 584, 583, 585, 587, 586, 588, 590, 589, 591, 593, 592, 594, 596,
+   595, 597, 599, 598, 600, 602, 601, 603, 605, 604, 441, 443, 442, 606, 608, 607, 609, 611, 610,
+   612, 614, 613, 615, 617, 616, 444, 446, 445, 447, 449, 448, 450, 452, 451, 453, 455, 454, 620,
+   621, 427, 428, 426, 419, 618, 619, 421, 420, 424, 422, 423, 667, 686, 254, 257, 260, 263, 266,
+   269, 272, 275, 278, 281, 227, 284, 287, 290, 293, 296, 299, 302, 305, 308, 311, 230, 314, 317,
+   320, 323, 326, 329, 332, 335, 338, 341, 233, 344, 347, 350, 353, 356, 359, 362, 365, 368, 371,
+   236, 374, 377, 380, 383, 386, 389, 392, 395, 398, 401, 239, 404, 407, 410, 413, 242, 245, 248,
+   251, 418, 416, 680, 666, 676, 684, 665, 687]
+
+theorem declPos_length : declPos.length = 635 := rfl
+
+theorem decl_sizes : declItemsL.length = 635 := by decide +kernel
+
+/-- The item is the one of `sigItems c` at the position: one comparison. -/
+noncomputable def inSigItemsAt (it : Item) (p : Nat) : Bool := ((sigItems c)[p]?).any (·.pat == it.pat)
+
+/-- An item with its position. -/
+noncomputable def inSigItemsAtP (x : Item × Nat) : Bool := inSigItemsAt x.1 x.2
+
+theorem inSigItemsAt_sound {it : Item} {p : Nat} (h : inSigItemsAt it p = true) : inSigItems it = true := by
+  obtain ⟨x, hx, he⟩ := (Option.any_eq_true _ _).mp h
+  unfold inSigItems
+  exact List.any_eq_true.mpr ⟨x, List.mem_of_getElem? hx, he⟩
+
+/-- `inSigItems` holds of each item where `inSigItemsAtP` holds of each item with its position. -/
+theorem tieDeclPos_all {l : List Item} {ps : List Nat} (hl : l.length ≤ ps.length)
+    (h : (l.zip ps).all inSigItemsAtP = true) : l.all inSigItems = true := by
+  induction l generalizing ps with
+  | nil => rfl
+  | cons it l ih =>
+    cases ps with
+    | nil => exact absurd hl (by simp)
+    | cons p ps =>
+      simp only [List.zip_cons_cons, List.all_cons, Bool.and_eq_true] at h ⊢
+      exact ⟨inSigItemsAt_sound h.1, ih (by simpa using hl) h.2⟩
+
+theorem declsE_0 : (((declItemsL.zip declPos).drop 0).take 25).all inSigItemsAtP = true := by decide +kernel
+theorem declsE_25 : (((declItemsL.zip declPos).drop 25).take 25).all inSigItemsAtP = true := by decide +kernel
+theorem declsE_50 : (((declItemsL.zip declPos).drop 50).take 25).all inSigItemsAtP = true := by decide +kernel
+theorem declsE_75 : (((declItemsL.zip declPos).drop 75).take 25).all inSigItemsAtP = true := by decide +kernel
+theorem declsE_100 : (((declItemsL.zip declPos).drop 100).take 25).all inSigItemsAtP = true := by decide +kernel
+theorem declsE_125 : (((declItemsL.zip declPos).drop 125).take 25).all inSigItemsAtP = true := by decide +kernel
+theorem declsE_150 : (((declItemsL.zip declPos).drop 150).take 25).all inSigItemsAtP = true := by decide +kernel
+theorem declsE_175 : (((declItemsL.zip declPos).drop 175).take 25).all inSigItemsAtP = true := by decide +kernel
+theorem declsE_200 : (((declItemsL.zip declPos).drop 200).take 25).all inSigItemsAtP = true := by decide +kernel
+theorem declsE_225 : (((declItemsL.zip declPos).drop 225).take 25).all inSigItemsAtP = true := by decide +kernel
+theorem declsE_250 : (((declItemsL.zip declPos).drop 250).take 25).all inSigItemsAtP = true := by decide +kernel
+theorem declsE_275 : (((declItemsL.zip declPos).drop 275).take 25).all inSigItemsAtP = true := by decide +kernel
+theorem declsE_300 : (((declItemsL.zip declPos).drop 300).take 25).all inSigItemsAtP = true := by decide +kernel
+theorem declsE_325 : (((declItemsL.zip declPos).drop 325).take 25).all inSigItemsAtP = true := by decide +kernel
+theorem declsE_350 : (((declItemsL.zip declPos).drop 350).take 25).all inSigItemsAtP = true := by decide +kernel
+theorem declsE_375 : (((declItemsL.zip declPos).drop 375).take 25).all inSigItemsAtP = true := by decide +kernel
+theorem declsE_400 : (((declItemsL.zip declPos).drop 400).take 25).all inSigItemsAtP = true := by decide +kernel
+theorem declsE_425 : (((declItemsL.zip declPos).drop 425).take 25).all inSigItemsAtP = true := by decide +kernel
+theorem declsE_450 : (((declItemsL.zip declPos).drop 450).take 25).all inSigItemsAtP = true := by decide +kernel
+theorem declsE_475 : (((declItemsL.zip declPos).drop 475).take 25).all inSigItemsAtP = true := by decide +kernel
+theorem declsE_500 : (((declItemsL.zip declPos).drop 500).take 25).all inSigItemsAtP = true := by decide +kernel
+theorem declsE_525 : (((declItemsL.zip declPos).drop 525).take 25).all inSigItemsAtP = true := by decide +kernel
+theorem declsE_550 : (((declItemsL.zip declPos).drop 550).take 25).all inSigItemsAtP = true := by decide +kernel
+theorem declsE_575 : (((declItemsL.zip declPos).drop 575).take 25).all inSigItemsAtP = true := by decide +kernel
+theorem declsE_600 : (((declItemsL.zip declPos).drop 600).take 25).all inSigItemsAtP = true := by decide +kernel
+theorem declsE_625 : ((declItemsL.zip declPos).drop 625).all inSigItemsAtP = true := by decide +kernel
 
 theorem decls_in_sig : declItems.all inSigItems = true := by
   rw [← declItemsL_eq]
-  exact tieAllE_whole (p := inSigItems) <|
+  exact tieDeclPos_all (Nat.le_of_eq (decl_sizes.trans declPos_length.symm)) <|
+      tieAllE_whole (p := inSigItemsAtP) <|
       tieAllE_range (a := 0) (n := 25) declsE_0 <|
       tieAllE_range (a := 25) (n := 25) declsE_25 <|
       tieAllE_range (a := 50) (n := 25) declsE_50 <|
