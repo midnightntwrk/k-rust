@@ -1798,6 +1798,9 @@ table above, on the tree before String and Bytes). Not investigated here.
   declared without sort parameters, are parameter symbols of their modules that no hook
   interprets, and name no symbol of Γ (the reading has no parameter symbol); the library's
   equation of `dividesInt` (274, domains.md 1454) applies it, the one head it applies that Γ lacks.
+  `floatParams_absent`: the `functional` sentences of FLOAT's `total` symbols `Float2Int`,
+  `atanFloat`, `cosFloat`, `expFloat`, `exponentFloat`, `signFloat`, `sinFloat` (42, 105, 112,
+  116, 118, 165, 168) each apply their own symbol, which Γ lacks, and no other head Γ lacks.
   Axioms printed.
 - `test/LibEvDeclsStrBuf.lean`: the declarations of `f2-examples/e6sb.kompile.kore` (the fixture
   e6-string-buffer) in the direction E, for every H: each sort declaration without sort
@@ -1831,6 +1834,13 @@ table above, on the tree before String and Bytes). Not investigated here.
   both sides are `hook`'s, the first position of one of S2's characters being `gLfc` of the first of
   its first character and of the others, `lfc_firstOr_or`), so it is entailed at values (`ev237`,
   `LibEv.FnEqn.entailedP`); `HookParams.lib` meets the condition (`ev237_lib`). Axioms guarded.
+- `test/CountAllEmptyNeedleFlt.lean`: `countAllOccurrences`' second equation (domains.md 1898),
+  axiom 294 of `f2-examples/silentflt.kompile.kore`, at the empty needle, where its `requires` holds
+  and its right side is one more than its left: for every H meeting `Semantics.silentTotal`, in
+  every model of Γ it fails at that valuation (`s294_at`, `LibEv.FnEqn.refutedPT_at`) and Γ with it
+  has no model (`s294_refuted`; `s294_refuted_lib`); where H gives the count no value there, both
+  sides have none (`s294_none`), at a point where the text's `functional` sentence of the symbol
+  (113) asks a value. Not a tie file (e6map does not read it). Axioms guarded.
 - `test/LibEvDividesInt.lean`: on `f2-examples/e6-divides-int.kompile.kore` (the fixture
   e6-divides-int), the reading's one parameter symbol is `dividesInt`, without implementation
   (`params_div`); Γ entails each sort declaration without sort parameters (`decls_entailed`) and
@@ -1870,7 +1880,8 @@ table above, on the tree before String and Bytes). Not investigated here.
   `isInfinite`, `isNaN` for every H meeting `silentTotal`, of `precisionFloat`,
   `exponentBitsFloat` for every H; 321 (`isInfinite`, 1673) for every H meeting `isInfiniteEq`
   (`fnIsInfinite_ev`, over `KcoreSpec/FloatUnpack.lean`'s `KFloat.isInf_unpack`), and so at
-  `HookParams.lib`. The header lists 380 (1671) and why it is not tied. 2.0 GiB, 8 s. Axioms guarded.
+  `HookParams.lib`. The header lists the FLOAT sentences not tied and why: 380 (1671) and the
+  `functional` sentences of the seven `total` symbols Γ lacks. 2.0 GiB, 8 s. Axioms guarded.
 - `test/FloatUnpack.lean`: facts of Lean core's float model at every format it covers
   (`KcoreSpec/FloatUnpack.lean`): the datum of every encoding is a normal or subnormal datum of the
   format (`datum_unpack`, `unpack_finite_bounds`), `unpack` after `pack` is the identity there

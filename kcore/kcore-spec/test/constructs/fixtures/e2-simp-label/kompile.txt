@@ -1,0 +1,11 @@
+command: kompile --backend haskell e2-simp-label.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 3.5
+definition.kore bytes: 203244
+definition.kore sha256: 562fd68a9ea9e2d9492d33a53bde591debbb6940aca87b5bcc1bd3a2d4293850
+stripped sha256: 8b59e45b9ceb20a7e8f633e9ec607df86a557e4e7bd06a1190b08e5e8d87c45d
+main module: 392 sentences, 35 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-SIMP-LABEL-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E2-SIMP-LABEL as default.

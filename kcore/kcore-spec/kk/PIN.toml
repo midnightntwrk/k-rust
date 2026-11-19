@@ -9,8 +9,8 @@
 # path, also after kfix's normalisation and stripping), so a recorded hash holds in one tree only.
 # `catalogue_compared` is the commit of the catalogue (krs/semantics/kore) kk/compare.py last ran
 # against, with the result recorded in catalogue-differences.toml.
-kk_sha256 = "abd85cb8920c8fb35a39e452be9cbe3c27eb3238fb094cb316aaa15fa5cb3b28"
+kk_sha256 = "44c41e1e1bcb659c5ff24906eda07e814bfb107ec1ccc9f40b45b4e871f7aa24"
 copied_from = "krs/semantics/kore/kore.k"
-copied_at = "de05a5c619dddfb60c510e85109d16e1a62e585b"
+copied_at = "e1e21f9055f9aabf50f2cad6ae670fff6e5de709"
 kompiled_fixture = "kore-k"
 catalogue_compared = "8b8a15424aa74fba8580f93d6baeaef07d928dd6"
