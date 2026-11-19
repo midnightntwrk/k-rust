@@ -15,14 +15,18 @@
 //! the run, independent of the end. An implementation's views are not projections of the flow and
 //! keep nothing: an `[[implementation]]` is no input of the definition's runs.
 //!
+//! A projection's `domain` is the programs it applies to ([`ProjectionSection::holds`]): those
+//! whose id, or whose case document's path, one of its case patterns matches. `compare` measures
+//! a view naming the projection on those programs only; `run` does not apply it yet.
+//!
 //! kink-flow reads the declaration's shape and its own keys (`name`, `kind`, `compare`,
 //! `channels`, `domain`); `views` and `observer` are the front end's, as a view's are
 //! ([`super::ViewSection::front_end`]), and kink-flow's own K front end refuses a projection that
 //! has them (`crate::admit`, stage `projection`).
 
 use super::{
-    ManifestError, ObserveSection, case_pattern::CasePattern, front_end_key, join, known_keys,
-    names, required_string, table,
+    ManifestError, ObserveSection, Program, case_pattern::CasePattern, front_end_key, join,
+    known_keys, names, required_string, table,
 };
 use toml::Value;
 
@@ -49,8 +53,8 @@ pub struct ProjectionSection {
     /// besides its cells; `None`: no channel.
     pub channels: Option<Vec<String>>,
     /// `domain`: the cases the projection applies to, as case patterns
-    /// ([`super::Program`]'s `files` grammar), as written; `None`: every case. Decoded and
-    /// checked only: no command reads it yet (projections package, U10a handoff).
+    /// ([`super::Program`]'s `files` grammar), as written, each matching some program of the
+    /// flow; `None`: every case ([`Self::holds`]).
     pub domain: Option<Vec<String>>,
 }
 
@@ -105,6 +109,21 @@ impl ProjectionSection {
             ProjectionKind::Accepts => true,
             ProjectionKind::Trace => false,
         }
+    }
+
+    /// Whether `program` is in the projection's domain: always without `domain`; otherwise
+    /// where one of its patterns matches the program's id or, for a case of a case document, the
+    /// document's path as matched (`Program::case`), so a pattern written as a `[[program]]`
+    /// entry's holds every program that entry gives, a document's named cases
+    /// (`<document>#<name>`) included. The id of a `files` match or of a document's one case is
+    /// the path the pattern matched, relative to the case root; a listed program's is its `id`.
+    #[must_use]
+    pub fn holds(&self, program: &Program) -> bool {
+        self.domain.as_ref().is_none_or(|patterns| {
+            patterns
+                .iter()
+                .any(|pattern| pattern_holds(pattern, program))
+        })
     }
 
     /// The projection as documents name it: `{name, kind}` with the keys it has (`compare`,
@@ -162,6 +181,67 @@ pub fn record_cells(declared: &[ProjectionSection]) -> Option<Vec<RecordCell>> {
         }
     }
     Some(cells)
+}
+
+/// Whether the case pattern `pattern` holds `program` ([`ProjectionSection::holds`]); a pattern
+/// that does not parse holds nothing (decoding refuses one).
+fn pattern_holds(pattern: &str, program: &Program) -> bool {
+    CasePattern::parse(pattern, "the corpus root").is_ok_and(|pattern| {
+        pattern.matches_path(&program.id)
+            || program
+                .case
+                .as_deref()
+                .is_some_and(|document| pattern.matches_path(document))
+    })
+}
+
+/// The `compare` of each declared `end` projection that has one, each cell with the projection,
+/// in the order written: what admission checks of each projection where the result record does
+/// not narrow to it (`crate::observed::result_projection`).
+#[must_use]
+pub fn compare_cells(declared: &[ProjectionSection]) -> Vec<Vec<RecordCell>> {
+    declared
+        .iter()
+        .filter_map(|projection| {
+            projection.compare.as_ref().map(|cells| {
+                cells
+                    .iter()
+                    .map(|cell| RecordCell {
+                        cell: cell.clone(),
+                        projection: projection.name.clone(),
+                    })
+                    .collect()
+            })
+        })
+        .collect()
+}
+
+/// Every pattern of every projection's `domain` holds some program of `programs`, or the
+/// manifest is refused at the pattern (`projection[i].domain[j]`): a pattern that matches nothing
+/// is an error, as a `[[program]]` pattern's is, since a projection measured on no case measures
+/// nothing.
+pub(super) fn domains_hold(
+    projections: &[ProjectionSection],
+    programs: &[Program],
+) -> Result<(), ManifestError> {
+    for (index, projection) in projections.iter().enumerate() {
+        for (at, pattern) in projection.domain.iter().flatten().enumerate() {
+            if !programs
+                .iter()
+                .any(|program| pattern_holds(pattern, program))
+            {
+                return Err(ManifestError::new(
+                    format!("projection[{index}].domain[{at}]"),
+                    format!(
+                        "pattern {pattern:?} matches no program of the flow (a program's id, or \
+                         the path of the case document a case is in); a domain that holds no \
+                         case measures nothing"
+                    ),
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// The keys of an `end` projection a front end reads ([`front_end_key`]).
@@ -368,4 +448,75 @@ fn channels_declared(
         ));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A program with `id`, a case of the document `case` where given.
+    fn program(id: &str, case: Option<&str>) -> Program {
+        Program {
+            id: id.to_owned(),
+            source: None,
+            start_sort: None,
+            variables: Vec::new(),
+            inputs: toml::Table::new(),
+            case: case.map(str::to_owned),
+            case_file: None,
+            expect: None,
+            expect_for: super::super::ExpectFor::default(),
+            provenance: None,
+            stop_count: None,
+        }
+    }
+
+    fn within(domain: &[&str]) -> ProjectionSection {
+        ProjectionSection {
+            domain: Some(domain.iter().map(|pattern| (*pattern).to_owned()).collect()),
+            ..default_projection(None)
+        }
+    }
+
+    /// A domain holds a program whose id one of its patterns matches, or whose case document's
+    /// path it matches: a pattern written as a `[[program]] cases` entry holds that document's
+    /// named cases; a pattern of a named case's id holds that case alone.
+    #[test]
+    fn a_domain_holds_the_programs_its_patterns_match() {
+        let listed = program("sum", None);
+        let file = program("cases/io/read.imp", None);
+        let single = program("cases/static/bad.toml", Some("cases/static/bad.toml"));
+        let named = program("cases/static/many.toml#b", Some("cases/static/many.toml"));
+        let other = program("cases/static/many.toml#c", Some("cases/static/many.toml"));
+        let every = default_projection(None);
+        for program in [&listed, &file, &single, &named, &other] {
+            assert!(every.holds(program), "{}", program.id);
+        }
+        let io = within(&["cases/io/**"]);
+        assert_eq!(
+            [&listed, &file, &single, &named].map(|program| io.holds(program)),
+            [false, true, false, false]
+        );
+        let documents = within(&["cases/static/*.toml", "sum"]);
+        assert_eq!(
+            [&listed, &file, &single, &named, &other].map(|program| documents.holds(program)),
+            [true, false, true, true, true]
+        );
+        let one = within(&["cases/static/*.toml#b"]);
+        assert_eq!(
+            [&single, &named, &other].map(|program| one.holds(program)),
+            [false, true, false]
+        );
+    }
+
+    #[test]
+    fn a_domain_pattern_that_matches_no_program_is_refused() {
+        let programs = [program("sum", None), program("cases/a.imp", None)];
+        let projections = [within(&["sum"]), within(&["cases/*.imp", "cases/*.k"])];
+        let error = domains_hold(&projections, &programs).unwrap_err();
+        assert_eq!(error.key, "projection[1].domain[1]", "{error}");
+        assert!(error.message.contains("\"cases/*.k\""), "{error}");
+        assert_eq!(domains_hold(&projections[..1], &programs), Ok(()));
+        assert_eq!(domains_hold(&[default_projection(None)], &[]), Ok(()));
+    }
 }

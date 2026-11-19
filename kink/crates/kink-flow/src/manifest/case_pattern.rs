@@ -133,6 +133,39 @@ impl CasePattern {
         walk(root, "", &self.components, &mut found)?;
         Ok(found.into_iter().collect())
     }
+
+    /// Whether the pattern matches `path`, components separated by `/`, without reading the file
+    /// system: a literal equals its component, a glob matches one component, `**` zero or more,
+    /// and a wildcard never matches a component that starts with `.` (a glob does only by its
+    /// own literal `.`), as when the pattern walks a directory ([`Self::matches`]).
+    pub(super) fn matches_path(&self, path: &str) -> bool {
+        let components = path.split('/').collect::<Vec<_>>();
+        matched(&self.components, &components)
+    }
+}
+
+/// Whether `parts` match the whole of `components` ([`CasePattern::matches_path`]).
+fn matched(parts: &[Part], components: &[&str]) -> bool {
+    let Some((part, rest)) = parts.split_first() else {
+        return components.is_empty();
+    };
+    match part {
+        Part::Literal(name) => components
+            .split_first()
+            .is_some_and(|(first, others)| first == name && matched(rest, others)),
+        Part::Glob(tokens) => components.split_first().is_some_and(|(first, others)| {
+            (tokens.first() == Some(&Token::Char('.')) || !first.starts_with('.'))
+                && glob(tokens, &first.chars().collect::<Vec<_>>())
+                && matched(rest, others)
+        }),
+        // Zero directories, or one more that is no dot name.
+        Part::AnyDirectories => {
+            matched(rest, components)
+                || components.split_first().is_some_and(|(first, others)| {
+                    !first.starts_with('.') && matched(parts, others)
+                })
+        }
+    }
 }
 
 /// Extend `found` with the matches of `parts` under `directory`, whose path relative to the
@@ -376,6 +409,33 @@ mod tests {
         let mut almost = name.clone();
         almost.push('b');
         assert!(glob(tokens, &almost));
+    }
+
+    /// A path is matched by the grammar a walk matches files by: literals, one-component globs,
+    /// `**` over zero or more components, never a dot name through a wildcard.
+    #[test]
+    fn a_path_is_matched_without_the_file_system() {
+        let holds = |pattern: &str, path: &str| {
+            CasePattern::parse(pattern, "the corpus root")
+                .unwrap()
+                .matches_path(path)
+        };
+        assert!(holds("one", "one"));
+        assert!(!holds("one", "one/two"));
+        assert!(holds("cases/*.toml", "cases/a.toml"));
+        assert!(!holds("cases/*.toml", "cases/a.toml#b"));
+        assert!(holds("cases/*.toml#b", "cases/a.toml#b"));
+        assert!(!holds("cases/*.toml", "cases/io/a.toml"));
+        assert!(holds("cases/**", "cases/a.toml"));
+        assert!(holds("cases/**", "cases/io/deep/a.toml"));
+        assert!(!holds("cases/**", "cases"));
+        assert!(holds("cases/**/a.toml", "cases/a.toml"));
+        assert!(holds("cases/**/a.toml", "cases/x/y/a.toml"));
+        assert!(!holds("cases/**/a.toml", "cases/.hidden/a.toml"));
+        assert!(!holds("cases/*", "cases/.a"));
+        assert!(holds("cases/.*", "cases/.a"));
+        assert!(holds("cases/.a", "cases/.a"));
+        assert!(!holds("cases/?", "cases/ab"));
     }
 
     #[test]

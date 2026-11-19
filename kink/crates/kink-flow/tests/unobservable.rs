@@ -561,13 +561,13 @@ fn dispatched(manifest: &Path, verb: &str) -> (Value, u8) {
 fn every_document_names_the_projections_it_measured_under() {
     let declared = plain_with(
         "[[projection]]\nname = \"p\"\ncompare = [\"k\"]\n\n[[projection]]\nname = \"q\"\n\
-         compare = [\"out\"]\ndomain = [\"cases/**\"]\n\n",
+         compare = [\"out\"]\ndomain = [\"b*\"]\n\n",
     );
     let dir = fixture("named", &[("named", &declared)]);
     let manifest = dir.join("FLOW-named.toml");
     let projections = json!([
         {"name": "p", "kind": "end", "compare": ["k"]},
-        {"name": "q", "kind": "end", "compare": ["out"], "domain": ["cases/**"]},
+        {"name": "q", "kind": "end", "compare": ["out"], "domain": ["b*"]},
     ]);
     for verb in ["check", "coverage", "run", "query", "compare", "prune"] {
         let (document, _) = dispatched(&manifest, verb);
@@ -806,4 +806,252 @@ fn a_one_sided_kill_under_a_cells_slot_never_rests_on_an_unobservable_cell() {
     );
     let text = difference["mutant"]["value"]["text"].as_str().unwrap();
     assert!(text.contains("done ( 608 )"), "{difference:#}");
+}
+
+/// kink-flow's K front end checks every projection's `compare` against the configuration, also
+/// where another projection keeps every cell in the record and so the record does not narrow to
+/// it: such a `compare` is refused as it would be were its projection the flow's only one, and
+/// one the configuration holds leaves the record as the other projection keeps it.
+#[test]
+fn a_projection_s_compare_is_checked_where_the_record_does_not_narrow_to_it() {
+    let beside = |cells: &str| {
+        plain_with(&format!(
+            "[[projection]]\nname = \"all\"\n\n[[projection]]\nname = \"p\"\ncompare = {cells}\n\n"
+        ))
+    };
+    let dir = fixture(
+        "compare-checked",
+        &[
+            ("nope", &beside("[\"nope\"]")),
+            ("scratch", &beside("[\"out\", \"scratch\"]")),
+            ("out", &beside("[\"out\"]")),
+        ],
+    );
+    let admitted =
+        |name: &str| admit(&FlowManifest::read(&dir.join(format!("FLOW-{name}.toml"))).unwrap());
+    for (name, reason, cell) in [
+        ("nope", "result-cell-unknown", "<nope>"),
+        ("scratch", "result-cell-unobservable", "<scratch>"),
+    ] {
+        let (stage, found, detail) = refusal(&admitted(name));
+        assert_eq!(
+            (stage.as_str(), found.as_str()),
+            ("result", reason),
+            "{name}: {detail}"
+        );
+        assert!(
+            detail.contains(cell) && detail.contains("projection `p`"),
+            "{name}: {detail}"
+        );
+    }
+    let out = admitted("out");
+    let spec = out.spec.as_ref().expect("admitted");
+    assert_eq!(
+        spec.result.value(),
+        result("cells", &["k", "out"], &["scratch"], &["scratch"])
+    );
+}
+
+/// A front end for compare whose every end view is `equal`: compare needs one, and kink-flow's
+/// own front end has none.
+struct Equal;
+
+impl kink_flow::compare::Vocabulary for Equal {
+    fn check(&self, _: &kink_flow::manifest::ImplementationSection) -> Result<(), String> {
+        Ok(())
+    }
+    fn start(&self, _: &k_rust::kore::ast::Pattern) -> Result<Value, String> {
+        Err("no start is asked".to_owned())
+    }
+    fn inputs(
+        &self,
+        _: &kink_flow::manifest::Program,
+        _: &mut dyn kink_flow::admit::InputFiles,
+    ) -> Result<Value, String> {
+        Ok(json!({}))
+    }
+    fn read_answer(
+        &self,
+        _: &kink_flow::manifest::ImplementationSection,
+        _: &Value,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+    fn compare(
+        &self,
+        _: &kink_flow::compare::Question<'_>,
+    ) -> Result<kink_flow::compare::Judged, String> {
+        Ok(kink_flow::compare::Judged::Equal {
+            omitted: Vec::new(),
+            compared_cells: 1,
+        })
+    }
+    fn observe_request(&self, _: &[String]) -> Result<Vec<Value>, String> {
+        Err("no channel is asked".to_owned())
+    }
+    fn judge_trace(
+        &self,
+        _: &kink_flow::compare::TraceQuestion<'_>,
+    ) -> Result<kink_flow::compare::TraceAnswer, String> {
+        Err("no channel is asked".to_owned())
+    }
+}
+
+/// A program outside the domain of the projection a view names is neither compared nor counted
+/// under that view: its row is `not-compared` (`outside-domain`, status 0), the implementation is
+/// not asked where no view applies to the program, the summary counts the view on the programs
+/// of its domain only, and the lock holds the row and counts the view from the rows it holds.
+#[test]
+fn a_view_compares_only_the_programs_of_its_projection_s_domain() {
+    let answer = |log: &str| {
+        format!(
+            "[\"sh\", \"-c\", \"cat >> {log}; echo >> {log}; echo '{{\\\"end\\\": \\\"final\\\", \
+             \\\"cells\\\": {{}}}}'\"]"
+        )
+    };
+    let manifest = fs::read_to_string(flow().join("FLOW.toml"))
+        .unwrap()
+        .replace(
+            "[[program]]",
+            "[[projection]]\nname = \"p\"\ndomain = [\"both\"]\n\n[[program]]",
+        )
+        + &format!(
+            "\n[[program]]\nid = \"two\"\ntext = \"emit(2)\"\n\n\
+             [[implementation]]\nname = \"wide\"\ngiven = \"inputs\"\ncommand = {}\nviews = [\n  \
+             {{ projection = \"p\", required = true }},\n  {{ name = \"all\", required = true }},\n]\n\n\
+             [[implementation]]\nname = \"narrow\"\ngiven = \"inputs\"\ncommand = {}\nviews = [{{ projection = \"p\", \
+             required = true }}]\n",
+            answer("wide.log"),
+            answer("narrow.log")
+        );
+    let dir = fixture("domain", &[("domain", &manifest)]);
+    let read = FlowManifest::read(&dir.join("FLOW-domain.toml")).unwrap();
+    let lock = dir.join("kink.lock");
+    let options = kink_flow::compare::CompareOptions {
+        lock: Some(lock.clone()),
+        ..Default::default()
+    };
+    let document = kink_flow::compare::command(&read, &options, Some(&Equal), "compare");
+    assert_eq!(document["version"], 8, "{document:#}");
+    let views = |implementation: &str, program: &str| -> Vec<(String, String, Value)> {
+        let row = document["rows"]
+            .as_array()
+            .unwrap_or_else(|| panic!("{document:#}"))
+            .iter()
+            .find(|row| row["implementation"] == implementation && row["program"] == program)
+            .unwrap_or_else(|| panic!("{implementation} {program}: {document:#}"));
+        row["views"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|view| {
+                (
+                    view["view"].as_str().unwrap().to_owned(),
+                    format!(
+                        "{}{}",
+                        view["verdict"].as_str().unwrap(),
+                        view["reason"]
+                            .as_str()
+                            .map(|reason| format!(" {reason}"))
+                            .unwrap_or_default()
+                    ),
+                    view["status"].clone(),
+                )
+            })
+            .collect()
+    };
+    let view =
+        |name: &str, verdict: &str, status: Value| (name.to_owned(), verdict.to_owned(), status);
+    let outside = || view("p", "not-compared outside-domain", json!(0));
+    assert_eq!(
+        views("wide", "both"),
+        [
+            view("p", "equal", Value::Null),
+            view("all", "equal", Value::Null)
+        ]
+    );
+    assert_eq!(
+        views("wide", "two"),
+        [outside(), view("all", "equal", Value::Null)]
+    );
+    assert_eq!(views("narrow", "both"), [view("p", "equal", Value::Null)]);
+    assert_eq!(views("narrow", "two"), [outside()]);
+    let row = |implementation: &str, program: &str| {
+        document["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["implementation"] == implementation && row["program"] == program)
+            .unwrap()
+            .clone()
+    };
+    let detail = &row("narrow", "two")["views"][0]["detail"];
+    assert!(
+        detail.as_str().unwrap().contains("projection `p` (`both`)"),
+        "{detail}"
+    );
+    // No view of `narrow` applies to `two`: it was not asked, and its row requires nothing.
+    assert_eq!(row("narrow", "two")["request_sha256"], Value::Null);
+    assert_eq!(row("narrow", "two")["required"], false);
+    assert_eq!(row("wide", "two")["required"], true);
+    let asked = |log: &str| {
+        fs::read_to_string(dir.join(log))
+            .unwrap()
+            .lines()
+            .filter(|line| !line.is_empty())
+            .map(|line| serde_json::from_str::<Value>(line).unwrap()["program"].clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(asked("wide.log"), [json!("both"), json!("two")]);
+    assert_eq!(asked("narrow.log"), [json!("both")]);
+    // Counted on the programs of the domain only.
+    assert_eq!(
+        document["summary"]["verdicts"],
+        json!({"equal": 4, "different": 0, "could-not-apply": 0, "not-compared": 0}),
+        "{document:#}"
+    );
+    let compared = document["summary"]["views"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|view| {
+            (
+                view["implementation"].as_str().unwrap(),
+                view["view"].as_str().unwrap(),
+                view["compared"].as_u64().unwrap(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        compared,
+        [("wide", "p", 1), ("wide", "all", 2), ("narrow", "p", 1)]
+    );
+    assert_eq!(kink_flow::compare::compare_status(&document), EXIT_YES);
+    // The lock holds every row, the one outside the domain too, and counts as the summary does.
+    let text = fs::read_to_string(&lock).unwrap();
+    assert_eq!(
+        text.matches("reason = \"outside-domain\"").count(),
+        2,
+        "{text}"
+    );
+    let rows = |header: &str| text.lines().filter(|line| *line == header).count();
+    assert_eq!(
+        (rows("[[compare.verdict]]"), rows("[[compare.view]]")),
+        (6, 3),
+        "{text}"
+    );
+    assert!(
+        text.contains("view = \"p\"\nrequired = true\ncompared = 1\nagreeing = 1"),
+        "{text}"
+    );
+    let again = kink_flow::compare::command(
+        &read,
+        &kink_flow::compare::CompareOptions {
+            locked: true,
+            ..options
+        },
+        Some(&Equal),
+        "compare",
+    );
+    assert_eq!(again["lock"]["status"], "unchanged", "{:#}", again["lock"]);
 }

@@ -1374,7 +1374,9 @@ channels = ["writes"]                        # channels of [observe]
 ```
 
 A corpus that declares none has one, `default`: every observable cell and every `[observe]` channel, what a kill compares.
-An `end` projection may also name `views` and `observer`, as a view does (below), and `channels` besides its cells; `domain`, a list of case patterns, is checked and not yet applied.
+An `end` projection may also name `views` and `observer`, as a view does (below), and `channels` besides its cells.
+`domain`, a list of case patterns, names the cases a projection applies to: a case is in it when a pattern matches its id or the path of the case document it is in (so a pattern written as a `[[program]] cases` entry's holds that entry's cases, a document's named cases included), and a pattern that matches no case of the corpus is refused.
+`krs kink compare` compares a view that names the projection on the cases of its domain only: elsewhere the view is `not-compared` (`outside-domain`), counted nowhere, and the implementation is not asked for it; `run` does not apply `domain` yet.
 kink keeps in each case's result the cells the projections compare (every observable cell where one projection compares them all, as one without `compare` or an `accepts` projection does) and judges `run`'s kills on them; judging each projection apart is to come.
 `compare` names the cells kink compares by Rust path, as `compare` in an [expectation](#expectations) and `krs compare --compare` do, and `krs kink` gives kink-flow each cell's K name.
 A K cell name (`eiPending` for `<eiPending>`) is read too, where no cell has that name as its Rust path: a path names one cell and is read first, so a corpus written by paths means what it says whatever the K names are, and a K name is read only where it competes with no path.

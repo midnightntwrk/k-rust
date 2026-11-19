@@ -204,18 +204,28 @@ impl std::error::Error for ResultRefusal {}
 /// `narrowed` when the projections narrow them (`FlowManifest::record_cells`, each cell with the
 /// projection that names it; module documentation). `kore` is `compiled`'s `definition.kore`,
 /// parsed.
+///
+/// `own` holds, where the record is not narrowed, the `compare` of each projection that has one
+/// (`crate::manifest::compare_cells`): each is checked as the narrowing of a record of its own
+/// and its result discarded, so a cell a projection names that the configuration does not have,
+/// or that it declares unobservable, is refused as it would be were that projection the flow's
+/// only one, though another projection keeps every cell in the record. A narrowed record already
+/// holds every projection's `compare` (the union), so `own` is read only where it is not.
 pub fn result_projection(
     compiled: &ValidatedDefinition,
     kore: &KoreDefinition,
     narrowed: Option<&[RecordCell]>,
+    own: &[Vec<RecordCell>],
 ) -> Result<ResultProjection, ResultRefusal> {
     let layout = match CellLayout::of_parsed(compiled, kore) {
         Ok(layout) => layout,
         // Every cell the layout would declare unobservable is a production of the execution
         // definition with the attribute, so without one and without a narrowing nothing is left
-        // out, and the whole term needs no layout.
+        // out, and the whole term needs no layout. A projection's own `compare` names cells, which
+        // only the layout places.
         Err(CellLayoutRefusal::Layout { .. })
             if narrowed.is_none()
+                && own.is_empty()
                 && !declares_unobservable(&compiled.artifacts().execution_definition) =>
         {
             return Ok(ResultProjection {
@@ -227,64 +237,90 @@ pub fn result_projection(
         }
         Err(refusal) => return Err(ResultRefusal::Layout(refusal)),
     };
-    let cells = layout.cells();
-    // The specification's cells: neither the top cell (index 0) nor the counter cell compilation
-    // adds beside the declared ones.
-    let declared = |at: usize| {
-        cells[at].parent.is_some()
-            && !(cells[at].parent == Some(0) && cells[at].kore_symbol == GENERATED_COUNTER)
-    };
-    let names = |set: &[usize]| {
-        set.iter()
-            .map(|&at| cells[at].name.clone())
-            .collect::<Vec<_>>()
-    };
-    let unobservable = (0..cells.len())
-        .filter(|&at| cells[at].unobservable)
-        .collect::<Vec<_>>();
-
     let Some(written) = narrowed else {
-        // Every maximal unobservable cell, as kink-campaign's own projection leaves them out.
-        let left_out = layout.maximal_unobservable();
-        let state = layout
-            .unobservable_projection()
-            .map_err(ResultRefusal::Layout)?
-            .map_or(StateProjection::WholeTerm, StateProjection::Cells);
-        let enclosing = left_out
-            .iter()
-            .flat_map(|&at| layout.ancestors(at))
-            .collect::<BTreeSet<_>>();
-        let compared = (0..cells.len())
-            .filter(|&at| {
-                declared(at)
-                    && cells[at]
-                        .parent
-                        .is_some_and(|parent| parent == 0 || enclosing.contains(&parent))
-                    && !left_out.contains(&at)
-                    && !enclosing.contains(&at)
-            })
-            .collect::<Vec<_>>();
-        return Ok(ResultProjection {
-            state,
-            compared: Some(names(&compared)),
-            not_compared: names(&left_out),
-            unobservable: names(&unobservable),
-        });
+        let result = unnarrowed(&layout)?;
+        for cells in own {
+            narrowed_to(&layout, cells)?;
+        }
+        return Ok(result);
     };
+    narrowed_to(&layout, written)
+}
 
+/// The specification's cells of `layout`: neither the top cell (index 0) nor the counter cell
+/// compilation adds beside the declared ones.
+fn declared(layout: &CellLayout, at: usize) -> bool {
+    let cells = layout.cells();
+    cells[at].parent.is_some()
+        && !(cells[at].parent == Some(0) && cells[at].kore_symbol == GENERATED_COUNTER)
+}
+
+/// The names of the cells `set` of `layout`, in its order.
+fn names(layout: &CellLayout, set: &[usize]) -> Vec<String> {
+    set.iter()
+        .map(|&at| layout.cells()[at].name.clone())
+        .collect()
+}
+
+/// Every cell `layout` declares unobservable, in configuration preorder.
+fn unobservable(layout: &CellLayout) -> Vec<usize> {
+    let cells = layout.cells();
+    (0..cells.len())
+        .filter(|&at| cells[at].unobservable)
+        .collect()
+}
+
+/// The second slot when nothing narrows it: every maximal unobservable cell left out, as
+/// kink-campaign's own projection leaves them out.
+fn unnarrowed(layout: &CellLayout) -> Result<ResultProjection, ResultRefusal> {
+    let cells = layout.cells();
+    let left_out = layout.maximal_unobservable();
+    let state = layout
+        .unobservable_projection()
+        .map_err(ResultRefusal::Layout)?
+        .map_or(StateProjection::WholeTerm, StateProjection::Cells);
+    let enclosing = left_out
+        .iter()
+        .flat_map(|&at| layout.ancestors(at))
+        .collect::<BTreeSet<_>>();
+    let compared = (0..cells.len())
+        .filter(|&at| {
+            declared(layout, at)
+                && cells[at]
+                    .parent
+                    .is_some_and(|parent| parent == 0 || enclosing.contains(&parent))
+                && !left_out.contains(&at)
+                && !enclosing.contains(&at)
+        })
+        .collect::<Vec<_>>();
+    Ok(ResultProjection {
+        state,
+        compared: Some(names(layout, &compared)),
+        not_compared: names(layout, &left_out),
+        unobservable: names(layout, &unobservable(layout)),
+    })
+}
+
+/// The second slot narrowed to the cells `written` (module documentation).
+fn narrowed_to(
+    layout: &CellLayout,
+    written: &[RecordCell],
+) -> Result<ResultProjection, ResultRefusal> {
+    let cells = layout.cells();
     let mut chosen = BTreeSet::new();
     for RecordCell {
         cell: name,
         projection,
     } in written
     {
-        let Some(at) = layout.cell(name).filter(|&at| declared(at)) else {
+        let Some(at) = layout.cell(name).filter(|&at| declared(layout, at)) else {
             return Err(ResultRefusal::CellUnknown {
                 cell: name.clone(),
                 projection: projection.clone(),
                 cells: names(
+                    layout,
                     &(0..cells.len())
-                        .filter(|&at| declared(at))
+                        .filter(|&at| declared(layout, at))
                         .collect::<Vec<_>>(),
                 ),
             });
@@ -325,7 +361,7 @@ pub fn result_projection(
         .collect::<BTreeSet<_>>();
     let mut left_out = (0..cells.len())
         .filter(|&at| {
-            declared(at)
+            declared(layout, at)
                 && cells[at]
                     .parent
                     .is_some_and(|parent| enclosing.contains(&parent))
@@ -355,9 +391,9 @@ pub fn result_projection(
 
     Ok(ResultProjection {
         state,
-        compared: Some(names(&chosen)),
-        not_compared: names(&left_out),
-        unobservable: names(&unobservable),
+        compared: Some(names(layout, &chosen)),
+        not_compared: names(layout, &left_out),
+        unobservable: names(layout, &unobservable(layout)),
     })
 }
 

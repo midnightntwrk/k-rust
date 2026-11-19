@@ -473,7 +473,7 @@ fn projections_decode_as_written_and_the_record_keeps_their_cells() {
          [[projection]]\nname = \"bus\"\nkind = \"end\"\ncompare = [\"bus\", \"pc\"]\nviews = \
          {{ bus = \"WritesView\" }}\nobserver = \"p:views\"\nchannels = [\"writes\"]\ndomain = \
          [\"cases/io/**\"]\n\n[[projection]]\nname = \"t\"\nkind = \"trace\"\nchannels = \
-         [\"ticks\"]\n"
+         [\"ticks\"]\n\n[[program]]\nid = \"cases/io/one\"\ntext = \"1\"\n"
     ))
     .unwrap();
     let names = manifest
@@ -687,6 +687,12 @@ fn projection_errors_name_the_key() {
             "[[projection]]\nname = \"p\"\ndomain = [\"/abs\"]\n",
             "projection[0].domain[0]",
             "is absolute",
+        ),
+        (
+            "[[projection]]\nname = \"p\"\ndomain = [\"one\", \"cases/*\"]\n\n\
+             [[program]]\nid = \"one\"\ntext = \"1\"\n",
+            "projection[0].domain[1]",
+            "matches no program of the flow",
         ),
     ] {
         assert_error(&format!("{SPEC}{text}"), key, message);

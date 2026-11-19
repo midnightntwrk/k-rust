@@ -2488,6 +2488,82 @@ identity_sha256 = "aa"
         assert_eq!(value["failed"], json!([]), "{value:#}");
     }
 
+    /// A view outside its projection's domain rests on no run (projections PJ-10): in a pair whose
+    /// rows are kept, because the clock stopped the baseline or the implementation failed, its
+    /// live `outside-domain` row is written, and every other view keeps its recorded row.
+    #[test]
+    fn a_view_outside_its_domain_is_written_live_in_a_kept_pair() {
+        let dir = scratch("compare-outside-domain");
+        let path = dir.join(LOCK_FILE);
+        let store = Store::new(&dir);
+        let document = |rows: Vec<Value>| {
+            let mut document = compare_document(rows);
+            document["implementations"][0]["views"] = json!([{"name": "whole"}, {"name": "p"}]);
+            document
+        };
+        let both = |program: &str| {
+            compare_row(
+                program,
+                vec![
+                    view("whole", true, "equal", json!({})),
+                    view("p", true, "equal", json!({})),
+                ],
+                Value::Null,
+                Value::Null,
+            )
+        };
+        let outside = view(
+            "p",
+            true,
+            "not-compared",
+            json!({"reason": "outside-domain", "status": 0}),
+        );
+        let read = || Lock::read_kind(&path, LockKind::Compare).unwrap();
+        for (what, kept) in [
+            (
+                "baseline stopped",
+                compare_row(
+                    "p2",
+                    vec![
+                        view(
+                            "whole",
+                            true,
+                            "not-compared",
+                            json!({"reason": "definition", "status": 3}),
+                        ),
+                        outside.clone(),
+                    ],
+                    Value::Null,
+                    json!("baseline"),
+                ),
+            ),
+            (
+                "implementation failed",
+                compare_row(
+                    "p2",
+                    vec![outside.clone()],
+                    json!({"kind": "exit", "detail": "status 3"}),
+                    Value::Null,
+                ),
+            ),
+        ] {
+            let _ = fs::remove_file(&path);
+            let _ = read().settle(&store, &document(vec![both("p1"), both("p2")]), WRITE);
+            let (value, _) = read().settle(&store, &document(vec![both("p1"), kept]), WRITE);
+            assert_eq!(value["status"], "written", "{what}: {value:#}");
+            let written = fs::read_to_string(&path).unwrap();
+            assert!(
+                written.contains(
+                    "program = \"p2\"\nview = \"whole\"\nrequired = true\nverdict = \"equal\"\n"
+                ) && written.contains(
+                    "program = \"p2\"\nview = \"p\"\nrequired = true\nverdict = \
+                     \"not-compared\"\nreason = \"outside-domain\"\n"
+                ),
+                "{what}: {written}"
+            );
+        }
+    }
+
     /// A case's `provenance` on its program row (PJ-22) is in no lock section: the run,
     /// coverage, compare and query sections a document renders are the same with and without it,
     /// so stating, editing or removing it never makes `--locked` stale.

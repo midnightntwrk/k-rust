@@ -75,7 +75,8 @@ pub use implementation::{Given, IdentitySection, ImplementationSection, Protocol
 use kink_corpus::ProgramSource;
 pub use pattern_sources::PatternsEntry;
 pub use projection::{
-    DEFAULT_PROJECTION, ProjectionKind, ProjectionSection, RecordCell, default_projection,
+    DEFAULT_PROJECTION, ProjectionKind, ProjectionSection, RecordCell, compare_cells,
+    default_projection,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -1081,6 +1082,7 @@ impl ManifestFile {
                 programs.push(program);
             }
         }
+        projection::domains_hold(&projections, &programs)?;
         Ok(Self {
             directory: directory.to_path_buf(),
             corpus,

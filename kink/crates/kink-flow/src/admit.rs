@@ -1253,13 +1253,20 @@ fn admit_definition(
     // definition exclusions all read it.
     let kore = k_rust::kore::parser::parse_definition(&compiled.artifacts().definition_kore)
         .map_err(|e| input_gate_refusal(format!("could not parse KORE definition: {e}")))?;
-    let result = result_projection(&compiled, &kore, manifest.record_cells.as_deref()).map_err(
-        |refusal| AdmissionRefusal {
+    // Each projection's `compare` is checked where the record does not narrow to it, in a K
+    // flow: a front end that binds the definition names cells in its own vocabulary and checks
+    // them itself (krs `cells::bind`).
+    let own = if manifest.definition.is_none() && manifest.record_cells.is_none() {
+        crate::manifest::compare_cells(&manifest.projections)
+    } else {
+        Vec::new()
+    };
+    let result = result_projection(&compiled, &kore, manifest.record_cells.as_deref(), &own)
+        .map_err(|refusal| AdmissionRefusal {
             stage: "result".into(),
             reason: refusal.reason().into(),
             detail: refusal.to_string(),
-        },
-    )?;
+        })?;
     // The input backend (kink-corpus `input_backend`: the compiled KORE for the main module,
     // refused as `inputs`/`input-gate`), with the corpus's solver budget.
     let mut backend = Backend::from_definition(

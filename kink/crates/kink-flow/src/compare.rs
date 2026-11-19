@@ -24,10 +24,12 @@
 //! difference), `could-not-apply` (the implementation's own answer, a disagreement with a reason
 //! that is reported and never locked) or `not-compared` (with the reason: a compared cell the
 //! implementation omits, a definition run with no end or several, a view that could not be
-//! evaluated). An *acceptance view* (`kind = "accepts"`) compares whether each side accepts the
-//! program ([`Acceptance`], [`acceptance_row`]): the definition accepts at an end reached at the
-//! corpus's stop or of a declared `finished` class, and rejects at one of a declared `refused`
-//! class or of none; an implementation accepts by `stopped` or `final` and rejects by `rejected`
+//! evaluated, a program outside the domain of the projection the view names, for which nothing
+//! is asked and nothing counted). An *acceptance view* (`kind = "accepts"`) compares whether
+//! each side accepts the program ([`Acceptance`], [`acceptance_row`]): the definition accepts at
+//! an end reached at the corpus's stop or of a declared `finished` class, and rejects at one of a
+//! declared `refused` class or of none; an implementation accepts by `stopped` or `final` and
+//! rejects by `rejected`
 //! ([`Protocol::V3`], with its own `message` and the definition's refusal it names,
 //! `refused`, compared by the front end where both sides state a part,
 //! [`Vocabulary::judge_refusal`]). An end view of a program the definition refuses at every end
@@ -100,7 +102,8 @@ use crate::cli::{EXIT_NO, EXIT_UNANSWERED, EXIT_UNASKED, EXIT_YES, exit_join};
 use crate::clock::Kept;
 use crate::lock::{Lock, LockKind, Settle, compare_row_id};
 use crate::manifest::{
-    FlowManifest, Given, ImplementationSection, ObserveSection, Program, Protocol, ViewSection,
+    FlowManifest, Given, ImplementationSection, ObserveSection, Program, ProjectionSection,
+    Protocol, ViewSection,
 };
 use crate::results::{
     BaselineRunner, ProgramRow, ResultClass, cache_directory, current_record,
@@ -156,7 +159,13 @@ pub const COMPARE_SCHEMA: &str = "kink-flow-compare";
 /// `observation` as the front end resolved it), and a view written `{ projection, required }`
 /// carries the projection's keys and `projection` in `implementations[].views[]`. A flow that
 /// declares no projection gives version 6's document but for its version.
-pub const COMPARE_VERSION: u64 = 7;
+/// 8 since a projection's `domain` is applied (projections PJ-10): a view naming a projection
+/// whose domain does not hold a program is `not-compared` for `outside-domain` there (status 0,
+/// in no count of `summary`), and the implementation is asked only for the views whose domain
+/// holds the program (none: it is not run, and its row has no request); a row's `required` says
+/// whether a required view holds the program. A flow that writes no `domain` gives version 7's
+/// document but for its version.
+pub const COMPARE_VERSION: u64 = 8;
 /// The protocol a request names (`protocol`) and its answer is read by, unless the
 /// implementation declares another ([`Protocol`]).
 pub const PROTOCOL: &str = "kink-implementation/1";
@@ -249,7 +258,16 @@ pub enum NotCompared {
     /// has no end there. `carried`: the same implementation declares a required trace view,
     /// which then carries the program's requirement (0); otherwise the question is open (3).
     NoEnd { detail: String, carried: bool },
+    /// A view naming a projection whose `domain` (its case patterns) does not hold the program:
+    /// the projection does not apply to it, so the view asks and decides nothing there (0).
+    OutsideDomain {
+        projection: String,
+        domain: Vec<String>,
+    },
 }
+
+/// The reason of a view outside its projection's domain ([`NotCompared::OutsideDomain`]).
+const OUTSIDE_DOMAIN: &str = "outside-domain";
 
 impl NotCompared {
     /// The reason's name in documents.
@@ -264,6 +282,7 @@ impl NotCompared {
             Self::SeveralPaths(_) => "several-paths",
             Self::ObservedNothing(_) => "observed-nothing",
             Self::NoEnd { .. } => "no-end",
+            Self::OutsideDomain { .. } => OUTSIDE_DOMAIN,
         }
     }
 
@@ -289,13 +308,24 @@ impl NotCompared {
             | Self::SeveralPaths(detail)
             | Self::ObservedNothing(detail)
             | Self::NoEnd { detail, .. } => detail.clone(),
+            Self::OutsideDomain { projection, domain } => format!(
+                "the program is outside the domain of the projection `{projection}` ({}): the \
+                 projection does not apply to it",
+                domain
+                    .iter()
+                    .map(|pattern| format!("`{pattern}`"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
         }
     }
 
     /// The status of a required view not compared for this reason: [`EXIT_UNANSWERED`] where
     /// another approach may answer (a view that did not end, several ends), [`EXIT_UNASKED`]
     /// where the declaration or the corpus must change. An end view of a program with no end
-    /// ([`Self::NoEnd`]) is [`EXIT_YES`] where a required trace view carries the requirement.
+    /// ([`Self::NoEnd`]) is [`EXIT_YES`] where a required trace view carries the requirement, and
+    /// a view outside its projection's domain ([`Self::OutsideDomain`]) is [`EXIT_YES`]: it
+    /// decides nothing, as a view that is not required decides nothing.
     #[must_use]
     pub const fn status(&self) -> u8 {
         match self {
@@ -306,7 +336,7 @@ impl NotCompared {
             | Self::ObservedNothing(_)
             | Self::NoEnd { carried: false, .. } => EXIT_UNANSWERED,
             Self::Omitted(_) | Self::LeftOut(_) | Self::Unreadable(_) => EXIT_UNASKED,
-            Self::NoEnd { carried: true, .. } => EXIT_YES,
+            Self::NoEnd { carried: true, .. } | Self::OutsideDomain { .. } => EXIT_YES,
         }
     }
 }
@@ -2355,6 +2385,100 @@ fn cached_values(
     Ok(values)
 }
 
+/// The views of `implementation` whose domain holds `program` (`domains`: per view, the
+/// projection it names where that projection has a `domain`; [`ProjectionSection::holds`]):
+/// `None` where every view's holds it, so the implementation is asked and judged as declared;
+/// otherwise the declaration with only those views, its trace views' channels and shapes (from
+/// `shapes`, `None` where none of its trace views holds the program), and per declared view its
+/// `outside-domain` row where its domain does not hold the program.
+type Applying = (
+    Option<ImplementationSection>,
+    Option<Option<(Vec<String>, Vec<Value>)>>,
+    Option<Vec<Option<Value>>>,
+);
+
+fn applying_views(
+    implementation: &ImplementationSection,
+    domains: &[Option<ProjectionSection>],
+    shapes: &Option<(Vec<String>, Vec<Value>)>,
+    program: &Program,
+    manifest: &FlowManifest,
+) -> Applying {
+    let outside = implementation
+        .views
+        .iter()
+        .zip(domains)
+        .map(|(view, projection)| {
+            projection
+                .as_ref()
+                .filter(|projection| !projection.holds(program))
+                .map(|projection| {
+                    let mut row = view_row(view);
+                    not_compared_row(
+                        &mut row,
+                        &NotCompared::OutsideDomain {
+                            projection: projection.name.clone(),
+                            domain: projection.domain.clone().unwrap_or_default(),
+                        },
+                    );
+                    row
+                })
+        })
+        .collect::<Vec<_>>();
+    if outside.iter().all(Option::is_none) {
+        return (None, None, None);
+    }
+    let applying = ImplementationSection {
+        views: implementation
+            .views
+            .iter()
+            .zip(&outside)
+            .filter(|(_, outside)| outside.is_none())
+            .map(|(view, _)| view.clone())
+            .collect(),
+        ..implementation.clone()
+    };
+    let kept = traced_channels(&applying, manifest.observe.as_ref());
+    let shapes = shapes
+        .as_ref()
+        .filter(|_| !kept.is_empty())
+        .map(|(channels, shapes)| {
+            channels
+                .iter()
+                .zip(shapes)
+                .filter(|(channel, _)| kept.contains(channel))
+                .map(|(channel, shape)| (channel.clone(), shape.clone()))
+                .unzip()
+        });
+    (Some(applying), Some(shapes), Some(outside))
+}
+
+/// `row`, an (implementation, program) row judged under the views that apply to the program,
+/// with every declared view of `implementation` in the declaration's order: its
+/// `outside-domain` row where `outside` has one, else its judged row where it has one.
+fn with_outside_rows(
+    row: &mut Value,
+    implementation: &ImplementationSection,
+    outside: &[Option<Value>],
+) {
+    let judged = row["views"].take();
+    let judged = judged.as_array().map_or(&[][..], Vec::as_slice);
+    let views = implementation
+        .views
+        .iter()
+        .zip(outside)
+        .filter_map(|(view, outside)| {
+            outside.clone().or_else(|| {
+                judged
+                    .iter()
+                    .find(|judged| judged["view"] == view.name.as_str())
+                    .cloned()
+            })
+        })
+        .collect::<Vec<_>>();
+    row["views"] = json!(views);
+}
+
 /// What stops the trace views of an answer from being compared.
 enum Trouble {
     /// The answer's `observations` is malformed: the run failed.
@@ -2425,7 +2549,22 @@ fn compared_selected(
     // Per selected implementation with a trace view: the channels its requests ask for and
     // their shapes, which no program changes.
     let mut traced = Vec::new();
+    // Per selected implementation, per view: the projection it names where that projection has
+    // a `domain`, which decides the programs the view applies to.
+    let mut domains = Vec::new();
     for implementation in &selected {
+        domains.push(
+            implementation
+                .views
+                .iter()
+                .map(|view| {
+                    view.projection
+                        .as_deref()
+                        .and_then(|name| manifest.projection(name))
+                        .filter(|projection| projection.domain.is_some())
+                })
+                .collect::<Vec<_>>(),
+        );
         // What of the declaration depends on the flow, before what depends on the definition.
         if let Err(detail) = implementation.declaration(manifest.observe.as_ref()) {
             return refused(
@@ -2552,7 +2691,20 @@ fn compared_selected(
         // and only where an implementation with a trace view needs it.
         let mut observed: Option<Observed> = None;
         let mut values: Option<Result<Vec<ChannelValues>, ValuesRefusal>> = None;
-        for ((implementation, declaration), shapes) in selected.iter().zip(&declared).zip(&traced) {
+        // The rows of this program's (implementation, program) pairs start here, one per
+        // selected implementation; per pair, the rows of its views outside their domain.
+        let first = rows.len();
+        let mut outside = Vec::new();
+        for (((implementation, declaration), shapes), domains) in
+            selected.iter().zip(&declared).zip(&traced).zip(&domains)
+        {
+            // The implementation is asked, and judged, under the views whose domain holds the
+            // program: the declaration itself where every view's does.
+            let (applying, applying_shapes, outside_rows) =
+                applying_views(implementation, domains, shapes, program, manifest);
+            let implementation = applying.as_ref().unwrap_or(*implementation);
+            let shapes = applying_shapes.as_ref().unwrap_or(shapes);
+            outside.push(outside_rows);
             let mut out = json!({
                 "implementation": implementation.name,
                 "program": program.id,
@@ -2565,6 +2717,11 @@ fn compared_selected(
                 "clock_stopped": null,
                 "views": [],
             });
+            // No view applies to the program: nothing is asked.
+            if implementation.views.is_empty() {
+                rows.push(out);
+                continue;
+            }
             let ends = match &definition {
                 Definition::None { class, cause } => {
                     out["views"] = json!(definition_rows(implementation, class, cause.as_deref()));
@@ -2889,6 +3046,13 @@ fn compared_selected(
                 }
             }
             rows.push(out);
+        }
+        debug_assert_eq!(rows.len(), first + selected.len());
+        for ((row, implementation), outside) in rows[first..].iter_mut().zip(&selected).zip(outside)
+        {
+            if let Some(outside) = outside {
+                with_outside_rows(row, implementation, &outside);
+            }
         }
     }
     document["implementations"] = json!(declared);
@@ -3386,7 +3550,9 @@ pub fn verdict_rows(document: &Value) -> Vec<Value> {
 /// (`{program, run: "baseline"}` once per program, `{implementation, program, run: "start" |
 /// "implementation"}`), and `failed` each failed run of an implementation (`{implementation,
 /// program, failure}`). A pair the lock records nothing for has its live rows, those of a run
-/// that failed none. Under `--locked` a section that differs in nothing else is `undecided`.
+/// that failed none. A view outside its projection's domain rests on no run, so its live row is
+/// written in a pair that is kept too. Under `--locked` a section that differs in nothing else is
+/// `undecided`.
 #[must_use]
 pub fn keep(lock: &Lock, document: &Value) -> Kept {
     let live = verdict_rows(document);
@@ -3524,10 +3690,17 @@ pub fn keep(lock: &Lock, document: &Value) -> Kept {
                     }
                     row.clone()
                 };
-                if failed && own.clone().next().is_some() {
+                // A view outside its projection's domain rests on no run: its live row is
+                // decided whatever run gave no answer.
+                let outside = own.clone().any(|live| live["reason"] == OUTSIDE_DOMAIN);
+                if (failed && own.clone().next().is_some()) || outside {
                     for view in declared(&pair.0) {
                         let id = json!(compare_row_id(&pair.0, &pair.1, &view));
-                        if let Some(live) = own.clone().find(|live| live["id"] == id) {
+                        let live = own
+                            .clone()
+                            .find(|live| live["id"] == id)
+                            .filter(|live| failed || live["reason"] == OUTSIDE_DOMAIN);
+                        if let Some(live) = live {
                             verdicts.push(live.clone());
                         } else if let Some(row) = rows.iter().find(|row| row["id"] == id) {
                             verdicts.push(keep_row(row, &mut kept));
@@ -3622,7 +3795,8 @@ fn counted(second_protocol: bool) -> impl Iterator<Item = &'static str> {
 /// The counts of the document's verdicts and failures: `{verdicts: {equal, different,
 /// could-not-apply, not-compared}, required: {..the same, of required views}, failures}`, each
 /// with `agree-up-to` under `second_protocol` ([`counted`]), and `views`, each (implementation,
-/// view)'s agreement ([`view_counts`]).
+/// view)'s agreement ([`view_counts`]). A view outside its projection's domain is counted in
+/// none: the projection does not apply to the program.
 fn summary(rows: &[Value], second_protocol: bool) -> Value {
     let mut verdicts = Map::new();
     let mut required = Map::new();
@@ -3630,7 +3804,7 @@ fn summary(rows: &[Value], second_protocol: bool) -> Value {
         let count = |only_required: bool| {
             rows.iter()
                 .flat_map(|row| row["views"].as_array().into_iter().flatten())
-                .filter(|view| view["verdict"] == verdict)
+                .filter(|view| view["verdict"] == verdict && view["reason"] != OUTSIDE_DOMAIN)
                 .filter(|view| !only_required || view["required"] == true)
                 .count()
         };
