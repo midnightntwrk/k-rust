@@ -120,13 +120,15 @@ def fX : Fn := ⟨Fs, [Srt.bool], Srt.bool, clsX, true⟩
 def cX : Semantics := mk fX
 def cT : Semantics := mk ⟨Fs, [], Srt.bool, clsT, true⟩
 
-theorem cX_coreOK : cX.coreOK = true := by decide +kernel
+set_option maxHeartbeats 4000000 in
+theorem cX_coreOK : cX.coreOK = true := by decide_coreOK
 theorem cX_coreOKEx : cX.coreOKEx = true := by decide +kernel
 theorem cX_reads : cX.readsConfined = true := by decide +kernel
 theorem cX_lit : cX.litSort Srt.bool = true := by decide +kernel
 theorem cX_closed : Faithful.Γcl cX (Faithful.boolClosed cX) := ⟨cX_reads, cX_lit, rfl⟩
 
-theorem cT_coreOK : cT.coreOK = true := by decide +kernel
+set_option maxHeartbeats 4000000 in
+theorem cT_coreOK : cT.coreOK = true := by decide_coreOK
 theorem cT_coreOKEx : cT.coreOKEx = true := by decide +kernel
 theorem cT_reads : cT.readsConfined = true := by decide +kernel
 theorem cT_lit : cT.litSort Srt.bool = true := by decide +kernel

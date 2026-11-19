@@ -87,14 +87,14 @@ def Semantics.carriersOK (c : Semantics) : Bool :=
 /-- The parameters' shapes, and the carriers. A parameter that is no open generator has no
 associativity or idempotence axiom. An open generator (`raw`) has no registry hook,
 two arguments of its result sort where it has a law (associativity, idempotence or both), a number outside the registry (so `lookupOpen`
-answers for it) and no name like an `ite`'s (`iteSort?`), and the semantics has `shapesOK` (no value
+answers for it) and no name like an instance of a sort-parametric symbol (`instDecode?`), and the semantics has `shapesOK` (no value
 of a sort the library's sentences read, other than Float, applies it). The sorts hooked to a
 library carrier are well formed (`carriersOK`). -/
 def Semantics.paramsPlain (c : Semantics) : Bool :=
   c.params.all (fun k =>
     if k.raw then k.impl.isNone &&
       (!(k.assoc || k.idem) || k.sig.args == [k.sig.result, k.sig.result]) &&
-      decide (nRegSyms ≤ k.sig.name) && (iteSort? (c.symName k.sig.name)).isNone &&
+      decide (nRegSyms ≤ k.sig.name) && (instDecode? (c.symName k.sig.name)).isNone &&
       c.shapesOK
     else !k.assoc && !k.idem) && c.carriersOK
 

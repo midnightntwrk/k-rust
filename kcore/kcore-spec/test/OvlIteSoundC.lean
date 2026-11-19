@@ -6,7 +6,7 @@
   `<k> .K </k> <generatedCounter> 0 </generatedCounter> => <k> Lblite{KCell}(1) </k> <generatedCounter> 0 </generatedCounter>`.
   Kernel-checked here:
   - `meets_others`, `ovlsButIte_c`, `not_ovlsPlain`: every condition of `coreOK` but this one holds
-    (both halves of `itesApart` among them), and `FnHyp`; this one fails (`overloadsOK_split`:
+    (`itesApart` among them), and `FnHyp`; this one fails (`overloadsOK_split`:
     `overloadsOK` is `ovlsButIte` and `ovlsPlain`; `not_overloadsOK`).
   - `step`: the rule gives the step from `<k> .K </k>` to the value `<k> Lblite{KCell}(1) </k>`.
   - `consistent`: `Γc c` with the step's closure has a model.
@@ -91,7 +91,7 @@ def ovlsButIte (c : Semantics) : Bool :=
   c.ovlPatsOK
 
 def ovlsPlain (c : Semantics) : Bool :=
-  c.ovls.zipIdx.all fun (o, _) => (iteSort? (c.symName o.sig.name)).isNone
+  c.ovls.zipIdx.all fun (o, _) => (instDecode? (c.symName o.sig.name)).isNone
 
 /-- `overloadsOK` is `ovlsButIte` and `ovlsPlain`. -/
 theorem overloadsOK_split (c : Semantics) : c.overloadsOK = (ovlsButIte c && ovlsPlain c) := by
@@ -117,8 +117,7 @@ theorem fnHyp : FnHyp c :=
     openDecided_of_readsConfined readsConfined, openLaws_of_plain (by decide +kernel)⟩
 
 set_option maxHeartbeats 1000000 in
-/-- Every condition of `coreOK` but `overloadsOK`, both halves of `itesApart` among them, holds,
-and `FnHyp`. -/
+/-- Every condition of `coreOK` but `overloadsOK`, `itesApart` among them, holds, and `FnHyp`. -/
 theorem meets_others : c.sortedOK = true ∧ c.faithCoreOK = true ∧ c.hooksApart = true ∧
     c.predsApart = true ∧ c.idsOK = true ∧ Model.itesApart c = true ∧ FnHyp c :=
   ⟨sortedOK, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, fnHyp⟩

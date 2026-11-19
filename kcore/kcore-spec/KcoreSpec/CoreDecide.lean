@@ -72,10 +72,23 @@ theorem Faithful.symCodesCD_eq (c : Semantics) : (allSymNames c).map strCode = s
 theorem Faithful.sortCodesCD_eq (c : Semantics) : (allSortNames c).map strCode = sortCodesCD c := by
   rw [allSortNames, List.map_append, regSortCodesCD_eq, sortCodesCD]
 
+/-- No registry symbol's name holds `{`: the registry's part of `instIdx` is empty. -/
+theorem Faithful.regInstIdxCD : idxWhere instCoded regSymCodesCD 0 = [] := by decide +kernel
+
+theorem Faithful.regSymCodesCD_length : regSymCodesCD.length = nRegSyms := by
+  rw [← regSymCodesCD_eq, List.length_map, regSymNames_length]
+
+/-- The definition's own symbols whose names' codes `instCoded` accepts, numbered from `nRegSyms`. -/
+def Faithful.instIdxCD (c : Semantics) : List Nat := idxWhere instCoded (c.symNames.map strCode) nRegSyms
+
+theorem Faithful.instIdx_symCodesCD (c : Semantics) : instIdx (symCodesCD c) = instIdxCD c := by
+  rw [instIdx, symCodesCD, idxWhere_append, regInstIdxCD, List.nil_append, Nat.zero_add,
+    regSymCodesCD_length, instIdxCD]
+
 /-- `namesNumbered`, decided on the names' codes. -/
-theorem Faithful.namesNumbered_of_codesCD (h : namesNumberedC c (iteIdx (symCodesCD c)) = true) :
+theorem Faithful.namesNumbered_of_codesCD (h : namesNumberedC c (instIdxCD c) = true) :
     namesNumbered c = true :=
-  namesNumbered_of_codes (symCodesCD_eq c) rfl h
+  namesNumbered_of_codes (symCodesCD_eq c) (instIdx_symCodesCD c) h
 
 /-- `namesApartK`, decided on the names' codes. -/
 theorem Faithful.namesApartK_of_codesCD (h : namesApartC c (symCodesCD c) (sortCodesCD c) = true) :
@@ -84,8 +97,8 @@ theorem Faithful.namesApartK_of_codesCD (h : namesApartC c (symCodesCD c) (sortC
 
 /-- `itesApart`, decided on the names' codes. -/
 theorem Faithful.itesApart_of_codesCD
-    (h : itesApartC c (iteIdx (symCodesCD c)) (sortCodesCD c) = true) : itesApart c = true :=
-  itesApart_of_codes (symCodesCD_eq c) (sortCodesCD_eq c) rfl h
+    (h : itesApartC c (instIdxCD c) (sortCodesCD c) = true) : itesApart c = true :=
+  itesApart_of_codes (symCodesCD_eq c) (sortCodesCD_eq c) (instIdx_symCodesCD c) h
 
 /-- No symbol is named like `ite` at a sort when no name's code is one of such a name
 (`iteIdx` empty). -/

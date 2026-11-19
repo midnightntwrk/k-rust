@@ -22,6 +22,7 @@ import KcoreSpec.SubjectReduction
 import KcoreSpec.FaithfulStage4
 import KcoreSpec.FaithfulNeg
 import KcoreSpec.FaithfulStep
+import KcoreSpec.CoreDecide
 import KcoreSpec.Sound
 import KcoreSpec.Obligations
 import KcoreSpec.ModelUndefRhsWitness
@@ -60,7 +61,8 @@ def c : Semantics :=
     pgmSort := Srt.k
     rules := [] }
 
-theorem coreOK : c.coreOK = true := by decide +kernel
+set_option maxHeartbeats 4000000 in
+theorem coreOK : c.coreOK = true := by decide_coreOK
 
 theorem lookupF : c.lookupFn F = some fF := rfl
 

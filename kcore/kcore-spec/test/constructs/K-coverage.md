@@ -190,8 +190,8 @@ Exceptions inside the layers:
 | `evaluation` | KcoreSpec/Hooks.lean (the Bool, Int and Float operations, HookParams) | stable |
 | `evaluation` | strictness of Bool hooks | stable |
 | `theory` | ΓDomains | stable |
-| `well-formedness` | inside overloadsOK: an overloading symbol is not named like ite at a sort | stable |
-| `well-formedness` | inside faithCoreOK: the first half of itesApart (every symbol named like ite is named at a numbered sort) | provisional |
+| `well-formedness` | inside overloadsOK: an overloading symbol is not named like an instance of a sort-parametric symbol (instDecode?), in particular not like ite at a sort | stable |
+| `well-formedness` | inside faithCoreOK: the leaves of itesApart (every sort name of an instance name names a numbered sort, all instance names of one head are at one number of sorts, no instance name has the head inj) | provisional |
 
 Not core:
 
