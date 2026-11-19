@@ -10,8 +10,9 @@ mod passage;
 use k_rust::definition::{AttributeKey, ProductionItem, Sentence};
 use k_rust::kast::Sort;
 use kink_patch::{
-    Baseline, CandidateDisposition, ClaimSupport, Edit, GrammarForm, GrammarSelector, Patch,
-    PatchFailureKind, SentenceRef, apply, generate_grammar, grammar_variants,
+    Baseline, CandidateDisposition, ClaimSupport, Edit, GrammarEffect, GrammarForm,
+    GrammarSelector, Patch, PatchFailureKind, SentenceRef, apply, generate_default_grammar,
+    generate_grammar, grammar_variants,
 };
 use serde_json::Value;
 
@@ -112,6 +113,180 @@ const GRAMMAR_PASSAGES: [passage::Passage; 4] = [
         digest: "fec9e93782ddebea5f42de20dca19530b08e501caabbb9e204625d62fc693453",
     },
 ];
+
+/// The k-rust passages a grammar kill's reparse rests on (kink/trust.md, "What a grammar kill
+/// trusts", "Both parsers are k-rust's" and "An ambiguity is a rejection"; U34e Q1): the two
+/// constructors kink builds each side's program parser with (`ProgramGrammar::new` of a
+/// definition, `ProgramParser::from_resolved` at a module: kink-patch `Mutant::program_parser`,
+/// kink-corpus `InputGrammar::prepare` and `with_program_grammar_of`); that a parse refuses a
+/// text with several readings (`ParseError::Ambiguous`, and `CyclicDerivation` for infinitely
+/// many) and every parse failure is a `ProgramParseError`; and that assembly wraps the program
+/// text's failure as `ConfigurationError::Program` and a variable's as `ConfigurationError::Parse`,
+/// the two kink-corpus `input_error` reads as `InputError::Parse`, a rejection. That last mapping
+/// is kink's own code, held by kink-flow's drop-left test (`tests/check.rs`), not pinned here.
+const PARSER_PASSAGES: [passage::Passage; 11] = [
+    passage::Passage {
+        file: "crates/k-rust/src/inner/parser.rs",
+        anchor: "pub enum ParseError {",
+        opening: "/// The input has several readings, the distinct terms its parses lower to.",
+        lines: 2,
+        digest: "eba2e592d77a706b56ac51fb2912e671247be7d621a4e4931f75c3fa98d3e9be",
+    },
+    passage::Passage {
+        file: "crates/k-rust/src/inner/parser.rs",
+        anchor: "pub enum ParseError {",
+        opening: "/// A sort derives itself over a text without consuming input.",
+        lines: 2,
+        digest: "7530c4b891056d27249fc8b5b99c5ecac88c487d74e36d5d559aaccc8cdc56e5",
+    },
+    passage::Passage {
+        file: "crates/k-rust/src/inner/programs.rs",
+        anchor: "impl ProgramParser {",
+        opening: "pub fn from_resolved(",
+        lines: 4,
+        digest: "68048023432933521841d468d01a976451fb8f96ab9235a44c5298d124e059fa",
+    },
+    passage::Passage {
+        file: "crates/k-rust/src/inner/programs.rs",
+        anchor: "impl ProgramParser {",
+        opening: "/// text was printed from asks with it whether that term is among the readings; a program,",
+        lines: 2,
+        digest: "55de89671891dbf39cf61011ad5f6a2343962c6ad2923fbf2cfe1609ee4bae4f",
+    },
+    passage::Passage {
+        file: "crates/k-rust/src/inner/programs.rs",
+        anchor: "fn parse_within(",
+        opening: ".map_err(|error| self.parse_error(start_sort, source, error))",
+        lines: 1,
+        digest: "c56ba703fc28aab34ba247d590b3f1548f56885bc473bde01afa18e11826c383",
+    },
+    passage::Passage {
+        file: "crates/k-rust/src/kompile/initial_configuration.rs",
+        anchor: "impl ProgramGrammar {",
+        opening: "pub fn new(frontend: &Definition) -> Result<Self, ConfigurationError> {",
+        lines: 4,
+        digest: "211e599669f3e16529e832e418ece19949759cca2add51b9984bacc500407ae0",
+    },
+    passage::Passage {
+        file: "crates/k-rust/src/kompile/initial_configuration.rs",
+        anchor: "pub enum ConfigurationError {",
+        opening: "/// The program text does not parse at the requested start sort.",
+        lines: 2,
+        digest: "74d8766de1db67a0291b2135377f3741b8bff5cab23f4e685ac06f1d47609867",
+    },
+    passage::Passage {
+        file: "crates/k-rust/src/kompile/initial_configuration.rs",
+        anchor: "pub enum ConfigurationError {",
+        opening: "/// A configuration value that does not parse at its declared sort.",
+        lines: 10,
+        digest: "b2a1849461890b480cc436344270fdf5843e3a70a7089abe67206c800d8a6aa6",
+    },
+    passage::Passage {
+        file: "crates/k-rust/src/kompile/initial_configuration.rs",
+        anchor: "pub fn program_file(",
+        opening: "ProgramParser::from_resolved(self.grammar.resolved(), &self.syntax_module)?,",
+        lines: 1,
+        digest: "0f0ff160a5133d94aed1c2c37be63ecbbcea60a9a27c4d1c3ec28ff3c8899f46",
+    },
+    passage::Passage {
+        file: "crates/k-rust/src/kompile/initial_configuration.rs",
+        anchor: "pub fn program_file(",
+        opening: ".parse_file(start_sort, text, file)",
+        lines: 2,
+        digest: "ebeffcedf31258b2edce0352fbad497a0253bfc40f63fc15de800b5190e6136b",
+    },
+    passage::Passage {
+        file: "crates/k-rust/src/kompile/initial_configuration.rs",
+        anchor: "pub fn bind(",
+        opening: "let parsed = parsed.map_err(|error| ConfigurationError::Parse {",
+        lines: 1,
+        digest: "d5159eafe18605c283209d3e026143eb656d7c8c7b402b3f6b654fca4a8272a8",
+    },
+];
+
+/// An ambiguity is a rejection, and both sides' parsers are built by the same two k-rust
+/// constructors: the passages that reading rests on are pinned ([`PARSER_PASSAGES`]), so a
+/// change of any of them fails here and the reading is checked again.
+#[test]
+fn the_ambiguity_reading_and_the_parser_constructors_are_pinned() {
+    passage::assert_pinned(&k_rust_tree(), &PARSER_PASSAGES);
+}
+
+/// The default set (PJ-34) is the forms whose effect at their site is a widening or a token-level
+/// narrowing; every other form is off and generated by name. The off forms are listed, so that a
+/// change of the set is a change of this test.
+#[test]
+fn the_default_set_is_the_widening_forms_and_token_level_narrowing() {
+    let default = GrammarForm::ALL
+        .into_iter()
+        .filter(|form| {
+            matches!(
+                form.effect(),
+                GrammarEffect::Widening | GrammarEffect::TokenNarrowing
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(default, GrammarForm::DEFAULT);
+    let names = |forms: &[GrammarForm]| forms.iter().map(|f| f.name()).collect::<Vec<_>>();
+    assert_eq!(
+        names(&GrammarForm::DEFAULT),
+        [
+            "alternative-without-terminal",
+            "merge-alternative",
+            "loosen-regex",
+            "narrow-regex",
+            "drop-anchor"
+        ]
+    );
+    let off = GrammarForm::ALL
+        .into_iter()
+        .filter(|form| !GrammarForm::DEFAULT.contains(form))
+        .map(|form| (form.name(), form.effect()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        off,
+        [
+            ("drop-terminal", GrammarEffect::LiteralMove),
+            ("change-terminal", GrammarEffect::LiteralMove),
+            ("delete-production", GrammarEffect::ProductionNarrowing),
+            ("merge-priority-groups", GrammarEffect::Disambiguation),
+            ("swap-priority-groups", GrammarEffect::Disambiguation),
+            ("change-associativity", GrammarEffect::Disambiguation),
+            ("delete-relation", GrammarEffect::Disambiguation),
+        ]
+    );
+
+    // The generated default set is `generate_grammar` of each default form, in order, and over
+    // grammar.k each gives at least one mutant with a program parser.
+    let baseline = baseline();
+    let generations =
+        generate_default_grammar(&baseline, &[], SYNTAX, usize::MAX).expect("generations");
+    assert_eq!(
+        generations
+            .iter()
+            .map(|(form, _)| *form)
+            .collect::<Vec<_>>(),
+        GrammarForm::DEFAULT
+    );
+    for (form, generation) in &generations {
+        let alone = generate_grammar(&baseline, *form, &[], SYNTAX, usize::MAX).expect("alone");
+        assert_eq!(
+            generation.dispositions(),
+            alone.dispositions(),
+            "{}",
+            form.name()
+        );
+        assert!(generation.scored(), "{} is complete", form.name());
+        assert!(
+            generation
+                .dispositions()
+                .iter()
+                .any(|disposition| matches!(disposition, CandidateDisposition::Mutant(_))),
+            "{} gives a mutant over grammar.k",
+            form.name()
+        );
+    }
+}
 
 fn k_rust_tree() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..")

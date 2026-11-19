@@ -27,6 +27,12 @@
 //! ([`crate::PatchFailureKind::NoProgramParser`]). Whether a mutant accepts more programs or fewer
 //! is a fact of each program that tells it apart, never of the form: a form's name says how it
 //! edits, not what it does to the language.
+//!
+//! A form's [`GrammarEffect`] says what it does to the texts of its site alone (adds some, removes
+//! some, or changes the filter on parse trees), which decides the default set
+//! ([`GrammarForm::DEFAULT`], [`generate_default_grammar`]): the widening forms, since valid
+//! cases are forced by rule and syntax coverage and malformed cases by nothing, and token-level
+//! narrowing, which removes lexical edges no coverage forces a case to hold.
 
 use crate::{
     Baseline, CandidateFailure, CandidateGeneration, Edit, InsertPosition, Patch, PatchOrigin,
@@ -98,6 +104,40 @@ impl GrammarForm {
         Self::DeleteRelation,
     ];
 
+    /// The default set (PJ-34): the forms whose [`GrammarEffect`] is a widening or a token-level
+    /// narrowing, in [`Self::ALL`] order. Valid cases are forced by rule and syntax coverage and
+    /// malformed cases by nothing, so the forms that add texts are the default; a token-level
+    /// narrowing removes texts no covering case need hold (a token's edge), so it is kept. A
+    /// production-level narrowing and a moved literal are off, since closed syntax coverage
+    /// kills production-level narrowing (the ticket's judgement), and so is a disambiguation
+    /// edit, whose witnesses include valid cases ([`GrammarEffect`]). An off form is generated
+    /// by name with [`generate_grammar`].
+    pub const DEFAULT: [Self; 5] = [
+        Self::AlternativeWithoutTerminal,
+        Self::MergeAlternative,
+        Self::LoosenRegex,
+        Self::NarrowRegex,
+        Self::DropAnchor,
+    ];
+
+    /// What the form does to the texts its site accepts ([`GrammarEffect`]).
+    #[must_use]
+    pub const fn effect(self) -> GrammarEffect {
+        match self {
+            Self::AlternativeWithoutTerminal
+            | Self::MergeAlternative
+            | Self::LoosenRegex
+            | Self::DropAnchor => GrammarEffect::Widening,
+            Self::NarrowRegex => GrammarEffect::TokenNarrowing,
+            Self::DeleteProduction => GrammarEffect::ProductionNarrowing,
+            Self::DropTerminal | Self::ChangeTerminal => GrammarEffect::LiteralMove,
+            Self::MergePriorityGroups
+            | Self::SwapPriorityGroups
+            | Self::ChangeAssociativity
+            | Self::DeleteRelation => GrammarEffect::Disambiguation,
+        }
+    }
+
     /// The form's name, the operator name of its candidates.
     #[must_use]
     pub const fn name(self) -> &'static str {
@@ -116,6 +156,41 @@ impl GrammarForm {
             Self::DeleteRelation => "delete-relation",
         }
     }
+}
+
+/// What a form does to the texts its site, the one sentence it edits, accepts. It is a fact of the
+/// site alone, never of a program or a kill: a program's parse can go the other way (an added
+/// alternative can make a text ambiguous, which rejects it), and a kill's direction is read from
+/// its witness (kink-flow `reparse`). It decides the default set ([`GrammarForm::DEFAULT`]).
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum GrammarEffect {
+    /// The site accepts every text it accepted, with its parse tree, and more: an alternative
+    /// added (a copy of a production inserted beside it, without a literal or at another sort)
+    /// or a token loosened (each variant's regex matches a superset of the original's, an
+    /// anchor dropped among them). A text only the mutant accepts is told apart by a case the
+    /// specification rejects, which no coverage forces. Default.
+    Widening,
+    /// A token's regex matches a subset of the original's. A case that covers the token holds
+    /// some token text, not necessarily one the narrowing removes (`R*` to `R+` removes only the
+    /// texts with no `R`), so coverage forces no case that tells it apart: a lexical edge.
+    /// Default.
+    TokenNarrowing,
+    /// A production is gone, and with it its text. A case whose program text writes the
+    /// production no longer parses, and closed syntax coverage forces such cases (the ticket's
+    /// judgement: a production that only rules build is reached without one). Off.
+    ProductionNarrowing,
+    /// A production's literal is changed or dropped: the same constructor gets another text.
+    /// Its old text is gone, a production-level narrowing that a case writing the production
+    /// tells apart before its new text is judged (as for [`Self::ProductionNarrowing`]); its new
+    /// text parses. A dropped
+    /// literal's new text is the one [`GrammarForm::AlternativeWithoutTerminal`] adds without
+    /// removing the old (as a fresh constructor). Off.
+    LiteralMove,
+    /// A priority or associativity declaration is edited: no site's text changes, the filter on
+    /// parse trees does. A text the specification filters out can then parse, and a text it
+    /// reads one way can become ambiguous, a rejection, in one edit, so valid cases parsed apart
+    /// or made ambiguous tell it apart as well as malformed ones. Off.
+    Disambiguation,
 }
 
 /// One conjunctive clause restricting the grammar sentences a form is generated at. A clause
@@ -195,6 +270,28 @@ pub fn generate_grammar<'b>(
         |origin| patches[&origin.site_tuple[0]].clone(),
         |mutant| mutant.program_parser(syntax_module),
     )
+}
+
+/// The default operator set over `baseline` (PJ-34): one [`generate_grammar`] generation per form
+/// of [`GrammarForm::DEFAULT`], in that order, each under `selector` and at most `cap` origins,
+/// each candidate admitted when its mutant gives a program parser for `syntax_module`.
+///
+/// # Errors
+///
+/// Those of [`generate_grammar`].
+pub fn generate_default_grammar<'b>(
+    baseline: &'b Baseline,
+    selector: &[GrammarSelector],
+    syntax_module: &str,
+    cap: usize,
+) -> Result<Vec<(GrammarForm, CandidateGeneration<'b>)>, CandidateFailure> {
+    GrammarForm::DEFAULT
+        .into_iter()
+        .map(|form| {
+            generate_grammar(baseline, form, selector, syntax_module, cap)
+                .map(|generation| (form, generation))
+        })
+        .collect()
 }
 
 /// The generation of one supplied grammar patch (a mutation a user wrote, which kink-flow

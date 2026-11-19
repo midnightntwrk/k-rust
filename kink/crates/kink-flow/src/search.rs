@@ -4636,8 +4636,15 @@ pub(crate) fn run_session(
                     row["status"].as_str().unwrap_or_default(),
                     // A survivor that rests on a horizon (`horizon`) is told so, and what would
                     // observe past it.
+                    // A grammar survivor with no reason of its own is told to write a case whose
+                    // parse differs, not one that matches an edited rule.
                     if let Some(horizons) = row.get("horizon").and_then(Value::as_array) {
                         Some(horizon_reason(horizons))
+                    } else if row.get("grammar").is_some()
+                        && row["status"] == "survived"
+                        && row["reason"].is_null()
+                    {
+                        Some(crate::report::GRAMMAR_SURVIVOR_REASON)
                     } else {
                         row["reason"].as_str()
                     },
@@ -5985,6 +5992,15 @@ fn document(
             .map_or(&[][..], Vec::as_slice),
     ) {
         document["projection_counts"] = counts;
+    }
+    // Absent where no row is a grammar mutation the search judged, so such a document is the one
+    // it was before grammar mutations were judged.
+    if let Some(targets) = crate::report::grammar_targets(
+        document["mutations"]
+            .as_array()
+            .map_or(&[][..], Vec::as_slice),
+    ) {
+        document["grammar_targets"] = targets;
     }
     document
 }

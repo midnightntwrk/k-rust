@@ -1056,6 +1056,36 @@ fn run_parses_each_case_again_under_a_grammar_mutant() {
         row(&document, "add-becomes-sub").get("grammar").is_none(),
         "{document:#}"
     );
+    // The survivor is the run's one grammar target (U34d), with its declaration before and after
+    // and the grammar survivor's action; the `unknown` row and the rule mutation are not targets.
+    let targets = document["grammar_targets"].as_array().unwrap();
+    assert_eq!(
+        targets
+            .iter()
+            .map(|target| &target["mutation"])
+            .collect::<Vec<_>>(),
+        ["minus-literal"],
+        "{document:#}"
+    );
+    let declaration = &targets[0]["declarations"][0];
+    assert_eq!(declaration["label"], "sub", "{document:#}");
+    assert!(
+        declaration["after"].as_str().unwrap().contains("\"minus\""),
+        "{document:#}"
+    );
+    assert_eq!(
+        targets[0]["rejected"],
+        serde_json::json!([]),
+        "{document:#}"
+    );
+    assert_eq!(minus["action"], targets[0]["action"], "{minus:#}");
+    assert!(
+        minus["action"]
+            .as_str()
+            .unwrap()
+            .contains("tells the two grammars apart"),
+        "{minus:#}"
+    );
     let (warm, _) = flow_support::corpus_run(&manifest, &mutations);
     for id in ["plus-literal", "minus-literal"] {
         assert_eq!(
@@ -1064,6 +1094,10 @@ fn run_parses_each_case_again_under_a_grammar_mutant() {
             "{id}: {warm:#}"
         );
     }
+    assert_eq!(
+        warm["grammar_targets"], document["grammar_targets"],
+        "{warm:#}"
+    );
     let full = kink_flow::search::run(
         &FlowManifest::read(&manifest).unwrap(),
         &kink_flow::MutationList::read(&mutations).unwrap(),
@@ -1085,6 +1119,8 @@ fn run_parses_each_case_again_under_a_grammar_mutant() {
         (&Value::from("error"), &Value::from("grammar-not-run")),
         "{refused:#}"
     );
+    // No row of the full run is a judged grammar mutation, so it has no grammar targets.
+    assert!(full.get("grammar_targets").is_none(), "{full:#}");
     assert!(
         refused["action"].as_str().unwrap().contains("first-kill"),
         "{refused:#}"
@@ -1348,6 +1384,17 @@ fn a_grammar_mutant_that_rejects_an_accepted_case_is_killed() {
         ]),
         "{alternative:#}"
     );
+    // The survivor is the one grammar target; the stated case it rejects too is named.
+    assert_eq!(
+        document["grammar_targets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|target| (&target["mutation"], &target["rejected"]))
+            .collect::<Vec<_>>(),
+        [(&json!("merge-groups"), &json!(["bad"]))],
+        "{document:#}"
+    );
     let (warm, _) = flow_support::corpus_run(&manifest, &mutations);
     for id in [
         "plus-literal",
@@ -1361,6 +1408,10 @@ fn a_grammar_mutant_that_rejects_an_accepted_case_is_killed() {
             "{id}: {warm:#}"
         );
     }
+    assert_eq!(
+        warm["grammar_targets"], document["grammar_targets"],
+        "{warm:#}"
+    );
 }
 
 #[test]

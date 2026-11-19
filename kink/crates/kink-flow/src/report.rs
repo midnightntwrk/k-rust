@@ -315,7 +315,11 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// edit no grammar gives version 45's document but for its version. Still 46 (branch-only) since a
 /// program of O the mutant parses to another configuration runs from it on the mutant's side
 /// (PJ-34, U34c2): a grammar row may be killed `parses-differently` by the search, with the
-/// search's `killer_source`, where it was `unknown` (`grammar-run-not-supported`).
+/// search's `killer_source`, where it was `unknown` (`grammar-run-not-supported`). Still 46
+/// (branch-only) since a run some row of which is a judged grammar mutation lists its grammar
+/// survivors in `grammar_targets` ([`grammar_targets`], PJ-34 U34d), and a `survived` grammar row
+/// with no reason has the grammar survivor's action ([`GRAMMAR_SURVIVOR_REASON`]); a run with no
+/// such row writes the document it wrote.
 pub const RUN_VERSION: u64 = 46;
 
 /// The name of the observation slot of an executed entry's `slots`, after the end slots
@@ -636,6 +640,7 @@ pub fn action(status: &str, reason: Option<&str>) -> Option<&'static str> {
              a larger budget observes no more of it: the mutant may differ past it, which no \
              program observed"
         }
+        "survived" if reason == Some(GRAMMAR_SURVIVOR_REASON) => GRAMMAR_SURVIVOR_ACTION,
         "survived" if reason == Some(crate::reparse::SAME_PARSE_EQUIVALENT) => {
             "write a case whose text the mutant's grammar parses otherwise than the \
              specification's: a program on which one grammar fails to parse, or parses to another \
@@ -1883,6 +1888,78 @@ pub fn projection_counts(mutations: &[Value]) -> Option<Value> {
     ))
 }
 
+/// The pseudo-reason [`action`] reads for a `survived` row of a grammar mutation (one with a
+/// `grammar` member, [`crate::reparse`]) whose own `reason` is null: every case agreed, so the
+/// case to write is one whose parse differs. The row's `reason` stays null.
+pub const GRAMMAR_SURVIVOR_REASON: &str = "grammar-survivor";
+
+/// What a grammar survivor asks for ([`GRAMMAR_SURVIVOR_REASON`], [`grammar_targets`]).
+const GRAMMAR_SURVIVOR_ACTION: &str = "write a case that tells the two grammars apart (the \
+     declaration before and after, rules): a program stating `expect = { rejected = \"parse\" }` \
+     whose text the mutant's grammar parses and the specification's does not, where the mutant \
+     adds texts, or a program the specification accepts and the mutant does not parse, or \
+     parses to another term whose run differs; the edit's form does not say which, and every \
+     case parsed agreed (grammar). Where the mutant's later layers reject every text its grammar adds (an \
+     added alternative is a constructor no rule reads), no case tells it apart: argue it and keep \
+     it with `expect = \"survive\"`, or drop it";
+
+/// The run document's `grammar_targets` (PJ-34), for a run some row of which is a grammar
+/// mutation the search judged (it has a `grammar` member, [`crate::reparse`]); `None` otherwise,
+/// so a run that judges no grammar mutation writes the document it wrote before. One entry per
+/// `survived` grammar row, in row order: `{mutation, declarations, rejected, action}`, where
+/// `declarations` are the row's grammar `rules` entries (`{file, label, start_line, end_line,
+/// before, after}`: the specification's declaration and the mutant's, between which a missing
+/// case's text must tell), and `rejected` the programs stating `rejected = "parse"` that the
+/// mutant rejects too (the malformed cases the corpus has, which do not tell this mutant
+/// apart). A survivor of a grammar mutation is a target for a case the specification rejects
+/// at parse, or for one it accepts and the mutant parses apart or not at all; the edit's form
+/// does not say which, since a kill's direction is its witness's ([`crate::reparse`]). The list
+/// is read from the rows alone, which a warm run repeats.
+#[must_use]
+pub fn grammar_targets(mutations: &[Value]) -> Option<Value> {
+    if !mutations.iter().any(|row| row.get("grammar").is_some()) {
+        return None;
+    }
+    Some(json!(
+        mutations
+            .iter()
+            .filter(|row| row.get("grammar").is_some() && row["status"] == "survived")
+            .map(|row| {
+                let declarations = entries(row, "rules")
+                    .iter()
+                    .filter(|rule| rule["kind"] == "grammar")
+                    .map(|rule| {
+                        json!({
+                            "file": rule["file"],
+                            "label": rule["label"],
+                            "start_line": rule["start_line"],
+                            "end_line": rule["end_line"],
+                            "before": rule["before"],
+                            "after": rule["after"],
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                let rejected = entries(row, "grammar")
+                    .iter()
+                    .filter(|case| case["stated"] == "parse" && case["reparse"] == "rejected")
+                    .map(|case| case["program"].clone())
+                    .collect::<Vec<_>>();
+                json!({
+                    "mutation": row["id"],
+                    "declarations": declarations,
+                    "rejected": rejected,
+                    "action": GRAMMAR_SURVIVOR_ACTION,
+                })
+            })
+            .collect::<Vec<_>>()
+    ))
+}
+
+/// The entries of `row`'s array `member`, none where it is no array.
+fn entries<'r>(row: &'r Value, member: &str) -> &'r [Value] {
+    row[member].as_array().map_or(&[], Vec::as_slice)
+}
+
 /// The kill matrix of a full run (`run --full`), from its program rows (the `coverage` rows, in
 /// corpus order) and its mutation rows: `{programs: [{id, kills, sole_killer_of, undecided}]}`,
 /// one entry per program that can kill (`comparable` or `comparable-prefix`), in corpus order (a list, since a JSON
@@ -2345,6 +2422,61 @@ mod tests {
     use super::*;
     use kink_campaign::{RunNotes, RunStop};
     use std::collections::BTreeMap;
+
+    /// `grammar_targets` lists the `survived` rows of judged grammar mutations, each with its
+    /// grammar declarations and the stated malformed cases the mutant rejects too; it is absent
+    /// where no row is a judged grammar mutation, and a grammar row of another status and a
+    /// rule row are not listed.
+    #[test]
+    fn grammar_targets_list_the_grammar_survivors() {
+        let declaration = json!({
+            "module": "CALC-SYNTAX", "index": 4, "file": "calc.k", "label": "mul",
+            "start_line": 3, "end_line": 5, "edits": [0], "kind": "grammar",
+            "before": "syntax Exp ::= Exp \"*\" Exp", "after": "syntax Exp ::= Exp Exp",
+        });
+        let case = |program: &str, stated: bool, reparse: &str| {
+            let stated = stated.then_some("parse");
+            json!({"program": program, "stated": stated, "reparse": reparse})
+        };
+        let rule = json!({"id": "rule", "status": "survived", "reason": null, "rules": []});
+        assert_eq!(grammar_targets(std::slice::from_ref(&rule)), None);
+        let survivor = json!({
+            "id": "juxtapose", "status": "survived", "reason": null,
+            "rules": [declaration],
+            "grammar": [
+                case("add", false, "same"),
+                case("bad", true, "rejected"),
+                case("worse", true, "rejected"),
+            ],
+        });
+        let unknown = json!({
+            "id": "plus", "status": "unknown", "reason": "grammar-run-not-supported",
+            "rules": [], "grammar": [case("bad", true, "different")],
+        });
+        let targets = grammar_targets(&[rule, survivor, unknown]).expect("a grammar row");
+        assert_eq!(targets.as_array().unwrap().len(), 1, "{targets:#}");
+        let target = &targets[0];
+        assert_eq!(target["mutation"], "juxtapose");
+        assert_eq!(target["rejected"], json!(["bad", "worse"]));
+        assert_eq!(
+            target["declarations"],
+            json!([{
+                "file": "calc.k", "label": "mul", "start_line": 3, "end_line": 5,
+                "before": "syntax Exp ::= Exp \"*\" Exp", "after": "syntax Exp ::= Exp Exp",
+            }])
+        );
+        assert!(
+            target["action"]
+                .as_str()
+                .unwrap()
+                .contains("rejected = \"parse\""),
+            "{target:#}"
+        );
+        assert_eq!(
+            action("survived", Some(GRAMMAR_SURVIVOR_REASON)),
+            Some(GRAMMAR_SURVIVOR_ACTION)
+        );
+    }
 
     /// A mutant run's evidence with both slots `unknown` and the leaves whose paths the bridge
     /// left incomplete.
