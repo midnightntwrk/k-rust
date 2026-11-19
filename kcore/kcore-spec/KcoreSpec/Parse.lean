@@ -6100,9 +6100,11 @@ of them; the attribute `simplification` does not change what an equation states,
 kind of sentence as a user's `simplification` lemma. The reader does not put it in `Γ` and neither
 claims it true nor refuses it for being false: it is owed. Where it applies no parameter symbol
 without `impl` it rests on an interpreted symbol's graph, which `Γ` states at values, so the tie's
-class is `user lemma at values` (`EntailsAtValues`; the tie proves it, or `Γ` with it has no model
-and the text is not tied); where it applies one it is a parameter lemma, owed as a hypothesis on
-`H` (the account's class, `isParamLemma`'s condition). -/
+class is `user lemma at values` (`EntailsAtValues`; the tie proves it for every `H`, or, where its
+truth at values reads a value `H` gives, it is a hypothesis on `H`; that the text has no model is
+said only where the refutation is proved: a for-every-`H` proof that fails or is not found shows
+neither that `Γ` with it has no model nor that it is no hypothesis on `H`); where it applies one it
+is a parameter lemma, owed as a hypothesis on `H` (the account's class, `isParamLemma`'s condition). -/
 def regLemmaEqn (S : Scan) (e : RawEqn) : Bool :=
   !e.dom && !hasAttr e.attrs "symbol-overload" && isUserSource e.attrs &&
     (regSymNames.contains e.fn || (eqnHookedHead? S e).any (fun h => (attrStr? h.attributes "hook").isSome))

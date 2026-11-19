@@ -2793,6 +2793,15 @@ def classLineOwed (c o : String) : String :=
     ": owed as a hypothesis on H at values (some H meets FnObligations and at it each sentence of the class is EntailsAtValues (c.withHooks H) s (tr s); the tie shows an H at which the text's hypotheses hold), not decided by the reader"
   else ""
 
+/-- What the account says after the class line of a sentence of the user's text classed `inert
+simplification` whose pattern applies, at a head Γ has, a symbol through which evaluation may read
+the interpretation (`appliesHRead`; `r`, `Parse.lawReadsFL`'s answer) and no parameter symbol without
+`impl`: the sentence is owed, entailed by Γ where its truth reads nothing of the interpretation, or
+a hypothesis on `H` (the class `parameter lemma`) where it does; which one, the tie on the text names
+(test/constructs/tiegen.py `--reads-h`), and the account's class stays the reader's. -/
+def classLineOwedHRead (r : String) : String :=
+  s!": owed: entailed by Γ, or a hypothesis on H where its truth reads the interpretation (it applies {r}); the tie on the text names which, not decided by the reader"
+
 /-- `s` cut after its first `n` characters, a `Source(PATH)`'s PATH counted as none and never cut
 (FIX-core.account-trunc-path): where a line is cut does not depend on the directory a text was
 kompiled in or on K's installation path, so the line is the same for two texts that differ only in
@@ -2835,13 +2844,26 @@ def account (koreFile : String) : IO UInt32 := do
         if dRead.any (fun (d : Definition) => appliesNoImplParam d.sem a.pattern) then paramLemmaClass else userLemmaValuesClass
       else if dRead.any (fun (d : Definition) => isParamLemma d.sem cl s || isLibParamLemma d.sem cl s) then paramLemmaClass else cl.name
     | _ => if dRead.any (fun (d : Definition) => isParamLemma d.sem cl s || isLibParamLemma d.sem cl s) then paramLemmaClass else cl.name
-  let cls := m.sentences.map fun s => (clsName s, origin s, s)
-  let keys := (cls.map fun (c, o, _) => (c, o)).eraseDups
-  for (c, o) in keys do
-    let these := cls.filter fun (c', o', _) => c' == c && o' == o
-    IO.println s!"  {these.length} {c} [{o}]{classLineOwed c o}"
+  -- a user's lemma applying a symbol through which evaluation may read the interpretation and no
+  -- parameter symbol without `impl` is owed as entailed or as a hypothesis on H, which the tie names
+  let gk := dRead.map fun (d : Definition) => appliesHReadHeads d.sem
+  let owedOf := fun (c o : String) (s : Kore.Sentence) =>
+    if c == "inert simplification" && o == "user" then
+      match s, dRead, gk with
+      | .axiom a, some d, some hs =>
+        if appliesNoImplParam d.sem a.pattern then classLineOwed c o
+        else match appliesHReadWhat d.sem hs a.pattern with
+          | some r => classLineOwedHRead r
+          | none => classLineOwed c o
+      | _, _, _ => classLineOwed c o
+    else classLineOwed c o
+  let cls := m.sentences.map fun s => let c := clsName s; let o := origin s; (c, o, owedOf c o s, s)
+  let keys := (cls.map fun (c, o, w, _) => (c, o, w)).eraseDups
+  for (c, o, w) in keys do
+    let these := cls.filter fun (c', o', w', _) => c' == c && o' == o && w' == w
+    IO.println s!"  {these.length} {c} [{o}]{w}"
     if (c.splitOn "refused").length > 1 then
-      for (_, _, s) in these.take 1 do IO.println s!"      e.g. {clip 400 (Kore.Printer.sentence s)}"
+      for (_, _, _, s) in these.take 1 do IO.println s!"      e.g. {clip 400 (Kore.Printer.sentence s)}"
   -- printed only when some sentence is read so
   let cr := Parse.connReadings k
   unless cr.isEmpty do
