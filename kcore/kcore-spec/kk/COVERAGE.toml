@@ -415,8 +415,8 @@ note = "the reader refuses it (rows.toml E4 tree:Pattern.rightAssoc is refused),
 #            of KK.encodable (a fixture's or ref-kimp's text), the table's Bool, or the first
 #            uncovered hook row's; refused_on, the text or table entry; first_uncovered, the hook
 #            row a module row is refused by.
-# Entries: 1103; covered 427; refused 676 (paramsOK 400, appsOK 160, shapesOK 60, litsOK 48, ovlsOK 8).
-# By evidence: fixture 882, hook table 139, kimp 50, module hooks 19, sort table 13.
+# Entries: 1106; covered 427; refused 679 (paramsOK 402, appsOK 160, shapesOK 61, litsOK 48, ovlsOK 8).
+# By evidence: fixture 885, hook table 139, kimp 50, module hooks 19, sort table 13.
 # No evidence text, no verdict (a fixture is owed; check fails on them, check --report lists them): 0.
 
 [rows.E1."Require:kw:requires"]
@@ -698,6 +698,12 @@ by = "fixture"
 bool = "paramsOK"
 refused_on = "e2-comm-ctor"
 
+[rows.E2."COMM(comm)@symbol#cases[9]"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-open-rule"
+
 [rows.E2."CONSTRUCTOR(constructor)@symbol"]
 verdict = "refused"
 by = "fixture"
@@ -766,6 +772,12 @@ verdict = "refused"
 by = "fixture"
 bool = "paramsOK"
 refused_on = "e2-collection"
+
+[rows.E2."IDEM(idem)@symbol#cases[0]"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "e2-idem-ctor"
 
 [rows.E2."INITIAL(initial)@frontend"]
 verdict = "covered"
@@ -1306,6 +1318,12 @@ refused_on = "e3-vars"
 verdict = "covered"
 by = "fixture"
 case = "e3-ml-req-exists"
+
+[rows.E3."ML-SYNTAX:Sort2::=\"#Exists\" Sort1 \".\" Sort2#cases[23]"]
+verdict = "refused"
+by = "fixture"
+bool = "shapesOK"
+refused_on = "e3-vars-ens-unsat"
 
 [rows.E3."ML-SYNTAX:Sort2::=\"#Forall\" Sort1 \".\" Sort2#cases[1]"]
 verdict = "refused"
