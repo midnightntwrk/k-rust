@@ -448,7 +448,7 @@ theorem fnDetH (H : HookParams) : FnDet (cH H) :=
 /-- **The clause of `f` is `Witnessed`, for every H**, at HOLE := `hole`: its `requires` is `true`
 and nothing else. -/
 theorem witnessedH (H : HookParams) : clCool.Witnessed (cH H) := by
-  refine ⟨[(1, hole)], fun j hj s hs => ?_, fun t ht => ?_, .top⟩
+  refine ⟨[(1, hole)], fun j hj s hs => ?_, fun t ht => ?_, .top, fun _ hb => hb.top_eq⟩
   · rw [needs.2.2] at hj
     cases List.mem_singleton.mp hj
     cases (show some Srt.k = some s from hs)
