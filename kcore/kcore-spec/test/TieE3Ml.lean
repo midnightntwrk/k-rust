@@ -45,9 +45,9 @@
   its variables to values (`EntailsAtValues (cH H) ad (trS ad).pat`), since Γ states the parameter's
   graph at values only (`ΓDomains`). The account holds them in the class `parameter lemma`, of the
   direction `hypothesis`. A hypothesis no H satisfies would tie a text without a model, so the tie
-  owes one H at which the functions' obligations hold and every parameter lemma holds at values
+  owes one H at which `FnHyp` holds and every parameter lemma holds at values
   (`ParamLemmaWitnessAtValues`). Proved here, by hand: at `H1`, the interpretation with `h(n) = n`,
-  the obligations hold and each parameter lemma holds in every model of Γ at the valuations sending
+  `FnHyp` holds and each parameter lemma holds in every model of Γ at the valuations sending
   its variable to a value (`e3ml_witness`); at `HookParams.none` Γ with sentence 210 has no model
   (`e3ml_open`), so the class is no `entailed`. Every `simplification` equation of the user module
   whose left side's head is a parameter symbol without `impl` is one of them (`paramlemma_heads`).
@@ -796,13 +796,13 @@ noncomputable def paramLemmaText : List AxiomDecl := [U.ax126, U.ax127, U.ax210,
 theorem paramlemma_account : paramLemmaText.map (·.index) = classOf "parameter lemma" := by
   decide +kernel
 
-/-- **What the tie owes of the parameter lemmas**: one interpretation `H` at which the functions'
-obligations hold and every parameter lemma holds in every model of Γ at the valuations sending its
+/-- **What the tie owes of the parameter lemmas**: one interpretation `H` at which `FnHyp` holds
+and every parameter lemma holds in every model of Γ at the valuations sending its
 free element variables to values (`EntailsAtValues`), so that the text with its hypotheses has a
 model. Γ states a parameter's graph at values only (`ΓDomains`), so the lemma is owed there. Proved
 by hand: `e3ml_witness`. -/
 def ParamLemmaWitnessAtValues : Prop :=
-  ∃ H : HookParams, FnObligations (cH H) callOrder [] ∧
+  ∃ H : HookParams, FnHyp (cH H) ∧
     ∀ ad ∈ paramLemmaText, EntailsAtValues (cH H) ad (trS ad).pat
 
 /-- Every sentence of the user module that carries `simplification`, is an equation
@@ -1657,10 +1657,10 @@ theorem userlemma_entailed : UserLemmaEntailed := by
   · exact s125_entailed H
   · exact s152_entailed H
 
-/-- **The witness**: at `H1` (`h(n) = n`) the obligations hold (`obl_nil`) and the four parameter
+/-- **The witness**: at `H1` (`h(n) = n`) `FnHyp` holds (`fnHypH`) and the four parameter
 lemmas hold at values. -/
 theorem e3ml_witness : ParamLemmaWitnessAtValues := by
-  refine ⟨H1, obl_nil H1, fun ad had => ?_⟩
+  refine ⟨H1, fnHypH H1, fun ad had => ?_⟩
   simp only [paramLemmaText, List.mem_cons, List.not_mem_nil, or_false] at had
   rcases had with rfl | rfl | rfl | rfl
   · exact s126_at_values

@@ -280,7 +280,7 @@
 #      direction entailed, and user lemma at values, direction at values) or a
 #      hypothesis on the definition (FnHyp for a functional sentence, FnLaws for a function's law,
 #      and, for a lemma that applies a parameter symbol without impl (class parameter lemma), one H
-#      that meets FnObligations and at which each sentence of the class holds at values,
+#      that meets FnHyp and at which each sentence of the class holds at values,
 #      EntailsAtValues (c.withHooks H) s (tr s), Γ giving a parameter's graph at values only;
 #      direction hypothesis);
 #   2. the reader neither claims it true nor refuses it for being false (in general it can decide

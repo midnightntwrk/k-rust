@@ -180,7 +180,7 @@ What it states where the text:
 - has a lemma applying a parameter symbol no hook implements (`isParamLemma`, or a `simplification`
   sentence of K's builtin library applying one, which the reader reads as the library's text and of
   which Γ holds no item; the class `parameter lemma`, direction hypothesis): `paramlemma_account`, and `ParamLemmaWitnessAtValues`, one H at
-  which `FnObligations` hold and every parameter lemma holds at values (`EntailsAtValues`), stated
+  which `FnHyp` holds and every parameter lemma holds at values (`EntailsAtValues`), stated
   and owed (`owed` in the summary); and
   `paramlemma_heads`: every `simplification` equation of the user module whose left side's head is
   a parameter symbol without `impl` is in that class;
@@ -365,7 +365,7 @@ PARAM_FUNCTIONAL_CLASS = "parameter functional"
 # on H (direction hypothesis), at values: Γ states the parameter's graph at values only (`ΓDomains`),
 # so a model of Γ may hold an element of an unconfined sort that is no value's, at which no item of Γ
 # constrains the parameter, and the sentence at every valuation can fail there at every H. The tie of
-# a text with one owes one H at which `FnObligations` hold and every one of them holds at the
+# a text with one owes one H at which `FnHyp` holds and every one of them holds at the
 # valuations sending its variables to values (`ParamLemmaWitnessAtValues`, `EntailsAtValues`), since
 # a hypothesis no H satisfies would tie a text without a model.
 PARAM_LEMMA_CLASS = "parameter lemma"
@@ -1898,7 +1898,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                 "valuations sending its variables to values (`EntailsAtValues (cH H) ad (trS ad).pat`), since Γ "
                 "states the parameter's graph at values only (`ΓDomains`). The account holds them in the class "
                 f"`{PARAM_LEMMA_CLASS}`, of the direction `hypothesis`. A hypothesis no H satisfies would tie a text "
-                "without a model, so the tie owes one H at which the functions' obligations hold and every "
+                "without a model, so the tie owes one H at which `FnHyp` holds and every "
                 "parameter lemma holds at values (`ParamLemmaWitnessAtValues`, stated here and proved by hand: "
                 "owed). Every `simplification` equation of the user module whose left side's head is a parameter "
                 "symbol without `impl` is one of them (`paramlemma_heads`)."]
@@ -3206,7 +3206,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         owed.append("FnHyp, the hypothesis the function functional sentences are owed under (not stated: the "
                     "consistency section shows `consistent` without it)")
     if param_lem:
-        owed.append(f"one H at which FnObligations hold and the parameter lemmas {', '.join(map(str, param_lem))} "
+        owed.append(f"one H at which FnHyp holds and the parameter lemmas {', '.join(map(str, param_lem))} "
                     f"hold at values (ParamLemmaWitnessAtValues)")
     if user_lem:
         owed.append(f"Γ entails the user lemmas {', '.join(map(str, user_lem))} for every H (UserLemmaEntailed)")
@@ -4443,13 +4443,13 @@ noncomputable def paramLemmaText : List AxiomDecl := [{lt}]
 theorem paramlemma_account : paramLemmaText.map (·.index) = classOf "{PARAM_LEMMA_CLASS}" := by
   decide +kernel
 
-/-- **What the tie owes of the parameter lemmas**: one interpretation `H` at which the functions'
-obligations hold and every parameter lemma holds in every model of Γ at the valuations sending its
+/-- **What the tie owes of the parameter lemmas**: one interpretation `H` at which `FnHyp` holds
+and every parameter lemma holds in every model of Γ at the valuations sending its
 free element variables to values (`EntailsAtValues`), so that the text with its hypotheses has a
 model. Γ states a parameter's graph at values only (`ΓDomains`), so the lemma is owed there. Stated,
 not proved here: the proof is owed. -/
 def ParamLemmaWitnessAtValues : Prop :=
-  ∃ H : HookParams, FnObligations (cH H) callOrder [] ∧
+  ∃ H : HookParams, FnHyp (cH H) ∧
     ∀ ad ∈ paramLemmaText, EntailsAtValues (cH H) ad (trS ad).pat
 
 /-- Every sentence of the user module that carries `simplification`, is an equation
