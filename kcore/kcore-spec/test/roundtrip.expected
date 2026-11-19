@@ -149,6 +149,7 @@ differs f2-examples/e3-kast.kompile.kore
 differs f2-examples/e3-kseq.kompile.kore
 differs f2-examples/e3-ml-eq-rhs-or-bottom.kompile.kore
 differs f2-examples/e3-ml-eq-rhs-or-empty.kompile.kore
+differs f2-examples/e3-ml-req-and.kompile.kore
 differs f2-examples/e3-ml-req-bottom.kompile.kore
 differs f2-examples/e3-ml-req-ceil.kompile.kore
 differs f2-examples/e3-ml-req-exists.kompile.kore
@@ -156,6 +157,8 @@ differs f2-examples/e3-ml-req-floor.kompile.kore
 differs f2-examples/e3-ml-req-forall.kompile.kore
 differs f2-examples/e3-ml-req-implies.kompile.kore
 differs f2-examples/e3-ml-req-not-pred.kompile.kore
+differs f2-examples/e3-ml-req-or-unheld.kompile.kore
+differs f2-examples/e3-ml-req-or.kompile.kore
 differs f2-examples/e3-ml-req-top.kompile.kore
 differs f2-examples/e3-ml-rule-lhs-exists.kompile.kore
 differs f2-examples/e3-ml-rule-lhs-implies.kompile.kore
