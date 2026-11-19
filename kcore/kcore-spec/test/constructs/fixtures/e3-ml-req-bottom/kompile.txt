@@ -1,0 +1,11 @@
+command: kompile --backend haskell e3-ml-req-bottom.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 3.1
+definition.kore bytes: 208876
+definition.kore sha256: 71a02d32d607cafa5bc252a50b8aeb9b6b32e73128e31032dfee599f9b7c62db
+stripped sha256: 86588aa3c93cf0d2c268030bbf421f0fdf8a712acf8f1fbca4fc3299a9296d03
+main module: 410 sentences, 54 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-ML-REQ-BOTTOM-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E3-ML-REQ-BOTTOM as default.

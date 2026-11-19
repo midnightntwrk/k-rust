@@ -1,0 +1,2 @@
+# row E5 convertRule:axiom#2, case "B50 set pattern in the left side": f2-examples/setitem.k (test/SetItem.lean's text), SetItem(X:Int) and SetItem(1) alone in a rule's left side and a cell set's element alone. Predicted: kompile exit 0; account refuses nothing, coreOK true
+main = "setitem.k"

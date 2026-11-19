@@ -1,0 +1,11 @@
+command: kompile --backend haskell e3-ml-req-not-pred.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 3.1
+definition.kore bytes: 208975
+definition.kore sha256: b51c99b4a174841fc5c3f5f9996d4b7d2cfdaa9a9d18fcd5e872fa97392e36df
+stripped sha256: 538197e60f9314b56d4ae0d6f27da8cc467361884564b3cb7e838d7d3ce5b0dd
+main module: 410 sentences, 54 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-ML-REQ-NOT-PRED-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E3-ML-REQ-NOT-PRED as default.

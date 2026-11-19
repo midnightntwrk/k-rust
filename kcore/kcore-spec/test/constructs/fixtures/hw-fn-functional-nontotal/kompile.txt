@@ -1,0 +1,3 @@
+command: none: fixture.toml kore = 'test/constructs/fixtures/hw-fn-functional-nontotal/hw-fn-functional-nontotal.kore', a KORE text kompile does not write; account.txt is `kcore account test/constructs/fixtures/hw-fn-functional-nontotal/hw-fn-functional-nontotal.kore` (cwd: kcore-spec)
+definition.kore bytes: 238836
+definition.kore sha256: 03ebc85ed8e2489e132156d5301dcf0fd544f93d9e45a303b32d36a2a8aa9eda

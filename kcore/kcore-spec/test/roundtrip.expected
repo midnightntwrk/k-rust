@@ -148,11 +148,13 @@ differs f2-examples/e3-kast.kompile.kore
 differs f2-examples/e3-kseq.kompile.kore
 differs f2-examples/e3-ml-eq-rhs-or-bottom.kompile.kore
 differs f2-examples/e3-ml-eq-rhs-or-empty.kompile.kore
+differs f2-examples/e3-ml-req-bottom.kompile.kore
 differs f2-examples/e3-ml-req-ceil.kompile.kore
 differs f2-examples/e3-ml-req-exists.kompile.kore
 differs f2-examples/e3-ml-req-floor.kompile.kore
 differs f2-examples/e3-ml-req-forall.kompile.kore
 differs f2-examples/e3-ml-req-implies.kompile.kore
+differs f2-examples/e3-ml-req-not-pred.kompile.kore
 differs f2-examples/e3-ml-req-top.kompile.kore
 differs f2-examples/e3-ml.kompile.kore
 differs f2-examples/e3-param-cases.kompile.kore
@@ -169,6 +171,7 @@ differs f2-examples/e3-vars-set.kompile.kore
 differs f2-examples/e3-vars.kompile.kore
 differs f2-examples/e3-withconfig.kompile.kore
 differs f2-examples/e3-witnessed-pre.kompile.kore
+differs f2-examples/e5-cellsub.kompile.kore
 differs f2-examples/e5-ovl-fn-fn-ctor.kompile.kore
 differs f2-examples/e5-ovl-fn-fn-owise.kompile.kore
 differs f2-examples/e5-ovl-fn-fn.kompile.kore
@@ -179,6 +182,7 @@ differs f2-examples/e5-ovl-fun-lhs-owise.kompile.kore
 differs f2-examples/e5-ovl-fun-lhs.kompile.kore
 differs f2-examples/e5-ovl-fun-partial.kompile.kore
 differs f2-examples/e5-ovl-fun.kompile.kore
+differs f2-examples/e5-setitem-lhs.kompile.kore
 differs f2-examples/e6-builtintext-unif-subst.kompile.kore
 differs f2-examples/e6-divides-int.kompile.kore
 differs f2-examples/e6-int2bytes-nolen.kompile.kore

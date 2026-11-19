@@ -415,7 +415,7 @@ note = "the reader refuses it (rows.toml E4 tree:Pattern.rightAssoc is refused),
 #            of KK.encodable (a fixture's or ref-kimp's text), the table's Bool, or the first
 #            uncovered hook row's; refused_on, the text or table entry; first_uncovered, the hook
 #            row a module row is refused by.
-# Entries: 1091; covered 425; refused 666 (paramsOK 402, appsOK 160, litsOK 48, shapesOK 48, ovlsOK 8).
+# Entries: 1091; covered 427; refused 664 (paramsOK 400, appsOK 160, litsOK 48, shapesOK 48, ovlsOK 8).
 # By evidence: fixture 870, hook table 139, kimp 50, module hooks 19, sort table 13.
 # No evidence text, no verdict (a fixture is owed; check fails on them, check --report lists them): 0.
 
@@ -1025,10 +1025,9 @@ by = "fixture"
 case = "e3-ml-eq-rhs-or-bottom"
 
 [rows.E3."ML-SYNTAX:Sort::=\"#Bottom\"#cases[3]"]
-verdict = "refused"
+verdict = "covered"
 by = "fixture"
-bool = "paramsOK"
-refused_on = "e3-ml"
+case = "e3-ml-req-bottom"
 
 [rows.E3."ML-SYNTAX:Sort::=\"#Not\" \"(\" Sort \")\""]
 verdict = "refused"
@@ -1049,10 +1048,9 @@ bool = "shapesOK"
 refused_on = "e3-ml-req-not"
 
 [rows.E3."ML-SYNTAX:Sort::=\"#Not\" \"(\" Sort \")\"#cases[2]"]
-verdict = "refused"
+verdict = "covered"
 by = "fixture"
-bool = "paramsOK"
-refused_on = "e3-ml"
+case = "e3-ml-req-not-pred"
 
 [rows.E3."ML-SYNTAX:Sort2::=\"#Ceil\" \"(\" Sort1 \")\""]
 verdict = "refused"
@@ -2406,7 +2404,7 @@ refused_on = "e3-vars"
 [rows.E5."convertRule:axiom#2#cases[3]"]
 verdict = "covered"
 by = "fixture"
-case = "e1-sentences"
+case = "e5-setitem-lhs"
 
 [rows.E5."convertRule:axiom#2#cases[6]"]
 verdict = "refused"
@@ -2454,12 +2452,12 @@ case = "e1-starinit"
 [rows.E5."functionalPattern:axiom#1#cases[2]"]
 verdict = "covered"
 by = "fixture"
-case = "base"
+case = "e5-cellsub"
 
 [rows.E5."functionalPattern:axiom#1#cases[4]"]
 verdict = "covered"
 by = "fixture"
-case = "base"
+case = "hw-fn-functional-nontotal"
 
 [rows.E6."module:ARRAY-SYNTAX"]
 verdict = "refused"

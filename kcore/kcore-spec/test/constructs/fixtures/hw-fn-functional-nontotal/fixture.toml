@@ -1,0 +1,8 @@
+# Hand-written KORE: f2-examples/kresfn.kompile.kore (K 7.1.337's kompile of f2-examples/kresfn.k: `syntax K ::= f(Int)
+# [function, symbol(f)]`, not total, with `rule f(X) => X`) with one axiom added by hand before freshInt's functional
+# axiom, where kompile writes a total function's: the functional axiom of f,
+# axiom{R} \exists{R} (Val:SortK{}, \equals{SortK{}, R} (Val:SortK{}, Lblf{}(K0:SortInt{}))) [functional{}()].
+# kompile writes that axiom only for a symbol declared total, so no kompiled text holds it for f. The sentence holds in
+# every model of the text: f's one equation gives f(X) the value kseq(inj(X), dotk) at every X.
+# Expected: the account refuses nothing; the axiom accounted for as f's functional sentence.
+kore = "test/constructs/fixtures/hw-fn-functional-nontotal/hw-fn-functional-nontotal.kore"

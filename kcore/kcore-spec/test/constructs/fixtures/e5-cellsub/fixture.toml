@@ -1,0 +1,2 @@
+# row E5 functionalPattern:axiom#1, case "B18 subsort of a cell sort into a user sort": f2-examples/cellsub.k (test/CellSubsort.lean's text), syntax Pgm ::= KCell. Predicted: kompile exit 0, the subsort KCell < Pgm read; account refuses nothing, coreOK true
+main = "cellsub.k"

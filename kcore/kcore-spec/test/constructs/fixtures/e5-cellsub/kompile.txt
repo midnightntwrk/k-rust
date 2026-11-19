@@ -1,0 +1,9 @@
+command: kompile --backend haskell cellsub.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 3.8
+definition.kore bytes: 219800
+definition.kore sha256: 1c4dfde6b71cc8d4d902f2a3dbc6c8352261fb2ad21bd3f55cc3e695c464294d
+stripped sha256: 26fcacd705847e106cbce5dcffbe4b69d4303e2f46e6a9ea10e122dcb078a50c
+main module: 445 sentences, 101 not in base's, in kore.txt
+output:
+  

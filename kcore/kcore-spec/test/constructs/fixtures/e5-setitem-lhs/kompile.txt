@@ -1,0 +1,9 @@
+command: kompile --backend haskell setitem.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 3.7
+definition.kore bytes: 253085
+definition.kore sha256: 250890ea93a78f65505e890217c9d9b9be014e270e98993b87d126edbad35063
+stripped sha256: d15ee704dda37830d007f2c03d8365dec310ad1f1c5f0854ea7e86e961e79bde
+main module: 547 sentences, 215 not in base's, in kore.txt
+output:
+  
