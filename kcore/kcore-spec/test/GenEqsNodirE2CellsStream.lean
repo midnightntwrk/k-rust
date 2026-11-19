@@ -184,19 +184,18 @@ noncomputable def eqsProj2 : List RawEqn := stage.scan72.eqs
 /-- The equations the model reads: the listed equations and those of `order`'s constants, as the account's scan reads them. -/
 noncomputable def eqsN : List RawEqn := eqsConst ++ (eqsInit ++ (eqsProj ++ eqsProj2))
 
-set_option maxHeartbeats 4000000 in
 /-- **The equations the model reads are among the account's.** -/
 theorem eqsN_sub : eqsN.Sublist S.eqs := by
-  have h : scanAll.eqs = (stage.scan0.eqs ++ stage.scan1.eqs ++ stage.scan2.eqs ++ stage.scan3.eqs ++ stage.scan4.eqs ++ stage.scan5.eqs ++ stage.scan6.eqs ++ stage.scan7.eqs ++ stage.scan8.eqs ++ stage.scan9.eqs ++ stage.scan10.eqs ++ stage.scan11.eqs ++ stage.scan12.eqs ++ stage.scan13.eqs ++ stage.scan14.eqs ++ stage.scan15.eqs ++ stage.scan16.eqs ++ stage.scan17.eqs ++ stage.scan18.eqs ++ stage.scan19.eqs ++ stage.scan20.eqs ++ stage.scan21.eqs ++ stage.scan22.eqs ++ stage.scan23.eqs ++ stage.scan24.eqs ++ stage.scan25.eqs ++ stage.scan26.eqs ++ stage.scan27.eqs ++ stage.scan28.eqs ++ stage.scan29.eqs ++ stage.scan30.eqs ++ stage.scan31.eqs ++ stage.scan32.eqs ++ stage.scan33.eqs ++ stage.scan34.eqs ++ stage.scan35.eqs ++ stage.scan36.eqs ++ stage.scan37.eqs ++ stage.scan38.eqs ++ stage.scan39.eqs ++ stage.scan40.eqs ++ stage.scan41.eqs ++ stage.scan42.eqs ++ stage.scan43.eqs ++ stage.scan44.eqs ++ stage.scan45.eqs ++ stage.scan46.eqs ++ stage.scan47.eqs ++ stage.scan48.eqs ++ stage.scan49.eqs ++ stage.scan50.eqs ++ stage.scan51.eqs ++ stage.scan52.eqs ++ stage.scan53.eqs ++ stage.scan54.eqs ++ stage.scan55.eqs ++ stage.scan56.eqs ++ stage.scan57.eqs ++ stage.scan58.eqs ++ stage.scan59.eqs ++ stage.scan60.eqs ++ stage.scan61.eqs ++ stage.scan62.eqs) ++ (eqsConst ++ ((stage.scan64.eqs ++ stage.scan65.eqs ++ stage.scan66.eqs) ++
-      (eqsInit ++ ((stage.scan68.eqs ++ stage.scan69.eqs) ++
-      (eqsProj ++ ((stage.scan71.eqs) ++
-      (eqsProj2 ++ (stage.scan73.eqs)))))))) := by
-    simp (config := { maxSteps := 1000000 }) only [scanAll, Scan.append, eqsConst, eqsInit, eqsProj, eqsProj2, List.append_assoc]
-  rw [scan_eq, h, eqsN]
-  exact (List.Sublist.append (List.Sublist.refl _)
-    ((List.Sublist.append (List.Sublist.refl _)
-    ((List.Sublist.append (List.Sublist.refl _)
-    ((List.sublist_append_left _ _).trans (List.sublist_append_right _ _))).trans (List.sublist_append_right _ _))).trans (List.sublist_append_right _ _))).trans (List.sublist_append_right _ _)
+  -- `scanAll` walked once, block by block: each block's equations dropped or kept
+  have drop : ∀ {l : List RawEqn} {a b : Scan}, l.Sublist a.eqs → l.Sublist (a.append b).eqs :=
+    fun h => List.sublist_append_of_sublist_left h
+  have keep : ∀ {l : List RawEqn} {a b : Scan}, l.Sublist a.eqs → (l ++ b.eqs).Sublist (a.append b).eqs :=
+    fun h => List.Sublist.append h (List.Sublist.refl _)
+  have first : ∀ {a b : Scan}, b.eqs.Sublist (a.append b).eqs := List.sublist_append_right _ _
+  have e : eqsN = ((stage.scan63.eqs ++ stage.scan67.eqs) ++ stage.scan70.eqs) ++ stage.scan72.eqs := by
+    simp only [eqsN, eqsConst, eqsInit, eqsProj, eqsProj2, List.append_assoc]
+  rw [scan_eq, e]
+  exact drop <| keep <| drop <| keep <| drop <| drop <| keep <| drop <| drop <| drop <| first
 
 /-- The axioms of the user module, in text order. -/
 theorem userAxioms_eq : kore.axiomDecls.filter (·.module == "E2-CELLS-STREAM") = U.all := by kernel_rfl
