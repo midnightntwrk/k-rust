@@ -13,6 +13,7 @@
 -/
 import KcoreSpec.ExModelT
 import KcoreSpec.HoldsFacts
+import KcoreSpec.HasValueValue
 
 set_option autoImplicit false
 
@@ -379,11 +380,13 @@ theorem boundReads_boundV_stdI (h : HypModelCore c) {val : Srt → Bool}
     exact ⟨elemsValues_stdI h (confined_numberedStdI h hb.1), hb.2⟩
 
 /-- **The value model at T reads `Cond.bound`**: at an `ex` or `all` binder the elements of the
-sort are values', the sort being confined or of a value (`Semantics.valued_value`), hence numbered. -/
+sort are values', the sort being confined or of a value (`hasValue_value_of`), hence numbered. -/
 theorem boundReads_bound_stdI (h : HypModelCore c) : HoldsShape.BoundReads c (stdI_T c T) (Cond.bound c) := by
   rw [Cond.bound_eq_boundV]
   exact boundReads_boundV_stdI h fun _ hs =>
-    let ⟨_, hv⟩ := Semantics.valued_value hs; sortOf_numbered h hv
+    let ⟨_, hv⟩ := hasValue_value_of h.sound.2.2.2.2.2.2.2.2
+      (sortCtx_of_allClEx h.sound.1 h.sound.2.1 h.ovlCase).trans (Model.namesApartK_spec h.names) hs
+    sortOf_numbered h hv
 
 theorem holdsT_ex (h : HypModelCore c) (s : Srt) {body : Cond} (ih : HoldsT c T body) : HoldsT c T (.ex s body) :=
   holdsT_of_den h (HoldsShape.holds_exB (atomFacts_stdI h) (bd := Cond.bound c) s (boundReads_bound_stdI h).ex

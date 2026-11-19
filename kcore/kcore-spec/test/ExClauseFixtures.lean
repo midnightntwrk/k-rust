@@ -163,7 +163,7 @@ def run (n fnName : String) (expect : Clause) : IO Unit := do
       | .error f => IO.println s!"{n} {fnName}: refused {repr f.reason} ({f.detail})"
       | .ok (cl, vs) =>
         IO.println s!"{n} {fnName}: vars {vs.map fun v => v.name ++ ":" ++ v.sort} exs {cl.exs}"
-        IO.println s!"  sorts {cl.exs.map fun i => (cl.vars[i]?.map c.sortName).getD "?"}; confined {cl.exs.map fun i => (cl.vars[i]?.map c.confined).getD false}; fixedExs {cl.fixedExs c.confined c.valued}; clausePlainEx {c.clausePlainEx cl}"
+        IO.println s!"  sorts {cl.exs.map fun i => (cl.vars[i]?.map c.sortName).getD "?"}; confined {cl.exs.map fun i => (cl.vars[i]?.map c.confined).getD false}; fixedExs {cl.fixedExs c.confined c.hasValue}; clausePlainEx {c.clausePlainEx cl}"
         IO.println s!"  read is {if toString (repr cl) == toString (repr expect) then "the hand-built clause" else "not the hand-built clause"}"
     | .ok _, es => IO.println s!"{n} {fnName}: {es.length} equations"
 
@@ -220,7 +220,7 @@ def c : Semantics :=
 
 /-- Z is neither of a confined sort nor fixed by the predicate. -/
 theorem clZ_no : c.clausePlainEx clZ = false ∧ c.confined Srt.int = false ∧
-    clZ.fixedExs c.confined c.valued = [] ∧ clZ.fixedExs (fun _ => true) (fun _ => true) = [] := by
+    clZ.fixedExs c.confined c.hasValue = [] ∧ clZ.fixedExs (fun _ => true) (fun _ => true) = [] := by
   decide +kernel
 
 end Int

@@ -21,7 +21,7 @@
 import KcoreSpec.Evaluation
 import KcoreSpec.Emit
 import KcoreSpec.Kore.Distinct
-import KcoreSpec.RightHeld
+import KcoreSpec.HasValue
 
 set_option autoImplicit false
 
@@ -567,15 +567,16 @@ def Cond.fixes (adm val : Srt → Bool) : (Nat → Bool) → Nat → Nat → Con
 
 /-- Each binder of a condition ranges where values and elements agree: an `exMatch` variable is
 held by its pattern under constructors and injections, or is of a confined sort; an `ex` variable
-is of a confined sort, or of a sort with a value (`Semantics.valued`) where the body fixes it by a
-term over the other variables (`Cond.fixes`); an `all` variable is of a confined sort. -/
+is of a confined sort, or of a sort with a value at every interpretation of the parameters
+(`Semantics.hasValue`) where the body fixes it by a term over the other variables (`Cond.fixes`);
+an `all` variable is of a confined sort. -/
 def Cond.bound (c : Semantics) (n : Nat) : Cond → Bool
   | .exMatch ys _ p _ body =>
       (List.range ys.length).all (fun j =>
         (ctorOccs c p).contains (n + j) || (ys[j]?.map c.confined).getD false) &&
       Cond.bound c (n + ys.length) body
   | .ex s body =>
-      (c.confined s || (c.valued s && Cond.fixes c.confined c.valued (fun j => j != n) n (n + 1) body)) &&
+      (c.confined s || (c.hasValue s && Cond.fixes c.confined c.hasValue (fun j => j != n) n (n + 1) body)) &&
       Cond.bound c (n + 1) body
   | .all s body => c.confined s && Cond.bound c (n + 1) body
   | .not p => Cond.bound c n p

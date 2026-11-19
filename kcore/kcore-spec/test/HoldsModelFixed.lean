@@ -7,13 +7,14 @@
 
   The semantics is the reader's for `f2-examples/symrule.kompile.kore` (as `test/HoldsModel.lean`).
   - `pOrEx`: `Z ∈ 3 ∨ ∃ B:Int. (Z ∈ B ∧ B = 4)`, Z of Int: the binder B is of Int, which is not
-    confined and has a value (`Semantics.valued`), and the body fixes B by `B = 4`. `Cond.bound`
-    accepts it, as `Cond.boundV c c.valued` does (`Cond.bound_eq_boundV`); `Cond.boundConf`, which
+    confined and has a value (`Semantics.hasValue`), and the body fixes B by `B = 4`. `Cond.bound`
+    accepts it, as `Cond.boundV c c.hasValue` does (`Cond.bound_eq_boundV`); `Cond.boundConf`, which
     reads the binder's sort alone, refuses it (`conds_ok`).
   - `pNotEx`: `¬ pOrEx`, the binder under two connectives.
   - `pFree`: `∃ B:Int. Z ∈ B`: the body fixes Z by B and not B, so all three refuse it.
   `holds_atT_fixed`, `holds_stdI_fixed` and `holds_stdI` at `pOrEx` and `pNotEx`, the truth value
-  from `holds_decided` under `FnHyp`; `Cond.boundV_valued_of_bound` at an instance.
+  from `holds_decided` under `FnHyp`; `Cond.boundV_hasValue_of_bound` at an instance; `hval`, the
+  premise of `holds_stdI_fixed`, by `hasValue_value`.
 -/
 import KcoreSpec
 
@@ -40,7 +41,7 @@ def pBool : Cond := .ex Srt.bool (.equals Srt.bool (.var 1) (.dv Srt.bool (.bool
 theorem coreOK : c.coreOK = true := by decide_cheap
 
 theorem conds_ok :
-    c.confined Srt.int = false ∧ c.valued Srt.int = true ∧
+    c.confined Srt.int = false ∧ c.hasValue Srt.int = true ∧
     (c.condOK [Srt.int] pOrEx = true ∧ Cond.bound c 1 pOrEx = true ∧
       Cond.boundConf c 1 pOrEx = false) ∧
     (c.condOK [Srt.int] pNotEx = true ∧ Cond.bound c 1 pNotEx = true ∧
@@ -50,14 +51,14 @@ theorem conds_ok :
     (Cond.bound c 1 pBool = true ∧ Cond.boundConf c 1 pBool = true) := by
   decide +kernel
 
-/-- `Cond.bound` is `Cond.boundV` at `c.valued`. -/
-theorem boundV_pOrEx : Cond.boundV c c.valued 1 pOrEx = true := by
+/-- `Cond.bound` is `Cond.boundV` at `c.hasValue`. -/
+theorem boundV_pOrEx : Cond.boundV c c.hasValue 1 pOrEx = true := by
   rw [← Cond.bound_eq_boundV]; exact conds_ok.2.2.1.2.1
-theorem boundV_pNotEx : Cond.boundV c c.valued 1 pNotEx = true := by
+theorem boundV_pNotEx : Cond.boundV c c.hasValue 1 pNotEx = true := by
   rw [← Cond.bound_eq_boundV]; exact conds_ok.2.2.2.1.2.1
 
-example : Cond.boundV c c.valued 1 pBool = true :=
-  Cond.boundV_valued_of_bound c pBool 1 conds_ok.2.2.2.2.2.1
+example : Cond.boundV c c.hasValue 1 pBool = true :=
+  Cond.boundV_hasValue_of_bound c pBool 1 conds_ok.2.2.2.2.2.1
 
 section
 open Faithful Faithful.Model
@@ -68,13 +69,13 @@ include hf
 theorem hModel : HypModelCore c :=
   hypModel_of_fn coreOK (fnModel_of_fnHyp coreOK hf).1 (fnModel_of_fnHyp coreOK hf).2
 
-/-- A sort `valued` accepts is numbered: it has a value (`Semantics.valued_value`), whose sort is
-numbered in the model. -/
-theorem hval : ∀ s, c.valued s = true → s < nRegSorts + c.sortNames.length := fun _ hs =>
-  let ⟨_, hv⟩ := Semantics.valued_value hs; sortOf_numbered (hModel hf) hv
+/-- A sort `hasValue` accepts is numbered: it has a value (`hasValue_value`, on `coreOK`), whose
+sort is numbered in the model. -/
+theorem hval : ∀ s, c.hasValue s = true → s < nRegSorts + c.sortNames.length := fun _ hs =>
+  let ⟨_, hv⟩ := hasValue_value coreOK hs; sortOf_numbered (hModel hf) hv
 
-/-- The recursion reads `Cond.boundV` at `c.valued`, and `Cond.bound`, in the value model. -/
-example : HoldsShape.BoundReads c (stdI_T c T) (Cond.boundV c c.valued) :=
+/-- The recursion reads `Cond.boundV` at `c.hasValue`, and `Cond.bound`, in the value model. -/
+example : HoldsShape.BoundReads c (stdI_T c T) (Cond.boundV c c.hasValue) :=
   boundReads_boundV_stdI (hModel hf) (hval hf)
 example : HoldsShape.BoundReads c (stdI_T c T) (Cond.bound c) :=
   boundReads_bound_stdI (hModel hf)
@@ -121,7 +122,10 @@ end
 #print axioms KCore.Faithful.Model.holds_atT_fixed
 #print axioms KCore.HoldsShape.holds_denB
 #print axioms KCore.Cond.bound_eq_boundV
-#print axioms KCore.Cond.boundV_valued_of_bound
+#print axioms KCore.Cond.boundV_hasValue_of_bound
+#print axioms KCore.Cond.bound_of_boundV_valued
+#print axioms KCore.Semantics.clausePlainEx_of_valued
+#print axioms KCore.hasValue_value_of
 #print axioms KCore.Faithful.Model.boundReads_bound_stdI
 
 end HoldsModelFixedT

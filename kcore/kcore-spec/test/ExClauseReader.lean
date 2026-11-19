@@ -15,7 +15,7 @@
   - `Clause.fixedExs` and whether each existential variable's sort is confined;
   - `clauseCE`, written here: `Semantics.clausePlainEx` (which the section or prints beside it)
     and the landed conjunct on open condition variables: `(!exs.isEmpty || post.isTop) &&
-    exs.all (confined or among fixedExs c.confined c.valued) && (the landed conjunct on
+    exs.all (confined or among fixedExs c.confined c.hasValue) && (the landed conjunct on
     open condition variables)`. `clausesPlain` is `clausePlainEx` with `clauseExOK` (the conjuncts
     `sortedCE` prints) and the conjuncts on the premise and the open condition variables, so it is
     true of a text exactly where every clause has `clauseCE` and `sortedCE` (their premises being
@@ -216,7 +216,7 @@ out for one clause. -/
 def clauseCE (c : Semantics) (cl : Clause) : Bool :=
   let conf := fun i => (cl.vars[i]?.map c.confined).getD false
   (!cl.exs.isEmpty || cl.post.isTop) &&
-  cl.exs.all (fun i => conf i || (cl.fixedExs c.confined c.valued).contains i) &&
+  cl.exs.all (fun i => conf i || (cl.fixedExs c.confined c.hasValue).contains i) &&
   (!cl.reqOpen || cl.reqClosed || cl.openCondVars.all fun i => conf i || memHeld c (varOccsList cl.pats) cl.pre i)
 
 /-- CN-4b §1.3's additions to `clauseSorted`. -/
@@ -332,7 +332,7 @@ def run (n : String) (fns : List String) (edit : RawEqn → RawEqn := id) (plain
         IO.println s!"{n} {fnName}: functional sentence {eqnFnl E.N ⟨fnName, [], none, none, .top (KoreAML.srt "K"), [], none, false⟩}; clauses {cls.length}"
         for ((cl, vs), i) in cls.zipIdx do
           showFields c.symName c.sortName i cl vs
-          IO.println <| s!"      clauseSorted {c.clauseSorted f' (c.fns.map Fn.sig) cl}; condOK post {c.condOK cl.vars cl.post}; sortedCE {sortedCE c cl}; fixedExs {cl.fixedExs c.confined c.valued}; confined {cl.exs.map fun i => (cl.vars[i]?.map c.confined).getD false}; clauseCE {clauseCE c cl}" ++
+          IO.println <| s!"      clauseSorted {c.clauseSorted f' (c.fns.map Fn.sig) cl}; condOK post {c.condOK cl.vars cl.post}; sortedCE {sortedCE c cl}; fixedExs {cl.fixedExs c.confined c.hasValue}; confined {cl.exs.map fun i => (cl.vars[i]?.map c.confined).getD false}; clauseCE {clauseCE c cl}" ++
             (if plainEx then s!"; clausePlainEx {c.clausePlainEx cl}" else "")
         let rest := c.subsortsOK && c.fns.all (fun f => f.clauses.all (c.clauseSorted f (c.fns.map Fn.sig))) &&
           c.rules.all c.ruleSorted && c.rulesPlain && c.paramsPlain

@@ -4,7 +4,7 @@
 
   `Cond.boundV c val` (BoundConf.lean) is `Cond.boundConf c` with one more case at an `ex` binder: a
   sort that `val` admits, whose variable the body fixes (`Cond.fixes`) by a term over the other
-  variables; `Cond.bound c` is it at `Semantics.valued` (`Cond.bound_eq_boundV`).
+  variables; `Cond.bound c` is it at `Semantics.hasValue` (`Cond.bound_eq_boundV`).
 
   In the value model every element of a numbered sort is a value's, so the Holds lemma's recursion
   (`HoldsShape.holds_denB`) reads `Cond.boundV c val` there for every `val` that admits numbered

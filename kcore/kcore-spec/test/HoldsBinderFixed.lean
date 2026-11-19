@@ -9,9 +9,9 @@
   the constructors' lemmas over a Bool (`HoldsShape.holdsAt_notB`, …, KcoreSpec/HoldsNode.lean).
   Run from the package root: `lake env lean -j1 test/HoldsBinderFixed.lean`.
 
-  - The lemmas at `val := c.valued`, whose sorts have a value (`Semantics.valued_value`).
-  - At `val := c.valued`, `holds_entails_fixed` is the Holds lemma over `Cond.bound`.
-  - The readings with the terms' readings at `c.valued`, and over `Cond.bound`.
+  - The lemmas at `val := c.hasValue`, whose sorts have a value on `coreOK` (`hasValue_value`).
+  - At `val := c.hasValue`, `holds_entails_fixed` is the Holds lemma over `Cond.bound`.
+  - The readings with the terms' readings at `c.hasValue`, and over `Cond.bound`.
   - The axioms of each.
 -/
 import KcoreSpec.HoldsBinderFixed
@@ -22,39 +22,39 @@ namespace HoldsBinderFixedT
 
 variable {c : Semantics} {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
 
-/-- The `ex` case at `c.valued`. -/
+/-- The `ex` case at `c.hasValue`. -/
 example (h : c.coreOK = true) (hrc : c.readsConfined = true) (hIc : I ⊧ᴵP Γc c) (F : AtomFacts c I)
-    (s : Srt) {body : Cond} (ih : HoldsDenB (Cond.boundV c c.valued) c I body) :
-    HoldsDenB (Cond.boundV c c.valued) c I (.ex s body) :=
-  CE.holds_binder_fixed h hrc hIc F (fun _ => Semantics.valued_value) s ih
+    (s : Srt) {body : Cond} (ih : HoldsDenB (Cond.boundV c c.hasValue) c I body) :
+    HoldsDenB (Cond.boundV c c.hasValue) c I (.ex s body) :=
+  CE.holds_binder_fixed h hrc hIc F (fun _ => hasValue_value h) s ih
 
-/-- The lemma at `c.valued`, for every condition. -/
+/-- The lemma at `c.hasValue`, for every condition. -/
 example (h : c.coreOK = true) (hIc : I ⊧ᴵP Γc c)
     (hc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c)
     (p : Cond) (hrc : hasBinder p = true → c.readsConfined = true) :
-    HoldsDenB (Cond.boundV c c.valued) c I p :=
-  CE.holds_entails_fixed h hIc hc (fun _ => Semantics.valued_value) p hrc
+    HoldsDenB (Cond.boundV c c.hasValue) c I p :=
+  CE.holds_entails_fixed h hIc hc (fun _ => hasValue_value h) p hrc
 
-/-- At `c.valued` it is the lemma over `Cond.bound` (`Cond.bound_eq_boundV`). -/
+/-- At `c.hasValue` it is the lemma over `Cond.bound` (`Cond.bound_eq_boundV`). -/
 example (h : c.coreOK = true) (hIc : I ⊧ᴵP Γc c)
     (hc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c)
     (p : Cond) (hrc : hasBinder p = true → c.readsConfined = true) : HoldsDenB (Cond.bound c) c I p :=
-  Cond.bound_eq_boundV c ▸ CE.holds_entails_fixed h hIc hc (fun _ => Semantics.valued_value) p hrc
+  Cond.bound_eq_boundV c ▸ CE.holds_entails_fixed h hIc hc (fun _ => hasValue_value h) p hrc
 
-/-- The `ex` case with the terms' readings, at `c.valued`. -/
+/-- The `ex` case with the terms' readings, at `c.hasValue`. -/
 example (h : c.coreOK = true) (hrc : c.readsConfined = true) (hIc : I ⊧ᴵP Γc c) (N : NodeFacts c I)
     {n : Nat} {σ : Subst} {s : Srt} {body : Cond} {b : Bool} (g : Subst → Bool)
     (hb : ∀ σ', Extends c n [s] σ σ' → HoldsRead c I (n + 1) σ' body (g σ'))
-    (ih : ∀ σ', Extends c n [s] σ σ' → HoldsAtB (Cond.boundV c c.valued) c I (n + 1) σ' body (g σ'))
+    (ih : ∀ σ', Extends c n [s] σ σ' → HoldsAtB (Cond.boundV c c.hasValue) c I (n + 1) σ' body (g σ'))
     (hr : b = true ↔ ∃ σ', Extends c n [s] σ σ' ∧ g σ' = true) :
-    HoldsAtB (Cond.boundV c c.valued) c I n σ (.ex s body) b :=
-  CE.holdsAt_ex_fixed h hrc hIc N (fun _ => Semantics.valued_value) g hb ih hr
+    HoldsAtB (Cond.boundV c c.hasValue) c I n σ (.ex s body) b :=
+  CE.holdsAt_ex_fixed h hrc hIc N (fun _ => hasValue_value h) g hb ih hr
 
-/-- A truth value with its terms' readings, read over `Cond.boundV` at `c.valued`. -/
+/-- A truth value with its terms' readings, read over `Cond.boundV` at `c.hasValue`. -/
 example (h : c.coreOK = true) (hrc : c.readsConfined = true) (hIc : I ⊧ᴵP Γc c) (N : NodeFacts c I)
     {n : Nat} {σ : Subst} {p : Cond} {b : Bool} (hh : HoldsRead c I n σ p b) :
-    HoldsAtB (Cond.boundV c c.valued) c I n σ p b :=
-  CE.holdsReadT_holdsAt_fixed h hrc hIc N (fun _ => Semantics.valued_value) hh
+    HoldsAtB (Cond.boundV c c.hasValue) c I n σ p b :=
+  CE.holdsReadT_holdsAt_fixed h hrc hIc N (fun _ => hasValue_value h) hh
 
 /-- The same over `Cond.bound`, for a semantics `coreOKEx` accepts. -/
 example (h : c.coreOKEx = true) (hrc : c.readsConfined = true) (hIc : I ⊧ᴵP Γc c) (N : NodeFacts c I)

@@ -13,8 +13,9 @@
   value the search does not exhibit is not decided by it; `RightHeld` is the Prop, and holds there
   too.
 
-  `coreOK` reads `valued` (in `Cond.bound` and `Semantics.clausePlainEx`, at a binder whose body
-  fixes its variable), not `RightHeld` or `rightValued`. Where every clause's patterns bind every
+  `coreOK` reads `valued` through `Semantics.hasValue` (HasValue.lean; in `Cond.bound` and
+  `Semantics.clausePlainEx`, at a binder whose body fixes its variable), not `RightHeld` or
+  `rightValued`. Where every clause's patterns bind every
   variable `RightHeld` holds (`rightHeld_of_binds`). Neither reads the interpretation of the parameters
   (`rightValued_withHooks`; `rightHeld_withHooks`, RightHeldHooks.lean).
 -/

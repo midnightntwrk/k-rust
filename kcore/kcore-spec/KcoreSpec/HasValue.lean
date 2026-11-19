@@ -10,7 +10,8 @@
   None of the four reads `c.hooks`.
 
   The lemma that an accepted sort has a value on a definition with `coreOK` is
-  `hasValue_value` (HasValueValue.lean).
+  `hasValue_value` (HasValueValue.lean). `Cond.bound` and `Semantics.clausePlainEx` read it at a
+  binder whose body fixes its variable.
 -/
 import KcoreSpec.RightHeld
 
