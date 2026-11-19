@@ -94,8 +94,9 @@ open Faithful.Model in
 theorem names_fast_of (b : Bool) : namesApartFast (cOf b) = true := by cases b <;> decide +kernel
 
 open Faithful.Model in
-theorem ites_of (b : Bool) : itesApart (cOf b) = true := by cases b <;> decide_cheap
+theorem ites_of (b : Bool) : itesApart (cOf b) = true := by cases b <;> decide_itesApart
 
+set_option maxHeartbeats 1000000 in
 open Faithful.Model in
 theorem faith_light_of (b : Bool) : (namesNumbered (cOf b) && genWf (cOf b) && collSortsOK (cOf b) &&
     collsOK (cOf b) && patHeadsOK (cOf b) && LitsApart (cOf b) && sortsNumbered (cOf b) &&

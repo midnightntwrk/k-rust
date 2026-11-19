@@ -1,15 +1,18 @@
 /-
   EX's clauses where the two instances differ: a function of no argument, declared `total`, with
-  the clauses `Parse.frClauses` writes for the alternatives `true` and `false` with no condition
-  (`clauses_eq`), the reading of `f() => #Exists B:Bool. B` (f `total`), built by hand:
+  the clauses `Parse.exClauses` writes for the alternatives `true` and `false` with no condition
+  and the body `B` (`clauses_eq`), the reading of `f() => #Exists B:Bool. B` (f `total`), built by
+  hand:
     `pre := ⌈true⌉`, `rhs := true`; `pre := ⌈false⌉`, `rhs := false`; and
-    `pre := ¬⌈true⌉ ∧ ¬⌈false⌉`, `rhs := true`, `ens := false`,
+    `pre := ¬∃B:Bool. ⌈B⌉`, `rhs := true`, `ens := false`,
   all of priority 50. Beside it one rule reads f: `<k> K </k> <counter> N </counter> =>
   <k> K </k> <counter> 0 </counter> requires f()`. Run from the package root:
   `lake env lean -j1 test/ExTwoResults.lean`. Kernel-checked.
 
   - `coreOK` holds (`coreOK_now`): `clausesPlain` admits the clauses' predicates, since no condition
     of theirs needs a witness; `ok`, which asks every predicate `\top`, refuses them (`ok_now`).
+    The last clause's predicate has a binder, so the definition reads a confined sort
+    (`readsConfined_now`) and `Γc` holds `boolClosed`.
   - `Eval` has both results: `f()` is `true` by the first clause and `false` by the second
     (`eval_true`, `eval_false`): `Eval.clause` reads no other clause of the same priority. So
     `FnDet` is false (`not_fnDet`), and `FnHyp` with it.
@@ -52,13 +55,15 @@ def p1 : Cond := .ceil Srt.bool (litT true)
 def p2 : Cond := .ceil Srt.bool (litT false)
 def cl1 : Clause := ⟨[], [], none, litT true, none, 50, false, [], p1, .top⟩
 def cl2 : Clause := ⟨[], [], none, litT false, none, 50, false, [], p2, .top⟩
-def cl3 : Clause := ⟨[], [], none, litT true, some (litT false), 50, false, [], .and (.not p1) (.not p2), .top⟩
+def cl3 : Clause := ⟨[], [], none, litT true, some (litT false), 50, false, [], .not (.ex Srt.bool (.ceil Srt.bool (.var 0))), .top⟩
 
 /-- f, declared `total`. -/
 def fFn : Fn := ⟨fS, [], Srt.bool, [cl1, cl2, cl3], true⟩
 
-/-- The clauses are `frClauses` over the alternatives `true` and `false` with no condition. -/
-theorem clauses_eq : fFn.clauses = Parse.frClauses Srt.bool [] [] none 50 false [(litT true, []), (litT false, [])] :=
+/-- The clauses are `exClauses` over the alternatives `true` and `false` with no condition, and the
+body B (the variable at index 0) with no condition. -/
+theorem clauses_eq : fFn.clauses =
+    Parse.exClauses Srt.bool [] [] none 50 false [(litT true, []), (litT false, [])] [(.var 0, [])] :=
   rfl
 
 /-- `<k> K </k> <counter> N </counter> => <k> K </k> <counter> 0 </counter> requires f()` -/
@@ -93,6 +98,9 @@ theorem ok_now : c.ok = false := by
   cases h : c.ok
   · rfl
   · exact absurd (Semantics.preTop_of_okAll (Semantics.okAll_of_ok h)) (by rw [clausesPreTop_now]; decide)
+
+/-- The last clause's predicate has a binder. -/
+theorem readsConfined_now : c.readsConfined = true := by decide +kernel
 
 theorem coreOKEx_now : c.coreOKEx = true := by
   unfold Semantics.coreOKEx Semantics.sortedOKEx; decide_cheap

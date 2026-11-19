@@ -371,8 +371,9 @@ theorem names_ok : c.sortName exp = "Exp" ∧ c.symName kCell = "Lbl'-LT-'k'-GT-
     c.symName symA = "Lbla" ∧ c.symName symC = "Lblc" := by
   decide +kernel
 
+set_option maxHeartbeats 4000000 in
 /-- **Admitted as the only rule**: the definition with the rule `c(Z) => G` has `coreOK`. -/
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_coreOK
 
 noncomputable def r0 : Rule := c.rules[0]'(by decide +kernel)
 
@@ -636,8 +637,9 @@ theorem names_ok : c.sortName exp = "Exp" ∧ c.symName kCell = "Lbl'-LT-'k'-GT-
     c.symName symA = "Lbla" ∧ c.symName symB = "Lblb" ∧ c.symName symGo = "Lblgo" := by
   decide +kernel
 
+set_option maxHeartbeats 4000000 in
 /-- **Admitted**: the definition with the rule `go => ?Z` has `coreOK`. -/
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_coreOK
 
 noncomputable def r0 : Rule := c.rules[0]'(by decide +kernel)
 
@@ -1004,7 +1006,8 @@ theorem names_ok : c.sortName exp = "Exp" ∧ c.symName symA = "Lbla" ∧ c.symN
     c.symName symC = "Lblc" := by
   decide +kernel
 
-theorem coreOK : c.coreOK = true := by decide +kernel
+set_option maxHeartbeats 4000000 in
+theorem coreOK : c.coreOK = true := by decide_coreOK
 theorem prios : c.rules.length = 1 ∧ ∀ r ∈ c.rules, r.prio = 50 := by decide +kernel
 
 noncomputable def r0 : Rule := c.rules[0]'(by decide +kernel)
@@ -1053,7 +1056,8 @@ theorem names_ok : c.sortName exp = "Exp" ∧ c.symName symA = "Lbla" ∧ c.symN
     c.symName symC = "Lblc" := by
   decide +kernel
 
-theorem coreOK : c.coreOK = true := by decide +kernel
+set_option maxHeartbeats 4000000 in
+theorem coreOK : c.coreOK = true := by decide_coreOK
 theorem prios : c.rules.length = 1 ∧ ∀ r ∈ c.rules, r.prio = 50 := by decide +kernel
 
 noncomputable def r0 : Rule := c.rules[0]'(by decide +kernel)
@@ -1101,7 +1105,8 @@ theorem names_ok : c.sortName exp = "Exp" ∧ c.symName symA = "Lbla" ∧ c.symN
     c.symName symC = "Lblc" ∧ c.symName symD = "Lbld" := by
   decide +kernel
 
-theorem coreOK : c.coreOK = true := by decide +kernel
+set_option maxHeartbeats 4000000 in
+theorem coreOK : c.coreOK = true := by decide_coreOK
 theorem prios : c.rules.length = 2 ∧ ∀ r ∈ c.rules, r.prio = 50 := by decide +kernel
 
 noncomputable def r0 : Rule := c.rules[0]'(by decide +kernel)
@@ -1170,7 +1175,8 @@ theorem names_ok : c.sortName exp = "Exp" ∧ c.symName symGo = "Lblgo" ∧ c.sy
     c.symName symG = "Lblg" := by
   decide +kernel
 
-theorem coreOK : c.coreOK = true := by decide +kernel
+set_option maxHeartbeats 4000000 in
+theorem coreOK : c.coreOK = true := by decide_coreOK
 theorem prios : c.rules.length = 1 ∧ ∀ r ∈ c.rules, r.prio = 50 := by decide +kernel
 
 noncomputable def r0 : Rule := c.rules[0]'(by decide +kernel)
@@ -1421,7 +1427,7 @@ theorem names_ok : c.sortName exp = "Exp" ∧ c.symName kCell = "Lbl'-LT-'k'-GT-
   decide +kernel
 
 /-- **Admitted as the only rule**: the definition with the rule `c(Z) => b` has `coreOK`. -/
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_coreOK
 
 noncomputable def r0 : Rule := c.rules[0]'(by decide +kernel)
 
@@ -1608,7 +1614,7 @@ theorem names_ok : c.sortName exp = "Exp" ∧ c.symName kCell = "Lbl'-LT-'k'-GT-
   decide +kernel
 
 /-- **Admitted**: the definition with the rule `go(X) => done`, `pre := ceil go(X)`, has `coreOK`. -/
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_coreOK
 theorem prios : c.rules.length = 1 ∧ ∀ r ∈ c.rules, r.prio = 50 := by decide +kernel
 
 noncomputable def r0 : Rule := c.rules[0]'(by decide +kernel)
@@ -1697,7 +1703,7 @@ theorem names_ok : c.sortName exp = "Exp" ∧ c.symName kCell = "Lbl'-LT-'k'-GT-
   decide +kernel
 
 /-- **Admitted**: the definition with the rule `go(X) => done`, `pre := X = 1`, has `coreOK`. -/
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_coreOK
 theorem prios : c.rules.length = 1 ∧ ∀ r ∈ c.rules, r.prio = 50 := by decide +kernel
 
 noncomputable def r0 : Rule := c.rules[0]'(by decide +kernel)
@@ -1833,7 +1839,7 @@ theorem names_ok : c.sortName exp = "Exp" ∧ c.symName kCell = "Lbl'-LT-'k'-GT-
   decide +kernel
 
 /-- **Admitted**: the definition with the rule `c(d(G, b) #as X) => X` has `coreOK`. -/
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_coreOK
 theorem prios : c.rules.length = 1 ∧ ∀ r ∈ c.rules, r.prio = 50 := by decide +kernel
 
 noncomputable def r0 : Rule := c.rules[0]'(by decide +kernel)

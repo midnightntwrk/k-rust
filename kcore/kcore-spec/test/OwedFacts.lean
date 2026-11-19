@@ -134,7 +134,7 @@ theorem shapeOW : cOW.owedClauses = [(0, 0)] ∧ cOW.owedRules = [] := by decide
 
 /-- `clW` is `Witnessed` in `cOW` at H := 0. -/
 theorem witOW : clW.Witnessed cOW := by
-  refine ⟨[(0, .dv Srt.int (.int 0))], fun j _ s hs => ?_, fun t ht => ?_, .top⟩
+  refine Clause.witnessed_of_top rfl (σ := [(0, .dv Srt.int (.int 0))]) (fun j _ s hs => ?_) (fun t ht => ?_)
   · cases j with
     | zero => cases (show some Srt.int = some s from hs); exact ⟨_, rfl, sortOf_int 0⟩
     | succ j => cases (show (none : Option Srt) = some s from hs)

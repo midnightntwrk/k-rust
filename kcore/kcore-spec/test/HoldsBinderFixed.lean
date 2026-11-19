@@ -4,7 +4,8 @@
   KcoreSpec/HoldsDenFixed.lean; `holds_entails_fixed`, KcoreSpec/HoldsBinderFixed.lean), and
   `fixes_value_read` (KcoreSpec/FixesValue.lean); the reading of a truth value with its terms'
   readings over `Cond.boundV` (`KCore.CE.holdsAt_ex_fixed`, `holdsReadT_holdsAt_fixed`,
-  `holdsReadT_holdsAt_bound`, `HoldsShape.HoldsReadT.congr_NIR`, KcoreSpec/HoldsDenFixed.lean) and
+  `holdsReadT_holdsAt_bound`, KcoreSpec/HoldsDenFixed.lean; `HoldsShape.HoldsReadT.congr_NIR`,
+  KcoreSpec/HoldsRead.lean) and
   the constructors' lemmas over a Bool (`HoldsShape.holdsAt_notB`, …, KcoreSpec/HoldsNode.lean).
   Run from the package root: `lake env lean -j1 test/HoldsBinderFixed.lean`.
 

@@ -81,7 +81,7 @@ def c : Semantics := withFns [predFn nRegSyms true]
 
 theorem pred_label : predOf nRegSorts = some nRegSyms := by decide +kernel
 theorem no_sortPred : (c.sortPreds.map (·.label)).contains nRegSyms = false := by decide +kernel
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_coreOK
 
 end One
 
@@ -93,7 +93,7 @@ theorem not_predsApart : c.predsApart = false := by decide +kernel
 set_option maxHeartbeats 1000000 in
 theorem meets_others : c.sortedOK = true ∧ c.faithCoreOK = true ∧ c.hooksApart = true ∧ c.idsOK = true ∧
     c.overloadsOK = true :=
-  ⟨by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel⟩
+  ⟨by decide_sortedOK, by decide_faithCoreOK, by decide +kernel, by decide +kernel, by decide +kernel⟩
 
 /-- The semantics of the witness module KcoreSpec/ModelPredTwiceWitness.lean. -/
 theorem eq_witness : c = PredTwiceWitness.c := rfl
@@ -107,7 +107,7 @@ def c : Semantics := withFns [predFn isK true]
 theorem sortPred_kept : (c.sortPreds.map (·.label)).contains isK = true := by decide +kernel
 theorem not_predsApart : c.predsApart = false := by decide +kernel
 theorem not_idsOK : c.idsOK = false := by decide +kernel
-theorem not_coreOK : c.coreOK = false := by decide +kernel
+theorem not_coreOK : c.coreOK = false := by decide_cheap
 
 end IsK
 
@@ -130,7 +130,7 @@ theorem ids_others : (c.ownSorts == List.range' nRegSorts c.sortNames.length) = 
 set_option maxHeartbeats 1000000 in
 theorem meets_others : c.sortedOK = true ∧ c.faithCoreOK = true ∧ c.hooksApart = true ∧ c.predsApart = true ∧
     c.overloadsOK = true :=
-  ⟨by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel⟩
+  ⟨by decide_sortedOK, by decide_faithCoreOK, by decide +kernel, by decide +kernel, by decide +kernel⟩
 
 end Reg
 

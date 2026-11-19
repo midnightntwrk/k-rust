@@ -1286,9 +1286,14 @@ theorem iteSort_none_of_proj {n : String} (h : (KoreAML.Parse.dropPrefix? "Lblpr
     have ht' : n.toList.take 16 = "Lblproject'Coln'".toList := by
       have := beq_iff_eq.mp ht
       rwa [show "Lblproject'Coln'".toList.length = 16 by decide] at this
-    unfold iteSort?
-    rw [← List.take_append_drop 16 n.toList, ht']
-    rfl
+    cases hs : iteSort? n with
+    | none => rfl
+    | some X =>
+      have h4 := congrArg (List.take 4) ht'
+      rw [List.take_take, iteSort?_toList hs] at h4
+      have hr : List.take 4 "Lblproject'Coln'".toList = ['L', 'b', 'l', 'p'] := by decide
+      rw [hr] at h4
+      simp at h4
   · cases h
 
 /-- A symbol of the semantics other than an `ite` instance is named by its arity item, a premise of

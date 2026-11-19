@@ -829,7 +829,8 @@ def NamesNumbered (c : Semantics) : Prop :=
 theorem namesNumbered_spec {c : Semantics} (h : namesNumbered c = true) : NamesNumbered c := by
   simp only [namesNumbered, Bool.and_eq_true, List.all_eq_true, Option.isNone_iff_eq_none,
     decide_eq_true_eq] at h
-  exact ⟨h.1.1, h.1.2, h.2⟩
+  exact ⟨fun k hk => iteSort?_none_of_instDecode (h.1.1 k hk),
+    fun o ho g hg => iteSort?_none_of_instDecode (h.1.2 o ho g hg), h.2⟩
 
 /-- What the statements assume of a semantics: it is well formed (`okAll`), its function labels
 are distinct and its subsorts closed (`srReady`), and what the decided conditions do not settle

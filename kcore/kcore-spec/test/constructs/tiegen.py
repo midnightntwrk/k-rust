@@ -77,8 +77,9 @@ What it states where the text:
   functional`);
 - states a law of a function (`Definition.laws`): `law_text` (the sentence as written is `lawPattern`),
   `law_not_item`, `law_account` (the class `function law`);
-- has a lemma applying a parameter symbol no hook implements (`isParamLemma`, the class `parameter
-  lemma`, direction hypothesis): `paramlemma_account`, and `ParamLemmaWitnessAtValues`, one H at
+- has a lemma applying a parameter symbol no hook implements (`isParamLemma`, or a `simplification`
+  sentence of K's builtin library applying one, which the reader reads as the library's text and of
+  which Γ holds no item; the class `parameter lemma`, direction hypothesis): `paramlemma_account`, and `ParamLemmaWitnessAtValues`, one H at
   which `FnObligations` hold and every parameter lemma holds at values (`EntailsAtValues`), stated
   and owed (`owed` in the summary); and
   `paramlemma_heads`: every `simplification` equation of the user module whose left side's head is
@@ -118,9 +119,23 @@ What it states where the text:
   (W1: the sentence entails the item), `shape`, `fns_entailed`, `fns_from_text`, `fn_prios`, and
   the converse over Γ's content `gamma_from` (`TiePair.Pre`). Two or more such items are left
   `uncovered`;
+- has a rule with rules of a smaller priority, whose item Γ holds also with the premise that none of
+  them applies (`prioRuleK`: `¬ ⋁ competitors` before `⌈rhs ∧ ens⌉`), a premise its sentence states
+  by its priority attribute only: the item without both premises is the sentence (`rule<j>_text`
+  on `minusComp`), W1 by `item_of_minusComp`, and `rule_prios` (the priorities the sentences state
+  are the rules'), so the competitors are the rules whose sentences state a smaller priority;
+- has function items of Γ that no user sentence is and each one sentence of the text's prelude
+  modules is, as written (KSEQ's `append`, which Γ holds where a rule or an equation applies it),
+  every other item one user sentence's: `fnText` lists those sentences among the user ones (literals
+  of the prelude module's axioms, `user_axioms Prelude<Module>`, which `prelude<Module>_eq` states
+  are the text's), `fn_shape` as for user sentences only, and `fns_account`: `fnText`'s user-module
+  sentences are the function-equation class, and its others those prelude sentences;
 - has the no-junk sentence of a sort with generators other than KItem that is not Γ's item as
   written: the item over its generators in the text's order, a permutation of `Semantics.gens`
   (`<sort>TextGens`), `nojunk_<sort>_entailed` (for an open generator's sort also that it is open);
+  the probe tries every permutation of a sort of at most 5 generators, and for a larger sort the
+  one order the sentence's disjuncts apply the generators in (each disjunct's symbol, or `inj` from
+  its sort), taken where the item over that order is the sentence;
 - has the `functional` sentence of a parameter symbol no registry hook implements that the text
   declares total (`isParamFunctional`, the class `parameter functional`, direction hypothesis):
   `total_params` (`Definition.totalParams`), `paramfunctional_account`, `paramfunctional_heads`; it is
@@ -211,7 +226,8 @@ OPEN_FUNCTIONAL_CLASS = "open generator functional"
 # statements take as the hypothesis `ParamsTotal` (direction hypothesis).
 PARAM_FUNCTIONAL_CLASS = "parameter functional"
 # The class of a lemma the reader leaves out of Γ that applies a parameter symbol no registry hook
-# interprets (`isParamLemma`): its truth depends on the interpretation, so it is owed as a hypothesis
+# interprets (`isParamLemma`, or a `simplification` sentence of K's builtin library, of which Γ holds
+# no item, applying one): its truth depends on the interpretation, so it is owed as a hypothesis
 # on H (direction hypothesis), at values: Γ states the parameter's graph at values only (`ΓDomains`),
 # so a model of Γ may hold an element of an unconfined sort that is no value's, at which no item of Γ
 # constrains the parameter, and the sentence at every valuation can fail there at every H. The tie of
@@ -477,6 +493,16 @@ def tgDropThird (p : Kore.Pattern) : Kore.Pattern :=
   match tgRuleParts p with
   | some (C, l, t, _, r) => .rewrites C (.and C [l, t]) r
   | none => p
+def tgRuleCompParts : Kore.Pattern → Option (Kore.KSort × Kore.Pattern × Kore.Pattern × Kore.Pattern × Kore.Pattern × Kore.Pattern)
+  | .rewrites C (.and _ [l, t, .not _ n, x]) r => some (C, l, t, n, x, r)
+  | _ => none
+def tgMinusComp (p : Kore.Pattern) : P :=
+  match tgRuleCompParts p with
+  | some (C, l, t, _, _, r) =>
+    let tb := tableOf [] p
+    conjList (((freeOf [] p).eraseDups).map (guardOf tb)) ⇒
+      (tr ⟨tb, []⟩ (.rewrites C (.and C [l, t]) r) ≡ inhOf (trSort tb C))
+  | none => (trAxiom [] [] ⟨0, "kernel", ⟨[], p, []⟩⟩).pat
 def tgVarRelB : List (EVar × EVar) → EVar → EVar → Bool
   | [], x, y => decide (x = y)
   | (a, b) :: env, x, y => if x = a then decide (y = b) else if y = b then false else tgVarRelB env x y
@@ -513,6 +539,24 @@ def tgMinusNeg (a : Kore.Axiom) : P :=
     conjList (((a.sortVars.map sortVarKey ++ freeOf [] a.pattern).eraseDups).map (guardOf t)) ⇒
       (tr ⟨t, []⟩ (.implies R prem concl) ≡ inhOf (trSort t R))
   | none => (trAxiom [] [] ⟨0, "kernel", a⟩).pat
+def tgNjBody : Kore.Pattern → Kore.Pattern
+  | .exist _ _ b => tgNjBody b
+  | p => p
+/-- The generator a disjunct of a no-junk sentence applies: its symbol, or `inj` from its sort. -/
+def tgNjIsGen (g : KoreAML.Gen) (d : Kore.Pattern) : Bool :=
+  match g, tgNjBody d with
+  | .ctor k, .app h _ _ => h.ident.name == k.name
+  | .inj a, .app h (s0 :: _) _ => h.ident.name == "inj" && s0 == KoreAML.srt a
+  | _, _ => false
+/-- The positions in `gs` of the generators the disjuncts apply, in the disjuncts' order, the closing
+`\bottom` dropped; none where a disjunct applies none of them. -/
+def tgNjOrder (gs : List KoreAML.Gen) : List Kore.Pattern → Option (List Nat)
+  | [] => some []
+  | [.bottom _] => some []
+  | d :: ds => do
+    let j ← (List.range gs.length).find? fun j => (gs[j]?.map (tgNjIsGen · d)).getD false
+    let rest ← tgNjOrder gs ds
+    pure (j :: rest)
 
 #eval show IO Unit from do
   let input ← IO.FS.readFile "@PATH@"
@@ -617,6 +661,10 @@ def tgMinusNeg (a : Kore.Axiom) : P :=
   for (it, j) in fis.zip (List.range fis.length) do
     let fp := (tgFreeEV [] it.pat).eraseDups
     IO.println s!"F {j}\t{(usP.filter fun (_, q, fq) => tgAlphaB (fp.zip fq) it.pat q && tgAlphaB (fq.zip fp) q it.pat).map (·.1.index)}"
+  -- the sentences of the text's other modules (the prelude: KSEQ, INJ) that are a function item as written
+  for ad in k.axiomDecls.filter (·.module != "@MOD@") do
+    let q := (trS ad).pat
+    IO.println s!"Q {ad.index}\t{ad.module}\t{((fis.zip (List.range fis.length)).filter (fun (it, _) => it.pat == q)).map (·.2)}"
   let pairText := TiePair.fnTextOf c us
   let fax := tgFnAxioms c
   for (it, j) in fis.zip (List.range fis.length) do
@@ -632,11 +680,13 @@ def tgMinusNeg (a : Kore.Axiom) : P :=
       (tgPerms (List.range gs.length)).map fun pm => (pm, (KoreAML.Cons.noJunkItem (c.sortName s) (pm.filterMap (gs[·]?))).pat))
   for (r, j) in c.rules.zip (List.range c.rules.length) do
     let p := prioRuleK c r
-    let ok := (tgRuleParts p).isSome && decide (tableOf [] p = tableOf [] (tgDropThird p)) &&
+    let comp := c.rules.any (·.prio < r.prio)
+    let ok := if comp then (tgRuleCompParts p).isSome else (tgRuleParts p).isSome &&
+      decide (tableOf [] p = tableOf [] (tgDropThird p)) &&
       decide ((freeOf [] p).eraseDups = (freeOf [] (tgDropThird p)).eraseDups)
-    let tgt := (trAxiom [] [] ⟨0, "kernel", ⟨[], tgDropThird p, []⟩⟩).pat
+    let tgt := if comp then tgMinusComp p else (trAxiom [] [] ⟨0, "kernel", ⟨[], tgDropThird p, []⟩⟩).pat
     let is := (usP.filter (fun (_, q, _) => q == tgt)).map (·.1.index)
-    IO.println s!"R {j}\t{ok}\t{is}"
+    IO.println s!"R {j}\t{ok}\t{is}\t{comp}"
   for (ad, p, _) in usP do
     let absent := !(appHeadsOf ad.ax.pattern).all hasHead
     let fnJ := ((fis.zip (List.range fis.length)).filter (fun (it, _) => it.pat == p)).map (·.2)
@@ -653,7 +703,13 @@ def tgMinusNeg (a : Kore.Axiom) : P :=
     -- a user's equation of a symbol whose value the registry gives (`Parse.regLemmaEqn`): out of Γ,
     -- a parameter lemma where it applies a parameter symbol without `impl`, else at values
     let rl := (Parse.rawEqn? ad.ax).any (Parse.regLemmaEqn scK ·)
-    let pl := isParamLemma c (Parse.classify nmK (.axiom ad.ax)) (.axiom ad.ax) || (rl && appliesNoImplParam c ad.ax.pattern)
+    -- a lemma of K's builtin library applying a parameter symbol without `impl` of the reading: the
+    -- reader reads the library's text and Γ holds no item of the lemma (the class `library` is at
+    -- values over symbols Γ interprets); the parameter's value is the interpretation's, so it is a
+    -- parameter lemma as a user's is
+    let lpl := Parse.isKBuiltin ad.ax.attributes && AttrsAgree.has ad.ax.attributes "simplification" &&
+      appliesNoImplParam c ad.ax.pattern
+    let pl := isParamLemma c (Parse.classify nmK (.axiom ad.ax)) (.axiom ad.ax) || (rl && appliesNoImplParam c ad.ax.pattern) || lpl
     let simp := Parse.classify nmK (.axiom ad.ax) == .inert .simplification
     let usrc := Parse.isUserSource ad.ax.attributes
     IO.println s!"S {ad.index}\t{absent}\t{fnJ}\t{cons}\t{plain}\t{consItem}\t{triv}\t{kitem}\t{rw}\t{eh}\t{kind eh}\t{fh}\t{kind fh}\t{AttrsAgree.prioOf ad.ax.attributes}\t{pl}\t{simp}\t{usrc}\t{rl}"
@@ -665,6 +721,21 @@ def tgMinusNeg (a : Kore.Axiom) : P :=
           match pms.find? (·.2 == p) with
           | some (pm, _) => IO.println s!"N {ad.index}\t{s}\t{c.sortName s}\tperm\t{pm}\t{(c.gens s).length}"
           | none => pure ()
+        -- a sort of more than 5 generators: the text's order (`gensInOrder`), or the order its
+        -- disjuncts apply the generators in, taken where the item over it is the sentence
+        match ad.ax.pattern with
+        | .or S ds =>
+          for s in (consSorts c).filter fun s => s != Srt.kitem && (c.gens s).length > 5 && srtOf c s == S do
+            let gs := (c.gens s).map (Gen.toK c)
+            if (KoreAML.Cons.noJunkItem (c.sortName s) ((gensInOrder c d.pres s).map (Gen.toK c))).pat == p then
+              IO.println s!"N {ad.index}\t{s}\t{c.sortName s}\torder\t[]\t{gs.length}"
+            else match tgNjOrder gs ds with
+              | some pm =>
+                if pm.length == gs.length && pm.eraseDups.length == pm.length &&
+                    (KoreAML.Cons.noJunkItem (c.sortName s) (pm.filterMap (gs[·]?))).pat == p then
+                  IO.println s!"N {ad.index}\t{s}\t{c.sortName s}\tperm\t{pm}\t{gs.length}"
+              | none => pure ()
+        | _ => pure ()
 '''
 
 
@@ -680,6 +751,7 @@ def probe(name, path, um, order="[]", cons_head=False):
         raise Refused(f"{name}: the probe fails: {(r.stdout + r.stderr).strip()[-600:]}")
     head, sents = {}, {}
     head["rules"], head["raw"], head["fnA"], head["nj"], head["lawRef"], head["fnW"] = [], [], {}, {}, [], {}
+    head["fnQ"] = {}
     nums = lambda s: [int(x) for x in re.findall(r"\d+", s)]
     for l in r.stdout.split("\n"):
         if l.startswith("H "):
@@ -692,6 +764,8 @@ def probe(name, path, um, order="[]", cons_head=False):
         elif l.startswith("R "):
             f = l[2:].split("\t")
             head["rules"].append((int(f[0]), f[1] == "true", [int(x) for x in re.findall(r"\d+", f[2])]))
+            if f[3:4] == ["true"]:
+                head.setdefault("ruleComp", set()).add(int(f[0]))
         elif l.startswith("P "):
             f = l[2:].split("\t")
             head["raw"].append(dict(sym=int(f[0]), name=f[1], args=nums(f[2]), res=int(f[3]), sort=f[4],
@@ -699,6 +773,9 @@ def probe(name, path, um, order="[]", cons_head=False):
         elif l.startswith("F "):
             f = l[2:].split("\t")
             head["fnA"][int(f[0])] = nums(f[1])
+        elif l.startswith("Q "):
+            f = l[2:].split("\t")
+            head["fnQ"][int(f[0])] = (f[1], nums(f[2]))
         elif l.startswith("W "):
             f = l[2:].split("\t")
             head["fnW"][int(f[0])] = dict(idx=None if f[1] == "none" else int(f[1]), same=f[2] == "true",
@@ -842,8 +919,10 @@ def wrap_nums(nums, indent, width=100):
     return ("\n" + " " * indent).join(lines)
 
 
-def ax_list(nums, indent=3):
-    return "[" + wrap_nums([f"U.ax{n}" for n in nums], indent) + "]"
+def ax_list(nums, indent=3, pre=None):
+    """The literals of the axioms `nums`: `U.axN`, or `pre[N].axN` for an axiom of a prelude module."""
+    pre = pre or {}
+    return "[" + wrap_nums([f"{pre.get(n, 'U')}.ax{n}" for n in nums], indent) + "]"
 
 
 def ranges(n, first, chunk):
@@ -900,7 +979,22 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             fn_order.setdefault(j, []).append(i)
     fn_full = (sorted(fn_order) == list(range(nfn)) and all(len(v) == 1 for v in fn_order.values())
                and sorted(v[0] for v in fn_order.values()) == by_class["function equation"])
+    # otherwise the items no user sentence is may each be, as written, one sentence of the text's
+    # prelude modules (KSEQ's `append`, which Γ holds where a rule or an equation applies it): every
+    # other item one user sentence's, each function equation of the user module one item's
+    fn_pre = {}
+    if not fn_full and nfn and all(len(v) == 1 for v in fn_order.values()) and \
+            sorted(v[0] for v in fn_order.values()) == by_class["function equation"]:
+        rest = [j for j in range(nfn) if j not in fn_order]
+        pre = {j: [i for i, (_, js) in head["fnQ"].items() if j in js] for j in rest}
+        if all(len(v) == 1 for v in pre.values()) and len({v[0] for v in pre.values()}) == len(rest):
+            fn_order.update(pre)
+            fn_full = True
+            fn_pre = {v[0]: head["fnQ"][v[0]][0] for v in pre.values()}
     fn_text = [fn_order[j][0] for j in range(nfn)] if fn_full else []
+    # each prelude module of such a sentence, with the name of its axioms' literals (`user_axioms`)
+    pre_mods = {m: "Prelude" + re.sub(r"[^A-Za-z0-9]", "", camel(m.lower())) for m in sorted(set(fn_pre.values()))}
+    fn_user = [i for i in fn_text if i not in fn_pre]
     # otherwise each item may be its sentence up to a renaming of element variables (`alphaB`): an
     # `[owise]` equation's exclusion names its own bound variable
     fn_align, fn_nonlit = False, []
@@ -982,6 +1076,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     rule_map = [(j, ix[0]) for j, ok, ix in head["rules"] if ok and len(ix) == 1]
     rules_full = (len(rule_map) == nrules and sorted(i for _, i in rule_map) == by_class["rewrite rule"])
     rule_text = [i for _, i in rule_map] if rules_full else []
+    comp_map = [(j, i) for j, i in rule_map if j in head.get("ruleComp", ())] if rules_full else []
     covered = set(fn_text) | set(rule_text) | set(cons_text) | {i for i, _ in nj_triv} | set(nj_items) | set(nj_kitem)
     covered |= {i for i, _ in nj_sorts}
     if fn_pair:
@@ -1133,7 +1228,17 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w("    (`fn_shape_but_owise`), whose exclusion the text writes with its own bound variable")
         w("    (`owise_not_literal`). `fns_entailed` (E), `fns_from_text` (the converse), `fn_prios` (the")
         w("    priorities the sentences state are the clauses').")
-    if fn_full:
+    if fn_full and fn_pre:
+        pl = ", ".join(f"{i} ({fn_pre[i]})" for i in sorted(fn_pre))
+        w(textwrap.fill(
+            f"Function equations ({len(fn_user)}, and {numword(len(fn_pre))} sentences of the text's prelude modules, "
+            f"{pl}, which no user sentence is): each of Γ's items is the translation of one sentence, in the order "
+            f"`fnText` lists them (`fn_shape`); its user-module sentences are the class, the others those prelude "
+            f"sentences (`fns_account`, and `{'`, `'.join(n[:1].lower() + n[1:] + '_eq' for n in pre_mods.values())}`: "
+            f"they are the text's); `fns_entailed` (E), `fns_from_text` (the converse), `fn_prios` (the priorities "
+            f"the sentences state are the clauses').",
+            width=100, initial_indent="  - ", subsequent_indent="    ", break_on_hyphens=False, break_long_words=False))
+    elif fn_full:
         w(f"  - Function equations ({len(fn_text)}): each of Γ's items is the translation of one sentence, in the")
         w("    order `fnText` lists them (`fn_shape`); `fns_entailed` (E), `fns_from_text` (the converse),")
         w("    `fn_prios` (the priorities the sentences state are the clauses').")
@@ -1151,6 +1256,15 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     if rules_full and nrules:
         w(f"  - Rewrite rules ({nrules}): each of Γ's rule items (with the premise `⌈rhs ∧ ens⌉`) is a consequence")
         w("    of its text sentence, `ruleText` in `ruleItems`' order (`rule_from_text`, W1, every H).")
+        if comp_map:
+            w(textwrap.fill(
+                f"Rule{'s' if len(comp_map) > 1 else ''} {', '.join(str(j) for j, _ in comp_map)} "
+                f"{'have' if len(comp_map) > 1 else 'has'} rules of a smaller priority: Γ's item has also the "
+                f"premise `¬\0⋁\0competitors`, that none of them applies, which the sentence states by its "
+                f"priority attribute only (`rule_prios`); the item without both premises is the sentence "
+                f"(`rule<j>_text`, `item_of_minusComp`).",
+                width=100, initial_indent="    ", subsequent_indent="    ", break_on_hyphens=False,
+                break_long_words=False).replace("\0", " "))
     w(f"  - Constructor sentences ({len(cons_text)}): entailed by Γ (`cons_entailed`).")
     w(f"  - No junk ({len(nj_triv)} of a sort without generators, `nojunk_trivial_entailed`; {len(nj_items)} equal to")
     w(f"    one of Γ's constructor items, `nojunk_items`; {len(nj_kitem)} KItem's with its disjuncts in the text's")
@@ -1297,6 +1411,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     w(f'kore_term kore from "{text_rel}"')
     w(f'definition_of defn from "{text_rel}"')
     w(f'user_axioms U from "{text_rel}" module "{um}"')
+    for m, pn in pre_mods.items():
+        w(f'user_axioms {pn} from "{text_rel}" module "{m}"')
     w("")
     w("noncomputable abbrev c : Semantics := defn.sem")
     w("noncomputable abbrev cH (H : HookParams) : Semantics := c.withHooks H")
@@ -1712,7 +1828,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     if fn_align:
         w(fn_align_section(fn_text, fn_nonlit))
     if fn_full:
-        w(f"/-! ## Function equations ({len(fn_text)} sentences) -/")
+        w(f"/-! ## Function equations ({len(fn_user)} sentences"
+          + (f", and {numword(len(fn_pre))} of the prelude" if fn_pre else "") + ") -/")
         w("")
         w("/-- The axioms of Γ's equations, in `fnItems`'s order. -/")
         w("noncomputable def fnAxioms (c : Semantics) : List Kore.Axiom :=")
@@ -1724,7 +1841,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w("")
         w(f"/-- The text sentences of Γ's {len(fn_text)} equations, in `fnItems`'s order. -/")
         w("noncomputable def fnText : List AxiomDecl :=")
-        w("  " + ax_list(fn_text))
+        w("  " + ax_list(fn_text, pre={i: pre_mods[m] for i, m in fn_pre.items()}))
         w("")
         w("set_option maxHeartbeats 1000000 in")
         w("/-- **Γ's equations are the text's sentences' translations, pattern for pattern** (one kernel")
@@ -1734,8 +1851,20 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w("  exact (by decide +kernel :")
         w('    ((fnAxioms c).map fun a => (trAxiom [] [] ⟨0, "kernel", a⟩).pat) = fnText.map (trS · |>.pat))')
         w("")
-        w("/-- **`fnText` is the account's function-equation class**: the same indices, each once. -/")
-        w('theorem fns_account : (classOf "function equation").isPerm (fnText.map (·.index)) = true := by decide +kernel')
+        if fn_pre:
+            for m, pn in pre_mods.items():
+                w(f"/-- The axioms of the prelude module {m}, in text order. -/")
+                w(f'theorem {pn[:1].lower() + pn[1:]}_eq : kore.axiomDecls.filter (·.module == "{m}") = {pn}.all := by kernel_rfl')
+                w("")
+            w("/-- **`fnText`'s user-module sentences are the account's function-equation class**: the same")
+            w("indices, each once; its other sentences are the prelude's, which no user sentence is. -/")
+            w("theorem fns_account :")
+            w(f'    (classOf "function equation").isPerm ((fnText.filter (·.module == "{um}")).map (·.index)) = true ∧')
+            w(f'    (fnText.filter (·.module != "{um}")).map (fun ad => (ad.index, ad.module)) =')
+            w("      [" + ", ".join(f'({i}, "{fn_pre[i]}")' for i in fn_text if i in fn_pre) + "] := by decide +kernel")
+        else:
+            w("/-- **`fnText` is the account's function-equation class**: the same indices, each once. -/")
+            w('theorem fns_account : (classOf "function equation").isPerm (fnText.map (·.index)) = true := by decide +kernel')
         w("")
         w("/-- **E for the equations**: Γ entails each, for every H. -/")
         w("theorem fns_entailed (H : HookParams) : ∀ ad ∈ fnText, Γ (cH H) ⊧ (trS ad).pat := by")
@@ -1782,7 +1911,30 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w("/-- **`ruleText` is the account's rewrite-rule class**: the same indices, each once. -/")
         w('theorem rules_account : (classOf "rewrite rule").isPerm (ruleText.map (·.index)) = true := by decide +kernel')
         w("")
+        if comp_map:
+            w(RULE_COMP_SECTION)
+            w("/-- The priority each rule sentence's attributes state is its rule's priority, in `ruleItems`'")
+            w("order: the competitors of a rule (the rules of a smaller priority, whose `applies` Γ's item")
+            w("negates) are the rules whose sentences state a smaller priority. -/")
+            w("theorem rule_prios : ruleText.map (fun ad => AttrsAgree.prioOf ad.ax.attributes) = c.rules.map (·.prio) := by")
+            w("  decide +kernel")
+            w("")
+        comp_js = {j for j, _ in comp_map}
         for j, i in rule_map:
+            if j in comp_js:
+                w(f"theorem rule{j}_parts : (ruleCompParts (prioRuleK c r{j})).isSome = true := by decide +kernel")
+                w(f"/-- Γ's item of rule {j} without its premises `¬ ⋁ competitors` and `⌈rhs ∧ ens⌉` is the text's")
+                w(f"sentence {i}. -/")
+                w(f"theorem rule{j}_text : (trS U.ax{i}).pat = minusComp (prioRuleK c r{j}) := by decide +kernel")
+                w(f"/-- **W1 for rule {j}**: Γ's item is a consequence of sentence {i}. -/")
+                w(f"theorem rule{j}_from_text : itemsPremises [trS U.ax{i}] ⊧ (trAxiom [] [] (kAx (prioRuleK c r{j}))).pat := by")
+                w("  intro M _ I hI")
+                w("  have hD : DefOK I := defOK_of fun x => hI _ (Or.inr ⟨x, rfl⟩)")
+                w(f"  refine item_of_minusComp hD ?_")
+                w(f"  rw [← rule{j}_text]")
+                w(f"  exact hI _ (Or.inl ⟨trS U.ax{i}, List.mem_singleton_self _, rfl⟩)")
+                w("")
+                continue
             w(f"theorem rule{j}_parts : (ruleParts (prioRuleK c r{j})).isSome = true := by decide +kernel")
             w(f"theorem rule{j}_table : tableOf [] (prioRuleK c r{j}) = tableOf [] (dropThird (prioRuleK c r{j})) := by decide +kernel")
             w(f"theorem rule{j}_free : (freeOf [] (prioRuleK c r{j})).eraseDups = (freeOf [] (dropThird (prioRuleK c r{j}))).eraseDups := by")
@@ -1971,6 +2123,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         ["sig_origin_but_next" if head["sigAll"] != "true" else "sig_origin", "decls_entailed",
          "consistent"] + (["text_nextless"] if head["sigAll"] != "true" else [])
     if fn_full:
+        names += [n[:1].lower() + n[1:] + "_eq" for n in pre_mods.values()]
         names += ["fn_shape", "fns_account", "fns_entailed", "fns_from_text", "fn_prios"]
     if nj_triv:
         names.append("nojunk_trivial_entailed")
@@ -1982,6 +2135,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         names.append("cons_entailed")
     if rules_full and nrules:
         names += ["rules_account", "rule_from_text"]
+    if comp_map:
+        names += ["rule_prios"]
     if idem is not None:
         names.append("idem_refuted")
     names += [f"own_idem_refuted_{i}" for i, _, _ in own_idem]
@@ -2040,7 +2195,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     if user_lem_v:
         owed.append(f"the user lemmas {', '.join(map(str, user_lem_v))} hold at values for every H (UserLemmaAtValues)")
     summary = dict(fixture=name, sentences=len(idx), mapped=len(mapped), unmapped=len(unmapped),
-                   classes={c_: len(by_class[c_]) for c_ in CLASSES}, fn_full=fn_full, fn_align=fn_align,
+                   classes={c_: len(by_class[c_]) for c_ in CLASSES}, fn_full=fn_full, fn_prelude=sorted(fn_pre), fn_align=fn_align,
                    fn_pair=fn_pair,
                    cons=len(cons_text), nojunk=[len(nj_triv), len(nj_items), len(nj_kitem), len(nj_sorts)],
                    idem=idem, own_idem=[i for i, _, _ in own_idem], lib166=lib166, gamma=gamma, laws=law_idx, open_generators=[k["name"] for k in raw],
@@ -2272,12 +2427,16 @@ def nojunk_sort_section(i, e, sn, rawd, new):
     if e["form"] == "perm":
         pm = e["perm"]
         gs = ", ".join(f"g{j}" for j in range(len(pm)))
+        # a list pattern of many elements is no pattern Lean takes: past 5 generators (the probe's
+        # enumeration) the order is the generators' positions
+        body = [f"  match (c.gens {s}).map (Gen.toK c) with",
+                f"  | [{gs}] => [{', '.join(f'g{j}' for j in pm)}]",
+                "  | gs => gs"] if len(pm) <= 5 else \
+            [f"  ([{wrap_nums([str(j) for j in pm], 4)}] : List Nat).filterMap",
+             f"    (((c.gens {s}).map (Gen.toK c))[·]?)"]
         out += [f"/-- {S}'s generators in the order the text's no-junk sentence ({i}) lists them, a permutation",
                 "of those `Semantics.gens` lists. -/",
-                f"noncomputable def {s}TextGens : List KoreAML.Gen :=",
-                f"  match (c.gens {s}).map (Gen.toK c) with",
-                f"  | [{gs}] => [{', '.join(f'g{j}' for j in pm)}]",
-                "  | gs => gs", "",
+                f"noncomputable def {s}TextGens : List KoreAML.Gen :="] + body + ["",
                 f"/-- {S}'s no-junk sentence ({i}) is the item over {S}'s generators in the text's order. -/",
                 f"theorem nojunk_{s}_order : (trS U.ax{i}).pat = (KoreAML.Cons.noJunkItem (c.sortName {s}) {s}TextGens).pat := by",
                 "  decide +kernel",
@@ -2395,7 +2554,8 @@ def param_lemma_section(param_lem):
     lt = ", ".join(f"U.ax{i}" for i in param_lem)
     return f"""/-! ## The parameter lemmas ({il}): owed as a hypothesis on H -/
 
-/-- The text's lemmas that apply a parameter symbol no registry hook interprets (`isParamLemma`). -/
+/-- The text's lemmas that apply a parameter symbol no registry hook interprets (`isParamLemma`, or a
+`simplification` sentence of K's builtin library applying one). -/
 noncomputable def paramLemmaText : List AxiomDecl := [{lt}]
 
 /-- The parameter lemmas are the account's class `{PARAM_LEMMA_CLASS}`, of the direction `hypothesis`
@@ -2617,6 +2777,58 @@ def own_idem_section(own_idem):
               ""]
     return "\n".join(L)
 
+
+
+RULE_COMP_SECTION = """/-- A rule axiom with a negated conjunct, `\\rewrites{C}(\\and{C}(l, t, ¬ n, x), r)`, read as its parts:
+the axiom of a rule that has rules of a smaller priority, `n` their `applies`. -/
+def ruleCompParts : Kore.Pattern → Option (Kore.KSort × Kore.Pattern × Kore.Pattern × Kore.Pattern × Kore.Pattern × Kore.Pattern)
+  | .rewrites C (.and _ [l, t, .not _ n, x]) r => some (C, l, t, n, x, r)
+  | _ => none
+
+theorem ruleCompParts_eq {p : Kore.Pattern} {C : Kore.KSort} {l t n x r : Kore.Pattern}
+    (h : ruleCompParts p = some (C, l, t, n, x, r)) : ∃ C' C'', p = .rewrites C (.and C' [l, t, .not C'' n, x]) r := by
+  unfold ruleCompParts at h
+  split at h
+  · cases h; exact ⟨_, _, rfl⟩
+  · cases h
+
+/-- **Γ's item of a rule with competitors without its premises `¬ n` and `x`**: the axiom
+`\\rewrites(l ∧ t ∧ ¬ n ∧ x, r)` read as `\\rewrites(l ∧ t, r)`, under the variable table and the
+guards of the axiom itself (so the variables keep their indices, the variables only `n` binds
+included). An axiom of another form is its own item. -/
+noncomputable def minusComp (p : Kore.Pattern) : P :=
+  match ruleCompParts p with
+  | some (C, l, t, _, _, r) =>
+    let tb := tableOf [] p
+    conjList (((freeOf [] p).eraseDups).map (guardOf tb)) ⇒
+      (tr ⟨tb, []⟩ (.rewrites C (.and C [l, t]) r) ≡ inhOf (trSort tb C))
+  | none => (trAxiom [] [] (kAx p)).pat
+
+/-- **Two conjuncts more on a rule's left side give a consequence**: in a model of definedness, the
+item without the premises `¬ n` and `x` entails the rule's item. -/
+theorem item_of_minusComp {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hD : DefOK I)
+    {p : Kore.Pattern} (h : I ⊧ᴵ minusComp p) : I ⊧ᴵ (trAxiom [] [] (kAx p)).pat := by
+  unfold minusComp at h
+  cases hq : ruleCompParts p with
+  | none => rw [hq] at h; exact h
+  | some q =>
+    obtain ⟨C, l, t, n, x, r⟩ := q
+    rw [hq] at h
+    dsimp only at h
+    obtain ⟨C', C'', hp⟩ := ruleCompParts_eq hq
+    intro e m
+    have h1 := h e m
+    simp only [trAxiom, kAx, List.map_nil, List.nil_append]
+    rw [hp] at h1 ⊢
+    rw [interpret_impl] at h1 ⊢
+    intro hg
+    have h2 := h1 hg
+    rw [interp_equal hD] at h2 ⊢
+    intro a
+    have h3 := h2 a
+    simp only [sortOf, tr, trAndList, sRewrites, interp_sImp, interp_sAnd] at h3 ⊢
+    exact ⟨fun hf => hf.1, fun ht' => ⟨(h3.mpr ht').1, fun hl => (h3.mpr ht').2 ⟨hl.1, hl.2.1⟩⟩⟩
+"""
 
 
 def ens_section(start, end, drop=()):

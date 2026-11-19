@@ -1,0 +1,2 @@
+param	Lbl'Unds'dividesInt'UndsUnds'INT-COMMON'Unds'Bool'Unds'Int'Unds'Int	args=[Int, Int]	result=Bool	impl=none	raw=false	assoc=false	idem=false
+(exit 0)

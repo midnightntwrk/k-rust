@@ -48,7 +48,7 @@ theorem collSymsOK_spec {k : CollSig} (h : collSymsOK c k = true) :
   refine ⟨h1, fun f hf => ?_, h3, h4, h5⟩
   have := List.all_eq_true.mp h2 f hf
   simp only [Bool.and_eq_true, Bool.not_eq_true', Option.isNone_iff_eq_none] at this
-  exact this
+  exact ⟨this.1, iteSort?_none_of_instDecode this.2⟩
 
 /-- A map collection with `collSymsOK` has its value sort, `valSort`. -/
 theorem collSymsOK_val {k : CollSig} (h : collSymsOK c k = true) (hkind : k.kind = .map) :

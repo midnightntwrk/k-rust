@@ -621,7 +621,7 @@ theorem ovl_parts {f : Sym} {o : OvlSig} (hok : c.overloadsOK = true) (ho : c.lo
   simp only [Bool.and_eq_true, Option.isNone_iff_eq_none] at hoi
   refine ⟨he ▸ List.getElem_mem hi, hn, ?_, ?_, List.contains_iff_mem.mp hoi.1.1.1.1.1.2⟩
   · rw [← hn]; exact hoi.1.1.1.1.1.1.1.1
-  · rw [← hn]; exact hoi.1.1.1.1.1.1.2
+  · rw [← hn]; exact iteSort?_none_of_instDecode hoi.1.1.1.1.1.1.2
 
 /-- A constructor is no overloading symbol (`overloadsOK`: an overloading symbol is of no other
 kind). -/

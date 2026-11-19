@@ -430,7 +430,8 @@ theorem f0_undetermined :
 
 /-- **The clause is not `Witnessed`**: H must be a value of S, and `isC` is `false` there. -/
 theorem not_witnessed : ¬ clG.Witnessed c := by
-  rintro ⟨σ, hσ, hreq, -⟩
+  intro hW
+  obtain ⟨σ, hσ, hreq, -⟩ := hW.conds
   obtain ⟨v, hv, hvs⟩ := hσ 1 (by decide) 32 rfl
   have he := (hreq _ rfl).1
   have hf := EvalTerm.functional_of_fnDet fnDet he (call_isC hv hvs)
