@@ -1752,6 +1752,7 @@ fn declared_list(manifest: &FlowManifest) -> Result<MutationList, String> {
         );
     }
     let mut mutations = Vec::<crate::mutation::Mutation>::new();
+    let mut grammar_sets = Vec::<crate::mutation::GrammarSet>::new();
     let mut from = BTreeMap::<String, &str>::new();
     for path in &manifest.mutation_lists {
         let list = MutationList::read(&manifest.directory.join(path))
@@ -1767,8 +1768,22 @@ fn declared_list(manifest: &FlowManifest) -> Result<MutationList, String> {
             from.insert(mutation.id.clone(), path);
             mutations.push(mutation);
         }
+        for set in list.grammar_sets {
+            if let Some(first) = from.get(&set.id) {
+                return Err(format!(
+                    "the mutation id `{}` is given by {first} and by {path}: an obligation is \
+                     named by its mutation's id, so the lists a flow names give each id once",
+                    set.id
+                ));
+            }
+            from.insert(set.id.clone(), path);
+            grammar_sets.push(set);
+        }
     }
-    Ok(MutationList { mutations })
+    Ok(MutationList {
+        mutations,
+        grammar_sets,
+    })
 }
 
 /// What `prune` of one flow reads before its families' searches run: the lock, the lists and the
