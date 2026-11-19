@@ -5,8 +5,8 @@
   `test/constructs/tiegen.py e2-cells-stream --split`; run from the package root:
   `lake env lean -j1 test/TieE2CellsStreamDecls.lean`.
 
-  Measured alone (LEAN_NUM_THREADS=1, `lake env lean -j1`, a 12G memory scope): 302 s, peak
-  10.0 GiB.
+  Measured alone (LEAN_NUM_THREADS=1, `lake env lean -j1`, a 12G memory scope): 433 s, peak
+  10.4 GiB.
 -/
 import KcoreSpec
 
@@ -332,7 +332,104 @@ theorem decls_entailed (H : HookParams) : ∀ it ∈ declItems, Γ (cH H) ⊧ it
   rw [← of_decide_eq_true he]
   exact sat_sigItem hI (by rw [sigItems_withHooks]; exact hit')
 
+/-- The symbol declarations of the text with a K builtin file's `Source`, without a `hook`
+attribute and without sort parameters, that Γ has, by name. -/
+def builtinDeclNames : List String :=
+  ["Lbl'Hash'E2BIG",
+   "Lbl'Hash'EACCES",
+   "Lbl'Hash'EADDRINUSE",
+   "Lbl'Hash'EADDRNOTAVAIL",
+   "Lbl'Hash'EAFNOSUPPORT",
+   "Lbl'Hash'EAGAIN",
+   "Lbl'Hash'EALREADY",
+   "Lbl'Hash'EBADF",
+   "Lbl'Hash'EBUSY",
+   "Lbl'Hash'ECHILD",
+   "Lbl'Hash'ECONNABORTED",
+   "Lbl'Hash'ECONNREFUSED",
+   "Lbl'Hash'ECONNRESET",
+   "Lbl'Hash'EDEADLK",
+   "Lbl'Hash'EDESTADDRREQ",
+   "Lbl'Hash'EDOM",
+   "Lbl'Hash'EEXIST",
+   "Lbl'Hash'EFAULT",
+   "Lbl'Hash'EFBIG",
+   "Lbl'Hash'EHOSTDOWN",
+   "Lbl'Hash'EHOSTUNREACH",
+   "Lbl'Hash'EINPROGRESS",
+   "Lbl'Hash'EINTR",
+   "Lbl'Hash'EINVAL",
+   "Lbl'Hash'EIO",
+   "Lbl'Hash'EISCONN",
+   "Lbl'Hash'EISDIR",
+   "Lbl'Hash'ELOOP",
+   "Lbl'Hash'EMFILE",
+   "Lbl'Hash'EMLINK",
+   "Lbl'Hash'EMSGSIZE",
+   "Lbl'Hash'ENAMETOOLONG",
+   "Lbl'Hash'ENETDOWN",
+   "Lbl'Hash'ENETRESET",
+   "Lbl'Hash'ENETUNREACH",
+   "Lbl'Hash'ENFILE",
+   "Lbl'Hash'ENOBUFS",
+   "Lbl'Hash'ENODEV",
+   "Lbl'Hash'ENOENT",
+   "Lbl'Hash'ENOEXEC",
+   "Lbl'Hash'ENOLCK",
+   "Lbl'Hash'ENOMEM",
+   "Lbl'Hash'ENOPROTOOPT",
+   "Lbl'Hash'ENOSPC",
+   "Lbl'Hash'ENOSYS",
+   "Lbl'Hash'ENOTCONN",
+   "Lbl'Hash'ENOTDIR",
+   "Lbl'Hash'ENOTEMPTY",
+   "Lbl'Hash'ENOTSOCK",
+   "Lbl'Hash'ENOTTY",
+   "Lbl'Hash'ENXIO",
+   "Lbl'Hash'EOF",
+   "Lbl'Hash'EOPNOTSUPP",
+   "Lbl'Hash'EOVERFLOW",
+   "Lbl'Hash'EPERM",
+   "Lbl'Hash'EPFNOSUPPORT",
+   "Lbl'Hash'EPIPE",
+   "Lbl'Hash'EPROTONOSUPPORT",
+   "Lbl'Hash'EPROTOTYPE",
+   "Lbl'Hash'ERANGE",
+   "Lbl'Hash'EROFS",
+   "Lbl'Hash'ESHUTDOWN",
+   "Lbl'Hash'ESOCKTNOSUPPORT",
+   "Lbl'Hash'ESPIPE",
+   "Lbl'Hash'ESRCH",
+   "Lbl'Hash'ETIMEDOUT",
+   "Lbl'Hash'ETOOMANYREFS",
+   "Lbl'Hash'EWOULDBLOCK",
+   "Lbl'Hash'EXDEV",
+   "Lbl'Hash'buffer'LParUndsRParUnds'K-IO'Unds'Stream'Unds'K",
+   "Lbl'Hash'istream'LParUndsRParUnds'K-IO'Unds'Stream'Unds'Int",
+   "Lbl'Hash'noParse",
+   "Lbl'Hash'ostream'LParUndsRParUnds'K-IO'Unds'Stream'Unds'Int",
+   "Lbl'Hash'parseInput'LParUndsCommUndsRParUnds'K-IO'Unds'Stream'Unds'String'Unds'String",
+   "Lbl'Hash'systemResult",
+   "Lbl'Hash'tempFile",
+   "Lbl'Hash'unknownIOError",
+   "LblBool2String'LParUndsRParUnds'STRING-COMMON'Unds'String'Unds'Bool",
+   "LblString2Bool'LParUndsRParUnds'STRING-COMMON'Unds'Bool'Unds'String",
+   "LblfreshInt'LParUndsRParUnds'INT'Unds'Int'Unds'Int"]
+
+/-- Each names a symbol of Γ. -/
+theorem builtinDeclNames_has : builtinDeclNames.all hasSym = true := by decide +kernel
+
+/-- **E for the symbol declarations named in `builtinDeclNames`**: Γ entails the G-arity item
+of each such declaration without sort parameters, for every H. -/
+theorem builtin_decls_entailed (H : HookParams) :
+    ∀ sd ∈ kore.symbolDecls, sd.params = [] → sd.name ∈ builtinDeclNames → Γ (cH H) ⊧ (arityItem sd).pat :=
+  fun sd hsd hp hn => decls_entailed H _ (List.mem_append_right _ (List.mem_map_of_mem
+    (List.mem_filter.mpr ⟨hsd, by
+      simp only [hp, List.isEmpty_nil, Bool.true_and]; exact List.all_eq_true.mp builtinDeclNames_has _ hn⟩)))
+
 end KCore.TieE2CellsStream
 
 #check @KCore.TieE2CellsStream.decls_entailed
+#check @KCore.TieE2CellsStream.builtin_decls_entailed
 #print axioms KCore.TieE2CellsStream.decls_entailed
+#print axioms KCore.TieE2CellsStream.builtin_decls_entailed
