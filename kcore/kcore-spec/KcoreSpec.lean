@@ -336,6 +336,7 @@ import KcoreSpec.TieRuleLhs
 import KcoreSpec.TieRuleCut
 import KcoreSpec.TieRuleConnText
 import KcoreSpec.TieRuleUnheld
+import KcoreSpec.TieRuleRhs
 import KcoreSpec.LibEvSetVar
 import KcoreSpec.LibEvCeil
 import KcoreSpec.LibEvBoolSet

@@ -173,8 +173,11 @@ differs f2-examples/e3-ml-rule-lhs-or.kompile.kore
 differs f2-examples/e3-ml-rule-lhs-top.kompile.kore
 differs f2-examples/e3-ml-rule-rhs-and-ctor.kompile.kore
 differs f2-examples/e3-ml-rule-rhs-and-fn.kompile.kore
+differs f2-examples/e3-ml-rule-rhs-and-pred.kompile.kore
 differs f2-examples/e3-ml-rule-rhs-and-term.kompile.kore
 differs f2-examples/e3-ml-rule-rhs-and-var.kompile.kore
+differs f2-examples/e3-ml-rule-rhs-bottom-fn.kompile.kore
+differs f2-examples/e3-ml-rule-rhs-bottom.kompile.kore
 differs f2-examples/e3-ml-rule-rhs-or.kompile.kore
 differs f2-examples/e3-ml.kompile.kore
 differs f2-examples/e3-param-cases.kompile.kore
@@ -184,6 +187,7 @@ cannot f2-examples/e3-setvar-rewrite-req.kompile.kore
 differs f2-examples/e3-setvar-rewrite.kompile.kore
 differs f2-examples/e3-setvar.kompile.kore
 differs f2-examples/e3-userlist.kompile.kore
+differs f2-examples/e3-vars-bottom.kompile.kore
 differs f2-examples/e3-vars-list.kompile.kore
 differs f2-examples/e3-vars-map-rest.kompile.kore
 differs f2-examples/e3-vars-map.kompile.kore
