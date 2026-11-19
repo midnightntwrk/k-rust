@@ -85,6 +85,7 @@ pub mod pattern;
 pub mod projected;
 pub mod prune;
 pub mod query;
+pub mod reparse;
 pub mod report;
 pub mod results;
 pub mod search;

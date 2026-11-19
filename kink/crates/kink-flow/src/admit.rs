@@ -1151,6 +1151,19 @@ impl<'a> InputSession<'a> {
         }
     }
 
+    /// The input grammar of a mutant of this session's specification whose edits change only
+    /// grammar sentences, `definition` its definition (PJ-34): the specification's input grammar
+    /// with the mutant's program grammar ([`InputGrammar::with_program_grammar_of`]). Built apart
+    /// from the specification's, which no mutant replaces.
+    pub(crate) fn mutant_grammar(
+        &self,
+        definition: &k_rust::definition::Definition,
+    ) -> Result<InputGrammar, AdmissionRefusal> {
+        self.grammar()?
+            .with_program_grammar_of(definition)
+            .map_err(input_refusal)
+    }
+
     /// The specification's input grammar, built on first use.
     fn grammar(&self) -> Result<&'a InputGrammar, AdmissionRefusal> {
         let spec = self.spec;
@@ -1158,6 +1171,54 @@ impl<'a> InputSession<'a> {
             .get_or_init(|| InputGrammar::prepare(&spec.loaded, Some(&spec.compiled)))
             .as_ref()
             .map_err(|e| input_refusal(e.clone()))
+    }
+}
+
+/// What assembling a program's inputs again under another grammar gives ([`reassemble`]).
+#[derive(Clone, Debug)]
+pub(crate) enum Reassembly {
+    /// The initial configuration.
+    Assembled(Pattern),
+    /// A K text does not parse (an ambiguous text among them), with the refusal's detail.
+    ParseRejected(String),
+    /// Any other refusal, as `stage/reason: detail`: the grammar gives no parser for a
+    /// variable's module, a variable is missing, a stream mode is refused.
+    Refused(String),
+}
+
+/// The initial configuration of `program`, its inputs `inputs` as admission read them, assembled
+/// by `assembler` (cleared first) over a grammar of `definition`, as [`InputSession::test_case`]
+/// assembles it before its checks: a parse refusal is one only where the program's `start_sort`
+/// is declared by a module of `definition` (a start sort no module declares fails whatever the
+/// text). No check after assembly runs: they read the specification's backend.
+pub(crate) fn reassemble(
+    assembler: &mut InputAssembler<'_>,
+    definition: &k_rust::definition::Definition,
+    program: &Program,
+    inputs: &CaseInputs,
+) -> Reassembly {
+    let start_declared = program
+        .start_sort
+        .as_deref()
+        .is_none_or(|sort| declares_sort(definition, sort));
+    match assembler.assemble(
+        inputs
+            .text
+            .as_deref()
+            .map(|text| (text, program.start_sort.as_deref())),
+        &bindings(program, inputs),
+    ) {
+        Ok(initial) => Reassembly::Assembled(initial),
+        Err(error @ InputError::Parse(_)) if start_declared => {
+            Reassembly::ParseRejected(input_refusal(error).detail)
+        }
+        Err(error) => {
+            let refusal = input_refusal(error);
+            Reassembly::Refused(format!(
+                "{}/{}: {}",
+                refusal.stage, refusal.reason, refusal.detail
+            ))
+        }
     }
 }
 

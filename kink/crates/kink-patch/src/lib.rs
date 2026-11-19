@@ -77,7 +77,9 @@ pub use failure::{PatchFailure, PatchFailureKind};
 pub use fingerprint::{
     FINGERPRINT_DOMAIN, FingerprintError, POSITION_KEYS, SentenceFingerprint, fingerprint_payload,
 };
-pub use grammar::{GrammarForm, GrammarSelector, generate_grammar, grammar_variants};
+pub use grammar::{
+    GrammarForm, GrammarSelector, generate_grammar, grammar_variants, supplied_grammar,
+};
 pub use operator::{
     Action, BUILTIN_CELL_SYNTAX_SORTS, Clause, OPERATOR_DOMAIN, OperatorSpec, generate,
 };

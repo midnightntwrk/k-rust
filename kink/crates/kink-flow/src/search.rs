@@ -175,10 +175,17 @@
 //! census live, and reports every stored record that differs (`resolution-mismatch`; in
 //! `mismatches` also for a mutation `--only` does not select or a corpus error left unsearched,
 //! and for a census also when the live census refuses the specification; re-pin L1-4 fix 1).
+//!
+//! A grammar mutation (PJ-34) parses every case again under the mutant's grammar before step 2
+//! ([`crate::reparse`], `Search::search_grammar`): a kill or an undecided case its reparse gives
+//! decides the row with no call, and otherwise steps 2 to 7 run as above on the baseline's test
+//! cases, which are then the mutant's. It is never memoised (its generation is not
+//! [`ResolvedMutation::generation`]'s) and never compiled ahead, and only the first-kill search
+//! over the whole O, without `--verify`, in a flow that declares no `[[projection]]`, judges it.
 
 use crate::evidence::EndReader;
 use crate::{
-    admit::{AdmittedSpec, InputSession, admit_spec_with},
+    admit::{AdmittedSpec, InputSession, Reassembly, admit_spec_with, reassemble},
     cli::{CommandSpelling, FrontEnd, Verb},
     compare::{EndsJudged, EndsQuestion, Vocabulary},
     digest::ExecutionDigest,
@@ -186,14 +193,17 @@ use crate::{
     lock::{Lock, Settle},
     manifest::ProjectionSection,
     manifest::{Budget, FlowManifest},
+    manifest::{Program, RejectedStage},
     memo::{self, Facts, MemoUse},
     mutant_ends::{MutantEndStore, MutantEnds},
+    mutation::InvalidReason,
     mutation::{
         EditedRule, Expected, InvalidMutation, Mutation, MutationList, ResolvedMutation, resolve,
         rule_texts,
     },
     outcomes::{CachedOutcome, OutcomeRecord, OutcomeStore, RunPolls, cacheable, slot_name},
     projected::{self, Judge, ProjectionStatus, Verdict},
+    reparse,
     report::{
         MutantCensus, OPEN_APPLICATION_REASON, RUN_SCHEMA, RUN_VERSION, WORK_BUDGET_REASON, action,
         action_spelled, claims_value, executed_cause, horizon_reason, matrix, observation_slot,
@@ -214,7 +224,7 @@ use kink_campaign::{
     ScheduleMode, TestCase, TestEvidence, TestPlan, TestRun, Witness, derive_mutant_report,
     selection::ground_reading_is_as_written,
 };
-use kink_corpus::{Store, admission::AdmissionRecord};
+use kink_corpus::{InputAssembler, Store, admission::AdmissionRecord};
 use kink_native::{
     DeclarationCensus,
     coverage::{Authorship, RuleAuthors},
@@ -1494,6 +1504,9 @@ impl Search<'_, '_> {
         row.insert("digest".into(), json!(digest.to_string()));
         // The survivor report's rule texts (README 5.7); a killed mutation drops them below.
         row.insert("rules".into(), rules_value(&resolved.rules));
+        if resolved.is_grammar() {
+            return self.search_grammar(mutation, row, resolved);
+        }
         // The generation must derive from the validator's own baseline (the runner refuses any
         // other); the patch is pinned, so it applies to it as to the loaded baseline.
         let generation = match resolved.generation(self.spec.validator.baseline()) {
@@ -1503,6 +1516,213 @@ impl Search<'_, '_> {
         let facts = self.facts(resolved, &generation);
         self.search_facts(mutation, row, &facts, Some(&generation))
             .expect("a live resolution's search always gives a row")
+    }
+
+    /// The search of a grammar mutation ([`crate::reparse`]): every case is assembled again under
+    /// the mutant's grammar, built once for the mutation from the mutant's definition, and
+    /// judged from both sides' outcomes before anything runs. A kill the cases decide, or a case
+    /// they leave undecided, gives the row with no call. Otherwise every case agrees or parses
+    /// alike, so the mutant's runs of O are its runs of the baseline's test cases, and the search
+    /// of a rule mutant over them decides ([`Search::search_facts`] with the grammar generation,
+    /// [`ResolvedMutation::grammar_generation`]), read for a grammar mutant
+    /// ([`crate::reparse::read_call`]) whichever path, a call or tier 1, gave its status. Only the
+    /// first-kill search over the whole O in search mode of a flow without `[[projection]]`
+    /// judges one; every other search refuses it ([`ResolvedMutation::run_refusal`]).
+    fn search_grammar(
+        &mut self,
+        mutation: &Mutation,
+        mut row: Map<String, Value>,
+        resolved: &ResolvedMutation,
+    ) -> (Value, bool) {
+        let digest = json!(resolved.digest.to_string());
+        let judged = self.mode == RunMode::Search
+            && self.schedule == ScheduleMode::FirstKill
+            && self.within.is_none()
+            && self.projected.is_none();
+        if !judged && let Some(refusal) = resolved.run_refusal() {
+            return (invalid(row, refusal, digest), false);
+        }
+        let baseline = self.spec.validator.baseline();
+        let syntax_module = self.spec.loaded.syntax_module().to_string();
+        let generation = match resolved.grammar_generation(baseline, &syntax_module) {
+            Ok(generation) => generation,
+            Err(e) => return (invalid(row, e, digest), false),
+        };
+        // The mutant's input grammar, built once for the mutation, apart from the specification's.
+        let built = kink_patch::apply(baseline, &resolved.patch)
+            .map_err(|e| (InvalidReason::PatchRejected, e.to_string()))
+            .and_then(|mutant| {
+                let grammar = self
+                    .inputs
+                    .mutant_grammar(mutant.definition())
+                    .map_err(|refusal| (InvalidReason::NoProgramParser, refusal.detail))?;
+                Ok((mutant, grammar))
+            });
+        let (mutant, grammar) = match built {
+            Ok(built) => built,
+            Err((reason, detail)) => {
+                let refusal = InvalidMutation {
+                    edit: None,
+                    reason,
+                    detail,
+                };
+                return (invalid(row, refusal, digest), false);
+            }
+        };
+        let order = self.program_order();
+        let cases = match self.grammar_cases(mutant.definition(), &grammar, &order) {
+            Ok(cases) => cases,
+            Err(error) => return self.corpus_error(row, error, &Calls::default(), Vec::new()),
+        };
+        row.insert(
+            "grammar".into(),
+            json!(cases.iter().map(reparse::Case::value).collect::<Vec<_>>()),
+        );
+        row.insert("direction".into(), Value::Null);
+        let facts = self.facts(resolved, &generation);
+        // An empty O, and a baseline whose findings leave no end data, are the search's to report
+        // (`no-comparable-program`, `baseline-findings`), as for a rule mutation.
+        let decision = if order.is_empty() || self.gated() {
+            reparse::Decision::Call
+        } else {
+            reparse::decide(&cases, self.recorded.get(&mutation.id).map(String::as_str))
+        };
+        if decision == reparse::Decision::Call {
+            let rules = row["rules"].clone();
+            let (mut value, error) = self
+                .search_facts(mutation, row, &facts, Some(&generation))
+                .expect("a live resolution's search always gives a row");
+            if let Some(row) = value.as_object_mut() {
+                reparse::read_call(row, &rules);
+            }
+            return (value, error);
+        }
+        (
+            self.decided_grammar_row(row, &decision, facts, resolved, &order),
+            false,
+        )
+    }
+
+    /// The row of a grammar mutation its reparse decides (`decision`, killed or unknown) with no
+    /// call, with the members the search's rows carry (`facts`). It is the row of a mutant that
+    /// compiles: one that does not is `not-admitted` (`rejected`), as the call reports it,
+    /// whatever its cases parse to.
+    fn decided_grammar_row(
+        &self,
+        mut row: Map<String, Value>,
+        decision: &reparse::Decision<'_>,
+        facts: Facts,
+        resolved: &ResolvedMutation,
+        order: &[usize],
+    ) -> Value {
+        row.insert("typing_diagnostics".into(), facts.typing_diagnostics);
+        row.insert(
+            "identity".into(),
+            json!(facts.identity.map(|identity| identity.to_string())),
+        );
+        row.insert("removed_claims".into(), facts.removed_claims);
+        row.insert("inconsistent_pairs".into(), json!([]));
+        row.insert("weakening".into(), facts.weakening);
+        if let Err(rejection) = self.spec.validator.validate(&resolved.patch) {
+            let failure = MutantScopeFailure::from(&rejection);
+            let plan = MutantPlan {
+                selection: None,
+                mutant_id: MutantId(0),
+                tests: Vec::new(),
+                mutant_failure: Some(failure),
+                claims: Withdrawal::default(),
+                inconsistent_pairs: Vec::new(),
+            };
+            let report = self
+                .assemble(&[], Some((order, &plan)))
+                .expect("a mutant-scope failure with no test is a valid plan");
+            let reason = Some(kebab(&format!("{failure:?}")));
+            return verdict_row(
+                row,
+                &report,
+                None,
+                None,
+                reason,
+                None,
+                RowCalls::default(),
+                Vec::new(),
+            );
+        }
+        let (status, killer, reason, case) = match decision {
+            reparse::Decision::Killed(case) => {
+                let reparse::Verdict::Killed(direction) = case.verdict else {
+                    unreachable!("a killing case has a killed verdict");
+                };
+                row.insert("direction".into(), json!(direction.as_str()));
+                row.insert("rules".into(), Value::Null);
+                ("killed", Some(case.program.clone()), None, case)
+            }
+            reparse::Decision::Unknown(case) => {
+                let reparse::Verdict::Unknown(reason) = case.verdict else {
+                    unreachable!("an undecided case has an unknown verdict");
+                };
+                ("unknown", None, Some(reason), case)
+            }
+            reparse::Decision::Call => unreachable!("a call's row is the search's"),
+        };
+        row.insert("status".into(), json!(status));
+        row.insert("reason".into(), json!(reason));
+        row.insert("detail".into(), json!(case.detail));
+        let source = killer.as_ref().map(|_| reparse::SOURCE_REPARSE);
+        finish(row, killer, source, RowCalls::default(), Vec::new())
+    }
+
+    /// Every case of a grammar mutation parsed again under the mutant's grammar `grammar` (of
+    /// `definition`), one assembler serving every case ([`crate::reparse`]): the programs of
+    /// `order` with their baseline test cases, then every program whose met statement says it is
+    /// rejected at parse, its inputs read again as admission read them.
+    ///
+    /// # Errors
+    ///
+    /// The corpus error of a program of `order` whose test case cannot be assembled.
+    fn grammar_cases(
+        &mut self,
+        definition: &k_rust::definition::Definition,
+        grammar: &kink_corpus::InputGrammar,
+        order: &[usize],
+    ) -> Result<Vec<reparse::Case>, CorpusError> {
+        let (manifest, rows) = (self.manifest, self.rows);
+        let mut assembler = InputAssembler::new(grammar);
+        let mut parse_again = |session: &mut InputSession<'_>, program: &Program, read| {
+            let read = match read {
+                Some(read) => Ok(read),
+                None => session.admitted_inputs(program),
+            };
+            match read {
+                Ok(read) => reassemble(&mut assembler, definition, program, &read),
+                Err(refusal) => Reassembly::Refused(format!(
+                    "{}/{}: {}",
+                    refusal.stage, refusal.reason, refusal.detail
+                )),
+            }
+        };
+        let mut cases = Vec::new();
+        for &candidate in order {
+            let test = self.test(candidate)?;
+            let index = self.candidates[candidate].index;
+            let program = &manifest.programs[index];
+            let outcome = parse_again(self.inputs, program, rows[index].inputs.clone());
+            cases.push(reparse::listed(
+                &program.id,
+                &test.initial_state,
+                &rows[index].row,
+                outcome,
+            ));
+        }
+        for (index, program) in manifest.programs.iter().enumerate() {
+            if program.rejected == Some(RejectedStage::Parse)
+                && rows[index].row["class"] == ResultClass::Rejected.as_str()
+            {
+                let outcome = parse_again(self.inputs, program, None);
+                cases.push(reparse::stated(&program.id, outcome));
+            }
+        }
+        Ok(cases)
     }
 
     /// Whether the baseline has a finding no `[spec] assume_joined` name assumes, so that no end

@@ -9,10 +9,14 @@
 use crate::failure::{PatchFailure, PatchFailureKind};
 use crate::stack::{TYPING_STACK_PER_LEVEL, sentence_depth, with_stack};
 use crate::typing::CompilationTyping;
-use crate::{Baseline, Edit, InsertPosition, Patch, Region, SentenceRef, Target, path_in};
-use k_rust::definition::{AttributeKey, Definition, ResolvedDefinition, Sentence, sentence_mut};
+use crate::{
+    Baseline, Edit, InsertPosition, Patch, Region, SentenceRef, Target, path_in, sentence_at,
+};
+use k_rust::definition::{
+    AttributeKey, Definition, ResolvedDefinition, Sentence, production_identity, sentence_mut,
+};
 use k_rust::inner::ProgramParser;
-use k_rust::kast::Term;
+use k_rust::kast::{ProductionIdentity, Term, TermParts};
 use k_rust::kompile::initial_configuration::ProgramGrammar;
 use k_rust::outer::{LoadError, LoadedDefinition};
 use std::collections::{BTreeMap, BTreeSet};
@@ -30,7 +34,11 @@ use std::sync::Arc;
 /// compilation's view.
 /// v2 (PJ-34, U34a): a production, a lexical declaration, a priority declaration or an
 /// associativity declaration may be replaced (by one of its own variant) or inserted, where only
-/// rules, claims and contexts could before; every other check is unchanged.
+/// rules, claims and contexts could before; every other check is unchanged. Extended before
+/// release (PJ-34, U34c): a production replaced in place has another content identity, and every
+/// term built with the baseline's production is pointed at its replacement, where it named a
+/// production the mutant does not declare (which compilation, under debug assertions, refused by
+/// a panic); no patch is admitted or refused otherwise.
 pub const PATCH_ADMISSION_VERSION: &str = "kink-patch/patch-admission/v2";
 
 /// Keys no edit may write: the rule label, kompile identities and source positions.
@@ -184,6 +192,8 @@ pub fn apply(baseline: &Baseline, patch: &Patch) -> Result<Mutant, PatchFailure>
         write_in_place(&mut definition, edit)?;
     }
     let origins = rebuild_modules(&mut definition, patch.edits())?;
+    let replaced = replaced_productions(baseline, patch, &definition, &origins);
+    retarget_productions(&mut definition, &replaced);
     let resolved = ResolvedDefinition::resolve(&definition)
         .map_err(|error| ill_formed(format!("the patched definition does not resolve: {error}")))?;
     let typing_diagnostics = typing_diagnostics(&definition, &resolved, &origins, patch.edits())?;
@@ -192,6 +202,128 @@ pub fn apply(baseline: &Baseline, patch: &Patch) -> Result<Mutant, PatchFailure>
         origins,
         typing_diagnostics,
     })
+}
+
+/// The content identity (k-rust `production_identity`) of each baseline production the patch
+/// changed in place, mapped to its output's: a replaced production (a grammar edit that keeps its
+/// label and changes a literal, a regex or an attribute) has another identity, and every term
+/// built with it names the old one in its metadata. Only the sentences the patch writes are
+/// read, so a patch that edits rules only hashes no production and gives an empty map.
+fn replaced_productions(
+    baseline: &Baseline,
+    patch: &Patch,
+    definition: &Definition,
+    origins: &BTreeMap<SentenceRef, SentenceOrigin>,
+) -> BTreeMap<ProductionIdentity, ProductionIdentity> {
+    let edited = patch
+        .written_sentences()
+        .into_iter()
+        .filter_map(|at| {
+            let before = baseline.sentence(&at)?;
+            matches!(before, Sentence::Production { .. })
+                .then(|| production_identity(before))
+                .flatten()
+                .map(|identity| (at, identity))
+        })
+        .collect::<BTreeMap<_, _>>();
+    let mut replaced = BTreeMap::new();
+    if edited.is_empty() {
+        return replaced;
+    }
+    for (output, origin) in origins {
+        let SentenceOrigin::Baseline(source) = origin else {
+            continue;
+        };
+        if let Some(old) = edited.get(source)
+            && let Some(after) = sentence_at(definition, &output.module, output.index)
+            && let Some(new) = production_identity(after)
+            && new != *old
+        {
+            replaced.insert(*old, new);
+        }
+    }
+    replaced
+}
+
+/// Points every term of `definition` that was built with a replaced production at its
+/// replacement (`replaced`, [`replaced_productions`]). A grammar edit changes which text parses
+/// to which term and keeps the rules' terms: a rule's application of a replaced production is
+/// an application of the same constructor (same label, sort and arguments), and its metadata
+/// must name the production the mutant declares, or compilation finds no production for it (a
+/// dangling production identity). Only sentences that name a replaced identity are rewritten.
+fn retarget_productions(
+    definition: &mut Definition,
+    replaced: &BTreeMap<ProductionIdentity, ProductionIdentity>,
+) {
+    if replaced.is_empty() {
+        return;
+    }
+    for module in &mut definition.modules {
+        for sentence in &mut module.local_sentences {
+            if !sentence.terms().any(|(_, term)| names_any(term, replaced)) {
+                continue;
+            }
+            for (_, term) in sentence_mut(sentence).terms_mut() {
+                let taken = std::mem::replace(term, Term::Sequence(Vec::new()));
+                *term = retarget_term(taken, replaced);
+            }
+        }
+    }
+}
+
+/// Whether `term` or a subterm carries a production identity of `replaced` in its metadata.
+fn names_any(term: &Term, replaced: &BTreeMap<ProductionIdentity, ProductionIdentity>) -> bool {
+    if term
+        .metadata()
+        .and_then(|metadata| metadata.production)
+        .is_some_and(|identity| replaced.contains_key(&identity))
+    {
+        return true;
+    }
+    match term.unannotated() {
+        Term::Rewrite { left, right } => names_any(left, replaced) || names_any(right, replaced),
+        Term::As { pattern, alias } => names_any(pattern, replaced) || names_any(alias, replaced),
+        Term::Sequence(items)
+        | Term::Apply {
+            arguments: items, ..
+        } => items.iter().any(|item| names_any(item, replaced)),
+        _ => false,
+    }
+}
+
+// Invariant: every recursive call consumes one child of the finite term tree.
+fn retarget_term(term: Term, replaced: &BTreeMap<ProductionIdentity, ProductionIdentity>) -> Term {
+    let mut metadata = term.metadata().cloned().unwrap_or_default();
+    if let Some(identity) = metadata.production
+        && let Some(replacement) = replaced.get(&identity)
+    {
+        metadata.production = Some(*replacement);
+    }
+    let rebuilt = match term.into_unannotated().into_parts() {
+        TermParts::Rewrite { left, right } => Term::Rewrite {
+            left: Box::new(retarget_term(*left, replaced)),
+            right: Box::new(retarget_term(*right, replaced)),
+        },
+        TermParts::As { pattern, alias } => Term::As {
+            pattern: Box::new(retarget_term(*pattern, replaced)),
+            alias: Box::new(retarget_term(*alias, replaced)),
+        },
+        TermParts::Sequence(items) => Term::Sequence(
+            items
+                .into_iter()
+                .map(|item| retarget_term(item, replaced))
+                .collect(),
+        ),
+        TermParts::Apply { label, arguments } => Term::Apply {
+            label,
+            arguments: arguments
+                .into_iter()
+                .map(|argument| retarget_term(argument, replaced))
+                .collect(),
+        },
+        leaf => Term::from(leaf),
+    };
+    rebuilt.with_metadata(metadata)
 }
 
 fn preflight(baseline: &Baseline, edit: &Edit) -> Result<(), PatchFailure> {

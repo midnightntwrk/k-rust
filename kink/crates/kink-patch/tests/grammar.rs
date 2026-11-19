@@ -396,3 +396,78 @@ fn a_parse_only_edit_leaves_every_claim() {
         }
     }
 }
+
+/// Every production identity a term of `definition` carries in its metadata.
+fn named_productions(term: &k_rust::kast::Term, named: &mut Vec<k_rust::kast::ProductionIdentity>) {
+    use k_rust::kast::Term;
+    if let Some(identity) = term.metadata().and_then(|metadata| metadata.production) {
+        named.push(identity);
+    }
+    match term.unannotated() {
+        Term::Rewrite { left, right } => {
+            named_productions(left, named);
+            named_productions(right, named);
+        }
+        Term::As { pattern, alias } => {
+            named_productions(pattern, named);
+            named_productions(alias, named);
+        }
+        Term::Sequence(items)
+        | Term::Apply {
+            arguments: items, ..
+        } => {
+            for item in items {
+                named_productions(item, named);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// A grammar edit keeps the rules' terms (PJ-34): a rule's application of a production whose
+/// literal an edit changes or drops is an application of the same constructor, so its metadata
+/// names the production the mutant declares in its place, never the replaced one (compilation
+/// finds no production for a dangling identity). `print _E ;` is the rule `run`'s left-hand side.
+#[test]
+fn a_rule_built_with_a_replaced_production_names_its_replacement() {
+    let baseline = baseline();
+    let (at, before) = production(&baseline, "print");
+    let old = k_rust::definition::production_identity(&before).expect("a production");
+    let named_in_baseline = |definition: &k_rust::definition::Definition| {
+        let mut named = Vec::new();
+        for module in &definition.modules {
+            for sentence in &module.local_sentences {
+                for (_, term) in sentence.terms() {
+                    named_productions(term, &mut named);
+                }
+            }
+        }
+        named
+    };
+    assert!(named_in_baseline(baseline.definition()).contains(&old));
+    let mut edited = 0;
+    for form in [GrammarForm::ChangeTerminal, GrammarForm::DropTerminal] {
+        for (site, patch) in grammar_variants(&baseline, form, &[]) {
+            if site.sentence != at {
+                continue;
+            }
+            let mutant = apply(&baseline, &patch).expect("applies");
+            let declared = mutant
+                .definition()
+                .modules
+                .iter()
+                .flat_map(|module| &module.local_sentences)
+                .filter_map(|sentence| k_rust::definition::production_identity(sentence))
+                .collect::<std::collections::BTreeSet<_>>();
+            let named = named_in_baseline(mutant.definition());
+            assert!(!named.contains(&old), "{} {site:?}", form.name());
+            assert!(
+                named.iter().all(|identity| declared.contains(identity)),
+                "{} {site:?}: a term names a production the mutant does not declare",
+                form.name()
+            );
+            edited += 1;
+        }
+    }
+    assert!(edited > 1, "the forms edit `print`'s literals");
+}

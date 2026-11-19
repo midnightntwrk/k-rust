@@ -197,6 +197,50 @@ pub fn generate_grammar<'b>(
     )
 }
 
+/// The generation of one supplied grammar patch (a mutation a user wrote, which kink-flow
+/// resolved into `patch`): one origin, admitted as [`generate_grammar`] admits a generated one,
+/// when its mutant gives a program parser for `syntax_module`. The origin's sites are the
+/// sentences the patch replaces or deletes and, for an insertion at a module's start or end, the
+/// first sentence of that module; their paths are empty, since no form's variant names them.
+/// Complete: the generation is the one patch it was given.
+///
+/// # Errors
+///
+/// Those of [`Selection::fold_admitting`]: every edit targets a site of the origin, so none.
+pub fn supplied_grammar<'b>(
+    baseline: &'b Baseline,
+    operator: &str,
+    patch: &Patch,
+    syntax_module: &str,
+) -> Result<CandidateGeneration<'b>, CandidateFailure> {
+    let mut sites = patch.written_sentences();
+    for edit in patch.edits() {
+        if let Edit::InsertSentence {
+            position: InsertPosition::ModuleStart(module) | InsertPosition::ModuleEnd(module),
+            ..
+        } = edit
+            && !sites.iter().any(|at| at.module == *module)
+        {
+            sites.push(SentenceRef {
+                module: module.clone(),
+                index: 0,
+            });
+        }
+    }
+    let origin = PatchOrigin {
+        site_tuple: sites
+            .into_iter()
+            .map(|at| TermRef::new(at, Vec::new()))
+            .collect(),
+        discovery_tuples: Vec::new(),
+    };
+    Selection::enumerated(baseline, vec![origin], true).fold_admitting(
+        operator,
+        |_| patch.clone(),
+        |mutant| mutant.program_parser(syntax_module),
+    )
+}
+
 fn admits(clause: &GrammarSelector, at: &SentenceRef, sentence: &Sentence) -> bool {
     match (clause, sentence) {
         (GrammarSelector::Module(module), _) => at.module == *module,

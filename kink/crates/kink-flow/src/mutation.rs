@@ -77,9 +77,10 @@
 //!    its mutant gives a program parser for the syntax module (kink-patch
 //!    `Mutant::program_parser`; `no-program-parser`).
 //!
-//! The rows show the declaration before and after ([`EditedKind::Grammar`]). `run` and a `fuzz`
-//! kill job do not judge a grammar mutation yet ([`ResolvedMutation::run_refusal`]): the
-//! mutant's grammar must parse each case again, which kink does not do yet.
+//! The rows show the declaration before and after ([`EditedKind::Grammar`]). `run`'s search
+//! judges a grammar mutation after it parses each case again under the mutant's grammar
+//! (`crate::reparse`, [`ResolvedMutation::grammar_generation`]); every other command and mode
+//! refuses one ([`ResolvedMutation::run_refusal`]).
 
 use crate::{
     admit::corpus_source,
@@ -1035,16 +1036,56 @@ impl ResolvedMutation {
             .any(|rule| rule.kind == EditedKind::Grammar)
     }
 
-    /// Why `run` and a `fuzz` kill job do not judge this mutation: `grammar-not-run` for a
-    /// grammar mutation ([`InvalidReason::GrammarNotRun`]), `None` for a rule mutation.
+    /// The candidate generation of a grammar mutation, for `run`'s search alone, which parses
+    /// every case again under the mutant's grammar before it runs any (`crate::reparse`): one
+    /// candidate, this patch, admitted when its mutant gives a program parser for
+    /// `syntax_module` (kink-patch `supplied_grammar`). [`Self::generation`] keeps refusing a
+    /// grammar mutation, so no other caller runs a grammar mutant on the cases as the
+    /// specification parses them. `baseline` must be the baseline of the validator that runs the
+    /// campaign.
+    ///
+    /// # Errors
+    ///
+    /// `patch-rejected` for a rule mutation or a patch the fold refuses.
+    pub fn grammar_generation<'b>(
+        &self,
+        baseline: &'b Baseline,
+        syntax_module: &str,
+    ) -> Result<CandidateGeneration<'b>, InvalidMutation> {
+        let rejected = |detail: String| InvalidMutation {
+            edit: None,
+            reason: InvalidReason::PatchRejected,
+            detail,
+        };
+        if !self.is_grammar() {
+            return Err(rejected(
+                "a rule mutation has no grammar generation".to_owned(),
+            ));
+        }
+        let generation =
+            kink_patch::supplied_grammar(baseline, MUTATION_OPERATOR, &self.patch, syntax_module)
+                .map_err(|e| rejected(e.to_string()))?;
+        match generation.dispositions() {
+            [CandidateDisposition::Mutant(0)] => Ok(generation),
+            [CandidateDisposition::Rejected(failure)] => Err(rejected(failure.to_string())),
+            other => Err(rejected(format!("unexpected dispositions {other:?}"))),
+        }
+    }
+
+    /// Why a command does not judge this mutation: `grammar-not-run` for a grammar mutation
+    /// ([`InvalidReason::GrammarNotRun`]), `None` for a rule mutation. Only `run`'s search in its
+    /// default mode judges a grammar mutation (`crate::reparse`); a `fuzz` kill job, coverage
+    /// flips, prune's cells, `run --full`, `run --verify` and a flow that declares
+    /// `[[projection]]` give this refusal.
     #[must_use]
     pub fn run_refusal(&self) -> Option<InvalidMutation> {
         self.is_grammar().then(|| InvalidMutation {
             edit: None,
             reason: InvalidReason::GrammarNotRun,
             detail: format!(
-                "the mutation edits the grammar ({}); kink does not yet parse each case again \
-                 under the mutant's grammar, and running the mutant on the cases as the \
+                "the mutation edits the grammar ({}); only `run`'s first-kill search, without \
+                 `--verify` and in a flow that declares no `[[projection]]`, parses each case \
+                 again under the mutant's grammar, and running the mutant on the cases as the \
                  specification parses them would judge another mutant",
                 self.rules
                     .iter()

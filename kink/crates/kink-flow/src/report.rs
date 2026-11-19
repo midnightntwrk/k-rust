@@ -306,7 +306,14 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// `accepted` (admission admitted it), with its `expectation`, no record and no run: it is never
 /// run on a mutant, and it is no failure of the run; a flow whose entries state no rejection
 /// gives version 44's document but for its version.
-pub const RUN_VERSION: u64 = 45;
+/// 46 since `run`'s search judges a grammar mutation (PJ-34, [`crate::reparse`]): its row has
+/// `grammar` (each case parsed again under the mutant's grammar, with its verdict) and
+/// `direction` (`mutant-rejects`, `mutant-accepts` or `parses-differently` on a kill, else null),
+/// a kill the reparse decides has `killer_source` `reparse`, and the reasons
+/// `grammar-acceptance-not-decided`, `grammar-run-not-supported`, `grammar-mutant-refuses`,
+/// `same-parse-run-differs` and `same-parse-equivalent-compilation` are new; a flow whose lists
+/// edit no grammar gives version 45's document but for its version.
+pub const RUN_VERSION: u64 = 46;
 
 /// The name of the observation slot of an executed entry's `slots`, after the end slots
 /// ([`crate::observed::ResultProjection::slots`]), under `[observe]`.
@@ -626,6 +633,14 @@ pub fn action(status: &str, reason: Option<&str>) -> Option<&'static str> {
              a larger budget observes no more of it: the mutant may differ past it, which no \
              program observed"
         }
+        "survived" if reason == Some(crate::reparse::SAME_PARSE_EQUIVALENT) => {
+            "write a case whose text the mutant's grammar parses otherwise than the \
+             specification's: a program on which one grammar fails to parse, or parses to another \
+             term (every case parses alike under both grammars, grammar), or, for a text the \
+             mutant parses and the specification must not, a program stating `expect = { rejected \
+             = \"parse\" }`; the mutant compiles to the baseline's definition, so every case \
+             parsed alike agrees"
+        }
         "survived" => {
             "write a program that matches an edited rule and whose final configuration the edit \
              changes outside the cells result.not_compared lists: every executed program \
@@ -668,6 +683,27 @@ pub fn action(status: &str, reason: Option<&str>) -> Option<&'static str> {
              the edit leaves the function's value open on every input that reaches it (it only \
              narrows the equation), no program can kill it: write the misunderstanding as a \
              replacement, an equation whose result differs, or drop the mutation"
+        }
+        "unknown" if reason == Some(crate::reparse::ACCEPTANCE_NOT_DECIDED) => {
+            "declare which ends accept a program, or observe the program under a [stop] its run \
+             reaches: the mutant's grammar rejects a case (grammar), and whether the \
+             specification accepts it is not known, so the rejection may be the specification's \
+             own at a later layer (acceptance ignores the stage)"
+        }
+        "unknown" if reason == Some(crate::reparse::RUN_NOT_SUPPORTED) => {
+            "keep the mutation: a case parses under the mutant's grammar to another term than \
+             the specification's (grammar), and kink does not yet run a mutant from a term the \
+             specification never produced, which its verdict needs"
+        }
+        "unknown" if reason == Some(crate::reparse::MUTANT_REFUSES) => {
+            "change the mutation: the mutant's grammar refuses a case otherwise than at parse \
+             (grammar: a variable's module gives no parser, or a variable is missing), a fault \
+             of the mutant, not of the case"
+        }
+        "unknown" if reason == Some(crate::reparse::SAME_PARSE_RUN_DIFFERS) => {
+            "report it: a case both grammars parse to one term kills the grammar mutant by its \
+             run (detail), so the kill has no grammar direction; a grammar edit changes no rule, \
+             so the runs of one term should agree"
         }
         "unknown" => {
             "write a program whose final configuration under the mutant kink can compare: the \
@@ -729,8 +765,9 @@ pub fn action(status: &str, reason: Option<&str>) -> Option<&'static str> {
         "not-admitted" => "fix the mutation: the mutant does not compile (reason)",
         "invalid-mutation" => "fix the mutation: it does not resolve (reason, edit, detail)",
         "error" if reason == Some("grammar-not-run") => {
-            "keep the grammar mutation for `check`, or leave it out of the list: kink does not yet \
-             parse the cases again under a mutant's grammar, so no run judges it (detail)"
+            "judge the grammar mutation with `run` (first-kill, without --verify, in a flow that \
+             declares no [[projection]]), or leave it out of this list: this command or mode does \
+             not parse the cases again under a mutant's grammar (detail)"
         }
         "error" if reason == Some("host-stack-refused") => {
             "rerun where the host grants more address space: the system refused the native stack \

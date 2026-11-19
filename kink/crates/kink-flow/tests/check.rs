@@ -964,10 +964,41 @@ fn check_resolves_every_mutation_and_runs_no_program() {
     assert!(document["mutations"].is_null());
 }
 
-/// PJ-34: `run` does not judge a grammar mutation yet (`error`, `grammar-not-run`, with its next
-/// step), runs nothing for it, and judges the list's rule mutation as before.
+/// The members of a grammar mutation's row a warm run must repeat.
+fn grammar_verdict(row: &Value) -> Value {
+    serde_json::json!({
+        "status": row["status"],
+        "reason": row["reason"],
+        "killer": row["killer"],
+        "killer_source": row["killer_source"],
+        "direction": row["direction"],
+        "grammar": row["grammar"],
+    })
+}
+
+/// A row's `[status, killer, direction]`.
+fn killed_as(row: &Value) -> Value {
+    serde_json::json!([row["status"], row["killer"], row["direction"]])
+}
+
+/// A row's `grammar` member: each case's `[program, reparse, verdict]`.
+fn reparsed(row: &Value) -> Value {
+    row["grammar"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|case| serde_json::json!([case["program"], case["reparse"], case["verdict"]]))
+        .collect()
+}
+
+/// PJ-34 (U34c): `run` parses every case again under a grammar mutant's grammar. In calc, which
+/// declares no end and no `[stop]`, the baseline's acceptance of `1 + 2` is not decided, so a
+/// mutant that rejects it at parse is `unknown` (acceptance ignores the stage, README.md D2),
+/// never killed by the parse alone; a mutant every case parses alike is judged by its runs of
+/// the baseline's test cases (here `survived`); a warm run gives the cold run's rows; the rule
+/// mutation of the list is judged as before; `run --full` still refuses the grammar mutations.
 #[test]
-fn run_refuses_a_grammar_mutation_until_cases_are_reparsed() {
+fn run_parses_each_case_again_under_a_grammar_mutant() {
     let dir = calc_copy("run-grammar");
     let manifest = dir.join("FLOW.toml");
     let mutations = dir.join("MUTATIONS.toml");
@@ -979,30 +1010,240 @@ fn run_refuses_a_grammar_mutation_until_cases_are_reparsed() {
                 "plus-literal",
                 "  production = \"add\"\n  find = \"\\\"+\\\"\"\n  replace = \"\\\"plus\\\"\"",
             ),
+            one_edit(
+                "minus-literal",
+                "  production = \"sub\"\n  find = \"\\\"-\\\"\"\n  replace = \"\\\"minus\\\"\"",
+            ),
         ]
         .concat(),
     );
     let (check, _) = check_list(&manifest, &mutations, None);
     assert_eq!(row(&check, "plus-literal")["outcome"], "ok", "{check:#}");
     let (document, _) = flow_support::corpus_run(&manifest, &mutations);
-    let grammar = row(&document, "plus-literal");
+    assert_eq!(document["version"], 46, "{document:#}");
+    let plus = row(&document, "plus-literal");
     assert_eq!(
-        (&grammar["status"], &grammar["reason"]),
-        (&Value::from("error"), &Value::from("grammar-not-run")),
-        "{grammar:#}"
+        (&plus["status"], &plus["reason"], &plus["direction"]),
+        (
+            &Value::from("unknown"),
+            &Value::from("grammar-acceptance-not-decided"),
+            &Value::Null
+        ),
+        "{plus:#}"
     );
-    assert!(
-        grammar["action"]
-            .as_str()
-            .unwrap()
-            .contains("parse the cases again"),
-        "{grammar:#}"
+    let case = &plus["grammar"][0];
+    assert_eq!(
+        (&case["program"], &case["reparse"], &case["verdict"]),
+        (
+            &Value::from("add"),
+            &Value::from("rejected"),
+            &Value::from("unknown")
+        ),
+        "{plus:#}"
     );
+    assert!(plus["calls"].as_array().unwrap().is_empty(), "{plus:#}");
+    let minus = row(&document, "minus-literal");
+    assert_eq!(minus["grammar"][0]["reparse"], "same", "{minus:#}");
+    assert_eq!(minus["status"], "survived", "{minus:#}");
+    assert_eq!(minus["direction"], Value::Null, "{minus:#}");
+    assert!(!minus["rules"].is_null(), "{minus:#}");
     assert_eq!(
         row(&document, "add-becomes-sub")["status"],
         "killed",
         "{document:#}"
     );
+    assert!(
+        row(&document, "add-becomes-sub").get("grammar").is_none(),
+        "{document:#}"
+    );
+    let (warm, _) = flow_support::corpus_run(&manifest, &mutations);
+    for id in ["plus-literal", "minus-literal"] {
+        assert_eq!(
+            grammar_verdict(row(&warm, id)),
+            grammar_verdict(row(&document, id)),
+            "{id}: {warm:#}"
+        );
+    }
+    let full = kink_flow::search::run(
+        &FlowManifest::read(&manifest).unwrap(),
+        &kink_flow::MutationList::read(&mutations).unwrap(),
+        &kink_flow::search::RunOptions {
+            legacy_lock: None,
+            only: Vec::new(),
+            cache: None,
+            compile_workers: None,
+            memo: kink_flow::memo::MemoUse::On,
+            schedule: kink_campaign::ScheduleMode::Full,
+            lock: None,
+            locked: false,
+        },
+    )
+    .0;
+    let refused = row(&full, "plus-literal");
+    assert_eq!(
+        (&refused["status"], &refused["reason"]),
+        (&Value::from("error"), &Value::from("grammar-not-run")),
+        "{refused:#}"
+    );
+    assert!(
+        refused["action"].as_str().unwrap().contains("first-kill"),
+        "{refused:#}"
+    );
+}
+
+/// PJ-34 (U34c): under a `[stop]` the baseline's run of `1 + 2` reaches, the baseline accepts
+/// the case, so a mutant that rejects it at parse is killed by it, direction `mutant-rejects`,
+/// with no run (`killer_source` `reparse`); an ambiguous text is a rejection (dropping `left`
+/// from the group of `+` makes `1 + 2 + 3` ambiguous); a case stating that it is
+/// rejected at parse is parsed: still rejected, it agrees, and parsed by the mutant (a new
+/// alternative `plus`), it is a `mutant-accepts` witness only once kink runs the mutant on its
+/// own term, so the row is `unknown`; a mutant that resolves and does not compile is
+/// `not-admitted`, as for a rule mutation, even where a case's reparse would kill it.
+#[test]
+fn a_grammar_mutant_that_rejects_an_accepted_case_is_killed() {
+    use serde_json::json;
+    let dir = scratch("run-grammar-stop");
+    write(&dir.join("calc.k"), CALC_K);
+    write(
+        &dir.join("FLOW.toml"),
+        "[spec]\nentry = \"calc.k\"\nmain_module = \"CALC\"\nsyntax_module = \"CALC-SYNTAX\"\n\n\
+         [stop]\nbefore = [\"CALC.add\"]\n\n\
+         [[program]]\nid = \"add\"\ntext = \"1 + 2\"\n\n\
+         [[program]]\nid = \"inline\"\ntext = \"1 + 2 + 3\"\n\n\
+         [[program]]\nid = \"bad\"\ntext = \"1 plus 2\"\nexpect = { rejected = \"parse\" }\n",
+    );
+    let manifest = dir.join("FLOW.toml");
+    let mutations = dir.join("MUTATIONS.toml");
+    write(
+        &mutations,
+        &[
+            one_edit(
+                "plus-literal",
+                "  production = \"add\"\n  find = \"\\\"+\\\"\"\n  replace = \"\\\"plus\\\"\"",
+            ),
+            one_edit(
+                "merge-groups",
+                "  production = \"mul\"\n  find = \"> left:\\n                 Exp \\\"+\\\"\"\n  \
+                 replace = \"| Exp \\\"+\\\"\"",
+            ),
+            one_edit(
+                "plus-broken",
+                "  production = \"add\"\n  find = \"\\\"+\\\" Exp [strict, symbol(add)]\"\n  \
+                 replace = \"\\\"plus\\\" Exp [strict(3), symbol(add)]\"",
+            ),
+            one_edit(
+                "drop-left",
+                "  production = \"add\"\n  find = \"> left:\\n                 Exp \\\"+\\\"\"\n  \
+                 replace = \">\\n                 Exp \\\"+\\\"\"",
+            ),
+            one_edit(
+                "plus-alternative",
+                "  production = \"add\"\n  find = \"Exp \\\"+\\\" Exp [strict, symbol(add)]\"\n  \
+                 replace = \"Exp \\\"+\\\" Exp [strict, symbol(add)]\\n               | Exp \
+                 \\\"plus\\\" Exp [strict, symbol(plus)]\"",
+            ),
+        ]
+        .concat(),
+    );
+    let (check, _) = check_list(&manifest, &mutations, None);
+    for id in [
+        "plus-literal",
+        "plus-broken",
+        "merge-groups",
+        "drop-left",
+        "plus-alternative",
+    ] {
+        assert_eq!(row(&check, id)["outcome"], "ok", "{id}: {check:#}");
+    }
+    let (document, _) = flow_support::corpus_run(&manifest, &mutations);
+    // A mutant that does not compile is `not-admitted`, whatever its cases parse to.
+    let broken = row(&document, "plus-broken");
+    assert_eq!(
+        (&broken["status"], &broken["reason"], &broken["killer"]),
+        (&json!("not-admitted"), &json!("rejected"), &Value::Null),
+        "{broken:#}"
+    );
+    let plus = row(&document, "plus-literal");
+    assert_eq!(
+        killed_as(plus),
+        json!(["killed", "add", "mutant-rejects"]),
+        "{plus:#}"
+    );
+    assert_eq!(plus["killer_source"], "reparse", "{plus:#}");
+    // The stated case parses under this mutant too; the kill does not need it.
+    assert_eq!(
+        reparsed(plus),
+        json!([
+            ["add", "rejected", "killed"],
+            ["inline", "rejected", "killed"],
+            ["bad", "different", "unknown"]
+        ]),
+        "{plus:#}"
+    );
+    assert_eq!(plus["grammar"][2]["stated"], "parse", "{plus:#}");
+    // Merging the groups of `*` and `+` keeps both texts' terms (the merged group is `left`):
+    // every case parses alike, and the mutant's runs of them agree.
+    let merged = row(&document, "merge-groups");
+    assert_eq!(
+        killed_as(merged),
+        json!(["survived", null, null]),
+        "{merged:#}"
+    );
+    assert_eq!(
+        reparsed(merged),
+        json!([
+            ["add", "same", "run"],
+            ["inline", "same", "run"],
+            ["bad", "rejected", "agree"]
+        ]),
+        "{merged:#}"
+    );
+    // Without `left`, `1 + 2 + 3` is ambiguous: a rejection.
+    let dropped = row(&document, "drop-left");
+    assert_eq!(
+        killed_as(dropped),
+        json!(["killed", "inline", "mutant-rejects"]),
+        "{dropped:#}"
+    );
+    assert_eq!(
+        reparsed(dropped),
+        json!([
+            ["add", "same", "run"],
+            ["inline", "rejected", "killed"],
+            ["bad", "rejected", "agree"]
+        ]),
+        "{dropped:#}"
+    );
+    let detail = dropped["grammar"][1]["detail"].as_str().unwrap();
+    assert!(detail.contains("Parsing ambiguity"), "{dropped:#}");
+    let alternative = row(&document, "plus-alternative");
+    assert_eq!(
+        (&alternative["status"], &alternative["reason"]),
+        (&json!("unknown"), &json!("grammar-run-not-supported")),
+        "{alternative:#}"
+    );
+    assert_eq!(
+        reparsed(alternative),
+        json!([
+            ["add", "same", "run"],
+            ["inline", "same", "run"],
+            ["bad", "different", "unknown"]
+        ]),
+        "{alternative:#}"
+    );
+    let (warm, _) = flow_support::corpus_run(&manifest, &mutations);
+    for id in [
+        "plus-literal",
+        "merge-groups",
+        "drop-left",
+        "plus-alternative",
+    ] {
+        assert_eq!(
+            grammar_verdict(row(&warm, id)),
+            grammar_verdict(row(&document, id)),
+            "{id}: {warm:#}"
+        );
+    }
 }
 
 #[test]

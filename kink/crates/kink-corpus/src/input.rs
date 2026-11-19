@@ -228,6 +228,29 @@ impl InputGrammar {
             stream_cells: has_stream_cells(&compiled.artifacts().execution_definition),
         })
     }
+
+    /// This grammar with its program grammar built from `definition` instead: the grammar a
+    /// mutant whose edits change only grammar sentences reads its programs with (kink-flow, PJ-34).
+    /// The main and syntax module, the configuration variables with their sorts, the default
+    /// start sort and the stream-cell flag are kept: each is a function of the configuration and
+    /// the module names, which an edit of productions, token, lexical, priority or associativity
+    /// declarations does not change (kink-patch refuses an edit of a configuration, a sort
+    /// declaration or a cell production).
+    ///
+    /// # Errors
+    ///
+    /// k-rust's refusal to build the program grammar of `definition`.
+    pub fn with_program_grammar_of(&self, definition: &Definition) -> Result<Self, InputError> {
+        let grammar = ProgramGrammar::new(definition).map_err(input_error)?;
+        Ok(Self {
+            grammar,
+            main_module: self.main_module.clone(),
+            syntax_module: self.syntax_module.clone(),
+            variables: self.variables.clone(),
+            default_start: self.default_start.clone(),
+            stream_cells: self.stream_cells,
+        })
+    }
 }
 
 /// Assembles the initial configurations of one [`InputGrammar`] with one k-rust

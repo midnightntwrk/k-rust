@@ -567,7 +567,7 @@ fn a_run_of_the_clock_ends_at_its_stop() {
 fn mutations_of_the_clock_are_judged_relative_to_the_stop() {
     let dir = fixture("run", &[]);
     let document = search(&dir.join("FLOW.toml"));
-    assert_eq!(document["version"], 45);
+    assert_eq!(document["version"], 46);
     assert_eq!(
         document["stop"],
         json!({"before": ["CLOCK.frame"], "after": [], "count": 1})
