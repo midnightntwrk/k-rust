@@ -6,9 +6,9 @@
   `TIEGEN_PROBE_TIMEOUT=3000 python3 -I test/constructs/tiegen.py rdr-config-deep --split --cons-head
   --wf-parts --sig-chunk-first 13 --account-sorted --heads-literal --heads-codes --chunk 50
   --attrs-blocks 50 --decl-parts --fn-blocks 27 --absent-file --decl-syms-literal --nojunk-eq
-  --nojunk-blocks 25`;
+  --nojunk-blocks 25 --sig-positions --fnfun-chunk 34`;
   run from the package root: `lake env lean -j1 test/TieRdrConfigDeep.lean`
-  (166 s, peak 5.3 GiB under a 12 GiB scope with one Lean thread).
+  (623 s, peak 9.3 GiB under a 12 GiB scope with one Lean thread).
 
   Layer 1.
   - `wf_defn`: `wf defn = true`.
@@ -37,8 +37,10 @@
   - Set idempotence (550): Γ with it has no model (`idem_refuted`).
   - The converse over Γ's content: each premise is a function sentence's translation, one of the
     five parts Γ defines by predicates, or definedness (`gamma_origin`, `gamma_from`).
-  - Hooked functional, collection law, library: at values (no theorem here); function functional:
-    owed as `FnHyp` (no theorem); no direction: `absent_closed`.
+  - Function functional: at values in every model of `Γc`, from the sort predicates' results, not
+    from `FnHyp` (`fnFun_at_values`, `fnFun_account`).
+  - Hooked functional, collection law, library: at values (no theorem here); no direction:
+    `absent_closed`.
 
   The sentences with no counterpart in f2-examples/ens.kompile.kore are `unmapped` (1586);
   the sentences of a class with a theorem that no theorem here holds of are `uncovered` (0).
@@ -1134,6 +1136,110 @@ theorem fnHypH (H : HookParams) : FnHyp (cH H) := fnHyp_withHooks coreOK (Semant
 /-- **Γ with the step's closure has a model, for every H.** -/
 theorem consistent (H : HookParams) : Consistent (cH H) := consistent_of_fnHyp _ (coreOKH H) (fnHypH H)
 
+/-! ## Function functional (203): the sort predicates' `functional` sentences, at values in every model of Γc -/
+
+/- The class holds the `functional` sentences of 203 sort predicates `isX`,
+`\exists{R}(Val:SortBool{}, \equals{SortBool{}, R}(Val:SortBool{}, LblisX{}(K0:SortK{})))`. KCore builds
+the sort predicates (`Semantics.sortPreds`): each has a value at every K, and a model of `Γc` reads
+its application at a value's element as that value's element (`LibEv.sortPredFun_evC`, under
+`coreOK`, the clauses' predicates `\top`, no `\exists` in a clause, and no condition over a
+variable the patterns leave open). So each sentence holds in every model of `Γc`, and of `Γc` with
+the step's closure, at every valuation sending K0 to a value, for every H, from the sort predicates'
+own results and without `FnHyp`. -/
+
+/-- The sentences' indices. -/
+def fnFunIdx : List Nat := [560, 561, 562, 563, 564, 565, 566, 567, 568, 569, 570, 571, 572, 573, 574, 575, 576, 577, 578,
+   579, 580, 581, 582, 583, 584, 585, 586, 587, 588, 589, 590, 591, 592, 593, 594, 595, 596, 597,
+   598, 599, 600, 601, 602, 603, 604, 605, 606, 607, 608, 609, 610, 611, 612, 613, 614, 615, 616,
+   617, 618, 619, 620, 621, 622, 623, 624, 625, 626, 627, 628, 629, 630, 631, 632, 633, 634, 635,
+   636, 637, 638, 639, 640, 641, 642, 643, 644, 645, 646, 647, 648, 649, 650, 651, 652, 653, 654,
+   655, 656, 657, 658, 659, 660, 661, 662, 663, 664, 665, 666, 667, 668, 669, 670, 671, 672, 673,
+   674, 675, 676, 677, 678, 679, 680, 681, 682, 683, 684, 685, 686, 687, 688, 689, 690, 691, 692,
+   693, 694, 695, 696, 697, 698, 699, 700, 701, 702, 703, 704, 705, 706, 707, 708, 709, 710, 711,
+   712, 713, 714, 715, 716, 717, 718, 719, 720, 721, 722, 723, 724, 725, 726, 727, 728, 729, 730,
+   731, 732, 733, 734, 735, 736, 737, 738, 739, 740, 741, 742, 743, 744, 745, 746, 747, 748, 749,
+   750, 751, 752, 753, 754, 755, 756, 757, 758, 759, 760, 761, 762]
+
+/-- The sentences, in text order. -/
+noncomputable def fnFunText : List AxiomDecl := U.all.filter fun ad => fnFunIdx.contains ad.index
+
+theorem fnFun_indices : fnFunText.map (·.index) = fnFunIdx := by decide +kernel
+
+/-- **`fnFunText` is the account's function functional class**: the same indices, each once. -/
+theorem fnFun_account : (classOf "function functional").isPerm (fnFunText.map (·.index)) = true := by
+  decide +kernel
+
+/-- The sentence is the `functional` sentence of a sort predicate of `c`, over the one sort
+variable `R`, with its variables' sorts the registry's. -/
+noncomputable def fnFunOK (ad : AxiomDecl) : Bool :=
+  decide (ad.ax.sortVars = [Rv]) &&
+    c.sortPreds.any fun fn => decide (ad.ax.pattern = LibEv.funPat c fn.sig) && LibEv.predFunReg c fn.sig
+
+theorem fnFunE_0 : (((fnFunText).drop 0).take 34).all fnFunOK = true := by decide +kernel
+theorem fnFunE_34 : (((fnFunText).drop 34).take 34).all fnFunOK = true := by decide +kernel
+theorem fnFunE_68 : (((fnFunText).drop 68).take 34).all fnFunOK = true := by decide +kernel
+theorem fnFunE_102 : (((fnFunText).drop 102).take 34).all fnFunOK = true := by decide +kernel
+theorem fnFunE_136 : (((fnFunText).drop 136).take 34).all fnFunOK = true := by decide +kernel
+theorem fnFunE_170 : ((fnFunText).drop 170).all fnFunOK = true := by decide +kernel
+
+theorem fnFun_checked : fnFunText.all fnFunOK = true :=
+  tieAll_whole (p := fnFunOK) <|
+    tieAll_range (a := 0) (n := 34) fnFunE_0 <|
+    tieAll_range (a := 34) (n := 34) fnFunE_34 <|
+    tieAll_range (a := 68) (n := 34) fnFunE_68 <|
+    tieAll_range (a := 102) (n := 34) fnFunE_102 <|
+    tieAll_range (a := 136) (n := 34) fnFunE_136 <|
+    fnFunE_170
+
+/-- None of the 203 reads a declaration or an alias. -/
+theorem fnFunTrE_0 : (((fnFunText).drop 0).take 34).all (fun ad => decide ((trS ad).pat = (trAxiom [] [] ad).pat)) = true := by decide +kernel
+theorem fnFunTrE_34 : (((fnFunText).drop 34).take 34).all (fun ad => decide ((trS ad).pat = (trAxiom [] [] ad).pat)) = true := by decide +kernel
+theorem fnFunTrE_68 : (((fnFunText).drop 68).take 34).all (fun ad => decide ((trS ad).pat = (trAxiom [] [] ad).pat)) = true := by decide +kernel
+theorem fnFunTrE_102 : (((fnFunText).drop 102).take 34).all (fun ad => decide ((trS ad).pat = (trAxiom [] [] ad).pat)) = true := by decide +kernel
+theorem fnFunTrE_136 : (((fnFunText).drop 136).take 34).all (fun ad => decide ((trS ad).pat = (trAxiom [] [] ad).pat)) = true := by decide +kernel
+theorem fnFunTrE_170 : ((fnFunText).drop 170).all (fun ad => decide ((trS ad).pat = (trAxiom [] [] ad).pat)) = true := by decide +kernel
+
+theorem fnFun_trS : fnFunText.all (fun ad => decide ((trS ad).pat = (trAxiom [] [] ad).pat)) = true :=
+  tieAll_whole (p := (fun ad => decide ((trS ad).pat = (trAxiom [] [] ad).pat))) <|
+    tieAll_range (a := 0) (n := 34) fnFunTrE_0 <|
+    tieAll_range (a := 34) (n := 34) fnFunTrE_34 <|
+    tieAll_range (a := 68) (n := 34) fnFunTrE_68 <|
+    tieAll_range (a := 102) (n := 34) fnFunTrE_102 <|
+    tieAll_range (a := 136) (n := 34) fnFunTrE_136 <|
+    fnFunTrE_170
+
+/-- The clauses' predicates are `\top`, no clause binds a variable by `\exists`, and no clause has
+a condition over a variable its patterns leave open. -/
+theorem fnFun_clauses : c.clausesPreTop = true ∧
+    (c.fns.all fun f => f.clauses.all fun cl => cl.exs.isEmpty) = true ∧
+    (c.fns.all fun f => f.clauses.all fun cl => !cl.reqOpen) = true := by
+  decide +kernel
+
+theorem fnFun_noWitH (H : HookParams) : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness (cH H) = false := by
+  intro fn hfn cl hcl
+  have h := List.all_eq_true.mp (List.all_eq_true.mp fnFun_clauses.2.2 fn hfn) cl hcl
+  simp only [Bool.not_eq_eq_eq_not, Bool.not_true] at h
+  simp [Clause.needsWitness, h]
+
+/-- **The function functional sentences hold at values in every model of `Γc`, for every H**
+(`EntailsAtValuesΓc`), without `FnHyp`. -/
+theorem fnFun_at_values (H : HookParams) : ∀ ad ∈ fnFunText, EntailsAtValuesΓc (cH H) ad (trS ad).pat := by
+  intro ad had
+  rw [of_decide_eq_true (List.all_eq_true.mp fnFun_trS ad had)]
+  have hok := List.all_eq_true.mp fnFun_checked ad had
+  simp only [fnFunOK, Bool.and_eq_true, decide_eq_true_eq] at hok
+  obtain ⟨hsv, hany⟩ := hok
+  obtain ⟨fn, hfn, hfp⟩ := List.any_eq_true.mp hany
+  simp only [Bool.and_eq_true, decide_eq_true_eq] at hfp
+  exact LibEv.sortPredFun_evC_withHooks H coreOK fnFun_clauses.1 (Semantics.fnsNoExs_of_all fnFun_clauses.2.1)
+    (fun fn hfn cl hcl hw => absurd hw (by rw [fnFun_noWitH H fn hfn cl hcl]; decide)) hfn hfp.2 ad hfp.1 hsv
+
+/-- The same in every model of `Γc` with the step's closure, the theory `Consistent` asks a model of. -/
+theorem fnFun_at_values_step (H : HookParams) : ∀ ad ∈ fnFunText,
+    ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), I ⊧ᴵP (Γc (cH H) ∪ Γstep (cH H)) →
+      ∀ e, AtValues (cH H) I e ad.ax → ∀ m, (trS ad).pat.interpret I e m :=
+  fun ad had M hM I hI => fnFun_at_values H ad had M hM I (fun φ hφ => hI φ (Or.inl hφ))
+
 /-! ## Set idempotence (61): refuted -/
 
 section Idem
@@ -1246,6 +1352,12 @@ end KCore.TieRdrConfigDeep
 #check @KCore.TieRdrConfigDeep.account_classes
 #check @KCore.TieRdrConfigDeep.lists_in_account
 #check @KCore.TieRdrConfigDeep.consistent
+#check @KCore.TieRdrConfigDeep.fnFun_indices
+#check @KCore.TieRdrConfigDeep.fnFun_account
+#check @KCore.TieRdrConfigDeep.fnFun_checked
+#check @KCore.TieRdrConfigDeep.fnFun_trS
+#check @KCore.TieRdrConfigDeep.fnFun_at_values
+#check @KCore.TieRdrConfigDeep.fnFun_at_values_step
 #check @KCore.TieRdrConfigDeep.idem_refuted
 #print axioms KCore.TieRdrConfigDeep.noRaw
 #print axioms KCore.TieRdrConfigDeep.readsConfined_c
@@ -1257,4 +1369,10 @@ end KCore.TieRdrConfigDeep
 #print axioms KCore.TieRdrConfigDeep.account_classes
 #print axioms KCore.TieRdrConfigDeep.lists_in_account
 #print axioms KCore.TieRdrConfigDeep.consistent
+#print axioms KCore.TieRdrConfigDeep.fnFun_indices
+#print axioms KCore.TieRdrConfigDeep.fnFun_account
+#print axioms KCore.TieRdrConfigDeep.fnFun_checked
+#print axioms KCore.TieRdrConfigDeep.fnFun_trS
+#print axioms KCore.TieRdrConfigDeep.fnFun_at_values
+#print axioms KCore.TieRdrConfigDeep.fnFun_at_values_step
 #print axioms KCore.TieRdrConfigDeep.idem_refuted
