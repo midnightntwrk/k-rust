@@ -72,7 +72,7 @@ Refused nested entries by class:
 
 Supported entries (rows and nested): 974; 14 of them have an owed fact and are counted by their best fixture: **13 proved** (the owed fact proved on a fixture the entry names: these count as supported under the headline statements), 0 open and 1 false (counted apart: the headline statements' hypothesis is not shown on their fixtures). The other 960 have no owed fact.
 
-E6 library rows by their `e6_tie` (test/constructs/e6map.py; rows-header.toml): 480, of which 203 tied, 3 of no direction (the tie's no-direction class, owed-sentence rule item 7: never tied, counted apart), 9 refuted and 265 uncovered.
+E6 library rows by their `e6_tie` (test/constructs/e6map.py; rows-header.toml): 480, of which 203 tied, 3 of no direction (the tie's no-direction class, owed-sentence rule item 7: never tied, counted apart), 10 refuted and 264 uncovered.
 
 ## Entries of class R-c (36)
 
@@ -1016,7 +1016,7 @@ Not core:
 | `module:FLOAT-SYNTAX` | supported |  |  |  |  |  |  |  | BuiltinData.lean modules: the module's text is library data |
 | `module:FLOAT` | supported |  |  |  |  |  |  |  | BuiltinData.lean modules: the module's text is library data |
 | `module:STRING-SYNTAX` | supported |  |  |  |  |  |  |  | BuiltinData.lean modules: the module's text is library data |
-| `module:STRING-COMMON` | supported |  |  |  |  |  |  |  | BuiltinData.lean modules: the module's text is library data |
+| `module:STRING-COMMON` | supported |  | Its one row not tied is domains.md 1898 (axiom:STRING-COMMON:1898:8), refuted jointly with the library's own functional sentence of countAllOccurrences: at the empty needle the two have no common model (test/LibEvCountAllEmptyFlt.lean s294\_113\_refuted, count113\_value, s294\_at\_of). |  |  |  |  |  | BuiltinData.lean modules: the module's text is library data |
 | `module:STRING-KORE` | supported |  |  |  |  |  |  |  | BuiltinData.lean modules: the module's text is library data |
 | `module:STRING` | erased (P) |  | The module holds imports only. kompile writes the sentences of the imported modules into the user module with their own Source; no sentence of the kompiled text has a place inside this module, and the module's name occurs nowhere. |  |  | e6-mod-string |  |  | all-builtins definition.kore: 0 sentences whose Source and Location lie in the module's lines (counted by module\_at of extract.py); evidence form for erased: importing the module and importing its imports give equal texts |
 | `module:STRING-BUFFER-IN-K` | supported |  |  |  |  |  |  |  | BuiltinData.lean modules: the module's text is library data |
@@ -1774,7 +1774,7 @@ Not core:
 | `lemma:SET-KORE-SYMBOLIC:857:8` | inert |  |  |  |  |  | no | no | K-coverage.md Part B simplification equation; BuiltinData.lean modules: SET-KORE-SYMBOLIC |
 | `lemma:SET-KORE-SYMBOLIC:857:8#2` | inert |  |  |  |  |  | no | no | K-coverage.md Part B simplification equation; BuiltinData.lean modules: SET-KORE-SYMBOLIC |
 | `axiom:INT:1438:8` | supported |  |  |  |  |  | yes | yes | BuiltinData.lean modules: INT, read as the library's text |
-| `axiom:STRING-COMMON:1898:8` | supported |  |  |  |  |  | no | yes | BuiltinData.lean modules: STRING-COMMON, read as the library's text |
+| `axiom:STRING-COMMON:1898:8` | supported |  | Refuted jointly with the library's own functional sentence of countAllOccurrences (113 of f2-examples/silentflt.kompile.kore): at the empty needle the two have no common model. There the requires holds and the sentence states that the count is one more than itself; 113 gives the count a value there… |  |  |  | no | yes | BuiltinData.lean modules: STRING-COMMON, read as the library's text |
 | `axiom:STRING-COMMON:1896:8` | supported |  |  |  |  |  | no | yes | BuiltinData.lean modules: STRING-COMMON, read as the library's text |
 | `axiom:ARRAY-IN-K:174:8` | supported |  | Own-reading: a sentence of a K builtin file that is not the library's text is a sentence of the kompiled text like any other, and is read as it is written, as the definition's own (the reading the reader already has for K-REFLECTION, ReadingNote.reflectionAsOwn): a sort as a sort, a constructor as a… | none (reader only) |  | e6-mod-array | no | no | all-builtins definition.kore: sentences with Source rat.md, ffi.md, substitution.md, unification.k, kast.md:70,197,345-348, domains.md:86-185 (ARRAY), :2944-2968 (MINT) |
 | `axiom:ARRAY-IN-K:175:8` | supported |  | Own-reading: a sentence of a K builtin file that is not the library's text is a sentence of the kompiled text like any other, and is read as it is written, as the definition's own (the reading the reader already has for K-REFLECTION, ReadingNote.reflectionAsOwn): a sort as a sort, a constructor as a… | none (reader only) |  | e6-mod-array | no | no | all-builtins definition.kore: sentences with Source rat.md, ffi.md, substitution.md, unification.k, kast.md:70,197,345-348, domains.md:86-185 (ARRAY), :2944-2968 (MINT) |
