@@ -5,7 +5,7 @@
 
   overloadsOK.1 has a witness module, KcoreSpec/ModelOvlLibCtorWitness.lean (an overloading symbol
   that is also a constructor of the library: `Γ` has no model). Its leaves `ov1` to `ov9` are used
-  here. Its semantics meets overloadsOK.10 as well (`libCtor_ovlPatsOK`), which the module does not
+  here. Its semantics meets overloadsOK.9 as well (`libCtor_ovlPatsOK`), which the module does not
   list.
 
   Kernel-checked here:
@@ -14,7 +14,7 @@
     overloading symbol of an overloading symbol's name is that symbol (`find_self`).
   - overloadsOK.4, `Res.c`: the overloading symbol `f : Int → Int`, overloading nothing, meets every
     other leaf condition of `coreOK` (`sortedOK`, `faithCoreOK`, `predsApart`,
-    `idsOK`, the other nine leaves of `overloadsOK`) and `FnHyp`, with overloadsOK.4 false;
+    `idsOK`, the other leaves of `overloadsOK`) and `FnHyp`, with overloadsOK.4 false;
     `Res.c0`, the same with `f : Int → K`, meets `coreOK`. `f(0)` is a value of Int (`Res.f_value`).
 
   Argued, not kernel-checked: `Γ` of `Res.c` has a model. Int is no constructor sort, so `f` is
@@ -99,8 +99,8 @@ theorem fnHyp : FnHyp c :=
 set_option maxHeartbeats 1000000 in
 theorem meets_others : c.sortedOK = true ∧ c.faithCoreOK = true ∧
     c.predsApart = true ∧ c.idsOK = true ∧ ov1 c = true ∧ ov2 c = true ∧ ov3 c = true ∧ ov5 c = true ∧
-    ov6 c = true ∧ ov7 c = true ∧ ov8 c = true ∧ c.ovlPatsOK = true ∧ FnHyp c :=
-  ⟨sortedOK, by decide_cheap, by decide_cheap, by decide_cheap,
+    ov7 c = true ∧ ov8 c = true ∧ c.ovlPatsOK = true ∧ FnHyp c :=
+  ⟨sortedOK, by decide_cheap, by decide_cheap,
     by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
     by decide_cheap, by decide_cheap, by decide_cheap, fnHyp⟩
 
@@ -119,7 +119,7 @@ theorem cons_f : (consSorts c).contains Srt.int = false ∧ c.ovlSigs.all (·.re
 
 end Res
 
-/-- The witness module's semantics of overloadsOK.1 meets overloadsOK.10 as well: it has no
+/-- The witness module's semantics of overloadsOK.1 meets overloadsOK.9 as well: it has no
 function, so no symbol is function-overloaded. -/
 theorem libCtor_ovlPatsOK : Faithful.OvlLibCtorWitness.c.ovlPatsOK = true := by decide +kernel
 

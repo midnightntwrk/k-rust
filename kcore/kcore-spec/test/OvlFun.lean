@@ -784,7 +784,7 @@ leaf of `overloadsOK` holds, and every other condition of `coreOK` (`Chain.other
 conjunct is implied by no other. -/
 theorem chain_false : (Chain.c false).overloadsOK = false ∧ ov9 (Chain.c false) = false ∧
     ov1 (Chain.c false) = true ∧ ov2 (Chain.c false) = true ∧ ov3 (Chain.c false) = true ∧
-    ov4 (Chain.c false) = true ∧ ov5 (Chain.c false) = true ∧ ov6 (Chain.c false) = true ∧
+    ov4 (Chain.c false) = true ∧ ov5 (Chain.c false) = true ∧
     ov7 (Chain.c false) = true ∧ ov8 (Chain.c false) = true ∧ (Chain.c false).ovlPatsOK = true := by
   decide +kernel
 
@@ -814,7 +814,7 @@ itself, so no symbol covers the arguments lying in both. Every other leaf of `ov
 holds. -/
 theorem two_refused : two.overloadsOK = false ∧ ov8 two = false ∧
     ov1 two = true ∧ ov2 two = true ∧ ov3 two = true ∧ ov4 two = true ∧ ov5 two = true ∧
-    ov6 two = true ∧ ov7 two = true ∧ ov9 two = true ∧ two.ovlPatsOK = true := by
+    ov7 two = true ∧ ov9 two = true ∧ two.ovlPatsOK = true := by
   decide +kernel
 
 /-- What the laws of the normal forms read (`OvlFnFacts`), from `coreOK`, at a semantics with a

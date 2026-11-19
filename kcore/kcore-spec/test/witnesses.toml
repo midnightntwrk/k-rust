@@ -214,31 +214,25 @@ evidence = "test/WitRestOvlB.lean"
 
 [[conjunct]]
 key = "overloadsOK.6"
-text = "(c.ovlOver o).length == o.over.length"
-witness = "none: no witness exists: implied by overloadsOK.5 at the same overloading symbol, for every semantics (kernel-checked: ov6_of_ov5): a symbol found among the constructors, the overloading symbols listed before or the functions is found by ovlOver's lookup in the constructors, every overloading symbol and the functions"
-evidence = "test/WitRestOvlB.lean"
-
-[[conjunct]]
-key = "overloadsOK.7"
 text = "(c.ovlOver o).all (c.ovlPairOK o)"
 witness = "none: not found; the conjunct is not implied by the others (kernel-checked: f : Int -> KCellOpt overloading the counter cell's constructor, whose result sort is not below KCellOpt, meets every other leaf of coreOK and FnHyp; overloading nothing, coreOK holds); Γ has a model (argued): the overload equation makes f(x) the injection from GeneratedCounterCell to KCellOpt of the counter cell of x, an injection of no declared subsort that no other item names, f's applications are covered and no values, and f's distinctness from KCellOpt's generators is that of the semantics overloading nothing or stated at uncovered arguments; a model of that theory with the injection read as the map from the counter cell of n to f(n) is one of Γ; not examined: an overload of another arity"
 evidence = "test/WitRestOvlB.lean"
 
 [[conjunct]]
-key = "overloadsOK.8"
+key = "overloadsOK.7"
 text = "c.ovlCoherent k1 k2"
 witness = "KcoreSpec.ModelOvlIncohWitness"
 note = "two constructors g, h : Int -> KCell overloaded by f : Int -> KCell: the overload equations give g(x) = f(x) = h(x), against Cons-Dist of g and h"
 
 [[conjunct]]
-key = "overloadsOK.9"
+key = "overloadsOK.8"
 text = "(!c.fns.any fun x => x.label == g) || o.over.contains g"
 witness = "KcoreSpec.ModelOvlClosedWitness"
 note = "the chain plusBig over plusExp over the function plusInt, Int < Exp < Big, plusBig listing plusExp only and plusInt without a clause (test/OvlFun.lean's Chain.c false with the clause taken away, Admit.closed_witness_eq): plusBig lists no function, so it is not function-overloaded and Γ states its Cons-Fun at every argument, while the two overload equations and plusInt(0, 0) = ⊥ (ΓFallback) make plusBig(inj inj 0, inj inj 0) empty; listing plusInt as well, coreOK holds; with plusInt's clause (Chain.c false itself) every other leaf of coreOK holds as well (Admit.chain_false, Chain.others_false), and the argument there (plusBig injective at every argument, plusBig(inj inj 1, inj inj 2) = inj inj 3 = plusBig(inj inj 2, inj inj 1)) is not kernel-checked: the library reads a function's equation in a model of Γ only under OvlOK, which holds overloadsOK (eqn_at)"
 evidence = "test/OvlFun.lean"
 
 [[conjunct]]
-key = "overloadsOK.10"
+key = "overloadsOK.9"
 text = "c.ovlPatsOK"
 witness = "none: no witness exists: implied by sortedOK.2, sortedOK.3 and sortedOK.5, for every semantics (kernel-checked: Semantics.ovlPatsOK_of_sortedOK): ruleSorted sorts a rule's left side, clauseSorted a clause's patterns and condOK each exMatch pattern of a rule's pre and post and of a clause's pre and post (clauseExOK, which clausesPlain asks) over patCtxNF, which holds no function-overloaded symbol"
 evidence = "test/SortedNF.lean"

@@ -83,7 +83,7 @@ def c : Semantics := cOf false
 /-- With `plusBig` listing `plusInt` as well. -/
 def c0 : Semantics := cOf true
 
-/-! ## Every condition of `coreOK` but `overloadsOK`'s ninth part, and `FnHyp` -/
+/-! ## Every condition of `coreOK` but `overloadsOK`'s eighth part, and `FnHyp` -/
 
 theorem sortedOK_of (b : Bool) : (cOf b).sortedOK = true := by cases b <;> decide_cheap
 theorem predsApart_of (b : Bool) : (cOf b).predsApart = true := by cases b <;> decide_cheap
@@ -147,11 +147,11 @@ theorem fnHyp : FnHyp c := by
     exact absurd hcl List.not_mem_nil
 
 set_option maxHeartbeats 1000000 in
-/-- Every condition of `coreOK` but `overloadsOK`'s ninth part holds, and `FnHyp`. -/
+/-- Every condition of `coreOK` but `overloadsOK`'s eighth part holds, and `FnHyp`. -/
 theorem meets_others : c.sortedOK = true ∧ c.faithCoreOK = true ∧
     c.predsApart = true ∧ c.idsOK = true ∧ ov1 c = true ∧ ov2 c = true ∧ ov3 c = true ∧ ov4 c = true ∧
-    ov5 c = true ∧ ov6 c = true ∧ ov7 c = true ∧ ov8 c = true ∧ c.ovlPatsOK = true ∧ FnHyp c :=
-  ⟨sortedOK, faithCoreOK, predsApart, idsOK, by decide +kernel, by decide +kernel,
+    ov5 c = true ∧ ov7 c = true ∧ ov8 c = true ∧ c.ovlPatsOK = true ∧ FnHyp c :=
+  ⟨sortedOK, faithCoreOK, predsApart, idsOK, by decide +kernel,
     by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
     by decide +kernel, by decide +kernel, fnHyp⟩
 
@@ -267,7 +267,7 @@ theorem no_model : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.
     (den_sig_gsW hI (k := intSig) rfl sorts00 KoreAML.val0 w).mpr hw
   exact absurd ((h1 w).mp hden) (by simp)
 
-/-- **Soundness fails** of `c`, which meets every condition of `coreOK` but `overloadsOK`'s ninth
+/-- **Soundness fails** of `c`, which meets every condition of `coreOK` but `overloadsOK`'s eighth
 part, and `FnHyp`. -/
 theorem not_sound : ¬ SoundC c := fun h => by
   obtain ⟨⟨M, hM, I, hI⟩, -⟩ := h

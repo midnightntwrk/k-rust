@@ -564,7 +564,7 @@ theorem ovl_at (hok : c.overloadsOK = true) {o : OvlSig} (ho : o ∈ c.ovls) :
   simp only [List.all_eq_true] at hok
   have hoi := hok (o, i) (List.mem_zipIdx_iff_getElem?.mpr hi)
   simp only [Bool.and_eq_true, beq_iff_eq, Option.isNone_iff_eq_none, List.all_eq_true] at hoi
-  obtain ⟨⟨⟨⟨⟨⟨⟨⟨-, h2⟩, h3⟩, -⟩, -⟩, -⟩, h7⟩, -⟩, -⟩ := hoi
+  obtain ⟨⟨⟨⟨⟨⟨⟨-, h2⟩, h3⟩, -⟩, -⟩, h7⟩, -⟩, -⟩ := hoi
   exact ⟨h2, h3, h7⟩
 
 theorem ovlSig_ite (h : c.coreOK = true) {k : CtorSig} (hk : k ∈ c.ovlSigs) : instDecode? (c.symName k.name) = none := by
