@@ -77,8 +77,9 @@ What it states where the text:
   functional`);
 - states a law of a function (`Definition.laws`): `law_text` (the sentence as written is `lawPattern`),
   `law_not_item`, `law_account` (the class `function law`);
-- has a lemma applying a parameter symbol no hook implements (`isParamLemma`, the class `parameter
-  lemma`, direction hypothesis): `paramlemma_account`, and `ParamLemmaWitnessAtValues`, one H at
+- has a lemma applying a parameter symbol no hook implements (`isParamLemma`, or a `simplification`
+  sentence of K's builtin library applying one, which the reader reads as the library's text and of
+  which Γ holds no item; the class `parameter lemma`, direction hypothesis): `paramlemma_account`, and `ParamLemmaWitnessAtValues`, one H at
   which `FnObligations` hold and every parameter lemma holds at values (`EntailsAtValues`), stated
   and owed (`owed` in the summary); and
   `paramlemma_heads`: every `simplification` equation of the user module whose left side's head is
@@ -205,7 +206,8 @@ OPEN_FUNCTIONAL_CLASS = "open generator functional"
 # statements take as the hypothesis `ParamsTotal` (direction hypothesis).
 PARAM_FUNCTIONAL_CLASS = "parameter functional"
 # The class of a lemma the reader leaves out of Γ that applies a parameter symbol no registry hook
-# interprets (`isParamLemma`): its truth depends on the interpretation, so it is owed as a hypothesis
+# interprets (`isParamLemma`, or a `simplification` sentence of K's builtin library, of which Γ holds
+# no item, applying one): its truth depends on the interpretation, so it is owed as a hypothesis
 # on H (direction hypothesis), at values: Γ states the parameter's graph at values only (`ΓDomains`),
 # so a model of Γ may hold an element of an unconfined sort that is no value's, at which no item of Γ
 # constrains the parameter, and the sentence at every valuation can fail there at every H. The tie of
@@ -643,7 +645,13 @@ def tgMinusNeg (a : Kore.Axiom) : P :=
     -- a user's equation of a symbol whose value the registry gives (`Parse.regLemmaEqn`): out of Γ,
     -- a parameter lemma where it applies a parameter symbol without `impl`, else at values
     let rl := (Parse.rawEqn? ad.ax).any (Parse.regLemmaEqn scK ·)
-    let pl := isParamLemma c (Parse.classify nmK (.axiom ad.ax)) (.axiom ad.ax) || (rl && appliesNoImplParam c ad.ax.pattern)
+    -- a lemma of K's builtin library applying a parameter symbol without `impl` of the reading: the
+    -- reader reads the library's text and Γ holds no item of the lemma (the class `library` is at
+    -- values over symbols Γ interprets); the parameter's value is the interpretation's, so it is a
+    -- parameter lemma as a user's is
+    let lpl := Parse.isKBuiltin ad.ax.attributes && AttrsAgree.has ad.ax.attributes "simplification" &&
+      appliesNoImplParam c ad.ax.pattern
+    let pl := isParamLemma c (Parse.classify nmK (.axiom ad.ax)) (.axiom ad.ax) || (rl && appliesNoImplParam c ad.ax.pattern) || lpl
     let simp := Parse.classify nmK (.axiom ad.ax) == .inert .simplification
     let usrc := Parse.isUserSource ad.ax.attributes
     IO.println s!"S {ad.index}\t{absent}\t{fnJ}\t{cons}\t{plain}\t{consItem}\t{triv}\t{kitem}\t{rw}\t{eh}\t{kind eh}\t{fh}\t{kind fh}\t{AttrsAgree.prioOf ad.ax.attributes}\t{pl}\t{simp}\t{usrc}\t{rl}"
@@ -2324,7 +2332,8 @@ def param_lemma_section(param_lem):
     lt = ", ".join(f"U.ax{i}" for i in param_lem)
     return f"""/-! ## The parameter lemmas ({il}): owed as a hypothesis on H -/
 
-/-- The text's lemmas that apply a parameter symbol no registry hook interprets (`isParamLemma`). -/
+/-- The text's lemmas that apply a parameter symbol no registry hook interprets (`isParamLemma`, or a
+`simplification` sentence of K's builtin library applying one). -/
 noncomputable def paramLemmaText : List AxiomDecl := [{lt}]
 
 /-- The parameter lemmas are the account's class `{PARAM_LEMMA_CLASS}`, of the direction `hypothesis`
