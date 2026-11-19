@@ -24,9 +24,12 @@
   (`landS6`), under which its `functional` sentence 54 and its associativity lemma 236 (shape s6)
   hold too, in the same model.
 
-  Not stated here: that every model of Γ has such a choice (the expansion condition (E) for every
-  model). `TieLibParam.expand_lacked` keeps a model a model where the interpretation changes at the
-  lacked names only, keeping its carrier and its application. A choice there needs, for
+  Not stated here: the expansion condition (E) of owed-sentence rule item 7, that every model of Γ
+  extends, possibly gaining elements, to a model of Γ and of these sentences that is elementary for
+  Γ's language at the model's elements (every pattern over Γ's symbols, at every valuation into the
+  model's elements, denotes there what it denoted). `TieLibParam.expand_lacked` gives the case
+  without gained elements: it keeps a model a model where the interpretation changes at the lacked
+  names only, keeping its carrier and its application. A choice there needs, for
   `dividesInt`, an element of the carrier whose application to two Int elements denotes what
   `(I2 %Int I1) ==Int 0` does; Γ states the existence of no such element, and this file does not
   show one in every model. The model here gains such elements by patching the value model's
