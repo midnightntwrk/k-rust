@@ -4,7 +4,7 @@
 Usage (from anywhere; the library and `kcore` built first):
   python3 -I test/constructs/tiegen.py FIXTURE [--sig-chunk N] [--decl-chunk N] [--chunk N]
                                                [--hand consistency=FILE] [--at-values N,...] [--cons-head] [--wf-parts]
-                                               [--split] [--out DIR] [--print]
+                                               [--split] [--account-sorted] [--heads-literal] [--out DIR] [--print]
   (the probe, a run of the Lean definitions on the text, is stopped after $TIEGEN_PROBE_TIMEOUT seconds, 900 by default)
   python3 -I test/constructs/tiegen.py --self-test   (the law search below, on three fixtures)
 
@@ -37,6 +37,13 @@ is never repeated: a declaration of the later sections goes to the file of the d
 and sections that read each other's decisions share one file (the rules with the functions where
 the converse over Γ reads both, `gamma_origin`). `--print` lists the files, the merges and what each
 file repeats. Without --split the output is the single file.
+--account-sorted proves the account from the class lists sorted (`KoreAML.Distinct.msort`, as
+`tacAccount_of_msort` reads it) where the user module's indices, in text order, are a range
+a, ..., a+n-1 (`indices_eq`, `classes_sorted`), in place of the decisions of `isPerm` and `Nodup`,
+which compare every pair of sentences; a text whose indices are no range is refused.
+--heads-literal (with --chunk) writes Γ's heads as a literal (`gHeads`, `gHeads_eq : gammaHeads c =
+gHeads`) and decides `account_absent`'s ranges on it (`absentPL`, equal to `absentP` by `gHeads_eq`),
+so that no range recomputes Γ's heads.
 --hand consistency=FILE puts FILE in place of the consistency section, for a text that owes an
 agreement, a clause's match independence, or a rule's or clause's condition (`owed_rules`,
 `owed_clauses`): FILE proves the owed facts and states `consistent` for every H, with `facts` for an
@@ -687,6 +694,10 @@ def tgNjOrder (gs : List KoreAML.Gen) : List Kore.Pattern → Option (List Nat)
   IO.println s!"H litBool {c.litSort Srt.bool}"
   IO.println s!"H owedNil {c.owedRules.isEmpty && c.owedClauses.isEmpty}"
   IO.println s!"H fnClauses {afs.map fun f => c.symName f.label ++ "=" ++ toString f.clauses.length}"
+  -- Γ's heads in `gammaHeads`' order, each sort argument by its name (`?` for a sort that is no
+  -- constructor without arguments), for `--heads-literal`
+  for g in gh do
+    IO.println s!"G {g.1}\t{"\t".intercalate (g.2.map fun s => match s with | .ctor h [] => h.ident.name | _ => "?")}"
   for kp in c.params.filter (·.raw) do
     IO.println s!"P {kp.sig.name}\t{c.symName kp.sig.name}\t{kp.sig.args}\t{kp.sig.result}\t{c.sortName kp.sig.result}\t{kp.assoc}\t{kp.idem}\t{c.isOpenGen (.ctor kp.sig)}"
   for (it, j) in fis.zip (List.range fis.length) do
@@ -783,9 +794,13 @@ def probe(name, path, um, order="[]", cons_head=False):
     head, sents = {}, {}
     head["rules"], head["raw"], head["fnA"], head["nj"], head["lawRef"], head["fnW"] = [], [], {}, {}, [], {}
     head["fnQ"] = {}
+    head["gHeads"] = []
     nums = lambda s: [int(x) for x in re.findall(r"\d+", s)]
     for l in r.stdout.split("\n"):
-        if l.startswith("H "):
+        if l.startswith("G "):
+            f = l[2:].split("\t")
+            head["gHeads"].append((f[0], [x for x in f[1:] if x]))
+        elif l.startswith("H "):
             k, _, v = l[2:].partition(" ")
             head[k] = v
         elif l.startswith("L "):
@@ -950,6 +965,16 @@ def wrap_nums(nums, indent, width=100):
     return ("\n" + " " * indent).join(lines)
 
 
+def lean_str(x):
+    """`x` as a Lean string literal."""
+    return '"' + x.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\t", "\\t") + '"'
+
+
+def head_lit(h):
+    """A head of `gammaHeads` (a name and its sort arguments' names) as a Lean literal."""
+    return "(" + lean_str(h[0]) + ", [" + ", ".join(f".ctor ⟨⟨{lean_str(s)}⟩⟩ []" for s in h[1]) + "])"
+
+
 def ax_list(nums, indent=3, pre=None):
     """The literals of the axioms `nums`: `U.axN`, or `pre[N].axN` for an axiom of a prelude module."""
     pre = pre or {}
@@ -990,11 +1015,14 @@ def by_ranges(prefix, lst, pred, rs, lem="tieAllE", named=False):
 
 
 def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, failing, ob, chunks, raws=None,
-             hand=None, chunk=0, at_values=(), cons_head=False, wf_parts=None, split=False):
+             hand=None, chunk=0, at_values=(), cons_head=False, wf_parts=None, split=False,
+             account_sorted=None, heads_literal=False):
     """The Lean text of the tie. `ob`: what `obligations` read; `raws`: each sentence's text as
     written; `hand`: hand-written sections by name (`consistency`), each in place of the generated
     one; `chunk`: the length of the ranges the decisions over the whole user module are cut into
-    (0: one decision each)."""
+    (0: one decision each); `account_sorted`: `(a, n)` where the user module's indices, in text
+    order, are `a, ..., a+n-1`, to prove the account from the sorted class lists; `heads_literal`:
+    decide `account_absent`'s ranges on Γ's heads as a literal (`gHeads`)."""
     raws = raws or {}
     hand = hand or {}
     call_order = ob["call_order"]
@@ -1579,12 +1607,28 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     w("/-- The indices of a class. -/")
     w("def classOf (n : String) : List Nat := (classes.filter (·.1 == n)).flatMap (·.2)")
     w("")
-    w("/-- **The account**: the class lists partition the user module's sentences. Their concatenation is")
-    w("a permutation of the sentences' indices, which are distinct, so each sentence is in one class and")
-    w("in it once. -/")
-    w("theorem account : (classes.flatMap (·.2)).isPerm (userAxioms.map (·.index)) = true ∧")
-    w("    (userAxioms.map (·.index)).Nodup := by")
-    w("  rw [userAxioms_eq]; decide +kernel")
+    if account_sorted:
+        a0, n0 = account_sorted
+        w(f"/-- The indices of the user module's sentences, in text order, are {a0}, …, {a0 + n0 - 1}. -/")
+        w(f"theorem indices_eq : U.all.map (·.index) = List.range' {a0} {n0} := by decide +kernel")
+        w("")
+        w(f"/-- The class lists, sorted ({n0.bit_length() + 1} passes of `KoreAML.Distinct.msort`), are the same range. -/")
+        w(f"theorem classes_sorted : KoreAML.Distinct.msort {n0.bit_length() + 1} (classes.flatMap (·.2)) = List.range' {a0} {n0} := by")
+        w("  decide +kernel")
+        w("")
+        w("/-- **The account**: the class lists partition the user module's sentences. Their concatenation is")
+        w("a permutation of the sentences' indices, which are distinct, so each sentence is in one class and")
+        w("in it once: sorted, the class lists are the range the indices are (`tacAccount_of_msort`). -/")
+        w("theorem account : (classes.flatMap (·.2)).isPerm (userAxioms.map (·.index)) = true ∧")
+        w("    (userAxioms.map (·.index)).Nodup :=")
+        w("  tacAccount_of_msort classes_sorted (by rw [userAxioms_eq]; exact indices_eq)")
+    else:
+        w("/-- **The account**: the class lists partition the user module's sentences. Their concatenation is")
+        w("a permutation of the sentences' indices, which are distinct, so each sentence is in one class and")
+        w("in it once. -/")
+        w("theorem account : (classes.flatMap (·.2)).isPerm (userAxioms.map (·.index)) = true ∧")
+        w("    (userAxioms.map (·.index)).Nodup := by")
+        w("  rw [userAxioms_eq]; decide +kernel")
     w("")
     w("/-- The class sizes. -/")
     w("theorem account_sizes : classes.map (fun cl => (cl.1, cl.2.length)) =")
@@ -1599,7 +1643,25 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w("noncomputable def absentP (ad : AxiomDecl) : Bool :=")
         w('  (classOf "no direction").contains ad.index != (appHeadsOf ad.ax.pattern).all (gammaHasHead c)')
         w("")
-        thms, body = by_ranges("absentE", "U.all", "absentP", ranges(len(idx), 0, chunk), "tieAll", True)
+        if heads_literal:
+            w("/-- The heads at which Γ applies its symbols (`gammaHeads c`), written out. -/")
+            w("def gHeads : List (String × List Kore.KSort) :=")
+            w("  [" + wrap_nums([head_lit(h) for h in head["gHeads"]], 3) + "]")
+            w("")
+            w("/-- The literal is Γ's heads. -/")
+            w("theorem gHeads_eq : gammaHeads c = gHeads := by decide +kernel")
+            w("")
+            w("/-- `absentP` with Γ's heads read from the literal `gHeads`. -/")
+            w("noncomputable def absentPL (ad : AxiomDecl) : Bool :=")
+            w('  (classOf "no direction").contains ad.index !=')
+            w("    (appHeadsOf ad.ax.pattern).all (fun h => gHeads.any fun g => decide (g = h))")
+            w("")
+            w("/-- `absentPL` is `absentP`: `gammaHasHead c` is membership in `gammaHeads c`, which is `gHeads`. -/")
+            w("theorem absentPL_eq : absentPL = absentP := by")
+            w("  funext ad; unfold absentPL absentP gammaHasHead; rw [gHeads_eq]")
+            w("")
+        thms, body = by_ranges("absentE", "U.all", "absentPL" if heads_literal else "absentP",
+                               ranges(len(idx), 0, chunk), "tieAll", True)
         w(thms)
         w("")
     w("/-- **A sentence outside the no-direction class applies only symbols Γ has**, each a head with its")
@@ -1607,7 +1669,12 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     w("Γ lacks. -/")
     w("theorem account_absent : userAxioms.all (fun ad =>")
     w('    (classOf "no direction").contains ad.index != (appHeadsOf ad.ax.pattern).all (gammaHasHead c)) = true := by')
-    if chunk:
+    if chunk and heads_literal:
+        w("  rw [userAxioms_eq]")
+        w("  have h : (U.all).all absentPL = true :=")
+        w("    " + body.replace("\n    ", "\n      "))
+        w("  rw [absentPL_eq] at h; exact h")
+    elif chunk:
         w("  rw [userAxioms_eq]; exact")
         w("    " + body.replace("\n    ", "\n      "))
     else:
@@ -3342,8 +3409,22 @@ SELF_TEST = {"e2-fn-assoc-bad": "at var 0 = 0, var 1 = 0, var 2 = 1 its left sid
              "e2-fn-assoc": None, "e2-fn-assoc-rest": None}
 
 
+def index_range(order):
+    """`(a, n)` where `order` is `a, a+1, ..., a+n-1` with n > 0, else None (`--account-sorted`)."""
+    return (order[0], len(order)) if order and order == list(range(order[0], order[0] + len(order))) else None
+
+
+# `index_range` on lists that are a range and lists that are not
+INDEX_RANGE_TEST = [([7, 8, 9], (7, 3)), ([0], (0, 1)), ([], None), ([7, 9, 10], None), ([8, 7, 9], None),
+                    ([7, 7, 8], None)]
+
+
 def self_test():
     bad = []
+    for order, want in INDEX_RANGE_TEST:
+        if index_range(order) != want:
+            print(f"tiegen self-test: index_range({order}) is {index_range(order)}, not {want}  FAILS")
+            bad.append(f"index_range {order}")
     for name, want in SELF_TEST.items():
         text = restored_text(name)
         with tempfile.TemporaryDirectory(prefix="tiegen-self-") as d:
@@ -3361,7 +3442,7 @@ def self_test():
               + ("" if ok else "  FAILS"))
         if not ok:
             bad.append(name)
-    print(f"tiegen self-test: {len(SELF_TEST)} fixtures, {len(bad)} failing")
+    print(f"tiegen self-test: {len(SELF_TEST)} fixtures and {len(INDEX_RANGE_TEST)} index lists, {len(bad)} failing")
     return 1 if bad else 0
 
 
@@ -3430,9 +3511,22 @@ def main(argv):
     for i in law_set | open_set:
         if sents[i]["fnJ"] or (i in law_set and sents[i]["consItem"]):
             raise Refused(f"{name}: law sentence {i} is a function equation's item or a constructor item of Γ")
+    account_sorted = None
+    if "--account-sorted" in argv:
+        account_sorted = index_range([a[0] for a in ua])
+        if account_sorted is None:
+            raise Refused(f"{name}: --account-sorted: the indices of the user module's sentences, in text order, "
+                          f"are no range a, ..., a+n-1")
+    heads_literal = "--heads-literal" in argv
+    if heads_literal and not chunk:
+        raise Refused(f"{name}: --heads-literal decides `account_absent` by ranges: it needs --chunk N")
+    if heads_literal and (not head["gHeads"] or any("?" in ss for _, ss in head["gHeads"])):
+        raise Refused(f"{name}: --heads-literal: the probe gives no heads of Γ, or a head with a sort argument "
+                      f"that is no sort constructor without arguments")
     ns, lean, summary = generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, failing,
                                  ob, chunks, {i: raw for i, _, _, raw in ua}, hand, chunk,
-                                 at_values, cons_head, wf_parts, "--split" in argv)
+                                 at_values, cons_head, wf_parts, "--split" in argv, account_sorted,
+                                 heads_literal)
     outdir = argv[argv.index("--out") + 1] if "--out" in argv else None
     if outdir is None and (not os.path.exists(final) or open(final).read() != text):
         open(final, "w").write(text)
