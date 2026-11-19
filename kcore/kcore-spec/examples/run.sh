@@ -92,7 +92,8 @@ if on ref-kimp; then gen f2-examples/ref-kimp.kore ref-kimp RefKimp --wf
 # strictHook at the Int, Bool, ite, K-equality and String operation codes against KCore's hooks, and =/=Bool as
 # notBool (B1 ==Bool B2) (User.HooksScalar: `KCore.KK.hooks_scalar`, `KCore.KK.boolNe_comp`)
 # kore.k's collection helpers over the mirrors and colOf against the collection value of the same items (User.HelpColl)
+# strictHook at the Map, Set and List operation codes against KCore's hooks (User.HooksColl: `KCore.KK.hooks_coll`)
 if on ref-kk; then gen examples/ref-kk/RefKk/definition.kore ref-kk RefKk --core
   step gen/build.sh examples/ref-kk User.Coherent User.EvalInversion User.FnSolves User.PrioDecided User.CoDefined User.Consistent \
-    User.KkKit User.KkFacts User.KkCascade User.SpikeBase User.SpikeHand User.SpikeCascade User.Emb User.Sig User.EmbKit User.Leq User.HelpTerms User.KkGenEmb User.SpikeEmb User.NativeTie User.HelpWalk User.MatchEval User.HelpOrder User.Inst User.SpecMotive User.HooksScalar User.HelpColl; fi
+    User.KkKit User.KkFacts User.KkCascade User.SpikeBase User.SpikeHand User.SpikeCascade User.Emb User.Sig User.EmbKit User.Leq User.HelpTerms User.KkGenEmb User.SpikeEmb User.NativeTie User.HelpWalk User.MatchEval User.HelpOrder User.Inst User.SpecMotive User.HooksScalar User.HelpColl User.HooksColl; fi
 echo "all built"
