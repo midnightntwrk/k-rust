@@ -45,7 +45,16 @@
   projection's or getter's the checks take; 2962, an equation of `project:#unknownIOError:errno`
   that is no initializer's, projection's or getter's the checks take.
 
-  Nothing here writes a right side, a value or a `G` by hand but the values of `fv`. The model is
+  K-IO's four equations and `#stderr`'s `functional` axiom, which `nodir_instance` does not list
+  (2811 to 2814 and 2614 above), hold with the 45 in one model (`kio_instance`, the last section,
+  written by hand and not by the generator): Γ lacks `#open(_)`, `#open(_,_)`, `#stdin`, `#stdout`
+  and `#stderr` (`kio_lacked`), the model gives `#stderr` the value `2`, `#open(_,_)` any partial
+  function `g` into `IOInt` and `#open(_)` the function `g(·, "r+")`, and reads `#stdin` and
+  `#stdout` from their equations as `nodir_instance` does. The shapes of the five sentences
+  (`kio_text`) and the values of the domain values (`kio_dv`) are written out and checked by the
+  kernel against the text.
+
+  Nothing here writes a right side, a value or a `G` by hand but the values of `fv` and that section's. The model is
   the arm's (`GenEqs.model_with_inits_arm`): `G` read from the equations along the cell tree
   (`GenEqs.armG`), the getter and the projections by `GenEqs.armBase`. The names are the constants
   the initializers apply (`orderConsts`), then the tree's initializers bottom up (`order`:
@@ -424,5 +433,225 @@ theorem nodir_instance (H : HookParams) :
 
 /-- info: 'GenEqsNodirE2CellsStream.nodir_instance' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms nodir_instance
+
+/-! ## K-IO's equations -/
+
+/-- `#open(_)`, `#open(_,_)`, `#stdin`, `#stdout` and `#stderr` of K-IO, as the text declares them. -/
+def openOne : String := "Lbl'Hash'open'LParUndsRParUnds'K-IO'Unds'IOInt'Unds'String"
+def openTwo : String := "Lbl'Hash'open'LParUndsCommUndsRParUnds'K-IO'Unds'IOInt'Unds'String'Unds'String"
+def stdinN : String := "Lbl'Hash'stdin'Unds'K-IO'Unds'Int"
+def stdoutN : String := "Lbl'Hash'stdout'Unds'K-IO'Unds'Int"
+def stderrN : String := "Lbl'Hash'stderr'Unds'K-IO'Unds'Int"
+/-- The names the model is given beside the instance's: `#open(_)`, `#open(_,_)` and `#stderr`. -/
+def kioNames : List String := [openOne, openTwo, stderrN]
+/-- The sort `IOInt`, the result sort of `#open`. -/
+def ioInt : Srt := 14
+theorem ioInt_name : c.sortName ioInt = "IOInt" := by decide +kernel
+/-- The value of `"r+"`. -/
+def rPlus : GroundTerm := .dv Srt.string (.tok "r+")
+def intV (i : Int) : GroundTerm := .dv Srt.int (.int i)
+
+/-- **Γ lacks the five symbols**: each is borne by no symbol of the semantics. -/
+theorem kio_lacked : [openOne, openTwo, stdinN, stdoutN, stderrN].all (nodLackedB c) = true := by
+  rw [show nodLackedB c = _ from funext lacked_codes]; decide +kernel
+
+/-- The three names are none of the instance's names, of `fs` or of `fv`. -/
+theorem kio_fresh : kioNames.all (fun n => !names.contains n && (fs.find? (·.1 == n)).isNone &&
+    (fv.find? (·.1 == n)).isNone) = true := by decide +kernel
+
+/-- An equation of the shape `L() = \dv{S}(text)`. -/
+def constDvB (L : String) (S : Kore.KSort) (text : String) (e : RawEqn) : Bool :=
+  e.fn == L && decide (e.pats = [] ∧ e.rhs = .dv S text)
+
+/-- The variable of `#open(_)`'s equation. -/
+def varS : Kore.EVar := ⟨⟨⟨"VarS"⟩⟩, KoreAML.srt "String"⟩
+
+/-- **The four equations and `#stderr`'s `functional` axiom, as the account's scan reads them**:
+2811 is `#open(S) = #open(S, "r+")`, 2812 to 2814 are `#stderr = 2`, `#stdin = 0`, `#stdout = 1`,
+2614 is `∃y:Int. y = #stderr`. -/
+theorem kio_text :
+    (scanEqn (.axiom U.ax2811.ax)).any (fun e => e.fn == openOne &&
+      decide (e.pats = [.var (.evar varS)] ∧
+        e.rhs = .app ⟨⟨openTwo⟩⟩ [] [.var (.evar varS), .dv (KoreAML.srt "String") "r+"])) = true ∧
+    (scanEqn (.axiom U.ax2812.ax)).any (constDvB stderrN (KoreAML.srt "Int") "2") = true ∧
+    (scanEqn (.axiom U.ax2813.ax)).any (constDvB stdinN (KoreAML.srt "Int") "0") = true ∧
+    (scanEqn (.axiom U.ax2814.ax)).any (constDvB stdoutN (KoreAML.srt "Int") "1") = true ∧
+    nodFunctional? U.ax2614.ax = some (stderrN, KoreAML.srt "Int") := by decide +kernel
+
+/-- **The domain values of the equations' right sides**, read at their sorts. -/
+theorem kio_dv :
+    armDv c (KoreAML.srt "String") "r+" = some rPlus ∧ armDv c (KoreAML.srt "Int") "2" = some (intV 2) ∧
+    armDv c (KoreAML.srt "Int") "0" = some (intV 0) ∧ armDv c (KoreAML.srt "Int") "1" = some (intV 1) := by
+  decide +kernel
+
+/-- **The model's equations of `#stdin` and `#stdout` are the text's**: the equation the arm reads
+for each constant has no pattern and the domain value of 2813 and 2814 as its right side. -/
+theorem kio_look :
+    (armLook order eqsN stdinN).any (constDvB stdinN (KoreAML.srt "Int") "0") = true ∧
+    (armLook order eqsN stdoutN).any (constDvB stdoutN (KoreAML.srt "Int") "1") = true := by decide +kernel
+
+/-- The arities with the three names': `#open(_,_)` of two arguments, `#open(_)` of one, `#stderr` of none. -/
+def kioAr (ar : String → Nat) (n : String) : Nat :=
+  if n = openTwo then 2 else if n = openOne then 1 else if n = stderrN then 0 else ar n
+
+/-- The names' values with the three names': `#open(_,_)` is `g`, `#open(_)` is `g` at its argument
+and `"r+"`, `#stderr` is `2`. -/
+def kioG (g : GroundTerm → GroundTerm → Option GroundTerm) (G : String → List GroundTerm → Option GroundTerm) :
+    String → List GroundTerm → Option GroundTerm := fun n ws =>
+  if n = openTwo then (match ws with
+    | [a, b] => g a b
+    | _ => none)
+  else if n = openOne then (match ws with
+    | [a] => g a rPlus
+    | _ => none)
+  else if n = stderrN then some (intV 2)
+  else G n ws
+
+/-- A name of the instance is none of the three. -/
+theorem kio_ne {n : String} (hn : nodFunValN names fs fv n) : n ≠ openTwo ∧ n ≠ openOne ∧ n ≠ stderrN := by
+  have h1 : ¬ nodFunValN names fs fv openTwo := by decide +kernel
+  have h2 : ¬ nodFunValN names fs fv openOne := by decide +kernel
+  have h3 : ¬ nodFunValN names fs fv stderrN := by decide +kernel
+  exact ⟨fun h => h1 (h ▸ hn), fun h => h2 (h ▸ hn), fun h => h3 (h ▸ hn)⟩
+
+theorem kio_any {o : Option RawEqn} {p : RawEqn → Bool} (h : o.any p = true) : ∃ e, o = some e ∧ p e = true := by
+  cases o with
+  | none => cases h
+  | some e => exact ⟨e, rfl, h⟩
+
+theorem constDvB_spec {L : String} {S : Kore.KSort} {text : String} {e : RawEqn} (h : constDvB L S text e = true) :
+    e.fn = L ∧ e.pats = [] ∧ e.rhs = .dv S text := by
+  unfold constDvB at h
+  simp only [Bool.and_eq_true, beq_iff_eq, decide_eq_true_eq] at h
+  exact ⟨h.1, h.2.1, h.2.2⟩
+
+/-- The arities of the constants `#stdin` and `#stdout`, and that each is a name of the instance. -/
+theorem kio_consts : names.contains stdinN = true ∧ names.contains stdoutN = true ∧
+    nodFunValAr fs fv (armAr eqsN) stdinN = 0 ∧ nodFunValAr fs fv (armAr eqsN) stdoutN = 0 := by decide +kernel
+
+/-- **For every H and every partial function `g` into `IOInt`, one model of `Γc ∪ Γstep` of
+`c.withHooks H`, whose steps at configurations are `Step`'s, in which `#open(_,_)` is `g`, the 45
+listed sentences hold, and K-IO's four equations and `#stderr`'s `functional` axiom hold**: 2811
+(`#open(S) = #open(S, "r+")`), 2812 (`#stderr = 2`), 2813 (`#stdin = 0`) and 2814 (`#stdout = 1`)
+at every list of values of their variables' sorts, and 2614 (`∃y:Int. y = #stderr`). Γ lacks
+`#open(_)`, `#open(_,_)`, `#stdin`, `#stdout` and `#stderr` (the first conjunct), and the text
+states nothing of `#open(_,_)` but its declaration: the model gives it any `g`, and 2811 holds
+whatever `g` is. -/
+theorem kio_instance (H : HookParams) (g : GroundTerm → GroundTerm → Option GroundTerm)
+    (hg : ∀ a b v, g a b = some v → c.sortOf v = some ioInt) :
+    [openOne, openTwo, stdinN, stdoutN, stderrN].all (nodLackedB c) = true ∧
+    ∃ I : ML.Interpretation KoreAML.Sym Faithful.Model.Elem,
+      (I ⊧ᴵP (Faithful.Γc (cH H) ∪ Faithful.Γstep (cH H))) ∧
+      (∀ x y : Config (cH H), Step (cH H) x y ↔ ¬ (I ⊧ᴵ (den (cH H) x.val ⇒ ∼ KoreAML.sNext (den (cH H) y.val)))) ∧
+      (∀ i ∈ eqIdx, ∃ ad ∈ U.all, ad.index = i ∧ ∃ e, scanEqn (.axiom ad.ax) = some e ∧ NodEqn (cH H) I e) ∧
+      (∀ i ∈ funIdx, ∃ ad ∈ U.all, ad.index = i ∧ ∃ L S, nodFunctional? ad.ax = some (L, S) ∧ NodFun (cH H) I L S) ∧
+      (∀ i ∈ funAtIdx ++ funValIdx, ∃ ad ∈ U.all, ad.index = i ∧ ∃ L xs S, nodFunctionalAt? ad.ax = some (L, xs, S) ∧
+        NodFunAt (cH H) I L xs S) ∧
+      (∃ e, scanEqn (.axiom U.ax2811.ax) = some e ∧ e.fn = openOne ∧ NodEqn (cH H) I e) ∧
+      (∃ e, scanEqn (.axiom U.ax2812.ax) = some e ∧ e.fn = stderrN ∧ NodEqn (cH H) I e) ∧
+      (∃ e, scanEqn (.axiom U.ax2813.ax) = some e ∧ e.fn = stdinN ∧ NodEqn (cH H) I e) ∧
+      (∃ e, scanEqn (.axiom U.ax2814.ax) = some e ∧ e.fn = stdoutN ∧ NodEqn (cH H) I e) ∧
+      (∃ S, nodFunctional? U.ax2614.ax = some (stderrN, S) ∧ NodFun (cH H) I stderrN S) ∧
+      (∀ a b : GroundTerm, (∃ s, (cH H).sortOf a = some s) → (∃ s, (cH H).sortOf b = some s) → ∀ ρ m,
+        (KoreAML.appList (KoreAML.sym (.symbol openTwo)) [den (cH H) a, den (cH H) b]).interpret I ρ m ↔
+          ∃ v, g a b = some v ∧ m = .val v) := by
+  refine ⟨kio_lacked, ?_⟩
+  have hc : (cH H).coreOK = true := (Semantics.coreOK_withHooks c H).trans coreOK
+  have hlk : ∀ n, nodLackedB (cH H) n = nodLackedB c n := nodLackedB_withHooks c H
+  have hso : (cH H).sortOf = c.sortOf := Semantics.sortOf_withHooks c H noRaw
+  have hdv : ∀ S t, armDv (cH H) S t = armDv c S t := armDv_withHooks c H noRaw
+  obtain ⟨dR, d2, d0, d1⟩ := kio_dv
+  obtain ⟨t2811, t2812, t2813, t2814, t2614⟩ := kio_text
+  obtain ⟨hnin, hnout, harin, harout⟩ := kio_consts
+  let G0 := nodFunValG fs fv (armGOf (cH H) eqsN names order (armBase (cH H) eqsN))
+  let ar0 := nodFunValAr fs fv (armAr eqsN)
+  let N : String → Prop := fun n => nodFunValN names fs fv n ∨ n ∈ kioNames
+  have hN : ∀ n, N n → (∀ φ, (Faithful.Γc (cH H) ∪ Faithful.Γstep (cH H)) φ → KoreAML.Sym.symbol n ∉ psyms φ) ∧
+      unresolvedB (cH H) n = true := by
+    rintro n (hn | hn)
+    · exact nodFunValN_free hc (by rw [show nodLackedB (cH H) = nodLackedB c from funext hlk]; exact names_ok)
+        ((nodFunsLackedB_withHooks c H names fs fv).trans fs_ok) n hn
+    · refine nodLacked_free hc ?_
+      rw [hlk]
+      have := List.all_eq_true.mp kio_lacked n (by revert hn; simp only [kioNames, List.mem_cons, List.mem_nil_iff, or_false]; rintro (h | h | h) <;> simp [h])
+      exact this
+  obtain ⟨I, hM, hstep⟩ := model_with_inits_arm (cH H) hc (fnHypH H) N (kioAr ar0) (kioG g G0) hN
+  have hM' : InitModel (cH H) (nodFunValN names fs fv) ar0 G0 I :=
+    nodFun_restrict hM (fun n hn => Or.inl hn)
+      (fun n hn => by obtain ⟨h1, h2, h3⟩ := kio_ne hn; simp only [kioAr, h1, h2, h3, ite_false])
+      (fun n hn => funext fun ws => by obtain ⟨h1, h2, h3⟩ := kio_ne hn; simp only [kioG, h1, h2, h3, ite_false])
+  obtain ⟨h3, h4, h5, h6⟩ := nod_funv_lacked_of_model_withHooks c coreOK noRaw E.N E.src eqsN cells names order sents
+    eqIdx funIdx fs fv funAtIdx funValIdx rank hord sorts_ok fixed_ok eqs_ok funs_ok fs_ok funAt_ok funVal_ok H hM'
+  have hU : ∀ ad ∈ sents, ad ∈ U.all := fun ad h => by
+    rw [← sents_eq] at h; exact (List.mem_filter.mp h).1
+  -- the three names, and the two constants of `order`, in the model
+  have nOne : N openOne := Or.inr (by decide)
+  have nTwo : N openTwo := Or.inr (by decide)
+  have nErr : N stderrN := Or.inr (by decide)
+  have gErr : kioG g G0 stderrN [] = some (intV 2) := by
+    simp [kioG, stderrN, openTwo, openOne]
+  have constG : ∀ {n : String} {i : Int}, names.contains n = true → ar0 n = 0 →
+      (armLook order eqsN n).any (constDvB n (KoreAML.srt "Int") (toString i)) = true →
+      armDv c (KoreAML.srt "Int") (toString i) = some (intV i) →
+      N n ∧ kioAr ar0 n = 0 ∧ kioG g G0 n [] = some (intV i) := by
+    intro n i hn har hl hd
+    have hNn : nodFunValN names fs fv n := Or.inl hn
+    obtain ⟨h1, h2, h3⟩ := kio_ne hNn
+    obtain ⟨e, he, hsh⟩ := kio_any hl
+    obtain ⟨-, hp, hr⟩ := constDvB_spec hsh
+    obtain ⟨f1, f2⟩ := nodFunVal_find_none fs_ok hn
+    refine ⟨Or.inl hNn, by simp only [kioAr, h1, h2, h3, ite_false]; exact har, ?_⟩
+    simp only [kioG, h1, h2, h3, ite_false]
+    show nodFunValG fs fv _ n [] = _
+    simp only [nodFunValG, f1, f2]
+    rw [nod_order_dv rank he hp hr, hdv, hd]
+  obtain ⟨hl0, hl1⟩ := kio_look
+  obtain ⟨nIn, aIn, gIn⟩ := constG (i := 0) hnin harin hl0 d0
+  obtain ⟨nOut, aOut, gOut⟩ := constG (i := 1) hnout harout hl1 d1
+  refine ⟨I, hM.sat, hstep, fun i hi => ?_, fun i hi => ?_, fun i hi => ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  · obtain ⟨ad, ha, rest⟩ := h3 i hi; exact ⟨ad, hU ad ha, rest⟩
+  · obtain ⟨ad, ha, rest⟩ := h4 i hi; exact ⟨ad, hU ad ha, rest⟩
+  · rcases List.mem_append.mp hi with hi | hi
+    · obtain ⟨ad, ha, rest⟩ := h5 i hi; exact ⟨ad, hU ad ha, rest⟩
+    · obtain ⟨ad, ha, rest⟩ := h6 i hi; exact ⟨ad, hU ad ha, rest⟩
+  · obtain ⟨e, he, hsh⟩ := kio_any t2811
+    simp only [Bool.and_eq_true, beq_iff_eq, decide_eq_true_eq] at hsh
+    obtain ⟨hfn, hp, hr⟩ := hsh
+    refine ⟨e, he, hfn, ?_⟩
+    refine nod_alias_dv_eqn hM hc hp hr (by decide) (hfn ▸ nOne) nTwo (by rw [hfn]; simp [kioAr, openOne, openTwo])
+      (by simp [kioAr]) ((hdv _ _).trans dR) (fun a => ?_) (fun a v hv => ?_)
+    · rw [hfn]; simp [kioG, openOne, openTwo]
+    · rw [hso]
+      have : g a rPlus = some v := by simpa [kioG] using hv
+      exact ⟨ioInt, hg a rPlus v this⟩
+  · obtain ⟨e, he, hsh⟩ := kio_any t2812
+    obtain ⟨hfn, hp, hr⟩ := constDvB_spec hsh
+    exact ⟨e, he, hfn, nod_const_dv_eqn hM hc hp hr (hfn ▸ nErr) (by rw [hfn]; simp [kioAr, stderrN, openOne, openTwo])
+      (by rw [hfn]; exact gErr) ((hdv _ _).trans d2)⟩
+  · obtain ⟨e, he, hsh⟩ := kio_any t2813
+    obtain ⟨hfn, hp, hr⟩ := constDvB_spec hsh
+    exact ⟨e, he, hfn, nod_const_dv_eqn hM hc hp hr (hfn ▸ nIn) (by rw [hfn]; exact aIn) (by rw [hfn]; exact gIn)
+      ((hdv _ _).trans d0)⟩
+  · obtain ⟨e, he, hsh⟩ := kio_any t2814
+    obtain ⟨hfn, hp, hr⟩ := constDvB_spec hsh
+    exact ⟨e, he, hfn, nod_const_dv_eqn hM hc hp hr (hfn ▸ nOut) (by rw [hfn]; exact aOut) (by rw [hfn]; exact gOut)
+      ((hdv _ _).trans d1)⟩
+  · exact ⟨_, t2614, nod_const_dv_functional hM nErr (by simp [kioAr, stderrN, openOne, openTwo]) gErr
+      ((hdv _ _).trans d2)⟩
+  · intro a b ha hb ρ m
+    have := hM.names openTwo nTwo [a, b] (by simp [kioAr]) (by
+      intro w hw
+      rcases List.mem_cons.mp hw with rfl | hw
+      · exact ha
+      · rw [List.mem_singleton.mp hw]; exact hb) ρ m
+    have hGv : kioG g G0 openTwo [a, b] = g a b := by simp [kioG]
+    rw [hGv] at this
+    exact this
+
+/-- info: 'GenEqsNodirE2CellsStream.kio_instance' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms kio_instance
+
+/-- A `g` into `IOInt` exists (the function with no value), so the instance is not vacuous. -/
+example (H : HookParams) := kio_instance H (fun _ _ => none) (fun _ _ _ h => by cases h)
 
 end GenEqsNodirE2CellsStream
