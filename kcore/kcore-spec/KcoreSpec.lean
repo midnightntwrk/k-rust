@@ -401,6 +401,7 @@ import KcoreSpec.TieFRRead
 import KcoreSpec.TermRoundTrip
 import KcoreSpec.TieFRTermRT
 import KcoreSpec.GenEqsNodirFun
+import KcoreSpec.GenEqsNodirLacked
 import KcoreSpec.ParamSchema
 import KcoreSpec.InjApart
 import KcoreSpec.TieEX
