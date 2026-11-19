@@ -87,6 +87,7 @@ differs f2-examples/e1-tag.kompile.kore
 differs f2-examples/e2-binder-nobinder.kore
 differs f2-examples/e2-binder.kompile.kore
 differs f2-examples/e2-cells-exit.kompile.kore
+differs f2-examples/e2-cells-stream.kompile.kore
 differs f2-examples/e2-cells.kompile.kore
 differs f2-examples/e2-clause-genless-wit.kompile.kore
 differs f2-examples/e2-collection-noupdate.kore
@@ -167,9 +168,14 @@ differs f2-examples/e5-ovl-fun-keep-run.kompile.kore
 cannot f2-examples/e5-ovl-fun-lhs-int.kompile.kore
 differs f2-examples/e5-ovl-fun-lhs-owise.kompile.kore
 differs f2-examples/e5-ovl-fun-lhs.kompile.kore
+differs f2-examples/e6-builtintext-unif-subst.kompile.kore
 differs f2-examples/e6-divides-int.kompile.kore
 differs f2-examples/e6-int2bytes-nolen.kompile.kore
 differs f2-examples/e6-list-set-lhs-bound.kompile.kore
+differs f2-examples/e6-mod-array.kompile.kore
+differs f2-examples/e6-mod-kvariable-syntax.kompile.kore
+differs f2-examples/e6-mod-mint.kompile.kore
+differs f2-examples/e6-mod-sort-kbott.kompile.kore
 differs f2-examples/e6-param-bytes.kompile.kore
 differs f2-examples/e6-param-ffi.kompile.kore
 differs f2-examples/e6-param-float.kompile.kore
