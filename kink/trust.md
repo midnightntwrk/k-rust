@@ -12,6 +12,7 @@ kink writes `collect_offered: false` in its execution requests. It reads every r
 ## The cache premise
 
 Only a proved difference kills: kink-campaign's runner compares the exit stop and the whole final configuration of the baseline and the mutant on each program.
+A grammar mutant's kill `mutant-rejects` is a proved difference of acceptance, with no run of the mutant ("What a grammar kill trusts", below).
 With identical inputs, a cached proved difference stands without being re-run: this rests on k-rust's compile and execution determinism,
 on the cache key naming every input of the outcome (kink's build, the k-rust revision, the specification, the mutation, the program, its baseline result and the budget),
 and on the integrity of the cache directory, which is trusted like the build.
@@ -278,6 +279,64 @@ An `accepts` projection observes whether each side accepts the program (below), 
   An entry is `undecided` only where a call of the search under the projections failed, an event of the host; every other entry is a function of the run's inputs (where the search order a decision needs is not in the store, `run` makes the call that gives it rather than leave the entry to what the cache holds).
 
 Nothing of a judgement under a projection is cached: it is recomputed from the stored raw results on every run, so no key names a projection and no stored verdict can be stale under a changed projection.
+
+## What a grammar kill trusts
+
+A grammar mutation edits the sentences that say which program text parses to which term: a production (a token definition among them), a lexical, priority or associativity declaration (PJ-34; kink-flow README, "Grammar edits").
+Its mutant keeps every rule's term, so it differs from the specification in which text parses to which term, and, where it deletes or inserts a production, in the values of a sort.
+kink-flow `run` judges one by parsing every case again under the mutant's grammar (kink-flow `reparse`), and kills only in the direction `mutant-rejects`: the specification accepts a program and the mutant does not parse it.
+That kill is a difference of acceptance, the whole pipeline's, which ignores the stage (projections package, D2), and it runs nothing on the mutant.
+Only `run`'s first-kill search, without `--verify`, in a flow that declares no `[[projection]]`, judges a grammar mutation; `run --full`, `run --verify`, a flow with `[[projection]]`, coverage flips, `prune` and a `fuzz` kill job give it `error` with reason `grammar-not-run`, and the krs front end refuses a grammar edit (`not-judged`).
+
+- The mutant is the edit applied to the specification's sentences, its rules' terms kept.
+  kink-flow reads a grammar edit with k-rust's outer parser and lowering of every source file's K view, which parse no rule's body, never by loading the edited text, which would parse every rule again under the edited grammar.
+  The loaded specification's sentences of an edited declaration must be what that lowering reads from its text (`unread-declaration`), and the patch pairs them with the edited declaration's: a pair that differs is replaced, a sentence left over deleted or inserted (kink-flow README, "Grammar edits").
+  A production replaced in place has another k-rust content identity, so kink-patch `apply` points every term built with it at its replacement (`replaced_productions`, `retarget_productions`): a rule's application of it is an application of the same constructor (kink-patch `tests/grammar.rs` `a_rule_built_with_a_replaced_production_names_its_replacement`).
+  A deleted production's terms are not retargeted: a rule that still applies it is left to `apply`, the parser gate below and compilation.
+- Both parsers are k-rust's, built by the same code.
+  The specification's input grammar is k-rust's `ProgramGrammar::new` of the loaded definition (kink-corpus `InputGrammar::prepare`).
+  The mutant's is `ProgramGrammar::new` of the mutant's definition, `kink_patch::apply` of the mutation's pinned patch on the baseline (`InputGrammar::with_program_grammar_of`), built once per mutation, beside the specification's, which it never replaces.
+  Each case is assembled over each grammar by k-rust's `ConfigurationAssembler`: the program text by `ProgramParser::from_resolved` of the grammar's resolution at the syntax module, at the program's start sort, and each `variables` text by its reading modules' grammars (k-rust `docs/compatibility.md`, "Configuration variable text": the syntax module's first, then the main module's).
+  The mutant's grammar keeps the specification's main and syntax module, configuration variables with their sorts, default start sort and stream-cell flag (kink-corpus `with_program_grammar_of`).
+  They are read from the configuration, the cell productions it lowers to and the module names, which kink-flow's grammar edits leave alone: an edit addresses only a grammar declaration a source file writes (a production that lies in none, such as a configuration's cell, is `non-rule-sentence`), and a change of a file's modules, imports or requires is `structure-changed`; kink-patch `generate_grammar` takes no cell production as a site.
+  Both sides parse the same texts, the inputs as admission read them (a program of O's kept in its row, a stated program's read again by `InputSession::admitted_inputs`): decoding precedes parsing and reads no grammar of the mutant.
+  The kill trusts k-rust's parser to give each text the parse its grammar defines, on both sides; kink only compares the two outcomes.
+- An ambiguity is a rejection.
+  A program must read one way (k-rust `ProgramParser::parse_readings`): k-rust's program parser refuses a text with several readings (`ParseError::Ambiguous`), as `ConfigurationError::Program` for the program text and `ConfigurationError::Parse` for a variable's text.
+  kink-corpus reads both as `InputError::Parse`, a text that does not parse.
+  The reparse reads that as `rejected` (kink-flow `admit::reassemble`), and admission reads it the same way for the specification (stage `parse`, which meets a `rejected = "parse"` statement).
+  So a mutant that makes an accepted program ambiguous rejects it.
+  A variable's text that one reading module's grammar does not parse, an ambiguous one included, is read by the next, so it is rejected only where every reading module's grammar fails.
+  A parse refusal at a start sort no module of the mutant declares is no rejection, since no text parses there: the case is `unknown` (`grammar-mutant-refuses`).
+  kink-flow `tests/check.rs` `a_grammar_mutant_that_rejects_an_accepted_case_is_killed` checks the reading end to end (dropping `left` from the group of `+` makes `1 + 2 + 3` ambiguous, and that program kills the mutant, `mutant-rejects`); no passage pin holds it.
+- A grammar mutation resolves only when its mutant gives a program parser for the syntax module (`no-program-parser`).
+  kink-patch `Mutant::program_parser` builds it as assembly builds the parser of `$PGM` (`ProgramGrammar::new` of the mutant's definition, then `ProgramParser::from_resolved` at the syntax module), and kink-flow refuses a mutation it fails for as invalid, with k-rust's reason (an invalid regex, a token two productions rank differently, a priority cycle); kink-patch `generate_grammar` rejects such a candidate.
+  A mutant with no parser has no language, so nothing it fails to parse is evidence.
+  The gate builds the `$PGM` parser only: where the mutant's grammar gives no parser for a variable's reading module, assembly refuses with `InputError::Grammar`, which kink-corpus keeps apart from `InputError::Parse`, and the case is `unknown` (`grammar-mutant-refuses`), never a rejection; so is every other refusal of the mutant's assembly that is not a parse refusal.
+- `mutant-rejects` rests on the two parses and the specification's acceptance.
+  A program of O that the mutant's grammar rejects kills where the specification accepts it: a pipeline that does not parse a text rejects it whatever its later layers would do, so the mutant's rejection is decided by its parse, and its run is not needed.
+  The specification's acceptance is read from its program row (this command's results update: a stored result record, under the cache premise above, or a live run), by the rule of the `accepts` projection ("What a kill under a projection trusts": an end reached at the `[stop]`, or of a declared `finished` class, accepted; kink-flow `projected::baseline_acceptance`), and carries that bullet's limits: which halt an end's summary reports can depend on the order of exploration.
+  An undefined step is no end in the record, and the row does not state one: an undefined step can add a rejecting path to an accepting run, never remove an end it accepts at, and the mutant has no accepting path at all, so the two differ whether an undefined step is read as a rejection or as no end.
+  Where the specification's acceptance is not decided the case is `unknown` (`grammar-acceptance-not-decided`); in a flow that declares no ends, every program with an end not reached at the `[stop]` is such a case.
+  Where the specification rejects the program, both reject, and the case agrees.
+  The mutant must compile (`NativeValidator::validate`, on the mutant as written): one that does not is `not-admitted`, whatever its cases parse to.
+  A baseline with a finding no `[spec] assume_joined` names is `baseline-findings`, and an empty O is `no-comparable-program`, as for a rule mutation.
+  The kill reads no run of the mutant, so it rests on none of the premises about a mutant's runs ("What a kill trusts": its claims, its consistency, its ends being data).
+  Nothing of a reparse is stored: the mutant's grammar and every case's reparse are recomputed on every run, so the kill takes nothing from a cache but the specification's result records; `run --verify` re-proves no such kill, since it does not judge a grammar mutation.
+  A recorded killer only orders, as for a rule kill: it is the killer while it still kills.
+- `mutant-accepts` and `parses-differently` are not yet run, so neither kills.
+  A program the specification rejects at parse (a met `rejected = "parse"` statement) that the mutant parses, and a program of O the mutant parses to another initial configuration, would be killed only by the mutant's whole pipeline on its own term (its admission checks and its run), which kink does not run yet: such a case is `unknown` (`grammar-run-not-supported`), and no premise about such a run is taken.
+  A case both grammars parse to the specification's initial configuration is the mutant's run of the specification's test case, judged by the search as for a rule mutant, with every premise of "What a kill trusts".
+  A kill there has no grammar direction, since the parse outcome does not differ, and is `unknown` (`same-parse-run-differs`); a compilation equal to the specification's is `survived` (`same-parse-equivalent-compilation`), never `equivalent`, since the parser differs.
+- The claims a grammar mutant drops bear on those runs only, never on a `mutant-rejects` kill, which reads no claim.
+  The search runs the claim-free mutant, as for a rule mutation ("What a kill trusts", the claim-removal bullet).
+  An edit of a lexical, priority or associativity declaration redefines no symbol, and neither does a replacement of a production that is no cell, user-list or bracket production (whose text kompile reads to build other sentences) and keeps its label, sort parameters, result sort, attributes but for position keys, and nonterminals in order, changing only its terminals and regex terminals (kink-patch `claims.rs` `parse_only`): priority and associativity reach KORE only as unparsing attributes of a symbol, and a token's value is read from its sort and hook, not from its regex (the k-rust passages kink-patch `tests/grammar.rs` `GRAMMAR_PASSAGES` pins).
+  A deleted production, and any other replacement of one, redefines every symbol.
+  An inserted fresh constructor withdraws the claims kink-patch's growth reading reaches (`ClaimSupport::growth`) and rests on the parametric premise ("What a kill trusts", the bullet "A mutant that adds a constructor").
+- Follow restrictions do not exist at this k-rust, so no grammar edit edits one.
+  A follow or precede restriction makes a token's language depend on the text around it; no K source syntax writes one, k-rust's grammar has no place for one, and its KAST JSON reader refuses a document that states one (k-rust `docs/compatibility.md`, "Token precede and follow restrictions"); a regex terminal holds its regex alone (`ProductionItem::RegexTerminal`).
+  kink-patch `tests/grammar.rs` `a_follow_restriction_has_no_place_in_k_rust_definitions` pins that passage and the regex terminal's documentation by digest (`GRAMMAR_PASSAGES`), and names `RegexTerminal`'s fields in a pattern without `..`, so it fails the day k-rust gains a restriction, which then becomes a mutation site (PJ-34 `resolved`).
+  Dropping a regex anchor is a token loosening (`drop-anchor`), not a dropped restriction.
 
 ## Stack dependence
 
