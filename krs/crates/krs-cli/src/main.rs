@@ -308,9 +308,9 @@ The corpus is <package>/kink (or --corpus DIR):
                     hits, written by krs kink query; krs kink prune reads it and writes
                     no section
   snapshots/        values a user accepted, one file per (projection, case), for each
-                    [[projection]] with relation = \"snapshot\": compare judges an
-                    implementation's value against its file, and only krs kink accept
-                    writes one; committed with the corpus
+                    [[projection]] with relation = \"snapshot\" and each metric's baseline
+                    (kind = \"metric\"): compare judges an implementation's value against
+                    its file, and only krs kink accept writes one; committed with the corpus
   .kink-flow/       kink-flow's caches, never committed (a .gitignore beside FLOW.toml
                     holding /.kink-flow/ keeps them out)
 
@@ -389,7 +389,8 @@ the definition accepts or rejects it (or neither is known), and which obligation
 run would newly discharge (no kill or flip, which need mutant runs); it prints each admitted case
 as a case document carrying provenance from --found-by and --reason, and writes no case file,
 lock or cache entry. accept --projection NAME writes the value each case's implementation states
-under a snapshot projection of FLOW.toml (relation = \"snapshot\") as the case's snapshot,
+under a snapshot projection of FLOW.toml (relation = \"snapshot\", or a metric's baseline under
+kind = \"metric\"; a host-dependent metric has none) as the case's snapshot,
 snapshots/<projection>/<case id>.json in the corpus, from compare's own run of the implementation
 whose view names it (--only CASE accepts only those cases); it lists the files it created or
 replaced, each case with no value (could-not-apply, a failure), whose file it leaves as it is,

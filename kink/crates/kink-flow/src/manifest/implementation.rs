@@ -77,7 +77,7 @@ pub enum Protocol {
     V2,
     /// `kink-implementation/3`: `/2`, where an answer may also say that the implementation
     /// rejects the program (`end: "rejected"`, with its `message` and the definition's refused
-    /// end it names, `refused`).
+    /// end it names, `refused`), and state metrics of its run (`metrics`).
     V3,
 }
 
@@ -113,6 +113,13 @@ impl Protocol {
     /// Whether an answer of the protocol can say that the implementation rejects the program.
     #[must_use]
     pub const fn has_rejections(self) -> bool {
+        matches!(self, Self::V3)
+    }
+
+    /// Whether an answer of the protocol can state metrics (`metrics`), which a view naming a
+    /// `metric` projection measures.
+    #[must_use]
+    pub const fn has_metrics(self) -> bool {
         matches!(self, Self::V3)
     }
 }
@@ -653,9 +660,35 @@ pub(super) fn resolve_views(
             if projection.is_snapshot() {
                 snapshot_producers.insert(name.clone(), index);
             }
+            // Only a gate makes a metric's regression a finding, so a required view without one
+            // would decide nothing.
+            if let Some(metric) = &projection.metric
+                && metric.max_regression.is_none()
+                && view.required
+            {
+                return Err(ManifestError::new(
+                    format!("implementation[{index}].views[{position}].required"),
+                    if metric.host_dependent {
+                        format!(
+                            "the projection `{name}` measures a host-dependent metric, which is \
+                             reported only and decides no exit status: leave `required` out"
+                        )
+                    } else {
+                        format!(
+                            "the projection `{name}` measures a metric without \
+                             `max_regression`, so no case of it is a finding: declare \
+                             `max_regression` on the projection to gate it, or leave \
+                             `required` out"
+                        )
+                    },
+                ));
+            }
             match projection.kind {
                 ProjectionKind::Accepts => view.accepts = true,
                 ProjectionKind::Trace => view.channels.clone_from(&projection.channels),
+                // A metric view compares no cell and no channel: kink-flow judges it alone
+                // (`crate::compare`), by the projection it names.
+                ProjectionKind::Metric => {}
                 ProjectionKind::End => {
                     if projection.channels.is_some() {
                         return Err(ManifestError::new(

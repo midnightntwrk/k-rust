@@ -3,9 +3,9 @@
 
 use kink_corpus::ProgramSource;
 use kink_flow::manifest::{
-    Budget, DEFAULT_MAX_DEPTH, DEFAULT_TIME_MS, FlowManifest, KrsSpec, ManifestError, ManifestFile,
-    Program, ProjectionKind, ProjectionSection, RecordCell, RejectedStage, Relation, SpecDecl,
-    SpecSection,
+    Budget, DEFAULT_MAX_DEPTH, DEFAULT_TIME_MS, Direction, FlowManifest, KrsSpec, ManifestError,
+    ManifestFile, MaxRegression, MetricSection, Program, ProjectionKind, ProjectionSection,
+    RecordCell, RejectedStage, Relation, SpecDecl, SpecSection,
 };
 use std::path::{Path, PathBuf};
 
@@ -529,6 +529,7 @@ fn a_flow_without_projections_has_the_default_one() {
         channels: None,
         domain: None,
         relation: Relation::Definition,
+        metric: None,
     };
     assert_eq!(manifest.projections(), vec![default.clone()]);
     assert_eq!(manifest.projection("default"), Some(default.clone()));
@@ -787,13 +788,13 @@ fn projection_errors_name_the_key() {
         ),
         (
             "[[projection]]\nname = \"p\"\nkind = \"metric\"\n",
-            "projection[0].kind",
-            "`metric` is not a kind of this build",
+            "projection[0].metric",
+            "missing",
         ),
         (
             "[[projection]]\nname = \"p\"\nkind = \"view\"\n",
             "projection[0].kind",
-            "`view` is no kind: `end` (the default), `accepts` or `trace`",
+            "`view` is no kind: `end` (the default), `accepts`, `trace` or `metric`",
         ),
         (
             "[[projection]]\nname = \"p\"\nkind = 1\n",
@@ -961,6 +962,194 @@ fn a_snapshot_projection_is_decoded_and_named() {
         "projection[0].relation",
         "a `trace` projection has no snapshot",
     );
+}
+
+/// A `metric` projection names one metric of an implementation's answer and the direction that is
+/// better (projections PJ-21): a deterministic one is a snapshot of its baseline, gated where it
+/// has `max_regression`; a host-dependent one is reported only. It keeps no cell of the record.
+#[test]
+fn a_metric_projection_is_decoded_and_named() {
+    let implementation = |views: &str| {
+        format!(
+            "[[implementation]]\nname = \"cli\"\ngiven = \"inputs\"\ncommand = [\"cli\"]\nprotocol = \
+             \"kink-implementation/3\"\nviews = [{views}]\n"
+        )
+    };
+    let manifest = decode(&format!(
+        "{SPEC}[[projection]]\nname = \"alloc\"\nkind = \"metric\"\nmetric = \"bytes\"\n\
+         direction = \"lower\"\nmax_regression = {{ percent = 5 }}\n\n[[projection]]\nname = \
+         \"steps\"\nkind = \"metric\"\nmetric = \"steps\"\ndirection = \"higher\"\nrelation = \
+         \"snapshot\"\n\n[[projection]]\nname = \"wall\"\nkind = \"metric\"\nmetric = \"wall_ns\"\n\
+         direction = \"lower\"\nhost_dependent = true\n\n{}",
+        implementation(
+            "{ projection = \"alloc\", required = true }, { projection = \"steps\" }, { projection \
+             = \"wall\" }"
+        )
+    ))
+    .unwrap();
+    let alloc = manifest.projection("alloc").unwrap();
+    assert_eq!(alloc.kind, ProjectionKind::Metric);
+    assert_eq!(
+        alloc.metric,
+        Some(MetricSection {
+            name: "bytes".into(),
+            direction: Direction::Lower,
+            max_regression: Some(MaxRegression::Percent(5)),
+            host_dependent: false,
+        })
+    );
+    assert_eq!(alloc.relation, Relation::Snapshot);
+    let steps = manifest.projection("steps").unwrap();
+    assert_eq!(steps.relation, Relation::Snapshot);
+    let wall = manifest.projection("wall").unwrap();
+    assert_eq!(wall.relation, Relation::Reported);
+    assert!(wall.is_host_dependent() && !wall.is_snapshot());
+    // A metric view compares no cell and no channel, and keeps no cell of the record.
+    let views = &manifest.implementations[0].views;
+    assert!(
+        views
+            .iter()
+            .all(|view| !view.accepts && view.channels.is_none())
+    );
+    assert!(views[0].required && views[0].front_end.is_empty());
+    assert_eq!(manifest.record_cells, Some(Vec::new()));
+    // `run` judges no metric projection: none is listed by default, and naming one is refused.
+    assert_eq!(manifest.run_projections(), Vec::new());
+    assert_error(
+        &format!(
+            "{SPEC}[run]\nprojections = [\"steps\"]\n\n[[projection]]\nname = \"steps\"\nkind = \
+             \"metric\"\nmetric = \"s\"\ndirection = \"lower\"\n"
+        ),
+        "run.projections[0]",
+        "`steps` is a metric projection",
+    );
+    let named = manifest.projections_value().unwrap();
+    assert_eq!(
+        named[0],
+        serde_json::json!({"name": "alloc", "kind": "metric", "metric": "bytes", "direction":
+            "lower", "max_regression": {"percent": 5}, "relation": "snapshot"})
+    );
+    assert_eq!(named[1]["relation"], "snapshot");
+    assert_eq!(
+        named[2],
+        serde_json::json!({"name": "wall", "kind": "metric", "metric": "wall_ns", "direction":
+            "lower", "host_dependent": true})
+    );
+    // A host-dependent metric's projection may be named by several implementations: it has no
+    // snapshot.
+    decode(&format!(
+        "{SPEC}[[projection]]\nname = \"wall\"\nkind = \"metric\"\nmetric = \"w\"\ndirection = \
+         \"lower\"\nhost_dependent = true\n\n{}\n[[implementation]]\nname = \"other\"\ngiven = \
+         \"inputs\"\ncommand = [\"o\"]\nviews = [{{ projection = \"wall\" }}]\n",
+        implementation("{ projection = \"wall\" }")
+    ))
+    .unwrap();
+    let m = "[[projection]]\nname = \"m\"\nkind = \"metric\"\n";
+    let gated = format!("{m}metric = \"b\"\ndirection = \"lower\"\n");
+    for (text, key, message) in [
+        (
+            format!("{m}direction = \"lower\"\n"),
+            "projection[0].metric",
+            "missing",
+        ),
+        (
+            format!("{m}metric = \" \"\ndirection = \"lower\"\n"),
+            "projection[0].metric",
+            "is blank",
+        ),
+        (
+            format!("{m}metric = \"b\"\n"),
+            "projection[0].direction",
+            "missing",
+        ),
+        (
+            format!("{m}metric = \"b\"\ndirection = \"down\"\n"),
+            "projection[0].direction",
+            "`down` is no direction: `lower`",
+        ),
+        (
+            format!("{gated}max_regression = 5\n"),
+            "projection[0].max_regression",
+            "expected `{ absolute = N }`",
+        ),
+        (
+            format!("{gated}max_regression = {{ absolute = 1, percent = 2 }}\n"),
+            "projection[0].max_regression",
+            "expected `{ absolute = N }`",
+        ),
+        (
+            format!("{gated}max_regression = {{ relative = 2 }}\n"),
+            "projection[0].max_regression.relative",
+            "expected `{ absolute = N }`",
+        ),
+        (
+            format!("{gated}max_regression = {{ percent = -1 }}\n"),
+            "projection[0].max_regression.percent",
+            "must not be negative",
+        ),
+        (
+            format!("{gated}max_regression = {{ percent = 0.5 }}\n"),
+            "projection[0].max_regression.percent",
+            "expected an integer",
+        ),
+        (
+            format!("{gated}host_dependent = \"yes\"\n"),
+            "projection[0].host_dependent",
+            "expected a boolean",
+        ),
+        (
+            format!("{gated}host_dependent = true\nmax_regression = {{ absolute = 1 }}\n"),
+            "projection[0].max_regression",
+            "a host-dependent metric is reported only",
+        ),
+        (
+            format!("{gated}host_dependent = true\nrelation = \"snapshot\"\n"),
+            "projection[0].relation",
+            "a host-dependent metric is reported only",
+        ),
+        (
+            format!("{gated}relation = \"equal\"\n"),
+            "projection[0].relation",
+            "a `metric` projection's relation is `snapshot`",
+        ),
+        (
+            format!("{gated}compare = [\"k\"]\n"),
+            "projection[0].compare",
+            "a `metric` projection measures one metric",
+        ),
+        (
+            "[[projection]]\nname = \"e\"\nmetric = \"b\"\n".to_owned(),
+            "projection[0].metric",
+            "is a `metric` projection's key",
+        ),
+        (
+            format!(
+                "{gated}\n{}",
+                implementation("{ projection = \"m\", required = true }")
+            ),
+            "implementation[0].views[0].required",
+            "measures a metric without `max_regression`",
+        ),
+        (
+            format!(
+                "{gated}host_dependent = true\n\n{}",
+                implementation("{ projection = \"m\", required = true }")
+            ),
+            "implementation[0].views[0].required",
+            "measures a host-dependent metric, which is reported only",
+        ),
+        (
+            format!(
+                "{gated}\n{}\n[[implementation]]\nname = \"b\"\ngiven = \"inputs\"\ncommand = \
+                 [\"b\"]\nviews = [{{ projection = \"m\" }}]\n",
+                implementation("{ projection = \"m\" }")
+            ),
+            "implementation[1].views[0].projection",
+            "the projection `m` is a snapshot, and implementation[0] names it first",
+        ),
+    ] {
+        assert_error(&format!("{SPEC}{text}"), key, message);
+    }
 }
 
 /// `[result] cells` is replaced by `[[projection]]` (projections package, gate G4): a manifest

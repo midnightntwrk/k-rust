@@ -415,7 +415,7 @@ fn assert_acceptance(package: &Package) {
     let document = json_of(&output);
     // `misnamed`'s malformed answer fails a required view.
     assert_status(&output, 2);
-    assert_eq!(document["version"], 10, "{document:#}");
+    assert_eq!(document["version"], 11, "{document:#}");
     let row = |implementation: &str, case: &str| {
         document["rows"]
             .as_array()

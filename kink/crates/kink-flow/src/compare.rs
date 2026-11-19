@@ -51,6 +51,16 @@
 //! its `message` and `refused`, or `crashed`), under an `end` projection the end as the answer
 //! states it. A program with no accepted value is `pending`, which is no answer, never a failure.
 //!
+//! A view naming a `metric` projection measures one metric the implementation's answer states
+//! (`metrics`, [`Protocol::V3`]; [`crate::metric`]) and reads no side of the definition
+//! ([`metric_rows`]): a deterministic metric is judged against the baseline a user accepted for
+//! the program (a snapshot, `{metric, value}`) in the projection's direction, `improved`,
+//! `regressed` or `stayed` with the change, or `pending` without a baseline; a regression beyond
+//! the projection's `max_regression` is a finding (status 1), and no other metric verdict decides
+//! a status. A metric declared `host_dependent` is reported only (`measured`): no baseline, no
+//! gate, no lock row, and its value is never read from or written to the answer cache. The front
+//! end never sees a metric view: it compares no cell.
+//!
 //! Only a required view decides the exit status ([`compare_status`]); every other verdict is
 //! reported.
 //!
@@ -102,7 +112,10 @@
 //! the result cache (`--cache DIR`) under the protocol, the identity's digest, the command and
 //! the request's digest, and a later run with the same four reads it instead of starting the
 //! implementation. What the cache trusts
-//! is that the same binary, given the same request, gives the same answer. The verdict is
+//! is that the same binary, given the same request, gives the same answer. An implementation
+//! one of whose views measures a host-dependent metric is never answered from the cache and
+//! never written to it, on every program: the value is the host's, so it must be this run's,
+//! and no cached answer holds it. The verdict is
 //! computed again from the answer on every run, against the definition's ends and the views as
 //! they are then, so an edit of the definition, the corpus or a view is never answered from the
 //! cache. Without `identity` nothing says which build answered, and the implementation always
@@ -113,8 +126,8 @@ use crate::cli::{EXIT_NO, EXIT_UNANSWERED, EXIT_UNASKED, EXIT_YES, exit_join};
 use crate::clock::Kept;
 use crate::lock::{Lock, LockKind, Settle, compare_row_id};
 use crate::manifest::{
-    FlowManifest, Given, ImplementationSection, ObserveSection, Program, ProjectionSection,
-    Protocol, RejectedStage, ViewSection,
+    FlowManifest, Given, ImplementationSection, MetricSection, ObserveSection, Program,
+    ProjectionSection, Protocol, RejectedStage, ViewSection,
 };
 use crate::results::{
     BaselineRunner, ProgramRow, ResultClass, cache_directory, current_record,
@@ -193,7 +206,15 @@ pub const COMPARE_SCHEMA: &str = "kink-flow-compare";
 /// `start`, a trace, inputs with a document) is `not-compared` for the reason
 /// `rejected-before-run` (status 0); every view of an unmet one is `not-compared` (`definition`).
 /// A flow whose entries state no rejection gives version 9's document but for its version.
-pub const COMPARE_VERSION: u64 = 10;
+/// 11 since an implementation of `kink-implementation/3` may state metrics of its run and a view
+/// may measure one under a `metric` projection (projections PJ-21): a row's `answer` has
+/// `metrics` where the answer states them; a metric view's entry has `metric` (`{name,
+/// direction, value, baseline, change, exceeded}`, or `{name, value, host_dependent}`), the
+/// verdicts `improved`, `regressed`, `stayed`, `measured` (a host-dependent metric) and
+/// `pending` (no baseline), the reason `metric-unstated`; `summary` has `metrics` and counts the
+/// metric verdicts. A flow without a metric projection gives version 10's document but for its
+/// version.
+pub const COMPARE_VERSION: u64 = 11;
 /// The protocol a request names (`protocol`) and its answer is read by, unless the
 /// implementation declares another ([`Protocol`]).
 pub const PROTOCOL: &str = "kink-implementation/1";
@@ -301,6 +322,9 @@ pub enum NotCompared {
     /// document in the definition's vocabulary (a program rejected at `input`). Neither the
     /// declaration nor the corpus is at fault and no run can answer, so it decides nothing (0).
     RejectedBeforeRun(String),
+    /// A metric view whose answer states no value of its metric (`metrics`): fix the
+    /// implementation or the projection's `metric` (2).
+    MetricUnstated(String),
 }
 
 /// The reason of a view a program rejected before it runs leaves without what it compares
@@ -326,6 +350,7 @@ impl NotCompared {
             Self::OutsideDomain { .. } => OUTSIDE_DOMAIN_REASON,
             Self::SnapshotUnreadable(_) => "snapshot-unreadable",
             Self::RejectedBeforeRun(_) => REJECTED_BEFORE_RUN_REASON,
+            Self::MetricUnstated(_) => "metric-unstated",
         }
     }
 
@@ -352,7 +377,8 @@ impl NotCompared {
             | Self::ObservedNothing(detail)
             | Self::NoEnd { detail, .. }
             | Self::SnapshotUnreadable(detail)
-            | Self::RejectedBeforeRun(detail) => detail.clone(),
+            | Self::RejectedBeforeRun(detail)
+            | Self::MetricUnstated(detail) => detail.clone(),
             Self::OutsideDomain { projection, domain } => format!(
                 "the program is outside the domain of the projection `{projection}` ({}): the \
                  projection does not apply to it",
@@ -384,7 +410,8 @@ impl NotCompared {
             Self::Omitted(_)
             | Self::LeftOut(_)
             | Self::Unreadable(_)
-            | Self::SnapshotUnreadable(_) => EXIT_UNASKED,
+            | Self::SnapshotUnreadable(_)
+            | Self::MetricUnstated(_) => EXIT_UNASKED,
             Self::NoEnd { carried: true, .. }
             | Self::OutsideDomain { .. }
             | Self::RejectedBeforeRun(_) => EXIT_YES,
@@ -1092,6 +1119,9 @@ pub struct Stated {
     pub cells: Option<Value>,
     /// Its `observations` ([`Protocol::V2`]), where the request asked for them.
     pub observations: Option<Value>,
+    /// Its `metrics` ([`Protocol::V3`]), where it states them: each a count of its run
+    /// ([`crate::metric`]).
+    pub metrics: Option<Map<String, Value>>,
 }
 
 impl From<Answer> for Stated {
@@ -1101,11 +1131,13 @@ impl From<Answer> for Stated {
                 end: StatedEnd::Ended(end),
                 cells: Some(cells),
                 observations: None,
+                metrics: None,
             },
             Answer::CouldNotApply { reason } => Self {
                 end: StatedEnd::CouldNotApply(reason),
                 cells: None,
                 observations: None,
+                metrics: None,
             },
         }
     }
@@ -1124,15 +1156,19 @@ impl Stated {
     }
 
     /// The answer's member of its row: `{end, reason}` (its cells and its observations are
-    /// compared, not shown).
+    /// compared, not shown), and its `metrics` where it states them (reported).
     fn value(&self) -> Value {
-        match &self.end {
+        let mut value = match &self.end {
             StatedEnd::CouldNotApply(reason) => json!({"end": self.word(), "reason": reason}),
             StatedEnd::Rejected { message, refused } => {
                 json!({"end": self.word(), "reason": null, "message": message, "refused": refused})
             }
             _ => json!({"end": self.word(), "reason": null}),
+        };
+        if let Some(metrics) = &self.metrics {
+            value["metrics"] = Value::Object(metrics.clone());
         }
+        value
     }
 }
 
@@ -1165,7 +1201,8 @@ pub fn read_answer_2(bytes: &[u8], asked: Asked) -> Result<Stated, String> {
 /// `end: "rejected"`, with an optional `message` (a string) and an optional `refused` (an
 /// object of `end`, a nonempty string, and optionally `reason`), no `cells` and no `reason`, and
 /// `observations` exactly as a `stopped` or `final` answer has them. `message` and `refused`
-/// belong to a `rejected` answer only.
+/// belong to a `rejected` answer only. Any answer but `could-not-apply` may also state `metrics`,
+/// an object of metric names to counts of its run ([`crate::metric::read_metrics`]).
 ///
 /// # Errors
 ///
@@ -1178,6 +1215,7 @@ pub fn read_answer_3(bytes: &[u8], asked: Asked) -> Result<Stated, String> {
 /// [`read_answer_3`]).
 fn read_answer_of(protocol: Protocol, bytes: &[u8], asked: Asked) -> Result<Stated, String> {
     let rejections = protocol.has_rejections();
+    let metrics = protocol.has_metrics();
     let protocol = protocol.as_str();
     let document: Value = serde_json::from_slice(bytes)
         .map_err(|error| format!("stdout is not one JSON document: {error}"))?;
@@ -1187,11 +1225,12 @@ fn read_answer_of(protocol: Protocol, bytes: &[u8], asked: Asked) -> Result<Stat
     if let Some(key) = object.keys().find(|key| {
         !matches!(key.as_str(), "end" | "cells" | "reason" | "observations")
             && !(rejections && matches!(key.as_str(), "message" | "refused"))
+            && !(metrics && key.as_str() == "metrics")
     }) {
         return Err(if rejections {
             format!(
                 "the answer has the key `{key}`; an answer holds `end`, `cells`, `reason`, \
-                 `observations`, `message` and `refused` only ({protocol})"
+                 `observations`, `message`, `refused` and `metrics` only ({protocol})"
             )
         } else {
             format!(
@@ -1256,7 +1295,7 @@ fn read_answer_of(protocol: Protocol, bytes: &[u8], asked: Asked) -> Result<Stat
             StatedEnd::Rejected { message, refused }
         }
         "could-not-apply" => {
-            for key in ["cells", "observations"] {
+            for key in ["cells", "observations", "metrics"] {
                 if object.contains_key(key) {
                     return Err(format!("a `could-not-apply` answer states no `{key}`"));
                 }
@@ -1270,6 +1309,7 @@ fn read_answer_of(protocol: Protocol, bytes: &[u8], asked: Asked) -> Result<Stat
                 end: StatedEnd::CouldNotApply(reason.to_owned()),
                 cells: None,
                 observations: None,
+                metrics: None,
             });
         }
         other => {
@@ -1325,10 +1365,15 @@ fn read_answer_of(protocol: Protocol, bytes: &[u8], asked: Asked) -> Result<Stat
                 .to_owned(),
         );
     }
+    let metrics = object
+        .remove("metrics")
+        .map(crate::metric::read_metrics)
+        .transpose()?;
     Ok(Stated {
         end,
         cells,
         observations,
+        metrics,
     })
 }
 
@@ -2009,6 +2054,131 @@ fn snapshot_kind(manifest: &FlowManifest, view: &ViewSection) -> Option<Snapshot
     }
 }
 
+/// The metric `view` measures, where it names a `metric` projection ([`crate::metric`]).
+fn metric_of(manifest: &FlowManifest, view: &ViewSection) -> Option<MetricSection> {
+    manifest.projection(view.projection.as_deref()?)?.metric
+}
+
+/// `implementation` as the front end sees it: without its metric views, which kink-flow judges
+/// alone and which compare no cell ([`metric_rows`]); `None` where it has none.
+fn without_metric_views(
+    manifest: &FlowManifest,
+    implementation: &ImplementationSection,
+) -> Option<ImplementationSection> {
+    implementation
+        .views
+        .iter()
+        .any(|view| metric_of(manifest, view).is_some())
+        .then(|| ImplementationSection {
+            views: implementation
+                .views
+                .iter()
+                .filter(|view| metric_of(manifest, view).is_none())
+                .cloned()
+                .collect(),
+            ..implementation.clone()
+        })
+}
+
+/// Whether some view of `implementation` measures a host-dependent metric.
+fn measures_host(manifest: &FlowManifest, implementation: &ImplementationSection) -> bool {
+    implementation
+        .views
+        .iter()
+        .any(|view| metric_of(manifest, view).is_some_and(|metric| metric.host_dependent))
+}
+
+/// The row of the metric view `view` (measuring `metric`) of `program`: on an answer, the value
+/// its `metrics` states (`not-compared`, `metric-unstated`, where it states none), reported
+/// (`measured`) for a host-dependent metric, else judged against the baseline a user accepted
+/// ([`crate::metric::baseline`], a snapshot beside the flow): `improved`, `regressed`, `stayed`
+/// or `pending` (no baseline), with `metric: {name, direction, value, baseline, change,
+/// exceeded}` (`exceeded` where the projection has `max_regression`, which makes a regression
+/// beyond it status 1), and the value pushed on `observed_values` (what `accept` writes);
+/// `could-not-apply` (README D6). A crash states no value: no row.
+fn metric_rows(
+    manifest: &FlowManifest,
+    view: &ViewSection,
+    metric: &MetricSection,
+    program: &Program,
+    observation: &Observation<'_>,
+    observed_values: &mut Vec<SnapshotObserved>,
+) -> Option<Value> {
+    let Observation::Answer(stated) = observation else {
+        return None;
+    };
+    let projection = view.projection.as_deref().unwrap_or(&view.name);
+    let relative = snapshot::relative(projection, &program.id);
+    let mut row = view_row(view);
+    if !metric.host_dependent {
+        row["snapshot"] = json!(relative);
+    }
+    if let StatedEnd::CouldNotApply(reason) = &stated.end {
+        row["verdict"] = json!("could-not-apply");
+        row["detail"] = json!(reason);
+        return Some(row);
+    }
+    let Some(value) = crate::metric::stated(stated.metrics.as_ref(), &metric.name) else {
+        not_compared_row(
+            &mut row,
+            &NotCompared::MetricUnstated(format!(
+                "the answer states no value of the metric `{}` (`metrics`)",
+                metric.name
+            )),
+        );
+        return Some(row);
+    };
+    row["status"] = json!(EXIT_YES);
+    if metric.host_dependent {
+        row["verdict"] = json!("measured");
+        row["metric"] = json!({"name": metric.name, "value": value, "host_dependent": true});
+        return Some(row);
+    }
+    row["metric"] = json!({
+        "name": metric.name,
+        "direction": metric.direction.as_str(),
+        "value": value,
+        "baseline": null,
+        "change": null,
+        "exceeded": null,
+    });
+    observed_values.push(SnapshotObserved {
+        program: program.id.clone(),
+        projection: projection.to_owned(),
+        value: crate::metric::baseline(&metric.name, value),
+    });
+    let file = snapshot::path(&manifest.directory, projection, &program.id);
+    let baseline = match snapshot::read(&file) {
+        snapshot::Reference::Missing => {
+            row["verdict"] = json!("pending");
+            row["detail"] = json!(format!(
+                "no baseline is accepted for the program: {relative} does not exist"
+            ));
+            row["status"] = json!(EXIT_UNANSWERED);
+            return Some(row);
+        }
+        snapshot::Reference::Unreadable(why) => Err(why),
+        snapshot::Reference::Value(accepted) => crate::metric::baseline_of(&accepted, &metric.name),
+    };
+    match baseline {
+        Err(why) => not_compared_row(
+            &mut row,
+            &NotCompared::SnapshotUnreadable(format!("the baseline {relative}: {why}")),
+        ),
+        Ok(baseline) => {
+            let judged = crate::metric::judge(metric, value, baseline);
+            row["verdict"] = json!(judged.verdict);
+            row["metric"]["baseline"] = json!(baseline);
+            row["metric"]["change"] = json!(judged.change);
+            row["metric"]["exceeded"] = json!(judged.exceeded);
+            if judged.exceeded == Some(true) {
+                row["status"] = json!(EXIT_NO);
+            }
+        }
+    }
+    Some(row)
+}
+
 /// The value a snapshot view observed of one (implementation, program): what `accept` writes
 /// ([`crate::accept`]), the value [`snapshot_rows`] judged.
 #[derive(Clone, Debug, PartialEq)]
@@ -2035,7 +2205,7 @@ enum Observation<'a> {
 /// line diff), `pending` (no file: no answer, status 3), `not-compared` (`snapshot-unreadable`),
 /// or `could-not-apply` (README D6). A crash gives an `end` snapshot view no row: it states no
 /// end. Each row names its file (`snapshot`, relative to the flow's directory). Each value judged
-/// is also pushed on `observed_values`.
+/// is also pushed on `observed_values`. A metric view's row is [`metric_rows`]'s.
 fn snapshot_rows(
     manifest: &FlowManifest,
     implementation: &ImplementationSection,
@@ -2047,6 +2217,16 @@ fn snapshot_rows(
         .views
         .iter()
         .map(|view| {
+            if let Some(metric) = metric_of(manifest, view) {
+                return metric_rows(
+                    manifest,
+                    view,
+                    &metric,
+                    program,
+                    observation,
+                    observed_values,
+                );
+            }
             let kind = snapshot_kind(manifest, view)?;
             let observed = match observation {
                 Observation::Answer(stated) => snapshot::observed(kind, stated),
@@ -2425,7 +2605,9 @@ fn definition_rows(
 /// The status of one (implementation, program) row: the join of its required views' verdicts
 /// (`equal` [`EXIT_YES`]; `different` and `could-not-apply` [`EXIT_NO`], the implementation
 /// stating that it does not apply a program being a disagreement with a reason; `not-compared`
-/// its reason's status; `agree-up-to` its own: [`EXIT_YES`] where the definition limits every
+/// its reason's status; a metric view's `improved`, `regressed`, `stayed` and `measured` its own
+/// ([`EXIT_NO`] for a regression beyond the projection's `max_regression`, else [`EXIT_YES`]);
+/// `agree-up-to` its own: [`EXIT_YES`] where the definition limits every
 /// horizon, [`EXIT_UNANSWERED`] where the implementation's answer limits one), and of its
 /// failure where some required view has no verdict (`failure.decided` false: a crash its
 /// acceptance views judged decides only them). A view that is not required decides nothing.
@@ -2444,7 +2626,12 @@ pub fn row_status(row: &Value) -> u8 {
                 Some("equal") => EXIT_YES,
                 Some("different" | "could-not-apply") => EXIT_NO,
                 Some("pending") => EXIT_UNANSWERED,
-                Some("not-compared" | "agree-up-to") => view["status"]
+                // A metric's verdict states its own status: 1 for a regression beyond its
+                // projection's `max_regression`, else 0.
+                Some(
+                    "not-compared" | "agree-up-to" | "improved" | "regressed" | "stayed"
+                    | "measured",
+                ) => view["status"]
                     .as_u64()
                     .and_then(|status| u8::try_from(status).ok())
                     .unwrap_or(EXIT_UNASKED),
@@ -2892,7 +3079,29 @@ fn compared_selected(
                 format!("implementation `{}`: {detail}", implementation.name),
             );
         }
-        if let Err(detail) = vocabulary.check(implementation) {
+        // A metric is stated in `metrics`, which only a protocol with metrics has.
+        if let Some((index, view)) = implementation
+            .views
+            .iter()
+            .enumerate()
+            .find(|(_, view)| metric_of(manifest, view).is_some())
+            && !implementation.protocol().is_some_and(Protocol::has_metrics)
+        {
+            return refused(
+                manifest,
+                "declaration",
+                format!(
+                    "implementation `{}`: views[{index}]: the view `{}` measures a metric, which \
+                     an answer of `{}` cannot state: declare `protocol = \"{}\"`",
+                    implementation.name,
+                    view.name,
+                    implementation.protocol,
+                    Protocol::V3.as_str()
+                ),
+            );
+        }
+        let front = without_metric_views(manifest, implementation);
+        if let Err(detail) = vocabulary.check(front.as_ref().unwrap_or(implementation)) {
             return refused(
                 manifest,
                 "declaration",
@@ -3026,11 +3235,16 @@ fn compared_selected(
         for (((implementation, declaration), shapes), domains) in
             selected.iter().zip(&declared).zip(&traced).zip(&domains)
         {
+            let declared_implementation: &ImplementationSection = implementation;
             // The implementation is asked, and judged, under the views whose domain holds the
             // program: the declaration itself where every view's does.
             let (applying, applying_shapes, outside_rows) =
                 applying_views(implementation, domains, shapes, program, manifest);
             let implementation = applying.as_ref().unwrap_or(*implementation);
+            // What the front end sees of it: its views but the metric views, which compare no
+            // cell.
+            let front = without_metric_views(manifest, implementation);
+            let front = front.as_ref().unwrap_or(implementation);
             let shapes = applying_shapes.as_ref().unwrap_or(shapes);
             outside.push(outside_rows);
             let mut out = json!({
@@ -3104,7 +3318,7 @@ fn compared_selected(
             });
             let asked = trace.as_ref().and_then(|trace| trace.as_ref().ok());
             let unasked = trace.as_ref().and_then(|trace| trace.as_ref().err());
-            let end_views = implementation.has_end_view();
+            let end_views = front.has_end_view();
             // Some view asks for an answer whatever its trace: an end view or an acceptance
             // view.
             let answered_views = implementation.views.iter().any(|view| !view.is_trace());
@@ -3170,9 +3384,11 @@ fn compared_selected(
             let limit =
                 Duration::from_millis(implementation.time_ms.unwrap_or(manifest.budget.time_ms));
             // Where the implementation names its build, the answer of an earlier run of the same
-            // build on the same request (module documentation).
+            // build on the same request (module documentation); never for an implementation
+            // measured under a host-dependent metric, whose value is each run's alone.
             let key = declaration["identity"]["sha256"]
                 .as_str()
+                .filter(|_| !measures_host(manifest, declared_implementation))
                 .map(|identity| AnswerKey::new(implementation, identity, &request_sha256));
             let cached = key.as_ref().and_then(|key| key.read(&answers));
             out["cached"] = json!(cached.is_some());
@@ -3202,11 +3418,9 @@ fn compared_selected(
                     key.write(&answers, &stdout);
                 }
                 if let Some(cells) = &stated.cells {
-                    vocabulary
-                        .read_answer(implementation, cells)
-                        .map_err(|detail| {
-                            Failure::new("malformed", format!("`cells`: {detail}"))
-                        })?;
+                    vocabulary.read_answer(front, cells).map_err(|detail| {
+                        Failure::new("malformed", format!("`cells`: {detail}"))
+                    })?;
                 }
                 if let (Some(asked), Some(observations)) = (asked, &stated.observations) {
                     stated_channels(observations, asked).map_err(|detail| {
@@ -3430,11 +3644,13 @@ fn compared_selected(
         document["stop"] = stop;
     }
     document["result"] = json!({"not_compared": not_compared});
-    let snapshots = snapshot_views(&json!({
+    let declarations = json!({
         "implementations": declared,
         "projections": manifest.projections_value(),
-    }));
-    document["summary"] = summary(&rows, second_protocol, &snapshots);
+    });
+    let snapshots = snapshot_views(&declarations);
+    let metrics = metric_views(&declarations);
+    document["summary"] = summary(&rows, second_protocol, &snapshots, &metrics);
     document["rows"] = json!(rows);
     if programs_failed(&update) && document["refusal"].is_null() {
         document["cache_error"] = json!(true);
@@ -3892,11 +4108,14 @@ fn stored_values(entry: &Value, recorded: &Value, names: &[Value]) -> Option<Vec
 /// snapshot's content and the observed value and is never recorded (null); `identity_sha256` is null for an implementation
 /// that declares no `identity`. An `agree-up-to` verdict's row also has `horizon`, its horizon as
 /// canonical JSON, and an entry whose rejections were compared and agree has `refused`, the
-/// answer's refusal as canonical JSON; no other row has either key. A row of a run that gave no
+/// answer's refusal as canonical JSON; no other row has either key. A metric view's row holds its
+/// verdict alone (never its value, baseline or change), and a host-dependent metric's view has
+/// no row. A row of a run that gave no
 /// answer has no verdict, so it has none here, but for the acceptance views of a crash.
 #[must_use]
 pub fn verdict_rows(document: &Value) -> Vec<Value> {
     let rows = document["rows"].as_array().map_or(&[][..], Vec::as_slice);
+    let metrics = metric_views(document);
     let mut verdicts = Vec::new();
     for implementation in document["implementations"].as_array().into_iter().flatten() {
         let name = implementation["name"].as_str().unwrap_or_default();
@@ -3904,6 +4123,14 @@ pub fn verdict_rows(document: &Value) -> Vec<Value> {
         for row in rows.iter().filter(|row| row["implementation"] == name) {
             let program = row["program"].as_str().unwrap_or_default();
             for view in row["views"].as_array().into_iter().flatten() {
+                // A host-dependent metric is the host's: reported, never recorded.
+                if metrics.iter().any(|metric| {
+                    metric.host_dependent
+                        && metric.implementation == name
+                        && view["view"] == metric.view.as_str()
+                }) {
+                    continue;
+                }
                 let verdict = view["verdict"].as_str().unwrap_or_default();
                 // A `could-not-apply` reason is the implementation's own words, which may change
                 // with no change of verdict, so it is reported and never recorded.
@@ -4191,13 +4418,22 @@ pub fn clock_lines(document: &Value) -> Vec<String> {
 
 /// The verdicts a summary counts, in the order its line gives them; `agree-up-to` only in the
 /// document of a flow with an implementation of a second protocol (`second_protocol`), since
-/// only a trace view has that verdict, and `pending` only in one with a snapshot view
-/// (`snapshots`), since only a snapshot view has that verdict.
-fn counted(second_protocol: bool, snapshots: bool) -> impl Iterator<Item = &'static str> {
+/// only a trace view has that verdict, `pending` only in one with a snapshot or a metric view
+/// (`snapshots`, `metrics`), since only those have that verdict, and `improved`, `regressed`,
+/// `stayed` and `measured` only in one with a metric view.
+fn counted(
+    second_protocol: bool,
+    snapshots: bool,
+    metrics: bool,
+) -> impl Iterator<Item = &'static str> {
     [
         "equal",
         "agree-up-to",
         "different",
+        "improved",
+        "regressed",
+        "stayed",
+        "measured",
         "could-not-apply",
         "pending",
         "not-compared",
@@ -4205,15 +4441,17 @@ fn counted(second_protocol: bool, snapshots: bool) -> impl Iterator<Item = &'sta
     .into_iter()
     .filter(move |verdict| match *verdict {
         "agree-up-to" => second_protocol,
-        "pending" => snapshots,
+        "pending" => snapshots || metrics,
+        "improved" | "regressed" | "stayed" | "measured" => metrics,
         _ => true,
     })
 }
 
 /// The snapshot views of a compare document's selected implementations
 /// (`implementations[].views[]` naming, by `projection`, an entry of `projections` whose
-/// `relation` is `snapshot`), each `(implementation, view)`, in the declarations' order. A view
-/// naming a projection has the projection's name, so `view` names the projection too.
+/// `relation` is `snapshot` and whose kind is not `metric`: those are [`metric_views`]), each
+/// `(implementation, view)`, in the declarations' order. A view naming a projection has the
+/// projection's name, so `view` names the projection too.
 #[must_use]
 pub fn snapshot_views(document: &Value) -> Vec<(String, String)> {
     let snapshot = |name: &str| {
@@ -4221,7 +4459,11 @@ pub fn snapshot_views(document: &Value) -> Vec<(String, String)> {
             .as_array()
             .into_iter()
             .flatten()
-            .any(|projection| projection["name"] == name && projection["relation"] == "snapshot")
+            .any(|projection| {
+                projection["name"] == name
+                    && projection["relation"] == "snapshot"
+                    && projection["kind"] != "metric"
+            })
     };
     let mut views = Vec::new();
     for implementation in document["implementations"].as_array().into_iter().flatten() {
@@ -4276,17 +4518,138 @@ pub fn snapshot_counts<'a>(
         .collect()
 }
 
+/// One metric view of a compare document ([`metric_views`]).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MetricView {
+    pub implementation: String,
+    /// The view's name, the metric projection's.
+    pub view: String,
+    /// The metric it measures (`metric`).
+    pub metric: String,
+    /// `direction`, as written.
+    pub direction: String,
+    pub host_dependent: bool,
+}
+
+/// The metric views of a compare document's selected implementations
+/// (`implementations[].views[]` naming, by `projection`, an entry of `projections` of kind
+/// `metric`), in the declarations' order.
+#[must_use]
+pub fn metric_views(document: &Value) -> Vec<MetricView> {
+    let mut views = Vec::new();
+    for implementation in document["implementations"].as_array().into_iter().flatten() {
+        for view in implementation["views"].as_array().into_iter().flatten() {
+            let Some(projection) = document["projections"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|projection| {
+                    projection["kind"] == "metric"
+                        && view["projection"].as_str().is_some()
+                        && projection["name"] == view["projection"]
+                })
+            else {
+                continue;
+            };
+            let text = |value: &Value| value.as_str().unwrap_or_default().to_owned();
+            views.push(MetricView {
+                implementation: text(&implementation["name"]),
+                view: text(&view["name"]),
+                metric: text(&projection["metric"]),
+                direction: text(&projection["direction"]),
+                host_dependent: projection["host_dependent"] == true,
+            });
+        }
+    }
+    views
+}
+
+/// Whether `(implementation, view)` is one of `metrics`.
+fn is_metric(metrics: &[MetricView], implementation: &str, view: &str) -> bool {
+    metrics
+        .iter()
+        .any(|metric| metric.implementation == implementation && metric.view == view)
+}
+
+/// Per metric view of `views` ([`metric_views`]), in their order, over `entries` (`(implementation,
+/// view, verdict, value)`, `value` the measured count where the entry states it): `{projection,
+/// implementation, metric, measured, total, improved, regressed, stayed, pending}`, `measured`
+/// the entries whose verdict rests on a measured value (`improved`, `regressed`, `stayed`,
+/// `pending`, `measured`; a lock row states no value, only its verdict) and `total` the sum of
+/// the values stated (null where it exceeds 2^64 - 1, and 0 over lock rows, which state none).
+#[must_use]
+pub fn metric_counts<'a>(
+    views: &[MetricView],
+    entries: impl IntoIterator<Item = (&'a str, &'a str, &'a str, Option<u64>)>,
+) -> Vec<Value> {
+    // measured, improved, regressed, stayed, pending; and the total.
+    let mut counts = vec![([0_u64; 5], 0_u128); views.len()];
+    for (implementation, view, verdict, value) in entries {
+        let Some(index) = views
+            .iter()
+            .position(|metric| metric.implementation == implementation && metric.view == view)
+        else {
+            continue;
+        };
+        let (counted, total) = &mut counts[index];
+        if value.is_some()
+            || matches!(
+                verdict,
+                "improved" | "regressed" | "stayed" | "pending" | "measured"
+            )
+        {
+            counted[0] += 1;
+        }
+        if let Some(value) = value {
+            *total += u128::from(value);
+        }
+        if let Some(at) = ["improved", "regressed", "stayed", "pending"]
+            .iter()
+            .position(|word| *word == verdict)
+        {
+            counted[at + 1] += 1;
+        }
+    }
+    views
+        .iter()
+        .zip(counts)
+        .map(
+            |(metric, ([measured, improved, regressed, stayed, pending], total))| {
+                json!({
+                    "projection": metric.view,
+                    "implementation": metric.implementation,
+                    "metric": metric.metric,
+                    "measured": measured,
+                    "total": serde_json::Number::from_u128(total),
+                    "improved": improved,
+                    "regressed": regressed,
+                    "stayed": stayed,
+                    "pending": pending,
+                })
+            },
+        )
+        .collect()
+}
+
 /// The counts of the document's verdicts and failures: `{verdicts: {equal, different,
 /// could-not-apply, not-compared}, required: {..the same, of required views}, failures}`, each
 /// with `agree-up-to` under `second_protocol` and `pending` where some snapshot view is among
 /// `snapshots` ([`counted`]), `views`, each (implementation, view)'s agreement ([`view_counts`]),
-/// and, where some snapshot view is, `snapshots`, each one's counts ([`snapshot_counts`]). A view
-/// outside its projection's domain is counted in none: the projection does not apply to the
-/// program.
-fn summary(rows: &[Value], second_protocol: bool, snapshots: &[(String, String)]) -> Value {
+/// and, where some snapshot view is, `snapshots`, each one's counts ([`snapshot_counts`]); where
+/// some metric view is, the metric verdicts ([`counted`]) and `metrics`, each one's counts
+/// ([`metric_counts`]) with its `direction`, `host_dependent` and `exceeded` (its regressions
+/// beyond `max_regression`). A metric view is in no `views` count: it agrees with no definition.
+/// A view outside its projection's domain is counted in none: the projection does not apply to
+/// the program.
+fn summary(
+    rows: &[Value],
+    second_protocol: bool,
+    snapshots: &[(String, String)],
+    metrics: &[MetricView],
+) -> Value {
     let mut verdicts = Map::new();
     let mut required = Map::new();
-    for verdict in counted(second_protocol, !snapshots.is_empty()) {
+    for verdict in counted(second_protocol, !snapshots.is_empty(), !metrics.is_empty()) {
         let count = |only_required: bool| {
             rows.iter()
                 .flat_map(|row| row["views"].as_array().into_iter().flatten())
@@ -4299,19 +4662,22 @@ fn summary(rows: &[Value], second_protocol: bool, snapshots: &[(String, String)]
         verdicts.insert(verdict.into(), json!(count(false)));
         required.insert(verdict.into(), json!(count(true)));
     }
-    let entries = rows.iter().flat_map(|row| {
-        row["views"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .map(move |view| ViewEntry {
-                implementation: row["implementation"].as_str().unwrap_or_default(),
-                view: view["view"].as_str().unwrap_or_default(),
-                required: view["required"] == true,
-                verdict: view["verdict"].as_str().unwrap_or_default(),
-                horizon: view["horizon"].clone(),
-            })
-    });
+    let entries = rows
+        .iter()
+        .flat_map(|row| {
+            row["views"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(move |view| ViewEntry {
+                    implementation: row["implementation"].as_str().unwrap_or_default(),
+                    view: view["view"].as_str().unwrap_or_default(),
+                    required: view["required"] == true,
+                    verdict: view["verdict"].as_str().unwrap_or_default(),
+                    horizon: view["horizon"].clone(),
+                })
+        })
+        .filter(|entry| !is_metric(metrics, entry.implementation, entry.view));
     let mut summary = json!({
         "verdicts": verdicts,
         "required": required,
@@ -4336,6 +4702,43 @@ fn summary(rows: &[Value], second_protocol: bool, snapshots: &[(String, String)]
                     })
             })
         ));
+    }
+    if !metrics.is_empty() {
+        let entries = || {
+            rows.iter().flat_map(|row| {
+                let implementation = row["implementation"].as_str().unwrap_or_default();
+                row["views"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(move |view| (implementation, view))
+            })
+        };
+        let mut counts = metric_counts(
+            metrics,
+            entries().map(|(implementation, view)| {
+                (
+                    implementation,
+                    view["view"].as_str().unwrap_or_default(),
+                    view["verdict"].as_str().unwrap_or_default(),
+                    view["metric"]["value"].as_u64(),
+                )
+            }),
+        );
+        for (count, metric) in counts.iter_mut().zip(metrics) {
+            count["direction"] = json!(metric.direction);
+            count["host_dependent"] = json!(metric.host_dependent);
+            count["exceeded"] = json!(
+                entries()
+                    .filter(|(implementation, view)| {
+                        *implementation == metric.implementation
+                            && view["view"] == metric.view.as_str()
+                            && view["metric"]["exceeded"] == true
+                    })
+                    .count()
+            );
+        }
+        summary["metrics"] = json!(counts);
     }
     summary
 }
@@ -4492,6 +4895,12 @@ pub fn text(document: &Value) -> Result<String, String> {
                     .or_else(|| view["difference"]["path"].as_str())
                     .map(|at| format!(" at {at}"))
                     .unwrap_or_default(),
+                "improved" | "regressed" | "stayed" | "measured" => metric_text(&view["metric"]),
+                "pending" if view["metric"].is_object() => format!(
+                    "{}: {}",
+                    metric_text(&view["metric"]),
+                    view["detail"].as_str().unwrap_or_default()
+                ),
                 "could-not-apply" | "not-compared" | "agree-up-to" | "pending" => view["detail"]
                     .as_str()
                     .map(|detail| format!(": {detail}"))
@@ -4519,6 +4928,7 @@ pub fn text(document: &Value) -> Result<String, String> {
             counted(
                 summary[member].get("agree-up-to").is_some(),
                 summary[member].get("pending").is_some(),
+                summary[member].get("measured").is_some(),
             )
             .map(|verdict| format!("{} {verdict}", summary[member][verdict]))
             .collect::<Vec<_>>()
@@ -4548,6 +4958,33 @@ pub fn text(document: &Value) -> Result<String, String> {
                 snapshot["pending"]
             ));
         }
+        for metric in summary["metrics"].as_array().into_iter().flatten() {
+            let name = format!(
+                "{} {} (metric `{}`",
+                metric["implementation"].as_str().unwrap_or("?"),
+                metric["projection"].as_str().unwrap_or("?"),
+                metric["metric"].as_str().unwrap_or("?"),
+            );
+            text.push_str(&if metric["host_dependent"] == true {
+                format!(
+                    "{name}, host-dependent): total {} over {} programs measured\n",
+                    metric["total"], metric["measured"]
+                )
+            } else {
+                format!(
+                    "{name}, {} is better): total {} over {} programs measured; {} improved, {} \
+                     regressed ({} beyond max_regression), {} stayed, {} pending\n",
+                    metric["direction"].as_str().unwrap_or("?"),
+                    metric["total"],
+                    metric["measured"],
+                    metric["improved"],
+                    metric["regressed"],
+                    metric["exceeded"],
+                    metric["stayed"],
+                    metric["pending"]
+                )
+            });
+        }
         text.push_str(&format!(
             "verdicts: {}; required views: {}; failed runs: {}\n",
             counts("verdicts"),
@@ -4556,6 +4993,26 @@ pub fn text(document: &Value) -> Result<String, String> {
         ));
     }
     Ok(text)
+}
+
+/// A metric entry's `metric` member as a line says it: `: VALUE` and, against a baseline,
+/// ` (baseline B, change C)`, with `beyond max_regression` where its gate is exceeded.
+fn metric_text(metric: &Value) -> String {
+    let mut text = format!(": {}", metric["value"]);
+    if !metric["baseline"].is_null() {
+        let change = metric["change"].as_i64().unwrap_or_default();
+        text.push_str(&format!(
+            " (baseline {}, change {}{change}{})",
+            metric["baseline"],
+            if change > 0 { "+" } else { "" },
+            if metric["exceeded"] == true {
+                ", beyond max_regression"
+            } else {
+                ""
+            }
+        ));
+    }
+    text
 }
 
 /// A trace view's first difference ([`TraceDifference::value`]) as a line says it: the channel,
@@ -5518,6 +5975,55 @@ mod tests {
         );
     }
 
+    /// A third protocol answer may state counts of its run (`metrics`, projections PJ-21), on any
+    /// end but `could-not-apply`; its row's answer reports them; no other protocol has them.
+    #[test]
+    fn a_third_protocol_answer_may_state_metrics() {
+        let asked = Asked {
+            observe: false,
+            end_view: false,
+        };
+        let stated =
+            read_answer_3(br#"{"end": "final", "metrics": {"bytes": 12}}"#, asked).unwrap();
+        assert_eq!(
+            stated.metrics,
+            Some(json!({"bytes": 12}).as_object().unwrap().clone())
+        );
+        assert_eq!(
+            stated.value(),
+            json!({"end": "final", "reason": null, "metrics": {"bytes": 12}})
+        );
+        let rejected =
+            read_answer_3(br#"{"end": "rejected", "metrics": {"bytes": 0}}"#, asked).unwrap();
+        assert_eq!(rejected.metrics.unwrap()["bytes"], 0);
+        // No `metrics`: the row's answer is what it was.
+        let plain = read_answer_3(br#"{"end": "final"}"#, asked).unwrap();
+        assert_eq!(plain.metrics, None);
+        assert_eq!(plain.value(), json!({"end": "final", "reason": null}));
+        for (bytes, expected) in [
+            (
+                &br#"{"end": "could-not-apply", "reason": "no", "metrics": {}}"#[..],
+                "a `could-not-apply` answer states no `metrics`",
+            ),
+            (
+                br#"{"end": "final", "metrics": {"bytes": 1.5}}"#,
+                "`metrics.bytes` is 1.5, not a metric's value",
+            ),
+            (
+                br#"{"end": "final", "metrics": []}"#,
+                "`metrics` is not a JSON object",
+            ),
+        ] {
+            let error = read_answer_3(bytes, asked).unwrap_err();
+            assert!(error.starts_with(expected), "{error}");
+        }
+        let error = read_answer_2(br#"{"end": "final", "metrics": {}}"#, asked).unwrap_err();
+        assert!(
+            error.starts_with("the answer has the key `metrics`"),
+            "{error}"
+        );
+    }
+
     /// A view judged by acceptance: equal where both sides accept, or both reject and agree on
     /// the parts of the refusal both state; different otherwise, naming both sides; a crash
     /// differs where the definition states its acceptance, and has no verdict where it does not.
@@ -5533,6 +6039,7 @@ mod tests {
             },
             cells: None,
             observations: None,
+            metrics: None,
         };
         let verdict = |row: &Value| {
             (
@@ -5743,6 +6250,7 @@ mod tests {
             },
             cells: None,
             observations: None,
+            metrics: None,
         };
         let equal = || ("equal".to_owned(), Value::Null, Value::Null);
         let different = || ("different".to_owned(), Value::Null, Value::Null);
@@ -5841,6 +6349,7 @@ mod tests {
                 end: StatedEnd::Horizon,
                 cells: None,
                 observations: Some(observations.clone()),
+                metrics: None,
             })
         );
         assert_eq!(
@@ -5852,6 +6361,7 @@ mod tests {
                 end: StatedEnd::Ended(EndWord::Final),
                 cells: Some(json!({"pc": 1})),
                 observations: Some(observations),
+                metrics: None,
             })
         );
         // Without an end view the end's cells may be left out.
@@ -5872,6 +6382,7 @@ mod tests {
                 end: StatedEnd::CouldNotApply("late".to_owned()),
                 cells: None,
                 observations: None,
+                metrics: None,
             })
         );
         for (bytes, asked, expected) in [
@@ -6011,6 +6522,7 @@ mod tests {
             end,
             cells: cells.then(|| json!({"pc": 1})),
             observations: observations.then(|| json!({"channels": [{"name": "ticks"}]})),
+            metrics: None,
         }
     }
 
@@ -6332,7 +6844,7 @@ mod tests {
             {"implementation": "fake", "view": "end", "required": true, "compared": 3, "agreeing": 1},
             {"implementation": "fake", "view": "ticks", "required": true, "compared": 3, "agreeing": 2},
         ]);
-        let summary = summary(&rows, true, &[]);
+        let summary = summary(&rows, true, &[], &[]);
         assert_eq!(summary["views"], counts);
         let document = json!({"schema": COMPARE_SCHEMA, "rows": rows, "summary": summary,
                               "implementations": [{"name": "fake"}]});
@@ -6404,7 +6916,7 @@ mod tests {
             json!({"implementation": "cpu", "program": "p", "required": true,
                                "failure": null, "views": rows}),
         ];
-        let summary = summary(&rows, false, &[]);
+        let summary = summary(&rows, false, &[], &[]);
         assert_eq!(
             summary.to_string(),
             r#"{"failures":0,"required":{"could-not-apply":0,"different":1,"equal":0,"not-compared":0},"verdicts":{"could-not-apply":0,"different":2,"equal":0,"not-compared":0},"views":[{"agreeing":0,"compared":1,"implementation":"cpu","required":true,"view":"writes"},{"agreeing":0,"compared":1,"implementation":"cpu","required":false,"view":"all"}]}"#
@@ -6476,7 +6988,7 @@ mod tests {
                        "views": [view]})
             })
             .collect::<Vec<_>>();
-        let summary = summary(&rows, true, &[]);
+        let summary = summary(&rows, true, &[], &[]);
         assert_eq!(
             summary["required"],
             json!({"equal": 0, "agree-up-to": 1, "different": 2, "could-not-apply": 0,

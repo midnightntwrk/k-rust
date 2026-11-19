@@ -1011,7 +1011,7 @@ fn a_view_compares_only_the_programs_of_its_projection_s_domain() {
         ..Default::default()
     };
     let document = kink_flow::compare::command(&read, &options, Some(&Equal), "compare");
-    assert_eq!(document["version"], 10, "{document:#}");
+    assert_eq!(document["version"], 11, "{document:#}");
     let views = |implementation: &str, program: &str| -> Vec<(String, String, Value)> {
         let row = document["rows"]
             .as_array()
@@ -1257,7 +1257,7 @@ fn a_program_rejected_before_it_runs_is_rejected_on_the_definition_side() {
         ..Default::default()
     };
     let document = kink_flow::compare::command(&read, &options, Some(&Accepting), "compare");
-    assert_eq!(document["version"], 10, "{document:#}");
+    assert_eq!(document["version"], 11, "{document:#}");
     assert!(document["refusal"].is_null(), "{document:#}");
     let class = |program: &str| {
         document["programs"]
@@ -2788,5 +2788,358 @@ fn accept_writes_the_compared_values_as_snapshots() {
             "msg/gone.json",
             "msg/two.json"
         ]
+    );
+}
+
+/// A view naming a `metric` projection (projections PJ-21) measures a metric the answer states
+/// (`metrics`, `kink-implementation/3`) and reads no side of the definition: a deterministic
+/// metric against the baseline accepted for the program, in the projection's direction, a
+/// regression beyond `max_regression` a finding of a required view; a host-dependent metric is
+/// reported only, its answers never cached and its views in no lock row. The lock holds each
+/// deterministic metric view's verdict and the counts per projection, never a measured value or
+/// a baseline, so a count that moves within its verdict moves no row; `accept` writes the
+/// baselines compare measured.
+#[test]
+fn a_metric_view_measures_the_answer_against_its_baseline() {
+    let meter = "req=$(cat)\nwall=$(date +%s%N)\ncase \"$req\" in\n  \
+                 *'\"program\":\"both\"'*) m=\"\\\"bytes\\\": $(cat both-bytes), \\\"steps\\\": 7\" ;;\n  \
+                 *'\"program\":\"two\"'*) m='\"bytes\": 120' ;;\n  \
+                 *'\"program\":\"three\"'*) m='\"bytes\": 90, \"steps\": 3' ;;\n  \
+                 *) m='\"bytes\": 50' ;;\nesac\n\
+                 echo \"{\\\"end\\\": \\\"final\\\", \\\"metrics\\\": {$m, \\\"wall_ns\\\": $wall}}\"\n";
+    let plain = "cat > /dev/null\necho '{\"end\": \"final\", \"metrics\": {\"work\": 3}}'\n";
+    let manifest = fs::read_to_string(flow().join("FLOW.toml"))
+        .unwrap()
+        .replace(
+            "[[program]]",
+            "[[projection]]\nname = \"alloc\"\nkind = \"metric\"\nmetric = \"bytes\"\ndirection = \
+             \"lower\"\nmax_regression = { absolute = 10 }\n\n\
+             [[projection]]\nname = \"steps\"\nkind = \"metric\"\nmetric = \"steps\"\ndirection = \
+             \"higher\"\n\n\
+             [[projection]]\nname = \"wall\"\nkind = \"metric\"\nmetric = \"wall_ns\"\ndirection = \
+             \"lower\"\nhost_dependent = true\ndomain = [\"both\", \"two\", \"three\"]\n\n\
+             [[projection]]\nname = \"work\"\nkind = \"metric\"\nmetric = \"work\"\ndirection = \
+             \"lower\"\n\n[[program]]",
+        )
+        + "\n[[program]]\nid = \"two\"\ntext = \"emit(2)\"\n\n\
+           [[program]]\nid = \"three\"\ntext = \"emit(3)\"\n\n\
+           [[program]]\nid = \"four\"\ntext = \"emit(4)\"\n\n\
+           [[implementation]]\nname = \"meter\"\ngiven = \"inputs\"\nprotocol = \
+           \"kink-implementation/3\"\ncommand = [\"sh\", \"meter.sh\"]\nidentity = { file = \
+           \"meter.sh\" }\nviews = [\n  { projection = \"alloc\", required = true },\n  \
+           { projection = \"steps\" },\n  { projection = \"wall\" },\n]\n\n\
+           [[implementation]]\nname = \"plain\"\ngiven = \"inputs\"\nprotocol = \
+           \"kink-implementation/3\"\ncommand = [\"sh\", \"plain.sh\"]\nidentity = { file = \
+           \"plain.sh\" }\nviews = [{ projection = \"work\" }]\n";
+    let dir = fixture("metric", &[("metric", &manifest)]);
+    fs::write(dir.join("meter.sh"), meter).unwrap();
+    fs::write(dir.join("plain.sh"), plain).unwrap();
+    // The count `meter` states for `both`, read at each run, so a test moves it with no new
+    // identity.
+    fs::write(dir.join("both-bytes"), "105").unwrap();
+    let snapshots = dir.join("snapshots");
+    for (file, text) in [
+        ("alloc/both.json", "{\"metric\": \"bytes\", \"value\": 100}"),
+        ("alloc/two.json", "{\"value\": 100, \"metric\": \"bytes\"}"),
+        (
+            "alloc/three.json",
+            "{\"metric\": \"bytes\", \"value\": 100}",
+        ),
+        ("alloc/four.json", "{\"metric\": \"bytes\", \"value\": 50}"),
+        ("steps/both.json", "{\"metric\": \"steps\", \"value\": 5}"),
+    ] {
+        let path = snapshots.join(file);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, text).unwrap();
+    }
+    let path = dir.join("FLOW-metric.toml");
+    let read = FlowManifest::read(&path).unwrap();
+    let lock = dir.join("kink.lock");
+    let cache = dir.join("cache");
+    let compare = |locked: bool| {
+        let options = kink_flow::compare::CompareOptions {
+            lock: Some(lock.clone()),
+            locked,
+            cache: Some(cache.clone()),
+            ..Default::default()
+        };
+        let document = kink_flow::compare::command(&read, &options, Some(&Equal), "compare");
+        assert_eq!(document["refusal"], Value::Null, "{document:#}");
+        document
+    };
+    let entry = |document: &Value, implementation: &str, program: &str, view: &str| {
+        document["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["implementation"] == implementation && row["program"] == program)
+            .and_then(|row| {
+                row["views"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|entry| entry["view"] == view)
+                    .cloned()
+            })
+            .unwrap_or_else(|| panic!("{implementation} {program} {view}: {document:#}"))
+    };
+    let verdicts = |document: &Value, implementation: &str, view: &str| {
+        ["both", "two", "three", "four"]
+            .iter()
+            .map(|program| {
+                let entry = entry(document, implementation, program, view);
+                format!(
+                    "{program} {}{}",
+                    entry["verdict"].as_str().unwrap(),
+                    entry["reason"]
+                        .as_str()
+                        .map(|reason| format!(" {reason}"))
+                        .unwrap_or_default()
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+
+    let first = compare(false);
+    assert_eq!(first["version"], 11);
+    assert_eq!(
+        verdicts(&first, "meter", "alloc"),
+        [
+            "both regressed",
+            "two regressed",
+            "three improved",
+            "four stayed"
+        ]
+    );
+    assert_eq!(
+        entry(&first, "meter", "both", "alloc")["metric"],
+        json!({"name": "bytes", "direction": "lower", "value": 105, "baseline": 100, "change": 5,
+               "exceeded": false})
+    );
+    assert_eq!(entry(&first, "meter", "both", "alloc")["status"], 0);
+    // Beyond `max_regression`: a finding, which the required view makes compare's status.
+    assert_eq!(
+        entry(&first, "meter", "two", "alloc")["metric"]["exceeded"],
+        true
+    );
+    assert_eq!(entry(&first, "meter", "two", "alloc")["status"], 1);
+    assert_eq!(
+        entry(&first, "meter", "three", "alloc")["metric"]["change"],
+        -10
+    );
+    assert_eq!(
+        entry(&first, "meter", "both", "alloc")["snapshot"],
+        "snapshots/alloc/both.json"
+    );
+    assert_eq!(kink_flow::compare::compare_status(&first), 1);
+    // Ungated: higher is better, no baseline is pending, an unstated metric is not compared.
+    assert_eq!(
+        verdicts(&first, "meter", "steps"),
+        [
+            "both improved",
+            "two not-compared metric-unstated",
+            "three pending",
+            "four not-compared metric-unstated"
+        ]
+    );
+    assert_eq!(
+        entry(&first, "meter", "both", "steps")["metric"]["exceeded"],
+        Value::Null
+    );
+    assert_eq!(
+        entry(&first, "meter", "three", "steps")["metric"]["value"],
+        3
+    );
+    // Host-dependent: measured, reported, with no baseline; outside its domain on `four`.
+    assert_eq!(
+        verdicts(&first, "meter", "wall"),
+        [
+            "both measured",
+            "two measured",
+            "three measured",
+            "four not-compared outside-domain"
+        ]
+    );
+    let wall = entry(&first, "meter", "both", "wall");
+    assert_eq!(wall["metric"]["host_dependent"], true);
+    assert!(wall["metric"]["value"].is_u64(), "{wall:#}");
+    assert!(wall.get("snapshot").is_none(), "{wall:#}");
+    let row = first["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["implementation"] == "meter" && row["program"] == "both")
+        .unwrap();
+    assert_eq!(row["answer"]["metrics"]["bytes"], 105, "{row:#}");
+    // The summary: per metric view, its counts; no metric view is in `views`.
+    let metrics = first["summary"]["metrics"].as_array().unwrap();
+    assert_eq!(
+        metrics[0],
+        json!({"projection": "alloc", "implementation": "meter", "metric": "bytes",
+               "direction": "lower", "host_dependent": false, "measured": 4, "total": 365,
+               "improved": 1, "regressed": 2, "stayed": 1, "pending": 0, "exceeded": 1})
+    );
+    assert_eq!(metrics[1]["measured"], 2);
+    assert_eq!(metrics[1]["pending"], 1);
+    assert_eq!(metrics[2]["host_dependent"], true);
+    assert_eq!(metrics[2]["measured"], 3);
+    assert_eq!(first["summary"]["views"], json!([]));
+    assert_eq!(first["summary"]["required"]["regressed"], 2);
+    let text = kink_flow::compare::text(&first).unwrap();
+    assert!(
+        text.contains(
+            "meter two alloc (required): regressed: 120 (baseline 100, change +20, beyond \
+             max_regression)\n"
+        ),
+        "{text}"
+    );
+    assert!(
+        text.contains(
+            "meter alloc (metric `bytes`, lower is better): total 365 over 4 programs measured; \
+             1 improved, 2 regressed (1 beyond max_regression), 1 stayed, 0 pending\n"
+        ),
+        "{text}"
+    );
+    assert!(
+        text.contains("meter wall (metric `wall_ns`, host-dependent): total "),
+        "{text}"
+    );
+    // The lock: each deterministic metric view's verdict, the counts per projection; no value,
+    // no total, no baseline, no change and no host-dependent row.
+    let section = fs::read_to_string(&lock).unwrap();
+    assert!(
+        section.contains(
+            "view = \"alloc\"\nrequired = true\nverdict = \"regressed\"\nrequest_sha256 = "
+        ),
+        "{section}"
+    );
+    assert!(
+        section.contains(
+            "[[compare.metric]]\nprojection = \"alloc\"\nimplementation = \"meter\"\nmetric = \
+             \"bytes\"\nmeasured = 4\nimproved = 1\nregressed = 2\nstayed = 1\npending = 0\n"
+        ),
+        "{section}"
+    );
+    for absent in [
+        "value =",
+        "total =",
+        "view = \"wall\"",
+        "projection = \"wall\"",
+        "baseline =",
+        "wall_ns",
+        "[[compare.view]]",
+        "[[compare.snapshot]]",
+    ] {
+        assert!(!section.contains(absent), "{absent}: {section}");
+    }
+    // The cache: the deterministic answers are cached, the host-dependent ones never are, on
+    // the program outside the host-dependent view's domain too.
+    let second = compare(false);
+    let cached = |document: &Value, implementation: &str| {
+        document["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|row| row["implementation"] == implementation)
+            .map(|row| row["cached"] == true)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(cached(&second, "plain"), [true; 4]);
+    assert_eq!(cached(&second, "meter"), [false; 4]);
+    let mut answers = Vec::new();
+    let mut pending = vec![cache.join("implementation-answers")];
+    while let Some(directory) = pending.pop() {
+        for entry in fs::read_dir(&directory).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                pending.push(path);
+            } else {
+                answers.push(fs::read_to_string(path).unwrap());
+            }
+        }
+    }
+    assert_eq!(answers.len(), 4, "{answers:?}");
+    assert!(
+        answers.iter().all(|answer| !answer.contains("wall_ns")),
+        "{answers:?}"
+    );
+    // The host-dependent values of the second run are another run's: the section is the bytes
+    // it was, and `--locked` confirms it.
+    assert_eq!(fs::read_to_string(&lock).unwrap(), section);
+    let locked = compare(true);
+    assert_eq!(
+        locked["lock"]["status"], "unchanged",
+        "{:#}",
+        locked["lock"]
+    );
+    // A count that moves within its verdict moves no row: `both` stays regressed within the gate.
+    fs::write(dir.join("both-bytes"), "106").unwrap();
+    let moved = compare(true);
+    assert_eq!(
+        entry(&moved, "meter", "both", "alloc")["metric"]["value"],
+        106
+    );
+    assert_eq!(moved["lock"]["status"], "unchanged", "{:#}", moved["lock"]);
+
+    // `accept` writes the baselines compare measured; a host-dependent metric has none.
+    let accept = |projection: &str| {
+        let args = vec!["--projection".to_owned(), projection.to_owned()];
+        let command = FlowCommand::parse("accept", CommandFiles::default(), &args).unwrap();
+        let front = FrontEnd {
+            implementations: Some(&Equal),
+            ..FrontEnd::default()
+        };
+        dispatch(FlowManifest::read(&path).unwrap(), command, front).unwrap()
+    };
+    let (alloc, status) = accept("alloc");
+    assert_eq!(status, EXIT_YES, "{alloc:#}");
+    assert_eq!(alloc["summary"]["replaced"], 3, "{alloc:#}");
+    assert_eq!(alloc["summary"]["unchanged"], 1, "{alloc:#}");
+    assert_eq!(
+        fs::read_to_string(snapshots.join("alloc/two.json")).unwrap(),
+        "{\n  \"metric\": \"bytes\",\n  \"value\": 120\n}\n"
+    );
+    let (steps, status) = accept("steps");
+    assert_eq!(status, kink_flow::cli::EXIT_UNANSWERED, "{steps:#}");
+    assert_eq!(steps["cases"][1]["reason"], "metric-unstated", "{steps:#}");
+    let (wall, status) = accept("wall");
+    assert_eq!(status, EXIT_UNASKED, "{wall:#}");
+    assert_eq!(wall["refusal"]["reason"], "host-dependent", "{wall:#}");
+    assert!(!snapshots.join("wall").exists());
+    let after = compare(false);
+    assert_eq!(
+        verdicts(&after, "meter", "alloc"),
+        ["both stayed", "two stayed", "three stayed", "four stayed"]
+    );
+    assert_eq!(kink_flow::compare::compare_status(&after), EXIT_YES);
+}
+
+/// A metric is stated in `metrics`, which only `kink-implementation/3` has: a view measuring one
+/// under another protocol is refused before any run.
+#[test]
+fn a_metric_view_needs_the_third_protocol() {
+    let manifest = fs::read_to_string(flow().join("FLOW.toml"))
+        .unwrap()
+        .replace(
+            "[[program]]",
+            "[[projection]]\nname = \"alloc\"\nkind = \"metric\"\nmetric = \"bytes\"\ndirection = \
+             \"lower\"\n\n[[program]]",
+        )
+        + "\n[[implementation]]\nname = \"old\"\ngiven = \"inputs\"\nprotocol = \
+           \"kink-implementation/2\"\ncommand = [\"true\"]\nviews = [{ projection = \"alloc\" }]\n";
+    let dir = fixture("metric-protocol", &[("metric", &manifest)]);
+    let read = FlowManifest::read(&dir.join("FLOW-metric.toml")).unwrap();
+    let document = kink_flow::compare::command(
+        &read,
+        &kink_flow::compare::CompareOptions::default(),
+        Some(&Equal),
+        "compare",
+    );
+    assert_eq!(document["refusal"]["reason"], "declaration", "{document:#}");
+    let detail = document["refusal"]["detail"].as_str().unwrap();
+    assert!(
+        detail.contains("views[0]: the view `alloc` measures a metric")
+            && detail.contains("declare `protocol = \"kink-implementation/3\"`"),
+        "{detail}"
     );
 }

@@ -46,13 +46,14 @@ pub enum SnapshotKind {
 
 impl SnapshotKind {
     /// The kind a snapshot projection of `kind` observes; `None` for a `trace` projection, which
-    /// has no snapshot (decoding refuses one).
+    /// has no snapshot (decoding refuses one), and for a `metric` projection, whose snapshot is
+    /// a baseline (`crate::metric`).
     #[must_use]
     pub const fn of(kind: ProjectionKind) -> Option<Self> {
         match kind {
             ProjectionKind::Accepts => Some(Self::Acceptance),
             ProjectionKind::End => Some(Self::End),
-            ProjectionKind::Trace => None,
+            ProjectionKind::Trace | ProjectionKind::Metric => None,
         }
     }
 }
@@ -320,6 +321,7 @@ mod tests {
             },
             cells: None,
             observations: None,
+            metrics: None,
         }
     }
 
@@ -387,6 +389,7 @@ mod tests {
             end: StatedEnd::Ended(crate::compare::EndWord::Final),
             cells: Some(json!({"acc": 3})),
             observations: Some(json!({"ticks": []})),
+            metrics: None,
         };
         assert_eq!(
             observed(SnapshotKind::Acceptance, &accepted),
@@ -404,6 +407,7 @@ mod tests {
             end: StatedEnd::CouldNotApply("later".into()),
             cells: None,
             observations: None,
+            metrics: None,
         };
         assert_eq!(observed(SnapshotKind::Acceptance, &declined), None);
         let exited = Failure {

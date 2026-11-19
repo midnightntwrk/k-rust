@@ -12,7 +12,8 @@
 //! different end, of the same parity), `farther` adds 4 (the same, differing farther),
 //! `both` adds 2 to `acc` and 1 to `n` (two cells differ), `wrong-end` swaps `stopped` and `final`,
 //! `could-not-apply` declines every program, `omit` leaves `acc` out of its answer, `crash` exits
-//! 3, `garbage` prints no JSON, and `sleep` never answers. Its second argument, when given, is a
+//! 3, `garbage` prints no JSON, `sleep` never answers, and `metered` answers as `equal` does and
+//! states the ticks it took as the metric `ticks` (`kink-implementation/3`). Its second argument, when given, is a
 //! file it appends each request to. It never states the computation cell `k`, which each
 //! declaration omits.
 
@@ -120,6 +121,8 @@ case $mode in
 esac
 if [ "$mode" = omit ]; then
   printf '{"end":"%s","cells":{"n":%s}}\n' "$end" "$n"
+elif [ "$mode" = metered ]; then
+  printf '{"end":"%s","cells":{"n":%s,"acc":%s},"metrics":{"ticks":%s}}\n' "$end" "$n" "$acc" "$ticks"
 else
   printf '{"end":"%s","cells":{"n":%s,"acc":%s}}\n' "$end" "$n" "$acc"
 fi
@@ -1263,4 +1266,87 @@ fn run_judges_no_acceptance_over_a_definition_with_no_finished_end() {
         "{row:#}"
     );
     assert_eq!(row.get("projection_search"), None, "{row:#}");
+}
+
+/// A view naming a `metric` projection measures the metric the answer states against its
+/// baseline, through krs as through kink-flow: the front end never sees the metric view, so the
+/// implementation's end view beside it is compared as before; `accept` writes the baselines, a
+/// regression beyond `max_regression` fails the required view, and the lock holds the counts.
+#[test]
+fn a_metric_view_measures_the_answer_against_its_baseline() {
+    let package = Package::new();
+    let corpus = "corpora/metric";
+    package.corpus(
+        corpus,
+        "[[projection]]\nname = \"default\"\n\n[[projection]]\nname = \"ticks\"\nkind = \"metric\"\nmetric = \"ticks\"\ndirection = \
+         \"lower\"\nmax_regression = { absolute = 0 }\n\n[[implementation]]\nname = \"metered\"\n\
+         command = [\"sh\", \"fake.sh\", \"metered\"]\ngiven = \"inputs\"\nprotocol = \
+         \"kink-implementation/3\"\nomits = [\"k\"]\nviews = [{ projection = \"ticks\", required = \
+         true }, { name = \"whole\", required = true }]\n\n",
+        &[("a", 2), ("b", 5), ("z", 0)],
+    );
+    let kink = |verb: &str, arguments: &[&str]| {
+        let mut process = krs_command!();
+        fixture_build_env(&mut process, package.target.path());
+        process
+            .current_dir(package.directory.path())
+            .args(["kink", verb])
+            .args(arguments)
+            .args(["--corpus", corpus])
+            .args(["--package", PACKAGE, "--definition", "main"])
+            .output()
+            .unwrap()
+    };
+    let verdicts = |document: &Value, view: &str| {
+        PROGRAMS
+            .iter()
+            .map(|program| {
+                verdict(row(document, "metered", program), view)["verdict"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned()
+            })
+            .collect::<Vec<_>>()
+    };
+    let before = kink("compare", &[]);
+    assert_status(&before, 3);
+    let document = json_of(&before);
+    assert_eq!(verdicts(&document, "ticks"), ["pending"; 3], "{document:#}");
+    assert_eq!(verdicts(&document, "whole"), ["equal"; 3], "{document:#}");
+    // The `default` projection beside the metric keeps the cells the end view compares.
+    let whole = verdict(row(&document, "metered", PROGRAMS[0]), "whole");
+    assert!(
+        whole["distance"]["compared_cells"].as_u64() > Some(0),
+        "{whole:#}"
+    );
+    let accepted = kink("accept", &["--projection", "ticks"]);
+    assert_status(&accepted, 0);
+    assert_eq!(json_of(&accepted)["summary"]["created"], 3);
+    let directory = package.directory.path().join(corpus);
+    let baseline = directory.join("snapshots/ticks/cases/a/case.toml.json");
+    assert_eq!(
+        fs::read_to_string(&baseline).unwrap(),
+        "{\n  \"metric\": \"ticks\",\n  \"value\": 2\n}\n"
+    );
+    let after = kink("compare", &[]);
+    assert_status(&after, 0);
+    assert_eq!(verdicts(&json_of(&after), "ticks"), ["stayed"; 3]);
+    // A baseline one tick lower: one more tick is a regression beyond `max_regression`.
+    fs::write(&baseline, "{\"metric\": \"ticks\", \"value\": 1}").unwrap();
+    let regressed = kink("compare", &[]);
+    assert_status(&regressed, 1);
+    let document = json_of(&regressed);
+    let entry = verdict(row(&document, "metered", PROGRAMS[0]), "ticks");
+    assert_eq!(entry["verdict"], "regressed", "{entry:#}");
+    assert_eq!(
+        entry["metric"],
+        json!({"name": "ticks", "direction": "lower", "value": 2, "baseline": 1, "change": 1,
+               "exceeded": true})
+    );
+    let lock = fs::read_to_string(directory.join("kink.lock")).unwrap();
+    assert!(
+        lock.contains("[[compare.metric]]\nprojection = \"ticks\"\nimplementation = \"metered\"\n"),
+        "{lock}"
+    );
+    assert!(lock.contains("regressed = 1\n"), "{lock}");
 }

@@ -17,6 +17,11 @@
 //! a `compare` judges `pending`, `different` or `snapshot-unreadable`. Each file is written to a
 //! temporary file beside it and renamed over it.
 //!
+//! Under a `metric` projection the value is the metric's baseline, `{metric, value}`
+//! ([`crate::metric::baseline`]), the count the case's answer states; a case whose answer states
+//! none is `not-accepted` (`metric-unstated`). A host-dependent metric has no baseline: `accept`
+//! refuses its projection (`host-dependent`).
+//!
 //! # Cases without a value
 //!
 //! A case whose run gives no value is `not-accepted`, with the verdict, reason and detail
@@ -46,7 +51,7 @@
 //! # Exit status
 //!
 //! 2 for a refused command (an unknown projection, one whose relation is not a snapshot or that
-//! no view names, a `--only` case the flow does not hold, a refused manifest, specification or
+//! no view names, a host-dependent metric's, a `--only` case the flow does not hold, a refused manifest, specification or
 //! comparison, a front end with no vocabulary), a snapshot that cannot be written, or a result
 //! record that cannot (compare's `cache_error`); else 3 where a selected case is `not-accepted`;
 //! else 0.
@@ -124,6 +129,15 @@ fn selection<'m>(
             ),
         ));
     };
+    if projection.is_host_dependent() {
+        return Err(refuse(
+            "host-dependent",
+            format!(
+                "--projection {name}: the projection measures a host-dependent metric, which is \
+                 reported only: its value is a fact of the host, so no baseline of it is kept"
+            ),
+        ));
+    }
     if !projection.is_snapshot() {
         return Err(refuse(
             "not-a-snapshot",

@@ -41,7 +41,7 @@
 //!   changes no class. Where the definition declares no `finished` end the projection observes
 //!   nothing ([`Judge::Unobservable`], reason [`NO_FINISHED_END`]): every status under it is
 //!   `unknown`.
-//! - A snapshot projection is `compare`'s alone and is never listed
+//! - A snapshot projection and a `metric` projection are `compare`'s alone and are never listed
 //!   ([`crate::FlowManifest::run_projections`]).
 //!
 //! The killer under a projection judged per program is its recorded killer while it kills under
@@ -68,6 +68,10 @@ use std::collections::BTreeSet;
 /// `finished` end: no end of it can be told accepted from one it has no rule for, so the
 /// projection observes nothing (as `compare` refuses an acceptance view there).
 pub const NO_FINISHED_END: &str = "no-finished-end";
+
+/// The reason of a `metric` projection under `run`, which never lists one: no side of a run
+/// states a metric, which is an implementation's measurement.
+pub const METRIC_NOT_OBSERVED: &str = "metric-not-observed";
 
 /// The reason of an `undecided` status: some program of the projection's domain that its
 /// decision needs was not judged under it, because a call of the search under the projections
@@ -144,6 +148,9 @@ impl Judge {
         };
         match projection.kind {
             ProjectionKind::Accepts => Self::Accepts,
+            // Never listed (`FlowManifest::run_projections`, the `[run] projections` refusal):
+            // a metric is an implementation's, and no side of `run` states one.
+            ProjectionKind::Metric => Self::Unobservable(METRIC_NOT_OBSERVED),
             ProjectionKind::Trace => Self::Flow(FlowJudge {
                 stop: false,
                 cells: false,

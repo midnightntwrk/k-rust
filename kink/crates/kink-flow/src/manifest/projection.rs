@@ -28,6 +28,12 @@
 //! the definition, lists no snapshot projection ([`crate::FlowManifest::run_projections`]), and a
 //! mutation's `expect` names none (`crate::MutationList::check_projections`).
 //!
+//! A `metric` projection ([`MetricSection`], projections PJ-21) observes one metric an
+//! implementation's answer states (`metrics`, `kink-implementation/3`): it has no specification
+//! side and keeps no cell. A deterministic metric is judged against its accepted baseline, a
+//! snapshot (its relation is `snapshot`, written or not); a metric declared `host_dependent` is
+//! reported only ([`Relation::Reported`]): no baseline, no gate, no cache, no lock.
+//!
 //! kink-flow reads the declaration's shape and its own keys (`name`, `kind`, `compare`,
 //! `channels`, `domain`, `relation`); `views` and `observer` are the front end's, as a view's are
 //! ([`super::ViewSection::front_end`]), and kink-flow's own K front end refuses a projection that
@@ -66,8 +72,81 @@ pub struct ProjectionSection {
     /// flow; `None`: every case ([`Self::holds`]).
     pub domain: Option<Vec<String>>,
     /// `relation`: what the observed values are judged against; [`Relation::Definition`] by
-    /// default.
+    /// default, [`Relation::Snapshot`] for a deterministic metric, [`Relation::Reported`] for a
+    /// host-dependent one.
     pub relation: Relation,
+    /// A `metric` projection's metric (`metric`, `direction`, `max_regression`,
+    /// `host_dependent`); `None` for every other kind.
+    pub metric: Option<MetricSection>,
+}
+
+/// What a `metric` projection measures: one metric of an implementation's answer.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MetricSection {
+    /// `metric`: the name the answer's `metrics` states the value under.
+    pub name: String,
+    /// `direction`: which way the value is better.
+    pub direction: Direction,
+    /// `max_regression`: the regression from the baseline beyond which a case is a finding;
+    /// `None`: no metric decides an exit status.
+    pub max_regression: Option<MaxRegression>,
+    /// `host_dependent = true`: the value depends on the host (wall time, resident memory), so
+    /// it is reported only: never cached, locked, compared with a baseline or gated.
+    pub host_dependent: bool,
+}
+
+/// `direction`: which way a metric's value is better.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Direction {
+    /// `lower`: a smaller value is better (bytes allocated, instructions executed).
+    Lower,
+    /// `higher`: a larger value is better.
+    Higher,
+}
+
+impl Direction {
+    /// The direction as `direction` writes it.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Lower => "lower",
+            Self::Higher => "higher",
+        }
+    }
+}
+
+/// `max_regression`: how far a value may move from its baseline in the worse direction before
+/// the case is a finding.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MaxRegression {
+    /// `{ absolute = N }`: by at most `N`.
+    Absolute(u64),
+    /// `{ percent = P }`: by at most `P` percent of the baseline.
+    Percent(u64),
+}
+
+impl MaxRegression {
+    /// Whether a regression of `regression` from `baseline` exceeds the gate: `absolute`,
+    /// `regression > N`; `percent`, `100 * regression > P * baseline`, in integers, so a
+    /// baseline of 0 lets no regression through a percentage.
+    #[must_use]
+    pub fn exceeded(self, regression: u64, baseline: u64) -> bool {
+        match self {
+            Self::Absolute(limit) => regression > limit,
+            Self::Percent(percent) => {
+                u128::from(regression) * 100 > u128::from(percent) * u128::from(baseline)
+            }
+        }
+    }
+
+    /// The gate as documents name it: `{absolute: N}` or `{percent: P}`.
+    #[must_use]
+    pub fn value(self) -> serde_json::Value {
+        match self {
+            Self::Absolute(limit) => serde_json::json!({"absolute": limit}),
+            Self::Percent(percent) => serde_json::json!({"percent": percent}),
+        }
+    }
 }
 
 /// What a projection's observed values are judged against.
@@ -79,8 +158,12 @@ pub enum Relation {
     /// `relation = "snapshot"`: an implementation's observed value against the value a user
     /// accepted for the case (`crate::snapshot`): under an `accepts` projection its whole answer
     /// to whether it accepts the case (`accepted`, `rejected` with its `message` and `refused`,
-    /// `crashed`), under an `end` projection the end as the answer states it.
+    /// `crashed`), under an `end` projection the end as the answer states it, under a `metric`
+    /// projection the metric's value against its baseline.
     Snapshot,
+    /// A host-dependent metric ([`MetricSection::host_dependent`]): the value is judged against
+    /// nothing, only reported. Never written: it follows from `host_dependent = true`.
+    Reported,
 }
 
 /// What a projection observes of each side's result.
@@ -93,6 +176,8 @@ pub enum ProjectionKind {
     Accepts,
     /// `trace`: the elements of `channels` of `[observe]`.
     Trace,
+    /// `metric`: one metric an implementation's answer states ([`MetricSection`]).
+    Metric,
 }
 
 impl ProjectionKind {
@@ -103,6 +188,7 @@ impl ProjectionKind {
             Self::End => "end",
             Self::Accepts => "accepts",
             Self::Trace => "trace",
+            Self::Metric => "metric",
         }
     }
 }
@@ -136,7 +222,7 @@ impl ProjectionSection {
         match self.kind {
             ProjectionKind::End => self.compare.is_none(),
             ProjectionKind::Accepts => true,
-            ProjectionKind::Trace => false,
+            ProjectionKind::Trace | ProjectionKind::Metric => false,
         }
     }
 
@@ -161,8 +247,18 @@ impl ProjectionSection {
         self.relation == Relation::Snapshot
     }
 
+    /// Whether the projection measures a metric that depends on the host, reported only.
+    #[must_use]
+    pub fn is_host_dependent(&self) -> bool {
+        self.metric
+            .as_ref()
+            .is_some_and(|metric| metric.host_dependent)
+    }
+
     /// The projection as documents name it: `{name, kind}` with the keys it has (`compare`,
-    /// `views`, `observer`, `channels`, `domain`, `relation`).
+    /// `views`, `observer`, `channels`, `domain`, `relation`; a metric projection's `metric`,
+    /// `direction`, `max_regression` and, where true, `host_dependent`). A deterministic metric
+    /// projection names `relation = "snapshot"` whether written or not.
     #[must_use]
     pub fn value(&self) -> serde_json::Value {
         let mut value = self.front_end.clone();
@@ -177,6 +273,19 @@ impl ProjectionSection {
         }
         if self.is_snapshot() {
             value.insert("relation".into(), serde_json::json!("snapshot"));
+        }
+        if let Some(metric) = &self.metric {
+            value.insert("metric".into(), serde_json::json!(metric.name));
+            value.insert(
+                "direction".into(),
+                serde_json::json!(metric.direction.as_str()),
+            );
+            if let Some(max_regression) = metric.max_regression {
+                value.insert("max_regression".into(), max_regression.value());
+            }
+            if metric.host_dependent {
+                value.insert("host_dependent".into(), serde_json::json!(true));
+            }
         }
         value.insert("kind".into(), serde_json::json!(self.kind.as_str()));
         value.insert("name".into(), serde_json::json!(self.name));
@@ -196,6 +305,7 @@ pub fn default_projection(observe: Option<&ObserveSection>) -> ProjectionSection
         channels: observe.map(|observe| observe.channel_names().map(str::to_owned).collect()),
         domain: None,
         relation: Relation::Definition,
+        metric: None,
     }
 }
 
@@ -329,7 +439,18 @@ fn projection(
         entry,
         prefix,
         &[
-            "name", "kind", "compare", "views", "observer", "channels", "domain", "relation",
+            "name",
+            "kind",
+            "compare",
+            "views",
+            "observer",
+            "channels",
+            "domain",
+            "relation",
+            "metric",
+            "direction",
+            "max_regression",
+            "host_dependent",
         ],
     )?;
     let name = required_string(entry, prefix, "name")?;
@@ -342,13 +463,7 @@ fn projection(
             "end" => ProjectionKind::End,
             "accepts" => ProjectionKind::Accepts,
             "trace" => ProjectionKind::Trace,
-            "metric" => {
-                return Err(ManifestError::new(
-                    join(prefix, "kind"),
-                    "`metric` is not a kind of this build: a measurement projection needs \
-                     implementations to state metrics, which no protocol does yet",
-                ));
-            }
+            "metric" => ProjectionKind::Metric,
             other => return Err(no_kind(prefix, &format!("`{other}` is no kind"))),
         },
         Some(_) => return Err(no_kind(prefix, "expected a string")),
@@ -357,7 +472,7 @@ fn projection(
     // `trace` projection its channels, an `accepts` projection nothing but acceptance.
     let allowed: &[&str] = match kind {
         ProjectionKind::End => &["compare", "views", "observer", "channels"],
-        ProjectionKind::Accepts => &[],
+        ProjectionKind::Accepts | ProjectionKind::Metric => &[],
         ProjectionKind::Trace => &["channels"],
     };
     if let Some(other) = ["compare", "views", "observer", "channels"]
@@ -370,6 +485,10 @@ fn projection(
                 ProjectionKind::Accepts => {
                     "an `accepts` projection compares whether each side accepts the case, and \
                      has no `compare`, `views`, `observer` or `channels`"
+                }
+                ProjectionKind::Metric => {
+                    "a `metric` projection measures one metric an implementation's answer \
+                     states (`metric`), and has no `compare`, `views`, `observer` or `channels`"
                 }
                 _ => {
                     "a `trace` projection compares the elements of its `channels`; `compare`, \
@@ -432,7 +551,24 @@ fn projection(
             ));
         }
     };
-    let relation = relation(entry, prefix, kind)?;
+    let metric = if kind == ProjectionKind::Metric {
+        Some(metric(entry, prefix)?)
+    } else {
+        if let Some(key) = ["metric", "direction", "max_regression", "host_dependent"]
+            .into_iter()
+            .find(|key| entry.contains_key(*key))
+        {
+            return Err(ManifestError::new(
+                join(prefix, key),
+                "is a `metric` projection's key: declare `kind = \"metric\"`",
+            ));
+        }
+        None
+    };
+    let relation = match &metric {
+        Some(metric) => metric_relation(entry, prefix, metric)?,
+        None => relation(entry, prefix, kind)?,
+    };
     Ok(ProjectionSection {
         name,
         kind,
@@ -441,7 +577,105 @@ fn projection(
         channels,
         domain,
         relation,
+        metric,
     })
+}
+
+/// A `metric` projection's own keys: `metric` (required, nonblank), `direction` (required),
+/// `max_regression` (exactly one of `absolute` and `percent`, a non-negative integer) and
+/// `host_dependent` (a boolean); a host-dependent metric has no gate, since its value is a fact of
+/// the host.
+fn metric(entry: &toml::Table, prefix: &str) -> Result<MetricSection, ManifestError> {
+    let name = required_string(entry, prefix, "metric")?;
+    if name.trim().is_empty() {
+        return Err(ManifestError::new(join(prefix, "metric"), "is blank"));
+    }
+    let direction = match required_string(entry, prefix, "direction")?.as_str() {
+        "lower" => Direction::Lower,
+        "higher" => Direction::Higher,
+        other => {
+            return Err(ManifestError::new(
+                join(prefix, "direction"),
+                format!(
+                    "`{other}` is no direction: `lower` (a smaller value is better) or `higher`"
+                ),
+            ));
+        }
+    };
+    let host_dependent = match entry.get("host_dependent") {
+        None => false,
+        Some(Value::Boolean(host_dependent)) => *host_dependent,
+        Some(_) => {
+            return Err(ManifestError::new(
+                join(prefix, "host_dependent"),
+                "expected a boolean",
+            ));
+        }
+    };
+    let max_regression = match entry.get("max_regression") {
+        None => None,
+        Some(_) if host_dependent => {
+            return Err(ManifestError::new(
+                join(prefix, "max_regression"),
+                "a host-dependent metric is reported only: its value is a fact of the host, \
+                 not of the build, so no regression of it is a finding",
+            ));
+        }
+        Some(value) => Some(max_regression(value, &join(prefix, "max_regression"))?),
+    };
+    Ok(MetricSection {
+        name,
+        direction,
+        max_regression,
+        host_dependent,
+    })
+}
+
+/// `max_regression = { absolute = N }` or `{ percent = P }`.
+fn max_regression(value: &Value, key: &str) -> Result<MaxRegression, ManifestError> {
+    const SHAPE: &str = "expected `{ absolute = N }` (by at most N) or `{ percent = P }` (by at \
+                         most P percent of the baseline), N and P non-negative integers";
+    let Value::Table(gate) = value else {
+        return Err(ManifestError::new(key, SHAPE));
+    };
+    let mut entries = gate.iter();
+    let (Some((which, bound)), None) = (entries.next(), entries.next()) else {
+        return Err(ManifestError::new(key, SHAPE));
+    };
+    let bound = match bound {
+        Value::Integer(bound) => u64::try_from(*bound)
+            .map_err(|_| ManifestError::new(join(key, which), "must not be negative"))?,
+        _ => return Err(ManifestError::new(join(key, which), "expected an integer")),
+    };
+    match which.as_str() {
+        "absolute" => Ok(MaxRegression::Absolute(bound)),
+        "percent" => Ok(MaxRegression::Percent(bound)),
+        _ => Err(ManifestError::new(join(key, which), SHAPE)),
+    }
+}
+
+/// A metric projection's `relation`: a deterministic metric's is the snapshot of its baseline,
+/// written or not; a host-dependent metric has none ([`Relation::Reported`]).
+fn metric_relation(
+    entry: &toml::Table,
+    prefix: &str,
+    metric: &MetricSection,
+) -> Result<Relation, ManifestError> {
+    let key = join(prefix, "relation");
+    match entry.get("relation") {
+        None if metric.host_dependent => Ok(Relation::Reported),
+        None => Ok(Relation::Snapshot),
+        Some(_) if metric.host_dependent => Err(ManifestError::new(
+            key,
+            "a host-dependent metric is reported only: it has no baseline to be judged against",
+        )),
+        Some(Value::String(relation)) if relation == "snapshot" => Ok(Relation::Snapshot),
+        Some(_) => Err(ManifestError::new(
+            key,
+            "a `metric` projection's relation is `snapshot` (its value against the baseline a \
+             user accepted), which it has without `relation`",
+        )),
+    }
 }
 
 /// `relation`: absent, or `"snapshot"` on an `accepts` projection or on an `end` projection
@@ -497,7 +731,7 @@ fn relation(
 fn no_kind(prefix: &str, what: &str) -> ManifestError {
     ManifestError::new(
         join(prefix, "kind"),
-        format!("{what}: `end` (the default), `accepts` or `trace`"),
+        format!("{what}: `end` (the default), `accepts`, `trace` or `metric`"),
     )
 }
 

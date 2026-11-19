@@ -299,6 +299,10 @@ pub const VERDICTS_SCHEMA: &str = "kink-flow-verdicts";
 /// `[[compare.view]]` rows (projections PJ-20) were added at 29 for the same reason: they occur
 /// only in the compare section of a flow with a snapshot projection, which no committed record
 /// has, and every other section is the bytes it was.
+/// A metric view's rows (the verdicts `improved`, `regressed`, `stayed` and `pending`, the
+/// reason `metric-unstated`) and the `[[compare.metric]]` counts after the
+/// `[[compare.snapshot]]` rows (projections PJ-21) were added at 29 for the same reason: they
+/// occur only in the compare section of a flow with a metric projection.
 /// A `[run]` row's `projections` (the mutation's status and killer under each projection `run`
 /// lists) and the `[[run.projection]]` counts were added at 29 for the same reason (projections
 /// PJ-11): only a flow that declares `[[projection]]` has them, no committed record's flow does,
@@ -386,6 +390,17 @@ pub const SNAPSHOT_COUNTS_LEGEND: &[&str] = &[
     "of one implementation: `equal` (its value is the snapshot's), `different` and `pending` (no",
     "snapshot is accepted). Snapshots are files beside the flow (snapshots/<projection>/), never",
     "this record: a row above holds a snapshot view's verdict, not its values.",
+];
+
+/// The comment before a compare section's first `[[compare.metric]]`: what its counts are, and
+/// that no measured value or baseline is recorded.
+pub const METRIC_COUNTS_LEGEND: &[&str] = &[
+    "Each [[compare.metric]] counts the programs of one metric projection, named by one view of",
+    "one implementation: `measured` (its answer states the metric), and against the baseline a",
+    "user accepted, `improved`, `regressed` and `stayed` in the projection's direction, or",
+    "`pending` (no baseline is accepted). A row above holds a metric view's verdict, never its",
+    "value: baselines are files beside the flow (snapshots/<projection>/), and the values each",
+    "run measured are in its compare document. A host-dependent metric has no row.",
 ];
 
 /// The comment before a run section's first `[[run.mutation]]`: what a row is and what each status
@@ -1107,13 +1122,22 @@ fn compare(text: &mut String, document: &Value) {
         }
     }
     // The agreement of each (implementation, view), counted from the rows the section holds,
-    // so a row a run did not decide moves no count.
-    let counts = crate::compare::view_counts(rows.iter().map(|row| crate::compare::ViewEntry {
-        implementation: row["implementation"].as_str().unwrap_or_default(),
-        view: row["view"].as_str().unwrap_or_default(),
-        required: row["required"] == true,
-        verdict: row["verdict"].as_str().unwrap_or_default(),
-        horizon: row["horizon"].clone(),
+    // so a row a run did not decide moves no count; a metric view agrees with no definition.
+    let metrics = crate::compare::metric_views(document);
+    let measured = |row: &Value| {
+        metrics.iter().any(|metric| {
+            row["implementation"] == metric.implementation.as_str()
+                && row["view"] == metric.view.as_str()
+        })
+    };
+    let counts = crate::compare::view_counts(rows.iter().filter(|row| !measured(row)).map(|row| {
+        crate::compare::ViewEntry {
+            implementation: row["implementation"].as_str().unwrap_or_default(),
+            view: row["view"].as_str().unwrap_or_default(),
+            required: row["required"] == true,
+            verdict: row["verdict"].as_str().unwrap_or_default(),
+            horizon: row["horizon"].clone(),
+        }
     }));
     if !counts.is_empty() {
         text.push('\n');
@@ -1159,6 +1183,39 @@ fn compare(text: &mut String, document: &Value) {
             line(text, key, &string(count[key].as_str().unwrap_or_default()));
         }
         for key in ["equal", "different", "pending"] {
+            line(text, key, &count[key].to_string());
+        }
+    }
+    // The programs of each deterministic metric view, counted from the rows the section holds.
+    let deterministic = metrics
+        .into_iter()
+        .filter(|metric| !metric.host_dependent)
+        .collect::<Vec<_>>();
+    let metric_counts = crate::compare::metric_counts(
+        &deterministic,
+        rows.iter().map(|row| {
+            (
+                row["implementation"].as_str().unwrap_or_default(),
+                row["view"].as_str().unwrap_or_default(),
+                row["verdict"].as_str().unwrap_or_default(),
+                None,
+            )
+        }),
+    );
+    if !metric_counts.is_empty() {
+        text.push('\n');
+        comment(text, METRIC_COUNTS_LEGEND);
+    }
+    for (index, count) in metric_counts.iter().enumerate() {
+        text.push_str(if index == 0 {
+            "[[compare.metric]]\n"
+        } else {
+            "\n[[compare.metric]]\n"
+        });
+        for key in ["projection", "implementation", "metric"] {
+            line(text, key, &string(count[key].as_str().unwrap_or_default()));
+        }
+        for key in ["measured", "improved", "regressed", "stayed", "pending"] {
             line(text, key, &count[key].to_string());
         }
     }

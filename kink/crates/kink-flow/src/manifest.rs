@@ -75,8 +75,8 @@ pub use implementation::{Given, IdentitySection, ImplementationSection, Protocol
 use kink_corpus::ProgramSource;
 pub use pattern_sources::PatternsEntry;
 pub use projection::{
-    DEFAULT_PROJECTION, ProjectionKind, ProjectionSection, RecordCell, Relation, compare_cells,
-    default_projection,
+    DEFAULT_PROJECTION, Direction, MaxRegression, MetricSection, ProjectionKind, ProjectionSection,
+    RecordCell, Relation, compare_cells, default_projection,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -1250,9 +1250,10 @@ impl ManifestFile {
 }
 
 /// `[run]`: its `projections` (`None` when absent), each a name of `projections` (the flow's
-/// projections, the implicit `default` included) that is no snapshot projection, nonempty and
-/// without repeats. A snapshot projection relates an implementation's answer to a value a user
-/// accepted (`compare`'s alone); `run` judges mutants of the definition, which give no such
+/// projections, the implicit `default` included) that is no snapshot or metric projection,
+/// nonempty and without repeats. A snapshot projection relates an implementation's answer to a
+/// value a user accepted, and a metric projection measures what an implementation's answer
+/// states (`compare`'s alone); `run` judges mutants of the definition, which give no such
 /// answer.
 fn run_section(
     value: &Value,
@@ -1271,6 +1272,19 @@ fn run_section(
         ));
     }
     for (index, name) in listed.iter().enumerate() {
+        if projections
+            .iter()
+            .any(|projection| &projection.name == name && projection.kind == ProjectionKind::Metric)
+        {
+            return Err(ManifestError::new(
+                format!("run.projections[{index}]"),
+                format!(
+                    "`{name}` is a metric projection (`kind = \"metric\"`): it measures a \
+                     metric an implementation's answer states, which `compare` judges; `run` \
+                     judges mutants of the definition, which state none"
+                ),
+            ));
+        }
         if projections
             .iter()
             .any(|projection| &projection.name == name && projection.is_snapshot())
@@ -1387,15 +1401,17 @@ impl FlowManifest {
 
     /// The projections `run` judges every mutation under (`[run] projections`), in the order
     /// written; when the flow does not say, every projection of [`Self::projections`] but the
-    /// snapshot projections, which `compare` alone judges (`default` alone for a flow that
-    /// declares none; none for a flow whose every projection is a snapshot).
+    /// snapshot and metric projections, which `compare` alone judges (`default` alone for a flow
+    /// that declares none; none for a flow whose every projection is one of those).
     #[must_use]
     pub fn run_projections(&self) -> Vec<ProjectionSection> {
         let all = self.projections();
         match &self.run_projections {
             None => all
                 .into_iter()
-                .filter(|projection| !projection.is_snapshot())
+                .filter(|projection| {
+                    !projection.is_snapshot() && projection.kind != ProjectionKind::Metric
+                })
                 .collect(),
             Some(names) => names
                 .iter()

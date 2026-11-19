@@ -75,6 +75,7 @@ pub mod guards;
 pub mod lock;
 pub mod manifest;
 pub mod memo;
+pub mod metric;
 pub mod mutant_ends;
 pub mod mutation;
 pub mod names;
@@ -119,11 +120,11 @@ pub use kink_campaign::{
 pub use kink_campaign::{StopOracle, StopWhen};
 pub use kink_native::data::SentenceNames;
 pub use manifest::{
-    Budget, CaseRoot, CorpusSection, Decoder, ExpectFor, FlowManifest, Given, IdentitySection,
-    ImplementationSection, KrsSpec, LogSection, ManifestError, ManifestFile, ObserveFunctionsSlot,
-    ObserveSection, PatternsEntry, PointSection, Program, ProjectionKind, ProjectionSection,
-    Protocol, RecordCell, RejectedStage, Relation, SpecDecl, SpecSection, StopSection,
-    StopWhenSection, StopWhenSlot, ViewSection,
+    Budget, CaseRoot, CorpusSection, Decoder, Direction, ExpectFor, FlowManifest, Given,
+    IdentitySection, ImplementationSection, KrsSpec, LogSection, ManifestError, ManifestFile,
+    MaxRegression, MetricSection, ObserveFunctionsSlot, ObserveSection, PatternsEntry,
+    PointSection, Program, ProjectionKind, ProjectionSection, Protocol, RecordCell, RejectedStage,
+    Relation, SpecDecl, SpecSection, StopSection, StopWhenSection, StopWhenSlot, ViewSection,
 };
 pub use mutation::{
     EditAction, EditSpec, EditedRule, Expect, Expected, InvalidMutation, InvalidReason, LabelMatch,
