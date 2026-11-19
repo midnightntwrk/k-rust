@@ -432,3 +432,4 @@ import KcoreSpec.WitnessedGivers
 import KcoreSpec.KKNative
 import KcoreSpec.LibEvSortPred
 import KcoreSpec.LibEvCeilFn
+import KcoreSpec.FnHypPre
