@@ -719,20 +719,28 @@ def expectedAllTwo : Two :=
       "18 Lbl'Unds'Map'Unds' Lbl'UndsPipe'-'-GT-Unds' Lbl'Unds'in'Unds'keys'LParUndsRParUnds'MAP'Unds'Bool'Unds'KItem'Unds'Map"],
     hOnly := [], unevaluated := [] }
 
-/-- The text without the user module's sentences the reader refuses as builtin sentences outside
-the library's text (`builtinText`: a module of a K installation KCore's library does not hold) and
-without its subsort axioms whose lower sort is K (`sortAboveK`: kompile's sentence for
-REQUIRES-ENSURES' `syntax #RuleBody ::= K`, a module outside the library, which has no row here),
-with their heads; the text itself when there are none. -/
-def outOfLibrary (k : Kore.Definition) : Kore.Definition × List String :=
+/-- The text without the user module's sentences of a K installation's builtin files that are no
+sentence of the library's text: those read as the definition's own (`Parse.isOwnBuiltin`: about
+names to which no library module gives a meaning, as ARRAY's, RAT's, FFI's, MINT's or KVAR's
+symbols, with their declarations), those the reader refuses as builtin sentences outside the
+library's text (`builtinText`), and the subsort axioms whose lower sort is K (`sortAboveK`:
+kompile's sentence for REQUIRES-ENSURES' `syntax #RuleBody ::= K`, a module outside the library,
+which has no row here). A sentence read as the definition's own is a sentence of the definition, as
+a user's is, and no condition of `Semantics.libAdmitted`, so it is not of rows 9, 15, 17 or 18
+(rowOf would count its equations as row 17's by their builtin place). The result gives how many
+were read as the definition's own and the heads of those refused; the text itself when there are
+none. -/
+def outOfLibrary (k : Kore.Definition) : Kore.Definition × Nat × List String :=
   let off := Parse.preludeLength k
   let rs := (Parse.refusals k).filter (fun r => r.reason.name == "builtinText" || r.reason.name == "sortAboveK")
   let ix := rs.filterMap (·.index)
   match k.modules.getLast? with
-  | none => (k, [])
+  | none => (k, 0, [])
   | some m =>
-    let m' := { m with sentences := (m.sentences.zipIdx.filter fun (_, i) => !ix.contains (off + i)).map (·.1) }
-    ({ k with modules := k.modules.dropLast ++ [m'] }, rs.map (·.head))
+    let own := (m.sentences.filter Parse.isOwnBuiltin).length
+    let keep := fun ((s, i) : Kore.Sentence × Nat) => !ix.contains (off + i) && !Parse.isOwnBuiltin s
+    let m' := { m with sentences := (m.sentences.zipIdx.filter keep).map (·.1) }
+    ({ k with modules := k.modules.dropLast ++ [m'] }, own, rs.map (·.head))
 
 def run (path : String) (verbose : Bool := true) (modes : List Mode := [.none, .pick 0, .pick 1])
     (small : Bool := false) (dropOut : Bool := false) : IO (Summary × Reads × Two) := do
@@ -740,15 +748,16 @@ def run (path : String) (verbose : Bool := true) (modes : List Mode := [.none, .
   let k ← match Kore.parseDefinition text with
     | .ok k => pure k
     | .error e => throw (IO.userError s!"read: {e}")
-  let (k, dropped) := if dropOut then outOfLibrary k else (k, [])
-  unless dropped.isEmpty do
-    IO.println s!"{path}: {dropped.length} sentences of builtin modules outside the library's text left out: {dropped}"
+  let (k, own, refused) := if dropOut then outOfLibrary k else (k, 0, [])
+  let dropped := own > 0 || !refused.isEmpty
+  if dropped then
+    IO.println s!"{path}: sentences of builtin modules outside the library's text left out: {own} read as the definition's own, {refused.length} refused: {refused}"
   let d ← match Parse.parse k with
     | .ok d => pure d
     | .error e => throw (IO.userError s!"parse: {e.toText}")
   let c := d.sem
   let user := (k.modules.getLast?.map (·.name.ident.name)).getD ""
-  let lines := if dropped.isEmpty then axiomLines text else []
+  let lines := if dropped then [] else axiomLines text
   let ads := k.axiomDecls
   IO.println s!"{path}: user module {user}, {ads.length} axioms (lines found {lines.length})"
   let gNames := ((kernelSyms c).map fun k => c.symName k.name) ++ ["inj"]
@@ -877,8 +886,12 @@ def checkFlt : IO Unit := do
 
 /-- The counts of `allbuiltins.kompile.kore` (kompile's text of a definition importing every module
 of the K 7.1.337 installation's builtin files) over `fltModes`, the Int grid without 2^64 + 1, after
-leaving out the 193 sentences of builtin modules outside the library's text (`outOfLibrary`:
-ARRAY, RAT, FFI, MINT, …) and the subsort axiom K < #RuleBody of REQUIRES-ENSURES. The sentences reading the interpretation are those of silentflt and
+leaving out the 193 sentences of builtin modules outside the library's text, all read as the
+definition's own (`outOfLibrary`: ARRAY, RAT, FFI, MINT, KVAR, …), and the subsort axiom
+K < #RuleBody of REQUIRES-ENSURES. Kept, they would add to row 9 the `functional` sentences of
+their hooked symbols and to rows 17 and 18 their equations and simplifications, which are the
+definition's sentences and no condition of `Semantics.libAdmitted`. The sentences reading the
+interpretation are those of silentflt and
 RANGEMAP's associativity, at the line of `_RangeMap_`'s declaration (508, `rangeMapAssocEq`), the
 one sentence of row 15 failing only under some interpretation; RANGEMAP's other sentences over
 Γ's symbols with a variable of sort RangeMap (the `functional` sentences of `lookupOrDefault`,
@@ -898,8 +911,12 @@ def checkAll : IO Unit := do
 
 end KCore.LibProbe
 
-#eval KCore.LibProbe.check "f2-examples/ens.kompile.kore"
-#eval KCore.LibProbe.check "f2-examples/ref-kimp.kore"
-#eval KCore.LibProbe.checkFlt
--- about 30 minutes: run with LIBPROBE_ALL=1
+-- LIBPROBE_ALL_ONLY=1 leaves out the three checks below, for a run of `checkAll` alone
+#eval show IO Unit from do
+  if (← IO.getEnv "LIBPROBE_ALL_ONLY").isNone then KCore.LibProbe.check "f2-examples/ens.kompile.kore"
+#eval show IO Unit from do
+  if (← IO.getEnv "LIBPROBE_ALL_ONLY").isNone then KCore.LibProbe.check "f2-examples/ref-kimp.kore"
+#eval show IO Unit from do
+  if (← IO.getEnv "LIBPROBE_ALL_ONLY").isNone then KCore.LibProbe.checkFlt
+-- checkAll takes about 55 minutes alone: run with LIBPROBE_ALL=1 (and LIBPROBE_ALL_ONLY=1 for it alone)
 #eval show IO Unit from do if (← IO.getEnv "LIBPROBE_ALL").isSome then KCore.LibProbe.checkAll else pure ()
