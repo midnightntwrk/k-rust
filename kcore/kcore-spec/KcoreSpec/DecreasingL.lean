@@ -14,7 +14,14 @@
     itself at V);
   - an argument that applies the clause's head constructor to arguments each no heavier than the
     pattern's, one of them strictly lighter, is strictly lighter (`JSONObject(R)` against
-    `JSONObject(JSONs(E, R))`).
+    `JSONObject(JSONs(E, R))`);
+  - an injected argument `inj(T)` against a pattern `inj(Q)` whose Q is a constructor application,
+    with T no heavier (strictly lighter) than Q, is no heavier (strictly lighter): the pattern's
+    value is one injection node over Q's constructor value, and the argument's at most one over
+    T's (`kseq(inj(K0), dotk)` against `kseq(inj(pair(K0, K1)), dotk)`). A constructor is asked
+    under the pattern's injection because `injNormal` collapses an injection of an injected value:
+    where Q can denote an injected value, the pattern's value weighs what Q's does, while a
+    non-injected value of T's weighs one more under its injection, so neither bound lifts.
   A map or a set still counts one: a frame variable of a map pattern can denote the whole map.
 
   `decObligationsL` names the functions with a self call no argument position shows decreasing;
@@ -51,6 +58,14 @@ theorem weight_pos (w : GroundTerm) : 1 ≤ w.weight := by
 
 theorem weight_injNormal (a b : Srt) (w : GroundTerm) : w.weight ≤ (injNormal a b w).weight := by
   cases w <;> simp [injNormal, GroundTerm.weight]
+
+/-- An injection adds at most one node: `injNormal` of an injected value keeps its weight. -/
+theorem weight_injNormal_leInjL (a b : Srt) (w : GroundTerm) : (injNormal a b w).weight ≤ w.weight + 1 := by
+  cases w <;> simp [injNormal, GroundTerm.weight]
+
+/-- An injection of a constructor value adds exactly one node. -/
+theorem weight_injNormal_ctorInjL (a b : Srt) (g : Sym) (vs : List GroundTerm) :
+    (injNormal a b (.ctor g vs)).weight = (GroundTerm.ctor g vs).weight + 1 := rfl
 
 namespace Semantics
 variable (c : Semantics)
@@ -95,9 +110,19 @@ def strictL (j : Nat) : Term → Bool
   | .as t _ => strictL j t
   | _ => false
 
+/-- The pattern, its aliases aside, applies a constructor (`ctorPat`): its value is a constructor
+value, never an injection. -/
+def ctorHeadInjL (q : Term) : Bool :=
+  match peelAs q with
+  | .app g _ => c.ctorPat g
+  | _ => false
+
 mutual
   /-- An argument no heavier than the value the pattern denotes: a variable on a `pathL` path, the
-  pattern's literal, or the pattern's head constructor applied to arguments each no heavier. -/
+  pattern's literal, the pattern's head constructor applied to arguments each no heavier, or an
+  injection of an argument no heavier than the term under the pattern's injection, where that term
+  applies a constructor (`ctorHeadInjL`; `injNormal` collapses an injected value, so the bound
+  does not lift through two injections otherwise). -/
   def argLe : Term → Term → Bool
     | .var j, p => c.pathL j p
     | .dv s l, p => match peelAs p with
@@ -105,6 +130,9 @@ mutual
       | _ => false
     | .app g ts, p => match peelAs p with
       | .app g' ps => g == g' && c.ctorPat g && argLeList ts ps
+      | _ => false
+    | .inj _ _ t, p => match peelAs p with
+      | .inj _ _ q => c.ctorHeadInjL q && argLe t q
       | _ => false
     | _, _ => false
     termination_by structural t => t
@@ -117,12 +145,17 @@ end
 
 mutual
   /-- An argument strictly lighter than the value the pattern denotes: a variable strictly inside
-  it (`strictL`), or the pattern's head constructor applied to arguments each no heavier, one of
-  them strictly lighter. -/
+  it (`strictL`), the pattern's head constructor applied to arguments each no heavier, one of
+  them strictly lighter, or an injection of an argument strictly lighter than the term under the
+  pattern's injection, where that term applies a constructor (`ctorHeadInjL`; under an injected
+  value `injNormal` adds no node to the pattern's value, so `<` does not lift otherwise). -/
   def argLt : Term → Term → Bool
     | .var j, p => c.strictL j p
     | .app g ts, p => match peelAs p with
       | .app g' ps => g == g' && c.ctorPat g && c.argLeList ts ps && argLtList ts ps
+      | _ => false
+    | .inj _ _ t, p => match peelAs p with
+      | .inj _ _ q => c.ctorHeadInjL q && argLt t q
       | _ => false
     | _, _ => false
     termination_by structural t => t
@@ -399,6 +432,21 @@ theorem allSome_eq_map {rs : List (Option GroundTerm)} {vs : List GroundTerm} (h
       obtain ⟨ws, hws, rfl⟩ := h
       rw [ih hws]; rfl
 
+/-- A pattern `ctorHeadInjL` accepts denotes a constructor value. -/
+theorem ctorHeadInjL_val {σ : Subst} {q : Term} {w : GroundTerm} (hq : c.ctorHeadInjL q = true)
+    (hw : PatVal c σ q w) : ∃ g vs, w = .ctor g vs := by
+  unfold Semantics.ctorHeadInjL at hq
+  split at hq
+  · rename_i g ps hpe
+    have hp' := peelAs_patVal' hw
+    rw [hpe] at hp'
+    cases hp' with
+    | ctor _ _ => exact ⟨_, _, rfl⟩
+    | hook hph _ _ => rw [not_patternHook_of_ctorPat hq] at hph; cases hph
+    | coll hc _ _ _ => rw [isCtor_of_ctorPat hq] at hc; cases hc
+    | ovl hc _ _ _ => rw [isCtor_of_ctorPat hq] at hc; cases hc
+  · cases hq
+
 mutual
   /-- An argument `argLe` accepts against a pattern weighs no more than the value the pattern
   denotes. -/
@@ -445,7 +493,27 @@ mutual
         | coll hc _ _ _ => rw [isCtor_of_ctorPat hg] at hc; cases hc
         | ovl hc _ _ _ => rw [isCtor_of_ctorPat hg] at hc; cases hc
       · cases ha
-    | .inj _ _ _, _, _, _, ha, _, _ => by simp [Semantics.argLe] at ha
+    | .inj a b t, p, v, v', ha, hp, he => by
+      simp only [Semantics.argLe] at ha
+      split at ha
+      · rename_i a' b' q hpe
+        simp only [Bool.and_eq_true] at ha
+        obtain ⟨hq, ht⟩ := ha
+        have hp' := peelAs_patVal' hp
+        rw [hpe] at hp'
+        obtain ⟨w, hw, rfl⟩ := PatVal.inj_inv hp'
+        obtain ⟨r', he', hr⟩ := EvalTerm.inj_inv he
+        cases r' with
+        | none => cases hr
+        | some u =>
+          simp only [Option.map_some, Option.some.injEq] at hr
+          subst hr
+          obtain ⟨g, vs, rfl⟩ := ctorHeadInjL_val hq hw
+          have := argLe_weight t ht hw he'
+          have := weight_injNormal_leInjL a b u
+          rw [weight_injNormal_ctorInjL]
+          omega
+      · cases ha
     | .as _ _, _, _, _, ha, _, _ => by simp [Semantics.argLe] at ha
   theorem argLeList_weight {σ : Subst} : ∀ (ts : List Term) {ps : List Term} {vs vs' : List GroundTerm},
       c.argLeList ts ps = true → PatVals c σ ps vs → EvalTerms c σ ts (vs'.map some) →
@@ -506,7 +574,27 @@ mutual
         | ovl hc _ _ _ => rw [isCtor_of_ctorPat hg] at hc; cases hc
       · cases ha
     | .dv _ _, _, _, _, ha, _, _ => by simp [Semantics.argLt] at ha
-    | .inj _ _ _, _, _, _, ha, _, _ => by simp [Semantics.argLt] at ha
+    | .inj a b t, p, v, v', ha, hp, he => by
+      simp only [Semantics.argLt] at ha
+      split at ha
+      · rename_i a' b' q hpe
+        simp only [Bool.and_eq_true] at ha
+        obtain ⟨hq, ht⟩ := ha
+        have hp' := peelAs_patVal' hp
+        rw [hpe] at hp'
+        obtain ⟨w, hw, rfl⟩ := PatVal.inj_inv hp'
+        obtain ⟨r', he', hr⟩ := EvalTerm.inj_inv he
+        cases r' with
+        | none => cases hr
+        | some u =>
+          simp only [Option.map_some, Option.some.injEq] at hr
+          subst hr
+          obtain ⟨g, vs, rfl⟩ := ctorHeadInjL_val hq hw
+          have := argLt_weight t ht hw he'
+          have := weight_injNormal_leInjL a b u
+          rw [weight_injNormal_ctorInjL]
+          omega
+      · cases ha
     | .as _ _, _, _, _, ha, _, _ => by simp [Semantics.argLt] at ha
   theorem argLtList_weight {σ : Subst} : ∀ (ts : List Term) {ps : List Term} {vs vs' : List GroundTerm},
       c.argLeList ts ps = true → c.argLtList ts ps = true → PatVals c σ ps vs →
