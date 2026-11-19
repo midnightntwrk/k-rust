@@ -77,6 +77,8 @@ differs f2-examples/e1-sentences.kompile.kore
 differs f2-examples/e1-starinit.kompile.kore
 differs f2-examples/e1-syntax.kompile.kore
 differs f2-examples/e1-tag.kompile.kore
+differs f2-examples/e2-binder-nobinder.kore
+differs f2-examples/e2-binder.kompile.kore
 differs f2-examples/e2-cells-exit.kompile.kore
 differs f2-examples/e2-cells.kompile.kore
 differs f2-examples/e2-clause-genless-wit.kompile.kore

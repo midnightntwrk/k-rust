@@ -95,7 +95,13 @@ What it states where the text:
   that symbol's graph, which Γ states at values: the class `user lemma at values` without
   `--at-values` (a parameter lemma where it applies a parameter symbol without `impl`);
 - has a parameter symbol no hook implements (the H form): `total_named` and `obl_nil` at `[]`, which
-  holds where no `[total]` function owes a parameter's totality (otherwise refused);
+  holds where no `[total]` function owes a parameter's totality; where one does, at
+  `defn.totalParams` (the `[total]` functions are total under every H total on the parameters the
+  text declares total), and `fnHypH` and `consistent` take `ParamsTotal c defn.totalParams H`, which
+  one H meets (`paramsTotal_witness`, `consistent_witness`: `constH` at a value exhibited of the
+  parameters' result sort); refused where that list is not empty, no one exhibited value is of every
+  such parameter's result sort, or an open generator, agreement, match independence or condition is
+  owed beside it;
 - is not plain (`FnFacts`): `owed_rules`, `owed_clauses`, `openDecidedH`;
 - reads a confined sort: `readsConfined_c` true, the theory `Γc`, the entailments
   over Γ restated over `Γc` (`entails_c`, the `_c` forms), `gamma_origin_c` (Bool holding only its
@@ -571,6 +577,10 @@ def tgMinusNeg (a : Kore.Axiom) : P :=
   IO.println s!"H totalParams {d.totalParams.map c.symName}"
   IO.println s!"H noImplParams {(c.params.filter fun p => p.impl.isNone && !p.raw).map (c.symName ·.sig.name)}"
   IO.println s!"H totalNil {decide (c.totalObligationsRP @ORDER@ [] = [])}"
+  IO.println s!"H totalTp {decide (c.totalObligationsRP @ORDER@ d.totalParams = [])}"
+  let tgTotV := ((c.params.find? fun k => d.totalParams.contains k.sig.name).bind fun k =>
+    Parse.exhibit? c k.sig.result).getD default
+  IO.println s!"H totalWit {ParamSchema.constTotal c d.totalParams tgTotV}"
   IO.println s!"H attrsParts {AttrsAgree.ctors k c} {AttrsAgree.fns k c} {AttrsAgree.hooks k c} {AttrsAgree.colls k c} {AttrsAgree.prios k d}"
   let lawIx := d.laws.map fun l => ixOf (lawPattern c l)
   IO.println s!"H lawIx {lawIx}"
@@ -920,6 +930,11 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     agree = ob["agree"]
     facts_kind = ob["kind"]
     tp_params = ob["hform"] and head["totalNil"] != "true"
+    # where a `[total]` function applies a parameter the text declares total, its totality holds
+    # under the interpretations total on those parameters (`totalObligationsRP callOrder
+    # defn.totalParams`): the statements take `ParamsTotal` as the hypothesis on H, and one H meets
+    # it (`constH` at a value the search exhibits of the parameters' one result sort)
+    tp_held = tp_params and head.get("totalTp") == "true" and head.get("totalWit") == "true"
     parts = dict(zip(["ctors", "fns", "hooks", "colls", "prios"], head["attrsParts"].split()))
     if head["attrsAgree"] != "true":
         bad = [k for k, v in parts.items() if v != "true"]
@@ -981,9 +996,12 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     param_fun = by_class[PARAM_FUNCTIONAL_CLASS]
     total_names = re.findall(r"[^\s\[\],]+", head.get("totalParams", ""))
     user_lem, user_lem_v = by_class[USER_LEMMA_CLASS], by_class[USER_LEMMA_VALUES_CLASS]
-    if tp_params:
+    if tp_params and (not tp_held or raw or agree or ob["match"] or ob["owed"]):
         raise Refused(f"{name}: a `[total]` function owes the totality of a parameter the text declares total "
-                      f"(`totalObligationsRP callOrder []` not empty): tiegen does not state `ParamsTotal`")
+                      f"(`totalObligationsRP callOrder []` not empty): tiegen states `ParamsTotal` as the hypothesis "
+                      f"only where the totality holds under it (`totalObligationsRP callOrder defn.totalParams` empty), "
+                      f"one value exhibited is of every such parameter's result sort (`constTotal`), and no open "
+                      f"generator, agreement, match independence or condition is owed")
     if len(raw) > 1:
         raise Refused(f"{name}: {len(raw)} open generators: tiegen states one")
     if raw and (agree or confined or facts_kind != "FnFacts"):
@@ -1083,6 +1101,14 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w("    The consistency section, written by hand, proves what it owes for every H"
           + (" (`openDecidedH`)" if facts_kind == "FnFacts" else "") + ",")
         w(f"    so {th} with the step's closure has a model for every H (`consistent`).")
+    elif tp_held:
+        th = "`Γc`" if confined else "Γ"
+        w(f"  - The definition reads {'a' if confined else 'no'} confined sort (`readsConfined_c`) and has no open generator (`noRaw`).")
+        w("    Its `[total]` functions are total under every H total on the parameters the text declares")
+        w("    total (`total_named` at `defn.totalParams`), and it owes no other fact (`term_named`,")
+        w(f"    `agree_named`, `match_named`), so {th} with the step's closure has a model for every H with")
+        w("    `ParamsTotal c defn.totalParams H` (`consistent`); one H has it (`paramsTotal_witness`,")
+        w("    `consistent_witness`).")
     elif facts_kind == "FnFacts":
         th = "`Γc`" if confined else "Γ"
         w(f"  - The definition reads {'a' if confined else 'no'} confined sort (`readsConfined_c`), has no open generator (`noRaw`), owes")
@@ -1529,7 +1555,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     w(f"def callOrder : List Nat := {call_order}")
     w("")
     w("theorem term_named : c.rankObligations callOrder ++ c.decObligationsL = [] := by decide +kernel")
-    w(f"theorem total_named : c.totalObligationsRP callOrder {tp} = [] := by decide +kernel")
+    tpo = "defn.totalParams" if tp_held else tp
+    w(f"theorem total_named : c.totalObligationsRP callOrder {tpo} = [] := by decide +kernel")
     if not agree:
         w("theorem agree_named : c.agreeObligationsI = [] := by decide +kernel")
     w("theorem match_named : c.matchObligationsL = ([] : List (Nat × Nat)) := by decide +kernel")
@@ -1616,21 +1643,45 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             w("  ⟨openRules_of_owed (by rw [Semantics.owedRules_withHooks, owed_rules]; intro i hi; cases hi),")
             w("   openClauses_of_owed (by rw [Semantics.owedClauses_withHooks, owed_clauses]; intro p hp; cases hp)⟩")
             w("")
-            w(f"theorem obl_nil (H : HookParams) : FnObligations (cH H) callOrder {tp} :=")
+            w(f"theorem obl_nil (H : HookParams) : FnObligations (cH H) callOrder {tpo} :=")
             w("  (FnFacts.of_nil")
             w("\n".join(of_nil))
             w("    (show c.params.all (fun k => !k.raw) = true by decide +kernel)).obligations (openDecidedH H)")
         else:
-            w(f"theorem obl_nil (H : HookParams) : FnObligations (cH H) callOrder {tp} :=")
+            w(f"theorem obl_nil (H : HookParams) : FnObligations (cH H) callOrder {tpo} :=")
             w("  FnObligations.of_nil")
             w("\n".join(of_nil))
         w("")
-        w("theorem fnHypH (H : HookParams) : FnHyp (cH H) := fnHyp_withHooks coreOK (Semantics.rightHeld_of_valued (by decide +kernel)) H")
-        w("  ParamsTotal.nil (obl_nil H)")
-        w("")
-        w(f"/-- **{'`Γc`' if confined else 'Γ'} with the step's closure has a model, for every H.** -/")
-        w("theorem consistent (H : HookParams) : Consistent (cH H) := consistent_of_fnHyp _ (coreOKH H) (fnHypH H)")
-        w("")
+        if tp_held:
+            w("theorem fnHypH (H : HookParams) (hH : ParamsTotal c defn.totalParams H) : FnHyp (cH H) :=")
+            w("  fnHyp_withHooks coreOK (Semantics.rightHeld_of_valued (by decide +kernel)) H hH (obl_nil H)")
+            w("")
+            w(f"/-- **{'`Γc`' if confined else 'Γ'} with the step's closure has a model, for every H total on the parameters the")
+            w("text declares total** (`ParamsTotal`). -/")
+            w("theorem consistent (H : HookParams) (hH : ParamsTotal c defn.totalParams H) : Consistent (cH H) :=")
+            w("  consistent_of_fnHyp _ (coreOKH H) (fnHypH H hH)")
+            w("")
+            w("/-- A value of the result sort of the parameters the text declares total, exhibited by the")
+            w("search over the definition's data (`Parse.exhibit?`). -/")
+            w("noncomputable def totalWitnessV : GroundTerm :=")
+            w("  ((c.params.find? fun k => defn.totalParams.contains k.sig.name).bind fun k =>")
+            w("    Parse.exhibit? c k.sig.result).getD default")
+            w("")
+            w("/-- **The hypothesis is met**: the interpretation answering `totalWitnessV` everywhere is total on")
+            w("the parameters the text declares total. -/")
+            w("theorem paramsTotal_witness : ParamsTotal c defn.totalParams (ParamSchema.constH totalWitnessV) :=")
+            w("  ParamSchema.paramsTotal_constH (by decide +kernel)")
+            w("")
+            w("theorem consistent_witness : Consistent (cH (ParamSchema.constH totalWitnessV)) :=")
+            w("  consistent _ paramsTotal_witness")
+            w("")
+        else:
+            w("theorem fnHypH (H : HookParams) : FnHyp (cH H) := fnHyp_withHooks coreOK (Semantics.rightHeld_of_valued (by decide +kernel)) H")
+            w("  ParamsTotal.nil (obl_nil H)")
+            w("")
+            w(f"/-- **{'`Γc`' if confined else 'Γ'} with the step's closure has a model, for every H.** -/")
+            w("theorem consistent (H : HookParams) : Consistent (cH H) := consistent_of_fnHyp _ (coreOKH H) (fnHypH H)")
+            w("")
     if fn_align:
         w(alpha_block())
     w("/-! ## Γ under every interpretation reads the same equations and rules -/")
@@ -1923,6 +1974,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     after = []
     if agree:
         after += ["agree_named"] + (["agree"] if "consistency" in hand else []) + ["facts"]
+    if tp_held:
+        after += ["total_named", "paramsTotal_witness", "consistent_witness"]
     if fn_align:
         after += ["fn_shape_but_owise", "owise_not_literal", "fn_align", "fns_account", "fns_entailed",
                   "fns_from_text", "fn_prios"] + (["gamma_origin", "gamma_from"] if gamma else [])
