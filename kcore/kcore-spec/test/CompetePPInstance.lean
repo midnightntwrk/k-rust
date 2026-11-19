@@ -134,7 +134,7 @@ theorem heldM : cM.rulePlainHeldH (fun _ => false) kcMem = true :=
 `Γc cM`, `<k> 5 ~> . </k> 0`'s element is outside the rule's `applies` pattern. -/
 theorem not_applies_B (hI : I ⊧ᴵP Γc cM) (e : ML.Valuation M) :
     ¬ (KoreAML.tr ⟨tbl, []⟩ (applies cM kcMem (canonRulePres kcMem))).interpret I e (elemOf cM I (cfgK 5 0)) :=
-  not_applies_of_notApplies_heldCEx (x := ⟨cfgK 5 0, sortB⟩) (Semantics.coreOKEx_of_coreOK facts.1) hI hcw
+  not_applies_of_notApplies_heldCEx (x := ⟨cfgK 5 0, sortB⟩) (Semantics.coreOK_iff_ex.mp facts.1) hI hcw
     (fun _ _ _ hH => absurd hH (by decide)) facts.2.1 heldM facts.2.2.2.1
     (fun h => absurd h (by rw [facts.2.2.2.2.1]; decide))
     (fun h => absurd h (by rw [facts.2.2.2.2.2.1]; decide))
@@ -148,7 +148,7 @@ theorem applies_iff_AB (hI : I ⊧ᴵP Γc cM) (e : ML.Valuation M) :
     ¬ (KoreAML.tr ⟨tbl, []⟩ (applies cM kcMem (canonRulePres kcMem))).interpret I e (elemOf cM I (cfgK 5 0)) ∧
     (KoreAML.tr ⟨tbl, []⟩ (applies cM kcMem (canonRulePres kcMem))).interpret I e (elemOf cM I (cfgK 1 0)) :=
   ⟨not_applies_B hI e, Classical.byContradiction fun h => applies_A
-    (notApplies_of_not_applies_ppCEx (x := ⟨cfgK 1 0, sortA⟩) (Semantics.coreOKEx_of_coreOK facts.1) hI hcw facts.2.1
+    (notApplies_of_not_applies_ppCEx (x := ⟨cfgK 1 0, sortA⟩) (Semantics.coreOK_iff_ex.mp facts.1) hI hcw facts.2.1
       (fun h => absurd h (by rw [facts.2.2.2.2.2.1]; decide)) (decided ⟨cfgK 1 0, sortA⟩ listed.2.2.2) hkeys hkP e h)⟩
 
 end

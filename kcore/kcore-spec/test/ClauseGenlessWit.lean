@@ -233,9 +233,9 @@ theorem f0_c (H : HookParams) : Γc (cH H) ⊧ (f0 H ≡ den (cH H) i1) := by
   haveI : OvlOK (cH H) := hno
   have hsc := sortCtx_of_all hok hsr (OvlOK.ovlCase hno)
   have hpreR := HoldsShape.preReadAll_of_core (coreOKH H) hIc
-  have hneg := neg_of_coreCl hIc (Semantics.sortedOKCl_of_sortedOK hok) hsr
+  have hneg := neg_of_coreCl hIc (Semantics.sortedOKCl_of_sortedOK_noExs hok ((Semantics.fnsNoExs_withHooks c H).mpr (Semantics.fnsNoExs_of_all (by decide +kernel)))) hsr
     (Semantics.coreOK_parts (coreOKH H)).2.1 hph (hc H) hpreR
-  have h0 := eval_den4ClPre hI hnn hsc hph (clauseOpenFactsP_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK hok))
+  have h0 := eval_den4ClPre hI hnn hsc hph (clauseOpenFactsP_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK_noExs hok ((Semantics.fnsNoExs_withHooks c H).mpr (Semantics.fnsNoExs_of_all (by decide +kernel)))))
     hneg hpreR (eval_f0 H) (lookupFH H)
     (sortsOf_cons.mpr ⟨_, _, by rw [sortOfH]; exact sorts.2.1, sortsOf_nil, rfl⟩)
   rw [KoreAML.interp_equal (defOK hI)]

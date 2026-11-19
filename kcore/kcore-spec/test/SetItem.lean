@@ -126,7 +126,7 @@ theorem fnsOK : c.fnsOK = true := by decide +kernel
 
 theorem hsc : SortCtx c := sortCtx_of_all sortedOK srReady (Semantics.ovlCase_of (by decide +kernel))
 theorem hcc : Exec.ClauseCtx c := clauseCtx_of_fns fnsOK (Semantics.allFns_preTop clausesPreTopC)
-  (Semantics.sortedOK_plainCl sortedOK)
+  (Semantics.sortedOK_plainCl_of_noExs sortedOK (Semantics.fnsNoExs_of_all (by decide +kernel)))
 theorem hmc : Exec.MatchCtx c := Exec.matchCtx_of matchReady
 
 /-- Every rule has priority 50: none waits on another. -/

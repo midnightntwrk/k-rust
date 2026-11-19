@@ -187,11 +187,11 @@ theorem m4 : ok4 ∈ cO.rules := List.mem_append_right _ (List.mem_cons_of_mem _
 rule, the definition and the witnesses proved. -/
 example (hft : FnTerminates cO) {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M}
     (hI : I ⊧ᴵP Faithful.Γc cO) : True := by
-  have := @Faithful.rule_step_valuesSSx cO M _ I (Semantics.coreOKEx_of_coreOK coreO.1) hft hI hcO ok1 facts.1.1 facts.1.2.1
+  have := @Faithful.rule_step_valuesSSx cO M _ I (Semantics.coreOK_iff_ex.mp coreO.1) hft hI hcO ok1 facts.1.1 facts.1.2.1
     (fun _ => readsO) (fun h => hwO ok1 m1 h)
-  have := @Faithful.rule_step_valuesSSx cO M _ I (Semantics.coreOKEx_of_coreOK coreO.1) hft hI hcO okB facts.2.1.1 facts.2.1.2.1
+  have := @Faithful.rule_step_valuesSSx cO M _ I (Semantics.coreOK_iff_ex.mp coreO.1) hft hI hcO okB facts.2.1.1 facts.2.1.2.1
     (fun _ => readsO) (fun h => hwO okB mB h)
-  have := @Faithful.rule_step_valuesSSx cO M _ I (Semantics.coreOKEx_of_coreOK coreO.1) hft hI hcO ok2 facts.2.2.1.1 facts.2.2.1.2.1
+  have := @Faithful.rule_step_valuesSSx cO M _ I (Semantics.coreOK_iff_ex.mp coreO.1) hft hI hcO ok2 facts.2.2.1.1 facts.2.2.1.2.1
     (fun _ => readsO) (fun h => hwO ok2 m2 h)
   have := @Faithful.rule_subst_AB cO M _ I coreO.1 hI okB facts.2.1.1 facts.2.1.2.2.1 (fun _ => readsO)
   trivial
@@ -231,7 +231,8 @@ example (hf : FnHyp cO) (x y : Config cO) (r : Rule) (σ : Subst) (hs : StepBy c
   have := @famOpen_values cO coreO.1 hf x okB mB σ' hu (fun i hi => List.all_eq_true.mp conf.2.1 i hi) ys hys
   exact ⟨exact_hyp cO coreO.1 hf,
     consistent_of cO coreO.1 (fnModel_of_fnHyp coreO.1 hf).1 (fnModel_of_fnHyp coreO.1 hf).2
-      (clausePreDecided_of_fnHyp coreO.1 hf) hf.2.2.2.2.2⟩
+      (clausePreDecided_of_fnHyp coreO.1 hf)
+      (clausePostDecided_of_fnHypCEx (Semantics.coreOK_iff_ex.mp coreO.1) hf) hf.2.2.2.2.2⟩
 
 /-- **`sound_at` at a step by each open rule of `cO`**, one per arm (`ok1` arm A, `okB` arm B, `ok2`
 arm C, `ok4` arms A and C with the competition conjunct by closed conditions), and `complete_at`
@@ -251,7 +252,8 @@ example (hf : FnHyp cO) (x : Config cO) (hdec : StepDecided cO x.val)
   have := sound_at cO coreO.1 x y4 ok4 σ4 h4 (hw ok4) hcO
   have := @complete_at cO coreO.1 x hdec os hval hfam hcO
   exact consistent_of cO coreO.1 (fnModel_of_fnHyp coreO.1 hf).1 (fnModel_of_fnHyp coreO.1 hf).2
-      (clausePreDecided_of_fnHyp coreO.1 hf) hf.2.2.2.2.2
+      (clausePreDecided_of_fnHyp coreO.1 hf)
+      (clausePostDecided_of_fnHypCEx (Semantics.coreOK_iff_ex.mp coreO.1) hf) hf.2.2.2.2.2
 
 /-- info: 'OpenRulesCore.R.coreO' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms coreO
@@ -489,6 +491,7 @@ theorem decidedOW (x : Config cOW) : StepDecided cOW x.val := stepDecided_of_fnH
 theorem fnModelOW : FnDet cOW ∧ FnSolves cOW := fnModel_of_fnHyp shapeOW.1 fnHypOW
 theorem consOW : Consistent cOW :=
   consistent_of cOW shapeOW.1 fnModelOW.1 fnModelOW.2 (clausePreDecided_of_fnHyp shapeOW.1 fnHypOW)
+    (clausePostDecided_of_fnHypCEx (Semantics.coreOK_iff_ex.mp shapeOW.1) fnHypOW)
     (openLaws_of_plain (by decide +kernel))
 
 /-- `complete_at` at `cOW` with `StepDecided` proved: only the outcomes `hval`, `hfam` are taken. -/

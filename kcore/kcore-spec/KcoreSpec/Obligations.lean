@@ -93,12 +93,11 @@ theorem Semantics.plain_withHooks (c : Semantics) (H : HookParams) : (c.withHook
 values do not decide it otherwise (`rulesPlain`), and the occurrence of every variable of a clause
 in it (`clauseSorted`). -/
 
-/-- A clause of a semantics `sortedOK` accepts has a `\top` predicate on its right side. -/
+/-- A clause without existential variables of a semantics `sortedOK` accepts has a `\top`
+predicate on its right side. -/
 theorem Semantics.sortedOK_clausePost {c : Semantics} (h : c.sortedOK = true) {fn : Fn} (hfn : fn ∈ c.fns)
-    {cl : Clause} (hcl : cl ∈ fn.clauses) : cl.post = .top := by
-  simp only [Semantics.sortedOK, Semantics.clausesPlain, Bool.and_eq_true, List.all_eq_true] at h
-  obtain ⟨⟨-, hpost⟩, -⟩ := h.1.2 fn hfn cl hcl
-  exact Cond.eq_top_of_isTop hpost
+    {cl : Clause} (hcl : cl ∈ fn.clauses) (hx : cl.exs = []) : cl.post = .top :=
+  (Semantics.sortedOK_clauseEx h hfn hcl).2 hx
 
 /-- What `paramsPlain` asks of an open generator (its `raw` branch): no registry hook,
 two arguments of its result sort where it has a law, a number outside the registry, no name

@@ -462,11 +462,12 @@ theorem mkSem_consistent_with_laws {fn : Fn} {H : HookParams} {l : LawEq}
     (hm : ((mkSem fn).withHooks H).coreOK = true ∧ FnDet ((mkSem fn).withHooks H) ∧
       FnSolves ((mkSem fn).withHooks H) ∧ ClausePreDecided ((mkSem fn).withHooks H) ∧
       OpenLaws ((mkSem fn).withHooks H))
+    (hq : ClausePostDecided ((mkSem fn).withHooks H))
     (hl : LawAt ((mkSem fn).withHooks H) l) (hs : lawSorted (mkSem fn) l = true) :
     ∃ (M : Type) (_ : Inhabited M) (I : ML.Interpretation KoreAML.Sym M),
       (I ⊧ᴵP (Γc ((mkSem fn).withHooks H) ∪ Γstep ((mkSem fn).withHooks H))) ∧
         ∀ l' ∈ [l], I ⊧ᴵ lawPattern ((mkSem fn).withHooks H) l' :=
-  consistent_with_laws hm.1 hm.2.1 hm.2.2.1 hm.2.2.2.1 hm.2.2.2.2
+  consistent_with_laws hm.1 hm.2.1 hm.2.2.1 hm.2.2.2.1 hq hm.2.2.2.2
     (fun l' hl' => by rw [List.mem_singleton] at hl'; subst hl'; exact hl)
     (fun l' hl' => by rw [List.mem_singleton] at hl'; subst hl'; exact (lawSorted_withHooks _ H _).trans hs)
 
@@ -479,6 +480,8 @@ theorem pl_consistent_with_laws (H : HookParams) :
   mkSem_consistent_with_laws
     (mkSem_model pl_coreOK (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
       (by decide +kernel) (by decide +kernel) H)
+    (clausePostDecided_of_isTop (c := pl.withHooks H)
+      (by decide +kernel : (pl.fns.all fun f => f.clauses.all fun cl => cl.post.isTop) = true))
     (pl_lawAt H) pl_lawSorted
 
 /-- **The theory of `pk` with its associativity sentence has a model under `Hadd`**, where the
@@ -490,6 +493,8 @@ theorem pk_consistent_with_laws_add :
   mkSem_consistent_with_laws
     (mkSem_model pk_coreOK (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
       (by decide +kernel) (by decide +kernel) Hadd)
+    (clausePostDecided_of_isTop (c := pk.withHooks Hadd)
+      (by decide +kernel : (pk.fns.all fun f => f.clauses.all fun cl => cl.post.isTop) = true))
     pk_lawAt_add pk_lawSorted
 
 /-- **The theory of `mx` with its idempotence sentence has a model under `Hfst`**, which gives
@@ -501,6 +506,8 @@ theorem mx_consistent_with_laws_fst :
   mkSem_consistent_with_laws
     (mkSem_model mx_coreOK (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
       (by decide +kernel) (by decide +kernel) Hfst)
+    (clausePostDecided_of_isTop (c := mx.withHooks Hfst)
+      (by decide +kernel : (mx.fns.all fun f => f.clauses.all fun cl => cl.post.isTop) = true))
     mx_lawAt_fst mx_lawSorted
 
 /-! ## A law over a sort that is none of the definition's -/

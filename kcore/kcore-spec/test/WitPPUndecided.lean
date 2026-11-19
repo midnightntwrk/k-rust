@@ -295,7 +295,7 @@ theorem c₁_openLaws : OpenLaws c₁ := openLaws_of_plain (by decide +kernel)
 /-- **`Consistent c₁`**, by the pinned `consistent_of` at its hypotheses: the rule's `pre` has no
 truth value under `Holds`, and `Γc` with the step's closure has a model nevertheless. -/
 theorem c₁_consistent : Consistent c₁ := consistent_of c₁ c₁_coreOK c₁_fnDet c₁_fnSolves
-  (clausePreDecided_of_isTop (by decide +kernel)) c₁_openLaws
+  (clausePreDecided_of_isTop (by decide +kernel)) (clausePostDecided_of_isTop (by decide +kernel)) c₁_openLaws
 
 /-- **No `Step` of `c₁`**: its one rule asks `Holds … pre true`. -/
 theorem c₁_no_step (x y : Config c₁) : ¬ Step c₁ x y := by

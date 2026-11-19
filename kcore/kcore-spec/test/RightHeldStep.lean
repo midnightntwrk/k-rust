@@ -95,7 +95,7 @@ theorem fnTerminates3 : FnTerminates c3 := by
   intro fn hfn vs hvs
   rcases List.mem_append.mp (show fn ∈ c.fns ++ [fF] from hfn) with hfn' | hfn'
   · refine eval_result (lookup3 hfn)
-      (Semantics.sortedOK_plainCl shape.2.2.2.2.1 fn (List.mem_append_left _ hfn))
+      (Semantics.sortedOK_plainCl_of_noExs shape.2.2.2.2.1 (Semantics.fnsNoExs_of_all (by decide +kernel)) fn (List.mem_append_left _ hfn))
       (fun cl hcl => (textFns fn hfn' cl hcl).1)
       (fun cl hcl σ _ _ => ⟨(fun t ht => by rw [(textFns fn hfn' cl hcl).2.1] at ht; cases ht), true,
         Clause.holds_preTop
@@ -124,7 +124,8 @@ example (x : GroundTerm) : StepDecided c3 x :=
 example (hf : FnHyp c3) (x : Config c3) : StepDecided c3 x.val :=
   stepDecided_of_fnHypCl decided.1 rulesBind3 (Semantics.rulesTop_of_isTop (by decide +kernel)) decided.2.1 (OvlOK.of_nil decided.2.2.1 decided.2.2.2) hf x
 
-/-- `sortedOKCl_of_sortedOK` at the text's semantics. -/
-example : c.sortedOKCl = true := Semantics.sortedOKCl_of_sortedOK (Semantics.coreOK_parts (by decide_cheap)).1
+/-- `sortedOKCl_of_sortedOK_noExs` at the text's semantics. -/
+example : c.sortedOKCl = true :=
+  Semantics.sortedOKCl_of_sortedOK_noExs (Semantics.coreOK_parts (by decide_cheap)).1 (Semantics.fnsNoExs_of_all (by decide +kernel))
 
 end RightHeldStepTest

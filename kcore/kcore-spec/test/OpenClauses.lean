@@ -237,17 +237,20 @@ example : OpenDecided c :=
 
 /-! ## L3 at the fourth stage: `eval_den4Cl` -/
 
-/-- Its clause hypothesis holds for every semantics `sortedOK` accepts, and at the open clause `clG`
+/-- Its clause hypothesis holds for every semantics `sortedOK` accepts none of whose clauses binds a
+variable by `\exists`, and at the open clause `clG`
 of `c2` (from the decided facts). -/
 example : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, ∃ L, HeadsOK c L ∧ Faithful.ClauseOpenFacts c fn L cl :=
-  Faithful.clauseOpenFacts_of_sortedOK (hpreTop := by decide +kernel) (Semantics.coreOK_parts coreOK).1
+  Faithful.clauseOpenFacts_of_sortedOK (hpreTop := by decide +kernel)
+    (Semantics.fnsNoExs_of_all (by decide +kernel)) (Semantics.coreOK_parts coreOK).1
 example : Faithful.ClauseOpenFacts c2 gG (c2.fns.map Fn.sig) clG := Faithful.clauseOpenFacts_of (by decide +kernel) den_facts.1 den_facts.2.1 rfl
 
 /-- `c2`, whose clause `clG` has a variable its patterns do not bind, meets `coreOK`, which gives the
 clause facts of every clause of `c2`. -/
 theorem coreOK2 : c2.coreOK = true := by decide_cheap
 example : ∀ fn ∈ c2.allFns, ∀ cl ∈ fn.clauses, ∃ L, HeadsOK c2 L ∧ Faithful.ClauseOpenFacts c2 fn L cl :=
-  Faithful.clauseOpenFacts_of_sortedOK (hpreTop := by decide +kernel) (Semantics.coreOK_parts coreOK2).1
+  Faithful.clauseOpenFacts_of_sortedOK (hpreTop := by decide +kernel)
+    (Semantics.fnsNoExs_of_all (by decide +kernel)) (Semantics.coreOK_parts coreOK2).1
 
 /-- `eval_den4Cl` at `g` in `c2`, whose clause `clG` has an open condition variable. -/
 example {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP Faithful.Γ c2)

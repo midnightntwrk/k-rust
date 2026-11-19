@@ -30,7 +30,7 @@ open KCore
 
 /-- The functions' clauses as `fnOK` checks them, from `fnsOK`; their precondition `.top` from
 `clausesPreTop`, their having no existential variable and their right sides'
-predicate `.top` from `clausesPlain`. -/
+predicate `.top` from `clausesPlain`, as their patterns bind every variable (`clauseOK`). -/
 theorem clauseCtx_of_fns {c : Semantics} (hfns : c.fnsOK = true) (hp : c.clausesPlain = true)
     (hpreTop : c.clausesPreTop = true) :
     Exec.ClauseCtx c := by
@@ -51,7 +51,7 @@ theorem clauseCtx_of_fns {c : Semantics} (hfns : c.fnsOK = true) (hp : c.clauses
   · have := hcls cl hcl
     simp only [Semantics.clauseOK, Bool.and_eq_true, beq_iff_eq] at this
     exact ⟨this.1.1.1.1.1, this.1.1.1.1.2, this.1.1.1.2, this.1.1.2, this.1.2, this.2,
-      Semantics.allFns_preTop hpreTop fn hfn' cl hcl, Semantics.allFns_plainCl hp fn hfn' cl hcl⟩
+      Semantics.allFns_preTop hpreTop fn hfn' cl hcl, Semantics.clausesPlain_plainCl_of_binds hp hfn hcl this.1.1.1.2⟩
 
 /-- **A step by the rule `r`** under the substitution `sub vs` (as test/SetItem.lean). -/
 theorem step_of {c : Semantics} (hsc : SortCtx c) (hcc : Exec.ClauseCtx c) (hmc : Exec.MatchCtx c)

@@ -16,8 +16,10 @@
   - `clauseCE`, written here: `Semantics.clausePlainEx` (which the section or prints beside it)
     and the landed conjunct on open condition variables: `(!exs.isEmpty || post.isTop) &&
     exs.all (confined or among fixedExs c.confined (fun _ => false)) && (the landed conjunct on
-    open condition variables)`. The landed `clausesPlain` asks `exs = []` and `post = \top`, so it
-    is false of these clauses.
+    open condition variables)`. `clausesPlain` is `clausePlainEx` with `clauseExOK` (the conjuncts
+    `sortedCE` prints) and the conjuncts on the premise and the open condition variables, so it is
+    true of a text exactly where every clause has `clauseCE` and `sortedCE` (their premises being
+    `\top`).
 
   ## exists
 
@@ -209,8 +211,8 @@ namespace ExClauseReader
 
 /-! ## The harness -/
 
-/-- CE's conjunct of `clausesPlain` for one clause, from ticket CE.clause-conjunct's text (a
-stand-in for `Semantics.clausePlainEx`). -/
+/-- `Semantics.clausePlainEx` with the conjunct of `clausesPlain` on open condition variables, written
+out for one clause. -/
 def clauseCE (c : Semantics) (cl : Clause) : Bool :=
   let conf := fun i => (cl.vars[i]?.map c.confined).getD false
   (!cl.exs.isEmpty || cl.post.isTop) &&
@@ -368,19 +370,19 @@ info: e3-eq-exists-partial-ml Lblf: functional sentence false; clauses 1
       pre ⊤
       rhs B ens none exs [1] post (B =[Bool] LblnotBool'Unds'(X))
       clauseSorted true; condOK post true; sortedCE true; fixedExs [1]; confined [true]; clauseCE true
-  sortedOK but clausesPlain true; clausesPlain false; every clause clauseCE true; readsConfined true
+  sortedOK but clausesPlain true; clausesPlain true; every clause clauseCE true; readsConfined true
 e3-eq-exists-ctor-ml Lblpick: functional sentence false; clauses 1
   [0] vars [X:Col, C:Col] pats [X] req none prio 50 aside false
       pre ⊤
       rhs C ens none exs [1] post (Lbl'UndsEqlsSlshEqls'K'Unds'(kseq(inj[Col,KItem](C), dotk()), kseq(inj[Col,KItem](X), dotk())) =[Bool] true)
       clauseSorted true; condOK post true; sortedCE true; fixedExs []; confined [true]; clauseCE true
-  sortedOK but clausesPlain true; clausesPlain false; every clause clauseCE true; readsConfined true
+  sortedOK but clausesPlain true; clausesPlain true; every clause clauseCE true; readsConfined true
 e3-eq-exists-noens-ml Lblf: functional sentence false; clauses 1
   [0] vars ['Unds'Gen0:Bool, B:Bool] pats ['Unds'Gen0] req none prio 50 aside false
       pre ⊤
       rhs B ens none exs [1] post ⊤
       clauseSorted true; condOK post true; sortedCE true; fixedExs []; confined [true]; clauseCE true
-  sortedOK but clausesPlain true; clausesPlain false; every clause clauseCE true; readsConfined true
+  sortedOK but clausesPlain true; clausesPlain true; every clause clauseCE true; readsConfined true
 e3-eq-exists-int-ml Lblh: functional sentence false; clauses 1
   [0] vars [X:Int, Z:Int] pats [X] req none prio 50 aside false
       pre ⊤
@@ -392,13 +394,13 @@ e3-eq-exists-ml-supersort Lblf: functional sentence false; clauses 1
       pre ⊤
       rhs inj[Bool,KItem](B) ens none exs [1] post (B =[Bool] Lbl'Unds-GT-'Int'Unds'(X, 0))
       clauseSorted true; condOK post true; sortedCE true; fixedExs [1]; confined [true]; clauseCE true
-  sortedOK but clausesPlain true; clausesPlain false; every clause clauseCE true; readsConfined true
+  sortedOK but clausesPlain true; clausesPlain true; every clause clauseCE true; readsConfined true
 e3-eq-exists-ml-supersort Lblh: functional sentence false; clauses 1
   [0] vars [K:KItem, Z:Int] pats [K] req none prio 50 aside false
       pre ⊤
       rhs Z ens none exs [1] post (inj[Int,KItem](Z) =[KItem] K)
       clauseSorted true; condOK post true; sortedCE true; fixedExs [1]; confined [false]; clauseCE true
-  sortedOK but clausesPlain true; clausesPlain false; every clause clauseCE true; readsConfined true
+  sortedOK but clausesPlain true; clausesPlain true; every clause clauseCE true; readsConfined true
 -/
 #guard_msgs in
 #eval show IO Unit from do
@@ -534,7 +536,7 @@ info: e3-ml-eq-rhs-and-term Lblh: functional sentence false; clauses 1
       pre ⊤
       rhs 'Hash'Cut0 ens none exs [1] post (('Hash'Cut0 ∈[Int] Lblf(X)) ∧ ('Hash'Cut0 ∈[Int] Lblg(X)))
       clauseSorted true; condOK post true; sortedCE true; fixedExs [1]; confined [false]; clauseCE true
-  sortedOK but clausesPlain true; clausesPlain false; every clause clauseCE true; readsConfined true
+  sortedOK but clausesPlain true; clausesPlain true; every clause clauseCE true; readsConfined true
 -/
 #guard_msgs in
 #eval show IO Unit from do
@@ -669,13 +671,13 @@ info: e3-eq-exists-ml-and-terms Lblf: functional sentence false; clauses 1
       pre ⊤
       rhs B ens none exs [1] post (B ∈[Bool] LblnotBool'Unds'(X))
       clauseSorted true; condOK post true; sortedCE true; fixedExs [1]; confined [true]; clauseCE true
-  sortedOK but clausesPlain true; clausesPlain false; every clause clauseCE true; readsConfined true
+  sortedOK but clausesPlain true; clausesPlain true; every clause clauseCE true; readsConfined true
 e3-eq-exists-ml-and-terms Lblk: functional sentence false; clauses 1
   [0] vars [X:Int, Z:Int] pats [X] req none prio 50 aside false
       pre ⊤
       rhs Z ens none exs [1] post (Z ∈[Int] Lbl'UndsPlus'Int'Unds'(X, 1))
       clauseSorted true; condOK post true; sortedCE true; fixedExs [1]; confined [false]; clauseCE true
-  sortedOK but clausesPlain true; clausesPlain false; every clause clauseCE true; readsConfined true
+  sortedOK but clausesPlain true; clausesPlain true; every clause clauseCE true; readsConfined true
 -/
 #guard_msgs in
 #eval show IO Unit from do
@@ -812,7 +814,7 @@ e3-ml-eq-rhs-ceil-and Lblh: functional sentence false; clauses 1
       pre ⊤
       rhs X ens none exs [1] post (⌈'Hash'Cut0⌉:Int ∧ (('Hash'Cut0 ∈[Int] Lblf(X)) ∧ ('Hash'Cut0 ∈[Int] Lblg(X))))
       clauseSorted true; condOK post true; sortedCE true; fixedExs [1]; confined [false]; clauseCE true
-  sortedOK but clausesPlain true; clausesPlain false; every clause clauseCE true; readsConfined true
+  sortedOK but clausesPlain true; clausesPlain true; every clause clauseCE true; readsConfined true
 e3-ml-eq-rhs-equals-and Lblh: refused KCore.Parse.RefusalReason.patternConnective (\and)
 e3-ml-eq-rhs-not-ceil-and Lblh: refused KCore.Parse.RefusalReason.patternConnective (\and)
 eqCeilUnder:
@@ -854,7 +856,7 @@ e3-eq-exists-bool-ml Lblf: functional sentence true; clauses 1
       pre ⊤
       rhs LblnotBool'Unds'('Hash'Cut0) ens none exs [1, 2] post (('Hash'Cut0 ∈[Bool] LblnotBool'Unds'(B)) ∧ ('Hash'Cut0 ∈[Bool] X))
       clauseSorted true; condOK post true; sortedCE true; fixedExs [2]; confined [true, true]; clauseCE true
-  sortedOK but clausesPlain true; clausesPlain false; every clause clauseCE true; readsConfined true
+  sortedOK but clausesPlain true; clausesPlain true; every clause clauseCE true; readsConfined true
 -/
 #guard_msgs in
 open KoreAML (ev ap srt evar) in
@@ -876,13 +878,13 @@ info: e3-ml-eq-rhs-or Lblh: functional sentence false; clauses 1
       pre ⊤
       rhs 'Hash'Or0 ens none exs [1] post (('Hash'Or0 ∈[Int] Lblf(X)) ∨ ('Hash'Or0 ∈[Int] Lblg(X)))
       clauseSorted true; condOK post true; sortedCE true; fixedExs [1]; confined [false]; clauseCE true; clausePlainEx true
-  sortedOK but clausesPlain true; clausesPlain false; every clause clauseCE true; readsConfined true
+  sortedOK but clausesPlain true; clausesPlain true; every clause clauseCE true; readsConfined true
 e3-ml-eq-rhs-or-many Lblk: functional sentence true; clauses 1
   [0] vars ['Unds'Gen0:Int, 'Hash'Or0:Int] pats ['Unds'Gen0] req none prio 50 aside false
       pre ⊤
       rhs 'Hash'Or0 ens none exs [1] post ((((((((('Hash'Or0 ∈[Int] 1) ∨ ('Hash'Or0 ∈[Int] 2)) ∨ ('Hash'Or0 ∈[Int] 3)) ∨ ('Hash'Or0 ∈[Int] 4)) ∨ ('Hash'Or0 ∈[Int] 5)) ∨ ('Hash'Or0 ∈[Int] 6)) ∨ ('Hash'Or0 ∈[Int] 7)) ∨ ('Hash'Or0 ∈[Int] 8)) ∨ ('Hash'Or0 ∈[Int] 9))
       clauseSorted true; condOK post true; sortedCE true; fixedExs [1]; confined [false]; clauseCE true; clausePlainEx true
-  sortedOK but clausesPlain true; clausesPlain false; every clause clauseCE true; readsConfined true
+  sortedOK but clausesPlain true; clausesPlain true; every clause clauseCE true; readsConfined true
 e3-ml-eq-rhs-or: today refused KCore.Parse.RefusalReason.manyValuedRightSide (\or: the sentence gives the function every element of each side; the text holds no functional sentence of the function, so where the sides differ that is more than one element, which no clause states)
 e3-ml-eq-rhs-or-many: today refused KCore.Parse.RefusalReason.manyValuedRightSide (\or: 9 alternatives, more than 8)
 -/

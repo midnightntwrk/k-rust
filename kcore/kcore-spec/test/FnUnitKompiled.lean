@@ -280,7 +280,9 @@ theorem consistent (H : HookParams) :
       (I ⊧ᴵP (Γc (cH H) ∪ Γstep (cH H))) ∧ ∀ l ∈ defn.laws, I ⊧ᴵ lawPattern (cH H) l :=
   have hm := model_of_nilFU coreOK_text (by decide +kernel) (by decide +kernel) (by decide +kernel)
     (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel) H
-  consistent_with_laws hm.1 hm.2.1 hm.2.2.1 hm.2.2.2.1 hm.2.2.2.2 (fnLaws H)
+  consistent_with_laws hm.1 hm.2.1 hm.2.2.1 hm.2.2.2.1
+    (clausePostDecided_of_isTop (c := cH H)
+      (by decide +kernel : (c.fns.all fun f => f.clauses.all fun cl => cl.post.isTop) = true)) hm.2.2.2.2 (fnLaws H)
     (fun l hl => by
       rw [laws_eq] at hl
       simp only [List.mem_cons, List.not_mem_nil, or_false] at hl
