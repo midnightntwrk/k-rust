@@ -1,7 +1,8 @@
 /-
   The library's sentences about interpreted hooked symbols, evaluated at values against Γ's
   graphs (`hook`, `silent`). Native evaluation only (`#eval`), no kernel proof.
-  Run from the package root: `lake env lean test/LibProbe.lean`.
+  Run from the package root: `lake env lean test/LibProbe.lean`; with `LIBPROBE_LOG=FILE` each
+  sentence's line is also added to FILE as it is done (`#eval` shows its output only at its end).
 
   For a kompile text, each axiom of the user module is put in one of four classes (TIE-0's rows):
   - 9: `functional` of a hooked symbol (the sort-parametric `ite{S}`'s among them);
@@ -533,7 +534,13 @@ structure Res where
 def showPoint (c : Semantics) (pt : List (String × D)) : String :=
   ", ".intercalate (pt.map fun (n, d) => s!"{n} = {showD c d}")
 
-/-- Evaluate one sentence at every point of its grid, in the three readings of silent points. -/
+/-- The readings `modes` with `HookParams.none` first. The interpretation is read only where a point's
+evaluation reaches a silent point, a parameter or a function's rest (`applyAt` marks it), and every
+other application has the same meaning under every reading; so a point whose evaluation under
+`HookParams.none` marks nothing evaluates to the same under every reading, and is evaluated once. -/
+def noneFirst (modes : List Mode) : List Mode := Mode.none :: modes.filter (· != Mode.none)
+
+/-- Evaluate one sentence at every point of its grid, in the readings `modes` (`noneFirst`). -/
 def probe (c : Semantics) (r : Res) (a : Kore.Axiom) (modes : List Mode := [.none, .pick 0, .pick 1])
     (small : Bool := false) : Res := Id.run do
   let fv := (freeVars [] a.pattern).eraseDups
@@ -552,12 +559,14 @@ def probe (c : Semantics) (r : Res) (a : Kore.Axiom) (modes : List Mode := [.non
   let leftKey : Option String := match sides a.pattern with
     | some (.app h ss _, _) => some (appKey h ss)
     | _ => none
+  let modes := noneFirst modes
   let mut r := { r with points := pts.length }
   for pt in pts do
     let mut dep := false
     let mut off := false
     let mut okAll := true
     for m in modes do
+      if m != Mode.none && !dep then break
       let x := Ctx.of c m small
       match (eval x pt a.pattern).run {} with
       | .error e => return { r with skip := some s!"at {showPoint c pt}: {e}" }
@@ -569,7 +578,9 @@ def probe (c : Semantics) (r : Res) (a : Kore.Axiom) (modes : List Mode := [.non
         let holds := match d with | .top => true | _ => false
         if !holds then
           okAll := false
-          if !r.failModes.contains m.name then r := { r with failModes := r.failModes ++ [m.name] }
+          -- a failure reading nothing of the interpretation is a failure under every reading
+          for n in (if isDep then [m.name] else modes.map (·.name)) do
+            if !r.failModes.contains n then r := { r with failModes := r.failModes ++ [n] }
           let sd := match sides a.pattern with
             | some (l, rr) =>
               let l' := match (eval x pt l).run {} with | .ok (d, _) => showD c d | .error e => e
@@ -614,14 +625,18 @@ def probeTwo (c : Semantics) (r : Res) (a : Kore.Axiom) (modes : List Mode := [.
         let ds := g.map D.val
         grids := grids ++ [(n, if n.startsWith "@" then D.bot :: ds ++ (pairsOf g).map (fun (v, w) => D.many [v, w]) else ds)]
   let pts := (points grids).filter (·.any (·.2.isMany))
+  let modes := noneFirst modes
   let mut r := { r with setVar := true, points2 := pts.length }
   for pt in pts do
+    let mut dep := false
     for m in modes do
+      if m != Mode.none && !dep then break
       let x := Ctx.of c m small
       match (eval x pt a.pattern).run {} with
       | .error e => return { r with skip2 := some s!"at {showPoint c pt}: {e}" }
       | .ok (d, fl) =>
         let isDep := !fl.silent.isEmpty || !fl.param.isEmpty
+        if isDep then dep := true
         let holds := match d with | .top => true | _ => false
         if !holds && (isDep || m == .none) then
           let first := if isDep then r.nhfail2 < 8 else r.ncex2 < 8
@@ -743,8 +758,20 @@ def outOfLibrary (k : Kore.Definition) : Kore.Definition × Nat × List String :
     let m' := { m with sentences := (m.sentences.zipIdx.filter keep).map (·.1) }
     ({ k with modules := k.modules.dropLast ++ [m'] }, own, rs.map (·.head))
 
+/-- The line printed for a sentence. -/
+def resLine (r : Res) : String :=
+  s!"#{r.index} L{r.line} row {r.row} {r.place} [{" ".intercalate r.syms}] points {r.points} (premise holds at {r.active}, reads H at {r.hdep}): {verdict r}{verdictTwo r}{if r.failModes.isEmpty then "" else s!" [fails under {r.failModes}]"}"
+
 def run (path : String) (verbose : Bool := true) (modes : List Mode := [.none, .pick 0, .pick 1])
     (small : Bool := false) (dropOut : Bool := false) : IO (Summary × Reads × Two) := do
+  -- `#eval` shows what it prints when it ends; LIBPROBE_LOG names a file each sentence's line is
+  -- added to as it is done, with the seconds it took
+  let logTo ← IO.getEnv "LIBPROBE_LOG"
+  let say (l : String) : IO Unit := do
+    if let some f := logTo then
+      let h ← IO.FS.Handle.mk f .append
+      h.putStrLn l
+      h.flush
   let text ← IO.FS.readFile path
   let k ← match Kore.parseDefinition text with
     | .ok k => pure k
@@ -773,10 +800,13 @@ def run (path : String) (verbose : Bool := true) (modes : List Mode := [.none, .
       let lawPlace := if row == 15 && hasAttr ad.ax.attributes "assoc" then (syms.head?.map (declPlace k)).getD "-" else "-"
       let place := placeOf ad.ax.attributes
       let r : Res := { index := ad.index, line := lines.getD (ad.index - 1) 0, row, place, syms, absent, lawPlace }
+      let t0 ← IO.monoMsNow
       -- a shift by 2^64 + 1 is a number of that many bits: its sentences are probed on the small grid
       let small := small || syms.any ["Lbl'Unds-LT--LT-'Int'Unds'", "Lbl'Unds-GT--GT-'Int'Unds'"].contains
       let r := if absent.isEmpty then probe c r ad.ax modes small else { r with skip := some s!"applies symbols Γ does not have: {absent}" }
       let r := if r.skip.isNone && r.cex.isEmpty && r.hfail.isEmpty then probeTwo c r ad.ax modes small else r
+      let t1 ← IO.monoMsNow
+      say s!"{path} {resLine r} ({(t1 - t0) / 1000} s)"
       res := res ++ [r]
   IO.println s!"Γ's instances of ite: {gNames.filter (·.startsWith "Lblite")}"
   let mut sum : Summary := []
@@ -791,7 +821,7 @@ def run (path : String) (verbose : Bool := true) (modes : List Mode := [.none, .
     sum := sum ++ [(row, rs.length, over.length, hold.length, cexs.length, hf.length, sk.length)]
   if verbose then
     for r in res do
-      IO.println s!"#{r.index} L{r.line} row {r.row} {r.place} [{" ".intercalate r.syms}] points {r.points} (premise holds at {r.active}, reads H at {r.hdep}): {verdict r}{verdictTwo r}{if r.failModes.isEmpty then "" else s!" [fails under {r.failModes}]"}"
+      IO.println (resLine r)
       for m in r.cex.drop 1 |>.take 7 do IO.println s!"    also {m}"
       for m in r.hfail.drop 1 |>.take 7 do IO.println s!"    also {m}"
       for m in r.cex2.drop 1 do IO.println s!"    also {m}"
@@ -919,5 +949,6 @@ end KCore.LibProbe
   if (← IO.getEnv "LIBPROBE_ALL_ONLY").isNone then KCore.LibProbe.check "f2-examples/ref-kimp.kore"
 #eval show IO Unit from do
   if (← IO.getEnv "LIBPROBE_ALL_ONLY").isNone then KCore.LibProbe.checkFlt
--- checkAll takes about 55 minutes alone: run with LIBPROBE_ALL=1 (and LIBPROBE_ALL_ONLY=1 for it alone)
+-- checkAll takes about 11 minutes alone, the three checks above about 5 together: run with
+-- LIBPROBE_ALL=1 (and LIBPROBE_ALL_ONLY=1 for it alone)
 #eval show IO Unit from do if (← IO.getEnv "LIBPROBE_ALL").isSome then KCore.LibProbe.checkAll else pure ()
