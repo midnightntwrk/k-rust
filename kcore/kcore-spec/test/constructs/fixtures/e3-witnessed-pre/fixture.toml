@@ -1,0 +1,5 @@
+# A function equation whose requires is closed over a variable of an unconfined sort and that has a predicate in its
+# premise: f(_) => 1 requires isC(H:S #And d), H bound by no argument. The conjunction under the application is cut
+# (andUnderAppCut): the clause's requires is isC(H) and its premise predicate H ∈ d. S keeps the generator c(Empty)
+# over a sort without a value, so S is not confined and the clause owes its CondDecided over H:S; H := d witnesses
+# it, the requires isC(d) true and the predicate d ∈ d true there, each with no other result.
