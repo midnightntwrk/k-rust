@@ -31,14 +31,14 @@ Nested entries by status:
 |---|---|---|---|---|---|---|---|---|
 | E1 | 8 | 3 | 0 | 0 | 0 | 5 | 0 | 0 |
 | E2 | 60 | 9 | 0 | 1 | 0 | 50 | 0 | 0 |
-| E3 | 86 | 41 | 0 | 2 | 0 | 43 | 0 | 0 |
+| E3 | 86 | 42 | 0 | 2 | 0 | 42 | 0 | 0 |
 | E4 | 54 | 20 | 0 | 4 | 0 | 30 | 0 | 0 |
 | E5 | 62 | 36 | 1 | 2 | 0 | 23 | 0 | 0 |
 | E6 | 35 | 9 | 2 | 0 | 0 | 24 | 0 | 0 |
 | E7 | 9 | 4 | 1 | 0 | 0 | 4 | 0 | 0 |
 | E8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 36 | 16 | 0 | 2 | 1 | 17 | 0 | 0 |
-| all | 350 | 138 | 4 | 11 | 1 | 196 | 0 | 0 |
+| all | 350 | 139 | 4 | 11 | 1 | 195 | 0 | 0 |
 
 Refused rows by class:
 
@@ -61,20 +61,20 @@ Refused nested entries by class:
 |---|---|---|---|---|---|
 | E1 | 5 | 1 | 0 | 1 | 3 |
 | E2 | 50 | 4 | 0 | 1 | 45 |
-| E3 | 43 | 14 | 2 | 25 | 2 |
+| E3 | 42 | 14 | 2 | 24 | 2 |
 | E4 | 30 | 14 | 10 | 0 | 6 |
 | E5 | 23 | 10 | 1 | 2 | 10 |
 | E6 | 24 | 5 | 2 | 0 | 17 |
 | E7 | 4 | 0 | 0 | 0 | 4 |
 | E8 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 17 | 8 | 4 | 0 | 5 |
-| all | 196 | 56 | 19 | 29 | 92 |
+| all | 195 | 56 | 19 | 28 | 92 |
 
-Supported entries (rows and nested): 972; 14 of them have an owed fact and are counted by their best fixture: **13 proved** (the owed fact proved on a fixture the entry names: these count as supported under the headline statements), 0 open and 1 false (counted apart: the headline statements' hypothesis is not shown on their fixtures). The other 958 have no owed fact.
+Supported entries (rows and nested): 973; 14 of them have an owed fact and are counted by their best fixture: **13 proved** (the owed fact proved on a fixture the entry names: these count as supported under the headline statements), 0 open and 1 false (counted apart: the headline statements' hypothesis is not shown on their fixtures). The other 959 have no owed fact.
 
 E6 library rows by their `e6_tie` (test/constructs/e6map.py; rows-header.toml): 480, of which 191 tied, 12 of no direction (the tie's no-direction class, owed-sentence rule item 7: never tied, counted apart), 9 refuted and 268 uncovered.
 
-## Entries of class R-c (39)
+## Entries of class R-c (38)
 
 Each names the notion the kernel lacks, the cone declaration that would change, and the ticket or unit that supports it (`unit`, checked by `units.py`).
 
@@ -85,7 +85,6 @@ Each names the notion the kernel lacks, the cone declaration that would change, 
 | E2 | `ML_OP(mlOp)@frontend` | row | refused |  | none (reader only): the connective goes to Rule.pre or Rule.post; R-c until the unit lands | RDR.rule-lhs-and |  |
 | E2 | `SYMBOL(symbol)@symbol` | cases[0] | refused |  | KCore.Faithful.sigItems, KCore.Faithful.ΓDomains, KCore.Faithful.ΓFallback, KCore.Faithful.ΓColls, KCore.Faithful.Model.namesApartK, KCore.Faithful.Model.itesApart, KCore.gammaHeads, KCore.AttrsAgree.hooks (REGN.rows; the declarations findings/work/decision-regn.md changes: Γ's library family guarde… | REGN.rows |  |
 | E3 | `ML-SYNTAX:Sort::="#Top"` | row | refused |  | none (reader only): the connective goes to Rule.pre or Rule.post | RDR.rule-conn-wire | CN-3 P1 (e0, e1: L-2, an anonymous variable, reader only); R3 (e2: R-5, a right side as \`?Z\` with \`post\`) |
-| E3 | `ML-SYNTAX:Sort::="#Top"` | cases[2] | refused |  | KCore.Semantics.holds (read by coreOK through rulesPlain/heldOccs and memHeld) | SEM.held-append | R-5 |
 | E3 | `ML-SYNTAX:Sort::="#Not" "(" Sort ")"` | row | refused |  | none (reader only): the connective goes to Rule.pre or Rule.post | RDR.rule-conn-wire | CN-3 R3 (e2: L-7, \`pre := not (exMatch ..)\`; R-5 as \`?Z\` with \`post\`); e3 (\`Clause.pre\`) |
 | E3 | `ML-SYNTAX:Sort2::="#Ceil" "(" Sort1 ")"` | row | refused |  | none (reader only): the connective goes to Rule.pre or Rule.post | RDR.rule-lhs-and | CN-3 R3 (e2: L-9 into \`Rule.pre\`, R-4 into \`Rule.post\`); e3 (\`Clause.pre\`, \`Clause.post\`); P1 (e1: C-2 \`req := false\`, reader only) |
 | E3 | `ML-SYNTAX:Sort2::="#Ceil" "(" Sort1 ")"` | cases[2] | refused |  |  | RDR.rule-lhs-and | L-9 |
@@ -515,10 +514,10 @@ Not core:
 
 | row | status | class | reason | cone | unit | fixture | kimp | kk.k | evidence |
 |---|---|---|---|---|---|---|---|---|---|
-| `ML-SYNTAX:Sort::="#Top"` | refused | R-c | a connective at a term position of a rule's side denotes a set of values where a term denotes one. Under applications it is the cut (kk:t233-rule-conn-cut): the position holds a variable Z of the rule, and Z's membership in the connective is a conjunct of Rule.pre on a left side and of Rule.post on… | none (reader only): the connective goes to Rule.pre or Rule.post | RDR.rule-conn-wire | e3-ml | no | no | fixtures/e3-ml-rule-lhs-top: account \`1 read topAsVariable [user]\`, \`parse: ok; wf true\`; fixtures/e3-ml-rule-rhs-top: account \`1 read connectiveCut [user]\`, \`openRight (Var'Hash'Cut0:K\`; fixtures/e3-ml: account \`4 inert simplification [user]\`, \`4 parameter lemma [user]\`; test/Connectives.lean |
+| `ML-SYNTAX:Sort::="#Top"` | refused | R-c | a connective at a term position of a rule's side denotes a set of values where a term denotes one. Under applications it is the cut (kk:t233-rule-conn-cut): the position holds a variable Z of the rule, and Z's membership in the connective is a conjunct of Rule.pre on a left side and of Rule.post on… | none (reader only): the connective goes to Rule.pre or Rule.post | RDR.rule-conn-wire | e3-ml | no | no | fixtures/e3-ml-rule-lhs-top: account \`1 read topAsVariable [user]\`, \`parse: ok; wf true\`; fixtures/e3-ml-rule-rhs-top: account \`1 read connectiveCut [user]\`, \`coreOK: true\`; fixtures/e3-ml: account \`4 inert simplification [user]\`, \`4 parameter lemma [user]\`; test/Connectives.lean |
 | cases[0]: a rule's left side, under applications and conjunctions | supported |  |  |  |  |  |  |  | fixtures/e3-ml-rule-lhs-top |
 | cases[1]: a requires or ensures \\equals{SortBool{},S}(\\top{SortBool{}}, true) | supported |  |  |  |  |  |  |  | Parse.isPred; fixtures/e3-ml-req-ceil, -req-forall (other predicates at Bool) |
-| cases[2]: a rule's right side | refused | R-c | kompile writes go => #Top as append(\\top{SortK{}}(), \_DotVar1); after the cut the variable Z:K sits under append, which Semantics.holds does not list. Under Γ (its family kNoJunk, append's two equations, Cons-Inj and Cons-Dist of kseq and dotk) every value successor of the rule is a value instance (… | KCore.Semantics.holds (read by coreOK through rulesPlain/heldOccs and memHeld) | SEM.held-append |  |  |  | fixtures/e3-ml-rule-rhs-top: account \`1 read connectiveCut [user]\`, \`openRight (Var'Hash'Cut0:K\`: kompile writes \`go => #Top\` as append(\\top{SortK{}}(), \_DotVar1), the connective at sort K under the function append |
+| cases[2]: a rule's right side | supported |  |  |  |  | e3-ml-rule-rhs-top |  |  | fixtures/e3-ml-rule-rhs-top (go => #Top): account.txt \`1 read connectiveCut [user]\`, \`sentence 221: connectiveCut\`, \`coreOK: true\`, read as go \~> R => ?Z ++ R (Z:K existential, post \\top); test/TieRuleRhsTop.lean at f2-examples/heldrhstop (read, rz\_shape: the reader's rule; coreOK; fnHypH: FnHyp for… |
 | cases[3]: an equation's right side | refused | R-a | f(X) = \\top states that the function's value at X is every element of its sort at once: one element only where the sort has one, so the sentence states the sort's extent and no value of f; Term has no connective, so no clause holds it and nothing needs deciding under coreOK (designs/CN-4b-rc-units.m… |  | none (R-a): the value is the sort's extent, which no value of a function is (designs/CN-4b-rc-units.md section 13, row manyValuedRightSide) | e3-ml-eq-rhs-top |  |  | fixtures/e3-ml-eq-rhs-top (f(X) => #Top, f a function of Int): kompile.txt exit 0; kore.txt //@ 335, the right side \\and{SortInt{}}(\\top{SortInt{}}(),\\top{SortInt{}}()); account.txt \`sentence 348 (Lblf): manyValuedRightSide (\\top)\`; Parse.manyValued? (\`\| .top \_ => some "\\\\top"\`), refused by Parse.cl… |
 | `ML-SYNTAX:Sort::="#Bottom"` | supported |  | #Bottom denotes no element. A rule's left side holding it denotes nothing, so the rule applies to no configuration and states nothing: inert (vacuousLeft). A right side holding it under applications and conjunctions denotes nothing, so the axiom states that the instance has no successor or result: r… | none (reader only: the shapes are read as an ensures false, the right side's other disjunct, or the literal false, or are inert) |  | e3-ml | no | no | fixtures/e3-ml-rule-lhs-bottom: account \`1 inert vacuousLeft [user]\`; fixtures/e3-ml-rule-rhs-bottom, e3-ml-rule-rhs-bottom-fn, e3-ml-eq-rhs-bottom, e3-ml-eq-rhs-bottom-ctor, e3-ml-eq-rhs-bottom-noval: account \`1 read bottomAsEnsures [user]\`, \`parse: ok; wf true; failing: []\`, \`coreOK: true; failing… |
 | cases[0]: a rule's left side (empty) | inert |  |  |  |  | e3-ml-rule-lhs-bottom |  |  | fixtures/e3-ml-rule-lhs-bottom |
