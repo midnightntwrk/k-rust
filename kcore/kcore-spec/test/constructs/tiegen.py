@@ -59,7 +59,12 @@ identifier `KoreAML.srt` writes (`gInjCodes`, `injCodesOf c`), read by `hasHeadC
 equal to `absentP` by `gammaHasHead_coded`, KcoreSpec/TieCodes.lean, with `gSymCodes_noInst`: no
 code holds the byte of `{`). It builds no list of Γ's heads and decodes no name: a head is compared
 with Γ's names (or, for `inj`, its subsort pairs) by numbers. Refused where a name of Γ's symbols
-holds `{` (today's --heads-literal path is kept for such a text).
+holds `{` (today's --heads-literal path is kept for such a text). It also decides `absent_proj_below`'s
+first conjunct (the no-direction sentences that are equations of a projection, mapped, are
+`absentProj` mapped) by the same ranges of the user module, `absProjE_a` each its own decision with
+the members of `absentProj` in its range, joined by `tieFilterMap_range` (KcoreSpec/TieChunks.lean):
+in one decision `(classOf "no direction").contains` scans the class once per sentence of the text,
+all in one reduction (rcd's Absent file: 7.5 GiB with the one decision, 2.8 GiB by ranges of 50).
 --attrs-parts states `attrs_agree` from its five conjuncts (`attrs_ctors`, `attrs_fns`, `attrs_hooks`,
 `attrs_colls`, `attrs_prios`), each a decision of its own.
 --attrs-blocks N (implies --attrs-parts) decides `attrs_ctors`, `attrs_fns` and `attrs_hooks` over the
@@ -1302,7 +1307,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     of more generators than that by blocks of that many disjuncts (0: one decision); `lists_by_class`:
     `lists_in_account` from one check per class (`tieAll_of_groups`); `heads_plain`: decide
     `account_absent`'s ranges on the codes of Γ's symbol names and subsort pairs (`gSymCodes`,
-    `gInjCodes`, `hasHeadCoded`, by `gammaHasHead_coded`), in place of `gHeads`/`gCodes`."""
+    `gInjCodes`, `hasHeadCoded`, by `gammaHasHead_coded`), in place of `gHeads`/`gCodes`, and
+    `absent_proj_below`'s first conjunct by the same ranges (`absProjE_a`, `tieFilterMap_range`)."""
     raws = raws or {}
     hand = hand or {}
     call_order = ob["call_order"]
@@ -2245,6 +2251,40 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w("theorem absent_proj_below_c : absentProj.all (fun p => GenEqs.projBelowB c p.2) = true := by")
         w("  decide +kernel")
         w("")
+        if chunk and heads_plain:
+            # the first conjunct by the ranges of `account_absent`, each its own decision: one decision
+            # over the whole text scans the class once per sentence, all in one reduction
+            # `U.all` is the user module's sentences in text order (`userAxioms_eq`), and an `index` is
+            # the position in text order (`AxiomDecl.index`), so its j-th member is idx[j]
+            pos = {i: j for j, i in enumerate(idx)}
+            w("/-- `absent_proj_below`'s filter, named for the ranges below. -/")
+            w("noncomputable def absProjP (ad : AxiomDecl) : Bool :=")
+            w('  (classOf "no direction").contains ad.index &&')
+            w(f'    ((AttrsAgree.eqnHead ad.ax.pattern).getD "").startsWith "{PROJ_PREFIX}"')
+            w("")
+            w("/-- `absent_proj_below`'s map of the sentences. -/")
+            w("noncomputable def absProjF (ad : AxiomDecl) : Nat × Option String :=")
+            w("  (ad.index, AttrsAgree.eqnHead ad.ax.pattern)")
+            w("")
+            w("/-- `absent_proj_below`'s map of `absentProj`. -/")
+            w("def absProjG (p : Nat × String) : Nat × Option String :=")
+            w(f'  (p.1, some ("{PROJ_PREFIX}" ++ p.2))')
+            w("")
+            w("/-- `absent_proj_below`'s first conjunct range by range of the user module (the ranges of")
+            w("`account_absent`), each with the members of `absentProj` in it, joined by `tieFilterMap_range`. -/")
+            rs, steps, b = ranges(len(idx), 0, chunk), [], 0
+            lp = "(l := U.all) (p := absProjP) (f := absProjF) (m := absentProj) (g := absProjG)"
+            for a, ln in rs:
+                if ln is None:
+                    w(f"theorem absProjE_{a} : (((U.all).drop {a}).filter absProjP).map absProjF =")
+                    w(f"    (absentProj.drop {b}).map absProjG := by decide +kernel")
+                else:
+                    k = sum(1 for i, _ in abs_proj if a <= pos[i] < a + ln)
+                    w(f"theorem absProjE_{a} : ((((U.all).drop {a}).take {ln}).filter absProjP).map absProjF =")
+                    w(f"    ((absentProj.drop {b}).take {k}).map absProjG := by decide +kernel")
+                    steps.append(f"      tieFilterMap_range {lp}\n        (a := {a}) (n := {ln}) (b := {b}) (k := {k}) absProjE_{a} <|")
+                    b += k
+            w("")
         w("/-- **The projections the no-direction class defines are of sorts below KItem**: `absentProj` is")
         w(f"the list of the no-direction sentences whose left side applies a symbol `{PROJ_PREFIX}X`, each")
         w("with that X, and each such X is K, KItem or a sort below KItem of Γ, with K and KItem constructor")
@@ -2257,7 +2297,16 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w("      (fun ad => (ad.index, AttrsAgree.eqnHead ad.ax.pattern)) =")
         w(f'      absentProj.map (fun p => (p.1, some ("{PROJ_PREFIX}" ++ p.2))) ∧')
         w("    absentProj.all (fun p => GenEqs.projBelowB (cH H) p.2) = true :=")
-        w("  ⟨by rw [userAxioms_eq]; decide +kernel, absent_proj_below_c⟩")
+        if chunk and heads_plain:
+            w("  ⟨by")
+            w("    rw [userAxioms_eq]")
+            w(f"    exact tieFilterMap_whole {lp} <|")
+            for st in steps:
+                w(st)
+            w(f"      absProjE_{rs[-1][0]},")
+            w("    absent_proj_below_c⟩")
+        else:
+            w("  ⟨by rw [userAxioms_eq]; decide +kernel, absent_proj_below_c⟩")
         w("")
     if absent_file:
         mark("Account")

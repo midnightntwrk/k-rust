@@ -28,6 +28,23 @@ theorem tieEq_range {α : Type} {l m : List α} {a n : Nat}
   rw [← List.take_append_drop n (l.drop a), ← List.take_append_drop n (m.drop a), h, List.drop_drop,
     List.drop_drop, ht]
 
+/-- A filtered and mapped list from its ranges, as `tieAll_range`: on the `n` members of `l` from
+`a`, `p`'s members mapped by `f` are the `k` members of `m` from `b` mapped by `g`, and from `a + n`
+on they are the members of `m` from `b + k` on mapped by `g`. Each range's equation is its own
+decision, and the members of `m` it reads are the ones its range of `l` gives. -/
+theorem tieFilterMap_range {α β γ : Type} {l : List α} {p : α → Bool} {f : α → γ} {m : List β}
+    {g : β → γ} {a n b k : Nat}
+    (h : (((l.drop a).take n).filter p).map f = ((m.drop b).take k).map g)
+    (ht : ((l.drop (a + n)).filter p).map f = (m.drop (b + k)).map g) :
+    ((l.drop a).filter p).map f = (m.drop b).map g := by
+  rw [← List.take_append_drop n (l.drop a), List.filter_append, List.map_append, h, List.drop_drop, ht,
+    ← List.drop_drop, ← List.map_append, List.take_append_drop]
+
+/-- The filtered and mapped list where it is so from `0` on. -/
+theorem tieFilterMap_whole {α β γ : Type} {l : List α} {p : α → Bool} {f : α → γ} {m : List β}
+    {g : β → γ} (h : ((l.drop 0).filter p).map f = (m.drop 0).map g) :
+    (l.filter p).map f = m.map g := h
+
 /-- `l.all (fun x => (f x.2).contains x.1)` from one check per group: each member's second component
 is one of `cs`, and for each `n` of `cs` the first components of the members whose second component
 is `n`, in the list's order, are a sublist of `f n`. Each group's check reads `f n` once, where
