@@ -617,14 +617,15 @@ def _root_.KCore.Lib.ok (l : Lib) : Bool :=
 /-- The definition's own sorts and symbols are numbered as Core.lean says: its own sorts
 (`ownSorts`) are `nRegSorts, nRegSorts + 1, …`, one name each; its symbols but the sort predicates
 (`ownSyms`: constructors, functions, parameters, overloading symbols) are `symBase, symBase + 1, …`,
-one name each, after the predicates of its own sorts. So all of them are distinct, from each other and from the registry's, and `predOf` gives each own
+one name each, after the predicates of its own sorts; a function numbered below `symBase` is an own
+sort's predicate (`sortPreds`), and none bears a registry symbol. So all of them are distinct, from each other and from the registry's, and `predOf` gives each own
 sort its own predicate. Linear in their number. Its other sorts are the registry's generated
 configuration sorts (`genSorts`), each once, and its other constructors the generated
 configuration's (`genSyms`); no library sort is one of them, nor KItem (`Lib.ok`). -/
 def idsOK : Bool :=
   c.ownSorts == List.range' nRegSorts c.sortNames.length &&
   c.ownSyms == List.range' c.symBase (c.symNames.length - c.sortNames.length) &&
-  decide (c.sortNames.length ≤ c.symNames.length) &&
+  (decide (c.sortNames.length ≤ c.symNames.length) && c.fns.all fun f => decide (nRegSyms ≤ f.label)) &&
   ((let reg := c.userSorts.filter fun s => decide (s < nRegSorts)
     nodup reg && reg.all genSorts.contains &&
     c.ctors.all fun k => decide (nRegSyms ≤ k.name) || genSyms.contains k.name) && c.lib.ok)

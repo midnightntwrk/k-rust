@@ -1,2 +1,1 @@
-out/definition.kore: refused: the module (RDR-ITE-OWN-EQ): iteShape (Lblite{Foo})
-(exit 1)
+(exit 0)

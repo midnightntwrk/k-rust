@@ -467,24 +467,44 @@ example (s s' s'' : Kore.KSort) (prem rhs : Kore.Pattern) (h : Kore.SymbolIdent)
     eqnHeadIs n (.rewrites s prem rhs) = false ∧ eqnHeadIs n (.and s ps) = false := ⟨rfl, rfl, rfl, rfl⟩
 
 example (k : Kore.Definition) (n : String) : eqnsOf k n =
-    (k.axiomDecls.map (·.ax)).filter (fun a => eqnHeadIs n a.pattern && !isLaw a) := rfl
+    (k.axiomDecls.map (·.ax)).filter (fun a =>
+      eqnHeadIs n a.pattern && !isLaw a && !has a.attributes "simplification") := rfl
+
+example (k : Kore.Definition) : paramSymDecls k =
+    (k.modules.flatMap fun m => m.sentences.filterMap fun
+      | .symbol s => if s.symbol.sortVars.isEmpty then none else some (s.symbol.ident.ident.name, s.attributes)
+      | .hookedSymbol s => if s.symbol.sortVars.isEmpty then none else some (s.symbol.ident.ident.name, s.attributes)
+      | _ => none) := rfl
+
+example (m : String) : instBase m =
+    (let l := m.toList
+     if l.getLast? == some '}' then some (String.ofList (l.takeWhile (· != '{'))) else none) := rfl
+
+example (k : Kore.Definition) (c : Semantics) : instDecls k c =
+    (match paramSymDecls k with
+     | [] => []
+     | ps => c.symNames.filterMap fun m =>
+         (instBase m).bind fun f => (ps.find? (·.1 == f)).map fun p => (m, p.2)) := rfl
+
+example (k : Kore.Definition) (c : Semantics) : symDeclsAt k c = symDecls k ++ instDecls k c := rfl
 
 example (k : Kore.Definition) (c : Semantics) : ctors k c =
-    ((symDecls k).all fun (n, as) => has as "constructor" == c.ctorSigs.any (c.symName ·.name == n)) := rfl
+    ((symDeclsAt k c).all fun (n, as) => has as "constructor" == c.ctorSigs.any (c.symName ·.name == n)) := rfl
 
 example (k : Kore.Definition) (c : Semantics) : fns k c =
-    ((symDecls k).all fun (n, as) =>
+    ((symDeclsAt k c).all fun (n, as) =>
       let fn := has as "function" && !has as "hook"
       let isFn := c.allFns.any (c.symName ·.label == n)
       let own := (c.ctorSigs ++ c.params.map (·.sig) ++ c.ovlSigs).any (c.symName ·.name == n)
       let par := !(c.ctorSigs ++ c.ovlSigs).any (c.symName ·.name == n) &&
         (c.params.all fun p => c.symName p.sig.name != n || (p.impl.isNone && !p.raw)) && (eqnsOf k n).isEmpty
-      (!isFn || fn) && (!(fn && own) || isFn || par)) := rfl
+      (!isFn || (has as "function" && (!has as "hook" || (strArg as "hook").any (regHookOf · == none)))) &&
+        (!(fn && own) || isFn || par)) := rfl
 
 example (g : CtorSig) : libFn g = !regHookNames.any (·.1 == g.name) := rfl
 
 example (k : Kore.Definition) (c : Semantics) : hooks k c =
-    ((symDecls k).all (fun (n, as) =>
+    ((symDeclsAt k c).all (fun (n, as) =>
       match strArg as "hook" with
       | some h =>
         (hookSigs.all fun g => c.symName g.name != n || regHookOf h == some g.name) &&
@@ -517,8 +537,7 @@ example (k : Kore.Definition) (d : Definition) : prios k d =
      ((c.rules.zip d.pres.rules).all fun (r, rp) => rewritePrioOf k rp.info.uid == some r.prio) &&
      ((axs.filter (isRewrite ·.pattern)).all fun a => d.pres.rules.any fun rp => uidOf a.attributes == some rp.info.uid) &&
      c.allFns.all fun f =>
-       (((eqnsOf k (c.symName f.label)).filter (!has ·.attributes "simplification")).map
-           (prioOf ·.attributes)).isPerm (f.clauses.map (·.prio))) := rfl
+       ((eqnsOf k (c.symName f.label)).map (prioOf ·.attributes)).isPerm (f.clauses.map (·.prio))) := rfl
 
 end AttrsAgreePins
 
