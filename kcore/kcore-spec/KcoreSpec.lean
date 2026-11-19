@@ -332,6 +332,7 @@ import KcoreSpec.CondVarsCongr
 import KcoreSpec.CondKoreVars
 import KcoreSpec.ClausePreRead
 import KcoreSpec.TieRuleLhs
+import KcoreSpec.TieRuleCut
 import KcoreSpec.LibEvSetVar
 import KcoreSpec.LibEvCeil
 import KcoreSpec.LibEvBoolSet
