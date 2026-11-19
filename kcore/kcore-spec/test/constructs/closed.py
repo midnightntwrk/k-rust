@@ -133,8 +133,6 @@ UNSHOWN = ("R2-release.C4", 0)
 # R2-release.C4 owes each constructor that no ticket of PROGRESS names: the criterion is not met while
 # one stands here.
 PINNED = [
-    # no stage of the reader produces it yet (ReadFns.hoistExists, its producer, has no caller there)
-    ("RefusalReason.existentialEquation", "CE.reader-wire"),
 ]
 
 # Constructors that no KORE text can make an account print, each with why. An entry may name one in

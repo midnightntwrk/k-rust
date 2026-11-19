@@ -3662,6 +3662,12 @@ def readingNote : ReadingNote → GuardEntry
       invariant := [``KCore.CExec.successorsN_step_ready, ``KCore.CExec.noStep_at, ``KCore.CExec.execReady_withHooks,
         ``KCore.Cert.checkStep_withHooks, ``KCore.Cert.stuckCheck_sound],
       note := "a predicate operand, on e3-ml-rule-lhs-equals' text (go(X) ∧ (X = 1) => done, read as go(X) => done with pre X = 1), every H: go(1) steps to done and go(2) has no successor; the companion is the conjunction read as its term operand alone, no pre, where go(2) steps to done under every H (no function is at the point); a variable operand, on e3-ml-rule-lhs-and's text (c(X ∧ d(_, b())) => X, read as c(d(G, b()) #as X) => X), every H: c(d(a, b)) steps to d(a, b) and c(a) has no successor, with no companion here; the read left side is the text's in every interpretation (KoreAML.rule_and_pred, rule_and_as at the fixtures, test/TieRuleLhsAnd.lean); two term operands (exMatch in pre) and a ⌈ ⌉ operand have their steps at the parsed semantics only (test/PredFixtures.lean, LhsAnd)" }
+  | .existentialClause =>
+    { status := .pending "GUARD.final",
+      guard := [.test "test/ReaderWire.lean" "wire_ce_or", .test "test/ReaderWire.lean" "wire_ce_and",
+        .test "test/ReaderWire.lean" "wire_ce_noLits", .test "test/ExClauseReader.lean" "## exists",
+        .decl ``KCore.Parse.ceRead, .decl ``KCore.Parse.clauseRefusal],
+      note := "an equation's right side with \\exists, a conjunction of terms or an \\or that frRead does not read, read as one clause with existential variables and a right-side predicate (Parse.ceRead through Parse.clausesBody, ceCases); the clauses on the fixtures' texts and the dispatch on hand-written equations are the tests'; a clause whose existential variable is neither confined nor fixed is refused existentialEquation (clauseRefusal); no statement over c.withHooks H, no companion" }
 
 def inertReason : InertReason → GuardEntry
   | .import =>
@@ -3747,7 +3753,7 @@ def readingNotes : List ReadingNote :=
    .requiresOrSplit, .setVarInDropped, .keyFunctionAsMember, .equationPriority, .owiseAsPriority,
    .owiseDisjunctNarrower, .identityAlias, .existsRenamedApart, .existsDropped,
    .overloadFunction, .tokKItem,
-   .notAsCondition, .andUnderAppCut, .connectiveCut, .lhsAndCut]
+   .notAsCondition, .andUnderAppCut, .connectiveCut, .lhsAndCut, .existentialClause]
 
 def inertReasons : List InertReason :=
   [.import, .claim, .simplification, .distinctCtors, .injectivity, .noJunk, .collectionLaw,

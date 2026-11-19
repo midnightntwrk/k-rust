@@ -3,15 +3,18 @@ user module E3-EQ-EXISTS-ARGNAME-ML: 279 sentences
   1 inert import [generated]
   157 read [generated]
   95 read [builtin]
-  2 read [user]
+  1 read [user]
   4 inert injectivity [generated]
   9 inert collectionLaw [generated]
   1 unread setIdempotence [generated]
   9 inert noJunk [generated]
+  1 read existentialClause [user]
   1 inert simplification [generated]
+connective readings per sentence: 1
+      sentence 278: existentialClause
 stage refusals (of sentences classified read): 1
-  1 manyValuedRightSide
-      sentence 278 (Lblp): manyValuedRightSide (\exists)
+  1 patternConnective
+      sentence 278 (Lblp): patternConnective (VarX)
         [user] (no label) at e3-eq-exists-argname-ml.k:4: axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortBool{}, R}(X0:SortBool{}, VarX:SortBool{}), \top{R}())), \equals{SortBool{}, R}(Lblp{}(X0:SortBool{}), \and{SortBool{}}(\exists{SortBool{}}(VarX:SortBool{}, VarX:SortBool{}), \top{SortBool{}}()))) [UNIQUE'Unds'ID{}("12edbfc1bff6a041061164c95cc1bb0cca2a8b7b3f33af92b56bd05b735d6562"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Locatio …
-finish: sentence 278 (Lblp): manyValuedRightSide (\exists)
+finish: sentence 278 (Lblp): patternConnective (VarX)
 (exit 0)

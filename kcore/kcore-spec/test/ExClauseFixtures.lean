@@ -5,7 +5,7 @@
   `lake env lean -j1 test/ExClauseFixtures.lean`.
 
   The kompiled texts are read from the cache `kfix.py` keeps (K 7.1.337 kompile's KORE), as
-  test/ExClauseReader.lean reads them. `Parse.clauseBody` does not call `ceRead`: `today` prints
+  test/ExClauseReader.lean reads them. `Parse.clausesBody` calls `ceRead` (CE's arm): `today` prints
   what the reader does with the text as it is.
 
   ## e3-eq-exists-int
@@ -25,8 +25,8 @@
     the hand-built `Int.clZ` (`read is clZ: true`).
   - `clausePlainEx` is false of it in the built definition (Z not confined, `fixedExs` empty), and
     of `clZ` by the kernel on any semantics where Int is not confined (`Int.clZ_no`, at `Int.c`).
-  - Today the reader refuses the sentence `manyValuedRightSide (\exists)` before reading a clause:
-    the refusal is there, the reason is not yet the one above.
+  - Today the reader reads the clause and refuses it `existentialEquation` at Int
+    (`Parse.clauseRefusal`): no conjunct of the predicate equates Z with a term.
 
   ## e3-eq-exists-noens
 
@@ -58,14 +58,13 @@
     more than the text about f. That such a model exists is the text's own fact, read from its
     sentence. It is not kernel-checked: the library builds models from `Eval` under `FnHyp`, and
     `FnHyp` is false here.
-  - Today the reader refuses the sentence `manyValuedRightSide (\exists)` before reading a
-    clause.
+  - Today the reader reads the sentence as that clause (`today read`).
 
   ## The account's lines for a clause holding existential variables
 
   `Parse.owedExsText` (KcoreSpec/Account.lean), which `kcore account` prints: for each clause with
   `exs` its match obligation, with the fact owed, and the statements stated only under it. No text
-  reaches the lines through the reader today (`clauseBody` does not call `ceRead`), so `owed`
+  is needed to reach the lines through the reader today (the fixtures' accounts print them), and `owed`
   prints them for the definition built from the patched text with the clause `ceRead` reads put
   in place of the patched one.
   - `e3-eq-exists-partial-ml`, `f(X) => #Exists B:Bool. (B #And {B #Equals notBool X})`: one line,
@@ -231,7 +230,7 @@ e3-eq-exists-int-ml: kompile exit: 0
 e3-eq-exists-int-ml Lblh: vars [X:Int, Z:Int] exs [1]
   sorts [Int]; confined [false]; fixedExs []; clausePlainEx false
   read is the hand-built clause
-e3-eq-exists-int-ml: today refused KCore.Parse.RefusalReason.manyValuedRightSide (\exists)
+e3-eq-exists-int-ml: today refused KCore.Parse.RefusalReason.existentialEquation (VarZ:Int: an existential variable of the right side, of a sort the text leaves unconfined, that no conjunct of its predicate equates with a term: the function's value ranges over elements of Int that no value names)
 -/
 #guard_msgs in
 #eval show IO Unit from do
@@ -598,7 +597,7 @@ info: e3-eq-exists-noens-ml: kompile exit: 0
 e3-eq-exists-noens-ml Lblf: vars ['Unds'Gen0:Bool, B:Bool] exs [1]
   sorts [Bool]; confined [true]; fixedExs []; clausePlainEx true
   read is the hand-built clause
-e3-eq-exists-noens-ml: today refused KCore.Parse.RefusalReason.manyValuedRightSide (\exists)
+e3-eq-exists-noens-ml: today read
 -/
 #guard_msgs in
 #eval show IO Unit from do

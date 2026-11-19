@@ -3,15 +3,17 @@ user module E3-EQ-EXISTS-BOOL-ML: 282 sentences
   1 inert import [generated]
   160 read [generated]
   95 read [builtin]
-  2 read [user]
+  1 read [user]
   4 inert injectivity [generated]
   9 inert collectionLaw [generated]
   1 unread setIdempotence [generated]
   9 inert noJunk [generated]
+  1 read existentialClause [user]
   1 inert simplification [generated]
+connective readings per sentence: 1
+      sentence 248: existentialClause
 stage refusals (of sentences classified read): 1
-  1 manyValuedRightSide
-      sentence 248 (Lblf): manyValuedRightSide (\exists)
-        [user] (no label) at e3-eq-exists-bool-ml.k:4: axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortBool{}, R}(X0:SortBool{}, VarX:SortBool{}), \top{R}())), \equals{SortBool{}, R}(Lblf{}(X0:SortBool{}), \and{SortBool{}}(\exists{SortBool{}}(VarB:SortBool{}, \and{SortBool{}}(VarB:SortBool{}, \equals{SortBool{}, SortBool{}}(VarB:SortBool{}, LblnotBool'Unds'{}(VarX:SortBool{})))), \top{SortBool{}}()))) [UNIQUE'Unds'ID{}("4897f50f423785fe93ce537 …
-finish: sentence 248 (Lblf): manyValuedRightSide (\exists)
+  1 missingEquation
+      the module (E3-EQ-EXISTS-BOOL-ML): missingEquation (LblisFoo)
+finish: the module (E3-EQ-EXISTS-BOOL-ML): missingEquation (LblisFoo)
 (exit 0)

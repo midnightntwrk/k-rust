@@ -3,16 +3,19 @@ user module E3-EQ-EXISTS-ML-IN-OR-INT: 388 sentences
   1 inert import [generated]
   176 read [generated]
   184 read [builtin]
-  2 read [user]
+  1 read [user]
   4 inert injectivity [generated]
   9 inert collectionLaw [generated]
   1 unread setIdempotence [generated]
   1 inert parametricFunctional [generated]
   9 inert noJunk [generated]
+  1 read existentialClause [user]
   1 inert simplification [generated]
+connective readings per sentence: 1
+      sentence 348: existentialClause
 stage refusals (of sentences classified read): 1
-  1 manyValuedRightSide
-      sentence 348 (Lblf): manyValuedRightSide (\or: the sentence gives the function every element of each side; the text holds no functional sentence of the function, so where the sides differ that is more than one element, which no clause states)
+  1 existentialEquation
+      sentence 348 (Lblf): existentialEquation (VarB:Int: an existential variable of the right side, of a sort the text leaves unconfined, equated with a term only inside one alternative of a disjunction of its predicate (Cond.fixes asks it of every alternative))
         [user] (no label) at e3-eq-exists-ml-in-or-int.k:4: axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, VarX:SortInt{}), \top{R}())), \equals{SortInt{}, R}(Lblf{}(X0:SortInt{}), \and{SortInt{}}(\or{SortInt{}}(VarX:SortInt{}, \exists{SortInt{}}(VarB:SortInt{}, \and{SortInt{}}(VarB:SortInt{}, \equals{SortInt{}, SortInt{}}(VarB:SortInt{}, Lbl'UndsPlus'Int'Unds'{}(VarX:SortInt{}, \dv{SortInt{}}("1")))))), \top{SortInt{}}())) …
-finish: sentence 348 (Lblf): manyValuedRightSide (\or: the sentence gives the function every element of each side; the text holds no functional sentence of the function, so where the sides differ that is more than one element, which no clause states)
+finish: sentence 348 (Lblf): existentialEquation (VarB:Int: an existential variable of the right side, of a sort the text leaves unconfined, equated with a term only inside one alternative of a disjunction of its predicate (Cond.fixes asks it of every alternative))
 (exit 0)

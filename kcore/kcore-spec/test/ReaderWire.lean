@@ -3,7 +3,11 @@
   (`Parse.clausesBody`, which `Parse.fnClauses` maps over a function's equations): in order, the
   attribute test, the alternatives that are `\bottom` left out (`dropEmptyAlts`), `Parse.exRead`
   where the text holds the function's `functional` sentence and its declarations give Bool its
-  literals only (`Names.boolLits`), `Parse.frRead`, then the one clause of `Parse.clauseBody`.
+  literals only (`Names.boolLits`), CE's arm for an `\or` `frRead` does not read for want of the
+  `functional` sentence or past 8 alternatives (`ceOr`), `Parse.frRead`, CE's arm for a right side
+  with an `\exists` at the top once binders are moved there (`ceEqn`) or a conjunction of terms
+  (`ceShape`), then the one clause of `Parse.clauseBody`. CE's arm is the one clause
+  `Parse.ceRead` gives (`ReadingNote.existentialClause`).
   Run from the package root: `lake env lean -j1 test/ReaderWire.lean`.
 
   On the kompiled texts of the fixtures (test/constructs/fixtures, from the cache `kfix.py` keeps),
@@ -14,13 +18,13 @@
   - `e3-eq-exists-bool-ml` (`f(X) => #Exists B:Bool. (B #And {B #Equals notBool X})`, f `total`)
     and `e3-eq-exists-bool-ml-loop`: `exRead`'s three clauses though `ceRead` reads the equation
     too, `existsAsCases`, `coreOK`, `readsConfined` (the last clause keeps the binder).
-  - `e3-ml-eq-rhs-or` (h not `total`): refused `manyValuedRightSide`, the text holding no
-    `functional` sentence of h.
+  - `e3-ml-eq-rhs-or` (h not `total`): the text holds no `functional` sentence of h, so the
+    clause is `ceRead`'s, `existentialClause`, `coreOK`.
   - `e3-ml-eq-rhs-or-empty` (`h(X) => g(#Bottom) #Or X`): one clause, `h(X) = X`, `orBottom`.
   - `e3-ml-eq-rhs-or-bottom` (`f(X) => X #Or #Bottom`): one clause as before.
   - `e3-eq-exists-bool-ml` with a `subsort` axiom of a sort into Bool added (`subBool`): the
     names do not hold `boolLits`, `exRead` is not entered though it reads the equation, and the
-    equation is refused `manyValuedRightSide`.
+    clause is `ceRead`'s.
 
   Hand-written equations (`Hand`, over the names `N0`), printed and kernel-checked (`kernel_rfl`):
   - `eqH`, `h(X) => f(X) #Or g(X)`: the reader's clauses are `frRead`'s (`wire_fr`); `eqP`,
@@ -34,7 +38,12 @@
   - `eqPc`, `p(c(X)) => #Exists B:Bool. …`, c an overloading symbol with a function overload: the
     pattern's cut adds the variable `Ovl0` and the conjunct `Ovl0 ∈ c(X)` of every `pre`; the last
     clause's binder is numbered past both variables (`wire_cut`).
-  - `eqP` over names without `boolLits`: refused, `exRead` reading it (`wire_noLits`).
+  - `eqP` over names without `boolLits`: `exRead` is not entered though it reads it, and the
+    clause is `ceRead`'s (`wire_ce_noLits`).
+  - CE's arm: `f(X) => f(X) #Or g(X)`, f without its `functional` sentence (`wire_ce_or`);
+    `h(X) => f(X) #And g(X)` (`wire_ce_and`); nine alternatives (`wire_ce_many`); a binder in an
+    alternative, moved to the top (`wire_ce_hoist`); an empty right side stays the bottom arm's
+    (`wire_ce_empty`); `ceCases` on each (`wire_ce_cases`).
   - `clauseExcl` on a clause with an existential variable past the disjunct's: `exs` unchanged,
     `post` renumbered (`excl_exs`).
 
@@ -51,11 +60,11 @@
   library's conjuncts are false at Bool (`library_lits`: no module of the library gives Bool a
   subsort, constructor, token or byte sort, nor does a fixed constructor, `#KConfigValue` or a
   builtin collection), so no text reaches the refusal: a value the text gives Bool (`subBoolD`, a
-  declared sort Foo below Bool, with the sentences kompile writes for its predicate) makes `boolLits` false and the equation is refused
-  `manyValuedRightSide` before. The check is run on the stages of `finish` with the names' bit
+  declared sort Foo below Bool, with the sentences kompile writes for its predicate) makes `boolLits` false and the equation is
+  `ceRead`'s, not `exRead`'s. The check is run on the stages of `finish` with the names' bit
   set (`finishWith`): on `e3-eq-exists-bool-ml` with `subBoolD`, refused `existentialEquation`
   (Bool); on the text itself, read with `litSort Srt.bool` true; with the bit unset, `subBoolD`'s
-  text is refused `manyValuedRightSide`.
+  text is read through `ceRead`, `coreOK` false (`litSort Srt.bool` false: the subsort into Bool).
 -/
 import KcoreSpec
 
@@ -169,9 +178,12 @@ def subBool (k : Kore.Definition) : Kore.Definition :=
 
 /--
 info: e3-eq-exists-bool-ml: boolLits false
-e3-eq-exists-bool-ml Lblf: refused manyValuedRightSide (\exists)
-  the reader's clauses are exRead's: not taken; frRead's: none; ceRead reads the equation: true
-  notes []; refused manyValuedRightSide (\exists)
+e3-eq-exists-bool-ml Lblf: clauses 1
+  [0] vars [X, B] (2) pats [X] req none prio 50
+      pre ⊤
+      rhs B ens none exs [1] post (B = LblnotBool'Unds'(X))
+  the reader's clauses are exRead's: false; frRead's: none; ceRead reads the equation: true
+  notes [[existentialClause]]; read; coreOK true; readsConfined true; litSort Bool true
 -/
 #guard_msgs in
 #eval show IO Unit from do
@@ -217,9 +229,12 @@ e3-eq-exists-bool-ml-loop Lblf: clauses 3
   the reader's clauses are exRead's: true; frRead's: none; ceRead reads the equation: true
   notes [[existsAsCases]]; read; coreOK true; readsConfined true; litSort Bool true
 e3-ml-eq-rhs-or: boolLits true
-e3-ml-eq-rhs-or Lblh: refused manyValuedRightSide (\or: the sentence gives the function every element of each side; the text holds no functional sentence of the function, )
+e3-ml-eq-rhs-or Lblh: clauses 1
+  [0] vars [X, 'Hash'Or0] (2) pats [X] req none prio 50
+      pre ⊤
+      rhs 'Hash'Or0 ens none exs [1] post (('Hash'Or0 ∈ Lblf(X)) ∨ ('Hash'Or0 ∈ Lblg(X)))
   the reader's clauses are exRead's: none; frRead's: refused manyValuedRightSide; ceRead reads the equation: true
-  notes []; refused manyValuedRightSide (\or: the sentence gives the function every element of each side; the text holds no functional senten)
+  notes [[existentialClause]]; read; coreOK true; readsConfined true; litSort Bool true
 e3-ml-eq-rhs-or-empty: boolLits true
 e3-ml-eq-rhs-or-empty Lblh: clauses 1
   [0] vars [X] (1) pats [X] req none prio 50
@@ -367,7 +382,10 @@ eqPc: clauses 3
   [2] vars [X, Ovl0] (2) pats [Ovl0] req none prio 50
       pre ((Ovl0 ∈ Lblc(X)) ∧ ¬∃.(⌈#2⌉ ∧ (#2 = LblnotBool'Unds'(X))))
       rhs true ens (some false) exs [] post ⊤
-eqP, Bool not its literals: refused manyValuedRightSide (\exists)
+eqP, Bool not its literals: clauses 1
+  [0] vars [X, B] (2) pats [X] req none prio 50
+      pre ⊤
+      rhs B ens none exs [1] post (B = LblnotBool'Unds'(X))
 -/
 #guard_msgs in
 #eval show IO Unit from do
@@ -436,11 +454,11 @@ theorem wire_cut : ((clausesBody N0 "" eqPc none).toOption.map fun xs =>
   kernel_rfl
 
 /-- **Bool with a value beside its literals**: where the names do not hold `boolLits`, `exRead`
-is not entered (it would read the equation) and the equation is refused. -/
-theorem wire_noLits :
-    (match clausesBody { N0 with boolLits := false } "" eqP none with
-      | .error f => decide (f.reason = .manyValuedRightSide)
-      | .ok _ => false) = true ∧
+is not entered (it would read the equation) and the equation is CE's: its one clause is `ceRead`'s,
+the binder an existential variable. -/
+theorem wire_ce_noLits :
+    (clausesBody { N0 with boolLits := false } "" eqP none).map (·.map (·.1)) =
+      (ceRead { N0 with boolLits := false } eqP).map (fun x => [x.1]) ∧
     ((exRead { N0 with boolLits := false } eqP).toOption.join.isSome) = true := by
   constructor <;> kernel_rfl
 
@@ -453,6 +471,65 @@ theorem excl_exs :
           post := .mem Srt.int (.var 2) (.app nRegSyms [.var 1]) }).toOption.map fun x =>
       (x.2.names, x.1.pats, x.1.rhs, x.1.exs, x.1.post matches .mem _ (.var 2) (.app _ [.var 0]))) =
     some (["Y", "X", "Z"], [.var 1, .var 0], .var 2, [2], true) := by kernel_rfl
+
+/-! ### CE's arm (`ceRead`, `ceOr`, `ceShape`, `ceCases`) -/
+
+/-- `f(X) => f(X) #Or g(X)`: f has no `functional` sentence. -/
+def eqFOr : RawEqn := ⟨"Lblf", [X], none, none, .or int [fOf X, gOf X], uid, none, false⟩
+/-- `h(X) => f(X) #And g(X)`: a conjunction of two terms. -/
+def eqAnd : RawEqn := ⟨"Lblh", [X], none, none, .and int [fOf X, gOf X], uid, none, false⟩
+/-- `f(X) ∨ … ∨ f(X)`, n + 1 alternatives nested to the left. -/
+def orN : Nat → Kore.Pattern
+  | 0 => fOf X
+  | n + 1 => .or int [orN n, fOf X]
+/-- `h(X) => f(X) #Or … #Or f(X)`, nine alternatives, h with its `functional` sentence. -/
+def eqMany : RawEqn := ⟨"Lblh", [X], none, none, orN 8, uid, none, false⟩
+/-- `f(X) => X #Or #Exists Z:Int. (Z #And {Z #Equals g(X)})`: a binder in an alternative. -/
+def eqAlt : RawEqn :=
+  ⟨"Lblf", [X], none, none,
+    .or int [X, .exist int (evar "VarZ" int) (.and int [ev "VarZ" int, .equals int int (ev "VarZ" int) (gOf X)])],
+    uid, none, false⟩
+/-- `h(X) => f(X) #And {X #Equals X}`: a term with a predicate, no conjunction of terms. -/
+def eqPred : RawEqn := ⟨"Lblh", [X], none, none, .and int [fOf X, .equals int int X X], uid, none, false⟩
+
+/-- **An `\or` without the `functional` sentence, in the kernel**: the one clause `ceRead` gives. -/
+theorem wire_ce_or : (clausesBody N0 "" eqFOr none).map (·.map (·.1)) =
+    (ceRead N0 eqFOr).map (fun x => [x.1]) := by kernel_rfl
+
+/-- **A conjunction of terms, in the kernel**: the one clause `ceRead` gives. -/
+theorem wire_ce_and : (clausesBody N0 "" eqAnd none).map (·.map (·.1)) =
+    (ceRead N0 eqAnd).map (fun x => [x.1]) := by kernel_rfl
+
+/-- **Nine alternatives, in the kernel**: past 8, the one clause `ceRead` gives, though h has its
+`functional` sentence. -/
+theorem wire_ce_many : (clausesBody N0 "" eqMany none).map (·.map (·.1)) =
+    (ceRead N0 eqMany).map (fun x => [x.1]) := by kernel_rfl
+
+/-- **A binder in an alternative, in the kernel**: moved to the top (`ceEqn`, every sort
+accepted; `coreOf` tests the sort on the built definition), then `ceRead`: `exs` is Z then the
+disjunction's variable. -/
+theorem wire_ce_hoist : (clausesBody N0 "" eqAlt none).map (·.map (·.1)) =
+      (ceRead N0 (ceEqn N0 eqAlt)).map (fun x => [x.1]) ∧
+    ((clausesBody N0 "" eqAlt none).toOption.map fun xs => xs.map (·.1.exs)) = some [[1, 2]] := by
+  constructor <;> kernel_rfl
+
+/-- `h(X) => f(X) #And g(#Bottom)`: an empty right side (`σ(…, ⊥, …) = ⊥`, `φ ∧ ⊥ = ⊥`). -/
+def eqAndBot : RawEqn := ⟨"Lblh", [X], none, none, .and int [fOf X, gOf (.bottom int)], uid, none, false⟩
+
+/-- **An empty right side is the bottom arm's, in the kernel**: a conjunction of terms one of
+which is empty is `clauseBody`'s clause (the `ensures` false), not CE's. -/
+theorem wire_ce_empty : clausesBody N0 "" eqAndBot none = (clauseBody N0 "" eqAndBot none).map ([·]) ∧
+    ceCases N0 eqAndBot = false := by
+  constructor <;> kernel_rfl
+
+/-- **Which equations are CE's**: `ceCases` holds of those `clausesBody` gives to `ceRead`, and
+not of `frRead`'s (`eqH`), `exRead`'s (`eqP`), a plain equation's or a term with a predicate
+(`clauseBody`'s). -/
+theorem wire_ce_cases :
+    [ceCases N0 eqFOr, ceCases N0 eqAnd, ceCases N0 eqMany, ceCases N0 eqAlt,
+      ceCases { N0 with boolLits := false } eqP,
+      ceCases N0 eqH, ceCases N0 eqP, ceCases N0 eqPlain, ceCases N0 eqPred] =
+    [true, true, true, true, true, false, false, false, false] := by kernel_rfl
 
 end Hand
 
@@ -572,10 +649,10 @@ def runWith (n : String) (edit : Kore.Definition → Kore.Definition) (b : Bool)
 /--
 info: e3-eq-exists-bool-ml: boolLits false; finish with boolLits true:
   refused existentialEquation (Bool: the text's declarations give the sort no value beside its literals (Names.boolLits), and the definition read has one (litSort): the equation, read by cases over a Bool variable (existsAsCases), would state more than the text)
-  parse: refused manyValuedRightSide (\exists)
+  parse: read; litSort Bool false
 e3-eq-exists-bool-ml: boolLits false; finish with boolLits false:
-  refused manyValuedRightSide (\exists)
-  parse: refused manyValuedRightSide (\exists)
+  read; coreOK false; litSort Bool false
+  parse: read; litSort Bool false
 e3-eq-exists-bool-ml: boolLits true; finish with boolLits true:
   read; coreOK true; litSort Bool true
   parse: read; litSort Bool true

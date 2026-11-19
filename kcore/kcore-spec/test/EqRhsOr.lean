@@ -52,8 +52,8 @@
 
   The reader (`runOr`, on the kompiled texts): `e3-ml-eq-rhs-or-total` is read with h's clauses
   `hCl1`, `hCl2`, `hCl3` and `Fx`'s functions (the text's numbering of f, g, h is `sem`'s);
-  `e3-ml-eq-rhs-or` (h not `total`) and `e3-ml-eq-rhs-or-many` (nine alternatives) are refused
-  `manyValuedRightSide`, with their whole details. By the kernel, the reader's clauses of h on that
+  `e3-ml-eq-rhs-or` (h not `total`) and `e3-ml-eq-rhs-or-many` (nine alternatives) are not
+  `frRead`'s: each is read through `ceRead` (CE's arm), one clause, `coreOK`. By the kernel, the reader's clauses of h on that
   text are `Parse.frClauses`' (test/ReaderWire.lean `Stages.cls2_frClauses`), which `frClauses_h`
   equates with `hCl1`, `hCl2`, `hCl3`.
 -/
@@ -124,7 +124,7 @@ def hCl3 : Clause := ⟨[Srt.int], [.var 0], none, fX, some falseT, 50, false, [
 def hFn : Fn := ⟨H, [Srt.int], Srt.int, [hCl1, hCl2, hCl3], true⟩
 
 /-- The three clauses are what the reading function's builder (`Parse.frClauses`,
-KcoreSpec/ReadFns.lean) gives for the alternatives `f(X)`, `g(X)`, neither with a predicate of its
+KcoreSpec/Parse.lean) gives for the alternatives `f(X)`, `g(X)`, neither with a predicate of its
 own; test/RhsReader.lean runs the reading function on the fixture's text. -/
 theorem frClauses_h :
     Parse.frClauses Srt.int [Srt.int] [.var 0] none 50 false [(fX, []), (gX, [])] = [hCl1, hCl2, hCl3] := rfl
@@ -805,8 +805,8 @@ end Pt
 On the kompiled texts (from the cache `kfix.py` keeps): `e3-ml-eq-rhs-or-total` gives h the clauses
 `hCl1`, `hCl2`, `hCl3` (`Parse.clauses?`), and the definition `parse` reads from it has `Fx`'s three
 functions (f, g and h, in the text's numbering, which is `sem`'s); `e3-ml-eq-rhs-or` (h without its
-`functional` sentence) and `e3-ml-eq-rhs-or-many` (nine alternatives) are refused
-`manyValuedRightSide`, each with its whole detail. The reader's clauses of h are `Parse.frClauses`'
+`functional` sentence) and `e3-ml-eq-rhs-or-many` (nine alternatives) are read through `ceRead`
+(CE's arm), one clause each, `coreOK`. The reader's clauses of h are `Parse.frClauses`'
 by the kernel in test/ReaderWire.lean (`Stages.cls2_frClauses`, on `f2-examples/mleqort`, the same
 text). -/
 
@@ -857,10 +857,10 @@ def runOr (n fn : String) : IO Unit := do
 /--
 info: e3-ml-eq-rhs-or-total Lblh: 3 clauses; hCl1, hCl2, hCl3: true
   parse: read; coreOK true; the functions are Fx's: true
-e3-ml-eq-rhs-or Lblh: refused manyValuedRightSide (\or: the sentence gives the function every element of each side; the text holds no functional sentence of the function, so where the sides differ that is more than one element, which no clause states)
-  parse: refused manyValuedRightSide (\or: the sentence gives the function every element of each side; the text holds no functional sentence of the function, so where the sides differ that is more than one element, which no clause states)
-e3-ml-eq-rhs-or-many Lblk: refused manyValuedRightSide (\or: 9 alternatives, more than 8)
-  parse: refused manyValuedRightSide (\or: 9 alternatives, more than 8)
+e3-ml-eq-rhs-or Lblh: 1 clauses; hCl1, hCl2, hCl3: false
+  parse: read; coreOK true; the functions are Fx's: false
+e3-ml-eq-rhs-or-many Lblk: 1 clauses; hCl1, hCl2, hCl3: false
+  parse: read; coreOK true; the functions are Fx's: false
 -/
 #guard_msgs in
 #eval show IO Unit from do

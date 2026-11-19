@@ -384,7 +384,8 @@ end MlEqOrB
   the rule of the first disjunct does not hold Y, of Int (a value: read without it); the rule of the
   second holds Y in its `requires` alone, a closed condition no variable of which the rest of the
   rule holds: read, its `CondDecided` owed.
-- `f2-examples/mleqor` (e3-ml-eq-rhs-or): `h(X) => f(X) #Or g(X)`, refused `manyValuedRightSide`.
+- `f2-examples/mleqor` (e3-ml-eq-rhs-or): `h(X) => f(X) #Or g(X)`, h without its `functional`
+  sentence: read through `ceRead` (`existentialClause`), `coreOK`.
 - `f2-examples/mlsetv` (e3-setvar-read): `w(@S) => @S`, refused `setVariable`.
 - `f2-examples/mlallexp` (e3-ml-rule-lhs-forall-exp): `c(#Forall Y:Exp. Y) => a()`, refused
   `openExtent` at Exp.
@@ -415,7 +416,7 @@ mlmixed: [[orSplit]]; []; unheldVariable Var'Unds'Gen1:Empty: a variable of the 
 mlrequnheld: [[requiresOrSplit]]; []; read; unaccounted 0; uninduced 0; coreOK true
 mlvalue: [[orSplit], [orSplit], [existsAsVariable]]; []; read; unaccounted 0; uninduced 0; coreOK true
 mlreqor: [[requiresOrSplit]]; []; read; unaccounted 0; uninduced 0; coreOK true
-mleqor: []; []; manyValuedRightSide \or: the sentence gives the function every element of each side; the text holds no functional sentence of the function, so where the sides differ that is more than one element, which no clause states
+mleqor: [[existentialClause]]; []; read; unaccounted 0; uninduced 0; coreOK true
 mlsetv: []; []; setVariable VarS: in the right side, the requires, the ensures or an exclusion: the sentence states the function's value at every set holding the arguments; with the set as the value it has no model at a sort with two elements, otherwise its truth reads every subset of the sort
 mlallexp: []; []; openExtent Exp
 -/

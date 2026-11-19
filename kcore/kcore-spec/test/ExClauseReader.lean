@@ -1,13 +1,13 @@
 /-
-  `Parse.ceRead` (KcoreSpec/ReadFns.lean): an equation whose right side is under `\exists`, read as
+  `Parse.ceRead` (KcoreSpec/Parse.lean): an equation whose right side is under `\exists`, read as
   one clause with existential variables (`Clause.exs`) and a right-side predicate (`Clause.post`).
   Run on the kompiled texts of the fixtures (test/constructs/fixtures; K 7.1.337 kompile's KORE,
   from the cache `kfix.py` keeps, as test/RhsReader.lean reads it) and on hand-written equations.
   Run from the package root: `lake env lean -j1 test/ExClauseReader.lean`.
 
-  `Parse.clauseBody` does not call `ceRead`: the reader refuses each of these texts as before
-  (their accounts are unchanged). Each clause is put in the definition the landed reader builds
-  from the text with that equation's right side replaced by a plain term, and printed with
+  `Parse.clausesBody` calls `ceRead` (CE's arm, `ceCases`); the fixtures' accounts show what the
+  reader does with each text. Here each clause is put in the definition the reader builds from the
+  text with that equation's right side replaced by a plain term, and printed with
   - the landed `clauseSorted` and `condOK` of `post`;
   - `sortedCE`, the conjuncts CN-4b §1.3 adds to `clauseSorted` (the existential variables are
     variables of the clause, distinct, held by neither the patterns nor the conditions; `post`
@@ -135,10 +135,9 @@
   - `e3-ml-eq-rhs-or-many`, `k(_) => 1 #Or … #Or 9`: one clause, one variable, nine memberships
     (the text nests the disjunctions, and the memberships nest as they do);
     `clausePlainEx` true.
-  `Parse.clauseBody` does not call `ceRead`, so today the reader refuses both texts
-  `manyValuedRightSide` (`today`; their accounts are unchanged). Once `clauseBody` calls it where
-  `frRead` does not read the equation (h has no `functional` sentence; k has nine alternatives),
-  each text is read as the clause printed here, `clausesPlain` permitting.
+  `Parse.clausesBody` calls `ceRead` where `frRead` does not read the equation (h has no
+  `functional` sentence; k has nine alternatives, `ceOr`), so the reader reads each text
+  (`today`) as the clause printed here.
   Hand-written (`HandOr`, over `HandAnd.N2`):
   - `eqUnder`, `h(X) => f(g(X) #Or X)`, under an application: `rhs f(#Or0)`.
   - `eqNested`, `h(X) => (f(X) #Or g(X)) #Or X`: one variable, three memberships.
@@ -188,7 +187,7 @@
   - `eqArg`, a binder named as the argument X: renamed `X'` with the occurrences it binds.
   - `eqShadow`, a binder inside a binder of the same name: the inner one is renamed.
   - `eqNot`, `eqPredConj`: a binder under `\not` and one in a predicate conjunct stay.
-  On fixtures, with `Semantics.valued` on the built definition as the test (`valuedSort`):
+  On fixtures, with `Semantics.hasValue` on the built definition as the test (`valuedSort`):
   `e3-eq-exists-ml-in-or-int` and `e3-eq-exists-ml-in-or` (the binder leaves the alternative;
   `ceRead` reads the `\or` as `eqAlt`'s), `e3-eq-exists-ml-under-app` and
   `e3-eq-exists-ml-and-right` (one clause each).
@@ -207,7 +206,8 @@
   holds of the first two (`exCases_steps`); the reader's clauses of each are `exRead`'s of the moved
   equation (`wire_ua`, `wire_ar`). On the fixtures (`runExHoist`): `e3-eq-exists-ml-under-app` (f
   `total`) is read by EX, three clauses, `existsAsCases`; `e3-eq-exists-ml-and-right` (f not `total`)
-  and `e3-eq-exists-ml-in-or` (the binder in an alternative of `\or`) are refused as before.
+  and `e3-eq-exists-ml-in-or` (the binder in an alternative of `\or`) are not EX's: each is read
+  by CE's arm (`Parse.ceEqn` then `ceRead`, `existentialClause`), one clause per equation.
   The results of the reading (`HoistEval`): with the reader's clauses of `eqUA` (`reader_fCls`) and
   g's clause `g(B) => notBool B`, `f(true)` is `false` and `f(false)` is `true`, and nothing else
   (`eval_after_hoist`).
@@ -966,8 +966,8 @@ e3-ml-eq-rhs-or-many Lblk: functional sentence true; clauses 1
       rhs 'Hash'Or0 ens none exs [1] post ((((((((('Hash'Or0 ∈[Int] 1) ∨ ('Hash'Or0 ∈[Int] 2)) ∨ ('Hash'Or0 ∈[Int] 3)) ∨ ('Hash'Or0 ∈[Int] 4)) ∨ ('Hash'Or0 ∈[Int] 5)) ∨ ('Hash'Or0 ∈[Int] 6)) ∨ ('Hash'Or0 ∈[Int] 7)) ∨ ('Hash'Or0 ∈[Int] 8)) ∨ ('Hash'Or0 ∈[Int] 9))
       clauseSorted true; condOK post true; sortedCE true; fixedExs [1]; confined [false]; clauseCE true; clausePlainEx true
   sortedOK but clausesPlain true; clausesPlain true; every clause clauseCE true; readsConfined true
-e3-ml-eq-rhs-or: today refused KCore.Parse.RefusalReason.manyValuedRightSide (\or: the sentence gives the function every element of each side; the text holds no functional sentence of the function, so where the sides differ that is more than one element, which no clause states)
-e3-ml-eq-rhs-or-many: today refused KCore.Parse.RefusalReason.manyValuedRightSide (\or: 9 alternatives, more than 8)
+e3-ml-eq-rhs-or: today read
+e3-ml-eq-rhs-or-many: today read
 -/
 #guard_msgs in
 #eval show IO Unit from do
@@ -1261,7 +1261,7 @@ open HandHoist HandAnd in
   showHand "eqNot" (rd eqNot)
   showHand "eqPredConj" (rd eqPredConj)
 
-/-- `hoistExists` on the equation of `fn` of fixture `n`, with `Semantics.valued` on the definition
+/-- `hoistExists` on the equation of `fn` of fixture `n`, with `Semantics.hasValue` on the definition
 built from the patched text as the test of a value (`valuedSort`), then `ceRead`. -/
 def runHoist (n fn rs : String) (others : List String := []) : IO Unit := do
   let k ← load n
@@ -1434,11 +1434,11 @@ info: e3-eq-exists-ml-under-app Lblf: binders at the top after exEqn? (some [Var
   clauses 3; exRead's of the moved equation: true
   notes [[existsAsCases]]; read; coreOK true; readsConfined true
 e3-eq-exists-ml-and-right Lblf: binders at the top after exEqn? (some [VarB]); exCases false
-  refused KCore.Parse.RefusalReason.patternConnective (\and)
-  notes []; refused KCore.Parse.RefusalReason.patternConnective (\and)
+  clauses 1; exRead's of the moved equation: false
+  notes [[existentialClause]]; read; coreOK true; readsConfined true
 e3-eq-exists-ml-in-or Lblf: binders at the top after exEqn? none; exCases false
-  refused KCore.Parse.RefusalReason.manyValuedRightSide (\or: the sentence gives the function every element of each side; the text holds no functional sentence of the function, so where the sides differ that is more than one element, which no clause states)
-  notes []; refused KCore.Parse.RefusalReason.manyValuedRightSide (\or: the sentence gives the function every element of each side; the text holds no functional sentence of the function, so where the sides differ that is more than one element, which no clause states)
+  clauses 1; exRead's of the moved equation: false
+  notes [[existentialClause], [existentialClause]]; read; coreOK true; readsConfined true
 -/
 #guard_msgs in
 #eval show IO Unit from do

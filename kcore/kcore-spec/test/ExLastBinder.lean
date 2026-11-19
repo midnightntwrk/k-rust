@@ -25,8 +25,8 @@
     `f(X) => ?B ensures ?B ==Bool notBool X`, is refused by kompile (fixture `e3-eq-exists-bool`,
     kompile.txt `exit: 113`); `e3-eq-exists-bool-ml` is its `#Exists` spelling. The binder of Int
     (`e3-eq-exists-int-ml`, h not `total`) and f not `total` (`e3-eq-exists-partial-ml`) are not
-    EX's: the reader refuses both `manyValuedRightSide (\exists)`; their refusal
-    `existentialEquation` and their reading by `Parse.ceRead` are the CE wiring's.
+    EX's: the reader reads each through `Parse.ceRead` (one clause), and refuses the first
+    `existentialEquation` at Int (Z neither confined nor fixed).
 -/
 import KcoreSpec
 
@@ -467,10 +467,10 @@ def runFx (n fn : String) : IO Unit := do
 /--
 info: e3-eq-exists-bool-ml Lblf: 3 clauses; clsX: true
   parse: read; coreOK true; readsConfined true; litSort Bool true
-e3-eq-exists-int-ml Lblh: refused manyValuedRightSide (\exists)
-  parse: refused manyValuedRightSide (\exists)
-e3-eq-exists-partial-ml Lblf: refused manyValuedRightSide (\exists)
-  parse: refused manyValuedRightSide (\exists)
+e3-eq-exists-int-ml Lblh: 1 clauses; clsX: false
+  parse: refused existentialEquation (VarZ:Int: an existential variable of the right side, of a sort the text leaves unconfined, that no conjunct of its predicate equates with a term: the function's value ranges over elements of Int that no value names)
+e3-eq-exists-partial-ml Lblf: 1 clauses; clsX: false
+  parse: read; coreOK true; readsConfined true; litSort Bool true
 -/
 #guard_msgs in
 #eval show IO Unit from do
