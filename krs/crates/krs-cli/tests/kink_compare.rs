@@ -1067,24 +1067,48 @@ fn run_judges_a_kill_under_a_projection_through_its_views() {
         "[[mutation]]\nid = \"tick-plus-2\"\nmisunderstanding = \"a tick adds 2 more\"\n\n  \
          [[mutation.edit]]\n  rule = \"tick\"\n  find = \"+Int\"\n  replace = \"+Int 2 +Int\"\n",
     );
-    let mut process = krs_command!();
-    fixture_build_env(&mut process, package.target.path());
-    let output = process
-        .current_dir(package.directory.path())
-        .args(["kink", "run", "--full", "--corpus", corpus])
-        .args(["--package", PACKAGE, "--definition", "main"])
-        .output()
-        .unwrap();
-    let document = json_of(&output);
-    let row = &document["mutations"][0];
-    assert_eq!(row["status"], "killed", "{document:#}");
-    assert_eq!(
-        row["projections"],
+    let run = |schedule: &[&str]| {
+        let mut process = krs_command!();
+        fixture_build_env(&mut process, package.target.path());
+        let output = process
+            .current_dir(package.directory.path())
+            .args(["kink", "run"])
+            .args(schedule)
+            .args(["--corpus", corpus])
+            .args(["--package", PACKAGE, "--definition", "main"])
+            .output()
+            .unwrap();
+        json_of(&output)
+    };
+    let expected = |row: &Value| {
         json!([
             {"name": "acc", "status": "killed", "killer": row["killer"], "reason": null},
             {"name": "parity", "status": "survived", "killer": null, "reason": null},
             {"name": "n", "status": "survived", "killer": null, "reason": null},
-        ]),
+        ])
+    };
+    // First-kill: the search stops at its first kill, under which `parity` and `n` agree; the
+    // search under the projections runs the other program for them, through the views.
+    let first = run(&[]);
+    let row = &first["mutations"][0];
+    assert_eq!(row["status"], "killed", "{first:#}");
+    assert_eq!(row["projections"], expected(row), "{row:#}");
+    assert_eq!(
+        row["projection_search"]["calls"].as_array().map(Vec::len),
+        Some(1),
         "{row:#}"
     );
+    // A second run reads that program's outcome and ends records: no call.
+    let again = run(&[]);
+    let row = &again["mutations"][0];
+    assert_eq!(row["projections"], expected(row), "{row:#}");
+    assert_eq!(row["projection_search"]["calls"], json!([]), "{row:#}");
+    assert_eq!(
+        row["projection_search"]["executed"][0]["cached"], true,
+        "{row:#}"
+    );
+    let document = run(&["--full"]);
+    let row = &document["mutations"][0];
+    assert_eq!(row["status"], "killed", "{document:#}");
+    assert_eq!(row["projections"], expected(row), "{row:#}");
 }

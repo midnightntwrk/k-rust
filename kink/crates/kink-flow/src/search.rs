@@ -527,7 +527,9 @@ struct Search<'a, 's> {
     /// The tier-1 store; `None` when kink's build identity cannot be computed.
     tier1: Option<OutcomeStore>,
     /// The mutant ends store ([`crate::mutant_ends`]), on exactly where tier 1 is; written beside
-    /// the tier-1 records and read by nothing in `run`.
+    /// the tier-1 records, read only by the judgement under projections ([`Search::project_row`])
+    /// and re-derived by `--verify` ([`Search::ends_mismatch`]), both only in a flow that declares
+    /// `[[projection]]`.
     ends: Option<MutantEndStore>,
     /// The lock's killer of each mutation, by mutation id (program ids).
     recorded: BTreeMap<String, String>,
@@ -1702,7 +1704,26 @@ impl Search<'_, '_> {
                 &order,
                 &records,
                 stored.as_ref(),
+                identity,
             ));
+        }
+        // A memo's facts carry no generation: where tier 1 decides the row but the search under
+        // the listed projections still needs a call, the caller resolves the mutation live
+        // ([`Search::project_row`]), before anything is counted or written.
+        if generation.is_none()
+            && self.projected.is_some()
+            && self.projections_need_a_call(
+                mutation,
+                &order,
+                stored
+                    .as_ref()
+                    .map(|w| self.search_order(&order, w))
+                    .as_deref(),
+                identity,
+                &records,
+            )
+        {
+            return None;
         }
         if self.schedule == ScheduleMode::Full {
             let cached = match decision {
@@ -1765,9 +1786,19 @@ impl Search<'_, '_> {
                     .iter()
                     .map(|(c, record)| (*c, Executed::Cached(record)))
                     .collect::<Vec<_>>();
-                let search = search_order.clone().unwrap_or_else(|| order.clone());
-                self.project_row(&mut value, &search, identity, &judged);
-                return Some((value, false));
+                let error = self.project_row(
+                    &mut value,
+                    mutation,
+                    generation,
+                    &ProjectionInput {
+                        order: &order,
+                        search: search_order.clone(),
+                        identity,
+                        records: &records,
+                        executed: &judged,
+                    },
+                );
+                return Some((value, error));
             }
             Tier1::Empty => unreachable!("an empty O returned above"),
             Tier1::Call { records } => records,
@@ -2013,9 +2044,19 @@ impl Search<'_, '_> {
         for (_, run, ..) in &runs {
             judged.extend(self.live_executed(run));
         }
-        let search = search_order.unwrap_or_else(|| order.clone());
-        self.project_row(&mut value, &search, identity, &judged);
-        Some((value, false))
+        let error = self.project_row(
+            &mut value,
+            mutation,
+            Some(generation),
+            &ProjectionInput {
+                order: &order,
+                search: search_order,
+                identity,
+                records: &[],
+                executed: &judged,
+            },
+        );
+        Some((value, error))
     }
 
     /// A full row (`run --full`, module documentation): every program of O, in corpus order, is a
@@ -2210,9 +2251,20 @@ impl Search<'_, '_> {
         if let Some(live) = &live {
             judged.extend(self.live_executed(&live.mutant));
         }
-        let search = witness.map_or_else(|| order.to_vec(), |w| self.search_order(order, w));
-        self.project_row(&mut value, &search, facts.identity, &judged);
-        (value, false)
+        let search = witness.map(|w| self.search_order(order, w));
+        let error = self.project_row(
+            &mut value,
+            mutation,
+            generation,
+            &ProjectionInput {
+                order,
+                search,
+                identity: facts.identity,
+                records: &[],
+                executed: &judged,
+            },
+        );
+        (value, error)
     }
 
     /// Live executed entries with the candidate index of their program.
@@ -2233,7 +2285,10 @@ impl Search<'_, '_> {
     /// off (under first-kill the recorded killer alone, when it is a program of O, then, unless it
     /// killed, the cold call over O), a one-program call per valid record those calls did not
     /// execute, and the comparison of every valid record and of the cached path's status with the
-    /// live ones.
+    /// live ones. In a flow that declares `[[projection]]`, whose run reads the mutant ends store
+    /// (`identity` is the mutation's directory in it), each valid record's ends record is
+    /// re-derived too ([`Search::ends_mismatch`]).
+    #[allow(clippy::too_many_arguments)]
     fn verify_one(
         &mut self,
         mut row: Map<String, Value>,
@@ -2242,11 +2297,15 @@ impl Search<'_, '_> {
         order: &[usize],
         records: &[(usize, OutcomeRecord)],
         stored: Option<&EditWitness>,
+        identity: Option<Sha256Digest>,
     ) -> (Value, bool) {
         let mut calls = Calls::new();
         let mut executed = Vec::<Value>::new();
         let mut witness = None;
         let mut live = BTreeMap::new();
+        // Each live test's mutant ends record, by candidate, a later call's replacing an
+        // earlier's, as `live` does.
+        let mut live_ends = BTreeMap::new();
         let mut source = SOURCE_SEARCH;
         let mut cold = None;
         // Under first-kill the recorded killer runs alone first, as the search runs it; under
@@ -2295,6 +2354,7 @@ impl Search<'_, '_> {
             );
             let opens = entry_opens(&one);
             self.collect_live(&one.mutant, &causes, &opens, &mut live);
+            self.collect_ends(&one.mutant, &mut live_ends);
             let killed = one.mutant.report.status == MutantStatus::Killed;
             cold = Some((one.mutant, opens));
             if alone && killed {
@@ -2331,6 +2391,7 @@ impl Search<'_, '_> {
                     );
                     let opens = entry_opens(&one);
                     self.collect_live(&one.mutant, &causes, &opens, &mut live);
+                    self.collect_ends(&one.mutant, &mut live_ends);
                     live.entry(*c).or_insert(Live::NotRun(status));
                 }
             }
@@ -2376,6 +2437,14 @@ impl Search<'_, '_> {
                     ),
                     "live": side(&outcome, json!(mutant), report),
                 }));
+            }
+            if let Some(mismatch) = self.ends_mismatch(
+                mutation,
+                identity,
+                *c,
+                live_ends.get(c).and_then(Option::as_ref),
+            ) {
+                mismatches.push(mismatch);
             }
         }
         // The compiled edit the outcome file keeps, against the cold call's. It decides no status
@@ -2529,6 +2598,66 @@ impl Search<'_, '_> {
         }
     }
 
+    /// Each executed test of a live run's mutant ends record ([`MutantEnds::of`], `None` where
+    /// the run gives none), by candidate, in a flow that declares `[[projection]]`
+    /// ([`Search::ends_mismatch`]).
+    fn collect_ends(&self, run: &MutantRun, ends: &mut BTreeMap<usize, Option<MutantEnds>>) {
+        if self.manifest.projections.is_empty() {
+            return;
+        }
+        for test in &run.plan.tests {
+            if test.run == TestRun::SkippedAfterKill {
+                continue;
+            }
+            let Some(c) = self.position(&test.test_id) else {
+                continue;
+            };
+            let record = run
+                .evidence
+                .iter()
+                .find(|evidence| evidence.test_id == test.test_id)
+                .and_then(|evidence| MutantEnds::of(&test.test_id, &test.run, evidence));
+            ends.insert(c, record);
+        }
+    }
+
+    /// `run --verify`'s re-derivation of candidate `c`'s mutant ends record, in a flow that
+    /// declares `[[projection]]` (the only run that reads the store): the record a run would read
+    /// (the store's checks and `polls.serves`, as [`Search::judge`] reads it) against the live
+    /// run's (`live`, `None` where it gives none); a mismatch `{mutation, program, cached:
+    /// {ends_sha256}, live: {ends_sha256}}` where they do not record the same run
+    /// ([`MutantEnds::same_run`]). Nothing where no record would be read.
+    fn ends_mismatch(
+        &self,
+        mutation: &Mutation,
+        identity: Option<Sha256Digest>,
+        c: usize,
+        live: Option<&MutantEnds>,
+    ) -> Option<Value> {
+        if self.manifest.projections.is_empty() {
+            return None;
+        }
+        let (store, identity) = self.ends.as_ref().zip(identity)?;
+        let candidate = &self.candidates[c];
+        let program = candidate.digest.to_string();
+        let stored = store
+            .read(identity, &program)
+            .filter(|ends| ends.polls.serves(self.poll_bound(candidate)))?;
+        if live.is_some_and(|live| live.same_run(&stored)) {
+            return None;
+        }
+        let digest = |ends: &MutantEnds| {
+            ends.digest(store.context_sha256(), &identity.to_string(), &program)
+                .to_string()
+        };
+        Some(json!({
+            "mutation": mutation.id,
+            "program": candidate.id,
+            "cached": {"ends_sha256": digest(&stored)},
+            "live": {"ends_sha256": live.map(digest)},
+        }))
+    }
+
     /// The status the cached path gives for the records (README 7.5.3 steps 2-5), with the
     /// cold call's tests of L standing in for the live call over L; `None` when that plan is
     /// refused (the cached path's `outcome-conflict`). Under [`ScheduleMode::Full`] a killed
@@ -2599,6 +2728,11 @@ struct Projected<'a> {
     cache: PathBuf,
     /// Each candidate's baseline ends as its record keeps them, read on first use.
     baselines: BTreeMap<usize, Result<BTreeSet<Pattern>, String>>,
+    /// The recorded killer of each (mutation, projection), by mutation id then projection name
+    /// (program ids): tried first while it kills under that projection (decision U2, per
+    /// projection). Empty until the lock records a killer per projection (U11d); never read from
+    /// the cache, whose hints U2 rejects.
+    recorded: BTreeMap<String, BTreeMap<String, String>>,
 }
 
 impl<'a> Projected<'a> {
@@ -2609,6 +2743,7 @@ impl<'a> Projected<'a> {
         vocabulary: Option<&'a (dyn Vocabulary + Sync)>,
         execution: ExecutionDigest,
         cache: &Path,
+        recorded: BTreeMap<String, BTreeMap<String, String>>,
     ) -> Option<Self> {
         if manifest.projections.is_empty() {
             return None;
@@ -2627,6 +2762,7 @@ impl<'a> Projected<'a> {
             execution,
             cache: cache.to_path_buf(),
             baselines: BTreeMap::new(),
+            recorded,
         })
     }
 }
@@ -2636,6 +2772,117 @@ impl<'a> Projected<'a> {
 enum Executed<'r> {
     Cached(&'r OutcomeRecord),
     Live(&'r TestRun, Option<&'r TestEvidence>),
+}
+
+/// What [`Search::project_row`] judges a row's projections from: O (`order`, corpus order),
+/// the search order C when it is known (`search`), the mutation's identity (the ends store's
+/// directory), valid tier-1 records of O that the projections may read besides the row's
+/// (`records`; one the row read is judged through `executed`) and the programs the row's status
+/// read (`executed`).
+struct ProjectionInput<'r, 'e> {
+    order: &'r [usize],
+    search: Option<Vec<usize>>,
+    identity: Option<Sha256Digest>,
+    records: &'r [(usize, OutcomeRecord)],
+    executed: &'r [(usize, Executed<'e>)],
+}
+
+/// What one projection judged per program needs before [`kill_decision`] decides it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum ProjectionNeed {
+    /// It is decided.
+    Nothing,
+    /// Its recorded killer, not judged yet, runs alone first (decision U2).
+    Alone(usize),
+    /// These programs of its domain, not judged under it (empty: none can be judged).
+    Run(Vec<usize>),
+}
+
+/// What [`kill_decision`] decides for one projection judged per program, over its domain `order`
+/// (corpus order) from its judged programs (`judged`: a verdict for each program judged under it),
+/// in the search order C restricted to the domain (`search`, when C is known), with its recorded
+/// killer `recorded` (decision U2), and what it needs judged while it does not decide: under
+/// first-kill its recorded killer alone while that is not judged (tried first while it kills),
+/// else the programs not judged, in C, before its first judged kill in C (a saving only, as the
+/// canonical call is cut before the first cached kill); under `Full` every program not judged.
+/// `Run` with no program (several judged kills and C unknown) is a decision no call can give.
+fn projection_need(
+    order: &[usize],
+    judged: &BTreeMap<usize, Verdict>,
+    search: Option<&[usize]>,
+    recorded: Option<usize>,
+    schedule: ScheduleMode,
+) -> (Tier1, ProjectionNeed) {
+    let killed = |c: &usize| judged.get(c) == Some(&Verdict::Killed);
+    let decision = kill_decision(
+        order,
+        |c| judged.contains_key(&c),
+        |c| killed(&c),
+        search,
+        recorded,
+        schedule,
+    );
+    if decision.decides() {
+        return (decision, ProjectionNeed::Nothing);
+    }
+    let open = |c: &usize| order.contains(c) && !judged.contains_key(c);
+    let need = match (schedule, recorded.filter(open), search) {
+        (ScheduleMode::FirstKill, Some(recorded), _) => ProjectionNeed::Alone(recorded),
+        (ScheduleMode::FirstKill, None, Some(search)) => {
+            let cut = search.iter().position(killed).unwrap_or(search.len());
+            ProjectionNeed::Run(search[..cut].iter().copied().filter(open).collect())
+        }
+        _ => ProjectionNeed::Run(order.iter().copied().filter(open).collect()),
+    };
+    (decision, need)
+}
+
+/// The status of a projection judged per program from what [`kill_decision`] decides over its
+/// domain: killed by the decided killer; with no killer, `unknown` with the reason of the first
+/// unknown program in the search order (`in_order`: the domain's verdicts in C), else
+/// `survived`; `error` (`no-comparable-program`) for an empty domain; [`projected::UNDECIDED`]
+/// (`projection-search`) while it needs a program no call judged.
+fn decision_status<'v>(
+    name: &str,
+    decision: &Tier1,
+    mut in_order: impl Iterator<Item = &'v Verdict>,
+    id: impl Fn(usize) -> &'v str,
+) -> ProjectionStatus {
+    let status = |status: &str, killer: Option<&str>, reason: Option<&str>| ProjectionStatus {
+        name: name.to_owned(),
+        status: status.to_owned(),
+        killer: killer.map(str::to_owned),
+        reason: reason.map(str::to_owned),
+    };
+    match decision {
+        Tier1::Empty => status("error", None, Some("no-comparable-program")),
+        Tier1::Decided {
+            killer: Some(killer),
+            ..
+        } => status("killed", Some(id(*killer)), None),
+        Tier1::Decided { killer: None, .. } => match in_order.find_map(|verdict| match verdict {
+            Verdict::Unknown(reason) => Some(reason),
+            _ => None,
+        }) {
+            Some(reason) => status("unknown", None, Some(reason)),
+            None => status("survived", None, None),
+        },
+        Tier1::Call { .. } => status(
+            projected::UNDECIDED,
+            None,
+            Some(projected::PROJECTION_SEARCH),
+        ),
+    }
+}
+
+/// An entry's `projections` from its verdict names, in listed order.
+fn names_value(names: &[(String, &'static str)]) -> Value {
+    projected::entry_value(
+        &names
+            .iter()
+            .map(|(name, verdict)| (name.as_str(), *verdict))
+            .collect::<Vec<_>>(),
+    )
 }
 
 /// The mutant's ends of one executed program, for a cells re-judgement.
@@ -2650,147 +2897,214 @@ enum EndsAt {
 
 impl Search<'_, '_> {
     /// Each listed projection's status in `row` (`projections`), and each executed entry's
-    /// verdict under each (`projections`), from the programs the row's status read (`executed`,
-    /// by candidate; a later entry for a program replaces an earlier, as its executed entry
-    /// does), in the search order `order` (O in C); nothing when the flow declares no projection
-    /// or this search judges none. `identity` is the mutation's (the ends store's directory).
+    /// verdict under each (`projections`); nothing when the flow declares no projection or this
+    /// search judges none.
+    ///
+    /// The programs judged first are those the row's status read (`input.executed`, by candidate;
+    /// a later entry for a program replaces an earlier, as its executed entry does) and the valid
+    /// tier-1 records the row did not read (`input.records`). Then, while some projection needs a
+    /// program of its domain that is not judged under it ([`projection_need`]: the
+    /// row's search stopped at its first kill, or a record has no mutant ends record), one
+    /// campaign call runs those programs, its records are written as the row's are, and its
+    /// tests are judged under every projection; the programs judged only for the projections
+    /// are the row's `projection_search` ([`Search::projection_search_value`]). Each projection
+    /// judged per program then has the status [`kill_decision`] gives over its domain, with its
+    /// recorded killer ([`Projected::recorded`], decision U2). Returns whether a call of the
+    /// projections' search met a corpus error: the run then stops after this row, whose own
+    /// status, killer and reason stay.
     fn project_row(
         &mut self,
         row: &mut Value,
-        order: &[usize],
-        identity: Option<Sha256Digest>,
-        executed: &[(usize, Executed<'_>)],
-    ) {
+        mutation: &Mutation,
+        generation: Option<&CandidateGeneration<'_>>,
+        input: &ProjectionInput<'_, '_>,
+    ) -> bool {
         let Some(mut projected) = self.projected.take() else {
-            return;
+            return false;
         };
-        let mut sources = BTreeMap::<usize, &Executed<'_>>::new();
-        for (c, source) in executed {
-            sources.insert(*c, source);
-        }
+        let listed = std::mem::take(&mut projected.listed);
+        let error = self.project_listed(&mut projected, &listed, row, mutation, generation, input);
+        projected.listed = listed;
+        self.projected = Some(projected);
+        error
+    }
+
+    /// [`Search::project_row`] with the listed projections taken out of `projected`.
+    fn project_listed(
+        &mut self,
+        projected: &mut Projected<'_>,
+        listed: &[(ProjectionSection, Judge)],
+        row: &mut Value,
+        mutation: &Mutation,
+        generation: Option<&CandidateGeneration<'_>>,
+        input: &ProjectionInput<'_, '_>,
+    ) -> bool {
         let mutation_level = !matches!(
             row["status"].as_str(),
             Some("killed" | "survived" | "unknown")
-        ) || sources.is_empty();
-        let ids = order
+        ) || input.executed.is_empty();
+        let read = input
+            .executed
             .iter()
-            .map(|c| self.candidates[*c].id)
+            .map(|(c, _)| *c)
+            .collect::<BTreeSet<_>>();
+        // The records the row did not read, then the row's programs.
+        let extra = input
+            .records
+            .iter()
+            .filter(|(c, _)| !read.contains(c))
+            .map(|(c, record)| (*c, Executed::Cached(record)))
             .collect::<Vec<_>>();
-        let mut statuses = Vec::new();
-        let mut verdicts = BTreeMap::<String, Vec<(String, &'static str)>>::new();
-        let listed = std::mem::take(&mut projected.listed);
-        for (projection, judge) in &listed {
-            let holds =
-                |c: usize| projection.holds(&self.manifest.programs[self.candidates[c].index]);
-            let domain = order
-                .iter()
-                .filter(|c| holds(**c))
-                .map(|c| self.candidates[*c].id)
-                .collect::<BTreeSet<_>>();
-            let mut judged = BTreeMap::<String, Verdict>::new();
-            for (&c, source) in &sources {
-                let id = self.candidates[c].id;
-                if !domain.contains(id) {
-                    // As `compare` names a view outside its domain (`outside-domain`): neither
-                    // judged nor counted.
-                    if !matches!(judge, Judge::NotJudged(_)) {
-                        verdicts
-                            .entry(id.to_owned())
-                            .or_default()
-                            .push((projection.name.clone(), projected::OUTSIDE_DOMAIN_VERDICT));
-                    }
-                    continue;
-                }
-                let verdict = match (judge, source) {
-                    (Judge::NotJudged(_), _) => None,
-                    (_, Executed::Live(TestRun::SkippedAfterKill, _)) => None,
-                    (_, Executed::Live(TestRun::Failed(kind), _)) => {
-                        Some(Verdict::Unknown(format!(
-                            "the mutant's run failed (`{}`)",
-                            kebab(&format!("{kind:?}"))
-                        )))
-                    }
-                    (Judge::Run, Executed::Live(TestRun::Compared(outcomes), _)) => {
-                        Some(Verdict::of_run(outcomes))
-                    }
-                    (Judge::Run, Executed::Cached(record)) => Some(Verdict::of_run(&record.slots)),
-                    (
-                        Judge::Flow(flow),
-                        Executed::Live(run @ TestRun::Compared(outcomes), evidence),
-                    ) => {
-                        let channel = evidence
-                            .and_then(|evidence| observation_verdict(&evidence.notes))
-                            .and_then(|verdict| verdict.position.as_ref())
-                            .map(|position| position.channel.clone());
-                        projected::verdict(flow, outcomes, channel.as_deref(), || {
-                            let ends = evidence
-                                .and_then(|evidence| MutantEnds::of(id, run, evidence))
-                                .map_or_else(
-                                    || {
-                                        EndsAt::Unusable(
-                                            "the mutant's run gave no ends to compare (a slot or \
-                                             side timed out or failed, or its judgement was \
-                                             refused)"
-                                                .to_owned(),
-                                        )
-                                    },
-                                    EndsAt::Record,
-                                );
-                            self.cells_verdict(&mut projected, projection, c, ends)
-                        })
-                    }
-                    (Judge::Flow(flow), Executed::Cached(record)) => {
-                        let channel = record.observation["position"]["channel"].as_str();
-                        projected::verdict(flow, &record.slots, channel, || {
-                            let ends = self
-                                .ends
-                                .as_ref()
-                                .zip(identity)
-                                .and_then(|(store, identity)| {
-                                    store.read(identity, &self.candidates[c].digest.to_string())
-                                })
-                                .filter(|ends| {
-                                    ends.polls.serves(self.poll_bound(&self.candidates[c]))
-                                })
-                                .map_or(EndsAt::Missing, EndsAt::Record);
-                            self.cells_verdict(&mut projected, projection, c, ends)
-                        })
-                    }
-                };
-                if let Some(verdict) = verdict {
-                    verdicts
-                        .entry(id.to_owned())
-                        .or_default()
-                        .push((projection.name.clone(), verdict.name()));
-                    judged.insert(id.to_owned(), verdict);
-                }
+        let sources = if mutation_level {
+            input.executed.iter().collect::<Vec<_>>()
+        } else {
+            extra.iter().chain(input.executed).collect::<Vec<_>>()
+        };
+        let domains = self.domains(listed, input.order);
+        let mut judged = vec![BTreeMap::<usize, Verdict>::new(); listed.len()];
+        let named = self.judge_all(
+            projected,
+            listed,
+            &domains,
+            &sources,
+            input.identity,
+            &mut judged,
+        );
+        let mut search = input.search.clone();
+        let mut calls = Calls::new();
+        let mut live = Vec::<(usize, Value)>::new();
+        let mut error = None;
+        loop {
+            if mutation_level {
+                break;
             }
-            statuses.push(match judge {
+            let programs = self.projection_round(
+                projected,
+                listed,
+                &domains,
+                &judged,
+                search.as_deref(),
+                mutation,
+            );
+            if programs.is_empty() {
+                break;
+            }
+            // A memo's row reaches here only when no projection needs a call
+            // ([`Search::projections_need_a_call`]).
+            let Some(generation) = generation else {
+                break;
+            };
+            let call = match self.call(generation, &programs) {
+                (wall_ms, Err(failure)) => {
+                    calls.push((programs, json!("error"), wall_ms));
+                    error = Some(failure);
+                    break;
+                }
+                (wall_ms, Ok(call)) => {
+                    calls.push((
+                        call.order.clone(),
+                        json!(status_name(call.mutant.report.status)),
+                        wall_ms,
+                    ));
+                    call
+                }
+            };
+            if search.is_none() {
+                search = call
+                    .witness
+                    .as_ref()
+                    .map(|w| self.search_order(input.order, w));
+            }
+            let causes = entry_causes(
+                &call,
+                self.runner.end_reader(),
+                self.spec.result.slots(),
+                self.manifest.budget,
+            );
+            let opens = entry_opens(&call);
+            let records = self.live_records(&call.mutant, &call.differences, &causes, &opens);
+            let ends = self.live_ends(&call.mutant);
+            self.write_records(
+                input.identity,
+                mutation,
+                row.as_object_mut().expect("a row is an object"),
+                &records,
+                &ends,
+                call.witness.as_ref(),
+            );
+            let before = judged.iter().map(BTreeMap::len).sum::<usize>();
+            let tests = self.live_executed(&call.mutant);
+            let verdicts = self.judge_all(
+                projected,
+                listed,
+                &domains,
+                &tests.iter().collect::<Vec<_>>(),
+                input.identity,
+                &mut judged,
+            );
+            // A projection's search entry: no KORE, its kill is not the row's. A test the call
+            // skipped after its kill is judged under no projection and listed nowhere.
+            for mut entry in executed_entries(
+                &call,
+                self.runner.end_reader(),
+                self.spec.result.slots(),
+                self.manifest.budget,
+                None,
+            ) {
+                let Some(c) = entry["program"].as_str().and_then(|id| self.position(id)) else {
+                    continue;
+                };
+                let Some(names) = verdicts.get(&c).filter(|names| {
+                    names
+                        .iter()
+                        .any(|(_, verdict)| *verdict != projected::OUTSIDE_DOMAIN_VERDICT)
+                }) else {
+                    continue;
+                };
+                entry["projections"] = names_value(names);
+                live.retain(|(again, _)| *again != c);
+                live.push((c, entry));
+            }
+            if judged.iter().map(BTreeMap::len).sum::<usize>() == before {
+                // Nothing new is judged (a mutant-scope failure ran no test).
+                break;
+            }
+        }
+        let ids = search.as_deref().unwrap_or(input.order);
+        let statuses = listed
+            .iter()
+            .enumerate()
+            .map(|(index, (projection, judge))| match judge {
                 _ if mutation_level => ProjectionStatus::of_row(&projection.name, row),
-                // The run's verdict over its domain only, where it has one.
-                Judge::Run if projection.domain.is_some() => ProjectionStatus::of_programs(
-                    &projection.name,
-                    &ids,
-                    |id| domain.contains(id),
-                    &judged,
-                ),
-                Judge::Run => ProjectionStatus::of_row(&projection.name, row),
+                Judge::Run if projection.domain.is_none() => {
+                    ProjectionStatus::of_row(&projection.name, row)
+                }
                 Judge::NotJudged(reason) => ProjectionStatus {
                     name: projection.name.clone(),
                     status: projected::UNDECIDED.to_owned(),
                     killer: None,
                     reason: Some((*reason).to_owned()),
                 },
-                Judge::Flow(_) => ProjectionStatus::of_programs(
-                    &projection.name,
-                    &ids,
-                    |id| domain.contains(id),
-                    &judged,
-                ),
-            });
-        }
-        projected.listed = listed;
-        self.projected = Some(projected);
+                Judge::Run | Judge::Flow(_) => {
+                    let (decision, _) = self.projection_decision(
+                        projected,
+                        projection,
+                        &domains[index],
+                        &judged[index],
+                        search.as_deref(),
+                        mutation,
+                    );
+                    decision_status(
+                        &projection.name,
+                        &decision,
+                        ids.iter()
+                            .filter(|c| domains[index].contains(c))
+                            .filter_map(|c| judged[index].get(c)),
+                        |c| self.candidates[c].id,
+                    )
+                }
+            })
+            .collect::<Vec<_>>();
         row["projections"] = json!(
             statuses
                 .iter()
@@ -2799,16 +3113,300 @@ impl Search<'_, '_> {
         );
         if let Some(entries) = row["executed"].as_array_mut() {
             for entry in entries {
-                if let Some(judged) = entry["program"].as_str().and_then(|id| verdicts.get(id)) {
-                    entry["projections"] = projected::entry_value(
-                        &judged
-                            .iter()
-                            .map(|(name, verdict)| (name.as_str(), *verdict))
-                            .collect::<Vec<_>>(),
-                    );
+                if let Some(names) = entry["program"]
+                    .as_str()
+                    .and_then(|id| self.position(id))
+                    .filter(|c| read.contains(c))
+                    .and_then(|c| named.get(&c))
+                {
+                    entry["projections"] = names_value(names);
                 }
             }
         }
+        // The records judged only for the projections, in the search order, then the calls'
+        // tests.
+        let mut entries = ids
+            .iter()
+            .filter(|c| !mutation_level && !read.contains(c))
+            .filter(|c| !live.iter().any(|(again, _)| again == *c))
+            .filter(|c| judged.iter().any(|verdicts| verdicts.contains_key(c)))
+            .filter_map(|c| {
+                let (_, record) = input.records.iter().find(|(r, _)| r == c)?;
+                let mut entry = self.cached_entry(*c, record);
+                if let Some(names) = named.get(c) {
+                    entry["projections"] = names_value(names);
+                }
+                Some(entry)
+            })
+            .collect::<Vec<_>>();
+        entries.extend(live.into_iter().map(|(_, entry)| entry));
+        if !entries.is_empty() || !calls.is_empty() || error.is_some() {
+            row["projection_search"] =
+                self.projection_search_value(&calls, entries, error.as_ref());
+        }
+        error.is_some()
+    }
+
+    /// The row's `projection_search`: the calls of the projections' search (`calls`,
+    /// `call_wall_ms`, as the row's own), the programs judged only for the projections
+    /// (`executed`) and, when a call met one, the corpus error (`error`, `{reason, detail}`).
+    fn projection_search_value(
+        &self,
+        calls: &Calls,
+        executed: Vec<Value>,
+        error: Option<&CorpusError>,
+    ) -> Value {
+        let (calls, wall_ms) = self.calls(calls);
+        let mut value = json!({
+            "calls": calls,
+            "call_wall_ms": wall_ms,
+            "executed": executed,
+        });
+        if let Some(error) = error {
+            value["error"] = json!({"reason": error.reason, "detail": error.detail});
+        }
+        value
+    }
+
+    /// The programs of `order` (O, corpus order) each listed projection's `domain` holds.
+    fn domains(
+        &self,
+        listed: &[(ProjectionSection, Judge)],
+        order: &[usize],
+    ) -> Vec<BTreeSet<usize>> {
+        listed
+            .iter()
+            .map(|(projection, _)| {
+                order
+                    .iter()
+                    .copied()
+                    .filter(|c| {
+                        projection.holds(&self.manifest.programs[self.candidates[*c].index])
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
+    /// Judges each of `sources` (a later one for a program replaces an earlier) under every
+    /// listed projection whose domain holds its program, into `judged` (one map per projection);
+    /// returns, by program, each projection's verdict name ([`Verdict::name`], or
+    /// [`projected::OUTSIDE_DOMAIN_VERDICT`] outside its domain) in listed order, for the entries.
+    fn judge_all(
+        &self,
+        projected: &mut Projected<'_>,
+        listed: &[(ProjectionSection, Judge)],
+        domains: &[BTreeSet<usize>],
+        sources: &[&(usize, Executed<'_>)],
+        identity: Option<Sha256Digest>,
+        judged: &mut [BTreeMap<usize, Verdict>],
+    ) -> BTreeMap<usize, Vec<(String, &'static str)>> {
+        let mut last = BTreeMap::<usize, &Executed<'_>>::new();
+        for (c, source) in sources.iter().copied() {
+            last.insert(*c, source);
+        }
+        let mut named = BTreeMap::<usize, Vec<(String, &'static str)>>::new();
+        for (index, (projection, judge)) in listed.iter().enumerate() {
+            for (&c, source) in &last {
+                if !domains[index].contains(&c) {
+                    // As `compare` names a view outside its domain (`outside-domain`): neither
+                    // judged nor counted.
+                    if !matches!(judge, Judge::NotJudged(_)) {
+                        named
+                            .entry(c)
+                            .or_default()
+                            .push((projection.name.clone(), projected::OUTSIDE_DOMAIN_VERDICT));
+                    }
+                    continue;
+                }
+                if let Some(verdict) = self.judge(projected, projection, judge, c, source, identity)
+                {
+                    named
+                        .entry(c)
+                        .or_default()
+                        .push((projection.name.clone(), verdict.name()));
+                    judged[index].insert(c, verdict);
+                }
+            }
+        }
+        named
+    }
+
+    /// The verdict of candidate `c` under `projection` from `source`; `None` where it is not
+    /// judged (an `accepts` projection, a test skipped after the run's kill, a cells difference
+    /// whose mutant ends no store holds).
+    fn judge(
+        &self,
+        projected: &mut Projected<'_>,
+        projection: &ProjectionSection,
+        judge: &Judge,
+        c: usize,
+        source: &Executed<'_>,
+        identity: Option<Sha256Digest>,
+    ) -> Option<Verdict> {
+        let id = self.candidates[c].id;
+        match (judge, source) {
+            (Judge::NotJudged(_), _) | (_, Executed::Live(TestRun::SkippedAfterKill, _)) => None,
+            (_, Executed::Live(TestRun::Failed(kind), _)) => Some(Verdict::Unknown(format!(
+                "the mutant's run failed (`{}`)",
+                kebab(&format!("{kind:?}"))
+            ))),
+            (Judge::Run, Executed::Live(TestRun::Compared(outcomes), _)) => {
+                Some(Verdict::of_run(outcomes))
+            }
+            (Judge::Run, Executed::Cached(record)) => Some(Verdict::of_run(&record.slots)),
+            (Judge::Flow(flow), Executed::Live(run @ TestRun::Compared(outcomes), evidence)) => {
+                let channel = evidence
+                    .and_then(|evidence| observation_verdict(&evidence.notes))
+                    .and_then(|verdict| verdict.position.as_ref())
+                    .map(|position| position.channel.clone());
+                projected::verdict(flow, outcomes, channel.as_deref(), || {
+                    let ends = evidence
+                        .and_then(|evidence| MutantEnds::of(id, run, evidence))
+                        .map_or_else(
+                            || {
+                                EndsAt::Unusable(
+                                    "the mutant's run gave no ends to compare (a slot or side \
+                                     timed out or failed, or its judgement was refused)"
+                                        .to_owned(),
+                                )
+                            },
+                            EndsAt::Record,
+                        );
+                    self.cells_verdict(projected, projection, c, ends)
+                })
+            }
+            (Judge::Flow(flow), Executed::Cached(record)) => {
+                let channel = record.observation["position"]["channel"].as_str();
+                projected::verdict(flow, &record.slots, channel, || {
+                    let ends = self
+                        .ends
+                        .as_ref()
+                        .zip(identity)
+                        .and_then(|(store, identity)| {
+                            store.read(identity, &self.candidates[c].digest.to_string())
+                        })
+                        .filter(|ends| ends.polls.serves(self.poll_bound(&self.candidates[c])))
+                        .map_or(EndsAt::Missing, EndsAt::Record);
+                    self.cells_verdict(projected, projection, c, ends)
+                })
+            }
+        }
+    }
+
+    /// What [`kill_decision`] decides for `projection` over its domain (`domain`, candidates)
+    /// from its judged programs (`judged`), in the search order `search` restricted to the
+    /// domain, with the projection's recorded killer for `mutation` (decision U2), and what it
+    /// needs judged while it does not decide ([`projection_need`]).
+    fn projection_decision(
+        &self,
+        projected: &Projected<'_>,
+        projection: &ProjectionSection,
+        domain: &BTreeSet<usize>,
+        judged: &BTreeMap<usize, Verdict>,
+        search: Option<&[usize]>,
+        mutation: &Mutation,
+    ) -> (Tier1, ProjectionNeed) {
+        let order = domain.iter().copied().collect::<Vec<_>>();
+        let search = search.map(|search| {
+            search
+                .iter()
+                .copied()
+                .filter(|c| domain.contains(c))
+                .collect::<Vec<_>>()
+        });
+        let recorded = projected
+            .recorded
+            .get(&mutation.id)
+            .and_then(|killers| killers.get(&projection.name))
+            .and_then(|program| self.position(program));
+        projection_need(&order, judged, search.as_deref(), recorded, self.schedule)
+    }
+
+    /// The programs the next call of the projections' search runs, in the search order `search`
+    /// (corpus order while C is unknown): the recorded killers some projection needs alone, else
+    /// every program some projection needs; empty when no projection needs one.
+    fn projection_round(
+        &self,
+        projected: &Projected<'_>,
+        listed: &[(ProjectionSection, Judge)],
+        domains: &[BTreeSet<usize>],
+        judged: &[BTreeMap<usize, Verdict>],
+        search: Option<&[usize]>,
+        mutation: &Mutation,
+    ) -> Vec<usize> {
+        let mut alone = BTreeSet::new();
+        let mut run = BTreeSet::new();
+        for (index, (projection, judge)) in listed.iter().enumerate() {
+            let searched = match judge {
+                Judge::Flow(_) => true,
+                Judge::Run => projection.domain.is_some(),
+                Judge::NotJudged(_) => false,
+            };
+            if !searched {
+                continue;
+            }
+            match self
+                .projection_decision(
+                    projected,
+                    projection,
+                    &domains[index],
+                    &judged[index],
+                    search,
+                    mutation,
+                )
+                .1
+            {
+                ProjectionNeed::Nothing => {}
+                ProjectionNeed::Alone(c) => {
+                    alone.insert(c);
+                }
+                ProjectionNeed::Run(programs) => run.extend(programs),
+            }
+        }
+        let programs = if alone.is_empty() { run } else { alone };
+        let mut programs = programs.into_iter().collect::<Vec<_>>();
+        if let Some(search) = search {
+            programs.sort_by_key(|c| search.iter().position(|s| s == c));
+        }
+        programs
+    }
+
+    /// Whether the projections' search of a row tier 1 decides from `records` (every valid record
+    /// of O) needs a campaign call: a memo's facts carry no generation, so such a row is resolved
+    /// live ([`Search::search_facts`]). The same judgement [`Search::project_row`] makes.
+    fn projections_need_a_call(
+        &mut self,
+        mutation: &Mutation,
+        order: &[usize],
+        search: Option<&[usize]>,
+        identity: Option<Sha256Digest>,
+        records: &[(usize, OutcomeRecord)],
+    ) -> bool {
+        let Some(mut projected) = self.projected.take() else {
+            return false;
+        };
+        let listed = std::mem::take(&mut projected.listed);
+        let sources = records
+            .iter()
+            .map(|(c, record)| (*c, Executed::Cached(record)))
+            .collect::<Vec<_>>();
+        let domains = self.domains(&listed, order);
+        let mut judged = vec![BTreeMap::<usize, Verdict>::new(); listed.len()];
+        self.judge_all(
+            &mut projected,
+            &listed,
+            &domains,
+            &sources.iter().collect::<Vec<_>>(),
+            identity,
+            &mut judged,
+        );
+        let need = !self
+            .projection_round(&projected, &listed, &domains, &judged, search, mutation)
+            .is_empty();
+        projected.listed = listed;
+        self.projected = Some(projected);
+        need
     }
 
     /// The tests of a live call's run, each with the mutant's evidence of its pair, by candidate.
@@ -3495,7 +4093,17 @@ pub(crate) fn run_session(
         support: ClaimSupport::new(spec.validator.baseline()),
         spelling: front.spelling,
         projected: (mode == RunMode::Search)
-            .then(|| Projected::of(manifest, front.implementations, update.execution, &cache))
+            .then(|| {
+                // No per-projection killer is recorded yet: the lock's rows per projection are
+                // U11d's.
+                Projected::of(
+                    manifest,
+                    front.implementations,
+                    update.execution,
+                    &cache,
+                    BTreeMap::new(),
+                )
+            })
             .flatten(),
     };
     let outcome_cache = |search: &Search<'_, '_>| search.outcome_cache(tier1_reason.as_deref());
@@ -3674,7 +4282,13 @@ pub(crate) fn run_session(
             ));
         }
         if corpus_error {
-            stopped = Some(json!({"mutation": mutation.id, "reason": row["reason"]}));
+            // The corpus error of a call the projections' search made leaves the row its own
+            // reason ([`Search::project_row`]).
+            let reason = match &row["projection_search"]["error"]["reason"] {
+                Value::Null => row["reason"].clone(),
+                reason => reason.clone(),
+            };
+            stopped = Some(json!({"mutation": mutation.id, "reason": reason}));
             ok = false;
         }
         if row.get("cache_error").is_some()
@@ -4211,15 +4825,34 @@ fn tier1_decision(
     recorded: Option<usize>,
     schedule: ScheduleMode,
 ) -> Tier1 {
+    kill_decision(
+        order,
+        |program| records.iter().any(|(c, _)| *c == program),
+        |program| {
+            records
+                .iter()
+                .any(|(c, record)| *c == program && record.outcome == CachedOutcome::Killed)
+        },
+        search,
+        recorded,
+        schedule,
+    )
+}
+
+/// [`tier1_decision`] over any judged facts: `has(c)` says whether program `c` of `order` has a
+/// verdict, `killed(c)` whether that verdict is a kill. Tier 1 asks it of the valid records; the
+/// search under a projection ([`Search::project_row`]) of the programs judged under it.
+fn kill_decision(
+    order: &[usize],
+    has: impl Fn(usize) -> bool,
+    killed: impl Fn(usize) -> bool,
+    search: Option<&[usize]>,
+    recorded: Option<usize>,
+    schedule: ScheduleMode,
+) -> Tier1 {
     if order.is_empty() {
         return Tier1::Empty;
     }
-    let has = |program: usize| records.iter().any(|(c, _)| *c == program);
-    let killed = |program: usize| {
-        records
-            .iter()
-            .any(|(c, record)| *c == program && record.outcome == CachedOutcome::Killed)
-    };
     let every = order.iter().all(|&program| has(program));
     let kills = order
         .iter()
@@ -5135,6 +5768,130 @@ mod tests {
     /// compile-ahead guess ([`Search::live_compiles`]) decide by, under each schedule, with and
     /// without a recorded killer and a stored C. No run document can show the guess: a wrong one
     /// costs a compile, never a row, a record or a lock, so the rule they share is pinned here.
+    /// Under a projection the decision is tier 1's over the programs judged under it: the first
+    /// kill in C once every program of its domain before it in C is judged, else the programs
+    /// it needs; its recorded killer (decision U2) is kept while it kills, and runs alone while
+    /// it is not judged.
+    #[test]
+    fn a_projection_is_decided_as_tier_one_decides_over_its_judged_programs() {
+        let judged = |pairs: &[(usize, Verdict)]| pairs.iter().cloned().collect::<BTreeMap<_, _>>();
+        let unknown = || Verdict::Unknown("u".to_owned());
+        // Its domain: 0, 1, 2; C with 2 first.
+        let o = [0, 1, 2];
+        let c = [2, 0, 1];
+        let first = |verdicts: &BTreeMap<usize, Verdict>, search, recorded| {
+            projection_need(&o, verdicts, search, recorded, ScheduleMode::FirstKill)
+        };
+        let killer = |(decision, need): (Tier1, ProjectionNeed)| match decision {
+            Tier1::Decided { killer, .. } => (Some(killer), need),
+            _ => (None, need),
+        };
+        // The run's kill at 2 agrees under the projection: the rest of its domain is needed, in
+        // C.
+        assert_eq!(
+            killer(first(&judged(&[(2, Verdict::Agree)]), Some(&c), None)),
+            (None, ProjectionNeed::Run(vec![0, 1]))
+        );
+        // A later kill in C, with every program before it judged, decides; one with an unjudged
+        // program before it in C does not, and the programs before it are needed.
+        assert_eq!(
+            killer(first(
+                &judged(&[(2, Verdict::Agree), (0, unknown()), (1, Verdict::Killed)]),
+                Some(&c),
+                None
+            )),
+            (Some(Some(1)), ProjectionNeed::Nothing)
+        );
+        assert_eq!(
+            killer(first(
+                &judged(&[(2, Verdict::Agree), (1, Verdict::Killed)]),
+                Some(&c),
+                None
+            )),
+            (None, ProjectionNeed::Run(vec![0]))
+        );
+        // Every program judged with no kill: the fold.
+        let none = judged(&[(2, Verdict::Agree), (0, unknown()), (1, Verdict::Agree)]);
+        assert_eq!(
+            first(&none, Some(&c), None).0,
+            Tier1::Decided {
+                killer: None,
+                read: vec![0, 1, 2]
+            }
+        );
+        assert_eq!(
+            decision_status(
+                "p",
+                &first(&none, Some(&c), None).0,
+                [Verdict::Agree, unknown()].iter(),
+                |_| "x"
+            ),
+            ProjectionStatus {
+                name: "p".to_owned(),
+                status: "unknown".to_owned(),
+                killer: None,
+                reason: Some("u".to_owned()),
+            }
+        );
+        // U2: the recorded killer is kept while it kills under the projection, wherever it is
+        // in C; while it is not judged it runs alone; once it agrees the first kill in C is the
+        // killer.
+        let kills = judged(&[
+            (2, Verdict::Killed),
+            (0, Verdict::Agree),
+            (1, Verdict::Killed),
+        ]);
+        assert_eq!(killer(first(&kills, Some(&c), Some(1))).0, Some(Some(1)));
+        assert_eq!(killer(first(&kills, Some(&c), None)).0, Some(Some(2)));
+        assert_eq!(
+            killer(first(&judged(&[(2, Verdict::Killed)]), Some(&c), Some(1))),
+            (None, ProjectionNeed::Alone(1))
+        );
+        assert_eq!(
+            killer(first(
+                &judged(&[
+                    (2, Verdict::Agree),
+                    (1, Verdict::Agree),
+                    (0, Verdict::Killed)
+                ]),
+                Some(&c),
+                Some(1)
+            )),
+            (Some(Some(0)), ProjectionNeed::Nothing)
+        );
+        // Full: every program of the domain is needed until each is judged.
+        assert_eq!(
+            projection_need(
+                &o,
+                &judged(&[(0, Verdict::Killed)]),
+                Some(&c),
+                None,
+                ScheduleMode::Full
+            )
+            .1,
+            ProjectionNeed::Run(vec![1, 2])
+        );
+        // An empty domain decides `error`; a projection with programs it cannot get stays
+        // undecided.
+        let (empty, need) = projection_need(&[], &judged(&[]), None, None, ScheduleMode::FirstKill);
+        assert_eq!(need, ProjectionNeed::Nothing);
+        assert_eq!(
+            decision_status("p", &empty, std::iter::empty(), |_| "x").status,
+            "error"
+        );
+        assert_eq!(
+            decision_status(
+                "p",
+                &Tier1::Call { records: true },
+                std::iter::empty(),
+                |_| "x"
+            )
+            .reason
+            .as_deref(),
+            Some(crate::projected::PROJECTION_SEARCH)
+        );
+    }
+
     #[test]
     fn tier_one_follows_the_record() {
         let record = |outcome| OutcomeRecord {

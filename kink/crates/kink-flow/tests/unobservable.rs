@@ -1196,10 +1196,11 @@ fn a_projection_over_the_runs_cells_gives_the_runners_verdict() {
 /// `[run] projections` selects the projections `run` judges under, in its order; a projection's
 /// `domain` keeps the programs outside it out of its judgement and its count (an executed entry
 /// names them `outside-domain`, as `compare` does); an `accepts` projection is not judged by `run`;
-/// a projection under which the search's first killing program agrees is `undecided` while a
-/// program of its domain after it was not run; a projection that observes what the search does
-/// (`whole`) takes the search's verdict over its domain only. The corpus is `both` and `other` (`emit(3)`): the
-/// search kills both mutations at `both`, the first program of the search order.
+/// a projection under which the search's first killing program agrees has the programs of its
+/// domain after it run (the search under the projections, `projection_search`), as has a
+/// projection that observes what the search does (`whole`) over its domain only. The corpus is
+/// `both` and `other` (`emit(3)`): the search kills both mutations at `both`, the first program
+/// of the search order. A second run reads every program from the stores and makes no call.
 #[test]
 fn run_judges_the_listed_projections_within_their_domain() {
     let text = format!(
@@ -1223,9 +1224,26 @@ fn run_judges_the_listed_projections_within_their_domain() {
         json!([
             {"name": "mine", "status": "survived", "killer": null, "reason": null},
             {"name": "acc", "status": "undecided", "killer": null, "reason": "kind-not-judged"},
-            {"name": "out", "status": "undecided", "killer": null, "reason": "projection-search"},
-            {"name": "whole", "status": "undecided", "killer": null, "reason": "projection-search"},
+            {"name": "out", "status": "survived", "killer": null, "reason": null},
+            {"name": "whole", "status": "survived", "killer": null, "reason": null},
         ]),
+        "{note:#}"
+    );
+    // The row is the search's: `other` ran only for the projections, in a call of its own.
+    assert_eq!(note["killer"], "both", "{note:#}");
+    assert_eq!(note["executed"].as_array().unwrap().len(), 1, "{note:#}");
+    assert_eq!(note["calls"].as_array().unwrap().len(), 1, "{note:#}");
+    let searched = &note["projection_search"];
+    assert_eq!(
+        searched["calls"],
+        json!([{"programs": ["other"], "status": "survived"}]),
+        "{note:#}"
+    );
+    assert_eq!(searched["executed"][0]["program"], "other", "{note:#}");
+    assert_eq!(searched["executed"][0]["cached"], false, "{note:#}");
+    assert_eq!(
+        searched["executed"][0]["projections"],
+        json!({"mine": "outside-domain", "out": "agree", "whole": "agree"}),
         "{note:#}"
     );
     let emit = &rows[1];
@@ -1236,7 +1254,7 @@ fn run_judges_the_listed_projections_within_their_domain() {
             {"name": "mine", "status": "killed", "killer": "both", "reason": null},
             {"name": "acc", "status": "undecided", "killer": null, "reason": "kind-not-judged"},
             {"name": "out", "status": "killed", "killer": "both", "reason": null},
-            {"name": "whole", "status": "undecided", "killer": null, "reason": "projection-search"},
+            {"name": "whole", "status": "killed", "killer": "other", "reason": null},
         ]),
         "{emit:#}"
     );
@@ -1244,6 +1262,32 @@ fn run_judges_the_listed_projections_within_their_domain() {
         emit["executed"][0]["projections"],
         json!({"mine": "killed", "out": "killed", "whole": "outside-domain"})
     );
+    assert_eq!(
+        emit["projection_search"]["calls"],
+        json!([{"programs": ["other"], "status": "killed"}]),
+        "{emit:#}"
+    );
+    // A second run: tier 1 decides each row from `both`'s record, and the projections read
+    // `other`'s record (and its ends record, where its cells slot distinguished): no call.
+    let again = search(&dir.join("FLOW-listed.toml"));
+    for (row, first) in again["mutations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .zip(document["mutations"].as_array().unwrap())
+    {
+        assert_eq!(row["projections"], first["projections"], "{row:#}");
+        assert_eq!(row["projection_search"]["calls"], json!([]), "{row:#}");
+        assert_eq!(
+            row["projection_search"]["executed"][0]["cached"], true,
+            "{row:#}"
+        );
+        assert_eq!(
+            row["projection_search"]["executed"][0]["projections"],
+            first["projection_search"]["executed"][0]["projections"],
+            "{row:#}"
+        );
+    }
     // Under `--full` every program runs: `other` is outside `mine`'s domain.
     let (full, _) = run(
         &FlowManifest::read(&dir.join("FLOW-listed.toml")).unwrap(),
@@ -1277,6 +1321,268 @@ fn run_judges_the_listed_projections_within_their_domain() {
         json!({"name": "whole", "status": "killed", "killer": "other", "reason": null}),
         "{emit:#}"
     );
+}
+
+/// `plain_projected(extra)` with the program `other` (`emit(3)`) after `both`.
+fn with_other(extra: &str) -> String {
+    format!(
+        "{}\n[[program]]\nid = \"other\"\ntext = \"emit(3)\"\n",
+        plain_projected(extra)
+    )
+}
+
+/// The row's members a run gives whatever the stores held: status, killer, each projection's
+/// status, and the programs and status of each call of the search under the projections.
+fn searched(document: &Value) -> Vec<Value> {
+    document["mutations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| {
+            json!({
+                "status": row["status"],
+                "killer": row["killer"],
+                "projections": row["projections"],
+                "programs": row["projection_search"]["executed"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(|entry| json!([entry["program"], entry["projections"]]))
+                    .collect::<Vec<_>>(),
+            })
+        })
+        .collect()
+}
+
+/// The search under the projections goes round by round: each call ends at the next program the
+/// run's slots kill, and the next call runs what a projection still needs after it. The corpus is
+/// `both`, `n2` (`note(5)`) and `e3` (`emit(3)`): `note-offset` is killed at `both`, which agrees
+/// under `out`; the first call over `n2` and `e3` stops at `n2` (killed on `<scratch>`, agreeing
+/// under `out`), and a second runs `e3`; `emit-offset` the same way under `scratch`. Every status
+/// and killer under each projection is the one `--full` gives, and a second run makes no call.
+#[test]
+fn the_search_under_the_projections_runs_round_by_round() {
+    let text = format!(
+        "{}\n[[program]]\nid = \"n2\"\ntext = \"note(5)\"\n\n[[program]]\nid = \"e3\"\ntext = \"emit(3)\"\n",
+        plain_projected(
+            "[[projection]]\nname = \"out\"\ncompare = [\"out\"]\n\n\
+             [[projection]]\nname = \"scratch\"\ncompare = [\"scratch\"]\n\n",
+        )
+    );
+    let dir = fixture("rounds", &[("rounds", &text)]);
+    let manifest = dir.join("FLOW-rounds.toml");
+    let document = search(&manifest);
+    let rows = document["mutations"].as_array().unwrap();
+    let calls = |row: &Value| row["projection_search"]["calls"].clone();
+    assert_eq!(rows[0]["killer"], "both", "{document:#}");
+    assert_eq!(
+        calls(&rows[0]),
+        json!([
+            {"programs": ["n2", "e3"], "status": "killed"},
+            {"programs": ["e3"], "status": "survived"},
+        ]),
+        "{document:#}"
+    );
+    assert_eq!(
+        calls(&rows[1]),
+        json!([
+            {"programs": ["e3", "n2"], "status": "killed"},
+            {"programs": ["n2"], "status": "survived"},
+        ]),
+        "{document:#}"
+    );
+    // Each program the projections ran is listed once, with its verdicts; a test a call
+    // skipped after its kill is not listed.
+    for row in rows {
+        let programs = row["projection_search"]["executed"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|entry| entry["program"].as_str().unwrap().to_owned())
+            .collect::<Vec<_>>();
+        assert_eq!(programs.len(), 2, "{row:#}");
+        assert!(programs.contains(&"n2".to_owned()) && programs.contains(&"e3".to_owned()));
+    }
+    let expected = vec![
+        quad("note-offset", "out", "survived", None),
+        quad("note-offset", "scratch", "killed", Some("both")),
+        quad("emit-offset", "out", "killed", Some("both")),
+        quad("emit-offset", "scratch", "survived", None),
+    ];
+    assert_eq!(projection_statuses(&document), expected, "{document:#}");
+    let (full, _) = run(
+        &FlowManifest::read(&manifest).unwrap(),
+        &MutationList::read(&dir.join("MUTATIONS.toml")).unwrap(),
+        &RunOptions {
+            schedule: kink_campaign::ScheduleMode::Full,
+            ..RunOptions::default()
+        },
+    );
+    assert_eq!(projection_statuses(&full), expected, "{full:#}");
+    let again = search(&manifest);
+    for row in again["mutations"].as_array().unwrap() {
+        assert_eq!(calls(row), json!([]), "{row:#}");
+    }
+    assert_eq!(projection_statuses(&again), expected, "{again:#}");
+}
+
+/// A row tier 1 decides from the resolution memo's facts, whose search under the projections
+/// still needs a program no record holds, is resolved live (a memo's facts carry no mutant to
+/// run): the row is the one a run with empty stores gives. The first run lists only `whole`,
+/// the run's own observation, so nothing runs past `both`; the second adds `out`, over the same
+/// record, under which `note-offset` needs `other`.
+#[test]
+fn a_row_the_memo_decides_runs_what_its_projections_need() {
+    let first = with_other("[[projection]]\nname = \"whole\"\n\n");
+    let second = with_other(
+        "[[projection]]\nname = \"whole\"\n\n[[projection]]\nname = \"out\"\ncompare = [\"out\"]\n\n",
+    );
+    let dir = fixture("memo", &[("first", &first), ("second", &second)]);
+    let before = search(&dir.join("FLOW-first.toml"));
+    assert!(
+        before["mutations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|row| row.get("projection_search").is_none()),
+        "{before:#}"
+    );
+    assert!(dir.join(".kink-flow/memo").is_dir());
+    let warm = search(&dir.join("FLOW-second.toml"));
+    let cold_dir = fixture("memo-cold", &[("second", &second)]);
+    let cold = search(&cold_dir.join("FLOW-second.toml"));
+    assert_eq!(searched(&warm), searched(&cold), "{warm:#}");
+    // The row itself is tier 1's: no call of its own.
+    let row = &warm["mutations"][0];
+    assert_eq!(row["executed"][0]["cached"], true, "{row:#}");
+    assert_eq!(row["calls"], json!([]), "{row:#}");
+    assert_eq!(
+        warm["mutations"][0]["projection_search"]["calls"],
+        json!([{"programs": ["other"], "status": "survived"}]),
+        "{warm:#}"
+    );
+}
+
+/// The mutant ends record of `program` for `mutation` under the flow's cache in `dir`, and its
+/// path.
+fn ends_record(dir: &Path, mutation: &str, program: &str) -> (PathBuf, Value) {
+    let mut found = Vec::new();
+    for context in fs::read_dir(dir.join(".kink-flow/mutant-ends")).unwrap() {
+        for identity in fs::read_dir(context.unwrap().path()).unwrap() {
+            for file in fs::read_dir(identity.unwrap().path()).unwrap() {
+                let path = file.unwrap().path();
+                let value: Value =
+                    serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+                if value["mutation_id"] == mutation && value["program_id"] == program {
+                    found.push((path, value));
+                }
+            }
+        }
+    }
+    assert_eq!(found.len(), 1, "{mutation} on {program}: {found:?}");
+    found.remove(0)
+}
+
+/// Rewrites an ends record as one of another run (`undefined_steps` negated) that every check
+/// of the store admits: its digest recomputed.
+fn forge_ends(path: &Path, value: &Value) {
+    let texts = |key: &str| {
+        value[key]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|text| text.as_str().unwrap().to_owned())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(value["across"], json!({"baseline": null, "mutant": null}));
+    let forged = kink_flow::mutant_ends::MutantEnds {
+        program_id: value["program_id"].as_str().unwrap().to_owned(),
+        ends: texts("ends"),
+        stop_ends: value["stop_ends"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|index| usize::try_from(index.as_u64().unwrap()).unwrap())
+            .collect(),
+        one_sided_ends: texts("one_sided_ends"),
+        undefined_steps: !value["undefined_steps"].as_bool().unwrap(),
+        complete: value["complete"].as_bool().unwrap(),
+        across: kink_flow::mutant_ends::Across::default(),
+        polls: kink_flow::outcomes::RunPolls {
+            count: value["polls"]["count"].as_u64().unwrap(),
+            bound: value["polls"]["bound"].as_u64().unwrap(),
+            cut: value["polls"]["cut"].as_bool().unwrap(),
+        },
+    };
+    let mut value = value.clone();
+    value["undefined_steps"] = json!(forged.undefined_steps);
+    value["record_sha256"] = json!(
+        forged
+            .digest(
+                value["context_sha256"].as_str().unwrap(),
+                value["mutation_identity"].as_str().unwrap(),
+                value["program_digest"].as_str().unwrap(),
+            )
+            .to_string()
+    );
+    fs::write(path, serde_json::to_string_pretty(&value).unwrap()).unwrap();
+}
+
+/// `run --verify` of the flow `manifest`.
+fn verify(manifest: &Path) -> Value {
+    let (document, _) = kink_flow::search::run_with(
+        &FlowManifest::read(manifest).unwrap(),
+        &MutationList::read(&manifest.with_file_name("MUTATIONS.toml")).unwrap(),
+        &RunOptions::default(),
+        kink_flow::search::RunMode::Verify,
+    );
+    document
+}
+
+/// `run --verify` re-derives each mutant ends record a run of a flow that declares
+/// `[[projection]]` would read: a record that no longer describes the live run is a mismatch,
+/// as an outcome record's is. A flow that declares none reads no ends record, so its `--verify`
+/// does not look at them.
+#[test]
+fn verify_re_derives_the_ends_records_a_projection_reads() {
+    let text = with_other(
+        "[[projection]]\nname = \"out\"\ncompare = [\"out\"]\n\n\
+         [[projection]]\nname = \"whole\"\ndomain = [\"other\"]\n\n",
+    );
+    let dir = fixture("verify-ends", &[("verified", &text)]);
+    let manifest = dir.join("FLOW-verified.toml");
+    search(&manifest);
+    let verified = verify(&manifest);
+    assert_eq!(verified["mismatches"], json!([]), "{verified:#}");
+    let (path, record) = ends_record(&dir, "note-offset", "other");
+    forge_ends(&path, &record);
+    let forged = verify(&manifest);
+    let mismatch = &forged["mismatches"][0];
+    assert_eq!(
+        (&mismatch["mutation"], &mismatch["program"]),
+        (&json!("note-offset"), &json!("other")),
+        "{forged:#}"
+    );
+    assert!(
+        mismatch["cached"]["ends_sha256"].is_string(),
+        "{mismatch:#}"
+    );
+    assert!(mismatch["live"]["ends_sha256"].is_string(), "{mismatch:#}");
+    assert_ne!(mismatch["cached"], mismatch["live"], "{mismatch:#}");
+    assert_eq!(forged["mutations"][0]["status"], "error", "{forged:#}");
+    assert_eq!(
+        forged["mutations"][0]["reason"], "outcome-mismatch:other",
+        "{forged:#}"
+    );
+    // A flow without projections: the same forgery is not looked at.
+    let dir = fixture("verify-ends-plain", &[]);
+    let manifest = dir.join("FLOW-plain.toml");
+    search(&manifest);
+    let (path, record) = ends_record(&dir, "note-offset", "both");
+    forge_ends(&path, &record);
+    let plain = verify(&manifest);
+    assert_eq!(plain["mismatches"], json!([]), "{plain:#}");
+    assert_eq!(statuses(&plain), statuses(&search(&manifest)));
 }
 
 /// A flow that declares no projection is judged as it was: no row or executed entry names a

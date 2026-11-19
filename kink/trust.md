@@ -252,6 +252,8 @@ Both sides' observed values are computed by that one function in that one observ
 - A view's evaluation that stops before it ends, or has no value, makes the program `unknown` under the projection, never a kill: the front end's comparison is inconclusive there (`krs kink`: krs-exec `Compared::Inconclusive`, `EndError::ViewStopped`).
 - Under kink-flow's own front end a projection compares cells only (it refuses `views` and `observer`): both sides are projected by the projection's own cell projection, the one the second slot would apply over its `compare`, which is total ("What a kill trusts", the cell projection), and compared as sets.
 - An observation slot that distinguished names the channel of its first difference only: it kills a projection that reads that channel, and decides nothing for one that reads other channels only.
+- Where the search stopped before judging a program a projection needs, `run` runs that program (the search under the projections): the same request of the same mutant the search would make, judged as above, so it adds runs and no premise; its outcome and ends records are tier-1 and ends records under their own keys, and a projection's killer is decided by tier 1's rule over the programs judged under it, its recorded killer first while it kills under it (decision U2).
+  `run --verify` re-derives each ends record such a judgement reads, as it re-derives each outcome record.
 
 Nothing of a judgement under a projection is cached: it is recomputed from the stored raw results on every run, so no key names a projection and no stored verdict can be stale under a changed projection.
 

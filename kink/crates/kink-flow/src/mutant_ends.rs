@@ -278,6 +278,23 @@ impl MutantEnds {
         })
     }
 
+    /// Whether `other` records the same run: every member but the informational `program_id`
+    /// and the bound of polls the run was asked under. A run that ended serves every bound at
+    /// least the smaller of its bound and its count ([`RunPolls::serves`]), so the record a
+    /// request reads may have run under another bound; a cut run serves its own bound only, so
+    /// two records of it that serve one request have one bound (`run --verify`).
+    #[must_use]
+    pub fn same_run(&self, other: &Self) -> bool {
+        self.ends == other.ends
+            && self.stop_ends == other.stop_ends
+            && self.one_sided_ends == other.one_sided_ends
+            && self.undefined_steps == other.undefined_steps
+            && self.complete == other.complete
+            && self.across == other.across
+            && self.polls.count == other.polls.count
+            && self.polls.cut == other.polls.cut
+    }
+
     /// The record's integrity digest under its context, mutation and program:
     /// `payload_digest(MUTANT_ENDS_DOMAIN, canonical JSON of {context_sha256, mutation_identity,
     /// program_digest, ends, stop_ends, one_sided_ends, undefined_steps, complete, across,

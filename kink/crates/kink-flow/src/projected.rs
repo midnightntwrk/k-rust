@@ -27,6 +27,11 @@
 //! - An `accepts` projection is not judged by `run` ([`Judge::NotJudged`]): its status is
 //!   `undecided`, reason [`KIND_NOT_JUDGED`].
 //!
+//! The killer under a projection judged per program is its recorded killer while it kills under
+//! it, else the first program of its domain in the search order that kills under it (decision U2,
+//! per projection); where the run's search stopped before judging a program that decides it, `run`
+//! runs the programs it needs (`crate::search`, the search under the projections).
+//!
 //! Nothing is cached: a verdict under a projection is recomputed from each side's stored raw
 //! result on every run (projections package README, "Storage"), so no key names a projection.
 
@@ -37,14 +42,15 @@ use crate::outcomes::slot_name;
 use k_rust::kore::ast::Pattern;
 use kink_campaign::OracleOutcome;
 use serde_json::{Map, Value, json};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 /// The reason of an `accepts` projection's status: `run` judges no acceptance.
 pub const KIND_NOT_JUDGED: &str = "kind-not-judged";
 
-/// The reason of an `undecided` status: some program of the projection's domain was not judged
-/// under it (the search stopped at the run's first kill before reaching it, or a program tier 1
-/// decided has no mutant ends record).
+/// The reason of an `undecided` status: some program of the projection's domain that its
+/// decision needs was not judged under it, because no call of the search under the projections
+/// could judge it (a call that met a corpus error, or a mutant-scope failure that ran no test;
+/// `crate::search`).
 pub const PROJECTION_SEARCH: &str = "projection-search";
 
 /// An executed entry's verdict under a projection whose domain does not hold its program, as
@@ -341,51 +347,6 @@ impl ProjectionStatus {
         }
     }
 
-    /// The fold of a projection judged flow-side over the programs `order` (O, in the search
-    /// order C) that are in its domain (`applies`), each judged one in `verdicts` (by program
-    /// id): killed by the first killing program in C; else survived when every program of the
-    /// domain agrees; unknown when every one is judged and some is unknown (the first one's
-    /// reason); [`UNDECIDED`] when some is not judged; `error` with reason
-    /// `no-comparable-program` when the domain holds no program of O.
-    #[must_use]
-    pub fn of_programs(
-        name: &str,
-        order: &[&str],
-        applies: impl Fn(&str) -> bool,
-        verdicts: &BTreeMap<String, Verdict>,
-    ) -> Self {
-        let status = |status: &str, killer: Option<&str>, reason: Option<String>| Self {
-            name: name.to_owned(),
-            status: status.to_owned(),
-            killer: killer.map(str::to_owned),
-            reason,
-        };
-        let domain = order
-            .iter()
-            .copied()
-            .filter(|id| applies(id))
-            .collect::<Vec<_>>();
-        if domain.is_empty() {
-            return status("error", None, Some("no-comparable-program".to_owned()));
-        }
-        if let Some(killer) = domain
-            .iter()
-            .find(|id| verdicts.get(**id) == Some(&Verdict::Killed))
-        {
-            return status("killed", Some(killer), None);
-        }
-        if domain.iter().any(|id| !verdicts.contains_key(*id)) {
-            return status(UNDECIDED, None, Some(PROJECTION_SEARCH.to_owned()));
-        }
-        match domain.iter().find_map(|id| match verdicts.get(*id) {
-            Some(Verdict::Unknown(reason)) => Some(reason),
-            _ => None,
-        }) {
-            Some(reason) => status("unknown", None, Some(reason.clone())),
-            None => status("survived", None, None),
-        }
-    }
-
     /// The entry as the row's `projections` holds it: `{name, status, killer, reason}`.
     #[must_use]
     pub fn value(&self) -> Value {
@@ -585,66 +546,5 @@ mod tests {
             verdict(&judge, &[Distinguish, Distinguish], None, || None),
             Some(Verdict::Killed)
         );
-    }
-
-    /// The status folds the domain's programs in the search order.
-    #[test]
-    fn a_status_folds_the_programs_of_the_domain() {
-        let verdicts = |pairs: &[(&str, Verdict)]| {
-            pairs
-                .iter()
-                .map(|(id, verdict)| ((*id).to_owned(), verdict.clone()))
-                .collect::<BTreeMap<_, _>>()
-        };
-        let every = |_: &str| true;
-        let order = ["a", "b", "c"];
-        let killed = ProjectionStatus::of_programs(
-            "p",
-            &order,
-            every,
-            &verdicts(&[
-                ("a", Verdict::Agree),
-                ("c", Verdict::Killed),
-                ("b", Verdict::Killed),
-            ]),
-        );
-        assert_eq!(
-            (killed.status.as_str(), killed.killer.as_deref()),
-            ("killed", Some("b"))
-        );
-        let survived = ProjectionStatus::of_programs(
-            "p",
-            &order,
-            every,
-            &verdicts(&[
-                ("a", Verdict::Agree),
-                ("b", Verdict::Agree),
-                ("c", Verdict::Agree),
-            ]),
-        );
-        assert_eq!(survived.status, "survived");
-        let undecided = ProjectionStatus::of_programs(
-            "p",
-            &order,
-            every,
-            &verdicts(&[("a", Verdict::Agree), ("b", Verdict::Unknown("u".into()))]),
-        );
-        assert_eq!(
-            (undecided.status.as_str(), undecided.reason.as_deref()),
-            (UNDECIDED, Some(PROJECTION_SEARCH))
-        );
-        // Outside the domain, a program is neither judged nor counted.
-        let domain = ProjectionStatus::of_programs(
-            "p",
-            &order,
-            |id| id != "c",
-            &verdicts(&[("a", Verdict::Agree), ("b", Verdict::Unknown("u".into()))]),
-        );
-        assert_eq!(
-            (domain.status.as_str(), domain.reason.as_deref()),
-            ("unknown", Some("u"))
-        );
-        let empty = ProjectionStatus::of_programs("p", &order, |_| false, &verdicts(&[]));
-        assert_eq!(empty.status, "error");
     }
 }

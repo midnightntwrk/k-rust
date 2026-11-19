@@ -288,9 +288,12 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// `views` or `observer`, the identity of its `observation` as the front end resolved it), each
 /// row has the status of its mutation under each projection `[run] projections` lists
 /// (`projections`, `{name, status, killer, reason}`, a status possibly `undecided`) and each
-/// executed entry its program's verdict under each (`projections`, [`crate::projected`]); a flow
-/// that declares none gives version 43's document but for its version. (One version for both:
-/// neither was on `main` before the other.)
+/// executed entry its program's verdict under each (`projections`, [`crate::projected`]), and a
+/// row whose projections needed programs its search did not judge has `projection_search`
+/// (`{calls, call_wall_ms, executed}`, and `error` where one of its calls met a corpus error;
+/// `crate::search`, the search under the projections); a flow that declares none gives version
+/// 43's document but for its version. (One version for both: neither was on `main` before the
+/// other.)
 pub const RUN_VERSION: u64 = 44;
 
 /// The name of the observation slot of an executed entry's `slots`, after the end slots
