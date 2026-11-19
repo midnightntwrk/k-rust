@@ -38,6 +38,10 @@ case of its row's status without `fixture` or `kimp` takes its row's. Its verdic
      registry does not interpret (a library parameter) are refused paramsOK. A hooked sort (DECL SortX) and an E6 token row (token:SortX)
      are covered where the registry sort X has a form (a collection whose unit has one; literals
      KK.encLit writes, at a sort KK.litsOK admits), else refused with the Bool the table names.
+     A hook covered by KK.derivedHook (=/=Bool, as hk 22 BOOL.not [hk 23 BOOL.eq ARGS]) has as its
+     case, beside the composition, the rewrite rules of ref-kimp's text whose right side applies DECL
+     (`kimp_rules_applying`: their Source file and Location), so that the composition is shown at a
+     rule kimp's semantics fires.
   3. `kimp = true`: KK.encodable of f2-examples/ref-kimp.kore's semantics (true: the floor).
   4. An E6 module row (key module:M): covered where every hook row of M (the declarations of M's
      library text with a hook attribute, `kcore encodable --library`) has a covered entry, else
@@ -163,6 +167,44 @@ def library():
     return hooks, sorts, mods, mhooks, msrc
 
 
+def split_top(s, i):
+    """The arguments of the application whose `(` is at s[i], split at its top-level commas, and the
+    index after its `)`."""
+    depth, start, args, q = 0, i + 1, [], False
+    for j in range(i, len(s)):
+        c = s[j]
+        if q:
+            if c == "\\": q = "esc"
+            elif q == "esc": q = True
+            elif c == '"': q = False
+            continue
+        if c == '"': q = True
+        elif c == "(": depth += 1
+        elif c == ")":
+            depth -= 1
+            if depth == 0:
+                args.append(s[start:j]); return args, j + 1
+        elif c == "," and depth == 1:
+            args.append(s[start:j]); start = j + 1
+    raise ValueError("unbalanced")
+
+
+def kimp_rules_applying(decl):
+    """FILE:LINE:COL (the Source file's name and the Location) of each rewrite axiom of ref-kimp's
+    text whose right side (the second argument of \\rewrites) applies the symbol DECL."""
+    text = open(os.path.join(K, KIMP)).read()
+    out = []
+    for blk in re.split(r"\n(?=\s*axiom\s*\{)", text):
+        m = re.match(r"\s*axiom\s*\{\}\s*\\rewrites\{[^(]*\(", blk)
+        if not m: continue
+        args, end = split_top(blk, m.end() - 1)
+        if len(args) != 2 or not re.search(r"(?<![\w'])" + re.escape(decl) + r"\{", args[1]): continue
+        loc = re.search(r'Location\{\}\("Location\((\d+),(\d+),', blk[end:])
+        src = re.search(r'Source\{\}\("Source\(([^)]*)\)', blk[end:])
+        out.append(f"{os.path.basename(src[1]) if src else '?'}:{loc[1]}:{loc[2]}" if loc else "?")
+    return out
+
+
 def entries(rows):
     """(list, key, row, entry) for every supported or parameter row and `cases` entry, in file order;
     a case of its row's status takes the row's fixture and kimp where it has none (a case of another
@@ -218,6 +260,9 @@ def compute(rows):
                                else {"verdict": "refused", "by": "sort table", "bool": form, "refused_on": decl[4:]})
             elif h in hooks:
                 st, form = hooks[h]
+                if st == "covered" and form.startswith("KK.derivedHook"):
+                    rs = kimp_rules_applying(decl)
+                    if rs: form += "; applied by ref-kimp's rule" + ("s" if len(rs) > 1 else "") + " at " + ", ".join(rs)
                 out[(l, k)] = ({"verdict": "covered", "by": "hook table", "case": f"{h}: {form}"} if st == "covered"
                                else {"verdict": "refused", "by": "hook table", "bool": form, "refused_on": h})
             else:

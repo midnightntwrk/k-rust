@@ -13,4 +13,25 @@ kk_sha256 = "44c41e1e1bcb659c5ff24906eda07e814bfb107ec1ccc9f40b45b4e871f7aa24"
 copied_from = "krs/semantics/kore/kore.k"
 copied_at = "e1e21f9055f9aabf50f2cad6ae670fff6e5de709"
 kompiled_fixture = "kore-k"
-catalogue_compared = "8b8a15424aa74fba8580f93d6baeaef07d928dd6"
+catalogue_compared = "408f1ab9c77cfc04a81a0a65f1d6258f359c979c"
+#
+# Final (R2-release.post-KK-pin, 2026-11-20): this is the pin DONE-0 C10 counts ("the pin moves once
+# more, node KK-pin"); after it nothing edits kk.k. No commit of k-rust main up to `final_checked_at`
+# changes krs/semantics/kore/kore.k after `copied_at`, and kk.k without its first line is that file,
+# so post-KK-pin-text's steps were not repeated. At `final_checked_at` (the published build of
+# main) the package examples/ref-kk regenerates identically from the pinned kompiled text and its
+# User modules of the spike (examples/run.sh's ref-kk line) build. `catalogue_compared` is not part
+# of the pin (compare.py's catalogue comparison lists differences, never failures).
+#
+# Catalogue comparison at the final pin (R2-release.kk-catalogue-compare, 2026-11-20):
+# `python3 -I kk/compare.py krs/semantics/kore` with the catalogue, kk.k, kcore and krust all at
+# `catalogue_compared` (main, holding this final pin) and the 52 cases' kompiled texts rebuilt there:
+# kk.k without its first line is the catalogue's kore.k; PASS, 52 cases; comparison 1: 0 defects
+# (50 =, 2 no-oracle: c39-tokens-preds, reader refuses SortId; c46-prio-nonterm-requires, out of
+# fuel); comparison 2: 0 differences, 0 listed (45 settled cases: kk.k at the ruling at all 45,
+# KCore at 43 and no-oracle at c39, c46; 7 unsettled, both sides at the same reading: c08 c10 c36
+# c50 c51 applied-blocks, c11 closure-none+applied-blocks, c42 value-false). c27 and c28, settled
+# since 8b8a15424, are at their rulings on both sides. The catalogue's text entries (texts/,
+# kk:t233-t243 among them) have no kore.pgm and are not cases of this comparison.
+final = true
+final_checked_at = "b6f026077ce011431d12de02d6d55721e9bd3961"

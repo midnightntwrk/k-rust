@@ -36,8 +36,10 @@
   - Library sample, 346 (`I -Int 0 = I`): holds at values (`lib166`, `lib166_at_values`).
   - The converse over Γ's content: each premise is a function sentence's translation, one of the
     five parts Γ defines by predicates, or definedness (`gamma_origin`, `gamma_from`).
-  - Hooked functional, collection law, library: at values (no theorem here); function functional:
-    owed as `FnHyp` (no theorem); no direction: `absent_closed`.
+  - Function functional: at values in every model of `Γc`, from `FnHyp`, which holds for every H
+    (`fnHypH`), and the sort predicates' results (`fnFun_at_values`, `fnFun_account`).
+  - Hooked functional, collection law, library: at values (no theorem here); no direction:
+    `absent_closed`.
 
   OptCell's no junk (292) is entailed (`nojunk_optcell_entailed`): its item lists OptCell's
   generators in another order than `Semantics.gens`.
@@ -373,6 +375,75 @@ theorem fnHypH (H : HookParams) : FnHyp (cH H) := fnHyp_withHooks coreOK (Semant
 /-- **Γ with the step's closure has a model, for every H.** -/
 theorem consistent (H : HookParams) : Consistent (cH H) := consistent_of_fnHyp _ (coreOKH H) (fnHypH H)
 
+/-! ## Function functional (54): the `functional` sentences, at values in every model of Γc, from `FnHyp` -/
+
+/- The class holds 54 `functional` sentences, `\exists{R}(Val:S, \equals{S, R}(Val:S, f(K0, …)))`:
+47 of sort predicates `isX` (KCore builds them, `Semantics.sortPreds`) and 7 of functions of the
+text declared total (119, 179, 180, 182, 184, 187, 189). A model of `Γc` reads the application of a
+function with a value at every argument list of its sorts, at values' elements, as that value's
+element (`LibEv.fnFun_evC`, under `coreOK`, the clauses' predicates `\top`, no `\exists` in a
+clause, and the clauses' conditions decided where `needsWitness` holds). A sort predicate has those
+values from its own clauses (`LibEv.sortPredFun_evC`); a function declared total has them from
+`FnHyp` (`LibEv.fnFun_evC_withHooks`). `FnHyp`, which the tie states for every H (`fnHypH`), decides
+the conditions (its `OpenDecided`). So each sentence holds in every model of `Γc`, and of `Γc` with
+the step's closure, at every valuation sending its variables to values, for every H. -/
+
+/-- The sentences' indices. -/
+def fnFunIdx : List Nat := [119, 179, 180, 182, 184, 187, 189, 191, 192, 193, 194, 195, 196, 197, 198, 199, 200, 201, 202,
+   203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213, 214, 215, 216, 217, 218, 219, 220, 221,
+   222, 223, 224, 225, 226, 227, 228, 229, 230, 231, 232, 233, 234, 235, 236, 237]
+
+/-- The sentences, in text order. -/
+noncomputable def fnFunText : List AxiomDecl := U.all.filter fun ad => fnFunIdx.contains ad.index
+
+theorem fnFun_indices : fnFunText.map (·.index) = fnFunIdx := by decide +kernel
+
+/-- **`fnFunText` is the account's function functional class**: the same indices, each once. -/
+theorem fnFun_account : (classOf "function functional").isPerm (fnFunText.map (·.index)) = true := by
+  decide +kernel
+
+/-- The sentence is the `functional` sentence of a sort predicate of `c`, with its variables' sorts
+the registry's, or of a function of `c` declared total, with its variables' sorts sorts of `c`, over
+the one sort variable `R`. -/
+noncomputable def fnFunOK (ad : AxiomDecl) : Bool :=
+  decide (ad.ax.sortVars = [Rv]) &&
+    ((c.sortPreds.any fun fn => decide (ad.ax.pattern = LibEv.funPat c fn.sig) && LibEv.predFunReg c fn.sig) ||
+      c.fns.any fun fn => fn.total && decide (ad.ax.pattern = LibEv.funPat c fn.sig) && LibEv.predFunRegS c fn.sig)
+
+theorem fnFun_checked : fnFunText.all fnFunOK = true := by decide +kernel
+
+/-- None of the 54 reads a declaration or an alias. -/
+theorem fnFun_trS : fnFunText.all (fun ad => decide ((trS ad).pat = (trAxiom [] [] ad).pat)) = true := by
+  decide +kernel
+
+/-- The clauses' predicates are `\top` and no clause binds a variable by `\exists`. -/
+theorem fnFun_clauses : c.clausesPreTop = true ∧
+    (c.fns.all fun f => f.clauses.all fun cl => cl.exs.isEmpty) = true := by
+  decide +kernel
+
+/-- **The function functional sentences hold at values in every model of `Γc`, for every H**
+(`EntailsAtValuesΓc`), from `FnHyp` (`fnHypH`). -/
+theorem fnFun_at_values (H : HookParams) : ∀ ad ∈ fnFunText, EntailsAtValuesΓc (cH H) ad (trS ad).pat := by
+  intro ad had
+  rw [of_decide_eq_true (List.all_eq_true.mp fnFun_trS ad had)]
+  have hok := List.all_eq_true.mp fnFun_checked ad had
+  simp only [fnFunOK, Bool.and_eq_true, Bool.or_eq_true, decide_eq_true_eq] at hok
+  obtain ⟨hsv, hany | hany⟩ := hok
+  · obtain ⟨fn, hfn, hfp⟩ := List.any_eq_true.mp hany
+    simp only [Bool.and_eq_true, decide_eq_true_eq] at hfp
+    exact LibEv.sortPredFun_evC_withHooks H coreOK fnFun_clauses.1 (Semantics.fnsNoExs_of_all fnFun_clauses.2)
+      (fnHypH H).2.2.2.2.1.2 hfn hfp.2 ad hfp.1 hsv
+  · obtain ⟨fn, hfn, hfp⟩ := List.any_eq_true.mp hany
+    simp only [Bool.and_eq_true, decide_eq_true_eq] at hfp
+    exact LibEv.fnFun_evC_withHooks H coreOK fnFun_clauses.1 (Semantics.fnsNoExs_of_all fnFun_clauses.2)
+      (fnHypH H) hfn hfp.1.1 hfp.2 ad hfp.1.2 hsv
+
+/-- The same in every model of `Γc` with the step's closure, the theory `Consistent` asks a model of. -/
+theorem fnFun_at_values_step (H : HookParams) : ∀ ad ∈ fnFunText,
+    ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), I ⊧ᴵP (Γc (cH H) ∪ Γstep (cH H)) →
+      ∀ e, AtValues (cH H) I e ad.ax → ∀ m, (trS ad).pat.interpret I e m :=
+  fun ad had M hM I hI => fnFun_at_values H ad had M hM I (fun φ hφ => hI φ (Or.inl hφ))
+
 /-! ## Set idempotence (61): refuted -/
 
 section Idem
@@ -622,6 +693,12 @@ end KCore.TieE2Cells
 #check @KCore.TieE2Cells.absent_proj_below
 #check @KCore.TieE2Cells.lists_in_account
 #check @KCore.TieE2Cells.consistent
+#check @KCore.TieE2Cells.fnFun_indices
+#check @KCore.TieE2Cells.fnFun_account
+#check @KCore.TieE2Cells.fnFun_checked
+#check @KCore.TieE2Cells.fnFun_trS
+#check @KCore.TieE2Cells.fnFun_at_values
+#check @KCore.TieE2Cells.fnFun_at_values_step
 #check @KCore.TieE2Cells.idem_refuted
 #check @KCore.TieE2Cells.own_idem_refuted_158
 #check @KCore.TieE2Cells.lib166
@@ -640,6 +717,12 @@ end KCore.TieE2Cells
 #print axioms KCore.TieE2Cells.absent_proj_below
 #print axioms KCore.TieE2Cells.lists_in_account
 #print axioms KCore.TieE2Cells.consistent
+#print axioms KCore.TieE2Cells.fnFun_indices
+#print axioms KCore.TieE2Cells.fnFun_account
+#print axioms KCore.TieE2Cells.fnFun_checked
+#print axioms KCore.TieE2Cells.fnFun_trS
+#print axioms KCore.TieE2Cells.fnFun_at_values
+#print axioms KCore.TieE2Cells.fnFun_at_values_step
 #print axioms KCore.TieE2Cells.idem_refuted
 #print axioms KCore.TieE2Cells.own_idem_refuted_158
 #print axioms KCore.TieE2Cells.lib166

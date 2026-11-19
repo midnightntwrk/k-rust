@@ -1,38 +1,70 @@
 /-
-  The no-direction sentences of e2-cells-stream.kompile.kore that define a generated symbol (the
-  cell initializers, among them the stream cells' `initInCell` (sentence 2893) and `initOutCell`
-  (2895), the counter's getter, the sorts' projections), the counter initializer's `functional`
-  axiom, and the `functional` axioms of K-IO's `#stdin` and `#stdout`, in one model of the theory,
-  for every interpretation H of the parameters. Run from the package root:
-  `lake env lean -j1 test/GenEqsNodirE2CellsStream.lean`.
+  The no-direction sentences of e2-cells-stream.kompile.kore, 45 of the 63 of the class of its tie
+  (`test/TieE2CellsStream.lean`, `classes`), in one model of the theory, for every interpretation
+  H of the parameters: the equations that define a generated symbol (the cell initializers, the
+  counter's getter, the sorts' projections), the `functional` axioms of the constants `#stdin`
+  (2615), `#stdout` (2616) and `initGeneratedCounterCell` (2705) and the `functional` axioms of
+  the hooked functions `#traceK` (2622), `_&Int_` (2653), `_-Map_` (2658), `_xorInt_` (2697),
+  `_|Int_` (2699), `updateMap` (2755), `~Int_` (2756) and `_<=Map_` (2660), which Γ lacks and the
+  text gives no equation. Run from the package root: `lake env lean -j1
+  test/GenEqsNodirE2CellsStream.lean`.
 
-  The text is the construct fixture e2-cells-stream, `configuration <t> <k> $PGM:Exp </k>
-  <in stream="stdin"> .List </in> <out stream="stdout"> .List </out> </t>`, by K 7.1.337's kompile.
-  Its user module is read as the account reads it (`consumedWith`, `Account.lean`): its scan
-  `S = scan m.sentences` block by block (`scan_eq`) and its names `E` (`env_eq`), both computed by
-  compiled code (`parse_stages`) and checked by the kernel.
+  The text is the construct fixture e2-cells-stream, `configuration <t> <k> $PGM:Exp </k> <in
+  stream="stdin"> .List </in> <out stream="stdout"> .List </out> </t>`, by K 7.1.337's kompile.
+  Its user module is read as the account reads it (`consumedWith`, `Account.lean`): its scan `S =
+  scan m.sentences` block by block (`scan_eq`), computed by compiled code (`parse_stages`) and
+  checked by the kernel. The model reads the listed equations and those of `order`'s constants
+  from the scan's blocks that hold exactly them (`eqsN`, a sublist of `S.eqs`: `eqsN_sub`); the
+  names `E` that `envOf` gives (computed, not checked here) are data for the checks (`nodSentEqB`
+  reads them), and the instance holds whatever names they read.
 
   The sentences are named by index (`AxiomDecl.index`, the text's axiom numbers): `eqIdx` the
   equations (as `Parse.scanEqn` reads each), `funIdx` the constants' `functional` axioms
-  (`GenEqs.nodFunctional?`). Their union `listed` is a sublist of the no-direction class of the
-  text's tie (`test/TieE2CellsStream.lean`; `listed_sub`), and each applies a symbol Γ lacks, the
-  class's defining property there (`listed_absent`, `account_absent`'s predicate). Not listed: the
-  projection `project:Int`'s equation (2976), which applies no symbol Γ lacks, and the equations of
-  `#stdin` and `#stdout` (2813, 2814), which are no initializer's, projection's or getter's, the
-  shapes `nodSentEqB` takes.
+  (`GenEqs.nodFunctional?`), `funAtIdx` and `funValIdx` the `functional` axioms of symbols Γ lacks
+  (`GenEqs.nodFunctionalAt?`). They are a sublist of the no-direction class of the tie
+  (`listed_sub`), each applies a symbol Γ lacks (`listed_absent`), and `sents` are the user
+  module's axioms of these indices (`sents_eq`).
 
-  Nothing here writes a right side, a value or a `G` by hand. The model is the arm's: `G` read from
-  `S.eqs` along `order` (`GenEqs.armG`), the getter and the projections by `GenEqs.armBase`. The
-  stream cells' initializers apply `#stdin` and `#stdout`, constants of K-IO that no symbol of the
-  semantics is: `order` is these two, then the tree's initializers bottom up, so the arm gives each
-  its equation's value. The names are `order` and the listed equations' other symbols, each borne
-  by no symbol of the semantics (`GenEqs.nodLackedB`), so that no premise of the theory names it
-  (`GenEqs.nodLacked_free`). The sorts of each right side are read from the text (`GenEqs.nodTy`,
-  `nodR`) and checked (`nodOrderB`), and each listed equation is one of the shapes
-  `GenEqs.nod_eqB` takes (`nodSentEqB`): so each holds at every list of values of its variables'
-  sorts (`GenEqs.NodEqn`). The checks read no interpretation, so they are decided once on the data
-  and the model is had for every H (`GenEqs.nod_instance_lacked_withHooks`), with `FnHyp` under
-  every H (`fnHypH`).
+  Not listed: 2603, the `functional` axiom of `#log`, which the checks do not take; 2604, the
+  `functional` axiom of `#logToFile`, which the checks do not take; 2613, the `functional` axiom
+  of `#remove`, which the checks do not take; 2614, the `functional` axiom of `#stderr`, not a
+  constant initializer's the checks take; 2621, the `functional` axiom of `#trace`, which the
+  checks do not take; 2736, of none of the shapes the instance reads; 2811, an equation of `#open`
+  that is no initializer's, projection's or getter's the checks take; 2812, an equation of
+  `#stderr` that is no initializer's, projection's or getter's the checks take; 2813, the equation
+  of `#stdin`, a constant of `order` whose equation the model reads, but no initializer's,
+  projection's or getter's, the equations `nodSentEqB` takes; 2814, the equation of `#stdout`, a
+  constant of `order` whose equation the model reads, but no initializer's, projection's or
+  getter's, the equations `nodSentEqB` takes; 2828, of none of the shapes the instance reads;
+  2865, an equation of `_dividesInt_` that is no initializer's, projection's or getter's the
+  checks take; 2887, an equation of `findChar`, which a symbol of the semantics bears; 2954, an
+  equation of `ite{K}` that is no initializer's, projection's or getter's the checks take; 2955,
+  an equation of `ite{K}` that is no initializer's, projection's or getter's the checks take;
+  2960, an equation of `project:#tempFile:fd` that is no initializer's, projection's or getter's
+  the checks take; 2961, an equation of `project:#tempFile:path` that is no initializer's,
+  projection's or getter's the checks take; 2962, an equation of `project:#unknownIOError:errno`
+  that is no initializer's, projection's or getter's the checks take.
+
+  Nothing here writes a right side, a value or a `G` by hand but the values of `fv`. The model is
+  the arm's (`GenEqs.model_with_inits_arm`): `G` read from the equations along the cell tree
+  (`GenEqs.armG`), the getter and the projections by `GenEqs.armBase`. The names are the constants
+  the initializers apply (`orderConsts`), then the tree's initializers bottom up (`order`:
+  `order_eq`) and the listed equations' other symbols, each borne by no symbol of the semantics
+  (`GenEqs.nodLackedB`), so that no premise of the theory names it. Γ lacks the hooked functions
+  and the text gives them no equation, so a model may give each any total function into its sort:
+  this one gives `#traceK`, `_&Int_`, `_-Map_`, `_xorInt_`, `_|Int_`, `updateMap` and `~Int_`
+  their first argument and `_<=Map_` the value `false` (`GenEqs.nod_instance_funv_lacked`). The
+  sorts of each right side are read from the text (`GenEqs.nodTy`, `nodR`) and checked
+  (`nodOrderB`), and each listed equation is one of the shapes `GenEqs.nod_eqB` takes
+  (`nodSentEqB`): so each holds at every list of values of its variables' sorts (`GenEqs.NodEqn`).
+  The checks read no interpretation, so they are decided once on the data and the model is had for
+  every H (`GenEqs.nod_instance_funv_lacked_withHooks`), with `FnHyp` under every H as the tie has
+  it (`fnHypH`).
+
+  The decisions read names by their codes where they compare them with Γ's symbols (`gSymCodes`,
+  `KoreAML.Distinct.strCode`), read the names' sorts from a table checked once (`tbl_ok`,
+  `GenEqs.nodR_eq_tbl`) rather than reading the tree below each name again, and are cut into
+  blocks.
 -/
 import KcoreSpec
 
@@ -43,19 +75,19 @@ open KCore KCore.Parse KCore.GenEqs
 
 namespace GenEqsNodirE2CellsStream
 
-kore_term kore from "f2-examples/e2-cells-stream.kompile.kore" cut [20, 40, 60, 80, 100, 120, 140, 160, 180, 200, 220, 240, 260, 280, 300, 320, 340, 360, 380, 400, 500, 600, 700, 800, 900, 1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000, 2100, 2200, 2300, 2400, 2500, 2600, 2700, 2800, 2900, 3000, 3020, 3040, 3060, 3080, 3100, 3120, 3140, 3160, 3180, 3200, 3220, 3240, 3260, 3280, 3300, 3320]
-parse_stages stage from "f2-examples/e2-cells-stream.kompile.kore" cut [20, 40, 60, 80, 100, 120, 140, 160, 180, 200, 220, 240, 260, 280, 300, 320, 340, 360, 380, 400, 500, 600, 700, 800, 900, 1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000, 2100, 2200, 2300, 2400, 2500, 2600, 2700, 2800, 2900, 3000, 3020, 3040, 3060, 3080, 3100, 3120, 3140, 3160, 3180, 3200, 3220, 3240, 3260, 3280, 3300, 3320] scan_blocks [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+kore_term kore from "f2-examples/e2-cells-stream.kompile.kore" cut [50, 100, 150, 200, 250, 300, 350, 400, 450, 500, 550, 600, 650, 700, 750, 800, 850, 900, 950, 1000, 1050, 1100, 1150, 1200, 1250, 1300, 1350, 1400, 1450, 1500, 1550, 1600, 1650, 1700, 1750, 1800, 1850, 1900, 1950, 2000, 2050, 2100, 2150, 2200, 2250, 2300, 2350, 2400, 2450, 2500, 2550, 2600, 2650, 2700, 2750, 2800, 2850, 2900, 2950, 3000, 3050, 3100, 3145, 3147, 3150, 3200, 3222, 3229, 3250, 3295, 3308, 3309, 3323]
+parse_stages stage from "f2-examples/e2-cells-stream.kompile.kore" cut [50, 100, 150, 200, 250, 300, 350, 400, 450, 500, 550, 600, 650, 700, 750, 800, 850, 900, 950, 1000, 1050, 1100, 1150, 1200, 1250, 1300, 1350, 1400, 1450, 1500, 1550, 1600, 1650, 1700, 1750, 1800, 1850, 1900, 1950, 2000, 2050, 2100, 2150, 2200, 2250, 2300, 2350, 2400, 2450, 2500, 2550, 2600, 2650, 2700, 2750, 2800, 2850, 2900, 2950, 3000, 3050, 3100, 3145, 3147, 3150, 3200, 3222, 3229, 3250, 3295, 3308, 3309, 3323] scan_blocks [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
   prod_blocks [] rule_blocks [] event_blocks [] clause_blocks []
 definition_of defn from "f2-examples/e2-cells-stream.kompile.kore"
 user_axioms U from "f2-examples/e2-cells-stream.kompile.kore" module "E2-CELLS-STREAM"
 
-/-! ## The text, its scan and its names, as the account reads them -/
+/-! ## The text and its scan, as the account reads them -/
 
 /-- The user module: the text's last. -/
 noncomputable abbrev m : Kore.Module := kore.modules.getLastD default
 /-- The account's scan of the user module. -/
 noncomputable abbrev S : Scan := scan m.sentences
-/-- The names `envOf` gives (computed; `env_eq` checks them). -/
+/-- The names `envOf` gives, computed: data for the checks. -/
 noncomputable abbrev E : Env := stage.env
 
 theorem last_eq : kore.modules.getLast? = some m := by kernel_rfl
@@ -123,22 +155,48 @@ theorem scan59 : ScanIs kore.segs 59 1 stage.scan59 := by unfold ScanIs; kernel_
 theorem scan60 : ScanIs kore.segs 60 1 stage.scan60 := by unfold ScanIs; kernel_rfl
 theorem scan61 : ScanIs kore.segs 61 1 stage.scan61 := by unfold ScanIs; kernel_rfl
 theorem scan62 : ScanIs kore.segs 62 1 stage.scan62 := by unfold ScanIs; kernel_rfl
+theorem scan63 : ScanIs kore.segs 63 1 stage.scan63 := by unfold ScanIs; kernel_rfl
+theorem scan64 : ScanIs kore.segs 64 1 stage.scan64 := by unfold ScanIs; kernel_rfl
+theorem scan65 : ScanIs kore.segs 65 1 stage.scan65 := by unfold ScanIs; kernel_rfl
+theorem scan66 : ScanIs kore.segs 66 1 stage.scan66 := by unfold ScanIs; kernel_rfl
+theorem scan67 : ScanIs kore.segs 67 1 stage.scan67 := by unfold ScanIs; kernel_rfl
+theorem scan68 : ScanIs kore.segs 68 1 stage.scan68 := by unfold ScanIs; kernel_rfl
+theorem scan69 : ScanIs kore.segs 69 1 stage.scan69 := by unfold ScanIs; kernel_rfl
+theorem scan70 : ScanIs kore.segs 70 1 stage.scan70 := by unfold ScanIs; kernel_rfl
+theorem scan71 : ScanIs kore.segs 71 1 stage.scan71 := by unfold ScanIs; kernel_rfl
+theorem scan72 : ScanIs kore.segs 72 1 stage.scan72 := by unfold ScanIs; kernel_rfl
+theorem scan73 : ScanIs kore.segs 73 1 stage.scan73 := by unfold ScanIs; kernel_rfl
 
 /-- The blocks' scans, appended. -/
-noncomputable def scanAll : Scan := ((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((stage.scan0).append stage.scan1).append stage.scan2).append stage.scan3).append stage.scan4).append stage.scan5).append stage.scan6).append stage.scan7).append stage.scan8).append stage.scan9).append stage.scan10).append stage.scan11).append stage.scan12).append stage.scan13).append stage.scan14).append stage.scan15).append stage.scan16).append stage.scan17).append stage.scan18).append stage.scan19).append stage.scan20).append stage.scan21).append stage.scan22).append stage.scan23).append stage.scan24).append stage.scan25).append stage.scan26).append stage.scan27).append stage.scan28).append stage.scan29).append stage.scan30).append stage.scan31).append stage.scan32).append stage.scan33).append stage.scan34).append stage.scan35).append stage.scan36).append stage.scan37).append stage.scan38).append stage.scan39).append stage.scan40).append stage.scan41).append stage.scan42).append stage.scan43).append stage.scan44).append stage.scan45).append stage.scan46).append stage.scan47).append stage.scan48).append stage.scan49).append stage.scan50).append stage.scan51).append stage.scan52).append stage.scan53).append stage.scan54).append stage.scan55).append stage.scan56).append stage.scan57).append stage.scan58).append stage.scan59).append stage.scan60).append stage.scan61).append stage.scan62
+noncomputable def scanAll : Scan := ((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((stage.scan0.append stage.scan1).append stage.scan2).append stage.scan3).append stage.scan4).append stage.scan5).append stage.scan6).append stage.scan7).append stage.scan8).append stage.scan9).append stage.scan10).append stage.scan11).append stage.scan12).append stage.scan13).append stage.scan14).append stage.scan15).append stage.scan16).append stage.scan17).append stage.scan18).append stage.scan19).append stage.scan20).append stage.scan21).append stage.scan22).append stage.scan23).append stage.scan24).append stage.scan25).append stage.scan26).append stage.scan27).append stage.scan28).append stage.scan29).append stage.scan30).append stage.scan31).append stage.scan32).append stage.scan33).append stage.scan34).append stage.scan35).append stage.scan36).append stage.scan37).append stage.scan38).append stage.scan39).append stage.scan40).append stage.scan41).append stage.scan42).append stage.scan43).append stage.scan44).append stage.scan45).append stage.scan46).append stage.scan47).append stage.scan48).append stage.scan49).append stage.scan50).append stage.scan51).append stage.scan52).append stage.scan53).append stage.scan54).append stage.scan55).append stage.scan56).append stage.scan57).append stage.scan58).append stage.scan59).append stage.scan60).append stage.scan61).append stage.scan62).append stage.scan63).append stage.scan64).append stage.scan65).append stage.scan66).append stage.scan67).append stage.scan68).append stage.scan69).append stage.scan70).append stage.scan71).append stage.scan72).append stage.scan73
 
 /-- **The account's scan of the user module**, block by block. -/
-theorem scan_eq : S = scanAll := ScanIs.all (n := 63) rfl ((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((scan0.join scan1 rfl).join scan2 rfl).join scan3 rfl).join scan4 rfl).join scan5 rfl).join scan6 rfl).join scan7 rfl).join scan8 rfl).join scan9 rfl).join scan10 rfl).join scan11 rfl).join scan12 rfl).join scan13 rfl).join scan14 rfl).join scan15 rfl).join scan16 rfl).join scan17 rfl).join scan18 rfl).join scan19 rfl).join scan20 rfl).join scan21 rfl).join scan22 rfl).join scan23 rfl).join scan24 rfl).join scan25 rfl).join scan26 rfl).join scan27 rfl).join scan28 rfl).join scan29 rfl).join scan30 rfl).join scan31 rfl).join scan32 rfl).join scan33 rfl).join scan34 rfl).join scan35 rfl).join scan36 rfl).join scan37 rfl).join scan38 rfl).join scan39 rfl).join scan40 rfl).join scan41 rfl).join scan42 rfl).join scan43 rfl).join scan44 rfl).join scan45 rfl).join scan46 rfl).join scan47 rfl).join scan48 rfl).join scan49 rfl).join scan50 rfl).join scan51 rfl).join scan52 rfl).join scan53 rfl).join scan54 rfl).join scan55 rfl).join scan56 rfl).join scan57 rfl).join scan58 rfl).join scan59 rfl).join scan60 rfl).join scan61 rfl).join scan62 rfl)
+theorem scan_eq : S = scanAll := ScanIs.all (n := 74) rfl (((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((scan0.join scan1 rfl).join scan2 rfl).join scan3 rfl).join scan4 rfl).join scan5 rfl).join scan6 rfl).join scan7 rfl).join scan8 rfl).join scan9 rfl).join scan10 rfl).join scan11 rfl).join scan12 rfl).join scan13 rfl).join scan14 rfl).join scan15 rfl).join scan16 rfl).join scan17 rfl).join scan18 rfl).join scan19 rfl).join scan20 rfl).join scan21 rfl).join scan22 rfl).join scan23 rfl).join scan24 rfl).join scan25 rfl).join scan26 rfl).join scan27 rfl).join scan28 rfl).join scan29 rfl).join scan30 rfl).join scan31 rfl).join scan32 rfl).join scan33 rfl).join scan34 rfl).join scan35 rfl).join scan36 rfl).join scan37 rfl).join scan38 rfl).join scan39 rfl).join scan40 rfl).join scan41 rfl).join scan42 rfl).join scan43 rfl).join scan44 rfl).join scan45 rfl).join scan46 rfl).join scan47 rfl).join scan48 rfl).join scan49 rfl).join scan50 rfl).join scan51 rfl).join scan52 rfl).join scan53 rfl).join scan54 rfl).join scan55 rfl).join scan56 rfl).join scan57 rfl).join scan58 rfl).join scan59 rfl).join scan60 rfl).join scan61 rfl).join scan62 rfl).join scan63 rfl).join scan64 rfl).join scan65 rfl).join scan66 rfl).join scan67 rfl).join scan68 rfl).join scan69 rfl).join scan70 rfl).join scan71 rfl).join scan72 rfl).join scan73 rfl)
 
-/-- **The names the account reads the user module with.** -/
-theorem env_eq : envOf m S = .ok E := by
-  show envOf m S = .ok stage.env
-  rw [scan_eq]; kernel_rfl
+/-- The scan's equations of the sentences 2813 to 2814: the constants'. -/
+noncomputable def eqsConst : List RawEqn := stage.scan63.eqs
+/-- The scan's equations of the sentences 2890 to 2896: the initializers' and the getter's. -/
+noncomputable def eqsInit : List RawEqn := stage.scan67.eqs
+/-- The scan's equations of the sentences 2963 to 2975: the projections'. -/
+noncomputable def eqsProj : List RawEqn := stage.scan70.eqs
+/-- The scan's equations of the sentences 2977 to 2990: the projections'. -/
+noncomputable def eqsProj2 : List RawEqn := stage.scan72.eqs
+/-- The equations the model reads: the listed equations and those of `order`'s constants, as the account's scan reads them. -/
+noncomputable def eqsN : List RawEqn := eqsConst ++ (eqsInit ++ (eqsProj ++ eqsProj2))
 
-/-- The text's equations, as the account's scan gives them. -/
-noncomputable def eqs : List RawEqn := scanAll.eqs
-
-theorem eqs_eq : S.eqs = eqs := by rw [scan_eq]; rfl
+set_option maxHeartbeats 4000000 in
+/-- **The equations the model reads are among the account's.** -/
+theorem eqsN_sub : eqsN.Sublist S.eqs := by
+  have h : scanAll.eqs = (stage.scan0.eqs ++ stage.scan1.eqs ++ stage.scan2.eqs ++ stage.scan3.eqs ++ stage.scan4.eqs ++ stage.scan5.eqs ++ stage.scan6.eqs ++ stage.scan7.eqs ++ stage.scan8.eqs ++ stage.scan9.eqs ++ stage.scan10.eqs ++ stage.scan11.eqs ++ stage.scan12.eqs ++ stage.scan13.eqs ++ stage.scan14.eqs ++ stage.scan15.eqs ++ stage.scan16.eqs ++ stage.scan17.eqs ++ stage.scan18.eqs ++ stage.scan19.eqs ++ stage.scan20.eqs ++ stage.scan21.eqs ++ stage.scan22.eqs ++ stage.scan23.eqs ++ stage.scan24.eqs ++ stage.scan25.eqs ++ stage.scan26.eqs ++ stage.scan27.eqs ++ stage.scan28.eqs ++ stage.scan29.eqs ++ stage.scan30.eqs ++ stage.scan31.eqs ++ stage.scan32.eqs ++ stage.scan33.eqs ++ stage.scan34.eqs ++ stage.scan35.eqs ++ stage.scan36.eqs ++ stage.scan37.eqs ++ stage.scan38.eqs ++ stage.scan39.eqs ++ stage.scan40.eqs ++ stage.scan41.eqs ++ stage.scan42.eqs ++ stage.scan43.eqs ++ stage.scan44.eqs ++ stage.scan45.eqs ++ stage.scan46.eqs ++ stage.scan47.eqs ++ stage.scan48.eqs ++ stage.scan49.eqs ++ stage.scan50.eqs ++ stage.scan51.eqs ++ stage.scan52.eqs ++ stage.scan53.eqs ++ stage.scan54.eqs ++ stage.scan55.eqs ++ stage.scan56.eqs ++ stage.scan57.eqs ++ stage.scan58.eqs ++ stage.scan59.eqs ++ stage.scan60.eqs ++ stage.scan61.eqs ++ stage.scan62.eqs) ++ (eqsConst ++ ((stage.scan64.eqs ++ stage.scan65.eqs ++ stage.scan66.eqs) ++
+      (eqsInit ++ ((stage.scan68.eqs ++ stage.scan69.eqs) ++
+      (eqsProj ++ ((stage.scan71.eqs) ++
+      (eqsProj2 ++ (stage.scan73.eqs)))))))) := by
+    simp (config := { maxSteps := 1000000 }) only [scanAll, Scan.append, eqsConst, eqsInit, eqsProj, eqsProj2, List.append_assoc]
+  rw [scan_eq, h, eqsN]
+  exact (List.Sublist.append (List.Sublist.refl _)
+    ((List.Sublist.append (List.Sublist.refl _)
+    ((List.Sublist.append (List.Sublist.refl _)
+    ((List.sublist_append_left _ _).trans (List.sublist_append_right _ _))).trans (List.sublist_append_right _ _))).trans (List.sublist_append_right _ _))).trans (List.sublist_append_right _ _)
 
 /-- The axioms of the user module, in text order. -/
 theorem userAxioms_eq : kore.axiomDecls.filter (·.module == "E2-CELLS-STREAM") = U.all := by kernel_rfl
@@ -149,7 +207,10 @@ noncomputable abbrev cH (H : HookParams) : Semantics := c.withHooks H
 set_option maxHeartbeats 1000000 in
 theorem coreOK : c.coreOK = true := by decide_cheap
 
-/-! ## `FnHyp` under every H -/
+/-- No parameter of the definition is an open generator. -/
+theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
+
+/-! ## `FnHyp` under every H, as the tie has it -/
 
 def callOrder : List Nat := [401, 402]
 
@@ -168,75 +229,200 @@ theorem obl_nil (H : HookParams) : FnObligations (cH H) callOrder [] :=
 theorem fnHypH (H : HookParams) : FnHyp (cH H) := fnHyp_withHooks coreOK (Semantics.rightHeld_of_valued (by decide +kernel)) H
   ParamsTotal.nil (obl_nil H)
 
+
 /-! ## The listed sentences -/
 
-/-- The equations: the getter's, the initializers', the projections'. -/
+/-- The initializers' and the getter's equations. -/
+def eqIdxInit : List Nat := [2890, 2891, 2892, 2893, 2894, 2895, 2896]
+/-- The projections' equations. -/
+def eqIdxProj : List Nat := [2963, 2964, 2965, 2966, 2967, 2968, 2969, 2970, 2971, 2972, 2973, 2974, 2975, 2977, 2978, 2979, 2980, 2981, 2982, 2983, 2984, 2985, 2986, 2987, 2988, 2989, 2990]
+/-- The equations: the initializers' and the getter's, then the projections'. -/
 def eqIdx : List Nat := [2890, 2891, 2892, 2893, 2894, 2895, 2896, 2963, 2964, 2965, 2966, 2967, 2968, 2969, 2970, 2971, 2972, 2973, 2974, 2975, 2977, 2978, 2979, 2980, 2981, 2982, 2983, 2984, 2985, 2986, 2987, 2988, 2989, 2990]
-/-- The `functional` axioms of `#stdin`, `#stdout` and the counter's initializer. -/
+/-- The `functional` axioms of the constants of `order`. -/
 def funIdx : List Nat := [2615, 2616, 2705]
-def listed : List Nat := [2615, 2616, 2705, 2890, 2891, 2892, 2893, 2894, 2895, 2896, 2963, 2964, 2965, 2966, 2967, 2968, 2969, 2970, 2971, 2972, 2973, 2974, 2975, 2977, 2978, 2979, 2980, 2981, 2982, 2983, 2984, 2985, 2986, 2987, 2988, 2989, 2990]
-
-theorem listed_eq : listed.isPerm (eqIdx ++ funIdx) = true := by decide
+/-- The `functional` axioms of `#traceK`, `_&Int_`, `_-Map_`, `_xorInt_`, `_|Int_`, `updateMap` and `~Int_`. -/
+def funAtIdx : List Nat := [2622, 2653, 2658, 2697, 2699, 2755, 2756]
+/-- The `functional` axiom of `_<=Map_`. -/
+def funValIdx : List Nat := [2660]
+def listed : List Nat := [2615, 2616, 2622, 2653, 2658, 2660, 2697, 2699, 2705, 2755, 2756, 2890, 2891, 2892, 2893, 2894, 2895, 2896, 2963, 2964, 2965, 2966, 2967, 2968, 2969, 2970, 2971, 2972, 2973, 2974, 2975, 2977, 2978, 2979, 2980, 2981, 2982, 2983, 2984, 2985, 2986, 2987, 2988, 2989, 2990]
 
 /-- The no-direction class of the tie (`test/TieE2CellsStream.lean`, `classes`). -/
 def nodirClass : List Nat := [2603, 2604, 2613, 2614, 2615, 2616, 2621, 2622, 2653, 2658, 2660, 2697, 2699, 2705, 2736, 2755, 2756, 2811, 2812, 2813, 2814, 2828, 2865, 2887, 2890, 2891, 2892, 2893, 2894, 2895, 2896, 2954, 2955, 2960, 2961, 2962, 2963, 2964, 2965, 2966, 2967, 2968, 2969, 2970, 2971, 2972, 2973, 2974, 2975, 2977, 2978, 2979, 2980, 2981, 2982, 2983, 2984, 2985, 2986, 2987, 2988, 2989, 2990]
 
+theorem listed_eq : listed.isPerm (eqIdx ++ funIdx ++ funAtIdx ++ funValIdx) = true := by decide +kernel
+
 /-- **The listed sentences are a sublist of the tie's no-direction class.** -/
 theorem listed_sub : listed.Sublist nodirClass := by decide
 
-/-- No symbol of the semantics has a name `instDecode?` reads as an instance, so Γ's heads
-are its symbols' names at no sort argument and `inj` at its subsorts (`gammaHasHead_eq_plain`). -/
-theorem iteFree : (Faithful.kernelSyms c).all (fun k => (instDecode? (c.symName k.name)).isNone) = true := by
+/-- The listed sentences of the user module, in text order. -/
+noncomputable def sents : List KoreAML.AxiomDecl := [U.ax2615, U.ax2616, U.ax2622, U.ax2653, U.ax2658, U.ax2660, U.ax2697, U.ax2699, U.ax2705, U.ax2755, U.ax2756, U.ax2890, U.ax2891, U.ax2892, U.ax2893, U.ax2894, U.ax2895, U.ax2896, U.ax2963, U.ax2964, U.ax2965, U.ax2966, U.ax2967, U.ax2968, U.ax2969, U.ax2970, U.ax2971, U.ax2972, U.ax2973, U.ax2974, U.ax2975, U.ax2977, U.ax2978, U.ax2979, U.ax2980, U.ax2981, U.ax2982, U.ax2983, U.ax2984, U.ax2985, U.ax2986, U.ax2987, U.ax2988, U.ax2989, U.ax2990]
+
+/-- The indices of the listed ranges. -/
+def listedRange (i : Nat) : Bool := i == 2615 || i == 2616 || i == 2622 || i == 2653 || i == 2658 || i == 2660 ||
+  i == 2697 || i == 2699 || i == 2705 || i == 2755 || i == 2756 || (2890 ≤ i && i ≤ 2896) || (2963 ≤ i && i ≤ 2975) ||
+  (2977 ≤ i && i ≤ 2990)
+
+/-- **`sents` are the user module's axioms of the listed indices.** -/
+theorem sents_eq : U.all.filter (fun ad => listedRange ad.index) = sents := by kernel_rfl
+theorem sents_idx : sents.map (·.index) = listed := by kernel_rfl
+
+
+/-! ## Names by their codes -/
+
+/-- Γ's symbol names (`c.symName` of each of `kernelSyms c`, in its order), each as its code
+(`KoreAML.Distinct.strCode`), written out. -/
+def gSymCodes : List Nat := [6197441387, 6097760100, 100987944911744851354065855052, 35480656676607336660446062136784281716501299369247269452, 6638152083041146951584319435203148, 1761593450407249393583583129290695244, 1735712938534604872879331524460962380, 6617473242482727251961402534683212, 7004033637090019381981677963993676, 1683851451315270527180573478348415564, 440370465541176411775342634438134358604, 26407509966551881277108258628172, 1767070182873231339710779408320848460, 1766929149627009649118540948593992268, 6638152107219663343876902929326668, 6862133840094383941238563898417740, 1725167751508185279116300932686307916, 103766056445219269197540647500, 1756482367376723250599524148504715852, 1689043747566924593362560128975135308, 1720238095394250921402661413801714252, 478358105093721682025466358192925650050497089659468, 1689043747568133519182174758149841484, 1777170423940552544244643215790858828, 1766968451138078268285735341937943116, 429700701465099003445587890779783455308, 1720015227502762251104660610018468428, 1730440465267201723966907090723430988, 1678741078556468701642291108459078220, 1762000369979458808732594574988173900, 449659486129537245530215703627439039052, 30082429104731330796709452013426044643861068, 1793052818310812030415995410251014732, 6800418202390499333777026282447436, 6760560558848489405640426254000716, 6598144063634286798953936054936140, 1688942730118338486323476162688082508, 6881307375788178108812932831535692, 1689124880307442853175394380276326988, 6657964115324422224786567784587852, 6942071979355065738639200117088844, 1891177002891124601452725149202171657270015582796, 1937204871906430068082378048094008271281987543628, 117488142996739520683647421840715863056972, 112722933608119751714091106592393488261708, 492921807971244781941204482258304240362337522704972, 110711780495687293407849904704141004661324, 7254741569594702408917628105839234476816491084, 1942847830560950496522357096652528419772560073292, 8344659456745239518835258836718917140807189619010821710412, 8344659456745239518835284614709860603657121213526028608076, 7500048404345703576332065700500020051250537036, 497380462690904111792755843646049002689302136382028, 497380462690904111792755825512161708469864515789388, 7255001537316466809363090935803675184819102284, 124323009787508435080264278684904258057290668412002892, 113770364964559026517066036745998382686796, 1874048808645993223150499962753488141663450456652, 29641767385977996202990753082039742036206156, 473922331291173888523854110977471469075569146880588, 7588292450810246046868681136709366371798770252, 450973480609602893741873049618212479564, 444368757391549029012811359326506345036, 113758401892317647520656445509195856110156, 29125213430928376599124507351493420535013964, 495850230334149052562042136312029541746914385224268, 29647206581480226543416370469193493749981772, 473922309248707082439257213050142919907538151170636, 29125213430928220295896363556472793598812748, 479756495013374265127637497992351113763050947895884, 6821173193186296558891657924993612, 29906497768037629531705354645919626408256076, 544297799329924054248500163978062364261933692772940, 121624908234166031500913646392706566218316, 940217292413193788758609120427639321524088727387568649454246789674521362850243133329124426018243001612508612711220571109788034330813004, 17740407130094678063673089884256875218968734827569625186374314336698578890403298115853935130792797861338211864301846600551345529398030207050316, 7043247918906501349609977254987418258284403222913236261584024226074019212951456112950231830002848740549290028943157877623631804657821972679477831310645694259341900954737786685969641133385989025214227046988, 17740407130094678063673089884256875218968734827569625186374314336698578890403298115853935130792797861338211864301846600579679728295248078332492, 121428802336216206740958059929080174872702535030001388262469165644, 723510575035956901380327913738874742029515191727491810128586290066398996996788868375116, 392357621476765017069117385598760149580, 1720940944893170330395212, 2337788752526703604478181265127678412558030166387131780194892, 392357621476764974567819039771953226316, 1720940944883274725745228, 100443551098051837427701832470203684643404, 440560881899928176862978636, 25713549081101272253248734774160019719742028, 112783585766826308560082461260, 521532734826497016649662551218561087122972325775062832838783014564719780428, 2287522883088336244638867367476247085107051579558290160116300, 475133828538666563716956634395167187532, 5929460300, 8305484458331914469687225591893442926933205580, 391900287758433, 364434038743628, 1725535266710405929263692, 1923124077015793602518953244536627788, 26544582836783702604, 26833945709912023628, 6870505057665443193420, 6722644552554359054924, 26836467989586141772, 1758517694672355044647500, 434525774710203846973219404, 114644184857577062080820568652, 432098475157049142409978444, 1758754755997264037831244, 28477081171407909146983557521996, 441717865076638021795471948, 532605425241745453507524652420459454565755214651980, 10040726237058829336038956037158422865491579578865221826606303537816140, 1720940944893187426378316, 29507634793561199066758578463308, 32443336247060855527692384442150408768217676, 1720940944883291821728332, 29507634793561199056862973813324, 440560881899928193958961740, 7553954507151666968362408892719692, 112783585766826308577178444364, 1933812353830826744345467600220480076, 2287522883088336244638867367476247085107051579558307256099404, 39222374256998602510383582347347576723698573932127104238925854302796, 26551047965155025484, 21443945562685259940194543208518850716462490460939958132739723711410377081191151440964616275978309693455963273457051434131222889171775000262253085094578444401598292556, 4130510410781641971243815729521988181738656212745178011287107779531892825192819003144346965421172215062035183656558876492270549099084, 347258933062786887722310869030994229251303541599800737262844346000669764602069786112031990583902778691737816437351781070456965832906708925424134536603916061232688800568468044, 14675309732705565074030913594148748258265031306738635961886173605751331772666767873879749774664786415612627280284377676, 199098756063051462948973938692521731521651768503685755770955283472986575195698672980314793475122103330578163851852, 315830159763924609908200062846761691851585118060393371986311575226853889520466453359098277542255333139413589918583198419797314321740407678778429249749572985315916, 18824944482083595389616493156336660539992304479654391158405958599866038147692944645984353606309470615050933319386131119793351767109244874459637186963464780, 18824944482083595389616493156338746573606368140482687792784104768287650040161115619126368525447178176539785339878838848075687585034228539373981834123436620, 264647640484959763865389019903819785952308859363168064219495420523764233297173923818509680847163467489330021194853165396005082466155004246208488956492, 4038202522048336241631241153121702865337799034346799214194363825607522301590310779484975063667576030791988932140490780728847279156662278673949260, 392721409877693815432988761667004031564, 110541249699099855892391312445803995868708249499624012, 474771052316603721696133595434940758308856902371353117286228556, 431801756637108812079653581170041260959453743440460, 1854574423111733287875521810721331632085176143320548117340748, 110541249699099855892391316779911673616259842661179980, 474771052316603721696133602081102924831589231873303763678421580, 121541389393050552754210176289927329604225962435654588342054183500, 522016292553553413754055433475632494852177869876792572698254621020567396940, 110541249699099866520250115792059833262706237461258828, 6588771921342603356853161313397830312182702668, 110541249699099866520250115458434141321163763532718668, 110541249699099866520250112385306928928913444267909708, 110541249699099866520250110836639842096961162824147532, 431801756637108853594751451957700876051267474711116, 431801756637108853594745888523580307873632283812428, 359818203948122867293303604482612618905088028486620872813118667338780911453577053668790488270385212089664343204673559946156014899634221156181428150549519669368113776173015628, 359818203948122867293303604482612618905088028486620872813118667338780911453577053668790488270385212089664343204673559946156014899634221156181428150549519669368124736929555020, 110541249699099866520250094088062832357774255480136268, 474771052316603767342439569020479967466498625674917660236472908, 110541249699099866520250094088039220525359907254067788, 474771052316603767342439569020479967466475013842503312010404428, 474771052316603767342439569020479989159638703121547517066240588, 2039126142787318218526170781799296293077820574614511115498546619212390988, 4130510410781641971243815729516411916268814686839138853190129920375841703014865331853643666213555791693836718933537081955189229642316, 3756677334223824774420623479742436680925324881010150535360749296241214041619179286744396004826574683887559779081744310860, 474771052316603767342439475849051375238274334989369150876181068, 474771052316603767342439475849152787286316205173903235358679628, 1057410665160100344638416826756201450564816559830819546416673259616215475971805524954532778550670282673622200046985492962238126990582348, 2039126142787794885943691446649778161763015347094001243221605056999350860, 34463737067054453708261914389949095460273400893812449602330655995567421060377131071393750659243889322969411998734251810620725311657644544534412489999194821798760707264100949770510837028613207476711485456178392284861963057259084, 41664101580771881637672447403171598916658895240499230309182649367834624854943476625330656820841565728441732337184554044091862969257728010814078548034046866468247489739193380207944483526190065909085766908236816448398177741472407404255045717995931066956, 110541249699099866520250094124496682983108737814520396, 7244431340280205256563526134932324411981019876294319170124, 31114595684620929053107634095961031260542442552826855547696524845644, 114008113768501626313175229004, 7244431340280339855840920836210215346772346621796345995852, 25737390317744543109070370697722766016930380, 31138688288827425678961365311950143168995916, 34188719201792904902010916185151803341388823883782707842803890857426458164093516, 32097277065817937160513244483529207498695244, 153206209948795800229742253919078430887182629684412494733283975756, 355904663881745816747611301990166375698979510387134345344343749986365654080402482007456946952727689470058293365614080633607305563860212109481691584624919825328583544178238028, 1739625776869486160011852, 83768830100704611514832748496617513954056810367044455537429299529696898644046902876611646871845298876649924574360283009562196900526747541308807922060571730735030860, 865156312811772925346444298571725572173587415257557439995249195936431637760265223408137719226262694676963025484, 115250917845264362322644460108, 1725535266755425407361612, 25737390317744544351874447460458775486161484, 1057311282280751701680793791927645271583425324347419432914207084811285018187939049314840122085741484993525676331988496407321326394303052, 1405407756666823019580439434632103007478270112683483554017731168962547490693617006363443128355357986672756190615174023281948131704666513270370743972906185632929622616990284, 133714876552366999791601052533520075769802662930571852, 7431693075409800328385312185934412, 1162526049046439129347931537318160701373401574240627691793327617662387934523617425196667985861987969948166201381799712974285593555322550745305997900, 874587394136219348471392225015801214673787687036255140038605470909367223159335324207963408161392285885162873420, 6588771921342603358439418382093192748398830156, 29508594528274225342887907582540, 441737028289404391400432204, 450265419456077294388142668, 494999328626962676979381452409257353804, 31134281882478915100800596151513682761507404, 431801756637108853698685808874244120968604796346956, 450265419455240514550129228, 494999572015877920799426539776272785996, 1378991927647055423374985896269032264775223336800339596596997216873938562780913148762825711625103197086527165603217442539902841634848728502664237563438460518378328558428748, 8024645462318859050392881966990660357767370346998469150762286569333359179493691609626750401997287840900010690862031575574599564214682119451309734732514649156696743344477638210712686056928724793712138991966974693368396, 2678924720470327893023682407866081270739668438286102840877359916391689023491043433377163414732100944543106312628500490569110169870961588469467488189012718276681604589733144837901202543083006968626732066118646377981270550458606654528858024630856793635709516, 1278158757846668955099257422144909981145900669517271225144376611645358319477970077858247181723332281492142092861428696163689090037556957865412625350625061528140, 76184198728005227750495518573815225431078712315396739551089800098261733023999338022365998132427470772990113071288388738852089049697447033206966011585100, 1278158757846668955099257422144909981145900669517271225144376611645358319477970077858247181723332281492142092861428696163689090037556624239720683808151132987980, 1278158757846668955099257422144909981145900669517271225144376611645358319477970077858247181723332281492142092861428696163689090037553551112508291557831868179020, 1278158757846668955099257422144909981145900669517271225144376611645358319477970077858247181723332281492142092861428696163689090037552002445421459605550424416844, 223885238066731617274542746151453078888082066993629414087115869494980692679650728461091877236286967684524394963532, 1057268144255624594408875507514855926914347676806537327832554850237804243434800670817832831487709743258313437446528910093646811603165772, 69289125101936613419180065260493598026258689347193230316834314665184738897743096762717492444378545734176829436495718651897169062198963364428, 270660644929439896168672129923803117290073005262473555925134041660877886319308971729365204860853694274128239986311400983971621159184392780, 69289125101936613419180065260493598026258689347193230316834314665184738897743096762717492444378545734176829436495718651896087923436492186188, 270660644929439896168672129923803117290073005262473555925134041660877886319308971729365204860853694274128239986311400983973882906410771020, 21443945562685259940194543210928338054240703047035875070054900476153868762879466028686577059614369870658392253138452620204192556828837903755133119025538586977814471244, 4992807647838550605856474305253554613851174490301840722108003794251444927155847202215012409634508628085812612701778444509066770955842588235772305959486775884, 21443945562685259940194543210928338054240703047035875070054900476153868762879466028686577059614369870658392253138452620204192556828837903755133095413706172629588402764, 4992807647838550605856474305253554613851174490301840722108003794251444927155847202215012409634508628085812612701778444509066770955842564623939891611260707404, 31114595684620944477773074767204953812994952830104929799984361792076, 92101044888937509384394478968596041742596093699066633164627506469615694200443285383151846305227560966125544715169407363822515873666480266392078403342875413693054687401474810444, 246164422541769359821657535490106244337092768812147572204751573734553143573700865198361862257942873870445342474855810488623692, 270660644929439896168672129905143206654258852292163223077172895998576214226697672118750400299909468034512817670727074940791940450259591756, 4540932102680517897039384756913686315119381720433514137833175150655572754422741862237528618774727604144335608364764425477283546851096599945044556, 76184198728005227750495518573848408665001932910164680329480951468381085704665295535001260943365260355892013678027059581411170348044012501572579886916172, 525874894211646327335539465178666617740988172815004807542197659684655805545500813258062929485749857376600460735893807354050688610506159636946046706392981026476727214222179737569810980270095677563931929441860735855382782540, 31344586265781302889319626401583350762187729645859189624689548505163999791233081529618725700930054264776811976508313417907481000454955612797240225215425049715457255408958549614373425198225300647987292151896855044684, 1545407418462645795614487021051740198834264410341812772287597428945449495164986181895779889665482646909867941944229663571760569292689550530219717978644956240952043741618521239460799052, 1545407418462645795614487021051740198834264410341812772287597428945449495164986181895779889665482646909867941944229663571760569292689550530219717978644956240952043741618510278704259660, 97744700096415190049420025006180177383269303311070178874375791931710490110710108590110618807452697315279101908165710795667685449632912627701998900843808412499597187397931462830420776477260, 315830159763924609908200062846839709210420134331616959945285715341710654491762327489756176525104137857053636274003949593085632018113046676778737094595730727526988, 287245856965386892541755571843932292913832620189729786893881933194016396093286246004714645573680298054617775300361199327276728649817002408472128283212, 41664101580771881637672447403171598916658895175287767545764719303340507588494951948594266665138409099753343749175251417307002354088789689031074735404176063559237732627672131136085032222707419020792286665551955231441212062725770565799139914756788085324, 635743737499570947840456229412010895536708534729752849735059589881431508606639103938840407501241113629831330509169214861349486263364385470240383653539880954425538962158997147703866720097397873599577836673490000698180322803143026080710399298921036, 162750396799890162647156794729474789257397384890816729532175255009646466203299610608343144320317725089236820610347319004505468483421282680381538215306209524332937974312703269812189880344933855641491926188413440178734162637604614676661862220625109580, 9700679588311324277350711508361982658946358256984754176865533292868522775369859374066778678912980859830189979693133771688071994985418479465337885338438124914940474886459307063352458497579923608391995798850860606356524510012731705714065302092, 2483373974607699015001782146140667560690267713788097069277576522974341830494683999761095341801723100116528634801442245552146430716267130743126498646640159978224761570933582608218229375380460443748350924505820315227270274563259316662800818659916, 315830159763924609908200062846751033551577114365542258520898468071364865534941957284073733604562865385773205920799463933599909706481627148139049036298236900172364, 4819185787413400419741822248029170367590639256769057616352626271693582984798619499050234627153078275406702213653624719132776368493810283110075344648902828620, 111358340382783548567571311323574351269602588539835479811656358589787696727424310411795614862108655361593036302583181018173201028066871339457126184697122357553211603968330535378825337610184060088115788, 929140513278490685034793801323958888658952632714447772656861063235971372053944493545120310243182938166663128127257159445026367299431066027292754951500640062433713417112591924111635241663095100524197974552972612069709652759921278501882890859047167944829158871607476118159077451331514861812998732, 11318063036038816616853562875845436906649041088530840937320202021670123186222903423159217928070420622786993286898071687376218397459565238167244120376670738584320823388113088060051496766424182974688369721250721066056016027722245921151967446445257615874292265945686604, 33260797902785442906837272006560232390804317436275313278985696640800038241167547777640894630873406015366207412622579875164156845329222149641346480609132954052847621276002931319217580617685957580881463708037879275063189047108172, 172699936462994638318688398374106398111710221687787489888308746668550463656965689440295683716894845928756611433381220815677160605767291842151552129770976846074231313905534180603813122046267440409673610248576676422973877376132902848972827321272130147058770010700, 6405796665518665895078790758805024104989937061794295242711106107447855264967671591613710615376127360523275191107834701789163414844083755337056843943165410479126132928798528969657480515110593100, 27512687183228520896913973652294602571423450089504829146812583107474400388377563983249154958248501752578268392616300053558369553955020668257524601628871120726262431573553116319119066550946272615747838540, 1491465760748522797384949112032778585560139515854952680578247203363071955965755412265125339705526679876091701702176290980811094596070180492721694508373134393700120446413909379666174540, 6405796665518665895078790758805024104989937061794295242711106107447855264967671591613710615376127360523275191107834701789163414844083755337056843943165410479126132907105388892210850658280825420, 1491465760748522797384949112032778585560139515854952680578247203363071955965755412265125339705526679876091701702176290980811094596070180492721694508373134393700096834581495031440106060, 6405796665518665895078790758805024104989937061794295242711106107447855264967671591613710615376127360523275191107834701789163414844083755337056843943165410479126132907105365280378436310054756940, 297634642349538514324704175597681126997417192040467897483678914397804822253879923383284425526288781339367909316149170765556657606240325285563616485964, 4993480683780955155144656090104225366759099672976410657149537621497481428794950312664813596490460562907344718065446926154629404030451833609343052639470641740, 320227140582394429650577826068134584819209220144992056842381266941485280356198748821957923680241776536584094908672591862986651273602180594709305959133662830944844, 11696541816650300215214752022706065902162560558025510489619272010858215166000075377413653796953486398106538800927777084793359887285264920862265994324226327382707890228433887428609924212201728456668695678004302745462076520445891895160817714181907413156446693363573324, 122439790100708214411404790631184963914795818913886888428922381360675449191703035839243683263963507993244905122813426090698076331963506375559030956621400425515580866300902640141400271638553146126718697472342647372, 1278331055047924519717040655700741577037933615462247725988960598406055637978873155215519264257846889111720571376383090932535340367171252136357165535372170256972, 9700679588311324277350783209123555318605828852232017064918210363766643759269813918451353040324558975985772498112854396559297017648722709421444388381710995210004152249431425241840888907369346037555202753395004199702377705042793311571733668428, 10636383194724617320682002740755429133037484763228580305584890747238064550164143344004462867926427706827685326293555385720796894009982346823080081317994480209938054014291325307421768348805084196707916965019373245345350299653643231108507548794998647185996, 845048374029366355020829968355015410437994222864502444056095737688456781153288078867242854765554579545105385613859045924013463965181541726635743769074428757650329258427858111893539503563264292181918633005603363300904511367314619537181788497518527172612447195160290009371356364038732, 635743737499570947840460928393121321360151599659877470366479834399810765407506524959627872850710297050203586436324025732910089348626691484643779436983811782082832121818737884649284495433357461917217767646494995231695025280045464842206070184895052, 2483373974607699015001800501535630161563092186171396368619061853124260802373072363123546378323087097852357759516890725519180036518073013611889763425718014773761062975854444861911267560286552585614131904869121075123808692500140551293536217883212, 326343745222657344184731151930983217933635095887432070723588505346266590950512821261967102701206323662224861815322190921423677945675758218110651947447461673198156, 19451603008667072307153412814970038597441597822186483696842741046342379591087467073357706247040630186662142679419603193989994523250703351856787258499424844, 91857598086215731215573718145170156430937517931518023633221450271957225463765963743017724253537983209940374795849573940987640179394910956915229425092884766387602600771061572172, 51989558076288528109431186203688161693596738436815574463553430433388605806796406700534688559678058422860, 162322125417717354103539475908042047320809564721494365051797891763361826009188083270137437310623312002389568540490187905121161982299096802342436438018495124942815855265789975830691562356885960471053313317817624834630675352267201433098451627063140940, 393025636033100, 125353248006072630288555288271693059744332, 121541389393052762314851990507999404279222748544047723844813480524, 28298559922969564450796623757721487448006547452107448908, 35291329353814753176214396833692251357626715144597561932, 168452009286192075921636420375493040926578088978900599258425588191554488263244, 161658434011133078258792495374239738066030679284814678091382516095022699143756, 34237349847258110842626472771157683940195988674664227404, 573591526811827152808495975196187797448002038284181386543614830741912192853022031503948, 100178257981531719000666588693879843226560174125465848696178182438571880280488461282614971781325019162945832955840366523451056761172263508075911923864640187831883486485267239108797321208396, 133159745078015658685716199318416905333866682370480420762166556974869716018947979317524139562626534059813554074026391406725008880335512158458029798834762404351649255744621912873327847733780483153188431961850870669427748921932, 111347874144006723251740315082759635432460193350070178465876226008240253253465016690222180042393683791803340490905319758907230252916336761275678474809718916962527428299625195504490967045906801319764556, 430262341800929705094524800640097281340494260320208923077322999007530043461153300120257957953120329791714894123603199281580754447563722731946593052494625609350222264187235867200788558066755987857996, 1912738769623910984645076069494055500, 1680712272659881660525487502500380007858136978300551644199099741259326499412807955217462405939232220105290106957352375276471186762109666258078623427599189099712729782684471337612895563655448126028, 1045909815045116443415854672273274136195051649415069756085133503123906689702611940791514591009503087375931753621166504367266926131176012]
+
+theorem gSymCodes_eq :
+    (Faithful.kernelSyms c).map (fun k => KoreAML.Distinct.strCode (c.symName k.name)) = gSymCodes := by
   decide +kernel
 
+/-- Γ has a symbol named `n` exactly where `n`'s code is one of `gSymCodes` (`strCode_inj`). -/
+theorem anySym_codes (n : String) :
+    (Faithful.kernelSyms c).any (fun k => c.symName k.name == n) = gSymCodes.contains (KoreAML.Distinct.strCode n) := by
+  rw [← gSymCodes_eq]
+  apply Bool.eq_iff_iff.mpr
+  rw [List.any_eq_true, List.contains_iff_mem, List.mem_map]
+  constructor
+  · rintro ⟨k, hk, he⟩; exact ⟨k, hk, by rw [beq_iff_eq.mp he]⟩
+  · rintro ⟨k, hk, he⟩; exact ⟨k, hk, beq_iff_eq.mpr (KoreAML.Distinct.strCode_inj he)⟩
+
+/-- No symbol of the semantics has a name the decoder reads as an instance (`instDecode?`: no code
+of `gSymCodes` holds the byte of `{`, `noInst_of_codes`), so Γ's heads are its symbols' names at no
+sort argument and `inj` at its subsorts (`gammaHasHead_eq_plain`). -/
+theorem iteFree : (Faithful.kernelSyms c).all (fun k => (instDecode? (c.symName k.name)).isNone) = true :=
+  noInst_of_codes gSymCodes_eq (by decide +kernel)
+
+/-- `nodLackedB` on the codes: no symbol is named as an instance (`iteFree`), so its last conjunct
+holds. -/
+theorem lacked_codes (n : String) :
+    nodLackedB c n = (n != "inj" && n != "Lblite" && !gSymCodes.contains (KoreAML.Distinct.strCode n)) := by
+  have hi : ∀ k ∈ Faithful.kernelSyms c, instDecode? (c.symName k.name) = none := fun k hk =>
+    Option.isNone_iff_eq_none.mp (List.all_eq_true.mp iteFree k hk)
+  apply Bool.eq_iff_iff.mpr
+  unfold nodLackedB
+  rw [← anySym_codes]
+  simp only [Bool.and_eq_true, List.all_eq_true, bne_iff_ne, ne_eq, Bool.not_eq_true', List.any_eq_false,
+    beq_iff_eq]
+  constructor
+  · rintro ⟨⟨⟨a, b⟩, d⟩, -⟩; exact ⟨⟨a, b⟩, d⟩
+  · rintro ⟨⟨a, b⟩, d⟩; exact ⟨⟨⟨a, b⟩, d⟩, fun k hk => by rw [hi k hk]⟩
+
+set_option maxHeartbeats 4000000 in
 /-- **Each listed sentence applies a symbol Γ lacks**, the no-direction class's defining property
-(`account_absent`'s predicate). -/
-theorem listed_absent : listed.all (fun i => match U.all.find? (·.index == i) with
-    | some ad => !(appHeadsOf ad.ax.pattern).all (gammaHasHead c)
-    | none => false) = true := by
-  rw [gammaHasHead_eq_plain iteFree]; decide +kernel
+(`account_absent` of the tie). -/
+theorem listed_absent : sents.all (fun ad => !(appHeadsOf ad.ax.pattern).all (gammaHasHead c)) = true := by
+  rw [gammaHasHead_eq_plain iteFree]
+  unfold gammaHasHeadPlain
+  simp only [anySym_codes]
+  decide_all_blocks 137 0
+
 
 /-! ## The arm on the tree -/
 
 /-- The presentation's cell tree. -/
 noncomputable def cells : List Cell := Cell.all defn.pres.topCell
-/-- K-IO's constants the stream cells' initializers apply. -/
-def ioConsts : List String := ["Lbl'Hash'stdin'Unds'K-IO'Unds'Int", "Lbl'Hash'stdout'Unds'K-IO'Unds'Int"]
-/-- K-IO's constants, then the tree's initializers, bottom up. -/
-noncomputable def order : List String := ioConsts ++ (cells.map (·.initLabel c)).reverse
+/-- The constants the initializers' right sides apply, each borne by no symbol of the semantics
+and given an equation by the text. -/
+def orderConsts : List String := ["Lbl'Hash'stdin'Unds'K-IO'Unds'Int", "Lbl'Hash'stdout'Unds'K-IO'Unds'Int"]
+/-- The constants, then the tree's initializers, bottom up, written out. -/
+def order : List String := ["Lbl'Hash'stdin'Unds'K-IO'Unds'Int", "Lbl'Hash'stdout'Unds'K-IO'Unds'Int", "LblinitGeneratedCounterCell", "LblinitOutCell", "LblinitInCell", "LblinitKCell", "LblinitTCell", "LblinitGeneratedTopCell"]
+/-- `order` is the constants, then the presentation's tree's initializers, bottom up. -/
+theorem order_eq : orderConsts ++ (cells.map (·.initLabel c)).reverse = order := by decide +kernel
 /-- The symbols of the listed equations outside `order`: the getter and the projections. -/
-noncomputable def others : List String :=
-  ((eqIdx.filterMap fun i => (U.all.find? (·.index == i)).bind fun ad => scanEqn (.axiom ad.ax)).map (·.fn)).filter
-    (!order.contains ·)
-noncomputable def names : List String := order ++ others
+def others : List String := ["LblgetGeneratedCounterCell", "Lblproject'Coln'Bool", "Lblproject'Coln'Exp", "Lblproject'Coln'Float", "Lblproject'Coln'GeneratedCounterCell", "Lblproject'Coln'GeneratedCounterCellOpt", "Lblproject'Coln'GeneratedTopCell", "Lblproject'Coln'GeneratedTopCellFragment", "Lblproject'Coln'IOError", "Lblproject'Coln'IOFile", "Lblproject'Coln'IOInt", "Lblproject'Coln'IOString", "Lblproject'Coln'InCell", "Lblproject'Coln'InCellOpt", "Lblproject'Coln'K", "Lblproject'Coln'KCell", "Lblproject'Coln'KCellOpt", "Lblproject'Coln'KItem", "Lblproject'Coln'List", "Lblproject'Coln'Map", "Lblproject'Coln'OutCell", "Lblproject'Coln'OutCellOpt", "Lblproject'Coln'Set", "Lblproject'Coln'Stream", "Lblproject'Coln'String", "Lblproject'Coln'TCell", "Lblproject'Coln'TCellFragment", "Lblproject'Coln'TCellOpt"]
+def names : List String := order ++ others
 
 /-- **Each name is borne by no symbol of the semantics**, so no premise of the theory names it. -/
-theorem names_ok : names.all (nodLackedB c) = true := by decide +kernel
+theorem names_ok : names.all (nodLackedB c) = true := by
+  rw [show nodLackedB c = _ from funext lacked_codes]; decide +kernel
 
-theorem rank : armRankB order eqs = true := by decide +kernel
+
+theorem rank : armRankB order eqsN = true := by decide +kernel
 theorem hord : order.all names.contains = true := by decide +kernel
-/-- **The right sides are of the names' sorts** (`nodR`, read from the text). -/
-theorem sorts_ok : nodOrderB c names eqs order = true := by decide +kernel
 theorem fixed_ok : nodFixedB c = true := by decide +kernel
 
+/-- The names' sorts at the tree's initializers, written out (`tbl_ok`). -/
+def tblL : List (String × Option (Srt × Bool)) := [("Lbl'Hash'stdin'Unds'K-IO'Unds'Int", some (3, true)), ("Lbl'Hash'stdout'Unds'K-IO'Unds'Int", some (3, true)), ("LblinitGeneratedCounterCell", some (19, true)), ("LblinitOutCell", some (37, false)), ("LblinitInCell", some (35, false)), ("LblinitKCell", some (33, false)), ("LblinitTCell", some (30, false)), ("LblinitGeneratedTopCell", some (17, false))]
+def tf (n : String) : Option (Srt × Bool) := (tblL.find? (·.1 == n)).bind (·.2)
+
+/-- **The table gives each initializer its right side's sort read through the table.** -/
+theorem tbl_ok : nodTblB c names eqsN order tf = true := by
+  unfold nodTblB; decide_all_blocks 187 0
+/-- **The names' sorts are the table's.** -/
+theorem nodR_eq : nodR c names eqsN order = nodRTbl c eqsN order tf := nodR_eq_tbl rank tbl_ok
+
+
+/-- **The right sides are of the names' sorts** (`nodR`, read from the text). -/
+theorem sorts_ok : nodOrderB c names eqsN order = true := by
+  unfold nodOrderB; rw [nodR_eq]; decide_all_blocks 187 0
+
+
+set_option maxHeartbeats 4000000 in
 /-- **Each listed equation is one the lemmas hold of.** -/
-theorem eqs_ok : eqIdx.all (nodSentEqB E.N E.src eqs c cells names order U.all) = true := by decide +kernel
-/-- **Each listed `functional` axiom is a constant's in `order`, of its right side's sort.** -/
-theorem funs_ok : funIdx.all (nodSentFunB c eqs names order U.all) = true := by decide +kernel
+theorem eqs_ok : eqIdx.all (nodSentEqB E.N E.src eqsN c cells names order sents) = true := by
+  rw [show eqIdx = eqIdxInit ++ eqIdxProj from rfl]
+  unfold nodSentEqB nodEqB
+  rw [nodR_eq, List.all_append, Bool.and_eq_true]
+  refine ⟨?_, ?_⟩
+  · decide_all_blocks 703 0
+  · decide_all_blocks 97 0
+
+
+/-- **Each listed `functional` axiom of a constant is a constant's of `order`, of its right side's
+sort.** -/
+theorem funs_ok : funIdx.all (nodSentFunB c eqsN names order sents) = true := by decide +kernel
+
+/-- `#traceK`, `_&Int_`, `_-Map_`, `_xorInt_`, `_|Int_`, `updateMap` and `~Int_` are given their first argument. -/
+def fs : List (String × Nat) :=
+  [("Lbl'Hash'traceK", 1),
+   ("Lbl'UndsAnd-'Int'Unds'", 2),
+   ("Lbl'Unds'-Map'UndsUnds'MAP'Unds'Map'Unds'Map'Unds'Map", 2),
+   ("Lbl'Unds'xorInt'Unds'", 2),
+   ("Lbl'UndsPipe'Int'Unds'", 2),
+   ("LblupdateMap'LParUndsCommUndsRParUnds'MAP'Unds'Map'Unds'Map'Unds'Map", 2),
+   ("Lbl'Tild'Int'Unds'", 1)]
+/-- `_<=Map_` is given the value `false`. -/
+def fv : List (String × Nat × GroundTerm) :=
+  [("Lbl'Unds-LT-Eqls'Map'UndsUnds'MAP'Unds'Bool'Unds'Map'Unds'Map", 2, .dv Srt.bool (.bool false))]
+
+/-- **The hooked functions are none of the names, and each is borne by no symbol of the
+semantics.** -/
+theorem fs_ok : nodFunsLackedB c names fs fv = true := by
+  unfold nodFunsLackedB; rw [show nodLackedB c = _ from funext lacked_codes]; decide +kernel
+/-- **The `functional` axioms of `#traceK`, `_&Int_`, `_-Map_`, `_xorInt_`, `_|Int_`, `updateMap` and `~Int_`: their first variable is of their sort.** -/
+theorem funAt_ok : funAtIdx.all (nodSentFunAtB c fs sents) = true := by decide +kernel
+/-- **The `functional` axiom of `_<=Map_`: `false` is of its sort.** -/
+theorem funVal_ok : funValIdx.all (nodSentFunValB c fs fv sents) = true := by decide +kernel
+
 
 /-- **For every H, one model of `Γc ∪ Γstep` of `c.withHooks H`, whose steps at configurations
-are `Step`'s, in which each listed equation holds at every list of values of its variables' sorts
-and each listed `functional` axiom holds**, read as the account reads the text. -/
+are `Step`'s, in which each of the 45 listed sentences of the no-direction class holds**: each listed equation at every
+list of values of its variables' sorts, each listed `functional` axiom of a constant, and the
+`functional` axioms of the hooked functions at every list of values of their variables' sorts;
+read as the account reads the text. Unlike the sibling instances it does not state `envOf m S = .ok E`:
+the instance holds at any names the checks read (`nod_instance_funv_lacked_withHooks` is parametric in
+them), and no consumer reads that conjunct. -/
 theorem nodir_instance (H : HookParams) :
-    kore.modules.getLast? = some m ∧ envOf m S = .ok E ∧ S.eqs = eqs ∧ listed.Sublist nodirClass ∧
+    kore.modules.getLast? = some m ∧ eqsN.Sublist S.eqs ∧ listed.Sublist nodirClass ∧
     ∃ I : ML.Interpretation KoreAML.Sym Faithful.Model.Elem,
       (I ⊧ᴵP (Faithful.Γc (cH H) ∪ Faithful.Γstep (cH H))) ∧
       (∀ x y : Config (cH H), Step (cH H) x y ↔ ¬ (I ⊧ᴵ (den (cH H) x.val ⇒ ∼ KoreAML.sNext (den (cH H) y.val)))) ∧
       (∀ i ∈ eqIdx, ∃ ad ∈ U.all, ad.index = i ∧ ∃ e, scanEqn (.axiom ad.ax) = some e ∧ NodEqn (cH H) I e) ∧
-      (∀ i ∈ funIdx, ∃ ad ∈ U.all, ad.index = i ∧ ∃ L S, nodFunctional? ad.ax = some (L, S) ∧ NodFun (cH H) I L S) :=
-  ⟨last_eq, env_eq, eqs_eq, listed_sub,
-    nod_instance_lacked_withHooks c coreOK fnHypH E.N E.src eqs cells names order U.all eqIdx funIdx names_ok rank hord
-      sorts_ok fixed_ok eqs_ok funs_ok H⟩
+      (∀ i ∈ funIdx, ∃ ad ∈ U.all, ad.index = i ∧ ∃ L S, nodFunctional? ad.ax = some (L, S) ∧ NodFun (cH H) I L S) ∧
+      (∀ i ∈ funAtIdx ++ funValIdx, ∃ ad ∈ U.all, ad.index = i ∧ ∃ L xs S, nodFunctionalAt? ad.ax = some (L, xs, S) ∧
+        NodFunAt (cH H) I L xs S) := by
+  obtain ⟨I, h1, h2, h3, h4, h5, h6⟩ := nod_instance_funv_lacked_withHooks c coreOK fnHypH noRaw E.N E.src eqsN cells
+    names order sents eqIdx funIdx fs fv funAtIdx funValIdx names_ok rank hord sorts_ok fixed_ok eqs_ok funs_ok fs_ok
+    funAt_ok funVal_ok H
+  have hU : ∀ ad ∈ sents, ad ∈ U.all := fun ad h => by
+    rw [← sents_eq] at h; exact (List.mem_filter.mp h).1
+  refine ⟨last_eq, eqsN_sub, listed_sub, I, h1, h2, fun i hi => ?_, fun i hi => ?_, fun i hi => ?_⟩
+  · obtain ⟨ad, ha, rest⟩ := h3 i hi; exact ⟨ad, hU ad ha, rest⟩
+  · obtain ⟨ad, ha, rest⟩ := h4 i hi; exact ⟨ad, hU ad ha, rest⟩
+  · rcases List.mem_append.mp hi with hi | hi
+    · obtain ⟨ad, ha, rest⟩ := h5 i hi; exact ⟨ad, hU ad ha, rest⟩
+    · obtain ⟨ad, ha, rest⟩ := h6 i hi; exact ⟨ad, hU ad ha, rest⟩
 
 /-- info: 'GenEqsNodirE2CellsStream.nodir_instance' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms nodir_instance
