@@ -1270,13 +1270,14 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   `exponentBitsFloat` are no key of `silentTable` and have their value at every Float; the twenty
   others are keys true everywhere, with the region where `hook` gives no value at every argument
   list of literals (`*_none` and the region lemmas): two formats (the five arithmetic operations), a
-  precision or exponent bits below 2, an operand of a format with a field of 1, and at a format
-  with a model what the prose does not describe (a NaN or infinite operand, a zero divisor, a zero
-  result of unstated sign, a result above the largest finite datum, a `%Float` quotient tie, an
-  inexact `roundFloat` or `Int2Float`). At a point of each, Γ over all interpretations entails
-  neither ⊥ nor a value. The header's findings: at the formats with a field of 1 the prose states
-  values that `hook` does not compute; comparisons of two formats are stated where the arithmetic
-  is not.
+  precision or exponent bits of 0, and at every format what the prose does not describe (a NaN or
+  infinite operand, a zero divisor, a zero result of unstated sign, a result above the largest
+  finite datum, a `%Float` quotient tie, an inexact `roundFloat` or `Int2Float`; at precision 1 a
+  tie, and `maxValueFloat(1, 1)`, `minValueFloat(1, 1)`); the comparisons and `isNaN` have a value
+  at every Float literal. At a point of each, Γ over all interpretations entails neither ⊥ nor a
+  value. The header's findings: at the formats with a field of 1 `hook` computes by the formulas
+  of a format with a model over the rounding to that format's nearest datum; comparisons of two
+  formats are stated where the arithmetic is not.
 
 - `test/EnsBridge.lean` (`test/EnsGuard.lean` folded into it): B-guard, the guard encoding gives the
   field's steps (`guard_step`, an equivalence, where `Map:lookup`, `|->` and `_andBool_` are no

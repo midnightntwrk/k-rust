@@ -156,7 +156,7 @@ def rangeMapV (es : List (Int × Int × Int)) : GroundTerm := rmV (es.map fun (a
 /-- Float values (precision, exponent width, encoding): binary32's 1.0, the largest finite value,
 +∞ and NaN; `p1x2`'s (a format with a field of 1, `KFloat.thinOK`) 1.0, ∞ and NaN; and the `p2x1`
 encoding 1 (sign 0, the one exponent bit 0, the fraction bit 1), of a format with one exponent bit,
-at which no Float has a datum (`asDatum`), so that the comparisons are silent there. -/
+also a field of 1, at which every Float has a datum (`asDatum`, `KFloat.tnUnpack`). -/
 def floats : List (Nat × Nat × Nat) :=
   [(24, 8, 0x3F800000), (24, 8, 0x7F7FFFFF), (24, 8, 0x7F800000), (24, 8, 0x7FC00000),
    (1, 2, 1), (1, 2, 3), (1, 2, 8), (2, 1, 1)]

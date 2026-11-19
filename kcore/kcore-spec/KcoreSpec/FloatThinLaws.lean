@@ -5,7 +5,6 @@
   - `tnIsDatum_unpack`: the datum of any encoding is a datum of the format.
   - `tnUnpack_pack`: `tnUnpack` after `tnPack` is the identity at a datum; `thinOK_tnPack`: the
     encoding of a datum is a Float literal's (`thinOK`).
-  - `tnUnpack_one`: at precision 1 and at least 2 exponent bits, `tnUnpack` is `thinUnpack`.
   - `tnMax?_normal`, `tnMax?_subnormal`, `tnMax?_one_one`, `tnMin?_eq`, `tnMin?_one_one`: the
     largest finite and the smallest positive datum, and none of either at `(1, 1)`.
   - `tnRound_datum` … `tnSqrt?_datum`, `sumBy_datum` … `ofIntBy_datum`: every operation's result is
@@ -170,23 +169,6 @@ theorem tnIsDatum_unpack {p e : Nat} (hp : 1 ≤ p) (b : Nat) : tnIsDatum p e (t
         by_cases hx0 : b / 2 ^ (p - 1) % 2 ^ e = 0
         · left; simp only [sig, expo, hx0, ↓reduceIte]; omega
         · right; simp only [sig, expo, hx0, ↓reduceIte]; omega
-
-/-- **At precision 1 and at least 2 exponent bits, `tnUnpack` is `thinUnpack`.** -/
-theorem tnUnpack_one {e : Nat} (he : 2 ≤ e) (b : Nat) : tnUnpack 1 e b = thinUnpack e b := by
-  have h4 : 2 ^ 2 ≤ 2 ^ e := Nat.pow_le_pow_right (by decide) he
-  unfold tnUnpack thinUnpack
-  simp only [Nat.sub_self, Nat.pow_zero, Nat.div_one, Nat.mod_one, Nat.zero_add, sig, expo, shift,
-    Nat.add_zero]
-  split
-  · rfl
-  · split
-    · rename_i hx
-      have : ¬ (b % 2 ^ e = 0) := by omega
-      simp [this]
-    · rename_i hx
-      by_cases hx0 : b % 2 ^ e = 0
-      · simp [hx0]
-      · simp [hx0]
 
 /-! ## The largest and the smallest datum -/
 

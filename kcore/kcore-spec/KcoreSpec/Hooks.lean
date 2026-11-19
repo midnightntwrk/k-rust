@@ -336,14 +336,15 @@ def fl2 (op : Format → UnpackedFloat → UnpackedFloat → Option UnpackedFloa
 
 open Float.Model in
 /-- A Float value's datum, without its format: at a format with a model (`asFloat`), and at a format
-of precision 1 and at least 2 exponent bits (`KFloat.thinUnpack`); none at a format of one exponent
-bit. -/
+with a field of 1 (`KFloat.tnFormat`, the formats `thinAt` names), the datum `KFloat.tnUnpack`
+reads off its encoding. So every Float literal has one (`KFloat.ok` holds at positive `p` and `e`
+only). -/
 def asDatum : GroundTerm → Option UnpackedFloat
   | .dv s (.float p e b) =>
     if s == Srt.float then
       match KFloat.spec? p e with
       | some sp => some (KFloat.unpackBits sp b)
-      | none => if p = 1 ∧ 2 ≤ e then some (KFloat.thinUnpack e b) else none
+      | none => if KFloat.tnFormat p e = true then some (KFloat.tnUnpack p e b) else none
     else none
   | _ => none
 
@@ -407,9 +408,9 @@ The operations at a format with a field of 1 that has a model of its data (`KFlo
 formats `thinAt` names: the same formulas as at a format of Lean core's model, over the rounding to
 the nearest datum of the format (`KFloat.tnRound`). -/
 
-/-- The formats with a field of 1 at which the operations below compute: precision 1 and at least
-2 exponent bits. -/
-def thinAt (p e : Nat) : Bool := decide (p = 1 ∧ 2 ≤ e)
+/-- The formats with a field of 1 at which the operations below compute: every one, precision 1 or
+one exponent bit, both positive (`KFloat.tnFormat`). -/
+def thinAt (p e : Nat) : Bool := KFloat.tnFormat p e
 
 open Float.Model in
 /-- A Float value of a format `thinAt` names: its format `(p, e)` and its datum. -/
@@ -499,13 +500,11 @@ def thinHooks : List (Sym × (List GroundTerm → Option GroundTerm)) :=
    (floatMaxValue, tflAt tnMax?), (floatMinValue, tflAt tnMin?)]
 
 /-- A format `thinAt` names has a field of 1. -/
-theorem thinAt_tnFormat {p e : Nat} (h : thinAt p e = true) : KFloat.tnFormat p e = true := by
-  simp only [thinAt, KFloat.tnFormat, decide_eq_true_eq] at h ⊢
-  omega
+theorem thinAt_tnFormat {p e : Nat} (h : thinAt p e = true) : KFloat.tnFormat p e = true := h
 
 /-- A format `thinAt` names has no model in Lean core. -/
 theorem thinAt_spec_none {p e : Nat} (h : thinAt p e = true) : KFloat.spec? p e = none := by
-  simp only [thinAt, decide_eq_true_eq] at h
+  simp only [thinAt, KFloat.tnFormat, decide_eq_true_eq] at h
   unfold KFloat.spec?
   simp only [show ¬ (2 ≤ p ∧ 2 ≤ e) by omega, ↓reduceDIte]
 
@@ -883,10 +882,11 @@ interpretation (`Semantics.libAdmitted`, LibAdmitted.lean). Line numbers are dom
   zero result of a nonzero operand (no sign, 1583-1588) and at an integer the format does not hold
   (the "double-rounding" of 1655-1658 is described nowhere).
 - `roundFloat`, `Int2Float`, `maxValueFloat`, `minValueFloat` at a format without a model (`p < 2` or
-  `e < 2`) that `thinAt` does not name: `pNxM` names a format for positive N and M only
-  (1469-1476); at one exponent bit the format is named and KCore computes none of its data
-  (`KFloat.thinOK`). At a format `thinAt` names (precision 1, at least 2 exponent bits) they compute
-  (`thinHooks`), with the silent points of the bullet above.
+  `e < 2`) that `thinAt` does not name, a precision or exponent bits of 0: `pNxM` names a format for
+  positive N and M only (1469-1476). At a format `thinAt` names (precision 1 or one exponent bit)
+  they compute (`thinHooks`), with the silent points of the bullet above; `maxValueFloat(1, 1)` and
+  `minValueFloat(1, 1)`, of a format whose finite data are the two zeros (no largest finite value of
+  a sign, no positive one).
 - `ordChar`, `chrChar`: a string of one code point (1738-1739), a code point 0 … 0x10ffff (1702-1703);
   another string or Int is not described; at a surrogate the string is not a value here.
 - `substrString`: "only defined on valid indices" (1753-1755), declared `total` (1758): a value exists
@@ -916,15 +916,13 @@ interpretation (`Semantics.libAdmitted`, LibAdmitted.lean). Line numbers are dom
 - `sqrtFloat` (1600, not `total`) where the format does not hold the operand's square root (the
   text names no rounding for it), at NaN, a negative datum and the infinities; and at both zeros,
   whose root is a zero of a sign the text does not give (FloatDomain.lean `sqrt?`).
-- `--Float`, `absFloat`, `floorFloat`, `ceilFloat`, `truncFloat`, `isInfinite` (and the operations
-  above), the six comparisons and `isNaN` at a value of a format of one exponent bit
-  (`KFloat.thinOK`): KCore computes no operation there, so Γ states there only the interpretation's
-  value, less than the text states (an operation at such a format has the status it has at any
-  format, 1475, 1481-1488). At precision 1 and at least 2 exponent bits (`thinAt`) the comparisons
-  and `isNaN` read the datum (`asDatum`, `KFloat.thinUnpack`), and the other operations compute on
-  it by the formulas of a format with a model over the rounding to the nearest datum of that format
-  (`thinHooks`, FloatThin.lean), with the silent points the bullets above name, and at an exact
-  result halfway between two data of the format (zero and the smallest positive datum included).
+- At a format with a field of 1 (`thinAt`: precision 1 or one exponent bit; an operation there has
+  the status it has at any format, 1475, 1481-1488) the comparisons and `isNaN` read the datum
+  (`asDatum`, `KFloat.tnUnpack`), and the other operations compute on it by the formulas of a format
+  with a model over the rounding to the nearest datum of that format (`thinHooks`, FloatThin.lean),
+  with the silent points the bullets above name, and at an exact result halfway between two data of
+  the format (zero and the smallest positive datum included). `isInfinite` is silent at a value of
+  the format `(1, 1)`, where `maxValueFloat`, which its equation (1673) reads, is.
 - RANGEMAP's `lookup` and `find_range` off the keys: "yield an exception during concrete execution"
   (534-535, 555-556), of a run, and no `#False`, the reading taken for `memsetBytes`.
 - RANGEMAP's element symbol `r|->`, update, `[_ <- undef]` and `removeAll` at a range that is no proper Int range (for
