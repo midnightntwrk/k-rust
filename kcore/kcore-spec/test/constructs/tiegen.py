@@ -114,6 +114,13 @@ function functional sentences, owed as `FnHyp`, are not shown by the tie, unless
 values in every model of `Γc` from the sort predicates' own results (`theorem fnFun_at_values (H :
 HookParams) : ∀ ad ∈ fnFunText, EntailsAtValuesΓc (cH H) ad (trS ad).pat`, LibEvSortPred.lean), which
 they then say, with `not_fnHypH` where FILE states `FnHyp` false for every H.
+A text one of whose clauses has a predicate other than `\\top` (`Semantics.clausesPreTop` false), of which
+`kcore gen --core` states no `Obl` and whose package takes `FnHyp` itself as the hypothesis of its
+statements (`clausesPreTop_false`), is taken only under --hand consistency, as one that owes `FnHyp`:
+FILE states `theorem consistent (H : HookParams) : Consistent (cH H)` and either `fnHypH` or
+`not_fnHypH` (refused otherwise), beside the facts it owes (`owed_rules`, `owed_clauses`, `match_named`
+and the others above). The function functional sentences are then not stated at values (both routes
+read `clausesPreTop`): the header says they are owed as `FnHyp`.
 Where each sentence of the class function functional is, as written, a sort predicate's `functional`
 sentence (`LibEv.funPat`), the clauses' predicates are `\\top`, no clause binds a variable by
 `\\exists` and no clause's condition reads a variable its patterns leave open, the tie states those
@@ -619,6 +626,12 @@ def obligations(name, path, hand=False):
     for rx, kind, hform in OBL_FORMS:
         if re.search(rf"^abbrev Obl(?: \(H : HookParams\))? : Prop := {rx}$", fh, re.M):
             form = dict(kind=kind, hform=hform)
+    if form is None and re.search(r"^theorem clausesPreTop_false : defn\.sem\.clausesPreTop = false", fh, re.M):
+        if not hand:
+            raise Refused(f"{name}: a clause's predicate is not \\top (`clausesPreTop_false`): `kcore gen --core` "
+                          f"takes `FnHyp` itself as a hypothesis and states no `Obl`; the consistency section goes in "
+                          f"--hand consistency")
+        form = dict(kind="FnHyp", hform=False, prehyp=True)
     if form is None:
         m = re.search(r"^abbrev Obl.*$", fh, re.M)
         raise Refused(f"{name}: the obligations are in a form tiegen does not state ({m[0] if m else 'no Obl'})")
@@ -649,6 +662,9 @@ def obligations(name, path, hand=False):
     form["agree_names"] = re.findall(r"\d+ /- (.*?) -/", am[1]) if am else []
     form["owed"] = form["kind"] == "FnFacts" and (named_list(mods["Owed"], "owed_rules") != [] or
                                                   named_list(mods["Owed"], "owed_clauses") != [])
+    if form.get("prehyp"):
+        # `FnHyp` a hypothesis: the owed conditions are those the package's Owed module lists, if any
+        form["owed"] = any(named_list(mods["Owed"], k) not in (None, []) for k in ("owed_rules", "owed_clauses"))
     if form["owed"] and not hand:
         raise Refused(f"{name}: a rule's or clause's condition is owed (owed_rules, owed_clauses): its proof goes "
                       f"in --hand consistency")
@@ -1445,7 +1461,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     facts_kind = ob["kind"]
     # a held-named function's fact or a `[total]` function's totality owed (`--hand consistency`
     # only): the hand section states `consistent` for every H, by `FnHyp` (`fnHypH`) or otherwise
-    held_total = "consistency" in hand and bool(ob.get("held") or ob.get("total"))
+    held_total = "consistency" in hand and bool(ob.get("held") or ob.get("total") or ob.get("prehyp"))
     held_hand = held_total and bool(ob.get("held"))
     hand_c = hand.get("consistency", "")
     if held_total and not re.search(r"^theorem consistent \(H : HookParams\) : Consistent \(cH H\)", hand_c, re.M):
@@ -1459,6 +1475,12 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         hand_c, re.M))
     notfnhyp_hand = held_total and not fnhyp_hand and bool(re.search(
         r"^theorem not_fnHypH \(H : HookParams\) : ¬ FnHyp \(cH H\)", hand_c, re.M))
+    # a clause's predicate not `\top`: `FnHyp` is no consequence of the named facts, so the section says
+    # whether it holds, `fnHypH` or `not_fnHypH`
+    if ob.get("prehyp") and not (fnhyp_hand or notfnhyp_hand):
+        raise Refused(f"{name}: a clause's predicate is not \\top: the consistency section states `FnHyp` for every H "
+                      f"(`theorem fnHypH (H : HookParams) : FnHyp (cH H)`) or that it fails "
+                      f"(`theorem not_fnHypH (H : HookParams) : ¬ FnHyp (cH H)`)")
     # otherwise, where each function functional sentence is, as written, a sort predicate's
     # `functional` sentence and the clauses meet what `LibEv.sortPredFun_evC` reads, the tie states
     # them at values in every model of `Γc` (`fnFun_section`)
@@ -1701,6 +1723,9 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             owes.append("the match independence of a clause (`match_named`)")
         if ob["owed"]:
             owes.append("the condition of a rule or clause (`owed_rules`, `owed_clauses`)")
+        if ob.get("prehyp"):
+            owes.append("`FnHyp` itself: a clause's predicate is not `\\top` (`Semantics.clausesPreTop` false), so the "
+                        "named facts do not give it and `kcore gen --core` takes it as the hypothesis of its statements")
         w(f"  - The definition reads {'a' if confined else 'no'} confined sort (`readsConfined_c`) and has no open generator (`noRaw`).")
         para = (f"It owes {'; '.join(owes)}, which no decider confirms. The consistency section, written by hand, "
                 f"proves that {th} with the step's closure has a model for every H (`consistent`), ")
@@ -4142,10 +4167,14 @@ def readings_section(ws, acs, rds, uns, nfe, npe):
                 f"    rw [fnText_at{j}] at hj",
                 f"    rw [← Option.some.inj hj]",
                 f"    exact {ent} H"]
+    # with no case before it (every item set to Γ's narrowed or untied), the entailment as the goal of
+    # `exact` leaves `Inhabited ?M` stuck: the model is taken apart first there
     out += ["  have hn' : j ∉ pairSetAt := by",
             "    simp only [pairSetAt, List.mem_cons, List.not_mem_nil, or_false] at hn ⊢",
-            "    omega",
-            "  exact TiePair.entailed (shapeH H) _ (List.mem_of_getElem? (textPats_of hj hn'))", ""]
+            "    omega"]
+    out += (["  exact TiePair.entailed (shapeH H) _ (List.mem_of_getElem? (textPats_of hj hn'))", ""] if acs or rds else
+            ["  intro M _ I hI",
+             "  exact TiePair.entailed (shapeH H) _ (List.mem_of_getElem? (textPats_of hj hn')) hI", ""])
     out += ["/-- **The converse for `fnItems`**: each item"
             + (f" but the untied ones (items {', '.join(map(str, ujs))})" if uns else "")
             + " is a consequence of a text sentence, the j-th of `fnText`"
@@ -4155,17 +4184,20 @@ def readings_section(ws, acs, rds, uns, nfe, npe):
             "    ∀ (j : Nat) (it : Item), (fnItems (cH H))[j]? = some it →"
             + (f" j ∉ ([{', '.join(map(str, ujs))}] : List Nat) →" if uns else ""),
             "      ∃ ad, fnText[j]? = some ad ∧ (TiePair.Texts [(trS ad).pat] ⊧ it.pat) := by",
-            "  intro j it hj" + (" hu" if uns else ""),
-            "  have hg : (TiePair.gammaPats c)[j]? = some it.pat := by",
-            "    rw [← TiePair.gammaPats_withHooks c H]",
-            "    unfold TiePair.gammaPats; rw [List.getElem?_map, hj]; rfl",
-            "  have pick : ∀ {i : Nat} {g : P} {ad : AxiomDecl}, (TiePair.gammaPats c)[i]? = some g → fnText[i]? = some ad →",
-            "      (TiePair.Texts [(trS ad).pat] ⊧ g) → j = i →",
-            "      ∃ ad, fnText[j]? = some ad ∧ (TiePair.Texts [(trS ad).pat] ⊧ it.pat) := by",
-            "    intro i g ad hgi hti hent hji",
-            "    subst hji",
-            "    rw [hgi] at hg",
-            "    exact ⟨ad, hti, (Option.some.inj hg) ▸ hent⟩"]
+            "  intro j it hj" + (" hu" if uns else "")]
+    # `hg` and `pick` only where an item set to Γ's is given by its sentence (unused, `pick`'s statement
+    # does not elaborate)
+    if len(at) > len(ujs):
+        out += ["  have hg : (TiePair.gammaPats c)[j]? = some it.pat := by",
+                "    rw [← TiePair.gammaPats_withHooks c H]",
+                "    unfold TiePair.gammaPats; rw [List.getElem?_map, hj]; rfl",
+                "  have pick : ∀ {i : Nat} {g : P} {ad : AxiomDecl}, (TiePair.gammaPats c)[i]? = some g → fnText[i]? = some ad →",
+                "      (TiePair.Texts [(trS ad).pat] ⊧ g) → j = i →",
+                "      ∃ ad, fnText[j]? = some ad ∧ (TiePair.Texts [(trS ad).pat] ⊧ it.pat) := by",
+                "    intro i g ad hgi hti hent hji",
+                "    subst hji",
+                "    rw [hgi] at hg",
+                "    exact ⟨ad, hti, (Option.some.inj hg) ▸ hent⟩"]
     for j in at:
         out.append(f"  by_cases h{j} : j = {j}")
         if j in wjs:
@@ -5301,7 +5333,8 @@ def main(argv):
     for w_ in head["fnW"].values():
         if w_["idx"] in sents and not w_["same"] and w_["narrowed"] and w_["wtext"] and w_["differs"]:
             sents[w_["idx"]]["narrowW"] = True
-    if "consistency" in hand and not (ob["agree"] or ob["match"] or ob["owed"] or ob["held"] or ob["total"]):
+    if "consistency" in hand and not (ob["agree"] or ob["match"] or ob["owed"] or ob["held"] or ob["total"]
+                                      or ob.get("prehyp")):
         raise Refused(f"{name}: --hand consistency is for a text that owes an agreement, a match independence, a "
                       f"condition, a held-named function's fact or a totality")
     laws, open_laws = nested(head["lawIx"]), nested(head["openLawIx"])
