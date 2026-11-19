@@ -18,6 +18,11 @@
     parameter symbol (`c.params = []`: no rule or function of the reading applies either), so Γ
     has neither. The library's equation of `dividesInt` (sentence 274, domains.md 1454) applies
     it, the one head of the sentence Γ lacks.
+  - `rootFloat_absent`: FLOAT's equation of `sqrtFloat` (sentence 380, domains.md 1671) applies
+    `rootFloat`, a symbol the text declares without sort parameters and Γ lacks, the one head of the
+    sentence Γ lacks.
+  - `andInt_absent`: INT's `&Int`, declared without sort parameters, is the one head Γ lacks of its
+    `functional` sentence 54 and of INT-KORE's associativity lemma 236 (domains.md 1428).
 -/
 import KcoreSpec
 
@@ -145,6 +150,23 @@ theorem int2BytesNoLen_absent_decl :
     hasSym "LblInt2BytesNoLen" = false := by
   decide +kernel
 
+def rootFloatName : String := "LblrootFloat'LParUndsCommUndsRParUnds'FLOAT'Unds'Float'Unds'Float'Unds'Int"
+
+/-- **`sqrtFloat`'s equation applies `rootFloat`, which Γ lacks**: 380 (domains.md 1671,
+`sqrtFloat(F) => rootFloat(F, 2)`) applies `rootFloat`, the one head of the sentence Γ lacks;
+`sqrtFloat`, its left side's head, is Γ's. -/
+theorem rootFloat_absent : absentOf U.ax380 = [rootFloatName] := by
+  decide +kernel
+
+def andIntName : String := "Lbl'UndsAnd-'Int'Unds'"
+
+/-- **`&Int`'s sentences apply it, which Γ lacks**: its `functional` sentence 54 and INT-KORE's
+lemma 236 (domains.md 1428, `I1 &Int (I2 &Int C) = (I1 &Int I2) &Int C`) apply `&Int` (once and
+four times), a symbol the text declares without sort parameters, and no other head Γ lacks. -/
+theorem andInt_absent :
+    [U.ax54, U.ax236].map absentOf = [[andIntName], [andIntName, andIntName, andIntName, andIntName]] := by
+  decide +kernel
+
 end KCore.LibEvDeclsFlt
 
 #check @KCore.LibEvDeclsFlt.decls_entailed
@@ -154,3 +176,6 @@ end KCore.LibEvDeclsFlt
 #print axioms KCore.LibEvDeclsFlt.lib_decls_entailed
 #print axioms KCore.LibEvDeclsFlt.dividesInt_absent
 #print axioms KCore.LibEvDeclsFlt.int2BytesNoLen_absent_decl
+#check @KCore.LibEvDeclsFlt.rootFloat_absent
+#print axioms KCore.LibEvDeclsFlt.rootFloat_absent
+#print axioms KCore.LibEvDeclsFlt.andInt_absent

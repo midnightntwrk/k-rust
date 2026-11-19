@@ -246,13 +246,18 @@ differs f2-examples/mleqbotn.kompile.kore
 cannot f2-examples/mleqor.kompile.kore
 differs f2-examples/mleqorb.kompile.kore
 differs f2-examples/mleqort.kompile.kore
+differs f2-examples/mleqreqandapp.kompile.kore
+differs f2-examples/mleqreqnot.kompile.kore
 differs f2-examples/mlex.kompile.kore
 differs f2-examples/mlmacro.kompile.kore
 cannot f2-examples/mlmixed.kompile.kore
 differs f2-examples/mlnot.kompile.kore
+differs f2-examples/mlnoto.kompile.kore
 differs f2-examples/mlor.kompile.kore
 differs f2-examples/mlorand.kompile.kore
 differs f2-examples/mlorvar.kompile.kore
+differs f2-examples/mlreqandapp.kompile.kore
+differs f2-examples/mlreqnot.kompile.kore
 differs f2-examples/mlreqor.kompile.kore
 differs f2-examples/mlreqorsplit.kompile.kore
 differs f2-examples/mlrequnheld.kompile.kore
@@ -298,6 +303,7 @@ differs f2-examples/projuser.kompile.kore
 differs f2-examples/rdr-cell-star-sibling.kompile.kore
 differs f2-examples/rdr-hook-assoc-sub.kompile.kore
 differs f2-examples/rdr-hook-assoc.kompile.kore
+differs f2-examples/rdr-ite-own-eq.kompile.kore
 differs f2-examples/rdr-ite-own-hook.kompile.kore
 differs f2-examples/rdr-ite-own.kompile.kore
 differs f2-examples/rdr-ite-two-eq.kompile.kore
