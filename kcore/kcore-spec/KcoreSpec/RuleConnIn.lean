@@ -14,6 +14,12 @@
     and every element of `K[φ]` in C, no head on the path is an alias, and the side patterns, φ, E
     and S do not read Z.
   - `or_inh`, `not_inh`: every element of `\or{S}(t, u)` and of `\not{S}(t)` is in S.
+  - `rule_and_pred`: `K[\and{S}(t, P)]` is `\and{C}(K[t], P')`, where P is a predicate at S and P'
+    one at C of one truth value p (each the whole sort or nothing), every element of t is in S and
+    every element of `K[t]` in C, and no head on the path is an alias. `cutCtx_fill_and_pred`: the
+    same over AML's application contexts, P being p at every element of t.
+  - `rule_and_as`: `K[\and{S}(X, p)]` is `K[\and{S}(p, X)]`, the reading's `p #as X`
+    (`cutCtx_fill_congr`: a context's filling depends only on the elements of what fills it).
   The left pattern is a rule's right side under its binder with `post` the membership
   (`ruleRight`), and, read from right to left, a rule's left side with `pre` the membership: for
   the left side the variable is one of the rule's, and `L[φ] ∧ E → •R` is, for Z not in R,
@@ -192,5 +198,68 @@ theorem rule_cut_mem (hD : DefOK I)
     · rw [interp_member hD, interp_inhOf_of (hSu a), hup a]; exact hIa
     · simp only [interp_sAnd]
       exact ⟨hCx, (hE e a m).mpr hEm, (hq a hIa m).mpr ⟨(hφ e a a).mpr hφa, hm'⟩⟩
+
+/-- A context's filling depends only on the elements of what fills it. -/
+theorem cutCtx_fill_congr {φ ψ : P} {e : Valuation M} (h : ∀ a, φ.interpret I e a ↔ ψ.interpret I e a) :
+    ∀ (C : CutCtx) (m : M), (C.fill φ).interpret I e m ↔ (C.fill ψ).interpret I e m
+  | .hole, m => h m
+  | .fn C χ, m => by
+    show (C.fill φ ⬝ χ).interpret I e m ↔ (C.fill ψ ⬝ χ).interpret I e m
+    simp only [interp_app, cutCtx_fill_congr h C]
+  | .arg χ C, m => by
+    show (χ ⬝ C.fill φ).interpret I e m ↔ (χ ⬝ C.fill ψ).interpret I e m
+    simp only [interp_app, cutCtx_fill_congr h C]
+
+/-- **A predicate conjoined in a context of applications floats out**: where ψ is p at every element
+of φ, `C[φ ∧ ψ]` is `C[φ]` where p holds and nothing where it does not. -/
+theorem cutCtx_fill_and_pred {φ ψ : P} {e : Valuation M} {p : Prop}
+    (hψ : ∀ a, φ.interpret I e a → (ψ.interpret I e a ↔ p)) :
+    ∀ (C : CutCtx) (m : M), (C.fill (sAnd φ ψ)).interpret I e m ↔ (C.fill φ).interpret I e m ∧ p
+  | .hole, m => by
+    show (sAnd φ ψ).interpret I e m ↔ φ.interpret I e m ∧ p
+    rw [interp_sAnd]
+    exact ⟨fun ⟨h1, h2⟩ => ⟨h1, (hψ m h1).mp h2⟩, fun ⟨h1, h2⟩ => ⟨h1, (hψ m h1).mpr h2⟩⟩
+  | .fn C χ, m => by
+    show (C.fill (sAnd φ ψ) ⬝ χ).interpret I e m ↔ (C.fill φ ⬝ χ).interpret I e m ∧ p
+    simp only [interp_app, cutCtx_fill_and_pred hψ C]
+    exact ⟨fun ⟨a, b, ⟨ha, hp⟩, hb, hab⟩ => ⟨⟨a, b, ha, hb, hab⟩, hp⟩,
+      fun ⟨⟨a, b, ha, hb, hab⟩, hp⟩ => ⟨a, b, ⟨ha, hp⟩, hb, hab⟩⟩
+  | .arg χ C, m => by
+    show (χ ⬝ C.fill (sAnd φ ψ)).interpret I e m ↔ (χ ⬝ C.fill φ).interpret I e m ∧ p
+    simp only [interp_app, cutCtx_fill_and_pred hψ C]
+    exact ⟨fun ⟨a, b, ha, ⟨hb, hp⟩, hab⟩ => ⟨⟨a, b, ha, hb, hab⟩, hp⟩,
+      fun ⟨⟨a, b, ha, hb, hab⟩, hp⟩ => ⟨a, b, ha, ⟨hb, hp⟩, hab⟩⟩
+
+/-- **A predicate conjoined at a position under applications**: `K[\and{S}(t, P)]` is
+`\and{C}(K[t], P')`, where P is p at every element of the sort σ and P' is p at every element of the
+sort σ' (a predicate is the whole sort or nothing), every element of t is in σ, every element of
+`K[t]` is in σ', and no head on the path is an alias. -/
+theorem rule_and_pred (ctx : Ctx) (K : KoreCutCtx) (hK : K.noAlias ctx = true)
+    (S C : Kore.KSort) (t P P' : Kore.Pattern) (e : Valuation M) {σ σ' : M} (p : Prop)
+    (hP : ∀ a, Inh I σ a → ((tr ctx P).interpret I e a ↔ p))
+    (hP' : ∀ m, Inh I σ' m → ((tr ctx P').interpret I e m ↔ p))
+    (hin : ∀ a, (tr ctx t).interpret I e a → Inh I σ a)
+    (hout : ∀ m, (tr ctx (K.fill t)).interpret I e m → Inh I σ' m) (m : M) :
+    (tr ctx (K.fill (.and S [t, P]))).interpret I e m ↔
+      (tr ctx (.and C [K.fill t, P'])).interpret I e m := by
+  have hr : tr ctx (.and C [K.fill t, P']) = sAnd (tr ctx (K.fill t)) (tr ctx P') := by
+    simp only [tr, trAndList]
+  rw [hr, interp_sAnd]
+  have hl : tr ctx (.and S [t, P]) = sAnd (tr ctx t) (tr ctx P) := by simp only [tr, trAndList]
+  rw [tr_cutCtx ctx _ K hK, hl,
+    cutCtx_fill_and_pred (fun a ha => hP a (hin a ha)) (K.toCut ctx) m, ← tr_cutCtx ctx _ K hK]
+  exact ⟨fun ⟨h1, h2⟩ => ⟨h1, (hP' m (hout m h1)).mpr h2⟩, fun ⟨h1, h2⟩ => ⟨h1, (hP' m (hout m h1)).mp h2⟩⟩
+
+/-- **A variable conjoined at a position under applications**: `K[\and{S}(X, p)]` is
+`K[\and{S}(p, X)]`, the pattern the reading's `p #as X` translates to, where no head on the path is an
+alias. -/
+theorem rule_and_as (ctx : Ctx) (K : KoreCutCtx) (hK : K.noAlias ctx = true)
+    (S : Kore.KSort) (x : Kore.EVar) (p : Kore.Pattern) (e : Valuation M) (m : M) :
+    (tr ctx (K.fill (.and S [.var (.evar x), p]))).interpret I e m ↔
+      (tr ctx (K.fill (.and S [p, .var (.evar x)]))).interpret I e m := by
+  rw [tr_cutCtx ctx _ K hK, tr_cutCtx ctx _ K hK]
+  refine cutCtx_fill_congr (fun a => ?_) (K.toCut ctx) m
+  simp only [tr, trAndList, interp_sAnd]
+  exact And.comm
 
 end KoreAML

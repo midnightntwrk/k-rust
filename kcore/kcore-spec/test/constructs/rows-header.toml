@@ -383,4 +383,10 @@
 #             tied text, it is of the tie's no-direction class (owed-sentence rule item 7; the
 #             theorems that state the class, e6map.py's form (e)): never tied, counted apart, and
 #             counted toward its module being tied only with a theorem of kind "in a model" naming
-#             it; or "uncovered: MODULE; why".
+#             it; or "uncovered: MODULE; why". A module row of a module of hooks and generated
+#             declarations only (findings/work/decision-e6-count-empty.md ruling 2: E6 keys no
+#             axiom, lemma, rule, sort or symbol row of any status to the module, and its code
+#             holds no rule, configuration, context or claim) is accounted by
+#             its declarations' rows, with no theorem owed for the module itself: a list holding
+#             "module of hooks and generated declarations only: ..." with its hook rows, counted as
+#             tied.
