@@ -5,8 +5,8 @@
   Take a definition with `coreOK` that reads confined sorts, a model of `Γc` in which `EvalTerm` is
   sound, and a clause whose existential variables are in scope, apart, in no pattern or condition
   of the left side, whose predicate `post` is sorted (`Semantics.clauseExOK`) with binders of
-  confined sorts (`Cond.bound`), and each of whose existential variables is of a confined sort or
-  fixed by `post` (`Semantics.clausePlainEx`). Let σ give each variable that is not existential a
+  confined sorts or of sorts with a value whose body fixes them (`Cond.bound`), and each of whose
+  existential variables is of a confined sort or fixed by `post` (`Semantics.clausePlainEx`). Let σ give each variable that is not existential a
   value of its sort, and let `post` have a truth value at every extension of σ by values of the
   existential variables, one such extension existing. Then an element valuation that agrees with σ
   on the variables that are not existential, gives each existential variable an element of its
@@ -149,7 +149,7 @@ theorem exs_values_hr (h : c.coreOK = true) (hrc : c.readsConfined = true) (hIc 
   have key : ∀ (l acc : List Nat), (∀ i ∈ acc, Witnessed c I tbl (canonVars c cl.vars) cl.vars e i) →
       ∀ i ∈ l.foldl (fun acc _ =>
         cl.exs.filter fun i => acc.contains i ||
-          Cond.fixes c.confined (fun _ => false) (fun j => !cl.exs.contains j || acc.contains j ||
+          Cond.fixes c.confined c.valued (fun j => !cl.exs.contains j || acc.contains j ||
             (j != i && (cl.vars[j]?.map c.confined).getD false)) i cl.vars.length cl.post) acc,
         Witnessed c I tbl (canonVars c cl.vars) cl.vars e i := by
     intro l
@@ -163,8 +163,8 @@ theorem exs_values_hr (h : c.coreOK = true) (hrc : c.readsConfined = true) (hIc 
       rw [Bool.or_eq_true] at hcond
       rcases hcond with hc | hfix
       · exact hacc i (List.contains_iff_mem.mp hc)
-      · refine fixes_value_hr h hrc hIc N (val := fun _ => false) (fun s hs => by cases hs) σ cl.post _ i cl.vars tbl e S
-          hok (Cond.boundV_of_bound c _ cl.post _ hb) hfix (hlt i hie) hσ0
+      · refine fixes_value_hr h hrc hIc N (val := c.valued) (fun _ => Semantics.valued_value) σ cl.post _ i cl.vars tbl e S
+          hok (Cond.boundV_valued_of_bound c cl.post _ hb) hfix (hlt i hie) hσ0
           (hdecG _ fun j _ hne => by simp [hne]) (fun j hj hjl => ?_)
           (fun j hj => ⟨hkv j hj, hinAll j hj⟩) hk hS hpost
         simp only [Bool.or_eq_true, Bool.and_eq_true, Bool.not_eq_eq_eq_not, Bool.not_true] at hj

@@ -21,6 +21,7 @@
 import KcoreSpec.Evaluation
 import KcoreSpec.Emit
 import KcoreSpec.Kore.Distinct
+import KcoreSpec.RightHeld
 
 set_option autoImplicit false
 
@@ -544,19 +545,6 @@ mutual
       · exact List.mem_append_right _ (ctorOccsList_subset_heldOccsList c ts i hi)
 end
 
-/-- Each binder of a condition ranges where values and elements agree: an `exMatch` variable is
-held by its pattern under constructors and injections, or is of a confined sort; an `ex` or `all`
-variable is of a confined sort. -/
-def Cond.bound (c : Semantics) (n : Nat) : Cond → Bool
-  | .exMatch ys _ p _ body =>
-      (List.range ys.length).all (fun j =>
-        (ctorOccs c p).contains (n + j) || (ys[j]?.map c.confined).getD false) &&
-      Cond.bound c (n + ys.length) body
-  | .ex s body | .all s body => c.confined s && Cond.bound c (n + 1) body
-  | .not p => Cond.bound c n p
-  | .and p q | .or p q | .implies p q => Cond.bound c n p && Cond.bound c n q
-  | _ => true
-
 /-- t is the variable i or an injection of it, and `ok` admits every variable of u. -/
 def fixesBy (ok : Nat → Bool) (i : Nat) (t u : Term) : Bool :=
   (match t with
@@ -576,6 +564,23 @@ def Cond.fixes (adm val : Srt → Bool) : (Nat → Bool) → Nat → Nat → Con
       let here := adm s || (val s && Cond.fixes adm val (fun j => j != n && ok j) n (n + 1) body)
       Cond.fixes adm val (fun j => if j == n then here else ok j) i (n + 1) body
   | _, _, _, _ => false
+
+/-- Each binder of a condition ranges where values and elements agree: an `exMatch` variable is
+held by its pattern under constructors and injections, or is of a confined sort; an `ex` variable
+is of a confined sort, or of a sort with a value (`Semantics.valued`) where the body fixes it by a
+term over the other variables (`Cond.fixes`); an `all` variable is of a confined sort. -/
+def Cond.bound (c : Semantics) (n : Nat) : Cond → Bool
+  | .exMatch ys _ p _ body =>
+      (List.range ys.length).all (fun j =>
+        (ctorOccs c p).contains (n + j) || (ys[j]?.map c.confined).getD false) &&
+      Cond.bound c (n + ys.length) body
+  | .ex s body =>
+      (c.confined s || (c.valued s && Cond.fixes c.confined c.valued (fun j => j != n) n (n + 1) body)) &&
+      Cond.bound c (n + 1) body
+  | .all s body => c.confined s && Cond.bound c (n + 1) body
+  | .not p => Cond.bound c n p
+  | .and p q | .or p q | .implies p q => Cond.bound c n p && Cond.bound c n q
+  | _ => true
 
 /-- The existential variables the predicate fixes, in rounds: by a term over the variables that are
 not existential, the other existential ones of a sort `adm` admits and the ones fixed in an

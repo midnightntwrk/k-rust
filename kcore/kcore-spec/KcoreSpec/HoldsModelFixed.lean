@@ -2,14 +2,14 @@
   KCore. A condition in the value model at a transition T, with a binder of a sort that is not
   confined.
 
-  `Cond.boundV c val` (BoundConf.lean) is `Cond.bound c` with one more case at an `ex` binder: a
+  `Cond.boundV c val` (BoundConf.lean) is `Cond.boundConf c` with one more case at an `ex` binder: a
   sort that `val` admits, whose variable the body fixes (`Cond.fixes`) by a term over the other
-  variables.
+  variables; `Cond.bound c` is it at `Semantics.valued` (`Cond.bound_eq_boundV`).
 
   In the value model every element of a numbered sort is a value's, so the Holds lemma's recursion
   (`HoldsShape.holds_denB`) reads `Cond.boundV c val` there for every `val` that admits numbered
-  sorts only (`boundReads_boundV_stdI`): the binder over the elements of the sort is the binder
-  over its values, and nothing is read of the body fixing the variable.
+  sorts only (`boundReads_boundV_stdI`, HoldsModel.lean): the binder over the elements of the sort
+  is the binder over its values, and nothing is read of the body fixing the variable.
   - `holds_atT_fixed`: `Model.holds_atT` with `Cond.boundV c val` for `Cond.bound c`;
   - `holds_stdI_fixed`: `holds_stdI` likewise: where the condition has a truth value, it holds at an
     element of a numbered predicate sort exactly where that value is `true`.
@@ -27,36 +27,6 @@ namespace Model
 open ML
 
 variable {c : Semantics} {T : GroundTerm → GroundTerm → Prop}
-
-/-- In the value model at T, the elements of a numbered sort are values'. -/
-theorem elemsValues_stdI (h : HypModelCore c) {s : Srt} (hs : s < nRegSorts + c.sortNames.length) :
-    HoldsShape.ElemsValues c (stdI_T c T) s :=
-  ⟨hs, fun tbl e a ha => by
-    have hin := (inhOf_srtOf_stdI h hs e a).mp ha
-    cases a with
-    | val v => exact ⟨v, hin, den_val_T h T v hin e⟩
-    | _ => exact hin.elim⟩
-
-/-- **The value model at T reads `Cond.boundV c val`** where `val` admits numbered sorts only: at
-an `ex` binder of a sort `val` admits, the elements of the sort are values' because the sort is
-numbered. -/
-theorem boundReads_boundV_stdI (h : HypModelCore c) {val : Srt → Bool}
-    (hval : ∀ s, val s = true → s < nRegSorts + c.sortNames.length) :
-    HoldsShape.BoundReads c (stdI_T c T) (Cond.boundV c val) where
-  not := fun hb => by rw [Cond.boundV] at hb; exact hb
-  and := fun hb => by rw [Cond.boundV, Bool.and_eq_true] at hb; exact hb
-  or := fun hb => by rw [Cond.boundV, Bool.and_eq_true] at hb; exact hb
-  implies := fun hb => by rw [Cond.boundV, Bool.and_eq_true] at hb; exact hb
-  exMatch := fun hb => by rw [Cond.boundV, Bool.and_eq_true] at hb; exact hb
-  ex := fun {n s body} hb => by
-    rw [Cond.boundV, Bool.and_eq_true, Bool.or_eq_true, Bool.and_eq_true] at hb
-    refine ⟨elemsValues_stdI h ?_, hb.2⟩
-    rcases hb.1 with hc | ⟨hv, -⟩
-    · exact confined_numberedStdI h hc
-    · exact hval s hv
-  all := fun hb => by
-    rw [Cond.boundV, Bool.and_eq_true] at hb
-    exact ⟨elemsValues_stdI h (confined_numberedStdI h hb.1), hb.2⟩
 
 /-- **A condition in the value model at T, over `Cond.boundV`**: `holds_atT` with `Cond.boundV c val`
 for `Cond.bound c`, `val` admitting numbered sorts only. -/

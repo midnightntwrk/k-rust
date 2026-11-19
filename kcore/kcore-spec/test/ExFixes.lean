@@ -163,7 +163,7 @@ def clS : Clause :=
   { vars := [Srt.int], pats := [], req := none, rhs := .var 0, ens := none, exs := [0],
     post := .or (.mem Srt.int (.var 0) (.dv Srt.int (.int 3)))
       (.ex Srt.int (.and (.mem Srt.int (.var 0) (.var 1)) (.equals Srt.int (.var 1) (.dv Srt.int (.int 3))))) }
-example : Clause.fixedExs base.confined base.valueSorts.contains clS = [0] ∧
+example : Clause.fixedExs base.confined base.valued clS = [0] ∧
     Clause.fixedExs base.confined noS clS = [] ∧ base.confined Srt.int = false := by decide +kernel
 
 /-- `exs = [B:Bool, Z:KItem]`, `post := Z ∈ inj(B)`: Z fixed by a term over the confined B, which
@@ -171,8 +171,8 @@ nothing fixes; not where no sort is admitted. -/
 def clC : Clause :=
   { vars := [Srt.bool, Srt.kitem], pats := [], req := none, rhs := .var 1, ens := some (.var 0), exs := [0, 1],
     post := .mem Srt.kitem (.var 1) (.inj Srt.bool Srt.kitem (.var 0)) }
-example : Clause.fixedExs base2.confined base2.valueSorts.contains clC = [1] ∧
-    Clause.fixedExs noS base2.valueSorts.contains clC = [] ∧
+example : Clause.fixedExs base2.confined base2.valued clC = [1] ∧
+    Clause.fixedExs noS base2.valued clC = [] ∧
     base2.confined Srt.kitem = false ∧ base2.confined Srt.bool = true := by decide +kernel
 
 /-- `h(K) => #Exists Z:Int. (Z #And {inj{Int,KItem}(Z) #Equals K})`: Z (of Int, not confined)
@@ -180,7 +180,7 @@ fixed through the injection. -/
 def clH : Clause :=
   { vars := [Srt.kitem, Srt.int], pats := [.var 0], req := none, rhs := .var 1, ens := none, exs := [1],
     post := .equals Srt.kitem (.inj Srt.int Srt.kitem (.var 1)) (.var 0) }
-example : Clause.fixedExs base2.confined base2.valueSorts.contains clH = [1] ∧
+example : Clause.fixedExs base2.confined base2.valued clH = [1] ∧
     base2.confined Srt.int = false := by decide +kernel
 
 /-! ### `univ` and `wellSortedAt_univ` -/

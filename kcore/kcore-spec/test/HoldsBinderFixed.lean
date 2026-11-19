@@ -10,7 +10,7 @@
   Run from the package root: `lake env lean -j1 test/HoldsBinderFixed.lean`.
 
   - The lemmas at `val := c.valued`, whose sorts have a value (`Semantics.valued_value`).
-  - With `val` admitting no sort, `holds_entails_fixed` is the Holds lemma over `Cond.bound`.
+  - At `val := c.valued`, `holds_entails_fixed` is the Holds lemma over `Cond.bound`.
   - The readings with the terms' readings at `c.valued`, and over `Cond.bound`.
   - The axioms of each.
 -/
@@ -35,14 +35,11 @@ example (h : c.coreOK = true) (hIc : I ⊧ᴵP Γc c)
     HoldsDenB (Cond.boundV c c.valued) c I p :=
   CE.holds_entails_fixed h hIc hc (fun _ => Semantics.valued_value) p hrc
 
-/-- With `val` admitting no sort it is the lemma over `Cond.bound`. -/
+/-- At `c.valued` it is the lemma over `Cond.bound` (`Cond.bound_eq_boundV`). -/
 example (h : c.coreOK = true) (hIc : I ⊧ᴵP Γc c)
     (hc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c)
-    (p : Cond) (hrc : hasBinder p = true → c.readsConfined = true) : HoldsDenB (Cond.bound c) c I p := by
-  have : HoldsDenB (Cond.boundV c fun _ => false) c I p :=
-    CE.holds_entails_fixed h hIc hc (fun _ hs => by cases hs) p hrc
-  intro vars P σ b tbl e S hok hbd
-  exact this hok (by rw [Cond.boundV_none]; exact hbd)
+    (p : Cond) (hrc : hasBinder p = true → c.readsConfined = true) : HoldsDenB (Cond.bound c) c I p :=
+  Cond.bound_eq_boundV c ▸ CE.holds_entails_fixed h hIc hc (fun _ => Semantics.valued_value) p hrc
 
 /-- The `ex` case with the terms' readings, at `c.valued`. -/
 example (h : c.coreOK = true) (hrc : c.readsConfined = true) (hIc : I ⊧ᴵP Γc c) (N : NodeFacts c I)

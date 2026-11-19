@@ -9,10 +9,10 @@
   the bound variable by a term over the other variables (`Cond.fixes`).
   - `Cond.boundV_false`, `Cond.boundV_of_boundConf`: `Cond.boundConf` is `Cond.boundV` with `val`
     admitting no sort, and every `Cond.boundV` accepts what it accepts;
-  - `Cond.bound_eq_boundConf`: `Cond.bound` asks a confined sort of each `ex` binder, so it is
-    `Cond.boundConf`;
-  - `Cond.boundV_valued_of_bound`: a condition `Cond.bound` accepts, `Cond.boundV c c.valued`
-    accepts.
+  - `Cond.bound_eq_boundV`: `Cond.bound` is `Cond.boundV` with `val` the test of a sort with a
+    value, `Semantics.valued`;
+  - `Cond.bound_of_boundConf`, `Cond.boundV_valued_of_bound`: so `Cond.bound` accepts what
+    `Cond.boundConf` accepts, and `Cond.boundV c c.valued` what `Cond.bound` accepts.
 -/
 import KcoreSpec.FaithOK
 import KcoreSpec.RightHeld
@@ -34,9 +34,10 @@ def Cond.boundConf (c : Semantics) (n : Nat) : Cond → Bool
   | .and p q | .or p q | .implies p q => Cond.boundConf c n p && Cond.boundConf c n q
   | _ => true
 
-/-- `Cond.bound` with one more case at an `ex` binder: its sort is confined, or `val` admits it
+/-- `Cond.boundConf` with one more case at an `ex` binder: its sort is confined, or `val` admits it
 and the body fixes the bound variable by a term over the other variables (`Cond.fixes`). An `all`
-binder and the binders of a match are as in `Cond.bound`. -/
+binder and the binders of a match are as in `Cond.boundConf`. `Cond.bound` is it at
+`Semantics.valued` (`Cond.bound_eq_boundV`). -/
 def Cond.boundV (c : Semantics) (val : Srt → Bool) (n : Nat) : Cond → Bool
   | .exMatch ys _ p _ body =>
       (List.range ys.length).all (fun j =>
@@ -50,16 +51,18 @@ def Cond.boundV (c : Semantics) (val : Srt → Bool) (n : Nat) : Cond → Bool
   | .and p q | .or p q | .implies p q => Cond.boundV c val n p && Cond.boundV c val n q
   | _ => true
 
-/-- `Cond.bound` asks a confined sort of each binder, as `Cond.boundConf` does. -/
-theorem Cond.bound_eq_boundConf (c : Semantics) : Cond.bound c = Cond.boundConf c :=
+/-- `Cond.bound` is `Cond.boundV` where `val` is the test of a sort with a value,
+`Semantics.valued`. -/
+theorem Cond.bound_eq_boundV (c : Semantics) : Cond.bound c = Cond.boundV c c.valued :=
   funext fun n => funext fun p => go p n
 where
-  go : ∀ (p : Cond) (n : Nat), Cond.bound c n p = Cond.boundConf c n p
-  | .top, _ | .bot, _ | .ceil .., _ | .equals .., _ | .mem .., _ => by simp [Cond.bound, Cond.boundConf]
-  | .not p, n => by rw [Cond.bound, Cond.boundConf, go p n]
-  | .and p q, n | .or p q, n | .implies p q, n => by rw [Cond.bound, Cond.boundConf, go p n, go q n]
-  | .exMatch ys s p t body, n => by rw [Cond.bound, Cond.boundConf, go body _]
-  | .ex s body, n | .all s body, n => by rw [Cond.bound, Cond.boundConf, go body _]
+  go : ∀ (p : Cond) (n : Nat), Cond.bound c n p = Cond.boundV c c.valued n p
+  | .top, _ | .bot, _ | .ceil .., _ | .equals .., _ | .mem .., _ => by simp [Cond.bound, Cond.boundV]
+  | .not p, n => by rw [Cond.bound, Cond.boundV, go p n]
+  | .and p q, n | .or p q, n | .implies p q, n => by rw [Cond.bound, Cond.boundV, go p n, go q n]
+  | .exMatch ys s p t body, n => by rw [Cond.bound, Cond.boundV, go body _]
+  | .ex s body, n => by rw [Cond.bound, Cond.boundV, go body _]
+  | .all s body, n => by rw [Cond.bound, Cond.boundV, go body _]
 
 /-- A condition `Cond.boundConf` accepts, every `Cond.boundV` accepts. -/
 theorem Cond.boundV_of_boundConf (c : Semantics) (val : Srt → Bool) :
@@ -95,23 +98,13 @@ theorem Cond.boundV_false (c : Semantics) :
 /-- A condition `Cond.boundConf` accepts, `Cond.bound` accepts. -/
 theorem Cond.bound_of_boundConf (c : Semantics) (p : Cond) (n : Nat)
     (h : Cond.boundConf c n p = true) : Cond.bound c n p = true := by
-  rw [Cond.bound_eq_boundConf]; exact h
-
-/-- A condition `Cond.bound` accepts, `Cond.boundV` accepts. -/
-theorem Cond.boundV_of_bound (c : Semantics) (val : Srt → Bool) (p : Cond) (n : Nat)
-    (h : Cond.bound c n p = true) : Cond.boundV c val n p = true :=
-  Cond.boundV_of_boundConf c val p n (by rw [← Cond.bound_eq_boundConf]; exact h)
-
-/-- Where `val` admits no sort, `Cond.boundV` is `Cond.bound`. -/
-theorem Cond.boundV_none (c : Semantics) (p : Cond) (n : Nat) :
-    Cond.boundV c (fun _ => false) n p = Cond.bound c n p := by
-  rw [Cond.boundV_false, Cond.bound_eq_boundConf]
+  rw [Cond.bound_eq_boundV]; exact Cond.boundV_of_boundConf c c.valued p n h
 
 /-- **A condition `Cond.bound` accepts, `Cond.boundV c c.valued` accepts**: the Bool the Holds
 lemma reads in a model of `Γc` (`CE.holds_den_fixed`, with `Semantics.valued_value`) bounds every
 condition `Cond.bound` bounds. -/
 theorem Cond.boundV_valued_of_bound (c : Semantics) (p : Cond) (n : Nat)
-    (h : Cond.bound c n p = true) : Cond.boundV c c.valued n p = true :=
-  Cond.boundV_of_bound c c.valued p n h
+    (h : Cond.bound c n p = true) : Cond.boundV c c.valued n p = true := by
+  rw [← Cond.bound_eq_boundV]; exact h
 
 end KCore
