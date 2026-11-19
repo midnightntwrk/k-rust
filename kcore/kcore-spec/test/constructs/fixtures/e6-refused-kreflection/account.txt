@@ -1,0 +1,22 @@
+out/definition.kore: 5 modules; prelude agrees
+user module E6-REFUSED-KREFLECTION: 3229 sentences
+  1 inert import [generated]
+  342 read [generated]
+  342 read [builtin]
+  8 read reflectionAsOwn [builtin]
+  1 unread parametricUnused [builtin]
+  2 read [user]
+  2492 inert distinctCtors [generated]
+  13 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert parametricFunctional [generated]
+  16 inert noJunk [generated]
+  1 inert simplification [generated]
+sentences applying `#configuration` (read at a fixed value, not the documented one): 0
+stage refusals (of sentences classified read): 1
+  1 parametricSymbol
+      sentence 3092 (E6-REFUSED-KREFLECTION.kreflection-printKORE): parametricSymbol (Lbl'Hash'unparseKORE'LParUndsRParUnds'K-REFLECTION'Unds'String'Unds'Sort)
+        [user] E6-REFUSED-KREFLECTION.kreflection-printKORE at e6-refused-kreflection.k:9: axiom{} \rewrites{SortGeneratedTopCell{}}(\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("1")), kseq{}(inj{SortInt{}, SortKItem{}}(VarX:SortInt{}), Var'Unds'DotVar1:SortK{}))), Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()), \and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{ …
+finish: sentence 3092 (E6-REFUSED-KREFLECTION.kreflection-printKORE): parametricSymbol (Lbl'Hash'unparseKORE'LParUndsRParUnds'K-REFLECTION'Unds'String'Unds'Sort)
+(exit 0)

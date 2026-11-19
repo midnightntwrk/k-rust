@@ -1,0 +1,11 @@
+command: kompile --backend haskell e6-refused-kreflection.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 3.7
+definition.kore bytes: 728396
+definition.kore sha256: 77767acad1592f4879e0443418937c9ba27766540b03654992bbda1789e06f74
+stripped sha256: 854de3dd065927335cdd8ea43adbca1ce6bcaecd2ac06d0b1217bc86c1068ad8
+main module: 3232 sentences, 2709 not in base's (466474 bytes, over 200000): kore.txt holds the 3 with a Source in the fixture
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-REFUSED-KREFLECTION-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using E6-REFUSED-KREFLECTION as default.
