@@ -2,10 +2,9 @@
   KCore. A condition in the value model at a transition T, with a binder of a sort that is not
   confined.
 
-  `Cond.boundV c val` is `Cond.bound c` with one more case at an `ex` binder: a sort that `val`
-  admits, whose variable the body fixes (`Cond.fixes`) by a term over the other variables. With
-  `val` admitting no sort it is `Cond.bound c` (`Cond.boundV_none`), and `Cond.bound c` implies it
-  (`Cond.boundV_of_bound`).
+  `Cond.boundV c val` (BoundConf.lean) is `Cond.bound c` with one more case at an `ex` binder: a
+  sort that `val` admits, whose variable the body fixes (`Cond.fixes`) by a term over the other
+  variables.
 
   In the value model every element of a numbered sort is a value's, so the Holds lemma's recursion
   (`HoldsShape.holds_denB`) reads `Cond.boundV c val` there for every `val` that admits numbered
@@ -20,53 +19,6 @@ import KcoreSpec.HoldsModel
 set_option autoImplicit false
 
 namespace KCore
-
-/-- `Cond.bound` with one more case at an `ex` binder: its sort is confined, or `val` admits it
-and the body fixes the bound variable by a term over the other variables (`Cond.fixes`). An `all`
-binder and the binders of a match are as in `Cond.bound`. -/
-def Cond.boundV (c : Semantics) (val : Srt → Bool) (n : Nat) : Cond → Bool
-  | .exMatch ys _ p _ body =>
-      (List.range ys.length).all (fun j =>
-        (ctorOccs c p).contains (n + j) || (ys[j]?.map c.confined).getD false) &&
-      Cond.boundV c val (n + ys.length) body
-  | .ex s body =>
-      (c.confined s || (val s && Cond.fixes c.confined val (fun j => j != n) n (n + 1) body)) &&
-      Cond.boundV c val (n + 1) body
-  | .all s body => c.confined s && Cond.boundV c val (n + 1) body
-  | .not p => Cond.boundV c val n p
-  | .and p q | .or p q | .implies p q => Cond.boundV c val n p && Cond.boundV c val n q
-  | _ => true
-
-/-- A condition `Cond.bound` accepts, `Cond.boundV` accepts. -/
-theorem Cond.boundV_of_bound (c : Semantics) (val : Srt → Bool) :
-    ∀ (p : Cond) (n : Nat), Cond.bound c n p = true → Cond.boundV c val n p = true
-  | .top, _, _ | .bot, _, _ | .ceil .., _, _ | .equals .., _, _ | .mem .., _, _ => by simp [Cond.boundV]
-  | .not p, n, h => by
-    rw [Cond.bound] at h; rw [Cond.boundV]; exact Cond.boundV_of_bound c val p n h
-  | .and p q, n, h | .or p q, n, h | .implies p q, n, h => by
-    rw [Cond.bound, Bool.and_eq_true] at h; rw [Cond.boundV, Bool.and_eq_true]
-    exact ⟨Cond.boundV_of_bound c val p n h.1, Cond.boundV_of_bound c val q n h.2⟩
-  | .exMatch ys s p t body, n, h => by
-    rw [Cond.bound, Bool.and_eq_true] at h; rw [Cond.boundV, Bool.and_eq_true]
-    exact ⟨h.1, Cond.boundV_of_bound c val body _ h.2⟩
-  | .ex s body, n, h => by
-    rw [Cond.bound, Bool.and_eq_true] at h; rw [Cond.boundV, Bool.and_eq_true, Bool.or_eq_true]
-    exact ⟨.inl h.1, Cond.boundV_of_bound c val body _ h.2⟩
-  | .all s body, n, h => by
-    rw [Cond.bound, Bool.and_eq_true] at h; rw [Cond.boundV, Bool.and_eq_true]
-    exact ⟨h.1, Cond.boundV_of_bound c val body _ h.2⟩
-
-/-- Where `val` admits no sort, `Cond.boundV` is `Cond.bound`. -/
-theorem Cond.boundV_none (c : Semantics) :
-    ∀ (p : Cond) (n : Nat), Cond.boundV c (fun _ => false) n p = Cond.bound c n p
-  | .top, _ | .bot, _ | .ceil .., _ | .equals .., _ | .mem .., _ => by simp [Cond.boundV, Cond.bound]
-  | .not p, n => by rw [Cond.boundV, Cond.bound, Cond.boundV_none c p n]
-  | .and p q, n | .or p q, n | .implies p q, n => by
-    rw [Cond.boundV, Cond.bound, Cond.boundV_none c p n, Cond.boundV_none c q n]
-  | .exMatch ys s p t body, n => by rw [Cond.boundV, Cond.bound, Cond.boundV_none c body _]
-  | .ex s body, n => by
-    rw [Cond.boundV, Cond.bound, Cond.boundV_none c body _]; simp
-  | .all s body, n => by rw [Cond.boundV, Cond.bound, Cond.boundV_none c body _]
 
 namespace Faithful
 

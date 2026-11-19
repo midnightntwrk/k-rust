@@ -140,9 +140,8 @@ theorem termSoundEx (h : c.coreOKEx = true) (hIc : I ⊧ᴵP Γc c)
 hypothesis of `sound_at`, and `readsConfined` where the condition holds a binder. -/
 theorem holds_entailsCEx (h : c.coreOKEx = true) (hIc : I ⊧ᴵP Γc c)
     (hc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c)
-    (p : Cond) (hrc : hasBinder p = true → c.readsConfined = true) : HoldsDen' c I p :=
-  holds_den_binders' (atomFacts_of_coreEx h hIc (termSoundEx h hIc hc)) p
-    fun hb => binderFacts_of_coreEx h (hrc hb) hIc
+    (p : Cond) (hrc : hasBinder p = true → c.readsConfined = true) : HoldsDenB (Cond.bound c) c I p :=
+  CE.holds_den_bound (Semantics.coreOK_iff_ex.mpr h) hIc (atomFacts_of_coreEx h hIc (termSoundEx h hIc hc)) p hrc
 
 end
 

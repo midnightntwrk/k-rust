@@ -51,10 +51,10 @@ that `Holds` gives p under σ is read in I (`HoldsAt`), at a valuation that read
 variables as their values under σ and gives `R` a sort `σr`, through a table holding `R` and the
 variables of the pattern at `R`, an element of `σr` is in `Cond.kore … R p` exactly where b is
 `true`. -/
-theorem holdsAt_atR (F : NodeFacts c I) (hT : TermsInSort c I) {p : Cond}
+theorem holdsAt_atR (F : NodeFacts c I) (hT : TermsInSort c I) {bd : Nat → Cond → Bool} {p : Cond}
     {vars : List Srt} {P : Nat → Prop} {σ : Subst} {b : Bool} {tbl : KoreAML.VarTable} {e : Valuation M}
-    (hp : HoldsAt c I vars.length σ p b)
-    (hok : c.condOK vars p = true) (hbd : Cond.bound c vars.length p = true)
+    (hp : HoldsAtB bd c I vars.length σ p b)
+    (hok : c.condOK vars p = true) (hbd : bd vars.length p = true)
     (hP : ∀ i ∈ varOccsCond vars.length p, i < vars.length → P i) (hr : Reads c I vars P σ tbl e)
     (hk : ∀ k ∈ KoreAML.varsOf (Cond.kore c (canonVars c vars) KoreAML.R p), k ∈ tbl)
     (hRm : KoreAML.VarKey.sortVar "R" ∈ tbl) {σr : M}
@@ -108,7 +108,8 @@ theorem preRead_of {cl : Clause} (F : NodeFacts c I) (G : hasBinder cl.pre = tru
       · rw [hsv, List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hi']; rfl
       · rw [hkey i hi]; exact hrd i (hocc i hi) v hv
     rw [← hkore]
-    exact holdsAt_atR F hT (by rw [hlen]; exact hH) hokV (by rw [hlen]; exact hbd) (fun i hi _ => hi) hr
+    exact holdsAt_atR F hT (by rw [hlen]; exact hH) hokV (by rw [hlen, ← Cond.bound_eq_boundConf]; exact hbd)
+      (fun i hi _ => hi) hr
       (by rw [hkore]; exact hk) hRm hR hσr a ha
   toBool := by
     intro tbl tbl' e e' σr m mB hk hRm hk' hf hR hσr hm hmB h
