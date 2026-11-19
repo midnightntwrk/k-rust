@@ -175,7 +175,7 @@ theorem e380_text : U.ax380.ax.pattern = e380.patR ∧ U.ax380.ax.sortVars = [Ko
     e380.typedLk c.sortOf ls = true ∧ (trS U.ax380).pat = (trAxiom [] [] U.ax380).pat := by
   decide +kernel
 
-/-- 228 (domains.md 2250): `Int2BytesNoLen(I, E, signedBytes) => Int2Bytes((log2Int(I) +Int 9) /Int 8, I, E)
+/-- 228 (domains.md 2254): `Int2BytesNoLen(I, E, signedBytes) => Int2Bytes((log2Int(I) +Int 9) /Int 8, I, E)
 requires I >Int 0`. -/
 def e228 : FnEqn :=
   ⟨[("VarI", Srt.int), ("VarE", Srt.endianness)], 306,
@@ -184,7 +184,7 @@ def e228 : FnEqn :=
     .app int2Bytes [.app intTDiv [.app intAdd [.app intLog2 [.var 0], .dv Srt.int (.int 9)], .dv Srt.int (.int 8)],
       .var 0, .var 1]⟩
 
-/-- 229 (domains.md 2252): `Int2BytesNoLen(I, E, signedBytes) => Int2Bytes((log2Int(~Int I) +Int 9) /Int 8, I, E)
+/-- 229 (domains.md 2256): `Int2BytesNoLen(I, E, signedBytes) => Int2Bytes((log2Int(~Int I) +Int 9) /Int 8, I, E)
 requires I <Int -1`. -/
 def e229 : FnEqn :=
   ⟨[("VarI", Srt.int), ("VarE", Srt.endianness)], 306,
@@ -193,14 +193,14 @@ def e229 : FnEqn :=
     .app int2Bytes [.app intTDiv [.app intAdd [.app intLog2 [.app 208 [.var 0]], .dv Srt.int (.int 9)],
       .dv Srt.int (.int 8)], .var 0, .var 1]⟩
 
-/-- 230 (domains.md 2254): `Int2BytesNoLen(I, E, signedBytes) => Int2Bytes(1, -1, E) requires I ==Int -1`. -/
+/-- 230 (domains.md 2258): `Int2BytesNoLen(I, E, signedBytes) => Int2Bytes(1, -1, E) requires I ==Int -1`. -/
 def e230 : FnEqn :=
   ⟨[("VarI", Srt.int), ("VarE", Srt.endianness)], 306,
     [(Srt.int, .var 0, none), (Srt.endianness, .var 1, none), (Srt.signedness, .app signedBytes [], none)], Srt.bytes,
     some (.app intEq [.var 0, .dv Srt.int (.int (-1))]),
     .app int2Bytes [.dv Srt.int (.int 1), .dv Srt.int (.int (-1)), .var 1]⟩
 
-/-- 231 (domains.md 2256): `Int2BytesNoLen(I, E, unsignedBytes) => Int2Bytes((log2Int(I) +Int 8) /Int 8, I, E)
+/-- 231 (domains.md 2252): `Int2BytesNoLen(I, E, unsignedBytes) => Int2Bytes((log2Int(I) +Int 8) /Int 8, I, E)
 requires I >Int 0`. -/
 def e231 : FnEqn :=
   ⟨[("VarI", Srt.int), ("VarE", Srt.endianness)], 306,
@@ -209,7 +209,7 @@ def e231 : FnEqn :=
     .app int2Bytes [.app intTDiv [.app intAdd [.app intLog2 [.var 0], .dv Srt.int (.int 8)], .dv Srt.int (.int 8)],
       .var 0, .var 1]⟩
 
-/-- 232 (domains.md 2258): `Int2BytesNoLen(I, _, _) => .Bytes requires I ==Int 0`. -/
+/-- 232 (domains.md 2250): `Int2BytesNoLen(I, _, _) => .Bytes requires I ==Int 0`. -/
 def e232 : FnEqn :=
   ⟨[("VarI", Srt.int), ("Var'Unds'Gen0", Srt.endianness), ("Var'Unds'Gen1", Srt.signedness)], 306,
     [(Srt.int, .var 0, none), (Srt.endianness, .var 1, none), (Srt.signedness, .var 2, none)], Srt.bytes,
