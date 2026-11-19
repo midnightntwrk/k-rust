@@ -335,6 +335,7 @@ import KcoreSpec.LibEvFloat
 import KcoreSpec.TieRulePair
 import KcoreSpec.InertEvUser
 import KcoreSpec.TieOvlConf
+import KcoreSpec.TieOvlEq
 import KcoreSpec.TieReqBool
 import KcoreSpec.TieAlphaOr
 import KcoreSpec.GenEqsNames
