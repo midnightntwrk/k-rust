@@ -51,7 +51,8 @@
 
   The sentences with no counterpart in f2-examples/ens.kompile.kore are `unmapped` (11);
   the sentences of a class with a theorem that no theorem here holds of, and the user lemmas, are
-  `uncovered` (1).
+  `uncovered` (0): the user lemma 205 is proved for every H in test/CoolEq205.lean
+  (`KCore.CoolEq205.userlemma_entailed`).
 -/
 import KcoreSpec
 
@@ -171,9 +172,10 @@ def unmapped : List (Nat × String) :=
    (232, "function equation"), (233, "function equation"), (256, "no direction")]
 
 /-- The sentences of a class with a theorem in the tie that no theorem of this file holds of, and
-the user lemmas, of which the tie has no generated theorem: the tie's remainder on this text. -/
-def uncovered : List (Nat × String) :=
-  [(205, "user lemma")]
+the user lemmas, of which the tie has no generated theorem: the tie's remainder on this text. The
+user lemma 205 is not in it: `KCore.CoolEq205.userlemma_entailed` (test/CoolEq205.lean) proves
+`UserLemmaEntailed` over `userLemmaText = [U.ax205]`, on the same text, `cH` and `trS`. -/
+def uncovered : List (Nat × String) := []
 
 /-- Each listed sentence is in its class in the account. -/
 theorem lists_in_account : (unmapped ++ uncovered).all (fun ic => (classOf ic.2).contains ic.1) = true := by
