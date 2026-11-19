@@ -299,7 +299,8 @@ pub struct AdmittedSpec {
     /// from what admission already loaded.
     pub exclusions: DefinitionExclusions,
     /// What every program's second slot compares: the cells the specification does not declare
-    /// unobservable, narrowed by `[result] cells` (stage `result`; [`crate::observed`]).
+    /// unobservable, narrowed to the cells the projections compare (`FlowManifest::record_cells`;
+    /// stage `result`; [`crate::observed`]).
     pub result: ResultProjection,
     /// The skeleton of the condition of every authored sentence behind a guarded rewrite rule or
     /// function equation (kink-native `coverage::guard_skeletons`), read once from the input
@@ -1219,6 +1220,7 @@ fn admit_definition(
         &ValidatedDefinition,
     ) -> Result<DeclarationCensus, CensusError>,
 ) -> Result<(AdmittedSpec, Backend), AdmissionRefusal> {
+    projections_supported(manifest)?;
     let spec = &manifest.spec;
     let cases = below_floor_cases();
     let entry = manifest.directory.join(&spec.entry);
@@ -1235,19 +1237,13 @@ fn admit_definition(
     // definition exclusions all read it.
     let kore = k_rust::kore::parser::parse_definition(&compiled.artifacts().definition_kore)
         .map_err(|e| input_gate_refusal(format!("could not parse KORE definition: {e}")))?;
-    let result = result_projection(
-        &compiled,
-        &kore,
-        manifest
-            .result
-            .as_ref()
-            .map(|section| section.cells.as_slice()),
-    )
-    .map_err(|refusal| AdmissionRefusal {
-        stage: "result".into(),
-        reason: refusal.reason().into(),
-        detail: refusal.to_string(),
-    })?;
+    let result = result_projection(&compiled, &kore, manifest.record_cells.as_deref()).map_err(
+        |refusal| AdmissionRefusal {
+            stage: "result".into(),
+            reason: refusal.reason().into(),
+            detail: refusal.to_string(),
+        },
+    )?;
     // The input backend (kink-corpus `input_backend`: the compiled KORE for the main module,
     // refused as `inputs`/`input-gate`), with the corpus's solver budget.
     let mut backend = Backend::from_definition(
@@ -1408,6 +1404,43 @@ fn stop_condition_bound(
     }
 }
 
+/// The flow's projections are ones its front end resolves, or the specification is refused at
+/// stage `projection`, reason `unsupported-front-end`: a projection with `views` or `observer`
+/// compares functions of the values of cells, evaluated in an observer definition, and a K corpus
+/// (no front end bound its definition, [`FlowManifest::definition`]) runs through kink-flow's K
+/// front end only, which reads terms of a K definition and has no observer to evaluate a function
+/// in (projections package, README D3). A front end that binds the definition resolves the
+/// projection's views itself, as the krs front end resolves a view's.
+pub(crate) fn projections_supported(manifest: &FlowManifest) -> Result<(), AdmissionRefusal> {
+    if manifest.definition.is_some() {
+        return Ok(());
+    }
+    let Some(projection) = manifest
+        .projections
+        .iter()
+        .find(|projection| projection.has_front_end_keys())
+    else {
+        return Ok(());
+    };
+    Err(AdmissionRefusal {
+        stage: "projection".into(),
+        reason: "unsupported-front-end".into(),
+        detail: format!(
+            "the projection `{}` compares through {}: a function of an observer is evaluated on \
+             the values of the cells it reads, and kink-flow's K front end reads terms of a K \
+             definition with no observer to evaluate it in: compare the cells as they are, or \
+             run the corpus through a front end that reads values (`krs kink`)",
+            projection.name,
+            projection
+                .front_end
+                .keys()
+                .map(|key| format!("`{key}`"))
+                .collect::<Vec<_>>()
+                .join(" and ")
+        ),
+    })
+}
+
 /// `[observe]` states an observation of the specification, or the specification is refused at
 /// stage `observe`:
 /// - `unsupported-front-end`: a key that names a function of an observer (`observer`, a class's
@@ -1555,5 +1588,74 @@ fn program_text(source: &ProgramSource, bytes: Cow<'_, [u8]>) -> Result<String, 
         ProgramSource::Text(text) => Ok(text.clone()),
         ProgramSource::File(name) => String::from_utf8(bytes.into_owned())
             .map_err(|e| load_refusal(format!("{name} is not UTF-8: {e}"))),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::projections_supported;
+    use crate::manifest::{ManifestFile, SpecSection};
+    use std::path::Path;
+
+    const VIEWS: &str = "[[projection]]\nname = \"bus\"\nviews = { bus = \"WritesView\" }\nobserver = \"p:views\"\n";
+
+    /// kink-flow's K front end refuses a projection with `views` or `observer` (README D3), and
+    /// a manifest a front end bound is not refused here: that front end resolves them.
+    #[test]
+    fn a_projection_with_views_is_refused_under_the_k_front_end_only() {
+        let k = ManifestFile::decode(
+            &format!("[spec]\nentry = \"calc.k\"\nmain_module = \"CALC\"\n\n{VIEWS}"),
+            Path::new("."),
+        )
+        .unwrap()
+        .bind(None)
+        .unwrap();
+        let refusal = projections_supported(&k).unwrap_err();
+        assert_eq!(refusal.stage, "projection");
+        assert_eq!(refusal.reason, "unsupported-front-end");
+        assert!(
+            refusal
+                .detail
+                .starts_with("the projection `bus` compares through `observer` and `views`"),
+            "{}",
+            refusal.detail
+        );
+        let observer = ManifestFile::decode(
+            "[spec]\nentry = \"calc.k\"\nmain_module = \"CALC\"\n\n[[projection]]\nname = \
+             \"o\"\nobserver = \"p:views\"\n",
+            Path::new("."),
+        )
+        .unwrap()
+        .bind(None)
+        .unwrap();
+        assert_eq!(
+            projections_supported(&observer).unwrap_err().reason,
+            "unsupported-front-end"
+        );
+        // Cells as they are need no observer.
+        let plain = ManifestFile::decode(
+            "[spec]\nentry = \"calc.k\"\nmain_module = \"CALC\"\n\n[[projection]]\nname = \
+             \"p\"\ncompare = [\"k\"]\n",
+            Path::new("."),
+        )
+        .unwrap()
+        .bind(None)
+        .unwrap();
+        assert_eq!(projections_supported(&plain), Ok(()));
+        let krs = ManifestFile::decode(
+            &format!("[spec]\nkrs = {{ package = \"p\", definition = \"main\" }}\n\n{VIEWS}"),
+            Path::new("."),
+        )
+        .unwrap()
+        .bind(Some(SpecSection {
+            entry: "definition.k".into(),
+            main_module: "MAIN".into(),
+            syntax_module: None,
+            include_dirs: vec![".".into()],
+            md_selector: "k".into(),
+            assume_joined: Vec::new(),
+        }))
+        .unwrap();
+        assert_eq!(projections_supported(&krs), Ok(()));
     }
 }

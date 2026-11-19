@@ -17,7 +17,7 @@ The [workflow reference](/reference/workflow#the-corpus-loop) states every verb,
 
 ## What a kill means, and what it does not
 
-- A kill is a proved difference: for some admitted, comparable case, the mutant's ends differ from the specification's on the compared cells (every cell but the unobservable ones, or those `[result] cells` names).
+- A kill is a proved difference: for some admitted, comparable case, the mutant's ends differ from the specification's on the compared cells (every cell but the unobservable ones, or those the corpus's projections compare, `[[projection]] compare`).
 - A survivor is not a bug in the specification. It says that no case of the corpus tells the mutant apart: write a case that does, or argue that none can.
 - "No case found" is not "no case exists". Only an argument shows that no case exists, or kink showing the mutant to be the specification, the one mutant whose status is `equivalent`.
 - `unknown` is an honest non-answer: the run could not be judged, and its `cause` says why ([Unknowns and budgets](#unknowns-and-budgets)).
@@ -370,7 +370,7 @@ A run over `refused.toml` judges nothing and exits 2:
   A mutant is then killed at the first channel and index where both sides' elements are decided and differ, and the evidence names it (`bus[0]`) with both values (`krs-difference/4`); a mutant whose path returns to an earlier state with nothing new observed has no element there, ever, so a baseline element there kills it.
   A case that never ends is compared over the prefix its budget explores, up to each channel's horizon, and a survivor of it says the horizon it agrees up to.
   Views, components, filters and element functions are evaluated in the observer `observer` names, or the definition itself, for the definition and every mutant alike; a mutant that declares the read cells' constructors otherwise is `not-admitted` (`observation-incompatible`).
-- **Internal state.** State no case may observe is declared [`#[k::cell(unobservable)]`](/reference/language#unobservable-cells), or left out of `[result] cells`; a kill then needs a difference in a compared cell.
+- **Internal state.** State no case may observe is declared [`#[k::cell(unobservable)]`](/reference/language#unobservable-cells), or left out of every projection's `compare`; a kill then needs a difference in a compared cell.
 - **Claims an edit leaves unbacked.** An edit that leaves a trusted claim unbacked, which no removal takes away, makes the mutation `unknown` (`unsupported-claims`).
 
 ## Corpus layout and what to commit

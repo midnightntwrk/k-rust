@@ -4,7 +4,7 @@
 use kink_corpus::ProgramSource;
 use kink_flow::manifest::{
     Budget, DEFAULT_MAX_DEPTH, DEFAULT_TIME_MS, FlowManifest, KrsSpec, ManifestError, ManifestFile,
-    Program, SpecDecl, SpecSection,
+    Program, ProjectionKind, ProjectionSection, RecordCell, SpecDecl, SpecSection,
 };
 use std::path::{Path, PathBuf};
 
@@ -430,36 +430,236 @@ fn required_keys_types_and_bounds_are_checked() {
     assert!(syntax.message.starts_with("invalid TOML"), "{syntax}");
 }
 
+/// Two channels of `[observe]`, for the projections that name channels.
+const OBSERVE: &str = "[[observe.point]]\nname = \"ticks\"\nbefore = [\"CALC.tick\"]\nstutter = \
+                       \"count\"\ncells = [\"n\"]\n\n[[observe.log]]\nname = \"writes\"\ncell = \
+                       \"bus\"\nat = [\"ticks\"]\n\n";
+
 #[test]
-fn result_cells_decode_as_written_and_default_to_none() {
-    assert_eq!(decode(SPEC).unwrap().result, None);
-    let manifest = decode(&format!("{SPEC}[result]\ncells = [\"regs\", \"k\"]\n")).unwrap();
+fn a_flow_without_projections_has_the_default_one() {
+    let manifest = decode(SPEC).unwrap();
+    assert!(manifest.projections.is_empty());
+    assert_eq!(manifest.record_cells, None);
+    let default = ProjectionSection {
+        name: "default".into(),
+        kind: ProjectionKind::End,
+        compare: None,
+        front_end: serde_json::Map::new(),
+        channels: None,
+        domain: None,
+    };
+    assert_eq!(manifest.projections(), vec![default.clone()]);
+    assert_eq!(manifest.projection("default"), Some(default.clone()));
+    // The default compares every channel of `[observe]` besides every observable cell.
+    let observed = decode(&format!("{SPEC}{OBSERVE}")).unwrap();
     assert_eq!(
-        manifest.result,
-        Some(kink_flow::ResultSection {
-            cells: vec!["regs".into(), "k".into()],
+        observed.projections(),
+        vec![ProjectionSection {
+            channels: Some(vec!["ticks".into(), "writes".into()]),
+            ..default
+        }]
+    );
+    assert_eq!(observed.record_cells, None);
+}
+
+#[test]
+fn projections_decode_as_written_and_the_record_keeps_their_cells() {
+    let manifest = decode(&format!(
+        "{SPEC}{OBSERVE}[[projection]]\nname = \"regs\"\ncompare = [\"regs\", \"pc\"]\n\n\
+         [[projection]]\nname = \"bus\"\nkind = \"end\"\ncompare = [\"bus\", \"pc\"]\nviews = \
+         {{ bus = \"WritesView\" }}\nobserver = \"p:views\"\nchannels = [\"writes\"]\ndomain = \
+         [\"cases/io/**\"]\n\n[[projection]]\nname = \"t\"\nkind = \"trace\"\nchannels = \
+         [\"ticks\"]\n"
+    ))
+    .unwrap();
+    let names = manifest
+        .projections
+        .iter()
+        .map(|projection| projection.name.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(names, ["regs", "bus", "t"]);
+    // No implicit default beside declared projections.
+    assert_eq!(manifest.projections(), manifest.projections);
+    assert_eq!(manifest.projection("default"), None);
+    let bus = manifest.projection("bus").unwrap();
+    assert_eq!(bus.kind, ProjectionKind::End);
+    assert_eq!(
+        bus.value(),
+        serde_json::json!({
+            "name": "bus", "kind": "end", "compare": ["bus", "pc"],
+            "views": {"bus": "WritesView"}, "observer": "p:views",
+            "channels": ["writes"], "domain": ["cases/io/**"],
         })
+    );
+    let trace = manifest.projection("t").unwrap();
+    assert_eq!(trace.kind, ProjectionKind::Trace);
+    assert_eq!(trace.compare, None);
+    assert_eq!(trace.channels, Some(vec!["ticks".into()]));
+    // The union of the cells the projections compare, each once with the first projection that
+    // names it; a trace projection keeps none.
+    let kept = |cell: &str, projection: &str| RecordCell {
+        cell: cell.into(),
+        projection: projection.into(),
+    };
+    assert_eq!(
+        manifest.record_cells,
+        Some(vec![
+            kept("regs", "regs"),
+            kept("pc", "regs"),
+            kept("bus", "bus")
+        ])
+    );
+    assert_eq!(
+        manifest.record_cell_names(),
+        Some(vec!["regs".into(), "pc".into(), "bus".into()])
     );
 }
 
 #[test]
-fn result_cells_errors_name_the_key() {
-    for (text, message) in [
-        ("[result]\n", "missing required key"),
-        ("[result]\ncells = []\n", "at least one cell"),
-        ("[result]\ncells = \"k\"\n", "expected an array"),
-        ("[result]\ncells = [\"k\", \"k\"]\n", "names `k` twice"),
-        ("[result]\ncells = [\"\"]\n", "entry 0 is empty"),
-        ("[result]\ncells = [\"k\", 3]\n", "entry 1 is not a string"),
+fn a_projection_that_compares_every_cell_keeps_every_cell_in_the_record() {
+    for every in [
+        "[[projection]]\nname = \"all\"\n",
+        "[[projection]]\nname = \"all\"\nviews = { bus = \"WritesView\" }\n",
+        "[[projection]]\nname = \"a\"\nkind = \"accepts\"\n",
     ] {
-        assert_error(&format!("{SPEC}{text}"), "result.cells", message);
+        let manifest = decode(&format!(
+            "{SPEC}[[projection]]\nname = \"regs\"\ncompare = [\"regs\"]\n\n{every}"
+        ))
+        .unwrap();
+        assert_eq!(manifest.record_cells, None, "{every}");
+    }
+    // Every projection a trace projection: the record keeps no cell of the end.
+    let traces = decode(&format!(
+        "{SPEC}{OBSERVE}[[projection]]\nname = \"t\"\nkind = \"trace\"\nchannels = [\"ticks\"]\n"
+    ))
+    .unwrap();
+    assert_eq!(traces.record_cells, Some(Vec::new()));
+}
+
+#[test]
+fn projection_errors_name_the_key() {
+    let p = "[[projection]]\nname = \"p\"\n";
+    for (text, key, message) in [
+        (
+            "[[projection]]\ncompare = [\"k\"]\n",
+            "projection[0].name",
+            "missing",
+        ),
+        (
+            "[[projection]]\nname = \" \"\n",
+            "projection[0].name",
+            "is blank",
+        ),
+        (
+            "[[projection]]\nname = \"p\"\n\n[[projection]]\nname = \"p\"\n",
+            "projection[1].name",
+            "`p` is declared twice (projection[0] declares it first)",
+        ),
+        (
+            "[[projection]]\nname = \"p\"\nkind = \"metric\"\n",
+            "projection[0].kind",
+            "`metric` is not a kind of this build",
+        ),
+        (
+            "[[projection]]\nname = \"p\"\nkind = \"view\"\n",
+            "projection[0].kind",
+            "`view` is no kind: `end` (the default), `accepts` or `trace`",
+        ),
+        (
+            "[[projection]]\nname = \"p\"\nkind = 1\n",
+            "projection[0].kind",
+            "expected a string",
+        ),
+        (
+            "[[projection]]\nname = \"p\"\ncompare = []\n",
+            "projection[0].compare",
+            "names no cell",
+        ),
+        (
+            "[[projection]]\nname = \"p\"\ncompare = [\"k\", \"k\"]\n",
+            "projection[0].compare",
+            "names `k` twice",
+        ),
+        (
+            "[[projection]]\nname = \"p\"\ncompare = \"k\"\n",
+            "projection[0].compare",
+            "expected an array of cell names",
+        ),
+        (
+            "[[projection]]\nname = \"p\"\nviews = { bus = 1 }\n",
+            "projection[0].views",
+            "expected a table of nonempty strings",
+        ),
+        (
+            "[[projection]]\nname = \"p\"\nkind = \"accepts\"\ncompare = [\"k\"]\n",
+            "projection[0].compare",
+            "an `accepts` projection",
+        ),
+        (
+            "[[projection]]\nname = \"p\"\nkind = \"trace\"\ncompare = [\"k\"]\n",
+            "projection[0].compare",
+            "a `trace` projection",
+        ),
+        (
+            "[[projection]]\nname = \"p\"\nkind = \"trace\"\n",
+            "projection[0].channels",
+            "a `trace` projection compares the channels",
+        ),
+        (
+            "[[projection]]\nname = \"p\"\nchannels = [\"ticks\"]\n",
+            "projection[0].channels",
+            "the flow declares none",
+        ),
+        (
+            "[[projection]]\nname = \"p\"\nslots = 2\n",
+            "projection[0].slots",
+            "unknown key",
+        ),
+        (
+            "[[projection]]\nname = \"p\"\ndomain = []\n",
+            "projection[0].domain",
+            "names no case",
+        ),
+        (
+            "[[projection]]\nname = \"p\"\ndomain = \"x\"\n",
+            "projection[0].domain",
+            "expected an array of case patterns",
+        ),
+        (
+            "[[projection]]\nname = \"p\"\ndomain = [\"/abs\"]\n",
+            "projection[0].domain[0]",
+            "is absolute",
+        ),
+    ] {
+        assert_error(&format!("{SPEC}{text}"), key, message);
     }
     assert_error(
-        &format!("{SPEC}[result]\ncells = [\"k\"]\nslots = 2\n"),
-        "result.slots",
-        "unknown key",
+        &format!("projection = 1\n{SPEC}"),
+        "projection",
+        "expected [[projection]] tables",
     );
-    assert_error(&format!("result = 1\n{SPEC}"), "result", "expected a table");
+    assert_error(
+        &format!("{SPEC}{OBSERVE}{p}channels = [\"ticks\", \"tocks\"]\n"),
+        "projection[0].channels[1]",
+        "`tocks` is no channel of [observe] (its channels: `ticks`, `writes`)",
+    );
+    assert_error(
+        &format!("{SPEC}{OBSERVE}{p}kind = \"trace\"\nchannels = []\n"),
+        "projection[0].channels",
+        "names no channel",
+    );
+}
+
+/// `[result] cells` is replaced by `[[projection]]` (projections package, gate G4): a manifest
+/// that writes it is refused with what replaces it.
+#[test]
+fn result_is_refused_with_what_replaces_it() {
+    for text in [
+        format!("{SPEC}[result]\ncells = [\"k\"]\n"),
+        format!("result = 1\n{SPEC}"),
+    ] {
+        assert_error(&text, "result", "[result] is replaced by [[projection]]");
+    }
 }
 
 // ---------------------------------------------------------------------------------------
@@ -579,8 +779,8 @@ fn each_front_end_refuses_the_other_declaration() {
 
 #[test]
 fn binding_a_krs_spec_is_decoding_the_spec_written_out() {
-    let programs = "[budget]\ntime_ms = 7\nwork_factor = 2\n\n[result]\ncells = [\"k\"]\n\n\
-                    [[program]]\nid = \"t1\"\nfile = \"cases/t1.nat\"\n";
+    let programs = "[budget]\ntime_ms = 7\nwork_factor = 2\n\n[[projection]]\nname = \"k\"\n\
+                    compare = [\"k\"]\n\n[[program]]\nid = \"t1\"\nfile = \"cases/t1.nat\"\n";
     let bound = decode_file(&format!("{KRS_SPEC}{programs}"))
         .unwrap()
         .bind(Some(emitted()))

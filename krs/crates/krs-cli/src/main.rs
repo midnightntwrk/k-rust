@@ -276,8 +276,8 @@ The corpus is <package>/kink (or --corpus DIR):
                     the corpus directory, or, where [corpus] root = \"REL\" names the root
                     the cases are under (one tree of cases that the flows of several
                     definitions read, each case with one id in all of them), are relative
-                    to that root and stay inside it; [result] cells names cells by Rust path
-                    (cpu.regs), as krs compare does; each [[implementation]] is another
+                    to that root and stay inside it; [[projection]] compare names cells by
+                    Rust path (cpu.regs), as krs compare does; each [[implementation]] is another
                     implementation of the system, which compare runs on every case and
                     compares with the definition under its views; [[patterns]] declares
                     the patterns query and fuzz --pattern ask: files = \"GLOB\" matches

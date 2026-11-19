@@ -1370,7 +1370,8 @@ fn a_difference_of_prefix_sets_names_the_side_outside() {
         dir.join("FLOW.toml"),
         "[spec]\nentry = \"choice.k\"\nmain_module = \"CHOICE\"\n\
          syntax_module = \"CHOICE-SYNTAX\"\n\n[budget]\nmax_depth = 8\n\n\
-         [result]\ncells = [\"k\"]\n\n\
+         [[projection]]\nname = \"default\"\ncompare = [\"k\"]\n\
+         channels = [\"finished\", \"out\"]\n\n\
          [[observe.point]]\nname = \"finished\"\nafter = [\"CHOICE.finish\"]\n\
          stutter = \"collapse\"\ncells = []\n\n\
          [[observe.log]]\nname = \"out\"\ncell = \"out\"\nat = [\"finished\"]\n\n\

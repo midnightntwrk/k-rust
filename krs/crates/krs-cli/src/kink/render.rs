@@ -56,7 +56,7 @@
 //! An expectation kink's observation cannot decide is inconclusive, saying why: an end stopped
 //! at a rule the corpus does not stop at, or with no `[stop]`. An expectation of a `depth-bound`
 //! end is refused as `krs run --case` refuses it, since no end meets it. A cell the
-//! expectation compares that the corpus's `[result]` leaves out is not in the ends kink keeps,
+//! expectation compares that the corpus's projections leave out is not in the ends kink keeps,
 //! which makes the check inconclusive too.
 //!
 //! An expectation may state the declared class of a stuck end (`class`, `end`, `reason`), in a
@@ -831,7 +831,7 @@ fn checked(
     Ok(match compared {
         Err(error @ EndError::MissingCell { .. }) => CheckedExpectation::inconclusive(format!(
             "{error}: the ends kink keeps leave out the cells the corpus does not compare \
-             ([result], unobservable cells)"
+             (cells no projection compares, unobservable cells)"
         )),
         Err(error) => return Err(error.to_string()),
         Ok(Compared::Equal) if halt == HaltCheck::Unobserved => {
@@ -940,8 +940,8 @@ fn run_end(
         Some(Ok(Ok(end))) => Ok(Ok(end)),
         Some(Ok(Err(undecided))) => {
             let cells = if left_out {
-                "; the corpus leaves cells out of its ends ([result], unobservable cells), and \
-                 the class may depend on their content"
+                "; the corpus leaves cells out of its ends (cells no projection compares, \
+                 unobservable cells), and the class may depend on their content"
             } else {
                 ""
             };

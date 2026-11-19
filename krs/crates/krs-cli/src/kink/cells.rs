@@ -1,4 +1,5 @@
-//! `[result] cells` in a KRS corpus: each cell named by its declared Rust path, as every krs
+//! The cells a KRS corpus's projections compare (`[[projection]] compare`), which its result
+//! record keeps: each cell named by its declared Rust path, as every krs
 //! surface names it (a case's `expect.compare`, `krs compare --compare`, a kill's
 //! `krs-difference/3`), or by its K name, mapped to the K cell names kink-flow reads.
 //!
@@ -17,9 +18,11 @@
 //! also another cell's path, the entry is that cell's, the reading every krs surface gives it.
 //! The documents state the reading of every entry (`result.krs.cells`), so a reading is never
 //! silent. An entry that is neither refuses the corpus at stage `result`, reason
-//! `result-cell-unknown`, naming each cell's path with its K cell; two entries that name one
-//! cell (its path and its K name, which kink-flow's decode cannot see as one) refuse it there,
-//! reason `result-cell-repeated`, naming both.
+//! `result-cell-unknown`, naming each cell's path with its K cell; two entries of one projection
+//! that name one cell (its path and its K name, which kink-flow's decode cannot see as one)
+//! refuse it there, reason `result-cell-repeated`, naming both. Two projections may name one cell,
+//! by either spelling. Only the record's cells are bound here: a projection's own `compare` stays
+//! as written, the spelling a view naming it is read in.
 //!
 //! kink-flow then judges the K names as for a K corpus (an unobservable cell, a cell inside one),
 //! and the front end adds to its refusal, and to every document's `result`, the cells by path:
@@ -72,7 +75,7 @@ impl CellNames {
         Self { cells }
     }
 
-    /// The K name an entry of `[result] cells` reads as (module documentation).
+    /// The K name an entry of a projection's `compare` reads as (module documentation).
     fn read(&self, written: &str) -> Option<&str> {
         self.cells
             .iter()
@@ -107,49 +110,70 @@ impl CellNames {
     }
 }
 
-/// `manifest` with its `[result] cells` mapped to K cell names, and the reading of each entry
-/// (`result.krs.cells`: each entry as written to its K name); `manifest` unchanged and no reading
-/// without `[result]`.
+/// `manifest` with the cells its result record keeps (`FlowManifest::record_cells`, the union of
+/// its projections' `compare`) mapped to K cell names, and the reading of each entry of a
+/// projection's `compare` (`result.krs.cells`: each entry as written to its K name); `manifest`
+/// unchanged and no reading when its projections narrow nothing. Each projection's `compare`
+/// stays as written: a view naming the projection reads its cells by path, as a view written
+/// inline does.
 ///
 /// # Errors
 ///
 /// `result-cell-unknown` for an entry that is neither a cell's path nor its K name, and
-/// `result-cell-repeated` for two entries that name one cell (by its path and by its K name).
+/// `result-cell-repeated` for two entries of one projection that name one cell (by its path and
+/// by its K name).
 pub(crate) fn bind(
     mut manifest: FlowManifest,
     names: &CellNames,
 ) -> Result<(FlowManifest, Option<BTreeMap<String, String>>), Unbound> {
-    let Some(result) = manifest.result.as_mut() else {
+    let Some(kept) = manifest.record_cells.as_mut() else {
         return Ok((manifest, None));
     };
     let mut readings = BTreeMap::new();
-    let mut cells = Vec::with_capacity(result.cells.len());
-    for written in &result.cells {
-        let Some(name) = names.read(written) else {
-            return Err(Unbound {
-                reason: "result-cell-unknown",
-                detail: format!(
-                    "[result] cells names `{written}`, which is neither the Rust path nor the K \
-                     name of a cell of the configuration; name a cell by its Rust path (its K \
-                     cell in brackets): {}",
-                    names.listed()
-                ),
-            });
-        };
-        if let Some((first, _)) = readings.iter().find(|(_, read)| *read == name) {
-            return Err(Unbound {
-                reason: "result-cell-repeated",
-                detail: format!(
-                    "[result] cells names the cell `{}` (<{name}>) twice, as `{first}` and as \
-                     `{written}`; name it once",
-                    names.path_of(name).unwrap_or(name)
-                ),
+    for projection in &manifest.projections {
+        // The K name each entry of this projection reads as, with the entry, for a repeat.
+        let mut read = BTreeMap::<&str, &str>::new();
+        for written in projection.compare.iter().flatten() {
+            let Some(name) = names.read(written) else {
+                return Err(Unbound {
+                    reason: "result-cell-unknown",
+                    detail: format!(
+                        "the projection `{}` compares `{written}`, which is neither the Rust path \
+                         nor the K name of a cell of the configuration; name a cell by its Rust \
+                         path (its K cell in brackets): {}",
+                        projection.name,
+                        names.listed()
+                    ),
+                });
+            };
+            if let Some(first) = read.get(name) {
+                return Err(Unbound {
+                    reason: "result-cell-repeated",
+                    detail: format!(
+                        "the projection `{}` compares the cell `{}` (<{name}>) twice, as \
+                         `{first}` and as `{written}`; name it once",
+                        projection.name,
+                        names.path_of(name).unwrap_or(name)
+                    ),
+                });
+            }
+            read.insert(name, written);
+            readings.insert(written.clone(), name.to_owned());
+        }
+    }
+    // Every kept cell is an entry of some projection's `compare`, so it has a reading; two
+    // projections may name one cell by two spellings, which the record keeps once.
+    let mut bound = Vec::<kink_flow::RecordCell>::with_capacity(kept.len());
+    for cell in kept.drain(..) {
+        let name = readings.get(&cell.cell).cloned().unwrap_or(cell.cell);
+        if !bound.iter().any(|other| other.cell == name) {
+            bound.push(kink_flow::RecordCell {
+                cell: name,
+                projection: cell.projection,
             });
         }
-        readings.insert(written.clone(), name.to_owned());
-        cells.push(name.to_owned());
     }
-    result.cells = cells;
+    *kept = bound;
     Ok((manifest, Some(readings)))
 }
 
@@ -202,8 +226,8 @@ impl ResultNames {
         self.tell_refusal(document);
     }
 
-    /// A refusal of a cell of `[result] cells` (stage `result`, a reason `result-cell-..`), which
-    /// kink-flow states by K name, with each entry written otherwise and its K cell.
+    /// A refusal of a cell a projection compares (stage `result`, a reason `result-cell-..`),
+    /// which kink-flow states by K name, with each entry written otherwise and its K cell.
     fn tell_refusal(&self, document: &mut Value) {
         let Some(readings) = &self.readings else {
             return;
@@ -216,7 +240,7 @@ impl ResultNames {
         if renamed.is_empty() {
             return;
         }
-        let note = format!(" (as [result] cells writes them: {})", renamed.join(", "));
+        let note = format!(" (as the projections write them: {})", renamed.join(", "));
         let Some(spec) = document.get_mut("spec").and_then(Value::as_object_mut) else {
             return;
         };

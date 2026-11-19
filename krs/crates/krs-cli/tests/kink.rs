@@ -2000,14 +2000,17 @@ impl Machine {
 
 /// A kill's evidence compares the cells kink's slot compared and no other: by default every cell
 /// but the unobservable ones (`scratch`, and `regs.w` inside the group `regs`), and under
-/// `[result] cells = ["k"]` only `k` (the group `regs` is then left out whole). Each end is read
+/// one projection comparing `["k"]` only `k` (the group `regs` is then left out whole). Each end is read
 /// with the cells left out not stated, so the evidence is the KRS comparison's, with no note.
 #[test]
 fn a_kills_evidence_compares_the_cells_the_slot_compares() {
     let mut files = vec![("src/lib.rs".to_owned(), LEFT_OUT.as_bytes().to_vec())];
     for (corpus, result) in [
         ("kink", ""),
-        ("corpora/narrow", "[result]\ncells = [\"k\"]\n\n"),
+        (
+            "corpora/narrow",
+            "[[projection]]\nname = \"k\"\ncompare = [\"k\"]\n\n",
+        ),
     ] {
         files.push((
             format!("{corpus}/FLOW.toml"),
@@ -2068,7 +2071,7 @@ fn a_kills_evidence_compares_the_cells_the_slot_compares() {
     }
 }
 
-/// `[result] cells` names a cell by its Rust path, as every krs surface does, or by its K name
+/// A projection's `compare` names a cell by its Rust path, as every krs surface does, or by its K name
 /// where no cell has that name as its path: kink compares the cells it reads as, and every
 /// document's `result` gains them by path (`result.krs`) with the reading of each entry. A name
 /// that is neither is refused at stage `result` with each path and its K cell; an unobservable
@@ -2077,7 +2080,7 @@ fn a_kills_evidence_compares_the_cells_the_slot_compares() {
 #[test]
 #[expect(
     clippy::too_many_lines,
-    reason = "One corpus package states every reading of `[result] cells` side by side."
+    reason = "One corpus package states every reading of a projection's `compare` side by side."
 )]
 fn result_cells_are_named_by_rust_path() {
     let mut files = vec![("src/lib.rs".to_owned(), LEFT_OUT.as_bytes().to_vec())];
@@ -2091,7 +2094,7 @@ fn result_cells_are_named_by_rust_path() {
         files.push((
             format!("{corpus}/FLOW.toml"),
             format!(
-                "[spec]\nkrs = {{ definition = \"main\" }}\n\n[result]\ncells = {cells}\n\n[[program]]\nid = \"t1\"\nfile = \"cases/t1.exp\"\n"
+                "[spec]\nkrs = {{ definition = \"main\" }}\n\n[[projection]]\nname = \"p\"\ncompare = {cells}\n\n[[program]]\nid = \"t1\"\nfile = \"cases/t1.exp\"\n"
             )
             .into_bytes(),
         ));
@@ -2188,9 +2191,9 @@ fn result_cells_are_named_by_rust_path() {
     );
     assert_eq!(
         refused["spec"]["detail"],
-        "[result] cells names `regs.b`, which is neither the Rust path nor the K name of a cell \
-         of the configuration; name a cell by its Rust path (its K cell in brackets): k (<k>), \
-         regs (<regs>), regs.a (<a>), regs.w (<w>), scratch (<scratch>)",
+        "the projection `p` compares `regs.b`, which is neither the Rust path nor the K name of a \
+         cell of the configuration; name a cell by its Rust path (its K cell in brackets): k \
+         (<k>), regs (<regs>), regs.a (<a>), regs.w (<w>), scratch (<scratch>)",
         "{refused:#}"
     );
 
@@ -2205,7 +2208,8 @@ fn result_cells_are_named_by_rust_path() {
     );
     assert_eq!(
         refused["spec"]["detail"],
-        "[result] cells names the cell `regs.a` (<a>) twice, as `regs.a` and as `a`; name it once",
+        "the projection `p` compares the cell `regs.a` (<a>) twice, as `regs.a` and as `a`; name \
+         it once",
         "{refused:#}"
     );
 
@@ -2219,9 +2223,9 @@ fn result_cells_are_named_by_rust_path() {
     );
     let detail = refused["spec"]["detail"].as_str().unwrap_or_default();
     assert!(
-        detail
-            .starts_with("[result] cells names <w>, which the specification declares unobservable")
-            && detail.ends_with(" (as [result] cells writes them: `regs.w` is <w>)"),
+        detail.starts_with(
+            "the projection `p` compares <w>, which the specification declares unobservable"
+        ) && detail.ends_with(" (as the projections write them: `regs.w` is <w>)"),
         "{refused:#}"
     );
 }
@@ -4568,7 +4572,10 @@ fn harts_workspace(
         );
     }
     let corpora = [
-        ("kink", "[result]\ncells = [\"pc\"]\n\n"),
+        (
+            "kink",
+            "[[projection]]\nname = \"pc\"\ncompare = [\"pc\"]\n\n",
+        ),
         ("corpora/all", ""),
     ];
     for (corpus, result) in corpora {

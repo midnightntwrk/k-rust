@@ -11,8 +11,8 @@
 //!
 //! The front end adds, on the way in, how a case's typed inputs and its expectation are read
 //! (the encoding KRS derives from the definition's declared types, the `inputs` and `render`
-//! submodules), the K names of the cells `[result]` names by Rust path (the `cells` submodule),
-//! the exact K labels of the rules `[stop]` names by KRS item or label as
+//! submodules), the K names of the cells the projections compare by Rust path (the `cells`
+//! submodule), the exact K labels of the rules `[stop]` names by KRS item or label as
 //! `krs run --stop-before` does (the `stop` submodule, over the native compile the `inputs`
 //! submodule makes; a name that selects no rewrite rule refuses the corpus at stage `stop`,
 //! reason `stop-unresolved`), the stop condition `[stop] when` names with KRS's spellings,
@@ -1241,9 +1241,9 @@ impl BoundNames {
 
 /// The corpus `declared` bound to the K of `emitted`, with what only the front end knows of it
 /// ([`with_front_end_facts`], the expectations' views evaluated in `observers`, and the syntax
-/// family's authored sorts and template binders, `syntax`'s selection), the cells
-/// `[result]` names by Rust path or K name as the K names kink-flow reads ([`cells::bind`]), and
-/// the rules `[stop]` names by KRS item or label as the exact K labels kink-flow reads
+/// family's authored sorts and template binders, `syntax`'s selection), the cells the
+/// projections compare by Rust path or K name as the K names kink-flow reads ([`cells::bind`]),
+/// and the rules `[stop]` names by KRS item or label as the exact K labels kink-flow reads
 /// ([`stop::bind`]), and `[observe]` named with KRS's spellings resolved, its rules as exact K
 /// labels and its cells as K names, with the functions that give its elements
 /// ([`observe::bind`]); the labels each `[stop]` name selects, the labels and cells each

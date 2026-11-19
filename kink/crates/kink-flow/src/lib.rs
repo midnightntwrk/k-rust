@@ -110,8 +110,9 @@ pub use kink_native::data::SentenceNames;
 pub use manifest::{
     Budget, CaseRoot, CorpusSection, Decoder, FlowManifest, Given, IdentitySection,
     ImplementationSection, KrsSpec, LogSection, ManifestError, ManifestFile, ObserveFunctionsSlot,
-    ObserveSection, PatternsEntry, PointSection, Program, Protocol, ResultSection, SpecDecl,
-    SpecSection, StopSection, StopWhenSection, StopWhenSlot, ViewSection,
+    ObserveSection, PatternsEntry, PointSection, Program, ProjectionKind, ProjectionSection,
+    Protocol, RecordCell, SpecDecl, SpecSection, StopSection, StopWhenSection, StopWhenSlot,
+    ViewSection,
 };
 pub use mutation::{
     EditAction, EditSpec, EditedRule, Expect, InvalidMutation, InvalidReason, LabelMatch, Mutation,

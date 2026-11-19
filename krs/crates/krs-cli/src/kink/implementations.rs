@@ -17,7 +17,7 @@
 //! - A view compares its `compare` cells (default: every observable leaf cell the implementation
 //!   states), through its `views` functions, resolved in its `observer` (default: the
 //!   definition). A compared cell the implementation omits makes the view `not-compared`
-//!   (`omitted`), as does one the corpus's ends leave out (`[result]`, `left-out`).
+//!   (`omitted`), as does one the corpus's ends leave out (the projections' cells, `left-out`).
 //! - The definition's ends are kink's (its baseline run, truncated at `[stop]`), each read as a
 //!   krs-exec end with the cells kink leaves out unstated; both sides are compared by their
 //!   cells, since kink-flow compares the words `stopped` and `final` itself. Where the definition
@@ -193,8 +193,8 @@ fn comparison(
         .find(|path| left_out.iter().any(|cell| overlap(path, cell)))
     {
         return Ok(Err(NotCompared::LeftOut(format!(
-            "the view compares `{path}`, which the corpus's ends leave out ([result], unobservable \
-             cells): the definition's side does not state it"
+            "the view compares `{path}`, which the corpus's ends leave out (cells no projection \
+             compares, unobservable cells): the definition's side does not state it"
         ))));
     }
     let left_out_or_omitted = left_out

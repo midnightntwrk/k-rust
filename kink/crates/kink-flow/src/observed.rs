@@ -6,14 +6,16 @@
 //! unobservable ones: it is the whole final term (slot `whole-term`) when the configuration
 //! declares no unobservable cell, and otherwise the final term with the content of each maximal
 //! unobservable cell replaced by `\top` of its sort (slot `cells`, kink-campaign
-//! `StateProjection::Cells`). A manifest may narrow the compared cells (`[result] cells`); it can
-//! never widen them past the specification's statement, so naming an unobservable cell, or a cell
-//! inside one, is refused.
+//! `StateProjection::Cells`). The manifest's projections narrow the compared cells to the union
+//! of the cells they compare (`FlowManifest::record_cells`; `[[projection]] compare`); they can
+//! never widen them past the specification's statement, so a projection naming an unobservable
+//! cell, or a cell inside one, is refused. A narrowing to no cell (every projection a `trace`
+//! projection) leaves out every cell the specification declares.
 //!
 //! The cells are kink-campaign's [`CellLayout`] of the compiled configuration. Without a
 //! narrowing the second slot is [`CellLayout::unobservable_projection`]. The layout is a premise
 //! only of a projection that leaves something out, so a specification that declares no
-//! unobservable cell and names no `[result] cells` compares the whole term whether or not its
+//! unobservable cell and whose projections narrow nothing compares the whole term whether or not its
 //! cells can be placed: it is refused at stage `result` only when the layout is needed, and
 //! otherwise the layout only names the compared cells in the documents.
 //!
@@ -33,7 +35,7 @@
 //! turn (`result-cell-unobservable`): only a narrowing to cells outside it leaves it out whole.
 //!
 //! `<generatedTop>` and `<generatedCounter>` are compilation's cells, not the specification's:
-//! neither is named in a document, neither can be named in `[result] cells`, and the counter's
+//! neither is named in a document, neither can be named in a projection's `compare`, and the counter's
 //! content is erased by every projection of a final term.
 
 use std::collections::BTreeSet;
@@ -46,6 +48,8 @@ use kink_campaign::{
 };
 use kink_native::ValidatedDefinition;
 use serde_json::{Value, json};
+
+use crate::manifest::RecordCell;
 
 /// The KORE symbol of compilation's fresh-name counter cell, the top cell's last child.
 const GENERATED_COUNTER: &str = "Lbl'-LT-'generatedCounter'-GT-'";
@@ -62,8 +66,8 @@ pub struct ResultProjection {
     /// [`StateProjection::WholeTerm`] when nothing is left out; otherwise
     /// [`StateProjection::Cells`] over [`Self::not_compared`].
     pub state: StateProjection,
-    /// The maximal cells compared, in configuration preorder: the cells of `[result] cells` and
-    /// the key of each Map that encloses one when the manifest narrows them, otherwise the
+    /// The maximal cells compared, in configuration preorder: the cells the projections compare
+    /// and the key of each Map that encloses one when the projections narrow them, otherwise the
     /// outermost cells neither left out nor enclosing a cell left out. A cell listed here is
     /// compared except for the cells of [`Self::not_compared`] inside it. `None` when the second
     /// slot compares the whole term of a configuration whose cells cannot be placed
@@ -121,11 +125,20 @@ pub enum ResultRefusal {
     /// The configuration's cells cannot be placed or projected (kink-campaign's reasons:
     /// `cell-layout`, `unobservable-cell-outside-configuration`, `map-key-left-out`).
     Layout(CellLayoutRefusal),
-    /// `[result] cells` names no cell of the configuration (reason `result-cell-unknown`).
-    CellUnknown { cell: String, cells: Vec<String> },
-    /// `[result] cells` names an unobservable cell, or a cell inside one (reason
+    /// A projection's `compare` names no cell of the configuration (reason
+    /// `result-cell-unknown`).
+    CellUnknown {
+        cell: String,
+        projection: String,
+        cells: Vec<String>,
+    },
+    /// A projection's `compare` names an unobservable cell, or a cell inside one (reason
     /// `result-cell-unobservable`).
-    CellUnobservable { cell: String, unobservable: String },
+    CellUnobservable {
+        cell: String,
+        projection: String,
+        unobservable: String,
+    },
 }
 
 impl ResultRefusal {
@@ -144,29 +157,42 @@ impl fmt::Display for ResultRefusal {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Layout(refusal) => refusal.fmt(formatter),
-            Self::CellUnknown { cell, cells } => write!(
+            Self::CellUnknown {
+                cell,
+                projection,
+                cells,
+            } => write!(
                 formatter,
-                "[result] cells names <{cell}>, which is no cell of the configuration; name \
-                 cells the configuration declares: {}",
+                "the projection `{projection}` compares <{cell}>, which is no cell of the \
+                 configuration; name cells the configuration declares: {}",
                 cells
                     .iter()
                     .map(|cell| format!("<{cell}>"))
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
-            Self::CellUnobservable { cell, unobservable } if cell == unobservable => write!(
+            Self::CellUnobservable {
+                cell,
+                projection,
+                unobservable,
+            } if cell == unobservable => write!(
                 formatter,
-                "[result] cells names <{cell}>, which the specification declares unobservable: \
-                 a manifest may narrow the compared cells but never compare an unobservable one; \
-                 drop <{cell}> from [result] cells, or drop `unobservable` from its declaration \
-                 if a test may observe it"
+                "the projection `{projection}` compares <{cell}>, which the specification \
+                 declares unobservable: a projection may narrow the compared cells but never \
+                 compare an unobservable one; drop <{cell}> from the projection's `compare`, or \
+                 drop `unobservable` from its declaration if a test may observe it"
             ),
-            Self::CellUnobservable { cell, unobservable } => write!(
+            Self::CellUnobservable {
+                cell,
+                projection,
+                unobservable,
+            } => write!(
                 formatter,
-                "[result] cells names <{cell}>, which lies inside the unobservable cell \
-                 <{unobservable}>: a manifest may narrow the compared cells but never compare an \
-                 unobservable one; drop <{cell}> from [result] cells, or drop `unobservable` from \
-                 the declaration of <{unobservable}> if a test may observe it"
+                "the projection `{projection}` compares <{cell}>, which lies inside the \
+                 unobservable cell <{unobservable}>: a projection may narrow the compared cells \
+                 but never compare an unobservable one; drop <{cell}> from the projection's \
+                 `compare`, or drop `unobservable` from the declaration of <{unobservable}> if a \
+                 test may observe it"
             ),
         }
     }
@@ -175,12 +201,13 @@ impl fmt::Display for ResultRefusal {
 impl std::error::Error for ResultRefusal {}
 
 /// What the second slot of every program of `compiled` compares, narrowed to the cells
-/// `narrowed` when the manifest names them (`[result] cells`; module documentation). `kore` is
-/// `compiled`'s `definition.kore`, parsed.
+/// `narrowed` when the projections narrow them (`FlowManifest::record_cells`, each cell with the
+/// projection that names it; module documentation). `kore` is `compiled`'s `definition.kore`,
+/// parsed.
 pub fn result_projection(
     compiled: &ValidatedDefinition,
     kore: &KoreDefinition,
-    narrowed: Option<&[String]>,
+    narrowed: Option<&[RecordCell]>,
 ) -> Result<ResultProjection, ResultRefusal> {
     let layout = match CellLayout::of_parsed(compiled, kore) {
         Ok(layout) => layout,
@@ -246,10 +273,15 @@ pub fn result_projection(
     };
 
     let mut chosen = BTreeSet::new();
-    for name in written {
+    for RecordCell {
+        cell: name,
+        projection,
+    } in written
+    {
         let Some(at) = layout.cell(name).filter(|&at| declared(at)) else {
             return Err(ResultRefusal::CellUnknown {
                 cell: name.clone(),
+                projection: projection.clone(),
                 cells: names(
                     &(0..cells.len())
                         .filter(|&at| declared(at))
@@ -263,6 +295,7 @@ pub fn result_projection(
         {
             return Err(ResultRefusal::CellUnobservable {
                 cell: name.clone(),
+                projection: projection.clone(),
                 unobservable: cells[hidden].name.clone(),
             });
         }
@@ -283,9 +316,12 @@ pub fn result_projection(
         .copied()
         .filter(|&at| !layout.ancestors(at).any(|above| chosen.contains(&above)))
         .collect::<Vec<_>>();
+    // The top cell encloses every compared cell; named here too so that a narrowing to no cell
+    // leaves out every cell the specification declares, its children.
     let enclosing = chosen
         .iter()
         .flat_map(|&at| layout.ancestors(at))
+        .chain([0])
         .collect::<BTreeSet<_>>();
     let mut left_out = (0..cells.len())
         .filter(|&at| {

@@ -15,6 +15,15 @@
 //! implementation of [`Protocol::V2`] or [`Protocol::V3`] is asked for a trace, and only one of
 //! [`Protocol::V3`] can answer that it rejects a program.
 //!
+//! A view written inline is an anonymous projection. A view may instead name one of the flow's
+//! projections, `{ projection = NAME, required = BOOL }` ([`super::ProjectionSection`]): its
+//! name is the projection's, and decoding resolves it to a view with the projection's keys
+//! ([`ViewSection::projection`]). A projection that compares both an end and channels is no view
+//! (a view is an end, a trace or an acceptance view). A projection without `compare` compares
+//! every observable cell, where an inline view without `compare` compares every cell the
+//! implementation states; the front end that resolves views tells them apart by
+//! [`ViewSection::projection`].
+//!
 //! What makes a declaration no declaration of any flow (a key of the wrong shape, a view with
 //! both a trace view's key and an end view's) fails decoding, as every key of the manifest does.
 //! What depends on the rest of the flow, or leaves the flow's other commands their meaning (a
@@ -23,8 +32,8 @@
 //! implementation is no input of `check`, `run` or `coverage`.
 
 use super::{
-    ManifestError, ObserveSection, front_end_key, join, known_keys, missing, names,
-    optional_string, required_string, table,
+    ManifestError, ObserveSection, ProjectionKind, ProjectionSection, front_end_key, join,
+    known_keys, missing, names, optional_string, required_string, table,
 };
 use toml::{Table, Value};
 
@@ -152,9 +161,12 @@ pub struct ViewSection {
     pub accepts: bool,
     /// The front end's keys of an end view, as JSON (`compare`, an array of cell names; `views`,
     /// a function by cell; `observer`): which cells are compared, and through which functions of
-    /// their values. Empty: every cell the implementation states, as values; and empty for a
-    /// trace view, which has none of them.
+    /// their values. Empty: every cell the implementation states, as values (for a view naming a
+    /// projection: every observable cell); and empty for a trace view, which has none of them.
     pub front_end: serde_json::Map<String, serde_json::Value>,
+    /// `projection`: the flow's projection the view names, whose name is the view's and whose
+    /// keys decoding copied into the view; `None` for a view written inline.
+    pub projection: Option<String>,
 }
 
 impl ImplementationSection {
@@ -305,7 +317,8 @@ impl ViewSection {
     }
 
     /// The view as documents name it: its name, `required`, and an end view's front-end keys or
-    /// a trace view's `channels`.
+    /// a trace view's `channels`, with `projection` for a view naming one (a view written inline
+    /// has the value it had before projections existed).
     #[must_use]
     pub fn value(&self) -> serde_json::Value {
         let mut value = self.front_end.clone();
@@ -314,6 +327,9 @@ impl ViewSection {
         }
         if self.accepts {
             value.insert("kind".into(), serde_json::json!("accepts"));
+        }
+        if let Some(projection) = &self.projection {
+            value.insert("projection".into(), serde_json::json!(projection));
         }
         value.insert("name".into(), serde_json::json!(self.name));
         value.insert("required".into(), serde_json::json!(self.required));
@@ -474,14 +490,6 @@ fn implementation(entry: &Table, prefix: &str) -> Result<ImplementationSection, 
 }
 
 fn view_entry(entry: &Table, key: &str) -> Result<ViewSection, ManifestError> {
-    known_keys(
-        entry,
-        key,
-        &[
-            "name", "required", "kind", "channels", "compare", "views", "observer",
-        ],
-    )?;
-    let name = nonblank(entry, key, "name")?;
     let required = match entry.get("required") {
         None => false,
         Some(Value::Boolean(required)) => *required,
@@ -492,6 +500,36 @@ fn view_entry(entry: &Table, key: &str) -> Result<ViewSection, ManifestError> {
             ));
         }
     };
+    if entry.contains_key("projection") {
+        if let Some(other) = entry
+            .keys()
+            .find(|other| !["projection", "required"].contains(&other.as_str()))
+        {
+            return Err(ManifestError::new(
+                join(key, other),
+                "a view naming a projection (`projection = NAME`) has `projection` and \
+                 `required` only: its name and what it compares are the projection's",
+            ));
+        }
+        let projection = nonblank(entry, key, "projection")?;
+        // Resolved against the flow's projections once they are decoded ([`resolve_views`]).
+        return Ok(ViewSection {
+            name: projection.clone(),
+            required,
+            channels: None,
+            accepts: false,
+            front_end: serde_json::Map::new(),
+            projection: Some(projection),
+        });
+    }
+    known_keys(
+        entry,
+        key,
+        &[
+            "name", "required", "kind", "channels", "compare", "views", "observer",
+        ],
+    )?;
+    let name = nonblank(entry, key, "name")?;
     let accepts = match entry.get("kind") {
         None => false,
         Some(Value::String(kind)) if kind == "accepts" => true,
@@ -558,7 +596,67 @@ fn view_entry(entry: &Table, key: &str) -> Result<ViewSection, ManifestError> {
         channels,
         accepts,
         front_end,
+        projection: None,
     })
+}
+
+/// Each view of `implementations` that names a projection, given the keys of the projection of
+/// that name among `projections` (the flow's, the implicit `default` included).
+///
+/// # Errors
+///
+/// A view naming no projection of the flow, or one that compares an end and channels.
+pub(super) fn resolve_views(
+    implementations: &mut [ImplementationSection],
+    projections: &[ProjectionSection],
+) -> Result<(), ManifestError> {
+    for (index, implementation) in implementations.iter_mut().enumerate() {
+        for (position, view) in implementation.views.iter_mut().enumerate() {
+            let Some(name) = view.projection.clone() else {
+                continue;
+            };
+            let key = format!("implementation[{index}].views[{position}].projection");
+            let Some(projection) = projections
+                .iter()
+                .find(|projection| projection.name == name)
+            else {
+                return Err(ManifestError::new(
+                    key,
+                    format!(
+                        "`{name}` is no projection of the flow (its projections: {})",
+                        projections
+                            .iter()
+                            .map(|projection| format!("`{}`", projection.name))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                ));
+            };
+            match projection.kind {
+                ProjectionKind::Accepts => view.accepts = true,
+                ProjectionKind::Trace => view.channels.clone_from(&projection.channels),
+                ProjectionKind::End => {
+                    if projection.channels.is_some() {
+                        return Err(ManifestError::new(
+                            key,
+                            format!(
+                                "the projection `{name}` compares the end's cells and channels, \
+                                 and a view compares one of them: name an `end` projection \
+                                 without `channels`, a `trace` projection or an `accepts` \
+                                 projection"
+                            ),
+                        ));
+                    }
+                    view.front_end.clone_from(&projection.front_end);
+                    if let Some(compare) = &projection.compare {
+                        view.front_end
+                            .insert("compare".into(), serde_json::json!(compare));
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 /// A required string that is not blank.
@@ -791,6 +889,106 @@ mod tests {
             let detail = refusal["detail"].as_str().unwrap();
             assert!(detail.starts_with(expected), "{text}\n{detail}");
             assert!(document["rows"].as_array().unwrap().is_empty());
+        }
+    }
+
+    /// A view may name a projection of the flow, `{ projection = NAME, required = BOOL }`
+    /// (projections package, PJ-10): its name is the projection's, and decoding gives it the
+    /// projection's keys, so compare reads it as it reads a view written inline.
+    #[test]
+    fn a_view_naming_a_projection_is_resolved_to_its_keys() {
+        let projections = "[[projection]]\nname = \"regs\"\ncompare = [\"regs\"]\nviews = { regs \
+                           = \"RegsView\" }\nobserver = \"p:views\"\n\n[[projection]]\nname = \
+                           \"a\"\nkind = \"accepts\"\n\n[[projection]]\nname = \"t\"\nkind = \
+                           \"trace\"\nchannels = [\"ticks\"]\n\n[[projection]]\nname = \
+                           \"all\"\n\n";
+        let manifest = decoded(&format!(
+            "{OBSERVE}{projections}{}",
+            x(
+                V2,
+                "{ projection = \"regs\", required = true }, { projection = \"a\" }, \
+                 { projection = \"t\", required = true }, { projection = \"all\" }, \
+                 { name = \"end\" }"
+            )
+        ))
+        .unwrap();
+        let views = &manifest.implementations[0].views;
+        let names = views
+            .iter()
+            .map(|view| view.name.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(names, ["regs", "a", "t", "all", "end"]);
+        assert!(views[0].is_end() && views[0].required);
+        assert_eq!(
+            views[0].value(),
+            json!({
+                "name": "regs", "required": true, "projection": "regs", "compare": ["regs"],
+                "views": {"regs": "RegsView"}, "observer": "p:views",
+            })
+        );
+        assert!(views[1].accepts && !views[1].required);
+        assert_eq!(
+            views[1].value(),
+            json!({"name": "a", "required": false, "projection": "a", "kind": "accepts"})
+        );
+        assert!(views[2].is_trace());
+        assert_eq!(views[2].channels, Some(vec!["ticks".to_owned()]));
+        // A projection without `compare` compares every observable cell; the view says which
+        // projection it is, unlike a view written inline, which compares every cell stated.
+        assert!(views[3].is_end() && views[3].front_end.is_empty());
+        assert_eq!(views[3].projection.as_deref(), Some("all"));
+        assert_eq!(views[4].projection, None);
+        assert_eq!(views[4].value(), json!({"name": "end", "required": false}));
+        assert_eq!(
+            manifest.implementations[0].declaration(manifest.observe.as_ref()),
+            Ok(())
+        );
+        // The implicit `default` of a flow without projections and without `[observe]` is an
+        // end view of every observable cell.
+        let default = one(&x("", "{ projection = \"default\", required = true }"));
+        assert!(default.views[0].is_end() && default.views[0].front_end.is_empty());
+        assert_eq!(default.views[0].name, "default");
+    }
+
+    #[test]
+    fn a_view_naming_no_projection_of_one_view_kind_does_not_decode() {
+        let end_and_channels =
+            "[[projection]]\nname = \"both\"\ncompare = [\"pc\"]\nchannels = [\"ticks\"]\n\n";
+        for (text, expected) in [
+            (
+                x("", "{ projection = \"nope\" }"),
+                "implementation[0].views[0].projection: `nope` is no projection of the flow (its \
+                 projections: `default`)",
+            ),
+            (
+                x("", "{ projection = \"default\", name = \"d\" }"),
+                "implementation[0].views[0].name: a view naming a projection",
+            ),
+            (
+                x("", "{ projection = \"default\", compare = [\"pc\"] }"),
+                "implementation[0].views[0].compare: a view naming a projection",
+            ),
+            (
+                x("", "{ projection = \"default\" }, { name = \"default\" }"),
+                "implementation[0].views[1].name: `default` is declared twice",
+            ),
+            (
+                format!(
+                    "{OBSERVE}{end_and_channels}{}",
+                    x(V2, "{ projection = \"both\" }")
+                ),
+                "implementation[0].views[0].projection: the projection `both` compares the end's \
+                 cells and channels",
+            ),
+            // With `[observe]`, the implicit default compares the end and every channel.
+            (
+                format!("{OBSERVE}{}", x(V2, "{ projection = \"default\" }")),
+                "implementation[0].views[0].projection: the projection `default` compares the \
+                 end's cells and channels",
+            ),
+        ] {
+            let error = decoded(&text).unwrap_err().to_string();
+            assert!(error.starts_with(expected), "{text}\n{error}");
         }
     }
 

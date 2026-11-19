@@ -66,6 +66,7 @@ mod case_document;
 mod case_pattern;
 mod implementation;
 mod pattern_sources;
+mod projection;
 
 use crate::admit::InputDecoder;
 use crate::evidence::{EndRenderer, Renderer};
@@ -73,6 +74,9 @@ use case_pattern::CasePattern;
 pub use implementation::{Given, IdentitySection, ImplementationSection, Protocol, ViewSection};
 use kink_corpus::ProgramSource;
 pub use pattern_sources::PatternsEntry;
+pub use projection::{
+    DEFAULT_PROJECTION, ProjectionKind, ProjectionSection, RecordCell, default_projection,
+};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt, fs,
@@ -112,9 +116,16 @@ pub struct FlowManifest {
     pub definition: Option<String>,
     pub budget: Budget,
     pub programs: Vec<Program>,
-    /// `[result]`: the cells the programs' second slot compares, when the manifest narrows them;
-    /// `None` compares every cell the specification does not declare unobservable.
-    pub result: Option<ResultSection>,
+    /// `[[projection]]`: the projections the flow declares, in the order written; empty when it
+    /// declares none, and then it has the one [`default_projection`] ([`Self::projections`]).
+    pub projections: Vec<ProjectionSection>,
+    /// The cells the result record keeps, the programs' second slot: the union of the cells the
+    /// declared projections compare, each with the first projection naming it, by the front
+    /// end's names (K names once a front end bound them); `None`, every cell the specification
+    /// does not declare unobservable, when the flow declares no projection or one that keeps
+    /// every cell (`projection::record_cells`). An implementation's views add none: an
+    /// implementation is no input of the definition's runs.
+    pub record_cells: Option<Vec<RecordCell>>,
     /// `[stop]`: where every program's run ends besides its own end, when the manifest says;
     /// `None`: every run ends where its paths end.
     pub stop: Option<StopSection>,
@@ -280,15 +291,6 @@ pub struct SpecSection {
     /// that grammar is refused at decode. Empty by default: a definition with a finding then has
     /// no data, and every mutation is `unknown` (`baseline-findings`).
     pub assume_joined: Vec<String>,
-}
-
-/// `[result]`: what the programs' second slot compares.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ResultSection {
-    /// `cells`: the K names of the cells compared (`regs` for `<regs>`), as written; nonempty,
-    /// each nonempty, without repeats. Every other cell is left out, except the cells that
-    /// enclose one of these; an unobservable cell inside one of these is left out too.
-    pub cells: Vec<String>,
 }
 
 /// `[coverage]`: what `coverage` asks of the corpus ([`crate::coverage`]). Every key is decoded
@@ -867,8 +869,10 @@ pub struct ManifestFile {
     pub spec: SpecDecl,
     pub budget: Budget,
     pub programs: Vec<Program>,
-    /// `[result]`, as [`FlowManifest::result`].
-    pub result: Option<ResultSection>,
+    /// `[[projection]]`, as [`FlowManifest::projections`].
+    pub projections: Vec<ProjectionSection>,
+    /// The cells the result record keeps, as [`FlowManifest::record_cells`].
+    pub record_cells: Option<Vec<RecordCell>>,
     /// `[stop]`, as [`FlowManifest::stop`], its rules as written.
     pub stop: Option<StopSection>,
     /// `[observe]`, as [`FlowManifest::observe`], its names as written.
@@ -937,6 +941,14 @@ impl ManifestFile {
     pub fn decode(text: &str, directory: &Path) -> Result<Self, ManifestError> {
         let top: Table = toml::from_str(text)
             .map_err(|e| ManifestError::new("", format!("invalid TOML: {e}")))?;
+        if top.contains_key("result") {
+            return Err(ManifestError::new(
+                "result",
+                "[result] is replaced by [[projection]]: `[[projection]] name = \"..\"` with \
+                 `compare = [..]` names the cells a projection compares, and the result record \
+                 keeps the cells every projection compares",
+            ));
+        }
         known_keys(
             &top,
             "",
@@ -944,7 +956,7 @@ impl ManifestFile {
                 "spec",
                 "corpus",
                 "budget",
-                "result",
+                "projection",
                 "stop",
                 "observe",
                 "coverage",
@@ -963,19 +975,28 @@ impl ManifestFile {
             None => Budget::default(),
             Some(value) => budget(value)?,
         };
-        let result = top.get("result").map(result).transpose()?;
         let stop = top.get("stop").map(stop).transpose()?;
         let observe = top.get("observe").map(observe).transpose()?;
+        let projections = top
+            .get("projection")
+            .map(|value| projection::projections(value, observe.as_ref()))
+            .transpose()?
+            .unwrap_or_default();
+        let record_cells = projection::record_cells(&projections);
         let coverage = top
             .get("coverage")
             .map(coverage)
             .transpose()?
             .unwrap_or_default();
-        let implementations = top
+        let mut implementations = top
             .get("implementation")
             .map(implementation::implementations)
             .transpose()?
             .unwrap_or_default();
+        implementation::resolve_views(
+            &mut implementations,
+            &effective_projections(&projections, observe.as_ref()),
+        )?;
         let patterns = top
             .get("patterns")
             .map(|value| pattern_sources::entries(value, directory))
@@ -1016,7 +1037,8 @@ impl ManifestFile {
             spec,
             budget,
             programs,
-            result,
+            projections,
+            record_cells,
             stop,
             observe,
             coverage,
@@ -1065,7 +1087,8 @@ impl ManifestFile {
             definition,
             budget: self.budget,
             programs: self.programs,
-            result: self.result,
+            projections: self.projections,
+            record_cells: self.record_cells,
             stop: self.stop,
             observe: self.observe,
             coverage: self.coverage,
@@ -1081,6 +1104,19 @@ impl ManifestFile {
             sentence_names: kink_native::data::SentenceNames::default(),
             syntax: None,
         })
+    }
+}
+
+/// The projections of a flow that declares `declared`: those, or the one [`default_projection`]
+/// over `observe` when there are none.
+fn effective_projections(
+    declared: &[ProjectionSection],
+    observe: Option<&ObserveSection>,
+) -> Vec<ProjectionSection> {
+    if declared.is_empty() {
+        vec![default_projection(observe)]
+    } else {
+        declared.to_vec()
     }
 }
 
@@ -1113,6 +1149,30 @@ impl FlowManifest {
     /// ([`ManifestFile::decode`], then [`ManifestFile::bind`] with no specification).
     pub fn decode(text: &str, directory: &Path) -> Result<Self, ManifestError> {
         ManifestFile::decode(text, directory)?.bind(None)
+    }
+
+    /// The projections the flow has: those it declares, in the order written, or the one
+    /// [`default_projection`] when it declares none.
+    #[must_use]
+    pub fn projections(&self) -> Vec<ProjectionSection> {
+        effective_projections(&self.projections, self.observe.as_ref())
+    }
+
+    /// The projection named `name` among [`Self::projections`].
+    #[must_use]
+    pub fn projection(&self, name: &str) -> Option<ProjectionSection> {
+        self.projections()
+            .into_iter()
+            .find(|projection| projection.name == name)
+    }
+
+    /// The names of the cells the result record keeps ([`Self::record_cells`] without the
+    /// projections naming them); `None` for every observable cell.
+    #[must_use]
+    pub fn record_cell_names(&self) -> Option<Vec<String>> {
+        self.record_cells
+            .as_ref()
+            .map(|cells| cells.iter().map(|kept| kept.cell.clone()).collect())
     }
 
     /// The tree the flow's cases are read from and stay inside: the root `[corpus]` names, else
@@ -1789,48 +1849,6 @@ fn argued(value: &Value, invariants: &[Invariant]) -> Result<Vec<ArguedItem>, Ma
         });
     }
     Ok(argued)
-}
-
-fn result(value: &Value) -> Result<ResultSection, ManifestError> {
-    let section = table(value, "result")?;
-    known_keys(section, "result", &["cells"])?;
-    let key = "result.cells";
-    let Some(Value::Array(entries)) = section.get("cells") else {
-        return Err(match section.get("cells") {
-            None => missing(key),
-            Some(_) => ManifestError::new(key, "expected an array of cell names"),
-        });
-    };
-    if entries.is_empty() {
-        return Err(ManifestError::new(
-            key,
-            "must name at least one cell; without [result] every cell the specification does \
-             not declare unobservable is compared",
-        ));
-    }
-    let mut cells = Vec::with_capacity(entries.len());
-    for (index, entry) in entries.iter().enumerate() {
-        let name = match entry {
-            Value::String(name) if !name.is_empty() => name.clone(),
-            Value::String(_) => {
-                return Err(ManifestError::new(
-                    key,
-                    format!("entry {index} is empty: name a cell of the configuration"),
-                ));
-            }
-            _ => {
-                return Err(ManifestError::new(
-                    key,
-                    format!("entry {index} is not a string: name a cell of the configuration"),
-                ));
-            }
-        };
-        if cells.contains(&name) {
-            return Err(ManifestError::new(key, format!("names `{name}` twice")));
-        }
-        cells.push(name);
-    }
-    Ok(ResultSection { cells })
 }
 
 /// `[stop]`: `before` and `after`, each an array of nonempty rule names without repeats, sorted,

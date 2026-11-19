@@ -1,6 +1,7 @@
 //! The compared cells: a cell the specification declares `unobservable` is left out of every
-//! comparison, a manifest may narrow the compared cells (`[result] cells`) but never compare an
-//! unobservable one, and every document names the slots and the cells compared.
+//! comparison, a manifest's projections may narrow the compared cells (`[[projection]] compare`)
+//! but never compare an unobservable one, and every document names the slots and the cells
+//! compared.
 //!
 //! The fixture is testdata/flow/unobservable: `unobs.k`, whose program `emit(1) ; note(2)` writes
 //! the observed `<out>` and the unobservable `<scratch>`; `plain.k`, the same definition without
@@ -51,12 +52,12 @@ fn fixture(test: &str, extra: &[(&str, &str)]) -> PathBuf {
     dir
 }
 
-/// `FLOW.toml` with `[result] cells` set to `cells`.
+/// `FLOW.toml` with one projection, `p`, comparing `cells`.
 fn narrowed(cells: &str) -> String {
     let manifest = fs::read_to_string(flow().join("FLOW.toml")).unwrap();
     manifest.replace(
         "[[program]]",
-        &format!("[result]\ncells = {cells}\n\n[[program]]"),
+        &format!("[[projection]]\nname = \"p\"\ncompare = {cells}\n\n[[program]]"),
     )
 }
 
@@ -273,11 +274,17 @@ fn an_unobservable_cell_inside_a_collection_is_left_out_of_each_instance() {
         "collection",
         &[
             ("collection", &collection("")),
-            ("inside", &collection("[result]\ncells = [\"id\"]\n")),
-            ("val", &collection("[result]\ncells = [\"val\"]\n")),
+            (
+                "inside",
+                &collection("[[projection]]\nname = \"p\"\ncompare = [\"id\"]\n"),
+            ),
+            (
+                "val",
+                &collection("[[projection]]\nname = \"p\"\ncompare = [\"val\"]\n"),
+            ),
             (
                 "outside",
-                &collection("[result]\ncells = [\"k\", \"out\"]\n"),
+                &collection("[[projection]]\nname = \"p\"\ncompare = [\"k\", \"out\"]\n"),
             ),
         ],
     );
@@ -385,8 +392,14 @@ fn an_unobservable_map_key_is_refused_unless_the_narrowing_leaves_the_collection
         "collectionkey",
         &[
             ("key", &key("")),
-            ("inside", &key("[result]\ncells = [\"tmp\"]\n")),
-            ("outside", &key("[result]\ncells = [\"out\"]\n")),
+            (
+                "inside",
+                &key("[[projection]]\nname = \"p\"\ncompare = [\"tmp\"]\n"),
+            ),
+            (
+                "outside",
+                &key("[[projection]]\nname = \"p\"\ncompare = [\"out\"]\n"),
+            ),
         ],
     );
     let admitted =
@@ -428,7 +441,7 @@ fn the_spec_digest_changes_with_the_compared_cells_only_when_the_manifest_narrow
         digest(&narrowed("[\"out\", \"k\"]"))
     );
     assert_ne!(narrowed_k, digest(&narrowed("[\"k\", \"out\"]")));
-    // A manifest without `[result]` has the payload it had before the section existed.
+    // A manifest without `[[projection]]` has the payload it had before projections existed.
     let manifest = FlowManifest::decode(&plain, &directory).unwrap();
     assert!(
         kink_flow::digest::spec_payload(&manifest, &[])
@@ -437,7 +450,93 @@ fn the_spec_digest_changes_with_the_compared_cells_only_when_the_manifest_narrow
     );
 }
 
-/// A manifest for `nested.k`, with `result` (a `[result]` section or nothing) before its program.
+/// The record keeps the union of the cells the projections compare (projections package, gate
+/// G4): one projection narrowing to `<k>` has the payload member `[result] cells = ["k"]` had; a
+/// second projection inside the union, or another order, does not re-key; a projection that keeps
+/// every cell (no `compare`, or `accepts`) narrows nothing, so the manifest keeps the digest it
+/// had without projections.
+#[test]
+fn the_record_keeps_the_union_of_the_projections_cells() {
+    let directory = flow();
+    let plain = fs::read_to_string(directory.join("FLOW.toml")).unwrap();
+    let with =
+        |projections: &str| plain.replace("[[program]]", &format!("{projections}[[program]]"));
+    let manifest = |text: &str| FlowManifest::decode(text, &directory).unwrap();
+    let digest = |text: &str| spec_digest(&manifest(text), &[]);
+    let one = with("[[projection]]\nname = \"p\"\ncompare = [\"k\"]\n\n");
+    assert_eq!(
+        kink_flow::digest::spec_payload(&manifest(&one), &[])["result_cells"],
+        json!(["k"])
+    );
+    let two = with(
+        "[[projection]]\nname = \"p\"\ncompare = [\"out\", \"k\"]\n\n\
+         [[projection]]\nname = \"q\"\ncompare = [\"k\"]\n\n",
+    );
+    assert_eq!(digest(&two), digest(&narrowed("[\"k\", \"out\"]")));
+    assert_eq!(
+        kink_flow::digest::spec_payload(&manifest(&two), &[])["result_cells"],
+        json!(["k", "out"])
+    );
+    for every in [
+        "[[projection]]\nname = \"all\"\n\n",
+        "[[projection]]\nname = \"p\"\ncompare = [\"k\"]\n\n[[projection]]\nname = \"a\"\nkind = \"accepts\"\n\n",
+    ] {
+        let text = with(every);
+        assert!(
+            kink_flow::digest::spec_payload(&manifest(&text), &[])
+                .get("result_cells")
+                .is_none(),
+            "{every}"
+        );
+        assert_eq!(digest(&text), digest(&plain), "{every}");
+    }
+}
+
+/// kink-flow's own K front end refuses a projection compared through `views` or an `observer`
+/// before it loads the specification (projections package, README D3).
+#[test]
+fn check_refuses_a_projection_with_views_under_the_k_front_end() {
+    let plain = fs::read_to_string(flow().join("FLOW.toml")).unwrap();
+    let viewed = plain.replace(
+        "[[program]]",
+        "[[projection]]\nname = \"v\"\nviews = { out = \"OutView\" }\n\n[[program]]",
+    );
+    let dir = fixture("views", &[("views", &viewed)]);
+    let (document, status) = check(&dir.join("FLOW-views.toml"));
+    assert_eq!(status, EXIT_UNASKED, "{document:#}");
+    assert_eq!(document["spec"]["stage"], "projection", "{document:#}");
+    assert_eq!(
+        document["spec"]["reason"], "unsupported-front-end",
+        "{document:#}"
+    );
+    assert_eq!(document["result"], Value::Null);
+}
+
+/// A flow whose projections are all `trace` projections keeps no cell of the end: every cell the
+/// specification declares is left out of the second slot, which then compares only the run's
+/// stop, and the channels decide.
+#[test]
+fn trace_projections_alone_keep_no_cell_of_the_end() {
+    let plain = fs::read_to_string(flow().join("FLOW.toml")).unwrap();
+    let traced = plain.replace(
+        "[[program]]",
+        "[[observe.point]]\nname = \"emits\"\nafter = [\"UNOBS.emit\"]\nstutter = \"count\"\n\
+         cells = [\"out\"]\n\n[[projection]]\nname = \"t\"\nkind = \"trace\"\n\
+         channels = [\"emits\"]\n\n[[program]]",
+    );
+    let dir = fixture("traces", &[("traces", &traced)]);
+    let admission = admit(&FlowManifest::read(&dir.join("FLOW-traces.toml")).unwrap());
+    let spec = admission
+        .spec
+        .as_ref()
+        .unwrap_or_else(|| panic!("{:?}", admission.record.refusal));
+    assert_eq!(
+        spec.result.value(),
+        result("cells", &[], &["k", "out", "scratch"], &["scratch"])
+    );
+}
+
+/// A manifest for `nested.k`, with `result` (a `[[projection]]` or nothing) before its program.
 fn nested(result: &str) -> String {
     format!(
         "[spec]\nentry = \"nested.k\"\nmain_module = \"NESTED\"\nsyntax_module = \"NESTED-SYNTAX\"\n\
@@ -451,8 +550,14 @@ fn an_unobservable_cell_inside_a_named_or_enclosing_cell_is_left_out() {
         "nested",
         &[
             ("nested", &nested("")),
-            ("state", &nested("[result]\ncells = [\"state\"]\n")),
-            ("out", &nested("[result]\ncells = [\"out\"]\n")),
+            (
+                "state",
+                &nested("[[projection]]\nname = \"p\"\ncompare = [\"state\"]\n"),
+            ),
+            (
+                "out",
+                &nested("[[projection]]\nname = \"p\"\ncompare = [\"out\"]\n"),
+            ),
         ],
     );
     let manifest = |name: &str| dir.join(format!("FLOW-{name}.toml"));

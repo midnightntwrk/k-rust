@@ -36,8 +36,8 @@ pub const PROGRAM_DOMAIN: &str = "kink-flow/program/v1";
 /// The payload of the specification digest: the k-rust revision and solver profile of this
 /// build, how the specification is loaded, every non-builtin source file the load read
 /// (`files`, kink-corpus `load_source`), as `{name, sha256}` sorted by name, and the
-/// `assume_joined` premises when there are any, and the `[result] cells` (sorted) when the
-/// manifest narrows the compared cells. Builtin sources are fixed by the k-rust revision.
+/// `assume_joined` premises when there are any, and the cells the result record keeps
+/// (`FlowManifest::record_cells`, sorted) when the projections narrow them. Builtin sources are fixed by the k-rust revision.
 pub fn spec_payload(manifest: &FlowManifest, files: &[SourceFile]) -> Value {
     let spec = &manifest.spec;
     let mut files = files
@@ -66,11 +66,13 @@ pub fn spec_payload(manifest: &FlowManifest, files: &[SourceFile]) -> Value {
     }
     // The compared cells, when the manifest narrows them: a program's comparable result holds
     // the ends its second slot projects, so every store keyed on this digest misses when they
-    // change. Absent without `[result]`, so a manifest without it keeps its digest; which cells
-    // the specification declares unobservable is in its files.
-    if let Some(result) = &manifest.result {
-        let mut cells = result.cells.clone();
+    // change. Absent when nothing is narrowed (no `[[projection]]`, or one that keeps every
+    // cell), so such a manifest keeps its digest, and a manifest that narrows by projections has
+    // the member `[result] cells` gave the same cells; which cells the specification declares
+    // unobservable is in its files.
+    if let Some(mut cells) = manifest.record_cell_names() {
         cells.sort();
+        cells.dedup();
         payload["result_cells"] = json!(cells);
     }
     payload
@@ -305,7 +307,7 @@ fn builtin_prefixes(spec: &AdmittedSpec) -> Vec<String> {
 
 /// The payload of the execution digest of the admitted `spec`: `{k_rust_revision, profile,
 /// main_module, syntax_module, definition}`, plus `assumed` when `[spec] assume_joined` is not
-/// empty and `result_cells` (sorted) when the manifest has `[result]`; `None` when
+/// empty and `result_cells` (sorted) when the projections narrow the record; `None` when
 /// [`definition_value`] is `None`.
 ///
 /// - `syntax_module` is the module the loader resolved, which programs are parsed in.
@@ -341,9 +343,9 @@ pub fn execution_payload(manifest: &FlowManifest, spec: &AdmittedSpec) -> Option
         assumed.sort();
         payload["assumed"] = json!(assumed);
     }
-    if let Some(result) = &manifest.result {
-        let mut cells = result.cells.clone();
+    if let Some(mut cells) = manifest.record_cell_names() {
         cells.sort();
+        cells.dedup();
         payload["result_cells"] = json!(cells);
     }
     Some(payload)
@@ -403,7 +405,7 @@ pub fn execution_digest(manifest: &FlowManifest, spec: &AdmittedSpec) -> Executi
 /// mutation and the program, shared by every mutation of one command. `result` is what the
 /// programs' second slot compares: the context names the slots, and the cells left out when
 /// there are any. The execution digest already holds every `unobservable` declaration and
-/// `[result] cells`; the cells left out are named here too, so that the context says on its face
+/// the cells the projections keep; the cells left out are named here too, so that the context says on its face
 /// which projection an outcome was decided for. `stop` is the manifest's stop
 /// (`FlowManifest::stop_value`: its rules, its count, each program's own count and, under
 /// `[stop] when`, the condition's identity: its observer's Definition IR digest, the function and

@@ -8,10 +8,11 @@
 //! answer is one JSON document on its stdout: how its run ended, `stopped` (it reached the
 //! corpus's `[stop]`), `final` (it ended on its own) or `could-not-apply` (with a `reason`), and
 //! for the first two its end's cells in the definition's cell vocabulary. The definition's side
-//! is the program's baseline run as every command observes it (`[stop]`, `[budget]`, `[result]`,
-//! the result cache), its ends named by the same words: an end some path reached at its last
-//! stop is `stopped`, one every path reached on its own is `final`. Neither side names a rule or
-//! the computation: the words are the corpus's observation, which both sides share.
+//! is the program's baseline run as every command observes it (`[stop]`, `[budget]`, the cells
+//! the projections keep, the result cache), its ends named by the same words: an end some path
+//! reached at its last stop is `stopped`, one every path reached on its own is `final`. Neither
+//! side names a rule or the computation: the words are the corpus's observation, which both
+//! sides share.
 //!
 //! The comparison of cells is the front end's ([`Vocabulary`]): only a front end that reads the
 //! definition's values has a cell vocabulary an implementation can write (krs: cells by Rust
@@ -216,8 +217,9 @@ impl EndWord {
 pub enum NotCompared {
     /// The view compares a cell the implementation omits (`omits`): fix the declaration (2).
     Omitted(Vec<String>),
-    /// The view compares a cell the corpus's ends leave out (`[result]`, unobservable cells),
-    /// which the definition's side does not state: fix the declaration or the corpus (2).
+    /// The view compares a cell the corpus's ends leave out (cells no projection compares,
+    /// unobservable cells), which the definition's side does not state: fix the declaration or the
+    /// corpus (2).
     LeftOut(String),
     /// The definition's run has several ends under the view (or ends both at the stop and on
     /// its own): one answer against several ends is a question of inclusion, which `compare`

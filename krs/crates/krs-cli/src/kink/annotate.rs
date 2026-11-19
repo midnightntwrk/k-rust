@@ -54,8 +54,8 @@
 //! `krs = {items, when}` to it: each name as the corpus wrote it with the labels it selects, and,
 //! under `[stop] when`, the condition as the corpus wrote it (`{function, cells, observer}`),
 //! beside `stop.when`, the identity the front end resolved it to.
-//! Likewise its `[result] cells` names cells by Rust path or K name, mapped to K names, and every
-//! document's `result` gains the cells by path (`result.krs`, [`super::cells`]).
+//! Likewise its projections' `compare` names cells by Rust path or K name, mapped to K names, and
+//! every document's `result` gains the cells by path (`result.krs`, [`super::cells`]).
 //!
 //! A `coverage` document's guarded rules are named by KRS construct ([`super::guards`]): each
 //! node of a rule item's `guard.operands` gains a `krs` object, the guard gains `krs`, its

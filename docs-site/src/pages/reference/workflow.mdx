@@ -1223,11 +1223,13 @@ time_ms = 30000                         # optional; default [budget] time_ms
 views = [
   { name = "writes", views = { bus = "WritesView" }, observer = "my-views:main", required = true },
   { name = "accesses", views = { bus = "AccessesView" }, observer = "my-views:main" },
+  { projection = "regs", required = true },   # a view naming one of the corpus's projections
 ]
 ```
 
 kink runs `command` once per case, in the manifest's directory, writes one JSON request of the protocol `kink-implementation/1` on its standard input (the case's id, its inputs as documents of the [typed encoding](#the-encoding) by the parameters' Rust names, the stop count under `[stop]`, and, with `given = "start"`, the definition's start state, every cell by Rust path) and reads one answer from its standard output: `{"end": "stopped" | "final", "cells": {...}}`, the cells by Rust path as an [end document](#compare-two-sides) states them, or `{"end": "could-not-apply", "reason": "..."}`.
 Each view is a comparison as an expectation states one: `compare` (default: every observable cell the implementation states), `views` and `observer`, resolved as an [expectation](#expectations)'s are.
+A view `{ projection = NAME, required }` compares what the corpus's projection `NAME` observes and is named after it: an `end` projection as an end view, a `trace` projection as a trace view, an `accepts` projection as an acceptance view; one that names no projection, or an `end` projection with `channels`, does not decode.
 Each (implementation, case, view) has one verdict: `equal`, `different` with its first difference, `could-not-apply` (the implementation's own answer: it does not apply the case, a disagreement whose reason is reported and never recorded), or `not-compared` with its reason (the case's baseline has no end, the view compares an omitted cell, or the definition has several ends the view tells apart).
 An *acceptance view*, `{ name, kind = "accepts", required }`, compares whether each side accepts the case: the definition accepts where every end of the baseline is reached at the corpus's `[stop]` or is of a declared `finished` class, and rejects where every end is of a declared `refused` class or of none; an answer `stopped` or `final` accepts, and `rejected` (protocol `kink-implementation/3`, with an optional `message` and an optional `refused`, `{end, reason}`, the definition's declared refused end and its reason) rejects.
 The two are `equal` where both accept, or both reject and agree on the parts of the refusal both state (compared as two ends' declared classes are), and `different` otherwise; a `message` is never compared or recorded.
@@ -1338,10 +1340,30 @@ Which conjuncts are yours is read from the definition, not from the cases, so a 
 A sentence with templates reads its match as its KRS pattern's: its K left-hand side is a bare variable, which every case that evaluates the function matches, so the row's `krs.matched_by` lists the cases whose templates matched and `krs.status` is `unmatched` where none did; the verdicts rendering reads both.
 `coverage` lists a case in a rule's `matched_by` when kink's baseline run of the case, which follows every path, `matched` the rule, as `run --coverage` names the predicate, and in its `fired_by` when the run fired it: some path `committed` the rule's step, for a rewrite rule, or the run `applied` it, for an equation, whose application is no step; a case that is not `comparable` is listed under no rule.
 `--output verdicts` (for `coverage`, `run` and `report`) prints kink-flow's deterministic rendering: for `coverage` each family's open and argued obligations by id (and its undecided ones, where it has any), which name each rule by its item, and no case, so it moves only when a gap opens or closes or an argument is added or removed; for `run` each mutation's status and each killed mutation's `killer`; its header names the solver profile and, under Z3, the Z3 build, Z3's version string and the SHA-256 of the library its code comes from, on which the verdicts depend; a `coverage` rendering's header has `krs_annotation`, the document's `krs.version`, which the ids' spelling follows.
-`[result] cells` names the cells kink compares by Rust path, as `compare` in an [expectation](#expectations) and `krs compare --compare` do (`cells = ["regs", "ei_pending", "cpu.pc"]`), and `krs kink` gives kink-flow each cell's K name.
+A corpus measures its cases under *projections*, each a named observation of a run declared in `FLOW.toml`:
+
+```toml
+[[projection]]
+name = "regs"
+compare = ["regs", "ei_pending", "cpu.pc"]   # kind = "end" (the default): these cells of the end
+
+[[projection]]
+name = "accepts"
+kind = "accepts"                             # whether each side accepts the case
+
+[[projection]]
+name = "bus"
+kind = "trace"
+channels = ["writes"]                        # channels of [observe]
+```
+
+A corpus that declares none has one, `default`: every observable cell and every `[observe]` channel, what a kill compares.
+An `end` projection may also name `views` and `observer`, as a view does (below), and `channels` besides its cells; `domain`, a list of case patterns, is checked and not yet applied.
+kink keeps in each case's result the cells the projections compare (every observable cell where one projection compares them all, as one without `compare` or an `accepts` projection does) and judges `run`'s kills on them; judging each projection apart is to come.
+`compare` names the cells kink compares by Rust path, as `compare` in an [expectation](#expectations) and `krs compare --compare` do, and `krs kink` gives kink-flow each cell's K name.
 A K cell name (`eiPending` for `<eiPending>`) is read too, where no cell has that name as its Rust path: a path names one cell and is read first, so a corpus written by paths means what it says whatever the K names are, and a K name is read only where it competes with no path.
-An entry that is neither is refused at stage `result` (`result-cell-unknown`), naming every cell by its path with its K cell, and two entries that name one cell, by its path and by its K name, are refused there too (`result-cell-repeated`).
-Every document's `result`, which names the compared cells as kink-flow does, by K name, gains `krs`: `compared`, `not_compared` and `unobservable` by Rust path, and `cells`, each entry of `[result] cells` as written with the K cell it reads as.
+An entry that is neither is refused at stage `result` (`result-cell-unknown`), naming the projection and every cell by its path with its K cell, and two entries of one projection that name one cell, by its path and by its K name, are refused there too (`result-cell-repeated`).
+Every document's `result`, which names the compared cells as kink-flow does, by K name, gains `krs`: `compared`, `not_compared` and `unobservable` by Rust path, and `cells`, each entry of the projections' `compare` as written with the K cell it reads as.
 `run --progress` prints a line on stderr as each phase krs runs first starts (the build and the emission, the binding of the corpus, the checks of the list), then the lines `kink-flow run --progress` prints: one before the baseline results, one as the specification's admission starts and one as the baseline runner's preparation starts, one as each case gets its baseline row, with its place, its id and its class, one before the list is resolved, and one as each mutation gets its row, with its place, its id and its status; a run prints them without the flag when stderr is a terminal; stdout is the document either way, and a cold `--full` run over many mutations can take minutes.
 The renderings give each open obligation by id, and each mutation its id, status and killing cases; what to do next is in the JSON document: a rule's status (`families.rules.items[].status`: `fired`, `matched`, `unmatched`, `out-of-scope`, `claim-helper`, `no-coverage-signal`, counted per family), each open obligation's target (`targets`), a guarded rule's `guard`, a mutation's `witnesses`, `reason` and `action`, and each case's outcome on the mutant with its `cause` (`mutations[].executed[]`).
 A simplification (`krs.kind` `simplification`), a `symbolic` or a ceil equation is `out-of-scope` and needs no case.
@@ -1358,7 +1380,7 @@ In a `check` document, each mutation that resolves gains `krs = {edits}`, and on
 
 A mutation krs did not judge has a refusal of reason `not-judged`, whose `detail` says which cause it was, and each of its edits is `not-judged`, but a `delete = true` edit, which stays `deleted`; the refusal `not-judged` also follows an edit krs read but cannot yet tell a Rust source writes, whose `judged` is then `authored`, `inserted` or `no-node`, as the edit is.
 `siblings` lists the renderings of each edited construct, `{label, item, rust, k, changed, named_by_krs}`, those of the sentences KRS's refusal names first; the refusal's `detail` lists the ones the mutation leaves unchanged, which an author's Rust edit of the construct would also change, and its `next` names them only when there are some.
-A kill's `difference` in a `run` document is in the format of every KRS difference, `krs-difference/3`, as an unmet [expectation](#expectations)'s is: the first differing cell by Rust field path and each side's value as its canonical document, `left` the baseline's end and `right` the mutant's, compared on the cells kink compares (every cell but the unobservable ones, or those of `[result] cells`).
+A kill's `difference` in a `run` document is in the format of every KRS difference, `krs-difference/3`, as an unmet [expectation](#expectations)'s is: the first differing cell by Rust field path and each side's value as its canonical document, `left` the baseline's end and `right` the mutant's, compared on the cells kink compares (every cell but the unobservable ones, or those the corpus's projections compare).
 kink compares ends by their configuration alone, whichever way a path reached them, so a kill's difference compares no halt and its sides state no `class`; under `[stop]`, each of a program's `ends` says how the baseline's paths reached it (`halt`).
 A [case document](#case-documents) of named cases gives one case per name, whose id is the document's path, `#` and the name (`cases/runs.toml#reset`); kink runs every case as the corpus says (`[stop]`, `stop_count`, `[budget]`), so a case's `run` is refused.
 `[stop]` names its rules as `--stop-before` and `--stop-after` do, and its condition, `when = { function, cells, observer }`, as a case's `run.stop_when` does: `krs kink` resolves it as `krs run` does, in the observer package or else the definition itself, and refuses one `krs run` refuses at stage `stop`, reason `stop-condition-unresolved`; the condition is evaluated in that observer for the definition and every mutant, each evaluation with the default budget of `--view-budget`, so a case whose condition is undecided or has no value at an arrival is `unknown` (`stop-condition`), and every document's `stop` names the condition it resolved (`when`: the observer's name and Definition IR digest, the function and the cells, and for a named observer `subject`, the definition's digest, whose declarations read the cells) and as the corpus wrote it (`krs.when`).
