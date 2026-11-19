@@ -13,21 +13,22 @@
     kernel); `HookParams.none` does not (`none_not_silentTotal`).
   - Both directions at one point per key, in the semantics of `f2-examples/strbytes.kompile.kore`:
     `substrString("abc", 2, 1)`, `Int2Bytes(-1, 0, BE)`, `countAllOccurrences("a", "")`,
-    `replaceAll("a", "", "b")`, and `isNaN`, `isInfinite`, `--Float`,
-    `absFloat`, `floorFloat`, `ceilFloat`, `truncFloat` at `1.0p2x1`: under `HookParams.none` Γ
-    states the application ⊥ (the text's `functional` sentence fails there), under
-    `HookParams.totals` it states a value (`both_ways`), and the result has a value
-    (`total_hook_value`'s conclusion, `totals_value`). `Bytes2Int` has no such point where the sorts
-    have their shapes (`bytes2Int_value`).
+    `replaceAll("a", "", "b")`, `isInfinite` at `0.0p1x1`, and `--Float`, `absFloat`, `floorFloat`,
+    `ceilFloat`, `truncFloat` at `NaNp1x1`: under `HookParams.none` Γ states the application ⊥ (the
+    text's `functional` sentence fails there), under `HookParams.totals` it states a value
+    (`both_ways`), and the result has a value (`total_hook_value`'s conclusion, `totals_value`).
+    `Bytes2Int` has no such point where the sorts have their shapes (`bytes2Int_value`), nor `isNaN`
+    where every Float value is a Float literal (`isNaN_value`).
   - The interpretations the text admits (`Semantics.libAdmitted`, LibAdmitted.lean), in the same
     semantics: `HookParams.lib` meets every condition (`lib_admitted`); each of `isInfiniteEq`,
-    `neFloatEq`, `rfindCharEq`, `findCharEq`, `sqrtFloatEq` fails at one point under an
-    interpretation that gives values the sentence does not hold with (`HookParams.totals` at
-    `1.0p2x1`; `ne0`, `=/=Float` and `==Float` both `false`, at `1.0p2x1` twice; `rc5`, `rfindChar` 5,
+    `rfindCharEq`, `findCharEq`, `sqrtFloatEq` fails at one point under an interpretation that gives
+    values the sentence does not hold with (`HookParams.totals` at `0.0p1x1`; `rc5`, `rfindChar` 5,
     at `("ab", "a", 5)`; `fc5`, `findChar` 5 and `findString` 7, at `("abc", "a", 7)`; `root3`,
     `rootFloat` 3.0, at binary64 4.0, where `hook` gives `sqrtFloat` 2.0; `HookParams.totals`,
     `replaceAll` `""` and `countAllOccurrences` 0, at `("a", "", "b")`, where `replace("a", "", "b", 0)`
-    is `"a"`: `totals_not_replaceAllEq`); `rootFloat`'s number
+    is `"a"`: `totals_not_replaceAllEq`); `neFloatEq` is met by every interpretation where every
+    Float value is a Float literal (`neFloatEq_every`: `=/=Float` has a value at every two);
+    `rootFloat`'s number
     is a parameter of FLOAT with the signature `paramVal_libRootFloat` reads (`rootFloat_param`);
     `precisionFloat` and `exponentBitsFloat` at `1.0p1x2` and binary32 `1.0` (`fmt_values`).
     `coreOK` gives `floatShapeOK` (`floatShapeOK_of_coreOK`), so `HookParams.lib` is admitted in
@@ -84,9 +85,12 @@ def b (t : String) : GroundTerm := bytesV t.toList
 def be : GroundTerm := .ctor bigEndianBytes []
 /-- `1.0p1x2`: the format with a precision of 1 and an exponent width of 2 (`KFloat.thinOK`). -/
 def t12 : GroundTerm := .dv Srt.float (.float 1 2 1)
-/-- `1.0p2x1`: the format with a precision of 2 and an exponent width of 1, where no operation is
-computed (neither `isNaN` nor the comparisons, `asDatum`, nor those of `thinHooks`, `thinAt`). -/
-def t21 : GroundTerm := .dv Srt.float (.float 2 1 1)
+/-- `0.0p1x1` and `NaNp1x1` (codes 0 and 4): the format with a precision of 1 and an exponent width
+of 1, whose finite data are the two zeros, so that `maxValueFloat(1, 1)` and with it `isInfinite`
+have no value there (`thinAt`, `tflInf`); `--Float` and the roundings to an integer have none at a
+NaN. -/
+def z11 : GroundTerm := .dv Srt.float (.float 1 1 0)
+def n11 : GroundTerm := .dv Srt.float (.float 1 1 4)
 
 /-- **`HookParams.none` is not an interpretation the text admits**, in any semantics:
 `substrString("abc", 2, 1)` is a silent point and has no value under it. -/
@@ -116,13 +120,13 @@ structure Pt where
 def pts : List Pt :=
   [⟨stringSubstr, [s "abc", int 2, int 1], s ""⟩,
    ⟨int2Bytes, [int (-1), int 0, be], b ""⟩,
-   ⟨floatIsNaN, [t21], bool false⟩, ⟨floatIsInfinite, [t21], bool false⟩,
-   ⟨floatNeg, [t21], t21⟩, ⟨floatAbs, [t21], t21⟩, ⟨floatFloor, [t21], t21⟩,
-   ⟨floatCeil, [t21], t21⟩, ⟨floatTrunc, [t21], t21⟩,
+   ⟨floatIsInfinite, [z11], bool false⟩,
+   ⟨floatNeg, [n11], n11⟩, ⟨floatAbs, [n11], n11⟩, ⟨floatFloor, [n11], n11⟩,
+   ⟨floatCeil, [n11], n11⟩, ⟨floatTrunc, [n11], n11⟩,
    ⟨stringCountAll, [s "a", s ""], int 0⟩, ⟨stringReplaceAll, [s "a", s "", s "b"], s ""⟩]
 
-/-- Every key but `Bytes2Int` has a point. -/
-theorem pts_cover : totalSilentKeys.all (fun f => f == bytes2Int || pts.any (·.f == f)) = true := by
+/-- Every key but `Bytes2Int` and `isNaN` has a point. -/
+theorem pts_cover : totalSilentKeys.all (fun f => f == bytes2Int || f == floatIsNaN || pts.any (·.f == f)) = true := by
   decide +kernel
 
 /-- At each: the signature, arguments of its sorts, no value of `hook`, a silent point,
@@ -193,6 +197,43 @@ theorem bytes2Int_value {c : Semantics} (hs : c.shapesOK = true) (H : HookParams
   obtain ⟨v, hv⟩ := bytes2Int_total hs hvs
   exact ⟨v, Semantics.hookRes_of_value hv⟩
 
+/-- A value of sort Float has a datum (`asDatum`) where every Float value is a Float literal
+(`floatShapeOK`): a literal's format is positive (`KFloat.ok_pos`), and `asDatum` reads one at every
+positive format. -/
+theorem asDatum_sorted {c : Semantics} (hf : c.floatShapeOK = true) {v : GroundTerm}
+    (hv : c.sortOf v = some Srt.float) : ∃ u, asDatum v = some u := by
+  obtain ⟨p, e, b, rfl, hok⟩ := shape_float hf hv
+  obtain ⟨hp, he⟩ := KFloat.ok_pos hok
+  have ht : KFloat.spec? p e = none → KFloat.tnFormat p e = true := by
+    intro hs; unfold KFloat.spec? at hs; split at hs
+    · cases hs
+    · rename_i h; simp only [KFloat.tnFormat, decide_eq_true_eq]; omega
+  cases hs : KFloat.spec? p e with
+  | some sp => exact ⟨KFloat.unpackBits sp b, by simp [asDatum, hs]⟩
+  | none => exact ⟨KFloat.tnUnpack p e b, by simp [asDatum, hs, ht hs]⟩
+
+/-- `isNaN` gives a value at every value of sort Float where every Float value is a Float literal:
+its silent region is empty there, whatever the interpretation. -/
+theorem isNaN_value {c : Semantics} (hf : c.floatShapeOK = true) (H : HookParams) {v : GroundTerm}
+    (hv : c.sortOf v = some Srt.float) : ∃ w, (c.withHooks H).hookRes floatIsNaN [v] = some (some w) := by
+  obtain ⟨u, hu⟩ := asDatum_sorted hf hv
+  have hh : hook floatIsNaN [v] = some (flTest KFloat.isNaN [v]) := rfl
+  exact ⟨bool (KFloat.isNaN u), Semantics.hookRes_of_value (by rw [hh]; simp [flTest, hu])⟩
+
+/-- **`neFloatEq` is met by every interpretation** where every Float value is a Float literal:
+`=/=Float` has a value at every two of them (`flCmp`, `asDatum_sorted`), so the condition reads no
+pair of Floats. -/
+theorem neFloatEq_every {c : Semantics} (hf : c.floatShapeOK = true) (H : HookParams) :
+    (c.withHooks H).neFloatEq := by
+  intro a b hs hh
+  obtain ⟨a', b', he, ha, hb⟩ := _root_.KCore.sortsOf_two hs
+  obtain ⟨rfl, rfl⟩ : a = a' ∧ b = b' := by simpa using he
+  obtain ⟨u, hu⟩ := asDatum_sorted (c := c.withHooks H) hf ha
+  obtain ⟨w, hw⟩ := asDatum_sorted (c := c.withHooks H) hf hb
+  have h1 : hook floatNe [a, b] = some (flCmp (fun o => o != some .eq) [a, b]) := rfl
+  rw [h1] at hh
+  simp [flCmp, hu, hw] at hh
+
 /-! ## The interpretations the text admits -/
 
 theorem c_floatShapeOK : c.floatShapeOK = true := by decide +kernel
@@ -200,20 +241,11 @@ theorem c_floatShapeOK : c.floatShapeOK = true := by decide +kernel
 /-- **`HookParams.lib` is admitted** in the semantics of strbytes. -/
 theorem lib_admitted : (c.withHooks HookParams.lib).libAdmitted := libAdmitted_lib c c_floatShapeOK
 
-/-- `isInfinite`'s condition fails under `HookParams.totals` at `1.0p2x1`: `isInfinite` has its
-value `false` there and `maxValueFloat(2, 1)` none, so the right side has none. -/
+/-- `isInfinite`'s condition fails under `HookParams.totals` at `0.0p1x1`: `isInfinite` has its
+value `false` there and `maxValueFloat(1, 1)` none, so the right side has none. -/
 theorem totals_not_isInfiniteEq : ¬ (c.withHooks HookParams.totals).isInfiniteEq := by
   intro h
-  have := h t21 (by rw [Semantics.sortOf_withHooks _ _ noRaw]; decide +kernel) (by decide +kernel)
-  revert this
-  decide +kernel
-
-/-- `=/=Float` and `==Float` both `false` at their silent points. -/
-def ne0 : HookParams := ⟨fun f _ => if f == floatNe || f == floatEq then some (bool false) else Option.none⟩
-
-theorem ne0_not_neFloatEq : ¬ (c.withHooks ne0).neFloatEq := by
-  intro h
-  have := h t21 t21 (by rw [Semantics.sortsOf_withHooks _ _ noRaw]; decide +kernel) (by decide +kernel)
+  have := h z11 (by rw [Semantics.sortOf_withHooks _ _ noRaw]; decide +kernel) (by decide +kernel)
   revert this
   decide +kernel
 
@@ -286,7 +318,8 @@ theorem fmt_values :
 #print axioms libAdmitted_lib_of_coreOK
 #print axioms libAdmitted_lib
 #print axioms totals_not_isInfiniteEq
-#print axioms ne0_not_neFloatEq
+#print axioms isNaN_value
+#print axioms neFloatEq_every
 #print axioms rc5_not_rfindCharEq
 #print axioms fc5_not_findCharEq
 #print axioms root3_not_sqrtFloatEq

@@ -43,7 +43,7 @@
   merges with it, two touching ranges of different values, `[1, 3)`, which overlaps three of them,
   and `[3, 5)`);
   String "", "a", "ab", "é∀"; Float binary32's 1.0, largest finite, ∞, NaN, `p1x2`'s 1.0, ∞,
-  NaN and one value of `p2x1` (one exponent bit); Bytes three values; Endianness `LE`, `BE` and
+  NaN and `p1x1`'s 0.0 (one exponent bit, no finite datum but the zeros); Bytes three values; Endianness `LE`, `BE` and
   Signedness `Signed`, `Unsigned`.
 
   `check` runs the probe on `ens.kompile.kore` and on kompile's text of kimp (`ref-kimp.kore`) and
@@ -60,7 +60,9 @@
   left side is at a silent point, and every sentence at a line of `libSentences` that the text holds
   and the probe evaluates reads it; and that under `HookParams.lib` only the control fails. One
   sentence is excepted from both (`unmet`): `countAllOccurrences`' second equation at the empty
-  needle, which no interpretation that gives the count a value there meets. Two lines of
+  needle, which no interpretation that gives the count a value there meets. One is excepted from
+  the second (`unreadAtLiterals`): `=/=Float`'s (1648), which reads the interpretation where
+  `=/=Float` is silent, at no pair of Float literals (`asDatum` has a datum at every format). Two lines of
   `libSentences` are outside what the probe evaluates: `findChar`'s equation (1891), which it does
   not probe (it applies `ite{Int}`, a symbol Γ does not have), and `sqrtFloat`'s (1671), which applies
   `rootFloat`, no symbol of Γ in these texts. A collection law carries no line of its own: the probe
@@ -181,12 +183,11 @@ def rangeMapV (es : List (Int × Int × Int)) : GroundTerm := rmV (es.map fun (a
 
 /-- Float values (precision, exponent width, encoding): binary32's 1.0, the largest finite value,
 +∞ and NaN; `p1x2`'s (a format with a field of 1, `KFloat.thinOK`, at which every operation computes,
-`thinAt`) 1.0, ∞ and NaN; and the `p2x1` encoding 1 (sign 0, the one exponent bit 0, the fraction
-bit 1), of a format with one exponent bit, at which no Float has a datum (`asDatum`) and no operation
-computes, so that the comparisons and `isInfinite` are silent there. -/
+`thinAt`) 1.0, ∞ and NaN; and `p1x1`'s 0.0 (the encoding 0), of the format whose finite data are the
+two zeros, at which `maxValueFloat` has no value, so that `isInfinite` is silent there. -/
 def floats : List (Nat × Nat × Nat) :=
   [(24, 8, 0x3F800000), (24, 8, 0x7F7FFFFF), (24, 8, 0x7F800000), (24, 8, 0x7FC00000),
-   (1, 2, 1), (1, 2, 3), (1, 2, 8), (2, 1, 1)]
+   (1, 2, 1), (1, 2, 3), (1, 2, 8), (1, 1, 0)]
 
 /-- The grid of values of a sort (each checked to be of it); none for a sort without one. -/
 def gridOf (c : Semantics) (s : Srt) (small : Bool := false) : Option (List GroundTerm) :=
@@ -826,12 +827,18 @@ because no interpretation meets them: the second equation of `countAllOccurrence
 `HookParams.lib` as under every interpretation that gives the count a value there. -/
 def unmet : List String := ["17 domains.md:1898"]
 
+/-- The sentences at a line of `libSentences` that read the interpretation at no point because their
+left side has a value at every probed argument: `=/=Float`'s (domains.md 1648), `=/=Float` having a
+value at every two Float literals (`asDatum` has a datum at every format), so that its condition,
+`neFloatEq`, reads no pair of Floats where every Float value is a literal. -/
+def unreadAtLiterals : List String := ["17 domains.md:1648"]
+
 /-- What a check requires of a run: every sentence reading the interpretation has a named
 condition, `unmet` aside, and reads it only where its left side is silent, every named sentence
-the text holds reads it at some point of the grid, and under `HookParams.lib` only the control
-(set idempotence) and `unmet` fail. -/
+the text holds reads it at some point of the grid, `unreadAtLiterals` aside, and under
+`HookParams.lib` only the control (set idempotence) and `unmet` fail. -/
 def readsOK (r : Reads) : Bool :=
-  r.unnamed.all unmet.contains && r.unread.isEmpty && r.off.isEmpty &&
+  r.unnamed.all unmet.contains && r.unread.all unreadAtLiterals.contains && r.off.isEmpty &&
     r.libFails.all fun n => n.startsWith "16 " || unmet.contains n
 
 /-- The readings `check` and `checkFlt` add: `HookParams.lib`, and the non-constant `hash`. -/
@@ -850,22 +857,21 @@ points and no value elsewhere (each meets `Semantics.silentTotal`). -/
 def fltModes : List Mode := [.none, .pick 0, .pick 1, .only totalSilentKeys 0, .only totalSilentKeys 1] ++ libModes
 
 /-- The counts of `silentflt.kompile.kore` (FLOAT, STRING, BYTES, SET imported) over the five
-readings, the Int grid without 2^64 + 1. Row 9's ten failures are the `functional` sentences of
+readings, the Int grid without 2^64 + 1. Row 9's nine failures are the `functional` sentences of
 `substrString`, `Int2Bytes` (at a negative length), `--Float`, `absFloat`, `floorFloat`,
-`ceilFloat`, `truncFloat`, `countAllOccurrences` and `replaceAll` (at the empty needle), and
-`isNaN`'s at the `p2x1` value, which has no datum (`asDatum`; `isNaN` has its values at the `p1x2`
-data), under `HookParams.none` only. Row 17's five: `countAllOccurrences`' second equation (1898)
-at the empty needle, under every reading that gives the count a value there (`unmet`);
-`replaceAll`'s (1917) at the empty needle under the readings that give `replaceAll` and `replace`
-at the count different values; `isInfinite`'s equation (domains.md 1673) at the `p2x1` value (at
-the three `p1x2` values both sides are `hook`'s), under the two `only` readings (`isInfinite` has a
-value, `maxValueFloat` none, so the right side has none) and under `hash`; `rfindChar`'s (1893) under `pick0`
-and `pick1` (in the points printed), which give the silent points of two symbols values that do
-not agree with the equation; and `=/=Float`'s (1648) where an operand is the `p2x1` value, at which
-`==Float` and `=/=Float` are silent, under `pick0`, `pick1` and `hash`, which give the two values
-that do not agree with the equation (`neFloatEq`). -/
+`ceilFloat`, `truncFloat`, `countAllOccurrences` and `replaceAll` (at the empty needle), under
+`HookParams.none` only; `isNaN`'s holds, `isNaN` having a value at every Float literal. Row 17's
+four: `countAllOccurrences`' second equation (1898) at the empty needle, under every reading that
+gives the count a value there (`unmet`); `replaceAll`'s (1917) at the empty needle under the
+readings that give `replaceAll` and `replace` at the count different values; `isInfinite`'s
+equation (domains.md 1673) at `p1x1`'s 0.0 (at the other Float values both sides are `hook`'s),
+under the two `only` readings (`isInfinite` has a value, `maxValueFloat(1, 1)` none, so the right
+side has none) and under `pick0` (`isInfinite` true, `maxValueFloat(1, 1)` binary32's 1.0, so the
+right side is false); `rfindChar`'s (1893) under `pick0` and `pick1` (in the points printed), which
+give the silent points of two symbols values that do not agree with the equation. `=/=Float`'s
+(1648) holds at every point, reading the interpretation at none (`unreadAtLiterals`). -/
 def expectedFlt : Summary :=
-  [(9, 93, 73, 63, 0, 10, 0), (15, 9, 9, 9, 0, 0, 0), (17, 55, 45, 39, 0, 5, 1), (18, 67, 66, 66, 0, 0, 0),
+  [(9, 93, 73, 64, 0, 9, 0), (15, 9, 9, 9, 0, 0, 0), (17, 55, 45, 40, 0, 4, 1), (18, 67, 66, 66, 0, 0, 0),
    (16, 1, 1, 0, 1, 0, 0)]
 
 def checkFlt : IO Unit := do
@@ -886,7 +892,7 @@ one sentence of row 15 failing only under some interpretation; RANGEMAP's other 
 `-RangeMap`, `<=RangeMap`, `in_keys`, `keys`, `size` and `updateRangeMap`, and the two unit laws)
 hold in every reading. -/
 def expectedAll : Summary :=
-  [(9, 110, 81, 71, 0, 10, 0), (15, 12, 12, 11, 0, 1, 0), (17, 63, 45, 39, 0, 5, 1), (18, 114, 113, 113, 0, 0, 0),
+  [(9, 110, 81, 72, 0, 9, 0), (15, 12, 12, 11, 0, 1, 0), (17, 63, 45, 40, 0, 4, 1), (18, 114, 113, 113, 0, 0, 0),
    (16, 1, 1, 0, 1, 0, 0)]
 
 def checkAll : IO Unit := do

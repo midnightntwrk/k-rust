@@ -17,11 +17,11 @@
   at every format: a datum is infinite exactly when it is above the format's largest finite value
   or below its negation (`KFloat.isInf_unpack`, FloatUnpack.lean), and the literals of
   `maxValueFloat` and its negation read back as those data (`KFloat.unpackBits_packBits`). At a
-  format `thinAt` names (precision 1, at least 2 exponent bits), both sides are `hook`'s too, by
-  the combinators of that format: its largest finite datum `m` exists (`KFloat.tnMax?_normal`), and
-  a datum of the format is infinite exactly when it is above `m` or below its negation
-  (`thin_1673_vals`, FloatThinHooks.lean). At a format of one exponent bit `isInfinite` is at a
-  silent point and `isInfiniteEq` is the sentence there.
+  format `thinAt` names (precision 1 or one exponent bit) with a largest finite datum `m`
+  (`KFloat.tnMax?`: every one but `(1, 1)`), both sides are `hook`'s too, by the combinators of that
+  format: a datum of the format is infinite exactly when it is above `m` or below its negation
+  (`thin_1673_vals`, FloatThinHooks.lean). At the format `(1, 1)` `isInfinite` is at a silent point
+  and `isInfiniteEq` is the sentence there.
 -/
 import KcoreSpec.LibEvStr
 import KcoreSpec.FloatUnpack
@@ -119,11 +119,13 @@ theorem fi_hv_isInfinite {p e b : Nat} {sp : Format} (h : KFloat.spec? p e = som
   show some (flOr (flTestM KFloat.isInf) tflInf [.dv Srt.float (.float p e b)]) = _
   simp [flOr, flTestM, fi_asFloat h]
 
-/-- `isInfinite` has no value at a Float of a format without a model that `thinAt` does not name. -/
-theorem fi_hook_isInfinite_none {p e b : Nat} (h : KFloat.spec? p e = none) (ht : thinAt p e = false) :
+/-- `isInfinite` has no value at a Float of a format without a model that `thinAt` does not name,
+or that has no largest finite datum (`KFloat.tnMax?`: the format `(1, 1)`). -/
+theorem fi_hook_isInfinite_none {p e b : Nat} (h : KFloat.spec? p e = none)
+    (ht : thinAt p e = false ∨ KFloat.tnMax? p e = none) :
     hook floatIsInfinite [.dv Srt.float (.float p e b)] = some none := by
   show some (flOr (flTestM KFloat.isInf) tflInf [.dv Srt.float (.float p e b)]) = _
-  simp [flOr, flTestM, tflInf, asFloat, asThin, h, ht]
+  rcases ht with ht | ht <;> simp [flOr, flTestM, tflInf, asFloat, asThin, h, ht]
 
 theorem fi_hv_precision {p e b : Nat} {sp : Format} (h : KFloat.spec? p e = some sp) :
     c.hv floatPrecision [.dv Srt.float (.float p e b)] = some (int p) := by
@@ -223,21 +225,14 @@ theorem fi_hv_lt_thin {p e b : Nat} (ht : thinAt p e = true) {m : UnpackedFloat}
     some (flCmp (fun o => o == some .lt) [.dv Srt.float (.float p e b), tnFloatV p e m.neg]) from rfl,
     thin_lt_negmax_val ht hm b])
 
-/-- A format `thinAt` names has a largest finite datum. -/
-theorem fi_tnMax_thin {p e : Nat} (ht : thinAt p e = true) : ∃ m, KFloat.tnMax? p e = some m := by
-  have h := ht
-  simp only [thinAt, decide_eq_true_eq] at h
-  obtain ⟨_, hm⟩ := KFloat.tnMax?_normal (p := p) (e := e) (by omega) h.2
-  exact ⟨_, hm⟩
-
 end
 
 /-- **1673 holds of the values where the interpretation meets `isInfiniteEq`.** At a Float of a
 format with a model, both sides are `hook`'s: the datum is infinite exactly when it is above the
 format's largest finite value or below its negation (`KFloat.isInf_unpack`); at a Float of a
-format `thinAt` names, both sides are `hook`'s by the combinators of that format
-(`thin_1673_vals`); at a Float of a format of one exponent bit, `isInfinite` is at a silent point
-and `isInfiniteEq` is the sentence. -/
+format `thinAt` names with a largest finite datum, both sides are `hook`'s by the combinators of
+that format (`thin_1673_vals`); at a Float of the format `(1, 1)`, which has none, `isInfinite` is at
+a silent point and `isInfiniteEq` is the sentence. -/
 theorem fnIsInfinite_holds {c : Semantics} (hfs : c.floatShapeOK = true) (hc : c.isInfiniteEq) :
     fnIsInfinite.Holds c := by
   intro σ hσ _ hm
@@ -268,9 +263,11 @@ theorem fnIsInfinite_holds {c : Semantics} (hfs : c.floatShapeOK = true) (hc : c
   cases hsp : KFloat.spec? p e with
   | none =>
     cases ht : thinAt p e with
-    | false => exact hc _ sa (fi_hook_isInfinite_none hsp ht)
+    | false => exact hc _ sa (fi_hook_isInfinite_none hsp (Or.inl ht))
     | true =>
-      obtain ⟨m, hm⟩ := fi_tnMax_thin ht
+      cases hm : KFloat.tnMax? p e with
+      | none => exact hc _ sa (fi_hook_isInfinite_none hsp (Or.inr hm))
+      | some m =>
       rw [fi_hv_isInfinite_thin ht hm, fi_hv_precision_thin ht, Option.bind_some, fi_hv_exponentBits_thin ht,
         Option.bind_some, fi_hv_maxValue_thin ht hm, Option.bind_some, fi_hv_gt_thin ht hm, Option.bind_some,
         fi_hv_neg_thin ht hm, Option.bind_some, fi_hv_lt_thin ht hm, Option.bind_some, fi_hv_boolOr]
