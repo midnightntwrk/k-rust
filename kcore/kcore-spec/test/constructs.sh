@@ -33,10 +33,10 @@
 # node_sentence: of the fixture's kompiled definition, which kfix.py's cache must hold). Then
 # test/constructs/coverage.py check: the
 # committed test/constructs/K-coverage.md is what the generator writes from rows.toml and
-# ../core-manifest.toml (DONE-0 C11). Then kk/coverage.py check --report: kk/COVERAGE.toml's rows
+# ../core-manifest.toml (DONE-0 C11). Then kk/coverage.py check: kk/COVERAGE.toml's rows
 # table is what kk/coverage.py gen writes (each supported or parameter row's verdict from
-# `kcore encodable`), KK.encodable of ref-kimp's text is true, and the entries with no evidence text
-# are listed (not failed). Then test/provenance.sh: the
+# `kcore encodable`), KK.encodable of ref-kimp's text is true, and every entry has an evidence text
+# and a verdict. Then test/provenance.sh: the
 # evidence theorems the rows name (`derived`, DONE-0 C7 check 1). Needs E6's kompiled text
 # (test/constructs/kompile-e6.sh; exit 77 without it).
 set -u
@@ -93,6 +93,6 @@ python3 -I test/constructs/rest.py check --report --fresh --list .lake/construct
   --out .lake/constructs/c2-evidence.txt || rc=1
 python3 -I test/constructs/e4e5.py check || rc=1
 python3 -I test/constructs/coverage.py check || rc=1
-python3 -I kk/coverage.py check --report || rc=1
+python3 -I kk/coverage.py check || rc=1
 test/provenance.sh || rc=1
 exit $rc
