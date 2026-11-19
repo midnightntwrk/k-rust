@@ -1192,6 +1192,9 @@ No digest or cache key holds the root's path or the flow's.
 Without `[corpus]` the root is the flow's directory, the layout above, with the same documents and the same `kink.lock`.
 
 A case's `expect` is checked by every flow that reads the case; an expectation true of one definition only is written `[expect_for.<facet>]`, which only the flows of that facet check ([Case documents](#case-documents)).
+An expectation scoped to a facet no flow of the root has is checked by no flow.
+No flow knows which other flows name its root, since a flow in any directory may name it by a relative path;
+`kink-flow check --with OTHER.toml` takes them from the command line and warns of such an expectation (`unread-scope`), but `krs kink check` does not take `--with` yet.
 
 What the layout does not give:
 

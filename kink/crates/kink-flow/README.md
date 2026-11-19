@@ -189,6 +189,7 @@ No digest and no cache key holds the root or the manifest's directory, as writte
 A flow moved to another depth, naming the same root by another path, reads the cache it had.
 
 A case's `expect` is checked by every flow that reads the case; an expectation true of one definition only is written `[expect_for.<definition>]`, which only the flows of that definition check ("Expectations").
+No flow knows which other flows name its root, since a flow anywhere may name it by a relative path; `check --with` takes them from the command line and warns of a scoped expectation that no flow given reads ("Other flows on the corpus root").
 
 What the layout does not give:
 
@@ -281,6 +282,7 @@ reason = "type-error"
 `expect_for` is a table of expected ends by definition name, each written as `expect` is; a flow's definition name is its `[spec] main_module` as written for a K corpus, and its facet (`[spec] krs`'s `definition`) for a KRS corpus, never `PACKAGE:FACET` nor the module of the emitted K.
 `expect` is a claim about the case in every flow that reads it, and an expectation scoped to a definition a claim about it in that definition's flows, so a flow checks `expect` and the expectation scoped to its own definition, both where the case states both, and reads no expectation scoped to another definition, at admission or after.
 A scoped expectation adds a check and replaces none.
+A scope that names no flow's definition (a misspelt name, a definition whose flow does not read the case) is checked by no flow: `check --with` warns of one that no flow given reads (`unread-scope`, "Other flows on the corpus root").
 The row's one `expectation` member then reports both: `unmet` where either is unmet, else `inconclusive` where either is, else `met`, its `detail` naming the expectation that decides it (`` `expect_for.static` is unmet ``); a case with one expectation its flow checks has the row it has without `expect_for`.
 A scope is never inferred from `expect`'s own keys: `[expect.static]` is a member of the expected end, which the front end refuses as it refuses any key an end does not have.
 `expect_for` that is no table, scopes no definition, names a definition by an empty string or scopes one to a value that is no table is refused at the case document, before any front end reads it.
@@ -589,7 +591,7 @@ Under `--locked` a lock that differs only in kept entries is not a difference: i
 Without `--locked` the same lines say what the written lock kept unverified, and the run's exit status is what its rows give.
 A lock does not list a covered obligation, so it cannot tell one it recorded covered from one that was no obligation when it was written: after a definition edit on a host whose clock stops a program, a new obligation that shows open stays unlisted, and `--locked` says the lock is not decided, until a host on which every run ends writes it.
 
-## `kink-flow check FLOW.toml [--mutations MUTATIONS] [--cache DIR]`
+## `kink-flow check FLOW.toml [--mutations MUTATIONS] [--cache DIR] [--with FLOW.toml]...`
 
 Admits the specification through kink's admission stages (kink-corpus's `admission` module, the library kink-flow is built on):
 `manifest` (this crate: the manifest does not decode), `refused-case` (a below-floor conformance case), `load`, `semantic-input`, `compile`,
@@ -695,12 +697,38 @@ Version 14 adds `z3` under the Z3 profile, the Z3 build, `{version, library_sha2
 Version 15 (KINK-FINDING-NAMES) names each finding by its kind, sentences and digest (`spec.assume_joined` above), gives each finding its `sentences` (`{part, at}`, `at` the generated K's position, information only), and refuses a `[spec] assume_joined` name with its own reason where version 14 refused every one as `name-refused`; a genuine finding's name is refused.
 Version 16 (PJ-22) gives the row of a case whose document states `provenance` its `provenance`, `{found_by, reason}` ("Provenance"); a row of a case without one is version 15's.
 Version 17 (PJ-10) replaces `[result]` by `[[projection]]` ("Projections"): a manifest that writes `[result]` is refused at stage `manifest`, a refusal at stage `result` names the projection whose `compare` names the cell, a projection with `views` or `observer` is refused at stage `projection` (`unsupported-front-end`), and a flow that declares projections names them (`projections`); a flow that declares none gives version 16's document.
+Version 18 (PJ-30) adds `--with` ("Other flows on the corpus root"): `with`, each flow given, and a case row's `warnings`, with `unread-scope`, both absent without `--with`; and a case whose only expectation its flow checks is scoped to the flow's definition has its row's `expectation`, which version 17 left out.
 Each case's expectation and the coverage warnings are read from result records, whose classes and coverage the baseline runs decided by asking the solver, and a record is read only under a key that names the Z3 build ("The cache directory"), so under Z3 what `check` says is a function of the build as much as of the profile.
 The document every verb prints for a manifest that does not decode is built from the check document's header, so it names the build too.
 
 Exit status ("Exit status"): 0 when every program is `ok` (so the specification is admitted), `spec.baseline_findings` is null and, with `--mutations`, the list decodes and no mutation is refused (warnings do not count);
 1 when a program is `excluded` or the baseline has no data (`spec.baseline_findings`), and nothing is refused;
-2 when the manifest, the specification, a program, the mutation list or a mutation is refused, which `run` would refuse too, or on a usage error (message on stderr).
+2 when the manifest, the specification, a program, the mutation list or a mutation is refused, which `run` would refuse too, when a flow `--with` names is refused, or on a usage error (message on stderr).
+
+### Other flows on the corpus root
+
+`check FLOW.toml --with OTHER.toml` names another flow on the corpus root; `--with` may be given again for each.
+A flow names its corpus root by a path relative to its own directory, which may climb above it, so a flow in any directory can name the root, under any file name, and no search of a directory finds every flow that reads it ("The corpus root").
+The command line states the flows instead, and what `check` says from them is a statement about the flows given: this flow and those `--with` names.
+
+Each flow given is decoded as `FLOW.toml` is and not built: its specification is not loaded, so a flow of a KRS definition can be given to `kink-flow check`.
+`check` reads its definition name ("Expectations": a K flow's `[spec] main_module`, a KRS flow's facet) and the ids of the cases of case documents it reads.
+A flow that does not decode, or whose cases are read from another directory than this flow's corpus root (the two compared with links resolved), is refused, and `check` exits 2.
+Giving this flow again changes nothing.
+
+A case scopes an expectation to a definition (`expect_for`, "Expectations"), and a flow checks it exactly where the flow has that definition and reads the case.
+So when no flow given has the definition and reads the case, no flow given checks the expectation, and the case's row gives the warning `unread-scope`.
+The definition this flow has is never warned about, since this flow reads the case.
+The warning decides no exit status, as an expectation decides none in `check`, and its detail says that a flow not given may still read the expectation.
+No warning is given while a flow given is refused, since the flows on the root are then not known, nor without `--with`.
+
+The document gains:
+
+- `with`: one entry per flow given, in order, `{flow, outcome, definition, detail}`: `flow` the path as the command line gives it, `outcome` `ok` with the flow's `definition`, or `refused` with why in `detail`.
+- On a case's row, `warnings`: `{reason, definition, detail, next}`, `reason` `unread-scope`, `definition` the definition the case scopes the expectation to, and `next` what to do (correct a misspelt name, or give the flow of that definition that reads the case).
+
+Both are absent without `--with`, and `warnings` is absent from a row without one.
+`krs kink check` does not take `--with` yet: its option table refuses it.
 
 ### Checking mutations
 

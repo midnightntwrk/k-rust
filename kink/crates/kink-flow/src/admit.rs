@@ -348,13 +348,17 @@ pub struct ProgramAdmission {
     /// known before it runs any step ([`InputSession::exclusion`], and its depth-0 run for the
     /// short-circuit reading); `None` for a refused program.
     pub exclusion: Option<ProgramExclusion>,
-    /// The program's `expectation` member in the check document, when it has `expect` and the
-    /// command checked it (`crate::expect`: `check` checks it against the program's current
-    /// result record); `None` otherwise.
+    /// The program's `expectation` member in the check document, when it has an expectation its
+    /// flow checks (`expect`, or one scoped to its definition) and the command checked it
+    /// (`crate::expect`: `check` checks it against the program's current result record); `None`
+    /// otherwise.
     pub expectation: Option<serde_json::Value>,
     /// The case's `provenance` ([`crate::manifest::Provenance`]), which the check document shows
     /// beside the row; `None` for a program without one.
     pub provenance: Option<crate::manifest::Provenance>,
+    /// The check document's warnings about the case (`unread-scope`,
+    /// [`crate::check::unread_scopes`]); empty for a program `check` warns nothing about.
+    pub warnings: Vec<crate::check::CaseWarning>,
 }
 
 impl ProgramAdmission {
@@ -403,6 +407,9 @@ pub struct FlowAdmission {
     /// The manifest's projections as documents name them (`FlowManifest::projections_value`),
     /// whether or not the specification is admitted; `None` when it declares none.
     pub projections: Option<serde_json::Value>,
+    /// The flows `check --with` names, each read or refused ([`crate::check::FlowsGiven`]);
+    /// `None` when the command names none.
+    pub with: Option<crate::check::FlowsGiven>,
 }
 
 impl FlowAdmission {
@@ -441,6 +448,7 @@ pub fn admit(manifest: &FlowManifest) -> FlowAdmission {
             stop: manifest.stop_value(),
             observe: manifest.observe_value(),
             projections: manifest.projections_value(),
+            with: None,
         };
     };
     let mut session = inputs.session(&spec);
@@ -456,6 +464,7 @@ pub fn admit(manifest: &FlowManifest) -> FlowAdmission {
         stop: manifest.stop_value(),
         observe: manifest.observe_value(),
         projections: manifest.projections_value(),
+        with: None,
     }
 }
 
@@ -818,6 +827,7 @@ impl<'a> InputSession<'a> {
             exclusion,
             expectation: None,
             provenance: program.provenance.clone(),
+            warnings: Vec::new(),
         }
     }
 

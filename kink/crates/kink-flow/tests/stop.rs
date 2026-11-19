@@ -605,9 +605,10 @@ fn mutations_of_the_clock_are_judged_relative_to_the_stop() {
         &CheckOptions {
             mutations: Some(dir.join("mutations")),
             cache: None,
+            ..CheckOptions::default()
         },
     );
-    assert_eq!(check["version"], 17);
+    assert_eq!(check["version"], 18);
     assert!(
         warnings(&check, "clock/frame-jump").contains(&"stop-hides-edit".to_owned()),
         "{check:#}"
@@ -666,6 +667,7 @@ fn a_count_above_one_takes_the_stop_rules_earlier_steps() {
         &CheckOptions {
             mutations: Some(dir.join("mutations")),
             cache: None,
+            ..CheckOptions::default()
         },
     );
     assert!(!warnings(&check, "clock/frame-jump").contains(&"stop-hides-edit".to_owned()));

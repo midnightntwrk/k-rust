@@ -112,7 +112,7 @@ fn calc_is_admitted_with_every_program_ok_and_the_document_is_exact() {
         })
     );
     assert_eq!(document["schema"], "kink-flow-check");
-    assert_eq!(document["version"], 17);
+    assert_eq!(document["version"], 18);
     // Without --mutations no list is checked.
     for key in ["mutation_list", "mutations", "coverage"] {
         assert!(document[key].is_null(), "{key}");
@@ -591,6 +591,56 @@ fn binary(args: &[&std::ffi::OsStr]) -> (Option<i32>, String, String) {
     )
 }
 
+/// PJ-30: `kink-flow check FLOW.toml --with OTHER.toml` as a command line gives it. The flow
+/// given again is accepted (`with`, outcome `ok`, its definition name); a flow that reads its
+/// cases from another tree is refused, exit 2; a path that is no file is a usage error.
+#[test]
+fn check_with_reads_the_flows_the_command_line_names() {
+    let calc = flow("calc/FLOW.toml");
+    let (code, stdout, stderr) = binary(&[
+        "check".as_ref(),
+        calc.as_os_str(),
+        "--with".as_ref(),
+        calc.as_os_str(),
+    ]);
+    assert_eq!(code, Some(EXIT_YES.into()), "{stdout}{stderr}");
+    let document: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(
+        document["with"],
+        serde_json::json!([{
+            "flow": calc.display().to_string(),
+            "outcome": "ok",
+            "definition": "CALC",
+            "detail": null,
+        }]),
+        "{document:#}"
+    );
+    let other = flow("loop/FLOW.toml");
+    let (code, stdout, stderr) = binary(&[
+        "check".as_ref(),
+        calc.as_os_str(),
+        "--with".as_ref(),
+        other.as_os_str(),
+    ]);
+    assert_eq!(code, Some(EXIT_UNASKED.into()), "{stdout}{stderr}");
+    let document: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(document["with"][0]["outcome"], "refused", "{document:#}");
+    assert_eq!(document["spec"]["outcome"], "admitted", "{document:#}");
+    let missing = flow("calc/NO-SUCH-FLOW.toml");
+    let (code, stdout, stderr) = binary(&[
+        "check".as_ref(),
+        calc.as_os_str(),
+        "--with".as_ref(),
+        missing.as_os_str(),
+    ]);
+    assert_eq!(code, Some(EXIT_UNASKED.into()), "{stdout}{stderr}");
+    assert!(stdout.is_empty(), "{stdout}");
+    assert!(
+        stderr.contains(&format!("{} is not a file", missing.display())),
+        "{stderr}"
+    );
+}
+
 /// fz26 FZ-REPLAY-WHOLE (final review N6): `--version` prints the build and k-rust's identity
 /// and exits 0, as `krust-fuzz --version` does, instead of the usage.
 #[test]
@@ -692,6 +742,7 @@ fn check_list(manifest: &Path, mutations: &Path, cache: Option<&Path>) -> (Value
         &CheckOptions {
             mutations: Some(mutations.to_owned()),
             cache: cache.map(Path::to_path_buf),
+            ..CheckOptions::default()
         },
     )
 }
@@ -769,7 +820,7 @@ fn check_resolves_every_mutation_and_runs_no_program() {
     );
     let (document, status) = check_list(&manifest, &mutations, None);
     assert_eq!(status, EXIT_UNASKED, "{document:#}");
-    assert_eq!(document["version"], 17);
+    assert_eq!(document["version"], 18);
     assert_eq!(document["spec"]["outcome"], "admitted");
     assert_eq!(document["mutation_list"]["outcome"], "ok");
     // Nothing ran and nothing was written: no cache, so no unmatched-rule warning.
@@ -1090,7 +1141,7 @@ fn a_flagged_definition_names_its_cause_chains_and_passes_check() {
     assert!(exclusions.short_circuit_flagged());
     assert_eq!(exclusions.definition_exclusion(), None);
     assert_eq!(status, EXIT_YES, "{document:#}");
-    assert_eq!(document["version"], 17);
+    assert_eq!(document["version"], 18);
     assert_eq!(document["spec"]["outcome"], "admitted");
     assert!(document["spec"]["exclusion"].is_null(), "{document:#}");
     for program in document["programs"].as_array().unwrap() {

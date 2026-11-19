@@ -969,6 +969,12 @@ const K_SPEC_KEYS: [&str; 5] = [
 ];
 
 impl ManifestFile {
+    /// The tree the flow's cases are read from, as [`FlowManifest::case_root`].
+    #[must_use]
+    pub fn case_root(&self) -> CaseRoot {
+        CaseRoot::of(&self.directory, self.corpus.as_ref())
+    }
+
     /// Read and decode the manifest at `path`; its directory becomes the root.
     pub fn read(path: &Path) -> Result<Self, ManifestError> {
         let text = fs::read_to_string(path)

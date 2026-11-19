@@ -1443,7 +1443,7 @@ fn a_case_expectation_is_checked_by_the_front_ends_renderer() {
         )
     });
     assert_eq!(status, kink_flow::cli::EXIT_YES, "{check:#}");
-    assert_eq!(check["version"], 17, "{check:#}");
+    assert_eq!(check["version"], 18, "{check:#}");
     assert_eq!(expectations(&check), reported, "{check:#}");
 
     // A refused expectation refuses its case.
@@ -1532,9 +1532,42 @@ fn a_flow_checks_the_expectation_scoped_to_its_definition() {
         .unwrap()
         .with_input_decoder(std::sync::Arc::new(TestDecoder))
         .with_end_renderer(std::sync::Arc::new(TestRenderer));
+    let checking = manifest.clone();
     let (results, results_ok) =
         on_stack(move || kink_flow::coverage::coverage(&manifest, &CoverageOptions::default()));
     assert!(results_ok, "{results:#}");
+    // `check` reads the records coverage wrote: a case whose only expectation its flow checks is
+    // scoped to the flow's definition has its row's `expectation` there too (version 17 left it
+    // out, testing `expect` alone).
+    let (check, status) = on_stack(move || {
+        kink_flow::cli::run_command(
+            &checking,
+            &kink_flow::FlowCommand::Check(kink_flow::cli::CheckOptions::default()),
+            &kink_flow::FrontEnd::default(),
+        )
+    });
+    assert_eq!(status, kink_flow::cli::EXIT_YES, "{check:#}");
+    let checked = |id: &str| {
+        check["programs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["id"] == id)
+            .unwrap()
+            .get("expectation")
+            .cloned()
+    };
+    assert_eq!(
+        checked("cases/runs.toml#scoped"),
+        Some(serde_json::json!({"verdict": "met", "detail": null, "difference": null})),
+        "{check:#}"
+    );
+    assert_eq!(
+        checked("cases/runs.toml#both").map(|both| both["verdict"].clone()),
+        Some(Value::from("unmet")),
+        "{check:#}"
+    );
+    assert_eq!(checked("cases/runs.toml#other"), None, "{check:#}");
     let expectation = |id: &str| {
         results["programs"]
             .as_array()
@@ -1585,6 +1618,213 @@ fn a_flow_checks_the_expectation_scoped_to_its_definition() {
         row["detail"], "expect_for.CASES: `bad` is no part of an expectation",
         "{check:#}"
     );
+}
+
+/// `check --with` (PJ-30): the flows given, the checked one among them, are the flows on the
+/// corpus root `check` knows of, and a case's expectation scoped to a definition is warned about
+/// (`unread-scope`, on the case's row, no exit status) when no flow given has that definition
+/// and reads the case. Without `--with` no such warning is given and the document has no
+/// `with`. A flow given is decoded, not built (its specification here names files that do not
+/// exist), and one that reads its cases from another tree, or does not decode, is refused
+/// (exit 2), with no warning given. The flows are read with or without a mutation list.
+#[test]
+fn check_with_warns_of_a_scope_no_flow_given_reads() {
+    let dir = scratch("check-with");
+    let corpus = dir.join("corpus");
+    fs::create_dir_all(corpus.join("cases")).unwrap();
+    fs::write(corpus.join("cases/rom.bin"), [0x07]).unwrap();
+    let case = |name: &str, expect: &str| {
+        format!(
+            "[[case]]\nname = \"{name}\"\ninputs = {{ entry = {{ \"$go\" = true }}, n = 1, rom = {{ \"$file\" = \"rom.bin\" }} }}\n{expect}\n"
+        )
+    };
+    write(
+        &corpus.join("cases/runs.toml"),
+        &[
+            case("own", "expect_for = { CASES = { ends = 1 } }"),
+            case("read", "expect_for = { OTHER = { ends = 1 } }"),
+            case("typo", "expect_for = { OTHR = { ends = 1 } }"),
+            case("unread", "expect_for = { SECOND = { ends = 1 } }"),
+        ]
+        .concat(),
+    );
+    write(&corpus.join("cases/second.toml"), &case("only", ""));
+    write(&dir.join("spec/cases.k"), CASES_K);
+    write(
+        &dir.join("spec/FLOW.toml"),
+        "[spec]\nentry = \"cases.k\"\nmain_module = \"CASES\"\n\n[corpus]\nroot = \"../corpus\"\n\n[[program]]\ncases = \"cases/*.toml\"\n",
+    );
+    // Flows of other definitions, never built: their entries do not exist.
+    let flow = |module: &str, root: &str, cases: &str| {
+        format!(
+            "[spec]\nentry = \"absent.k\"\nmain_module = \"{module}\"\n\n[corpus]\nroot = \"{root}\"\n\n[[program]]\ncases = \"{cases}\"\n"
+        )
+    };
+    let other = dir.join("other/kink/FLOW.toml");
+    write(&other, &flow("OTHER", "../../corpus", "cases/*.toml"));
+    let second = dir.join("second/FLOW-second.toml");
+    write(&second, &flow("SECOND", "../corpus", "cases/second.toml"));
+    fs::create_dir_all(dir.join("elsewhere/cases")).unwrap();
+    write(&dir.join("elsewhere/cases/x.toml"), &case("x", ""));
+    let elsewhere = dir.join("third/FLOW.toml");
+    write(&elsewhere, &flow("OTHR", "../elsewhere", "cases/*.toml"));
+    let broken = dir.join("broken/FLOW.toml");
+    write(&broken, "[spec]\n");
+
+    let checked = |with: Vec<PathBuf>, mutations: Option<PathBuf>| {
+        let manifest = read(&dir.join("spec"))
+            .unwrap()
+            .with_input_decoder(std::sync::Arc::new(TestDecoder))
+            .with_end_renderer(std::sync::Arc::new(TestRenderer));
+        on_stack(move || {
+            kink_flow::cli::run_command(
+                &manifest,
+                &kink_flow::FlowCommand::Check(kink_flow::cli::CheckOptions {
+                    mutations,
+                    cache: None,
+                    with,
+                }),
+                &kink_flow::FrontEnd::default(),
+            )
+        })
+    };
+    let warnings = |document: &Value| {
+        document["programs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|row| {
+                let warnings = row.get("warnings")?.as_array().unwrap();
+                Some((
+                    row["id"].as_str().unwrap().to_owned(),
+                    warnings
+                        .iter()
+                        .map(|warning| {
+                            (
+                                warning["reason"].as_str().unwrap().to_owned(),
+                                warning["definition"].as_str().unwrap().to_owned(),
+                            )
+                        })
+                        .collect::<Vec<_>>(),
+                ))
+            })
+            .collect::<Vec<_>>()
+    };
+
+    let (alone, status) = checked(Vec::new(), None);
+    assert_eq!(status, kink_flow::cli::EXIT_YES, "{alone:#}");
+    assert_eq!(alone["version"], 18, "{alone:#}");
+    assert_eq!(alone.get("with"), None, "{alone:#}");
+    assert!(warnings(&alone).is_empty(), "{alone:#}");
+
+    let (given, status) = checked(vec![other.clone(), second.clone()], None);
+    assert_eq!(status, kink_flow::cli::EXIT_YES, "{given:#}");
+    assert_eq!(
+        given["with"],
+        serde_json::json!([
+            {"flow": other.display().to_string(), "outcome": "ok", "definition": "OTHER", "detail": null},
+            {"flow": second.display().to_string(), "outcome": "ok", "definition": "SECOND", "detail": null},
+        ]),
+        "{given:#}"
+    );
+    let unread = |definition: &str| ("unread-scope".to_owned(), definition.to_owned());
+    assert_eq!(
+        warnings(&given),
+        [
+            ("cases/runs.toml#typo".to_owned(), vec![unread("OTHR")]),
+            ("cases/runs.toml#unread".to_owned(), vec![unread("SECOND")]),
+        ],
+        "{given:#}"
+    );
+    let row = |document: &Value, id: &str| {
+        document["programs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["id"] == id)
+            .unwrap()
+            .clone()
+    };
+    let typo = &row(&given, "cases/runs.toml#typo")["warnings"][0];
+    assert_eq!(
+        typo["detail"],
+        format!(
+            "no flow given reads `expect_for.OTHR` of this case: of the flows given, this flow \
+             (definition `CASES`), `{}` (definition `OTHER`), `{}` (definition `SECOND`), none \
+             has the definition `OTHR` and reads the case, so none checks the expectation; a \
+             flow not given may read it",
+            other.display(),
+            second.display()
+        ),
+        "{given:#}"
+    );
+    assert!(
+        typo["next"]
+            .as_str()
+            .unwrap()
+            .contains("give the flow of `OTHR` that reads the case with --with"),
+        "{given:#}"
+    );
+    let unread_detail = row(&given, "cases/runs.toml#unread")["warnings"][0]["detail"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(
+        unread_detail.contains(&format!(
+            "(`{}` has that definition but does not read the case)",
+            second.display()
+        )),
+        "{unread_detail}"
+    );
+    // The scoped expectations of the checked flow and of a flow given that reads the case are
+    // not warned about; a case with no `expect_for` has no `warnings`.
+    assert_eq!(row(&given, "cases/runs.toml#own").get("warnings"), None);
+    assert_eq!(row(&given, "cases/runs.toml#read").get("warnings"), None);
+    assert_eq!(row(&given, "cases/second.toml#only").get("warnings"), None);
+
+    // The checked flow given again changes nothing.
+    let (again, _) = checked(
+        vec![dir.join("spec/FLOW.toml"), other.clone(), second.clone()],
+        None,
+    );
+    assert_eq!(warnings(&again), warnings(&given), "{again:#}");
+
+    // A flow on another tree, and one that does not decode, are refused, and no warning is
+    // given: the flows on the root are then not known.
+    let (refused, status) = checked(vec![other.clone(), elsewhere.clone(), broken.clone()], None);
+    assert_eq!(status, kink_flow::cli::EXIT_UNASKED, "{refused:#}");
+    assert!(warnings(&refused).is_empty(), "{refused:#}");
+    let with = refused["with"].as_array().unwrap();
+    assert_eq!(
+        with.iter()
+            .map(|flow| flow["outcome"].clone())
+            .collect::<Vec<_>>(),
+        ["ok", "refused", "refused"],
+        "{refused:#}"
+    );
+    assert_eq!(
+        with[1]["detail"],
+        "it reads its cases from the corpus root `../elsewhere` of its manifest, which is not \
+         the corpus root `../corpus` of this flow: --with names flows on this flow's corpus root",
+        "{refused:#}"
+    );
+    assert_eq!(with[1]["definition"], Value::Null, "{refused:#}");
+    assert!(
+        with[2]["detail"]
+            .as_str()
+            .unwrap()
+            .starts_with("the manifest does not decode: "),
+        "{refused:#}"
+    );
+
+    // With a mutation list (here one that does not decode), the flows are read as well.
+    let list = dir.join("spec/MUTATIONS.toml");
+    write(&list, "not a list");
+    let (listed, status) = checked(vec![other, second], Some(list));
+    assert_eq!(status, kink_flow::cli::EXIT_UNASKED, "{listed:#}");
+    assert_eq!(listed["mutation_list"]["outcome"], "refused", "{listed:#}");
+    assert_eq!(warnings(&listed), warnings(&given), "{listed:#}");
+    assert_eq!(listed["with"], given["with"], "{listed:#}");
 }
 
 /// A case's `provenance` is shown in its row of `coverage` and `check` as its document states

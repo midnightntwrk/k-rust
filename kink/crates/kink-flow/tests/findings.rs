@@ -223,7 +223,7 @@ fn check_fails_on_each_repro_until_its_findings_are_named() {
             let dir = repro(name, "check", None);
             let (document, status) = check(&dir.join("FLOW.toml"));
             assert_eq!(status, EXIT_NO, "{name}: {document:#}");
-            assert_eq!(document["version"], 17);
+            assert_eq!(document["version"], 18);
             assert_eq!(document["spec"]["outcome"], "admitted", "{name}");
             assert_eq!(document["programs"][0]["outcome"], "ok", "{name}");
             assert_eq!(document["data"]["has_data"], false, "{name}");
@@ -265,6 +265,7 @@ fn check_fails_on_each_repro_until_its_findings_are_named() {
             let options = CheckOptions {
                 mutations: Some(dir.join("MUTATIONS.toml")),
                 cache: None,
+                ..CheckOptions::default()
             };
             let (listed, status) = check_with(&dir.join("FLOW.toml"), &options);
             assert_eq!(status, EXIT_NO, "{name}: {listed:#}");
@@ -310,6 +311,7 @@ fn check_fails_on_each_repro_until_its_findings_are_named() {
                 &CheckOptions {
                     mutations: Some(dir.join("MUTATIONS.toml")),
                     cache: None,
+                    ..CheckOptions::default()
                 },
             );
             assert_eq!(status, EXIT_YES, "{name}: {listed:#}");

@@ -124,7 +124,7 @@ fn a_change_only_to_an_unobservable_cell_survives_and_every_document_names_the_c
 
     let (document, status) = check(&manifest);
     assert_eq!(status, EXIT_YES, "{document:#}");
-    assert_eq!(document["version"], 17);
+    assert_eq!(document["version"], 18);
     assert_eq!(document["result"], expected);
     // A flow that declares no projection names none: its `default` is what `result` names.
     assert_eq!(document.get("projections"), None, "{document:#}");

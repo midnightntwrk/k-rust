@@ -67,7 +67,7 @@ pub const EXIT_UNANSWERED: u8 = 3;
 macro_rules! usage_line {
     () => {
         "usage: kink-flow --version | kink-flow check FLOW.toml [--mutations \
-         MUTATIONS] [--cache DIR] | kink-flow \
+         MUTATIONS] [--cache DIR] [--with FLOW.toml]... | kink-flow \
          coverage FLOW.toml [--tier 1|2] [--depth N] [--verify] [--lock FILE [--locked]] \
          [--cache DIR] [--output json|text|verdicts] | kink-flow run \
          FLOW.toml MUTATIONS [--only ID]... [--verify] \
@@ -367,11 +367,11 @@ fn repeated(arg: &str) -> String {
 }
 
 /// Refuse `arg`, read where an option begins, unless it is the flag of one of `verb`'s options
-/// ([`Verb::options`]). Each option parser calls it first, so a flag its table does not list is
-/// refused before any arm that would accept it: the verb's help, which prints the table, lists
+/// ([`Verb::own_options`]). Each option parser calls it first, so a flag its table does not list
+/// is refused before any arm that would accept it: the verb's help, which prints the table, lists
 /// every option the verb accepts.
 fn listed(verb: Verb, arg: &str) -> Result<(), String> {
-    if verb.options().iter().any(|option| option.flag() == arg) {
+    if verb.own_options().iter().any(|option| option.flag() == arg) {
         Ok(())
     } else {
         Err(unexpected_argument(arg))
@@ -395,15 +395,26 @@ const VERIFY: VerbOption = option(
     "recompute every stored record and report each that differs (a finding, exit 1)",
 );
 
-const CHECK_OPTIONS: &[VerbOption] = &[
+const CHECK_MUTATIONS: VerbOption = option(
+    "--mutations MUTATIONS",
+    "resolve this mutation list against the specification, compiling and running nothing",
+);
+const CHECK_CACHE: VerbOption = option(
+    "--cache DIR",
+    "the cache whose result records decide unmatched-rule and unapplied-rule (default: \
+     .kink-flow beside FLOW.toml); nothing is written to it",
+);
+const CHECK_OPTIONS: &[VerbOption] = &[CHECK_MUTATIONS, CHECK_CACHE];
+
+/// `check`'s options with `--with`, which only kink-flow's own command line takes
+/// ([`Verb::own_options`]).
+const KINK_FLOW_CHECK_OPTIONS: &[VerbOption] = &[
+    CHECK_MUTATIONS,
+    CHECK_CACHE,
     option(
-        "--mutations MUTATIONS",
-        "resolve this mutation list against the specification, compiling and running nothing",
-    ),
-    option(
-        "--cache DIR",
-        "the cache whose result records decide unmatched-rule and unapplied-rule (default: \
-         .kink-flow beside FLOW.toml); nothing is written to it",
+        "--with FLOW.toml",
+        "another flow on this flow's corpus root, decoded and not built (repeatable): warn of \
+         each case's expect_for of a definition no flow given reads (unread-scope)",
     ),
 ];
 
@@ -645,7 +656,7 @@ pub fn verb_help(verb: Verb) -> String {
          kink/crates/kink-flow/README.md, \"{}\"\n",
         verb.synopsis(),
         verb.summary(),
-        options_text(verb.options()),
+        options_text(verb.own_options()),
         verb.reference(),
     )
 }
@@ -742,7 +753,9 @@ impl Verb {
     #[must_use]
     pub const fn synopsis(self) -> &'static str {
         match self {
-            Self::Check => "check FLOW.toml [--mutations MUTATIONS] [--cache DIR]",
+            Self::Check => {
+                "check FLOW.toml [--mutations MUTATIONS] [--cache DIR] [--with FLOW.toml]..."
+            }
             Self::Coverage => {
                 "coverage FLOW.toml [--tier 1|2] [--depth N] [--verify] [--lock FILE \
                  [--locked]] [--cache DIR] [--output json|text|verdicts]"
@@ -842,7 +855,8 @@ impl Verb {
         }
     }
 
-    /// The verb's own options, which its help lists; its operands are not among them.
+    /// The verb's options that a front end passes on to kink-flow's parser, its operands not
+    /// among them; [`Self::own_options`] adds those only kink-flow's own command line takes.
     #[must_use]
     pub const fn options(self) -> &'static [VerbOption] {
         match self {
@@ -854,6 +868,17 @@ impl Verb {
             Self::Fuzz => FUZZ_OPTIONS,
             Self::Compare => COMPARE_OPTIONS,
             Self::Prune => PRUNE_OPTIONS,
+        }
+    }
+
+    /// The options `kink-flow <verb>` takes, which its help lists: [`Self::options`] and, for
+    /// `check`, `--with`, which reads other flows' manifests by path and which no front end
+    /// passes on yet (a front end's table, [`Self::options`], refuses it).
+    #[must_use]
+    pub const fn own_options(self) -> &'static [VerbOption] {
+        match self {
+            Self::Check => KINK_FLOW_CHECK_OPTIONS,
+            _ => self.options(),
         }
     }
 
@@ -1105,6 +1130,9 @@ impl FlowCommand {
                 options.mutations = options.mutations.or(files.mutations);
                 if let Some(list) = options.mutations.as_ref().filter(|list| !list.exists()) {
                     return Err(not_found(list));
+                }
+                if let Some(flow) = options.with.iter().find(|flow| !flow.is_file()) {
+                    return Err(not_file(flow));
                 }
                 Ok(Self::Check(options))
             }
@@ -1483,13 +1511,14 @@ pub fn run_command(
 ) -> (Value, u8) {
     let (document, status) = match command {
         FlowCommand::Check(options) => match &options.mutations {
-            None => check_admission(manifest, options.cache.as_deref()),
+            None => check_admission(manifest, options),
             Some(path) => {
                 let mut checked = check_corpus_mutations(
                     manifest,
                     MutationList::read(path),
                     options.cache.as_deref(),
                 );
+                crate::check::with_flows(manifest, &options.with, &mut checked.admission);
                 front.refuse(&mut checked);
                 check_mutations_document(&checked, front.spelling)
             }
@@ -2119,6 +2148,9 @@ pub struct CheckOptions {
     /// The cache directory whose result records decide `unmatched-rule` and `unapplied-rule`;
     /// default `<directory of FLOW.toml>/.kink-flow`. Nothing is written to it.
     pub cache: Option<PathBuf>,
+    /// `--with`: other flows on the corpus root, in the order given
+    /// ([`crate::check::with_flows`]); empty when the command names none.
+    pub with: Vec<PathBuf>,
 }
 
 fn check_options(args: &[String]) -> Result<CheckOptions, String> {
@@ -2134,6 +2166,10 @@ fn check_options(args: &[String]) -> Result<CheckOptions, String> {
             "--cache" if options.cache.is_none() => {
                 let directory = args.next().ok_or("--cache needs a directory")?;
                 options.cache = Some(PathBuf::from(directory));
+            }
+            "--with" => {
+                let flow = args.next().ok_or("--with needs a flow manifest")?;
+                options.with.push(PathBuf::from(flow));
             }
             _ => return Err(repeated(arg)),
         }
@@ -2875,10 +2911,11 @@ pub fn check(manifest: &Path) -> (Value, u8) {
     check_with(manifest, &CheckOptions::default())
 }
 
-/// `kink-flow check FLOW.toml [--mutations MUTATIONS] [--cache DIR]`: the check document and the
-/// exit status. With a mutation list, every mutation is also resolved against the admitted
-/// specification and no program runs ([`crate::check`]): [`check_corpus_mutations`] then
-/// [`check_mutations_document`], with nothing added between them.
+/// `kink-flow check FLOW.toml [--mutations MUTATIONS] [--cache DIR] [--with FLOW.toml]...`: the
+/// check document and the exit status. With a mutation list, every mutation is also resolved
+/// against the admitted specification and no program runs ([`crate::check`]):
+/// [`check_corpus_mutations`] then [`check_mutations_document`], with only the flows of `--with`
+/// read between them ([`crate::check::with_flows`]).
 pub fn check_with(manifest: &Path, options: &CheckOptions) -> (Value, u8) {
     on_manifest(manifest, &FlowCommand::Check(options.clone()))
 }
@@ -2917,6 +2954,7 @@ pub fn check_corpus_mutations(
                 stop: manifest.stop_value(),
                 observe: manifest.observe_value(),
                 projections: manifest.projections_value(),
+                with: None,
             },
             list,
             mutations: None,
@@ -2947,6 +2985,7 @@ pub fn check_corpus_mutations(
             stop: manifest.stop_value(),
             observe: manifest.observe_value(),
             projections: manifest.projections_value(),
+            with: None,
         },
         list,
         mutations,
@@ -2995,22 +3034,30 @@ pub fn check_mutations_document(
 }
 
 /// `kink-flow check FLOW.toml` without a mutation list: admission alone, each case's expectation
-/// checked against its current result record in `cache` ([`crate::check::admit_checked`]), and
-/// the exit status of the admission ([`admission_status`]); an expectation decides no exit
-/// status, since `check` runs nothing and asks only whether verdicts are possible.
-fn check_admission(manifest: &FlowManifest, cache: Option<&Path>) -> (Value, u8) {
-    let admission = crate::check::admit_checked(manifest, cache);
+/// checked against its current result record in the cache `options` names
+/// ([`crate::check::admit_checked`]), the flows `--with` names read
+/// ([`crate::check::with_flows`]), and the exit status of the admission ([`admission_status`]);
+/// an expectation and a warning decide no exit status, since `check` runs nothing and asks only
+/// whether verdicts are possible.
+fn check_admission(manifest: &FlowManifest, options: &CheckOptions) -> (Value, u8) {
+    let mut admission = crate::check::admit_checked(manifest, options.cache.as_deref());
+    crate::check::with_flows(manifest, &options.with, &mut admission);
     let status = admission_status(&admission);
     (check_document(&admission), status)
 }
 
 /// The exit status of `check`'s admission: `check` asks whether every verdict the corpus promises
-/// is possible before any mutant runs. A refused specification or program could not be asked
-/// about ([`EXIT_UNASKED`]: fix it); a program every baseline run of which is excluded, or a
-/// baseline with no data under `[spec] assume_joined`, is the finding that says no
-/// ([`EXIT_NO`]); else [`EXIT_YES`] ([`FlowAdmission::verdicts_possible`]).
+/// is possible before any mutant runs. A refused specification or program, or a refused flow of
+/// `--with`, could not be asked about ([`EXIT_UNASKED`]: fix it); a program every baseline run
+/// of which is excluded, or a baseline with no data under `[spec] assume_joined`, is the finding
+/// that says no ([`EXIT_NO`]); else [`EXIT_YES`] ([`FlowAdmission::verdicts_possible`]).
 fn admission_status(admission: &FlowAdmission) -> u8 {
-    if !admission.all_admitted() {
+    if !admission.all_admitted()
+        || admission
+            .with
+            .as_ref()
+            .is_some_and(crate::check::FlowsGiven::refused)
+    {
         EXIT_UNASKED
     } else if admission.verdicts_possible() {
         EXIT_YES
@@ -3078,7 +3125,14 @@ fn admission_status(admission: &FlowAdmission) -> u8 {
 /// projection's keys as written and, where it has `views` or `observer`, the identity of its
 /// `observation` as the front end resolved it). A flow that declares no projection and writes
 /// no `[result]` gives version 16's document but for its version.
-pub const CHECK_VERSION: u64 = 17;
+/// 18 (PJ-30) adds `--with`, other flows on the corpus root ([`crate::check::with_flows`]): the
+/// document's `with` lists each, `{flow, outcome, definition, detail}` (a flow that does not
+/// decode or reads its cases from another tree is refused, exit 2), and a case's row gives
+/// `warnings`, `{reason, definition, detail, next}`, with `unread-scope` for each definition the
+/// case scopes an expectation to (`expect_for`) that no flow given has while reading the case;
+/// both are absent without `--with`. A case whose only expectation its flow checks is scoped to
+/// the flow's definition now has its row's `expectation`, which version 17 left out.
+pub const CHECK_VERSION: u64 = 18;
 
 /// The check document's members, and under the Z3 profile `z3` ([`crate::with_z3_build`]); every
 /// document a verb gives for a manifest that does not decode is built from it
@@ -3205,6 +3259,14 @@ pub fn check_document(admission: &FlowAdmission) -> Value {
             if let Some(provenance) = &program.provenance {
                 row["provenance"] = provenance.value();
             }
+            // The case's warnings (`unread-scope`); absent without one.
+            if !program.warnings.is_empty() {
+                row["warnings"] = program
+                    .warnings
+                    .iter()
+                    .map(crate::check::CaseWarning::value)
+                    .collect();
+            }
             row
         })
         .collect();
@@ -3224,6 +3286,10 @@ pub fn check_document(admission: &FlowAdmission) -> Value {
     // The resolved observation declaration; absent without `[observe]`.
     if let Some(observe) = &admission.observe {
         document["observe"] = observe.clone();
+    }
+    // The flows `--with` names; absent without one.
+    if let Some(with) = &admission.with {
+        document["with"] = with.value();
     }
     // The projections the flow declares; absent without `[[projection]]`.
     if let Some(projections) = &admission.projections {
@@ -3365,7 +3431,7 @@ mod tests {
     #[test]
     fn every_listed_option_is_one_the_parser_accepts() {
         for verb in Verb::ALL {
-            for option in verb.options() {
+            for option in verb.own_options() {
                 let mut args = vec![option.flag().to_owned()];
                 if let Some((_, name)) = option.spelling.split_once(' ') {
                     args.push(value(name).to_owned());
@@ -3402,6 +3468,41 @@ mod tests {
             };
             assert_eq!(error.as_deref(), Some("invalid option '--unlisted'"));
         }
+    }
+
+    /// `check --with` names flows by path and may be repeated, each kept in order; only
+    /// kink-flow's own table lists it, so a front end, whose table is [`Verb::options`], refuses
+    /// it rather than pass on an option it does not read; and each flow given must be a file.
+    #[test]
+    fn check_with_is_kink_flows_own_and_repeatable() {
+        let with = |verb: Verb| verb.own_options().iter().any(|o| o.flag() == "--with");
+        assert!(with(Verb::Check));
+        assert!(!Verb::Check.options().iter().any(|o| o.flag() == "--with"));
+        assert!(
+            Verb::ALL
+                .into_iter()
+                .filter(|verb| with(*verb))
+                .eq([Verb::Check])
+        );
+        assert!(verb_help(Verb::Check).contains("--with FLOW.toml"));
+        let args = ["--with", "a/FLOW.toml", "--cache", "c", "--with", "b.toml"].map(str::to_owned);
+        let options = check_options(&args).unwrap();
+        assert_eq!(
+            options.with,
+            [PathBuf::from("a/FLOW.toml"), PathBuf::from("b.toml")]
+        );
+        assert_eq!(
+            check_options(&["--with".to_owned()]).err().as_deref(),
+            Some("--with needs a flow manifest")
+        );
+        let missing = std::env::temp_dir().join("kink-flow-no-such-flow/FLOW.toml");
+        let error = FlowCommand::parse(
+            "check",
+            CommandFiles::default(),
+            &["--with".to_owned(), missing.display().to_string()],
+        )
+        .unwrap_err();
+        assert_eq!(error, format!("{} is not a file", missing.display()));
     }
 
     /// A listed option given twice is refused as a repetition, never as an option the verb does

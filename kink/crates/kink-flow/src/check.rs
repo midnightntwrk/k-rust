@@ -87,7 +87,7 @@ use crate::{
     admit::{AdmittedSpec, FlowAdmission, InputSession, ProgramAdmission, admit_spec},
     cli::{CommandSpelling, Verb},
     digest::execution_digest,
-    manifest::FlowManifest,
+    manifest::{FlowManifest, ManifestFile},
     mutation::{
         InvalidMutation, Mutation, MutationList, ResolvedMutation, addressed_rule, resolve,
     },
@@ -99,7 +99,7 @@ use kink_patch::SentenceRef;
 use serde_json::{Map, Value, json};
 use std::{
     collections::{BTreeMap, BTreeSet},
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 /// One finding of the check about a mutation: a warning, or a refusal a front end adds.
@@ -344,6 +344,7 @@ pub fn admit_checked(manifest: &FlowManifest, cache: Option<&Path>) -> FlowAdmis
             stop: manifest.stop_value(),
             observe: manifest.observe_value(),
             projections: manifest.projections_value(),
+            with: None,
         };
     };
     let programs = {
@@ -364,6 +365,7 @@ pub fn admit_checked(manifest: &FlowManifest, cache: Option<&Path>) -> FlowAdmis
         stop: manifest.stop_value(),
         observe: manifest.observe_value(),
         projections: manifest.projections_value(),
+        with: None,
     }
 }
 
@@ -372,10 +374,11 @@ const NO_RECORD: &str = "the case has no current result record to check the expe
      against: it has not run under this specification and build (run `coverage`), or its result is \
      never cached (a timeout, an error, or an unknown the host caused)";
 
-/// Each admission of `programs` (one per manifest program, in order) whose program has `expect`,
-/// with its expectation checked against the program's current result record in the cache
-/// directory `cache`, read without running anything (`crate::expect`): inconclusive for a refused
-/// program and for one without a record.
+/// Each admission of `programs` (one per manifest program, in order) whose program has an
+/// expectation its flow checks (`expect`, or one scoped to the flow's definition), with it
+/// checked against the program's current result record in the cache directory `cache`, read
+/// without running anything (`crate::expect`): inconclusive for a refused program and for one
+/// without a record.
 pub fn expect_recorded(
     spec: &AdmittedSpec,
     manifest: &FlowManifest,
@@ -383,16 +386,18 @@ pub fn expect_recorded(
     cache: &Path,
     programs: &mut [ProgramAdmission],
 ) {
+    // A program has an expectation its flow checks when it has `expect` or one scoped to the
+    // flow's definition (`crate::expect::expectations`).
     if manifest
         .programs
         .iter()
-        .all(|program| program.expect.is_none())
+        .all(|program| crate::expect::expectations(program).is_empty())
     {
         return;
     }
     let execution = execution_digest(manifest, spec);
     for (program, admission) in manifest.programs.iter().zip(programs) {
-        if program.expect.is_none() {
+        if crate::expect::expectations(program).is_empty() {
             continue;
         }
         let record = match &admission.outcome {
@@ -408,6 +413,235 @@ pub fn expect_recorded(
             (Ok(_), Some(record)) => Ok(crate::expect::Baseline::of_record(record)),
         };
         admission.expectation = inputs.expectation(program, baseline, manifest.stop.as_ref());
+    }
+}
+
+/// A flow `check --with` names: a manifest decoded without binding its specification, so nothing
+/// of its definition is built, read for its definition name and the cases it reads.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GivenFlow {
+    /// The manifest's path as the command line gives it.
+    pub path: PathBuf,
+    /// What `check` reads of it, or why it is refused (it does not decode, or it reads its cases
+    /// from another tree than the checked flow's corpus root).
+    pub read: Result<GivenDefinition, String>,
+}
+
+/// What `check` reads of a flow `--with` names.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GivenDefinition {
+    /// Its definition name ([`crate::manifest::SpecDecl::expect_scope`]).
+    pub definition: String,
+    /// The id of every case of a case document it reads (ids are paths relative to the corpus
+    /// root, so they name the same cases in every flow on the root).
+    pub cases: BTreeSet<String>,
+}
+
+/// The flows `check --with` names, in the order given.
+///
+/// Which flows read a corpus root is known to no flow: a flow names its root by a relative path
+/// from its own directory, which may climb above it, so a flow anywhere can name the root, and no
+/// directory scan finds every one. The command line states the flows instead, and what `check`
+/// says from them is a statement about the flows given.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FlowsGiven {
+    pub flows: Vec<GivenFlow>,
+}
+
+impl FlowsGiven {
+    /// Read each manifest of `paths` without binding it, refusing one that does not decode or
+    /// whose cases are read from another directory than `manifest`'s (both resolved, links
+    /// followed).
+    #[must_use]
+    pub fn read(manifest: &FlowManifest, paths: &[PathBuf]) -> Self {
+        let own = manifest.case_root();
+        let own_directory = own.canonical().map(|root| root.directory);
+        let flows = paths
+            .iter()
+            .map(|path| {
+                let read = ManifestFile::read(path)
+                    .map_err(|error| format!("the manifest does not decode: {error}"))
+                    .and_then(|file| {
+                        let theirs = file.case_root();
+                        let own_directory = own_directory.as_ref().map_err(|error| {
+                            format!("{} of this flow cannot be resolved: {error}", own.name)
+                        })?;
+                        let same = theirs
+                            .canonical()
+                            .is_ok_and(|root| &root.directory == own_directory);
+                        if !same {
+                            return Err(format!(
+                                "it reads its cases from {} of its manifest, which is not {} of \
+                                 this flow: --with names flows on this flow's corpus root",
+                                theirs.name, own.name
+                            ));
+                        }
+                        Ok(GivenDefinition {
+                            definition: file.spec.expect_scope().to_owned(),
+                            cases: file
+                                .programs
+                                .iter()
+                                .filter(|program| program.case.is_some())
+                                .map(|program| program.id.clone())
+                                .collect(),
+                        })
+                    });
+                GivenFlow {
+                    path: path.clone(),
+                    read,
+                }
+            })
+            .collect();
+        Self { flows }
+    }
+
+    /// Whether some flow given is refused.
+    #[must_use]
+    pub fn refused(&self) -> bool {
+        self.flows.iter().any(|flow| flow.read.is_err())
+    }
+
+    /// The check document's `with`: one entry per flow given, `{flow, outcome, definition,
+    /// detail}`, `outcome` `ok` (with its definition name) or `refused` (with why).
+    #[must_use]
+    pub fn value(&self) -> Value {
+        Value::Array(
+            self.flows
+                .iter()
+                .map(|flow| match &flow.read {
+                    Ok(given) => json!({
+                        "flow": flow.path.display().to_string(),
+                        "outcome": "ok",
+                        "definition": given.definition,
+                        "detail": null,
+                    }),
+                    Err(detail) => json!({
+                        "flow": flow.path.display().to_string(),
+                        "outcome": "refused",
+                        "definition": null,
+                        "detail": detail,
+                    }),
+                })
+                .collect(),
+        )
+    }
+}
+
+/// A warning of the check document about a case, on the case's row.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CaseWarning {
+    /// A kebab-case name (`unread-scope`).
+    pub reason: String,
+    /// The definition the warning is about.
+    pub definition: String,
+    pub detail: String,
+    /// What the author does next.
+    pub next: String,
+}
+
+impl CaseWarning {
+    /// The warning as the case's row shows it: `{reason, definition, detail, next}`.
+    #[must_use]
+    pub fn value(&self) -> Value {
+        json!({
+            "reason": self.reason,
+            "definition": self.definition,
+            "detail": self.detail,
+            "next": self.next,
+        })
+    }
+}
+
+/// The flows `paths` names (`check --with`) read into `admission` ([`FlowsGiven::read`]), and,
+/// when none is refused, each case's `unread-scope` warnings ([`unread_scopes`]). Nothing is
+/// read, and `admission` is unchanged, when `paths` is empty.
+pub fn with_flows(manifest: &FlowManifest, paths: &[PathBuf], admission: &mut FlowAdmission) {
+    if paths.is_empty() {
+        return;
+    }
+    let given = FlowsGiven::read(manifest, paths);
+    if !given.refused() {
+        unread_scopes(manifest, &given, &mut admission.programs);
+    }
+    admission.with = Some(given);
+}
+
+/// Warn, on the row of each case of `programs` (one admission per manifest program, in order, or
+/// none when the specification is refused), of each definition the case scopes an expectation
+/// to (`expect_for`) that no flow given reads on that case: neither `manifest`'s flow (which
+/// reads its own definition's) nor a flow of `given` has that definition and reads the case.
+/// A flow reads a scoped expectation exactly where it checks it, so such an expectation is
+/// checked by no flow given; a flow not given may still read it, which the warning says.
+pub fn unread_scopes(
+    manifest: &FlowManifest,
+    given: &FlowsGiven,
+    programs: &mut [ProgramAdmission],
+) {
+    let readers = given
+        .flows
+        .iter()
+        .filter_map(|flow| Some((flow, flow.read.as_ref().ok()?)))
+        .collect::<Vec<_>>();
+    let named = std::iter::once(format!(
+        "this flow (definition `{}`)",
+        manifest.expect_scope
+    ))
+    .chain(readers.iter().map(|(flow, read)| {
+        format!(
+            "`{}` (definition `{}`)",
+            flow.path.display(),
+            read.definition
+        )
+    }))
+    .collect::<Vec<_>>()
+    .join(", ");
+    for (program, admission) in manifest.programs.iter().zip(programs) {
+        for definition in &program.expect_for.definitions {
+            if *definition == manifest.expect_scope {
+                continue;
+            }
+            let of_definition = readers
+                .iter()
+                .filter(|(_, read)| read.definition == *definition)
+                .collect::<Vec<_>>();
+            if of_definition
+                .iter()
+                .any(|(_, read)| read.cases.contains(&program.id))
+            {
+                continue;
+            }
+            let besides = if of_definition.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    " ({} {})",
+                    of_definition
+                        .iter()
+                        .map(|(flow, _)| format!("`{}`", flow.path.display()))
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    if of_definition.len() == 1 {
+                        "has that definition but does not read the case"
+                    } else {
+                        "have that definition but do not read the case"
+                    }
+                )
+            };
+            admission.warnings.push(CaseWarning {
+                reason: "unread-scope".to_owned(),
+                definition: definition.clone(),
+                detail: format!(
+                    "no flow given reads `expect_for.{definition}` of this case: of the flows \
+                     given, {named}, none has the definition `{definition}` and reads the \
+                     case{besides}, so none checks the expectation; a flow not given may read it"
+                ),
+                next: format!(
+                    "correct the definition name if it is mistyped (a K flow's [spec] \
+                     main_module, a KRS flow's facet), or give the flow of `{definition}` that \
+                     reads the case with --with"
+                ),
+            });
+        }
     }
 }
 
