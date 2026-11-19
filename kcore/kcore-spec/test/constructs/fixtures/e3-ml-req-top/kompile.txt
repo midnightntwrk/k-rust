@@ -1,0 +1,11 @@
+command: kompile --backend haskell e3-ml-req-top.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 4.1
+definition.kore bytes: 208840
+definition.kore sha256: 1c04589dfb617265886d865507f6d5ed7d15f7499403c5176f4e3b3c2649c5f0
+stripped sha256: a776a251b4a6a9a19689777a03e5d53386e45efc143c8c630f48bbfd3e53da5f
+main module: 410 sentences, 54 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-ML-REQ-TOP-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E3-ML-REQ-TOP as default.

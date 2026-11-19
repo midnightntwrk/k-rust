@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t241-kitem-nojunk-sort-left-out.k": "25417cb6d69b1c0bbe2d89040d659aef05af661046b67f94e2eb57f1ce9e87d8"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t241-kitem-nojunk-sort-left-out.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "ef4e118fb823cb8e0118765f91824accc039673a1f89dce1a29745bef9180192",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}
