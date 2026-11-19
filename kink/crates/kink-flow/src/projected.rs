@@ -24,6 +24,11 @@
 //!   ([`crate::mutant_ends`]), compared under the projection's cells and views by the front end
 //!   ([`crate::compare::Vocabulary::compare_ends`]), or, in a K flow, natively by the
 //!   projection's own cell projection ([`crate::admit::AdmittedSpec::projections`]).
+//!   The mutant's ends are compared only where they are every end of its run ([`mutant_side`]),
+//!   so a one-sided kill (a run its work budget cut, kink-campaign `OneSided`) is never re-judged
+//!   through the projection's cells or views: a one-sided difference of the cells slot is
+//!   `unknown` under it. A one-sided difference of the exit stop slot kills under every `end`
+//!   projection, which reads that slot as the search does, with no view applied.
 //! - An `accepts` projection is not judged by `run` ([`Judge::NotJudged`]): its status is
 //!   `undecided`, reason [`KIND_NOT_JUDGED`].
 //!
@@ -534,6 +539,83 @@ mod tests {
                 Judge::NotJudged(KIND_NOT_JUDGED),
                 flow(true, true, Channels::All),
             ]
+        );
+    }
+
+    /// A one-sided kill (a poll-bound mutant run: its ends record is not complete, its one-sided
+    /// ends are the clean ground leaves the runner's rule read) is never re-judged through the
+    /// projection's cells or views (PJ-11): the record is no side, so a one-sided difference of
+    /// the cells slot is `unknown` under a projection judged flow-side. The exit stop slot is read
+    /// as the search reads it, with no view applied, so its one-sided difference kills under every
+    /// `end` projection, and a projection taking the search's verdict kills on either slot.
+    #[test]
+    fn a_one_sided_kill_is_taken_through_the_exit_stop_and_never_through_a_view() {
+        use crate::mutant_ends::{Across, MutantEnds};
+        use crate::outcomes::RunPolls;
+        let leaf = r#"\dv{SortInt{}}("8")"#.to_owned();
+        let cut = MutantEnds {
+            program_id: "start".into(),
+            ends: vec![leaf.clone()],
+            stop_ends: Vec::new(),
+            one_sided_ends: vec![leaf],
+            undefined_steps: false,
+            complete: false,
+            across: Across::default(),
+            polls: RunPolls {
+                count: 11_000,
+                bound: 11_000,
+                cut: true,
+            },
+        };
+        let whole = ResultProjection {
+            state: kink_campaign::StateProjection::WholeTerm,
+            compared: None,
+            not_compared: Vec::new(),
+            unobservable: Vec::new(),
+        };
+        let refused = mutant_side(&cut, &whole).unwrap_err();
+        assert!(refused.contains("not complete"), "{refused}");
+        // The same ends as every end of a complete run are a side: completeness alone decides.
+        let complete = MutantEnds {
+            complete: true,
+            one_sided_ends: Vec::new(),
+            ..cut.clone()
+        };
+        assert_eq!(mutant_side(&complete, &whole).map(|side| side.len()), Ok(1));
+        // A projection with views is judged flow-side: exit stop, cells, no channel.
+        let views = end(Channels::None);
+        let cells = || Some(Verdict::Unknown(mutant_side(&cut, &whole).unwrap_err()));
+        // The common shape: the exit stop slot is `unknown` (the run is cut), the cells slot
+        // distinguished one-sidedly.
+        assert!(matches!(
+            verdict(&views, &[Unknown, Distinguish], None, cells),
+            Some(Verdict::Unknown(_))
+        ));
+        assert!(matches!(
+            verdict(&views, &[Agree, Distinguish], None, cells),
+            Some(Verdict::Unknown(reason)) if reason.contains("not complete")
+        ));
+        // A one-sided difference of the exit stop slot: killed, the cells never re-judged.
+        let never = || -> Option<Verdict> { panic!("asked") };
+        assert_eq!(
+            verdict(&views, &[Distinguish, Distinguish], None, never),
+            Some(Verdict::Killed)
+        );
+        // A trace projection reads neither end slot.
+        let trace = FlowJudge {
+            stop: false,
+            cells: false,
+            channels: Channels::None,
+        };
+        assert_eq!(
+            verdict(&trace, &[Distinguish, Distinguish], None, never),
+            Some(Verdict::Agree)
+        );
+        // The search's own observation (`Judge::Run`, also folded per program under a `domain`).
+        assert_eq!(Verdict::of_run(&[Unknown, Distinguish]), Verdict::Killed);
+        assert_eq!(
+            Verdict::of_run(&[Distinguish, Distinguish]),
+            Verdict::Killed
         );
     }
 

@@ -722,9 +722,15 @@ fn the_outcome_context_names_the_cells_left_out() {
 /// floor of 10000) after the early branch has finished: `early-k` changes the early end's `<k>`
 /// (7 becomes 8), `early-scratch` only its unobservable `<scratch>` (1 becomes 2).
 fn one_sided_cell_corpus() -> PathBuf {
+    one_sided_cell_corpus_with("one-sided", "")
+}
+
+/// [`one_sided_cell_corpus`] in its own directory `name`, with `projections` (manifest text)
+/// before its program.
+fn one_sided_cell_corpus_with(name: &str, projections: &str) -> PathBuf {
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
         .join(format!("kink-flow-unobservable-{}", std::process::id()))
-        .join("one-sided");
+        .join(name);
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
     let definition = fs::read_to_string(
@@ -746,7 +752,8 @@ fn one_sided_cell_corpus() -> PathBuf {
         dir.join("FLOW.toml"),
         "[spec]\nentry = \"onesidedcell.k\"\nmain_module = \"ONESIDEDCELL\"\n\
          syntax_module = \"ONESIDEDCELL-SYNTAX\"\n\n[budget]\ntime_ms = 600000\nwork_factor = 1\n\n\
-         [[program]]\nid = \"start\"\ntext = \"start(600)\"\n",
+         [[program]]\nid = \"start\"\ntext = \"start(600)\"\n"
+            .replace("[[program]]", &format!("{projections}[[program]]")),
     )
     .unwrap();
     let mutation = |id: &str, find: &str, replace: &str| {
@@ -806,6 +813,78 @@ fn a_one_sided_kill_under_a_cells_slot_never_rests_on_an_unobservable_cell() {
     );
     let text = difference["mutant"]["value"]["text"].as_str().unwrap();
     assert!(text.contains("done ( 608 )"), "{difference:#}");
+}
+
+/// PJ-11: a one-sided kill is taken by a projection whose observation is the search's own and is
+/// never re-judged under a projection judged flow-side. Over [`one_sided_cell_corpus`], `whole`
+/// (no `compare`, so the record keeps every observable cell) takes the search's verdict, and `k`
+/// compares the same cells but, the record not being narrowed to them, is judged flow-side:
+/// `early-k`'s mutant run is cut by its work budget, so its ends are not every end of its run, and
+/// its one-sided kill of the cells slot is `unknown` under `k` (the one exception to
+/// `a_projection_over_the_runs_cells_gives_the_runners_verdict`), live and from the stores.
+#[test]
+fn a_one_sided_kill_is_unknown_under_a_projection_judged_flow_side() {
+    let manifest = one_sided_cell_corpus_with(
+        "one-sided-projected",
+        "[[projection]]\nname = \"whole\"\n\n[[projection]]\nname = \"k\"\ncompare = [\"k\"]\n\n",
+    );
+    let document = std::thread::Builder::new()
+        .stack_size(256 << 20)
+        .spawn({
+            let manifest = manifest.clone();
+            move || search(&manifest)
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+    assert_eq!(
+        statuses(&document),
+        pairs(&[("early-k", "killed"), ("early-scratch", "unknown")]),
+        "{document:#}"
+    );
+    let expected = vec![
+        quad("early-k", "whole", "killed", Some("start")),
+        quad("early-k", "k", "unknown", None),
+        quad("early-scratch", "whole", "unknown", None),
+        quad("early-scratch", "k", "unknown", None),
+    ];
+    assert_eq!(projection_statuses(&document), expected, "{document:#}");
+    let killed = &document["mutations"][0]["executed"][0];
+    assert_eq!(
+        killed["slots"]["cells"]["outcome"], "distinguish",
+        "{killed:#}"
+    );
+    assert_ne!(
+        killed["slots"]["exit-stop"]["outcome"], "distinguish",
+        "{killed:#}"
+    );
+    assert_eq!(
+        killed["difference"]["mutant"]["complete"], false,
+        "{killed:#}"
+    );
+    assert_eq!(
+        killed["projections"],
+        json!({"whole": "killed", "k": "unknown"}),
+        "{killed:#}"
+    );
+    // A second run reads the outcome record and the stored, incomplete, mutant ends: the same
+    // statuses, and no call for the projections.
+    let again = std::thread::Builder::new()
+        .stack_size(256 << 20)
+        .spawn(move || search(&manifest))
+        .unwrap()
+        .join()
+        .unwrap();
+    assert_eq!(projection_statuses(&again), expected, "{again:#}");
+    for row in again["mutations"].as_array().unwrap() {
+        assert_eq!(row["executed"][0]["cached"], true, "{row:#}");
+        assert!(
+            row["projection_search"]["calls"]
+                .as_array()
+                .is_none_or(Vec::is_empty),
+            "{row:#}"
+        );
+    }
 }
 
 /// kink-flow's K front end checks every projection's `compare` against the configuration, also
