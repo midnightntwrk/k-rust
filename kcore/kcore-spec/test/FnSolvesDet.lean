@@ -1,13 +1,18 @@
 /-
   `FnDet` beside `coreOK` and `FnSolves`. A witness for `FnDet` is a semantics with `coreOK` and
   `FnSolves`, without `FnDet`, whose `Γ` has no model.
-  - Among the semantics whose clauses' predicates are all `\top` (`clausesPreTop`) there is none:
-    there, under `coreOK`, `FnSolves` gives `FnDet` (`fnDet_of_fnSolves`), kernel-checked here.
+  - Among the semantics whose clauses' predicates are all `\top` (`clausesPreTop`) and whose
+    clauses bind no variable by `\exists` (`FnsNoExs`) there is none: there, under `coreOK`,
+    `FnSolves` gives `FnDet` (`fnDet_of_fnSolves`), kernel-checked here.
   - `coreOK` also admits a clause whose predicate is not `\top` where its conditions need no
     witness, and there `FnSolves` does not give `FnDet` (`not_fnDet_of_fnSolves`): the semantics of
-    KcoreSpec/ModelFnDetWitness.lean meets `coreOK`, `FnSolves`, `ClausePreDecided` and `OpenLaws`,
-    one of its functions has two results at 0, and its `Γ` has no model. So `fnDet_of_fnSolves`
-    cannot lose `clausesPreTop`, and `consistent_of` cannot lose `FnDet` (`consistent_needs_fnDet`).
+    KcoreSpec/ModelFnDetWitness.lean meets `coreOK`, `FnSolves`, `ClausePreDecided`,
+    `ClausePostDecided` and `OpenLaws`, one of its functions has two results at 0, and its `Γ` has
+    no model. So `fnDet_of_fnSolves` cannot lose `clausesPreTop`, and `consistent_of` cannot lose
+    `FnDet` (`consistent_needs_fnDet`).
+  - Whether `fnDet_of_fnSolves` can lose `FnsNoExs` is open: `coreOK` admits a clause with
+    existential variables that its right-side predicate fixes, and `Eval.clauseEx` and
+    `Eval.exNone` read that predicate by `Holds`, which has `ceil` and `not`.
   Run from the package root: `lake env lean -j1 test/FnSolvesDet.lean`.
 
   Why the proof below stops at a predicate. It shows, by induction over one derivation, that every
@@ -29,9 +34,10 @@
   `pre` `\top` (`allFns_preTop`). So `Eval.clauseEx` and `Eval.exNone` do
   not occur, `FnSolves` is read as the value of the deciding clause's right-hand side where its
   `ensures` is `true` (`Clause.gives_iff_noExs`), the premise on `Clause.pre` (of `clause` and
-  `ensFails`) holds and the failure `ReqFails.pre` does not occur. A core check that admits
-  existential variables or another `pre` (a `Cond` whose `Holds` has `ceil` and `not`, so that a
-  premise can hold because a term is undefined) can make a witness possible; the recursor call below
+  `ensFails`) holds and the failure `ReqFails.pre` does not occur. Existential variables (which
+  `coreOK` admits, so `FnsNoExs` is a hypothesis here) or another `pre` (a `Cond` whose `Holds` has
+  `ceil` and `not`, so that a premise can hold because a term is undefined) can make a witness
+  possible; the recursor call below
   stops elaborating when the block changes, which is the signal to decide the question again on the
   new block.
 
@@ -483,7 +489,7 @@ theorem consistent_needs_fnDet :
       Consistent c :=
   fun h => FnDetWitness.not_consistent
     (h _ FnDetWitness.coreOK FnDetWitness.fnSolves FnDetWitness.clausePreDecided
-      (clausePostDecided_of_isTop (by decide +kernel)) FnDetWitness.openLaws)
+      FnDetWitness.clausePostDecided FnDetWitness.openLaws)
 
 /-! ## An instance: a definition meeting both hypotheses -/
 
