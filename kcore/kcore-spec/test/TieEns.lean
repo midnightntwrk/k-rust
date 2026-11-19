@@ -44,6 +44,8 @@
     apply symbols Γ interprets: 171, 172, 178, 179 are of the class library, 128 and 129 of the
     class set-variable lemma. The equations of `bitRangeInt` and `signExtendBitRangeInt` (208, 265)
     apply symbols Γ interprets and are of the class library.
+  - `absent_proj_below`: the 14 no-direction sentences that are equations of a projection
+    `project:X` are of sorts X that are K, KItem or below KItem in Γ (`GenEqs.projBelowB`).
 
   Γ's content (the converse). `gamma_origin`: each premise of Γ (cH H) is a function sentence's
   translation, a rule item entailed by sentence 155, or one of the five parts Γ defines by
@@ -810,6 +812,32 @@ theorem absent_closed :
       (fun ad => (appHeadsOf ad.ax.pattern).all (gammaHasHead c)) = true :=
   tieAbsent_of_account userAxioms _ _ account_absent
 
+/-- The sentences of the no-direction class that are equations of a projection `project:X` (their
+left side applies `Lblproject'Coln'X`), each with X. -/
+def absentProj : List (Nat × String) :=
+  [(250, "Bool"), (251, "Cmd"), (252, "GeneratedCounterCell"), (253, "GeneratedCounterCellOpt"),
+   (254, "GeneratedTopCell"), (255, "GeneratedTopCellFragment"), (256, "Int"), (257, "K"),
+   (258, "KCell"), (259, "KCellOpt"), (260, "KItem"), (261, "List"), (262, "Map"), (263, "Set")]
+
+/-- Each sort of `absentProj` is K, KItem or a sort below KItem of Γ, with K and KItem
+constructor sorts. -/
+theorem absent_proj_below_c : absentProj.all (fun p => GenEqs.projBelowB c p.2) = true := by
+  decide +kernel
+
+/-- **The projections the no-direction class defines are of sorts below KItem**: `absentProj` is
+the list of the no-direction sentences whose left side applies a symbol `Lblproject'Coln'X`, each
+with that X, and each such X is K, KItem or a sort below KItem of Γ, with K and KItem constructor
+sorts (`GenEqs.projBelowB`). So the pattern each of these equations is at is functional and
+injective on X in every model of Γ (`GenEqs.projSel_fun`, `GenEqs.projSel_inj`): what the
+equation states of the pattern's symbols, Γ entails. -/
+theorem absent_proj_below (H : HookParams) :
+    (userAxioms.filter (fun ad => (classOf "no direction").contains ad.index &&
+        ((AttrsAgree.eqnHead ad.ax.pattern).getD "").startsWith "Lblproject'Coln'")).map
+      (fun ad => (ad.index, AttrsAgree.eqnHead ad.ax.pattern)) =
+      absentProj.map (fun p => (p.1, some ("Lblproject'Coln'" ++ p.2))) ∧
+    absentProj.all (fun p => GenEqs.projBelowB (cH H) p.2) = true :=
+  ⟨by rw [userAxioms_eq]; decide +kernel, absent_proj_below_c⟩
+
 /-! ## The constructor sentences: functional, subsort, injectivity, distinctness -/
 
 /-- The sentences of the four classes, in text order. -/
@@ -964,6 +992,8 @@ open KCore.TieEns in
 #print axioms KCore.TieEns.attrs_agree
 #print axioms KCore.TieEns.fn_prios
 #print axioms KCore.TieEns.absent_closed
+#print axioms KCore.TieEns.absent_proj_below_c
+#print axioms KCore.TieEns.absent_proj_below
 #print axioms KCore.TieEns.strItem_registry
 #print axioms KCore.TieEns.account
 #print axioms KCore.TieEns.account_absent

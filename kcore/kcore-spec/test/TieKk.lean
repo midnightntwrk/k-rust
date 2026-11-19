@@ -8,6 +8,8 @@
     `account_classes`: the classes are the tie's (`tieClasses`, each with its direction).
   - `account_absent`, `absent_closed`: the no-direction class holds exactly the sentences that
     apply a symbol Γ lacks, so every sentence outside it applies Γ's symbols only.
+  - `absent_proj_below`: the 31 no-direction sentences that are equations of a projection
+    `project:X` are of sorts X that are K, KItem or below KItem in Γ (`GenEqs.projBelowB`).
 
   In files of their own, on the same literals: `attrs_agree` (test/TieKkAttrs.lean, by its
   conjuncts), `sig_origin` (test/TieKkSig.lean, by ranges of the signature's items), and the
@@ -177,6 +179,35 @@ theorem absent_closed :
       (fun ad => (appHeadsOf ad.ax.pattern).all (gammaHasHead c)) = true :=
   tieAbsent_of_account userAxioms _ _ account_absent
 
+/-- The sentences of the no-direction class that are equations of a projection `project:X` (their
+left side applies `Lblproject'Coln'X`), each with X. -/
+def absentProj : List (Nat × String) :=
+  [(757, "Bind"), (758, "Bool"), (759, "Clauses"), (760, "Def"), (761, "Float"), (762, "Fns"),
+   (763, "GeneratedCounterCell"), (764, "GeneratedCounterCellOpt"), (765, "GeneratedTopCell"),
+   (766, "GeneratedTopCellFragment"), (767, "Int"), (768, "K"), (769, "KCell"), (770, "KCellOpt"),
+   (771, "KItem"), (772, "Kind"), (773, "List"), (774, "Look"), (775, "Map"), (776, "Ms"),
+   (777, "Pgm"), (778, "Prio"), (779, "Res"), (780, "Rules"), (781, "Set"), (782, "State"),
+   (783, "Step"), (784, "String"), (785, "Subs"), (786, "Term"), (787, "Ts")]
+
+/-- Each sort of `absentProj` is K, KItem or a sort below KItem of Γ, with K and KItem
+constructor sorts. -/
+theorem absent_proj_below_c : absentProj.all (fun p => GenEqs.projBelowB c p.2) = true := by
+  decide +kernel
+
+/-- **The projections the no-direction class defines are of sorts below KItem**: `absentProj` is
+the list of the no-direction sentences whose left side applies a symbol `Lblproject'Coln'X`, each
+with that X, and each such X is K, KItem or a sort below KItem of Γ, with K and KItem constructor
+sorts (`GenEqs.projBelowB`). So the pattern each of these equations is at is functional and
+injective on X in every model of Γ (`GenEqs.projSel_fun`, `GenEqs.projSel_inj`): what the
+equation states of the pattern's symbols, Γ entails. -/
+theorem absent_proj_below (H : HookParams) :
+    (userAxioms.filter (fun ad => (classOf "no direction").contains ad.index &&
+        ((AttrsAgree.eqnHead ad.ax.pattern).getD "").startsWith "Lblproject'Coln'")).map
+      (fun ad => (ad.index, AttrsAgree.eqnHead ad.ax.pattern)) =
+      absentProj.map (fun p => (p.1, some ("Lblproject'Coln'" ++ p.2))) ∧
+    absentProj.all (fun p => GenEqs.projBelowB (cH H) p.2) = true :=
+  ⟨by rw [userAxioms_eq]; decide +kernel, absent_proj_below_c⟩
+
 end KCore.TieKk
 
 #print axioms KCore.TieKk.userAxioms_eq
@@ -184,3 +215,5 @@ end KCore.TieKk
 #print axioms KCore.TieKk.account_sizes
 #print axioms KCore.TieKk.account_classes
 #print axioms KCore.TieKk.absent_closed
+#print axioms KCore.TieKk.absent_proj_below_c
+#print axioms KCore.TieKk.absent_proj_below
