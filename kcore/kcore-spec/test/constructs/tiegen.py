@@ -196,7 +196,11 @@ It refuses, with the reason, a fixture without a kompiled text, a text whose `kc
 the fixture's account.txt, a text the reader refuses, a text whose obligations `kcore gen --core`
 states in a form not in OBL_FORMS, or which owes termination, or, without --hand consistency,
 totality, a held-named function's fact, a match independence or a rule's or clause's condition;
-a text whose `attrsAgree` fails; a law of the reader or a law item of Γ that is not one sentence as
+a text whose `attrsAgree` fails (by `prios` alone, where the clauses read from a `symbol-overload` axiom
+have the priority 0 the reading gives and no attribute states, and `AttrsAgree.priosBut` holds with them
+and the overload axioms left out, layer 1 is stated in that form, `attrs_parts`, `attrs_prios_false`,
+`attrs_prios_but`, provided each clause left out is Γ's item that is its axiom's translation as written,
+`prios_out_at<j>`, `prios_out_entailed<j>`; otherwise refused with the clause that no theorem ties); a law of the reader or a law item of Γ that is not one sentence as
 written; a text with a law of a function that the probe refutes at values (Function laws, below).
 
 Function laws. A law of a function (`Definition.laws`) is owed as `FnLaws`: `LawAt` for each law,
@@ -925,6 +929,19 @@ def tgNjOrder (gs : List KoreAML.Gen) : List Kore.Pattern → Option (List Nat)
     Parse.exhibit? c k.sig.result).getD default
   IO.println s!"H totalWit {ParamSchema.constTotal c d.totalParams tgTotV}"
   IO.println s!"H attrsParts {AttrsAgree.ctors k c} {AttrsAgree.fns k c} {AttrsAgree.hooks k c} {AttrsAgree.colls k c} {AttrsAgree.prios k d}"
+  -- the clauses read from a `symbol-overload` axiom (priority 0, which the reading gives and no attribute
+  -- states), by (function name, position), and the user module's overload axioms that are equations of
+  -- those functions: `prios` with both left out (`AttrsAgree.priosBut`)
+  let outCl := (c.fns.zip d.pres.fns).flatMap fun (f, fp) =>
+    (fp.clauses.zipIdx.filter (·.1.overload.isSome)).map fun (_, i) => (c.symName f.label, i)
+  let outAx := (k.axiomDecls.filter fun ad => ad.module == "@MOD@" && AttrsAgree.has ad.ax.attributes "symbol-overload" &&
+    outCl.any fun p => AttrsAgree.eqnHeadIs p.1 ad.ax.pattern).map (·.index)
+  let offs := (c.allFns.foldl (fun (acc : List (String × Nat) × Nat) f =>
+    (acc.1 ++ [(c.symName f.label, acc.2)], acc.2 + f.clauses.length)) ([], 0)).1
+  IO.println s!"H priosOutCl {outCl.map fun p => s!"{p.1}\t{p.2}"}"
+  IO.println s!"H priosOutAx {outAx}"
+  IO.println s!"H priosBut {AttrsAgree.priosBut outAx outCl k d}"
+  IO.println s!"H priosOutJ {outCl.filterMap fun p => (offs.find? (·.1 == p.1)).map (·.2 + p.2)}"
   let lawIx := d.laws.map fun l => ixOf (lawPattern c l)
   IO.println s!"H lawIx {lawIx}"
   IO.println s!"H openLawIx {(lawItemsK c).map fun it => ixOf it.pat}"
@@ -1757,7 +1774,39 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                       f"this text's function functional sentences take the `FnHyp` route (`fnfun_section_fnhyp`), "
                       f"which it does not cut")
     parts = dict(zip(["ctors", "fns", "hooks", "colls", "prios"], head["attrsParts"].split()))
-    if head["attrsAgree"] != "true":
+    # `attrsAgree` false by `prios` alone, where a clause's priority is given by the reading of a
+    # `symbol-overload` axiom (0) and by no attribute: layer 1 is stated with the four other parts,
+    # `AttrsAgree.priosBut` with those clauses and the overload axioms left out, and for each clause
+    # left out the theorem that ties Γ's item to its sentence (`prios_out`)
+    prios_out = None
+    out_cl = re.findall(r"([^\s\[\],]+)\t(\d+)", head.get("priosOutCl", ""))
+    if head["attrsAgree"] != "true" and [k for k, v in parts.items() if v != "true"] == ["prios"] and \
+            head.get("priosBut") == "true" and out_cl:
+        prios_out = dict(cl=[(n, int(i)) for n, i in out_cl],
+                         ax=[int(x) for x in re.findall(r"\d+", head.get("priosOutAx", ""))],
+                         j=[int(x) for x in re.findall(r"\d+", head.get("priosOutJ", ""))])
+        # each clause left out is tied to its sentence: Γ's item for it is one overload axiom's
+        # translation as written (`fnJ`), so Γ entails that sentence (`prios_out_entailed<j>`)
+        if len(prios_out["j"]) != len(prios_out["cl"]):
+            raise Refused(f"{name}: the probe gives no item of Γ for each clause `priosBut` leaves out")
+        prios_out["tie"] = []
+        for (n_, ci), j in zip(prios_out["cl"], prios_out["j"]):
+            at_ = [a for a in prios_out["ax"] if j in sents.get(a, {}).get("fnJ", [])]
+            if len(at_) != 1:
+                raise Refused(f"{name}: attrsAgree false by prios alone, and `AttrsAgree.priosBut` holds with the "
+                              f"overload clauses and axioms left out, but the clause {ci} of {n_} (Γ's item {j}) is "
+                              f"not the translation of one overload axiom ({', '.join(map(str, prios_out['ax'])) or 'none'}) "
+                              f"as written (Γ's item binds the argument by a membership, the axiom applies the "
+                              f"function to the argument pattern itself): no theorem here ties it to its sentence, "
+                              f"and the layer-1 form names one for each clause left out")
+            prios_out["tie"].append((n_, ci, j, at_[0]))
+        if law_idx or raw:
+            raise Refused(f"{name}: attrsAgree false by the overload clauses' priorities beside a law or an open "
+                          f"generator: tiegen states the priorities left out on neither")
+        if attrs_parts:
+            raise Refused(f"{name}: --attrs-parts states `attrs_agree` from its five conjuncts; with `prios` false "
+                          f"(the overload clauses) the attributes are stated by `attrs_parts` and `attrs_prios_but`")
+    elif head["attrsAgree"] != "true":
         bad = [k for k, v in parts.items() if v != "true"]
         raise Refused(f"{name}: the attributes do not agree with the definition (attrsAgree false; failing "
                       f"{', '.join(bad)})")
@@ -1807,6 +1856,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     if fn_rds:
         covered |= set(pair_text) - {pair_text[j] for j in pair_un}
     covered |= {i for i, _, _ in own_idem}
+    if prios_out:
+        covered |= {i for _, _, _, i in prios_out["tie"]}
     if idem is not None:
         covered.add(idem)
     # a user lemma has no generated theorem: it is the tie's remainder, as an uncovered sentence of a
@@ -1943,6 +1994,17 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w(f"  - `attrs_agree`: the attributes the translation does not read agree with `defn`; the open")
         w(f"    {gens} {rnames} {'is a parameter' if len(raw) == 1 else 'are parameters'} declared without `hook` and without `function`, of which the")
         w("    text states no equation.")
+    elif prios_out:
+        w(textwrap.fill(
+            "- `attrs_parts`, `attrs_prios_false`, `attrs_prios_but`: the attributes the translation does not read "
+            "agree with `defn` but for the priorities (`attrsAgree` is false by `prios` alone): the "
+            f"clause{'s' if len(prios_out['tie']) > 1 else ''} read from a `symbol-overload` axiom have the priority 0, "
+            "which the reading gives and no attribute states; with "
+            f"{'them' if len(prios_out['tie']) > 1 else 'it'} and the overload axioms left out "
+            "(`AttrsAgree.priosBut`) the priorities agree, and each clause left out is tied to its sentence ("
+            + ", ".join(f"{n_} {ci}: sentence {i}, `prios_out_at{j}`, `prios_out_entailed{j}`"
+                        for n_, ci, j, i in prios_out["tie"]) + ").",
+            width=100, initial_indent="  ", subsequent_indent="    ", break_on_hyphens=False, break_long_words=False))
     else:
         w("  - `attrs_agree`: the attributes the translation does not read agree with `defn`.")
     if head["sigAll"] == "true":
@@ -2766,10 +2828,55 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             w(f"hooks, collection symbols, priorities. The open generators {rnames} are parameters (`raw`) that no")
         w("registry hook interprets, declared without `hook` and without `function`, and the text states")
         w("no equation of it (`AttrsAgree.eqnsOf`), which `AttrsAgree.hooks` admits. -/")
-    else:
+    elif not prios_out:
         w("/-- **The attributes of the text agree with `defn`** (`attrsAgree`): constructors, functions,")
         w("hooks, collection symbols, priorities. -/")
-    if attrs_parts:
+    if prios_out:
+        tie = prios_out["tie"]
+        pl = len(tie) > 1
+        w("/-- **The attributes of the text agree with `defn` but for the priorities**: constructors, functions,")
+        w("hooks and collection symbols agree (`attrs_parts`), and `prios` is false (`attrs_prios_false`). -/")
+        w("theorem attrs_parts : AttrsAgree.ctors kore defn.sem = true ∧ AttrsAgree.fns kore defn.sem = true ∧")
+        w("    AttrsAgree.hooks kore defn.sem = true ∧ AttrsAgree.colls kore defn.sem = true := by decide +kernel")
+        w("theorem attrs_prios_false : AttrsAgree.prios kore defn = false ∧ attrsAgree kore defn = false := by")
+        w("  decide +kernel")
+        w("")
+        w(textwrap.fill(
+            f"/-- The clause{'s' if pl else ''} read from a `symbol-overload` axiom, by (function, position): "
+            f"{'their' if pl else 'its'} priority 0 is what the reading gives such a clause, below every other "
+            "clause of the function, and no attribute states it; the text's equations of the function count the "
+            f"axiom at the default 50. The overload axiom{'s' if len(prios_out['ax']) > 1 else ''} of the user module, "
+            "by index. -/", width=100, break_on_hyphens=False, break_long_words=False))
+        w("def priosOutCl : List (String × Nat) := [" + ", ".join(f'("{n_}", {ci})' for n_, ci in prios_out["cl"]) + "]")
+        w("def priosOutAx : List Nat := [" + ", ".join(map(str, prios_out["ax"])) + "]")
+        w("")
+        w(textwrap.fill(
+            "/-- **With the overload clauses left out of the clause side and the overload axioms left out of the "
+            "text side, the priorities agree** (`AttrsAgree.priosBut`). Each clause left out is tied to its "
+            "sentence: " + ", ".join(f"`prios_out_at{j}`, `prios_out_entailed{j}`" for _, _, j, _ in tie) + ". -/",
+            width=100, break_on_hyphens=False, break_long_words=False))
+        w("theorem attrs_prios_but : AttrsAgree.priosBut priosOutAx priosOutCl kore defn = true := by decide +kernel")
+        w("")
+        for n_, ci, j, i in tie:
+            w(f"/-- **The clause {ci} of `{n_}`, which `attrs_prios_but` leaves out, is Γ's item {j}**, and that item is")
+            w(f"the translation of the overload axiom {i} as written (kernel). -/")
+            w(f"theorem prios_out_at{j} : ((c.allFns.takeWhile (c.symName ·.label != \"{n_}\")).map (·.clauses.length)).sum + {ci} = {j} ∧")
+            w(f"    (TiePair.gammaPats c)[{j}]? = some (trS U.ax{i}).pat := by decide +kernel")
+            w("")
+            w(f"/-- **E for sentence {i}**: it is Γ's item {j}, so Γ entails it, for every H. -/")
+            w(f"theorem prios_out_entailed{j} (H : HookParams) : Γ (cH H) ⊧ (trS U.ax{i}).pat := by")
+            w("  intro M _ I hI")
+            w(f"  obtain ⟨it, hit, he⟩ : ∃ it ∈ fnItems c, it.pat = (trS U.ax{i}).pat := by")
+            w(f"    have hg := prios_out_at{j}.2")
+            w("    unfold TiePair.gammaPats at hg")
+            w("    rw [List.getElem?_map] at hg")
+            w(f"    cases h : (fnItems c)[{j}]? with")
+            w("    | none => rw [h] at hg; cases hg")
+            w("    | some it => rw [h] at hg; exact ⟨it, List.mem_of_getElem? h, Option.some.inj hg⟩")
+            w("  rw [← he]")
+            w("  exact hI _ (TiePair.mem_Γ_fns (Or.inl ⟨it, by rw [TiePair.fnItems_withHooks]; exact hit, rfl⟩))")
+            w("")
+    elif attrs_parts:
         w("theorem attrs_agree : attrsAgree kore defn = true := by")
         w("  unfold attrsAgree")
         w("  rw [attrs_ctors, attrs_fns, attrs_hooks, attrs_colls, attrs_prios]")
@@ -3583,7 +3690,9 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     names = ["params_raw" if raw else "noRaw", "readsConfined_c", "userAxioms_eq", "coreOK"] + (["wf_defn"] if wf_ok else []) + \
         ["account", "account_sizes", "account_classes", "account_absent", "absent_closed"] + \
         (["absent_proj_below_c", "absent_proj_below"] if abs_proj else []) + ["lists_in_account"] + \
-        ["attrs_agree"] + (["decl_counts"] if decl_parts else []) + \
+        (["attrs_parts", "attrs_prios_false", "attrs_prios_but"] +
+         [n.format(j) for _, _, j, _ in prios_out["tie"] for n in ("prios_out_at{}", "prios_out_entailed{}")]
+         if prios_out else ["attrs_agree"]) + (["decl_counts"] if decl_parts else []) + \
         ["sig_origin_but_next" if head["sigAll"] != "true" else "sig_origin", "decls_entailed",
          "consistent"] + (["text_nextless"] if head["sigAll"] != "true" else []) + \
         (["builtin_decls_entailed"] if builtin_decls else [])
