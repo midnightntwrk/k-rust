@@ -413,6 +413,7 @@ import KcoreSpec.GenEqsNodirLacked
 import KcoreSpec.GenEqsNodirTbl
 import KcoreSpec.GenEqsNodirFunLacked
 import KcoreSpec.ParamSchema
+import KcoreSpec.OpenUndetermined
 import KcoreSpec.InjApart
 import KcoreSpec.TieEX
 import KcoreSpec.TieFRGamma
