@@ -951,11 +951,15 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   reading gives it (`Semantics.sortPreds`): `Parse.predEqnOK`, `Parse.predProjOK?` and
   `Parse.predEqnFaults` on hand-written equations by the kernel (the two standard equations are the
   clauses; an equation with a `requires` is none, first or second in the text; an `[owise]`
-  equation is the clause only with one disjunct for the clause before it); the reader's refusal
-  (`coreOf`, `generatedEquation`, two refusals) of the cached kompiled texts of c3-strict-hybrid
-  and e2-frontend-effect and of the first with its standard equation moved first, c3-strict-base
-  read; the account's arm alone, the definition of c3-strict-base against the sentences of
-  c3-strict-hybrid.
+  equation is the clause only with one disjunct for the clause before it); the reader's choice
+  (`predFnNamesPR`, `fnFrom`) by the kernel: the standard equations, with or without an instance,
+  keep `sortPreds`' function, a third equation that is no instance or a missing `[owise]` equation
+  makes the predicate the function of its equations (read, or refused by `fnFrom`), and a hybrid
+  predicate so read evaluates `isRes(pair(v, v))` to true; the cached kompiled texts of
+  c3-strict-hybrid (both orders) and e2-frontend-effect read with isKResult a function of three
+  clauses (`isKResult(pair(1, 2))` true), c3-strict-base and rdr-pred-rule with `sortPreds`'
+  function, rdr-pred-rule with its rule giving false read with the agreement owed; the account's
+  arm alone, the definition of c3-strict-base against the sentences of c3-strict-hybrid.
 - `test/PredFnCone.lean`: a sort predicate held as a function of `c.fns`, by the kernel: every
   semantics `idsOK` accepted with `ownSyms` listing every function is accepted
   (`idsOK_of_before`); a function under an own sort's predicate number replaces the one

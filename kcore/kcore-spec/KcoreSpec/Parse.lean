@@ -379,8 +379,9 @@ inductive RefusalReason where
   projection equation, the projection no symbol of `d`), and no sentence of `kconfigModule`'s text
   where `d` imports it (`Account.kconfigOwnSentence`). The sentence says more or other of a symbol
   than `Γ` states; the detail names the symbol and the shape. A sort predicate's or a sort's
-  projection's is refused by the reader (`coreOf`, `predEqnFaults`), the others by the account
-  (`Account.unconsumed`). -/
+  projection's is refused by the reader (`coreOf`, `predEqnFaults`; an own sort's predicate whose
+  equations are not its `sortPreds` clauses is read as the function they define instead,
+  `predCoreOfPR`), the others by the account (`Account.unconsumed`). -/
   | generatedEquation
   /-- An attribute of a symbol declaration, of an axiom carrying `simplification`, of a claim or of
   the module that no kompiled text carries there: a key the frontend erases, a key whose K text
@@ -6460,6 +6461,52 @@ def predEqnFaults (N : Names) (msrc : String) (eqs : List RawEqn) (c : Semantics
         else ⟨.generatedEquation, s!"{e.fn}: {eqnShape e}", .attrs e.attrs⟩)
     else none
 
+/-- The text's equations `eqs` of the sort predicate `fn` (a function of `Semantics.sortPreds` of
+`c`) state what `fn`'s clauses state, no more and no less:
+- (a) each equation of `fn`'s symbol is one `predEqnFaults` passes: a clause of `fn` (`predEqnOK`,
+  an `[owise]` one with its exclusion) or an instance of one that `Γ` entails (`predInstAcc`), so
+  the text says nothing of the predicate beyond what `fn` entails;
+- (b) each clause of `fn` is the reading (`clause?` without an exclusion, as `predEqnOK` reads an
+  equation without `requires` and `ensures`) of an equation of the text, so `fn` says nothing the
+  text does not (an `[owise]` equation's exclusion is (a)'s to check). -/
+def predStdHeldPR (N : Names) (msrc : String) (eqs : List RawEqn) (c : Semantics) (fn : Fn) : Bool :=
+  let n := c.symName fn.label
+  let own := eqs.filter (·.fn == n)
+  own.all (fun e => predEqnOK N msrc own fn e || predInstAcc N msrc own c e) &&
+  fn.clauses.all fun cl => own.any fun e =>
+    e.req.isNone && e.ens.isNone && !e.dom && (clause? N msrc e none).toOption.any (clauseSame ·.1 cl)
+
+/-- The names of the definition's own sorts' predicates (the functions of `Semantics.sortPreds`
+numbered from `nRegSyms`) whose equations in the text are not exactly the clauses `sortPreds`
+gives (`predStdHeldPR`): each is the function its equations define. A registry sort's predicate is
+not among them (`idsOK` numbers every function of `c.fns` from `nRegSyms`). -/
+def predFnNamesPR (N : Names) (msrc : String) (eqs : List RawEqn) (c : Semantics) : List String :=
+  let peqs := eqs.filter fun e => (dropPrefix? "Lblis" e.fn).isSome
+  (c.sortPreds.filter fun fn => decide (nRegSyms ≤ fn.label) && !predStdHeldPR N msrc peqs c fn).map
+    (c.symName ·.label)
+
+/-- The sort predicates `names` read as functions from the text's equations (`fnFrom`: the
+exclusion's disjuncts matched by content, the priorities), each at its declaration. -/
+def predFnsOfPR (S : Scan) (E : Env) (names : List String) : Rd (List (Fn × FnPres)) :=
+  names.mapM fun n => do
+    let d ← need (S.syms.find? (·.symbol.ident.ident.name == n)) .missingEquation n
+    Rd.within (.sentence (.symbol d)) (fnFrom E.N E.src (srcOver E.src d.attributes) S.eqs (fnClauses E.N E.src S.eqs n) n
+      none (← d.sorts.mapM sortNameE) (← sortNameE d.sort) ((loc? d.attributes).getD noLoc)
+      (hasAttr d.attributes "total" || hasAttr d.attributes "functional"))
+
+/-- The core from the productions and the rules (`coreBase`), with each own sort's predicate whose
+equations are not exactly `Semantics.sortPreds`' clauses (`predFnNamesPR`, decided on `coreBase`'s
+core) read from its equations as a function of `c.fns`, after the generated functions; with those
+functions and their presentations. `sortPreds` then builds no function for that sort. -/
+def predCoreOfPR (S : Scan) (E : Env) (prods : List Prod) (rules : List (Rule × RulePres)) :
+    Rd (Semantics × List (Fn × FnPres)) := do
+  let core ← coreBase S E prods rules
+  match predFnNamesPR E.N E.src S.eqs core with
+  | [] => pure (core, [])
+  | ns =>
+    let pfs ← predFnsOfPR S E ns
+    pure (← coreBase S { E with genFns := E.genFns ++ pfs } prods rules, pfs)
+
 /-- The open generator `k`'s sort is flat and no constructor or overloading symbol bears its
 name: `Faithful.genWf`'s last conjunct at `k`. -/
 def openFlat (c : Semantics) (k : ParamSig) : Bool :=
@@ -6507,13 +6554,17 @@ theorem openGenFault_none {c : Semantics} {k : ParamSig} (h : openGenFault c k =
 constructors and subsorts of it, before the user's (`Cell.topSorts`, `Cell.topSigs`,
 `Cell.topSubs` of the cell tree). The definition's token sorts (`Env.tokenSorts`) are token sorts
 of the semantics after the imported modules' (`Lib.tokenSorts`): their values are their literals.
-A rule that is not read (`ruleRefusal`) is refused at its axiom; then the first clause of a
-function that is not read (`openCutRefusalCl`, then `clauseRefusal`), at its equation; then the first equation of a sort's
-predicate or projection that the core does not state (`predEqnFaults`), at that equation: the core
-defines the sort predicates from the sorts (`Semantics.sortPreds`), so a text whose equations of
-one are others is a text one of whose sentences the core would not state. -/
+An own sort's predicate whose equations in the text are not exactly the clauses
+`Semantics.sortPreds` gives is the function its equations define (`predCoreOfPR`), and a
+`fnFrom` refusal of them refuses the text. A rule that is not read (`ruleRefusal`) is refused at
+its axiom; then the first clause of a function that is not read (`openCutRefusalCl`, then
+`clauseRefusal`), at its equation, the sort predicates read as functions among them; then the
+first equation of a sort's predicate or projection that the core does not state
+(`predEqnFaults`), at that equation: the core defines a registry sort's predicate from the sorts,
+so a text whose equations of one are others is a text one of whose sentences the core would not
+state. -/
 def coreOf (S : Scan) (E : Env) (prods : List Prod) (rules : List (Rule × RulePres)) : Rd Semantics := do
-  let core ← coreBase S E prods rules
+  let (core, pfs) ← predCoreOfPR S E prods rules
   -- the names' test of Bool (`Names.boolLits`, on which `exRead` is entered) against the built
   -- definition's: reading `\exists B:Bool` by cases states the text only where Bool's values are
   -- its literals, so an equation so read is refused where they are not
@@ -6547,7 +6598,8 @@ def coreOf (S : Scan) (E : Env) (prods : List Prod) (rules : List (Rule × RuleP
   match (S.rewrites.zip rules).findSome? (fun (a, r, rp) => (ruleRefusal core E.N a r rp.names).map (a, ·)) with
   | some (a, reason, detail) => Rd.within (.sentence (.axiom a)) (fail reason detail)
   | none =>
-    let fnCls := prods.flatMap fun | .fn f fp => withPres f.clauses fp.clauses | _ => []
+    let fnCls := (prods.flatMap fun | .fn f fp => withPres f.clauses fp.clauses | _ => []) ++
+      pfs.flatMap fun (f, fp) => withPres f.clauses fp.clauses
     match fnCls.findSome? (fun (cl, cp) =>
         ((openCutRefusalCl core cl cp.names).orElse fun _ => clauseRefusal core cl cp.names).map (cp, ·)) with
     | some (cp, reason, detail) =>
@@ -6942,6 +6994,10 @@ def presOf (m : Kore.Module) (S : Scan) (E : Env) (prods : List Prod) (rules : L
   match initFaults E.N E.src m.sentences eqs (functionalSyms S.events) core (Cell.top E.config) with
   | f :: _ => .error f
   | [] => pure ()
+  -- the sort predicates `coreOf` reads as functions (`predCoreOfPR`): the functions of the core
+  -- after the productions' and the generated ones, with the generated ones'
+  let nFns := (prods.filterMap fun | .fn f _ => some f | _ => none).length + E.genFns.length
+  let E := { E with genFns := E.genFns ++ (← predFnsOfPR S E ((core.fns.drop nFns).map (core.symName ·.label))) }
   pure { source := E.src, moduleName := m.name.ident.name, moduleLoc := ← need (loc? m.attributes) .moduleLocation
          imports := E.imports, simpArg := E.simpArg
          sortUids := cp.sortUids
