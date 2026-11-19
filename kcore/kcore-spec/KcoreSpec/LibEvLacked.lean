@@ -15,6 +15,9 @@
     variables to values.
   - `functionalLk`: the `functional` sentence of a symbol of `ls` holds in `I` at values where
     `G` has a value at every argument list of its sorts.
+  - `Eqn.entailedLk`, `Eqn.entailedLk_reg`: a library equation between two terms whose two sides
+    have the same value under `G` wherever its `requires` is true (`Eqn.HoldsLk`) holds in `I` at
+    every valuation that sends the axiom's free element variables to values.
 
   The statements are about one interpretation, not every model of `Γ c`: `LackedDen` is a fact of
   `I` at the symbols `ls` names, which Γ need not state.
@@ -622,6 +625,141 @@ theorem functionalLk {c : Semantics} (h : c.coreOK = true) {ls : List CtorSig}
         (t.ev (valKey (srtOf c k.result))) ↔ (den c v).interpret I (ex (elemOf c I v)) b
       rw [Function.update_same]
       exact ((elemOf_spec hI hvs _).1 b).symm
+
+
+/-! ## An equation between two terms -/
+
+namespace Eqn
+
+/-- `Eqn.typed` with the sorts of `srtLk?`, the domain values' under `so`. -/
+def typedLk (so : GroundTerm → Option Srt) (ls : List CtorSig) (E : Eqn) : Bool :=
+  decide (E.s < nRegSorts) && E.vars.all (fun p => decide (p.2 < nRegSorts)) &&
+  srtLk? so ls E.vars E.lhs == some E.s && srtLk? so ls E.vars E.rhs == some E.s &&
+  match E.req with
+  | none => true
+  | some q => srtLk? so ls E.vars q == some Srt.bool
+
+/-- The two sides have the same value under `G`, or both none, at every substitution of values of
+the variables' sorts at which the `requires` has the value `true`. -/
+def HoldsLk (c : Semantics) (G : Sym → List GroundTerm → Option GroundTerm) (E : Eqn) : Prop :=
+  ∀ σ : Subst, (∀ i p, E.vars[i]? = some p → ∃ v, σ.lookup i = some v ∧ c.sortOf v = some p.2) →
+    (∀ q, E.req = some q → valLk c G σ q = some (bool true)) → valLk c G σ E.lhs = valLk c G σ E.rhs
+
+end Eqn
+
+/-- **A library equation that holds under `G` holds at values in `I`.** For a semantics meeting
+`coreOK`, an interpretation `I` of `Γ c` in which the symbols of `ls` denote `G` at values
+(`LackedDen`), and an equation `E` with `Eqn.HoldsLk`: the translation of any axiom declaration
+whose pattern is `E`'s, over the one sort variable `R` and with each variable of `E` free in it,
+holds in `I` at every valuation that sends the axiom's free element variables to values. -/
+theorem Eqn.entailedLk {c : Semantics} (h : c.coreOK = true) {ls : List CtorSig}
+    {G : Sym → List GroundTerm → Option GroundTerm} {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
+    (hI : I ⊧ᴵP Γ c) (hL : LackedDen c ls G I) (E : Eqn) (ht : E.typedLk c.sortOf ls = true)
+    (hE : E.HoldsLk c G) (ad : KoreAML.AxiomDecl) (hp : ad.ax.pattern = E.pattern c)
+    (hsv : ad.ax.sortVars = [KoreAML.Rv])
+    (hfv : ∀ i, i < E.vars.length → vkey c E.vars i ∈ KoreAML.freeOf [] ad.ax.pattern) :
+    ∀ e, AtValues c I e ad.ax → ∀ m, (KoreAML.trAxiom [] [] ad).pat.interpret I e m := by
+  intro e hat m
+  haveI : OvlOK c := ovlOK_of_core h
+  have hD := defOK hI
+  have hc := sat_sigItem hI (sig_ceilDef (c := c))
+  simp only [Eqn.typedLk, Bool.and_eq_true, decide_eq_true_eq, List.all_eq_true, beq_iff_eq] at ht
+  obtain ⟨⟨⟨⟨hsR, hvR⟩, htl⟩, htr⟩, htq⟩ := ht
+  have hnum : ∀ {s : Srt}, s < nRegSorts → s < nRegSorts + c.sortNames.length :=
+    fun hs => Nat.lt_of_lt_of_le hs (Nat.le_add_right _ _)
+  obtain ⟨σ, hσ, hag⟩ := fq_subst h hI E.vars hvR ad.ax hfv e hat
+  unfold KoreAML.trAxiom
+  dsimp only
+  generalize htb : KoreAML.tableOf ad.ax.sortVars ad.ax.pattern = t at hag ⊢
+  rw [interpret_impl]
+  intro hgd
+  have hR : KoreAML.IsSort I (e.evalEvar (t.ev (.sortVar "R"))) :=
+    (KoreAML.interp_guard_sortVar hD).mp (conjList_mem hgd _ (List.mem_map.mpr ⟨.sortVar "R",
+      List.mem_eraseDups.mpr (List.mem_append_left _ (by rw [hsv]; exact List.mem_singleton.mpr rfl)), rfl⟩))
+  have hDV := fun (u : Term) (s : Srt) (hu : srtLk? c.sortOf ls E.vars u = some s) =>
+    den_valLk (tbl := t) (e := e) h hI hL hσ hag u hu
+  -- the sorts
+  obtain ⟨τ, hτsort, hτ⟩ := srt_den hI (hnum hsR)
+  obtain ⟨τb, hτbsort, hτb⟩ := srt_den hI (hnum (show Srt.bool < nRegSorts by decide))
+  have hdist : (distinctSorts c).contains Srt.bool = true := by
+    refine List.elem_eq_true_of_mem ?_
+    unfold distinctSorts
+    exact List.mem_append_left _ (List.mem_append_left _ (List.mem_append_left _ (List.mem_append_left _
+      (List.mem_cons_of_mem _ (List.mem_cons_self ..)))))
+  have hRv : ∀ b, (KoreAML.trSort t KoreAML.R).interpret I e b ↔ b = e.evalEvar (t.ev (.sortVar "R")) :=
+    fun b => by rw [trSort_R, KoreAML.interp_evar]
+  rw [hp]
+  unfold Eqn.pattern
+  simp only [KoreAML.sortOf]
+  rw [KoreAML.interp_equal hD]
+  intro a
+  rw [KoreAML.tr, KoreAML.interp_sImp]
+  constructor
+  · exact fun h' => h'.1
+  · intro ha
+    refine ⟨ha, fun hprem => ?_⟩
+    have hreq : ∀ q, E.req = some q → valLk c G σ q = some (bool true) := by
+      intro q hq
+      unfold Eqn.premise at hprem
+      rw [hq] at hprem htq
+      dsimp only at hprem htq
+      have htq' : srtLk? c.sortOf ls E.vars q = some Srt.bool := eq_of_beq htq
+      rw [KoreAML.tr, KoreAML.interp_sEquals hD hc (hτb t e) hRv hτbsort hR] at hprem
+      have hT : c.sortOf (bool true) = some Srt.bool := rmS_sortOf_bool c true
+      obtain ⟨hT1, hT2⟩ := elemOf_spec hI hT e
+      have hinh : KoreAML.Inh I τb (elemOf c I (bool true)) := by
+        refine (KoreAML.interp_inhOf_of (fun a' => ?_)).mp hT2
+        have := hτb t e a'
+        rwa [trSort_srtOf_twoT] at this
+      have hq1 := (hprem.2 _ hinh).mpr (by
+        show (KoreAML.tr ⟨t, []⟩ (.dv (srtOf c Srt.bool) "true")).interpret I e _
+        have : (den c (bool true)).interpret I e (elemOf c I (bool true)) := (hT1 _).mpr rfl
+        unfold den KoreAML.den bool at this
+        rw [GroundTerm.kore] at this
+        unfold srtOf
+        rw [KoreAML.tr_dv] at this ⊢
+        exact this)
+      rw [(hDV q _ htq').1] at hq1
+      cases hvq : valLk c G σ q with
+      | none => rw [hvq] at hq1; exact hq1.elim
+      | some w =>
+        rw [hvq] at hq1
+        have hw := (hDV q _ htq').2 w hvq
+        by_cases hne : w = bool true
+        · rw [hne]
+        · exact absurd ⟨hq1, (hT1 _).mpr rfl⟩
+            (dom_apart hI hdist hw hT hne e _)
+    have heq := hE σ hσ hreq
+    rw [KoreAML.tr, KoreAML.interp_sEquals hD hc (hτ t e) hRv hτsort hR]
+    refine ⟨(KoreAML.interp_inhOf_of hRv).mp ha, fun b hb => ?_⟩
+    rw [(hDV E.lhs _ htl).1 b, heq, ← (hDV E.rhs _ htr).1 b, KoreAML.tr]
+    show _ ↔ (KoreAML.sAnd (KoreAML.tr ⟨t, []⟩ (kore c E.vars E.rhs))
+      (KoreAML.tr ⟨t, []⟩ (.top (srtOf c E.s)))).interpret I e b
+    rw [KoreAML.interp_sAnd, show KoreAML.tr ⟨t, []⟩ (.top (srtOf c E.s)) =
+      KoreAML.sTop (KoreAML.trSort t (srtOf c E.s)) from by rw [KoreAML.tr]]
+    rw [KoreAML.interp_sTop hD (by rw [trSort_srtOf_twoT]; rfl), KoreAML.interp_inhOf_of (hτ t e)]
+    exact ⟨fun h' => ⟨h', hb⟩, And.left⟩
+
+/-- `Eqn.entailedLk` for an equation over the registry's names: the axiom's pattern is compared
+with a pattern that does not depend on the semantics. -/
+theorem Eqn.entailedLk_reg {c : Semantics} (h : c.coreOK = true) {ls : List CtorSig}
+    {G : Sym → List GroundTerm → Option GroundTerm} {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
+    (hI : I ⊧ᴵP Γ c) (hL : LackedDen c ls G I) (E : Eqn) (hr : E.regular = true)
+    (ht : E.typedLk c.sortOf ls = true) (hE : E.HoldsLk c G) (ad : KoreAML.AxiomDecl) (hp : ad.ax.pattern = E.patR)
+    (hsv : ad.ax.sortVars = [KoreAML.Rv]) :
+    ∀ e, AtValues c I e ad.ax → ∀ m, (KoreAML.trAxiom [] [] ad).pat.interpret I e m := by
+  refine Eqn.entailedLk h hI hL E ht hE ad (hp.trans (Eqn.pattern_reg c hr).symm) hsv (fun i hi => ?_)
+  have hr' := hr
+  simp only [Eqn.regular, Bool.and_eq_true, decide_eq_true_eq, List.all_eq_true] at hr'
+  obtain ⟨⟨⟨⟨⟨-, hv⟩, -⟩, -⟩, -⟩, hf⟩ := hr'
+  have hmem : E.vars.getD i ("", 0) ∈ E.vars := by
+    rw [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hi]
+    exact List.getElem_mem hi
+  have := hf _ hmem
+  rw [hp]
+  unfold vkey
+  rw [srtOf_reg c (hv _ hmem)]
+  exact List.mem_of_elem_eq_true this
 
 end LibEv
 
