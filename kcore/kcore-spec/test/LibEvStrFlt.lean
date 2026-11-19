@@ -24,7 +24,8 @@
     sides (`LibEv.val`), not about models of Γ: no refutation in models is stated. The argument
     that Γ refutes the sentence for every interpretation does not go through, since the sides
     agree at the empty needle under an interpretation giving the count no value there; so the
-    sentence is put in no refuted class.
+    sentence is put in no refuted class. In models of Γ, for every H meeting `silentTotal`, it is
+    refuted: test/CountAllEmptyNeedleFlt.lean.
   - 296 (`findChar`, 1891): its right side applies `#if` at Int, `ite{SortInt}`, a symbol Γ does
     not have here: the reader numbers an instance of `ite` from its use in a sentence it reads, a
     parameter symbol of the text (`Parse.iteName`, implemented by `kIte`), and no such sentence of

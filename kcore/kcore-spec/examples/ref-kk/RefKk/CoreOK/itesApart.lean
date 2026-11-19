@@ -6,6 +6,6 @@ set_option maxRecDepth 1000000
 namespace RefKk
 open KCore KCore.Faithful KCore.Faithful.Model
 
-theorem core_itesApart : itesApart defn.sem = true := Model.itesApart_of_codes sym_codes sort_codes ite_idx (by decide +kernel)
+theorem core_itesApart : itesApart defn.sem = true := Model.itesApart_of_codes sym_codes sort_codes inst_idx (by decide +kernel)
 
 end RefKk
