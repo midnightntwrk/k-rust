@@ -119,7 +119,11 @@ use std::collections::{BTreeMap, BTreeSet};
 /// that names an equationally defined symbol into a grown sort, or a grown sort's predicate
 /// `isS`, binds a grown value as one with a variable of the sort does (a `total` function no
 /// equation decides may be the new constructor), and a fresh constructor's label must be new to
-/// every sentence, the prelude's included, and not begin with `is`.
+/// every sentence, the prelude's included, and not begin with `is`. Extended again before its
+/// release (PJ-34, FX2): the source reading ([`ClaimSupport::effect`]) states which affected
+/// labels only modules outside the main module's import closure declare
+/// ([`SourceEffect::unimported`]), which kink-native's admission leaves out of the checked heads
+/// where the compiled definition has no symbol for them; what is withdrawn is unchanged.
 pub const CLAIM_REMOVAL_VERSION: &str = "kink-patch/claim-removal/v5";
 
 /// The version of the weakening test ([`ClaimSupport::weakening`]): whether a mutation is
@@ -338,6 +342,13 @@ pub struct SourceEffect {
     pub affected: Option<BTreeSet<String>>,
     /// The baseline sentences the patch replaces, deletes, or edits a term or attribute of.
     pub touched: BTreeSet<SentenceRef>,
+    /// The labels of `affected` that a production declares and only productions of modules the
+    /// mutant's main module does not import (transitively) declare: labels outside the theory
+    /// the main module is compiled from, such as the `initStdinCell` of the prelude's
+    /// `STDIN-STREAM` in a definition without stream cells. kink-native's admission leaves such a
+    /// label out of the checked heads only where the compiled definition has no symbol for it
+    /// (`<generatedCounter>` is declared only outside that closure and compiled all the same).
+    pub unimported: BTreeSet<String>,
 }
 
 /// A patch that only weakens the baseline's theory ([`ClaimSupport::weakening`]): every model of
@@ -1025,10 +1036,16 @@ impl ClaimSupport {
         let redefined = self
             .redefined(baseline, &mutant, edits, &touched)
             .map(|redefined| redefined.symbols);
+        let affected = redefined.clone().map(|redefined| self.closure(redefined));
+        let unimported = affected
+            .as_ref()
+            .map(|affected| unimported_labels(mutant.definition(), affected))
+            .unwrap_or_default();
         Ok(SourceEffect {
-            affected: redefined.clone().map(|redefined| self.closure(redefined)),
+            affected,
             redefined,
             touched: touched.into_iter().cloned().collect(),
+            unimported,
         })
     }
 
@@ -1862,6 +1879,30 @@ fn excluded_label(label: &Label) -> bool {
         ]
         .into_iter()
         .any(|internal| label.is(internal))
+}
+
+/// The labels of `labels` that some production of `definition` declares and no production of
+/// its main module or of a module it imports (transitively) declares ([`SourceEffect::unimported`]).
+fn unimported_labels(definition: &Definition, labels: &BTreeSet<String>) -> BTreeSet<String> {
+    let declared = |sentences: &mut dyn Iterator<Item = &Sentence>| {
+        sentences
+            .filter_map(|sentence| match sentence {
+                Sentence::Production {
+                    label: Some(label), ..
+                } if labels.contains(&label.name) => Some(label.name.clone()),
+                _ => None,
+            })
+            .collect::<BTreeSet<_>>()
+    };
+    let inside = declared(&mut main_module_sentences(definition).into_iter());
+    let mut everywhere = definition
+        .modules
+        .iter()
+        .flat_map(|module| module.local_sentences.iter().map(|sentence| &**sentence));
+    declared(&mut everywhere)
+        .difference(&inside)
+        .cloned()
+        .collect()
 }
 
 /// The sentences of `definition`'s main module and of every module it imports, transitively.

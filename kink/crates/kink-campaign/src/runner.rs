@@ -1948,10 +1948,15 @@ pub type MutantStarts = BTreeMap<String, Pattern>;
 /// start there instead of the test's initial state (PJ-34: a grammar mutant parses a program to
 /// a term of its own, which the baseline never produced).
 ///
-/// A start changes the mutant side's run of its test and nothing else: its execution, its
-/// judgement (the decider's initial variables, the exclusion of its initial state on the
-/// mutant's definition, its one-sided evidence) and [`no_start`] read the start, under the test's
-/// id and oracles. The baseline side runs the test's own initial state, through `session` as in
+/// A start changes the mutant side's run of its test and nothing else: its execution, the
+/// exclusion of its initial state on the mutant's definition, its one-sided evidence and
+/// [`no_start`] read the start (`Runtime::run_compared` of the started test), under the test's
+/// id and oracles. The judgement of the pair's ends ([`judge_across`], `Runtime::judge_ends`)
+/// and the stepped pattern sides (`Runtime::step_sides`) are given the test itself, so they read
+/// the test's initial state, not the start; that is the same judgement, since a started test and
+/// its start are ground (refused otherwise, below), so neither has an initial variable for the
+/// decider to link, and a started test has no pattern oracle, so no pattern side is stepped. The
+/// baseline side runs the test's own initial state, through `session` as in
 /// every call, and the mutant's bound of polls is the one of that baseline run
 /// ([`WorkBudget::limit`]). Before its run the start passes the input gate every baseline start
 /// passes (`validate_test_initial_state`), on the mutant's backend; a start it refuses makes the

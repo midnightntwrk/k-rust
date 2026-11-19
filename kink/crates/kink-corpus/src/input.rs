@@ -4,6 +4,7 @@ use std::{collections::BTreeMap, fmt};
 
 use k_rust::{
     definition::{AttributeKey, Definition, Sentence},
+    inner::{ParseError, ProgramParseError},
     kast::{Sort, Term},
     kompile::{
         CompileOptions,
@@ -80,6 +81,14 @@ pub enum InputError {
     /// A program given to a definition that declares no `$PGM` (`stray-program`): the program
     /// would bind nothing, so the test would not be the input its author wrote.
     StrayProgram(String),
+    /// k-rust's checked sort inference (`KRUST_TYPE_INFERENCE_MODE=checked`) found its portable
+    /// and Z3 engines disagreeing on a text (`ParseError::InferenceEngineDisagreement`), in the
+    /// program text's or a variable's parse, in any attempt assembly made at it: whether the text
+    /// parses is not decided (`inference-disagreement`). k-rust keeps the disagreement apart from
+    /// a sort-inference rejection so that a caller expecting a rejection does not take it for
+    /// one; it is never [`Self::Parse`], so it never meets a statement that the text must not
+    /// parse, and a grammar mutant's reparse never reads it as a rejection.
+    InferenceDisagreement(String),
 }
 
 impl fmt::Display for InputError {
@@ -91,7 +100,8 @@ impl fmt::Display for InputError {
             | Self::Streams(message)
             | Self::StreamMode(message)
             | Self::MissingVariable(message)
-            | Self::StrayProgram(message) => f.write_str(message),
+            | Self::StrayProgram(message)
+            | Self::InferenceDisagreement(message) => f.write_str(message),
         }
     }
 }
@@ -380,6 +390,9 @@ fn has_stream_cells(definition: &Definition) -> bool {
 
 fn input_error(error: ConfigurationError) -> InputError {
     let message = error.to_string();
+    if undecided_parse(&error) {
+        return InputError::InferenceDisagreement(message);
+    }
     match error {
         ConfigurationError::Program(_) | ConfigurationError::Parse { .. } => {
             InputError::Parse(message)
@@ -396,5 +409,106 @@ fn input_error(error: ConfigurationError) -> InputError {
             InputError::MissingVariable(message)
         }
         _ => InputError::Assemble(message),
+    }
+}
+
+/// Whether a parse attempt `error` records is k-rust's checked-inference disagreement
+/// ([`InputError::InferenceDisagreement`]): the program text's failure or a variable's, its
+/// syntax module's attempt, and the item attempt each of them records.
+fn undecided_parse(error: &ConfigurationError) -> bool {
+    fn undecided(error: &ProgramParseError) -> bool {
+        matches!(*error.error, ParseError::InferenceEngineDisagreement { .. })
+            || error.item_attempt.as_deref().is_some_and(undecided)
+    }
+    match error {
+        ConfigurationError::Program(error) => undecided(error),
+        ConfigurationError::Parse {
+            error,
+            syntax_attempt,
+            ..
+        } => undecided(error) || syntax_attempt.as_deref().is_some_and(undecided),
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn attempt(error: ParseError, item_attempt: Option<ProgramParseError>) -> ProgramParseError {
+        ProgramParseError {
+            module: "SYNTAX".to_owned(),
+            start_sort: Sort::new("Exp"),
+            error: Box::new(error),
+            item_attempt: item_attempt.map(Box::new),
+        }
+    }
+
+    fn disagreement() -> ParseError {
+        ParseError::InferenceEngineDisagreement {
+            portable: Ok("term".to_owned()),
+            z3: Err("no sort".to_owned()),
+            ambiguous_parse: false,
+        }
+    }
+
+    fn rejection() -> ParseError {
+        ParseError::SortInference {
+            message: "no sort".to_owned(),
+        }
+    }
+
+    fn variable(
+        error: ProgramParseError,
+        syntax_attempt: Option<ProgramParseError>,
+    ) -> ConfigurationError {
+        ConfigurationError::Parse {
+            variable: "$N".to_owned(),
+            sort: Sort::new("Int"),
+            error: Box::new(error),
+            syntax_attempt: syntax_attempt.map(Box::new),
+        }
+    }
+
+    /// PJ-34 (FX2): under k-rust's checked inference the two engines can disagree on a text.
+    /// k-rust keeps that apart from a rejection (`ParseError::InferenceEngineDisagreement`), and
+    /// so does kink: wherever the disagreement is among the attempts of a failure (the program
+    /// text's, a variable's, its syntax module's attempt, an item attempt), the failure is not a
+    /// parse rejection, so it meets no `rejected = "parse"` statement and kills no grammar
+    /// mutant, and it is refused `inputs`/`inference-disagreement`. A rejection without one is
+    /// still `InputError::Parse`.
+    #[test]
+    fn an_inference_disagreement_is_no_parse_rejection() {
+        let undecided = [
+            ConfigurationError::Program(attempt(disagreement(), None)),
+            ConfigurationError::Program(attempt(rejection(), Some(attempt(disagreement(), None)))),
+            variable(attempt(disagreement(), None), None),
+            variable(
+                attempt(rejection(), None),
+                Some(attempt(disagreement(), None)),
+            ),
+            variable(
+                attempt(rejection(), Some(attempt(disagreement(), None))),
+                Some(attempt(rejection(), None)),
+            ),
+        ];
+        for error in undecided {
+            let read = input_error(error);
+            assert!(
+                matches!(read, InputError::InferenceDisagreement(_)),
+                "{read:?}"
+            );
+            let refusal = crate::admission::input_refusal(read);
+            assert_eq!(
+                (refusal.stage.as_str(), refusal.reason.as_str()),
+                ("inputs", "inference-disagreement")
+            );
+        }
+        for error in [
+            ConfigurationError::Program(attempt(rejection(), None)),
+            variable(attempt(rejection(), None), Some(attempt(rejection(), None))),
+        ] {
+            assert!(matches!(input_error(error), InputError::Parse(_)));
+        }
     }
 }

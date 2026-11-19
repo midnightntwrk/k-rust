@@ -682,8 +682,10 @@ pub struct CompiledEffect {
 ///   and ceil lemmas that differs alike (a changed predicate lemma checks every head);
 /// - checked heads: the reverse reach of the changed indexes over both compiled theories (an
 ///   equation reaches the symbols it applies, and an overload family is linked both ways),
-///   together with the source reading's affected symbols; `None` (every head) when the source
-///   reading is unknown or a changed or reached index is not a symbol;
+///   together with the source reading's affected symbols, but those it states only modules the
+///   main module does not import declare ([`SourceEffect::unimported`]) and the compiled
+///   definition has no symbol for (they head no compiled equation); `None` (every head) when the
+///   source reading is unknown or a changed or reached index is not a symbol;
 /// - every compiled equation that a sentence the patch touches (or inserts) gives, on either
 ///   side, is headed by a symbol the source reading redefines, or by a lambda kompile generated
 ///   for a `#let` or `#fun` (its `total` is derived from the claim-free mutant's own body); and
@@ -807,15 +809,25 @@ pub fn admit_mutant_with(
             &witness_dependents(facts),
         ],
     );
+    // A label that only modules outside the main module's import closure declare, and that the
+    // compiled definition has no symbol for, heads no compiled equation, so no pair is read
+    // under it: it is left out (PJ-34, FX2). Both facts are needed: the source's alone is not
+    // exact (`<generatedCounter>` is declared outside that closure and compiled).
+    let compiled = |label: &str| {
+        definition
+            .symbols()
+            .contains_key(encode_label(label).as_str())
+    };
     let source_heads = source.affected.as_ref().map(|affected| {
         affected
             .iter()
+            .filter(|label| !source.unimported.contains(*label) || compiled(label))
             .map(|label| encode_label(label))
             .collect::<BTreeSet<_>>()
     });
     if let Some(heads) = &source_heads {
-        // A head kink-patch names must be a symbol of the compiled definition, or its pairs
-        // would be read under no name.
+        // Every other head kink-patch names must be a symbol of the compiled definition, or its
+        // pairs would be read under no name.
         let missing = heads
             .iter()
             .filter(|head| !definition.symbols().contains_key(head.as_str()))

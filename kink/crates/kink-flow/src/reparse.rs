@@ -13,7 +13,8 @@
 //! - One the mutant does not parse (`rejected`; an ambiguous text is not parsed) kills in the
 //!   direction `mutant-rejects` where the baseline accepts it (README.md D2: acceptance is the
 //!   whole pipeline's, here the baseline's run, by phase 0's rule,
-//!   [`crate::projected::listed_acceptance`]), agrees where the baseline rejects it (both
+//!   [`crate::projected::baseline_acceptance`]: a baseline that takes an undefined step beside
+//!   ends it accepts at is not known to accept), agrees where the baseline rejects it (both
 //!   reject, at different stages, which D2 does not observe), and is `unknown` where the
 //!   baseline's acceptance is not decided: in a flow without declared ends an end is accepted
 //!   only where a path reached it at the `[stop]`.
@@ -46,7 +47,7 @@
 
 use crate::admit::Reassembly;
 use crate::compare::Acceptance;
-use crate::projected::listed_acceptance;
+use crate::projected::baseline_acceptance;
 use k_rust::kore::ast::Pattern;
 use serde_json::{Map, Value, json};
 
@@ -187,7 +188,7 @@ pub(crate) fn listed(
              concrete, which kink does not run"
                 .to_owned(),
         ),
-        Reassembly::ParseRejected(detail) => match listed_acceptance(row) {
+        Reassembly::ParseRejected(detail) => match baseline_acceptance(row) {
             Acceptance::Accepted => case(
                 "rejected",
                 Verdict::Killed(Direction::MutantRejects),
@@ -326,12 +327,24 @@ pub(crate) fn not_alone(case: &mut Case, failure: &str, equivalent: bool) {
     }
 }
 
+/// The verdict of a stated case left to the mutant's run alone that the run gave no evidence
+/// of (no test of its id in the call's evidence): `unknown`, since nothing decides whether the
+/// mutant's pipeline accepts it.
+pub(crate) fn no_evidence(case: &mut Case) {
+    case.verdict = Verdict::Unknown(MUTANT_ACCEPTANCE_NOT_DECIDED);
+    "the baseline rejects the case at parse and the mutant's grammar parses it, and the mutant's \
+     run alone gave no evidence of it"
+        .clone_into(&mut case.detail);
+}
+
 /// The row of a grammar mutation once O is decided (`row`, a search's or a decided row), with
 /// the stated cases' verdicts from the mutant's runs alone (`cases`, each stated case judged by
 /// [`alone`] or [`not_alone`] where it was run): where O kills nothing (a `survived`, `unknown`
 /// or `timeout` row), the first stated case that kills in corpus order kills the row
 /// (`mutant-accepts`, `killer_source` `alone`), and a survivor some stated case leaves undecided
-/// is `unknown` with that case's reason. Every other row is O's. `executed` and `calls` are the
+/// is `unknown` with that case's reason: a case still left to its run alone (its verdict `run`,
+/// so no run alone judged it) is undecided too, with [`MUTANT_ACCEPTANCE_NOT_DECIDED`]. Every
+/// other row is O's. `executed` and `calls` are the
 /// runs alone's entries and calls, appended to the row's.
 pub(crate) fn fold_alone(
     row: &mut Map<String, Value>,
@@ -375,14 +388,22 @@ pub(crate) fn fold_alone(
         row.insert("rules".into(), Value::Null);
         row.remove("horizon");
     } else if status == "survived"
-        && let Some(open) = stated().find(|case| matches!(case.verdict, Verdict::Unknown(_)))
+        && let Some(open) =
+            stated().find(|case| matches!(case.verdict, Verdict::Unknown(_) | Verdict::Run))
     {
-        let Verdict::Unknown(reason) = open.verdict else {
-            unreachable!("an undecided case has an unknown verdict");
+        let (reason, detail) = match open.verdict {
+            Verdict::Unknown(reason) => (reason, open.detail.clone()),
+            // Fail closed: a survivor needs every stated case its grammar parses to agree.
+            _ => (
+                MUTANT_ACCEPTANCE_NOT_DECIDED,
+                "the baseline rejects the case at parse and the mutant's grammar parses it, and \
+                 no run alone of the mutant judged it"
+                    .to_owned(),
+            ),
         };
         row.insert("status".into(), json!("unknown"));
         row.insert("reason".into(), json!(reason));
-        row.insert("detail".into(), json!(open.detail));
+        row.insert("detail".into(), json!(detail));
         row.remove("horizon");
     } else {
         return;
@@ -521,6 +542,52 @@ mod tests {
                 arguments: Vec::new(),
             },
         })
+    }
+
+    /// FX2 (after FX1): a mutant that rejects at parse a program whose baseline run reaches an
+    /// accepted end on one path and takes an undefined step on another kills nothing: the
+    /// baseline is not known to accept it (read as a rejection, the undefined step makes it
+    /// accept on one path and reject on another), so the case is `unknown`, never
+    /// `mutant-rejects`. A baseline that rejects at every listed end still agrees.
+    #[test]
+    fn an_undefined_step_beside_accepted_ends_gives_no_mutant_rejects() {
+        let one = int("1");
+        for ends in [json!([{"halt": "stop"}]), json!([{"declared": "finished"}])] {
+            let undefined = json!({"class": "comparable", "ends": ends, "undefined_steps": true});
+            let case = listed(
+                "p",
+                &one,
+                &undefined,
+                Reassembly::ParseRejected("no".into()),
+            );
+            assert_eq!(
+                case.verdict,
+                Verdict::Unknown(ACCEPTANCE_NOT_DECIDED),
+                "{undefined}"
+            );
+            assert!(case.detail.contains("undefined step"), "{}", case.detail);
+        }
+        let rejecting = json!({
+            "class": "comparable",
+            "ends": [{"declared": "refused"}],
+            "undefined_steps": true,
+        });
+        let case = listed(
+            "p",
+            &one,
+            &rejecting,
+            Reassembly::ParseRejected("no".into()),
+        );
+        assert_eq!(case.verdict, Verdict::Agree);
+        // Without the undefined step the same baseline accepts, and the mutant is killed.
+        let accepting = json!({"class": "comparable", "ends": [{"halt": "stop"}]});
+        let case = listed(
+            "p",
+            &one,
+            &accepting,
+            Reassembly::ParseRejected("no".into()),
+        );
+        assert_eq!(case.verdict, Verdict::Killed(Direction::MutantRejects));
     }
 
     #[test]
@@ -717,6 +784,55 @@ mod tests {
             &[],
         );
         assert_eq!(not_admitted["status"], "not-admitted");
+    }
+
+    /// FX2 (fail closed): a stated case left to the mutant's run alone with no evidence of it is
+    /// not a survivor's agreement. The run alone makes it `unknown` ([`no_evidence`]), and a case
+    /// still `run` (no run alone judged it) keeps a survivor `unknown` too; a row O killed keeps
+    /// its kill, where a case left at `run` is legitimate.
+    #[test]
+    fn a_stated_case_no_run_alone_judged_leaves_no_survivor() {
+        let listed_case = listed("p", &int("1"), &row("own"), Reassembly::Assembled(int("1")));
+        let pending_case = stated("s", Reassembly::Assembled(int("2")));
+        assert!(pending(&pending_case));
+        let row_of = |status: &str| {
+            let mut row = Map::new();
+            row.insert("status".into(), json!(status));
+            row.insert("reason".into(), Value::Null);
+            row.insert("killer".into(), Value::Null);
+            row.insert("executed".into(), json!([]));
+            row.insert("calls".into(), json!([]));
+            row.insert("call_wall_ms".into(), json!([]));
+            row
+        };
+        let mut survived = row_of("survived");
+        fold_alone(
+            &mut survived,
+            &[listed_case.clone(), pending_case.clone()],
+            &[],
+            &[],
+        );
+        assert_eq!(
+            (&survived["status"], &survived["reason"]),
+            (&json!("unknown"), &json!(MUTANT_ACCEPTANCE_NOT_DECIDED))
+        );
+        let mut judged = pending_case.clone();
+        no_evidence(&mut judged);
+        assert_eq!(
+            judged.verdict,
+            Verdict::Unknown(MUTANT_ACCEPTANCE_NOT_DECIDED)
+        );
+        assert!(!pending(&judged));
+        let mut survived = row_of("survived");
+        fold_alone(&mut survived, &[listed_case.clone(), judged], &[], &[]);
+        assert_eq!(survived["status"], "unknown");
+        let mut killed = row_of("killed");
+        killed.insert("killer".into(), json!("p"));
+        fold_alone(&mut killed, &[listed_case, pending_case], &[], &[]);
+        assert_eq!(
+            (&killed["status"], &killed["killer"]),
+            (&json!("killed"), &json!("p"))
+        );
     }
 
     #[test]

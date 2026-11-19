@@ -40,9 +40,9 @@ use crate::{
 };
 use k_rust::definition::{
     Associativity, AttributeKey, Attributes, ProductionItem, Regex, RegexBody, Sentence,
-    parse_regex,
+    parse_regex, production_identity,
 };
-use k_rust::kast::{Label, Sort};
+use k_rust::kast::{Label, ProductionIdentity, Sort, Term};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// How a grammar form edits its site.
@@ -64,7 +64,9 @@ pub enum GrammarForm {
     /// authored grammar production of its module has, under a fresh label, so that the
     /// production's text also parses where that sort is expected.
     MergeAlternative,
-    /// The production is deleted.
+    /// The production is deleted. Not generated where a term of the definition applies it (a
+    /// rule built with it): the mutant would keep an application of a production it does not
+    /// declare, which compilation refuses, so it is no grammar mutant.
     DeleteProduction,
     /// A token or lexical regex is loosened at one node: a node made optional, `R+` to `R*`,
     /// a lower bound to 0, an upper bound dropped, a character or class to any character. No
@@ -219,9 +221,19 @@ pub fn grammar_variants(
     selector: &[GrammarSelector],
 ) -> Vec<(TermRef, Patch)> {
     let labels = production_labels(baseline);
+    let applied = if form == GrammarForm::DeleteProduction {
+        applied_productions(baseline)
+    } else {
+        BTreeSet::new()
+    };
     let mut variants = Vec::new();
     for (at, sentence) in baseline.authored_sentences() {
         if !selector.iter().all(|clause| admits(clause, &at, sentence)) {
+            continue;
+        }
+        if form == GrammarForm::DeleteProduction
+            && production_identity(sentence).is_some_and(|identity| applied.contains(&identity))
+        {
             continue;
         }
         for (path, edits) in edits_at(baseline, &labels, form, &at, sentence) {
@@ -391,6 +403,45 @@ const COPIED_ATTRIBUTES: [AttributeKey; 2] = [AttributeKey::Prefer, AttributeKey
 pub(crate) fn production_site(sentence: &Sentence) -> bool {
     matches!(sentence, Sentence::Production { label: Some(_), attributes, .. }
         if !attributes.has_any(&NOT_A_PRODUCTION_SITE))
+}
+
+/// Every production identity a term of `baseline` names in its metadata: the productions a rule,
+/// claim or context is built with.
+fn applied_productions(baseline: &Baseline) -> BTreeSet<ProductionIdentity> {
+    // Invariant: every recursive call consumes one child of the finite term tree.
+    fn named(term: &Term, applied: &mut BTreeSet<ProductionIdentity>) {
+        if let Some(identity) = term.metadata().and_then(|metadata| metadata.production) {
+            applied.insert(identity);
+        }
+        match term.unannotated() {
+            Term::Rewrite { left, right } => {
+                named(left, applied);
+                named(right, applied);
+            }
+            Term::As { pattern, alias } => {
+                named(pattern, applied);
+                named(alias, applied);
+            }
+            Term::Sequence(items)
+            | Term::Apply {
+                arguments: items, ..
+            } => {
+                for item in items {
+                    named(item, applied);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut applied = BTreeSet::new();
+    for module in &baseline.definition().modules {
+        for sentence in &module.local_sentences {
+            for (_, term) in sentence.terms() {
+                named(term, &mut applied);
+            }
+        }
+    }
+    applied
 }
 
 fn production_labels(baseline: &Baseline) -> BTreeSet<String> {

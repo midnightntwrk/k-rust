@@ -38,7 +38,12 @@ use std::sync::Arc;
 /// release (PJ-34, U34c): a production replaced in place has another content identity, and every
 /// term built with the baseline's production is pointed at its replacement, where it named a
 /// production the mutant does not declare (which compilation, under debug assertions, refused by
-/// a panic); no patch is admitted or refused otherwise.
+/// a panic); no patch is admitted or refused otherwise. Extended again before release (PJ-34,
+/// FX2): the retarget is per module, a term pointed at a replacement only in a module that no
+/// longer sees the replaced production and sees exactly one replacement, where it was pointed at
+/// the replacement in every module (a module that still saw an equivalent copy of the replaced
+/// production elsewhere was given an identity it cannot see); no patch is admitted or refused
+/// otherwise.
 pub const PATCH_ADMISSION_VERSION: &str = "kink-patch/patch-admission/v2";
 
 /// Keys no edit may write: the rule label, kompile identities and source positions.
@@ -129,6 +134,36 @@ impl Mutant {
         baseline.loaded().with_definition(self.definition.clone())
     }
 
+    /// Every application in the mutant's sentences whose production identity the production
+    /// catalog of its module does not hold, as `label in module`, in module and sentence order:
+    /// the check k-rust's compilation makes of every stage's output under debug assertions
+    /// (`assert_no_dangling_application_identities`), made before compilation. A deleted
+    /// production that a rule still applies leaves one; so does a retarget that found no single
+    /// replacement ([`apply`]). Empty for a mutant whose terms all name productions their module
+    /// sees, and for one that does not resolve (compilation then refuses it).
+    #[must_use]
+    pub fn dangling_applications(&self) -> Vec<String> {
+        let Ok(resolved) = ResolvedDefinition::resolve(&self.definition) else {
+            return Vec::new();
+        };
+        let mut dangling = Vec::new();
+        for (module_id, module) in resolved.modules() {
+            let catalog = resolved.production_catalog(module_id);
+            for sentence in &module.local_sentences {
+                for (_, term) in sentence.terms() {
+                    unseen_applications(
+                        term,
+                        &|identity| catalog.lookup(identity).is_some(),
+                        &mut |label| {
+                            dangling.push(format!("{label} in {}", module.name));
+                        },
+                    );
+                }
+            }
+        }
+        dangling
+    }
+
     /// Whether k-rust builds the program parser of `syntax_module` from the mutant's definition:
     /// the parser a program text (`$PGM`) is read with. It is built as initial-configuration
     /// assembly builds it (k-rust `ProgramGrammar::new` of the loaded definition, then
@@ -193,7 +228,7 @@ pub fn apply(baseline: &Baseline, patch: &Patch) -> Result<Mutant, PatchFailure>
     }
     let origins = rebuild_modules(&mut definition, patch.edits())?;
     let replaced = replaced_productions(baseline, patch, &definition, &origins);
-    retarget_productions(&mut definition, &replaced);
+    retarget_productions(&mut definition, &replaced)?;
     let resolved = ResolvedDefinition::resolve(&definition)
         .map_err(|error| ill_formed(format!("the patched definition does not resolve: {error}")))?;
     let typing_diagnostics = typing_diagnostics(&definition, &resolved, &origins, patch.edits())?;
@@ -205,16 +240,18 @@ pub fn apply(baseline: &Baseline, patch: &Patch) -> Result<Mutant, PatchFailure>
 }
 
 /// The content identity (k-rust `production_identity`) of each baseline production the patch
-/// changed in place, mapped to its output's: a replaced production (a grammar edit that keeps its
+/// changed in place, mapped to its outputs': a replaced production (a grammar edit that keeps its
 /// label and changes a literal, a regex or an attribute) has another identity, and every term
-/// built with it names the old one in its metadata. Only the sentences the patch writes are
-/// read, so a patch that edits rules only hashes no production and gives an empty map.
+/// built with it names the old one in its metadata. Two equivalent productions of two modules
+/// share an identity, so one identity may have several replacements. Only the sentences the
+/// patch writes are read, so a patch that edits rules only hashes no production and gives an
+/// empty map.
 fn replaced_productions(
     baseline: &Baseline,
     patch: &Patch,
     definition: &Definition,
     origins: &BTreeMap<SentenceRef, SentenceOrigin>,
-) -> BTreeMap<ProductionIdentity, ProductionIdentity> {
+) -> BTreeMap<ProductionIdentity, BTreeSet<ProductionIdentity>> {
     let edited = patch
         .written_sentences()
         .into_iter()
@@ -239,7 +276,10 @@ fn replaced_productions(
             && let Some(new) = production_identity(after)
             && new != *old
         {
-            replaced.insert(*old, new);
+            replaced
+                .entry(*old)
+                .or_insert_with(BTreeSet::new)
+                .insert(new);
         }
     }
     replaced
@@ -249,26 +289,63 @@ fn replaced_productions(
 /// replacement (`replaced`, [`replaced_productions`]). A grammar edit changes which text parses
 /// to which term and keeps the rules' terms: a rule's application of a replaced production is
 /// an application of the same constructor (same label, sort and arguments), and its metadata
-/// must name the production the mutant declares, or compilation finds no production for it (a
-/// dangling production identity). Only sentences that name a replaced identity are rewritten.
+/// must name a production the mutant declares where the term is, or compilation finds no
+/// production for it (a dangling production identity).
+///
+/// The retarget is per module, against the module's production catalog in the patched
+/// definition: a term of module M naming a replaced identity is pointed at a replacement only
+/// where M no longer sees the replaced identity (an equivalent copy of it in another module M
+/// imports still names the same production) and sees exactly one of its replacements. Otherwise
+/// the term is left as it is, and a term left naming a production M does not see is a dangling
+/// application ([`Mutant::dangling_applications`]), which compilation refuses. Only sentences
+/// that name a replaced identity are rewritten.
 fn retarget_productions(
     definition: &mut Definition,
-    replaced: &BTreeMap<ProductionIdentity, ProductionIdentity>,
-) {
+    replaced: &BTreeMap<ProductionIdentity, BTreeSet<ProductionIdentity>>,
+) -> Result<(), PatchFailure> {
     if replaced.is_empty() {
-        return;
+        return Ok(());
+    }
+    let resolved = ResolvedDefinition::resolve(definition)
+        .map_err(|error| ill_formed(format!("the patched definition does not resolve: {error}")))?;
+    // Per module, the replacement each replaced identity its terms name is pointed at.
+    let mut targets = BTreeMap::<String, BTreeMap<ProductionIdentity, ProductionIdentity>>::new();
+    for (module_id, module) in resolved.modules() {
+        let catalog = resolved.production_catalog(module_id);
+        let seen = |identity: &ProductionIdentity| catalog.lookup(identity).is_some();
+        let module_targets = replaced
+            .iter()
+            .filter(|(old, _)| !seen(old))
+            .filter_map(|(old, news)| {
+                let mut visible = news.iter().filter(|new| seen(new));
+                match (visible.next(), visible.next()) {
+                    (Some(new), None) => Some((*old, *new)),
+                    _ => None,
+                }
+            })
+            .collect::<BTreeMap<_, _>>();
+        if !module_targets.is_empty() {
+            targets.insert(module.name.clone(), module_targets);
+        }
     }
     for module in &mut definition.modules {
+        let Some(module_targets) = targets.get(&module.name) else {
+            continue;
+        };
         for sentence in &mut module.local_sentences {
-            if !sentence.terms().any(|(_, term)| names_any(term, replaced)) {
+            if !sentence
+                .terms()
+                .any(|(_, term)| names_any(term, module_targets))
+            {
                 continue;
             }
             for (_, term) in sentence_mut(sentence).terms_mut() {
                 let taken = std::mem::replace(term, Term::Sequence(Vec::new()));
-                *term = retarget_term(taken, replaced);
+                *term = retarget_term(taken, module_targets);
             }
         }
     }
+    Ok(())
 }
 
 /// Whether `term` or a subterm carries a production identity of `replaced` in its metadata.
@@ -288,6 +365,41 @@ fn names_any(term: &Term, replaced: &BTreeMap<ProductionIdentity, ProductionIden
             arguments: items, ..
         } => items.iter().any(|item| names_any(item, replaced)),
         _ => false,
+    }
+}
+
+/// Calls `found` with the label of each application in `term` whose production identity `seen`
+/// does not hold (k-rust's dangling-identity check, `Mutant::dangling_applications`).
+// Invariant: every recursive call consumes one child of the finite term tree.
+fn unseen_applications(
+    term: &Term,
+    seen: &dyn Fn(&ProductionIdentity) -> bool,
+    found: &mut dyn FnMut(&str),
+) {
+    if let (Some(metadata), Term::Apply { label, .. }) = (term.metadata(), term.unannotated())
+        && let Some(identity) = metadata.production
+        && !seen(&identity)
+    {
+        found(&label.name);
+    }
+    match term.unannotated() {
+        Term::Rewrite { left, right } => {
+            unseen_applications(left, seen, found);
+            unseen_applications(right, seen, found);
+        }
+        Term::As { pattern, alias } => {
+            unseen_applications(pattern, seen, found);
+            unseen_applications(alias, seen, found);
+        }
+        Term::Sequence(items)
+        | Term::Apply {
+            arguments: items, ..
+        } => {
+            for item in items {
+                unseen_applications(item, seen, found);
+            }
+        }
+        _ => {}
     }
 }
 

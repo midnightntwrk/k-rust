@@ -56,7 +56,7 @@
 use crate::{
     RejectedStage,
     cli::{EXIT_NO, EXIT_UNANSWERED, EXIT_UNASKED, EXIT_YES, FrontEnd, exit_join},
-    compare::{Acceptance, ends_acceptance},
+    compare::{Acceptance, row_acceptance},
     coverage::{CoverageOptions, Tier},
     manifest::{FlowManifest, Program, Provenance},
     pattern::{PatternExpect, PatternList},
@@ -488,7 +488,7 @@ fn outcome(
             row["cause"].as_str().map(str::to_owned),
         );
     }
-    match ends_acceptance(row["ends"].as_array().map_or(&[][..], Vec::as_slice)) {
+    match row_acceptance(row) {
         Acceptance::Accepted => ("accepted", None, None, None),
         Acceptance::Rejected if !declares_finished => (
             "unknown",
@@ -951,6 +951,25 @@ mod tests {
         assert_eq!(outcome(&stopped, false).0, "accepted");
         let (word, _, reason, _) = outcome(&json!({"class": "timeout", "cause": "t"}), true);
         assert_eq!((word, reason.as_deref()), ("unknown", Some("timeout")));
+    }
+
+    /// FX2 (after FX1): a baseline whose run accepts at every listed end and takes an undefined
+    /// step on another path is not known to accept the candidate (the undefined step may reject):
+    /// `unknown`, reason `undecided`, never `accepted`; one that rejects at every listed end
+    /// rejects it whatever the undefined step is.
+    #[test]
+    fn an_undefined_step_beside_accepted_ends_is_no_acceptance() {
+        let undefined =
+            |ends: Value| json!({"class": "comparable", "ends": ends, "undefined_steps": true});
+        for ends in [json!([{"halt": "stop"}]), json!([{"declared": "finished"}])] {
+            let (word, _, reason, detail) = outcome(&undefined(ends), true);
+            assert_eq!((word, reason.as_deref()), ("unknown", Some("undecided")));
+            assert!(detail.unwrap_or_default().contains("undefined step"));
+        }
+        assert_eq!(
+            outcome(&undefined(json!([{"declared": "none"}])), true),
+            ("rejected", Some("end"), None, None)
+        );
     }
 
     /// A row of a program whose entry states that it must be rejected before it runs (PJ-32,

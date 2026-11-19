@@ -1615,6 +1615,15 @@ impl Search<'_, '_> {
             cases: cases.clone(),
             ..Alone::default()
         };
+        // An application of a production the mutant does not declare where it is applied (a
+        // deleted production a rule still applies) is refused by compilation; it is refused here,
+        // before anything compiles the mutant (the decided row's validation, the call over O, the
+        // runs alone), with the applications named.
+        let dangling = mutant.dangling_applications();
+        if !dangling.is_empty() {
+            let value = self.dangling_grammar_row(row, facts, &dangling, &order);
+            return self.with_alone(value, &generation, &mut alone, open);
+        }
         // A recorded killer that is a stated case the mutant parses is the killer while it
         // kills, whatever O gives: it runs first.
         if !open
@@ -1765,6 +1774,9 @@ impl Search<'_, '_> {
                 .iter()
                 .find(|evidence| evidence.test_id == case.program)
             else {
+                // Fail closed: a case the run alone gave no evidence of is not decided.
+                reparse::no_evidence(case);
+                undecided = true;
                 continue;
             };
             let acceptance = self.alone_acceptance(&case.program, evidence);
@@ -1842,38 +1854,9 @@ impl Search<'_, '_> {
         resolved: &ResolvedMutation,
         order: &[usize],
     ) -> Value {
-        row.insert("typing_diagnostics".into(), facts.typing_diagnostics);
-        row.insert(
-            "identity".into(),
-            json!(facts.identity.map(|identity| identity.to_string())),
-        );
-        row.insert("removed_claims".into(), facts.removed_claims);
-        row.insert("inconsistent_pairs".into(), json!([]));
-        row.insert("weakening".into(), facts.weakening);
+        with_grammar_facts(&mut row, facts);
         if let Err(rejection) = self.spec.validator.validate(&resolved.patch) {
-            let failure = MutantScopeFailure::from(&rejection);
-            let plan = MutantPlan {
-                selection: None,
-                mutant_id: MutantId(0),
-                tests: Vec::new(),
-                mutant_failure: Some(failure),
-                claims: Withdrawal::default(),
-                inconsistent_pairs: Vec::new(),
-            };
-            let report = self
-                .assemble(&[], Some((order, &plan)))
-                .expect("a mutant-scope failure with no test is a valid plan");
-            let reason = Some(kebab(&format!("{failure:?}")));
-            return verdict_row(
-                row,
-                &report,
-                None,
-                None,
-                reason,
-                None,
-                RowCalls::default(),
-                Vec::new(),
-            );
+            return self.not_admitted_grammar_row(row, MutantScopeFailure::from(&rejection), order);
         }
         let (status, killer, reason, case) = match decision {
             reparse::Decision::Killed(case) => {
@@ -1902,6 +1885,60 @@ impl Search<'_, '_> {
             _ => killer.as_ref().map(|_| reparse::SOURCE_REPARSE),
         };
         finish(row, killer, source, RowCalls::default(), Vec::new())
+    }
+
+    /// The row of a grammar mutation whose mutant applies a production it does not declare where
+    /// it is applied (`dangling`, kink-patch `Mutant::dangling_applications`): `not-admitted`,
+    /// reason `rejected` (compilation's refusal of such a mutant), the detail naming them.
+    fn dangling_grammar_row(
+        &self,
+        mut row: Map<String, Value>,
+        facts: Facts,
+        dangling: &[String],
+        order: &[usize],
+    ) -> Value {
+        with_grammar_facts(&mut row, facts);
+        row.insert(
+            "detail".into(),
+            json!(format!(
+                "the mutant applies a production it does not declare where it is applied ({}): its \
+                 compilation refuses it",
+                dangling.join(", ")
+            )),
+        );
+        self.not_admitted_grammar_row(row, MutantScopeFailure::Rejected, order)
+    }
+
+    /// The row of a grammar mutation whose mutant is refused before it runs (`failure`, a
+    /// mutant-scope failure): `not-admitted`, as the call reports such a mutant, with no call.
+    fn not_admitted_grammar_row(
+        &self,
+        row: Map<String, Value>,
+        failure: MutantScopeFailure,
+        order: &[usize],
+    ) -> Value {
+        let plan = MutantPlan {
+            selection: None,
+            mutant_id: MutantId(0),
+            tests: Vec::new(),
+            mutant_failure: Some(failure),
+            claims: Withdrawal::default(),
+            inconsistent_pairs: Vec::new(),
+        };
+        let report = self
+            .assemble(&[], Some((order, &plan)))
+            .expect("a mutant-scope failure with no test is a valid plan");
+        let reason = Some(kebab(&format!("{failure:?}")));
+        verdict_row(
+            row,
+            &report,
+            None,
+            None,
+            reason,
+            None,
+            RowCalls::default(),
+            Vec::new(),
+        )
     }
 
     /// Every case of a grammar mutation parsed again under the mutant's grammar `grammar` (of
@@ -5817,6 +5854,19 @@ fn verdict_claims(
     if *claims != Withdrawal::default() {
         row.insert("removed_claims".into(), value(claims));
     }
+}
+
+/// `row` with the members a search's rows carry (`facts`), for a grammar row decided with no
+/// call ([`Search::decided_grammar_row`]).
+fn with_grammar_facts(row: &mut Map<String, Value>, facts: Facts) {
+    row.insert("typing_diagnostics".into(), facts.typing_diagnostics);
+    row.insert(
+        "identity".into(),
+        json!(facts.identity.map(|identity| identity.to_string())),
+    );
+    row.insert("removed_claims".into(), facts.removed_claims);
+    row.insert("inconsistent_pairs".into(), json!([]));
+    row.insert("weakening".into(), facts.weakening);
 }
 
 /// The row of a verdict: the report's status, the killer (the search's choice: the recorded

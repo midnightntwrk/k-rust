@@ -1838,16 +1838,16 @@ fn run_judges_each_row_of_a_generated_grammar_set_and_locks_it() {
         "{document:#}"
     );
     // Each row reached the grammar search (its cases were parsed again), past the supplied
-    // generation an anchored insertion needs; calc's mutants are then refused by the search's
-    // own admission (an inserted constructor's affected heads name cells calc does not compile,
-    // as for a written insertion), which is the search's verdict, not a refusal of the row.
+    // generation an anchored insertion needs, and a verdict of its runs: an inserted
+    // constructor's affected labels that calc does not compile (the prelude's stream cells) are
+    // left out of the consistency check, not refused (FX2, U34h Q1).
     for id in expected {
         let generated = row(&document, id);
         assert!(generated["grammar"].is_array(), "{generated:#}");
         assert!(
-            !matches!(
+            matches!(
                 generated["status"].as_str(),
-                Some("invalid-mutation" | "error")
+                Some("killed" | "survived" | "unknown")
             ),
             "{generated:#}"
         );
@@ -1942,14 +1942,13 @@ fn a_generated_token_narrowing_is_killed_by_the_case_it_no_longer_parses() {
         },
     );
     assert_eq!(generated_ids(&document), [inserted, narrow], "{document:#}");
-    // The inserted alternative reaches the grammar search too; at this base its mutant is
-    // refused by the search's own admission (U34h handoff, Q1), never refused as a row.
+    // The inserted alternative reaches the grammar search too, and a verdict (FX2, U34h Q1).
     let insertion = row(&document, inserted);
     assert!(insertion["grammar"].is_array(), "{insertion:#}");
     assert!(
-        !matches!(
+        matches!(
             insertion["status"].as_str(),
-            Some("invalid-mutation" | "error")
+            Some("killed" | "survived" | "unknown")
         ),
         "{insertion:#}"
     );
@@ -1960,6 +1959,79 @@ fn a_generated_token_narrowing_is_killed_by_the_case_it_no_longer_parses() {
         "{row:#}"
     );
     assert_eq!(row["generated"]["effect"], "token-narrowing", "{row:#}");
+}
+
+/// PJ-34 (FX2, U34h Q1): a written insertion of a fresh constructor over a definition that
+/// imports the prelude reaches a verdict. calc imports INT, so the prelude's stream modules
+/// (`STDIN-STREAM`, `STDOUT-STREAM`) are loaded but not imported: kink-patch's affected labels
+/// for `syntax Exp ::= Exp Exp [symbol(juxt)]` include their `initStdinCell` and
+/// `initStdoutCell`, which the compiled definition does not declare. They head no compiled
+/// equation, so kink-native's admission leaves them out of the checked heads instead of
+/// refusing the mutant (`not-admitted`, `inconsistent-mutant`).
+#[test]
+fn a_written_insertion_over_the_prelude_reaches_a_verdict() {
+    let dir = calc_copy("grammar-insertion");
+    let manifest = dir.join("FLOW.toml");
+    let mutations = dir.join("MUTATIONS.toml");
+    write(
+        &mutations,
+        &one_edit(
+            "juxt",
+            "  production = \"sub\"\n  find = \"Exp \\\"-\\\" Exp [strict, symbol(sub)]\"\n  \
+             replace = \"Exp \\\"-\\\" Exp [strict, symbol(sub)]\\n               | Exp Exp \
+             [symbol(juxt)]\"",
+        ),
+    );
+    let (check, _) = check_list(&manifest, &mutations, None);
+    assert_eq!(row(&check, "juxt")["outcome"], "ok", "{check:#}");
+    let (document, _) = flow_support::corpus_run(&manifest, &mutations);
+    let juxt = row(&document, "juxt");
+    assert!(juxt["grammar"].is_array(), "{juxt:#}");
+    assert!(
+        matches!(
+            juxt["status"].as_str(),
+            Some("killed" | "survived" | "unknown")
+        ),
+        "{juxt:#}"
+    );
+    assert_ne!(juxt["reason"], "inconsistent-mutant", "{juxt:#}");
+}
+
+/// PJ-34 (FX2): a written deletion of a production a rule still applies leaves the rule's term
+/// naming a production the mutant does not declare. Compilation refuses such a mutant (under
+/// debug assertions, k-rust's dangling-identity check panics), so the grammar search refuses it
+/// first: `not-admitted`, reason `rejected`, the detail naming the application, and nothing
+/// compiles or runs.
+#[test]
+fn a_deleted_production_a_rule_applies_is_not_admitted() {
+    use serde_json::json;
+    let dir = calc_copy("grammar-delete-applied");
+    let manifest = dir.join("FLOW.toml");
+    let mutations = dir.join("MUTATIONS.toml");
+    write(
+        &mutations,
+        &one_edit(
+            "no-sub",
+            "  production = \"sub\"\n  find = \"\\n               | Exp \\\"-\\\" Exp \
+             [strict, symbol(sub)]\"\n  replace = \"\"",
+        ),
+    );
+    let (check, _) = check_list(&manifest, &mutations, None);
+    assert_eq!(row(&check, "no-sub")["outcome"], "ok", "{check:#}");
+    let (document, _) = flow_support::corpus_run(&manifest, &mutations);
+    let deleted = row(&document, "no-sub");
+    assert_eq!(
+        (&deleted["status"], &deleted["reason"], &deleted["killer"]),
+        (&json!("not-admitted"), &json!("rejected"), &Value::Null),
+        "{deleted:#}"
+    );
+    let detail = deleted["detail"].as_str().unwrap_or_default();
+    assert!(detail.contains("sub"), "{deleted:#}");
+    assert!(deleted["grammar"].is_array(), "{deleted:#}");
+    assert!(
+        deleted["calls"].as_array().unwrap().is_empty(),
+        "{deleted:#}"
+    );
 }
 
 /// PJ-34 (U34h): a KRS flow (one that names a definition, whose front end judges no production

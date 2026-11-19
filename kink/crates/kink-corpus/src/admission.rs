@@ -539,13 +539,15 @@ pub fn program_input(
 
 /// The refusal of a program whose input assembly failed with `e`: reason `parse` for a parse
 /// failure and for a grammar that gives no parser (`InputError::Grammar`), `stream-mode` for a binding of `$IO` on a definition with stream cells,
-/// `stray-program` for a program text given to a definition without `$PGM`, `assemble` for any
-/// other failure.
+/// `stray-program` for a program text given to a definition without `$PGM`,
+/// `inference-disagreement` for a parse k-rust's checked inference did not decide
+/// (`InputError::InferenceDisagreement`), `assemble` for any other failure.
 pub fn input_refusal(e: crate::InputError) -> AdmissionRefusal {
     let reason = match e {
         crate::InputError::Parse(_) | crate::InputError::Grammar(_) => "parse",
         crate::InputError::StreamMode(_) => "stream-mode",
         crate::InputError::StrayProgram(_) => "stray-program",
+        crate::InputError::InferenceDisagreement(_) => "inference-disagreement",
         _ => "assemble",
     };
     AdmissionRefusal::new("inputs", reason, e)

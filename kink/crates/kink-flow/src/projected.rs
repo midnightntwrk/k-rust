@@ -52,7 +52,7 @@
 //! Nothing is cached: a verdict under a projection is recomputed from each side's stored raw
 //! result on every run (projections package README, "Storage"), so no key names a projection.
 
-use crate::compare::{Acceptance, NotCompared, ends_acceptance, ends_acceptance_of};
+use crate::compare::{Acceptance, NotCompared, ends_acceptance_of};
 use crate::evidence::DeclaredEnd;
 use crate::manifest::{FlowManifest, ProjectionKind, ProjectionSection};
 use crate::mutant_ends::MutantEnds;
@@ -381,16 +381,6 @@ pub fn native_cells(
 #[must_use]
 pub fn baseline_acceptance(row: &Value) -> Acceptance {
     side_of(row).unwrap_or_else(|| crate::compare::row_acceptance(row))
-}
-
-/// [`baseline_acceptance`] read from the listed ends alone, with no regard to an undefined step
-/// the row states: the grammar reparse's reading (`crate::reparse`), which this rule leaves as it
-/// was (FX1: whether it should take the undefined step too is a question to the orchestrator,
-/// since it reaches flows without `[[projection]]`).
-#[must_use]
-pub fn listed_acceptance(row: &Value) -> Acceptance {
-    side_of(row)
-        .unwrap_or_else(|| ends_acceptance(row["ends"].as_array().map_or(&[][..], Vec::as_slice)))
 }
 
 /// The acceptance of a program row that is not `comparable` (it has no end); `None` for one that
@@ -1014,7 +1004,7 @@ mod tests {
     /// rejection, the baseline's undefined step makes it accept on one path and reject on
     /// another, which decides nothing, so the baseline's acceptance is not known, as the mutant
     /// side reads the same shape. The program row states the undefined step
-    /// (`undefined_steps`); the grammar reparse's reading of the listed ends is unchanged.
+    /// (`undefined_steps`).
     #[test]
     fn a_baseline_undefined_step_beside_accepted_ends_kills_nothing_under_accepts() {
         use crate::mutant_ends::{Across, MutantEnds};
@@ -1076,7 +1066,5 @@ mod tests {
             accepts_verdict(&baseline_acceptance(&finished), Ok(Acceptance::Rejected)),
             Verdict::Killed
         );
-        // The grammar reparse reads the listed ends alone (unchanged).
-        assert_eq!(listed_acceptance(&baseline), Acceptance::Accepted);
     }
 }

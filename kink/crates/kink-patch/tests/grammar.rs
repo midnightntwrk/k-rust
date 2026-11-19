@@ -124,7 +124,10 @@ const GRAMMAR_PASSAGES: [passage::Passage; 4] = [
 /// text's failure as `ConfigurationError::Program` and a variable's as `ConfigurationError::Parse`,
 /// the two kink-corpus `input_error` reads as `InputError::Parse`, a rejection. That last mapping
 /// is kink's own code, held by kink-flow's drop-left test (`tests/check.rs`), not pinned here.
-const PARSER_PASSAGES: [passage::Passage; 11] = [
+/// Last, that a disagreement of the checked inference's two engines
+/// (`ParseError::InferenceEngineDisagreement`) is kept apart from a rejection, which kink-corpus
+/// reads as `InputError::InferenceDisagreement`, never `InputError::Parse` (FX2).
+const PARSER_PASSAGES: [passage::Passage; 12] = [
     passage::Passage {
         file: "crates/k-rust/src/inner/parser.rs",
         anchor: "pub enum ParseError {",
@@ -201,6 +204,13 @@ const PARSER_PASSAGES: [passage::Passage; 11] = [
         opening: "let parsed = parsed.map_err(|error| ConfigurationError::Parse {",
         lines: 1,
         digest: "d5159eafe18605c283209d3e026143eb656d7c8c7b402b3f6b654fca4a8272a8",
+    },
+    passage::Passage {
+        file: "crates/k-rust/src/inner/parser.rs",
+        anchor: "pub enum ParseError {",
+        opening: "/// Checked inference only (`KRUST_TYPE_INFERENCE_MODE=checked`): the portable and Z3",
+        lines: 9,
+        digest: "ffa3fb55801bdfbb4480a28cc45e8b4223b9eb92df865dc86cda9e3f08c5739f",
     },
 ];
 
@@ -632,6 +642,64 @@ fn named_productions(term: &k_rust::kast::Term, named: &mut Vec<k_rust::kast::Pr
         }
         _ => {}
     }
+}
+
+/// A production a rule applies is not deleted by `delete-production` (FX2): its mutant would keep
+/// an application of a production it does not declare, which compilation refuses. `print` is
+/// applied by `run`'s left-hand side: no variant deletes it, every variant that is generated
+/// leaves no dangling application, and a deletion of `print` written by hand is named as one
+/// (`Mutant::dangling_applications`, which kink-flow's grammar search refuses before anything
+/// compiles the mutant).
+#[test]
+fn a_production_a_rule_applies_is_not_deleted() {
+    let baseline = baseline();
+    let (at, _) = production(&baseline, "print");
+    let variants = grammar_variants(&baseline, GrammarForm::DeleteProduction, &[]);
+    assert!(!variants.is_empty());
+    for (site, patch) in &variants {
+        assert_ne!(site.sentence, at, "{site:?}");
+        let mutant = apply(&baseline, patch).expect("applies");
+        assert_eq!(
+            mutant.dangling_applications(),
+            Vec::<String>::new(),
+            "{site:?}"
+        );
+    }
+    let mutant = apply(&baseline, &one(Edit::DeleteSentence { at })).expect("applies");
+    assert_eq!(
+        mutant.dangling_applications(),
+        ["print in GRAMMAR".to_owned()]
+    );
+}
+
+/// The source reading of an inserted alternative over grammar.k (FX2, U34h Q1): the affected
+/// labels include `initStdinCell` and `initStdoutCell`, whose equations reach the redefined
+/// `#unboxKConfigValue`, and which only the prelude's `STDIN-STREAM` and `STDOUT-STREAM` declare;
+/// GRAMMAR does not import them, so they are `unimported` (kink-native leaves such a label out of
+/// the checked heads where the compiled definition has no symbol for it). The withdrawal is not
+/// read from it and is unchanged: nothing is withdrawn.
+#[test]
+fn an_inserted_alternatives_affected_labels_outside_the_main_module_are_unimported() {
+    let baseline = baseline();
+    let support = ClaimSupport::new(&baseline);
+    let (_, patch) = grammar_variants(&baseline, GrammarForm::AlternativeWithoutTerminal, &[])
+        .into_iter()
+        .next()
+        .expect("an alternative");
+    let effect = support.effect(&baseline, &patch).expect("applies");
+    let affected = effect.affected.expect("known symbol by symbol");
+    let unimported = ["initStdinCell", "initStdoutCell"].map(str::to_owned);
+    assert!(
+        unimported.iter().all(|label| affected.contains(label)),
+        "{affected:?}"
+    );
+    assert!(affected.contains("#unboxKConfigValue"), "{affected:?}");
+    assert_eq!(effect.unimported, unimported.into_iter().collect());
+    let withdrawal = support.withdraw(&baseline, &patch).expect("applies");
+    assert!(
+        withdrawal.trusted() && withdrawal.withdrawn.is_empty(),
+        "{withdrawal:?}"
+    );
 }
 
 /// A grammar edit keeps the rules' terms (PJ-34): a rule's application of a production whose

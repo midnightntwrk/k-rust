@@ -728,6 +728,7 @@ mod kink_tier {
                 redefined: Some(BTreeSet::new()),
                 affected: Some(BTreeSet::new()),
                 touched: effect.touched.clone(),
+                unimported: BTreeSet::new(),
             };
             let Err(MutantFailure::UnreadEquations(unread)) =
                 admit_mutant(&equations, &baseline_facts, &side, &misread)
@@ -748,6 +749,7 @@ mod kink_tier {
                 redefined: Some(BTreeSet::new()),
                 affected: Some(BTreeSet::new()),
                 touched: BTreeSet::new(),
+                unimported: BTreeSet::new(),
             };
             assert!(matches!(
                 admit_mutant(&equations, &baseline_facts, &side, &compiled_only),
@@ -926,6 +928,7 @@ mod kink_tier {
                 redefined: None,
                 affected: Some(BTreeSet::from(["m".to_owned()])),
                 touched: BTreeSet::new(),
+                unimported: BTreeSet::new(),
             };
             let admitted = admit_mutant(
                 &CompiledEquations::of(&side).unwrap(),
@@ -1001,5 +1004,41 @@ fn an_inserted_constructor_is_admitted_on_its_source_reading() {
             .checked
             .expect("the heads read by the source reading");
         assert!(checked.contains(&k_rust::kast::identifier::encode_label("depth")));
+        // FX2 (U34h Q1): an affected label the compiled definition has no symbol for is left out
+        // of the checked heads only where the source reading states it is declared only outside
+        // the main module's import closure (`unimported`); any other refuses, and a compiled
+        // label stated `unimported` is still checked.
+        let with = |unimported: &[&str]| SourceEffect {
+            affected: Some(
+                affected
+                    .iter()
+                    .cloned()
+                    .chain(["initNowhereCell".to_owned()])
+                    .collect(),
+            ),
+            unimported: unimported.iter().map(|label| (*label).to_owned()).collect(),
+            ..effect.clone()
+        };
+        let admit = |source: &SourceEffect| {
+            admit_mutant(
+                &CompiledEquations::of(&compiled).unwrap(),
+                &facts(&compiled),
+                &mutant,
+                source,
+            )
+        };
+        let Err(MutantFailure::Inconsistent(Inconsistency::Unchecked(why))) = admit(&with(&[]))
+        else {
+            panic!("a head the compiled definition lacks refuses");
+        };
+        assert!(
+            why.contains("not symbols of the compiled definition"),
+            "{why}"
+        );
+        let dropped = admit(&with(&["initNowhereCell", "depth"]))
+            .unwrap()
+            .checked
+            .expect("the heads read by the source reading");
+        assert_eq!(dropped, checked);
     });
 }
