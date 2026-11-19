@@ -7105,9 +7105,12 @@ def symProdBody (E : Env) (eqs : List RawEqn) (ov : List (String × List (List (
       let cl := match ov.lookup label with
         | some C => Except.ok C
         | none => fnClauses N E.src eqs label
-      -- `functional` is K's earlier name of `total`: a function with exactly one value at every argument
+      -- `functional` is K's earlier name of `total`: a function with exactly one value at every argument.
+      -- The text's `functional` axiom of the symbol (`Names.fnlSyms`, `functionalSym?`) is the sentence
+      -- stating that, with or without the attribute: a function the text holds it for is read total,
+      -- and its totality is owed as every total function's is
       let (f, fp) ← fnFrom N E.src (srcOver E.src s.attributes) eqs cl label kywd argNames resName l
-        (hasKey s.attributes .total || hasKey s.attributes .functional)
+        (hasKey s.attributes .total || hasKey s.attributes .functional || N.fnlSyms.contains (label, false))
       -- a hooked symbol read as a function keeps its hook, which its declaration is written with
       pure (Prod.fn f (if E.hookFns.contains label then { fp with hook := keyStr? s.attributes .hook } else fp))
 
