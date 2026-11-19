@@ -1,5 +1,5 @@
-//! `kink-flow prune FLOW.toml MUTATIONS [PATTERNS.toml]`: which cases of the corpus are
-//! redundant, read from what the corpus discharges (README, "Redundant programs"). It writes no
+//! `kink-flow prune FLOW.toml MUTATIONS [PATTERNS.toml]` (or `kink-flow prune FLOW.toml...`,
+//! "Several flows"): which cases of the corpus are redundant, read from what the corpus discharges (README, "Redundant programs"). It writes no
 //! lock and edits no file; it reads and fills the caches as `run`, `query` and `coverage` do.
 //!
 //! # The obligations
@@ -60,7 +60,51 @@
 //! ("Redundant alone, removable together" holds across flows as within one). So the document of
 //! such a flow says that its answer holds for this flow alone (`scope`: `{flow_only: true,
 //! corpus_root, detail}`, and a `note:` line of the text rendering); the document of a flow whose
-//! cases are in its own directory has no `scope`.
+//! cases are in its own directory has no `scope`. The flows that read a root are known to no
+//! flow, so a prune of them all names them ("Several flows").
+//!
+//! # Several flows
+//!
+//! `kink-flow prune FLOW.toml...` names flows by their manifests alone (a shell glob names
+//! them), and each reads the mutation lists its manifest names (`[mutations] lists`,
+//! [`FlowManifest::mutation_lists`], their mutations in the order named, an id two lists give
+//! refused) and the patterns it declares; a K flow has no default list, so a flow that names
+//! none is refused by name. One flow gives that flow's document, its `mutations` family's
+//! `list` naming the lists (`declared`, `corpus_own` true). Several flows give one report
+//! ([`flows_command`]), which holds for the flows given (`scope`: `{flow_only: false, flows,
+//! detail}`); a flow not given may read a case.
+//!
+//! Every flow given names one corpus root (the canonical directory of `[corpus] root`); a flow
+//! that names none, or another, refuses the command. A case is one case in every flow: its id
+//! is its path relative to the root, and two flows' programs of one id must be read from one
+//! file of the root, and one file under the same ids, else the command is refused (a `[[program]]`
+//! of inline text is no file of the root, so its id is one flow's alone).
+//!
+//! Each flow is bound and run as a prune of it alone is: its coverage, kill search and pattern
+//! walk, through its own front end and cache, give its own facts ("The obligations"), each of its
+//! obligations over the cases it reads. A case a flow does not read has no cell in that flow's
+//! obligations, as a case outside a projection's domain has none under it, so it is neither a
+//! discharger nor unknown there, and its class there decides nothing. The facts are merged before
+//! any decision: a case is redundant alone when no rule of any flow that reads it keeps it, and
+//! the set removable together is one walk over every case of the root, in reverse of the joint
+//! order (`reverse-flow-manifest`: the cases of the flows in the order given, each flow's in
+//! manifest order after the cases of the flows before it), a case removed only when no flow's
+//! rules, read against the cases still kept, keep it. Since each flow's rules read only its own
+//! obligations over its own cases, removing a case no flow keeps loses no flow's discharge, by
+//! the argument of a single flow applied to each, and a case one flow reads alone is kept
+//! whenever that flow keeps it. A case whose entry in some flow states that it must be rejected
+//! before it runs is kept for that flow (`rejected-before-run`); a flow that cannot ask its
+//! question (a manifest, list or case refused, a family's command refused) refuses the command,
+//! never reads as a flow that reads no case. Every entry and reason that names an obligation or
+//! keeps a case names its flow (`flow`, the manifest as given), the text rendering as `FLOW:
+//! mutations ID under NAME`; a case's baseline class is per flow (`classes`), and each flow's
+//! `spec`, `families`, `accounting` and `projections` are in `flows`. A record (`--lock`) is
+//! one definition's, and a cache directory (`--cache`) would replace flows' different defaults,
+//! so neither is taken with several flows: each flow reads its own default cache, which two
+//! manifests in one directory share. Lazily, every flow's searches stay open together
+//! while the walk decides, since it may ask any flow's cell; `--full` runs each flow's in turn.
+//! The removal order keeps each flow's early cases (the killers and witnesses its records name)
+//! only where the flows' manifest orders agree (limit `flows`).
 //!
 //! # What is never prunable
 //!
@@ -331,7 +375,15 @@ pub const PRUNE_SCHEMA: &str = "kink-flow-prune";
 /// "survive" }` in a flow that declares no projection as `expect = "survive"`. A flow that
 /// declares no projection and whose list has neither gives version 5's document but for its
 /// version.
-pub const PRUNE_VERSION: u64 = 6;
+/// Version 7 prunes several flows that read one corpus root (module docs, "Several flows"): its
+/// document names each flow in every entry and reason naming an obligation or keeping a case
+/// (`flow`), each case's class per flow (`classes`), each flow's `spec`, `families`,
+/// `accounting` and `projections` (`flows`), the order `reverse-flow-manifest`, the scope of the
+/// flows given (`flow_only: false`, `flows`) and the limit `flows`; a refusal names its flow
+/// (`refused.flow`). A flow named by its manifest alone reads the lists `[mutations] lists`
+/// names (`families[].list.declared`). A prune of one flow given its list gives version 6's
+/// document but for its version.
+pub const PRUNE_VERSION: u64 = 7;
 
 /// The order the removable set is built in (`removable.order`, module docs).
 pub const REVERSE_MANIFEST_ORDER: &str = "reverse-manifest";
@@ -823,8 +875,21 @@ impl Inputs<'_> {
         if let Some(corpus) = &self.manifest.corpus {
             document["scope"] = scope(corpus);
         }
+        document["accounting"] = self.accounting(run, query, &facts, ask);
+        (document, EXIT_YES)
+    }
+
+    /// The document's `accounting`: the caches and baseline runs as they stand once every cell
+    /// is asked ([`Ask::caches`]), and what each family's cells cost.
+    fn accounting(
+        &self,
+        run: Option<&Value>,
+        query: Option<&Value>,
+        facts: &Facts,
+        ask: &dyn Ask,
+    ) -> Value {
         let [outcome_cache, baseline_runs, pattern_cache] = ask.caches();
-        document["accounting"] = json!({
+        json!({
             "mutations": run.map(|_| json!({
                 "outcome_cache": outcome_cache,
                 "baseline_runs": baseline_runs,
@@ -835,13 +900,23 @@ impl Inputs<'_> {
                 "mutations": run.map(|_| facts.cells[0].value()),
                 "patterns": query.map(|_| facts.cells[1].value()),
             },
-        });
-        (document, EXIT_YES)
+        })
     }
 
     /// `--full`: `run --full` and `query --full`, each in one pass, and the report of their
     /// complete rows.
     fn full(&self) -> (Value, u8) {
+        let (run, query, mut complete) = match self.full_documents() {
+            Ok(documents) => documents,
+            Err(refusal) => return refusal,
+        };
+        self.report(run.as_ref(), query.as_ref(), &mut complete)
+    }
+
+    /// The documents of `run --full` and `query --full` (each `None` where its family is
+    /// skipped), and the asker of their complete rows, or the refusal of a family whose own
+    /// command could not ask its question.
+    fn full_documents(&self) -> Result<FullDocuments, (Value, u8)> {
         let mut run = None;
         if let Some(list) = self.list {
             self.announce("prune: run --full of the mutation list");
@@ -854,7 +929,7 @@ impl Inputs<'_> {
                 false,
             );
             if completed(crate::cli::run_status(&document), ok) == EXIT_UNASKED {
-                return self.family_refused("mutations", &document, Verb::Run);
+                return Err(self.family_refused("mutations", &document, Verb::Run));
             }
             run = Some(document);
         }
@@ -868,11 +943,11 @@ impl Inputs<'_> {
                 &self.front.spelling.verb(Verb::Query),
             );
             if completed(crate::cli::query_status(&document), ok) == EXIT_UNASKED {
-                return self.family_refused("patterns", &document, Verb::Query);
+                return Err(self.family_refused("patterns", &document, Verb::Query));
             }
             query = Some(document);
         }
-        let mut complete = Complete([
+        let complete = Complete([
             run.as_ref()
                 .map_or(Value::Null, |run| run["outcome_cache"].clone()),
             run.as_ref()
@@ -881,7 +956,7 @@ impl Inputs<'_> {
                 .as_ref()
                 .map_or(Value::Null, |query| query["pattern_cache"].clone()),
         ]);
-        self.report(run.as_ref(), query.as_ref(), &mut complete)
+        Ok((run, query, complete))
     }
 
     /// Without `--full`: the first-kill search of the mutation list and the walk of the
@@ -1004,21 +1079,707 @@ pub fn command(
     options: &PruneOptions,
     front: &FrontEnd<'_>,
 ) -> (Value, u8) {
-    let (mut document, status) = asked(manifest, mutations, patterns, options, front);
+    let (mut document, status) = asked(
+        manifest,
+        Lists::Operand(mutations),
+        patterns,
+        options,
+        front,
+    );
     if let Some(projections) = manifest.projections_value() {
         document["projections"] = projections;
     }
     (document, status)
 }
 
+/// One flow of a prune over flows named by their manifests ([`flows_command`]): its manifest as
+/// the command line gives it, the manifest bound, and its front end.
+pub struct PruneFlow<'a> {
+    pub path: String,
+    pub manifest: &'a FlowManifest,
+    pub front: &'a FrontEnd<'a>,
+}
+
+/// The removal order of a prune of several flows (`removable.order`, module docs, "Several
+/// flows"): the cases of the flows in the order given, each flow's in manifest order after the
+/// cases of the flows before it, walked latest first.
+pub const REVERSE_FLOW_MANIFEST_ORDER: &str = "reverse-flow-manifest";
+
+/// The limit of a prune of several flows (`limits`, module docs, "Several flows").
+const FLOWS_LIMIT: (&str, &str) = (
+    "flows",
+    "the report holds for the flows given: a flow not given may read a case and be its only \
+     discharger; the removal order keeps each flow's early cases only where the flows' manifest \
+     orders agree",
+);
+
+/// `kink-flow prune FLOW.toml...`: the prune of the flows `flows`, each named by its manifest
+/// alone and reading the mutation lists it names (`[mutations] lists`) and the patterns it
+/// declares (module docs, "Several flows"). One flow gives that flow's document, its lists
+/// named in `families` (`list.declared`); several give one document over every case of their
+/// corpus root, each obligation, reason and class naming its flow. The exit statuses are
+/// [`command`]'s; a refusal of one flow refuses the command and names the flow (`refused.flow`).
+#[must_use]
+pub fn flows_command(flows: &[PruneFlow<'_>], options: &PruneOptions) -> (Value, u8) {
+    if let [flow] = flows {
+        let (mut document, status) =
+            asked(flow.manifest, Lists::Declared, None, options, flow.front);
+        if let Some(projections) = flow.manifest.projections_value() {
+            document["projections"] = projections;
+        }
+        return (document, status);
+    }
+    let (mut document, status) = several(flows, options);
+    if !document["refused"].is_null() {
+        document["flows"] = json!(flows.iter().map(|flow| &flow.path).collect::<Vec<_>>());
+    }
+    (document, status)
+}
+
+/// `refusal` naming the flow `path` (`refused.flow`), unless a flow is already named.
+fn flow_refused((mut document, status): (Value, u8), path: &str) -> (Value, u8) {
+    if document["refused"].is_object() && document["refused"]["flow"].is_null() {
+        document["refused"]["flow"] = json!(path);
+    }
+    (document, status)
+}
+
+/// Where a program of a flow is read from in the corpus root: the case document's case (its id),
+/// or its program text's path; `None` for an inline text or a program of variables, which is
+/// no file of the root.
+fn origin(program: &crate::manifest::Program) -> Option<String> {
+    match (&program.case, &program.source) {
+        (Some(_), _) => Some(program.id.clone()),
+        (None, Some(kink_corpus::ProgramSource::File(path))) => Some(path.clone()),
+        _ => None,
+    }
+}
+
+/// Why `flows` cannot be pruned together, if they cannot: a flow that names no corpus root, two
+/// roots that are not one directory, or a case identity two flows disagree on (one id read from
+/// two places, or one file of the root read under different ids).
+fn shared_root(flows: &[PruneFlow<'_>]) -> Result<(), (String, String)> {
+    let mut root = None::<(PathBuf, &str)>;
+    for flow in flows {
+        let Some(corpus) = &flow.manifest.corpus else {
+            return Err((
+                flow.path.clone(),
+                "the flow names no corpus root ([corpus] root): its cases are in its own \
+                 directory, so it shares none with another flow"
+                    .to_owned(),
+            ));
+        };
+        let directory = flow
+            .manifest
+            .case_root()
+            .canonical()
+            .map_err(|error| {
+                (
+                    flow.path.clone(),
+                    format!(
+                        "the corpus root `{}` cannot be resolved: {error}",
+                        corpus.root
+                    ),
+                )
+            })?
+            .directory;
+        match &root {
+            None => root = Some((directory, &flow.path)),
+            Some((first, path)) if *first != directory => {
+                return Err((
+                    flow.path.clone(),
+                    format!(
+                        "it reads its cases from the corpus root `{}`, which is not the corpus \
+                         root of `{path}`: the flows of one prune read one corpus root",
+                        corpus.root
+                    ),
+                ));
+            }
+            Some(_) => {}
+        }
+    }
+    // One case identity: an id names one place, and a file one id, across the flows.
+    let mut ids = BTreeMap::<&str, (&str, Option<String>)>::new();
+    let mut files = BTreeMap::<String, (&str, Vec<&str>)>::new();
+    for flow in flows {
+        let mut read = BTreeMap::<String, Vec<&str>>::new();
+        for program in &flow.manifest.programs {
+            let from = origin(program);
+            if let Some(file) = &from {
+                read.entry(file.clone()).or_default().push(&program.id);
+            }
+            match ids.get(program.id.as_str()) {
+                Some((first, place)) if from.is_none() || *place != from => {
+                    return Err((
+                        flow.path.clone(),
+                        format!(
+                            "its case `{}` is read from {}, and the case of that id of `{first}` \
+                             from {}: one id names one case of the corpus root",
+                            program.id,
+                            from.as_deref()
+                                .map_or_else(|| "no file".to_owned(), |file| format!("`{file}`")),
+                            place
+                                .as_deref()
+                                .map_or_else(|| "no file".to_owned(), |file| format!("`{file}`")),
+                        ),
+                    ));
+                }
+                Some(_) => {}
+                None => {
+                    ids.insert(&program.id, (&flow.path, from));
+                }
+            }
+        }
+        for (file, mut read_as) in read {
+            read_as.sort_unstable();
+            match files.get(&file) {
+                Some((first, theirs)) if *theirs != read_as => {
+                    return Err((
+                        flow.path.clone(),
+                        format!(
+                            "it reads `{file}` as the cases {}, and `{first}` as {}: one file of \
+                             the corpus root is read under the same ids by every flow",
+                            read_as.join(", "),
+                            theirs.join(", ")
+                        ),
+                    ));
+                }
+                Some(_) => {}
+                None => {
+                    files.insert(file, (&flow.path, read_as));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The askers of the flows of a prune of several flows, by flow index, with the documents of
+/// their families' searches.
+trait Asks {
+    fn of(&mut self, flow: usize) -> &mut dyn Ask;
+    /// The run and query documents of the flow at `flow` (each `None` where its family is
+    /// skipped).
+    fn documents(&self, flow: usize) -> (Option<Value>, Option<Value>);
+}
+
+/// The documents of `run --full` and `query --full` of one flow (each `None` where its family
+/// is skipped), and the asker of their complete rows.
+type FullDocuments = (Option<Value>, Option<Value>, Complete);
+
+/// The complete rows of `--full`, one flow each.
+struct Completes(Vec<FullDocuments>);
+
+impl Asks for Completes {
+    fn of(&mut self, flow: usize) -> &mut dyn Ask {
+        &mut self.0[flow].2
+    }
+
+    fn documents(&self, flow: usize) -> (Option<Value>, Option<Value>) {
+        (self.0[flow].0.clone(), self.0[flow].1.clone())
+    }
+}
+
+/// The open searches of the flows of a lazy prune of several flows: this flow's, and the flows'
+/// before it (`outer`).
+struct Level<'a> {
+    flow: usize,
+    here: &'a mut dyn Ask,
+    run: Option<&'a Value>,
+    query: Option<&'a Value>,
+    outer: &'a mut dyn Asks,
+}
+
+impl Asks for Level<'_> {
+    fn of(&mut self, flow: usize) -> &mut dyn Ask {
+        if flow == self.flow {
+            self.here
+        } else {
+            self.outer.of(flow)
+        }
+    }
+
+    fn documents(&self, flow: usize) -> (Option<Value>, Option<Value>) {
+        if flow == self.flow {
+            (self.run.cloned(), self.query.cloned())
+        } else {
+            self.outer.documents(flow)
+        }
+    }
+}
+
+/// No flow's search: the outermost [`Level`]'s `outer`.
+struct NoFlow;
+
+impl Asks for NoFlow {
+    fn of(&mut self, flow: usize) -> &mut dyn Ask {
+        unreachable!("no search of the flow at {flow} is open")
+    }
+
+    fn documents(&self, _: usize) -> (Option<Value>, Option<Value>) {
+        (None, None)
+    }
+}
+
+/// What a joint decision runs over: the flows' facts and the cases of their root.
+struct Joint {
+    facts: Vec<Facts>,
+    /// The flows' manifests as given.
+    paths: Vec<String>,
+    /// The cases in the joint order (module docs, "Several flows").
+    cases: Vec<String>,
+    /// For each flow, the joint index of each of its cases.
+    of: Vec<Vec<usize>>,
+    /// For each case, the flows that read it and its index in each.
+    readers: Vec<Vec<(usize, usize)>>,
+}
+
+impl Joint {
+    fn new(facts: Vec<Facts>, paths: Vec<String>) -> Self {
+        let mut cases = Vec::<String>::new();
+        let mut index = BTreeMap::<String, usize>::new();
+        let mut of = Vec::new();
+        let mut readers = Vec::<Vec<(usize, usize)>>::new();
+        for (flow, facts) in facts.iter().enumerate() {
+            let mut joint = Vec::new();
+            for (at, case) in facts.cases.iter().enumerate() {
+                let j = *index.entry(case.clone()).or_insert_with(|| {
+                    cases.push(case.clone());
+                    readers.push(Vec::new());
+                    cases.len() - 1
+                });
+                readers[j].push((flow, at));
+                joint.push(j);
+            }
+            of.push(joint);
+        }
+        Self {
+            facts,
+            paths,
+            cases,
+            of,
+            readers,
+        }
+    }
+
+    /// Why the case at `j` is kept against the kept cases `kept`, by the flows that read it, each
+    /// reason with its flow; empty when no flow keeps it. A flow that does not read the case has
+    /// no cell of it, so it keeps it for none of its obligations.
+    fn keeps(
+        &mut self,
+        j: usize,
+        kept: &[bool],
+        asks: &mut dyn Asks,
+    ) -> Result<Vec<(usize, Keep)>, (usize, Refusal)> {
+        let mut keeps = Vec::new();
+        for (flow, at) in self.readers[j].clone() {
+            let theirs = self.of[flow].iter().map(|j| kept[*j]).collect::<Vec<_>>();
+            let found = self.facts[flow]
+                .keeps(at, &theirs, asks.of(flow))
+                .map_err(|refusal| (flow, refusal))?;
+            keeps.extend(found.into_iter().map(|keep| (flow, keep)));
+        }
+        Ok(keeps)
+    }
+
+    fn values(&self, keeps: &[(usize, Keep)]) -> Vec<Value> {
+        keeps
+            .iter()
+            .map(|(flow, keep)| self.facts[*flow].keep_value(keep))
+            .collect()
+    }
+
+    fn classes(&self, j: usize) -> Value {
+        json!(
+            self.readers[j]
+                .iter()
+                .map(|(flow, at)| json!({
+                    "flow": self.paths[*flow],
+                    "class": self.facts[*flow].classes[*at],
+                }))
+                .collect::<Vec<_>>()
+        )
+    }
+
+    /// The document of the joint decisions: the redundant cases, one set removable together in
+    /// the joint order, and why each other case is kept, every entry naming its flow.
+    fn document(&mut self, asks: &mut dyn Asks) -> Result<Value, (usize, Refusal)> {
+        let all = vec![true; self.cases.len()];
+        let mut alone = Vec::with_capacity(self.cases.len());
+        for j in 0..self.cases.len() {
+            alone.push(self.keeps(j, &all, asks)?);
+        }
+        let mut kept = all.clone();
+        let mut kept_for = vec![Vec::new(); self.cases.len()];
+        for j in (0..self.cases.len()).rev() {
+            if !alone[j].is_empty() {
+                continue;
+            }
+            let keeps = self.keeps(j, &kept, asks)?;
+            if keeps.is_empty() {
+                kept[j] = false;
+            } else {
+                kept_for[j] = keeps;
+            }
+        }
+        let each = |j: usize, value: &dyn Fn(&Facts, usize) -> Vec<Value>| {
+            self.readers[j]
+                .iter()
+                .flat_map(|(flow, at)| value(&self.facts[*flow], *at))
+                .collect::<Vec<_>>()
+        };
+        let redundant = (0..self.cases.len())
+            .filter(|j| alone[*j].is_empty())
+            .map(|j| {
+                json!({
+                    "case": self.cases[j],
+                    "classes": self.classes(j),
+                    "obligations": each(j, &Facts::discharged_values),
+                    "unknown": each(j, &Facts::unknown_values),
+                    "unasked": self.readers[j]
+                        .iter()
+                        .map(|(flow, at)| self.facts[*flow].unasked(*at))
+                        .sum::<usize>(),
+                    "removable": !kept[j],
+                    "kept_for": self.values(&kept_for[j]),
+                    "lock": null,
+                })
+            })
+            .collect::<Vec<_>>();
+        let kept_cases = (0..self.cases.len())
+            .filter(|j| !alone[*j].is_empty())
+            .map(|j| {
+                json!({
+                    "case": self.cases[j],
+                    "classes": self.classes(j),
+                    "reasons": self.values(&alone[j]),
+                })
+            })
+            .collect::<Vec<_>>();
+        let paths = &self.paths;
+        let undecided = self
+            .facts
+            .iter()
+            .enumerate()
+            .flat_map(|(flow, facts)| {
+                (0..facts.cases.len())
+                    .filter(|at| facts.undecided(*at))
+                    .map(move |at| {
+                        json!({
+                            "case": facts.cases[at],
+                            "flow": paths[flow],
+                            "class": facts.classes[at],
+                        })
+                    })
+            })
+            .collect::<Vec<_>>();
+        let obligations = || self.facts.iter().flat_map(|facts| facts.obligations.iter());
+        let lazy = self.facts.iter().any(|facts| facts.lazy);
+        let mut document = header();
+        document["mode"] = json!(if lazy { LAZY } else { FULL });
+        document["cases"] = json!(self.cases.len());
+        document["redundant"] = json!(redundant);
+        document["removable"] = json!({
+            "order": REVERSE_FLOW_MANIFEST_ORDER,
+            "cases": (0..self.cases.len())
+                .filter(|j| !kept[*j])
+                .map(|j| self.cases[j].clone())
+                .collect::<Vec<_>>(),
+            "lock": [],
+        });
+        document["kept"] = json!(kept_cases);
+        document["unanswered"] = json!({
+            "cells": obligations().map(|o| o.unknown.len()).sum::<usize>(),
+            "complete": obligations().all(Obligation::complete),
+            "undecided_cases": undecided,
+        });
+        document["lock"] = Value::Null;
+        document["limits"] = json!(
+            LIMITS
+                .iter()
+                .chain(lazy.then_some(&LAZY_LIMIT))
+                .chain(std::iter::once(&FLOWS_LIMIT))
+                .map(|(limit, detail)| json!({"limit": limit, "detail": detail}))
+                .collect::<Vec<_>>()
+        );
+        Ok(document)
+    }
+}
+
+/// The prune of several flows ([`flows_command`]).
+fn several(flows: &[PruneFlow<'_>], options: &PruneOptions) -> (Value, u8) {
+    // A record is one definition's, and a cache directory beside one flow: each flow reads its
+    // own default cache and no record.
+    if options.lock.is_some() {
+        return refused(
+            "lock",
+            None,
+            "a corpus record is the record of one flow's definition, so a prune of several \
+             flows reads none",
+        );
+    }
+    if options.cache.is_some() {
+        return refused(
+            "cache",
+            None,
+            "a prune of several flows reads each flow's own cache (.kink-flow beside its \
+             manifest)",
+        );
+    }
+    if let Err((flow, detail)) = shared_root(flows) {
+        return flow_refused(refused("flows", None, &detail), &flow);
+    }
+    let mut prepared = Vec::with_capacity(flows.len());
+    for flow in flows {
+        match prepare(flow.manifest, Lists::Declared, None, options, flow.front) {
+            Ok(one) => prepared.push(one),
+            Err(refusal) => return flow_refused(refusal, &flow.path),
+        }
+    }
+    let inputs = flows
+        .iter()
+        .zip(&prepared)
+        .map(|(flow, prepared)| prepared.inputs(flow.manifest, options, flow.front))
+        .collect::<Vec<_>>();
+    let paths = flows
+        .iter()
+        .map(|flow| flow.path.clone())
+        .collect::<Vec<_>>();
+    if options.full {
+        let mut completes = Vec::with_capacity(inputs.len());
+        for (inputs, path) in inputs.iter().zip(&paths) {
+            match inputs.full_documents() {
+                Ok(documents) => completes.push(documents),
+                Err(refusal) => return flow_refused(refusal, path),
+            }
+        }
+        joint(&inputs, &paths, &mut Completes(completes), false)
+    } else {
+        nest(&inputs, &paths, 0, &mut NoFlow)
+    }
+}
+
+/// Open the searches of the flow at `at` and of every later flow (module docs, "Several
+/// flows"), then decide over them all.
+fn nest(inputs: &[Inputs<'_>], paths: &[String], at: usize, outer: &mut dyn Asks) -> (Value, u8) {
+    let Some(flow) = inputs.get(at) else {
+        return joint(inputs, paths, outer, true);
+    };
+    let cases = flow
+        .manifest
+        .programs
+        .iter()
+        .map(|program| program.id.clone())
+        .collect::<Vec<_>>();
+    let decided = flow.with_run(&mut |mut run| {
+        flow.with_query(&mut |query| {
+            let run: Option<(&Value, &mut dyn KillCells)> = match &mut run {
+                Some((document, kills)) => Some((*document, &mut **kills)),
+                None => None,
+            };
+            let (run, kills) = run.unzip();
+            let (query, hits) = query.unzip();
+            let mut askers = Askers {
+                cases: &cases,
+                kills,
+                hits,
+                progress: flow.front.progress,
+            };
+            let mut level = Level {
+                flow: at,
+                here: &mut askers,
+                run,
+                query,
+                outer: &mut *outer,
+            };
+            nest(inputs, paths, at + 1, &mut level)
+        })
+    });
+    flow_refused(decided, &paths[at])
+}
+
+/// The document of the joint decisions over the flows' facts, read from `asks`' documents.
+fn joint(inputs: &[Inputs<'_>], paths: &[String], asks: &mut dyn Asks, lazy: bool) -> (Value, u8) {
+    let mut facts = Vec::with_capacity(inputs.len());
+    let mut documents = Vec::with_capacity(inputs.len());
+    for (flow, one) in inputs.iter().enumerate() {
+        let (run, query) = asks.documents(flow);
+        let claimed = one.pattern_list.map(claims).unwrap_or_default();
+        match Facts::read(
+            one,
+            run.as_ref(),
+            query.as_ref(),
+            claimed,
+            lazy,
+            asks.of(flow),
+        ) {
+            Ok(mut read) => {
+                read.flow = Some(paths[flow].clone());
+                facts.push(read);
+            }
+            Err((family, detail)) => {
+                return flow_refused(refused(family, Some(one.coverage), &detail), &paths[flow]);
+            }
+        }
+        documents.push((run, query));
+    }
+    let mut joint = Joint::new(facts, paths.to_vec());
+    let mut document = match joint.document(asks) {
+        Ok(document) => document,
+        Err((flow, (family, detail))) => {
+            return flow_refused(
+                refused(family, Some(inputs[flow].coverage), &detail),
+                &paths[flow],
+            );
+        }
+    };
+    document["flows"] = json!(
+        inputs
+            .iter()
+            .enumerate()
+            .map(|(flow, one)| {
+                let facts = &joint.facts[flow];
+                let (run, query) = &documents[flow];
+                let mut value = json!({
+                    "flow": paths[flow],
+                    "spec": one.coverage["spec"],
+                    "families": facts.families_value(&one.lists),
+                    "accounting": one.accounting(run.as_ref(), query.as_ref(), facts, asks.of(flow)),
+                    "unanswered": {
+                        "cells": facts.obligations.iter().map(|o| o.unknown.len()).sum::<usize>(),
+                        "complete": facts.obligations.iter().all(Obligation::complete),
+                    },
+                });
+                if let Some(projections) = one.manifest.projections_value() {
+                    value["projections"] = projections;
+                }
+                value
+            })
+            .collect::<Vec<_>>()
+    );
+    document["scope"] = json!({
+        "flow_only": false,
+        "flows": inputs
+            .iter()
+            .enumerate()
+            .map(|(flow, one)| json!({
+                "flow": paths[flow],
+                "corpus_root": one.manifest.corpus.as_ref().map(|corpus| &corpus.root),
+            }))
+            .collect::<Vec<_>>(),
+        "detail": format!(
+            "the report holds for the flows given, {}, which read one corpus root: a flow not \
+             given may read a case and be its only discharger",
+            paths
+                .iter()
+                .map(|path| format!("`{path}`"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    });
+    (document, EXIT_YES)
+}
+
+/// Where a flow's mutation list comes from: the command line's operand (`None`: a front end's
+/// layout with none, which skips the family), or the lists its manifest names (`[mutations]
+/// lists`, [`FlowManifest::mutation_lists`]; module docs, "Several flows").
+#[derive(Clone, Copy, Debug)]
+enum Lists<'a> {
+    Operand(Option<&'a Path>),
+    Declared,
+}
+
+/// What one flow's `prune` reads before its families' searches run ([`Inputs`]).
+struct Prepared {
+    locks: Vec<Lock>,
+    list: Option<MutationList>,
+    pattern_list: Option<PatternList>,
+    coverage: Value,
+    skipped: Vec<Family>,
+    lists: [Value; 2],
+}
+
+impl Prepared {
+    fn inputs<'a>(
+        &'a self,
+        manifest: &'a FlowManifest,
+        options: &'a PruneOptions,
+        front: &'a FrontEnd<'a>,
+    ) -> Inputs<'a> {
+        Inputs {
+            manifest,
+            options,
+            front,
+            locks: &self.locks,
+            list: self.list.as_ref(),
+            pattern_list: self.pattern_list.as_ref(),
+            coverage: &self.coverage,
+            skipped: &self.skipped,
+            lists: self.lists.clone(),
+        }
+    }
+}
+
 /// [`command`] without the projections.
 fn asked(
     manifest: &FlowManifest,
-    mutations: Option<&Path>,
+    mutations: Lists<'_>,
     patterns: Option<&Path>,
     options: &PruneOptions,
     front: &FrontEnd<'_>,
 ) -> (Value, u8) {
+    let prepared = match prepare(manifest, mutations, patterns, options, front) {
+        Ok(prepared) => prepared,
+        Err(refusal) => return refusal,
+    };
+    let inputs = prepared.inputs(manifest, options, front);
+    if options.full {
+        inputs.full()
+    } else {
+        inputs.lazy()
+    }
+}
+
+/// The mutation list of the lists `manifest` names ([`FlowManifest::mutation_lists`]), each
+/// read as a list operand is, their mutations in the order the lists are named; an id two lists
+/// give is refused, since an obligation is named by its mutation's id.
+fn declared_list(manifest: &FlowManifest) -> Result<MutationList, String> {
+    if manifest.mutation_lists.is_empty() {
+        return Err(
+            "the flow names no mutation list: a flow that prune is given by its manifest alone \
+             reads the lists its [mutations] lists names, and a K flow has no default list"
+                .to_owned(),
+        );
+    }
+    let mut mutations = Vec::<crate::mutation::Mutation>::new();
+    let mut from = BTreeMap::<String, &str>::new();
+    for path in &manifest.mutation_lists {
+        let list = MutationList::read(&manifest.directory.join(path))
+            .map_err(|error| format!("{path}: {error}"))?;
+        for mutation in list.mutations {
+            if let Some(first) = from.get(&mutation.id) {
+                return Err(format!(
+                    "the mutation id `{}` is given by {first} and by {path}: an obligation is \
+                     named by its mutation's id, so the lists a flow names give each id once",
+                    mutation.id
+                ));
+            }
+            from.insert(mutation.id.clone(), path);
+            mutations.push(mutation);
+        }
+    }
+    Ok(MutationList { mutations })
+}
+
+/// What `prune` of one flow reads before its families' searches run: the lock, the lists and the
+/// coverage, or the refusal of the command.
+fn prepare(
+    manifest: &FlowManifest,
+    mutations: Lists<'_>,
+    patterns: Option<&Path>,
+    options: &PruneOptions,
+    front: &FrontEnd<'_>,
+) -> Result<Prepared, (Value, u8)> {
     let mut locks = Vec::new();
     if let Some(path) = &options.lock {
         for kind in [
@@ -1032,16 +1793,22 @@ fn asked(
                 .and_then(|lock| lock.for_definition(manifest.definition.as_deref()));
             match read {
                 Ok(lock) => locks.push(lock),
-                Err(detail) => return refused("lock", None, &detail),
+                Err(detail) => return Err(refused("lock", None, &detail)),
             }
         }
     }
     // Every input is decoded before anything runs: a list that does not decode refuses the
     // command at once.
     let mut skipped = Vec::new();
-    let list = match mutations.map(MutationList::read).transpose() {
-        Ok(list) => list,
-        Err(error) => return refused("mutations", None, &error.to_string()),
+    let list = match mutations {
+        Lists::Operand(mutations) => match mutations.map(MutationList::read).transpose() {
+            Ok(list) => list,
+            Err(error) => return Err(refused("mutations", None, &error.to_string())),
+        },
+        Lists::Declared => match declared_list(manifest) {
+            Ok(list) => Some(list),
+            Err(detail) => return Err(refused("mutations", None, &detail)),
+        },
     };
     if list.is_none() {
         skipped.push(Family {
@@ -1061,20 +1828,33 @@ fn asked(
     } else {
         match crate::pattern::declared_patterns(manifest, patterns, front.krs_patterns) {
             Ok(list) => Some(list),
-            Err(error) => return refused("patterns", None, &error.to_string()),
+            Err(error) => return Err(refused("patterns", None, &error.to_string())),
         }
     };
-    let own = |pick: fn(&CorpusLists) -> bool| options.corpus_lists.as_ref().map(pick);
-    let lists = [
-        json!({
-            "path": mutations.map(|path| path.display().to_string()),
-            "corpus_own": own(|lists| lists.mutations),
-        }),
-        json!({
-            "path": patterns.map(|path| path.display().to_string()),
-            "corpus_own": own(|lists| lists.patterns),
-        }),
-    ];
+    let lists = match mutations {
+        Lists::Operand(mutations) => {
+            let own = |pick: fn(&CorpusLists) -> bool| options.corpus_lists.as_ref().map(pick);
+            [
+                json!({
+                    "path": mutations.map(|path| path.display().to_string()),
+                    "corpus_own": own(|lists| lists.mutations),
+                }),
+                json!({
+                    "path": patterns.map(|path| path.display().to_string()),
+                    "corpus_own": own(|lists| lists.patterns),
+                }),
+            ]
+        }
+        // The lists the manifest names and the patterns it declares are the flow's own.
+        Lists::Declared => [
+            json!({
+                "path": null,
+                "corpus_own": true,
+                "declared": manifest.mutation_lists,
+            }),
+            json!({"path": null, "corpus_own": true}),
+        ],
+    };
     if let Some(progress) = front.progress {
         progress("prune: coverage of the corpus");
     }
@@ -1088,28 +1868,20 @@ fn asked(
     let mut coverage = front.annotated(coverage);
     crate::coverage::derive(&mut coverage, front.spelling);
     if completed(crate::cli::coverage_status(&coverage), ok) == EXIT_UNASKED {
-        return refused(
+        return Err(refused(
             "coverage",
             Some(&coverage),
             &format!("`{}` shows why", front.spelling.command(Verb::Coverage)),
-        );
+        ));
     }
-    let inputs = Inputs {
-        manifest,
-        options,
-        front,
-        locks: &locks,
-        list: list.as_ref(),
-        pattern_list: pattern_list.as_ref(),
-        coverage: &coverage,
-        skipped: &skipped,
+    Ok(Prepared {
+        locks,
+        list,
+        pattern_list,
+        coverage,
+        skipped,
         lists,
-    };
-    if options.full {
-        inputs.full()
-    } else {
-        inputs.lazy()
-    }
+    })
 }
 
 /// Each claim of `list`: the pattern's id and the case its `programs` names.
@@ -1191,6 +1963,10 @@ struct Facts {
     /// Each cell asked one at a time, by source and case: one ask of a mutation's cell answers
     /// it under every listed projection.
     answers: BTreeMap<(Source, usize), Answer>,
+    /// In a prune of several flows, this flow's manifest as given, which every entry and reason
+    /// naming one of its obligations or keeping one of its cases names (`flow`); `None` for a
+    /// prune of one flow (module docs, "Several flows").
+    flow: Option<String>,
 }
 
 /// A projection `run` lists, as the `mutations` obligations under it read it.
@@ -1588,6 +2364,7 @@ impl Facts {
             cases: cases.clone(),
             projections,
             answers: BTreeMap::new(),
+            flow: None,
         };
         if let Some(run) = run {
             let comparable_count = comparable.iter().filter(|c| **c).count();
@@ -1921,6 +2698,14 @@ impl Facts {
         if let Some(projection) = projection {
             value["projection"] = json!(self.projections[projection].name);
         }
+        self.tagged(value)
+    }
+
+    /// `value` with this flow's `flow`, in a prune of several flows.
+    fn tagged(&self, mut value: Value) -> Value {
+        if let Some(flow) = &self.flow {
+            value["flow"] = json!(flow);
+        }
         value
     }
 
@@ -1931,8 +2716,8 @@ impl Facts {
 
     fn keep_value(&self, keep: &Keep) -> Value {
         match keep {
-            Keep::Claimed(pattern) => json!({"reason": "claimed", "family": "patterns",
-                                             "id": pattern}),
+            Keep::Claimed(pattern) => self.tagged(json!({"reason": "claimed",
+                                                         "family": "patterns", "id": pattern})),
             Keep::Refutes(family, id, projection) => {
                 let mut value = json!({"reason": "refutes"});
                 for (key, named) in self
@@ -1961,12 +2746,14 @@ impl Facts {
                 value["with"] = json!(self.ids(with.iter().copied()));
                 value
             }
-            Keep::Undecided(class, open) => json!({
+            Keep::Undecided(class, open) => self.tagged(json!({
                 "reason": "baseline-undecided",
                 "class": class,
                 "obligations": open.iter().map(|index| self.reference(*index)).collect::<Vec<_>>(),
-            }),
-            Keep::Rejected(class) => json!({"reason": "rejected-before-run", "class": class}),
+            })),
+            Keep::Rejected(class) => {
+                self.tagged(json!({"reason": "rejected-before-run", "class": class}))
+            }
         }
     }
 
@@ -2024,59 +2811,12 @@ impl Facts {
         let redundant = (0..self.cases.len())
             .filter(|at| alone[*at].is_empty())
             .map(|at| {
-                let discharged = self
-                    .obligations
-                    .iter()
-                    .filter(|obligation| obligation.dischargers.contains(&at))
-                    .map(|obligation| {
-                        let mut value =
-                            self.named(obligation.family, &obligation.id, obligation.projection);
-                        match obligation.pairs_without(at) {
-                            None => {
-                                value["others"] = json!(
-                                    self.ids(
-                                        obligation
-                                            .dischargers
-                                            .iter()
-                                            .copied()
-                                            .filter(|other| *other != at)
-                                    )
-                                );
-                            }
-                            Some(pairs) => value["pairs"] = self.pairs_value(&pairs),
-                        }
-                        value["complete"] = json!(obligation.complete());
-                        value
-                    })
-                    .collect::<Vec<_>>();
-                let unknown = self
-                    .obligations
-                    .iter()
-                    .filter(|obligation| obligation.unknown.contains(&at))
-                    .map(|obligation| {
-                        let mut value =
-                            self.named(obligation.family, &obligation.id, obligation.projection);
-                        match obligation.pairs_without(at) {
-                            None => {
-                                value["dischargers"] =
-                                    json!(self.ids(obligation.dischargers.iter().copied()));
-                            }
-                            Some(pairs) => value["pairs"] = self.pairs_value(&pairs),
-                        }
-                        value["complete"] = json!(obligation.complete());
-                        value
-                    })
-                    .collect::<Vec<_>>();
                 json!({
                     "case": self.cases[at],
                     "class": self.classes[at],
-                    "obligations": discharged,
-                    "unknown": unknown,
-                    "unasked": self
-                        .obligations
-                        .iter()
-                        .filter(|obligation| obligation.unasked.contains(&at))
-                        .count(),
+                    "obligations": self.discharged_values(at),
+                    "unknown": self.unknown_values(at),
+                    "unasked": self.unasked(at),
                     "removable": !kept[at],
                     "kept_for": kept_for[at]
                         .iter()
@@ -2099,39 +2839,7 @@ impl Facts {
         let removable = (0..self.cases.len())
             .filter(|at| !kept[*at])
             .collect::<Vec<_>>();
-        let families = self
-            .families
-            .iter()
-            .map(|family| {
-                let of = self
-                    .obligations
-                    .iter()
-                    .filter(|obligation| obligation.family == family.name)
-                    .collect::<Vec<_>>();
-                let mut value = match &family.skipped {
-                    Some((reason, detail)) => json!({
-                        "family": family.name,
-                        "run": false,
-                        "reason": reason,
-                        "detail": detail,
-                    }),
-                    None => json!({
-                        "family": family.name,
-                        "run": true,
-                        "obligations": of.len(),
-                        "discharged": of.iter().filter(|o| !o.dischargers.is_empty()).count(),
-                        "unanswered": of.iter().map(|o| o.unknown.len()).sum::<usize>(),
-                        "complete": of.iter().all(|o| o.complete()),
-                    }),
-                };
-                match family.name {
-                    "mutations" => value["list"] = lists[0].clone(),
-                    "patterns" => value["list"] = lists[1].clone(),
-                    _ => {}
-                }
-                value
-            })
-            .collect::<Vec<_>>();
+        let families = self.families_value(lists);
         let undecided = (0..self.cases.len())
             .filter(|at| self.undecided(*at))
             .map(|at| json!({"case": self.cases[at], "class": self.classes[at]}))
@@ -2177,6 +2885,102 @@ impl Facts {
                 .collect::<Vec<_>>()
         );
         Ok(document)
+    }
+
+    /// The obligations the case at `at` discharges, each with the other known dischargers
+    /// (`others`; a pair obligation, the pairs that hold without it, `pairs`) and `complete`.
+    fn discharged_values(&self, at: usize) -> Vec<Value> {
+        self.obligations
+            .iter()
+            .filter(|obligation| obligation.dischargers.contains(&at))
+            .map(|obligation| {
+                let mut value =
+                    self.named(obligation.family, &obligation.id, obligation.projection);
+                match obligation.pairs_without(at) {
+                    None => {
+                        value["others"] = json!(
+                            self.ids(
+                                obligation
+                                    .dischargers
+                                    .iter()
+                                    .copied()
+                                    .filter(|other| *other != at)
+                            )
+                        );
+                    }
+                    Some(pairs) => value["pairs"] = self.pairs_value(&pairs),
+                }
+                value["complete"] = json!(obligation.complete());
+                value
+            })
+            .collect()
+    }
+
+    /// The obligations on which the case at `at` has an unknown cell, each with its known
+    /// dischargers (a pair obligation, the pairs that hold without it) and `complete`.
+    fn unknown_values(&self, at: usize) -> Vec<Value> {
+        self.obligations
+            .iter()
+            .filter(|obligation| obligation.unknown.contains(&at))
+            .map(|obligation| {
+                let mut value =
+                    self.named(obligation.family, &obligation.id, obligation.projection);
+                match obligation.pairs_without(at) {
+                    None => {
+                        value["dischargers"] =
+                            json!(self.ids(obligation.dischargers.iter().copied()));
+                    }
+                    Some(pairs) => value["pairs"] = self.pairs_value(&pairs),
+                }
+                value["complete"] = json!(obligation.complete());
+                value
+            })
+            .collect()
+    }
+
+    /// How many obligations did not ask the case at `at` its cell.
+    fn unasked(&self, at: usize) -> usize {
+        self.obligations
+            .iter()
+            .filter(|obligation| obligation.unasked.contains(&at))
+            .count()
+    }
+
+    /// The document's `families`: each family computed (its counts) or skipped (why), and the
+    /// list the `mutations` and `patterns` families read.
+    fn families_value(&self, lists: &[Value; 2]) -> Vec<Value> {
+        self.families
+            .iter()
+            .map(|family| {
+                let of = self
+                    .obligations
+                    .iter()
+                    .filter(|obligation| obligation.family == family.name)
+                    .collect::<Vec<_>>();
+                let mut value = match &family.skipped {
+                    Some((reason, detail)) => json!({
+                        "family": family.name,
+                        "run": false,
+                        "reason": reason,
+                        "detail": detail,
+                    }),
+                    None => json!({
+                        "family": family.name,
+                        "run": true,
+                        "obligations": of.len(),
+                        "discharged": of.iter().filter(|o| !o.dischargers.is_empty()).count(),
+                        "unanswered": of.iter().map(|o| o.unknown.len()).sum::<usize>(),
+                        "complete": of.iter().all(|o| o.complete()),
+                    }),
+                };
+                match family.name {
+                    "mutations" => value["list"] = lists[0].clone(),
+                    "patterns" => value["list"] = lists[1].clone(),
+                    _ => {}
+                }
+                value
+            })
+            .collect()
     }
 }
 
@@ -2271,7 +3075,10 @@ pub fn text_rendering(document: &Value) -> Result<String, String> {
     let mut text = String::new();
     if !document["refused"].is_null() {
         text.push_str(&format!(
-            "prune refused: {}: {}\n",
+            "prune refused: {}{}: {}\n",
+            document["refused"]["flow"]
+                .as_str()
+                .map_or_else(String::new, |flow| format!("{flow}: ")),
             document["refused"]["family"].as_str().unwrap_or("?"),
             document["refused"]["detail"].as_str().unwrap_or("")
         ));
@@ -2279,7 +3086,10 @@ pub fn text_rendering(document: &Value) -> Result<String, String> {
     }
     if document["spec"]["outcome"] == "refused" {
         text.push_str(&format!(
-            "prune refused: the specification is refused at stage {}: {}\n",
+            "prune refused: {}the specification is refused at stage {}: {}\n",
+            document["flow"]
+                .as_str()
+                .map_or_else(String::new, |flow| format!("{flow}: ")),
             document["spec"]["stage"].as_str().unwrap_or("?"),
             document["spec"]["detail"].as_str().unwrap_or("")
         ));
@@ -2305,29 +3115,50 @@ pub fn text_rendering(document: &Value) -> Result<String, String> {
     if let Some(detail) = document["scope"]["detail"].as_str() {
         text.push_str(&format!("note: {detail}\n"));
     }
-    for family in document["families"].as_array().into_iter().flatten() {
-        if family["list"]["corpus_own"] == false {
-            text.push_str(&format!(
-                "note: the {} family read {}, not the corpus's own list: the report holds for \
-                 that list, not for the corpus\n",
-                family["family"].as_str().unwrap_or("?"),
-                family["list"]["path"].as_str().map_or_else(
-                    || "the patterns the manifest declares".to_owned(),
-                    |path| { format!("`{path}`") }
-                ),
-            ));
+    // Each flow's families: the document's own, or, of several flows, each flow's (`flows`).
+    let flows = document["flows"].as_array().map_or_else(
+        || vec![(None, document)],
+        |flows| {
+            flows
+                .iter()
+                .map(|flow| (flow["flow"].as_str(), flow))
+                .collect()
+        },
+    );
+    let of = |flow: Option<&str>| flow.map_or_else(String::new, |flow| format!("{flow}: "));
+    for (flow, families) in &flows {
+        for family in families["families"].as_array().into_iter().flatten() {
+            if family["list"]["corpus_own"] == false {
+                text.push_str(&format!(
+                    "note: {}the {} family read {}, not the corpus's own list: the report holds \
+                     for that list, not for the corpus\n",
+                    of(*flow),
+                    family["family"].as_str().unwrap_or("?"),
+                    family["list"]["path"].as_str().map_or_else(
+                        || "the patterns the manifest declares".to_owned(),
+                        |path| { format!("`{path}`") }
+                    ),
+                ));
+            }
         }
     }
     if document["mode"] == LAZY {
-        let cells = &document["accounting"]["cells"];
-        let parts = ["mutations", "patterns"]
-            .into_iter()
-            .filter(|family| cells[family].is_object())
-            .map(|family| {
-                format!(
-                    "{family} {} held by the search and {} asked after it, of {}",
-                    cells[family]["searched"], cells[family]["asked"], cells[family]["matrix"]
-                )
+        let parts = flows
+            .iter()
+            .flat_map(|(flow, of_flow)| {
+                let cells = &of_flow["accounting"]["cells"];
+                ["mutations", "patterns"]
+                    .into_iter()
+                    .filter(|family| cells[family].is_object())
+                    .map(move |family| {
+                        format!(
+                            "{}{family} {} held by the search and {} asked after it, of {}",
+                            of(*flow),
+                            cells[family]["searched"],
+                            cells[family]["asked"],
+                            cells[family]["matrix"]
+                        )
+                    })
             })
             .collect::<Vec<_>>();
         if !parts.is_empty() {
@@ -2366,7 +3197,8 @@ pub fn text_rendering(document: &Value) -> Result<String, String> {
     }
     let reference = |value: &Value| {
         format!(
-            "{} {}{}",
+            "{}{} {}{}",
+            of(value["flow"].as_str()),
             value["family"].as_str().unwrap_or("?"),
             value["id"].as_str().unwrap_or("?"),
             value["projection"]
@@ -2432,10 +3264,17 @@ pub fn text_rendering(document: &Value) -> Result<String, String> {
         ));
     }
     text.push_str("families:\n");
-    for family in document["families"].as_array().into_iter().flatten() {
+    for (flow, family) in flows.iter().flat_map(|(flow, families)| {
+        families["families"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(move |family| (*flow, family))
+    }) {
         if family["run"] == true {
             text.push_str(&format!(
-                "  {}: {} obligations, {} discharged, {} unanswered cells{}\n",
+                "  {}{}: {} obligations, {} discharged, {} unanswered cells{}\n",
+                of(flow),
                 family["family"].as_str().unwrap_or("?"),
                 family["obligations"],
                 family["discharged"],
@@ -2448,7 +3287,8 @@ pub fn text_rendering(document: &Value) -> Result<String, String> {
             ));
         } else {
             text.push_str(&format!(
-                "  {}: skipped ({})\n",
+                "  {}{}: skipped ({})\n",
+                of(flow),
                 family["family"].as_str().unwrap_or("?"),
                 family["detail"].as_str().unwrap_or("?"),
             ));
@@ -2477,9 +3317,13 @@ pub fn text_rendering(document: &Value) -> Result<String, String> {
 
 /// A kept case's reason as the text rendering states it.
 fn reason_text(keep: &Value, reference: &dyn Fn(&Value) -> String) -> String {
+    // A reason that names no obligation names its flow (a prune of several flows) at its end.
+    let flow = keep["flow"]
+        .as_str()
+        .map_or_else(String::new, |flow| format!(" (in {flow})"));
     match keep["reason"].as_str() {
         Some("claimed") => format!(
-            "claimed by the pattern {}",
+            "claimed by the pattern {}{flow}",
             keep["id"].as_str().unwrap_or("?")
         ),
         Some("refutes") => format!("its cell refutes {}", reference(keep)),
@@ -2495,13 +3339,13 @@ fn reason_text(keep: &Value, reference: &dyn Fn(&Value) -> String) -> String {
             strings(&keep["with"]).join(", ")
         ),
         Some("baseline-undecided") => format!(
-            "its baseline is {} and {} obligations have no discharger",
+            "its baseline is {} and {} obligations have no discharger{flow}",
             keep["class"].as_str().unwrap_or("?"),
             keep["obligations"].as_array().map_or(0, Vec::len)
         ),
         Some("rejected-before-run") => format!(
             "it states that it is rejected before it runs (`{}`), so no command runs it, and \
-             prune reads none of the obligations it is in the corpus for",
+             prune reads none of the obligations it is in the corpus for{flow}",
             keep["class"].as_str().unwrap_or("?")
         ),
         _ => "?".to_owned(),
@@ -2582,6 +3426,7 @@ mod tests {
             cells: [Asked::default(); 2],
             projections: Vec::new(),
             answers: BTreeMap::new(),
+            flow: None,
         }
     }
 
@@ -2845,5 +3690,130 @@ mod tests {
                  "projection": "acc"}]}]),
             "{document:#}"
         );
+    }
+
+    /// One flow's facts for a joint decision: its cases (all `comparable`), each obligation of
+    /// the `mutations` family its id and its decided dischargers (case indices), and the cases
+    /// whose entry states a rejection.
+    fn flow_facts(flow: &str, cases: &[&str], obligations: &[(&str, &[usize])]) -> Facts {
+        let mut facts = facts(
+            &cases
+                .iter()
+                .map(|case| (*case, "comparable"))
+                .collect::<Vec<_>>(),
+            &[],
+            &[],
+            &[],
+        );
+        facts.obligations = obligations
+            .iter()
+            .map(|(id, dischargers)| Obligation {
+                family: "mutations",
+                id: (*id).to_owned(),
+                projection: None,
+                dischargers: dischargers.to_vec(),
+                unknown: Vec::new(),
+                unasked: Vec::new(),
+                source: None,
+                stopped: false,
+                pairing: None,
+            })
+            .collect();
+        facts.flow = Some(flow.to_owned());
+        facts
+    }
+
+    /// PJ-31: the facts of two flows on one root are merged before any decision. `add` reads
+    /// `a1`, `a2`, `m1` and its mutation is killed by `a1` and `a2`; `mul` reads `m1`, `a2`, `x`,
+    /// its `mul` killed by `m1` alone and its `edge` by `a2` alone. Alone, `add` would remove
+    /// `a2` (reverse manifest order); jointly `a2` is `mul`'s only killer of `edge`, so it is kept
+    /// naming `mul`, and `a1` is removable. `m1` is kept for `mul` though `add` reads it with no
+    /// cell; `x`, which only `mul` reads and which discharges nothing, is removable, and a case
+    /// `mul` states is rejected before it runs is kept for `mul` alone. A reason of an obligation
+    /// under a projection names both the flow and the projection.
+    #[test]
+    fn the_flows_facts_are_merged_before_any_decision() {
+        let add = flow_facts("add/FLOW.toml", &["a1", "a2", "m1"], &[("plus", &[0, 1])]);
+        let mut mul = flow_facts(
+            "mul/FLOW.toml",
+            &["m1", "a2", "x", "r"],
+            &[("mul", &[0]), ("edge", &[1])],
+        );
+        mul.keeps[3].push(Keep::Rejected("rejected".to_owned()));
+        // `edge` is an obligation under `mul`'s projection `out`, whose domain holds every case.
+        mul.projections = vec![Listed {
+            name: "out".to_owned(),
+            own: false,
+            domain: vec![true; 4],
+        }];
+        mul.obligations[1].projection = Some(0);
+        let mut joint = Joint::new(
+            vec![add, mul],
+            vec!["add/FLOW.toml".to_owned(), "mul/FLOW.toml".to_owned()],
+        );
+        assert_eq!(joint.cases, ["a1", "a2", "m1", "x", "r"]);
+        let mut asks = Completes(vec![(None, None, complete()), (None, None, complete())]);
+        let document = joint.document(&mut asks).unwrap();
+        assert_eq!(document["removable"]["order"], REVERSE_FLOW_MANIFEST_ORDER);
+        assert_eq!(document["removable"]["cases"], json!(["a1", "x"]));
+        let kept = |case: &str| {
+            document["kept"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|entry| entry["case"] == case)
+                .unwrap_or_else(|| panic!("{case} not kept: {document:#}"))
+                .clone()
+        };
+        assert_eq!(
+            kept("a2")["reasons"],
+            json!([{"reason": "sole-discharger", "family": "mutations", "id": "edge",
+                    "projection": "out", "flow": "mul/FLOW.toml"}])
+        );
+        assert_eq!(
+            kept("a2")["classes"],
+            json!([{"flow": "add/FLOW.toml", "class": "comparable"},
+                   {"flow": "mul/FLOW.toml", "class": "comparable"}])
+        );
+        assert_eq!(
+            kept("m1")["reasons"],
+            json!([{"reason": "sole-discharger", "family": "mutations", "id": "mul",
+                    "flow": "mul/FLOW.toml"}])
+        );
+        assert_eq!(
+            kept("r")["reasons"],
+            json!([{"reason": "rejected-before-run", "class": "rejected",
+                    "flow": "mul/FLOW.toml"}])
+        );
+        let a1 = &document["redundant"][0];
+        assert_eq!(a1["case"], "a1");
+        assert_eq!(
+            a1["obligations"],
+            json!([{"family": "mutations", "id": "plus", "flow": "add/FLOW.toml",
+                    "others": ["a2"], "complete": true}])
+        );
+        assert_eq!(document["redundant"][1]["case"], "x");
+        assert_eq!(document["redundant"][1]["obligations"], json!([]));
+        // The text rendering names each obligation's flow.
+        let mut shown = document.clone();
+        shown["flows"] = json!([]);
+        shown["scope"] = json!({"detail": "of the flows given"});
+        let text = text_rendering(&shown).unwrap();
+        assert!(
+            text.starts_with(
+                "5 cases: 2 redundant alone, 2 removable together (in reverse-flow-manifest \
+                 order): a1, x\n"
+            ),
+            "{text}"
+        );
+        assert!(
+            text.contains("  a2: the only discharger of mul/FLOW.toml: mutations edge under out\n"),
+            "{text}"
+        );
+        assert!(
+            text.contains("  a1: add/FLOW.toml: mutations plus (also a2)\n"),
+            "{text}"
+        );
+        assert!(text.contains("(in mul/FLOW.toml)"), "{text}");
     }
 }

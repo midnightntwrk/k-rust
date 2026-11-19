@@ -1446,7 +1446,7 @@ fn a_case_expectation_is_checked_by_the_front_ends_renderer() {
         )
     });
     assert_eq!(status, kink_flow::cli::EXIT_YES, "{check:#}");
-    assert_eq!(check["version"], 20, "{check:#}");
+    assert_eq!(check["version"], 21, "{check:#}");
     assert_eq!(expectations(&check), reported, "{check:#}");
 
     // A refused expectation refuses its case.
@@ -1623,15 +1623,16 @@ fn a_flow_checks_the_expectation_scoped_to_its_definition() {
     );
 }
 
-/// `check --with` (PJ-30): the flows given, the checked one among them, are the flows on the
-/// corpus root `check` knows of, and a case's expectation scoped to a definition is warned about
+/// `check FLOW.toml FLOW.toml...` (PJ-30, PJ-31): the flows given, the checked one among them,
+/// are the flows on the corpus root `check` knows of; the library reads the other flows from
+/// `CheckOptions::with`, and a case's expectation scoped to a definition is warned about
 /// (`unread-scope`, on the case's row, no exit status) when no flow given has that definition
-/// and reads the case. Without `--with` no such warning is given and the document has no
+/// and reads the case. Without other flows no such warning is given and the document has no
 /// `with`. A flow given is decoded, not built (its specification here names files that do not
 /// exist), and one that reads its cases from another tree, or does not decode, is refused
 /// (exit 2), with no warning given. The flows are read with or without a mutation list.
 #[test]
-fn check_with_warns_of_a_scope_no_flow_given_reads() {
+fn check_warns_of_a_scope_no_flow_given_reads() {
     let dir = scratch("check-with");
     let corpus = dir.join("corpus");
     fs::create_dir_all(corpus.join("cases")).unwrap();
@@ -1716,7 +1717,7 @@ fn check_with_warns_of_a_scope_no_flow_given_reads() {
 
     let (alone, status) = checked(Vec::new(), None);
     assert_eq!(status, kink_flow::cli::EXIT_YES, "{alone:#}");
-    assert_eq!(alone["version"], 20, "{alone:#}");
+    assert_eq!(alone["version"], 21, "{alone:#}");
     assert_eq!(alone.get("with"), None, "{alone:#}");
     assert!(warnings(&alone).is_empty(), "{alone:#}");
 
@@ -1765,7 +1766,7 @@ fn check_with_warns_of_a_scope_no_flow_given_reads() {
         typo["next"]
             .as_str()
             .unwrap()
-            .contains("give the flow of `OTHR` that reads the case with --with"),
+            .contains("name the flow of `OTHR` that reads the case beside this one"),
         "{given:#}"
     );
     let unread_detail = row(&given, "cases/runs.toml#unread")["warnings"][0]["detail"]
@@ -1808,7 +1809,7 @@ fn check_with_warns_of_a_scope_no_flow_given_reads() {
     assert_eq!(
         with[1]["detail"],
         "it reads its cases from the corpus root `../elsewhere` of its manifest, which is not \
-         the corpus root `../corpus` of this flow: --with names flows on this flow's corpus root",
+         the corpus root `../corpus` of this flow: the flows a check names read one corpus root",
         "{refused:#}"
     );
     assert_eq!(with[1]["definition"], Value::Null, "{refused:#}");

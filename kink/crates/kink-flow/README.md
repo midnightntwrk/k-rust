@@ -195,13 +195,13 @@ No digest and no cache key holds the root or the manifest's directory, as writte
 A flow moved to another depth, naming the same root by another path, reads the cache it had.
 
 A case's `expect` is checked by every flow that reads the case; an expectation true of one definition only is written `[expect_for.<definition>]`, which only the flows of that definition check ("Expectations").
-No flow knows which other flows name its root, since a flow anywhere may name it by a relative path; `check --with` takes them from the command line and warns of a scoped expectation that no flow given reads ("Other flows on the corpus root").
+No flow knows which other flows name its root, since a flow anywhere may name it by a relative path; `check FLOW.toml FLOW.toml...` takes them from the command line and warns of a scoped expectation that no flow given reads ("Other flows on the corpus root"), and `prune FLOW.toml FLOW.toml...` answers for the flows given together ("Several flows").
 
 What the layout does not give:
 
 - No comparison between the definitions. Each flow runs the cases on its own definition and records its own verdicts; nothing checks that two definitions end a case alike. An `[[implementation]]` compares a definition with one other system ("Comparing implementations"). A statement about two definitions (that one refines the other) is a claim about every run of both, not a verdict on the corpus's runs: it belongs to the proof tool, and no kink command makes it.
 - No shared verdicts. Each flow has its own record and cache; a case added under the root is run by every flow that reads it on that flow's next command, and each flow's `--locked` gate judges it for that flow's definition.
-- No corpus-wide `prune`. A flow's report is of that flow's obligations and answers for that flow only; a case redundant in one flow may be the only discharger of an obligation of another, so a case is removable from the root only when the cases kept discharge every flow's obligations ("Redundant programs").
+- No `prune` of the root without its flows. A flow's report is of that flow's obligations and answers for that flow only; a case redundant in one flow may be the only discharger of an obligation of another, so a case is removable from the root only when the cases kept discharge every flow's obligations, which `prune` answers for the flows its command line names ("Several flows" under "Redundant programs").
 - No check that two flows are of one interface. A definition that cannot read a case's inputs refuses that case (`inputs`), naming it.
 
 ### Programs from a pattern
@@ -244,6 +244,19 @@ The paths a case document's inputs name are relative to the document's directory
 The document and its included files are read when the manifest is, inside the manifest's directory by the rule a program file is read by; a document that cannot be read, is no TOML, has another key, an `inputs` that is not a table, an unnamed case, a name given twice, an include that includes itself, directly or through others, or a list of no case is a manifest error naming its program and the position.
 The last component of a `cases` pattern must end in `.toml`: kink hands typed inputs to the front end's decoder as TOML values, so it reads case documents in TOML, and an included JSON file as TOML values, refusing JSON's `null` and an integer outside TOML's 64-bit range, which have none.
 At the K level, which has no decoder, each case with inputs is refused as a listed program with `inputs` is (`inputs`/`typed-inputs`).
+
+### Mutation lists a flow names
+
+A flow may name its own mutation lists:
+
+```toml
+[mutations]
+lists = ["MUTATIONS.toml", "mutations/*.toml"]   # globs of mutation lists beside the manifest
+```
+
+Each glob is matched as a `[[patterns]] files` glob is, under the manifest's directory: its last component ends in `.toml`, one list may be named without a wildcard, and a glob that matches nothing is an error, as is a list two globs match, an empty `lists` and any other key.
+The lists are those of `kink-flow prune FLOW.toml...` ("Several flows" under "Redundant programs"), which reads each as a list operand is read, their mutations in the order the globs name them, and refuses an id two lists give; no other command reads the section, and it is in no digest or key.
+A KRS flow's list is its layout's (`mutations/`, else `MUTATIONS.toml`, beside `FLOW.toml`), so `krs kink` refuses a KRS flow that names lists (`mutations.lists`).
 
 ### Declared patterns
 
@@ -288,7 +301,7 @@ reason = "type-error"
 `expect_for` is a table of expected ends by definition name, each written as `expect` is; a flow's definition name is its `[spec] main_module` as written for a K corpus, and its facet (`[spec] krs`'s `definition`) for a KRS corpus, never `PACKAGE:FACET` nor the module of the emitted K.
 `expect` is a claim about the case in every flow that reads it, and an expectation scoped to a definition a claim about it in that definition's flows, so a flow checks `expect` and the expectation scoped to its own definition, both where the case states both, and reads no expectation scoped to another definition, at admission or after.
 A scoped expectation adds a check and replaces none.
-A scope that names no flow's definition (a misspelt name, a definition whose flow does not read the case) is checked by no flow: `check --with` warns of one that no flow given reads (`unread-scope`, "Other flows on the corpus root").
+A scope that names no flow's definition (a misspelt name, a definition whose flow does not read the case) is checked by no flow: `check FLOW.toml FLOW.toml...` warns of one that no flow given reads (`unread-scope`, "Other flows on the corpus root").
 The row's one `expectation` member then reports both: `unmet` where either is unmet, else `inconclusive` where either is, else `met`, its `detail` naming the expectation that decides it (`` `expect_for.static` is unmet ``); a case with one expectation its flow checks has the row it has without `expect_for`.
 A scope is never inferred from `expect`'s own keys: `[expect.static]` is a member of the expected end, which the front end refuses as it refuses any key an end does not have.
 `expect_for` that is no table, scopes no definition, names a definition by an empty string or scopes one to a value that is no table is refused at the case document, before any front end reads it.
@@ -686,7 +699,7 @@ Under `--locked` a lock that differs only in kept entries is not a difference: i
 Without `--locked` the same lines say what the written lock kept unverified, and the run's exit status is what its rows give.
 A lock does not list a covered obligation, so it cannot tell one it recorded covered from one that was no obligation when it was written: after a definition edit on a host whose clock stops a program, a new obligation that shows open stays unlisted, and `--locked` says the lock is not decided, until a host on which every run ends writes it.
 
-## `kink-flow check FLOW.toml [--mutations MUTATIONS] [--cache DIR] [--with FLOW.toml]...`
+## `kink-flow check FLOW.toml [FLOW.toml]... [--mutations MUTATIONS] [--cache DIR]`
 
 Admits the specification through kink's admission stages (kink-corpus's `admission` module, the library kink-flow is built on):
 `manifest` (this crate: the manifest does not decode), `refused-case` (a below-floor conformance case), `load`, `semantic-input`, `compile`,
@@ -796,37 +809,43 @@ Version 17 (PJ-10) replaces `[result]` by `[[projection]]` ("Projections"): a ma
 Version 18 (PJ-30) adds `--with` ("Other flows on the corpus root"): `with`, each flow given, and a case row's `warnings`, with `unread-scope`, both absent without `--with`; and a case whose only expectation its flow checks is scoped to the flow's definition has its row's `expectation`, which version 17 left out.
 Version 19 (PJ-32) adds the outcomes `rejected` and `accepted` of a program whose `[[program]]` entry states `expect = { rejected = "parse" | "input" }` ("Programs rejected before they run"); a flow whose entries state none gives version 18's document.
 Version 20 (PJ-34) resolves grammar edits ("Grammar edits" under `MUTATIONS.toml`): an edit addressed by `production`, or by a line or text in a grammar declaration, resolves where version 19 refused it `non-rule-sentence`, its `rules` entry has `kind: "grammar"`, the anchor warnings name `production = NAME`, and `no-program-parser`, `unread-declaration` and `rule-and-grammar-edits` are new refusals; a list of rule edits gives version 19's document.
+Version 21 (PJ-31) names the other flows on the corpus root by their manifests on the command line, `check FLOW.toml FLOW.toml...`, in place of `--with`, which is removed ("Other flows on the corpus root"): each flow named is checked, and the document of several is `{schema, version, flows}`; a command line of one flow gives version 20's document.
 Each case's expectation and the coverage warnings are read from result records, whose classes and coverage the baseline runs decided by asking the solver, and a record is read only under a key that names the Z3 build ("The cache directory"), so under Z3 what `check` says is a function of the build as much as of the profile.
 The document every verb prints for a manifest that does not decode is built from the check document's header, so it names the build too.
 
 Exit status ("Exit status"): 0 when every program is `ok` (so the specification is admitted), `spec.baseline_findings` is null and, with `--mutations`, the list decodes and no mutation is refused (warnings do not count);
 1 when a program is `excluded` or the baseline has no data (`spec.baseline_findings`), and nothing is refused;
-2 when the manifest, the specification, a program, the mutation list or a mutation is refused, which `run` would refuse too, when a flow `--with` names is refused, or on a usage error (message on stderr).
+2 when the manifest, the specification, a program, the mutation list or a mutation is refused, which `run` would refuse too, when another flow the command line names is refused, or on a usage error (message on stderr); a check of several flows exits 2 when one of theirs would, else with the highest of their statuses.
 
 ### Other flows on the corpus root
 
-`check FLOW.toml --with OTHER.toml` names another flow on the corpus root; `--with` may be given again for each.
+`check FLOW.toml OTHER.toml...` names other flows on the corpus root by their manifests, so a shell glob names them (`kink-flow check layers/*/FLOW.toml`).
 A flow names its corpus root by a path relative to its own directory, which may climb above it, so a flow in any directory can name the root, under any file name, and no search of a directory finds every flow that reads it ("The corpus root").
-The command line states the flows instead, and what `check` says from them is a statement about the flows given: this flow and those `--with` names.
+The command line states the flows instead, and what `check` says from them is a statement about the flows given.
 
-Each flow given is decoded as `FLOW.toml` is and not built: its specification is not loaded, so a flow of a KRS definition can be given to `kink-flow check`.
+Each K flow named is checked as `check FLOW.toml` checks it, once (a flow named twice, by paths that resolve to one file, is one flow), and the other paths are its other flows.
+A KRS flow (`[spec] krs`), which only `krs kink` binds, is an other flow of each flow checked and is not checked itself, unless every flow named is a KRS flow, when each is checked and refused, naming `krs kink`.
+One flow gives its check document; several give `{schema, version, flows}`, each of `flows` a flow's check document with its `flow`, the path as given.
+`--mutations` and `--cache` name one flow's list and cache, so with several flows they are a usage error: each is checked against its own cache.
+A flow named twice is a check of that flow whose other flow is itself, which states the flows on the root as that one flow.
+
+Each other flow is decoded as `FLOW.toml` is and not built for the flow checked: its specification is not loaded, so the check of a K flow reads a KRS flow's definition name and cases.
 `check` reads its definition name ("Expectations": a K flow's `[spec] main_module`, a KRS flow's facet) and the ids of the cases of case documents it reads.
-A flow that does not decode, or whose cases are read from another directory than this flow's corpus root (the two compared with links resolved), is refused, and `check` exits 2.
-Giving this flow again changes nothing.
+An other flow that does not decode, or whose cases are read from another directory than the checked flow's corpus root (the two compared with links resolved), is refused, and `check` exits 2.
 
 A case scopes an expectation to a definition (`expect_for`, "Expectations"), and a flow checks it exactly where the flow has that definition and reads the case.
 So when no flow given has the definition and reads the case, no flow given checks the expectation, and the case's row gives the warning `unread-scope`.
-The definition this flow has is never warned about, since this flow reads the case.
+The definition of the flow checked is never warned about, since that flow reads the case.
 The warning decides no exit status, as an expectation decides none in `check`, and its detail says that a flow not given may still read the expectation.
-No warning is given while a flow given is refused, since the flows on the root are then not known, nor without `--with`.
+No warning is given while another flow is refused, since the flows on the root are then not known, nor when the command line names one flow once.
 
-The document gains:
+The document of each flow checked gains:
 
-- `with`: one entry per flow given, in order, `{flow, outcome, definition, detail}`: `flow` the path as the command line gives it, `outcome` `ok` with the flow's `definition`, or `refused` with why in `detail`.
-- On a case's row, `warnings`: `{reason, definition, detail, next}`, `reason` `unread-scope`, `definition` the definition the case scopes the expectation to, and `next` what to do (correct a misspelt name, or give the flow of that definition that reads the case).
+- `with`: one entry per other flow, in order, `{flow, outcome, definition, detail}`: `flow` the path as the command line gives it, `outcome` `ok` with the flow's `definition`, or `refused` with why in `detail`.
+- On a case's row, `warnings`: `{reason, definition, detail, next}`, `reason` `unread-scope`, `definition` the definition the case scopes the expectation to, and `next` what to do (correct a misspelt name, or name the flow of that definition that reads the case beside this one).
 
-Both are absent without `--with`, and `warnings` is absent from a row without one.
-`krs kink check` does not take `--with` yet: its option table refuses it.
+Both are absent when the command line names one flow once, and `warnings` is absent from a row without one.
+`krs kink check` names one flow; several flows under `krs` are a later change.
 
 ### Checking mutations
 
@@ -3078,7 +3097,7 @@ Exit status ("Exit status"): 0 when every asked (pattern, program) got its answe
 3 when an answer is `unknown`, an `expect` is inconclusive, or under `--locked` the only differences rest on runs the clock stopped;
 2 when an answer is `invalid-pattern` or `error`, the manifest, the pattern list, the lock, the specification or a program is refused, a record or the lock could not be written, or on a usage error (an `--only` id that names no pattern, an option given twice, `--locked` without `--lock`).
 
-## Redundant programs: `kink-flow prune FLOW.toml MUTATIONS [PATTERNS.toml] [--full] [--lock FILE] [--compile-workers N] [--progress] [--cache DIR] [--output json|text]`
+## Redundant programs: `kink-flow prune FLOW.toml (MUTATIONS [PATTERNS.toml] | [FLOW.toml]...) [--full] [--lock FILE] [--compile-workers N] [--progress] [--cache DIR] [--output json|text]`
 
 `prune` reports which programs of the corpus are redundant.
 It writes no lock and edits no file; it reads and fills the caches as `coverage`, `run` and `query` do, and stores no run report, so `report` and `fuzz --kill` keep reading the last `run`'s.
@@ -3088,6 +3107,7 @@ The report is of one flow.
 A flow that names its corpus root (`[corpus] root`, "The corpus root") reads cases that other flows may read, each against the obligations of its own definition, and a case is removable from the root only when the cases kept discharge every flow's obligations.
 The document of such a flow says so: `scope`, `{flow_only: true, corpus_root, detail}`, with the root as the manifest writes it, and `--output text` prints the detail as a `note:` line after its first line: the report holds for this flow alone, and a case redundant here may be the only discharger of another flow's obligation.
 The document of a flow whose cases are in its own directory has no `scope`.
+A report of several flows on one root is the prune of the flows a command line names ("Several flows").
 
 ### The obligations
 
@@ -3210,6 +3230,34 @@ A distinguished flip's row is never complete in either mode, since its kill sear
 `--lock FILE` names the corpus record, which `prune` reads and never writes; its `[run]` killers (each mutation's and, under projections, each pair's) and `[query]` witnesses also order the lazy searches.
 A removable program that the record names as a killer (`[run]`, a row's own or under a projection; a `[coverage]` flip), a witness (`[query]`) or the program of a compare row (`[compare]`) moves those rows when it is removed: `--locked` fails once, until a command without it records them again.
 Each `redundant` entry's `lock` and each `removable.lock` entry name those rows by section (`{run, coverage, query, compare}`, null where none); the document's `lock` names the file and the sections it holds.
+
+### Several flows
+
+`kink-flow prune FLOW.toml FLOW.toml...` names flows by their manifests alone, so a shell glob names them (`kink-flow prune layers/*/FLOW.toml`), and the report holds for the flows given.
+The second operand decides the form: `prune FLOW.toml MUTATIONS [PATTERNS.toml]` is the prune of one flow and that list, as before, and a manifest there (a file whose TOML has a top-level `spec`, which no mutation or pattern list has), or no operand, names flows.
+Each flow named reads the mutation lists its manifest names (`[mutations] lists`, "Mutation lists a flow names") and the patterns it declares ("Declared patterns"); a K flow has no default list, so a flow that names none refuses the command, naming it.
+A flow named twice, by paths that resolve to one file, is one flow.
+One flow gives that flow's document, its `mutations` family's `list` naming the lists (`{path: null, corpus_own: true, declared}`).
+
+Several flows give one report over every case of their corpus root.
+Every flow named has `[corpus] root`, and the roots are one directory (compared with links resolved); a flow that names none, or another, refuses the command (`refused.family` `flows`).
+A case is one case in every flow: its id is its path relative to the root ("The corpus root"), and two flows' programs of one id must be read from one file of the root, and one file under the same ids, or the command is refused; a `[[program]]` of inline text is no file of the root, so its id is one flow's alone.
+Each flow is bound and run as its prune alone is, through its own cache (`.kink-flow` beside its manifest): its coverage, kill search and pattern walk give its own obligations, each over the cases it reads, by the rules above.
+A case a flow does not read has no cell in that flow's obligations, as a program outside a projection's domain has none under it.
+The facts of every flow are merged before any decision:
+
+- a case is redundant alone when no rule of any flow that reads it keeps it against the whole root;
+- the set removable together is one walk over every case of the root, in reverse of the joint order (`removable.order` `reverse-flow-manifest`: the cases of the flows in the order given, each flow's in manifest order after the cases of the flows before it), and a case is removed only when no flow's rules, read against the cases still kept, keep it.
+
+Each flow's rules read only its own obligations over its own cases, so removing a case no flow keeps loses no discharge of any flow, by the argument of one flow applied to each, and a case only one flow reads is kept whenever that flow keeps it.
+A case whose entry in some flow states that it must be rejected before it runs is kept for that flow (`rejected-before-run`); a flow that cannot ask its question (its manifest, a list or a case refused, a family's command refused) refuses the command, naming it (`refused.flow`), and is never read as a flow that reads no case.
+
+The document names a flow by its manifest's path as given (`flow`) in every entry and reason that names an obligation or keeps a case, and `--output text` names an obligation `FLOW: mutations ID under NAME` and a reason that names none `(in FLOW)`.
+A case's baseline class is per flow (`classes`, `[{flow, class}]`, in place of `class`), each flow's `spec`, `families`, `accounting`, `unanswered` and `projections` are in `flows`, and `scope` is `{flow_only: false, flows: [{flow, corpus_root}], detail}`.
+A corpus record is one definition's, and `--cache` would name one directory for flows whose default caches differ, so `--lock` and `--cache` are a usage error with several flows; two manifests in one directory share its cache, as they do in separate commands.
+Lazily, every flow's searches stay open together while the walk decides, since it may ask any flow's cell, so their compiled mutants are resident at once; `--full` runs each flow's `run --full` and `query --full` in turn.
+`limits` adds `flows`: a flow not given may read a case, and the removal order keeps each flow's early cases (the killers and witnesses its record names) only where the flows' manifest orders agree.
+`krs kink prune` prunes one flow; several flows under `krs` are a later change.
 
 ### Exit status
 

@@ -1718,6 +1718,17 @@ fn corpus_manifest(path: &Path, selected: &Selected) -> Result<ManifestFile, Cor
         ))),
         SpecDecl::Krs(declared) => match other_definition(declared, selected, path) {
             Some(detail) => Err(CorpusRefusal::OtherDefinition(detail)),
+            // Every verb reads the layout's mutation list (`mutations/`, else `MUTATIONS.toml`);
+            // a list the manifest also names would be one no `krs kink` verb reads, so the corpus
+            // would state two own lists that may disagree.
+            None if !file.mutation_lists.is_empty() => {
+                Err(CorpusRefusal::Manifest(ManifestError::new(
+                    "mutations.lists",
+                    "a KRS corpus's mutation list is its layout's (mutations/, else \
+                     MUTATIONS.toml, beside FLOW.toml): `krs kink` does not read [mutations] \
+                     lists; remove the section and keep the lists in the layout",
+                )))
+            }
             None => Ok(file),
         },
     }

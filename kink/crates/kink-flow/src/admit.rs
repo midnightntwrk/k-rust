@@ -448,7 +448,7 @@ pub struct FlowAdmission {
     /// The manifest's projections as documents name them (`FlowManifest::projections_value`),
     /// whether or not the specification is admitted; `None` when it declares none.
     pub projections: Option<serde_json::Value>,
-    /// The flows `check --with` names, each read or refused ([`crate::check::FlowsGiven`]);
+    /// The other flows a `check` names (`check FLOW.toml FLOW.toml...`), each read or refused ([`crate::check::FlowsGiven`]);
     /// `None` when the command names none.
     pub with: Option<crate::check::FlowsGiven>,
 }

@@ -1206,16 +1206,17 @@ Without `[corpus]` the root is the flow's directory, the layout above, with the 
 A case's `expect` is checked by every flow that reads the case; an expectation true of one definition only is written `[expect_for.<facet>]`, which only the flows of that facet check ([Case documents](#case-documents)).
 An expectation scoped to a facet no flow of the root has is checked by no flow.
 No flow knows which other flows name its root, since a flow in any directory may name it by a relative path;
-`kink-flow check --with OTHER.toml` takes them from the command line and warns of such an expectation (`unread-scope`), but `krs kink check` does not take `--with` yet.
+`kink-flow check FLOW.toml OTHER.toml...` takes them from the command line and warns of such an expectation (`unread-scope`), but `krs kink check` names one flow.
 
 What the layout does not give:
 
 - It does not compare two KRS definitions.
   Each flow runs the cases on its own definition and keeps its own verdicts, and no command of the corpus loop checks that two definitions end a case alike.
   A statement about two definitions (that one refines the other) is a claim about every run of both, not a verdict on the corpus's runs: it belongs to the proof tool, and the corpus loop does not make it.
-- `prune` answers for one flow.
+- `krs kink prune` answers for one flow.
   A case redundant in this flow may be the only one that discharges an obligation of another flow, so a case is removable from the root only when the cases kept discharge every flow's obligations.
   The document of a flow that names a root carries `scope` (`{flow_only: true, corpus_root, detail}`), and `--output text` a `note:` line saying that the report holds for this flow alone.
+  `kink-flow prune FLOW.toml OTHER.toml...` answers for K flows on one root together, each reading the lists its `[mutations] lists` names; a KRS flow keeps its layout's list, and `krs kink` refuses one that names `[mutations] lists`.
 - A case added under the root is run by every flow that reads it, on that flow's next command, and each flow's `--locked` commands judge it for that flow's definition.
 
 Every verb but `emit` and `report` builds the package in process, as `emit-k` does, and kink judges `kink/definition.k`, which must hold exactly that emission: a command finds it `unchanged`, or writes it and says `written` in the document's `definition` object.

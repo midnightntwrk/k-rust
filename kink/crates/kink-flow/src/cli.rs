@@ -66,8 +66,8 @@ pub const EXIT_UNANSWERED: u8 = 3;
 /// The usage line, as a literal so that [`USAGE`] and [`HELP`] share it.
 macro_rules! usage_line {
     () => {
-        "usage: kink-flow --version | kink-flow check FLOW.toml [--mutations \
-         MUTATIONS] [--cache DIR] [--with FLOW.toml]... | kink-flow \
+        "usage: kink-flow --version | kink-flow check FLOW.toml [FLOW.toml]... [--mutations \
+         MUTATIONS] [--cache DIR] | kink-flow \
          coverage FLOW.toml [--tier 1|2] [--depth N] [--verify] [--lock FILE [--locked]] \
          [--cache DIR] [--output json|text|verdicts] | kink-flow run \
          FLOW.toml MUTATIONS [--only ID]... [--verify] \
@@ -83,8 +83,8 @@ macro_rules! usage_line {
          <topic>.toml files; PATTERNS.toml replaces the patterns FLOW.toml declares \
          ([[patterns]]) | kink-flow compare FLOW.toml [--only NAME]... [--lock FILE \
          [--locked]] [--cache DIR] [--output json|text|verdicts] | kink-flow prune FLOW.toml \
-         MUTATIONS [PATTERNS.toml] [--full] [--lock FILE] [--compile-workers N] [--progress] \
-         [--cache DIR] [--output json|text] | kink-flow admit FLOW.toml FILE... [--found-by TEXT] \
+         (MUTATIONS [PATTERNS.toml] | [FLOW.toml]...) [--full] [--lock FILE] \
+         [--compile-workers N] [--progress] [--cache DIR] [--output json|text] | kink-flow admit FLOW.toml FILE... [--found-by TEXT] \
          [--reason TEXT] [--cache DIR] | kink-flow accept FLOW.toml --projection NAME [--only \
          CASE]... [--cache DIR] [--output json|text]; --help (or -h), anywhere, prints the loop, \
          the mutation format and the exit statuses"
@@ -196,36 +196,50 @@ pub fn execute(args: Vec<OsString>) -> u8 {
             None,
         );
     };
-    let Some((verb, manifest, files, options)) = operands(&args) else {
+    let Some((verb, manifest, files, flows, options)) = operands(&args) else {
         return usage(
             &format!("{} needs {}", verb.as_str(), verb.operands()),
             Some(verb),
         );
     };
-    if !manifest.is_file() {
-        return usage(&format!("{} is not a file", manifest.display()), Some(verb));
+    if let Some(path) = std::iter::once(&manifest)
+        .chain(&flows)
+        .find(|path| !path.is_file())
+    {
+        return usage(&format!("{} is not a file", path.display()), Some(verb));
     }
     let command = match FlowCommand::parse(verb.as_str(), files, options) {
         Ok(command) => command,
         Err(message) => return usage(&message, Some(verb)),
     };
     let output = command.output();
-    let progress = |line: &str| eprintln!("kink-flow: {line}");
-    let front = FrontEnd {
-        progress: command
-            .shows_progress()
-            .then_some(&progress as &(dyn Fn(&str) + Sync)),
-        ..FrontEnd::default()
-    };
-    let (document, status) = match FlowManifest::read(&manifest) {
-        Err(error) => (command.manifest_refused(&error), EXIT_UNASKED),
-        Ok(manifest) => match dispatch(manifest, command, front) {
-            Ok(result) => result,
-            Err(panicked) => {
+    let (document, status) = if flows.is_empty() {
+        let progress = |line: &str| eprintln!("kink-flow: {line}");
+        let front = FrontEnd {
+            progress: command
+                .shows_progress()
+                .then_some(&progress as &(dyn Fn(&str) + Sync)),
+            ..FrontEnd::default()
+        };
+        match FlowManifest::read(&manifest) {
+            Err(error) => (command.manifest_refused(&error), EXIT_UNASKED),
+            Ok(manifest) => match dispatch(manifest, command, front) {
+                Ok(result) => result,
+                Err(panicked) => {
+                    eprintln!("kink-flow: {panicked}");
+                    return EXIT_UNASKED;
+                }
+            },
+        }
+    } else {
+        match given_flows(&flows, command) {
+            Ok(given) => given,
+            Err(Given::Usage(message)) => return usage(&message, Some(verb)),
+            Err(Given::Panicked(panicked)) => {
                 eprintln!("kink-flow: {panicked}");
                 return EXIT_UNASKED;
             }
-        },
+        }
     };
     // A lock `--locked` found stale: what would change, one line each, whatever the output.
     for line in crate::lock::stale_lines(&document) {
@@ -272,16 +286,200 @@ pub fn execute(args: Vec<OsString>) -> u8 {
     status
 }
 
-/// A `kink-flow` command line's verb, manifest, operand files and options: `run` and `fuzz` take
-/// one more operand (the mutation list, the templates), `prune` takes the mutation list, and
-/// `query` and `prune` may take the pattern list, which replaces the patterns the manifest
-/// declares: an argument there that is no option (no leading `-`) is the list.
-fn operands(args: &[String]) -> Option<(Verb, PathBuf, CommandFiles, &[String])> {
+/// Why a command line that names several flows was not run.
+enum Given {
+    /// A usage error, with its message.
+    Usage(String),
+    /// The command's thread panicked.
+    Panicked(String),
+}
+
+/// `kink-flow check FLOW.toml...` and `kink-flow prune FLOW.toml...`: `command` of the flows
+/// `paths` names, each flow once (the first path that names it, by its resolved path), as
+/// [`check_flows`] and [`prune_flows`] run it.
+fn given_flows(paths: &[PathBuf], command: FlowCommand) -> Result<(Value, u8), Given> {
+    let resolved = paths
+        .iter()
+        .map(|path| std::fs::canonicalize(path).unwrap_or_else(|_| path.clone()))
+        .collect::<Vec<_>>();
+    // The position of each flow's first path.
+    let distinct = (0..paths.len())
+        .filter(|at| !resolved[..*at].contains(&resolved[*at]))
+        .collect::<Vec<_>>();
+    match command {
+        FlowCommand::Check(options) => check_flows(paths, &distinct, &options),
+        FlowCommand::Prune {
+            options, progress, ..
+        } => prune_flows(paths, &distinct, &options, progress),
+        _ => unreachable!("only check and prune name several flows"),
+    }
+}
+
+/// The exit status of several commands: 2 where one could not ask its question, else the
+/// highest.
+fn joint_status(statuses: impl IntoIterator<Item = u8>) -> u8 {
+    let statuses = statuses.into_iter().collect::<Vec<_>>();
+    if statuses.contains(&EXIT_UNASKED) {
+        EXIT_UNASKED
+    } else {
+        statuses.into_iter().max().unwrap_or(EXIT_YES)
+    }
+}
+
+/// `check FLOW.toml FLOW.toml...`: each flow (`distinct`, positions in `paths`) checked as `check
+/// FLOW.toml` checks it, the other paths given its other flows on the corpus root
+/// ([`crate::check::with_flows`]). A KRS flow, which only `krs kink` binds, is one of the other
+/// flows of each flow checked and is not checked itself, unless no flow named is a K flow (then
+/// each is checked, and refused naming `krs kink`). One flow checked gives its document, several
+/// a document of theirs (`flows`, each with its `flow`), whose status is [`joint_status`] of
+/// theirs.
+fn check_flows(
+    paths: &[PathBuf],
+    distinct: &[usize],
+    options: &CheckOptions,
+) -> Result<(Value, u8), Given> {
+    if distinct.len() > 1 && (options.mutations.is_some() || options.cache.is_some()) {
+        return Err(Given::Usage(
+            "--mutations and --cache name one flow's list and cache: a check of several flows \
+             checks each against its own cache (.kink-flow beside its manifest) and no list"
+                .to_owned(),
+        ));
+    }
+    let krs = |at: &usize| {
+        crate::manifest::ManifestFile::read(&paths[*at])
+            .is_ok_and(|file| matches!(file.spec, crate::manifest::SpecDecl::Krs(_)))
+    };
+    let k_flows = distinct
+        .iter()
+        .copied()
+        .filter(|at| !krs(at))
+        .collect::<Vec<_>>();
+    let distinct = if k_flows.is_empty() {
+        distinct
+    } else {
+        &k_flows
+    };
+    let mut checked = Vec::new();
+    for at in distinct {
+        let command = FlowCommand::Check(CheckOptions {
+            with: paths
+                .iter()
+                .enumerate()
+                .filter(|(other, _)| other != at)
+                .map(|(_, path)| path.clone())
+                .collect(),
+            ..options.clone()
+        });
+        let (mut document, status) = match FlowManifest::read(&paths[*at]) {
+            Err(error) => (command.manifest_refused(&error), EXIT_UNASKED),
+            Ok(manifest) => {
+                dispatch(manifest, command, FrontEnd::default()).map_err(Given::Panicked)?
+            }
+        };
+        if distinct.len() > 1 {
+            document["flow"] = json!(paths[*at].display().to_string());
+        }
+        checked.push((document, status));
+    }
+    if let [one] = checked.as_slice() {
+        return Ok(one.clone());
+    }
+    let status = joint_status(checked.iter().map(|(_, status)| *status));
+    let mut document = json!({
+        "schema": "kink-flow-check",
+        "version": CHECK_VERSION,
+    });
+    document["flows"] = json!(
+        checked
+            .into_iter()
+            .map(|(document, _)| document)
+            .collect::<Vec<_>>()
+    );
+    Ok((document, status))
+}
+
+/// `prune FLOW.toml...`: the prune of the flows (`distinct`, positions in `paths`), each bound
+/// by kink-flow's own front end ([`crate::prune::flows_command`]); a manifest that does not
+/// decode refuses the command, naming the flow.
+fn prune_flows(
+    paths: &[PathBuf],
+    distinct: &[usize],
+    options: &crate::prune::PruneOptions,
+    progress: bool,
+) -> Result<(Value, u8), Given> {
+    if distinct.len() > 1 && (options.lock.is_some() || options.cache.is_some()) {
+        return Err(Given::Usage(
+            "--lock and --cache name one flow's record and cache: a prune of several flows \
+             reads each flow's own cache (.kink-flow beside its manifest) and no record"
+                .to_owned(),
+        ));
+    }
+    let shown = distinct
+        .iter()
+        .map(|at| paths[*at].display().to_string())
+        .collect::<Vec<_>>();
+    let mut manifests = Vec::new();
+    for (at, path) in distinct.iter().zip(&shown) {
+        match FlowManifest::read(&paths[*at]) {
+            Ok(manifest) => manifests.push(manifest),
+            Err(error) => {
+                let mut document = crate::prune::manifest_refused(&error);
+                document["flow"] = json!(path);
+                return Ok((document, EXIT_UNASKED));
+            }
+        }
+    }
+    let shows = progress || std::io::stderr().is_terminal();
+    let several = distinct.len() > 1;
+    let lines = shown
+        .iter()
+        .map(|path| {
+            let path = path.clone();
+            move |line: &str| {
+                if several {
+                    eprintln!("kink-flow: {path}: {line}");
+                } else {
+                    eprintln!("kink-flow: {line}");
+                }
+            }
+        })
+        .collect::<Vec<_>>();
+    let fronts = lines
+        .iter()
+        .map(|line| FrontEnd {
+            progress: shows.then_some(line as &(dyn Fn(&str) + Sync)),
+            ..FrontEnd::default()
+        })
+        .collect::<Vec<_>>();
+    let flows = manifests
+        .iter()
+        .zip(&fronts)
+        .zip(shown)
+        .map(|((manifest, front), path)| crate::prune::PruneFlow {
+            path,
+            manifest,
+            front,
+        })
+        .collect::<Vec<_>>();
+    on_stack(|| crate::prune::flows_command(&flows, options))
+        .ok_or_else(|| Given::Panicked("the prune thread panicked".to_owned()))
+}
+
+/// A `kink-flow` command line's verb, manifest, operand files, the other flows it names, and
+/// options: `run` and `fuzz` take one more operand (the mutation list, the templates), `prune`
+/// takes the mutation list, and `query` and `prune` may take the pattern list, which replaces the
+/// patterns the manifest declares: an argument there that is no option (no leading `-`) is the
+/// list. `check` and `prune` may name several flows instead ([`flow_operands`]).
+/// A command line's verb, manifest, operand files, other flows and options ([`operands`]).
+type Operands<'a> = (Verb, PathBuf, CommandFiles, Vec<PathBuf>, &'a [String]);
+
+fn operands(args: &[String]) -> Option<Operands<'_>> {
     let [command, manifest, rest @ ..] = args else {
         return None;
     };
     let verb = Verb::parse(command)?;
     let mut files = CommandFiles::default();
+    let mut flows = Vec::new();
     let rest = match verb {
         Verb::Query => match rest.split_first() {
             Some((file, rest)) if !file.starts_with('-') => {
@@ -290,16 +488,35 @@ fn operands(args: &[String]) -> Option<(Verb, PathBuf, CommandFiles, &[String])>
             }
             _ => rest,
         },
-        Verb::Prune => {
-            let (file, rest) = rest.split_first()?;
-            files.mutations = Some(PathBuf::from(file));
-            match rest.split_first() {
-                Some((file, rest)) if !file.starts_with('-') => {
-                    files.patterns = Some(PathBuf::from(file));
-                    rest
+        // `prune FLOW.toml MUTATIONS [PATTERNS.toml]` as before; with no list operand, or with
+        // a flow manifest after FLOW.toml, the flows given ([`flow_operands`]).
+        Verb::Prune => match rest.split_first() {
+            Some((file, rest)) if !file.starts_with('-') && !is_flow_manifest(Path::new(file)) => {
+                files.mutations = Some(PathBuf::from(file));
+                match rest.split_first() {
+                    Some((file, rest)) if !file.starts_with('-') => {
+                        files.patterns = Some(PathBuf::from(file));
+                        rest
+                    }
+                    _ => rest,
                 }
-                _ => rest,
             }
+            _ => {
+                let (given, rest) = flow_operands(rest);
+                flows = std::iter::once(PathBuf::from(manifest))
+                    .chain(given)
+                    .collect();
+                rest
+            }
+        },
+        Verb::Check => {
+            let (given, rest) = flow_operands(rest);
+            if !given.is_empty() {
+                flows = std::iter::once(PathBuf::from(manifest))
+                    .chain(given)
+                    .collect();
+            }
+            rest
         }
         Verb::Run | Verb::Fuzz => {
             let (file, rest) = rest.split_first()?;
@@ -313,14 +530,30 @@ fn operands(args: &[String]) -> Option<(Verb, PathBuf, CommandFiles, &[String])>
         }
         // `admit`'s FILEs are among its options: its parser takes each argument that is no
         // option or option value as one ([`admit_options`]), whichever front end passes them.
-        Verb::Check
-        | Verb::Coverage
-        | Verb::Report
-        | Verb::Compare
-        | Verb::Admit
-        | Verb::Accept => rest,
+        Verb::Coverage | Verb::Report | Verb::Compare | Verb::Admit | Verb::Accept => rest,
     };
-    Some((verb, PathBuf::from(manifest), files, rest))
+    Some((verb, PathBuf::from(manifest), files, flows, rest))
+}
+
+/// The flow manifests a `check` or `prune` command line names after its first: every argument
+/// up to the first option (a leading `-`), and the rest of the command line.
+fn flow_operands(rest: &[String]) -> (Vec<PathBuf>, &[String]) {
+    let count = rest.iter().take_while(|arg| !arg.starts_with('-')).count();
+    let (given, rest) = rest.split_at(count);
+    (given.iter().map(PathBuf::from).collect(), rest)
+}
+
+/// Whether `path` is a flow manifest rather than a mutation or pattern list: a file whose TOML
+/// has a top-level `spec`, which every manifest has and which no list may have (a list's only
+/// top-level key is `mutation` or `pattern`). So `prune FLOW.toml MUTATIONS [PATTERNS.toml]`
+/// parses as it did before flows could be named.
+#[must_use]
+pub fn is_flow_manifest(path: &Path) -> bool {
+    path.is_file()
+        && std::fs::read_to_string(path)
+            .ok()
+            .and_then(|text| toml::from_str::<toml::Table>(&text).ok())
+            .is_some_and(|top| top.contains_key("spec"))
 }
 
 /// A usage error: its message, then the usage line of the verb the command line names (every
@@ -380,11 +613,11 @@ fn repeated(arg: &str) -> String {
 }
 
 /// Refuse `arg`, read where an option begins, unless it is the flag of one of `verb`'s options
-/// ([`Verb::own_options`]). Each option parser calls it first, so a flag its table does not list
+/// ([`Verb::options`]). Each option parser calls it first, so a flag its table does not list
 /// is refused before any arm that would accept it: the verb's help, which prints the table, lists
 /// every option the verb accepts.
 fn listed(verb: Verb, arg: &str) -> Result<(), String> {
-    if verb.own_options().iter().any(|option| option.flag() == arg) {
+    if verb.options().iter().any(|option| option.flag() == arg) {
         Ok(())
     } else {
         Err(unexpected_argument(arg))
@@ -418,18 +651,6 @@ const CHECK_CACHE: VerbOption = option(
      .kink-flow beside FLOW.toml); nothing is written to it",
 );
 const CHECK_OPTIONS: &[VerbOption] = &[CHECK_MUTATIONS, CHECK_CACHE];
-
-/// `check`'s options with `--with`, which only kink-flow's own command line takes
-/// ([`Verb::own_options`]).
-const KINK_FLOW_CHECK_OPTIONS: &[VerbOption] = &[
-    CHECK_MUTATIONS,
-    CHECK_CACHE,
-    option(
-        "--with FLOW.toml",
-        "another flow on this flow's corpus root, decoded and not built (repeatable): warn of \
-         each case's expect_for of a definition no flow given reads (unread-scope)",
-    ),
-];
 
 const COVERAGE_OPTIONS: &[VerbOption] = &[
     option(
@@ -705,7 +926,7 @@ pub fn verb_help(verb: Verb) -> String {
          kink/crates/kink-flow/README.md, \"{}\"\n",
         verb.synopsis(),
         verb.summary(),
-        options_text(verb.own_options()),
+        options_text(verb.options()),
         verb.reference(),
     )
 }
@@ -808,9 +1029,7 @@ impl Verb {
     #[must_use]
     pub const fn synopsis(self) -> &'static str {
         match self {
-            Self::Check => {
-                "check FLOW.toml [--mutations MUTATIONS] [--cache DIR] [--with FLOW.toml]..."
-            }
+            Self::Check => "check FLOW.toml [FLOW.toml]... [--mutations MUTATIONS] [--cache DIR]",
             Self::Coverage => {
                 "coverage FLOW.toml [--tier 1|2] [--depth N] [--verify] [--lock FILE \
                  [--locked]] [--cache DIR] [--output json|text|verdicts]"
@@ -838,8 +1057,8 @@ impl Verb {
                  [--output json|text|verdicts]"
             }
             Self::Prune => {
-                "prune FLOW.toml MUTATIONS [PATTERNS.toml] [--full] [--lock FILE] \
-                 [--compile-workers N] [--progress] [--cache DIR] [--output json|text]"
+                "prune FLOW.toml (MUTATIONS [PATTERNS.toml] | [FLOW.toml]...) [--full] [--lock \
+                 FILE] [--compile-workers N] [--progress] [--cache DIR] [--output json|text]"
             }
             Self::Admit => {
                 "admit FLOW.toml FILE... [--found-by TEXT] [--reason TEXT] [--cache DIR]"
@@ -857,7 +1076,10 @@ impl Verb {
         match self {
             Self::Check => {
                 "Whether every verdict the corpus promises is possible, before any mutant runs; \
-                 with --mutations, also each mutation's resolution, shown before and after."
+                 with --mutations, also each mutation's resolution, shown before and after. \
+                 Several flows on one corpus root (check A/FLOW.toml B/FLOW.toml, or a glob) are \
+                 each checked, and a case's expect_for of a definition no flow given reads is \
+                 warned of (unread-scope)."
             }
             Self::Coverage => {
                 "What the corpus covers of the obligations the specification states (its rules, \
@@ -911,8 +1133,11 @@ impl Verb {
                  together (built in reverse manifest order), and why each other program is kept \
                  (claimed by a pattern, the only discharger, an unknown cell with no other \
                  discharger, a refuted claim). An unknown never counts as a discharge, so the \
-                 report under-states what is prunable, never over-states it. It writes no lock \
-                 and edits no file."
+                 report under-states what is prunable, never over-states it. Flows named by \
+                 their manifests alone (prune A/FLOW.toml B/FLOW.toml, or a glob), on one corpus \
+                 root and each reading the lists its [mutations] lists names, give one report: a \
+                 case is redundant only when it is redundant in every flow given. It writes no \
+                 lock and edits no file."
             }
             Self::Admit => {
                 "What the flow says of each candidate case, a case document under the corpus \
@@ -938,8 +1163,8 @@ impl Verb {
         }
     }
 
-    /// The verb's options that a front end passes on to kink-flow's parser, its operands not
-    /// among them; [`Self::own_options`] adds those only kink-flow's own command line takes.
+    /// The verb's options, which a front end passes on to kink-flow's parser and `kink-flow
+    /// <verb>` takes, its operands not among them.
     #[must_use]
     pub const fn options(self) -> &'static [VerbOption] {
         match self {
@@ -953,17 +1178,6 @@ impl Verb {
             Self::Prune => PRUNE_OPTIONS,
             Self::Admit => ADMIT_OPTIONS,
             Self::Accept => ACCEPT_OPTIONS,
-        }
-    }
-
-    /// The options `kink-flow <verb>` takes, which its help lists: [`Self::options`] and, for
-    /// `check`, `--with`, which reads other flows' manifests by path and which no front end
-    /// passes on yet (a front end's table, [`Self::options`], refuses it).
-    #[must_use]
-    pub const fn own_options(self) -> &'static [VerbOption] {
-        match self {
-            Self::Check => KINK_FLOW_CHECK_OPTIONS,
-            _ => self.options(),
         }
     }
 
@@ -986,13 +1200,12 @@ impl Verb {
     /// The operands `kink-flow <verb>` takes before its options.
     pub const fn operands(self) -> &'static str {
         match self {
-            Self::Check | Self::Coverage | Self::Report | Self::Compare | Self::Accept => {
-                "FLOW.toml"
-            }
+            Self::Coverage | Self::Report | Self::Compare | Self::Accept => "FLOW.toml",
+            Self::Check => "FLOW.toml [FLOW.toml]...",
             Self::Run => "FLOW.toml MUTATIONS.toml",
             Self::Query => "FLOW.toml [PATTERNS.toml]",
             Self::Fuzz => "FLOW.toml TEMPLATES.toml",
-            Self::Prune => "FLOW.toml MUTATIONS.toml [PATTERNS.toml]",
+            Self::Prune => "FLOW.toml (MUTATIONS.toml [PATTERNS.toml] | [FLOW.toml]...)",
             Self::Admit => "FLOW.toml FILE...",
         }
     }
@@ -1229,9 +1442,6 @@ impl FlowCommand {
                 options.mutations = options.mutations.or(files.mutations);
                 if let Some(list) = options.mutations.as_ref().filter(|list| !list.exists()) {
                     return Err(not_found(list));
-                }
-                if let Some(flow) = options.with.iter().find(|flow| !flow.is_file()) {
-                    return Err(not_file(flow));
                 }
                 Ok(Self::Check(options))
             }
@@ -2284,8 +2494,9 @@ pub struct CheckOptions {
     /// The cache directory whose result records decide `unmatched-rule` and `unapplied-rule`;
     /// default `<directory of FLOW.toml>/.kink-flow`. Nothing is written to it.
     pub cache: Option<PathBuf>,
-    /// `--with`: other flows on the corpus root, in the order given
-    /// ([`crate::check::with_flows`]); empty when the command names none.
+    /// The other flows the command line names beside this one (`check FLOW.toml FLOW.toml...`),
+    /// read for the flows on the corpus root, in the order given
+    /// ([`crate::check::with_flows`]); empty when it names none.
     pub with: Vec<PathBuf>,
 }
 
@@ -2302,10 +2513,6 @@ fn check_options(args: &[String]) -> Result<CheckOptions, String> {
             "--cache" if options.cache.is_none() => {
                 let directory = args.next().ok_or("--cache needs a directory")?;
                 options.cache = Some(PathBuf::from(directory));
-            }
-            "--with" => {
-                let flow = args.next().ok_or("--with needs a flow manifest")?;
-                options.with.push(PathBuf::from(flow));
             }
             _ => return Err(repeated(arg)),
         }
@@ -3125,11 +3332,11 @@ pub fn check(manifest: &Path) -> (Value, u8) {
     check_with(manifest, &CheckOptions::default())
 }
 
-/// `kink-flow check FLOW.toml [--mutations MUTATIONS] [--cache DIR] [--with FLOW.toml]...`: the
-/// check document and the exit status. With a mutation list, every mutation is also resolved
-/// against the admitted specification and no program runs ([`crate::check`]):
-/// [`check_corpus_mutations`] then [`check_mutations_document`], with only the flows of `--with`
-/// read between them ([`crate::check::with_flows`]).
+/// `kink-flow check FLOW.toml [--mutations MUTATIONS] [--cache DIR]`: the check document and the
+/// exit status, the other flows `options.with` names read ([`crate::check::with_flows`]). With a
+/// mutation list, every mutation is also resolved against the admitted specification and no
+/// program runs ([`crate::check`]): [`check_corpus_mutations`] then
+/// [`check_mutations_document`], with only the other flows read between them.
 pub fn check_with(manifest: &Path, options: &CheckOptions) -> (Value, u8) {
     on_manifest(manifest, &FlowCommand::Check(options.clone()))
 }
@@ -3252,7 +3459,7 @@ pub fn check_mutations_document(
 
 /// `kink-flow check FLOW.toml` without a mutation list: admission alone, each case's expectation
 /// checked against its current result record in the cache `options` names
-/// ([`crate::check::admit_checked`]), the flows `--with` names read
+/// ([`crate::check::admit_checked`]), the other flows the command line names read
 /// ([`crate::check::with_flows`]), and the exit status of the admission ([`admission_status`]);
 /// an expectation and a warning decide no exit status, since `check` runs nothing and asks only
 /// whether verdicts are possible.
@@ -3264,8 +3471,8 @@ fn check_admission(manifest: &FlowManifest, options: &CheckOptions) -> (Value, u
 }
 
 /// The exit status of `check`'s admission: `check` asks whether every verdict the corpus promises
-/// is possible before any mutant runs. A refused specification or program, or a refused flow of
-/// `--with`, could not be asked about ([`EXIT_UNASKED`]: fix it); a program every baseline run
+/// is possible before any mutant runs. A refused specification or program, or a refused other
+/// flow the command line names, could not be asked about ([`EXIT_UNASKED`]: fix it); a program every baseline run
 /// of which is excluded, or a baseline with no data under `[spec] assume_joined`, is the finding
 /// that says no ([`EXIT_NO`]); else [`EXIT_YES`] ([`FlowAdmission::verdicts_possible`]).
 fn admission_status(admission: &FlowAdmission) -> u8 {
@@ -3350,7 +3557,8 @@ fn admission_status(admission: &FlowAdmission) -> u8 {
 /// `warnings`, `{reason, definition, detail, next}`, with `unread-scope` for each definition the
 /// case scopes an expectation to (`expect_for`) that no flow given has while reading the case;
 /// both are absent without `--with`. A case whose only expectation its flow checks is scoped to
-/// the flow's definition now has its row's `expectation`, which version 17 left out.
+/// the flow's definition now has its row's `expectation`, which version 17 left out. (Version 21
+/// names the other flows as operands in place of `--with`.)
 /// 19 (PJ-32) adds the program outcomes `rejected` and `accepted` of a program whose
 /// `[[program]]` or `files` entry states `expect = { rejected = "parse" | "input" }`: rejected at
 /// that stage (the refusal's `stage`, `reason` and `detail`), or admitted (null), each with its
@@ -3363,7 +3571,12 @@ fn admission_status(admission: &FlowAdmission) -> u8 {
 /// `production = NAME`, and the refusals `no-program-parser`, `unread-declaration` and
 /// `rule-and-grammar-edits` are new. A list whose edits are all rule edits gives version 19's
 /// document but for its version.
-pub const CHECK_VERSION: u64 = 20;
+/// 21 (PJ-31) names the other flows on the corpus root by their manifests on the command line,
+/// `check FLOW.toml FLOW.toml...`, in place of `--with`, which is removed: each flow named is
+/// checked, its `with` listing the others, and the document of several flows is `{schema,
+/// version, flows}`, each of `flows` a flow's check document with its `flow` (the path as
+/// given). A command line that names one flow gives version 20's document but for its version.
+pub const CHECK_VERSION: u64 = 21;
 
 /// The check document's members, and under the Z3 profile `z3` ([`crate::with_z3_build`]); every
 /// document a verb gives for a manifest that does not decode is built from it
@@ -3534,7 +3747,7 @@ pub fn check_document(admission: &FlowAdmission) -> Value {
     if let Some(observe) = &admission.observe {
         document["observe"] = observe.clone();
     }
-    // The flows `--with` names; absent without one.
+    // The other flows the command line names; absent without one.
     if let Some(with) = &admission.with {
         document["with"] = with.value();
     }
@@ -3678,7 +3891,7 @@ mod tests {
     #[test]
     fn every_listed_option_is_one_the_parser_accepts() {
         for verb in Verb::ALL {
-            for option in verb.own_options() {
+            for option in verb.options() {
                 let mut args = vec![option.flag().to_owned()];
                 if let Some((_, name)) = option.spelling.split_once(' ') {
                     args.push(value(name).to_owned());
@@ -3721,39 +3934,74 @@ mod tests {
         }
     }
 
-    /// `check --with` names flows by path and may be repeated, each kept in order; only
-    /// kink-flow's own table lists it, so a front end, whose table is [`Verb::options`], refuses
-    /// it rather than pass on an option it does not read; and each flow given must be a file.
+    /// `check` and `prune` name several flows by their manifests (PJ-31), and every command line
+    /// of one flow parses as before: `prune FLOW.toml MUTATIONS [PATTERNS.toml]` takes a list
+    /// operand, which no manifest can be (a list has no top-level `spec`), and `prune FLOW.toml`
+    /// alone, or followed by manifests, names flows; `check FLOW.toml FLOW.toml...` names the
+    /// other flows of the check. No verb takes `--with`.
     #[test]
-    fn check_with_is_kink_flows_own_and_repeatable() {
-        let with = |verb: Verb| verb.own_options().iter().any(|o| o.flag() == "--with");
-        assert!(with(Verb::Check));
-        assert!(!Verb::Check.options().iter().any(|o| o.flag() == "--with"));
+    fn check_and_prune_name_flows_by_their_manifests() {
+        let dir =
+            std::env::temp_dir().join(format!("kink-flow-flow-operands-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let flow = dir.join("FLOW.toml");
+        let other = dir.join("OTHER.toml");
+        let list = dir.join("MUTATIONS.toml");
+        let patterns = dir.join("PATTERNS.toml");
+        std::fs::write(&flow, "[spec]\nentry = \"a.k\"\nmain_module = \"A\"\n").unwrap();
+        std::fs::write(&other, "[spec]\nentry = \"b.k\"\nmain_module = \"B\"\n").unwrap();
+        std::fs::write(&list, "[[mutation]]\nid = \"m\"\n").unwrap();
+        std::fs::write(&patterns, "[[pattern]]\nid = \"p\"\n").unwrap();
+        let args = |rest: &[&Path]| {
+            rest.iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>()
+        };
+        let line = |verb: &str, rest: &[&Path], tail: &[&str]| {
+            std::iter::once(verb.to_owned())
+                .chain(args(rest))
+                .chain(tail.iter().map(|arg| (*arg).to_owned()))
+                .collect::<Vec<_>>()
+        };
+        assert!(is_flow_manifest(&flow) && !is_flow_manifest(&list) && !is_flow_manifest(&dir));
+        let given = line("prune", &[&flow, &list, &patterns], &["--full"]);
+        let (verb, manifest, files, flows, rest) = operands(&given).unwrap();
+        assert_eq!((verb, manifest), (Verb::Prune, flow.clone()));
+        assert_eq!(files.mutations, Some(list.clone()));
+        assert_eq!(files.patterns, Some(patterns.clone()));
+        assert!(flows.is_empty());
+        assert_eq!(rest, ["--full"]);
+        let given = line("prune", &[&flow, &other], &["--output", "text"]);
+        let (_, _, files, flows, rest) = operands(&given).unwrap();
+        assert_eq!(files.mutations, None);
+        assert_eq!(flows, [flow.clone(), other.clone()]);
+        assert_eq!(rest, ["--output", "text"]);
+        let given = line("prune", &[&flow], &["--full"]);
+        let (_, _, files, flows, _) = operands(&given).unwrap();
+        assert_eq!((files.mutations, flows), (None, vec![flow.clone()]));
+        let given = line("check", &[&flow, &other, &flow], &["--cache", "c"]);
+        let (verb, _, _, flows, rest) = operands(&given).unwrap();
+        assert_eq!(verb, Verb::Check);
+        assert_eq!(flows, [flow.clone(), other.clone(), flow.clone()]);
+        assert_eq!(rest, ["--cache", "c"]);
+        let given = line("check", &[&flow], &[]);
+        assert!(operands(&given).unwrap().3.is_empty());
         assert!(
             Verb::ALL
                 .into_iter()
-                .filter(|verb| with(*verb))
-                .eq([Verb::Check])
-        );
-        assert!(verb_help(Verb::Check).contains("--with FLOW.toml"));
-        let args = ["--with", "a/FLOW.toml", "--cache", "c", "--with", "b.toml"].map(str::to_owned);
-        let options = check_options(&args).unwrap();
-        assert_eq!(
-            options.with,
-            [PathBuf::from("a/FLOW.toml"), PathBuf::from("b.toml")]
+                .all(|verb| !verb.options().iter().any(|o| o.flag() == "--with"))
         );
         assert_eq!(
-            check_options(&["--with".to_owned()]).err().as_deref(),
-            Some("--with needs a flow manifest")
+            check_options(&["--with".to_owned(), "x".to_owned()])
+                .err()
+                .as_deref(),
+            Some("invalid option '--with'")
         );
-        let missing = std::env::temp_dir().join("kink-flow-no-such-flow/FLOW.toml");
-        let error = FlowCommand::parse(
-            "check",
-            CommandFiles::default(),
-            &["--with".to_owned(), missing.display().to_string()],
-        )
-        .unwrap_err();
-        assert_eq!(error, format!("{} is not a file", missing.display()));
+        assert!(verb_help(Verb::Check).contains("check FLOW.toml [FLOW.toml]..."));
+        assert!(verb_help(Verb::Prune).contains("[FLOW.toml]..."));
+        assert_eq!(joint_status([EXIT_YES, EXIT_NO]), EXIT_NO);
+        assert_eq!(joint_status([EXIT_UNANSWERED, EXIT_UNASKED]), EXIT_UNASKED);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     /// `accept --only` keeps each case once, in order; `--projection` is required and given once.

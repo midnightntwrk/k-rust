@@ -161,6 +161,12 @@ pub struct FlowManifest {
     /// order written; empty when the manifest declares none. Only `query` and `fuzz --pattern`
     /// read them (`crate::pattern::declared_patterns`), so they are in no digest or key.
     pub patterns: Vec<PatternsEntry>,
+    /// `[mutations] lists`: the flow's own mutation lists, each a path relative to the
+    /// manifest's directory as its glob matched it, in the order the globs are written (each
+    /// glob's matches sorted by path); empty when the manifest names none. Only a `prune` that
+    /// names the flow by its manifest alone reads them ([`crate::prune`], "Several flows"), so
+    /// they are in no digest or key.
+    pub mutation_lists: Vec<String>,
     /// The front end's stop condition, which asks `[stop] when` at each arrival
     /// ([`Self::with_stop_when`]). A decoded `FLOW.toml` has none: kink-flow reads no values of
     /// the definition, so admission refuses a `when` without it (stage `stop`,
@@ -987,6 +993,8 @@ pub struct ManifestFile {
     pub implementations: Vec<ImplementationSection>,
     /// `[[patterns]]`, as [`FlowManifest::patterns`].
     pub patterns: Vec<PatternsEntry>,
+    /// `[mutations] lists`, as [`FlowManifest::mutation_lists`].
+    pub mutation_lists: Vec<String>,
 }
 
 /// How a manifest's `[spec]` declares its specification.
@@ -1088,6 +1096,7 @@ impl ManifestFile {
                 "program",
                 "implementation",
                 "patterns",
+                "mutations",
             ],
         )?;
         let spec = spec(top.get("spec").ok_or_else(|| missing("spec"))?)?;
@@ -1138,6 +1147,11 @@ impl ManifestFile {
             .map(|value| pattern_sources::entries(value, directory))
             .transpose()?
             .unwrap_or_default();
+        let mutation_lists = top
+            .get("mutations")
+            .map(|value| mutation_lists(value, directory))
+            .transpose()?
+            .unwrap_or_default();
         let no_entries = Vec::new();
         let entries = match top.get("program") {
             None => &no_entries,
@@ -1182,6 +1196,7 @@ impl ManifestFile {
             coverage,
             implementations,
             patterns,
+            mutation_lists,
         })
     }
 
@@ -1236,6 +1251,7 @@ impl ManifestFile {
             coverage: self.coverage,
             implementations: self.implementations,
             patterns: self.patterns,
+            mutation_lists: self.mutation_lists,
             stop_when: StopWhenSlot::default(),
             observe_functions: ObserveFunctionsSlot::default(),
             input_decoder: Decoder::default(),
@@ -2591,6 +2607,7 @@ enum Matches {
     Texts,
     CaseDocuments,
     PatternLists,
+    MutationLists,
 }
 
 impl Matches {
@@ -2601,8 +2618,49 @@ impl Matches {
             Self::Texts => None,
             Self::CaseDocuments => Some("case documents"),
             Self::PatternLists => Some("pattern lists"),
+            Self::MutationLists => Some("mutation lists"),
         }
     }
+}
+
+/// `[mutations]`: its `lists`, globs of mutation lists under the manifest's directory
+/// ([`FlowManifest::mutation_lists`]), each matched as a `[[patterns]] files` glob is (a `.toml`
+/// last component, one file without a wildcard; a glob that matches nothing is an error), and a
+/// file two globs match is an error: a mutation list is named once.
+fn mutation_lists(value: &Value, directory: &Path) -> Result<Vec<String>, ManifestError> {
+    let section = table(value, "mutations")?;
+    known_keys(section, "mutations", &["lists"])?;
+    let key = "mutations.lists";
+    let Some(Value::Array(globs)) = section.get("lists") else {
+        return Err(ManifestError::new(
+            key,
+            "expected an array of globs of mutation lists, relative to the manifest's directory",
+        ));
+    };
+    // A mutation list is a statement over one definition, so it is beside the flow.
+    let tree = CaseRoot::manifest_directory(directory);
+    let mut lists = Vec::new();
+    for (index, glob) in globs.iter().enumerate() {
+        let key = format!("{key}[{index}]");
+        for file in pattern_matches(glob, &key, &tree, Matches::MutationLists)? {
+            if lists.contains(&file) {
+                return Err(ManifestError::new(
+                    &key,
+                    format!(
+                        "matches {file:?}, which an earlier glob also matches; a mutation list is named once"
+                    ),
+                ));
+            }
+            lists.push(file);
+        }
+    }
+    if lists.is_empty() {
+        return Err(ManifestError::new(
+            key,
+            "names no glob: give at least one, or leave [mutations] out",
+        ));
+    }
+    Ok(lists)
 }
 
 /// The matches of the pattern `value` (the key `key`) under the tree `tree`; none is an error.
@@ -2645,6 +2703,7 @@ fn pattern_matches(
     if matches.is_empty() {
         let empty = match kind {
             Matches::PatternLists => "an empty list of patterns",
+            Matches::MutationLists => "an empty list of mutations",
             Matches::Texts | Matches::CaseDocuments => "an empty corpus",
         };
         return Err(ManifestError::new(

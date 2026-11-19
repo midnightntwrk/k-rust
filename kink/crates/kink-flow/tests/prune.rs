@@ -250,7 +250,7 @@ fn the_report_keeps_claims_unknowns_and_one_of_two_alternatives() {
     );
     assert_eq!(document["unanswered"]["complete"], true);
     assert_eq!(document["schema"], "kink-flow-prune");
-    assert_eq!(document["version"], 6);
+    assert_eq!(document["version"], 7);
     assert_eq!(document["cases"], 6);
     let redundant = document["redundant"]
         .as_array()
@@ -922,7 +922,7 @@ fn a_kill_obligation_is_a_mutation_under_a_projection() {
     let (full, status) = prune(&dir, mutations_only(&dir), &["--full"]);
     assert_eq!(status, EXIT_YES, "{full:#}");
     assert_eq!(decisions(&lazy), decisions(&full));
-    assert_eq!(full["version"], 6);
+    assert_eq!(full["version"], 7);
     assert_eq!(
         ids(&full["removable"]["cases"]),
         ["emitted", "emitted2"],
@@ -1110,4 +1110,298 @@ fn a_grammar_mutation_is_read_from_its_reparse() {
     let (full, status) = prune(&dir, files(), &["--full"]);
     assert_eq!(status, EXIT_UNASKED, "{full:#}");
     assert_eq!(full["refused"]["family"], "mutations", "{full:#}");
+}
+
+/// Two K flows of calc on one corpus root (PJ-31): `add` reads every case and lists a mutation
+/// of addition, `mul` reads `m1.calc` and `a2.calc` and lists a mutation of multiplication.
+fn two_flows(name: &str) -> PathBuf {
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("kink-flow-prune-{}", std::process::id()))
+        .join(name);
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(dir.join("corpus")).unwrap();
+    for (file, text) in [
+        ("a1.calc", "1 + 2"),
+        ("a2.calc", "3 + 4"),
+        ("m1.calc", "2 * 3"),
+    ] {
+        fs::write(dir.join("corpus").join(file), text).unwrap();
+    }
+    let spec = "[spec]\nentry = \"calc.k\"\nmain_module = \"CALC\"\nsyntax_module = \
+                \"CALC-SYNTAX\"\n\n[corpus]\nroot = \"../corpus\"\n\n";
+    let mutation = |id: &str, rule: &str, find: &str, replace: &str| {
+        format!(
+            "[[mutation]]\nid = \"{id}\"\nmisunderstanding = \"{id}\"\n  [[mutation.edit]]\n  \
+             rule = \"{rule}\"\n  find = \"{find}\"\n  replace = \"{replace}\"\n"
+        )
+    };
+    for (flow, programs, list, mutations) in [
+        (
+            "add",
+            "[[program]]\nfiles = \"*.calc\"\n",
+            "ADD.toml",
+            mutation("add-becomes-sub", "add", "I1 +Int I2", "I1 -Int I2"),
+        ),
+        (
+            "mul",
+            "[[program]]\nfiles = \"m*.calc\"\n\n[[program]]\nfiles = \"a2*.calc\"\n",
+            "MUL.toml",
+            mutation("mul-becomes-add", "mul", "I1 *Int I2", "I1 +Int I2"),
+        ),
+    ] {
+        let directory = dir.join(flow);
+        fs::create_dir_all(&directory).unwrap();
+        fs::copy(
+            flow_support::flow("calc").join("calc.k"),
+            directory.join("calc.k"),
+        )
+        .unwrap();
+        fs::write(
+            directory.join("FLOW.toml"),
+            format!("{spec}[mutations]\nlists = [\"{list}\"]\n\n{programs}"),
+        )
+        .unwrap();
+        fs::write(directory.join(list), mutations).unwrap();
+    }
+    dir
+}
+
+/// `kink-flow` in `dir` with `args`: the exit status, stdout and stderr.
+fn kink_flow(dir: &Path, args: &[&str]) -> (Option<i32>, String, String) {
+    let output = Command::new(env!("CARGO_BIN_EXE_kink-flow"))
+        .current_dir(dir)
+        .args(args)
+        .output()
+        .unwrap();
+    (
+        output.status.code(),
+        String::from_utf8(output.stdout).unwrap(),
+        String::from_utf8(output.stderr).unwrap(),
+    )
+}
+
+/// PJ-31: `prune FLOW.toml FLOW.toml...` decides over every flow given. Alone, `add` removes
+/// `a2.calc` (its add kill and add coverage are also `a1.calc`'s); with `mul`, which reads
+/// `a2.calc` as its only case that adds, `a2.calc` is kept for `mul`, and `a1.calc` is removable
+/// instead. Every reason names its flow; lazily and with `--full` the decisions are the same; one
+/// flow named alone gives that flow's document, its lists named from `[mutations] lists`.
+#[test]
+fn a_case_is_removable_only_when_every_flow_given_lets_it_go() {
+    let dir = two_flows("two-flows");
+    let (code, stdout, stderr) = kink_flow(&dir, &["prune", "add/FLOW.toml"]);
+    assert_eq!(code, Some(0), "{stdout}{stderr}");
+    let alone: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(alone["version"], 7, "{alone:#}");
+    assert_eq!(alone["removable"]["cases"], json!(["a2.calc"]), "{alone:#}");
+    assert_eq!(
+        family(&alone, "mutations")["list"],
+        json!({"path": null, "corpus_own": true, "declared": ["ADD.toml"]})
+    );
+    assert!(!stdout.contains("\"flow\""), "{alone:#}");
+
+    let (code, stdout, stderr) = kink_flow(&dir, &["prune", "add/FLOW.toml", "mul/FLOW.toml"]);
+    assert_eq!(code, Some(0), "{stdout}{stderr}");
+    let joint: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(joint["cases"], 3, "{joint:#}");
+    assert_eq!(joint["removable"]["order"], "reverse-flow-manifest");
+    assert_eq!(joint["removable"]["cases"], json!(["a1.calc"]), "{joint:#}");
+    // a2.calc is not even redundant alone: mul keeps it against the whole root.
+    assert!(
+        joint["redundant"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|entry| entry["case"] != "a2.calc"),
+        "{joint:#}"
+    );
+    let kept = entry(&joint["kept"], "a2.calc");
+    assert!(
+        kept["reasons"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|reason| reason["flow"] == "mul/FLOW.toml"),
+        "{joint:#}"
+    );
+    assert!(
+        kept["reasons"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|reason| reason["reason"] == "sole-discharger"),
+        "{joint:#}"
+    );
+    assert_eq!(
+        kept["classes"],
+        json!([{"flow": "add/FLOW.toml", "class": "comparable"},
+               {"flow": "mul/FLOW.toml", "class": "comparable"}])
+    );
+    // m1.calc is mul's only killer of its mutation.
+    assert!(
+        entry(&joint["kept"], "m1.calc")["reasons"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|reason| reason
+                == &json!({"reason": "sole-discharger", "family": "mutations",
+                           "id": "mul-becomes-add", "flow": "mul/FLOW.toml"})),
+        "{joint:#}"
+    );
+    assert_eq!(joint["scope"]["flow_only"], false);
+    assert_eq!(
+        joint["scope"]["flows"],
+        json!([{"flow": "add/FLOW.toml", "corpus_root": "../corpus"},
+               {"flow": "mul/FLOW.toml", "corpus_root": "../corpus"}])
+    );
+    assert_eq!(
+        joint["flows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|flow| flow["flow"].clone())
+            .collect::<Vec<_>>(),
+        ["add/FLOW.toml", "mul/FLOW.toml"]
+    );
+    assert!(
+        joint["limits"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|limit| limit["limit"] == "flows")
+    );
+
+    let (code, stdout, stderr) =
+        kink_flow(&dir, &["prune", "add/FLOW.toml", "mul/FLOW.toml", "--full"]);
+    assert_eq!(code, Some(0), "{stdout}{stderr}");
+    let full: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(full["mode"], "full");
+    assert_eq!(decisions(&full), decisions(&joint));
+
+    let (code, text, stderr) = kink_flow(
+        &dir,
+        &[
+            "prune",
+            "add/FLOW.toml",
+            "mul/FLOW.toml",
+            "--output",
+            "text",
+        ],
+    );
+    assert_eq!(code, Some(0), "{text}{stderr}");
+    assert!(
+        text.starts_with(
+            "3 cases: 1 redundant alone, 1 removable together (in reverse-flow-manifest order): \
+             a1.calc\n"
+        ),
+        "{text}"
+    );
+    assert!(
+        text.contains("the only discharger of mul/FLOW.toml: mutations mul-becomes-add"),
+        "{text}"
+    );
+    assert!(
+        text.contains("  mul/FLOW.toml: mutations: 1 obligations"),
+        "{text}"
+    );
+
+    // Two manifests in one directory share its cache (`.kink-flow`), both sessions open at once.
+    let beside = fs::read_to_string(dir.join("mul/FLOW.toml")).unwrap();
+    fs::write(
+        dir.join("add/MUL.toml"),
+        fs::read(dir.join("mul/MUL.toml")).unwrap(),
+    )
+    .unwrap();
+    fs::write(dir.join("add/FLOW-mul.toml"), beside).unwrap();
+    let (code, stdout, stderr) = kink_flow(&dir, &["prune", "add/FLOW.toml", "add/FLOW-mul.toml"]);
+    assert_eq!(code, Some(0), "{stdout}{stderr}");
+    let shared: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(
+        shared["removable"]["cases"],
+        json!(["a1.calc"]),
+        "{shared:#}"
+    );
+}
+
+/// PJ-31: `check FLOW.toml FLOW.toml...` checks each K flow named; a KRS flow, which only `krs
+/// kink` binds, is an other flow of each and is not checked itself, as `--with` read it.
+#[test]
+fn check_names_a_krs_flow_without_checking_it() {
+    let dir = two_flows("check-krs");
+    fs::create_dir_all(dir.join("krs")).unwrap();
+    fs::write(
+        dir.join("krs/FLOW.toml"),
+        "[spec]\nkrs = { package = \"story\", definition = \"main\" }\n\n[corpus]\nroot = \
+         \"../corpus\"\n\n[[program]]\nfiles = \"*.calc\"\n",
+    )
+    .unwrap();
+    let (code, stdout, stderr) = kink_flow(&dir, &["check", "add/FLOW.toml", "krs/FLOW.toml"]);
+    assert_eq!(code, Some(0), "{stdout}{stderr}");
+    let document: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(document.get("flows"), None, "{document:#}");
+    assert_eq!(
+        document["with"],
+        json!([{"flow": "krs/FLOW.toml", "outcome": "ok", "definition": "main", "detail": null}]),
+        "{document:#}"
+    );
+    let (code, stdout, stderr) = kink_flow(
+        &dir,
+        &["check", "add/FLOW.toml", "mul/FLOW.toml", "krs/FLOW.toml"],
+    );
+    assert_eq!(code, Some(0), "{stdout}{stderr}");
+    let document: Value = serde_json::from_str(&stdout).unwrap();
+    let flows = document["flows"].as_array().unwrap();
+    assert_eq!(
+        flows
+            .iter()
+            .map(|flow| flow["flow"].clone())
+            .collect::<Vec<_>>(),
+        ["add/FLOW.toml", "mul/FLOW.toml"],
+        "{document:#}"
+    );
+    assert_eq!(
+        flows[1]["with"].as_array().unwrap().len(),
+        2,
+        "{document:#}"
+    );
+}
+
+/// PJ-31: the flows of one prune read one corpus root and each names its mutation lists; a
+/// flow on another root, one that names no list, and a record or cache with several flows
+/// refuse the command (exit 2), naming the flow.
+#[test]
+fn flows_on_other_roots_or_without_lists_are_refused() {
+    let dir = two_flows("two-flows-refused");
+    fs::create_dir_all(dir.join("own")).unwrap();
+    fs::copy(dir.join("add/calc.k"), dir.join("own/calc.k")).unwrap();
+    fs::copy(dir.join("add/ADD.toml"), dir.join("own/ADD.toml")).unwrap();
+    fs::write(dir.join("own/x.calc"), "1 + 1").unwrap();
+    fs::write(
+        dir.join("own/FLOW.toml"),
+        "[spec]\nentry = \"calc.k\"\nmain_module = \"CALC\"\nsyntax_module = \"CALC-SYNTAX\"\n\n\
+         [mutations]\nlists = [\"ADD.toml\"]\n\n[[program]]\nfiles = \"*.calc\"\n",
+    )
+    .unwrap();
+    let (code, stdout, stderr) = kink_flow(&dir, &["prune", "add/FLOW.toml", "own/FLOW.toml"]);
+    assert_eq!(code, Some(i32::from(EXIT_UNASKED)), "{stdout}{stderr}");
+    let document: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(document["refused"]["flow"], "own/FLOW.toml", "{document:#}");
+    assert_eq!(document["refused"]["family"], "flows", "{document:#}");
+
+    let unlisted = fs::read_to_string(dir.join("mul/FLOW.toml"))
+        .unwrap()
+        .replace("[mutations]\nlists = [\"MUL.toml\"]\n", "");
+    fs::write(dir.join("mul/FLOW.toml"), unlisted).unwrap();
+    let (code, stdout, stderr) = kink_flow(&dir, &["prune", "add/FLOW.toml", "mul/FLOW.toml"]);
+    assert_eq!(code, Some(i32::from(EXIT_UNASKED)), "{stdout}{stderr}");
+    let document: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(document["refused"]["flow"], "mul/FLOW.toml", "{document:#}");
+    assert_eq!(document["refused"]["family"], "mutations", "{document:#}");
+
+    let (code, stdout, stderr) = kink_flow(
+        &dir,
+        &["prune", "add/FLOW.toml", "mul/FLOW.toml", "--cache", "c"],
+    );
+    assert_eq!(code, Some(i32::from(EXIT_UNASKED)), "{stdout}{stderr}");
+    assert!(stdout.is_empty(), "{stdout}");
+    assert!(stderr.contains("a prune of several flows"), "{stderr}");
 }

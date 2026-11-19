@@ -163,6 +163,58 @@ mod tests {
         assert!(error.message.contains(message), "{error}");
     }
 
+    /// `[mutations] lists` (PJ-31) matches mutation lists by the same globs, beside the
+    /// manifest, in the order the globs are written; a list two globs match, a glob that matches
+    /// nothing, an empty array and an unknown key are refused; a manifest without the section
+    /// names none.
+    #[test]
+    fn mutation_lists_decode_in_the_order_written() {
+        let dir = corpus(
+            "mutation-lists",
+            &["mutations/b.toml", "mutations/a.toml", "MUTATIONS.toml"],
+        );
+        let manifest = decode(
+            &dir,
+            "[mutations]\nlists = [\"MUTATIONS.toml\", \"mutations/*.toml\"]\n",
+        )
+        .unwrap();
+        assert_eq!(
+            manifest.mutation_lists,
+            ["MUTATIONS.toml", "mutations/a.toml", "mutations/b.toml"]
+        );
+        assert!(decode(&dir, "").unwrap().mutation_lists.is_empty());
+        refused(
+            &dir,
+            "[mutations]\nlists = [\"mutations/*.toml\", \"mutations/a.toml\"]\n",
+            "mutations.lists[1]",
+            "a mutation list is named once",
+        );
+        refused(
+            &dir,
+            "[mutations]\nlists = [\"none/*.toml\"]\n",
+            "mutations.lists[0]",
+            "matches no file",
+        );
+        refused(
+            &dir,
+            "[mutations]\nlists = []\n",
+            "mutations.lists",
+            "names no glob",
+        );
+        refused(
+            &dir,
+            "[mutations]\nlist = [\"MUTATIONS.toml\"]\n",
+            "mutations.list",
+            "unknown key",
+        );
+        refused(
+            &dir,
+            "[mutations]\nlists = [\"mutations/*\"]\n",
+            "mutations.lists[0]",
+            "mutation lists are TOML",
+        );
+    }
+
     /// `files` matches pattern lists by the program globs' semantics, `krs` names a package, and
     /// the entries keep their declaration order; a manifest without the table declares none.
     #[test]

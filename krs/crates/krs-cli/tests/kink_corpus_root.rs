@@ -365,4 +365,19 @@ fn two_definitions_read_one_corpus_root() {
             "{refused:#}"
         );
     }
+
+    // A KRS flow's mutation list is its layout's: `[mutations] lists`, which kink-flow's
+    // several-flow prune reads, is refused by every verb (PJ-31).
+    let manifest = fs::read_to_string(workspace.path("refined/kink/FLOW.toml")).unwrap();
+    workspace.write(
+        "refined/kink/FLOW.toml",
+        &format!("{manifest}\n[mutations]\nlists = [\"mutations/*.toml\"]\n"),
+    );
+    let check = workspace.kink("refined", "check", &[]);
+    assert_status(&check, 2);
+    assert!(
+        text(&check.stdout).contains("`krs kink` does not read [mutations] lists"),
+        "{}",
+        text(&check.stdout)
+    );
 }

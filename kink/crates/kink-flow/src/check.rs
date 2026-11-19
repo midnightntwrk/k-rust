@@ -417,7 +417,7 @@ pub fn expect_recorded(
     }
 }
 
-/// A flow `check --with` names: a manifest decoded without binding its specification, so nothing
+/// Another flow a `check` names (`check FLOW.toml FLOW.toml...`): a manifest decoded without binding its specification, so nothing
 /// of its definition is built, read for its definition name and the cases it reads.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct GivenFlow {
@@ -428,7 +428,7 @@ pub struct GivenFlow {
     pub read: Result<GivenDefinition, String>,
 }
 
-/// What `check` reads of a flow `--with` names.
+/// What `check` reads of another flow it names.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct GivenDefinition {
     /// Its definition name ([`crate::manifest::SpecDecl::expect_scope`]).
@@ -438,7 +438,7 @@ pub struct GivenDefinition {
     pub cases: BTreeSet<String>,
 }
 
-/// The flows `check --with` names, in the order given.
+/// The other flows a `check` names, in the order given.
 ///
 /// Which flows read a corpus root is known to no flow: a flow names its root by a relative path
 /// from its own directory, which may climb above it, so a flow anywhere can name the root, and no
@@ -473,7 +473,7 @@ impl FlowsGiven {
                         if !same {
                             return Err(format!(
                                 "it reads its cases from {} of its manifest, which is not {} of \
-                                 this flow: --with names flows on this flow's corpus root",
+                                 this flow: the flows a check names read one corpus root",
                                 theirs.name, own.name
                             ));
                         }
@@ -553,7 +553,7 @@ impl CaseWarning {
     }
 }
 
-/// The flows `paths` names (`check --with`) read into `admission` ([`FlowsGiven::read`]), and,
+/// The other flows `paths` names (`check FLOW.toml FLOW.toml...`) read into `admission` ([`FlowsGiven::read`]), and,
 /// when none is refused, each case's `unread-scope` warnings ([`unread_scopes`]). Nothing is
 /// read, and `admission` is unchanged, when `paths` is empty.
 pub fn with_flows(manifest: &FlowManifest, paths: &[PathBuf], admission: &mut FlowAdmission) {
@@ -638,8 +638,8 @@ pub fn unread_scopes(
                 ),
                 next: format!(
                     "correct the definition name if it is mistyped (a K flow's [spec] \
-                     main_module, a KRS flow's facet), or give the flow of `{definition}` that \
-                     reads the case with --with"
+                     main_module, a KRS flow's facet), or name the flow of `{definition}` that \
+                     reads the case beside this one (check FLOW.toml FLOW.toml...)"
                 ),
             });
         }
