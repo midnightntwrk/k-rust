@@ -87,8 +87,9 @@ if on ref-kimp; then gen f2-examples/ref-kimp.kore ref-kimp RefKimp --wf
 # (User.SpikeEmb); the embeddings `kcore kk-native` runs are sig's (User.NativeTie); the walk and lookup helpers over the mirrors (User.HelpWalk)
 # `match`, `matchTs` and `matchK` on embedded mirrors at a pattern without a collection pattern (User.MatchEval: `KCore.KK.match_eval`);
 # kore.k's order functions over the mirrors and insert and member on encodings (User.HelpOrder);
-# a term's instance under a substitution, as kore.k's `inst` gives it (User.Inst: `KCore.KK.Inst`, `KCore.KK.inst_Inst`)
+# a term's instance under a substitution, as kore.k's `inst` gives it (User.Inst: `KCore.KK.Inst`, `KCore.KK.inst_Inst`);
+# kore.k's collection helpers over the mirrors and colOf against the collection value of the same items (User.HelpColl)
 if on ref-kk; then gen examples/ref-kk/RefKk/definition.kore ref-kk RefKk --core
   step gen/build.sh examples/ref-kk User.Coherent User.EvalInversion User.FnSolves User.PrioDecided User.CoDefined User.Consistent \
-    User.KkKit User.KkFacts User.KkCascade User.SpikeBase User.SpikeHand User.SpikeCascade User.Emb User.Sig User.EmbKit User.Leq User.HelpTerms User.KkGenEmb User.SpikeEmb User.NativeTie User.HelpWalk User.MatchEval User.HelpOrder User.Inst; fi
+    User.KkKit User.KkFacts User.KkCascade User.SpikeBase User.SpikeHand User.SpikeCascade User.Emb User.Sig User.EmbKit User.Leq User.HelpTerms User.KkGenEmb User.SpikeEmb User.NativeTie User.HelpWalk User.MatchEval User.HelpOrder User.Inst User.HelpColl; fi
 echo "all built"
