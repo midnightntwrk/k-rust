@@ -146,6 +146,8 @@ differs f2-examples/e3-k-unify.kompile.kore
 differs f2-examples/e3-k.kompile.kore
 differs f2-examples/e3-kast.kompile.kore
 differs f2-examples/e3-kseq.kompile.kore
+differs f2-examples/e3-ml-eq-rhs-or-bottom.kompile.kore
+differs f2-examples/e3-ml-eq-rhs-or-empty.kompile.kore
 differs f2-examples/e3-ml-req-ceil.kompile.kore
 differs f2-examples/e3-ml-req-exists.kompile.kore
 differs f2-examples/e3-ml-req-floor.kompile.kore
