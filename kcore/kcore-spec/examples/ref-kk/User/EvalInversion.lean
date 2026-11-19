@@ -257,8 +257,8 @@ theorem eval_app_inv {d f as : GroundTerm} {r : Option GroundTerm}
     simp only [fnEval, List.mem_cons, List.not_mem_nil, or_false] at hmem
     rcases hmem with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> cases ht
   | clauseEx hfn hmem _ _ _ _ _ hne =>
-    exact absurd ((Semantics.fnsNoExs_of_sortedOK hsorted).lookup hfn hmem) hne
+    exact absurd (fnsNoExs₀.lookup hfn hmem) hne
   | exNone hfn hmem hne =>
-    exact absurd ((Semantics.fnsNoExs_of_sortedOK hsorted).lookup hfn hmem) hne
+    exact absurd (fnsNoExs₀.lookup hfn hmem) hne
 
 end KK

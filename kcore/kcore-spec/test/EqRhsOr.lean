@@ -668,7 +668,7 @@ theorem no_model : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.
   haveI : OvlOK c := hno
   have F := HoldsShape.nodeFacts_of_core coreOK_now hIc
   have hden := fun (r : Option GroundTerm) (hev : Eval c H [iv 1] r) (e : Valuation M) (m : M) =>
-    Faithful.eval_den4_coreCl hIc (Semantics.sortedOKCl_of_sortedOK hok) hsr (Semantics.coreOK_parts coreOK_now).2.1 hph
+    Faithful.eval_den4_coreCl hIc (Semantics.sortedOKCl_of_sortedOK_noExs hok (Semantics.fnsNoExs_of_all (by decide +kernel))) hsr (Semantics.coreOK_parts coreOK_now).2.1 hph
       (fun fn hfn cl hcl hw => absurd hw (by rw [noWitCl fn hfn cl hcl]; decide))
       (HoldsShape.preReadAll_of_core coreOK_now hIc) hev lookupH (by decide +kernel) e m
   let e : Valuation M := ⟨fun _ => default, fun _ _ => False⟩
@@ -768,7 +768,7 @@ theorem no_model : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.
   haveI : OvlOK c := hno
   have F := HoldsShape.nodeFacts_of_core coreOK_now hIc
   have hden := fun (r : Option GroundTerm) (hev : Eval c H [iv 1] r) (e : Valuation M) (m : M) =>
-    Faithful.eval_den4_coreCl hIc (Semantics.sortedOKCl_of_sortedOK hok) hsr (Semantics.coreOK_parts coreOK_now).2.1 hph
+    Faithful.eval_den4_coreCl hIc (Semantics.sortedOKCl_of_sortedOK_noExs hok (Semantics.fnsNoExs_of_all (by decide +kernel))) hsr (Semantics.coreOK_parts coreOK_now).2.1 hph
       (fun fn hfn cl hcl hw => absurd hw (by rw [noWitCl fn hfn cl hcl]; decide))
       (HoldsShape.preReadAll_of_core coreOK_now hIc) hev lookupH (by decide +kernel) e m
   let e : Valuation M := ⟨fun _ => default, fun _ _ => False⟩

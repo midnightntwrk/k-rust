@@ -286,6 +286,9 @@ theorem hcore : c₀.coreOK = true := coreOK_withHooks_defn HookParams.none
 
 theorem hsorted : c₀.sortedOK = true := (Semantics.coreOK_parts hcore).1
 
+/-- No clause of kore.k binds a variable by `\exists`. -/
+theorem fnsNoExs₀ : c₀.FnsNoExs := Semantics.fnsNoExs_of_all (by decide +kernel)
+
 theorem hsr : c₀.srReady = true := by
   obtain ⟨hok, -, -, hp, hids⟩ := Semantics.coreOK_parts hcore
   exact NamesApart.srReady_of hp hids hok
@@ -381,7 +384,7 @@ theorem isElem_true {v : GroundTerm} (h : Eval c₀ 478 [v] (some (bool true))) 
   | rest _ _ => rw [fnRest_none] at hr; cases hr
   | ensFails => cases hr
   | clauseEx hfn hmem _ _ _ _ _ hne =>
-    exact absurd ((Semantics.fnsNoExs_of_sortedOK hsorted).lookup hfn hmem) hne
+    exact absurd (fnsNoExs₀.lookup hfn hmem) hne
   | exNone => cases hr
 
 /-- Where `isElem` is `false`, its equations of priority 50 fail. -/
@@ -400,7 +403,7 @@ theorem isElem_false {v : GroundTerm} (h : Eval c₀ 478 [v] (some (bool false))
   | rest _ _ => rw [fnRest_none] at hr; cases hr
   | ensFails => cases hr
   | clauseEx hfn hmem _ _ _ _ _ hne =>
-    exact absurd ((Semantics.fnsNoExs_of_sortedOK hsorted).lookup hfn hmem) hne
+    exact absurd (fnsNoExs₀.lookup hfn hmem) hne
   | exNone => cases hr
 
 /-- A clause without a `requires`, with the predicate `\top` and without existential variables that
@@ -606,7 +609,7 @@ theorem hfr (fn : Fn) : ∀ cl ∈ fn.clauses, c₀.ovlFreeList cl.pats = true :
   fun _ _ => ovlFreeList_of_nil hovls _
 
 theorem agree_cmpI : ClausesAgree c₀ fnCmpI := by
-  refine clausesAgree_of_apart hmc (Semantics.fnsNoExs_of_sortedOK hsorted _ mem_cmpI) (hfr _) (hcls mem_cmpI) fun p hp => ?_
+  refine clausesAgree_of_apart hmc (fnsNoExs₀ _ mem_cmpI) (hfr _) (hcls mem_cmpI) fun p hp => ?_
   simp only [fnCmpI, pairs, List.map_cons, List.map_nil, List.cons_append, List.nil_append,
     List.mem_cons, List.not_mem_nil, or_false] at hp
   rcases hp with rfl | rfl | rfl
@@ -615,7 +618,7 @@ theorem agree_cmpI : ClausesAgree c₀ fnCmpI := by
   · exact .inr apart_eq_gt
 
 theorem agree_join : ClausesAgree c₀ fnJoin := by
-  refine clausesAgree_of_apart hmc (Semantics.fnsNoExs_of_sortedOK hsorted _ mem_join) (hfr _) (hcls mem_join) fun p hp => ?_
+  refine clausesAgree_of_apart hmc (fnsNoExs₀ _ mem_join) (hfr _) (hcls mem_join) fun p hp => ?_
   simp only [fnJoin, pairs, List.map_cons, List.map_nil, List.cons_append, List.nil_append,
     List.mem_cons, List.not_mem_nil, or_false] at hp
   rcases hp with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
@@ -631,7 +634,7 @@ theorem agree_join : ClausesAgree c₀ fnJoin := by
   · exact .inr apart_list_elem
 
 theorem agree_matchCol : ClausesAgree c₀ fnMatchCol := by
-  refine clausesAgree_of_apart hmc (Semantics.fnsNoExs_of_sortedOK hsorted _ mem_matchCol) (hfr _) (hcls mem_matchCol) fun p hp => ?_
+  refine clausesAgree_of_apart hmc (fnsNoExs₀ _ mem_matchCol) (hfr _) (hcls mem_matchCol) fun p hp => ?_
   simp only [fnMatchCol, pairs, List.map_cons, List.map_nil, List.cons_append, List.nil_append,
     List.mem_cons, List.not_mem_nil, or_false] at hp
   rcases hp with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl

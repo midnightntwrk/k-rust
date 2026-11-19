@@ -96,7 +96,7 @@ def HypSoundModel (c : Semantics) : Prop :=
     collSortsOK c = true ∧ collsOK c = true ∧ patHeadsOK c = true ∧ OvlOK c
 
 theorem HypSoundCore.model {c : Semantics} (h : HypSoundCore c) : HypSoundModel c :=
-  ⟨Semantics.sortedOKClEx_of_sortedOKEx (Semantics.sortedOKEx_of_sortedOK h.1), h.2⟩
+  ⟨Semantics.sortedOKClEx_of_sortedOKEx (Semantics.sortedOK_iff_ex.mp h.1), h.2⟩
 
 /-- `HypModel` with `HypFnModel` and `HypSoundModel` in place of `Hyp` and `HypSound`: what the
 model's proofs read of the clauses and rules is that they are well sorted with each variable
@@ -129,7 +129,7 @@ theorem HypModelCore.solves {c : Semantics} (h : HypModelCore c) : FnSolves c :=
 /-- `HypModelCore` from its parts other than the functions'. -/
 theorem HypModel.core_of {c : Semantics} (h : HypModel c) (hd : FnDet c) (hs : FnSolves c) : HypModelCore c :=
   have hc := h.hyp.core (Semantics.overloadsOK_pats h.sound.2.2.2.2.2.2.2.2.ok)
-  ⟨⟨Semantics.sortedOKClEx_of_sortedOKEx (Semantics.sortedOKEx_of_sortedOK hc.1), hc.2.1, hc.2.2.2.2.2.2, hd, hs⟩,
+  ⟨⟨Semantics.sortedOKClEx_of_sortedOKEx (Semantics.sortedOK_iff_ex.mp hc.1), hc.2.1, hc.2.2.2.2.2.2, hd, hs⟩,
     HypSoundCore.model h.sound.core, h.names, h.lits, h.ids,
     h.sorts, h.collCtors, h.ites, h.kinds, h.ctors, h.fns, h.sound.2.2.2.2.2.2.2.2.ok, ovlsOnce_of_ids h.ids⟩
 

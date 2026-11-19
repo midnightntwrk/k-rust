@@ -248,7 +248,7 @@ theorem holds_entails_fixed (h : c.coreOK = true) (hIc : I ⊧ᴵP Γc c)
     (hc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c)
     {val : Srt → Bool} (hval : ∀ s, val s = true → ∃ v, c.sortOf v = some s)
     (p : Cond) (hrc : hasBinder p = true → c.readsConfined = true) : HoldsDenB (Cond.boundV c val) c I p :=
-  holds_den_fixed h hIc (atomFacts_of_core h hIc (termSoundEx (Semantics.coreOKEx_of_coreOK h) hIc hc)) hval p hrc
+  holds_den_fixed h hIc (atomFacts_of_core h hIc (termSoundEx (Semantics.coreOK_iff_ex.mp h) hIc hc)) hval p hrc
 
 end HoldsBinderFixed
 

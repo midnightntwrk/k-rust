@@ -6,7 +6,7 @@
   `Semantics.sortedOKCl` (SortedCl.lean) is `sortedOK` with each clause asked `clauseSortedOpen` (each variable
   occurs in the clause) and `clausePlainOpen` (an open condition variable is of a confined sort, or
   the conditions are closed) in place of `clauseSorted` and `clausesPlain`; `sortedOK` gives it
-  (`Semantics.sortedOKCl_of_sortedOK`). Of the clauses, `StepDecided` reads only that every function
+  where no clause binds a variable by `\exists` (`Semantics.sortedOKCl_of_sortedOK_noExs`). Of the clauses, `StepDecided` reads only that every function
   has a result at arguments of its sorts (`FnTerminates`) and that the right sides are well sorted
   (`SortCtx`, `sortCtx_of_allCl`): a well-sorted term has a result under a well-sorted substitution
   (`Model.evalTerm_totalCl`), and a rule's conditions and right side are well sorted

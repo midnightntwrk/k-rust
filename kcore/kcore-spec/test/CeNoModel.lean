@@ -16,11 +16,14 @@
   - `body_read`: the body `B ∧ ⊤ ∧ ¬ (B ∈ f())` at a valuation holds `m` exactly where `m` is B's
     element and B's element is not in `f()`.
   - `no_model`: in a model of Γ the element of `true` is in `f()` exactly where it is not.
-  - `not_consistent`, `coreEx_not_consistent`.
+  - `not_consistent`, `coreEx_not_consistent`; `coreOK` is `coreOKEx`, so the text is `coreOK`'s
+    (`cCeU_coreOK`) and `core_not_consistent` follows; `not_postDecided`: the text lacks
+    `ClausePostDecided`, which `consistent_of` takes.
 -/
 import KcoreSpec.HypModelCoreEx
 import KcoreSpec.ClauseExDenCEx
 import KcoreSpec.CoreDecide
+import KcoreSpec.Sound
 
 set_option autoImplicit false
 set_option maxRecDepth 100000
@@ -369,6 +372,19 @@ theorem coreEx_not_consistent : ¬ ∀ c : Semantics, c.coreOKEx = true → FnDe
     OpenLaws c → Consistent c :=
   fun h => not_consistent (h cCeU cCeU_coreOKEx fnDet fnSolves preDecided openLaws)
 
+/-- The text is `coreOK`'s: `coreOK` is `coreOKEx`. -/
+theorem cCeU_coreOK : cCeU.coreOK = true := Semantics.coreOK_iff_ex.mpr cCeU_coreOKEx
+
+/-- **`coreOK`, `FnDet`, `FnSolves`, `ClausePreDecided` and `OpenLaws` do not give `Consistent`**:
+`consistent_of` needs `ClausePostDecided` beside them. -/
+theorem core_not_consistent : ¬ ∀ c : Semantics, c.coreOK = true → FnDet c → FnSolves c → ClausePreDecided c →
+    OpenLaws c → Consistent c :=
+  fun h => not_consistent (h cCeU cCeU_coreOK fnDet fnSolves preDecided openLaws)
+
+/-- **The text lacks `ClausePostDecided`**: with it, `consistent_of` would give `Consistent`. -/
+theorem not_postDecided : ¬ ClausePostDecided cCeU := fun hq =>
+  not_consistent (consistent_of cCeU cCeU_coreOK fnDet fnSolves preDecided hq openLaws)
+
 #check @cCeU_coreOKEx
 #check @clause_rawEx
 #check @body_read
@@ -378,6 +394,9 @@ theorem coreEx_not_consistent : ¬ ∀ c : Semantics, c.coreOKEx = true → FnDe
 #check @fnSolves
 #check @preDecided
 #check @openLaws
+#check @cCeU_coreOK
+#check @core_not_consistent
+#check @not_postDecided
 #check @coreEx_not_consistent
 
 #print axioms no_model

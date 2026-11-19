@@ -6,8 +6,8 @@
     f() => g(?Z:Int)  with post := Z ∈ lp()      lp() => 0      g(X:Int) => X
     <k> K </k> <counter> N </counter> => <k> K </k> <counter> f() </counter>
 
-  - `coreOKEx` accepts it and `coreOK` does not (`cCeV_coreOKEx`, `cCeV_not_coreOK`). `Z` is of the
-    sort Int, which is not confined: `post` fixes it.
+  - `coreOKEx` accepts it, and so does `coreOK`, which is `coreOKEx` (`cCeV_coreOKEx`,
+    `cCeV_coreOK`). `Z` is of the sort Int, which is not confined: `post` fixes it.
   - `f()` is 0 (`fC_value`), by `Eval.clauseEx` at `Z = 0`: `post` is `Z = 0` at each instance, so
     the instance at 0 gives `g(0) = 0` and every other instance fails by its `post`; `f()` has no
     other result (`fC_inv`).
@@ -43,6 +43,7 @@ import KcoreSpec.Obligations
 import KcoreSpec.CoreDecide
 import KcoreSpec.ExactHeldCEx
 import KcoreSpec.FamValuesCE
+import KcoreSpec.Sound
 
 set_option autoImplicit false
 set_option maxRecDepth 100000
@@ -95,9 +96,7 @@ def cCeV : Semantics :=
 theorem cCeV_coreOKEx : cCeV.coreOKEx = true := by
   unfold Semantics.coreOKEx Semantics.sortedOKEx; decide_cheap
 
-theorem cCeV_not_coreOK : cCeV.coreOK = false := by
-  have : cCeV.clausesPlain = false := by decide +kernel
-  simp only [Semantics.coreOK, Semantics.sortedOK, this, Bool.and_false, Bool.false_and]
+theorem cCeV_coreOK : cCeV.coreOK = true := Semantics.coreOK_iff_ex.mpr cCeV_coreOKEx
 
 theorem cCeV_sortedOKEx : cCeV.sortedOKEx = true := by
   unfold Semantics.sortedOKEx; decide_cheap
@@ -812,6 +811,12 @@ theorem cCeV_postDecided : ClausePostDecided cCeV := clausePostDecided_of_fnHypC
 theorem cCeV_consistent : Consistent cCeV :=
   Faithful.Model.consistent_ce cCeV cCeV_hypModelCore cCeV_preDecided cCeV_postDecided cCeV_openLaws
 
+/-- The pinned `consistent_of` and `sound_hyp` at `cCeV`, which `coreOK` accepts. -/
+example : Consistent cCeV :=
+  consistent_of cCeV cCeV_coreOK (fnModel_of_fnHypCEx cCeV_coreOKEx cCeV_fnHyp).1
+    (fnModel_of_fnHypCEx cCeV_coreOKEx cCeV_fnHyp).2 cCeV_preDecided cCeV_postDecided cCeV_openLaws
+example : SoundC cCeV := sound_hyp cCeV cCeV_coreOK cCeV_fnHyp
+
 /-- **`has_model_choice_exCEx` at `cCeV`, at `T := Step cCeV`**: a model of `Γc` with the step's
 closure in which x has y as a successor exactly where y is x with the counter 0. -/
 theorem cCeV_model_step :
@@ -903,7 +908,7 @@ end KCore.CeValueTest
 #check @KCore.CeValueTest.cCeV_fnHyp
 #check @KCore.CeValueTest.successor_cfg
 #print axioms KCore.CeValueTest.cCeV_coreOKEx
-#print axioms KCore.CeValueTest.cCeV_not_coreOK
+#print axioms KCore.CeValueTest.cCeV_coreOK
 #print axioms KCore.CeValueTest.cCeV_sortedOKClEx
 #print axioms KCore.CeValueTest.fC_value
 #print axioms KCore.CeValueTest.fC_inv

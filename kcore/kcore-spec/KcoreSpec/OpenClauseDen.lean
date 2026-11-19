@@ -59,16 +59,17 @@ theorem sortPreds_topCl {c : Semantics} {fn : Fn} (hfn : fn ∈ c.sortPreds) :
   · rcases hcl with rfl | rfl <;> exact ⟨rfl, rfl⟩
 
 /-- **`sortedOK` gives `ClauseOpenFacts` of every clause of every function** (the user's and the sort
-predicates'). -/
-theorem clauseOpenFacts_of_sortedOK {c : Semantics} (hpreTop : c.clausesPreTop = true) (hok : c.sortedOK = true) :
+predicates'), where no clause binds a variable by `\exists`. -/
+theorem clauseOpenFacts_of_sortedOK {c : Semantics} (hpreTop : c.clausesPreTop = true) (hnoEx : c.FnsNoExs)
+    (hok : c.sortedOK = true) :
     ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, ∃ L, HeadsOK c L ∧ ClauseOpenFacts c fn L cl := by
   intro fn hfn cl hcl
   obtain ⟨hpats, hbinds, L, hL, hreqs, hrhss, henss⟩ := clause_ctxOccE hok hfn hcl
   have hpp : cl.pre = .top ∧ cl.post = .top := by
     rcases List.mem_append.mp hfn with hu | hp
-    · exact ⟨Semantics.clausesPreTop_spec hpreTop hu hcl, Semantics.sortedOK_clausePost hok hu hcl⟩
+    · exact ⟨Semantics.clausesPreTop_spec hpreTop hu hcl, Semantics.sortedOK_clausePost hok hu hcl (hnoEx fn hu cl hcl)⟩
     · exact sortPreds_topCl hp cl hcl
-  exact ⟨L, hL, hpats, hpp.1, hpp.2, hbinds, hreqs, hrhss, henss, clause_exsNil hok hfn hcl⟩
+  exact ⟨L, hL, hpats, hpp.1, hpp.2, hbinds, hreqs, hrhss, henss, hnoEx.allFns fn hfn cl hcl⟩
 
 /-- `ClauseOpenFacts` for a clause with a predicate in its premise: the premise's predicate is
 well sorted (`condOK`) rather than `\top`. -/

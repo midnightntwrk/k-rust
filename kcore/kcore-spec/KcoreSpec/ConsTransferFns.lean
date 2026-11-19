@@ -6,11 +6,13 @@
   (`sat_own_fns_rules`).
 
   A function's equation is a sentence `axiom{R} \implies{R}(premise, \equals{S,R}(f(X̄), rhs ∧ ens))`
-  at its sort variable. For a clause whose predicate is `\top` and that has no existential
-  variable its pattern is of the class `RFrag`: `\top`, `\bottom`, negation, conjunction,
+  at its sort variable, with `∃ē. (rhs ∧ ens ∧ post)` beside `\top` on the right where the clause
+  has existential variables (`clauseRhs`). For a clause whose predicate is `\top` its pattern is of
+  the class `RFrag`: `\top`, `\bottom`, negation, conjunction,
   disjunction and implication at `R`, an equality `\equals{S,R}` and a membership `\in{S,R}` of a
   variable, both between patterns at sort constants (`KFrag`, ConsTransferFrag.lean), and a
-  quantifier `\exists{R}` at a sort constant, which a competitor's exclusion writes. The
+  quantifier `\exists{R}` at a sort constant, which a competitor's exclusion writes; the right
+  side's binders and predicate are at the result sort, inside `KFrag`. The
   translation of such a pattern is of the class `RPred` (`rpred_rfrag_fn`), so
   `transfer_trAxiom_R` (ConsTransferR.lean) carries the equation.
 -/
@@ -264,13 +266,56 @@ theorem rfrag_exclusion_fn (hB : S ("Sort" ++ "Bool")) (f : Fn) (cl : Clause) (c
     obtain ⟨s', hs', hs⟩ := List.mem_map.mp (varList_sort_fn (List.mem_of_getElem? hi))
     exact ⟨_, rfl, hs ▸ hv s' hs'⟩
 
+/-- Existential binders over a pattern of the fragment, each at a variable of a sort constant. -/
+theorem kfrag_foldrExist_fn (S : Kore.KSort) {body : Kore.Pattern} (hb : KFrag body) :
+    ∀ L : List KoreAML.Var, KFrag (L.foldr (fun v p => Kore.Pattern.exist S v.kore p) body)
+  | [] => hb
+  | v :: L => .exist (varKore_sort_fg v) (kfrag_foldrExist_fn S hb L)
+
+/-- Both parts of a clause's right side are of the fragment: `rhs` and `ens` where the clause has
+no existential variable, and `∃ē. (rhs ∧ ens ∧ post)` beside `\top` where it has some. -/
+theorem kfrag_clauseRhs_fn (c : Semantics) (f : Fn) (cl : Clause) :
+    KFrag (clauseRhs c f cl).1 ∧ KFrag (clauseRhs c f cl).2 := by
+  have hens : KFrag (reqPat (srtOf c f.result) (cl.ens.map (Term.kore c (canonVars c cl.vars)))) :=
+    kfrag_reqPat_fg _ _ fun p hp => by
+      obtain ⟨t, -, rfl⟩ := Option.map_eq_some_iff.mp hp
+      exact kfrag_kore_fg c _ t
+  unfold clauseRhs
+  split
+  · exact ⟨kfrag_kore_fg c _ _, hens⟩
+  · refine ⟨kfrag_foldrExist_fn _ (.and fun r hr => ?_) _, kfrag_reqPat_fg _ none fun _ h => by cases h⟩
+    rcases List.mem_append.mp hr with hr | hr
+    · rcases mem_two hr with rfl | rfl
+      · exact kfrag_kore_fg c _ _
+      · exact hens
+    · exact kfrag_conj_fg c _ _ cl.post r hr
+
+/-- The equation of a clause whose predicate is `\top` has the premise `⌈req = true⌉ ∧ X̄ ∈ p̄`
+and the clause's right side (`clauseRhs`). -/
+theorem clauseEquation_preTop_fn {f : Fn} {cl : Clause} (h : cl.pre = .top) :
+    clauseEquation c f cl =
+      eqnSentence c f (premise (f.args.map c.sortName) (cl.req.map (Term.kore c (canonVars c cl.vars)))
+          (Term.koreList c (canonVars c cl.vars) cl.pats))
+        (clauseRhs c f cl).1 (clauseRhs c f cl).2 := by
+  unfold clauseEquation; simp only [withPre_top h]
+
+/-- The equation of a clause whose predicate is `\top` under competitors has `competingPremise`'s
+premise and the clause's right side (`clauseRhs`). -/
+theorem competingEquation_preTop_fn {f : Fn} {others : List Clause} {cl : Clause} (h : cl.pre = .top) :
+    competingEquation c f others cl =
+      eqnSentence c f
+        (competingPremise (f.args.map c.sortName) (others.map fun cl' => exclusion c f cl' (canonClausePres cl'))
+          (cl.req.map (Term.kore c (canonVars c cl.vars))) (Term.koreList c (canonVars c cl.vars) cl.pats))
+        (clauseRhs c f cl).1 (clauseRhs c f cl).2 := by
+  unfold competingEquation competingPremise; simp only [withPre_top h]
+
 /-- **The equation of a clause is a sentence at the sort variable `R` whose pattern is of the
-class**, for a clause without existential variables in a function whose clauses' predicates are
-`\top`, the sorts of the function, of the clauses' variables and Bool being of `S`. -/
+class**, for a clause in a function whose clauses' predicates are `\top`, the sorts of the
+function, of the clauses' variables and Bool being of `S`. -/
 theorem rfrag_prioEquation_fn (hB : S ("Sort" ++ "Bool")) {f : Fn} {cl : Clause}
     (ha : ∀ s ∈ f.result :: f.args, S ("Sort" ++ c.sortName s))
     (hv : ∀ cl' ∈ f.clauses, ∀ s ∈ cl'.vars, S ("Sort" ++ c.sortName s))
-    (hpre : ∀ cl' ∈ f.clauses, cl'.pre = .top) (hcl : cl ∈ f.clauses) (hexs : cl.exs = []) :
+    (hpre : ∀ cl' ∈ f.clauses, cl'.pre = .top) (hcl : cl ∈ f.clauses) :
     ∃ P, prioEquation c f cl = .axiom { sortVars := [KoreAML.Rv], pattern := P, attributes := [] } ∧
       RFrag S P ∧ KoreAML.sortOf [] P = some KoreAML.R := by
   have hargs : ∀ s ∈ f.args.map c.sortName, S ("Sort" ++ s) := fun s hs => by
@@ -281,24 +326,23 @@ theorem rfrag_prioEquation_fn (hB : S ("Sort" ++ "Bool")) {f : Fn} {cl : Clause}
     rfrag_premise_fn hB hargs (fun p hp => by
       obtain ⟨t, -, rfl⟩ := Option.map_eq_some_iff.mp hp
       exact kfrag_kore_fg c _ t) (kfrag_koreList_fg c _ _)
+  have hrhs := kfrag_clauseRhs_fn c f cl
   have heq : ∀ prem, RFrag S prem → RFrag S (.implies KoreAML.R prem
       (.equals (KoreAML.srt (c.sortName f.result)) KoreAML.R
         (KoreAML.ap (c.symName f.label) (KoreAML.vars (KoreAML.numbered "X" 0 (f.args.map c.sortName))))
-        (.and (KoreAML.srt (c.sortName f.result)) [Term.kore c (canonVars c cl.vars) cl.rhs,
-          reqPat (srtOf c f.result) (cl.ens.map (Term.kore c (canonVars c cl.vars)))]))) := fun prem hp =>
+        (.and (KoreAML.srt (c.sortName f.result)) [(clauseRhs c f cl).1, (clauseRhs c f cl).2]))) :=
+    fun prem hp =>
     .implies hp (.equals (ha _ (List.mem_cons_self ..))
       (.app (fun s hs => absurd hs List.not_mem_nil) (kfrag_numbered_fn "X" _ 0))
       (.and fun p hp => by
         rcases mem_two hp with rfl | rfl
-        · exact kfrag_kore_fg c _ _
-        · exact kfrag_reqPat_fg _ _ fun p hp => by
-            obtain ⟨t, -, rfl⟩ := Option.map_eq_some_iff.mp hp
-            exact kfrag_kore_fg c _ t))
+        · exact hrhs.1
+        · exact hrhs.2))
   unfold prioEquation
   split
-  · rw [clauseEquation_top (hpre cl hcl) hexs]
+  · rw [clauseEquation_preTop_fn (hpre cl hcl)]
     exact ⟨_, rfl, heq _ hprem, rfl⟩
-  · rw [competingEquation_top (hpre cl hcl) hexs]
+  · rw [competingEquation_preTop_fn (hpre cl hcl)]
     refine ⟨_, rfl, heq _ ?_, rfl⟩
     unfold competingPremise
     refine .and (.not (rfrag_anyOf_fn _ fun e he => ?_)) hprem
@@ -397,12 +441,11 @@ theorem sortSing_own_fn (hI : I ⊧ᴵP Γown c D) {s : Srt} (hs : s < nRegSorts
 /-- **The extension satisfies every premise of `ΓFns` that names nothing of `D`**, for a model of
 `Γown c D` in which some sort has an element and names `D` that are sort constants and symbols of
 the definition, where the sorts of every function and of its clauses' variables are numbered, and
-every clause has the predicate `\top` and no existential variable. -/
+every clause has the predicate `\top`. -/
 theorem sat_own_fns (hI : I ⊧ᴵP Γown c D) (hne : ∃ τ, IsSort I τ ∧ ∃ m, Inh I τ m)
     (hsig : ∀ fn ∈ c.allFns, ∀ s ∈ fn.result :: fn.args, s < nRegSorts + c.sortNames.length)
     (hvars : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, ∀ s ∈ cl.vars, s < nRegSorts + c.sortNames.length)
     (hpre : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, cl.pre = .top)
-    (hexs : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, cl.exs = [])
     {φ : KoreAML.P} (hφ : ΓFns c φ) (hn : ∀ σ ∈ psyms φ, ¬ D σ) : extModel c D I ⊧ᴵ φ := by
   have hDI := defOK_own_sg hD hI
   have hI' : I ⊧ᴵ φ := hI _ ⟨.inl (.inl (.inl (.inl (.inr hφ)))), hn⟩
@@ -417,7 +460,7 @@ theorem sat_own_fns (hI : I ⊧ᴵP Γown c D) (hne : ∃ τ, IsSort I τ ∧ �
     obtain ⟨P, hP, hfrag, hsort⟩ := rfrag_prioEquation_fn (c := c) (S := S)
       ⟨Srt.bool, bool_numbered, by rw [sortName_bool]⟩
       (fun s hs => ⟨s, hsig f hf s hs, rfl⟩) (fun cl' hcl' s hs => ⟨s, hvars f hf cl' hcl' s hs, rfl⟩)
-      (hpre f hf) hcl (hexs f hf cl hcl)
+      (hpre f hf) hcl
     rw [hP] at hs
     obtain rfl : KoreAML.trAxiom [] [] ⟨0, "kernel",
         { sortVars := [KoreAML.Rv], pattern := P, attributes := [] }⟩ = it := Option.some.inj hs
@@ -445,12 +488,11 @@ theorem sat_own_fns_rules (hI : I ⊧ᴵP Γown c D) (hne : ∃ τ, IsSort I τ 
     (hsig : ∀ fn ∈ c.allFns, ∀ s ∈ fn.result :: fn.args, s < nRegSorts + c.sortNames.length)
     (hvars : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, ∀ s ∈ cl.vars, s < nRegSorts + c.sortNames.length)
     (hpre : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, cl.pre = .top)
-    (hexs : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, cl.exs = [])
     {φ : KoreAML.P}
     (hφ : ΓFns c φ ∨ ΓRules c φ ∨ Γstep c φ ∨ ΓDomains c φ ∨ ΓFallback c φ ∨ Γcl c φ)
     (hn : ∀ σ ∈ psyms φ, ¬ D σ) : extModel c D I ⊧ᴵ φ := by
   rcases hφ with hφ | hφ | hφ | hφ | hφ | hφ
-  · exact sat_own_fns hD hI hne hsig hvars hpre hexs hφ hn
+  · exact sat_own_fns hD hI hne hsig hvars hpre hφ hn
   · exact sat_own_rules hD hI hφ hn
   · exact sat_own_step hD hI hφ hn
   · exact sat_own_domains hD hI hφ hn

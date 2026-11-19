@@ -632,10 +632,10 @@ theorem clause_den4 (hpreTop : c.clausesPreTop = true) {f : Sym} {fn : Fn} {cl :
   have hensv : ∀ t, cl.ens = some t → ∀ i ∈ varOccs t, i < cl.vars.length := fun t ht => varOccs_lt t (henss t ht)
   have ihreq' := fun tbl e' hag t ht m' => ihreq t ht tbl e' hag m'
   by_cases hlow : lowerClauses fn cl = []
-  · exact plain_eq4 hI hnn hph hsc.trans hfn (clauseEquation_mem hcl hlow) (clause_preTop (hpreTop := hpreTop) hok hmem hcl) (clause_exsNil hok hmem hcl) hws hσ' hmatch hpats
+  · exact plain_eq4 hI hnn hph hsc.trans hfn (clauseEquation_mem hcl hlow) (clause_preTop (hpreTop := hpreTop) hok hmem hcl) (clause_exsNil hok hbc hmem hcl) hws hσ' hmatch hpats
       hbinds hreqv hrhsv hensv hr ihreq' ihright e m
   · refine compete_eq4 hI hnn hph hsc.trans hfn (competingEquation_mem hcl hlow) (clause_preTop (hpreTop := hpreTop) hok hmem hcl)
-      (clause_exsNil hok hmem hcl)
+      (clause_exsNil hok hbc hmem hcl)
       (fun cl' hcl' => clause_preTop (hpreTop := hpreTop) hok hmem (mem_lowerClauses.mp hcl').1) hws (fun cl' hcl' => ?_) hσ' hmatch hpats
       hbinds hreqv hrhsv hensv hr ihreq' ihright e m
     obtain ⟨hcl'', hna'', hlt⟩ := mem_lowerClauses.mp hcl'
@@ -684,10 +684,10 @@ mutual
       rwa [hlab] at h
     | _, _, _, .clauseEx (fn := fn') hfn' hcl _ _ _ _ _ hne _ _ _ _, fn, hfn, _, _, _ => by
       rw [hfn] at hfn'; cases hfn'
-      exact absurd (clause_exsNil hok (lookupFn_spec hfn).1 hcl) hne
+      exact absurd (clause_exsNil hok hbc (lookupFn_spec hfn).1 hcl) hne
     | _, _, _, .exNone (fn := fn') hfn' hcl hne _ _ _ _ _ _ _, fn, hfn, _, _, _ => by
       rw [hfn] at hfn'; cases hfn'
-      exact absurd (clause_exsNil hok (lookupFn_spec hfn).1 hcl) hne
+      exact absurd (clause_exsNil hok hbc (lookupFn_spec hfn).1 hcl) hne
   termination_by structural _ _ _ h => h
   /-- A clause that fails at arguments of its function's sorts fails in the model. -/
   theorem fails_den4 (hpreTop : c.clausesPreTop = true) : ∀ {ws : List GroundTerm} {cl : Clause}, Fails c ws cl →

@@ -6,7 +6,7 @@
   None takes `FnHyp`. A clause with existential variables is read in every model of `Γc` through
   `ClauseExRead` (`Faithful.clauseExRead_all_of_coreEx`), so `EvalTerm` is sound there
   (`HoldsShape.termSoundEx`); the step lemmas are SoundCEx.lean's and CompleteCEx.lean's.
-  `coreOK` gives `coreOKEx` (`Semantics.coreOKEx_of_coreOK`).
+  `coreOK` is `coreOKEx` (`Semantics.coreOK_iff_ex`).
 -/
 import KcoreSpec.SoundCEx
 import KcoreSpec.CompleteCEx

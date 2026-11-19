@@ -181,6 +181,8 @@ theorem consistent (H : HookParams) : Consistent (cH H) :=
   consistent_of (cH H) (coreOKH H) (fnModelH H).1 (fnModelH H).2
     (clausePreDecided_of_isTop (c := cH H)
       (by decide +kernel : (c.fns.all fun f => f.clauses.all fun cl => cl.pre.isTop) = true))
+    (clausePostDecided_of_isTop (c := cH H)
+      (by decide +kernel : (c.fns.all fun f => f.clauses.all fun cl => cl.post.isTop) = true))
     (openLaws_of_plain (Semantics.plain_parts (plainH H)).2.2)
 
 /-- **`f(-1)` has the result none, for every H**: the clause applies and its `ensures`,

@@ -1107,13 +1107,14 @@ theorem clause_preTop (hpreTop : c.clausesPreTop = true) (_hok : c.sortedOK = tr
     (hcl : cl ∈ fn.clauses) : cl.pre = .top :=
   Semantics.allFns_preTop hpreTop fn hfn cl hcl
 
-/-- A clause of a function of a semantics `sortedOK` accepts has no existential variable: the
-user's by `clausesPlain`, the generated sort predicates' by their text. -/
-theorem clause_exsNil (hok : c.sortedOK = true) {fn : Fn} (hfn : fn ∈ c.allFns) {cl : Clause}
-    (hcl : cl ∈ fn.clauses) : cl.exs = [] := by
+/-- A clause of a function of a semantics `sortedOK` accepts, whose clauses' patterns bind every
+variable, has no existential variable: the user's because an existential variable is outside the
+left side (`clauseExOK`), the generated sort predicates' by their text. -/
+theorem clause_exsNil (hok : c.sortedOK = true)
+    (hbc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true)
+    {fn : Fn} (hfn : fn ∈ c.allFns) {cl : Clause} (hcl : cl ∈ fn.clauses) : cl.exs = [] := by
   rcases List.mem_append.mp hfn with hu | hp
-  · simp only [Semantics.sortedOK, Semantics.clausesPlain, Bool.and_eq_true, List.all_eq_true] at hok
-    exact List.isEmpty_iff.mp (hok.1.2 fn hu cl hcl).1.1.1
+  · exact Semantics.exs_nil_of_patBinds (Semantics.sortedOK_clauseEx hok hu hcl).1 (hbc fn hu cl hcl)
   · exact Semantics.sortPreds_exs hp cl hcl
 
 /-- `clause_ctxE` without the `ensures`. -/
@@ -1265,7 +1266,7 @@ mutual
       obtain ⟨hpats, hbinds, L, hL, hreqs, hrhss, henss⟩ := clause_ctxE hok hbc hmem hcl
       obtain ⟨hplain, hcalls⟩ := hst.2.2 fn' hmem cl hcl
       have hr : ∀ v, _ = some v → c.sortOf v = some fn'.result := fun v hv => EvalTerm.sorted hsc hrhs hL hσ' hrhss hv
-      exact clause_eq hI hnn hsc.trans hfn hcl hol (clause_preTop (hpreTop := hpreTop) hok hmem hcl) (clause_exsNil hok hmem hcl) hws hσ' hmatch hplain hpats hbinds
+      exact clause_eq hI hnn hsc.trans hfn hcl hol (clause_preTop (hpreTop := hpreTop) hok hmem hcl) (clause_exsNil hok hbc hmem hcl) hws hσ' hmatch hplain hpats hbinds
         (fun t ht => varOccs_lt t (hreqs t ht)) (varOccs_lt _ hrhss) (fun t ht => varOccs_lt t (henss t ht)) hr
         (fun tbl e' hag t ht m' => evalTerm_den (hpreTop := hpreTop) (hreq t ht) hL hσ' (canonVars_length c cl.vars) hag (hreqs t ht)
           (fun g hg => hcalls g (List.mem_append_left _ (List.mem_append_right _ (by rw [ht]; exact hg)))) m')
@@ -1286,10 +1287,10 @@ mutual
       exact absurd (Eval.functional hmi h hv) (by simp)
     | _, _, _, .clauseEx (fn := fn') hfn' hcl _ _ _ _ _ hne _ _ _ _, fn, hfn, _, _, _, _ => by
       rw [hfn] at hfn'; cases hfn'
-      exact absurd (clause_exsNil hok (lookupFn_spec hfn).1 hcl) hne
+      exact absurd (clause_exsNil hok hbc (lookupFn_spec hfn).1 hcl) hne
     | _, _, _, .exNone (fn := fn') hfn' hcl hne _ _ _ _ _ _ _, fn, hfn, _, _, _, _ => by
       rw [hfn] at hfn'; cases hfn'
-      exact absurd (clause_exsNil hok (lookupFn_spec hfn).1 hcl) hne
+      exact absurd (clause_exsNil hok hbc (lookupFn_spec hfn).1 hcl) hne
   termination_by structural _ _ _ h => h
   /-- **L3, terms.** A well-sorted right-hand side or `requires` whose symbols are callable in the
   first stage, at a valuation that agrees with a well-sorted σ, translates to what its result

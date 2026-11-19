@@ -105,33 +105,6 @@ theorem _root_.KCore.Semantics.allFns_preTop {c : Semantics} (hp : c.clausesPreT
   · exact Semantics.clausesPreTop_spec hp hfn hcl
   · exact Semantics.sortPreds_pre hfn cl hcl
 
-/-- Where the clauses are plain (`clausesPlain`), each clause of each function evaluation reads has
-no existential variable and the right side's predicate `\top`. -/
-theorem _root_.KCore.Semantics.allFns_plainCl {c : Semantics} (hp : c.clausesPlain = true) :
-    ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, cl.exs = [] ∧ cl.post = .top := by
-  intro fn hfn' cl hcl
-  rcases List.mem_append.mp hfn' with hfn | hfn
-  · simp only [Semantics.clausesPlain, Bool.and_eq_true, List.all_eq_true] at hp
-    exact ⟨List.isEmpty_iff.mp (hp fn hfn cl hcl).1.1.1, Cond.eq_top_of_isTop (hp fn hfn cl hcl).1.2⟩
-  · exact ⟨Semantics.sortPreds_exs hfn cl hcl, Semantics.sortPreds_post hfn cl hcl⟩
-
-/-- `allFns_plainCl` from `sortedOK`, which holds `clausesPlain`. -/
-theorem _root_.KCore.Semantics.sortedOK_plainCl {c : Semantics} (h : c.sortedOK = true) :
-    ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, cl.exs = [] ∧ cl.post = .top := by
-  simp only [Semantics.sortedOK, Bool.and_eq_true] at h
-  exact Semantics.allFns_plainCl h.1.2
-
-/-- Where the clauses are plain (`clausesPlain`), no clause of a function of the definition has an
-existential variable. -/
-theorem _root_.KCore.Semantics.fnsNoExs_of_clausesPlain {c : Semantics} (hp : c.clausesPlain = true) :
-    c.FnsNoExs :=
-  fun fn hfn cl hcl => (Semantics.allFns_plainCl hp fn (List.mem_append_left _ hfn) cl hcl).1
-
-/-- `fnsNoExs_of_clausesPlain` from `sortedOK`, which holds `clausesPlain`. -/
-theorem _root_.KCore.Semantics.fnsNoExs_of_sortedOK {c : Semantics} (h : c.sortedOK = true) : c.FnsNoExs := by
-  simp only [Semantics.sortedOK, Bool.and_eq_true] at h
-  exact Semantics.fnsNoExs_of_clausesPlain h.1.2
-
 /-- A clause whose right side's predicate is `\top` has it true under every substitution. -/
 theorem _root_.KCore.Clause.holds_postTop {c : Semantics} {cl : Clause} (h : cl.post = .top) (σ : Subst) :
     Holds c cl.vars.length σ cl.post true := by
@@ -183,7 +156,7 @@ theorem clauseCtx_of_okM (hok : c.okM = true) : ClauseCtx c := by
     exact ⟨g, List.mem_append_left _ hg, rfl⟩
   · have := hcls cl hcl
     simp only [Semantics.clauseOK, Bool.and_eq_true, beq_iff_eq] at this
-    have htop : cl.pre = .top := Semantics.allFns_preTop hpl.2 fn hfn' cl hcl
+    have htop : cl.pre = .top := Semantics.allFns_preTop hpl.2.1 fn hfn' cl hcl
     exact ⟨this.1.1.1.1.1, this.1.1.1.1.2, this.1.1.1.2, this.1.1.2, this.1.2, this.2, htop,
       Semantics.clausesPlain_plainCl_of_binds hpl.1 hfn hcl this.1.1.1.2⟩
 

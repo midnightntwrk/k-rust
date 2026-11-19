@@ -180,7 +180,7 @@ theorem matchIndE : ∀ fn ∈ cE.fns, ∀ cl ∈ fn.clauses, MatchIndependent c
     cases hr : cl.rhs with
     | dv s l =>
       have hx : cl.exs = [] :=
-        (Semantics.sortedOK_plainCl shapeE.2.2.2.2.1 fn (List.mem_append_left _ hfn) cl hcl).1
+        (Semantics.sortedOK_plainCl_of_noExs shapeE.2.2.2.2.1 (Semantics.fnsNoExs_of_all (by decide +kernel)) fn (List.mem_append_left _ hfn) cl hcl).1
       exact (matchIndependent_iff_noExs hx).mpr (coherent_dvE (textFns fn hu cl hcl).2.2.1 hr hx)
     | _ => rw [hr] at h4; cases h4
   · rw [List.mem_singleton] at hf
@@ -203,7 +203,7 @@ theorem fnDetE : FnDet cE := Faithful.fnDet_of_agree agreeE matchIndE
 side is a literal; `clE` decides nowhere. -/
 theorem fnSolvesE : FnSolves cE := by
   refine fnSolves_of_parts_lookup (fun _ hfn => lookupE hfn) fnDetE
-    (fun fn hfn => Semantics.sortedOK_plainCl shapeE.2.2.2.2.1 fn (List.mem_append_left _ hfn)) ?_ ?_
+    (fun fn hfn => Semantics.sortedOK_plainCl_of_noExs shapeE.2.2.2.2.1 (Semantics.fnsNoExs_of_all (by decide +kernel)) fn (List.mem_append_left _ hfn)) ?_ ?_
   · intro fn hfn _ _ _ _ _ cl' hcl' _ _ σ' _ _
     exact ⟨(fun t ht => by rw [reqNoneE fn hfn cl' hcl'] at ht; cases ht), true,
       Clause.holds_preTop (preTopE fn hfn cl' hcl') σ'⟩

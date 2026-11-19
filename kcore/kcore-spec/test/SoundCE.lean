@@ -1,7 +1,7 @@
 /-
   `sound_at_ce`, `complete_at_ce` and `famEx_closed_ce` at the semantics of `f() => g(?Z:Int)` with
   `post := Z ∈ lp()`, beside `lp() => lp()` and `g(X:Int) => X` (test/CoreOKEx.lean's `cCeG`), kernel-checked.
-  `coreOKEx` accepts it and `coreOK` does not.
+  `coreOKEx` accepts it, and so does `coreOK`, which is `coreOKEx` (`coreOK_iff_ex`).
 
   - `cCeG` has no rule: with the step's closure no configuration has a successor in any model
     (`complete_at_ce`, `cCeG_stuck`).
@@ -66,16 +66,12 @@ theorem clCf_exs : clCf.exs ≠ [] := by decide
 theorem cCeG_coreOKEx : cCeG.coreOKEx = true := by
   unfold Semantics.coreOKEx Semantics.sortedOKEx; decide_cheap
 
-theorem cCeG_not_coreOK : cCeG.coreOK = false := by
-  have : cCeG.clausesPlain = false := by decide +kernel
-  simp only [Semantics.coreOK, Semantics.sortedOK, this, Bool.and_false, Bool.false_and]
+theorem cCeG_coreOK : cCeG.coreOK = true := Semantics.coreOK_iff_ex.mpr cCeG_coreOKEx
 
 theorem cCeR_coreOKEx : cCeR.coreOKEx = true := by
   unfold Semantics.coreOKEx Semantics.sortedOKEx; decide_cheap
 
-theorem cCeR_not_coreOK : cCeR.coreOK = false := by
-  have : cCeR.clausesPlain = false := by decide +kernel
-  simp only [Semantics.coreOK, Semantics.sortedOK, this, Bool.and_false, Bool.false_and]
+theorem cCeR_coreOK : cCeR.coreOK = true := Semantics.coreOK_iff_ex.mpr cCeR_coreOKEx
 
 /-- No clause of either semantics needs a witness, so `sound_at`'s clause hypothesis holds. -/
 theorem noWit (c : Semantics) (hf : c.fns = [fnCf, fnLp, fnG]) :

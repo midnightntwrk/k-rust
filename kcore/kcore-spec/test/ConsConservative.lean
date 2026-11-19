@@ -23,17 +23,17 @@ example {c : Semantics} {ss : List Srt} {ks : List Sym} (h : c.coreOK = true) (h
     (hd : detachedB c ss ks = true)
     (hpre : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, cl.pre = .top)
     (hvars : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, ∀ s ∈ cl.vars, s < nRegSorts + c.sortNames.length)
-    (hexs : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, cl.exs = []) {M : Type} [Inhabited M]
+    {M : Type} [Inhabited M]
     {I : Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP Γown c (DetachedB.names c ss ks)) :
     extModel c (DetachedB.names c ss ks) I ⊧ᴵP (Γc c ∪ Γstep c) :=
-  ext_model_cv h hf hd hpre hvars hexs hI
+  ext_model_cv h hf hd hpre hvars hI
 
-/-- The three facts of the clauses that `ext_model_cv` takes, from `coreOK`, `FnHyp`, `clausesPreTop` and `FnsNoExs`. -/
-example {c : Semantics} (h : c.coreOK = true) (hf : FnHyp c) (hpreTop : c.clausesPreTop = true) (hnoEx : c.FnsNoExs) :
+/-- The two facts of the clauses that `ext_model_cv` takes, from `coreOK`, `FnHyp` and
+`clausesPreTop`; a clause may bind variables by `\exists`. -/
+example {c : Semantics} (h : c.coreOK = true) (hf : FnHyp c) (hpreTop : c.clausesPreTop = true) :
     (∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, cl.pre = .top) ∧
-    (∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, ∀ s ∈ cl.vars, s < nRegSorts + c.sortNames.length) ∧
-    (∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, cl.exs = []) :=
-  clauseFacts_cv (hpreTop := hpreTop) (hnoEx := hnoEx) h hf
+    (∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, ∀ s ∈ cl.vars, s < nRegSorts + c.sortNames.length) :=
+  clauseFacts_cv (hpreTop := hpreTop) h hf
 
 /-- Detaching nothing: the decided check holds of the empty lists where the theory's lists pass
 it, and the statement is then `exact_hyp`'s. -/

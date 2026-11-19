@@ -1177,7 +1177,7 @@ theorem clausesAgree_of_okM {c : Semantics} (hok : c.okM = true) (hsr : c.srRead
     simp only [Semantics.fnOK, Bool.and_eq_true, List.all_eq_true] at hfo
     exact (fnExclusiveOK_sound (matchCtx_of hmr) (fun cl _ => ovlFreeList_of_nil (matchCtx_of hmr).noOvl _)
       (fun cl hcl => c.clauseSorted_of_all (c.clauseOKAll_of (hfo.1 cl hcl))
-        (c.clauseBound_of_plain (Semantics.plain_of_okAll (Semantics.okAll_of_okM hok)).2.1
+        (c.clauseBound_of_plain (Semantics.noExsTop_of_okAll (Semantics.okAll_of_okM hok))
           (Semantics.preTop_of_okAll (Semantics.okAll_of_okM hok)) hfn hcl)
         (c.clausePreOK_of_plain (Semantics.preTop_of_okAll (Semantics.okAll_of_okM hok)) hfn hcl)
         (noFnOvlInL_of_ovlFree (matchCtx_of hmr) _ (ovlFreeList_of_nil (matchCtx_of hmr).noOvl _)))
