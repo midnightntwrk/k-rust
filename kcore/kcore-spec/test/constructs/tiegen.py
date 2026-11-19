@@ -46,7 +46,10 @@ It also takes a text that owes a held-named function's fact (`Held`, `HeldOwed`)
 `theorem consistent (H : HookParams) : Consistent (cH H)` (refused otherwise), with `held_named` or
 `total_named`, and `fnHypH` (`FnHyp` for every H) where its route is `FnHyp`. Where it is not (a
 held-named function's fact false, so `FnHyp` fails), the header and the summary say that the
-function functional sentences, owed as `FnHyp`, are not shown by the tie.
+function functional sentences, owed as `FnHyp`, are not shown by the tie, unless FILE states them at
+values in every model of `Γc` from the sort predicates' own results (`theorem fnFun_at_values (H :
+HookParams) : ∀ ad ∈ fnFunText, EntailsAtValuesΓc (cH H) ad (trS ad).pat`, LibEvSortPred.lean), which
+they then say, with `not_fnHypH` where FILE states `FnHyp` false for every H.
 --at-values N,... names the user lemmas (by `AxiomDecl.index`) that are of the class `user lemma at
 values` in place of `user lemma`; an index that is no user lemma of the text is refused.
 
@@ -1071,6 +1074,13 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         raise Refused(f"{name}: the consistency section does not state `consistent` for every H "
                       f"(`theorem consistent (H : HookParams) : Consistent (cH H)`)")
     fnhyp_hand = held_total and bool(re.search(r"^theorem fnHypH \(H : HookParams\) : FnHyp \(cH H\)", hand_c, re.M))
+    # without `FnHyp`, the hand section may state the function functional sentences at values in
+    # every model of `Γc` (`fnFun_at_values`, the sort predicates' results), and `FnHyp` false
+    fnfun_hand = held_total and not fnhyp_hand and bool(re.search(
+        r"^theorem fnFun_at_values \(H : HookParams\) : ∀ ad ∈ fnFunText, EntailsAtValuesΓc \(cH H\) ad \(trS ad\)\.pat",
+        hand_c, re.M))
+    notfnhyp_hand = held_total and not fnhyp_hand and bool(re.search(
+        r"^theorem not_fnHypH \(H : HookParams\) : ¬ FnHyp \(cH H\)", hand_c, re.M))
     tp_params = ob["hform"] and head["totalNil"] != "true"
     # where a `[total]` function applies a parameter the text declares total, its totality holds
     # under the interpretations total on those parameters (`totalObligationsRP callOrder
@@ -1249,8 +1259,12 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         para = (f"It owes {'; '.join(owes)}, which no decider confirms. The consistency section, written by hand, "
                 f"proves that {th} with the step's closure has a model for every H (`consistent`), ")
         para += ("through `FnHyp` for every H (`fnHypH`)." if fnhyp_hand else
-                 "without `FnHyp`, which it does not state (its comment says why): the function functional "
-                 "sentences, owed as `FnHyp`, are not shown by this tie where `FnHyp` fails.")
+                 "without `FnHyp`, " + ("which is false for every H (`not_fnHypH`)" if notfnhyp_hand else
+                                        "which it does not state (its comment says why)") +
+                 (": the function functional sentences, the sort predicates' `functional` sentences, hold at "
+                  "values in every model of `Γc` from the sort predicates' own results (`fnFun_at_values`)."
+                  if fnfun_hand else
+                  ": the function functional sentences, owed as `FnHyp`, are not shown by this tie where `FnHyp` fails."))
         w(textwrap.fill(para, 104, initial_indent="    ", subsequent_indent="    "))
     elif agree:
         an = " and ".join(f"`{x}`" for x in ob["agree_names"])
@@ -1377,8 +1391,14 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     if user_lem or user_lem_v:
         owed_more += ("; user lemma: owed, by hand\n    (`userlemma_account`, `UserLemmaEntailed`, "
                       "`UserLemmaAtValues`)")
-    w("  - Hooked functional, collection law, library: at values (no theorem here); function functional:")
-    w(f"    owed as `FnHyp` ({'not stated here; ' if held_total and not fnhyp_hand else ''}no theorem){owed_more}; no direction: `absent_closed`.")
+    if fnfun_hand:
+        w("  - Function functional: at values in every model of `Γc`, from the sort predicates' results, not")
+        w("    from `FnHyp` (`fnFun_at_values`, `fnFun_account`).")
+        w(f"  - Hooked functional, collection law, library: at values (no theorem here){owed_more}; no direction:")
+        w("    `absent_closed`.")
+    else:
+        w("  - Hooked functional, collection law, library: at values (no theorem here); function functional:")
+        w(f"    owed as `FnHyp` ({'not stated here; ' if held_total and not fnhyp_hand else ''}no theorem){owed_more}; no direction: `absent_closed`.")
     w("")
     if law_idx:
         what = law_what(law_idx, raws, sents)
@@ -2257,7 +2277,9 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     after = []
     if held_total:
         after += (["held_named"] if ob.get("held") else []) + (["total_named"] if ob.get("total") else []) + \
-            (["fnHypH"] if fnhyp_hand else [])
+            (["fnHypH"] if fnhyp_hand else []) + (["not_fnHypH"] if notfnhyp_hand else []) + \
+            (["fnFun_indices", "fnFun_account", "fnFun_checked", "fnFun_trS", "fnFun_at_values",
+              "fnFun_at_values_step"] if fnfun_hand else [])
     elif agree:
         after += ["agree_named"] + (["agree"] if "consistency" in hand else []) + ["facts"]
     if tp_held:
@@ -2309,7 +2331,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         marks = [(o if o <= a else o + len(new) - (b - a), m) for o, m in marks]
         lean = lean[:a] + new + lean[b:]
     owed = ([f"the agreement of {', '.join(ob['agree_names'])} (AgreeOwed)"] if agree and "consistency" not in hand else [])
-    if held_total and not fnhyp_hand:
+    if held_total and not fnhyp_hand and not fnfun_hand:
         owed.append("FnHyp, the hypothesis the function functional sentences are owed under (not stated: the "
                     "consistency section shows `consistent` without it)")
     if param_lem:
