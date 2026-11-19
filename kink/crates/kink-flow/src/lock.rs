@@ -39,7 +39,9 @@
 //! they rewrite, so neither loses it; a reader never sees a part-written file.
 //!
 //! The record is an input. A run reads one fact from it: for each mutation id, the program id it
-//! names as killer, which the search tries first ([`crate::search`], tier 2). Every status still
+//! names as killer, which the search tries first ([`crate::search`], tier 2), and, in a flow that
+//! declares projections, the killer its row names under each projection, which the search under
+//! that projection tries first ([`Lock::projection_killers`]). Every status still
 //! comes from runs or from tier-1 records; no status, cell or key is read from the record, so a
 //! hand-edited or stale record can change which program is tried first, and so the cost and the
 //! reported killer, but never a status. A query reads the same kind of fact from its section: for
@@ -57,7 +59,9 @@
 //! Reading tolerates any version: `schema` must be `kink-flow-verdicts`, the command's section,
 //! where there is one, must be a table and begin with its own `[run]`, `[coverage]`, `[compare]` or
 //! `[query]` line, and each row (`[[run.mutation]]`, `[[coverage.flip]]`) must have a string `id`
-//! and may have a string `killer`, each `[[query.pattern]]` a string `id` and may have a string
+//! and may have a string `killer`, a run row's `projections` being, where it has one, an array of
+//! tables each with a string `name` (no name twice) and strings `status` and `killer` where it
+//! has them, each `[[query.pattern]]` a string `id` and may have a string
 //! `witness`, and each `[[compare.verdict]]` a string `implementation`, `program` and `view`; its `status` (`verdict`), `reason` and `difference`, when they are strings, are read
 //! only to report what changed. A file that is not TOML, has another schema, or repeats an id does
 //! not decode, and the command is refused ([`Lock::read`]).
@@ -208,16 +212,26 @@ impl LockKind {
     }
 
     /// What the rendering writes of a row of `document` that a lock compares: `{status, killer,
-    /// reason}` (a horizon is rendered, and compared only as the rendering's text); for a
+    /// reason}`, with a run row's `projections` (`[{name, status, killer}]`) where it has them (a
+    /// horizon is rendered, and compared only as the rendering's text); for a
     /// compare row `{verdict, reason, difference}`, with `horizon` where the row has one (its
     /// digests are compared as the rendering's text); for a query row `{status, witness}`.
     fn now(self, row: &Value) -> Value {
         match self {
-            Self::Run => json!({
-                "status": row["status"],
-                "killer": row["killer"],
-                "reason": crate::verdicts::rendered_reason(row),
-            }),
+            Self::Run => {
+                let mut now = json!({
+                    "status": row["status"],
+                    "killer": row["killer"],
+                    "reason": crate::verdicts::rendered_reason(row),
+                });
+                if let Some(projections) = row["projections"].as_array() {
+                    now["projections"] = projections
+                        .iter()
+                        .map(crate::verdicts::rendered_projection)
+                        .collect();
+                }
+                now
+            }
             Self::Coverage => {
                 let rendered = crate::verdicts::rendered_flip(row);
                 json!({
@@ -380,6 +394,28 @@ pub struct LockRow {
     /// A compare row's refusal, the parts of a rejection both sides stated and agree on, as the
     /// section writes it; read only to report what changed. None in every other row.
     pub refused: Option<String>,
+    /// A run row's entry under each projection the run listed (`projections`, projections
+    /// PJ-11), in the row's order; `None` where the row has none (a flow that declares no
+    /// projection, and every other section). Each entry's killer is a fact a run reads
+    /// ([`Lock::projection_killers`]); its status is read only to report what changed.
+    pub projections: Option<Vec<LockedProjection>>,
+}
+
+/// One entry of a run row's `projections`: the mutation's status and, where it is killed, its
+/// killer under one projection.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct LockedProjection {
+    pub name: String,
+    pub status: Option<String>,
+    pub killer: Option<String>,
+}
+
+impl LockedProjection {
+    /// The entry as a lock compares it, `{name, status, killer}`
+    /// ([`crate::verdicts::rendered_projection`]'s shape).
+    pub(crate) fn value(&self) -> Value {
+        json!({"name": self.name, "status": self.status, "killer": self.killer})
+    }
 }
 
 impl LockRow {
@@ -387,7 +423,13 @@ impl LockRow {
     fn recorded(&self, kind: LockKind) -> Value {
         match kind {
             LockKind::Run | LockKind::Coverage => {
-                json!({"status": self.status, "killer": self.killer, "reason": self.reason})
+                let mut recorded =
+                    json!({"status": self.status, "killer": self.killer, "reason": self.reason});
+                if let Some(projections) = &self.projections {
+                    recorded["projections"] =
+                        projections.iter().map(LockedProjection::value).collect();
+                }
+                recorded
             }
             LockKind::Query => json!({"status": self.status, "witness": self.witness}),
             LockKind::Compare => {
@@ -611,6 +653,13 @@ impl Lock {
             };
             let killer = fact("killer", matches!(kind, LockKind::Run | LockKind::Coverage))?;
             let witness = fact("witness", kind == LockKind::Query)?;
+            let projections = match row.get("projections") {
+                Some(entries) if kind == LockKind::Run => Some(
+                    locked_projections(entries)
+                        .map_err(|what| refused(format!("the projections of {id:?} {what}")))?,
+                ),
+                _ => None,
+            };
             let string = |key: &str| {
                 row.get(key)
                     .and_then(toml::Value::as_str)
@@ -629,6 +678,7 @@ impl Lock {
                 difference: string("difference"),
                 horizon: string("horizon").filter(|_| kind == LockKind::Compare),
                 refused: string("refused").filter(|_| kind == LockKind::Compare),
+                projections,
             });
         }
         // A coverage section's open and argued obligations: each family table's `open` and
@@ -819,6 +869,26 @@ impl Lock {
             .collect()
     }
 
+    /// Each mutation id of a run section with its recorded killer under each projection, by
+    /// projection name (a row's `projections` entries that name one): the killer a run tries
+    /// first under that projection while it kills there (decision U2, per projection); empty for
+    /// every other section and for a flow that declares no projection.
+    #[must_use]
+    pub fn projection_killers(&self) -> BTreeMap<String, BTreeMap<String, String>> {
+        self.rows
+            .iter()
+            .filter_map(|row| {
+                let killers = row
+                    .projections
+                    .iter()
+                    .flatten()
+                    .filter_map(|entry| Some((entry.name.clone(), entry.killer.clone()?)))
+                    .collect::<BTreeMap<_, _>>();
+                (!killers.is_empty()).then(|| (row.id.clone(), killers))
+            })
+            .collect()
+    }
+
     /// Each pattern id of a query section with its recorded witness; empty for every other
     /// section, whose rows record none.
     #[must_use]
@@ -939,7 +1009,9 @@ impl Lock {
             if let Some(arguments) = &arguments {
                 value["argument_changes"] = json!(arguments);
             }
-            if kind == LockKind::Compare {
+            // A run's entries under a projection it left undecided over a recorded verdict, where
+            // there are any (a flow that declares none has no member).
+            if kind == LockKind::Compare || !clock.failed.is_empty() {
                 value["failed"] = json!(clock.failed);
             }
             value
@@ -1285,6 +1357,38 @@ impl Lock {
     }
 }
 
+/// A run row's `projections` as TOML (an array of tables, each with a string `name`, no name
+/// twice, and a `status` and `killer` that are strings where present), or what is wrong with it.
+fn locked_projections(entries: &toml::Value) -> Result<Vec<LockedProjection>, String> {
+    let Some(entries) = entries.as_array() else {
+        return Err("is not an array of tables".to_owned());
+    };
+    let mut locked = Vec::<LockedProjection>::with_capacity(entries.len());
+    for (index, entry) in entries.iter().enumerate() {
+        let at = index + 1;
+        let Some(entry) = entry.as_table() else {
+            return Err(format!("entry {at} is not a table"));
+        };
+        let text = |key: &str| match entry.get(key) {
+            None => Ok(None),
+            Some(toml::Value::String(value)) => Ok(Some(value.clone())),
+            Some(_) => Err(format!("entry {at} has a {key} that is not a string")),
+        };
+        let Some(name) = text("name")? else {
+            return Err(format!("entry {at} has no string name"));
+        };
+        if locked.iter().any(|seen| seen.name == name) {
+            return Err(format!("name {name:?} twice"));
+        }
+        locked.push(LockedProjection {
+            name,
+            status: text("status")?,
+            killer: text("killer")?,
+        });
+    }
+    Ok(locked)
+}
+
 /// Whether `--only` (`only`, empty: every row) selects the row `id` of a `kind` section: by its
 /// id, and for a compare row by its implementation, since `compare --only` names
 /// implementations.
@@ -1337,6 +1441,10 @@ fn header_values(table: &toml::Table, kind: LockKind) -> BTreeMap<String, Value>
                 || key == "schema"
                 || key == "document"
                 || key == ASSUMED_TOTALS => {}
+            // A run section's counts per projection are a function of its rows, whose changes
+            // name them.
+            toml::Value::Array(_)
+                if kind == LockKind::Run && key == crate::verdicts::PROJECTION_COUNTS_ROW => {}
             toml::Value::Table(_)
                 if kind == LockKind::Coverage
                     && (crate::coverage::FAMILIES.contains(&key.as_str())
@@ -1685,6 +1793,8 @@ pub fn stale_lines(document: &Value) -> Vec<String> {
                 };
                 format!("{} -> {}", with(recorded), with(now))
             }
+            // Only a run row's entries under its projections moved: each says how, below.
+            _ if kind == LockKind::Run && recorded["killer"] == now["killer"] => String::new(),
             _ => {
                 // A query row's fact is its witness, which moves for its `witness_change`.
                 let (fact, change) = if kind == LockKind::Query {
@@ -1707,9 +1817,59 @@ pub fn stale_lines(document: &Value) -> Vec<String> {
                 )
             }
         };
-        lines.push(format!("{path}: {id}: {line}"));
+        if !line.is_empty() {
+            lines.push(format!("{path}: {id}: {line}"));
+        }
+        if kind == LockKind::Run && !recorded.is_null() && !now.is_null() {
+            for (name, line) in projection_changes(&recorded["projections"], &now["projections"]) {
+                lines.push(format!("{path}: {id}: under {name}: {line}"));
+            }
+        }
     }
     lines
+}
+
+/// Each entry of a run row's `projections` (`[{name, status, killer}]`, either side null where
+/// it has none) that differs between `recorded` and `now`, by projection name, in `now`'s order
+/// then `recorded`'s: `added, killed (killer K)`, `removed, was survived`, `survived -> killed
+/// (killer K)`, or `killer A -> B`.
+pub(crate) fn projection_changes(recorded: &Value, now: &Value) -> Vec<(String, String)> {
+    let entries = |side: &Value| side.as_array().cloned().unwrap_or_default();
+    let (recorded, now) = (entries(recorded), entries(now));
+    let find = |entries: &[Value], name: &Value| {
+        entries.iter().find(|entry| entry["name"] == *name).cloned()
+    };
+    let verdict = |side: &Value| {
+        let status = side["status"].as_str().unwrap_or("none");
+        match side["killer"].as_str() {
+            Some(killer) => format!("{status} (killer {killer})"),
+            None => status.to_owned(),
+        }
+    };
+    let mut changes = Vec::new();
+    for entry in &now {
+        let name = entry["name"].as_str().unwrap_or("?").to_owned();
+        let line = match find(&recorded, &entry["name"]) {
+            None => format!("added, {}", verdict(entry)),
+            Some(before) if before["status"] != entry["status"] => {
+                format!("{} -> {}", verdict(&before), verdict(entry))
+            }
+            Some(before) if before["killer"] != entry["killer"] => format!(
+                "killer {} -> {}",
+                before["killer"].as_str().unwrap_or("none"),
+                entry["killer"].as_str().unwrap_or("none")
+            ),
+            Some(_) => continue,
+        };
+        changes.push((name, line));
+    }
+    for entry in &recorded {
+        if find(&now, &entry["name"]).is_none() {
+            let name = entry["name"].as_str().unwrap_or("?").to_owned();
+            changes.push((name, format!("removed, was {}", verdict(entry))));
+        }
+    }
+    changes
 }
 
 /// What a line says of a compare row whose `{verdict, reason, difference, horizon}` moved from
@@ -1779,7 +1939,7 @@ pub fn lock_notes(document: &Value) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::verdicts::{lock_section, lock_text};
+    use crate::verdicts::{PROJECTION_COUNTS_LEGEND, PROJECTIONS_LEGEND, lock_section, lock_text};
 
     /// A run document judging `rows` (`(id, status, killer)`), admitted, under `profile`.
     fn run_document(rows: &[(&str, &str, Option<&str>)]) -> Value {
@@ -2672,10 +2832,312 @@ identity_sha256 = "aa"
         }
     }
 
+    /// One entry of a test row's `projections`: `(name, status, killer, reason)`.
+    type Entry<'a> = (&'a str, &'a str, Option<&'a str>, Option<&'a str>);
+
+    /// A run document whose rows carry `projections` (`(id, status, killer, entries)`), of a
+    /// flow that declares them.
+    fn projected_document(rows: &[(&str, &str, Option<&str>, &[Entry<'_>])]) -> Value {
+        let mut document = run_document(
+            &rows
+                .iter()
+                .map(|(id, status, killer, _)| (*id, *status, *killer))
+                .collect::<Vec<_>>(),
+        );
+        document["projections"] = json!([{"name": "p"}, {"name": "q"}]);
+        for (row, (_, _, _, entries)) in document["mutations"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .zip(rows)
+        {
+            row["projections"] = entries
+                .iter()
+                .map(|(name, status, killer, reason)| {
+                    json!({"name": name, "status": status, "killer": killer, "reason": reason})
+                })
+                .collect();
+        }
+        document
+    }
+
+    /// PJ-11: a run row of a flow that declares projections records the mutation's status and
+    /// killer under each listed projection, one line per projection, and the section counts the
+    /// killed and the survivors under each after its rows; the lock reads each killer back per
+    /// (mutation, projection), and a moved entry is stale and named on its own line.
+    #[test]
+    fn a_run_section_records_each_projections_killer_and_counts() {
+        let document = projected_document(&[
+            (
+                "m1",
+                "killed",
+                Some("t1"),
+                &[
+                    ("p", "killed", Some("t2"), None),
+                    ("q", "survived", None, None),
+                ],
+            ),
+            (
+                "m2",
+                "survived",
+                None,
+                &[
+                    ("p", "unknown", None, Some("work-budget")),
+                    ("q", "survived", None, None),
+                ],
+            ),
+        ]);
+        let section = lock_section(&document).unwrap();
+        assert!(
+            section.contains(
+                "id = \"m1\"\nstatus = \"killed\"\nkiller = \"t1\"\nprojections = [\n  \
+                 { name = \"p\", status = \"killed\", killer = \"t2\" },\n  \
+                 { name = \"q\", status = \"survived\" },\n]\n"
+            ),
+            "{section}"
+        );
+        assert!(
+            section.ends_with(
+                "[[run.projection]]\nname = \"p\"\nkilled = 1\nsurvivors = 1\n\n\
+                 [[run.projection]]\nname = \"q\"\nkilled = 0\nsurvivors = 2\n"
+            ),
+            "{section}"
+        );
+        for line in PROJECTIONS_LEGEND.iter().chain(PROJECTION_COUNTS_LEGEND) {
+            assert!(section.contains(&format!("# {line}\n")), "{section}");
+        }
+        let dir = scratch("run-projections");
+        let path = dir.join(LOCK_FILE);
+        let store = Store::new(&dir);
+        let (value, ok) = Lock::read(&path).unwrap().settle(&store, &document, WRITE);
+        assert!(ok && value["status"] == "created", "{value:#}");
+        let lock = Lock::read(&path).unwrap();
+        assert_eq!(
+            lock.projection_killers(),
+            BTreeMap::from([(
+                "m1".to_owned(),
+                BTreeMap::from([("p".to_owned(), "t2".to_owned())])
+            )])
+        );
+        // The counts are no header key: a section the same run rewrites is unchanged.
+        let (value, _) = lock.settle(&store, &document, LOCKED);
+        assert_eq!(value["status"], "unchanged", "{value:#}");
+        assert_eq!(value["header_changes"], json!([]), "{value:#}");
+        let moved = projected_document(&[
+            (
+                "m1",
+                "killed",
+                Some("t1"),
+                &[
+                    ("p", "killed", Some("t3"), None),
+                    ("q", "killed", Some("t1"), None),
+                ],
+            ),
+            (
+                "m2",
+                "survived",
+                None,
+                &[
+                    ("p", "unknown", None, Some("work-budget")),
+                    ("q", "survived", None, None),
+                ],
+            ),
+        ]);
+        let (value, _) = lock.settle(&store, &moved, LOCKED);
+        assert_eq!(value["status"], "stale", "{value:#}");
+        assert_eq!(value["header_changes"], json!([]), "{value:#}");
+        let mut document = moved.clone();
+        document["lock"] = value;
+        assert_eq!(
+            stale_lines(&document),
+            [
+                "kink.lock: m1: under p: killer t2 -> t3".to_owned(),
+                "kink.lock: m1: under q: survived -> killed (killer t1)".to_owned(),
+            ]
+            .map(|line| line.replace("kink.lock", &path.display().to_string()))
+        );
+        // A row whose projections do not decode refuses the lock.
+        let text = fs::read_to_string(&path).unwrap().replace(
+            "{ name = \"q\", status = \"survived\" }",
+            "{ status = \"survived\" }",
+        );
+        let error = Lock::decode(&path, text, LockKind::Run).unwrap_err();
+        assert!(error.contains("has no string name"), "{error}");
+    }
+
+    /// An entry the run left `undecided` keeps the verdict the lock records for it, where it
+    /// records one: the section written and its counts are the recorded ones, `--locked` is
+    /// `undecided` (`failed` names the entry), and where nothing decided is recorded the entry
+    /// is written `undecided` and compared as text, counting in neither column.
+    #[test]
+    fn an_undecided_projection_keeps_its_recorded_verdict() {
+        let dir = scratch("run-projections-undecided");
+        let path = dir.join(LOCK_FILE);
+        let store = Store::new(&dir);
+        let decided = projected_document(&[(
+            "m1",
+            "killed",
+            Some("t1"),
+            &[
+                ("p", "killed", Some("t2"), None),
+                ("q", "undecided", None, Some("kind-not-judged")),
+            ],
+        )]);
+        let (value, _) = Lock::read(&path).unwrap().settle(&store, &decided, WRITE);
+        assert_eq!(value["status"], "created", "{value:#}");
+        assert!(value.get("failed").is_none(), "{value:#}");
+        let written = fs::read_to_string(&path).unwrap();
+        assert!(
+            written.contains("{ name = \"q\", status = \"undecided\" }"),
+            "{written}"
+        );
+        assert!(
+            written.contains("name = \"q\"\nkilled = 0\nsurvivors = 0\n"),
+            "{written}"
+        );
+        let (value, _) = Lock::read(&path).unwrap().settle(&store, &decided, LOCKED);
+        assert_eq!(value["status"], "unchanged", "{value:#}");
+        let undecided = projected_document(&[(
+            "m1",
+            "killed",
+            Some("t1"),
+            &[
+                ("p", "undecided", None, Some("projection-search")),
+                ("q", "undecided", None, Some("kind-not-judged")),
+            ],
+        )]);
+        let (value, _) = Lock::read(&path)
+            .unwrap()
+            .settle(&store, &undecided, LOCKED);
+        assert_eq!(value["status"], "undecided", "{value:#}");
+        assert_eq!(
+            value["failed"],
+            json!([{"mutation": "m1", "projection": "p", "reason": "projection-search"}]),
+            "{value:#}"
+        );
+        assert_eq!(
+            value["kept"],
+            json!([{"mutation": "m1", "projection": "p",
+                    "recorded": {"name": "p", "status": "killed", "killer": "t2"},
+                    "now": {"name": "p", "status": "undecided", "killer": null}}]),
+            "{value:#}"
+        );
+        let (value, _) = Lock::read(&path).unwrap().settle(&store, &undecided, WRITE);
+        assert_eq!(value["status"], "unchanged", "{value:#}");
+        assert_eq!(fs::read_to_string(&path).unwrap(), written);
+        let mut document = undecided;
+        document["lock"] = value;
+        assert_eq!(
+            crate::clock::clock_lines(&document),
+            [
+                format!(
+                    "{}: m1 under p: kept killed (killer t2) unverified: this host gives undecided",
+                    path.display()
+                ),
+                format!(
+                    "{}: m1 under p: undecided (projection-search): the recorded verdict is \
+                     kept, not confirmed",
+                    path.display()
+                ),
+            ]
+        );
+    }
+
+    /// An entry under a projection is kept by the clock's rule applied to it: a recorded kill by
+    /// `t2` under `p` that this host gives `unknown` because the clock stopped `t2`'s run on the
+    /// mutant is kept, unverified: `--locked` is `undecided` and names the stopped run under `p`,
+    /// and the section written, its counts included, is the recorded one. The row's own entry,
+    /// killed by its recorded killer, depends on no stopped run, and neither does `q`, whose
+    /// domain does not hold `t2`.
+    #[test]
+    fn an_entry_under_a_projection_resting_on_a_stopped_run_is_kept() {
+        let dir = scratch("run-projections-clock");
+        let path = dir.join(LOCK_FILE);
+        let store = Store::new(&dir);
+        let decided = projected_document(&[(
+            "m1",
+            "killed",
+            Some("t1"),
+            &[
+                ("p", "killed", Some("t2"), None),
+                ("q", "survived", None, None),
+            ],
+        )]);
+        let (value, _) = Lock::read(&path).unwrap().settle(&store, &decided, WRITE);
+        assert_eq!(value["status"], "created", "{value:#}");
+        let written = fs::read_to_string(&path).unwrap();
+        let mut stopped = projected_document(&[(
+            "m1",
+            "killed",
+            Some("t1"),
+            &[
+                ("p", "unknown", None, Some("timeout")),
+                ("q", "survived", None, None),
+            ],
+        )]);
+        stopped["mutations"][0]["executed"] = json!([
+            {"program": "t1", "outcome": "distinguish", "projections": {"p": "agree", "q": "agree"}},
+            {"program": "t2", "outcome": "timeout",
+             "projections": {"p": "unknown", "q": "outside-domain"}},
+        ]);
+        let (value, _) = Lock::read(&path).unwrap().settle(&store, &stopped, LOCKED);
+        assert_eq!(value["status"], "undecided", "{value:#}");
+        assert_eq!(
+            value["clock_stopped"],
+            json!([{"program": "t2", "run": "mutant", "mutation": "m1", "projection": "p"}]),
+            "{value:#}"
+        );
+        assert_eq!(
+            value["kept"],
+            json!([{"mutation": "m1", "projection": "p",
+                    "recorded": {"name": "p", "status": "killed", "killer": "t2"},
+                    "now": {"name": "p", "status": "unknown", "killer": null}}]),
+            "{value:#}"
+        );
+        assert!(value.get("failed").is_none(), "{value:#}");
+        let (value, _) = Lock::read(&path).unwrap().settle(&store, &stopped, WRITE);
+        assert_eq!(value["status"], "unchanged", "{value:#}");
+        assert_eq!(fs::read_to_string(&path).unwrap(), written);
+        let mut document = stopped;
+        document["lock"] = value;
+        assert_eq!(
+            crate::clock::clock_lines(&document)[0],
+            format!(
+                "{}: m1 under p: the clock (budget.time_ms) stopped the run of t2 on its mutant: \
+                 its entry is not decided on this host",
+                path.display()
+            )
+        );
+    }
+
+    /// A run of a flow that declares projections whose rows judge none (`--verify`) compares
+    /// the recorded entries as they are: its rows are given them.
+    #[test]
+    fn a_verify_run_keeps_the_recorded_projections() {
+        let dir = scratch("run-projections-verify");
+        let path = dir.join(LOCK_FILE);
+        let store = Store::new(&dir);
+        let decided = projected_document(&[(
+            "m1",
+            "killed",
+            Some("t1"),
+            &[
+                ("p", "killed", Some("t2"), None),
+                ("q", "survived", None, None),
+            ],
+        )]);
+        let (value, _) = Lock::read(&path).unwrap().settle(&store, &decided, WRITE);
+        assert_eq!(value["status"], "created", "{value:#}");
+        let mut verified = run_document(&[("m1", "killed", Some("t1"))]);
+        verified["projections"] = decided["projections"].clone();
+        let (value, _) = Lock::read(&path).unwrap().settle(&store, &verified, LOCKED);
+        assert_eq!(value["status"], "unchanged", "{value:#}");
+    }
+
     /// The projections a document names are in no lock section (projections PJ-10): every
     /// section of a flow that declares projections renders the rows and header it renders
     /// without the member, so a flow without `[[projection]]` keeps its lock byte for byte and
-    /// `VERDICTS_VERSION` stays.
+    /// `VERDICTS_VERSION` stays. (Only a run row's own `projections` is rendered, PJ-11.)
     #[test]
     fn projections_are_in_no_lock_section() {
         let query = json!({

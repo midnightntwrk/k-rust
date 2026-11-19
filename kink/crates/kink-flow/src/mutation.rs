@@ -82,11 +82,51 @@ pub struct Mutation {
     pub misunderstanding: String,
     /// The verdict the author claims the corpus gives the mutation (key `expect`), when the list
     /// states one: [`Expect::Survive`] for a control, a mutation no program of the corpus should
-    /// distinguish from the specification, [`Expect::Kill`] for a mistake the corpus must catch.
-    /// `run` checks it against the row's status ([`crate::report::mutation_expectation`]); it
-    /// changes no verdict and enters no digest, key, memo or lock.
-    pub expect: Option<Expect>,
+    /// distinguish from the specification, [`Expect::Kill`] for a mistake the corpus must catch;
+    /// either for the row's own status ([`Expected::Row`]) or per projection
+    /// ([`Expected::Projections`]). `run` checks it against the row's status or its projections'
+    /// ([`crate::report::mutation_expectation`]); it changes no verdict and enters no digest, key,
+    /// memo or lock.
+    pub expect: Option<Expected>,
     pub edits: Vec<EditSpec>,
+}
+
+/// What a mutation's `expect` claims ([`Mutation::expect`]).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Expected {
+    /// `expect = "survive"` or `"kill"`: the row's own status, which is the status under the
+    /// implicit `default` projection of a flow that declares no projection, and the status of the
+    /// run's own search (over the union of the projections' observations) in a flow that declares
+    /// some.
+    Row(Expect),
+    /// `expect = { NAME = "survive" | "kill", ... }`: the status under each named projection of
+    /// the flow (projections PJ-11), in the table's key order.
+    Projections(Vec<(String, Expect)>),
+}
+
+impl Expected {
+    /// The value as the run document's row writes it: the string, or `{NAME: verdict}`.
+    #[must_use]
+    pub fn value(&self) -> serde_json::Value {
+        match self {
+            Self::Row(expect) => serde_json::Value::from(expect.as_str()),
+            Self::Projections(named) => serde_json::Value::Object(
+                named
+                    .iter()
+                    .map(|(name, expect)| (name.clone(), expect.as_str().into()))
+                    .collect(),
+            ),
+        }
+    }
+
+    /// The projections the claim names (none for [`Expected::Row`]).
+    pub fn projection_names(&self) -> impl Iterator<Item = &str> {
+        let named = match self {
+            Self::Row(_) => &[][..],
+            Self::Projections(named) => named.as_slice(),
+        };
+        named.iter().map(|(name, _)| name.as_str())
+    }
 }
 
 /// The verdict a mutation states it expects ([`Mutation::expect`]).
@@ -241,6 +281,36 @@ impl MutationList {
         }
         Ok(Self { mutations })
     }
+
+    /// Whether every projection a mutation's `expect` names ([`Expected::Projections`]) is one
+    /// `manifest` declares ([`FlowManifest::projections`]: `default` alone for a flow that declares
+    /// none): the list decodes without its flow, so a command that reads both checks it, and a
+    /// name no projection has is an error naming its key, since its claim could never be checked.
+    pub fn check_projections(&self, manifest: &FlowManifest) -> Result<(), ManifestError> {
+        let declared = manifest
+            .projections()
+            .into_iter()
+            .map(|projection| projection.name)
+            .collect::<Vec<_>>();
+        for mutation in &self.mutations {
+            let Some(expect) = &mutation.expect else {
+                continue;
+            };
+            if let Some(name) = expect
+                .projection_names()
+                .find(|name| !declared.iter().any(|declared| declared == name))
+            {
+                return Err(ManifestError::new(
+                    join(&join(&mutation_key(&mutation.id), "expect"), name),
+                    format!(
+                        "names no projection of the flow (its projections: {})",
+                        declared.join(", ")
+                    ),
+                ));
+            }
+        }
+        Ok(())
+    }
 }
 
 fn mutation_key(id: &str) -> String {
@@ -300,12 +370,7 @@ fn mutation(index: usize, value: &Value) -> Result<Mutation, ManifestError> {
     )?;
     let expect = match entry.get("expect") {
         None => None,
-        Some(value) => Some(value.as_str().and_then(Expect::parse).ok_or_else(|| {
-            ManifestError::new(
-                join(&key, "expect"),
-                "expected \"survive\" or \"kill\": the verdict the corpus gives the mutation",
-            )
-        })?),
+        Some(value) => Some(expected(&join(&key, "expect"), value)?),
     };
     let edits = match entry.get("edit") {
         Some(Value::Array(edits)) if !edits.is_empty() => edits
@@ -349,6 +414,44 @@ fn mutation(index: usize, value: &Value) -> Result<Mutation, ManifestError> {
         expect,
         edits,
     })
+}
+
+/// A mutation's `expect` at `key`: `"survive"` or `"kill"`, or a nonempty table of those per
+/// projection name ([`Expected`]). Whether each name is a projection of the flow is checked
+/// where the list is read with its manifest ([`MutationList::check_projections`]).
+fn expected(key: &str, value: &Value) -> Result<Expected, ManifestError> {
+    const VERDICT: &str =
+        "expected \"survive\" or \"kill\": the verdict the corpus gives the mutation";
+    if let Value::Table(table) = value {
+        if table.is_empty() {
+            return Err(ManifestError::new(
+                key,
+                "names no projection: give `\"survive\"`, `\"kill\"` or { NAME = \"survive\" | \"kill\" }",
+            ));
+        }
+        return table
+            .iter()
+            .map(|(name, verdict)| {
+                verdict
+                    .as_str()
+                    .and_then(Expect::parse)
+                    .map(|verdict| (name.clone(), verdict))
+                    .ok_or_else(|| ManifestError::new(join(key, name), VERDICT))
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map(Expected::Projections);
+    }
+    value
+        .as_str()
+        .and_then(Expect::parse)
+        .map(Expected::Row)
+        .ok_or_else(|| {
+            ManifestError::new(
+                key,
+                "expected \"survive\" or \"kill\" (or a table of them by projection name): \
+                 the verdict the corpus gives the mutation",
+            )
+        })
 }
 
 fn edit_spec(key: &str, value: &Value) -> Result<EditSpec, ManifestError> {

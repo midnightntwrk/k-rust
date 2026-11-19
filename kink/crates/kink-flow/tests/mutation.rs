@@ -6,7 +6,7 @@ use kink_flow::{
     FlowManifest,
     admit::corpus_source,
     mutation::{
-        EditAction, EditSpec, Expect, InvalidMutation, InvalidReason, LabelMatch,
+        EditAction, EditSpec, Expect, Expected, InvalidMutation, InvalidReason, LabelMatch,
         MUTATION_OPERATOR, Mutation, MutationList, ResolvedMutation, label_match, location_span,
         resolve, sentence_span,
     },
@@ -226,6 +226,16 @@ fn decoding_rejects_unknown_keys_and_malformed_edits() {
         (
             format!("[[mutation]]\nid = \"m\"\nmisunderstanding = \"a test mutation\"\nexpect = 1\n{edit}"),
             "mutation \"m\".expect",
+            "expected \"survive\" or \"kill\"",
+        ),
+        (
+            format!("[[mutation]]\nid = \"m\"\nmisunderstanding = \"a test mutation\"\nexpect = {{}}\n{edit}"),
+            "mutation \"m\".expect",
+            "names no projection",
+        ),
+        (
+            format!("[[mutation]]\nid = \"m\"\nmisunderstanding = \"a test mutation\"\nexpect = {{ p = \"maybe\" }}\n{edit}"),
+            "mutation \"m\".expect.p",
             "expected \"survive\" or \"kill\"",
         ),
         (
@@ -487,26 +497,40 @@ fn a_correlated_mutation_is_one_patch_applied_all_or_none() {
     );
 }
 
-/// `expect` is optional, `survive` or `kill`, per mutation; a list has no file-level default.
+/// `expect` is optional, `survive` or `kill`, per mutation, or a table of them per projection
+/// name; a list has no file-level default.
 #[test]
 fn decoding_reads_each_mutations_expectation() {
     let edit = "[[mutation.edit]]\nrule = \"add\"\nfind = \"a\"\nreplace = \"b\"\n";
     let list = MutationList::decode(&format!(
         "[[mutation]]\nid = \"control\"\nmisunderstanding = \"a test mutation\"\nexpect = \"survive\"\n{edit}\
          [[mutation]]\nid = \"caught\"\nmisunderstanding = \"a test mutation\"\nexpect = \"kill\"\n{edit}\
-         [[mutation]]\nid = \"open\"\nmisunderstanding = \"a test mutation\"\n{edit}"
+         [[mutation]]\nid = \"open\"\nmisunderstanding = \"a test mutation\"\n{edit}\
+         [[mutation]]\nid = \"split\"\nmisunderstanding = \"a test mutation\"\n\
+         expect = {{ writes = \"survive\", full = \"kill\" }}\n{edit}"
     ))
     .unwrap();
     assert_eq!(
         list.mutations
             .iter()
-            .map(|m| (m.id.as_str(), m.expect))
+            .map(|m| (m.id.as_str(), m.expect.clone()))
             .collect::<Vec<_>>(),
         [
-            ("control", Some(Expect::Survive)),
-            ("caught", Some(Expect::Kill)),
+            ("control", Some(Expected::Row(Expect::Survive))),
+            ("caught", Some(Expected::Row(Expect::Kill))),
             ("open", None),
+            (
+                "split",
+                Some(Expected::Projections(vec![
+                    ("full".to_owned(), Expect::Kill),
+                    ("writes".to_owned(), Expect::Survive),
+                ]))
+            ),
         ]
+    );
+    assert_eq!(
+        list.mutations[3].expect.as_ref().unwrap().value(),
+        json!({"full": "kill", "writes": "survive"})
     );
 }
 

@@ -140,6 +140,11 @@
 //! show an argument resting on its text alone the same as one a check decided. A flip's
 //! killer is the recorded one (the coverage lock's) while it kills, else the first killing
 //! program in the search's order, a function of the inputs and the record, as a run's is. A
+//! `run` row of a flow that declares `[[projection]]` also gives `projections`, one inline table
+//! per projection `run` lists, `{ name, status }` with `killer` where it is killed there (the
+//! recorded one under that projection while it kills there), and the section ends its rows with
+//! one `[[run.projection]]` per projection, its `name`, `killed` and `survivors` counted from the
+//! rows it holds ([`projection_tallies`]); a flow that declares none has neither. A
 //! `run` document
 //! gives each mutation it judged (`[[run.mutation]]`, in list order) its status, a killed mutation's
 //! `killer` (under both schedules), under `full` its `killed_by` too (every killing program in
@@ -294,6 +299,10 @@ pub const VERDICTS_SCHEMA: &str = "kink-flow-verdicts";
 /// `[[compare.view]]` rows (projections PJ-20) were added at 29 for the same reason: they occur
 /// only in the compare section of a flow with a snapshot projection, which no committed record
 /// has, and every other section is the bytes it was.
+/// A `[run]` row's `projections` (the mutation's status and killer under each projection `run`
+/// lists) and the `[[run.projection]]` counts were added at 29 for the same reason (projections
+/// PJ-11): only a flow that declares `[[projection]]` has them, no committed record's flow does,
+/// and a flow that declares none renders the bytes it rendered.
 pub const VERDICTS_VERSION: u64 = 29;
 
 /// The comment a record opens with, before its `schema`: what the file is, which section each
@@ -387,6 +396,23 @@ pub const MUTATIONS_LEGEND: &[&str] = &[
     "`horizon`, those that agreed only up to an observation horizon), equivalent or unkillable (no",
     "program can tell the mutant apart), timeout, unknown or error (no verdict), invalid-mutation",
     "or not-admitted (its author must fix it; `reason` says why).",
+];
+
+/// The comment after [`MUTATIONS_LEGEND`] in a section whose rows carry `projections` (a flow
+/// that declares `[[projection]]`): what an entry is. A section without them has no such line.
+pub const PROJECTIONS_LEGEND: &[&str] = &[
+    "Each row's `projections` gives the mutation's status under each projection `run` lists, with",
+    "its `killer` where it is killed there (kept while it still kills there), or undecided (`run`",
+    "does not judge that projection).",
+];
+
+/// The name of a run section's count rows per projection (`[[run.projection]]`).
+pub const PROJECTION_COUNTS_ROW: &str = "projection";
+
+/// The comment before a run section's first `[[run.projection]]`: what its counts are.
+pub const PROJECTION_COUNTS_LEGEND: &[&str] = &[
+    "Each [[run.projection]] counts the mutations above under one projection: `killed`, those",
+    "killed under it, and `survivors`, those that survived, timed out or are unknown under it.",
 ];
 
 /// The comment before a coverage rendering's first family: what `open`, `argued` and
@@ -885,16 +911,32 @@ pub fn rendered_reason(row: &Value) -> Value {
     }
 }
 
+/// A run row's `projections` entry as a lock compares and the rendering writes it: `{name,
+/// status, killer}`, `killer` null unless the status is `killed` (module documentation).
+#[must_use]
+pub fn rendered_projection(entry: &Value) -> Value {
+    json!({
+        "name": entry["name"],
+        "status": entry["status"],
+        "killer": if entry["status"] == "killed" { entry["killer"].clone() } else { Value::Null },
+    })
+}
+
 /// Each mutation's id and status, the reason of one its author must fix ([`refused_mutation`]),
-/// a killed mutation's `killer`, and with `killed_by` a full row's `killed_by` (module
-/// documentation).
+/// a killed mutation's `killer`, with `killed_by` a full row's `killed_by`, and its entries
+/// under the projections its row carries; then, where rows carry them, the counts per
+/// projection (module documentation).
 fn mutations(text: &mut String, document: &Value, killed_by: bool) {
     let rows = document["mutations"]
         .as_array()
         .map_or(&[][..], Vec::as_slice);
+    let projected = rows.iter().any(|row| row["projections"].is_array());
     if !rows.is_empty() {
         text.push('\n');
         comment(text, MUTATIONS_LEGEND);
+        if projected {
+            comment(text, PROJECTIONS_LEGEND);
+        }
     }
     for (index, row) in rows.iter().enumerate() {
         text.push_str(if index == 0 {
@@ -916,19 +958,107 @@ fn mutations(text: &mut String, document: &Value, killed_by: bool) {
         if let Some(horizons) = row["horizon"].as_array() {
             line(text, "horizon", &rendered_horizons(horizons));
         }
-        if row["status"] != "killed" {
-            continue;
+        if row["status"] == "killed" {
+            if let Some(killer) = row["killer"].as_str() {
+                line(text, "killer", &string(killer));
+            }
+            if killed_by && let Some(killers) = row["killed_by"].as_array() {
+                let killers = killers
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect::<Vec<_>>();
+                line(text, "killed_by", &strings(&killers));
+            }
         }
-        if let Some(killer) = row["killer"].as_str() {
-            line(text, "killer", &string(killer));
-        }
-        if killed_by && let Some(killers) = row["killed_by"].as_array() {
-            let killers = killers
+        if let Some(entries) = row["projections"].as_array() {
+            let entries = entries
                 .iter()
-                .filter_map(Value::as_str)
-                .map(str::to_owned)
+                .map(|entry| {
+                    let entry = rendered_projection(entry);
+                    let mut table = format!(
+                        "{{ name = {}, status = {}",
+                        string(entry["name"].as_str().unwrap_or_default()),
+                        string(entry["status"].as_str().unwrap_or_default())
+                    );
+                    if let Some(killer) = entry["killer"].as_str() {
+                        let _ = write!(table, ", killer = {}", string(killer));
+                    }
+                    table.push_str(" }");
+                    table
+                })
                 .collect::<Vec<_>>();
-            line(text, "killed_by", &strings(&killers));
+            line(text, "projections", &list(&entries));
+        }
+    }
+    if projected {
+        projection_counts(text, rows);
+    }
+}
+
+/// Each projection's counts over a run section's `rows`: one `{name, killed, survivors}` per
+/// projection the rows name, in the order they first name them: the rows whose entry under it is
+/// `killed`, and those whose entry is a survivor's status (`survived`, `timeout`, `unknown`;
+/// [`crate::report::SURVIVOR_STATUSES`]). The rows are the ones the section holds, so a row a
+/// lock keeps moves no count.
+#[must_use]
+pub fn projection_tallies(rows: &[Value]) -> Vec<Value> {
+    let mut names = Vec::<&str>::new();
+    for entry in rows
+        .iter()
+        .filter_map(|row| row["projections"].as_array())
+        .flatten()
+    {
+        if let Some(name) = entry["name"].as_str()
+            && !names.contains(&name)
+        {
+            names.push(name);
+        }
+    }
+    names
+        .into_iter()
+        .map(|name| {
+            let statuses = rows
+                .iter()
+                .filter_map(|row| row["projections"].as_array())
+                .flatten()
+                .filter(|entry| entry["name"] == name)
+                .filter_map(|entry| entry["status"].as_str())
+                .collect::<Vec<_>>();
+            json!({
+                "name": name,
+                "killed": statuses.iter().filter(|status| **status == "killed").count(),
+                "survivors": statuses
+                    .iter()
+                    .filter(|status| crate::report::SURVIVOR_STATUSES.contains(status))
+                    .count(),
+            })
+        })
+        .collect()
+}
+
+/// The `[[run.projection]]` rows ([`projection_tallies`]), after a comment saying what they
+/// count.
+fn projection_counts(text: &mut String, rows: &[Value]) {
+    let tallies = projection_tallies(rows);
+    if tallies.is_empty() {
+        return;
+    }
+    text.push('\n');
+    comment(text, PROJECTION_COUNTS_LEGEND);
+    for (index, tally) in tallies.iter().enumerate() {
+        text.push_str(if index == 0 {
+            "[[run.projection]]\n"
+        } else {
+            "\n[[run.projection]]\n"
+        });
+        line(
+            text,
+            "name",
+            &string(tally["name"].as_str().unwrap_or_default()),
+        );
+        for key in ["killed", "survivors"] {
+            line(text, key, &tally[key].to_string());
         }
     }
 }

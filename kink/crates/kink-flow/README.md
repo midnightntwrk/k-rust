@@ -387,7 +387,7 @@ It lists each declared projection in the order written, `{name, kind, compare?, 
 A projection with `views` or `observer` also has `observation`: the identity of the functions those keys name, as the front end that resolved them states it (`FlowManifest::with_projection_observation`), so that a changed observer or view function is a changed projection on the document's face, as `observe.functions` is for `[observe]`; it is null where the front end states none, and `krs kink` states none yet (its observer's Definition IR digest is to come).
 A projection that names no function has no `observation`: its keys are its whole observation, and its channels' functions are identified by `observe.functions`.
 A flow that declares no projection has no `projections` member: its projection, `default`, is every observable cell (`result`) and every channel of `[observe]` (`observe`), which the document names already, so its documents are the ones it wrote before projections existed but for their versions.
-`projections` is in no digest, key or lock section: no run of the definition reads a projection's functions, and a lock row of a flow with projections is the row it would be without them.
+`projections` is in no digest, key or lock section: no run of the definition reads a projection's functions, and a lock row of a flow with projections is the row it would be without them but for the row's own entries under each projection `run` judges ("The corpus record").
 
 #### Snapshots
 
@@ -1520,6 +1520,17 @@ The expectation changes no verdict and enters no digest, key, memo, outcome reco
 A run that fails on an expectation still writes its lock (without `--locked`), which states the current verdicts; the next run fails again on the same expectation.
 `check --mutations` decodes `expect` (a value other than `"survive"` or `"kill"` is an error naming `mutation "ID".expect`) and checks no expectation, since it runs nothing.
 
+`expect` may instead state the verdict per projection, a table from projection names to `"survive"` or `"kill"`:
+
+```toml
+expect = { writes = "survive", full = "kill" }   # survives under `writes`, killed under `full`
+```
+
+Each name must be a projection the flow declares (`default` for a flow that declares none); a list that names another is refused by `run` and by `check --mutations` (`mutation "ID".expect.NAME: names no projection of the flow`), since its claim could never be checked.
+`run` checks each against the row's entry under that projection ("Kills under each projection") by the table above, the entry's status in place of the row's (a survivor's limits being the row's `stop_hides_edit` and the horizons of the programs that agreed under that projection); an entry `undecided` is inconclusive, and so is a projection `[run] projections` does not list.
+The row's `expectation` is then `{verdict, detail, projections}`: `projections` gives each named projection's `{name, verdict, detail}`, `verdict` is the worst of them (unmet, then inconclusive, then met) and `detail` the details of those with that verdict, each prefixed `under NAME: `.
+The string form keeps its meaning: it is checked against the row's own status, which in a flow that declares projections is the search's own, over the union of what they observe.
+
 Unknown keys, values of the wrong type, duplicate or empty ids, a mutation without edits and one without its misunderstanding are errors naming the key.
 `testdata/flow/calc/MUTATIONS.toml`, `testdata/flow/register/MUTATIONS.toml` and `testdata/flow/markdown/MUTATIONS.toml` are complete examples.
 
@@ -1727,7 +1738,7 @@ A projection observes a function of what the search's slots compare (some of the
 - An `accepts` projection is not judged by `run`: its status is `undecided`, reason `kind-not-judged`.
 
 A row whose status no program decides (`invalid-mutation`, `unkillable`, `equivalent`, an `error`, a mutant-scope failure) has that status under every projection.
-Otherwise a projection judged per program is decided by tier 1's rule over the programs judged under it (step 4 above, "Outcome cache, tier 1"), with the programs of its domain as O and its own kills as the kills: `killed` by its recorded killer while that program kills under it (decision U2, per projection; the lock records no killer per projection yet, so there is none), else by the first program of its domain in the search order C that kills under it, once every program of its domain before that one in C is judged; `survived` when every program of O in its domain is judged and agrees; `unknown` when every one is judged, none kills and some is unknown (the reason of the first in C); `error` with reason `no-comparable-program` when its domain holds no program of O.
+Otherwise a projection judged per program is decided by tier 1's rule over the programs judged under it (step 4 above, "Outcome cache, tier 1"), with the programs of its domain as O and its own kills as the kills: `killed` by its recorded killer while that program kills under it (decision U2, per projection: the killer the lock's row records under that projection, "The corpus record"), else by the first program of its domain in the search order C that kills under it, once every program of its domain before that one in C is judged; `survived` when every program of O in its domain is judged and agrees; `unknown` when every one is judged, none kills and some is unknown (the reason of the first in C); `error` with reason `no-comparable-program` when its domain holds no program of O.
 
 The first-kill search stops at the first program the search's slots kill, which a narrower projection may not kill.
 The search under the projections then judges what each projection still needs: first every valid outcome record of O, the ones the row did not read included, from its slots and, where its cells slot distinguished, from the mutant ends store; then, while some projection needs a program no record decides, one campaign call (under the row's schedule) runs, in C, the programs of its domain that are not judged under it, cut before its first judged kill in C, or its recorded killer alone while that is not judged.
@@ -1743,6 +1754,9 @@ Adding or editing a projection that changes the record's union of cells changes 
 `run --verify` re-derives, in a flow that declares `[[projection]]`, each mutant ends record a run would read (the one beside each valid outcome record, where it serves the program's bound of polls) from the program's live run: a record of another run (any member but the bound of polls it was asked under differs, or the live run stores none) is a mismatch, as an outcome record's is.
 A flow that declares none reads no ends record, and its `--verify` reads none.
 `--verify`, and the searches `coverage` and `prune` make, judge under no projection.
+
+The run document of a flow that declares projections has `projection_counts`, one `{name, counts, survivors}` per listed projection in the listed order: `counts`, the rows per status under it (each status of `counts`, then `undecided`), and `survivors`, the ids of the rows that survived, timed out or are unknown under it, in row order, as `survivors` lists the rows' own.
+They count the run's rows, as `counts` does; the lock counts the rows its section holds ("The corpus record").
 
 ### The killer record, compile workers and memos
 
@@ -2294,6 +2308,40 @@ Otherwise it is left as it was (`not-written`, with `reason` `only`, `verify`, `
 A run whose manifest or mutation list does not decode reads no lock and leaves it unwritten (`lock.reason` `refused`).
 An interrupted run loses no work: the outcomes cached after each mutation make the next run's canonical decisions cheap and reproducible.
 
+**Projections in the `[run]` section.** In a flow that declares `[[projection]]` each row also records the mutation under each projection `run` lists ("Kills under each projection"), one inline table per line in the listed order, and the section counts them after its rows:
+
+```toml
+[[run.mutation]]
+id = "call-no-idle"
+status = "killed"
+killer = "idle-loop"
+projections = [
+  { name = "full", status = "killed", killer = "idle-loop" },
+  { name = "writes", status = "survived" },
+]
+
+# Each [[run.projection]] counts the mutations above under one projection: `killed`, those
+# ...
+[[run.projection]]
+name = "full"
+killed = 1
+survivors = 0
+
+[[run.projection]]
+name = "writes"
+killed = 0
+survivors = 1
+```
+
+An entry's `killer` is the killer under that projection by the killer rule above, k being the entry's recorded killer: the next run tries it first under that projection and keeps it while it kills there.
+An entry has no reason, by the rule of the row's: a mutation its author must fix has the row's status under every projection.
+`killed` counts the rows killed under the projection and `survivors` those that survived, timed out or are unknown under it; the counts are those of the rows the section holds, so a kept entry moves no count, and they are no header key (a moved count is a moved row).
+An entry the run left `undecided` (it judged nothing there) keeps the verdict the section records for it, which the run neither confirms nor contradicts: `lock.failed` names it (`{mutation, projection, reason}`), and under `--locked` a section that differs in nothing else is `undecided`, exit 3; where the section records none, or records `undecided`, the entry is written `undecided`, in neither count, and compared as any line (an `accepts` projection, which `run` does not judge, is so, the same on every run).
+An entry is kept by the clock's rule applied to it ("What decides a verdict"): its killer, its recorded killer and the programs judged under it.
+`--verify` judges no projection, so its rows are compared with the recorded entries as they are.
+`--locked` prints one line per moved entry: `kink.lock: call-no-idle: under writes: survived -> killed (killer idle-loop)`.
+A flow that declares no projection has neither, so its section is the one it was; `VERDICTS_VERSION` did not move for them, as for `[[compare.view]]`.
+
 **The `[coverage]` section.** It gives each family's open and argued obligations, each argued one with the standing its argument rests on (`{ id, standing }`), and each flip with what it changes, its status, a refused flip's reason, a distinguished flip's killer and an argued flip's standing.
 A flip is a mutant kink generates, not one a mutation list states: its id is the front end's (`flip--<rules>--<atom>`, `bitflip--<rules>--bit<k>`, more than three rules written as the first and the number of the others), which keys its recorded killer and the `[[coverage.argued]]` entry that argues it, so it stays as it is; `negates` (or `toggles`) and `rules` resolve it without the coverage document, and are functions of the definition, as the id is.
 It moves only when an obligation opens or closes, an argument is added or removed or its standing moves, a flip's status moves or its killer stops killing, or the definition's text of a flipped condition changes; a case that covers nothing new leaves it as it is.
@@ -2331,7 +2379,7 @@ So is a command of a K flow on a record that names a definition.
 A record that names none is read: it is a K flow's, or one written before version 28, whose header a command without `--locked` rewrites with the name.
 `prune`, which writes no record, refuses the record of another definition as well.
 
-**Reading.** Reading tolerates any version: `schema` must be `kink-flow-verdicts`; the command's section, where there is one, must be a table and begin with its own `[run]`, `[coverage]`, `[compare]` or `[query]` line; each row (`[[run.mutation]]`, `[[coverage.flip]]`) must have a string `id` and may have a string `killer`, and each `[[query.pattern]]` a string `id` and may have a string `witness`; and nothing else decides anything (a row's `status` and `reason`, a family's `open` and `argued` and the standings are read only to report what changed).
+**Reading.** Reading tolerates any version: `schema` must be `kink-flow-verdicts`; the command's section, where there is one, must be a table and begin with its own `[run]`, `[coverage]`, `[compare]` or `[query]` line; each row (`[[run.mutation]]`, `[[coverage.flip]]`) must have a string `id` and may have a string `killer`, and each `[[query.pattern]]` a string `id` and may have a string `witness`; a run row's `projections`, where it has one, must be an array of tables each with a string `name` (no name twice) and a string `status` and `killer` where it has them, else the record is refused as a row without a string `id` is; and nothing else decides anything (a row's `status` and `reason`, an entry's `status`, a family's `open` and `argued` and the standings are read only to report what changed).
 A version-5 lock has no `killer` lines, so it records no killer.
 
 **`--locked`.** With `--locked` the command leaves the file unwritten (the cache is written as in any run) and compares the section it would write with the file's (under `run --only`, the selected rows and the section's header), and the record's header with the one a write gives; a file with no section for the command counts as different, as Cargo's `--locked` counts an absent file.

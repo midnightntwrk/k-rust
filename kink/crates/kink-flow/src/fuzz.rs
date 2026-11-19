@@ -132,7 +132,7 @@ use crate::{
     cli::{CommandSpelling, FrontEnd, Verb},
     digest::{program_digest, spec_digest},
     manifest::{FlowManifest, ManifestError, Program},
-    mutation::{Expect, InvalidReason, MutationList, RuleText, resolve, rule_texts},
+    mutation::{Expect, Expected, InvalidReason, MutationList, RuleText, resolve, rule_texts},
     pattern::{INVALID_PATTERN, Lowering, PatternList, Searcher},
     report::claims_value,
     results::kebab,
@@ -2358,7 +2358,7 @@ pub fn fuzz_front(
                 return refuse(document, refusal, "name a mutation of MUTATIONS.toml");
             };
             // The verdict the mutation expects: a witness of one expected to survive refutes it.
-            document["job"]["expect"] = json!(entry.expect.map(Expect::as_str));
+            document["job"]["expect"] = entry.expect.as_ref().map_or(Value::Null, Expected::value);
             Some(entry)
         }
         FuzzJob::Rule { .. }
@@ -2367,7 +2367,7 @@ pub fn fuzz_front(
         | FuzzJob::Cover { .. } => None,
     };
     let expects_survival =
-        mutation_entry.is_some_and(|entry| entry.expect == Some(Expect::Survive));
+        mutation_entry.is_some_and(|entry| entry.expect == Some(Expected::Row(Expect::Survive)));
     let pattern_entry = match job {
         FuzzJob::Pattern { list, id } => {
             let Some(entry) = list.patterns.iter().find(|p| p.id == id) else {

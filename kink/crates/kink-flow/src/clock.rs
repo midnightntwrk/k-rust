@@ -36,6 +36,16 @@
 //! `unknown` or `timeout` now killed by a program that ended), a recorded status no run could give
 //! (a refusal, `equivalent`), or no recorded entry at all, where the run's own row is written.
 //!
+//! Under a projection (a flow that declares `[[projection]]`, projections PJ-11) each entry of a
+//! run row's `projections` is kept by the same rule, applied to the entry: its status, its
+//! killer and its recorded killer under that projection, and the programs judged under it (the
+//! row's executed entries and those of its search under the projections that name it, not
+//! `outside-domain`) whose run on the mutant the clock stopped, with every baseline the clock
+//! stopped. An entry the run left `undecided` (it judged nothing there) keeps the verdict the
+//! lock records for it, if any, which the run neither confirms nor contradicts (`lock.failed`):
+//! so a count per projection, which the section's rows give, moves only for a verdict a run
+//! decided.
+//!
 //! A coverage lock's obligations are existential over the comparable programs: an obligation is
 //! covered when some comparable program covers it. A covered obligation is decided; one that is
 //! not covered depends on every program whose baseline the clock stopped, which could have covered
@@ -53,7 +63,7 @@
 use crate::{
     coverage::{ARGUABLE, ARGUED, FAMILIES, STANDING_TEXT, UNDECIDED},
     flips,
-    lock::{Lock, LockKind},
+    lock::{Lock, LockKind, LockRow, LockedProjection},
     results::ResultClass,
 };
 use serde_json::{Map, Value, json};
@@ -78,7 +88,9 @@ pub struct Kept {
     pub kept: Vec<Value>,
     /// The runs of an implementation that gave no answer for another reason than the clock
     /// (`compare`: `{implementation, program, failure}`), on which its rows depend as on a run
-    /// the clock stopped ([`crate::compare::keep`]); empty for every other command.
+    /// the clock stopped ([`crate::compare::keep`]), and a run's entries under a projection it
+    /// left undecided where the lock records a verdict (`run`: `{mutation, projection,
+    /// reason}`); empty for every other command.
     pub failed: Vec<Value>,
 }
 
@@ -149,11 +161,27 @@ pub fn keep(lock: &Lock, document: &Value) -> Kept {
         // Kept by `crate::compare::keep` and `crate::query::keep`, above.
         LockKind::Compare | LockKind::Query => None,
     };
+    // A run of a flow that declares projections whose rows judge none (`--verify`).
+    let unprojected = kind == LockKind::Run && document["projections"].is_array();
     for row in rows.into_iter().flatten() {
         let Some(id) = row["id"].as_str().map(str::to_owned) else {
             continue;
         };
         let record = lock.rows.iter().find(|row| row.id == id);
+        if kind == LockKind::Run {
+            on_baseline |= keep_projections(
+                row,
+                &id,
+                record,
+                (&comparable, &baseline),
+                unprojected,
+                &mut Sinks {
+                    stopped: &mut kept.stopped,
+                    kept: &mut kept.kept,
+                    failed: &mut kept.failed,
+                },
+            );
+        }
         let killer = record.and_then(|row| row.killer.as_deref());
         let Some(stops) = row_stops(kind, row, killer, &comparable) else {
             continue;
@@ -206,6 +234,128 @@ pub fn keep(lock: &Lock, document: &Value) -> Kept {
         kept.stopped.splice(0..0, stops);
     }
     kept
+}
+
+/// Keep a run row's entries under its projections by the row's own rule, entry by entry (module
+/// documentation, "Under a projection"), with `record` the row's recorded entries; returns
+/// whether some entry depends on a baseline the clock stopped (`baseline`). A row with no
+/// `projections` in a run of a flow that declares them (`unprojected`: `--verify` judges no
+/// projection) is given the recorded entries, which it neither decides nor contradicts.
+fn keep_projections(
+    row: &mut Value,
+    id: &str,
+    record: Option<&LockRow>,
+    (comparable, baseline): (&[&str], &[&str]),
+    unprojected: bool,
+    kept: &mut Sinks<'_>,
+) -> bool {
+    let recorded = record.and_then(|record| record.projections.as_deref());
+    if row.get("projections").is_none() {
+        if unprojected && let Some(recorded) = recorded {
+            row["projections"] = recorded.iter().map(recorded_entry).collect();
+        }
+        return false;
+    }
+    // The programs judged under the projections: the row's executed entries and the search
+    // under the projections' (`crate::search`), each with its verdict under each.
+    let judged = row["executed"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .chain(
+            row["projection_search"]["executed"]
+                .as_array()
+                .into_iter()
+                .flatten(),
+        )
+        .cloned()
+        .collect::<Vec<_>>();
+    let witnesses = row["witnesses"].clone();
+    let Some(entries) = row["projections"].as_array_mut() else {
+        return false;
+    };
+    let mut on_baseline = false;
+    for entry in entries {
+        let name = entry["name"].as_str().unwrap_or_default().to_owned();
+        let before = recorded
+            .into_iter()
+            .flatten()
+            .find(|recorded| recorded.name == name);
+        let now = crate::verdicts::rendered_projection(entry);
+        let restore = |entry: &mut Value, before: &LockedProjection, kept: &mut Sinks<'_>| {
+            if now != before.value() {
+                kept.kept.push(json!({"mutation": id, "projection": name,
+                                      "recorded": before.value(), "now": now}));
+            }
+            *entry = recorded_entry(before);
+        };
+        // Undecided: the run judged nothing there, which contradicts no recorded verdict
+        // (`lock.failed`; `--locked` cannot confirm it).
+        if entry["status"] == crate::projected::UNDECIDED {
+            if let Some(before) = before.filter(|before| {
+                before
+                    .status
+                    .as_deref()
+                    .is_some_and(|status| status != crate::projected::UNDECIDED)
+            }) {
+                kept.failed
+                    .push(json!({"mutation": id, "projection": name, "reason": entry["reason"]}));
+                restore(entry, before, kept);
+            }
+            continue;
+        }
+        let under = json!({
+            "status": entry["status"],
+            "killer": entry["killer"],
+            "witnesses": witnesses,
+            "executed": judged
+                .iter()
+                .filter(|executed| {
+                    executed["projections"][&name]
+                        .as_str()
+                        .is_some_and(|verdict| verdict != crate::projected::OUTSIDE_DOMAIN_VERDICT)
+                })
+                .cloned()
+                .collect::<Vec<_>>(),
+        });
+        let killer = before.and_then(|before| before.killer.as_deref());
+        let Some(stops) = row_stops(LockKind::Run, &under, killer, comparable) else {
+            continue;
+        };
+        if stops.is_empty() && baseline.is_empty() {
+            continue;
+        }
+        on_baseline |= !baseline.is_empty();
+        for program in &stops {
+            kept.stopped
+                .push(json!({"program": program, "run": "mutant", "mutation": id,
+                                     "projection": name}));
+        }
+        let Some(before) = before else {
+            continue;
+        };
+        let status = before.status.as_deref().unwrap_or_default();
+        let keepable = status == "killed" || dependent_statuses(LockKind::Run).contains(&status);
+        if !keepable || (entry["status"] == "killed" && status != "killed") {
+            continue;
+        }
+        restore(entry, before, kept);
+    }
+    on_baseline
+}
+
+/// Where [`keep_projections`] lists what it finds: [`Kept`]'s `stopped`, `kept` and `failed`.
+struct Sinks<'k> {
+    stopped: &'k mut Vec<Value>,
+    kept: &'k mut Vec<Value>,
+    failed: &'k mut Vec<Value>,
+}
+
+/// A recorded entry under a projection as a run row's `projections` holds it: `{name, status,
+/// killer, reason}`, with no reason (a lock records none).
+fn recorded_entry(recorded: &LockedProjection) -> Value {
+    json!({"name": recorded.name, "status": recorded.status, "killer": recorded.killer,
+           "reason": null})
 }
 
 /// The array at `pointer` in `document`, where there is one. Indexing a `Value` mutably would
@@ -498,6 +648,12 @@ pub fn clock_lines(document: &Value) -> Vec<String> {
     }
     let path = lock["path"].as_str().unwrap_or(crate::lock::LOCK_FILE);
     let text = |value: &Value| value.as_str().unwrap_or("?").to_owned();
+    // An entry under a projection names it.
+    let under = |entry: &Value| {
+        entry["projection"]
+            .as_str()
+            .map_or_else(String::new, |name| format!(" under {name}"))
+    };
     let mut lines = Vec::new();
     for stop in lock["clock_stopped"].as_array().into_iter().flatten() {
         let program = text(&stop["program"]);
@@ -514,9 +670,10 @@ pub fn clock_lines(document: &Value) -> Vec<String> {
             )
         } else {
             format!(
-                "{path}: {}: the clock (budget.time_ms) stopped the run of {program} on its \
+                "{path}: {}{}: the clock (budget.time_ms) stopped the run of {program} on its \
                  mutant: its entry is not decided on this host",
-                text(&stop[kind.row()])
+                text(&stop[kind.row()]),
+                under(stop)
             )
         });
     }
@@ -528,7 +685,7 @@ pub fn clock_lines(document: &Value) -> Vec<String> {
     for entry in lock["kept"].as_array().into_iter().flatten() {
         let (what, recorded, now) = if let Some(id) = entry[kind.row()].as_str() {
             (
-                id.to_owned(),
+                format!("{id}{}", under(entry)),
                 verdict(&entry["recorded"]),
                 verdict(&entry["now"]),
             )
@@ -547,6 +704,14 @@ pub fn clock_lines(document: &Value) -> Vec<String> {
         };
         lines.push(format!(
             "{path}: {what}: kept {recorded} unverified: this host gives {now}"
+        ));
+    }
+    for failed in lock["failed"].as_array().into_iter().flatten() {
+        lines.push(format!(
+            "{path}: {}{}: undecided ({}): the recorded verdict is kept, not confirmed",
+            text(&failed[kind.row()]),
+            under(failed),
+            text(&failed["reason"])
         ));
     }
     lines

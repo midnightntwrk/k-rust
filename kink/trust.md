@@ -258,6 +258,8 @@ Both sides' observed values are computed by that one function in that one observ
 - An observation slot that distinguished names the channel of its first difference only: it kills a projection that reads that channel, and decides nothing for one that reads other channels only.
 - Where the search stopped before judging a program a projection needs, `run` runs that program (the search under the projections): the same request of the same mutant the search would make, judged as above, so it adds runs and no premise; its outcome and ends records are tier-1 and ends records under their own keys, and a projection's killer is decided by tier 1's rule over the programs judged under it, its recorded killer first while it kills under it (decision U2).
   `run --verify` re-derives each ends record such a judgement reads, as it re-derives each outcome record.
+- The lock's entry under a projection (its status and its killer, `[run]` section) is read for one fact, the killer tried first under that projection, as the row's killer is: a hand-edited or stale entry changes which program runs first there, never a status, which still comes from runs and records.
+  An entry the run left `undecided` keeps its recorded verdict, unconfirmed (`--locked` is `undecided`), as compare's rows of a run that gave no answer do: no judgement contradicts it, and none confirms it.
 
 Nothing of a judgement under a projection is cached: it is recomputed from the stored raw results on every run, so no key names a projection and no stored verdict can be stale under a changed projection.
 

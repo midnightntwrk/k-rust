@@ -1124,9 +1124,13 @@ fn the_resolution_key_does_not_name_the_expectation() {
     let cache = Path::new("/nonexistent");
     for mutation in &list.mutations {
         assert_eq!(mutation.expect, None, "{}", mutation.id);
-        for expect in [kink_flow::Expect::Survive, kink_flow::Expect::Kill] {
+        for expect in [
+            kink_flow::Expected::Row(kink_flow::Expect::Survive),
+            kink_flow::Expected::Row(kink_flow::Expect::Kill),
+            kink_flow::Expected::Projections(vec![("p".to_owned(), kink_flow::Expect::Survive)]),
+        ] {
             let expecting = Mutation {
-                expect: Some(expect),
+                expect: Some(expect.clone()),
                 ..mutation.clone()
             };
             assert_eq!(

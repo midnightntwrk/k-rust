@@ -1664,6 +1664,212 @@ fn verify_re_derives_the_ends_records_a_projection_reads() {
     assert_eq!(statuses(&plain), statuses(&search(&manifest)));
 }
 
+/// `run` of `manifest` on `list` (a mutation list's text, written beside it) with the lock
+/// `kink.lock` beside it.
+fn locked_search(manifest: &Path, list: &str, locked: bool) -> Value {
+    let list_path = manifest.with_file_name("EXPECT.toml");
+    fs::write(&list_path, list).unwrap();
+    let (document, _) = run(
+        &FlowManifest::read(manifest).unwrap(),
+        &MutationList::read(&list_path).unwrap(),
+        &RunOptions {
+            lock: Some(manifest.with_file_name("kink.lock")),
+            locked,
+            ..RunOptions::default()
+        },
+    );
+    document
+}
+
+/// The fixture's mutation list with `expect` stated per mutation (`note-offset`'s, then
+/// `emit-offset`'s, each a TOML value or nothing).
+fn expecting(note: &str, emit: &str) -> String {
+    let list = fs::read_to_string(flow().join("MUTATIONS.toml")).unwrap();
+    let with = |list: String, id: &str, expect: &str| {
+        if expect.is_empty() {
+            return list;
+        }
+        list.replace(
+            &format!("id = \"{id}\"\n"),
+            &format!("id = \"{id}\"\nexpect = {expect}\n"),
+        )
+    };
+    with(with(list, "note-offset", note), "emit-offset", emit)
+}
+
+/// PJ-11 (U11d): the lock records each mutation's status and killer under each listed
+/// projection and counts the killed and the survivors under each; the document's
+/// `projection_counts` counts them too. A run reads each recorded killer back and keeps it while
+/// it kills under its projection (decision U2): `n2` (`note(5)`) kills `note-offset` under
+/// `scratch` after `both`, so a lock naming it keeps it; one naming `e3` (`emit(3)`, which does
+/// not touch `<scratch>`) gives the first killing program in the search order back. The row's
+/// own killer is the row's record's.
+#[test]
+fn the_lock_records_a_killer_per_projection_and_counts_the_survivors() {
+    let text = format!(
+        "{}\n[[program]]\nid = \"n2\"\ntext = \"note(5)\"\n\n[[program]]\nid = \"e3\"\ntext = \"emit(3)\"\n",
+        plain_projected(
+            "[[projection]]\nname = \"out\"\ncompare = [\"out\"]\n\n\
+             [[projection]]\nname = \"scratch\"\ncompare = [\"scratch\"]\n\n",
+        )
+    );
+    let dir = fixture("lock-projections", &[("projected", &text)]);
+    let manifest = dir.join("FLOW-projected.toml");
+    let list = expecting("", "");
+    let first = locked_search(&manifest, &list, false);
+    assert_eq!(first["lock"]["status"], "created", "{:#}", first["lock"]);
+    assert_eq!(
+        first["projection_counts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|entry| (
+                entry["name"].clone(),
+                entry["counts"]["killed"].clone(),
+                entry["counts"]["survived"].clone(),
+                entry["survivors"].clone()
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            (json!("out"), json!(1), json!(1), json!(["note-offset"])),
+            (json!("scratch"), json!(1), json!(1), json!(["emit-offset"])),
+        ],
+        "{first:#}"
+    );
+    let lock = dir.join("kink.lock");
+    let text = fs::read_to_string(&lock).unwrap();
+    assert!(
+        text.contains(
+            "id = \"note-offset\"\nstatus = \"killed\"\nkiller = \"both\"\nprojections = [\n  \
+             { name = \"out\", status = \"survived\" },\n  \
+             { name = \"scratch\", status = \"killed\", killer = \"both\" },\n]\n"
+        ),
+        "{text}"
+    );
+    assert!(
+        text.contains(
+            "[[run.projection]]\nname = \"out\"\nkilled = 1\nsurvivors = 1\n\n\
+             [[run.projection]]\nname = \"scratch\"\nkilled = 1\nsurvivors = 1\n"
+        ),
+        "{text}"
+    );
+    let locked = locked_search(&manifest, &list, true);
+    assert_eq!(
+        locked["lock"]["status"], "unchanged",
+        "{:#}",
+        locked["lock"]
+    );
+    let scratch_killer = |document: &Value| {
+        document["mutations"][0]["projections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["name"] == "scratch")
+            .unwrap()["killer"]
+            .clone()
+    };
+    let named = |killer: &str| {
+        text.replace(
+            "{ name = \"scratch\", status = \"killed\", killer = \"both\" }",
+            &format!("{{ name = \"scratch\", status = \"killed\", killer = \"{killer}\" }}"),
+        )
+    };
+    // A recorded killer that still kills under its projection is kept.
+    fs::write(&lock, named("n2")).unwrap();
+    let kept = locked_search(&manifest, &list, true);
+    assert_eq!(scratch_killer(&kept), "n2", "{kept:#}");
+    assert_eq!(kept["mutations"][0]["killer"], "both", "{kept:#}");
+    assert_eq!(kept["lock"]["status"], "unchanged", "{:#}", kept["lock"]);
+    // One that no longer does gives the first killing program in C back, a lock change.
+    fs::write(&lock, named("e3")).unwrap();
+    let moved = locked_search(&manifest, &list, true);
+    assert_eq!(scratch_killer(&moved), "both", "{moved:#}");
+    assert_eq!(moved["lock"]["status"], "stale", "{:#}", moved["lock"]);
+    assert_eq!(
+        kink_flow::lock::stale_lines(&moved)
+            .iter()
+            .map(|line| line.rsplit(": ").take(2).collect::<Vec<_>>())
+            .collect::<Vec<_>>(),
+        vec![vec!["killer e3 -> both", "under scratch"]],
+        "{:#}",
+        moved["lock"]
+    );
+}
+
+/// PJ-11 (U11d): `expect` per projection is checked against the row's entry under each named
+/// projection, as `expect` against the row's status: `note-offset` changes `<scratch>` only, so
+/// it survives under `out` and is killed under `scratch` (met), while `emit-offset` claimed to
+/// survive under `out` is killed there (unmet, naming the projection); the string form keeps
+/// checking the row's own status. A name the flow does not declare refuses the list.
+#[test]
+fn an_expectation_per_projection_is_checked_under_each() {
+    let text = plain_projected(
+        "[[projection]]\nname = \"out\"\ncompare = [\"out\"]\n\n\
+         [[projection]]\nname = \"scratch\"\ncompare = [\"scratch\"]\n\n",
+    );
+    let dir = fixture("expect-projections", &[("projected", &text)]);
+    let manifest = dir.join("FLOW-projected.toml");
+    let document = locked_search(
+        &manifest,
+        &expecting(
+            "{ out = \"survive\", scratch = \"kill\" }",
+            "{ out = \"survive\" }",
+        ),
+        false,
+    );
+    let rows = document["mutations"].as_array().unwrap();
+    assert_eq!(
+        rows[0]["expect"],
+        json!({"out": "survive", "scratch": "kill"})
+    );
+    assert_eq!(
+        rows[0]["expectation"],
+        json!({"verdict": "met", "detail": null, "projections": [
+            {"name": "out", "verdict": "met", "detail": null},
+            {"name": "scratch", "verdict": "met", "detail": null},
+        ]}),
+        "{:#}",
+        rows[0]
+    );
+    assert_eq!(rows[1]["expectation"]["verdict"], "unmet", "{:#}", rows[1]);
+    assert_eq!(
+        rows[1]["expectation"]["detail"], "under out: expected to survive, killed by both",
+        "{:#}",
+        rows[1]
+    );
+    assert_eq!(
+        document["expectations"]["unmet"],
+        json!(["emit-offset"]),
+        "{document:#}"
+    );
+    assert_eq!(
+        kink_flow::cli::run_status(&document),
+        kink_flow::cli::EXIT_NO,
+        "{document:#}"
+    );
+    // The string form is the row's own status, which a kill under the union decides.
+    let row = locked_search(&manifest, &expecting("\"survive\"", ""), false);
+    assert_eq!(row["mutations"][0]["expectation"]["verdict"], "unmet");
+    // A name no projection has: the list is refused before anything runs.
+    fs::write(
+        dir.join("MUTATIONS.toml"),
+        expecting("{ writes = \"survive\" }", ""),
+    )
+    .unwrap();
+    let (refused, status) = dispatched(&manifest, "run");
+    assert_eq!(status, EXIT_UNASKED, "{refused:#}");
+    assert_eq!(
+        refused["mutation_list"]["outcome"], "refused",
+        "{refused:#}"
+    );
+    let detail = refused["mutation_list"]["detail"].as_str().unwrap();
+    assert!(
+        detail.contains("mutation \"note-offset\".expect.writes")
+            && detail.contains("names no projection of the flow (its projections: out, scratch)"),
+        "{detail}"
+    );
+}
+
 /// A flow that declares no projection is judged as it was: no row or executed entry names a
 /// projection, and every status and killer is the runner's.
 #[test]
@@ -1676,6 +1882,27 @@ fn a_flow_without_projections_names_none_in_its_rows() {
             assert!(entry.get("projections").is_none(), "{entry:#}");
         }
     }
+    assert!(document.get("projection_counts").is_none(), "{document:#}");
+    // Its lock section has no line of the projections', and `expect` per projection names its
+    // one projection, `default`, whose status is the row's.
+    let list = expecting("{ default = \"kill\" }", "\"kill\"");
+    let locked = locked_search(&dir.join("FLOW-plain.toml"), &list, false);
+    let text = fs::read_to_string(dir.join("kink.lock")).unwrap();
+    assert!(!text.contains("projection"), "{text}");
+    let rows = locked["mutations"].as_array().unwrap();
+    assert_eq!(rows[0]["expectation"]["verdict"], "met", "{:#}", rows[0]);
+    assert_eq!(
+        rows[0]["expectation"]["projections"],
+        json!([{"name": "default", "verdict": "met", "detail": null}]),
+        "{:#}",
+        rows[0]
+    );
+    assert_eq!(
+        rows[1]["expectation"],
+        json!({"verdict": "met", "detail": null}),
+        "{:#}",
+        rows[1]
+    );
 }
 
 /// A view naming a snapshot projection (projections PJ-20) judges the implementation's value

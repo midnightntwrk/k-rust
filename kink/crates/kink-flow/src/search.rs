@@ -189,7 +189,7 @@ use crate::{
     memo::{self, Facts, MemoUse},
     mutant_ends::{MutantEndStore, MutantEnds},
     mutation::{
-        EditedRule, Expect, InvalidMutation, Mutation, MutationList, ResolvedMutation, resolve,
+        EditedRule, Expected, InvalidMutation, Mutation, MutationList, ResolvedMutation, resolve,
         rule_texts,
     },
     outcomes::{CachedOutcome, OutcomeRecord, OutcomeStore, RunPolls, cacheable, slot_name},
@@ -1479,7 +1479,13 @@ impl Search<'_, '_> {
         row.insert("id".into(), json!(mutation.id));
         // The row's `note` is the mutation's misunderstanding (its key keeps the run schema).
         row.insert("note".into(), json!(mutation.misunderstanding));
-        row.insert("expect".into(), json!(mutation.expect.map(Expect::as_str)));
+        row.insert(
+            "expect".into(),
+            mutation
+                .expect
+                .as_ref()
+                .map_or(Value::Null, Expected::value),
+        );
         let resolved = match resolution {
             Ok(resolved) => resolved,
             Err(e) => return (invalid(row, e.clone(), Value::Null), false),
@@ -1613,7 +1619,13 @@ impl Search<'_, '_> {
         row.insert("id".into(), json!(mutation.id));
         // The row's `note` is the mutation's misunderstanding (its key keeps the run schema).
         row.insert("note".into(), json!(mutation.misunderstanding));
-        row.insert("expect".into(), json!(mutation.expect.map(Expect::as_str)));
+        row.insert(
+            "expect".into(),
+            mutation
+                .expect
+                .as_ref()
+                .map_or(Value::Null, Expected::value),
+        );
         row.insert("digest".into(), json!(facts.digest.to_string()));
         row.insert("rules".into(), rules_value(&facts.rules));
         self.search_facts(mutation, row, facts, None)
@@ -2730,8 +2742,8 @@ struct Projected<'a> {
     baselines: BTreeMap<usize, Result<BTreeSet<Pattern>, String>>,
     /// The recorded killer of each (mutation, projection), by mutation id then projection name
     /// (program ids): tried first while it kills under that projection (decision U2, per
-    /// projection). Empty until the lock records a killer per projection (U11d); never read from
-    /// the cache, whose hints U2 rejects.
+    /// projection), from the lock's rows ([`Lock::projection_killers`]); never read from the
+    /// cache, whose hints U2 rejects.
     recorded: BTreeMap<String, BTreeMap<String, String>>,
 }
 
@@ -4094,14 +4106,16 @@ pub(crate) fn run_session(
         spelling: front.spelling,
         projected: (mode == RunMode::Search)
             .then(|| {
-                // No per-projection killer is recorded yet: the lock's rows per projection are
-                // U11d's.
+                // Each (mutation, projection)'s recorded killer is the lock's (decision U2, per
+                // projection), whoever gives the mutations' own.
                 Projected::of(
                     manifest,
                     front.implementations,
                     update.execution,
                     &cache,
-                    BTreeMap::new(),
+                    lock.as_ref()
+                        .map(Lock::projection_killers)
+                        .unwrap_or_default(),
                 )
             })
             .flatten(),
@@ -5575,6 +5589,13 @@ fn document(
     }
     if let Some(projections) = accounting.projections {
         document["projections"] = projections;
+    }
+    if let Some(counts) = crate::report::projection_counts(
+        document["mutations"]
+            .as_array()
+            .map_or(&[][..], Vec::as_slice),
+    ) {
+        document["projection_counts"] = counts;
     }
     document
 }

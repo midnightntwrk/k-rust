@@ -293,7 +293,11 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// (`{calls, call_wall_ms, executed}`, and `error` where one of its calls met a corpus error;
 /// `crate::search`, the search under the projections); a flow that declares none gives version
 /// 43's document but for its version. (One version for both: neither was on `main` before the
-/// other.)
+/// other.) The same version also gives such a document `projection_counts` (per listed
+/// projection, the rows per status under it and its survivors, [`projection_counts`]), a row's
+/// `expectation` per projection (`{verdict, detail, projections}` for `expect = {NAME: ..}`,
+/// [`mutation_expectation`]), and a run's lock `failed` (a projection's entry left `undecided`
+/// over a recorded verdict, [`crate::clock`]).
 pub const RUN_VERSION: u64 = 44;
 
 /// The name of the observation slot of an executed entry's `slots`, after the end slots
@@ -1422,13 +1426,26 @@ pub const EXPECTED_SURVIVOR_ACTION: &str = "nothing: it survived, as its expecta
 ///   contradicts (unmet).
 /// - `timeout`, `unknown`: kink could not decide whether some program distinguishes, so the claim
 ///   is neither confirmed nor refuted (inconclusive).
-/// - every other status (`invalid-mutation`, `not-admitted`, `error`): no verdict exists to check
-///   (inconclusive); the row's own status already fails the run.
+/// - every other status (`invalid-mutation`, `not-admitted`, `error`, a projection's
+///   `undecided`): no verdict exists to check (inconclusive); the row's own status already fails
+///   the run.
+///
+/// A mutation that states `expect` per projection (`{NAME: "survive" | "kill"}`,
+/// [`crate::Expected::Projections`]) is checked under each by the same rule, on the row's entry
+/// for that projection ([`projection_expectations`]).
 #[must_use]
 pub fn mutation_expectation(row: &Value) -> Value {
+    if let Some(named) = row["expect"].as_object() {
+        return projection_expectations(row, named);
+    }
     let Some(expect) = row["expect"].as_str().and_then(crate::Expect::parse) else {
         return Value::Null;
     };
+    status_expectation(row, expect)
+}
+
+/// [`mutation_expectation`] of `row`'s own status against `expect`.
+fn status_expectation(row: &Value, expect: crate::Expect) -> Value {
     let survive = expect == crate::Expect::Survive;
     let expected = if survive {
         "expected to survive"
@@ -1473,6 +1490,112 @@ pub fn mutation_expectation(row: &Value) -> Value {
         ),
     };
     json!({"verdict": verdict, "detail": detail})
+}
+
+/// The expectation of a row whose mutation states `expect` per projection (`named`, `{NAME:
+/// verdict}`): `{verdict, detail, projections}`, `projections` one `{name, verdict, detail}` per
+/// named projection, in the row's listed order then by name, each [`mutation_expectation`]'s rule
+/// on the row's entry for it (its `status`, `killer` and `reason`; a survivor's limits from the
+/// row's `stop_hides_edit` and the horizons of the programs that agreed under it). In a flow
+/// that declares no projection (a row with no `projections`) the one name is `default`, whose
+/// status is the row's. A named projection the row has no entry for (`[run] projections` does
+/// not list it, or `--verify` judged none) is `inconclusive`. `verdict` is the worst of them
+/// (`unmet`, then `inconclusive`, then `met`) and `detail` the details of those with that
+/// verdict, each prefixed `under NAME: `.
+fn projection_expectations(row: &Value, named: &serde_json::Map<String, Value>) -> Value {
+    let listed = row["projections"].as_array();
+    let mut names = listed
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| entry["name"].as_str())
+        .filter(|name| named.contains_key(*name))
+        .collect::<Vec<_>>();
+    let rest = named
+        .keys()
+        .map(String::as_str)
+        .filter(|name| !names.contains(name))
+        .collect::<Vec<_>>();
+    names.extend(rest);
+    let entries = names
+        .into_iter()
+        .map(|name| {
+            let expect = named[name].as_str().and_then(crate::Expect::parse);
+            let judged = match listed {
+                None if name == crate::manifest::DEFAULT_PROJECTION => Some(row.clone()),
+                None => None,
+                Some(listed) => listed
+                    .iter()
+                    .find(|entry| entry["name"] == name)
+                    .map(|entry| projection_row(row, entry, name)),
+            };
+            let value = match (expect, judged) {
+                (Some(expect), Some(judged)) => status_expectation(&judged, expect),
+                (expect, _) => {
+                    let expected = if expect == Some(crate::Expect::Survive) {
+                        "expected to survive"
+                    } else {
+                        "expected to be killed"
+                    };
+                    let why = if listed.is_some() {
+                        "[run] projections does not list it"
+                    } else {
+                        "the run judged no projection"
+                    };
+                    json!({"verdict": "inconclusive",
+                           "detail": format!("{expected}, but not judged: {why}")})
+                }
+            };
+            json!({"name": name, "verdict": value["verdict"], "detail": value["detail"]})
+        })
+        .collect::<Vec<_>>();
+    let verdict = ["unmet", "inconclusive"]
+        .into_iter()
+        .find(|verdict| entries.iter().any(|entry| entry["verdict"] == *verdict))
+        .unwrap_or("met");
+    let details = entries
+        .iter()
+        .filter(|entry| entry["verdict"] == verdict)
+        .filter_map(|entry| {
+            Some(format!(
+                "under {}: {}",
+                entry["name"].as_str()?,
+                entry["detail"].as_str()?
+            ))
+        })
+        .collect::<Vec<_>>();
+    json!({
+        "verdict": verdict,
+        "detail": (!details.is_empty()).then(|| details.join("; ")),
+        "projections": entries,
+    })
+}
+
+/// The row [`status_expectation`] reads for `row`'s entry under the projection `name`: the
+/// entry's `status`, `killer` and `reason`, the row's `stop_hides_edit` (a function of the edit
+/// and the corpus, whatever is observed) and, as `horizon`, the horizons of the programs that
+/// agreed under it (the row's executed entries and its `projection_search`'s).
+fn projection_row(row: &Value, entry: &Value, name: &str) -> Value {
+    let agreed = row["executed"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .chain(
+            row["projection_search"]["executed"]
+                .as_array()
+                .into_iter()
+                .flatten(),
+        )
+        .filter(|executed| executed["projections"][name] == "agree")
+        .cloned()
+        .collect::<Vec<_>>();
+    let horizons = survivor_horizons(&agreed);
+    json!({
+        "status": entry["status"],
+        "killer": entry["killer"],
+        "reason": entry["reason"],
+        "stop_hides_edit": row["stop_hides_edit"],
+        "horizon": if horizons.is_empty() { Value::Null } else { json!(horizons) },
+    })
 }
 
 /// What limits a met control's survival, null when nothing does: a survivor some program of
@@ -1649,6 +1772,56 @@ pub fn survivors(mutations: &[Value]) -> Vec<Value> {
         })
         .map(|row| row["id"].clone())
         .collect()
+}
+
+/// The run document's `projection_counts`, for a run whose rows carry `projections` (a flow that
+/// declares `[[projection]]`; `None` otherwise): one `{name, counts, survivors}` per projection
+/// the rows name, in the order they first name them, `counts` the rows per status under it (each
+/// of [`crate::search::STATUSES`], then `undecided`) and `survivors` the ids of the rows whose
+/// status under it is a survivor's ([`SURVIVOR_STATUSES`]), in row order. They count the run's
+/// rows, as `counts` and `survivors` do; a lock's counts per projection count the rows its
+/// section holds ([`crate::verdicts`]).
+#[must_use]
+pub fn projection_counts(mutations: &[Value]) -> Option<Value> {
+    let tallies = crate::verdicts::projection_tallies(mutations);
+    if tallies.is_empty() {
+        return None;
+    }
+    // Each row with its status under the projection `name`.
+    let entries = |name: &Value| {
+        mutations
+            .iter()
+            .filter_map(|row| {
+                let entry = row["projections"]
+                    .as_array()?
+                    .iter()
+                    .find(|entry| entry["name"] == *name)?;
+                Some((row, entry["status"].as_str().unwrap_or_default()))
+            })
+            .collect::<Vec<_>>()
+    };
+    Some(json!(
+        tallies
+            .iter()
+            .map(|tally| {
+                let name = &tally["name"];
+                let counts = crate::search::STATUSES
+                    .iter()
+                    .chain([&crate::projected::UNDECIDED])
+                    .map(|status| {
+                        let count = entries(name).iter().filter(|(_, at)| at == status).count();
+                        ((*status).to_owned(), json!(count))
+                    })
+                    .collect::<serde_json::Map<_, _>>();
+                let survivors = entries(name)
+                    .into_iter()
+                    .filter(|(_, status)| SURVIVOR_STATUSES.contains(status))
+                    .map(|(row, _)| row["id"].clone())
+                    .collect::<Vec<_>>();
+                json!({"name": name, "counts": counts, "survivors": survivors})
+            })
+            .collect::<Vec<_>>()
+    ))
 }
 
 /// The kill matrix of a full run (`run --full`), from its program rows (the `coverage` rows, in

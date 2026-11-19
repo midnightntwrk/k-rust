@@ -1586,7 +1586,9 @@ pub fn run_command(
             ..
         } => {
             // `run_front` annotates every document it writes and returns.
-            return match MutationList::read(mutations) {
+            return match MutationList::read(mutations)
+                .and_then(|list| list.check_projections(manifest).map(|()| list))
+            {
                 Err(error) => {
                     let mut document = mutation_list_refused(&error.to_string(), options.schedule);
                     document["lock"] = refused_lock(options);
@@ -3032,6 +3034,9 @@ pub fn check_corpus_mutations(
     list: Result<MutationList, ManifestError>,
     cache: Option<&Path>,
 ) -> CorpusMutationCheck {
+    // A list whose expectations name a projection the flow does not declare is refused, as `run`
+    // refuses it.
+    let list = list.and_then(|list| list.check_projections(manifest).map(|()| list));
     let (record, admitted) = admit_spec(manifest);
     let Some((spec, mut inputs)) = admitted else {
         return CorpusMutationCheck {
