@@ -1,0 +1,5 @@
+# Hand-written KORE: the kompiled text of fixture hw-base (K 7.1.337, sha256 f7b0b1ea8582afef5915bc78f2d34d936b8701180b90fbb1cb66675f9240c68c), the Source of its own
+# sentences written as its fixture's path, and one sentence changed: f's equation f(X) = a(X), its ensures \top{SortExp{}}() written \top{SortInt{}}(),
+# an operand of \and{SortExp{}}(a(X), _) of another sort than the conjunction's. The KORE syntax document gives each argument of a connective the
+# connective's sort parameter (kore-syntax.md:195, :330); kompile writes the ensures at the right side's sort and writes none of this. Expected: rhsOperandSort.
+kore = "test/constructs/fixtures/hw-ens-top-eqn/hw-ens-top-eqn.kore"

@@ -120,7 +120,7 @@ theorem holds_eq_collOvl (c : Semantics) (f : Sym) :
 its application is written with its own name, and if a value's element is what it gives on
 elements of its argument sorts, those elements are values' of those sorts. -/
 def HeldBack (c : Semantics) {M : Type} [Inhabited M] (I : Interpretation KoreAML.Sym M) (f : Sym) (k : CtorSig) : Prop :=
-  iteSort? (c.symName f) = none ∧
+  (∀ ps, symApp c f ps = .app ⟨⟨c.symName f⟩⟩ [] ps) ∧
   ∀ {w : GroundTerm}, c.sortOf w = some k.result → ∀ {bs : List M},
     bs.length = (k.args.map c.sortName).length →
     (∀ (i : Nat) x s, bs[i]? = some x → (k.args.map c.sortName)[i]? = some s → InS I s x) →
@@ -179,7 +179,7 @@ mutual
       | false =>
         have hH : H f = true := by rw [hc] at hch; simpa using hch
         obtain ⟨hit, hb⟩ := hback f k hc hH hk'
-        rw [kore_app, tr_symApp, symHead_none hit, trArgs_appList, interp_appList] at hm
+        rw [kore_app, tr_symApp, symHead_plain_irs hit, trArgs_appList, interp_appList] at hm
         obtain ⟨a, ha, bs, hbs, hm⟩ := hm
         have hsorts := rhsSorts hI hg htr hnm hvs hin hL hargs hbs
         obtain ⟨ws, hws, rfl⟩ := hb hw hsorts.1 hsorts.2 ⟨a, ha, hm⟩
@@ -321,7 +321,7 @@ theorem collHeld_back (hph : patHooksApart c = true) (hcs : collsOK c = true) (h
   have hd : downHead c f = true := by
     unfold downHead; unfold collHeld at hh; rw [hh]; rfl
   have hR := head_reading hI hph hcs hcso hc hov hd (held_lookup hc hh hk)
-  refine ⟨hR.ite, fun {w} hw {bs} hbl hbs hm => ?_⟩
+  refine ⟨fun _ => symApp_noInst hR.ite, fun {w} hw {bs} hbl hbs hm => ?_⟩
   obtain ⟨ws, hws, hb, -⟩ := head_back hI hg htr hR hw hbl hbs hm
   exact ⟨ws, hws, hb⟩
 
@@ -331,10 +331,11 @@ theorem ovl_backR (hsc : SortCtx c) {L : List CtorSig} (hL : HeadsOK c L) {f : S
     (ho : c.isOvl f = true) (hnf : OvlLaws.NoFnOver c f)
     (hk : lookupSig (c.rhsCtx L).heads f = some k) : HeldBack c I f k := by
   obtain ⟨o, hlo, rfl⟩ := rhs_lookup_ovl hsc hL hk ho
-  obtain ⟨hom, hn, -, hit, -⟩ := OvlLaws.ovl_parts (OvlOK.ok (c := c)) hlo
+  obtain ⟨hom, hn, -⟩ := OvlLaws.ovl_parts (OvlOK.ok (c := c)) hlo
+  have hit := OvlLaws.ovl_noInst_irs (OvlOK.ok (c := c)) hlo
   have H := (inferInstance : OvlOK c).hyp htr
   obtain ⟨-, -, -, -, hks, -⟩ := OvlLaws.ovl_facts_ovlF H.fnFacts hlo
-  refine ⟨hit, fun {w} hw {bs} hbl hbs hm => ?_⟩
+  refine ⟨fun _ => symApp_noInst hit, fun {w} hw {bs} hbl hbs hm => ?_⟩
   obtain ⟨a, ha, hm⟩ := hm
   obtain ⟨ws, hws, hb, -⟩ := ovl_back hI htr hg _ o.sig hks (OvlLaws.ovlRank_le _)
     (by rw [hn]; exact hnf) hw hbl hbs ⟨a, by rw [← hn] at ha; exact ha, hm⟩

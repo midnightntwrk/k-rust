@@ -521,17 +521,26 @@ theorem symApp_den {f : Sym} (hf : iteSort? (c.symName f) = none) (vs : List Gro
   rw [KoreAML.tr_app0, trArgs_appList, koreList_den]
   rfl
 
+/-- The denotation of an application at values of a symbol whose name the decoder reads as no
+instance, as `ΓDomains` writes its graph. -/
+theorem symApp_den_irs {f : Sym} (hf : instDecode? (c.symName f) = none) (vs : List GroundTerm) :
+    KoreAML.den (symApp c f (GroundTerm.koreList c vs)) = KoreAML.appList (symP (c.symName f)) (vs.map (den c)) := by
+  rw [symApp_noInst hf]
+  unfold KoreAML.den
+  rw [KoreAML.tr_app0, trArgs_appList, koreList_den]
+  rfl
+
 /-- **An interpreted symbol at values denotes its graph's value, or nothing**, in a model of the
 theory with definedness: the theory states the graph at values (`ΓDomains`). -/
 theorem hook_den (hI : I ⊧ᴵP (Γc c ∪ Γstep c)) (hD : KoreAML.DefOK I) {k : CtorSig} (hk : k ∈ hookSigs)
-    (hf : iteSort? (c.symName k.name) = none) {vs : List GroundTerm} (hvs : c.sortsOf vs = some k.args)
+    {vs : List GroundTerm} (hvs : c.sortsOf vs = some k.args)
     {r : Option GroundTerm} (hr : hook k.name vs = some r) (hsil : r = none → silent k.name vs = false)
     (ρ : Valuation M) (m : M) :
     (KoreAML.appList (symP (c.symName k.name)) (vs.map (den c))).interpret I ρ m ↔
       (match r with
         | some v => den c v
         | none => ⊥).interpret I ρ m := by
-  rw [← symApp_den hf vs]
+  rw [← symApp_den_irs (Faithful.hook_noInst_irs hk) vs]
   refine den_of_eqn hD (hI _ ?_) ρ m
   exact Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inr (Or.inl ⟨k, vs, r, hk, hvs, hr, hsil, rfl⟩)))))))
 
@@ -618,25 +627,37 @@ theorem name_none {n : String} (hn : N n) {ψs : List KoreAML.P} {ws : List Grou
   simp
 
 /-- **An interpreted symbol over arguments that denote values denotes its graph's value.** -/
-theorem hookV {k : CtorSig} (hk : k ∈ hookSigs) (hf : iteSort? (c.symName k.name) = none) {ψs : List KoreAML.P}
+theorem hookV_irs {k : CtorSig} (hk : k ∈ hookSigs) {ψs : List KoreAML.P}
     {vs : List GroundTerm} (h : All2 (DenV c I) ψs vs) (hvs : c.sortsOf vs = some k.args) {v : GroundTerm}
     (hr : hook k.name vs = some (some v)) {s : Srt} (hs : c.sortOf v = some s) :
     DenV c I (KoreAML.appList (symP (c.symName k.name)) ψs) v := by
   refine ⟨⟨s, hs⟩, fun ρ m => ?_⟩
   rw [appList_congr ψs (vs.map (den c)) _ _ (fun _ => Iff.rfl) (all2_den_map (hM.all2_den h ρ)) m,
-    hook_den hM.sat hM.defOK hk hf hvs hr (fun h => by cases h) ρ m]
+    hook_den hM.sat hM.defOK hk hvs hr (fun h => by cases h) ρ m]
   exact hM.vals v s hs ρ m
+
+theorem hookV {k : CtorSig} (hk : k ∈ hookSigs) (_hf : iteSort? (c.symName k.name) = none) {ψs : List KoreAML.P}
+    {vs : List GroundTerm} (h : All2 (DenV c I) ψs vs) (hvs : c.sortsOf vs = some k.args) {v : GroundTerm}
+    (hr : hook k.name vs = some (some v)) {s : Srt} (hs : c.sortOf v = some s) :
+    DenV c I (KoreAML.appList (symP (c.symName k.name)) ψs) v :=
+  hM.hookV_irs hk h hvs hr hs
 
 /-- **An interpreted symbol over arguments that denote values where its graph has none denotes
 nothing**, at a point the text is not silent at. -/
-theorem hookE {k : CtorSig} (hk : k ∈ hookSigs) (hf : iteSort? (c.symName k.name) = none) {ψs : List KoreAML.P}
+theorem hookE_irs {k : CtorSig} (hk : k ∈ hookSigs) {ψs : List KoreAML.P}
     {vs : List GroundTerm} (h : All2 (DenV c I) ψs vs) (hvs : c.sortsOf vs = some k.args)
     (hr : hook k.name vs = some none) (hsil : silent k.name vs = false) :
     DenE I (KoreAML.appList (symP (c.symName k.name)) ψs) := by
   intro ρ m
   rw [appList_congr ψs (vs.map (den c)) _ _ (fun _ => Iff.rfl) (all2_den_map (hM.all2_den h ρ)) m,
-    hook_den hM.sat hM.defOK hk hf hvs hr (fun _ => hsil) ρ m]
+    hook_den hM.sat hM.defOK hk hvs hr (fun _ => hsil) ρ m]
   exact id
+
+theorem hookE {k : CtorSig} (hk : k ∈ hookSigs) (_hf : iteSort? (c.symName k.name) = none) {ψs : List KoreAML.P}
+    {vs : List GroundTerm} (h : All2 (DenV c I) ψs vs) (hvs : c.sortsOf vs = some k.args)
+    (hr : hook k.name vs = some none) (hsil : silent k.name vs = false) :
+    DenE I (KoreAML.appList (symP (c.symName k.name)) ψs) :=
+  hM.hookE_irs hk h hvs hr hsil
 
 /-- **An equation whose sides denote the same value holds.** -/
 theorem eqn {φ ψ : KoreAML.P} {v : GroundTerm} (h1 : DenV c I φ v) (h2 : DenV c I ψ v) : I ⊧ᴵ (φ ≡ ψ) :=

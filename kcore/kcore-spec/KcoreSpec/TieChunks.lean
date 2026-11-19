@@ -28,4 +28,20 @@ theorem tieEq_range {α : Type} {l m : List α} {a n : Nat}
   rw [← List.take_append_drop n (l.drop a), ← List.take_append_drop n (m.drop a), h, List.drop_drop,
     List.drop_drop, ht]
 
+/-- `l.all (fun x => (f x.2).contains x.1)` from one check per group: each member's second component
+is one of `cs`, and for each `n` of `cs` the first components of the members whose second component
+is `n`, in the list's order, are a sublist of `f n`. Each group's check reads `f n` once, where
+deciding the statement directly reads `f x.2` once per member. -/
+theorem tieAll_of_groups {α β : Type} [BEq α] [LawfulBEq α] [BEq β] [LawfulBEq β]
+    {l : List (α × β)} {cs : List β} {f : β → List α}
+    (hc : l.all (fun x => cs.contains x.2) = true)
+    (hs : cs.all (fun n => ((l.filter (·.2 == n)).map (·.1)).isSublist (f n)) = true) :
+    l.all (fun x => (f x.2).contains x.1) = true := by
+  rw [List.all_eq_true] at hc hs ⊢
+  intro x hx
+  have hn : x.2 ∈ cs := by simpa using hc x hx
+  have h1 : x.1 ∈ (l.filter (·.2 == x.2)).map (·.1) :=
+    List.mem_map.mpr ⟨x, List.mem_filter.mpr ⟨hx, by simp⟩, rfl⟩
+  simpa using (List.isSublist_iff_sublist.mp (hs x.2 hn)).subset h1
+
 end KCore

@@ -932,8 +932,11 @@ S <=Rat R`) and maxRat's (rat.md:224, `maxRat(R, S) => S requires S >=Rat R`) wh
 `<0, J>Rat` and the other the integer 0: each is `<=Rat` (and `>=Rat`) the other, so both equations
 of the function apply, the first (rat.md:220, 223) gives R and the second S, two elements Γ holds
 apart. That is the disagreement test/RatNoModel.lean shows at `<1, 1>Rat` and 1 (`no_model`,
-`no_model_min`: Γ of a text holding RAT has no model), here at a pair whose first component is 0. A
-counterexample at another point, or of another sentence, is a finding. -/
+`no_model_min`: Γ of a text holding RAT has no model), here at a pair whose first component is 0
+(Kore-in-K entry `kk:t242-rat-minmax-overlap`: both equations of maxRat, and both of minRat, apply at
+`(<0, J>Rat, 0)` for every nonzero J, so in a model `<0, 1>Rat` and `<0, 2>Rat` would be one element,
+which the constructor at different arguments is not). A counterexample at another point, or of
+another sentence, is a finding. -/
 def refutedByText : List (String × (List (String × D) → Bool)) :=
   [("rat.md:173", fun pt => match intAt pt "VarJ", intAt pt "VarD" with
     | some j, some d => j == d && j < 0
@@ -986,8 +989,8 @@ where
 - rat.md:173: no model, at the 21 points with J = D < 0 (`refutedByText`; first I = J = D = -3: left
   1, by rat.md:171, right `<-1, -1>Rat`);
 - rat.md:224 and rat.md:221: no model, at the two points where one argument is `<0, 2>Rat` and the
-  other 0 (`refutedByText`; at `R = <0, 2>Rat`, `S = 0`: left `<0, 2>Rat`, by rat.md:223 or 220,
-  right 0). -/
+  other 0 (`refutedByText`, `kk:t242-rat-minmax-overlap`; at `R = <0, 2>Rat`, `S = 0`: left
+  `<0, 2>Rat`, by rat.md:223 or 220, right 0). -/
 def expectedNoted : List (String × String) :=
   [("Lbl'Hash'ruleEnsures", "owed; not probed: no grid for sort 'Hash'RuleBody (variable K0)"),
    ("Lbl'Hash'ruleNoConditions", "owed; not probed: no grid for sort 'Hash'RuleBody (variable K0)"),

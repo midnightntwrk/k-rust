@@ -1,0 +1,633 @@
+/-
+  Part Fns of the tie (C14) on `f2-examples/e2-cells-stream.kompile.kore`, test/TieE2CellsStream.lean: the sections
+  `--split` puts here, in the tie's namespace. A test file imports no test file, so this one
+  repeats the literals and the definitions and facts it reads. Written by
+  `test/constructs/tiegen.py e2-cells-stream --split`; run from the package root:
+  `lake env lean -j1 test/TieE2CellsStreamFns.lean`.
+
+  Measured alone (LEAN_NUM_THREADS=1, `lake env lean -j1`, a 12G memory scope): 69 s, peak
+  2.3 GiB.
+-/
+import KcoreSpec
+
+set_option autoImplicit false
+set_option maxRecDepth 1000000
+
+namespace KCore.TieE2CellsStream
+
+open KCore ML Faithful KoreAML
+
+kore_term kore from "f2-examples/e2-cells-stream.kompile.kore"
+definition_of defn from "f2-examples/e2-cells-stream.kompile.kore"
+user_axioms U from "f2-examples/e2-cells-stream.kompile.kore" module "E2-CELLS-STREAM"
+user_axioms PreludeKseq from "f2-examples/e2-cells-stream.kompile.kore" module "KSEQ"
+
+noncomputable abbrev c : Semantics := defn.sem
+noncomputable abbrev cH (H : HookParams) : Semantics := c.withHooks H
+
+/-- `tr s`: the item `Theory.ofDefinition kore` holds for the sentence. -/
+noncomputable def trS (ad : AxiomDecl) : Item := trAxiom kore.symbolDecls kore.aliasNames ad
+
+/-- Per class of the tie (`tieClasses`), the indices (`AxiomDecl.index`) of its sentences. -/
+def classes : List (String × List Nat) :=
+  [("function equation", [2897, 2898, 2899, 2900, 2901, 2902, 2903, 2904, 2905, 2906, 2907, 2908, 2909, 2910, 2911,
+      2912, 2913, 2914, 2915, 2916, 2917, 2918, 2919, 2920, 2921, 2922, 2923, 2924, 2925, 2926,
+      2927, 2928, 2929, 2930, 2931, 2932, 2933, 2934, 2935, 2936, 2937, 2938, 2939, 2940, 2941,
+      2942, 2943, 2944, 2945, 2946, 2947, 2948, 2949, 2950, 2951, 2952, 2953, 2976]),
+   ("rewrite rule", [2815, 2816, 2817, 2818, 2819, 2820, 2821, 2822]),
+   ("priority equation", []),
+   ("constructor functional", [41, 112, 182, 251, 319, 386, 452, 517, 581, 644, 706, 767, 827, 886, 944, 1001, 1057, 1112,
+      1166, 1219, 1271, 1322, 1372, 1421, 1469, 1516, 1562, 1607, 1651, 1694, 1736, 1777, 1817,
+      1856, 1894, 1931, 1967, 2002, 2036, 2069, 2101, 2132, 2162, 2191, 2219, 2246, 2272, 2297,
+      2321, 2344, 2366, 2387, 2407, 2426, 2444, 2461, 2477, 2492, 2506, 2519, 2531, 2542, 2552,
+      2561, 2569, 2576, 2582, 2587, 2591, 2594, 2599, 2605, 2608, 2611, 2617, 2619, 2623, 2628,
+      2630, 2632, 2634, 2636, 2638, 2640, 2642, 2701, 2741, 2742, 2743, 2744, 2745]),
+   ("subsort", [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28,
+      29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40]),
+   ("injectivity", [2595, 2600, 2606, 2609, 2612, 2618, 2620, 2624, 2629, 2631, 2633, 2635, 2637, 2639, 2641,
+      2643]),
+   ("distinctness", [42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64,
+      65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87,
+      88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108,
+      109, 110, 111, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127,
+      128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145,
+      146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163,
+      164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180, 181,
+      183, 184, 185, 186, 187, 188, 189, 190, 191, 192, 193, 194, 195, 196, 197, 198, 199, 200,
+      201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213, 214, 215, 216, 217, 218,
+      219, 220, 221, 222, 223, 224, 225, 226, 227, 228, 229, 230, 231, 232, 233, 234, 235, 236,
+      237, 238, 239, 240, 241, 242, 243, 244, 245, 246, 247, 248, 249, 250, 252, 253, 254, 255,
+      256, 257, 258, 259, 260, 261, 262, 263, 264, 265, 266, 267, 268, 269, 270, 271, 272, 273,
+      274, 275, 276, 277, 278, 279, 280, 281, 282, 283, 284, 285, 286, 287, 288, 289, 290, 291,
+      292, 293, 294, 295, 296, 297, 298, 299, 300, 301, 302, 303, 304, 305, 306, 307, 308, 309,
+      310, 311, 312, 313, 314, 315, 316, 317, 318, 320, 321, 322, 323, 324, 325, 326, 327, 328,
+      329, 330, 331, 332, 333, 334, 335, 336, 337, 338, 339, 340, 341, 342, 343, 344, 345, 346,
+      347, 348, 349, 350, 351, 352, 353, 354, 355, 356, 357, 358, 359, 360, 361, 362, 363, 364,
+      365, 366, 367, 368, 369, 370, 371, 372, 373, 374, 375, 376, 377, 378, 379, 380, 381, 382,
+      383, 384, 385, 387, 388, 389, 390, 391, 392, 393, 394, 395, 396, 397, 398, 399, 400, 401,
+      402, 403, 404, 405, 406, 407, 408, 409, 410, 411, 412, 413, 414, 415, 416, 417, 418, 419,
+      420, 421, 422, 423, 424, 425, 426, 427, 428, 429, 430, 431, 432, 433, 434, 435, 436, 437,
+      438, 439, 440, 441, 442, 443, 444, 445, 446, 447, 448, 449, 450, 451, 453, 454, 455, 456,
+      457, 458, 459, 460, 461, 462, 463, 464, 465, 466, 467, 468, 469, 470, 471, 472, 473, 474,
+      475, 476, 477, 478, 479, 480, 481, 482, 483, 484, 485, 486, 487, 488, 489, 490, 491, 492,
+      493, 494, 495, 496, 497, 498, 499, 500, 501, 502, 503, 504, 505, 506, 507, 508, 509, 510,
+      511, 512, 513, 514, 515, 516, 518, 519, 520, 521, 522, 523, 524, 525, 526, 527, 528, 529,
+      530, 531, 532, 533, 534, 535, 536, 537, 538, 539, 540, 541, 542, 543, 544, 545, 546, 547,
+      548, 549, 550, 551, 552, 553, 554, 555, 556, 557, 558, 559, 560, 561, 562, 563, 564, 565,
+      566, 567, 568, 569, 570, 571, 572, 573, 574, 575, 576, 577, 578, 579, 580, 582, 583, 584,
+      585, 586, 587, 588, 589, 590, 591, 592, 593, 594, 595, 596, 597, 598, 599, 600, 601, 602,
+      603, 604, 605, 606, 607, 608, 609, 610, 611, 612, 613, 614, 615, 616, 617, 618, 619, 620,
+      621, 622, 623, 624, 625, 626, 627, 628, 629, 630, 631, 632, 633, 634, 635, 636, 637, 638,
+      639, 640, 641, 642, 643, 645, 646, 647, 648, 649, 650, 651, 652, 653, 654, 655, 656, 657,
+      658, 659, 660, 661, 662, 663, 664, 665, 666, 667, 668, 669, 670, 671, 672, 673, 674, 675,
+      676, 677, 678, 679, 680, 681, 682, 683, 684, 685, 686, 687, 688, 689, 690, 691, 692, 693,
+      694, 695, 696, 697, 698, 699, 700, 701, 702, 703, 704, 705, 707, 708, 709, 710, 711, 712,
+      713, 714, 715, 716, 717, 718, 719, 720, 721, 722, 723, 724, 725, 726, 727, 728, 729, 730,
+      731, 732, 733, 734, 735, 736, 737, 738, 739, 740, 741, 742, 743, 744, 745, 746, 747, 748,
+      749, 750, 751, 752, 753, 754, 755, 756, 757, 758, 759, 760, 761, 762, 763, 764, 765, 766,
+      768, 769, 770, 771, 772, 773, 774, 775, 776, 777, 778, 779, 780, 781, 782, 783, 784, 785,
+      786, 787, 788, 789, 790, 791, 792, 793, 794, 795, 796, 797, 798, 799, 800, 801, 802, 803,
+      804, 805, 806, 807, 808, 809, 810, 811, 812, 813, 814, 815, 816, 817, 818, 819, 820, 821,
+      822, 823, 824, 825, 826, 828, 829, 830, 831, 832, 833, 834, 835, 836, 837, 838, 839, 840,
+      841, 842, 843, 844, 845, 846, 847, 848, 849, 850, 851, 852, 853, 854, 855, 856, 857, 858,
+      859, 860, 861, 862, 863, 864, 865, 866, 867, 868, 869, 870, 871, 872, 873, 874, 875, 876,
+      877, 878, 879, 880, 881, 882, 883, 884, 885, 887, 888, 889, 890, 891, 892, 893, 894, 895,
+      896, 897, 898, 899, 900, 901, 902, 903, 904, 905, 906, 907, 908, 909, 910, 911, 912, 913,
+      914, 915, 916, 917, 918, 919, 920, 921, 922, 923, 924, 925, 926, 927, 928, 929, 930, 931,
+      932, 933, 934, 935, 936, 937, 938, 939, 940, 941, 942, 943, 945, 946, 947, 948, 949, 950,
+      951, 952, 953, 954, 955, 956, 957, 958, 959, 960, 961, 962, 963, 964, 965, 966, 967, 968,
+      969, 970, 971, 972, 973, 974, 975, 976, 977, 978, 979, 980, 981, 982, 983, 984, 985, 986,
+      987, 988, 989, 990, 991, 992, 993, 994, 995, 996, 997, 998, 999, 1000, 1002, 1003, 1004,
+      1005, 1006, 1007, 1008, 1009, 1010, 1011, 1012, 1013, 1014, 1015, 1016, 1017, 1018, 1019,
+      1020, 1021, 1022, 1023, 1024, 1025, 1026, 1027, 1028, 1029, 1030, 1031, 1032, 1033, 1034,
+      1035, 1036, 1037, 1038, 1039, 1040, 1041, 1042, 1043, 1044, 1045, 1046, 1047, 1048, 1049,
+      1050, 1051, 1052, 1053, 1054, 1055, 1056, 1058, 1059, 1060, 1061, 1062, 1063, 1064, 1065,
+      1066, 1067, 1068, 1069, 1070, 1071, 1072, 1073, 1074, 1075, 1076, 1077, 1078, 1079, 1080,
+      1081, 1082, 1083, 1084, 1085, 1086, 1087, 1088, 1089, 1090, 1091, 1092, 1093, 1094, 1095,
+      1096, 1097, 1098, 1099, 1100, 1101, 1102, 1103, 1104, 1105, 1106, 1107, 1108, 1109, 1110,
+      1111, 1113, 1114, 1115, 1116, 1117, 1118, 1119, 1120, 1121, 1122, 1123, 1124, 1125, 1126,
+      1127, 1128, 1129, 1130, 1131, 1132, 1133, 1134, 1135, 1136, 1137, 1138, 1139, 1140, 1141,
+      1142, 1143, 1144, 1145, 1146, 1147, 1148, 1149, 1150, 1151, 1152, 1153, 1154, 1155, 1156,
+      1157, 1158, 1159, 1160, 1161, 1162, 1163, 1164, 1165, 1167, 1168, 1169, 1170, 1171, 1172,
+      1173, 1174, 1175, 1176, 1177, 1178, 1179, 1180, 1181, 1182, 1183, 1184, 1185, 1186, 1187,
+      1188, 1189, 1190, 1191, 1192, 1193, 1194, 1195, 1196, 1197, 1198, 1199, 1200, 1201, 1202,
+      1203, 1204, 1205, 1206, 1207, 1208, 1209, 1210, 1211, 1212, 1213, 1214, 1215, 1216, 1217,
+      1218, 1220, 1221, 1222, 1223, 1224, 1225, 1226, 1227, 1228, 1229, 1230, 1231, 1232, 1233,
+      1234, 1235, 1236, 1237, 1238, 1239, 1240, 1241, 1242, 1243, 1244, 1245, 1246, 1247, 1248,
+      1249, 1250, 1251, 1252, 1253, 1254, 1255, 1256, 1257, 1258, 1259, 1260, 1261, 1262, 1263,
+      1264, 1265, 1266, 1267, 1268, 1269, 1270, 1272, 1273, 1274, 1275, 1276, 1277, 1278, 1279,
+      1280, 1281, 1282, 1283, 1284, 1285, 1286, 1287, 1288, 1289, 1290, 1291, 1292, 1293, 1294,
+      1295, 1296, 1297, 1298, 1299, 1300, 1301, 1302, 1303, 1304, 1305, 1306, 1307, 1308, 1309,
+      1310, 1311, 1312, 1313, 1314, 1315, 1316, 1317, 1318, 1319, 1320, 1321, 1323, 1324, 1325,
+      1326, 1327, 1328, 1329, 1330, 1331, 1332, 1333, 1334, 1335, 1336, 1337, 1338, 1339, 1340,
+      1341, 1342, 1343, 1344, 1345, 1346, 1347, 1348, 1349, 1350, 1351, 1352, 1353, 1354, 1355,
+      1356, 1357, 1358, 1359, 1360, 1361, 1362, 1363, 1364, 1365, 1366, 1367, 1368, 1369, 1370,
+      1371, 1373, 1374, 1375, 1376, 1377, 1378, 1379, 1380, 1381, 1382, 1383, 1384, 1385, 1386,
+      1387, 1388, 1389, 1390, 1391, 1392, 1393, 1394, 1395, 1396, 1397, 1398, 1399, 1400, 1401,
+      1402, 1403, 1404, 1405, 1406, 1407, 1408, 1409, 1410, 1411, 1412, 1413, 1414, 1415, 1416,
+      1417, 1418, 1419, 1420, 1422, 1423, 1424, 1425, 1426, 1427, 1428, 1429, 1430, 1431, 1432,
+      1433, 1434, 1435, 1436, 1437, 1438, 1439, 1440, 1441, 1442, 1443, 1444, 1445, 1446, 1447,
+      1448, 1449, 1450, 1451, 1452, 1453, 1454, 1455, 1456, 1457, 1458, 1459, 1460, 1461, 1462,
+      1463, 1464, 1465, 1466, 1467, 1468, 1470, 1471, 1472, 1473, 1474, 1475, 1476, 1477, 1478,
+      1479, 1480, 1481, 1482, 1483, 1484, 1485, 1486, 1487, 1488, 1489, 1490, 1491, 1492, 1493,
+      1494, 1495, 1496, 1497, 1498, 1499, 1500, 1501, 1502, 1503, 1504, 1505, 1506, 1507, 1508,
+      1509, 1510, 1511, 1512, 1513, 1514, 1515, 1517, 1518, 1519, 1520, 1521, 1522, 1523, 1524,
+      1525, 1526, 1527, 1528, 1529, 1530, 1531, 1532, 1533, 1534, 1535, 1536, 1537, 1538, 1539,
+      1540, 1541, 1542, 1543, 1544, 1545, 1546, 1547, 1548, 1549, 1550, 1551, 1552, 1553, 1554,
+      1555, 1556, 1557, 1558, 1559, 1560, 1561, 1563, 1564, 1565, 1566, 1567, 1568, 1569, 1570,
+      1571, 1572, 1573, 1574, 1575, 1576, 1577, 1578, 1579, 1580, 1581, 1582, 1583, 1584, 1585,
+      1586, 1587, 1588, 1589, 1590, 1591, 1592, 1593, 1594, 1595, 1596, 1597, 1598, 1599, 1600,
+      1601, 1602, 1603, 1604, 1605, 1606, 1608, 1609, 1610, 1611, 1612, 1613, 1614, 1615, 1616,
+      1617, 1618, 1619, 1620, 1621, 1622, 1623, 1624, 1625, 1626, 1627, 1628, 1629, 1630, 1631,
+      1632, 1633, 1634, 1635, 1636, 1637, 1638, 1639, 1640, 1641, 1642, 1643, 1644, 1645, 1646,
+      1647, 1648, 1649, 1650, 1652, 1653, 1654, 1655, 1656, 1657, 1658, 1659, 1660, 1661, 1662,
+      1663, 1664, 1665, 1666, 1667, 1668, 1669, 1670, 1671, 1672, 1673, 1674, 1675, 1676, 1677,
+      1678, 1679, 1680, 1681, 1682, 1683, 1684, 1685, 1686, 1687, 1688, 1689, 1690, 1691, 1692,
+      1693, 1695, 1696, 1697, 1698, 1699, 1700, 1701, 1702, 1703, 1704, 1705, 1706, 1707, 1708,
+      1709, 1710, 1711, 1712, 1713, 1714, 1715, 1716, 1717, 1718, 1719, 1720, 1721, 1722, 1723,
+      1724, 1725, 1726, 1727, 1728, 1729, 1730, 1731, 1732, 1733, 1734, 1735, 1737, 1738, 1739,
+      1740, 1741, 1742, 1743, 1744, 1745, 1746, 1747, 1748, 1749, 1750, 1751, 1752, 1753, 1754,
+      1755, 1756, 1757, 1758, 1759, 1760, 1761, 1762, 1763, 1764, 1765, 1766, 1767, 1768, 1769,
+      1770, 1771, 1772, 1773, 1774, 1775, 1776, 1778, 1779, 1780, 1781, 1782, 1783, 1784, 1785,
+      1786, 1787, 1788, 1789, 1790, 1791, 1792, 1793, 1794, 1795, 1796, 1797, 1798, 1799, 1800,
+      1801, 1802, 1803, 1804, 1805, 1806, 1807, 1808, 1809, 1810, 1811, 1812, 1813, 1814, 1815,
+      1816, 1818, 1819, 1820, 1821, 1822, 1823, 1824, 1825, 1826, 1827, 1828, 1829, 1830, 1831,
+      1832, 1833, 1834, 1835, 1836, 1837, 1838, 1839, 1840, 1841, 1842, 1843, 1844, 1845, 1846,
+      1847, 1848, 1849, 1850, 1851, 1852, 1853, 1854, 1855, 1857, 1858, 1859, 1860, 1861, 1862,
+      1863, 1864, 1865, 1866, 1867, 1868, 1869, 1870, 1871, 1872, 1873, 1874, 1875, 1876, 1877,
+      1878, 1879, 1880, 1881, 1882, 1883, 1884, 1885, 1886, 1887, 1888, 1889, 1890, 1891, 1892,
+      1893, 1895, 1896, 1897, 1898, 1899, 1900, 1901, 1902, 1903, 1904, 1905, 1906, 1907, 1908,
+      1909, 1910, 1911, 1912, 1913, 1914, 1915, 1916, 1917, 1918, 1919, 1920, 1921, 1922, 1923,
+      1924, 1925, 1926, 1927, 1928, 1929, 1930, 1932, 1933, 1934, 1935, 1936, 1937, 1938, 1939,
+      1940, 1941, 1942, 1943, 1944, 1945, 1946, 1947, 1948, 1949, 1950, 1951, 1952, 1953, 1954,
+      1955, 1956, 1957, 1958, 1959, 1960, 1961, 1962, 1963, 1964, 1965, 1966, 1968, 1969, 1970,
+      1971, 1972, 1973, 1974, 1975, 1976, 1977, 1978, 1979, 1980, 1981, 1982, 1983, 1984, 1985,
+      1986, 1987, 1988, 1989, 1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000,
+      2001, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
+      2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026, 2027, 2028, 2029, 2030, 2031,
+      2032, 2033, 2034, 2035, 2037, 2038, 2039, 2040, 2041, 2042, 2043, 2044, 2045, 2046, 2047,
+      2048, 2049, 2050, 2051, 2052, 2053, 2054, 2055, 2056, 2057, 2058, 2059, 2060, 2061, 2062,
+      2063, 2064, 2065, 2066, 2067, 2068, 2070, 2071, 2072, 2073, 2074, 2075, 2076, 2077, 2078,
+      2079, 2080, 2081, 2082, 2083, 2084, 2085, 2086, 2087, 2088, 2089, 2090, 2091, 2092, 2093,
+      2094, 2095, 2096, 2097, 2098, 2099, 2100, 2102, 2103, 2104, 2105, 2106, 2107, 2108, 2109,
+      2110, 2111, 2112, 2113, 2114, 2115, 2116, 2117, 2118, 2119, 2120, 2121, 2122, 2123, 2124,
+      2125, 2126, 2127, 2128, 2129, 2130, 2131, 2133, 2134, 2135, 2136, 2137, 2138, 2139, 2140,
+      2141, 2142, 2143, 2144, 2145, 2146, 2147, 2148, 2149, 2150, 2151, 2152, 2153, 2154, 2155,
+      2156, 2157, 2158, 2159, 2160, 2161, 2163, 2164, 2165, 2166, 2167, 2168, 2169, 2170, 2171,
+      2172, 2173, 2174, 2175, 2176, 2177, 2178, 2179, 2180, 2181, 2182, 2183, 2184, 2185, 2186,
+      2187, 2188, 2189, 2190, 2192, 2193, 2194, 2195, 2196, 2197, 2198, 2199, 2200, 2201, 2202,
+      2203, 2204, 2205, 2206, 2207, 2208, 2209, 2210, 2211, 2212, 2213, 2214, 2215, 2216, 2217,
+      2218, 2220, 2221, 2222, 2223, 2224, 2225, 2226, 2227, 2228, 2229, 2230, 2231, 2232, 2233,
+      2234, 2235, 2236, 2237, 2238, 2239, 2240, 2241, 2242, 2243, 2244, 2245, 2247, 2248, 2249,
+      2250, 2251, 2252, 2253, 2254, 2255, 2256, 2257, 2258, 2259, 2260, 2261, 2262, 2263, 2264,
+      2265, 2266, 2267, 2268, 2269, 2270, 2271, 2273, 2274, 2275, 2276, 2277, 2278, 2279, 2280,
+      2281, 2282, 2283, 2284, 2285, 2286, 2287, 2288, 2289, 2290, 2291, 2292, 2293, 2294, 2295,
+      2296, 2298, 2299, 2300, 2301, 2302, 2303, 2304, 2305, 2306, 2307, 2308, 2309, 2310, 2311,
+      2312, 2313, 2314, 2315, 2316, 2317, 2318, 2319, 2320, 2322, 2323, 2324, 2325, 2326, 2327,
+      2328, 2329, 2330, 2331, 2332, 2333, 2334, 2335, 2336, 2337, 2338, 2339, 2340, 2341, 2342,
+      2343, 2345, 2346, 2347, 2348, 2349, 2350, 2351, 2352, 2353, 2354, 2355, 2356, 2357, 2358,
+      2359, 2360, 2361, 2362, 2363, 2364, 2365, 2367, 2368, 2369, 2370, 2371, 2372, 2373, 2374,
+      2375, 2376, 2377, 2378, 2379, 2380, 2381, 2382, 2383, 2384, 2385, 2386, 2388, 2389, 2390,
+      2391, 2392, 2393, 2394, 2395, 2396, 2397, 2398, 2399, 2400, 2401, 2402, 2403, 2404, 2405,
+      2406, 2408, 2409, 2410, 2411, 2412, 2413, 2414, 2415, 2416, 2417, 2418, 2419, 2420, 2421,
+      2422, 2423, 2424, 2425, 2427, 2428, 2429, 2430, 2431, 2432, 2433, 2434, 2435, 2436, 2437,
+      2438, 2439, 2440, 2441, 2442, 2443, 2445, 2446, 2447, 2448, 2449, 2450, 2451, 2452, 2453,
+      2454, 2455, 2456, 2457, 2458, 2459, 2460, 2462, 2463, 2464, 2465, 2466, 2467, 2468, 2469,
+      2470, 2471, 2472, 2473, 2474, 2475, 2476, 2478, 2479, 2480, 2481, 2482, 2483, 2484, 2485,
+      2486, 2487, 2488, 2489, 2490, 2491, 2493, 2494, 2495, 2496, 2497, 2498, 2499, 2500, 2501,
+      2502, 2503, 2504, 2505, 2507, 2508, 2509, 2510, 2511, 2512, 2513, 2514, 2515, 2516, 2517,
+      2518, 2520, 2521, 2522, 2523, 2524, 2525, 2526, 2527, 2528, 2529, 2530, 2532, 2533, 2534,
+      2535, 2536, 2537, 2538, 2539, 2540, 2541, 2543, 2544, 2545, 2546, 2547, 2548, 2549, 2550,
+      2551, 2553, 2554, 2555, 2556, 2557, 2558, 2559, 2560, 2562, 2563, 2564, 2565, 2566, 2567,
+      2568, 2570, 2571, 2572, 2573, 2574, 2575, 2577, 2578, 2579, 2580, 2581, 2583, 2584, 2585,
+      2586, 2588, 2589, 2590, 2592, 2593, 2596, 2597, 2598, 2601, 2602, 2607, 2610]),
+   ("no junk", [2757, 2758, 2759, 2760, 2761, 2762, 2763, 2764, 2765, 2766, 2767, 2768, 2769, 2770, 2771,
+      2772, 2773, 2774, 2775, 2776, 2777, 2778, 2779, 2780, 2781]),
+   ("function functional", [2707, 2708, 2709, 2710, 2711, 2712, 2713, 2714, 2715, 2716, 2717, 2718, 2719, 2720, 2721,
+      2722, 2723, 2724, 2725, 2726, 2727, 2728, 2729, 2730, 2731, 2732, 2733, 2734, 2735]),
+   ("hooked functional", [2625, 2626, 2627, 2644, 2646, 2647, 2648, 2649, 2650, 2651, 2652, 2654, 2655, 2656, 2657,
+      2659, 2661, 2662, 2663, 2664, 2665, 2666, 2667, 2668, 2669, 2670, 2671, 2672, 2673, 2674,
+      2675, 2676, 2680, 2688, 2689, 2690, 2691, 2692, 2693, 2694, 2695, 2696, 2698, 2700, 2702,
+      2703, 2704, 2706, 2737, 2738, 2739, 2740, 2746, 2747, 2748, 2749, 2750, 2751, 2752, 2753,
+      2754]),
+   ("collection law", [2677, 2678, 2679, 2681, 2682, 2683, 2684, 2686, 2687]),
+   ("library", [2787, 2788, 2789, 2790, 2791, 2792, 2793, 2794, 2795, 2796, 2797, 2798, 2799, 2800, 2801,
+      2802, 2803, 2804, 2805, 2806, 2807, 2808, 2809, 2810, 2823, 2824, 2825, 2826, 2827, 2829,
+      2830, 2831, 2832, 2833, 2834, 2835, 2836, 2837, 2838, 2839, 2840, 2841, 2842, 2843, 2844,
+      2845, 2846, 2847, 2848, 2849, 2850, 2851, 2852, 2853, 2854, 2855, 2856, 2857, 2858, 2859,
+      2860, 2861, 2862, 2863, 2864, 2866, 2867, 2868, 2869, 2870, 2871, 2872, 2873, 2874, 2875,
+      2876, 2877, 2878, 2879, 2880, 2881, 2882, 2883, 2884, 2885, 2886, 2888, 2889, 2956, 2957,
+      2958, 2959, 2991, 2992, 2993, 2994, 2995, 2996, 2997, 2998, 2999]),
+   ("set idempotence", [2685]),
+   ("set-variable lemma", [2782, 2783, 2784, 2785, 2786, 3000]),
+   ("function law", []),
+   ("open generator law", []),
+   ("open generator functional", []),
+   ("parameter functional", [2645]),
+   ("parameter lemma", []),
+   ("user lemma", []),
+   ("user lemma at values", []),
+   ("no direction", [2603, 2604, 2613, 2614, 2615, 2616, 2621, 2622, 2653, 2658, 2660, 2697, 2699, 2705, 2736,
+      2755, 2756, 2811, 2812, 2813, 2814, 2828, 2865, 2887, 2890, 2891, 2892, 2893, 2894, 2895,
+      2896, 2954, 2955, 2960, 2961, 2962, 2963, 2964, 2965, 2966, 2967, 2968, 2969, 2970, 2971,
+      2972, 2973, 2974, 2975, 2977, 2978, 2979, 2980, 2981, 2982, 2983, 2984, 2985, 2986, 2987,
+      2988, 2989, 2990])]
+
+/-- The indices of a class. -/
+def classOf (n : String) : List Nat := (classes.filter (·.1 == n)).flatMap (·.2)
+
+/-! ## Γ under every interpretation reads the same equations and rules -/
+
+kernel_rfl fnItems_withHooks : ∀ (c : Semantics) (H : HookParams), fnItems (c.withHooks H) = fnItems c
+kernel_rfl ruleItems_withHooks : ∀ (c : Semantics) (H : HookParams), ruleItems (c.withHooks H) = ruleItems c
+
+theorem mem_Γ_fns {c : Semantics} {φ : P} (h : ΓFns c φ) : Γ c φ := Or.inl (Or.inl (Or.inr h))
+
+/-! ## Function equations (58 sentences, and two of the prelude) -/
+
+/-- The axioms of Γ's equations, in `fnItems`'s order. -/
+noncomputable def fnAxioms (c : Semantics) : List Kore.Axiom :=
+  c.allFns.flatMap fun f => (fnEquationsK c f).filterMap fun
+    | .axiom a => some a
+    | _ => none
+
+theorem fnItems_eq : fnItems c = (fnAxioms c).map fun a => trAxiom [] [] ⟨0, "kernel", a⟩ := by kernel_rfl
+
+/-- The text sentences of Γ's 60 equations, in `fnItems`'s order. -/
+noncomputable def fnText : List AxiomDecl :=
+  [U.ax2976, PreludeKseq.ax1, PreludeKseq.ax2, U.ax2925, U.ax2933, U.ax2932, U.ax2931, U.ax2930,
+   U.ax2937, U.ax2936, U.ax2943, U.ax2942, U.ax2935, U.ax2934, U.ax2898, U.ax2897, U.ax2924,
+   U.ax2923, U.ax2902, U.ax2901, U.ax2947, U.ax2946, U.ax2912, U.ax2911, U.ax2914, U.ax2913,
+   U.ax2916, U.ax2915, U.ax2918, U.ax2917, U.ax2945, U.ax2944, U.ax2908, U.ax2907, U.ax2910,
+   U.ax2909, U.ax2949, U.ax2948, U.ax2953, U.ax2952, U.ax2951, U.ax2950, U.ax2927, U.ax2926,
+   U.ax2929, U.ax2928, U.ax2920, U.ax2919, U.ax2922, U.ax2921, U.ax2939, U.ax2938, U.ax2941,
+   U.ax2940, U.ax2904, U.ax2903, U.ax2906, U.ax2905, U.ax2900, U.ax2899]
+
+set_option maxHeartbeats 1000000 in
+/-- **Γ's equations are the text's sentences' translations, pattern for pattern** (one kernel
+decision). -/
+theorem fn_shape : (fnItems c).map (·.pat) = fnText.map (trS · |>.pat) := by
+  rw [fnItems_eq, List.map_map]
+  exact (by decide +kernel :
+    ((fnAxioms c).map fun a => (trAxiom [] [] ⟨0, "kernel", a⟩).pat) = fnText.map (trS · |>.pat))
+
+/-- The axioms of the prelude module KSEQ, in text order. -/
+theorem preludeKseq_eq : kore.axiomDecls.filter (·.module == "KSEQ") = PreludeKseq.all := by kernel_rfl
+
+/-- **`fnText`'s user-module sentences are the account's function-equation class**: the same
+indices, each once; its other sentences are the prelude's, which no user sentence is. -/
+theorem fns_account :
+    (classOf "function equation").isPerm ((fnText.filter (·.module == "E2-CELLS-STREAM")).map (·.index)) = true ∧
+    (fnText.filter (·.module != "E2-CELLS-STREAM")).map (fun ad => (ad.index, ad.module)) =
+      [(1, "KSEQ"), (2, "KSEQ")] := by decide +kernel
+
+/-- **E for the equations**: Γ entails each, for every H. -/
+theorem fns_entailed (H : HookParams) : ∀ ad ∈ fnText, Γ (cH H) ⊧ (trS ad).pat := by
+  intro ad had M _ I hI
+  have hmem : (trS ad).pat ∈ (fnItems c).map (·.pat) := by
+    rw [fn_shape]; exact List.mem_map.mpr ⟨ad, had, rfl⟩
+  obtain ⟨it, hit, he⟩ := List.mem_map.mp hmem
+  exact hI _ (mem_Γ_fns (Or.inl ⟨it, by rw [fnItems_withHooks]; exact hit, he⟩))
+
+/-- **The converse for `fnItems`**: the j-th item is a consequence of `fnText[j]`. -/
+theorem fns_from_text (H : HookParams) :
+    ∀ (j : Nat) (it : Item), (fnItems (cH H))[j]? = some it →
+      ∃ ad, fnText[j]? = some ad ∧ (itemsPremises [trS ad] ⊧ it.pat) := by
+  intro j it hj
+  rw [fnItems_withHooks] at hj
+  have h1 : ((fnItems c).map (·.pat))[j]? = some it.pat := by rw [List.getElem?_map, hj]; rfl
+  rw [fn_shape, List.getElem?_map] at h1
+  cases hf : fnText[j]? with
+  | none => rw [hf] at h1; cases h1
+  | some ad =>
+    rw [hf] at h1
+    refine ⟨ad, rfl, fun {M} _ {I} hI => ?_⟩
+    have he : (trS ad).pat = it.pat := Option.some.inj h1
+    exact hI _ (Or.inl ⟨trS ad, List.mem_singleton_self _, he⟩)
+
+/-- The priority each function sentence's attributes state is the priority of the clause whose
+item is the sentence's translation, item by item in `fnItems`'s order. -/
+theorem fn_prios : fnText.map (fun ad => AttrsAgree.prioOf ad.ax.attributes) =
+    c.allFns.flatMap (fun f => f.clauses.map (·.prio)) := by decide +kernel
+
+/-! ## The rules (8 sentences): W1 -/
+
+/-- A rule axiom `\rewrites{C}(\and{C}(l, t, x), r)`, read as its parts. -/
+def ruleParts : Kore.Pattern → Option (Kore.KSort × Kore.Pattern × Kore.Pattern × Kore.Pattern × Kore.Pattern)
+  | .rewrites C (.and _ [l, t, x]) r => some (C, l, t, x, r)
+  | _ => none
+
+/-- The rule axiom without its left side's third conjunct. -/
+def dropThird (p : Kore.Pattern) : Kore.Pattern :=
+  match ruleParts p with
+  | some (C, l, t, _, r) => .rewrites C (.and C [l, t]) r
+  | none => p
+
+theorem ruleParts_eq {p : Kore.Pattern} {C : Kore.KSort} {l t x r : Kore.Pattern}
+    (h : ruleParts p = some (C, l, t, x, r)) : ∃ C', p = .rewrites C (.and C' [l, t, x]) r ∧ dropThird p = .rewrites C (.and C [l, t]) r := by
+  unfold dropThird; rw [h]
+  unfold ruleParts at h
+  split at h
+  · cases h; exact ⟨_, rfl, rfl⟩
+  · cases h
+
+def kAx (p : Kore.Pattern) : AxiomDecl := ⟨0, "kernel", ⟨[], p, []⟩⟩
+
+/-- **A conjunct more on a rule's left side gives a consequence**: in a model of definedness, the
+rule axiom with the left side `l ∧ t` entails the one with the left side `l ∧ t ∧ x`, where the
+two have one variable table and one list of free variables. -/
+theorem rewrite_weaken {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hD : DefOK I) {p : Kore.Pattern}
+    {C : Kore.KSort} {l t x r : Kore.Pattern} (hq : ruleParts p = some (C, l, t, x, r))
+    (ht : tableOf [] p = tableOf [] (dropThird p))
+    (hf : (freeOf [] p).eraseDups = (freeOf [] (dropThird p)).eraseDups)
+    (h : I ⊧ᴵ (trAxiom [] [] (kAx (dropThird p))).pat) : I ⊧ᴵ (trAxiom [] [] (kAx p)).pat := by
+  obtain ⟨C', hp, hd⟩ := ruleParts_eq hq
+  intro e m
+  have h1 := h e m
+  simp only [trAxiom, kAx, List.map_nil, List.nil_append] at h1 ⊢
+  rw [ht, hf]
+  rw [hd] at h1 ⊢
+  rw [hp] at ⊢
+  rw [interpret_impl] at h1 ⊢
+  intro hg
+  have h2 := h1 hg
+  rw [interp_equal hD] at h2 ⊢
+  intro a
+  have h3 := h2 a
+  simp only [sortOf, tr, trAndList, sRewrites, interp_sImp, interp_sAnd] at h3 ⊢
+  exact ⟨fun hf => hf.1, fun ht' => ⟨(h3.mpr ht').1, fun hl => (h3.mpr ht').2 ⟨hl.1, hl.2.1⟩⟩⟩
+
+
+noncomputable def r0 : Rule := c.rules[0]'(by decide +kernel)
+noncomputable def r1 : Rule := c.rules[1]'(by decide +kernel)
+noncomputable def r2 : Rule := c.rules[2]'(by decide +kernel)
+noncomputable def r3 : Rule := c.rules[3]'(by decide +kernel)
+noncomputable def r4 : Rule := c.rules[4]'(by decide +kernel)
+noncomputable def r5 : Rule := c.rules[5]'(by decide +kernel)
+noncomputable def r6 : Rule := c.rules[6]'(by decide +kernel)
+noncomputable def r7 : Rule := c.rules[7]'(by decide +kernel)
+
+theorem ruleItems_eq : ruleItems c = [trAxiom [] [] (kAx (prioRuleK c r0)),
+    trAxiom [] [] (kAx (prioRuleK c r1)),
+    trAxiom [] [] (kAx (prioRuleK c r2)),
+    trAxiom [] [] (kAx (prioRuleK c r3)),
+    trAxiom [] [] (kAx (prioRuleK c r4)),
+    trAxiom [] [] (kAx (prioRuleK c r5)),
+    trAxiom [] [] (kAx (prioRuleK c r6)),
+    trAxiom [] [] (kAx (prioRuleK c r7))] := by kernel_rfl
+
+/-- The text sentences of Γ's rules, in `ruleItems`'s order. -/
+noncomputable def ruleText : List AxiomDecl :=
+  [U.ax2815, U.ax2816, U.ax2817, U.ax2818, U.ax2819, U.ax2820, U.ax2821, U.ax2822]
+
+/-- **`ruleText` is the account's rewrite-rule class**: the same indices, each once. -/
+theorem rules_account : (classOf "rewrite rule").isPerm (ruleText.map (·.index)) = true := by decide +kernel
+
+/-- A rule axiom with a negated conjunct, `\rewrites{C}(\and{C}(l, t, ¬ n, x), r)`, read as its parts:
+the axiom of a rule that has rules of a smaller priority, `n` their `applies`. -/
+def ruleCompParts : Kore.Pattern → Option (Kore.KSort × Kore.Pattern × Kore.Pattern × Kore.Pattern × Kore.Pattern × Kore.Pattern)
+  | .rewrites C (.and _ [l, t, .not _ n, x]) r => some (C, l, t, n, x, r)
+  | _ => none
+
+theorem ruleCompParts_eq {p : Kore.Pattern} {C : Kore.KSort} {l t n x r : Kore.Pattern}
+    (h : ruleCompParts p = some (C, l, t, n, x, r)) : ∃ C' C'', p = .rewrites C (.and C' [l, t, .not C'' n, x]) r := by
+  unfold ruleCompParts at h
+  split at h
+  · cases h; exact ⟨_, _, rfl⟩
+  · cases h
+
+/-- **Γ's item of a rule with competitors without its premises `¬ n` and `x`**: the axiom
+`\rewrites(l ∧ t ∧ ¬ n ∧ x, r)` read as `\rewrites(l ∧ t, r)`, under the variable table and the
+guards of the axiom itself (so the variables keep their indices, the variables only `n` binds
+included). An axiom of another form is its own item. -/
+noncomputable def minusComp (p : Kore.Pattern) : P :=
+  match ruleCompParts p with
+  | some (C, l, t, _, _, r) =>
+    let tb := tableOf [] p
+    conjList (((freeOf [] p).eraseDups).map (guardOf tb)) ⇒
+      (tr ⟨tb, []⟩ (.rewrites C (.and C [l, t]) r) ≡ inhOf (trSort tb C))
+  | none => (trAxiom [] [] (kAx p)).pat
+
+/-- **Two conjuncts more on a rule's left side give a consequence**: in a model of definedness, the
+item without the premises `¬ n` and `x` entails the rule's item. -/
+theorem item_of_minusComp {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hD : DefOK I)
+    {p : Kore.Pattern} (h : I ⊧ᴵ minusComp p) : I ⊧ᴵ (trAxiom [] [] (kAx p)).pat := by
+  unfold minusComp at h
+  cases hq : ruleCompParts p with
+  | none => rw [hq] at h; exact h
+  | some q =>
+    obtain ⟨C, l, t, n, x, r⟩ := q
+    rw [hq] at h
+    dsimp only at h
+    obtain ⟨C', C'', hp⟩ := ruleCompParts_eq hq
+    intro e m
+    have h1 := h e m
+    simp only [trAxiom, kAx, List.map_nil, List.nil_append]
+    rw [hp] at h1 ⊢
+    rw [interpret_impl] at h1 ⊢
+    intro hg
+    have h2 := h1 hg
+    rw [interp_equal hD] at h2 ⊢
+    intro a
+    have h3 := h2 a
+    simp only [sortOf, tr, trAndList, sRewrites, interp_sImp, interp_sAnd] at h3 ⊢
+    exact ⟨fun hf => hf.1, fun ht' => ⟨(h3.mpr ht').1, fun hl => (h3.mpr ht').2 ⟨hl.1, hl.2.1⟩⟩⟩
+
+/-- The priority each rule sentence's attributes state is its rule's priority, in `ruleItems`'
+order: the competitors of a rule (the rules of a smaller priority, whose `applies` Γ's item
+negates) are the rules whose sentences state a smaller priority. -/
+theorem rule_prios : ruleText.map (fun ad => AttrsAgree.prioOf ad.ax.attributes) = c.rules.map (·.prio) := by
+  decide +kernel
+
+theorem rule0_parts : (ruleCompParts (prioRuleK c r0)).isSome = true := by decide +kernel
+/-- Γ's item of rule 0 without its premises `¬ ⋁ competitors` and `⌈rhs ∧ ens⌉` is the text's
+sentence 2815. -/
+theorem rule0_text : (trS U.ax2815).pat = minusComp (prioRuleK c r0) := by decide +kernel
+/-- **W1 for rule 0**: Γ's item is a consequence of sentence 2815. -/
+theorem rule0_from_text : itemsPremises [trS U.ax2815] ⊧ (trAxiom [] [] (kAx (prioRuleK c r0))).pat := by
+  intro M _ I hI
+  have hD : DefOK I := defOK_of fun x => hI _ (Or.inr ⟨x, rfl⟩)
+  refine item_of_minusComp hD ?_
+  rw [← rule0_text]
+  exact hI _ (Or.inl ⟨trS U.ax2815, List.mem_singleton_self _, rfl⟩)
+
+theorem rule1_parts : (ruleCompParts (prioRuleK c r1)).isSome = true := by decide +kernel
+/-- Γ's item of rule 1 without its premises `¬ ⋁ competitors` and `⌈rhs ∧ ens⌉` is the text's
+sentence 2816. -/
+theorem rule1_text : (trS U.ax2816).pat = minusComp (prioRuleK c r1) := by decide +kernel
+/-- **W1 for rule 1**: Γ's item is a consequence of sentence 2816. -/
+theorem rule1_from_text : itemsPremises [trS U.ax2816] ⊧ (trAxiom [] [] (kAx (prioRuleK c r1))).pat := by
+  intro M _ I hI
+  have hD : DefOK I := defOK_of fun x => hI _ (Or.inr ⟨x, rfl⟩)
+  refine item_of_minusComp hD ?_
+  rw [← rule1_text]
+  exact hI _ (Or.inl ⟨trS U.ax2816, List.mem_singleton_self _, rfl⟩)
+
+theorem rule2_parts : (ruleCompParts (prioRuleK c r2)).isSome = true := by decide +kernel
+/-- Γ's item of rule 2 without its premises `¬ ⋁ competitors` and `⌈rhs ∧ ens⌉` is the text's
+sentence 2817. -/
+theorem rule2_text : (trS U.ax2817).pat = minusComp (prioRuleK c r2) := by decide +kernel
+/-- **W1 for rule 2**: Γ's item is a consequence of sentence 2817. -/
+theorem rule2_from_text : itemsPremises [trS U.ax2817] ⊧ (trAxiom [] [] (kAx (prioRuleK c r2))).pat := by
+  intro M _ I hI
+  have hD : DefOK I := defOK_of fun x => hI _ (Or.inr ⟨x, rfl⟩)
+  refine item_of_minusComp hD ?_
+  rw [← rule2_text]
+  exact hI _ (Or.inl ⟨trS U.ax2817, List.mem_singleton_self _, rfl⟩)
+
+theorem rule3_parts : (ruleCompParts (prioRuleK c r3)).isSome = true := by decide +kernel
+/-- Γ's item of rule 3 without its premises `¬ ⋁ competitors` and `⌈rhs ∧ ens⌉` is the text's
+sentence 2818. -/
+theorem rule3_text : (trS U.ax2818).pat = minusComp (prioRuleK c r3) := by decide +kernel
+/-- **W1 for rule 3**: Γ's item is a consequence of sentence 2818. -/
+theorem rule3_from_text : itemsPremises [trS U.ax2818] ⊧ (trAxiom [] [] (kAx (prioRuleK c r3))).pat := by
+  intro M _ I hI
+  have hD : DefOK I := defOK_of fun x => hI _ (Or.inr ⟨x, rfl⟩)
+  refine item_of_minusComp hD ?_
+  rw [← rule3_text]
+  exact hI _ (Or.inl ⟨trS U.ax2818, List.mem_singleton_self _, rfl⟩)
+
+theorem rule4_parts : (ruleCompParts (prioRuleK c r4)).isSome = true := by decide +kernel
+/-- Γ's item of rule 4 without its premises `¬ ⋁ competitors` and `⌈rhs ∧ ens⌉` is the text's
+sentence 2819. -/
+theorem rule4_text : (trS U.ax2819).pat = minusComp (prioRuleK c r4) := by decide +kernel
+/-- **W1 for rule 4**: Γ's item is a consequence of sentence 2819. -/
+theorem rule4_from_text : itemsPremises [trS U.ax2819] ⊧ (trAxiom [] [] (kAx (prioRuleK c r4))).pat := by
+  intro M _ I hI
+  have hD : DefOK I := defOK_of fun x => hI _ (Or.inr ⟨x, rfl⟩)
+  refine item_of_minusComp hD ?_
+  rw [← rule4_text]
+  exact hI _ (Or.inl ⟨trS U.ax2819, List.mem_singleton_self _, rfl⟩)
+
+theorem rule5_parts : (ruleParts (prioRuleK c r5)).isSome = true := by decide +kernel
+theorem rule5_table : tableOf [] (prioRuleK c r5) = tableOf [] (dropThird (prioRuleK c r5)) := by decide +kernel
+theorem rule5_free : (freeOf [] (prioRuleK c r5)).eraseDups = (freeOf [] (dropThird (prioRuleK c r5))).eraseDups := by
+  decide +kernel
+/-- Γ's item of rule 5 without its premise `⌈rhs ∧ ens⌉` is the text's sentence 2820. -/
+theorem rule5_text : (trS U.ax2820).pat = (trAxiom [] [] (kAx (dropThird (prioRuleK c r5)))).pat := by decide +kernel
+/-- **W1 for rule 5**: Γ's item is a consequence of sentence 2820. -/
+theorem rule5_from_text : itemsPremises [trS U.ax2820] ⊧ (trAxiom [] [] (kAx (prioRuleK c r5))).pat := by
+  intro M _ I hI
+  have hD : DefOK I := defOK_of fun x => hI _ (Or.inr ⟨x, rfl⟩)
+  obtain ⟨q, hq⟩ := Option.isSome_iff_exists.mp rule5_parts
+  obtain ⟨C, l, t, x, r⟩ := q
+  refine rewrite_weaken hD hq rule5_table rule5_free ?_
+  rw [← rule5_text]
+  exact hI _ (Or.inl ⟨trS U.ax2820, List.mem_singleton_self _, rfl⟩)
+
+theorem rule6_parts : (ruleParts (prioRuleK c r6)).isSome = true := by decide +kernel
+theorem rule6_table : tableOf [] (prioRuleK c r6) = tableOf [] (dropThird (prioRuleK c r6)) := by decide +kernel
+theorem rule6_free : (freeOf [] (prioRuleK c r6)).eraseDups = (freeOf [] (dropThird (prioRuleK c r6))).eraseDups := by
+  decide +kernel
+/-- Γ's item of rule 6 without its premise `⌈rhs ∧ ens⌉` is the text's sentence 2821. -/
+theorem rule6_text : (trS U.ax2821).pat = (trAxiom [] [] (kAx (dropThird (prioRuleK c r6)))).pat := by decide +kernel
+/-- **W1 for rule 6**: Γ's item is a consequence of sentence 2821. -/
+theorem rule6_from_text : itemsPremises [trS U.ax2821] ⊧ (trAxiom [] [] (kAx (prioRuleK c r6))).pat := by
+  intro M _ I hI
+  have hD : DefOK I := defOK_of fun x => hI _ (Or.inr ⟨x, rfl⟩)
+  obtain ⟨q, hq⟩ := Option.isSome_iff_exists.mp rule6_parts
+  obtain ⟨C, l, t, x, r⟩ := q
+  refine rewrite_weaken hD hq rule6_table rule6_free ?_
+  rw [← rule6_text]
+  exact hI _ (Or.inl ⟨trS U.ax2821, List.mem_singleton_self _, rfl⟩)
+
+theorem rule7_parts : (ruleParts (prioRuleK c r7)).isSome = true := by decide +kernel
+theorem rule7_table : tableOf [] (prioRuleK c r7) = tableOf [] (dropThird (prioRuleK c r7)) := by decide +kernel
+theorem rule7_free : (freeOf [] (prioRuleK c r7)).eraseDups = (freeOf [] (dropThird (prioRuleK c r7))).eraseDups := by
+  decide +kernel
+/-- Γ's item of rule 7 without its premise `⌈rhs ∧ ens⌉` is the text's sentence 2822. -/
+theorem rule7_text : (trS U.ax2822).pat = (trAxiom [] [] (kAx (dropThird (prioRuleK c r7)))).pat := by decide +kernel
+/-- **W1 for rule 7**: Γ's item is a consequence of sentence 2822. -/
+theorem rule7_from_text : itemsPremises [trS U.ax2822] ⊧ (trAxiom [] [] (kAx (prioRuleK c r7))).pat := by
+  intro M _ I hI
+  have hD : DefOK I := defOK_of fun x => hI _ (Or.inr ⟨x, rfl⟩)
+  obtain ⟨q, hq⟩ := Option.isSome_iff_exists.mp rule7_parts
+  obtain ⟨C, l, t, x, r⟩ := q
+  refine rewrite_weaken hD hq rule7_table rule7_free ?_
+  rw [← rule7_text]
+  exact hI _ (Or.inl ⟨trS U.ax2822, List.mem_singleton_self _, rfl⟩)
+
+set_option maxHeartbeats 4000000 in
+/-- **W1 for the rules, and the converse for `ruleItems`**: each of Γ's rule items is a
+consequence of a text sentence of `ruleText`, for every H. -/
+theorem rule_from_text (H : HookParams) : ∀ it ∈ ruleItems (cH H), ∃ ad ∈ ruleText, itemsPremises [trS ad] ⊧ it.pat := by
+  intro it hit
+  rw [ruleItems_withHooks, ruleItems_eq] at hit
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hit
+  rcases hit with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+  · exact ⟨U.ax2815, List.mem_cons_self, rule0_from_text⟩
+  · exact ⟨U.ax2816, List.mem_cons_of_mem _ (List.mem_cons_self), rule1_from_text⟩
+  · exact ⟨U.ax2817, List.mem_cons_of_mem _ (List.mem_cons_of_mem _ (List.mem_cons_self)), rule2_from_text⟩
+  · exact ⟨U.ax2818, List.mem_cons_of_mem _ (List.mem_cons_of_mem _ (List.mem_cons_of_mem _ (List.mem_cons_self))), rule3_from_text⟩
+  · exact ⟨U.ax2819, List.mem_cons_of_mem _ (List.mem_cons_of_mem _ (List.mem_cons_of_mem _ (List.mem_cons_of_mem _ (List.mem_cons_self)))), rule4_from_text⟩
+  · exact ⟨U.ax2820, List.mem_cons_of_mem _ (List.mem_cons_of_mem _ (List.mem_cons_of_mem _ (List.mem_cons_of_mem _ (List.mem_cons_of_mem _ (List.mem_cons_self))))), rule5_from_text⟩
+  · exact ⟨U.ax2821, List.mem_cons_of_mem _ (List.mem_cons_of_mem _ (List.mem_cons_of_mem _ (List.mem_cons_of_mem _ (List.mem_cons_of_mem _ (List.mem_cons_of_mem _ (List.mem_cons_self)))))), rule6_from_text⟩
+  · exact ⟨U.ax2822, List.mem_cons_of_mem _ (List.mem_cons_of_mem _ (List.mem_cons_of_mem _ (List.mem_cons_of_mem _ (List.mem_cons_of_mem _ (List.mem_cons_of_mem _ (List.mem_cons_of_mem _ (List.mem_cons_self))))))), rule7_from_text⟩
+
+/-! ## The converse over Γ's content -/
+
+/-- The parts of Γ that are no sentence's translation: the families. -/
+def Families (H : HookParams) : Premises KoreAML.Sym :=
+  ΓSig (cH H) ∪ ΓCons (cH H) ∪ ΓDomains (cH H) ∪ ΓColls (cH H) ∪ ΓFallback (cH H)
+
+/-- The function sentences as written, with definedness, Γ's rule items (each a consequence of its
+text sentence, `rule_from_text`), and the families. -/
+def Pre (H : HookParams) : Premises KoreAML.Sym :=
+  (fun φ => (∃ ad ∈ fnText, (trS ad).pat = φ) ∨ ∃ x : EVar, φ = @definedness KoreAML.Sym _ x) ∪ ΓRules (cH H) ∪ Families H
+
+/-- **The origin of each premise of Γ**: a function equation is the translation of a text
+sentence; a rule item is a consequence of a text sentence of `ruleText`; everything else is one of
+the five parts defined by predicates (`Families`), or definedness. -/
+theorem gamma_origin (H : HookParams) : ∀ φ, Γ (cH H) φ →
+    (∃ ad ∈ fnText, (trS ad).pat = φ) ∨ (ΓRules (cH H) φ ∧ ∃ ad ∈ ruleText, itemsPremises [trS ad] ⊧ φ) ∨
+      Families H φ ∨ (∃ x : EVar, φ = @definedness KoreAML.Sym _ x) := by
+  intro φ h
+  rcases h with ((((((h | h) | h) | h) | h) | h) | h)
+  · exact Or.inr (Or.inr (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl h))))))
+  · exact Or.inr (Or.inr (Or.inl (Or.inl (Or.inl (Or.inl (Or.inr h))))))
+  · exact Or.inr (Or.inr (Or.inl (Or.inl (Or.inl (Or.inr h)))))
+  · exact Or.inr (Or.inr (Or.inl (Or.inl (Or.inr h))))
+  · rcases h with ⟨it, hit, rfl⟩ | hx
+    · rw [fnItems_withHooks] at hit
+      have hmem : it.pat ∈ fnText.map (trS · |>.pat) := fn_shape ▸ List.mem_map.mpr ⟨it, hit, rfl⟩
+      obtain ⟨ad, had, he⟩ := List.mem_map.mp hmem
+      exact Or.inl ⟨ad, had, he⟩
+    · exact Or.inr (Or.inr (Or.inr hx))
+  · rcases h with ⟨it, hit, rfl⟩ | hx
+    · exact Or.inr (Or.inl ⟨Or.inl ⟨it, hit, rfl⟩, rule_from_text H it hit⟩)
+    · exact Or.inr (Or.inr (Or.inr hx))
+  · exact Or.inr (Or.inr (Or.inl (Or.inr h)))
+
+/-- Every premise of Γ is a consequence of `Pre`. -/
+theorem gamma_from (H : HookParams) : ∀ φ, Γ (cH H) φ → Pre H ⊧ φ := by
+  intro φ h M _ I hI
+  rcases gamma_origin H φ h with ⟨ad, had, he⟩ | ⟨hr, -⟩ | hf | hx
+  · exact hI _ (Or.inl (Or.inl (Or.inl ⟨ad, had, he⟩)))
+  · exact hI _ (Or.inl (Or.inr hr))
+  · exact hI _ (Or.inr hf)
+  · exact hI _ (Or.inl (Or.inl (Or.inr hx)))
+
+end KCore.TieE2CellsStream
+
+#check @KCore.TieE2CellsStream.preludeKseq_eq
+#check @KCore.TieE2CellsStream.fn_shape
+#check @KCore.TieE2CellsStream.fns_account
+#check @KCore.TieE2CellsStream.fns_entailed
+#check @KCore.TieE2CellsStream.fns_from_text
+#check @KCore.TieE2CellsStream.fn_prios
+#check @KCore.TieE2CellsStream.rules_account
+#check @KCore.TieE2CellsStream.rule_from_text
+#check @KCore.TieE2CellsStream.rule_prios
+#check @KCore.TieE2CellsStream.gamma_origin
+#check @KCore.TieE2CellsStream.gamma_from
+#print axioms KCore.TieE2CellsStream.preludeKseq_eq
+#print axioms KCore.TieE2CellsStream.fn_shape
+#print axioms KCore.TieE2CellsStream.fns_account
+#print axioms KCore.TieE2CellsStream.fns_entailed
+#print axioms KCore.TieE2CellsStream.fns_from_text
+#print axioms KCore.TieE2CellsStream.fn_prios
+#print axioms KCore.TieE2CellsStream.rules_account
+#print axioms KCore.TieE2CellsStream.rule_from_text
+#print axioms KCore.TieE2CellsStream.rule_prios
+#print axioms KCore.TieE2CellsStream.gamma_origin
+#print axioms KCore.TieE2CellsStream.gamma_from

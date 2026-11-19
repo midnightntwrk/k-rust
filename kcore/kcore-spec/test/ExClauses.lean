@@ -801,15 +801,17 @@ theorem vac_some (S : Srt) (hno : ∀ v, (cF [clV S]).sortOf v ≠ some S) :
   · exact fun σ' _ hσ' => v_hall _ S hno σ' hσ'
 
 /-- What the landed texts say of `clS`: its existential variable is in scope and its `post` sorted
-(`clauseExOK`), but Int is not confined and Z is fixed only under the binder, which `fixedExs`
-does not read (no binder's sort is admitted), so `clausePlainEx` refuses it. -/
-theorem s_ok : base.clauseExOK clS = true ∧ base.clausePlainEx clS = false ∧
-    clS.fixedExs base.confined (fun _ => false) = [] ∧ base.confined Srt.int = false := by decide +kernel
+(`clauseExOK`); Int is not confined, and Z is fixed only under the binder, whose sort Int has a
+value (`Semantics.hasValue`) and whose body fixes B by `B = 3`, so `fixedExs` at `base.hasValue` holds Z
+and `clausePlainEx` admits the clause. Where no binder's sort is admitted, `fixedExs` holds nothing. -/
+theorem s_ok : base.clauseExOK clS = true ∧ base.clausePlainEx clS = true ∧
+    clS.fixedExs base.confined base.hasValue = [0] ∧ clS.fixedExs base.confined (fun _ => false) = [] ∧
+    base.confined Srt.int = false ∧ base.hasValue Srt.int = true := by decide +kernel
 
 /-- What the landed texts say of `clC`: Bool is confined and KItem is not, and Z is fixed by
 `Z ∈ inj(B)` over the confined B, so `clausePlainEx` admits it. -/
 theorem c_ok : base2.clauseExOK clC = true ∧ base2.clausePlainEx clC = true ∧
-    clC.fixedExs base2.confined (fun _ => false) = [1] ∧
+    clC.fixedExs base2.confined base2.hasValue = [1] ∧
     base2.confined Srt.kitem = false ∧ base2.confined Srt.bool = true := by decide +kernel
 
 /-! ## h: `h(K) => #Exists Z:Int. (Z #And {inj{Int,KItem}(Z) #Equals K})`
@@ -829,7 +831,7 @@ theorem lookup_h : cH.lookupFn hS = some fnH := by
 /-- The clause has CE's conjuncts (`clauseExOK`, `clausePlainEx`), Z (of Int, not confined) being
 fixed by `inj(Z) = K`; the pair is a subsort pair, and the values are generated (`genWf`). -/
 theorem h_ok : cH.clauseExOK clH = true ∧ cH.clausePlainEx clH = true ∧
-    clH.fixedExs cH.confined (fun _ => false) = [1] ∧
+    clH.fixedExs cH.confined cH.hasValue = [1] ∧
     cH.confined Srt.int = false ∧ cH.subsorts.contains (Srt.int, Srt.kitem) = true ∧
     Faithful.genWf cH = true := by decide +kernel
 

@@ -30,10 +30,9 @@ theorem own_den_dm (c : Semantics) (v : GroundTerm) : Own0 V W .ex (den c v) :=
 
 theorem kground_symApp_dm (c : Semantics) (f : Sym) (vs : List GroundTerm) :
     KoreAML.KGround (symApp c f (GroundTerm.koreList c vs)) := by
-  unfold symApp
-  split
-  · exact .app (fun s hs => by rw [List.mem_singleton.mp hs]; exact ⟨_, rfl⟩) (koreList_ground c vs)
-  · exact .app (fun s hs => absurd hs List.not_mem_nil) (koreList_ground c vs)
+  obtain ⟨h, xs, -, hw⟩ := symApp_head c f
+  rw [hw]
+  exact .app (fun s hs => by obtain ⟨x, -, rfl⟩ := List.mem_map.mp hs; exact ⟨_, rfl⟩) (koreList_ground c vs)
 
 /-- A symbol applied to values is of the class at no name. -/
 theorem own_symApp_dm (c : Semantics) (f : Sym) (vs : List GroundTerm) :

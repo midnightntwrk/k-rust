@@ -277,23 +277,13 @@ theorem clean_ap (f : String) (ps : List Kore.Pattern) :
 theorem clean_symApp (f : Sym) (ps : List Kore.Pattern) (hf : appOK c ss ks f = true)
     (hps : ∀ p ∈ ps, clean c ss ks (KoreAML.den p) = true) :
     clean c ss ks (KoreAML.den (symApp c f ps)) = true := by
-  unfold symApp
-  unfold appOK at hf
-  cases hi : iteSort? (c.symName f) with
-  | none =>
-    rw [hi] at hf
-    exact (clean_ap (c := c) (ss := ss) (ks := ks) (c.symName f) ps).trans
-      (by rw [show (!isName c ss ks (.symbol (c.symName f))) = true from hf, Bool.true_and]
-          exact List.all_eq_true.mpr hps)
-  | some X =>
-    rw [hi] at hf
-    simp only [Bool.and_eq_true] at hf
-    show clean c ss ks (KoreAML.tr ⟨[], []⟩ (.app ⟨⟨"Lblite"⟩⟩ [KoreAML.srt X] ps)) = true
-    rw [KoreAML.tr]
-    simp only [List.contains_nil, Bool.false_eq_true, ↓reduceIte, KoreAML.trSortApp, KoreAML.srt,
-      KoreAML.trSort_const, trArgs_appList, clean_appList, clean_app, KoreAML.sym, clean_symbol,
-      Bool.and_eq_true, List.all_map, List.all_eq_true]
-    exact ⟨⟨hf.1, hf.2⟩, fun p hp => hps p hp⟩
+  obtain ⟨h, xs, -, hw⟩ := symApp_head c f
+  rw [appOK_of_symApp (hw := hw)] at hf
+  unfold KoreAML.den
+  rw [hw, tr_instApp, trArgs_appList, clean_appList, instHeadP_appList_irs, clean_appList]
+  simp only [KoreAML.sym, clean_symbol, List.all_map, Bool.and_eq_true, List.all_eq_true, Function.comp_apply,
+    clean_sortP] at hf ⊢
+  exact ⟨⟨hf.1, hf.2⟩, fun p hp => hps p hp⟩
 
 /-! ## The values of a sort without a name -/
 

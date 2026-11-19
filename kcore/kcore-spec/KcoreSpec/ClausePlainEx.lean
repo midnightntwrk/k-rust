@@ -6,8 +6,9 @@
   values in two ways only: its sort is confined (`Semantics.confined`: its elements in a model are
   the values'), or the predicate equates it with a term over variables that are decided
   (`Clause.fixedExs`: `Z ∈ t` or `Z = t` at values of t's variables holds at the value of t, or
-  nowhere). `f() => c(?Z:Int)` has neither: its value at an element of Int that is no value's is
-  no value's.
+  nowhere; a variable of t bound by a binder of the predicate is decided where its sort is confined,
+  or has a value, `Semantics.hasValue`, and the binder's body fixes it). `f() => c(?Z:Int)` has
+  neither: its value at an element of Int that is no value's is no value's.
 -/
 import KcoreSpec.FaithOK
 
@@ -17,12 +18,12 @@ namespace KCore
 
 /-- A clause without existential variables has the right-side predicate `\top`, and each
 existential variable is of a confined sort or fixed by the predicate (`Clause.fixedExs`, over the
-other existential variables of a confined sort; no binder's variable is admitted by a value of its
-sort). -/
+other existential variables of a confined sort; a binder's variable is admitted where its sort has
+a value, `Semantics.hasValue`, and the body fixes it). -/
 def Semantics.clausePlainEx (c : Semantics) (cl : Clause) : Bool :=
   let conf := fun i => (cl.vars[i]?.map c.confined).getD false
   (!cl.exs.isEmpty || cl.post.isTop) &&
-  cl.exs.all (fun i => conf i || (cl.fixedExs c.confined (fun _ => false)).contains i)
+  cl.exs.all (fun i => conf i || (cl.fixedExs c.confined c.hasValue).contains i)
 
 /-- A clause with no existential variable and the predicate `\top` has it. -/
 theorem Semantics.clausePlainEx_of_nil {c : Semantics} {cl : Clause} (hex : cl.exs = [])

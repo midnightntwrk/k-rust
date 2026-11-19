@@ -214,8 +214,7 @@ mutual
       subst hkk
       have ih := patVals_den4 hs hargs
       refine ⟨sortOf_ctor_intro ⟨k, hk0, ih.1, rfl⟩, fun m => ?_⟩
-      rw [Term.kore, iteSort_ctor hnm hk0]
-      dsimp only
+      rw [kore_app, ctor_writes_irs hnm hk0]
       rw [KoreAML.tr_app0, den_ctor]
       exact ih.2 _ _ (fun _ => Iff.rfl) m
     | _, _, s, .hook (f := f) (vs := ws) (v := v) hp hs hv, ht => by
