@@ -86,7 +86,6 @@ def c0 : Semantics := cOf true
 /-! ## Every condition of `coreOK` but `overloadsOK`'s ninth part, and `FnHyp` -/
 
 theorem sortedOK_of (b : Bool) : (cOf b).sortedOK = true := by cases b <;> decide_cheap
-theorem hooksApart_of (b : Bool) : (cOf b).hooksApart = true := by cases b <;> decide_cheap
 theorem predsApart_of (b : Bool) : (cOf b).predsApart = true := by cases b <;> decide_cheap
 theorem idsOK_of (b : Bool) : (cOf b).idsOK = true := by cases b <;> decide_cheap
 
@@ -113,7 +112,6 @@ theorem faithCoreOK_of (b : Bool) : (cOf b).faithCoreOK = true := by
 
 theorem sortedOK : c.sortedOK = true := sortedOK_of false
 theorem faithCoreOK : c.faithCoreOK = true := faithCoreOK_of false
-theorem hooksApart : c.hooksApart = true := hooksApart_of false
 theorem predsApart : c.predsApart = true := predsApart_of false
 theorem idsOK : c.idsOK = true := idsOK_of false
 
@@ -121,9 +119,9 @@ theorem c0_overloadsOK : c0.overloadsOK = true := by decide +kernel
 
 /-- With `plusBig` listing `plusInt` as well, `coreOK` holds. -/
 theorem c0_coreOK : c0.coreOK = true := by
-  show ((cOf true).sortedOK && (cOf true).faithCoreOK && (cOf true).hooksApart && (cOf true).predsApart &&
+  show ((cOf true).sortedOK && (cOf true).faithCoreOK && (cOf true).predsApart &&
     (cOf true).idsOK && c0.overloadsOK) = true
-  rw [sortedOK_of, faithCoreOK_of, hooksApart_of, predsApart_of, idsOK_of, c0_overloadsOK]; rfl
+  rw [sortedOK_of, faithCoreOK_of, predsApart_of, idsOK_of, c0_overloadsOK]; rfl
 
 theorem lookup_plusInt : c.lookupFn plusInt = some plusIntFn := rfl
 
@@ -150,10 +148,10 @@ theorem fnHyp : FnHyp c := by
 
 set_option maxHeartbeats 1000000 in
 /-- Every condition of `coreOK` but `overloadsOK`'s ninth part holds, and `FnHyp`. -/
-theorem meets_others : c.sortedOK = true ∧ c.faithCoreOK = true ∧ c.hooksApart = true ∧
+theorem meets_others : c.sortedOK = true ∧ c.faithCoreOK = true ∧
     c.predsApart = true ∧ c.idsOK = true ∧ ov1 c = true ∧ ov2 c = true ∧ ov3 c = true ∧ ov4 c = true ∧
     ov5 c = true ∧ ov6 c = true ∧ ov7 c = true ∧ ov8 c = true ∧ c.ovlPatsOK = true ∧ FnHyp c :=
-  ⟨sortedOK, faithCoreOK, hooksApart, predsApart, idsOK, by decide +kernel, by decide +kernel,
+  ⟨sortedOK, faithCoreOK, predsApart, idsOK, by decide +kernel, by decide +kernel,
     by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
     by decide +kernel, by decide +kernel, fnHyp⟩
 

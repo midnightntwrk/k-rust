@@ -51,11 +51,11 @@ run_cmd do
 
 namespace WitnessTable
 
-/-- The definitions whose conjuncts are leaves: `coreOK`, its six conjuncts, and `itesApart`, whose
+/-- The definitions whose conjuncts are leaves: `coreOK`, its five conjuncts, and `itesApart`, whose
 two halves are listed apart. -/
 def unfolded : List Name :=
   [``KCore.Semantics.coreOK, ``KCore.Semantics.sortedOK, ``KCore.Semantics.faithCoreOK,
-   ``KCore.Semantics.hooksApart, ``KCore.Semantics.predsApart, ``KCore.Semantics.idsOK,
+   ``KCore.Semantics.predsApart, ``KCore.Semantics.idsOK,
    ``KCore.Semantics.overloadsOK, ``KCore.Faithful.Model.itesApart]
 
 /-- The hypotheses on the functions the table lists (`consistent_of`'s `OpenLaws` is not listed). -/

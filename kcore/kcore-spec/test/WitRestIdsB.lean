@@ -4,7 +4,7 @@
   from the package root: `lake env lean -j1 test/WitRestIdsB.lean`.
 
   Kernel-checked here, each a semantics meeting every other leaf condition of `coreOK`
-  (`sortedOK`, `faithCoreOK`, `hooksApart`, `predsApart`, the other seven leaves of `idsOK`,
+  (`sortedOK`, `faithCoreOK`, `predsApart`, the other seven leaves of `idsOK`,
   `overloadsOK`) and `FnHyp`, with the leaf false, beside a semantics `c0` meeting `coreOK`:
   - idsOK.6, `Reg.c`: the registry sort Id (no generated one) listed among `userSorts`; `Reg.c0`
     lists it among the library's sorts below KItem instead. The constructor items of the two have,
@@ -61,7 +61,7 @@ theorem idsOK_eq (c : Semantics) :
 
 /-- Every leaf condition of `coreOK` outside `idsOK`. -/
 def outside (c : Semantics) : Prop :=
-  c.sortedOK = true ∧ c.faithCoreOK = true ∧ c.hooksApart = true ∧ c.predsApart = true ∧ c.overloadsOK = true
+  c.sortedOK = true ∧ c.faithCoreOK = true ∧ c.predsApart = true ∧ c.overloadsOK = true
 
 theorem fnHyp_of_nil {c : Semantics} (hf : c.fns = []) (hp : ∀ k ∈ c.params, k.raw = false) (hr : c.readsConfined = false) :
     FnHyp c :=
@@ -98,7 +98,7 @@ theorem fnHyp : FnHyp c := fnHyp_of_nil rfl (by decide +kernel) (by decide +kern
 set_option maxHeartbeats 1000000 in
 theorem meets_others : outside c ∧ ids1 c = true ∧ ids2 c = true ∧ ids3 c = true ∧ ids4 c = true ∧
     ids5 c = true ∧ ids7 c = true ∧ ids8 c = true ∧ FnHyp c :=
-  ⟨⟨sortedOK, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap⟩,
+  ⟨⟨sortedOK, by decide_cheap, by decide_cheap, by decide_cheap⟩,
     by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
     by decide +kernel, by decide +kernel, fnHyp⟩
 
@@ -128,7 +128,7 @@ theorem fnHyp : FnHyp c := fnHyp_of_nil rfl (by decide +kernel) (by decide +kern
 set_option maxHeartbeats 1000000 in
 theorem meets_others : outside c ∧ ids1 c = true ∧ ids2 c = true ∧ ids3 c = true ∧ ids4 c = true ∧
     ids5 c = true ∧ ids6 c = true ∧ ids8 c = true ∧ FnHyp c :=
-  ⟨⟨sortedOK, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap⟩,
+  ⟨⟨sortedOK, by decide_cheap, by decide_cheap, by decide_cheap⟩,
     by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
     by decide +kernel, by decide +kernel, fnHyp⟩
 
@@ -161,7 +161,7 @@ theorem fnHyp : FnHyp c := fnHyp_of_nil rfl (by decide +kernel) (by decide +kern
 set_option maxHeartbeats 1000000 in
 theorem meets_others : outside c ∧ ids1 c = true ∧ ids2 c = true ∧ ids3 c = true ∧ ids4 c = true ∧
     ids5 c = true ∧ ids6 c = true ∧ ids7 c = true ∧ FnHyp c :=
-  ⟨⟨sortedOK, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap⟩,
+  ⟨⟨sortedOK, by decide_cheap, by decide_cheap, by decide_cheap⟩,
     by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
     by decide +kernel, by decide +kernel, fnHyp⟩
 

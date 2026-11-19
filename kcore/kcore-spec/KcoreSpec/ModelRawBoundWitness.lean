@@ -85,7 +85,6 @@ theorem rulesPlain_of (b : Bool) : (cOf b).rulesPlain = true := by cases b <;> r
 theorem clausesPlain_of (b : Bool) : (cOf b).clausesPlain = true := by cases b <;> rfl
 theorem carriersOK_of (b : Bool) : (cOf b).carriersOK = true := by cases b <;> decide_cheap
 theorem shapesOK_of (b : Bool) : (cOf b).shapesOK = true := by cases b <;> decide_cheap
-theorem hooksApart_of (b : Bool) : (cOf b).hooksApart = true := by cases b <;> decide_cheap
 theorem predsApart_of (b : Bool) : (cOf b).predsApart = true := by cases b <;> decide_cheap
 theorem idsOK_of (b : Bool) : (cOf b).idsOK = true := by cases b <;> decide_cheap
 theorem overloadsOK_of (b : Bool) : (cOf b).overloadsOK = true := by cases b <;> decide_cheap
@@ -131,12 +130,12 @@ theorem c0_paramsPlain : (cOf true).paramsPlain = true := by decide +kernel
 
 /-- With the open generator numbered outside the registry, `coreOK` holds. -/
 theorem c0_coreOK : c0.coreOK = true := by
-  show ((cOf true).sortedOK && (cOf true).faithCoreOK && (cOf true).hooksApart && (cOf true).predsApart &&
+  show ((cOf true).sortedOK && (cOf true).faithCoreOK && (cOf true).predsApart &&
     (cOf true).idsOK && (cOf true).overloadsOK) = true
   have hs : (cOf true).sortedOK = true := by
     unfold Semantics.sortedOK
     rw [subsortsOK_of, clauses_of, rules_of, rulesPlain_of, clausesPlain_of, c0_paramsPlain]; rfl
-  rw [hs, faithCoreOK_of, hooksApart_of, predsApart_of, idsOK_of, overloadsOK_of]; rfl
+  rw [hs, faithCoreOK_of, predsApart_of, idsOK_of, overloadsOK_of]; rfl
 
 /-- No function, no rule, and an open generator without a law. -/
 theorem fnHyp : FnHyp c := by
@@ -158,10 +157,10 @@ theorem meets_others : c.subsortsOK = true ∧
     (c.rules.all c.ruleSorted) = true ∧ c.rulesPlain = true ∧ c.clausesPlain = true ∧
     ((kOf eof).impl.isNone = true ∧ (kOf eof).assoc = false ∧ (kOf eof).idem = false ∧
       (instDecode? (c.symName (kOf eof).sig.name)).isNone = true ∧ c.shapesOK = true) ∧
-    c.carriersOK = true ∧ c.faithCoreOK = true ∧ c.hooksApart = true ∧ c.predsApart = true ∧
+    c.carriersOK = true ∧ c.faithCoreOK = true ∧ c.predsApart = true ∧
     c.idsOK = true ∧ c.overloadsOK = true ∧ FnHyp c :=
   ⟨subsortsOK_of false, clauses_of false, rules_of false, rulesPlain_of false, clausesPlain_of false,
-    raw_parts_of false, carriersOK_of false, faithCoreOK_of false, hooksApart_of false, predsApart_of false,
+    raw_parts_of false, carriersOK_of false, faithCoreOK_of false, predsApart_of false,
     idsOK_of false, overloadsOK_of false, fnHyp⟩
 
 /-! ## `Γ c` has no model -/

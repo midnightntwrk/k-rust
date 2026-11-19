@@ -75,7 +75,7 @@ def Hm : HookParams := ⟨fun f _ => if f == andS then some (.ctor xS []) else n
 theorem cM_rest :
     (cM.subsortsOK && cM.fns.all (fun f => f.clauses.all (cM.clauseSorted f (cM.fns.map Fn.sig))) &&
       cM.rules.all cM.ruleSorted && cM.rulesPlain && cM.clausesPlain && cM.carriersOK &&
-      cM.faithCoreOK && cM.hooksApart && cM.predsApart && cM.idsOK && cM.overloadsOK) = true := by
+      cM.faithCoreOK && cM.predsApart && cM.idsOK && cM.overloadsOK) = true := by
   decide_cheap
 
 /-- `paramsPlain`'s test of the parameters (V2.d1-flip), restated: a raw parameter has no

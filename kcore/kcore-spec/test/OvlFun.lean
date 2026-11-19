@@ -114,13 +114,13 @@ def cfg (kl : Sym) (s : Srt) (t : Term) (cnt : Nat) : Term :=
 def intT (i : Int) : Term := .dv Srt.int (.int i)
 
 /-- Every condition of `coreOK` but `overloadsOK`. -/
-def others (c : Semantics) : Bool := c.sortedOK && c.faithCoreOK && c.hooksApart && c.predsApart && c.idsOK
+def others (c : Semantics) : Bool := c.sortedOK && c.faithCoreOK && c.predsApart && c.idsOK
 
 open Faithful Faithful.Model in
 /-- The conditions of `others` but the two of `faithCoreOK` that compare names (`namesApartK`,
 `itesApart`), each of which the kernel decides here within a few GiB on its own. -/
 def light (c : Semantics) : Bool :=
-  c.sortedOK && c.hooksApart && c.predsApart && c.idsOK && namesNumbered c && genWf c && collSortsOK c &&
+  c.sortedOK && c.predsApart && c.idsOK && namesNumbered c && genWf c && collSortsOK c &&
     collsOK c && patHeadsOK c && LitsApart c && sortsNumbered c && kindsApart c && ctorsOnce c && fnsApart c
 
 open Faithful Faithful.Model in
@@ -128,9 +128,9 @@ theorem others_of {c : Semantics} (h : light c = true) (hn : namesApartFast c = 
     others c = true := by
   unfold light at h
   simp only [Bool.and_eq_true] at h
-  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩, h7⟩, h8⟩, h9⟩, h10⟩, h11⟩, h12⟩, h13⟩, h14⟩ := h
+  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨h1, h3⟩, h4⟩, h5⟩, h6⟩, h7⟩, h8⟩, h9⟩, h10⟩, h11⟩, h12⟩, h13⟩, h14⟩ := h
   unfold others Semantics.faithCoreOK
-  simp only [h1, h2, h3, h4, h5, h6, h7, h8, h9, h10, h11, h12, h13, h14, namesApartK_of_fast hn, hi, Bool.and_self]
+  simp only [h1, h3, h4, h5, h6, h7, h8, h9, h10, h11, h12, h13, h14, namesApartK_of_fast hn, hi, Bool.and_self]
 
 /-! ## e5-ovl-fun -/
 

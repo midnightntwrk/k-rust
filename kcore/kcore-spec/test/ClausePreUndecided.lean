@@ -99,7 +99,7 @@ def sortedRest (c : Semantics) : Bool :=
 
 /-- `coreOK` without `sortedOK`. -/
 def coreRest (c : Semantics) : Bool :=
-  c.faithCoreOK && c.hooksApart && c.predsApart && c.idsOK && c.overloadsOK
+  c.faithCoreOK && c.predsApart && c.idsOK && c.overloadsOK
 
 theorem coreOK_eq (c : Semantics) : c.coreOK = ((sortedRest c && c.clausesPlain) && coreRest c) := by
   simp only [Semantics.coreOK, Semantics.sortedOK, sortedRest, coreRest, Bool.and_assoc,

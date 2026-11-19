@@ -135,9 +135,9 @@ theorem fnHyp : FnHyp c :=
 
 set_option maxHeartbeats 1000000 in
 /-- Every condition of `coreOK` but `overloadsOK` holds, and `FnHyp`. -/
-theorem meets_others : c.sortedOK = true ∧ c.faithCoreOK = true ∧ c.hooksApart = true ∧
+theorem meets_others : c.sortedOK = true ∧ c.faithCoreOK = true ∧
     c.predsApart = true ∧ c.idsOK = true ∧ FnHyp c :=
-  ⟨sortedOK, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, fnHyp⟩
+  ⟨sortedOK, by decide_cheap, by decide_cheap, by decide_cheap, fnHyp⟩
 
 /-- Every condition of `overloadsOK` but this one holds. -/
 theorem ovlsButIte_c : ovlsButIte c = true := by decide +kernel

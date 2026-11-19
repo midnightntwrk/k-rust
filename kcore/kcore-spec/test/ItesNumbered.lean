@@ -165,13 +165,13 @@ theorem fnHyp : FnHyp c :=
 set_option maxHeartbeats 2000000 in
 /-- Every condition of `coreOK` but `itesApart` holds, the second and third leaves of `itesApart`
 hold, and `FnHyp`. -/
-theorem meets_others : c.sortedOK = true ∧ c.hooksApart = true ∧ c.predsApart = true ∧ c.idsOK = true ∧
+theorem meets_others : c.sortedOK = true ∧ c.predsApart = true ∧ c.idsOK = true ∧
     c.overloadsOK = true ∧
     namesNumbered c = true ∧ genWf c = true ∧ collSortsOK c = true ∧ collsOK c = true ∧
     patHeadsOK c = true ∧ Model.namesApartK c = true ∧ Model.LitsApart c = true ∧
     Model.sortsNumbered c = true ∧ Model.kindsApart c = true ∧ Model.ctorsOnce c = true ∧
     Model.fnsApart c = true ∧ itesArity c = true ∧ itesNotInj c = true ∧ FnHyp c :=
-  ⟨sortedOK, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
+  ⟨sortedOK, by decide_cheap, by decide_cheap, by decide_cheap,
     by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
     by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
     by decide_cheap, by decide_cheap, by decide_cheap, fnHyp⟩

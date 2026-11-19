@@ -142,16 +142,16 @@ def base : Lib := { sortsBelowKItem := [Srt.int, Srt.bool] }
 without rule, function or parameter. -/
 def Others (c : Semantics) : Prop :=
   c.subsortsOK = true ∧ c.rules = [] ∧ c.fns = [] ∧ c.params = [] ∧ c.rulesPlain = true ∧
-    c.clausesPlain = true ∧ c.hooksApart = true ∧ c.predsApart = true ∧ c.idsOK = true ∧
+    c.clausesPlain = true ∧ c.predsApart = true ∧ c.idsOK = true ∧
     c.overloadsOK = true ∧ c.faithCoreOK = true ∧ FnHyp c
 
 theorem others (l : Lib)
-    (h : ((mk l).subsortsOK && (mk l).rulesPlain && (mk l).clausesPlain && (mk l).hooksApart &&
+    (h : ((mk l).subsortsOK && (mk l).rulesPlain && (mk l).clausesPlain &&
       (mk l).predsApart && (mk l).idsOK && (mk l).overloadsOK && (mk l).faithCoreOK) = true)
     (hrc : (mk l).readsConfined = false) : Others (mk l) := by
   simp only [Bool.and_eq_true] at h
-  obtain ⟨⟨⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩, h7⟩, h8⟩ := h
-  exact ⟨h1, rfl, rfl, rfl, h2, h3, h4, h5, h6, h7, h8,
+  obtain ⟨⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h5⟩, h6⟩, h7⟩, h8⟩ := h
+  exact ⟨h1, rfl, rfl, rfl, h2, h3, h5, h6, h7, h8,
     fun _ hf => absurd hf List.not_mem_nil, fun _ hf => absurd hf List.not_mem_nil,
     fun _ hf => absurd hf List.not_mem_nil, fun _ hf => absurd hf List.not_mem_nil,
     openDecided_of_readsConfined hrc, openLaws_of_plain (fun _ hk => absurd hk List.not_mem_nil)⟩

@@ -118,9 +118,9 @@ theorem fnHyp : FnHyp c :=
 
 set_option maxHeartbeats 1000000 in
 /-- Every condition of `coreOK` but `overloadsOK`, `itesApart` among them, holds, and `FnHyp`. -/
-theorem meets_others : c.sortedOK = true ∧ c.faithCoreOK = true ∧ c.hooksApart = true ∧
+theorem meets_others : c.sortedOK = true ∧ c.faithCoreOK = true ∧
     c.predsApart = true ∧ c.idsOK = true ∧ Model.itesApart c = true ∧ FnHyp c :=
-  ⟨sortedOK, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, fnHyp⟩
+  ⟨sortedOK, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, fnHyp⟩
 
 /-- Every condition of `overloadsOK` but "not named like `ite` at a sort" holds. -/
 theorem ovlsButIte_c : ovlsButIte c = true := by decide +kernel

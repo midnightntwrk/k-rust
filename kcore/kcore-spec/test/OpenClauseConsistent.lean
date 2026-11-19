@@ -79,7 +79,7 @@ theorem decidedE : cE.sortedOKCl = true ∧ cE.srReady = true ∧ cE.faithCoreOK
   decide_cheap
 
 /-- `coreOK`'s other conjuncts hold at `cE`. -/
-example : cE.hooksApart = true ∧ cE.predsApart = true ∧ cE.overloadsOK = true := by decide +kernel
+example : cE.predsApart = true ∧ cE.overloadsOK = true := by decide +kernel
 
 instance ovlE : OvlOK cE := OvlOK.of_nil decidedE.2.2.2.2.2.1 decidedE.2.2.2.2.2.2
 
@@ -303,7 +303,7 @@ theorem decidedI : cI.sortedOKCl = true ∧ cI.srReady = true ∧ cI.faithCoreOK
   decide_cheap
 
 /-- `coreOK`'s other conjuncts hold at `cI`. -/
-example : cI.hooksApart = true ∧ cI.predsApart = true ∧ cI.overloadsOK = true := by decide +kernel
+example : cI.predsApart = true ∧ cI.overloadsOK = true := by decide +kernel
 
 instance ovlI : OvlOK cI := OvlOK.of_nil decidedI.2.2.2.2.2.1 decidedI.2.2.2.2.2.2
 

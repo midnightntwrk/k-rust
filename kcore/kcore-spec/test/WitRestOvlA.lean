@@ -13,7 +13,7 @@
     overloading symbols once each (`ownSyms` lists their names, without repetition), so the first
     overloading symbol of an overloading symbol's name is that symbol (`find_self`).
   - overloadsOK.4, `Res.c`: the overloading symbol `f : Int → Int`, overloading nothing, meets every
-    other leaf condition of `coreOK` (`sortedOK`, `faithCoreOK`, `hooksApart`, `predsApart`,
+    other leaf condition of `coreOK` (`sortedOK`, `faithCoreOK`, `predsApart`,
     `idsOK`, the other nine leaves of `overloadsOK`) and `FnHyp`, with overloadsOK.4 false;
     `Res.c0`, the same with `f : Int → K`, meets `coreOK`. `f(0)` is a value of Int (`Res.f_value`).
 
@@ -97,10 +97,10 @@ theorem fnHyp : FnHyp c :=
     openDecided_of_readsConfined (by decide +kernel), openLaws_of_plain (by decide +kernel)⟩
 
 set_option maxHeartbeats 1000000 in
-theorem meets_others : c.sortedOK = true ∧ c.faithCoreOK = true ∧ c.hooksApart = true ∧
+theorem meets_others : c.sortedOK = true ∧ c.faithCoreOK = true ∧
     c.predsApart = true ∧ c.idsOK = true ∧ ov1 c = true ∧ ov2 c = true ∧ ov3 c = true ∧ ov5 c = true ∧
     ov6 c = true ∧ ov7 c = true ∧ ov8 c = true ∧ c.ovlPatsOK = true ∧ FnHyp c :=
-  ⟨sortedOK, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
+  ⟨sortedOK, by decide_cheap, by decide_cheap, by decide_cheap,
     by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
     by decide_cheap, by decide_cheap, by decide_cheap, fnHyp⟩
 

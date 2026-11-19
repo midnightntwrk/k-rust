@@ -75,10 +75,10 @@ theorem fnHyp : FnHyp c :=
 
 set_option maxHeartbeats 1000000 in
 /-- Every condition of `coreOK` but `overloadsOK`'s first part holds, and `FnHyp`. -/
-theorem meets_others : c.sortedOK = true ∧ c.faithCoreOK = true ∧ c.hooksApart = true ∧
+theorem meets_others : c.sortedOK = true ∧ c.faithCoreOK = true ∧
     c.predsApart = true ∧ c.idsOK = true ∧ ov2 c = true ∧ ov3 c = true ∧ ov4 c = true ∧ ov5 c = true ∧
     ov6 c = true ∧ ov7 c = true ∧ ov8 c = true ∧ FnHyp c :=
-  ⟨sortedOK, by decide_faithCoreOK, by decide +kernel, by decide +kernel, by decide +kernel,
+  ⟨sortedOK, by decide_faithCoreOK, by decide +kernel, by decide +kernel,
     by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
     by decide +kernel, by decide +kernel, fnHyp⟩
 

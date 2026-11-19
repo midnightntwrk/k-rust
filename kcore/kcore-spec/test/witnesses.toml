@@ -1,7 +1,7 @@
 # The leaf conjuncts of coreOK and the hypotheses FnDet, FnSolves, ClausePreDecided and ClausePostDecided, each with the witness module
 # that shows it cannot be dropped (a semantics meeting the others whose Γ has no model), or `none`
 # with the reason. Keys and texts are computed by test/Witnesses.lean from the definitions:
-# coreOK, sortedOK, faithCoreOK, hooksApart, predsApart, idsOK, overloadsOK and itesApart are
+# coreOK, sortedOK, faithCoreOK, predsApart, idsOK, overloadsOK and itesApart are
 # unfolded, `&&` is split, and List.all lambdas, single-alternative matches and lets are entered;
 # Witnesses.lean fails when a leaf has no row or its text differs. `evidence`: files with the
 # kernel-checked part of a `none` row. `note`: what a witness module shows, where it is less than
@@ -125,18 +125,6 @@ key = "faithCoreOK.11"
 text = "KCore.Faithful.Model.fnsApart c"
 witness = "KcoreSpec.ModelFnCtorWitness"
 note = "the module shows Hyp, HypSound and the other conditions of HypModel, not every other conjunct of coreOK"
-
-[[conjunct]]
-key = "hooksApart.1"
-text = "!KCore.hookSigs.any fun x => x.name == k.name"
-witness = "none: no witness exists: implied by kindsApart (faithCoreOK.9, its first part: no interpreted hook is a constructor), for every semantics (kernel-checked: hooksApart1_of_kindsApart)"
-evidence = "test/WitRestApart.lean"
-
-[[conjunct]]
-key = "hooksApart.2"
-text = "!KCore.hookSigs.any fun x => x.name == f.label"
-witness = "none: no witness exists: implied by fnsApart (faithCoreOK.11: no function of allFns, the definition's among them, is an interpreted hook; isHook_iff), for every semantics (kernel-checked: hooksApart2_of_fnsApart)"
-evidence = "test/WitRestApart.lean"
 
 [[conjunct]]
 key = "predsApart.1"

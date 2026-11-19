@@ -90,7 +90,7 @@ open Faithful Faithful.Model in
 theorem coreOK : c.coreOK = true :=
   Semantics.coreOK_of_T T_eq (by decide +kernel) (by decide +kernel) (by decide +kernel)
     (by decide_cheap)
-    (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
+    (by decide +kernel) (by decide +kernel) (by decide +kernel)
 
 /-- The literal `abc` of `Name`, and it injected into `Ident`. -/
 def abc : GroundTerm := .dv nameS (.tok "abc")

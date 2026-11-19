@@ -14,7 +14,7 @@
     before or among the functions is found by `ovlOver`'s lookup in the constructors, every
     overloading symbol and the functions, so no overloaded symbol is dropped.
   - overloadsOK.5, `Self.c`: the overloading symbol `f : Int → K` overloading itself meets every
-    other leaf condition of `coreOK` (`sortedOK`, `faithCoreOK`, `hooksApart`, `predsApart`,
+    other leaf condition of `coreOK` (`sortedOK`, `faithCoreOK`, `predsApart`,
     `idsOK`, the other nine leaves of `overloadsOK`) and `FnHyp`, with overloadsOK.5 false.
   - overloadsOK.7, `Pair.c`: `f : Int → KCellOpt` overloading the counter cell's constructor
     `<generatedCounter> : Int → GeneratedCounterCell`, whose result sort is not below KCellOpt,
@@ -116,10 +116,10 @@ theorem sortedOK : c.sortedOK = true := by decide_cheap
 theorem fnHyp : FnHyp c := fnHyp_of rfl (by decide +kernel) (by decide +kernel)
 
 set_option maxHeartbeats 1000000 in
-theorem meets_others : c.sortedOK = true ∧ c.faithCoreOK = true ∧ c.hooksApart = true ∧
+theorem meets_others : c.sortedOK = true ∧ c.faithCoreOK = true ∧
     c.predsApart = true ∧ c.idsOK = true ∧ ov1 c = true ∧ ov2 c = true ∧ ov3 c = true ∧ ov4 c = true ∧
     ov6 c = true ∧ ov7 c = true ∧ ov8 c = true ∧ c.ovlPatsOK = true ∧ FnHyp c :=
-  ⟨sortedOK, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
+  ⟨sortedOK, by decide_cheap, by decide_cheap, by decide_cheap,
     by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
     by decide_cheap, by decide_cheap, by decide_cheap, fnHyp⟩
 
@@ -149,10 +149,10 @@ theorem sortedOK : c.sortedOK = true := by decide_cheap
 theorem fnHyp : FnHyp c := fnHyp_of rfl (by decide +kernel) (by decide +kernel)
 
 set_option maxHeartbeats 1000000 in
-theorem meets_others : c.sortedOK = true ∧ c.faithCoreOK = true ∧ c.hooksApart = true ∧
+theorem meets_others : c.sortedOK = true ∧ c.faithCoreOK = true ∧
     c.predsApart = true ∧ c.idsOK = true ∧ ov1 c = true ∧ ov2 c = true ∧ ov3 c = true ∧ ov4 c = true ∧
     ov5 c = true ∧ ov6 c = true ∧ ov8 c = true ∧ c.ovlPatsOK = true ∧ FnHyp c :=
-  ⟨sortedOK, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
+  ⟨sortedOK, by decide_cheap, by decide_cheap, by decide_cheap,
     by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
     by decide_cheap, by decide_cheap, by decide_cheap, fnHyp⟩
 
