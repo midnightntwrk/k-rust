@@ -1468,11 +1468,11 @@ table above, on the tree before String and Bytes). Not investigated here.
 - `test/TieUnboundAtValues.lean`: on `f2-examples/unbound.kompile.kore` (fixture e2-unbound), the
   classes test/TieKimpAtValues.lean and the set-variable section of test/TieKimpRefuted.lean tie on
   kimp, over this text's indices, for every H: hooked functional 47 of 48 (`fun_entailed`), the 9
-  collection laws (`laws_entailed`) and library 80 of 84 (`lib_entailed`, `libSet_entailed`) at
-  values; the 6 set-variable lemmas refuted (`sN_refuted`) and held at sets of at most one value
-  (`sN_one`); the accounts against TieUnbound's class lists, owed 100 (`ite`'s functional) and 242,
-  243 (`ite{SortK}`) and 207, 263 (the equations of `bitRangeInt` and `signExtendBitRangeInt`); the `_c`
-  forms over `Γc`. 51 s, 3.4 GiB.
+  collection laws (`laws_entailed`) and library 82 of 84 (`lib_entailed`, `libSet_entailed`) at
+  values, the equations of `bitRangeInt` and `signExtendBitRangeInt` (207, 263) among them; the 6
+  set-variable lemmas refuted (`sN_refuted`) and held at sets of at most one value (`sN_one`); the
+  accounts against TieUnbound's class lists, of no direction 100 (`ite`'s functional) and 242, 243
+  (`ite{SortK}`); the `_c` forms over `Γc`. 51 s, 3.4 GiB.
 - `test/TieRuleCoolText.lean`, `TieRuleCoolWf.lean`, `TieRuleCoolCons.lean`, `TieRuleCoolAttrs.lean`,
   `TieRuleCoolAccount.lean`, `TieRuleCoolAtValues.lean`: the tie on `f2-examples/rulecool.kompile.kore`
   (fixture e2-rule) beside test/TieRuleCool.lean's rules and steps, ported from test/TieUnbound.lean
@@ -1481,9 +1481,9 @@ table above, on the tree before String and Bytes). Not investigated here.
   nine over generators, KItem's in another order), set idempotence refuted, the `_c` forms (Text,
   2.9 GiB); the 37 constructor sentences (Cons, 3.5 GiB); `attrs_agree`, `fn_prios` (Attrs, 6.2
   GiB: `attrsAgree` on the whole text); the account of the 282 sentences and the closed
-  no-direction class (Account, 4.1 GiB); hooked functional 47 of 48, collection laws, library 80
-  of 84 at values, the 6 set-variable lemmas refuted, owed 109, 225, 262, 263, 284 (AtValues, 3.5
-  GiB).
+  no-direction class (Account, 4.1 GiB); hooked functional 47 of 48, collection laws, library 82
+  of 84 at values (225, 284, the equations of `bitRangeInt` and `signExtendBitRangeInt`, among
+  them), the 6 set-variable lemmas refuted, of no direction 109, 262, 263 (AtValues, 3.5 GiB).
   243 (`ite{SortK}`); the `_c` forms over `Γc`. 37 s, 3.4 GiB.
   `c.withHooks H`; the expectations `b_step` (from `PreS`, the sentences as written) and `a_succs`
   (through the step's closure, from `Pre`). About 11 s, 2.9 GiB.
@@ -1537,8 +1537,8 @@ table above, on the tree before String and Bytes). Not investigated here.
 - `test/imp-tie-atvalues.sh`: builds a copy of the committed package examples/ref-kimp in
   .lake/pins/kimp-tie and checks against it the three files that import it, on kimp's text, for
   every H, with `coreOK` from the package's `RefKimp.coreOK_defn`:
-  `test/TieKimpAtValues.lean` (hooked functional 47 of 48, collection law 9, library 80 of 82 at
-  values or, for the 8 over set variables, at set values; 3.8 GiB, 42 s),
+  `test/TieKimpAtValues.lean` (hooked functional 47, collection law 9, library 82 at values or,
+  for the 8 over set variables, at set values; 4.0 GiB, 62 s),
   `test/TieKimpRefuted.lean` (set idempotence 573 and the set-variable lemmas 671 to 675, 904,
   refuted; 2.1 GiB, 11 s), `test/TieKimpReach.lean` (no point where every clause of a function
   fails, so every premise of `ΓFallback` is at a silent point; no rule or clause applies a symbol of
@@ -1834,13 +1834,16 @@ table above, on the tree before String and Bytes). Not investigated here.
   both sides are `hook`'s, the first position of one of S2's characters being `gLfc` of the first of
   its first character and of the others, `lfc_firstOr_or`), so it is entailed at values (`ev237`,
   `LibEv.FnEqn.entailedP`); `HookParams.lib` meets the condition (`ev237_lib`). Axioms guarded.
-- `test/CountAllEmptyNeedleFlt.lean`: `countAllOccurrences`' second equation (domains.md 1898),
+- `test/LibEvCountAllEmptyFlt.lean`: `countAllOccurrences`' second equation (domains.md 1898),
   axiom 294 of `f2-examples/silentflt.kompile.kore`, at the empty needle, where its `requires` holds
-  and its right side is one more than its left: for every H meeting `Semantics.silentTotal`, in
-  every model of Γ it fails at that valuation (`s294_at`, `LibEv.FnEqn.refutedPT_at`) and Γ with it
-  has no model (`s294_refuted`; `s294_refuted_lib`); where H gives the count no value there, both
-  sides have none (`s294_none`), at a point where the text's `functional` sentence of the symbol
-  (113) asks a value. Not a tie file (e6map does not read it). Axioms guarded.
+  and its right side is one more than its left: for every H giving the count an Int value there, in
+  every model of Γ it fails at that valuation (`s294_at_of`, `LibEv.FnEqn.refutedPT_at`); so for
+  every H meeting `Semantics.silentTotal` (`s294_at`) Γ with it has no model (`s294_refuted`;
+  `s294_refuted_lib`). For every H, in a model of Γ where the text's `functional` sentence of the
+  symbol (113) holds, the count has an Int value there (`count113_value`: at that silent point Γ's
+  graph is ⊥ where H gives none), so Γ with 113 and 294 has no model (`s294_113_refuted`); where H
+  gives the count no value there, both sides have none (`s294_none`). A tie file: e6map reads its
+  statements on 294, each with `¬`, as refuting it. Axioms guarded.
 - `test/LibEvDividesInt.lean`: on `f2-examples/e6-divides-int.kompile.kore` (the fixture
   e6-divides-int), the reading's one parameter symbol is `dividesInt`, without implementation
   (`params_div`); Γ entails each sort declaration without sort parameters (`decls_entailed`) and
@@ -1882,6 +1885,26 @@ table above, on the tree before String and Bytes). Not investigated here.
   (`fnIsInfinite_ev`, over `KcoreSpec/FloatUnpack.lean`'s `KFloat.isInf_unpack`), and so at
   `HookParams.lib`. The header lists the FLOAT sentences not tied and why: 380 (1671) and the
   `functional` sentences of the seven `total` symbols Γ lacks. 2.0 GiB, 8 s. Axioms guarded.
+- `test/LibEvClassesFlt.lean`: the classes hooked functional (76), collection law (9) and library
+  (105) of `f2-examples/silentflt.kompile.kore`, which has no account of all its sentences: the
+  lists (LibProbe's rows 9, 15, 17, 18 over Γ, with the `functional` sentences of `Bool2String`,
+  `freshInt`, `isInfinite` and without the six set-variable lemmas), `classes_over` (each applies
+  only Γ's heads) and `absent_lacks` (the rows' 31 other sentences each apply a head Γ lacks);
+  the hooked functional sentences entailed at values (`LibEv.functional_ev`) for every H, or for
+  every H meeting `silentTotal` for the eleven of `totalSilentKeys`; the nine collection laws for
+  every H; `lib_partition`, the library class as the five lists of where each sentence is tied
+  (test/LibEvLibFlt.lean, LibEvStrFlt.lean, LibEvFloatFlt.lean, LibEvFnOwiseFlt.lean) or left
+  (294, with its reason). 9.0 GiB, 123 s. Axioms guarded.
+- `test/LibEvLibFlt.lean`: the library sentences of `f2-examples/silentflt.kompile.kore` that
+  BOOL, INT, K-EQUAL, SET and LIST state, 82, entailed at values for every H from the statements
+  that tie the same sentences on ens: the 16 predicate equations of the equality symbols
+  (`pred_entailed`), 58 term and function equations (`evN`), and the eight Bool predicate
+  sentences over set variables at set values (`set_entailed`). 2.5 GiB, 39 s. Axioms guarded.
+- `test/LibEvRefutedFlt.lean`: the sentences of `f2-examples/silentflt.kompile.kore` that
+  test/LibEvClassesFlt.lean leaves out of its classes as refuted, each refuted for every H: set
+  idempotence 87 (`idem_refuted`, `setColl_idem_refuted_text`) and the six set-variable lemmas 196
+  to 200 and 381 (`sN_at`, `sN_refuted`, `sN_one`, as test/LibEvCeilEns.lean states them on ens).
+  Axioms guarded.
 - `test/FloatUnpack.lean`: facts of Lean core's float model at every format it covers
   (`KcoreSpec/FloatUnpack.lean`): the datum of every encoding is a normal or subnormal datum of the
   format (`datum_unpack`, `unpack_finite_bounds`), `unpack` after `pack` is the identity there

@@ -81,8 +81,15 @@ if on ref-kimp; then gen f2-examples/ref-kimp.kore ref-kimp RefKimp --wf
 # `lookup` and `mkInj` (User.KkCascade), and the same functions' text by hand and as written for the
 # measurement (User.SpikeBase, User.SpikeHand, User.SpikeCascade); the mirrors of kore.k's sorts as
 # its values and the signature `KCore.KK.sig` of the three step statements (User.Emb, User.Sig), and
-# the other mirrors' embeddings with emb's inversion (User.EmbKit)
+# the other mirrors' embeddings with emb's inversion (User.EmbKit); `leq` on an embedded subsort
+# table (User.Leq: `KCore.KK.leq_eval_leqF`, `KCore.KK.leq_eval`); the text gen/kkcascade.py emits
+# over kore.k's mirrors (User.KkGenEmb, from User/cascade-emb.toml) and its measurement by hand
+# (User.SpikeEmb); the embeddings `kcore kk-native` runs are sig's (User.NativeTie); the walk and lookup helpers over the mirrors (User.HelpWalk)
+# `match`, `matchTs` and `matchK` on embedded mirrors at a pattern without a collection pattern (User.MatchEval: `KCore.KK.match_eval`);
+# kore.k's order functions over the mirrors and insert and member on encodings (User.HelpOrder);
+# a term's instance under a substitution, as kore.k's `inst` gives it (User.Inst: `KCore.KK.Inst`, `KCore.KK.inst_Inst`)
+# the motive of the induction on an evaluation of kore.k and its step cases (User.SpecMotive: `KCore.KK.Spec`, `KCore.KK.StepCase`, `KCore.KK.spec_of_steps`)
 if on ref-kk; then gen examples/ref-kk/RefKk/definition.kore ref-kk RefKk --core
   step gen/build.sh examples/ref-kk User.Coherent User.EvalInversion User.FnSolves User.PrioDecided User.CoDefined User.Consistent \
-    User.KkKit User.KkFacts User.KkCascade User.SpikeBase User.SpikeHand User.SpikeCascade User.Emb User.Sig User.EmbKit; fi
+    User.KkKit User.KkFacts User.KkCascade User.SpikeBase User.SpikeHand User.SpikeCascade User.Emb User.Sig User.EmbKit User.Leq User.HelpTerms User.KkGenEmb User.SpikeEmb User.NativeTie User.HelpWalk User.MatchEval User.HelpOrder User.Inst User.SpecMotive; fi
 echo "all built"

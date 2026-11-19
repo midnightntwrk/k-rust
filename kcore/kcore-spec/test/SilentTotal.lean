@@ -14,7 +14,7 @@
   - Both directions at one point per key, in the semantics of `f2-examples/strbytes.kompile.kore`:
     `substrString("abc", 2, 1)`, `Int2Bytes(-1, 0, BE)`, `countAllOccurrences("a", "")`,
     `replaceAll("a", "", "b")`, and `isNaN`, `isInfinite`, `--Float`,
-    `absFloat`, `floorFloat`, `ceilFloat`, `truncFloat` at `1.0p1x2`: under `HookParams.none` Γ
+    `absFloat`, `floorFloat`, `ceilFloat`, `truncFloat` at `1.0p2x1`: under `HookParams.none` Γ
     states the application ⊥ (the text's `functional` sentence fails there), under
     `HookParams.totals` it states a value (`both_ways`), and the result has a value
     (`total_hook_value`'s conclusion, `totals_value`). `Bytes2Int` has no such point where the sorts
@@ -23,7 +23,7 @@
     semantics: `HookParams.lib` meets every condition (`lib_admitted`); each of `isInfiniteEq`,
     `neFloatEq`, `rfindCharEq`, `findCharEq`, `sqrtFloatEq` fails at one point under an
     interpretation that gives values the sentence does not hold with (`HookParams.totals` at
-    `1.0p1x2`; `ne0`, `=/=Float` and `==Float` both `false`, at `1.0p1x2` twice; `rc5`, `rfindChar` 5,
+    `1.0p2x1`; `ne0`, `=/=Float` and `==Float` both `false`, at `1.0p2x1` twice; `rc5`, `rfindChar` 5,
     at `("ab", "a", 5)`; `fc5`, `findChar` 5 and `findString` 7, at `("abc", "a", 7)`; `root3`,
     `rootFloat` 3.0, at binary64 4.0, where `hook` gives `sqrtFloat` 2.0; `HookParams.totals`,
     `replaceAll` `""` and `countAllOccurrences` 0, at `("a", "", "b")`, where `replace("a", "", "b", 0)`
@@ -84,8 +84,8 @@ def b (t : String) : GroundTerm := bytesV t.toList
 def be : GroundTerm := .ctor bigEndianBytes []
 /-- `1.0p1x2`: the format with a precision of 1 and an exponent width of 2 (`KFloat.thinOK`). -/
 def t12 : GroundTerm := .dv Srt.float (.float 1 2 1)
-/-- `1.0p2x1`: the format with a precision of 2 and an exponent width of 1, where neither `isNaN`
-nor the comparisons are computed (`asDatum`). -/
+/-- `1.0p2x1`: the format with a precision of 2 and an exponent width of 1, where no operation is
+computed (neither `isNaN` nor the comparisons, `asDatum`, nor those of `thinHooks`, `thinAt`). -/
 def t21 : GroundTerm := .dv Srt.float (.float 2 1 1)
 
 /-- **`HookParams.none` is not an interpretation the text admits**, in any semantics:
@@ -117,8 +117,8 @@ def pts : List Pt :=
   [⟨stringSubstr, [s "abc", int 2, int 1], s ""⟩,
    ⟨int2Bytes, [int (-1), int 0, be], b ""⟩,
    ⟨floatIsNaN, [t21], bool false⟩, ⟨floatIsInfinite, [t21], bool false⟩,
-   ⟨floatNeg, [t12], t12⟩, ⟨floatAbs, [t12], t12⟩, ⟨floatFloor, [t12], t12⟩,
-   ⟨floatCeil, [t12], t12⟩, ⟨floatTrunc, [t12], t12⟩,
+   ⟨floatNeg, [t21], t21⟩, ⟨floatAbs, [t21], t21⟩, ⟨floatFloor, [t21], t21⟩,
+   ⟨floatCeil, [t21], t21⟩, ⟨floatTrunc, [t21], t21⟩,
    ⟨stringCountAll, [s "a", s ""], int 0⟩, ⟨stringReplaceAll, [s "a", s "", s "b"], s ""⟩]
 
 /-- Every key but `Bytes2Int` has a point. -/

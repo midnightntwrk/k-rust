@@ -100,7 +100,8 @@ The evidence forms (DONE-0 C2's table), by status and list, and the items each n
                    `e6_tie` (test/constructs/e6map.py): each "THEOREM (FILE; TEXT axiom N)" a
                    theorem declared in FILE, a tie file as above; on a module row "every ... row
                    of MODULE (n) is tied", with ", or of no direction with a theorem in a model (k)"
-                   where k are; an item "uncovered: ...", "refuted: ..." (Γ refutes the sentence or
+                   where k are, or "module of hooks and generated declarations only: ..." (accounted
+                   by its declarations' rows); an item "uncovered: ...", "refuted: ..." (Γ refutes the sentence or
                    entails it only partly) or "no direction: ..." (the tie's no-direction class) is
                    missing evidence
   parameter
@@ -712,7 +713,8 @@ def evidence(fx, l, key, e, row):
 
     def e6_ties():
         """An E6 library row's `e6_tie` (test/constructs/e6map.py): "THEOREM (FILE; TEXT axiom N)" items,
-        "every ... row of MODULE (n) is tied" on a module row, or "uncovered: ..."."""
+        "every ... row of MODULE (n) is tied" or "module of hooks and generated declarations only: ..."
+        on a module row, or "uncovered: ..."."""
         v = e.get("e6_tie")
         v = v if isinstance(v, list) else [v]
         unc = [x for x in v if isinstance(x, str) and x.startswith("uncovered")]
@@ -729,6 +731,9 @@ def evidence(fx, l, key, e, row):
         if all(isinstance(x, str) and re.match(r"every .* row of \S+ \(\d+\) is tied"
                                                r"(, or of no direction with a theorem in a model \(\d+\))?$", x) for x in v):
             have.append("tie: every row of the module tied (e6_tie)"); return True
+        if len(v) == 1 and isinstance(v[0], str) and v[0].startswith("module of hooks and generated declarations only: "):
+            have.append("module of hooks and generated declarations only, accounted by its declarations' rows (e6_tie)")
+            return True
         thms = [re.match(r"(\S+) \((test/[^;]+\.lean); .+\)$", x) if isinstance(x, str) else None for x in v]
         if not all(thms):
             miss.append(f"theorems (e6_tie item of no known form: {next(x for x, m in zip(v, thms) if not m)!r:.80})")

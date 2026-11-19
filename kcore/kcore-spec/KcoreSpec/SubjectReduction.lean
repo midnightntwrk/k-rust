@@ -817,7 +817,9 @@ theorem floatHook_result {f : Sym} {k : CtorSig} (hk : lookupSig hookSigs f = so
   have := floatSigs_result k hm
   exact this
 
-/-- The interpreted Float symbols return values of their declared result sort. -/
+/-- The interpreted Float symbols return values of their declared result sort: at a format with a
+model by the combinators of Lean core's model, at a format `thinAt` names by those of `thinHooks`
+(`flOr_sorted`). -/
 theorem floatHook_sorted {f : Sym} {g : List GroundTerm → Option GroundTerm} {k : CtorSig}
     {ws : List GroundTerm} {v : GroundTerm} (hmem : (f, g) ∈ floatHooks)
     (hk : lookupSig hookSigs f = some k) (hev : g ws = some v) : c.sortOf v = some k.result := by
@@ -828,15 +830,37 @@ theorem floatHook_sorted {f : Sym} {g : List GroundTerm → Option GroundTerm} {
     ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ |
     ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩
   all_goals first
-    | (rw [hF (by decide)]; first | exact fl1_sorted hev | exact fl2_sorted hev | exact flTo_sorted hev | exact flOfInt_sorted hev | exact flAt_sorted hev)
     | (rw [hF (by decide)]
-       dsimp only at hev
-       split at hev
-       · obtain ⟨⟨p, e, sp, u⟩, ha, h⟩ := Option.bind_eq_some_iff.mp hev
-         obtain ⟨_, -, rfl⟩ := Option.map_eq_some_iff.mp h
-         exact floatV_sorted (asFloat_spec ha) _
-       · cases hev)
-    | (rw [hB (by decide)]; first | exact flTest_sorted hev | exact flTestM_sorted hev | exact flCmp_sorted hev)
+       refine flOr_sorted (fun _ h => ?_) (fun _ h => ?_) hev
+       · first
+           | exact fl1_sorted h | exact fl2_sorted h | exact flTo_sorted h | exact flOfInt_sorted h
+           | exact flAt_sorted h
+           | (dsimp only at h
+              split at h
+              · obtain ⟨⟨p, e, sp, u⟩, ha, h⟩ := Option.bind_eq_some_iff.mp h
+                obtain ⟨_, -, rfl⟩ := Option.map_eq_some_iff.mp h
+                exact floatV_sorted (asFloat_spec ha) _
+              · cases h)
+       · first
+           | exact tfl2_sorted (fun p e _ _ _ _ _ _ h => KFloat.sumBy_datum (KFloat.tnNearest?_datum' p e) h) h
+           | exact tfl2_sorted (fun p e _ _ _ _ _ _ h => KFloat.diffBy_datum (KFloat.tnNearest?_datum' p e) h) h
+           | exact tfl2_sorted (fun p e _ _ _ _ _ _ h => KFloat.prodBy_datum (KFloat.tnNearest?_datum' p e) h) h
+           | exact tfl2_sorted (fun _ _ _ _ _ _ _ _ h => KFloat.tnQuot?_datum h) h
+           | exact tfl2_sorted (fun p e _ _ _ _ _ _ h => KFloat.remainderBy_datum (KFloat.tnHeld?_datum' p e) h) h
+           | exact tfl1_sorted (fun _ _ u _ _ hu h => by
+               unfold KFloat.neg? at h; split at h <;> cases h <;> exact KFloat.tnIsDatum_neg hu) h
+           | exact tfl1_sorted (fun _ _ u _ _ hu h => by
+               unfold KFloat.abs? at h; split at h <;> cases h <;> exact KFloat.tnIsDatum_abs hu) h
+           | exact tfl1_sorted (fun p e _ _ _ hu h => KFloat.roundToIntegralBy_datum (KFloat.tnHeld?_datum' p e) hu h) h
+           | exact tfl1_sorted (fun _ _ _ _ _ _ h => KFloat.tnSqrt?_datum h) h
+           | exact tflTo_sorted h
+           | exact tflOfInt_sorted h
+           | exact tflAt_sorted (fun _ _ _ _ h => KFloat.tnMax?_datum h) h
+           | exact tflAt_sorted (fun _ _ _ _ h => KFloat.tnMin?_datum h) h)
+    | (rw [hB (by decide)]
+       first
+         | exact flTest_sorted hev | exact flCmp_sorted hev
+         | exact flOr_sorted (fun _ h => flTestM_sorted h) (fun _ h => tflInf_sorted h) hev)
     | (rw [hI (by decide)]; exact flFmt_sorted hev)
 
 /-! ## The interpreted String and Bytes symbols return values of their declared result sort

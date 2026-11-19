@@ -171,6 +171,16 @@ theorem embTs_cons_iff {ts : List T} {a b : GroundTerm} :
       exact ⟨t, ts, rfl, h⟩
     · rintro ⟨_, _, h, h1, h2⟩; cases h; rw [h1, h2]
 
+/-! ## The embeddings as the kit's term functions of Lean lists and options -/
+
+theorem embTs_fun : embTs = fun ts => _root_.KK.Kit.tsOf (ts.map emb) := funext embTs_eq
+
+theorem embFns_fun : embFns = fun fs => _root_.KK.Kit.fnsOf (fs.map fun p => (p.1, embCls p.2)) :=
+  funext embFns_eq
+
+theorem embLook_fun : embLook = fun l => _root_.KK.Kit.lookOf (l.map embCls) := by
+  funext l; cases l <;> rfl
+
 /-! ## Evaluation at `K₀ sig` -/
 
 /-- No function of kore.k has a rest at `K₀ sig`. -/
