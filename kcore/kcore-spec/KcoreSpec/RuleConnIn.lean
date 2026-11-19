@@ -6,7 +6,9 @@
     S, in φ: at an element a of S for x, q holds (everywhere in the sort C) exactly where a is one
     of φ's elements. `MemOf.in'`: `\in{S,C}(x, t)` is the membership in t. `MemOf.or`, `MemOf.and`,
     `MemOf.not`: the connective at C of memberships is the membership in the connective at S of
-    the operands.
+    the operands. `MemOf.top`, `MemOf.bot`: `\top{C}` is the membership in `\top{S}` and
+    `\bottom{C}` the membership in `\bottom{S}`, where neither sort pattern holds the variable
+    that `\top` binds (`interp_sTop`).
   - `rule_cut_mem`: `\exists{C}(Z:S, \and{C}(K[Z], E, q))` is `\and{C}(K[φ], E)`, where q is the
     membership of Z in φ, definedness is definedness, S denotes a sort, every element of φ is in S
     and every element of `K[φ]` in C, no head on the path is an alias, and the side patterns, φ, E
@@ -103,6 +105,30 @@ theorem MemOf.not {q φ : Kore.Pattern} (h : MemOf I ctx e (ctx.vars.ev (evarKey
   simp only [tr]
   rw [interp_sNot, interp_sNot, interp_inhOf_of hSu, interp_inhOf_of hCu, h a ha m]
   exact ⟨fun ⟨hn, hm⟩ => ⟨⟨fun hφ => hn ⟨hφ, hm⟩, ha⟩, hm⟩, fun ⟨⟨hn, _⟩, hm⟩ => ⟨fun hφ => hn hφ.1, hm⟩⟩
+
+omit [Inhabited M] in
+theorem MemOf.top (hD : DefOK I) (hSt : (trSort ctx.vars S).isFreeEvar topVar = false)
+    (hCt : (trSort ctx.vars C).isFreeEvar topVar = false) :
+    MemOf I ctx e (ctx.vars.ev (evarKey z)) σ σ' (.top C) (.top S) := by
+  intro a ha m
+  have hSu : ∀ b, (trSort ctx.vars S).interpret I
+      ⟨Function.update e.evalEvar (ctx.vars.ev (evarKey z)) a, e.evalSvar⟩ b ↔ b = σ :=
+    fun b => (hSz e a b).trans (hS b)
+  have hCu : ∀ b, (trSort ctx.vars C).interpret I
+      ⟨Function.update e.evalEvar (ctx.vars.ev (evarKey z)) a, e.evalSvar⟩ b ↔ b = σ' :=
+    fun b => (hCz e a b).trans (hC b)
+  simp only [tr]
+  rw [interp_sTop hD hCt, interp_sTop hD hSt, interp_inhOf_of hSu, interp_inhOf_of hCu]
+  exact ⟨fun hm => ⟨ha, hm⟩, fun h => h.2⟩
+
+omit [Inhabited M] hSz hCz hS hC in
+theorem MemOf.bot (hD : DefOK I) (hSt : (trSort ctx.vars S).isFreeEvar topVar = false)
+    (hCt : (trSort ctx.vars C).isFreeEvar topVar = false) :
+    MemOf I ctx e (ctx.vars.ev (evarKey z)) σ σ' (.bottom C) (.bottom S) := by
+  intro a _ m
+  simp only [tr, sBot]
+  rw [interp_sNot, interp_sNot, interp_sTop hD hCt, interp_sTop hD hSt]
+  exact ⟨fun h => (h.1 h.2).elim, fun h => (h.1.1 h.1.2).elim⟩
 
 end Mem
 
