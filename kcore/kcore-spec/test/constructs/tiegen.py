@@ -136,6 +136,12 @@ sentence (`LibEv.funPat`), the clauses' predicates are `\\top`, no clause binds 
 sentences at values in every model of `Γc` for every H from the sort predicates' own results
 (`fnFun_at_values`, by `LibEv.sortPredFun_evC_withHooks`), whatever FILE states, unless FILE states
 them itself.
+Otherwise, where the tie states `FnHyp` for every H (`fnHypH`, without a hypothesis on H), each
+sentence of the class is, as written, a sort predicate's `functional` sentence or that of a function
+of the text declared total (`LibEv.predFunRegS`: its sorts any sorts of the text), the clauses'
+predicates are `\\top` and no clause binds a variable by `\\exists`, the tie states them at values in
+every model of `Γc` for every H from `FnHyp`, which gives such a function its values and decides the
+clauses' conditions where `needsWitness` holds (`fnFun_at_values`, by `LibEv.fnFun_evC_withHooks`).
 --at-values N,... names the user lemmas (by `AxiomDecl.index`) that are of the class `user lemma at
 values` in place of `user lemma`; an index that is no user lemma of the text is refused.
 --reads-h N,... names the user lemmas (by `AxiomDecl.index`) that are of the class `parameter lemma`
@@ -880,6 +886,11 @@ def tgNjOrder (gs : List KoreAML.Gen) : List Kore.Pattern → Option (List Nat)
   -- written, a sort predicate's `functional` sentence (`LibEv.funPat`, over the sort variable `R`)
   IO.println s!"H fnFunGate {c.clausesPreTop && (c.fns.all fun f => f.clauses.all fun cl => cl.exs.isEmpty) && (c.fns.all fun f => f.clauses.all fun cl => !cl.reqOpen)}"
   IO.println s!"H fnFunOK {(us.filter fun ad => decide (ad.ax.sortVars = [Rv]) && c.sortPreds.any fun fn => decide (ad.ax.pattern = LibEv.funPat c fn.sig) && LibEv.predFunReg c fn.sig).map (·.index)}"
+  -- the clauses' conditions `LibEv.fnFun_evC` reads but the open-variable one, and the user
+  -- sentences that are, as written, the `functional` sentence of a function of the text declared
+  -- total (`LibEv.funPat`, over the sort variable `R`, `LibEv.predFunRegS`)
+  IO.println s!"H fnFunPre {c.clausesPreTop && (c.fns.all fun f => f.clauses.all fun cl => cl.exs.isEmpty)}"
+  IO.println s!"H fnFunU {(us.filter fun ad => decide (ad.ax.sortVars = [Rv]) && c.fns.any fun fn => fn.total && decide (ad.ax.pattern = LibEv.funPat c fn.sig) && LibEv.predFunRegS c fn.sig).map (·.index)}"
   IO.println s!"H fnClauses {afs.map fun f => c.symName f.label ++ "=" ++ toString f.clauses.length}"
   -- Γ's heads in `gammaHeads`' order, each sort argument by its name (`?` for a sort that is no
   -- constructor without arguments), for `--heads-literal`
@@ -1523,13 +1534,32 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     fnfun_ok = {int(x) for x in re.findall(r"\d+", head.get("fnFunOK", ""))}
     fnfun_gen = (not fnfun_hand and "fnFun" not in hand_c and bool(fnfun_idx) and head.get("fnFunGate") == "true"
                  and all(i in fnfun_ok and sents[i]["plain"] for i in fnfun_idx))
-    fnfun_any = fnfun_hand or fnfun_gen
     tp_params = ob["hform"] and head["totalNil"] != "true"
     # where a `[total]` function applies a parameter the text declares total, its totality holds
     # under the interpretations total on those parameters (`totalObligationsRP callOrder
     # defn.totalParams`): the statements take `ParamsTotal` as the hypothesis on H, and one H meets
     # it (`constH` at a value the search exhibits of the parameters' one result sort)
     tp_held = tp_params and head.get("totalTp") == "true" and head.get("totalWit") == "true"
+    # otherwise, where the tie states `FnHyp` for every H (`fnHypH`, without a hypothesis on H: the
+    # consistency section by hand, or the generated one of a text without an open generator, an owed
+    # agreement or a parameter declared total), and each function functional sentence is, as written,
+    # a sort predicate's `functional` sentence or that of a function of the text declared total: the
+    # tie states them at values in every model of `Γc` from `FnHyp`, which gives a function declared
+    # total its values and decides the clauses' conditions where `needsWitness` holds
+    # (`fnfun_section_fnhyp`)
+    fnhyp_all = (bool(re.search(r"^theorem fnHypH \(H : HookParams\) : FnHyp \(cH H\)", hand_c, re.M))
+                 if "consistency" in hand else not raw and not agree and not tp_held)
+    fnfun_u = {int(x) for x in re.findall(r"\d+", head.get("fnFunU", ""))}
+    fnfun_fh = (not fnfun_gen and not fnfun_hand and "fnFun" not in hand_c and bool(fnfun_idx) and fnhyp_all
+                and head.get("fnFunPre") == "true"
+                and all((i in fnfun_ok or i in fnfun_u) and sents[i]["plain"] for i in fnfun_idx))
+    fnfun_user = [i for i in fnfun_idx if i not in fnfun_ok] if fnfun_fh else []
+    fnfun_gen = fnfun_gen or fnfun_fh
+    fnfun_any = fnfun_hand or fnfun_gen
+    if fnfun_chunk and fnfun_fh:
+        raise Refused(f"{name}: --fnfun-chunk cuts the sort-predicate route's `fnFun_checked` and `fnFun_trS`; "
+                      f"this text's function functional sentences take the `FnHyp` route (`fnfun_section_fnhyp`), "
+                      f"which it does not cut")
     parts = dict(zip(["ctors", "fns", "hooks", "colls", "prios"], head["attrsParts"].split()))
     if head["attrsAgree"] != "true":
         bad = [k for k, v in parts.items() if v != "true"]
@@ -1916,8 +1946,12 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         owed_more += ("; user lemma: owed, by hand\n    (`userlemma_account`, `UserLemmaEntailed`, "
                       "`UserLemmaAtValues`)")
     if fnfun_any:
-        w("  - Function functional: at values in every model of `Γc`, from the sort predicates' results, not")
-        w("    from `FnHyp` (`fnFun_at_values`, `fnFun_account`).")
+        if fnfun_fh:
+            w("  - Function functional: at values in every model of `Γc`, from `FnHyp`, which holds for every H")
+            w("    (`fnHypH`), and the sort predicates' results (`fnFun_at_values`, `fnFun_account`).")
+        else:
+            w("  - Function functional: at values in every model of `Γc`, from the sort predicates' results, not")
+            w("    from `FnHyp` (`fnFun_at_values`, `fnFun_account`).")
         if owed_more:
             w(textwrap.fill("Hooked functional, collection law, library: at values (no theorem here)" +
                             owed_more.replace("\n    ", " ") + "; no direction: `absent_closed`.",
@@ -2855,7 +2889,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             w("theorem consistent (H : HookParams) : Consistent (cH H) := consistent_of_fnHyp _ (coreOKH H) (fnHypH H)")
             w("")
     if fnfun_gen:
-        w(fnfun_section(fnfun_idx, fnfun_chunk))
+        w(fnfun_section_fnhyp(fnfun_idx, fnfun_user) if fnfun_fh else fnfun_section(fnfun_idx, fnfun_chunk))
     mark("Fns")
     if fn_align:
         w(alpha_block())
@@ -3681,6 +3715,104 @@ theorem fnFun_at_values (H : HookParams) : ∀ ad ∈ fnFunText, EntailsAtValues
   simp only [Bool.and_eq_true, decide_eq_true_eq] at hfp
   exact LibEv.sortPredFun_evC_withHooks H coreOK fnFun_clauses.1 (Semantics.fnsNoExs_of_all fnFun_clauses.2.1)
     (fun fn hfn cl hcl hw => absurd hw (by rw [fnFun_noWitH H fn hfn cl hcl]; decide)) hfn hfp.2 ad hfp.1 hsv
+
+/-- The same in every model of `Γc` with the step's closure, the theory `Consistent` asks a model of. -/
+theorem fnFun_at_values_step (H : HookParams) : ∀ ad ∈ fnFunText,
+    ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), I ⊧ᴵP (Γc (cH H) ∪ Γstep (cH H)) →
+      ∀ e, AtValues (cH H) I e ad.ax → ∀ m, (trS ad).pat.interpret I e m :=
+  fun ad had M hM I hI => fnFun_at_values H ad had M hM I (fun φ hφ => hI φ (Or.inl hφ))
+"""
+
+
+def fnfun_section_fnhyp(idx, user):
+    """The function functional sentences where the tie states `FnHyp` for every H (`fnHypH`): each a
+    sort predicate's `functional` sentence, at values in every model of `Γc` from the sort predicates'
+    results (`LibEv.sortPredFun_evC_withHooks`), or that of a function of the text declared total,
+    from the values `FnHyp` gives it (`LibEv.fnFun_evC_withHooks`); the clauses' conditions are
+    decided where `needsWitness` holds by `FnHyp`'s `OpenDecided`."""
+    n, u = len(idx), len(user)
+    if user:
+        kinds = (f"{n - u} of sort predicates `isX` (KCore builds them, `Semantics.sortPreds`) and {u} of "
+                 f"functions of the text declared total ({', '.join(map(str, user))})")
+        ok = """noncomputable def fnFunOK (ad : AxiomDecl) : Bool :=
+  decide (ad.ax.sortVars = [Rv]) &&
+    ((c.sortPreds.any fun fn => decide (ad.ax.pattern = LibEv.funPat c fn.sig) && LibEv.predFunReg c fn.sig) ||
+      c.fns.any fun fn => fn.total && decide (ad.ax.pattern = LibEv.funPat c fn.sig) && LibEv.predFunRegS c fn.sig)"""
+        okdoc = """/-- The sentence is the `functional` sentence of a sort predicate of `c`, with its variables' sorts
+the registry's, or of a function of `c` declared total, with its variables' sorts sorts of `c`, over
+the one sort variable `R`. -/"""
+        prf = """  simp only [fnFunOK, Bool.and_eq_true, Bool.or_eq_true, decide_eq_true_eq] at hok
+  obtain ⟨hsv, hany | hany⟩ := hok
+  · obtain ⟨fn, hfn, hfp⟩ := List.any_eq_true.mp hany
+    simp only [Bool.and_eq_true, decide_eq_true_eq] at hfp
+    exact LibEv.sortPredFun_evC_withHooks H coreOK fnFun_clauses.1 (Semantics.fnsNoExs_of_all fnFun_clauses.2)
+      (fnHypH H).2.2.2.2.1.2 hfn hfp.2 ad hfp.1 hsv
+  · obtain ⟨fn, hfn, hfp⟩ := List.any_eq_true.mp hany
+    simp only [Bool.and_eq_true, decide_eq_true_eq] at hfp
+    exact LibEv.fnFun_evC_withHooks H coreOK fnFun_clauses.1 (Semantics.fnsNoExs_of_all fnFun_clauses.2)
+      (fnHypH H) hfn hfp.1.1 hfp.2 ad hfp.1.2 hsv"""
+    else:
+        kinds = "each that of a sort predicate `isX` (KCore builds them, `Semantics.sortPreds`)"
+        ok = """noncomputable def fnFunOK (ad : AxiomDecl) : Bool :=
+  decide (ad.ax.sortVars = [Rv]) &&
+    c.sortPreds.any fun fn => decide (ad.ax.pattern = LibEv.funPat c fn.sig) && LibEv.predFunReg c fn.sig"""
+        okdoc = """/-- The sentence is the `functional` sentence of a sort predicate of `c`, over the one sort
+variable `R`, with its variables' sorts the registry's. -/"""
+        prf = """  simp only [fnFunOK, Bool.and_eq_true, decide_eq_true_eq] at hok
+  obtain ⟨hsv, hany⟩ := hok
+  obtain ⟨fn, hfn, hfp⟩ := List.any_eq_true.mp hany
+  simp only [Bool.and_eq_true, decide_eq_true_eq] at hfp
+  exact LibEv.sortPredFun_evC_withHooks H coreOK fnFun_clauses.1 (Semantics.fnsNoExs_of_all fnFun_clauses.2)
+    (fnHypH H).2.2.2.2.1.2 hfn hfp.2 ad hfp.1 hsv"""
+    com = textwrap.fill(
+        f"The class holds {n} `functional` sentences, `\\exists{{R}}(Val:S, \\equals{{S, R}}(Val:S, f(K0, …)))`: "
+        f"{kinds}. A model of `Γc` reads the application of a function with a value at every argument list of "
+        "its sorts, at values' elements, as that value's element (`LibEv.fnFun_evC`, under `coreOK`, the "
+        "clauses' predicates `\\top`, no `\\exists` in a clause, and the clauses' conditions decided where "
+        "`needsWitness` holds). A sort predicate has those values from its own clauses "
+        "(`LibEv.sortPredFun_evC`)" + ("; a function declared total has them from `FnHyp` "
+                                       "(`LibEv.fnFun_evC_withHooks`)" if user else "") +
+        ". `FnHyp`, which the tie states for every H (`fnHypH`), decides the conditions (its `OpenDecided`). "
+        "So each sentence holds in every model of `Γc`, and of `Γc` with the step's closure, at every valuation "
+        "sending its variables to values, for every H.", 100, initial_indent="/- ", break_long_words=False,
+        break_on_hyphens=False) + " -/"
+    return f"""/-! ## Function functional ({n}): the `functional` sentences, at values in every model of Γc, from `FnHyp` -/
+
+{com}
+
+/-- The sentences' indices. -/
+def fnFunIdx : List Nat := [{wrap_nums(idx, 3)}]
+
+/-- The sentences, in text order. -/
+noncomputable def fnFunText : List AxiomDecl := U.all.filter fun ad => fnFunIdx.contains ad.index
+
+theorem fnFun_indices : fnFunText.map (·.index) = fnFunIdx := by decide +kernel
+
+/-- **`fnFunText` is the account's function functional class**: the same indices, each once. -/
+theorem fnFun_account : (classOf "function functional").isPerm (fnFunText.map (·.index)) = true := by
+  decide +kernel
+
+{okdoc}
+{ok}
+
+theorem fnFun_checked : fnFunText.all fnFunOK = true := by decide +kernel
+
+/-- None of the {n} reads a declaration or an alias. -/
+theorem fnFun_trS : fnFunText.all (fun ad => decide ((trS ad).pat = (trAxiom [] [] ad).pat)) = true := by
+  decide +kernel
+
+/-- The clauses' predicates are `\\top` and no clause binds a variable by `\\exists`. -/
+theorem fnFun_clauses : c.clausesPreTop = true ∧
+    (c.fns.all fun f => f.clauses.all fun cl => cl.exs.isEmpty) = true := by
+  decide +kernel
+
+/-- **The function functional sentences hold at values in every model of `Γc`, for every H**
+(`EntailsAtValuesΓc`), from `FnHyp` (`fnHypH`). -/
+theorem fnFun_at_values (H : HookParams) : ∀ ad ∈ fnFunText, EntailsAtValuesΓc (cH H) ad (trS ad).pat := by
+  intro ad had
+  rw [of_decide_eq_true (List.all_eq_true.mp fnFun_trS ad had)]
+  have hok := List.all_eq_true.mp fnFun_checked ad had
+{prf}
 
 /-- The same in every model of `Γc` with the step's closure, the theory `Consistent` asks a model of. -/
 theorem fnFun_at_values_step (H : HookParams) : ∀ ad ∈ fnFunText,
