@@ -1191,7 +1191,8 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   `hasValue` accepts is numbered in the model (`hasValue_value`). `holds_atT_fixed`, `holds_stdI_fixed` and `holds_stdI` at the
   accepted conditions under `FnHyp`, the truth value from `holds_decided`;
   `Cond.boundV_hasValue_of_bound` at an instance. The axioms of `Cond.bound_of_boundV_valued`,
-  `Semantics.clausePlainEx_of_valued` (what was accepted with `Semantics.valued` stays accepted) and
+  `Semantics.clausePlainEx_of_valued` (what was accepted with `Semantics.valued` stays accepted, on a
+  definition with `coreOK`: `Semantics.hasValue_of_valued`) and
   `hasValue_value_of`.
 - `test/HoldsBinderFixed.lean`: the Holds lemma at an `ex` binder of a sort that is not confined,
   in every model of `Γc` (KcoreSpec/HoldsBinderFixed.lean). `CE.holds_binder_fixed` (the `ex` case

@@ -1,19 +1,19 @@
 /-
-  KCore. A decided test of "the sort has a value at every interpretation of the parameters", wider
-  than `Semantics.valued`.
+  KCore. A decided test of "the sort has a value at every interpretation of the parameters".
 
-  `Semantics.hasValue c s` accepts a sort that `valued` accepts, a sort with one of four probe
+  `Semantics.hasValue c s` accepts a sort with one of four probe
   literals (`hasLit`), a collection sort whose empty collection is a value (`hasEmpty`), and a sort
   reached from those by constructors and injections (`witnessed`). An overloading symbol and a raw
   parameter are no generators here: an application of the first is a value only at arguments no
   overload covers, of the second only where the interpretation of the parameters leaves it raw.
-  None of the four reads `c.hooks`.
+  None of the three reads `c.hooks`.
 
   The lemma that an accepted sort has a value on a definition with `coreOK` is
   `hasValue_value` (HasValueValue.lean). `Cond.bound` and `Semantics.clausePlainEx` read it at a
-  binder whose body fixes its variable.
+  binder whose body fixes its variable. On a definition with `coreOK` it accepts every sort
+  `Semantics.valued` (RightHeld.lean) accepts (`Semantics.hasValue_of_valued`, HasValueOfValued.lean).
 -/
-import KcoreSpec.RightHeld
+import KcoreSpec.Value
 
 set_option autoImplicit false
 
@@ -40,20 +40,13 @@ def Semantics.witnessed (c : Semantics) : List Srt :=
        (c.subsorts.any fun p => p.2 == N && ok p.1))
   Nat.repeat step univ.length (univ.filter fun s => c.hasLit s || c.hasEmpty s)
 
-/-- A sort with a value at every interpretation of the parameters, decided: `valued`, a probe
+/-- A sort with a value at every interpretation of the parameters, decided: a probe
 literal, an empty collection, or reached by constructors and injections. -/
 def Semantics.hasValue (c : Semantics) (s : Srt) : Bool :=
-  c.valued s || c.hasLit s || c.hasEmpty s || c.witnessed.contains s
+  c.hasLit s || c.hasEmpty s || c.witnessed.contains s
 
 /-- `hasValue` does not read the interpretation of the parameters. -/
 theorem Semantics.hasValue_withHooks (c : Semantics) (H : HookParams) (s : Srt) :
-    (c.withHooks H).hasValue s = c.hasValue s := by
-  unfold Semantics.hasValue
-  rw [Semantics.valued_withHooks]
-  rfl
-
-/-- A sort `valued` accepts, `hasValue` accepts. -/
-theorem Semantics.hasValue_of_valued {c : Semantics} {s : Srt} (h : c.valued s = true) : c.hasValue s = true := by
-  simp [Semantics.hasValue, h]
+    (c.withHooks H).hasValue s = c.hasValue s := rfl
 
 end KCore
