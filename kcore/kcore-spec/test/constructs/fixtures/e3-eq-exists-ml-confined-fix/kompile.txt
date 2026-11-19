@@ -1,0 +1,11 @@
+command: kompile --backend haskell e3-eq-exists-ml-confined-fix.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 4.4
+definition.kore bytes: 206807
+definition.kore sha256: 390e8b55ee773cf3644f5f034cbdb7b0aad9fef3605a7e2eb026b6ab54c58f5c
+stripped sha256: c2decd8af1cf78f95269d6b252194aa3747a7a6bba1b6c3c628b493ae96ff7a7
+main module: 398 sentences, 41 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-EQ-EXISTS-ML-CONFINED-FIX-SYNTAX in definition.  Use --syntax-module to
+  specify one. Using E3-EQ-EXISTS-ML-CONFINED-FIX as default.

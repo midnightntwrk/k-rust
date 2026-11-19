@@ -9,7 +9,8 @@
     literal, `inj{A, B}` over an argument of `A`, a subsort of `B`, a constructor of
     the semantics at arguments of its argument sorts, an interpreted hook at arguments of its
     argument sorts with no silent point, a name at arguments of its argument sorts (`nA`), with the
-    sort and totality given it (`nR`). Computed from the text; nothing is written by hand.
+    sort and totality given it (`nR`), a collection sort's unit at no argument, of that sort and
+    total. Computed from the text; nothing is written by hand.
   - **What the sorts give (`nodTy_sound`).** Where every name applied gives, at values of its
     argument sorts, a value of its sort or nothing (and a value where total), the arm's reading
     (`armVal`) of the right side at values of the variables' sorts is never `none` (not read): it
@@ -67,9 +68,18 @@ def nodDv (c : Semantics) (S : Kore.KSort) (text : String) : Option Srt :=
     | none => none
   | none => none
 
+/-- The empty collection of `k` has a sort: `k` is a set or list sort, or a map sort with a value
+sort. -/
+def armCollUnitB (k : CollSig) : Bool :=
+  match k.kind with
+  | .set | .list => true
+  | .map | .rangeMap => k.val.isSome
+
 /-- The head `h` at arguments of the sorts `ts` (with their totality): a name of its argument
 sorts `nA h`, of the sort `nR h`; a constructor of `c` at its argument sorts; an interpreted hook
-at its argument sorts with no silent point (`silentKey`), total where it is a constant with a value. -/
+at its argument sorts with no silent point (`silentKey`), total where it is a constant with a value;
+the unit of a collection sort of `c` (the collection sort's own, `collOf`) at no argument, of that
+sort and total (`armCollUnitB`: a set or list sort, or a map sort with a value sort). -/
 def nodHead (c : Semantics) (isN : String → Bool) (ar : String → Nat) (nA : String → List Srt)
     (nR : String → Option (Srt × Bool)) (h : String) (ts : List (Srt × Bool)) : Option (Srt × Bool) :=
   if isN h then
@@ -87,7 +97,10 @@ def nodHead (c : Semantics) (isN : String → Bool) (ar : String → Nat) (nA : 
           decide (ts.map (·.1) = k.args) && !silentKey k.name && isHook k.name && decide (k.name ≠ rmKeys) then
         some (k.result, ts.isEmpty && (match hook k.name [] with | some (some _) => true | _ => false))
       else none
-    | none => none
+    | none => match c.colls.find? (fun k => c.symName k.unit == h) with
+      | some k =>
+        if ts.isEmpty && decide (c.collOf k.sort = some k) && armCollUnitB k then some (k.sort, true) else none
+      | none => none
 
 /-- `inj{A, B}` over an argument of the sort `A`, a subsort of `B`: of the sort `B`. -/
 def nodInjTy (c : Semantics) : List Kore.KSort → Option (List (Srt × Bool)) → Option (Srt × Bool)
@@ -194,6 +207,20 @@ theorem nodOK_some {c : Semantics} {v : GroundTerm} {s : Srt} {t : Bool} (hs : c
 theorem nod_all2_nil {α β : Type} {R : α → β → Prop} {xs : List α} (h : All2 R xs ([] : List β)) : xs = [] := by
   cases h; rfl
 
+/-- **The empty collection of a collection sort is of that sort**, where the sort is a set or list
+sort, or a map sort with a value sort (`armCollUnitB`). -/
+theorem armCollUnit_sortOf {c : Semantics} {k : CollSig} (hk : c.collOf k.sort = some k) (hb : armCollUnitB k = true) :
+    c.sortOf (armCollUnit k) = some k.sort := by
+  unfold armCollUnitB at hb
+  unfold armCollUnit
+  cases hkd : k.kind <;> rw [hkd] at hb
+  · obtain ⟨vs, hv⟩ := Option.isSome_iff_exists.mp hb
+    simp [Semantics.sortOf, hk, hkd, hv, keysSorted, Semantics.entriesOK]
+  · simp [Semantics.sortOf, Semantics.sortsOf, hk, hkd, elemsSorted]
+  · simp [Semantics.sortOf, Semantics.sortsOf, hk, hkd]
+  · obtain ⟨vs, hv⟩ := Option.isSome_iff_exists.mp hb
+    simp [Semantics.sortOf, hk, hkd, hv, rangesOK, Semantics.entriesOK]
+
 section Sound
 
 variable {c : Semantics} {isN : String → Bool} {ar : String → Nat} {nA : String → List Srt}
@@ -241,7 +268,24 @@ theorem nodHead_sound {h : String} (hG : isN h = true → NodGOK c nA nR G h) {t
     | none =>
       rw [hk] at ht; dsimp only at ht ⊢
       cases hk' : hookSigs.find? (fun k => c.symName k.name == h) with
-      | none => rw [hk'] at ht; cases ht
+      | none =>
+        rw [hk'] at ht; dsimp only at ht ⊢
+        cases hu : c.colls.find? (fun k => c.symName k.unit == h) with
+        | none => rw [hu] at ht; cases ht
+        | some k =>
+          rw [hu] at ht; dsimp only at ht ⊢
+          by_cases hcu : (ts.isEmpty && decide (c.collOf k.sort = some k) && armCollUnitB k) = true
+          · rw [if_pos_walk hcu] at ht
+            cases ht
+            simp only [Bool.and_eq_true, decide_eq_true_eq, List.isEmpty_iff] at hcu
+            obtain ⟨⟨rfl, hco⟩, hb⟩ := hcu
+            have hw0 : ws = [] := List.eq_nil_of_length_eq_zero (by rw [nod_sortsOf_length hws]; rfl)
+            subst hw0
+            have hso := armCollUnit_sortOf hco hb
+            rw [if_pos_walk (show (([] : List GroundTerm).isEmpty && decide (c.collOf k.sort = some k) &&
+              (c.sortOf (armCollUnit k)).isSome) = true by simp [hco, hso])]
+            exact nodOK_some hso
+          · rw [if_neg_arm hcu] at ht; cases ht
       | some k =>
         rw [hk'] at ht; dsimp only at ht ⊢
         by_cases hc : (decide (iteSort? h = none) && decide (lookupSig hookSigs k.name = some k) &&
@@ -407,7 +451,17 @@ mutual
                       rw [h0] at he; simp [armEmpty] at he
                     | cons _ _ => simp at h2
                   · cases hh
-                · cases hh
+                · split at hh
+                  · split at hh
+                    · rename_i hcu
+                      cases hh
+                      cases sts with
+                      | nil =>
+                        have h0 := nod_all2_nil hall
+                        rw [h0] at he; simp [armEmpty] at he
+                      | cons _ _ => simp at hcu
+                    · cases hh
+                  · cases hh
           · rw [if_neg_arm (by rw [he]; decide), hws]
             dsimp only
             have hG' : isN h.ident.name = true → NodGOK c nA nR G h.ident.name :=

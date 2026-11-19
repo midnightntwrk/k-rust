@@ -1,0 +1,20 @@
+test/constructs/fixtures/hw-param-hooked/hw-param-hooked.kore: 5 modules; prelude agrees
+user module E1-PARAM-TWO-SORT: 405 sentences
+  1 inert import [generated]
+  186 read [generated]
+  184 read [builtin]
+  4 read [user]
+  6 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert distinctCtors [generated]
+  1 inert parametricFunctional [generated]
+  10 inert noJunk [generated]
+  1 user lemma at values [user]: owed at values, not in Γ (EntailsAtValues: Γ (c.withHooks H) entails it at the valuations sending its variables to values, or Γ with it has no model; the tie on the text proves it or fails), not decided by the reader
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 parametricSort
+      sentence 146 (Lblsame): parametricSort
+        [user] (no label) at e1-param-two-sort.k:8: hooked-symbol Lblsame{SortS, SortT}(SortS, SortT) : SortBool{} [function{}(), hook{}("E1PARAM.same"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,26,8,61)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/test/constructs/fixtures/e1-param-two-sort/e1-param-two-sort.k)"), symbol'Kywd'{}("same")]
+finish: sentence 146 (Lblsame): parametricSort
+(exit 0)

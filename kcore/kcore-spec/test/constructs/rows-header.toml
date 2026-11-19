@@ -310,7 +310,10 @@
 #      kseq(inj{X,KItem}(K), dotk), the getter's top cell), the equation also states that the pattern
 #      builds no element at two values of its variables. Γ entails that from Cons-Fun and Cons-Inj of
 #      the pattern's generators (kseq, inj{X,KItem}, the top cell's constructor), so it is not owed
-#      either. For a projection this holds where its sort X is K, KItem or below KItem in Γ. A
+#      either. For a projection this holds where its sort X is K, KItem or below KItem in Γ, which
+#      the tie on the text decides for each projection the no-direction class defines
+#      (`absent_proj_below`: `GenEqs.projBelowB` of each such X, whence `GenEqs.projSel_fun` and
+#      `GenEqs.projSel_inj`, the pattern functional and injective on X in every model of Γ). A
 #      `functional` axiom of the lacked symbol states with the equation that this right side is
 #      defined; the account takes it only where that follows from Γ's constructors and total
 #      interpreted symbols and from the `functional` axioms of the initializers below, and refuses it

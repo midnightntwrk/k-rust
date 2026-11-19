@@ -6,9 +6,10 @@
   where it fails (`ExclEmptyCl`). A clause that fails fails in the model at the substitutions of
   values on its patterns and conditions (`fails_den4Cl`, `ModelFailsCl`), which is what
   `ExclEmptyCl` reads. The block is proved for clauses with a well-sorted predicate in the premise
-  (`ClauseOpenFactsP`, the members named `…Pre`): a predicate that is not `\top` is read along the
-  evaluation (`holds_den4ClPre`) and at the sort variable `R` of the clause's sentences by what is
-  asked of the model for that clause (`PreRead`, `hpreR`). A truth value of a condition and a decided
+  (`ClauseOpenFactsP`, the members named `…Pre`): a predicate that is not `\top` comes with the
+  readings of the terms it evaluates along the evaluation (`holdsRead_den4ClPre`) and is read at the
+  sort variable `R` of the clause's sentences by what is asked of the model for that clause
+  (`PreRead`, `hpreR`). A truth value of a condition and a decided
   instance of a clause's right side come out of the block with the readings of the terms they
   evaluate (`holdsRead_den4ClPre`, `instIs_den4ClPre`), for the lemmas that analyse them. The members without the suffix are those
   for clauses whose predicates are `\top`. `eval_den4`, and `eval_den2`, `eval_den3` (their scopes inside), for such
@@ -105,9 +106,9 @@ variable [Inhabited M] (hI : I ⊧ᴵP Γ c) (hnn : NamesNumbered c) (hsc : Sort
 omit [OvlOK c] in
 /-- A clause's predicate at `R`, at a valuation that agrees with a σ well sorted on the clause's
 variables: an element of the sort `R` is given is in it exactly where the truth value `Holds`
-gives the predicate under σ, read in I, is `true`. -/
+gives the predicate under σ, with its terms' readings in I, is `true`. -/
 theorem preRead_agreesCl {cl : Clause} (hR : HoldsShape.PreRead c I cl) (hpreOK : c.condOK cl.vars cl.pre = true)
-    {σ' : Subst} {b : Bool} (hH : HoldsShape.HoldsAt c I cl.vars.length σ' cl.pre b)
+    {σ' : Subst} {b : Bool} (hH : HoldsShape.HoldsRead c I cl.vars.length σ' cl.pre b)
     (hσ' : c.WellSorted cl.vars σ') {tbl : VarTable} {e : Valuation M} {σr m0 : M}
     (hag : Agrees c I tbl (canonVars c cl.vars) σ' e)
     (hkp : ∀ k ∈ KoreAML.varsOf (Cond.kore c (canonVars c cl.vars) KoreAML.R cl.pre), k ∈ tbl)
@@ -152,7 +153,7 @@ mutual
         (fun t ht tbl e' hag m' => evalTerm_den4ClPreOcc (hreq t ht) hL (hσ'.at _) (canonVars_length c cl.vars) (Agrees.on hag _) (hreqs t ht) m')
         (fun hpt tbl e' σr m0 hag hkp hRk hRv hσr hm0 =>
           have hR := hpreR fn' hmem cl hcl (HoldsShape.ne_top_of_isTop_false hpt)
-          (preRead_agreesCl hR hpre (holds_den4ClPre hpreH hR.node hR.binder) hσ' hag hkp hRk hRv hσr hm0).mpr rfl)
+          (preRead_agreesCl hR hpre (holdsRead_den4ClPre hpreH) hσ' hag hkp hRk hRv hσr hm0).mpr rfl)
         (fun cl' hcl'' hna'' hlt => lowClPre hI hnn hsc hph hcls hneg hmem hcl hcl'' hlt (hprio cl' hcl'' hna'' hlt)
           (fails_den4ClPre (hprio cl' hcl'' hna'' hlt) hmem hcl'')) e m
     | _, _, _, .ensFails (fn := fn') (cl := cl) (σ := σ') (t := t) hfn' hcl hσ' hmatch hreq hpreH hprio _ ht he hw,
@@ -167,7 +168,7 @@ mutual
         (fun t ht tbl e' hag m' => evalTerm_den4ClPreOcc (hreq t ht) hL (hσ'.at _) (canonVars_length c cl.vars) (Agrees.on hag _) (hreqs t ht) m')
         (fun hpt tbl e' σr m0 hag hkp hRk hRv hσr hm0 =>
           have hR := hpreR fn' hmem cl hcl (HoldsShape.ne_top_of_isTop_false hpt)
-          (preRead_agreesCl hR hpre (holds_den4ClPre hpreH hR.node hR.binder) hσ' hag hkp hRk hRv hσr hm0).mpr rfl)
+          (preRead_agreesCl hR hpre (holdsRead_den4ClPre hpreH) hσ' hag hkp hRk hRv hσr hm0).mpr rfl)
         (fun cl' hcl'' hna'' hlt => lowClPre hI hnn hsc hph hcls hneg hmem hcl hcl'' hlt (hprio cl' hcl'' hna'' hlt)
           (fails_den4ClPre (hprio cl' hcl'' hna'' hlt) hmem hcl'')) e m
     | _, ws, _, .rest (fn := fn') hfn' hnone, fn, hfn, hws, e, m => by
@@ -185,7 +186,8 @@ mutual
       exact absurd hexs hne
   termination_by structural _ _ _ h => h
   /-- A clause that fails at arguments of its function's sorts fails in the model: its `requires`
-  denotes a result other than `true`, or the truth value `false` of its predicate is read. -/
+  denotes a result other than `true`, or its predicate has the truth value `false` with its terms'
+  readings. -/
   theorem fails_den4ClPre : ∀ {ws : List GroundTerm} {cl : Clause}, Fails c ws cl →
       ∀ {fn : Fn}, fn ∈ c.allFns → cl ∈ fn.clauses → ModelFailsCl c I cl ws
     | _, _, .intro h, fn, hfn, hcl => fun vars hlen hagl σ hσ hpv =>
@@ -197,10 +199,10 @@ mutual
       (∀ (tbl : VarTable) (e : Valuation M), Agrees c I tbl (canonVars c cl.vars) σ e →
         ∃ t r, cl.req = some t ∧ r ≠ some (bool true) ∧ (∀ v, r = some v → c.sortOf v = some Srt.bool) ∧
           ∀ m, (KoreAML.tr ⟨tbl, []⟩ (Term.kore c (canonVars c cl.vars) t)).interpret I e m ↔ Res c I e r m) ∨
-      (cl.pre ≠ .top ∧ HoldsShape.HoldsAt c I cl.vars.length σ cl.pre false)
+      (cl.pre ≠ .top ∧ HoldsShape.HoldsRead c I cl.vars.length σ cl.pre false)
     | _, cl, .pre h, fn, hfn, hcl, vars, hlen, hagl, hσ =>
       (Classical.em (cl.pre = .top)).elim (fun hne => absurd (hne ▸ h).top_eq (by simp))
-        fun hne => Or.inr ⟨hne, holds_den4ClPre h (hpreR fn hfn cl hcl hne).node (hpreR fn hfn cl hcl hne).binder⟩
+        fun hne => Or.inr ⟨hne, holdsRead_den4ClPre h⟩
     | _, cl, .intro (t := t) (r := r) ht he hr, fn, hfn, hcl, vars, hlen, hagl, hσ => Or.inl fun tbl e hag => by
       obtain ⟨L, hL, -, -, -, -, hreqs, -⟩ := hcls fn hfn cl hcl
       have htS : sortOfTerm (c.rhsCtx L) vars t = some Srt.bool := by

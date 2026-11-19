@@ -70,6 +70,7 @@
 -/
 import KcoreSpec.Value
 import KcoreSpec.StringDomain
+import KcoreSpec.FloatThin
 
 set_option autoImplicit false
 
@@ -398,6 +399,136 @@ def flOfInt (vs : List GroundTerm) : Option GroundTerm :=
   | [i, x, y] => (asInt i).bind fun n => (asInt x).bind fun p => (asInt y).bind fun e =>
       (KFloat.spec? p.toNat e.toNat).bind fun sp => (KFloat.ofInt? sp n).map (floatV p.toNat e.toNat sp)
   | _ => none
+
+/-! ### The formats with a field of 1 (FloatThin.lean)
+
+The operations at a format with a field of 1 that has a model of its data (`KFloat.tnFormat`), on the
+formats `thinAt` names: the same formulas as at a format of Lean core's model, over the rounding to
+the nearest datum of the format (`KFloat.tnRound`). -/
+
+/-- The formats with a field of 1 at which the operations below compute: precision 1 and at least
+2 exponent bits. -/
+def thinAt (p e : Nat) : Bool := decide (p = 1 ∧ 2 ≤ e)
+
+open Float.Model in
+/-- A Float value of a format `thinAt` names: its format `(p, e)` and its datum. -/
+def asThin : GroundTerm → Option (Nat × Nat × UnpackedFloat)
+  | .dv s (.float p e b) =>
+    if s == Srt.float ∧ thinAt p e = true then some (p, e, KFloat.tnUnpack p e b) else none
+  | _ => none
+
+open Float.Model in
+/-- The Float value of the format `(p, e)`, one with a field of 1, of its datum `u`. -/
+def tnFloatV (p e : Nat) (u : UnpackedFloat) : GroundTerm := .dv Srt.float (.float p e (KFloat.tnPack p e u))
+
+/-- `f`'s value, and `g`'s where `f` has none: an operation at a format with a model, then at a
+format with a field of 1. -/
+def flOr (f g : List GroundTerm → Option GroundTerm) (vs : List GroundTerm) : Option GroundTerm :=
+  match f vs with
+  | some v => some v
+  | none => g vs
+
+open Float.Model in
+/-- An operation on one Float of a format `thinAt` names, in its format. -/
+def tfl1 (op : Nat → Nat → UnpackedFloat → Option UnpackedFloat) (vs : List GroundTerm) : Option GroundTerm :=
+  match vs with
+  | [a] => (asThin a).bind fun (p, e, u) => (op p e u).map (tnFloatV p e)
+  | _ => none
+
+open Float.Model in
+/-- An operation on two Floats of one format `thinAt` names, in that format; undefined on two
+formats. -/
+def tfl2 (op : Nat → Nat → UnpackedFloat → UnpackedFloat → Option UnpackedFloat) (vs : List GroundTerm) :
+    Option GroundTerm :=
+  match vs with
+  | [a, b] => (asThin a).bind fun (p, e, u) => (asThin b).bind fun (p', e', v) =>
+      if p = p' ∧ e = e' then (op p e u v).map (tnFloatV p e) else none
+  | _ => none
+
+/-- `isInfinite` at a format `thinAt` names that has a largest finite datum (`KFloat.tnMax?`), so
+that `maxValueFloat` has a value there: domains.md 1673 reads both. -/
+def tflInf (vs : List GroundTerm) : Option GroundTerm :=
+  match vs with
+  | [a] => (asThin a).bind fun (p, e, u) => (KFloat.tnMax? p e).map fun _ => bool (KFloat.isInf u)
+  | _ => none
+
+open Float.Model in
+/-- A datum of the format `(p, e)` given by two Ints, at a format `thinAt` names. -/
+def tflAt (op : Nat → Nat → Option UnpackedFloat) (vs : List GroundTerm) : Option GroundTerm :=
+  match vs with
+  | [x, y] => (asInt x).bind fun p => (asInt y).bind fun e =>
+      if thinAt p.toNat e.toNat = true then (op p.toNat e.toNat).map (tnFloatV p.toNat e.toNat) else none
+  | _ => none
+
+/-- `roundFloat` of a Float of any format with a datum (`asDatum`) to the format `(p, e)` given by
+two Ints: at a format with a model, Lean core's conversion; at a format `thinAt` names, the datum
+of the value where the format holds it. -/
+def tflTo (vs : List GroundTerm) : Option GroundTerm :=
+  match vs with
+  | [a, x, y] => (asDatum a).bind fun u => (asInt x).bind fun p => (asInt y).bind fun e =>
+      match KFloat.spec? p.toNat e.toNat with
+      | some sp => (KFloat.convertFormat sp u).map (floatV p.toNat e.toNat sp)
+      | none =>
+        if thinAt p.toNat e.toNat = true then
+          (KFloat.convertBy (KFloat.tnHeld? p.toNat e.toNat) u).map (tnFloatV p.toNat e.toNat)
+        else none
+  | _ => none
+
+/-- `Int2Float` at a format `thinAt` names: the datum of the Int where the format holds it. -/
+def tflOfInt (vs : List GroundTerm) : Option GroundTerm :=
+  match vs with
+  | [i, x, y] => (asInt i).bind fun n => (asInt x).bind fun p => (asInt y).bind fun e =>
+      if thinAt p.toNat e.toNat = true then
+        (KFloat.ofIntBy (KFloat.tnHeld? p.toNat e.toNat) n).map (tnFloatV p.toNat e.toNat)
+      else none
+  | _ => none
+
+open KFloat in
+/-- FLOAT's interpreted symbols at the formats `thinAt` names, where they have a value. -/
+def thinHooks : List (Sym × (List GroundTerm → Option GroundTerm)) :=
+  [(floatAdd, tfl2 fun p e => sumBy (tnNearest? p e)), (floatSub, tfl2 fun p e => diffBy (tnNearest? p e)),
+   (floatMul, tfl2 fun p e => prodBy (tnNearest? p e)), (floatDiv, tfl2 tnQuot?),
+   (floatRem, tfl2 fun p e => remainderBy (tnHeld? p e)),
+   (floatNeg, tfl1 fun _ _ => neg?), (floatAbs, tfl1 fun _ _ => abs?),
+   (floatFloor, tfl1 fun p e => roundToIntegralBy (tnHeld? p e) .down),
+   (floatCeil, tfl1 fun p e => roundToIntegralBy (tnHeld? p e) .up),
+   (floatTrunc, tfl1 fun p e => roundToIntegralBy (tnHeld? p e) .zero),
+   (floatSqrt, tfl1 tnSqrt?), (floatIsInfinite, tflInf),
+   (floatRound, tflTo), (int2Float, tflOfInt),
+   (floatMaxValue, tflAt tnMax?), (floatMinValue, tflAt tnMin?)]
+
+/-- A format `thinAt` names has a field of 1. -/
+theorem thinAt_tnFormat {p e : Nat} (h : thinAt p e = true) : KFloat.tnFormat p e = true := by
+  simp only [thinAt, KFloat.tnFormat, decide_eq_true_eq] at h ⊢
+  omega
+
+/-- A format `thinAt` names has no model in Lean core. -/
+theorem thinAt_spec_none {p e : Nat} (h : thinAt p e = true) : KFloat.spec? p e = none := by
+  simp only [thinAt, decide_eq_true_eq] at h
+  unfold KFloat.spec?
+  simp only [show ¬ (2 ≤ p ∧ 2 ≤ e) by omega, ↓reduceDIte]
+
+/-- A Float of a format with a model is no Float of a format `thinAt` names. -/
+theorem asThin_none_of_asFloat {a : GroundTerm} (h : (asFloat a).isSome = true) : asThin a = none := by
+  match a, h with
+  | .dv s (.float p e b), h =>
+    simp only [asFloat] at h
+    simp only [asThin]
+    split
+    · rename_i ht
+      rw [thinAt_spec_none ht.2] at h
+      simp at h
+    · rfl
+
+/-- Where `f` has a value, `flOr f g` has it. -/
+theorem flOr_of_some {f g : List GroundTerm → Option GroundTerm} {vs : List GroundTerm} {v : GroundTerm}
+    (h : f vs = some v) : flOr f g vs = some v := by
+  simp only [flOr, h]
+
+/-- Where `f` has no value, `flOr f g` is `g`. -/
+theorem flOr_of_none {f g : List GroundTerm → Option GroundTerm} {vs : List GroundTerm}
+    (h : f vs = none) : flOr f g vs = g vs := by
+  simp only [flOr, h]
 
 /-- FLOAT's interpreted symbols, each with a value where K's text states one (FloatDomain.lean:
 the exact result rounded to nearest, ties to even, off the infinities, NaN, a zero divisor, the

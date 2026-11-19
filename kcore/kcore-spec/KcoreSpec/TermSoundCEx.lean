@@ -11,7 +11,7 @@
   OpenClauseDenQ.lean's block reads every evaluation of a term.
 -/
 import KcoreSpec.ClauseExDenCEx
-import KcoreSpec.ClausePreCore
+import KcoreSpec.PreReadBound
 import KcoreSpec.CondCross
 
 set_option autoImplicit false
@@ -108,15 +108,13 @@ section
 variable {c : Semantics} {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
 
 /-- **Every model of `Γc` of a definition `coreOKEx` accepts reads each clause's predicate**
-(`PreRead`), where it is not `\top` (`preReadAll_of_core`'s proof). -/
+(`PreRead`), where it is not `\top` (`preRead_of_bound`, as `preReadAll_of_core`). -/
 theorem preReadAll_of_coreEx (h : c.coreOKEx = true) (hIc : I ⊧ᴵP Γc c) :
     ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, cl.pre ≠ .top → PreRead c I cl := by
   intro fn hfn cl hcl hne
   rcases List.mem_append.mp hfn with hu | hp
   · obtain ⟨hok, hbd⟩ := Semantics.sortedOKEx_clausePre (Semantics.coreOKEx_parts h).1 hu hcl
-    exact preRead_of (nodeFacts_of_coreEx h hIc)
-      (fun hb => binderFacts_of_coreEx h (readsConfined_of_clausePre hu hcl hb) hIc)
-      (termsInSort_of_coreEx h fun φ hφ => hIc φ (Or.inl hφ)) hok hbd
+    exact preRead_of_bound (Semantics.coreOK_iff_ex.mpr h) hIc (readsConfined_of_clausePre hu hcl) hok hbd
   · exact absurd (Semantics.sortPreds_pre hp cl hcl) hne
 
 /-- **`TermSound` holds in every model of `Γc` of a semantics `coreOKEx` accepts**, under the

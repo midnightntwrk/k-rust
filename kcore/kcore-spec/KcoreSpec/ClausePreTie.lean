@@ -2,10 +2,13 @@
   KCore. A clause's predicate in its sentences, at one evaluation.
 
   A clause's premise carries its predicate at the sort variable `R` (`withPre`). `holdsAt_atR` reads
-  it there from the reading of one truth value `Holds` gives (`HoldsAt`, which a recursion on
-  evaluations supplies: `holds_den4ClPre`): `holds_atR` at one evaluation. `preRead_of` gives what
-  the clause lemmas ask of the model for a clause's predicate (`PreRead`, ClausePreRead.lean), so
-  that `eval_den4ClPre` and `exclEmptyCl_ofCl` hold for clauses with a predicate in the premise.
+  it there from the reading of one truth value `Holds` gives over a Bool that bounds its binders
+  (`HoldsAtB`): `holds_atR` at one evaluation. `preRead_ofB` gives what the clause lemmas ask of the
+  model for a clause's predicate (`PreRead`, ClausePreRead.lean) from a Bool that bounds its binders
+  and the reading over it of each truth value that comes with its terms' readings (`HoldsRead`,
+  which a recursion on evaluations supplies: `holdsRead_den4ClPre`); `preRead_of` is it at
+  `Cond.boundConf`, through `HoldsReadT.holdsAt`. So `eval_den4ClPre` and `exclEmptyCl_ofCl` hold
+  for clauses with a predicate in the premise.
   `nodeFacts_of_core`: every model of `Γc` of a definition `coreOK` accepts has the constructors'
   facts.
 -/
@@ -75,18 +78,28 @@ theorem holdsAt_atR (F : NodeFacts c I) (hT : TermsInSort c I) {bd : Nat → Con
   exact hp rfl hok hbd hP hr (fun k hk0 => hk k (condKore_varsOf_resort (sortVarsOf_srtOf c Srt.bool) p _ k hk0))
     hS a0 ha0
 
+/-- A condition without a binder has every binder in a sort where values and elements agree. -/
+theorem _root_.KCore.Cond.boundConf_of_noBinder (c : Semantics) :
+    ∀ (p : Cond) (n : Nat), hasBinder p = false → Cond.boundConf c n p = true
+  | .top, _, _ | .bot, _, _ | .ceil .., _, _ | .equals .., _, _ | .mem .., _, _ => by simp [Cond.boundConf]
+  | .exMatch .., _, h | .ex .., _, h | .all .., _, h => by simp [hasBinder] at h
+  | .not p, n, h => by
+    rw [hasBinder] at h; rw [Cond.boundConf]; exact Cond.boundConf_of_noBinder c p n h
+  | .and p q, n, h | .or p q, n, h | .implies p q, n, h => by
+    rw [hasBinder, Bool.or_eq_false_iff] at h; rw [Cond.boundConf, Bool.and_eq_true]
+    exact ⟨Cond.boundConf_of_noBinder c p n h.1, Cond.boundConf_of_noBinder c q n h.2⟩
+
 /-- **A clause's predicate is read in I** (`PreRead`): in an interpretation with the constructors'
-facts, the binders' where the predicate holds a binder, and the elements of well-sorted terms in
-their sorts, for a predicate that is well sorted with binders that range where values and elements
-agree. The truth value `Holds` gives is read at `R` by `holdsAt_atR`, the sorts of the variables
-outside the clause's patterns and conditions being any (`condOK_congrVars`,
+facts and the elements of well-sorted terms in their sorts, for a predicate that is well sorted
+with binders a Bool `bd` bounds, where each truth value `Holds` gives it with its terms' readings
+(`HoldsRead`) is read in I over `bd`. That reading is read at `R` by `holdsAt_atR`, the sorts of
+the variables outside the clause's patterns and conditions being any (`condOK_congrVars`,
 `condKore_congrCanon`); the predicate at `R` is the predicate at Bool (`cond_crossAt`), which reads
 its variables' elements only (`tr_condKore_twoT`). -/
-theorem preRead_of {cl : Clause} (F : NodeFacts c I) (G : hasBinder cl.pre = true → BinderFacts c I)
-    (hT : TermsInSort c I) (hok : c.condOK cl.vars cl.pre = true)
-    (hbd : Cond.bound c cl.vars.length cl.pre = true) : PreRead c I cl where
-  node := F
-  binder := G
+theorem preRead_ofB {cl : Clause} (F : NodeFacts c I) (hT : TermsInSort c I)
+    (hok : c.condOK cl.vars cl.pre = true) {bd : Nat → Cond → Bool} (hbd : bd cl.vars.length cl.pre = true)
+    (hconv : ∀ {σ : Subst} {b : Bool}, HoldsRead c I cl.vars.length σ cl.pre b →
+      HoldsAtB bd c I cl.vars.length σ cl.pre b) : PreRead c I cl where
   atR := by
     intro vars σ b tbl e σr hH hlen hagl hσ hrd hk hRm hR hσr a ha
     have hocc : ∀ i, i ∈ varOccsCond vars.length cl.pre → i ∈ varOccsCond cl.vars.length cl.pre :=
@@ -108,7 +121,7 @@ theorem preRead_of {cl : Clause} (F : NodeFacts c I) (G : hasBinder cl.pre = tru
       · rw [hsv, List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hi']; rfl
       · rw [hkey i hi]; exact hrd i (hocc i hi) v hv
     rw [← hkore]
-    exact holdsAt_atR F hT (by rw [hlen]; exact hH) hokV (by rw [hlen, ← Cond.bound_eq_boundConf]; exact hbd)
+    exact holdsAt_atR F hT (by rw [hlen]; exact hconv hH) hokV (by rw [hlen]; exact hbd)
       (fun i hi _ => hi) hr
       (by rw [hkore]; exact hk) hRm hR hσr a ha
   toBool := by
@@ -127,6 +140,15 @@ theorem preRead_of {cl : Clause} (F : NodeFacts c I) (G : hasBinder cl.pre = tru
     exact (tr_condKore_twoT F.defOK cl.pre hok
       (fun k hk0 => ⟨hk k (condKore_varsOf_resort (sortVarsOf_srtOf c Srt.bool) cl.pre _ k hk0), hk' k hk0⟩)
       (fun i hi => ⟨hkey i hi, hkey' i hi, (hf i hi).2⟩) mB).mp h1
+
+/-- **A clause's predicate is read in I over `Cond.boundConf`** (`preRead_ofB`): in an
+interpretation with the constructors' facts, the binders' where the predicate holds a binder, and
+the elements of well-sorted terms in their sorts, a truth value with its terms' readings is read in
+I (`HoldsReadT.holdsAt`). -/
+theorem preRead_of {cl : Clause} (F : NodeFacts c I) (G : hasBinder cl.pre = true → BinderFacts c I)
+    (hT : TermsInSort c I) (hok : c.condOK cl.vars cl.pre = true)
+    (hbd : Cond.boundConf c cl.vars.length cl.pre = true) : PreRead c I cl :=
+  preRead_ofB F hT hok hbd fun hh => HoldsReadT.holdsAt F hh G
 
 end
 

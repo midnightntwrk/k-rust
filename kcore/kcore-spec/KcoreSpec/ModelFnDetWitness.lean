@@ -35,7 +35,7 @@ import KcoreSpec.CoreDecide
 import KcoreSpec.Sound
 import KcoreSpec.Obligations
 import KcoreSpec.OpenClauseFn
-import KcoreSpec.ClausePreCore
+import KcoreSpec.PreReadBound
 import KcoreSpec.ClausePreFn
 import KcoreSpec.ModelUndefRhsWitness
 
