@@ -1,0 +1,11 @@
+command: kompile --backend haskell e3-ml-rule-lhs-implies.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.8
+definition.kore bytes: 86860
+definition.kore sha256: 916d7ed445ad298c83249f71d5babe866a2df02a7bcb982488692ffb4cc3934a
+stripped sha256: 8852604f9a565c0f4e2e9f7b3c25a21e79cf2199a4cf90b45dc61267b26a408a
+main module: 254 sentences, 29 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-ML-RULE-LHS-IMPLIES-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using E3-ML-RULE-LHS-IMPLIES as default.

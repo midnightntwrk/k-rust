@@ -874,11 +874,13 @@ inductive ReadingNote where
   out. The account lists the sentences and the sorts (`tokKItemOmitted`). -/
   | tokKItem
   /-- A rewrite axiom holding a matching-logic connective φ of sort S at a term position `C[·]`
-  under applications (`connCut`): on the right side `\or`, `\not` or `\top`, on the left side
-  `\not`. A pattern under an application denotes the applications at the elements its argument
-  denotes, so `C[φ] = ∃Z:S. C[Z] ∧ Z ∈ φ` for a variable Z the axiom does not hold, and for one
-  element the membership goes through the connectives: Z is in `\top{S}` always, in `\not{S}(p)`
-  where it is not in p, in `\or{S}(p, q)` where it is in p or in q (`memCond`). On the right side
+  under applications (`connCut`): on the right side `\or`, `\not`, `\implies` or `\top`, on the
+  left side `\not` or `\implies`. A pattern under an application denotes the applications at the
+  elements its argument denotes, so `C[φ] = ∃Z:S. C[Z] ∧ Z ∈ φ` for a variable Z the axiom does not
+  hold, and for one element the membership goes through the connectives: Z is in `\top{S}` always,
+  in `\not{S}(p)` where it is not in p, in `\or{S}(p, q)` where it is in p or in q, in
+  `\implies{S}(p, q)` (`\or{S}(\not{S}(p), q)`) where its being in p implies its being in q
+  (`memCond`). On the right side
   the position holds an existential variable Z of the rule and `post` gains `Z ∈ φ`: the axiom
   states a successor among the `C[z]`. On the left side the position holds a variable Z of the rule
   and `pre` gains `Z ∈ φ`: `C[φ] → •R` is `∀Z. (C[Z] ∧ Z ∈ φ) → •R`, Z not free in R. A variable
@@ -4029,9 +4031,9 @@ def connCutVar (used : List String) (n : Nat) (s : Kore.KSort) : Kore.EVar :=
 
 mutual
   /-- `Z ∈ φ` for the variable z of the sort s (S in the text) and a pattern φ of that sort: the
-  connective of the memberships in φ's operands, `\top` for `\top{S}` and `\bottom` for
-  `\bottom{S}`, and `mem s Z t` for a term t (`termNoAnd`). A connective at another sort than S is
-  refused `patternConnective`. -/
+  connective of the memberships in φ's operands (`\not`, `\and`, `\or`, `\implies`), `\top` for
+  `\top{S}` and `\bottom` for `\bottom{S}`, and `mem s Z t` for a term t (`termNoAnd`). A
+  connective at another sort than S is refused `patternConnective`. -/
   def memCond (N : Names) (z : Nat) (s : Srt) (S : Kore.KSort) (vs : List Var) :
       Kore.Pattern → Rd (Cond × List Var)
     | .top S' => if decide (S' = S) then pure (.top, vs) else fail .patternConnective "\\top"
@@ -4040,6 +4042,11 @@ mutual
         let (c, vs) ← memCond N z s S vs p
         pure (.not c, vs)
       else fail .patternConnective "\\not"
+    | .implies S' p q => if decide (S' = S) then do
+        let (c, vs) ← memCond N z s S vs p
+        let (d, vs) ← memCond N z s S vs q
+        pure (.implies c d, vs)
+      else fail .patternConnective "\\implies"
     | .and S' ps => if decide (S' = S) then do
         let (cs, vs) ← memCondList N z s S vs ps
         pure (conjC cs, vs)
@@ -4223,12 +4230,13 @@ abbrev ConnCut := Kore.EVar × Kore.KSort × Kore.Pattern
 
 mutual
   /-- A pattern at a term position with each maximal connective under applications replaced by a
-  fresh variable of the connective's sort (`connCutVar`): `\not`, and on a right side (`left`
-  false) `\or` and `\top` too. A left side's `\top` is a variable of the rule (`lhsBound`) and its
+  fresh variable of the connective's sort (`connCutVar`): `\not` and `\implies`, and on a right
+  side (`left` false) `\or` and `\top` too. A left side's `\top` is a variable of the rule (`lhsBound`) and its
   `\or` is split (`splitRule`). The pattern, the next number and the cuts, in the order met. -/
   def connCut (left : Bool) (used : List String) (n : Nat) : Kore.Pattern → Kore.Pattern × Nat × List ConnCut
     | .app h ss ps => let (ps', n, cs) := connCutList left used n ps; (.app h ss ps', n, cs)
     | .not s p => (.var (.evar (connCutVar used n s)), n + 1, [(connCutVar used n s, s, .not s p)])
+    | .implies s p q => (.var (.evar (connCutVar used n s)), n + 1, [(connCutVar used n s, s, .implies s p q)])
     | .or s ps =>
       if left then (.or s ps, n, [])
       else (.var (.evar (connCutVar used n s)), n + 1, [(connCutVar used n s, s, .or s ps)])

@@ -28,6 +28,12 @@
   A text read without the cut is read so (`mlor`, e7-guardors: no rule with a predicate).
   Kernel: `cut_right`, `cut_left` (the cut of a pattern), `parseWith_ruleOf`.
 
+  ## lhs-implies
+  - `mlimpl` (e3-ml-rule-lhs-implies, `c(a() #Implies b()) => b()`, kompiled to
+    `c(\implies{Exp}(a(), \and{Exp}(b(), _Gen6))) => _Gen6`): read as `c(Z) => G` with
+    `pre := implies (mem Z a) (and (mem Z b) (mem Z G))`. Kernel: `cut_implies`.
+
+
   ## rhs-and
   `Parse.andRuleOf` (which `ruleBody` takes where `Parse.andCutOK` holds) reads a right side's
   conjunction of terms at a
@@ -297,5 +303,45 @@ theorem and_fresh : Parse.andCut [] 0 (injI (.and intS [fX, gX])) =
 no number is used. -/
 theorem and_var : Parse.andCut [] 0 (injI (.and intS [gX, xI])) =
     (injI xI, 0, [⟨KoreAML.evar "VarX" intS, intS, false, [gX]⟩]) := by decide +kernel
+
+/-! ## lhs-implies -/
+
+/-- On a left side `\implies` is cut, as `\not` is. -/
+theorem cut_implies : Parse.connCut true [] 0 (KoreAML.ap "Lblc" [.implies expS aP bP]) =
+    (KoreAML.ap "Lblc" [.var (.evar Z0)], 1, [(Z0, expS, .implies expS aP bP)]) := by decide +kernel
+
+/-- The notes of each rewrite axiom of the user's source in the last module of `k`. -/
+def showNotes (n : String) (k : Kore.Definition) : IO Unit := do
+  let N := Parse.namesOf k
+  match k.modules.getLast? with
+  | none => pure ()
+  | some m =>
+    for s in m.sentences do
+      if let .axiom a := s then
+        if (Parse.scanRewrite s).isSome && Parse.isUserSource a.attributes then
+          IO.println s!"{n}: notes {(Parse.connNotes N a).map (·.name)}"
+
+def gen6 : Kore.Pattern := .var (.evar (KoreAML.evar "Var'Unds'Gen6" expS))
+def cImpl : Kore.Pattern := KoreAML.ap "Lblc" [.implies expS aP (.and expS [bP, gen6])]
+
+/--
+info: ## lhs-implies
+mlimpl rule 0: names ['Hash'Cut0, 'Unds'DotVar1, 'Unds'DotVar0, 'Unds'Gen6] vars [Exp, K, GeneratedCounterCell, Exp] exs [] opens [3]
+  pre KCore.Cond.implies
+  (KCore.Cond.mem 32 (KCore.Term.var 0) (KCore.Term.app 385 []))
+  (KCore.Cond.and
+    (KCore.Cond.mem 32 (KCore.Term.var 0) (KCore.Term.app 386 []))
+    (KCore.Cond.mem 32 (KCore.Term.var 0) (KCore.Term.var 3)))
+  post KCore.Cond.top
+  ruleSorted true; rulePlainPP true; openRefusal none
+mlimpl: wf failing []; rulesPlain true; coreOK true
+mlimpl: notes [connectiveCut]
+-/
+#guard_msgs (whitespace := lax) in
+#eval show IO Unit from do
+  IO.println "## lhs-implies"
+  if let some k ← load "mlimpl" then
+    showDef "mlimpl" k
+    showNotes "mlimpl" k
 
 end PredReader
