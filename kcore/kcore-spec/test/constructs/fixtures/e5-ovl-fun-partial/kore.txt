@@ -1,0 +1,214 @@
+//@ 0
+module E5-OVL-FUN-PARTIAL
+//@ 4
+  sort SortGas{} []
+//@ 14
+  sort SortN{} []
+//@ 49
+  symbol LblcapGas{}(SortGas{}) : SortGas{} [anywhere{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,18,4,58)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e5-ovl-fun-partial.k)"), symbol'Kywd'{}("capGas")]
+//@ 50
+  symbol LblcapN{}(SortN{}) : SortN{} [function{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,16,5,66)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e5-ovl-fun-partial.k)"), symbol'Kywd'{}("capN")]
+//@ 58
+  symbol LblisGas{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
+//@ 71
+  symbol LblisN{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
+//@ 79
+  symbol Lblproject'Coln'Gas{}(SortK{}) : SortGas{} [function{}()]
+//@ 91
+  symbol Lblproject'Coln'N{}(SortK{}) : SortN{} [function{}()]
+//@ 102
+  symbol Lbly{}() : SortN{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,34,2,49)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e5-ovl-fun-partial.k)"), symbol'Kywd'{}("y")]
+//@ 103
+  symbol Lblz{}() : SortN{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,16,2,31)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e5-ovl-fun-partial.k)"), symbol'Kywd'{}("z")]
+//@ 114
+  axiom{R} \exists{R} (Val:SortKItem{}, \equals{SortKItem{}, R} (Val:SortKItem{}, inj{SortGas{}, SortKItem{}} (From:SortGas{}))) [subsort{SortGas{}, SortKItem{}}()] // subsort
+//@ 116
+  axiom{R} \exists{R} (Val:SortKItem{}, \equals{SortKItem{}, R} (Val:SortKItem{}, inj{SortN{}, SortKItem{}} (From:SortN{}))) [subsort{SortN{}, SortKItem{}}()] // subsort
+//@ 119
+  axiom{R} \exists{R} (Val:SortGas{}, \equals{SortGas{}, R} (Val:SortGas{}, inj{SortN{}, SortGas{}} (From:SortN{}))) [subsort{SortN{}, SortGas{}}()] // subsort
+//@ 157
+  axiom{R} \exists{R} (Val:SortGas{}, \equals{SortGas{}, R} (Val:SortGas{}, LblcapGas{}(K0:SortGas{}))) [functional{}()] // functional
+//@ 158
+  axiom{}\implies{SortGas{}} (\and{SortGas{}} (LblcapGas{}(X0:SortGas{}), LblcapGas{}(Y0:SortGas{})), LblcapGas{}(\and{SortGas{}} (X0:SortGas{}, Y0:SortGas{}))) [constructor{}()] // no confusion same constructor
+//@ 162
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, LblisGas{}(K0:SortK{}))) [functional{}()] // functional
+//@ 175
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, LblisN{}(K0:SortK{}))) [functional{}()] // functional
+//@ 186
+  axiom{R} \exists{R} (Val:SortN{}, \equals{SortN{}, R} (Val:SortN{}, Lbly{}())) [functional{}()] // functional
+//@ 187
+  axiom{}\not{SortN{}} (\and{SortN{}} (Lbly{}(), Lblz{}())) [constructor{}()] // no confusion different constructors
+//@ 188
+  axiom{R} \exists{R} (Val:SortN{}, \equals{SortN{}, R} (Val:SortN{}, Lblz{}())) [functional{}()] // functional
+//@ 190
+  axiom{} \or{SortGas{}} (\exists{SortGas{}} (X0:SortGas{}, LblcapGas{}(X0:SortGas{})), \exists{SortGas{}} (Val:SortN{}, inj{SortN{}, SortGas{}} (Val:SortN{})), \bottom{SortGas{}}()) [constructor{}()] // no junk
+//@ 199
+  axiom{} \or{SortKItem{}} (\exists{SortKItem{}} (Val:SortBool{}, inj{SortBool{}, SortKItem{}} (Val:SortBool{})), \exists{SortKItem{}} (Val:SortGas{}, inj{SortGas{}, SortKItem{}} (Val:SortGas{})), \exists{SortKItem{}} (Val:SortGeneratedCounterCell{}, inj{SortGeneratedCounterCell{}, SortKItem{}} (Val:SortGeneratedCounterCell{})), \exists{SortKItem{}} (Val:SortGeneratedCounterCellOpt{}, inj{SortGeneratedCounterCellOpt{}, SortKItem{}} (Val:SortGeneratedCounterCellOpt{})), \exists{SortKItem{}} (Val:SortGeneratedTopCell{}, inj{SortGeneratedTopCell{}, SortKItem{}} (Val:SortGeneratedTopCell{})), \exists{SortKItem{}} (Val:SortGeneratedTopCellFragment{}, inj{SortGeneratedTopCellFragment{}, SortKItem{}} (Val:SortGeneratedTopCellFragment{})), \exists{SortKItem{}} (Val:SortInt{}, inj{SortInt{}, SortKItem{}} (Val:SortInt{})), \exists{SortKItem{}} (Val:SortKCell{}, inj{SortKCell{}, SortKItem{}} (Val:SortKCell{})), \exists{SortKItem{}} (Val:SortKCellOpt{}, inj{SortKCellOpt{}, SortKItem{}} (Val:SortKCellOpt{})), \exists{SortKItem{}} (Val:SortKConfigVar{}, inj{SortKConfigVar{}, SortKItem{}} (Val:SortKConfigVar{})), \exists{SortKItem{}} (Val:SortList{}, inj{SortList{}, SortKItem{}} (Val:SortList{})), \exists{SortKItem{}} (Val:SortMap{}, inj{SortMap{}, SortKItem{}} (Val:SortMap{})), \exists{SortKItem{}} (Val:SortN{}, inj{SortN{}, SortKItem{}} (Val:SortN{})), \exists{SortKItem{}} (Val:SortSet{}, inj{SortSet{}, SortKItem{}} (Val:SortSet{})), \bottom{SortKItem{}}()) [constructor{}()] // no junk
+//@ 200
+  axiom{} \or{SortN{}} (Lbly{}(), Lblz{}(), \bottom{SortN{}}()) [constructor{}()] // no junk
+//@ 201
+  axiom{R} \equals{SortGas{}, R} (LblcapGas{}(inj{SortN{}, SortGas{}} (K0:SortN{})), inj{SortN{}, SortGas{}} (LblcapN{}(K0:SortN{}))) [symbol-overload{}(LblcapGas{}(),LblcapN{}())] // overloaded production
+//@ 204
+// rule capN(z(.KList) #as _Gen0)=>_Gen0 requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(a95a03f4a2286e675f9979dab919e6b4d7a609e41aa7094d086d2ee09de5ccd5), org.kframework.attributes.Location(Location(6,8,6,19)), org.kframework.attributes.Source(Source(FIXTURE/e5-ovl-fun-partial.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortN{}, R} (
+            X0:SortN{},
+            \and{SortN{}}(Lblz{}(),Var'Unds'Gen0:SortN{})
+          ),
+          \top{R} ()
+        )),
+    \equals{SortN{},R} (
+      LblcapN{}(X0:SortN{}),
+     \and{SortN{}} (
+       Var'Unds'Gen0:SortN{},
+        \top{SortN{}}())))
+  [UNIQUE'Unds'ID{}("a95a03f4a2286e675f9979dab919e6b4d7a609e41aa7094d086d2ee09de5ccd5"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(6,8,6,19)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e5-ovl-fun-partial.k)")]
+//@ 211
+// rule isGas(K)=>#token("false","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(f2d2c1fe0c7a028d845c1662bc2bae3a09280f7ce3631ade878654ab4c71b153), owise]
+  axiom{R} \implies{R} (
+    \and{R} (
+      \not{R} (
+        \or{R} (
+          \exists{R} (Var'Unds'Gen1:SortGas{},
+            \and{R} (
+              \top{R}(),
+              \and{R} (
+                \in{SortK{}, R} (
+                  X0:SortK{},
+                  kseq{}(inj{SortGas{}, SortKItem{}}(Var'Unds'Gen1:SortGas{}),dotk{}())
+                ),
+                \top{R} ()
+              )
+          )),
+          \bottom{R}()
+        )
+      ),
+      \and{R}(
+        \top{R}(),
+        \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            VarK:SortK{}
+          ),
+          \top{R} ()
+        )
+    )),
+    \equals{SortBool{},R} (
+      LblisGas{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("false"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("f2d2c1fe0c7a028d845c1662bc2bae3a09280f7ce3631ade878654ab4c71b153"), owise{}()]
+//@ 212
+// rule isGas(inj{Gas,KItem}(Gas))=>#token("true","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(323ecd2fa7ef11b99933798731e8d20d7aa3b0477bf0ca7594b52ad3d8c32998)]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{SortGas{}, SortKItem{}}(VarGas:SortGas{}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortBool{},R} (
+      LblisGas{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("true"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("323ecd2fa7ef11b99933798731e8d20d7aa3b0477bf0ca7594b52ad3d8c32998")]
+//@ 236
+// rule isN(K)=>#token("false","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(1f26b91103d777db060473cb70dbdd82bd987e89a5c3414b9e18f664ce7aeed7), owise]
+  axiom{R} \implies{R} (
+    \and{R} (
+      \not{R} (
+        \or{R} (
+          \exists{R} (Var'Unds'Gen1:SortN{},
+            \and{R} (
+              \top{R}(),
+              \and{R} (
+                \in{SortK{}, R} (
+                  X0:SortK{},
+                  kseq{}(inj{SortN{}, SortKItem{}}(Var'Unds'Gen1:SortN{}),dotk{}())
+                ),
+                \top{R} ()
+              )
+          )),
+          \bottom{R}()
+        )
+      ),
+      \and{R}(
+        \top{R}(),
+        \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            VarK:SortK{}
+          ),
+          \top{R} ()
+        )
+    )),
+    \equals{SortBool{},R} (
+      LblisN{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("false"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("1f26b91103d777db060473cb70dbdd82bd987e89a5c3414b9e18f664ce7aeed7"), owise{}()]
+//@ 237
+// rule isN(inj{N,KItem}(N))=>#token("true","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(b3a784561e0560d23a77d7d71e8587d9a00404bd6aae256111e7c568ced1615e)]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{SortN{}, SortKItem{}}(VarN:SortN{}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortBool{},R} (
+      LblisN{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("true"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("b3a784561e0560d23a77d7d71e8587d9a00404bd6aae256111e7c568ced1615e")]
+//@ 241
+// rule `project:Gas`(inj{Gas,KItem}(K))=>K requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(8bc8f20f76e792ce2d2d67effebd9d7ae27b9fb1e1eb17fdbd6cb5353a6fcc49), projection]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{SortGas{}, SortKItem{}}(VarK:SortGas{}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortGas{},R} (
+      Lblproject'Coln'Gas{}(X0:SortK{}),
+     \and{SortGas{}} (
+       VarK:SortGas{},
+        \top{SortGas{}}())))
+  [UNIQUE'Unds'ID{}("8bc8f20f76e792ce2d2d67effebd9d7ae27b9fb1e1eb17fdbd6cb5353a6fcc49")]
+//@ 253
+// rule `project:N`(inj{N,KItem}(K))=>K requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(338bf48096e0858304b9893ce1979c1ac26b90b8d71a3f2ab8b920d0f02f8fce), projection]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{SortN{}, SortKItem{}}(VarK:SortN{}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortN{},R} (
+      Lblproject'Coln'N{}(X0:SortK{}),
+     \and{SortN{}} (
+       VarK:SortN{},
+        \top{SortN{}}())))
+  [UNIQUE'Unds'ID{}("338bf48096e0858304b9893ce1979c1ac26b90b8d71a3f2ab8b920d0f02f8fce")]
+//@ 257
+endmodule [org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1,1,7,10)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e5-ovl-fun-partial.k)")]
