@@ -32,13 +32,13 @@ Nested entries by status:
 | E1 | 8 | 3 | 0 | 0 | 0 | 5 | 0 | 0 |
 | E2 | 63 | 9 | 0 | 1 | 0 | 53 | 0 | 0 |
 | E3 | 86 | 46 | 0 | 2 | 0 | 38 | 0 | 0 |
-| E4 | 56 | 20 | 0 | 4 | 0 | 32 | 0 | 0 |
+| E4 | 58 | 20 | 0 | 4 | 0 | 34 | 0 | 0 |
 | E5 | 70 | 37 | 1 | 2 | 0 | 30 | 0 | 0 |
 | E6 | 35 | 9 | 2 | 0 | 0 | 24 | 0 | 0 |
 | E7 | 9 | 4 | 1 | 0 | 0 | 4 | 0 | 0 |
 | E8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 36 | 16 | 0 | 2 | 1 | 17 | 0 | 0 |
-| all | 363 | 144 | 4 | 11 | 1 | 203 | 0 | 0 |
+| all | 365 | 144 | 4 | 11 | 1 | 205 | 0 | 0 |
 
 Refused rows by class:
 
@@ -62,13 +62,13 @@ Refused nested entries by class:
 | E1 | 5 | 1 | 0 | 1 | 3 |
 | E2 | 53 | 4 | 0 | 1 | 48 |
 | E3 | 38 | 14 | 0 | 20 | 4 |
-| E4 | 32 | 14 | 10 | 0 | 8 |
+| E4 | 34 | 14 | 12 | 0 | 8 |
 | E5 | 30 | 13 | 2 | 1 | 14 |
 | E6 | 24 | 5 | 2 | 0 | 17 |
 | E7 | 4 | 0 | 0 | 0 | 4 |
 | E8 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 17 | 8 | 4 | 0 | 5 |
-| all | 203 | 59 | 18 | 23 | 103 |
+| all | 205 | 59 | 20 | 23 | 103 |
 
 Supported entries (rows and nested): 984; 14 of them have an owed fact and are counted by their best fixture: **13 proved** (the owed fact proved on a fixture the entry names: these count as supported under the headline statements), 0 open and 1 false (counted apart: the headline statements' hypothesis is not shown on their fixtures). The other 970 have no owed fact.
 
@@ -765,12 +765,14 @@ Not core:
 | `grammar:<matching-logic-pattern>::="\top" "{" <sort> "}" "(" ")"` | supported |  |  |  |  | base | yes | yes | K-coverage.md A.2 \\top |
 | cases[0]: a \\top{s'} on an equation's or a rewrite axiom's right side, as an operand of \\and{s} or \\or{s} with s' not s | refused | R-b | \\top{s'}() is of the sort s', and an operand of \\and{s} or \\or{s} is of the sort s (kore-syntax.md:330), so the sentence is no valid KORE axiom and has no meaning to read. rhsOpSort checks the sort a \\top states at its head as it checks an \\and's (Parse.rhsSortGuard, the first step of clauseBody, fr… |  | none (R-b): no shape (ill-formed) | hw-rhs-top |  |  | fixtures/hw-rhs-top/account.txt: \`sentence 378 (Lblf): rhsOperandSort (\\and{SortExp{}}: an operand \\top of sort SortInt{})\` (hand-written KORE: f's equation in hw-base's text); k/haskell-backend/src/main/native/haskell-backend/docs/kore-syntax.md:330 (rule 4); test/RhsSortCheck.lean topOp\_hand: \\and… |
 | cases[1]: a \\top{s'} as the ensures of an equation or a rewrite axiom, the operand of the conjunction \\and{s}(rhs, ens) with s' no… | refused | R-b | \\top{s'}() is of the sort s', and the ensures is an operand of the conjunction \\and{s}(rhs, ens) that kompile writes as an equation's right side (the operand of \\equals{s,R}) and as a rewrite axiom's (the body of \\rewrites{s} under its binders); an operand of \\and{s} is of the sort s (kore-syntax.md… |  | none (R-b): no shape (ill-formed) | hw-ens-top-eqn |  |  | fixtures/hw-ens-top-eqn/account.txt: \`1 refused rhsOperandSort [user]\` (e.g. f's equation, \`\\and{SortExp{}}(Lbla{}(VarX:SortInt{}), \\top{SortInt{}}())\`), \`stage refusals (of sentences classified read): 0\`, and no coreOK line (the text is refused) (hand-written KORE: hw-base's text, f's ensures writt… |
+| cases[2]: a \\top{s'} as the requires of an equation or a rewrite axiom, the operand of the conjunction \\and{s}(req, args) of the p… | refused | R-b | \\top{s'}() is of the sort s', and the requires is an operand of the conjunction kompile writes as an equation's premise, \\and{R}(req, args), the left operand of \\implies{R} and so of its sort, and as a rewrite axiom's left side, \\and{s}(lhs, req), the left operand of \\rewrites{s}; an operand of \\and… |  | none (R-b): no shape (ill-formed) | hw-req-top-eqn |  |  | fixtures/hw-req-top-eqn/account.txt: \`1 refused rhsOperandSort [user]\` (e.g. f's equation, its premise \`\\and{R}(\\top{SortInt{}}(), \\and{R}(\\in{SortInt{}, R}(X0:SortInt{}, VarX:SortInt{}), \\top{R}()))\`), \`stage refusals (of sentences classified read): 0\`, and no coreOK line (the text is refused) (han… |
 | `grammar:<matching-logic-pattern>::="\bottom" "{" <sort> "}" "(" ")"` | supported |  |  |  |  | base | yes | yes | K-coverage.md A.2 \\bottom |
 | cases[0]: a \\bottom{s'} on an equation's or a rewrite axiom's right side, as an operand of \\and{s} or \\or{s} with s' not s | refused | R-b | \\bottom{s'}() is of the sort s', and an operand of \\and{s} or \\or{s} is of the sort s (kore-syntax.md:330), so the sentence is no valid KORE axiom and has no meaning to read. rhsOpSort checks the sort a \\bottom states at its head as it checks an \\and's (Parse.rhsSortGuard, the first step of clauseBo… |  | none (R-b): no shape (ill-formed) | hw-rhs-bottom |  |  | fixtures/hw-rhs-bottom/account.txt: \`sentence 378 (Lblf): rhsOperandSort (\\and{SortExp{}}: an operand \\bottom of sort SortInt{})\` (hand-written KORE: f's equation in hw-base's text); k/haskell-backend/src/main/native/haskell-backend/docs/kore-syntax.md:330 (rule 4); test/RhsSortCheck.lean topOp\_hand… |
 | `grammar:<matching-logic-pattern>::="\not" "{" <sort> "}" "(" <pattern> ")"` | supported |  |  |  |  | base | yes | yes | K-coverage.md A.2 \\not |
 | `grammar:<matching-logic-pattern>::="\and" "{" <sort> "}" "(" <patterns> ")"` | supported |  |  |  |  | base | yes | yes | K-coverage.md A.2 \\and |
 | cases[0]: an operand of \\and{s} of another sort on an equation's or a rewrite axiom's right side | refused | R-b | An equation's or a rewrite axiom's right side (under its \`\\exists\` binders) with an operand of \`\\and{s}\` (under applications, conjunctions and disjunctions) that states a sort other than s at its head: an \`\\and\`, \`\\or\`, \`\\exists\`, \`\\top\` or \`\\bottom\` of another sort, an \`\\exists{s}\` whose body state… |  | none (R-b): no shape (ill-formed) | hw-rhs-and |  |  | fixtures/hw-rhs-and/account.txt: \`sentence 378 (Lblf): rhsOperandSort (\\and{SortExp{}}: an operand \\equals of sort SortInt{})\` (hand-written KORE: f's equation in hw-base's text); k/haskell-backend/src/main/native/haskell-backend/docs/kore-syntax.md:330: "In any matching logic pattern, the sort of p… |
 | cases[1]: the conjunction \\and{s}(rhs, ens) of an equation's or a rewrite axiom's right side with its ensures, of another sort tha… | refused | R-b | The conjunction \\and{s}(rhs, ens) of a right side with its ensures is the operand of the equation's \\equals{S1,R} and of its sort S1, or the body of a rewrite axiom's right side and of the sort of its \\rewrites{S}; each of its operands is of the sort s (kore-syntax.md:195, 330). A conjunction of ano… |  | none (R-b): no shape (ill-formed) | hw-ens-top-eqn |  |  | fixtures/hw-ens-top-eqn/account.txt: \`1 refused rhsOperandSort [user]\` (e.g. f's equation, \`\\and{SortExp{}}(Lbla{}(VarX:SortInt{}), \\top{SortInt{}}())\`), \`stage refusals (of sentences classified read): 0\`, and no coreOK line (the text is refused) (hand-written KORE: hw-base's text, f's ensures writt… |
+| cases[2]: the conjunction \\and{s}(lhs, req) of a rewrite axiom's left side with its requires, or \\and{s}(req, args) of an equation… | refused | R-b | The conjunction of a rewrite axiom's left side with its requires is the left operand of \\rewrites{S} and of its sort S; that of an equation's requires with its arguments' memberships is the premise of \\implies{R} (in an [owise] equation the second operand of the premise \\and{R}(\\not{R}(…), \_)) and o… |  | none (R-b): no shape (ill-formed) | hw-req-top-eqn |  |  | fixtures/hw-req-top-eqn/account.txt: \`1 refused rhsOperandSort [user]\` (e.g. f's equation, its premise \`\\and{R}(\\top{SortInt{}}(), \\and{R}(\\in{SortInt{}, R}(X0:SortInt{}, VarX:SortInt{}), \\top{R}()))\`), \`stage refusals (of sentences classified read): 0\`, and no coreOK line (the text is refused) (han… |
 | `grammar:<matching-logic-pattern>::="\or" "{" <sort> "}" "(" <patterns> ")"` | supported |  |  |  |  | base | yes | yes | K-coverage.md A.2 \\or |
 | cases[0]: an operand of \\or{s} of another sort on an equation's or a rewrite axiom's right side | refused | R-b | An equation's or a rewrite axiom's right side (under its \`\\exists\` binders) with an operand of \`\\or{s}\` (under applications, conjunctions and disjunctions) that states a sort other than s at its head: an \`\\and\`, \`\\or\`, \`\\exists\`, \`\\top\` or \`\\bottom\` of another sort, an \`\\exists{s}\` whose body states… |  | none (R-b): no shape (ill-formed) | hw-rhs-or |  |  | fixtures/hw-rhs-or/account.txt: \`sentence 378 (Lblf): rhsOperandSort (\\or{SortExp{}}: an operand \\and of sort SortInt{})\` (hand-written KORE: f's equation in hw-base's text); k/haskell-backend/src/main/native/haskell-backend/docs/kore-syntax.md:330: "In any matching logic pattern, the sort of patter… |
 | `grammar:<matching-logic-pattern>::="\implies" "{" <sort> "}" "(" <pattern> "," <pattern> ")"` | supported |  |  |  |  | base | yes | yes | K-coverage.md A.2 \\implies |
