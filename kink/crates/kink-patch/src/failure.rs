@@ -17,6 +17,9 @@ pub enum PatchFailureKind {
     OverlappingEdit,
     /// Sort, scope, signature, sentence, or output invariants fail.
     LocallyIllFormed,
+    /// The mutant's grammar gives no program parser for the syntax module
+    /// ([`crate::Mutant::program_parser`]).
+    NoProgramParser,
 }
 
 impl PatchFailureKind {
@@ -30,6 +33,7 @@ impl PatchFailureKind {
             Self::DuplicateTarget => "duplicate-target",
             Self::OverlappingEdit => "overlapping-edit",
             Self::LocallyIllFormed => "locally-ill-formed",
+            Self::NoProgramParser => "no-program-parser",
         }
     }
 }

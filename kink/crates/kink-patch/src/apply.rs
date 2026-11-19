@@ -11,7 +11,9 @@ use crate::stack::{TYPING_STACK_PER_LEVEL, sentence_depth, with_stack};
 use crate::typing::CompilationTyping;
 use crate::{Baseline, Edit, InsertPosition, Patch, Region, SentenceRef, Target, path_in};
 use k_rust::definition::{AttributeKey, Definition, ResolvedDefinition, Sentence, sentence_mut};
+use k_rust::inner::ProgramParser;
 use k_rust::kast::Term;
+use k_rust::kompile::initial_configuration::ProgramGrammar;
 use k_rust::outer::{LoadError, LoadedDefinition};
 use std::collections::{BTreeMap, BTreeSet};
 use std::mem::discriminant;
@@ -26,7 +28,10 @@ use std::sync::Arc;
 /// mutant is valid. Builds before packet CACHE-ID name no version: 1ee9955 refused a typing
 /// error in the module's own view, and 977dc0c (L2-2) a Sort or semantic-cast error in
 /// compilation's view.
-pub const PATCH_ADMISSION_VERSION: &str = "kink-patch/patch-admission/v1";
+/// v2 (PJ-34, U34a): a production, a lexical declaration, a priority declaration or an
+/// associativity declaration may be replaced (by one of its own variant) or inserted, where only
+/// rules, claims and contexts could before; every other check is unchanged.
+pub const PATCH_ADMISSION_VERSION: &str = "kink-patch/patch-admission/v2";
 
 /// Keys no edit may write: the rule label, kompile identities and source positions.
 const PROTECTED_KEYS: [AttributeKey; 11] = [
@@ -115,6 +120,28 @@ impl Mutant {
     pub fn to_loaded(&self, baseline: &Baseline) -> Result<LoadedDefinition, LoadError> {
         baseline.loaded().with_definition(self.definition.clone())
     }
+
+    /// Whether k-rust builds the program parser of `syntax_module` from the mutant's definition:
+    /// the parser a program text (`$PGM`) is read with. It is built as initial-configuration
+    /// assembly builds it (k-rust `ProgramGrammar::new` of the loaded definition, then
+    /// `ProgramParser::from_resolved` of its resolution at the syntax module; kink-corpus
+    /// `InputGrammar::prepare` and `ConfigurationAssembler::program_file`), so a refusal here is
+    /// the definition's fault that kink-corpus reports as `InputError::Grammar` for a program,
+    /// never a program that does not parse. The syntax module is the caller's: a [`Baseline`]
+    /// does not keep it.
+    ///
+    /// # Errors
+    ///
+    /// [`PatchFailureKind::NoProgramParser`] with k-rust's reason.
+    pub fn program_parser(&self, syntax_module: &str) -> Result<(), PatchFailure> {
+        let no_parser =
+            |detail: String| PatchFailure::new(PatchFailureKind::NoProgramParser, detail);
+        let grammar =
+            ProgramGrammar::new(&self.definition).map_err(|error| no_parser(error.to_string()))?;
+        ProgramParser::from_resolved(grammar.resolved(), syntax_module)
+            .map(|_| ())
+            .map_err(|error| no_parser(error.to_string()))
+    }
 }
 
 /// Applies every edit of `patch` or none.
@@ -124,6 +151,13 @@ impl Mutant {
 /// typing check: the edited rules and claims are typed in compilation's view after all edits are
 /// assembled, and a typing error is only recorded ([`Mutant::typing_diagnostics`]); compilation
 /// decides whether the mutant is valid.
+///
+/// A replaced or inserted sentence is a rule, a claim, a context, or one of the sentences that
+/// define a grammar's text: a production (a token definition among them), a lexical
+/// declaration, or a priority or associativity declaration (PJ-34). Sort and sort-synonym
+/// declarations, configurations and bubbles are refused. A grammar edit is held, as every edit
+/// is, only to applying and resolving here and to compilation afterwards; whether the mutant's
+/// grammar still gives a program parser is [`Mutant::program_parser`]'s question.
 ///
 /// # Errors
 ///
@@ -190,7 +224,7 @@ fn preflight(baseline: &Baseline, edit: &Edit) -> Result<(), PatchFailure> {
             if discriminant(replacement) != discriminant(current) {
                 return Err(ill_formed(format!("{at:?} changes sentence kind")));
             }
-            rule_like(replacement)?;
+            editable(replacement)?;
             for key in PROTECTED_KEYS {
                 if replacement.attributes().value(key) != current.attributes().value(key) {
                     return Err(ill_formed(format!(
@@ -220,7 +254,7 @@ fn preflight(baseline: &Baseline, edit: &Edit) -> Result<(), PatchFailure> {
                     }
                 }
             }
-            rule_like(sentence)?;
+            editable(sentence)?;
             if let Some(key) = PROTECTED_KEYS
                 .into_iter()
                 .find(|key| sentence.attributes().has(*key))
@@ -370,14 +404,22 @@ fn protected(key: &str) -> Result<(), PatchFailure> {
     }
 }
 
-fn rule_like(sentence: &Sentence) -> Result<(), PatchFailure> {
+/// The sentences an edit may replace or insert: rules, claims and contexts, and the sentences
+/// that say which text parses to which term (productions, lexical, priority and associativity
+/// declarations). A sort or sort-synonym declaration, a configuration and a bubble are refused.
+fn editable(sentence: &Sentence) -> Result<(), PatchFailure> {
     match sentence {
         Sentence::Rule { .. }
         | Sentence::Claim { .. }
         | Sentence::Context { .. }
-        | Sentence::ContextAlias { .. } => Ok(()),
+        | Sentence::ContextAlias { .. }
+        | Sentence::Production { .. }
+        | Sentence::SyntaxLexical { .. }
+        | Sentence::SyntaxPriority { .. }
+        | Sentence::SyntaxAssociativity { .. } => Ok(()),
         _ => Err(ill_formed(
-            "only rules, claims and contexts can be replaced or inserted",
+            "only rules, claims, contexts, productions and lexical, priority and associativity \
+             declarations can be replaced or inserted",
         )),
     }
 }

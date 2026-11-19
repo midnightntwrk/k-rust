@@ -333,6 +333,92 @@ fn inserted_and_replaced_sentences() {
     assert_withdrawn_patch(&baseline, &withdrawal);
 }
 
+/// Production edits, which `apply` admits since PJ-34 (U34a). An inserted production's symbol
+/// claim is the patch's own, so it is unsupported (before, withdrawing it panicked on the missing
+/// baseline sentence). A replacement that carries its original's claim over, and changes more
+/// than the production's text, has the claim dropped from the replacement, so the withdrawn patch
+/// applies (before, it removed the attribute of the replaced sentence, an overlapping edit). A
+/// replacement that changes only the text redefines nothing and withdraws nothing.
+#[test]
+fn inserted_and_replaced_productions() {
+    let baseline = baseline();
+    let d = production(&baseline, "d");
+    let mut inserted = baseline.sentence(&d).expect("d's production").clone();
+    let Sentence::Production { label, .. } = &mut inserted else {
+        panic!("a production");
+    };
+    label.as_mut().expect("a label").name = "d2".to_owned();
+    for key in kink_patch::POSITION_KEYS
+        .into_iter()
+        .chain([AttributeKey::UniqueId, AttributeKey::Label])
+    {
+        inserted.attributes_mut().unset(key);
+    }
+    let withdrawal = withdraw(
+        &baseline,
+        vec![Edit::InsertSentence {
+            position: InsertPosition::After(d.clone()),
+            ordinal: 0,
+            sentence: inserted,
+        }],
+    );
+    assert_eq!(
+        named(&baseline, &withdrawal.unsupported),
+        set(&[("inserted 0", TOTAL)])
+    );
+    assert!(!withdrawal.trusted());
+
+    // f(Nat) read as f[Nat]: the text alone changes.
+    let f = production(&baseline, "f");
+    let original = baseline.sentence(&f).expect("f's production").clone();
+    let mut reparsed = original.clone();
+    let Sentence::Production { items, .. } = &mut reparsed else {
+        panic!("a production");
+    };
+    for item in items.iter_mut() {
+        if let k_rust::definition::ProductionItem::Terminal(text) = item {
+            *text = text.replace('(', "[").replace(')', "]");
+        }
+    }
+    let withdrawal = withdraw(
+        &baseline,
+        vec![Edit::ReplaceSentence {
+            at: f.clone(),
+            replacement: reparsed,
+        }],
+    );
+    assert!(
+        withdrawal.withdrawn.is_empty() && withdrawal.trusted(),
+        "{withdrawal:?}"
+    );
+
+    // f marked `memo` as well: no longer the text alone, so every symbol counts and f's
+    // `total`, carried over, is dropped from the replacement.
+    let mut marked = original;
+    marked
+        .attributes_mut()
+        .set(AttributeKey::Memo, Value::String(String::new()));
+    let withdrawal = withdraw(
+        &baseline,
+        vec![Edit::ReplaceSentence {
+            at: f,
+            replacement: marked,
+        }],
+    );
+    assert!(named(&baseline, &withdrawal.withdrawn).contains(&("f".to_owned(), TOTAL.to_owned())));
+    let patch = withdrawal.patch().expect("a withdrawing patch");
+    let replacement = patch
+        .edits()
+        .iter()
+        .find_map(|edit| match edit {
+            Edit::ReplaceSentence { replacement, .. } => Some(replacement),
+            _ => None,
+        })
+        .expect("the replacement");
+    assert!(replacement.attributes().get(TOTAL).is_none());
+    apply(&baseline, patch).expect("the withdrawn patch applies");
+}
+
 /// An edit whose effect on what terms denote is not known symbol by symbol, here deleting a
 /// production (which changes its sort's values), withdraws every claim. Load-stage change
 /// (VI-03F, k-rust 378a97ca): initKCell totality is derived during compilation per side, so it

@@ -28,6 +28,11 @@
 //! term positions into a [`CandidateGeneration`] of deduplicated candidate
 //! patches.
 //!
+//! [`generate_grammar`] does the same for the sentences that say which text parses to which
+//! term (PJ-34): productions, token definitions, and lexical, priority and associativity
+//! declarations, each candidate admitted only when its mutant gives a program parser
+//! ([`Mutant::program_parser`]).
+//!
 //! [`ClaimSupport`] relates the attributes k-rust trusts without checking them to the
 //! sentences they rest on, and [`ClaimSupport::withdraw`] removes from a mutant every such
 //! claim whose support its patch touched.
@@ -40,6 +45,7 @@ mod codec;
 mod digest;
 mod failure;
 mod fingerprint;
+mod grammar;
 mod operator;
 mod semantic_input;
 mod sort;
@@ -71,6 +77,7 @@ pub use failure::{PatchFailure, PatchFailureKind};
 pub use fingerprint::{
     FINGERPRINT_DOMAIN, FingerprintError, POSITION_KEYS, SentenceFingerprint, fingerprint_payload,
 };
+pub use grammar::{GrammarForm, GrammarSelector, generate_grammar, grammar_variants};
 pub use operator::{
     Action, BUILTIN_CELL_SYNTAX_SORTS, Clause, OPERATOR_DOMAIN, OperatorSpec, generate,
 };

@@ -41,7 +41,12 @@
 //! reaches `u` (its unit axiom mentions `u`); subsort axioms link sorts, not symbols (re-pin
 //! R0c-fix-3, `generated_links`). When a patch's effect on the
 //! equational part is not known this precisely (it edits a production otherwise, a sort, a
-//! configuration, or a rule whose head cannot be read), every symbol counts as redefined. A
+//! configuration, or a rule whose head cannot be read), every symbol counts as redefined. An edit
+//! of a lexical, priority or associativity declaration, and a production replacement that keeps
+//! the symbol, its signature and its attributes and changes only its terminals or regex, change
+//! only which text parses to which term, and redefine no symbol (PJ-34, `parse_only`); an
+//! inserted production adds values to its sort, as a deleted one removes them, so every symbol
+//! counts as redefined. A
 //! claim is *supported* in the mutant when no symbol of its closure is redefined and the patch
 //! left its own sentence alone: then every sentence and claim it rests on is the baseline's,
 //! and it holds in the mutant exactly as in the baseline. An edit of a rewrite rule only
@@ -75,7 +80,9 @@
 use crate::apply::{Mutant, SentenceOrigin, apply};
 use crate::failure::PatchFailure;
 use crate::{Baseline, Edit, POSITION_KEYS, Patch, SentenceRef};
-use k_rust::definition::{AttributeKey, Definition, PartialOrder, Sentence, compute_subsorts};
+use k_rust::definition::{
+    AttributeKey, Definition, PartialOrder, ProductionItem, Sentence, compute_subsorts,
+};
 use k_rust::kast::{InternalLabel, Label, Sort, Term};
 use k_rust::kompile::CompileOptions;
 use k_rust::names::BuiltinSort;
@@ -87,8 +94,13 @@ use std::collections::{BTreeMap, BTreeSet};
 /// store keys. v2
 /// (re-pin R0c-fix-3): the reach follows kompile's generated overload and unit axioms. v3 (re-pin
 /// R0c-fix-4): a rule written with configuration context (`[[ F ]] C`) is read as an equation of
-/// `F`'s head.
-pub const CLAIM_REMOVAL_VERSION: &str = "kink-patch/claim-removal/v3";
+/// `F`'s head. v4 (PJ-34, U34a): an edit of a lexical, priority or associativity declaration,
+/// or a production replacement that changes only its terminals or regex (`parse_only`),
+/// redefines no symbol, where every symbol counted as redefined before; a claim an inserted
+/// production carries is unsupported, and one a replacing production carries over is dropped
+/// from the replacement when its support is touched; an inserted production counts every symbol
+/// as redefined.
+pub const CLAIM_REMOVAL_VERSION: &str = "kink-patch/claim-removal/v4";
 
 /// The version of the weakening test ([`ClaimSupport::weakening`]): whether a mutation is
 /// `unkillable` is a verdict this algorithm decides, so kink's semantics identity names it
@@ -480,13 +492,33 @@ impl ClaimSupport {
                     let label_affected = label
                         .as_ref()
                         .is_none_or(|label| is_affected(&BTreeSet::from([label.name.clone()])));
+                    let replaced = baseline_at.and_then(|at| replacing_edit(edits, at));
                     for key in SYMBOL_CLAIMS {
                         let Some(claim) = claim(key) else { continue };
-                        if writes(key) {
-                            withdrawal.unsupported.push(claim);
-                        } else if label_affected {
-                            removals.push(removal(baseline_at, &claim));
-                            withdrawal.withdrawn.push(claim);
+                        let inherited = |at: &SentenceRef| {
+                            baseline
+                                .sentence(at)
+                                .and_then(|original| original.attributes().value(key))
+                                == Some(&claim.value)
+                        };
+                        match (baseline_at, replaced) {
+                            // An inserted production's claim is the patch's own (PJ-34).
+                            (None, _) => withdrawal.unsupported.push(claim),
+                            // A replacement carries the claim over: it is dropped from the
+                            // replacement when its support is touched, as a rule's is.
+                            (Some(at), Some(edit)) if inherited(at) => {
+                                if label_affected {
+                                    stripped.entry(edit).or_default().push(claim.key.clone());
+                                    withdrawal.withdrawn.push(claim);
+                                }
+                            }
+                            (Some(_), Some(_)) => withdrawal.unsupported.push(claim),
+                            (Some(_), None) if writes(key) => withdrawal.unsupported.push(claim),
+                            (Some(at), None) if label_affected => {
+                                removals.push(removal(Some(at), &claim));
+                                withdrawal.withdrawn.push(claim);
+                            }
+                            (Some(_), None) => {}
                         }
                     }
                     // A production's `concrete` or `symbolic` restricts every equation of it.
@@ -606,15 +638,23 @@ impl ClaimSupport {
             Role::Unknown => None,
             Role::Lemma | Role::Rewrite => Some(None),
         };
+        // The productions a parse-only replacement edits ([`parse_only`]): they redefine nothing.
+        let mut reparsed = BTreeSet::new();
         for at in touched {
             let sentence = baseline.sentence(at)?;
             match sentence {
                 Sentence::Rule { .. } => redefined.extend(head(sentence)?),
                 Sentence::Claim { .. }
                 | Sentence::Context { .. }
-                | Sentence::ContextAlias { .. } => {}
+                | Sentence::ContextAlias { .. }
+                // Which text parses to which term, and nothing an equation, a claim, a sort or a
+                // constructor says (PJ-34; see [`parse_only`]).
+                | Sentence::SyntaxLexical { .. }
+                | Sentence::SyntaxPriority { .. }
+                | Sentence::SyntaxAssociativity { .. } => {}
                 Sentence::Production { .. } => {
-                    // Only a claim edit keeps the sort's values and the symbol's kind.
+                    // Only a claim edit keeps the sort's values and the symbol's kind, and a
+                    // parse-only replacement keeps everything but the text.
                     if !edits.iter().all(|edit| match edit {
                         Edit::AddAttribute {
                             at: edited, key, ..
@@ -626,9 +666,16 @@ impl ClaimSupport {
                             at: edited, key, ..
                         } => edited != *at || is_symbol_claim(key),
                         Edit::DeleteSentence { at: edited } => edited != *at,
+                        Edit::ReplaceSentence {
+                            at: edited,
+                            replacement,
+                        } => edited != *at || parse_only(sentence, replacement),
                         _ => true,
                     }) {
                         return None;
+                    }
+                    if replacing_edit(edits, at).is_some() {
+                        reparsed.insert(*at);
                     }
                 }
                 _ => return None,
@@ -636,14 +683,20 @@ impl ClaimSupport {
         }
         for (at, origin) in mutant.origins() {
             let edited = match origin {
-                SentenceOrigin::Baseline(original) => touched.contains(original),
+                SentenceOrigin::Baseline(original) => {
+                    touched.contains(original) && !reparsed.contains(original)
+                }
                 SentenceOrigin::Inserted { .. } => true,
             };
             if edited {
                 let sentence = sentence_at(mutant.definition(), at)?;
-                match sentence {
-                    Sentence::Rule { .. } => redefined.extend(head(sentence)?),
-                    Sentence::Production { label, .. } => {
+                match (sentence, origin) {
+                    (Sentence::Rule { .. }, _) => redefined.extend(head(sentence)?),
+                    // An inserted production adds a value to its sort (a constructor no equation
+                    // of a function over the sort covers, or a subsort's values), as deleting one
+                    // removes values: every symbol counts (PJ-34).
+                    (Sentence::Production { .. }, SentenceOrigin::Inserted { .. }) => return None,
+                    (Sentence::Production { label, .. }, SentenceOrigin::Baseline(_)) => {
                         redefined.insert(label.as_ref()?.name.clone());
                     }
                     _ => {}
@@ -1500,6 +1553,66 @@ fn rule_rank(sentence: &Sentence) -> Option<u8> {
 /// The default `ensures true` asserts no property of an equation's result.
 fn trivial_ensures(ensures: &Term) -> bool {
     matches!(ensures.unannotated(), Term::Token { token, sort } if token == "true" && sort.name == "Bool")
+}
+
+/// Whether replacing the production `original` by `replacement` changes only which text parses
+/// to the term it builds (PJ-34). `original` is a grammar production site or a regex token
+/// ([`crate::grammar`]: not a cell, user-list or bracket production, whose text kompile reads
+/// to build other sentences), and the replacement has the same label, sort parameters, result
+/// sort, attributes (but for position keys) and nonterminals in order, with any terminals and
+/// regex terminals between them. What a term denotes is fixed by the equations, the claims, and
+/// the sorts and constructors that make up each sort's values; such a replacement declares the
+/// same symbol of the same signature with the same attributes, so it changes none of those.
+/// kompile reads a site's terminals for the symbol's `format` and `terminals` unparsing
+/// attributes (`module_to_kore.rs`), which the backend reads for no evaluation, and for
+/// production identities and diagnostics (`catalog.rs`, `equivalence.rs`, `concretize_cells.rs`
+/// `written_syntax`); it reads a token's value from its sort and hook
+/// (`kompile/token_value.rs`), never from the regex that scans it. The
+/// same holds of a lexical, priority or associativity declaration, which the parser reads alone
+/// (priorities and associativities reach KORE only as `priorities`, `left` and `right` symbol
+/// attributes): [`ClaimSupport`] reads an edit of one as redefining no symbol.
+fn parse_only(original: &Sentence, replacement: &Sentence) -> bool {
+    let (
+        Sentence::Production {
+            label,
+            parameters,
+            sort,
+            items,
+            attributes,
+        },
+        Sentence::Production {
+            label: new_label,
+            parameters: new_parameters,
+            sort: new_sort,
+            items: new_items,
+            attributes: new_attributes,
+        },
+    ) = (original, replacement)
+    else {
+        return false;
+    };
+    if !crate::grammar::production_site(original) && !crate::grammar::regex_token(original) {
+        return false;
+    }
+    let nonterminals = |items: &[ProductionItem]| {
+        items
+            .iter()
+            .filter(|item| matches!(item, ProductionItem::NonTerminal { .. }))
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    let unpositioned = |attributes: &k_rust::definition::Attributes| {
+        let mut attributes = attributes.clone();
+        for key in POSITION_KEYS {
+            attributes.remove(key.as_str());
+        }
+        attributes
+    };
+    label == new_label
+        && parameters == new_parameters
+        && sort == new_sort
+        && nonterminals(items) == nonterminals(new_items)
+        && unpositioned(attributes) == unpositioned(new_attributes)
 }
 
 fn is_symbol_claim(key: &str) -> bool {

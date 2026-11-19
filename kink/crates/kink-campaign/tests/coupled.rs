@@ -8663,8 +8663,11 @@ mod kink_tier {
         });
     }
 
-    /// F4: origin authorization permits these writes, but local patch application refuses
-    /// production insertion and changing a rule sentence into a production.
+    /// F4: origin authorization permits these writes. Local patch application refuses changing a
+    /// rule sentence into a production. Since PJ-34 (U34a) it applies a production insertion,
+    /// which kink does not admit (`not-admitted`: the insertion leaves every claim unbacked, and
+    /// it redeclares the symbol), so the mutant is never killed; before, application refused the
+    /// insertion.
     #[test]
     #[ignore = "kink"]
     fn audit_vi_t10_redeclared_total_function_is_not_killed() {
@@ -8756,6 +8759,24 @@ mod kink_tier {
                     .expect("selection")
                     .fold("tb02-redeclare", |_| patch.clone())
                     .expect("authorized edit");
+                if label == "insert" {
+                    let [CandidateDisposition::Mutant(0)] = generation.dispositions() else {
+                        panic!("{label}: {:?}", generation.dispositions())
+                    };
+                    for mode in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                        let run =
+                            run_campaign(&campaign, &generation, mode).expect("admitted baseline");
+                        let [mutant] = run.mutants.as_slice() else {
+                            panic!("{label} {mode:?}: {} mutants", run.mutants.len())
+                        };
+                        eprintln!(
+                            "TB02-REDECLARE {label} {mode:?}: {:?}",
+                            mutant.report.status
+                        );
+                        assert_eq!(mutant.report.status, MutantStatus::NotAdmitted);
+                    }
+                    continue;
+                }
                 let [CandidateDisposition::Rejected(failure)] = generation.dispositions() else {
                     panic!("{label}: {:?}", generation.dispositions())
                 };
@@ -8764,14 +8785,7 @@ mod kink_tier {
                     failure.kind(),
                     kink_patch::PatchFailureKind::LocallyIllFormed
                 );
-                if label == "insert" {
-                    assert_eq!(
-                        failure.to_string(),
-                        "locally-ill-formed: only rules, claims and contexts can be replaced or inserted"
-                    );
-                } else {
-                    assert!(failure.to_string().contains("changes sentence kind"));
-                }
+                assert!(failure.to_string().contains("changes sentence kind"));
                 assert!(generation.candidates().is_empty());
                 assert!(!generation.scored());
                 for mode in [ScheduleMode::Full, ScheduleMode::FirstKill] {

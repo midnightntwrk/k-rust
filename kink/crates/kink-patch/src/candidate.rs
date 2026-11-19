@@ -896,6 +896,25 @@ pub struct Selection<'b> {
 }
 
 impl<'b> Selection<'b> {
+    /// A selection of `origins` made by a declared enumeration other than [`select`]'s (the
+    /// grammar sites of [`crate::grammar`]): complete when `complete`, else incomplete.
+    pub(crate) fn enumerated(
+        baseline: &'b Baseline,
+        origins: Vec<PatchOrigin>,
+        complete: bool,
+    ) -> Self {
+        Self {
+            baseline,
+            selected_origins: origins,
+            completeness: if complete {
+                Completeness::CompleteFinite
+            } else {
+                Completeness::Incomplete
+            },
+            failure: (!complete).then_some(CandidateFailureKind::IncompleteGeneration),
+        }
+    }
+
     /// Keeps a subset of the selected origins in their existing canonical order.
     /// A cut makes the selection incomplete and sampled; a no-op preserves every
     /// property, including an earlier failure on an empty selection.
@@ -1193,7 +1212,24 @@ impl<'b> Selection<'b> {
     pub fn fold(
         self,
         operator: &str,
+        patch_for: impl FnMut(&PatchOrigin) -> Patch,
+    ) -> Result<CandidateGeneration<'b>, CandidateFailure> {
+        self.fold_admitting(operator, patch_for, |_| Ok(()))
+    }
+
+    /// [`Self::fold`] with one more check: `admit` runs on each distinct patch's mutant once it
+    /// applied, and a patch it refuses is a rejected disposition with that failure, never a
+    /// candidate. A grammar generation admits through [`crate::Mutant::program_parser`], so a
+    /// generated grammar mutant either gives a program parser or is refused with k-rust's reason.
+    ///
+    /// # Errors
+    ///
+    /// Those of [`Self::fold`].
+    pub fn fold_admitting(
+        self,
+        operator: &str,
         mut patch_for: impl FnMut(&PatchOrigin) -> Patch,
+        mut admit: impl FnMut(&crate::Mutant) -> Result<(), PatchFailure>,
     ) -> Result<CandidateGeneration<'b>, CandidateFailure> {
         let mut candidates: Vec<Candidate> = Vec::new();
         let mut rejected: Vec<(Patch, PatchFailure)> = Vec::new();
@@ -1234,7 +1270,9 @@ impl<'b> Selection<'b> {
             } else if let Some((_, failure)) = rejected.iter().find(|(other, _)| *other == patch) {
                 dispositions.push(CandidateDisposition::Rejected(failure.clone()));
             } else {
-                match apply(self.baseline, &patch) {
+                match apply(self.baseline, &patch)
+                    .and_then(|mutant| admit(&mutant).map(|()| mutant))
+                {
                     Ok(mutant) => {
                         dispositions.push(CandidateDisposition::Mutant(candidates.len()));
                         candidates.push(Candidate {
