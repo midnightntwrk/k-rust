@@ -9,8 +9,8 @@
   <k> K </k> <counter> 0 </counter> requires f()`. Run from the package root:
   `lake env lean -j1 test/ExTwoResults.lean`. Kernel-checked.
 
-  - `coreOK` holds (`coreOK_now`): `clausesPlain` admits the clauses' predicates, since no condition
-    of theirs needs a witness; `ok`, which asks every predicate `\top`, refuses them (`ok_now`).
+  - `coreOK` holds (`coreOK_now`): `clausesPlain` admits the clauses' predicates, none of them
+    `\top`; `ok`, which asks every predicate `\top`, refuses them (`ok_now`).
     The last clause's predicate has a binder, so the definition reads a confined sort
     (`readsConfined_now`) and `Γc` holds `boolClosed`.
   - `Eval` has both results: `f()` is `true` by the first clause and `false` by the second
@@ -85,7 +85,7 @@ def c : Semantics :=
 
 /-! ## `coreOK` -/
 
-/-- `clausesPlain` admits f's clauses: no condition of theirs needs a witness. -/
+/-- `clausesPlain` admits f's clauses with their predicates. -/
 theorem clausesPlain_now : c.clausesPlain = true := by decide +kernel
 
 /-- **`coreOK` holds.** -/

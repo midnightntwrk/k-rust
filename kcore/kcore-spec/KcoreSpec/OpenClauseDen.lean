@@ -45,7 +45,7 @@ theorem clauseOpenFacts_of {c : Semantics} (hpreTop : c.clausesPreTop = true) {f
     (hs : c.clauseSortedOpen fn L cl = true) (hp : c.clausePlainOpen cl = true) (hpre : cl.pre = .top) :
     ClauseOpenFacts c fn L cl := by
   obtain ⟨h1, h2, h3, h4, h5⟩ := Semantics.clauseSortedOpen_parts hs
-  obtain ⟨hexs, hpost, -, -⟩ := Semantics.clausePlainOpen_partsP hp
+  obtain ⟨hexs, hpost, -⟩ := Semantics.clausePlainOpen_partsP hp
   exact ⟨h1, hpre, hpost, h2, h3, h4, h5, hexs⟩
 
 /-- The generated sort predicates' clauses have `\top` predicates. -/
@@ -86,7 +86,7 @@ def ClauseOpenFactsP (c : Semantics) (fn : Fn) (L : List CtorSig) (cl : Clause) 
 theorem clauseOpenFactsP_of {c : Semantics} {fn : Fn} {L : List CtorSig} {cl : Clause}
     (hs : c.clauseSortedOpen fn L cl = true) (hp : c.clausePlainOpen cl = true) : ClauseOpenFactsP c fn L cl := by
   obtain ⟨h1, h2, h3, h4, h5⟩ := Semantics.clauseSortedOpen_parts hs
-  obtain ⟨hexs, hpost, -, -⟩ := Semantics.clausePlainOpen_partsP hp
+  obtain ⟨hexs, hpost, -⟩ := Semantics.clausePlainOpen_partsP hp
   exact ⟨h1, Semantics.clauseSortedOpen_preOK hs, hpost, h2, h3, h4, h5, hexs⟩
 
 /-- A `\top` predicate is well sorted. -/

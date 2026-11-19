@@ -1,0 +1,2 @@
+# The K text of the Kore-in-K entry kk:t243-ceil-lemma-fn-undecided (krs/semantics/kore/texts), copied by kfix.py run: a function d with one equation that requires B =/=Int 0, and a [simplification] sentence over element variables, #Ceil(d(A, B)) => {(B =/=Int 0) #Equals true}, which states that d(A, 0) has no value. No equation of d decides d(A, 0), so its value there is the interpretation's and the sentence holds under some interpretations only.
+kk = "t243-ceil-lemma-fn-undecided"

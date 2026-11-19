@@ -373,7 +373,8 @@ inductive TieDir where
   | equal
   /-- `Γ ⊧ tr s`. -/
   | entailed
-  /-- `tr s` entails the item `Γ` holds for `s`, which adds a premise to it. -/
+  /-- `tr s` entails the item `Γ` holds for `s`, which says less than `s`: it adds a premise to it,
+  or a disjunct. -/
   | weaker
   /-- `tr s` holds in every model of `Γ` at the valuations that send its variables to values
   (`EntailsAtValues`). -/
@@ -391,11 +392,15 @@ inductive TieDir where
   deriving DecidableEq, Repr
 
 /-- **The classes of a tie's account, each with its direction.** A text's account lists its
-sentences under these names, in this order.
-- function equation: an equation of a function of the semantics, `owise` or without priority;
+sentences under these names, in this order; the account of a text with an overload axiom lists one
+class more, and an account lists apart the sentences that are in no class (both after the list).
+- function equation: an equation of a function of the semantics that is no priority equation: an
+  `owise` equation, or one of priority 50 (its `priority{}`, 50 without one) whose item negates no
+  clause. `Γ`'s item is its translation;
 - rewrite rule: `Γ`'s item has the premise that the right side with the `ensures` is defined;
-- priority equation: an equation with `priority{}` that is not `owise`, whose item adds the
-  negations of the clauses of a smaller priority;
+- priority equation: an equation of a function that is not `owise` and whose item adds the
+  negations of the clauses of a smaller priority that are not `aside` (its own priority is its
+  `priority{}`, 50 without one), or whose `priority{}` is not 50;
 - constructor functional, subsort, injectivity, distinctness, no junk: the constructor sentences;
 - function functional: the `functional` sentence of a function of the semantics;
 - hooked functional: the `functional` sentence of a symbol the registry interprets;
@@ -405,8 +410,9 @@ sentences under these names, in this order.
   lemma);
 - set idempotence: `_Set_(K, K) = K`, against which `Γ` states the concatenation of two sets with
   a common member undefined;
-- set-variable lemma: a library lemma over set variables that `Γ` refutes at a valuation sending
-  each free set variable to a set of values (`SetVarsAtValues`);
+- set-variable lemma: a lemma of K's builtin files, the library's or one read as the definition's
+  own, over set variables that `Γ` refutes at a valuation sending each free set variable to a set
+  of values (`SetVarsAtValues`);
 - function law: a law sentence (`AttrsAgree.isLaw`) whose head is a function or a parameter that is
   no open generator: the sentence of a law of the definition (`Definition.laws`), owed as `FnLaws`;
 - open generator law: the `assoc` or `idem` sentence of an open generator, of which `Γ`'s law item
@@ -431,7 +437,21 @@ sentences under these names, in this order.
   `Γ (c.withHooks H) ⊧ tr s` for every `H`;
 - user lemma at values: the same, where the sentence holds at the valuations sending its variables
   to values (`EntailsAtValues`), because it rests on an interpreted symbol's graph;
-- no direction: a sentence that applies a symbol `Γ` does not have. -/
+- no direction: a sentence that applies a symbol `Γ` does not have.
+
+The account of a text with an overload axiom, `f(lift K̄) = lift(g(K̄))` for an overloading symbol
+`f` and a symbol `g` it overloads, lists these classes with one more before no direction (the list
+`tieClassesOvl`): overload equation, of direction `entailed`. `Γ`'s overload item states the
+equation at every element and the sentence within `f`'s result sort, so `Γ` entails the sentence
+and the item is not its translation.
+
+Two kinds of sentence are in no class, and an account lists each apart with its theorems:
+- the no-confusion sentence of an overloading symbol and a symbol it overloads, which states the
+  two disjoint where the overload axiom equates them: `Γ` with it has no model;
+- KItem's no-junk sentence that leaves out the injection from a sort the reading holds below KItem
+  (`Parse.ReadingNote.tokKItem`): the sentence entails `Γ`'s no-junk item of KItem, which adds that
+  injection's disjunct (the direction `weaker`), and where a sort it leaves out has a value, `Γ`
+  with the sentence has no model. -/
 def tieClasses : List (String × TieDir) :=
   [("function equation", .equal), ("rewrite rule", .weaker), ("priority equation", .weaker),
    ("constructor functional", .entailed), ("subsort", .entailed), ("injectivity", .entailed),

@@ -8,8 +8,8 @@
   (`Fx.no_model`, `Pt.no_model`: h(1) would denote the elements of 1 and -1, which are apart). Run from the package root:
   `lake env lean -j1 test/EqRhsOr.lean`. Kernel-checked (`decide +kernel`): for `Fx` and `Pt`, every
   condition of `coreOK` but `clausesPlain` (`sortedRest_ok`, `coreRest_ok`), CN-4 §4.9's final
-  clause conjunct (`clauseE3_ok`), `clausesPlain` itself, which admits h's predicates since no
-  condition of h's clauses needs a witness (`clausesPlain_now`), so `coreOK` (`coreOK_now`), and
+  clause conjunct (`clauseE3_ok`), `clausesPlain` itself, which admits h's clauses with their
+  predicates (`clausesPlain_now`), so `coreOK` (`coreOK_now`), and
   that `ok`, which asks every clause's predicate `\top`, refuses them (`clausesPreTop_now`,
   `ok_now`); for `D`, where Z stands.
 
@@ -44,9 +44,9 @@
   no reason naming the shape (`D.clauseE3_1`). `Parse.frRead` refuses the equation itself,
   `manyValuedRightSide`, naming Z as a variable of an alternative that the arguments do not bind
   (test/RhsReader.lean, `eqD`), so these clauses are hand-built only.
-  `c.clausesPlain` is false of the three clauses (`D.clausesPlain_now`), at Z's sort: no clause
-  has a condition that needs a witness (`D.needsWitness_none`), so their predicates, none of them
-  `\top` (`D.pre_now`), are admitted, and the first clause fails the final conjunct. Where Z is of
+  `c.clausesPlain` is false of the three clauses (`D.clausesPlain_now`), at Z's sort: their predicates,
+  none of them `\top` (`D.pre_now`), are admitted, no clause has a condition that needs a witness
+  (`D.needsWitness_none`), and the first clause fails the final conjunct. Where Z is of
   Bool, which is confined (`DB`, the shape `k(X) => (X andBool Z) #Or X`), the final conjunct
   admits the three clauses (`DB.clauseE3_ok`) and so does `clausesPlain` (`DB.clausesPlain_now`).
 
@@ -166,7 +166,7 @@ theorem sortedRest_ok : sortedRest c = true := by decide +kernel
 theorem coreRest_ok : coreRest c = true := by decide +kernel
 /-- Every clause meets CN-4 §4.9's final clause conjunct. -/
 theorem clauseE3_ok : c.fns.all (fun f => f.clauses.all (clauseE3 c)) = true := by decide +kernel
-/-- `clausesPlain` admits h's clauses: no condition of theirs needs a witness. -/
+/-- `clausesPlain` admits h's clauses with their predicates. -/
 theorem clausesPlain_now : c.clausesPlain = true := by decide +kernel
 /-- So `coreOK` holds. -/
 theorem coreOK_now : c.coreOK = true := by
@@ -280,7 +280,7 @@ naming the shape; the second, whose `pre` reads X only, passes. -/
 theorem clauseE3_1 : clauseE3 c cl1 = false ∧ clauseE3 c cl3 = false ∧ clauseE3 c cl2 = true := by
   decide +kernel
 
-/-- No clause has a condition that needs a witness, so `clausesPlain` admits their predicates. -/
+/-- No clause has a condition that needs a witness. -/
 theorem needsWitness_none : cl1.needsWitness c = false ∧ cl2.needsWitness c = false ∧
     cl3.needsWitness c = false := by decide +kernel
 

@@ -413,7 +413,7 @@ theorem clauseExRead_of_coreEx (h : c.coreOKEx = true) (hrc : c.readsConfined = 
     simp only [Semantics.clauseSorted, Bool.and_eq_true] at hsrt
     exact hsrt.1.2.2
   have hpreOK := (Semantics.sortedOKEx_clausePre hok hu hcl).1
-  obtain ⟨hp, hs, -, -⟩ := Semantics.clausesPlainEx_spec (Semantics.sortedOKEx_parts hok).2.2.2.2.1 hu hcl
+  obtain ⟨hp, hs, -⟩ := Semantics.clausesPlainEx_spec (Semantics.sortedOKEx_parts hok).2.2.2.2.1 hu hcl
   have hfree : cl.exsFree = cl.exs := by
     have hs' := hs
     simp only [Semantics.clauseExOK, Bool.and_eq_true] at hs'

@@ -6750,7 +6750,7 @@ in its conditions, where they are closed or each such variable of them is of a c
 held by a cut (`clausesPlain`'s conjunct, else `openRequires`: the condition's truth at given
 arguments differs between models of the text); and where the clause has a predicate in its premise,
 its conditions are not closed over such a variable of a sort that is not confined
-(`Clause.needsWitness`, which `clausesPlain` refuses beside a predicate, with `openRequires`). A cut
+(`Clause.needsWitness`, refused here beside a predicate, with `openRequires`). A cut
 is a top-level conjunct `V ∈ t` of `pre` with V bound by the arguments, and it holds the variables
 of t under constructors, injections and the symbols `heldOccs` reads (`memHeld`): at arguments that
 are values V is a value's element, the conjunct puts that element in t, and an application of such
