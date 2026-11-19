@@ -119,7 +119,7 @@ theorem meets_others : outside c ∧
     by decide_cheap, fnHyp⟩
 
 theorem not_namesNumbered : namesNumbered c = false := by decide +kernel
-theorem ite_named : iteSort? (c.symName g) = some "KCell" := by decide +kernel
+theorem ite_named : instDecode? (c.symName g) = some ("Lblite", ["KCell"]) := by decide +kernel
 
 end CtorIte
 

@@ -66,7 +66,7 @@ which `setColl_idem_false` refutes. The sentence's shape (`hpat`), its variables
 sort (`hsort`) and the translation's table (`hR`, `hK`) are the tie's kernel decisions. -/
 theorem setColl_idem_refuted [OvlOK c] (hI : I ⊧ᴵP Γ c) {k : CollSig} (hk : k ∈ c.allColls)
     (hkind : k.kind = .set) (hco : c.collOf k.sort = some k) {w : GroundTerm} (hw : c.sortOf w = some k.key)
-    (hnum : k.sort < nRegSorts + c.sortNames.length) (hite : iteSort? (c.symName k.concat) = none)
+    (hnum : k.sort < nRegSorts + c.sortNames.length) (hite : instDecode? (c.symName k.concat) = none)
     {ad : KoreAML.AxiomDecl} {n : String}
     (hpat : ad.ax.pattern = setIdemPat c k n)
     (hvars : (ad.ax.sortVars.map KoreAML.sortVarKey ++ KoreAML.freeOf [] ad.ax.pattern).eraseDups =
@@ -117,8 +117,7 @@ theorem setColl_idem_refuted [OvlOK c] (hI : I ⊧ᴵP Γ c) {k : CollSig} (hk :
     show b = e'.evalEvar (tbl.ev (.evar n (KoreAML.srt (c.sortName k.sort)))) ↔ b = x
     rw [hKv]
   have happ := (hall x hx).mpr ((hKx x).mpr rfl)
-  have hhead : symHead c k.concat = KoreAML.sym (.symbol (c.symName k.concat)) := by
-    unfold symHead; rw [hite]
+  have hhead : symHead c k.concat = KoreAML.sym (.symbol (c.symName k.concat)) := symHead_noInst hite
   rw [tr_symApp, trArgs_appList, hhead] at happ
   exact setColl_idem_false hI hk hkind hco hw
     ((interp_symList _ _ [x, x] (.cons hKx (.cons hKx .nil)) x).mp happ)
@@ -136,7 +135,7 @@ idempotence sentence of `k` over the variable `n`, with its variables, sort and 
 def setIdemOK (c : Semantics) (k : CollSig) (n : String) (ad : KoreAML.AxiomDecl) : Bool :=
   decide (k ∈ c.allColls) && decide (k.kind = .set) && decide (c.collOf k.sort = some k) &&
   (Parse.exhibit? c k.key).isSome && decide (k.sort < nRegSorts + c.sortNames.length) &&
-  decide (iteSort? (c.symName k.concat) = none) && decide (ad.ax.pattern = setIdemPat c k n) &&
+  decide (instDecode? (c.symName k.concat) = none) && decide (ad.ax.pattern = setIdemPat c k n) &&
   decide ((ad.ax.sortVars.map KoreAML.sortVarKey ++ KoreAML.freeOf [] ad.ax.pattern).eraseDups =
     [.sortVar "R", .evar n (KoreAML.srt (c.sortName k.sort))]) &&
   decide (KoreAML.sortOf [] ad.ax.pattern = some KoreAML.R) &&

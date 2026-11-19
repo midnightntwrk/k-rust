@@ -40,6 +40,8 @@
   - The rule (154) is the subject of the tie of the rule with its open variable; here it is listed
     in its class only.
   - Sentences applying a head Γ does not have: no direction (`absent_syms`, `ite_absent`, `account_absent`).
+  - `absent_proj_below`: the 14 no-direction sentences that are equations of a projection
+    `project:X` are of sorts X that are K, KItem or below KItem in Γ (`GenEqs.projBelowB`).
 -/
 import KcoreSpec
 
@@ -445,6 +447,32 @@ theorem absent_closed :
       (fun ad => (appHeadsOf ad.ax.pattern).all (gammaHasHead c)) = true :=
   tieAbsent_of_account userAxioms _ _ account_absent
 
+/-- The sentences of the no-direction class that are equations of a projection `project:X` (their
+left side applies `Lblproject'Coln'X`), each with X. -/
+def absentProj : List (Nat × String) :=
+  [(248, "Bool"), (249, "Exp"), (250, "GeneratedCounterCell"), (251, "GeneratedCounterCellOpt"),
+   (252, "GeneratedTopCell"), (253, "GeneratedTopCellFragment"), (254, "Int"), (255, "K"),
+   (256, "KCell"), (257, "KCellOpt"), (258, "KItem"), (259, "List"), (260, "Map"), (261, "Set")]
+
+/-- Each sort of `absentProj` is K, KItem or a sort below KItem of Γ, with K and KItem
+constructor sorts. -/
+theorem absent_proj_below_c : absentProj.all (fun p => GenEqs.projBelowB c p.2) = true := by
+  decide +kernel
+
+/-- **The projections the no-direction class defines are of sorts below KItem**: `absentProj` is
+the list of the no-direction sentences whose left side applies a symbol `Lblproject'Coln'X`, each
+with that X, and each such X is K, KItem or a sort below KItem of Γ, with K and KItem constructor
+sorts (`GenEqs.projBelowB`). So the pattern each of these equations is at is functional and
+injective on X in every model of Γ (`GenEqs.projSel_fun`, `GenEqs.projSel_inj`): what the
+equation states of the pattern's symbols, Γ entails. -/
+theorem absent_proj_below (H : HookParams) :
+    (userAxioms.filter (fun ad => (classOf "no direction").contains ad.index &&
+        ((AttrsAgree.eqnHead ad.ax.pattern).getD "").startsWith "Lblproject'Coln'")).map
+      (fun ad => (ad.index, AttrsAgree.eqnHead ad.ax.pattern)) =
+      absentProj.map (fun p => (p.1, some ("Lblproject'Coln'" ++ p.2))) ∧
+    absentProj.all (fun p => GenEqs.projBelowB (cH H) p.2) = true :=
+  ⟨by rw [userAxioms_eq]; decide +kernel, absent_proj_below_c⟩
+
 /-! ## The constructor sentences: functional, subsort, injectivity, distinctness -/
 
 /-- The sentences of the four classes, in text order. -/
@@ -573,6 +601,8 @@ open KCore.TieUnbound in
 #print axioms KCore.TieUnbound.attrs_agree
 #print axioms KCore.TieUnbound.fn_prios
 #print axioms KCore.TieUnbound.absent_closed
+#print axioms KCore.TieUnbound.absent_proj_below_c
+#print axioms KCore.TieUnbound.absent_proj_below
 #print axioms KCore.TieUnbound.strItem_registry
 #print axioms KCore.TieUnbound.account
 #print axioms KCore.TieUnbound.account_absent

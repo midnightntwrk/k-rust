@@ -203,8 +203,7 @@ open Faithful.Model (NamesApartK) in
 theorem den_hookApp_rs {k : CtorSig} (hk : k ∈ hookSigs) (vs : List GroundTerm) :
     KoreAML.den (symApp c k.name (GroundTerm.koreList c vs)) =
       KoreAML.appList (KoreAML.sym (.symbol (c.symName k.name))) (vs.map (den c)) := by
-  unfold symApp
-  rw [Faithful.Model.hook_plain hk]
+  rw [symApp_noInst (Faithful.hook_noInst_irs hk)]
   unfold KoreAML.den
   rw [KoreAML.tr_app0, Faithful.trArgs_appList, DetachedB.koreList_map, List.map_map]
   rfl
@@ -268,9 +267,7 @@ elements of its argument sorts it gives an element of its result sort. -/
 theorem sat_registry_arity (hn : NamesApartK c) (hV : ValElems c D I) (hrb : RangeBelow c)
     {k : CtorSig} (hk : DHook c D k) : extModel c D I ⊧ᴵ (symArityItem c k).pat := by
   intro e pt
-  unfold symArityItem
-  rw [Faithful.Model.hook_plain hk.1]
-  dsimp only
+  rw [symArityItem_noInst (Faithful.hook_noInst_irs hk.1)]
   show (KoreAML.appList (KoreAML.sym (.symbol (c.symName k.name)))
       ((k.args.map (srtOf c)).map fun s => KoreAML.inhOf (KoreAML.trSort [] s)) ⊆⊆
     KoreAML.inhOf (KoreAML.trSort [] (srtOf c k.result))).interpret (extModel c D I) e pt
@@ -653,26 +650,22 @@ theorem argsRs_appList : ∀ (as : List KoreAML.P) (h : KoreAML.P),
 section
 variable {c : Semantics}
 
-/-- The arity item of a symbol, as an inclusion of its left side in its result sort. -/
-theorem symArity_pat_rs (k : CtorSig) :
+/-- The arity item of a symbol, as an inclusion of its left side in its result sort: the head
+`symApp` writes, applied to its sorts and to the argument sorts' inhabitants. -/
+theorem symArity_pat_rs {k : CtorSig} {h : String} {xs : List String}
+    (hw : ∀ ps, symApp c k.name ps = .app ⟨⟨h⟩⟩ (xs.map KoreAML.srt) ps) :
     (symArityItem c k).pat =
-      (KoreAML.appList (match iteSort? (c.symName k.name) with
-          | none => KoreAML.sym (.symbol (c.symName k.name))
-          | some X => KoreAML.sym (.symbol "Lblite") ⬝ sortP X)
-        (k.args.map fun s => KoreAML.inhOf (sortP (c.sortName s))) ⊆⊆
+      (KoreAML.appList (KoreAML.sym (.symbol h))
+        (xs.map sortP ++ k.args.map fun s => KoreAML.inhOf (sortP (c.sortName s))) ⊆⊆
         KoreAML.inhOf (sortP (c.sortName k.result))) := by
-  unfold symArityItem
-  cases iteSort? (c.symName k.name) with
-  | none =>
-    simp only [KoreAML.arityItem, KoreAML.guarded, List.map_nil, KoreAML.appList, List.map_map]
-    simp [srtOf, KoreAML.srt, KoreAML.trSort_const, sortP, Function.comp_def]
-  | some X => rfl
+  rw [symArityItem_of_symApp hw, instHeadP_appList_irs, Faithful.appList_append]
 
 
 /-- The arity item of a symbol names its result sort. -/
 theorem sort_mem_arity_rs (k : CtorSig) :
     KoreAML.Sym.sort ("Sort" ++ c.sortName k.result) ∈ psyms (symArityItem c k).pat := by
-  rw [symArity_pat_rs]
+  obtain ⟨h, xs, -, hw⟩ := symApp_head c k.name
+  rw [symArity_pat_rs hw]
   simp [psyms, ML.included, ML.total, Pattern.negation, KoreAML.inhOf, KoreAML.sym, sortP]
 
 end
@@ -703,23 +696,21 @@ theorem ctor_not_det_rs (hd : detachedB c ss ks = true) {k : CtorSig} (hk : k �
   rcases hL.1.1.1 _ hmem with h | h
   · exact clean_spec h ⟨_, sort_mem_arity_rs k, hs⟩
   · simp only [regSig, Bool.or_eq_true, List.any_eq_true, beq_iff_eq, Bool.and_eq_true] at h
+    obtain ⟨hd, xs, hih, hw⟩ := symApp_head c k.name
     rcases h with ⟨s, -, he⟩ | ⟨g, hg, hgk, he⟩
-    · rw [symArity_pat_rs] at he
+    · rw [symArity_pat_rs hw] at he
       simp [KoreAML.sortConstantItem, sortDeclOf, KoreAML.guarded, ML.included, ML.total, KoreAML.sExists,
         Pattern.negation] at he
-    · rw [symArity_pat_rs, symArity_pat_rs, Faithful.Model.hook_plain hg] at he
+    · rw [symArity_pat_rs hw, symArity_pat_rs (xs := []) (fun _ => symApp_noInst (Faithful.hook_noInst_irs hg))] at he
       simp only [ML.included, ML.total, Pattern.negation, Pattern.implication.injEq,
         Pattern.application.injEq, true_and, and_true] at he
-      cases hX : iteSort? (c.symName k.name) with
-      | none =>
-        simp only [hX] at he
-        have := congrArg headRs he.1
+      rcases hih with ⟨rfl, rfl⟩ | ⟨hne, -⟩
+      · have := congrArg headRs he.1
         rw [headRs_appList, headRs_appList] at this
         have hn : c.symName k.name = c.symName g.name := KoreAML.Sym.symbol.inj (Pattern.symbol.inj this)
         simp only [kOK, isName, hn, Bool.not_eq_true', List.any_eq_false, beq_iff_eq] at hko
         exact hko g.name (List.contains_iff_mem.mp hgk) rfl
-      | some X =>
-        simp only [hX] at he
+      · obtain ⟨X, xs', rfl⟩ := List.exists_cons_of_ne_nil hne
         have := congrArg argsRs he.1
         rw [argsRs_appList, argsRs_appList] at this
         cases hga : g.args with

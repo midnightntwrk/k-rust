@@ -105,16 +105,11 @@ theorem top_ok_cv : sOK c ss ks topCellSort = true := by
           simp only [ML.included, ML.total, Pattern.negation, Pattern.implication.injEq,
             Pattern.application.injEq, and_true, true_and] at hab
           rw [hab.1]
-      unfold symArityItem at he
-      split at he
-      · unfold KoreAML.arityItem at he
-        simp only [KoreAML.guarded, List.map_nil, KoreAML.appList] at he
-        have := hh he
-        rw [headSym_appList_cv] at this
-        cases this
-      · have := hh he
-        rw [headSym_appList_cv] at this
-        cases this
+      obtain ⟨h, xs, -, hw⟩ := symApp_head c g.name
+      rw [symArityItem_of_symApp hw, instHeadP_appList_irs] at he
+      have := hh he
+      simp only [headSym_appList_cv] at this
+      cases this
 
 end
 
@@ -175,8 +170,7 @@ theorem Cons.ext_model_cv {c : Semantics} {ss : List Srt} {ks : List Sym} (h : c
       obtain ⟨hap, hso⟩ := hG.1.2 p hp
       have hite := (Semantics.raw_of_paramsPlain (Semantics.sortedOKClEx_parts hm.hyp.1).2.2.2.2 hp hr).2.2.2.1
       have hk : kOK c ss ks p.sig.name = true := by
-        unfold appOK at hap
-        rw [hite] at hap
+        rw [appOK_noInst (h := hite)] at hap
         exact hap
       have hns : ¬ DetachedB.names c ss ks (.sort ("Sort" ++ c.sortName p.sig.result)) := fun hh => by
         have h1 := isName_iff.mpr hh

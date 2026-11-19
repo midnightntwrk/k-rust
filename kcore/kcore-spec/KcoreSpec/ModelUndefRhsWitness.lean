@@ -60,19 +60,7 @@ instance : OvlOK c := .of_nil rfl (by decide +kernel)
 theorem okAll : c.okAll = true := by decide +kernel
 theorem srReady : c.srReady = true := by decide +kernel
 theorem idsOK : c.idsOK = true := by decide +kernel
-theorem names_plain : c.ctorSigs.all (fun k => (iteSort? (c.symName k.name)).isNone) = true := by decide +kernel
-theorem names_fns : c.allFns.all (fun fn => (iteSort? (c.symName fn.label)).isNone &&
-    (fn.result :: fn.args).all (· < nRegSorts + c.sortNames.length)) = true := by decide +kernel
-
-theorem namesNumbered : NamesNumbered c := by
-  refine ⟨fun k hk => ?_, fun o ho g hg => ?_, fun fn hfn s hs => ?_⟩
-  · exact Option.isNone_iff_eq_none.mp (List.all_eq_true.mp names_plain k hk)
-  · have h : c.ovls.all (fun o => o.over.all fun g => (iteSort? (c.symName g)).isNone) = true := by
-      decide +kernel
-    exact Option.isNone_iff_eq_none.mp (List.all_eq_true.mp (List.all_eq_true.mp h o ho) g hg)
-  · have := List.all_eq_true.mp names_fns fn hfn
-    simp only [Bool.and_eq_true] at this
-    exact of_decide_eq_true (List.all_eq_true.mp this.2 s hs)
+theorem namesNumbered : NamesNumbered c := namesNumbered_spec (by decide +kernel)
 
 theorem genWf_ok : genWf c = true := by decide +kernel
 theorem patHooks_ok : patHooksApart c = true := by decide +kernel

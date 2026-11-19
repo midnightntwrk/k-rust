@@ -87,7 +87,7 @@ theorem iteSig_hook : iteSig ∈ hookSigs := by decide +kernel
 theorem hook_ite : hook iteSig.name [vb, vk, vk] = some (some vk) := by decide +kernel
 theorem genWf_ok : genWf c = true := by decide +kernel
 theorem kitem_apart : apartSort c Srt.kitem = true := by decide +kernel
-theorem ite_plain : iteSort? (c.symName kIte) = none := by decide +kernel
+theorem ite_plain : instDecode? (c.symName kIte) = none := by decide +kernel
 
 /-- **`Γ c` has no model.** -/
 theorem no_model : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), ¬ (I ⊧ᴵP Γ c) := by
@@ -101,7 +101,7 @@ theorem no_model : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.
   have hfd : ∀ m, (KoreAML.den (symApp c iteSig.name (GroundTerm.koreList c [vb, vk, vk]))).interpret I
       KoreAML.val0 m ↔ (den c vi).interpret I KoreAML.val0 m := fun m => by
     show (KoreAML.den (symApp c kIte _)).interpret I _ m ↔ _
-    unfold symApp; rw [ite_plain]; rfl
+    rw [symApp_noInst ite_plain] <;> rfl
   have he : elemOf c I vi = elemOf c I vk := by
     have h1 := (elemOf_spec hI vi_sort KoreAML.val0).1
     have h2 := (elemOf_spec hI vk_sort KoreAML.val0).1

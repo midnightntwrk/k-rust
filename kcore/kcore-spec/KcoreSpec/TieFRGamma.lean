@@ -381,12 +381,18 @@ def withCompFG (L : List Clause) (n q : P) : P := if L.isEmpty then q else sAnd 
 def headFG (c : Semantics) (f : Fn) : Kore.Pattern :=
   symApp c f.label (KoreAML.vars (numbered "X" 0 (f.args.map c.sortName)))
 
-/-- The variables of an application `symApp` writes are its arguments': the sort argument of a
-symbol named like `ite` at a sort is a sort constant. -/
+/-- The variables of an application `symApp` writes are its arguments': its sort arguments are sort
+constants. -/
 theorem varsOf_symAppFG (c : Semantics) (f : Sym) (ps : List Kore.Pattern) :
     KoreAML.varsOf (symApp c f ps) = KoreAML.varsOfList ps := by
-  unfold symApp; split <;>
-    simp [KoreAML.varsOf, KoreAML.sortVarsOfList, KoreAML.sortVarsOf, KoreAML.srt]
+  have hs : ∀ xs : List String, KoreAML.sortVarsOfList (xs.map KoreAML.srt) = [] := by
+    intro xs
+    induction xs with
+    | nil => simp [KoreAML.sortVarsOfList]
+    | cons x xs ih => simp [KoreAML.sortVarsOfList, KoreAML.sortVarsOf, KoreAML.srt, ih]
+  obtain ⟨h, xs, -, hw⟩ := symApp_head c f
+  rw [hw]
+  simp [KoreAML.varsOf, hs]
 
 /-- The axiom of a clause's equation, as `prioEquation` writes it. -/
 def prioAxFG (c : Semantics) (f : Fn) (cl : Clause) : Kore.Axiom :=

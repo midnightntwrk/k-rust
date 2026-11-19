@@ -1964,14 +1964,8 @@ theorem ctor_arity (hnm : NamesPlain c) {f : Sym} {k : CtorSig} (hk : lookupSig 
   have hkm := (lookupSig_spec hk).1
   have hit := sat_sigItem hI (sig_arity (c := c) (k := k)
     (List.mem_append_left _ (List.mem_append_left _ (List.mem_append_left _ (List.mem_append_left _ hkm)))))
-  unfold symArityItem at hit
-  rw [show iteSort? (c.symName k.name) = none from hnm k hkm] at hit
-  dsimp only at hit
-  unfold KoreAML.arityItem at hit
-  dsimp only [KoreAML.paramTable, List.map_nil] at hit
+  rw [symArityItem_plain_irs (namesPlain_writes_irs hnm hkm)] at hit
   have hinc := (KoreAML.interp_included hD).mp (hit KoreAML.val0 default) m
-  unfold srtOf at hinc
-  rw [trSort_srt] at hinc
   apply hinc
   obtain ⟨a, ha, hm⟩ := hm
   rw [interp_appList]
@@ -1980,7 +1974,7 @@ theorem ctor_arity (hnm : NamesPlain c) {f : Sym} {k : CtorSig} (hk : lookupSig 
   have : ∀ (ss : List Srt) (bs : List M), bs.length = (ss.map c.sortName).length →
       (∀ (i : Nat) x s, bs[i]? = some x → (ss.map c.sortName)[i]? = some s → InS I s x) →
       All2 (fun φ b => φ.interpret I KoreAML.val0 b)
-        ((ss.map (srtOf c)).map fun s => KoreAML.inhOf (KoreAML.trSort [] s)) bs := by
+        (ss.map fun s => KoreAML.inhOf (sortP (c.sortName s))) bs := by
     intro ss
     induction ss with
     | nil => intro bs hl _; cases bs with
@@ -1992,7 +1986,6 @@ theorem ctor_arity (hnm : NamesPlain c) {f : Sym} {k : CtorSig} (hk : lookupSig 
       | nil => simp at hl
       | cons b bs =>
         refine .cons ?_ (ih bs (by simpa using hl) (fun i x s' h1 h2 => hb (i + 1) x s' (by simpa using h1) (by simpa using h2)))
-        unfold srtOf; dsimp only; rw [trSort_srt]
         exact hb 0 b (c.sortName s) rfl rfl
   exact this k.args bs hbl hbs
 
@@ -2992,7 +2985,7 @@ equation, which `Γ` holds of every overload, a function's too. Where the functi
 denotes nothing, so does the symbol's. -/
 theorem covDen_of {f : Sym} {o : OvlSig} {ws : List GroundTerm} {kg : CtorSig} {r : Option GroundTerm}
     (hlo : c.lookupOvl f = some o) (hws : c.sortsOf ws = some o.sig.args) (hcov : c.fnCover f ws = some kg)
-    (hpl : iteSort? (c.symName kg.name) = none) (hr : ∀ v, r = some v → c.sortOf v = some kg.result)
+    (hpl : ∀ ps, symApp c kg.name ps = .app ⟨⟨c.symName kg.name⟩⟩ [] ps) (hr : ∀ v, r = some v → c.sortOf v = some kg.result)
     (e : Valuation M)
     (hg : ∀ m, (KoreAML.den (symApp c kg.name (GroundTerm.koreList c (stripAll kg.args o.sig.args ws)))).interpret I e m ↔
       Res c I e r m) (m : M) :
@@ -3001,7 +2994,7 @@ theorem covDen_of {f : Sym} {o : OvlSig} {ws : List GroundTerm} {kg : CtorSig} {
   have H : OvlLaws.OvlHyp c := hO.hyp htr
   have F := H.fnFacts
   obtain ⟨hom, hn, -, -, -, -⟩ := OvlLaws.ovl_facts_ovlF F hlo
-  obtain ⟨-, -, -, hplain, -⟩ := OvlLaws.ovl_parts H.ok hlo
+  have hplain := OvlLaws.ovl_noInst_irs H.ok hlo
   obtain ⟨o', ho', hkg, -, hcv⟩ := OvlLaws.fnCover_some_parts hcov
   rw [hlo] at ho'; cases ho'
   obtain ⟨hlen, hle, hres, -⟩ := OvlLaws.over_ovlF F hlo hkg
@@ -3009,7 +3002,7 @@ theorem covDen_of {f : Sym} {o : OvlSig} {ws : List GroundTerm} {kg : CtorSig} {
   have hus := OvlLaws.sortsOf_stripAll hlen hws hlies
   have hwsl := (OvlLaws.liftAll_stripAll hlen hws hlies).symm
   have hsym : KoreAML.den (symApp c f (GroundTerm.koreList c ws)) = den c (.ctor f ws) := by
-    unfold symApp; rw [hplain]; rfl
+    rw [symApp_noInst hplain]; rfl
   rw [hsym, den_sig_gs hI hn hws e m]
   generalize stripAll kg.args o.sig.args ws = us at hus hwsl hg
   -- the function's application, as the generator `kg` at the elements of the stripped arguments
@@ -3017,7 +3010,7 @@ theorem covDen_of {f : Sym} {o : OvlSig} {ws : List GroundTerm} {kg : CtorSig} {
     intro x
     rw [← hg x]
     have hsym' : KoreAML.den (symApp c kg.name (GroundTerm.koreList c us)) = den c (.ctor kg.name us) := by
-      unfold symApp; rw [hpl]; rfl
+      rw [hpl]; rfl
     rw [hsym', den_sig_gs hI rfl hus e x]
   have hax := sat_cons hI (Or.inl ⟨_, ovlEqItem_mem hom hkg, rfl⟩)
   have hname : ∀ A ∈ kg.result :: kg.args, ∀ B ∈ o.sig.result :: o.sig.args,
@@ -3090,11 +3083,11 @@ theorem normDen_of : NormDen c I := by
   intro f o ws hlo hws hnf e m
   have H : OvlLaws.OvlHyp c := hO.hyp htr
   obtain ⟨-, hn, -, -, hks, -⟩ := OvlLaws.ovl_facts_ovlF H.fnFacts hlo
-  obtain ⟨-, -, -, hplain, -⟩ := OvlLaws.ovl_parts H.ok hlo
+  have hplain := OvlLaws.ovl_noInst_irs H.ok hlo
   have hg := norm_gs hI htr _ o.sig hks (OvlLaws.ovlRank_le _) ws hws (by rw [hn]; exact hnf)
   rw [hn] at hg
   have hsym : KoreAML.den (symApp c f (GroundTerm.koreList c ws)) = den c (.ctor f ws) := by
-    unfold symApp; rw [hplain]; rfl
+    rw [symApp_noInst hplain]; rfl
   rw [hsym, den_sig_gs hI hn hws e m, (elemOf_spec hI (OvlLaws.sortOf_norm_ovlF H H.fnFacts hlo hws hnf) e).1 m]
   exact hg m
 
