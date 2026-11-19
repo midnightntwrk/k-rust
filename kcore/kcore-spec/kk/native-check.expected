@@ -1,0 +1,54 @@
+case c01-fn-prio execReady=true configurations=2 agree=2 (next 1 stuck 1 next-empty 0) differ=0 no-verdict=0
+case c02-rule-prio execReady=true configurations=3 agree=3 (next 2 stuck 1 next-empty 0) differ=0 no-verdict=0
+case c03-nondet execReady=true configurations=10 agree=10 (next 6 stuck 4 next-empty 0) differ=0 no-verdict=0
+case c04-subsort execReady=true configurations=5 agree=5 (next 4 stuck 1 next-empty 0) differ=0 no-verdict=0
+case c05-hooks outside-encDef execReady=true (params (Lblite{Bool}); apps (Lblite{Bool}))
+case c06-nonlinear execReady=true configurations=4 agree=4 (next 3 stuck 1 next-empty 0) differ=0 no-verdict=0
+case c07-strict-args execReady=true configurations=2 agree=2 (next 1 stuck 1 next-empty 0) differ=0 no-verdict=0
+case c08-undef-rhs-blocks execReady=true configurations=1 agree=1 (next 0 stuck 0 next-empty 1) differ=0 no-verdict=0
+case c09-undef-requires execReady=true configurations=2 agree=2 (next 1 stuck 1 next-empty 0) differ=0 no-verdict=0
+case c10-strict-ite outside-encDef execReady=true (params (Lblite{Int}); apps (Lblite{Int}))
+case c11-fn-no-equation execReady=true configurations=1 agree=1 (next 0 stuck 0 next-empty 1) differ=0 no-verdict=0
+case c12-undef-init no-configuration execReady=true (the input's evaluation at d₀ is undefined)
+case c13-inj-bool outside-encDef execReady=true (params (Lblite{Bool}); apps (Lblite{Bool}))
+case c14-fn-undef-requires execReady=true configurations=2 agree=2 (next 1 stuck 1 next-empty 0) differ=0 no-verdict=0
+case c15-nonlinear-rule execReady=true configurations=2 agree=2 (next 1 stuck 1 next-empty 0) differ=0 no-verdict=0
+case c16-bool-pattern execReady=true configurations=1 agree=1 (next 0 stuck 1 next-empty 0) differ=0 no-verdict=0
+case c17-init-function execReady=true configurations=2 agree=2 (next 1 stuck 1 next-empty 0) differ=0 no-verdict=0
+case c18-div-signs execReady=true configurations=2 agree=2 (next 1 stuck 1 next-empty 0) differ=0 no-verdict=0
+case c19-map-choice execReady=true configurations=4 agree=4 (next 1 stuck 3 next-empty 0) differ=0 no-verdict=0
+case c20-map-key-fixed execReady=true configurations=9 agree=9 (next 4 stuck 5 next-empty 0) differ=0 no-verdict=0
+case c21-map-concat execReady=true configurations=3 agree=3 (next 1 stuck 2 next-empty 0) differ=0 no-verdict=0
+case c22-map-hooks execReady=true configurations=2 agree=2 (next 1 stuck 1 next-empty 0) differ=0 no-verdict=0
+case c23-map-lookup-missing execReady=true configurations=2 agree=2 (next 1 stuck 1 next-empty 0) differ=0 no-verdict=0
+case c24-map-fn-pattern execReady=true configurations=2 agree=2 (next 1 stuck 1 next-empty 0) differ=0 no-verdict=0
+case c25-map-equal execReady=true configurations=3 agree=3 (next 2 stuck 1 next-empty 0) differ=0 no-verdict=0
+case c26-map-strict execReady=true configurations=2 agree=2 (next 1 stuck 1 next-empty 0) differ=0 no-verdict=0
+case c27-set-choice execReady=true configurations=4 agree=4 (next 1 stuck 3 next-empty 0) differ=0 no-verdict=0
+case c28-set-overlap execReady=true configurations=3 agree=3 (next 1 stuck 2 next-empty 0) differ=0 no-verdict=0
+case c29-set-hooks execReady=true configurations=2 agree=2 (next 1 stuck 1 next-empty 0) differ=0 no-verdict=0
+case c30-list-positions execReady=true configurations=6 agree=6 (next 3 stuck 3 next-empty 0) differ=0 no-verdict=0
+case c31-list-concat execReady=true configurations=5 agree=5 (next 2 stuck 3 next-empty 0) differ=0 no-verdict=0
+case c32-elem-strict execReady=true configurations=2 agree=2 (next 1 stuck 1 next-empty 0) differ=0 no-verdict=0
+case c33-list-middle-frame execReady=true configurations=2 agree=2 (next 1 stuck 1 next-empty 0) differ=0 no-verdict=0
+case c34-cells-several execReady=true configurations=5 agree=5 (next 4 stuck 1 next-empty 0) differ=0 no-verdict=0
+case c35-cell-map outside-encDef execReady=true (params (LblAcctCellMap'Coln'in'Unds'keys))
+case c36-cell-key-twice outside-encDef execReady=true (params (LblAcctCellMap'Coln'in'Unds'keys))
+case c37-keq execReady=true configurations=2 agree=2 (next 1 stuck 1 next-empty 0) differ=0 no-verdict=0
+case c38-keq-strict execReady=true configurations=2 agree=2 (next 1 stuck 1 next-empty 0) differ=0 no-verdict=0
+case c39-tokens-preds refused (sentence 31 (SortId): registrySortName (Id))
+case c40-as-patterns execReady=true configurations=4 agree=4 (next 1 stuck 3 next-empty 0) differ=0 no-verdict=0
+case c41-total-requires execReady=true configurations=5 agree=5 (next 3 stuck 2 next-empty 0) differ=0 no-verdict=0
+case c42-total-no-equation execReady=true configurations=2 agree=2 (next 1 stuck 1 next-empty 0) differ=0 no-verdict=0
+case c43-ensures execReady=true configurations=4 agree=4 (next 2 stuck 1 next-empty 1) differ=0 no-verdict=0
+case c44-ensures-priority execReady=true configurations=4 agree=4 (next 2 stuck 1 next-empty 1) differ=0 no-verdict=0
+case c45-fn-owise-recursion execReady=true configurations=2 agree=2 (next 1 stuck 1 next-empty 0) differ=0 no-verdict=0
+case c46-prio-nonterm-requires execReady=true configurations=1 agree=0 (next 0 stuck 0 next-empty 0) differ=0 no-verdict=1
+case c47-undef-rhs-same-prio execReady=true configurations=2 agree=2 (next 1 stuck 1 next-empty 0) differ=0 no-verdict=0
+case c48-fn-undef-requires-larger execReady=true configurations=2 agree=2 (next 1 stuck 1 next-empty 0) differ=0 no-verdict=0
+case c49-string-bool-eq outside-encDef execReady=true (lits)
+case c50-fn-ensures execReady=true configurations=4 agree=4 (next 2 stuck 1 next-empty 1) differ=0 no-verdict=0
+case c51-fn-ensures-owise execReady=true configurations=4 agree=4 (next 2 stuck 1 next-empty 1) differ=0 no-verdict=0
+case c52-subsort-one-entry execReady=true configurations=2 agree=2 (next 1 stuck 1 next-empty 0) differ=0 no-verdict=0
+case kimp-ne-true execReady=true configurations=2 agree=2 (next 1 stuck 1 next-empty 0) differ=0 no-verdict=0 reaches=yes
+case kimp-ne-false execReady=true configurations=2 agree=2 (next 1 stuck 1 next-empty 0) differ=0 no-verdict=0 reaches=yes
