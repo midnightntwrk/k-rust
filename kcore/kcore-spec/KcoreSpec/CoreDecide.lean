@@ -181,7 +181,7 @@ theorem wf_of_partsCD {d : Definition}
     (n2 : KoreAML.nodup (d.emit.symbolDecls.map (·.name) ++ d.emit.aliasNames) = true)
     (n3 : d.sem.hooksApart = true) (n4 : d.sem.predsApart = true) (n5 : d.sem.idsOK = true)
     (o1 : d.sem.declsOK = true) (o2 : d.sem.rulesPlain = true) (o3 : d.sem.clausesPlain = true)
-    (o4 : d.sem.paramsPlain = true) (o5 : d.sem.subsortsOK = true) (o6 : d.sem.fnsOKAll = true)
+    (o4 : (d.sem.paramsPlain && d.sem.carriersOK) = true) (o5 : d.sem.subsortsOK = true) (o6 : d.sem.fnsOKAll = true)
     (o7 : d.sem.rules.all d.sem.ruleOKAll = true) (o8 : d.sem.rules.all d.sem.rulePredsOK = true)
     (hc : d.cert.ok d.sem = true) (hp : d.pres.ok d.sem = true) (hpa : d.paramsOK = true)
     (f1 : namesNumbered d.sem = true) (f2 : genWf d.sem = true) (f3 : collSortsOK d.sem = true)

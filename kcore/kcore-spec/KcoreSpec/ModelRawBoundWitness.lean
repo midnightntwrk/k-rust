@@ -83,7 +83,6 @@ theorem clauses_of (b : Bool) :
 theorem rules_of (b : Bool) : ((cOf b).rules.all (cOf b).ruleSorted) = true := by cases b <;> rfl
 theorem rulesPlain_of (b : Bool) : (cOf b).rulesPlain = true := by cases b <;> rfl
 theorem clausesPlain_of (b : Bool) : (cOf b).clausesPlain = true := by cases b <;> rfl
-theorem carriersOK_of (b : Bool) : (cOf b).carriersOK = true := by cases b <;> decide_cheap
 theorem shapesOK_of (b : Bool) : (cOf b).shapesOK = true := by cases b <;> decide_cheap
 theorem predsApart_of (b : Bool) : (cOf b).predsApart = true := by cases b <;> decide_cheap
 theorem idsOK_of (b : Bool) : (cOf b).idsOK = true := by cases b <;> decide_cheap
@@ -151,16 +150,16 @@ theorem fnHyp : FnHyp c := by
 
 set_option maxHeartbeats 1000000 in
 /-- Every condition of `coreOK` but `paramsPlain`'s raw bound holds (`paramsPlain`'s other parts at
-the one parameter, and `carriersOK`), and `FnHyp`. -/
+the one parameter), and `FnHyp`. -/
 theorem meets_others : c.subsortsOK = true ∧
     (c.fns.all fun f => f.clauses.all (c.clauseSorted f (List.map Fn.sig c.fns))) = true ∧
     (c.rules.all c.ruleSorted) = true ∧ c.rulesPlain = true ∧ c.clausesPlain = true ∧
     ((kOf eof).impl.isNone = true ∧ (kOf eof).assoc = false ∧ (kOf eof).idem = false ∧
       (instDecode? (c.symName (kOf eof).sig.name)).isNone = true ∧ c.shapesOK = true) ∧
-    c.carriersOK = true ∧ c.faithCoreOK = true ∧ c.predsApart = true ∧
+    c.faithCoreOK = true ∧ c.predsApart = true ∧
     c.idsOK = true ∧ c.overloadsOK = true ∧ FnHyp c :=
   ⟨subsortsOK_of false, clauses_of false, rules_of false, rulesPlain_of false, clausesPlain_of false,
-    raw_parts_of false, carriersOK_of false, faithCoreOK_of false, predsApart_of false,
+    raw_parts_of false, faithCoreOK_of false, predsApart_of false,
     idsOK_of false, overloadsOK_of false, fnHyp⟩
 
 /-! ## `Γ c` has no model -/

@@ -470,7 +470,7 @@ theorem coreOK_refuses : c2.coreOK = false ∧ c2.paramsPlain = false ∧ c2.sha
     c2.params.all (fun k => k.raw && k.impl.isNone && !k.assoc && !k.idem &&
       decide (nRegSyms ≤ k.sig.name) && (iteSort? (c2.symName k.sig.name)).isNone) = true ∧
     (c2.subsortsOK && c2.fns.all (fun f => f.clauses.all (c2.clauseSorted f (c2.fns.map Fn.sig))) &&
-      c2.rules.all c2.ruleSorted && c2.rulesPlain && c2.clausesPlain && c2.carriersOK &&
+      c2.rules.all c2.ruleSorted && c2.rulesPlain && c2.clausesPlain &&
       c2.faithCoreOK && c2.predsApart && c2.idsOK && c2.overloadsOK) = true := by
   decide_cheap
 

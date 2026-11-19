@@ -108,8 +108,8 @@ theorem Semantics.raw_of_paramsPlain {c : Semantics} (h : c.paramsPlain = true) 
     ((k.assoc || k.idem) = true → k.sig.args = [k.sig.result, k.sig.result]) ∧
     nRegSyms ≤ k.sig.name ∧ instDecode? (c.symName k.sig.name) = none ∧
     c.shapesOK = true := by
-  simp only [Semantics.paramsPlain, Bool.and_eq_true, List.all_eq_true] at h
-  have hp := h.1 k hk
+  simp only [Semantics.paramsPlain, List.all_eq_true] at h
+  have hp := h k hk
   simp only [hr, ↓reduceIte, Bool.and_eq_true, Option.isNone_iff_eq_none, Bool.not_eq_true',
     Bool.or_eq_true, decide_eq_true_eq, beq_iff_eq] at hp
   obtain ⟨⟨⟨⟨h1, h3⟩, h4⟩, h5⟩, h6⟩ := hp
