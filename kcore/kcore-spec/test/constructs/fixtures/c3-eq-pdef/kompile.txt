@@ -1,0 +1,12 @@
+command: kompile --backend haskell c3-eq-pdef.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.9
+definition.kore bytes: 202348
+definition.kore sha256: e26ccee5afd040249f1481fc2108f817ba2ba8b614191e27ab4214edd7b83130
+stripped sha256: 8f43ba13f42cc8f8943e64786ed58956bd459d46c36d7b832074ea2ae39141b0
+main module: 391 sentences, 34 not in base's, in kore.txt
+differs_from c3-eq-plain: different after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-EQ-PDEF-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  C3-EQ-PDEF as default.

@@ -10,13 +10,13 @@
     (`ctxG_rhsCtx`, `ctxG_patCtxAll`), so of every condition `condOK` accepts (`cond`).
   - **The builders (`premise`, ..., `prioRuleK`).** Each pattern a clause's equation or a rule's
     axiom is made of applies the heads of its parts and, in an equation, the function's own head
-    `(c.symName f.label, [])`.
+    `gammaHead c f.label`.
   - **Under `coreOK` (`prioEquation_coreOK`, `prioRuleK_coreOK`).** The parts of the user's
     clauses and rules are well sorted (`clauseSorted`, `ruleSorted`) and the user's clauses bind no
     existential variable, so their right side's predicate, which `clauseSorted` does not check, is
     not written; the sort predicates' clauses apply `kseq`, `dotk` and `inj` at a pair
-    `(X, KItem)` of `c.subsorts`; and no function is named like an `ite` (`namesNumbered`), so its
-    head is its name with no sort argument.
+    `(X, KItem)` of `c.subsorts`; and a function's equations apply it at the head its
+    applications are written at (`symApp`), which is one of Γ's.
 -/
 import KcoreSpec.TieHeadsWalk
 
@@ -132,18 +132,12 @@ theorem inj_mem {a b : Srt} (h : (a, b) ∈ c.subsorts) :
   unfold gammaHeads
   exact List.mem_append_right _ (List.mem_map.mpr ⟨(a, b), h, rfl⟩)
 
-/-- A function's head with no sort argument is one of Γ's, where the function is one of Γ's and is
-not named like an `ite`. -/
-theorem fnHead_mem {f : Fn} (hf : f ∈ c.allFns) (hn : iteSort? (c.symName f.label) = none) :
-    (c.symName f.label, []) ∈ gammaHeads c := by
-  have := gammaHead_mem (c := c) (k := f.sig) (by
+/-- The head at which Γ applies a function is one of Γ's, where the function is one of Γ's. -/
+theorem fnHead_mem {f : Fn} (hf : f ∈ c.allFns) : gammaHead c f.label ∈ gammaHeads c :=
+  gammaHead_mem (c := c) (k := f.sig) (by
     unfold kernelSyms
     exact List.mem_append_left _ (List.mem_append_left _ (List.mem_append_left _
       (List.mem_append_right _ (List.mem_map_of_mem hf)))))
-  unfold gammaHead at this
-  simp only [Fn.sig] at this
-  rw [hn] at this
-  exact this
 
 /-- `Term.kore` applies a symbol at its head `gammaHead`. -/
 theorem kore_app_ghk (vs : List KoreAML.Var) (f : Sym) (ts : List Term) :
@@ -431,12 +425,13 @@ theorem clauseRhs_ghk {f : Fn} {cl : Clause} (hcl : ClauseG c cl) :
 
 /-- An equation of `f` applies the heads of its premise, its right side and its `ensures` part, and
 `f`'s own head. -/
-theorem eqnSentence_ghk {f : Fn} {prem rhs ens : Kore.Pattern} (hf : (c.symName f.label, []) ∈ gammaHeads c)
+theorem eqnSentence_ghk {f : Fn} {prem rhs ens : Kore.Pattern} (hf : gammaHead c f.label ∈ gammaHeads c)
     (h1 : HIn c prem) (h2 : HIn c rhs) (h3 : HIn c ens) : SentHIn c (eqnSentence c f prem rhs ens) := by
-  simp only [eqnSentence, KoreAML.equationAx, KoreAML.axiomR, SentHIn, hin_implies, hin_equals, hin_and,
+  simp only [eqnSentence, KoreAML.equationAt, KoreAML.axiomR, SentHIn, hin_implies, hin_equals, hin_and,
     hinL_cons, hinL_nil, and_true]
   refine ⟨h1, ?_, h2, h3⟩
-  simp only [KoreAML.ap, HIn, appHeadsOf, List.cons_subset]
+  rw [symApp_gammaHead]
+  simp only [HIn, appHeadsOf, List.cons_subset]
   refine ⟨hf, ?_⟩
   have : HInL c (KoreAML.vars (KoreAML.numbered "X" 0 (f.args.map c.sortName))) :=
     (hinL_iff _).mpr fun p hp => by
@@ -446,7 +441,7 @@ theorem eqnSentence_ghk {f : Fn} {prem rhs ens : Kore.Pattern} (hf : (c.symName 
 
 /-- **A clause's equation applies Γ's heads only**, where `f`'s head is Γ's and every clause of `f`
 (the competitors among them) has parts that apply Γ's heads only. -/
-theorem prioEquation_ghk {f : Fn} {cl : Clause} (hf : (c.symName f.label, []) ∈ gammaHeads c)
+theorem prioEquation_ghk {f : Fn} {cl : Clause} (hf : gammaHead c f.label ∈ gammaHeads c)
     (hcls : ∀ cl' ∈ f.clauses, ClauseG c cl') (hcl : ClauseG c cl) : SentHIn c (prioEquation c f cl) := by
   have hr := clauseRhs_ghk (f := f) hcl
   unfold prioEquation clauseEquation competingEquation
@@ -551,12 +546,9 @@ theorem clauseG_sortPreds {fn : Fn} (hfn : fn ∈ c.sortPreds) : ∀ cl ∈ fn.c
 /-- Under `coreOK`, every function's head is Γ's, and every clause of it has parts that apply Γ's
 heads only. -/
 theorem fnG_coreOK (h : c.coreOK = true) {f : Fn} (hf : f ∈ c.allFns) :
-    (c.symName f.label, []) ∈ gammaHeads c ∧ ∀ cl ∈ f.clauses, ClauseG c cl := by
+    gammaHead c f.label ∈ gammaHeads c ∧ ∀ cl ∈ f.clauses, ClauseG c cl := by
   obtain ⟨hs, hfa, -⟩ := Semantics.coreOK_parts h
-  have hnn : namesNumbered c = true := by
-    simp only [Semantics.faithCoreOK, Bool.and_eq_true] at hfa
-    exact hfa.1.1.1.1.1.1.1.1.1.1.1
-  refine ⟨fnHead_mem hf ((namesNumbered_spec hnn).2.1 f hf), ?_⟩
+  refine ⟨fnHead_mem hf, ?_⟩
   have hf' := hf
   simp only [Semantics.allFns, List.mem_append] at hf'
   rcases hf' with hu | hp

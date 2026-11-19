@@ -162,20 +162,14 @@ theorem ids_not_rmKeys {c : Semantics} (hids : c.idsOK = true) :
     (∀ k ∈ c.ctors, k.name ≠ rmKeys) ∧ (∀ f ∈ c.fns, f.label ≠ rmKeys) := by
   unfold Semantics.idsOK at hids
   simp only [Bool.and_eq_true, beq_iff_eq, List.all_eq_true, Bool.or_eq_true, decide_eq_true_eq] at hids
-  obtain ⟨⟨⟨-, hsyms⟩, -⟩, ⟨-, hct⟩, -⟩ := hids
+  obtain ⟨⟨-, -, hfns⟩, ⟨-, hct⟩, -⟩ := hids
   refine ⟨fun k hk he => ?_, fun f hf he => ?_⟩
   · rcases hct k hk with h | h
     · rw [he] at h; exact absurd h (by decide)
     · rw [he] at h; exact absurd h (by decide)
-  · have hm : f.label ∈ c.ownSyms := by
-      unfold Semantics.ownSyms
-      exact List.mem_append_left _ (List.mem_append_left _ (List.mem_append_right _ (List.mem_map_of_mem hf)))
-    rw [hsyms, List.mem_range'_1] at hm
-    have h1 : c.symBase ≤ f.label := hm.1
-    have h2 : nRegSyms ≤ c.symBase := by unfold Semantics.symBase; exact Nat.le_add_right _ _
-    have h3 : rmKeys < nRegSyms := rmKeys_reg.1
+  · have h3 : rmKeys < nRegSyms := rmKeys_reg.1
     have h4 : f.label < nRegSyms := he ▸ h3
-    exact absurd (Nat.le_trans h2 h1) (Nat.not_le.mpr h4)
+    exact absurd (hfns f hf) (Nat.not_le.mpr h4)
 
 /-- `hooksApart` over the rows of `hookSigs` but `keys`'. -/
 def hooksApartLess (c : Semantics) : Bool :=

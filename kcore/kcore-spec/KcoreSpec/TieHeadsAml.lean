@@ -561,11 +561,12 @@ theorem ctor_ite (h : c.coreOK = true) {k : CtorSig} (hk : k ∈ c.ctorSigs) : i
   simp only [namesNumbered, Bool.and_eq_true, List.all_eq_true, Option.isNone_iff_eq_none] at this
   exact this.1.1 k hk
 
-/-- A function is named plainly. -/
-theorem fn_ite (h : c.coreOK = true) {fn : Fn} (hf : fn ∈ c.allFns) : iteSort? (c.symName fn.label) = none := by
+/-- A symbol that an overloading symbol overloads is named plainly. -/
+theorem over_ite (h : c.coreOK = true) {o : OvlSig} (ho : o ∈ c.ovls) {g : Sym} (hg : g ∈ o.over) :
+    iteSort? (c.symName g) = none := by
   have := namesNumbered_of_core h
   simp only [namesNumbered, Bool.and_eq_true, List.all_eq_true, Option.isNone_iff_eq_none] at this
-  exact this.1.2 fn hf
+  exact this.1.2 o ho g hg
 
 /-- What `overloadsOK` says of each overloading symbol: `lookupOvl` finds it under its name, it
 is named plainly, and each signature it overloads has argument and result sorts at most its own. -/
@@ -687,7 +688,7 @@ theorem over_ok (h : c.coreOK = true) {o : OvlSig} (ho : o ∈ c.ovls) {kg : Cto
     · exact ⟨ks_ctor hm, ctor_ite h hm⟩
     · exact ⟨ks_ovl hm, ovlSig_ite h hm⟩
   · obtain ⟨fn, hfn, rfl⟩ := List.mem_map.mp hm
-    exact ⟨ks_fn (List.mem_append_left _ hfn), fn_ite h (List.mem_append_left _ hfn)⟩
+    exact ⟨ks_fn (List.mem_append_left _ hfn), over_ite h ho (OvlLaws.mem_ovlOver hkg)⟩
 
 /-- **The constructors' items apply Γ's heads only**, under `coreOK`. -/
 theorem consItemsK_inGH (h : c.coreOK = true) : ∀ it ∈ consItemsK c, InGH c it.pat := by

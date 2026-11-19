@@ -99,8 +99,10 @@ The evidence forms (DONE-0 C2's table), by status and list, and the items each n
       tie, theorems (the theorem that ties the row's sentence on a tied text); or the row's
                    `e6_tie` (test/constructs/e6map.py): each "THEOREM (FILE; TEXT axiom N)" a
                    theorem declared in FILE, a tie file as above; on a module row "every ... row
-                   of MODULE (n) is tied"; an item "uncovered: ..." or "refuted: ..." (Γ refutes the
-                   sentence or entails it only partly) is missing evidence
+                   of MODULE (n) is tied", with ", or of no direction with a theorem in a model (k)"
+                   where k are; an item "uncovered: ...", "refuted: ..." (Γ refutes the sentence or
+                   entails it only partly) or "no direction: ..." (the tie's no-direction class) is
+                   missing evidence
   parameter
       derived      a `derived` table of form (c): the param_undetermined instance
   parameter (no model) (a parameter entry with a `derived` table of form (r): its fixture's text
@@ -117,8 +119,9 @@ The evidence forms (DONE-0 C2's table), by status and list, and the items each n
       pairs        `attr_pairs`, pairs [TEXT, COMPANION] of texts f2-examples/*.kore: the two differ,
                    and are equal once every attribute of that head is removed from both (and kfix.py's
                    stripped applied: Source, Location, comments and module names); at least one
-      tie          `tie` holds a file that reads the fixture's own text (f2-examples/FIXTURE.kompile.kore),
-                   other than test/InertSemPairs.lean
+      tie          `tie` holds a file that reads the fixture's own text (f2-examples/FIXTURE.kompile.kore,
+                   or a text f2-examples/*.kore byte for byte the one kompile.txt records, its paths
+                   restored as tiegen writes it), other than test/InertSemPairs.lean
       theorems     as above, among them KCore.InertSemPairs.trS_attrs (the translation of a sentence
                    reads none of its attributes); `reader_tests` (a sem_eq of the pair: the reader
                    builds one semantics from both) are not evidence and are not counted
@@ -676,11 +679,16 @@ def evidence(fx, l, key, e, row):
         unc = [x for x in v if isinstance(x, str) and x.startswith("uncovered")]
         if unc or not v:
             miss.append("theorems (e6_tie: " + (unc[0][:80] if unc else "empty") + ")"); return False
+        nd = [x for x in v if isinstance(x, str) and x.startswith("no direction: ")]
+        if nd:
+            miss.append("theorems (e6_tie: " + nd[0].split(";")[0] + ": of the tie's no-direction class, which"
+                        " no theorem entails; owed-sentence rule item 7)"); return False
         ref = [x for x in v if isinstance(x, str) and x.startswith("refuted")]
         if ref:
             miss.append("theorems (e6_tie: " + ref[0].split(";")[0] + ": Γ refutes the sentence or entails it"
                         " only partly, no tie; a finding for DONE-0 2.6)"); return False
-        if all(isinstance(x, str) and re.match(r"every .* row of \S+ \(\d+\) is tied$", x) for x in v):
+        if all(isinstance(x, str) and re.match(r"every .* row of \S+ \(\d+\) is tied"
+                                               r"(, or of no direction with a theorem in a model \(\d+\))?$", x) for x in v):
             have.append("tie: every row of the module tied (e6_tie)"); return True
         thms = [re.match(r"(\S+) \((test/[^;]+\.lean); .+\)$", x) if isinstance(x, str) else None for x in v]
         if not all(thms):
@@ -1025,11 +1033,39 @@ def attribute_items(fx, e, own, item, miss):
             item(ok, f"pair {why}", f"pair ({why})")
     x = own[0] if own else None
     ts = e.get("tie") if isinstance(e.get("tie"), list) else []
-    reads = [f for f in ts if f != "test/InertSemPairs.lean" and x and os.path.isfile(os.path.join(K, f))
-             and f"f2-examples/{x}.kompile.kore" in open(os.path.join(K, f)).read()]
+    reads = [f for f in ts if f != "test/InertSemPairs.lean" and x and reads_own_text(f, x)]
     item(bool(reads), f"tie of the fixture's text ({', '.join(reads)})",
          "tie of the fixture's text (no file of `tie` other than test/InertSemPairs.lean reads "
-         + (f"f2-examples/{x}.kompile.kore)" if x else "a fixture's text: no fixture)"))
+         + (f"f2-examples/{x}.kompile.kore or a text equal to it)" if x else "a fixture's text: no fixture)"))
+
+
+_OWN_TEXT = {}
+
+
+def own_text(x):
+    """Fixture x's kompiled text as tiegen writes it (its paths restored), or None where it has none."""
+    if x not in _OWN_TEXT:
+        try:
+            import tiegen
+            _OWN_TEXT[x] = tiegen.restored_text(x)
+        except Exception:
+            _OWN_TEXT[x] = None
+    return _OWN_TEXT[x]
+
+
+def reads_own_text(f, x):
+    """Whether the Lean file f reads fixture x's own kompiled text: it names
+    f2-examples/x.kompile.kore, or a text it reads (`... from "PATH"`) is byte for byte the text x's
+    kompile.txt records, with its paths restored as tiegen writes f2-examples/x.kompile.kore."""
+    p = os.path.join(K, f)
+    if not os.path.isfile(p):
+        return False
+    if f"f2-examples/{x}.kompile.kore" in open(p).read():
+        return True
+    paths = set(re.findall(r'\bfrom\s+"(f2-examples/[^"]+)"', lean_source(f) or ""))
+    t = own_text(x) if paths else None
+    return t is not None and any(os.path.isfile(os.path.join(K, q)) and open(os.path.join(K, q)).read() == t
+                                 for q in sorted(paths))
 
 
 # ------------------------------------------------------------------- the sentences an option removes
@@ -1388,7 +1424,7 @@ def self_test():
         fx.check_other = lambda e, own: kfix.check_other(e, own, read=fx.read, full_text=lambda x: defn)
         tie = "test/C3EqReqEns.lean"
         thm = {"form": "a", "theorem": "KCore.C3EqReqEns.f_5", "file": tie}
-        for name, conf in (("cmp", 'differs_from = "ok"\n'), ("e1-module", ""), ("opt", 'differs_from = "e8-ref"\n')):
+        for name, conf in (("cmp", 'differs_from = "ok"\n'), ("e1-module", ""), ("e2-rule", ""), ("opt", 'differs_from = "e8-ref"\n')):
             os.makedirs(os.path.join(fxd, name))
             open(os.path.join(fxd, name, "account.txt"), "w").write(clean)
             open(os.path.join(fxd, name, "kompile.txt"), "w").write("exit 0\n")
@@ -1582,6 +1618,10 @@ def self_test():
             ("E3", "A", {"status": "inert", "inert_class": "use", "reason": "C1", "attr_pairs": [[ta, tb]]}, False),
             ("E7", "A", attr, True),
             ("E7", "A", dict(attr, attr_pairs=[[ta, tc]]), False),
+            # a tie reading a text byte for byte the fixture's kompiled text, under another name
+            ("E7", "A", dict(attr, fixture="e2-rule", tie=["test/TieRuleCool.lean", sp],
+                             tie_theorems=["KCore.TieRuleCool.rules_tie", "KCore.InertSemPairs.trS_attrs"]), True),
+            ("E7", "A", dict(attr, fixture="e2-rule"), False),
             ("E7", "A", dict(attr, attr_pairs=[[ta, ta]]), False),
             ("E7", "A", dict(attr, attribute="cool-like"), False),
             ("E7", "A", dict(attr, tie=[sp], tie_theorems=["KCore.InertSemPairs.trS_attrs"]), False),
@@ -1600,6 +1640,10 @@ def self_test():
             ("E6", "axiom:X", {"status": "supported", "e6_tie": ["uncovered: INT; no tied text holds the sentence"]}, False),
             ("E6", "lemma:X", {"status": "inert", "e6_tie": ["refuted: M; no theorem entails the sentence"]}, False),
             ("E6", "module:M", {"status": "supported", "e6_tie": ["every axiom, lemma, sort and symbol row of M (3) is tied"]}, True),
+            ("E6", "module:M", {"status": "supported", "e6_tie": ["every axiom, lemma, sort and symbol row of M (3) is tied, "
+                                                                  "or of no direction with a theorem in a model (1)"]}, True),
+            ("E6", "axiom:X", {"status": "supported", "e6_tie": "no direction: INT; KCore.C3EqReqEns.f_5 "
+                                                                "(test/C3EqReqEns.lean; t axiom 3)"}, False),
             ("E6", "lemma:X", {"status": "inert",
                                "e6_tie": ["KCore.C3EqReqEns.f_5 (test/C3EqReqEns.lean; t axiom 3)"]}, True),
             ("E6", "axiom:X", {"status": "inert",

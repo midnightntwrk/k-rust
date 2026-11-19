@@ -44,7 +44,7 @@ evidence = "test/WitCarriers.lean"
 [[conjunct]]
 key = "faithCoreOK.1"
 text = "KCore.Faithful.namesNumbered c"
-witness = "none: not found in the no-model form; the conjunct is not implied by the others (a constructor, or a function without clauses, named Lblite{KCell} meets every other leaf of coreOK and FnHyp); its third part, every function's sorts numbered, is implied by sortsNumbered (kernel-checked, every semantics); Γ has a model (argued): a value and the constructor items write the symbol under its own name, a pattern, right-hand side or equation as Lblite applied to SortKCell, and reading both heads as the symbol meets each item, as for overloadsOK.3; the conjunct is asked for soundness (the two heads, Γ equating them nowhere), not for a model (not kernel-checked here; for an overloading symbol it is, test/OvlIteSoundC.lean)"
+witness = "none: not found in the no-model form; the conjunct is not implied by the others (a constructor named Lblite{KCell} meets every other leaf of coreOK and FnHyp); its second part, no symbol that an overloading symbol overloads named like ite at a sort, has no semantics failing it alone here (a function so named that no symbol overloads meets the conjunct, kernel-checked); its third part, every function's sorts numbered, is implied by sortsNumbered (kernel-checked, every semantics); Γ has a model (argued): a value and the constructor items write the symbol under its own name, a pattern or right-hand side as Lblite applied to SortKCell, and reading both heads as the symbol meets each item, as for overloadsOK.3; the conjunct is asked for soundness (the two heads, Γ equating them nowhere), not for a model (not kernel-checked here; for an overloading symbol it is, test/OvlIteSoundC.lean)"
 evidence = "test/WitRestFaithA.lean, test/OvlIteName.lean"
 
 [[conjunct]]
@@ -131,8 +131,9 @@ evidence = "test/WitRestApart.lean"
 [[conjunct]]
 key = "predsApart.1"
 text = "KCore.nodup (List.map (fun x => x.label) c.allFns)"
-witness = "none: no witness exists: implied by idsOK (its numbering of the own sorts and symbols and Lib.ok), for every semantics (kernel-checked: predsApart_of_idsOK): the definition's functions are own symbols numbered from symBase once each, the sort predicates isK, isKItem, the registry's (regPred, distinct, below nRegSyms) and the own sorts' (below symBase), the sorts below KItem each once (NamesApart.sorts_facts)"
-evidence = "test/WitRestApart.lean"
+witness = "KcoreSpec.ModelPredTwiceWitness"
+note = "two functions of c.fns under the predicate number of the own sort KCell, one giving true and one false at every K: the module shows every other conjunct of coreOK as a whole and FnHyp, predsApart false, and Γ without a model (its two equations give the predicate's application to dotk the values true and false, distinct values of Bool); test/PredFnCone.lean Twice is the same semantics; implied by idsOK where the functions of c.fns are labelled apart, for every semantics (kernel-checked: predsApart_of_idsOK): no function bears a registry symbol, so none is isK or isKItem, every other sort predicate labels no function of c.fns (sortPreds), the registry's are distinct and below nRegSyms (regPred), the own sorts' below symBase, the sorts below KItem each once (NamesApart.sorts_facts)"
+evidence = "test/WitRestApart.lean, test/PredFnCone.lean"
 
 [[conjunct]]
 key = "idsOK.1"
@@ -154,24 +155,30 @@ evidence = "test/WitRestIdsA.lean"
 
 [[conjunct]]
 key = "idsOK.4"
-text = "KCore.nodup (List.filter (fun s => decide (s < KCore.nRegSorts)) c.userSorts)"
-witness = "none: no witness exists: implied by predsApart and idsOK.5, for every semantics (kernel-checked: ids4_of_predsApart): every registry sort of userSorts is a generated configuration sort, each with a predicate, and their predicates are labels of allFns, which predsApart makes distinct; predsApart.1 is itself implied by idsOK (predsApart_of_idsOK), so the two cannot both be dropped from coreOK"
-evidence = "test/WitRestIdsA.lean"
+text = "decide (KCore.nRegSyms ≤ f.label)"
+witness = "none: not found; the conjunct is not implied by the others (kernel-checked: one function of c.fns labelled as the registry's predicate of the library sort Int meets every other leaf of coreOK, sortPreds then building no function of that label; FnHyp not examined); Γ: not examined (the function stands for the library's predicate isInt, whose equations Γ then reads from it)"
+evidence = "test/PredFnCone.lean"
 
 [[conjunct]]
 key = "idsOK.5"
+text = "KCore.nodup (List.filter (fun s => decide (s < KCore.nRegSorts)) c.userSorts)"
+witness = "none: no witness exists: implied by predsApart, idsOK.4 and idsOK.6, for every semantics (kernel-checked: ids5_of_predsApart): every registry sort of userSorts is a generated configuration sort, each with a predicate below nRegSyms, which labels no function of c.fns (idsOK.4), so sortPreds builds it and it is a label of allFns, which predsApart makes distinct; predsApart.1 is itself implied by idsOK where the functions of c.fns are labelled apart (predsApart_of_idsOK), so the two cannot both be dropped from coreOK for such a semantics"
+evidence = "test/WitRestIdsA.lean"
+
+[[conjunct]]
+key = "idsOK.6"
 text = "(List.filter (fun s => decide (s < KCore.nRegSorts)) c.userSorts).all KCore.genSorts.contains"
 witness = "none: not found; the conjunct is not implied by the others (kernel-checked: the registry sort Id listed among userSorts instead of among the library sorts below KItem meets every other leaf of coreOK and FnHyp; with Id among the library sorts coreOK holds, and the constructor items of the two are the same); Γ has a model (argued): Γ reads the sorts below KItem as the library list followed by userSorts, so the two have the same sorts there in another order, Id being a constructor sort without generator adds no item, and the kernel sorts are a range independent of both; not examined: a registry sort of domain values (genWf refuses it, its constructor sort being Int, Bool, ...), KItem or K listed in userSorts"
 evidence = "test/WitRestIdsB.lean"
 
 [[conjunct]]
-key = "idsOK.6"
+key = "idsOK.7"
 text = "decide (KCore.nRegSyms ≤ k.name) || KCore.genSyms.contains k.name"
 witness = "none: not found; the conjunct is not implied by the others (kernel-checked: the registry constructor #KConfigValue : K → KItem listed among the definition's constructors instead of the library's meets every other leaf of coreOK and FnHyp; listed among the library's, coreOK holds, and the constructor items of the two are the same); Γ has a model (argued): ctorSigs lists the library's constructors then the definition's, so the two have the same constructors in another order (kernel-checked), the same generators per sort and the same signature items up to order; the conjunct is asked for the numbering of the own symbols, not for a model; not examined: a registry number naming no registry constructor"
 evidence = "test/WitRestIdsB.lean"
 
 [[conjunct]]
-key = "idsOK.7"
+key = "idsOK.8"
 text = "c.lib.ok"
 witness = "none: not found; the conjunct is not implied by the others (kernel-checked: the library's sorts below KItem listing MInt, which has no sort predicate, twice meets every other leaf of coreOK and FnHyp; listed once, coreOK holds); Γ has a model (argued): Γ is that of MInt listed once up to repeated items (its subsort into KItem twice, its injection a generator of KItem twice, comparable injections having no distinctness item, the sort predicates unchanged); of Lib.ok's other parts (kernel-checked instances): a library sort KItem and a library subsort outside the library sorts fail genWf, a library sort numbered as an own sort fails namesApartK, a library sort that is a generated sort of the cells fails predsApart; not examined: a library constructor named like a map-pattern symbol, a library sort numbered beyond the own sorts"
 evidence = "test/WitRestIdsB.lean"

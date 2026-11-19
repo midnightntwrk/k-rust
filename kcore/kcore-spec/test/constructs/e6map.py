@@ -8,7 +8,7 @@ Usage (from kcore-spec):
   python3 -I test/constructs/e6map.py --write   also write each row's field e6_tie
   python3 -I test/constructs/e6map.py --check   exit 1 unless every row's e6_tie is the one computed
                                                 and the self-check passes
-  python3 -I test/constructs/e6map.py --self-check   form (d)'s self-check only (below)
+  python3 -I test/constructs/e6map.py --self-check   the self-check of forms (d) and (e) only (below)
 
 Tied texts and their tie files: the Lean files test/TieEns*.lean, test/TieKimp*.lean,
 test/TieKk*.lean and test/LibEv*.lean, each on the text its `user_axioms U from "TEXT"` names.
@@ -54,16 +54,51 @@ it is tied as the sort declaration's item (G-sort), which says nothing of how a 
         sort parameters named in N.
       A symbol declaration is tied only by a list naming it: that it names a symbol of Γ (and so is
       among the items `decls_entailed` reaches) is the kernel's fact in that file, not this script's.
+No direction (form (e); owed-sentence rule item 7 of rows-header.toml): a sentence or declaration
+that applies a symbol Γ lacks is of the tie's no-direction class, which no theorem entails or refutes.
+  (e1) an axiom row's sentence N on a tied text is of that class where a tie file of the text (the
+       files of (a)) has a `classes` list holding N under "no direction" and declares the theorems
+       account_absent and absent_closed, which state that the class holds exactly the sentences
+       applying a head Γ lacks; the theorems are those two;
+  (e2) or where a theorem, without `¬`, of a file test/LibEv*.lean or test/TieRangeMap*.lean on the
+       text states `absentOf U.axN = L`, or `[U.axA, ...].map absentOf = [LA, ...]` (paired by
+       position), with L a nonempty list literal of strings (or `String` defs) each of which the text
+       declares as a symbol without sort parameters: Γ then has no symbol of that name. An absent head
+       that is an instance of a symbol declared with sort parameters (`ite{SortInt}`) is not of this
+       form: Γ has a symbol of that name, and the sentence may fix a value of it (rows-header.toml,
+       item 7, library parameters);
+  a symbol row's declaration NAME on a text is of that class where a theorem, without `¬`, of a
+       declaration file on the text has a statement holding `hasSym NAME = false` (NAME a string
+       literal or a `String` def), or `(X.filter (!hasSym ·.name)).map (·.name) = L` with L a literal
+       list holding NAME.
+A row that a form of (a) to (d) ties on any text is tied; else one that a theorem only refutes is
+"refuted: ..."; else one of the no-direction class on some text is "no direction: ...", never tied;
+else it is uncovered.
 The self-check: each theorem `decls_entailed` of a declaration file is in a form of (d); each name of
 a symbol statement's list is an unhooked symbol declaration of the file's text with a builtin Source
-and without sort parameters; and the control row DECL_CONTROL, which those texts declare without sort
-parameters and no list names, is held by a text of (d) and not tied.
-A module row is tied when every row of the module in this scope (axiom, lemma, sort, symbol) is, and
-at least one exists.
+and without sort parameters; every symbol row held by a text of (d) that no list of (d) names is not
+tied, and is of no direction exactly where a declaration fact of (e) names it on a text holding it.
+No row serves as a control that no list names and Γ has: of the symbol rows held by a text of (d),
+the two no list names (dividesInt, Int2BytesNoLen) are both lacked by Γ there. So the control is
+stated as: a declaration no list of (d) names is neither tied nor of no direction unless form (e)
+holds, and the control row DECL_CONTROL (dividesInt, declared on those texts without sort parameters)
+is held by a text of (d), not tied, and of no direction, its form (e) case. AX_CONTROL controls (e2):
+on silentflt, dividesInt's equation (274) is of (e2), and findChar's (296), whose absent heads are
+`ite{SortInt}`, is not, although a statement names it with absentOf and a nonempty list literal.
+A module row is tied when every row of the module in this scope (axiom, lemma, sort, symbol) is tied
+or of no direction with a theorem of kind "in a model" naming it, and at least one is tied. Such a
+theorem is one of a file test/LibParamExpand*.lean whose statement holds ∃ and ⊧ᴵP and names, on the
+file's text, U.axN for a sentence the row's no-direction class holds there, or, for a declaration
+row, the declaration's name as a string (or a `String` def). Without such a file, a module with a
+row of no direction is not tied.
 e6_tie, on a row: a list of "THEOREM (FILE; TEXT axiom N)" or "THEOREM (FILE; TEXT sort|symbol
-declaration NAME)" strings, "refuted: MODULE; ..." (above), or "uncovered: MODULE" with, after the
-module, why: no tied text holds the sentence or declaration, the texts that hold it tie it by no
-theorem (or a module with a row left uncovered).
+declaration NAME)" strings, "refuted: MODULE; ..." (above), "no direction: MODULE; THEOREM (FILE;
+TEXT axiom N|symbol declaration NAME); ..." with the theorems of form (e), or "uncovered: MODULE" with,
+after the module, why: no tied text holds the sentence or declaration, the texts that hold it tie it
+by no theorem (or a module with a row left uncovered, the rows of no direction counted apart).
+A module row that is tied reads "every axiom, lemma, sort and symbol row of MODULE (n) is tied",
+followed by ", or of no direction with a theorem in a model (k)" where k of them are.
+The summary counts the rows tied, of no direction and uncovered apart.
 """
 import os, re, sys, tomllib
 from collections import defaultdict
@@ -339,14 +374,150 @@ def decl_ties(forms):
     return ties, held
 
 
+
+ND_FILE = re.compile(r"^(LibEv|TieRangeMap)\w*\.lean$")
+MODEL_FILE = re.compile(r"^LibParamExpand\w*\.lean$")
+
+
+def str_defs(t):
+    """name -> the string literal of a `def NAME : String := "..."` of a Lean file."""
+    return {m.group(1): m.group(2) for m in re.finditer(r'^def (\w+) : String := "((?:[^"\\]|\\.)*)"', t, re.M)}
+
+
+def name_list(lit, defs):
+    """The strings of a Lean list literal of string literals and `String` defs, None if an item is
+    neither."""
+    out = []
+    for it in [x.strip() for x in lit.strip()[1:-1].split(",") if x.strip()]:
+        m = re.fullmatch(r'"((?:[^"\\]|\\.)*)"', it)
+        if m:
+            out.append(m.group(1))
+        elif it in defs:
+            out.append(defs[it])
+        else:
+            return None
+    return out
+
+
+def symbol_params(path):
+    """name -> whether the text declares the symbol with sort parameters, over every symbol and
+    hooked-symbol declaration of the text."""
+    out = {}
+    for l in open(os.path.join(K, path)).read().split("\n"):
+        m = re.match(r"\s+(?:hooked-)?symbol (\S+?)\{([^}]*)\}", l)
+        if m:
+            out[m.group(1)] = out.get(m.group(1), False) or bool(m.group(2).strip())
+    return out
+
+
+def nodir_axioms():
+    """text -> index -> [(theorem, file)]: the sentences of the no-direction class (form (e1), (e2))."""
+    nd = defaultdict(lambda: defaultdict(list))
+    for f in sorted(os.listdir(os.path.join(K, "test"))):
+        e1, e2 = TIE_FILE.match(f), ND_FILE.match(f)
+        if not (e1 or e2):
+            continue
+        rel = "test/" + f
+        t = open(os.path.join(K, rel)).read()
+        um = re.search(r'user_axioms U from "([^"]+)"', t)
+        if not um:
+            continue
+        text = um.group(1)
+        ths = file_theorems(t)
+        if e1:
+            names = {n.split(".")[-1]: n for n, _ in ths}
+            cm = re.search(r"^def classes : List \(String × List Nat\) :=\n(.*?)\n\n", t, re.M | re.S)
+            if cm and "account_absent" in names and "absent_closed" in names:
+                for m in re.finditer(r'\("no direction", \[([\d,\s]*)\]\)', cm.group(1)):
+                    for n in re.findall(r"\d+", m.group(1)):
+                        for th in ("account_absent", "absent_closed"):
+                            nd[text][int(n)].append((names[th], rel))
+        if e2:
+            defs, decl = str_defs(t), None
+            for name, stmt in ths:
+                s = " ".join(stmt.split())
+                if "¬" in s or "absentOf" not in s:
+                    continue
+                pairs = [(int(m.group(1)), name_list(m.group(2), defs))
+                         for m in re.finditer(r"absentOf U\.ax(\d+) = (\[[^\[\]]*\])", s)]
+                for m in re.finditer(r"\[((?:U\.ax\d+, )*U\.ax\d+)\]\.map absentOf = \[((?:\[[^\[\]]*\](?:, )?)+)\]", s):
+                    ns_ = [int(x) for x in re.findall(r"U\.ax(\d+)", m.group(1))]
+                    ls = re.findall(r"\[[^\[\]]*\]", m.group(2))
+                    if len(ns_) == len(ls):
+                        pairs += [(n, name_list(l, defs)) for n, l in zip(ns_, ls)]
+                for n, names_ in pairs:
+                    if not names_:
+                        continue
+                    if decl is None:
+                        decl = symbol_params(text)
+                    if all(decl.get(x) is False for x in names_):
+                        nd[text][n].append((name, rel))
+    return nd
+
+
+def nodir_decls():
+    """text -> symbol name -> [(theorem, file)]: the declarations of the no-direction class (form (e)
+    for declarations)."""
+    nd = defaultdict(lambda: defaultdict(list))
+    for f in sorted(os.listdir(os.path.join(K, "test"))):
+        if not DECL_FILE.match(f):
+            continue
+        rel = "test/" + f
+        t = open(os.path.join(K, rel)).read()
+        km = re.search(r'^kore_term kore from "([^"]+)"', t, re.M)
+        if not km:
+            continue
+        defs = str_defs(t)
+        for name, stmt in file_theorems(t):
+            s = " ".join(stmt.split())
+            if "¬" in s:
+                continue
+            got = [x for m in re.finditer(r'hasSym ("(?:[^"\\]|\\.)*"|\w+) = false', s)
+                   for x in (name_list(f"[{m.group(1)}]", defs) or [])]
+            for m in re.finditer(r"\.filter \(!hasSym ·\.name\)\)\.map \(·\.name\) = (\[[^\[\]]*\])", s):
+                got += name_list(m.group(1), defs) or []
+            for x in got:
+                nd[km.group(1)][x].append((name, rel))
+    return nd
+
+
+def model_theorems():
+    """text -> [(theorem, file, statement)]: the theorems of kind "in a model" of the files
+    test/LibParamExpand*.lean (a statement holding ∃ and ⊧ᴵP), each on its file's text."""
+    out = defaultdict(list)
+    for f in sorted(os.listdir(os.path.join(K, "test"))):
+        if not MODEL_FILE.match(f):
+            continue
+        rel = "test/" + f
+        t = open(os.path.join(K, rel)).read()
+        um = re.search(r'user_axioms U from "([^"]+)"', t)
+        if not um:
+            continue
+        defs = str_defs(t)
+        for name, stmt in file_theorems(t):
+            if "∃" in stmt and "⊧ᴵP" in stmt:
+                s = stmt
+                for d, v in defs.items():
+                    s = re.sub(rf"\b{re.escape(d)}\b", '"' + v + '"', s)
+                out[um.group(1)].append((name, rel, s))
+    return out
+
+
 DECL_CONTROL = "symbol:INT-COMMON:Lbl'Unds'dividesInt'UndsUnds'INT-COMMON'Unds'Bool'Unds'Int'Unds'Int"
+AX_CONTROL = ("f2-examples/silentflt.kompile.kore", 274, 296)
 
 
 def self_check(rows, res):
-    """Form (d)'s self-check: each `decls_entailed` of a declaration file is in a form of (d); each
-    name of a symbol statement's list is a declaration of the file's text with a builtin Source,
-    unhooked and without sort parameters; and the control row (`dividesInt`, which the texts declare
-    without sort parameters and no list names) is held by a text of (d) and not tied."""
+    """The self-check of forms (d) and (e): each `decls_entailed` of a declaration file is in a form
+    of (d); each name of a symbol statement's list is a declaration of the file's text with a builtin
+    Source, unhooked and without sort parameters; every symbol row held by a text of (d) that no list
+    of (d) names is not tied, and is of no direction exactly where a fact of form (e) on a text holding
+    it names its declaration; the control row DECL_CONTROL (`dividesInt`, which those texts declare
+    without sort parameters, no list names, and Γ lacks) is held by a text of (d), not tied, and of no
+    direction; and of AX_CONTROL's text, form (e2) takes the first sentence (`dividesInt`'s equation)
+    and not the second (`findChar`'s, whose absent heads are `ite{SortInt}`, an instance of a symbol
+    declared with sort parameters), although a statement naming the second and absentOf with a
+    nonempty list literal exists."""
     forms, odd = decl_forms()
     bad = list(odd)
     for rel, (text, got) in sorted(forms.items()):
@@ -356,10 +527,34 @@ def self_check(rows, res):
                 if ds.get((k, n), True):
                     bad.append(f"{rel}: {th} names {n}, no unhooked {k} declaration of {text} with a builtin "
                                f"Source and without sort parameters")
-    if not any(DECL_CONTROL in h for h in decl_ties(forms)[1].values()):
+    dties, held = decl_ties(forms)
+    ndd = nodir_decls()
+    named = {key for kd in dties.values() for key in kd}
+    for key in sorted({k for h in held.values() for k in h}):
+        if not key.startswith("symbol:") or key in named or key not in res:
+            continue
+        if isinstance(res[key], list):
+            bad.append(f"{key}: named by no list of form (d), tied")
+        e = any(ndd[t2].get(nm) for t2 in held if key in held[t2]
+                for k2, _k, nm, _p in declarations(t2) if k2 == key)
+        if e != is_nodir(res[key]):
+            bad.append(f"{key}: of no direction {is_nodir(res[key])}, a fact of form (e) {e}")
+    if not any(DECL_CONTROL in h for h in held.values()):
         bad.append(f"control {DECL_CONTROL}: held by no text of form (d)")
     elif DECL_CONTROL not in rows or isinstance(res.get(DECL_CONTROL), list):
         bad.append(f"control {DECL_CONTROL}: not a row, or tied")
+    elif not is_nodir(res.get(DECL_CONTROL)):
+        bad.append(f"control {DECL_CONTROL}: not of no direction (form (e))")
+    text, yes, no = AX_CONTROL
+    nda = nodir_axioms()
+    stmts = [s for f in os.listdir(os.path.join(K, "test")) if ND_FILE.match(f)
+             for _, s in file_theorems(open(os.path.join(K, "test", f)).read())
+             if f'"{text}"' in open(os.path.join(K, "test", f)).read()]
+    if not nda[text].get(yes):
+        bad.append(f"control {text} axiom {yes}: not of form (e2)")
+    if nda[text].get(no) or not any(re.search(rf"absentOf U\.ax{no} = \[\s*\"", s) for s in stmts):
+        bad.append(f"control {text} axiom {no}: of form (e2), or no statement names it with absentOf and a "
+                   f"nonempty list literal")
     for b in bad:
         print(f"e6map self-check: {b}")
     print(f"e6map self-check: {len(forms)} declaration files ({sum(1 for _, g in forms.values() if g)} with a "
@@ -376,9 +571,10 @@ def compute():
         if not ties[ktext].get(n):
             ties[ktext][n] += l
     dties, dheld_by = decl_ties(decl_forms()[0])
+    nda, ndd, models = nodir_axioms(), nodir_decls(), model_theorems()
     # key -> text -> [index]
     where = defaultdict(lambda: defaultdict(list))
-    for text in sorted(ties) + ([] if ktext in ties else [ktext]):
+    for text in sorted(set(ties) | set(nda) | {ktext}):
         seen = defaultdict(int)
         for i, _m, s in axioms(text):
             k = e6_key(s)
@@ -387,26 +583,36 @@ def compute():
                 if seen[k] > 1 and f"{k}#{seen[k]}" in rows:
                     k = f"{k}#{seen[k]}"
                 where[k][text].append(i)
+    dnames = {}
+    for text in dheld_by:
+        for key, _kind, nm, _p in declarations(text):
+            dnames[(text, key)] = nm
     scope = {k: v for k, v in rows.items()
              if (v["status"] == "supported" and k.split(":")[0] in ("axiom", "module", "sort", "symbol", "token"))
              or (v["status"] == "inert" and k.startswith("lemma:"))}
-    res = {}
+    res, modeled = {}, {}
     for k, v in scope.items():
         kind = k.split(":")[0]
         mod = k.split(":")[1] if kind != "token" else "(token sort)"
         if kind in ("axiom", "lemma"):
-            got, other = [], []
+            got, other, nd, inm = [], [], [], False
             for text, ns in sorted(where.get(k, {}).items()):
                 for n in ns:
                     for th, f, kind in ties[text].get(n, []):
                         (got if kind == "ties" else other).append(f"{th} ({f}; {text} axiom {n})" + (
                             "" if kind == "ties" else f" [{kind}]"))
+                    for th, f in nda[text].get(n, []):
+                        nd.append(f"{th} ({f}; {text} axiom {n})")
+                        inm = inm or any(re.search(rf"\bU\.ax{n}\b", s) for _, _, s in models.get(text, []))
             if got:
                 res[k] = sorted(set(got))
             elif other:
                 res[k] = (f"refuted: {mod}; no theorem entails the sentence; it is refuted (Γ with it has no "
                           f"model) or holds only where its set variables hold at most one value: "
                           + ", ".join(sorted(set(other))))
+            elif nd:
+                res[k] = f"no direction: {mod}; " + "; ".join(sorted(set(nd)))
+                modeled[k] = inm
             elif k in where:
                 res[k] = f"uncovered: {mod}; held by {', '.join(sorted(where[k]))}, tied there by no theorem"
             else:
@@ -417,20 +623,42 @@ def compute():
             got = [f"{th} ({f}; {text} {'sort' if kind == 'token' else kind} declaration {nm})"
                    for text in sorted(dties) for th, f, nm in dties[text].get(k, [])]
             dheld = sorted(text for text, h in dheld_by.items() if k in h)
-            res[k] = (sorted(set(got)) if got else
-                      f"uncovered: {mod}; a declaration held by {', '.join(dheld)}, tied there by no theorem" if dheld
-                      else f"uncovered: {mod}; a declaration no tied text holds")
+            nd, inm = [], False
+            for text in dheld:
+                nm = dnames.get((text, k))
+                if kind == "symbol" and nm:
+                    for th, f in ndd[text].get(nm, []):
+                        nd.append(f"{th} ({f}; {text} symbol declaration {nm})")
+                        inm = inm or any(f'"{nm}"' in s for _, _, s in models.get(text, []))
+            if got:
+                res[k] = sorted(set(got))
+            elif nd:
+                res[k] = f"no direction: {mod}; " + "; ".join(sorted(set(nd)))
+                modeled[k] = inm
+            else:
+                res[k] = (f"uncovered: {mod}; a declaration held by {', '.join(dheld)}, tied there by no theorem"
+                          if dheld else f"uncovered: {mod}; a declaration no tied text holds")
     for k in scope:
         if k.startswith("module:"):
             m = k.split(":")[1]
             mine = [r for r in res if r.split(":")[1] == m and not r.startswith("module:")]
-            left = sum(1 for r in mine if not isinstance(res[r], list))
-            if mine and not left:
-                res[k] = [f"every axiom, lemma, sort and symbol row of {m} ({len(mine)}) is tied"]
+            tied = sum(1 for r in mine if isinstance(res[r], list))
+            ndm = sum(1 for r in mine if modeled.get(r) is True)
+            ndo = sum(1 for r in mine if modeled.get(r) is False)
+            left = len(mine) - tied - ndm - ndo
+            if mine and tied and not left and not ndo:
+                res[k] = [f"every axiom, lemma, sort and symbol row of {m} ({len(mine)}) is tied"
+                          + (f", or of no direction with a theorem in a model ({ndm})" if ndm else "")]
+            elif not mine:
+                res[k] = f"uncovered: {m}; no axiom, lemma, sort or symbol row of the module"
             else:
                 res[k] = (f"uncovered: {m}; {left} of its {len(mine)} axiom, lemma, sort and symbol rows uncovered"
-                          if mine else f"uncovered: {m}; no axiom, lemma, sort or symbol row of the module")
+                          + (f", {ndo + ndm} of no direction ({ndo} with no theorem in a model)" if ndo + ndm else ""))
     return scope, res
+
+
+def is_nodir(v):
+    return isinstance(v, str) and v.startswith("no direction: ")
 
 
 def toml_str(s):
@@ -477,17 +705,21 @@ def main():
     for k in scope:
         by[k.split(":")[1] if not k.startswith("token:") else "(token sort)"].append(k)
     tied = sum(1 for v in res.values() if isinstance(v, list))
+    nodir = sum(1 for v in res.values() if is_nodir(v))
     for m in sorted(by):
-        un = [k for k in by[m] if not isinstance(res[k], list)]
-        print(f"{m}: {len(by[m]) - len(un)} tied, {len(un)} uncovered")
+        nd = [k for k in by[m] if is_nodir(res[k])]
+        un = [k for k in by[m] if not isinstance(res[k], list) and not is_nodir(res[k])]
+        print(f"{m}: {len(by[m]) - len(un) - len(nd)} tied, {len(nd)} no direction, {len(un)} uncovered")
         for k in by[m]:
             if isinstance(res[k], list):
                 print(f"  tied {k}: {res[k][0]}" + (f" (+{len(res[k]) - 1})" if len(res[k]) > 1 else ""))
+        for k in nd:
+            print(f"  no direction {k}: {res[k].split('; ', 1)[1]}")
         for k in un:
             print(f"  uncovered {k}: {res[k].split('; ', 1)[1]}")
     print(f"e6map: {len(scope)} rows ({sum(1 for k in scope if scope[k]['status'] == 'supported')} supported, "
           f"{sum(1 for k in scope if scope[k]['status'] == 'inert')} inert lemma): {tied} tied, "
-          f"{len(scope) - tied} uncovered")
+          f"{nodir} no direction, {len(scope) - tied - nodir} uncovered")
     if "--write" in sys.argv:
         print(f"e6map: e6_tie written on {write(res)} rows")
     return 0

@@ -10,10 +10,8 @@
     conjunction of terms at a term position as a fresh existential variable with its memberships
     (`cutAnd`); `orCut`, a disjunction of terms at a term position as a fresh existential variable
     with the disjunction of its memberships.
-  - `hoistExists`: each `\exists` of an equation's right side under applications, `\and` conjuncts
-    and `\or` alternatives moved to the top, renamed apart; the binder of an `\or` alternative only
-    at a sort the caller's test of a value accepts (`valuedSort`: `Semantics.valued` on a built
-    definition).
+  - `valuedSort`: `Semantics.valued` on a built definition, the test of a value `Parse.hoistExists`
+    (Parse.lean) takes to move the binder of an `\or` alternative.
 -/
 import KcoreSpec.Parse
 
@@ -269,81 +267,6 @@ theorem ceRead_rhsSorted {N : Names} {e : RawEqn} {x : Clause × List Var}
     (h : ceRead N e = .ok x) : rhsSorted (peelExists e.rhs).2 = true := by
   obtain ⟨u, hu⟩ := rhsSortGuard_bind (p := (peelExists e.rhs).2) h
   exact rhsSortGuard_ok hu
-
-/-! ## `\exists` moved to the top of a right side (`hoistExists`)
-
-Each step is an equality in every interpretation, the bound variable x not free outside its
-binder:
-- `C[∃x. φ] = ∃x. C[φ]` for a position `C[·]` under applications (an injection is one): an
-  application holds the elements its arguments' elements give, and `\exists` is the union over the
-  elements of the bound sort. Nothing is asked of the sort: where it has no element both sides are
-  empty.
-- `(∃x. φ) ∧ ψ = ∃x. (φ ∧ ψ)`, likewise with nothing asked of the sort.
-- `(∃x:s. φ) ∨ ψ = ∃x:s. (φ ∨ ψ)` where s has an element: where it has none the left side is ψ
-  and the right side is empty. A value of s is an element of it in every model, so the step is
-  taken where `val` accepts s, a test of "the sort has a value" the caller passes.
-The binder stays where it is under `\not`, `\implies`, `\iff`, `\forall`, `\mu` and `\nu`, and in a
-predicate (`isPred`): none of the three equalities moves it out of those. -/
-
-mutual
-  /-- A pattern at a term position with each `\exists` under applications, `\and` conjuncts and
-  `\or` alternatives taken out: the pattern, the binders (outermost first, then in the order of
-  the text), the names `taken` and `used` with the binders' added.
-  `taken` holds the names free in the equation and the binders' already taken out: a binder whose
-  name is one of them is renamed, with the occurrences it binds, to its name primed until no name
-  of `used` is it (`freshIn`; `used` holds every name of the equation), so that no binder taken
-  out captures a variable of the position it leaves, and no two have one name. Under a binder its
-  name is taken, so a binder of the same name inside it is the one renamed.
-  Refused `existentialEquation`: a binder in an alternative of an `\or` at a sort `val` does not
-  accept. Refused `patternConnective`: a binder to rename whose name stays free in its body
-  (`renameEVar` reads name and sort, and no `\iff`, `\mu` or `\nu`). -/
-  def hoistEx (val : Kore.KSort → Bool) (taken used : List String) :
-      Kore.Pattern → Rd (Kore.Pattern × List Kore.EVar × List String × List String)
-    | .exist _ x p => do
-      let n := x.var.ident.name
-      let (p', xs, taken', used') ← hoistEx val (n :: taken) used p
-      if taken.contains n then
-        let y := KoreAML.evar (freshIn used' (used'.length + 1) n) x.sort
-        let p'' := renameEVar x y p'
-        if (freeEVars [] p'').contains n then
-          fail .patternConnective s!"{n}: bound by \\exists, not renamed apart"
-        else pure (p'', y :: xs, y.var.ident.name :: taken', y.var.ident.name :: used')
-      else pure (p', x :: xs, taken', used')
-    | .app h ss ps => do
-      let (ps', xs, taken, used) ← hoistExList val taken used ps
-      pure (.app h ss ps', xs, taken, used)
-    | .and s ps => do
-      let (ps', xs, taken, used) ← hoistExList val taken used ps
-      pure (.and s ps', xs, taken, used)
-    | .or s ps => do
-      let (ps', xs, taken, used) ← hoistExList val taken used ps
-      match xs.find? (fun x => !val x.sort) with
-      | some x =>
-        let sn := (sortName? x.sort).getD "?"
-        fail .existentialEquation
-          s!"{x.var.ident.name}: bound in an alternative of \\or at the sort {sn}, which the test of a value does not accept"
-      | none => pure (.or s ps', xs, taken, used)
-    | p => pure (p, [], taken, used)
-    termination_by structural p => p
-  def hoistExList (val : Kore.KSort → Bool) (taken used : List String) :
-      List Kore.Pattern → Rd (List Kore.Pattern × List Kore.EVar × List String × List String)
-    | [] => pure ([], [], taken, used)
-    | p :: ps => do
-      let (p', xs, taken, used) ← if isPred p then pure (p, [], taken, used) else hoistEx val taken used p
-      let (ps', xs', taken, used) ← hoistExList val taken used ps
-      pure (p' :: ps', xs ++ xs', taken, used)
-    termination_by structural ps => ps
-end
-
-/-- An equation with each `\exists` of its right side under applications, `\and` conjuncts and
-`\or` alternatives moved to the top (`hoistEx`), renamed apart from the names free in the
-equation and from each other: the right side is `\exists x̄. body` at the sort S, the right side's.
-A right side that is a predicate is left as it is. -/
-def hoistExists (val : Kore.KSort → Bool) (S : Kore.KSort) (e : RawEqn) : Rd RawEqn := do
-  if isPred e.rhs then pure e else
-  let all := e.rhs :: e.pats ++ e.req.toList ++ e.ens.toList ++ e.competitors.getD []
-  let (body, xs, _, _) ← hoistEx val (freeEVarsList [] all) (evarNamesList all) e.rhs
-  pure { e with rhs := xs.foldr (Kore.Pattern.exist S) body }
 
 /-- `Semantics.valued` on a built definition, at a sort of the text: the test of a value
 `hoistExists` takes. A sort the names do not hold is not accepted. -/

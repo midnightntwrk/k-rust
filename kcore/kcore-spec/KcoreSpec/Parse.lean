@@ -13,14 +13,16 @@
   Every sentence of the user module has a class (`classify`): read, inert with the reason the
   semantics does not read it, or refused with the reason. The class reads the sentence and the
   names the scan builds from the text's declarations (`Names`, `namesOf`), and the names only for
-  two notes of a rule: whether a conjunction of terms on its right side is read through the cut
-  depends on which symbols are constructors (`andCutTaken`), and whether a map key of its left side
-  is read as a fresh variable on which symbols are the definition's functions (`keyCutFns`), which
-  the sentence alone does not say. The names also carry the text's cell-collection pairs
+  three notes of a rule: whether a conjunction of terms on its right side is read through the cut
+  depends on which symbols are constructors (`andCutTaken`), whether a connective at a term
+  position is read through the cut depends on whether the rule is read without it and with the cut
+  variables in its place (`connCutTaken`), and whether a map key of its left side is read as a
+  fresh variable on which symbols are the definition's functions (`keyCutFns`), which the sentence
+  alone does not say. The names also carry the text's cell-collection pairs
   (`cellCollPairs`, from its collection sorts' declarations): whether a subsort axiom or a
   no-junk axiom is a cell collection's injection depends on which sorts the text declares
   collections, not on the sentence. With the pairs alone (`classifyShapeIn`) the class is the same
-  but for those two notes. `parse` scans the sentences classified read and no other (`scan`, which
+  but for those three notes. `parse` scans the sentences classified read and no other (`scan`, which
   reads `classifyShapeIn` at the module's pairs). A text it does not read gives a `Refusal`: the
   sentence's position in the file, its head, and the reason, one of `RefusalReason`'s.
 -/
@@ -124,11 +126,10 @@ inductive RefusalReason where
   /-- `inj` not applied to two sorts and one argument. -/
   | injShape
   /-- `Lblite` applied to one sort X in a text that declares its own sort-parametric function
-  `Lblite` at one sort, where the instance `Lblite{X}` is not a parameter of the definition: the
-  text states an equation of it, which would make it a function named like `ite` at X
-  (`Faithful.NamesNumbered` excludes one), or X is no sort the definition has, so no instance is
-  declared. The application is that function's instance (the text declares no other
-  `Lblite`), not K's `ite`. The detail is the instance's name. -/
+  `Lblite` at one sort, where the instance `Lblite{X}` is neither a parameter nor a function of
+  the definition: X is no sort the definition has, so no instance is declared. The application is
+  that function's instance (the text declares no other `Lblite`), not K's `ite`. The detail is the
+  instance's name. -/
   | iteShape
   /-- A connective that no term has, of those kompile 7.1.337 writes: `\or`, `\not`, `\ceil`,
   `\exists`, … (the others are `unkompiledForm`). -/
@@ -226,7 +227,10 @@ inductive RefusalReason where
   of the text states which elements it has), in a condition: its truth at given values differs
   between models of the text. The reader refuses one over every sort but Bool: which sorts a text confines
   is decided on the read definition (`Semantics.confined`), not while reading a sentence. The
-  detail names the sort. -/
+  detail names the sort. Also a condition `\not{SortBool{}}(B)` of a term
+  (`ReadingNote.notAsCondition`) in a definition whose Bool has an element beside its literals
+  (`Names.boolLits` false while reading, `Semantics.litSort` at Bool false on the read definition,
+  `coreOf`): the complement of B then depends on that element; the detail is Bool. -/
   | openExtent
   /-- A variable the left side does not bind, of a sort the text leaves unconfined, in a condition
   that also holds a bound variable, or in a closed condition neither witnessed nor refuted: the
@@ -234,12 +238,13 @@ inductive RefusalReason where
   variable and its sort. -/
   | openRequires
   /-- An `\exists` on an equation's right side in an alternative of an `\or`, at a sort that the
-  test of a value given to `hoistExists` does not accept (`hoistEx`, ReadFns.lean). Moving the
+  test of a value given to `hoistExists` does not accept (`hoistEx`). Moving the
   binder over the `\or`, `(∃x:s. φ) ∨ ψ = ∃x:s. (φ ∨ ψ)`, is an equality only where s has an
   element, which a value of s shows; without one, the alternative ranges over elements of s that
   no value names, and models of the text that differ there can give the function different values.
-  The detail names the variable and its sort. `hoistExists` refuses with it, and no stage of
-  the reader calls `hoistExists` (`clausesBody` calls none of the reading functions of ReadFns.lean).
+  The detail names the variable and its sort. `hoistExists` refuses with it; the reader calls it
+  (`exEqn?`) with no sort accepted and reads such a refusal as an equation that is not EX's, which
+  the stages after it read as before.
   Also an equation read by cases over a Bool variable (`exRead`, on the names' `boolLits`) in a
   definition whose Bool has a value beside its literals (`coreOf`, `litSort Srt.bool` false: the
   cases would state more than the text; the detail names Bool). No account prints either. -/
@@ -870,6 +875,44 @@ inductive ReadingNote where
   own sorts only (`Names.sorts`), so the sentence and the names do not decide whether it leaves one
   out. The account lists the sentences and the sorts (`tokKItemOmitted`). -/
   | tokKItem
+  /-- A `requires` or `ensures` `\equals{SortBool{},S}(\not{SortBool{}}(B), true)`, B a Bool term
+  (`notCondTerm?`), read as the condition `B = false` (`Cond.equals` at Bool with the literal
+  `false`): of a rule's `requires` a conjunct of `pre`, of its `ensures` or a condition its right
+  side lifts a conjunct of `post`, of an equation's `requires` a conjunct of `Clause.pre`; no
+  `requires` or `ensures` term is read from it. `\not{SortBool{}}(B)` is the complement of B in the
+  elements of Bool, and the equality holds where that complement is `{true}`. Where the elements
+  of Bool are its two literals (`Names.boolLits` while reading, `Semantics.litSort` at Bool on the
+  read definition, `coreOf`), the complement of `{false}` is `{true}`, of `{true}` is `{false}`,
+  of `{true, false}` is nothing and of nothing is `{true, false}`: it is `{true}` exactly where B
+  is `{false}`, which is `\equals(B, false)`, for every B. Where Bool has an element beside its
+  literals the complement of `{false}` holds it too and the text's condition holds nowhere; the
+  sentence is then refused (`RefusalReason.openExtent`, Bool). A `\not{SortBool{}}(B)` that is one
+  conjunct of several is not read so (`\and{SortBool{}}(A, \not(B))` holds where B has no element,
+  `B = false` does not): it is refused, `patternConnective`. -/
+  | notAsCondition
+  /-- A `requires` or `ensures` B (`\equals{SortBool{},S}(B, true)`) a conjunct of which holds,
+  under applications, a conjunction of terms `t₁ ∧ … ∧ tₙ` each `singleValued`
+  (`condAndCutT`): the conjunction's place holds t₁, and the condition gains `t₁ ∈ tⱼ`
+  (`Cond.mem`) for each other conjunct, a conjunct of `pre` for a rule's `requires`, of `post` for
+  its `ensures` or a condition its right side lifts, of `Clause.pre` for an equation's `requires`.
+  Each tⱼ has at most one element, so `t₁ ∧ … ∧ tₙ` is t₁ where every `t₁ ∈ tⱼ` holds and nothing
+  otherwise; an application of a symbol to nothing is nothing, so there the conjunct, and B with
+  it, is nothing, which is not `{true}`. Where a conjunct of the conjunction may have two elements
+  the conjunction is refused, `patternConnective`. -/
+  | andUnderAppCut
+  /-- A rewrite axiom holding a matching-logic connective φ of sort S at a term position `C[·]`
+  under applications (`connCut`): on the right side `\or`, `\not` or `\top`, on the left side
+  `\not`. A pattern under an application denotes the applications at the elements its argument
+  denotes, so `C[φ] = ∃Z:S. C[Z] ∧ Z ∈ φ` for a variable Z the axiom does not hold, and for one
+  element the membership goes through the connectives: Z is in `\top{S}` always, in `\not{S}(p)`
+  where it is not in p, in `\or{S}(p, q)` where it is in p or in q (`memCond`). On the right side
+  the position holds an existential variable Z of the rule and `post` gains `Z ∈ φ`: the axiom
+  states a successor among the `C[z]`. On the left side the position holds a variable Z of the rule
+  and `pre` gains `Z ∈ φ`: `C[φ] → •R` is `∀Z. (C[Z] ∧ Z ∈ φ) → •R`, Z not free in R. A variable
+  that only φ holds is a variable of the rule. The cut is taken where the axiom is not read without
+  it and the axiom with the variables in the connectives' places is read with no `pre` and no
+  `post` of its own (`connRuleBody`, `connCutTaken`). -/
+  | connectiveCut
   deriving Repr, DecidableEq, Inhabited
 
 /-- A sentence of the user module: read, read in another form than written (`readAs`, with the
@@ -1627,8 +1670,12 @@ reader reads those so, each with its note (`ReadingNote`), and refuses the other
   element. A rule's is read so conjunct by conjunct, B₁ its `requires` (`ensures`) and the others
   conjuncts `Bᵢ = true` of `pre` (`post`); an equation's as the strict conjunction of the Bᵢ, and
   only where every Bᵢ is `singleValued` (`eqnCondTerm`), refused `patternConnective` (`\and`)
-  otherwise. A conjunction
-  under an application of a condition is refused (`patternConnective`).
+  otherwise. A conjunction of `singleValued` terms under an application of a condition is its
+  first conjunct with the memberships of the others beside it (`andUnderAppCut`), of any other
+  terms refused (`patternConnective`); a condition `\not{SortBool{}}(B)` of a term is `B = false`
+  where Bool's elements are its literals (`notAsCondition`), refused `openExtent` (Bool) where
+  they are not. Both put their conditions in a rule's `pre` (`post` for an `ensures`) and an
+  equation's `Clause.pre`; an equation's `ensures` of either form is refused.
 
 A quantifier `\forall` or `\floor` of a term over a sort other than Bool is refused `openExtent`
 with its sort (`RefusalReason.openExtent`); a set variable, `setVariable`. -/
@@ -2178,7 +2225,7 @@ rule's is `ruleCondTermsCnj`): `false` where B is
 a predicate (`predicateAtBool`), the strict conjunction of B's conjuncts where B is `\and{SortBool{}}`
 of several (`andAtBool`), else B. A conjunction under an application of a conjunct is refused
 (`patternConnective`): `term` reads `\and(t, X)` as `t #as X`, a binding, which only a left side
-makes. -/
+makes (an equation's `requires` reads one through `eqnReqCut`). -/
 def condTerm (N : Names) (vs : List Var) (b : Kore.Pattern) : Rd (Term × List Var) :=
   if isPred b then pure (.dv Srt.bool (.bool false), vs)
   else if (boolConj b).any hasAnd then fail .patternConnective "\\and"
@@ -2221,6 +2268,88 @@ def eqnCondTerm (N : Names) (vs : List Var) (b : Kore.Pattern) : Rd (Term × Lis
   let r ← condTerm N vs b
   unless eqnCondOK N b do fail .patternConnective "\\and"
   pure r
+
+/-! ## A condition `\not{SortBool{}}(B)`, and conjunctions under an application of a condition -/
+
+/-- The term B of a condition `\not{SortBool{}}(B)` (`ReadingNote.notAsCondition`): B no predicate
+(`isPred`) and holding no conjunction under applications (`hasAnd`). -/
+def notCondTerm? : Kore.Pattern → Option Kore.Pattern
+  | .not s b => if sortName? s == some "Bool" && !isPred b && !hasAnd b then some b else none
+  | _ => none
+
+mutual
+  /-- A conjunct of a condition with each conjunction `\and{S}(t₁, …, tₙ)` (n ≥ 2) under
+  applications replaced by its first conjunct t₁, and the memberships `t₁ ∈ tⱼ` of the others, as
+  (S, t₁, tⱼ) (`ReadingNote.andUnderAppCut`); none where a conjunction has a conjunct that is not
+  `singleValued` (a conjunction among them) or fewer than two conjuncts. -/
+  def condAndCutT (N : Names) : Kore.Pattern →
+      Option (Kore.Pattern × List (Kore.KSort × Kore.Pattern × Kore.Pattern))
+    | .app h ss ps => (condAndCutTList N ps).map fun (ps', ms) => (.app h ss ps', ms)
+    | .and s ps => match ps with
+      | t :: us@(_ :: _) =>
+        if singleValuedList N ps then some (t, us.map fun u => (s, t, u)) else none
+      | _ => none
+    | p => some (p, [])
+    termination_by structural p => p
+  def condAndCutTList (N : Names) : List Kore.Pattern →
+      Option (List Kore.Pattern × List (Kore.KSort × Kore.Pattern × Kore.Pattern))
+    | [] => some ([], [])
+    | p :: ps => do
+      let (p', m) ← condAndCutT N p
+      let (ps', ms) ← condAndCutTList N ps
+      pure (p' :: ps', m ++ ms)
+    termination_by structural ps => ps
+end
+
+/-- The condition B reads through `notAsCondition` or `andUnderAppCut`: B is `\not{SortBool{}}` of
+a term (`notCondTerm?`), or no predicate with a conjunct holding a conjunction under applications. -/
+def condCutTaken (b : Kore.Pattern) : Bool :=
+  (notCondTerm? b).isSome || (!isPred b && (boolConj b).any hasAnd)
+
+/-- The memberships `t ∈ u` at the sort S of a cut (`condAndCutT`), as conditions. -/
+def condCutMems (N : Names) : List Var → List (Kore.KSort × Kore.Pattern × Kore.Pattern) →
+    Rd (List Cond × List Var)
+  | vs, [] => pure ([], vs)
+  | vs, (s, t, u) :: ms => do
+    let (t', vs) ← term N vs t
+    let (u', vs) ← term N vs u
+    let (cs, vs) ← condCutMems N vs ms
+    pure (.mem (← N.sortE s) t' u' :: cs, vs)
+
+/-- A condition B (`\equals{SortBool{},S}(B, true)`) that `condCutTaken` holds, as Bool terms, each
+`B' = true`, and conditions beside them: `\not{SortBool{}}(B')` of a term as no term and the
+condition `B' = false` (`ReadingNote.notAsCondition`), refused `openExtent` (Bool) where the
+declarations give Bool an element beside its literals (`Names.boolLits`); otherwise B's conjuncts
+(`boolConj`) with their conjunctions under applications cut (`condAndCutT`,
+`ReadingNote.andUnderAppCut`) and the memberships of the cut, refused `patternConnective` (`\and`)
+where the cut is none. Also returns the conjuncts as cut, for `singleValued`. -/
+def condCuts (N : Names) (vs : List Var) (b : Kore.Pattern) :
+    Rd (List Term × List Cond × List Kore.Pattern × List Var) :=
+  match notCondTerm? b with
+  | some b' => do
+    unless N.boolLits do fail .openExtent "Bool"
+    let (t, vs) ← term N vs b'
+    pure ([], [.equals Srt.bool t (.dv Srt.bool (.bool false))], [], vs)
+  | none => do
+    let some (ps, ms) := condAndCutTList N (boolConj b) | fail .patternConnective "\\and"
+    let (ts, vs) ← terms N vs ps
+    let (cs, vs) ← condCutMems N vs ms
+    pure (ts, cs, ps, vs)
+
+/-- An equation's `requires` B: where `condCutTaken` holds, the strict conjunction of the terms
+`condCuts` gives (none for none) and its conditions, which are `Clause.pre`'s, refused
+`patternConnective` (`\and`) where two or more terms are read and a conjunct as cut is not
+`singleValued` (as `eqnCondOK`); otherwise `eqnCondTerm` and no condition. -/
+def eqnReqCut (N : Names) (vs : List Var) (b : Kore.Pattern) :
+    Rd (Option Term × List Cond × List Var) :=
+  if condCutTaken b then do
+    let (ts, cs, ps, vs) ← condCuts N vs b
+    unless ps.length ≤ 1 || singleValuedList N ps do fail .patternConnective "\\and"
+    if ts.length > 1 then N.hookEqE kEq
+    pure (conjTerms ts, cs, vs)
+  else do
+    let (t, vs) ← eqnCondTerm N vs b
+    pure (some t, [], vs)
 
 /-- The conditions `hoist` lifted out of a right side, as Bool terms: B (`condTerm`), and `t ==Int
 u` at Int, otherwise `==K` of t and u each a one-item K sequence (`kseq(inj{S,KItem}(t), dotk)`,
@@ -2394,6 +2523,7 @@ mutual
       else none
     | .app f ss ps, .app g ts qs => if decide (f = g) && decide (ss = ts) then alphaList ρ ps qs else none
     | .and s ps, .and t qs => if decide (s = t) then alphaList ρ ps qs else none
+    | .not s p, .not t q => if decide (s = t) then alpha ρ p q else none
     | .equals a b p p', .equals c d q q' =>
       if decide (a = c) && decide (b = d) then (alpha ρ p q).bind (alpha · p' q') else none
     | .in a b p p', .in c d q q' =>
@@ -3288,12 +3418,109 @@ def orCases (r : Kore.Pattern) : Bool :=
   let (r', _, empty) := hoist r
   !empty && hasOr r' && (orAlts r').length ≤ 8 && 2 ≤ ((orAlts r').filter fun a => !(hoist a).2.2).length
 
+/-! ## `\exists` moved to the top of a right side (`hoistExists`)
+
+Each step is an equality in every interpretation, the bound variable x not free outside its
+binder:
+- `C[∃x. φ] = ∃x. C[φ]` for a position `C[·]` under applications (an injection is one): an
+  application holds the elements its arguments' elements give, and `\exists` is the union over the
+  elements of the bound sort. Nothing is asked of the sort: where it has no element both sides are
+  empty.
+- `(∃x. φ) ∧ ψ = ∃x. (φ ∧ ψ)`, likewise with nothing asked of the sort.
+- `(∃x:s. φ) ∨ ψ = ∃x:s. (φ ∨ ψ)` where s has an element: where it has none the left side is ψ
+  and the right side is empty. A value of s is an element of it in every model, so the step is
+  taken where `val` accepts s, a test of "the sort has a value" the caller passes.
+The binder stays where it is under `\not`, `\implies`, `\iff`, `\forall`, `\mu` and `\nu`, and in a
+predicate (`isPred`): none of the three equalities moves it out of those. -/
+
+mutual
+  /-- A pattern at a term position with each `\exists` under applications, `\and` conjuncts and
+  `\or` alternatives taken out: the pattern, the binders (outermost first, then in the order of
+  the text), the names `taken` and `used` with the binders' added.
+  `taken` holds the names free in the equation and the binders' already taken out: a binder whose
+  name is one of them is renamed, with the occurrences it binds, to its name primed until no name
+  of `used` is it (`freshIn`; `used` holds every name of the equation), so that no binder taken
+  out captures a variable of the position it leaves, and no two have one name. Under a binder its
+  name is taken, so a binder of the same name inside it is the one renamed.
+  Refused `existentialEquation`: a binder in an alternative of an `\or` at a sort `val` does not
+  accept. Refused `patternConnective`: a binder to rename whose name stays free in its body
+  (`renameEVar` reads name and sort, and no `\iff`, `\mu` or `\nu`). -/
+  def hoistEx (val : Kore.KSort → Bool) (taken used : List String) :
+      Kore.Pattern → Rd (Kore.Pattern × List Kore.EVar × List String × List String)
+    | .exist _ x p => do
+      let n := x.var.ident.name
+      let (p', xs, taken', used') ← hoistEx val (n :: taken) used p
+      if taken.contains n then
+        let y := KoreAML.evar (freshIn used' (used'.length + 1) n) x.sort
+        let p'' := renameEVar x y p'
+        if (freeEVars [] p'').contains n then
+          fail .patternConnective s!"{n}: bound by \\exists, not renamed apart"
+        else pure (p'', y :: xs, y.var.ident.name :: taken', y.var.ident.name :: used')
+      else pure (p', x :: xs, taken', used')
+    | .app h ss ps => do
+      let (ps', xs, taken, used) ← hoistExList val taken used ps
+      pure (.app h ss ps', xs, taken, used)
+    | .and s ps => do
+      let (ps', xs, taken, used) ← hoistExList val taken used ps
+      pure (.and s ps', xs, taken, used)
+    | .or s ps => do
+      let (ps', xs, taken, used) ← hoistExList val taken used ps
+      match xs.find? (fun x => !val x.sort) with
+      | some x =>
+        let sn := (sortName? x.sort).getD "?"
+        fail .existentialEquation
+          s!"{x.var.ident.name}: bound in an alternative of \\or at the sort {sn}, which the test of a value does not accept"
+      | none => pure (.or s ps', xs, taken, used)
+    | p => pure (p, [], taken, used)
+    termination_by structural p => p
+  def hoistExList (val : Kore.KSort → Bool) (taken used : List String) :
+      List Kore.Pattern → Rd (List Kore.Pattern × List Kore.EVar × List String × List String)
+    | [] => pure ([], [], taken, used)
+    | p :: ps => do
+      let (p', xs, taken, used) ← if isPred p then pure (p, [], taken, used) else hoistEx val taken used p
+      let (ps', xs', taken, used) ← hoistExList val taken used ps
+      pure (p' :: ps', xs ++ xs', taken, used)
+    termination_by structural ps => ps
+end
+
+/-- An equation with each `\exists` of its right side under applications, `\and` conjuncts and
+`\or` alternatives moved to the top (`hoistEx`), renamed apart from the names free in the
+equation and from each other: the right side is `\exists x̄. body` at the sort S, the right side's.
+A right side that is a predicate is left as it is. -/
+def hoistExists (val : Kore.KSort → Bool) (S : Kore.KSort) (e : RawEqn) : Rd RawEqn := do
+  if isPred e.rhs then pure e else
+  let all := e.rhs :: e.pats ++ e.req.toList ++ e.ens.toList ++ e.competitors.getD []
+  let (body, xs, _, _) ← hoistEx val (freeEVarsList [] all) (evarNamesList all) e.rhs
+  pure { e with rhs := xs.foldr (Kore.Pattern.exist S) body }
+
+/-- The equation EX's test reads (`exShape?`, in `exCases` and `clausesBody`): `e` itself where its
+right side has an `\exists` at the top; otherwise, where the right side holds an `\exists`, `e` with
+each `\exists` under applications and `\and` conjuncts moved to the top, renamed apart
+(`hoistExists`: `C[∃x. φ] = ∃x. C[φ]` and `(∃x. φ) ∧ ψ = ∃x. (φ ∧ ψ)` in every interpretation, x not
+free outside its binder, nothing asked of x's sort), the binders at the function's result sort.
+No sort is accepted as having a value (`fun _ => false`): the move of a binder out of an alternative
+of an `\or` asks that its sort has an element, which the built definition decides, so such an
+equation is not EX's here (`none`); nor is one whose function has no result sort or whose right
+side holds no `\exists`. -/
+def exEqn? (N : Names) (e : RawEqn) : Option RawEqn :=
+  match e.rhs with
+  | .exist .. => some e
+  | r =>
+    if !hasExists r then none else
+    match resSort N e with
+    | .error _ => none
+    | .ok s =>
+      match hoistExists (fun _ => false) (KoreAML.srt (N.sortNameOf s)) e with
+      | .ok e' => some e'
+      | .error _ => none
+
 /-- The equation is one `clausesBody` reads by cases over a Bool variable (`exRead`): its right
-side, the empty alternatives left out, is of `exShape?`, the text holds the function's
-`functional` sentence, and its declarations give Bool no value beside its literals. -/
+side, the empty alternatives left out and its binders under applications and conjunctions moved to
+the top (`exEqn?`), is of `exShape?`, the text holds the function's `functional` sentence, and its
+declarations give Bool no value beside its literals. -/
 def exCases (N : Names) (e : RawEqn) : Bool :=
   let e' : RawEqn := { e with rhs := dropEmptyAlts e.rhs }
-  N.boolLits && eqnFnl N e' && (exShape? e').isSome
+  N.boolLits && eqnFnl N e' && ((exEqn? N e').bind exShape?).isSome
 
 /-- The conjunction of two premise predicates, a `\top` one left out. -/
 def preConj : Cond → Cond → Cond
@@ -3333,7 +3560,9 @@ def clauseExcl (N : Names) (msrc : String) (e : RawEqn) (excl : Option Kore.Patt
         let (ps, evs) ← terms N [] (← need (argPats eqnFuel args) .exclusionShape)
         match ← need (req? r) .requiresShape with
         | none => pure (ps, evs)
-        | some rq => do let (_, evs) ← condTerm N evs rq; pure (ps, evs)
+        | some rq =>
+          if condCutTaken rq then do let (_, _, _, evs) ← condCuts N evs rq; pure (ps, evs)
+          else do let (_, evs) ← condTerm N evs rq; pure (ps, evs)
       | _ => fail .exclusionShape
     let π ← need (bs.mapM fun b => do
       let n ← dropPrefix? "Var" b.var.ident.name
@@ -3359,9 +3588,11 @@ def clauseBody (N : Names) (msrc : String) (e : RawEqn) (excl : Option Kore.Patt
   if let some d := eqnAttrFault? e.attrs then fail .equationAttribute d
   let (pats, vs) ← svinPats N e
   let np := vs.length
-  let (req, vs) ← match e.req with
-    | none => pure (none, vs)
-    | some r => do let (t, vs) ← eqnCondTerm N vs r; pure (some t, vs)
+  -- the `requires`: its term, and the conditions of `notAsCondition` and `andUnderAppCut`, which
+  -- are `Clause.pre`'s (`eqnReqCut`)
+  let (req, reqCs, vs) ← match e.req with
+    | none => pure (none, [], vs)
+    | some r => eqnReqCut N vs r
   -- a variable the arguments do not bind is read; in a condition the values do not decide it is
   -- refused once the definition is built (`clauseRefusal`)
   -- the `ensures`, the clause's `ens`: part of the right side, not of whether it applies
@@ -3390,7 +3621,8 @@ def clauseBody (N : Names) (msrc : String) (e : RawEqn) (excl : Option Kore.Patt
       if ens.toList.length + cs.length > 1 then N.hookEqE kEq
       pure (rhs, if cs.isEmpty then ens else conjTerms (ens.toList ++ cs), vs)
   -- a `non-executable` equation: a clause that no `[owise]` premise negates (`Clause.aside`)
-  clauseExcl N msrc e excl vs { vars := [], pats, req, rhs, ens, prio := (eqnPrio e).2, aside := nonExec e }
+  clauseExcl N msrc e excl vs { vars := [], pats, req, rhs, ens, prio := (eqnPrio e).2, aside := nonExec e,
+                                pre := conjC reqCs }
 
 /-- A function's clause from its equation (and the `[owise]` equation's exclusion of it). -/
 def clause? (N : Names) (msrc : String) (e : RawEqn) (excl : Option Kore.Pattern) : Rd (Clause × ClausePres) :=
@@ -3407,7 +3639,8 @@ theorem clauseBody_rhsSorted {N : Names} {msrc : String} {e : RawEqn} {excl : Op
   whatever the right side holds;
 - the right side is taken with the alternatives of its `\or`s that are `\bottom` left out
   (`dropEmptyAlts`: `⊥ ∨ φ = φ`; `ReadingNote.orBottom`);
-- one `\exists` over a Bool variable heading it, in an equation of a function whose `functional`
+- one `\exists` over a Bool variable heading it, after the binders under applications and
+  conjunctions are moved to the top (`exEqn?`), in an equation of a function whose `functional`
   sentence the text holds, where the text's declarations give Bool no value beside its literals
   (`Names.boolLits`): the clauses `exRead` gives (`ReadingNote.existsAsCases`);
 - an `\or` under its applications and conjunctions: the clauses `frRead` gives
@@ -3421,9 +3654,9 @@ def clausesBody (N : Names) (msrc : String) (e : RawEqn) (excl : Option Kore.Pat
   rhsSortGuard e.rhs
   if let some d := eqnAttrFault? e.attrs then fail .equationAttribute d
   let e' : RawEqn := { e with rhs := dropEmptyAlts e.rhs }
-  let byEx ← match e'.rhs with
-    | .exist .. => if N.boolLits && eqnFnl N e' then exRead N e' else pure none
-    | _ => pure none
+  let byEx ← match exEqn? N e' with
+    | some eX => if N.boolLits && eqnFnl N eX then exRead N eX else pure none
+    | none => pure none
   match byEx with
   | some (cls, vs) => cls.mapM (clauseExcl N msrc e excl vs)
   | none =>
@@ -3616,33 +3849,43 @@ def exIndices (vs : List Var) (n0 : Nat) (xs : List Kore.EVar) : List Nat :=
     | _, _ => none
 
 /-- A rule's `requires` or `ensures` B (`\equals{SortBool{},S}(B, true)`) as the list of its
-conjuncts, Bool terms: `[false]` where B is a predicate (`predicateAtBool`), each conjunct of B
-where B is `\and{SortBool{}}` of several (`andAtBool`), else `[B]`. A conjunction under an
-application of a conjunct is refused (`patternConnective`), as by `condTerm`. -/
-def ruleCondTermsCnj (N : Names) (vs : List Var) (b : Kore.Pattern) : Rd (List Term × List Var) :=
-  if isPred b then pure ([.dv Srt.bool (.bool false)], vs)
-  else if (boolConj b).any hasAnd then fail .patternConnective "\\and"
+conjuncts, Bool terms, and conditions beside them: `[false]` where B is a predicate
+(`predicateAtBool`); where `condCutTaken` holds, `condCuts`' terms and conditions
+(`notAsCondition`, `andUnderAppCut`); each conjunct of B where B is `\and{SortBool{}}` of several
+(`andAtBool`), else `[B]`. -/
+def ruleCondTermsCnj (N : Names) (vs : List Var) (b : Kore.Pattern) :
+    Rd (List Term × List Cond × List Var) :=
+  if isPred b then pure ([.dv Srt.bool (.bool false)], [], vs)
+  else if condCutTaken b then do
+    let (ts, cs, _, vs) ← condCuts N vs b
+    pure (ts, cs, vs)
   else do
     let (ts, vs) ← terms N vs (boolConj b)
-    pure (if ts.isEmpty then [.dv Srt.bool (.bool true)] else ts, vs)
+    pure (if ts.isEmpty then [.dv Srt.bool (.bool true)] else ts, [], vs)
 
 /-- The conditions `hoist` lifted out of a rule's right side, as Bool terms: each conjunct of a
-`{B #Equals true}` (`ruleCondTermsCnj`), and the term `sideConds` writes for a `t ∧ u` of two terms
-(`.same`). -/
-def ruleSideCondsCnj (N : Names) : List Var → List SideCond → Rd (List Term × List Var)
-  | vs, [] => pure ([], vs)
+`{B #Equals true}` (`ruleCondTermsCnj`) with its conditions, and the term `sideConds` writes for a
+`t ∧ u` of two terms (`.same`). -/
+def ruleSideCondsCnj (N : Names) : List Var → List SideCond → Rd (List Term × List Cond × List Var)
+  | vs, [] => pure ([], [], vs)
   | vs, .isTrue b :: cs => do
-    let (ts, vs) ← ruleCondTermsCnj N vs b
-    let (us, vs) ← ruleSideCondsCnj N vs cs
-    pure (ts ++ us, vs)
+    let (ts, ds, vs) ← ruleCondTermsCnj N vs b
+    let (us, es, vs) ← ruleSideCondsCnj N vs cs
+    pure (ts ++ us, ds ++ es, vs)
   | vs, c :: cs => do
     let (ts, vs) ← sideConds N vs [c]
-    let (us, vs) ← ruleSideCondsCnj N vs cs
-    pure (ts ++ us, vs)
+    let (us, es, vs) ← ruleSideCondsCnj N vs cs
+    pure (ts ++ us, es, vs)
 
 /-- The conjunction of the conditions `B = true`, one per term B, `\top` for none. -/
 def ruleEqTrueCnj (ts : List Term) : Cond :=
   ovlCutConj (ts.map fun t => Cond.equals Srt.bool t (.dv Srt.bool (.bool true)))
+
+/-- `ruleEqTrueCnj ts` with the conditions `cs` after its conjuncts; `ruleEqTrueCnj ts` where `cs`
+is empty. -/
+def ruleEqTrueCnjWith (ts : List Term) (cs : List Cond) : Cond :=
+  if cs.isEmpty then ruleEqTrueCnj ts
+  else ovlCutConj (ts.map (fun t => Cond.equals Srt.bool t (.dv Srt.bool (.bool true))) ++ cs)
 
 /-- A rewrite axiom `\rewrites(\and(lhs, req), \exists(x̄, \and(rhs, ens)))`, x̄ possibly empty and
 renamed apart from the names the left side and the `requires` hold (`rhsApart`). Refused
@@ -3659,28 +3902,29 @@ def ruleBodyAnd (N : Names) (msrc : String) (a : Kore.Axiom) (l r0 : Kore.Patter
     -- a variable the left side does not bind (in the `requires`, the `ensures` or the right side)
     -- is read after the left side's; where the values do not decide the rule it is refused once
     -- the definition is built (`openRefusal`)
-    -- the `requires`' conjuncts: the first is `req`, each other `B = true` a conjunct of `pre`
-    let (reqs, vs) ← match ← need (req? r0) .requiresShape with
-      | none => pure ([], vs)
+    -- the `requires`' conjuncts: the first is `req`, each other `B = true` a conjunct of `pre`, and
+    -- the conditions `ruleCondTermsCnj` gives beside them conjuncts of `pre`
+    let (reqs, reqCs, vs) ← match ← need (req? r0) .requiresShape with
+      | none => pure ([], [], vs)
       | some q => ruleCondTermsCnj N vs q
     let n0 := vs.length
-    let (enss, vs) ← match ens with
-      | none => pure ([], vs)
+    let (enss, ensCs, vs) ← match ens with
+      | none => pure ([], [], vs)
       | some e => ruleCondTermsCnj N vs e
     -- the right side's binders that bind something
     let kept := exKept xs r en
     -- the right side's conjunctions as conditions, and an empty right side as the `ensures` false
     -- (`hoist`), the left side without `#as` in its place (after `keyCut`); of the right side's
     -- conditions (the `ensures`' conjuncts, then the lifted ones) the first is `ens`, each other
-    -- `B = true` a conjunct of `post`
+    -- `B = true` a conjunct of `post`, and so is each condition `ruleCondTermsCnj` gives beside them
     let (r, conds, empty) := hoist r
     let (rhs, ens, post, vs) ← if empty then
         pure (stripAs lhs, some (Term.dv Srt.bool (.bool false)), Cond.top, vs)
       else do
         let (rhs, vs) ← term N vs r
-        let (cs, vs) ← ruleSideCondsCnj N vs conds
+        let (cs, csCs, vs) ← ruleSideCondsCnj N vs conds
         let es := enss ++ cs
-        pure (rhs, es.head?, ruleEqTrueCnj es.tail, vs)
+        pure (rhs, es.head?, ruleEqTrueCnjWith es.tail (ensCs ++ csCs), vs)
     -- the right side's existential variables, in the text's order of nesting: the binders that
     -- bind something, looked up before `keyCut` adds its variables
     let exs := exIndices vs n0 kept
@@ -3691,7 +3935,7 @@ def ruleBodyAnd (N : Names) (msrc : String) (a : Kore.Axiom) (l r0 : Kore.Patter
     -- membership in the application a conjunct of `pre` (`ovlCut`)
     let (lhs, vs, pre) ← ovlCut N lhs vs
     let pre := ovlCutConj (keys ++ (if pre.isTop then [] else [pre]) ++
-      (if reqs.length ≤ 1 then [] else [ruleEqTrueCnj reqs.tail]))
+      (if reqs.length ≤ 1 then [] else [ruleEqTrueCnj reqs.tail]) ++ reqCs)
     let req := reqs.head?
     let rhs := if empty then stripAs lhs else rhs
     let plain := a.attributes.filterMap fun ap =>
@@ -4104,9 +4348,95 @@ def ruleBody (N : Names) (msrc : String) (a : Kore.Axiom) : Rd (Rule × RulePres
 /-- The cut of a conjunction of terms is taken for a rule the axiom gives (`andCutRule?`). -/
 def andCutTaken (N : Names) (a : Kore.Axiom) : Bool := (andCutRule? N "" a).isSome
 
-/-- The rule of a rewrite axiom. -/
+/-- A cut connective: the variable that stands in its place, its sort, the connective. -/
+abbrev ConnCut := Kore.EVar × Kore.KSort × Kore.Pattern
+
+mutual
+  /-- A pattern at a term position with each maximal connective under applications replaced by a
+  fresh variable of the connective's sort (`connCutVar`): `\not`, and on a right side (`left`
+  false) `\or` and `\top` too. A left side's `\top` is a variable of the rule (`lhsBound`) and its
+  `\or` is split (`splitRule`). The pattern, the next number and the cuts, in the order met. -/
+  def connCut (left : Bool) (used : List String) (n : Nat) : Kore.Pattern → Kore.Pattern × Nat × List ConnCut
+    | .app h ss ps => let (ps', n, cs) := connCutList left used n ps; (.app h ss ps', n, cs)
+    | .not s p => (.var (.evar (connCutVar used n s)), n + 1, [(connCutVar used n s, s, .not s p)])
+    | .or s ps =>
+      if left then (.or s ps, n, [])
+      else (.var (.evar (connCutVar used n s)), n + 1, [(connCutVar used n s, s, .or s ps)])
+    | .top s =>
+      if left then (.top s, n, [])
+      else (.var (.evar (connCutVar used n s)), n + 1, [(connCutVar used n s, s, .top s)])
+    | p => (p, n, [])
+    termination_by structural p => p
+  def connCutList (left : Bool) (used : List String) (n : Nat) :
+      List Kore.Pattern → List Kore.Pattern × Nat × List ConnCut
+    | [] => ([], n, [])
+    | p :: ps =>
+      let (p', n, cs) := connCut left used n p
+      let (ps', n, cs') := connCutList left used n ps
+      (p' :: ps', n, cs ++ cs')
+    termination_by structural ps => ps
+end
+
+/-- The membership of each cut's variable in its connective (`memCond`), and the variables'
+indices. -/
+def connCutConds (N : Names) : List Var → List ConnCut → Rd (List Cond × List Nat × List Var)
+  | vs, [] => pure ([], [], vs)
+  | vs, c :: cs => do
+    let (i, vs) ← varIndex vs c.1
+    let s ← N.sortE c.2.1
+    let (p, vs) ← memCond N i s c.2.1 vs c.2.2
+    let (ps, is, vs) ← connCutConds N vs cs
+    pure (p :: ps, i :: is, vs)
+  termination_by structural _ cs => cs
+
+/-- A rewrite axiom `\rewrites(\and(l, req), \and(r, ens))` with its connectives at term positions
+cut (`connCut`: the left side's first, then the right side's, numbered on), and the cuts of each
+side; none where nothing is cut or the axiom has another shape. -/
+def connCutAxiom? (a : Kore.Axiom) : Option (Kore.Axiom × List ConnCut × List ConnCut) :=
+  match a.pattern with
+  | .rewrites s (.and s' [l, r0]) (.and s'' [r, en]) =>
+    let used := evarNames a.pattern
+    let (l', n, cutsL) := connCut true used 0 l
+    let (r', _, cutsR) := connCut false used n r
+    if cutsL.isEmpty && cutsR.isEmpty then none
+    else some ({ a with pattern := .rewrites s (.and s' [l', r0]) (.and s'' [r', en]) }, cutsL, cutsR)
+  | _ => none
+
+/-- A rewrite axiom's rule, its connectives at term positions cut (`ReadingNote.connectiveCut`). An
+axiom `ruleBody` reads is read by it. Otherwise, where `connCutAxiom?` cuts a connective, the axiom
+with the cut variables in the connectives' places is read by `ruleBody`; where that rule has no
+`pre` and no `post` of its own, the memberships of the left side's cut variables are its `pre`,
+those of the right side's its `post`, and the right side's cut variables are added to `exs`. A
+variable only a connective holds is a variable of the rule, read after the others. Where nothing is
+cut, or the rule read with the cut variables has a `pre` or a `post`, `ruleBody`'s refusal stands. -/
+def connRuleBody (N : Names) (msrc : String) (a : Kore.Axiom) : Rd (Rule × RulePres) :=
+  match ruleBody N msrc a with
+  | .ok x => .ok x
+  | .error f =>
+    match connCutAxiom? a with
+    | none => .error f
+    | some (a', cutsL, cutsR) => do
+      let (rule, pres) ← ruleBody N msrc a'
+      if !(rule.pre.isTop && rule.post.isTop) then .error f else do
+        let vs : List Var := (pres.names.zip rule.vars).map fun (n, s) => ⟨n, N.sortNameOf s⟩
+        let (pre, _, vs) ← connCutConds N vs cutsL
+        let (post, zs, vs) ← connCutConds N vs cutsR
+        pure ({ rule with vars := ← varSorts N vs, pre := conjC pre, post := conjC post, exs := rule.exs ++ zs },
+              { pres with names := vs.map (·.name) })
+
+/-- The cut of a connective at a term position is taken for the axiom (`connRuleBody`): something
+is cut, `ruleBody` refuses the axiom, and `connRuleBody` reads it. -/
+def connCutTaken (N : Names) (a : Kore.Axiom) : Bool :=
+  (connCutAxiom? a).isSome &&
+  match ruleBody N "" a with
+  | .ok _ => false
+  | .error _ => match connRuleBody N "" a with
+    | .ok _ => true
+    | .error _ => false
+
+/-- The rule of a rewrite axiom (`connRuleBody`). -/
 def ruleOf (N : Names) (msrc : String) (a : Kore.Axiom) : Rd (Rule × RulePres) :=
-  Rd.within (.sentence (.axiom a)) (ruleBody N msrc a)
+  Rd.within (.sentence (.axiom a)) (connRuleBody N msrc a)
 
 /-! ## The configuration -/
 
@@ -4966,7 +5296,8 @@ def scanColl : Kore.Sentence → Option (String × CollKind × String × String 
 
 `classify` reads one sentence, and of the definition's names (the scan's, from the text's
 declarations) only what decides the cut of a conjunction of terms on a rule's right side
-(`andCutTaken`, the one test `ruleBody` takes it by) and the map keys of a rule's left side read as
+(`andCutTaken`, the one test `ruleBody` takes it by), the cut of a connective at a term position of
+a rule (`connCutTaken`, whether `connRuleBody` reads the axiom `ruleBody` refuses) and the map keys of a rule's left side read as
 fresh variables (`keyCutFns`, the keys `keyCut` reads so), and the text's cell-collection pairs
 (`Names.cellPairs`, `cellCollPairs`), which decide whether a subsort or no-junk axiom is a cell
 collection's injection (`isCellCollAxiom`). A sentence is read when `parse` reads it: a declaration, a
@@ -5107,13 +5438,16 @@ def isCellCollAxiom (P : List (String × String)) (a : Kore.Axiom) : Bool :=
 notes are then of the axiom so read), for a rewrite axiom whose right side is under `\exists`
 `existsRenamedApart` and `existsDropped` and no other (the connectives' notes are of a right side
 without binders), `orSplit`, `topAsVariable` / `existsAsVariable` (in each disjunct), for an equation
-`setVarInDropped` (`svinShape`), the right side's
+`setVarInDropped` (`svinShape`), for a rewrite axiom `connectiveCut` where a rule the axiom gives
+is read through the cut of a connective at a term position (`connCutTaken`, which reads the names),
+the right side's
 (`bottomAsEnsures`, else `andAsEnsures`, `andTermsCut` or `andTermsWeaker` and the notes of the
 conditions it lifts: a lifted predicate is `andAsEnsures`; on a rule a lifted `t ∧ u` of two terms
 is `andTermsCut` where the rules the axiom gives are read through the cut (`andCutTaken`, which
 reads the names), `andTermsWeaker` where they are not, and both where some are, on an equation it is
 refused), the `requires`'
-(`requiresOrSplit` and its disjuncts', else `predicateAtBool`, `andAtBool`) and the `ensures`',
+(`requiresOrSplit` and its disjuncts', else `predicateAtBool`, `notAsCondition`, `andAtBool`,
+`andUnderAppCut`) and the `ensures`',
 `orBottom`; each once. An equation read by cases has `existsAsCases` or `orAsCases` in place of
 its right side's notes, and `orBottom` for an alternative left out as `\bottom` (`hasEmptyAlt`). -/
 def connNotes (N : Names) (a₀ : Kore.Axiom) : List ReadingNote :=
@@ -5123,12 +5457,16 @@ def connNotes (N : Names) (a₀ : Kore.Axiom) : List ReadingNote :=
     | _ => []
   let cond := fun (b : Kore.Pattern) =>
     if isPred b then [ReadingNote.predicateAtBool]
-    else if (boolConj b).length > 1 then [ReadingNote.andAtBool] else []
+    else if (notCondTerm? b).isSome then [ReadingNote.notAsCondition]
+    else (if (boolConj b).length > 1 then [ReadingNote.andAtBool] else []) ++
+      (if (boolConj b).any hasAnd then [ReadingNote.andUnderAppCut] else [])
   -- `eqn`: an equation's `t ∧ u` of two terms is refused (`clauseBody`), so it gives no note
   -- the rules the axiom gives (`scanRewrites`) whose conjunction of terms is read through the cut
   let cuts := (scanRewrites (.axiom a₀)).map (andCutTaken N)
   let cut := cuts.any id
   let cutAll := !cuts.isEmpty && cuts.all id
+  -- a rule the axiom gives read through the cut of a connective at a term position
+  let connCutNote := if (scanRewrites (.axiom a₀)).any (connCutTaken N) then [ReadingNote.connectiveCut] else []
   let side := fun (eqn : Bool) (r : Kore.Pattern) =>
     let (_, cs, e) := hoist r
     let isPredC := fun (c : SideCond) => match c with | .isTrue _ => true | .same .. => false
@@ -5150,7 +5488,7 @@ def connNotes (N : Names) (a₀ : Kore.Axiom) : List ReadingNote :=
         | none => conds [(req? r0).bind id]
       (if hasOr l then [ReadingNote.orSplit] else []) ++
         ((orAlts l).flatMap binderKinds).map (fun (b : Bool) => if b then ReadingNote.topAsVariable else ReadingNote.existsAsVariable) ++
-        side false r ++ reqNotes ++ conds [(req? en).bind id] ++ orB r
+        connCutNote ++ side false r ++ reqNotes ++ conds [(req? en).bind id] ++ orB r
     -- a right side under `\exists`: the binders' notes
     | .rewrites _ (.and _ [l, r0]) (.exist s x p) =>
       let rx := Kore.Pattern.exist s x p
@@ -5365,8 +5703,8 @@ def isRead (s : Kore.Sentence) : Bool :=
 
 /-- A sentence's class with no names but the cell-collection pairs `P` (`cellCollPairs`): what the
 scan reads to tell the read sentences from the others. It differs from `classify` at the
-definition's names only in the two notes of a rule that read the definition's symbols
-(`andCutTaken`, `keyCutFns`). -/
+definition's names only in the three notes of a rule that read the definition's symbols
+(`andCutTaken`, `connCutTaken`, `keyCutFns`). -/
 def classifyShapeIn (P : List (String × String)) (s : Kore.Sentence) : SentenceClass :=
   classify { Names.empty with cellPairs := P } s
 
@@ -5865,11 +6203,12 @@ def envOf (m : Kore.Module) (S : Scan) : Rd Env := do
   let extra := (heads.flatten).eraseDups.filter fun n => (N₀.sym? n).isNone
   -- a text that declares its own sort-parametric function `Lblite` at one sort: each application
   -- of `Lblite` at a sort is that function's instance (the text declares no other `Lblite`), read
-  -- as its own parameter where `instSyms` has it without an equation; one it has with an equation
-  -- would be a function named like `ite` at a sort (`Faithful.NamesNumbered`), and one at a sort
-  -- the definition does not have has no declaration, so either is refused, not read as K's `ite`
+  -- as its own parameter where `instSyms` has it without an equation (`clauseless`) and as a
+  -- function of the definition where it has it with one (`fnNames`, so not in `extra`); one at a
+  -- sort the definition does not have has no declaration and no number, and is refused, not read
+  -- as K's `ite`
   let ownIte := S.paramDecls.any fun d => d.symbol.ident.ident.name == "Lblite" && d.symbol.sortVars.length == 1
-  match (if ownIte then (heads.flatten).find? (fun n => (iteSort? n).isSome && !clauseless.contains n) else none) with
+  match (if ownIte then extra.find? (fun n => (iteSort? n).isSome && !clauseless.contains n) else none) with
   | some n => fail .iteShape n
   | none => pure ()
   let iteNames := extra.filter fun n => (iteSort? n).isSome && !clauseless.contains n
@@ -6503,6 +6842,26 @@ theorem openGenFault_none {c : Semantics} {k : ParamSig} (h : openGenFault c k =
     | false => unfold openGenFault at h; rw [hc, hf] at h; simp at h
     | true => exact ⟨rfl, rfl⟩
 
+/-- A rewrite axiom one of whose rules (`scanRewrites`, and each disjunct of a `requires` split by
+`reqOrSplit?`) has a `requires`, an `ensures` or a condition its right side lifts (`hoist`, the
+right side's binders peeled) that is `\not{SortBool{}}` of a term (`notCondTerm?`): a rule read
+through `ReadingNote.notAsCondition`. -/
+def notCondRule (a : Kore.Axiom) : Bool :=
+  let isNot := fun (p : Kore.Pattern) => match req? p with
+    | some (some q) => (notCondTerm? q).isSome
+    | _ => false
+  (scanRewrites (.axiom a)).any fun b => match b.pattern with
+    | .rewrites _ (.and _ [_, r0]) rx =>
+      (isNot r0 || match reqOrSplit? b.pattern r0 with
+        | some (_, qs) => qs.any isNot
+        | none => false) ||
+      match (peelExists rx).2 with
+      | .and _ [r, en] => isNot en || (hoist r).2.1.any fun c => match c with
+        | .isTrue q => (notCondTerm? q).isSome
+        | .same .. => false
+      | _ => false
+    | _ => false
+
 /-- The core from the productions and the rules. The configuration's cells are ordinary sorts,
 constructors and subsorts of it, before the user's (`Cell.topSorts`, `Cell.topSigs`,
 `Cell.topSubs` of the cell tree). The definition's token sorts (`Env.tokenSorts`) are token sorts
@@ -6520,6 +6879,12 @@ def coreOf (S : Scan) (E : Env) (prods : List Prod) (rules : List (Rule × RuleP
   if !core.litSort Srt.bool then
     if let some e := S.eqs.find? (exCases E.N) then
       Rd.within (.attrs e.attrs) (fail .existentialEquation "Bool: the text's declarations give the sort no value beside its literals (Names.boolLits), and the definition read has one (litSort): the equation, read by cases over a Bool variable (existsAsCases), would state more than the text")
+    -- the same test for a condition `\not{SortBool{}}(B)` read as `B = false` (`notAsCondition`),
+    -- which is the text's only where Bool's elements are its literals
+    if let some a := S.rewrites.find? notCondRule then
+      Rd.within (.sentence (.axiom a)) (fail .openExtent "Bool")
+    if let some e := S.eqs.find? (fun e => (e.req.bind notCondTerm?).isSome) then
+      Rd.within (.attrs e.attrs) (fail .openExtent "Bool")
   -- a constructor of the text into a sort that is no constructor sort (`ctorResultSort`)
   match core.ctors.find? (fun k => !(Faithful.consSorts core).contains k.result) with
   | some k =>
@@ -6703,27 +7068,52 @@ def initConstFn? (c : Semantics) (f : Sym) : Option Term :=
   | none => none
 
 mutual
-  /-- The term with each application `f()` of a function `f` of `c` that `initConstFn?` gives a
-  right side replaced by that right side, which is not itself looked into. -/
-  def initInline (c : Semantics) : Term → Term
-    | .app f [] => (initConstFn? c f).getD (.app f [])
-    | .app f (t :: ts) => .app f (initInlines c (t :: ts))
-    | .inj a b t => .inj a b (initInline c t)
+  /-- The term with each application `f()` of a function `f` of `c` that `initConstFn?` gives the
+  right side `r` replaced by `k f r`; the rest of the term is kept. -/
+  def initInlineK (c : Semantics) (k : Sym → Term → Term) : Term → Term
+    | .app f [] => match initConstFn? c f with
+      | some r => k f r
+      | none => .app f []
+    | .app f (t :: ts) => .app f (initInlinesK c k (t :: ts))
+    | .inj a b t => .inj a b (initInlineK c k t)
     | t => t
     termination_by structural t => t
-  /-- `initInline` of each term. -/
-  def initInlines (c : Semantics) : List Term → List Term
+  /-- `initInlineK` of each term. -/
+  def initInlinesK (c : Semantics) (k : Sym → Term → Term) : List Term → List Term
     | [] => []
-    | t :: ts => initInline c t :: initInlines c ts
+    | t :: ts => initInlineK c k t :: initInlinesK c k ts
     termination_by structural ts => ts
 end
+
+/-- The term with each application `f()` that `initConstFn?` reads replaced by its right side,
+read the same way in turn, at most `n` deep; an `f()` whose function `seen` (the functions it
+stands inside the right sides of) holds is kept. -/
+def initInlineFuel (c : Semantics) : Nat → List Sym → Term → Term
+  | 0, _, t => t
+  | n + 1, seen, t => initInlineK c
+      (fun f r => if seen.contains f then .app f [] else initInlineFuel c n (f :: seen) r) t
+
+/-- **The term with every application `f()` of a function of `c` that `initConstFn?` reads replaced
+by its value's term**, the right side of `f`'s one clause, read the same way in turn. Each
+replacement is the clause applying at the empty argument list (its substitution empty, no other
+clause of `f`), so the term denotes what it denoted. The replacement stops at an `f()` inside the
+right side of `f` itself (directly or through other such functions): the unfolding there would
+not end, so `f()` is kept, and `initGroundVal` gives the term no value (it is not computed). Along a
+chain of replacements the functions are distinct (`seen`), each a function of `c`
+(`initConstFn?` reads `lookupFn`), so a chain is at most `c.allFns.length` long and that depth
+never stops a replacement the repetition would not; each right side is read once on each chain,
+so the work is the size of the result. -/
+def initInline (c : Semantics) (t : Term) : Term :=
+  initInlineFuel c c.allFns.length [] t
 
 /-- The right side of the equation `e` has exactly one value because it is ground and its value is
 computed: literals, injections, constructors, and interpreted symbols each applied to values where
 its meaning gives a value (a partial hook among them, `<s> SetItem(1) SetItem(2) </s>`), and
 functions of `c` without argument whose one clause always applies, each read as its clause's right
-side (`initInline`: the initializer of a cell collection, `initLtCell() = LtCellListItem(<lt>(0))`
-in `initLsCell() = <ls>(initLtCell())`). `Γ` states each interpreted symbol's graph on values, and
+side and that in turn (`initInline`: the initializer of a cell collection,
+`initLtCell() = LtCellListItem(<lt>(0))` in `initLsCell() = <ls>(initLtCell())`, and
+`initIdCell() = <id>(0)` in `initThCell() = ThCellSetItem(<th>(initIdCell()))` inside
+`<ts>(initThCell())`). `Γ` states each interpreted symbol's graph on values, and
 the function's value is its clause's, so the term denotes that value. -/
 def initGroundOK (N : Names) (c : Semantics) (e : RawEqn) : Bool :=
   match term N [] e.rhs with

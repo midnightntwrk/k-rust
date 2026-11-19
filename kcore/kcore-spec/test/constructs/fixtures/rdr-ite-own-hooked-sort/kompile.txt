@@ -1,0 +1,11 @@
+command: kompile --backend haskell rdr-ite-own-hooked-sort.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.9
+definition.kore bytes: 130284
+definition.kore sha256: 24383a221ca12d84f66ccfda7309ea85242ceaca0aa237b31271c9906423a8df
+stripped sha256: e8474621e1dd029bbaf1ee5b59a0d43a6b7ecdaacfa66b4807f0d8d9c109e7c0
+main module: 307 sentences, 39 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  RDR-ITE-OWN-HOOKED-SORT-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using RDR-ITE-OWN-HOOKED-SORT as default.

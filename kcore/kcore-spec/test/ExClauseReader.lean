@@ -181,6 +181,24 @@
   `ceRead` reads the `\or` as `eqAlt`'s), `e3-eq-exists-ml-under-app` and
   `e3-eq-exists-ml-and-right` (one clause each).
   Kernel-checked (`decide +kernel`): each hand-written case (`HandHoist.hoist_steps`).
+
+  ## ex-after-hoist: EX's test after the binders are moved to the top (`Parse.exEqn?`)
+
+  `exCases` and `clausesBody` test EX's shape on the equation `exEqn?` gives: `hoistExists` with no
+  sort accepted as having a value, so the binders under applications and `\and` conjuncts move to
+  the top (N1, N2: equalities in every interpretation, nothing asked of the sort) and a binder in an
+  alternative of `\or` does not (the equation is not EX's; the stages after it read it as before).
+  Hand-written (`HandExHoist`, over `NB`: f, g : Bool → Bool, f with its `functional` sentence):
+  `eqUA`, `f(X) => g(#Exists B:Bool. (B #And {B #Equals X}))` (the equation of
+  `e3-eq-exists-ml-under-app`, `tie`), and `eqAR`, `f(X) => notBool X #And #Exists B. (…)`, are moved
+  to `eqUA'` and `eqAR'`; `eqOr`, `f(X) => X #Or #Exists B. (…)`, is not (`exEqn_steps`); `exCases`
+  holds of the first two (`exCases_steps`); the reader's clauses of each are `exRead`'s of the moved
+  equation (`wire_ua`, `wire_ar`). On the fixtures (`runExHoist`): `e3-eq-exists-ml-under-app` (f
+  `total`) is read by EX, three clauses, `existsAsCases`; `e3-eq-exists-ml-and-right` (f not `total`)
+  and `e3-eq-exists-ml-in-or` (the binder in an alternative of `\or`) are refused as before.
+  The results of the reading (`HoistEval`): with the reader's clauses of `eqUA` (`reader_fCls`) and
+  g's clause `g(B) => notBool B`, `f(true)` is `false` and `f(false)` is `true`, and nothing else
+  (`eval_after_hoist`).
 -/
 import KcoreSpec
 
@@ -1239,5 +1257,446 @@ end HandHoist
 
 /-- info: 'ExClauseReader.HandHoist.hoist_steps' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms HandHoist.hoist_steps
+
+
+/-! ## ex-after-hoist: EX's test after the binders are moved to the top (`Parse.exEqn?`)
+
+`exCases` and `clausesBody` test EX's shape on the equation `exEqn?` gives: the binders under
+applications and `\and` conjuncts moved to the top (N1, N2; no sort is accepted as having a value,
+so a binder in an alternative of `\or` stays and the equation is not EX's). -/
+
+namespace HandExHoist
+
+open KoreAML (ev ap srt evar)
+
+/-- f, g : Bool → Bool, the symbols `nRegSyms + 4` and `nRegSyms + 5` (after the four cell
+symbols of `mk`'s semantics); f has its `functional` sentence; Bool has its literals only. -/
+def NB : Names :=
+  { sorts := []
+    syms := ["LblisKCell", "LblisKCellOpt", "Lbl'-LT-'k'-GT-'", "LblnoKCell", "Lblf", "Lblg"]
+    keyFns := [(nRegSyms + 4, "Bool"), (nRegSyms + 5, "Bool")]
+    fnlSyms := [("Lblf", false)]
+    boolLits := true }
+
+def bS : Kore.KSort := srt "Bool"
+def Xp : Kore.Pattern := ev "VarX" bS
+def Bp : Kore.Pattern := ev "VarB" bS
+def exB (body : Kore.Pattern) : Kore.Pattern := .exist bS (evar "VarB" bS) body
+def bodyP : Kore.Pattern := .and bS [Bp, .equals bS bS Bp Xp]
+def uid : List Kore.AppPattern := [KoreAML.attrStr "UNIQUE'Unds'ID" "u"]
+def eqn (rhs : Kore.Pattern) : RawEqn := ⟨"Lblf", [Xp], none, none, rhs, uid, none, false⟩
+
+/-- N1, `f(X) => g(#Exists B:Bool. (B #And {B #Equals X}))` (`e3-eq-exists-ml-under-app`). -/
+def eqUA : RawEqn := eqn (ap "Lblg" [exB bodyP])
+def eqUA' : RawEqn := eqn (exB (ap "Lblg" [bodyP]))
+/-- N2, `f(X) => notBool X #And #Exists B:Bool. (B #And {B #Equals X})`
+(`e3-eq-exists-ml-and-right`). -/
+def eqAR : RawEqn := eqn (.and bS [ap "LblnotBool'Unds'" [Xp], exB bodyP])
+def eqAR' : RawEqn := eqn (exB (.and bS [ap "LblnotBool'Unds'" [Xp], bodyP]))
+/-- N3, `f(X) => X #Or #Exists B:Bool. (B #And {B #Equals X})`: the binder in an alternative. -/
+def eqOr : RawEqn := eqn (.or bS [Xp, exB bodyP])
+
+/-- **The equation EX's test reads, in the kernel**: N1 and N2 move the binder to the top; a binder
+in an alternative of `\or` is not moved (`none`); a binder at the top is the equation itself. -/
+theorem exEqn_steps :
+    exEqn? NB eqUA = some eqUA' ∧ exEqn? NB eqAR = some eqAR' ∧ exEqn? NB eqOr = none ∧
+    exEqn? NB eqUA' = some eqUA' := by
+  refine ⟨?_, ?_, ?_, ?_⟩ <;> kernel_rfl
+
+/-- **`exCases` holds of N1's and N2's equations, not of N3's.** -/
+theorem exCases_steps : exCases NB eqUA = true ∧ exCases NB eqAR = true ∧ exCases NB eqOr = false := by
+  refine ⟨?_, ?_, ?_⟩ <;> kernel_rfl
+
+/-- **The reader's clauses of N1's equation are `exRead`'s of the moved one, in the kernel.** -/
+theorem wire_ua : (clausesBody NB "" eqUA none).map (·.map (·.1)) =
+    (exRead NB eqUA').map (fun x => (x.map (·.1)).getD []) := by kernel_rfl
+
+theorem wire_ar : (clausesBody NB "" eqAR none).map (·.map (·.1)) =
+    (exRead NB eqAR').map (fun x => (x.map (·.1)).getD []) := by kernel_rfl
+
+end HandExHoist
+
+/-- The reader on the equation of `fn` in fixture `n`: whether `exEqn?` moves its binder, its
+clauses and whether they are `exRead`'s of the moved equation, the sentence's notes, and the
+definition built. -/
+def runExHoist (n fn : String) : IO Unit := do
+  let k ← load n
+  let some m := k.modules.getLast? | IO.println s!"{n}: no module"
+  let S := scan m.sentences
+  match envOf m S with
+  | .error f => IO.println s!"{n}: envOf fails {repr f.reason}"
+  | .ok E =>
+    for e in S.eqs.filter (·.fn == fn) do
+      let e' : RawEqn := { e with rhs := dropEmptyAlts e.rhs }
+      let moved := (exEqn? E.N e').map fun (x : RawEqn) => (peelExists x.rhs).1.map fun (b : Kore.EVar) => b.var.ident.name
+      IO.println s!"{n} {fn}: binders at the top after exEqn? {moved}; exCases {exCases E.N e}"
+      match clauses? E.N E.src e none with
+      | .error f => IO.println s!"  refused {repr f.reason} ({f.detail})"
+      | .ok xs =>
+        let ex := match (exEqn? E.N e').map (exRead E.N) with
+          | some (.ok (some (cs, _))) => reprStr (xs.map (fun (p : Clause × ClausePres) => p.1)) == reprStr cs
+          | _ => false
+        IO.println s!"  clauses {xs.length}; exRead's of the moved equation: {ex}"
+  let notes := (connReadings k).map fun (_, ns) => ns.map ReadingNote.name
+  match Parse.parse k with
+  | .error r => IO.println s!"  notes {notes}; refused {repr r.reason} ({r.detail})"
+  | .ok d => IO.println s!"  notes {notes}; read; coreOK {d.sem.coreOK}; readsConfined {d.sem.readsConfined}"
+
+/--
+info: e3-eq-exists-ml-under-app Lblf: the hand-written equation is the text's: true
+-/
+#guard_msgs in
+#eval tie "e3-eq-exists-ml-under-app" "Lblf" HandExHoist.eqUA
+
+/--
+info: e3-eq-exists-ml-under-app Lblf: binders at the top after exEqn? (some [VarB]); exCases true
+  clauses 3; exRead's of the moved equation: true
+  notes [[existsAsCases]]; read; coreOK true; readsConfined true
+e3-eq-exists-ml-and-right Lblf: binders at the top after exEqn? (some [VarB]); exCases false
+  refused KCore.Parse.RefusalReason.patternConnective (\and)
+  notes []; refused KCore.Parse.RefusalReason.patternConnective (\and)
+e3-eq-exists-ml-in-or Lblf: binders at the top after exEqn? none; exCases false
+  refused KCore.Parse.RefusalReason.manyValuedRightSide (\or: the sentence gives the function every element of each side; the text holds no functional sentence of the function, so where the sides differ that is more than one element, which no clause states)
+  notes []; refused KCore.Parse.RefusalReason.manyValuedRightSide (\or: the sentence gives the function every element of each side; the text holds no functional sentence of the function, so where the sides differ that is more than one element, which no clause states)
+-/
+#guard_msgs in
+#eval show IO Unit from do
+  runExHoist "e3-eq-exists-ml-under-app" "Lblf"
+  runExHoist "e3-eq-exists-ml-and-right" "Lblf"
+  runExHoist "e3-eq-exists-ml-in-or" "Lblf"
+
+/-! ### The results of N1's reading
+
+f with the reader's clauses of `HandExHoist.eqUA` (`reader_fCls`) and g with the clause
+`g(B) => notBool B`, the fixture's: `f(true)` is `false` and `f(false)` is `true`, and nothing else
+(`eval_after_hoist`). The clause of the literal b applies where b is X (its premise
+`⌈g(b)⌉ ∧ b = X`), and the binder clause's premise `¬∃B:Bool. (⌈g(B)⌉ ∧ B = X)` is false at both
+arguments (B := X). -/
+
+namespace HoistEval
+
+open Faithful.UndefRhsWitness (cellSorts cellCtors cellSubsorts)
+
+def Fs : Sym := nRegSyms + 4
+def Gs : Sym := nRegSyms + 5
+def litT (b : Bool) : Term := .dv Srt.bool (.bool b)
+def gT (t : Term) : Term := .app Gs [t]
+def clB (rhs : Term) (ens : Option Term) (pre : Cond) : Clause :=
+  ⟨[Srt.bool], [.var 0], none, rhs, ens, 50, false, [], pre, .top⟩
+def preB (b : Bool) : Cond := .and (.ceil Srt.bool (gT (litT b))) (.equals Srt.bool (litT b) (.var 0))
+def bodyC : Cond := .and (.ceil Srt.bool (gT (.var 1))) (.equals Srt.bool (.var 1) (.var 0))
+def lastPre : Cond := .not (.ex Srt.bool bodyC)
+def fCls : List Clause :=
+  [clB (gT (litT true)) none (preB true), clB (gT (litT false)) none (preB false),
+   clB (gT (litT true)) (some (litT false)) lastPre]
+
+/-- **The reader's clauses of N1's equation**, in the kernel. -/
+theorem reader_fCls : (clausesBody HandExHoist.NB "" HandExHoist.eqUA none).map (·.map (·.1)) = .ok fCls := by
+  kernel_rfl
+
+def gFn : Fn := ⟨Gs, [Srt.bool], Srt.bool, [clB (.app boolNot [.var 0]) none .top], true⟩
+def fFn : Fn := ⟨Fs, [Srt.bool], Srt.bool, fCls, true⟩
+
+def c : Semantics :=
+  { lib := {}
+    sortNames := ["KCell", "KCellOpt"]
+    symNames := ["LblisKCell", "LblisKCellOpt", "Lbl'-LT-'k'-GT-'", "LblnoKCell", "Lblf", "Lblg"]
+    userSorts := cellSorts
+    ctors := cellCtors
+    fns := [fFn, gFn]
+    userSubsorts := cellSubsorts
+    pgmSort := Srt.k
+    rules := [] }
+
+theorem c_coreOK : c.coreOK = true := by decide +kernel
+theorem c_lit : c.litSort Srt.bool = true := by decide +kernel
+
+theorem lookupF : c.lookupFn Fs = some fFn := by rw [Semantics.lookupFn_eq]; rfl
+theorem lookupG : c.lookupFn Gs = some gFn := by rw [Semantics.lookupFn_eq]; rfl
+theorem kindsG : c.isCtor Gs = false ∧ isHook Gs = false ∧ c.isParam Gs = false ∧ c.isOvl Gs = false := by
+  decide +kernel
+theorem kindsNot : c.isCtor boolNot = false ∧ isHook boolNot = true ∧ c.isOvl boolNot = false := by
+  decide +kernel
+
+/-- The substitution that gives X the value v. -/
+def sg (v : GroundTerm) : Subst := [(0, v)]
+
+theorem sg_sorted (x : Bool) : c.WellSorted [Srt.bool] (sg (bool x)) := by
+  intro i s hs
+  cases i with
+  | zero =>
+    simp only [List.getElem?_cons_zero, Option.some.injEq] at hs
+    subst hs
+    exact ⟨bool x, rfl, sortOf_bool x⟩
+  | succ i => simp at hs
+
+theorem sg_sortedAt (x : Bool) (is : List Nat) : c.WellSortedAt [Srt.bool] is (sg (bool x)) :=
+  fun i _ s hs => sg_sorted x i s hs
+
+theorem sg_match (v : GroundTerm) : PatVals c (sg v) [.var 0] [v] := .cons (.var rfl) .nil
+
+theorem match0 {σ : Subst} {vs : List GroundTerm} (h : PatVals c σ [.var 0] vs) :
+    ∃ v, vs = [v] ∧ σ.lookup 0 = some v := by
+  obtain ⟨v, vs', rfl, hv, hs⟩ := PatVals.cons_inv h
+  rw [PatVals.nil_inv hs]
+  exact ⟨v, rfl, PatVal.var_inv hv⟩
+
+/-- `notBool(X)` is `!y` where X is y, and nothing else. -/
+theorem not_iff {σ : Subst} {y : Bool} (hl : σ.lookup 0 = some (bool y)) (w : Option GroundTerm) :
+    EvalTerm c σ (.app boolNot [.var 0]) w ↔ w = some (bool !y) := by
+  constructor
+  · intro h
+    cases h with
+    | ctor hk _ => exact absurd (kindsNot.1.symm.trans hk) (by simp)
+    | hook _ _ hts hh _ =>
+      cases hts with
+      | cons h1 hs =>
+        cases hs; cases h1
+        rw [hl] at hh
+        exact Option.some.inj ((hh _ rfl).symm.trans (by cases y <;> rfl))
+    | param _ hhk _ _ _ => exact absurd (kindsNot.2.1.symm.trans hhk) (by simp)
+    | call _ hhk _ _ _ _ => exact absurd (kindsNot.2.1.symm.trans hhk) (by simp)
+    | callUndef _ hhk _ _ _ => exact absurd (kindsNot.2.1.symm.trans hhk) (by simp)
+    | ovl _ ho _ _ => exact absurd (kindsNot.2.2.symm.trans ho) (by simp)
+    | ovlFn _ ho _ _ _ _ _ => exact absurd (kindsNot.2.2.symm.trans ho) (by simp)
+  · rintro rfl
+    exact .hook kindsNot.1 kindsNot.2.1 (.cons .var .nil)
+      (fun vs hvs => by
+        rw [hl] at hvs
+        obtain rfl := Option.some.inj hvs.symm
+        cases y <;> rfl)
+      (fun hn => by rw [hl] at hn; exact nomatch hn)
+
+theorem gCl_of {cl : Clause} (h : cl ∈ gFn.clauses) : cl = clB (.app boolNot [.var 0]) none .top := by
+  simpa [gFn] using h
+
+/-- **g(y) is `!y`**, and nothing else. -/
+theorem evalG_iff (y : Bool) (r : Option GroundTerm) : Eval c Gs [bool y] r ↔ r = some (bool !y) := by
+  have hmem : clB (.app boolNot [.var 0]) none .top ∈ gFn.clauses := by simp [gFn]
+  constructor
+  · intro h
+    cases h with
+    | clause hfn hcl _ hm _ _ _ _ hr _ _ =>
+      obtain rfl := Option.some.inj (lookupG.symm.trans hfn)
+      obtain rfl := gCl_of hcl
+      obtain ⟨w, hw, hl⟩ := match0 hm
+      cases hw
+      exact (not_iff hl _).mp hr
+    | rest hfn hn =>
+      obtain rfl := Option.some.inj (lookupG.symm.trans hfn)
+      cases hn _ hmem with
+      | intro hf =>
+        cases hf (sg (bool y)) (sg_sortedAt y _) (sg_match _) with
+        | intro ht _ _ => exact nomatch ht
+        | pre hp => cases hp
+    | ensFails hfn hcl _ _ _ _ _ _ ht _ _ =>
+      obtain rfl := Option.some.inj (lookupG.symm.trans hfn)
+      obtain rfl := gCl_of hcl
+      exact nomatch ht
+    | clauseEx hfn hcl _ _ _ _ _ hne _ _ _ _ =>
+      obtain rfl := Option.some.inj (lookupG.symm.trans hfn)
+      obtain rfl := gCl_of hcl
+      exact absurd rfl hne
+    | exNone hfn hcl hne _ _ _ _ _ _ _ =>
+      obtain rfl := Option.some.inj (lookupG.symm.trans hfn)
+      obtain rfl := gCl_of hcl
+      exact absurd rfl hne
+  · rintro rfl
+    exact .clause lookupG hmem (sg_sorted y) (sg_match _) (fun t ht => nomatch ht) .top
+      (fun cl' h _ hlt => by rw [gCl_of h] at hlt; exact absurd hlt (Nat.lt_irrefl _)) rfl
+      ((not_iff rfl _).mpr rfl) (fun t ht => nomatch ht) .top
+
+/-- `g(t)`, where t has the one result y, has the one result `!y`. -/
+theorem gT_iff {σ : Subst} {t : Term} {y : Bool} (ht : ∀ w, EvalTerm c σ t w ↔ w = some (bool y))
+    (w : Option GroundTerm) : EvalTerm c σ (gT t) w ↔ w = some (bool !y) := by
+  constructor
+  · intro h
+    cases h with
+    | ctor hk _ => exact absurd (kindsG.1.symm.trans hk) (by simp)
+    | hook _ hh _ _ _ => exact absurd (kindsG.2.1.symm.trans hh) (by simp)
+    | param _ _ hp _ _ => exact absurd (kindsG.2.2.1.symm.trans hp) (by simp)
+    | call _ _ hts hvs hf _ =>
+      cases hts with
+      | cons h1 hs =>
+        cases hs
+        rw [(ht _).mp h1] at hvs
+        obtain rfl := Option.some.inj hvs.symm
+        exact (evalG_iff y _).mp hf
+    | callUndef _ _ hts hvs _ =>
+      cases hts with
+      | cons h1 hs =>
+        cases hs
+        rw [(ht _).mp h1] at hvs
+        exact nomatch hvs
+    | ovl _ ho _ _ => exact absurd (kindsG.2.2.2.symm.trans ho) (by simp)
+    | ovlFn _ ho _ _ _ _ _ => exact absurd (kindsG.2.2.2.symm.trans ho) (by simp)
+  · rintro rfl
+    exact .call kindsG.1 kindsG.2.1 (.cons ((ht _).mpr rfl) .nil) rfl ((evalG_iff y _).mpr rfl) kindsG.2.2.1
+
+theorem lit_iff {σ : Subst} (b : Bool) (w : Option GroundTerm) : EvalTerm c σ (litT b) w ↔ w = some (bool b) :=
+  ⟨fun h => EvalTerm.dv_inv h, fun h => h ▸ .dv⟩
+
+theorem var_iff {σ : Subst} {i : Nat} {y : Bool} (hl : σ.lookup i = some (bool y)) (w : Option GroundTerm) :
+    EvalTerm c σ (.var i) w ↔ w = some (bool y) :=
+  ⟨fun h => (EvalTerm.var_inv h).trans hl, fun h => h ▸ hl ▸ .var⟩
+
+/-- Whether b is x. -/
+def bEq (b x : Bool) : Bool := sameResult (some (bool b)) (some (bool x))
+
+theorem bEq_iff (b x : Bool) : bEq b x = true ↔ b = x := by cases b <;> cases x <;> decide
+
+/-- The premise of the literal b's clause has the truth value `b = x` where X is x. -/
+theorem preB_mk {σ : Subst} {x : Bool} (hl : σ.lookup 0 = some (bool x)) (b : Bool) :
+    Holds c 1 σ (preB b) (bEq b x) :=
+  Holds.and (Holds.ceil ((gT_iff (lit_iff b) _).mpr rfl)) (Holds.equals ((lit_iff b _).mpr rfl) ((var_iff hl _).mpr rfl))
+
+theorem preB_inv {σ : Subst} {x b r : Bool} (hl : σ.lookup 0 = some (bool x)) (h : Holds c 1 σ (preB b) r) :
+    r = bEq b x := by
+  cases h with
+  | and h1 h2 =>
+    cases h1 with
+    | ceil e1 =>
+      cases h2 with
+      | equals e2 e3 =>
+        rw [(gT_iff (lit_iff b) _).mp e1, (lit_iff b _).mp e2, (var_iff hl _).mp e3]
+        rfl
+
+/-- The binder's body under σ', B the index 1: whether B is x. -/
+def gB (x : Bool) (σ' : Subst) : Bool := sameResult (σ'.lookup 1) (some (bool x))
+
+theorem bodyC_mk {σ' : Subst} {x y : Bool} (hl0 : σ'.lookup 0 = some (bool x)) (hl1 : σ'.lookup 1 = some (bool y)) :
+    Holds c 2 σ' bodyC (gB x σ') := by
+  have h := Holds.and (n := 2) (Holds.ceil (s := Srt.bool) ((gT_iff (var_iff hl1) _).mpr rfl))
+    (Holds.equals (s := Srt.bool) ((var_iff hl1 _).mpr rfl) ((var_iff hl0 _).mpr rfl))
+  rw [show gB x σ' = sameResult (some (bool y)) (some (bool x)) by simp [gB, hl1]]
+  exact h
+
+theorem bodyC_inv {σ' : Subst} {x y r : Bool} (hl0 : σ'.lookup 0 = some (bool x)) (hl1 : σ'.lookup 1 = some (bool y))
+    (h : Holds c 2 σ' bodyC r) : r = gB x σ' := by
+  cases h with
+  | and h1 h2 =>
+    cases h1 with
+    | ceil e1 =>
+      cases h2 with
+      | equals e2 e3 =>
+        rw [(gT_iff (var_iff hl1) _).mp e1, (var_iff hl1 _).mp e2, (var_iff hl0 _).mp e3]
+        simp [gB, hl1]
+
+/-- An extension of σ by B: B is a literal. -/
+theorem ext_lit {σ σ' : Subst} (he : Extends c 1 [Srt.bool] σ σ') : ∃ y, σ'.lookup 1 = some (bool y) := by
+  obtain ⟨v, hv, hs⟩ := he.2 0 Srt.bool rfl
+  obtain ⟨y, rfl⟩ := boolValues c_coreOK c_lit hs
+  exact ⟨y, hv⟩
+
+/-- The extension of σ by B := x. -/
+def ext (x : Bool) (σ : Subst) : Subst := (1, bool x) :: σ
+
+theorem ext_extends (x : Bool) (σ : Subst) : Extends c 1 [Srt.bool] σ (ext x σ) := by
+  refine ⟨fun i hi => ?_, fun j s hs => ?_⟩
+  · have : i = 0 := by omega
+    subst this; rfl
+  · cases j with
+    | zero =>
+      simp only [List.getElem?_cons_zero, Option.some.injEq] at hs
+      subst hs
+      exact ⟨bool x, rfl, sortOf_bool x⟩
+    | succ j => simp at hs
+
+theorem gB_ext (x : Bool) (σ : Subst) : gB x (ext x σ) = true := by
+  cases x <;> rfl
+
+/-- **The binder clause's premise is false where X is a literal**: B := X gives the body. -/
+theorem last_mk {σ : Subst} {x : Bool} (hl : σ.lookup 0 = some (bool x)) : Holds c 1 σ lastPre false := by
+  have hex : Holds c 1 σ (.ex Srt.bool bodyC) true := by
+    refine Holds.ex (gB x) (fun σ' he => ?_) ?_
+    · obtain ⟨y, hy⟩ := ext_lit he
+      exact bodyC_mk ((he.1 0 (by omega)).trans hl) hy
+    · exact ⟨fun _ => ⟨ext x σ, ext_extends x σ, gB_ext x σ⟩, fun _ => rfl⟩
+  exact Holds.not hex
+
+theorem last_inv {σ : Subst} {x r : Bool} (hl : σ.lookup 0 = some (bool x)) (h : Holds c 1 σ lastPre r) :
+    r = false := by
+  cases h with
+  | not h =>
+    cases h with
+    | ex g hb hr =>
+      have hg := bodyC_inv (σ' := ext x σ) (y := x) hl rfl (hb (ext x σ) (ext_extends x σ))
+      have h1 : g (ext x σ) = true := by rw [hg]; exact gB_ext x σ
+      have := hr.mpr ⟨_, ext_extends x σ, h1⟩
+      subst this; rfl
+
+theorem fCl_of {cl : Clause} (h : cl ∈ fFn.clauses) :
+    cl = clB (gT (litT true)) none (preB true) ∨ cl = clB (gT (litT false)) none (preB false) ∨
+      cl = clB (gT (litT true)) (some (litT false)) lastPre := by
+  simpa [fFn, fCls] using h
+
+theorem prio_none {vs : List GroundTerm} {cl : Clause} (hcl : cl ∈ fFn.clauses) :
+    ∀ cl' ∈ fFn.clauses, cl'.aside = false → cl'.prio < cl.prio → Fails c vs cl' := by
+  intro cl' hcl' _ hlt
+  rcases fCl_of hcl with rfl | rfl | rfl <;> rcases fCl_of hcl' with rfl | rfl | rfl <;>
+    exact absurd hlt (by decide)
+
+theorem lit_mem (b : Bool) : clB (gT (litT b)) none (preB b) ∈ fFn.clauses := by
+  cases b <;> simp [fFn, fCls]
+
+/-- **`f(x)` is `!x`**, by the clause of the literal x: g(x). -/
+theorem evalF_mk (x : Bool) : Eval c Fs [bool x] (some (bool !x)) := by
+  have hp := preB_mk (σ := sg (bool x)) (x := x) rfl x
+  rw [(bEq_iff x x).mpr rfl] at hp
+  exact .clause (cl := clB (gT (litT x)) none (preB x)) lookupF (lit_mem _) (sg_sorted x) (sg_match _)
+    (fun t ht => nomatch ht) hp (prio_none (lit_mem _)) rfl ((gT_iff (lit_iff x) _).mpr rfl)
+    (fun t ht => nomatch ht) .top
+
+/-- **`f(x)` has no other result**: the other literal's clause and the binder clause do not apply. -/
+theorem evalF_inv {x : Bool} {r : Option GroundTerm} (h : Eval c Fs [bool x] r) : r = some (bool !x) := by
+  cases h with
+  | clause hfn hcl _ hm _ hpre _ _ hrhs _ _ =>
+    obtain rfl := Option.some.inj (lookupF.symm.trans hfn)
+    rcases fCl_of hcl with rfl | rfl | rfl <;> obtain ⟨w, hw, hl⟩ := match0 hm <;> cases hw
+    · have hb := (bEq_iff true x).mp (preB_inv hl hpre).symm
+      subst hb
+      exact (gT_iff (lit_iff true) _).mp hrhs
+    · have hb := (bEq_iff false x).mp (preB_inv hl hpre).symm
+      subst hb
+      exact (gT_iff (lit_iff false) _).mp hrhs
+    · exact absurd (last_inv hl hpre) (by simp)
+  | rest hfn hnone =>
+    obtain rfl := Option.some.inj (lookupF.symm.trans hfn)
+    cases hnone _ (lit_mem x) with
+    | intro hf =>
+      cases hf (sg (bool x)) (sg_sortedAt x _) (sg_match _) with
+      | intro ht _ _ => cases ht
+      | pre hp =>
+        have := (bEq_iff x x).mpr rfl
+        rw [← preB_inv (σ := sg (bool x)) rfl hp] at this
+        exact absurd this (by simp)
+  | ensFails hfn hcl _ hm _ hpre _ _ ht _ _ =>
+    obtain rfl := Option.some.inj (lookupF.symm.trans hfn)
+    rcases fCl_of hcl with rfl | rfl | rfl <;> obtain ⟨w, hw, hl⟩ := match0 hm <;> cases hw
+    · cases ht
+    · cases ht
+    · exact absurd (last_inv hl hpre) (by simp)
+  | clauseEx hfn hcl _ _ _ _ _ hne _ _ _ _ =>
+    obtain rfl := Option.some.inj (lookupF.symm.trans hfn)
+    rcases fCl_of hcl with rfl | rfl | rfl <;> exact absurd rfl hne
+  | exNone hfn hcl hne _ _ _ _ _ _ _ =>
+    obtain rfl := Option.some.inj (lookupF.symm.trans hfn)
+    rcases fCl_of hcl with rfl | rfl | rfl <;> exact absurd rfl hne
+
+/-- **N1's reading of `e3-eq-exists-ml-under-app`**: `f(true)` is `false` and `f(false)` is `true`,
+nothing else, as the sentence gives (`f(x) = g({x}) = {notBool x}`). -/
+theorem eval_after_hoist :
+    (Eval c Fs [bool true] (some (bool false)) ∧ ∀ r, Eval c Fs [bool true] r → r = some (bool false)) ∧
+    (Eval c Fs [bool false] (some (bool true)) ∧ ∀ r, Eval c Fs [bool false] r → r = some (bool true)) :=
+  ⟨⟨evalF_mk true, fun _ h => evalF_inv h⟩, ⟨evalF_mk false, fun _ h => evalF_inv h⟩⟩
+
+end HoistEval
+
+/-- info: 'ExClauseReader.HandExHoist.exEqn_steps' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms HandExHoist.exEqn_steps
+/-- info: 'ExClauseReader.HoistEval.reader_fCls' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms HoistEval.reader_fCls
+/-- info: 'ExClauseReader.HoistEval.eval_after_hoist' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms HoistEval.eval_after_hoist
 
 end ExClauseReader

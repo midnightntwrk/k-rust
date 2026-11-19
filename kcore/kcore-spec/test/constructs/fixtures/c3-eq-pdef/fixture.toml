@@ -1,0 +1,2 @@
+# preserves-definedness on an equation: the text of c3-eq-plain with [preserves-definedness] on the function's only equation (e2-equation's h has the key beside a second equation of a priority, and e2-equation's functions have equations with priorities, which leaves that text's function equations untied); differs_from c3-eq-plain, the text without the key. Predicted: exit 0, read, coreOK true, text +1 -1 (the attribute), Semantics +0 -0
+differs_from = "c3-eq-plain"

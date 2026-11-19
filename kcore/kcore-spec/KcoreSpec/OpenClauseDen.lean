@@ -435,7 +435,7 @@ mutual
       have hres : kg.result = fn.result := by rw [hsig]
       have hgd := eval_den4ClPre hf hlook hus e
       rw [kore_app, tr_symApp, ih.1 ws hvs' _ _ (fun _ => Iff.rfl) m]
-      have := covDen_of hI hsc.trans hlo hws hcov (by rw [hname]; exact hnn.2.1 fn (List.mem_append_left _ hfn))
+      have := covDen_of hI hsc.trans hlo hws hcov (namesNumbered_cover hnn hlo hcov)
         (fun v hv => by rw [hres]; exact Eval.sorted hsc hf hlook hus hv) e hgd m
       unfold KoreAML.den at this
       rw [tr_symApp] at this

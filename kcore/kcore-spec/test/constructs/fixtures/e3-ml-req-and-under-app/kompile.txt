@@ -1,0 +1,11 @@
+command: kompile --backend haskell e3-ml-req-and-under-app.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 3.3
+definition.kore bytes: 208604
+definition.kore sha256: 468b94190194a0dd29e76a9a896ff9913896403e449c42610315f5e9bbba2d13
+stripped sha256: f9f0fafd28506d33fee385844790791065ae0eb535221ab134903f3fba6c983f
+main module: 408 sentences, 52 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-ML-REQ-AND-UNDER-APP-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using E3-ML-REQ-AND-UNDER-APP as default.

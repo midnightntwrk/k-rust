@@ -1472,6 +1472,84 @@ theorem and_first_steps (H : HookParams) : Step (c1.withHooks H) (cfgH noRaw1 Go
 
 end DevAndBool
 
+/-! ### `notAsCondition`: a condition `\not{SortBool{}}(B)` of a term is `B = false` -/
+
+-- `go(X) => done requires #Not(X >Int 0)` (the construct fixture e3-ml-req-not), read with no
+-- `requires` and the conjunct `X >Int 0 = false` of `pre`.
+namespace DevNotCond
+
+definition_of defn from "f2-examples/mlreqnot.kompile.kore"
+noncomputable abbrev c : Semantics := defn.sem
+theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
+def done : Sym := 385
+def go : Sym := 386
+def exp : Srt := 32
+theorem names_ok : c.symName done = "Lbldone" ∧ c.symName go = "Lblgo" ∧ c.sortName exp = "Exp" := by
+  decide +kernel
+/-- The rule as read: no `requires`, `pre` the condition `X >Int 0 = false`. -/
+theorem read_shape : c.rules.map (fun r => (r.req.isNone, r.pre.isTop)) = [(true, false)] := by
+  decide +kernel
+private theorem hready : CExec.execReady c = true := by decide +kernel
+private theorem noFns : c.fns = [] := by decide +kernel
+/-- The semantics has no function of its own: `Eval` has one result at most, for every H. -/
+private theorem fnDetH (H : HookParams) : FnDet (c.withHooks H) :=
+  fnDet_of_agree (fun _ h => by rw [show (c.withHooks H).fns = c.fns from rfl, noFns] at h; cases h)
+    (fun _ h => by rw [show (c.withHooks H).fns = c.fns from rfl, noFns] at h; cases h)
+def cfg (e : GroundTerm) : GroundTerm := cfgOf 383 (.inj exp Srt.kitem e)
+def Go0 : Config c := ⟨cfg (.ctor go [int 0]), by decide +kernel⟩
+def GoM3 : Config c := ⟨cfg (.ctor go [int (-3)]), by decide +kernel⟩
+def Go1 : Config c := ⟨cfg (.ctor go [int 1]), by decide +kernel⟩
+def Done : Config c := ⟨cfg (.ctor done []), by decide +kernel⟩
+
+-- The executable step at these points reads no interpretation of the parameters: the rule's
+-- `pre` applies the registry's `_>Int_` only.
+kernel_rfl go0_withHooks : ∀ H : HookParams,
+  CExec.successorsN (c.withHooks H) 50 Go0.val = CExec.successorsN c 50 Go0.val
+kernel_rfl gom3_withHooks : ∀ H : HookParams,
+  CExec.successorsN (c.withHooks H) 50 GoM3.val = CExec.successorsN c 50 GoM3.val
+kernel_rfl go1_withHooks : ∀ H : HookParams,
+  CExec.successorsN (c.withHooks H) 50 Go1.val = CExec.successorsN c 50 Go1.val
+kernel_rfl go1_fuel_withHooks : ∀ H : HookParams,
+  CExec.outOfFuel (c.withHooks H) 50 Go1.val = CExec.outOfFuel c 50 Go1.val
+
+/-- **`notAsCondition`, for every interpretation**: `go(0)` and `go(-3)` step to `done`, and `go(1)`
+has no successor: `\not{SortBool{}}(X >Int 0)` is `{true}` exactly where `X >Int 0` is `false`. -/
+theorem not_steps (H : HookParams) :
+    Step (c.withHooks H) (cfgH noRaw Go0 H) (cfgH noRaw Done H) ∧
+    Step (c.withHooks H) (cfgH noRaw GoM3 H) (cfgH noRaw Done H) ∧
+    ∀ y, ¬ Step (c.withHooks H) (cfgH noRaw Go1 H) y := by
+  have hr := (CExec.execReady_withHooks c H).trans hready
+  refine ⟨?_, ?_, CExec.noStep_at hr (fnDetH H) (n := 50) (x := cfgH noRaw Go1 H)
+    ((go1_fuel_withHooks H).trans (by decide +kernel)) ((go1_withHooks H).trans (by decide +kernel))⟩
+  · have hy : Done.val ∈ CExec.successorsN (c.withHooks H) 50 Go0.val := by
+      rw [go0_withHooks]; decide +kernel
+    obtain ⟨_, h⟩ := CExec.successorsN_step_ready hr (x := cfgH noRaw Go0 H) hy
+    exact h
+  · have hy : Done.val ∈ CExec.successorsN (c.withHooks H) 50 GoM3.val := by
+      rw [gom3_withHooks]; decide +kernel
+    obtain ⟨_, h⟩ := CExec.successorsN_step_ready hr (x := cfgH noRaw GoM3 H) hy
+    exact h
+
+/-- The `requires` read without its `\not`, as `X >Int 0`: no `pre`. -/
+noncomputable def c1 : Semantics :=
+  { c with rules := c.rules.map fun r =>
+      { r with req := (match r.pre with
+          | .equals _ t _ => some t
+          | _ => r.req), pre := .top } }
+theorem noRaw1 : ∀ k ∈ c1.params, k.raw = false := by decide +kernel
+private theorem hok1 : c1.ok = true := by decide +kernel
+private theorem hsr1 : c1.srReady = true := by decide +kernel
+private theorem hmr1 : c1.matchReady = true := by decide +kernel
+def Go11 : Config c1 := ⟨Go1.val, by decide +kernel⟩
+def Done1 : Config c1 := ⟨Done.val, by decide +kernel⟩
+
+/-- **The point is reached**: read so, `go(1)` steps to `done` under every interpretation. -/
+theorem not_dropped_steps (H : HookParams) :
+    Step (c1.withHooks H) (cfgH noRaw1 Go11 H) (cfgH noRaw1 Done1 H) :=
+  step_everyH hok1 hsr1 hmr1 noRaw1 (n := 50) (by decide +kernel) H
+
+end DevNotCond
+
 /-! ### `requiresOrSplit`: one rule per disjunct of a `requires` -/
 
 -- `go(X) => done requires X >=Int 0 #Or 10 /Int X >Int 0` (the construct fixture
@@ -2197,6 +2275,22 @@ def readingNote : ReadingNote → GuardEntry
       companion := [.test "test/TokKItem.lean" "consistent", .test "test/TokKItem.lean" "text_not_entailed"],
       invariant := [``KCore.Semantics.sortsBelowKItem, ``KCore.Faithful.consItemsK, ``KCore.Semantics.gens],
       note := "for every semantics with coreOK and every H, a no-junk sentence of a constructor sort that leaves out a non-open injection inj{a, N} from a sort with a value, its generators injections from sorts incomparable with a and sharing no lower bound with it, has no model with Γ (c.withHooks H) (noJunk_omitted_refuted: Cons-Fun and Cons-Dist); on hashsort's text (syntax #Tok [token]; KItem's no-junk sentence, axiom 125, lists 13 injections and not inj{#Tok, KItem}; no subsort axiom states #Tok < KItem; the equations of is#Tok apply inj{#Tok, KItem}), where the reading adds the subsort #Tok < KItem: the sentence entails Γ's no-junk item of KItem in every interpretation with definedness (text_entails_item), Γ with it has no model for every H (tok_refuted), and Γ has one (consistent), so Γ does not entail it (text_not_entailed)" }
+  | .notAsCondition =>
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.DevNotCond.not_steps, .test "test/CondCut.lean" "notAsCondition"],
+      companion := [.decl ``KCore.Guards.DevNotCond.not_dropped_steps],
+      invariant := [``KCore.CExec.successorsN_step_ready, ``KCore.CExec.noStep_at, ``KCore.CExec.execReady_withHooks],
+      note := "on e3-ml-req-not's text (go(X) => done requires #Not(X >Int 0), read with no requires and the conjunct X >Int 0 = false of pre), every H: go(0) and go(-3) step to done and go(1) has no successor; the companion is the requires read without its #Not, as X >Int 0, where go(1) steps to done under every H. For every integer, at the parsed semantics: test/CondCut.lean (ReqNot.step_iff)" }
+  | .andUnderAppCut =>
+    { status := .pending "GUARD.final",
+      guard := [.test "test/CondCut.lean" "andUnderAppCut", .test "test/CondCut.lean" "ReqAndApp"],
+      note := "a conjunction of single-valued terms under an application of a condition read as its first conjunct with the memberships of the others (Parse.condAndCutT through Parse.condCuts); on e3-ml-req-and-under-app's text (go(X, Y) => done requires f(X #And Y) ==Int 0, f(X) => X -Int 1) at the parsed semantics: go(1, 1) steps to done and go(1, 2), go(2, 2), go(0, 0) have no successor (test/CondCut.lean ReqAndApp); no statement over c.withHooks H, no companion" }
+  | .connectiveCut =>
+    { status := .pending "GUARD.final",
+      guard := [.test "test/PredFixtures.lean" "step_iff", .test "test/PredFixtures.lean" "step_inv",
+        .test "test/PredReader.lean" "cut_right", .test "test/PredReader.lean" "cut_left",
+        .decl ``KoreAML.cut_sorted, .decl ``KoreAML.MemOf.or, .decl ``KoreAML.MemOf.not],
+      note := "a connective at a term position of a rule's side read through the cut (Parse.connRuleBody): on the right side an existential variable with its membership in post, on the left side a variable with its membership in pre; the steps at the parsed semantics are test/PredFixtures.lean's (LhsNot, RhsOr), the cut of a pattern under applications is KoreAML.cut_sorted and the membership through the connectives KoreAML.MemOf; no statement over c.withHooks H, no companion" }
 
 def inertReason : InertReason → GuardEntry
   | .import =>
@@ -2281,7 +2375,8 @@ def readingNotes : List ReadingNote :=
    .existsAsVariable, .andAsEnsures, .andTermsWeaker, .andTermsCut, .bottomAsEnsures, .orBottom, .orAsCases, .existsAsCases, .predicateAtBool, .andAtBool,
    .requiresOrSplit, .setVarInDropped, .keyFunctionAsMember, .equationPriority, .owiseAsPriority,
    .owiseDisjunctNarrower, .identityAlias, .existsRenamedApart, .existsDropped,
-   .overloadFunction, .tokKItem]
+   .overloadFunction, .tokKItem,
+   .notAsCondition, .andUnderAppCut, .connectiveCut]
 
 def inertReasons : List InertReason :=
   [.import, .claim, .simplification, .distinctCtors, .injectivity, .noJunk, .collectionLaw,
