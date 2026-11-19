@@ -112,8 +112,8 @@ theorem has a theorem holding each of its sentences: the tie leaves no remainder
 theorem of WHOLE_THEOREMS: `account` (the classes partition the user module's axioms),
 `account_absent` and `absent_closed` (the no-direction class), `lists_in_account`, `decls_entailed`
 (the declarations' items) and `consistent` (Γ has a model); the theorems are those. WHOLE_CONTROL
-controls it: TIMER is of it, and e6-mod-sort-kbott's text, whose tie file's `uncovered` holds KItem's
-no-junk sentence, has no whole-text tie. Form (w) is tried before the next one.
+controls it: TIMER is of it, and e3-ml-req-ceil's text, whose tie file's `uncovered` holds its two
+rewrite rules, has no whole-text tie. Form (w) is tried before the next one.
 A module of hooks and generated declarations only is accounted by its declarations' rows, with no
 theorem owed for the module itself: a module row in this scope with no row of E6, of any status,
 keyed to its module other than hook rows (no axiom, lemma, rule, sort or symbol row: each sentence
@@ -625,7 +625,7 @@ DECL_CONTROL = ("f2-examples/silentflt.kompile.kore",
                 "Lbl'Unds'dividesInt'UndsUnds'INT-COMMON'Unds'Bool'Unds'Int'Unds'Int")
 AX_CONTROL = ("f2-examples/silentflt.kompile.kore", 274, 296)
 MODULE_CONTROL = ("module:STDIN-STREAM", "module:SORT-BOOL")
-WHOLE_CONTROL = ("module:TIMER", "f2-examples/e6-mod-sort-kbott.kompile.kore")
+WHOLE_CONTROL = ("module:TIMER", "f2-examples/e3-ml-req-ceil.kompile.kore")
 
 
 def self_check(rows, res):
