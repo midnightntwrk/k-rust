@@ -80,12 +80,12 @@ theorem cM_rest :
 
 /-- `paramsPlain`'s test of the parameters (V2.d1-flip), restated: a raw parameter has no
 implementation, two arguments of its result sort where it has a law, a number
-outside the registry and no ite name, with `shapesOK`. -/
+outside the registry and no name the decoder reads as an instance (`instDecode?`), with `shapesOK`. -/
 def paramsRuled (c : Semantics) : Bool :=
   c.params.all (fun k =>
     if k.raw then k.impl.isNone &&
       (!(k.assoc || k.idem) || k.sig.args == [k.sig.result, k.sig.result]) &&
-      decide (nRegSyms ≤ k.sig.name) && (iteSort? (c.symName k.sig.name)).isNone &&
+      decide (nRegSyms ≤ k.sig.name) && (instDecode? (c.symName k.sig.name)).isNone &&
       c.shapesOK
     else !k.assoc && !k.idem)
 

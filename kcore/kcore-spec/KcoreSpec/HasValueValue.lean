@@ -39,15 +39,13 @@ theorem Semantics.hasEmpty_value {c : Semantics} {s : Srt} (h : c.hasEmpty s = t
     | set => exact ⟨.set s [], by simp [Semantics.sortOf, Semantics.sortsOf, hk, hkind, elemsSorted]⟩
     | list => exact ⟨.list s [], by simp [Semantics.sortOf, Semantics.sortsOf, hk, hkind]⟩
 
-/-- **Each sort of `witnessed` has a value**, on a definition with `coreOK`: by the rounds, a
-constructor of `ctorSigs` applied to values of its argument sorts, or the injection of a value. -/
-theorem witnessed_value {c : Semantics} (h : c.coreOK = true) {s : Srt} (hs : s ∈ c.witnessed) :
+/-- **Each sort of `witnessed` has a value**, where the overloading symbols are well formed
+(`OvlOK`), the subsorts transitive and the names apart: by the rounds, a constructor of `ctorSigs`
+applied to values of its argument sorts, or the injection of a value. -/
+theorem witnessed_value_of {c : Semantics} (hO : OvlOK c)
+    (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsorts → (a, d) ∈ c.subsorts)
+    (hn : Model.NamesApartK c) {s : Srt} (hs : s ∈ c.witnessed) :
     ∃ v, c.sortOf v = some s := by
-  obtain ⟨hok, hsr, -, -, -, -, -, -, hno⟩ := hypSound_of_core h
-  haveI hO : OvlOK c := hno
-  have htr := (sortCtx_of_all hok hsr (OvlOK.ovlCase hno)).trans
-  have hn : Model.NamesApartK c :=
-    Model.namesApartK_spec (faithCoreOK_parts (Semantics.coreOK_parts h).2.1).2.2.2.2.2.1
   -- the rounds keep "each listed sort has a value"
   have rounds : ∀ (step : List Srt → List Srt),
       (∀ l, (∀ a ∈ l, ∃ v, c.sortOf v = some a) → ∀ a ∈ step l, ∃ v, c.sortOf v = some a) →
@@ -89,15 +87,33 @@ theorem witnessed_value {c : Semantics} (h : c.coreOK = true) {s : Srt} (hs : s 
     · exact Semantics.hasLit_value ha2
     · exact Semantics.hasEmpty_value ha2
 
-/-- **`hasValue_value`.** On a definition with `coreOK`, a sort `hasValue` accepts has a value, at
-every interpretation of the parameters. -/
-theorem hasValue_value {c : Semantics} (h : c.coreOK = true) {s : Srt} (hs : c.hasValue s = true) :
+/-- **Each sort of `witnessed` has a value**, on a definition with `coreOK`. -/
+theorem witnessed_value {c : Semantics} (h : c.coreOK = true) {s : Srt} (hs : s ∈ c.witnessed) :
+    ∃ v, c.sortOf v = some s := by
+  obtain ⟨hok, hsr, -, -, -, -, -, -, hno⟩ := hypSound_of_core h
+  exact witnessed_value_of hno (sortCtx_of_all hok hsr (OvlOK.ovlCase hno)).trans
+    (Model.namesApartK_spec (faithCoreOK_parts (Semantics.coreOK_parts h).2.1).2.2.2.2.2.1) hs
+
+/-- **A sort `hasValue` accepts has a value**, where the overloading symbols are well formed, the
+subsorts transitive and the names apart (`witnessed_value_of`), at every interpretation of the
+parameters. -/
+theorem hasValue_value_of {c : Semantics} (hO : OvlOK c)
+    (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsorts → (a, d) ∈ c.subsorts)
+    (hn : Model.NamesApartK c) {s : Srt} (hs : c.hasValue s = true) :
     ∃ v, c.sortOf v = some s := by
   simp only [Semantics.hasValue, Bool.or_eq_true, List.contains_iff_mem] at hs
   rcases hs with ((hs | hs) | hs) | hs
   · exact Semantics.valued_value hs
   · exact Semantics.hasLit_value hs
   · exact Semantics.hasEmpty_value hs
-  · exact witnessed_value h hs
+  · exact witnessed_value_of hO htr hn hs
+
+/-- **`hasValue_value`.** On a definition with `coreOK`, a sort `hasValue` accepts has a value, at
+every interpretation of the parameters. -/
+theorem hasValue_value {c : Semantics} (h : c.coreOK = true) {s : Srt} (hs : c.hasValue s = true) :
+    ∃ v, c.sortOf v = some s := by
+  obtain ⟨hok, hsr, -, -, -, -, -, -, hno⟩ := hypSound_of_core h
+  exact hasValue_value_of hno (sortCtx_of_all hok hsr (OvlOK.ovlCase hno)).trans
+    (Model.namesApartK_spec (faithCoreOK_parts (Semantics.coreOK_parts h).2.1).2.2.2.2.2.1) hs
 
 end KCore

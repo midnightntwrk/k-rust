@@ -78,6 +78,18 @@ theorem Faithful.regInstIdxCD : idxWhere instCoded regSymCodesCD 0 = [] := by de
 theorem Faithful.regSymCodesCD_length : regSymCodesCD.length = nRegSyms := by
   rw [← regSymCodesCD_eq, List.length_map, regSymNames_length]
 
+/-- The decoder reads no registry symbol's name as an instance (`regInstIdxCD`). -/
+theorem Faithful.regSym_noInst_irs {f : Sym} (hf : f < nRegSyms) : instDecode? (regSymNames.getD f "") = none := by
+  cases hd : instDecode? (regSymNames.getD f "") with
+  | none => rfl
+  | some p =>
+    have hl : f < regSymCodesCD.length := by rw [regSymCodesCD_length]; exact hf
+    have hc := instCoded_of_instDecode (n := regSymNames.getD f "") (by rw [hd]; exact Option.some_ne_none p)
+    rw [strCode_getD regSymCodesCD_eq hl] at hc
+    have hm := mem_idxWhere instCoded regSymCodesCD 0 f hl hc
+    rw [regInstIdxCD] at hm
+    cases hm
+
 /-- The definition's own symbols whose names' codes `instCoded` accepts, numbered from `nRegSyms`. -/
 def Faithful.instIdxCD (c : Semantics) : List Nat := idxWhere instCoded (c.symNames.map strCode) nRegSyms
 

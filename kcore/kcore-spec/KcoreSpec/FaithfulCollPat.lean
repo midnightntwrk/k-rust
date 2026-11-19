@@ -38,7 +38,7 @@ theorem collSortsOK_mem (h : collSortsOK c = true) {k : CollSig} (hk : k ∈ c.a
   List.all_eq_true.mp h k hk
 
 theorem collSymsOK_spec {k : CollSig} (h : collSymsOK c k = true) :
-    c.collOf k.sort = some k ∧ (∀ f ∈ [k.unit, k.elem, k.concat], isHook f = false ∧ iteSort? (c.symName f) = none) ∧
+    c.collOf k.sort = some k ∧ (∀ f ∈ [k.unit, k.elem, k.concat], isHook f = false ∧ instDecode? (c.symName f) = none) ∧
     c.lookupParam k.unit = some { sig := ⟨k.unit, [], k.sort⟩, impl := some (builtinColl k.kind).unit } ∧
     c.lookupParam k.elem = some { sig := ⟨k.elem, elemArgs k, k.sort⟩, impl := some (builtinColl k.kind).elem } ∧
     c.lookupParam k.concat = some { sig := ⟨k.concat, [k.sort, k.sort], k.sort⟩, impl := some (builtinColl k.kind).concat } := by
@@ -48,7 +48,7 @@ theorem collSymsOK_spec {k : CollSig} (h : collSymsOK c k = true) :
   refine ⟨h1, fun f hf => ?_, h3, h4, h5⟩
   have := List.all_eq_true.mp h2 f hf
   simp only [Bool.and_eq_true, Bool.not_eq_true', Option.isNone_iff_eq_none] at this
-  exact ⟨this.1, iteSort?_none_of_instDecode this.2⟩
+  exact ⟨this.1, this.2⟩
 
 /-- A map collection with `collSymsOK` has its value sort, `valSort`. -/
 theorem collSymsOK_val {k : CollSig} (h : collSymsOK c k = true) (hkind : k.kind = .map) :
@@ -166,10 +166,6 @@ theorem kernel_param {c : Semantics} {kp : ParamSig} (h : kp ∈ c.params) : kp.
 theorem sortsOf_two {c : Semantics} {w₁ w₂ : GroundTerm} {s₁ s₂ : Srt} (h1 : c.sortOf w₁ = some s₁)
     (h2 : c.sortOf w₂ = some s₂) : c.sortsOf [w₁, w₂] = some [s₁, s₂] :=
   sortsOf_cons.mpr ⟨_, _, h1, sortsOf_cons.mpr ⟨_, _, h2, sortsOf_nil, rfl⟩, rfl⟩
-
-theorem symHead_none {c : Semantics} {f : Sym} (h : iteSort? (c.symName f) = none) :
-    symHead c f = KoreAML.sym (.symbol (c.symName f)) := by
-  unfold symHead; rw [h]
 
 theorem isHook_patHook {f : Sym} (hp : patternHooks.contains f = true) : isHook f = true := by
   rcases Exec.patternHooks_cases hp with rfl | rfl | rfl <;> rfl
@@ -294,7 +290,7 @@ theorem hook_some {f : Sym} (h : isHook f = true) (ws : List GroundTerm) : ∃ o
 
 /-- **A binary interpreted symbol without silent points, at values**: its graph in `ΓDomains`. -/
 theorem hook2_val {f : Sym} {s₁ s₂ r : Srt} (hks : lookupSig hookSigs f = some ⟨f, [s₁, s₂], r⟩)
-    (hit : iteSort? (c.symName f) = none) (hns : silentKey f = false) {w₁ w₂ : GroundTerm} (h1 : c.sortOf w₁ = some s₁)
+    (hit : instDecode? (c.symName f) = none) (hns : silentKey f = false) {w₁ w₂ : GroundTerm} (h1 : c.sortOf w₁ = some s₁)
     (h2 : c.sortOf w₂ = some s₂) (m : M) :
     SymE I (c.symName f) [elemOf c I w₁, elemOf c I w₂] m ↔
       ∃ u, hook f [w₁, w₂] = some (some u) ∧ m = elemOf c I u := by
@@ -310,11 +306,7 @@ theorem hook2_val {f : Sym} {s₁ s₂ r : Srt} (hks : lookupSig hookSigs f = so
     fun _ => silent_of_not_silentKey hns _, rfl⟩)
   have hgr := (KoreAML.interp_equal hD).mp (hax KoreAML.val0 default) m
   unfold KoreAML.den at hgr
-  rw [tr_symApp] at hgr
-  unfold symHead at hgr
-  dsimp only at hgr
-  rw [hit] at hgr
-  dsimp only at hgr
+  rw [tr_symApp, symHead_noInst hit] at hgr
   rw [trArgs_appList] at hgr
   have hl : (GroundTerm.koreList c [w₁, w₂]).map (KoreAML.tr ⟨[], []⟩) = [den c w₁, den c w₂] := rfl
   rw [hl, interp_symList _ _ _ (.cons (den_sing hI h1 _) (.cons (den_sing hI h2 _) .nil)) m] at hgr
@@ -335,7 +327,7 @@ theorem hook2_val {f : Sym} {s₁ s₂ r : Srt} (hks : lookupSig hookSigs f = so
 
 /-- **A binary parameter symbol, at values**: its graph in `ΓDomains`, under `c.hooks`. -/
 theorem param2_val {f : Sym} {kp : ParamSig} {s₁ s₂ r : Srt} (hkp : c.lookupParam f = some kp)
-    (hsig : kp.sig = ⟨f, [s₁, s₂], r⟩) (hit : iteSort? (c.symName f) = none) {w₁ w₂ : GroundTerm}
+    (hsig : kp.sig = ⟨f, [s₁, s₂], r⟩) (hit : instDecode? (c.symName f) = none) {w₁ w₂ : GroundTerm}
     (h1 : c.sortOf w₁ = some s₁) (h2 : c.sortOf w₂ = some s₂) (m : M) :
     SymE I (c.symName f) [elemOf c I w₁, elemOf c I w₂] m ↔
       ∃ u, c.paramVal f [w₁, w₂] = some u ∧ m = elemOf c I u := by
@@ -346,11 +338,7 @@ theorem param2_val {f : Sym} {kp : ParamSig} {s₁ s₂ r : Srt} (hkp : c.lookup
   have hgr := (KoreAML.interp_equal hD).mp (hax KoreAML.val0 default) m
   rw [hsig] at hgr
   unfold KoreAML.den at hgr
-  rw [tr_symApp] at hgr
-  unfold symHead at hgr
-  dsimp only at hgr
-  rw [hit] at hgr
-  dsimp only at hgr
+  rw [tr_symApp, symHead_noInst hit] at hgr
   rw [trArgs_appList] at hgr
   have hl : (GroundTerm.koreList c [w₁, w₂]).map (KoreAML.tr ⟨[], []⟩) = [den c w₁, den c w₂] := rfl
   rw [hl, interp_symList _ _ _ (.cons (den_sing hI h1 _) (.cons (den_sing hI h2 _) .nil)) m] at hgr
@@ -375,7 +363,7 @@ end
 
 /-- **What the downward reading takes of a map collection `k` in a model `I`**: `k` is a map
 collection of the semantics, the collection of its sort, whose sort holds no domain value; its
-symbols are not named like `ite` at a sort and have signatures of `Γ`; their values on values are
+symbols' names decode to no instance and have signatures of `Γ`; their values on values are
 the empty map, the one-entry map and, where the graph of `concat` defines it, the union; and the
 element `concat` gives on two values' elements is the element of their union, which is a value of
 `k`'s sort. -/
@@ -386,7 +374,7 @@ structure MapReading (c : Semantics) {M : Type} [Inhabited M] (I : Interpretatio
   val : k.val = some (valSort k)
   coll : c.collOf k.sort = some k
   sortOK : collSortOK c k.sort = true
-  ite : ∀ f ∈ [k.unit, k.elem, k.concat], iteSort? (c.symName f) = none
+  ite : ∀ f ∈ [k.unit, k.elem, k.concat], instDecode? (c.symName f) = none
   sigs : (⟨k.unit, [], k.sort⟩ : CtorSig) ∈ kernelSyms c ∧ (⟨k.elem, [k.key, valSort k], k.sort⟩ : CtorSig) ∈ kernelSyms c ∧
     (⟨k.concat, [k.sort, k.sort], k.sort⟩ : CtorSig) ∈ kernelSyms c
   unitV : c.collVal k.unit [] = some (.map k.sort [])
@@ -635,7 +623,7 @@ section
 variable {c : Semantics} {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} {k : CollSig}
 
 theorem MapRole.ite (R : MapReading c I k) {f : Sym} {k0 : CtorSig} (h : MapRole k f k0) :
-    iteSort? (c.symName f) = none := by
+    instDecode? (c.symName f) = none := by
   rcases h with ⟨rfl, -⟩ | ⟨rfl, -⟩ | ⟨rfl, -⟩
   · exact R.ite _ (List.mem_cons_self ..)
   · exact R.ite _ (List.mem_cons_of_mem _ (List.mem_cons_self ..))
@@ -707,9 +695,9 @@ theorem mapReading_lib (hso : collSortOK c Srt.map = true) : MapReading c I mapC
     intro f hf
     simp only [mapColl, List.mem_cons, List.not_mem_nil, or_false] at hf
     rcases hf with rfl | rfl | rfl
-    · exact iteSort_mapUnit c
-    · exact iteSort_mapElem c
-    · exact iteSort_mapConcat c
+    · exact noInst_mapUnit_irs c
+    · exact noInst_mapElem_irs c
+    · exact noInst_mapConcat_irs c
   sigs := ⟨kernel_hook (by decide), kernel_hook (by decide), kernel_hook (by decide)⟩
   unitV := by
     show c.collVal mapUnit [] = some (.map Srt.map [])
@@ -1003,7 +991,7 @@ structure ListReading (c : Semantics) {M : Type} [Inhabited M] (I : Interpretati
   kind : k.kind = .list
   coll : c.collOf k.sort = some k
   sortOK : collSortOK c k.sort = true
-  ite : ∀ f ∈ [k.unit, k.elem, k.concat], iteSort? (c.symName f) = none
+  ite : ∀ f ∈ [k.unit, k.elem, k.concat], instDecode? (c.symName f) = none
   sigs : (⟨k.unit, [], k.sort⟩ : CtorSig) ∈ kernelSyms c ∧ (⟨k.elem, [k.key], k.sort⟩ : CtorSig) ∈ kernelSyms c ∧
     (⟨k.concat, [k.sort, k.sort], k.sort⟩ : CtorSig) ∈ kernelSyms c
   unitV : c.collVal k.unit [] = some (.list k.sort [])
@@ -1119,7 +1107,7 @@ section
 variable {c : Semantics} {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} {k : CollSig}
 
 theorem ListRole.ite (R : ListReading c I k) {f : Sym} {k0 : CtorSig} (h : ListRole k f k0) :
-    iteSort? (c.symName f) = none := by
+    instDecode? (c.symName f) = none := by
   rcases h with ⟨rfl, -⟩ | ⟨rfl, -⟩ | ⟨rfl, -⟩
   · exact R.ite _ (List.mem_cons_self ..)
   · exact R.ite _ (List.mem_cons_of_mem _ (List.mem_cons_self ..))
@@ -1198,7 +1186,7 @@ theorem listReading_lib (hso : collSortOK c Srt.list = true) : ListReading c I l
   ite := by
     intro f hf
     simp only [listColl, List.mem_cons, List.not_mem_nil, or_false] at hf
-    rcases hf with rfl | rfl | rfl <;> exact iteSort_reg (by decide) (by decide)
+    rcases hf with rfl | rfl | rfl <;> exact noInst_reg_irs (by decide) (by decide)
   sigs := ⟨kernel_hook (by decide), kernel_hook (by decide), kernel_hook (by decide)⟩
   unitV := by
     show c.collVal listUnit [] = some (.list Srt.list [])
@@ -1209,7 +1197,7 @@ theorem listReading_lib (hso : collSortOK c Srt.list = true) : ListReading c I l
   catV := fun {w₁ w₂} h1 h2 m => by
     show SymE I (c.symName listConcat) _ m ↔ ∃ u, c.collVal listConcat [w₁, w₂] = some u ∧ c.sortOf u = some Srt.list ∧ _
     have hks : lookupSig hookSigs listConcat = some ⟨listConcat, [Srt.list, Srt.list], Srt.list⟩ := by decide
-    rw [hook2_val hI hks (iteSort_reg (by decide) (by decide)) (silentKey_of_collPatternHook rfl) h1 h2 m,
+    rw [hook2_val hI hks (noInst_reg_irs (by decide) (by decide)) (silentKey_of_collPatternHook rfl) h1 h2 m,
       collVal_hook rfl]
     constructor
     · rintro ⟨u, hu, rfl⟩
@@ -1440,7 +1428,7 @@ structure SetReading (c : Semantics) {M : Type} [Inhabited M] (I : Interpretatio
   kind : k.kind = .set
   coll : c.collOf k.sort = some k
   sortOK : collSortOK c k.sort = true
-  ite : ∀ f ∈ [k.unit, k.elem, k.concat], iteSort? (c.symName f) = none
+  ite : ∀ f ∈ [k.unit, k.elem, k.concat], instDecode? (c.symName f) = none
   sigs : (⟨k.unit, [], k.sort⟩ : CtorSig) ∈ kernelSyms c ∧ (⟨k.elem, [k.key], k.sort⟩ : CtorSig) ∈ kernelSyms c ∧
     (⟨k.concat, [k.sort, k.sort], k.sort⟩ : CtorSig) ∈ kernelSyms c
   unitV : c.collVal k.unit [] = some (.set k.sort [])
@@ -1560,7 +1548,7 @@ section
 variable {c : Semantics} {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} {k : CollSig}
 
 theorem SetRole.ite (R : SetReading c I k) {f : Sym} {k0 : CtorSig} (h : SetRole k f k0) :
-    iteSort? (c.symName f) = none := by
+    instDecode? (c.symName f) = none := by
   rcases h with ⟨rfl, -⟩ | ⟨rfl, -⟩ | ⟨rfl, -⟩
   · exact R.ite _ (List.mem_cons_self ..)
   · exact R.ite _ (List.mem_cons_of_mem _ (List.mem_cons_self ..))
@@ -1637,7 +1625,7 @@ theorem setReading_lib (hso : collSortOK c Srt.set = true) : SetReading c I setC
   ite := by
     intro f hf
     simp only [setColl, List.mem_cons, List.not_mem_nil, or_false] at hf
-    rcases hf with rfl | rfl | rfl <;> exact iteSort_reg (by decide) (by decide)
+    rcases hf with rfl | rfl | rfl <;> exact noInst_reg_irs (by decide) (by decide)
   sigs := ⟨kernel_hook (by decide), kernel_hook (by decide), kernel_hook (by decide)⟩
   unitV := by
     show c.collVal setUnit [] = some (.set Srt.set [])
@@ -1648,7 +1636,7 @@ theorem setReading_lib (hso : collSortOK c Srt.set = true) : SetReading c I setC
   catV := fun {w₁ w₂} h1 h2 m => by
     show SymE I (c.symName setConcat) _ m ↔ ∃ u, c.collVal setConcat [w₁, w₂] = some u ∧ c.sortOf u = some Srt.set ∧ _
     have hks : lookupSig hookSigs setConcat = some ⟨setConcat, [Srt.set, Srt.set], Srt.set⟩ := by decide
-    rw [hook2_val hI hks (iteSort_reg (by decide) (by decide)) (silentKey_of_collPatternHook rfl) h1 h2 m,
+    rw [hook2_val hI hks (noInst_reg_irs (by decide) (by decide)) (silentKey_of_collPatternHook rfl) h1 h2 m,
       collVal_hook rfl]
     constructor
     · rintro ⟨u, hu, rfl⟩
@@ -1715,7 +1703,7 @@ def HeadReading (c : Semantics) {M : Type} [Inhabited M] (I : Interpretation Kor
 section
 variable {c : Semantics} {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
 
-theorem HeadReading.ite {f : Sym} {k0 : CtorSig} (h : HeadReading c I f k0) : iteSort? (c.symName f) = none := by
+theorem HeadReading.ite {f : Sym} {k0 : CtorSig} (h : HeadReading c I f k0) : instDecode? (c.symName f) = none := by
   rcases h with ⟨k, R, hr⟩ | ⟨k, R, hr⟩ | ⟨k, R, hr⟩
   · exact MapRole.ite R hr
   · exact ListRole.ite R hr
@@ -1879,19 +1867,13 @@ variable {c : Semantics} {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sy
 
 /-- G-arity of a symbol with a signature in `Γ`, at elements of its argument sorts. -/
 theorem kernel_arity (hI : I ⊧ᴵP Γ c) [OvlOK c] {f : Sym} {k : CtorSig} (hkm : k ∈ kernelSyms c) (hkn : k.name = f)
-    (hit0 : iteSort? (c.symName f) = none) {bs : List M} (hbl : bs.length = (k.args.map c.sortName).length)
+    (hit0 : instDecode? (c.symName f) = none) {bs : List M} (hbl : bs.length = (k.args.map c.sortName).length)
     (hbs : ∀ (i : Nat) x s, bs[i]? = some x → (k.args.map c.sortName)[i]? = some s → InS I s x) {m : M}
     (hm : SymE I (c.symName f) bs m) : InS I (c.sortName k.result) m := by
   have hD := defOK hI
   have hit := sat_sigItem hI (sig_arity (c := c) (k := k) hkm)
-  unfold symArityItem at hit
-  rw [show iteSort? (c.symName k.name) = none by rw [hkn]; exact hit0] at hit
-  dsimp only at hit
-  unfold KoreAML.arityItem at hit
-  dsimp only [KoreAML.paramTable, List.map_nil] at hit
+  rw [symArityItem_plain_irs (fun _ => symApp_noInst (by rw [hkn]; exact hit0))] at hit
   have hinc := (KoreAML.interp_included hD).mp (hit KoreAML.val0 default) m
-  unfold srtOf at hinc
-  rw [trSort_srt] at hinc
   apply hinc
   obtain ⟨a, ha, hm⟩ := hm
   rw [interp_appList]
@@ -1900,7 +1882,7 @@ theorem kernel_arity (hI : I ⊧ᴵP Γ c) [OvlOK c] {f : Sym} {k : CtorSig} (hk
   have : ∀ (ss : List Srt) (bs : List M), bs.length = (ss.map c.sortName).length →
       (∀ (i : Nat) x s, bs[i]? = some x → (ss.map c.sortName)[i]? = some s → InS I s x) →
       All2 (fun φ b => φ.interpret I KoreAML.val0 b)
-        ((ss.map (srtOf c)).map fun s => KoreAML.inhOf (KoreAML.trSort [] s)) bs := by
+        (ss.map fun s => KoreAML.inhOf (sortP (c.sortName s))) bs := by
     intro ss
     induction ss with
     | nil => intro bs hl _; cases bs with
@@ -1912,7 +1894,6 @@ theorem kernel_arity (hI : I ⊧ᴵP Γ c) [OvlOK c] {f : Sym} {k : CtorSig} (hk
       | nil => simp at hl
       | cons b bs =>
         refine .cons ?_ (ih bs (by simpa using hl) (fun i x s' h1 h2 => hb (i + 1) x s' (by simpa using h1) (by simpa using h2)))
-        unfold srtOf; dsimp only; rw [trSort_srt]
         exact hb 0 b (c.sortName s) rfl rfl
   exact this k.args bs hbl hbs
 
@@ -1968,8 +1949,9 @@ mutual
         cases hov : c.isOvl f with
         | true =>
           obtain ⟨o, hlo, rfl⟩ := patAll_lookup_ovl hov hk'
-          obtain ⟨hom, hn, -, hit, -⟩ := OvlLaws.ovl_parts (OvlOK.ok (c := c)) hlo
-          rw [kore_app, tr_symApp, symHead_none hit, trArgs_appList, interp_appList] at hm
+          obtain ⟨hom, hn, -⟩ := OvlLaws.ovl_parts (OvlOK.ok (c := c)) hlo
+          have hit := OvlLaws.ovl_noInst_irs (OvlOK.ok (c := c)) hlo
+          rw [kore_app, tr_symApp, symHead_noInst hit, trArgs_appList, interp_appList] at hm
           obtain ⟨a, ha, bs, hbs, hm⟩ := hm
           have hsorts := patSortsC hps hargs hbs
           exact kernel_arity hI (List.mem_append_right _ (List.mem_map_of_mem hom)) hn hit hsorts.1 hsorts.2
@@ -1978,7 +1960,7 @@ mutual
         have hR := head_reading hI hph hcs hcso hc hov hd hk'
         have hit := hR.ite
         obtain ⟨hkm, hkn⟩ := hR.sig
-        rw [kore_app, tr_symApp, symHead_none hit, trArgs_appList, interp_appList] at hm
+        rw [kore_app, tr_symApp, symHead_noInst hit, trArgs_appList, interp_appList] at hm
         obtain ⟨a, ha, bs, hbs, hm⟩ := hm
         have hsorts := patSortsC hps hargs hbs
         exact kernel_arity hI hkm hkn hit hsorts.1 hsorts.2 ⟨a, ha, hm⟩
@@ -2082,8 +2064,9 @@ mutual
         cases hov : c.isOvl f with
         | true =>
           obtain ⟨o, hlo, rfl⟩ := patAll_lookup_ovl hov hk'
-          obtain ⟨hom, hn, -, hit, -⟩ := OvlLaws.ovl_parts (OvlOK.ok (c := c)) hlo
-          rw [kore_app, tr_symApp, symHead_none hit, trArgs_appList, interp_appList] at hm
+          obtain ⟨hom, hn, -⟩ := OvlLaws.ovl_parts (OvlOK.ok (c := c)) hlo
+          have hit := OvlLaws.ovl_noInst_irs (OvlOK.ok (c := c)) hlo
+          rw [kore_app, tr_symApp, symHead_noInst hit, trArgs_appList, interp_appList] at hm
           obtain ⟨a, ha, bs, hbs, hm⟩ := hm
           have hsorts := patSortsC hI hph hcs hcso hg htr hnm hvs hin hps hargs hbs
           have H := (inferInstance : OvlOK c).hyp htr
@@ -2096,7 +2079,7 @@ mutual
         | false =>
         have hR := head_reading hI hph hcs hcso hc hov hd hk'
         have hit := hR.ite
-        rw [kore_app, tr_symApp, symHead_none hit, trArgs_appList, interp_appList] at hm
+        rw [kore_app, tr_symApp, symHead_noInst hit, trArgs_appList, interp_appList] at hm
         obtain ⟨a, ha, bs, hbs, hm⟩ := hm
         have hsorts := patSortsC hI hph hcs hcso hg htr hnm hvs hin hps hargs hbs
         obtain ⟨ws, hws, rfl, hv⟩ := head_back hI hg htr hR hw hsorts.1 hsorts.2 ⟨a, ha, hm⟩

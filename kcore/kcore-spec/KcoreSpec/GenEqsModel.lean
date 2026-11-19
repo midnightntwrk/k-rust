@@ -250,17 +250,15 @@ theorem rooted_ap (f : String) (ps : List Kore.Pattern) (h : ∀ p ∈ ps, roote
 
 theorem rooted_symApp (c : Semantics) (f : Sym) (ps : List Kore.Pattern)
     (hps : ∀ p ∈ ps, rootedB (KoreAML.den p) = true) : rootedB (KoreAML.den (symApp c f ps)) = true := by
-  unfold symApp
-  cases hi : iteSort? (c.symName f) with
-  | none => exact rooted_ap _ _ hps
-  | some X =>
-    show rootedB (KoreAML.tr ⟨[], []⟩ (.app ⟨⟨"Lblite"⟩⟩ [KoreAML.srt X] ps)) = true
-    rw [KoreAML.tr]
-    simp only [List.contains_nil, Bool.false_eq_true, ↓reduceIte, KoreAML.trSortApp, KoreAML.srt,
-      KoreAML.trSort_const, trArgs_appList]
-    exact (rooted_appList _ _ rfl rfl (fun φ hφ => by
-      obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hφ
-      exact hps p hp)).2
+  obtain ⟨h, xs, -, hw⟩ := symApp_head c f
+  have hh := rooted_appList (xs.map sortP) (KoreAML.sym (.symbol h)) rfl rfl (fun φ hφ => by
+    obtain ⟨x, -, rfl⟩ := List.mem_map.mp hφ; rfl)
+  rw [← instHeadP_appList_irs] at hh
+  unfold KoreAML.den
+  rw [hw, tr_instApp, trArgs_appList]
+  exact (rooted_appList _ _ hh.1 hh.2 (fun φ hφ => by
+    obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hφ
+    exact hps p hp)).2
 
 theorem rooted_elems (c : Semantics) (k : CollSig) : ∀ es : List GroundTerm,
     (∀ e ∈ es, rootedB (den c e) = true) → rootedB (KoreAML.den (GroundTerm.koreElems c k es)) = true

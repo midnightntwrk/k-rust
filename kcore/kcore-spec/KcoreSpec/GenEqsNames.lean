@@ -44,9 +44,14 @@ def kOKN (f : Sym) : Bool := !ns.contains (c.symName f)
 
 /-- The head `symApp` writes for `f` is none of the names. -/
 def appOKN (f : Sym) : Bool :=
-  match iteSort? (c.symName f) with
-  | some _ => !ns.contains "Lblite"
-  | none => kOKN c ns f
+  match symApp c f [] with
+  | .app σ _ _ => !ns.contains σ.ident.name
+  | _ => kOKN c ns f
+
+/-- `appOKN` reads the head `symApp` writes. -/
+theorem appOKN_of_symApp {f : Sym} {h : String} {xs : List String}
+    (hw : ∀ ps, symApp c f ps = .app ⟨⟨h⟩⟩ (xs.map KoreAML.srt) ps) : appOKN c ns f = !ns.contains h := by
+  unfold appOKN; rw [hw]
 
 /-- The values are built from symbols outside the names: constructors, overloading symbols and
 parameter symbols, the injection, and the collections' symbols. -/
@@ -139,22 +144,13 @@ theorem cleanN_ap (f : String) (ps : List Kore.Pattern) :
 theorem cleanN_symApp (f : Sym) (ps : List Kore.Pattern) (hf : appOKN c ns f = true)
     (hps : ∀ p ∈ ps, cleanN ns (KoreAML.den p) = true) :
     cleanN ns (KoreAML.den (symApp c f ps)) = true := by
-  unfold symApp
-  unfold appOKN at hf
-  cases hi : iteSort? (c.symName f) with
-  | none =>
-    rw [hi] at hf
-    exact (cleanN_ap (ns := ns) (c.symName f) ps).trans
-      (by rw [show (!ns.contains (c.symName f)) = true from hf, Bool.true_and]
-          exact List.all_eq_true.mpr hps)
-  | some X =>
-    rw [hi] at hf
-    show cleanN ns (KoreAML.tr ⟨[], []⟩ (.app ⟨⟨"Lblite"⟩⟩ [KoreAML.srt X] ps)) = true
-    rw [KoreAML.tr]
-    simp only [List.contains_nil, Bool.false_eq_true, ↓reduceIte, KoreAML.trSortApp, KoreAML.srt,
-      KoreAML.trSort_const, trArgs_appList, cleanN_appList, cleanN_app, KoreAML.sym, cleanN_symbol,
-      Bool.and_eq_true, List.all_map, List.all_eq_true]
-    exact ⟨⟨hf, rfl⟩, fun p hp => hps p hp⟩
+  obtain ⟨h, xs, -, hw⟩ := symApp_head c f
+  rw [appOKN_of_symApp (hw := hw)] at hf
+  unfold KoreAML.den
+  rw [hw, tr_instApp, trArgs_appList, cleanN_appList, instHeadP_appList_irs, cleanN_appList]
+  simp only [cleanN_symbol, List.all_map, Bool.and_eq_true, List.all_eq_true, Function.comp_apply,
+    sortP, KoreAML.sym, isNm, Bool.not_false, implies_true, and_true] at hf ⊢
+  exact ⟨hf, fun p hp => hps p hp⟩
 
 /-- A collection of elements: clean where its symbols and its elements are. -/
 theorem cleanN_elems (k : CollSig) (hu : kOKN c ns k.unit = true) (he : kOKN c ns k.elem = true)

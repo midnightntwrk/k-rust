@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t242-rat-minmax-overlap.k": "f947b0dbc30ecd0f819dde989c88629999afe4fc63101e39dc6b3aa24c4e5289"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t242-rat-minmax-overlap.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "3680668006bfa8c38a318f19939071ad49f16c9ccb73d71fdd10aa9f516899bf",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

@@ -72,7 +72,7 @@ theorem neg_of_coreClEx (hI : I ⊧ᴵP Γc c) (hok : c.sortedOKClEx = true) (hs
     confinedAt_valueCl hsc.trans (Model.namesApartK_spec hnk)
       (fun k hk hkr => (Semantics.raw_of_sortedOKClEx hok hk hkr).2.2.2.1) hr hI _ s hs x hx
   have hIΓ : I ⊧ᴵP Γ c := fun φ hφ => hI φ (Or.inl hφ)
-  have hrw : ∀ k ∈ c.params, k.raw = true → iteSort? (c.symName k.sig.name) = none :=
+  have hrw : ∀ k ∈ c.params, k.raw = true → instDecode? (c.symName k.sig.name) = none :=
     fun k hk hkr => (Semantics.raw_of_sortedOKClEx hok hk hkr).2.2.2.1
   intro fn hfn cl hcl _ ws
   rcases List.mem_append.mp hfn with hu | hp

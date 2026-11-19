@@ -111,7 +111,7 @@ and that the branch is read at a parameter with both laws. -/
 theorem paramsPlain_band : c.paramsPlain = true ∧ c.shapesOK = true ∧ c.floatShapeOK = true ∧
     c.carriersOK = true ∧ c.params.all (fun k => k.raw && k.assoc && k.idem && k.impl.isNone &&
       k.sig.args == [k.sig.result, k.sig.result] && decide (nRegSyms ≤ k.sig.name) &&
-      (iteSort? (c.symName k.sig.name)).isNone) = true := by
+      (instDecode? (c.symName k.sig.name)).isNone) = true := by
   decide +kernel
 
 /-- `or`'s associativity and idempotence items. -/

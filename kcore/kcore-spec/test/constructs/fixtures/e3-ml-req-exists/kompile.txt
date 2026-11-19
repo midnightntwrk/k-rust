@@ -1,0 +1,11 @@
+command: kompile --backend haskell e3-ml-req-exists.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 9.6
+definition.kore bytes: 209035
+definition.kore sha256: 67e8319965925fb687b91304225e60439a88267006cabf440637bad6821bdb6b
+stripped sha256: 14c7229760e45a8b306dd714fa55d8961f593f8524d93c972e5a5b6b9fddaec9
+main module: 410 sentences, 54 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-ML-REQ-EXISTS-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E3-ML-REQ-EXISTS as default.

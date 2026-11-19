@@ -1407,15 +1407,10 @@ theorem nodFree_kOK (hs : ∀ k ∈ ks', k ∈ ks) {f : Sym} (h : kOK c [] ks f 
   nodFree_name hs h
 
 theorem nodFree_appOK (hs : ∀ k ∈ ks', k ∈ ks) {f : Sym} (h : appOK c [] ks f = true) : appOK c [] ks' f = true := by
-  unfold appOK at h ⊢
-  split
-  · rename_i X hX
-    rw [hX] at h
-    simp only [Bool.and_eq_true] at h ⊢
-    exact ⟨nodFree_name hs h.1, nodFree_name hs h.2⟩
-  · rename_i hX
-    rw [hX] at h
-    exact nodFree_kOK hs h
+  obtain ⟨hd, xs, -, hw⟩ := symApp_head c f
+  rw [appOK_of_symApp (hw := hw)] at h ⊢
+  simp only [Bool.and_eq_true, List.all_eq_true] at h ⊢
+  exact ⟨nodFree_name hs h.1, fun x hx => nodFree_name hs (h.2 x hx)⟩
 
 /-- A symbol of `ks` is no hook where `freeB c ks`'s last part holds, so no item is the arity of a
 hook of `ks`. -/

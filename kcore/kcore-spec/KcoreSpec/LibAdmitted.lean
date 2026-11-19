@@ -34,7 +34,9 @@ set_option autoImplicit false
 namespace KCore
 
 /-- The value `HookParams.lib` gives `maxValueFloat` at two Ints: at a format with a field of 1
-(`p = 1` or `e = 1`, both positive) its one NaN, `2 ^ (p + e)` (`KFloat.thinOK`); nothing elsewhere. -/
+(`p = 1` or `e = 1`, both positive) its one NaN, `2 ^ (p + e)` (`KFloat.thinOK`); nothing elsewhere.
+It is read only where `hook` gives no value (`Semantics.fallback`): at a format of one exponent bit,
+since `hook` computes the largest finite datum at the formats `thinAt` names. -/
 def libMaxValue (vs : List GroundTerm) : Option GroundTerm :=
   match vs with
   | [x, y] => (asInt x).bind fun p => (asInt y).bind fun e =>
@@ -289,42 +291,43 @@ theorem thin_nan_ok {p e : Nat} (hp : 1 ≤ p) (he : 1 ≤ e) (h1 : p = 1 ∨ e 
   simp only [Bool.and_eq_true, decide_eq_true_eq, Bool.or_eq_true, beq_self_eq_true, true_or, and_true]
   omega
 
-/-- `isInfinite`'s sentence holds under `HookParams.lib` where every Float value is a Float literal:
-at a Float of a format with a field of 1, `isInfinite` is `false`, `maxValueFloat` the format's NaN,
-both comparisons `false` (by `hook` at precision 1, where the NaN is unordered, by `lib` at one
-exponent bit), `--Float` of the NaN the NaN. -/
+/-- `isInfinite`'s sentence holds under `HookParams.lib` where every Float value is a Float literal.
+`isInfinite` is silent only at a Float of a format of one exponent bit (at a format with a model and
+at one `thinAt` names `hook` computes it); there `isInfinite` is `false`, `maxValueFloat` the
+format's NaN (`libMaxValue`), both comparisons `false` (by `lib`: the Float has no datum,
+`asDatum`), `--Float` of the NaN the NaN. -/
 theorem isInfiniteEq_lib (c : Semantics) (hfs : c.floatShapeOK = true) :
     (c.withHooks HookParams.lib).isInfiniteEq := by
   intro F hF hh
   obtain ⟨p, e, b, rfl, hok⟩ := shape_float (c := c.withHooks HookParams.lib) hfs hF
   obtain ⟨hp, he⟩ := KFloat.ok_pos hok
+  have h0 : hook floatIsInfinite [.dv Srt.float (.float p e b)] =
+      some (flOr (flTestM KFloat.isInf) tflInf [.dv Srt.float (.float p e b)]) := rfl
   have hsp : KFloat.spec? p e = none := by
-    have h0 : hook floatIsInfinite [.dv Srt.float (.float p e b)] =
-        some (((KFloat.spec? p e).map fun sp => (p, e, sp, KFloat.unpackBits sp b)).map
-          fun (_, _, _, u) => bool (KFloat.isInf u)) := rfl
-    rw [h0] at hh
     cases hs : KFloat.spec? p e with
     | none => rfl
-    | some _ => rw [hs] at hh; cases hh
-  have h1 : p = 1 ∨ e = 1 := by
+    | some _ => rw [h0] at hh; simp [flOr, flTestM, asFloat, hs] at hh
+  have h1 : e = 1 := by
+    have hn : ¬(p = 1 ∧ 2 ≤ e) := by
+      intro hc
+      have ht : thinAt p e = true := by simp [thinAt, hc]
+      have hle : 2 ≤ e := hc.2
+      obtain ⟨_, hm⟩ := KFloat.tnMax?_normal (p := p) (e := e) hp hle
+      rw [h0] at hh; simp [flOr, flTestM, asFloat, hsp, tflInf, asThin, ht, hm] at hh
     unfold KFloat.spec? at hsp; split at hsp
     · cases hsp
     · rename_i h; omega
+  have ht : thinAt p e = false := by simp [thinAt, h1]
   let m : GroundTerm := .dv Srt.float (.float p e (2 ^ (p + e)))
   have hm : asFloat m = none := by
     unfold asFloat; simp [m, hsp]
-  -- at precision 1 `F` has a datum and `m` is the format's NaN (`asDatum`); at one exponent bit
-  -- neither has one
-  have hnan : ∀ u, asDatum (.dv Srt.float (.float p e b)) = some u → asDatum m = some .notANumber := by
-    intro u hdF
-    have hp1 : p = 1 ∧ 2 ≤ e := by
-      by_cases hc : p = 1 ∧ 2 ≤ e
-      · exact hc
-      · simp [asDatum, hsp, hc] at hdF
-    obtain ⟨rfl, he2⟩ := hp1
-    simp [asDatum, m, hsp, he2, KFloat.thinUnpack]
+  have hdF : asDatum (.dv Srt.float (.float p e b)) = none := by
+    have h0 : asDatum (.dv Srt.float (.float p e b)) = (match KFloat.spec? p e with
+        | some sp => some (KFloat.unpackBits sp b)
+        | none => if p = 1 ∧ 2 ≤ e then some (KFloat.thinUnpack e b) else none) := rfl
+    rw [h0, hsp]; simp only [show ¬(p = 1 ∧ 2 ≤ e) by omega, ↓reduceIte]
   have hms : (c.withHooks HookParams.lib).sortOf m = some Srt.float := by
-    rw [sortOf_dv]; exact ⟨by simp [dvOK, thin_nan_ok hp he h1], rfl⟩
+    rw [sortOf_dv]; exact ⟨by simp [dvOK, thin_nan_ok hp he (Or.inr h1)], rfl⟩
   rw [hv_of_silent (k := ⟨floatIsInfinite, [Srt.float], Srt.bool⟩) rfl hh rfl rfl
       (sortOf_bool false)]
   have hpr : hook floatPrecision [.dv Srt.float (.float p e b)] = some (some (int p)) := by
@@ -332,39 +335,28 @@ theorem isInfiniteEq_lib (c : Semantics) (hfs : c.floatShapeOK = true) :
   have hex : hook floatExponentBits [.dv Srt.float (.float p e b)] = some (some (int e)) := by
     rw [hook_floatExponentBits]; simp [flFmt, hp, he]
   have hmx : hook floatMaxValue [int p, int e] = some none := by
-    have h0 : hook floatMaxValue [int p, int e] = some (flAt KFloat.maxValue [int p, int e]) := rfl
-    rw [h0]; simp [flAt, asInt, int, hsp]
+    have h0 : hook floatMaxValue [int p, int e] =
+      some (flOr (flAt KFloat.maxValue) (tflAt KFloat.tnMax?) [int p, int e]) := rfl
+    rw [h0]; simp [flOr, flAt, tflAt, asInt, int, hsp, ht]
   have hmv : HookParams.lib.app floatMaxValue [int p, int e] = some m := by
     show libMaxValue [int p, int e] = some m
     have : (1 : Int) ≤ p ∧ (1 : Int) ≤ e ∧ ((p : Int) = 1 ∨ (e : Int) = 1) := by omega
     simp [libMaxValue, asInt, int, this, m]
   have hgt : (c.withHooks HookParams.lib).hv floatGt [.dv Srt.float (.float p e b), m] = some (bool false) := by
-    have h0 : hook floatGt [.dv Srt.float (.float p e b), m] =
-      some (flCmp (fun o => o == some .gt) [.dv Srt.float (.float p e b), m]) := rfl
-    cases hdF : asDatum (.dv Srt.float (.float p e b)) with
-    | none =>
-      have hs : hook floatGt [.dv Srt.float (.float p e b), m] = some none := by
-        rw [h0]; simp [flCmp, hdF]
-      exact hv_of_silent (k := ⟨floatGt, [Srt.float, Srt.float], Srt.bool⟩) rfl hs rfl rfl (sortOf_bool false)
-    | some u =>
-      have hc : KFloat.cmpExact u .notANumber = none := by cases u <;> rfl
-      apply hv_of_value
-      rw [h0]; simp [flCmp, hdF, hnan u hdF, hc]
+    have hs : hook floatGt [.dv Srt.float (.float p e b), m] = some none := by
+      rw [show hook floatGt [.dv Srt.float (.float p e b), m] =
+        some (flCmp (fun o => o == some .gt) [.dv Srt.float (.float p e b), m]) from rfl]
+      simp [flCmp, hdF]
+    exact hv_of_silent (k := ⟨floatGt, [Srt.float, Srt.float], Srt.bool⟩) rfl hs rfl rfl (sortOf_bool false)
   have hng : hook floatNeg [m] = some none := by
-    have h0 : hook floatNeg [m] = some (fl1 (fun _ => KFloat.neg?) [m]) := rfl
-    rw [h0]; simp [fl1, hm]
+    have h0 : hook floatNeg [m] = some (flOr (fl1 fun _ => KFloat.neg?) (tfl1 fun _ _ => KFloat.neg?) [m]) := rfl
+    rw [h0]; simp [flOr, fl1, tfl1, hm, asThin, m, ht]
   have hlt : (c.withHooks HookParams.lib).hv floatLt [.dv Srt.float (.float p e b), m] = some (bool false) := by
-    have h0 : hook floatLt [.dv Srt.float (.float p e b), m] =
-      some (flCmp (fun o => o == some .lt) [.dv Srt.float (.float p e b), m]) := rfl
-    cases hdF : asDatum (.dv Srt.float (.float p e b)) with
-    | none =>
-      have hs : hook floatLt [.dv Srt.float (.float p e b), m] = some none := by
-        rw [h0]; simp [flCmp, hdF]
-      exact hv_of_silent (k := ⟨floatLt, [Srt.float, Srt.float], Srt.bool⟩) rfl hs rfl rfl (sortOf_bool false)
-    | some u =>
-      have hc : KFloat.cmpExact u .notANumber = none := by cases u <;> rfl
-      apply hv_of_value
-      rw [h0]; simp [flCmp, hdF, hnan u hdF, hc]
+    have hs : hook floatLt [.dv Srt.float (.float p e b), m] = some none := by
+      rw [show hook floatLt [.dv Srt.float (.float p e b), m] =
+        some (flCmp (fun o => o == some .lt) [.dv Srt.float (.float p e b), m]) from rfl]
+      simp [flCmp, hdF]
+    exact hv_of_silent (k := ⟨floatLt, [Srt.float, Srt.float], Srt.bool⟩) rfl hs rfl rfl (sortOf_bool false)
   rw [hv_of_value hpr, Option.bind_some, hv_of_value hex, Option.bind_some,
     hv_of_silent (k := ⟨floatMaxValue, [Srt.int, Srt.int], Srt.float⟩) rfl hmx rfl hmv
       hms, Option.bind_some,

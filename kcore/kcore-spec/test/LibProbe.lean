@@ -1,7 +1,8 @@
 /-
   The library's sentences about interpreted hooked symbols, evaluated at values against Γ's
   graphs (`hook`, `silent`). Native evaluation only (`#eval`), no kernel proof.
-  Run from the package root: `lake env lean test/LibProbe.lean`.
+  Run from the package root: `lake env lean test/LibProbe.lean`; with `LIBPROBE_LOG=FILE` each
+  sentence's line is also added to FILE as it is done (`#eval` shows its output only at its end).
 
   For a kompile text, each axiom of the user module is put in one of four classes (TIE-0's rows):
   - 9: `functional` of a hooked symbol (the sort-parametric `ite{S}`'s among them);
@@ -24,14 +25,16 @@
   reads a silent point three ways: as `HookParams.none` (no value), and as the two interpretations
   giving, at every silent point, the first (`pick 0`) or the second (`pick 1`) grid value of the
   symbol's result sort; each is an interpretation (`HookParams.app` is any function, `fallback`
-  keeps a value of the result sort). A parameter symbol is read by `paramVal` and a function by
-  `Exec.evalF`, both under `HookParams.none`; a point reaching one is marked.
+  keeps a value of the result sort). A parameter symbol is read by `Cert.paramValC` and a function
+  by `Cert.evalFC`, which give the value (or ⊥) where no interpretation takes part in it; elsewhere
+  by `paramVal` and `Exec.evalF` under `HookParams.none`, and the point is marked as reading the
+  interpretation.
 
   A sentence holds at a point where its pattern denotes every element (`\top`): `\implies` with
   a premise that does not hold holds; `\equals` holds where both sides denote the same (no value
   and no value, one value and the same value); `\exists Val. Val = t` (the `functional` sentence)
-  holds where `t` has one value. A point where the sentence fails and no silent point, parameter
-  or function rest was reached is a counterexample for every interpretation: Γ with the sentence
+  holds where `t` has one value. A point where the sentence fails and nothing marked as reading the
+  interpretation was reached is a counterexample for every interpretation: Γ with the sentence
   has no model. A sentence's sort variables (`R`, `Q0`) are not instantiated: its predicates denote
   every element or none in any sort.
 
@@ -57,7 +60,7 @@
   have different values). Both check that the conditions on the interpretation are closed
   (`Reads`, `readsOK`): a sentence that reads the interpretation at a probed point is a `functional`
   sentence of a symbol of `totalSilentKeys` or at a line of `libSentences`, reads it only where its
-  left side is at a silent point, and every sentence at a line of `libSentences` that the text holds
+  left side does, and every sentence at a line of `libSentences` that the text holds
   and the probe evaluates reads it; and that under `HookParams.lib` only the control fails. One
   sentence is excepted from both (`unmet`): `countAllOccurrences`' second equation at the empty
   needle, which no interpretation that gives the count a value there meets. Two lines of
@@ -180,9 +183,10 @@ lower bounds, maximal). -/
 def rangeMapV (es : List (Int × Int × Int)) : GroundTerm := rmV (es.map fun (a, b, v) => (rangeT a b, iK v))
 
 /-- Float values (precision, exponent width, encoding): binary32's 1.0, the largest finite value,
-+∞ and NaN; `p1x2`'s (a format with a field of 1, `KFloat.thinOK`) 1.0, ∞ and NaN; and the `p2x1`
-encoding 1 (sign 0, the one exponent bit 0, the fraction bit 1), of a format with one exponent bit,
-at which no Float has a datum (`asDatum`), so that the comparisons are silent there. -/
++∞ and NaN; `p1x2`'s (a format with a field of 1, `KFloat.thinOK`, at which every operation computes,
+`thinAt`) 1.0, ∞ and NaN; and the `p2x1` encoding 1 (sign 0, the one exponent bit 0, the fraction
+bit 1), of a format with one exponent bit, at which no Float has a datum (`asDatum`) and no operation
+computes, so that the comparisons and `isInfinite` are silent there. -/
 def floats : List (Nat × Nat × Nat) :=
   [(24, 8, 0x3F800000), (24, 8, 0x7F7FFFFF), (24, 8, 0x7F800000), (24, 8, 0x7FC00000),
    (1, 2, 1), (1, 2, 3), (1, 2, 8), (2, 1, 1)]
@@ -304,7 +308,16 @@ def dvVal (x : Ctx) (s : Kore.KSort) (t : String) : M D := do
   else if s == Srt.string then pure (.val (.dv Srt.string (.tok t)))
   else throw s!"literal of sort {x.c.sortName s}"
 
-/-- The meaning of Γ's symbol `k` at the values `vs`. -/
+def ofOpt : Option GroundTerm → D
+  | some v => .val v
+  | none => .bot
+
+/-- The meaning of Γ's symbol `k` at the values `vs`. A point is marked where the meaning depends on
+the interpretation: a silent point of an interpreted symbol, a parameter whose value is not its
+hook's at a point the hook's text decides (`Cert.paramValC`), a function whose value there is not
+one no interpretation takes part in (`Cert.evalFC`: its evaluation reaches a silent point, a
+parameter without hook or a function's rest). Where `Cert` gives a value or ⊥ (a ⊥ Γ states at
+every interpretation, as `/Int` by 0 in a function's right side), the point reads nothing. -/
 def applyAt (x : Ctx) (key : String) (k : CtorSig) (vs : List GroundTerm) : M D := do
   let c := x.c
   if c.sortsOf vs != some k.args then throw s!"{key} applied to arguments not of its sorts"
@@ -328,16 +341,19 @@ def applyAt (x : Ctx) (key : String) (k : CtorSig) (vs : List GroundTerm) : M D 
     else return .bot
   | none =>
     if (c.lookupParam k.name).isSome then
-      modify fun f => { f with param := f.param ++ [key] }
-      return match c.paramVal k.name vs with
-        | some v => .val v
-        | none => .bot
-    match Exec.evalF c 10000 k.name vs with
-    | some (some v) => return .val v
-    | some none =>
-      modify fun f => { f with param := f.param ++ [key ++ " (rest)"] }
-      return .bot
-    | none => throw s!"{key}: no meaning found (not a constructor, hook, parameter, or function with a result)"
+      match Cert.paramValC c k.name vs with
+      | some r => return ofOpt r
+      | none =>
+        modify fun f => { f with param := f.param ++ [key] }
+        return ofOpt (c.paramVal k.name vs)
+    match Cert.evalFC c 10000 k.name vs with
+    | some r => return ofOpt r
+    | none =>
+      match Exec.evalF c 10000 k.name vs with
+      | some r =>
+        modify fun f => { f with param := f.param ++ [key ++ " (reads H)"] }
+        return ofOpt r
+      | none => throw s!"{key}: no meaning found (not a constructor, hook, parameter, or function with a result)"
 
 partial def eval (x : Ctx) (env : List (String × D)) : Kore.Pattern → M D
   | .var (.evar v) => match env.lookup v.var.ident.name with
@@ -509,7 +525,7 @@ structure Res where
   /-- failures under some interpretation at points reaching a silent point or parameter -/
   hfail : List String := []
   /-- points reading the interpretation where the left side (the application the sentence states
-  the value of) is not at a silent point: the interpretation is read inside the right side only -/
+  the value of) is not marked as reading it: the interpretation is read elsewhere only -/
   hOff : Nat := 0
   /-- the readings under which it fails at some point -/
   failModes : List String := []
@@ -532,7 +548,13 @@ structure Res where
 def showPoint (c : Semantics) (pt : List (String × D)) : String :=
   ", ".intercalate (pt.map fun (n, d) => s!"{n} = {showD c d}")
 
-/-- Evaluate one sentence at every point of its grid, in the three readings of silent points. -/
+/-- The readings `modes` with `HookParams.none` first. The interpretation is read only where a point's
+evaluation reaches a silent point, a parameter or a function's rest (`applyAt` marks it), and every
+other application has the same meaning under every reading; so a point whose evaluation under
+`HookParams.none` marks nothing evaluates to the same under every reading, and is evaluated once. -/
+def noneFirst (modes : List Mode) : List Mode := Mode.none :: modes.filter (· != Mode.none)
+
+/-- Evaluate one sentence at every point of its grid, in the readings `modes` (`noneFirst`). -/
 def probe (c : Semantics) (r : Res) (a : Kore.Axiom) (modes : List Mode := [.none, .pick 0, .pick 1])
     (small : Bool := false) : Res := Id.run do
   let fv := (freeVars [] a.pattern).eraseDups
@@ -551,12 +573,14 @@ def probe (c : Semantics) (r : Res) (a : Kore.Axiom) (modes : List Mode := [.non
   let leftKey : Option String := match sides a.pattern with
     | some (.app h ss _, _) => some (appKey h ss)
     | _ => none
+  let modes := noneFirst modes
   let mut r := { r with points := pts.length }
   for pt in pts do
     let mut dep := false
     let mut off := false
     let mut okAll := true
     for m in modes do
+      if m != Mode.none && !dep then break
       let x := Ctx.of c m small
       match (eval x pt a.pattern).run {} with
       | .error e => return { r with skip := some s!"at {showPoint c pt}: {e}" }
@@ -564,11 +588,14 @@ def probe (c : Semantics) (r : Res) (a : Kore.Axiom) (modes : List Mode := [.non
         let isDep := !fl.silent.isEmpty || !fl.param.isEmpty
         if isDep then
           dep := true
-          if !(leftKey.any fl.silent.contains) then off := true
+          let onLeft := leftKey.any fun k => fl.silent.contains k || fl.param.contains k || fl.param.contains (k ++ " (reads H)")
+          if !onLeft then off := true
         let holds := match d with | .top => true | _ => false
         if !holds then
           okAll := false
-          if !r.failModes.contains m.name then r := { r with failModes := r.failModes ++ [m.name] }
+          -- a failure reading nothing of the interpretation is a failure under every reading
+          for n in (if isDep then [m.name] else modes.map (·.name)) do
+            if !r.failModes.contains n then r := { r with failModes := r.failModes ++ [n] }
           let sd := match sides a.pattern with
             | some (l, rr) =>
               let l' := match (eval x pt l).run {} with | .ok (d, _) => showD c d | .error e => e
@@ -613,14 +640,18 @@ def probeTwo (c : Semantics) (r : Res) (a : Kore.Axiom) (modes : List Mode := [.
         let ds := g.map D.val
         grids := grids ++ [(n, if n.startsWith "@" then D.bot :: ds ++ (pairsOf g).map (fun (v, w) => D.many [v, w]) else ds)]
   let pts := (points grids).filter (·.any (·.2.isMany))
+  let modes := noneFirst modes
   let mut r := { r with setVar := true, points2 := pts.length }
   for pt in pts do
+    let mut dep := false
     for m in modes do
+      if m != Mode.none && !dep then break
       let x := Ctx.of c m small
       match (eval x pt a.pattern).run {} with
       | .error e => return { r with skip2 := some s!"at {showPoint c pt}: {e}" }
       | .ok (d, fl) =>
         let isDep := !fl.silent.isEmpty || !fl.param.isEmpty
+        if isDep then dep := true
         let holds := match d with | .top => true | _ => false
         if !holds && (isDep || m == .none) then
           let first := if isDep then r.nhfail2 < 8 else r.ncex2 < 8
@@ -667,7 +698,7 @@ place (a `functional` sentence, which has none, by its symbol):
 - `unnamed`: those reading it at some point that are neither a `functional` sentence of a symbol of
   `totalSilentKeys` nor at a line of `libSentences`;
 - `unread`: those at a line of `libSentences`, probed, that read it at no point;
-- `off`: those reading it at a point where the left side is not at a silent point;
+- `off`: those reading it at a point where the left side is not marked as reading it;
 - `libFails`: those failing at some point under `HookParams.lib`. -/
 structure Reads where
   unnamed : List String
@@ -719,36 +750,57 @@ def expectedAllTwo : Two :=
       "18 Lbl'Unds'Map'Unds' Lbl'UndsPipe'-'-GT-Unds' Lbl'Unds'in'Unds'keys'LParUndsRParUnds'MAP'Unds'Bool'Unds'KItem'Unds'Map"],
     hOnly := [], unevaluated := [] }
 
-/-- The text without the user module's sentences the reader refuses as builtin sentences outside
-the library's text (`builtinText`: a module of a K installation KCore's library does not hold) and
-without its subsort axioms whose lower sort is K (`sortAboveK`: kompile's sentence for
-REQUIRES-ENSURES' `syntax #RuleBody ::= K`, a module outside the library, which has no row here),
-with their heads; the text itself when there are none. -/
-def outOfLibrary (k : Kore.Definition) : Kore.Definition × List String :=
+/-- The text without the user module's sentences of a K installation's builtin files that are no
+sentence of the library's text: those read as the definition's own (`Parse.isOwnBuiltin`: about
+names to which no library module gives a meaning, as ARRAY's, RAT's, FFI's, MINT's or KVAR's
+symbols, with their declarations), those the reader refuses as builtin sentences outside the
+library's text (`builtinText`), and the subsort axioms whose lower sort is K (`sortAboveK`:
+kompile's sentence for REQUIRES-ENSURES' `syntax #RuleBody ::= K`, a module outside the library,
+which has no row here). A sentence read as the definition's own is a sentence of the definition, as
+a user's is, and no condition of `Semantics.libAdmitted`, so it is not of rows 9, 15, 17 or 18
+(rowOf would count its equations as row 17's by their builtin place). The result gives how many
+were read as the definition's own and the heads of those refused; the text itself when there are
+none. -/
+def outOfLibrary (k : Kore.Definition) : Kore.Definition × Nat × List String :=
   let off := Parse.preludeLength k
   let rs := (Parse.refusals k).filter (fun r => r.reason.name == "builtinText" || r.reason.name == "sortAboveK")
   let ix := rs.filterMap (·.index)
   match k.modules.getLast? with
-  | none => (k, [])
+  | none => (k, 0, [])
   | some m =>
-    let m' := { m with sentences := (m.sentences.zipIdx.filter fun (_, i) => !ix.contains (off + i)).map (·.1) }
-    ({ k with modules := k.modules.dropLast ++ [m'] }, rs.map (·.head))
+    let own := (m.sentences.filter Parse.isOwnBuiltin).length
+    let keep := fun ((s, i) : Kore.Sentence × Nat) => !ix.contains (off + i) && !Parse.isOwnBuiltin s
+    let m' := { m with sentences := (m.sentences.zipIdx.filter keep).map (·.1) }
+    ({ k with modules := k.modules.dropLast ++ [m'] }, own, rs.map (·.head))
+
+/-- The line printed for a sentence. -/
+def resLine (r : Res) : String :=
+  s!"#{r.index} L{r.line} row {r.row} {r.place} [{" ".intercalate r.syms}] points {r.points} (premise holds at {r.active}, reads H at {r.hdep}): {verdict r}{verdictTwo r}{if r.failModes.isEmpty then "" else s!" [fails under {r.failModes}]"}"
 
 def run (path : String) (verbose : Bool := true) (modes : List Mode := [.none, .pick 0, .pick 1])
     (small : Bool := false) (dropOut : Bool := false) : IO (Summary × Reads × Two) := do
+  -- `#eval` shows what it prints when it ends; LIBPROBE_LOG names a file each sentence's line is
+  -- added to as it is done, with the seconds it took
+  let logTo ← IO.getEnv "LIBPROBE_LOG"
+  let say (l : String) : IO Unit := do
+    if let some f := logTo then
+      let h ← IO.FS.Handle.mk f .append
+      h.putStrLn l
+      h.flush
   let text ← IO.FS.readFile path
   let k ← match Kore.parseDefinition text with
     | .ok k => pure k
     | .error e => throw (IO.userError s!"read: {e}")
-  let (k, dropped) := if dropOut then outOfLibrary k else (k, [])
-  unless dropped.isEmpty do
-    IO.println s!"{path}: {dropped.length} sentences of builtin modules outside the library's text left out: {dropped}"
+  let (k, own, refused) := if dropOut then outOfLibrary k else (k, 0, [])
+  let dropped := own > 0 || !refused.isEmpty
+  if dropped then
+    IO.println s!"{path}: sentences of builtin modules outside the library's text left out: {own} read as the definition's own, {refused.length} refused: {refused}"
   let d ← match Parse.parse k with
     | .ok d => pure d
     | .error e => throw (IO.userError s!"parse: {e.toText}")
   let c := d.sem
   let user := (k.modules.getLast?.map (·.name.ident.name)).getD ""
-  let lines := if dropped.isEmpty then axiomLines text else []
+  let lines := if dropped then [] else axiomLines text
   let ads := k.axiomDecls
   IO.println s!"{path}: user module {user}, {ads.length} axioms (lines found {lines.length})"
   let gNames := ((kernelSyms c).map fun k => c.symName k.name) ++ ["inj"]
@@ -763,10 +815,13 @@ def run (path : String) (verbose : Bool := true) (modes : List Mode := [.none, .
       let lawPlace := if row == 15 && hasAttr ad.ax.attributes "assoc" then (syms.head?.map (declPlace k)).getD "-" else "-"
       let place := placeOf ad.ax.attributes
       let r : Res := { index := ad.index, line := lines.getD (ad.index - 1) 0, row, place, syms, absent, lawPlace }
+      let t0 ← IO.monoMsNow
       -- a shift by 2^64 + 1 is a number of that many bits: its sentences are probed on the small grid
       let small := small || syms.any ["Lbl'Unds-LT--LT-'Int'Unds'", "Lbl'Unds-GT--GT-'Int'Unds'"].contains
       let r := if absent.isEmpty then probe c r ad.ax modes small else { r with skip := some s!"applies symbols Γ does not have: {absent}" }
       let r := if r.skip.isNone && r.cex.isEmpty && r.hfail.isEmpty then probeTwo c r ad.ax modes small else r
+      let t1 ← IO.monoMsNow
+      say s!"{path} {resLine r} ({(t1 - t0) / 1000} s)"
       res := res ++ [r]
   IO.println s!"Γ's instances of ite: {gNames.filter (·.startsWith "Lblite")}"
   let mut sum : Summary := []
@@ -781,7 +836,7 @@ def run (path : String) (verbose : Bool := true) (modes : List Mode := [.none, .
     sum := sum ++ [(row, rs.length, over.length, hold.length, cexs.length, hf.length, sk.length)]
   if verbose then
     for r in res do
-      IO.println s!"#{r.index} L{r.line} row {r.row} {r.place} [{" ".intercalate r.syms}] points {r.points} (premise holds at {r.active}, reads H at {r.hdep}): {verdict r}{verdictTwo r}{if r.failModes.isEmpty then "" else s!" [fails under {r.failModes}]"}"
+      IO.println (resLine r)
       for m in r.cex.drop 1 |>.take 7 do IO.println s!"    also {m}"
       for m in r.hfail.drop 1 |>.take 7 do IO.println s!"    also {m}"
       for m in r.cex2.drop 1 do IO.println s!"    also {m}"
@@ -826,7 +881,7 @@ because no interpretation meets them: the second equation of `countAllOccurrence
 def unmet : List String := ["17 domains.md:1898"]
 
 /-- What a check requires of a run: every sentence reading the interpretation has a named
-condition, `unmet` aside, and reads it only where its left side is silent, every named sentence
+condition, `unmet` aside, and reads it only where its left side does, every named sentence
 the text holds reads it at some point of the grid, and under `HookParams.lib` only the control
 (set idempotence) and `unmet` fail. -/
 def readsOK (r : Reads) : Bool :=
@@ -856,9 +911,9 @@ readings, the Int grid without 2^64 + 1. Row 9's ten failures are the `functiona
 data), under `HookParams.none` only. Row 17's five: `countAllOccurrences`' second equation (1898)
 at the empty needle, under every reading that gives the count a value there (`unmet`);
 `replaceAll`'s (1917) at the empty needle under the readings that give `replaceAll` and `replace`
-at the count different values; `isInfinite`'s equation (domains.md 1673) at the three `p1x2` values
-and the `p2x1` one, under the two `only` readings (`isInfinite` has a value, `maxValueFloat` none, so
-the right side has none) and under `pick0`, `pick1` and `hash`; `rfindChar`'s (1893) under `pick0`
+at the count different values; `isInfinite`'s equation (domains.md 1673) at the `p2x1` value (at
+the three `p1x2` values both sides are `hook`'s), under the two `only` readings (`isInfinite` has a
+value, `maxValueFloat` none, so the right side has none) and under `hash`; `rfindChar`'s (1893) under `pick0`
 and `pick1` (in the points printed), which give the silent points of two symbols values that do
 not agree with the equation; and `=/=Float`'s (1648) where an operand is the `p2x1` value, at which
 `==Float` and `=/=Float` are silent, under `pick0`, `pick1` and `hash`, which give the two values
@@ -877,8 +932,12 @@ def checkFlt : IO Unit := do
 
 /-- The counts of `allbuiltins.kompile.kore` (kompile's text of a definition importing every module
 of the K 7.1.337 installation's builtin files) over `fltModes`, the Int grid without 2^64 + 1, after
-leaving out the 193 sentences of builtin modules outside the library's text (`outOfLibrary`:
-ARRAY, RAT, FFI, MINT, …) and the subsort axiom K < #RuleBody of REQUIRES-ENSURES. The sentences reading the interpretation are those of silentflt and
+leaving out the 193 sentences of builtin modules outside the library's text, all read as the
+definition's own (`outOfLibrary`: ARRAY, RAT, FFI, MINT, KVAR, …), and the subsort axiom
+K < #RuleBody of REQUIRES-ENSURES. Kept, they would add to row 9 the `functional` sentences of
+their hooked symbols and to rows 17 and 18 their equations and simplifications, which are the
+definition's sentences and no condition of `Semantics.libAdmitted`. The sentences reading the
+interpretation are those of silentflt and
 RANGEMAP's associativity, at the line of `_RangeMap_`'s declaration (508, `rangeMapAssocEq`), the
 one sentence of row 15 failing only under some interpretation; RANGEMAP's other sentences over
 Γ's symbols with a variable of sort RangeMap (the `functional` sentences of `lookupOrDefault`,
@@ -898,8 +957,13 @@ def checkAll : IO Unit := do
 
 end KCore.LibProbe
 
-#eval KCore.LibProbe.check "f2-examples/ens.kompile.kore"
-#eval KCore.LibProbe.check "f2-examples/ref-kimp.kore"
-#eval KCore.LibProbe.checkFlt
--- about 30 minutes: run with LIBPROBE_ALL=1
+-- LIBPROBE_ALL_ONLY=1 leaves out the three checks below, for a run of `checkAll` alone
+#eval show IO Unit from do
+  if (← IO.getEnv "LIBPROBE_ALL_ONLY").isNone then KCore.LibProbe.check "f2-examples/ens.kompile.kore"
+#eval show IO Unit from do
+  if (← IO.getEnv "LIBPROBE_ALL_ONLY").isNone then KCore.LibProbe.check "f2-examples/ref-kimp.kore"
+#eval show IO Unit from do
+  if (← IO.getEnv "LIBPROBE_ALL_ONLY").isNone then KCore.LibProbe.checkFlt
+-- checkAll takes about 11 minutes alone, the three checks above about 5 together: run with
+-- LIBPROBE_ALL=1 (and LIBPROBE_ALL_ONLY=1 for it alone)
 #eval show IO Unit from do if (← IO.getEnv "LIBPROBE_ALL").isSome then KCore.LibProbe.checkAll else pure ()

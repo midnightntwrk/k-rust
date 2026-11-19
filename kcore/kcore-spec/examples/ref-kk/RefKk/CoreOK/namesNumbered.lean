@@ -6,6 +6,6 @@ set_option maxRecDepth 1000000
 namespace RefKk
 open KCore KCore.Faithful KCore.Faithful.Model
 
-theorem core_namesNumbered : namesNumbered defn.sem = true := Model.namesNumbered_of_codes sym_codes ite_idx (by decide +kernel)
+theorem core_namesNumbered : namesNumbered defn.sem = true := Model.namesNumbered_of_codes sym_codes inst_idx (by decide +kernel)
 
 end RefKk
