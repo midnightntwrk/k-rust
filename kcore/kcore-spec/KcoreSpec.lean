@@ -335,6 +335,7 @@ import KcoreSpec.LibEvFloat
 import KcoreSpec.TieRulePair
 import KcoreSpec.InertEvUser
 import KcoreSpec.TieOvlConf
+import KcoreSpec.TieOvlEq
 import KcoreSpec.TieReqBool
 import KcoreSpec.TieAlphaOr
 import KcoreSpec.GenEqsNames
@@ -418,4 +419,5 @@ import KcoreSpec.LibEvParamPT
 import KcoreSpec.TieAcct
 import KcoreSpec.TieNoJunkBlk
 import KcoreSpec.WitnessedGivers
+import KcoreSpec.KKNative
 import KcoreSpec.LibEvSortPred
