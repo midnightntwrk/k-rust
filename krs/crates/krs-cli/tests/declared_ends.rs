@@ -1184,3 +1184,249 @@ fn search_refuses_an_expectation_of_a_declared_class() {
     let output = krs("search", &files, &["--case", "search.toml#halt"]);
     assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
 }
+
+/// A case's expectation scoped to the facet a command runs on (`expect_for.main`) is checked
+/// with `expect` by `krs run --case`, `krs cases`, `krs compare --expect` and `krs search`, the
+/// verdicts joined (unmet where either is, else inconclusive where either is, else met); one
+/// scoped to another facet (`expect_for.other`, of a cell this definition does not have) is never
+/// read, so it refuses nothing.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One case document, checked by each command that reads a case's expectation."
+)]
+fn a_case_checks_the_expectation_scoped_to_the_facet_it_runs_on() {
+    let base = "halt = \"stuck\", compare = [\"count\"], cells = { count = 0 }";
+    let refused = format!("{base}, class = \"refused\"");
+    let finished = format!("{base}, class = \"finished\"");
+    let unread = "halt = \"stuck\", compare = [\"nowhere\"], cells = { nowhere = 1 }";
+    let scoped = |name: &str, extra: &str, expect: Option<&str>, own: Option<&str>, other: bool| {
+        let mut case = format!(
+            "[[case]]\nname = \"{name}\"\ninputs.pgm = {{ \"$text\" = \"quit 12\" }}\n{extra}"
+        );
+        if let Some(expect) = expect {
+            let _ = writeln!(case, "expect = {{ {expect} }}");
+        }
+        if let Some(own) = own {
+            let _ = writeln!(case, "expect_for.main = {{ {own} }}");
+        }
+        if other {
+            let _ = writeln!(case, "expect_for.other = {{ {unread} }}");
+        }
+        case
+    };
+    let document = [
+        scoped("own", "", None, Some(&refused), false),
+        scoped("foreign", "", Some(base), None, true),
+        scoped("both", "", Some(base), Some(&refused), true),
+        scoped("scoped-unmet", "", Some(base), Some(&finished), false),
+        scoped("expect-unmet", "", Some(&finished), Some(&refused), false),
+        scoped(
+            "scoped-refused",
+            "",
+            Some(base),
+            Some(&format!("{base}, class = \"done\"")),
+            false,
+        ),
+        scoped("only-foreign", "", None, None, true),
+        scoped(
+            "bounded",
+            "run.depth = 0\n",
+            Some(base),
+            Some(&refused),
+            false,
+        ),
+    ]
+    .concat();
+    let refused_end =
+        json!({"halt": "stuck", "class": "refused", "cells": {"count": 0}}).to_string();
+    let stuck_end = json!({"halt": "stuck", "cells": {"count": 0}}).to_string();
+    let files = [
+        ("scoped.toml", document.as_str()),
+        ("refused.json", refused_end.as_str()),
+        ("stuck.json", stuck_end.as_str()),
+    ];
+
+    let runs = [
+        ("own", 0, "krs run: expectation met\n"),
+        ("foreign", 0, "krs run: expectation met\n"),
+        (
+            "both",
+            0,
+            "krs run: expectations `expect` and `expect_for.main` met\n",
+        ),
+        (
+            "scoped-unmet",
+            1,
+            "krs run: expectation `expect_for.main` unmet at the end's halt\n",
+        ),
+        (
+            "expect-unmet",
+            1,
+            "krs run: expectation `expect` unmet at the end's halt\n",
+        ),
+        ("scoped-refused", 2, "`expect_for.main"),
+    ];
+    for (name, code, shown) in runs {
+        let output = krs(
+            "run",
+            &files,
+            &[
+                "--case",
+                "scoped.toml",
+                "--case-name",
+                name,
+                "--output",
+                "none",
+            ],
+        );
+        let stderr = text(&output.stderr);
+        assert_eq!(output.status.code(), Some(code), "{name}: {stderr}");
+        assert!(stderr.contains(shown), "{name}: {stderr}");
+    }
+    // A case with only another facet's expectation runs as a case without one.
+    let output = krs(
+        "run",
+        &files,
+        &[
+            "--case",
+            "scoped.toml",
+            "--case-name",
+            "only-foreign",
+            "--output",
+            "none",
+        ],
+    );
+    let stderr = text(&output.stderr);
+    assert!(!stderr.contains("expectation"), "{stderr}");
+    assert!(stderr.contains("refused"), "{stderr}");
+    // Of two inconclusive expectations, the first decides, and its reason names it.
+    let output = krs(
+        "run",
+        &files,
+        &[
+            "--case",
+            "scoped.toml",
+            "--case-name",
+            "bounded",
+            "--output",
+            "json",
+        ],
+    );
+    assert_eq!(output.status.code(), Some(3), "{}", text(&output.stderr));
+    let document: Json = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(document["expectation"]["verdict"], "inconclusive");
+    assert!(
+        document["expectation"]["reason"]
+            .as_str()
+            .is_some_and(|reason| reason.starts_with("`expect`: ")),
+        "{document}"
+    );
+
+    let output = krs(
+        "cases",
+        &files,
+        &["scoped.toml", "--output", "json", "--jobs", "1"],
+    );
+    assert_eq!(output.status.code(), Some(2), "{}", text(&output.stderr));
+    let verdicts = text(&output.stdout)
+        .lines()
+        .map(|line| serde_json::from_str::<Json>(line).unwrap())
+        .filter_map(|record| {
+            Some((
+                record["case"]
+                    .as_str()?
+                    .trim_start_matches("scoped.toml#")
+                    .to_owned(),
+                record["verdict"].as_str()?.to_owned(),
+            ))
+        })
+        .collect::<Vec<_>>();
+    let expected = [
+        ("own", "met"),
+        ("foreign", "met"),
+        ("both", "met"),
+        ("scoped-unmet", "unmet"),
+        ("expect-unmet", "unmet"),
+        ("scoped-refused", "refused"),
+        ("only-foreign", "ran"),
+        ("bounded", "inconclusive"),
+    ]
+    .map(|(name, verdict)| (name.to_owned(), verdict.to_owned()));
+    assert_eq!(verdicts, expected);
+
+    let compares = [
+        ("scoped.toml#both", "refused.json", 0),
+        ("scoped.toml#foreign", "refused.json", 0),
+        ("scoped.toml#scoped-unmet", "refused.json", 1),
+        ("scoped.toml#both", "scoped.toml#own", 0),
+        // The end document is read against each expectation: `expect_for.main` compares the
+        // class, which it does not state.
+        ("scoped.toml#both", "stuck.json", 2),
+        ("scoped.toml#only-foreign", "refused.json", 2),
+    ];
+    for (case, actual, code) in compares {
+        let output = krs("compare", &files, &["--expect", case, actual]);
+        assert_eq!(
+            output.status.code(),
+            Some(code),
+            "{case} {actual}: {}{}",
+            text(&output.stdout),
+            text(&output.stderr)
+        );
+    }
+    let output = krs(
+        "compare",
+        &files,
+        &["--expect", "scoped.toml#scoped-unmet", "refused.json"],
+    );
+    assert!(
+        text(&output.stdout).contains("krs compare: expectation `expect_for.main` unmet"),
+        "{}",
+        text(&output.stdout)
+    );
+    let output = krs(
+        "compare",
+        &files,
+        &["--expect", "scoped.toml#only-foreign", "refused.json"],
+    );
+    assert!(
+        text(&output.stderr)
+            .contains("the case states no expectation (`expect`, or `expect_for.main`)"),
+        "{}",
+        text(&output.stderr)
+    );
+
+    // A pairs document checks the same expectations, each pair on its own.
+    let pairs = "[[pair]]\nexpect = \"scoped.toml#both\"\nactual = \"refused.json\"\n\n\
+                 [[pair]]\nexpect = \"scoped.toml#scoped-unmet\"\nactual = \"refused.json\"\n\n\
+                 [[pair]]\nexpect = \"scoped.toml#foreign\"\nactual = \"scoped.toml#own\"\n";
+    let mut with_pairs = files.to_vec();
+    with_pairs.push(("pairs.toml", pairs));
+    let output = krs(
+        "compare",
+        &with_pairs,
+        &["--pairs", "pairs.toml", "--output", "json", "--jobs", "1"],
+    );
+    assert_eq!(output.status.code(), Some(1), "{}", text(&output.stderr));
+    let records = text(&output.stdout)
+        .lines()
+        .map(|line| serde_json::from_str::<Json>(line).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        records.last().unwrap()["summary"],
+        json!({"pairs": 3, "equal": 0, "differs": 0, "met": 2, "unmet": 1, "inconclusive": 0, "refused": 0}),
+        "{records:?}"
+    );
+
+    // The scoped expectation states a declared class, which a search does not evaluate.
+    let output = krs("search", &files, &["--case", "scoped.toml#own"]);
+    let stderr = text(&output.stderr);
+    assert_eq!(output.status.code(), Some(2), "{stderr}");
+    assert!(
+        stderr.contains("expects a declared class of its end"),
+        "{stderr}"
+    );
+    let output = krs("search", &files, &["--case", "scoped.toml#foreign"]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+}

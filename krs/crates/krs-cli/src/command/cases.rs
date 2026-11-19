@@ -21,8 +21,11 @@
 //! printed: a slow case holds back the printing of the cases after it, never their runs, up to a
 //! bounded number of cases ahead of it.
 //!
-//! A case's views are evaluated in its observer: the definition the case runs on, or the
-//! definition its expectation names (`observer`), which is prepared once, the first time a case
+//! A case is checked against `expect` and the expectation scoped to the facet the batch runs on
+//! (`expect_for.<facet>`), both where both are given, the verdicts joined as `krs run --case`
+//! joins them; an expectation scoped to another facet is not read.
+//! An expectation's views are evaluated in its observer: the definition the case runs on, or the
+//! definition the expectation names (`observer`), which is prepared once, the first time a case
 //! names it, and loaded once per worker that runs such a case.
 
 use std::collections::BTreeMap;
@@ -34,8 +37,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, mpsc};
 
 use krs_exec::{
-    BackendOptions, Case, CaseDocument, Compared, CompiledStage, ExecError, Halt, RunOptions,
-    Semantics, SourceText, StopCriterion,
+    BackendOptions, CaseDocument, Compared, CompiledStage, ExecError, Halt, RunOptions, Semantics,
+    SourceText, StopCriterion,
 };
 use krs_ir::measure::{Measurement, Timings};
 use krs_ir_levels::DefinitionIr;
@@ -122,9 +125,11 @@ pub(super) type PrepareObserver<'a> =
 /// the records held back for printing in document order.
 const AHEAD_PER_WORKER: usize = 4;
 
-/// Run the cases of `request` on the prepared definition, its stage restored or compiled once.
+/// Run the cases of `request` on the prepared definition, the facet `facet`, its stage restored
+/// or compiled once.
 pub(super) fn execute(
     prepared: &RunDefinition,
+    facet: &str,
     request: &CasesRequest,
     sources: &DiagnosticSources,
     reuse: StageReuse<'_>,
@@ -145,6 +150,7 @@ pub(super) fn execute(
                 *reused_flag = restored;
                 let batch = Batch {
                     definition,
+                    facet,
                     stage: &stage,
                     sources,
                     request,
@@ -168,13 +174,13 @@ struct Observer {
     stage: CompiledStage,
 }
 
-/// One case to run: its place in the output, its id, the case, and its observer when it names
-/// one other than the definition it runs on.
+/// One case to run: its place in the output, its id, the case, and the observers its
+/// expectations name other than the definition it runs on, by name.
 struct Job {
     index: usize,
     id: String,
     case: SelectedCase,
-    observer: Option<Arc<Observer>>,
+    observers: Vec<(String, Arc<Observer>)>,
     /// The definition its run's stop condition is evaluated in: `None` without a condition.
     condition: Option<ConditionSource<Arc<Observer>>>,
     /// The definition its run's observations are evaluated in: `None` without observations or
@@ -261,7 +267,7 @@ impl Record {
     }
 
     /// The record, naming the views and the observer `case`'s expectation writes.
-    fn naming(mut self, case: &Case) -> Self {
+    fn naming(mut self, case: &SelectedCase) -> Self {
         self.written = exec::written_views(case);
         self
     }
@@ -528,6 +534,9 @@ pub(super) fn write_stdout(text: &str) -> Result<(), Failure> {
 /// The batch: the definition and its compiled stage, which every worker loads once.
 struct Batch<'a> {
     definition: &'a DefinitionIr,
+    /// The facet the cases run on (`--definition`), which selects each case's scoped
+    /// expectation.
+    facet: &'a str,
     stage: &'a CompiledStage,
     sources: &'a DiagnosticSources,
     request: &'a CasesRequest,
@@ -676,18 +685,37 @@ impl Feed<'_, '_> {
                 {
                     continue;
                 }
-                let named = exec::named_observer(&case).map(str::to_owned);
-                let observer = match named.map(|name| self.observer(&name)) {
-                    Some(Err(reason)) => {
+                let case = SelectedCase {
+                    case,
+                    path: path.clone(),
+                    base: base.clone(),
+                    facet: self.batch.facet.to_owned(),
+                };
+                let named = exec::named_observers(&case)
+                    .into_iter()
+                    .map(str::to_owned)
+                    .collect::<Vec<_>>();
+                // Each observer prepared the first time a case names it; one that names the definition
+                // itself is none.
+                let observers = named
+                    .into_iter()
+                    .filter_map(|name| {
+                        let observer = self.observer(&name).transpose()?;
+                        Some(observer.map(|observer| (name, observer)))
+                    })
+                    .collect::<Result<Vec<_>, _>>();
+                let observers = match observers {
+                    Ok(observers) => observers,
+                    Err(reason) => {
                         self.settle(Record::refused(id, reason).naming(&case))?;
                         continue;
                     }
-                    Some(Ok(observer)) => observer,
-                    None => None,
                 };
-                let condition = exec::run_condition(&krs_exec::StopCriterion::None, Some(&case))
-                    .map(|when| when.observer.clone());
+                let condition =
+                    exec::run_condition(&krs_exec::StopCriterion::None, Some(&case.case))
+                        .map(|when| when.observer.clone());
                 let observations = case
+                    .case
                     .observe
                     .as_ref()
                     .filter(|spec| spec.declares_function())
@@ -702,17 +730,12 @@ impl Feed<'_, '_> {
                         continue;
                     }
                 };
-                let case = SelectedCase {
-                    case,
-                    path: path.clone(),
-                    base: base.clone(),
-                };
                 self.wait_for_room()?;
                 let job = Job {
                     index: self.dispatched,
                     id,
                     case,
-                    observer,
+                    observers,
                     condition,
                     observations,
                 };
@@ -870,14 +893,14 @@ impl<'a> Worker<'a> {
         let id = job.id.clone();
         match std::panic::catch_unwind(AssertUnwindSafe(|| self.run(job))) {
             Ok(Ok(record)) => record,
-            Ok(Err(reason)) => Record::refused(id, reason).naming(&job.case.case),
+            Ok(Err(reason)) => Record::refused(id, reason).naming(&job.case),
             Err(_) => {
                 self.subject = None;
                 self.observers.clear();
                 self.conditions.clear();
                 self.observations.clear();
                 Record::refused(id, "krs panicked while running the case".to_owned())
-                    .naming(&job.case.case)
+                    .naming(&job.case)
             }
         }
     }
@@ -920,39 +943,21 @@ impl<'a> Worker<'a> {
             })
             .as_mut()
             .map_err(|reason| reason.clone())?;
-        let observer = match &job.observer {
-            None => None,
-            Some(observer) => {
-                let position = if let Some(position) = observers
-                    .iter()
-                    .position(|(loaded, _)| Arc::ptr_eq(loaded, observer))
-                {
-                    position
-                } else {
-                    let semantics = Semantics::from_stage_with_solver(
-                        &observer.definition,
-                        observer.stage.clone(),
-                        None,
-                        *solver,
-                        &mut Timings::disabled(),
-                    )
-                    .map_err(|error| format!("krs cannot load the observer: {error}"));
-                    observers.push((Arc::clone(observer), semantics));
-                    observers.len() - 1
-                };
-                Some(
-                    observers[position]
-                        .1
-                        .as_mut()
-                        .map_err(|reason| reason.clone())?,
-                )
-            }
-        };
+        let views = exec::cached_observers(observers, &job.observers, |observer| {
+            Semantics::from_stage_with_solver(
+                &observer.definition,
+                observer.stage.clone(),
+                None,
+                *solver,
+                &mut Timings::disabled(),
+            )
+            .map_err(|error| format!("krs cannot load the observer: {error}"))
+        })?;
         let observers = krs_exec::Observers {
             condition,
             observations,
         };
-        run_case(subject, observer, observers, job, *budget).map_err(|failure| failure.reason())
+        run_case(subject, views, observers, job, *budget).map_err(|failure| failure.reason())
     }
 }
 
@@ -965,7 +970,7 @@ impl<'a> Worker<'a> {
 /// there; the record states no verdict on them, since an expectation states none.
 fn run_case(
     semantics: &mut Semantics,
-    observer: Option<&mut Semantics>,
+    mut views: exec::ViewObservers<'_>,
     observers: krs_exec::Observers<'_>,
     job: &Job,
     budget: u64,
@@ -978,10 +983,8 @@ fn run_case(
     let stop = case.stop(&StopCriterion::None, None)?;
     let depth = case.depth(None)?;
     let state = exec::configure(semantics, Inputs::of_case(case), false)?;
-    let mut expectation = SelectedCase::expectation_of(Some(case), semantics)?;
-    if let Some(expectation) = &mut expectation {
-        exec::resolve_views(semantics, observer.as_deref(), case, expectation)?;
-    }
+    let mut expected = SelectedCase::expectations_of(Some(case), semantics)?;
+    exec::resolve_views(semantics, &mut views, case, &mut expected)?;
     let options = RunOptions {
         depth,
         stop,
@@ -998,19 +1001,19 @@ fn run_case(
                 observations,
             },
         ),
-        &expectation,
+        expected.is_empty(),
     ) {
         (Ok(report), _) => report,
         // A run that cannot decide which of several states it reaches has no one end.
-        (Err(error @ ExecError::Undecided { .. }), Some(expectation)) => {
-            let checked = Checked::undecided(case, expectation, &error);
+        (Err(error @ ExecError::Undecided { .. }), false) => {
+            let checked = Checked::undecided(case, &expected, &error);
             return Ok(Record {
                 checked: Some(checked),
                 ..Record::of(job.id.clone(), Verdict::Inconclusive)
             });
         }
         // Without an expectation, the case ran to no one end: no answer, as an inconclusive halt.
-        (Err(error @ ExecError::Undecided { .. }), None) => {
+        (Err(error @ ExecError::Undecided { .. }), true) => {
             return Ok(Record {
                 reason: Some(format!("the run has no one end: {error}")),
                 ..Record::of(job.id.clone(), Verdict::Ran)
@@ -1022,7 +1025,7 @@ fn run_case(
     let stops = stops_of(semantics, &report, &options.stop);
     let undeclared =
         exec::DeclaredOutcome::of(semantics, &report) == exec::DeclaredOutcome::Undeclared;
-    let Some(mut expectation) = expectation else {
+    if expected.is_empty() {
         return Ok(Record {
             run,
             stops,
@@ -1031,10 +1034,10 @@ fn run_case(
             undeclared,
             ..Record::of(job.id.clone(), Verdict::Ran)
         });
-    };
+    }
     let checked = exec::check_run(
         semantics,
-        observer,
+        &mut views,
         condition,
         Run {
             case,
@@ -1042,7 +1045,7 @@ fn run_case(
             options: &options,
             report: &report,
         },
-        &mut expectation,
+        &mut expected,
         budget,
     )?;
     let verdict = match checked.verdict {

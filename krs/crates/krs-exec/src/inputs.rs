@@ -278,10 +278,9 @@
 //! - `expect_for`: ends the case expects of its run on a named definition,
 //!   a non-empty table of expected ends by non-empty definition name (a facet, as `--definition` names it),
 //!   each a table read as `expect` is;
-//!   a flow of `krs kink` checks `expect` and the one scoped to its own definition, both where both are given.
-//!   This reader checks the shape and then refuses the document that holds the case, every case of it:
-//!   `krs run --case`, `krs cases` and `krs compare` do not select an expectation by their definition,
-//!   and refusing the document is how they avoid checking a case without that expectation.
+//!   a command on a definition checks `expect` and the one scoped to its own definition,
+//!   both where both are given ([`Case::expectations`]), and reads none scoped to another,
+//!   so an expectation true of one definition only is unmet on no other.
 //! - `provenance`: which tool or person found the case and why it is in its corpus,
 //!   a table of `found_by` and `reason`, each optional and a non-empty string,
 //!   at least one given, and no other key ([`CaseProvenance`]).
@@ -733,6 +732,9 @@ pub struct Case {
     pub instances: Option<Json>,
     /// The `expect` table, read against the definition by [`crate::Semantics::expectation`].
     pub expect: Option<Json>,
+    /// The `expect_for` tables by definition name, each read as `expect` is, and only by a
+    /// command on that definition ([`Self::expectations`]); empty when the case states none.
+    pub expect_for: BTreeMap<String, Json>,
     /// Its `provenance`; `None` when the case states none.
     pub provenance: Option<CaseProvenance>,
     /// The resolved name ([`InputFiles::read`]) of the data file the case is written in, which
@@ -825,6 +827,23 @@ struct Shared<'a> {
 }
 
 impl Case {
+    /// The expectations a command on the definition `definition` (a facet, as `--definition`
+    /// names it) checks of the case, each with its key: `expect`, then `expect_for.<definition>`
+    /// ([module documentation](self#case-documents)). An expectation scoped to another definition
+    /// is not among them: it is a claim about the case on that definition only.
+    #[must_use]
+    pub fn expectations(&self, definition: &str) -> Vec<(String, &Json)> {
+        self.expect
+            .iter()
+            .map(|expect| ("expect".to_owned(), expect))
+            .chain(
+                self.expect_for
+                    .get(definition)
+                    .map(|expect| (format!("expect_for.{definition}"), expect)),
+            )
+            .collect()
+    }
+
     /// The one case a TOML document states.
     ///
     /// # Errors
@@ -1120,17 +1139,11 @@ fn case_table(
         .remove("provenance")
         .map(|document| provenance(&document, &key_position(position, "provenance")))
         .transpose()?;
-    if let Some(document) = top.remove("expect_for") {
-        let position = key_position(position, "expect_for");
-        expect_for(&document, &position)?;
-        return Err(at(
-            &position,
-            "an expectation scoped to a definition is checked by `krs kink`, whose flow names its \
-             definition; `krs run --case`, `krs cases` and `krs compare` do not select one by \
-             their definition, so they refuse the case rather than check it without it"
-                .to_owned(),
-        ));
-    }
+    let expect_for = top
+        .remove("expect_for")
+        .map(|document| expect_for(document, &key_position(position, "expect_for")))
+        .transpose()?
+        .unwrap_or_default();
     Ok(Case {
         name,
         inputs,
@@ -1138,14 +1151,15 @@ fn case_table(
         observe: observe.or_else(|| shared.observe.cloned().map(Box::new)),
         instances,
         expect,
+        expect_for,
         provenance,
         file: file.map(str::to_owned),
     })
 }
 
-/// Checks the `expect_for` table `document` at `position` (module documentation): a non-empty
-/// table of tables by non-empty definition name, as kink-flow's case reader reads it.
-fn expect_for(document: &Json, position: &str) -> Result<(), InputError> {
+/// The `expect_for` table `document` at `position` (module documentation): a non-empty table of
+/// tables by non-empty definition name, as kink-flow's case reader reads it.
+fn expect_for(document: Json, position: &str) -> Result<BTreeMap<String, Json>, InputError> {
     let Json::Object(table) = document else {
         return Err(at(
             position,
@@ -1159,7 +1173,7 @@ fn expect_for(document: &Json, position: &str) -> Result<(), InputError> {
             "`expect_for` scopes no expectation to a definition; give one, or remove it".to_owned(),
         ));
     }
-    for (definition, expect) in table {
+    for (definition, expect) in &table {
         let here = key_position(position, definition);
         if definition.is_empty() {
             return Err(at(
@@ -1175,7 +1189,7 @@ fn expect_for(document: &Json, position: &str) -> Result<(), InputError> {
             ));
         }
     }
-    Ok(())
+    Ok(table.into_iter().collect())
 }
 
 /// The `provenance` table `document` at `position`: `found_by` and `reason`, each a non-empty
@@ -3744,6 +3758,7 @@ mod tests {
         parse_int, toml_document,
     };
     use num_bigint::BigInt;
+    use serde_json::json;
 
     /// The Definition IR says that a main parameter reads a file's bytes where its sort is the
     /// builtin `Bytes` with no arguments, and that it reads text under any other builtin or
@@ -3955,6 +3970,7 @@ mod tests {
                 observe: None,
                 instances: None,
                 expect: Some(serde_json::json!({"halt": "stuck"})),
+                expect_for: BTreeMap::new(),
                 provenance: None,
                 file: None,
             }
@@ -4286,31 +4302,68 @@ mod tests {
 
     /// `expect_for` is a case key with kink-flow's shape rule (kink-flow
     /// `manifest::case_document::tests`, `EXPECT_FOR_ACCEPTED` and `EXPECT_FOR_REFUSED`): each
-    /// malformed document refused at the same key, and a well-formed one refused, since this
-    /// reader's commands do not select an expectation by their definition.
+    /// malformed document refused at the same key, and a well-formed one stored whole, a command
+    /// on a definition checking `expect` and the table scoped to that definition only.
     #[test]
     fn a_case_expect_for_is_read_as_kink_reads_it() {
         let mut files = Files(BTreeMap::new());
-        let pending = "an expectation scoped to a definition is checked by `krs kink`";
-        for (text, position) in [
-            (
-                "[expect]\nhalt = \"stuck\"\n[expect_for.X]\nclass = \"refused\"\n[expect_for.Y]\nhalt = \"stopped\"\n",
-                "expect_for",
-            ),
-            (
-                "[[case]]\nname = \"a\"\n[case.expect_for.X]\nhalt = \"stuck\"\n[[case]]\nname = \"b\"\n",
-                "case[0].expect_for",
-            ),
-            ("[expect_for.Y]\nhalt = \"stuck\"\n", "expect_for"),
-        ] {
-            let refusal = CaseDocument::from_toml(text, None, &mut files)
-                .unwrap_err()
-                .to_string();
-            assert!(
-                refusal.starts_with(&format!("at `{position}`: {pending}")),
-                "{text}: {refusal}"
-            );
-        }
+        let one = |text: &str, files: &mut Files| match CaseDocument::from_toml(text, None, files)
+            .unwrap_or_else(|error| panic!("{text}: {error}"))
+        {
+            CaseDocument::One(case) => case,
+            CaseDocument::Named(_) => panic!("{text}: named cases"),
+        };
+        let both = one(
+            "[expect]\nhalt = \"stuck\"\n[expect_for.X]\nclass = \"refused\"\n[expect_for.Y]\nhalt = \"stopped\"\n",
+            &mut files,
+        );
+        assert_eq!(
+            both.expect_for,
+            BTreeMap::from([
+                ("X".to_owned(), json!({"class": "refused"})),
+                ("Y".to_owned(), json!({"halt": "stopped"})),
+            ])
+        );
+        let keys = |case: &Case, definition: &str| {
+            case.expectations(definition)
+                .into_iter()
+                .map(|(key, table)| (key, table.clone()))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            keys(&both, "X"),
+            [
+                ("expect".to_owned(), json!({"halt": "stuck"})),
+                ("expect_for.X".to_owned(), json!({"class": "refused"})),
+            ]
+        );
+        // A definition the case scopes nothing to checks `expect` alone.
+        assert_eq!(
+            keys(&both, "Z"),
+            [("expect".to_owned(), json!({"halt": "stuck"}))]
+        );
+        let scoped = one("[expect_for.Y]\nhalt = \"stuck\"\n", &mut files);
+        assert_eq!(
+            keys(&scoped, "Y"),
+            [("expect_for.Y".to_owned(), json!({"halt": "stuck"}))]
+        );
+        assert!(keys(&scoped, "X").is_empty());
+        // A case without `expect_for` equals one read before the key existed.
+        assert_eq!(
+            one("[expect]\nhalt = \"stuck\"\n", &mut files).expect_for,
+            BTreeMap::new()
+        );
+        let named = CaseDocument::from_toml(
+            "[[case]]\nname = \"a\"\n[case.expect_for.X]\nhalt = \"stuck\"\n[[case]]\nname = \"b\"\n",
+            None,
+            &mut files,
+        )
+        .unwrap();
+        assert_eq!(
+            keys(named.named("a").unwrap(), "X"),
+            [("expect_for.X".to_owned(), json!({"halt": "stuck"}))]
+        );
+        assert!(named.named("b").unwrap().expect_for.is_empty());
         for (text, refusal) in [
             (
                 "expect_for = 1\n",

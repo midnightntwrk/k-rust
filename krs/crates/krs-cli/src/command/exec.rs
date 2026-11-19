@@ -277,6 +277,21 @@ pub(super) fn load_observer(
     Semantics::from_stage_with_solver(&observer.definition, stage, None, solver, timings)
 }
 
+/// The semantics of each of the observers `named`, by name ([`load_observer`]).
+pub(super) fn load_observers(
+    named: Vec<(String, ObserverDefinition)>,
+    restore: bool,
+    solver: BackendOptions,
+    timings: &mut Timings,
+) -> Result<Vec<(String, Semantics)>, ExecError> {
+    named
+        .into_iter()
+        .map(|(name, observer)| {
+            load_observer(&observer, restore, solver, timings).map(|semantics| (name, semantics))
+        })
+        .collect()
+}
+
 /// Compile the prepared definition, or restore its compiled stage, and run one parse, run, search, or prove command.
 ///
 /// `read` is what was read of a `run`'s or `search`'s case before the definition was loaded: the
@@ -310,7 +325,8 @@ pub(super) fn execute(
                 *reused_flag = reused;
                 let ReadCase {
                     case,
-                    observer,
+                    facet,
+                    observers: named,
                     condition,
                     observations,
                 } = read;
@@ -347,24 +363,24 @@ pub(super) fn execute(
                         load_spec_stage(&mut semantics, definition, module, reuse, timings)?;
                     *spec_reused_flag = Some(reused);
                 }
-                let mut observer = observer
-                    .map(|observer| {
-                        load_observer(&observer, reuse.restore, command.solver(), timings)
-                    })
-                    .transpose()
+                let mut loaded = load_observers(named, reuse.restore, command.solver(), timings)
                     .map_err(Failure::Exec)?;
                 // Counted from here, on the thread that runs: the load above is not the run's
                 // work, and a restored stage loads less than one compiled anew.
                 let started = count_work.then(krs_exec::work::Work::start);
                 let outcome = dispatch(
                     &mut semantics,
-                    observer.as_mut(),
+                    ViewObservers::new(
+                        loaded
+                            .iter_mut()
+                            .map(|(name, semantics)| (name.clone(), semantics)),
+                    ),
                     Observers {
                         condition: condition.as_mut(),
                         observations: observations.as_mut(),
                     },
                     command,
-                    case,
+                    (case, &facet),
                 );
                 *work_taken = started.map(|started| started.taken()).unwrap_or_default();
                 outcome
@@ -572,10 +588,10 @@ fn read_program_bytes(source: &ProgramSource) -> Result<(String, Vec<u8>), Failu
 
 fn dispatch(
     semantics: &mut Semantics,
-    observer: Option<&mut Semantics>,
+    views: ViewObservers<'_>,
     observers: Observers<'_>,
     command: &Command,
-    case: Option<SelectedCase>,
+    case: (Option<SelectedCase>, &str),
 ) -> Result<CommandOutcome, Failure> {
     match command {
         Command::Parse(request) => {
@@ -605,8 +621,8 @@ fn dispatch(
             .text;
             Ok(outcome(format!("{stdout}\n"), String::new(), 0))
         }
-        Command::Run(request) => run(semantics, observer, observers, request, case),
-        Command::Search(request) => search(semantics, observer, request, case),
+        Command::Run(request) => run(semantics, views, observers, request, case),
+        Command::Search(request) => search(semantics, views, request, case),
         Command::Prove(request) => prove(semantics, request),
         _ => unreachable!("only run-family commands reach the run worker"),
     }
@@ -660,6 +676,75 @@ pub(super) struct SelectedCase {
     pub(super) path: PathBuf,
     /// The case file's directory.
     pub(super) base: PathBuf,
+    /// The facet the command runs the case on (`--definition`), which selects the expectation
+    /// scoped to it ([`Self::expectations`]).
+    pub(super) facet: String,
+}
+
+/// One expectation a case states of the definition it runs on, read against it: its key
+/// (`expect`, or `expect_for.<facet>`) and the expectation.
+pub(super) struct Expected {
+    pub(super) key: String,
+    pub(super) expectation: Expectation,
+}
+
+/// The observers the views of a case's expectations are evaluated in, loaded, each by the name
+/// an expectation gives it (`observer`). An expectation that names none, or names the definition
+/// the case runs on (prepared as no observer), evaluates its views in that definition.
+#[derive(Default)]
+pub(super) struct ViewObservers<'a>(Vec<(String, &'a mut Semantics)>);
+
+impl<'a> ViewObservers<'a> {
+    /// The observers `loaded`, by name.
+    pub(super) fn new(loaded: impl IntoIterator<Item = (String, &'a mut Semantics)>) -> Self {
+        Self(loaded.into_iter().collect())
+    }
+
+    /// The observer `name` names, loaded; `None` for no name and for the definition itself.
+    pub(super) fn named(&mut self, name: Option<&str>) -> Option<&mut Semantics> {
+        let name = name?;
+        self.0
+            .iter_mut()
+            .find(|(loaded, _)| loaded == name)
+            .map(|(_, semantics)| &mut **semantics)
+    }
+
+    /// The observer `expectation`'s views are evaluated in, where it is not the definition.
+    fn of(&mut self, expectation: &Expectation) -> Option<&mut Semantics> {
+        self.named(expectation.observer.as_deref())
+    }
+}
+
+/// The observers `wanted` names (each by the name an expectation gives it), loaded by `load` into
+/// a worker's `cache` the first time the worker uses each; why one cannot be loaded refuses what
+/// asks it.
+pub(super) fn cached_observers<'c, T>(
+    cache: &'c mut Vec<(std::sync::Arc<T>, Result<Semantics, String>)>,
+    wanted: &[(String, std::sync::Arc<T>)],
+    mut load: impl FnMut(&T) -> Result<Semantics, String>,
+) -> Result<ViewObservers<'c>, String> {
+    for (_, observer) in wanted {
+        if !cache
+            .iter()
+            .any(|(loaded, _)| std::sync::Arc::ptr_eq(loaded, observer))
+        {
+            let semantics = load(observer);
+            cache.push((std::sync::Arc::clone(observer), semantics));
+        }
+    }
+    let mut picked = Vec::new();
+    for (loaded, semantics) in cache.iter_mut() {
+        if let Some((name, _)) = wanted
+            .iter()
+            .find(|(_, observer)| std::sync::Arc::ptr_eq(observer, loaded))
+        {
+            picked.push((
+                name.clone(),
+                semantics.as_mut().map_err(|reason| reason.clone())?,
+            ));
+        }
+    }
+    Ok(ViewObservers(picked))
 }
 
 impl SelectedCase {
@@ -669,27 +754,32 @@ impl SelectedCase {
         }
     }
 
-    /// The expectation of `case`, if any, read against the definition, refused before the run
-    /// for what every comparison of it would refuse; `None` without a case or an expectation.
-    pub(super) fn expectation_of(
-        case: Option<&Self>,
-        semantics: &Semantics,
-    ) -> Result<Option<Expectation>, Failure> {
-        let Some((case, expect)) = case.and_then(|case| Some((case, case.case.expect.as_ref()?)))
-        else {
-            return Ok(None);
-        };
-        case.expectation(semantics, expect).map(Some)
+    /// The expectations the case states of the definition it runs on, each with its key:
+    /// `expect`, then the one scoped to [`Self::facet`] ([`Case::expectations`]). One scoped to
+    /// another definition is never read.
+    pub(super) fn expectations(&self) -> Vec<(String, &serde_json::Value)> {
+        self.case.expectations(&self.facet)
     }
 
-    fn expectation(
-        &self,
+    /// The expectations of `case` ([`Self::expectations`]), each read against the definition,
+    /// refused before the run for what every comparison of it would refuse; none without a case
+    /// or an expectation.
+    pub(super) fn expectations_of(
+        case: Option<&Self>,
         semantics: &Semantics,
-        expect: &serde_json::Value,
-    ) -> Result<Expectation, Failure> {
-        semantics
-            .expectation(expect, self.case.file.as_deref(), &mut self.files())
-            .map_err(|error| Failure::Exec(self.refusal(&error.to_string())))
+    ) -> Result<Vec<Expected>, Failure> {
+        let Some(case) = case else {
+            return Ok(Vec::new());
+        };
+        case.expectations()
+            .into_iter()
+            .map(|(key, expect)| {
+                let expectation = semantics
+                    .expectation_at(expect, &key, case.case.file.as_deref(), &mut case.files())
+                    .map_err(|error| Failure::Exec(case.refusal(&error.to_string())))?;
+                Ok(Expected { key, expectation })
+            })
+            .collect()
     }
 
     /// A refusal of the case, naming its file and its name.
@@ -789,8 +879,8 @@ impl InputFiles for CaseFiles {
 /// definition was loaded, and read here otherwise, which reports what is wrong with it.
 fn case_and_depth(
     read: Option<SelectedCase>,
-    path: Option<&Path>,
-    name: Option<&str>,
+    (path, name): (Option<&Path>, Option<&str>),
+    facet: &str,
     flag: Option<u64>,
 ) -> Result<(Option<SelectedCase>, Option<u64>), Failure> {
     let Some(path) = path else {
@@ -798,7 +888,7 @@ fn case_and_depth(
     };
     let case = match read {
         Some(case) => case,
-        None => read_case(path, name)?,
+        None => read_case(path, name, facet)?,
     };
     let depth = case.depth(flag)?;
     Ok((Some(case), depth))
@@ -861,8 +951,8 @@ pub(super) fn read_case_document(path: &Path) -> Result<(CaseDocument, PathBuf),
 
 /// The case `--case FILE` and `--case-name NAME` select: the document `path` states, read by its
 /// extension (`.toml` or `.json`, which the command line checked), and its one case or its case
-/// named `name`.
-fn read_case(path: &Path, name: Option<&str>) -> Result<SelectedCase, Failure> {
+/// named `name`, run on the facet `facet`.
+fn read_case(path: &Path, name: Option<&str>, facet: &str) -> Result<SelectedCase, Failure> {
     let (document, base) = read_case_document(path)?;
     let case = match (document, name) {
         (CaseDocument::One(case), None) => case,
@@ -896,19 +986,23 @@ fn read_case(path: &Path, name: Option<&str>) -> Result<SelectedCase, Failure> {
         case,
         path: path.to_path_buf(),
         base,
+        facet: facet.to_owned(),
     })
 }
 
 /// What a `run` or `search` reads of its case before the definition is loaded
-/// ([`execute`]): the case, read once, and the observer definition its views are evaluated in,
-/// prepared, when it names one.
+/// ([`execute`]): the case, read once, and the observer definitions its expectations' views are
+/// evaluated in, prepared, where they name them.
 #[derive(Default)]
 pub(super) struct ReadCase {
     /// The case `--case FILE` and `--case-name NAME` select; `None` with no `--case`, and for a
     /// case that cannot be read, which the run reads again and refuses.
     pub case: Option<SelectedCase>,
-    /// The observer definition its expectation names, prepared.
-    pub observer: Option<ObserverDefinition>,
+    /// The facet the command runs on (`--definition`), which selects a case's scoped
+    /// expectation.
+    pub facet: String,
+    /// The observer definitions its expectations name ([`named_observers`]), prepared, by name.
+    pub observers: Vec<(String, ObserverDefinition)>,
     /// The definition the run's observations are evaluated in, as [`Self::condition`] is the
     /// stop condition's: `None` without observations or with none that declares a function.
     pub observations: Option<ConditionSource<ObserverDefinition>>,
@@ -994,17 +1088,30 @@ pub(super) fn load_condition(
     Semantics::from_stage_with_solver(definition, stage.clone(), None, solver, timings)
 }
 
-/// The case `--case FILE` and `--case-name NAME` select, if it can be read; `None` otherwise,
-/// and the run reads it again and refuses it.
-pub(super) fn readable_case(path: &Path, name: Option<&str>) -> Option<SelectedCase> {
-    read_case(path, name).ok()
+/// The case `--case FILE` and `--case-name NAME` select, run on the facet `facet`, if it can be
+/// read; `None` otherwise, and the run reads it again and refuses it.
+pub(super) fn readable_case(path: &Path, name: Option<&str>, facet: &str) -> Option<SelectedCase> {
+    read_case(path, name, facet).ok()
 }
 
-/// The observer the expectation of `case` names where the definition must prepare it: one named
+/// The observers the expectations of `case` name ([`SelectedCase::expectations`]) where the
+/// definition must prepare them, each once, in the order the expectations name them.
+pub(super) fn named_observers(case: &SelectedCase) -> Vec<&str> {
+    let mut names = Vec::new();
+    for (_, expect) in case.expectations() {
+        if let Some(name) = named_observer(expect)
+            && !names.contains(&name)
+        {
+            names.push(name);
+        }
+    }
+    names
+}
+
+/// The observer the expectation `expect` names where the definition must prepare it: one named
 /// beside a table of views that names a view. An observer named without one is refused with the
 /// expectation, before the run, and is not prepared for nothing.
-pub(super) fn named_observer(case: &Case) -> Option<&str> {
-    let expect = case.expect.as_ref()?;
+fn named_observer(expect: &serde_json::Value) -> Option<&str> {
     expect
         .get("views")
         .and_then(serde_json::Value::as_object)
@@ -1013,9 +1120,20 @@ pub(super) fn named_observer(case: &Case) -> Option<&str> {
 }
 
 /// The views and the observer the expectation of `case` names, as it writes them: a record of a
-/// case refused before its expectation was checked still names what the case observes.
-pub(super) fn written_views(case: &Case) -> (BTreeMap<String, String>, Option<String>) {
-    let Some(expect) = case.expect.as_ref() else {
+/// case refused before its expectation was checked still names what the case observes. Of two
+/// expectations ([`SelectedCase::expectations`]), the first that names a view.
+pub(super) fn written_views(case: &SelectedCase) -> (BTreeMap<String, String>, Option<String>) {
+    let expectations = case.expectations();
+    let Some((_, expect)) = expectations
+        .iter()
+        .find(|(_, expect)| {
+            expect
+                .get("views")
+                .and_then(serde_json::Value::as_object)
+                .is_some_and(|views| !views.is_empty())
+        })
+        .or_else(|| expectations.first())
+    else {
         return (BTreeMap::new(), None);
     };
     let views = expect
@@ -1167,10 +1285,10 @@ fn read_console_input() -> Result<Vec<u8>, Failure> {
 )]
 fn run(
     semantics: &mut Semantics,
-    observer: Option<&mut Semantics>,
+    mut views: ViewObservers<'_>,
     observers: Observers<'_>,
     request: &RunRequest,
-    read: Option<SelectedCase>,
+    (read, facet): (Option<SelectedCase>, &str),
 ) -> Result<CommandOutcome, Failure> {
     let Observers {
         mut condition,
@@ -1179,8 +1297,8 @@ fn run(
     let smt = semantics.capabilities().smt;
     let (case, depth) = case_and_depth(
         read,
-        request.case.as_deref(),
-        request.case_name.as_deref(),
+        (request.case.as_deref(), request.case_name.as_deref()),
+        facet,
         request.depth,
     )?;
     let stop = match &case {
@@ -1201,9 +1319,9 @@ fn run(
         )));
     }
     let state = configure(semantics, Inputs::of_run(request, case.as_ref()), true)?;
-    let mut expectation = SelectedCase::expectation_of(case.as_ref(), semantics)?;
-    if let (Some(case), Some(expectation)) = (&case, &mut expectation) {
-        resolve_views(semantics, observer.as_deref(), case, expectation)?;
+    let mut expected = SelectedCase::expectations_of(case.as_ref(), semantics)?;
+    if let Some(case) = &case {
+        resolve_views(semantics, &mut views, case, &mut expected)?;
     }
     let options = RunOptions {
         depth,
@@ -1226,21 +1344,20 @@ fn run(
             },
         ),
         &case,
-        &expectation,
     ) {
-        (Ok(report), _, _) => report,
+        (Ok(report), _) => report,
         // A run that cannot decide which of several states it reaches has no one end, so it has
         // none to compare: the verdict is inconclusive, not a refusal of the case.
-        (Err(error @ ExecError::Undecided { .. }), Some(case), Some(expectation)) => {
+        (Err(error @ ExecError::Undecided { .. }), Some(case)) if !expected.is_empty() => {
             let schema = run_report_schema(semantics.declares_ends());
-            return undecided_case(case, expectation, &error, request.output, schema);
+            return undecided_case(case, &expected, &error, request.output, schema);
         }
-        (Err(error), _, _) => return Err(error.into()),
+        (Err(error), _) => return Err(error.into()),
     };
-    let checked = match (&case, &mut expectation) {
-        (Some(case), Some(expectation)) => Some(check_run(
+    let checked = match &case {
+        Some(case) if !expected.is_empty() => Some(check_run(
             semantics,
-            observer,
+            &mut views,
             condition,
             Run {
                 case,
@@ -1248,7 +1365,7 @@ fn run(
                 options: &options,
                 report: &report,
             },
-            expectation,
+            &mut expected,
             request.view_budget,
         )?),
         _ => None,
@@ -1574,7 +1691,7 @@ fn searchable(case: &SelectedCase, mode: SearchMode) -> Result<(), Failure> {
             case.id()
         )));
     }
-    if mode != SearchMode::Final && case.case.expect.is_some() {
+    if mode != SearchMode::Final && !case.expectations().is_empty() {
         return Err(Failure::Usage(format!(
             "the case `{}` states an expectation, which is checked against ends: krs search --mode {} returns reachable states, not ends; search with --mode final",
             case.path.display(),
@@ -1587,8 +1704,11 @@ fn searchable(case: &SelectedCase, mode: SearchMode) -> Result<(), Failure> {
 /// Refuses a searched case whose expectation states the declared class of its end (`class`,
 /// `end` or `reason`): a search does not evaluate the declared ends at its final states, so
 /// none of them has a declared class for the expectation to be compared on.
-fn states_no_declared_class(case: &SelectedCase, expectation: &Expectation) -> Result<(), Failure> {
-    if expectation.end.class.declared.is_some() {
+fn states_no_declared_class(case: &SelectedCase, expected: &[Expected]) -> Result<(), Failure> {
+    if expected
+        .iter()
+        .any(|expected| expected.expectation.end.class.declared.is_some())
+    {
         return Err(Failure::Usage(format!(
             "the case `{}` expects a declared class of its end (`class`, `end` or `reason`), which krs search does not evaluate at its final states; run the case with krs run",
             case.id()
@@ -1599,23 +1719,23 @@ fn states_no_declared_class(case: &SelectedCase, expectation: &Expectation) -> R
 
 fn search(
     semantics: &mut Semantics,
-    observer: Option<&mut Semantics>,
+    mut views: ViewObservers<'_>,
     request: &SearchRequest,
-    read: Option<SelectedCase>,
+    (read, facet): (Option<SelectedCase>, &str),
 ) -> Result<CommandOutcome, Failure> {
     let (case, depth) = case_and_depth(
         read,
-        request.case.as_deref(),
-        request.case_name.as_deref(),
+        (request.case.as_deref(), request.case_name.as_deref()),
+        facet,
         request.depth,
     )?;
     if let Some(case) = &case {
         searchable(case, request.mode)?;
     }
     let state = configure(semantics, Inputs::of_search(request, case.as_ref()), false)?;
-    let mut expectation = SelectedCase::expectation_of(case.as_ref(), semantics)?;
-    if let (Some(case), Some(expectation)) = (&case, &mut expectation) {
-        resolve_views(semantics, observer.as_deref(), case, expectation)?;
+    let mut expected = SelectedCase::expectations_of(case.as_ref(), semantics)?;
+    if let Some(case) = &case {
+        resolve_views(semantics, &mut views, case, &mut expected)?;
     }
     let options = SearchOptions {
         mode: request.mode,
@@ -1623,12 +1743,12 @@ fn search(
         max_solutions: request.max_solutions,
         trace: request.trace,
     };
-    if let (Some(case), Some(expectation)) = (&case, &expectation) {
-        states_no_declared_class(case, expectation)?;
+    if let Some(case) = &case {
+        states_no_declared_class(case, &expected)?;
     }
     let report = semantics.search(&state, options)?;
-    let checked = match (&case, &mut expectation) {
-        (Some(case), Some(expectation)) => {
+    let checked = match &case {
+        Some(case) if !expected.is_empty() => {
             let mut actual = semantics
                 .ends_of(&report, &options)
                 .map_err(|error| end_failure(&error))?;
@@ -1638,9 +1758,9 @@ fn search(
             }
             Some(check(
                 semantics,
-                observer,
+                &mut views,
                 case,
-                expectation,
+                &mut expected,
                 &actual,
                 request.view_budget,
             )?)
@@ -1708,29 +1828,33 @@ pub(super) fn end_failure(error: &EndError) -> Failure {
     Failure::Exec(ExecError::Result(error.to_string()))
 }
 
-/// Resolve the views `expectation` names in its observer, `observer` when the case names one and
-/// `semantics` otherwise, into its comparison, and refuse, before the case runs, a view that
+/// Resolve the views each of `expected` names in its observer, the one of `observers` it names
+/// and `semantics` otherwise, into its comparison, and refuse, before the case runs, a view that
 /// does not apply to its cell or applies to a cell the expectation does not compare.
 pub(super) fn resolve_views(
     semantics: &Semantics,
-    observer: Option<&Semantics>,
+    observers: &mut ViewObservers<'_>,
     case: &SelectedCase,
-    expectation: &mut Expectation,
+    expected: &mut [Expected],
 ) -> Result<(), Failure> {
-    if expectation.views.is_empty() {
-        return Ok(());
+    for Expected { key, expectation } in expected {
+        if expectation.views.is_empty() {
+            continue;
+        }
+        let refuse =
+            |error: &EndError| Failure::Exec(case.refusal(&format!("`{key}.views`: {error}")));
+        let observer = observers.of(expectation).map(|observer| &*observer);
+        expectation.comparison.views = semantics
+            .cell_views(observer.unwrap_or(semantics), &expectation.views)
+            .map_err(|error| refuse(&error))?;
+        semantics
+            .check_stated(&expectation.comparison, &expectation.end, "expected")
+            .map_err(|error| refuse(&error))?;
     }
-    let refuse =
-        |error: &EndError| Failure::Exec(case.refusal(&format!("`expect.views`: {error}")));
-    expectation.comparison.views = semantics
-        .cell_views(observer.unwrap_or(semantics), &expectation.views)
-        .map_err(|error| refuse(&error))?;
-    semantics
-        .check_stated(&expectation.comparison, &expectation.end, "expected")
-        .map_err(|error| refuse(&error))
+    Ok(())
 }
 
-/// The verdict of a case's expectation against the ends of its run or search.
+/// The verdict of a case's expectations against the ends of its run or search.
 pub(super) struct Checked {
     /// The case's name, in a document of named cases.
     case: Option<String>,
@@ -1741,6 +1865,15 @@ pub(super) struct Checked {
     /// the case names one.
     views: BTreeMap<String, String>,
     observer: Option<String>,
+    /// Of two expectations checked ([`Self::combined`]), which they are; `None` for one.
+    joined: Option<Box<Joined>>,
+}
+
+/// The expectations a joined verdict is of ([`Checked::combined`]): each one's key, and the key
+/// of the one that decided it (unmet, inconclusive), `None` for met or for a verdict of all alike.
+struct Joined {
+    keys: Vec<String>,
+    of: Option<String>,
 }
 
 /// A run of a case: the case, the state it ran from under `options`, and its report.
@@ -1752,33 +1885,27 @@ pub(super) struct Run<'a> {
     pub(super) report: &'a RunReport,
 }
 
-/// Check the end of `run` against `expectation`, its views evaluated in `observer` (the case's
-/// definition when `None`), each evaluation within `budget` polls.
+/// Check the end of `run` against each of `expected`, its views evaluated in the observer of
+/// `observers` it names (the case's definition otherwise), each evaluation within `budget`
+/// polls, the verdicts joined ([`Checked::combined`]).
 ///
 /// One end that differs is unmet: it is an end the definition reaches. One end that agrees is
 /// met only where it is the definition's only end from the run's state
 /// ([`Semantics::other_ends`]); otherwise the verdict is inconclusive, since another path may end
 /// otherwise, and a final-state search, which gives every end, may decide it. The run is followed
-/// again for that only once its end agrees.
+/// again for that only once its end agrees with every expectation.
 pub(super) fn check_run(
     semantics: &mut Semantics,
-    mut observer: Option<&mut Semantics>,
+    observers: &mut ViewObservers<'_>,
     condition: Option<&mut Semantics>,
     run: Run<'_>,
-    expectation: &mut Expectation,
+    expected: &mut [Expected],
     budget: u64,
 ) -> Result<Checked, Failure> {
     let mut actual = semantics
         .end_of(run.report)
         .map_err(|error| end_failure(&error))?;
-    let checked = check(
-        semantics,
-        observer.as_deref_mut(),
-        run.case,
-        expectation,
-        &actual,
-        budget,
-    )?;
+    let checked = check(semantics, observers, run.case, expected, &actual, budget)?;
     if !matches!(checked.verdict, Compared::Equal) {
         return Ok(checked);
     }
@@ -1789,12 +1916,12 @@ pub(super) fn check_run(
         // Followed again, the run reaches several states it cannot decide among: it may have
         // other ends, which is no answer, not a refusal of the case.
         Err(error @ ExecError::Undecided(_)) => {
-            return Ok(Checked::undecided(run.case, expectation, &error));
+            return Ok(Checked::undecided(run.case, expected, &error));
         }
         Err(error) => return Err(error.into()),
     };
     actual.incomplete = Some(reason);
-    let mut checked = check(semantics, observer, run.case, expectation, &actual, budget)?;
+    let mut checked = check(semantics, observers, run.case, expected, &actual, budget)?;
     // A search reads the same open values; it decides only where the path chose.
     if open_values(&run.report.implementation_chosen_values).is_none() {
         checked.note = Some("krs search --case checks every final state against the expectation");
@@ -1802,17 +1929,18 @@ pub(super) fn check_run(
     Ok(checked)
 }
 
-/// The outcome of `krs run --case` for a case with an expectation whose run reaches several
-/// states under conditions it cannot decide (`error`): the run has no one end, so the verdict is
-/// inconclusive, with the error as its reason; no state is printed, since the run ended in none.
+/// The outcome of `krs run --case` for a case with expectations `expected` whose run reaches
+/// several states under conditions it cannot decide (`error`): the run has no one end, so the
+/// verdict is inconclusive, with the error as its reason; no state is printed, since the run
+/// ended in none.
 fn undecided_case(
     case: &SelectedCase,
-    expectation: &Expectation,
+    expected: &[Expected],
     error: &ExecError,
     output: TermOutput,
     schema: &str,
 ) -> Result<CommandOutcome, Failure> {
-    let checked = Checked::undecided(case, expectation, error);
+    let checked = Checked::undecided(case, expected, error);
     let stdout = if output == TermOutput::Json {
         json_line(&json!({"schema": schema, "expectation": checked.document()}))?
     } else {
@@ -1823,9 +1951,29 @@ fn undecided_case(
     Ok(outcome(stdout, stderr, checked.exit_code()))
 }
 
-/// Check `actual` against `expectation`: every end must agree with it on the class and the
-/// compared cells, each viewed cell compared on its view's value, evaluated in `observer` (the
-/// case's definition when `None`) within `budget` polls.
+/// Check `actual` against each of `expected` ([`check_one`]), each expectation's views evaluated
+/// in the observer of `observers` it names, and join the verdicts ([`Checked::combined`]).
+/// `expected` is not empty.
+pub(super) fn check(
+    semantics: &mut Semantics,
+    observers: &mut ViewObservers<'_>,
+    case: &SelectedCase,
+    expected: &mut [Expected],
+    actual: &Ends,
+    budget: u64,
+) -> Result<Checked, Failure> {
+    let mut checked = Vec::with_capacity(expected.len());
+    for one in expected {
+        let observer = observers.of(&one.expectation);
+        let verdict = check_one(semantics, observer, case, one, actual, budget)?;
+        checked.push((one.key.clone(), verdict));
+    }
+    Ok(Checked::combined(checked))
+}
+
+/// Check `actual` against the expectation `expected`: every end must agree with it on the class
+/// and the compared cells, each viewed cell compared on its view's value, evaluated in `observer`
+/// (the case's definition when `None`) within `budget` polls.
 ///
 /// Only the ends the definition reaches are checked ([`Ends::reached`]): a `depth-bound` end,
 /// where the run's step budget ran out, is not known to be an end of the definition, so it
@@ -1833,15 +1981,24 @@ fn undecided_case(
 ///
 /// A view without a value at an end refuses the case; one whose evaluation stopped before it
 /// ended (it spent `budget`, or another stop of the backend ended it) makes the verdict
-/// inconclusive, since it may yet have a value, when no view refuses at another value.
-pub(super) fn check(
+/// inconclusive, since it may yet have a value, when no view refuses at another value. A refusal
+/// of an expectation scoped to a definition names its key.
+pub(super) fn check_one(
     semantics: &mut Semantics,
     observer: Option<&mut Semantics>,
     case: &SelectedCase,
-    expectation: &mut Expectation,
+    expected: &mut Expected,
     actual: &Ends,
     budget: u64,
 ) -> Result<Checked, Failure> {
+    let Expected { key, expectation } = expected;
+    let refuse = |error: &dyn std::fmt::Display| {
+        Failure::Exec(case.refusal(&if key == "expect" {
+            error.to_string()
+        } else {
+            format!("`{key}`: {error}")
+        }))
+    };
     let expected = Ends::one(expectation.end.clone());
     let expected = Side {
         name: "expected",
@@ -1874,12 +2031,12 @@ pub(super) fn check(
                     Compared::Inconclusive(error.to_string()),
                 ));
             }
-            Err(error) => return Err(Failure::Exec(case.refusal(&error.to_string()))),
+            Err(error) => return Err(refuse(&error)),
         }
     }
     let verdict = semantics
         .check_expectation(&expectation.comparison, expected, actual)
-        .map_err(|error| Failure::Exec(case.refusal(&error.to_string())))?;
+        .map_err(|error| refuse(&error))?;
     Ok(Checked::new(case, expectation, verdict))
 }
 
@@ -1892,21 +2049,58 @@ impl Checked {
             note: None,
             views: expectation.views.clone(),
             observer: expectation.observer.clone(),
+            joined: None,
         }
     }
 
-    /// The verdict of `expectation` for a run that cannot decide which of several states it
-    /// reaches (`error`): it has no one end, so the verdict is inconclusive.
-    pub(super) fn undecided(
-        case: &SelectedCase,
-        expectation: &Expectation,
-        error: &ExecError,
-    ) -> Self {
-        Self::new(
+    /// The one verdict of the expectations a case states of the definition it runs on, each
+    /// checked (`checked`, by key, not empty): one expectation's verdict as it is; of two, the
+    /// first unmet one, else the first inconclusive one, else met, since the definition meets
+    /// the case's expectations only where it meets each. A met verdict of two shows the views of
+    /// the first that applied any.
+    pub(super) fn combined(mut checked: Vec<(String, Self)>) -> Self {
+        if checked.len() == 1 {
+            return checked.remove(0).1;
+        }
+        let keys = checked.iter().map(|(key, _)| key.clone()).collect();
+        let deciding = checked
+            .iter()
+            .position(|(_, one)| matches!(one.verdict, Compared::Differs(_)))
+            .or_else(|| {
+                checked
+                    .iter()
+                    .position(|(_, one)| matches!(one.verdict, Compared::Inconclusive(_)))
+            });
+        let (of, mut one) = if let Some(at) = deciding {
+            let (key, one) = checked.swap_remove(at);
+            (Some(key), one)
+        } else {
+            let at = checked
+                .iter()
+                .position(|(_, one)| !one.views.is_empty())
+                .unwrap_or(0);
+            (None, checked.swap_remove(at).1)
+        };
+        one.joined = Some(Box::new(Joined { keys, of }));
+        one
+    }
+
+    /// The verdict of the expectations `expected` (not empty) for a run that cannot decide
+    /// which of several states it reaches (`error`): it has no one end, so the verdict is
+    /// inconclusive, of every expectation alike.
+    pub(super) fn undecided(case: &SelectedCase, expected: &[Expected], error: &ExecError) -> Self {
+        let mut checked = Self::new(
             case,
-            expectation,
+            &expected[0].expectation,
             Compared::Inconclusive(format!("the run has no one end: {error}")),
-        )
+        );
+        if expected.len() > 1 {
+            checked.joined = Some(Box::new(Joined {
+                keys: expected.iter().map(|one| one.key.clone()).collect(),
+                of: None,
+            }));
+        }
+        checked
     }
 
     /// The exit status the verdict gives ([`exit_status`]): met, unmet (a finding), or
@@ -1924,6 +2118,27 @@ impl Checked {
         }
     }
 
+    /// What the verdict's line says it is of: `expectation` for one; of two, the one that
+    /// decided it, or both.
+    fn subject(&self) -> String {
+        match self.joined.as_deref() {
+            None => "expectation".to_owned(),
+            Some(Joined { of: Some(key), .. }) => format!("expectation `{key}`"),
+            Some(Joined { keys, of: None }) => format!(
+                "expectations {}",
+                keys.iter()
+                    .map(|key| format!("`{key}`"))
+                    .collect::<Vec<_>>()
+                    .join(" and ")
+            ),
+        }
+    }
+
+    /// The key of the expectation that decided a joined verdict.
+    fn deciding(&self) -> Option<&str> {
+        self.joined.as_deref()?.of.as_deref()
+    }
+
     /// The report's `expectation` object: the verdict, the case's name, the difference
     /// (`krs-difference/3`) or the reason, and the views applied and their observer.
     pub(super) fn document(&self) -> serde_json::Value {
@@ -1936,12 +2151,18 @@ impl Checked {
     }
 
     /// Add the verdict's members other than its word and its case to `document`: `difference`
-    /// (unmet) or `reason` (inconclusive), then `views` and `observer` when it applied views.
+    /// (unmet) or `reason` (inconclusive, of two expectations prefixed by the deciding one's
+    /// key), then `views` and `observer` when it applied views.
     pub(super) fn extend(&self, document: &mut serde_json::Value) {
         match &self.verdict {
             Compared::Equal => {}
             Compared::Differs(difference) => document["difference"] = json!(difference),
-            Compared::Inconclusive(reason) => document["reason"] = json!(reason),
+            Compared::Inconclusive(reason) => {
+                document["reason"] = json!(match self.deciding() {
+                    Some(key) => format!("`{key}`: {reason}"),
+                    None => reason.clone(),
+                });
+            }
         }
         if !self.views.is_empty() {
             document["views"] = json!(self.views);
@@ -1953,16 +2174,18 @@ impl Checked {
 
     /// The verdict's lines: `<command>: expectation met`, else where the first difference is
     /// with both sides, or why nothing can be concluded; then the views the comparison applied.
+    /// Of two expectations, the line names the one that decided the verdict, or both.
     pub(super) fn write(&self, output: &mut String, command: &str) {
+        let subject = self.subject();
         match &self.verdict {
             Compared::Equal => {
-                let _ = writeln!(output, "{command}: expectation met");
+                let _ = writeln!(output, "{command}: {subject} met");
             }
             Compared::Inconclusive(reason) => {
-                let _ = writeln!(output, "{command}: expectation inconclusive: {reason}");
+                let _ = writeln!(output, "{command}: {subject} inconclusive: {reason}");
             }
             Compared::Differs(difference) => {
-                write_difference(output, &format!("{command}: expectation unmet"), difference);
+                write_difference(output, &format!("{command}: {subject} unmet"), difference);
                 if difference.right.ends > 1 {
                     let _ = writeln!(
                         output,

@@ -358,6 +358,47 @@ fn declared_classes_are_read_stated_and_compared() {
     assert_acceptance(&package);
 }
 
+/// A gap is no finding where an expectation the flow checks states `class = "none"`, the
+/// expectation scoped to the flow's facet (`expect_for.main`) as well as `expect`; one scoped to
+/// another facet is not read, so the gap it expects stays a finding.
+#[test]
+fn a_gap_expected_by_the_flow_s_scoped_expectation_is_no_finding() {
+    let gap = |n: i64| {
+        format!("halt = \"stuck\"\nclass = \"none\"\ncompare = [\"n\"]\ncells = {{ n = {n} }}\n")
+    };
+    let scoped = format!("[inputs]\nn = 3\n\n[expect_for.main]\n{}", gap(3));
+    let both = format!(
+        "[inputs]\nn = 5\n\n[expect]\nhalt = \"stuck\"\ncompare = [\"n\"]\ncells = {{ n = 5 }}\n\n[expect_for.main]\n{}",
+        gap(5)
+    );
+    let foreign = format!("[inputs]\nn = 4\n\n[expect_for.other]\n{}", gap(4));
+    let package = Package::new(
+        None,
+        &[("scoped", &scoped), ("both", &both), ("foreign", &foreign)],
+    );
+    let output = package.kink("coverage", &[]);
+    let document = json_of(&output);
+    // The gap only another facet's expectation expects is a finding.
+    assert_status(&output, 1);
+
+    let scoped = program(&document, "cases/scoped.toml");
+    assert_eq!(scoped["ends"][0]["declared"], "none", "{scoped:#}");
+    assert_eq!(scoped["expectation"]["verdict"], "met", "{scoped:#}");
+    assert_eq!(scoped.get("declared_end"), None, "{scoped:#}");
+
+    let both = program(&document, "cases/both.toml");
+    assert_eq!(both["expectation"]["verdict"], "met", "{both:#}");
+    assert_eq!(both.get("declared_end"), None, "{both:#}");
+
+    let foreign = program(&document, "cases/foreign.toml");
+    assert_eq!(foreign["ends"][0]["declared"], "none", "{foreign:#}");
+    assert_eq!(foreign.get("expectation"), None, "{foreign:#}");
+    assert_eq!(
+        foreign["declared_end"]["finding"], "undeclared-end",
+        "{foreign:#}"
+    );
+}
+
 /// `compare` on the declared ends' corpus (projections PJ-02):
 ///
 /// - an end view of a program the definition refuses at every end (`trap`) is judged by

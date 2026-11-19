@@ -1999,11 +1999,28 @@ impl Semantics {
         from: Option<&str>,
         files: &mut dyn InputFiles,
     ) -> Result<Expectation, ExecError> {
+        self.expectation_at(document, "expect", from, files)
+    }
+
+    /// The expectation the table `document` states, read as [`Self::expectation`] reads an
+    /// `expect` table, its refusals naming positions under `key`, the case key that holds it
+    /// (`expect`, or `expect_for.<definition>`, [`Case::expectations`]).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ExecError::Case`] naming the position (`<key>.cells.pc`) and the reason.
+    pub fn expectation_at(
+        &self,
+        document: &serde_json::Value,
+        key: &str,
+        from: Option<&str>,
+        files: &mut dyn InputFiles,
+    ) -> Result<Expectation, ExecError> {
         let refuse = |position: &str, message: &str| {
             ExecError::Case(if position.is_empty() {
-                format!("`expect`: {message}")
+                format!("`{key}`: {message}")
             } else {
-                format!("`expect.{position}`: {message}")
+                format!("`{key}.{position}`: {message}")
             })
         };
         let serde_json::Value::Object(table) = document else {

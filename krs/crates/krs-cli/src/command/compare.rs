@@ -63,7 +63,10 @@
 //! `krs run --case` checks a run's end ([`Semantics::check_expectation`]): `--compare`, `--view`
 //! and `--observer` do not apply, since the expectation states them. An end document is refused
 //! where it does not state a compared cell, or, ending `stuck`, a part of the declared class the
-//! expectation states ([`Semantics::check_stated_class`]).
+//! expectation states ([`Semantics::check_stated_class`]). A case that also scopes an
+//! expectation to the compared facet (`expect_for.<facet>`) is checked against both, each on its
+//! own cells, views and observer, the verdicts joined as `krs run --case` joins them; one scoped
+//! to another facet is not read.
 //!
 //! The case of a case side is run, never checked: its own `expect` table is not part of the
 //! comparison.
@@ -102,7 +105,7 @@ use super::cases::{PrepareObserver, write_stdout};
 use super::definition_cache::RunDefinition;
 use super::exec::{
     self, CaseFiles, Checked, Failure, Inputs, ObserverDefinition, SelectedCase, StageReuse,
-    WORKER_STACK,
+    ViewObservers, WORKER_STACK,
 };
 use super::{CommandError, CommandOutcome, compared_status, exit_status};
 use crate::DiagnosticSources;
@@ -236,7 +239,7 @@ pub(super) enum SideDocument {
         base: PathBuf,
     },
     /// A case, run once the definition is loaded.
-    Case(SelectedCase),
+    Case(Box<SelectedCase>),
     /// An observation document, read as the record it states.
     Observations { record: Observations },
 }
@@ -320,13 +323,13 @@ const OBSERVATION_KEYS: [&str; 2] = ["schema", "channels"];
 /// a `#NAME` its document does not select, and, with `--expect`, an end document or an
 /// observation document named as the case, a case that states no expectation, and an observation
 /// document named as the actual side.
-pub(super) fn read(request: &CompareRequest) -> Result<ReadSides, Failure> {
+pub(super) fn read(request: &CompareRequest, facet: &str) -> Result<ReadSides, Failure> {
     let (first, second) = match &request.sides {
         CompareSides::Ends { left, right } => (left, right),
         CompareSides::Expectation { case, actual } => (case, actual),
         CompareSides::Pairs { .. } => unreachable!("a batch reads each of its pairs' sides"),
     };
-    let first = read_side(first)?;
+    let first = read_side(first, facet)?;
     if let CompareSides::Expectation { case, .. } = &request.sides {
         match &first {
             SideDocument::End { .. } | SideDocument::Observations { .. } => {
@@ -335,15 +338,15 @@ pub(super) fn read(request: &CompareRequest) -> Result<ReadSides, Failure> {
                     first.kind()
                 )));
             }
-            SideDocument::Case(selected) if selected.case.expect.is_none() => {
+            SideDocument::Case(selected) if selected.expectations().is_empty() => {
                 return Err(Failure::Usage(format!(
-                    "--expect `{case}`: the case states no expectation (`expect`)"
+                    "--expect `{case}`: the case states no expectation (`expect`, or `expect_for.{facet}`)"
                 )));
             }
             SideDocument::Case(_) => {}
         }
     }
-    let second = read_side(second)?;
+    let second = read_side(second, facet)?;
     if let (CompareSides::Expectation { actual, .. }, SideDocument::Observations { .. }) =
         (&request.sides, &second)
     {
@@ -354,17 +357,13 @@ pub(super) fn read(request: &CompareRequest) -> Result<ReadSides, Failure> {
     Ok(ReadSides { first, second })
 }
 
-/// The observer the views are evaluated in, where it is not the compared definition: the one
-/// `--observer` names, or with `--expect` the one the expectation names beside a view.
-pub(super) fn observer_name<'a>(
-    request: &'a CompareRequest,
-    read: &'a ReadSides,
-) -> Option<&'a str> {
+/// The observers the views are evaluated in, where they are not the compared definition: the
+/// one `--observer` names, or with `--expect` each one the case's expectations name beside a
+/// view ([`exec::named_observers`]).
+pub(super) fn observer_names<'a>(request: &'a CompareRequest, read: &'a ReadSides) -> Vec<&'a str> {
     match (&request.sides, &read.first) {
-        (CompareSides::Expectation { .. }, SideDocument::Case(case)) => {
-            exec::named_observer(&case.case)
-        }
-        _ => request.observer.as_deref(),
+        (CompareSides::Expectation { .. }, SideDocument::Case(case)) => exec::named_observers(case),
+        _ => request.observer.as_deref().into_iter().collect(),
     }
 }
 
@@ -373,8 +372,9 @@ fn refuse(file: &SideFile, message: &str) -> Failure {
     Failure::Exec(ExecError::Case(format!("`{file}`: {message}")))
 }
 
-/// The document `file` names, read as an end document or a case document by its keys.
-fn read_side(file: &SideFile) -> Result<SideDocument, Failure> {
+/// The document `file` names, read as an end document or a case document by its keys, a case run
+/// on the facet `facet`.
+fn read_side(file: &SideFile, facet: &str) -> Result<SideDocument, Failure> {
     let path = &file.path;
     let text = std::fs::read_to_string(path)
         .map_err(|error| Failure::Read(format!("could not read `{}`: {error}", path.display())))?;
@@ -471,15 +471,16 @@ fn read_side(file: &SideFile) -> Result<SideDocument, Failure> {
             case
         }
     };
-    Ok(SideDocument::Case(SelectedCase {
+    Ok(SideDocument::Case(Box::new(SelectedCase {
         case,
         path: path.clone(),
         base,
-    }))
+        facet: facet.to_owned(),
+    })))
 }
 
 /// Compare the sides of `request` on the prepared definition, its stage restored or compiled
-/// once, the views evaluated in `observer` when it is given.
+/// once, the views evaluated in the observers `observers` (by name) where they name one.
 #[expect(
     clippy::too_many_arguments,
     reason = "The comparison takes exec_command's prepared definition, request and observers' inputs."
@@ -490,7 +491,7 @@ pub(super) fn execute(
     sources: &DiagnosticSources,
     reuse: StageReuse<'_>,
     read: ReadSides,
-    observer: Option<ObserverDefinition>,
+    observers: Vec<(String, ObserverDefinition)>,
     conditions: NamedConditions<ObserverDefinition>,
     measurement: &mut Measurement,
 ) -> Result<CommandOutcome, CommandError> {
@@ -534,16 +535,17 @@ pub(super) fn execute(
                         }),
                     );
                 }
-                let mut observer = observer
-                    .map(|observer| {
-                        exec::load_observer(&observer, reuse.restore, request.solver, timings)
-                    })
-                    .transpose()
-                    .map_err(Failure::Exec)?;
+                let mut loaded =
+                    exec::load_observers(observers, reuse.restore, request.solver, timings)
+                        .map_err(Failure::Exec)?;
                 let runs = CaseRuns::default();
                 let verdict = compare(
                     &mut semantics,
-                    observer.as_mut(),
+                    ViewObservers::new(
+                        loaded
+                            .iter_mut()
+                            .map(|(name, semantics)| (name.clone(), semantics)),
+                    ),
                     &mut conditions,
                     request,
                     read,
@@ -877,7 +879,7 @@ impl SidesVerdict {
 /// expectation.
 enum Verdict {
     Sides(SidesVerdict),
-    Expectation(Checked),
+    Expectation(Box<Checked>),
 }
 
 impl Verdict {
@@ -1511,11 +1513,11 @@ impl Produced {
     }
 }
 
-/// Compare the sides `read` of `request`, the views evaluated in `observer` (the compared
-/// definition when `None`), each case side's run taken from `runs`.
+/// Compare the sides `read` of `request`, the views evaluated in the observer of `observers` they
+/// name (the compared definition otherwise), each case side's run taken from `runs`.
 fn compare(
     semantics: &mut Semantics,
-    observer: Option<&mut Semantics>,
+    mut observers: ViewObservers<'_>,
     conditions: &mut Conditions<'_>,
     request: &CompareRequest,
     read: ReadSides,
@@ -1524,13 +1526,25 @@ fn compare(
 ) -> Result<Verdict, Failure> {
     match &request.sides {
         CompareSides::Ends { .. } => compare_sides(
-            semantics, observer, conditions, request, read, runs, timings,
+            semantics,
+            observers.named(request.observer.as_deref()),
+            conditions,
+            request,
+            read,
+            runs,
+            timings,
         )
         .map(Verdict::Sides),
         CompareSides::Expectation { .. } => check_expectation(
-            semantics, observer, conditions, request, read, runs, timings,
+            semantics,
+            &mut observers,
+            conditions,
+            request,
+            read,
+            runs,
+            timings,
         )
-        .map(Verdict::Expectation),
+        .map(|checked| Verdict::Expectation(Box::new(checked))),
         CompareSides::Pairs { .. } => unreachable!("a batch compares each of its pairs"),
     }
 }
@@ -1812,12 +1826,13 @@ fn observations_part(left: &Produced, right: &Produced) -> Option<ObservationsPa
     })
 }
 
-/// Check the actual side against the expectation of the case `--expect` names, as
-/// `krs run --case` checks a run's end: an end document read and checked against the cells the
+/// Check the actual side against the expectations of the case `--expect` names, as
+/// `krs run --case` checks a run's end: an end document read and checked against the cells each
 /// expectation compares, or a case side run; met only where the actual side has no other end.
+/// Each expectation is checked on its own and the verdicts joined ([`Checked::combined`]).
 fn check_expectation(
     semantics: &mut Semantics,
-    mut observer: Option<&mut Semantics>,
+    observers: &mut ViewObservers<'_>,
     conditions: &mut Conditions<'_>,
     request: &CompareRequest,
     read: ReadSides,
@@ -1828,51 +1843,56 @@ fn check_expectation(
     let SideDocument::Case(case) = first else {
         unreachable!("`read` refuses an end document named by --expect")
     };
-    let Some(mut expectation) = SelectedCase::expectation_of(Some(&case), semantics)? else {
-        unreachable!("`read` refuses a case that states no expectation")
-    };
-    exec::resolve_views(semantics, observer.as_deref(), &case, &mut expectation)?;
-    let mut actual = match &second {
-        SideDocument::End {
-            file,
-            document,
-            base,
-        } => Produced::end(
-            semantics,
-            "actual",
-            (file, document, base.clone()),
-            &expectation.comparison,
-            Some(&expectation.end),
-        )?,
-        SideDocument::Case(actual) => {
-            Produced::run(runs, semantics, conditions, "actual", actual, timings)?
-        }
-        SideDocument::Observations { .. } => {
-            unreachable!("`read` refuses an observation document as the actual side")
-        }
-    };
+    let mut expected = SelectedCase::expectations_of(Some(&case), semantics)?;
+    exec::resolve_views(semantics, observers, &case, &mut expected)?;
     let budget = request.view_budget;
-    let checked = exec::check(
-        semantics,
-        observer.as_deref_mut(),
-        &case,
-        &mut expectation,
-        actual.ends(),
-        budget,
-    )?;
-    // One end that differs is unmet; one that agrees meets the expectation only where it is the
-    // actual side's only end.
-    if matches!(checked.verdict, Compared::Equal) && actual.settle(semantics, conditions)? {
-        return exec::check(
+    let mut checked = Vec::with_capacity(expected.len());
+    for one in &mut expected {
+        let mut actual = match &second {
+            SideDocument::End {
+                file,
+                document,
+                base,
+            } => Produced::end(
+                semantics,
+                "actual",
+                (file, document, base.clone()),
+                &one.expectation.comparison,
+                Some(&one.expectation.end),
+            )?,
+            SideDocument::Case(actual) => {
+                Produced::run(runs, semantics, conditions, "actual", actual, timings)?
+            }
+            SideDocument::Observations { .. } => {
+                unreachable!("`read` refuses an observation document as the actual side")
+            }
+        };
+        let mut verdict = exec::check_one(
             semantics,
-            observer,
+            observers.named(one.expectation.observer.as_deref()),
             &case,
-            &mut expectation,
+            one,
             actual.ends(),
             budget,
-        );
+        )?;
+        // One end that differs is unmet; one that agrees meets the expectation only where it is
+        // the actual side's only end.
+        if matches!(verdict.verdict, Compared::Equal) && actual.settle(semantics, conditions)? {
+            verdict = exec::check_one(
+                semantics,
+                observers.named(one.expectation.observer.as_deref()),
+                &case,
+                one,
+                actual.ends(),
+                budget,
+            )?;
+        }
+        checked.push((one.key.clone(), verdict));
     }
-    Ok(checked)
+    if checked.is_empty() {
+        unreachable!("`read` refuses a case that states no expectation")
+    }
+    Ok(Checked::combined(checked))
 }
 
 /// The keys a pair holds: `LEFT RIGHT` with its comparison's options, or `--expect CASE ACTUAL`.
@@ -2291,23 +2311,24 @@ struct Observer {
 }
 
 /// One pair to compare: its place, its record's member and label, its comparison, its sides'
-/// documents, and its observer when it names one other than the compared definition.
+/// documents, and the observers it names other than the compared definition, by name.
 struct Job {
     index: usize,
     member: Json,
     label: String,
     request: CompareRequest,
     read: ReadSides,
-    observer: Option<Arc<Observer>>,
+    observers: Vec<(String, Arc<Observer>)>,
     /// The observers its case sides' stop conditions name, prepared and compiled once a batch.
     conditions: NamedConditions<Arc<Observer>>,
 }
 
-/// Compare the pairs of the document `request` names (`--pairs`) on the prepared definition, its
-/// stage restored or compiled once, each observer prepared by `observers` the first time a pair
-/// names it.
+/// Compare the pairs of the document `request` names (`--pairs`) on the prepared definition, the
+/// facet `facet`, its stage restored or compiled once, each observer prepared by `observers` the
+/// first time a pair names it.
 pub(super) fn execute_pairs(
     prepared: &RunDefinition,
+    facet: &str,
     request: &CompareRequest,
     sources: &DiagnosticSources,
     reuse: StageReuse<'_>,
@@ -2335,6 +2356,7 @@ pub(super) fn execute_pairs(
                 let batch = Batch {
                     view_budget: request.view_budget,
                     definition,
+                    facet,
                     stage: &stage,
                     sources,
                     output: request.output,
@@ -2367,6 +2389,8 @@ struct Batch<'a> {
     /// request carries the same (`--view-budget`).
     view_budget: u64,
     definition: &'a DefinitionIr,
+    /// The facet compared (`--definition`), which selects a case's scoped expectation.
+    facet: &'a str,
     stage: &'a CompiledStage,
     sources: &'a DiagnosticSources,
     output: CompareOutput,
@@ -2505,7 +2529,7 @@ impl Feed<'_, '_> {
                     continue;
                 }
             };
-            let read = match read(&request) {
+            let read = match read(&request, self.batch.facet) {
                 Ok(read) => read,
                 Err(failure) => {
                     self.settle(PairRecord {
@@ -2515,15 +2539,25 @@ impl Feed<'_, '_> {
                     continue;
                 }
             };
-            let observer = match observer_name(&request, &read).map(str::to_owned) {
-                Some(name) => match self.observer(&name) {
-                    Ok(observer) => observer,
-                    Err(reason) => {
-                        self.settle(refused(reason))?;
-                        continue;
-                    }
-                },
-                None => None,
+            let named = observer_names(&request, &read)
+                .into_iter()
+                .map(str::to_owned)
+                .collect::<Vec<_>>();
+            // Each observer prepared the first time a pair names it; one that names the definition
+            // itself is none.
+            let observers = named
+                .into_iter()
+                .filter_map(|name| {
+                    let observer = self.observer(&name).transpose()?;
+                    Some(observer.map(|observer| (name, observer)))
+                })
+                .collect::<Result<Vec<_>, _>>();
+            let observers = match observers {
+                Ok(observers) => observers,
+                Err(reason) => {
+                    self.settle(refused(reason))?;
+                    continue;
+                }
             };
             let conditions = run_observers(&read)
                 .into_iter()
@@ -2539,7 +2573,7 @@ impl Feed<'_, '_> {
                 label,
                 request,
                 read,
-                observer,
+                observers,
                 conditions,
             };
             self.jobs.send(job).map_err(|_| {
@@ -2687,37 +2721,20 @@ impl<'a> Worker<'a> {
             })
             .as_mut()
             .map_err(|reason| Outcome::Refused(reason.clone()))?;
-        let observer = match &job.observer {
-            None => None,
-            Some(observer) => {
-                let position = if let Some(position) = observers
-                    .iter()
-                    .position(|(loaded, _)| Arc::ptr_eq(loaded, observer))
-                {
-                    position
-                } else {
-                    let semantics = timings
-                        .span("compare.observer_load", |timings| {
-                            Semantics::from_stage_with_solver(
-                                &observer.definition,
-                                observer.stage.clone(),
-                                None,
-                                batch.solver,
-                                timings,
-                            )
-                        })
-                        .map_err(|error| format!("krs cannot load the observer: {error}"));
-                    observers.push((Arc::clone(observer), semantics));
-                    observers.len() - 1
-                };
-                Some(
-                    observers[position]
-                        .1
-                        .as_mut()
-                        .map_err(|reason| Outcome::Refused(reason.clone()))?,
-                )
-            }
-        };
+        let views = exec::cached_observers(observers, &job.observers, |observer| {
+            timings
+                .span("compare.observer_load", |timings| {
+                    Semantics::from_stage_with_solver(
+                        &observer.definition,
+                        observer.stage.clone(),
+                        None,
+                        batch.solver,
+                        timings,
+                    )
+                })
+                .map_err(|error| format!("krs cannot load the observer: {error}"))
+        })
+        .map_err(Outcome::Refused)?;
         for (name, observer) in job.conditions {
             conditions.name(
                 name,
@@ -2726,7 +2743,7 @@ impl<'a> Worker<'a> {
         }
         compare(
             subject,
-            observer,
+            views,
             conditions,
             &job.request,
             job.read,

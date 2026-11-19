@@ -907,6 +907,119 @@ fn krs_run_case_evaluates_the_views_krs_cases_does() {
     );
 }
 
+/// Each expectation a case states of the facet it runs on evaluates its views in its own
+/// observer: `expect` in the definition (`EventCount`) and `expect_for.main` in the observer
+/// (`WithRead`), or the reverse, under `krs cases`, `krs run --case` and `krs compare --expect`.
+/// An expectation scoped to another facet names an observer no package provides, which no
+/// command prepares, since none reads that expectation.
+#[test]
+fn each_expectation_of_a_case_evaluates_its_views_in_its_own_observer() {
+    let workspace = workspace();
+    let read = json!([{"Read": {"addr": 5}}]);
+    let observer = format!("{OBSERVER_PACKAGE}:main");
+    let viewed = |bus: &Value, views: &Value, observer: Option<&str>| {
+        let mut expect = finished(256, bus);
+        expect["views"] = views.clone();
+        if let Some(observer) = observer {
+            expect["observer"] = json!(observer);
+        }
+        expect
+    };
+    let count = viewed(
+        &json!([{"Write": {"addr": 1, "value": 2}}]),
+        &json!({"bus": "EventCount"}),
+        None,
+    );
+    let count_unmet = viewed(&json!([]), &json!({"bus": "EventCount"}), None);
+    let in_observer = viewed(&read, &json!({"bus": "WithRead"}), Some(&observer));
+    let nowhere = viewed(
+        &read,
+        &json!({"bus": "WithRead"}),
+        Some("krs-cli-no-such-package:main"),
+    );
+    let scoped = |name: &str, expect: &Value, own: &Value| {
+        let mut case = case(name, &finish(), expect);
+        case["expect_for"] = json!({"main": own, "other": nowhere});
+        case
+    };
+    let cases = json!({"case": [
+        scoped("both-met", &count, &in_observer),
+        scoped("scoped-unmet", &in_observer, &count_unmet),
+    ]});
+    workspace.write("scoped-views.json", cases.to_string());
+
+    let output = workspace.krs(
+        "cases",
+        &[
+            "scoped-views.json",
+            "--output",
+            "json",
+            "--view-budget",
+            "100000",
+            "--jobs",
+            "1",
+        ],
+    );
+    assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
+    let lines = records(&output);
+    assert_eq!(lines[0]["verdict"], "met", "{}", lines[0]);
+    // A met verdict of two shows the views of the first that applied any.
+    assert_eq!(lines[0]["views"], json!({"bus": "EventCount"}));
+    assert_eq!(lines[1]["verdict"], "unmet", "{}", lines[1]);
+    assert_eq!(
+        lines[1]["difference"]["views"],
+        json!({"bus": "EventCount"})
+    );
+    assert!(lines[1].get("observer").is_none(), "{}", lines[1]);
+
+    let run = |name: &str| {
+        workspace.krs(
+            "run",
+            &[
+                "--case",
+                "scoped-views.json",
+                "--case-name",
+                name,
+                "--view-budget",
+                "100000",
+                "--output",
+                "none",
+            ],
+        )
+    };
+    let met = run("both-met");
+    assert_eq!(met.status.code(), Some(0), "{}", stderr(&met));
+    assert!(
+        stderr(&met).ends_with(
+            "krs run: expectations `expect` and `expect_for.main` met\n  views: `bus` = `EventCount`\n"
+        ),
+        "{}",
+        stderr(&met)
+    );
+    let unmet = run("scoped-unmet");
+    assert_eq!(unmet.status.code(), Some(1), "{}", stderr(&unmet));
+    assert!(
+        stderr(&unmet).contains("krs run: expectation `expect_for.main` unmet at `bus`"),
+        "{}",
+        stderr(&unmet)
+    );
+
+    for (name, code) in [("both-met", 0), ("scoped-unmet", 1)] {
+        let case = format!("scoped-views.json#{name}");
+        let output = workspace.krs(
+            "compare",
+            &["--expect", &case, &case, "--view-budget", "100000"],
+        );
+        assert_eq!(
+            output.status.code(),
+            Some(code),
+            "{name}: {}{}",
+            stdout(&output),
+            stderr(&output)
+        );
+    }
+}
+
 /// A view with no value at one side refuses the comparison even where its evaluation at the
 /// other side stops (`ClimbAbove` of `pc` at `0` and at `1`): `krs compare` exits 2 in either
 /// order of its sides, and `krs cases` and `krs run --case` refuse a case whichever of the

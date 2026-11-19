@@ -737,11 +737,13 @@ A *case* is a table of seven keys, each of which may be absent:
   a non-empty table of expected ends by non-empty definition name, each written as `expect` is,
   a definition named by its facet, as `--definition` names it (`[expect_for.static]`).
   `expect` is a claim about the case on every definition that runs it, and a scoped expectation a claim about it on that definition,
-  so `krs kink` checks `expect` and the expectation scoped to the flow's own definition, both where both are given,
-  and reads none scoped to another definition;
-  its row's `expectation` is `unmet` where either is unmet, else `inconclusive` where either is, else `met`.
-  `krs run --case`, `krs cases` and `krs compare` refuse a case document in which a case gives `expect_for`, every case of it:
-  they do not select an expectation by their definition, and refusing the document keeps them from checking a case without that expectation.
+  so a command checks `expect` and the expectation scoped to the definition it runs on, both where both are given,
+  and reads none scoped to another definition:
+  `krs kink` the flow's own definition, and `krs run --case`, `krs search --case`, `krs cases` and `krs compare --expect` the facet `--definition` names.
+  Each expectation is checked with its own views and observer,
+  and the verdict is `unmet` where either is unmet, else `inconclusive` where either is, else `met`;
+  of two, the verdict's line names the expectation that decided it (``expectation `expect_for.static` unmet``),
+  and an inconclusive verdict's `reason` starts with that expectation's key.
 - `provenance`: which tool or person found the case and why it is in its corpus,
   a table of `found_by` and `reason`, each optional and a non-empty string,
   at least one given, and no other key (`CaseProvenance`).
