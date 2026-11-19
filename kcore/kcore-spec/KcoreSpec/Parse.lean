@@ -856,11 +856,20 @@ inductive ReadingNote where
   symbol f one of whose overloads is a function g of the definition (a function-overloaded symbol,
   `Semantics.fnOvlSyms`), read at the arguments no overload of f covers
   (`KoreAML.Cons.funUncItem`, `injUncItem`, `distUncItem`). At covered arguments the overload
-  equation `f(inj x̄) = inj(g(x̄))` gives the application g's value, so there the three sentences
-  hold in a model only if g is total, injective and apart from the other generators of f's sort;
-  where g is not, the text has no model. What is read is each sentence restricted to fewer
-  arguments, which the sentence entails; whether g is so is not decided
-  (`Parse.overloadFunctions`). -/
+  equation `f(inj x̄) = inj(g(x̄))` gives the application g's value, and `Γ` holds none of the
+  three sentences there. What is read is each sentence restricted to fewer arguments: in a model of
+  `Γ` the `functional` sentence entails its item, the injectivity sentence its item with the
+  `functional` sentence, a distinctness sentence its item with the `functional` sentence of one of
+  its two generators (`Faithful.tieOvlFnFun_weaker_Γ`, `tieOvlFnInj_weaker_Γ`,
+  `tieOvlFnDist_weaker_Γ`). At covered arguments the three sentences are owed as hypotheses on the
+  interpretation, over values: g has a value at every covered value list
+  (`Faithful.OvlFnTotal`), two value lists at which the application has one value are equal
+  (`OvlFnInj`), and no value of the application is an application of the other constructor a
+  distinctness sentence names (`OvlFnDist`). For a semantics with `coreOK`, under `FnHyp`: under
+  each, its sentence holds at values in every model of `Γc` (`ovlFnTotal_atValues`,
+  `ovlFnInj_atValues`, `ovlFnDist_atValues`), and a witness at values against it refutes the
+  sentence in every model of `Γc` (`ovlFnTotal_refuted`, `ovlFnInj_refuted`, `ovlFnDist_refuted`).
+  The account prints them as owed (`Parse.overloadFunctions`). -/
   | overloadFunction
   /-- A sort X of the definition that KItem's no-junk axiom (`\or{SortKItem{}}(…)`, `scanOr`) does
   not list, read below KItem all the same; where the text states no `subsort{X, KItem}` axiom

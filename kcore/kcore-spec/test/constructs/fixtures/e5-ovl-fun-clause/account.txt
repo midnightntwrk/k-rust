@@ -16,8 +16,10 @@ inert constructor axioms not induced by the constructors: 0
 overloading symbols read: 1, overloads (symbol-overload axioms) 1
 distinctness axioms an overload contradicts, stated by the text and not read (overloadConfusion): 0
 overloading symbols that overload a function, their functional, injectivity and distinctness axioms read at the arguments no overload covers (overloadFunction): 1
-      LblcapGas over LblcapN
-      at arguments an overload covers these axioms hold in a model only if the covering function is total there, injective there and apart from the other generators of the sort; if it is not, the text has no model (not decided here)
+      LblcapGas over LblcapN: at the arguments an overload covers, OvlFnTotal, OvlFnInj and OvlFnDist owed
+      at the arguments no overload covers each item read is its axiom at fewer arguments, held by Γ at every interpretation H: in a model of Γ the functional axiom entails its item, the same-constructor axiom its item with the functional axiom, a different-constructors axiom its item with the functional axiom of one of its two generators (tieOvlFnFun_weaker_Γ, tieOvlFnInj_weaker_Γ, tieOvlFnDist_weaker_Γ)
+      at the arguments an overload covers Γ holds none of the three; there they are owed as hypotheses on the interpretation H, over values: the covering function has a value at every covered value list (OvlFnTotal), two value lists at which the application has one value are equal (OvlFnInj), no value of the application is an application of the constructor k the different-constructors axiom names beside it (OvlFnDist)
+      for a semantics with coreOK, under FnHyp: under each hypothesis its axiom holds at values in every model of Γc (ovlFnTotal_atValues, ovlFnInj_atValues, ovlFnDist_atValues), and a witness at values against it refutes the axiom: no model of Γc satisfies it (ovlFnTotal_refuted, ovlFnInj_refuted, ovlFnDist_refuted); Γc is Γ with the closure axioms of the confined sorts the semantics reads: readsConfined true
 cell collection injections not of a collection of the definition: 0
 law axioms of no collection's concatenation: 0
 rules with an `ensures`: 0

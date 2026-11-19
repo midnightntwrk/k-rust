@@ -2924,8 +2924,10 @@ def account (koreFile : String) : IO UInt32 := do
       let ofn := Parse.overloadFunctions d
       unless ofn.isEmpty do
         IO.println s!"overloading symbols that overload a function, their functional, injectivity and distinctness axioms read at the arguments no overload covers (overloadFunction): {ofn.length}"
-        for (f, gs) in ofn.take 10 do IO.println s!"      {f} over {", ".intercalate gs}"
-        IO.println "      at arguments an overload covers these axioms hold in a model only if the covering function is total there, injective there and apart from the other generators of the sort; if it is not, the text has no model (not decided here)"
+        for (f, gs) in ofn.take 10 do IO.println s!"      {f} over {", ".intercalate gs}: at the arguments an overload covers, OvlFnTotal, OvlFnInj and OvlFnDist owed"
+        IO.println "      at the arguments no overload covers each item read is its axiom at fewer arguments, held by Γ at every interpretation H: in a model of Γ the functional axiom entails its item, the same-constructor axiom its item with the functional axiom, a different-constructors axiom its item with the functional axiom of one of its two generators (tieOvlFnFun_weaker_Γ, tieOvlFnInj_weaker_Γ, tieOvlFnDist_weaker_Γ)"
+        IO.println "      at the arguments an overload covers Γ holds none of the three; there they are owed as hypotheses on the interpretation H, over values: the covering function has a value at every covered value list (OvlFnTotal), two value lists at which the application has one value are equal (OvlFnInj), no value of the application is an application of the constructor k the different-constructors axiom names beside it (OvlFnDist)"
+        IO.println s!"      for a semantics with coreOK, under FnHyp: under each hypothesis its axiom holds at values in every model of Γc (ovlFnTotal_atValues, ovlFnInj_atValues, ovlFnDist_atValues), and a witness at values against it refutes the axiom: no model of Γc satisfies it (ovlFnTotal_refuted, ovlFnInj_refuted, ovlFnDist_refuted); Γc is Γ with the closure axioms of the confined sorts the semantics reads: readsConfined {d.sem.readsConfined}"
     -- printed only when some equation is read by cases
     let byCases := (Parse.connReadings k).filter fun (_, ns) => ns.contains .orAsCases || ns.contains .existsAsCases
     unless byCases.isEmpty do
