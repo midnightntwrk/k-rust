@@ -131,7 +131,8 @@ evidence = "test/WitRestApart.lean"
 [[conjunct]]
 key = "predsApart.1"
 text = "KCore.nodup (List.map (fun x => x.label) c.allFns)"
-witness = "none: not proved in the no-model form; the conjunct is not implied by the others (kernel-checked: two functions of c.fns under the predicate number of the own sort KCell, one giving true and one false at every K, meet every other leaf of coreOK; FnHyp not examined); Γ then has no model (argued, not kernel-checked: the two equations give the one symbol both values at the term dotk, and true and false are distinct values of Bool); implied by idsOK where the functions of c.fns are labelled apart, for every semantics (kernel-checked: predsApart_of_idsOK): no function bears a registry symbol, so none is isK or isKItem, every other sort predicate labels no function of c.fns (sortPreds), the registry's are distinct and below nRegSyms (regPred), the own sorts' below symBase, the sorts below KItem each once (NamesApart.sorts_facts)"
+witness = "KcoreSpec.ModelPredTwiceWitness"
+note = "two functions of c.fns under the predicate number of the own sort KCell, one giving true and one false at every K: the module shows every other conjunct of coreOK as a whole and FnHyp, predsApart false, and Γ without a model (its two equations give the predicate's application to dotk the values true and false, distinct values of Bool); test/PredFnCone.lean Twice is the same semantics; implied by idsOK where the functions of c.fns are labelled apart, for every semantics (kernel-checked: predsApart_of_idsOK): no function bears a registry symbol, so none is isK or isKItem, every other sort predicate labels no function of c.fns (sortPreds), the registry's are distinct and below nRegSyms (regPred), the own sorts' below symBase, the sorts below KItem each once (NamesApart.sorts_facts)"
 evidence = "test/WitRestApart.lean, test/PredFnCone.lean"
 
 [[conjunct]]
