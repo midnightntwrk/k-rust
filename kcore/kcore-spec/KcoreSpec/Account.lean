@@ -49,11 +49,12 @@ def unheldFaults (S : Scan) (E : Env) : List Fault :=
   | _, _ => []
 
 /-- Every equation of a sort's predicate or projection that the core does not state
-(`predEqnFaults`), where the productions, the rules and the core are read. -/
+(`predEqnFaults`), where the productions, the rules and the core are read (with the sort
+predicates read as functions, `predCoreOfPR`). -/
 def predFaults (S : Scan) (E : Env) : List Fault :=
   match (prodSyms S E).mapM (symProd E S.eqs), S.rewrites.mapM (ruleOf E.N E.src) with
-  | .ok sp, .ok rules => match coreBase S E (prodsOf S E sp) rules with
-    | .ok core => predEqnFaults E.N E.src S.eqs core
+  | .ok sp, .ok rules => match predCoreOfPR S E (prodsOf S E sp) rules with
+    | .ok (core, _) => predEqnFaults E.N E.src S.eqs core
     | .error _ => []
   | _, _ => []
 
