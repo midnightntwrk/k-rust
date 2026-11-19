@@ -191,7 +191,7 @@ open ML Faithful Faithful.Model HoldsShape
 /-- `holds_entailsCEx` at `pNot`, which holds no binder, in any model of `Γc`. -/
 theorem entailsNot {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hIc : I ⊧ᴵP Γc c)
     (hc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c) :
-    HoldsDen' c I pNot :=
+    HoldsDenB (Cond.bound c) c I pNot :=
   holds_entailsCEx (Semantics.coreOK_iff_ex.mp coreOK) hIc hc pNot fun hb => absurd hb (by decide +kernel)
 
 /-- Its two halves and the uniqueness of the truth value at `pNot`. -/

@@ -6,7 +6,7 @@
   (`AtT.tr_pat`). So a condition, written over the canonical names of the variables in scope at a
   valuation that reads them as their values under σ, holds at an element of the predicate sort
   exactly where the truth value `Holds` gives it is `true` (`holds_atT`, the value model's instance of
-  `HoldsShape.holds_den'`, from `atomFacts_stdI` and `binderFacts_stdI`); a binder ranges over the
+  `HoldsShape.holds_denB`, from `atomFacts_stdI`, `binderFacts_stdI` and `boundReads_bound_stdI`); a binder ranges over the
   values of its sort, as `Extends` does. `holds_stdI`: where the condition has a truth value, it
   holds exactly where that value is `true`.
 -/
@@ -133,15 +133,15 @@ theorem readsT_of_reads (h : HypModelCore c) {vars : List Srt} {P : Nat → Prop
   obtain ⟨hl, hk, v, hv, hsv, hd⟩ := hr i hi
   exact ⟨hl, hk, v, hv, hsv, (den_val_T h T v hsv e _).mp ((hd _).mp rfl)⟩
 
-/-- **`HoldsT` is `HoldsDen'` at the value model.** -/
-theorem holdsT_of_den (h : HypModelCore c) {p : Cond} (hp : HoldsShape.HoldsDen' c (stdI_T c T) p) :
+/-- **`HoldsT` is `HoldsDenB` at `Cond.bound` at the value model.** -/
+theorem holdsT_of_den (h : HypModelCore c) {p : Cond} (hp : HoldsShape.HoldsDenB (Cond.bound c) c (stdI_T c T) p) :
     HoldsT c T p :=
   fun hok hbd hP hr hk hS hh a ha =>
     hp hok hbd hP (reads_of_readsT h hr) hk hS hh a ((inhOf_srtOf_stdI h hS _ a).mpr ha)
 
-/-- `HoldsDen'` at the value model is `HoldsT`. -/
+/-- `HoldsDenB` at `Cond.bound` at the value model is `HoldsT`. -/
 theorem den_of_holdsT (h : HypModelCore c) {p : Cond} (hp : HoldsT c T p) :
-    HoldsShape.HoldsDen' c (stdI_T c T) p :=
+    HoldsShape.HoldsDenB (Cond.bound c) c (stdI_T c T) p :=
   fun hok hbd hP hr hk hS hh a ha =>
     hp hok hbd hP (readsT_of_reads h hr) hk hS hh a ((inhOf_srtOf_stdI h hS _ a).mp ha)
 
@@ -258,7 +258,8 @@ theorem holdsT_bot : HoldsT c T .bot := by
   exact ⟨fun hn => absurd hn.2 hn.1, fun hf => by cases hf⟩
 
 theorem holdsT_not (h : HypModelCore c) {p : Cond} (ih : HoldsT c T p) : HoldsT c T (.not p) :=
-  holdsT_of_den h (HoldsShape.holds_not' (den_of_holdsT h ih))
+  holdsT_of_den h (HoldsShape.holds_notB (bd := Cond.bound c) (fun hb => by rw [Cond.bound] at hb; exact hb)
+    (den_of_holdsT h ih))
 
 theorem holdsT_and {p q : Cond} (ihp : HoldsT c T p) (ihq : HoldsT c T q) : HoldsT c T (.and p q) := by
   intro vars P σ b tbl e S hok hbd hP hr hk hS hh a ha
@@ -282,11 +283,13 @@ theorem holdsT_and {p q : Cond} (ihp : HoldsT c T p) (ihq : HoldsT c T q) : Hold
 
 theorem holdsT_or (h : HypModelCore c) {p q : Cond} (ihp : HoldsT c T p) (ihq : HoldsT c T q) :
     HoldsT c T (.or p q) :=
-  holdsT_of_den h (HoldsShape.holds_or' (den_of_holdsT h ihp) (den_of_holdsT h ihq))
+  holdsT_of_den h (HoldsShape.holds_orB (bd := Cond.bound c)
+    (fun hb => by rw [Cond.bound, Bool.and_eq_true] at hb; exact hb) (den_of_holdsT h ihp) (den_of_holdsT h ihq))
 
 theorem holdsT_implies (h : HypModelCore c) {p q : Cond} (ihp : HoldsT c T p) (ihq : HoldsT c T q) :
     HoldsT c T (.implies p q) :=
-  holdsT_of_den h (HoldsShape.holds_implies' (den_of_holdsT h ihp) (den_of_holdsT h ihq))
+  holdsT_of_den h (HoldsShape.holds_impliesB (bd := Cond.bound c)
+    (fun hb => by rw [Cond.bound, Bool.and_eq_true] at hb; exact hb) (den_of_holdsT h ihp) (den_of_holdsT h ihq))
 
 /-! ### The atoms -/
 
@@ -344,24 +347,34 @@ theorem ReadsT.snocStdI {vars : List Srt} {P : Nat → Prop} {σ σ' : Subst} {t
     show Function.update e.evalEvar _ _ _ = _
     rw [Function.update_same]
 
+/-- **The value model at T reads `Cond.bound`**: at an `ex` or `all` binder the elements of the
+sort are values'. -/
+theorem boundReads_bound_stdI (h : HypModelCore c) : HoldsShape.BoundReads c (stdI_T c T) (Cond.bound c) := by
+  rw [Cond.bound_eq_boundConf]; exact HoldsShape.boundReads_boundConf (binderFacts_stdI h)
+
 theorem holdsT_ex (h : HypModelCore c) (s : Srt) {body : Cond} (ih : HoldsT c T body) : HoldsT c T (.ex s body) :=
-  holdsT_of_den h (HoldsShape.holds_ex' (atomFacts_stdI h) (binderFacts_stdI h) s (den_of_holdsT h ih))
+  holdsT_of_den h (HoldsShape.holds_exB (atomFacts_stdI h) (bd := Cond.bound c) s (boundReads_bound_stdI h).ex
+    (den_of_holdsT h ih))
 
 theorem holdsT_all (h : HypModelCore c) (s : Srt) {body : Cond} (ih : HoldsT c T body) : HoldsT c T (.all s body) :=
-  holdsT_of_den h (HoldsShape.holds_all' (atomFacts_stdI h) (binderFacts_stdI h) s (den_of_holdsT h ih))
+  holdsT_of_den h (HoldsShape.holds_allB (atomFacts_stdI h) (bd := Cond.bound c) s
+    (fun hb => by
+      rw [Cond.bound, Bool.and_eq_true] at hb; exact ⟨(binderFacts_stdI h).elemsValues hb.1, hb.2⟩)
+    (den_of_holdsT h ih))
 
 /-! ### A match under binders -/
 
 theorem holdsT_exMatch (h : HypModelCore c) (ys : List Srt) (s : Srt) (p t : Term) {body : Cond}
     (ih : HoldsT c T body) : HoldsT c T (.exMatch ys s p t body) :=
-  holdsT_of_den h (HoldsShape.holds_exMatch' (atomFacts_stdI h) (binderFacts_stdI h) ys s p t (den_of_holdsT h ih))
+  holdsT_of_den h (HoldsShape.holds_exMatchB (atomFacts_stdI h) (binderFacts_stdI h) (bd := Cond.bound c)
+    (fun hb => by rw [Cond.bound, Bool.and_eq_true] at hb; exact hb) ys s p t (den_of_holdsT h ih))
 
 /-! ### The lemma: the value model's instance -/
 
 /-- **A condition in the value model at T**: the Holds lemma for every interpretation with the facts,
 at the value model. -/
 theorem holds_atT (h : HypModelCore c) : ∀ p : Cond, HoldsT c T p :=
-  fun p => holdsT_of_den h (HoldsShape.holds_den' (atomFacts_stdI h) (binderFacts_stdI h) p)
+  fun p => holdsT_of_den h (HoldsShape.holds_denB (atomFacts_stdI h) (binderFacts_stdI h) (boundReads_bound_stdI h) p)
 
 /-- A valuation that reads the variables P as their values under σ (`tr_term`'s form), with their
 keys in the table and σ giving them values of their sorts, reads them so in `ReadsT`'s form. -/

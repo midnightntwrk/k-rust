@@ -163,17 +163,23 @@ def TermDenAt (c : Semantics) {M : Type} (I : Interpretation KoreAML.Sym M) : Pr
     ∀ m, (KoreAML.tr ⟨tbl, []⟩ (Term.kore c (canonVars c vars) t)).interpret I e m ↔
       ∃ v, EvalTerm c σ t (some v) ∧ (den c v).interpret I e m
 
-/-- The reading of a condition in I as `TrueV`: `HoldsDen'`'s statement without a `Holds`
-derivation, `TrueV` on the right. -/
-def TrueDen (c : Semantics) {M : Type} (I : Interpretation KoreAML.Sym M) (p : Cond) : Prop :=
+/-- The reading of a condition in I as `TrueV` where the Bool `bd` bounds its binders:
+`HoldsDenB`'s statement without a `Holds` derivation, `TrueV` on the right. -/
+def TrueDenB (bd : Nat → Cond → Bool) (c : Semantics) {M : Type} (I : Interpretation KoreAML.Sym M) (p : Cond) :
+    Prop :=
   ∀ {vars : List Srt} {P : Nat → Prop} {σ : Subst} {tbl : KoreAML.VarTable} {e : Valuation M} {S : Srt},
-    c.condOK vars p = true → Cond.bound c vars.length p = true →
+    c.condOK vars p = true → bd vars.length p = true →
     (∀ i ∈ varOccsCond vars.length p, i < vars.length → P i) → Reads c I vars P σ tbl e →
     (∀ k ∈ KoreAML.varsOf (Cond.kore c (canonVars c vars) (srtOf c S) p), k ∈ tbl) →
     S < nRegSorts + c.sortNames.length →
     ∀ a, (KoreAML.inhOf (KoreAML.trSort tbl (srtOf c S))).interpret I e a →
       ((KoreAML.tr ⟨tbl, []⟩ (Cond.kore c (canonVars c vars) (srtOf c S) p)).interpret I e a ↔
         TrueV c vars.length σ p)
+
+/-- `TrueDenB` at `Cond.boundConf`: every binder of the condition is of a sort where values and
+elements agree by the sort alone. -/
+abbrev TrueDen (c : Semantics) {M : Type} (I : Interpretation KoreAML.Sym M) (p : Cond) : Prop :=
+  TrueDenB (Cond.boundConf c) c I p
 
 /-- A term of a condition, read without a result: its sort is numbered, it denotes the elements of
 its values, and those are of its sort. -/
@@ -204,7 +210,7 @@ theorem trueD_bot (F : AtomFacts c I) : TrueDen c I .bot := by
 theorem trueD_not {p : Cond} (ih : TrueDen c I p) : TrueDen c I (.not p) := by
   intro vars P σ tbl e S hok hbd hP hr hk hS a ha
   rw [Semantics.condOK] at hok
-  rw [Cond.bound] at hbd
+  rw [Cond.boundConf] at hbd
   have hk' : ∀ k ∈ KoreAML.varsOf (Cond.kore c (canonVars c vars) (srtOf c S) p), k ∈ tbl := fun k hk0 =>
     hk k (by rw [Cond.kore, KoreAML.varsOf]; exact List.mem_append_right _ hk0)
   have := ih hok hbd (fun i hi hl => hP i (by rw [varOccsCond]; exact hi) hl) hr hk' hS a ha
@@ -214,7 +220,7 @@ theorem trueD_not {p : Cond} (ih : TrueDen c I p) : TrueDen c I (.not p) := by
 theorem trueD_and {p q : Cond} (ihp : TrueDen c I p) (ihq : TrueDen c I q) : TrueDen c I (.and p q) := by
   intro vars P σ tbl e S hok hbd hP hr hk hS a ha
   rw [Semantics.condOK, Bool.and_eq_true] at hok
-  rw [Cond.bound, Bool.and_eq_true] at hbd
+  rw [Cond.boundConf, Bool.and_eq_true] at hbd
   have hkp : ∀ k ∈ KoreAML.varsOf (Cond.kore c (canonVars c vars) (srtOf c S) p), k ∈ tbl := fun k hk0 =>
     hk k (by rw [Cond.kore, KoreAML.varsOf, KoreAML.varsOfList]
              exact List.mem_append_right _ (List.mem_append_left _ hk0))
@@ -231,7 +237,7 @@ theorem trueD_and {p q : Cond} (ihp : TrueDen c I p) (ihq : TrueDen c I q) : Tru
 theorem trueD_or {p q : Cond} (ihp : TrueDen c I p) (ihq : TrueDen c I q) : TrueDen c I (.or p q) := by
   intro vars P σ tbl e S hok hbd hP hr hk hS a ha
   rw [Semantics.condOK, Bool.and_eq_true] at hok
-  rw [Cond.bound, Bool.and_eq_true] at hbd
+  rw [Cond.boundConf, Bool.and_eq_true] at hbd
   have hkp : ∀ k ∈ KoreAML.varsOf (Cond.kore c (canonVars c vars) (srtOf c S) p), k ∈ tbl := fun k hk0 =>
     hk k (by rw [Cond.kore, KoreAML.varsOf, KoreAML.varsOfList]
              exact List.mem_append_right _ (List.mem_append_left _ hk0))
@@ -249,7 +255,7 @@ theorem trueD_implies {p q : Cond} (ihp : TrueDen c I p) (ihq : TrueDen c I q) :
     TrueDen c I (.implies p q) := by
   intro vars P σ tbl e S hok hbd hP hr hk hS a ha
   rw [Semantics.condOK, Bool.and_eq_true] at hok
-  rw [Cond.bound, Bool.and_eq_true] at hbd
+  rw [Cond.boundConf, Bool.and_eq_true] at hbd
   have hkp : ∀ k ∈ KoreAML.varsOf (Cond.kore c (canonVars c vars) (srtOf c S) p), k ∈ tbl := fun k hk0 =>
     hk k (by rw [Cond.kore, KoreAML.varsOf]
              exact List.mem_append_left _ (List.mem_append_right _ hk0))
@@ -364,7 +370,7 @@ theorem trueD_ex (F : AtomFacts c I) (G : BinderFacts c I) (s : Srt) {body : Con
     TrueDen c I (.ex s body) := by
   intro vars P σ tbl e S hok hbd hP hr hk hS a ha
   rw [Semantics.condOK] at hok
-  rw [Cond.bound, Bool.and_eq_true] at hbd
+  rw [Cond.boundConf, Bool.and_eq_true] at hbd
   have hlen : (vars ++ [s]).length = vars.length + 1 := by simp
   have hsn : s < nRegSorts + c.sortNames.length := G.confinedNum hbd.1
   obtain ⟨τ, hτ, hτd⟩ := F.sort hsn
@@ -423,7 +429,7 @@ theorem trueD_all (F : AtomFacts c I) (G : BinderFacts c I) (s : Srt) {body : Co
     TrueDen c I (.all s body) := by
   intro vars P σ tbl e S hok hbd hP hr hk hS a ha
   rw [Semantics.condOK] at hok
-  rw [Cond.bound, Bool.and_eq_true] at hbd
+  rw [Cond.boundConf, Bool.and_eq_true] at hbd
   have hlen : (vars ++ [s]).length = vars.length + 1 := by simp
   have hsn : s < nRegSorts + c.sortNames.length := G.confinedNum hbd.1
   obtain ⟨τ, hτ, hτd⟩ := F.sort hsn
@@ -493,7 +499,7 @@ theorem trueD_exMatch (F : AtomFacts c I) (G : BinderFacts c I) (D : TermDenAt c
   intro vars P σ tbl e S hok hbd hP hr hk hS a ha
   simp only [Semantics.condOK, Bool.and_eq_true, beq_iff_eq] at hok
   obtain ⟨⟨⟨hpS, htS⟩, hokB⟩, -⟩ := hok
-  rw [Cond.bound, Bool.and_eq_true] at hbd
+  rw [Cond.boundConf, Bool.and_eq_true] at hbd
   obtain ⟨hbnd, hbdB⟩ := hbd
   have hlen : (vars ++ ys).length = vars.length + ys.length := by simp
   let Bs := (List.range' vars.length ys.length).map fun i => ((canonVars c (vars ++ ys)).getD i default).kore
@@ -805,7 +811,8 @@ theorem trueV_stdI {c : Semantics} (h : HypModelCore c) (T : GroundTerm → Grou
     (hS : S < nRegSorts + c.sortNames.length) (a : Elem) (ha : InSort c S a) :
     (KoreAML.tr ⟨tbl, []⟩ (Cond.kore c (canonVars c vars) (srtOf c S) p)).interpret (stdI_T c T) e a ↔
       TrueV c vars.length σ p :=
-  HoldsShape.trueDen_of (atomFacts_stdI h) (binderFacts_stdI h) (termDenAt_stdI h) p hok hbd hP
+  HoldsShape.trueDen_of (atomFacts_stdI h) (binderFacts_stdI h) (termDenAt_stdI h) p hok
+    (by rw [← Cond.bound_eq_boundConf]; exact hbd) hP
     (reads_of_readsT h hr) hk hS a ((inhOf_srtOf_stdI h hS _ a).mpr ha)
 
 /-- `holds_stdI` again, as (I2) with (I1): where the condition has a truth value, `TrueV` is it. -/

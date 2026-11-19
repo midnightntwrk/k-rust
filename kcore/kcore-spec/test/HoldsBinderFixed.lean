@@ -1,7 +1,8 @@
 /-
   The Holds lemma at an `ex` binder of a sort that is not confined, in every model of `Γc`
-  (`KCore.CE.holds_binder_fixed`, `holds_den_fixed`, `holds_entails_fixed`,
-  KcoreSpec/HoldsBinderFixed.lean), and `fixes_value_read` (KcoreSpec/FixesValue.lean).
+  (`KCore.CE.holds_binder_fixed`, `holds_den_fixed`, `holdsAt_den_fixed`, `holds_den_bound`,
+  KcoreSpec/HoldsDenFixed.lean; `holds_entails_fixed`, KcoreSpec/HoldsBinderFixed.lean), and
+  `fixes_value_read` (KcoreSpec/FixesValue.lean).
   Run from the package root: `lake env lean -j1 test/HoldsBinderFixed.lean`.
 
   - The lemmas at `val := c.valued`, whose sorts have a value (`Semantics.valued_value`).
@@ -32,7 +33,7 @@ example (h : c.coreOK = true) (hIc : I ⊧ᴵP Γc c)
 /-- With `val` admitting no sort it is the lemma over `Cond.bound`. -/
 example (h : c.coreOK = true) (hIc : I ⊧ᴵP Γc c)
     (hc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c)
-    (p : Cond) (hrc : hasBinder p = true → c.readsConfined = true) : HoldsDen' c I p := by
+    (p : Cond) (hrc : hasBinder p = true → c.readsConfined = true) : HoldsDenB (Cond.bound c) c I p := by
   have : HoldsDenB (Cond.boundV c fun _ => false) c I p :=
     CE.holds_entails_fixed h hIc hc (fun _ hs => by cases hs) p hrc
   intro vars P σ b tbl e S hok hbd
@@ -41,12 +42,16 @@ example (h : c.coreOK = true) (hIc : I ⊧ᴵP Γc c)
 #check @CE.holds_binder_fixed
 #check @CE.holds_den_fixed
 #check @CE.holds_entails_fixed
+#check @CE.holdsAt_den_fixed
+#check @CE.holds_den_bound
 #check @CE.fixes_value_read
 #check @CE.fixes_value
 
 #print axioms KCore.CE.holds_binder_fixed
 #print axioms KCore.CE.holds_den_fixed
 #print axioms KCore.CE.holds_entails_fixed
+#print axioms KCore.CE.holdsAt_den_fixed
+#print axioms KCore.CE.holds_den_bound
 #print axioms KCore.CE.fixes_value_read
 #print axioms KCore.CE.fixes_value
 
