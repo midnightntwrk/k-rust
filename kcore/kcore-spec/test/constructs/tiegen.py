@@ -718,6 +718,10 @@ def form_class(s, raw, builtin, laws=(), open_laws=(), raw_names=(), at_values=(
     `at_values`: the user lemmas the caller names as holding at values only; `total_params`: the
     names of the parameter symbols without `impl` that the text declares total
     (`Definition.totalParams`)."""
+    # a sentence applying a head Γ lacks: no item of Γ states anything of that head and H gives it
+    # no value, so no class with a direction holds it. The class is not what the text owes: where
+    # eliminating the head fixes a value of a symbol of Γ (findChar's equation, domains.md 1891,
+    # applying `ite{SortInt}`: the condition `Semantics.findCharEq` on H), that is owed apart.
     if s["absent"]:
         return "no direction"
     if s["idx"] in laws:
