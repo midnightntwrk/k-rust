@@ -273,6 +273,7 @@ differs f2-examples/mapl.kompile.kore
 cannot f2-examples/mlag.kompile.kore
 cannot f2-examples/mlallexp.kompile.kore
 differs f2-examples/mlandc.kompile.kore
+differs f2-examples/mlandfn.kompile.kore
 differs f2-examples/mlandt.kompile.kore
 differs f2-examples/mlandv.kompile.kore
 differs f2-examples/mlbot.kompile.kore
