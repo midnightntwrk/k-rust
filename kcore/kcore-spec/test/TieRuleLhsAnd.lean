@@ -20,14 +20,21 @@
     `left_eq`: Γ's axiom is `\rewrites(K[d(G, b()) ∧ X] ∧ ⊤ ∧ ⌈R⌉, R)`. `left_text`, `left_tie`:
     `K[X ∧ d(G, b())] ∧ ⊤` is the left argument of the text's `\rewrites`. `tie`: `rule_and_as`:
     the two left sides have the same elements. `at_rule`: Γ's left side is the text's and `⌈R⌉`.
+    The sentence (104 of the user module, `U.ax104`), for every H: it is the item of
+    `\rewrites(left, R)` at the table of Γ's axiom `p0`, the indices of G and X exchanged
+    (`rule_text0`, kernel). `rule_from_text` (W1): Γ's rule item is a consequence of the sentence
+    alone. `rule_w2` (W2): in a model of Γ the sentence holds where `⌈R⌉`, the conjunct Γ's left
+    side adds, holds wherever the text's left side holds (under the guards).
   - Γ's axiom and the text's sentence have the same right side and no variable of Γ's left side is
     bound beyond the rule's own, so Γ's axiom `∀x̄. (L' ∧ ⌈R⌉ → •R)` is the text's
-    `∀x̄. (L → •R)` with the premise `⌈R⌉` every rule's axiom carries (argued from `at_rule`; a
-    statement at the level of the sentences' validity is not written here).
+    `∀x̄. (L → •R)` with the premise `⌈R⌉` every rule's axiom carries (`Var`: `rule_from_text`,
+    `rule_w2`; `Ceil`, `Equals`: argued from `at_rule`, no statement at the level of the sentences'
+    validity is written here).
   - The theorems hold at any table and leave as premises what `rule_and_pred` lists of the table
     and the interpretation: definedness, the sorts' patterns, every element of t in KItem, every
     element of `K[t]` in the top cell's sort, and (Ceil) every element of go(X) in Exp. Nothing here
-    relates the table of Γ's axiom to the table of the text's sentence beyond `left_tie`'s renaming.
+    relates the table of Γ's axiom to the table of the text's sentence beyond `left_tie`'s renaming
+    and `Var`'s `rule_text0`.
 -/
 import KcoreSpec
 
@@ -341,6 +348,62 @@ theorem at_rule {M : Type} {I : Interpretation KoreAML.Sym M} (tbl : VarTable) (
       (tr ⟨tbl, []⟩ left).interpret I e m ∧ (tr ⟨tbl, []⟩ (.ceil topC topC R)).interpret I e m := by
   rw [and3_iff, tie tbl e m]
 
+/-! ### The rule's sentence (104), for every H: W1 and W2 -/
+
+user_axioms U from "f2-examples/mllhsandv.kompile.kore" module "E3-ML-RULE-LHS-AND"
+
+noncomputable abbrev cH (H : HookParams) : Semantics := c.withHooks H
+
+/-- `tr s`: the item `Theory.ofDefinition kore` holds for the sentence. -/
+noncomputable def trS (ad : AxiomDecl) : Item := trAxiom kore.symbolDecls kore.aliasNames ad
+
+/-- Γ's axiom of the rule. -/
+noncomputable def p0 : Kore.Pattern := prioRuleK c rz
+
+theorem ruleItems_eq : ruleItems c = [trAxiom [] [] ⟨0, "kernel", ⟨[], p0, []⟩⟩] := by kernel_rfl
+
+theorem p0_parts : TieRuleLhs.rwParts p0 =
+    some (topC, .and topC [K.fill (.and S [p, .var (.evar x)]), E, .ceil topC topC R], R) := by
+  unfold p0; rw [left_eq]; rfl
+
+/-- The free variables of the text's form. -/
+def fT : List VarKey := (freeOf [] (.rewrites topC left R)).eraseDups
+
+/-- **The text's sentence 104 is the item of `\rewrites{C}(left, R)` at the table of Γ's axiom**
+(kernel, under the exchange of the indices of G and X, which the text holds in the other order). -/
+theorem rule_text0 : TiePair.renSeq (TieRuleLhs.itemAt (tableOf [] p0) fT topC left R) [(1, 5), (2, 1), (5, 2)] =
+    some (trS U.ax104).pat := by
+  decide +kernel
+theorem fT_free0 : fT.all (fun k => (freeOf [] p0).eraseDups.contains k) = true := by decide +kernel
+theorem free_sub0 : ∀ k ∈ (freeOf [] p0).eraseDups, k ∈ fT := by decide +kernel
+
+/-- **W1 for the rule, and the converse for `ruleItems`**: Γ's one rule item is a consequence of
+sentence 104, for every H: every element of Γ's left side is one of the text's (`at_rule`). -/
+theorem rule_from_text (H : HookParams) :
+    ∀ it ∈ ruleItems (cH H), TiePair.Texts [(trS U.ax104).pat] ⊧ it.pat := by
+  intro it hit M _ I hI
+  rw [TiePair.ruleItems_withHooks, ruleItems_eq, List.mem_singleton] at hit
+  subst hit
+  have hD : DefOK I := TiePair.defOK_texts hI
+  exact TieRuleLhs.rule_w1 hD p0_parts rule_text0 fT_free0 (hI _ (Or.inl (List.mem_singleton_self _)))
+    fun e _ _ a ha => ((at_rule (tableOf [] p0) e a).mp ha).1
+
+/-- **W2 for the rule, with the guard**: in a model of Γ, sentence 104 holds where, at each
+valuation at which the guards of its variables hold, `⌈R⌉` (the conjunct Γ's left side adds) holds
+wherever the text's left side holds, for every H. -/
+theorem rule_w2 (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP Γ (cH H))
+    (hR : ∀ (e : Valuation M) (m : M), (∀ k ∈ fT, (guardOf (tableOf [] p0) k).interpret I e m) →
+      ∀ a, (tr ⟨tableOf [] p0, []⟩ left).interpret I e a →
+        (tr ⟨tableOf [] p0, []⟩ (.ceil topC topC R)).interpret I e a) :
+    I ⊧ᴵ (trS U.ax104).pat := by
+  have hD := defOK hI
+  have hit : trAxiom [] [] ⟨0, "kernel", ⟨[], p0, []⟩⟩ ∈ ruleItems (cH H) := by
+    rw [TiePair.ruleItems_withHooks, ruleItems_eq]; exact List.mem_singleton_self _
+  have hg : I ⊧ᴵ (trAxiom [] [] ⟨0, "kernel", ⟨[], p0, []⟩⟩).pat :=
+    hI _ (Or.inl (Or.inr (Or.inl ⟨_, hit, rfl⟩)))
+  exact TieRuleConnText.rule_w2_sides hD p0_parts rule_text0 free_sub0 hg
+    (fun e m hgs a ha => (at_rule (tableOf [] p0) e a).mpr ⟨ha, hR e m hgs a ha⟩) (fun _ _ _ _ h => h)
+
 end Var
 
 end TieRuleLhsAnd
@@ -366,3 +429,8 @@ end TieRuleLhsAnd
 #print axioms TieRuleLhsAnd.Equals.left_tie
 #print axioms TieRuleLhsAnd.Var.tie
 #print axioms TieRuleLhsAnd.Var.left_tie
+#check @TieRuleLhsAnd.Var.rule_text0
+#check @TieRuleLhsAnd.Var.rule_from_text
+#check @TieRuleLhsAnd.Var.rule_w2
+#print axioms TieRuleLhsAnd.Var.rule_from_text
+#print axioms TieRuleLhsAnd.Var.rule_w2
