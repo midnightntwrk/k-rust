@@ -77,6 +77,47 @@ def symApp (c : Semantics) (f : Sym) (args : List Kore.Pattern) : Kore.Pattern :
   | some X => .app ⟨⟨"Lblite"⟩⟩ [KoreAML.srt X] args
   | none => .app ⟨⟨c.symName f⟩⟩ [] args
 
+/-- `symApp` writes a symbol named `n` at the head `h` and the sort names `xs`: `n` itself at no
+sort, or the head and the sort names the decoder reads from `n` (`instDecode?`). -/
+def _root_.KCore.InstHeadOf (n h : String) (xs : List String) : Prop :=
+  (xs = [] ∧ h = n) ∨ (xs ≠ [] ∧ instDecode? n = some (h, xs))
+
+/-- `symApp c f` applies one head at one list of sorts, whatever the arguments: the symbol's name
+at no sort, or the head and the sorts the decoder reads from the name. -/
+theorem symApp_head (c : Semantics) (f : Sym) :
+    ∃ h xs, InstHeadOf (c.symName f) h xs ∧
+      ∀ ps, symApp c f ps = .app ⟨⟨h⟩⟩ (xs.map KoreAML.srt) ps := by
+  unfold symApp
+  cases hX : iteSort? (c.symName f) with
+  | some X => exact ⟨"Lblite", [X], .inr ⟨List.cons_ne_nil _ _, iteSort?_eq_some.1 hX⟩, fun _ => rfl⟩
+  | none => exact ⟨c.symName f, [], .inl ⟨rfl, rfl⟩, fun _ => rfl⟩
+
+/-- A symbol whose name the decoder reads as no instance is applied at its name, at no sort. -/
+theorem symApp_noInst {c : Semantics} {f : Sym} {ps : List Kore.Pattern}
+    (h : instDecode? (c.symName f) = none) : symApp c f ps = .app ⟨⟨c.symName f⟩⟩ [] ps := by
+  unfold symApp; rw [iteSort?_none_of_instDecode h]
+
+/-- `KoreAML.srt` is injective. -/
+theorem srt_inj_iha {a b : String} (h : KoreAML.srt a = KoreAML.srt b) : a = b := by
+  simpa [KoreAML.srt] using h
+
+/-- `KoreAML.srt` is injective on lists. -/
+theorem srts_inj_iha : ∀ {xs ys : List String}, xs.map KoreAML.srt = ys.map KoreAML.srt → xs = ys
+  | [], [], _ => rfl
+  | [], _ :: _, h => by simp at h
+  | _ :: _, [], h => by simp at h
+  | x :: xs, y :: ys, h => by
+    simp only [List.map_cons, List.cons.injEq] at h
+    rw [srt_inj_iha h.1, srts_inj_iha h.2]
+
+/-- Two writings of `symApp c f` as one head at sorts agree on the head and on the sorts. -/
+theorem symApp_writes_eq_iha {c : Semantics} {f : Sym} {h h' : String} {xs xs' : List String}
+    (hw : ∀ ps, symApp c f ps = .app ⟨⟨h⟩⟩ (xs.map KoreAML.srt) ps)
+    (hw' : ∀ ps, symApp c f ps = .app ⟨⟨h'⟩⟩ (xs'.map KoreAML.srt) ps) : h = h' ∧ xs = xs' := by
+  have he := (hw []).symm.trans (hw' [])
+  simp only [Kore.Pattern.app.injEq] at he
+  exact ⟨by simpa using he.1, srts_inj_iha he.2.1⟩
+
 /-! ## 1. The signature -/
 
 /-- A sort as a declaration without parameters, under its KORE name `SortX`. -/
@@ -93,6 +134,12 @@ def symArityItem (c : Semantics) (k : CtorSig) : KoreAML.Item :=
       pat := KoreAML.appList (KoreAML.sym (.symbol "Lblite") ⬝ sortP X)
           (k.args.map fun s => KoreAML.inhOf (sortP (c.sortName s))) ⊆⊆
         KoreAML.inhOf (sortP (c.sortName k.result)) }
+
+/-- A symbol whose name the decoder reads as no instance has the arity item of its declaration. -/
+theorem symArityItem_noInst {c : Semantics} {k : CtorSig} (h : instDecode? (c.symName k.name) = none) :
+    symArityItem c k =
+      KoreAML.arityItem ⟨c.symName k.name, [], k.args.map (srtOf c), srtOf c k.result, false, []⟩ := by
+  unfold symArityItem; rw [iteSort?_none_of_instDecode h]
 
 /-- The signature's items: definedness; per sort, that its name denotes one sort (G-sort); per
 symbol, its arity; the arity and definedness of the definedness symbols; the arity of next at the

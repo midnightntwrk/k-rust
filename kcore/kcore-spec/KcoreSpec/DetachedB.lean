@@ -53,6 +53,25 @@ def appOK (f : Sym) : Bool :=
   | some X => !isName c ss ks (.symbol "Lblite") && !isName c ss ks (.sort ("Sort" ++ X))
   | none => kOK c ss ks f
 
+/-- `appOK` reads the head `symApp` writes and its sorts. -/
+theorem appOK_of_symApp {f : Sym} {h : String} {xs : List String}
+    (hw : ∀ ps, symApp c f ps = .app ⟨⟨h⟩⟩ (xs.map KoreAML.srt) ps) :
+    appOK c ss ks f = (!isName c ss ks (.symbol h) && xs.all fun x => !isName c ss ks (.sort ("Sort" ++ x))) := by
+  unfold appOK
+  cases hX : iteSort? (c.symName f) with
+  | some X =>
+    obtain ⟨rfl, rfl⟩ := symApp_writes_eq_iha hw (h' := "Lblite") (xs' := [X])
+      (fun ps => by unfold symApp; rw [hX]; rfl)
+    simp
+  | none =>
+    obtain ⟨rfl, rfl⟩ := symApp_writes_eq_iha hw (h' := c.symName f) (xs' := [])
+      (fun ps => by unfold symApp; rw [hX]; rfl)
+    simp [kOK]
+
+/-- A symbol whose name the decoder reads as no instance is read by its name (`kOK`). -/
+theorem appOK_noInst {f : Sym} (h : instDecode? (c.symName f) = none) : appOK c ss ks f = kOK c ss ks f := by
+  unfold appOK; rw [iteSort?_none_of_instDecode h]
+
 /-- The values of a sort outside the names are built from symbols and sorts outside the names:
 constructors, overloading symbols and parameter symbols with their argument sorts, both sorts of
 a subsort pair, the injection, and the symbols and entry sorts of a collection sort outside the
