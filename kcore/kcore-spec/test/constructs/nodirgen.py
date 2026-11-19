@@ -28,7 +28,10 @@ section 4.2):
 - the user module is cut into blocks of STEP sentences (`kore_term … cut`), and at the bounds of the
   runs of sentences whose equations the model reads (the listed equations and those of `order`'s
   constants, joined across sentences that give no equation); a run longer than STEP is cut into
-  near-equal blocks. `eqsN` is the runs' blocks' equations, a sublist of `S.eqs` (`eqsN_sub`);
+  near-equal blocks. `eqsN` is the runs' blocks' equations, a sublist of `S.eqs` (`eqsN_sub`): the
+  blocks are walked once, each one's equations dropped or kept by a step matched on `Scan.append`
+  (`walk_term`), and only the kept blocks are re-associated as `eqsN` nests them, so the proof is
+  linear in the number of blocks and raises no budget;
 - the names are compared with Γ's by codes (`gSymCodes`, `lacked_codes`), the names' sorts are read
   from a table checked once (`tblL`, `tbl_ok`, `nodR_eq_tbl`);
 - each decision over a list is cut into blocks of n entries (`decide_all_blocks n k`, k the number of
@@ -52,9 +55,6 @@ import tiegen  # noqa: E402  (camel, WRAP, KS)
 KS = tiegen.KS
 CONF = os.path.join(HERE, "nodirgen.toml")
 STEP = 50
-# the most blocks `eqsN_sub`'s `simp only` unfolds within the default step and heartbeat budgets (measured: 55
-# do, 74 do not); above, the file raises both
-SIMP_BLOCKS = 55
 # the checks the probe evaluates on the data, each one of the file's decisions
 CHECKS = ["coreOK", "noRaw", "obligations", "iteFree", "sents", "absent", "names", "rank", "hord", "fixed", "tbl",
           "sorts", "eqs", "funs", "fsLacked", "funAt", "funVal"]
@@ -386,6 +386,21 @@ def layout_cuts(n, runs, recorded=None):
     return cuts
 
 
+def walk_term(nb, kept):
+    """`eqsN_sub`'s walk of `scanAll`'s `nb` blocks, left-nested appends of `stage.scan0` to
+    `stage.scan{nb-1}`: a proof that the kept blocks' equations, appended left-nested, are a sublist
+    of `scanAll.eqs`. The first kept block is the whole scan (`List.Sublist.refl`, block 0) or the
+    right part of an append (`first`); each later block is dropped (`drop`) or kept (`keep`). One
+    step per block, each matched syntactically on `Scan.append`: linear in `nb`."""
+    kept = sorted(set(kept))
+    if not kept or not all(0 <= i < nb for i in kept):
+        raise Refused(f"no kept block or a kept block outside the {nb} blocks: {kept}")
+    steps = ["keep" if i in kept else "drop" for i in range(kept[0] + 1, nb)]
+    base = "List.Sublist.refl _" if kept[0] == 0 else "first"
+    t = " <| ".join(list(reversed(steps)) + [base])
+    return textwrap.fill(t, width=96, subsequent_indent="    ", break_long_words=False, break_on_hyphens=False)
+
+
 def blocks(n, k):
     """`decide_all_blocks n k` over a list of `k`… entries: the full blocks before the last."""
     return max(0, (k - 1) // n)
@@ -632,29 +647,23 @@ theorem last_eq : kore.modules.getLast? = some m := by kernel_rfl
     w(f"""/-- The equations the model reads: {reads}, as the account's scan reads them. -/
 noncomputable def eqsN : List RawEqn := {eqsN}
 """)
-    G = [f"({chain(g)})" if g else None for g in gaps]
-
-    def tail(j):
-        if j == k - 1:
-            return f"{rnames[j]} ++ {G[k]}" if G[k] else rnames[j]
-        return f"{rnames[j]} ++ ({G[j + 1]} ++\n      ({tail(j + 1)}))"
-    rhs = f"{G[0]} ++ ({tail(0)})" if G[0] else tail(0)
-
-    def q(j):
-        """A proof of `rnames[j] ++ (… ++ rnames[k-1]) <+ rnames[j] ++ (gap ++ (… ++ rnames[k-1] ++ gap))`."""
-        if j == k - 1:
-            return "List.sublist_append_left _ _" if G[k] else "List.Sublist.refl _"
-        return (f"List.Sublist.append (List.Sublist.refl _)\n    "
-                f"(({q(j + 1)}).trans (List.sublist_append_right _ _))")
-    top = f"({q(0)}).trans (List.sublist_append_right _ _)" if G[0] else q(0)
-    # simp's default step and heartbeat budgets unfold rdr-config-deep's 55 blocks; e2-cells-stream's 74 exceed both
-    simp_cfg = " (config := { maxSteps := 1000000 })" if nb > SIMP_BLOCKS else ""
-    w(f"""{"set_option maxHeartbeats 4000000 in" + chr(10) if simp_cfg else ""}/-- **The equations the model reads are among the account's.** -/
+    kept = sorted(i for bs in runB for i in bs)
+    walk = walk_term(nb, kept)
+    keptL = nest([f"stage.scan{i}.eqs" for i in kept], " ++ ")
+    # the kept blocks re-associated as `eqsN` nests them (with fewer than three, there is nothing to re-associate)
+    assoc = ", List.append_assoc" if len(kept) >= 3 else ""
+    w(f"""/-- **The equations the model reads are among the account's.** -/
 theorem eqsN_sub : eqsN.Sublist S.eqs := by
-  have h : scanAll.eqs = {rhs} := by
-    simp{simp_cfg} only [scanAll, Scan.append, {', '.join(rnames)}, List.append_assoc]
-  rw [scan_eq, h, eqsN]
-  exact {top}
+  -- `scanAll` walked once, block by block: each block's equations dropped or kept
+  have drop : ∀ {{l : List RawEqn}} {{a b : Scan}}, l.Sublist a.eqs → l.Sublist (a.append b).eqs :=
+    fun h => List.sublist_append_of_sublist_left h
+  have keep : ∀ {{l : List RawEqn}} {{a b : Scan}}, l.Sublist a.eqs → (l ++ b.eqs).Sublist (a.append b).eqs :=
+    fun h => List.Sublist.append h (List.Sublist.refl _)
+  have first : ∀ {{a b : Scan}}, b.eqs.Sublist (a.append b).eqs := List.sublist_append_right _ _
+  have e : eqsN = {keptL} := by
+    simp only [eqsN, {', '.join(rnames)}{assoc}]
+  rw [scan_eq, e]
+  exact {walk}
 
 /-- The axioms of the user module, in text order. -/
 theorem userAxioms_eq : kore.axiomDecls.filter (·.module == "{d["H"]["module"]}") = U.all := by kernel_rfl
@@ -965,6 +974,15 @@ def self_test():
     assert blocks(70, 273) == 3 and blocks(22, 66) == 2 and blocks(10, 67) == 6 and blocks(13, 202) == 15
     assert blocks(5, 0) == 0 and blocks(5, 5) == 0 and blocks(5, 6) == 1
     assert layout_cuts(300, [(120, 190)]) == [50, 100, 120, 155, 190, 200, 250]
+    assert walk_term(1, [0]) == "List.Sublist.refl _"
+    assert walk_term(3, [0, 1]) == "drop <| keep <| List.Sublist.refl _"
+    assert walk_term(4, [1, 3]) == "keep <| drop <| first"
+    assert walk_term(5, [4]) == "first"
+    try:
+        walk_term(5, [5])
+        raise AssertionError("a kept block outside the blocks accepted")
+    except Refused:
+        pass
     try:
         layout_cuts(300, [(120, 190)], [50, 100, 150])
         raise AssertionError("cuts that split a run's bound accepted")

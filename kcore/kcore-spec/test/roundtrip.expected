@@ -256,6 +256,7 @@ differs f2-examples/keyfn-both.kompile.kore
 differs f2-examples/keyfn-partial.kompile.kore
 differs f2-examples/keyfn.kompile.kore
 exact f2-examples/kimp.kore
+differs f2-examples/kk-ceil-lemma-fn-undecided.kompile.kore
 differs f2-examples/kresfn.kompile.kore
 differs f2-examples/kvref.kompile.kore
 differs f2-examples/kvtimeout.kompile.kore

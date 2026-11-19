@@ -3,12 +3,13 @@
 
 Usage (from anywhere; the library and `kcore` built first):
   python3 -I test/constructs/tiegen.py FIXTURE [--sig-chunk N] [--decl-chunk N] [--chunk N]
-                                               [--hand consistency=FILE] [--at-values N,...] [--cons-head] [--wf-parts]
+                                               [--hand consistency=FILE] [--at-values N,...] [--reads-h N,...]
+                                               [--cons-head] [--wf-parts]
                                                [--split] [--account-sorted] [--heads-literal] [--heads-codes]
                                                [--attrs-parts] [--attrs-blocks N] [--decl-parts] [--fn-blocks N]
                                                [--absent-file] [--builtin-decls] [--decl-syms-literal] [--nojunk-eq]
-                                               [--nojunk-blocks N] [--lists-by-class] [--heads-plain] [--fn-readings]
-                                               [--out DIR] [--print]
+                                               [--nojunk-blocks N] [--lists-by-class] [--heads-plain] [--sig-positions]
+                                               [--fnfun-chunk N] [--decl-positions] [--fn-readings] [--out DIR] [--print]
   (the probe, a run of the Lean definitions on the text, is stopped after $TIEGEN_PROBE_TIMEOUT seconds, 900 by default)
   python3 -I test/constructs/tiegen.py --self-test   (the law search below, on three fixtures)
 
@@ -100,6 +101,21 @@ listed sentences of it, in their order, are a sublist of its indices), joined by
 deciding the statement directly computes `classOf` and scans it once per listed sentence, which over
 some thousand sentences exceeds a 12 GiB scope; `lists_sub` reads each class's list once. A text whose
 listed sentences of a class are not in the order of the class's indices is refused.
+--sig-positions writes the origin of each item of `sigItems c` as a literal (`sigPos`): its position in
+the text's signature, or, for an item the text's signature does not state, the registry sort or the
+position in `hookSigs` of the hooked symbol whose surplus item it is, or next's arity; the `sigE` ranges
+are decided on `sigFromAt`, which compares each item with the one item its origin names, and
+`sig_origin` follows (`sigFromAt_sound`, `tieSigPos_all`), its statement unchanged. Otherwise each item
+is searched for in the whole of the text's signature and then in each disjunct of `surplusItem`, each of
+which scans the text's declarations.
+--decl-positions writes the position in `sigItems c` of each item of `declItems` as a literal
+(`declPos`); the `declsE` ranges are decided on `inSigItemsAt`, which compares each item with the one
+item of `sigItems c` at its position, and `decls_in_sig` follows (`inSigItemsAt_sound`,
+`tieDeclPos_all`, `decl_sizes`), its statement unchanged. Otherwise each item is searched for in
+`sigItems c` up to its own position.
+--fnfun-chunk N decides `fnFun_checked` and `fnFun_trS` (the function functional sentences as sort
+predicates' `functional` sentences) by ranges of N sentences, each its own kernel decision
+(`tieAll_range`): `fnFunOK` searches the sort predicates for each sentence's.
 --builtin-decls also states, after `decls_entailed`, that Γ entails the G-arity item of each symbol
 declaration of the text with a K builtin file's `Source`, without a `hook` attribute and without sort
 parameters, of a symbol Γ has (`builtinDeclNames`, a literal list of names; `builtinDeclNames_has`;
@@ -150,6 +166,16 @@ probe then also writes, per item, whether the empty-alternative reading ties it 
 Without the flag the output is unchanged.
 --at-values N,... names the user lemmas (by `AxiomDecl.index`) that are of the class `user lemma at
 values` in place of `user lemma`; an index that is no user lemma of the text is refused.
+--reads-h N,... names the user lemmas (by `AxiomDecl.index`) that are of the class `parameter lemma`
+in place of `user lemma` though they apply no parameter symbol without `impl`: lemmas whose truth at
+values reads a value the interpretation gives, by a function of the semantics at argument lists none
+of its clauses decides (Γ states the function's rest from H) or by a hook at a point its text leaves
+open. No shape of the sentence decides that (it depends on where the clauses and the hook's text
+decide); the author names the index, and the tie decides of it the necessary condition
+`appliesHRead` (KcoreSpec/TieParamLemma.lean; `paramlemma_reads_h`): it applies, at a head Γ has, a
+symbol through which evaluation may read the interpretation (`Parse.lawReadsFL`). Refused: an index
+that is no user lemma of the text (a parameter lemma by its shape among them), one `--at-values`
+names as well, and one whose sentence fails `appliesHRead` (it reads nothing H gives).
 
 It refuses, with the reason, a fixture without a kompiled text, a text whose `kcore account` is not
 the fixture's account.txt, a text the reader refuses, a text whose obligations `kcore gen --core`
@@ -197,18 +223,23 @@ What it states where the text:
   `law_not_item`, `law_account` (the class `function law`);
 - has a lemma applying a parameter symbol no hook implements (`isParamLemma`, or a `simplification`
   sentence of K's builtin library applying one, which the reader reads as the library's text and of
-  which Γ holds no item; the class `parameter lemma`, direction hypothesis): `paramlemma_account`, and `ParamLemmaWitnessAtValues`, one H at
+  which Γ holds no item; the class `parameter lemma`, direction hypothesis), or a user lemma
+  `--reads-h` names: `paramlemma_account`, and `ParamLemmaWitnessAtValues`, one H at
   which `FnHyp` holds and every parameter lemma holds at values (`EntailsAtValues`), stated
-  and owed (`owed` in the summary); and
+  and owed (`owed` in the summary);
   `paramlemma_heads`: every `simplification` equation of the user module whose left side's head is
-  a parameter symbol without `impl` is in that class;
+  a parameter symbol without `impl` is in that class; and, for the lemmas `--reads-h` names,
+  `paramlemma_reads_h`: each applies a symbol through which evaluation may read H (`appliesHRead`);
 - has a lemma of a user's file that applies no such parameter symbol (the reader's class inert
   simplification, a `Source` outside K's installation): the class `user lemma` (direction entailed),
   or `user lemma at values` (direction atValues) for the indices `--at-values` names;
   `userlemma_account`, and the Props `UserLemmaEntailed` (Γ entails each for every H) and
   `UserLemmaAtValues` (`EntailsAtValues` of each for every H), stated and owed (`owed` in the
   summary). tiegen cannot decide which of the two holds: the default is the stronger class, whose
-  proof fails where the lemma holds at values only, and the author then names the index. A user's
+  proof fails where the lemma holds at values only, and the author then names the index; it fails
+  as well where the lemma's truth at values reads a value H gives (a function's rest, a hook's open
+  point), which some H meet and others refute, and the author then names the index by `--reads-h`
+  (the class `parameter lemma`). A user's
   equation of a symbol whose value the registry gives (`Parse.regLemmaEqn`, no `simplification`
   needed: the attribute does not change what an equation states) is out of Γ as well and rests on
   that symbol's graph, which Γ states at values: the class `user lemma at values` without
@@ -377,19 +408,23 @@ OPEN_FUNCTIONAL_CLASS = "open generator functional"
 # at values where H gives the parameter a value at every argument list of its sorts, which the
 # statements take as the hypothesis `ParamsTotal` (direction hypothesis).
 PARAM_FUNCTIONAL_CLASS = "parameter functional"
-# The class of a lemma the reader leaves out of Γ that applies a parameter symbol no registry hook
-# interprets (`isParamLemma`, or a `simplification` sentence of K's builtin library, of which Γ holds
-# no item, applying one): its truth depends on the interpretation, so it is owed as a hypothesis
-# on H (direction hypothesis), at values: Γ states the parameter's graph at values only (`ΓDomains`),
-# so a model of Γ may hold an element of an unconfined sort that is no value's, at which no item of Γ
-# constrains the parameter, and the sentence at every valuation can fail there at every H. The tie of
+# The class of a lemma the reader leaves out of Γ (or a `simplification` sentence of K's builtin
+# library, of which Γ holds no item) whose truth at values reads a value the interpretation gives: by
+# its shape where it applies a parameter symbol no registry hook interprets (`isParamLemma`,
+# `isLibParamLemma`), or named by `--reads-h` where it applies a function at argument lists none of
+# its clauses decides (Γ states the function's rest from H) or a hook at a point its text leaves open,
+# the probe deciding `appliesHRead` of it. Its truth depends on the interpretation, so it is owed as a
+# hypothesis on H (direction hypothesis), at values: Γ states the parameter's graph, a function's rest
+# and a hook's open point at values only (`ΓDomains`, `ΓFallback`), so a model of Γ may hold an element
+# of an unconfined sort that is no value's, at which no item of Γ constrains them, and the sentence at
+# every valuation can fail there at every H. The tie of
 # a text with one owes one H at which `FnHyp` holds and every one of them holds at the
 # valuations sending its variables to values (`ParamLemmaWitnessAtValues`, `EntailsAtValues`), since
 # a hypothesis no H satisfies would tie a text without a model.
 PARAM_LEMMA_CLASS = "parameter lemma"
-# The classes of a lemma of a user's file that the reader leaves out of Γ (inert simplification) and
-# that applies no parameter symbol without `impl`: Γ at every H either entails it or, with it, has
-# no model. `user lemma` (direction entailed): Γ entails it at every valuation; `user lemma at
+# The classes of a lemma of a user's file that the reader leaves out of Γ (inert simplification),
+# that applies no parameter symbol without `impl` and that `--reads-h` does not name: owed for every
+# H. `user lemma` (direction entailed): Γ entails it at every valuation; `user lemma at
 # values` (direction atValues): it holds at the valuations sending its variables to values, because
 # it rests on an interpreted symbol's graph, which Γ states at values. Neither has a generated
 # theorem: the tie states what is owed (`UserLemmaEntailed`, `UserLemmaAtValues`), proved by hand.
@@ -802,9 +837,33 @@ def tgNjOrder (gs : List KoreAML.Gen) : List Kore.Pattern → Option (List Nat)
   IO.println s!"H sigBad {(si.zip (List.range si.length)).filter (!sigFrom ·.1) |>.map (·.2)}"
   let nextIt := (KoreAML.nextArityItem [] (srtOf c topCellSort)).pat
   IO.println s!"H sigBadNext {(si.filter (!sigFrom ·)).all (·.pat == nextIt)}"
+  -- each item's origin (`--sig-positions`): its first position in the text's signature, else the
+  -- registry sort or the hooked symbol of `hookSigs` whose surplus item it is (`surplusItem`'s
+  -- disjuncts), else next's arity
+  if @SIGPOS@ then
+    for it in si do
+      match tsig.findIdx? (·.pat == it.pat) with
+      | some j => IO.println s!"SP t {j}"
+      | none =>
+        let rs := (List.range nRegSorts).find? fun s =>
+          let n := "Sort" ++ regSortNames.getD s ""
+          !(k.sortDecls.any fun sd => sd.name == n && sd.params.isEmpty) &&
+            it.pat == (KoreAML.sortConstantItem ⟨n, [], false⟩).pat
+        let hs := (List.range hookSigs.length).find? fun j => (hookSigs[j]?).any fun h =>
+          let n := regSymNames.getD h.name ""
+          !(k.symbolDecls.any fun sd => sd.name == n && sd.params.isEmpty) &&
+            it.pat == (KoreAML.arityItem ⟨n, [], h.args.map regSrtK, regSrtK h.result, false, []⟩).pat
+        match rs, hs with
+        | some s, _ => IO.println s!"SP s {s}"
+        | none, some j => IO.println s!"SP h {j}"
+        | none, none => IO.println s!"SP {if it.pat == nextIt then "n" else "x"}"
   IO.println s!"H textNext {k.axiomDecls.any fun ad => !(nextSortsOf ad.ax.pattern).isEmpty}"
   IO.println s!"H nDecl {declItems.length}"
   IO.println s!"H declAll {declItems.all fun it => si.any (·.pat == it.pat)}"
+  -- each declaration item's first position in Γ's signature (`--decl-positions`)
+  if @DECLPOS@ then
+    for it in declItems do
+      IO.println s!"DP {(si.findIdx? (·.pat == it.pat)).map toString |>.getD "x"}"
   IO.println s!"H declCounts {k.sortDecls.length} {plainSorts.length} {k.symbolDecls.length} {plainSyms.length} {(k.symbolDecls.filter fun sd => !sd.params.isEmpty).length} {(k.symbolDecls.filter fun sd => sd.params.isEmpty && !hasSym sd.name).length}"
   IO.println s!"H kitemCons {decide (Srt.kitem ∈ consSorts c)} {(c.gens Srt.kitem).isEmpty}"
   IO.println s!"H kitemPerm {kg.isPerm ((c.gens Srt.kitem).map (Gen.toK c))} {decide ((c.gens Srt.kitem).map (Gen.toK c) ≠ kg)}"
@@ -945,6 +1004,9 @@ def tgNjOrder (gs : List KoreAML.Gen) : List Kore.Pattern → Option (List Nat)
     let pl := isParamLemma c (Parse.classify nmK (.axiom ad.ax)) (.axiom ad.ax) || (rl && appliesNoImplParam c ad.ax.pattern) || lpl
     let simp := Parse.classify nmK (.axiom ad.ax) == .inert .simplification
     let usrc := Parse.isUserSource ad.ax.attributes
+    -- a lemma `--reads-h` names that applies a symbol through which evaluation may read the
+    -- interpretation (`appliesHRead`), the condition on such an index; decided of those only
+    let hr := (@READSH@ : List Nat).contains ad.index && appliesHRead c ad.ax.pattern
     -- an overload axiom Γ entails (`tieOvlEqB`), and a no-confusion sentence of two symbols that meet
     -- at values (`tieOvlNcB`), which Γ refutes; neither where the semantics has no overloading symbol
     let ovlEq := !c.ovls.isEmpty && tieOvlEqB c ad.ax
@@ -962,7 +1024,7 @@ def tgNjOrder (gs : List KoreAML.Gen) : List Kore.Pattern → Option (List Nat)
         if S == srtOf c Srt.kitem && kitemOmitB c xs gs &&
             p == (KoreAML.Cons.noJunkItem (c.sortName Srt.kitem) (gs.map (Gen.toK c))).pat then xs else []
       | _ => []
-    IO.println s!"S {ad.index}\t{absent}\t{fnJ}\t{cons}\t{plain}\t{consItem}\t{triv}\t{kitem}\t{rw}\t{eh}\t{kind eh}\t{fh}\t{kind fh}\t{AttrsAgree.prioOf ad.ax.attributes}\t{pl}\t{simp}\t{usrc}\t{rl}\t{ovlEq}\t{ovlNc}\t{Parse.isOwnLibrarySentence (.axiom ad.ax)}\t{omitX}"
+    IO.println s!"S {ad.index}\t{absent}\t{fnJ}\t{cons}\t{plain}\t{consItem}\t{triv}\t{kitem}\t{rw}\t{eh}\t{kind eh}\t{fh}\t{kind fh}\t{AttrsAgree.prioOf ad.ax.attributes}\t{pl}\t{simp}\t{usrc}\t{rl}\t{ovlEq}\t{ovlNc}\t{Parse.isOwnLibrarySentence (.axiom ad.ax)}\t{omitX}\t{hr}"
     for x in omitX do
       IO.println s!"KO {ad.index}\t{x}\t{c.sortName x}\t{(Parse.exhibit? c x).isSome}"
     if kitem then
@@ -1018,12 +1080,15 @@ PROBE_READINGS = r'''  for j in List.range fis.length do
     | _, _ => pure ()'''
 
 
-def probe(name, path, um, order="[]", cons_head=False, readings=False):
+def probe(name, path, um, order="[]", cons_head=False, sig_pos=False, decl_pos=False, reads_h=(), readings=False):
     with tempfile.TemporaryDirectory(prefix="tiegen-") as d:
         f = os.path.join(d, "Probe.lean")
         open(f, "w").write(PROBE.replace("@PATH@", os.path.abspath(path)).replace("@MOD@", um)
                            .replace("@ORDER@", f"({order} : List Nat)")
                            .replace("@CONS@", "tchConsB" if cons_head else "tieConsB")
+                           .replace("@SIGPOS@", "true" if sig_pos else "false")
+                           .replace("@DECLPOS@", "true" if decl_pos else "false")
+                           .replace("@READSH@", "[" + ", ".join(map(str, reads_h)) + "]")
                            .replace("@READINGS@", PROBE_READINGS if readings else ""))
         env = dict(os.environ, LEAN_NUM_THREADS="1")
         r = run(WRAP + ["timeout", os.environ.get("TIEGEN_PROBE_TIMEOUT", "900"), "lake", "env", "lean", "-j1", f], cwd=KS, env=env)
@@ -1042,6 +1107,12 @@ def probe(name, path, um, order="[]", cons_head=False, readings=False):
             head["gHeads"].append((f[0], [x for x in f[1:] if x]))
         elif l.startswith("Y "):
             head["gSyms"].append(l[2:])
+        elif l.startswith("DP "):
+            f = l[3:].strip()
+            head.setdefault("declPos", []).append(int(f) if f.isdigit() else None)
+        elif l.startswith("SP "):
+            f = l[3:].split()
+            head.setdefault("sigPos", []).append((f[0], int(f[1]) if len(f) > 1 else None))
         elif l.startswith("A "):
             head["aliases"].append(l[2:])
         elif l.startswith("K "):
@@ -1098,7 +1169,8 @@ def probe(name, path, um, order="[]", cons_head=False, readings=False):
                                     fhk=f[12], prio=int(f[13]), pl=f[14] == "true",
                                     simp=f[15] == "true", usrc=f[16] == "true", rl=f[17] == "true",
                                     ovlEq=f[18] == "true", ovlNc=f[19] == "true", own=f[20:21] == ["true"],
-                                    omit=nums(f[21]) if len(f) > 21 else [])
+                                    omit=nums(f[21]) if len(f) > 21 else [],
+                                    hr=f[22:23] == ["true"])
         elif l.startswith("KO "):
             f = l[3:].split("\t")
             head.setdefault("omit", {}).setdefault(int(f[0]), []).append(
@@ -1132,13 +1204,14 @@ def builtin_symbol_decls(text):
     return names
 
 
-def form_class(s, raw, builtin, laws=(), open_laws=(), raw_names=(), at_values=(), total_params=()):
+def form_class(s, raw, builtin, laws=(), open_laws=(), raw_names=(), at_values=(), total_params=(), reads_h=()):
     """The class a sentence's form and its probe give, or None. `laws`: the sentences that are, as
     written, the reader's laws of functions (`lawPattern`); `open_laws`: those that are Γ's law
     items of open generators (`lawItemsK`); `raw_names`: the open generators' symbol names;
     `at_values`: the user lemmas the caller names as holding at values only; `total_params`: the
     names of the parameter symbols without `impl` that the text declares total
-    (`Definition.totalParams`)."""
+    (`Definition.totalParams`); `reads_h`: the user lemmas the caller names as reading a value the
+    interpretation gives (the class parameter lemma)."""
     # a sentence applying a head Γ lacks: no item of Γ states anything of that head and H gives it
     # no value, so no class with a direction holds it. The class is not what the text owes: where
     # eliminating the head fixes a value of a symbol of Γ (findChar's equation, domains.md 1891,
@@ -1168,6 +1241,8 @@ def form_class(s, raw, builtin, laws=(), open_laws=(), raw_names=(), at_values=(
     # a lemma of a user's file (the reader's inert simplification, a `Source` outside K's
     # installation), whatever its form: with a set variable it is no library lemma
     if s["simp"] and s["usrc"] and not builtin:
+        if s["idx"] in reads_h:
+            return PARAM_LEMMA_CLASS
         return USER_LEMMA_VALUES_CLASS if s["idx"] in at_values else USER_LEMMA_CLASS
     # a user's equation of a symbol whose value the registry gives (`Parse.regLemmaEqn`), applying no
     # parameter symbol without `impl`: it rests on an interpreted symbol's graph, at values
@@ -1209,8 +1284,12 @@ def form_class(s, raw, builtin, laws=(), open_laws=(), raw_names=(), at_values=(
     return None
 
 
-def classify(name, text, sents, laws=(), open_laws=(), raw_names=(), at_values=(), total_params=(), no_impl=()):
+def classify(name, text, sents, laws=(), open_laws=(), raw_names=(), at_values=(), total_params=(), no_impl=(),
+             reads_h=()):
     um, ua = user_axioms(text)
+    both = sorted(set(at_values) & set(reads_h))
+    if both:
+        raise Refused(f"{name}: --at-values and --reads-h both name {', '.join(map(str, both))}: a lemma is of one class")
     if sorted(sents) != [a[0] for a in ua]:
         raise Refused(f"{name}: the probe's user-module sentences are not the text's (indices differ)")
     _, ea = user_axioms(open(ENS_TEXT).read())
@@ -1221,7 +1300,7 @@ def classify(name, text, sents, laws=(), open_laws=(), raw_names=(), at_values=(
     cls, mapped, unmapped = {}, {}, []
     for i, _, s, raw in ua:
         builtin = "/include/kframework/builtin/" in raw
-        fc = form_class(sents[i], raw, builtin, laws, open_laws, raw_names, at_values, total_params)
+        fc = form_class(sents[i], raw, builtin, laws, open_laws, raw_names, at_values, total_params, reads_h)
         # the functional sentence of a parameter without `impl` that the text does not declare total
         # has no class: the reader reads such a sentence only as the declaration (`totalParams`)
         if ("[functional{}()]" in raw and sents[i]["fh"] in no_impl and sents[i]["fh"] not in total_params
@@ -1254,6 +1333,19 @@ def classify(name, text, sents, laws=(), open_laws=(), raw_names=(), at_values=(
         raise Refused(f"{name}: --at-values names {', '.join(map(str, stray))}, no user lemma of the text "
                       f"(a sentence of a user's file that the reader classes inert simplification and that "
                       f"applies no parameter symbol without `impl`)")
+    builtin_of = {i: "/include/kframework/builtin/" in raw for i, _, _, raw in ua}
+    no_lemma = sorted(i for i in reads_h if i not in sents or cls.get(i) != PARAM_LEMMA_CLASS or sents[i]["pl"]
+                      or not (sents[i]["simp"] and sents[i]["usrc"]) or builtin_of.get(i, True))
+    if no_lemma:
+        raise Refused(f"{name}: --reads-h names {', '.join(map(str, no_lemma))}, no user lemma of the text "
+                      f"(a sentence of a user's file that the reader classes inert simplification and that "
+                      f"applies no parameter symbol without `impl`; one that applies one is a parameter lemma by "
+                      f"its shape)")
+    no_read = sorted(i for i in reads_h if not sents[i]["hr"])
+    if no_read:
+        raise Refused(f"{name}: --reads-h names {', '.join(map(str, no_read))}, whose sentence applies no symbol "
+                      f"through which evaluation may read the interpretation (`appliesHRead` fails): its truth at "
+                      f"values reads nothing H gives, so it is no hypothesis on H")
     return um, cls, mapped, unmapped
 
 
@@ -1315,6 +1407,23 @@ def ranges(n, first, chunk):
     return out
 
 
+def pos_join(name, pty, at_p, pred, sound):
+    """The lemma `name`: `pred` holds of each item of a list where `at_p` holds of each item paired
+    with its position (of type `pty`) in a list at least as long, from `sound`, which gives `pred` of
+    an item from `at_p` of it with any position (`--sig-positions`, `--decl-positions`)."""
+    return "\n".join([
+        f"theorem {name} {{l : List Item}} {{ps : List {pty}}} (hl : l.length ≤ ps.length)",
+        f"    (h : (l.zip ps).all {at_p} = true) : l.all {pred} = true := by",
+        "  induction l generalizing ps with",
+        "  | nil => rfl",
+        "  | cons it l ih =>",
+        "    cases ps with",
+        "    | nil => exact absurd hl (by simp)",
+        "    | cons p ps =>",
+        "      simp only [List.zip_cons_cons, List.all_cons, Bool.and_eq_true] at h ⊢",
+        f"      exact ⟨{sound} h.1, ih (by simpa using hl) h.2⟩"])
+
+
 def by_ranges(prefix, lst, pred, rs, lem="tieAllE", named=False):
     """The range theorems of `{lst}.all {pred} = true` over `rs`, each its own kernel decision, and
     the term that joins them. `named`: the join names the list and the predicate at every step, so
@@ -1339,7 +1448,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
              hand=None, chunk=0, at_values=(), cons_head=False, wf_parts=None, split=False,
              account_sorted=None, heads_literal=False, heads_codes=False, attrs_parts=False, decl_parts=False,
              fn_blocks=0, attrs_blocks=0, absent_file=False, builtin_decls=(), decl_syms=False, nojunk_eq=False,
-             nojunk_blocks=0, lists_by_class=False, heads_plain=False, fn_readings=False):
+             nojunk_blocks=0, lists_by_class=False, heads_plain=False, sig_pos=False, fnfun_chunk=0,
+             decl_pos=False, reads_h=(), fn_readings=False):
     """The Lean text of the tie. `ob`: what `obligations` read; `raws`: each sentence's text as
     written; `hand`: hand-written sections by name (`consistency`), each in place of the generated
     one; `chunk`: the length of the ranges the decisions over the whole user module are cut into
@@ -1355,9 +1465,11 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     `lists_in_account` from one check per class (`tieAll_of_groups`); `heads_plain`: decide
     `account_absent`'s ranges on the codes of Γ's symbol names and subsort pairs (`gSymCodes`,
     `gInjCodes`, `hasHeadCoded`, by `gammaHasHead_coded`), in place of `gHeads`/`gCodes`, and
-    `absent_proj_below`'s first conjunct by the same ranges (`absProjE_a`, `tieFilterMap_range`);
-    `fn_readings`: tie the function equations whose sentence is Γ's item by a reading
-    (`readings_section`), the others one by one, where `fn_pairs` does not apply."""
+    `absent_proj_below`'s first conjunct by the same ranges (`absProjE_a`, `tieFilterMap_range`); `decl_pos`:
+    the `declsE` ranges on each declaration item's position in `sigItems c` (`declPos`, `inSigItemsAt`);
+    `reads_h`: the parameter lemmas named by `--reads-h` (`paramlemma_reads_h`); `fn_readings`: tie the
+    function equations whose sentence is Γ's item by a reading (`readings_section`), the others one by
+    one, where `fn_pairs` does not apply."""
     raws = raws or {}
     hand = hand or {}
     call_order = ob["call_order"]
@@ -1516,6 +1628,10 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     fnfun_user = [i for i in fnfun_idx if i not in fnfun_ok] if fnfun_fh else []
     fnfun_gen = fnfun_gen or fnfun_fh
     fnfun_any = fnfun_hand or fnfun_gen
+    if fnfun_chunk and fnfun_fh:
+        raise Refused(f"{name}: --fnfun-chunk cuts the sort-predicate route's `fnFun_checked` and `fnFun_trS`; "
+                      f"this text's function functional sentences take the `FnHyp` route (`fnfun_section_fnhyp`), "
+                      f"which it does not cut")
     parts = dict(zip(["ctors", "fns", "hooks", "colls", "prios"], head["attrsParts"].split()))
     if head["attrsAgree"] != "true":
         bad = [k for k, v in parts.items() if v != "true"]
@@ -1634,7 +1750,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     w(f"  (`test/constructs/fixtures/{name}`), sentence by sentence, against the translation of the text as")
     w("  written (`trS ad := trAxiom k.symbolDecls k.aliasNames ad`), on the literals `kore` and `defn`, for")
     w("  every interpretation H. Nothing here reads `Parse.parse` or `emit`. Written by")
-    cmd = name + (f" --at-values {','.join(map(str, sorted(at_values)))}" if at_values else "")
+    cmd = name + (f" --at-values {','.join(map(str, sorted(at_values)))}" if at_values else "") + \
+        (f" --reads-h {','.join(map(str, sorted(reads_h)))}" if reads_h else "")
     if hand:
         w(f"  `test/constructs/tiegen.py {cmd}`, its {', '.join(sorted(hand))} section by hand; run from the package root:")
         w(f"  `lake env lean -j1 test/{ns}.lean`.")
@@ -1904,7 +2021,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                       "`paramfunctional_heads`)")
     if param_lem:
         owed_more += ("; parameter lemma: owed as a hypothesis on H, at values\n    (`paramlemma_account`, "
-                      "`paramlemma_heads`,\n    `ParamLemmaWitnessAtValues`)")
+                      "`paramlemma_heads`,\n    " + ("`paramlemma_reads_h`, " if reads_h else "") +
+                      "`ParamLemmaWitnessAtValues`)")
     if user_lem or user_lem_v:
         owed_more += ("; user lemma: owed, by hand\n    (`userlemma_account`, `UserLemmaEntailed`, "
                       "`UserLemmaAtValues`)")
@@ -1968,7 +2086,31 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w(textwrap.fill(" ".join(para), width=100, initial_indent="  ", subsequent_indent="  ",
                         break_on_hyphens=False, break_long_words=False))
         w("")
-    if param_lem:
+    if param_lem and reads_h:
+        shape = [i for i in param_lem if i not in reads_h]
+        para = [f"The parameter lemmas ({', '.join(map(str, param_lem))}) are lemmas whose truth at values reads a "
+                "value the interpretation gives."]
+        if shape:
+            para.append(f"{', '.join(map(str, shape))} {'apply' if len(shape) > 1 else 'applies'} a parameter symbol "
+                        "no registry hook interprets, whose value the interpretation gives.")
+        para.append(f"{', '.join(map(str, reads_h))}, named by `--reads-h`, {'apply' if len(reads_h) > 1 else 'applies'} "
+                    "no such parameter: each applies, at a head Γ has, a symbol through which evaluation may read the "
+                    "interpretation "
+                    "(`paramlemma_reads_h`, `appliesHRead`), a function at argument lists none of its clauses "
+                    "decides, whose rest Γ states from the interpretation (`ΓFallback`), or a hook at a point its "
+                    "text leaves open.")
+        para.append("Each is owed as a hypothesis on H, at the valuations sending its variables to values "
+                    "(`EntailsAtValues (cH H) ad (trS ad).pat`), since Γ states a parameter's graph, a function's "
+                    "rest and a hook's open point at values only. The account holds them in the class "
+                    f"`{PARAM_LEMMA_CLASS}`, of the direction `hypothesis`. A hypothesis no H satisfies would tie a "
+                    "text without a model, so the tie owes one H at which `FnHyp` holds and every "
+                    "parameter lemma holds at values (`ParamLemmaWitnessAtValues`, stated here and proved by hand: "
+                    "owed). Every `simplification` equation of the user module whose left side's head is a "
+                    "parameter symbol without `impl` is one of them (`paramlemma_heads`).")
+        w(textwrap.fill(" ".join(para), width=100, initial_indent="  ", subsequent_indent="  ",
+                        break_on_hyphens=False, break_long_words=False))
+        w("")
+    elif param_lem:
         para = [f"The parameter lemmas ({', '.join(map(str, param_lem))}) apply a parameter symbol no registry hook "
                 "interprets, whose value the interpretation gives: each is owed as a hypothesis on H, at the "
                 "valuations sending its variables to values (`EntailsAtValues (cH H) ad (trS ad).pat`), since Γ "
@@ -2006,8 +2148,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                         + (", named by `--at-values`" if not v_reg else "") + f": {', '.join(map(str, user_lem_v))}, "
                         "each owed at the valuations sending its variables to values, for every H "
                         "(`UserLemmaAtValues`).")
-        para.append("Both are stated here and proved by hand: owed. A lemma that is false has no proof, and its "
-                    "text is not tied.")
+        para.append("Both are stated here and proved by hand: owed. A lemma that no H meets has no proof; one that "
+                    "holds under some interpretations only is a parameter lemma (`--reads-h`).")
         w(textwrap.fill(" ".join(para), width=100, initial_indent="  ", subsequent_indent="  ",
                         break_on_hyphens=False, break_long_words=False))
         w("")
@@ -2512,7 +2654,74 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w("noncomputable def sigFromN (it : Item) : Bool := sigFrom it || it.pat == nextItem.pat")
         w("")
     pred = "sigFromN" if sig_next else "sigFrom"
-    thms, body = by_ranges("sigE", "sigItems c", pred, sig_rs)
+    if sig_pos:
+        lit = {"t": "text", "s": "regSort", "h": "hook"}
+        pos = [f".{lit[k]} {v}" if k in lit else ".next" for k, v in head["sigPos"]]
+        sn = "sigFromN, " if sig_next else ""
+        w("/-- Where an item of Γ's signature has its origin: the text's signature item at a position, the")
+        w("registry sort at a number or the hooked symbol of `hookSigs` at a position whose surplus item it")
+        w("is, or next's arity. -/")
+        w("inductive TieSigAt")
+        w("  | text (j : Nat)")
+        w("  | regSort (s : Nat)")
+        w("  | hook (j : Nat)")
+        w("  | next")
+        w("")
+        w("/-- The origin of each item of `sigItems c`, in its order. -/")
+        w("def sigPos : List TieSigAt :=")
+        w("  [" + wrap_nums(pos, 3) + "]")
+        w("")
+        w(f"theorem sigPos_length : sigPos.length = {len(pos)} := rfl")
+        w("")
+        w("/-- The item is the one its origin names: one comparison, with the text's item at the position or")
+        w("with the surplus item of the registry sort or the hooked symbol (a disjunct of `surplusItem`). -/")
+        w("noncomputable def sigFromAt (it : Item) : TieSigAt → Bool")
+        w("  | .text j => ((Theory.ofDefinition kore).signature[j]?).any (·.pat == it.pat)")
+        w("  | .regSort s => decide (s < nRegSorts) &&")
+        w("      (let n := \"Sort\" ++ regSortNames.getD s \"\"")
+        w("       !(kore.sortDecls.any fun sd => sd.name == n && sd.params.isEmpty) &&")
+        w("         it.pat == (KoreAML.sortConstantItem ⟨n, [], false⟩).pat)")
+        w("  | .hook j => (hookSigs[j]?).any fun h =>")
+        w("      let n := regSymNames.getD h.name \"\"")
+        w("      !(kore.symbolDecls.any fun sd => sd.name == n && sd.params.isEmpty) &&")
+        w("        it.pat == (KoreAML.arityItem ⟨n, [], h.args.map regSrtK, regSrtK h.result, false, []⟩).pat")
+        w("  | .next => " + ("it.pat == nextItem.pat" if sig_next else "false"))
+        w("")
+        w("/-- An item with its origin. -/")
+        w("noncomputable def sigFromAtP (x : Item × TieSigAt) : Bool := sigFromAt x.1 x.2")
+        w("")
+        w(f"theorem sigFromAt_sound {{it : Item}} {{p : TieSigAt}} (h : sigFromAt it p = true) : {pred} it = true := by")
+        w("  have hs : ∀ {it : Item}, surplusItem kore it = true → " + pred + " it = true := fun h => by")
+        w(f"    simp only [{sn}sigFrom, h, Bool.or_true, Bool.true_or]")
+        w("  cases p with")
+        w("  | text j =>")
+        w("    obtain ⟨x, hx, he⟩ := (Option.any_eq_true _ _).mp h")
+        w(f"    simp only [{sn}sigFrom, Bool.or_eq_true, List.any_eq_true]")
+        w("    exact " + ("Or.inl (Or.inl ⟨x, List.mem_of_getElem? hx, he⟩)" if sig_next else "Or.inl ⟨x, List.mem_of_getElem? hx, he⟩"))
+        w("  | regSort s =>")
+        w("    obtain ⟨h1, h2⟩ := Bool.and_eq_true_iff.mp h")
+        w("    refine hs ?_")
+        w("    unfold surplusItem")
+        w("    exact Bool.or_eq_true_iff.mpr (Or.inl (List.any_eq_true.mpr ⟨s, List.mem_range.mpr (of_decide_eq_true h1), h2⟩))")
+        w("  | hook j =>")
+        w("    obtain ⟨x, hx, he⟩ := (Option.any_eq_true _ _).mp h")
+        w("    refine hs ?_")
+        w("    unfold surplusItem")
+        w("    exact Bool.or_eq_true_iff.mpr (Or.inr (List.any_eq_true.mpr ⟨x, List.mem_of_getElem? hx, he⟩))")
+        w("  | next =>")
+        if sig_next:
+            w("    simp only [sigFromN, Bool.or_eq_true]")
+            w("    exact Or.inr h")
+        else:
+            w("    exact absurd h Bool.false_ne_true")
+        w("")
+        w(f"/-- `{pred}` holds of each item where `sigFromAtP` holds of each item with its origin. -/")
+        w(pos_join("tieSigPos_all", "TieSigAt", "sigFromAtP", pred, "sigFromAt_sound"))
+        w("")
+        thms, body = by_ranges("sigE", "(sigItems c).zip sigPos", "sigFromAtP", sig_rs)
+        body = "tieSigPos_all (Nat.le_of_eq (sig_sizes.trans sigPos_length.symm)) <|\n    " + body
+    else:
+        thms, body = by_ranges("sigE", "sigItems c", pred, sig_rs)
     w(thms)
     w("")
     w(f"theorem sig_sizes : (sigItems c).length = {head['nSig']} := by decide +kernel")
@@ -2598,7 +2807,35 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     w("")
     if decl_parts and split:
         mark("Decls")
-    thms, body = by_ranges("declsE", "declItemsL" if decl_syms else "declItems", "inSigItems", decl_rs)
+    dl = "declItemsL" if decl_syms else "declItems"
+    if decl_pos:
+        n_decl = int(head["nDecl"])
+        w("/-- The position in `sigItems c` of each item of `declItems`, in its order. -/")
+        w("def declPos : List Nat :=")
+        w("  [" + wrap_nums([str(p) for p in head["declPos"]], 3) + "]")
+        w("")
+        w(f"theorem declPos_length : declPos.length = {n_decl} := rfl")
+        w("")
+        w(f"theorem decl_sizes : {dl}.length = {n_decl} := by decide +kernel")
+        w("")
+        w("/-- The item is the one of `sigItems c` at the position: one comparison. -/")
+        w("noncomputable def inSigItemsAt (it : Item) (p : Nat) : Bool := ((sigItems c)[p]?).any (·.pat == it.pat)")
+        w("")
+        w("/-- An item with its position. -/")
+        w("noncomputable def inSigItemsAtP (x : Item × Nat) : Bool := inSigItemsAt x.1 x.2")
+        w("")
+        w("theorem inSigItemsAt_sound {it : Item} {p : Nat} (h : inSigItemsAt it p = true) : inSigItems it = true := by")
+        w("  obtain ⟨x, hx, he⟩ := (Option.any_eq_true _ _).mp h")
+        w("  unfold inSigItems")
+        w("  exact List.any_eq_true.mpr ⟨x, List.mem_of_getElem? hx, he⟩")
+        w("")
+        w("/-- `inSigItems` holds of each item where `inSigItemsAtP` holds of each item with its position. -/")
+        w(pos_join("tieDeclPos_all", "Nat", "inSigItemsAtP", "inSigItems", "inSigItemsAt_sound"))
+        w("")
+        thms, body = by_ranges("declsE", f"{dl}.zip declPos", "inSigItemsAtP", decl_rs)
+        body = "tieDeclPos_all (Nat.le_of_eq (decl_sizes.trans declPos_length.symm)) <|\n    " + body
+    else:
+        thms, body = by_ranges("declsE", dl, "inSigItems", decl_rs)
     w(thms)
     w("")
     if decl_syms:
@@ -2776,7 +3013,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             w("theorem consistent (H : HookParams) : Consistent (cH H) := consistent_of_fnHyp _ (coreOKH H) (fnHypH H)")
             w("")
     if fnfun_gen:
-        w(fnfun_section_fnhyp(fnfun_idx, fnfun_user) if fnfun_fh else fnfun_section(fnfun_idx))
+        w(fnfun_section_fnhyp(fnfun_idx, fnfun_user) if fnfun_fh else fnfun_section(fnfun_idx, fnfun_chunk))
     mark("Fns")
     if fn_align:
         w(alpha_block())
@@ -3151,7 +3388,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     if param_fun:
         w(param_functional_section(param_fun, total_names, len(idx), chunk))
     if param_lem:
-        w(param_lemma_section(param_lem))
+        w(param_lemma_section(param_lem, reads_h))
     if user_lem or user_lem_v:
         w(user_lemma_section(user_lem, user_lem_v))
     if fn_pair:
@@ -3250,7 +3487,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     if param_fun:
         names += ["total_params", "paramfunctional_account", "paramfunctional_heads"]
     if param_lem:
-        names += ["paramlemma_account", "paramlemma_heads", "ParamLemmaWitnessAtValues"]
+        names += ["paramlemma_account", "paramlemma_heads"] + (["paramlemma_reads_h"] if reads_h else []) + \
+            ["ParamLemmaWitnessAtValues"]
     if user_lem or user_lem_v:
         names += ["userlemma_account", "UserLemmaEntailed", "UserLemmaAtValues"]
     if facts_kind == "FnFacts" and not agree and not raw and not held_total:
@@ -3321,7 +3559,7 @@ SPLIT_PARTS = ["Attrs", "Sig", "Decls", "Fns", "Rules", "NoJunk", "Cons", "Absen
 # account's decisions may not, `Rest` (the sections after the constructors) follows what it reads
 SPLIT_FIRST = ["Head", "Account", "Consistency", "Rest"]
 SPLIT_DECL = re.compile(r"(?:@\[[^\]]*\]\s*)?(?:(?:private|protected|noncomputable)\s+)*"
-                        r"(theorem|lemma|def|abbrev|instance|kernel_rfl)\s+([^\s:({\[]+)")
+                        r"(theorem|lemma|def|abbrev|instance|kernel_rfl|inductive)\s+([^\s:({\[]+)")
 SPLIT_DECIDES = re.compile(r"\bdecide(?:_cheap\b|_map_blocks\b|_all_blocks\b|\s*\+kernel\b)|\bby\s+decide\b")
 SPLIT_IDENT = re.compile(r"(?<![\w'.!?])([^\W\d][\w'!?]*)")
 
@@ -3530,9 +3768,26 @@ HAND_SECTIONS = {"consistency": "/-! ## Consistency for every H"}
 NEX_TIE = os.path.join(KS, "test/NonExecOwiseTie.lean")
 
 
-def fnfun_section(idx):
+def fnfun_section(idx, chunk=0):
     """The function functional sentences, each a sort predicate's `functional` sentence as written, at
-    values in every model of `Γc` for every H (`LibEv.sortPredFun_evC_withHooks`)."""
+    values in every model of `Γc` for every H (`LibEv.sortPredFun_evC_withHooks`). `chunk`: `fnFun_checked`
+    and `fnFun_trS` decided by ranges of that many sentences (0: one decision each)."""
+    t = fnfun_text(idx)
+    if chunk:
+        rs = ranges(len(idx), chunk, chunk)
+        trp = "(fun ad => decide ((trS ad).pat = (trAxiom [] [] ad).pat))"
+        for old, prefix, stmt, pred in (
+                ("theorem fnFun_checked : fnFunText.all fnFunOK = true := by decide +kernel\n", "fnFunE",
+                 "theorem fnFun_checked : fnFunText.all fnFunOK = true :=", "fnFunOK"),
+                ("theorem fnFun_trS : fnFunText.all (fun ad => decide ((trS ad).pat = (trAxiom [] [] ad).pat)) = true := by\n  decide +kernel\n",
+                 "fnFunTrE", f"theorem fnFun_trS : fnFunText.all {trp} = true :=", trp)):
+            thms, body = by_ranges(prefix, "fnFunText", pred, rs, lem="tieAll")
+            assert t.count(old) == 1
+            t = t.replace(old, f"{thms}\n\n{stmt}\n  {body}\n")
+    return t
+
+
+def fnfun_text(idx):
     n = len(idx)
     return f"""/-! ## Function functional ({n}): the sort predicates' `functional` sentences, at values in every model of Γc -/
 
@@ -4817,13 +5072,28 @@ theorem paramfunctional_heads : userAxioms.all {pred} = true := by
 """
 
 
-def param_lemma_section(param_lem):
+def param_lemma_section(param_lem, reads_h=()):
     il = ", ".join(map(str, param_lem))
     lt = ", ".join(f"U.ax{i}" for i in param_lem)
+    rl = ", ".join(map(str, reads_h))
+    if reads_h:
+        doc = ("""The text's lemmas whose truth at values reads a value the interpretation gives: those that apply
+a parameter symbol no registry hook interprets (`isParamLemma`, or a `simplification` sentence of
+K's builtin library applying one), and those `--reads-h` names (""" + rl + """), which apply a symbol
+through which evaluation may read the interpretation (`paramlemma_reads_h`).""")
+        rh = f"""
+/-- The lemmas `--reads-h` names ({rl}) apply, at a head Γ has, a symbol through which evaluation may
+read the interpretation (`appliesHRead`): the necessary condition of their class. -/
+theorem paramlemma_reads_h : [{", ".join(f"U.ax{i}" for i in reads_h)}].all (fun ad => appliesHRead c ad.ax.pattern) = true := by
+  decide +kernel
+"""
+    else:
+        doc = """The text's lemmas that apply a parameter symbol no registry hook interprets (`isParamLemma`, or a
+`simplification` sentence of K's builtin library applying one)."""
+        rh = ""
     return f"""/-! ## The parameter lemmas ({il}): owed as a hypothesis on H -/
 
-/-- The text's lemmas that apply a parameter symbol no registry hook interprets (`isParamLemma`, or a
-`simplification` sentence of K's builtin library applying one). -/
+/-- {doc} -/
 noncomputable def paramLemmaText : List AxiomDecl := [{lt}]
 
 /-- The parameter lemmas are the account's class `{PARAM_LEMMA_CLASS}`, of the direction `hypothesis`
@@ -4850,7 +5120,7 @@ theorem paramlemma_heads : userAxioms.all (fun ad =>
         c.params.any fun k => k.impl.isNone && c.symName k.sig.name == n)) ||
     (classOf "{PARAM_LEMMA_CLASS}").contains ad.index) = true := by
   rw [userAxioms_eq]; decide +kernel
-"""
+{rh}"""
 
 
 def user_lemma_section(user_lem, user_lem_v):
@@ -5352,6 +5622,12 @@ def main(argv):
         if not re.fullmatch(r"\d+(,\d+)*", v):
             raise Refused(f"--at-values {v!r}: a comma-separated list of sentence indices is expected")
         at_values = tuple(sorted({int(x) for x in v.split(",")}))
+    reads_h = ()
+    if "--reads-h" in argv:
+        v = argv[argv.index("--reads-h") + 1] if argv.index("--reads-h") + 1 < len(argv) else ""
+        if not re.fullmatch(r"\d+(,\d+)*", v):
+            raise Refused(f"--reads-h {v!r}: a comma-separated list of sentence indices is expected")
+        reads_h = tuple(sorted({int(x) for x in v.split(",")}))
     hand = {}
     for j, a in enumerate(argv):
         if a == "--hand":
@@ -5376,8 +5652,10 @@ def main(argv):
         nsorts = len(re.findall(r"^\s*(?:hooked-)?sort ", text, re.M))
         nsyms = len(re.findall(r"^\s*(?:(?:hooked-)?symbol|alias) ", text, re.M))
         wf_parts = (nsorts.bit_length() + 1, nsyms.bit_length() + 1)
+    sig_pos = "--sig-positions" in argv
+    decl_pos = "--decl-positions" in argv
     fn_readings = "--fn-readings" in argv
-    head, sents = probe(name, path, um0, ob["order_list"], cons_head, readings=fn_readings)
+    head, sents = probe(name, path, um0, ob["order_list"], cons_head, sig_pos, decl_pos, reads_h, readings=fn_readings)
     # the sentences whose item is narrowed by the priority premise and is the sentence without it
     for w_ in head["fnW"].values():
         if w_["idx"] in sents and not w_["same"] and w_["narrowed"] and w_["wtext"] and w_["differs"]:
@@ -5404,7 +5682,7 @@ def main(argv):
     law_set, open_set = {l[0] for l in laws}, {l[0] for l in open_laws}
     names_of = lambda k: set(re.findall(r"[^\s\[\],]+", head.get(k, "")))
     um, cls, mapped, unmapped = classify(name, text, sents, law_set, open_set, {k["name"] for k in head["raw"]},
-                                         at_values, names_of("totalParams"), names_of("noImplParams"))
+                                         at_values, names_of("totalParams"), names_of("noImplParams"), reads_h)
     for i in law_set | open_set:
         if sents[i]["fnJ"] or (i in law_set and sents[i]["consItem"]):
             raise Refused(f"{name}: law sentence {i} is a function equation's item or a constructor item of Γ")
@@ -5449,6 +5727,10 @@ def main(argv):
         if not builtin_decls:
             raise Refused(f"{name}: --builtin-decls: the text declares no symbol of Γ with a K builtin file's "
                           f"Source, without a hook and without sort parameters")
+    if sig_pos and (len(head.get("sigPos", [])) != int(head["nSig"]) or any(k == "x" for k, _ in head["sigPos"])):
+        raise Refused(f"{name}: --sig-positions: the probe gives no origin for each item of the signature")
+    if decl_pos and (len(head.get("declPos", [])) != int(head["nDecl"]) or None in head["declPos"]):
+        raise Refused(f"{name}: --decl-positions: the probe gives no position in Γ's signature for each declaration item")
     ns, lean, summary = generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, failing,
                                  ob, chunks, {i: raw for i, _, _, raw in ua}, hand, chunk,
                                  at_values, cons_head, wf_parts, "--split" in argv, account_sorted,
@@ -5456,7 +5738,8 @@ def main(argv):
                                  fn_blocks, attrs_blocks, absent_file, builtin_decls=builtin_decls,
                                  decl_syms="--decl-syms-literal" in argv, nojunk_eq="--nojunk-eq" in argv,
                                  nojunk_blocks=opt("--nojunk-blocks", 0), lists_by_class="--lists-by-class" in argv,
-                                 heads_plain=heads_plain, fn_readings=fn_readings)
+                                 heads_plain=heads_plain, sig_pos=sig_pos, fnfun_chunk=opt("--fnfun-chunk", 0),
+                                 decl_pos=decl_pos, reads_h=reads_h, fn_readings=fn_readings)
     outdir = argv[argv.index("--out") + 1] if "--out" in argv else None
     if outdir is None and (not os.path.exists(final) or open(final).read() != text):
         open(final, "w").write(text)

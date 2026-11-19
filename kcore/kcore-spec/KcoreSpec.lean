@@ -341,6 +341,7 @@ import KcoreSpec.InertEvUser
 import KcoreSpec.TieOvlConf
 import KcoreSpec.TieOvlEq
 import KcoreSpec.TieOvlFn
+import KcoreSpec.TieOvlFnCov
 import KcoreSpec.TieReqBool
 import KcoreSpec.TieAlphaOr
 import KcoreSpec.GenEqsNames

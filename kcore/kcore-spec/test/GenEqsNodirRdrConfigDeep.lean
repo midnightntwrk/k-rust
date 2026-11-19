@@ -138,12 +138,17 @@ noncomputable def eqsN : List RawEqn := eqsInit ++ eqsProj
 
 /-- **The equations the model reads are among the account's.** -/
 theorem eqsN_sub : eqsN.Sublist S.eqs := by
-  have h : scanAll.eqs = (stage.scan0.eqs ++ stage.scan1.eqs ++ stage.scan2.eqs ++ stage.scan3.eqs ++ stage.scan4.eqs ++ stage.scan5.eqs ++ stage.scan6.eqs ++ stage.scan7.eqs ++ stage.scan8.eqs ++ stage.scan9.eqs ++ stage.scan10.eqs ++ stage.scan11.eqs ++ stage.scan12.eqs ++ stage.scan13.eqs ++ stage.scan14.eqs ++ stage.scan15.eqs ++ stage.scan16.eqs ++ stage.scan17.eqs ++ stage.scan18.eqs ++ stage.scan19.eqs ++ stage.scan20.eqs ++ stage.scan21.eqs ++ stage.scan22.eqs ++ stage.scan23.eqs ++ stage.scan24.eqs ++ stage.scan25.eqs ++ stage.scan26.eqs ++ stage.scan27.eqs ++ stage.scan28.eqs ++ stage.scan29.eqs ++ stage.scan30.eqs ++ stage.scan31.eqs ++ stage.scan32.eqs ++ stage.scan33.eqs ++ stage.scan34.eqs ++ stage.scan35.eqs ++ stage.scan36.eqs ++ stage.scan37.eqs ++ stage.scan38.eqs) ++ (eqsInit ++ ((stage.scan41.eqs ++ stage.scan42.eqs ++ stage.scan43.eqs ++ stage.scan44.eqs ++ stage.scan45.eqs ++ stage.scan46.eqs ++ stage.scan47.eqs ++ stage.scan48.eqs ++ stage.scan49.eqs) ++
-      (eqsProj ++ (stage.scan54.eqs)))) := by
-    simp only [scanAll, Scan.append, eqsInit, eqsProj, List.append_assoc]
-  rw [scan_eq, h, eqsN]
-  exact (List.Sublist.append (List.Sublist.refl _)
-    ((List.sublist_append_left _ _).trans (List.sublist_append_right _ _))).trans (List.sublist_append_right _ _)
+  -- `scanAll` walked once, block by block: each block's equations dropped or kept
+  have drop : ∀ {l : List RawEqn} {a b : Scan}, l.Sublist a.eqs → l.Sublist (a.append b).eqs :=
+    fun h => List.sublist_append_of_sublist_left h
+  have keep : ∀ {l : List RawEqn} {a b : Scan}, l.Sublist a.eqs → (l ++ b.eqs).Sublist (a.append b).eqs :=
+    fun h => List.Sublist.append h (List.Sublist.refl _)
+  have first : ∀ {a b : Scan}, b.eqs.Sublist (a.append b).eqs := List.sublist_append_right _ _
+  have e : eqsN = ((((stage.scan39.eqs ++ stage.scan40.eqs) ++ stage.scan50.eqs) ++ stage.scan51.eqs) ++ stage.scan52.eqs) ++ stage.scan53.eqs := by
+    simp only [eqsN, eqsInit, eqsProj, List.append_assoc]
+  rw [scan_eq, e]
+  exact drop <| keep <| keep <| keep <| keep <| drop <| drop <| drop <| drop <| drop <| drop <| drop <|
+    drop <| drop <| keep <| first
 
 /-- The axioms of the user module, in text order. -/
 theorem userAxioms_eq : kore.axiomDecls.filter (·.module == "RDR-CONFIG-DEEP") = U.all := by kernel_rfl
