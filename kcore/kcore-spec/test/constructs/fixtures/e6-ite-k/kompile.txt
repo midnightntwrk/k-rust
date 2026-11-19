@@ -1,0 +1,10 @@
+command: kompile --backend haskell e6-ite-k.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.5
+definition.kore bytes: 203930
+definition.kore sha256: 519cb96386dd7c90c2e2bf35900ccbde83e1dcfc6c457a71039489e9bc30b7c9
+stripped sha256: 2a1521e89fbc0b64daecd90650d84630de774ff6cd79c1b111fae2de9019c032
+main module: 399 sentences, 43 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name E6-ITE-K-SYNTAX
+  in definition.  Use --syntax-module to specify one. Using E6-ITE-K as default.

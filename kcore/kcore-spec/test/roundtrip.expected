@@ -182,6 +182,7 @@ differs f2-examples/e5-ovl-fun.kompile.kore
 differs f2-examples/e6-builtintext-unif-subst.kompile.kore
 differs f2-examples/e6-divides-int.kompile.kore
 differs f2-examples/e6-int2bytes-nolen.kompile.kore
+differs f2-examples/e6-ite-k.kompile.kore
 differs f2-examples/e6-list-set-lhs-bound.kompile.kore
 differs f2-examples/e6-mod-array.kompile.kore
 differs f2-examples/e6-mod-kvariable-syntax.kompile.kore

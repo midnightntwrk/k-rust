@@ -1837,6 +1837,20 @@ table above, on the tree before String and Bytes). Not investigated here.
   `KcoreSpec/LibEvLacked.lean`): 274 (shape s3), 380 (s5), 228 to 232 with the `functional`
   sentences 45 and 176 (s4), each at values as the text's translation writes it. The header says
   why the form for every model of Γ is not stated. Axioms guarded.
+- `test/LibEvDeclsE3Kast.lean`: on `f2-examples/e3-kast.kompile.kore`, ID-COMMON's `freshId` and
+  `String2Id` are declared without sort parameters and name no symbol of Γ (`freshId_absent`,
+  `string2Id_absent`: library parameters no rule and no function of the reading applies), with
+  the sentences applying each (110, 268; 48, 268) and the heads of those that Γ lacks.
+- `test/LibParamExpandE3Kast.lean`: the sentences of those two library parameters on the same
+  text, for every H, in one model of `Γc ∪ Γstep` whose steps are `Step`'s (`expansion`, kind "in
+  a model"; `TieLibParam.model_lacked`): `freshId`'s equation 268 (domains.md 2299) and the
+  `functional` axioms 110 and 48, at values. `String2Id(s)` is chosen as the Id token of `s`'s
+  characters, `freshId` by its equation. The expansion condition (E) is not stated. Axioms guarded.
+- `test/LibEvIteK.lean`: on `f2-examples/e6-ite-k.kompile.kore` (the fixture e6-ite-k), where `#if`
+  at K is the reading's parameter symbol `ite{K}` implemented by `kIte` (`params_ite`,
+  `ite_k_in_gamma`, `heads_in_gamma`), K-EQUAL's two equations of `ite` (domains.md 2357 and 2358,
+  axioms 239 and 240) are entailed at values for every H (`ev239`, `ev240`, by
+  `LibEv.FnEqn.entailedP`), and Γ has a model for every H (`consistent`). Axioms guarded.
 - `test/LibEvFindCharIte.lean`: `findChar`'s equation (domains.md 1891), axiom 237 of
   `f2-examples/e6ite.kompile.kore`, where `#if` at Int is the parameter symbol `ite{Int}` implemented
   by `kIte`: in the function form over terms applying it (`E237`, `LibEv.FnEqn.patternP`), its sides
