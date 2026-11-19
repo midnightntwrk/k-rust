@@ -267,7 +267,7 @@ pub enum NotCompared {
 }
 
 /// The reason of a view outside its projection's domain ([`NotCompared::OutsideDomain`]).
-const OUTSIDE_DOMAIN: &str = "outside-domain";
+const OUTSIDE_DOMAIN_REASON: &str = "outside-domain";
 
 impl NotCompared {
     /// The reason's name in documents.
@@ -282,7 +282,7 @@ impl NotCompared {
             Self::SeveralPaths(_) => "several-paths",
             Self::ObservedNothing(_) => "observed-nothing",
             Self::NoEnd { .. } => "no-end",
-            Self::OutsideDomain { .. } => OUTSIDE_DOMAIN,
+            Self::OutsideDomain { .. } => OUTSIDE_DOMAIN_REASON,
         }
     }
 
@@ -3736,14 +3736,16 @@ pub fn keep(lock: &Lock, document: &Value) -> Kept {
                 };
                 // A view outside its projection's domain rests on no run: its live row is
                 // decided whatever run gave no answer.
-                let outside = own.clone().any(|live| live["reason"] == OUTSIDE_DOMAIN);
+                let outside = own
+                    .clone()
+                    .any(|live| live["reason"] == OUTSIDE_DOMAIN_REASON);
                 if (failed && own.clone().next().is_some()) || outside {
                     for view in declared(&pair.0) {
                         let id = json!(compare_row_id(&pair.0, &pair.1, &view));
                         let live = own
                             .clone()
                             .find(|live| live["id"] == id)
-                            .filter(|live| failed || live["reason"] == OUTSIDE_DOMAIN);
+                            .filter(|live| failed || live["reason"] == OUTSIDE_DOMAIN_REASON);
                         if let Some(live) = live {
                             verdicts.push(live.clone());
                         } else if let Some(row) = rows.iter().find(|row| row["id"] == id) {
@@ -3848,7 +3850,9 @@ fn summary(rows: &[Value], second_protocol: bool) -> Value {
         let count = |only_required: bool| {
             rows.iter()
                 .flat_map(|row| row["views"].as_array().into_iter().flatten())
-                .filter(|view| view["verdict"] == verdict && view["reason"] != OUTSIDE_DOMAIN)
+                .filter(|view| {
+                    view["verdict"] == verdict && view["reason"] != OUTSIDE_DOMAIN_REASON
+                })
                 .filter(|view| !only_required || view["required"] == true)
                 .count()
         };
