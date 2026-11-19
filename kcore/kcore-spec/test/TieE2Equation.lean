@@ -23,19 +23,32 @@
     H (`consistent`).
 
   Layer 2, by class (indices are the text's axiom numbers, `AxiomDecl.index`).
+  - Function equations (33) and priority equations (4), in the order `fnText` lists them
+    (`fns_account`): each of Γ's items but 0, 2, 3, 4, 8 is the translation of one sentence
+    (`shape`), so Γ entails it (`fns_entailed`). Items 0 (200), 2 (202), 3 (203), 8 (210) (sentence
+    in parentheses) are the clause under the negation of the clauses of a smaller priority that are
+    not `aside`, which the sentence entails (`prio<j>_w1`, W1) and is without that premise
+    (`prio<j>_text`). Item 4 (204) and its sentence agree up to the order of the operands of their
+    sorted disjunctions and the names of their variables (`ac<j>_same`, `TieAlpha.acEqB`), so they
+    are satisfied by the same interpretations (`ac<j>_iff`) and Γ entails the sentence.
+    `fns_from_text` (the converse), `fn_prios` (the priorities the sentences state are the
+    clauses').
   - Constructor sentences (24): entailed by Γ (`cons_entailed`).
   - No junk (3 of a sort without generators, `nojunk_trivial_entailed`; 6 equal to
     one of Γ's constructor items, `nojunk_items`; 1 KItem's with its disjuncts in the text's
     order, `nojunk_kitem_entailed`).
   - Set idempotence (60): Γ with it has no model (`idem_refuted`).
   - Library sample, 157 (`I -Int 0 = I`): holds at values (`lib166`, `lib166_at_values`).
+  - The converse over Γ's content: each premise is a consequence of the function sentences (200,
+    202, 203, 210 through W1, 204 through `ac4_iff`), Γ's rule items, the five parts Γ defines by
+    predicates, or definedness (`gamma_from`).
   - Function functional: at values in every model of `Γc`, from the sort predicates' results, not
     from `FnHyp` (`fnFun_at_values`, `fnFun_account`).
   - Hooked functional, collection law, library: at values (no theorem here); no direction:
     `absent_closed`.
 
   The sentences with no counterpart in f2-examples/ens.kompile.kore are `unmapped` (12);
-  the sentences of a class with a theorem that no theorem here holds of are `uncovered` (37).
+  the sentences of a class with a theorem that no theorem here holds of are `uncovered` (0).
 -/
 import KcoreSpec
 
@@ -83,10 +96,10 @@ theorem wf_defn : wf defn = true := by decide_cheap
 
 /-- Per class of the tie (`tieClasses`), the indices (`AxiomDecl.index`) of its sentences. -/
 def classes : List (String × List Nat) :=
-  [("function equation", [200, 201, 202, 204, 206, 208, 209, 214, 215, 216, 217, 218, 219, 220, 221, 222, 223, 224,
-      225, 226, 227, 228, 229, 230, 231, 232, 233, 234, 235, 236, 237, 238, 239, 240, 262]),
+  [("function equation", [201, 204, 206, 208, 209, 214, 215, 216, 217, 218, 219, 220, 221, 222, 223, 224, 225, 226,
+      227, 228, 229, 230, 231, 232, 233, 234, 235, 236, 237, 238, 239, 240, 262]),
    ("rewrite rule", []),
-   ("priority equation", [203, 210]),
+   ("priority equation", [200, 202, 203, 210]),
    ("constructor functional", [21, 23, 25, 27, 98, 99]),
    ("subsort", [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]),
    ("injectivity", [22, 24, 26, 28]),
@@ -126,7 +139,7 @@ theorem account : (classes.flatMap (·.2)).isPerm (userAxioms.map (·.index)) = 
 
 /-- The class sizes. -/
 theorem account_sizes : classes.map (fun cl => (cl.1, cl.2.length)) =
-    [("function equation", 35), ("rewrite rule", 0), ("priority equation", 2), ("constructor functional", 6), ("subsort", 14), ("injectivity", 4), ("distinctness", 0), ("no junk", 10), ("function functional", 14), ("hooked functional", 47), ("collection law", 9), ("library", 82), ("set idempotence", 1), ("set-variable lemma", 6), ("function law", 0), ("open generator law", 0), ("open generator functional", 0), ("parameter functional", 0), ("parameter lemma", 0), ("user lemma", 0), ("user lemma at values", 0), ("no direction", 30)] := by
+    [("function equation", 33), ("rewrite rule", 0), ("priority equation", 4), ("constructor functional", 6), ("subsort", 14), ("injectivity", 4), ("distinctness", 0), ("no junk", 10), ("function functional", 14), ("hooked functional", 47), ("collection law", 9), ("library", 82), ("set idempotence", 1), ("set-variable lemma", 6), ("function law", 0), ("open generator law", 0), ("open generator functional", 0), ("parameter functional", 0), ("parameter lemma", 0), ("user lemma", 0), ("user lemma at values", 0), ("no direction", 30)] := by
   decide +kernel
 
 /-- The classes are the tie's (`tieClasses`, which gives each its direction), in its order. -/
@@ -176,27 +189,15 @@ theorem absent_proj_below (H : HookParams) :
 
 /-- The sentences whose text is none of f2-examples/ens.kompile.kore's user module, with their class. -/
 def unmapped : List (Nat × String) :=
-  [(117, "no junk"), (200, "function equation"), (201, "function equation"),
-   (202, "function equation"), (203, "priority equation"), (204, "function equation"),
+  [(117, "no junk"), (200, "priority equation"), (201, "function equation"),
+   (202, "priority equation"), (203, "priority equation"), (204, "function equation"),
    (206, "function equation"), (208, "function equation"), (209, "function equation"),
    (210, "priority equation"), (213, "no direction"), (262, "function equation")]
 
 /-- The sentences of a class with a theorem in the tie that no theorem of this file holds of: the
 tie's remainder on this text. -/
 def uncovered : List (Nat × String) :=
-  [(200, "function equation"), (201, "function equation"), (202, "function equation"),
-   (203, "priority equation"), (204, "function equation"), (206, "function equation"),
-   (208, "function equation"), (209, "function equation"), (210, "priority equation"),
-   (214, "function equation"), (215, "function equation"), (216, "function equation"),
-   (217, "function equation"), (218, "function equation"), (219, "function equation"),
-   (220, "function equation"), (221, "function equation"), (222, "function equation"),
-   (223, "function equation"), (224, "function equation"), (225, "function equation"),
-   (226, "function equation"), (227, "function equation"), (228, "function equation"),
-   (229, "function equation"), (230, "function equation"), (231, "function equation"),
-   (232, "function equation"), (233, "function equation"), (234, "function equation"),
-   (235, "function equation"), (236, "function equation"), (237, "function equation"),
-   (238, "function equation"), (239, "function equation"), (240, "function equation"),
-   (262, "function equation")]
+  []
 
 /-- Each listed sentence is in its class in the account. -/
 theorem lists_in_account : (unmapped ++ uncovered).all (fun ic => (classOf ic.2).contains ic.1) = true := by
@@ -728,6 +729,214 @@ theorem lib166_at_values (H : HookParams) : EntailsAtValues (cH H) U.ax157 (trS 
   exact lib166 H hI n e (((elemOf_spec hI hv e).1 _).mp hden) m
 
 
+/-! ## Function equations (33 sentences) and priority equations (4 sentences)
+
+Γ's items 0 (sentence 200, priority 50), 2 (sentence 202, priority 50), 3 (sentence 203, priority
+60), 8 (sentence 210, priority 60) are the clause's equation under the negation of the clauses of a
+smaller priority that are not `aside` (`prioEquation`, `competingEquation`), a premise the sentence
+does not state: the sentence entails the item (`prio<j>_w1`, the direction of the class priority
+equation) and is the item without that premise (`prio<j>_text`); it is not the item
+(`prio<j>_differs`).
+
+Γ's item 4 (sentence 204) and its sentence agree up to the order of the operands of their sorted
+disjunctions and the names of their variables (`ac<j>_same`, `TieAlpha.acEqB`): a sorted disjunction
+is, in every model, the union of its operands within the sort, whatever their order, and the index
+of a variable is a name, so the two are satisfied by the same interpretations (`ac<j>_iff`). Such an
+item is not its sentence as written (`ac<j>_differs`).
+
+Every other item is the translation of its function sentence (`shape`). -/
+
+/-- The text sentences of Γ's equations, in `fnItems`'s order: found by head symbol and priority
+(`TiePair.fnTextOf`); `shape` is what makes them the equations' sentences. -/
+noncomputable def fnText : List AxiomDecl := TiePair.fnTextOf c U.all
+
+/-- **`fnText` is the account's function-equation and priority-equation classes**: the same
+indices, each once. -/
+theorem fns_account :
+    (classOf "function equation" ++ classOf "priority equation").isPerm (fnText.map (·.index)) = true := by
+  decide +kernel
+
+/-- A model of Γ satisfies each of Γ's equations. -/
+theorem fnItem_sat {H : HookParams} {M : Type} {I : Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP Γ (cH H))
+    {j : Nat} {g : P} (hg : (TiePair.gammaPats c)[j]? = some g) : I ⊧ᴵ g := by
+  obtain ⟨it, hit, rfl⟩ : ∃ it ∈ fnItems c, it.pat = g := by
+    unfold TiePair.gammaPats at hg
+    rw [List.getElem?_map] at hg
+    cases h : (fnItems c)[j]? with
+    | none => rw [h] at hg; cases hg
+    | some it => rw [h] at hg; exact ⟨it, List.mem_of_getElem? h, Option.some.inj hg⟩
+  exact hI _ (TiePair.mem_Γ_fns (Or.inl ⟨it, by rw [TiePair.fnItems_withHooks]; exact hit, rfl⟩))
+
+/-- Γ's axiom of item 0 (sentence 200, priority 50). -/
+noncomputable def prioAx0 : Kore.Axiom := ((TiePair.fnAxioms c)[0]?).getD ⟨[], .top KoreAML.R, []⟩
+theorem prioAx0_at : (TiePair.fnAxioms c)[0]? = some prioAx0 := by decide +kernel
+noncomputable def prioItem0 : P := (trAxiom [] [] ⟨0, "kernel", prioAx0⟩).pat
+theorem prioItem0_at : (TiePair.gammaPats c)[0]? = some prioItem0 := TiePair.gammaPats_at prioAx0_at
+kernel_rfl fnText_at0 : fnText[0]? = some U.ax200
+/-- Its premise has the negated conjunct, the clauses of a smaller priority. -/
+theorem prio0_narrowed : (TiePair.negParts prioAx0.pattern).isSome = true := by decide +kernel
+/-- **Γ's item without the priority premise is the text's sentence 200** (`TiePair.minusNeg`, up
+to the indices of its variables: `TiePair.sameB`; kernel), and it is not the sentence. -/
+theorem prio0_text : TiePair.sameB (TiePair.minusNeg prioAx0) (trS U.ax200).pat = true := by decide +kernel
+theorem prio0_differs : prioItem0 ≠ (trS U.ax200).pat := by decide +kernel
+/-- **W1**: the text's sentence 200 entails Γ's item 0, in every model of definedness. -/
+theorem prio0_w1 : TiePair.Texts [(trS U.ax200).pat] ⊧ prioItem0 :=
+  fun {M} _ {I} hI => TiePair.item_of_sentence (TiePair.defOK_texts hI) prio0_text
+    (hI _ (Or.inl (List.mem_singleton_self _)))
+
+/-- Γ's axiom of item 2 (sentence 202, priority 50). -/
+noncomputable def prioAx2 : Kore.Axiom := ((TiePair.fnAxioms c)[2]?).getD ⟨[], .top KoreAML.R, []⟩
+theorem prioAx2_at : (TiePair.fnAxioms c)[2]? = some prioAx2 := by decide +kernel
+noncomputable def prioItem2 : P := (trAxiom [] [] ⟨0, "kernel", prioAx2⟩).pat
+theorem prioItem2_at : (TiePair.gammaPats c)[2]? = some prioItem2 := TiePair.gammaPats_at prioAx2_at
+kernel_rfl fnText_at2 : fnText[2]? = some U.ax202
+/-- Its premise has the negated conjunct, the clauses of a smaller priority. -/
+theorem prio2_narrowed : (TiePair.negParts prioAx2.pattern).isSome = true := by decide +kernel
+/-- **Γ's item without the priority premise is the text's sentence 202** (`TiePair.minusNeg`, up
+to the indices of its variables: `TiePair.sameB`; kernel), and it is not the sentence. -/
+theorem prio2_text : TiePair.sameB (TiePair.minusNeg prioAx2) (trS U.ax202).pat = true := by decide +kernel
+theorem prio2_differs : prioItem2 ≠ (trS U.ax202).pat := by decide +kernel
+/-- **W1**: the text's sentence 202 entails Γ's item 2, in every model of definedness. -/
+theorem prio2_w1 : TiePair.Texts [(trS U.ax202).pat] ⊧ prioItem2 :=
+  fun {M} _ {I} hI => TiePair.item_of_sentence (TiePair.defOK_texts hI) prio2_text
+    (hI _ (Or.inl (List.mem_singleton_self _)))
+
+/-- Γ's axiom of item 3 (sentence 203, priority 60). -/
+noncomputable def prioAx3 : Kore.Axiom := ((TiePair.fnAxioms c)[3]?).getD ⟨[], .top KoreAML.R, []⟩
+theorem prioAx3_at : (TiePair.fnAxioms c)[3]? = some prioAx3 := by decide +kernel
+noncomputable def prioItem3 : P := (trAxiom [] [] ⟨0, "kernel", prioAx3⟩).pat
+theorem prioItem3_at : (TiePair.gammaPats c)[3]? = some prioItem3 := TiePair.gammaPats_at prioAx3_at
+kernel_rfl fnText_at3 : fnText[3]? = some U.ax203
+/-- Its premise has the negated conjunct, the clauses of a smaller priority. -/
+theorem prio3_narrowed : (TiePair.negParts prioAx3.pattern).isSome = true := by decide +kernel
+/-- **Γ's item without the priority premise is the text's sentence 203** (`TiePair.minusNeg`, up
+to the indices of its variables: `TiePair.sameB`; kernel), and it is not the sentence. -/
+theorem prio3_text : TiePair.sameB (TiePair.minusNeg prioAx3) (trS U.ax203).pat = true := by decide +kernel
+theorem prio3_differs : prioItem3 ≠ (trS U.ax203).pat := by decide +kernel
+/-- **W1**: the text's sentence 203 entails Γ's item 3, in every model of definedness. -/
+theorem prio3_w1 : TiePair.Texts [(trS U.ax203).pat] ⊧ prioItem3 :=
+  fun {M} _ {I} hI => TiePair.item_of_sentence (TiePair.defOK_texts hI) prio3_text
+    (hI _ (Or.inl (List.mem_singleton_self _)))
+
+/-- Γ's axiom of item 8 (sentence 210, priority 60). -/
+noncomputable def prioAx8 : Kore.Axiom := ((TiePair.fnAxioms c)[8]?).getD ⟨[], .top KoreAML.R, []⟩
+theorem prioAx8_at : (TiePair.fnAxioms c)[8]? = some prioAx8 := by decide +kernel
+noncomputable def prioItem8 : P := (trAxiom [] [] ⟨0, "kernel", prioAx8⟩).pat
+theorem prioItem8_at : (TiePair.gammaPats c)[8]? = some prioItem8 := TiePair.gammaPats_at prioAx8_at
+kernel_rfl fnText_at8 : fnText[8]? = some U.ax210
+/-- Its premise has the negated conjunct, the clauses of a smaller priority. -/
+theorem prio8_narrowed : (TiePair.negParts prioAx8.pattern).isSome = true := by decide +kernel
+/-- **Γ's item without the priority premise is the text's sentence 210** (`TiePair.minusNeg`, up
+to the indices of its variables: `TiePair.sameB`; kernel), and it is not the sentence. -/
+theorem prio8_text : TiePair.sameB (TiePair.minusNeg prioAx8) (trS U.ax210).pat = true := by decide +kernel
+theorem prio8_differs : prioItem8 ≠ (trS U.ax210).pat := by decide +kernel
+/-- **W1**: the text's sentence 210 entails Γ's item 8, in every model of definedness. -/
+theorem prio8_w1 : TiePair.Texts [(trS U.ax210).pat] ⊧ prioItem8 :=
+  fun {M} _ {I} hI => TiePair.item_of_sentence (TiePair.defOK_texts hI) prio8_text
+    (hI _ (Or.inl (List.mem_singleton_self _)))
+
+/-- Γ's item 4 (sentence 204). -/
+noncomputable def acItem4 : P := (TiePair.gammaPats c).getD 4 ⊥
+theorem acItem4_at : (TiePair.gammaPats c)[4]? = some acItem4 := by decide +kernel
+kernel_rfl fnText_at4 : fnText[4]? = some U.ax204
+/-- **Γ's item 4 and sentence 204 agree** up to the order of the operands of their sorted
+disjunctions and the names of their variables (`TieAlpha.acEqB`; kernel), and the item is not the
+sentence as written. -/
+theorem ac4_same : TieAlpha.acEqB acItem4 (trS U.ax204).pat = true := by decide +kernel
+theorem ac4_differs : acItem4 ≠ (trS U.ax204).pat := by decide +kernel
+/-- **Sentence 204 and Γ's item 4 are satisfied by the same interpretations.** -/
+theorem ac4_iff {M : Type} {I : Interpretation KoreAML.Sym M} : (I ⊧ᴵ (trS U.ax204).pat) ↔ (I ⊧ᴵ acItem4) :=
+  (TieAlpha.acEqB_sat ac4_same).symm
+
+/-- **E for sentence 204**: Γ entails it, for every H (`ac4_iff`). -/
+theorem ac4_entailed (H : HookParams) : Γ (cH H) ⊧ (trS U.ax204).pat := by
+  intro M _ I hI
+  exact ac4_iff.mpr (fnItem_sat hI acItem4_at)
+
+/-- The premise set's equations, in `fnItems`'s order: each text sentence's translation, and Γ's
+item at positions 0, 2, 3, 4, 8. -/
+noncomputable def textPats : List P := (((((fnText.map (trS · |>.pat)).set 0 prioItem0).set 2 prioItem2).set 3 prioItem3).set 4 acItem4).set 8 prioItem8
+
+/-- **Each of Γ's equations is the translation of its text sentence**, but the ones set to Γ's
+items (kernel). -/
+theorem shape : TiePair.shapeB (TiePair.gammaPats c) textPats = true := by decide +kernel
+
+theorem shapeH (H : HookParams) : TiePair.shapeB (TiePair.gammaPats (cH H)) textPats = true := by
+  rw [TiePair.gammaPats_withHooks]; exact shape
+
+/-- The positions set to Γ's items. -/
+def pairSetAt : List Nat := [0, 2, 3, 4, 8]
+
+theorem textPats_of {j : Nat} {ad : AxiomDecl} (hj : fnText[j]? = some ad) (hn : j ∉ pairSetAt) :
+    textPats[j]? = some (trS ad).pat := by
+  simp only [pairSetAt, List.mem_cons, List.not_mem_nil, or_false, not_or] at hn
+  obtain ⟨h0, h2, h3, h4, h8⟩ := hn
+  unfold textPats
+  rw [List.getElem?_set_ne (Ne.symm h8), List.getElem?_set_ne (Ne.symm h4), List.getElem?_set_ne (Ne.symm h3), List.getElem?_set_ne (Ne.symm h2), List.getElem?_set_ne (Ne.symm h0), List.getElem?_map, hj]
+  rfl
+
+/-- **E for the function equations**: Γ entails each sentence of `fnText` but the narrowed ones (items 0, 2, 3, 8), for every H; item 4 through `ac4_iff`. -/
+theorem fns_entailed (H : HookParams) : ∀ (j : Nat) (ad : AxiomDecl), fnText[j]? = some ad →
+    j ∉ ([0, 2, 3, 8] : List Nat) → Γ (cH H) ⊧ (trS ad).pat := by
+  intro j ad hj hn
+  by_cases h4 : j = 4
+  · subst h4
+    rw [fnText_at4] at hj
+    rw [← Option.some.inj hj]
+    exact ac4_entailed H
+  have hn' : j ∉ pairSetAt := by
+    simp only [pairSetAt, List.mem_cons, List.not_mem_nil, or_false] at hn ⊢
+    omega
+  exact TiePair.entailed (shapeH H) _ (List.mem_of_getElem? (textPats_of hj hn'))
+
+/-- **The converse for `fnItems`**: each item is a consequence of a text sentence, the j-th of
+`fnText`; the narrowed ones by W1; item 4 by `ac4_iff`; the others by their translation. -/
+theorem fns_from_text (H : HookParams) :
+    ∀ (j : Nat) (it : Item), (fnItems (cH H))[j]? = some it →
+      ∃ ad, fnText[j]? = some ad ∧ (TiePair.Texts [(trS ad).pat] ⊧ it.pat) := by
+  intro j it hj
+  have hg : (TiePair.gammaPats c)[j]? = some it.pat := by
+    rw [← TiePair.gammaPats_withHooks c H]
+    unfold TiePair.gammaPats; rw [List.getElem?_map, hj]; rfl
+  have pick : ∀ {i : Nat} {g : P} {ad : AxiomDecl}, (TiePair.gammaPats c)[i]? = some g → fnText[i]? = some ad →
+      (TiePair.Texts [(trS ad).pat] ⊧ g) → j = i →
+      ∃ ad, fnText[j]? = some ad ∧ (TiePair.Texts [(trS ad).pat] ⊧ it.pat) := by
+    intro i g ad hgi hti hent hji
+    subst hji
+    rw [hgi] at hg
+    exact ⟨ad, hti, (Option.some.inj hg) ▸ hent⟩
+  by_cases h0 : j = 0
+  · exact pick prioItem0_at fnText_at0 prio0_w1 h0
+  by_cases h2 : j = 2
+  · exact pick prioItem2_at fnText_at2 prio2_w1 h2
+  by_cases h3 : j = 3
+  · exact pick prioItem3_at fnText_at3 prio3_w1 h3
+  by_cases h4 : j = 4
+  · exact pick acItem4_at fnText_at4
+      (fun {M} _ {I} hI => ac4_iff.mp (hI _ (Or.inl (List.mem_singleton_self _)))) h4
+  by_cases h8 : j = 8
+  · exact pick prioItem8_at fnText_at8 prio8_w1 h8
+  obtain ⟨t, ht, hent⟩ := TiePair.from_text (shapeH H) j it hj
+  unfold textPats at ht
+  rw [List.getElem?_set_ne (Ne.symm h8), List.getElem?_set_ne (Ne.symm h4), List.getElem?_set_ne (Ne.symm h3), List.getElem?_set_ne (Ne.symm h2), List.getElem?_set_ne (Ne.symm h0), List.getElem?_map] at ht
+  cases hf : fnText[j]? with
+  | none => rw [hf] at ht; cases ht
+  | some ad => rw [hf] at ht; cases ht; exact ⟨ad, rfl, hent⟩
+
+/-- The priority each function sentence's attributes state is the priority of the clause whose
+item it gives, item by item in `fnItems`'s order. -/
+theorem fn_prios : fnText.map (fun ad => AttrsAgree.prioOf ad.ax.attributes) =
+    c.allFns.flatMap (fun f => f.clauses.map (·.prio)) := by decide +kernel
+
+/-! ## The converse over Γ's content -/
+
+/-- **Every premise of Γ is a consequence of the text's function sentences** (the items set to
+Γ's through their sentences), Γ's rule items and the five parts Γ defines by predicates
+(`TiePair.Pre`), for every H. -/
+theorem gamma_from (H : HookParams) : ∀ φ, Γ (cH H) φ → TiePair.Pre (cH H) textPats ⊧ φ :=
+  TiePair.gamma_from (shapeH H)
+
+
 end KCore.TieE2Equation
 
 #check @KCore.TieE2Equation.noRaw
@@ -798,3 +1007,55 @@ end KCore.TieE2Equation
 #print axioms KCore.TieE2Equation.owed_rules
 #print axioms KCore.TieE2Equation.owed_clauses
 #print axioms KCore.TieE2Equation.openDecidedH
+#check @KCore.TieE2Equation.fns_account
+#check @KCore.TieE2Equation.prio0_narrowed
+#check @KCore.TieE2Equation.prio0_text
+#check @KCore.TieE2Equation.prio0_differs
+#check @KCore.TieE2Equation.prio0_w1
+#check @KCore.TieE2Equation.prio2_narrowed
+#check @KCore.TieE2Equation.prio2_text
+#check @KCore.TieE2Equation.prio2_differs
+#check @KCore.TieE2Equation.prio2_w1
+#check @KCore.TieE2Equation.prio3_narrowed
+#check @KCore.TieE2Equation.prio3_text
+#check @KCore.TieE2Equation.prio3_differs
+#check @KCore.TieE2Equation.prio3_w1
+#check @KCore.TieE2Equation.prio8_narrowed
+#check @KCore.TieE2Equation.prio8_text
+#check @KCore.TieE2Equation.prio8_differs
+#check @KCore.TieE2Equation.prio8_w1
+#check @KCore.TieE2Equation.ac4_same
+#check @KCore.TieE2Equation.ac4_differs
+#check @KCore.TieE2Equation.ac4_iff
+#check @KCore.TieE2Equation.ac4_entailed
+#check @KCore.TieE2Equation.shape
+#check @KCore.TieE2Equation.fns_entailed
+#check @KCore.TieE2Equation.fns_from_text
+#check @KCore.TieE2Equation.fn_prios
+#check @KCore.TieE2Equation.gamma_from
+#print axioms KCore.TieE2Equation.fns_account
+#print axioms KCore.TieE2Equation.prio0_narrowed
+#print axioms KCore.TieE2Equation.prio0_text
+#print axioms KCore.TieE2Equation.prio0_differs
+#print axioms KCore.TieE2Equation.prio0_w1
+#print axioms KCore.TieE2Equation.prio2_narrowed
+#print axioms KCore.TieE2Equation.prio2_text
+#print axioms KCore.TieE2Equation.prio2_differs
+#print axioms KCore.TieE2Equation.prio2_w1
+#print axioms KCore.TieE2Equation.prio3_narrowed
+#print axioms KCore.TieE2Equation.prio3_text
+#print axioms KCore.TieE2Equation.prio3_differs
+#print axioms KCore.TieE2Equation.prio3_w1
+#print axioms KCore.TieE2Equation.prio8_narrowed
+#print axioms KCore.TieE2Equation.prio8_text
+#print axioms KCore.TieE2Equation.prio8_differs
+#print axioms KCore.TieE2Equation.prio8_w1
+#print axioms KCore.TieE2Equation.ac4_same
+#print axioms KCore.TieE2Equation.ac4_differs
+#print axioms KCore.TieE2Equation.ac4_iff
+#print axioms KCore.TieE2Equation.ac4_entailed
+#print axioms KCore.TieE2Equation.shape
+#print axioms KCore.TieE2Equation.fns_entailed
+#print axioms KCore.TieE2Equation.fns_from_text
+#print axioms KCore.TieE2Equation.fn_prios
+#print axioms KCore.TieE2Equation.gamma_from

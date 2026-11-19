@@ -4,26 +4,32 @@
 
   K's `domains.md` (FLOAT-SYNTAX) names a format `pNxM` for all positive integers N and M: "exactly N
   bits of precision and M bits of exponent". KCore computes on the formats of Lean core's
-  `Float.Model.Format`, whose precision and exponent width are at least 2 (`KFloat.spec?`); a format
-  with a field of 1 has values (`KFloat.thinOK`); at precision 1 and at least 2 exponent bits the
-  comparisons, `isNaN` and `isInfinite` read their data (Hooks.lean `asDatum`), and nothing else is
-  computed. At such a format:
+  `Float.Model.Format`, whose precision and exponent width are at least 2 (`KFloat.spec?`), and at
+  precision 1 and at least 2 exponent bits (`thinAt`) by the same formulas over the rounding to the
+  nearest datum of that format (`thinHooks`, FloatThin.lean); a format with a field of 1 has values
+  (`KFloat.thinOK`). At precision 1 and at least 2 exponent bits:
   - the four operations that take a format as two Ints (`roundFloat`, `Int2Float`, `maxValueFloat`,
-    `minValueFloat`) give no value there (`hook … = some none`), and those points are silent
-    (`silentTable`): the text names the format, and KCore computes none of its data; so are the
-    points of every operation that computes on Floats at a value of such a format;
+    `minValueFloat`) have their values (`roundFloat(1.0, 1, 8)` and `Int2Float(1, 1, 8)` are
+    `1.0p1x8`, `maxValueFloat(1, 8)` is 2^127, `minValueFloat(1, 11)` is 2^-1022), and Γ states each
+    under every interpretation (`roundFloat_p1_val`, `int2Float_p1_val`, `maxValue_p1_val`,
+    `FltAdd.determined_thin`), so `precisionFloat(roundFloat(1.0, 1, 8)) = 1`, which the text states
+    ("The resulting `Float` will yield the specified values when calling `precisionFloat`"), is
+    `hook`'s;
+  - the operations on such a value compute (`--Float 1.0p1x8` is `-1.0p1x8`, `1.0p1x8 +Float
+    1.0p1x8` is `2.0p1x8`), and an exact result halfway between two data of the format has no value
+    and is silent (`1.0p1x8 +Float 2.0p1x8`, 3 between 2 and 4: `precision_one`).
+  At one exponent bit KCore computes nothing:
+  - the four operations give no value there (`hook … = some none`), and those points are silent
+    (`silentTable`): the text names the format, and KCore computes none of its data;
   - so Γ states each such application equal to the interpretation's value of sort Float: ⊥ under the
     interpretation that gives nothing (`HookParams.none`), and over all interpretations neither ⊥ nor
-    a particular value (`undetermined`, at the semantics of `f2-examples/fltadd.kompile.kore`);
-  - a literal of such a format (`1.0p1x8`, `NaNp53x1`) is not read (`Parse.floatLit?` gives none,
-    the reader's `literal` refusal), but its data are values (`dvOK`): the encodings in the format's
-    `p + e` bits that are no NaN pattern, and the NaN code `2 ^ (p + e)`; their text is `1.0p1x8`,
-    `NaNp1x8`, … (`KFloat.text`);
-  - `precisionFloat` and `exponentBitsFloat` read such a value's format (`precision_one`), and an
-    interpretation can give `roundFloat(1.0, 1, 8)` a value of format `p1x8`
-    (`FltAdd.undetermined_thin`), so `precisionFloat(roundFloat(V, 1, 8)) = 1`, which the text states
-    ("The resulting `Float` will yield the specified values when calling `precisionFloat`"), is
-    refuted by no interpretation.
+    a particular value (`FltAdd.undetermined_four`, at the semantics of
+    `f2-examples/fltadd.kompile.kore`).
+  A literal of a format with a field of 1 (`1.0p1x8`, `NaNp53x1`) is not read (`Parse.floatLit?` gives
+  none, the reader's `literal` refusal), but its data are values (`dvOK`): the encodings in the
+  format's `p + e` bits that are no NaN pattern, and the NaN code `2 ^ (p + e)`; their text is
+  `1.0p1x8`, `NaNp1x8`, … (`KFloat.text`). `precisionFloat` and `exponentBitsFloat` read such a
+  value's format (`precision_one`).
 -/
 import KcoreSpec
 
@@ -34,24 +40,31 @@ open KCore ML Faithful
 
 def f64 (b : Nat) : GroundTerm := .dv Srt.float (.float 53 11 b)
 
-/-- The four operations give no value at a format with a field of 1 (and at a field of 0 or below,
-which names no format), and those points are silent. -/
-example : hook floatRound [f64 0x3FF0000000000000, int 1, int 8] = some none ∧
-    hook floatRound [f64 0x3FF0000000000000, int 53, int 1] = some none ∧
-    hook int2Float [int 1, int 1, int 8] = some none ∧
-    hook int2Float [int 1, int 24, int 1] = some none ∧
-    hook floatMaxValue [int 1, int 8] = some none ∧
-    hook floatMaxValue [int 53, int 1] = some none ∧
-    hook floatMinValue [int 1, int 11] = some none ∧
-    hook floatMinValue [int 2, int 1] = some none ∧
-    hook floatRound [f64 0x3FF0000000000000, int 2, int 2] = some (some (.dv Srt.float (.float 2 2 2))) ∧
-    silent floatRound [f64 0x3FF0000000000000, int 1, int 8] = true ∧
-    silent int2Float [int 1, int 1, int 8] = true ∧
-    silent floatMaxValue [int 1, int 8] = true ∧ silent floatMinValue [int 53, int 1] = true := by
-  decide +kernel
-
 /-- `1.0p1x8`, the value 1.0 of the format `p1x8`. -/
 def t18 : GroundTerm := .dv Srt.float (.float 1 8 127)
+
+/-- `2.0p1x8`: the exponent field 128 (bias 127), no significand field. -/
+def two18 : GroundTerm := .dv Srt.float (.float 1 8 128)
+
+/-- **At precision 1 the four operations have their values**: `1.0` of `p1x8` (the exponent field
+127); the largest finite datum of `p1x8`, 2^127 (the exponent field 254, below the field of the
+infinities); the smallest positive datum of `p1x11`, 2^-1022 (the exponent field 1: with no
+significand field there is no subnormal datum). At one exponent bit (and at a field of 0 or below,
+which names no format) they give no value, and those points are silent. -/
+example : hook floatRound [f64 0x3FF0000000000000, int 1, int 8] = some (some t18) ∧
+    hook floatRound [f64 0x3FF0000000000000, int 53, int 1] = some none ∧
+    hook int2Float [int 1, int 1, int 8] = some (some t18) ∧
+    hook int2Float [int 1, int 24, int 1] = some none ∧
+    hook floatMaxValue [int 1, int 8] = some (some (.dv Srt.float (.float 1 8 254))) ∧
+    hook floatMaxValue [int 53, int 1] = some none ∧
+    hook floatMinValue [int 1, int 11] = some (some (.dv Srt.float (.float 1 11 1))) ∧
+    hook floatMinValue [int 2, int 1] = some none ∧
+    hook floatMaxValue [int 0, int 8] = some none ∧
+    hook floatRound [f64 0x3FF0000000000000, int 2, int 2] = some (some (.dv Srt.float (.float 2 2 2))) ∧
+    silent floatRound [f64 0x3FF0000000000000, int 53, int 1] = true ∧
+    silent int2Float [int 1, int 24, int 1] = true ∧
+    silent floatMaxValue [int 53, int 1] = true ∧ silent floatMinValue [int 53, int 1] = true := by
+  decide +kernel
 
 /-- No literal of such a format is read; its data are values: at `p1x8` every encoding of the 9 bits
 (no pattern of them is a NaN) and the NaN code 512; at `p8x1` the encodings of the 9 bits but the
@@ -69,13 +82,15 @@ example : Parse.floatLit? "1.0p1x8" = none ∧ Parse.floatLit? "NaNp53x1" = none
   decide +kernel
 
 /-- **A value of format `p1x8` has precision 1 and exponent width 8**, is compared by its datum
-(`1.0p1x8 <Float 0.0` is false), and the operations that compute a Float give no value at it, at
-silent points (`silentTable`). -/
+(`1.0p1x8 <Float 0.0` is false), and the operations compute on it: `--Float 1.0p1x8` is `-1.0p1x8`
+(the sign bit 8), `1.0p1x8 +Float 1.0p1x8` is `2.0p1x8`; `1.0p1x8 +Float 2.0p1x8`, exactly 3,
+halfway between the data 2 and 4, has no value and is silent. -/
 theorem precision_one : hook floatPrecision [t18] = some (some (int 1)) ∧
     hook floatExponentBits [t18] = some (some (int 8)) ∧
-    hook floatNeg [t18] = some none ∧ silent floatNeg [t18] = true ∧
+    hook floatNeg [t18] = some (some (.dv Srt.float (.float 1 8 (256 + 127)))) ∧
     hook floatLt [t18, f64 0] = some (some (bool false)) ∧
-    hook floatAdd [t18, t18] = some none ∧ silent floatAdd [t18, t18] = true := by
+    hook floatAdd [t18, t18] = some (some two18) ∧
+    hook floatAdd [t18, two18] = some none ∧ silent floatAdd [t18, two18] = true := by
   decide +kernel
 
 /-- A Float value and two Ints have the sorts `[Float, Int, Int]` in every semantics. -/
@@ -117,35 +132,56 @@ theorem gamma_none (c : Semantics) {k : CtorSig} (hks : lookupSig hookSigs k.nam
   rw [fallback_none] at h
   exact h
 
-/-- **Under `HookParams.none`, the theory of every semantics states `roundFloat(V, 1, 8) = ⊥`** for
-every binary64 value V (`hb` says the encoding is one). -/
-theorem roundFloat_p1_bot (c : Semantics) {b : Nat} (hb : KFloat.ok 53 11 b = true) :
-    Γ (c.withHooks HookParams.none)
-      (appP (c.withHooks HookParams.none) ⟨floatRound, [Srt.float, Srt.int, Srt.int], Srt.float⟩
-        [f64 b, int 1, int 8] ≡ ⊥) :=
-  gamma_none c (by decide +kernel) (sortsOf_fii _ hb 1 8) (by rw [hook_eq]; rfl) rfl
+/-- Where `hook` gives a value, Γ states it, in every semantics. -/
+theorem gamma_val (c : Semantics) {k : CtorSig} (hk : k ∈ hookSigs) {vs : List GroundTerm}
+    (hvs : c.sortsOf vs = some k.args) {v : GroundTerm} (hh : hook k.name vs = some (some v)) :
+    Γ c (appP c k vs ≡ den c v) :=
+  Or.inl (Or.inl (Or.inl (Or.inl (Or.inr (Or.inl ⟨k, vs, some v, hk, hvs, hh, nofun, rfl⟩)))))
 
-/-- … and at an exponent width of 1, `roundFloat(V, 53, 1) = ⊥`. -/
+/-- **The theory of every semantics states `roundFloat(1.0, 1, 8) = 1.0p1x8`**, under every
+interpretation. -/
+theorem roundFloat_p1_val (c : Semantics) (H : HookParams) :
+    Γ (c.withHooks H)
+      (appP (c.withHooks H) ⟨floatRound, [Srt.float, Srt.int, Srt.int], Srt.float⟩
+        [f64 0x3FF0000000000000, int 1, int 8] ≡ den (c.withHooks H) t18) :=
+  gamma_val _ (by decide +kernel) (sortsOf_fii _ (by decide) 1 8) (by decide +kernel)
+
+/-- `Int2Float(1, 1, 8) = 1.0p1x8`. -/
+theorem int2Float_p1_val (c : Semantics) (H : HookParams) :
+    Γ (c.withHooks H)
+      (appP (c.withHooks H) ⟨int2Float, [Srt.int, Srt.int, Srt.int], Srt.float⟩ [int 1, int 1, int 8] ≡
+        den (c.withHooks H) t18) :=
+  gamma_val _ (by decide +kernel) (sortsOf_iii _ 1 1 8) (by decide +kernel)
+
+/-- `maxValueFloat(1, 8)` is 2^127, the literal of the exponent field 254. -/
+theorem maxValue_p1_val (c : Semantics) (H : HookParams) :
+    Γ (c.withHooks H)
+      (appP (c.withHooks H) ⟨floatMaxValue, [Srt.int, Srt.int], Srt.float⟩ [int 1, int 8] ≡
+        den (c.withHooks H) (.dv Srt.float (.float 1 8 254))) :=
+  gamma_val _ (by decide +kernel) (sortsOf_ii _ 1 8) (by decide +kernel)
+
+/-- **Under `HookParams.none`, the theory of every semantics states `roundFloat(V, 53, 1) = ⊥`** for
+every binary64 value V (`hb` says the encoding is one): the format of one exponent bit. -/
 theorem roundFloat_x1_bot (c : Semantics) {b : Nat} (hb : KFloat.ok 53 11 b = true) :
     Γ (c.withHooks HookParams.none)
       (appP (c.withHooks HookParams.none) ⟨floatRound, [Srt.float, Srt.int, Srt.int], Srt.float⟩
         [f64 b, int 53, int 1] ≡ ⊥) :=
   gamma_none c (by decide +kernel) (sortsOf_fii _ hb 53 1) (by rw [hook_eq]; rfl) rfl
 
-/-- `Int2Float(N, 1, 8) = ⊥` for every Int N. -/
-theorem int2Float_p1_bot (c : Semantics) (n : Int) :
+/-- `Int2Float(N, 24, 1) = ⊥` for every Int N. -/
+theorem int2Float_x1_bot (c : Semantics) (n : Int) :
     Γ (c.withHooks HookParams.none)
       (appP (c.withHooks HookParams.none) ⟨int2Float, [Srt.int, Srt.int, Srt.int], Srt.float⟩
-        [int n, int 1, int 8] ≡ ⊥) :=
-  gamma_none c (by decide +kernel) (sortsOf_iii _ n 1 8) (by rw [hook_eq]; rfl) rfl
+        [int n, int 24, int 1] ≡ ⊥) :=
+  gamma_none c (by decide +kernel) (sortsOf_iii _ n 24 1) (by rw [hook_eq]; rfl) rfl
 
-/-- `maxValueFloat(1, 8) = ⊥` and `minValueFloat(53, 1) = ⊥`. -/
-theorem maxValue_p1_bot (c : Semantics) :
+/-- `maxValueFloat(53, 1) = ⊥` and `minValueFloat(53, 1) = ⊥`. -/
+theorem maxValue_x1_bot (c : Semantics) :
     Γ (c.withHooks HookParams.none)
-      (appP (c.withHooks HookParams.none) ⟨floatMaxValue, [Srt.int, Srt.int], Srt.float⟩ [int 1, int 8] ≡ ⊥) ∧
+      (appP (c.withHooks HookParams.none) ⟨floatMaxValue, [Srt.int, Srt.int], Srt.float⟩ [int 53, int 1] ≡ ⊥) ∧
     Γ (c.withHooks HookParams.none)
       (appP (c.withHooks HookParams.none) ⟨floatMinValue, [Srt.int, Srt.int], Srt.float⟩ [int 53, int 1] ≡ ⊥) :=
-  ⟨gamma_none c (by decide +kernel) (sortsOf_ii _ 1 8) (by rw [hook_eq]; rfl) (by decide +kernel),
+  ⟨gamma_none c (by decide +kernel) (sortsOf_ii _ 53 1) (by rw [hook_eq]; rfl) (by decide +kernel),
    gamma_none c (by decide +kernel) (sortsOf_ii _ 53 1) (by rw [hook_eq]; rfl) (by decide +kernel)⟩
 
 /-! ## Over all interpretations, neither ⊥ nor a value -/
@@ -231,49 +267,49 @@ theorem zero_sorted : c.sortOf (f64 0) = some Srt.float := by decide +kernel
 /-- `1.0p1x8`, a value of sort Float. -/
 theorem t18_sorted : c.sortOf t18 = some Srt.float := by decide +kernel
 
-/-- **`roundFloat(1.0, 1, 8)` is undetermined with a value of its own format**: over all
-interpretations Γ entails neither ⊥ nor `1.0p1x8` there. -/
-theorem undetermined_thin :
-    ¬ (∀ H : HookParams, Γ (c.withHooks H) ⊧ (appP (c.withHooks H) ⟨floatRound, [Srt.float, Srt.int, Srt.int], Srt.float⟩
-        [f64 0x3FF0000000000000, int 1, int 8] ≡ ⊥)) ∧
-      ¬ (∀ H : HookParams, Γ (c.withHooks H) ⊧ (appP (c.withHooks H) ⟨floatRound, [Srt.float, Srt.int, Srt.int], Srt.float⟩
-        [f64 0x3FF0000000000000, int 1, int 8] ≡ den (c.withHooks H) t18)) :=
-  undetermined c coreOK (by decide +kernel) (by decide +kernel) (sortsOf_fii c (by decide) 1 8) (by decide +kernel)
-    (by decide +kernel) t18_sorted (fnHyp _) (fnHyp _)
+/-- **`roundFloat(1.0, 1, 8)` is determined, a value of its own format**: under every
+interpretation Γ states it is `1.0p1x8`. -/
+theorem determined_thin (H : HookParams) :
+    Γ (c.withHooks H) (appP (c.withHooks H) ⟨floatRound, [Srt.float, Srt.int, Srt.int], Srt.float⟩
+        [f64 0x3FF0000000000000, int 1, int 8] ≡ den (c.withHooks H) t18) :=
+  roundFloat_p1_val c H
 
-/-- **`roundFloat(1.0, 1, 8)`, `Int2Float(1, 1, 8)`, `maxValueFloat(1, 8)`, `minValueFloat(53, 1)`
+/-- **`roundFloat(1.0, 53, 1)`, `Int2Float(1, 24, 1)`, `maxValueFloat(53, 1)`, `minValueFloat(53, 1)`
 are undetermined**: over all interpretations Γ entails neither ⊥ nor `0.0` at each. -/
 theorem undetermined_four :
     (¬ (∀ H : HookParams, Γ (c.withHooks H) ⊧ (appP (c.withHooks H) ⟨floatRound, [Srt.float, Srt.int, Srt.int], Srt.float⟩
-        [f64 0x3FF0000000000000, int 1, int 8] ≡ ⊥)) ∧
+        [f64 0x3FF0000000000000, int 53, int 1] ≡ ⊥)) ∧
       ¬ (∀ H : HookParams, Γ (c.withHooks H) ⊧ (appP (c.withHooks H) ⟨floatRound, [Srt.float, Srt.int, Srt.int], Srt.float⟩
-        [f64 0x3FF0000000000000, int 1, int 8] ≡ den (c.withHooks H) (f64 0)))) ∧
+        [f64 0x3FF0000000000000, int 53, int 1] ≡ den (c.withHooks H) (f64 0)))) ∧
     (¬ (∀ H : HookParams, Γ (c.withHooks H) ⊧ (appP (c.withHooks H) ⟨int2Float, [Srt.int, Srt.int, Srt.int], Srt.float⟩
-        [int 1, int 1, int 8] ≡ ⊥)) ∧
+        [int 1, int 24, int 1] ≡ ⊥)) ∧
       ¬ (∀ H : HookParams, Γ (c.withHooks H) ⊧ (appP (c.withHooks H) ⟨int2Float, [Srt.int, Srt.int, Srt.int], Srt.float⟩
-        [int 1, int 1, int 8] ≡ den (c.withHooks H) (f64 0)))) ∧
+        [int 1, int 24, int 1] ≡ den (c.withHooks H) (f64 0)))) ∧
     (¬ (∀ H : HookParams, Γ (c.withHooks H) ⊧ (appP (c.withHooks H) ⟨floatMaxValue, [Srt.int, Srt.int], Srt.float⟩
-        [int 1, int 8] ≡ ⊥)) ∧
+        [int 53, int 1] ≡ ⊥)) ∧
       ¬ (∀ H : HookParams, Γ (c.withHooks H) ⊧ (appP (c.withHooks H) ⟨floatMaxValue, [Srt.int, Srt.int], Srt.float⟩
-        [int 1, int 8] ≡ den (c.withHooks H) (f64 0)))) ∧
+        [int 53, int 1] ≡ den (c.withHooks H) (f64 0)))) ∧
     (¬ (∀ H : HookParams, Γ (c.withHooks H) ⊧ (appP (c.withHooks H) ⟨floatMinValue, [Srt.int, Srt.int], Srt.float⟩
         [int 53, int 1] ≡ ⊥)) ∧
       ¬ (∀ H : HookParams, Γ (c.withHooks H) ⊧ (appP (c.withHooks H) ⟨floatMinValue, [Srt.int, Srt.int], Srt.float⟩
         [int 53, int 1] ≡ den (c.withHooks H) (f64 0)))) :=
-  ⟨undetermined c coreOK (by decide +kernel) (by decide +kernel) (sortsOf_fii c (by decide) 1 8) (by decide +kernel)
+  ⟨undetermined c coreOK (by decide +kernel) (by decide +kernel) (sortsOf_fii c (by decide) 53 1) (by decide +kernel)
       (by decide +kernel) zero_sorted (fnHyp _) (fnHyp _),
-   undetermined c coreOK (by decide +kernel) (by decide +kernel) (sortsOf_iii c 1 1 8) (by decide +kernel)
+   undetermined c coreOK (by decide +kernel) (by decide +kernel) (sortsOf_iii c 1 24 1) (by decide +kernel)
       (by decide +kernel) zero_sorted (fnHyp _) (fnHyp _),
-   undetermined c coreOK (by decide +kernel) (by decide +kernel) (sortsOf_ii c 1 8) (by decide +kernel)
+   undetermined c coreOK (by decide +kernel) (by decide +kernel) (sortsOf_ii c 53 1) (by decide +kernel)
       (by decide +kernel) zero_sorted (fnHyp _) (fnHyp _),
    undetermined c coreOK (by decide +kernel) (by decide +kernel) (sortsOf_ii c 53 1) (by decide +kernel)
       (by decide +kernel) zero_sorted (fnHyp _) (fnHyp _)⟩
 
 end FltAdd
 
-#print axioms roundFloat_p1_bot
-#print axioms int2Float_p1_bot
-#print axioms maxValue_p1_bot
+#print axioms roundFloat_p1_val
+#print axioms int2Float_p1_val
+#print axioms maxValue_p1_val
+#print axioms roundFloat_x1_bot
+#print axioms int2Float_x1_bot
+#print axioms maxValue_x1_bot
 #print axioms FltAdd.undetermined_four
 #print axioms precision_one
-#print axioms FltAdd.undetermined_thin
+#print axioms FltAdd.determined_thin

@@ -1,0 +1,88 @@
+id = "t239-rat-makerat-overlap"
+kind = "text"
+subject = "A text importing RAT: the three equations of the module's function makeRat(I, J, D), I /Int D requires J ==Int D, < I /Int D , J /Int D >Rat requires J >Int 0 andBool J =/=Int D, and makeRat(0 -Int I, 0 -Int J, D) requires J <Int 0. What the text states of makeRat where J and D are one negative integer, outside the domain the module's comment names (D > 0)."
+origin = "kcore-spec fixture e6-param-rat (its import of RAT)"
+rests_on = ["kk:t10-fn-innermost", "kk:t11-eq-applies", "kk:t12-eq-priority-owise", "kk:t210-eq-several-owise", "kk:t31-int-division"]
+
+[text]
+files = ["t239-rat-makerat-overlap.k"]
+kompile = "accepts"
+
+[ruling]
+status = "settled"
+form = "no-model"
+statement = "The three equations are three sentences of the text, each stating its right side wherever its own requires is true, at every triple of integers; they have one priority, 50, and are not ordered among themselves, and the comment that names D > 0 is no sentence and restricts none of them. Where J = D < 0 the first and the third both apply: the first states makeRat(I, J, D) = q with q = I /Int D, and the third, through the second at (0 - I, 0 - J, D), states makeRat(I, J, D) = < 0 - q , -1 >Rat. At I = J = D = -3 the two values are the integer 1 and the pair < -1 , -1 >Rat. A function application has at most one value, so in a model the integer and the pair would be one element; at that element the two equations of >Rat against 0, one for a pair and one for an integer, state false and true. The text has no model, whether or not a pair may be the element an integer is."
+reason = '''
+(1) An equation states its right side at exactly the arguments its patterns denote under a valuation at which its requires evaluates to true (kk:t11-eq-applies). The patterns of the three equations are the variables I, J and D of sort Int (rat.md:171-173), so each speaks of makeRat at every triple of integers at which its requires is true: the first where J = D, the second where J > 0 and J is not D, the third where J < 0 (the comparisons are those of domains.md:1324-1325).
+(2) None of the three carries a priority or an owise attribute, so each has the priority 50 (user_manual.md:1748-1749; kk:t12-eq-priority-owise). A rule is tried after the rules of a smaller number (user_manual.md:1722-1730); among rules of one number the text states no order (user_manual.md:1743-1744), and two equations of one priority that both apply at an argument both state their right sides there (kk:t210-eq-several-owise). The place of a rule in the file gives it no precedence.
+(3) rat.md:170 says makeRat(I, J, D) is defined when I =/= 0, J =/= 0, D > 0 and D = gcd(I,J), and the first equation's line ends in a comment that J > 0 follows since D > 0. Both are comments. A rule's condition is what its requires writes (rat.md:171-173), and no requires of the three mentions the sign of D or its being a gcd. The one application of makeRat/3 in the module passes gcdInt(I,J), which is positive (rat.md:168, 175); that says at which arguments the module's other equations ask for a value of makeRat/3, not at which arguments its three equations state one. A symbol is interpreted at every element of its argument sorts (introduction-to-matching-logic.tex:704-713), so every model interprets makeRat at (-3, -3, -3), and by (1) the equations speak of it there.
+(4) At (I, J, D) = (-3, -3, -3): the first requires, -3 ==Int -3, is true and the first equation states -3 /Int -3, which is 1 (t-division, kk:t31-int-division). The second requires is false (-3 >Int 0). The third, -3 <Int 0, is true and the third equation states makeRat(0 -Int -3, 0 -Int -3, -3), the application at (3, 3, -3) (an application at arguments that have values is the application at those values, kk:t10-fn-innermost). At (3, 3, -3) the first requires is false (3 ==Int -3) and the third is false (3 <Int 0); the second is true (3 >Int 0 and 3 =/=Int -3), and states < 3 /Int -3 , 3 /Int -3 >Rat, which is < -1 , -1 >Rat. So the text states makeRat(-3, -3, -3) = 1 and makeRat(-3, -3, -3) = < -1 , -1 >Rat.
+(5) The same at every I and every J = D < 0: the first equation states q = I /Int D; the third leads to (0 - I, 0 - J, D) with 0 - J > 0 and 0 - J not D, where the second alone applies and states < (0 - I) /Int D , (0 - J) /Int D >Rat, which is < 0 - q , -1 >Rat (t-division rounds towards zero, so negating the dividend negates the quotient).
+(6) makeRat is declared with the function attribute (rat.md:163-164): its application has at most one value (user_manual.md:540-544; kk:t10-fn-innermost, point (3)). So in a model of the text the Rat that the integer 1 is and the pair < -1 , -1 >Rat are one element e.
+(7) The module gives >Rat against 0 by two equations, < I , _ >Rat >Rat 0 => I >Int 0 and I:Int >Rat 0 => I >Int 0 (rat.md:209-210), both of priority 50. At e the first applies with I = -1 and states -1 >Int 0, false; the second applies with I = 1 and states 1 >Int 0, true. >Rat is a function (rat.md:54) and Bool has the two values true and false (domains.md:1084). So no model has such an element e.
+(8) By (6) every model has e and by (7) none has: the text has no model. Were a pair and an integer never one element, (4) alone would give the same; the argument does not need to settle that.'''
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/rat.md:163-164 (K 7.1.337)"
+quote = "syntax Rat ::= makeRat(Int, Int) [function] | makeRat(Int, Int, Int) [function]"
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/rat.md:168 (K 7.1.337)"
+quote = "rule makeRat(I, J) => makeRat(I, J, gcdInt(I,J)) requires I =/=Int 0 andBool J =/=Int 0"
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/rat.md:170-173 (K 7.1.337)"
+quote = "// makeRat(I, J, D) is defined when I =/= 0, J =/= 0, D > 0, and D = gcd(I,J) rule makeRat(I, J, D) => I /Int D requires J ==Int D // implies J > 0 since D > 0 rule makeRat(I, J, D) => < I /Int D , J /Int D >Rat requires J >Int 0 andBool J =/=Int D rule makeRat(I, J, D) => makeRat(0 -Int I, 0 -Int J, D) requires J <Int 0"
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/rat.md:175 (K 7.1.337)"
+quote = "// gcdInt(a,b) computes the gcd of |a| and |b|, which is positive."
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/rat.md:209-210 (K 7.1.337)"
+quote = "rule < I , _ >Rat >Rat 0 => I >Int 0 rule I:Int >Rat 0 => I >Int 0"
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/rat.md:54 (K 7.1.337)"
+quote = '''| Rat ">Rat" Rat [function, total, symbol(_>Rat_), smtlib(ratgt), hook(RAT.gt)]'''
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:540-544 (K 7.1.337)"
+quote = "Semantically, it means that evaluation of that symbol will result in at most one return value (that is, the symbol is a *partial function*)."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1722-1730 (K 7.1.337)"
+quote = "In particular, the second rule above will only be tried after the first rule has been shown not to apply. ... Rules are tried in increasing order of priority, starting at zero and trying each increasing numerical value successively."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1743-1744 (K 7.1.337)"
+quote = "1. Multiple rules with the owise attribute all have the same priority and thus can apply in any order."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1748-1749 (K 7.1.337)"
+quote = "There is one more rule by which priorities are assigned: a rule with no attributes indicating its priority is assigned the priority 50."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1324-1325 (K 7.1.337)"
+quote = "You can compute whether two integers are less than or equal to, less than, greater than or equal to, greater than, equal, or unequal to another integer."
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:704-713 (K 7.1.337)"
+quote = '''and a function $\sigma_M:M_{s_1}\times\cdots\times M_{s_n} \rightarrow {\cal P}(M_s)$ for each symbol $\sigma\in\Sigma_{s_1\ldots s_n,s}$, called the \emph{interpretation} of $\sigma$ in $M$.'''
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1084 (K 7.1.337)"
+quote = "The boolean values are `true` and `false`."

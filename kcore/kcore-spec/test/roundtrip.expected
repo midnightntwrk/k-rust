@@ -104,11 +104,13 @@ differs f2-examples/e2-fn-assoc-rest.kompile.kore
 differs f2-examples/e2-fn-assoc-unit.kompile.kore
 differs f2-examples/e2-fn-assoc.kompile.kore
 differs f2-examples/e2-fn-idem.kompile.kore
+differs f2-examples/e2-frontend-effect.kompile.kore
 differs f2-examples/e2-macro-plain.kompile.kore
 differs f2-examples/e2-macro.kompile.kore
 differs f2-examples/e2-module-att.kompile.kore
 differs f2-examples/e2-rule-nocool.kore
 differs f2-examples/e2-rule-nopreservesdefinedness.kore
+differs f2-examples/e2-simp-label.kompile.kore
 differs f2-examples/e2-simp-true-prio.kompile.kore
 differs f2-examples/e2-simp-true.kompile.kore
 differs f2-examples/e2-simplification.kompile.kore

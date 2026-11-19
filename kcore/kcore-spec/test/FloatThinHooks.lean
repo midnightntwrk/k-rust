@@ -1,7 +1,8 @@
 /-
   The combinators of the formats with a field of 1 (KcoreSpec/Hooks.lean, `thinHooks`), at the
   formats `thinAt` names (precision 1, at least 2 exponent bits), each value decided by the kernel.
-  `floatHooks` does not read them yet: these are the values of `thinHooks`' entries, not of `hook`.
+  These are the values of `thinHooks`' entries; `floatHooks` pairs each with its entry of a format
+  with a model by `flOr`, so they are `hook`'s values at these formats.
 
   `p1x3` (bias 3): the encoding `8·s + x`, the field `x` from 1 to 6 is `±2^(x − 3)` (0.25, 0.5, 1,
   2, 4, 8), 0 a zero, 7 an infinity, 16 the NaN. At precision 1 a significand is the one digit 1, so
