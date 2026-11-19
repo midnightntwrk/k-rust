@@ -1731,6 +1731,14 @@ table above, on the tree before String and Bytes). Not investigated here.
   the rule of default priority at its listed match, `Cert.stepBy_of_checkStep`), `guard_an1` (the
   guard `RuleGuard` there, `TieRulePair.ruleGuard_of_stepBy`: the rule of priority 40 does not apply
   and the right side is defined), `w2_an1` (sentence 159 as written holds there in every model of Γ).
+- `test/TieE3KseqRuleW2.lean`: W2 for the four rule sentences of e3-kseq's kompiled text, for
+  every H (`rules_tie` as above; KcoreSpec/TieRuleW2Guarded.lean). Γ's axiom of each rule adds
+  `⌈right⌉` alone (`extras`). For 161, 162 and 163 the right side is `<generatedTop>(<k>(V), C) ∧ ⊤`,
+  built of the rule's variables and two constructors whose Cons-Fun items Γ has (`right_built`,
+  `right_funs`), so Γ entails the sentence (`rule161_entailed`, `rule162_entailed`,
+  `rule163_entailed`, `TieRuleW2G.rules_w2_built_nil`). The right side of 160 holds `inj`
+  (`right0_not_built`): `rule160_w2` keeps `⌈right⌉` as its premise, under the guards of the
+  rule's variables (`TieRuleW2G.rule_w2_guarded`). About 1 minute.
 - `test/C3SimpEnsRefuted.lean`, `test/InertE2SimpRefuted.lean`: simplification sentences that are
   not inert: c3-simp-ens's `f(f(X)) => f(X) ensures X >=Int 0` beside `f(X) => X` (`ens_refuted`),
   and e2-simplification's `f(X) -Int 1 => X` and `sl(X) >=Int 0 => true` beside `f(X) => X`,

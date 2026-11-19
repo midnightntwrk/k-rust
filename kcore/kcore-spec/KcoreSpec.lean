@@ -353,6 +353,7 @@ import KcoreSpec.GenEqsNames
 import KcoreSpec.GenEqsWalk
 import KcoreSpec.GenEqsInit
 import KcoreSpec.TieRuleGuard
+import KcoreSpec.TieRuleW2Guarded
 import KcoreSpec.ModelFnsPre
 import KcoreSpec.CoreDecide
 import KcoreSpec.TieHeads
