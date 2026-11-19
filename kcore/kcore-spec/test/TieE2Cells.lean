@@ -10,6 +10,8 @@
   - The account: the class lists partition the 553 sentences of the user module E2-CELLS, in
     `tieClasses`' order (`account`, `account_sizes`, `account_classes`); the no-direction class holds
     exactly the sentences that apply a symbol Γ lacks (`account_absent`, `absent_closed`).
+  - `absent_proj_below`: the 46 no-direction sentences that are equations of a projection
+    `project:X` are of sorts X that are K, KItem or below KItem in Γ (`GenEqs.projBelowB`).
   - `attrs_agree`: the attributes the translation does not read agree with `defn`.
   - `sig_origin`: each of the 318 items of `sigItems c` is a declaration's item of the text or a
     surplus one; `decls_entailed`: Γ entails the item of each declaration without sort parameters
@@ -42,6 +44,12 @@
 
   The sentences with no counterpart in f2-examples/ens.kompile.kore are `unmapped` (313);
   the sentences of a class with a theorem that no theorem here holds of are `uncovered` (0).
+  Written with `--split`: this file holds the literals, the names, `wf`, the account, the
+  consistency and the sections that read none of the other files' decisions; the other sections are
+  in `test/TieE2CellsAttrs.lean`, `test/TieE2CellsSig.lean`, `test/TieE2CellsDecls.lean`,
+  `test/TieE2CellsFns.lean`, `test/TieE2CellsNoJunk.lean`, `test/TieE2CellsCons.lean`, in this
+  namespace, each of which repeats the literals and the definitions and facts it reads, as a test
+  file imports no test file.
 -/
 import KcoreSpec
 
@@ -203,6 +211,40 @@ theorem absent_closed :
       (fun ad => (appHeadsOf ad.ax.pattern).all (gammaHasHead c)) = true :=
   tieAbsent_of_account userAxioms _ _ account_absent
 
+/-- The sentences of the no-direction class that are equations of a projection `project:X` (their
+left side applies `Lblproject'Coln'X`), each with X. -/
+def absentProj : List (Nat × String) :=
+  [(507, "Bool"), (508, "ExitcodeCell"), (509, "ExitcodeCellOpt"), (510, "Exp"),
+   (511, "GeneratedCounterCell"), (512, "GeneratedCounterCellOpt"), (513, "GeneratedTopCell"),
+   (514, "GeneratedTopCellFragment"), (515, "IdCell"), (516, "IdCellOpt"), (517, "Int"),
+   (518, "K"), (519, "KCell"), (520, "KCellOpt"), (521, "KItem"), (522, "KeyCell"),
+   (523, "KeyCellOpt"), (524, "List"), (525, "LsCell"), (526, "LsCellFragment"),
+   (527, "LsCellOpt"), (528, "LtCell"), (529, "LtCellList"), (530, "Map"), (531, "MsCell"),
+   (532, "MsCellFragment"), (533, "MsCellOpt"), (534, "MtCell"), (535, "MtCellFragment"),
+   (536, "MtCellMap"), (537, "OneCell"), (538, "OneCellOpt"), (539, "OptCell"),
+   (540, "OptCellOpt"), (541, "Set"), (542, "TCell"), (543, "TCellFragment"), (544, "TCellOpt"),
+   (545, "ThCell"), (546, "ThCellFragment"), (547, "ThCellSet"), (548, "TsCell"),
+   (549, "TsCellFragment"), (550, "TsCellOpt"), (551, "VCell"), (552, "VCellOpt")]
+
+/-- Each sort of `absentProj` is K, KItem or a sort below KItem of Γ, with K and KItem
+constructor sorts. -/
+theorem absent_proj_below_c : absentProj.all (fun p => GenEqs.projBelowB c p.2) = true := by
+  decide +kernel
+
+/-- **The projections the no-direction class defines are of sorts below KItem**: `absentProj` is
+the list of the no-direction sentences whose left side applies a symbol `Lblproject'Coln'X`, each
+with that X, and each such X is K, KItem or a sort below KItem of Γ, with K and KItem constructor
+sorts (`GenEqs.projBelowB`). So the pattern each of these equations is at is functional and
+injective on X in every model of Γ (`GenEqs.projSel_fun`, `GenEqs.projSel_inj`): what the
+equation states of the pattern's symbols, Γ entails. -/
+theorem absent_proj_below (H : HookParams) :
+    (userAxioms.filter (fun ad => (classOf "no direction").contains ad.index &&
+        ((AttrsAgree.eqnHead ad.ax.pattern).getD "").startsWith "Lblproject'Coln'")).map
+      (fun ad => (ad.index, AttrsAgree.eqnHead ad.ax.pattern)) =
+      absentProj.map (fun p => (p.1, some ("Lblproject'Coln'" ++ p.2))) ∧
+    absentProj.all (fun p => GenEqs.projBelowB (cH H) p.2) = true :=
+  ⟨by rw [userAxioms_eq]; decide +kernel, absent_proj_below_c⟩
+
 /-- The sentences whose text is none of f2-examples/ens.kompile.kore's user module, with their class. -/
 def unmapped : List (Nat × String) :=
   [(4, "subsort"), (5, "subsort"), (6, "subsort"), (7, "subsort"), (8, "subsort"), (9, "subsort"),
@@ -307,135 +349,6 @@ def uncovered : List (Nat × String) :=
 theorem lists_in_account : (unmapped ++ uncovered).all (fun ic => (classOf ic.2).contains ic.1) = true := by
   decide +kernel
 
-/-! ## The attributes -/
-
-/-- **The attributes of the text agree with `defn`** (`attrsAgree`): constructors, functions,
-hooks, collection symbols, priorities. -/
-theorem attrs_agree : attrsAgree kore defn = true := by decide +kernel
-
-/-! ## The declarations: `sig_origin` and `decls_entailed`, by ranges -/
-
-/-- `p` holds from `a` on where it holds on the `n` members from `a` and from `a + n` on. -/
-theorem tieAllE_range {α : Type} {l : List α} {p : α → Bool} {a n : Nat}
-    (h : ((l.drop a).take n).all p = true) (ht : (l.drop (a + n)).all p = true) :
-    (l.drop a).all p = true := by
-  rw [← List.take_append_drop n (l.drop a), List.all_append, h, List.drop_drop, ht]; rfl
-
-/-- `p` holds of the whole list where it holds from `0` on. -/
-theorem tieAllE_whole {α : Type} {l : List α} {p : α → Bool} (h : (l.drop 0).all p = true) :
-    l.all p = true := h
-
-/-- The item of Γ's signature is a declaration's item of the text, or a surplus one. -/
-noncomputable def sigFrom (it : Item) : Bool :=
-  (Theory.ofDefinition kore).signature.any (·.pat == it.pat) || surplusItem kore it
-
-theorem sigE_0 : (((sigItems c).drop 0).take 34).all sigFrom = true := by decide +kernel
-theorem sigE_34 : (((sigItems c).drop 34).take 13).all sigFrom = true := by decide +kernel
-theorem sigE_47 : (((sigItems c).drop 47).take 13).all sigFrom = true := by decide +kernel
-theorem sigE_60 : (((sigItems c).drop 60).take 13).all sigFrom = true := by decide +kernel
-theorem sigE_73 : (((sigItems c).drop 73).take 13).all sigFrom = true := by decide +kernel
-theorem sigE_86 : (((sigItems c).drop 86).take 13).all sigFrom = true := by decide +kernel
-theorem sigE_99 : (((sigItems c).drop 99).take 13).all sigFrom = true := by decide +kernel
-theorem sigE_112 : (((sigItems c).drop 112).take 13).all sigFrom = true := by decide +kernel
-theorem sigE_125 : (((sigItems c).drop 125).take 13).all sigFrom = true := by decide +kernel
-theorem sigE_138 : (((sigItems c).drop 138).take 13).all sigFrom = true := by decide +kernel
-theorem sigE_151 : (((sigItems c).drop 151).take 13).all sigFrom = true := by decide +kernel
-theorem sigE_164 : (((sigItems c).drop 164).take 13).all sigFrom = true := by decide +kernel
-theorem sigE_177 : (((sigItems c).drop 177).take 13).all sigFrom = true := by decide +kernel
-theorem sigE_190 : (((sigItems c).drop 190).take 13).all sigFrom = true := by decide +kernel
-theorem sigE_203 : (((sigItems c).drop 203).take 13).all sigFrom = true := by decide +kernel
-theorem sigE_216 : (((sigItems c).drop 216).take 13).all sigFrom = true := by decide +kernel
-theorem sigE_229 : (((sigItems c).drop 229).take 13).all sigFrom = true := by decide +kernel
-theorem sigE_242 : (((sigItems c).drop 242).take 13).all sigFrom = true := by decide +kernel
-theorem sigE_255 : (((sigItems c).drop 255).take 13).all sigFrom = true := by decide +kernel
-theorem sigE_268 : (((sigItems c).drop 268).take 13).all sigFrom = true := by decide +kernel
-theorem sigE_281 : (((sigItems c).drop 281).take 13).all sigFrom = true := by decide +kernel
-theorem sigE_294 : (((sigItems c).drop 294).take 13).all sigFrom = true := by decide +kernel
-theorem sigE_307 : ((sigItems c).drop 307).all sigFrom = true := by decide +kernel
-
-theorem sig_sizes : (sigItems c).length = 318 := by decide +kernel
-
-/-- **Every item of Γ's signature has its origin**: the item of a declaration of the text, or the
-sort constant of a registry sort or the arity of an interpreted hooked symbol that the text does not
-declare at that shape. -/
-theorem sig_origin : (sigItems c).all (fun it =>
-    (Theory.ofDefinition kore).signature.any (·.pat == it.pat) || surplusItem kore it) = true :=
-  tieAllE_whole (p := sigFrom) <|
-    tieAllE_range (a := 0) (n := 34) sigE_0 <|
-    tieAllE_range (a := 34) (n := 13) sigE_34 <|
-    tieAllE_range (a := 47) (n := 13) sigE_47 <|
-    tieAllE_range (a := 60) (n := 13) sigE_60 <|
-    tieAllE_range (a := 73) (n := 13) sigE_73 <|
-    tieAllE_range (a := 86) (n := 13) sigE_86 <|
-    tieAllE_range (a := 99) (n := 13) sigE_99 <|
-    tieAllE_range (a := 112) (n := 13) sigE_112 <|
-    tieAllE_range (a := 125) (n := 13) sigE_125 <|
-    tieAllE_range (a := 138) (n := 13) sigE_138 <|
-    tieAllE_range (a := 151) (n := 13) sigE_151 <|
-    tieAllE_range (a := 164) (n := 13) sigE_164 <|
-    tieAllE_range (a := 177) (n := 13) sigE_177 <|
-    tieAllE_range (a := 190) (n := 13) sigE_190 <|
-    tieAllE_range (a := 203) (n := 13) sigE_203 <|
-    tieAllE_range (a := 216) (n := 13) sigE_216 <|
-    tieAllE_range (a := 229) (n := 13) sigE_229 <|
-    tieAllE_range (a := 242) (n := 13) sigE_242 <|
-    tieAllE_range (a := 255) (n := 13) sigE_255 <|
-    tieAllE_range (a := 268) (n := 13) sigE_268 <|
-    tieAllE_range (a := 281) (n := 13) sigE_281 <|
-    tieAllE_range (a := 294) (n := 13) sigE_294 <|
-    sigE_307
-
-kernel_rfl sigItems_withHooks : ∀ (c : Semantics) (H : HookParams), sigItems (c.withHooks H) = sigItems c
-
-/-- Γ has a symbol under the name `n`. -/
-noncomputable def hasSym (n : String) : Bool := (kernelSyms c).any fun k => c.symName k.name == n
-
-noncomputable def plainSorts : List SortDecl := kore.sortDecls.filter (·.params.isEmpty)
-noncomputable def plainSyms : List SymbolDecl := kore.symbolDecls.filter fun sd => sd.params.isEmpty && hasSym sd.name
-noncomputable def declItems : List Item := plainSorts.map sortConstantItem ++ plainSyms.map arityItem
-
-/-- The item is one of `sigItems c`, pattern for pattern. -/
-noncomputable def inSigItems (it : Item) : Bool := (sigItems c).any (·.pat == it.pat)
-
-/-- The declarations of the text: sorts, sorts without parameters, symbols, symbols without
-parameters that Γ has, symbols with parameters, symbols without parameters that Γ lacks. -/
-theorem decl_counts :
-    (kore.sortDecls.length, plainSorts.length, kore.symbolDecls.length, plainSyms.length,
-      (kore.symbolDecls.filter fun sd => !sd.params.isEmpty).length,
-      (kore.symbolDecls.filter fun sd => sd.params.isEmpty && !hasSym sd.name).length) = (48, 47, 248, 171, 5, 72) := by
-  decide +kernel
-
-theorem declsE_0 : (((declItems).drop 0).take 25).all inSigItems = true := by decide +kernel
-theorem declsE_25 : (((declItems).drop 25).take 25).all inSigItems = true := by decide +kernel
-theorem declsE_50 : (((declItems).drop 50).take 25).all inSigItems = true := by decide +kernel
-theorem declsE_75 : (((declItems).drop 75).take 25).all inSigItems = true := by decide +kernel
-theorem declsE_100 : (((declItems).drop 100).take 25).all inSigItems = true := by decide +kernel
-theorem declsE_125 : (((declItems).drop 125).take 25).all inSigItems = true := by decide +kernel
-theorem declsE_150 : (((declItems).drop 150).take 25).all inSigItems = true := by decide +kernel
-theorem declsE_175 : (((declItems).drop 175).take 25).all inSigItems = true := by decide +kernel
-theorem declsE_200 : ((declItems).drop 200).all inSigItems = true := by decide +kernel
-
-theorem decls_in_sig : declItems.all inSigItems = true :=
-  tieAllE_whole (p := inSigItems) <|
-    tieAllE_range (a := 0) (n := 25) declsE_0 <|
-    tieAllE_range (a := 25) (n := 25) declsE_25 <|
-    tieAllE_range (a := 50) (n := 25) declsE_50 <|
-    tieAllE_range (a := 75) (n := 25) declsE_75 <|
-    tieAllE_range (a := 100) (n := 25) declsE_100 <|
-    tieAllE_range (a := 125) (n := 25) declsE_125 <|
-    tieAllE_range (a := 150) (n := 25) declsE_150 <|
-    tieAllE_range (a := 175) (n := 25) declsE_175 <|
-    declsE_200
-
-/-- **E for the declarations**: Γ entails the item of each declaration without sort parameters of
-a symbol Γ has, for every H. -/
-theorem decls_entailed (H : HookParams) : ∀ it ∈ declItems, Γ (cH H) ⊧ it.pat := by
-  intro it hit M _ I hI
-  have h1 : (sigItems c).any (·.pat == it.pat) = true := List.all_eq_true.mp decls_in_sig it hit
-  obtain ⟨it', hit', he⟩ := List.any_eq_true.mp h1
-  rw [← of_decide_eq_true he]
-  exact sat_sigItem hI (by rw [sigItems_withHooks]; exact hit')
-
 /-! ## Consistency for every H -/
 
 def callOrder : List Nat := [
@@ -459,303 +372,6 @@ theorem fnHypH (H : HookParams) : FnHyp (cH H) := fnHyp_withHooks coreOK (Semant
 
 /-- **Γ with the step's closure has a model, for every H.** -/
 theorem consistent (H : HookParams) : Consistent (cH H) := consistent_of_fnHyp _ (coreOKH H) (fnHypH H)
-
-/-! ## Γ under every interpretation reads the same equations and rules -/
-
-kernel_rfl fnItems_withHooks : ∀ (c : Semantics) (H : HookParams), fnItems (c.withHooks H) = fnItems c
-kernel_rfl ruleItems_withHooks : ∀ (c : Semantics) (H : HookParams), ruleItems (c.withHooks H) = ruleItems c
-
-theorem mem_Γ_fns {c : Semantics} {φ : P} (h : ΓFns c φ) : Γ c φ := Or.inl (Or.inl (Or.inr h))
-
-/-! ## Function equations (101 sentences) -/
-
-/-- The axioms of Γ's equations, in `fnItems`'s order. -/
-noncomputable def fnAxioms (c : Semantics) : List Kore.Axiom :=
-  c.allFns.flatMap fun f => (fnEquationsK c f).filterMap fun
-    | .axiom a => some a
-    | _ => none
-
-theorem fnItems_eq : fnItems c = (fnAxioms c).map fun a => trAxiom [] [] ⟨0, "kernel", a⟩ := by kernel_rfl
-
-/-- The text sentences of Γ's 101 equations, in `fnItems`'s order. -/
-noncomputable def fnText : List AxiomDecl :=
-  [U.ax335, U.ax390, U.ax395, U.ax397, U.ax399, U.ax401, U.ax405, U.ax407, U.ax430, U.ax438,
-   U.ax437, U.ax436, U.ax435, U.ax456, U.ax455, U.ax478, U.ax477, U.ax444, U.ax443, U.ax409,
-   U.ax408, U.ax429, U.ax428, U.ax421, U.ax420, U.ax423, U.ax422, U.ax480, U.ax479, U.ax484,
-   U.ax483, U.ax482, U.ax481, U.ax432, U.ax431, U.ax434, U.ax433, U.ax470, U.ax469, U.ax472,
-   U.ax471, U.ax474, U.ax473, U.ax476, U.ax475, U.ax492, U.ax491, U.ax496, U.ax495, U.ax458,
-   U.ax457, U.ax462, U.ax461, U.ax446, U.ax445, U.ax450, U.ax449, U.ax411, U.ax410, U.ax413,
-   U.ax412, U.ax417, U.ax416, U.ax419, U.ax418, U.ax494, U.ax493, U.ax488, U.ax487, U.ax500,
-   U.ax499, U.ax425, U.ax424, U.ax486, U.ax485, U.ax448, U.ax447, U.ax442, U.ax441, U.ax452,
-   U.ax451, U.ax460, U.ax459, U.ax466, U.ax465, U.ax464, U.ax463, U.ax427, U.ax426, U.ax415,
-   U.ax414, U.ax440, U.ax439, U.ax498, U.ax497, U.ax468, U.ax467, U.ax490, U.ax489, U.ax454,
-   U.ax453]
-
-set_option maxHeartbeats 1000000 in
-/-- **Γ's equations are the text's sentences' translations, pattern for pattern** (one kernel
-decision). -/
-theorem fn_shape : (fnItems c).map (·.pat) = fnText.map (trS · |>.pat) := by
-  rw [fnItems_eq, List.map_map]
-  exact (by decide +kernel :
-    ((fnAxioms c).map fun a => (trAxiom [] [] ⟨0, "kernel", a⟩).pat) = fnText.map (trS · |>.pat))
-
-/-- **`fnText` is the account's function-equation class**: the same indices, each once. -/
-theorem fns_account : (classOf "function equation").isPerm (fnText.map (·.index)) = true := by decide +kernel
-
-/-- **E for the equations**: Γ entails each, for every H. -/
-theorem fns_entailed (H : HookParams) : ∀ ad ∈ fnText, Γ (cH H) ⊧ (trS ad).pat := by
-  intro ad had M _ I hI
-  have hmem : (trS ad).pat ∈ (fnItems c).map (·.pat) := by
-    rw [fn_shape]; exact List.mem_map.mpr ⟨ad, had, rfl⟩
-  obtain ⟨it, hit, he⟩ := List.mem_map.mp hmem
-  exact hI _ (mem_Γ_fns (Or.inl ⟨it, by rw [fnItems_withHooks]; exact hit, he⟩))
-
-/-- **The converse for `fnItems`**: the j-th item is a consequence of `fnText[j]`. -/
-theorem fns_from_text (H : HookParams) :
-    ∀ (j : Nat) (it : Item), (fnItems (cH H))[j]? = some it →
-      ∃ ad, fnText[j]? = some ad ∧ (itemsPremises [trS ad] ⊧ it.pat) := by
-  intro j it hj
-  rw [fnItems_withHooks] at hj
-  have h1 : ((fnItems c).map (·.pat))[j]? = some it.pat := by rw [List.getElem?_map, hj]; rfl
-  rw [fn_shape, List.getElem?_map] at h1
-  cases hf : fnText[j]? with
-  | none => rw [hf] at h1; cases h1
-  | some ad =>
-    rw [hf] at h1
-    refine ⟨ad, rfl, fun {M} _ {I} hI => ?_⟩
-    have he : (trS ad).pat = it.pat := Option.some.inj h1
-    exact hI _ (Or.inl ⟨trS ad, List.mem_singleton_self _, he⟩)
-
-/-- The priority each function sentence's attributes state is the priority of the clause whose
-item is the sentence's translation, item by item in `fnItems`'s order. -/
-theorem fn_prios : fnText.map (fun ad => AttrsAgree.prioOf ad.ax.attributes) =
-    c.allFns.flatMap (fun f => f.clauses.map (·.prio)) := by decide +kernel
-
-/-! ## The rules (1 sentences): W1 -/
-
-/-- A rule axiom `\rewrites{C}(\and{C}(l, t, x), r)`, read as its parts. -/
-def ruleParts : Kore.Pattern → Option (Kore.KSort × Kore.Pattern × Kore.Pattern × Kore.Pattern × Kore.Pattern)
-  | .rewrites C (.and _ [l, t, x]) r => some (C, l, t, x, r)
-  | _ => none
-
-/-- The rule axiom without its left side's third conjunct. -/
-def dropThird (p : Kore.Pattern) : Kore.Pattern :=
-  match ruleParts p with
-  | some (C, l, t, _, r) => .rewrites C (.and C [l, t]) r
-  | none => p
-
-theorem ruleParts_eq {p : Kore.Pattern} {C : Kore.KSort} {l t x r : Kore.Pattern}
-    (h : ruleParts p = some (C, l, t, x, r)) : ∃ C', p = .rewrites C (.and C' [l, t, x]) r ∧ dropThird p = .rewrites C (.and C [l, t]) r := by
-  unfold dropThird; rw [h]
-  unfold ruleParts at h
-  split at h
-  · cases h; exact ⟨_, rfl, rfl⟩
-  · cases h
-
-def kAx (p : Kore.Pattern) : AxiomDecl := ⟨0, "kernel", ⟨[], p, []⟩⟩
-
-/-- **A conjunct more on a rule's left side gives a consequence**: in a model of definedness, the
-rule axiom with the left side `l ∧ t` entails the one with the left side `l ∧ t ∧ x`, where the
-two have one variable table and one list of free variables. -/
-theorem rewrite_weaken {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hD : DefOK I) {p : Kore.Pattern}
-    {C : Kore.KSort} {l t x r : Kore.Pattern} (hq : ruleParts p = some (C, l, t, x, r))
-    (ht : tableOf [] p = tableOf [] (dropThird p))
-    (hf : (freeOf [] p).eraseDups = (freeOf [] (dropThird p)).eraseDups)
-    (h : I ⊧ᴵ (trAxiom [] [] (kAx (dropThird p))).pat) : I ⊧ᴵ (trAxiom [] [] (kAx p)).pat := by
-  obtain ⟨C', hp, hd⟩ := ruleParts_eq hq
-  intro e m
-  have h1 := h e m
-  simp only [trAxiom, kAx, List.map_nil, List.nil_append] at h1 ⊢
-  rw [ht, hf]
-  rw [hd] at h1 ⊢
-  rw [hp] at ⊢
-  rw [interpret_impl] at h1 ⊢
-  intro hg
-  have h2 := h1 hg
-  rw [interp_equal hD] at h2 ⊢
-  intro a
-  have h3 := h2 a
-  simp only [sortOf, tr, trAndList, sRewrites, interp_sImp, interp_sAnd] at h3 ⊢
-  exact ⟨fun hf => hf.1, fun ht' => ⟨(h3.mpr ht').1, fun hl => (h3.mpr ht').2 ⟨hl.1, hl.2.1⟩⟩⟩
-
-
-noncomputable def r0 : Rule := c.rules[0]'(by decide +kernel)
-
-theorem ruleItems_eq : ruleItems c = [trAxiom [] [] (kAx (prioRuleK c r0))] := by kernel_rfl
-
-/-- The text sentences of Γ's rules, in `ruleItems`'s order. -/
-noncomputable def ruleText : List AxiomDecl :=
-  [U.ax334]
-
-/-- **`ruleText` is the account's rewrite-rule class**: the same indices, each once. -/
-theorem rules_account : (classOf "rewrite rule").isPerm (ruleText.map (·.index)) = true := by decide +kernel
-
-theorem rule0_parts : (ruleParts (prioRuleK c r0)).isSome = true := by decide +kernel
-theorem rule0_table : tableOf [] (prioRuleK c r0) = tableOf [] (dropThird (prioRuleK c r0)) := by decide +kernel
-theorem rule0_free : (freeOf [] (prioRuleK c r0)).eraseDups = (freeOf [] (dropThird (prioRuleK c r0))).eraseDups := by
-  decide +kernel
-/-- Γ's item of rule 0 without its premise `⌈rhs ∧ ens⌉` is the text's sentence 334. -/
-theorem rule0_text : (trS U.ax334).pat = (trAxiom [] [] (kAx (dropThird (prioRuleK c r0)))).pat := by decide +kernel
-/-- **W1 for rule 0**: Γ's item is a consequence of sentence 334. -/
-theorem rule0_from_text : itemsPremises [trS U.ax334] ⊧ (trAxiom [] [] (kAx (prioRuleK c r0))).pat := by
-  intro M _ I hI
-  have hD : DefOK I := defOK_of fun x => hI _ (Or.inr ⟨x, rfl⟩)
-  obtain ⟨q, hq⟩ := Option.isSome_iff_exists.mp rule0_parts
-  obtain ⟨C, l, t, x, r⟩ := q
-  refine rewrite_weaken hD hq rule0_table rule0_free ?_
-  rw [← rule0_text]
-  exact hI _ (Or.inl ⟨trS U.ax334, List.mem_singleton_self _, rfl⟩)
-
-set_option maxHeartbeats 4000000 in
-/-- **W1 for the rules, and the converse for `ruleItems`**: each of Γ's rule items is a
-consequence of a text sentence of `ruleText`, for every H. -/
-theorem rule_from_text (H : HookParams) : ∀ it ∈ ruleItems (cH H), ∃ ad ∈ ruleText, itemsPremises [trS ad] ⊧ it.pat := by
-  intro it hit
-  rw [ruleItems_withHooks, ruleItems_eq] at hit
-  simp only [List.mem_cons, List.not_mem_nil, or_false] at hit
-  rcases hit with rfl
-  · exact ⟨U.ax334, List.mem_cons_self, rule0_from_text⟩
-
-/-! ## No junk -/
-
-/-- `\or{S}(\top{S}(), \bottom{S}())` as an axiom: `⊤ ⇒ (⊤_S ∨ ⊥_S ≡ ⟦S⟧)`. -/
-def orTopBot (S : P) : P := conjList [] ⇒ (sOr S (sTop S) (sBot S) ≡ inhOf S)
-
-theorem orTopBot_valid {M : Type} {I : Interpretation KoreAML.Sym M} (hD : DefOK I) {S : P}
-    (hS : S.isFreeEvar topVar = false) : I ⊧ᴵ orTopBot S := by
-  intro e m
-  unfold orTopBot
-  rw [interpret_impl]
-  intro _
-  rw [interp_equal hD]
-  intro a
-  rw [interp_sOr, interp_sTop hD hS]
-  exact ⟨fun h => h.1, fun h => ⟨h, Or.inl h⟩⟩
-
-theorem nj262 : (trS U.ax262).pat = orTopBot (sym (.sort "SortBool")) := by decide +kernel
-theorem nj272 : (trS U.ax272).pat = orTopBot (sym (.sort "SortInt")) := by decide +kernel
-theorem nj275 : (trS U.ax275).pat = orTopBot (sym (.sort "SortKConfigVar")) := by decide +kernel
-
-/-- **E for the no-junk sentences of the sorts without generators**: logical truths, entailed by
-Γ for every H. -/
-theorem nojunk_trivial_entailed (H : HookParams) :
-    ∀ ad ∈ [U.ax262, U.ax272, U.ax275], Γ (cH H) ⊧ (trS ad).pat := by
-  intro ad had M _ I hI
-  have hD := defOK hI
-  simp only [List.mem_cons, List.not_mem_nil, or_false] at had
-  rcases had with rfl | rfl | rfl
-  · rw [nj262]; exact orTopBot_valid hD rfl
-  · rw [nj272]; exact orTopBot_valid hD rfl
-  · rw [nj275]; exact orTopBot_valid hD rfl
-
-set_option maxHeartbeats 1000000 in
-/-- **No junk of the sorts with generators**: the translation of each sentence is the pattern of
-one of Γ's constructor items. -/
-theorem nojunk_items : ∀ ad ∈ [U.ax263, U.ax264, U.ax265, U.ax266, U.ax267, U.ax268, U.ax269, U.ax270, U.ax271, U.ax273,
-      U.ax274, U.ax277, U.ax278, U.ax279, U.ax280, U.ax281, U.ax282, U.ax284, U.ax285, U.ax286,
-      U.ax287, U.ax288, U.ax290, U.ax291, U.ax293, U.ax294, U.ax295, U.ax296, U.ax297, U.ax298,
-      U.ax300, U.ax301, U.ax302, U.ax303, U.ax304],
-    (consItemsK c).any (·.pat == (trS ad).pat) = true := by decide +kernel
-
-kernel_rfl consItemsK_withHooks : ∀ (c : Semantics) (H : HookParams), consItemsK (c.withHooks H) = consItemsK c
-
-/-- **E for those**: Γ entails each, for every H. -/
-theorem nojunk_items_entailed (H : HookParams) : ∀ ad ∈ [U.ax263, U.ax264, U.ax265, U.ax266, U.ax267, U.ax268, U.ax269, U.ax270, U.ax271, U.ax273,
-      U.ax274, U.ax277, U.ax278, U.ax279, U.ax280, U.ax281, U.ax282, U.ax284, U.ax285, U.ax286,
-      U.ax287, U.ax288, U.ax290, U.ax291, U.ax293, U.ax294, U.ax295, U.ax296, U.ax297, U.ax298,
-      U.ax300, U.ax301, U.ax302, U.ax303, U.ax304],
-    Γ (cH H) ⊧ (trS ad).pat := by
-  intro ad had M _ I hI
-  obtain ⟨it, hit, he⟩ := List.any_eq_true.mp (nojunk_items ad had)
-  rw [← of_decide_eq_true he]
-  exact sat_cons hI (Or.inl ⟨it, by rw [consItemsK_withHooks]; exact hit, rfl⟩)
-
-/-- KItem's no-junk sentence is the item over KItem's generators in the text's order, the same
-generators as `Semantics.gens` lists, in another order. -/
-theorem nojunk_kitem_order : (trS U.ax276).pat =
-    (KoreAML.Cons.noJunkItem (c.sortName Srt.kitem) ((gensInOrder c defn.pres Srt.kitem).map (Gen.toK c))).pat := by
-  decide +kernel
-theorem nojunk_kitem_members :
-    ((gensInOrder c defn.pres Srt.kitem).map (Gen.toK c)).isPerm ((c.gens Srt.kitem).map (Gen.toK c)) = true := by
-  decide +kernel
-
-/-- **E for KItem's no junk (276)**, for every H (`noJunkItem_of_subset`). -/
-theorem nojunk_kitem_entailed (H : HookParams) : Γ (cH H) ⊧ (trS U.ax276).pat := by
-  intro M _ I hI
-  rw [nojunk_kitem_order]
-  refine noJunkItem_of_subset (defOK hI) (gs := (c.gens Srt.kitem).map (Gen.toK c))
-    (fun g hg => (List.isPerm_iff.mp nojunk_kitem_members).mem_iff.mpr hg) ?_
-  exact sat_cons hI (Or.inl ⟨_, noJunkItem_mem (c := cH H) (N := Srt.kitem)
-    (show Srt.kitem ∈ consSorts c by decide +kernel) (show (c.gens Srt.kitem).isEmpty = false by decide +kernel), rfl⟩)
-
-/-- OptCell, a sort with generators. -/
-def optcell : Srt := 37
-
-theorem optcell_name : c.sortName optcell = "OptCell" := by decide +kernel
-
-/-- OptCell's generators in the order the text's no-junk sentence (292) lists them, a permutation
-of those `Semantics.gens` lists. -/
-noncomputable def optcellTextGens : List KoreAML.Gen :=
-  match (c.gens optcell).map (Gen.toK c) with
-  | [g0, g1] => [g1, g0]
-  | gs => gs
-
-/-- OptCell's no-junk sentence (292) is the item over OptCell's generators in the text's order. -/
-theorem nojunk_optcell_order : (trS U.ax292).pat = (KoreAML.Cons.noJunkItem (c.sortName optcell) optcellTextGens).pat := by
-  decide +kernel
-theorem nojunk_optcell_members : optcellTextGens.isPerm ((c.gens optcell).map (Gen.toK c)) = true := by
-  decide +kernel
-
-/-- **E for OptCell's no junk (292)**, for every H (`noJunkItem_of_subset`). -/
-theorem nojunk_optcell_entailed (H : HookParams) : Γ (cH H) ⊧ (trS U.ax292).pat := by
-  intro M _ I hI
-  rw [nojunk_optcell_order]
-  refine noJunkItem_of_subset (defOK hI) (gs := (c.gens optcell).map (Gen.toK c))
-    (fun g hg => (List.isPerm_iff.mp nojunk_optcell_members).mem_iff.mpr hg) ?_
-  exact sat_cons hI (Or.inl ⟨_, noJunkItem_mem (c := cH H) (N := optcell)
-    (show optcell ∈ consSorts c by decide +kernel) (show (c.gens optcell).isEmpty = false by decide +kernel), rfl⟩)
-
-/-! ## The constructor sentences: functional, subsort, injectivity, distinctness -/
-
-/-- The constructor sentences `tieConsB` decides, in text order. -/
-noncomputable def consText : List AxiomDecl :=
-  [U.ax4, U.ax5, U.ax6, U.ax7, U.ax8, U.ax9, U.ax10, U.ax11, U.ax12, U.ax13, U.ax14, U.ax15,
-   U.ax16, U.ax17, U.ax18, U.ax19, U.ax20, U.ax21, U.ax22, U.ax23, U.ax25, U.ax26, U.ax27, U.ax28,
-   U.ax29, U.ax31, U.ax32, U.ax33, U.ax34, U.ax35, U.ax36, U.ax37, U.ax38, U.ax39, U.ax40, U.ax41,
-   U.ax42, U.ax43, U.ax44, U.ax45, U.ax46, U.ax47, U.ax48, U.ax49, U.ax50, U.ax51, U.ax52, U.ax53,
-   U.ax54, U.ax56, U.ax57, U.ax58, U.ax59, U.ax60, U.ax61, U.ax62, U.ax63, U.ax66, U.ax67, U.ax69,
-   U.ax70, U.ax71, U.ax72, U.ax73, U.ax74, U.ax75, U.ax76, U.ax77, U.ax78, U.ax79, U.ax80, U.ax81,
-   U.ax82, U.ax83, U.ax84, U.ax85, U.ax86, U.ax87, U.ax88, U.ax89, U.ax90, U.ax91, U.ax92, U.ax93,
-   U.ax94, U.ax95, U.ax96, U.ax97, U.ax98, U.ax99, U.ax100, U.ax101, U.ax102, U.ax103, U.ax104,
-   U.ax105, U.ax106, U.ax107, U.ax108, U.ax109, U.ax110, U.ax111, U.ax112, U.ax113, U.ax114,
-   U.ax174, U.ax242, U.ax243, U.ax244, U.ax245, U.ax246, U.ax247, U.ax248, U.ax249, U.ax250,
-   U.ax251, U.ax252, U.ax253]
-
-theorem consE_0 : (((consText).drop 0).take 40).all (fun ad => tieConsB c ad.ax) = true := by decide +kernel
-theorem consE_40 : (((consText).drop 40).take 40).all (fun ad => tieConsB c ad.ax) = true := by decide +kernel
-theorem consE_80 : ((consText).drop 80).all (fun ad => tieConsB c ad.ax) = true := by decide +kernel
-theorem cons_checked : consText.all (fun ad => tieConsB c ad.ax) = true :=
-  tieAll_whole (l := consText) (p := (fun ad => tieConsB c ad.ax)) <|
-    tieAll_range (l := consText) (p := (fun ad => tieConsB c ad.ax)) (a := 0) (n := 40) consE_0 <|
-    tieAll_range (l := consText) (p := (fun ad => tieConsB c ad.ax)) (a := 40) (n := 40) consE_40 <|
-    consE_80
-
-theorem consT_0 : (((consText).drop 0).take 40).all (fun ad => decide ((trS ad).pat = (trAxiom [] [] ad).pat)) = true := by decide +kernel
-theorem consT_40 : (((consText).drop 40).take 40).all (fun ad => decide ((trS ad).pat = (trAxiom [] [] ad).pat)) = true := by decide +kernel
-theorem consT_80 : ((consText).drop 80).all (fun ad => decide ((trS ad).pat = (trAxiom [] [] ad).pat)) = true := by decide +kernel
-theorem cons_trS : consText.all (fun ad => decide ((trS ad).pat = (trAxiom [] [] ad).pat)) = true :=
-  tieAll_whole (l := consText) (p := (fun ad => decide ((trS ad).pat = (trAxiom [] [] ad).pat))) <|
-    tieAll_range (l := consText) (p := (fun ad => decide ((trS ad).pat = (trAxiom [] [] ad).pat))) (a := 0) (n := 40) consT_0 <|
-    tieAll_range (l := consText) (p := (fun ad => decide ((trS ad).pat = (trAxiom [] [] ad).pat))) (a := 40) (n := 40) consT_40 <|
-    consT_80
-
-/-- **E for the constructor sentences**: Γ entails each, for every H. -/
-theorem cons_entailed (H : HookParams) : ∀ ad ∈ consText, Γ (cH H) ⊧ (trS ad).pat := by
-  intro ad had M _ I hI
-  rw [of_decide_eq_true (List.all_eq_true.mp cons_trS ad had)]
-  haveI : OvlOK (cH H) := ovlOK_of_core (coreOKH H)
-  exact tieCons_entailed (c := cH H) (a := ad.ax)
-    ((tieConsB_withHooks c H ad.ax).trans (List.all_eq_true.mp cons_checked ad had)) ad.index ad.module hI
 
 /-! ## Set idempotence (61): refuted -/
 
@@ -990,49 +606,6 @@ theorem lib166_at_values (H : HookParams) : EntailsAtValues (cH H) U.ax346 (trS 
   exact lib166 H hI n e (((elemOf_spec hI hv e).1 _).mp hden) m
 
 
-/-! ## The converse over Γ's content -/
-
-/-- The parts of Γ that are no sentence's translation: the families. -/
-def Families (H : HookParams) : Premises KoreAML.Sym :=
-  ΓSig (cH H) ∪ ΓCons (cH H) ∪ ΓDomains (cH H) ∪ ΓColls (cH H) ∪ ΓFallback (cH H)
-
-/-- The function sentences as written, with definedness, Γ's rule items (each a consequence of its
-text sentence, `rule_from_text`), and the families. -/
-def Pre (H : HookParams) : Premises KoreAML.Sym :=
-  (fun φ => (∃ ad ∈ fnText, (trS ad).pat = φ) ∨ ∃ x : EVar, φ = @definedness KoreAML.Sym _ x) ∪ ΓRules (cH H) ∪ Families H
-
-/-- **The origin of each premise of Γ**: a function equation is the translation of a text
-sentence; a rule item is a consequence of a text sentence of `ruleText`; everything else is one of
-the five parts defined by predicates (`Families`), or definedness. -/
-theorem gamma_origin (H : HookParams) : ∀ φ, Γ (cH H) φ →
-    (∃ ad ∈ fnText, (trS ad).pat = φ) ∨ (ΓRules (cH H) φ ∧ ∃ ad ∈ ruleText, itemsPremises [trS ad] ⊧ φ) ∨
-      Families H φ ∨ (∃ x : EVar, φ = @definedness KoreAML.Sym _ x) := by
-  intro φ h
-  rcases h with ((((((h | h) | h) | h) | h) | h) | h)
-  · exact Or.inr (Or.inr (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl h))))))
-  · exact Or.inr (Or.inr (Or.inl (Or.inl (Or.inl (Or.inl (Or.inr h))))))
-  · exact Or.inr (Or.inr (Or.inl (Or.inl (Or.inl (Or.inr h)))))
-  · exact Or.inr (Or.inr (Or.inl (Or.inl (Or.inr h))))
-  · rcases h with ⟨it, hit, rfl⟩ | hx
-    · rw [fnItems_withHooks] at hit
-      have hmem : it.pat ∈ fnText.map (trS · |>.pat) := fn_shape ▸ List.mem_map.mpr ⟨it, hit, rfl⟩
-      obtain ⟨ad, had, he⟩ := List.mem_map.mp hmem
-      exact Or.inl ⟨ad, had, he⟩
-    · exact Or.inr (Or.inr (Or.inr hx))
-  · rcases h with ⟨it, hit, rfl⟩ | hx
-    · exact Or.inr (Or.inl ⟨Or.inl ⟨it, hit, rfl⟩, rule_from_text H it hit⟩)
-    · exact Or.inr (Or.inr (Or.inr hx))
-  · exact Or.inr (Or.inr (Or.inl (Or.inr h)))
-
-/-- Every premise of Γ is a consequence of `Pre`. -/
-theorem gamma_from (H : HookParams) : ∀ φ, Γ (cH H) φ → Pre H ⊧ φ := by
-  intro φ h M _ I hI
-  rcases gamma_origin H φ h with ⟨ad, had, he⟩ | ⟨hr, -⟩ | hf | hx
-  · exact hI _ (Or.inl (Or.inl (Or.inl ⟨ad, had, he⟩)))
-  · exact hI _ (Or.inl (Or.inr hr))
-  · exact hI _ (Or.inr hf)
-  · exact hI _ (Or.inl (Or.inl (Or.inr hx)))
-
 end KCore.TieE2Cells
 
 #check @KCore.TieE2Cells.noRaw
@@ -1045,31 +618,14 @@ end KCore.TieE2Cells
 #check @KCore.TieE2Cells.account_classes
 #check @KCore.TieE2Cells.account_absent
 #check @KCore.TieE2Cells.absent_closed
+#check @KCore.TieE2Cells.absent_proj_below_c
+#check @KCore.TieE2Cells.absent_proj_below
 #check @KCore.TieE2Cells.lists_in_account
-#check @KCore.TieE2Cells.attrs_agree
-#check @KCore.TieE2Cells.sig_origin
-#check @KCore.TieE2Cells.decls_entailed
 #check @KCore.TieE2Cells.consistent
-#check @KCore.TieE2Cells.fn_shape
-#check @KCore.TieE2Cells.fns_account
-#check @KCore.TieE2Cells.fns_entailed
-#check @KCore.TieE2Cells.fns_from_text
-#check @KCore.TieE2Cells.fn_prios
-#check @KCore.TieE2Cells.nojunk_trivial_entailed
-#check @KCore.TieE2Cells.nojunk_items_entailed
-#check @KCore.TieE2Cells.nojunk_kitem_entailed
-#check @KCore.TieE2Cells.cons_entailed
-#check @KCore.TieE2Cells.rules_account
-#check @KCore.TieE2Cells.rule_from_text
 #check @KCore.TieE2Cells.idem_refuted
 #check @KCore.TieE2Cells.own_idem_refuted_158
 #check @KCore.TieE2Cells.lib166
 #check @KCore.TieE2Cells.lib166_at_values
-#check @KCore.TieE2Cells.gamma_origin
-#check @KCore.TieE2Cells.gamma_from
-#check @KCore.TieE2Cells.nojunk_optcell_order
-#check @KCore.TieE2Cells.nojunk_optcell_members
-#check @KCore.TieE2Cells.nojunk_optcell_entailed
 #print axioms KCore.TieE2Cells.noRaw
 #print axioms KCore.TieE2Cells.readsConfined_c
 #print axioms KCore.TieE2Cells.userAxioms_eq
@@ -1080,28 +636,11 @@ end KCore.TieE2Cells
 #print axioms KCore.TieE2Cells.account_classes
 #print axioms KCore.TieE2Cells.account_absent
 #print axioms KCore.TieE2Cells.absent_closed
+#print axioms KCore.TieE2Cells.absent_proj_below_c
+#print axioms KCore.TieE2Cells.absent_proj_below
 #print axioms KCore.TieE2Cells.lists_in_account
-#print axioms KCore.TieE2Cells.attrs_agree
-#print axioms KCore.TieE2Cells.sig_origin
-#print axioms KCore.TieE2Cells.decls_entailed
 #print axioms KCore.TieE2Cells.consistent
-#print axioms KCore.TieE2Cells.fn_shape
-#print axioms KCore.TieE2Cells.fns_account
-#print axioms KCore.TieE2Cells.fns_entailed
-#print axioms KCore.TieE2Cells.fns_from_text
-#print axioms KCore.TieE2Cells.fn_prios
-#print axioms KCore.TieE2Cells.nojunk_trivial_entailed
-#print axioms KCore.TieE2Cells.nojunk_items_entailed
-#print axioms KCore.TieE2Cells.nojunk_kitem_entailed
-#print axioms KCore.TieE2Cells.cons_entailed
-#print axioms KCore.TieE2Cells.rules_account
-#print axioms KCore.TieE2Cells.rule_from_text
 #print axioms KCore.TieE2Cells.idem_refuted
 #print axioms KCore.TieE2Cells.own_idem_refuted_158
 #print axioms KCore.TieE2Cells.lib166
 #print axioms KCore.TieE2Cells.lib166_at_values
-#print axioms KCore.TieE2Cells.gamma_origin
-#print axioms KCore.TieE2Cells.gamma_from
-#print axioms KCore.TieE2Cells.nojunk_optcell_order
-#print axioms KCore.TieE2Cells.nojunk_optcell_members
-#print axioms KCore.TieE2Cells.nojunk_optcell_entailed
