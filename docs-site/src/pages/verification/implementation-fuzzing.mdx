@@ -247,15 +247,17 @@ A found input enters the corpus in five steps.
 
 ## What kink adds after admission
 
-Once saved, the case is a case of the corpus for every command:
+Once saved, the case is a case of the corpus for every command, and is measured under each projection whose `domain` holds it:
 
 - `coverage` counts what its baseline discharges, and checks its `expect` where it states one;
-- `run` tries it as a killer of every mutation, which `admit` did not judge, on one comparison over the union of the cells the flow's projections compare (judging each projection apart is to come);
+- `run` tries it as a killer of every mutation, which `admit` did not judge: its search compares on one slot over the union of the cells the flow's projections compare, on every case, and then judges each projection `[run] projections` lists on the cases of its domain ("Kills under each projection" in kink-flow's README); in a flow that declares projections, the case's entry names each listed projection's verdict on it, `killed`, `agree`, `unknown`, or `outside-domain` where the projection's domain does not hold it, which is then neither judged nor counted under that projection;
 - `query` checks the declared patterns on it;
-- `compare` runs each declared implementation on it and compares its answer with the definition's ends under each of the implementation's views, so the implementation is held to the specification on the input its own fuzzer found;
+- `compare` runs each declared implementation on it and compares its answer with the definition's ends under each of the implementation's views, so the implementation is held to the specification on the input its own fuzzer found; a view that names a projection whose domain does not hold the case is `not-compared` there, reason `outside-domain`, which decides no exit status;
 - tier-2 `coverage` asks which condition flips it kills.
 
-A projection's `domain`, the cases it applies to, is checked and not yet applied by any command, so no projection leaves the case out, whatever its domain says ("Projections" in kink-flow's README).
+A projection's `domain` holds a case when one of its patterns matches the case's id or the path of its case document, relative to the case root ("Projections" in kink-flow's README).
+So where the case document is saved decides which projections measure it: move it where the domains of the projections it is meant for hold it.
+A flow that declares no `[[projection]]` has one projection, `default`, which holds every case.
 
 ## What `admit` does not do
 
