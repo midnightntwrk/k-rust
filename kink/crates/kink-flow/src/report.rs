@@ -325,6 +325,9 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// `mutant-accepts` (`killer_source` `alone`), its `executed` entries and `calls` may be a run
 /// alone's (`alone` true; an entry's `acceptance`), and the reason
 /// `grammar-mutant-acceptance-not-decided` is new.
+/// Still 46 since a list may name a generated grammar set (PJ-34, U34h, [`crate::grammar_set`]):
+/// each row it expands into follows the written mutations and has `generated`; a list with no
+/// set writes the document it wrote.
 pub const RUN_VERSION: u64 = 46;
 
 /// The name of the observation slot of an executed entry's `slots`, after the end slots

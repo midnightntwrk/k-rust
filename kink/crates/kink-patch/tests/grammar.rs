@@ -288,6 +288,41 @@ fn the_default_set_is_the_widening_forms_and_token_level_narrowing() {
     }
 }
 
+/// Every candidate of the default set, supplied again as one patch (as kink-flow judges a
+/// generated grammar row, U34h), is one admitted mutant with that patch: an insertion anchored
+/// after its production (`alternative-without-terminal`, `merge-alternative`) is authorized by
+/// its anchor, which `supplied_grammar` makes a site.
+#[test]
+fn each_default_candidate_is_admitted_again_as_a_supplied_patch() {
+    let baseline = baseline();
+    let generations =
+        generate_default_grammar(&baseline, &[], SYNTAX, usize::MAX).expect("generations");
+    let mut inserted = 0;
+    for (form, generation) in &generations {
+        for candidate in generation.candidates() {
+            inserted += usize::from(
+                candidate
+                    .patch
+                    .edits()
+                    .iter()
+                    .any(|edit| matches!(edit, Edit::InsertSentence { .. })),
+            );
+            let supplied =
+                kink_patch::supplied_grammar(&baseline, "supplied", &candidate.patch, SYNTAX)
+                    .expect("supplied");
+            assert_eq!(
+                supplied.dispositions(),
+                [CandidateDisposition::Mutant(0)],
+                "{}: {:?}",
+                form.name(),
+                candidate.patch
+            );
+            assert_eq!(supplied.candidates()[0].patch, candidate.patch);
+        }
+    }
+    assert!(inserted > 0, "the default set inserts alternatives");
+}
+
 fn k_rust_tree() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..")
 }

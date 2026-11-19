@@ -4706,8 +4706,20 @@ pub(crate) fn run_session(
             plural(list.mutations.len(), "mutation")
         ));
     }
+    // U34h: each generated grammar set of the list expands, over the admitted specification, into
+    // one mutation per generated grammar patch, after the written mutations (so that a written
+    // mutation's index is the same in the list a caller holds); its rows are resolved by the
+    // expansion and never memoised, as no grammar mutation is (its `generation` refuses).
+    let expansions = crate::grammar_set::expand_all(manifest, &spec.loaded, list);
+    let generated = expansions
+        .iter()
+        .flat_map(|expansion| &expansion.rows)
+        .map(|row| (row.mutation.id.clone(), row.generated.clone()))
+        .collect::<BTreeMap<_, _>>();
+    let only = crate::grammar_set::selected_ids(&options.only, &expansions);
+    let expanded = crate::grammar_set::expanded_list(list, &expansions);
     let mut resolution_mismatches = BTreeMap::new();
-    let resolutions = list
+    let mut resolutions = list
         .mutations
         .iter()
         .enumerate()
@@ -4767,6 +4779,18 @@ pub(crate) fn run_session(
             Resolution::Live(live)
         })
         .collect::<Vec<_>>();
+    resolutions.extend(
+        expansions
+            .into_iter()
+            .flat_map(|expansion| expansion.rows)
+            .map(|row| Resolution::Live(row.resolution)),
+    );
+    let list = &expanded;
+    let selected_count = list
+        .mutations
+        .iter()
+        .filter(|mutation| only.is_empty() || only.contains(&mutation.id))
+        .count();
     let refused_targets = list
         .mutations
         .iter()
@@ -4790,7 +4814,7 @@ pub(crate) fn run_session(
         .iter()
         .zip(&resolutions)
         .enumerate()
-        .filter(|(_, (mutation, _))| options.only.is_empty() || options.only.contains(&mutation.id))
+        .filter(|(_, (mutation, _))| only.is_empty() || only.contains(&mutation.id))
         .map(|(index, (mutation, resolution))| (index, mutation, resolution))
         .collect::<Vec<_>>();
     // Re-pin L1-3: compile ahead, a chunk at a time, the mutants of the chunk's mutations that
@@ -4832,6 +4856,9 @@ pub(crate) fn run_session(
             row = resolution_mismatch(row);
         }
         search.record_fields(&mut row, mutation);
+        if let Some(value) = generated.get(&mutation.id) {
+            row["generated"] = value.clone();
+        }
         search.fill_projections(&mut row);
         row["action"] = json!(
             front
@@ -4973,7 +5000,7 @@ pub(crate) fn run_session(
             Settle {
                 locked: options.locked,
                 verify,
-                only: &options.only,
+                only: &only,
                 stopped: was_stopped,
             },
         );

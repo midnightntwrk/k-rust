@@ -176,6 +176,9 @@ pub struct MutationCheckRow {
     /// A front end's own keys of the row (the krs front end's `krs`), rendered after kink-flow's
     /// keys; a key kink-flow's row already has is not rendered. Empty for kink-flow.
     pub extra: Map<String, Value>,
+    /// The row's `generated` member, for a row a generated grammar set expands into
+    /// ([`crate::grammar_set`]); `None` for a written mutation, whose row has no such member.
+    pub generated: Option<Value>,
 }
 
 impl MutationCheckRow {
@@ -242,6 +245,9 @@ impl MutationCheckRow {
                 .collect::<Vec<_>>(),
         });
         if let Value::Object(row) = &mut row {
+            if let Some(generated) = &self.generated {
+                row.insert("generated".into(), generated.clone());
+            }
             for (key, value) in &self.extra {
                 if !row.contains_key(key) {
                     row.insert(key.clone(), value.clone());
@@ -252,10 +258,15 @@ impl MutationCheckRow {
     }
 }
 
-/// The check of a whole mutation list, in list order.
+/// The check of a whole mutation list, in list order: the written mutations, then the rows each
+/// generated grammar set expands into.
 #[derive(Clone, Debug)]
 pub struct MutationCheck {
     pub rows: Vec<MutationCheckRow>,
+    /// The check document's `grammar_sets`: one entry per generated grammar set of the list
+    /// ([`crate::grammar_set::Expansion::summary`]); empty, and the member absent, for a list
+    /// with none.
+    pub grammar_sets: Vec<Value>,
 }
 
 impl MutationCheck {
@@ -738,29 +749,45 @@ pub(crate) fn rows_coverage(rows: &[crate::results::ProgramRow]) -> CorpusCovera
 
 /// Resolve every mutation of `list` against the specification `loaded` (as `run` does; nothing
 /// is compiled or run) and add kink-flow's warnings, with `coverage` deciding `unmatched-rule` and `unapplied-rule`.
+/// Each generated grammar set is expanded as `run` expands it ([`crate::grammar_set`]): its rows
+/// follow the written mutations, each with its `generated` member and no warning (it has no
+/// anchor, and its sites are grammar sentences), and the set's summary is in
+/// [`MutationCheck::grammar_sets`].
 pub fn check_mutations(
     manifest: &FlowManifest,
     loaded: &LoadedSource,
     list: &MutationList,
     coverage: Option<&CorpusCoverage>,
 ) -> MutationCheck {
-    MutationCheck {
-        rows: list
-            .mutations
-            .iter()
-            .map(|mutation| {
-                let resolution = resolve(manifest, loaded, mutation);
-                let findings = warnings(manifest, loaded, mutation, &resolution, coverage);
-                MutationCheckRow {
-                    id: mutation.id.clone(),
-                    misunderstanding: mutation.misunderstanding.clone(),
-                    resolution,
-                    findings,
-                    extra: Map::new(),
-                }
-            })
-            .collect(),
+    let mut rows = list
+        .mutations
+        .iter()
+        .map(|mutation| {
+            let resolution = resolve(manifest, loaded, mutation);
+            let findings = warnings(manifest, loaded, mutation, &resolution, coverage);
+            MutationCheckRow {
+                id: mutation.id.clone(),
+                misunderstanding: mutation.misunderstanding.clone(),
+                resolution,
+                findings,
+                extra: Map::new(),
+                generated: None,
+            }
+        })
+        .collect::<Vec<_>>();
+    let mut grammar_sets = Vec::new();
+    for expansion in crate::grammar_set::expand_all(manifest, loaded, list) {
+        grammar_sets.push(expansion.summary);
+        rows.extend(expansion.rows.into_iter().map(|row| MutationCheckRow {
+            id: row.mutation.id,
+            misunderstanding: row.mutation.misunderstanding,
+            resolution: row.resolution,
+            findings: Vec::new(),
+            extra: Map::new(),
+            generated: Some(row.generated),
+        }));
     }
+    MutationCheck { rows, grammar_sets }
 }
 
 /// What a stop before a rule hides (`stop-hides-edit`, module documentation): the rules `[stop]`

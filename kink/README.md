@@ -46,6 +46,7 @@ Its corpus is `<package>/kink/`, with a `FLOW.toml` whose `[spec]` is `krs = { p
    each with the plausible misunderstanding of the specification it writes (`misunderstanding`).
    `kink-flow check FLOW.toml --mutations MUTATIONS.toml` resolves every mutation without compiling or running anything: it shows each edited rule (or grammar declaration) before and after, and refuses a mutation that does not resolve (a stale anchor, overlapping edits, an edit of a sentence that is neither a rule nor a grammar declaration) with what to do next.
    A mutant kink does not compile is found only by `run` (status `not-admitted`).
+   A list may also name the default grammar operator set (`[[mutation]] id = "grammar"`, `grammar = "default"`), which `check` and `run` expand into one grammar mutation per generated patch of the syntax module's grammar ([`crates/kink-flow/README.md`](crates/kink-flow/README.md), "A generated grammar set").
    Every run report lists the rules no mutation targets yet (`untargeted_rules`, with each rule's K text and how to address it).
 4. **Kill search with an outcome cache.** `kink-flow run` checks, for each mutation, whether some program's final configuration changes.
    It reports the survivors: mutations no program kills.

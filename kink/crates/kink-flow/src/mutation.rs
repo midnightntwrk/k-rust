@@ -114,6 +114,44 @@ pub const MUTATION_OPERATOR: &str = "kink-flow/mutation/v1";
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct MutationList {
     pub mutations: Vec<Mutation>,
+    /// The generated grammar sets the list names (`[[mutation]]` with `grammar`), in list order:
+    /// each expands, once the specification is admitted, into one mutation per generated grammar
+    /// patch ([`crate::grammar_set`]), which `run` judges and `check` shows after the written
+    /// mutations. They are not among [`Self::mutations`], which holds the mutations written as
+    /// edits: every reader of those is unchanged.
+    pub grammar_sets: Vec<GrammarSet>,
+}
+
+/// One `[[mutation]]` that names a generated set of grammar mutations (`grammar = "default"`)
+/// instead of writing edits ([`crate::grammar_set`]).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GrammarSet {
+    /// The id as written (qualified by the file's stem in a mutations directory): the prefix of
+    /// every generated row's id, `<id>/<form>/<module>/<site>/<variant>`.
+    pub id: String,
+    /// The set: kink-patch `GrammarForm::DEFAULT`, the only one.
+    pub set: GrammarSetName,
+    /// The entry's `misunderstanding` (or `note`), when it gives one: it prefixes every row's
+    /// note, which states the form's misunderstanding at its site.
+    pub misunderstanding: Option<String>,
+}
+
+/// A set of grammar forms a [`GrammarSet`] names.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum GrammarSetName {
+    /// `grammar = "default"`: kink-patch `GrammarForm::DEFAULT` (widening and token-level
+    /// narrowing).
+    Default,
+}
+
+impl GrammarSetName {
+    /// The value the list writes.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Default => "default",
+        }
+    }
 }
 
 /// One `[[mutation]]`: its edits are applied together or not at all.
@@ -280,6 +318,7 @@ impl MutationList {
         }
         files.sort();
         let mut mutations = Vec::new();
+        let mut grammar_sets = Vec::new();
         for (name, stem) in files {
             let in_file = |error: ManifestError| {
                 ManifestError::new(
@@ -298,41 +337,79 @@ impl MutationList {
                 mutation.id = format!("{stem}/{}", mutation.id);
                 mutation
             }));
+            grammar_sets.extend(list.grammar_sets.into_iter().map(|mut set| {
+                set.id = format!("{stem}/{}", set.id);
+                set
+            }));
         }
-        Ok(Self { mutations })
+        Ok(Self {
+            mutations,
+            grammar_sets,
+        })
     }
 
     /// Decode one mutation list. Unknown keys, values of the wrong type, duplicate or empty
     /// ids, a mutation without edits or without its misunderstanding, and an edit that is not
-    /// exactly one of find/replace or `delete = true` are errors naming the key.
+    /// exactly one of find/replace or `delete = true` are errors naming the key. A `[[mutation]]`
+    /// with `grammar` is a generated set ([`GrammarSet`]): it writes no edit and no `expect`.
     pub fn decode(text: &str) -> Result<Self, ManifestError> {
         let top: Table = toml::from_str(text)
             .map_err(|e| ManifestError::new("", format!("invalid TOML: {e}")))?;
         known_keys(&top, "", &["mutation"])?;
-        let mutations = match top.get("mutation") {
-            None => Vec::new(),
-            Some(Value::Array(entries)) => entries
-                .iter()
-                .enumerate()
-                .map(|(index, entry)| mutation(index, entry))
-                .collect::<Result<Vec<_>, _>>()?,
+        let mut mutations = Vec::new();
+        let mut grammar_sets = Vec::new();
+        match top.get("mutation") {
+            None => {}
+            Some(Value::Array(entries)) => {
+                for (index, entry) in entries.iter().enumerate() {
+                    if entry
+                        .as_table()
+                        .is_some_and(|table| table.contains_key("grammar"))
+                    {
+                        grammar_sets.push(grammar_set(index, entry)?);
+                    } else {
+                        mutations.push(mutation(index, entry)?);
+                    }
+                }
+            }
             Some(_) => {
                 return Err(ManifestError::new(
                     "mutation",
                     "expected [[mutation]] tables",
                 ));
             }
-        };
+        }
         let mut ids = BTreeSet::new();
-        for mutation in &mutations {
-            if !ids.insert(mutation.id.as_str()) {
+        for id in mutations
+            .iter()
+            .map(|mutation| &mutation.id)
+            .chain(grammar_sets.iter().map(|set| &set.id))
+        {
+            if !ids.insert(id.as_str()) {
                 return Err(ManifestError::new(
-                    mutation_key(&mutation.id),
+                    mutation_key(id),
                     "duplicate mutation id",
                 ));
             }
         }
-        Ok(Self { mutations })
+        Ok(Self {
+            mutations,
+            grammar_sets,
+        })
+    }
+
+    /// Whether `id` names a mutation `run --only` can select before the specification is
+    /// admitted: a written mutation, a generated set (every row it expands into), or a row of a
+    /// set (an id under `<set id>/`, which the expansion decides).
+    #[must_use]
+    pub fn names(&self, id: &str) -> bool {
+        self.mutations.iter().any(|mutation| mutation.id == id)
+            || self.grammar_sets.iter().any(|set| {
+                set.id == id
+                    || id
+                        .strip_prefix(set.id.as_str())
+                        .is_some_and(|rest| rest.starts_with('/'))
+            })
     }
 
     /// Whether every projection a mutation's `expect` names ([`Expected::Projections`]) is one
@@ -418,6 +495,64 @@ fn optional_non_empty(
         .get(name)
         .map(|value| non_empty(value, &join(prefix, name)))
         .transpose()
+}
+
+/// A `[[mutation]]` with `grammar` at `index` ([`GrammarSet`]): `id`, `grammar = "default"` and
+/// an optional `misunderstanding` (or `note`); `edit` and `expect` are errors, since a set writes
+/// no edit and one claim cannot hold for every row it gives.
+fn grammar_set(index: usize, value: &Value) -> Result<GrammarSet, ManifestError> {
+    let position = format!("mutation[{index}]");
+    let entry = value
+        .as_table()
+        .ok_or_else(|| ManifestError::new(&position, "expected a table"))?;
+    let id = non_empty(
+        entry
+            .get("id")
+            .ok_or_else(|| ManifestError::new(join(&position, "id"), "missing required key"))?,
+        &join(&position, "id"),
+    )?;
+    let key = mutation_key(&id);
+    for (name, why) in [
+        (
+            "edit",
+            "a mutation with `grammar` is a generated set: it writes no edit (write the edits in              a mutation of their own)",
+        ),
+        (
+            "expect",
+            "a generated set's rows are judged one by one: no one expectation holds for every              row",
+        ),
+    ] {
+        if entry.contains_key(name) {
+            return Err(ManifestError::new(join(&key, name), why));
+        }
+    }
+    known_keys(entry, &key, &["id", "grammar", "misunderstanding", "note"])?;
+    let set = match entry["grammar"].as_str() {
+        Some("default") => GrammarSetName::Default,
+        _ => {
+            return Err(ManifestError::new(
+                join(&key, "grammar"),
+                "expected \"default\": the default grammar operator set (widening and \
+                 token-level narrowing)",
+            ));
+        }
+    };
+    let misunderstanding = match (entry.get("misunderstanding"), entry.get("note")) {
+        (Some(text), None) => Some(non_empty(text, &join(&key, "misunderstanding"))?),
+        (None, Some(text)) => Some(non_empty(text, &join(&key, "note"))?),
+        (Some(_), Some(_)) => {
+            return Err(ManifestError::new(
+                join(&key, "note"),
+                "`note` is an alias of `misunderstanding`; give one of them",
+            ));
+        }
+        (None, None) => None,
+    };
+    Ok(GrammarSet {
+        id,
+        set,
+        misunderstanding,
+    })
 }
 
 fn mutation(index: usize, value: &Value) -> Result<Mutation, ManifestError> {
@@ -728,6 +863,13 @@ pub enum InvalidReason {
     /// limit, neither a fault of the mutation nor a verdict, so the row's status is `error`; `check`
     /// resolves the mutation.
     GrammarNotRun,
+    /// A generated grammar set ([`GrammarSet`]) in a flow whose front end judges no production
+    /// edit (a KRS flow, whose productions are emitted from Rust items): kink generates no row it
+    /// would run unjudged, so the set gives no mutant (U34h).
+    GrammarSetNotJudged,
+    /// A row a generated grammar set expands into has the id of a written mutation, of another
+    /// set or of another of its rows.
+    GrammarSetIdCollision,
     /// A front end refused the mutation before kink-flow resolved it, by a check only the front
     /// end can make (the krs front end: an edit of a node KRS generated, a mutant KRS's own
     /// analysis refuses). `name` is the front end's kebab-case reason and `next` what the author
@@ -771,11 +913,13 @@ impl InvalidReason {
             Self::UnreadDeclaration => "unread-declaration",
             Self::RuleAndGrammarEdits => "rule-and-grammar-edits",
             Self::GrammarNotRun => "grammar-not-run",
+            Self::GrammarSetNotJudged => "grammar-set-not-judged",
+            Self::GrammarSetIdCollision => "grammar-set-id-collision",
         }
     }
 
     /// Every reason kink-flow gives, in declaration order (not [`Self::External`], a front end's).
-    pub const ALL: [Self; 28] = [
+    pub const ALL: [Self; 30] = [
         Self::UnknownFile,
         Self::FileRequired,
         Self::UnknownLabel,
@@ -804,6 +948,8 @@ impl InvalidReason {
         Self::UnreadDeclaration,
         Self::RuleAndGrammarEdits,
         Self::GrammarNotRun,
+        Self::GrammarSetNotJudged,
+        Self::GrammarSetIdCollision,
     ];
 
     /// The reason whose [`Self::as_str`] is `name`.
@@ -907,6 +1053,14 @@ impl InvalidReason {
             Self::GrammarNotRun => {
                 "keep the mutation for `check`, or leave it out of the list `run` reads: kink does \
                  not yet parse the cases again under a mutant's grammar, so no run judges it"
+            }
+            Self::GrammarSetNotJudged => {
+                "leave the generated grammar set out of this flow's list: its front end judges no \
+                 production edit yet, so kink generates no grammar mutant for it"
+            }
+            Self::GrammarSetIdCollision => {
+                "rename the set or the mutation whose id a generated row takes (the detail names \
+                 both)"
             }
         }
     }
@@ -1018,6 +1172,28 @@ pub struct EditedRule {
 }
 
 impl ResolvedMutation {
+    /// The resolution of a row a generated grammar set expands into ([`crate::grammar_set`]):
+    /// `patch`, kink-patch's generated patch (pinned, admitted by a program parser for the
+    /// syntax module), with its digest and the one grammar entry of its site, `rule`. No text
+    /// edit wrote it, so it has no edits, no edited views and no overlay.
+    pub(crate) fn generated(
+        id: String,
+        patch: Patch,
+        digest: Sha256Digest,
+        rule: EditedRule,
+    ) -> Self {
+        Self {
+            id,
+            patch,
+            digest,
+            rules: vec![rule],
+            edits: Vec::new(),
+            edited_views: BTreeMap::new(),
+            edited_sources: BTreeMap::new(),
+            overlay: BTreeMap::new(),
+        }
+    }
+
     /// The kink-corpus loader overlay the edited load read, by logical name: a `.k` file's
     /// edited view, or a `.md` file's Markdown envelope of its edited view (one fence around
     /// the view, which extracts to the view again; [`markdown_envelope`]). It exists so that a

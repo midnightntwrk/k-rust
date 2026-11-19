@@ -2251,6 +2251,7 @@ pub fn fuzz_derived(
         crate::flips::Judged::Admitted { .. } => {
             let list = MutationList {
                 mutations: entry.mutation().into_iter().collect(),
+                grammar_sets: Vec::new(),
             };
             fuzz_front(
                 manifest,
@@ -4210,6 +4211,7 @@ fn confirm(
                     .filter(|m| m.id == mutation)
                     .cloned()
                     .collect(),
+                grammar_sets: Vec::new(),
             };
             let (run, _) = crate::search::run_with(
                 &overlay,

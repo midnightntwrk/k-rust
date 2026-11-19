@@ -1619,6 +1619,389 @@ fn a_grammar_mutant_that_accepts_a_rejected_case_is_killed_by_its_run_alone() {
     assert_eq!(plus["killer_change"], "no-longer-kills", "{plus:#}");
 }
 
+const GRAMMAR_K: &str = include_str!("../../../testdata/k/grammar.k");
+
+const GRAMMAR_SET: &str = "[[mutation]]\nid = \"grammar\"\ngrammar = \"default\"\n";
+
+/// The ids of the rows of `document` a generated set gave, in row order.
+#[track_caller]
+fn generated_ids(document: &Value) -> Vec<String> {
+    document["mutations"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{document:#}"))
+        .iter()
+        .filter(|row| row.get("generated").is_some())
+        .map(|row| row["id"].as_str().unwrap().to_owned())
+        .collect()
+}
+
+/// PJ-34 (U34h): `grammar = "default"` expands, in `check`, into one row per patch the default
+/// grammar operator set generates over grammar.k's syntax module, after the written mutations:
+/// each resolves (a `grammar` rules entry, its site's text before and a description after), has
+/// its `generated` member and an id built from the form and the site, never from a sentence
+/// index. The set's summary lists the forms in the default set's order with their rows, and the
+/// syntax module's import closure: a production of the main module, which no program text is
+/// parsed with, gives no row. Checking again gives the same rows; an edit elsewhere (a
+/// production of a new sort first in the syntax module, which moves every sentence index of
+/// the module, and a rule) keeps every earlier id, and adds the new sort's rows.
+#[test]
+fn a_generated_grammar_set_expands_into_rows_whose_ids_survive_an_edit_elsewhere() {
+    use serde_json::json;
+    let dir = scratch("grammar-set-check");
+    // A production in a module the syntax module imports gives rows; one in the main module,
+    // which the syntax module does not import, gives none.
+    let definition = GRAMMAR_K
+        .replace(
+            "  rule [run]:",
+            "  syntax Val ::= \"nil\" \"!\" [symbol(nil)]\n  rule [run]:",
+        )
+        .replace(
+            "module GRAMMAR-SYNTAX\n",
+            "module GRAMMAR-EXTRA\n  syntax Word ::= \"w\" \"?\" [symbol(word)]\nendmodule\n\n\
+             module GRAMMAR-SYNTAX\n  imports GRAMMAR-EXTRA\n",
+        );
+    write(&dir.join("grammar.k"), &definition);
+    write(
+        &dir.join("FLOW.toml"),
+        "[spec]\nentry = \"grammar.k\"\nmain_module = \"GRAMMAR\"\n\
+         syntax_module = \"GRAMMAR-SYNTAX\"\n\n[[program]]\nid = \"print\"\n\
+         text = \"print 1 + 2 ;\"\n",
+    );
+    let manifest = dir.join("FLOW.toml");
+    let mutations = dir.join("MUTATIONS.toml");
+    write(
+        &mutations,
+        &[
+            one_edit(
+                "plus-literal",
+                "  production = \"add\"\n  find = \"\\\"+\\\"\"\n  replace = \"\\\"plus\\\"\"",
+            ),
+            GRAMMAR_SET.to_owned(),
+        ]
+        .concat(),
+    );
+    let (check, _) = check_list(&manifest, &mutations, None);
+    assert_eq!(check["version"], 21, "{check:#}");
+    let rows = check["mutations"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{check:#}"));
+    assert_eq!(rows[0]["id"], "plus-literal", "{check:#}");
+    assert!(rows[0].get("generated").is_none(), "{check:#}");
+    let ids = generated_ids(&check);
+    assert_eq!(ids.len(), rows.len() - 1, "{check:#}");
+    for id in [
+        "grammar/alternative-without-terminal/GRAMMAR-SYNTAX/add/1",
+        "grammar/alternative-without-terminal/GRAMMAR-SYNTAX/print/0",
+        "grammar/merge-alternative/GRAMMAR-SYNTAX/add/Stmt",
+        "grammar/merge-alternative/GRAMMAR-SYNTAX/print/Exp",
+        "grammar/alternative-without-terminal/GRAMMAR-EXTRA/word/0",
+        "grammar/alternative-without-terminal/GRAMMAR-EXTRA/word/1",
+    ] {
+        assert!(ids.iter().any(|row| row == id), "{id}: {ids:#?}");
+    }
+    assert!(
+        ids.iter().any(
+            |id| id.starts_with("grammar/drop-anchor/GRAMMAR-SYNTAX/Tag-token-")
+                && id.ends_with("/end")
+        ),
+        "{ids:#?}"
+    );
+    assert!(
+        ids.iter()
+            .any(|id| id.starts_with("grammar/loosen-regex/GRAMMAR-SYNTAX/lexical-Digit/")),
+        "{ids:#?}"
+    );
+    assert!(
+        !ids.iter().any(|id| id.contains("/GRAMMAR/")),
+        "no row outside the syntax module's closure: {ids:#?}"
+    );
+    let distinct = ids.iter().collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(distinct.len(), ids.len(), "{ids:#?}");
+    let add = row(
+        &check,
+        "grammar/alternative-without-terminal/GRAMMAR-SYNTAX/add/1",
+    );
+    assert_eq!(add["outcome"], "ok", "{add:#}");
+    assert_eq!(add["rules"][0]["kind"], "grammar", "{add:#}");
+    assert_eq!(add["rules"][0]["label"], "add", "{add:#}");
+    assert_eq!(
+        add["rules"][0]["before"], "Exp \"+\" Exp [left, symbol(add)]",
+        "{add:#}"
+    );
+    assert!(
+        add["rules"][0]["after"]
+            .as_str()
+            .unwrap()
+            .ends_with("syntax Exp ::= Exp Exp [symbol(add-kink-without-1)]"),
+        "{add:#}"
+    );
+    assert_eq!(
+        add["generated"],
+        json!({
+            "set": "grammar",
+            "grammar": "default",
+            "version": "kink-flow/grammar-set/v1",
+            "form": "alternative-without-terminal",
+            "effect": "widening",
+            "site": "add",
+            "variant": "1",
+        }),
+        "{add:#}"
+    );
+    assert!(
+        add["misunderstanding"]
+            .as_str()
+            .unwrap()
+            .contains("without its literal \"+\""),
+        "{add:#}"
+    );
+    let sets = check["grammar_sets"].as_array().unwrap();
+    assert_eq!(sets.len(), 1, "{check:#}");
+    assert_eq!(
+        (&sets[0]["id"], &sets[0]["modules"], &sets[0]["refusal"]),
+        (
+            &json!("grammar"),
+            &json!(["GRAMMAR-EXTRA", "GRAMMAR-SYNTAX"]),
+            &Value::Null
+        ),
+        "{check:#}"
+    );
+    let forms = sets[0]["forms"].as_array().unwrap();
+    assert_eq!(
+        forms.iter().map(|form| &form["form"]).collect::<Vec<_>>(),
+        [
+            "alternative-without-terminal",
+            "merge-alternative",
+            "loosen-regex",
+            "narrow-regex",
+            "drop-anchor"
+        ],
+        "{check:#}"
+    );
+    let summarised = forms
+        .iter()
+        .flat_map(|form| form["rows"].as_array().unwrap())
+        .map(|id| id.as_str().unwrap().to_owned())
+        .collect::<Vec<_>>();
+    assert_eq!(summarised, ids, "{check:#}");
+    // Deterministic: the same rows again.
+    let (again, _) = check_list(&manifest, &mutations, None);
+    assert_eq!(again["mutations"], check["mutations"], "{again:#}");
+    // An edit elsewhere keeps every id.
+    let edited = definition
+        .replace(
+            "  imports GRAMMAR-EXTRA\n",
+            "  imports GRAMMAR-EXTRA\n  syntax Decl ::= \"let\" Exp [symbol(decl)]\n",
+        )
+        .replace("  rule [run]:", "  rule [nop]: tag _T => .K\n  rule [run]:");
+    assert_ne!(edited, definition);
+    write(&dir.join("grammar.k"), &edited);
+    let (after, _) = check_list(&manifest, &mutations, None);
+    let kept = generated_ids(&after);
+    for id in &ids {
+        assert!(kept.contains(id), "{id} is kept: {kept:#?}");
+        assert_eq!(row(&after, id)["outcome"], "ok", "{after:#}");
+    }
+    assert!(
+        kept.iter()
+            .any(|id| id == "grammar/merge-alternative/GRAMMAR-SYNTAX/add/Decl"),
+        "{kept:#?}"
+    );
+}
+
+/// PJ-34 (U34h): `run` judges every row a generated set expands into by the grammar search, as
+/// a written grammar mutation (calc's three productions with a literal, each given an
+/// alternative without it, a fresh constructor inserted after its production): each row is a
+/// judged grammar row (`grammar`, its `generated` member), none refused, and the lock records each
+/// under its id, which a warm `--locked` run confirms. `--only` names the set (every row) or one
+/// row; the command line accepts both before the specification is admitted.
+#[test]
+fn run_judges_each_row_of_a_generated_grammar_set_and_locks_it() {
+    let dir = calc_copy("grammar-set-run");
+    let manifest = dir.join("FLOW.toml");
+    let mutations = dir.join("MUTATIONS.toml");
+    write(
+        &mutations,
+        &[one_edit("add-becomes-sub", ARITH), GRAMMAR_SET.to_owned()].concat(),
+    );
+    let expected = [
+        "grammar/alternative-without-terminal/CALC-SYNTAX/mul/1",
+        "grammar/alternative-without-terminal/CALC-SYNTAX/add/1",
+        "grammar/alternative-without-terminal/CALC-SYNTAX/sub/1",
+    ];
+    let lock = dir.join("kink.lock");
+    let (document, _) = locked_run(&manifest, &mutations, &lock, false);
+    assert_eq!(generated_ids(&document), expected, "{document:#}");
+    assert_eq!(
+        row(&document, "add-becomes-sub")["status"],
+        "killed",
+        "{document:#}"
+    );
+    // Each row reached the grammar search (its cases were parsed again), past the supplied
+    // generation an anchored insertion needs; calc's mutants are then refused by the search's
+    // own admission (an inserted constructor's affected heads name cells calc does not compile,
+    // as for a written insertion), which is the search's verdict, not a refusal of the row.
+    for id in expected {
+        let generated = row(&document, id);
+        assert!(generated["grammar"].is_array(), "{generated:#}");
+        assert!(
+            !matches!(
+                generated["status"].as_str(),
+                Some("invalid-mutation" | "error")
+            ),
+            "{generated:#}"
+        );
+        assert_eq!(generated["generated"]["set"], "grammar", "{generated:#}");
+    }
+    let text = std::fs::read_to_string(&lock).unwrap();
+    for id in expected {
+        assert!(text.contains(&format!("id = \"{id}\"")), "{id}: {text}");
+    }
+    let (warm, _) = locked_run(&manifest, &mutations, &lock, true);
+    assert_eq!(warm["lock"]["status"], "unchanged", "{warm:#}");
+    for id in expected {
+        assert_eq!(
+            grammar_verdict(row(&warm, id)),
+            grammar_verdict(row(&document, id)),
+            "{id}: {warm:#}"
+        );
+    }
+    let only = |ids: &[&str]| {
+        kink_flow::search::run(
+            &FlowManifest::read(&manifest).unwrap(),
+            &kink_flow::MutationList::read(&mutations).unwrap(),
+            &kink_flow::search::RunOptions {
+                legacy_lock: None,
+                only: ids.iter().map(|id| (*id).to_owned()).collect(),
+                cache: None,
+                compile_workers: None,
+                memo: kink_flow::memo::MemoUse::On,
+                schedule: kink_campaign::ScheduleMode::FirstKill,
+                lock: Some(lock.clone()),
+                locked: true,
+            },
+        )
+        .0
+    };
+    let set = only(&["grammar"]);
+    assert_eq!(generated_ids(&set), expected, "{set:#}");
+    assert_eq!(set["mutations"].as_array().unwrap().len(), 3, "{set:#}");
+    assert_eq!(set["lock"]["changes"], serde_json::json!([]), "{set:#}");
+    let one = only(&[expected[1]]);
+    assert_eq!(generated_ids(&one), [expected[1]], "{one:#}");
+    // The command line accepts the set's id and a row's id under it, and refuses another.
+    let parse = |only: &str| {
+        kink_flow::FlowCommand::parse(
+            "run",
+            kink_flow::cli::CommandFiles {
+                mutations: Some(mutations.clone()),
+                ..kink_flow::cli::CommandFiles::default()
+            },
+            &["--only".to_owned(), only.to_owned()],
+        )
+    };
+    for id in ["grammar", expected[0]] {
+        assert!(parse(id).is_ok(), "{id}");
+    }
+    assert!(parse("grammar-x").is_err());
+}
+
+/// PJ-34 (U34h): a generated token narrowing is killed as a written one would be. grammar.k's
+/// default set narrows `Num`'s regex `{Digit}+([.]{Digit}*)?` to `{Digit}+([.]{Digit}+)?`, so
+/// `print 1. ;`, which the specification parses (its run stops before `run`, an accepted end),
+/// no longer parses under the mutant: killed, `mutant-rejects`, by that case. `--only` names it
+/// and an inserted alternative, and only they run.
+#[test]
+fn a_generated_token_narrowing_is_killed_by_the_case_it_no_longer_parses() {
+    let dir = scratch("grammar-set-narrow");
+    write(&dir.join("grammar.k"), GRAMMAR_K);
+    let manifest = dir.join("FLOW.toml");
+    write(
+        &manifest,
+        "[spec]\nentry = \"grammar.k\"\nmain_module = \"GRAMMAR\"\n\
+         syntax_module = \"GRAMMAR-SYNTAX\"\n\n[stop]\nbefore = [\"GRAMMAR.run\"]\n\n\
+         [[program]]\nid = \"sum\"\ntext = \"print 1 + 2 ;\"\n\n\
+         [[program]]\nid = \"dot\"\ntext = \"print 1. ;\"\n",
+    );
+    let mutations = dir.join("MUTATIONS.toml");
+    write(&mutations, GRAMMAR_SET);
+    let narrow = "grammar/narrow-regex/GRAMMAR-SYNTAX/Num-token-0f0238bc/6.0";
+    let inserted = "grammar/alternative-without-terminal/GRAMMAR-SYNTAX/print/2";
+    let (document, _) = kink_flow::search::run(
+        &FlowManifest::read(&manifest).unwrap(),
+        &kink_flow::MutationList::read(&mutations).unwrap(),
+        &kink_flow::search::RunOptions {
+            legacy_lock: None,
+            only: vec![narrow.to_owned(), inserted.to_owned()],
+            cache: None,
+            compile_workers: None,
+            memo: kink_flow::memo::MemoUse::On,
+            schedule: kink_campaign::ScheduleMode::FirstKill,
+            lock: None,
+            locked: false,
+        },
+    );
+    assert_eq!(generated_ids(&document), [inserted, narrow], "{document:#}");
+    // The inserted alternative reaches the grammar search too; at this base its mutant is
+    // refused by the search's own admission (U34h handoff, Q1), never refused as a row.
+    let insertion = row(&document, inserted);
+    assert!(insertion["grammar"].is_array(), "{insertion:#}");
+    assert!(
+        !matches!(
+            insertion["status"].as_str(),
+            Some("invalid-mutation" | "error")
+        ),
+        "{insertion:#}"
+    );
+    let row = row(&document, narrow);
+    assert_eq!(
+        killed_as(row),
+        serde_json::json!(["killed", "dot", "mutant-rejects"]),
+        "{row:#}"
+    );
+    assert_eq!(row["generated"]["effect"], "token-narrowing", "{row:#}");
+}
+
+/// PJ-34 (U34h): a KRS flow (one that names a definition, whose front end judges no production
+/// edit) gets no generated row: the set is one refused row, `grammar-set-not-judged`; and a set
+/// one of whose rows takes a written mutation's id is one refused row,
+/// `grammar-set-id-collision`. Either refusal is in the set's summary.
+#[test]
+fn a_generated_grammar_set_is_refused_in_a_krs_flow_and_on_an_id_collision() {
+    let dir = calc_copy("grammar-set-refused");
+    let mut manifest = FlowManifest::read(&dir.join("FLOW.toml")).unwrap();
+    let loaded =
+        kink_corpus::resolver::load_source(&kink_flow::admit::corpus_source(&manifest)).unwrap();
+    let taken = "grammar/alternative-without-terminal/CALC-SYNTAX/add/1";
+    let list = kink_flow::MutationList::decode(&format!("{}{GRAMMAR_SET}", one_edit(taken, ARITH)))
+        .unwrap();
+    let refusal = |manifest: &FlowManifest| {
+        let check = kink_flow::check_mutations(manifest, &loaded, &list, None);
+        let rows = check.value();
+        let set = rows
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["id"] == "grammar")
+            .cloned()
+            .unwrap_or_else(|| panic!("{rows:#}"));
+        assert_eq!(
+            rows.as_array().unwrap().len(),
+            2,
+            "the written mutation and the set's one row: {rows:#}"
+        );
+        assert_eq!(set["outcome"], "refused", "{set:#}");
+        assert_eq!(
+            set["refusals"][0]["reason"], check.grammar_sets[0]["refusal"]["reason"],
+            "{set:#}"
+        );
+        set["refusals"][0]["reason"].as_str().unwrap().to_owned()
+    };
+    assert_eq!(refusal(&manifest), "grammar-set-id-collision");
+    manifest.definition = Some("calc:definition".to_owned());
+    assert_eq!(refusal(&manifest), "grammar-set-not-judged");
+}
+
 #[test]
 fn the_binary_checks_a_mutations_directory() {
     let dir = calc_copy("check-binary");

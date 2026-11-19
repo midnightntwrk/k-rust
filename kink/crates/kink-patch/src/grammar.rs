@@ -297,9 +297,12 @@ pub fn generate_default_grammar<'b>(
 /// The generation of one supplied grammar patch (a mutation a user wrote, which kink-flow
 /// resolved into `patch`): one origin, admitted as [`generate_grammar`] admits a generated one,
 /// when its mutant gives a program parser for `syntax_module`. The origin's sites are the
-/// sentences the patch replaces or deletes and, for an insertion at a module's start or end, the
-/// first sentence of that module; their paths are empty, since no form's variant names them.
-/// Complete: the generation is the one patch it was given.
+/// sentences the patch replaces or deletes, each sentence an insertion is anchored before or
+/// after (the inserted alternative of [`GrammarForm::AlternativeWithoutTerminal`] or
+/// [`GrammarForm::MergeAlternative`], which kink-flow judges as a supplied patch), and, for an
+/// insertion at a module's start or end, the first sentence of that module; their paths are
+/// empty, since no form's variant names them. Complete: the generation is the one patch it was
+/// given.
 ///
 /// # Errors
 ///
@@ -312,16 +315,24 @@ pub fn supplied_grammar<'b>(
 ) -> Result<CandidateGeneration<'b>, CandidateFailure> {
     let mut sites = patch.written_sentences();
     for edit in patch.edits() {
-        if let Edit::InsertSentence {
-            position: InsertPosition::ModuleStart(module) | InsertPosition::ModuleEnd(module),
-            ..
-        } = edit
-            && !sites.iter().any(|at| at.module == *module)
-        {
-            sites.push(SentenceRef {
-                module: module.clone(),
-                index: 0,
-            });
+        let Edit::InsertSentence { position, .. } = edit else {
+            continue;
+        };
+        match position {
+            // An anchored insertion is authorized by its anchor alone (kink-patch's fold).
+            InsertPosition::Before(at) | InsertPosition::After(at) => {
+                if !sites.contains(at) {
+                    sites.push(at.clone());
+                }
+            }
+            InsertPosition::ModuleStart(module) | InsertPosition::ModuleEnd(module) => {
+                if !sites.iter().any(|at| at.module == *module) {
+                    sites.push(SentenceRef {
+                        module: module.clone(),
+                        index: 0,
+                    });
+                }
+            }
         }
     }
     let origin = PatchOrigin {

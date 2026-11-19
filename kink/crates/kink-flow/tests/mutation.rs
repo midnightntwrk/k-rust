@@ -989,6 +989,78 @@ fn a_source_changed_since_the_load_is_never_edited() {
     );
 }
 
+/// PJ-34 (U34h): a `[[mutation]]` with `grammar` is a generated set, kept apart from the written
+/// mutations: `grammar = "default"` alone, an optional misunderstanding, no edit and no
+/// expectation; its id is unique with the written ones and qualified by its file's stem in a
+/// mutations directory, and `--only` may name it or an id under it.
+#[test]
+fn a_generated_grammar_set_decodes_apart_from_the_written_mutations() {
+    let written = "[[mutation]]\nid = \"ge\"\nnote = \"n\"\n  [[mutation.edit]]\n  rule = \"add\"\n  \
+                   find = \"+Int\"\n  replace = \"-Int\"\n";
+    let set = "[[mutation]]\nid = \"grammar\"\ngrammar = \"default\"\n";
+    let list = MutationList::decode(&format!("{written}{set}")).unwrap();
+    assert_eq!(
+        list.mutations
+            .iter()
+            .map(|m| m.id.as_str())
+            .collect::<Vec<_>>(),
+        ["ge"]
+    );
+    assert_eq!(
+        list.grammar_sets,
+        [kink_flow::GrammarSet {
+            id: "grammar".to_owned(),
+            set: kink_flow::GrammarSetName::Default,
+            misunderstanding: None,
+        }]
+    );
+    for (id, named) in [
+        ("ge", true),
+        ("grammar", true),
+        ("grammar/narrow-regex/M/Num-token-0f0238bc/6.0", true),
+        ("grammar-x", false),
+        ("gram", false),
+    ] {
+        assert_eq!(list.names(id), named, "{id}");
+    }
+    let noted = MutationList::decode(
+        "[[mutation]]\nid = \"g\"\ngrammar = \"default\"\nmisunderstanding = \"m\"\n",
+    )
+    .unwrap();
+    assert_eq!(noted.grammar_sets[0].misunderstanding.as_deref(), Some("m"));
+    for (text, key) in [
+        (
+            "[[mutation]]\nid = \"g\"\ngrammar = \"widening\"\n",
+            "mutation \"g\".grammar",
+        ),
+        (
+            "[[mutation]]\nid = \"g\"\ngrammar = \"default\"\nexpect = \"kill\"\n",
+            "mutation \"g\".expect",
+        ),
+        (
+            "[[mutation]]\nid = \"g\"\ngrammar = \"default\"\n  [[mutation.edit]]\n  rule = \"add\"\n  \
+             delete = true\n",
+            "mutation \"g\".edit",
+        ),
+        (
+            "[[mutation]]\nid = \"g\"\ngrammar = \"default\"\nform = \"x\"\n",
+            "mutation \"g\".form",
+        ),
+        (
+            &format!("{set}{}", written.replace("\"ge\"", "\"grammar\"")),
+            "mutation \"grammar\"",
+        ),
+    ] {
+        let error = MutationList::decode(text).unwrap_err();
+        assert_eq!(error.key, key, "{error}");
+    }
+    let dir = scratch("grammar-set-directory");
+    fs::create_dir_all(dir.join("mutations")).unwrap();
+    fs::write(dir.join("mutations/syntax.toml"), set).unwrap();
+    let read = MutationList::read(&dir.join("mutations")).unwrap();
+    assert_eq!(read.grammar_sets[0].id, "syntax/grammar");
+}
+
 #[test]
 fn every_reason_is_produced_or_listed_as_defensive() {
     use InvalidReason::*;
@@ -1021,6 +1093,10 @@ fn every_reason_is_produced_or_listed_as_defensive() {
         NoProgramParser,
         UnreadDeclaration,
         RuleAndGrammarEdits,
+        // PJ-34 (U34h): produced by tests/check.rs
+        // (a_generated_grammar_set_is_refused_in_a_krs_flow_and_on_an_id_collision).
+        GrammarSetNotJudged,
+        GrammarSetIdCollision,
     ];
     let all = produced
         .iter()
@@ -1061,13 +1137,36 @@ fn every_reason_is_produced_or_listed_as_defensive() {
         .chain(&NOT_RUN)
     {
         match reason {
-            UnknownFile | FileRequired | UnknownLabel | AmbiguousLabel | LineOutsideRules
-            | LineAmbiguous | AddressMismatch | NonRuleSentence | NoUsableSpan | FindNotFound
-            | FindAmbiguous | EditOutsideRule | OverlappingEdits | SourceChanged
-            | EditedLoadFailed | StructureChanged | LabelChanged | NoChange | PatchRejected
-            | SourceViewMismatch | MarkdownEnvelope | SpanChanged | EditedRuleTooDeep
-            | HostStackRefused | NoProgramParser | UnreadDeclaration | RuleAndGrammarEdits
-            | GrammarNotRun => {}
+            UnknownFile
+            | FileRequired
+            | UnknownLabel
+            | AmbiguousLabel
+            | LineOutsideRules
+            | LineAmbiguous
+            | AddressMismatch
+            | NonRuleSentence
+            | NoUsableSpan
+            | FindNotFound
+            | FindAmbiguous
+            | EditOutsideRule
+            | OverlappingEdits
+            | SourceChanged
+            | EditedLoadFailed
+            | StructureChanged
+            | LabelChanged
+            | NoChange
+            | PatchRejected
+            | SourceViewMismatch
+            | MarkdownEnvelope
+            | SpanChanged
+            | EditedRuleTooDeep
+            | HostStackRefused
+            | NoProgramParser
+            | UnreadDeclaration
+            | RuleAndGrammarEdits
+            | GrammarNotRun
+            | GrammarSetNotJudged
+            | GrammarSetIdCollision => {}
             // A front end's reason (CF-40): kink-flow never constructs it, so no test here
             // produces it and `ALL` does not list it.
             External { .. } => {}

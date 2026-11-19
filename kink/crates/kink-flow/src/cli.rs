@@ -124,11 +124,13 @@ A mutation (MUTATIONS.toml):
     [[mutation.edit]]               # one or more, applied together
     rule = \"add\"                    # a rule label, or a unique suffix of its components
                                     # (or production = \"mul\": a grammar edit of mul's
-                                    # syntax declaration, which check resolves and run does
-                                    # not judge yet)
+                                    # syntax declaration, which run's default search judges)
     find = \"I1 +Int I2\"             # exact text, exactly once in that rule
     replace = \"I1 -Int I2\"          # its replacement
     # or, in place of find and replace: delete = true, which removes the rule
+  [[mutation]]                      # or, with no edit: the default grammar operator set,
+  id = \"grammar\"                  # one mutation per generated grammar patch
+  grammar = \"default\"
   An edit of emitted K (krs emit-k's definition.k) is anchored by rule, never by line =:
   its lines move with every emission.
 
@@ -1455,16 +1457,20 @@ impl FlowCommand {
                     return Err(not_found(&mutations));
                 }
                 let (options, mode, output, progress) = run_options(options)?;
+                // A generated grammar set's id selects its rows, and an id under it the row of
+                // that id, which only the expansion after admission gives
+                // ([`MutationList::names`]).
                 if let Ok(list) = MutationList::read(&mutations)
-                    && let Some(id) = options
-                        .only
-                        .iter()
-                        .find(|id| !list.mutations.iter().any(|m| &m.id == *id))
+                    && let Some(id) = options.only.iter().find(|id| !list.names(id))
                 {
                     return Err(format!(
                         "--only {id}: no mutation of {} has this id ({})",
                         mutations.display(),
-                        ids(list.mutations.iter().map(|m| m.id.as_str()))
+                        ids(list
+                            .mutations
+                            .iter()
+                            .map(|m| m.id.as_str())
+                            .chain(list.grammar_sets.iter().map(|set| set.id.as_str())))
                     ));
                 }
                 Ok(Self::Run {
@@ -3438,6 +3444,10 @@ pub fn check_mutations_document(
             document["mutation_list"] = json!({"outcome": "ok", "detail": null});
             if let Some(mutations) = &checked.mutations {
                 document["mutations"] = mutations.value();
+                // Present only where the list names a generated grammar set (U34h).
+                if !mutations.grammar_sets.is_empty() {
+                    document["grammar_sets"] = json!(mutations.grammar_sets);
+                }
             }
             if let Some(coverage) = &checked.coverage {
                 document["coverage"] = coverage.value(spelling);
@@ -3576,6 +3586,10 @@ fn admission_status(admission: &FlowAdmission) -> u8 {
 /// checked, its `with` listing the others, and the document of several flows is `{schema,
 /// version, flows}`, each of `flows` a flow's check document with its `flow` (the path as
 /// given). A command line that names one flow gives version 20's document but for its version.
+/// Still 21 (PJ-34, U34h; the version is this branch's) since a list may name a generated grammar
+/// set ([`crate::grammar_set`]): its rows follow the written ones, each with `generated`, the
+/// document has `grammar_sets`, and the refusals `grammar-set-not-judged` and
+/// `grammar-set-id-collision` are new; a list with no set gives the document it gave.
 pub const CHECK_VERSION: u64 = 21;
 
 /// The check document's members, and under the Z3 profile `z3` ([`crate::with_z3_build`]); every

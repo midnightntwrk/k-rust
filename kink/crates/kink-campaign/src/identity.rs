@@ -325,7 +325,7 @@ pub struct Outside {
 
 /// Every versioned constant outside [`KINK_IDENTITY`]. Each reason names the path that checks
 /// the constant, or says why nothing has to.
-pub const OUTSIDE_IDENTITY: [Outside; 53] = [
+pub const OUTSIDE_IDENTITY: [Outside; 54] = [
     Outside {
         krate: "kink-patch",
         constant: "TEST_MANIFEST_DOMAIN",
@@ -590,6 +590,15 @@ pub const OUTSIDE_IDENTITY: [Outside; 53] = [
                  element is `true` or `false`, its digest is decoded by the build that digested it \
                  within one evidence run, and a record of what a run read is kept only under a \
                  key that holds `kink_build`, so a change of this domain changes no value read",
+    },
+    Outside {
+        krate: "kink-flow",
+        constant: "GRAMMAR_SET_VERSION",
+        reason: "the expansion of a generated grammar set (grammar_set.rs: its forms, its sites, \
+                 its rows' ids), named by `check`'s `grammar_sets` and each generated run row: it \
+                 keys no record, since a generated row's outcome records are keyed by its patch's \
+                 mutation identity, as every mutation's, and its lock row by its id, so a change \
+                 of the expansion changes which rows exist, which `--locked` reports",
     },
     Outside {
         krate: "kink-flow",
