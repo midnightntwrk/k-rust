@@ -14,7 +14,7 @@ connective readings per sentence: 1
       sentence 256: existentialClause
 stage refusals (of sentences classified read): 1
   1 existentialEquation
-      sentence 256 (Lblfl): existentialEquation (VarB: bound in an alternative of \or at the sort S, which the test of a value does not accept)
+      sentence 256 (Lblfl): existentialEquation (VarB: bound in one alternative of \or at a sort without a value (S, which the test of a value does not accept): Semantics.hasValue, on the definition read, finds no value of the sort at every interpretation of the parameters (no literal, no empty collection, no term of constructors and injections); the alternative's elements depend on elements of the sort that no value names)
         [user] (no label) at e3-eq-exists-ml-in-or-empty.k:9: axiom{R} \implies{R}(\and{R}(\top{R}(), \top{R}()), \equals{SortBool{}, R}(Lblfl{}(), \and{SortBool{}}(\or{SortBool{}}(\dv{SortBool{}}("true"), \exists{SortBool{}}(VarB:SortS{}, \and{SortBool{}}(Lblk{}(VarB:SortS{}), \equals{SortS{}, SortBool{}}(VarB:SortS{}, Lbllp{}())))), \top{SortBool{}}()))) [UNIQUE'Unds'ID{}("19f6d5777ff4e4d775ac01b2e05e9070e15e0e344f525f5734f7c3a1a5b29ac5"), org'Stop'kframew …
-finish: sentence 256 (Lblfl): existentialEquation (VarB: bound in an alternative of \or at the sort S, which the test of a value does not accept)
+finish: sentence 256 (Lblfl): existentialEquation (VarB: bound in one alternative of \or at a sort without a value (S, which the test of a value does not accept): Semantics.hasValue, on the definition read, finds no value of the sort at every interpretation of the parameters (no literal, no empty collection, no term of constructors and injections); the alternative's elements depend on elements of the sort that no value names)
 (exit 0)

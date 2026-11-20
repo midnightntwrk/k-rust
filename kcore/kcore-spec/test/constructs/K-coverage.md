@@ -31,14 +31,14 @@ Nested entries by status:
 |---|---|---|---|---|---|---|---|---|
 | E1 | 8 | 3 | 0 | 0 | 0 | 5 | 0 | 0 |
 | E2 | 67 | 12 | 0 | 2 | 0 | 53 | 0 | 0 |
-| E3 | 89 | 60 | 0 | 2 | 0 | 27 | 0 | 0 |
+| E3 | 89 | 61 | 0 | 2 | 0 | 26 | 0 | 0 |
 | E4 | 57 | 20 | 0 | 4 | 0 | 33 | 0 | 0 |
 | E5 | 70 | 37 | 1 | 2 | 0 | 30 | 0 | 0 |
 | E6 | 35 | 9 | 2 | 0 | 0 | 24 | 0 | 0 |
 | E7 | 9 | 4 | 1 | 0 | 0 | 4 | 0 | 0 |
 | E8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 37 | 17 | 0 | 2 | 1 | 17 | 0 | 0 |
-| all | 372 | 162 | 4 | 12 | 1 | 193 | 0 | 0 |
+| all | 372 | 163 | 4 | 12 | 1 | 192 | 0 | 0 |
 
 Refused rows by class:
 
@@ -61,20 +61,20 @@ Refused nested entries by class:
 |---|---|---|---|---|---|
 | E1 | 5 | 1 | 0 | 1 | 3 |
 | E2 | 53 | 4 | 0 | 1 | 48 |
-| E3 | 27 | 15 | 0 | 8 | 4 |
+| E3 | 26 | 15 | 0 | 7 | 4 |
 | E4 | 33 | 14 | 11 | 0 | 8 |
 | E5 | 30 | 13 | 2 | 1 | 14 |
 | E6 | 24 | 5 | 2 | 0 | 17 |
 | E7 | 4 | 0 | 0 | 0 | 4 |
 | E8 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 17 | 8 | 4 | 0 | 5 |
-| all | 193 | 60 | 19 | 11 | 103 |
+| all | 192 | 60 | 19 | 10 | 103 |
 
-Supported entries (rows and nested): 1002; 17 of them have an owed fact and are counted by their best fixture: **15 proved** (the owed fact proved on a fixture the entry names: these count as supported under the headline statements), 0 open and 2 false (counted apart: the headline statements' hypothesis is not shown on their fixtures). The other 985 have no owed fact.
+Supported entries (rows and nested): 1003; 17 of them have an owed fact and are counted by their best fixture: **15 proved** (the owed fact proved on a fixture the entry names: these count as supported under the headline statements), 0 open and 2 false (counted apart: the headline statements' hypothesis is not shown on their fixtures). The other 986 have no owed fact.
 
 E6 library rows by their `e6_tie` (test/constructs/e6map.py; rows-header.toml): 480, of which 406 tied, 12 of no direction (the tie's no-direction class, owed-sentence rule item 7: never tied, counted apart), 46 of a text without a model (counted apart), 12 refuted and 4 uncovered.
 
-## Entries of class R-c (14)
+## Entries of class R-c (13)
 
 Each names the notion the kernel lacks, the cone declaration that would change, and the ticket or unit that supports it (`unit`, checked by `units.py`).
 
@@ -88,7 +88,6 @@ Each names the notion the kernel lacks, the cone declaration that would change, 
 | E3 | `ML-SYNTAX:Sort::=Sort "#And" Sort` | cases[10] | refused |  | none (reader only): KCore.Cond.bound's .ex arm admits the binder (its sort has a value, Semantics.hasValue, and its body fixes it by Z ∈ t), and Semantics.clausePlainEx admits the predicate in a clause with an existential variable | RDR.and-not-ceil-binder |  |
 | E3 | `ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2` | row | refused |  | Term (Core.lean:58): a term has variables, applications, injections, \`as\` and domain values, no connective; and with it Rule.lhs/rhs/req/ens, Clause.pats/req/rhs, Eval and Step, which read terms | CE | CN-3 P1 (e1: L-3, a variable of the rule, reader only); R2 (A3: R-5 as \`?Z\`); 4.5 d4 (\`Cond.ex\` over a confined sort) |
 | E3 | `ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2` | cases[4] | refused |  |  | CE |  |
-| E3 | `ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2` | cases[12] | refused |  | none (reader only): KCore.Cond.bound's .ex arm and Semantics.clausePlainEx admit the binder kept in post (its sort has a value, Semantics.hasValue, and its body fixes it) | CE.reader-or-scoped |  |
 | E3 | `ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2` | cases[19] | refused |  |  | RDR.eq-binders |  |
 | E3 | `ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2` | cases[20] | refused |  |  | RDR.eq-binders |  |
 | E3 | `ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2` | cases[21] | refused |  |  | RDR.eq-binders |  |
@@ -687,7 +686,7 @@ The `cell` entries of `core-manifest.toml`: a row and a column of the release sc
 | cases[9]: a binder in a conjunct of an \\and beside a term, t #And (#Exists B. ψ) (P3, N2) | supported |  |  |  |  | e3-eq-exists-ml-and-right |  |  | fixtures/e3-eq-exists-ml-and-right (f(X) => (notBool X) #And (#Exists B:Bool. (B #And {B #Equals X}))): kompile.txt exit 0; kore.txt //@ 232; account.txt \`sentence 245: existentialClause\`, \`coreOK: true; failing: []\` |
 | cases[10]: a binder in an alternative of an \\or, its sort confined with a value (P3, N3) | supported |  |  |  |  | e3-eq-exists-ml-in-or |  |  | fixtures/e3-eq-exists-ml-in-or (f(X) => X #Or (#Exists B:Bool. (B #And {B #Equals notBool X})), and fx with {B #Equals X}): kompile.txt exit 0; kore.txt //@ 233, 234; account.txt \`sentence 246: existentialClause\`, \`sentence 247: existentialClause\`, \`coreOK: true; failing: []\` |
 | cases[11]: a binder in an alternative of an \\or, its sort without a value | refused | R-a |  |  | none (R-a): the binder ranges over elements none of which a value names and the alternative's value depends on them; two models of the text differ there (findings/CE-fixes-confined-scoped-decision.md section 4) | e3-eq-exists-ml-in-or-empty |  |  | findings/CE-fixes-confined-scoped-decision.md section 4: fl() => true #Or #Exists B:S. (k(B) #And {B #Equals lp()}), S with no value: a model with S empty gives fl() = {true}, one with S = {h}, s(h) = h, lp() = h, k(h) = false gives {true, false}; L3's premise (the sort has an element) fails, so N3… |
-| cases[12]: a binder in an alternative of an \\or, of an unconfined sort with a value, equated inside its alternative with a term ove… | refused | R-c | hoisted by N3 the binder is unfixed where the other alternative holds; kept in post as Cond.ex it is admitted by Cond.bound's .ex arm, which accepts a binder its body fixes at a sort with a value (Semantics.hasValue), and the existential variable it fixes by Clause.fixedExs at the same test (Semanti… | none (reader only): KCore.Cond.bound's .ex arm and Semantics.clausePlainEx admit the binder kept in post (its sort has a value, Semantics.hasValue, and its body fixes it) | CE.reader-or-scoped | e3-eq-exists-ml-in-or-int |  |  | fixtures/e3-eq-exists-ml-in-or-int (f(X) => X #Or (#Exists B:Int. (B #And {B #Equals X +Int 1}))): kompile.txt exit 0; kore.txt //@ 335, \\or(X, \\exists B:Int. \\and(B, B = X +Int 1)); account.txt \`sentence 348 (Lblf): existentialEquation (VarB:Int: an existential variable of the right side, of a sort… |
+| cases[12]: a binder in an alternative of an \\or, of an unconfined sort with a value, equated inside its alternative with a term ove… | supported |  |  |  |  | e3-eq-exists-ml-in-or-int |  |  | fixtures/e3-eq-exists-ml-in-or-int (f(X) => X #Or (#Exists B:Int. (B #And {B #Equals X +Int 1}))): kompile.txt exit 0; kore.txt //@ 335, \\or(X, \\exists B:Int. \\and(B, B = X +Int 1)); account.txt \`1 read existentialClause [user]\`, \`sentence 348: existentialClause\`, \`coreOK: true; failing: []\`, \`funct… |
 | cases[13]: a term over a confined existential variable fixing an unconfined one (Z ∈ g(B), B confined; both term conjuncts over B a… | supported |  |  |  |  | e3-eq-exists-ml-confined-fix |  |  | fixtures/e3-eq-exists-ml-confined-fix: account.txt \`sentence 352: existentialClause\`, \`existential VarB:Bool, VarZ:Int\`, \`coreOK: true; failing: []\` (wf false at clausesNoExsTop alone, a conjunct outside coreOK) |
 | cases[14]: two or more term conjuncts in a binder's body, #Exists B. (t #And u) (P5) | supported |  |  |  |  | e3-eq-exists-ml-and-terms |  |  | fixtures/e3-eq-exists-ml-and-terms (f(X) => #Exists B:Bool. (B #And (notBool X)); k(X) => #Exists Z:Int. (Z #And (X +Int 1))): account.txt \`sentence 349: existentialClause\`, \`sentence 384: existentialClause\`, \`coreOK: true; failing: []\` |
 | cases[15]: a variable under one injection equated with a term, {inj{a,b}(Z) #Equals t} (5.3) | supported |  |  |  |  | e3-eq-exists-ml-supersort |  |  | fixtures/e3-eq-exists-ml-supersort (h(K) => #Exists Z:Int. (Z #And {Z #Equals K}), K:KItem): kore.txt //@ 339, \\equals{SortKItem,SortInt}(inj{SortInt,SortKItem}(Z), K); account.txt \`sentence 349: existentialClause\`, \`sentence 352: existentialClause\`, \`coreOK: true; failing: []\` |

@@ -1,0 +1,158 @@
+//@ 0
+module E3-EQ-EXISTS-ML-IN-OR-FLOAT
+//@ 81
+  symbol Lblf{}(SortFloat{}) : SortFloat{} [function{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,20,3,50)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e3-eq-exists-ml-in-or-float.k)"), symbol'Kywd'{}("f")]
+//@ 90
+  symbol LblisFloat{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
+//@ 119
+  symbol Lblproject'Coln'Float{}(SortK{}) : SortFloat{} [function{}()]
+//@ 159
+  axiom{R} \exists{R} (Val:SortKItem{}, \equals{SortKItem{}, R} (Val:SortKItem{}, inj{SortFloat{}, SortKItem{}} (From:SortFloat{}))) [subsort{SortFloat{}, SortKItem{}}()] // subsort
+//@ 163
+  axiom{R} \exists{R} (Val:SortFloat{}, \equals{SortFloat{}, R} (Val:SortFloat{}, Lbl--Float'UndsUnds'FLOAT'Unds'Float'Unds'Float{}(K0:SortFloat{}))) [functional{}()] // functional
+//@ 175
+  axiom{R} \exists{R} (Val:SortInt{}, \equals{SortInt{}, R} (Val:SortInt{}, LblFloat2Int'LParUndsRParUnds'FLOAT'Unds'Int'Unds'Float{}(K0:SortFloat{}))) [functional{}()] // functional
+//@ 185
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'UndsEqlsSlshEqls'Bool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 186
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'UndsEqlsEqls'Bool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 199
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds'andBool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 200
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds'andThenBool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 201
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds'impliesBool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 204
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds'orBool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 205
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds'orElseBool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 206
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds'xorBool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 209
+  axiom{R} \exists{R} (Val:SortFloat{}, \equals{SortFloat{}, R} (Val:SortFloat{}, LblabsFloat'LParUndsRParUnds'FLOAT'Unds'Float'Unds'Float{}(K0:SortFloat{}))) [functional{}()] // functional
+//@ 210
+  axiom{R} \exists{R} (Val:SortFloat{}, \equals{SortFloat{}, R} (Val:SortFloat{}, LblatanFloat'LParUndsRParUnds'FLOAT'Unds'Float'Unds'Float{}(K0:SortFloat{}))) [functional{}()] // functional
+//@ 211
+  axiom{R} \exists{R} (Val:SortFloat{}, \equals{SortFloat{}, R} (Val:SortFloat{}, LblceilFloat'LParUndsRParUnds'FLOAT'Unds'Float'Unds'Float{}(K0:SortFloat{}))) [functional{}()] // functional
+//@ 212
+  axiom{R} \exists{R} (Val:SortFloat{}, \equals{SortFloat{}, R} (Val:SortFloat{}, LblcosFloat'LParUndsRParUnds'FLOAT'Unds'Float'Unds'Float{}(K0:SortFloat{}))) [functional{}()] // functional
+//@ 213
+  axiom{R} \exists{R} (Val:SortFloat{}, \equals{SortFloat{}, R} (Val:SortFloat{}, LblexpFloat'LParUndsRParUnds'FLOAT'Unds'Float'Unds'Float{}(K0:SortFloat{}))) [functional{}()] // functional
+//@ 214
+  axiom{R} \exists{R} (Val:SortInt{}, \equals{SortInt{}, R} (Val:SortInt{}, LblexponentBitsFloat'LParUndsRParUnds'FLOAT'Unds'Int'Unds'Float{}(K0:SortFloat{}))) [functional{}()] // functional
+//@ 215
+  axiom{R} \exists{R} (Val:SortInt{}, \equals{SortInt{}, R} (Val:SortInt{}, LblexponentFloat'LParUndsRParUnds'FLOAT'Unds'Int'Unds'Float{}(K0:SortFloat{}))) [functional{}()] // functional
+//@ 216
+  axiom{R} \exists{R} (Val:SortFloat{}, \equals{SortFloat{}, R} (Val:SortFloat{}, LblfloorFloat'LParUndsRParUnds'FLOAT'Unds'Float'Unds'Float{}(K0:SortFloat{}))) [functional{}()] // functional
+//@ 220
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, LblisFloat{}(K0:SortK{}))) [functional{}()] // functional
+//@ 225
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, LblisInfinite'LParUndsRParUnds'FLOAT'Unds'Bool'Unds'Float{}(K0:SortFloat{}))) [functional{}()] // functional
+//@ 234
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, LblisNaN'LParUndsRParUnds'FLOAT'Unds'Bool'Unds'Float{}(K0:SortFloat{}))) [functional{}()] // functional
+//@ 239
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, LblnotBool'Unds'{}(K0:SortBool{}))) [functional{}()] // functional
+//@ 240
+  axiom{R} \exists{R} (Val:SortInt{}, \equals{SortInt{}, R} (Val:SortInt{}, LblprecisionFloat'LParUndsRParUnds'FLOAT'Unds'Int'Unds'Float{}(K0:SortFloat{}))) [functional{}()] // functional
+//@ 243
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, LblsignFloat'LParUndsRParUnds'FLOAT'Unds'Bool'Unds'Float{}(K0:SortFloat{}))) [functional{}()] // functional
+//@ 244
+  axiom{R} \exists{R} (Val:SortFloat{}, \equals{SortFloat{}, R} (Val:SortFloat{}, LblsinFloat'LParUndsRParUnds'FLOAT'Unds'Float'Unds'Float{}(K0:SortFloat{}))) [functional{}()] // functional
+//@ 248
+  axiom{R} \exists{R} (Val:SortFloat{}, \equals{SortFloat{}, R} (Val:SortFloat{}, LbltruncFloat'LParUndsRParUnds'FLOAT'Unds'Float'Unds'Float{}(K0:SortFloat{}))) [functional{}()] // functional
+//@ 251
+  axiom{} \or{SortFloat{}} (\top{SortFloat{}}(), \bottom{SortFloat{}}()) [constructor{}()] // no junk (TODO: fix bug with \dv)
+//@ 260
+  axiom{} \or{SortKItem{}} (\exists{SortKItem{}} (Val:SortBool{}, inj{SortBool{}, SortKItem{}} (Val:SortBool{})), \exists{SortKItem{}} (Val:SortFloat{}, inj{SortFloat{}, SortKItem{}} (Val:SortFloat{})), \exists{SortKItem{}} (Val:SortGeneratedCounterCell{}, inj{SortGeneratedCounterCell{}, SortKItem{}} (Val:SortGeneratedCounterCell{})), \exists{SortKItem{}} (Val:SortGeneratedCounterCellOpt{}, inj{SortGeneratedCounterCellOpt{}, SortKItem{}} (Val:SortGeneratedCounterCellOpt{})), \exists{SortKItem{}} (Val:SortGeneratedTopCell{}, inj{SortGeneratedTopCell{}, SortKItem{}} (Val:SortGeneratedTopCell{})), \exists{SortKItem{}} (Val:SortGeneratedTopCellFragment{}, inj{SortGeneratedTopCellFragment{}, SortKItem{}} (Val:SortGeneratedTopCellFragment{})), \exists{SortKItem{}} (Val:SortInt{}, inj{SortInt{}, SortKItem{}} (Val:SortInt{})), \exists{SortKItem{}} (Val:SortKCell{}, inj{SortKCell{}, SortKItem{}} (Val:SortKCell{})), \exists{SortKItem{}} (Val:SortKCellOpt{}, inj{SortKCellOpt{}, SortKItem{}} (Val:SortKCellOpt{})), \exists{SortKItem{}} (Val:SortKConfigVar{}, inj{SortKConfigVar{}, SortKItem{}} (Val:SortKConfigVar{})), \exists{SortKItem{}} (Val:SortList{}, inj{SortList{}, SortKItem{}} (Val:SortList{})), \exists{SortKItem{}} (Val:SortMap{}, inj{SortMap{}, SortKItem{}} (Val:SortMap{})), \exists{SortKItem{}} (Val:SortSet{}, inj{SortSet{}, SortKItem{}} (Val:SortSet{})), \bottom{SortKItem{}}()) [constructor{}()] // no junk
+//@ 296
+// rule f(X)=>#Or{Float}(X,#Exists{Float,Float}(B,#And{Float}(B,#Equals{Float,Float}(B,`_+Float__FLOAT_Float_Float_Float`(X,#token("1.0","Float")))))) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(50722862084c52b5189df1bfb92fce0fdb4b645d6dd6d78e8541d951600c3113), org.kframework.attributes.Location(Location(4,8,4,74)), org.kframework.attributes.Source(Source(FIXTURE/e3-eq-exists-ml-in-or-float.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortFloat{}, R} (
+            X0:SortFloat{},
+            VarX:SortFloat{}
+          ),
+          \top{R} ()
+        )),
+    \equals{SortFloat{},R} (
+      Lblf{}(X0:SortFloat{}),
+     \and{SortFloat{}} (
+       \or{SortFloat{}}(VarX:SortFloat{},\exists{SortFloat{}}(VarB:SortFloat{},\and{SortFloat{}}(VarB:SortFloat{},\equals{SortFloat{}, SortFloat{}}(VarB:SortFloat{},Lbl'UndsPlus'Float'UndsUnds'FLOAT'Unds'Float'Unds'Float'Unds'Float{}(VarX:SortFloat{},\dv{SortFloat{}}("1.0")))))),
+        \top{SortFloat{}}())))
+  [UNIQUE'Unds'ID{}("50722862084c52b5189df1bfb92fce0fdb4b645d6dd6d78e8541d951600c3113"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,8,4,74)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e3-eq-exists-ml-in-or-float.k)")]
+//@ 303
+// rule isFloat(K)=>#token("false","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(613283edb3d0af0dfe3d5c3626073b1904f0e254fc0797cd7a4f620cfeb7de62), owise]
+  axiom{R} \implies{R} (
+    \and{R} (
+      \not{R} (
+        \or{R} (
+          \exists{R} (Var'Unds'Gen0:SortFloat{},
+            \and{R} (
+              \top{R}(),
+              \and{R} (
+                \in{SortK{}, R} (
+                  X0:SortK{},
+                  kseq{}(inj{SortFloat{}, SortKItem{}}(Var'Unds'Gen0:SortFloat{}),dotk{}())
+                ),
+                \top{R} ()
+              )
+          )),
+          \bottom{R}()
+        )
+      ),
+      \and{R}(
+        \top{R}(),
+        \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            VarK:SortK{}
+          ),
+          \top{R} ()
+        )
+    )),
+    \equals{SortBool{},R} (
+      LblisFloat{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("false"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("613283edb3d0af0dfe3d5c3626073b1904f0e254fc0797cd7a4f620cfeb7de62"), owise{}()]
+//@ 304
+// rule isFloat(inj{Float,KItem}(Float))=>#token("true","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(d74a36c34f45e0bf74d89fdd362f124478ab18934b5786ff4aabfe527643c5f0)]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{SortFloat{}, SortKItem{}}(VarFloat:SortFloat{}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortBool{},R} (
+      LblisFloat{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("true"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("d74a36c34f45e0bf74d89fdd362f124478ab18934b5786ff4aabfe527643c5f0")]
+//@ 334
+// rule `project:Float`(inj{Float,KItem}(K))=>K requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(ef206f477d884c0b6413273ff35b1206769cdb5a5ceba7b97d9e8e0a7b14e399), projection]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{SortFloat{}, SortKItem{}}(VarK:SortFloat{}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortFloat{},R} (
+      Lblproject'Coln'Float{}(X0:SortK{}),
+     \and{SortFloat{}} (
+       VarK:SortFloat{},
+        \top{SortFloat{}}())))
+  [UNIQUE'Unds'ID{}("ef206f477d884c0b6413273ff35b1206769cdb5a5ceba7b97d9e8e0a7b14e399")]
+//@ 350
+endmodule [org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1,1,5,10)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e3-eq-exists-ml-in-or-float.k)")]

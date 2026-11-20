@@ -42,7 +42,8 @@
     clause is `ceRead`'s (`wire_ce_noLits`).
   - CE's arm: `f(X) => f(X) #Or g(X)`, f without its `functional` sentence (`wire_ce_or`);
     `h(X) => f(X) #And g(X)` (`wire_ce_and`); nine alternatives (`wire_ce_many`); a binder in an
-    alternative, moved to the top (`wire_ce_hoist`); an empty right side stays the bottom arm's
+    alternative, moved to the top where its body equates it with no term and kept in the
+    alternative where it does (`wire_ce_hoist`); an empty right side stays the bottom arm's
     (`wire_ce_empty`); `ceCases` on each (`wire_ce_cases`).
   - `clauseExcl` on a clause with an existential variable past the disjunct's: `exs` unchanged,
     `post` renumbered (`excl_exs`).
@@ -505,13 +506,23 @@ theorem wire_ce_and : (clausesBody N0 "" eqAnd none).map (·.map (·.1)) =
 theorem wire_ce_many : (clausesBody N0 "" eqMany none).map (·.map (·.1)) =
     (ceRead N0 eqMany).map (fun x => [x.1]) := by kernel_rfl
 
-/-- **A binder in an alternative, in the kernel**: moved to the top (`ceEqn`, every sort
-accepted; `coreOf` tests the sort on the built definition), then `ceRead`: `exs` is Z then the
-disjunction's variable. -/
-theorem wire_ce_hoist : (clausesBody N0 "" eqAlt none).map (·.map (·.1)) =
-      (ceRead N0 (ceEqn N0 eqAlt)).map (fun x => [x.1]) ∧
-    ((clausesBody N0 "" eqAlt none).toOption.map fun xs => xs.map (·.1.exs)) = some [[1, 2]] := by
-  constructor <;> kernel_rfl
+/-- `f(X) => X #Or #Exists Z:Int. (g(Z) #And {f(Z) #Equals X})`: a binder in an alternative whose
+body equates it with no term. -/
+def eqAltFree : RawEqn :=
+  ⟨"Lblf", [X], none, none,
+    .or int [X, .exist int (evar "VarZ" int) (.and int [gOf (ev "VarZ" int), .equals int int (fOf (ev "VarZ" int)) X])],
+    uid, none, false⟩
+
+/-- **A binder in an alternative, in the kernel**: one whose body equates it with no term is moved
+to the top (`ceEqn`, every sort accepted; `coreOf` tests the sort on the built definition), then
+`ceRead`: `exs` is Z then the disjunction's variable. One whose body equates it with a term stays
+in its alternative: `exs` is the disjunction's variable alone. -/
+theorem wire_ce_hoist : (clausesBody N0 "" eqAltFree none).map (·.map (·.1)) =
+      (ceRead N0 (ceEqn N0 eqAltFree)).map (fun x => [x.1]) ∧
+    ((clausesBody N0 "" eqAltFree none).toOption.map fun xs => xs.map (·.1.exs)) = some [[1, 2]] ∧
+    (clausesBody N0 "" eqAlt none).map (·.map (·.1)) = (ceRead N0 eqAlt).map (fun x => [x.1]) ∧
+    ((clausesBody N0 "" eqAlt none).toOption.map fun xs => xs.map (·.1.exs)) = some [[1]] := by
+  refine ⟨?_, ?_, ?_, ?_⟩ <;> kernel_rfl
 
 /-- `h(X) => f(X) #And g(#Bottom)`: an empty right side (`σ(…, ⊥, …) = ⊥`, `φ ∧ ⊥ = ⊥`). -/
 def eqAndBot : RawEqn := ⟨"Lblh", [X], none, none, .and int [fOf X, gOf (.bottom int)], uid, none, false⟩
@@ -526,10 +537,10 @@ theorem wire_ce_empty : clausesBody N0 "" eqAndBot none = (clauseBody N0 "" eqAn
 not of `frRead`'s (`eqH`), `exRead`'s (`eqP`), a plain equation's or a term with a predicate
 (`clauseBody`'s). -/
 theorem wire_ce_cases :
-    [ceCases N0 eqFOr, ceCases N0 eqAnd, ceCases N0 eqMany, ceCases N0 eqAlt,
+    [ceCases N0 eqFOr, ceCases N0 eqAnd, ceCases N0 eqMany, ceCases N0 eqAlt, ceCases N0 eqAltFree,
       ceCases { N0 with boolLits := false } eqP,
       ceCases N0 eqH, ceCases N0 eqP, ceCases N0 eqPlain, ceCases N0 eqPred] =
-    [true, true, true, true, true, false, false, false, false] := by kernel_rfl
+    [true, true, true, true, true, true, false, false, false, false] := by kernel_rfl
 
 end Hand
 

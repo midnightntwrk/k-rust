@@ -189,7 +189,8 @@
   - `eqNot`, `eqPredConj`: a binder under `\not` and one in a predicate conjunct stay.
   On fixtures, with `Semantics.hasValue` on the built definition as the test (`valuedSort`):
   `e3-eq-exists-ml-in-or-int` and `e3-eq-exists-ml-in-or` (the binder leaves the alternative;
-  `ceRead` reads the `\or` as `eqAlt`'s), `e3-eq-exists-ml-under-app` and
+  `ceRead` reads the `\or` as `eqAlt`'s; the reader keeps the first text's binder, section
+  or-scoped), `e3-eq-exists-ml-under-app` and
   `e3-eq-exists-ml-and-right` (one clause each).
   Kernel-checked (`decide +kernel`): each hand-written case (`HandHoist.hoist_steps`).
 
@@ -211,6 +212,9 @@
   The results of the reading (`HoistEval`): with the reader's clauses of `eqUA` (`reader_fCls`) and
   g's clause `g(B) => notBool B`, `f(true)` is `false` and `f(false)` is `true`, and nothing else
   (`eval_after_hoist`).
+
+  A binder kept in its alternative of an `\or` (`Parse.ceKeep`, `hoistExK`, `memOf`'s `\exists`
+  arm) is test/ExClauseScoped.lean's.
 -/
 import KcoreSpec
 

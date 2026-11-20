@@ -1,0 +1,2 @@
+# a binder of Float (not confined; a sort with a value, the literal Semantics.hasValue probes) in an alternative of \or, fixed inside it by a term over the universal variable: f(X) => X #Or (#Exists B:Float. (B #And {B #Equals X +Float 1.0})), f not total
+# from the sentence: f(x) is the elements of x and of x +Float 1.0

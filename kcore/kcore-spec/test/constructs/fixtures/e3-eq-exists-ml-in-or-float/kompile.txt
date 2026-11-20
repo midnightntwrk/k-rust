@@ -1,0 +1,11 @@
+command: kompile --backend haskell e3-eq-exists-ml-in-or-float.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 5.8
+definition.kore bytes: 147607
+definition.kore sha256: 96072303656b54cfa58df23430855467b503703b9f1bbb54ae172c3d1de2c5a5
+stripped sha256: 8de24b8280e4b3bf166455dcd60f18ea5fef3aed162429f54a44131366db76cb
+main module: 351 sentences, 38 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-EQ-EXISTS-ML-IN-OR-FLOAT-SYNTAX in definition.  Use --syntax-module to
+  specify one. Using E3-EQ-EXISTS-ML-IN-OR-FLOAT as default.

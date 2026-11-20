@@ -988,7 +988,13 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   in an `\or` alternative moved to the top, the last only where the test of a value accepts its
   sort (refused `existentialEquation` otherwise), binders renamed apart, a binder under `\not` or
   in a predicate conjunct left; on hand-written right sides (kernel-checked) and four fixtures
-  with `Semantics.valued` on the built definition as the test.
+  with `Semantics.hasValue` on the built definition as the test.
+- `test/ExClauseScoped.lean`: a binder in an alternative of an `\or` whose body equates it with a term, at
+  a sort that is not Bool with its literals alone, kept in the alternative (`Parse.ceKeep`,
+  `hoistExK`) and read as `Cond.ex` in `post` (`Parse.memOf`); on hand-written right sides
+  (kernel-checked: the clause, the reader's clause, `Clause.fixedExs`) and on the fixtures
+  `e3-eq-exists-ml-in-or-int`, `-float` (read, `Cond.bound` and `clausePlainEx` true), `-in-or`
+  (Bool: moved) and `-in-or-empty` (refused `existentialEquation`).
 - `test/HooksMap.lean`: the 12 supported hook rows of MAP (the sort and eleven operations) against
   domains.md's prose, cited by line: each operation at every argument list by the bindings of its
   result (the one map with them), with hand-derived values that `hook` gives, the result under
