@@ -404,6 +404,9 @@ import KcoreSpec.HypModelCoreEx
 import KcoreSpec.ModelSatOff
 import KcoreSpec.ModelFnOver
 import KcoreSpec.ModelFnOverNames
+import KcoreSpec.ModelFnOverHooks
+import KcoreSpec.ModelFnOverEqn
+import KcoreSpec.ModelFnMany
 import KcoreSpec.FamValuesCE
 import KcoreSpec.CoreOKEx
 import KcoreSpec.CoreOKExFacts
