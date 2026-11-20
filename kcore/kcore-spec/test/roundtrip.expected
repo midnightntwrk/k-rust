@@ -222,6 +222,7 @@ differs f2-examples/e3-vars.kompile.kore
 differs f2-examples/e3-withconfig.kompile.kore
 differs f2-examples/e3-witnessed-pre.kompile.kore
 differs f2-examples/e5-cellsub.kompile.kore
+differs f2-examples/e5-fn-noeq.kompile.kore
 differs f2-examples/e5-hooked-int.kompile.kore
 differs f2-examples/e5-ovl-fn-fn-ctor.kompile.kore
 differs f2-examples/e5-ovl-fn-fn-owise.kompile.kore
