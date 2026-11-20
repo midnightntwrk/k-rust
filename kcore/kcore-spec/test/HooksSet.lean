@@ -660,7 +660,7 @@ theorem bots_entails : ∀ p ∈ bots, ∀ (c : Semantics), IntBelow c → ∀ H
 /-- info: 'KCore.HooksSetTest.covered_concat' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms covered_concat
 
-/-- info: 'KCore.HooksSetTest.set_not_silent' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+/-- info: 'KCore.HooksSetTest.set_not_silent' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in #print axioms set_not_silent
 
 /-- info: 'KCore.HooksSetTest.set_only' depends on axioms: [propext, Classical.choice, Quot.sound] -/

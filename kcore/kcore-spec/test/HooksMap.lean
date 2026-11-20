@@ -740,7 +740,7 @@ theorem bots_entails : ∀ p ∈ bots, ∀ (c : Semantics), IntBelow c → ∀ H
 /-- info: 'KCore.HooksMapTest.covered_lookup' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms covered_lookup
 
-/-- info: 'KCore.HooksMapTest.map_not_silent' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+/-- info: 'KCore.HooksMapTest.map_not_silent' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in #print axioms map_not_silent
 
 /-- info: 'KCore.HooksMapTest.map_only' depends on axioms: [propext, Classical.choice, Quot.sound] -/
