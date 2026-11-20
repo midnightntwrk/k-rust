@@ -144,6 +144,7 @@ differs f2-examples/e2-unit-ctor.kompile.kore
 differs f2-examples/e3-casts.kompile.kore
 differs f2-examples/e3-cells-dotbag.kompile.kore
 differs f2-examples/e3-cells.kompile.kore
+differs f2-examples/e3-eq-exists-bool-ml.kompile.kore
 differs f2-examples/e3-eq-exists-ctor-ml.kompile.kore
 differs f2-examples/e3-eq-exists-ml-and-right.kompile.kore
 differs f2-examples/e3-eq-exists-ml-and-terms.kompile.kore
