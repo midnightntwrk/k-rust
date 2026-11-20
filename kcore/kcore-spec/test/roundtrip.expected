@@ -254,6 +254,7 @@ differs f2-examples/e6-list-set-lhs-bound.kompile.kore
 differs f2-examples/e6-mod-array.kompile.kore
 differs f2-examples/e6-mod-kvariable-syntax.kompile.kore
 differs f2-examples/e6-mod-mint.kompile.kore
+differs f2-examples/e6-mod-rat-kore-nosym.kompile.kore
 differs f2-examples/e6-mod-rat-kore.kompile.kore
 differs f2-examples/e6-mod-sort-kbott.kompile.kore
 differs f2-examples/e6-param-bytes.kompile.kore

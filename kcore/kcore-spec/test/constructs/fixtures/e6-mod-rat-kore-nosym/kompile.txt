@@ -1,0 +1,11 @@
+command: kompile --backend haskell e6-mod-rat-kore-nosym.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.7
+definition.kore bytes: 155313
+definition.kore sha256: f7e4b95204ac63a36064f258083587038c35b828a79a06f0695c65aeba879c86
+stripped sha256: e1bd14a9833c32bc64a19ac0b312f55241a25ca4123e7b279e2ba0a17657c0cc
+main module: 352 sentences, 50 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-MOD-RAT-KORE-NOSYM-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using E6-MOD-RAT-KORE-NOSYM as default.

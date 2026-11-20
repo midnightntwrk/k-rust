@@ -1,14 +1,14 @@
 /-
-  The tie (C14) on `f2-examples/e6-mod-rat-kore.kompile.kore`, the kompiled text of construct fixture e6-mod-rat-kore
-  (`test/constructs/fixtures/e6-mod-rat-kore`), sentence by sentence, against the translation of the text as
+  The tie (C14) on `f2-examples/e6-mod-rat-kore-nosym.kompile.kore`, the kompiled text of construct fixture e6-mod-rat-kore-nosym
+  (`test/constructs/fixtures/e6-mod-rat-kore-nosym`), sentence by sentence, against the translation of the text as
   written (`trS ad := trAxiom k.symbolDecls k.aliasNames ad`), on the literals `kore` and `defn`, for
   every interpretation H. Nothing here reads `Parse.parse` or `emit`. Written by
-  `test/constructs/tiegen.py e6-mod-rat-kore`, its consistency section by hand; run from the package root:
-  `lake env lean -j1 test/TieE6ModRatKore.lean`.
+  `test/constructs/tiegen.py e6-mod-rat-kore-nosym`, its consistency section by hand; run from the package root:
+  `lake env lean -j1 test/TieE6ModRatKoreNosym.lean`.
 
   Layer 1.
   - `wf_defn`: `wf defn = true`.
-  - The account: the class lists partition the 223 sentences of the user module E6-MOD-RAT-KORE, in
+  - The account: the class lists partition the 222 sentences of the user module E6-MOD-RAT-KORE-NOSYM, in
     `tieClasses`' order (`account`, `account_sizes`, `account_classes`); the no-direction class holds
     exactly the sentences that apply a symbol Γ lacks (`account_absent`, `absent_closed`).
   - `absent_proj_below`: the 15 no-direction sentences that are equations of a projection
@@ -39,20 +39,9 @@
   - The converse over Γ's content: each premise is a function sentence's translation, one of the
     five parts Γ defines by predicates, or definedness (`gamma_origin`, `gamma_from`).
   - Hooked functional, collection law, library: at values (no theorem here); function functional:
-    owed as `FnHyp` (not stated here; no theorem); parameter lemma: owed as a hypothesis on H, at values
-    (`paramlemma_account`, `paramlemma_heads`,
-    `ParamLemmaWitnessAtValues`); no direction: `absent_closed`.
+    owed as `FnHyp` (not stated here; no theorem); no direction: `absent_closed`.
 
-  The parameter lemmas (124) apply a parameter symbol no registry hook interprets, whose value the
-  interpretation gives: each is owed as a hypothesis on H, at the valuations sending its variables
-  to values (`EntailsAtValues (cH H) ad (trS ad).pat`), since Γ states the parameter's graph at
-  values only (`ΓDomains`). The account holds them in the class `parameter lemma`, of the direction
-  `hypothesis`. A hypothesis no H satisfies would tie a text without a model, so the tie owes one H
-  at which `FnHyp` holds and every parameter lemma holds at values (`ParamLemmaWitnessAtValues`,
-  stated here and proved by hand: owed). Every `simplification` equation of the user module whose
-  left side's head is a parameter symbol without `impl` is one of them (`paramlemma_heads`).
-
-  The sentences with no counterpart in f2-examples/ens.kompile.kore are `unmapped` (64);
+  The sentences with no counterpart in f2-examples/ens.kompile.kore are `unmapped` (63);
   the sentences of a class with a theorem that no theorem here holds of are `uncovered` (0).
 -/
 import KcoreSpec
@@ -60,13 +49,13 @@ import KcoreSpec
 set_option autoImplicit false
 set_option maxRecDepth 1000000
 
-namespace KCore.TieE6ModRatKore
+namespace KCore.TieE6ModRatKoreNosym
 
 open KCore ML Faithful KoreAML
 
-kore_term kore from "f2-examples/e6-mod-rat-kore.kompile.kore"
-definition_of defn from "f2-examples/e6-mod-rat-kore.kompile.kore"
-user_axioms U from "f2-examples/e6-mod-rat-kore.kompile.kore" module "E6-MOD-RAT-KORE"
+kore_term kore from "f2-examples/e6-mod-rat-kore-nosym.kompile.kore"
+definition_of defn from "f2-examples/e6-mod-rat-kore-nosym.kompile.kore"
+user_axioms U from "f2-examples/e6-mod-rat-kore-nosym.kompile.kore" module "E6-MOD-RAT-KORE-NOSYM"
 
 noncomputable abbrev c : Semantics := defn.sem
 noncomputable abbrev cH (H : HookParams) : Semantics := c.withHooks H
@@ -78,10 +67,10 @@ theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
 theorem readsConfined_c : c.readsConfined = false := by decide +kernel
 
 /-- The axioms of the user module, in text order. -/
-noncomputable def userAxioms : List AxiomDecl := kore.axiomDecls.filter (·.module == "E6-MOD-RAT-KORE")
+noncomputable def userAxioms : List AxiomDecl := kore.axiomDecls.filter (·.module == "E6-MOD-RAT-KORE-NOSYM")
 
 theorem userAxioms_eq : userAxioms = U.all := by kernel_rfl
-theorem userAxioms_length : U.all.length = 223 := by decide +kernel
+theorem userAxioms_length : U.all.length = 222 := by decide +kernel
 
 /-- `tr s`: the item `Theory.ofDefinition kore` holds for the sentence. -/
 noncomputable def trS (ad : AxiomDecl) : Item := trAxiom kore.symbolDecls kore.aliasNames ad
@@ -101,9 +90,9 @@ theorem wf_defn : wf defn = true := by decide_cheap
 
 /-- Per class of the tie (`tieClasses`), the indices (`AxiomDecl.index`) of its sentences. -/
 def classes : List (String × List Nat) :=
-  [("function equation", [144, 146, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 190,
-      191, 192, 193, 194, 195, 196, 197, 198, 199, 200, 201, 202, 203, 204, 205]),
-   ("rewrite rule", [141]),
+  [("function equation", [143, 145, 174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189,
+      190, 191, 192, 193, 194, 195, 196, 197, 198, 199, 200, 201, 202, 203, 204]),
+   ("rewrite rule", [140]),
    ("priority equation", []),
    ("constructor functional", [24, 26, 28, 30, 32, 79, 103, 104]),
    ("subsort", [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]),
@@ -115,20 +104,20 @@ def classes : List (String × List Nat) :=
    ("hooked functional", [21, 22, 23, 34, 35, 36, 37, 38, 39, 46, 48, 49, 51, 52, 59, 67, 69, 70, 71, 72, 73, 74, 75,
       76, 77, 78, 82, 100, 105, 106, 107, 108, 109, 110]),
    ("collection law", [56, 57, 58, 60, 61, 62, 63, 65, 66]),
-   ("library", [125, 126, 127, 128, 133, 134, 137, 138, 142, 143, 145, 147, 148, 149, 150, 151, 152, 153,
-      154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 208,
-      209, 225]),
+   ("library", [124, 125, 126, 127, 132, 133, 136, 137, 141, 142, 144, 146, 147, 148, 149, 150, 151, 152,
+      153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 207,
+      208, 224]),
    ("set idempotence", [64]),
-   ("set-variable lemma", [129, 130, 131, 132, 135, 136, 139, 140, 226]),
+   ("set-variable lemma", [128, 129, 130, 131, 134, 135, 138, 139, 225]),
    ("function law", []),
    ("open generator law", []),
    ("open generator functional", []),
    ("parameter functional", []),
-   ("parameter lemma", [124]),
+   ("parameter lemma", []),
    ("user lemma", []),
    ("user lemma at values", []),
-   ("no direction", [42, 44, 81, 99, 111, 171, 172, 173, 174, 206, 207, 210, 211, 212, 213, 214, 215, 216, 217,
-      218, 219, 220, 221, 222, 223, 224])]
+   ("no direction", [42, 44, 81, 99, 111, 170, 171, 172, 173, 205, 206, 209, 210, 211, 212, 213, 214, 215, 216,
+      217, 218, 219, 220, 221, 222, 223])]
 
 /-- The indices of a class. -/
 def classOf (n : String) : List Nat := (classes.filter (·.1 == n)).flatMap (·.2)
@@ -142,7 +131,7 @@ theorem account : (classes.flatMap (·.2)).isPerm (userAxioms.map (·.index)) = 
 
 /-- The class sizes. -/
 theorem account_sizes : classes.map (fun cl => (cl.1, cl.2.length)) =
-    [("function equation", 33), ("rewrite rule", 1), ("priority equation", 0), ("constructor functional", 8), ("subsort", 17), ("injectivity", 6), ("distinctness", 0), ("no junk", 12), ("function functional", 28), ("hooked functional", 34), ("collection law", 9), ("library", 38), ("set idempotence", 1), ("set-variable lemma", 9), ("function law", 0), ("open generator law", 0), ("open generator functional", 0), ("parameter functional", 0), ("parameter lemma", 1), ("user lemma", 0), ("user lemma at values", 0), ("no direction", 26)] := by
+    [("function equation", 33), ("rewrite rule", 1), ("priority equation", 0), ("constructor functional", 8), ("subsort", 17), ("injectivity", 6), ("distinctness", 0), ("no junk", 12), ("function functional", 28), ("hooked functional", 34), ("collection law", 9), ("library", 38), ("set idempotence", 1), ("set-variable lemma", 9), ("function law", 0), ("open generator law", 0), ("open generator functional", 0), ("parameter functional", 0), ("parameter lemma", 0), ("user lemma", 0), ("user lemma at values", 0), ("no direction", 26)] := by
   decide +kernel
 
 /-- The classes are the tie's (`tieClasses`, which gives each its direction), in its order. -/
@@ -167,10 +156,10 @@ theorem absent_closed :
 /-- The sentences of the no-direction class that are equations of a projection `project:X` (their
 left side applies `Lblproject'Coln'X`), each with X. -/
 def absentProj : List (Nat × String) :=
-  [(210, "Bool"), (211, "Float"), (212, "GeneratedCounterCell"), (213, "GeneratedCounterCellOpt"),
-   (214, "GeneratedTopCell"), (215, "GeneratedTopCellFragment"), (216, "Int"), (217, "K"),
-   (218, "KCell"), (219, "KCellOpt"), (220, "KItem"), (221, "List"), (222, "Map"), (223, "Rat"),
-   (224, "Set")]
+  [(209, "Bool"), (210, "Float"), (211, "GeneratedCounterCell"), (212, "GeneratedCounterCellOpt"),
+   (213, "GeneratedTopCell"), (214, "GeneratedTopCellFragment"), (215, "Int"), (216, "K"),
+   (217, "KCell"), (218, "KCellOpt"), (219, "KItem"), (220, "List"), (221, "Map"), (222, "Rat"),
+   (223, "Set")]
 
 /-- Each sort of `absentProj` is K, KItem or a sort below KItem of Γ, with K and KItem
 constructor sorts. -/
@@ -200,17 +189,17 @@ def unmapped : List (Nat × String) :=
    (55, "function functional"), (68, "function functional"), (79, "constructor functional"),
    (80, "injectivity"), (84, "function functional"), (97, "function functional"),
    (101, "function functional"), (102, "function functional"), (113, "no junk"), (122, "no junk"),
-   (123, "no junk"), (124, "parameter lemma"), (125, "library"), (126, "library"),
-   (127, "library"), (128, "library"), (129, "set-variable lemma"), (130, "set-variable lemma"),
-   (131, "set-variable lemma"), (132, "set-variable lemma"), (133, "library"), (134, "library"),
-   (135, "set-variable lemma"), (136, "set-variable lemma"), (137, "library"), (138, "library"),
-   (139, "set-variable lemma"), (140, "set-variable lemma"), (141, "rewrite rule"),
-   (144, "function equation"), (145, "library"), (146, "function equation"), (148, "library"),
-   (149, "library"), (152, "library"), (153, "library"), (155, "library"), (156, "library"),
-   (159, "library"), (160, "library"), (163, "library"), (164, "library"), (168, "library"),
-   (174, "no direction"), (177, "function equation"), (178, "function equation"),
-   (202, "function equation"), (203, "function equation"), (211, "no direction"),
-   (223, "no direction"), (226, "set-variable lemma")]
+   (123, "no junk"), (124, "library"), (125, "library"), (126, "library"), (127, "library"),
+   (128, "set-variable lemma"), (129, "set-variable lemma"), (130, "set-variable lemma"),
+   (131, "set-variable lemma"), (132, "library"), (133, "library"), (134, "set-variable lemma"),
+   (135, "set-variable lemma"), (136, "library"), (137, "library"), (138, "set-variable lemma"),
+   (139, "set-variable lemma"), (140, "rewrite rule"), (143, "function equation"),
+   (144, "library"), (145, "function equation"), (147, "library"), (148, "library"),
+   (151, "library"), (152, "library"), (154, "library"), (155, "library"), (158, "library"),
+   (159, "library"), (162, "library"), (163, "library"), (167, "library"), (173, "no direction"),
+   (176, "function equation"), (177, "function equation"), (201, "function equation"),
+   (202, "function equation"), (210, "no direction"), (222, "no direction"),
+   (225, "set-variable lemma")]
 
 /-- The sentences of a class with a theorem in the tie that no theorem of this file holds of: the
 tie's remainder on this text. -/
@@ -485,10 +474,10 @@ theorem fnItems_eq : fnItems c = (fnAxioms c).map fun a => trAxiom [] [] ⟨0, "
 
 /-- The text sentences of Γ's 33 equations, in `fnItems`'s order. -/
 noncomputable def fnText : List AxiomDecl :=
-  [U.ax144, U.ax146, U.ax189, U.ax197, U.ax196, U.ax195, U.ax194, U.ax201, U.ax200, U.ax205,
-   U.ax204, U.ax199, U.ax198, U.ax176, U.ax175, U.ax188, U.ax187, U.ax178, U.ax177, U.ax184,
-   U.ax183, U.ax186, U.ax185, U.ax191, U.ax190, U.ax193, U.ax192, U.ax180, U.ax179, U.ax182,
-   U.ax181, U.ax203, U.ax202]
+  [U.ax143, U.ax145, U.ax188, U.ax196, U.ax195, U.ax194, U.ax193, U.ax200, U.ax199, U.ax204,
+   U.ax203, U.ax198, U.ax197, U.ax175, U.ax174, U.ax187, U.ax186, U.ax177, U.ax176, U.ax183,
+   U.ax182, U.ax185, U.ax184, U.ax190, U.ax189, U.ax192, U.ax191, U.ax179, U.ax178, U.ax181,
+   U.ax180, U.ax202, U.ax201]
 
 set_option maxHeartbeats 1000000 in
 /-- **Γ's equations are the text's sentences' translations, pattern for pattern** (one kernel
@@ -584,7 +573,7 @@ theorem ruleItems_eq : ruleItems c = [trAxiom [] [] (kAx (prioRuleK c r0))] := b
 
 /-- The text sentences of Γ's rules, in `ruleItems`'s order. -/
 noncomputable def ruleText : List AxiomDecl :=
-  [U.ax141]
+  [U.ax140]
 
 /-- **`ruleText` is the account's rewrite-rule class**: the same indices, each once. -/
 theorem rules_account : (classOf "rewrite rule").isPerm (ruleText.map (·.index)) = true := by decide +kernel
@@ -593,17 +582,17 @@ theorem rule0_parts : (ruleParts (prioRuleK c r0)).isSome = true := by decide +k
 theorem rule0_table : tableOf [] (prioRuleK c r0) = tableOf [] (dropThird (prioRuleK c r0)) := by decide +kernel
 theorem rule0_free : (freeOf [] (prioRuleK c r0)).eraseDups = (freeOf [] (dropThird (prioRuleK c r0))).eraseDups := by
   decide +kernel
-/-- Γ's item of rule 0 without its premise `⌈rhs ∧ ens⌉` is the text's sentence 141. -/
-theorem rule0_text : (trS U.ax141).pat = (trAxiom [] [] (kAx (dropThird (prioRuleK c r0)))).pat := by decide +kernel
-/-- **W1 for rule 0**: Γ's item is a consequence of sentence 141. -/
-theorem rule0_from_text : itemsPremises [trS U.ax141] ⊧ (trAxiom [] [] (kAx (prioRuleK c r0))).pat := by
+/-- Γ's item of rule 0 without its premise `⌈rhs ∧ ens⌉` is the text's sentence 140. -/
+theorem rule0_text : (trS U.ax140).pat = (trAxiom [] [] (kAx (dropThird (prioRuleK c r0)))).pat := by decide +kernel
+/-- **W1 for rule 0**: Γ's item is a consequence of sentence 140. -/
+theorem rule0_from_text : itemsPremises [trS U.ax140] ⊧ (trAxiom [] [] (kAx (prioRuleK c r0))).pat := by
   intro M _ I hI
   have hD : DefOK I := defOK_of fun x => hI _ (Or.inr ⟨x, rfl⟩)
   obtain ⟨q, hq⟩ := Option.isSome_iff_exists.mp rule0_parts
   obtain ⟨C, l, t, x, r⟩ := q
   refine rewrite_weaken hD hq rule0_table rule0_free ?_
   rw [← rule0_text]
-  exact hI _ (Or.inl ⟨trS U.ax141, List.mem_singleton_self _, rfl⟩)
+  exact hI _ (Or.inl ⟨trS U.ax140, List.mem_singleton_self _, rfl⟩)
 
 set_option maxHeartbeats 4000000 in
 /-- **W1 for the rules, and the converse for `ruleItems`**: each of Γ's rule items is a
@@ -613,7 +602,7 @@ theorem rule_from_text (H : HookParams) : ∀ it ∈ ruleItems (cH H), ∃ ad �
   rw [ruleItems_withHooks, ruleItems_eq] at hit
   simp only [List.mem_cons, List.not_mem_nil, or_false] at hit
   rcases hit with rfl
-  · exact ⟨U.ax141, List.mem_cons_self, rule0_from_text⟩
+  · exact ⟨U.ax140, List.mem_cons_self, rule0_from_text⟩
 
 /-! ## No junk -/
 
@@ -804,37 +793,6 @@ theorem idem_refuted : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation Kore
 end Idem
 
 
-/-! ## The parameter lemmas (124): owed as a hypothesis on H -/
-
-/-- The text's lemmas that apply a parameter symbol no registry hook interprets (`isParamLemma`, or a
-`simplification` sentence of K's builtin library applying one). -/
-noncomputable def paramLemmaText : List AxiomDecl := [U.ax124]
-
-/-- The parameter lemmas are the account's class `parameter lemma`, of the direction `hypothesis`
-(Γ does not hold the sentence; at the member `cH H` it is owed at values). -/
-theorem paramlemma_account : paramLemmaText.map (·.index) = classOf "parameter lemma" := by
-  decide +kernel
-
-/-- **What the tie owes of the parameter lemmas**: one interpretation `H` at which `FnHyp` holds
-and every parameter lemma holds in every model of Γ at the valuations sending its
-free element variables to values (`EntailsAtValues`), so that the text with its hypotheses has a
-model. Γ states a parameter's graph at values only (`ΓDomains`), so the lemma is owed there. Stated,
-not proved here: the proof is owed. -/
-def ParamLemmaWitnessAtValues : Prop :=
-  ∃ H : HookParams, FnHyp (cH H) ∧
-    ∀ ad ∈ paramLemmaText, EntailsAtValues (cH H) ad (trS ad).pat
-
-/-- Every sentence of the user module that carries `simplification`, is an equation
-(`AttrsAgree.eqnHead`) and has at the head of its left side a parameter symbol no registry hook
-interprets (`impl = none`) is of the class `parameter lemma`: the sentences `attrsAgree` does not
-count as equations of such a parameter are held by the account as hypotheses on `H`. -/
-theorem paramlemma_heads : userAxioms.all (fun ad =>
-    !(AttrsAgree.has ad.ax.attributes "simplification" &&
-      (AttrsAgree.eqnHead ad.ax.pattern).any (fun n =>
-        c.params.any fun k => k.impl.isNone && c.symName k.sig.name == n)) ||
-    (classOf "parameter lemma").contains ad.index) = true := by
-  rw [userAxioms_eq]; decide +kernel
-
 /-! ## The converse over Γ's content -/
 
 /-- The parts of Γ that are no sentence's translation: the families. -/
@@ -878,77 +836,71 @@ theorem gamma_from (H : HookParams) : ∀ φ, Γ (cH H) φ → Pre H ⊧ φ := b
   · exact hI _ (Or.inr hf)
   · exact hI _ (Or.inl (Or.inl (Or.inr hx)))
 
-end KCore.TieE6ModRatKore
+end KCore.TieE6ModRatKoreNosym
 
-#check @KCore.TieE6ModRatKore.noRaw
-#check @KCore.TieE6ModRatKore.readsConfined_c
-#check @KCore.TieE6ModRatKore.userAxioms_eq
-#check @KCore.TieE6ModRatKore.coreOK
-#check @KCore.TieE6ModRatKore.wf_defn
-#check @KCore.TieE6ModRatKore.account
-#check @KCore.TieE6ModRatKore.account_sizes
-#check @KCore.TieE6ModRatKore.account_classes
-#check @KCore.TieE6ModRatKore.account_absent
-#check @KCore.TieE6ModRatKore.absent_closed
-#check @KCore.TieE6ModRatKore.absent_proj_below_c
-#check @KCore.TieE6ModRatKore.absent_proj_below
-#check @KCore.TieE6ModRatKore.lists_in_account
-#check @KCore.TieE6ModRatKore.attrs_agree
-#check @KCore.TieE6ModRatKore.sig_origin
-#check @KCore.TieE6ModRatKore.decls_entailed
-#check @KCore.TieE6ModRatKore.consistent
-#check @KCore.TieE6ModRatKore.total_named
-#check @KCore.TieE6ModRatKore.builtin_decls_entailed
-#check @KCore.TieE6ModRatKore.fn_shape
-#check @KCore.TieE6ModRatKore.fns_account
-#check @KCore.TieE6ModRatKore.fns_entailed
-#check @KCore.TieE6ModRatKore.fns_from_text
-#check @KCore.TieE6ModRatKore.fn_prios
-#check @KCore.TieE6ModRatKore.nojunk_trivial_entailed
-#check @KCore.TieE6ModRatKore.nojunk_items_entailed
-#check @KCore.TieE6ModRatKore.nojunk_kitem_entailed
-#check @KCore.TieE6ModRatKore.cons_entailed
-#check @KCore.TieE6ModRatKore.rules_account
-#check @KCore.TieE6ModRatKore.rule_from_text
-#check @KCore.TieE6ModRatKore.idem_refuted
-#check @KCore.TieE6ModRatKore.gamma_origin
-#check @KCore.TieE6ModRatKore.gamma_from
-#check @KCore.TieE6ModRatKore.paramlemma_account
-#check @KCore.TieE6ModRatKore.paramlemma_heads
-#check @KCore.TieE6ModRatKore.ParamLemmaWitnessAtValues
-#print axioms KCore.TieE6ModRatKore.noRaw
-#print axioms KCore.TieE6ModRatKore.readsConfined_c
-#print axioms KCore.TieE6ModRatKore.userAxioms_eq
-#print axioms KCore.TieE6ModRatKore.coreOK
-#print axioms KCore.TieE6ModRatKore.wf_defn
-#print axioms KCore.TieE6ModRatKore.account
-#print axioms KCore.TieE6ModRatKore.account_sizes
-#print axioms KCore.TieE6ModRatKore.account_classes
-#print axioms KCore.TieE6ModRatKore.account_absent
-#print axioms KCore.TieE6ModRatKore.absent_closed
-#print axioms KCore.TieE6ModRatKore.absent_proj_below_c
-#print axioms KCore.TieE6ModRatKore.absent_proj_below
-#print axioms KCore.TieE6ModRatKore.lists_in_account
-#print axioms KCore.TieE6ModRatKore.attrs_agree
-#print axioms KCore.TieE6ModRatKore.sig_origin
-#print axioms KCore.TieE6ModRatKore.decls_entailed
-#print axioms KCore.TieE6ModRatKore.consistent
-#print axioms KCore.TieE6ModRatKore.total_named
-#print axioms KCore.TieE6ModRatKore.builtin_decls_entailed
-#print axioms KCore.TieE6ModRatKore.fn_shape
-#print axioms KCore.TieE6ModRatKore.fns_account
-#print axioms KCore.TieE6ModRatKore.fns_entailed
-#print axioms KCore.TieE6ModRatKore.fns_from_text
-#print axioms KCore.TieE6ModRatKore.fn_prios
-#print axioms KCore.TieE6ModRatKore.nojunk_trivial_entailed
-#print axioms KCore.TieE6ModRatKore.nojunk_items_entailed
-#print axioms KCore.TieE6ModRatKore.nojunk_kitem_entailed
-#print axioms KCore.TieE6ModRatKore.cons_entailed
-#print axioms KCore.TieE6ModRatKore.rules_account
-#print axioms KCore.TieE6ModRatKore.rule_from_text
-#print axioms KCore.TieE6ModRatKore.idem_refuted
-#print axioms KCore.TieE6ModRatKore.gamma_origin
-#print axioms KCore.TieE6ModRatKore.gamma_from
-#print axioms KCore.TieE6ModRatKore.paramlemma_account
-#print axioms KCore.TieE6ModRatKore.paramlemma_heads
-#print axioms KCore.TieE6ModRatKore.ParamLemmaWitnessAtValues
+#check @KCore.TieE6ModRatKoreNosym.noRaw
+#check @KCore.TieE6ModRatKoreNosym.readsConfined_c
+#check @KCore.TieE6ModRatKoreNosym.userAxioms_eq
+#check @KCore.TieE6ModRatKoreNosym.coreOK
+#check @KCore.TieE6ModRatKoreNosym.wf_defn
+#check @KCore.TieE6ModRatKoreNosym.account
+#check @KCore.TieE6ModRatKoreNosym.account_sizes
+#check @KCore.TieE6ModRatKoreNosym.account_classes
+#check @KCore.TieE6ModRatKoreNosym.account_absent
+#check @KCore.TieE6ModRatKoreNosym.absent_closed
+#check @KCore.TieE6ModRatKoreNosym.absent_proj_below_c
+#check @KCore.TieE6ModRatKoreNosym.absent_proj_below
+#check @KCore.TieE6ModRatKoreNosym.lists_in_account
+#check @KCore.TieE6ModRatKoreNosym.attrs_agree
+#check @KCore.TieE6ModRatKoreNosym.sig_origin
+#check @KCore.TieE6ModRatKoreNosym.decls_entailed
+#check @KCore.TieE6ModRatKoreNosym.consistent
+#check @KCore.TieE6ModRatKoreNosym.total_named
+#check @KCore.TieE6ModRatKoreNosym.builtin_decls_entailed
+#check @KCore.TieE6ModRatKoreNosym.fn_shape
+#check @KCore.TieE6ModRatKoreNosym.fns_account
+#check @KCore.TieE6ModRatKoreNosym.fns_entailed
+#check @KCore.TieE6ModRatKoreNosym.fns_from_text
+#check @KCore.TieE6ModRatKoreNosym.fn_prios
+#check @KCore.TieE6ModRatKoreNosym.nojunk_trivial_entailed
+#check @KCore.TieE6ModRatKoreNosym.nojunk_items_entailed
+#check @KCore.TieE6ModRatKoreNosym.nojunk_kitem_entailed
+#check @KCore.TieE6ModRatKoreNosym.cons_entailed
+#check @KCore.TieE6ModRatKoreNosym.rules_account
+#check @KCore.TieE6ModRatKoreNosym.rule_from_text
+#check @KCore.TieE6ModRatKoreNosym.idem_refuted
+#check @KCore.TieE6ModRatKoreNosym.gamma_origin
+#check @KCore.TieE6ModRatKoreNosym.gamma_from
+#print axioms KCore.TieE6ModRatKoreNosym.noRaw
+#print axioms KCore.TieE6ModRatKoreNosym.readsConfined_c
+#print axioms KCore.TieE6ModRatKoreNosym.userAxioms_eq
+#print axioms KCore.TieE6ModRatKoreNosym.coreOK
+#print axioms KCore.TieE6ModRatKoreNosym.wf_defn
+#print axioms KCore.TieE6ModRatKoreNosym.account
+#print axioms KCore.TieE6ModRatKoreNosym.account_sizes
+#print axioms KCore.TieE6ModRatKoreNosym.account_classes
+#print axioms KCore.TieE6ModRatKoreNosym.account_absent
+#print axioms KCore.TieE6ModRatKoreNosym.absent_closed
+#print axioms KCore.TieE6ModRatKoreNosym.absent_proj_below_c
+#print axioms KCore.TieE6ModRatKoreNosym.absent_proj_below
+#print axioms KCore.TieE6ModRatKoreNosym.lists_in_account
+#print axioms KCore.TieE6ModRatKoreNosym.attrs_agree
+#print axioms KCore.TieE6ModRatKoreNosym.sig_origin
+#print axioms KCore.TieE6ModRatKoreNosym.decls_entailed
+#print axioms KCore.TieE6ModRatKoreNosym.consistent
+#print axioms KCore.TieE6ModRatKoreNosym.total_named
+#print axioms KCore.TieE6ModRatKoreNosym.builtin_decls_entailed
+#print axioms KCore.TieE6ModRatKoreNosym.fn_shape
+#print axioms KCore.TieE6ModRatKoreNosym.fns_account
+#print axioms KCore.TieE6ModRatKoreNosym.fns_entailed
+#print axioms KCore.TieE6ModRatKoreNosym.fns_from_text
+#print axioms KCore.TieE6ModRatKoreNosym.fn_prios
+#print axioms KCore.TieE6ModRatKoreNosym.nojunk_trivial_entailed
+#print axioms KCore.TieE6ModRatKoreNosym.nojunk_items_entailed
+#print axioms KCore.TieE6ModRatKoreNosym.nojunk_kitem_entailed
+#print axioms KCore.TieE6ModRatKoreNosym.cons_entailed
+#print axioms KCore.TieE6ModRatKoreNosym.rules_account
+#print axioms KCore.TieE6ModRatKoreNosym.rule_from_text
+#print axioms KCore.TieE6ModRatKoreNosym.idem_refuted
+#print axioms KCore.TieE6ModRatKoreNosym.gamma_origin
+#print axioms KCore.TieE6ModRatKoreNosym.gamma_from
