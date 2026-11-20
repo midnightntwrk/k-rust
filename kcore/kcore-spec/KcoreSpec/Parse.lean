@@ -3824,10 +3824,8 @@ stated under every valuation of its free variables, each an element of its sort)
   variable of the sort s, which then has an element at every valuation the sentence is stated
   under; otherwise kept, with `\ceil{s, S}(Z)` a conjunct of the body (S the binder's sort), `⌈Z⌉`
   being `\top` for an element variable, so `∃Z:s. φ = ∃Z:s. (φ ∧ ⌈Z⌉)` at every s. Where every
-  binder would be left out and the body is a term under predicates with no conjunction of terms
-  (`cutAnd` lifts a predicate and cuts nothing), the innermost binder is kept so instead: the
-  clause `ceRead` gives would otherwise have a right-side predicate and no existential variable,
-  which the definition does not read (`Semantics.clausePlainEx`). -/
+  binder is left out and the body is a term under predicates, `ceRead`'s last step reads the term's
+  position as a fresh variable (`ceTopCut`). -/
 def ceBinders (e : RawEqn) : RawEqn × List ReadingNote :=
   let (xs, body) := peelExistsS e.rhs
   if xs.isEmpty then (e, []) else
@@ -3838,12 +3836,10 @@ def ceBinders (e : RawEqn) : RawEqn × List ReadingNote :=
   let free := freeEVarsS [] body
   let held := fun (x : Kore.KSort × Kore.EVar) => free.any (decide <| · = x.2)
   let argSorts := (freeEVarsSList [] e.pats).map (·.sort)
-  let (_, _, cuts, ps) := cutAnd [] [] 0 body
   let kept := xs2.filter fun x => held x || !argSorts.any (decide <| · = x.2.sort)
-  let xs3 := if kept.isEmpty && cuts.isEmpty && !ps.isEmpty then xs2.getLast?.toList else kept
-  let body := (xs3.filter (!held ·)).foldl
+  let body := (kept.filter (!held ·)).foldl
     (fun b x => .and x.1 [b, .ceil x.2.sort x.1 (.var (.evar x.2))]) body
-  ({ e with rhs := underExistsS xs3 body },
+  ({ e with rhs := underExistsS kept body },
    (if xs1.any (names.contains ·.2.var.ident.name) then [ReadingNote.existsRenamedApart] else []) ++
    (if xs1.length != xs.length || xs2.any (!held ·) then [ReadingNote.existsBindsNothing] else []))
 
@@ -4093,6 +4089,79 @@ def ceilExConds (N : Names) (used : List String) (vs : List Var) (ps : List Kore
   let cs ← ceilExCondList N used vs ps
   pure (cs, vs)
 
+/-- `ceRead`'s clause before its last step (`ceTopCut`), over its variables, with the names the
+equation holds and the next number of a cut's variable. -/
+def ceReadBody (N : Names) (e : RawEqn) : Rd (Clause × List Var × List String × Nat) := do
+  eqnBinderSortGuard N e
+  let e := (ceBinders e).1
+  let (pats, req, ens, vs, _) ← eqnHead N e
+  let n0 := vs.length
+  let (xs, body) := peelExists e.rhs
+  if exOutsideAlt body then fail .manyValuedRightSide "\\exists"
+  if isPred body then fail .manyValuedRightSide "\\top"
+  let bound := xs.map (·.var.ident.name)
+  let used := evarNamesList (e.rhs :: e.pats ++ e.req.toList ++ e.ens.toList)
+  let (t, n, cuts, ps) := cutAnd used bound 0 body
+  let (t, cuts) := orCutAll used t cuts
+  if let some c := (t :: cuts.flatMap (·.2.2)).findSome? orManyValued? then fail .manyValuedRightSide c
+  let (ps, n, ccuts) := cutCeils used bound n ps
+  let cuts := cuts ++ ccuts
+  let (exs, vs) ← exBind n0 vs xs
+  let (zs, vs) ← exBind n0 vs ((cuts.map (·.1)).filter (!bound.contains ·.var.ident.name))
+  let (rhs, vs) ← term N vs t
+  let (cs, vs) ← condOfList N vs (ps.filter (!ceilAndUnder ·))
+  -- a binder kept in an alternative binds the index past every variable of the clause: where one
+  -- is kept, every variable is numbered before the memberships are read
+  let kept := hasExistsList (cuts.flatMap (·.2.2))
+  let vs ← if kept then numberVarsCE vs (freeEVarsSList [] (cuts.flatMap (·.2.2) ++ ps.filter ceilAndUnder))
+    else pure vs
+  let nK := vs.length
+  let (ms, vs) ← cutMemsOr N vs cuts
+  let (bs, vs) ← ceilExConds N used vs (ps.filter ceilAndUnder)
+  if kept && vs.length != nK then
+    fail .patternConnective "\\exists: a variable first numbered after a binder kept in an alternative"
+  pure ({ vars := ← varSorts N vs, pats, req, rhs, ens, prio := (eqnPrio e).2, aside := nonExec e,
+          exs := exs ++ zs, post := conjC (cs ++ ms ++ bs) }, vs, used, n)
+
+/-- The last step of `ceRead`: a clause with no existential variable and a right-side predicate
+that is not `\top` is read as one with a fresh variable Y in the term's place. Its right side is
+`X ∧ P` (X the term `rhs`, P the predicate `post`), and `X ∧ P = ∃Y. (Y ∧ Y ∈ X ∧ P)` in every
+interpretation, Y of the right side's sort (the function's result sort, `resSort`) and free in
+neither X nor P: `∃Y. (Y ∧ Y ∈ X)` is X, an element being in it exactly where Y valued at it is an
+element of X (`KoreAML.cut_sorted` at the hole), and `∃Y. (φ ∧ P) = (∃Y. φ) ∧ P` where P does not
+hold Y. Nothing is asked of X (it may have no element, one or several) nor of the sort (both sides
+are empty where it has no element). Y is the variable past the clause's (`vs.length`), named as
+`cutAnd` names a cut's (the number `n`, primed until no name of `used` or of `vs` is it); a binder
+of `post` binds the index past the variables in scope (`Holds`), so `post`'s indices from Y's on
+move up by one. `post` is `Y ∈ X` then the predicates in their order; Y is fixed by `Y ∈ X`, a
+term over the other variables (`Clause.fixedExs`). Any other clause is left as it is. -/
+def ceTopCut (N : Names) (e : RawEqn) (used : List String) (n : Nat) (cl : Clause) (vs : List Var) :
+    Rd (Clause × List Var) :=
+  if cl.exs.isEmpty && !cl.post.isTop then do
+    let s ← resSort N e
+    let k := vs.length
+    let y := freshIn (used ++ vs.map ("Var" ++ ·.name)) (used.length + vs.length + 1) s!"Var'Hash'Cut{n}"
+    pure ({ cl with vars := cl.vars ++ [s], rhs := .var k, exs := [k],
+                    post := .and (.mem s (.var k) cl.rhs) (Cond.reindex (fun i => if i < k then i else i + 1) cl.post) },
+          vs ++ [⟨(dropPrefix? "Var" y).getD y, N.sortNameOf s⟩])
+  else pure (cl, vs)
+
+/-- A clause `ceTopCut` gives has an existential variable or a right-side predicate `\top`. -/
+theorem ceTopCut_exs {N : Names} {e : RawEqn} {used : List String} {n : Nat} {cl : Clause}
+    {vs : List Var} {x : Clause × List Var} (h : ceTopCut N e used n cl vs = .ok x) :
+    x.1.exs ≠ [] ∨ x.1.post.isTop = true := by
+  unfold ceTopCut at h
+  split at h
+  · cases hs : resSort N e with
+    | error _ => rw [hs] at h; cases h
+    | ok s =>
+      rw [hs] at h
+      cases h
+      exact Or.inl (by simp)
+  · rename_i hc
+    cases h
+    cases hx : cl.exs.isEmpty <;> simp_all
+
 /-- An equation whose right side is `\exists x̄. body` (x̄ possibly empty), body under no further
 binder: one clause. `exs` is the variables x̄ in the text's order of nesting, then the fresh
 variables of `cutAnd`, which reads each conjunction of terms under applications of the body (a
@@ -4107,6 +4176,10 @@ of its conjunctions read by `memOf` as at a term position. A predicate under whi
 conjunction of terms in its operand is reached through `\not`, `\or`, `\and` or `\implies`
 (`ceilAndUnder`) is read last (`ceilExConds`): the cut's `\exists` stays inside the predicate as
 `Cond.ex`, past every variable of the clause, and the predicate follows the memberships in `post`.
+Where the clause so read has no existential variable and a `post` that is not `\top`, the term's
+position is read as a fresh existential variable Y with `Y ∈ rhs` first in `post` (`ceTopCut`,
+`X ∧ P = ∃Y. (Y ∧ Y ∈ X ∧ P)`), so no clause read has a right-side predicate without an
+existential variable (`ceRead_exs`).
 `orCut` does not read the operand, and
 the test of `manyValued?` does not range over it (a `\ceil` holds where its operand has some
 element, so an operand with several is no right side with several values).
@@ -4134,36 +4207,23 @@ binders) is not `rhsSorted`, or a binder is of another sort than the function's 
 (`eqnBinderSortGuard`). -/
 def ceRead (N : Names) (e : RawEqn) : Rd (Clause × List Var) := do
   rhsSortGuard (peelExists e.rhs).2
-  eqnBinderSortGuard N e
-  let e := (ceBinders e).1
-  let (pats, req, ens, vs, _) ← eqnHead N e
-  let n0 := vs.length
-  let (xs, body) := peelExists e.rhs
-  if exOutsideAlt body then fail .manyValuedRightSide "\\exists"
-  if isPred body then fail .manyValuedRightSide "\\top"
-  let bound := xs.map (·.var.ident.name)
-  let used := evarNamesList (e.rhs :: e.pats ++ e.req.toList ++ e.ens.toList)
-  let (t, n, cuts, ps) := cutAnd used bound 0 body
-  let (t, cuts) := orCutAll used t cuts
-  if let some c := (t :: cuts.flatMap (·.2.2)).findSome? orManyValued? then fail .manyValuedRightSide c
-  let (ps, _, ccuts) := cutCeils used bound n ps
-  let cuts := cuts ++ ccuts
-  let (exs, vs) ← exBind n0 vs xs
-  let (zs, vs) ← exBind n0 vs ((cuts.map (·.1)).filter (!bound.contains ·.var.ident.name))
-  let (rhs, vs) ← term N vs t
-  let (cs, vs) ← condOfList N vs (ps.filter (!ceilAndUnder ·))
-  -- a binder kept in an alternative binds the index past every variable of the clause: where one
-  -- is kept, every variable is numbered before the memberships are read
-  let kept := hasExistsList (cuts.flatMap (·.2.2))
-  let vs ← if kept then numberVarsCE vs (freeEVarsSList [] (cuts.flatMap (·.2.2) ++ ps.filter ceilAndUnder))
-    else pure vs
-  let nK := vs.length
-  let (ms, vs) ← cutMemsOr N vs cuts
-  let (bs, vs) ← ceilExConds N used vs (ps.filter ceilAndUnder)
-  if kept && vs.length != nK then
-    fail .patternConnective "\\exists: a variable first numbered after a binder kept in an alternative"
-  pure ({ vars := ← varSorts N vs, pats, req, rhs, ens, prio := (eqnPrio e).2, aside := nonExec e,
-          exs := exs ++ zs, post := conjC (cs ++ ms ++ bs) }, vs)
+  let (cl, vs, used, n) ← ceReadBody N e
+  ceTopCut N e used n cl vs
+
+/-- **A clause `ceRead` gives has an existential variable or a right-side predicate `\top`**: the
+one shape `Semantics.clausePlainEx`'s first conjunct refuses is never read here. -/
+theorem ceRead_exs {N : Names} {e : RawEqn} {x : Clause × List Var} (h : ceRead N e = .ok x) :
+    x.1.exs ≠ [] ∨ x.1.post.isTop = true := by
+  unfold ceRead at h
+  cases hg : rhsSortGuard (peelExists e.rhs).2 with
+  | error _ => rw [hg] at h; cases h
+  | ok u =>
+    rw [hg] at h
+    cases hb : ceReadBody N e with
+    | error _ => rw [hb] at h; cases h
+    | ok r =>
+      rw [hb] at h
+      exact ceTopCut_exs h
 
 /-- `ceRead` reads only a right side whose body under its `\exists` binders is `rhsSorted`. -/
 theorem ceRead_rhsSorted {N : Names} {e : RawEqn} {x : Clause × List Var}
@@ -4255,13 +4315,17 @@ def ceOr (N : Names) (e : RawEqn) : Bool :=
 applications and conjunctions makes it `\bottom`, which `clauseBody`'s bottom arm reads,
 `bottomAsEnsures`), with one `\exists` or more at its top, or a conjunction of two terms or more at
 a term position under applications (`cutAnd`) or in the operand of a `\ceil` that is a conjunct of
-it (`cutCeils`). A conjunction of one term with predicates is not: it is the term under its
-predicates, which `clauseBody` reads (`andAsEnsures`). -/
+it (`cutCeils`), or a predicate it lifts that is not `\equals{SortBool{},S}(B, true)` (`isTrueOf?`):
+a `\ceil`, a `\not`, an `\equals` of other operands, a connective of predicates (`condOf` reads
+these as a condition, `ceilExCond` one with a conjunction of terms under a `\ceil` under a
+connective, and `ceRead`'s last step gives the clause its existential variable, `ceTopCut`). A term
+whose only predicates are `\equals(B, true)` is not: it is the term with the `ensures` B, which
+`clauseBody` reads (`andAsEnsures`). -/
 def ceShape (r : Kore.Pattern) : Bool :=
   let (xs, body) := peelExists r
   !(hoist r).2.2 && (!xs.isEmpty ||
     let (_, n, cuts, ps) := cutAnd [] [] 0 body
-    !cuts.isEmpty || !(cutCeils [] [] n ps).2.2.isEmpty)
+    !cuts.isEmpty || !(cutCeils [] [] n ps).2.2.isEmpty || ps.any fun p => (isTrueOf? p).isNone)
 
 /-- The equation is one `clausesBody` reads through CE's arm (`ceRead` on `ceEqn`): its right side
 is `rhsSorted` and no attribute of it is refused (`eqnAttrFault?`), it is not read by cases over a
@@ -4429,9 +4493,9 @@ theorem clauseBody_rhsSorted {N : Names} {msrc : String} {e : RawEqn} {excl : Op
   (`ReadingNote.existentialClause`);
 - an `\or` under its applications and conjunctions: the clauses `frRead` gives
   (`ReadingNote.orAsCases`);
-- where `exRead` and `frRead` give `none`, a right side with an `\exists` at the top, or with a
-  conjunction of two terms or more at a term position (`ceShape`): the one clause `ceRead` gives
-  (`ReadingNote.existentialClause`);
+- where `exRead` and `frRead` give `none`, a right side with an `\exists` at the top, with a
+  conjunction of two terms or more at a term position, or with a predicate that is not
+  `\equals(B, true)` (`ceShape`): the one clause `ceRead` gives (`ReadingNote.existentialClause`);
 - otherwise the one clause `clauseBody` reads.
 Each clause read by cases or by `ceRead` is written as a clause of the function by `clauseExcl`, as
 `clauseBody` writes its own: all with the equation's patterns, `requires`, priority and
@@ -7609,7 +7673,7 @@ def clauseRefusal (c : Semantics) (cl : Clause) (names : List String) : Option (
         else
           s!"{what i}: an existential variable of the right side, of a sort the text leaves unconfined, that no conjunct of its predicate equates with a term: the function's value ranges over elements of {sn} that no value names")
     | none => some (.existentialEquation,
-        "the clause has a right-side predicate (post) that is not \\top and no existential variable: Semantics.clausePlainEx admits a right-side predicate only beside an existential variable, and the right side's term under that predicate is not read as one here")
+        "the clause has a right-side predicate (post) that is not \\top and no existential variable, which Semantics.clausePlainEx admits only beside one: a clause no reading function gives (Parse.ceRead reads such a right side with an existential variable, ceTopCut)")
   else none
 
 /-- The memberships `V ∈ g(P̄)` among the top-level conjuncts of a condition, V a variable: each

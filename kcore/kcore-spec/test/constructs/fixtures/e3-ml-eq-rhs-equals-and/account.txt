@@ -3,13 +3,16 @@ user module E3-ML-EQ-RHS-EQUALS-AND: 392 sentences
   1 inert import [generated]
   176 read [generated]
   184 read [builtin]
-  6 read [user]
+  5 read [user]
   4 inert injectivity [generated]
   9 inert collectionLaw [generated]
   1 unread setIdempotence [generated]
   1 inert parametricFunctional [generated]
   9 inert noJunk [generated]
+  1 read existentialClause [user]
   1 inert simplification [generated]
+connective readings per sentence: 1
+      sentence 354: existentialClause
 stage refusals (of sentences classified read): 1
   1 patternConnective
       sentence 354 (Lblh): patternConnective (\and)

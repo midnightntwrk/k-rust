@@ -177,6 +177,9 @@ differs f2-examples/e3-ml-eq-req-not.kompile.kore
 differs f2-examples/e3-ml-eq-rhs-and-pred.kompile.kore
 differs f2-examples/e3-ml-eq-rhs-and-term.kompile.kore
 differs f2-examples/e3-ml-eq-rhs-ceil-and.kompile.kore
+differs f2-examples/e3-ml-eq-rhs-ceil.kompile.kore
+differs f2-examples/e3-ml-eq-rhs-equals-term.kompile.kore
+differs f2-examples/e3-ml-eq-rhs-not-ceil.kompile.kore
 differs f2-examples/e3-ml-eq-rhs-or-bottom.kompile.kore
 differs f2-examples/e3-ml-eq-rhs-or-empty.kompile.kore
 differs f2-examples/e3-ml-eq-rhs-or-many-x.kompile.kore
@@ -359,7 +362,7 @@ differs f2-examples/mleqand.kompile.kore
 differs f2-examples/mleqbot.kompile.kore
 differs f2-examples/mleqbotc.kompile.kore
 differs f2-examples/mleqbotn.kompile.kore
-cannot f2-examples/mleqor.kompile.kore
+differs f2-examples/mleqor.kompile.kore
 differs f2-examples/mleqorb.kompile.kore
 differs f2-examples/mleqort.kompile.kore
 differs f2-examples/mleqreqandapp.kompile.kore
