@@ -91,6 +91,10 @@ The evidence forms (DONE-0 C2's table), by status and list, and the items each n
                    itself, declares a theorem the entry names (`tie_theorems`, or a `derived`
                    table's theorem or consistent whose `file` it is): the sentence-level tie
                    (TieRuleLhsAnd, TieRuleConn, a Note file) of the sentence tiegen leaves out.
+                   In a file reading several texts, one per namespace (TieRuleLhsAnd,
+                   TieExClauseShapes), the theorem is one declared where that fixture's text is
+                   the one in scope (declared_on_text); a theorem of another namespace's text
+                   ties no sentence of this one.
                    An entry with no `sentence` is not checked; check --report lists the failures
                    apart
       tie          `tie` lists the C14 tie modules: files test/X.lean that test/integration.sh
@@ -896,7 +900,8 @@ def uncovered_items(fx, e, own, have, miss):
     (reads_own_text), unless another file of `tie` that reads the text, and is not that tie (a file
     of the same text and classes is the same tie split over files), declares a theorem the entry
     names (`tie_theorems`, or a `derived` table's theorem or consistent whose `file` it is): the
-    sentence-level tie of the sentence that tiegen's account leaves uncovered."""
+    sentence-level tie of the sentence that tiegen's account leaves uncovered. In a file reading
+    several texts the theorem is declared where the fixture's text is in scope (declared_on_text)."""
     ss = e.get("sentence")
     ss = ss if isinstance(ss, list) else [ss] if isinstance(ss, str) else []
     ts = e.get("tie")
@@ -919,7 +924,7 @@ def uncovered_items(fx, e, own, have, miss):
                 comp = [g for g in ts if g != f and reads_own_text(g, x)
                         and not (nodir_classes(g) and nodir_classes(g) == nodir_classes(f))
                         and i not in ((tie_uncovered(g) or ("", set()))[1])
-                        and any(declared(n, [g]) for n in names + by_file.get(g, []))]
+                        and any(declared_on_text(n, g, x) for n in names + by_file.get(g, []))]
                 (ok if comp else out).append((x, f, i, comp))
     for x, f, i, comp in ok:
         have.append(f"own sentence {i} of {x}, uncovered in {f}, tied by {comp[0]}")
@@ -1013,6 +1018,63 @@ def declared(name, files):
     for f in files:
         ds = file_decls(f)
         if ds is not None and (name in ds or any(name.endswith("." + d) for d in ds)):
+            return True
+    return False
+
+
+_scope = {}
+
+
+def decl_scope_texts(f):
+    """{full declaration name: the text in scope at it} of a Lean file: the path of the last
+    `... from "f2-examples/..."` line before the declaration in its innermost enclosing namespace
+    that has one (None before any). Namespaces and declarations as file_decls reads them."""
+    if f not in _scope:
+        out, stack, cur = {}, [], [(0, None)]
+        for line in (lean_source(f) or "").split("\n"):
+            s = line.strip()
+            m = re.match(r"namespace (\S+)", s)
+            if m:
+                stack.append(m[1]); continue
+            m = re.match(r"end (\S+)$", s)
+            if m and stack and stack[-1] == m[1]:
+                stack.pop()
+                while len(cur) > 1 and cur[-1][0] > len(stack):
+                    cur.pop()
+                continue
+            m = re.search(r'\bfrom\s+"(f2-examples/[^"]+)"', s)
+            if m:
+                if cur[-1][0] == len(stack):
+                    cur[-1] = (len(stack), m[1])
+                else:
+                    cur.append((len(stack), m[1]))
+                continue
+            m = re.match(r"(?:@\[[^\]]*\]\s*)?(?:private |protected |noncomputable )*"
+                         r"(?:theorem|lemma|def|abbrev|instance|example) ([^\s:({\[]+)", s)
+            if m:
+                d = m[1].strip("«»")
+                out[".".join(stack + [d]) if not d.startswith("_root_.") else d[7:]] = cur[-1][1]
+        _scope[f] = out
+    return _scope[f]
+
+
+def declared_on_text(name, f, x):
+    """Whether the file declares the name (as `declared`) where fixture x's own text is the one in
+    scope. A file reading one text at most is on that text throughout (reads_own_text is the
+    caller's check); in a file reading several, each in a namespace of its own, the declaration's
+    text in scope is f2-examples/x.kompile.kore or byte for byte x's text."""
+    if not declared(name, [f]):
+        return False
+    sc = decl_scope_texts(f)
+    if len({q for q in sc.values() if q}) <= 1:
+        return True
+    qs = {q for d, q in sc.items() if q and (name == d or name.endswith("." + d))}
+    t = None
+    for q in sorted(qs):
+        if q == f"f2-examples/{x}.kompile.kore":
+            return True
+        t = own_text(x) if t is None else t
+        if t is not None and os.path.isfile(os.path.join(K, q)) and open(os.path.join(K, q)).read() == t:
             return True
     return False
 
@@ -2165,6 +2227,8 @@ def self_test():
             ("E3", "A", un(tie_theorems=["KCore.TieLhsAndVar.account"]), False),
             ("E3", "A", un(tie_theorems=["KCore.TieLhsAndVar.account"],
                            derived=[{"form": "a", "theorem": "TieRuleLhsAnd.Var.tie", "file": trl}]), True),
+            # a theorem of the companion declared where another text is in scope ties no sentence here
+            ("E3", "A", un(tie_theorems=["KCore.TieLhsAndVar.account", "TieRuleLhsAnd.Ceil.tie"]), False),
             # a file of `tie` declaring a named theorem but reading another text is no companion
             ("E3", "A", un(tie=[tlv, "test/TieE3MlReqTop.lean"],
                            tie_theorems=["KCore.TieLhsAndVar.account", "KCore.TieE3MlReqTop.consistent"]), False),
