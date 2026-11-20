@@ -2134,7 +2134,7 @@ case = "base"
 verdict = "refused"
 by = "fixture"
 bool = "shapesOK"
-refused_on = "hw-ex-unused-empty"
+refused_on = "e2-rule"
 
 [rows.E4."grammar:<module>::=\"module\" <module-name> <sentences> \"endmodule\" \"[\" <attributes> \"]\""]
 verdict = "covered"
@@ -2145,7 +2145,7 @@ case = "base"
 verdict = "refused"
 by = "fixture"
 bool = "shapesOK"
-refused_on = "hw-ex-unused-empty"
+refused_on = "e2-rule"
 
 [rows.E4."tree:KSort.var"]
 verdict = "covered"

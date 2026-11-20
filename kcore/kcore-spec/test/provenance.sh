@@ -14,8 +14,10 @@
 #              "in a model" (the sentences of a symbol Γ lacks, of the no-direction class, hold at
 #              values in a model of Γ whose steps are Step's: owed-sentence rule item 7);
 #              form (r), optional: "through the reading" (the refutation is of the reading's theory,
-#              the sentence-level statement owed) or "sentence against the reading" (a text without a
-#              model whose reading has one: for every H no model of the theory the statements are
+#              the sentence-level statement owed) or "sentence against the reading" (one sentence of
+#              the text against a reading that has a model; the text's own sentences may have a
+#              model where a premise of the refutation is the reading's alone, named in `family`:
+#              for every H no model of the theory the statements are
 #              about (`Γc (c.withHooks H)`; `Γ` where the proof reads no `boolClosed`, which is the
 #              stronger form) satisfies the one sentence named first in `sentences`, as written; the
 #              reading is consistent, `consistent`)
@@ -91,8 +93,9 @@
 #   fixtures/FIXTURE/FIXTURE.k), and each index of `sentences` is an axiom of each such text (1 to
 #   its number of axioms, as AxiomDecl.index counts them).
 # Prints the entries by form and kind (the counts C7 asks for: forms (b), (r) and "through the
-# reading" counted apart), the fixtures of the form (r) entries (texts without a model: the table's
-# `fixture`, else the entry's), and every failure. Exit 1 on a failure.
+# reading" counted apart), the fixtures of the form (r) entries (a text without a model, or a sentence
+# against the reading: the table's `fixture`, else the entry's), and every failure. Exit 1 on a
+# failure.
 #
 # Usage (from anywhere): test/provenance.sh [ROWS.toml]   (default test/constructs/rows.toml)
 #                        test/provenance.sh --self-test   (the checks on cases written to a scratch
@@ -498,7 +501,7 @@ def report(rows, base):
     total = sum(counts.values())
     print(f"provenance: {total} derivations named" + (": " + ", ".join(f"{k} {v}" for k, v in sorted(counts.items())) if total else ""))
     if nomodel:
-        print(f"provenance: {len(nomodel)} of form (r), texts without a model: "
+        print(f"provenance: {len(nomodel)} of form (r), a text without a model or a sentence against the reading: "
               + "; ".join(f"{w} (fixture {fx or 'none'}, {th})" for w, fx, th in nomodel))
     for b in bad[:40]:
         print(f"  {b}")

@@ -22,9 +22,12 @@
     values are different. The text reads no confined sort (`confined`), so `Γc` is `Γ` and the
     refutation is against Γ.
 
-  So the text has no model while KCore's theory of it has one. The statement from the translated
-  sentences alone (105, 124, 247 with the signature, the graph of `+Int` and the distinct elements
-  of distinct values, and no other item of Γ) is not shown here.
+  So sentence 105 has no model with KCore's theory, which has one. That the text's own sentences
+  have none is not shown: their refutation needs two different elements of Int and the injectivity
+  of `inj{Int, Exp}`, which no sentence of the text states (the commutativity of `+Int`, sentence
+  156, stands in for its graph). The statement from the translated sentences (105, 124, 247, 156
+  and the functional sentences of `+Int` and `inj{Int, Exp}`) with the distinct elements of distinct
+  values and the injection's injectivity, and no other item of Γ, is not shown here.
 -/
 import KcoreSpec
 

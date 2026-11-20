@@ -19,12 +19,13 @@ The document holds, in this order:
              having no model (DONE-0 C7, rows-header.toml): the fixture whose text the sentences
              are (the table's `fixture`, else the entry's), the sentences and families
              the refutation uses, the theorem, its kind where given, and `owed_refuted`. Such an
-             entry's status cell in its list reads "STATUS (no model)", or "STATUS (no model; the
-             reading has one)" where every such table is of kind "sentence against the reading" (Γ
-             has a model and refutes one sentence of the text as written). The mark is of the text
-             the sentences are: tables of a fixture that is not the entry's are marked apart, with
-             their fixtures named first, "STATUS (FIXTURE, FIXTURE: MARK)", so that an entry whose
-             own fixture has no such table is not marked as if it had.
+             entry's status cell in its list reads "STATUS (no model)", or "STATUS (a sentence
+             against the reading)" where every such table is of kind "sentence against the reading"
+             (Γ has a model and refutes one sentence of the text as written; the entry's `family`
+             says whether the text's own sentences have a model). The mark is of the text the
+             sentences are: tables of a fixture that is not the entry's are marked apart, with their
+             fixtures named first, "STATUS (FIXTURE, FIXTURE: MARK)", so that an entry whose own
+             fixture has no such table is not marked as if it had.
   owed facts every entry (row or nested) with an `owed_state` (rows-header.toml: per fixture, the
              state of the CondDecided its account lists as owed, or a MatchIndependent proved on
              the text of a fixture of the same shape) or an `owed_refuted` (a refuted owed fact of
@@ -66,7 +67,8 @@ ROWS = os.path.join(K, "test/constructs/rows.toml")
 MANIFEST = os.path.join(K, "../core-manifest.toml")
 OUT = os.path.join(K, "test/constructs/K-coverage.md")
 LISTS = ["E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8", "C3"]
-# the kind of a form (r) table whose text has no model while its reading has one (rows-header.toml)
+# the kind of a form (r) table whose reading has a model, none satisfying one sentence of the text
+# as written (rows-header.toml)
 AGAINST = "sentence against the reading"
 TITLES = {
     "E1": "E1 sentence kinds (Outer.jj)",
@@ -128,7 +130,7 @@ def table_fixture(e, d):
 
 def no_model_mark(e):
     """The mark beside an entry's status, "" without a form (r) table. A mark is of one text: "no
-    model", or "no model; the reading has one" where each form (r) table of that text is of kind
+    model", or "a sentence against the reading" where each form (r) table of that text is of kind
     "sentence against the reading". The tables of the entry's own fixture give the bare mark; those
     of another fixture's text give "FIXTURE, ...: MARK", the fixtures of one mark together, so the
     entry's own fixture is not said to have what another text has."""
@@ -137,7 +139,7 @@ def no_model_mark(e):
         by.setdefault(table_fixture(e, d), []).append(d)
     marks = {}
     for x, ds in by.items():
-        m = "no model; the reading has one" if all(d.get("kind") == AGAINST for d in ds) else "no model"
+        m = "a sentence against the reading" if all(d.get("kind") == AGAINST for d in ds) else "no model"
         marks.setdefault(m, []).append(x)
     own = e.get("fixture", "")
     out = []
@@ -147,7 +149,7 @@ def no_model_mark(e):
         rest = [x for x in xs if x != own]
         if rest:
             out.append(", ".join(rest) + ": " + m)
-    return " / ".join(out)
+    return "; ".join(out)
 
 
 def owed_facts(e):
@@ -312,7 +314,7 @@ def generate(rows_path, manifest_path):
             o.append(f"- {l} {code(key)}: {text(r.get('status'))}"
                      + (f"; pending: {text(r['pending'], CUT)}" if r.get("pending") else ""))
 
-    o += ["", f"## Entries whose text has no model, form (r) ({len(nomodel)})", "",
+    o += ["", f"## Entries with a table of form (r): a text without a model, or a sentence against the reading ({len(nomodel)})", "",
           "A `derived` table of form (r): a kernel-checked theorem that the premise set form (a) "
           "would use has no model, from the sentences named (by index) and the families named "
           "beside them; `owed_refuted` the theorem refuting the fact the package names as owed. "
@@ -321,7 +323,9 @@ def generate(rows_path, manifest_path):
           "The entry's status is the reading's, and its list prints \"(no model)\" beside it. "
           f"Of kind \"{AGAINST}\": the reading has a model (`consistent`), and no model of it satisfies "
           "the first sentence named as written; the sentence-level statement stays owed "
-          "(`owed_statement`); its list prints \"(no model; the reading has one)\". "
+          "(`owed_statement`), and `family` says which of the premises a sentence of the text states: "
+          "where one is the reading's alone, the text's own sentences may have a model. "
+          "Its list prints \"(a sentence against the reading)\". "
           "A mark is of the text the sentences are: where that is another fixture's than the entry's, "
           "the list names the fixture before the mark.", ""]
     if not nomodel:

@@ -139,7 +139,12 @@
 #             interpretation that satisfies the theory, whose steps are Step's, in which those
 #             sentences hold at values) and sentences (the indices of the sentences that
 #             determine it), theorem (full name) and file (relative to kcore-spec) for forms (a), (c)
-#             and (r), derivation (a file) for form (b). The theorem's statement is for every H and
+#             and (r), derivation (a file) for form (b). On a form (c) table, family (optional) says
+#             why the pair's models are models of the text's sentence and not only of the reading:
+#             the class of models each model of the pair is taken from, and the theorems (full names,
+#             with their file) stating, for every H, that every model of that class satisfies the
+#             sentence as written; test/provenance.sh accepts the key there and checks nothing of
+#             it. The theorem's statement is for every H and
 #             no AtNone file or namespace holds it: it mentions H (a name of type HookParams), or,
 #             naming no HookParams and no withHooks, it is over every Semantics (c.withHooks H is
 #             one, so it holds there for every H) or reads no semantics at all (silentTable's
@@ -161,9 +166,12 @@
 #             (owed_state below, one rule for both): it puts the entry in the group false unless
 #             another of its owed facts is proved or open, K-coverage.md prints the group beside the
 #             status and lists the entry with the refuted owed facts.
-#             Form (r), kind "sentence against the reading", for a text without a model whose
-#             reading has one (findings/work/decision-ovl-fun-classes.md section 3; the reading
-#             holds the refuted sentence at fewer arguments, so nothing of Γ's is refuted): theorem
+#             Form (r), kind "sentence against the reading", for a text one of whose sentences no
+#             model of the reading satisfies, the reading having a model; the text's own sentences
+#             may have a model (where a premise of the refutation is the reading's alone, named in
+#             `family`) (findings/work/decision-ovl-fun-classes.md section 3,
+#             findings/work/decision-rule-rhs-empty-class.md; the reading holds the refuted
+#             sentence at fewer arguments, so nothing of Γ's is refuted): theorem
 #             states, for every H, that no model of the theory the statements are about
 #             (`Γc (c.withHooks H)`; `Γ` where the proof reads no `boolClosed`, which is the stronger
 #             form) satisfies the one refuted sentence as written
@@ -176,9 +184,10 @@
 #             reading is Consistent; owed_statement (required) in words, the sentence-level
 #             statement left owed (no model of the translated sentences and the named families, with
 #             no other item of Γ). No `inconsistent` is claimed: none of the entry's tie_theorems is
-#             named so or states ¬ Consistent. The entry says in words that the text has no model
-#             while KCore's theory of it has one, under its note. K-coverage.md prints "(no model;
-#             the reading has one)" beside the status. test/provenance.sh checks the fields and the
+#             named so or states ¬ Consistent. The entry says in words that the sentence has no
+#             model with KCore's theory, which has one, under its note. K-coverage.md prints "(a
+#             sentence against the reading)" beside the status, with the fixture named where it is
+#             not the entry's. test/provenance.sh checks the fields and the
 #             statements' shapes (Γ or Γc, ⊧ᴵP and ¬ in the theorem's own statement, so the model is
 #             bound there and not by a section variable; Γcl in family for a statement over Γc alone;
 #             no FnHyp hypothesis, in it or in owed_refuted; Consistent, not negated, in consistent);
@@ -206,7 +215,9 @@
 #             the string locates to hold the row's node, instead of looking in kore.txt; absent,
 #             the node is looked up in kore.txt (or the `kore` fixture's text). Only an entry whose
 #             sentence kore.txt leaves out carries it: every kompiled definition holds the library's
-#             sentences, so the definition alone would hold most nodes on any fixture.
+#             sentences, so the definition alone would hold most nodes on any fixture. A string in the
+#             definition's first line (its attribute list) locates the definition's own productions
+#             (`<definition>`, `<modules>`), which no kore.txt holds, and no sentence's node.
 #   inert_class  for inert: the constructor of InertReason (KcoreSpec/Parse.lean) its sentence is
 #             classed under, or "use" (DONE-0 C1's class use, with `reason` C1's reason).
 #   no_direction  on a supported row or nested table: the indices (AxiomDecl.index, the numbering of

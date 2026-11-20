@@ -18,7 +18,8 @@
     the value `inf` (`res`), so in a model of Γ its application holds `inf`'s element. The text
     reads no confined sort (`confined`), so `Γc` is `Γ` and the refutation is against Γ.
 
-  So the text has no model while KCore's theory of it has one. The statement from the translated
+  So sentence 59 has no model with KCore's theory, which has one; that the text's own sentences have
+  none is argued (each premise of the refutation is a sentence of the text). The statement from the translated
   sentences alone (59, 102, 104 with the signature and the constructor items they need, and no
   other item of Γ) is not shown here.
 -/

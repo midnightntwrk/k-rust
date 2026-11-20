@@ -33,7 +33,9 @@ An entry with `node_sentence` (rows-header.toml) is looked up in its fixture's k
 instead: the text kompile.txt's `definition.kore sha256` names, from kfix.py's cache (this tree's
 .lake/kfix, else $KCORE_KFIX_CACHE), parsed whole; the node must be held by a sentence whose first
 line contains the string. It is for a sentence kore.txt leaves out (a builtin file's, whose Source
-is K's), and it locates the one sentence, since every kompiled definition holds the library's.
+is K's), and it locates the one sentence, since every kompiled definition holds the library's; or
+for the definition's own productions (`<definition>`, `<modules>`), which no kore.txt holds: a
+string in the definition's first line (its attribute list) locates those two and nothing else.
 
 Usage (from kcore-spec):
   python3 -I test/constructs/e4e5.py find [--write] [ROWS.toml]
@@ -519,9 +521,14 @@ def kompiled_text(name, fxdir=FXDIR):
     return (kore, None) if kore is not None else (None, f"its kompiled text {m[1][:12]} is in no cache ({kfix.CACHE})")
 
 
+DEFINITION_OWN = {K_["definition"], K_["modules"]}
+
+
 def sentence_nodes(name, s, fxdir=FXDIR, text=None):
     """{key: (sentence index, first line)} of the sentences of fixture NAME's kompiled definition
-    (or of TEXT) whose first line contains S; or a string (why there is none)."""
+    (or of TEXT) whose first line contains S, and, where the definition's first line (its attribute
+    list) contains S, the productions of the definition itself (DEFINITION_OWN, index None); or a
+    string (why there is none)."""
     given = text is not None
     if not given and (fxdir, name, s) in _cache:
         return _cache[(fxdir, name, s)]
@@ -534,8 +541,10 @@ def sentence_nodes(name, s, fxdir=FXDIR, text=None):
         try:
             nodes = {}
             for idx, first, keys in parse_definition(text):
-                if idx is not None and s in first:
-                    for k in keys:
+                if s in first:
+                    # the definition's own entry (no index) holds every node of the text: only the
+                    # productions of the definition itself are its own
+                    for k in (keys if idx is not None else keys & DEFINITION_OWN):
                         nodes.setdefault(k, (idx, first))
             res = nodes or f"no sentence of its kompiled definition has {s!r} in its first line"
         except ParseError as err:
@@ -727,6 +736,10 @@ def self_test():
         n = sentence_nodes("tiny", s, text=tiny)
         if isinstance(n, str) or (key in n) != want_held:
             bad.append(f"node_sentence {s!r}: {key} " + ("not held" if want_held else "held"))
+    # the definition's attribute list locates the definition's own productions and no sentence's
+    n = sentence_nodes("tiny", "[topCellInitializer{}()]", text=tiny)
+    if isinstance(n, str) or not DEFINITION_OWN <= set(n) or "translateSorts:hooked-#2" in n or K_["module"] in n:
+        bad.append(f"node_sentence '[topCellInitializer{{}}()]': {n if isinstance(n, str) else sorted(n)}")
     if not isinstance(sentence_nodes("tiny", "hooked-sort SortZ{}", text=tiny), str):
         bad.append("node_sentence 'hooked-sort SortZ{}': a sentence found, the text has none")
     for txt in ["module M\n  axiom{R} \\and{R}(\n", "[] module M axiom{} \\top{S{}}() endmodule []"]:
