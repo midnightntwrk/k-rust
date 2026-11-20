@@ -2817,7 +2817,9 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                 "reads as that declaration. Γ states the parameter's graph at values from the interpretation "
                 "(`ΓDomains`: its application to values denotes `paramVal`'s value, or nothing), so the sentence "
                 "holds at values where H gives the parameter a value of its sort at every argument list of its "
-                "sorts: the hypothesis on H the statements take (`ParamsTotal`). The account holds "
+                + ("sorts: the hypothesis on H the statements take (`ParamsTotal`). " if tp_held else
+                   "sorts, which is `ParamsTotal`, a fact of H that no statement here takes as a hypothesis. ")
+                + "The account holds "
                 f"{'them' if len(param_fun) > 1 else 'it'} in the class `{PARAM_FUNCTIONAL_CLASS}`, of the direction "
                 "`hypothesis` (`paramfunctional_account`), and every such sentence of the user module is in it "
                 "(`paramfunctional_heads`)."]
