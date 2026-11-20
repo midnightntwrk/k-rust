@@ -4,6 +4,7 @@ differs f2-examples/bandctor.kompile.kore
 differs f2-examples/base.kompile.kore
 differs f2-examples/c3-anywhere-ctor.kompile.kore
 differs f2-examples/c3-cells-star.kompile.kore
+differs f2-examples/c3-cells-type-nostar.kompile.kore
 differs f2-examples/c3-ctor-assoc.kompile.kore
 differs f2-examples/c3-ctor-comm.kompile.kore
 differs f2-examples/c3-ctor-idem.kompile.kore
@@ -66,6 +67,7 @@ differs f2-examples/c3-simp-ens-true.kompile.kore
 differs f2-examples/c3-simp-ens.kompile.kore
 differs f2-examples/c3-simp-prio.kompile.kore
 differs f2-examples/c3-simp-req.kompile.kore
+differs f2-examples/c3-strict-alias-ctx.kompile.kore
 differs f2-examples/c3-strict-alias.kompile.kore
 differs f2-examples/c3-strict-base.kompile.kore
 differs f2-examples/c3-strict-hybrid.kompile.kore
@@ -111,6 +113,8 @@ differs f2-examples/e2-fn-assoc-unit.kompile.kore
 differs f2-examples/e2-fn-assoc.kompile.kore
 differs f2-examples/e2-fn-idem.kompile.kore
 differs f2-examples/e2-frontend-effect.kompile.kore
+differs f2-examples/e2-initial-coll.kompile.kore
+differs f2-examples/e2-initial.kompile.kore
 differs f2-examples/e2-macro-plain.kompile.kore
 differs f2-examples/e2-macro.kompile.kore
 differs f2-examples/e2-module-att.kompile.kore
@@ -158,6 +162,7 @@ differs f2-examples/e3-eq-exists-partial-ml.kompile.kore
 differs f2-examples/e3-eq-exists-under-app-partial-ml.kompile.kore
 differs f2-examples/e3-fragment.kompile.kore
 differs f2-examples/e3-fresh.kompile.kore
+differs f2-examples/e3-hash-sort.kompile.kore
 differs f2-examples/e3-k-fun2.kompile.kore
 differs f2-examples/e3-k-unify.kompile.kore
 differs f2-examples/e3-k.kompile.kore
@@ -410,6 +415,7 @@ exact f2-examples/prio.kore
 differs f2-examples/projapp.kore
 differs f2-examples/projuser.kompile.kore
 differs f2-examples/rdr-cell-star-sibling.kompile.kore
+differs f2-examples/rdr-cellcoll-own.kompile.kore
 differs f2-examples/rdr-config-deep.kompile.kore
 differs f2-examples/rdr-hook-assoc-sub.kompile.kore
 differs f2-examples/rdr-hook-assoc.kompile.kore
