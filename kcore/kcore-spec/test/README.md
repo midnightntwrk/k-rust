@@ -1904,6 +1904,13 @@ table above, on the tree before String and Bytes). Not investigated here.
   graph is ⊥ where H gives none), so Γ with 113 and 294 has no model (`s294_113_refuted`); where H
   gives the count no value there, both sides have none (`s294_none`). A tie file: e6map reads its
   statements on 294, each with `¬`, as refuting it. Axioms guarded.
+- `test/LibEvCountAllEmptyE7.lean`: the same two sentences on `f2-examples/e7-constfold.kompile.kore`
+  (the 1898 equation is axiom 243, the `functional` sentence 98): for every H, Γ with 98 and 243 has
+  no model (`s243_98_refuted`, from `count98_value` and `s243_at_of`), Γ with 98 has none where H
+  gives the count no value at the empty needle (`s98_refuted_of_none`), and Γ with the step's
+  closure has a model (`consistent`), so Γ has a model none of whose models satisfies both
+  sentences (`s243_98_refuted_consistent`). A tie file: e6map reads its statements on 243, each
+  with `¬`, as refuting it. Axioms guarded.
 - `test/LibEvDividesInt.lean`: on `f2-examples/e6-divides-int.kompile.kore` (the fixture
   e6-divides-int), the reading's one parameter symbol is `dividesInt`, without implementation
   (`params_div`); Γ entails each sort declaration without sort parameters (`decls_entailed`) and
