@@ -1,6 +1,10 @@
 /-
   The conjunct of `confinedAt` on a generator that overloads a function ("each of whose generators
   … is no overloading symbol that overloads a function"): no witness found in the no-model form.
+  The conjunct is kept, and the lemmas that read it are not restated without it
+  (findings/work/decision-wit-decide.md section 3): with it `confined` is a property of the text
+  alone, true in every model of `Γc`; the restated `confinedAt_valueCl` would need `FnHyp` and
+  evaluation soundness, which is proved through `confinedAt_valueCl`.
   Run from the package root: `lake env lean -j1 test/WitStage4.lean`.
 
   The conjunct is no leaf of `coreOK`: `confinedAt` is read by `rulesPlain` and `clausesPlain`

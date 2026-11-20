@@ -7,14 +7,19 @@
   root: `lake env lean test/Witnesses.lean`.
 
   The table `test/witnesses.toml`: one row per leaf conjunct of `coreOK` and per hypothesis
-  `FnDet` and `FnSolves` on the functions, each with its witness module or `none` and the
-  reason. The leaves are computed from the definitions' terms: `coreOK` and the definitions in
+  on the functions (`hyps`), each with its witness or `none` and the reason. A witness is a
+  collected witness module, or a test file with the theorems that show it
+  (`test/X.lean: thm, thm`). A row is witnessed or kept: a `none` row carries
+  `ruling = "kept: <reason>"`, the reason being the proofs that read the conjunct, or what implies
+  it and the proof that reads it without that, or that no proof reads it and what it is kept for.
+  The leaves are computed from the definitions' terms: `coreOK` and the definitions in
   `unfolded` are unfolded, `&&` is split, the body of a `List.all` over a lambda, of a
   single-alternative `match` and of a `let` is entered, and every other term is a leaf, keyed
   `<definition>.<n>` (its n-th leaf, left to right) with its printed text. Fails when a leaf has no
   row or its row's text differs (the expected rows are printed), when a row names no leaf, or
-  when a row's witness is neither `none…` nor a collected witness module, or a file its `evidence`
-  names is missing. A row's `note` is free text.
+  when a row's witness is neither `none…` nor a collected witness module nor a test file that
+  exists and states each theorem named, when a `none` row has no `ruling` of the form
+  `kept: <reason>`, or a file its `evidence` names is missing. A row's `note` is free text.
 -/
 import KcoreSpec
 
@@ -99,6 +104,7 @@ structure Row where
   key : String := ""
   text : String := ""
   witness : String := ""
+  ruling : String := ""
   evidence : String := ""
   note : String := ""
 
@@ -130,6 +136,7 @@ def parse (src : String) : Except String (Array Row) := do
         | "key" => pure { r with key := v }
         | "text" => pure { r with text := v }
         | "witness" => pure { r with witness := v }
+        | "ruling" => pure { r with ruling := v }
         | "evidence" => pure { r with evidence := v }
         | "note" => pure { r with note := v }
         | _ => throw s!"unknown field {f}"
@@ -167,17 +174,33 @@ run_cmd do
     | some r => if r.text != t then missing := missing.push s!"[[conjunct]]\nkey = \"{k}\"\ntext = \"{escape t}\"\nwitness = \"{escape r.witness}\"\n(table text: {r.text})"
     | none => missing := missing.push s!"[[conjunct]]\nkey = \"{k}\"\ntext = \"{escape t}\"\nwitness = \"none\""
   let mut seen : Array String := #[]
-  let mut withWit := 0
+  let mut withWit : Nat := 0
+  let mut withTest : Nat := 0
+  let mut kept : Nat := 0
   for r in rows do
     if seen.contains r.key then bad := bad.push s!"{r.key}: listed twice"
     seen := seen.push r.key
     unless want.any (·.1 == r.key) do bad := bad.push s!"{r.key}: names no leaf conjunct"
-    if r.witness.startsWith "none" then pure ()
+    if r.witness.startsWith "none" then
+      if r.ruling.startsWith "kept: " && !(trimL (r.ruling.toList.drop 6)).isEmpty then kept := kept + 1
+      else bad := bad.push s!"{r.key}: witness none and no ruling \"kept: <reason>\""
     else if mods.contains r.witness then withWit := withWit + 1
-    else bad := bad.push s!"{r.key}: witness {r.witness} is no collected witness module"
+    else if r.witness.startsWith "test/" then
+      match r.witness.splitOn ": " with
+      | [p, thms] =>
+        if ← System.FilePath.pathExists p then
+          let ls := (← IO.FS.readFile p).splitOn "\n"
+          let lost := (thms.splitOn ", ").filter fun t => !ls.any (·.startsWith s!"theorem {t} ")
+          if lost.isEmpty then withTest := withTest + 1
+          else bad := bad.push s!"{r.key}: witness file {p} states no theorem {lost}"
+        else bad := bad.push s!"{r.key}: witness file {p} is missing"
+      | _ => bad := bad.push s!"{r.key}: witness {r.witness} is not of the form test/X.lean: thm, thm"
+    else bad := bad.push s!"{r.key}: witness {r.witness} is no collected witness module and no test file"
+    unless r.ruling.isEmpty || r.witness.startsWith "none" do
+      bad := bad.push s!"{r.key}: a ruling beside a witness"
     unless r.evidence.isEmpty do
       for p in r.evidence.splitOn ", " do
         unless ← System.FilePath.pathExists p do bad := bad.push s!"{r.key}: evidence {p} is missing"
   unless missing.isEmpty && bad.isEmpty do
     throwError m!"witness table:{indentD (MessageData.joinSep (bad.toList.map toMessageData) Format.line)}\nrows missing or changed:\n{"\n\n".intercalate missing.toList}"
-  logInfo m!"witness table: {rows.size} rows ({leaves.size} leaf conjuncts of coreOK, {hyps.length} hypotheses), {withWit} with a witness module, {rows.size - withWit} none"
+  logInfo m!"witness table: {rows.size} rows ({leaves.size} leaf conjuncts of coreOK, {hyps.length} hypotheses), {withWit} with a witness module, {withTest} with a witness test file, {kept} none and kept with a reason"

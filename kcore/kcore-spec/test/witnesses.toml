@@ -1,34 +1,42 @@
-# The leaf conjuncts of coreOK and the hypotheses FnDet, FnSolves, ClausePreDecided and ClausePostDecided, each with the witness module
-# that shows it cannot be dropped (a semantics meeting the others whose Γ has no model), or `none`
-# with the reason. Keys and texts are computed by test/Witnesses.lean from the definitions:
-# coreOK, sortedOK, faithCoreOK, predsApart, idsOK, overloadsOK and itesApart are
-# unfolded, `&&` is split, and List.all lambdas, single-alternative matches and lets are entered;
-# Witnesses.lean fails when a leaf has no row or its text differs. `evidence`: files with the
-# kernel-checked part of a `none` row. `note`: what a witness module shows, where it is less than
+# The leaf conjuncts of coreOK and the hypotheses FnDet, FnSolves, ClausePreDecided and
+# ClausePostDecided, each with the witness module that shows it cannot be dropped (a semantics
+# meeting the others whose Γ has no model), or `none` with the reason. A witness that is no library
+# module is a test file with its theorems (`test/X.lean: thm, thm`). A row is witnessed or kept: a
+# `none` row carries `ruling`, `kept: ` and why the conjunct is asked: the proofs that read it; or
+# what implies it and the proof that reads it without that; or that no proof reads it and what it
+# is kept for. Keys and texts are computed by test/Witnesses.lean from the definitions: coreOK,
+# sortedOK, faithCoreOK, predsApart, idsOK, overloadsOK and itesApart are unfolded, `&&` is split,
+# and List.all lambdas, single-alternative matches and lets are entered; Witnesses.lean fails when
+# a leaf has no row or its text differs, and when a `none` row has no ruling. `evidence`: files
+# with the kernel-checked part of a `none` row. `note`: what a witness shows, where it is less than
 # every other conjunct of coreOK.
 
 [[conjunct]]
 key = "sortedOK.1"
 text = "c.subsortsOK"
 witness = "none: not found; the conjunct is not implied by the others (a subsort listed twice meets every other leaf of coreOK and FnHyp); its reflexive and cyclic subsorts are refused by genWf as well; with a repeated pair Γ is the definition's without the repetition up to repeated items and a repeated disjunct of one no-junk axiom (kernel-checked for the constructor, signature, function and collection items), which coreOK accepts, so Γ has a model (argued for the graphs of ΓDomains and ΓFallback); a subsort from or to a sort outside the definition's: from an unnumbered sort it fails sortsNumbered, to Int genWf, and from Int, Bool, K or KItem to a user sort or from it to K or KItem it fails subsortsOK alone with no contradiction found (the free term algebra of the constructors and injections meets the cons items, argued)"
+ruling = "kept: read by NamesApart.subsorts_trans_of, subsorts_irrefl_of and closure_sorts (through sortedOK_subsortsOK and subsortsOK_parts): the subsorts as a strict partial order over the definition's and the library's sorts, which Exec.MatchCtxO, srReady_of and matchReady_of take; no statement that fails without it is shown"
 evidence = "test/WitRestSorted.lean"
 
 [[conjunct]]
 key = "sortedOK.2"
 text = "f.clauses.all (c.clauseSorted f (List.map KCore.Fn.sig c.fns))"
 witness = "none: not found in the no-model form; the conjunct is not implied by the others (f() => true, g() => false at a constructor sort meets every other leaf of coreOK and FnHyp); Γ has a model (argued): the equation is f() = true ∧ ⊤_N relativized to the result sort N, so in a model where true is no element of N, f() and g() read as nothing meet it and the arity item; Eval gives f() = true, which Γ does not entail, so the conjunct is asked for soundness, not for a model (not kernel-checked)"
+ruling = "kept: read by sortCtx_of_all (then Eval.sorted_of_all) and Semantics.sortedOK_clausePre; asked for soundness, not for a model (argued in this row's witness field, not kernel-checked)"
 evidence = "test/WitRestSorted.lean"
 
 [[conjunct]]
 key = "sortedOK.3"
 text = "c.rules.all c.ruleSorted"
 witness = "none: not found; the conjunct is not implied by the others (a rule <k> .K </k> => 1, its right-hand side an Int, meets every other leaf of coreOK and FnHyp); Γ has a model (argued): Step makes no step by the rule, and its axiom's premise ⌈1 ∧ ⊤_C⌉ is empty in the value model of the semantics without the rule, which coreOK accepts"
+ruling = "kept: read by Semantics.ruleFactsHO2_of_core, stepDecided_of_fnHyp and rhs_sorted_core (the right side at the configuration sort); no witness can exist in the no-model form, since the conjunct reads only the rules and the semantics without its rules meets coreOK and FnHyp (argued)"
 evidence = "test/WitRestSorted.lean"
 
 [[conjunct]]
 key = "sortedOK.4"
 text = "c.rulesPlain"
 witness = "none: no witness exists in the no-model form, for every semantics (argued, not kernel-checked); the conjunct is not implied by the others (kernel-checked: a rule whose ensures reads a variable that the left side does not bind, the right-hand side does not hold and no condition of the left side reads meets every other leaf of coreOK and FnHyp); the argument: the parts of Γ other than ΓRules read no rule (for that semantics, kernel-checked: its signature, constructor, function and collection items are those of the semantics without its rule), and coreOK and FnHyp read the rules only under a quantifier over them, so the semantics without its rules meets both (for that semantics, kernel-checked) and its Γ has a model (sound_hyp); readsConfined, which also reads the rules, decides only whether Γcl is added, never Γ; each rule's axiom is φ ∧ ⌈right⌉ → •right and no other item of Γ applies •, so reading • as relating every two elements meets every rule's axiom; with Γstep, reading • as the union of the rules' instances meets both; the conjunct is asked for soundness and completeness (which open variables of a rule the values decide), not for a model"
+ruling = "kept: read by Semantics.rulesPlain_iff_memHeld, then ruleFactsHO2_of_core, rulePlainHeldH_of_HO2, ruleFactsHeld_of_core, HypModelCore.ruleFactsHeld and rule_step_values_heldCEx (a successor's valuation can be taken at values); the statements that fail without it are ExactC for its first part (an open variable of the right side under a hook) and SoundC for its second (an open condition variable of an unconfined sort in a rule that competes with a larger one), argued, not kernel-checked"
 evidence = "test/WitRestPlain.lean"
 
 [[conjunct]]
@@ -48,6 +56,7 @@ evidence = "test/WitRestPlain.lean"
 key = "faithCoreOK.1"
 text = "KCore.Faithful.namesNumbered c"
 witness = "none: not found in the no-model form; the conjunct is needed for soundness instead: a value and the constructor items write a constructor under its own name, a right-hand side writes one named as an instance at its head and sorts, and Γ relates the two nowhere, so a semantics failing the first part alone (a constructor Lblite{KCell} : Int → KCell and a rule building it), with FnHyp, has a theory with a model and SoundC false (kernel-checked: test/CtorIteSoundC.lean, meets_others, consistent and not_sound); the conjunct is not implied by the others (that semantics; a constant so named, test/WitRestFaithA.lean); its second part, no symbol that an overloading symbol overloads is named as an instance, has no semantics failing it alone here (it would be an overloaded function so named; a function so named that no symbol overloads meets the conjunct, kernel-checked) and is read through namesNumbered_spec by NamesNumbered (namesNumbered_over_writes_irs: an overload's equation writes the overloaded symbol under its name); its third part, every function's sorts numbered, is implied by sortsNumbered (kernel-checked, every semantics)"
+ruling = "kept: read by namesNumbered_spec as NamesNumbered, which clause_eq_open, appendHeld_backX and namesNumbered_over_writes_irs take; its first part has a witness in the soundness form (test/CtorIteSoundC.lean: meets_others, not_namesNumbered, consistent, not_sound: a theory with a model and SoundC false); its third part is implied by sortsNumbered and read through NamesNumbered by proofs that take it without sortsNumbered"
 evidence = "test/CtorIteSoundC.lean, test/WitRestFaithA.lean, test/OvlIteName.lean"
 
 [[conjunct]]
@@ -60,6 +69,7 @@ note = "a library constructor #KConfigValue : → Int makes Int a constructor so
 key = "faithCoreOK.3"
 text = "KCore.Faithful.collSortsOK c"
 witness = "none: not found; the conjunct is not implied by the others (a list collection of the sort Int, its parameters implemented by the library list's, meets every other leaf of coreOK and FnHyp); Γ has a model (argued): Int's carrier extended by the lists of KItem, the list axioms (which quantify over every element of Int) met with the concatenation and element read as on the lists and as nothing at a literal, the literals staying distinct and apart from the lists; not examined: a collection of a sort hooked to a library carrier"
+ruling = "kept: read by collSortsOK_mem, then mapReading_lib, listReading_lib, setReading_lib and HypModelCore.coll_shape' (the collection sorts' readings); no statement that fails without it is shown"
 evidence = "test/WitRestFaithA.lean"
 
 [[conjunct]]
@@ -72,6 +82,7 @@ note = "a list collection whose unit parameter is implemented by the library lis
 key = "faithCoreOK.5"
 text = "KCore.Faithful.patHeadsOK c"
 witness = "none: not found; the conjunct is not implied by the others (kernel-checked: a range-map collection whose unit, a registry symbol, is declared twice with one signature, first implemented by the range map's unit, then by the list's unit, meets every other leaf of coreOK and FnHyp); every other way to fail it is excluded by kindsApart, overloadsOK's first part, collsOK, idsOK's numbering and namesApartK (argued); Γ has a model (argued): paramVal reads the first declaration, so Γ is that of the semantics without the repetition (which meets coreOK, kernel-checked) up to a repeated item; the conjunct is asked for the downward reading of left-hand sides, not for a model"
+ruling = "kept: read by HypModelCore.patHeads (then patOK_of_sorted), exclEmptyCl_ofCl and memHeld_clause_valuesF: the downward reading of left-hand sides"
 evidence = "test/WitRestFaithB.lean"
 
 [[conjunct]]
@@ -95,6 +106,7 @@ witness = "KcoreSpec.ModelSortsWitness"
 key = "itesApart.1"
 text = "match KCore.instDecode? (c.symName k.name) with | some (fst, xs) => xs.all fun x => (KCore.Faithful.kernelSorts c).any fun s => c.sortName s == x | none => true"
 witness = "none: not found; the leaf is not implied by the others (kernel-checked: a parameter named Lblite{Foo}, Foo naming no sort, meets every other leaf of coreOK and FnHyp); Γ of that semantics has a model (argued): the semantics with Foo made an own sort of no constructor meets coreOK and FnHyp and has its value model (kernel-checked: c3_core, model3), its Γ holds the items of the first's but KItem's no-junk item, which there has one more disjunct, the injection of an element of Foo, and Foo has no element in that model (the comparison of the items is argued); for another head, several sorts or a function so named the same construction is the argument, nothing of it kernel-checked; the leaf is asked for the value model of the semantics itself, which reads a sort symbol by its name among the numbered sorts (instSorts_numbered, HypModelCore.iteSorted)"
+ruling = "kept: read by instSorts_numbered (the first conclusion of itesApart_inst), which instHead_app_inst takes: the value model reads a sort name of an instance name among the numbered sorts; HypModelCore.iteSorted reads it too and has no caller in the library"
 evidence = "test/ItesNumbered.lean"
 
 [[conjunct]]
@@ -140,6 +152,7 @@ evidence = "test/WitRestApart.lean, test/PredFnCone.lean"
 key = "idsOK.1"
 text = "c.ownSorts == List.range' KCore.nRegSorts c.sortNames.length"
 witness = "none: not found; the conjunct is not implied by the others (kernel-checked: the cells with the two own sorts listed out of order in userSorts meet every other leaf of coreOK and FnHyp; an own sort listed twice repeats its predicate and fails predsApart too); Γ has a model (argued): Γ reads userSorts as a set of sorts, so Γ is that of the same sorts in order, which coreOK accepts (kernel-checked); not examined: a sort name with no user sort, an own sort numbered beyond the names"
+ruling = "kept: read by consSorts_numbered and consSorts_numbered_ids (a constructor sort is numbered), and by NamesApart.own_sorts: the own sorts numbered in order, each once"
 evidence = "test/WitRestIdsA.lean"
 
 [[conjunct]]
@@ -152,36 +165,42 @@ note = "one overloading symbol listed twice: ownSyms lists it twice; the module 
 key = "idsOK.3"
 text = "decide (c.sortNames.length ≤ c.symNames.length)"
 witness = "none: not found; the conjunct is not implied by the others (kernel-checked: one own sort and no symbol names meets every other leaf of coreOK and FnHyp, idsOK.2 by the truncated subtraction); Γ has a model (argued): it differs from the semantics naming the predicate LblisS (which coreOK accepts, kernel-checked) by the name of one symbol, named like no other in either, and renaming maps models onto models; not examined: instances beyond one sort without names (own constructors then fail idsOK.2)"
+ruling = "kept: no proof reads it; kept for the reading of the data: idsOK.2 counts the own symbols by a truncated subtraction, which without this clause does not say that each own sort's predicate has a name"
 evidence = "test/WitRestIdsA.lean"
 
 [[conjunct]]
 key = "idsOK.4"
 text = "decide (KCore.nRegSyms ≤ f.label)"
 witness = "none: not found; the conjunct is not implied by the others (kernel-checked: one function of c.fns labelled as the registry's predicate of the library sort Int meets every other leaf of coreOK, sortPreds then building no function of that label; FnHyp not examined); Γ: not examined (the function stands for the library's predicate isInt, whose equations Γ then reads from it)"
+ruling = "kept: no proof reads it; kept for the reading of the data: sortPreds omits a predicate that a function of c.fns bears, which with this clause is an own sort's predicate only, as the docstrings of ownSyms and idsOK say; it is also a premise of ids5_of_predsApart (test/WitRestIdsA.lean)"
 evidence = "test/PredFnCone.lean"
 
 [[conjunct]]
 key = "idsOK.5"
 text = "KCore.nodup (List.filter (fun s => decide (s < KCore.nRegSorts)) c.userSorts)"
 witness = "none: no witness exists: implied by predsApart, idsOK.4 and idsOK.6, for every semantics (kernel-checked: ids5_of_predsApart): every registry sort of userSorts is a generated configuration sort, each with a predicate below nRegSyms, which labels no function of c.fns (idsOK.4), so sortPreds builds it and it is a label of allFns, which predsApart makes distinct; predsApart.1 is itself implied by idsOK where the functions of c.fns are labelled apart (predsApart_of_idsOK), so the two cannot both be dropped from coreOK for such a semantics"
+ruling = "kept: implied by predsApart, idsOK.4 and idsOK.6 (ids5_of_predsApart); read by NamesApart.own_sorts from idsOK alone, without predsApart, for userSorts without repetition, which sorts_facts takes for its first part; the library's callers of sorts_facts read its second part only"
 evidence = "test/WitRestIdsA.lean"
 
 [[conjunct]]
 key = "idsOK.6"
 text = "(List.filter (fun s => decide (s < KCore.nRegSorts)) c.userSorts).all KCore.genSorts.contains"
 witness = "none: not found; the conjunct is not implied by the others (kernel-checked: the registry sort Id listed among userSorts instead of among the library sorts below KItem meets every other leaf of coreOK and FnHyp; with Id among the library sorts coreOK holds, and the constructor items of the two are the same); Γ has a model (argued): Γ reads the sorts below KItem as the library list followed by userSorts, so the two have the same sorts there in another order, Id being a constructor sort without generator adds no item, and the kernel sorts are a range independent of both; not examined: a registry sort of domain values (genWf refuses it, its constructor sort being Int, Bool, ...), KItem or K listed in userSorts"
+ruling = "kept: read by NamesApart.own_sorts, then the second part of sorts_facts (KItem is no sort below KItem), which subsorts_trans_of and subsorts_irrefl_of take"
 evidence = "test/WitRestIdsB.lean"
 
 [[conjunct]]
 key = "idsOK.7"
 text = "decide (KCore.nRegSyms ≤ k.name) || KCore.genSyms.contains k.name"
 witness = "none: not found; the conjunct is not implied by the others (kernel-checked: the registry constructor #KConfigValue : K → KItem listed among the definition's constructors instead of the library's meets every other leaf of coreOK and FnHyp; listed among the library's, coreOK holds, and the constructor items of the two are the same); Γ has a model (argued): ctorSigs lists the library's constructors then the definition's, so the two have the same constructors in another order (kernel-checked), the same generators per sort and the same signature items up to order; the conjunct is asked for the numbering of the own symbols, not for a model; not examined: a registry number naming no registry constructor"
+ruling = "kept: no proof reads it; kept for the reading of the data: ownSyms and idsOK.2 number the definition's constructors from nRegSyms only, so without this clause a registry constructor among c.ctors is a symbol of the definition outside its own numbering"
 evidence = "test/WitRestIdsB.lean"
 
 [[conjunct]]
 key = "idsOK.8"
 text = "c.lib.ok"
 witness = "none: not found; the conjunct is not implied by the others (kernel-checked: the library's sorts below KItem listing MInt, which has no sort predicate, twice meets every other leaf of coreOK and FnHyp; listed once, coreOK holds); Γ has a model (argued): Γ is that of MInt listed once up to repeated items (its subsort into KItem twice, its injection a generator of KItem twice, comparable injections having no distinctness item, the sort predicates unchanged); of Lib.ok's other parts (kernel-checked instances): a library sort KItem and a library subsort outside the library sorts fail genWf, a library sort numbered as an own sort fails namesApartK, a library sort that is a generated sort of the cells fails predsApart; not examined: a library constructor named like a map-pattern symbol, a library sort numbered beyond the own sorts"
+ruling = "kept: read by NamesApart.lib_ok, then lib_sorts_lt, lib_ctors_names (in patHooks_of), closure_sorts and sorts_facts: the library's sorts and constructors"
 evidence = "test/WitRestIdsB.lean"
 
 [[conjunct]]
@@ -195,30 +214,35 @@ evidence = "test/WitRestOvlA.lean"
 key = "overloadsOK.2"
 text = "c.lookupOvl o.sig.name == some o"
 witness = "none: no witness exists: implied by idsOK.2, for every semantics (kernel-checked: ov2_of_ids2): idsOK.2 lists the overloading symbols' names once each in ownSyms, so the first overloading symbol of a member's name is the member"
+ruling = "kept: implied by idsOK.2 (ov2_of_ids2); read by OvlLaws.lookupOvl_of_mem and ovl_leaves_fad from overloadsOK alone (OvlHyp.ok), without idsOK"
 evidence = "test/WitRestOvlA.lean"
 
 [[conjunct]]
 key = "overloadsOK.3"
 text = "(KCore.instDecode? (c.symName o.sig.name)).isNone"
 witness = "none: not found in the no-model form; the conjunct is needed for soundness instead: a semantics failing it alone, with FnHyp, has a theory with a model and SoundC false, the successor of a step to a value applying the symbol not being entailed to be in the family: a value and the constructor items write the symbol under its own name, a right-hand side at its head and sorts, and Γ relates the two nowhere (kernel-checked: test/OvlIteSoundC.lean, consistent and not_sound); read by OvlLaws.ovl_noInst_irs and the fourth part of ovl_parts"
+ruling = "kept: read by OvlLaws.ovl_noInst_irs and ovl_parts; it has a witness in the soundness form (test/OvlIteSoundC.lean: meets_others, consistent, not_sound: a theory with a model and SoundC false)"
 evidence = "test/OvlIteName.lean, test/OvlIteSoundC.lean"
 
 [[conjunct]]
 key = "overloadsOK.4"
 text = "(KCore.Faithful.consSorts c).contains o.sig.result"
 witness = "none: not found; the conjunct is not implied by the others (kernel-checked: an overloading symbol f : Int -> Int overloading nothing meets every other leaf of coreOK and FnHyp; with f : Int -> K coreOK holds); Γ has a model (argued): Int is no constructor sort, so no constructor item names f and no overload equation exists; f(n) are values of Int (kernel-checked), each one element apart from the others, and nothing states that Int holds its literals only, so the value model with Int holding the literals and the values f(n) meets Γ; not examined: the fallback graphs at the values f(n) one by one"
+ruling = "kept: read by OvlLaws.ovl_result_cons and ovl_parts: an overloading symbol as a generator of a constructor sort"
 evidence = "test/WitRestOvlA.lean"
 
 [[conjunct]]
 key = "overloadsOK.5"
 text = "((KCore.lookupSig c.ctorSigs g).isSome || (List.take i c.ovls).any fun x => x.sig.name == g) || c.fns.any fun x => x.label == g"
 witness = "none: not found; the conjunct is not implied by the others (kernel-checked: an overloading symbol f : Int -> K overloading itself meets every other leaf of coreOK and FnHyp; overloading nothing, coreOK holds); Γ has a model (argued): against the semantics overloading nothing Γ adds the valid equation f(x) = f(x), f's applications are covered and no values (kernel-checked), and f's distinctness from the other generators of K is stated at uncovered arguments only, none at Int, so a model of that theory is one of Γ; the conjunct is asked for the acyclicity of the overloads that norm reads and for each overloaded symbol to be a constructor, an overloading symbol or a function; not examined: a cycle through two overloading symbols"
+ruling = "kept: read by OvlLaws.ovl_leaves_fad: the acyclic overloads that norm reads, each overloaded symbol a constructor, an earlier overloading symbol or a function"
 evidence = "test/WitRestOvlB.lean"
 
 [[conjunct]]
 key = "overloadsOK.6"
 text = "(c.ovlOver o).all (c.ovlPairOK o)"
 witness = "none: not found; the conjunct is not implied by the others (kernel-checked: f : Int -> KCellOpt overloading the counter cell's constructor, whose result sort is not below KCellOpt, meets every other leaf of coreOK and FnHyp; overloading nothing, coreOK holds); Γ has a model (argued): the overload equation makes f(x) the injection from GeneratedCounterCell to KCellOpt of the counter cell of x, an injection of no declared subsort that no other item names, f's applications are covered and no values, and f's distinctness from KCellOpt's generators is that of the semantics overloading nothing or stated at uncovered arguments; a model of that theory with the injection read as the map from the counter cell of n to f(n) is one of Γ; not examined: an overload of another arity"
+ruling = "kept: read by OvlLaws.ovl_leaves_fad: the overload equation between sorts in order"
 evidence = "test/WitRestOvlB.lean"
 
 [[conjunct]]
@@ -238,6 +262,7 @@ evidence = "test/OvlFun.lean"
 key = "overloadsOK.9"
 text = "c.ovlPatsOK"
 witness = "none: no witness exists: implied by sortedOK.2, sortedOK.3 and sortedOK.5, for every semantics (kernel-checked: Semantics.ovlPatsOK_of_sortedOK): ruleSorted sorts a rule's left side, clauseSorted a clause's patterns and condOK each exMatch pattern of a rule's pre and post and of a clause's pre and post (clauseExOK, which clausesPlain asks) over patCtxNF, which holds no function-overloaded symbol"
+ruling = "kept: read with overloadsOK alone by ovlPatsOK_of_ovlCase (SubjectReduction:1658) and PatCtxNF.pats_noFnOvl/pats_nf/lhs_nf; removing it would put it in matchReadyO, also in the cone"
 evidence = "test/SortedNF.lean"
 
 [[conjunct]]
@@ -256,11 +281,12 @@ witness = "KcoreSpec.ModelFnSolvesWitness"
 key = "ClausePreDecided"
 text = "KCore.ClausePreDecided"
 witness = "none: no witness module. The semantics d of test/ClausePreUndecided.lean meets coreOK (the predicate of its clause is not ⊤, which clausesPlain admits), FnDet, FnSolves and OpenLaws and not ClausePreDecided (not_clausePreDecided), and Γ has no model there (argued in that file's header, not proved: the two clauses' sentences state h(x) = 1 and h(x) = 2 at every Int, the premise ⌈l(X)⌉ ∨ ¬⌈l(X)⌉ being ⊤ in every interpretation). Where every clause's predicate is ⊤ the hypothesis holds (clausePreDecided_of_isTop)"
+ruling = "kept: a hypothesis of consistent_of, not a conjunct of coreOK: removing it changes a pinned statement; the no-model half of its instance (test/ClausePreUndecided.lean) is argued only"
 evidence = "test/ClausePreUndecided.lean"
 
 [[conjunct]]
 key = "ClausePostDecided"
 text = "KCore.ClausePostDecided"
-witness = "none: no witness module. The semantics cCeU of test/CeNoModel.lean (f() => ?B:Bool with the right-side predicate ¬ (B ∈ f())) meets coreOK (cCeU_coreOK), FnDet, FnSolves, ClausePreDecided and OpenLaws and not ClausePostDecided (not_postDecided), and Γ has no model (not_consistent, kernel-checked). Where every clause's right-side predicate is ⊤ the hypothesis holds (clausePostDecided_of_isTop)"
-evidence = "test/CeNoModel.lean"
+witness = "test/CeNoModel.lean: not_postDecided, not_consistent"
+note = "no witness module: the witness is a test file. The semantics cCeU (f() => ?B:Bool with the right-side predicate ¬ (B ∈ f())) meets coreOK (cCeU_coreOK), FnDet, FnSolves, ClausePreDecided and OpenLaws and not ClausePostDecided (not_postDecided), and Γ has no model (not_consistent, kernel-checked). Where every clause's right-side predicate is ⊤ the hypothesis holds (clausePostDecided_of_isTop)"
 
