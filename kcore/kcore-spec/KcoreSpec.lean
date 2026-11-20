@@ -454,3 +454,4 @@ import KcoreSpec.TieEqArgCut
 import KcoreSpec.TieFRTightB
 import KcoreSpec.TieExHoistB
 import KcoreSpec.TieEXReadB
+import KcoreSpec.TiePairsMany
