@@ -22,8 +22,8 @@
   The two hold in the same interpretations (`item0_iff`), with no premise: under `∃B:Bool` the
   conjunct B makes the element the one B holds, which the binder's guard puts in Bool, so `⊤_Bool`
   holds there (`ExEnsTop.sTop_of_member`, read without definedness: `ExEnsTop.member_raw`); an
-  equation reads its right side by its elements (`TieExHoistB.eqnPat_congr`). The three lemmas of
-  `ExEnsTop` are over any patterns and any interpretation; nothing in them is of this text.
+  equation reads its right side by its elements (`TieExHoistB.eqnPat_congr`). The lemmas are
+  `KcoreSpec/TieExClause.lean`'s, over any patterns and any interpretation.
 
   - W1, `ex_from_text`, for every H: every interpretation that satisfies sentence 131 as written
     satisfies Γ's item 0. The one premise is the sentence: no item of Γ, no fact of the
@@ -37,70 +37,6 @@ import KcoreSpec
 
 set_option autoImplicit false
 set_option maxRecDepth 1000000
-
-namespace KCore.ExEnsTop
-
-open ML KoreAML KoreAML.TieFR
-
-section
-variable {M : Type} {I : Interpretation KoreAML.Sym M}
-
-/-- A membership `x ∈ φ`, read with no fact of the interpretation. -/
-theorem member_raw {x : EVar} {φ : P} {e : Valuation M} {m : M} :
-    (x ∈∈ φ : P).interpret I e m ↔
-      ∃ d, I.evalSymb HasDefined.defined d ∧ φ.interpret I e (e.evalEvar x) ∧ I.evalApp d (e.evalEvar x) m := by
-  unfold member
-  rw [interp_app]
-  constructor
-  · rintro ⟨d, b, hd, hb, happ⟩
-    rw [interpret_conj, interp_evar] at hb
-    obtain ⟨rfl, hφ⟩ := hb
-    exact ⟨d, hd, hφ, happ⟩
-  · rintro ⟨d, hd, hφ, happ⟩
-    exact ⟨d, _, hd, interpret_conj.mpr ⟨interp_evar.mpr rfl, hφ⟩, happ⟩
-
-/-- Where the element is the one x holds and x is of the sort s, `⊤_s` holds. -/
-theorem sTop_of_member {x : EVar} {s : P} (hs : s.isFreeEvar topVar = false) {e : Valuation M} {m : M}
-    (hx : (Pattern.evar x : P).interpret I e m) (h : (x ∈∈ inhOf s : P).interpret I e m) :
-    (sTop s).interpret I e m := by
-  rw [interp_evar] at hx
-  unfold sTop
-  rw [interp_sExists]
-  refine ⟨m, ?_, by rw [interp_evar]; show m = Function.update e.evalEvar topVar m topVar; rw [Function.update_same]⟩
-  obtain ⟨d, hd, hφ, happ⟩ := member_raw.mp h
-  rw [← hx] at hφ happ
-  refine member_raw.mpr ⟨d, hd, ?_, ?_⟩
-  · show (inhOf s).interpret I _ (Function.update e.evalEvar topVar m topVar)
-    rw [Function.update_same]
-    refine (only_free_var_relevant _ _ _ _ (fun y hy => ?_) (fun _ _ => rfl) m).mpr hφ
-    have hyx : y ≠ topVar := by
-      rintro rfl
-      have : (inhOf s).isFreeEvar topVar = false := by
-        unfold inhOf sym; simp [Pattern.isFreeEvar, hs]
-      rw [this] at hy; cases hy
-    exact Function.update_noteq hyx _ _
-  · show I.evalApp d (Function.update e.evalEvar topVar m topVar) m
-    rw [Function.update_same]; exact happ
-
-/-- **`⊤_s` beside the bound variable is no conjunct**: under `∃x:s`, the body `x ∧ (⊤_s ∧ ψ)`
-holds the elements `x ∧ ψ` holds, in every interpretation. -/
-theorem exists_ensTop {x : EVar} {s ψ : P} (hs : s.isFreeEvar topVar = false) (e : Valuation M) (m : M) :
-    (sExists x s (sAnd (.evar x) (sAnd (sTop s) ψ))).interpret I e m ↔
-      (sExists x s (sAnd (.evar x) ψ)).interpret I e m := by
-  rw [interp_sExists, interp_sExists]
-  refine exists_congr fun a => and_congr_right fun hin => ?_
-  rw [interp_sAnd, interp_sAnd, interp_sAnd]
-  exact ⟨fun h => ⟨h.1, h.2.2⟩, fun h => ⟨h.1, sTop_of_member hs h.1 hin, h.2⟩⟩
-
-/-- **The equation with `⊤_s` beside the bound variable holds in the models of the equation
-without it**, whatever the `ensures` part: no premise. -/
-theorem eqnPat_ensTop {ws : List P} {r x : EVar} {prem S F s ψ ens : P} (hs : s.isFreeEvar topVar = false) :
-    (I ⊧ᴵ eqnPat ws r prem S F (sAnd (sExists x s (sAnd (.evar x) (sAnd (sTop s) ψ))) ens)) ↔
-      (I ⊧ᴵ eqnPat ws r prem S F (sAnd (sExists x s (sAnd (.evar x) ψ)) ens)) :=
-  TieExHoistB.eqnPat_congr fun e m => by rw [interp_sAnd, interp_sAnd, exists_ensTop hs e m]
-end
-
-end KCore.ExEnsTop
 
 namespace KCore.TieE3EqExistsPartialMl131
 
@@ -211,10 +147,6 @@ theorem ex_entailed_c (H : HookParams) : Faithful.Γc (cH H) ⊧ (trS U.ax131).p
 
 end KCore.TieE3EqExistsPartialMl131
 
-#check @KCore.ExEnsTop.member_raw
-#check @KCore.ExEnsTop.sTop_of_member
-#check @KCore.ExEnsTop.exists_ensTop
-#check @KCore.ExEnsTop.eqnPat_ensTop
 #check @KCore.TieE3EqExistsPartialMl131.text_shape
 #check @KCore.TieE3EqExistsPartialMl131.gamma_shape
 #check @KCore.TieE3EqExistsPartialMl131.item0_iff

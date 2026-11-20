@@ -460,6 +460,7 @@ import KcoreSpec.TieOvlMem
 import KcoreSpec.TieEqArgCut
 import KcoreSpec.TieFRTightB
 import KcoreSpec.TieExHoistB
+import KcoreSpec.TieExClause
 import KcoreSpec.TieEXReadB
 import KcoreSpec.TiePairsMany
 import KcoreSpec.TieFRSig
