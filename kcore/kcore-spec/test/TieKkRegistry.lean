@@ -28,6 +28,9 @@
     (`registry_conservative`) and no step at values rests on it (`exact_own`), under `FnHyp c`,
     here a hypothesis: kore.k's functions leave obligations of termination and agreement that no
     decision closes (the generated package names them), so `FnHyp c` is not decided on the text.
+  - `kk_registry_everyH`: the names detached, the family conservative and no step at values resting on
+    it, at `c.withHooks H` for every H, under
+    `FnHyp (c.withHooks H)`: `detachedB` reads no interpretation (`detachedB_withHooks`).
 -/
 import KcoreSpec
 
@@ -272,6 +275,18 @@ under `FnHyp c`. -/
 theorem kk_exact_own (hf : FnHyp c) : ExactOwn c (DetachedB.names c ss ks) :=
   exact_own (hpreTop := preTop) c ss ks coreOK hf registry_detached
 
+/-! ## For every H -/
+
+/-- **The registry family at the names kore.k does not declare, for every H**: detached,
+conservative and resting no step at values, at `c.withHooks H`, from the decision at `c`
+(`registry_withHooks_of_decided`, `detachedB_withHooks`), under `FnHyp (c.withHooks H)`, a
+hypothesis as `kk_conservative`'s is. -/
+theorem kk_registry_everyH (H : HookParams) (hf : FnHyp (c.withHooks H)) :
+    Detached (c.withHooks H) (DetachedB.names (c.withHooks H) ss ks) ∧
+    RegistryConservative (c.withHooks H) (DetachedB.names (c.withHooks H) ss ks) ∧
+    ExactOwn (c.withHooks H) (DetachedB.names (c.withHooks H) ss ks) :=
+  registry_withHooks_of_decided c H ss ks coreOK preTop hf registry_detached
+
 end KCore.TieKkRegistry
 
 #check @KCore.TieKkRegistry.registry_detached
@@ -279,6 +294,7 @@ end KCore.TieKkRegistry
 #check @KCore.TieKkRegistry.surplus_registry
 #check @KCore.TieKkRegistry.kk_conservative
 #check @KCore.TieKkRegistry.kk_exact_own
+#check @KCore.TieKkRegistry.kk_registry_everyH
 
 /-- info: 'KCore.TieKkRegistry.registry_detached' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.TieKkRegistry.registry_detached
@@ -288,3 +304,5 @@ end KCore.TieKkRegistry
 #guard_msgs in #print axioms KCore.TieKkRegistry.kk_exact_own
 /-- info: 'KCore.TieKkRegistry.kk_conservative' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.TieKkRegistry.kk_conservative
+/-- info: 'KCore.TieKkRegistry.kk_registry_everyH' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.TieKkRegistry.kk_registry_everyH

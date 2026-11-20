@@ -26,6 +26,10 @@
   - `kimp_conservative`, `kimp_exact_own`: the registry family at those names is conservative
     (`registry_conservative`) and no step at values rests on it (`exact_own`), under `FnHyp c`
     from the functions' obligations, each empty on the text by a kernel decision (`fnHyp`).
+  - `kimp_registry_everyH`: the names detached, the family conservative and no step at values resting on
+    it, at `c.withHooks H` for every H: `detachedB` reads no
+    interpretation (`detachedB_withHooks`), and the obligations, empty and read under none, give
+    `FnHyp (c.withHooks H)` (`fnHyp_everyH`, by `fnHyp_decided`).
 -/
 import KcoreSpec
 
@@ -237,6 +241,23 @@ theorem kimp_conservative : RegistryConservative c (DetachedB.names c ss ks) :=
 theorem kimp_exact_own : ExactOwn c (DetachedB.names c ss ks) :=
   exact_own (hpreTop := preTop) c ss ks coreOK fnHyp registry_detached
 
+/-! ## For every H -/
+
+/-- What the statements assume of kimp's functions under every interpretation H: the obligations
+named on the text are empty and read no interpretation (`fnHyp_decided`). -/
+theorem fnHyp_everyH (H : HookParams) : FnHyp (c.withHooks H) :=
+  ParamSchema.fnHyp_decided c coreOK (by decide +kernel) (by decide +kernel) preTop (by decide +kernel)
+    term_named total_named agree_named match_named H
+
+/-- **The registry family at the names kimp does not declare, for every H**: detached,
+conservative and resting no step at values, at `c.withHooks H`, from the decision at `c`
+(`registry_withHooks_of_decided`, `detachedB_withHooks`). -/
+theorem kimp_registry_everyH (H : HookParams) :
+    Detached (c.withHooks H) (DetachedB.names (c.withHooks H) ss ks) ∧
+    RegistryConservative (c.withHooks H) (DetachedB.names (c.withHooks H) ss ks) ∧
+    ExactOwn (c.withHooks H) (DetachedB.names (c.withHooks H) ss ks) :=
+  registry_withHooks_of_decided c H ss ks coreOK preTop (fnHyp_everyH H) registry_detached
+
 end KCore.TieKimpRegistry
 
 #check @KCore.TieKimpRegistry.registry_detached
@@ -244,6 +265,7 @@ end KCore.TieKimpRegistry
 #check @KCore.TieKimpRegistry.surplus_registry
 #check @KCore.TieKimpRegistry.kimp_conservative
 #check @KCore.TieKimpRegistry.kimp_exact_own
+#check @KCore.TieKimpRegistry.kimp_registry_everyH
 
 /-- info: 'KCore.TieKimpRegistry.registry_detached' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.TieKimpRegistry.registry_detached
@@ -253,3 +275,5 @@ end KCore.TieKimpRegistry
 #guard_msgs in #print axioms KCore.TieKimpRegistry.kimp_exact_own
 /-- info: 'KCore.TieKimpRegistry.kimp_conservative' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.TieKimpRegistry.kimp_conservative
+/-- info: 'KCore.TieKimpRegistry.kimp_registry_everyH' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.TieKimpRegistry.kimp_registry_everyH
