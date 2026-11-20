@@ -3694,17 +3694,17 @@ fn check_refuses_what_krs_refuses_of_the_mutations_source() {
 
 /// PJ-34: a grammar edit of a production KRS emits is anchored by the symbol KRS derives from its
 /// item (`ExpSyntax::Other` is `expSyntaxOther`); kink-flow resolves it, though the rules use the
-/// literal, and shows its declaration, and the krs front end refuses it `not-judged`: KRS does not
-/// judge an edit of a declaration it emits yet (U34g).
+/// literal, and shows its declaration, and the krs front end judges it by what it does to the
+/// parse function: a changed literal is a grammar mutant, located at the variant.
 #[test]
-fn a_production_edit_resolves_and_the_front_end_does_not_judge_it() {
+fn a_production_edit_resolves_and_the_front_end_judges_it() {
     let project = checked();
     project.write(
         "kink/check-grammar.toml",
         "[[mutation]]\nid = \"other-literal\"\nmisunderstanding = \"`other` is spelt `another`\"\n\n  [[mutation.edit]]\n  production = \"expSyntaxOther\"\n  find = \"\\\"other\\\"\"\n  replace = \"\\\"another\\\"\"\n",
     );
     let output = project.kink("check", &["--mutations", "kink/check-grammar.toml"]);
-    assert_status(&output, 2);
+    assert_status(&output, 0);
     let document = json(&output);
     let row = row(&document, "other-literal");
     let rule = &row["rules"][0];
@@ -3717,7 +3717,265 @@ fn a_production_edit_resolves_and_the_front_end_does_not_judge_it() {
         rule["after"].as_str().unwrap().contains("\"another\""),
         "{row:#}"
     );
-    assert_eq!(reasons(row), (vec!["not-judged"], vec![]), "{row:#}");
+    assert_eq!(reasons(row), (vec![], vec![]), "{row:#}");
+    let edit = &row["krs"]["edits"][0];
+    assert_eq!(edit["judged"], "grammar", "{edit:#}");
+    assert_eq!(edit["rust"][0]["text"], "Other", "{edit:#}");
+}
+
+/// A text-parsing definition for grammar mutants: constructors in two precedence groups (the
+/// lower one `left`), an `if` whose `else` form is `avoid`ed, a bracket, two overlapping tokens
+/// (`w...` words at `prec(2)` over `[a-z]+` names), a function with syntax, and `stop`, which
+/// the corpus's `[stop]` counts so that a case reaching it is accepted.
+const GRAMMAR: &str = r#"use k::builtin::{Int, KSequence, int};
+use k::{KItem, Term};
+
+k::sorts! {
+    #[k::bracket("(", ")")]
+    Exp: KItem;
+}
+
+#[k::token(regex = r"w[a-z]*", prec = 2)]
+pub struct Word(pub String);
+
+#[k::token(regex = r"[a-z]+")]
+pub struct Name(pub String);
+
+#[k::constructors(sort = Exp, result = k::KResult)]
+#[k::precedence((Count, Done, Wait, Skip, Named, Called, Pick, Choose) > left (Sub))]
+#[rustfmt::skip]
+pub enum ExpSyntax {
+    #[k::syntax("count({value})")] Count { value: Int },
+    #[k::syntax("done")] Done(),
+    #[k::syntax("wait")] Wait(),
+    #[k::syntax("skip")] Skip(),
+    #[k::syntax("named {word}")] Named { word: Word },
+    #[k::syntax("called {name}")] Called { name: Name },
+    #[k::syntax("{lhs} - {rhs}")] Sub { lhs: Exp, rhs: Exp },
+    #[k::syntax("if {c} then {t}")] Pick { c: Exp, t: Exp },
+    #[k::syntax("if {c} then {t} else {e}", avoid)] Choose { c: Exp, t: Exp, e: Exp },
+}
+
+#[k::function(total, sort = Exp, syntax = "twice({x})")]
+pub struct Twice {
+    pub x: Term<Exp>,
+}
+
+#[k::equation]
+fn twice(k::term![Twice(x)]: Term<Exp>) -> Term<Exp> {
+    ExpSyntax::Sub(x, x)
+}
+
+#[k::rule]
+#[k::requires(int::gt(value, 0))]
+fn step(k::term![ExpSyntax::Count { value }]: Term<Exp>) -> Term<Exp> {
+    ExpSyntax::Count(int::sub(value, 1))
+}
+
+#[k::rule]
+#[k::requires(int::le(value, 0))]
+fn stop(k::term![ExpSyntax::Count { value }]: Term<Exp>) -> Term<Exp> {
+    ExpSyntax::Done()
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(pgm: Exp) -> Self {
+        Self { k: k::k![pgm] }
+    }
+}
+"#;
+
+/// The cases of [`GRAMMAR`]'s corpus, by id.
+const GRAMMAR_CASES: [(&str, &str); 8] = [
+    ("c3", "count(3)"),
+    ("sub", "done - done - done"),
+    ("ifs", "if done then if done then done else done"),
+    ("word", "named wabc"),
+    ("called", "called abc"),
+    ("wait", "wait"),
+    ("paren", "(done)"),
+    ("twice", "twice(done)"),
+];
+
+fn grammar_project() -> Project {
+    let mut flow =
+        "[spec]\nkrs = { definition = \"main\" }\n\n[stop]\nafter = [\"crate::stop\"]\ncount = 1\n"
+            .to_owned();
+    let mut files = vec![("src/lib.rs".to_owned(), GRAMMAR.as_bytes().to_vec())];
+    for (id, text) in GRAMMAR_CASES {
+        _ = write!(
+            flow,
+            "\n[[program]]\nid = \"{id}\"\nfile = \"cases/{id}.spelt\"\n"
+        );
+        files.push((
+            format!("kink/cases/{id}.spelt"),
+            format!("{text}\n").into_bytes(),
+        ));
+    }
+    files.push(("kink/FLOW.toml".to_owned(), flow.into_bytes()));
+    project_of("krs-cli-kink-grammar", "SPELT", &files)
+}
+
+/// One mutation of one edit of a grammar declaration: `find` becomes `replace` in the
+/// declaration of `production`, or in the one declaration holding `find`.
+fn grammar_mutation(id: &str, production: Option<&str>, find: &str, replace: &str) -> String {
+    let production =
+        production.map_or_else(String::new, |name| format!("  production = \"{name}\"\n"));
+    format!(
+        "[[mutation]]\nid = \"{id}\"\nmisunderstanding = \"{id}\"\n\n  [[mutation.edit]]\n{production}  find = {}\n  replace = {}\n\n",
+        serde_json::to_string(find).unwrap(),
+        serde_json::to_string(replace).unwrap()
+    )
+}
+
+/// PJ-34, U34g: `krs kink run` judges grammar mutants of a text-parsing KRS definition through
+/// kink-flow's grammar path, each case parsed again under the mutant's grammar. A literal the
+/// accepted case writes is killed `mutant-rejects`, an associativity changed is killed
+/// `parses-differently`, a literal no case writes survives; and the reparse sees an edit of each
+/// part the parse function reads (`avoid`, `prefer`, `bracket`, `token`, `prec(N)`, a function's
+/// syntax). `check` refuses a `format`-only edit (`no-parse-change`), a changed symbol
+/// (`label-changed`), a `format` the edited items leave malformed (`derived-mismatch`) and an
+/// attribute that says what the constructor means (`not-judged`).
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One run and one check document, read for each part a grammar edit may change."
+)]
+fn run_judges_grammar_mutants_of_a_text_parsing_definition() {
+    let project = grammar_project();
+    let judged = [
+        grammar_mutation(
+            "count-literal",
+            Some("expSyntaxCount"),
+            "\"count\"",
+            "\"cnt\"",
+        ),
+        grammar_mutation("sub-right", None, "syntax left", "syntax right"),
+        grammar_mutation(
+            "skip-literal",
+            Some("expSyntaxSkip"),
+            "\"skip\"",
+            "\"pass\"",
+        ),
+        grammar_mutation("drop-avoid", Some("expSyntaxChoose"), ", avoid", ""),
+        grammar_mutation("avoid-prefer", Some("expSyntaxChoose"), "avoid", "prefer"),
+        grammar_mutation("drop-bracket", None, "[bracket, ", "["),
+        grammar_mutation("drop-token", None, "r\"[a-z]+\" [token]", "r\"[a-z]+\""),
+        grammar_mutation(
+            "name-prec",
+            None,
+            "r\"[a-z]+\" [token]",
+            "r\"[a-z]+\" [token, prec(3)]",
+        ),
+        grammar_mutation("twice-literal", Some("twice"), "\"twice\"", "\"double\""),
+    ];
+    project.write("kink/MUTATIONS.toml", judged.concat());
+    let output = project.kink("run", &["--cache", "kink/run-cache"]);
+    let document = json(&output);
+    // A literal of the accepted case: the mutant rejects it.
+    let count = row(&document, "count-literal");
+    assert_eq!(
+        (&count["status"], &count["direction"], &count["killer"]),
+        (&json!("killed"), &json!("mutant-rejects"), &json!("c3")),
+        "{count:#}"
+    );
+    assert_eq!(count["killer_source"], "reparse", "{count:#}");
+    // `left` to `right`: `done - done - done` parses to another term, whose run differs.
+    let sub = row(&document, "sub-right");
+    assert_eq!(
+        (&sub["status"], &sub["direction"], &sub["killer"]),
+        (
+            &json!("killed"),
+            &json!("parses-differently"),
+            &json!("sub")
+        ),
+        "{sub:#}"
+    );
+    // No case writes `skip`: every case parses alike and runs alike.
+    assert_eq!(row(&document, "skip-literal")["status"], "survived");
+    // Each part the parse function reads changes the reparse of the case that exercises it.
+    for (id, program, reparse) in [
+        ("drop-avoid", "ifs", "rejected"),
+        ("avoid-prefer", "ifs", "different"),
+        ("drop-bracket", "paren", "different"),
+        ("drop-token", "called", "different"),
+        ("name-prec", "word", "rejected"),
+        ("twice-literal", "twice", "rejected"),
+    ] {
+        let row = row(&document, id);
+        assert_ne!(row["status"], "invalid-mutation", "{row:#}");
+        let case = row["grammar"]
+            .as_array()
+            .unwrap_or_else(|| panic!("{row:#}"))
+            .iter()
+            .find(|case| case["program"] == program)
+            .unwrap_or_else(|| panic!("{program} of {row:#}"));
+        assert_eq!(case["reparse"], reparse, "{id}: {row:#}");
+    }
+
+    // The refusals.
+    let refused = [
+        grammar_mutation(
+            "format-only",
+            Some("expSyntaxSub"),
+            "format(%1 %2 %3)",
+            "format(%1%2%3)",
+        ),
+        grammar_mutation(
+            "label",
+            Some("expSyntaxDone"),
+            "symbol(expSyntaxDone)",
+            "symbol(finished)",
+        ),
+        grammar_mutation(
+            "stale-format",
+            Some("expSyntaxCount"),
+            "\"(\" Int \")\"",
+            "\"(\" Int",
+        ),
+        grammar_mutation(
+            "strict",
+            Some("expSyntaxSub"),
+            "format(%1 %2 %3)]",
+            "format(%1 %2 %3), strict]",
+        ),
+    ];
+    project.write("kink/check-grammar.toml", refused.concat());
+    let output = project.kink("check", &["--mutations", "kink/check-grammar.toml"]);
+    let document = json(&output);
+    for (id, reason) in [
+        ("format-only", Some("no-parse-change")),
+        ("label", Some("label-changed")),
+        ("stale-format", Some("derived-mismatch")),
+        ("strict", Some("not-judged")),
+    ] {
+        let row = row(&document, id);
+        assert_eq!(
+            row["refusals"][0]["reason"].as_str(),
+            reason,
+            "{id}: {row:#}"
+        );
+    }
+    let stale = row(&document, "stale-format")["refusals"][0]["detail"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(stale.contains("`format(%1 %2 %3)`"), "{stale}");
+    // The location of a grammar edit is its Rust item.
+    let edit = &row(&document, "format-only")["krs"]["edits"][0];
+    assert_eq!(edit["judged"], "grammar", "{edit:#}");
+    assert_eq!(
+        edit["rust"][0]["line"].as_u64(),
+        Some(line_of(GRAMMAR, "Sub { lhs: Exp, rhs: Exp }")),
+        "{edit:#}"
+    );
 }
 
 /// `run` gives each mutation the front end refuses its first refusal, runs nothing for it, runs

@@ -4,8 +4,9 @@
 //! template's literal or field read, an `else`'s negation, an operator, a constant at one use,
 //! a `..` the author wrote, a whole rule, a rule's label) goes to the re-derivation, which the
 //! judge never answers for; a mutation whose tokens are the baseline's, a change outside every
-//! sentence, an edit of a declaration and an edit inside a lookup-guard or local-function family
-//! are refused. A mutation is judged by the tokens it changes, however its find is written.
+//! sentence, an edit of a declaration other than a grammar declaration and an edit inside a
+//! lookup-guard or local-function family are refused. A mutation is judged by the tokens it
+//! changes, however its find is written.
 //!
 //! The re-derivation then accepts a sentence the judge hands on only when it is what KRS emits
 //! for its edited authored content: every sentence is its own re-derivation, a derived test

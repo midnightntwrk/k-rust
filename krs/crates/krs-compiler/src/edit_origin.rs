@@ -10,9 +10,13 @@
 //! function's scaffolding): the authored content of that sentence is then the baseline's, KRS
 //! derives the baseline's nodes from it, and the mutant differs from them.
 //! It also refuses what it cannot hand to the second stage: a mutation whose tokens are the
-//! baseline's, a change of tokens outside every sentence, an edit of a declaration, an edit
-//! that cuts through an inserted node, and an edit that reaches a lookup-guard or
-//! local-function family, whose derivation reads more than the edited construct.
+//! baseline's, a change of tokens outside every sentence, an edit of a declaration other than a
+//! grammar declaration, an edit that cuts through an inserted node, and an edit that reaches a
+//! lookup-guard or local-function family, whose derivation reads more than the edited construct.
+//! An edit of a grammar declaration KRS emitted from authored syntax (a production, a priority
+//! or an associativity sentence) is handed to the grammar judgement instead
+//! ([`SentenceVerdict::Grammar`]), which decides it by what it does to the parse function: a
+//! grammar mutant models an implementer's parser, and its rules keep their terms.
 //! Every other changed sentence needs the second stage, which parses the mutant, derives what
 //! KRS derives from the edited authored content and compares the mutant's sentence with that
 //! derivation's rendering; until a caller has run it, the judge's answer for such a sentence
@@ -80,12 +84,22 @@ pub enum MutationVerdict {
     /// [`SentenceVerdict::NeedsRederivation`]: the mutation may be accepted only once the
     /// re-derivation accepts each of them. This is not an acceptance.
     NeedsRederivation,
+    /// The judge refuses nothing, and every changed sentence is [`SentenceVerdict::Grammar`]:
+    /// the mutation may be accepted only once the grammar judgement accepts its edits of the
+    /// grammar. This is not an acceptance.
+    NeedsGrammarJudgement,
+    /// The judge refuses no sentence, but the mutation changes a grammar declaration and a rule
+    /// together: the rule's re-derivation reads the baseline's grammar and the grammar
+    /// judgement keeps every rule's term, so neither stage judges both, and the mutation is
+    /// refused.
+    GrammarAndRules,
 }
 
 impl EditJudgement {
     /// The judge's answer for the mutation.
     #[must_use]
     pub fn verdict(&self) -> MutationVerdict {
+        let grammar = |sentence: &SentenceJudgement| sentence.verdict == SentenceVerdict::Grammar;
         if self.outside.is_empty() && self.sentences.is_empty() {
             MutationVerdict::ChangesNoNode
         } else if !self.outside.is_empty()
@@ -95,6 +109,10 @@ impl EditJudgement {
                 .any(|sentence| sentence.verdict.refuses())
         {
             MutationVerdict::Refused
+        } else if self.sentences.iter().all(grammar) {
+            MutationVerdict::NeedsGrammarJudgement
+        } else if self.sentences.iter().any(grammar) {
+            MutationVerdict::GrammarAndRules
         } else {
             MutationVerdict::NeedsRederivation
         }
@@ -103,7 +121,10 @@ impl EditJudgement {
     /// Whether the judge alone refuses the mutation.
     #[must_use]
     pub fn refused(&self) -> bool {
-        self.verdict() != MutationVerdict::NeedsRederivation
+        !matches!(
+            self.verdict(),
+            MutationVerdict::NeedsRederivation | MutationVerdict::NeedsGrammarJudgement
+        )
     }
 }
 
@@ -183,17 +204,23 @@ pub enum SentenceVerdict {
         /// The outermost family nodes the edits reach, in text order.
         nodes: Vec<InsertedNodeRef>,
     },
-    /// The sentence is not a rule, a claim or a raw sentence: an edit of a declaration (a
-    /// production, the configuration, a context alias) changes what every rule means, which
-    /// no per-sentence judgement decides.
+    /// The sentence is neither a rule, a claim or a raw sentence nor a grammar declaration:
+    /// an edit of a sort declaration, a subsort, the configuration or a context alias changes
+    /// what every rule means, which no per-sentence judgement decides.
     NotARule,
+    /// The sentence is a grammar declaration KRS emitted from authored syntax: a production,
+    /// a priority or an associativity sentence. The judge refuses nothing: the grammar
+    /// judgement decides the edit by what it does to the parse function, reading the
+    /// declarations the baseline and the mutant parse to. A production KRS inserted on its own
+    /// (a lifted local function's) is [`Self::InsertedOnly`] instead.
+    Grammar,
 }
 
 impl SentenceVerdict {
     /// Whether this verdict refuses the mutation.
     #[must_use]
     pub const fn refuses(&self) -> bool {
-        !matches!(self, Self::NeedsRederivation { .. })
+        !matches!(self, Self::NeedsRederivation { .. } | Self::Grammar)
     }
 }
 
@@ -344,8 +371,11 @@ impl Error for JudgeError {}
 ///    [`EditJudgement::outside`].
 ///    A sentence's own tokens (keywords, its label, its attributes) are the sentence node's,
 ///    and like any node's they count as authored unless the sentence is inserted.
-/// 4. Per sentence: an edit of a sentence other than a rule, claim or raw sentence is
-///    [`SentenceVerdict::NotARule`]; otherwise, when some node a change can alter is
+/// 4. Per sentence: an edit of a grammar declaration (a production, a priority or an
+///    associativity sentence) is [`SentenceVerdict::Grammar`], or
+///    [`SentenceVerdict::InsertedOnly`] when KRS inserted the sentence; an edit of another
+///    sentence other than a rule, claim or raw sentence is [`SentenceVerdict::NotARule`];
+///    otherwise, when some node a change can alter is
 ///    authored, the sentence is [`SentenceVerdict::CrossesInserted`] if a change removes part
 ///    of an inserted node's tokens and some outside it, [`SentenceVerdict::FamilyNotJudged`]
 ///    if a container reaches a lookup-guard or local-function family or the sentence is a
@@ -1522,12 +1552,6 @@ impl Touched {
     fn verdict(&self, context: &Context<'_, '_, '_>) -> SentenceVerdict {
         let nodes = context.nodes;
         let sentence = &nodes.all[self.sentence];
-        if !matches!(
-            sentence.entry.node_kind(),
-            SourceMapNodeKind::Rule | SourceMapNodeKind::Claim | SourceMapNodeKind::RawSentence
-        ) {
-            return SentenceVerdict::NotARule;
-        }
         let refs = |indices: Vec<usize>| {
             nodes
                 .outermost(indices)
@@ -1535,6 +1559,15 @@ impl Touched {
                 .map(|index| nodes.inserted_ref(self.sentence, index))
                 .collect::<Vec<_>>()
         };
+        if let Some(verdict) = self.grammar_verdict(nodes) {
+            return verdict;
+        }
+        if !matches!(
+            sentence.entry.node_kind(),
+            SourceMapNodeKind::Rule | SourceMapNodeKind::Claim | SourceMapNodeKind::RawSentence
+        ) {
+            return SentenceVerdict::NotARule;
+        }
         let spanned = self.spanned(context);
         let span_of = |index: usize| {
             spanned
@@ -1612,6 +1645,28 @@ impl Touched {
                 .map(|(index, parts)| self.container(context, &spanned, index, &parts))
                 .collect(),
         }
+    }
+
+    /// The verdict for a grammar declaration (a production, a priority or an associativity
+    /// sentence): [`SentenceVerdict::Grammar`], or [`SentenceVerdict::InsertedOnly`] when KRS
+    /// inserted the sentence; `None` for any other sentence.
+    fn grammar_verdict(&self, nodes: &Nodes<'_>) -> Option<SentenceVerdict> {
+        let sentence = &nodes.all[self.sentence];
+        if !matches!(
+            sentence.entry.node_kind(),
+            SourceMapNodeKind::Production
+                | SourceMapNodeKind::Precedence
+                | SourceMapNodeKind::Associativity
+        ) {
+            return None;
+        }
+        Some(if sentence.inserted.is_some() {
+            SentenceVerdict::InsertedOnly {
+                nodes: vec![nodes.inserted_ref(self.sentence, self.sentence)],
+            }
+        } else {
+            SentenceVerdict::Grammar
+        })
     }
 
     /// The deepest authored node holding each part's candidates and removed tokens, nested
@@ -1743,10 +1798,14 @@ mod tests {
     use krs_ir::InsertedNode;
 
     /// A small emitted definition: a rule with a definedness test and a block-form frame, an
-    /// equation with a label, a rule with a lookup guard, and a production.
+    /// equation with a label, a rule with a lookup guard, a production, a production KRS
+    /// inserted (a lifted local function's), and a priority sentence.
     const TEXT: &str = "module TEST
   imports INT
+  syntax Exp
   syntax KItem ::= go ( Int )
+  syntax Int ::= lifted ( Int ) [function]
+  syntax priority kgroup-a > kgroup-b
   // KRS t/src/lib.rs: d\u{e9}f
   rule [div]:
     <k> div A:Int => .K ... </k>
@@ -1762,6 +1821,10 @@ endmodule
     const DIV: &str = "  rule [div]:\n    <k> div A:Int => .K ... </k>\n    requires (A:Int =/=Int 0) andThenBool ((10 /Int A:Int) >Int 1)\n";
     const CONDITION: &str = "(A:Int =/=Int 0) andThenBool ((10 /Int A:Int) >Int 1)";
     const GO: &str = "  rule go ( N:Int ) => N:Int +Int 1 [label(t--go)]\n";
+    const SORT: &str = "  syntax Exp\n";
+    const PRODUCTION: &str = "  syntax KItem ::= go ( Int )\n";
+    const LIFTED: &str = "  syntax Int ::= lifted ( Int ) [function]\n";
+    const PRIORITY: &str = "  syntax priority kgroup-a > kgroup-b\n";
     const KEY: &str = "  rule [key]:\n    <k> key ( Krs_Instance0:KItem ) => .K </k>\n    requires Krs_Instance0:KItem ==K (M:Map [ 7 ])\n";
     const GUARD: &str = "Krs_Instance0:KItem ==K (M:Map [ 7 ])";
 
@@ -1864,6 +1927,23 @@ endmodule
                 (400, 401),
                 None,
                 Some("Go"),
+            )
+            .node(
+                "production",
+                1,
+                at(LIFTED, LIFTED),
+                (402, 403),
+                Some(("local_function", Some((100, 110)))),
+                Some("div"),
+            )
+            .node("syntax_sort", 1, at(SORT, SORT), (406, 407), None, None)
+            .node(
+                "precedence",
+                1,
+                at(PRIORITY, PRIORITY),
+                (404, 405),
+                None,
+                None,
             )
             .node("rule", 1, at(DIV, DIV), (100, 110), None, Some("div"))
             .node(
@@ -2210,10 +2290,62 @@ endmodule
         assert!(judgement.sentences.is_empty());
         assert_eq!(judgement.outside.len(), 1);
         assert_eq!(judgement.verdict(), MutationVerdict::Refused);
-        // After the production: they continue a declaration.
+        // After the priority sentence: they continue a grammar declaration, which the grammar
+        // judgement reads (and refuses there, since what they write is a rule).
         let point = at(DIV, DIV).start;
         let judgement = judge(&[KEdit::new(point..point, rule)]);
-        assert_eq!(only(&judgement).verdict, SentenceVerdict::NotARule);
+        assert_eq!(only(&judgement).verdict, SentenceVerdict::Grammar);
+        assert_eq!(judgement.verdict(), MutationVerdict::NeedsGrammarJudgement);
+    }
+
+    /// An edit of a grammar declaration KRS emitted from authored syntax is handed to the
+    /// grammar judgement, whatever part of it the edit changes; one of a production KRS
+    /// inserted is refused as an edit of an inserted node; and a mutation that changes a
+    /// grammar declaration and a rule together is refused.
+    #[test]
+    fn grammar_declarations_go_to_the_grammar_judgement() {
+        for edits in [
+            vec![edit(PRODUCTION, "go", "went")],
+            vec![edit(PRODUCTION, "( Int )", "( Int , Int )")],
+            vec![edit(PRIORITY, ">", "")],
+            vec![edit(
+                PRIORITY,
+                "kgroup-b",
+                "kgroup-b\n  syntax left kgroup-a",
+            )],
+        ] {
+            let judgement = judge(&edits);
+            let sentence = only(&judgement);
+            assert_eq!(sentence.verdict, SentenceVerdict::Grammar, "{edits:?}");
+            assert_eq!(
+                judgement.verdict(),
+                MutationVerdict::NeedsGrammarJudgement,
+                "{edits:?}"
+            );
+            assert!(!judgement.refused(), "{edits:?}");
+        }
+        assert_eq!(
+            only(&judge(&[edit(PRODUCTION, "go", "went")]))
+                .item
+                .as_ref()
+                .map(krs_ir::StableItemId::item_name),
+            Some("Go")
+        );
+        // KRS inserted the lifted function's production.
+        let judgement = judge(&[edit(LIFTED, "lifted", "raised")]);
+        let SentenceVerdict::InsertedOnly { nodes } = &only(&judgement).verdict else {
+            panic!("inserted only: {judgement:#?}");
+        };
+        assert_eq!(
+            named(nodes),
+            [(LIFTED, InsertedNode::LocalFunction, None, Some((100, 110)))]
+        );
+        assert_eq!(judgement.verdict(), MutationVerdict::Refused);
+        // A grammar declaration and a rule together.
+        let judgement = judge(&[edit(PRODUCTION, "go", "went"), edit(GO, "+Int 1", "+Int 2")]);
+        assert_eq!(judgement.sentences.len(), 2, "{judgement:#?}");
+        assert_eq!(judgement.verdict(), MutationVerdict::GrammarAndRules);
+        assert!(judgement.refused());
     }
 
     /// A sentence's own tokens are the sentence node's, and authored; layout and comments are
@@ -2408,10 +2540,11 @@ endmodule
         );
     }
 
-    /// An edit of a declaration is not judged per sentence.
+    /// An edit of a declaration other than a grammar declaration (here a sort declaration) is
+    /// not judged per sentence.
     #[test]
     fn declarations() {
-        let judgement = judge(&[edit("go ( Int )", "Int", "Int , Int")]);
+        let judgement = judge(&[edit(SORT, "Exp", "Exps")]);
         assert_eq!(only(&judgement).verdict, SentenceVerdict::NotARule);
         assert_eq!(judgement.verdict(), MutationVerdict::Refused);
     }

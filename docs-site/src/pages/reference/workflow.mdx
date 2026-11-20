@@ -1434,6 +1434,7 @@ In a `check` document, each mutation that resolves gains `krs = {edits}`, and on
 | `authored` | changes syntax the author wrote, or a key cell KRS adds for the instance a rule is about, which is the key the authored pattern matches | the authored nodes it changes; for a key cell, the authored node that holds it |
 | `inserted` | changes or cuts through a node KRS inserted on its own (a definedness test, a key guard, an implicit frame, a generated binder), so the row is refused as `generated-only` or `not-judged` | the authored node each inserted node comes from |
 | `deleted` | removes its rule (`delete = true`) | the rule's item |
+| `grammar` | changes a grammar declaration KRS emits (a production, a priority or an associativity sentence), judged by what it does to the parse function | the declaration's Rust item (a variant, a precedence chain) |
 | `no-node` | changes no node of a rule's syntax: layout or comments only, a declaration, or tokens outside every rule sentence | the rule's item |
 | `not-judged` | was not judged: an edit of the mutation edits another file than `definition.k`, the krs front end cannot read the emission, the edits do not apply to it, or the mutant kink-flow resolved differs from the emission with the same edits applied | the rule's item |
 

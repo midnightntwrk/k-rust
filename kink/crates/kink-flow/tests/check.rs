@@ -2034,8 +2034,8 @@ fn a_deleted_production_a_rule_applies_is_not_admitted() {
     );
 }
 
-/// PJ-34 (U34h): a KRS flow (one that names a definition, whose front end judges no production
-/// edit) gets no generated row: the set is one refused row, `grammar-set-not-judged`; and a set
+/// PJ-34 (U34h): a KRS flow (one that names a definition, whose front end judges written
+/// production edits only) gets no generated row: the set is one refused row, `grammar-set-not-judged`; and a set
 /// one of whose rows takes a written mutation's id is one refused row,
 /// `grammar-set-id-collision`. Either refusal is in the set's summary.
 #[test]

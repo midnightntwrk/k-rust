@@ -875,9 +875,10 @@ pub enum InvalidReason {
     /// limit, neither a fault of the mutation nor a verdict, so the row's status is `error`; `check`
     /// resolves the mutation.
     GrammarNotRun,
-    /// A generated grammar set ([`GrammarSet`]) in a flow whose front end judges no production
-    /// edit (a KRS flow, whose productions are emitted from Rust items): kink generates no row it
-    /// would run unjudged, so the set gives no mutant (U34h).
+    /// A generated grammar set ([`GrammarSet`]) in a flow whose front end judges written
+    /// production edits only (a KRS flow, whose productions are emitted from Rust items; a
+    /// generated row has no text edit for it to judge): kink generates no row it would run
+    /// unjudged, so the set gives no mutant (U34h).
     GrammarSetNotJudged,
     /// A row a generated grammar set expands into has the id of a written mutation, of another
     /// set or of another of its rows.
@@ -1067,8 +1068,9 @@ impl InvalidReason {
                  not yet parse the cases again under a mutant's grammar, so no run judges it"
             }
             Self::GrammarSetNotJudged => {
-                "leave the generated grammar set out of this flow's list: its front end judges no \
-                 production edit yet, so kink generates no grammar mutant for it"
+                "leave the generated grammar set out of this flow's list, and write each grammar \
+                 mutation as a text edit: its front end judges written production edits only, so \
+                 kink generates no grammar mutant for it"
             }
             Self::GrammarSetIdCollision => {
                 "rename the set or the mutation whose id a generated row takes (the detail names \

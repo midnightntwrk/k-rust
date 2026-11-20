@@ -36,7 +36,8 @@
 //! [`GRAMMAR_SET_VERSION`] names the expansion: the forms, the site selection and the id scheme.
 //!
 //! A flow whose definition is KRS (`FlowManifest::definition`) gets no row: its front end judges
-//! no production edit, and a generated row would run unjudged. The set is one refused row
+//! written production edits only, a generated row has no text edit for it to judge, and it would
+//! run unjudged. The set is one refused row
 //! (`grammar-set-not-judged`), as is a set one of whose ids another mutation has
 //! (`grammar-set-id-collision`).
 
@@ -161,8 +162,8 @@ pub fn expand(manifest: &FlowManifest, loaded: &LoadedSource, set: &GrammarSet) 
             reason: InvalidReason::GrammarSetNotJudged,
             detail: format!(
                 "the flow's definition is {definition}, whose productions its front end emits \
-                 from Rust items and judges no edit of: a generated grammar mutant of it would \
-                 run unjudged"
+                 from Rust items and judges by the text edits of a mutation: a generated grammar \
+                 mutant of it has none, and would run unjudged"
             ),
         };
         return refused(summary, refusal);
