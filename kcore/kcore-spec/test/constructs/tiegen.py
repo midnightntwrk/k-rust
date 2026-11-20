@@ -277,7 +277,10 @@ What it states where the text:
   one H meets (`paramsTotal_witness`, `consistent_witness`: `constH` at a value exhibited of the
   parameters' result sort); refused where that list is not empty, no one exhibited value is of every
   such parameter's result sort, or an open generator, agreement, match independence or condition is
-  owed beside it;
+  owed beside it, unless `--hand consistency` gives a section that states `consistent` for every H
+  with no hypothesis on H (a `[total]` function owes its totality, `total_named`, as of a function
+  without an equation, whose values are the interpretation's): no `ParamsTotal` is then stated, and
+  the function functional sentences are owed as `FnHyp` unless the section states `fnHypH`;
 - is not plain (`FnFacts`): `owed_rules`, `owed_clauses`, `openDecidedH`;
 - reads a confined sort: `readsConfined_c` true, the theory `Γc`, the entailments
   over Γ restated over `Γc` (`entails_c`, the `_c` forms), `gamma_origin_c` (Bool holding only its
@@ -1792,8 +1795,12 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     # where a `[total]` function applies a parameter the text declares total, its totality holds
     # under the interpretations total on those parameters (`totalObligationsRP callOrder
     # defn.totalParams`): the statements take `ParamsTotal` as the hypothesis on H, and one H meets
-    # it (`constH` at a value the search exhibits of the parameters' one result sort)
-    tp_held = tp_params and head.get("totalTp") == "true" and head.get("totalWit") == "true"
+    # it (`constH` at a value the search exhibits of the parameters' one result sort). Where the
+    # consistency section is by hand and owes a fact (`held_total`), it states `consistent` for every
+    # H with no hypothesis on H, which is what the totality is read for: no `ParamsTotal` is stated,
+    # and a function that still lacks its totality leaves its functional sentence owed as `FnHyp`
+    tp_held = (tp_params and not held_total and head.get("totalTp") == "true"
+               and head.get("totalWit") == "true")
     # otherwise, where the tie states `FnHyp` for every H (`fnHypH`, without a hypothesis on H: the
     # consistency section by hand, or the generated one of a text without an open generator, an owed
     # agreement or a parameter declared total), and each function functional sentence is, as written,
@@ -1912,7 +1919,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     param_fun = by_class[PARAM_FUNCTIONAL_CLASS]
     total_names = re.findall(r"[^\s\[\],]+", head.get("totalParams", ""))
     user_lem, user_lem_v = by_class[USER_LEMMA_CLASS], by_class[USER_LEMMA_VALUES_CLASS]
-    if tp_params and (not tp_held or raw or agree or ob["match"] or ob["owed"]):
+    if tp_params and not held_total and (not tp_held or raw or agree or ob["match"] or ob["owed"]):
         raise Refused(f"{name}: a `[total]` function owes the totality of a parameter the text declares total "
                       f"(`totalObligationsRP callOrder []` not empty): tiegen states `ParamsTotal` as the hypothesis "
                       f"only where the totality holds under it (`totalObligationsRP callOrder defn.totalParams` empty), "
