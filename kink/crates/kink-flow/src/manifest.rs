@@ -694,13 +694,16 @@ pub struct Program {
     /// `text`; `None` for a case of a definition without `$PGM`, which binds every variable by
     /// name.
     pub source: Option<ProgramSource>,
-    /// The sort the program text is read at; only with a program text.
+    /// The sort the program text is read at; only with a program text: `file` or `text`, or a
+    /// case document's `PGM` input at the K level.
     pub start_sort: Option<String>,
     /// Configuration variables, name (without `$`) to K text, sorted by name.
     pub variables: Vec<(String, String)>,
     /// `inputs`: typed inputs by input name, each a document of the front end's encoding, kept
     /// as written; kink-flow never reads them itself. Only a front end's [`InputDecoder`] reads
-    /// them (`FlowManifest::input_decoder`); without one admission refuses the program.
+    /// them (`FlowManifest::input_decoder`); without one admission refuses the program, except a
+    /// case of a case document of a flow with a K declaration, whose inputs admission reads as K
+    /// texts by configuration variable (`crate::admit`, "Case documents at the K level").
     pub inputs: Table,
     /// The case document a `cases` pattern matched, which gave `inputs`: its path relative to the
     /// manifest's directory as matched (the program's id, or the id up to its `#` for a named
@@ -732,8 +735,9 @@ pub struct Program {
     pub provenance: Option<Provenance>,
     /// `expect = { rejected = STAGE }` of a `[[program]]` or `files` entry: the program must be
     /// rejected before it runs, at the stage named ([`RejectedStage`]); admission decides whether
-    /// it is (`crate::admit::InputSession::admit`). Like `expect`, in no digest. `None` for every
-    /// other program, a case of a case document included (whose `expect` states an end).
+    /// it is (`crate::admit::InputSession::admit`). Like `expect`, in no digest. Also a case
+    /// document's `expect = { rejected = STAGE }` in a flow with a K declaration, whose inputs are
+    /// K texts. `None` for every other program.
     pub rejected: Option<RejectedStage>,
     /// `stop_count`: the stop event this program's run ends at, in place of `[stop] count`: the
     /// count is a property of the observation of one program (a console ROM that needs more
@@ -771,21 +775,31 @@ const REJECTED_FORM: &str = "a program entry's `expect` states only that the pro
 /// `expect` of the `[[program]]` or `files` entry `entry` named `key`, when given: the one form
 /// [`REJECTED_FORM`] says, a table whose one key is `rejected`, `parse` or `input`.
 fn rejected(entry: &Table, key: &str) -> Result<Option<RejectedStage>, ManifestError> {
+    rejected_in(entry, key, REJECTED_FORM)
+}
+
+/// `expect` of `entry` named `key`, when given, in the one form a rejection is stated in (a table
+/// whose one key is `rejected`, `parse` or `input`), refused otherwise with `form`, which says it.
+fn rejected_in(
+    entry: &Table,
+    key: &str,
+    form: &str,
+) -> Result<Option<RejectedStage>, ManifestError> {
     let Some(expect) = entry.get("expect") else {
         return Ok(None);
     };
     let at = join(key, "expect");
     let Value::Table(table) = expect else {
-        return Err(ManifestError::new(at, REJECTED_FORM));
+        return Err(ManifestError::new(at, form));
     };
     if let Some(other) = table.keys().find(|name| *name != "rejected") {
-        return Err(ManifestError::new(join(&at, other), REJECTED_FORM));
+        return Err(ManifestError::new(join(&at, other), form));
     }
     match table.get("rejected") {
         Some(Value::String(stage)) if stage == "parse" => Ok(Some(RejectedStage::Parse)),
         Some(Value::String(stage)) if stage == "input" => Ok(Some(RejectedStage::Input)),
-        Some(_) => Err(ManifestError::new(join(&at, "rejected"), REJECTED_FORM)),
-        None => Err(ManifestError::new(at, REJECTED_FORM)),
+        Some(_) => Err(ManifestError::new(join(&at, "rejected"), form)),
+        None => Err(ManifestError::new(at, form)),
     }
 }
 
@@ -1106,6 +1120,10 @@ impl ManifestFile {
             .transpose()?;
         let cases = CaseRoot::of(directory, corpus.as_ref());
         let scope = spec.expect_scope().to_owned();
+        let level = match spec {
+            SpecDecl::K(_) => case_document::CaseLevel::K,
+            SpecDecl::Krs(_) => case_document::CaseLevel::Krs,
+        };
         let budget = match top.get("budget") {
             None => Budget::default(),
             Some(value) => budget(value)?,
@@ -1162,7 +1180,7 @@ impl ManifestFile {
         // The entry each id came from (`program[0]`, `program[2].files`), for a duplicate's error.
         let mut origins = BTreeMap::<String, String>::new();
         for (index, entry) in entries.iter().enumerate() {
-            for (program, origin) in program_entry(index, entry, &cases, &scope)? {
+            for (program, origin) in program_entry(index, entry, &cases, (&scope, level))? {
                 if let Some(first) = origins.get(&program.id) {
                     return Err(ManifestError::new(
                         program_key(&program.id),
@@ -1486,7 +1504,12 @@ impl FlowManifest {
             )));
         };
         let document = relative.to_string_lossy().replace('\\', "/");
-        Ok(case_document::case_document(&canonical, &document)?
+        let level = if self.definition.is_none() {
+            case_document::CaseLevel::K
+        } else {
+            case_document::CaseLevel::Krs
+        };
+        Ok(case_document::case_document(&canonical, &document, level)?
             .into_iter()
             .map(|case| {
                 let table = case_table(&case);
@@ -2569,12 +2592,12 @@ fn stop_count(entry: &Table, key: &str) -> Result<Option<std::num::NonZeroU64>, 
 
 /// One `[[program]]` entry: a listed program, or the matches of its `files` or `cases` pattern
 /// under the case root `cases` in the order of their ids, each with the entry it came from; `scope`
-/// is the flow's definition name ([`SpecDecl::expect_scope`]).
+/// is the flow's definition name ([`SpecDecl::expect_scope`]) and whose case documents it reads.
 fn program_entry(
     index: usize,
     value: &Value,
     cases: &CaseRoot,
-    scope: &str,
+    scope: (&str, case_document::CaseLevel),
 ) -> Result<Vec<(Program, String)>, ManifestError> {
     let position = format!("program[{index}]");
     let entry = table(value, &position)?;
@@ -2779,13 +2802,13 @@ fn files_entry(
 /// `cases = "<pattern>"`: each match is a case document, each of its cases a program (the one
 /// case of a document is the program the match names, a named case `<match>#<name>`), observed
 /// with the entry's `stop_count` when it has one, and with the expectation its `expect_for` scopes
-/// to `scope`, the flow's definition name.
+/// to `scope`'s name, the flow's definition name, read with `scope`'s level's keys.
 fn cases_entry(
     position: &str,
     entry: &Table,
     pattern: &Value,
     cases: &CaseRoot,
-    scope: &str,
+    (scope, level): (&str, case_document::CaseLevel),
 ) -> Result<Vec<(Program, String)>, ManifestError> {
     no_id(entry, position)?;
     // The count of stop events is how the corpus observes a program, not part of the case, so
@@ -2808,7 +2831,7 @@ fn cases_entry(
         .map_err(|e| ManifestError::new(&key, format!("cannot resolve {}: {e}", cases.name)))?;
     let mut programs = Vec::new();
     for document in matches {
-        for case in case_document::case_document(&root, &document)? {
+        for case in case_document::case_document(&root, &document, level)? {
             programs.push((
                 document_program(&document, case, scope, stop_count),
                 key.clone(),
@@ -2818,9 +2841,10 @@ fn cases_entry(
     Ok(programs)
 }
 
-/// `case` as a document of one case states it: `provenance`, `inputs`, `expect` and every
-/// definition's `expect_for`, each as written and only where the case gives it. A document of one
-/// case is the whole case in every reader, whichever document the case was read from.
+/// `case` as a document of one case states it: `provenance`, `inputs`, `start_sort`, `expect`
+/// (an expected end, or the rejection it states) and every definition's `expect_for`, each as
+/// written and only where the case gives it. A document of one case is the whole case in every
+/// reader, whichever document the case was read from.
 fn case_table(case: &case_document::DocumentCase) -> Table {
     let mut table = Table::new();
     if let Some(provenance) = &case.provenance {
@@ -2829,8 +2853,20 @@ fn case_table(case: &case_document::DocumentCase) -> Table {
     if !case.inputs.is_empty() {
         table.insert("inputs".into(), Value::Table(case.inputs.clone()));
     }
+    if let Some(start_sort) = &case.start_sort {
+        table.insert("start_sort".into(), Value::String(start_sort.clone()));
+    }
     if let Some(expect) = &case.expect {
         table.insert("expect".into(), Value::Table(expect.clone()));
+    }
+    if let Some(stage) = case.rejected {
+        table.insert(
+            "expect".into(),
+            Value::Table(Table::from_iter([(
+                "rejected".to_owned(),
+                Value::String(stage.as_str().to_owned()),
+            )])),
+        );
     }
     if !case.expect_for.is_empty() {
         table.insert(
@@ -2869,9 +2905,9 @@ fn document_program(
             scoped: case.expect_for.remove_entry(scope),
         },
         provenance: case.provenance,
-        rejected: None,
+        rejected: case.rejected,
         source: None,
-        start_sort: None,
+        start_sort: case.start_sort,
         variables: Vec::new(),
         inputs: case.inputs,
         stop_count,

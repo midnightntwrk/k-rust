@@ -234,8 +234,8 @@ A pattern that matches nothing is an error, not an empty corpus: a typo or a run
 
 `files` takes `start_sort`, `variables` and `inputs` beside it (`file` and `text` are the matches').
 `cases` takes no other key but `stop_count`: a match is a case document, the document `krs run --case` reads, so the document is the whole case in every tool.
-A document of one case holds the case's typed inputs under `[inputs]` by input name, the end it expects under `[expect]` and of a named definition under `[expect_for.<definition>]` ("Expectations", below) and who found it under `provenance` ("Provenance", below), and no other top-level key.
-A document of named cases holds only `case`, the list of its cases: an array (`[[case]]` tables) of named cases, each a table of `name`, `inputs`, `expect`, `expect_for` and `provenance`, and of includes, `{ "$data-file" = "path" }`, each naming a `.toml` or `.json` file whose document is such a list (an array, or a table whose one key is `case`), whose cases stand at the include's place; `case` may itself be an include.
+A document of one case holds the case's inputs under `[inputs]` by input name, the end it expects under `[expect]` and of a named definition under `[expect_for.<definition>]` ("Expectations", below) and who found it under `provenance` ("Provenance", below), and no other top-level key; in a flow with a K declaration it may also give `start_sort` (below).
+A document of named cases holds only `case`, the list of its cases: an array (`[[case]]` tables) of named cases, each a table of `name`, `inputs`, `expect`, `expect_for` and `provenance` (and `start_sort` in a flow with a K declaration), and of includes, `{ "$data-file" = "path" }`, each naming a `.toml` or `.json` file whose document is such a list (an array, or a table whose one key is `case`), whose cases stand at the include's place; `case` may itself be an include.
 A name is a nonempty string that no other case of the document has, the included files' cases included, so that the document's path and the name identify the case; the cases are programs in document order.
 A case's `run`, how `krs run --case` runs it on its own, is refused, in a case and beside `case`: kink runs every program as the corpus says (`[stop]`, `stop_count`, `[budget]`), and the ends a kill compares are those of that one observation.
 A `stop_count` beside `cases` is not part of the case but of how the corpus observes it ("Where a run ends"), and applies to every case the entry matches.
@@ -243,7 +243,28 @@ A value many cases share is written once in a file the documents include, throug
 The paths a case document's inputs name are relative to the document's directory as matched, not that of the file a link leads to, which is the directory `krs run --case` resolves them against for the same path; those an included file names, its includes' and its cases', are relative to that file, links resolved.
 The document and its included files are read when the manifest is, inside the manifest's directory by the rule a program file is read by; a document that cannot be read, is no TOML, has another key, an `inputs` that is not a table, an unnamed case, a name given twice, an include that includes itself, directly or through others, or a list of no case is a manifest error naming its program and the position.
 The last component of a `cases` pattern must end in `.toml`: kink hands typed inputs to the front end's decoder as TOML values, so it reads case documents in TOML, and an included JSON file as TOML values, refusing JSON's `null` and an integer outside TOML's 64-bit range, which have none.
-At the K level, which has no decoder, each case with inputs is refused as a listed program with `inputs` is (`inputs`/`typed-inputs`).
+
+A case is a program and its inputs whatever the front end; how the inputs are injected is the front end's.
+Under a front end's decoder (`krs kink`) they are typed values, which the decoder reads.
+At the K level (a flow with a K declaration, run by kink-flow itself, which has no decoder) they are K texts parsed by the grammar, so a case binds configuration variables to texts:
+
+```toml
+provenance = { found_by = "a grammar fuzzer" }
+start_sort = "Pgm"                    # optional; the sort PGM's text is read at
+
+[inputs]
+PGM = { "$file" = "found.imp" }       # the program text, $PGM
+IN = "3"                              # configuration variable $IN
+```
+
+Each key of `[inputs]` names a configuration variable without `$` (a name written with `$` is refused, `inputs`/`input-value`, so one variable has one spelling), and its value is the variable's text: a string, or `{ "$file" = path }`, the text of a file named relative to the file the case is written in, read inside the corpus root as the files every case document names are.
+`PGM` is the program text, read as a `[[program]]`'s `file` or `text` is: at the case's `start_sort`, else at the start position of `$PGM`'s sort, and refused on a definition without `$PGM` (`stray-program`); `start_sort` is refused at the case document where `[inputs]` has no `PGM`.
+Every other text is read as a `variables` text is.
+A file that cannot be read, escapes the root or is no UTF-8 is refused at `load` (`load-error`), as a program file is, and a text that does not parse at `parse`.
+Every value is read before any file is: one that is neither a string nor `{ "$file" = path }` is a typed value, and the case is refused as a listed program with `inputs` is (`inputs`/`typed-inputs`); a listed or `files` program's `inputs` stay typed values, since its texts are `variables`.
+The texts enter the program digest as the program text and `variables` of a `[[program]]` do, so a case stated as a case document and as a `[[program]]` with the same texts and start sort is one program to every store and shares its records: a run reads only the configuration assembled from the texts, and how they are written (inline or in a file, in a case document or in `FLOW.toml`) changes nothing it reads.
+Since its texts are parsed, such a case may state that it is rejected before it runs ("Programs rejected before they run").
+A flow of `[spec] krs` reads neither `start_sort` nor `rejected` in a case document, as `krs run --case` does not.
 
 ### Mutation lists a flow names
 
@@ -324,7 +345,9 @@ expect = { rejected = "parse" }
 ```
 
 `expect` has this one form on a `[[program]]` entry: a table whose one key is `rejected`, `parse` or `input`; any other form is a manifest error naming the key, since an expected end is a case document's.
-A case document's typed inputs are never parsed, so a case document states no rejection: `rejected` in its `expect` or a scoped expectation is refused at its position, by kink's case reader and by `krs run --case`'s alike.
+A case document of a flow with a K declaration binds K texts, which are parsed ("Programs from a pattern"), so its `expect` may state a rejection in the same form, `expect = { rejected = "parse" }` or `{ rejected = "input" }`, with no expected end beside it; such a case is decided and reported as a `[[program]]` that states one.
+A scoped expectation states the end of a run in one definition's flows, so it holds no `rejected` in any flow.
+A krs case document's typed inputs are never parsed, so it states no rejection: `rejected` in its `expect` or a scoped expectation is refused at its position, by kink's case reader and by `krs run --case`'s alike.
 
 Admission runs its stages in order: the front end's decoder reads the program's bytes and each typed input, then every K text the program binds (its program text at its start sort, each `variables` text at its sort) is parsed in assembly, then the initial configuration is checked.
 A program is rejected at `input` where the decoder refuses its program's bytes or a typed input's document (`inputs`/`input-value`), and at `parse` where a K text it binds does not parse (`inputs`/`parse`).
@@ -3492,7 +3515,7 @@ It need not match a `cases` pattern.
 A candidate's id is the id a `cases` pattern matching its document would give it (`cand/found.toml#two`).
 A FILE the reader refuses (unreadable, no TOML, a malformed key, outside the root) has one row, `refused` at stage `case-document` with the reader's message, and the command exits 2: the question cannot be asked of a file that is no case.
 A document given twice is read once.
-A `[[program]]` of `FLOW.toml` has no `provenance`, so a program text is no candidate; at the K level, which has no decoder, a candidate with typed inputs is refused (`inputs`/`typed-inputs`).
+A `[[program]]` of `FLOW.toml` has no `provenance`, so a program text is no candidate; at the K level a candidate binds K texts ("Programs from a pattern"), and one with a typed value is refused (`inputs`/`typed-inputs`).
 
 Each candidate is admitted and run on the baseline as `coverage` admits and runs a program, and its row (`candidates[]`: `{file, id, class, cause, outcome, stage, reason, detail, ends, expectation, provenance, newly_discharged, fragment}`) says one of:
 
@@ -3500,10 +3523,11 @@ Each candidate is admitted and run on the baseline as `coverage` admits and runs
 | --- | --- |
 | `refused` | Today's admission refuses it (`inputs`/`parse`, `inputs`/`input-value`, `inputs`/`expectation-value`, ...), with that `stage`, `reason` and `detail`. A refusal is an answer about the candidate and decides no exit status. |
 | `accepted` | Its baseline is `comparable` and every end is accepted: reached at the corpus's stop, or of a declared `finished` class (compare's acceptance rule, "Acceptance"), and no path of the baseline's run takes an undefined step (beside one the outcome is `unknown`, reason `undecided`: the undefined step may reject). |
-| `rejected` | Its baseline is `comparable`, every end is rejected (of a declared `refused` class, or `none`), and the definition declares a `finished` end (the front end says so, or some run of the corpus or a candidate ends at one): without one, an end it completes is not told from one it has no rule for, as `compare` refuses an acceptance view over it (`no-finished-end`), and the candidate is `unknown` for that reason. `stage` is `end`, the stage at which the run rejected it (a parse or input rejection is an admission refusal today), and `ends` gives each end's declared class, item and reason. |
+| `rejected` | Its baseline is `comparable`, every end is rejected (of a declared `refused` class, or `none`), and the definition declares a `finished` end (the front end says so, or some run of the corpus or a candidate ends at one): without one, an end it completes is not told from one it has no rule for, as `compare` refuses an acceptance view over it (`no-finished-end`), and the candidate is `unknown` for that reason. `stage` is `end`, the stage at which the run rejected it, and `ends` gives each end's declared class, item and reason. A candidate that states it is rejected before it runs (a K case document, "Programs rejected before they run") is `rejected` at the stage it states where admission rejects it there (`reason` and `detail` the refusal's), and `accepted` where admission admits it, with its unmet `expectation`; a parse or input refusal of any other candidate is `refused`. |
 | `unknown` | Neither is known, with the `reason`: an end with no declared class, or one `undecided` or `overlap`; ends of both kinds; a baseline that is not `comparable` (`no-end` for `comparable-prefix`, else its class). kink-flow's own front end reads no declared end, so without `[stop]` every comparable candidate is `unknown`. |
 
 A candidate's `expectation`, where it has one its flow checks, is its row's in `coverage` ("Expectations").
+The document is `schema: kink-flow-admit`, `version: 2`; in version 1 no candidate could state a rejection before it runs, so `rejected` always had the stage `end` and `accepted` was never an unmet statement.
 
 `newly_discharged` lists the obligations the candidate's baseline run would newly discharge, each `{family, item}` (with `corpus_unknown`, the corpus cases whose cell on it is unknown, a case whose baseline is `timeout` or `unknown` among them, and which may discharge it too).
 An obligation is one of the corpus's existential obligations as `prune` reads them ("Redundant programs"), among those a baseline run decides: the tier-1 coverage families (`rules`, `requirements` with the unique-cause level, `syntax`, `rule_windows`, `syntax_paths`), argued items' evidence (`arguments`) and the declared patterns (`patterns`).

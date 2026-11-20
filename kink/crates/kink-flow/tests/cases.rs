@@ -476,7 +476,7 @@ fn a_case_document_is_the_whole_case() {
     refused(
         "program = 1",
         &format!("{id}.program"),
-        "a case has the keys `inputs`, `expect`, `expect_for` and `provenance`",
+        "a case has the keys `inputs`, `start_sort`, `expect`, `expect_for` and `provenance`",
     );
     refused("[inputs", id, "no TOML document");
 
@@ -1232,7 +1232,7 @@ fn named_cases_are_programs_named_by_their_document_and_name() {
     refused(
         "[[case]]\nname = \"a\"\nfile = \"x\"\n",
         &format!("{id}.case[0].file"),
-        "it has the keys `name`, `inputs`, `expect`, `expect_for` and `provenance`",
+        "it has the keys `name`, `inputs`, `start_sort`, `expect`, `expect_for` and `provenance`",
     );
     refused(
         "[[case]]\nname = \"a\"\nexpect = 1\n",
@@ -2317,5 +2317,319 @@ fn admit_reports_each_candidate_and_writes_nothing() {
     assert_eq!(
         document["candidates"][1]["outcome"], "accepted",
         "{document:#}"
+    );
+}
+
+/// A definition with a program (`$PGM` of sort `Exp`) and one more configuration variable
+/// (`$N`), for the case documents of the K level (PJ-36).
+const VARS_K: &str = "module VARS-SYNTAX
+  imports INT-SYNTAX
+  syntax Exp ::= Int | Exp \"+\" Exp [strict, symbol(add)]
+endmodule
+
+module VARS
+  imports VARS-SYNTAX
+  imports INT
+  configuration <k> $PGM:Exp </k> <n> $N:Int </n>
+  syntax KResult ::= Int
+  rule [add]: I1:Int + I2:Int => I1 +Int I2
+endmodule
+";
+
+const VARS_SPEC: &str =
+    "[spec]\nentry = \"vars.k\"\nmain_module = \"VARS\"\nsyntax_module = \"VARS-SYNTAX\"\n";
+
+/// PJ-36: at the K level a case document's `[inputs]` binds configuration variables to K texts,
+/// `PGM` the program text: a string, or `{ "$file" = path }` named relative to the file the case
+/// is written in (an included file's case relative to that file). Each is read as a
+/// `[[program]]`'s `file`/`text` and `variables` are, so the case has the initial configuration
+/// and the program digest of the `[[program]]` with the same texts, and the two share their
+/// result record. A value that is no text is a typed value (`typed-inputs`, as before), a name
+/// written with `$` is refused, a file that cannot be read or is no UTF-8 is refused at `load`,
+/// a text that does not parse at `parse`, and a listed program's `inputs` stay typed.
+#[test]
+fn a_k_case_document_binds_configuration_variables_to_texts() {
+    let dir = scratch("k-case-texts");
+    write(&dir.join("vars.k"), VARS_K);
+    write(&dir.join("cases/progs/add.calc"), "1 + 2");
+    write(&dir.join("cases/data/progs/add.calc"), "1 + 2");
+    fs::write(dir.join("cases/progs/latin1.calc"), [0x31, 0xe9]).unwrap();
+    write(
+        &dir.join("cases/inline.toml"),
+        "[inputs]\nPGM = \"1 + 2\"\nN = \"3\"\n",
+    );
+    write(
+        &dir.join("cases/file.toml"),
+        "[inputs]\nPGM = { \"$file\" = \"progs/add.calc\" }\nN = \"3\"\n",
+    );
+    write(
+        &dir.join("cases/sorted.toml"),
+        "start_sort = \"Exp\"\n[inputs]\nPGM = \"1 + 2\"\nN = \"3\"\n",
+    );
+    write(
+        &dir.join("cases/named.toml"),
+        "[[case]]\n\"$data-file\" = \"data/more.toml\"\n\
+         [[case]]\nname = \"typed\"\ninputs = { PGM = \"1\", N = 3 }\n\
+         [[case]]\nname = \"dollar\"\ninputs = { PGM = \"1\", \"$N\" = \"3\" }\n\
+         [[case]]\nname = \"missing\"\ninputs = { PGM = { \"$file\" = \"progs/gone.calc\" }, N = \"3\" }\n\
+         [[case]]\nname = \"latin1\"\ninputs = { PGM = { \"$file\" = \"progs/latin1.calc\" }, N = \"3\" }\n\
+         [[case]]\nname = \"unparsed\"\ninputs = { PGM = \"1 +\", N = \"3\" }\n\
+         [[case]]\nname = \"ill-sorted\"\ninputs = { PGM = \"1\", N = \"1 + 2\" }\n",
+    );
+    write(
+        &dir.join("cases/data/more.toml"),
+        "[[case]]\nname = \"included\"\ninputs = { PGM = { \"$file\" = \"progs/add.calc\" }, N = \"3\" }\n",
+    );
+    let flow = |programs: &str| write(&dir.join("FLOW.toml"), &format!("{VARS_SPEC}{programs}"));
+    flow(
+        "\n[[program]]\ncases = \"cases/*.toml\"\n\n\
+         [[program]]\nid = \"as-program\"\nfile = \"cases/progs/add.calc\"\nvariables = { N = \"3\" }\n\n\
+         [[program]]\nid = \"as-sorted-program\"\ntext = \"1 + 2\"\nstart_sort = \"Exp\"\nvariables = { N = \"3\" }\n\n\
+         [[program]]\nid = \"listed-inputs\"\ntext = \"1\"\ninputs = { N = \"3\" }\n",
+    );
+    let manifest = read(&dir).unwrap();
+    let programs = manifest.programs.clone();
+    let (record, admitted) = on_stack({
+        let manifest = manifest.clone();
+        move || kink_flow::admit::admit_spec(&manifest)
+    });
+    assert!(record.refusal.is_none(), "{}", record.text());
+    let (spec, mut inputs) = admitted.unwrap();
+    let mut session = inputs.session(&spec);
+    let mut digests = std::collections::BTreeMap::new();
+    let mut initial = std::collections::BTreeMap::new();
+    let mut refused = Vec::new();
+    for program in &programs {
+        match session
+            .read(program)
+            .and_then(|read| Ok((session.test_case(program, &read)?, read)))
+        {
+            Ok((test, read)) => {
+                digests.insert(
+                    program.id.clone(),
+                    kink_flow::digest::program_digest(program, &read),
+                );
+                initial.insert(program.id.clone(), test.initial_state);
+            }
+            Err(refusal) => refused.push((program.id.clone(), refusal)),
+        }
+    }
+    let at = |stage: &str, reason: &str| format!("{stage}/{reason}");
+    assert_eq!(
+        refused
+            .iter()
+            .map(|(id, r)| (id.as_str(), at(&r.stage, &r.reason)))
+            .collect::<Vec<_>>(),
+        [
+            ("cases/named.toml#typed", at("inputs", "typed-inputs")),
+            ("cases/named.toml#dollar", at("inputs", "input-value")),
+            ("cases/named.toml#missing", at("load", "load-error")),
+            ("cases/named.toml#latin1", at("load", "load-error")),
+            ("cases/named.toml#unparsed", at("inputs", "parse")),
+            ("cases/named.toml#ill-sorted", at("inputs", "parse")),
+            ("listed-inputs", at("inputs", "typed-inputs")),
+        ],
+        "{refused:#?}"
+    );
+    let detail = |id: &str| {
+        refused
+            .iter()
+            .find(|(refused, _)| refused == id)
+            .unwrap()
+            .1
+            .detail
+            .clone()
+    };
+    assert!(
+        detail("cases/named.toml#typed").contains("input `N` is no K text"),
+        "{refused:#?}"
+    );
+    assert!(
+        detail("cases/named.toml#dollar").contains("without `$` (`N`)"),
+        "{refused:#?}"
+    );
+    assert!(
+        detail("cases/named.toml#missing").contains("cases/progs/gone.calc"),
+        "{refused:#?}"
+    );
+    assert!(
+        detail("cases/named.toml#latin1").contains("is not UTF-8"),
+        "{refused:#?}"
+    );
+    // One program to every store, however it is stated.
+    let program = &digests["as-program"];
+    for id in [
+        "cases/inline.toml",
+        "cases/file.toml",
+        "cases/named.toml#included",
+    ] {
+        assert_eq!(&digests[id], program, "{id}");
+        assert_eq!(initial[id], initial["as-program"], "{id}");
+    }
+    // The start sort is part of the statement, as it is of a `[[program]]`'s.
+    assert_eq!(digests["cases/sorted.toml"], digests["as-sorted-program"]);
+    assert_ne!(digests["cases/sorted.toml"], *program);
+
+    // A record the `[[program]]` wrote answers the case: the same digest, read from the cache.
+    flow(
+        "\n[[program]]\nid = \"as-program\"\nfile = \"cases/progs/add.calc\"\nvariables = { N = \"3\" }\n",
+    );
+    let manifest = read(&dir).unwrap();
+    let (first, _) =
+        on_stack(move || kink_flow::coverage::coverage(&manifest, &CoverageOptions::default()));
+    assert_eq!(first["programs"][0]["class"], "comparable", "{first:#}");
+    flow("\n[[program]]\ncases = \"cases/inline.toml\"\n");
+    let manifest = read(&dir).unwrap();
+    let (second, _) =
+        on_stack(move || kink_flow::coverage::coverage(&manifest, &CoverageOptions::default()));
+    let row = &second["programs"][0];
+    assert_eq!(row["id"], "cases/inline.toml", "{second:#}");
+    assert_eq!(row["digest"], first["programs"][0]["digest"], "{second:#}");
+    assert_eq!(row["cached"], true, "{second:#}");
+}
+
+/// PJ-36: `admit` takes a K case document: each candidate binds K texts, is admitted and run, and
+/// its newly discharged obligations are computed; without declared ends or `[stop]` a comparable
+/// candidate is `unknown`. A candidate that states it is rejected before it runs is `rejected`
+/// at that stage where the grammar rejects it and `accepted` (an unmet statement, exit 1) where
+/// it does not, and each prints its fragment, which states `start_sort` and the rejection, so the
+/// saved fragment is the same case.
+#[test]
+fn admit_takes_a_k_case_document() {
+    let dir = scratch("admit-k");
+    write(&dir.join("vars.k"), VARS_K);
+    write(
+        &dir.join("FLOW.toml"),
+        &format!(
+            "{VARS_SPEC}\n[[program]]\nid = \"one\"\ntext = \"1\"\nvariables = {{ N = \"0\" }}\n"
+        ),
+    );
+    write(&dir.join("cand/progs/add.calc"), "1 + 2");
+    write(
+        &dir.join("cand/found.toml"),
+        "provenance = { found_by = \"a grammar fuzzer\" }\nstart_sort = \"Exp\"\n\
+         [inputs]\nPGM = { \"$file\" = \"progs/add.calc\" }\nN = \"3\"\n",
+    );
+    write(
+        &dir.join("cand/malformed.toml"),
+        "[[case]]\nname = \"bad\"\nexpect = { rejected = \"parse\" }\ninputs = { PGM = \"1 +\", N = \"3\" }\n\
+         [[case]]\nname = \"good\"\nexpect = { rejected = \"parse\" }\ninputs = { PGM = \"1\", N = \"3\" }\n",
+    );
+    let before = tree(&dir);
+    let command = kink_flow::FlowCommand::parse(
+        "admit",
+        kink_flow::cli::CommandFiles::default(),
+        &[
+            dir.join("cand/found.toml").display().to_string(),
+            dir.join("cand/malformed.toml").display().to_string(),
+            "--reason".to_owned(),
+            "the grammar's edge".to_owned(),
+        ],
+    )
+    .unwrap();
+    let manifest = read(&dir).unwrap();
+    let (document, status) = on_stack(move || {
+        kink_flow::cli::run_command(&manifest, &command, &kink_flow::FrontEnd::default())
+    });
+    assert_eq!(tree(&dir), before, "admit wrote under the flow's directory");
+    // `good` states a rejection the grammar does not make: a finding.
+    assert_eq!(status, kink_flow::cli::EXIT_NO, "{document:#}");
+    let rows = document["candidates"].as_array().unwrap();
+    let summary = rows
+        .iter()
+        .map(|row| {
+            (
+                row["id"].as_str().unwrap(),
+                row["outcome"].as_str().unwrap(),
+                row["stage"].as_str(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        summary,
+        [
+            ("cand/found.toml", "unknown", None),
+            ("cand/malformed.toml#bad", "rejected", Some("parse")),
+            ("cand/malformed.toml#good", "accepted", None),
+        ],
+        "{document:#}"
+    );
+    assert_eq!(rows[0]["class"], "comparable", "{document:#}");
+    assert_eq!(rows[0]["reason"], "undecided", "{document:#}");
+    assert_eq!(rows[1]["reason"], "parse", "{document:#}");
+    assert_eq!(rows[2]["expectation"]["verdict"], "unmet", "{document:#}");
+    // The corpus's `1` applies no rule; the candidate's `1 + 2` applies `add`.
+    let rules = rows[0]["newly_discharged"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|entry| entry["family"] == "rules")
+        .count();
+    assert!(rules > 0, "{document:#}");
+    for row in rows {
+        assert_eq!(
+            row["provenance"]["reason"], "the grammar's edge",
+            "{document:#}"
+        );
+    }
+    let fragment = |index: usize| -> toml::Table {
+        toml::from_str(rows[index]["fragment"].as_str().unwrap()).unwrap()
+    };
+    assert_eq!(
+        fragment(0)["start_sort"].as_str(),
+        Some("Exp"),
+        "{document:#}"
+    );
+    assert_eq!(
+        fragment(0)["inputs"]["PGM"]["$file"].as_str(),
+        Some("progs/add.calc"),
+        "{document:#}"
+    );
+    assert_eq!(
+        fragment(1)["expect"]["rejected"].as_str(),
+        Some("parse"),
+        "{document:#}"
+    );
+
+    // Saved beside the candidate, each fragment is the case it was: the same statement, and the
+    // same program digest.
+    write(
+        &dir.join("cand/saved-found.toml"),
+        rows[0]["fragment"].as_str().unwrap(),
+    );
+    write(
+        &dir.join("cand/saved-bad.toml"),
+        rows[1]["fragment"].as_str().unwrap(),
+    );
+    write(
+        &dir.join("FLOW.toml"),
+        &format!(
+            "{VARS_SPEC}\n[[program]]\ncases = \"cand/found.toml\"\n\n\
+             [[program]]\ncases = \"cand/saved-*.toml\"\n"
+        ),
+    );
+    let manifest = read(&dir).unwrap();
+    let saved = manifest
+        .programs
+        .iter()
+        .find(|p| p.id == "cand/saved-bad.toml")
+        .unwrap();
+    assert_eq!(saved.rejected, Some(kink_flow::RejectedStage::Parse));
+    let (coverage, _) =
+        on_stack(move || kink_flow::coverage::coverage(&manifest, &CoverageOptions::default()));
+    let digest = |id: &str| {
+        coverage["programs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["id"] == id)
+            .unwrap()["digest"]
+            .clone()
+    };
+    assert!(digest("cand/found.toml").is_string(), "{coverage:#}");
+    assert_eq!(
+        digest("cand/found.toml"),
+        digest("cand/saved-found.toml"),
+        "{coverage:#}"
     );
 }

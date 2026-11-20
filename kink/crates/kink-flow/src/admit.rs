@@ -28,9 +28,27 @@
 //! kink reads K text only; a typed input is a document of a front end's encoding, which only the
 //! front end that knows the inputs' declared types can read, so kink asks that front end's
 //! decoder for the term it denotes and binds the term. Without a decoder (a `FLOW.toml` read at
-//! the K level) a program with `inputs` is refused (`typed-inputs`). A case's expectation is a
-//! document of the front end's encoding of ends likewise, read by the manifest's renderer of
-//! ends, and refused without one (`typed-expectation`; `crate::expect`).
+//! the K level) a program with `inputs` is refused (`typed-inputs`), except a case of a case
+//! document (below). A case's expectation is a document of the front end's encoding of ends
+//! likewise, read by the manifest's renderer of ends, and refused without one
+//! (`typed-expectation`; `crate::expect`).
+//!
+//! # Case documents at the K level
+//!
+//! A case is a program and its inputs whatever the front end; how the inputs are injected is the
+//! front end's. At the K level (a flow with a K declaration, read without a decoder) they are K
+//! texts parsed by the grammar, so a case of a case document binds configuration variables to
+//! texts: each key of its `inputs` names a variable without `$` (`$` refused: one variable, one
+//! spelling), and its value is the text, a string, or `{ "$file" = path }`, the text of a file
+//! named relative to the file the case is written in and read inside the case root (refused at
+//! `load`/`load-error` where it cannot be read, escapes the root or is no UTF-8, as a program file
+//! is). `PGM` is the program text, read as a `[[program]]`'s `file` or `text` is, at the case's
+//! `start_sort`; every other variable's text is read as a `variables` text is. Every value is
+//! read before any file: one that is neither form is a typed value, refused as before
+//! (`typed-inputs`). The texts enter the program digest and the assembly exactly as the
+//! `[[program]]` with that program text and those `variables` ([`CaseInputs::texts`]), so the two
+//! statements of one case are one program to every store. A listed or `files` program's `inputs`
+//! stay typed, as its texts are `variables`.
 //!
 //! A `[[program]]` or `files` entry may state that its program must be rejected before it runs,
 //! `expect = { rejected = "parse" }` or `{ rejected = "input" }` ([`RejectedStage`]). Admission
@@ -260,6 +278,11 @@ pub struct CaseInputs {
     /// ([`InputDecoder::defaults`]): the configuration variable's K name (without `$`) of an
     /// input the case binds no value for, and its default's KORE value, sorted by name.
     pub defaults: Vec<(String, Pattern)>,
+    /// Each configuration variable a case document binds by K text at the K level (module
+    /// documentation, "Case documents at the K level"), `PGM` aside, which is [`Self::text`]: its
+    /// K name (without `$`) and its text, sorted by name. They are read as a program's
+    /// `variables` are, beside them ([`text_variables`]). Empty for every other program.
+    pub texts: Vec<(String, String)>,
 }
 
 /// A program the front end bound otherwise than as `$PGM` text.
@@ -283,6 +306,7 @@ impl CaseInputs {
             typed: Vec::new(),
             bound: None,
             defaults: Vec::new(),
+            texts: Vec::new(),
         }
     }
 }
@@ -547,6 +571,7 @@ pub fn admit_spec_with(
                 grammar: OnceCell::new(),
                 decoder: manifest.input_decoder.clone(),
                 renderer: manifest.end_renderer.clone(),
+                case_texts: manifest.definition.is_none(),
                 time: Duration::from_millis(manifest.budget.time_ms),
             };
             (record, Some((spec, inputs)))
@@ -575,6 +600,9 @@ pub struct ProgramInputs {
     decoder: Decoder,
     /// The manifest's front-end renderer of ends, which reads expectations.
     renderer: Renderer,
+    /// Whether the flow has a K declaration, whose case documents bind K texts where no decoder
+    /// reads their inputs (module documentation, "Case documents at the K level").
+    case_texts: bool,
     /// The time bound of one program run (`[budget] time_ms`), which bounds the depth-0 run
     /// that decides whether a program's initial configuration has a value.
     time: Duration,
@@ -583,7 +611,12 @@ pub struct ProgramInputs {
 impl ProgramInputs {
     /// The program's inputs ([`read_inputs`]).
     pub fn read(&self, program: &Program) -> Result<CaseInputs, AdmissionRefusal> {
-        read_inputs(&self.root, &self.decoder, &self.renderer, program)
+        read_inputs(
+            &self.root,
+            (&self.decoder, self.case_texts),
+            &self.renderer,
+            program,
+        )
     }
 
     /// The declared defaults a case that binds exactly `bound` (K names without `$`) takes, by
@@ -615,6 +648,7 @@ impl ProgramInputs {
             grammar: &self.grammar,
             decoder: &self.decoder,
             renderer: &self.renderer,
+            case_texts: self.case_texts,
             time: self.time,
             assembler: None,
             ceil_memo: CeilMemo::default(),
@@ -636,7 +670,7 @@ impl ProgramInputs {
 /// (`inputs`/`expectation-value`; `crate::expect`).
 fn read_inputs(
     root: &Result<CaseRoot, AdmissionRefusal>,
-    decoder: &Decoder,
+    decoder: (&Decoder, bool),
     renderer: &Renderer,
     program: &Program,
 ) -> Result<CaseInputs, AdmissionRefusal> {
@@ -646,7 +680,7 @@ fn read_inputs(
 /// [`read_inputs`], its refusal saying whether it rejects the program at the stage `input`.
 fn read_inputs_staged(
     root: &Result<CaseRoot, AdmissionRefusal>,
-    decoder: &Decoder,
+    decoder: (&Decoder, bool),
     renderer: &Renderer,
     program: &Program,
 ) -> Result<CaseInputs, Refused> {
@@ -692,10 +726,11 @@ impl InputFiles for WatchedFiles<'_> {
     }
 }
 
-/// [`read_inputs`] without the expectation.
+/// [`read_inputs`] without the expectation; `case_texts` beside the decoder says whether the flow
+/// has a K declaration, whose case documents bind K texts without a decoder ([`case_texts`]).
 fn read_typed_inputs(
     root: &Result<CaseRoot, AdmissionRefusal>,
-    decoder: &Decoder,
+    (decoder, case_texts): (&Decoder, bool),
     program: &Program,
 ) -> Result<CaseInputs, Refused> {
     let root = root.clone()?;
@@ -796,9 +831,13 @@ fn read_typed_inputs(
             typed: Vec::new(),
             bound,
             defaults,
+            texts: Vec::new(),
         });
     }
     let Some(decoder_ref) = decoder.get() else {
+        if case_texts && program.case.is_some() {
+            return self::case_texts(&root, program);
+        }
         return Err(AdmissionRefusal {
             stage: "inputs".into(),
             reason: "typed-inputs".into(),
@@ -808,6 +847,13 @@ fn read_typed_inputs(
         }
         .into());
     };
+    if program.case.is_some() && program.start_sort.is_some() {
+        return Err(value_refusal(
+            "the case's start_sort reads its program text, `PGM` in `inputs`, at the K level; \
+             the front end reads its inputs as typed values, so give no start_sort"
+                .to_owned(),
+        ));
+    }
     let mut files = WatchedFiles {
         files: root.case_files(program),
         failed: false,
@@ -860,6 +906,90 @@ fn read_typed_inputs(
             .collect(),
         bound,
         defaults,
+        texts: Vec::new(),
+    })
+}
+
+/// How a case document at the K level gives a variable's text (module documentation, "Case
+/// documents at the K level").
+enum CaseText<'a> {
+    Inline(&'a str),
+    File(&'a str),
+}
+
+/// The inputs of `program`, a case of a case document of a flow with a K declaration read without
+/// a decoder (module documentation, "Case documents at the K level"): `PGM`'s text as the program
+/// text, every other variable's text in [`CaseInputs::texts`]. Each value is read before any file
+/// is: one that is neither a string nor `{ "$file" = path }` is a typed value
+/// (`inputs`/`typed-inputs`), and a name written with `$` is refused (`inputs`/`input-value`).
+/// A file is read by the case's file reader ([`CaseRoot::case_files`]), its failure or a text
+/// that is no UTF-8 refused at `load`/`load-error`, as a program file's.
+fn case_texts(root: &CaseRoot, program: &Program) -> Result<CaseInputs, Refused> {
+    let mut written = Vec::new();
+    for (name, value) in &program.inputs {
+        let text = match value {
+            toml::Value::String(text) => Some(CaseText::Inline(text)),
+            toml::Value::Table(table) if table.len() == 1 => match table.get("$file") {
+                Some(toml::Value::String(path)) => Some(CaseText::File(path)),
+                _ => None,
+            },
+            _ => None,
+        };
+        let Some(text) = text else {
+            return Err(AdmissionRefusal {
+                stage: "inputs".into(),
+                reason: "typed-inputs".into(),
+                detail: format!(
+                    "input `{name}` is no K text: at the K level a case binds each configuration \
+                     variable to K text, a string or `{{ \"$file\" = path }}`; a typed value is \
+                     read by the front end that knows the inputs' declared types (the krs front \
+                     end, `krs kink`)"
+                ),
+            }
+            .into());
+        };
+        written.push((name, text));
+    }
+    if let Some((name, _)) = written.iter().find(|(name, _)| name.starts_with('$')) {
+        return Err(AdmissionRefusal {
+            stage: "inputs".into(),
+            reason: "input-value".into(),
+            detail: format!(
+                "input `{name}`: a case's input names its configuration variable without `$` \
+                 (`{}`)",
+                name.trim_start_matches('$')
+            ),
+        }
+        .into());
+    }
+    let mut files = root.case_files(program);
+    let mut text = None;
+    let mut texts = Vec::new();
+    for (name, value) in written {
+        let value = match value {
+            CaseText::Inline(text) => text.to_owned(),
+            CaseText::File(path) => {
+                let (file, bytes) = files
+                    .read(None, path)
+                    .map_err(|message| load_refusal(format!("input `{name}`: {message}")))?;
+                String::from_utf8(bytes).map_err(|e| {
+                    load_refusal(format!("input `{name}`: {file} is not UTF-8: {e}"))
+                })?
+            }
+        };
+        if name == "PGM" {
+            text = Some(value);
+        } else {
+            texts.push((name.clone(), value));
+        }
+    }
+    texts.sort();
+    Ok(CaseInputs {
+        text,
+        typed: Vec::new(),
+        bound: None,
+        defaults: Vec::new(),
+        texts,
     })
 }
 
@@ -918,6 +1048,8 @@ pub struct InputSession<'a> {
     grammar: &'a OnceCell<Result<InputGrammar, InputError>>,
     decoder: &'a Decoder,
     renderer: &'a Renderer,
+    /// [`ProgramInputs::case_texts`].
+    case_texts: bool,
     time: Duration,
     assembler: Option<InputAssembler<'a>>,
     /// The ceil-theory judgements of the initial-state exclusions read so far, on the input
@@ -935,7 +1067,12 @@ impl<'a> InputSession<'a> {
     /// refusal and its statement met; admitted, its statement is unmet; refused otherwise, it is
     /// refused, the refusal's detail naming its statement. Its `expectation` says which.
     pub fn admit(&mut self, program: &Program) -> ProgramAdmission {
-        let admitted = match read_inputs_staged(self.root, self.decoder, self.renderer, program) {
+        let admitted = match read_inputs_staged(
+            self.root,
+            (self.decoder, self.case_texts),
+            self.renderer,
+            program,
+        ) {
             Ok(inputs) => self.case(program, &inputs),
             Err(refused) => Err(refused),
         };
@@ -998,7 +1135,12 @@ impl<'a> InputSession<'a> {
 
     /// The program's inputs, as [`ProgramInputs::read`].
     pub fn read(&self, program: &Program) -> Result<CaseInputs, AdmissionRefusal> {
-        read_inputs(self.root, self.decoder, self.renderer, program)
+        read_inputs(
+            self.root,
+            (self.decoder, self.case_texts),
+            self.renderer,
+            program,
+        )
     }
 
     /// The inputs of a program this session admitted ([`Self::admit`]), without its expectation:
@@ -1007,7 +1149,8 @@ impl<'a> InputSession<'a> {
         &self,
         program: &Program,
     ) -> Result<CaseInputs, AdmissionRefusal> {
-        read_typed_inputs(self.root, self.decoder, program).map_err(|refused| refused.refusal)
+        read_typed_inputs(self.root, (self.decoder, self.case_texts), program)
+            .map_err(|refused| refused.refusal)
     }
 
     /// The `expectation` member of `program`'s row, when it has `expect` (`crate::expect`):
@@ -1240,18 +1383,25 @@ fn declares_sort(definition: &k_rust::definition::Definition, name: &str) -> boo
     })
 }
 
+/// A program's text variables: its `variables`, then the texts its case document binds at the K
+/// level ([`CaseInputs::texts`]); a program has at most one of the two.
+pub(crate) fn text_variables<'a>(
+    program: &'a Program,
+    inputs: &'a CaseInputs,
+) -> impl Iterator<Item = &'a (String, String)> {
+    program.variables.iter().chain(&inputs.texts)
+}
+
 /// A program's bindings by name, in binding order: the program where the front end binds it
-/// by name ([`CaseInputs::bound`]), its text variables, its typed inputs, then the defaults it
-/// takes ([`CaseInputs::defaults`]).
+/// by name ([`CaseInputs::bound`]), its text variables ([`text_variables`]), its typed inputs,
+/// then the defaults it takes ([`CaseInputs::defaults`]).
 fn bindings(program: &Program, inputs: &CaseInputs) -> Vec<(String, VariableInput)> {
     inputs
         .bound
         .iter()
         .map(|bound| (bound.variable.clone(), bound.value.clone()))
         .chain(
-            program
-                .variables
-                .iter()
+            text_variables(program, inputs)
                 .map(|(name, text)| (name.clone(), VariableInput::Text(text.clone()))),
         )
         .chain(
@@ -1296,7 +1446,7 @@ fn named_inputs(program: &Program, inputs: &CaseInputs) -> String {
     };
     program_text
         .into_iter()
-        .chain(program.variables.iter().map(|(name, text)| {
+        .chain(text_variables(program, inputs).map(|(name, text)| {
             format!(
                 "${} = {}",
                 name.strip_prefix('$').unwrap_or(name),

@@ -23,8 +23,10 @@
 //! - `accepted` or `rejected`: by compare's acceptance rule ([`crate::compare`], PJ-02) over its
 //!   baseline's ends. An end reached at the corpus's stop, or of a declared `finished` class, is
 //!   accepted; one of a declared `refused` class, or `none`, is rejected, where the definition
-//!   declares a `finished` end ([`outcome`]). A rejected candidate's `stage` is `end`: today a
-//!   parse or input rejection is an admission refusal;
+//!   declares a `finished` end ([`outcome`]). A rejected candidate's `stage` is `end`, except a
+//!   candidate that states it is rejected before it runs (a K case document, whose texts are
+//!   parsed): it is `rejected` at the stage it states where admission rejects it there, and
+//!   `accepted`, its statement unmet, where admission admits it;
 //! - `unknown`: anything else, with the reason (an end with no declared class, which every end of
 //!   kink-flow's own K front end is without `[stop]`; ends of both kinds; a baseline that is not
 //!   `comparable`).
@@ -74,8 +76,11 @@ use toml::Table;
 
 /// The document's `schema`.
 pub const ADMIT_SCHEMA: &str = "kink-flow-admit";
-/// The document's `version`.
-pub const ADMIT_VERSION: u64 = 1;
+/// The document's `version`. v2 (PJ-36): a candidate may state that it is rejected before it
+/// runs (a K case document), so `rejected` may have the stage `parse` or `input` (with the
+/// refusal's `reason` and `detail`, and no `ends`) and `accepted` may be an unmet statement (its
+/// `expectation` unmet, exit 1); both rows carry `provenance` and `fragment`.
+pub const ADMIT_VERSION: u64 = 2;
 
 /// The coverage families a baseline run decides, in the document's order (`flips`, tier 2, is
 /// not among them).
@@ -537,13 +542,13 @@ fn candidate_row(
         value["detail"] = json!(detail);
         return (value, EXIT_YES);
     }
-    // A candidate is a case document, which states no rejection before its run (both case
-    // readers refuse `rejected` there, PJ-32), so no candidate's row has the class `rejected` or
-    // `accepted`. Were one to, its outcome is admission's: rejected at the stage its entry states
-    // (`parse` or `input`, as `end` is the stage of a rejection read from the ends), with the
-    // refusal's reason and detail from its cause (`STAGE/REASON: DETAIL`, as a refusal's), or
-    // accepted, with its expectation.
-    if class == ResultClass::Rejected.as_str() {
+    // A case that states its rejection before its run (a case document at the K level, whose
+    // texts are parsed; krs's case reader refuses `rejected`, PJ-32) has the class `rejected` or
+    // `accepted`, and its outcome is admission's: rejected at the stage it states (`parse` or
+    // `input`, as `end` is the stage of a rejection read from the ends), with the refusal's reason
+    // and detail from its cause (`STAGE/REASON: DETAIL`, as a refusal's), or accepted, an unmet
+    // statement, with its expectation.
+    let status = if class == ResultClass::Rejected.as_str() {
         let cause = row["cause"].as_str().unwrap_or_default();
         let (head, detail) = cause.split_once(": ").unwrap_or(("", cause));
         let reason = head.split_once('/').map_or("", |(_, reason)| reason);
@@ -552,13 +557,26 @@ fn candidate_row(
         value["reason"] = json!(reason);
         value["detail"] = json!(detail);
         value["expectation"] = row["expectation"].clone();
-        return (value, EXIT_YES);
-    }
-    if class == ResultClass::Accepted.as_str() {
+        EXIT_YES
+    } else if class == ResultClass::Accepted.as_str() {
         value["outcome"] = json!("accepted");
         value["expectation"] = row["expectation"].clone();
-        return (value, EXIT_NO);
+        EXIT_NO
+    } else {
+        ends_row(&mut value, row, class, declares_finished)
+    };
+    let (fragment, provenance) = fragment(&candidate.table, &options.provenance);
+    if let Some(provenance) = provenance {
+        value["provenance"] = provenance.value();
     }
+    value["fragment"] = json!(fragment);
+    (value, status)
+}
+
+/// The members of `value`, the row of a candidate whose baseline row is `row` (of class `class`,
+/// neither refused nor stated rejected), read from its ends ([`outcome`]), with its expectation;
+/// returns its exit status.
+fn ends_row(value: &mut Value, row: &Value, class: &str, declares_finished: bool) -> u8 {
     let mut status = EXIT_YES;
     let (outcome, stage, reason, detail) = outcome(row, declares_finished);
     if outcome == "unknown" {
@@ -586,12 +604,7 @@ fn candidate_row(
         );
         value["expectation"] = expectation.clone();
     }
-    let (fragment, provenance) = fragment(&candidate.table, &options.provenance);
-    if let Some(provenance) = provenance {
-        value["provenance"] = provenance.value();
-    }
-    value["fragment"] = json!(fragment);
-    (value, status)
+    status
 }
 
 /// The printed fragment of a candidate whose case, as a document of one case, is `table`: that

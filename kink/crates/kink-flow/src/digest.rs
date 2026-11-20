@@ -90,6 +90,11 @@ pub fn spec_digest(manifest: &FlowManifest, files: &[SourceFile]) -> Sha256Diges
 /// its inline text) when it has a program, its start sort, its configuration variables'
 /// texts sorted by name, and, when it has typed inputs, each one's decoded term.
 ///
+/// A case document at the K level binds its program text (`PGM`) and its variables' texts by
+/// name (`CaseInputs::texts`), and they enter here as the program text and `variables` of a
+/// `[[program]]` do: one stated each way with the same texts and start sort has one payload, and
+/// so shares every record, since the run reads only the configuration assembled from those texts.
+///
 /// The program enters by its bytes whichever way the front end binds them
 /// ([`crate::admit::InputDecoder::program`]: `$PGM` text, another variable's text, or a term),
 /// so a program bound as `$PGM` text has the digest it had before front ends could bind
@@ -116,7 +121,9 @@ pub fn spec_digest(manifest: &FlowManifest, files: &[SourceFile]) -> Sha256Diges
 /// default it takes changes, and a program that binds every input keeps the payload it had
 /// before defaults existed.
 pub fn program_payload(program: &Program, inputs: &CaseInputs) -> Value {
-    let mut variables = program.variables.clone();
+    let mut variables = crate::admit::text_variables(program, inputs)
+        .cloned()
+        .collect::<Vec<_>>();
     variables.sort();
     let mut payload = json!({
         "start_sort": program.start_sort,

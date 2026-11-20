@@ -30,12 +30,20 @@
 //! written and reads no member of, as it reads none of `expect`. A flow checks `expect` and the
 //! expectation `expect_for` scopes to its own definition (`crate::expect`).
 //!
-//! An expectation of a case document states the end of the case's run, so neither `expect` nor
-//! a scoped one holds `rejected`, which is refused at its position: that a program must be
-//! rejected before it runs is stated on a `[[program]]` or `files` entry (`expect = { rejected =
-//! "parse" }`), whose program text kink parses, while a case document's typed inputs never are.
+//! A case read by a front end's decoder (a flow of `[spec] krs`) has typed inputs, which are never
+//! parsed, so neither its `expect` nor a scoped one holds `rejected`, which is refused at its
+//! position: that a program must be rejected before it runs is stated on a `[[program]]` or
+//! `files` entry (`expect = { rejected = "parse" }`), whose program text kink parses.
+//!
+//! A case of a flow with a K declaration ([`CaseLevel::K`]) binds configuration variables to K
+//! texts at the K level (`crate::admit`, "Case documents at the K level"): `[inputs]` by variable
+//! name, `PGM` the program text. Its texts are parsed, so its `expect` may state that the case is
+//! rejected before it runs, in the one form a `[[program]]` states it (`expect = { rejected =
+//! "parse" }` or `"input"`, nothing beside it), and it may give `start_sort`, the sort its
+//! program text is read at, where `[inputs]` binds `PGM`. A scoped expectation holds no
+//! `rejected` at either level.
 
-use super::{CaseRoot, ManifestError, Provenance, join, program_key};
+use super::{CaseRoot, ManifestError, Provenance, RejectedStage, join, program_key};
 use crate::admit::{InputFiles, ManifestFiles};
 use std::{collections::BTreeMap, fs, path::Path};
 use toml::{Table, Value};
@@ -61,15 +69,55 @@ fn run_refused(run: Option<&Value>) -> String {
     }
 }
 
+/// Whose case documents a flow reads, which decides the keys a case may give (module
+/// documentation).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum CaseLevel {
+    /// A flow with a K declaration: a case may also give `start_sort` and `expect = { rejected =
+    /// STAGE }`, since its inputs are K texts at the K level.
+    K,
+    /// A flow of `[spec] krs`: the krs case document, the keys krs-exec's case table reads.
+    Krs,
+}
+
+impl CaseLevel {
+    /// The keys of a case at this level, besides a named case's `name`.
+    fn keys(self) -> &'static [&'static str] {
+        match self {
+            Self::K => &K_CASE_KEYS,
+            Self::Krs => &CASE_KEYS,
+        }
+    }
+
+    /// The keys of a case as messages list them, `name` first for a named case.
+    fn listed(self, named: bool) -> String {
+        let keys = named
+            .then_some("name")
+            .into_iter()
+            .chain(self.keys().iter().copied())
+            .map(|key| format!("`{key}`"))
+            .collect::<Vec<_>>();
+        let (last, rest) = keys.split_last().expect("a case has keys");
+        format!("{} and {last}", rest.join(", "))
+    }
+}
+
 /// One case of a case document.
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct DocumentCase {
     /// Its name, in a document of named cases; `None` for the one case of a document.
     pub(super) name: Option<String>,
-    /// `inputs`: typed inputs by nonempty input name, kept as written.
+    /// `inputs`: inputs by nonempty input name, kept as written (typed values for a front end's
+    /// decoder, or K texts by configuration variable at the K level).
     pub(super) inputs: Table,
-    /// `expect`: the end the case expects, kept as written.
+    /// `start_sort`: the sort the program text (`PGM` in `inputs`) is read at, in a flow with a
+    /// K declaration only.
+    pub(super) start_sort: Option<String>,
+    /// `expect`: the end the case expects, kept as written; `None` where it states a rejection.
     pub(super) expect: Option<Table>,
+    /// `expect = { rejected = STAGE }`: the case must be rejected before it runs, in a flow with
+    /// a K declaration only.
+    pub(super) rejected: Option<RejectedStage>,
     /// `expect_for`: the ends the case expects of a run on each definition it names, by
     /// definition name, each kept as written; empty without one.
     pub(super) expect_for: BTreeMap<String, Table>,
@@ -82,8 +130,13 @@ pub(super) struct DocumentCase {
 }
 
 /// The cases of the case document `id` (a path relative to the canonical case root `root`),
-/// which must resolve, links included, to a file inside `root`, in document order.
-pub(super) fn case_document(root: &CaseRoot, id: &str) -> Result<Vec<DocumentCase>, ManifestError> {
+/// which must resolve, links included, to a file inside `root`, in document order, read with the
+/// keys of `level`.
+pub(super) fn case_document(
+    root: &CaseRoot,
+    id: &str,
+    level: CaseLevel,
+) -> Result<Vec<DocumentCase>, ManifestError> {
     let key = program_key(id);
     let refused = |message: String| ManifestError::new(&key, message);
     let resolved = fs::canonicalize(root.directory.join(id))
@@ -97,7 +150,7 @@ pub(super) fn case_document(root: &CaseRoot, id: &str) -> Result<Vec<DocumentCas
     let mut document: Table = toml::from_str(&text)
         .map_err(|e| refused(format!("the case document is no TOML document: {e}")))?;
     let Some(list) = document.remove("case") else {
-        return one_case(document, &key).map(|case| vec![case]);
+        return one_case(document, &key, level).map(|case| vec![case]);
     };
     if let Some(other) = document.keys().next() {
         return Err(ManifestError::new(
@@ -117,6 +170,7 @@ pub(super) fn case_document(root: &CaseRoot, id: &str) -> Result<Vec<DocumentCas
         reading: vec![name],
         cases: Vec::new(),
         names: BTreeMap::new(),
+        level,
     };
     reader.list(&list, &join(&key, "case"), None)?;
     if reader.cases.is_empty() {
@@ -129,34 +183,59 @@ pub(super) fn case_document(root: &CaseRoot, id: &str) -> Result<Vec<DocumentCas
     Ok(reader.cases)
 }
 
-/// The keys of a case, besides a named case's `name`.
+/// The keys of a krs case, besides a named case's `name`.
 const CASE_KEYS: [&str; 4] = ["inputs", "expect", "expect_for", "provenance"];
 
+/// The keys of a case of a flow with a K declaration, besides a named case's `name`.
+const K_CASE_KEYS: [&str; 5] = ["inputs", "start_sort", "expect", "expect_for", "provenance"];
+
 /// The one case of a document whose top is `document`, named `key`.
-fn one_case(mut document: Table, key: &str) -> Result<DocumentCase, ManifestError> {
+fn one_case(
+    mut document: Table,
+    key: &str,
+    level: CaseLevel,
+) -> Result<DocumentCase, ManifestError> {
     if let Some(other) = document
         .keys()
-        .find(|other| !CASE_KEYS.contains(&other.as_str()))
+        .find(|other| !level.keys().contains(&other.as_str()))
     {
         let message = match other.as_str() {
             "run" => run_refused(document.get("run")),
             "name" => {
                 "a document of one case names none; named cases are listed under `case`".to_owned()
             }
-            _ => "unknown key in a case document; a case has the keys `inputs`, `expect`, \
-                  `expect_for` and `provenance`"
-                .to_owned(),
+            _ => format!(
+                "unknown key in a case document; a case has the keys {}",
+                level.listed(false)
+            ),
         };
         return Err(ManifestError::new(join(key, other), message));
     }
+    let inputs = super::inputs(&document, key)?;
+    let (expect, rejected) = expect(&mut document, key, level)?;
     Ok(DocumentCase {
         name: None,
-        inputs: super::inputs(&document, key)?,
-        expect: expect(&mut document, key)?,
-        expect_for: expect_for(&mut document, key)?,
+        start_sort: start_sort(&document, &inputs, key)?,
+        inputs,
+        expect,
+        rejected,
+        expect_for: expect_for(&mut document, key, level)?,
         provenance: provenance(&mut document, key)?,
         file: None,
     })
+}
+
+/// `start_sort` of a case named `key` whose inputs are `inputs`, when given: a string, given only
+/// where `inputs` binds the program text, `PGM` (only a flow with a K declaration reads the key).
+fn start_sort(case: &Table, inputs: &Table, key: &str) -> Result<Option<String>, ManifestError> {
+    let start_sort = super::optional_string(case, key, "start_sort")?;
+    if start_sort.is_some() && !inputs.contains_key("PGM") {
+        return Err(ManifestError::new(
+            join(key, "start_sort"),
+            "start_sort applies to the program text, `PGM` in `inputs`; this case has none",
+        ));
+    }
+    Ok(start_sort)
 }
 
 /// Why a case's expectation holds no `rejected` (module documentation); krs-exec's case table
@@ -166,19 +245,48 @@ const REJECTED_IN_CASE: &str = "a case document's expectation states the end of 
      of the flow's manifest, `expect = { rejected = \"parse\" }` or `{ rejected = \"input\" }` \
      (a case document's typed inputs are never parsed)";
 
-/// The expectation `expect` at `at`, refused where it holds `rejected` ([`REJECTED_IN_CASE`]).
-fn no_rejected(expect: Table, at: &str) -> Result<Table, ManifestError> {
+/// The expectation `expect` at `at`, refused where it holds `rejected` with `why`
+/// ([`REJECTED_IN_CASE`], [`REJECTED_SCOPED`]).
+fn no_rejected(expect: Table, at: &str, why: &str) -> Result<Table, ManifestError> {
     if expect.contains_key("rejected") {
-        return Err(ManifestError::new(join(at, "rejected"), REJECTED_IN_CASE));
+        return Err(ManifestError::new(join(at, "rejected"), why));
     }
     Ok(expect)
 }
 
-/// `expect` of a case named `key`: a table, when given, without `rejected`.
-fn expect(case: &mut Table, key: &str) -> Result<Option<Table>, ManifestError> {
+/// The one form a case of a flow with a K declaration states a rejection in.
+const REJECTED_CASE_FORM: &str = "a case that must be rejected before it runs states only that: \
+     `expect = { rejected = \"parse\" }` (a K text it binds does not parse) or `{ rejected = \
+     \"input\" }`, with no expected end beside it, since such a case has no run";
+
+/// Why a scoped expectation of a case of a flow with a K declaration holds no `rejected` (module
+/// documentation).
+const REJECTED_SCOPED: &str = "a scoped expectation states the end of the case's run in that \
+     definition's flows: a case whose K texts must be rejected before it runs states it in \
+     `expect`, `expect = { rejected = \"parse\" }`";
+
+/// `expect` of a case named `key`, when given: a table of the expected end without `rejected`,
+/// or, at the K level, the one form a `[[program]]` states a rejection in (module
+/// documentation), which gives the stage and no expected end.
+fn expect(
+    case: &mut Table,
+    key: &str,
+    level: CaseLevel,
+) -> Result<(Option<Table>, Option<RejectedStage>), ManifestError> {
+    if level == CaseLevel::K
+        && case
+            .get("expect")
+            .and_then(Value::as_table)
+            .is_some_and(|expect| expect.contains_key("rejected"))
+    {
+        let rejected = super::rejected_in(case, key, REJECTED_CASE_FORM)?;
+        case.remove("expect");
+        return Ok((None, rejected));
+    }
     match case.remove("expect") {
-        None => Ok(None),
-        Some(Value::Table(expect)) => no_rejected(expect, &join(key, "expect")).map(Some),
+        None => Ok((None, None)),
+        Some(Value::Table(expect)) => no_rejected(expect, &join(key, "expect"), REJECTED_IN_CASE)
+            .map(|expect| (Some(expect), None)),
         Some(_) => Err(ManifestError::new(
             join(key, "expect"),
             "expected a table of the expected end: `halt`, `rule`, `cells` and `compare`",
@@ -187,8 +295,16 @@ fn expect(case: &mut Table, key: &str) -> Result<Option<Table>, ManifestError> {
 }
 
 /// `expect_for` of a case named `key`: a nonempty table of tables by nonempty definition name,
-/// when given (module documentation); empty when absent.
-fn expect_for(case: &mut Table, key: &str) -> Result<BTreeMap<String, Table>, ManifestError> {
+/// none holding `rejected`, when given (module documentation); empty when absent.
+fn expect_for(
+    case: &mut Table,
+    key: &str,
+    level: CaseLevel,
+) -> Result<BTreeMap<String, Table>, ManifestError> {
+    let rejected = match level {
+        CaseLevel::K => REJECTED_SCOPED,
+        CaseLevel::Krs => REJECTED_IN_CASE,
+    };
     let at = join(key, "expect_for");
     let table = match case.remove("expect_for") {
         None => return Ok(BTreeMap::new()),
@@ -214,9 +330,8 @@ fn expect_for(case: &mut Table, key: &str) -> Result<BTreeMap<String, Table>, Ma
                 join(&at, &definition),
                 "a definition name is a nonempty string",
             )),
-            Value::Table(expect) => {
-                no_rejected(expect, &join(&at, &definition)).map(|expect| (definition, expect))
-            }
+            Value::Table(expect) => no_rejected(expect, &join(&at, &definition), rejected)
+                .map(|expect| (definition, expect)),
             _ => Err(ManifestError::new(
                 join(&at, &definition),
                 "an expectation scoped to a definition is a table of the expected end, as \
@@ -278,6 +393,8 @@ struct CaseList<'a> {
     cases: Vec<DocumentCase>,
     /// Each name taken, with the key of its case.
     names: BTreeMap<String, String>,
+    /// Whose case documents the flow reads.
+    level: CaseLevel,
 }
 
 impl CaseList<'_> {
@@ -304,8 +421,7 @@ impl CaseList<'_> {
             let Value::Table(case) = item else {
                 return Err(ManifestError::new(
                     here,
-                    "a named case is a table of `name`, `inputs`, `expect`, `expect_for` and \
-                     `provenance`",
+                    format!("a named case is a table of {}", self.level.listed(true)),
                 ));
             };
             let mut case = case.clone();
@@ -335,22 +451,27 @@ impl CaseList<'_> {
             }
             if let Some(other) = case
                 .keys()
-                .find(|other| !CASE_KEYS.contains(&other.as_str()))
+                .find(|other| !self.level.keys().contains(&other.as_str()))
             {
                 let message = if other == "run" {
                     run_refused(case.get("run"))
                 } else {
-                    "unknown key in a named case; it has the keys `name`, `inputs`, `expect`, \
-                     `expect_for` and `provenance`"
-                        .to_owned()
+                    format!(
+                        "unknown key in a named case; it has the keys {}",
+                        self.level.listed(true)
+                    )
                 };
                 return Err(ManifestError::new(join(&here, other), message));
             }
             self.names.insert(name.clone(), here.clone());
+            let inputs = super::inputs(&case, &here)?;
+            let (expect, rejected) = expect(&mut case, &here, self.level)?;
             self.cases.push(DocumentCase {
-                inputs: super::inputs(&case, &here)?,
-                expect: expect(&mut case, &here)?,
-                expect_for: expect_for(&mut case, &here)?,
+                start_sort: start_sort(&case, &inputs, &here)?,
+                inputs,
+                expect,
+                rejected,
+                expect_for: expect_for(&mut case, &here, self.level)?,
                 provenance: provenance(&mut case, &here)?,
                 name: Some(name),
                 file: from.map(str::to_owned),
@@ -445,7 +566,8 @@ fn include<'v>(value: &'v Value, key: &str) -> Result<Option<&'v str>, ManifestE
 #[cfg(test)]
 mod tests {
     use super::super::{
-        ExpectFor, FlowManifest, ManifestError, ManifestFile, Provenance, SpecSection,
+        ExpectFor, FlowManifest, ManifestError, ManifestFile, Provenance, RejectedStage,
+        SpecSection,
     };
     use crate::admit::CaseInputs;
     use crate::digest::{program_digest, program_payload};
@@ -476,6 +598,17 @@ mod tests {
 
     fn read(name: &str, files: &[(&str, &str)]) -> Result<FlowManifest, ManifestError> {
         FlowManifest::read(&corpus(name, files).join("FLOW.toml"))
+    }
+
+    /// [`read`] under a KRS declaration (`[spec] krs`), whose case documents krs-exec reads too.
+    fn read_krs(name: &str, files: &[(&str, &str)]) -> Result<ManifestFile, ManifestError> {
+        let dir = corpus(name, files);
+        fs::write(
+            dir.join("FLOW.toml"),
+            "[spec]\nkrs = { package = \"pkg\", definition = \"main\" }\n\n[[program]]\ncases = \"cases/*.toml\"\n",
+        )
+        .unwrap();
+        ManifestFile::read(&dir.join("FLOW.toml"))
     }
 
     fn stated(found_by: Option<&str>, reason: Option<&str>) -> Option<Provenance> {
@@ -602,6 +735,7 @@ mod tests {
             typed: Vec::new(),
             bound: None,
             defaults: Vec::new(),
+            texts: Vec::new(),
         };
         assert_eq!(
             program_payload(&bare, &inputs),
@@ -807,12 +941,169 @@ mod tests {
     /// An `expect_for` that is no table, scopes nothing, has an empty definition name or a value
     /// that is no table, or stands at the top of a document of named cases is refused, naming its
     /// position, and so is `rejected` in `expect` or a scoped expectation (PJ-32: it is stated on
-    /// a `[[program]]` or `files` entry).
+    /// a `[[program]]` or `files` entry), in a KRS flow, whose case documents krs-exec reads by
+    /// the same rule; a K flow refuses each but `rejected` in `expect` alike.
     #[test]
     fn a_malformed_expect_for_is_refused() {
         let id = "program \"cases/case.toml\"";
         for (document, key, message) in EXPECT_FOR_REFUSED {
+            let error =
+                read_krs("expect-for-refused", &[("case.toml", document)]).expect_err(document);
+            assert_eq!(error.key, format!("{id}.{key}"), "{document}: {error}");
+            assert!(error.message.contains(message), "{document}: {error}");
+            if key.ends_with("expect.rejected") {
+                continue;
+            }
             let error = read("expect-for-refused", &[("case.toml", document)]).expect_err(document);
+            assert_eq!(error.key, format!("{id}.{key}"), "{document}: {error}");
+            if key.ends_with(".rejected") {
+                assert!(
+                    error.message.contains("states it in `expect`"),
+                    "{document}: {error}"
+                );
+            } else {
+                assert!(error.message.contains(message), "{document}: {error}");
+            }
+        }
+    }
+
+    /// A case of a K flow binds K texts, which are parsed (PJ-36): it may give `start_sort`, the
+    /// sort its program text (`PGM`) is read at, and `expect = { rejected = STAGE }`, in a
+    /// document of one case, a named case and an included file's case; both become the program's
+    /// own (`start_sort`, `rejected`), and the case written as a document of one case states them.
+    #[test]
+    fn a_k_case_states_its_start_sort_and_its_rejection() {
+        let manifest = read(
+            "k-case-keys",
+            &[
+                (
+                    "one.toml",
+                    "start_sort = \"Exp\"\nexpect = { rejected = \"parse\" }\n[inputs]\nPGM = \"1 +\"\n",
+                ),
+                (
+                    "named.toml",
+                    "[[case]]\nname = \"a\"\nexpect = { rejected = \"input\" }\n\
+                     [[case]]\nname = \"b\"\nstart_sort = \"Int\"\ninputs = { PGM = \"1\", N = \"2\" }\n\
+                     [[case]]\n\"$data-file\" = \"data/more.toml\"\n",
+                ),
+                (
+                    "data/more.toml",
+                    "[[case]]\nname = \"c\"\nstart_sort = \"Exp\"\nexpect = { rejected = \"parse\" }\n\
+                     inputs = { PGM = { \"$file\" = \"bad.txt\" } }\n",
+                ),
+            ],
+        )
+        .unwrap();
+        let read = manifest
+            .programs
+            .iter()
+            .map(|program| {
+                (
+                    program.id.as_str(),
+                    program.start_sort.as_deref(),
+                    program.rejected.map(RejectedStage::as_str),
+                    program.expect.is_some(),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            read,
+            [
+                ("cases/named.toml#a", None, Some("input"), false),
+                ("cases/named.toml#b", Some("Int"), None, false),
+                ("cases/named.toml#c", Some("Exp"), Some("parse"), false),
+                ("cases/one.toml", Some("Exp"), Some("parse"), false),
+            ]
+        );
+        let dir = std::env::temp_dir()
+            .join(format!(
+                "kink-flow-case-document-unit-{}",
+                std::process::id()
+            ))
+            .join("k-case-keys");
+        let cases = manifest
+            .document_cases(&dir.join("cases/one.toml"))
+            .unwrap();
+        let (program, table) = &cases[0];
+        assert_eq!(program.rejected, Some(RejectedStage::Parse));
+        let written: toml::Table = toml::from_str(
+            "start_sort = \"Exp\"\nexpect = { rejected = \"parse\" }\n[inputs]\nPGM = \"1 +\"\n",
+        )
+        .unwrap();
+        assert_eq!(table, &written);
+    }
+
+    /// At the K level, a `start_sort` without `PGM` in `inputs`, one that is no string, and an
+    /// `expect` that states a rejection beside another key or at a stage that is none are refused,
+    /// naming the position; a KRS flow refuses `start_sort` and `rejected` as krs-exec does, with
+    /// the keys of a krs case.
+    #[test]
+    fn a_k_case_refuses_a_start_sort_without_a_program_text() {
+        let id = "program \"cases/case.toml\"";
+        for (document, key, message) in [
+            (
+                "start_sort = \"Exp\"\n[inputs]\nN = \"1\"\n",
+                "start_sort",
+                "applies to the program text, `PGM` in `inputs`",
+            ),
+            (
+                "start_sort = 1\n[inputs]\nPGM = \"1\"\n",
+                "start_sort",
+                "expected a string",
+            ),
+            (
+                "[expect]\nrejected = \"parse\"\nhalt = \"stuck\"\n",
+                "expect.halt",
+                "with no expected end beside it",
+            ),
+            (
+                "expect = { rejected = \"end\" }\n",
+                "expect.rejected",
+                "with no expected end beside it",
+            ),
+            (
+                "[[case]]\nname = \"a\"\nstart_sort = \"Exp\"\n",
+                "case[0].start_sort",
+                "applies to the program text",
+            ),
+            (
+                "[[case]]\nname = \"a\"\nsort = \"Exp\"\n",
+                "case[0].sort",
+                "it has the keys `name`, `inputs`, `start_sort`, `expect`, `expect_for` and \
+                 `provenance`",
+            ),
+            (
+                "sort = \"Exp\"\n",
+                "sort",
+                "a case has the keys `inputs`, `start_sort`, `expect`, `expect_for` and \
+                 `provenance`",
+            ),
+        ] {
+            let error = read("k-case-refused", &[("case.toml", document)]).expect_err(document);
+            assert_eq!(error.key, format!("{id}.{key}"), "{document}: {error}");
+            assert!(error.message.contains(message), "{document}: {error}");
+        }
+        for (document, key, message) in [
+            (
+                "start_sort = \"Exp\"\n[inputs]\nPGM = \"1\"\n",
+                "start_sort",
+                "unknown key in a case document; a case has the keys `inputs`, `expect`, \
+                 `expect_for` and `provenance`",
+            ),
+            (
+                "[[case]]\nname = \"a\"\nstart_sort = \"Exp\"\n",
+                "case[0].start_sort",
+                "unknown key in a named case; it has the keys `name`, `inputs`, `expect`, \
+                 `expect_for` and `provenance`",
+            ),
+            (
+                "expect = { rejected = \"parse\" }\n",
+                "expect.rejected",
+                "a case document's typed inputs are never parsed",
+            ),
+        ] {
+            let error =
+                read_krs("krs-case-refused", &[("case.toml", document)]).expect_err(document);
             assert_eq!(error.key, format!("{id}.{key}"), "{document}: {error}");
             assert!(error.message.contains(message), "{document}: {error}");
         }
@@ -839,6 +1130,7 @@ mod tests {
             typed: Vec::new(),
             bound: None,
             defaults: Vec::new(),
+            texts: Vec::new(),
         };
         assert_eq!(
             program_payload(&bare, &inputs),

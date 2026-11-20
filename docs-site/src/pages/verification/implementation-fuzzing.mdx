@@ -220,7 +220,7 @@ A found input enters the corpus in five steps.
    | --- | --- | --- |
    | `refused` | Today's admission refuses the case, with its `stage`, `reason` and `detail` (`inputs`/`input-value`, for instance). | Fix the case document if it misstates the input. A refused candidate has no fragment, and a refused case judges nothing. |
    | `accepted` | The baseline is `comparable` and every end is accepted: reached at the corpus's `[stop]`, or of a declared `finished` class. | Keep it if it discharges something, or to hold the implementation to the specification on it. |
-   | `rejected` | Every end is rejected (a declared `refused` class, or `none`), and the definition declares a `finished` end; `stage` is `end`, and `ends` gives each end's class, item and reason. | Keep it as a case the implementation must reject. |
+   | `rejected` | Every end is rejected (a declared `refused` class, or `none`), and the definition declares a `finished` end; `stage` is `end`, and `ends` gives each end's class, item and reason. A K case document that states `expect = { rejected = "parse" }` is `rejected` at `parse` where the grammar rejects its texts, and `accepted`, its statement unmet, where it does not. | Keep it as a case the implementation must reject. |
    | `unknown` | Neither is known, with the `reason`: an end with no declared class, `undecided` or `overlap`, ends of both kinds, `no-finished-end`, or a baseline that is not `comparable`. | Read `reason` and `detail` before keeping it. |
 
    `newly_discharged` lists the obligations the candidate's baseline run would discharge that no case of the corpus discharges, each `{family, item}`, with `corpus_unknown` naming corpus cases whose cell on it is unknown and may discharge it too.
@@ -263,9 +263,9 @@ A flow that declares no `[[projection]]` has one projection, `default`, which ho
 
 - It minimizes nothing.
   Minimizing is the finder's job (cargo-fuzz `tmin`, LibAFL's minimizers), against an objective of the implementation that kink cannot evaluate; `admit` judges the candidate as written.
-- It takes no program text.
-  A candidate is a case of a case document under the corpus root; a `[[program]]` of `FLOW.toml` carries no `provenance`.
-  On a K flow, `kink-flow admit FLOW.toml FILE...` refuses a case with typed inputs (`inputs`/`typed-inputs`), since kink-flow's own front end has no decoder, and reads no declared end, so without `[stop]` every comparable candidate is `unknown`: a K flow of program texts admits nothing today.
+- It takes no `[[program]]` of `FLOW.toml`, which carries no `provenance`: a candidate is a case of a case document under the corpus root.
+  On a K flow, `kink-flow admit FLOW.toml FILE...` reads a case's `[inputs]` as K texts by configuration variable (`PGM = { "$file" = "found.imp" }`, `IN = "3"`), parsed by the grammar as a `[[program]]`'s `file` and `variables` are, and refuses a typed value (`inputs`/`typed-inputs`), since kink-flow's own front end has no decoder.
+  It reads no declared end, so without `[stop]` every comparable candidate is `unknown`; a case that states `expect = { rejected = "parse" }` is decided before it runs.
 - It discharges no kill or flip: those need mutant runs, which `run` and tier-2 `coverage` make once the case is saved.
 - It writes no case file, lock or cache entry (`krs kink admit` keeps `definition.k` fresh, as every verb but `report` does), and it does not search: an input reaches it from a tool or a person.
 
@@ -281,6 +281,6 @@ A flow that declares no `[[projection]]` has one projection, `default`, which ho
 
 ## How this page is checked
 
-- No output on this page is recorded: the package `my-cpu` and the crate `my_cpu_impl` are examples, not fixtures, and the document fields named are those of `kink-flow-admit` version 1 (kink-flow `src/candidates.rs`).
+- No output on this page is recorded: the package `my-cpu` and the crate `my_cpu_impl` are examples, not fixtures, and the document fields named are those of `kink-flow-admit` version 2 (kink-flow `src/candidates.rs`).
 - The counting allocator was compiled and run with `rustc`; the LibAFL feedback was checked against LibAFL 0.16.1's documented `Feedback`, `StateInitializer`, `Named` and `HasTargetBytes`, not compiled.
 - `bun run check` checks the page's internal links and anchors.

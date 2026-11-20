@@ -1371,6 +1371,7 @@ fn fragment(template: &Template, instance: &Instance, case: &WitnessCase) -> Fra
         typed: Vec::new(),
         bound: None,
         defaults: Vec::new(),
+        texts: Vec::new(),
     };
     let digest = program_digest(&program, &inputs).to_string();
     let id = format!("{}-fz-{}", template.id, &digest[..8]);
@@ -1631,6 +1632,7 @@ fn template_inputs(instance: &Instance) -> CaseInputs {
         typed: Vec::new(),
         bound: None,
         defaults: Vec::new(),
+        texts: Vec::new(),
     }
 }
 
