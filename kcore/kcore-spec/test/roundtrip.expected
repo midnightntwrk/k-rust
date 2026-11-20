@@ -247,6 +247,7 @@ differs f2-examples/e5-ovl-fun.kompile.kore
 differs f2-examples/e5-setitem-lhs.kompile.kore
 differs f2-examples/e6-builtintext-unif-subst.kompile.kore
 differs f2-examples/e6-divides-int.kompile.kore
+differs f2-examples/e6-float-literals.kompile.kore
 differs f2-examples/e6-int2bytes-nolen.kompile.kore
 differs f2-examples/e6-ite-k.kompile.kore
 differs f2-examples/e6-list-set-lhs-bound.kompile.kore
@@ -430,6 +431,7 @@ differs f2-examples/rdr-ite-own-hook.kompile.kore
 differs f2-examples/rdr-ite-own.kompile.kore
 differs f2-examples/rdr-ite-two-eq.kompile.kore
 differs f2-examples/rdr-ite-two.kompile.kore
+differs f2-examples/rdr-keq-only.kompile.kore
 differs f2-examples/rdr-nopgm.kompile.kore
 differs f2-examples/rdr-pred-rule.kompile.kore
 differs f2-examples/rdr-proj-norule.kompile.kore
