@@ -15,8 +15,8 @@
   ((#Or0 ∈ #2) ∧ (#2 = f(X)))` (`clFix`); `eqFree` (the body equates Z with no term) and `eqSelf`
   (with a term holding Z) are moved as before; `eqUnderApp` (the `\or` under an application) and
   `eqTwo` (a binder in each alternative, of one name) keep theirs; `eqArg` (a binder named as the
-  argument) is refused `patternConnective`; `eqBool` is moved over `NB` and kept where the names
-  give Bool a value beside its literals. With no sort accepted as having a value the kept binder
+  argument) is refused `patternConnective`; `eqBool` is moved over `NB`; where the names give Bool a
+  value beside its literals its alternative `∃C. (#Or0 ∈ C ∧ C = X)` is read as `#Or0 ∈ X`. With no sort accepted as having a value the kept binder
   is refused `existentialEquation` as a moved one is.
   Kernel-checked: `scoped_steps` (`ceEqn`, `ceRead`'s clause, the reader's clause, the refusal's
   reason), `scoped_fixes` (the body fixes the bound index; `Clause.fixedExs` holds the disjunction's
@@ -210,7 +210,7 @@ eqBool, Bool with a value beside its literals: ceEqn leaves the right side true;
 eqBool, Bool with a value beside its literals:
   [0] vars [X:Bool, 'Hash'Or0:Bool] pats [X] req none prio 50 aside false
       pre ⊤
-      rhs 'Hash'Or0 ens none exs [1] post (('Hash'Or0 ∈[Bool] X) ∨ ∃.(('Hash'Or0 ∈[Bool] #2) ∧ (#2 =[Bool] X)))
+      rhs 'Hash'Or0 ens none exs [1] post (('Hash'Or0 ∈[Bool] X) ∨ ('Hash'Or0 ∈[Bool] X))
 eqFix, no sort accepted: refused KCore.Parse.RefusalReason.existentialEquation (VarZ: bound in one alternative of \or at a sort without a value (Int, which the test of a value does not accept))
 -/
 #guard_msgs in

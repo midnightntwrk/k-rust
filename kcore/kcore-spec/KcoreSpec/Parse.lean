@@ -135,7 +135,9 @@ inductive RefusalReason where
   /-- A connective that no term has, of those kompile 7.1.337 writes: `\or`, `\not`, `\ceil`,
   `\exists`, … (the others are `unkompiledForm`). -/
   | patternConnective
-  /-- An element variable not named `Var…`. -/
+  /-- An element variable not named `Var…`; or, in a sentence whose rule or clause has a condition
+  the emitted text writes with a binder (`canonBinderNameGuard`), a variable named `V<i>` for an
+  index i at or above the number of its variables: the name `Cond.binder` gives the binder at i. -/
   | variableName
   /-- One variable at two sorts. -/
   | variableSort
@@ -4451,6 +4453,41 @@ def preConj : Cond → Cond → Cond
   | p, .top => p
   | p, q => .and p q
 
+/-- The condition, as `Cond.kore` writes it, holds a binder: an `ex`, an `all`, or an `exMatch`
+with a variable to bind (`KoreAML.existsAll` over no variable is its body). -/
+def condWritesBinder : Cond → Bool
+  | .exMatch ys _ _ _ body => !ys.isEmpty || condWritesBinder body
+  | .ex .. | .all .. => true
+  | .not p => condWritesBinder p
+  | .and p q | .or p q | .implies p q => condWritesBinder p || condWritesBinder q
+  | _ => false
+
+/-- The index i of a name spelled `V<i>` as `Cond.binder` spells the binder at the index i
+(`"V" ++ toString i`): `V` and the decimal digits of i, with no leading zero. `none` for any other
+name. -/
+def canonBinderIdx? (n : String) : Option Nat :=
+  match n.toList with
+  | 'V' :: d :: ds =>
+    if (d :: ds).all Char.isDigit && (d != '0' || ds.isEmpty) then
+      some ((d :: ds).foldl (fun a ch => 10 * a + (ch.toNat - '0'.toNat)) 0)
+    else none
+  | _ => none
+
+/-- A rule or clause whose conditions `conds` the emitted text writes (`Emit.rulePattern` a rule's
+`pre` and `post`; `Emit.clauseAx` and `Emit.exclusion` a clause's `pre`) under the presentation's
+names `names` of its `n` variables. `Cond.kore` names a binder of a condition by its index, past the
+variables in scope: `V<i>` (`Cond.binder`) for i from n up. A variable named `V<i>` with n ≤ i,
+held in the body of the binder at i, is written there as that binder's variable: the emitted
+condition binds what the text leaves free. Refused `variableName` where a condition holds a binder
+and a name is so spelled. `Γ` writes the variables under `canonVars`, `V0` to `V(n-1)`, and
+the reader numbers variables by their positions, so neither confuses such a name with a binder. -/
+def canonBinderNameGuard (n : Nat) (conds : List Cond) (names : List String) : Rd Unit :=
+  if conds.any condWritesBinder then
+    match names.find? (fun x => match canonBinderIdx? x with | some i => decide (n ≤ i) | none => false) with
+    | some x => fail .variableName s!"{x}: a variable spelled as a binder's canonical name"
+    | none => pure ()
+  else pure ()
+
 /-- The clause `cl`, read from the equation `e` over the variables `vs` (its patterns, `requires`,
 right side, `ensures`, predicates and existential variables in `vs`' numbering; its `vars` are
 written here), as a clause of the function with its presentation.
@@ -4464,7 +4501,7 @@ at their places, in the names of both the clause and its exclusion; every field 
 variable is renumbered by the one map (`Term.reindex`, `Cond.reindex`, `exs` mapped). The cut of
 the patterns is taken in that order of variables, the fresh variables under their own names in
 the exclusion's too. -/
-def clauseExcl (N : Names) (msrc : String) (e : RawEqn) (excl : Option Kore.Pattern) (vs : List Var)
+def clauseExclRead (N : Names) (msrc : String) (e : RawEqn) (excl : Option Kore.Pattern) (vs : List Var)
     (cl : Clause) : Rd (Clause × ClausePres) := do
   let m ← need (eqnInfo? e.attrs) .sentenceInfo
   let (explicit, _) := eqnPrio e
@@ -4505,6 +4542,18 @@ def clauseExcl (N : Names) (msrc : String) (e : RawEqn) (excl : Option Kore.Patt
            π.map (fun i => (evs.getD i default).name) ++ (vs.drop evs.length).map (·.name) ++ cutNames,
            attrStr? e.attrs "label",
            srcOver msrc e.attrs, explicit.isSome, (overloadSyms? e.attrs).map (·.2)⟩)
+
+/-- `clauseExclRead`'s clause, refused `variableName` where its `pre` holds a binder and the clause's
+names or its exclusion's spell a variable as a binder's canonical name (`canonBinderNameGuard`):
+every reading of an equation writes its clauses here, a binder in `pre` coming from the cases
+over a Bool variable (`exClauses`). A clause's `post` is written by no emitted sentence
+(`Emit.clauseAx` writes `pre`, `rhs` and `ens`), so its binders (`memOf`, `ceilExCond`) are not
+asked. -/
+def clauseExcl (N : Names) (msrc : String) (e : RawEqn) (excl : Option Kore.Pattern) (vs : List Var)
+    (cl : Clause) : Rd (Clause × ClausePres) := do
+  let x ← clauseExclRead N msrc e excl vs cl
+  canonBinderNameGuard x.1.vars.length [x.1.pre] (x.2.names ++ x.2.exclNames)
+  pure x
 
 def clauseBody (N : Names) (msrc : String) (e : RawEqn) (excl : Option Kore.Pattern) : Rd (Clause × ClausePres) := do
   rhsSortGuard e.rhs
@@ -5492,9 +5541,14 @@ def lhsAndConnTaken (N : Names) (a : Kore.Axiom) : Bool :=
     | some (a', _, _) => connCutTaken N a'
     | none => false
 
-/-- The rule of a rewrite axiom (`lhsAndRuleBody`). -/
+/-- The rule of a rewrite axiom (`lhsAndRuleBody`), refused `variableName` where its `pre` or
+`post` holds a binder (`lhsAndConds`'s `exMatch`) and one of its names spells a variable as a
+binder's canonical name (`canonBinderNameGuard`). -/
 def ruleOf (N : Names) (msrc : String) (a : Kore.Axiom) : Rd (Rule × RulePres) :=
-  Rd.within (.sentence (.axiom a)) (lhsAndRuleBody N msrc a)
+  Rd.within (.sentence (.axiom a)) (do
+    let x ← lhsAndRuleBody N msrc a
+    canonBinderNameGuard x.1.vars.length [x.1.pre, x.1.post] x.2.names
+    pure x)
 
 /-! ## The configuration -/
 

@@ -65,6 +65,23 @@
   Each rule so read has no `ensures` (the text's rule has none) and `ruleSorted` true, and each
   definition has `wf`, `rulesPlain` and `coreOK` (`rulesPlain` asks `rulePlainPP` of every rule).
   Kernel: `and_fresh`, `and_var` (the cut of a pattern in each form).
+
+  ## binder-guard
+  `Cond.kore` names the binder of a condition at the index i `V<i>` (`Cond.binder`), i from the
+  number n of the rule's or clause's variables up, and the emitted text writes the variables under
+  their own names: a variable named `V<i>` with n ≤ i would be bound there by the binder at i. A
+  rule or clause whose emitted condition holds a binder and one of whose variables is so named is
+  refused `variableName` (`Parse.canonBinderNameGuard`, in `Parse.ruleOf` and `Parse.clauseExcl`).
+  - `mllhsandp` (above: five variables, `pre := exMatch [Exp] …`, the binder at 5) with its left
+    side's `VarX` renamed `VarV5`: refused; renamed `VarV4` (one index below): read as before, the
+    names `[V4, …]`.
+  - hand-written (`NG`): `p(X) => #Exists B:Bool. (B #And {B #Equals notBool X})`, read by cases
+    over B (`exRead`), its last clause's `pre := not (ex Bool …)` with the binder at 1 (one
+    variable): X spelled `VarV1`, refused; `VarV0`, read, the same clauses as with `VarX`.
+  - a CE clause's `post` binder (`memOf`) is written by no emitted sentence: `h(X) => X #Or
+    #Exists Z:Int. (Z #And {Z #Equals f(X)})` with X spelled `VarV2` (the binder at 2) is read.
+  Kernel: `binder_guard_cases`, `binder_guard_clause`, `binder_guard_below`, `binder_guard_ce`,
+  `canon_binder_idx`.
 -/
 import KcoreSpec
 
@@ -431,5 +448,109 @@ mlimpl and-eq: notes [connectiveCut, lhsAndCut]
   if let some k ← load "mlimpl" then
     showDef "mlimpl and-eq" (editImplEq k)
     showNotes "mlimpl and-eq" (editImplEq k)
+
+/-! ## binder-guard -/
+
+/-- The text with each rewrite axiom's element variable named `old` renamed `new`. -/
+def renameRw (old new : String) (k : Kore.Definition) : Kore.Definition :=
+  { k with modules := k.modules.map fun m => { m with sentences := m.sentences.map fun s => match s with
+      | .axiom a => (match a.pattern with
+        | .rewrites .. => .axiom { a with pattern := Parse.renamePat (fun n _ => if n == old then new else n) a.pattern }
+        | _ => .axiom a)
+      | s => s } }
+
+/--
+info: ## binder-guard
+mllhsandp V5: refused KCore.Parse.RefusalReason.variableName V5: a variable spelled as a binder's canonical name
+mllhsandp V4 rule 0: names [V4, 'Unds'Gen0, 'Hash'Cut0, 'Unds'DotVar1, 'Unds'DotVar0] vars [Exp, Exp, Exp, K, GeneratedCounterCell] exs [] opens []
+  pre KCore.Cond.exMatch
+  [32]
+  32
+  (KCore.Term.app 388 [KCore.Term.var 5, KCore.Term.app 386 []])
+  (KCore.Term.var 2)
+  (KCore.Cond.top)
+  post KCore.Cond.top
+  ruleSorted true; rulePlainPP true; openRefusal none
+mllhsandp V4: wf failing []; rulesPlain true; coreOK true
+-/
+#guard_msgs (whitespace := lax) in
+#eval show IO Unit from do
+  IO.println "## binder-guard"
+  if let some k ← load "mllhsandp" then
+    showDef "mllhsandp V5" (renameRw "VarX" "VarV5" k)
+    showDef "mllhsandp V4" (renameRw "VarX" "VarV4" k)
+
+namespace BinderGuard
+
+open KoreAML (ev ap srt evar)
+open Parse (RawEqn Names)
+
+/-- p : Bool → Bool, with its `functional` sentence, Bool with its literals only; f, h : Int → Int. -/
+def NG : Names :=
+  { sorts := []
+    syms := ["Lblp", "Lblf", "Lblh"]
+    keyFns := [(nRegSyms, "Bool"), (nRegSyms + 1, "Int"), (nRegSyms + 2, "Int")]
+    fnlSyms := [("Lblp", false)]
+    boolLits := true }
+
+def bool : Kore.KSort := srt "Bool"
+def int : Kore.KSort := srt "Int"
+def uid : List Kore.AppPattern := [KoreAML.attrStr "UNIQUE'Unds'ID" "u"]
+
+/-- `p(X) => #Exists B:Bool. (B #And {B #Equals notBool X})`, X named `x`. -/
+def eqP (x : String) : RawEqn :=
+  let X := ev x bool
+  let B := ev "VarB" bool
+  ⟨"Lblp", [X], none, none,
+    .exist bool (evar "VarB" bool) (.and bool [B, .equals bool bool B (ap "LblnotBool'Unds'" [X])]),
+    uid, none, false⟩
+
+/-- `h(X) => X #Or #Exists Z:Int. (Z #And {Z #Equals f(X)})`, X named `x`. -/
+def eqCE (x : String) : RawEqn :=
+  let X := ev x int
+  let Z := ev "VarZ" int
+  ⟨"Lblh", [X], none, none,
+    .or int [X, .exist int (evar "VarZ" int) (.and int [Z, .equals int int Z (ap "Lblf" [X])])],
+    uid, none, false⟩
+
+def refusedName : Parse.Rd (List (Clause × ClausePres)) → Bool
+  | .error f => f.reason == .variableName
+  | .ok _ => false
+
+/-- The equation read by cases over B: three clauses, the last one's `pre` `not (ex Bool …)`, its
+binder at the index 1, past X. -/
+theorem binder_guard_cases :
+    ((Parse.clausesBody NG "" (eqP "VarX") none).toOption.map fun xs =>
+      (xs.length, xs.getLast?.map fun x => (x.1.vars.length, x.1.pre matches .not (.ex _ _)))) =
+      some (3, some (1, true)) := by
+  kernel_rfl
+
+/-- **The guard on a clause read by cases over a Bool variable**: X spelled `V1`, the binder's
+name, is refused `variableName`. -/
+theorem binder_guard_clause : refusedName (Parse.clausesBody NG "" (eqP "VarV1") none) = true := by
+  kernel_rfl
+
+/-- One index below, X spelled `V0` is read: the clauses read with X spelled `X`. -/
+theorem binder_guard_below :
+    (Parse.clausesBody NG "" (eqP "VarV0") none).map (·.map (·.1)) =
+      (Parse.clausesBody NG "" (eqP "VarX") none).map (·.map (·.1)) := by
+  kernel_rfl
+
+/-- **A CE clause's `post` binder is not asked**: X spelled as the binder's name `V2` (one
+variable, the disjunction's, before it) is read, its `post` holding the binder. -/
+theorem binder_guard_ce :
+    ((Parse.clausesBody NG "" (eqCE "VarV2") none).toOption.map fun xs =>
+      (xs.map (·.2.names), xs.map fun x => Parse.condWritesBinder x.1.post)) =
+      some ([["V2", "'Hash'Or0"]], [true]) := by
+  kernel_rfl
+
+/-- `canonBinderIdx?` reads exactly the spellings `"V" ++ toString i`. -/
+theorem canon_binder_idx :
+    Parse.canonBinderIdx? "V0" = some 0 ∧ Parse.canonBinderIdx? "V12" = some 12 ∧
+    Parse.canonBinderIdx? "V05" = none ∧ Parse.canonBinderIdx? "V5'" = none ∧
+    Parse.canonBinderIdx? "V" = none ∧ Parse.canonBinderIdx? "X5" = none := by
+  decide +kernel
+
+end BinderGuard
 
 end PredReader
