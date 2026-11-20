@@ -2077,17 +2077,26 @@ table above, on the tree before String and Bytes). Not investigated here.
 - `test/NotePredBool.lean`: the tie (C14) of the reading note `predicateAtBool` on its construct
   fixture's kompiled text (`f2-examples/mlceil`), for every H, in the same form. Sentence 158
   (priority 60) entails Γ's item (two conjuncts more, `left1`). Sentence 157's `requires`
-  `⌈1 /Int X⌉ = true` at Bool is read as `false = true`: Γ's left side holds nothing in a model of
-  definedness, `ΓSig` and `ΓDomains` (`left0_empty`), so W1 (`rule_from_text`) holds without the
-  sentence. The reading's direction, at values (`EntailsAtValues`, `rule157_at_values`): at a value
-  of X the sentence's own left side holds nothing (`ltext0_empty`: `1 /Int n` is an integer's
-  element or nothing, `LibEv.den_val`, so its `\ceil` at Bool is all of Bool or none of it,
-  `TieReqBool.ceil_const`, and not `{true}`, `TieReqBool.eqTrue_empty`). Expectation from `Pre H`,
+  `⌈1 /Int X⌉ = true` at Bool is read as `false = true`. W1 is from the text
+  (`rule_from_text_aux`): its premises are the rule's sentence, sentences 138, 133, 147
+  (`INT-KORE.eq-int-true-left`, `neq-int-false-left`, `eq-int-false-rigth`), 49 and 46 (the
+  functional sentences of `_==Int_` and `_=/=Int_`), Int's G-nonempty item of the text's signature
+  (`ruleSigAux_text`) and `ΓSig`, with no item of `ΓDomains`: the five sentences at an element of
+  Int state that `false` and `true` are two elements of Bool (`lit_sents`,
+  `TieReqBool.boolLits_of_text_sig`), so Γ's left side of rule 0 holds nothing (`left0_empty`) and
+  the statement does not use what sentence 157 states. What ties sentence 157 is the reading's
+  direction, `rule157_entailed`: Γ entails it for every H at every valuation. Where X is an
+  element of Int, value or not, the elements of `1 /Int X` are in Int by the arity items of
+  `_/Int_` and of the literal `1` in `ΓSig` (`TieFRSig.sig_of_core`), so its `\ceil` at Bool is
+  all of Bool or none of it (`TieReqBool.ceil_const`) and not `{true}`
+  (`TieReqBool.eqTrue_empty`; `ltext0_empty_int`); where X's guard fails the item's premise
+  fails. `rule157_at_values` is that direction at values, proved from the graph of `/Int`
+  (`ltext0_empty`, `LibEv.den_val`). Expectation from `Pre H`,
   through the reading (the priority premise): `ceil_other` (`go(1)` steps to `other`). About 4
   minutes.
 - `test/NotePredBoolTop.lean`, `test/NotePredBoolFloor.lean`: the same on the texts of
   e3-ml-req-top (`requires \top{Bool} = true`) and e3-ml-req-floor
-  (`requires ⌊⌈1 /Int X⌉⌋ = true` at Bool), for every H. `rule_from_text` as there. The sentence's
+  (`requires ⌊⌈1 /Int X⌉⌋ = true` at Bool), for every H. `rule_from_text_aux` as there. The sentence's
   own left side holds nothing at every valuation (`ltext0_empty`): `\top{Bool}` is the sort Bool
   (`topBool_const`) and a `\floor` into Bool is all of Bool or none of it whatever its operand is
   (`floorBool_const`), so neither is `{true}`. Hence Γ entails sentence 157 (`rule157_entailed`),
@@ -2095,7 +2104,7 @@ table above, on the tree before String and Bytes). Not investigated here.
   `other`). About 3 minutes each.
 - `test/NotePredBoolImplies.lean`, `test/NotePredBoolExists.lean`: the same on the texts of
   e3-ml-req-implies (`requires ({X = 1} → ⌈1 /Int X⌉) = true` at Bool) and e3-ml-req-exists
-  (`requires (∃ Y:Int. {X = Y +Int 1}) = true` at Bool), for every H. `rule_from_text` as there.
+  (`requires (∃ Y:Int. {X = Y +Int 1}) = true` at Bool), for every H. `rule_from_text_aux` as there.
   The sentence's own left side holds nothing at every valuation (`ltext0_empty`): an `\equals`
   into Bool is all of Bool or none of it, so the `\exists` of one is (`existsEqBool_const`), and
   the implication is all of Bool where its antecedent is none and, where X is the element of 1,
@@ -2105,7 +2114,7 @@ table above, on the tree before String and Bytes). Not investigated here.
   `exists_other` (`go(1)` steps to `other`). About 3 minutes each.
 - `test/NotePredBoolForall.lean`: the same on the text of e3-ml-req-forall
   (`requires (∀ Y:Int. {f(Y) = Y}) = true` at Bool, the text's one rule), for every H.
-  `rule_from_text` as there. The sentence's own left side holds nothing at every valuation
+  `rule_from_text_aux` as there. The sentence's own left side holds nothing at every valuation
   (`ltext0_empty`): an `\equals` into Bool is all of Bool or none of it, so the `\forall` of one
   is (`forallEqBool_const`; `f`'s equation is not read), and neither is `{true}`. Hence Γ entails
   sentence 157 (`rule157_entailed`), and at values (`rule157_at_values`). Expectation

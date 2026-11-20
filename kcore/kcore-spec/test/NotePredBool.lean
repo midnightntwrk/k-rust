@@ -18,16 +18,23 @@
   Sentence 157: the sentence's `requires` is
   `\equals{Bool, C}(\ceil{Int, Bool}(1 /Int X), true)` and Γ's item's is
   `\equals{Bool, C}(false, true)` (`rule_text0`: the sentence is the item of the text's left side
-  at the table of Γ's axiom, kernel). Γ's left side holds nothing in a model of definedness,
-  `ΓSig` and `ΓDomains` (`left0_empty`: `false` and `true` are two elements of Bool), so Γ's item
-  holds there whatever the sentence says, and `rule_from_text` (W1) for it does not use the
-  sentence: the direction *weaker* is met and says nothing of the reading. What the reading
-  claims is the other direction, that the sentence's left side is empty too. At every valuation it
-  does not follow from Γ: at an element of Int that is no value nothing constrains `1 /Int X`. At
-  values it does (`EntailsAtValues`, `rule157_at_values`): at a value n of X, `1 /Int n` denotes the
-  element of an integer or nothing (`LibEv.den_val`, the graph of `/Int` in `ΓDomains`), so
-  `\ceil{SortInt{}, SortBool{}}(1 /Int n)` is every element of Bool or none, and neither is `{true}`
-  where `false` and `true` are two elements of Bool (`ltext0_empty`).
+  at the table of Γ's axiom, kernel). Γ's left side holds nothing in a model of definedness and
+  `ΓSig` in which five other sentences of the text and Int's G-nonempty item hold (`left0_empty`;
+  `ruleAux`: 138, 133, 147, 49 and 46, which at an element of Int state that `false` and `true` are
+  two elements of Bool, `lit_sents`, `TieReqBool.boolLits_of_text_sig`; `ruleSigAux`, an item of the
+  text's signature, `ruleSigAux_text`), so Γ's item holds there whatever sentence 157 says
+  (`rule_from_text_aux`, W1: Γ's rule items from the text, no item of `ΓDomains` among the
+  premises). That statement names sentence 157 and does not use what it states; rule 1's item
+  follows from sentence 158 alone (`left1`). What ties sentence 157 is the other direction
+  (`rule157_entailed`), that the sentence's left side is empty too. It is, at every valuation. Where
+  X's guard fails the sentence's item holds, its guards being its premise. Where X is an element of
+  Int, value or not, the elements of `1 /Int X` are elements of Int by the arity items of `_/Int_`
+  and of the literal `1` in `ΓSig` (`TieFRSig.sig_of_core`), so `\ceil{SortInt{}, SortBool{}}(1 /Int
+  X)` is every element of Bool or none (`TieReqBool.ceil_const`), and neither is `{true}` where
+  `false` and `true` are two elements of Bool (`ltext0_empty_int`); the graph of `/Int` is not read.
+  `rule157_at_values` is that direction at values, proved here from the graph (`ltext0_empty`: at a
+  value n of X, `1 /Int n` denotes the element of an integer or nothing, `LibEv.den_val`). This
+  direction is over Γ, whose `ΓDomains` gives `false` and `true` as two elements of Bool.
   `consistent` for every H.
 
   The expectation (C7 form (a), through the reading; family the priority premise), from `Pre H`
@@ -38,6 +45,8 @@ import KcoreSpec
 
 set_option autoImplicit false
 set_option maxRecDepth 1000000
+
+deriving instance DecidableEq for KoreAML.SortDecl
 
 namespace KCore.NotePredBool
 
@@ -195,19 +204,73 @@ theorem den_false (H : HookParams) : den (cH H) (KCore.bool false) = KoreAML.sym
 theorem den_true (H : HookParams) : den (cH H) (KCore.bool true) = KoreAML.sym (.dv "true") ⬝ KoreAML.sym (.sort "SortBool") := by
   show den c (KCore.bool true) = _; decide +kernel
 
-/-- **Γ's left side of rule 0 holds nothing** in a model of definedness, the signature and the
-domains: its `requires` is `false = true`, and the values `false` and `true` of Bool are two
-elements. -/
+/-! ## The text's Bool literals
+
+Five sentences of the text, with Int's sort declaration, state that `false` and `true` each denote
+one element of Bool and that the two differ (`TieReqBool.boolLits_of_text_sig`):
+`INT-KORE.eq-int-true-left` (138), `{K1 ==Int K2 #Equals true} = {K1 #Equals K2}`;
+`INT-KORE.neq-int-false-left` (133), `{K1 =/=Int K2 #Equals false} = {K1 #Equals K2}`;
+`INT-KORE.eq-int-false-rigth` (147), `{false #Equals K1 ==Int K2} = #Not({K1 #Equals K2})`; and the
+functional sentences of `_==Int_` (49) and `_=/=Int_` (46). The three are over element variables
+`K1`, `K2` of Int and have no condition; they are read at an element of Int given to both. Nothing
+here reads a hook's graph or a value item of `ΓDomains`. -/
+
+/-- **Each of the five is the library's pattern of its sentence** (kernel). -/
+theorem lit_sents :
+    (trS U.ax138).pat = TieReqBool.sentPat TieReqBool.eqIntTrueLeftAx ∧
+    (trS U.ax133).pat = TieReqBool.sentPat TieReqBool.neqIntFalseLeftAx ∧
+    (trS U.ax147).pat = TieReqBool.sentPat TieReqBool.eqIntFalseRightAx ∧
+    (trS U.ax49).pat = TieReqBool.sentPat (TieReqBool.fnlBoolAx TieReqBool.eqIntName) ∧
+    (trS U.ax46).pat = TieReqBool.sentPat (TieReqBool.fnlBoolAx TieReqBool.neqIntName) := by
+  refine ⟨?_, ?_, ?_, ?_, ?_⟩ <;> decide +kernel
+
+/-- The rule sentences. -/
+noncomputable def ruleText : List AxiomDecl := [U.ax157, U.ax158]
+
+/-- The other sentences of the text the statement reads: 138, 133, 147, 49 and 46. -/
+noncomputable def ruleAux : List AxiomDecl := [U.ax138, U.ax133, U.ax147, U.ax49, U.ax46]
+
+/-- The item of the text's signature the statement reads, which `ΓSig` does not hold: Int has an
+element (G-nonempty of the declaration `hooked-sort SortInt{}`). -/
+def ruleSigAux : List Item := [nonemptyItem ⟨"SortInt", [], true⟩]
+
+theorem intDecl_mem : (⟨"SortInt", [], true⟩ : SortDecl) ∈ kore.sortDecls := by decide +kernel
+
+/-- Each item of `ruleSigAux` is an item of the signature of the text's theory. -/
+theorem ruleSigAux_text : ∀ it ∈ ruleSigAux, it ∈ (Theory.ofDefinition kore).signature := by
+  intro it hit
+  rw [List.mem_singleton.mp hit]
+  simp only [Theory.ofDefinition, List.mem_append, List.mem_map]
+  exact Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inr ⟨_, intDecl_mem, rfl⟩)))))
+
+theorem int_name (H : HookParams) : (cH H).sortName Srt.int = "Int" := by
+  show c.sortName Srt.int = _; decide +kernel
+
+/-- **Γ's left side of rule 0 holds nothing** in a model of definedness and the signature in which
+the five sentences and Int's G-nonempty item hold: its `requires` is `false = true`, and there
+`false` and `true` denote two elements of Bool (`TieReqBool.boolLits_of_text_sig`). -/
 theorem left0_empty (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hD : DefOK I)
-    (hSig : I ⊧ᴵP ΓSig (cH H)) (hDom : I ⊧ᴵP ΓDomains (cH H)) (e : Valuation M) (a : M) :
+    (hSig : I ⊧ᴵP ΓSig (cH H))
+    (hT : ∀ φ ∈ ruleAux.map (fun a => (trS a).pat) ++ ruleSigAux.map (·.pat), I ⊧ᴵ φ) (e : Valuation M) (a : M) :
     ¬ (tr ⟨tableOf [] p0, []⟩ q0.2.1).interpret I e a := by
   intro h
   haveI : OvlOK (cH H) := ovlOK_of_core (coreOKH H)
+  have hc : I ⊧ᴵ ceilDefItem.pat := hSig _ (Or.inl (Or.inl ⟨_, sig_ceilDef (c := cH H), rfl⟩))
   obtain ⟨σ, hσ1, hσ2⟩ := TieRhs.sortSing_sig hD hSig (top_numbered (c := cH H))
   rw [top_name] at hσ1
+  have hT' : ∀ φ ∈ [(trS U.ax138).pat, (trS U.ax133).pat, (trS U.ax147).pat, (trS U.ax49).pat, (trS U.ax46).pat,
+      (nonemptyItem ⟨"SortInt", [], true⟩).pat], I ⊧ᴵ φ := hT
+  obtain ⟨s1, s2, s3, s4, s5⟩ := lit_sents
+  have hL := TieReqBool.boolLits_of_text_sig hD hSig
+    (Nat.lt_of_lt_of_le (by decide : Srt.int < nRegSorts) (Nat.le_add_right _ _) :
+      Srt.int < nRegSorts + (cH H).sortNames.length) (int_name H)
+    (hT' _ (.tail _ (.tail _ (.tail _ (.tail _ (.tail _ (.head _)))))))
+    (s1 ▸ hT' _ (.head _)) (s2 ▸ hT' _ (.tail _ (.head _))) (s3 ▸ hT' _ (.tail _ (.tail _ (.head _))))
+    (s4 ▸ hT' _ (.tail _ (.tail _ (.tail _ (.head _)))))
+    (s5 ▸ hT' _ (.tail _ (.tail _ (.tail _ (.tail _ (.head _)))))) (tableOf [] p0) e
   rw [l0_eq, interp_and (List.cons_ne_nil _ _)] at h
-  exact TieRhs.ensFalse_empty hD hSig hDom (sortOf_false H) (sortOf_true H) (den_false H) (den_true H)
-    (by rw [C_eq, trSort_srt]; exact hσ1) hσ2 a (h _ (List.mem_cons_of_mem _ (List.mem_cons_self ..)))
+  exact TieReqBool.ensFalse_empty_lits hD hc hL (by rw [C_eq, trSort_srt]; exact hσ1) hσ2 a
+    (h _ (List.mem_cons_of_mem _ (List.mem_cons_self ..)))
 
 /-- Every element of Γ's left side of rule 1 is an element of the text's left side: the text's
 conjuncts are Γ's first two. -/
@@ -221,26 +284,31 @@ theorem left1 {M : Type} {I : Interpretation KoreAML.Sym M} (e : Valuation M) (a
   · exact h _ (List.mem_cons_self ..)
   · rw [List.mem_singleton.mp hp]; exact h _ (List.mem_cons_of_mem _ (List.mem_cons_self ..))
 
-/-- **W1 for the rules, and the converse for `ruleItems`**: each of Γ's two rule items is a
-consequence of its sentence with the signature and the domains, for every H. Rule 1's item is
-sentence 158 with two conjuncts more on its left side. Rule 0's item holds in every model of
-definedness, the signature and the domains, whatever sentence 157 says: its left side is empty
+/-- **W1 for the rules, and the converse for `ruleItems`**, from the text: each of Γ's two rule
+items is a consequence of its sentence with sentences 138, 133, 147, 49 and 46, Int's G-nonempty
+item and the signature, for every H. No item of `ΓDomains` is among the premises. Rule 1's item is
+sentence 158 with two conjuncts more on its left side (`left1`, which reads no other premise). Rule
+0's item holds in every model of the premises whatever sentence 157 says: its left side is empty
 there (`left0_empty`). -/
-theorem rule_from_text (H : HookParams) :
-    ∀ it ∈ ruleItems (cH H),
-      (TiePair.Texts [(trS U.ax157).pat, (trS U.ax158).pat] ∪ ΓSig (cH H) ∪ ΓDomains (cH H)) ⊧ it.pat := by
-  intro it hit M _ I hI
+theorem rule_from_text_aux (H : HookParams) : ∀ it ∈ ruleItems (cH H), ∃ ad ∈ ruleText,
+    TiePair.Texts ((trS ad).pat :: (ruleAux.map (fun a => (trS a).pat) ++ ruleSigAux.map (·.pat))) ∪ ΓSig (cH H) ⊧ it.pat := by
+  intro it hit
   rw [TiePair.ruleItems_withHooks, ruleItems_eq] at hit
-  have hD : DefOK I := TiePair.defOK_texts fun φ hφ => hI φ (Or.inl (Or.inl hφ))
-  have hSig : I ⊧ᴵP ΓSig (cH H) := fun φ hφ => hI φ (Or.inl (Or.inr hφ))
-  have hDom : I ⊧ᴵP ΓDomains (cH H) := fun φ hφ => hI φ (Or.inr hφ)
   rcases List.mem_cons.mp hit with rfl | hit
-  · exact TieRuleLhs.rule_w1 hD q0_eq rule_text0 fT_free0
-      (hI _ (Or.inl (Or.inl (Or.inl (List.mem_cons_self ..)))))
-      fun e _ _ a ha => absurd ha (left0_empty H hD hSig hDom e a)
+  · refine ⟨U.ax157, List.mem_cons_self .., ?_⟩
+    intro M _ I hI
+    have hD : DefOK I := TiePair.defOK_texts fun φ hφ => hI φ (Or.inl hφ)
+    have hSig : I ⊧ᴵP ΓSig (cH H) := fun φ hφ => hI φ (Or.inr hφ)
+    exact TieRuleLhs.rule_w1 hD q0_eq rule_text0 fT_free0
+      (hI _ (Or.inl (Or.inl (List.mem_cons_self ..))))
+      fun e _ _ a ha => absurd ha (left0_empty H hD hSig
+        (fun φ hφ => hI _ (Or.inl (Or.inl (List.mem_cons_of_mem _ hφ)))) e a)
   · rw [List.mem_singleton.mp hit]
+    refine ⟨U.ax158, List.mem_cons_of_mem _ (List.mem_cons_self ..), ?_⟩
+    intro M _ I hI
+    have hD : DefOK I := TiePair.defOK_texts fun φ hφ => hI φ (Or.inl hφ)
     exact TieRuleLhs.rule_w1 hD q1_eq rule_text1 fT_free1
-      (hI _ (Or.inl (Or.inl (Or.inl (List.mem_cons_of_mem _ (List.mem_cons_self ..))))))
+      (hI _ (Or.inl (Or.inl (List.mem_cons_self ..))))
       fun e _ _ a ha => left1 e a ha
 
 /-! ## Sentence 157 at values (`EntailsAtValues`) -/
@@ -272,9 +340,6 @@ theorem div_srt (H : HookParams) : LibEv.srt? (cH H) divVars divT = some Srt.int
   decide +kernel
 theorem div_key (H : HookParams) : LibEv.vkey (cH H) divVars 0 = evarKey x0 := by
   show LibEv.vkey c divVars 0 = _; decide +kernel
-theorem int_name (H : HookParams) : (cH H).sortName Srt.int = "Int" := by
-  show c.sortName Srt.int = _; decide +kernel
-
 /-- The one sort named `Int` is the registry's. -/
 theorem int_of_name (S : Srt) (h : KoreAML.srt (c.sortName S) = KoreAML.srt "Int") : S = Srt.int := by
   by_cases hS : S < nRegSorts + c.sortNames.length
@@ -355,6 +420,88 @@ theorem rule157_at_values (H : HookParams) : EntailsAtValues (cH H) U.ax157 (trS
   rw [trS157]
   exact TieReqBool.ruleItem_of_empty (defOK hI) (ltext0_empty H hI e hat) m
 
+/-! ## Sentence 157 (entailed, for every H)
+
+At a valuation that gives X an element of Int, value or not, the elements of `1 /Int X` are
+elements of Int: the arity item of `_/Int_` and the arity of the literal `1`, items of `ΓSig`
+(`TieFRSig.sig_of_core`). The graph of `/Int` is not read. Where X's guard fails the sentence's
+item holds, its guards being its premise. -/
+
+theorem div_injFree : TieFRSig.injFree divT = true := by decide
+theorem div_occs : varOccs divT = [0] := by decide
+
+theorem div_term_all : (fun H : HookParams => Term.kore (cH H) (canonVars (cH H) [Srt.int]) divT) =
+    fun _ => .app ⟨⟨"Lbl'UndsSlsh'Int'Unds'"⟩⟩ [] [.dv (KoreAML.srt "Int") "1", .var (.evar x0)] := by
+  kernel_rfl
+theorem div_sort_all : (fun H : HookParams => sortOfTerm ((cH H).rhsCtx ((cH H).fns.map Fn.sig)) [Srt.int] divT) =
+    fun _ => some Srt.int := by
+  kernel_rfl
+theorem div_canonKey_all : (fun H : HookParams => canonKey (cH H) [Srt.int] 0) = fun _ => evarKey x0 := by
+  kernel_rfl
+
+/-- X is among the variables whose guards sentence 157's item has. -/
+theorem x0_guarded : fT0.contains (evarKey x0) = true := by decide +kernel
+
+/-- **The text's left side holds nothing where X is an element of Int**, value or not, in every
+model of Γ: the elements of `1 /Int X` are then elements of Int (the arity items of `_/Int_` and of
+the literal `1`, in `ΓSig`), so `\ceil{SortInt{}, SortBool{}}(1 /Int X)` is all of Bool or none of
+it (`TieReqBool.ceil_const`), and neither is `{true}` where `false` and `true` are two elements of
+Bool (`TieReqBool.eqTrue_empty`). -/
+theorem ltext0_empty_int (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
+    (hI : I ⊧ᴵP Γ (cH H)) (e : Valuation M)
+    (hx : (inhOf (trSort (tableOf [] p0) x0.sort)).interpret I e (e.evalEvar ((tableOf [] p0).ev (evarKey x0))))
+    (a : M) : ¬ (tr ⟨tableOf [] p0, []⟩ Ltext0).interpret I e a := by
+  intro h
+  haveI : OvlOK (cH H) := ovlOK_of_core (coreOKH H)
+  have hD := defOK hI
+  have hc : I ⊧ᴵ ceilDefItem.pat := sat_sigItem hI (sig_ceilDef (c := cH H))
+  have hSig : I ⊧ᴵP ΓSig (cH H) := fun φ hφ => sat_sig hI hφ
+  have hDom : I ⊧ᴵP ΓDomains (cH H) := fun φ hφ => sat_dom hI hφ
+  obtain ⟨σ, hσ1, hσ2⟩ := TieRhs.sortSing_sig hD hSig (top_numbered (c := cH H))
+  rw [top_name] at hσ1
+  have hnI : Srt.int < nRegSorts + (cH H).sortNames.length :=
+    Nat.lt_of_lt_of_le (by decide : Srt.int < nRegSorts) (Nat.le_add_right _ _)
+  obtain ⟨σI, hσI1, hσI2⟩ := TieRhs.sortSing_sig hD hSig hnI
+  rw [int_name] at hσI1
+  have hSI : ∀ b, (trSort (tableOf [] p0) (KoreAML.srt "Int")).interpret I e b ↔ b = σI := by
+    rw [trSort_srt]; exact hσI1
+  have hTS : TieFRSig.TermsInSortNI (cH H) I := (TieFRSig.sig_of_core (coreOKH H) hD hSig).2
+  have hv : ∀ i ∈ varOccs divT, InS I ((cH H).sortName ([Srt.int].getD i 0))
+      (e.evalEvar ((tableOf [] p0).ev (canonKey (cH H) [Srt.int] i))) := by
+    intro i hi
+    rw [div_occs] at hi
+    rw [List.mem_singleton.mp hi, congrFun div_canonKey_all H]
+    show InS I ((cH H).sortName Srt.int) _
+    rw [int_name]
+    rw [x0_sort, trSort_srt] at hx
+    exact (inS_iff e).mp hx
+  have hp : ∀ b, (tr ⟨tableOf [] p0, []⟩ (.app ⟨⟨"Lbl'UndsSlsh'Int'Unds'"⟩⟩ [] [.dv (KoreAML.srt "Int") "1", .var (.evar x0)])).interpret I e b → Inh I σI b := by
+    intro b hb
+    rw [← congrFun div_term_all H] at hb
+    have hin := hTS div_injFree (congrFun div_sort_all H) hnI hv b hb
+    rw [int_name] at hin
+    exact (interp_inhOf_of (S := sortP "Int") hσI1).mp hin
+  unfold Ltext0 at h
+  rw [interp_and (List.cons_ne_nil _ _)] at h
+  exact TieReqBool.eqTrue_empty hD hSig hDom (sortOf_false H) (sortOf_true H) (den_false H) (den_true H)
+    (by rw [C_eq, trSort_srt]; exact hσ1) hσ2
+    (fun σB hSB hσB x y hx hy => TieReqBool.ceil_const hD hc hSI hσI2 hSB hσB hp x y hx hy) a
+    (h _ (List.mem_cons_of_mem _ (List.mem_cons_self ..)))
+
+/-- **Γ entails sentence 157** (the reading's direction), for every H and at every valuation:
+where X's guard holds its left side holds nothing (`ltext0_empty_int`), and where it does not the
+item's premise fails. -/
+theorem rule157_entailed (H : HookParams) : Γ (cH H) ⊧ (trS U.ax157).pat := by
+  intro M _ I hI e m
+  rw [trS157]
+  by_cases hg : (conjList (fT0.map (guardOf (tableOf [] p0)))).interpret I e m
+  · have hx := (TieUnion.interp_conjListAll.mp hg) _ (List.mem_map_of_mem (List.contains_iff_mem.mp x0_guarded))
+    exact TieReqBool.ruleItem_of_empty (defOK hI)
+      (ltext0_empty_int H hI e ((TieRuleLhs.guard_evarKey (defOK hI)).mp hx)) m
+  · unfold TieRuleLhs.itemAt
+    rw [interpret_impl]
+    exact fun h => absurd h hg
+
 /-! ## The account -/
 
 noncomputable def tiedIdx : List Nat := fnText.map (·.index) ++ consText.map (·.index) ++ [157, 158]
@@ -396,7 +543,7 @@ theorem consistent (H : HookParams) : Consistent (cH H) := consistent_of_fnHyp _
 /-! ## The expectations (C7 form (a)) -/
 
 /-- **The premises of the derivations**: every function equation as written, Γ's rule items (the
-reading of the rule sentences 157 and 158, each a consequence of its sentence with `ΓSig` and `ΓDomains` by `rule_from_text`), and the families. -/
+reading of the rule sentences 157 and 158, each a consequence of the text's sentences with `ΓSig` by `rule_from_text_aux`), and the families. -/
 noncomputable abbrev Pre (H : HookParams) : Premises KoreAML.Sym := TiePair.Pre (cH H) textPats
 
 /-- **`Pre` with the step's closure has a model, for every H.** -/
@@ -446,9 +593,13 @@ end KCore.NotePredBool
 #print axioms KCore.NotePredBool.rule_text0
 #print axioms KCore.NotePredBool.rule_text1
 #print axioms KCore.NotePredBool.left0_empty
-#print axioms KCore.NotePredBool.rule_from_text
+#print axioms KCore.NotePredBool.lit_sents
+#print axioms KCore.NotePredBool.ruleSigAux_text
+#print axioms KCore.NotePredBool.rule_from_text_aux
 #print axioms KCore.NotePredBool.ltext0_empty
 #print axioms KCore.NotePredBool.rule157_at_values
+#print axioms KCore.NotePredBool.ltext0_empty_int
+#print axioms KCore.NotePredBool.rule157_entailed
 #print axioms KCore.NotePredBool.consistent
 #print axioms KCore.NotePredBool.pre_model
 #print axioms KCore.NotePredBool.ceil_other

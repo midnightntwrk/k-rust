@@ -3,7 +3,8 @@
   (`test/constructs/fixtures/e3-ml-req-forall`), sentence by sentence, against the translation of the text as
   written (`trS ad := trAxiom k.symbolDecls k.aliasNames ad`), on the literals `kore` and `defn`, for
   every interpretation H. Nothing here reads `Parse.parse` or `emit`. Written by
-  `test/constructs/tiegen.py e3-ml-req-forall`; run from the package root: `lake env lean -j1 test/TieE3MlReqForall.lean`.
+  `test/constructs/tiegen.py e3-ml-req-forall`, its rules section by hand; run from the package root:
+  `lake env lean -j1 test/TieE3MlReqForall.lean`.
 
   Layer 1.
   - `wf_defn`: `wf defn = true`.
@@ -24,6 +25,19 @@
   - Function equations (30): each of Γ's items is the translation of one sentence, in the
     order `fnText` lists them (`fn_shape`); `fns_entailed` (E), `fns_from_text` (the converse),
     `fn_prios` (the priorities the sentences state are the clauses').
+  - Rewrite rules (157), by hand, in the section `The rules` (`Rules`): each of Γ's rule items is a
+    consequence of its text sentence with the text's sentences 138 (library), 133 (library), 147
+    (library), 49 (hooked functional), 46 (hooked functional) (`Rules.ruleAux`), the item of the
+    text's signature `nonemptyItem ⟨"SortInt", [], true⟩` (`Rules.ruleSigAux`; each an item of
+    `(Theory.ofDefinition kore).signature`, `Rules.ruleSigAux_text`) and the text's signature
+    (`ΓSig`), `Rules.ruleText` in `ruleItems`' order (`Rules.rule_from_text_aux`, W1, every H;
+    `Rules.rules_account`). `ΓSig` holds the items of the text's declarations or surplus ones, the
+    sort constant of a registry sort or the arity of a hooked symbol that the text does not declare
+    at that shape (`sig_origin`), and the arity of every literal (`dvArityAll`). Two limits, argued
+    and not proved: that a surplus item of a name the text declares with sort parameters adds no
+    consequence in the text's symbols; and that `dvArityAll` at a literal no axiom of the text
+    writes, no item of the text, adds none either. The section's other headline statements (its
+    comment says what each states): `Rules.rule_text0`, `Rules.lit_sents`, `Rules.left0_empty`.
   - Constructor sentences (32): entailed by Γ (`cons_entailed`).
   - No junk (3 of a sort without generators, `nojunk_trivial_entailed`; 7 equal to
     one of Γ's constructor items, `nojunk_items`; 1 KItem's with its disjuncts in the text's
@@ -36,7 +50,7 @@
     `absent_closed`.
 
   The sentences with no counterpart in f2-examples/ens.kompile.kore are `unmapped` (17);
-  the sentences of a class with a theorem that no theorem here holds of are `uncovered` (1).
+  the sentences of a class with a theorem that no theorem here holds of are `uncovered` (0).
 -/
 import KcoreSpec
 
@@ -186,7 +200,7 @@ def unmapped : List (Nat × String) :=
 /-- The sentences of a class with a theorem in the tie that no theorem of this file holds of: the
 tie's remainder on this text. -/
 def uncovered : List (Nat × String) :=
-  [(157, "rewrite rule")]
+  []
 
 /-- Each listed sentence is in its class in the account. -/
 theorem lists_in_account : (unmapped ++ uncovered).all (fun ic => (classOf ic.2).contains ic.1) = true := by
@@ -752,6 +766,160 @@ theorem lib166_at_values (H : HookParams) : EntailsAtValues (cH H) U.ax168 (trS 
   exact lib166 H hI n e (((elemOf_spec hI hv e).1 _).mp hden) m
 
 
+/-! ## The rules (157): W1 from the text, for every H (by hand)
+
+Γ's rule is `go(_) => done` with the `requires` read as `false` (`Parse.isPred`, `predicateAtBool`;
+the text's `requires` is `\forall{SortBool{}}(Y:SortInt{}, \equals{SortInt{}, SortBool{}}(f(Y),
+Y))`, equated with `true`). The sentence is the item of the text's left side at the table of Γ's
+axiom (`rule_text0`, kernel). Sentences 138 (`INT-KORE.eq-int-true-left`), 133
+(`INT-KORE.neq-int-false-left`), 147 (`INT-KORE.eq-int-false-rigth`), 49 and 46 (the functional
+sentences of `_==Int_` and `_=/=Int_`), at an element of Int (the text's G-nonempty item of Int,
+`ruleSigAux_text`), state that `false` and `true` denote two elements of Bool
+(`TieReqBool.boolLits_of_text_sig`, `lit_sents`), so Γ's left side of rule 0 holds nothing
+(`left0_empty`) and its item holds whatever sentence 157 says: the statement names sentence 157 and
+does not use what it states. What ties sentence 157 is the other direction, `rule157_entailed` of
+the companion test/NotePredBoolForall.lean: Γ entails the sentence, whose left side is empty too. No
+item of `ΓDomains` is among the premises (`rule_from_text_aux`). -/
+
+deriving instance DecidableEq for KoreAML.SortDecl
+
+namespace Rules
+
+noncomputable def r0 : Rule := c.rules[0]'(by decide +kernel)
+
+/-- Γ's axiom of rule 0. -/
+noncomputable def p0 : Kore.Pattern := prioRuleK c r0
+
+/-- Its parts `\rewrites{C}(L', r)`. -/
+noncomputable def q0 : Kore.KSort × Kore.Pattern × Kore.Pattern :=
+  (TieRuleLhs.rwParts p0).getD (KoreAML.R, .top KoreAML.R, .top KoreAML.R)
+
+kernel_rfl q0_eq : TieRuleLhs.rwParts p0 = some q0
+
+theorem ruleItems_eq : ruleItems c = [trAxiom [] [] ⟨0, "kernel", ⟨[], p0, []⟩⟩] := by kernel_rfl
+
+theorem names : c.symName 385 = "Lbldone" ∧ c.symName 386 = "Lblgo" ∧ c.symName 387 = "Lblother" ∧ c.sortName 32 = "Exp" := by
+  decide +kernel
+
+-- Γ's left side of rule 0: the term, the `requires` false, then `⌈r⌉`.
+kernel_rfl l0_eq : q0.2.1 = .and q0.1 (TieRuleLhs.andHead q0.2.1 :: TieRhs.ensFalse q0.1 :: (TieRuleLhs.andTail q0.2.1).drop 1)
+
+/-- The variable the sentence's `\forall` binds. -/
+def y0 : Kore.EVar := KoreAML.evar "VarY" (KoreAML.srt "Int")
+
+/-- The left side of rule 0 as the text writes it: the `requires` is the predicate
+`\forall{SortBool{}}(VarY:SortInt{}, \equals{SortInt{}, SortBool{}}(Lblf{}(VarY), VarY))`, equated
+with `true`, and no conjunct follows. -/
+noncomputable def Ltext0 : Kore.Pattern :=
+  .and q0.1 [TieRuleLhs.andHead q0.2.1,
+    .equals (KoreAML.srt "Bool") q0.1
+      (.forall (KoreAML.srt "Bool") y0
+        (.equals (KoreAML.srt "Int") (KoreAML.srt "Bool")
+          (.app ⟨⟨"Lblf"⟩⟩ [] [.var (.evar y0)]) (.var (.evar y0))))
+      (.dv (KoreAML.srt "Bool") "true")]
+
+noncomputable def fT0 : List VarKey := (freeOf [] (.rewrites q0.1 Ltext0 q0.2.2)).eraseDups
+
+/-- **The rule sentence is the item of `\rewrites{C}(Ltext0, r)` at the table of Γ's axiom**
+(kernel). -/
+theorem rule_text0 : TiePair.renSeq (TieRuleLhs.itemAt (tableOf [] p0) fT0 q0.1 Ltext0 q0.2.2) [] = some (trS U.ax157).pat := by
+  decide +kernel
+theorem fT_free0 : fT0.all (fun k => (freeOf [] p0).eraseDups.contains k) = true := by decide +kernel
+
+kernel_rfl C_eq : q0.1 = KoreAML.srt "GeneratedTopCell"
+theorem top_name (H : HookParams) : (cH H).sortName topCellSort = "GeneratedTopCell" :=
+  (by decide +kernel : c.sortName topCellSort = "GeneratedTopCell")
+
+/-! ## The text's Bool literals
+
+Five sentences of the text, with Int's sort declaration, state that `false` and `true` each denote
+one element of Bool and that the two differ (`TieReqBool.boolLits_of_text_sig`):
+`INT-KORE.eq-int-true-left` (138), `{K1 ==Int K2 #Equals true} = {K1 #Equals K2}`;
+`INT-KORE.neq-int-false-left` (133), `{K1 =/=Int K2 #Equals false} = {K1 #Equals K2}`;
+`INT-KORE.eq-int-false-rigth` (147), `{false #Equals K1 ==Int K2} = #Not({K1 #Equals K2})`; and the
+functional sentences of `_==Int_` (49) and `_=/=Int_` (46). The three are over element variables
+`K1`, `K2` of Int and have no condition; they are read at an element of Int given to both. Nothing
+here reads a hook's graph or a value item of `ΓDomains`. -/
+
+/-- **Each of the five is the library's pattern of its sentence** (kernel). -/
+theorem lit_sents :
+    (trS U.ax138).pat = TieReqBool.sentPat TieReqBool.eqIntTrueLeftAx ∧
+    (trS U.ax133).pat = TieReqBool.sentPat TieReqBool.neqIntFalseLeftAx ∧
+    (trS U.ax147).pat = TieReqBool.sentPat TieReqBool.eqIntFalseRightAx ∧
+    (trS U.ax49).pat = TieReqBool.sentPat (TieReqBool.fnlBoolAx TieReqBool.eqIntName) ∧
+    (trS U.ax46).pat = TieReqBool.sentPat (TieReqBool.fnlBoolAx TieReqBool.neqIntName) := by
+  refine ⟨?_, ?_, ?_, ?_, ?_⟩ <;> decide +kernel
+
+/-- The rule sentence. -/
+noncomputable def ruleText : List AxiomDecl := [U.ax157]
+
+theorem rules_account : (classOf "rewrite rule").isPerm (ruleText.map (·.index)) = true := by decide +kernel
+
+/-- The other sentences of the text the statement reads: 138, 133, 147, 49 and 46. -/
+noncomputable def ruleAux : List AxiomDecl := [U.ax138, U.ax133, U.ax147, U.ax49, U.ax46]
+
+/-- The item of the text's signature the statement reads, which `ΓSig` does not hold: Int has an
+element (G-nonempty of the declaration `hooked-sort SortInt{}`). -/
+def ruleSigAux : List Item := [nonemptyItem ⟨"SortInt", [], true⟩]
+
+theorem intDecl_mem : (⟨"SortInt", [], true⟩ : SortDecl) ∈ kore.sortDecls := by decide +kernel
+
+/-- Each item of `ruleSigAux` is an item of the signature of the text's theory. -/
+theorem ruleSigAux_text : ∀ it ∈ ruleSigAux, it ∈ (Theory.ofDefinition kore).signature := by
+  intro it hit
+  rw [List.mem_singleton.mp hit]
+  simp only [Theory.ofDefinition, List.mem_append, List.mem_map]
+  exact Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inr ⟨_, intDecl_mem, rfl⟩)))))
+
+theorem int_name (H : HookParams) : (cH H).sortName Srt.int = "Int" := by
+  show c.sortName Srt.int = _; decide +kernel
+
+/-- **Γ's left side of rule 0 holds nothing** in a model of definedness and the signature in which
+the five sentences and Int's G-nonempty item hold: its `requires` is `false = true`, and there
+`false` and `true` denote two elements of Bool (`TieReqBool.boolLits_of_text_sig`). -/
+theorem left0_empty (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hD : DefOK I)
+    (hSig : I ⊧ᴵP ΓSig (cH H))
+    (hT : ∀ φ ∈ ruleAux.map (fun a => (trS a).pat) ++ ruleSigAux.map (·.pat), I ⊧ᴵ φ) (e : Valuation M) (a : M) :
+    ¬ (tr ⟨tableOf [] p0, []⟩ q0.2.1).interpret I e a := by
+  intro h
+  haveI : OvlOK (cH H) := ovlOK_of_core (coreOKH H)
+  have hc : I ⊧ᴵ ceilDefItem.pat := hSig _ (Or.inl (Or.inl ⟨_, sig_ceilDef (c := cH H), rfl⟩))
+  obtain ⟨σ, hσ1, hσ2⟩ := TieRhs.sortSing_sig hD hSig (top_numbered (c := cH H))
+  rw [top_name] at hσ1
+  have hT' : ∀ φ ∈ [(trS U.ax138).pat, (trS U.ax133).pat, (trS U.ax147).pat, (trS U.ax49).pat, (trS U.ax46).pat,
+      (nonemptyItem ⟨"SortInt", [], true⟩).pat], I ⊧ᴵ φ := hT
+  obtain ⟨s1, s2, s3, s4, s5⟩ := lit_sents
+  have hL := TieReqBool.boolLits_of_text_sig hD hSig
+    (Nat.lt_of_lt_of_le (by decide : Srt.int < nRegSorts) (Nat.le_add_right _ _) :
+      Srt.int < nRegSorts + (cH H).sortNames.length) (int_name H)
+    (hT' _ (.tail _ (.tail _ (.tail _ (.tail _ (.tail _ (.head _)))))))
+    (s1 ▸ hT' _ (.head _)) (s2 ▸ hT' _ (.tail _ (.head _))) (s3 ▸ hT' _ (.tail _ (.tail _ (.head _))))
+    (s4 ▸ hT' _ (.tail _ (.tail _ (.tail _ (.head _)))))
+    (s5 ▸ hT' _ (.tail _ (.tail _ (.tail _ (.tail _ (.head _)))))) (tableOf [] p0) e
+  rw [l0_eq, interp_and (List.cons_ne_nil _ _)] at h
+  exact TieReqBool.ensFalse_empty_lits hD hc hL (by rw [C_eq, trSort_srt]; exact hσ1) hσ2 a
+    (h _ (List.mem_cons_of_mem _ (List.mem_cons_self ..)))
+
+/-- **W1 for the rule, and the converse for `ruleItems`**, from the text: Γ's rule item is a
+consequence of sentence 157 with sentences 138, 133, 147, 49 and 46, Int's G-nonempty item and the
+signature, for every H. No item of `ΓDomains` is among the premises. The item holds in every model
+of the premises whatever sentence 157 says: its left side is empty there (`left0_empty`). -/
+theorem rule_from_text_aux (H : HookParams) : ∀ it ∈ ruleItems (cH H), ∃ ad ∈ ruleText,
+    TiePair.Texts ((trS ad).pat :: (ruleAux.map (fun a => (trS a).pat) ++ ruleSigAux.map (·.pat))) ∪ ΓSig (cH H) ⊧ it.pat := by
+  intro it hit
+  rw [TiePair.ruleItems_withHooks, ruleItems_eq] at hit
+  rw [List.mem_singleton.mp hit]
+  refine ⟨U.ax157, List.mem_cons_self .., ?_⟩
+  intro M _ I hI
+  have hD : DefOK I := TiePair.defOK_texts fun φ hφ => hI φ (Or.inl hφ)
+  have hSig : I ⊧ᴵP ΓSig (cH H) := fun φ hφ => hI φ (Or.inr hφ)
+  exact TieRuleLhs.rule_w1 hD q0_eq rule_text0 fT_free0
+    (hI _ (Or.inl (Or.inl (List.mem_cons_self ..))))
+    fun e _ _ a ha => absurd ha (left0_empty H hD hSig
+      (fun φ hφ => hI _ (Or.inl (Or.inl (List.mem_cons_of_mem _ hφ)))) e a)
+
+end Rules
+
 end KCore.TieE3MlReqForall
 
 #check @KCore.TieE3MlReqForall.noRaw
@@ -789,6 +957,12 @@ end KCore.TieE3MlReqForall
 #check @KCore.TieE3MlReqForall.idem_refuted
 #check @KCore.TieE3MlReqForall.lib166
 #check @KCore.TieE3MlReqForall.lib166_at_values
+#check @KCore.TieE3MlReqForall.Rules.rules_account
+#check @KCore.TieE3MlReqForall.Rules.rule_from_text_aux
+#check @KCore.TieE3MlReqForall.Rules.ruleSigAux_text
+#check @KCore.TieE3MlReqForall.Rules.rule_text0
+#check @KCore.TieE3MlReqForall.Rules.lit_sents
+#check @KCore.TieE3MlReqForall.Rules.left0_empty
 #print axioms KCore.TieE3MlReqForall.noRaw
 #print axioms KCore.TieE3MlReqForall.readsConfined_c
 #print axioms KCore.TieE3MlReqForall.userAxioms_eq
@@ -824,3 +998,9 @@ end KCore.TieE3MlReqForall
 #print axioms KCore.TieE3MlReqForall.idem_refuted
 #print axioms KCore.TieE3MlReqForall.lib166
 #print axioms KCore.TieE3MlReqForall.lib166_at_values
+#print axioms KCore.TieE3MlReqForall.Rules.rules_account
+#print axioms KCore.TieE3MlReqForall.Rules.rule_from_text_aux
+#print axioms KCore.TieE3MlReqForall.Rules.ruleSigAux_text
+#print axioms KCore.TieE3MlReqForall.Rules.rule_text0
+#print axioms KCore.TieE3MlReqForall.Rules.lit_sents
+#print axioms KCore.TieE3MlReqForall.Rules.left0_empty
