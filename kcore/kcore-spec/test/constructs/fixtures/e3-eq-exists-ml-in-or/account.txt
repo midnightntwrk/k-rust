@@ -36,7 +36,7 @@ clauses holding existential variables, each a match obligation (the package's ma
       function f, clause 0 at e3-eq-exists-ml-in-or.k:4: MatchIndependent open, existential VarB:Bool, Var'Hash'Or0:Bool
       function fx, clause 0 at e3-eq-exists-ml-in-or.k:5: MatchIndependent open, existential VarB:Bool, Var'Hash'Or0:Bool
 sound_hyp and complete_hyp (the package's sound_defn and complete_defn) are stated of this text only under these facts as hypotheses, each named with its function and clause (FnHyp's fourth conjunct; match_named of FnObligations)
-parse: ok; wf false; failing: [functions: well-sorted, clauses without an existential variable or a right-side predicate (clausesNoExsTop): the checks outside coreOK read neither]
+parse: ok; wf false; failing: [clauses without an existential variable or a right-side predicate (clausesNoExsTop): the checks outside coreOK read neither]
 coreOK: true; failing: []
 refused by the account: 0
 (exit 0)

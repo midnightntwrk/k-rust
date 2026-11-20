@@ -1181,12 +1181,14 @@ def ruleOKAll (r : Rule) : Bool :=
 
 /-- A clause, as `clauseOK`, its patterns well-sorted over the collection pattern symbols too
 (`patCtxAll`: KEVM's `#lookup(K |-> V M, K)`, a list's `ListItem(P) L`), and each of its variables
-occurring in its patterns, its `requires`, its right-hand side or its `ensures` (which of them the
-patterns may leave open is `clausesPlain`'s). -/
+occurring in its patterns, its conditions, its right-hand side, its `ensures` or its right side's
+predicate (which of them the patterns may leave open, and how an existential variable is held, is
+`clausesPlain`'s). -/
 def clauseOKAll (f : Fn) (rhsHeads : List CtorSig) (cl : Clause) : Bool :=
   sortsOfTerms c.patCtxAll cl.vars cl.pats == some f.args &&
   noMapInList cl.pats &&
-  binds cl.vars.length (cl.leftVars ++ varOccs cl.rhs ++ (cl.ens.map varOccs).getD []) &&
+  binds cl.vars.length (cl.leftVars ++ varOccs cl.rhs ++ (cl.ens.map varOccs).getD [] ++
+    varOccsCond cl.vars.length cl.post) &&
   reqOK (c.rhsCtx rhsHeads) cl.vars cl.req &&
   sortOfTerm (c.rhsCtx rhsHeads) cl.vars cl.rhs == some f.result &&
   reqOK (c.rhsCtx rhsHeads) cl.vars cl.ens
@@ -1207,7 +1209,7 @@ theorem clauseOKAll_of {f : Fn} {H : List CtorSig} {cl : Clause} (h : c.clauseOK
   refine ⟨⟨⟨⟨⟨sortsOfTerms_heads _ _ _ _ h.1.1.1.1.1, h.1.1.1.1.2⟩, ?_⟩, h.1.1.2⟩, h.1.2⟩, h.2⟩
   have hbd := h.1.1.1.2
   simp only [binds, List.all_eq_true, List.contains_iff_mem, List.mem_append, Clause.leftVars] at hbd ⊢
-  exact fun i hi => Or.inl (Or.inl (Or.inl (hbd i hi)))
+  exact fun i hi => Or.inl (Or.inl (Or.inl (Or.inl (hbd i hi))))
 
 theorem fnsOKAll_of (h : c.fnsOK = true) : c.fnsOKAll = true := by
   simp only [fnsOK, fnsOKAll, List.all_eq_true] at h ⊢

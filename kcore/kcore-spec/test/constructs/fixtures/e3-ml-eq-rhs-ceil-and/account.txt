@@ -35,7 +35,7 @@ functions whose equations' agreement no decider confirms (the package's agree_na
 clauses holding existential variables, each a match obligation (the package's match_named, Semantics.matchObligationsL; not a condition of wf: owed of each is MatchIndependent, that its instances are decided and give one result at each match where it decides): 1
       function h, clause 0 at e3-ml-eq-rhs-ceil-and.k:6: MatchIndependent open, existential Var'Hash'Cut0:Int
 sound_hyp and complete_hyp (the package's sound_defn and complete_defn) are stated of this text only under these facts as hypotheses, each named with its function and clause (FnHyp's fourth conjunct; match_named of FnObligations)
-parse: ok; wf false; failing: [functions: well-sorted, clauses without an existential variable or a right-side predicate (clausesNoExsTop): the checks outside coreOK read neither]
+parse: ok; wf false; failing: [clauses without an existential variable or a right-side predicate (clausesNoExsTop): the checks outside coreOK read neither]
 coreOK: true; failing: []
 refused by the account: 0
 (exit 0)

@@ -3205,7 +3205,7 @@ def wfParts (koreFile : String) : IO UInt32 := do
             cl.pats.findSome? (badSub c c.patCtxAll cl.vars)),
           ("a map pattern with two frames", noMapInList cl.pats, none),
           ("a variable that occurs nowhere in the clause", binds cl.vars.length (cl.leftVars ++ varOccs cl.rhs ++
-            (cl.ens.map varOccs).getD []), none),
+            (cl.ens.map varOccs).getD [] ++ varOccsCond cl.vars.length cl.post), none),
           ("requires not of sort Bool", reqOK fns cl.vars cl.req, cl.req.bind (badSub c fns cl.vars)),
           ("right side not of the result sort", sortOfTerm fns cl.vars cl.rhs == some f.result, badSub c fns cl.vars cl.rhs),
           ("ensures not of sort Bool", reqOK fns cl.vars cl.ens, cl.ens.bind (badSub c fns cl.vars))]

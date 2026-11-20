@@ -331,11 +331,12 @@ theorem clauseSorted_of_all {f : Fn} {H : List CtorSig} {cl : Clause} (h : c.cla
   have hbd := h.1.1.1.2
   simp only [binds, List.all_eq_true, List.contains_iff_mem, List.mem_append, Clause.leftVars] at hbd ⊢
   intro i hi
-  rcases hbd i hi with ((h1 | h1) | h1) | h1
+  rcases hbd i hi with (((h1 | h1) | h1) | h1) | h1
   · exact Or.inl (Or.inl (Or.inl (Or.inl h1)))
   · exact Or.inl (Or.inl (Or.inl (Or.inr h1)))
   · exact Or.inl (Or.inl (Or.inr h1))
   · exact Or.inl (Or.inr h1)
+  · exact Or.inr h1
 
 /-- A clause whose predicates are `\top` has its binders where values and elements agree
 (`Cond.bound`): it has none; `clausesNoExsTop` gives the right side's, `clausesPreTop` the
