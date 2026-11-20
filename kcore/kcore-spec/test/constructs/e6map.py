@@ -1560,13 +1560,16 @@ def main():
     by = defaultdict(list)
     for k in scope:
         by[k.split(":")[1] if not k.startswith("token:") else "(token sort)"].append(k)
+    # refuted (recorded): a module row of that group, or a row "refuted: ..." naming its recorded
+    # ruling (`member_group`'s "ref"); a row "refuted: ..." naming none stays uncovered
+    isref = lambda k: is_mod(res[k], MOD_REF) or member_group(k, res[k], {}, scope) == "ref"
     tied = sum(1 for v in res.values() if isinstance(v, list))
     nodir = sum(1 for v in res.values() if is_nodir(v) or is_mod(v, MOD_ND))
     nomod = sum(1 for v in res.values() if is_mod(v, NOMODEL))
-    refrec = sum(1 for v in res.values() if is_mod(v, MOD_REF))
+    refrec = sum(1 for k in res if isref(k))
     for m in sorted(by):
         nd = [k for k in by[m] if is_nodir(res[k]) or is_mod(res[k], MOD_ND)]
-        nmr = [k for k in by[m] if is_mod(res[k], NOMODEL) or is_mod(res[k], MOD_REF)]
+        nmr = [k for k in by[m] if is_mod(res[k], NOMODEL) or isref(k)]
         un = [k for k in by[m] if not isinstance(res[k], list) and k not in nd and k not in nmr]
         print(f"{m}: {len(by[m]) - len(un) - len(nd) - len(nmr)} tied, {len(nd)} no direction, "
               f"{len(nmr)} no model or refuted (recorded), {len(un)} uncovered")
