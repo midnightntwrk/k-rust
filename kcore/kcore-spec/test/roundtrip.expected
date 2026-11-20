@@ -469,3 +469,4 @@ differs examples/ref-kk/RefKk/definition.kore
 differs examples/ref-peano/RefPeano/definition.kore
 exact examples/vault-leaky/VaultLeaky/definition.kore
 exact examples/vault/Vault/definition.kore
+differs f2-examples/e3-ml-eq-rhs-or-nest.kompile.kore
