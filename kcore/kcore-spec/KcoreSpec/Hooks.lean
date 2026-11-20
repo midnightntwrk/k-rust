@@ -865,8 +865,13 @@ only where the text says there is none (`#False`, `#Bottom`). Where the text dec
 `total`, it states that a value exists at its silent points and not which: the interpretations it
 admits give one there (`totalSilentKeys`, `Semantics.silentTotal`, ParamsTotal.lean). A library
 equation whose instance at values reaches a silent point is likewise a condition on the
-interpretation (`Semantics.libAdmitted`, LibAdmitted.lean). Line numbers are domains.md's
-(K 7.1.337).
+interpretation (`Semantics.libAdmitted`, LibAdmitted.lean). A symbol is a key for a region among
+the argument lists that a semantics meeting `coreOK` has. Every value of sort Float is a Float
+literal there (`floatShapeOK_of_coreOK`, LibAdmitted.lean), so an argument of sort Float that is
+no literal makes no symbol a key: `<=Float`, `<Float`, `>=Float`, `>Float`, `==Float`, `=/=Float`
+and `isNaN`, whose value the text states at every datum (1541, 1631-1638, 1648) and which have one
+at every Float literal (`asDatum`), are none, as `precisionFloat` and `exponentBitsFloat` are none.
+Line numbers are domains.md's (K 7.1.337).
 - `L[I]`, `range`: the text describes an index of the list (960-963) and removing that many elements
   from the front and the back (1012-1013); an index off the list, or more elements than there are, is
   not described.
@@ -920,8 +925,10 @@ interpretation (`Semantics.libAdmitted`, LibAdmitted.lean). Line numbers are dom
   the status it has at any format, 1475, 1481-1488) the comparisons and `isNaN` read the datum
   (`asDatum`, `KFloat.tnUnpack`), and the other operations compute on it by the formulas of a format
   with a model over the rounding to the nearest datum of that format (`thinHooks`, FloatThin.lean),
-  with the silent points the bullets above name, and at an exact result halfway between two data of
-  the format (zero and the smallest positive datum included). `isInfinite` is silent at a value of
+  with the silent points the bullets above name, and at precision 1 at an exact result halfway
+  between two data of the format: both have the significand 1, so "the even one" names neither
+  (`KFloat.tnRound`). At one exponent bit and a precision of 2 or more a tie goes to the even
+  significand, as at a format with a model. `isInfinite` is silent at a value of
   the format `(1, 1)`, where `maxValueFloat`, which its equation (1673) reads, is.
 - RANGEMAP's `lookup` and `find_range` off the keys: "yield an exception during concrete execution"
   (534-535, 555-556), of a run, and no `#False`, the reading taken for `memsetBytes`.
@@ -969,9 +976,7 @@ def silentTable : List (Sym × (List GroundTerm → Bool)) :=
    (floatSqrt, fun _ => true),
    (floatNeg, fun _ => true), (floatAbs, fun _ => true), (floatFloor, fun _ => true),
    (floatCeil, fun _ => true), (floatTrunc, fun _ => true),
-   (floatLe, fun _ => true), (floatLt, fun _ => true), (floatGe, fun _ => true),
-   (floatGt, fun _ => true), (floatEq, fun _ => true), (floatNe, fun _ => true),
-   (floatIsNaN, fun _ => true), (floatIsInfinite, fun _ => true),
+   (floatIsInfinite, fun _ => true),
    (rmElem, fun _ => true), (rmConcat, fun _ => true), (rmLookup, fun _ => true),
    (rmFindRange, fun _ => true), (rmUpdate, fun _ => true), (rmRemove, fun _ => true),
    (rmRemoveAll, fun _ => true),

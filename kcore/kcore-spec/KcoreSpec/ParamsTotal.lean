@@ -29,8 +29,8 @@
     admits meet it. `HookParams.totals` does in every semantics (`silentTotal_totals`), and under it
     such a symbol has a value at every argument list of its sorts (`total_hook_value`).
   - `Semantics.floatShapeOK c`: every value of sort Float is a Float literal (`shape_float`); then
-    `precisionFloat` and `exponentBitsFloat` have a value at every Float (`fmt_total`), the third
-    case of `total_hook_value`.
+    `isNaN`, `precisionFloat` and `exponentBitsFloat` (`floatLitTotal`) have a value at every Float
+    (`fmt_total`), the third case of `total_hook_value`.
 -/
 import KcoreSpec.CallRank
 
@@ -201,12 +201,12 @@ theorem total_of_restTotal_nil {c : Semantics} {H : HookParams} (h : RestTotal c
 
 /-- The interpreted symbols with silent points that the builtin text declares `total`: at a silent
 point of one, the text states that a value of the result sort exists and not which. domains.md
-(K 7.1.337): `substrString` 1758, `Bytes2Int` 2082, `Int2Bytes` 2083, `isNaN` 1544, `isInfinite`
+(K 7.1.337): `substrString` 1758, `Bytes2Int` 2082, `Int2Bytes` 2083, `isInfinite`
 1545, `--Float` 1562, `absFloat` 1608, `floorFloat` 1610, `ceilFloat` 1611, `truncFloat` 1612,
 `replaceAll` 1852, `countAllOccurrences` 1855
 (checked against the builtin text by test/SilentTotal.lean). -/
 def totalSilentKeys : List Sym :=
-  [stringSubstr, bytes2Int, int2Bytes, floatIsNaN, floatIsInfinite, floatNeg, floatAbs,
+  [stringSubstr, bytes2Int, int2Bytes, floatIsInfinite, floatNeg, floatAbs,
    floatFloor, floatCeil, floatTrunc, stringCountAll, stringReplaceAll]
 
 theorem totalSilentKeys_silent : ∀ f ∈ totalSilentKeys, silentKey f = true := by decide +kernel
@@ -217,7 +217,7 @@ theorem totalSilentKeys_hook : ∀ f ∈ totalSilentKeys, (hook f []).isSome = t
 theorem totalSilentKeys_everywhere : ∀ f ∈ totalSilentKeys, ∀ vs, silent f vs = true := by
   intro f hf vs
   simp only [totalSilentKeys, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> rfl
+  rcases hf with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> rfl
 
 /-- `totalSilent`'s symbols are among them. -/
 theorem totalSilent_sub : ∀ f ∈ totalSilent, f ∈ totalSilentKeys := by decide
@@ -305,8 +305,8 @@ theorem silentTotal_totals (c : Semantics) : (c.withHooks HookParams.totals).sil
 /-- **Every value of sort Float is a Float literal**: no constructor, injection, collection sort of
 the definition's own, overloading symbol, token or byte sort, nor raw parameter has Float as its
 sort. Then
-`precisionFloat` and `exponentBitsFloat`, which read a literal's format, have a value at every
-Float (`fmt_total`). -/
+`precisionFloat` and `exponentBitsFloat`, which read a literal's format, and `isNaN`, which reads
+its datum, have a value at every Float (`fmt_total`). -/
 def Semantics.floatShapeOK (c : Semantics) : Bool :=
   c.ctorSigs.all (·.result != Srt.float) && c.subsorts.all (·.2 != Srt.float) &&
   !(c.lib.tokenSorts ++ c.lib.byteSorts).contains Srt.float &&
@@ -386,9 +386,31 @@ theorem KFloat.ok_pos {p e b : Nat} (h : KFloat.ok p e b = true) : 1 ≤ p ∧ 1
     simp only [Bool.and_eq_true, decide_eq_true_eq] at h
     omega
 
-/-- `precisionFloat` and `exponentBitsFloat` take one Float. -/
-theorem floatResInt_args : ∀ k ∈ hookSigs, floatResInt.contains k.name = true → k.args = [Srt.float] := by
+/-- **A value of sort Float has a datum, under `floatShapeOK`**: it is a Float literal, of a format
+with a model or with a field of 1 (`asDatum`). -/
+theorem asDatum_sorted {c : Semantics} (hf : c.floatShapeOK = true) {v : GroundTerm}
+    (hv : c.sortOf v = some Srt.float) : ∃ u, asDatum v = some u := by
+  obtain ⟨p, e, b, rfl, hok⟩ := shape_float hf hv
+  obtain ⟨hp, he⟩ := KFloat.ok_pos hok
+  have ht : KFloat.spec? p e = none → KFloat.tnFormat p e = true := by
+    intro hs; unfold KFloat.spec? at hs; split at hs
+    · cases hs
+    · rename_i h; simp only [KFloat.tnFormat, decide_eq_true_eq]; omega
+  cases hs : KFloat.spec? p e with
+  | some sp => exact ⟨KFloat.unpackBits sp b, by simp [asDatum, hs]⟩
+  | none => exact ⟨KFloat.tnUnpack p e b, by simp [asDatum, hs, ht hs]⟩
+
+/-- FLOAT's symbols of one Float that the text declares `total` (domains.md 1544, 1511, 1519) and
+that are no key of `silentTable`: `isNaN`, `precisionFloat` and `exponentBitsFloat`. `hook` gives
+each a value at every Float literal, and none at a value of sort Float that is no literal, which a
+semantics with `floatShapeOK` does not have. -/
+def floatLitTotal : List Sym := floatIsNaN :: floatResInt
+
+/-- `isNaN`, `precisionFloat` and `exponentBitsFloat` take one Float. -/
+theorem floatLitTotal_args : ∀ k ∈ hookSigs, floatLitTotal.contains k.name = true → k.args = [Srt.float] := by
   decide +kernel
+
+theorem floatLitTotal_notKey : ∀ f ∈ floatLitTotal, silentKey f = false := by decide +kernel
 
 theorem hook_floatPrecision (vs : List GroundTerm) :
     hook floatPrecision vs = some (flFmt (fun (p _ : Nat) => (p : Int)) vs) := rfl
@@ -396,27 +418,33 @@ theorem hook_floatPrecision (vs : List GroundTerm) :
 theorem hook_floatExponentBits (vs : List GroundTerm) :
     hook floatExponentBits vs = some (flFmt (fun (_ e : Nat) => (e : Int)) vs) := rfl
 
-/-- **`precisionFloat` and `exponentBitsFloat` have a value at every Float, under `floatShapeOK`**:
-`hook`'s, the literal's precision or exponent width. -/
-theorem fmt_total {c : Semantics} (h : c.floatShapeOK = true) {f : Sym} (hf : f ∈ floatResInt)
-    {vs : List GroundTerm} (hvs : c.sortsOf vs = some [Srt.float]) : ∃ n, hook f vs = some (some (int n)) := by
+/-- **`isNaN`, `precisionFloat` and `exponentBitsFloat` have a value at every Float, under
+`floatShapeOK`**: `hook`'s, whether the literal's datum is Not-a-Number, and the literal's precision
+or exponent width. -/
+theorem fmt_total {c : Semantics} (h : c.floatShapeOK = true) {f : Sym} (hf : f ∈ floatLitTotal)
+    {vs : List GroundTerm} (hvs : c.sortsOf vs = some [Srt.float]) : ∃ w, hook f vs = some (some w) := by
   obtain ⟨v, rfl, hv⟩ := sortsOf_one hvs
-  obtain ⟨p, e, b, rfl, hok⟩ := shape_float h hv
-  have hpe := KFloat.ok_pos hok
-  simp only [floatResInt, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl
-  · exact ⟨p, by rw [hook_floatPrecision]; simp [flFmt, hpe.1, hpe.2]⟩
-  · exact ⟨e, by rw [hook_floatExponentBits]; simp [flFmt, hpe.1, hpe.2]⟩
+  simp only [floatLitTotal, floatResInt, List.mem_cons, List.not_mem_nil, or_false] at hf
+  rcases hf with rfl | rfl | rfl
+  · obtain ⟨u, hu⟩ := asDatum_sorted h hv
+    have hh : hook floatIsNaN [v] = some (flTest KFloat.isNaN [v]) := rfl
+    exact ⟨bool (KFloat.isNaN u), by rw [hh]; simp [flTest, hu]⟩
+  · obtain ⟨p, e, b, rfl, hok⟩ := shape_float h hv
+    have hpe := KFloat.ok_pos hok
+    exact ⟨int p, by rw [hook_floatPrecision]; simp [flFmt, hpe.1, hpe.2]⟩
+  · obtain ⟨p, e, b, rfl, hok⟩ := shape_float h hv
+    have hpe := KFloat.ok_pos hok
+    exact ⟨int e, by rw [hook_floatExponentBits]; simp [flFmt, hpe.1, hpe.2]⟩
 
 /-- **A symbol the text declares `total` has a value at every argument list of its sorts, under an
 interpretation the text admits**: off `partialHooks` `hook`'s (`hook_total`, where the sorts
 interpreted symbols read have their shapes), on `totalSilentKeys` `hook`'s or, at a silent point,
-the interpretation's, and `precisionFloat`, `exponentBitsFloat` (`floatResInt`) `hook`'s where every
+the interpretation's, and `isNaN`, `precisionFloat`, `exponentBitsFloat` (`floatLitTotal`) `hook`'s where every
 Float value is a Float literal (`fmt_total`). Every interpreted symbol the text declares `total` is
 one of the three (test/SilentTotal.lean). -/
 theorem total_hook_value {c : Semantics} (hs : c.shapesOK = true) (ht : c.silentTotal) {k : CtorSig}
     (hk : k ∈ hookSigs) (hkind : partialHooks.contains k.name = false ∨ k.name ∈ totalSilentKeys ∨
-      (k.name ∈ floatResInt ∧ c.floatShapeOK = true))
+      (k.name ∈ floatLitTotal ∧ c.floatShapeOK = true))
     {vs : List GroundTerm} (hvs : c.sortsOf vs = some k.args) :
     ∃ v, c.hookRes k.name vs = some (some v) := by
   rcases hkind with hp | hkey | ⟨hf, hfs⟩
@@ -433,8 +461,8 @@ theorem total_hook_value {c : Semantics} (hs : c.shapesOK = true) (ht : c.silent
       | none =>
         obtain ⟨v, hv⟩ := Option.isSome_iff_exists.mp (ht k hk hkey vs hvs he hsil)
         exact ⟨v, by rw [Semantics.hookRes_of_silent he hsil, hv]⟩
-  · rw [floatResInt_args k hk (List.contains_iff_mem.mpr hf)] at hvs
-    obtain ⟨n, hn⟩ := fmt_total hfs hf hvs
-    exact ⟨int n, Semantics.hookRes_of_value hn⟩
+  · rw [floatLitTotal_args k hk (List.contains_iff_mem.mpr hf)] at hvs
+    obtain ⟨w, hw⟩ := fmt_total hfs hf hvs
+    exact ⟨w, Semantics.hookRes_of_value hw⟩
 
 end KCore

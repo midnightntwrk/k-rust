@@ -7,13 +7,14 @@
   Run from the package root: `lake env lean test/LibEvFloatFlt.lean`.
 
   - 254 (`F1 =/=Float F2 => notBool (F1 ==Float F2)`, domains.md 1648): `ev254`, for every H
-    meeting `neFloatEq` (`LibEv.fnNeFloat_ev`, KcoreSpec/LibEvFloat.lean); `ev254_lib` under
-    `HookParams.lib`. The comparisons are stated at every pair of data.
+    (`LibEv.fnNeFloat_ev`, KcoreSpec/LibEvFloat.lean); `ev254_lib` under
+    `HookParams.lib`. The comparisons are stated at every pair of data and are no keys of
+    `silentTable`.
   - The `functional` sentences of FLOAT's interpreted symbols (`LibEv.functional_ev`): a value
     exists at every Float, whatever the value is. `--Float` 25, `absFloat` 103, `ceilFloat` 108,
-    `floorFloat` 119, `truncFloat` 173, `isInfinite` 134, `isNaN` 143, symbols of
-    `totalSilentKeys`, for every H meeting `silentTotal`; `exponentBitsFloat` 117 and
-    `precisionFloat` 159, of `floatResInt`, for every H (`floatShapeOK`, from `coreOK`).
+    `floorFloat` 119, `truncFloat` 173, `isInfinite` 134, symbols of
+    `totalSilentKeys`, for every H meeting `silentTotal`; `exponentBitsFloat` 117, `isNaN` 143 and
+    `precisionFloat` 159, of `floatLitTotal`, for every H (`floatShapeOK`, from `coreOK`).
   - 321 (`isInfinite(F) => F >Float maxValueFloat(precisionFloat(F), exponentBitsFloat(F)) orBool
     F <Float --Float maxValueFloat(precisionFloat(F), exponentBitsFloat(F))`, domains.md 1673):
     `ev321`, for every H meeting `isInfiniteEq` (`LibEv.fnIsInfinite_ev`); `ev321_lib` under
@@ -61,12 +62,12 @@ theorem coreOKH (H : HookParams) : (cH H).coreOK = true := (Semantics.coreOK_wit
 theorem shapesOKH (H : HookParams) : (cH H).shapesOK = true := (by decide +kernel : c.shapesOK = true)
 theorem floatShapeOKH (H : HookParams) : (cH H).floatShapeOK = true := floatShapeOK_of_coreOK (coreOKH H)
 
-theorem ev254 (H : HookParams) (hc : (cH H).neFloatEq) : EntailsAtValues (cH H) U.ax254 (trS U.ax254).pat := by
+theorem ev254 (H : HookParams) : EntailsAtValues (cH H) U.ax254 (trS U.ax254).pat := by
   rw [(by decide +kernel : (trS U.ax254).pat = (trAxiom [] [] U.ax254).pat)]
-  exact LibEv.fnNeFloat_ev (coreOKH H) hc U.ax254 (by decide +kernel) (by decide +kernel)
+  exact LibEv.fnNeFloat_ev (coreOKH H) U.ax254 (by decide +kernel) (by decide +kernel)
 
 theorem ev254_lib : EntailsAtValues (cH HookParams.lib) U.ax254 (trS U.ax254).pat :=
-  ev254 HookParams.lib (neFloatEq_lib c)
+  ev254 HookParams.lib
 
 theorem ev321 (H : HookParams) (hc : (cH H).isInfiniteEq) : EntailsAtValues (cH H) U.ax321 (trS U.ax321).pat := by
   rw [(by decide +kernel : (trS U.ax321).pat = (trAxiom [] [] U.ax321).pat)]
@@ -105,9 +106,9 @@ theorem fun134 (H : HookParams) (hst : (cH H).silentTotal) : EntailsAtValues (cH
   exact LibEv.functional_ev (coreOKH H) (shapesOKH H) (k := ⟨floatIsInfinite, [Srt.float], Srt.bool⟩) (by decide +kernel) (Or.inr (Or.inl ⟨by decide, hst⟩))
     (by decide +kernel) U.ax134 (by decide +kernel) (by decide +kernel)
 
-theorem fun143 (H : HookParams) (hst : (cH H).silentTotal) : EntailsAtValues (cH H) U.ax143 (trS U.ax143).pat := by
+theorem fun143 (H : HookParams) : EntailsAtValues (cH H) U.ax143 (trS U.ax143).pat := by
   rw [(by decide +kernel : (trS U.ax143).pat = (trAxiom [] [] U.ax143).pat)]
-  exact LibEv.functional_ev (coreOKH H) (shapesOKH H) (k := ⟨floatIsNaN, [Srt.float], Srt.bool⟩) (by decide +kernel) (Or.inr (Or.inl ⟨by decide, hst⟩))
+  exact LibEv.functional_ev (coreOKH H) (shapesOKH H) (k := ⟨floatIsNaN, [Srt.float], Srt.bool⟩) (by decide +kernel) (Or.inr (Or.inr ⟨by decide, floatShapeOKH H⟩))
     (by decide +kernel) U.ax143 (by decide +kernel) (by decide +kernel)
 
 theorem fun159 (H : HookParams) : EntailsAtValues (cH H) U.ax159 (trS U.ax159).pat := by

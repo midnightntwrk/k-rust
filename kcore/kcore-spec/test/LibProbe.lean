@@ -963,18 +963,12 @@ because no interpretation meets them: the second equation of `countAllOccurrence
 `HookParams.lib` as under every interpretation that gives the count a value there. -/
 def unmet : List String := ["17 domains.md:1898"]
 
-/-- The sentences at a line of `libSentences` that read the interpretation at no point because their
-left side has a value at every probed argument: `=/=Float`'s (domains.md 1648), `=/=Float` having a
-value at every two Float literals (`asDatum` has a datum at every format), so that its condition,
-`neFloatEq`, reads no pair of Floats where every Float value is a literal. -/
-def unreadAtLiterals : List String := ["17 domains.md:1648"]
-
 /-- What a check requires of a run: every sentence reading the interpretation has a named
 condition, `unmet` aside, and reads it only where its left side does, every named sentence
-the text holds reads it at some point of the grid, `unreadAtLiterals` aside, and under
+the text holds reads it at some point of the grid, and under
 `HookParams.lib` only the control (set idempotence) and `unmet` fail. -/
 def readsOK (r : Reads) : Bool :=
-  r.unnamed.all unmet.contains && r.unread.all unreadAtLiterals.contains && r.off.isEmpty &&
+  r.unnamed.all unmet.contains && r.unread.isEmpty && r.off.isEmpty &&
     r.libFails.all fun n => n.startsWith "16 " || unmet.contains n
 
 /-- The readings `check` and `checkFlt` add: `HookParams.lib`, and the non-constant `hash`. -/

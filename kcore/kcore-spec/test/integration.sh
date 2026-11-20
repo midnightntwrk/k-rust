@@ -26,6 +26,8 @@
 #               entry of core-manifest.toml's [tree].frozen_at once that is not empty (test/cone-row.sh): that it
 #               was computed from test/roots.toml, declaration names, line count, each declaration's own line
 #               count and each declaration's text (test/cone.py); never rewritten
+#   silent-keys  test/constructs/silentkeys.py: core-manifest.toml's rows and key counts for silentTable
+#               are the table's keys, read from the sources (the registry hook or KORE name of each)
 # scoreboard (red allowed; each compares with its expected values, so a lane that changes them
 # updates one file):
 #   regen       every example package regenerated natively from its own NAME/definition.kore,
@@ -185,6 +187,7 @@ table() {
 order="library kcore"
 check library required test/lake-serial.sh
 check kcore required cap 1800 lake build kcore
+check silent-keys required python3 -I test/constructs/silentkeys.py
 if grep -q '|FAIL|' "$R/library.res" "$R/kcore.res"; then
   table "$order" > "$R/table.txt"; cat "$R/table.txt"; exit 1
 fi

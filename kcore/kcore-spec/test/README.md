@@ -1912,10 +1912,10 @@ table above, on the tree before String and Bytes). Not investigated here.
   (`sn_at`, `sn_refuted`, `sn_one`). Axioms guarded.
 - `test/LibEvFloatFlt.lean`: FLOAT's sentences of `f2-examples/silentflt.kompile.kore` whose value
   is the same under both readings of the naming of IEEE 754 (findings/FLOAT-BYTES-rulings.md
-  section 2), entailed at values: 254 (`=/=Float`, domains.md 1648) for every H meeting
-  `neFloatEq` (`KcoreSpec/LibEvFloat.lean`, `fnNeFloat_ev`), and so at `HookParams.lib`; the
+  section 2), entailed at values: 254 (`=/=Float`, domains.md 1648) for every H
+  (`KcoreSpec/LibEvFloat.lean`, `fnNeFloat_ev`); the
   `functional` sentences of `--Float`, `absFloat`, `ceilFloat`, `floorFloat`, `truncFloat`,
-  `isInfinite`, `isNaN` for every H meeting `silentTotal`, of `precisionFloat`,
+  `isInfinite` for every H meeting `silentTotal`, of `isNaN`, `precisionFloat`,
   `exponentBitsFloat` for every H; 321 (`isInfinite`, 1673) for every H meeting `isInfiniteEq`
   (`fnIsInfinite_ev`, over `KcoreSpec/FloatUnpack.lean`'s `KFloat.isInf_unpack`), and so at
   `HookParams.lib`. The header lists the FLOAT sentences not tied and why: 380 (1671) and the

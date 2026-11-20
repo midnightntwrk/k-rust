@@ -136,13 +136,10 @@ theorem libAdmitted_lawHooks_of (hreg : ∀ k ∈ c.params, k.raw = true → nRe
     (hl : c.lawLibRawFree) (H : HookParams) (ha : (c.withHooks H).libAdmitted)
     (hrm : ∀ vs, H.app rmConcat vs = none) :
     (c.withHooks (lawHooks c H)).libAdmitted := by
-  obtain ⟨h1, h2, h3, h4, h5, h6, h7, -⟩ := ha
+  obtain ⟨h1, h3, h4, h5, h6, h7, -⟩ := ha
   have e : ∀ f, (lookupSig hookSigs f).all (fun k => lawLibSorts.contains k.result) = true →
       ∀ vs, (c.withHooks (lawHooks c H)).hv f vs = (c.withHooks H).hv f vs :=
     fun f hr vs => lawLib_hv hreg hl H hr vs
-  have eNe := e floatNe (by decide +kernel)
-  have eEq := e floatEq (by decide +kernel)
-  have eNot := e boolNot (by decide +kernel)
   have eInf := e floatIsInfinite (by decide +kernel)
   have ePr := e floatPrecision (by decide +kernel)
   have eEx := e floatExponentBits (by decide +kernel)
@@ -168,17 +165,13 @@ theorem libAdmitted_lawHooks_of (hreg : ∀ k ∈ c.params, k.raw = true → nRe
   have eRa := e stringReplaceAll (by decide +kernel)
   have eCa := e stringCountAll (by decide +kernel)
   have eRp := e stringReplace (by decide +kernel)
-  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_,
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_,
     rangeMapAssocEq_of_app_none fun vs => (lawLib_app_reg hreg H (by decide) vs).trans (hrm vs)⟩
   · intro k hk hkey vs hvs hh hs
     have hvs' := lawLib_sortsOf hl (lawHooks c H) H (lawLib_totalSilentKeys_sorts k hk hkey) hvs
     rw [lawLib_fallback hreg hl H (by
       rw [hookSigs_lookup k hk]; exact lawLib_totalSilentKeys_result k hk hkey) vs]
     exact h1 k hk hkey vs hvs' hh hs
-  · intro a b hab hh
-    have hab' := lawLib_sortsOf hl (lawHooks c H) H (by decide) hab
-    simp only [eNe, eEq, eNot]
-    exact h2 a b hab' hh
   · intro F hF hh
     have hF' := (lawLib_sortOf hl (lawHooks c H) H (by decide)).mp hF
     simp only [eInf, ePr, eEx, eMx, eGt, eNg, eLt, eOr]

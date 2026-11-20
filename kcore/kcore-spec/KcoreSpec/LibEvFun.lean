@@ -13,8 +13,8 @@
   - `LibEv.functional_ev`: it is entailed at values where the symbol has a value at every argument
     list of its sorts: off `partialHooks` `hook`'s; for a symbol of `totalSilentKeys` `hook`'s or,
     at a silent point, the interpretation's, where the interpretation gives one (`silentTotal`);
-    for `precisionFloat` and `exponentBitsFloat` `hook`'s, where every Float value is a Float
-    literal (`floatShapeOK`).
+    for `isNaN`, `precisionFloat` and `exponentBitsFloat` (`floatLitTotal`) `hook`'s, where every
+    Float value is a Float literal (`floatShapeOK`).
 -/
 import KcoreSpec.LibEv
 import KcoreSpec.LazySound
@@ -158,14 +158,14 @@ theorem vals_argVars (c : Semantics) {vars : Vars} {σ : Subst}
 /-- **The `functional` sentence of an interpreted symbol with a value at every argument list of
 its sorts is entailed at values.** For a semantics meeting `coreOK` and `shapesOK` and a symbol
 `k` of `hookSigs` that is not partial, or is one of `totalSilentKeys` under an interpretation
-giving a value at its silent points (`silentTotal`), or is `precisionFloat` or
+giving a value at its silent points (`silentTotal`), or is `isNaN`, `precisionFloat` or
 `exponentBitsFloat` where every Float value is a Float literal: the translation of any axiom
 declaration whose pattern is `funPatR k`, over the one sort variable `R`, holds in every model of
 `Γ c` at every valuation that sends the axiom's free element variables to values. -/
 theorem functional_ev {c : Semantics} (h : c.coreOK = true) (hs : c.shapesOK = true) {k : CtorSig}
     (hk : k ∈ hookSigs)
     (hkind : partialHooks.contains k.name = false ∨ (k.name ∈ totalSilentKeys ∧ c.silentTotal) ∨
-      (k.name ∈ floatResInt ∧ c.floatShapeOK = true))
+      (k.name ∈ floatLitTotal ∧ c.floatShapeOK = true))
     (hr : funReg k = true) (ad : KoreAML.AxiomDecl) (hp : ad.ax.pattern = funPatR k)
     (hsv : ad.ax.sortVars = [KoreAML.Rv]) : EntailsAtValues c ad (KoreAML.trAxiom [] [] ad).pat := by
   intro M _ I hI e hat m
@@ -239,9 +239,9 @@ theorem functional_ev {c : Semantics} (h : c.coreOK = true) (hs : c.shapesOK = t
     · obtain ⟨v, hv⟩ := hook_total hs k hk hpar ws hwss
       exact ⟨v, Semantics.hookRes_of_value hv⟩
     · exact total_hook_value hs ht hk (Or.inr (Or.inl hkey)) hwss
-    · rw [floatResInt_args k hk (List.contains_iff_mem.mpr hf)] at hwss
-      obtain ⟨n, hn⟩ := fmt_total hfs hf hwss
-      exact ⟨int n, Semantics.hookRes_of_value hn⟩
+    · rw [floatLitTotal_args k hk (List.contains_iff_mem.mpr hf)] at hwss
+      obtain ⟨w, hw⟩ := fmt_total hfs hf hwss
+      exact ⟨w, Semantics.hookRes_of_value hw⟩
   have hval : val c σ (funTerm k) = some v := by
     unfold funTerm
     rw [val, hws]
