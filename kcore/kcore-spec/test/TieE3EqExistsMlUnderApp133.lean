@@ -20,7 +20,14 @@
     interpretation and not sentences of the text: `NodeFacts` holds that each literal of Bool is one
     element of Bool and that distinct values are apart (items of `ΓDomains`), and `TermsInSort` that
     `g(B)` lies in Bool. The proof reads them; whether the three items follow from the two
-    sentences with the text's signature (`ΓSig`) alone is not shown here.
+    sentences with the text's signature (`ΓSig`) alone is not shown by this statement.
+  - `sp_from_text_sig`, for every H: Γ's three items hold in every model of `PreText H`, which is
+    sentences 133 and 62, the four sentences of the Bool literals (151, 72, 167, 83), K's
+    G-nonempty item (an item of the text's signature, `kNonempty_text`) and `ΓSig (cH H)`. The
+    signature gives definedness, the item of `⌈_⌉`, that each numbered sort is one sort and that
+    the terms read lie in their sorts (none holds an injection, `ni_facts`); the four sentences
+    give that each Bool literal is one element of Bool (`lit_of_text`). That two values are apart
+    is not read.
   - `sp_entailed`, for every H: `Γc (cH H)` entails sentence 133, from Γ's three items and
     `boolClosed` (`TieEX.ex_text_of_split`). `boolClosed` is the item of `Γcl`, a sentence of `Γc`
     and not of `Γ` (`readsConfined_c`); f's functional sentence is not read.
@@ -225,6 +232,145 @@ theorem sp_from_text_nodeFacts (H : HookParams) (F : HoldsShape.NodeFacts (cH H)
   · exact hcl _ (List.mem_cons_self ..)
   · exact hcl _ (List.mem_cons_of_mem _ (List.mem_cons_self ..))
   · exact hl
+
+/-! ### From the text and its signature
+
+  | sentence | index |
+  |---|---|
+  | `rule isK(K) => true` | 151 |
+  | functional sentence of `isK` | 72 |
+  | `rule notBool true => false` | 167 |
+  | functional sentence of `notBool_` | 83 |
+-/
+
+/-- The terms the readings take hold no injection (kernel): the operands `tightB` reads of the
+hoisted body as terms, and the last alternative's term. -/
+theorem ni_facts : TieFRSig.tightNIB NT (vsF ++ [Bv]) bodyG = true ∧ TieFRSig.injFree jB.1 = true := by
+  decide +kernel
+
+/-- The readings in a model with `LitFacts` and `TermsInSortNI`. -/
+theorem factsL (H : HookParams) (F : TieEXSig.LitFacts (cH H) I) (hTS : TieFRSig.TermsInSortNI (cH H) I) :
+    ∃ β, SortAt I BoolP β ∧
+      (∀ (e : Valuation M) a, (trSort tblG (srtOf (cH H) Srt.bool)).interpret I e a ↔ a = β) ∧
+      ExFacts I (cH H) tblG (Faithful.canonVars (cH H) [Srt.bool]) ws β (xsOfB (xLit true) (xLit false)) [jB]
+        (tr ctx bodyG) ensT xB (CGof I (cH H) tblG (Faithful.canonVars (cH H) [Srt.bool]))
+        (CGof I (cH H) tblG (vsBof (cH H) [Srt.bool])) := by
+  obtain ⟨β, hβ, hβd⟩ := TieFRSig.boolDen_of_sig F.sig
+  obtain ⟨hvars, hg, hr, hBP, hal, hal'⟩ := lit_facts
+  have hσ : ∀ (e : Valuation M) a, (trSort tblG (srtOf (cH H) Srt.bool)).interpret I e a ↔ a = β := fun e a => by
+    have h := hβd e a
+    rw [srtOf, Faithful.sortName_bool, Faithful.trSort_srt]
+    exact h
+  have hd : ∀ (e : Valuation M) a, BoolP.interpret I e a ↔ a = β := fun e a => by rw [hBP]; exact hβd e a
+  exact ⟨β, ⟨hd, hβ, by rw [hBP]; rfl⟩, hσ,
+    TieEXSig.exFacts_of_exB_lit F hTS rfl rfl (al := kore.aliasNames) ni_facts.1 ni_facts.2 hvars hg hr hσ hβ
+      hal hal' (congrFun exReadB_fun H)⟩
+
+/-- Γ's three items in a model of sentences 133 and 62 with `LitFacts` and `TermsInSortNI`. -/
+theorem sp_of_litFacts (H : HookParams) (F : TieEXSig.LitFacts (cH H) I) (hTS : TieFRSig.TermsInSortNI (cH H) I)
+    (hT : I ⊧ᴵ (trS U.ax133).pat) (hF : I ⊧ᴵ (trS U.ax62).pat) : ∀ φ ∈ spItems, I ⊧ᴵ φ := by
+  obtain ⟨β, hS, hσ, X⟩ := factsL H F hTS
+  obtain ⟨-, -, hr, hBP, -, -⟩ := lit_facts
+  have hG : GuardsPred I ws := guardsOf_pred F.sig.defOK U.ax133.ax
+  rw [text_shape] at hT
+  have hT' := (eqnPat_hoistB F.sig.defOK hoist_ok).mp hT
+  rw [hoisted_shape] at hT'
+  rw [fnl_shape] at hF
+  obtain ⟨hFf, hnd, hrk, hvk, hvr, hx0⟩ := idx_facts
+  have hone : ∀ e m, At I ws rG e m → ∃ y, Inh I β y ∧ ∀ a, Inh I β a → (Ff.interpret I e a ↔ a = y) := by
+    intro e m hat
+    rw [hFf]
+    exact one_of_fnl F.sig.defOK F.sig.ceilDef hS.den hS.isSort hr hF (Closed.sym _) hnd hrk hvk hvr rfl
+      (fun t ht => by
+        simp only [tsF, List.mem_singleton] at ht
+        subst ht
+        exact ⟨hx0, by rw [hBP]; exact Closed.sym _⟩) hat
+  have hcl := fun (x : Term × List Cond)
+      (hx : x ∈ xsOfB (xLit true) (xLit false) true ++ xsOfB (xLit true) (xLit false) false) =>
+    TieEXSig.ex_clause_of_text_lit F (tbl := tblG) (vs := Faithful.canonVars (cH H) [Srt.bool]) (s := Srt.bool)
+      (CG := CGof I (cH H) tblG (Faithful.canonVars (cH H) [Srt.bool])) hS hG hr hσ X.hin X.hcond X.hbody hT' hone hx
+  have hl := TieEXSig.ex_last_of_text_lit F (tbl := tblG) (vs := Faithful.canonVars (cH H) [Srt.bool]) (s := Srt.bool)
+      (CGB := CGof I (cH H) tblG (vsBof (cH H) [Srt.bool]))
+      hS hG hr hσ X.hxr X.hinB X.hcondB X.hbodyB hT' hone
+      (sAnd (altPC (cH H) tblG (Faithful.canonVars (cH H) [Srt.bool]) (xLit true))
+        (tr ⟨tblG, []⟩ (reqPat (srtOf (cH H) Srt.bool)
+          (some (Term.kore (cH H) (Faithful.canonVars (cH H) [Srt.bool]) (Parse.boolT false))))))
+  have hg : gShape (cH H) = spItems := congrFun gamma_shape_fun H
+  intro φ hφ
+  rw [← hg] at hφ
+  simp only [gShape, List.mem_cons, List.not_mem_nil, or_false] at hφ
+  rcases hφ with rfl | rfl | rfl
+  · exact hcl _ (List.mem_cons_self ..)
+  · exact hcl _ (List.mem_cons_of_mem _ (List.mem_cons_self ..))
+  · exact hl
+
+/-- The four sentences of the Bool literals are sentences of the user module, at these indices. -/
+theorem lit_idx : [U.ax151, U.ax72, U.ax167, U.ax83].map (·.index) = [151, 72, 167, 83] ∧
+    [151, 72, 167, 83].all (fun i => (U.all.map (·.index)).contains i) = true := by
+  constructor <;> decide +kernel
+
+/-- **Each of the four is the library's pattern of its sentence** (kernel). -/
+theorem lit_sents :
+    (trS U.ax151).pat = TieReqBool.sentPat TieReqBool.isKTrueAx ∧
+    (trS U.ax72).pat = TieReqBool.sentPat (TieReqBool.fnl1Ax "LblisK" "K") ∧
+    (trS U.ax167).pat = TieReqBool.sentPat TieReqBool.notTrueFalseAx ∧
+    (trS U.ax83).pat = TieReqBool.sentPat (TieReqBool.fnl1Ax "LblnotBool'Unds'" "Bool") := by
+  refine ⟨?_, ?_, ?_, ?_⟩ <;> decide +kernel
+
+/-- K's G-nonempty item. -/
+def kNonempty : P := (nonemptyItem ⟨"SortK", [], false⟩).pat
+
+/-- It is an item of the text's signature (`ΓSig` does not hold it). -/
+theorem kNonempty_text : ((Theory.ofDefinition kore).signature.map (·.pat)).contains kNonempty = true := by
+  decide +kernel
+
+/-- The premises from the text: sentences 133 and 62, the four sentences of the Bool literals, K's
+G-nonempty item, and the signature. -/
+noncomputable abbrev PreText (H : HookParams) : Premises KoreAML.Sym :=
+  TiePair.Texts [(trS U.ax133).pat, (trS U.ax62).pat, (trS U.ax151).pat, (trS U.ax72).pat, (trS U.ax167).pat,
+    (trS U.ax83).pat] ∪ (fun φ => φ = kNonempty) ∪ Faithful.ΓSig (cH H)
+
+theorem k_name (H : HookParams) : (cH H).sortName Srt.k = "K" :=
+  (by decide +kernel : c.sortName Srt.k = "K")
+theorem k_numbered (H : HookParams) : Srt.k < nRegSorts + (cH H).sortNames.length :=
+  Nat.lt_of_lt_of_le (by decide) (Nat.le_add_right _ _)
+
+theorem den_lit (H : HookParams) (b : Bool) :
+    den (cH H) (KCore.bool b) = TieReqBool.litP (if b then "true" else "false") := by
+  show den c (KCore.bool b) = _; cases b <;> decide +kernel
+
+/-- **Each of `true` and `false` denotes one element, an element of Bool**, in a model of
+`PreText H`, for every H: at an element of K, `isK` of it is one element of Bool that agrees with
+`true` (72, 151), and `notBool` of that one is one element of Bool that agrees with `false`
+(83, 167); a literal holds nothing outside Bool by its arity item in `ΓSig`. -/
+theorem lit_of_text (H : HookParams) (hI : I ⊧ᴵP PreText H) (b : Bool) (e : Valuation M) :
+    ∃ y, (∀ m, (den (cH H) (KCore.bool b)).interpret I e m ↔ m = y) ∧ (inhOf TieFRRead.boolP).interpret I e y := by
+  have hD : DefOK I := TiePair.defOK_texts fun φ hφ => hI φ (Or.inl (Or.inl hφ))
+  have hSig : I ⊧ᴵP Faithful.ΓSig (cH H) := fun φ hφ => hI φ (Or.inr hφ)
+  haveI : OvlOK (cH H) := ovlOK_of_core (coreOKH H)
+  obtain ⟨s1, s2, s3, s4⟩ := lit_sents
+  have hT : ∀ φ ∈ [(trS U.ax133).pat, (trS U.ax62).pat, (trS U.ax151).pat, (trS U.ax72).pat, (trS U.ax167).pat,
+      (trS U.ax83).pat], I ⊧ᴵ φ := fun φ hφ => hI φ (Or.inl (Or.inl (Or.inl hφ)))
+  obtain ⟨aF, aT, hF, hTr, hiF, hiT⟩ := TieReqBool.boolLits_of_bool_text_sig hD hSig (k_numbered H) (k_name H)
+    (hI _ (Or.inl (Or.inr rfl)))
+    (s1 ▸ hT _ (.tail _ (.tail _ (.head _)))) (s2 ▸ hT _ (.tail _ (.tail _ (.tail _ (.head _)))))
+    (s3 ▸ hT _ (.tail _ (.tail _ (.tail _ (.tail _ (.head _))))))
+    (s4 ▸ hT _ (.tail _ (.tail _ (.tail _ (.tail _ (.tail _ (.head _))))))) e
+  rw [den_lit]
+  cases b
+  · exact ⟨aF, hF, hiF⟩
+  · exact ⟨aT, hTr, hiT⟩
+
+/-- **Γ's three items for f are consequences of the text's sentences and its signature**, for
+every H: in a model of `PreText H`. Each premise is a sentence of the text, an item of its
+signature (`kNonempty_text`), or an item of `ΓSig (cH H)`; the terms read hold no injection
+(`ni_facts`). No `boolClosed`, and nothing of two values being apart. -/
+theorem sp_from_text_sig (H : HookParams) (hI : I ⊧ᴵP PreText H) : ∀ φ ∈ spItems, I ⊧ᴵ φ := by
+  have hD : DefOK I := TiePair.defOK_texts fun φ hφ => hI φ (Or.inl (Or.inl hφ))
+  have hSig : I ⊧ᴵP Faithful.ΓSig (cH H) := fun φ hφ => hI φ (Or.inr hφ)
+  obtain ⟨F, hTS⟩ := TieFRSig.sig_of_core (coreOKH H) hD hSig
+  exact sp_of_litFacts H ⟨F, lit_of_text H hI⟩ hTS (hI _ (Or.inl (Or.inl (Or.inl (.head _)))))
+    (hI _ (Or.inl (Or.inl (Or.inl (.tail _ (.head _))))))
 
 omit [Inhabited M] in
 theorem spItems_sat (H : HookParams) (hI : I ⊧ᴵP Faithful.Γ (cH H)) : ∀ φ ∈ spItems, I ⊧ᴵ φ := by
@@ -495,3 +641,10 @@ end KCore.TieE3EqExistsMlUnderApp133
 #guard_msgs in #print axioms KCore.TieE3EqExistsMlUnderApp133.f_true_from_text_nodeFacts
 /-- info: 'KCore.TieE3EqExistsMlUnderApp133.f_true_c' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.TieE3EqExistsMlUnderApp133.f_true_c
+#check @KCore.TieE3EqExistsMlUnderApp133.lit_idx
+#check @KCore.TieE3EqExistsMlUnderApp133.lit_sents
+#check @KCore.TieE3EqExistsMlUnderApp133.kNonempty_text
+#check @KCore.TieE3EqExistsMlUnderApp133.lit_of_text
+#check @KCore.TieE3EqExistsMlUnderApp133.sp_from_text_sig
+/-- info: 'KCore.TieE3EqExistsMlUnderApp133.sp_from_text_sig' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.TieE3EqExistsMlUnderApp133.sp_from_text_sig

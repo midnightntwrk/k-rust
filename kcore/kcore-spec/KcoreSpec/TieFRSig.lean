@@ -12,18 +12,35 @@
   `TermsInSort` is not a consequence of `ΓSig`: of an injection `inj{a,b}(t)` it says the elements
   lie in b, and `ΓSig` holds no item for `inj`: the arity items of `sigItems` are those of
   `kernelSyms` (constructors, functions, parameters, hooked symbols, overloads), and an injection
-  is none of them (`rhsSort_at` reads Cons-Fun of the injection, an item of `ΓCons`). For a term that holds no injection (`injFree`) it is (`TermsInSortNI`,
-  `termsInSortNI_of_sig`):
+  is none of them (`rhsSort_at` reads Cons-Fun of the injection, an item of `ΓCons`). `rhsSort_sig`
+  gives the sort of a term from `ΓSig`, where the term holds no injection (`injFree`) or each
+  injection of a subsort pair puts its source sort's elements in its target sort (`InjIn`):
   - a variable lies in its sort by the hypothesis on the valuation;
   - an application lies in its head's result sort by the head's arity item (`symArityItem`, in
     `sigItems`), its arguments in the argument sorts;
   - a literal `\dv{s}(lit)` lies in s by the arity item of `lit` (`dvArityAll`, the second part of
     `ΓSig`, read at the one literal) at the sort s, which is numbered (`hvn`, a fact of the
-    definition).
+    definition);
+  - an injection `inj{a,b}(t)` lies in b by `InjIn`.
+  So `TermsInSortNI` holds in every model of `ΓSig` (`termsInSortNI_of_sig`), and `TermsInSort`
+  in every model of `ΓSig` with `InjIn` (`termsInSort_of_sig_inj`).
 
-  The lemmas below are those of the two files with `SigFacts` for `NodeFacts` and `TermsInSortNI`
-  for `TermsInSort`; where a term is read from the text, the decision `tightNIB` says that it holds
-  no injection.
+  `InjIn` is what the text's declaration `symbol inj{From, To}(From) : To` states: its arity item
+  (`injArityP`, `injArityP_shape`) at the two sorts of a subsort pair, both numbered
+  (`injIn_of_arity`). That item is an item of the text's signature which `ΓSig` leaves out. The
+  text's subsort sentence of the pair, `\exists{R}(Val:b, \equals{b,R}(Val, inj{a,b}(From:a)))`,
+  does not give it: an equation at the sort b compares its sides among b's elements only
+  (`interp_sEquals`), so the sentence says that `inj{a,b}(x)` holds one element among b's, and
+  nothing of an element outside b. Cons-Fun of the injection says both; `TermsInSort` reads the
+  inclusion alone.
+
+  The lemmas below are those of the two files with `SigFacts` for `NodeFacts` and, for
+  `TermsInSort`, `TermsInSortOn ok`: the fact for the terms a decision `ok` accepts, with the
+  premise that `ok` accepts each term read (`tightOnB ok` for those read from the text).
+  `TermsInSortNI`, `tightNIB` are the instance at `injFree`. At `ok := fun _ => true` the premises
+  on the terms hold of every term and pattern (`tightOnB_all`) and `TermsInSortOn` is
+  `TermsInSort` (`termsInSortOn_of`), so a text whose terms hold injections takes the lemmas with
+  `sig_of_core_all` and no decision on its terms.
 -/
 import KcoreSpec.TieFRTightB
 import KcoreSpec.TieRhs
@@ -58,7 +75,7 @@ theorem sigFacts_of_sig {c : Semantics} [OvlOK c] {M : Type} [Inhabited M] {I : 
   obtain ⟨τ, hτ, hτs⟩ := TieRhs.sortSing_sig hD hSig hs
   exact ⟨τ, hτs, fun tbl e a => by unfold srtOf; rw [trSort_srt]; exact hτ a⟩
 
-/-! ## Terms without injections -/
+/-! ## The sort of a term -/
 
 mutual
   /-- The term holds no injection. -/
@@ -75,16 +92,81 @@ mutual
     termination_by structural ts => ts
 end
 
-/-- `Faithful.TermsInSort` for the terms that hold no injection. -/
-def TermsInSortNI (c : Semantics) {M : Type} [Inhabited M] (I : Interpretation KoreAML.Sym M) : Prop :=
-  ∀ {vars : List Srt} {tbl : VarTable} {e : Valuation M} {t : Term} {s : Srt}, injFree t = true →
+/-- `Faithful.TermsInSort` for the terms `ok` accepts. -/
+def TermsInSortOn (ok : Term → Bool) (c : Semantics) {M : Type} [Inhabited M] (I : Interpretation KoreAML.Sym M) : Prop :=
+  ∀ {vars : List Srt} {tbl : VarTable} {e : Valuation M} {t : Term} {s : Srt}, ok t = true →
     sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) vars t = some s → s < nRegSorts + c.sortNames.length →
     (∀ i ∈ varOccs t, InS I (c.sortName (vars.getD i 0)) (e.evalEvar (tbl.ev (canonKey c vars i)))) →
     ∀ a, (KoreAML.tr ⟨tbl, []⟩ (Term.kore c (canonVars c vars) t)).interpret I e a → InS I (c.sortName s) a
 
+/-- `Faithful.TermsInSort` for the terms that hold no injection. -/
+abbrev TermsInSortNI (c : Semantics) {M : Type} [Inhabited M] (I : Interpretation KoreAML.Sym M) : Prop :=
+  TermsInSortOn injFree c I
+
+/-- `TermsInSort` gives it, whatever `ok` accepts. -/
+theorem termsInSortOn_of {ok : Term → Bool} {c : Semantics} {M : Type} [Inhabited M]
+    {I : Interpretation KoreAML.Sym M} (h : TermsInSort c I) : TermsInSortOn ok c I :=
+  fun _ ht hs hin a ha => h ht hs hin a ha
+
 /-- `TermsInSort` gives it. -/
 theorem termsInSortNI_of {c : Semantics} {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
-    (h : TermsInSort c I) : TermsInSortNI c I := fun _ ht hs hin a ha => h ht hs hin a ha
+    (h : TermsInSort c I) : TermsInSortNI c I := termsInSortOn_of h
+
+/-- An injection of a subsort pair puts the elements of its source sort in its target sort. -/
+def InjIn (c : Semantics) {M : Type} [Inhabited M] (I : Interpretation KoreAML.Sym M) : Prop :=
+  ∀ {a b : Srt}, (a, b) ∈ c.subsorts → ∀ {x m : M}, InS I (c.sortName a) x →
+    GS I (c.sortName b) (.inj (c.sortName a)) [x] m → InS I (c.sortName b) m
+
+/-- The arity item of the declaration `symbol inj{From, To}(From) : To`: at two sorts, what `inj`
+builds of an element of the first lies in the second. -/
+def injArityP : P :=
+  guarded [sortGuard ⟨1⟩, sortGuard ⟨2⟩]
+    (appList (appList (sym (.symbol "inj")) [.evar ⟨1⟩, .evar ⟨2⟩]) [inhOf (.evar ⟨1⟩)] ⊆⊆ inhOf (.evar ⟨2⟩))
+
+/-- It is `arityItem` of that declaration, whatever its attributes. -/
+theorem injArityP_shape (hooked : Bool) (attrs : List String) :
+    (arityItem ⟨"inj", [⟨⟨⟨"From"⟩⟩⟩, ⟨⟨⟨"To"⟩⟩⟩], [.var ⟨⟨⟨"From"⟩⟩⟩], .var ⟨⟨⟨"To"⟩⟩⟩, hooked, attrs⟩).pat = injArityP := by
+  cases hooked <;> rfl
+
+/-- **`InjIn` in a model of definedness, the signature and `inj`'s arity item**, the sorts of each
+subsort pair being numbered. `ΓSig` holds no item for `inj`; the text's signature holds this one. -/
+theorem injIn_of_arity {c : Semantics} [OvlOK c] {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
+    (hD : DefOK I) (hSig : I ⊧ᴵP ΓSig c)
+    (hsn : ∀ {a b : Srt}, (a, b) ∈ c.subsorts →
+      a < nRegSorts + c.sortNames.length ∧ b < nRegSorts + c.sortNames.length)
+    (hA : I ⊧ᴵ injArityP) : InjIn c I := by
+  intro a b hab x m hx hm
+  obtain ⟨σa, hσa, hσaS⟩ := TieRhs.sortSing_sig hD hSig (hsn hab).1
+  obtain ⟨σb, hσb, hσbS⟩ := TieRhs.sortSing_sig hD hSig (hsn hab).2
+  obtain ⟨d, hd, happ⟩ := hm
+  let e : Valuation M := ⟨fun y => match y with | ⟨1⟩ => σa | _ => σb, fun _ _ => False⟩
+  have h1 : (guarded [sortGuard ⟨1⟩, sortGuard ⟨2⟩]
+      (appList (appList (sym (.symbol "inj")) [.evar ⟨1⟩, .evar ⟨2⟩]) [inhOf (.evar ⟨1⟩)] ⊆⊆
+        inhOf (.evar ⟨2⟩))).interpret I e default := hA e default
+  have h2 := interp_guarded h1 (fun w hw => by
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at hw
+    rcases hw with rfl | rfl
+    · unfold KoreAML.sortGuard; rw [KoreAML.interp_member hD, KoreAML.interp_sortsDomain]; exact hσaS
+    · unfold KoreAML.sortGuard; rw [KoreAML.interp_member hD, KoreAML.interp_sortsDomain]; exact hσbS)
+  rw [KoreAML.interp_included hD] at h2
+  have hd' : (KoreAML.appList (KoreAML.sym (.symbol "inj"))
+      [KoreAML.Cons.sortP (c.sortName a), KoreAML.Cons.sortP (c.sortName b)]).interpret I KoreAML.val0 d := hd
+  rw [interp_appList] at hd'
+  obtain ⟨a0, ha0, bs, hbs, happ0⟩ := hd'
+  have hhead : (appList (sym (.symbol "inj")) [.evar ⟨1⟩, .evar ⟨2⟩]).interpret I e d := by
+    rw [interp_appList]
+    refine ⟨a0, ha0, bs, ?_, happ0⟩
+    match bs, hbs with
+    | _, .cons hb1 (.cons hb2 .nil) =>
+      exact .cons (KoreAML.interp_evar.mpr ((hσa _).mp hb1)) (.cons (KoreAML.interp_evar.mpr ((hσb _).mp hb2)) .nil)
+  have hxa : (inhOf (.evar ⟨1⟩ : P)).interpret I e x :=
+    (KoreAML.interp_inhOf_of (S := (.evar ⟨1⟩ : P)) (σ := σa) (e := e) (fun _ => KoreAML.interp_evar)).mpr
+      ((KoreAML.interp_inhOf_of (S := KoreAML.Cons.sortP (c.sortName a)) (e := KoreAML.val0) (fun a => hσa a)).mp hx)
+  have h3 := h2 m (by
+    rw [interp_appList]
+    exact ⟨d, hhead, [x], .cons hxa .nil, happ⟩)
+  rw [KoreAML.interp_inhOf_of (S := (.evar ⟨2⟩ : P)) (σ := σb) (fun _ => KoreAML.interp_evar)] at h3
+  exact (KoreAML.interp_inhOf_of (S := KoreAML.Cons.sortP (c.sortName b)) (e := KoreAML.val0) (fun a => hσb a)).mpr h3
 
 section
 variable {c : Semantics} {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
@@ -131,9 +213,11 @@ include hvn hL
 set_option linter.unusedSectionVars false
 
 mutual
-  /-- **The sort of a term without injections, in a model of the signature**: its elements, at a
-  valuation of its variables in their sorts, lie in its sort. -/
-  theorem rhsSort_sig : ∀ {t : Term} {s : Srt}, injFree t = true → sortOfTerm (c.rhsCtx L) vars t = some s →
+  /-- **The sort of a term, in a model of the signature**: its elements, at a valuation of its
+  variables in their sorts, lie in its sort, where the term holds no injection or each injection
+  puts its source sort's elements in its target sort (`InjIn`). -/
+  theorem rhsSort_sig : ∀ {t : Term} {s : Srt}, injFree t = true ∨ InjIn c I →
+      sortOfTerm (c.rhsCtx L) vars t = some s →
       (∀ i ∈ varOccs t, InS I (c.sortName (vars.getD i 0)) (e.evalEvar (tbl.ev (keyAt vs i)))) →
       ∀ m, (KoreAML.tr ⟨tbl, []⟩ (Term.kore c vs t)).interpret I e m → InS I (c.sortName s) m
     | .var i, s, _, ht, hin, m, hm => by
@@ -171,13 +255,19 @@ mutual
       obtain ⟨hkm, hkn⟩ := lookupSig_spec hk'
       rw [kore_app, tr_symApp, trArgs_appList, interp_appList] at hm
       obtain ⟨a, ha, bs, hbs, hm⟩ := hm
-      rw [injFree] at hf
-      have hsorts := rhsSorts_sig hf hargs (fun i hi => hin i (by rw [varOccs]; exact hi)) hbs
+      have hf' : injFreeList ts = true ∨ InjIn c I := hf.imp (fun h => by rw [injFree] at h; exact h) id
+      have hsorts := rhsSorts_sig hf' hargs (fun i hi => hin i (by rw [varOccs]; exact hi)) hbs
       subst hkn
       exact head_arity_sig hD hSig (Model.rhsHead_kernel hL hkm) ha hsorts.1 hsorts.2 hm
-    | .inj a b t, s, hf, _, _, _, _ => by rw [injFree] at hf; cases hf
+    | .inj a b t, s, hf, ht, hin, m, hm => by
+      rcases hf with hf | hj
+      · rw [injFree] at hf; cases hf
+      · obtain ⟨hab, ht', rfl⟩ := sortOfTerm_inj.mp ht
+        rw [Term.kore, KoreAML.tr_injP, interp_injApp] at hm
+        obtain ⟨x, hx, hm⟩ := hm
+        exact hj hab (rhsSort_sig (.inr hj) ht' (fun i hi => hin i (by rw [varOccs]; exact hi)) x hx) hm
     | .as _ _, s, _, ht, _, _, _ => absurd ht Model.sortOfTerm_rhs_as
-  theorem rhsSorts_sig : ∀ {ts : List Term} {ss : List Srt} {bs : List M}, injFreeList ts = true →
+  theorem rhsSorts_sig : ∀ {ts : List Term} {ss : List Srt} {bs : List M}, injFreeList ts = true ∨ InjIn c I →
       sortsOfTerms (c.rhsCtx L) vars ts = some ss →
       (∀ i ∈ varOccsList ts, InS I (c.sortName (vars.getD i 0)) (e.evalEvar (tbl.ev (keyAt vs i)))) →
       All2 (fun φ b => φ.interpret I e b) ((Term.koreList c vs ts).map (KoreAML.tr ⟨tbl, []⟩)) bs →
@@ -190,16 +280,19 @@ mutual
       exact ⟨rfl, fun i x s h _ => by simp at h⟩
     | t :: ts, ss, bs, hf, ht, hin, hbs => by
       obtain ⟨s, ss', h1, h2, rfl⟩ := sortsOfTerms_cons.mp ht
-      rw [injFreeList, Bool.and_eq_true] at hf
+      have hf1 : injFree t = true ∨ InjIn c I :=
+        hf.imp (fun h => by rw [injFreeList, Bool.and_eq_true] at h; exact h.1) id
+      have hf2 : injFreeList ts = true ∨ InjIn c I :=
+        hf.imp (fun h => by rw [injFreeList, Bool.and_eq_true] at h; exact h.2) id
       rw [Term.koreList, List.map_cons] at hbs
       cases hbs with
       | cons hb hbs =>
-        have ih := rhsSorts_sig hf.2 h2 (fun i hi => hin i (by rw [varOccsList]; exact List.mem_append_right _ hi)) hbs
+        have ih := rhsSorts_sig hf2 h2 (fun i hi => hin i (by rw [varOccsList]; exact List.mem_append_right _ hi)) hbs
         refine ⟨by simp [ih.1], fun i x s' hx hs' => ?_⟩
         cases i with
         | zero =>
           simp at hx hs'; subst hx; subst hs'
-          exact rhsSort_sig hf.1 h1 (fun i hi => hin i (by rw [varOccsList]; exact List.mem_append_left _ hi)) _ hb
+          exact rhsSort_sig hf1 h1 (fun i hi => hin i (by rw [varOccsList]; exact List.mem_append_left _ hi)) _ hb
         | succ i => exact ih.2 i x s' (by simpa using hx) (by simpa using hs')
 end
 
@@ -212,7 +305,17 @@ theorem termsInSortNI_of_sig {c : Semantics} [OvlOK c] {M : Type} [Inhabited M] 
     (hvn : ∀ {v : GroundTerm} {s : Srt}, c.sortOf v = some s → s < nRegSorts + c.sortNames.length) :
     TermsInSortNI c I :=
   fun hni ht _ hin a ha =>
-    rhsSort_sig hD hSig (fun hok => hvn (sortOf_dv.mpr ⟨hok, rfl⟩)) fns_headsOK hni ht hin a ha
+    rhsSort_sig hD hSig (fun hok => hvn (sortOf_dv.mpr ⟨hok, rfl⟩)) fns_headsOK (.inl hni) ht hin a ha
+
+/-- **`Faithful.TermsInSort` in a model of definedness and the signature in which each injection puts
+its source sort's elements in its target sort** (`InjIn`; `injIn_of_arity` gives it from `inj`'s
+arity item), the sort of each value of the definition being numbered. -/
+theorem termsInSort_of_sig_inj {c : Semantics} [OvlOK c] {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
+    (hD : DefOK I) (hSig : I ⊧ᴵP ΓSig c)
+    (hvn : ∀ {v : GroundTerm} {s : Srt}, c.sortOf v = some s → s < nRegSorts + c.sortNames.length)
+    (hj : InjIn c I) : TermsInSort c I :=
+  fun ht _ hin a ha =>
+    rhsSort_sig hD hSig (fun hok => hvn (sortOf_dv.mpr ⟨hok, rfl⟩)) fns_headsOK (.inr hj) ht hin a ha
 
 /-- The two for a definition `coreOK` accepts. -/
 theorem sig_of_core {c : Semantics} (h : c.coreOK = true) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
@@ -220,6 +323,27 @@ theorem sig_of_core {c : Semantics} (h : c.coreOK = true) {M : Type} [Inhabited 
   haveI : OvlOK c := (hypSound_of_core h).2.2.2.2.2.2.2.2
   ⟨sigFacts_of_sig hD hSig, termsInSortNI_of_sig hD hSig
     (fun hv => sortOf_numbered_of (hypSound_of_core h) (sortsNumbered_of_core h) (Semantics.coreOK_ovls h) hv)⟩
+
+/-- The two for a definition `coreOK` accepts, in a model of `inj`'s arity item also: `SigFacts`
+and `Faithful.TermsInSort`, for every term. -/
+theorem sig_of_core_inj {c : Semantics} (h : c.coreOK = true) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
+    (hD : DefOK I) (hSig : I ⊧ᴵP ΓSig c) (hA : I ⊧ᴵ injArityP) : SigFacts c I ∧ TermsInSort c I := by
+  haveI : OvlOK c := (hypSound_of_core h).2.2.2.2.2.2.2.2
+  have hn := sortsNumbered_of_core h
+  simp only [Model.sortsNumbered, Bool.and_eq_true, List.all_eq_true, decide_eq_true_eq] at hn
+  exact ⟨sigFacts_of_sig hD hSig, termsInSort_of_sig_inj hD hSig
+    (fun hv => sortOf_numbered_of (hypSound_of_core h) (sortsNumbered_of_core h) (Semantics.coreOK_ovls h) hv)
+    (injIn_of_arity hD hSig (fun hab => hn.1.1.2 _ hab) hA)⟩
+
+/-- `sig_of_core_inj` in the form the lemmas below take, at the decision that accepts every term:
+with it their premises on the terms read are `fun _ _ => rfl`, `rfl` and `tightOnB_all`. -/
+theorem sig_of_core_all {c : Semantics} (h : c.coreOK = true) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
+    (hD : DefOK I) (hSig : I ⊧ᴵP ΓSig c) (hA : I ⊧ᴵ injArityP) :
+    SigFacts c I ∧ TermsInSortOn (fun _ => true) c I :=
+  have h2 := sig_of_core_inj h hD hSig hA
+  ⟨h2.1, fun _ ht hs hin a ha => h2.2 ht hs hin a ha⟩
+
+variable {ok : Term → Bool}
 
 
 /-! ## The readings (KcoreSpec/TieFRRead.lean), with `SigFacts` -/
@@ -303,7 +427,7 @@ include F
 /-- **The readings of the clauses `frClauses` writes** (`TieFR.Readings`). For the alternatives
 `xs` over the variables `vs`, with the premise `prem` of the sentence: each clause's premise
 (`clauseQ`, `lastQ`) reads from `NodeFacts`; that each alternative lies in the result sort σ is
-`hin` (`inSort_of_terms_sig` gives it from `TermsInSortNI`); the reading of the sentence's right side is
+`hin` (`inSort_of_terms_sig` gives it from `TermsInSortOn`); the reading of the sentence's right side is
 `hrhs` (`readings_of_fr_sig` gives it from the reader). -/
 theorem readings_of_rhs_sig {tbl : VarTable} {vs : List KoreAML.Var} {s : Srt} {xs : List (Term × List Term)}
     {ws : List KoreAML.P} {σ : M} {prem rhsT : KoreAML.P}
@@ -368,11 +492,11 @@ theorem readings_of_fr_sig {N : Parse.Names} {eq : Parse.RawEqn} {z : List Claus
       hn.1 hn.2.1 hn.2.2 hen hbr)
 
 omit F in
-/-- **The alternatives lie in the result sort** where each is a term of it (`TermsInSortNI`) and the
-guards put its variables in their sorts. -/
-theorem inSort_of_terms_sig (hTS : TermsInSortNI c I) {tbl : VarTable} {vars : List Srt} {s : Srt}
+/-- **The alternatives lie in the result sort** where each is a term of it that `ok` accepts
+(`TermsInSortOn`) and the guards put its variables in their sorts. -/
+theorem inSort_of_terms_sig (hTS : TermsInSortOn ok c I) {tbl : VarTable} {vars : List Srt} {s : Srt}
     {xs : List (Term × List Term)} {ws : List KoreAML.P} {r : EVar} {σ : M}
-    (hni : ∀ x ∈ xs, injFree x.1 = true)
+    (hni : ∀ x ∈ xs, ok x.1 = true)
     (hs : s < nRegSorts + c.sortNames.length)
     (hσ : ∀ (e : Valuation M) a, (trSort tbl (srtOf c s)).interpret I e a ↔ a = σ)
     (hty : ∀ x ∈ xs, sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) vars x.1 = some s)
@@ -390,11 +514,11 @@ theorem inSort_of_terms_sig (hTS : TermsInSortNI c I) {tbl : VarTable} {vars : L
 
 end
 
-/-- **An operand that translates as a term of the sort s lies in s** (`TermsInSortNI`), where the
+/-- **An operand that translates as a term of the sort s lies in s** (`TermsInSortOn`, `ok` accepting the term), where the
 valuation puts the term's variables in their sorts. -/
-theorem inSortK_of_term_sig [Inhabited M] {c : Semantics} (hTS : TermsInSortNI c I) {tbl tblT : VarTable}
+theorem inSortK_of_term_sig [Inhabited M] {c : Semantics} (hTS : TermsInSortOn ok c I) {tbl tblT : VarTable}
     {vars : List Srt} {s : Srt} {t : Term} {S : Kore.KSort} {q : Kore.Pattern} {e : Valuation M}
-    (hni : injFree t = true)
+    (hni : ok t = true)
     (hs : s < nRegSorts + c.sortNames.length) (hty : sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) vars t = some s)
     (htr : tr ⟨tblT, []⟩ q = tr ⟨tbl, []⟩ (Term.kore c (canonVars c vars) t))
     (hS : trSort tblT S = trSort tbl (srtOf c s))
@@ -447,46 +571,68 @@ end
 
 end
 
-/-! ## The decision (KcoreSpec/TieFRTightB.lean), with `SigFacts` and `TermsInSortNI` -/
+/-! ## The decision (KcoreSpec/TieFRTightB.lean), with `SigFacts` and `TermsInSortOn` -/
 
 /-- **An operand read as a term of the sort s lies in s** (`inSortK_of_term_sig`, its translation
-from the round trip), the term holding no injection. -/
+from the round trip), `ok` accepting the term. -/
 theorem inSortK_of_read_sig {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} {N : Parse.Names} {c : Semantics}
-    (hsy : N.syms = c.symNames) (hso : N.sorts = c.sortNames) (hTS : TermsInSortNI c I)
+    (hsy : N.syms = c.symNames) (hso : N.sorts = c.sortNames) (hTS : TermsInSortOn ok c I)
     {tbl tblT : VarTable} {vars : List Srt} {vsF vs vs' : List Var} (hA : alignOK c tbl tblT vars vsF = true)
     {s : Srt} {t : Term} {S : Kore.KSort} {q : Kore.Pattern} {e : Valuation M}
-    (hrd : Parse.term N vs q = .ok (t, vs')) (hni : injFree t = true) (hrt : rtPat N q = true) (hp : vs' <+: vsF)
+    (hrd : Parse.term N vs q = .ok (t, vs')) (hni : ok t = true) (hrt : rtPat N q = true) (hp : vs' <+: vsF)
     (hs : s < nRegSorts + c.sortNames.length) (hty : sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) vars t = some s)
     (hS : trSort tblT S = trSort tbl (srtOf c s))
     (hvar : ∀ i ∈ varOccs t, Faithful.InS I (c.sortName (vars.getD i 0)) (e.evalEvar (tbl.ev (Faithful.canonKey c vars i)))) :
     InSortK I tblT e S q :=
   inSortK_of_term_sig hTS hni hs hty (term_rt hsy hso hA hrd hrt hp) hS hvar
 
-/-- The term `Parse.term` reads of q over `vsF` holds no injection. -/
-def termNIB (N : Parse.Names) (vsF : List Var) (q : Kore.Pattern) : Bool :=
+/-- `ok` accepts the term `Parse.term` reads of q over `vsF`. -/
+def termOnB (ok : Term → Bool) (N : Parse.Names) (vsF : List Var) (q : Kore.Pattern) : Bool :=
   match Parse.term N vsF q with
-  | .ok (t, _) => injFree t
+  | .ok (t, _) => ok t
   | .error _ => true
+
+/-- An operand that `leafInB` reads as terms: each of its alternatives is read as a term `ok`
+accepts. -/
+def leafOnB (ok : Term → Bool) (N : Parse.Names) (vsF : List Var) (x : Kore.KSort × Kore.Pattern) : Bool :=
+  !opLeaf x.2 || opStatedK x.2 || (Parse.orAlts x.2).all (termOnB ok N vsF)
+
+/-- `ok` accepts the terms `tightB` reads of p. -/
+def tightOnB (ok : Term → Bool) (N : Parse.Names) (vsF : List Var) (p : Kore.Pattern) : Bool :=
+  (connOps p).all (leafOnB ok N vsF)
+
+/-- The term `Parse.term` reads of q over `vsF` holds no injection. -/
+def termNIB (N : Parse.Names) (vsF : List Var) (q : Kore.Pattern) : Bool := termOnB injFree N vsF q
 
 /-- An operand that `leafInB` reads as terms: each of its alternatives is read as a term that holds
 no injection. -/
-def leafNIB (N : Parse.Names) (vsF : List Var) (x : Kore.KSort × Kore.Pattern) : Bool :=
-  !opLeaf x.2 || opStatedK x.2 || (Parse.orAlts x.2).all (termNIB N vsF)
+def leafNIB (N : Parse.Names) (vsF : List Var) (x : Kore.KSort × Kore.Pattern) : Bool := leafOnB injFree N vsF x
 
 /-- The terms `tightB` reads of p hold no injection. -/
-def tightNIB (N : Parse.Names) (vsF : List Var) (p : Kore.Pattern) : Bool := (connOps p).all (leafNIB N vsF)
+def tightNIB (N : Parse.Names) (vsF : List Var) (p : Kore.Pattern) : Bool := tightOnB injFree N vsF p
+
+/-- Where `ok` accepts every term, the decision holds of every pattern: with `Faithful.TermsInSort`
+(`termsInSortOn_of`) the lemmas below take no condition on the terms read. -/
+theorem tightOnB_all (N : Parse.Names) (vsF : List Var) (p : Kore.Pattern) :
+    tightOnB (fun _ => true) N vsF p = true := by
+  unfold tightOnB
+  refine List.all_eq_true.mpr fun x _ => ?_
+  have h : (Parse.orAlts x.2).all (termOnB (fun _ => true) N vsF) = true :=
+    List.all_eq_true.mpr fun q _ => by unfold termOnB; split <;> rfl
+  unfold leafOnB
+  rw [h, Bool.or_true]
 
 section
 variable {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
 
-/-- **The alternatives lie in the function's result sort** (`TieFRVars.inSort_of_read`), none
-holding an injection. -/
-theorem inSort_of_read_sig {N : Parse.Names} {c : Semantics} (hD : DefOK I) (hTS : TermsInSortNI c I)
+/-- **The alternatives lie in the function's result sort** (`TieFRVars.inSort_of_read`), `ok`
+accepting each. -/
+theorem inSort_of_read_sig {N : Parse.Names} {c : Semantics} (hD : DefOK I) (hTS : TermsInSortOn ok c I)
     (hso : N.sorts = c.sortNames) {tbl tblT : VarTable} {vars : List Srt} {vsF : List Var}
     (hvars : Parse.varSorts N vsF = .ok vars) (hA : alignOK c tbl tblT vars vsF = true)
     {ws : List P} {r : EVar} (hg : TieFRVars.guardsHold ws tblT vsF = true)
     {f : Fn} {s : Srt} {pats : List Term} {req : Option Term} {prio : Nat} {aside : Bool}
-    {xs : List (Term × List Term)} (hni : ∀ x ∈ xs, injFree x.1 = true)
+    {xs : List (Term × List Term)} (hni : ∀ x ∈ xs, ok x.1 = true)
     (hcs : ∀ cl ∈ Parse.frClauses s vars pats req prio aside (frAltsOf xs),
       c.clauseSorted f (c.fns.map Fn.sig) cl = true)
     (hs : f.result < nRegSorts + c.sortNames.length) {σ : M}
@@ -505,14 +651,14 @@ theorem sortDen_of_sortNumB_sig {c : Semantics} (F : SigFacts c I) {tbl tblT : V
 
 /-- **A term of the sort S lies in S** (`termInB`), at a valuation that puts the variables of
 `vars` in their sorts. -/
-theorem inSortK_of_termInB_sig {N : Parse.Names} {c : Semantics} (hTS : TermsInSortNI c I)
+theorem inSortK_of_termInB_sig {N : Parse.Names} {c : Semantics} (hTS : TermsInSortOn ok c I)
     (hsy : N.syms = c.symNames) (hso : N.sorts = c.sortNames) {tbl tblT : VarTable} {vars : List Srt}
     {vsF : List Var} (hA : alignOK c tbl tblT vars vsF = true) {e : Valuation M}
     (hV : ∀ i < vars.length, InS I (c.sortName (vars.getD i 0)) (e.evalEvar (tbl.ev (canonKey c vars i))))
     {S : Kore.KSort} {q : Kore.Pattern} (h : termInB N c tbl tblT vars vsF S q = true)
-    (hni : termNIB N vsF q = true) : InSortK I tblT e S q := by
+    (hni : termOnB ok N vsF q = true) : InSortK I tblT e S q := by
   unfold termInB at h
-  unfold termNIB at hni
+  unfold termOnB at hni
   split at h
   · rename_i t vs' hrd
     rw [hrd] at hni
@@ -529,11 +675,11 @@ theorem inSortK_of_termInB_sig {N : Parse.Names} {c : Semantics} (hTS : TermsInS
 /-- **`TightSem` from the decision**, at a valuation that puts the variables of `vars` in their
 sorts. -/
 theorem tightSem_of_tightB_sig {N : Parse.Names} {c : Semantics} (F : SigFacts c I)
-    (hTS : TermsInSortNI c I) (hsy : N.syms = c.symNames) (hso : N.sorts = c.sortNames)
+    (hTS : TermsInSortOn ok c I) (hsy : N.syms = c.symNames) (hso : N.sorts = c.sortNames)
     {tbl tblT : VarTable} {vars : List Srt} {vsF : List Var} (hA : alignOK c tbl tblT vars vsF = true)
     {e : Valuation M}
     (hV : ∀ i < vars.length, InS I (c.sortName (vars.getD i 0)) (e.evalEvar (tbl.ev (canonKey c vars i))))
-    {p : Kore.Pattern} (h : tightB N c tbl tblT vars vsF p = true) (hNI : tightNIB N vsF p = true) :
+    {p : Kore.Pattern} (h : tightB N c tbl tblT vars vsF p = true) (hNI : tightOnB ok N vsF p = true) :
     TightSem I tblT e p := by
   have hD := F.defOK
   unfold tightB at h
@@ -547,7 +693,7 @@ theorem tightSem_of_tightB_sig {N : Parse.Names} {c : Semantics} (F : SigFacts c
     unfold leafInB at hl
     simp only [hlf, Bool.not_true, Bool.false_or, Bool.or_eq_true, Bool.and_eq_true, List.all_eq_true] at hl
     have hn := List.all_eq_true.mp hNI (s, q) hx
-    unfold leafNIB at hn
+    unfold leafOnB at hn
     simp only [hlf, Bool.not_true, Bool.false_or, Bool.or_eq_true, List.all_eq_true] at hn
     rcases hl with hk | ⟨hrs, halts⟩
     · exact inSortK_of_stated hD q ((connOps_sub p (s, q) hx).2 hS) hk
@@ -617,11 +763,11 @@ theorem tightSem_of_tightB_sig {N : Parse.Names} {c : Semantics} (F : SigFacts c
 /-- **`TightSem` at the valuations of the guards** (`readings_of_frT_sig`'s `hT`): the guards hold
 each variable read in its sort (`guardsHold`). -/
 theorem tightSem_of_guardsB_sig {N : Parse.Names} {c : Semantics} (F : SigFacts c I)
-    (hTS : TermsInSortNI c I) (hsy : N.syms = c.symNames) (hso : N.sorts = c.sortNames)
+    (hTS : TermsInSortOn ok c I) (hsy : N.syms = c.symNames) (hso : N.sorts = c.sortNames)
     {tbl tblT : VarTable} {vars : List Srt} {vsF : List Var}
     (hvars : Parse.varSorts N vsF = .ok vars) (hA : alignOK c tbl tblT vars vsF = true)
     {ws : List P} {r : EVar} (hg : TieFRVars.guardsHold ws tblT vsF = true)
-    {p : Kore.Pattern} (h : tightB N c tbl tblT vars vsF p = true) (hNI : tightNIB N vsF p = true) :
+    {p : Kore.Pattern} (h : tightB N c tbl tblT vars vsF p = true) (hNI : tightOnB ok N vsF p = true) :
     ∀ e m, TieFR.At I ws r e m → TightSem I tblT e p :=
   fun _ _ hat => tightSem_of_tightB_sig F hTS hsy hso hA
     (fun _ hi => TieFRVars.inS_of_guards F.defOK hso hvars hA hg hat.1

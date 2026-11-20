@@ -15,8 +15,9 @@
   a premise, named (`LitFacts.lit`); `NodeFacts` gives
   it (`litFacts_of_node`). That two values are apart is not read here.
 
-  `TermsInSort` is replaced by `TieFRSig.TermsInSortNI`, with the decisions that the body's terms
-  and the last alternative's term hold no injection.
+  `TermsInSort` is replaced by `TieFRSig.TermsInSortOn ok`, with the premises that `ok` accepts
+  the body's terms and the last alternative's term: at `ok := injFree` (`TermsInSortNI`) the
+  decisions that they hold no injection, at `ok := fun _ => true` nothing (`TieFRSig.tightOnB_all`).
 -/
 import KcoreSpec.TieFRSig
 import KcoreSpec.TieEXReadB
@@ -302,7 +303,7 @@ theorem ex_last_of_text_lit {s : Srt} {bs : List (Term × List Cond)}
 
 end
 
-/-! ## The readings from the decision (KcoreSpec/TieEXReadB.lean), with `LitFacts` and `TermsInSortNI` -/
+/-! ## The readings from the decision (KcoreSpec/TieEXReadB.lean), with `LitFacts` and `TermsInSortOn` -/
 
 section
 variable {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
@@ -311,11 +312,11 @@ variable {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
 /-- What the body gives at a valuation of the guards with B sent to an element y of Bool: the
 body's elements are j's term's where each of j's conditions holds on all of R; each of j's
 conditions holds at an element of R exactly where it holds on all of R; and j's term lies in σ. -/
-theorem binder_core_lit {N : Parse.Names} {c : Semantics} (F : LitFacts c I) (hTS : TermsInSortNI c I)
+theorem binder_core_lit {ok : Term → Bool} {N : Parse.Names} {c : Semantics} (F : LitFacts c I) (hTS : TermsInSortOn ok c I)
     (hsy : N.syms = c.symNames) (hso : N.sorts = c.sortNames)
     {tbl tblT : VarTable} {vars : List Srt} {vsF : List Var} {Bv : Var} {s : Srt} {bodyK : Kore.Pattern}
     {j : Term × List Cond} {ws : List P} {σ : M}
-    (hNI : tightNIB N (vsF ++ [Bv]) bodyK = true) (hnj : injFree j.1 = true)
+    (hNI : tightOnB ok N (vsF ++ [Bv]) bodyK = true) (hnj : ok j.1 = true)
     (hvars : Parse.varSorts N vsF = .ok vars) (hg : TieFRVars.guardsHold ws tblT vsF = true)
     (hr : sortGuard (tbl.ev (sortVarKey Rv)) ∈ ws)
     (hσ : ∀ (e : Valuation M) a, (trSort tbl (srtOf c s)).interpret I e a ↔ a = σ)
@@ -393,11 +394,11 @@ theorem binder_core_lit {N : Parse.Names} {c : Semantics} (F : LitFacts c I) (hT
     exact h
 
 /-- **The readings from the decision.** -/
-theorem exFacts_of_exB_lit {N : Parse.Names} {c : Semantics} (F : LitFacts c I) (hTS : TermsInSortNI c I)
+theorem exFacts_of_exB_lit {ok : Term → Bool} {N : Parse.Names} {c : Semantics} (F : LitFacts c I) (hTS : TermsInSortOn ok c I)
     (hsy : N.syms = c.symNames) (hso : N.sorts = c.sortNames)
     {tbl tblT : VarTable} {vars : List Srt} {vsF : List Var} {Bv : Var} {s : Srt} {bodyK en : Kore.Pattern}
     {xT xF j : Term × List Cond} {al : List String} {ws : List P} {σ : M}
-    (hNI : tightNIB N (vsF ++ [Bv]) bodyK = true) (hnj : injFree j.1 = true)
+    (hNI : tightOnB ok N (vsF ++ [Bv]) bodyK = true) (hnj : ok j.1 = true)
     (hvars : Parse.varSorts N vsF = .ok vars) (hg : TieFRVars.guardsHold ws tblT vsF = true)
     (hr : sortGuard (tbl.ev (sortVarKey Rv)) ∈ ws)
     (hσ : ∀ (e : Valuation M) a, (trSort tbl (srtOf c s)).interpret I e a ↔ a = σ) (hσS : IsSort I σ)
