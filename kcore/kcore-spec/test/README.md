@@ -1553,7 +1553,8 @@ table above, on the tree before String and Bytes). Not investigated here.
   function `functional` sentences are owed as `FnHyp`); `Consistent` at every H (the package's
   `consistent`). The script checks the record by text against test/TieKimp.lean's `account_sizes`,
   `tieClasses` and `classes` (the indices a class ties and its remainder partition the class) and
-  the files of the theorems it names.
+  the files of the theorems it names. Given another record (`test/imp-tie.sh RECORD`), the same
+  checks on it, the account read from the record's `[layer1]` file (test/kk-tie.sh).
 - `test/imp-tie-atvalues.sh`: builds a copy of the committed package examples/ref-kimp in
   .lake/pins/kimp-tie and checks against it the three files that import it, on kimp's text, for
   every H, with `coreOK` from the package's `RefKimp.coreOK_defn`:
@@ -1565,6 +1566,20 @@ table above, on the tree before String and Bytes). Not investigated here.
   `silentTable`; 1.9 GiB, 2 s). Peaks are the process's maximum RSS. Each file runs from a copy in
   .lake/axioms-tests with `#axioms_here` appended: every declaration of the file within `propext`,
   `Classical.choice`, `Quot.sound`, and a run without that verdict fails.
+- `test/kk-tie.toml`, `test/kk-tie.sh`: row KORE in K's tie, per class of the account of kore.k's
+  user module (test/TieKk.lean): the count, the direction, how many are kernel-checked in it on
+  kore.k's pinned text (proved, at values, under a named condition on H, refuted, without
+  direction) with the theorems, and the remainder with its reason (none); `Consistent` at
+  `HookParams.none` (User.Consistent's `KK.consistent`). kk-tie.sh runs imp-tie.sh's checks on this
+  record (`test/imp-tie.sh test/kk-tie.toml`).
+- `test/kk-tie-atvalues.sh`: as imp-tie-atvalues.sh, over a copy of examples/ref-kk in
+  .lake/pins/kk-tie, with `coreOK` from `RefKk.coreOK_defn`: `test/TieKkAtValues.lean` (function
+  functional 32 at values in every model of `Γc`; hooked functional 58 for every H and 3 under
+  `silentTotal`; collection law 9; library 98 for every H, the 8 over set variables at set values,
+  and 2 under `libAdmitted`; 4.1 GiB, 103 s), `test/TieKkRefuted.lean` (set idempotence 104 and the
+  set-variable lemmas 379 to 383, 837, refuted; 2.2 GiB, 11 s), `test/TieKkCountEmpty.lean` (the
+  library's 521, domains.md 1898, refuted jointly with the functional sentence 202 of
+  `countAllOccurrences` for every H, and alone under `silentTotal`; 2.7 GiB, 14 s).
 - `test/TieKimpRules.lean`: kimp's 79 rewrite rules (sentences 700 to 778, `rules_account`), each
   read with its rule of `defn` (`ruleTieB`, by four ranges joined by `tieAll_range`): Γ's axiom is
   the sentence with the premise `⌈r⌉` more on its left side (`rules_text`); the sentence entails it
@@ -1575,26 +1590,29 @@ table above, on the tree before String and Bytes). Not investigated here.
   (`examples/ref-kk/RefKk/definition.kore`, user module `KORE`, 834 sentences): `account`
   partitions them into the tie's classes (`account_sizes`: function equation 302, rewrite rule 10,
   constructor functional 52, subsort 32, injectivity 35, distinctness 115, no junk 28, function
-  functional 32, hooked functional 61, collection law 9, library 99, set idempotence 1,
-  set-variable lemma 6, no direction 52), `account_classes`, `account_absent`, `absent_closed`. 10.5 GiB, 108 s.
-- `test/TieKkAttrs.lean`: `attrs_agree` on kore.k's text, from its five conjuncts, each one kernel
-  decision. 9.2 GiB, 145 s.
-- `test/TieKkSig.lean`: `sig_origin` on kore.k's text (347 items: 277 declared, 70 surplus), by 17
-  ranges joined by `tieAll_range`. 10.1 GiB, 486 s.
+  functional 32, hooked functional 61, collection law 9, library 101, set idempotence 1,
+  set-variable lemma 6, no direction 50), `account_classes`, `account_absent`, `absent_closed`. 10.6 GiB, 202 s.
+- `test/TieKkAttrs.lean`: `attrs_agree` on kore.k's text, from its five conjuncts. The semantics
+  has no instance of a sort-parametric declaration (`instDecls_nil`, by ranges of its names), so
+  `ctors`, `fns` and `hooks` are decided over the text's 311 symbol declarations by ranges
+  (`ctorsR_a`, `fnsR_a`, `hooksR_a`); `colls` and `prios` are one decision each. Each of the first
+  three as one decision exceeds the 12 GiB scope. 8.7 GiB, 274 s.
+- `test/TieKkSig.lean`: `sig_origin` on kore.k's text (355 items: 285 declared, 70 surplus), by 18
+  ranges joined by `tieAll_range`. 11.3 GiB, 408 s.
 - `test/TieKkFns.lean`: kore.k's function equations in the order of Γ's items (`fnText`): at 295
   of the 302 positions item and sentence are one pattern up to renaming (`fns_same` by ranges,
   `fn49_renamed`), so Γ entails the sentence for every H (`fns_entailed`) and the item is its
   consequence (`fns_from_text`); the 7 others are `[owise]` equations whose exclusion lists the
   other equations in another order, or binds with other keys, tied in `test/TieKkOwise.lean`.
-  5.5 GiB, 202 s.
+  8.3 GiB, 282 s.
 - `test/TieKkRules.lean`: kore.k's 10 rules: the j-th item of `ruleItems` is a consequence of the
-  j-th rewrite sentence, for every H (`rules_from_text`, W1). 3.3 GiB, 9 s.
+  j-th rewrite sentence, for every H (`rules_from_text`, W1). 3.5 GiB, 17 s.
 - `test/TieKkCons.lean`: kore.k's 234 constructor sentences (functional, subsort, injectivity,
   distinctness), each entailed by Γ for every H (`cons_entailed`, `tieConsB` by 16 ranges).
-  8.6 GiB, 384 s.
+  8.4 GiB, 434 s.
 - `test/TieKkNoJunk.lean`: kore.k's 28 no-junk sentences, each entailed by Γ for every H: 22 are
   Γ's items, 5 are `\or(\top, \bottom)` of sorts without constructors, KItem's is Γ's item with
-  its disjuncts permuted. 6.8 GiB, 25 s.
+  its disjuncts permuted. 6.7 GiB, 46 s.
 - `test/KkRawFree.lean`: no parameter of kore.k's semantics is an open generator
   (`koreSem_rawFree`, by the kernel on the parse of `examples/ref-kk/RefKk/definition.kore`), so
   its sorts and configurations are the same at every interpretation, `HookParams.none` among them
@@ -1603,17 +1621,17 @@ table above, on the tree before String and Bytes). Not investigated here.
   `ow_keys`): item and sentence agree up to the order of the operands of their sorted disjunctions
   and the names of their variables (`ow_same`, `TieAlpha.acEqB` from `KcoreSpec/TieAlphaOr.lean`,
   one decision per position), so Γ entails each sentence for every H (`ow_entailed`) and each item
-  is its sentence's consequence (`ow_from_text`). 6.9 GiB, 123 s.
+  is its sentence's consequence (`ow_from_text`). 8.6 GiB, 99 s.
 - `test/TieKkW2.lean`: kore.k's 10 rules in the direction W2: Γ's axiom is the sentence with the
   definedness of its right side as a third conjunct of its left side, whose second conjunct is
   `\top` or the `requires` equation at the configuration sort (`w2_checked`, one decision); in a
   model of Γ, for every H, each sentence holds where its right side holds an element
-  (`rules_w2_all`, `rules_w2`). 1.9 GiB, 22 s.
+  (`rules_w2_all`, `rules_w2`). 3.8 GiB, 12 s.
 - `test/TieKkDecls.lean`: kore.k's declarations in the direction E (row 19): the item of each of
   the 32 sort declarations without sort parameters is in `sigItems c` (`sorts_in_sig`); each of the
-  306 symbol declarations without sort parameters names no symbol of Γ (65, `noSym_count`) or its
+  306 symbol declarations without sort parameters names no symbol of Γ (57, `noSym_count`) or its
   item is the arity item of the first of Γ's symbols under its name (`syms_in_sig`, by ranges);
-  so Γ entails each such item for every H (`decls_entailed`). 5.8 GiB, 212 s.
+  so Γ entails each such item for every H (`decls_entailed`). 8.6 GiB, 226 s.
 - `test/LibEvFnEns.lean`, `test/LibEvFnBoolIntEns.lean`, `test/LibEvFnCollEns.lean`: the library
   equations in the function form (`\in` premises, `#as`, `requires`; not `owise`) of
   `f2-examples/ens.kompile.kore` entailed at values (`EntailsAtValues`) for every H, each from the

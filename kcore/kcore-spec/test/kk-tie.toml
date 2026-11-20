@@ -1,0 +1,231 @@
+# Row KORE in K, tied (DONE-0 C14 part 3 and closure (a); [goal] column "tied"): kore.k's text as
+# kompile wrote it (examples/ref-kk/RefKk/definition.kore, the pinned text of kk/PIN.toml), user
+# module KORE, 834 sentences. Per class of the account (test/TieKk.lean `classes`, `account`,
+# `account_sizes`), in the order of `tieClasses`: its count, its direction, and how many of its
+# sentences are kernel-checked on this text in that direction (`proved`), entailed at values for
+# every H (`at_values`), entailed at values for every H meeting a named condition on H
+# (`hypothesis`, the condition in `condition`), refuted (`refuted`) or without direction
+# (`no_direction`, the side condition `absent_closed` checked); the rest is `remainder`, with its
+# reason, and for it the reader and the hook interpretations are trusted. The theorems named are in
+# `file` (kcore-spec-relative), or in FILE where a name is written FILE::NAME. Where a class names
+# `indices`, those theorems state the list of the sentences it ties, and with `remainder_indices`
+# they partition the class's list in test/TieKk.lean. test/kk-tie.sh checks this record by text
+# against those files (test/imp-tie.sh's checks); test/kk-tie-atvalues.sh builds the generated
+# package and checks the files that import it.
+
+text = "examples/ref-kk/RefKk/definition.kore"
+sentences = 834
+
+[layer1]
+file = "test/TieKk.lean"
+theorems = ["userAxioms_eq", "userAxioms_length", "indices_eq", "account", "account_sizes",
+  "account_classes", "account_absent", "absent_closed", "absent_proj_below"]
+core_file = "examples/ref-kk/RefKk/CoreOK.lean"
+core_theorems = ["coreOK_defn"]
+attrs_file = "test/TieKkAttrs.lean"
+attrs_theorems = ["attrs_ctors", "attrs_fns", "attrs_hooks", "attrs_colls", "attrs_prios", "attrs_agree"]
+sig_file = "test/TieKkSig.lean"
+sig_theorems = ["sig_origin", "sig_sizes"]
+registry_file = "test/TieKkRegistry.lean"
+registry_theorems = ["registry_detached", "registry_names_detached", "surplus_registry", "kk_registry_everyH"]
+note = "the package is generated with --core: coreOK_defn (decided in the kernel), not wf; the registry family's guard detachedB is decided on the text (registry_detached), and kk_registry_everyH gives the family's conservativity at every H meeting FnHyp"
+
+# Row 19: the declarations, which are not sentences of the account.
+[declarations]
+file = "test/TieKkDecls.lean"
+theorems = ["decl_lengths", "decl_params", "sorts_in_sig", "syms_in_sig", "noSym_count", "decls_entailed", "lib_decls_entailed"]
+sorts = 33
+symbols = 311
+proved = 281
+note = "the item of each of the 32 sort declarations without sort parameters and of the 249 symbol declarations without sort parameters of a symbol Gamma has is one of sigItems c, so Gamma entails it for every H; the other 63 have no direction: SortMInt{Width}, the 5 symbol declarations with sort parameters (inj, List:getMInt, List:setMInt, ite, sizeMInt) and 57 of symbols Gamma does not have"
+
+# Consistent at one H only: an entailment for every H counts at it (closure (a)).
+[consistent]
+file = "examples/ref-kk/User/Consistent.lean"
+theorems = ["consistent"]
+pinned = "test/PinsKk.lean"
+reached = "Consistent (defn.sem.withHooks HookParams.none) is kernel-checked (KK.consistent, by consistent_of: coreOK, FnDet, FnSolves, ClausePreDecided, OpenLaws at HookParams.none), at no other H; FnHyp at every H rests on the 17 facts the package names, the termination of 14 functions and the agreement of 3 (RefKk.namedFacts; RefKk.fnHyp_withHooks_defn under OblH H). So the classes tied for every H count at HookParams.none. The 5 sentences tied under a condition on H (202, 321, 341 of hooked functional under silentTotal, 795, 802 of library under libAdmitted) are tied at HookParams.lib (funS_lib, ev795_lib, ev802_lib), where Consistent is not proved; at HookParams.none, where it is, Gamma with 202 has no model (test/TieKkCountEmpty.lean s202_none_refuted: none gives countAllOccurrences no value at its silent point (\"\", \"\")), and 321 and 341 ask a value at silent points of replaceAll and substrString where none gives none (argued, not kernel-checked). Not shown for this text: an H at which the entailments count that reaches each failing-clause or silent point a term of the text reaches (imp's TieKimpReach has no counterpart here)"
+
+[[class]]
+name = "function equation"
+count = 302
+direction = "equal"
+proved = 302
+file = "test/TieKkFns.lean"
+theorems = ["fns_same", "fn49_renamed", "fns_entailed", "fns_from_text", "fns_positions",
+  "test/TieKkOwise.lean::ow_keys", "test/TieKkOwise.lean::ow_same", "test/TieKkOwise.lean::ow_entailed",
+  "test/TieKkOwise.lean::ow_from_text"]
+note = "295 by fns_entailed and fns_from_text (test/TieKkFns.lean), the 7 [owise] equations 503, 564, 628, 709, 724, 739, 817 by ow_entailed and ow_from_text (test/TieKkOwise.lean), Gamma's item and the sentence agreeing up to the order of sorted disjunctions and variable names"
+
+[[class]]
+name = "rewrite rule"
+count = 10
+direction = "weaker"
+proved = 10
+file = "test/TieKkRules.lean"
+theorems = ["rules_length", "rules_checked", "rules_from_text", "test/TieKkW2.lean::w2_checked",
+  "test/TieKkW2.lean::rules_w2_all", "test/TieKkW2.lean::rules_w2"]
+
+[[class]]
+name = "priority equation"
+count = 0
+direction = "weaker"
+
+[[class]]
+name = "constructor functional"
+count = 52
+direction = "entailed"
+proved = 52
+file = "test/TieKkCons.lean"
+theorems = ["consText_length", "cons_checked", "cons_trS", "cons_entailed"]
+
+[[class]]
+name = "subsort"
+count = 32
+direction = "entailed"
+proved = 32
+file = "test/TieKkCons.lean"
+theorems = ["consText_length", "cons_checked", "cons_trS", "cons_entailed"]
+
+[[class]]
+name = "injectivity"
+count = 35
+direction = "entailed"
+proved = 35
+file = "test/TieKkCons.lean"
+theorems = ["consText_length", "cons_checked", "cons_trS", "cons_entailed"]
+
+[[class]]
+name = "distinctness"
+count = 115
+direction = "entailed"
+proved = 115
+file = "test/TieKkCons.lean"
+theorems = ["consText_length", "cons_checked", "cons_trS", "cons_entailed"]
+
+[[class]]
+name = "no junk"
+count = 28
+direction = "entailed"
+proved = 28
+file = "test/TieKkNoJunk.lean"
+theorems = ["nojunk_items", "nojunk_items_entailed", "nojunk_trivial_entailed", "nojunk_kitem_entailed"]
+
+[[class]]
+name = "function functional"
+count = 32
+direction = "hypothesis"
+at_values = 32
+file = "test/TieKkAtValues.lean"
+theorems = ["fnFun_checked", "fnFun_trS", "fnFun_clauses", "fnFun_at_values", "fnFun_indices"]
+indices = ["fnFun_indices"]
+note = "the 32 are the functional sentences of the sort predicates isX; each holds at values in every model of Gamma-c (EntailsAtValuesΓc, Gamma with the closure item of Bool), for every H, from the sort predicates' own results and without FnHyp (LibEv.sortPredFun_evC_withHooks)"
+
+[[class]]
+name = "hooked functional"
+count = 61
+direction = "atValues"
+at_values = 58
+hypothesis = 3
+condition = "Semantics.silentTotal (cH H), the first conjunct of Semantics.libAdmitted, met at HookParams.lib (funS_lib)"
+file = "test/TieKkAtValues.lean"
+theorems = ["fun_checked", "fun_trS", "fun_entailed", "fun_indices", "funS_checked", "funS_entailed", "funS_lib", "funS_indices",
+  "test/TieKkCountEmpty.lean::s202_none_refuted"]
+indices = ["fun_indices", "funS_indices"]
+note = "58 of symbols that are not partial, for every H (fun_entailed); 202 (countAllOccurrences), 321 (replaceAll), 341 (substrString), declared total by the library's text where hook gives no value (totalSilentKeys), for every H meeting silentTotal (funS_entailed); at HookParams.none Gamma with 202 has no model (s202_none_refuted)"
+
+[[class]]
+name = "collection law"
+count = 9
+direction = "atValues"
+at_values = 9
+file = "test/TieKkAtValues.lean"
+theorems = ["laws_entailed", "law_indices"]
+indices = ["law_indices"]
+
+[[class]]
+name = "library"
+count = 101
+direction = "atValues"
+at_values = 98
+hypothesis = 2
+refuted = 1
+condition = "Semantics.libAdmitted (cH H) (its conjuncts replaceAllEq for 795 and rfindCharEq for 802), met at HookParams.lib (ev795_lib, ev802_lib)"
+file = "test/TieKkAtValues.lean"
+theorems = ["pred_entailed", "ev_entailed", "lib_entailed", "libSet_entailed", "libA_entailed", "ev795_lib", "ev802_lib", "lib_indices",
+  "test/TieKkCountEmpty.lean::s521_at_of", "test/TieKkCountEmpty.lean::count202_value",
+  "test/TieKkCountEmpty.lean::s521_202_refuted", "test/TieKkCountEmpty.lean::s521_refuted",
+  "test/TieKkCountEmpty.lean::s521_indices"]
+indices = ["lib_indices", "test/TieKkCountEmpty.lean::s521_indices"]
+note = "90 entailed at values for every H (lib_entailed: the 16 predicate equations of ==Int, =/=Int, ==K, =/=K and 74 term and function equations, STRING-COMMON's among them); 8, the Bool predicate sentences over set variables (392 to 395, 400, 401, 406, 407), at set values (libSet_entailed); 795 (replaceAll, domains.md 1917) and 802 (rfindChar, 1893) for every H meeting libAdmitted (libA_entailed); 521 (countAllOccurrences' second equation, 1898) refuted jointly with the class hooked functional's 202 for every H (s521_202_refuted: at the empty needle it states that the count is its own successor, and 202 gives the count a value there), and alone at every H meeting silentTotal (s521_refuted); the refutation is over Gamma, recorded as a refuted library sentence of section 0 (4)'s kind by findings/work/decision-string-1898.md (ruling under delegation, its DONE-0 entry drafted there and not yet in DONE-0)"
+
+[[class]]
+name = "set idempotence"
+count = 1
+direction = "refuted"
+refuted = 1
+file = "test/TieKkRefuted.lean"
+theorems = ["idem_refuted", "idem_indices"]
+indices = ["idem_indices"]
+
+[[class]]
+name = "set-variable lemma"
+count = 6
+direction = "refuted"
+refuted = 6
+file = "test/TieKkRefuted.lean"
+theorems = ["s379_refuted", "s380_refuted", "s381_refuted", "s382_refuted", "s383_refuted", "s837_refuted",
+  "s379_one", "s380_one", "s381_one", "s382_one", "s383_one", "s837_one", "setvar_indices"]
+indices = ["setvar_indices"]
+note = "each refuted at sets of values (sN_refuted) and entailed where its set variables hold at most one element (sN_one)"
+
+[[class]]
+name = "function law"
+count = 0
+direction = "hypothesis"
+note = "the text states no law of a function"
+
+[[class]]
+name = "open generator law"
+count = 0
+direction = "equal"
+note = "the text has no open generator"
+
+[[class]]
+name = "open generator functional"
+count = 0
+direction = "hypothesis"
+note = "the text has no open generator"
+
+[[class]]
+name = "parameter functional"
+count = 0
+direction = "hypothesis"
+note = "the text has no functional sentence of a parameter without impl that it declares total"
+
+[[class]]
+name = "parameter lemma"
+count = 0
+direction = "hypothesis"
+note = "the text has no lemma applying a parameter symbol without impl"
+
+[[class]]
+name = "user lemma"
+count = 0
+direction = "entailed"
+note = "the text has no lemma of a user's file"
+
+[[class]]
+name = "user lemma at values"
+count = 0
+direction = "atValues"
+note = "the text has no lemma of a user's file"
+
+[[class]]
+name = "no direction"
+count = 50
+direction = "none"
+no_direction = 50
+file = "test/TieKk.lean"
+theorems = ["account_absent", "absent_closed", "absent_proj_below"]
+note = "the sentences that apply a symbol Gamma does not have (account_absent, absent_closed): among them 281 (ite{Sort}'s functional sentence), 686 and 687 (the equations of ite{K}) and 549 (findChar's equation, which applies ite{Int}); the 31 equations of a projection project:X are of sorts X that are K, KItem or below KItem in Gamma (absent_proj_below)"
