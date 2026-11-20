@@ -47,8 +47,8 @@ evidence = "test/WitRestPlain.lean"
 [[conjunct]]
 key = "faithCoreOK.1"
 text = "KCore.Faithful.namesNumbered c"
-witness = "none: not found in the no-model form; the conjunct is not implied by the others (a constructor named Lblite{KCell} meets every other leaf of coreOK and FnHyp); its second part, no symbol that an overloading symbol overloads named like ite at a sort, has no semantics failing it alone here (a function so named that no symbol overloads meets the conjunct, kernel-checked); its third part, every function's sorts numbered, is implied by sortsNumbered (kernel-checked, every semantics); Γ has a model (argued): a value and the constructor items write the symbol under its own name, a pattern or right-hand side as Lblite applied to SortKCell, and reading both heads as the symbol meets each item, as for overloadsOK.3; the conjunct is asked for soundness (the two heads, Γ equating them nowhere), not for a model (not kernel-checked here; for an overloading symbol it is, test/OvlIteSoundC.lean)"
-evidence = "test/WitRestFaithA.lean, test/OvlIteName.lean"
+witness = "none: not found in the no-model form; the conjunct is needed for soundness instead: a value and the constructor items write a constructor under its own name, a right-hand side writes one named as an instance at its head and sorts, and Γ relates the two nowhere, so a semantics failing the first part alone (a constructor Lblite{KCell} : Int → KCell and a rule building it), with FnHyp, has a theory with a model and SoundC false (kernel-checked: test/CtorIteSoundC.lean, meets_others, consistent and not_sound); the conjunct is not implied by the others (that semantics; a constant so named, test/WitRestFaithA.lean); its second part, no symbol that an overloading symbol overloads is named as an instance, has no semantics failing it alone here (it would be an overloaded function so named; a function so named that no symbol overloads meets the conjunct, kernel-checked) and is read through namesNumbered_spec by NamesNumbered (namesNumbered_over_writes_irs: an overload's equation writes the overloaded symbol under its name); its third part, every function's sorts numbered, is implied by sortsNumbered (kernel-checked, every semantics)"
+evidence = "test/CtorIteSoundC.lean, test/WitRestFaithA.lean, test/OvlIteName.lean"
 
 [[conjunct]]
 key = "faithCoreOK.2"
@@ -202,7 +202,7 @@ evidence = "test/WitRestOvlA.lean"
 [[conjunct]]
 key = "overloadsOK.3"
 text = "(KCore.instDecode? (c.symName o.sig.name)).isNone"
-witness = "none: not found in the no-model form; the conjunct is needed for soundness instead: a semantics failing it alone, with FnHyp, has a theory with a model and SoundC false, the successor of a step to a value applying the symbol not being entailed to be in the family (kernel-checked: test/OvlIteSoundC.lean, consistent and not_sound)"
+witness = "none: not found in the no-model form; the conjunct is needed for soundness instead: a semantics failing it alone, with FnHyp, has a theory with a model and SoundC false, the successor of a step to a value applying the symbol not being entailed to be in the family: a value and the constructor items write the symbol under its own name, a right-hand side at its head and sorts, and Γ relates the two nowhere (kernel-checked: test/OvlIteSoundC.lean, consistent and not_sound); read by OvlLaws.ovl_noInst_irs and the fourth part of ovl_parts"
 evidence = "test/OvlIteName.lean, test/OvlIteSoundC.lean"
 
 [[conjunct]]
