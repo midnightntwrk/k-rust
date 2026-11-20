@@ -388,8 +388,9 @@ theorem item_of_sentence (H : HookParams) {M : Type} [Inhabited M] {I : Interpre
   exact next_mono104 (fun b hb => (right_iff H hD hc hSig hgv b).mpr hb)
     (item_elim104 hD hT e m (fun k hk => hg k (hfG k hk)) a ha (hL e m hgv a hl))
 
-/-- The text sentences of Γ's rules, in `ruleItems`'s order: the one sentence, once per disjunct. -/
-noncomputable def ruleText : List AxiomDecl := [U.ax104, U.ax104]
+/-- The text sentences of Γ's rules: the one sentence, of which each of Γ's two rule items (one per
+disjunct) is a consequence. -/
+noncomputable def ruleText : List AxiomDecl := [U.ax104]
 
 /-- **W1 per disjunct, over the signature, and the converse for `ruleItems`**: each of Γ's two
 rule items is a consequence of sentence 104 and Γ's signature, for every H. -/
@@ -411,8 +412,8 @@ theorem rule_from_text_sig (H : HookParams) :
   · rw [List.mem_singleton.mp hit, item_eq1]
     exact item_of_sentence H hD hc hSig hT free_sub1 fun e m0 hg a ha => left_d hD hS hg a ha
 
-/-- The priority the rule sentence's attributes state is each rule's. -/
-theorem rule_prios : ruleText.map (fun ad => AttrsAgree.prioOf ad.ax.attributes) = c.rules.map (·.prio) := by
+/-- The priority the rule sentence's attributes state is each of the two rules'. -/
+theorem rule_prios : c.rules.map (·.prio) = [U.ax104, U.ax104].map (fun ad => AttrsAgree.prioOf ad.ax.attributes) := by
   decide +kernel
 
 /-! ## W2, with the guard -/

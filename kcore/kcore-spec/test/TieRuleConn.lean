@@ -341,10 +341,10 @@ theorem right_iff (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation 
     (fun x hx => or_inh (ctx := ⟨tableOf [] p0, []⟩) (hS _ e) a b x hx)
     (fun m hm => TieRuleConnText.top_inh hD (hC _ e) m hm) m
 
-/-- **W1 for the rule, and the converse for `ruleItems`**: Γ's one rule item is a consequence of
+/-- W1 for the rule, and the converse for `ruleItems`: Γ's one rule item is a consequence of
 sentence 109 with the signature, for every H. Γ's left side is the text's with the conjunct `⌈r⌉`
 more, and every element of the text's right side is one of Γ's (`right_iff`). -/
-theorem rule_from_text_sig (H : HookParams) :
+theorem rule0_from_text_sig (H : HookParams) :
     ∀ it ∈ ruleItems (cH H), (TiePair.Texts [(trS U.ax109).pat] ∪ ΓSig (cH H)) ⊧ it.pat := by
   intro it hit M _ I hI
   rw [TiePair.ruleItems_withHooks, ruleItems_eq] at hit
@@ -358,6 +358,24 @@ theorem rule_from_text_sig (H : HookParams) :
       · exact List.mem_cons_self ..
       · rw [List.mem_singleton.mp hq]; exact List.mem_cons_of_mem _ (List.mem_cons_self ..)) x hx)
     (fun e m _ x hx => (right_iff H hD hSig e x).mpr hx)
+
+/-- The sentence with definedness is the premise set of its item with definedness. -/
+theorem texts_items_sig {ad : AxiomDecl} {Δ : Premises KoreAML.Sym} {φ : P}
+    (h : φ ∈ TiePair.Texts [(trS ad).pat] ∪ Δ) : φ ∈ itemsPremises [trS ad] ∪ Δ := by
+  rcases h with (h | h) | h
+  · exact Or.inl (Or.inl ⟨_, List.mem_singleton_self _, (List.mem_singleton.mp h).symm⟩)
+  · exact Or.inl (Or.inr h)
+  · exact Or.inr h
+
+/-- The text sentences of Γ's rules, in `ruleItems`'s order. -/
+noncomputable def ruleText : List AxiomDecl := [U.ax109]
+
+/-- **W1 for the rule, and the converse for `ruleItems`**: each of Γ's rule items (one) is a consequence of
+sentence 109 with the signature, for every H. Γ's left side is the text's with the conjunct `⌈r⌉`
+more, and every element of the text's right side is one of Γ's (`right_iff`). -/
+theorem rule_from_text_sig (H : HookParams) :
+    ∀ it ∈ ruleItems (cH H), ∃ ad ∈ ruleText, itemsPremises [trS ad] ∪ ΓSig (cH H) ⊧ it.pat :=
+  fun it hit => ⟨U.ax109, List.mem_cons_self, fun hI => rule0_from_text_sig H it hit fun φ hφ => hI φ (texts_items_sig hφ)⟩
 
 /-- **W2 for the rule, with the guard**: in a model of Γ, sentence 109 holds where, at each
 valuation at which the guards of its variables hold, `⌈r⌉` (the conjunct Γ's left side adds, r Γ's
@@ -658,11 +676,11 @@ theorem left_iff (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation K
     (fun x hx => not_inh (ctx := ⟨tableOf [] p0, []⟩) (hS _ e) _ x hx)
     (fun m hm => TieRuleConnText.top_inh hD (hC _ e) m hm) m
 
-/-- **W1 for the rule, and the converse for `ruleItems`**: Γ's one rule item is a consequence of
+/-- W1 for the rule, and the converse for `ruleItems`: Γ's one rule item is a consequence of
 sentence 104 with the signature, for every H. Where the guard of Z holds, an element of Γ's left
 side at Z is one of the text's left side (`left_iff`, Z its own witness); the right sides are one
 pattern. -/
-theorem rule_from_text_sig (H : HookParams) :
+theorem rule0_from_text_sig (H : HookParams) :
     ∀ it ∈ ruleItems (cH H), (TiePair.Texts [(trS U.ax104).pat] ∪ ΓSig (cH H)) ⊧ it.pat := by
   intro it hit M _ I hI
   rw [TiePair.ruleItems_withHooks, ruleItems_eq] at hit
@@ -679,6 +697,25 @@ theorem rule_from_text_sig (H : HookParams) :
       (e.evalEvar ((tableOf [] p0).ev (evarKey z))) = e.evalEvar := by
     funext y; rw [Function.update_apply]; by_cases hy : y = (tableOf [] p0).ev (evarKey z) <;> simp [hy]
   rw [hu]; exact hx
+
+/-- The sentence with definedness is the premise set of its item with definedness. -/
+theorem texts_items_sig {ad : AxiomDecl} {Δ : Premises KoreAML.Sym} {φ : P}
+    (h : φ ∈ TiePair.Texts [(trS ad).pat] ∪ Δ) : φ ∈ itemsPremises [trS ad] ∪ Δ := by
+  rcases h with (h | h) | h
+  · exact Or.inl (Or.inl ⟨_, List.mem_singleton_self _, (List.mem_singleton.mp h).symm⟩)
+  · exact Or.inl (Or.inr h)
+  · exact Or.inr h
+
+/-- The text sentences of Γ's rules, in `ruleItems`'s order. -/
+noncomputable def ruleText : List AxiomDecl := [U.ax104]
+
+/-- **W1 for the rule, and the converse for `ruleItems`**: each of Γ's rule items (one) is a consequence of
+sentence 104 with the signature, for every H. Where the guard of Z holds, an element of Γ's left
+side at Z is one of the text's left side (`left_iff`, Z its own witness); the right sides are one
+pattern. -/
+theorem rule_from_text_sig (H : HookParams) :
+    ∀ it ∈ ruleItems (cH H), ∃ ad ∈ ruleText, itemsPremises [trS ad] ∪ ΓSig (cH H) ⊧ it.pat :=
+  fun it hit => ⟨U.ax104, List.mem_cons_self, fun hI => rule0_from_text_sig H it hit fun φ hφ => hI φ (texts_items_sig hφ)⟩
 
 /-- **W2 for the rule, with the guard**: in a model of Γ, sentence 104 holds where, at each
 valuation at which the guards of its variables hold, `⌈R⌉` (the conjunct Γ's left side adds) holds
@@ -975,11 +1012,11 @@ theorem left_iff (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation K
     (fun x hx => not_inh (ctx := ⟨tableOf [] p0, []⟩) (hS _ e) _ x hx)
     (fun m hm => TieRuleConnText.top_inh hD (hC _ e) m hm) m
 
-/-- **W1 for the rule, and the converse for `ruleItems`**: Γ's one rule item is a consequence of
+/-- W1 for the rule, and the converse for `ruleItems`: Γ's one rule item is a consequence of
 sentence 104 with the signature, for every H. Where the guard of Z holds, an element of Γ's left
 side at Z is one of the text's left side (`left_iff`, Z its own witness); the right sides are one
 pattern. -/
-theorem rule_from_text_sig (H : HookParams) :
+theorem rule0_from_text_sig (H : HookParams) :
     ∀ it ∈ ruleItems (cH H), (TiePair.Texts [(trS U.ax104).pat] ∪ ΓSig (cH H)) ⊧ it.pat := by
   intro it hit M _ I hI
   rw [TiePair.ruleItems_withHooks, ruleItems_eq] at hit
@@ -996,6 +1033,25 @@ theorem rule_from_text_sig (H : HookParams) :
       (e.evalEvar ((tableOf [] p0).ev (evarKey z))) = e.evalEvar := by
     funext y; rw [Function.update_apply]; by_cases hy : y = (tableOf [] p0).ev (evarKey z) <;> simp [hy]
   rw [hu]; exact hx
+
+/-- The sentence with definedness is the premise set of its item with definedness. -/
+theorem texts_items_sig {ad : AxiomDecl} {Δ : Premises KoreAML.Sym} {φ : P}
+    (h : φ ∈ TiePair.Texts [(trS ad).pat] ∪ Δ) : φ ∈ itemsPremises [trS ad] ∪ Δ := by
+  rcases h with (h | h) | h
+  · exact Or.inl (Or.inl ⟨_, List.mem_singleton_self _, (List.mem_singleton.mp h).symm⟩)
+  · exact Or.inl (Or.inr h)
+  · exact Or.inr h
+
+/-- The text sentences of Γ's rules, in `ruleItems`'s order. -/
+noncomputable def ruleText : List AxiomDecl := [U.ax104]
+
+/-- **W1 for the rule, and the converse for `ruleItems`**: each of Γ's rule items (one) is a consequence of
+sentence 104 with the signature, for every H. Where the guard of Z holds, an element of Γ's left
+side at Z is one of the text's left side (`left_iff`, Z its own witness); the right sides are one
+pattern. -/
+theorem rule_from_text_sig (H : HookParams) :
+    ∀ it ∈ ruleItems (cH H), ∃ ad ∈ ruleText, itemsPremises [trS ad] ∪ ΓSig (cH H) ⊧ it.pat :=
+  fun it hit => ⟨U.ax104, List.mem_cons_self, fun hI => rule0_from_text_sig H it hit fun φ hφ => hI φ (texts_items_sig hφ)⟩
 
 /-- **W2 for the rule, with the guard**: in a model of Γ, sentence 104 holds where, at each
 valuation at which the guards of its variables hold, `⌈R⌉` (the conjunct Γ's left side adds) holds

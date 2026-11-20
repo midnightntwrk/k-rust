@@ -3,7 +3,8 @@
   (`test/constructs/fixtures/e3-ml-rule-lhs-implies`), sentence by sentence, against the translation of the text as
   written (`trS ad := trAxiom k.symbolDecls k.aliasNames ad`), on the literals `kore` and `defn`, for
   every interpretation H. Nothing here reads `Parse.parse` or `emit`. Written by
-  `test/constructs/tiegen.py e3-ml-rule-lhs-implies`; run from the package root: `lake env lean -j1 test/TieE3MlRuleLhsImplies.lean`.
+  `test/constructs/tiegen.py e3-ml-rule-lhs-implies`, its rules section by hand; run from the package root:
+  `lake env lean -j1 test/TieE3MlRuleLhsImplies.lean`.
 
   The definition reads a confined sort (`readsConfined_c`, `Semantics.readsConfined`), so its
   theory is `Γc = Γ ∪ Γcl`. Each statement of layers 1 and 2 is over Γ; `Γc` holds every premise
@@ -29,6 +30,16 @@
   - Function equations (29): each of Γ's items is the translation of one sentence, in the
     order `fnText` lists them (`fn_shape`); `fns_entailed` (E), `fns_from_text` (the converse),
     `fn_prios` (the priorities the sentences state are the clauses').
+  - Rewrite rules (104), by hand, in the section `The rules` (`RuleW1`): each of Γ's rule items is a
+    consequence of its text sentence with the text's signature (`ΓSig`), `RuleW1.ruleText` in
+    `ruleItems`' order (`RuleW1.rule_from_text_sig`, W1, every H; `RuleW1.rules_account`). `ΓSig`
+    holds the items of the text's declarations or surplus ones, the sort constant of a registry sort
+    or the arity of a hooked symbol that the text does not declare at that shape (`sig_origin`), and
+    the arity of every literal (`dvArityAll`). Two limits, argued and not proved: that a surplus
+    item of a name the text declares with sort parameters adds no consequence in the text's symbols;
+    and that `dvArityAll` at a literal no axiom of the text writes, no item of the text, adds none
+    either. The section's other headline statements (its comment says what each states):
+    `RuleW1.rule_text`, `RuleW1.left_sub`.
   - Constructor sentences (37): entailed by Γ (`cons_entailed`).
   - No junk (3 of a sort without generators, `nojunk_trivial_entailed`; 7 equal to
     one of Γ's constructor items, `nojunk_items`; 1 KItem's with its disjuncts in the text's
@@ -40,7 +51,7 @@
     `absent_closed`.
 
   The sentences with no counterpart in f2-examples/ens.kompile.kore are `unmapped` (22);
-  the sentences of a class with a theorem that no theorem here holds of are `uncovered` (1).
+  the sentences of a class with a theorem that no theorem here holds of are `uncovered` (0).
 -/
 import KcoreSpec
 
@@ -186,7 +197,7 @@ def unmapped : List (Nat × String) :=
 /-- The sentences of a class with a theorem in the tie that no theorem of this file holds of: the
 tie's remainder on this text. -/
 def uncovered : List (Nat × String) :=
-  [(104, "rewrite rule")]
+  []
 
 /-- Each listed sentence is in its class in the account. -/
 theorem lists_in_account : (unmapped ++ uncovered).all (fun ic => (classOf ic.2).contains ic.1) = true := by
@@ -675,6 +686,203 @@ theorem idem_refuted_c (H : HookParams) : ∀ (M : Type) (_ : Inhabited M) (I : 
     I ⊧ᴵP Γc (cH H) → ¬ (I ⊧ᴵ (trS U.ax47).pat) :=
   fun M hM I hI => idem_refuted H M hM I fun φ hφ => hI φ (Γ_sub_Γc _ hφ)
 
+/-! ## The rules (104): W1 over the signature, for every H (by hand)
+
+Γ's one rule is `c(a() #Implies b()) => b()` (sentence 104, kompiled to
+`c(\implies{Exp}(a(), \and{Exp}(b(), _Gen6))) => _Gen6`) read through the cut: the position holds
+the rule's variable Z:Exp and `pre := (Z ∈ a) → (Z ∈ b ∧ Z ∈ G)`, G the variable `_Gen6` (`rz`).
+Γ's axiom of the rule is `\rewrites(K[Z] ∧ ⊤ ∧ q ∧ ⌈R⌉, R)`, q the membership `pre` writes and R
+the right side, which does not hold Z (`left_eq`); sentence 104 is the item of
+`\rewrites(K[φ] ∧ ⊤, R)` at the table of Γ's axiom, φ the implication (`rule_text`, kernel). In a
+model of definedness and the signature, where the guards of Γ's axiom hold, every element of Γ's
+left side is one of the text's (`left_sub`: q at Z's element makes that element one of φ, and a
+context of applications is monotone). So Γ's rule item is a consequence of the sentence and the
+signature (`rule_from_text_sig`, W1, every H). -/
+
+namespace RuleW1
+
+def topC : Kore.KSort := srt "GeneratedTopCell"
+
+/-- The context of the `k` cell's first item at the sort X: `<generatedTop>(<k>(kseq(inj{X,
+KItem}(·), k)), counter)`. -/
+def cellCtx (X : String) (k counter : Kore.Pattern) : KoreCutCtx :=
+  .app ⟨⟨"Lbl'-LT-'generatedTop'-GT-'"⟩⟩ [] []
+    (.app ⟨⟨"Lbl'-LT-'k'-GT-'"⟩⟩ [] []
+      (.app ⟨⟨"kseq"⟩⟩ [] [] (.app ⟨⟨"inj"⟩⟩ [srt X, srt "KItem"] [] .hole []) [k]) []) [counter]
+
+/-- `\implies{C}` of two memberships is the membership in `\implies{S}` of the operands. -/
+theorem memOf_implies {M : Type} {I : Interpretation KoreAML.Sym M} {ctx : Ctx} {e : Valuation M}
+    {S C : Kore.KSort} {σ σ' : M} {z : Kore.EVar}
+    (hSz : NoReadCut I (ctx.vars.ev (evarKey z)) (trSort ctx.vars S))
+    (hCz : NoReadCut I (ctx.vars.ev (evarKey z)) (trSort ctx.vars C))
+    (hS : ∀ a, (trSort ctx.vars S).interpret I e a ↔ a = σ)
+    (hC : ∀ a, (trSort ctx.vars C).interpret I e a ↔ a = σ') {q₁ q₂ φ₁ φ₂ : Kore.Pattern}
+    (h₁ : MemOf I ctx e (ctx.vars.ev (evarKey z)) σ σ' q₁ φ₁)
+    (h₂ : MemOf I ctx e (ctx.vars.ev (evarKey z)) σ σ' q₂ φ₂) :
+    MemOf I ctx e (ctx.vars.ev (evarKey z)) σ σ' (.implies C q₁ q₂) (.implies S φ₁ φ₂) := by
+  intro a ha m
+  have hSu : ∀ b, (trSort ctx.vars S).interpret I
+      ⟨Function.update e.evalEvar (ctx.vars.ev (evarKey z)) a, e.evalSvar⟩ b ↔ b = σ :=
+    fun b => (hSz e a b).trans (hS b)
+  have hCu : ∀ b, (trSort ctx.vars C).interpret I
+      ⟨Function.update e.evalEvar (ctx.vars.ev (evarKey z)) a, e.evalSvar⟩ b ↔ b = σ' :=
+    fun b => (hCz e a b).trans (hC b)
+  simp only [tr]
+  rw [interp_sImp, interp_sImp, interp_inhOf_of hSu, interp_inhOf_of hCu, h₁ a ha m, h₂ a ha m]
+  exact ⟨fun ⟨hm, h⟩ => ⟨⟨ha, fun h1 => (h ⟨h1, hm⟩).1⟩, hm⟩,
+    fun ⟨⟨_, h⟩, hm⟩ => ⟨hm, fun h1 => ⟨h h1.1, hm⟩⟩⟩
+
+def cfg (x : Term) : Term := .app 71 [.app 383 [.app 0 [.inj 32 1 x, .var 1]], .var 2]
+
+/-- `c(Z) => G` with `pre := (Z ∈ a) → (Z ∈ b ∧ Z ∈ G)`, Z:Exp the first variable, G:Exp the
+fourth. -/
+def rz : Rule :=
+  { vars := [32, 0, 19, 32], lhs := cfg (.app 387 [.var 0]), req := none, rhs := cfg (.var 3), ens := none,
+    prio := 50,
+    pre := .implies (.mem 32 (.var 0) (.app 385 []))
+      (.and (.mem 32 (.var 0) (.app 386 [])) (.mem 32 (.var 0) (.var 3))) }
+
+def S : Kore.KSort := srt "Exp"
+def z : Kore.EVar := evar "VarV0" S
+def a : Kore.Pattern := ap "Lbla" []
+def b : Kore.Pattern := ap "Lblb" []
+def g : Kore.Pattern := ev "VarV3" S
+/-- The connective at the position. -/
+def φ : Kore.Pattern := .implies S a (.and S [b, g])
+/-- The membership of Z in φ, as `pre` writes it. -/
+def q : Kore.Pattern := .implies topC (.in S topC (.var (.evar z)) a)
+  (.and topC [.in S topC (.var (.evar z)) b, .in S topC (.var (.evar z)) g])
+def E : Kore.Pattern := .top topC
+def K : KoreCutCtx := .app ⟨⟨"Lbl'-LT-'generatedTop'-GT-'"⟩⟩ [] []
+    (.app ⟨⟨"Lbl'-LT-'k'-GT-'"⟩⟩ [] []
+      (.app ⟨⟨"kseq"⟩⟩ [] [] (.app ⟨⟨"inj"⟩⟩ [S, srt "KItem"] []
+        (.app ⟨⟨"Lblc"⟩⟩ [] [] .hole []) []) [ev "VarV1" (srt "K")]) [])
+    [ev "VarV2" (srt "GeneratedCounterCell")]
+/-- The rule's right side, `<k> G </k>`. -/
+def R : Kore.Pattern := .and topC [cellCtx "Exp" (ev "VarV1" (srt "K")) (ev "VarV2" (srt "GeneratedCounterCell")) |>.fill g, E]
+
+/-- The text's left side: the implication in its position. -/
+def left : Kore.Pattern := .and topC [K.fill φ, E]
+/-- Γ's left side: `K[Z] ∧ ⊤ ∧ q ∧ ⌈R⌉`. -/
+def leftG : Kore.Pattern := .and topC [K.fill (.var (.evar z)), E, q, .ceil topC topC R]
+/-- Γ's axiom of the rule. -/
+def pG : Kore.Pattern := .rewrites topC leftG R
+
+/-- Γ's axiom of the rule: `\rewrites(K[Z] ∧ ⊤ ∧ q ∧ ⌈R⌉, R)`. -/
+theorem left_eq : prioRuleK c rz = .rewrites topC (.and topC [K.fill (.var (.evar z)), E, q, .ceil topC topC R]) R := by
+  decide +kernel
+
+/-- q is the membership of Z's element in φ, at a table without aliases. -/
+theorem mem_q {M : Type} {I : Interpretation KoreAML.Sym M} [Inhabited M] (hD : DefOK I) (hc : I ⊧ᴵ ceilDefItem.pat)
+    (tbl : VarTable) (e : Valuation M) {σ σ' : M}
+    (hSz : NoReadCut I (tbl.ev (evarKey z)) (trSort tbl S))
+    (hCz : NoReadCut I (tbl.ev (evarKey z)) (trSort tbl topC))
+    (hS : ∀ a, (trSort tbl S).interpret I e a ↔ a = σ)
+    (hC : ∀ a, (trSort tbl topC).interpret I e a ↔ a = σ')
+    (hσ : IsSort I σ) (hσ' : IsSort I σ') :
+    MemOf I ⟨tbl, []⟩ e (tbl.ev (evarKey z)) σ σ' q φ :=
+  memOf_implies (ctx := ⟨tbl, []⟩) hSz hCz hS hC
+    (MemOf.in' (ctx := ⟨tbl, []⟩) hSz hCz hS hC hD hc hσ hσ' a)
+    (MemOf.and (ctx := ⟨tbl, []⟩)
+      (MemOf.in' (ctx := ⟨tbl, []⟩) hSz hCz hS hC hD hc hσ hσ' b)
+      (MemOf.in' (ctx := ⟨tbl, []⟩) hSz hCz hS hC hD hc hσ hσ' g))
+
+theorem pG_eq : prioRuleK c rz = pG := left_eq
+theorem pG_parts : TieRuleLhs.rwParts pG = some (topC, leftG, R) := rfl
+theorem ruleItems_eq : ruleItems c = [trAxiom [] [] ⟨0, "kernel", ⟨[], pG, []⟩⟩] := by
+  rw [← pG_eq]; kernel_rfl
+
+/-- The free variables of the sentence: G, the rest of the `k` cell, the counter cell. -/
+def fT : List VarKey := (freeOf [] (.rewrites topC left R)).eraseDups
+
+/-- **The rule sentence is the item of `\rewrites{C}(K[φ] ∧ ⊤, R)` at the table of Γ's axiom**, G's
+index renamed (kernel). -/
+theorem rule_text : TiePair.renSeq (TieRuleLhs.itemAt (tableOf [] pG) fT topC left R) [(4, 1)] =
+    some (trS U.ax104).pat := by decide +kernel
+theorem fT_free : fT.all (fun k => (freeOf [] pG).eraseDups.contains k) = true := by decide +kernel
+theorem z_free : evarKey z ∈ (freeOf [] pG).eraseDups := by decide +kernel
+
+theorem exp_name (H : HookParams) : (cH H).sortName 32 = "Exp" := (by decide +kernel : c.sortName 32 = "Exp")
+theorem exp_numbered (H : HookParams) : (32 : Srt) < nRegSorts + (cH H).sortNames.length :=
+  (by decide +kernel : (32 : Srt) < nRegSorts + c.sortNames.length)
+theorem top_name (H : HookParams) : (cH H).sortName topCellSort = "GeneratedTopCell" :=
+  (by decide +kernel : c.sortName topCellSort = "GeneratedTopCell")
+
+/-- **Γ's left side of the rule is inside the text's**, at a valuation where the guards of Γ's
+axiom hold, in a model of definedness and the signature: q holds somewhere, so Z's element is one
+of φ, and `K[Z]` is inside `K[φ]`. -/
+theorem left_sub (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hD : DefOK I)
+    (hc : I ⊧ᴵ ceilDefItem.pat) (hSig : I ⊧ᴵP ΓSig (cH H)) (e : Valuation M) (m : M)
+    (hg : ∀ k ∈ (freeOf [] pG).eraseDups, (guardOf (tableOf [] pG) k).interpret I e m) (x : M)
+    (h : (tr ⟨tableOf [] pG, []⟩ leftG).interpret I e x) : (tr ⟨tableOf [] pG, []⟩ left).interpret I e x := by
+  haveI : OvlOK (cH H) := ovlOK_of_core (coreOKH H)
+  obtain ⟨σE, hσE1, hσE2⟩ := TieRhs.sortSing_sig hD hSig (exp_numbered H)
+  rw [exp_name] at hσE1
+  obtain ⟨σ, hσ1, hσ2⟩ := TieRhs.sortSing_sig hD hSig (top_numbered (c := cH H))
+  rw [top_name] at hσ1
+  have hS : ∀ b, (trSort (tableOf [] pG) S).interpret I e b ↔ b = σE := by unfold S; rw [trSort_srt]; exact hσE1
+  have hC : ∀ b, (trSort (tableOf [] pG) topC).interpret I e b ↔ b = σ := by unfold topC; rw [trSort_srt]; exact hσ1
+  have hSz : NoReadCut I ((tableOf [] pG).ev (evarKey z)) (trSort (tableOf [] pG) S) := by
+    unfold S; rw [trSort_srt]; exact fun _ _ _ => Iff.rfl
+  have hCz : NoReadCut I ((tableOf [] pG).ev (evarKey z)) (trSort (tableOf [] pG) topC) := by
+    unfold topC; rw [trSort_srt]; exact fun _ _ _ => Iff.rfl
+  have hz : Inh I σE (e.evalEvar ((tableOf [] pG).ev (evarKey z))) :=
+    (interp_inhOf_of hS).mp ((TieRuleLhs.guard_evarKey hD).mp (hg _ z_free))
+  unfold leftG at h
+  rw [interp_and (List.cons_ne_nil _ _)] at h
+  have hq := h q (by simp)
+  have hu : Function.update e.evalEvar ((tableOf [] pG).ev (evarKey z)) (e.evalEvar ((tableOf [] pG).ev (evarKey z))) =
+      e.evalEvar := by
+    funext y; rw [Function.update_apply]; by_cases hy : y = (tableOf [] pG).ev (evarKey z) <;> simp [hy]
+  have hm := mem_q hD hc (tableOf [] pG) e hSz hCz hS hC hσE2 hσ2 _ hz x
+  rw [hu] at hm
+  have hφz := (hm.mp hq).1
+  unfold left
+  rw [interp_and (List.cons_ne_nil _ _)]
+  intro p hp
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hp
+  rcases hp with hp | hp
+  · rw [hp]
+    refine TieRuleLhs.tr_fill_mono ⟨tableOf [] pG, []⟩ K rfl (p := .var (.evar z)) (q := φ) (fun y hy => ?_) x
+      (h _ (List.mem_cons_self ..))
+    rw [tr, interp_evar] at hy
+    rw [hy]; exact hφz
+  · rw [hp]; exact h E (by simp)
+
+/-- W1 for the rule: Γ's one rule item is a consequence of sentence 104 with the signature,
+for every H. -/
+theorem rule0_from_text_sig (H : HookParams) :
+    ∀ it ∈ ruleItems (cH H), (TiePair.Texts [(trS U.ax104).pat] ∪ ΓSig (cH H)) ⊧ it.pat := by
+  intro it hit M _ I hI
+  rw [TiePair.ruleItems_withHooks, ruleItems_eq] at hit
+  have hD : DefOK I := TiePair.defOK_texts fun φ hφ => hI φ (Or.inl hφ)
+  have hSig : I ⊧ᴵP ΓSig (cH H) := fun φ hφ => hI φ (Or.inr hφ)
+  have hc : I ⊧ᴵ ceilDefItem.pat := hSig _ (Or.inl (Or.inl ⟨_, sig_ceilDef, rfl⟩))
+  rw [List.mem_singleton.mp hit]
+  exact TieRuleLhs.rule_w1 hD pG_parts rule_text fT_free (hI _ (Or.inl (Or.inl (List.mem_singleton_self _))))
+    fun e m hg x hx => left_sub H hD hc hSig e m hg x hx
+
+/-- The sentence with definedness is the premise set of its item with definedness. -/
+theorem texts_items_sig {ad : AxiomDecl} {Δ : Premises KoreAML.Sym} {φ : P}
+    (h : φ ∈ TiePair.Texts [(trS ad).pat] ∪ Δ) : φ ∈ itemsPremises [trS ad] ∪ Δ := by
+  rcases h with (h | h) | h
+  · exact Or.inl (Or.inl ⟨_, List.mem_singleton_self _, (List.mem_singleton.mp h).symm⟩)
+  · exact Or.inl (Or.inr h)
+  · exact Or.inr h
+
+/-- The text sentences of Γ's rules, in `ruleItems`'s order. -/
+noncomputable def ruleText : List AxiomDecl := [U.ax104]
+
+theorem rules_account : (classOf "rewrite rule").isPerm (ruleText.map (·.index)) = true := by decide +kernel
+
+/-- **W1 for the rule**: each of Γ's rule items (one) is a consequence of sentence 104 with the signature,
+for every H. -/
+theorem rule_from_text_sig (H : HookParams) :
+    ∀ it ∈ ruleItems (cH H), ∃ ad ∈ ruleText, itemsPremises [trS ad] ∪ ΓSig (cH H) ⊧ it.pat :=
+  fun it hit => ⟨U.ax104, List.mem_cons_self, fun hI => rule0_from_text_sig H it hit fun φ hφ => hI φ (texts_items_sig hφ)⟩
+
+end RuleW1
+
 end KCore.TieE3MlRuleLhsImplies
 
 #check @KCore.TieE3MlRuleLhsImplies.noRaw
@@ -721,6 +929,10 @@ end KCore.TieE3MlRuleLhsImplies
 #check @KCore.TieE3MlRuleLhsImplies.nojunk_kitem_entailed_c
 #check @KCore.TieE3MlRuleLhsImplies.cons_entailed_c
 #check @KCore.TieE3MlRuleLhsImplies.idem_refuted_c
+#check @KCore.TieE3MlRuleLhsImplies.RuleW1.rules_account
+#check @KCore.TieE3MlRuleLhsImplies.RuleW1.rule_from_text_sig
+#check @KCore.TieE3MlRuleLhsImplies.RuleW1.rule_text
+#check @KCore.TieE3MlRuleLhsImplies.RuleW1.left_sub
 #print axioms KCore.TieE3MlRuleLhsImplies.noRaw
 #print axioms KCore.TieE3MlRuleLhsImplies.readsConfined_c
 #print axioms KCore.TieE3MlRuleLhsImplies.userAxioms_eq
@@ -765,3 +977,7 @@ end KCore.TieE3MlRuleLhsImplies
 #print axioms KCore.TieE3MlRuleLhsImplies.nojunk_kitem_entailed_c
 #print axioms KCore.TieE3MlRuleLhsImplies.cons_entailed_c
 #print axioms KCore.TieE3MlRuleLhsImplies.idem_refuted_c
+#print axioms KCore.TieE3MlRuleLhsImplies.RuleW1.rules_account
+#print axioms KCore.TieE3MlRuleLhsImplies.RuleW1.rule_from_text_sig
+#print axioms KCore.TieE3MlRuleLhsImplies.RuleW1.rule_text
+#print axioms KCore.TieE3MlRuleLhsImplies.RuleW1.left_sub

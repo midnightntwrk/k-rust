@@ -198,9 +198,9 @@ theorem left_sup {M : Type} {I : Interpretation KoreAML.Sym M} (t : VarTable) (e
   · rw [hp]; exact h _ (by simp)
   · rw [hp]; exact hR
 
-/-- **W1 for the rule, over the signature, and the converse for `ruleItems`**: Γ's one rule item
+/-- W1 for the rule, over the signature, and the converse for `ruleItems`: Γ's one rule item
 is a consequence of sentence 157 and Γ's signature, for every H. -/
-theorem rule_from_text_sig (H : HookParams) :
+theorem rule0_from_text_sig (H : HookParams) :
     ∀ it ∈ ruleItems (cH H), (TiePair.Texts [(trS U.ax157).pat] ∪ ΓSig (cH H)) ⊧ it.pat := by
   intro it hit M _ I hI
   rw [TiePair.ruleItems_withHooks, ruleItems_eq] at hit
@@ -211,6 +211,23 @@ theorem rule_from_text_sig (H : HookParams) :
     fun e m hg => by
       rw [tbl_eq] at hg ⊢
       exact ⟨fun a ha => left_sub _ e a ha, fun a ha => (right_iff H hD hSig e m (hg _ x_free.1) a).mpr ha⟩
+
+/-- The sentence with definedness is the premise set of its item with definedness. -/
+theorem texts_items_sig {ad : AxiomDecl} {Δ : Premises KoreAML.Sym} {φ : P}
+    (h : φ ∈ TiePair.Texts [(trS ad).pat] ∪ Δ) : φ ∈ itemsPremises [trS ad] ∪ Δ := by
+  rcases h with (h | h) | h
+  · exact Or.inl (Or.inl ⟨_, List.mem_singleton_self _, (List.mem_singleton.mp h).symm⟩)
+  · exact Or.inl (Or.inr h)
+  · exact Or.inr h
+
+/-- The text sentences of Γ's rules, in `ruleItems`'s order. -/
+noncomputable def ruleText : List AxiomDecl := [U.ax157]
+
+/-- **W1 for the rule, over the signature, and the converse for `ruleItems`**: Γ's one rule item
+is a consequence of sentence 157 and Γ's signature, for every H. -/
+theorem rule_from_text_sig (H : HookParams) :
+    ∀ it ∈ ruleItems (cH H), ∃ ad ∈ ruleText, itemsPremises [trS ad] ∪ ΓSig (cH H) ⊧ it.pat :=
+  fun it hit => ⟨U.ax157, List.mem_cons_self, fun hI => rule0_from_text_sig H it hit fun φ hφ => hI φ (texts_items_sig hφ)⟩
 
 /-- Sentence 157 is the item of the text's two sides at the table of Γ's axiom. -/
 theorem trS157 : (trS U.ax157).pat = TieRuleLhs.itemAt (tableOf [] p0) fT0 tC Ltext0 Rtext0 := by
