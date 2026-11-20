@@ -835,6 +835,13 @@ def tgFnAxioms (c : Semantics) : List Kore.Axiom :=
   c.allFns.flatMap fun f => (fnEquationsK c f).filterMap fun
     | .axiom a => some a
     | _ => none
+/-- The runs of equal consecutive strings of a list, from position `j`: `(first position, length, string)`. -/
+def tgRuns : Nat → List String → List (Nat × Nat × String)
+  | _, [] => []
+  | j, u :: us =>
+    match tgRuns (j + 1) us with
+    | (j', n, u') :: rest => if u' == u then (j, n + 1, u) :: rest else (j, 1, u) :: (j', n, u') :: rest
+    | [] => [(j, 1, u)]
 def tgMinusNeg (a : Kore.Axiom) : P :=
   match TiePair.negParts a.pattern with
   | some (R, _, prem, concl) =>
@@ -964,9 +971,38 @@ def tgNjOrder (gs : List KoreAML.Gen) : List Kore.Pattern → Option (List Nat)
     outCl.any fun p => AttrsAgree.eqnHeadIs p.1 ad.ax.pattern).map (·.index)
   let offs := (c.allFns.foldl (fun (acc : List (String × Nat) × Nat) f =>
     (acc.1 ++ [(c.symName f.label, acc.2)], acc.2 + f.clauses.length)) ([], 0)).1
+  -- the pins of `TiePair.fnTextMany` (position in `clauseKeys c`, sentence index): a run of two or
+  -- more consecutive clauses of a function with one equation's id (`ClausePres.info`: the clauses one
+  -- equation is read as), each pinned to the user sentence of that id; and each clause read from a
+  -- `symbol-overload` axiom (whose clauses hold no id of their own), pinned to that axiom
+  let fpOffs := ((c.fns.zip d.pres.fns).foldl (fun (acc : List (Fn × FnPres × Nat) × Nat) (f, fp) =>
+    (acc.1 ++ [(f, fp, acc.2)], acc.2 + f.clauses.length)) ([], 0)).1
+  let splitGroups : List (String × Nat × Nat × Option Nat × Nat) := fpOffs.flatMap fun (f, fp, o) =>
+    ((tgRuns 0 (fp.clauses.map fun cp => if cp.overload.isSome then "" else cp.info.uid)).filter
+      fun (_, n, u) => n ≥ 2 && u != "").map fun (p, n, u) =>
+      (c.symName f.label, p, n, (us.find? fun (ad : AxiomDecl) => AttrsAgree.uidOf ad.ax.attributes == some u).map (·.index), o + p)
+  let ovlPins : List (String × Nat × Option Nat × Nat) := fpOffs.flatMap fun (f, fp, o) =>
+    (fp.clauses.zipIdx.filterMap fun ((cp : ClausePres), (i : Nat)) => cp.overload.map fun g => (i, g)).map fun (i, g) =>
+      (c.symName f.label, i, (us.find? fun (ad : AxiomDecl) => AttrsAgree.eqnHeadIs (c.symName f.label) ad.ax.pattern &&
+        (Parse.overloadSyms? ad.ax.attributes).map (·.2) == some g).map (·.index), o + i)
+  let pins : List (Nat × Nat) := (splitGroups.flatMap fun (_, _, n, i, j0) => match i with
+      | some i => (List.range n).map fun m => (j0 + m, i)
+      | none => []) ++
+    ovlPins.filterMap fun (_, _, i, j) => i.map fun i => (j, i)
+  IO.println s!"H splitGroups {splitGroups.map fun (n_, p, k, i, j0) => s!"{n_}\t{p}\t{k}\t{i.map toString |>.getD "none"}\t{j0}"}"
+  IO.println s!"H ovlPins {ovlPins.map fun (n_, p, i, j) => s!"{n_}\t{p}\t{i.map toString |>.getD "none"}\t{j}"}"
+  IO.println s!"H pins {pins}"
+  IO.println s!"H pinsMissing {(splitGroups.filter (·.2.2.2.1.isNone)).length + (ovlPins.filter (·.2.2.1.isNone)).length}"
+  IO.println s!"H pinsOK {TiePair.pinsOK c us pins}"
+  -- `prios` with the overload clauses and axioms left out and, of each run of clauses one equation
+  -- is read as, every clause but the first (`priosSplitCl`, Γ's items `priosSplitJ`): the equation
+  -- states one priority, which the positional `fn_prios` states of every clause of the run
+  let splitCl := splitGroups.flatMap fun (n_, p, k, _, _) => (List.range (k - 1)).map fun m => (n_, p + 1 + m)
   IO.println s!"H priosOutCl {outCl.map fun p => s!"{p.1}\t{p.2}"}"
   IO.println s!"H priosOutAx {outAx}"
-  IO.println s!"H priosBut {AttrsAgree.priosBut outAx outCl k d}"
+  IO.println s!"H priosSplitCl {splitCl.map fun p => s!"{p.1}\t{p.2}"}"
+  IO.println s!"H priosSplitJ {splitGroups.flatMap fun (_, _, k, _, j0) => (List.range (k - 1)).map (j0 + 1 + ·)}"
+  IO.println s!"H priosBut {AttrsAgree.priosBut outAx (outCl ++ splitCl) k d}"
   IO.println s!"H priosOutJ {outCl.filterMap fun p => (offs.find? (·.1 == p.1)).map (·.2 + p.2)}"
   let lawIx := d.laws.map fun l => ixOf (lawPattern c l)
   IO.println s!"H lawIx {lawIx}"
@@ -1040,7 +1076,10 @@ def tgNjOrder (gs : List KoreAML.Gen) : List Kore.Pattern → Option (List Nat)
   for ad in k.axiomDecls.filter (·.module != "@MOD@") do
     let q := (trS ad).pat
     IO.println s!"Q {ad.index}\t{ad.module}\t{((fis.zip (List.range fis.length)).filter (fun (it, _) => it.pat == q)).map (·.2)}"
-  let pairText := TiePair.fnTextOf c us
+  -- with pins, the sentences of `TiePair.fnTextMany` (positional where no entry is `none`, `pairNone`)
+  let pairTextO := TiePair.fnTextMany c us pins
+  let pairText := if pins.isEmpty then TiePair.fnTextOf c us else pairTextO.filterMap id
+  IO.println s!"H pairNone {if pins.isEmpty then [] else (pairTextO.zipIdx.filter (·.1.isNone)).map (·.2)}"
   let fax := tgFnAxioms c
   for (it, j) in fis.zip (List.range fis.length) do
     match pairText[j]?, fax[j]? with
@@ -1732,7 +1771,10 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     fn_pairs, pair_ws, pair_ac = False, [], []
     fn_rds, pair_rd, pair_un, pair_cut, pair_ens, pair_sv = False, [], [], [], [], []
     fw = head["fnW"]
-    if not fn_full and not fn_align and nfn and (not confined or fn_readings) and not raw and \
+    # the pins of a many-to-one alignment (`TiePair.fnTextMany`): the probe's `pairText` is then not
+    # `fnTextOf`, which the function sections below state; no kind here takes such a text
+    fn_pins = [tuple(map(int, p_)) for p_ in re.findall(r"\((\d+), (\d+)\)", head.get("pins", ""))]
+    if not fn_full and not fn_align and nfn and (not confined or fn_readings) and not raw and not fn_pins and \
             sorted(fw) == list(range(nfn)) and int(head.get("pairTextLen", -1)) == nfn and \
             all(fw[j]["idx"] is not None for j in range(nfn)):
         txt = [fw[j]["idx"] for j in range(nfn)]
@@ -1844,8 +1886,10 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     # left out the theorem that ties Γ's item to its sentence (`prios_out`)
     prios_out = None
     out_cl = re.findall(r"([^\s\[\],]+)\t(\d+)", head.get("priosOutCl", ""))
+    # the clauses of a run one equation is read as, but its first (`priosBut` leaves them out too)
+    split_cl = re.findall(r"([^\s\[\],]+)\t(\d+)", head.get("priosSplitCl", ""))
     if head["attrsAgree"] != "true" and [k for k, v in parts.items() if v != "true"] == ["prios"] and \
-            head.get("priosBut") == "true" and out_cl:
+            head.get("priosBut") == "true" and out_cl and not split_cl:
         prios_out = dict(cl=[(n, int(i)) for n, i in out_cl],
                          ax=[int(x) for x in re.findall(r"\d+", head.get("priosOutAx", ""))],
                          j=[int(x) for x in re.findall(r"\d+", head.get("priosOutJ", ""))])
