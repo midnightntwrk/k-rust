@@ -8,7 +8,8 @@
 # `complete_at` and `run_exact` by their types, the consumer's statements by their bodies, and
 # `Generated.«sum-spec» = ExpectedKore.«sum-spec»` by `rfl`, `Expected.«sum-spec» →
 # ExpectedKore.«sum-spec»` by `AllPath.mono`; the proof of `Expected.«sum-spec»` and its
-# matching-logic corollaries (User.SumSpec, User.SumSpecHolds, User.SumSpecML, copied in) by their types.
+# matching-logic corollaries (User.SumSpec, User.SumSpecHolds, User.SumSpecML, copied in) and the claim at
+# one concrete initial configuration (User.SumSpecInstance, copied in) by their types.
 #
 # Before the package is generated, the generated statement is checked as text:
 #   regenerated  `k2lean kcore-claims` run with the command of SumSpecGen.lean's header, in a scratch
@@ -83,8 +84,10 @@ PY
 gen/gen.sh examples/ref-kimp/RefKimp/definition.kore "$P" RefKimp --wf > .lake/pins/kimp-gen.log 2>&1 \
   || { cat .lake/pins/kimp-gen.log; exit 1; }
 mkdir -p "$P/User" && cp examples/ref-kimp/User/SumSpecStmt.lean "$GEN" examples/ref-kimp/User/SumSpec.lean \
-  examples/ref-kimp/User/SumSpecHolds.lean examples/ref-kimp/User/SumSpecML.lean "$P/User/" || exit 1
-gen/build.sh "$P" User.SumSpecStmt User.SumSpecGen User.SumSpec User.SumSpecHolds User.SumSpecML || exit 1
+  examples/ref-kimp/User/SumSpecHolds.lean examples/ref-kimp/User/SumSpecML.lean \
+  examples/ref-kimp/User/SumSpecInstance.lean "$P/User/" || exit 1
+gen/build.sh "$P" User.SumSpecStmt User.SumSpecGen User.SumSpec User.SumSpecHolds User.SumSpecML \
+  User.SumSpecInstance || exit 1
 LEAN_PATH=$P/.lake/build/lib/lean:$(lake env printenv LEAN_PATH) LEAN_NUM_THREADS=1 \
   systemd-run --user --scope -q -p MemoryMax=12G -p MemorySwapMax=0 timeout 1200 \
   "$TC/bin/lean" -j1 test/PinsKimp.lean || exit 1

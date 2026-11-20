@@ -3,23 +3,39 @@
   library's declaration: a definition by `rfl` against its body written out (a structure by an `Iff`
   with its fields, `StepBy`), a theorem by its proof term at the type written out. A change to what
   one of them says makes this file fail to compile; a change that keeps the meaning (a renamed bound
-  variable, a body unfolded into an equal helper) does not. What the restated bodies mention (`Γ`,
-  `Γstep`, `den`, `KoreAML.denB`, `Step`, `NotApplies`, `RuleApplies`, `Holds`, `Eval`, `confined`,
-  `ruleRight`, `applies`, `prioRuleK`, `boolClosed`, the conjuncts of `coreOK`, and the `₀`
-  declarations) is pinned by the review cones (test/ReviewCone.lean, cones (iv) to (vii)), not here.
-  `FnDet` and `FnSolves`, hypotheses of `consistent_of` and of `CExec.run_exact` that no cone root
-  reaches, and `ClausePreDecided` and `ClausePostDecided`, hypotheses of `consistent_of` (roots of
-  cone (v)), are restated here, with `Clause.DecidesAt`. So are the statement definitions of the tie
-  to a KORE text (`AtValues`, `EntailsAtValues`, `SetVarsAtValues`, `EntailsAtSetValues`,
+  variable, a body unfolded into an equal helper) does not.
+
+  Every root of the review cone (v) (test/roots.toml) is restated here, each beside the other
+  declarations of its part below. The headline definitions and the hypotheses of the theorems
+  (`SoundC`, `CompleteC`, `ExactC`, `StepIs`, `coreOK`, `FnHyp` with `OpenTotal` and `FnLaws`,
+  `Consistent`, `StepDecided`, `ClausePreDecided`, `ClausePostDecided`, `FnDet`, `FnSolves`). The
+  statement definitions of the tie to a KORE text (C14): the theory `Γ` and the translation
+  (`KoreAML.trAxiom`, `KoreAML.Theory.ofDefinition`, `KoreAML.instItem`), `AtValues`,
+  `EntailsAtValues`, `EntailsAtValuesΓc`, `SetVarsAtValues`, `EntailsAtSetValues`,
   `SetVarsAtMostOne`, `symbolsOf`, the heads `appHeadsOf`, `gammaHead`, `gammaHeads`,
-  `gammaHasHead`, `surplusItem`, `attrsAgree` with the
-  checks it is made of) and the classes of an account with their directions (`tieClasses`). So are
-  the registry family's two statements at the decided check (`RegistryConservative`, `ExactOwn`,
-  with `Γown`, `Detached`, `detachedB`, `DetachedB.names` and `Semantics.clausesPreTop`). So are
-  the rows' statements: `kore.k`'s three (`KK.SuccsSound`, `KK.SuccsStuck`, `KK.SuccsComplete`, with
-  `KK.SuccsAt`, `KK.d₀`, `KK.K₀`, `KK.Sig`, `KK.St` and `CoherentAll`), and the all-path claims the
-  consumer's statement is made of (`Reachability.AllPath`, `CPath`, `Progress`); the consumer's
-  statement, which is about ref-kimp's semantics, is pinned in test/PinsKimp.lean.
+  `gammaHasHead`, `surplusItem`, `attrsAgree` with the checks it is made of, the classes of an
+  account with their directions (`tieClasses`, `tieClassesOvl`), and what the classes owe on the
+  interpretation (`ParamsTotal`, `OvlFnTotal`, `OvlFnInj`, `OvlFnDist`). The registry family's two
+  statements at the decided check (`RegistryConservative`, `ExactOwn`, with `Γown`, `Detached`,
+  `RegistryItem`, `psyms`, `detachedB` and the checks it is made of, `DetachedB.names` and
+  `Semantics.clausesPreTop`). The rows' statements: `kore.k`'s three (`KK.SuccsSound`,
+  `KK.SuccsStuck`, `KK.SuccsComplete`, with `KK.SuccsAt`, `KK.d₀`, `KK.K₀`, `KK.Sig`, `KK.St` and
+  `CoherentAll`), what row imp's statements are written with (`Semantics.withHooks`, `Total`,
+  `CExec.execReady`), and what the consumer's statement is made of: the all-path claims
+  (`Reachability.AllPath`, `CPath`, `Progress`), the terms of a sort (`Tm` with its constructors,
+  `Srt.k`, `Srt.kitem`, `Srt.ident`, `Srt.top`) and `eventually`. The consumer's statement, which is
+  about ref-kimp's semantics, is pinned in test/PinsKimp.lean.
+
+  What the restated bodies mention and no root is (`Γstep`, `den`, `KoreAML.denB`, `Step`,
+  `NotApplies`, `RuleApplies`, `Holds`, `Eval`, `confined`, `ruleRight`, `applies`, `prioRuleK`,
+  `boolClosed`, the conjuncts of `coreOK`, the parts of `Γ`, and the like) is in cone (v), which
+  kcore/core-cone.txt holds and integration's cone row compares by the text of each declaration,
+  not restated here; `Clause.DecidesAt`, `Clause.Gives`, `AgreeOff` and `Clause.exsFree`, which
+  `FnSolves` reads, are restated too. The `₀` declarations, which no root reaches, are in cone (vi)
+  of test/ReviewCone.lean only, which is written to .lake and is neither committed nor frozen: those
+  restated here (`SoundC₀`, `CompleteC₀`, `StepIs₀`, `NotApplies₀`, `applies₀`, `prioRuleK₀`, with
+  `Semantics.plain`) are pinned by their bodies, the others by nothing (kcore/core-manifest.toml,
+  [tree].left_out).
 
   The axioms of every theorem pinned here are exactly `propext`, `Classical.choice` and
   `Quot.sound` (`#guard_msgs` fails the file on any other list). Run from kcore-spec, after the
@@ -235,7 +251,7 @@ example (c : Semantics) : ClausePostDecided c =
 
 /-- `FnSolves`: where a clause decides, the function's values are the values the instances of that
 clause's right side give. `Clause.DecidesAt`, `Clause.Gives`, `AgreeOff` and `Clause.exsFree`,
-which it reads, are in no review cone, so their texts are here too. -/
+which it reads, are restated below. -/
 example (c : Semantics) : FnSolves c =
     (∀ fn ∈ c.fns, ∀ vs, c.sortsOf vs = some fn.args → ∀ cl ∈ fn.clauses, ∀ σ,
       cl.DecidesAt c fn σ vs → ∀ v, Eval c fn.label vs (some v) ↔
@@ -564,6 +580,90 @@ example : (TieDir.equal.ctorIdx, TieDir.entailed.ctorIdx, TieDir.weaker.ctorIdx,
     TieDir.hypothesis.ctorIdx, TieDir.refuted.ctorIdx, TieDir.none.ctorIdx) = (0, 1, 2, 3, 4, 5, 6) := rfl
 example (d : TieDir) : d.ctorIdx < 7 := by cases d <;> decide
 
+/-- The theory and the translation of a text the tie compares (`Γ`, `KoreAML.trAxiom`,
+`KoreAML.Theory.ofDefinition`, `KoreAML.instItem`), the tie at values over `Γc`, the classes of an
+account with an overload axiom (`tieClassesOvl`, by its text and as the list it is), and what the
+classes owe on the interpretation (`ParamsTotal`, `OvlFnTotal`, `OvlFnInj`, `OvlFnDist`; `OpenTotal`
+and `FnLaws` are restated with `FnHyp` above). -/
+example (c : Semantics) : Γ c = (ΓSig c ∪ ΓCons c ∪ ΓDomains c ∪ ΓColls c ∪ ΓFns c ∪ ΓRules c ∪ ΓFallback c) := rfl
+
+example (c : Semantics) (ad : KoreAML.AxiomDecl) (φ : KoreAML.P) : EntailsAtValuesΓc c ad φ =
+    (∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), I ⊧ᴵP Γc c →
+      ∀ e, AtValues c I e ad.ax → ∀ m, φ.interpret I e m) := rfl
+
+example : tieClassesOvl =
+    tieClasses.filter (·.1 != "no direction") ++ [("overload equation", .entailed), ("no direction", .none)] := rfl
+example : tieClassesOvl =
+    [("function equation", .equal), ("rewrite rule", .weaker), ("priority equation", .weaker),
+     ("constructor functional", .entailed), ("subsort", .entailed), ("injectivity", .entailed),
+     ("distinctness", .entailed), ("no junk", .entailed), ("function functional", .hypothesis),
+     ("hooked functional", .atValues), ("collection law", .atValues), ("library", .atValues),
+     ("set idempotence", .refuted), ("set-variable lemma", .refuted), ("function law", .hypothesis),
+     ("open generator law", .equal), ("open generator functional", .hypothesis),
+     ("parameter functional", .hypothesis), ("parameter lemma", .hypothesis), ("user lemma", .entailed), ("user lemma at values", .atValues),
+     ("overload equation", .entailed), ("no direction", .none)] := by decide
+
+example (c : Semantics) (tp : List Sym) (H : HookParams) : ParamsTotal c tp H =
+    (∀ k ∈ c.params, k.impl = none → k.sig.name ∈ tp → ∀ vs, c.sortsOf vs = some k.sig.args →
+      ∃ v, H.app k.sig.name vs = some v ∧ c.sortOf v = some k.sig.result) := rfl
+
+example (c : Semantics) (o : OvlSig) : OvlFnTotal c o =
+    (∀ vs kg, c.sortsOf vs = some o.sig.args → c.fnCover o.sig.name vs = some kg →
+      ∃ v, Eval c kg.name (stripAll kg.args o.sig.args vs) (some v)) := rfl
+example (c : Semantics) (o : OvlSig) : OvlFnInj c o =
+    (∀ us vs v, c.sortsOf us = some o.sig.args → c.sortsOf vs = some o.sig.args →
+      OvlFnRes c o us (some v) → OvlFnRes c o vs (some v) → us = vs) := rfl
+example (c : Semantics) (o : OvlSig) (k : CtorSig) : OvlFnDist c o k =
+    (∀ us ws, c.sortsOf us = some o.sig.args → c.sortsOf ws = some k.args →
+      ¬ OvlFnRes c o us (some (.ctor k.name ws))) := rfl
+
+section TranslatePins
+open KoreAML
+
+example (decls : List SymbolDecl) (aliases : List String) (ad : AxiomDecl) : trAxiom decls aliases ad =
+    (let a := ad.ax
+     let t : VarTable := tableOf a.sortVars a.pattern
+     let free := (a.sortVars.map sortVarKey ++ freeOf [] a.pattern).eraseDups
+     let ws := free.map (guardOf t)
+     let top := match KoreAML.sortOf decls a.pattern with
+       | some s => inhOf (trSort t s)
+       | none => sym (.untranslated "sort of the axiom")
+     let attrs := attrNames a.attributes |>.filter (fun n =>
+       !(n.startsWith "org'Stop'kframework" || n == "UNIQUE'Unds'ID"))
+     { label := s!"axiom {ad.index} ({ad.module}){if attrs.isEmpty then "" else s!" {attrs}"}"
+       rule := "T-axiom"
+       names := t.map VarKey.name
+       pat := conjList ws ⇒ (tr ⟨t, aliases⟩ a.pattern ≡ top) }) := rfl
+
+example (d : Kore.Definition) : Theory.ofDefinition d =
+    (let sorts := d.sortDecls
+     let syms := d.symbolDecls
+     let aliases := d.aliasNames
+     let axs := d.axiomDecls
+     let nextSorts := (axs.flatMap fun ad => (nextSortsOf ad.ax.pattern).map (ad.ax.sortVars, ·))
+       |>.foldl (fun acc x => if acc.any (fun y => decide (y.2 = x.2)) then acc else acc ++ [x]) []
+     let lits := (axs.flatMap fun ad => dvLitsOf ad.ax.pattern).eraseDups
+     { signature :=
+         [definednessItem]
+         ++ sorts.map sortConstantItem
+         ++ sorts.map nonemptyItem
+         ++ [sortsItem sorts]
+         ++ syms.map arityItem
+         ++ [ceilArityItem, ceilDefItem]
+         ++ nextSorts.map (fun (vs, s) => nextArityItem vs s)
+         ++ lits.map dvArityItem
+       axioms := axs.map (trAxiom syms aliases) }) := rfl
+
+example (k : Kore.Definition) (it : Item) : instItem k it =
+    k.symbolDecls.any fun sd => !sd.params.isEmpty &&
+      match instSortsOf sd.params.length it.pat with
+      | some ss => ss.length == sd.params.length &&
+          ss.all (fun s => k.sortDecls.any fun d => d.name == s && d.params.isEmpty) &&
+          instOKB ss.length (arityBody sd) && it.pat == instSubst (ss.map sortSym) (arityBody sd)
+      | none => false := rfl
+
+end TranslatePins
+
 /-! ## The registry family at detached names (C14): the theory without the premises that name
 them, the two statements that removing them changes nothing, and the decided check the names pass -/
 
@@ -597,6 +697,81 @@ example (c : Semantics) (ss : List Srt) (ks : List Sym) : detachedB c ss ks =
     (DetachedB.sortsB c ss ks && ks.all (fun k => hookSigs.any (·.name == k)) &&
       builtinColls.all (fun k => DetachedB.sOK c ss ks k.sort || (collAxioms c k).isEmpty) &&
       DetachedB.listsB c ss ks && DetachedB.valuesB c ss ks && DetachedB.graphsB c ss ks) := rfl
+
+/-- The registry family and the symbols of a pattern, which `Detached` reads, and the checks
+`detachedB` is made of. -/
+example (c : Semantics) (D : KoreAML.Sym → Prop) (φ : KoreAML.P) : RegistryItem c D φ =
+    (let Ds : Srt → Prop := fun s => s < nRegSorts ∧ D (.sort ("Sort" ++ c.sortName s))
+     let Dk : CtorSig → Prop := fun k => k ∈ hookSigs ∧ D (.symbol (c.symName k.name))
+     (∃ s, Ds s ∧ φ = (KoreAML.sortConstantItem (sortDeclOf c s)).pat) ∨
+     (∃ k, Dk k ∧ φ = (symArityItem c k).pat) ∨
+     (∃ (k : CtorSig) (vs : List GroundTerm) (r : Option GroundTerm),
+         Dk k ∧ c.sortsOf vs = some k.args ∧ hook k.name vs = some r ∧
+         (r = none → silent k.name vs = false) ∧
+         φ = (KoreAML.den (symApp c k.name (GroundTerm.koreList c vs)) ≡ (match r with
+           | some v => den c v
+           | none => ⊥))) ∨
+     (∃ (k : CtorSig) (vs : List GroundTerm),
+         Dk k ∧ c.sortsOf vs = some k.args ∧ hook k.name vs = some none ∧ silent k.name vs = true ∧
+         φ = (KoreAML.den (symApp c k.name (GroundTerm.koreList c vs)) ≡ (match c.fallback k.name vs with
+           | some v => den c v
+           | none => ⊥))) ∨
+     (∃ (v : GroundTerm) (s : Srt), Ds s ∧ c.sortOf v = some s ∧
+         φ = KoreAML.sExists ⟨1⟩ (sortP (c.sortName s)) (den c v ≡ .evar ⟨1⟩)) ∨
+     (∃ (v w : GroundTerm) (s : Srt), Ds s ∧ (distinctSorts c).contains s = true ∧
+         c.sortOf v = some s ∧ c.sortOf w = some s ∧ GroundTerm.cmp v w ≠ .eq ∧
+         φ = ∼(den c v ⋀ den c w)) ∨
+     (∃ k ∈ builtinColls, Ds k.sort ∧ (φ = collNoJunk c k ∨ φ ∈ collAxioms c k))) := rfl
+
+example (x : EVar) (X : SVar) (σ : KoreAML.Sym) (φ ψ : KoreAML.P) :
+    psyms (.evar x) = [] ∧ psyms (.svar X) = [] ∧ psyms .bottom = [] ∧ psyms (.symbol σ) = [σ] ∧
+    psyms (.application φ ψ) = psyms φ ++ psyms ψ ∧ psyms (.implication φ ψ) = psyms φ ++ psyms ψ ∧
+    psyms (.existential x φ) = psyms φ ∧ psyms (.mu X φ) = psyms φ := ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+
+section DetachedBPins
+open DetachedB
+variable (c : Semantics) (ss : List Srt) (ks : List Sym)
+
+example (σ : KoreAML.Sym) : isName c ss ks σ =
+    match σ with
+    | .sort n => ss.any fun s => "Sort" ++ c.sortName s == n
+    | .symbol n => ks.any fun k => c.symName k == n
+    | _ => false := rfl
+example (φ : KoreAML.P) : clean c ss ks φ = (psyms φ).all fun σ => !isName c ss ks σ := rfl
+example (s : Srt) : sOK c ss ks s = !isName c ss ks (.sort ("Sort" ++ c.sortName s)) := rfl
+example (f : Sym) : kOK c ss ks f = !isName c ss ks (.symbol (c.symName f)) := rfl
+example (f : Sym) : appOK c ss ks f =
+    match instDecode? (c.symName f) with
+    | some (h, xs) => !isName c ss ks (.symbol h) && xs.all fun x => !isName c ss ks (.sort ("Sort" ++ x))
+    | none => kOK c ss ks f := rfl
+example : valuesB c ss ks =
+    ((c.ctorSigs ++ c.ovlSigs ++ c.params.map (·.sig)).all (fun k => kOK c ss ks k.name && k.args.all (sOK c ss ks)) &&
+    c.subsorts.all (fun p => sOK c ss ks p.1 && sOK c ss ks p.2) &&
+    c.allColls.all (fun k => !sOK c ss ks k.sort ||
+      (kOK c ss ks k.unit && kOK c ss ks k.elem && kOK c ss ks k.concat && sOK c ss ks k.key &&
+        k.val.all (sOK c ss ks))) &&
+    !isName c ss ks (.symbol "inj")) := rfl
+example : graphsB c ss ks =
+    (hookSigs.all (fun k => !kOK c ss ks k.name ||
+      (appOK c ss ks k.name && (k.result :: k.args).all (sOK c ss ks))) &&
+    c.params.all (fun k => appOK c ss ks k.sig.name && (k.sig.result :: k.sig.args).all (sOK c ss ks)) &&
+    c.allFns.all (fun f => appOK c ss ks f.label && (f.result :: f.args).all (sOK c ss ks))) := rfl
+example : sortsB c ss ks =
+    (ss.all (fun s => decide (s < nRegSorts)) &&
+    (kernelSorts c).all (fun s => sOK c ss ks s || ss.contains s) &&
+    !isName c ss ks (.sort ("Sort" ++ ""))) := rfl
+example (φ : KoreAML.P) : regSig c ss ks φ =
+    (ss.any (fun s => φ == (KoreAML.sortConstantItem (sortDeclOf c s)).pat) ||
+    hookSigs.any (fun h => ks.contains h.name && φ == (symArityItem c h).pat)) := rfl
+example : listsB c ss ks =
+    ((sigItems c).all (fun it => clean c ss ks it.pat || regSig c ss ks it.pat) &&
+    (consItemsK c ++ fnItems c ++ ruleItems c ++ [stepClosureItem c]).all (fun it => clean c ss ks it.pat) &&
+    c.allColls.all (fun k =>
+      if builtinColls.contains k && ss.contains k.sort then (collAxioms c k).isEmpty
+      else clean c ss ks (collNoJunk c k) && (collAxioms c k).all (clean c ss ks)) &&
+    clean c ss ks (boolClosed c)) := rfl
+
+end DetachedBPins
 
 /-! ## The rows' statements: `kore.k`'s step function (C10 part 2) and what the consumer's claim
 statement is built from (C9 part 5; the statement itself, about ref-kimp's semantics, is pinned in
@@ -659,6 +834,38 @@ example {α : Type} (r : α → α → Prop) (x : α) (l : List α) : Reachabili
     · exact .cons h hl⟩
 example {α : Type} (r : α → α → Prop) (P Q : α → Prop) : Reachability.AllPath r P Q =
     ∀ x, P x → ∀ l, Reachability.CPath r x l → ∃ z ∈ l, Q z := rfl
+
+/-- What the rows' statements are written with: a definition under an interpretation (`withHooks`),
+`Total` and `CExec.execReady` (C9 parts 1 to 4), the terms of a sort the consumer's statement and
+its instance write configurations with (`Tm`, its constructors and the four sorts they name), and
+`eventually`, the conclusion of the claim in matching logic. -/
+example (c : Semantics) (H : HookParams) : c.withHooks H = { c with hooks := H } := rfl
+
+example (c : Semantics) (f : Sym) : Total c f =
+    (∀ fn, c.lookupFn f = some fn → ∀ vs, c.sortsOf vs = some fn.args → ∃ v, Eval c f vs (some v)) := rfl
+
+example (c : Semantics) : CExec.execReady c =
+    (c.sortedOK && c.srReady && c.matchReadyO &&
+    c.allFns.all (fun fn => fn.clauses.all fun cl =>
+      CExec.readyL c cl.vars cl.pats && binds cl.vars.length (varOccsList cl.pats)) &&
+    c.rules.all (fun r => CExec.readyL c r.vars [r.lhs] && binds r.vars.length (varOccs r.lhs) &&
+      CExec.predAtoms r.pre && CExec.predAtoms r.post) &&
+    c.asideFree &&
+    c.fns.all (fun f => f.clauses.all fun cl => cl.pre.isTop)) := rfl
+
+example : (s : Srt) → (val : GroundTerm) → Tm s := @Tm.mk
+example (s : Srt) (t : Tm s) : t = ⟨t.val⟩ := rfl
+example (s : Srt) (v : GroundTerm) : (Tm.mk (s := s) v).val = v := rfl
+example {a b : Srt} (t : Tm a) : (Tm.inj t : Tm b) = ⟨injNormal a b t.val⟩ := rfl
+example (i : Tm Srt.kitem) (k : Tm Srt.k) : Tm.kseq i k = ⟨.ctor KCore.kseq [i.val, k.val]⟩ := rfl
+example : Tm.dotk = ⟨.ctor KCore.dotk []⟩ := rfl
+example (i : Int) : Tm.int i = ⟨KCore.int i⟩ := rfl
+example (x : String) : Tm.ident x = ⟨.dv Srt.ident (.tok x)⟩ := rfl
+example (es : List (Tm Srt.kitem × Tm Srt.kitem)) : Tm.map es =
+    ⟨.map Srt.map (es.foldl (fun m e => insertE e.1.val e.2.val m) [])⟩ := rfl
+example : (Srt.k, Srt.kitem, Srt.ident, Srt.top) = ((0 : Srt), (1 : Srt), (9 : Srt), (17 : Srt)) := rfl
+
+example (φ : KoreAML.P) : eventually φ = .mu evVar (φ ⋁ KoreAML.sNext (.svar evVar)) := rfl
 
 /-! ## The theorems (each `example : <the type, written out> := @name`) -/
 

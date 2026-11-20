@@ -17,11 +17,16 @@
   counter taken to be the left side's). `Expected.«sum-spec»` is proved (`Claims.sum_spec_holds`,
   User/SumSpecHolds.lean), and its matching-logic corollaries are pinned by their types
   (User/SumSpecML.lean): `stepDecided_all`, `complete_at`'s hypothesis at every configuration;
-  `sum_spec_ml` (reach); `sum_spec_ml_closure` and `sum_spec_ml_stuck` (closure). test/pins-kimp.sh generates the package under the namespace
-  `RefKimp` into .lake/pins/kimp, builds it and checks this file against it:
+  `sum_spec_ml` (reach); `sum_spec_ml_closure` and `sum_spec_ml_stuck` (closure). The claim at one
+  concrete initial configuration (User/SumSpecInstance.lean), `sum_spec_instance`, is pinned by its
+  type with the configurations written out: at `N = 3`, `S = 0`, `K = .K`, `C = 0` the hypothesis
+  `N ≥ 0` holds, the configuration `instCfg H` is the statement's left side there, and every
+  complete path from it passes through the right side there; its axioms are exactly Lean's three.
+  test/pins-kimp.sh generates the package under the namespace `RefKimp` into .lake/pins/kimp,
+  builds it and checks this file against it:
 
       gen/gen.sh examples/ref-kimp/RefKimp/definition.kore .lake/pins/kimp RefKimp --wf
-      gen/build.sh .lake/pins/kimp User.SumSpecStmt User.SumSpecGen User.SumSpec User.SumSpecHolds User.SumSpecML
+      gen/build.sh .lake/pins/kimp User.SumSpecStmt User.SumSpecGen User.SumSpec User.SumSpecHolds User.SumSpecML User.SumSpecInstance
       LEAN_PATH=.lake/pins/kimp/.lake/build/lib/lean:$(lake env printenv LEAN_PATH) lean test/PinsKimp.lean
 -/
 import RefKimp.Sound
@@ -29,6 +34,7 @@ import RefKimp.FnHyp
 import User.SumSpecStmt
 import User.SumSpecGen
 import User.SumSpecML
+import User.SumSpecInstance
 
 set_option autoImplicit false
 
@@ -178,6 +184,30 @@ example : ∀ (H : HookParams) (u : Config (defn.sem.withHooks H))
         (den (defn.sem.withHooks H) u.val ⇒ KoreAML.allNext (KoreAML.disjList []))) :=
   Claims.sum_spec_ml_stuck
 
+open KCore.Reachability RefKimp.Syntax in
+/-- The claim at one concrete initial configuration, under every interpretation
+(examples/ref-kimp/User/SumSpecInstance.lean): at `N = 3`, `S = 0`, `K = .K`, `C = 0` the
+hypothesis holds, `instCfg H` is the left side, and every complete path from it passes through the
+right side, `.K` alone, `$n ↦ 0`, `$s ↦ 6` (`0 + (3 + 1) * 3 / 2`). -/
+example : ∀ H : HookParams,
+    (3 : Int) ≥ 0 ∧
+      (Claims.instCfg H).val =
+        («<generatedTop>»
+          («<k>» (Tm.kseq
+            («while(_)_» («!_» («_<=_» (Tm.ident "$n") (Tm.int 0)))
+              («{_}» («__»
+                («_=_;» (Tm.ident "$s") («_+_» (Tm.ident "$s") (Tm.ident "$n")))
+                («_=_;» (Tm.ident "$n") («_+_» (Tm.ident "$n") (Tm.int (-1)))))))
+            Tm.dotk))
+          («<env>» (Tm.map [(Tm.ident "$n", Tm.int 3), (Tm.ident "$s", Tm.int 0)]))
+          («<generatedCounter>» (Tm.int 0))).val ∧
+      ∀ l, CPath (Step (defn.sem.withHooks H)) (Claims.instCfg H) l → ∃ z ∈ l, z.val =
+        («<generatedTop>»
+          («<k>» Tm.dotk)
+          («<env>» (Tm.map [(Tm.ident "$n", Tm.int 0), (Tm.ident "$s", Tm.int 6)]))
+          («<generatedCounter>» (Tm.int 0))).val :=
+  Claims.sum_spec_instance
+
 /-- info: 'RefKimp.consistent' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RefKimp.consistent
 
@@ -189,5 +219,8 @@ example : ∀ (H : HookParams) (u : Config (defn.sem.withHooks H))
 
 /-- info: 'RefKimp.run_exact' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RefKimp.run_exact
+
+/-- info: 'RefKimp.Claims.sum_spec_instance' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RefKimp.Claims.sum_spec_instance
 
 end RefKimp.Pins

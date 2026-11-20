@@ -7,6 +7,9 @@
 #   test/TieKimpAtValues.lean  hooked functional, collection law and library, at values, every H;
 #   test/TieKimpRefuted.lean   set idempotence and the set-variable lemmas, refuted, every H;
 #   test/TieKimpReach.lean     no failing-clause point, no silent symbol applied, every H.
+# Each file is checked from a copy in .lake/axioms-tests with the import of KcoreSpec.AxiomsCheck put
+# first and `#axioms_here` appended, as integration's test/X rows are: every declaration of the file
+# depends on no axiom but propext, Classical.choice, Quot.sound, and a run without that verdict fails.
 # Per file: wall time and peak RSS (k2lean/tests/rtime.py). Exit 1 at the first failure.
 # Usage: test/imp-tie-atvalues.sh   (from anywhere; the library built first)
 set -u
@@ -24,11 +27,16 @@ if [ ! -f "$O" ] || [ -n "$(find .lake/build/lib/lean "$P/RefKimp" "$P/RefKimp.l
   gen/build.sh "$P" > .lake/pins/kimp-tie-build.log 2>&1 || { tail -40 .lake/pins/kimp-tie-build.log; exit 1; }
 fi
 LP=$K/$P/.lake/build/lib/lean:$(lake env printenv LEAN_PATH)
+mkdir -p .lake/axioms-tests
 for f in TieKimpAtValues TieKimpRefuted TieKimpReach; do
+  w=.lake/axioms-tests/$f.lean
+  { echo "import KcoreSpec.AxiomsCheck"; cat "test/$f.lean"; printf '\n#axioms_here\n'; } > "$w"
   out=$(LEAN_PATH=$LP LEAN_NUM_THREADS=1 systemd-run --user --scope -q -p MemoryMax=12G -p MemorySwapMax=0 \
-    timeout 1200 python3 "$RT" "$TC/bin/lean" -j1 "test/$f.lean" 2>&1 < /dev/null)
+    timeout 1200 python3 "$RT" "$TC/bin/lean" -j1 "$w" 2>&1 < /dev/null)
   r=$(echo "$out" | grep -o 'wall [0-9.]* s.*exit [0-9-]*' | sed 's/max child //')
-  echo "test/$f.lean: ${r:-killed (no rtime line: the memory scope or the timeout)}"
-  case "$r" in *"exit 0") ;; *) echo "$out" | grep -v '^rtime' | head -40; exit 1;; esac
+  v=$(echo "$out" | grep -o 'axioms: [0-9]* declarations of this file')
+  echo "test/$f.lean: ${r:-killed (no rtime line: the memory scope or the timeout)}; ${v:-no axioms verdict}"
+  case "$r" in *"exit 0") [ -n "$v" ] || { echo "$out" | grep -v '^rtime' | head -40; exit 1; } ;;
+    *) echo "$out" | grep -v '^rtime' | head -40; exit 1;; esac
 done
 echo "imp-tie-atvalues: ok"
