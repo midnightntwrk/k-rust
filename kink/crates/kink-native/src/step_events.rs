@@ -13,7 +13,7 @@ use kink_pattern::{
     TermRelation,
 };
 
-use crate::data::{DataEnds, Freezers};
+use crate::data::{DataEnds, FreezerReading, FreezerReadings};
 use crate::feasibility::{
     BackendRelations, Inhabitation, TestInitialState, contains_non_strict_injection,
     contains_untrusted_domain_value, domain_value_identity_safe, free_constructor,
@@ -365,6 +365,10 @@ pub enum LocalTest {
     /// A Map with two equal keys, or a Set with two equal elements (among the entries that
     /// have values).
     DistinctEntries,
+    /// An application of a context freezer of the other definition of a pair whose name may
+    /// denote another context, or none, under the judging definition
+    /// ([`ObservationDecider::reading_freezers`], PJ-35).
+    CanonicalFreezer,
 }
 
 impl LocalTest {
@@ -401,6 +405,10 @@ impl LocalTest {
             }
             Self::DistinctEntries => {
                 "it is a Map with two equal keys or a Set with two equal elements"
+            }
+            Self::CanonicalFreezer => {
+                "it is a context freezer of the other definition whose name may denote another \
+                 context, or none, under this one"
             }
         }
     }
@@ -726,9 +734,9 @@ pub struct ObservationDecider<'a> {
     /// The same for the leaf definition when it is another definition than the shared one: an
     /// overload application in a leaf is admitted only where it is data under both.
     leaf_data: DataEnds<'a>,
-    /// The context freezers of the definition whose ends this decider judges, when that is
-    /// another definition than the shared one ([`Self::reading_freezers`]).
-    foreign_freezers: Option<&'a Freezers>,
+    /// How this decider reads the context freezers of the definition whose ends it judges, when
+    /// that is another definition than the shared one ([`Self::reading_freezers`]).
+    freezer_readings: Option<&'a FreezerReadings>,
 }
 
 impl<'a> ObservationDecider<'a> {
@@ -759,7 +767,7 @@ impl<'a> ObservationDecider<'a> {
             collections_trusted: true,
             data: DataEnds::None,
             leaf_data: DataEnds::None,
-            foreign_freezers: None,
+            freezer_readings: None,
         }
     }
 
@@ -814,28 +822,38 @@ impl<'a> ObservationDecider<'a> {
         self
     }
 
-    /// This decider, judging terms of another definition whose context freezers are `foreign`
-    /// ([`Freezers`], PJ-35): an application of one of them that the shared definition does not
-    /// declare passes [`Self::node_test`] as a free constructor would, its arguments judged at its
-    /// argument sorts (`K`). The shared definition extended by such a symbol is a conservative
-    /// extension of it (kink `trust.md`, "What a kill trusts"): a fresh free constructor with no
+    /// This decider, judging terms of another definition whose context freezers it reads by
+    /// `readings` ([`FreezerReadings::between`], PJ-35). An application of a freezer read
+    /// [`FreezerReading::Foreign`] that the shared definition does not declare passes
+    /// [`Self::node_test`] as a free constructor would, its arguments judged at its argument
+    /// sorts (`K`): the shared definition extended by such a symbol is a conservative extension of
+    /// it (kink `trust.md`, "What a kill trusts"), since a fresh free constructor with no
     /// equation, no axiom of associativity, commutativity, idempotence or unit, no `anywhere`
     /// rule and no hook adds terms that equal no term of the shared definition, and two of which
-    /// are equal only argument by argument. A symbol the shared definition declares is judged as
-    /// that definition declares it, whatever `foreign` holds.
+    /// are equal only argument by argument. An application of a freezer read
+    /// [`FreezerReading::Refused`], or of a foreign one the shared definition declares, fails
+    /// ([`LocalTest::CanonicalFreezer`]): its name may denote another context there.
     #[must_use]
-    pub const fn reading_freezers(mut self, foreign: &'a Freezers) -> Self {
-        self.foreign_freezers = Some(foreign);
+    pub const fn reading_freezers(mut self, readings: &'a FreezerReadings) -> Self {
+        self.freezer_readings = Some(readings);
         self
+    }
+
+    /// The reading of `symbol` as a freezer of the judged definition
+    /// ([`Self::reading_freezers`]).
+    fn freezer_reading(&self, symbol: &str) -> Option<&'a FreezerReading> {
+        self.freezer_readings?.reading(symbol)
     }
 
     /// The argument sorts of `symbol` when it is a foreign context freezer the shared definition
     /// does not declare ([`Self::reading_freezers`]).
     fn foreign_freezer(&self, symbol: &str) -> Option<&'a [InternalSort]> {
-        if self.definition.symbols().get(symbol).is_some() {
-            return None;
+        match self.freezer_reading(symbol)? {
+            FreezerReading::Foreign(sorts) if self.definition.symbols().get(symbol).is_none() => {
+                Some(sorts)
+            }
+            _ => None,
         }
-        self.foreign_freezers?.argument_sorts(symbol)
     }
 
     /// This decider, with no collection term a terminal value unless `trusted`: false when the
@@ -940,14 +958,22 @@ impl<'a> ObservationDecider<'a> {
                 }
             }
             Pattern::Application { symbol, arguments } => {
-                let Some(head) = self.definition.symbols().get(symbol.name.as_str()) else {
+                if self.freezer_reading(&symbol.name).is_some() {
                     return match self.foreign_freezer(&symbol.name) {
                         Some(sorts) if sorts.len() == arguments.len() => Ok(judged),
-                        _ => fails(LocalTest::DeclaredSymbol),
+                        Some(_) => fails(LocalTest::Arity),
+                        None => fails(LocalTest::CanonicalFreezer),
                     };
+                }
+                let Some(head) = self.definition.symbols().get(symbol.name.as_str()) else {
+                    return fails(LocalTest::DeclaredSymbol);
                 };
                 if free_constructor(head) {
-                    Ok(judged)
+                    if arguments.len() == head.argument_sorts.len() {
+                        Ok(judged)
+                    } else {
+                        fails(LocalTest::Arity)
+                    }
                 } else if self.data.overload_head(&symbol.name) {
                     if judged || self.overload_data(term) {
                         Ok(true)

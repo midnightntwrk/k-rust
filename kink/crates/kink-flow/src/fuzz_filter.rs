@@ -365,6 +365,7 @@ const fn cause_of(test: LocalTest, repairable: bool) -> &'static str {
         LocalTest::FreeConstructor => "not-constructor",
         LocalTest::OverloadData => "overload-not-data",
         LocalTest::Arity => "arity",
+        LocalTest::CanonicalFreezer => "freezer-not-canonical",
         LocalTest::TrustedCollections => "collection-untrusted",
         LocalTest::CollectionSort
         | LocalTest::Ground

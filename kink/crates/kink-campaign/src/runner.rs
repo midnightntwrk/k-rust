@@ -200,7 +200,7 @@ use kink_native::bridge::{
 };
 use kink_native::consistency::{CompiledEquations, MutantFailure, UnjoinedEquations};
 use kink_native::coverage::{RuleAuthors, TestCoverage};
-use kink_native::data::{DataEnds, DataFacts, Freezers, data_ends};
+use kink_native::data::{DataEnds, DataFacts, FreezerReadings, Freezers, data_ends};
 use kink_native::exclusion::{DefinitionExclusions, Exclusion};
 use kink_native::execution::{
     AdaptedExecution, DefinitionTables, ExecutionAdapter, ExecutionAdapterFailure, ExecutionBudget,
@@ -4399,11 +4399,17 @@ fn judge_across(
     };
     // Under the mutant's definition: the baseline's terminals and payloads, and both sides'
     // bindings.
+    // Each side reads the other's context freezers only where their names denote the same
+    // context on both sides ([`FreezerReadings::between`]).
+    let baseline_freezers_under_mutant =
+        FreezerReadings::between(&mutant_runtime.freezers, &baseline_runtime.freezers);
+    let mutant_freezers_under_baseline =
+        FreezerReadings::between(&baseline_runtime.freezers, &mutant_runtime.freezers);
     let (under_mutant, undecided_under_mutant, unjudged_under_mutant) = mutant_runtime.judge_ends(
         test,
         &compared(baseline),
         &[bindings(baseline), bindings(mutant), payloads(baseline)].concat(),
-        &baseline_runtime.freezers,
+        &baseline_freezers_under_mutant,
     );
     // Under the baseline's definition: the mutant's terminals, then its one-sided terminals.
     let mutant_ends = compared(mutant);
@@ -4416,7 +4422,7 @@ fn judge_across(
                 .chain(one_sided.iter().map(|terminal| terminal.state.clone()))
                 .collect::<Vec<_>>(),
             &payloads(mutant),
-            &mutant_runtime.freezers,
+            &mutant_freezers_under_baseline,
         );
     // A host's refusal of a stack a judgement under either definition needed is no answer about
     // the ends: the pair's mutant run fails as infrastructure, which kink-flow's outcome cache
@@ -5701,7 +5707,7 @@ impl Runtime {
         test: &TestCase,
         terminals: &[Pattern],
         bindings: &[Pattern],
-        foreign: &Freezers,
+        foreign: &FreezerReadings,
     ) -> (Result<EndJudgement, SegmentRefused>, usize, bool) {
         let refused = || EndJudgement {
             terminals: vec![false; terminals.len()],
@@ -6358,12 +6364,16 @@ mod tests {
 
                 // A pair's judgement of ends.
                 let end = judged.ends.iter().next().expect("an end").clone();
-                let (judgement, _, unjudged) =
-                    runtime.judge_ends(test, std::slice::from_ref(&end), &[], &Freezers::default());
+                let (judgement, _, unjudged) = runtime.judge_ends(
+                    test,
+                    std::slice::from_ref(&end),
+                    &[],
+                    &FreezerReadings::default(),
+                );
                 assert!(!unjudged && judgement.is_ok_and(|judgement| judgement.terminals[0]));
                 refuse(true);
                 let (judgement, _, unjudged) =
-                    runtime.judge_ends(test, &[end], &[], &Freezers::default());
+                    runtime.judge_ends(test, &[end], &[], &FreezerReadings::default());
                 refuse(false);
                 assert!(unjudged && judgement.is_ok_and(|judgement| !judgement.terminals[0]));
 
@@ -6423,7 +6433,7 @@ mod tests {
                 let end = judged.ends.iter().next().expect("an end").clone();
                 stop(true);
                 let (judgement, _, unjudged) =
-                    runtime.judge_ends(test, &[end], &[], &Freezers::default());
+                    runtime.judge_ends(test, &[end], &[], &FreezerReadings::default());
                 stop(false);
                 assert!(unjudged && judgement.is_ok_and(|judgement| judgement.terminals[0]));
             },

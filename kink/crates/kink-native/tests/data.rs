@@ -964,31 +964,86 @@ fn a_side_prefixed_name_is_refused_as_such() {
     });
 }
 
+/// A compiled fixture of this directory, loaded as kink runs it, with its context freezers.
+fn freezers_of(
+    name: &str,
+) -> (
+    std::sync::Arc<BackendDefinition>,
+    kink_native::data::Freezers,
+) {
+    let compiled = NativeValidator::bind(support::load(name), CompileOptions::default())
+        .compile_baseline()
+        .unwrap();
+    let definition = loaded_definition(&compiled).unwrap();
+    let freezers =
+        kink_native::data::Freezers::of(&compiled.artifacts().execution_definition, &definition);
+    (definition, freezers)
+}
+
+/// KORE patterns for the freezer tests.
+mod kore {
+    use k_rust::kore::ast::{Pattern, Sort, Symbol};
+
+    pub fn sort(name: &str) -> Sort {
+        Sort::Application {
+            name: name.to_owned(),
+            arguments: Vec::new(),
+        }
+    }
+
+    pub fn app(name: &str, arguments: Vec<Pattern>) -> Pattern {
+        Pattern::Application {
+            symbol: Symbol {
+                name: name.to_owned(),
+                sort_parameters: Vec::new(),
+            },
+            arguments,
+        }
+    }
+
+    pub fn int(value: &str) -> Pattern {
+        Pattern::DomainValue {
+            sort: sort("SortInt"),
+            value: value.into(),
+        }
+    }
+
+    pub fn inj(from: &str, to: &str, argument: Pattern) -> Pattern {
+        Pattern::Application {
+            symbol: Symbol {
+                name: "inj".to_owned(),
+                sort_parameters: vec![sort(from), sort(to)],
+            },
+            arguments: vec![argument],
+        }
+    }
+
+    /// The one-item K sequence of `item`.
+    pub fn k(item: Pattern) -> Pattern {
+        app("kseq", vec![item, app("dotk", Vec::new())])
+    }
+}
+
 /// PJ-35 (U35b): the context freezers of a compiled definition ([`Freezers`]) are the `KItem`
 /// productions k-rust's `resolve_contexts` generates, one per evaluation context, found by their
 /// origin record: strictness.k's twelve strict positions (`+`, `-`, `*`, `/` and `pair` two each,
 /// `&` and `~` one each) give twelve, and none of its written productions is one. Judging an end
-/// of that definition under another one (strictunary.k, which declares none of them), an
-/// application of one of its freezers is read as a free constructor of `KItem` once the decider
-/// reads its freezers ([`ObservationDecider::reading_freezers`]), its argument judged as a term of
-/// `K`; without them it is a symbol the definition does not declare. A written symbol the other
+/// of that definition under another one (strictunary.k, which has no context of their hints but
+/// `~`'s, the same context on both sides), an application of one of its freezers is read as a free constructor
+/// of `KItem` once the decider reads its freezers ([`FreezerReadings::between`],
+/// [`ObservationDecider::reading_freezers`]); without them it is a symbol the definition does not
+/// declare. Its argument is judged as a term of `K` under the judging definition: an injected
+/// `Int` and an application of strictunary.k's constructor `neg` pass, an application of INT's
+/// function `_+Int_`, which strictunary.k declares, does not. A written symbol the other
 /// definition does not declare (`plus`) is never read so.
 #[test]
 fn a_freezer_only_the_other_definition_declares_is_a_free_constructor_of_kitem() {
-    use k_rust::kore::ast::{Pattern, Sort, Symbol};
-    use kink_native::data::Freezers;
+    use kink_native::data::{FreezerReading, FreezerReadings};
     use kink_native::feasibility::TestInitialState;
-    use kink_native::step_events::ObservationDecider;
+    use kink_native::step_events::{LocalTest, ObservationDecider};
+    use kore::{app, inj, int, k};
     on_a_big_stack(|| {
-        let compile = |name: &str| {
-            let compiled = NativeValidator::bind(support::load(name), CompileOptions::default())
-                .compile_baseline()
-                .unwrap();
-            let definition = loaded_definition(&compiled).unwrap();
-            let freezers = Freezers::of(&compiled.artifacts().execution_definition, &definition);
-            (definition, freezers)
-        };
-        let (strictness, freezers) = compile("strictness.k");
+        let (strictness, freezers) = freezers_of("strictness.k");
         let names = freezers.names().collect::<Vec<_>>();
         assert_eq!(names.len(), 12, "{names:?}");
         assert!(
@@ -998,79 +1053,174 @@ fn a_freezer_only_the_other_definition_declares_is_a_free_constructor_of_kitem()
             "{names:?}"
         );
         assert!(strictness.symbols().get("Lblplus").is_some());
-        let (unary, unary_freezers) = compile("strictunary.k");
+        let (unary, unary_freezers) = freezers_of("strictunary.k");
         assert_eq!(unary_freezers.names().count(), 1);
-
-        let sort = |name: &str| Sort::Application {
-            name: name.to_owned(),
-            arguments: Vec::new(),
-        };
-        let app = |name: &str, arguments| Pattern::Application {
-            symbol: Symbol {
-                name: name.to_owned(),
-                sort_parameters: Vec::new(),
-            },
-            arguments,
-        };
-        let one = Pattern::DomainValue {
-            sort: sort("SortInt"),
-            value: "1".into(),
-        };
-        let item = Pattern::Application {
-            symbol: Symbol {
-                name: "inj".to_owned(),
-                sort_parameters: vec![sort("SortInt"), sort("SortKItem")],
-            },
-            arguments: vec![one.clone()],
-        };
-        let k = app("kseq", vec![item, app("dotk", Vec::new())]);
-        let freezer = names
-            .iter()
-            .find(|name| {
-                freezers
-                    .argument_sorts(name)
-                    .is_some_and(|sorts| sorts.len() == 1)
-            })
-            .expect("a freezer with one argument");
-        let frozen = app(
-            "kseq",
-            vec![app(freezer, vec![k.clone()]), app("dotk", Vec::new())],
-        );
-        let solver = k_rust_backend::smt::NoSolver;
-        let decider = || ObservationDecider::new(&unary, &solver, TestInitialState::of_test(&k));
-        assert_eq!(decider().terminal_value(&frozen), None);
-        assert_eq!(
-            decider()
-                .reading_freezers(&freezers)
-                .terminal_value(&frozen),
-            Some(frozen.clone())
-        );
+        // `~` (`neg`) is strict in both definitions, so its freezer is the same context on both
+        // sides and is judged as strictunary.k declares it; the other eleven are foreign.
+        let readings = FreezerReadings::between(&unary_freezers, &freezers);
+        assert_eq!(readings.iter().count(), 11);
         assert!(
-            decider()
-                .reading_freezers(&freezers)
-                .definition_independent(&frozen)
+            readings
+                .iter()
+                .all(|(_, reading)| matches!(reading, FreezerReading::Foreign(_)))
         );
-        // Its arguments are judged as terms of `K` under the judging definition.
-        let unknown = app(
-            "kseq",
-            vec![
-                app(freezer, vec![app("Lblplus", vec![one.clone(), one])]),
-                app("dotk", Vec::new()),
-            ],
-        );
+
+        let one = k(inj("SortInt", "SortKItem", int("1")));
+        let freezer = readings
+            .iter()
+            .find_map(|(name, reading)| {
+                matches!(reading, FreezerReading::Foreign(sorts) if sorts.len() == 1)
+                    .then_some(name)
+            })
+            .expect("a foreign freezer of one argument");
+        let frozen = |argument: k_rust::kore::ast::Pattern| k(app(freezer, vec![argument]));
+        let solver = k_rust_backend::smt::NoSolver;
+        let decider = || ObservationDecider::new(&unary, &solver, TestInitialState::of_test(&one));
+        let held = frozen(one.clone());
+        assert_eq!(decider().terminal_value(&held), None);
         assert_eq!(
-            decider()
-                .reading_freezers(&freezers)
-                .terminal_value(&unknown),
-            None
+            decider().first_non_value(&held).map(|failure| failure.test),
+            Some(LocalTest::DeclaredSymbol)
+        );
+        let reading = || decider().reading_freezers(&readings);
+        assert_eq!(reading().terminal_value(&held), Some(held.clone()));
+        assert!(reading().definition_independent(&held));
+        // Its argument is judged as a term of `K` under the judging definition.
+        let unary_neg = unary
+            .symbols()
+            .keys()
+            .find(|name| name.as_ref() == "Lblneg")
+            .expect("strictunary.k declares neg")
+            .to_string();
+        let constructed = frozen(k(inj(
+            "SortExp",
+            "SortKItem",
+            app(&unary_neg, vec![inj("SortInt", "SortExp", int("2"))]),
+        )));
+        assert_eq!(
+            reading().terminal_value(&constructed),
+            Some(constructed.clone())
+        );
+        let plus_int = "Lbl'UndsPlus'Int'Unds'";
+        assert!(
+            unary.symbols().get(plus_int).is_some(),
+            "strictunary.k declares _+Int_"
+        );
+        let function = frozen(k(inj(
+            "SortInt",
+            "SortKItem",
+            app(plus_int, vec![int("1"), int("1")]),
+        )));
+        assert_eq!(reading().terminal_value(&function), None);
+        assert_eq!(
+            reading()
+                .first_non_value(&function)
+                .map(|failure| failure.test),
+            Some(LocalTest::FreeConstructor)
         );
         // A written symbol of the other definition is no freezer.
-        let written = app("Lblplus", vec![k.clone(), k.clone()]);
+        let written = app("Lblplus", vec![one.clone(), one.clone()]);
+        assert_eq!(reading().terminal_value(&written), None);
+    });
+}
+
+/// PJ-35 (U35b review): a freezer name is read across a pair only where it denotes the same
+/// context on both sides. In freezershared.k the written `context HOLE + _` is the only context
+/// of `+`'s first operand; its mutant freezersharedm.k makes `+` `strict`, which adds a second
+/// context of that head and hole position, and k-rust numbers the two by content. Every freezer
+/// of that hint, on either side, is refused: an end holding one is not data under the other
+/// definition ([`LocalTest::CanonicalFreezer`]), so it can kill nothing. The freezers of the
+/// unchanged hints (`+`'s second operand, `-`) are judged as either definition declares them.
+/// In freezerarity.k and its mutant freezeraritym.k the name `#freezerfoo0_` is the strict first
+/// position's freezer of one argument on one side and `context foo(HOLE, 1)`'s freezer of none
+/// on the other: refused both ways.
+#[test]
+fn a_freezer_name_that_denotes_another_context_on_the_other_side_is_refused() {
+    use kink_native::data::{FreezerReading, FreezerReadings};
+    use kink_native::feasibility::TestInitialState;
+    use kink_native::step_events::{LocalTest, ObservationDecider};
+    use kore::{app, inj, int, k};
+    on_a_big_stack(|| {
+        let (shared, shared_freezers) = freezers_of("freezershared.k");
+        let (_, mutant_freezers) = freezers_of("freezersharedm.k");
+        let of_hint = |freezers: &kink_native::data::Freezers, hint: &str| {
+            freezers
+                .names()
+                .filter(|name| name.contains(hint))
+                .map(str::to_owned)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(of_hint(&shared_freezers, "plus0").len(), 1);
+        assert_eq!(of_hint(&mutant_freezers, "plus0").len(), 2);
+        for (judging, ends) in [
+            (&shared_freezers, &mutant_freezers),
+            (&mutant_freezers, &shared_freezers),
+        ] {
+            let readings = FreezerReadings::between(judging, ends);
+            for name in of_hint(ends, "plus0") {
+                assert_eq!(
+                    readings.reading(&name),
+                    Some(&FreezerReading::Refused),
+                    "{name}"
+                );
+            }
+            for name in of_hint(ends, "plus1")
+                .into_iter()
+                .chain(of_hint(ends, "minus"))
+            {
+                assert_eq!(readings.reading(&name), None, "{name}");
+            }
+        }
+        // The mutant's numbered freezer, held in an end, is not data under freezershared.k.
+        let readings = FreezerReadings::between(&shared_freezers, &mutant_freezers);
+        let one = k(inj("SortInt", "SortKItem", int("1")));
+        let solver = k_rust_backend::smt::NoSolver;
+        for name in of_hint(&mutant_freezers, "plus0") {
+            let held = k(app(&name, vec![one.clone()]));
+            let decider =
+                ObservationDecider::new(&shared, &solver, TestInitialState::of_test(&one))
+                    .reading_freezers(&readings);
+            assert_eq!(decider.terminal_value(&held), None, "{name}");
+            assert_eq!(
+                decider.first_non_value(&held).map(|failure| failure.test),
+                Some(LocalTest::CanonicalFreezer),
+                "{name}"
+            );
+        }
+
+        let (arity, arity_freezers) = freezers_of("freezerarity.k");
+        let (_, arity_mutant_freezers) = freezers_of("freezeraritym.k");
+        let foo = of_hint(&arity_freezers, "foo0");
+        assert_eq!(foo, of_hint(&arity_mutant_freezers, "foo0"));
+        let [foo] = foo.try_into().expect("one freezer of foo's first position");
+        for (judging, ends) in [
+            (&arity_freezers, &arity_mutant_freezers),
+            (&arity_mutant_freezers, &arity_freezers),
+        ] {
+            let readings = FreezerReadings::between(judging, ends);
+            assert_eq!(readings.reading(&foo), Some(&FreezerReading::Refused));
+        }
+        // The mutant's end `#freezerfoo0_()` is not data under freezerarity.k, which declares the
+        // name with one argument: refused, and by arity even on the bindings' path.
+        let readings = FreezerReadings::between(&arity_freezers, &arity_mutant_freezers);
+        let held = k(app(&foo, Vec::new()));
+        let decider = || ObservationDecider::new(&arity, &solver, TestInitialState::of_test(&one));
+        assert!(
+            !decider()
+                .reading_freezers(&readings)
+                .definition_independent(&held)
+        );
         assert_eq!(
             decider()
-                .reading_freezers(&freezers)
-                .terminal_value(&written),
-            None
+                .reading_freezers(&readings)
+                .first_non_value(&held)
+                .map(|failure| failure.test),
+            Some(LocalTest::CanonicalFreezer)
+        );
+        assert!(!decider().definition_independent(&held));
+        assert_eq!(
+            decider().first_dependent(&held).map(|failure| failure.test),
+            Some(LocalTest::Arity)
         );
     });
 }

@@ -140,17 +140,23 @@ fn a_strictness_edit_redefines_nothing() {
 }
 
 /// Strictness edits not read as redefining nothing: the strictness of a `hybrid` production
-/// (its generated `isKResult` equations read the strict positions), an edit of a production's
-/// `result`, strictness through a context alias (`strict(c)`, on either side of the edit), a
-/// strictness edit beside another attribute edit, and any strictness edit over a definition
-/// whose strict productions all have one nonterminal (its freezers have no argument, so finitely
-/// many values, whose number a claim could state).
+/// (its generated `isKResult` equations read the strict positions), a strictness edit beside an
+/// edit of the production's `result` (and an edit of `result` alone, which is no strictness edit
+/// and no other edit the reading knows), strictness through a context alias (`strict(c)`, on
+/// either side of the edit), a strictness edit beside another attribute edit that is no claim, a
+/// production given both `strict` and `seqstrict` (whose two contexts of a position share a
+/// freezer hint), any strictness edit over a definition whose strict productions all have one
+/// nonterminal (its freezers have no argument, so finitely many values, whose number a claim
+/// could state), and a strictness edit of a production a written `context` also heats
+/// (freezershared.k: `context HOLE + _` beside `strict(2)`, whose contexts would share a freezer
+/// hint once `+` is made `strict`, so k-rust's numbering of them would rename one). An
+/// unrelated strictness edit there (`-`) still redefines nothing.
 #[test]
 fn a_strictness_edit_fails_closed_where_its_effect_is_not_contexts_alone() {
     let baseline = support::load("strictness.k");
     let support = ClaimSupport::new(&baseline);
     let strict = AttributeKey::Strict;
-    let cases: [(&str, &str, Rewrite); 5] = [
+    let cases: [(&str, &str, Rewrite); 7] = [
         (
             "pair",
             "hybrid, strict to strict(1)",
@@ -158,8 +164,18 @@ fn a_strictness_edit_fails_closed_where_its_effect_is_not_contexts_alone() {
         ),
         (
             "times",
-            "result(Int) removed",
+            "strict to strict(1) with result(Int) removed",
+            Box::new(move |s| with(&with(s, strict, Some("1")), AttributeKey::Result, None)),
+        ),
+        (
+            "times",
+            "result(Int) removed alone, no strictness change",
             Box::new(move |s| with(s, AttributeKey::Result, None)),
+        ),
+        (
+            "plus",
+            "seqstrict added beside strict",
+            Box::new(move |s| with(s, AttributeKey::Seqstrict, Some(""))),
         ),
         (
             "div",
@@ -199,4 +215,16 @@ fn a_strictness_edit_fails_closed_where_its_effect_is_not_contexts_alone() {
         let patch = replace(&unary, label, edit);
         fails_closed(&unary, &support, &patch, &format!("{label}: {what}"));
     }
+
+    let shared = support::load("freezershared.k");
+    let support = ClaimSupport::new(&shared);
+    let patch = replace(&shared, "plus", |s| with(s, strict, Some("")));
+    fails_closed(
+        &shared,
+        &support,
+        &patch,
+        "plus: strict(2) to strict beside a context",
+    );
+    let patch = replace(&shared, "minus", |s| with(s, strict, Some("1")));
+    redefines_nothing(&shared, &support, &patch, "minus: strict to strict(1)");
 }

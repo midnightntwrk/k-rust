@@ -56,7 +56,10 @@
 //! rests on the premise that the hooks that can receive a freezer value read it by equality
 //! alone (kink `trust.md`, provisional). Where either definition has only freezers without
 //! arguments ([`open_freezers`]), a claim could state their number, and every symbol counts as
-//! redefined; so it does for an edit of a context or context alias under the same condition,
+//! redefined; so it does where a context of the edited production may share its freezer's name
+//! with another context ([`shares_hint`]: k-rust numbers such contexts by content, so an edit
+//! renames them, and the comparison of ends reads freezers by name), for an edit of a context or
+//! context alias under the `open_freezers` condition,
 //! for a production with `hybrid` (whose generated equations of the sort predicates read the
 //! strict positions), and for an edit of a production's `result` or of a context alias's
 //! strictness, which are not read here. A deleted
@@ -147,8 +150,9 @@ use std::collections::{BTreeMap, BTreeSet};
 /// as redefined before. Extended again before its release (PJ-35, U35b): a production edit that
 /// changes only its `strict` or `seqstrict` positions ([`strictness_only`] or an attribute edit
 /// of those keys, at a [`strictness_site`]) redefines nothing where both definitions have
-/// infinitely many freezer values ([`open_freezers`]), where every symbol counted as redefined
-/// before; an edited or inserted context or context alias, which redefined nothing, now does so
+/// infinitely many freezer values ([`open_freezers`]) and no context of the production may share
+/// its freezer's hint with another on either side ([`shares_hint`], U35b review), where every
+/// symbol counted as redefined before; an edited or inserted context or context alias, which redefined nothing, now does so
 /// only under the same condition (no route builds such a patch).
 pub const CLAIM_REMOVAL_VERSION: &str = "kink-patch/claim-removal/v5";
 
@@ -832,8 +836,16 @@ impl ClaimSupport {
                             matches!(origin, SentenceOrigin::Baseline(original) if original == *at)
                                 .then_some(mutant_at)
                         })?;
+                        let label = match sentence {
+                            Sentence::Production {
+                                label: Some(label), ..
+                            } => label.name.as_str(),
+                            _ => return None,
+                        };
                         if !strictness_site(sentence)
                             || !strictness_site(sentence_at(mutant.definition(), edited)?)
+                            || shares_hint(baseline.definition(), label)
+                            || shares_hint(mutant.definition(), label)
                         {
                             return None;
                         }
@@ -2525,6 +2537,50 @@ fn positions_only(value: &Value) -> bool {
                 !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit())
             })
     })
+}
+
+/// Whether a context of the production labelled `label` may share its freezer's hint with another
+/// context in `definition`'s main module's import closure. k-rust names a freezer by its hint,
+/// the head the context rewrites followed by the hole's position among the context's variables,
+/// and numbers the contexts sharing a hint by their content (`resolve_contexts` `freezer_hint`,
+/// `freezer_labels`), so an edit that adds such a context renames the others, and a freezer's
+/// name then says no more which context it is. The strict positions of one production have
+/// distinct hints; a hint may be shared by a written `context` or `context alias` that names
+/// the label, by the production carrying both `strict` and `seqstrict`, and by another head the
+/// label extended by digits spells (or that spells the label extended by digits), such as `f1`
+/// beside `f`, among the strict productions and the labels contexts name.
+fn shares_hint(definition: &Definition, label: &str) -> bool {
+    let digits_after = |longer: &str, shorter: &str| {
+        longer
+            .strip_prefix(shorter)
+            .is_some_and(|rest| !rest.is_empty() && rest.bytes().all(|byte| byte.is_ascii_digit()))
+    };
+    let mut heads = BTreeSet::new();
+    for sentence in main_module_sentences(definition) {
+        match sentence {
+            Sentence::Context { .. } | Sentence::ContextAlias { .. } => {
+                let named = mentions(sentence);
+                if named.contains(label) {
+                    return true;
+                }
+                heads.extend(named);
+            }
+            Sentence::Production {
+                label: Some(head),
+                attributes,
+                ..
+            } if attributes.has_any(&STRICTNESS_KEYS) => {
+                if head.name == label && STRICTNESS_KEYS.iter().all(|key| attributes.has(*key)) {
+                    return true;
+                }
+                heads.insert(head.name.clone());
+            }
+            _ => {}
+        }
+    }
+    heads
+        .iter()
+        .any(|head| digits_after(head, label) || digits_after(label, head))
 }
 
 /// Whether `definition`, once compiled, has infinitely many freezer values: whether its main

@@ -649,27 +649,51 @@ pub(crate) fn symbolic(rule: &RewriteRule) -> bool {
 /// hold a context freezer of its own side that the other definition does not declare
 /// ([`Freezers`]): the walk reads such an application as a free constructor of `KItem` and judges
 /// its arguments as terms of `K`, so a strictness mutant's end holding the freezer of a position
-/// only its definition makes strict is compared, where it was not data there.
+/// only its definition makes strict is compared, where it was not data there. Extended before its
+/// release (U35b review): a freezer is read so only where its name denotes the same context on
+/// both sides ([`FreezerReadings::between`]); one whose hint's contexts differ between the sides,
+/// or declared with another arity, makes the end not data (it was judged as the judging definition
+/// declares it), and every free-constructor application the walk admits has its symbol's arity
+/// (on the bindings' path too).
 pub const TERMINAL_VALUE_VERSION: &str = "kink-native/terminal-value/v4";
 
 /// The context freezers of one compiled definition: the `KItem` productions k-rust's
 /// `resolve_contexts` pass generates, one per evaluation context (from a `context` sentence or a
 /// `strict` or `seqstrict` position), each holding the context's other variables at sort `K`,
-/// under a label fresh against every production label of the definition. Each is kept by its KORE
-/// symbol name with its argument sorts, when the definition's backend declares that symbol a free
-/// constructor ([`crate::feasibility::is_free_constructor`]: a constructor with no hook, no
-/// collection role, no binder and no macro, heading no equation, `anywhere` rule or overload
-/// axiom).
+/// under a label fresh against every production label of the definition, kept by KORE symbol name.
 ///
 /// A freezer is identified by its production's origin record (the pass that generated it), not by
 /// its spelling, so a production a definition writes under a freezer-like label is none.
 ///
-/// The other side of a pair reads them ([`crate::step_events::ObservationDecider::reading_freezers`]):
-/// a symbol only this definition declares and that is one of these is, under the other definition
-/// extended by it, a fresh free constructor (kink `trust.md`, "What a kill trusts").
+/// k-rust names a freezer `#freezer{hint}_{suffix}`: the hint is the head of the term the context
+/// rewrites followed by the hole's position among the context's variables, and the contexts that
+/// share a hint are numbered by their content (suffix empty, then `2`, `3`, ...; k-rust
+/// `resolve_contexts` `freezer_hint`, `freezer_labels`). So a name says which context it is only
+/// where its hint has one context: two contexts of one head and hole position (a written `context`
+/// beside a strict position) are named by their order, which an edit can shift. The other side of
+/// a pair reads these freezers only through [`FreezerReadings::between`], which refuses every
+/// name that does not denote the same context on both sides (kink `trust.md`, "What a kill
+/// trusts").
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Freezers {
-    symbols: BTreeMap<String, Vec<k_rust_backend::term::Sort>>,
+    symbols: BTreeMap<String, Freezer>,
+}
+
+/// One context freezer of a definition ([`Freezers`]).
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct Freezer {
+    /// The hint its K label spells (`#freezer{hint}_{suffix}`).
+    hint: String,
+    /// Its argument sorts, where the definition's backend declares it a free constructor
+    /// ([`crate::feasibility::is_free_constructor`]: a constructor with no hook, no collection
+    /// role, no binder and no macro, heading no equation, `anywhere` rule or overload axiom).
+    sorts: Option<Vec<k_rust_backend::term::Sort>>,
+    /// The production labels the hint can begin with (a label followed by digits only): the
+    /// heads it may name.
+    heads: BTreeSet<String>,
+    /// The heating and cooling rules that mention it, by fingerprint without their attributes:
+    /// its context's content.
+    content: BTreeSet<kink_patch::SentenceFingerprint>,
 }
 
 impl Freezers {
@@ -681,60 +705,206 @@ impl Freezers {
         use k_rust::definition::{ProductionItem, Sentence};
         use k_rust::names::BuiltinSort;
         use k_rust::provenance::GeneratingPass;
+        let sentences = || {
+            execution
+                .modules
+                .iter()
+                .flat_map(|module| module.local_sentences.iter().map(|sentence| &**sentence))
+        };
+        let labels = sentences()
+            .filter_map(|sentence| match sentence {
+                Sentence::Production {
+                    label: Some(label), ..
+                } => Some(label.name.as_str()),
+                _ => None,
+            })
+            .collect::<BTreeSet<_>>();
         let mut symbols = BTreeMap::new();
-        for module in &execution.modules {
-            for sentence in &module.local_sentences {
-                let Sentence::Production {
-                    label: Some(label),
-                    parameters,
-                    sort,
-                    items,
-                    attributes,
-                } = &**sentence
-                else {
-                    continue;
-                };
-                let generated = attributes
-                    .origin_record()
-                    .is_some_and(|record| record.pass == GeneratingPass::ResolveContexts);
-                let arity = items
-                    .iter()
-                    .filter(|item| matches!(item, ProductionItem::NonTerminal { .. }))
-                    .count();
-                if !generated
-                    || !parameters.is_empty()
-                    || !label.parameters.is_empty()
-                    || !sort.is_builtin(BuiltinSort::KItem)
-                    || items.iter().any(|item| {
-                        matches!(item, ProductionItem::NonTerminal { sort, .. }
-                            if !sort.is_builtin(BuiltinSort::K))
-                    })
-                {
-                    continue;
-                }
-                let name = k_rust::kast::identifier::encode_label(&label.name);
-                let Some(symbol) = definition.symbols().get(name.as_str()) else {
-                    continue;
-                };
-                if crate::feasibility::is_free_constructor(definition, &name)
-                    && symbol.argument_sorts.len() == arity
-                {
-                    symbols.insert(name, symbol.argument_sorts.clone());
-                }
+        for sentence in sentences() {
+            let Sentence::Production {
+                label: Some(label),
+                parameters,
+                sort,
+                items,
+                attributes,
+            } = sentence
+            else {
+                continue;
+            };
+            let generated = attributes
+                .origin_record()
+                .is_some_and(|record| record.pass == GeneratingPass::ResolveContexts);
+            let Some(hint) = freezer_hint(&label.name) else {
+                continue;
+            };
+            if !generated {
+                continue;
             }
+            let arity = items
+                .iter()
+                .filter(|item| matches!(item, ProductionItem::NonTerminal { .. }))
+                .count();
+            let shaped = parameters.is_empty()
+                && label.parameters.is_empty()
+                && sort.is_builtin(BuiltinSort::KItem)
+                && items.iter().all(|item| {
+                    !matches!(item, ProductionItem::NonTerminal { sort, .. }
+                        if !sort.is_builtin(BuiltinSort::K))
+                });
+            let name = k_rust::kast::identifier::encode_label(&label.name);
+            let sorts = definition
+                .symbols()
+                .get(name.as_str())
+                .filter(|symbol| {
+                    shaped
+                        && crate::feasibility::is_free_constructor(definition, &name)
+                        && symbol.argument_sorts.len() == arity
+                })
+                .map(|symbol| symbol.argument_sorts.clone());
+            let heads = (1..hint.len())
+                .filter(|split| {
+                    hint.is_char_boundary(*split)
+                        && hint[*split..].bytes().all(|byte| byte.is_ascii_digit())
+                        && labels.contains(&hint[..*split])
+                })
+                .map(|split| hint[..split].to_owned())
+                .collect();
+            let content = sentences()
+                .filter(|rule| {
+                    matches!(rule, Sentence::Rule { body, requires, .. }
+                        if mentions(body, &label.name) || mentions(requires, &label.name))
+                })
+                .filter_map(|rule| {
+                    let mut rule = rule.clone();
+                    *rule.attributes_mut() = k_rust::definition::Attributes::default();
+                    kink_patch::SentenceFingerprint::of(&rule).ok()
+                })
+                .collect();
+            symbols.insert(
+                name,
+                Freezer {
+                    hint: hint.to_owned(),
+                    sorts,
+                    heads,
+                    content,
+                },
+            );
         }
         Self { symbols }
-    }
-
-    /// The argument sorts of the freezer `name`, or `None` when it is none of these.
-    #[must_use]
-    pub fn argument_sorts(&self, name: &str) -> Option<&[k_rust_backend::term::Sort]> {
-        self.symbols.get(name).map(Vec::as_slice)
     }
 
     /// The KORE names of these freezers.
     pub fn names(&self) -> impl Iterator<Item = &str> {
         self.symbols.keys().map(String::as_str)
+    }
+
+    /// The freezers of `hint`, by name.
+    fn of_hint<'f>(&'f self, hint: &'f str) -> impl Iterator<Item = (&'f String, &'f Freezer)> {
+        self.symbols
+            .iter()
+            .filter(move |(_, freezer)| freezer.hint == hint)
+    }
+}
+
+/// The hint of a freezer label `#freezer{hint}_{suffix}`, its suffix empty or digits; `None` for
+/// any other label.
+fn freezer_hint(label: &str) -> Option<&str> {
+    let (hint, suffix) = label.strip_prefix("#freezer")?.rsplit_once('_')?;
+    (hint.ends_with(|character: char| character.is_ascii_digit())
+        && suffix.bytes().all(|byte| byte.is_ascii_digit()))
+    .then_some(hint)
+}
+
+fn mentions(term: &k_rust::kast::Term, label: &str) -> bool {
+    let mut found = false;
+    term.visit_preorder(&mut |node| {
+        found |= matches!(node, k_rust::kast::Term::Apply { label: applied, .. } if applied.name == label);
+    });
+    found
+}
+
+/// How a judgement under one definition reads the context freezers of the other definition's
+/// ends ([`crate::step_events::ObservationDecider::reading_freezers`]).
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct FreezerReadings {
+    readings: BTreeMap<String, FreezerReading>,
+}
+
+/// The reading of one freezer of the ends' definition.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum FreezerReading {
+    /// A freezer the judging definition does not declare, read as a fresh free constructor of
+    /// `KItem` with these argument sorts.
+    Foreign(Vec<k_rust_backend::term::Sort>),
+    /// A freezer whose name may denote another context, or none, under the judging definition: no
+    /// end holding it is data there.
+    Refused,
+}
+
+impl FreezerReadings {
+    /// The readings, under the definition whose freezers are `judging`, of the freezers `ends` of
+    /// the definition whose ends are judged. A freezer of `ends` is:
+    /// - [`FreezerReading::Foreign`] where its hint has exactly one context in `ends`, none in
+    ///   `judging`, and `ends` declares it a free constructor: its name is then the only context of
+    ///   that head and hole position, which `judging` does not have;
+    /// - not listed (judged as `judging` declares it) where `judging` has the same freezers of its
+    ///   hint: the same names with the same argument sorts, of one head (the same on both sides)
+    ///   where the hint has one context that names a head, and otherwise from the same heating and
+    ///   cooling rules (where the hint has several contexts, numbered by content alike on both
+    ///   sides);
+    /// - [`FreezerReading::Refused`] otherwise: its name may denote another context under
+    ///   `judging` (a hint whose contexts differ, as when a strictness edit adds a position that a
+    ///   written `context` also heats), or a symbol of another arity.
+    ///
+    /// A name `judging` declares as no freezer is caught by the decider, which reads a
+    /// [`FreezerReading::Foreign`] symbol only where the judging definition declares no symbol of
+    /// that name.
+    #[must_use]
+    pub fn between(judging: &Freezers, ends: &Freezers) -> Self {
+        let mut readings = BTreeMap::new();
+        for (name, freezer) in &ends.symbols {
+            let own = ends.of_hint(&freezer.hint).collect::<Vec<_>>();
+            let other = judging.of_hint(&freezer.hint).collect::<Vec<_>>();
+            let reading = if other.is_empty() {
+                match &freezer.sorts {
+                    Some(sorts) if own.len() == 1 => Some(FreezerReading::Foreign(sorts.clone())),
+                    _ => Some(FreezerReading::Refused),
+                }
+            } else {
+                let alike = own.len() == other.len()
+                    && own
+                        .iter()
+                        .zip(&other)
+                        .all(|((name, mine), (theirs_name, theirs))| {
+                            name == theirs_name
+                                && mine.sorts == theirs.sorts
+                                && if own.len() == 1 && mine.heads.len() == 1 {
+                                    mine.heads == theirs.heads
+                                } else {
+                                    mine.content == theirs.content
+                                }
+                        });
+                (!alike).then_some(FreezerReading::Refused)
+            };
+            if let Some(reading) = reading {
+                readings.insert(name.clone(), reading);
+            }
+        }
+        Self { readings }
+    }
+
+    /// The reading of the symbol `name`, or `None` where it is no freezer of the ends' definition
+    /// or is judged as the judging definition declares it.
+    #[must_use]
+    pub fn reading(&self, name: &str) -> Option<&FreezerReading> {
+        self.readings.get(name)
+    }
+
+    /// Every freezer listed, with its reading.
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &FreezerReading)> {
+        self.readings
+            .iter()
+            .map(|(name, reading)| (name.as_str(), reading))
     }
 }
 
