@@ -31,14 +31,14 @@ Nested entries by status:
 |---|---|---|---|---|---|---|---|---|
 | E1 | 8 | 3 | 0 | 0 | 0 | 5 | 0 | 0 |
 | E2 | 67 | 12 | 0 | 2 | 0 | 53 | 0 | 0 |
-| E3 | 89 | 59 | 0 | 2 | 0 | 28 | 0 | 0 |
+| E3 | 89 | 60 | 0 | 2 | 0 | 27 | 0 | 0 |
 | E4 | 57 | 20 | 0 | 4 | 0 | 33 | 0 | 0 |
 | E5 | 70 | 37 | 1 | 2 | 0 | 30 | 0 | 0 |
 | E6 | 35 | 9 | 2 | 0 | 0 | 24 | 0 | 0 |
 | E7 | 9 | 4 | 1 | 0 | 0 | 4 | 0 | 0 |
 | E8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 37 | 17 | 0 | 2 | 1 | 17 | 0 | 0 |
-| all | 372 | 161 | 4 | 12 | 1 | 194 | 0 | 0 |
+| all | 372 | 162 | 4 | 12 | 1 | 193 | 0 | 0 |
 
 Refused rows by class:
 
@@ -61,20 +61,20 @@ Refused nested entries by class:
 |---|---|---|---|---|---|
 | E1 | 5 | 1 | 0 | 1 | 3 |
 | E2 | 53 | 4 | 0 | 1 | 48 |
-| E3 | 28 | 15 | 0 | 9 | 4 |
+| E3 | 27 | 15 | 0 | 8 | 4 |
 | E4 | 33 | 14 | 11 | 0 | 8 |
 | E5 | 30 | 13 | 2 | 1 | 14 |
 | E6 | 24 | 5 | 2 | 0 | 17 |
 | E7 | 4 | 0 | 0 | 0 | 4 |
 | E8 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 17 | 8 | 4 | 0 | 5 |
-| all | 194 | 60 | 19 | 12 | 103 |
+| all | 193 | 60 | 19 | 11 | 103 |
 
-Supported entries (rows and nested): 1001; 17 of them have an owed fact and are counted by their best fixture: **15 proved** (the owed fact proved on a fixture the entry names: these count as supported under the headline statements), 0 open and 2 false (counted apart: the headline statements' hypothesis is not shown on their fixtures). The other 984 have no owed fact.
+Supported entries (rows and nested): 1002; 17 of them have an owed fact and are counted by their best fixture: **15 proved** (the owed fact proved on a fixture the entry names: these count as supported under the headline statements), 0 open and 2 false (counted apart: the headline statements' hypothesis is not shown on their fixtures). The other 985 have no owed fact.
 
 E6 library rows by their `e6_tie` (test/constructs/e6map.py; rows-header.toml): 480, of which 406 tied, 12 of no direction (the tie's no-direction class, owed-sentence rule item 7: never tied, counted apart), 46 of a text without a model (counted apart), 12 refuted and 4 uncovered.
 
-## Entries of class R-c (15)
+## Entries of class R-c (14)
 
 Each names the notion the kernel lacks, the cone declaration that would change, and the ticket or unit that supports it (`unit`, checked by `units.py`).
 
@@ -86,7 +86,6 @@ Each names the notion the kernel lacks, the cone declaration that would change, 
 | E3 | `ML-SYNTAX:Sort::=Sort "#And" Sort` | row | refused |  | none at the row: each refused case, an equation's right side, names its cone declaration (KCore.Semantics.clausesPlain, Term) or none (reader only) | CE | CN-3 e3 (FR-4); the refused cases' units (CE, CE.reader-wire, CE.bound-fixed) |
 | E3 | `ML-SYNTAX:Sort::=Sort "#And" Sort` | cases[9] | refused |  | Term (Core.lean:58): Cond.equals' operands are terms, and a term has no connective | CE |  |
 | E3 | `ML-SYNTAX:Sort::=Sort "#And" Sort` | cases[10] | refused |  | none (reader only): KCore.Cond.bound's .ex arm admits the binder (its sort has a value, Semantics.hasValue, and its body fixes it by Z ∈ t), and Semantics.clausePlainEx admits the predicate in a clause with an existential variable | RDR.and-not-ceil-binder |  |
-| E3 | `ML-SYNTAX:Sort::=Sort "#Or" Sort` | cases[10] | refused |  |  | CE.reader-wire |  |
 | E3 | `ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2` | row | refused |  | Term (Core.lean:58): a term has variables, applications, injections, \`as\` and domain values, no connective; and with it Rule.lhs/rhs/req/ens, Clause.pats/req/rhs, Eval and Step, which read terms | CE | CN-3 P1 (e1: L-3, a variable of the rule, reader only); R2 (A3: R-5 as \`?Z\`); 4.5 d4 (\`Cond.ex\` over a confined sort) |
 | E3 | `ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2` | cases[4] | refused |  |  | CE |  |
 | E3 | `ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2` | cases[12] | refused |  | none (reader only): KCore.Cond.bound's .ex arm and Semantics.clausePlainEx admit the binder kept in post (its sort has a value, Semantics.hasValue, and its body fixes it) | CE.reader-or-scoped |  |
@@ -669,7 +668,7 @@ The `cell` entries of `core-manifest.toml`: a row and a column of the release sc
 | cases[7]: an equation's right side, the text holding no functional sentence of the function, or more than 8 alternatives, or an al… | supported |  | Not refused once read, a property of the text (designs/CN-4b-rc-units.md section 13, 'Not refused, a property of the text'): an equation with \\or or \\exists on its right side whose instances give more than one value, as h's at every X but 0 here: FnDet and MatchIndependent are owed there, and by CN-… |  |  | e3-ml-eq-rhs-or |  |  | fixtures/e3-ml-eq-rhs-or (h not total): account.txt \`1 read existentialClause [user]\`, \`sentence 354: existentialClause\`, \`existential Var'Hash'Or0:Int\`, \`coreOK: true; failing: []\`; fixtures/e3-ml-eq-rhs-or-many (nine alternatives): \`sentence 383: existentialClause\`, \`coreOK: true; failing: []\`; te… |
 | cases[8]: a requires | supported |  |  |  |  | e3-ml-req-or |  |  | fixtures/e3-ml-req-or, e3-ml-req-or-undef (kompile writes \\and{SortBool{}}(\\or(A, B), \_Gen0)); test/Connectives.lean MlReqOr: where A is true and B has no value the rule with A steps |
 | cases[9]: a requires, a variable one disjunct holds and nothing else of the rule | supported (owed fact proved) |  |  |  |  | e3-ml-req-or-unheld |  |  | fixtures/e3-ml-req-or-unheld (go(X) => done requires X >Int 0 #Or Y:Int >Int 2): account.txt \`1 read requiresOrSplit [user]\`, \`stage refusals (of sentences classified read): 0\`, \`rule 1: CondDecided open, over VarY:Int\`, \`parse: ok; wf true; failing: []\`, \`coreOK: true; failing: []\`; the rule of the… |
-| cases[10]: an equation's right side, an \\exists in an alternative | refused | R-c |  |  | CE.reader-wire | e3-eq-exists-ml-in-or |  |  | fixtures/e3-eq-exists-ml-in-or, e3-eq-exists-ml-in-or-int: kompile.txt exit 0, the binder inside the \\or's second alternative (kore.txt //@ 233, 234; //@ 335); account.txt \`manyValuedRightSide (\\or: the sentence gives the function every element of each side; the text holds no functional sentence of… |
+| cases[10]: an equation's right side, an \\exists in an alternative | supported |  | the results of the two read clauses, fx(x) = x alone and no result for f (its instances x and notBool x differ at every x), stated for every H as a derived table of the row: ticket CE.fx-in-or (pending) |  |  | e3-eq-exists-ml-in-or |  |  | fixtures/e3-eq-exists-ml-in-or (f(X) => X #Or (#Exists B:Bool. (B #And {B #Equals notBool X})), and fx with {B #Equals X}; f and fx not total): kompile.txt exit 0, the binder inside the \\or's second alternative (kore.txt //@ 233, 234); account.txt \`2 read existentialClause [user]\`, \`sentence 246: ex… |
 | cases[11]: an equation's right side, an alternative that is \\bottom without being the literal (g(#Bottom) #Or t) | supported |  |  |  |  | e3-ml-eq-rhs-or-empty |  |  | fixtures/e3-ml-eq-rhs-or-empty (h(X) => g(#Bottom) #Or X): kompile.txt exit 0; kore.txt //@ 341, \\or{SortInt{}}(Lblg{}(\\bottom{SortInt{}}()),VarX:SortInt{}); account.txt \`1 read orBottom [user]\`, \`sentence 354: orBottom\`, \`stage refusals (of sentences classified read): 0\`, \`coreOK: true; failing: []… |
 | cases[12]: an equation's right side, an \\exists in an alternative, its sort confined with a value | supported |  |  |  |  | e3-eq-exists-ml-in-or |  |  | fixtures/e3-eq-exists-ml-in-or (f(X) => X #Or (#Exists B:Bool. (B #And {B #Equals notBool X})), and fx with {B #Equals X}): kompile.txt exit 0; kore.txt //@ 233, 234; account.txt \`2 read existentialClause [user]\`, \`sentence 246: existentialClause\`, \`sentence 247: existentialClause\`, \`coreOK: true; f… |
 | `ML-SYNTAX:Sort::=Sort "#Implies" Sort` | supported |  | a connective at a term position of a rule's side denotes a set of values where a term denotes one. Under applications it is the cut (kk:t233-rule-conn-cut): the position holds a variable Z of the rule, and Z's membership in the connective, which goes through \\implies as (Z ∈ p) → (Z ∈ q), is a conju… | none (reader only): the connective goes to Rule.pre or Rule.post | RDR.rule-conn-implies | e3-ml | no | no | fixtures/e3-ml: account \`4 inert simplification [user]\`, \`4 parameter lemma [user]\`; fixtures/e3-ml-rule-lhs-implies: account \`1 read connectiveCut [user]\`, \`coreOK: true; failing: []\`; test/TieE3Ml.lean (the row's sentence of fixtures/e3-ml, a lemma of the user's file: of the class user lemma, Γ en… |
