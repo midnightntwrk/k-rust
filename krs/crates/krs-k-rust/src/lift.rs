@@ -741,9 +741,12 @@ impl<'a> MutantChecker<'a> {
                             sentence: sentence.sentence.clone(),
                             item: sentence.item.clone(),
                             outcome: Err(Refusal::NotJudged(NotJudged::Sentence(format!(
-                                "the rule is read under the mutant's grammar, and the \
-                                 specification with the mutation's grammar edits and without \
-                                 its rules and claims does not load: {error}"
+                                "the rule is read under the mutant's grammar, which is loaded \
+                                 from the specification with the mutation's grammar edits and \
+                                 without its rules and claims; its configuration, context \
+                                 aliases and raw sentences stay, and are parsed under the \
+                                 mutant's grammar, so one that writes syntax the grammar edits \
+                                 change or remove makes that load fail: {error}"
                             )))),
                         },
                     })

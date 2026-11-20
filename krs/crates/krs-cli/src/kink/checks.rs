@@ -99,12 +99,13 @@ const NEXT_NO_CHANGE: &str = "change what the rule says: the edited rule is the 
 const NEXT_GRAMMAR_NOT_JUDGED: &str = "edit what the program parser reads in the program \
      grammar's modules (a literal, a sort, an alternative, a group, an associativity or a \
      disambiguation attribute), one production per change, or a constructor's `strict` or \
-     `seqstrict` alone; any other change of what a constructor means (`result`, `hybrid`, another \
-     attribute, a subsort, a function's signature outside the program grammar) is a rule \
-     mutation";
+     `seqstrict` (its other meaning attributes, `result` included, left as they are); any other \
+     change of what a constructor means (`result`, `hybrid`, another attribute, a subsort, a \
+     function's signature outside the program grammar) is a rule mutation";
 const NEXT_NO_PARSE_CHANGE: &str = "change how a program's text parses: edit a literal, a sort, \
-     an alternative, or a priority or associativity group; `format`, `color` and `colors` only \
-     say how a term prints";
+     an alternative, or a priority or associativity group, or change which arguments a \
+     constructor evaluates first; `format`, `color` and `colors` only say how a term prints, and \
+     a strictness written another way lowers to the same evaluation contexts";
 pub(crate) const NEXT_NOT_JUDGED: &str = "mutate another part of the rule: KRS cannot yet tell \
      whether a Rust source writes this edit";
 const NEXT_CLAIM_HELPER: &str = "mutate a sentence programs reach; a misunderstanding of a \

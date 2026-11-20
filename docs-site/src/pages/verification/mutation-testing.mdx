@@ -285,7 +285,7 @@ The krs front end refuses what only KRS can tell:
 | `derived-mismatch` | leaves a derived node that KRS would derive differently from the edited text | write KRS's derived text (the `detail`) in the same mutation |
 | `changes-no-node` | changes only layout or comments | change what a rule says |
 | `no-change` | is the specification up to a renaming of variables and brackets | change what the rule says |
-| `no-parse-change` | edits grammar declarations that parse every text as the specification's do (`format` or colors alone) | edit a literal, a sort, an alternative or a group |
+| `no-parse-change` | edits grammar declarations that parse every text as the specification's do (`format` or colors alone, or a strictness written another way that lowers to the same evaluation contexts) | edit a literal, a sort, an alternative or a group, or which arguments a constructor evaluates first |
 | `not-judged` | is one KRS cannot yet tell a Rust source writes, or a grammar edit of what is no parse: a constructor's meaning other than its strictness alone, a subsort, a module outside the program grammar | write the misunderstanding another way, or as a rule mutation |
 | `krs::analysis::…` | stands for a Rust source KRS itself refuses, such as overlapping equations | when the `detail` lists siblings, make their edits too, as an author's Rust edit would; otherwise make the rules disjoint, or change the other rule the `detail` names in the same mutation (a correlated edit) |
 

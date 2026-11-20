@@ -4231,6 +4231,14 @@ fn run_judges_joint_and_strictness_mutants_of_a_text_parsing_definition() {
                 ),
             ],
         ),
+        // Joint: `&&` strict in both operands, and `add` multiplies.
+        ops_mutation(
+            "joint-strict",
+            &[
+                ops_edit(production("opsAnd"), "strict(1), result", "strict, result"),
+                ops_edit(rule("add"), "+Int", "*Int"),
+            ],
+        ),
         // Joint, one sentence refused: by the grammar judgement, by the re-derivation, a rule
         // half that changes nothing, a grammar half that changes no parse.
         ops_mutation(
@@ -4298,6 +4306,25 @@ fn run_judges_joint_and_strictness_mutants_of_a_text_parsing_definition() {
                 "format(%1 %2), strict, result(KResult)]",
             )],
         ),
+        // `seqstrict` of one position is that position's `strict`: no change.
+        ops_mutation(
+            "and-seq",
+            &[ops_edit(
+                production("opsAnd"),
+                "strict(1), result",
+                "seqstrict(1), result",
+            )],
+        ),
+        // `&&`'s left operand, its strict one, made `K` under its kept strictness, which KRS
+        // refuses.
+        ops_mutation(
+            "and-k",
+            &[ops_edit(
+                production("opsAnd"),
+                "Exp \"&&\" Exp",
+                "K \"&&\" Exp",
+            )],
+        ),
         ops_mutation(
             "and-position",
             &[ops_edit(
@@ -4346,6 +4373,13 @@ fn run_judges_joint_and_strictness_mutants_of_a_text_parsing_definition() {
             Some("mutant-rejects"),
             Some("minus"),
         ),
+        // `0 && boom` parses alike and gets stuck at `boom`.
+        (
+            "joint-strict",
+            "killed",
+            Some("runs-differently"),
+            Some("short"),
+        ),
     ] {
         let row = row(&document, id);
         assert_eq!(
@@ -4373,6 +4407,8 @@ fn run_judges_joint_and_strictness_mutants_of_a_text_parsing_definition() {
         ("result", "not-judged"),
         ("add-with-result", "not-judged"),
         ("and-position", "krs::syntax::invalid-strictness"),
+        ("and-seq", "no-parse-change"),
+        ("and-k", "krs::analysis::invalid-strictness"),
     ] {
         let row = row(&document, id);
         assert_eq!(
