@@ -230,7 +230,9 @@ def consumedWith (generated : Bool) (S : Scan) (E : Env) (d : Definition) (s : K
     (pf : String → Bool := regProjFree d.sem) : Bool :=
   let c := d.sem
   let sortHas := fun (X : String) => regSortNames.contains X || c.sortNames.contains X
-  let symHas := fun (f : String) => regSymNames.contains f || c.symNames.contains f
+  -- a symbol `Γ` applies: one of the registry or of `d`, or the head at which `Γ` writes a symbol
+  -- of `d` named as an instance (`Semantics.instHeadFree`)
+  let symHas := fun (f : String) => regSymNames.contains f || c.symNames.contains f || !c.instHeadFree f
   let sortOfName := fun (n : String) => (dropPrefix? "Sort" n).getD n
   let cells := Cell.all d.pres.topCell
   let initLabels := cells.map (·.initLabel c)
@@ -319,7 +321,9 @@ def consumedWithArr (generated : Bool) (S : Scan) (E : Env) (d : Definition) (s 
   let c := d.sem
   let symA := symNameArr c.symNames.toArray
   let sortHas := fun (X : String) => regSortNames.contains X || c.sortNames.contains X
-  let symHas := fun (f : String) => regSymNames.contains f || c.symNames.contains f
+  -- a symbol `Γ` applies: one of the registry or of `d`, or the head at which `Γ` writes a symbol
+  -- of `d` named as an instance (`Semantics.instHeadFree`)
+  let symHas := fun (f : String) => regSymNames.contains f || c.symNames.contains f || !c.instHeadFree f
   let sortOfName := fun (n : String) => (dropPrefix? "Sort" n).getD n
   let cells := Cell.all d.pres.topCell
   let initLabels := cells.map (·.initLabel c)
