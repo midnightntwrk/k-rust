@@ -206,8 +206,14 @@ equation at each of its clauses' positions, `fns_account` over the distinct indi
 not its sentence (`sp<j>_differs`), the sentence is `uncovered`, and `fns_entailed` and `fns_from_text`
 leave the items out (the sentence gives an item only with the function's functional sentence, and the
 items give the sentence only all together); without the flag such a text is refused. A clause read from a
-`symbol-overload` axiom is pinned to that axiom too (the probe's `ovlPins`), and refused: no form here
-states its item from the sentence.
+`symbol-overload` axiom is pinned to that axiom too (the probe's `ovlPins`). Γ's item binds the argument
+by a membership in the argument pattern, an injection `inj{A, N}(v)`, where the axiom applies the
+function to that pattern: where the axiom is the item's text form up to the names of the variables
+(`TieOvlMem.textItem`, `okB`, `injB`, Cons-Fun of the injection in `consItemsK`, `TieAlpha.acEqB`: the
+probe's `WO` lines), layer 1 states that Γ entails it (`prios_out_entailed<j>`, `ovlm<j>_same`), the
+section states the item from it with the constructors' facts and that Cons-Fun (`ovlm<j>_from_text`,
+left out of `fns_from_text`), and the priorities agree but at those positions (`fn_prios_but`);
+otherwise such a text is refused (as is one that reads a confined sort).
 Without the flag the output is unchanged.
 --at-values N,... names the user lemmas (by `AxiomDecl.index`) that are of the class `user lemma at
 values` in place of `user lemma`; an index that is no user lemma of the text is refused.
@@ -230,6 +236,7 @@ a text whose `attrsAgree` fails (by `prios` alone, where the clauses read from a
 have the priority 0 the reading gives and no attribute states, and `AttrsAgree.priosBut` holds with them
 and the overload axioms left out, layer 1 is stated in that form, `attrs_parts`, `attrs_prios_false`,
 `attrs_prios_but`, provided each clause left out is Γ's item that is its axiom's translation as written,
+or, with --fn-readings, Γ's item whose text form is the axiom pinned to it (`TieOvlMem`, above),
 `prios_out_at<j>`, `prios_out_entailed<j>`; otherwise refused with the clause that no theorem ties;
 where an equation is read as several clauses, `priosBut` leaves out every clause of the run but its first
 and, with --fn-readings, `prios_split_at<j>` states of each that its item is aligned with the run's
@@ -1228,7 +1235,11 @@ def tgNjOrder (gs : List KoreAML.Gen) : List Kore.Pattern → Option (List Nat)
 # and, per equation (`WE` lines), whether the sentence is Γ's item with its right side r written `\and{s}(r, \top{s}())`
 # (`TieRhs.rhsMap TieRhs.andTop`, up to the indices of its variables, with the item's table, free variables and sort,
 # and a sort s whose translation leaves the variable of `\top` unbound), and whether Γ's axiom is test/NoteSetVarIn.lean's
-# `nsvAxG` and the sentence's translation that of its `nsvAxS` (`setvar_probe_defs`)
+# `nsvAxG` and the sentence's translation that of its `nsvAxS` (`setvar_probe_defs`); and, for each clause read from a
+# `symbol-overload` axiom and pinned to it (`WO` lines), what `TieOvlMem.okB` decides of Γ's axiom, the sorts N and A
+# and the variable v of its argument `inj{A, N}(v)` with `TieOvlMem.injB`, whether Cons-Fun of that injection is in
+# `consItemsK`, whether the sentence is the item's text form up to the names of its variables (`TieOvlMem.textItem`,
+# `TieAlpha.acEqB`), and whether the item is not the sentence
 PROBE_READINGS = r'''  for j in List.range fis.length do
     match pairText[j]?, fax[j]? with
     | some ad, some a =>
@@ -1288,7 +1299,30 @@ PROBE_READINGS = r'''  for j in List.range fis.length do
         | none => false
       let sv := decide (a = nsvAxG) && decide (t = (trAxiom [] [] ⟨0, "kernel", nsvAxS⟩).pat)
       IO.println s!"WE {j}\t{ae}\t{sv}"
-    | _, _ => pure ()'''
+    | _, _ => pure ()
+''' + r'''  for (_, _, oi, j) in ovlPins do
+    match oi, pairText[j]?, fax[j]? with
+    | some _, some ad, some a =>
+      let t := (trS ad).pat
+      let inj : Option (String × String × Kore.EVar) := match TieOvlMem.parts a.pattern with
+        | some (_, _, _, .app f [.ctor sa [], .ctor sn []] [.var (.evar v)], _, _, _, _) =>
+          if f.ident.name == "inj" then
+            match KoreAML.Parse.dropPrefix? "Sort" sn.ident.name, KoreAML.Parse.dropPrefix? "Sort" sa.ident.name with
+            | some n, some an => some (n, an, v)
+            | _, _ => none
+          else none
+        | _ => none
+      let tx := match TieOvlMem.textItem a with
+        | some g => TieAlpha.acEqB g t
+        | none => false
+      match inj with
+      | some (n, an, v) =>
+        let vs := match v.sort with
+          | .ctor h [] => h.ident.name
+          | _ => "?"
+        IO.println s!"WO {j}\t{ad.index}\t{TieOvlMem.okB c a}\t{n}\t{an}\t{v.var.ident.name}\t{vs}\t{TieOvlMem.injB a n an v}\t{ci.any (·.pat == (Cons.funItem n (.inj an)).pat)}\t{tx}\t{decide (fis[j]?.map (·.pat) ≠ some t)}"
+      | none => IO.println s!"WO {j}\t{ad.index}\t{TieOvlMem.okB c a}\tnone\tnone\tnone\tnone\tfalse\tfalse\t{tx}\tfalse"
+    | _, _, _ => pure ()'''
 
 
 def probe(name, path, um, order="[]", cons_head=False, sig_pos=False, decl_pos=False, reads_h=(), readings=False):
@@ -1371,6 +1405,11 @@ def probe(name, path, um, order="[]", cons_head=False, sig_pos=False, decl_pos=F
             head.setdefault("fnCut", {}).setdefault(int(f[0]), dict(
                 kind=f[1], path=[int(x) for x in re.findall(r"\d+", f[2])],
                 place=("own",) if f[3] == "own" else ("under", int(f[4]), int(f[5]))))
+        elif l.startswith("WO "):
+            f = l[3:].split("\t")
+            head.setdefault("fnOvl", {})[int(f[0])] = dict(
+                idx=int(f[1]), ok=f[2] == "true", sort=f[3], arg=f[4], var=f[5], vsort=f[6], inj=f[7] == "true",
+                fun=f[8] == "true", same=f[9] == "true", differs=f[10] == "true")
         elif l.startswith("W "):
             f = l[2:].split("\t")
             head["fnW"][int(f[0])] = dict(idx=None if f[1] == "none" else int(f[1]), same=f[2] == "true",
@@ -1970,15 +2009,30 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                               f"the layer-1 form names for each clause left out")
             prios_out["split"].append((n_, int(ci), j, gi[0]))
         prios_out["tie"] = []
+        # or, with --fn-readings, Γ's item binds the argument `inj{A, N}(v)` by a membership where the axiom
+        # pinned to the clause (`pair_pn`) applies the function to the argument pattern itself: the axiom is
+        # the item's text form (`TieOvlMem.textItem`) up to the names of the variables, and Γ entails it
+        # through `TieOvlMem.ovlMem_entailed` with Cons-Fun of the injection, an item of Γ (`mem`, the
+        # probe's `WO` line)
+        prios_out["mem"] = {}
         for (n_, ci), j in zip(prios_out["cl"][:len(out_cl)], prios_out["j"]):
             at_ = [a for a in prios_out["ax"] if j in sents.get(a, {}).get("fnJ", [])]
+            om = head.get("fnOvl", {}).get(j)
+            pn = [i_ for j_, i_ in pair_pn if j_ == j]
+            if len(at_) != 1 and fn_rds and not confined and len(pn) == 1 and pn[0] in prios_out["ax"] and om and \
+                    om["idx"] == pn[0] and all(om[k_] for k_ in ("ok", "inj", "fun", "same", "differs")):
+                prios_out["mem"][j] = om
+                at_ = pn
             if len(at_) != 1:
                 raise Refused(f"{name}: attrsAgree false by prios alone, and `AttrsAgree.priosBut` holds with the "
                               f"overload clauses and axioms left out, but the clause {ci} of {n_} (Γ's item {j}) is "
                               f"not the translation of one overload axiom ({', '.join(map(str, prios_out['ax'])) or 'none'}) "
                               f"as written (Γ's item binds the argument by a membership, the axiom applies the "
-                              f"function to the argument pattern itself): no theorem here ties it to its sentence, "
-                              f"and the layer-1 form names one for each clause left out")
+                              f"function to the argument pattern itself), nor, with --fn-readings on a text that reads "
+                              f"no confined sort, the axiom pinned to it that is the item's text form with the "
+                              f"argument an injection whose Cons-Fun is Γ's (`TieOvlMem`: "
+                              f"{head.get('fnOvl', {}).get(j, 'no `WO` line')}): no theorem here ties it to its "
+                              f"sentence, and the layer-1 form names one for each clause left out")
             prios_out["tie"].append((n_, ci, j, at_[0]))
         if law_idx or raw:
             raise Refused(f"{name}: attrsAgree false by the priorities of the clauses left out beside a law or an open "
@@ -1993,12 +2047,13 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                          f"{head.get('priosBut')})" if b_ == "prios" else "") for b_ in bad]
         raise Refused(f"{name}: the attributes do not agree with the definition (attrsAgree false; failing "
                       f"{', '.join(bad)})")
-    # an overload clause pinned to its axiom: the alignment is right, but no form here states the item
-    # beside the sentence (the item binds the argument by a membership, the axiom applies the function
-    # to the argument pattern itself)
-    if fn_rds and pair_pn:
-        raise Refused(f"{name}: the clause{'s' if len(pair_pn) > 1 else ''} read from a `symbol-overload` axiom "
-                      + ", ".join(f"(Γ's item {j_}, sentence {i_})" for j_, i_ in pair_pn)
+    # an overload clause pinned to its axiom: the function section states its item from the sentence
+    # where layer 1 ties the two through `TieOvlMem` (`prios_out["mem"]`); otherwise no form here does
+    pair_om = [(j_, i_, prios_out["mem"][j_]) for j_, i_ in pair_pn if prios_out and j_ in prios_out["mem"]]
+    pn_bad = [(j_, i_) for j_, i_ in pair_pn if not (prios_out and j_ in prios_out["mem"])]
+    if fn_rds and pn_bad:
+        raise Refused(f"{name}: the clause{'s' if len(pn_bad) > 1 else ''} read from a `symbol-overload` axiom "
+                      + ", ".join(f"(Γ's item {j_}, sentence {i_})" for j_, i_ in pn_bad)
                       + " are aligned with their axioms (`fnPins`), but no form of the function section states "
                       "such an item from its sentence")
     taken = set(RESERVED)
@@ -2194,12 +2249,18 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w(textwrap.fill(
             "- `attrs_parts`, `attrs_prios_false`, `attrs_prios_but`: the attributes the translation does not read "
             "agree with `defn` but for the priorities (`attrsAgree` is false by `prios` alone): the "
-            f"clause{'s' if len(prios_out['tie']) > 1 else ''} read from a `symbol-overload` axiom have the priority 0, "
+            f"clause{'s' if len(prios_out['tie']) > 1 else ''} read from a `symbol-overload` axiom "
+            f"{'have' if len(prios_out['tie']) > 1 else 'has'} the priority 0, "
             "which the reading gives and no attribute states; with "
             f"{'them' if len(prios_out['tie']) > 1 else 'it'} and the overload axioms left out "
             "(`AttrsAgree.priosBut`) the priorities agree, and each clause left out is tied to its sentence ("
             + ", ".join(f"{n_} {ci}: sentence {i}, `prios_out_at{j}`, `prios_out_entailed{j}`"
-                        for n_, ci, j, i in prios_out["tie"]) + ").",
+                        for n_, ci, j, i in prios_out["tie"]) + ")."
+            + (f" At Γ's item{'s' if len(prios_out['mem']) > 1 else ''} {', '.join(map(str, prios_out['mem']))} the item "
+               "binds the argument by a membership where the axiom applies the function to the argument pattern, an "
+               "injection: the axiom is the item's text form up to the names of the variables (`ovlm<j>_same`, "
+               "`TieOvlMem.textItem`), and Γ entails it, its models having the constructors' facts and Cons-Fun of the "
+               "injection (`TieOvlMem.ovlMem_entailed`)." if prios_out["mem"] else ""),
             width=100, initial_indent="  ", subsequent_indent="    ", break_on_hyphens=False, break_long_words=False))
     elif prios_out:
         tie_txt = ", ".join(f"{n_} {ci}: sentence {i}, `prios_out_at{j}`, `prios_out_entailed{j}`"
@@ -2366,7 +2427,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                         break_long_words=False))
     if fn_rds:
         w(readings_header(by_class, pair_text, pair_ws, pair_ac, pair_rd, pair_un, pair_cut_l, confined,
-                          pair_ens, pair_sv, pair_sp))
+                          pair_ens, pair_sv, pair_sp, pair_om))
     if rules_full and nrules:
         w(f"  - Rewrite rules ({nrules}): each of Γ's rule items (with the premise `⌈rhs ∧ ens⌉`) is a consequence")
         w("    of its text sentence, `ruleText` in `ruleItems`' order (`rule_from_text`, W1, every H).")
@@ -2433,7 +2494,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             f"parts Γ defines by predicates, or definedness (`gamma_from`).",
             width=100, initial_indent="  - ", subsequent_indent="    ", break_on_hyphens=False, break_long_words=False))
     if fn_rds:
-        w(readings_gamma_header(pair_text, pair_ws, pair_ac, pair_rd, pair_un, pair_cut_l, pair_ens, pair_sv, pair_sp))
+        w(readings_gamma_header(pair_text, pair_ws, pair_ac, pair_rd, pair_un, pair_cut_l, pair_ens, pair_sv, pair_sp,
+                                pair_om))
     owed_more = ""
     if law_idx:
         owed_more += "; function law: owed as `FnLaws` (`law_account`)"
@@ -3116,7 +3178,64 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             width=100, break_on_hyphens=False, break_long_words=False))
         w("theorem attrs_prios_but : AttrsAgree.priosBut priosOutAx priosOutCl kore defn = true := by decide +kernel")
         w("")
+        if prios_out["mem"]:
+            w("kernel_rfl ovlm_consItemsK_withHooks : ∀ (c : Semantics) (H : HookParams), consItemsK (c.withHooks H) = consItemsK c")
+            w("")
         for n_, ci, j, i in tie:
+            if j in prios_out["mem"]:
+                om = prios_out["mem"][j]
+                fun_ = f"(Cons.funItem \"{om['sort']}\" (.inj \"{om['arg']}\")).pat"
+                w(f"/-- Γ's axiom of item {j}. -/")
+                w(f"noncomputable def ovlmAx{j} : Kore.Axiom := ((TiePair.fnAxioms c)[{j}]?).getD ⟨[], .top KoreAML.R, []⟩")
+                w(f"/-- **The clause {ci} of `{n_}`, which `attrs_prios_but` leaves out, is Γ's item {j}** (kernel). -/")
+                w(f"theorem prios_out_at{j} : ((c.allFns.takeWhile (c.symName ·.label != \"{n_}\")).map (·.clauses.length)).sum + {ci} = {j} ∧")
+                w(f"    (TiePair.fnAxioms c)[{j}]? = some ovlmAx{j} := by decide +kernel")
+                w(f"noncomputable def ovlmItem{j} : P := (trAxiom [] [] ⟨0, \"kernel\", ovlmAx{j}⟩).pat")
+                w(f"theorem ovlmItem{j}_at : (TiePair.gammaPats c)[{j}]? = some ovlmItem{j} := TiePair.gammaPats_at prios_out_at{j}.2")
+                w(textwrap.fill(
+                    f"/-- The text's form of item {j} (`TieOvlMem.textItem`): Γ's item binds the argument by the "
+                    f"membership `x ∈ inj{{Sort{om['arg']}, Sort{om['sort']}}}({om['var']})`, the text's form applies "
+                    f"`{n_}` to that pattern. -/", width=100, break_on_hyphens=False, break_long_words=False))
+                w(f"noncomputable def ovlmText{j} : P := (TieOvlMem.textItem ovlmAx{j}).getD .bottom")
+                w(f"kernel_rfl ovlm{j}_text_eq : TieOvlMem.textItem ovlmAx{j} = some ovlmText{j}")
+                w(f"theorem ovlm{j}_ok : TieOvlMem.okB c ovlmAx{j} = true := by decide +kernel")
+                w(f"/-- The argument is the injection of `{om['var']}` into Sort{om['sort']}, and Cons-Fun of that injection is")
+                w("an item of Γ (kernel). -/")
+                w(f"theorem ovlm{j}_inj : TieOvlMem.injB ovlmAx{j} \"{om['sort']}\" \"{om['arg']}\"")
+                w(f"    ⟨⟨⟨\"{om['var']}\"⟩⟩, .ctor ⟨⟨\"{om['vsort']}\"⟩⟩ []⟩ = true := by decide +kernel")
+                w(f"theorem ovlm{j}_injFun : (consItemsK c).any (·.pat == {fun_}) = true := by")
+                w("  decide +kernel")
+                w(f"/-- **Sentence {i} is the text's form of item {j}** up to the names of the variables (kernel). -/")
+                w(f"theorem ovlm{j}_same : TieAlpha.acEqB ovlmText{j} (trS U.ax{i}).pat = true := by decide +kernel")
+                w("")
+                w(textwrap.fill(
+                    f"/-- **E for sentence {i}**: a model of Γ has the constructors' facts and Cons-Fun of the "
+                    f"injection, where the argument is one element of Sort{om['sort']} (`TieOvlMem.argOne_inj`), and "
+                    f"there Γ's item {j} gives the item's text form (`TieOvlMem.ovlMem_entailed`), so Γ entails the "
+                    "sentence, for every H. -/", width=100, break_on_hyphens=False, break_long_words=False))
+                w(f"theorem prios_out_entailed{j} (H : HookParams) : Γ (cH H) ⊧ (trS U.ax{i}).pat := by")
+                w("  intro M _ I hI")
+                w(f"  have hf : I ⊧ᴵ {fun_} := by")
+                w(f"    obtain ⟨it, hit, he⟩ := List.any_eq_true.mp ovlm{j}_injFun")
+                w("    rw [← of_decide_eq_true he]")
+                w("    exact sat_cons hI (Or.inl ⟨it, by rw [ovlm_consItemsK_withHooks]; exact hit, rfl⟩)")
+                w(f"  obtain ⟨it, hit, he⟩ : ∃ it ∈ fnItems c, it.pat = ovlmItem{j} := by")
+                w(f"    have hg := ovlmItem{j}_at")
+                w("    unfold TiePair.gammaPats at hg")
+                w("    rw [List.getElem?_map] at hg")
+                w(f"    cases h : (fnItems c)[{j}]? with")
+                w("    | none => rw [h] at hg; cases hg")
+                w("    | some it => rw [h] at hg; exact ⟨it, List.mem_of_getElem? h, Option.some.inj hg⟩")
+                w(f"  have hg : I ⊧ᴵ ovlmItem{j} := by")
+                w("    rw [← he]")
+                w("    exact hI _ (TiePair.mem_Γ_fns (Or.inl ⟨it, by rw [TiePair.fnItems_withHooks]; exact hit, rfl⟩))")
+                w(f"  exact (TieAlpha.acEqB_sat ovlm{j}_same).mp (TieOvlMem.ovlMem_entailed")
+                w("    (HoldsShape.nodeFacts_of_core (coreOKH H)")
+                w("      (by rw [Γc_plain ((Semantics.readsConfined_withHooks c H).trans readsConfined_c)]; exact hI))")
+                w(f"    ovlm{j}_text_eq ((TieOvlMem.okB_withHooks c H _).trans ovlm{j}_ok)")
+                w(f"    (TieOvlMem.argOne_inj (defOK hI) hf ovlm{j}_inj) hg)")
+                w("")
+                continue
             w(f"/-- **The clause {ci} of `{n_}`, which `attrs_prios_but` leaves out, is Γ's item {j}**, and that item is")
             w(f"the translation of the overload axiom {i} as written (kernel). -/")
             w(f"theorem prios_out_at{j} : ((c.allFns.takeWhile (c.symName ·.label != \"{n_}\")).map (·.clauses.length)).sum + {ci} = {j} ∧")
@@ -3951,7 +4070,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                            [(j, pair_text[j]) for j in pair_un], len(by_class["function equation"]),
                            len(by_class["priority equation"]), pair_cut_l, confined,
                            [(j, pair_text[j]) for j in pair_ens], [(j, pair_text[j]) for j in pair_sv],
-                           pair_sp, fn_pins, pin_other, prios_out["split"] if prios_out else []))
+                           pair_sp, fn_pins, pin_other, prios_out["split"] if prios_out else [], pair_om))
         mark("Rest")
     if gamma:
         w(GAMMA_ALIGN if fn_align else GAMMA_RULES if nrules else GAMMA)
@@ -3970,7 +4089,9 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         ["account", "account_sizes", "account_classes", "account_absent", "absent_closed"] + \
         (["absent_proj_below_c", "absent_proj_below"] if abs_proj else []) + ["lists_in_account"] + \
         (["attrs_parts", "attrs_prios_false", "attrs_prios_but"] +
-         [n.format(j) for _, _, j, _ in prios_out["tie"] for n in ("prios_out_at{}", "prios_out_entailed{}")]
+         [n.format(j) for _, _, j, _ in prios_out["tie"] for n in
+          (("prios_out_at{}", "ovlm{}_ok", "ovlm{}_inj", "ovlm{}_injFun", "ovlm{}_same", "prios_out_entailed{}")
+           if j in prios_out["mem"] else ("prios_out_at{}", "prios_out_entailed{}"))]
          if prios_out else ["attrs_agree"]) + (["decl_counts"] if decl_parts else []) + \
         ["sig_origin_but_next" if head["sigAll"] != "true" else "sig_origin", "decls_entailed",
          "consistent"] + (["text_nextless"] if head["sigAll"] != "true" else []) + \
@@ -4057,7 +4178,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             ["shape", "fns_entailed", "fns_from_text", "fn_prios", "gamma_from"]
     if fn_rds:
         pair_names = readings_names(pair_ws, pair_ac, pair_rd, pair_un, pair_cut_l, pair_ens, pair_sv, pair_sp,
-                                    prios_out["split"] if prios_out else [])
+                                    prios_out["split"] if prios_out else [], pair_om)
     for block in (names, pair_names):
         for n in block:
             w(f"#check @KCore.{ns}.{n}")
@@ -4899,16 +5020,25 @@ def cut_in_entailed(k, confined):
     return cut_form(k) == "under" or (cut_form(k) == "own" and not confined)
 
 
-def readings_header(by_class, pair_text, ws, acs, rds, uns, cuts=(), confined=False, enss=(), svs=(), sps=()):
+def readings_header(by_class, pair_text, ws, acs, rds, uns, cuts=(), confined=False, enss=(), svs=(), sps=(), pns=()):
     """The header's paragraph of the function equations `readings_section` ties."""
     nfe, npe = len(by_class["function equation"]), len(by_class["priority equation"])
     lst = lambda js: ", ".join(f"{j} ({pair_text[j]})" for j in js)
     pl = lambda js, a, b: a if len(js) > 1 else b
     spjs = [j0 + m for j0, k, _ in sps for m in range(k)]
+    pnjs = [j for j, _, _ in pns]
     txt_ = (f"Function equations ({nfe}) and priority equations ({npe}), in the order `fnText` lists them "
             f"(`fns_account`): each of Γ's items but "
-            f"{', '.join(map(str, sorted(ws + acs + rds + uns + [j for j, _, _ in cuts] + list(enss) + list(svs) + spjs)))} is the "
+            f"{', '.join(map(str, sorted(ws + acs + rds + uns + [j for j, _, _ in cuts] + list(enss) + list(svs) + spjs + pnjs)))} is the "
             f"translation of one sentence (`shape`), so Γ entails it (`fns_entailed`).")
+    if pns:
+        txt_ += (f" Item{pl(pnjs, 's', '')} {lst(pnjs)} {pl(pnjs, 'are clauses', 'is the clause')} read from a "
+                 f"`symbol-overload` axiom, pinned to {pl(pnjs, 'their axioms', 'its axiom')} (`fnPins`): Γ's item "
+                 f"binds the argument by a membership, the axiom applies the function to the argument pattern, an "
+                 f"injection, and is the item's text form (`TieOvlMem.textItem`, `ovlm<j>_same`; not the item, "
+                 f"`ovlm<j>_differs`). Γ entails the axiom (`prios_out_entailed<j>`, in `fns_entailed`), and the axiom "
+                 f"gives the item in a model with the constructors' facts and Cons-Fun of the injection "
+                 f"(`ovlm<j>_from_text`), which `fns_from_text` leaves out.")
     if sps:
         txt_ += (" " + "; ".join(f"Items {j0} to {j0 + k - 1} are the {k} clauses sentence {i} is read as" for j0, k, i in sps)
                  + " (`fnPins`: the alignment holds the sentence at each of those positions, `TiePair.fnTextMany`, "
@@ -4970,12 +5100,14 @@ def readings_header(by_class, pair_text, ws, acs, rds, uns, cuts=(), confined=Fa
         txt_ += (f" Item{pl(uns, 's', '')} {lst(uns)} {pl(uns, 'are', 'is')} not {pl(uns, 'their sentences', 'its sentence')} "
                  f"(`un<j>_differs`) and no reading here ties {pl(uns, 'them', 'it')}: {pl(uns, 'those sentences are', 'the sentence is')} "
                  f"`uncovered`, and `fns_entailed` and `fns_from_text` leave {pl(uns, 'them', 'it')} out.")
-    txt_ += " `fns_from_text` (the converse), `fn_prios` (the priorities the sentences state are the clauses')."
+    txt_ += (" `fns_from_text` (the converse), "
+             + ("`fn_prios_but` (the priorities the sentences state are the clauses' but at the overload clauses)."
+                if pns else "`fn_prios` (the priorities the sentences state are the clauses')."))
     return textwrap.fill(txt_, width=100, initial_indent="  - ", subsequent_indent="    ", break_on_hyphens=False,
                          break_long_words=False)
 
 
-def readings_gamma_header(pair_text, ws, acs, rds, uns, cuts=(), enss=(), svs=(), sps=()):
+def readings_gamma_header(pair_text, ws, acs, rds, uns, cuts=(), enss=(), svs=(), sps=(), pns=()):
     """The header's paragraph of `readings_section`'s converse over Γ's content."""
     cno = [j for j, _, k in cuts if cut_form(k) != "own"]
     spjs = [j0 + m for j0, k, _ in sps for m in range(k)]
@@ -4995,17 +5127,20 @@ def readings_gamma_header(pair_text, ws, acs, rds, uns, cuts=(), enss=(), svs=()
                f"`SortExp`: `sv<j>_w1`)" if svs else "")
             + (f", Γ's own item{'s' if len(spjs) > 1 else ''} {', '.join(map(str, spjs))} (the clauses one sentence is "
                f"read as, whose sentence is uncovered)" if sps else "")
+            + (f", Γ's own item{'s' if len(pns) > 1 else ''} {', '.join(str(j) for j, _, _ in pns)} (whose sentence"
+               f"{'s give' if len(pns) > 1 else ' gives'} it with the constructors' facts and Cons-Fun of the injection: "
+               f"`ovlm<j>_from_text`)" if pns else "")
             + ", Γ's rule items, the five parts Γ defines by predicates, or definedness (`gamma_from`).")
     return textwrap.fill(txt_, width=100, initial_indent="  - ", subsequent_indent="    ", break_on_hyphens=False,
                          break_long_words=False)
 
 
-def readings_names(ws, acs, rds, uns, cuts=(), enss=(), svs=(), sps=(), split_at=()):
+def readings_names(ws, acs, rds, uns, cuts=(), enss=(), svs=(), sps=(), split_at=(), pns=()):
     """The theorems `readings_section` states, in its order."""
     dirs = {"own": ("cut{}_from_text", "cut{}_entailed"), "under": ("cut{}_entailed", "cut{}_from_text"),
             "not": ("cut{}_iff", "cut{}_entailed")}
     sat = {j for _, _, j, _ in split_at}
-    return ((["fnPins_ok", "fnText_all"] if sps else []) + ["fns_account"] + [n.format(j) for j in ws for n in
+    return ((["fnPins_ok", "fnText_all"] if sps or pns else []) + ["fns_account"] + [n.format(j) for j in ws for n in
                                ("prio{}_narrowed", "prio{}_text", "prio{}_differs", "prio{}_w1")] +
             [n.format(j) for j in acs for n in ("ac{}_same", "ac{}_differs", "ac{}_iff", "ac{}_entailed")] +
             [n.format(j) for j in rds for n in ("rd{}_ok", "rd{}_text", "rd{}_differs", "rd{}_iff", "rd{}_entailed")] +
@@ -5018,11 +5153,12 @@ def readings_names(ws, acs, rds, uns, cuts=(), enss=(), svs=(), sps=(), split_at
             [f"un{j}_differs" for j in uns] +
             [n.format(j0 + m) for j0, k, _ in sps for m in range(k)
              for n in (("sp{}_differs", "prios_split_at{}") if j0 + m in sat else ("sp{}_differs",))] +
-            ["shape", "fns_entailed", "fns_from_text", "fn_prios", "gamma_from"])
+            [n.format(j) for j, _, _ in pns for n in ("ovlm{}_differs", "ovlm{}_from_text")] +
+            ["shape", "fns_entailed", "fns_from_text", "fn_prios_but" if pns else "fn_prios", "gamma_from"])
 
 
 def readings_section(ws, acs, rds, uns, nfe, npe, cuts=(), confined=False, enss=(), svs=(), sps=(), pins=(),
-                     pin_other=(), split_at=()):
+                     pin_other=(), split_at=(), pns=()):
     """`pairs_section` with two more kinds of Γ's items beside the narrowed ones `ws` and those `acs`
     equal up to the operands' order and the variables' names: the items `rds` (each `(j, i)`: item
     `j`, sentence `i`), whose sentence writes an alternative that holds nothing beside the right
@@ -5042,10 +5178,16 @@ def readings_section(ws, acs, rds, uns, nfe, npe, cuts=(), confined=False, enss=
     sentence)`), the clauses one equation is read as, all aligned with that sentence; their items are
     Γ's in the premise set, left out of `fns_entailed` and `fns_from_text`, and the sentence is uncovered;
     `pin_other` the pinned sentences of another account class; `split_at` (each `(function, clause,
-    item, sentence)`) the clauses of a run layer 1 leaves out (`prios_split_at<j>`)."""
+    item, sentence)`) the clauses of a run layer 1 leaves out (`prios_split_at<j>`); `pns` (each `(item,
+    sentence, the probe's `WO` fields)`) the clauses read from a `symbol-overload` axiom, pinned to it,
+    whose item layer 1 defines (`ovlmItem<j>`) and whose sentence it shows entailed by Γ
+    (`prios_out_entailed<j>`): the sentence gives the item with the constructors' facts and Cons-Fun of
+    the injection (`ovlm<j>_from_text`, left out of `fns_from_text`), and the priorities agree but at
+    those positions (`fn_prios_but`)."""
     spjs = [j0 + m for j0, k, _ in sps for m in range(k)]
+    pnjs = [j for j, _, _ in pns]
     at = sorted([j for j, _, _ in ws] + [j for j, _ in acs] + [j for j, _ in rds] + [j for j, _ in uns] +
-                [j for j, _, _ in cuts] + [j for j, _ in enss] + [j for j, _ in svs] + spjs)
+                [j for j, _, _ in cuts] + [j for j, _ in enss] + [j for j, _ in svs] + spjs + pnjs)
     wjs = [j for j, _, _ in ws]
     ujs = [j for j, _ in uns]
     parts = []
@@ -5140,9 +5282,25 @@ def readings_section(ws, acs, rds, uns, nfe, npe, cuts=(), confined=False, enss=
                      f"holds, and the item one element), and the items give the sentence only all together; no "
                      f"form here states either, so the sentence is uncovered, `fns_entailed` and `fns_from_text` "
                      f"leave its items out, and the premise set of `gamma_from` holds Γ's items there.")
+    if pns:
+        ol = ", ".join(f"{j} (sentence {i})" for j, i, _ in pns)
+        parts.append(f"Γ's item{'s' if len(pns) > 1 else ''} {ol} {'are clauses' if len(pns) > 1 else 'is the clause'} "
+                     f"read from a `symbol-overload` axiom, pinned to {'their axioms' if len(pns) > 1 else 'its axiom'} "
+                     f"(`fnPins`). Γ's item states the equation with a variable x at the argument, bound by the "
+                     f"membership of x in the argument pattern `inj{{A, N}}(v)`, and the axiom applies the function to "
+                     f"that pattern itself: the axiom is the item's text form (`TieOvlMem.textItem`, up to the names of "
+                     f"its variables: `ovlm<j>_same`, in layer 1), and it is not the item (`ovlm<j>_differs`). The two "
+                     f"hold in the same models with the constructors' facts in which the argument is one element of N, "
+                     f"which Cons-Fun of the injection gives (`TieOvlMem.ovlMem_iff`, `TieOvlMem.argOne_inj`). A model "
+                     f"of Γ has both, so Γ entails the axiom (`prios_out_entailed<j>`, layer 1), and the axiom gives the "
+                     f"item in a model with both (`ovlm<j>_from_text`), which `fns_from_text` leaves out (its premise "
+                     f"set is the sentence alone). The priority 0 the reading gives such a clause is stated by no "
+                     f"attribute, so the priorities agree at every position but those (`fn_prios_but`).")
     parts.append("Every other item is the translation of its function sentence (`shape`). -/")
     intro = "\n\n".join(textwrap.fill(x, width=100, break_on_hyphens=False, break_long_words=False) for x in parts)
     out = [f"/-! ## Function equations ({nfe} sentences) and priority equations ({npe} sentences)", "", intro, ""]
+    pin_what = ("each clause of a run one equation is read as, at that equation" if sps else "") + \
+        ("; " if sps and pns else "") + ("each clause read from a `symbol-overload` axiom, at that axiom" if pns else "")
     if not pins:
         out += ["/-- The text sentences of Γ's equations, in `fnItems`'s order: found by head symbol and priority",
                 "(`TiePair.fnTextOf`); `shape` is what makes them the equations' sentences. -/",
@@ -5154,8 +5312,10 @@ def readings_section(ws, acs, rds, uns, nfe, npe, cuts=(), confined=False, enss=
                 "  decide +kernel", ""]
     else:
         po = ' ++ fnPinOther' if pin_other else ''
-        out += ["/-- The pins of the alignment, `(item, sentence index)`: each clause of a run one equation is read",
-                "as, at that equation. -/",
+        out += (["/-- The pins of the alignment, `(item, sentence index)`: each clause of a run one equation is read",
+                 "as, at that equation. -/"] if not pns else
+                [textwrap.fill("/-- The pins of the alignment, `(item, sentence index)`: " + pin_what + ". -/",
+                               width=100, break_on_hyphens=False, break_long_words=False)]) + [
                 "def fnPins : List (Nat × Nat) := [" + ", ".join(f"({j}, {i})" for j, i in pins) + "]", ""]
         if pin_other:
             out += ["/-- The pinned sentences of another account class than the function and priority equations. -/",
@@ -5442,9 +5602,21 @@ def readings_section(ws, acs, rds, uns, nfe, npe, cuts=(), confined=False, enss=
                         f"    (fnText[{j}]?).map (·.index) = some {i} ∧",
                         f"    (c.allFns.flatMap (fun f => f.clauses.map (·.prio)))[{j}]? = some (AttrsAgree.prioOf U.ax{i}.ax.attributes) := by",
                         "  decide +kernel", ""]
+    for j, i, om in pns:
+        out += [f"kernel_rfl fnText_at{j} : fnText[{j}]? = some U.ax{i}",
+                f"/-- **Γ's item {j} is not the text's sentence {i}** (kernel). -/",
+                f"theorem ovlm{j}_differs : ovlmItem{j} ≠ (trS U.ax{i}).pat := by decide +kernel", "",
+                f"/-- **Sentence {i} gives Γ's item {j}** in a model with the constructors' facts and Cons-Fun of the",
+                "injection, for every H (`TieOvlMem.ovlMem_from_text`). -/",
+                f"theorem ovlm{j}_from_text (H : HookParams) {{M : Type}} [Inhabited M] {{I : Interpretation KoreAML.Sym M}}",
+                f"    (N : HoldsShape.NodeFacts (cH H) I) (hf : I ⊧ᴵ (Cons.funItem \"{om['sort']}\" (.inj \"{om['arg']}\")).pat)",
+                f"    (h : I ⊧ᴵ (trS U.ax{i}).pat) : I ⊧ᴵ ovlmItem{j} :=",
+                f"  TieOvlMem.ovlMem_from_text N ovlm{j}_text_eq ((TieOvlMem.okB_withHooks c H _).trans ovlm{j}_ok)",
+                f"    (TieOvlMem.argOne_inj N.defOK hf ovlm{j}_inj) ((TieAlpha.acEqB_sat ovlm{j}_same).mpr h)", ""]
     item = ({j: f"prioItem{j}" for j, _, _ in ws} | {j: f"acItem{j}" for j, _ in acs} |
             {j: f"rdItem{j}" for j, _ in rds} | {j: f"unItem{j}" for j, _ in uns} | {j: f"cutItem{j}" for j, _, _ in cuts} |
-            {j: f"ensItem{j}" for j, _ in enss} | {j: f"svItem{j}" for j, _ in svs} | {j: f"spItem{j}" for j in spjs})
+            {j: f"ensItem{j}" for j, _ in enss} | {j: f"svItem{j}" for j, _ in svs} | {j: f"spItem{j}" for j in spjs} |
+            {j: f"ovlmItem{j}" for j in pnjs})
     tp = "(fnText.map (trS · |>.pat))"
     for j in at:
         tp = f"({tp}.set {j} {item[j]})"
@@ -5476,11 +5648,12 @@ def readings_section(ws, acs, rds, uns, nfe, npe, cuts=(), confined=False, enss=
     cf = [j for j, _, k in cuts if cut_form(k) == "own"]
     cy = [j for j, _, k in cuts if cut_form(k) != "own"]
     svjs = [j for j, _ in svs]
-    ex_f = sorted(ujs + cy + svjs + spjs)
+    ex_f = sorted(ujs + cy + svjs + spjs + pnjs)
     out_l = ", ".join(map(str, sorted(wjs + ujs + cx + spjs)))
     via = [f"item {j} through `ac{j}_iff`" for j, _ in acs] + [f"item {j} through `rd{j}_iff`" for j, _ in rds] + \
         [f"item {j} through `ens{j}_iff`" for j, _ in enss]
-    via_e = via + [f"item {j} by `cut{j}_entailed`" for j, _ in ce] + [f"item {j} by `sv{j}_entailed`" for j in svjs]
+    via_e = via + [f"item {j} by `cut{j}_entailed`" for j, _ in ce] + [f"item {j} by `sv{j}_entailed`" for j in svjs] + \
+        [f"item {j} by `prios_out_entailed{j}`" for j in pnjs]
     via_f = via + [f"item {j} by `cut{j}_from_text`" for j in cf]
     but = ([f"the narrowed ones (items {', '.join(map(str, wjs))})"] if ws else []) + \
         ([f"the untied ones (items {', '.join(map(str, ujs))})"] if uns else []) + \
@@ -5489,16 +5662,20 @@ def readings_section(ws, acs, rds, uns, nfe, npe, cuts=(), confined=False, enss=
     but_f = ([f"the untied ones (items {', '.join(map(str, ujs))})"] if uns else []) + \
         ([f"the cut ones given with the constructors' facts (items {', '.join(map(str, cy))})"] if cy else []) + \
         ([f"the set-variable ones given with two signature items (items {', '.join(map(str, svjs))})"] if svs else []) + \
-        ([f"the clauses of one equation (items {', '.join(map(str, spjs))})"] if sps else [])
+        ([f"the clauses of one equation (items {', '.join(map(str, spjs))})"] if sps else []) + \
+        ([f"the overload clauses given with the constructors' facts and Cons-Fun of the injection (items "
+          f"{', '.join(map(str, pnjs))})"] if pns else [])
     out += [f"/-- **E for the function equations**: Γ entails each sentence of `fnText`"
             + (f" but {' and '.join(but)}" if but else "") + ", for every H"
             + ("; " + ", ".join(via_e) if via_e else "") + ". -/",
             "theorem fns_entailed (H : HookParams) : ∀ (j : Nat) (ad : AxiomDecl), fnText[j]? = some ad →",
             f"    j ∉ ([{out_l}] : List Nat) → Γ (cH H) ⊧ (trS ad).pat := by",
             "  intro j ad hj hn"]
-    for j, i in acs + rds + ce + list(enss) + list(svs):
+    pnl = [(j, i) for j, i, _ in pns]
+    for j, i in acs + rds + ce + list(enss) + list(svs) + pnl:
         ent = f"ac{j}_entailed" if (j, i) in acs else f"rd{j}_entailed" if (j, i) in rds else \
-            f"ens{j}_entailed" if (j, i) in enss else f"sv{j}_entailed" if (j, i) in svs else f"cut{j}_entailed"
+            f"ens{j}_entailed" if (j, i) in enss else f"sv{j}_entailed" if (j, i) in svs else \
+            f"prios_out_entailed{j}" if (j, i) in pnl else f"cut{j}_entailed"
         out += [f"  by_cases h{j} : j = {j}",
                 f"  · subst h{j}",
                 f"    rw [fnText_at{j}] at hj",
@@ -5510,7 +5687,7 @@ def readings_section(ws, acs, rds, uns, nfe, npe, cuts=(), confined=False, enss=
             "    simp only [pairSetAt, List.mem_cons, List.not_mem_nil, or_false] at hn ⊢",
             "    omega"]
     out += (["  exact TiePair.entailed (shapeH H) _ (List.mem_of_getElem? (textPats_of hj hn'))", ""]
-            if acs or rds or ce or enss or svs else
+            if acs or rds or ce or enss or svs or pns else
             ["  intro M _ I hI",
              "  exact TiePair.entailed (shapeH H) _ (List.mem_of_getElem? (textPats_of hj hn')) hI", ""])
     out += ["/-- **The converse for `fnItems`**: each item"
@@ -5563,14 +5740,26 @@ def readings_section(ws, acs, rds, uns, nfe, npe, cuts=(), confined=False, enss=
             "  cases hf : fnText[j]? with",
             "  | none => rw [hf] at ht; cases ht",
             "  | some ad => rw [hf] at ht; cases ht; exact ⟨ad, rfl, hent⟩", "",
+            ] + ([
             "/-- The priority each function sentence's attributes state is the priority of the clause whose",
             "item it gives, item by item in `fnItems`'s order. -/",
             "theorem fn_prios : fnText.map (fun ad => AttrsAgree.prioOf ad.ax.attributes) =",
-            "    c.allFns.flatMap (fun f => f.clauses.map (·.prio)) := by decide +kernel", "",
+            "    c.allFns.flatMap (fun f => f.clauses.map (·.prio)) := by decide +kernel", ""] if not pns else [
+            "/-- The positions of the clauses read from a `symbol-overload` axiom. -/",
+            f"def priosOutJ : List Nat := [{', '.join(map(str, pnjs))}]", "",
+            "/-- The priority each function sentence's attributes state is the priority of the clause whose",
+            "item it gives, item by item in `fnItems`'s order, but at the clauses read from a `symbol-overload`",
+            "axiom (`priosOutJ`): the axiom states no priority, read as 50, and the reading gives the clause 0. -/",
+            "theorem fn_prios_but : fnText.length = (c.allFns.flatMap (fun f => f.clauses.map (·.prio))).length ∧",
+            "    ((fnText.map (fun ad => AttrsAgree.prioOf ad.ax.attributes)).zip",
+            "      (c.allFns.flatMap (fun f => f.clauses.map (·.prio)))).zipIdx.all",
+            "      (fun x => x.1.1 == x.1.2 || priosOutJ.contains x.2) = true := by decide +kernel", ""]) + [
+
             "/-! ## The converse over Γ's content -/", "",
             "/-- **Every premise of Γ is a consequence of the text's function sentences** (the items set to",
             "Γ's through their sentences" + (", the untied ones as Γ's own" if uns else "")
             + (", the clauses of one equation as Γ's own" if sps else "")
+            + (", the overload clauses as Γ's own" if pns else "")
             + "), Γ's rule items and the five parts Γ defines by predicates",
             "(`TiePair.Pre`), for every H. -/",
             "theorem gamma_from (H : HookParams) : ∀ φ, Γ (cH H) φ → TiePair.Pre (cH H) textPats ⊧ φ :=",
