@@ -167,6 +167,7 @@ differs f2-examples/e3-ml-eq-rhs-or-bottom.kompile.kore
 differs f2-examples/e3-ml-eq-rhs-or-empty.kompile.kore
 differs f2-examples/e3-ml-eq-rhs-or-many-x.kompile.kore
 differs f2-examples/e3-ml-eq-rhs-or-many.kompile.kore
+differs f2-examples/e3-ml-eq-rhs-or.kompile.kore
 differs f2-examples/e3-ml-lhs-or-rhs-var.kompile.kore
 differs f2-examples/e3-ml-lhs-value-sort.kompile.kore
 differs f2-examples/e3-ml-req-and.kompile.kore
