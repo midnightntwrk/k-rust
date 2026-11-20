@@ -846,7 +846,13 @@ inductive ReadingNote where
   denotes what the text's axiom denotes in every interpretation; the rule's presentation carries
   the name Z' (`RulePres.names`), so the sentence written back is the α-variant. The renamed binder
   is then a binder as any other: an existential variable of the rule (`Rule.exs`), or one that binds
-  nothing (`existsDropped`). -/
+  nothing (`existsDropped`).
+  The same of an equation read by `ceRead` whose right side is under `\exists` (`ceBinders`): a
+  binder whose name an argument pattern, the `requires`, the `ensures` or the `[owise]` exclusion
+  holds is outside those parts' scope, and the equation is read as its α-variant with that binder
+  and the occurrences it binds renamed to a name the equation does not hold (`ceApart`). The
+  renamed binder is an existential variable of the clause (`Clause.exs`), or one that binds nothing
+  (`existsBindsNothing`). -/
   | existsRenamedApart
   /-- A rewrite axiom `\rewrites(lhs ∧ req, ∃Z:s. B)` one of whose right-side binders binds nothing
   in what is read of its body (`exKept`): no variable of the binder's name and sort is free in the
@@ -966,6 +972,27 @@ inductive ReadingNote where
   `clauseRefusal` refuses it otherwise (`existentialEquation`). Where the clause's instances give
   `f(X̄)` different values at one point, the function has no result there. -/
   | existentialClause
+  /-- An equation's right side `∃x̄. B` read by `ceRead`, one of whose binders `∃Z:s` binds nothing
+  (`ceBinders`): a binder under it binds the same variable (name and sort), or no variable of its
+  name and sort is free in B. The sentence read is equal to the text's in every interpretation, in
+  each of three cases.
+  A binder under it binds Z:s again: Z:s is not free in the outer binder's body ψ, so `∃Z:s. ψ` is
+  ψ where s has an element and empty where it has none; ψ is itself under a binder over s, the
+  union over the elements of s, and is empty where s has none. So `∃Z:s. ψ = ψ` at every s: of
+  several binders of one variable the innermost alone is read.
+  Z:s is free nowhere in B and an argument pattern holds a variable of the sort s: the sentence is
+  stated under every valuation of its free variables, each an element of its sort, so s has an
+  element wherever the sentence states anything, and `∃Z:s. B = B` there: read without the binder.
+  Z:s is free nowhere in B and no argument pattern holds a variable of s: `⌈Z⌉` is `\top` for an
+  element variable, so `∃Z:s. B = ∃Z:s. (B ∧ ⌈Z⌉)`, whether s has an element or not: the binder is
+  kept, Z among the clause's existential variables (`Clause.exs`) and `⌈Z⌉` a conjunct of its
+  right-side predicate (`Clause.post`). The clause is then one with an existential variable as any
+  other, which the definition reads where Z is of a confined sort (`Semantics.clausePlainEx`) and
+  `clauseRefusal` refuses otherwise (`existentialEquation`).
+  This is not a rule's case (`existsDropped`), where the text entails the sentence without the
+  binder at every sort: `f(X̄) = ⊥`, the equation where s is empty, does not entail `f(X̄) = B`, so
+  an equation's binder is dropped only where the two sentences are equal. -/
+  | existsBindsNothing
   deriving Repr, DecidableEq, Inhabited
 
 /-- A sentence of the user module: read, read in another form than written (`readAs`, with the
@@ -3715,7 +3742,7 @@ Whether the definition admits the clause (each variable of x̄ of a confined sor
 is decided on the built definition. -/
 
 /-- The indices of a right side's bound variables, in order, each a variable the first `n0` do
-not name (`patternConnective` otherwise: the binder is not read renamed apart here). -/
+not name (`patternConnective` otherwise: `ceBinders` renames such a binder apart before). -/
 def exBind (n0 : Nat) : List Var → List Kore.EVar → Rd (List Nat × List Var)
   | vs, [] => pure ([], vs)
   | vs, x :: xs => do
@@ -3747,6 +3774,78 @@ def cutCeils (used bound : List String) : Nat → List Kore.Pattern → List Kor
 def dupBinder : List Kore.EVar → Option Kore.EVar
   | [] => none
   | x :: xs => if xs.any (decide <| · = x) then some x else dupBinder xs
+
+/-- The `\exists{S}` binders heading a pattern, outermost first, each with its sort S, and the
+pattern under them (`peelExists`, with the binders' sorts). -/
+def peelExistsS : Kore.Pattern → List (Kore.KSort × Kore.EVar) × Kore.Pattern
+  | .exist S x p => ((S, x) :: (peelExistsS p).1, (peelExistsS p).2)
+  | p => ([], p)
+
+/-- The pattern under the binders, outermost first: what `peelExistsS` takes apart. -/
+def underExistsS (xs : List (Kore.KSort × Kore.EVar)) (body : Kore.Pattern) : Kore.Pattern :=
+  xs.foldr (fun x p => .exist x.1 x.2 p) body
+
+/-- Of several binders of one variable (name and sort), the innermost alone (`dupBinder`'s are
+left out). -/
+def ceInnermost : List (Kore.KSort × Kore.EVar) → List (Kore.KSort × Kore.EVar)
+  | [] => []
+  | x :: xs => if xs.any (decide <| ·.2 = x.2) then ceInnermost xs else x :: ceInnermost xs
+
+/-- The binders `xs` around `body` renamed apart: each binder whose name is one of `outer` gets,
+with the occurrences it binds in `body`, its name primed until no name of `used` is it (`freshIn`);
+the binders, the body and the names then used. The innermost binder first, so a name chosen for one
+binder is not chosen for one around it. `renameEVar` compares name and sort, and the binders are of
+different variables (`ceInnermost`), so each binder's occurrences alone are renamed. This is
+`exApart`, which renames a rule's binders, on the binders taken apart. -/
+def ceApart (outer : List String) : List String → List (Kore.KSort × Kore.EVar) → Kore.Pattern →
+    List (Kore.KSort × Kore.EVar) × Kore.Pattern × List String
+  | used, [], p => ([], p, used)
+  | used, x :: xs, p =>
+    let (xs', p', used) := ceApart outer used xs p
+    if outer.contains x.2.var.ident.name then
+      let y := KoreAML.evar (freshIn used (used.length + 1) x.2.var.ident.name) x.2.sort
+      ((x.1, y) :: xs', renameEVar x.2 y p', y.var.ident.name :: used)
+    else (x :: xs', p', used)
+
+/-- An equation whose right side is `\exists x̄. body` as `ceRead` reads its binders, and the notes
+of that reading; the equation itself, with no note, where no binder is read otherwise than as
+written. Each step gives a sentence equal to the one before in every interpretation (a variable is
+a name and a sort, `\exists Z:s. φ` is the union of φ over the elements of s, and the sentence is
+stated under every valuation of its free variables, each an element of its sort):
+- of several binders of one variable the innermost alone (`ceInnermost`): the variable is not free
+  in an outer one's body, which is under a binder over the same sort and so empty where the sort
+  is, `∃Z:s. ∃ȳ. ∃Z:s. φ = ∃ȳ. ∃Z:s. φ` (`existsBindsNothing`);
+- then a binder whose name an argument pattern, the `requires`, the `ensures` or the `[owise]`
+  exclusion holds, renamed with the occurrences it binds to a name the equation does not hold
+  (`ceApart`): those parts are outside the binder's scope, and the result is the equation's
+  α-variant (`existsRenamedApart`);
+- then a binder whose variable is not free in the body, `∃Z:s. φ` being φ where s has an element
+  and empty where it has none (`existsBindsNothing`): left out where an argument pattern holds a
+  variable of the sort s, which then has an element at every valuation the sentence is stated
+  under; otherwise kept, with `\ceil{s, S}(Z)` a conjunct of the body (S the binder's sort), `⌈Z⌉`
+  being `\top` for an element variable, so `∃Z:s. φ = ∃Z:s. (φ ∧ ⌈Z⌉)` at every s. Where every
+  binder would be left out and the body is a term under predicates with no conjunction of terms
+  (`cutAnd` lifts a predicate and cuts nothing), the innermost binder is kept so instead: the
+  clause `ceRead` gives would otherwise have a right-side predicate and no existential variable,
+  which the definition does not read (`Semantics.clausePlainEx`). -/
+def ceBinders (e : RawEqn) : RawEqn × List ReadingNote :=
+  let (xs, body) := peelExistsS e.rhs
+  if xs.isEmpty then (e, []) else
+  let outer := e.pats ++ e.req.toList ++ e.ens.toList ++ e.competitors.getD []
+  let names := evarNamesList outer
+  let xs1 := ceInnermost xs
+  let (xs2, body, _) := ceApart names (evarNamesList (e.rhs :: outer)) xs1 body
+  let free := freeEVarsS [] body
+  let held := fun (x : Kore.KSort × Kore.EVar) => free.any (decide <| · = x.2)
+  let argSorts := (freeEVarsSList [] e.pats).map (·.sort)
+  let (_, _, cuts, ps) := cutAnd [] [] 0 body
+  let kept := xs2.filter fun x => held x || !argSorts.any (decide <| · = x.2.sort)
+  let xs3 := if kept.isEmpty && cuts.isEmpty && !ps.isEmpty then xs2.getLast?.toList else kept
+  let body := (xs3.filter (!held ·)).foldl
+    (fun b x => .and x.1 [b, .ceil x.2.sort x.1 (.var (.evar x.2))]) body
+  ({ e with rhs := underExistsS xs3 body },
+   (if xs1.any (names.contains ·.2.var.ident.name) then [ReadingNote.existsRenamedApart] else []) ++
+   (if xs1.length != xs.length || xs2.any (!held ·) then [ReadingNote.existsBindsNothing] else []))
 
 /-! ### `\or` of terms at a term position
 
@@ -4011,12 +4110,13 @@ conjunction of terms in its operand is reached through `\not`, `\or`, `\and` or 
 `orCut` does not read the operand, and
 the test of `manyValued?` does not range over it (a `\ceil` holds where its operand has some
 element, so an operand with several is no right side with several values).
-Refused `patternConnective`: a variable of x̄ (name and sort) that is bound twice, named in the
-detail, or that the arguments, the `requires` or the `ensures` hold (these binders are not read here: a rule's are, renamed apart or
-dropped, `rhsApart` and `exKept`).
-Refused `unheldVariable`: a variable of x̄ that the body does not hold (the sentence then states
-the term only where the variable's sort has an element, which the clause would not say: unlike a
-rule's sentence, `f(x̄) = ∃Z:s. t` at an empty s is `f(x̄) = ⊥`, which does not entail `f(x̄) = t`).
+The binders x̄ are read as `ceBinders` gives them, each reading a sentence equal to the text's: of
+several binders of one variable (name and sort) the innermost alone; a binder whose name the
+arguments, the `requires`, the `ensures` or the `[owise]` exclusion hold renamed apart with the
+occurrences it binds; a binder whose variable is not free in the body left out where an argument
+pattern holds a variable of its sort, and otherwise kept, a variable of `exs` with `⌈Z⌉` in `post`
+(`f(x̄) = ∃Z:s. t` at an empty s is `f(x̄) = ⊥`, which does not entail `f(x̄) = t`, so that binder
+is not left out as a rule's is, `exKept`).
 An alternative `\exists x:s. φ` of a disjunction of terms, φ under no further binder, is read
 where the text writes it (`memOf`): `Cond.ex s (Z ∈ φ)` in the disjunction of the memberships, x
 at the index past every variable of the clause, each numbered before the memberships are read.
@@ -4035,19 +4135,17 @@ binders) is not `rhsSorted`, or a binder is of another sort than the function's 
 def ceRead (N : Names) (e : RawEqn) : Rd (Clause × List Var) := do
   rhsSortGuard (peelExists e.rhs).2
   eqnBinderSortGuard N e
+  let e := (ceBinders e).1
   let (pats, req, ens, vs, _) ← eqnHead N e
   let n0 := vs.length
   let (xs, body) := peelExists e.rhs
   if exOutsideAlt body then fail .manyValuedRightSide "\\exists"
   if isPred body then fail .manyValuedRightSide "\\top"
-  if let some x := dupBinder xs then fail .patternConnective s!"{x.var.ident.name}: bound twice"
   let bound := xs.map (·.var.ident.name)
   let used := evarNamesList (e.rhs :: e.pats ++ e.req.toList ++ e.ens.toList)
   let (t, n, cuts, ps) := cutAnd used bound 0 body
   let (t, cuts) := orCutAll used t cuts
   if let some c := (t :: cuts.flatMap (·.2.2)).findSome? orManyValued? then fail .manyValuedRightSide c
-  if let some x := xs.find? (fun x => !(evarNames body).contains x.var.ident.name) then
-    fail .unheldVariable s!"{x.var.ident.name}: bound by \\exists, not held by its body"
   let (ps, _, ccuts) := cutCeils used bound n ps
   let cuts := cuts ++ ccuts
   let (exs, vs) ← exBind n0 vs xs
@@ -6263,7 +6361,8 @@ reads the names), `andTermsWeaker` where they are not, and both where some are, 
 (`requiresOrSplit` and its disjuncts', else `predicateAtBool`, `notAsCondition`, `andAtBool`,
 `andUnderAppCut`) and the `ensures`',
 `orBottom`; each once. An equation read by cases has `existsAsCases` or `orAsCases` in place of
-its right side's notes, one read by `ceRead` `existentialClause` (`ceCases`), and `orBottom` for an alternative left out as `\bottom` (`hasEmptyAlt`). -/
+its right side's notes, one read by `ceRead` `existentialClause` (`ceCases`) then its binders' notes
+(`ceBinders`: `existsRenamedApart`, `existsBindsNothing`), and `orBottom` for an alternative left out as `\bottom` (`hasEmptyAlt`). -/
 def connNotes (N : Names) (a₀ : Kore.Axiom) : List ReadingNote :=
   let a := unaliasRule a₀
   let al := match a₀.pattern with
@@ -6321,7 +6420,8 @@ def connNotes (N : Names) (a₀ : Kore.Axiom) : List ReadingNote :=
         let r := dropEmptyAlts e.rhs
         let cases :=
           if exCases N e then [ReadingNote.existsAsCases]
-          else if ceCases N e then [ReadingNote.existentialClause]
+          else if ceCases N e then
+            ReadingNote.existentialClause :: (ceBinders (ceEqn N { e with rhs := r })).2
           else if eqnFnl N e && orCases r then [ReadingNote.orAsCases] else []
         (if (svinShape e).toOption.join.isSome then [ReadingNote.setVarInDropped] else []) ++
           (if cases.isEmpty then side true r else cases) ++ conds [e.req, e.ens] ++

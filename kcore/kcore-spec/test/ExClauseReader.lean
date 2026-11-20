@@ -35,10 +35,18 @@
   Hand-written (`Hand`, over the names `N1`, f : Bool → Bool):
   - `eqTwoB`, `#Exists B. #Exists C. (C #And {C #Equals B} #And {B #Equals notBool X})`: `exs` is B
     then C, the order of nesting, though the body holds C first.
-  - `eqUnheld`, `#Exists B. X`: refused `unheldVariable`, the body does not hold B.
-  - `eqArg`, `#Exists X. X`: refused `patternConnective`, the arguments hold X.
-  - `eqTwice`, `#Exists B. #Exists B. B`: refused `patternConnective`; `eqTwiceAB`,
-    `#Exists A. #Exists B. #Exists B. B`: the detail names B, the variable bound twice.
+  - `eqUnheld`, `#Exists B. X`: the body does not hold B and the argument X is of B's sort, which
+    so has an element wherever the sentence states anything: read without the binder, `rhs X`.
+  - `eqUnheldInt`, `#Exists Z:Int. X`: the body does not hold Z and no argument is of the sort Int:
+    the binder is kept, `exs` Z and `post ⌈Z⌉`.
+  - `eqArg`, `#Exists X. X`: the arguments hold the binder's name, which is another variable
+    outside the binder: the binder and its occurrence renamed `X'`, `exs` X' and `rhs X'`.
+  - `eqTwice`, `#Exists B. #Exists B. B`: the innermost binder alone, `exs` B; `eqTwiceAB`,
+    `#Exists A. #Exists B. #Exists B. B`: the same, and A, which the body does not hold, left out
+    as `eqUnheld`'s B.
+  - `eqUnheldPred`, `#Exists B. (X #And {X #Equals true})`: as `eqUnheld`, but the body has a
+    predicate and no binder would be left: B is kept, `exs` B and `post (X = true) ∧ ⌈B⌉`.
+  (`ceBinders`; each sentence read is equal to the text's.)
   - `eqNoTerm`, `#Exists B. {B #Equals notBool X}`: refused `manyValuedRightSide` (`\top`).
   - `eqInner`, `#Exists B. (B #And #Exists C. {C #Equals B})`: refused `manyValuedRightSide`.
   - `eqAnd`, `#Exists B. (B #And notBool X)`, two term conjuncts, one of them B: see and-terms.
@@ -449,6 +457,8 @@ def eqn (rhs : Kore.Pattern) : RawEqn := ⟨"Lblf", [X], none, none, rhs, [], no
 def eqB : RawEqn := eqn (ex "VarB" (.and bool [B, eqP B (notB X)]))
 def eqTwoB : RawEqn := eqn (ex "VarB" (ex "VarC" (.and bool [C, .and bool [eqP C B, eqP B (notB X)]])))
 def eqUnheld : RawEqn := eqn (ex "VarB" X)
+def eqUnheldInt : RawEqn := eqn (.exist bool (evar "VarZ" (srt "Int")) X)
+def eqUnheldPred : RawEqn := eqn (ex "VarB" (.and bool [X, eqP X (.dv bool "true")]))
 def eqArg : RawEqn := eqn (ex "VarX" X)
 def eqTwice : RawEqn := eqn (ex "VarB" (ex "VarB" B))
 def eqTwiceAB : RawEqn := eqn (ex "VarA" (ex "VarB" (ex "VarB" B)))
@@ -476,10 +486,30 @@ eqTwoB:
   [0] vars [X:Bool, B:Bool, C:Bool] pats [X] req none prio 50 aside false
       pre ⊤
       rhs C ens none exs [1, 2] post ((C =[Bool] B) ∧ (B =[Bool] LblnotBool'Unds'(X)))
-eqUnheld: refused KCore.Parse.RefusalReason.unheldVariable (VarB: bound by \exists, not held by its body)
-eqArg: refused KCore.Parse.RefusalReason.patternConnective (VarX)
-eqTwice: refused KCore.Parse.RefusalReason.patternConnective (VarB: bound twice)
-eqTwiceAB: refused KCore.Parse.RefusalReason.patternConnective (VarB: bound twice)
+eqUnheld:
+  [0] vars [X:Bool] pats [X] req none prio 50 aside false
+      pre ⊤
+      rhs X ens none exs [] post ⊤
+eqUnheldInt:
+  [0] vars [X:Bool, Z:Int] pats [X] req none prio 50 aside false
+      pre ⊤
+      rhs X ens none exs [1] post ⌈Z⌉:Int
+eqUnheldPred:
+  [0] vars [X:Bool, B:Bool] pats [X] req none prio 50 aside false
+      pre ⊤
+      rhs X ens none exs [1] post ((X =[Bool] true) ∧ ⌈B⌉:Bool)
+eqArg:
+  [0] vars [X:Bool, X':Bool] pats [X] req none prio 50 aside false
+      pre ⊤
+      rhs X' ens none exs [1] post ⊤
+eqTwice:
+  [0] vars [X:Bool, B:Bool] pats [X] req none prio 50 aside false
+      pre ⊤
+      rhs B ens none exs [1] post ⊤
+eqTwiceAB:
+  [0] vars [X:Bool, B:Bool] pats [X] req none prio 50 aside false
+      pre ⊤
+      rhs B ens none exs [1] post ⊤
 eqNoTerm: refused KCore.Parse.RefusalReason.manyValuedRightSide (\top)
 eqInner: refused KCore.Parse.RefusalReason.manyValuedRightSide (\exists)
 eqAnd:
@@ -497,6 +527,8 @@ open Hand in
   showHand "eqB" (ceRead N1 eqB)
   showHand "eqTwoB" (ceRead N1 eqTwoB)
   showHand "eqUnheld" (ceRead N1 eqUnheld)
+  showHand "eqUnheldInt" (ceRead N1 eqUnheldInt)
+  showHand "eqUnheldPred" (ceRead N1 eqUnheldPred)
   showHand "eqArg" (ceRead N1 eqArg)
   showHand "eqTwice" (ceRead N1 eqTwice)
   showHand "eqTwiceAB" (ceRead N1 eqTwiceAB)
@@ -530,9 +562,39 @@ theorem ceRead_eqTwoB : ceRead N1 eqTwoB = .ok
 /-- The refusals' reasons. -/
 theorem ceRead_refused :
     let reason := fun (e : RawEqn) => match ceRead N1 e with | .error f => some f.reason | .ok _ => none
-    reason eqUnheld = some .unheldVariable ∧ reason eqArg = some .patternConnective ∧
-    reason eqTwice = some .patternConnective ∧ reason eqTwiceAB = some .patternConnective ∧ reason eqNoTerm = some .manyValuedRightSide ∧
+    reason eqNoTerm = some .manyValuedRightSide ∧
     reason eqInner = some .manyValuedRightSide ∧ reason eqPredAnd = some .patternConnective := by
+  decide +kernel
+
+/-- **The binders' readings, in the kernel** (`ceBinders`): a binder the body does not hold, left
+out where the argument is of its sort (`eqUnheld`) and kept with `⌈Z⌉` in `post` where no argument
+is (`eqUnheldInt`); a binder of the argument's name, renamed apart with its occurrence (`eqArg`);
+of two binders of one variable the innermost alone (`eqTwice`), and the same under a binder the
+body does not hold (`eqTwiceAB`). -/
+theorem ceRead_binders :
+    ceRead N1 eqUnheld = .ok
+      ({ vars := [Srt.bool], pats := [.var 0], req := none, rhs := .var 0, ens := none, prio := 50,
+         aside := false, exs := [], post := .top }, [⟨"X", "Bool"⟩]) ∧
+    ceRead N1 eqUnheldInt = .ok
+      ({ vars := [Srt.bool, Srt.int], pats := [.var 0], req := none, rhs := .var 0, ens := none, prio := 50,
+         aside := false, exs := [1], post := .ceil Srt.int (.var 1) }, [⟨"X", "Bool"⟩, ⟨"Z", "Int"⟩]) ∧
+    ceRead N1 eqArg = .ok
+      ({ vars := [Srt.bool, Srt.bool], pats := [.var 0], req := none, rhs := .var 1, ens := none, prio := 50,
+         aside := false, exs := [1], post := .top }, [⟨"X", "Bool"⟩, ⟨"X'", "Bool"⟩]) ∧
+    ceRead N1 eqTwice = .ok
+      ({ vars := [Srt.bool, Srt.bool], pats := [.var 0], req := none, rhs := .var 1, ens := none, prio := 50,
+         aside := false, exs := [1], post := .top }, [⟨"X", "Bool"⟩, ⟨"B", "Bool"⟩]) ∧
+    ceRead N1 eqTwiceAB = ceRead N1 eqTwice :=
+  ⟨by kernel_rfl, by kernel_rfl, by kernel_rfl, by kernel_rfl, by kernel_rfl⟩
+
+/-- **The binders' notes, in the kernel** (`ceBinders`, which `connNotes` reads): a binder that
+binds nothing is `existsBindsNothing`, one renamed apart `existsRenamedApart`; an equation whose
+binders each bind a variable of the body that the arguments do not name has neither. -/
+theorem ceBinders_notes :
+    (ceBinders eqUnheld).2 = [.existsBindsNothing] ∧ (ceBinders eqUnheldInt).2 = [.existsBindsNothing] ∧
+    (ceBinders eqArg).2 = [.existsRenamedApart] ∧ (ceBinders eqTwice).2 = [.existsBindsNothing] ∧
+    (ceBinders eqTwiceAB).2 = [.existsBindsNothing] ∧ (ceBinders eqB).2 = [] ∧ (ceBinders eqTwoB).2 = [] ∧
+    (ceBinders eqPlain).2 = [] := by
   decide +kernel
 
 end Hand
@@ -543,6 +605,10 @@ end Hand
 #guard_msgs in #print axioms Hand.ceRead_eqTwoB
 /-- info: 'ExClauseReader.Hand.ceRead_refused' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms Hand.ceRead_refused
+/-- info: 'ExClauseReader.Hand.ceRead_binders' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Hand.ceRead_binders
+/-- info: 'ExClauseReader.Hand.ceBinders_notes' depends on axioms: [propext] -/
+#guard_msgs in #print axioms Hand.ceBinders_notes
 
 /-! ## and-terms-eq -/
 

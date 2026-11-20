@@ -3583,7 +3583,8 @@ def readingNote : ReadingNote → GuardEntry
 
   | .existsRenamedApart =>
     { status := .guarded,
-      guard := [.decl ``KCore.Guards.DevExApart.apart_steps, .test "test/ExReader.lean" "exApart_shadow"],
+      guard := [.decl ``KCore.Guards.DevExApart.apart_steps, .test "test/ExReader.lean" "exApart_shadow",
+        .test "test/ExClauseReader.lean" "ceRead_binders"],
       companion := [.decl ``KCore.Guards.DevExApart.captured_not_seven, .decl ``KCore.Guards.DevExDrop.drop_only],
       invariant := [``KCore.Step, ``KCore.Cert.wellSorted_withHooks_hr, ``KCore.TieRulePair.listed_sound],
       note := "on hw-ex-shadow's text (e3-vars' with the binder and its occurrence spelled as the left side's second variable: c(_, _Y) => ∃_Y:Int. d(_Y), read as c(_, Y) => d(?Y'), the binder's variable the rule's existential variable), every H: c(1, 2) steps to d(7) and to d(2), the binder's variable taking a value that is not the left side's; the companion is the binder's variable read as the left side's, which gives the rule c(_, Y) => d(Y), the rule hw-ex-unused-int's text is read as (that the two texts' other rules are the same is stated by no theorem), where every successor of c(1, 2) is d(2) and d(7) is none, under every H; the renaming on the sentence is test/ExReader.lean's (exApart_shadow); that the axiom and its α-variant denote the same is the scoping of a binder (the note's docstring), stated by no theorem" }
@@ -3669,6 +3670,12 @@ def readingNote : ReadingNote → GuardEntry
         .decl ``KCore.Parse.ceRead, .decl ``KCore.Parse.clauseRefusal],
       note := "an equation's right side with \\exists, a conjunction of terms or an \\or that frRead does not read, read as one clause with existential variables and a right-side predicate (Parse.ceRead through Parse.clausesBody, ceCases); the clauses on the fixtures' texts and the dispatch on hand-written equations are the tests'; a clause whose existential variable is neither confined nor fixed is refused existentialEquation (clauseRefusal); no statement over c.withHooks H, no companion" }
 
+  | .existsBindsNothing =>
+    { status := .pending "GUARD.final",
+      guard := [.test "test/ExClauseReader.lean" "ceRead_binders", .test "test/ExClauseReader.lean" "ceBinders_notes",
+        .decl ``KCore.Parse.ceBinders, .decl ``KCore.Parse.clauseRefusal],
+      note := "an equation's right side under \\exists one of whose binders binds nothing, read by a sentence equal to the text's in every interpretation (Parse.ceBinders, in Parse.ceRead): of several binders of one variable the innermost alone (e3-eq-exists-twice-ml); a binder whose variable is not free in the body left out where an argument pattern holds a variable of its sort (e3-eq-exists-unheld-ml's q), and otherwise kept as an existential variable Z of the clause with ⌈Z⌉ in post (the same text's p, whose clause is then refused existentialEquation at the unconfined sort Int, clauseRefusal); the clauses on hand-written equations are the test's, in the kernel; the equalities are the note's docstring, stated by no theorem; no statement over c.withHooks H, no companion" }
+
 def inertReason : InertReason → GuardEntry
   | .import =>
     { status := .readerTest,
@@ -3753,7 +3760,8 @@ def readingNotes : List ReadingNote :=
    .requiresOrSplit, .setVarInDropped, .keyFunctionAsMember, .equationPriority, .owiseAsPriority,
    .owiseDisjunctNarrower, .identityAlias, .existsRenamedApart, .existsDropped,
    .overloadFunction, .tokKItem,
-   .notAsCondition, .andUnderAppCut, .connectiveCut, .lhsAndCut, .existentialClause]
+   .notAsCondition, .andUnderAppCut, .connectiveCut, .lhsAndCut, .existentialClause,
+   .existsBindsNothing]
 
 def inertReasons : List InertReason :=
   [.import, .claim, .simplification, .distinctCtors, .injectivity, .noJunk, .collectionLaw,

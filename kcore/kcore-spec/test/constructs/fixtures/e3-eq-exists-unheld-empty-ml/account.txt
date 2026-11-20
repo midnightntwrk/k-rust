@@ -1,0 +1,20 @@
+out/definition.kore: 5 modules; prelude agrees
+user module E3-EQ-EXISTS-UNHELD-EMPTY-ML: 291 sentences
+  1 inert import [generated]
+  166 read [generated]
+  95 read [builtin]
+  2 read [user]
+  5 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  10 inert noJunk [generated]
+  1 read existentialClause [user]
+  1 inert simplification [generated]
+connective readings per sentence: 1
+      sentence 289: existentialClause, existsBindsNothing
+stage refusals (of sentences classified read): 1
+  1 existentialEquation
+      sentence 289 (Lblp): existentialEquation (VarZ:S: an existential variable of the right side, of a sort the text leaves unconfined, that no conjunct of its predicate equates with a term: the function's value ranges over elements of S that no value names)
+        [user] (no label) at e3-eq-exists-unheld-empty-ml.k:7: axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortBool{}, R}(X0:SortBool{}, VarX:SortBool{}), \top{R}())), \equals{SortBool{}, R}(Lblp{}(X0:SortBool{}), \and{SortBool{}}(\exists{SortBool{}}(VarZ:SortS{}, VarX:SortBool{}), \top{SortBool{}}()))) [UNIQUE'Unds'ID{}("63c41890086032b5404286ba42b0f270abd45076058b13c0a922dc1d3da4874d"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7 …
+finish: sentence 289 (Lblp): existentialEquation (VarZ:S: an existential variable of the right side, of a sort the text leaves unconfined, that no conjunct of its predicate equates with a term: the function's value ranges over elements of S that no value names)
+(exit 0)

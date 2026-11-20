@@ -12,13 +12,11 @@ user module E3-EQ-EXISTS-UNHELD-ML: 390 sentences
   2 read existentialClause [user]
   1 inert simplification [generated]
 connective readings per sentence: 2
-      sentence 387: existentialClause
-      sentence 402: existentialClause
-stage refusals (of sentences classified read): 2
-  2 unheldVariable
-      sentence 387 (Lblp): unheldVariable (VarZ: bound by \exists, not held by its body)
+      sentence 387: existentialClause, existsBindsNothing
+      sentence 402: existentialClause, existsBindsNothing
+stage refusals (of sentences classified read): 1
+  1 existentialEquation
+      sentence 387 (Lblp): existentialEquation (VarZ:Int: an existential variable of the right side, of a sort the text leaves unconfined, that no conjunct of its predicate equates with a term: the function's value ranges over elements of Int that no value names)
         [user] (no label) at e3-eq-exists-unheld-ml.k:5: axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortBool{}, R}(X0:SortBool{}, VarX:SortBool{}), \top{R}())), \equals{SortBool{}, R}(Lblp{}(X0:SortBool{}), \and{SortBool{}}(\exists{SortBool{}}(VarZ:SortInt{}, VarX:SortBool{}), \top{SortBool{}}()))) [UNIQUE'Unds'ID{}("6638322cbb2bec626bd7f956c778bc8d23690ddfbcb16cb3236fc5b70d6972b6"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location …
-      sentence 402 (Lblq): unheldVariable (VarZ: bound by \exists, not held by its body)
-        [user] (no label) at e3-eq-exists-unheld-ml.k:6: axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortBool{}, R}(X0:SortBool{}, VarX:SortBool{}), \top{R}())), \equals{SortBool{}, R}(Lblq{}(X0:SortBool{}), \and{SortBool{}}(\exists{SortBool{}}(VarZ:SortBool{}, VarX:SortBool{}), \top{SortBool{}}()))) [UNIQUE'Unds'ID{}("abe9da998f21a0510fde669050f0c51c3fddb3101af39b6b87019e4398030335"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Locatio …
-finish: sentence 387 (Lblp): unheldVariable (VarZ: bound by \exists, not held by its body)
+finish: sentence 387 (Lblp): existentialEquation (VarZ:Int: an existential variable of the right side, of a sort the text leaves unconfined, that no conjunct of its predicate equates with a term: the function's value ranges over elements of Int that no value names)
 (exit 0)
