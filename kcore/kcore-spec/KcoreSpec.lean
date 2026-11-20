@@ -442,6 +442,7 @@ import KcoreSpec.WitnessedGivers
 import KcoreSpec.KKNative
 import KcoreSpec.LibEvSortPred
 import KcoreSpec.LibEvCeilFn
+import KcoreSpec.LibEvCeilParam
 import KcoreSpec.FnHypPre
 import KcoreSpec.TiePriosBut
 import KcoreSpec.TieOvlMem
