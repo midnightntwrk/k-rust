@@ -913,8 +913,9 @@ theorem lib166_at_values (H : HookParams) : EntailsAtValues (cH H) U.ax161 (trS 
 /-! ## The parameter functional sentences (80): owed as `ParamsTotal` -/
 
 /-- The parameter symbols no registry hook interprets that the text declares total
-(`Definition.totalParams`): the statements take `ParamsTotal c defn.totalParams H`, that `H` gives
-each a value of its result sort at every argument list of its argument sorts. -/
+(`Definition.totalParams`). `ParamsTotal c defn.totalParams H` is that `H` gives each a value
+of its result sort at every argument list of its argument sorts: a fact of H that no statement here
+takes as a hypothesis. -/
 theorem total_params : defn.totalParams.map c.symName = ["Lblidp{Int}"] := by decide +kernel
 
 /-- The text's `functional` sentences of those parameters (`isParamFunctional`), and those of a

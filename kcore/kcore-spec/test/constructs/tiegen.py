@@ -456,7 +456,8 @@ What it states where the text:
 - has the `functional` sentence of a parameter symbol no registry hook implements that the text
   declares total (`isParamFunctional`, the class `parameter functional`, direction hypothesis):
   `total_params` (`Definition.totalParams`), `paramfunctional_account`, `paramfunctional_heads`; it is
-  owed as `ParamsTotal`, the hypothesis on H the statements take. The functional sentence of a
+  owed as `ParamsTotal`, the hypothesis on H the statements take where the tie states `consistent`
+  under it, and otherwise a fact of H that no statement takes as a hypothesis. The functional sentence of a
   parameter without `impl` the text does not declare total is refused. A `functional` sentence of a
   sort-parametric symbol over its sort variables, of which such a parameter is an instance (the
   probe's `FQ` lines, `functionalSQ`), is of that class too: it applies the symbol at sort variables,
@@ -4402,7 +4403,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     if open_fun:
         w(open_functional_section(open_fun, rnames))
     if param_fun:
-        w(param_functional_section(param_fun, total_names, len(idx), chunk, sq_pairs, sq_wit))
+        w(param_functional_section(param_fun, total_names, len(idx), chunk, sq_pairs, sq_wit, tp_held))
     if param_lem:
         w(param_lemma_section(param_lem, reads_h))
     if user_lem or user_lem_v:
@@ -7016,6 +7017,14 @@ EX_SHAPES = [
          item="sExists @z @S (sAnd (.evar @z) (sAnd (sTop @S) (sAnd (sIn @S @S (.evar @z) @X) @psi)))",
          facts=[("X_free", "@X.isFreeEvar @z = false"), ("psi_free", "@psi.isFreeEvar @z = false")],
          proof=ex_body("topCut_body F.defOK F.ceilDef hS #X_free #psi_free ha Iff.rfl")),
+    dict(kind="nestedApp", lemma="nestedApp_body, exEqVar_body", params="z",
+         what="`∃y. h(∃c. (c ∧ c = y))` against `∃z. h(z) ∧ ⊤`",
+         defs=[("y", "EVar", "exVK @tbl @K"), ("c", "EVar", "exVK @tbl (argK 0 (exBK @K))"), ("z", "EVar", "⟨$z⟩"),
+               ("hd", "P", "sym (.symbol (headK (exBK @K)))")],
+         text="sExists @y @S (@hd ⬝ sExists @c @S (sAnd (.evar @c) (sEquals @S @S (.evar @c) (.evar @y))))",
+         item="sExists @z @S (sAnd (@hd ⬝ .evar @z) (sTop @S))",
+         facts=[("cy", "@c ≠ @y"), ("hd_free_y", "@hd.isFreeEvar @y = false"), ("hd_free_z", "@hd.isFreeEvar @z = false")],
+         proof=ex_body("nestedApp_body F.defOK F.ceilDef hS #cy #hd_free_y #hd_free_z ha")),
     dict(kind="orMany", lemma="cutOf_body, cutOf_or, cutOf_mem", params="zk",
          what="`t₁ ∨ … ∨ tₖ` against `∃z. z ∧ (⊤ ∧ (z ∈ t₁ ∨ … ∨ z ∈ tₖ))`"),
 ]
@@ -7910,13 +7919,25 @@ theorem law_account : lawText.map (·.index) = classOf "{LAW_FN_CLASS}" := by
 """
 
 
-def param_functional_section(param_fun, total_names, n, chunk, sq_pairs=(), sq_wit=False):
+def total_params_doc(tp_held):
+    """What `total_params`' docstring says of `ParamsTotal`: the hypothesis the tie's statements take
+    (`tp_held`), or a fact of H that none of them takes."""
+    if tp_held:
+        return ("The statements take `ParamsTotal c defn.totalParams H`, that `H` gives\n"
+                "each a value of its result sort at every argument list of its argument sorts.")
+    return ("`ParamsTotal c defn.totalParams H` is that `H` gives each a value\n"
+            "of its result sort at every argument list of its argument sorts: a fact of H that no statement here\n"
+            "takes as a hypothesis.")
+
+
+def param_functional_section(param_fun, total_names, n, chunk, sq_pairs=(), sq_wit=False, tp_held=True):
     """The section of the class parameter functional. `sq_pairs`: the sort-quantified sentences of the class,
     each with a parameter declared total that is an instance of its head (`paramFunctionalSQ`, written
     before `account_absent`); `sq_wit`: also state that one H meets `ParamsTotal` and that Γ has a model
     under it (the plain consistency section, `consistent` for every H)."""
     if sq_pairs:
-        return param_functional_section_sq(param_fun, total_names, sq_pairs, sq_wit)
+        return param_functional_section_sq(param_fun, total_names, sq_pairs, sq_wit, tp_held)
+    tp_doc = total_params_doc(tp_held)
     il = ", ".join(map(str, param_fun))
     lt = ", ".join(f"U.ax{i}" for i in param_fun)
     tn = ", ".join(f'"{x}"' for x in total_names)
@@ -7936,8 +7957,7 @@ noncomputable def paramFunP (ad : AxiomDecl) : Bool :=
     return f"""/-! ## The parameter functional sentences ({il}): owed as `ParamsTotal` -/
 
 /-- The parameter symbols no registry hook interprets that the text declares total
-(`Definition.totalParams`): the statements take `ParamsTotal c defn.totalParams H`, that `H` gives
-each a value of its result sort at every argument list of its argument sorts. -/
+(`Definition.totalParams`). {tp_doc} -/
 theorem total_params : defn.totalParams.map c.symName = [{tn}] := by decide +kernel
 
 /-- The text's `functional` sentences of those parameters (`isParamFunctional`). -/
@@ -7958,7 +7978,8 @@ theorem paramfunctional_heads : userAxioms.all {pred} = true := by
 """
 
 
-def param_functional_section_sq(param_fun, total_names, sq_pairs, sq_wit):
+def param_functional_section_sq(param_fun, total_names, sq_pairs, sq_wit, tp_held=True):
+    tp_doc = total_params_doc(tp_held)
     il = ", ".join(map(str, param_fun))
     lt = ", ".join(f"U.ax{i}" for i in param_fun)
     tn = ", ".join(f'"{x}"' for x in total_names)
@@ -7987,8 +8008,7 @@ theorem consistent_witness : Consistent (cH (ParamSchema.constH totalWitnessV)) 
     return f"""/-! ## The parameter functional sentences ({il}): owed as `ParamsTotal` -/
 
 /-- The parameter symbols no registry hook interprets that the text declares total
-(`Definition.totalParams`): the statements take `ParamsTotal c defn.totalParams H`, that `H` gives
-each a value of its result sort at every argument list of its argument sorts. -/
+(`Definition.totalParams`). {tp_doc} -/
 theorem total_params : defn.totalParams.map c.symName = [{tn}] := by decide +kernel
 
 /-- The text's `functional` sentences of those parameters (`isParamFunctional`), and those of a
