@@ -64,8 +64,8 @@
   negative index or length, `^%Int` at a zero modulus, a lookup off the keys, `_Map_` and `_Set_` on a common key or member, `B[I]`, `B[I <- V]`,
   `substrBytes`, `padRightBytes`, `padLeftBytes` and `replaceAtBytes` off their stated ranges), and Γ
   states ⊥; or nothing of the value (an index off a String or a List, a binary Float operation on two
-  formats, a Float operation off the region the text states, a format without a model, a string off
-  a conversion's syntax, …: `silentTable`), and Γ
+  formats, a Float operation off the region the text states, a format without a model that `thinAt`
+  does not name, a string off a conversion's syntax, …: `silentTable`), and Γ
   states the interpretation's value there.
 -/
 import KcoreSpec.Value

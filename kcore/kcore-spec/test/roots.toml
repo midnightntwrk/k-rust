@@ -74,6 +74,7 @@ roots = [
   "KCore.appHeadsOf",
   "KCore.gammaHasHead",
   "KCore.surplusItem",
+  "KoreAML.instItem",
   "KCore.tieClasses",
   # C14, the registry family: registry_conservative, exact_own and detached_of_decided (pinned by type
   # in test/Pins.lean) at the decided check detachedB, every clause's predicate \top (clausesPreTop),

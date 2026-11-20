@@ -432,15 +432,18 @@ class more, and an account lists apart the sentences that are in no class (both 
   `ParamsTotal`, the hypothesis on `H` the statements take;
 - parameter lemma: a sentence the reader leaves out of `Γ` (a lemma), or a `simplification`
   sentence of K's builtin library, which the reader reads as the library's text and of which `Γ`
-  holds no item, that applies a parameter symbol no registry hook interprets (`impl = none`), whose
-  value the interpretation gives: owed as
-  a hypothesis on `H` at values: some `H` meets the hypothesis on the functions (`FnHyp`) and at
-  it every sentence of the class holds at the valuations sending its variables to values
-  (`EntailsAtValues (c.withHooks H) s (tr s)`). `Γ` states the parameter's graph at values only and
-  says nothing of it at an element of its sort that is no value's, where a model of `Γ` may give it
-  nothing, so the sentence is not owed at every valuation;
+  holds no item, whose truth at values reads a value the interpretation gives: it applies a
+  parameter symbol no registry hook interprets (`impl = none`), whose value is the
+  interpretation's everywhere, or, named so by the tie, a function of the semantics at arguments
+  none of its clauses decides, where `Γ` states the function's rest (`Semantics.fnRest`) from the
+  interpretation, or a hook at a point its text leaves open (`Semantics.fallback`): owed as a
+  hypothesis on `H` at values: some `H` meets the hypothesis on the functions (`FnHyp`) and at it
+  every sentence of the class holds at the valuations sending its variables to values
+  (`EntailsAtValues (c.withHooks H) s (tr s)`). `Γ` states a parameter's graph, a function's rest
+  and a hook's open point at values only and says nothing of them at an element of a sort that is
+  no value's, so the sentence is not owed at every valuation;
 - user lemma: a sentence of the user's text that the reader leaves out of `Γ` as a lemma
-  (`InertReason.simplification`) and that applies no parameter symbol without `impl`, proved
+  (`InertReason.simplification`) and that is no parameter lemma, proved
   `Γ (c.withHooks H) ⊧ tr s` for every `H`;
 - user lemma at values: the same, where the sentence holds at the valuations sending its variables
   to values (`EntailsAtValues`), because it rests on an interpreted symbol's graph;
@@ -452,13 +455,21 @@ The account of a text with an overload axiom, `f(lift K̄) = lift(g(K̄))` for a
 equation at every element and the sentence within `f`'s result sort, so `Γ` entails the sentence
 and the item is not its translation.
 
-Two kinds of sentence are in no class, and an account lists each apart with its theorems:
+Three kinds of sentence are in no class, and an account lists each apart with its theorems:
 - the no-confusion sentence of an overloading symbol and a symbol it overloads, which states the
   two disjoint where the overload axiom equates them: `Γ` with it has no model;
 - KItem's no-junk sentence that leaves out the injection from a sort the reading holds below KItem
   (`Parse.ReadingNote.tokKItem`): the sentence entails `Γ`'s no-junk item of KItem, which adds that
   injection's disjunct (the direction `weaker`), and where a sort it leaves out has a value, `Γ`
-  with the sentence has no model. -/
+  with the sentence has no model;
+- the `functional` sentence, the injectivity sentence and the distinctness sentences of an
+  overloading symbol one of whose overloads is a function of the semantics
+  (`Parse.ReadingNote.overloadFunction`): at the arguments no overload covers, the `functional`
+  sentence entails `Γ`'s item, and the injectivity and distinctness sentences entail theirs with
+  the `functional` sentences (the direction `weaker`); at a covered argument each is owed as a
+  hypothesis on `H` over values (`Faithful.OvlFnTotal`, `OvlFnInj`, `OvlFnDist`), under which it
+  holds at values in every model of `Γc`, and against a witness at values of which no model of `Γc`
+  satisfies it. -/
 def tieClasses : List (String × TieDir) :=
   [("function equation", .equal), ("rewrite rule", .weaker), ("priority equation", .weaker),
    ("constructor functional", .entailed), ("subsort", .entailed), ("injectivity", .entailed),

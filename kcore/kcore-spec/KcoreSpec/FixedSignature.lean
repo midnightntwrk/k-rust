@@ -670,9 +670,9 @@ the truncating remainder of the power), `bitRangeInt` and
 `^Int` (the interpretation's at a negative exponent), `L[I <- V]`, `makeList`, `updateList` and
 `fillList` (the interpretation's off the ranges the text describes),
 `_Map_` and `_Set_` (undefined where the two collections share a key or a member), `Map:lookup`,
-`List:get` and `List:range`, and FLOAT's (undefined on two formats or at a format without a model;
-those FLOAT declares `total` are listed too, so no check counts on their totality: the six of
-`totalSilentKeys` have silent points, and `isNaN`, `precisionFloat` and `exponentBitsFloat` have a
+`List:get` and `List:range`, and FLOAT's (undefined on two formats or at a format without a model
+that `thinAt` does not name; those FLOAT declares `total` are listed too, so no check counts on
+their totality: the six of `totalSilentKeys` have silent points, and `isNaN`, `precisionFloat` and `exponentBitsFloat` have a
 value at every Float literal and none at a value of sort Float that is no literal, a constructor,
 injection or token of that sort, which only `floatShapeOK` excludes), and STRING's and BYTES' partial ones
 (`stringPartial`, `bytesPartial`), and RANGEMAP's seven that the text does not declare `total`: the
