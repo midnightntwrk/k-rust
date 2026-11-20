@@ -6910,8 +6910,13 @@ def envOf (m : Kore.Module) (S : Scan) : Rd Env := do
     !known n && (hasAttr s.attributes "constructor" || S.eqs.any (·.fn == n))) ++ libProjDecls
   -- a function without an equation and without `total` or `functional` is a parameter symbol: the
   -- text gives it no meaning, and a parameter's value is the interpretation's (`Semantics.paramVal`),
-  -- as a function without clauses would have its rest, the interpretation's, everywhere
-  let isTotalDecl := fun (s : Kore.SentenceSymbol) => hasAttr s.attributes "total" || hasAttr s.attributes "functional"
+  -- as a function without clauses would have its rest, the interpretation's, everywhere.
+  -- The text's `functional` axiom of a symbol (`Scan.fnls`, `functionalSym?`) is the sentence that
+  -- states it total, and the declaration's attribute is no sentence: a symbol the text holds the
+  -- axiom for is read as one declared `total` is, with or without the attribute
+  let fnlHeld := fun (n : String) => S.fnls.contains (n, false)
+  let isTotalDecl := fun (s : Kore.SentenceSymbol) => hasAttr s.attributes "total" || hasAttr s.attributes "functional" ||
+    fnlHeld s.symbol.ident.ident.name
   -- the overloading symbols (`Semantics.ovls`): user symbols declared `anywhere`, neither
   -- constructors nor functions, that a symbol-overload axiom names first; each overloads the
   -- symbols its axioms name second. They are no functions, and are numbered last.
@@ -7032,7 +7037,7 @@ def envOf (m : Kore.Module) (S : Scan) : Rd Env := do
     let hk ← need (attrStr? h.attributes "hook") .hookAttribute
     let sig : CtorSig := ⟨← N.symE h.symbol.ident.ident.name, ← h.sorts.mapM N.sortE, ← N.sortE h.sort⟩
     let pp : ParamPres := ⟨hk, attrStr? h.attributes "symbol'Kywd'", loc? h.attributes, srcOver src h.attributes,
-      hasAttr h.attributes "total" || hasAttr h.attributes "functional"⟩
+      hasAttr h.attributes "total" || hasAttr h.attributes "functional" || fnlHeld h.symbol.ident.ident.name⟩
     pure (({ sig, impl := hookImplAt stands hk sig } : ParamSig), pp)
   let iteParams ← iteNames.mapM fun n => do
     let X ← N.srtE (String.ofList ((((dropPrefix? "Lblite{" n).getD "").toList).dropLast))
@@ -7629,7 +7634,8 @@ def predFnsOfPR (S : Scan) (E : Env) (names : List String) : Rd (List (Fn × FnP
     let d ← need (S.syms.find? (·.symbol.ident.ident.name == n)) .missingEquation n
     Rd.within (.sentence (.symbol d)) (fnFrom E.N E.src (srcOver E.src d.attributes) S.eqs (fnClauses E.N E.src S.eqs n) n
       none (← d.sorts.mapM sortNameE) (← sortNameE d.sort) ((loc? d.attributes).getD noLoc)
-      (hasAttr d.attributes "total" || hasAttr d.attributes "functional"))
+      -- total by the attribute or by the text's `functional` axiom of the predicate (`Names.fnlSyms`)
+      (hasAttr d.attributes "total" || hasAttr d.attributes "functional" || E.N.fnlSyms.contains (n, false)))
 
 /-- The core from the productions and the rules (`coreBase`), with each own sort's predicate whose
 equations are not exactly `Semantics.sortPreds`' clauses (`predFnNamesPR`, decided on `coreBase`'s
