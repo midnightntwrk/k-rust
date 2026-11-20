@@ -4,12 +4,14 @@
   `AxiomDecl.index`. Run from the package root: `lake env lean -j1 test/TieExClauseShapes.lean`.
 
   Γ reads each of these equations as one clause with existential variables (`existentialClause`,
-  `Parse.ceRead`); its item is not the sentence's translation (`un<j>_differs` in the fixture's
-  tie). For each sentence here:
+  `Parse.ceRead`); its item is not the sentence's translation (`ex<j>_differs` in the fixture's
+  tie, which states the same tie as `ex<j>_from_text` and `ex<j>_entailed`; `un<j>_differs` in the
+  ties of e3-ml-eq-rhs-ceil-and and e3-ml-eq-rhs-not-ceil-and, which list sentence 204 as
+  `uncovered`). For each sentence here:
   - `text_shape<n>` (kernel): the translated sentence is `eqnPat` with the right side the text
     writes; `gamma_shape<n>` (kernel): Γ's item j is `eqnPat` over the same guards, premise, sort and
     left side, with the clause's right side. The parts are read off the sentence (`rhsK`, `argK`,
-    `exBK`, ...), so the two shapes share them.
+    `exBK`, ..., of `KcoreSpec/TieExClause.lean`), so the two shapes share them.
   - `iff<n>`: the two hold in the same interpretations among those with the signature's facts
     (`TieFRSig.SigFacts`: definedness, the item of `⌈_⌉`, each numbered sort one sort), by the lemma
     of `KcoreSpec/TieExClause.lean` its header line names. Where the lemma is
@@ -17,9 +19,6 @@
     fact of the signature: the elements of `f(X)` lie in Int (`TieFRSig.TermsInSortNI`, from f's
     arity item in `ΓSig`), so that an element of `f(X) ∧ g(X)` is one the clause's variable holds;
     so does sentence 204 of e3-ml-eq-rhs-not-ceil-and, for the binder kept under its `\not`.
-    The lemmas for the shapes the library leaf has none for are in the section after the parts
-    (`exVac_body`, `exVar_body`, `exVarTop_body`, `topCut_body`, `ceilEx_body`, `cutOf_body` with
-    `cutOf_mem` and `cutOf_or`).
   - `ex_from_text<n>` (W1), for every H: Γ's item j is a consequence of
     `TiePair.Texts [sentence n] ∪ ΓSig (cH H)` (the sentence, definedness, the signature); no
     `ΓDomains`, no `Γcl`, no functional sentence.
@@ -36,187 +35,6 @@ set_option maxRecDepth 1000000
 namespace KCore.TieExClauseShapes
 
 open ML KoreAML KoreAML.TieFR KCore.TieExClause
-
-/-! ## The parts of an equation sentence -/
-
-def premK : Kore.Pattern → Kore.Pattern
-  | .implies _ p _ => p
-  | p => p
-def lhsK : Kore.Pattern → Kore.Pattern
-  | .implies _ _ (.equals _ _ l _) => l
-  | p => p
-def rhsK : Kore.Pattern → Kore.Pattern
-  | .implies _ _ (.equals _ _ _ (.and _ [r, _])) => r
-  | p => p
-def ensK : Kore.Pattern → Kore.Pattern
-  | .implies _ _ (.equals _ _ _ (.and _ [_, e])) => e
-  | p => p
-/-- The body of an `\exists`. -/
-def exBK : Kore.Pattern → Kore.Pattern
-  | .exist _ _ b => b
-  | p => p
-/-- The variable an `\exists` binds, in the table. -/
-def exVK (tbl : VarTable) : Kore.Pattern → EVar
-  | .exist _ x _ => tbl.ev (evarKey x)
-  | _ => ⟨0⟩
-/-- The operand i of a conjunction, a disjunction or an application. -/
-def argK (i : Nat) : Kore.Pattern → Kore.Pattern
-  | .and _ ps => ps.getD i (.string "")
-  | .or _ ps => ps.getD i (.string "")
-  | .app _ _ ps => ps.getD i (.string "")
-  | p => p
-def ceilK : Kore.Pattern → Kore.Pattern
-  | .ceil _ _ p => p
-  | p => p
-def eqLK : Kore.Pattern → Kore.Pattern
-  | .equals _ _ l _ => l
-  | p => p
-def eqRK : Kore.Pattern → Kore.Pattern
-  | .equals _ _ _ r => r
-  | p => p
-def notK : Kore.Pattern → Kore.Pattern
-  | .not _ p => p
-  | p => p
-
-/-- A numbered sort's pattern, by its name, denotes a sort. -/
-theorem sortAtN {c : Semantics} {M : Type} {I : Interpretation KoreAML.Sym M} (F : TieFRSig.SigFacts c I)
-    {s : Srt} {n : String} (hn : c.sortName s = n) (hs : s < nRegSorts + c.sortNames.length) (tbl : VarTable) :
-    ∃ τ, SortAt I (trSort tbl (srt n)) τ := by
-  obtain ⟨τ, h⟩ := sortAt_sig F hs tbl
-  have he : srtOf c s = srt n := by unfold srtOf; rw [hn]
-  exact ⟨τ, he ▸ h⟩
-
-/-! ## Bodies: the shapes `KcoreSpec/TieExClause.lean` has no lemma for -/
-
-section Bodies
-
-variable {M : Type} {I : Interpretation KoreAML.Sym M}
-
-/-- `ψ'`, read with z at an element b of S, is the sort where b is an element of T, and nothing
-elsewhere: the condition of a clause whose right side is the variable z, against the pattern T it
-cuts. -/
-def CutOf (I : Interpretation KoreAML.Sym M) (σ : M) (e : Valuation M) (z : EVar) (ψ' T : P) : Prop :=
-  ∀ b, Inh I σ b → ∀ m, Inh I σ m → (ψ'.interpret I (upd e z b) m ↔ T.interpret I e b)
-
-/-- A disjunction of cuts is the cut of the disjunction. -/
-theorem cutOf_or {z : EVar} {S ψ₁ ψ₂ T₁ T₂ : P} {σ : M} (hS : SortAt I S σ) {e : Valuation M}
-    (h₁ : CutOf I σ e z ψ₁ T₁) (h₂ : CutOf I σ e z ψ₂ T₂) : CutOf I σ e z (sOr S ψ₁ ψ₂) (sOr S T₁ T₂) := by
-  intro b hb m hm
-  rw [interp_sOr, interp_sOr, interp_inhOf_of (hS.den _), interp_inhOf_of (hS.den _), h₁ b hb m hm, h₂ b hb m hm]
-  exact ⟨fun h => ⟨hb, h.2⟩, fun h => ⟨hm, h.2⟩⟩
-
-/-- `¬ψ'` and `¬ψ` hold an element together where ψ' and ψ do. -/
-theorem sNot_congr_body {S ψ' ψ : P} {e : Valuation M} {a : M}
-    (h : ψ'.interpret I e a ↔ ψ.interpret I e a) :
-    (sNot S ψ').interpret I e a ↔ (sNot S ψ).interpret I e a := by
-  rw [interp_sNot, interp_sNot, h]
-
-section
-variable (hD : DefOK I)
-include hD
-
-/-- **A binder whose variable the body does not hold: `∃x:S. φ` is φ** at an element of S (which
-is the element of S the binder asks for). -/
-theorem exVac_body {x : EVar} {S φ : P} {σ : M} (hS : SortAt I S σ) (hφ : φ.isFreeEvar x = false)
-    {e : Valuation M} {a : M} (ha : Inh I σ a) :
-    (sExists x S φ).interpret I e a ↔ φ.interpret I e a := by
-  rw [exS_iff hD hS]
-  exact ⟨fun ⟨b, _, h⟩ => (upd_irrel hφ e b a).mp h, fun h => ⟨a, ha, (upd_irrel hφ e a a).mpr h⟩⟩
-
-/-- **`∃x:S. x` holds every element of S.** -/
-theorem exVar_body {x : EVar} {S : P} {σ : M} (hS : SortAt I S σ) {e : Valuation M} {a : M}
-    (ha : Inh I σ a) : (sExists x S (.evar x)).interpret I e a := by
-  rw [exS_iff hD hS]
-  refine ⟨a, ha, ?_⟩
-  simp only [interp_evar, Function.update_same]
-
-/-- **`∃x:S. x ∧ ⊤` holds every element of S.** -/
-theorem exVarTop_body {x : EVar} {S : P} {σ : M} (hS : SortAt I S σ) {e : Valuation M} {a : M}
-    (ha : Inh I σ a) : (sExists x S (sAnd (.evar x) (sTop S))).interpret I e a := by
-  rw [exS_iff hD hS]
-  refine ⟨a, ha, ?_⟩
-  simp only [interp_sAnd, sTop_iff hD hS, interp_evar, Function.update_same]
-  exact ⟨trivial, ha⟩
-
-/-- **`∃z. z ∧ (⊤ ∧ ψ')` is T** at an element of S, where ψ' is T's cut at z. -/
-theorem cutOf_body {z : EVar} {S ψ' T : P} {σ : M} (hS : SortAt I S σ) {e : Valuation M}
-    (h : CutOf I σ e z ψ' T) {a : M} (ha : Inh I σ a) :
-    (sExists z S (sAnd (.evar z) (sAnd (sTop S) ψ'))).interpret I e a ↔ T.interpret I e a := by
-  rw [exS_iff hD hS]
-  constructor
-  · rintro ⟨b, hb, h'⟩
-    simp only [interp_sAnd, sTop_iff hD hS, interp_evar, Function.update_same] at h'
-    obtain ⟨h1, -, h3⟩ := h'
-    subst h1
-    exact (h _ hb _ ha).mp h3
-  · intro hT
-    refine ⟨a, ha, ?_⟩
-    simp only [interp_sAnd, sTop_iff hD hS, interp_evar, Function.update_same]
-    exact ⟨trivial, ha, (h a ha a ha).mpr hT⟩
-
-section
-variable [Inhabited M] (hc : I ⊧ᴵ ceilDefItem.pat)
-include hc
-
-/-- A membership of z in a pattern that does not hold z is the pattern's cut at z. -/
-theorem cutOf_mem {z : EVar} {S t : P} {σ : M} (hS : SortAt I S σ) (ht : t.isFreeEvar z = false)
-    {e : Valuation M} : CutOf I σ e z (sIn S S (.evar z) t) t := by
-  intro b hb m hm
-  have hx : Inh I σ ((upd e z b).evalEvar z) := by rw [upd_same]; exact hb
-  rw [sIn_var hD hc hS hS hx, upd_same]
-  exact ⟨fun h => (upd_irrel ht e b b).mp h.1, fun h => ⟨(upd_irrel ht e b b).mpr h, hm⟩⟩
-
-/-- **`∃z. z ∧ (⊤ ∧ (z ∈ X ∧ ψ'))` is `X ∧ ψ`** at an element a of S: z free in neither X nor ψ',
-and ψ' and ψ hold a together (the same pattern, or one whose cut the reader keeps under a binder). -/
-theorem topCut_body {z : EVar} {S X ψ' ψ : P} {σ : M} (hS : SortAt I S σ) (hX : X.isFreeEvar z = false)
-    (hψ : ψ'.isFreeEvar z = false) {e : Valuation M} {a : M} (ha : Inh I σ a)
-    (h : ψ'.interpret I e a ↔ ψ.interpret I e a) :
-    (sExists z S (sAnd (.evar z) (sAnd (sTop S) (sAnd (sIn S S (.evar z) X) ψ')))).interpret I e a ↔
-      (sAnd X ψ).interpret I e a := by
-  rw [exS_iff hD hS, interp_sAnd]
-  constructor
-  · rintro ⟨b, hb, h'⟩
-    have hx : Inh I σ ((upd e z b).evalEvar z) := by rw [upd_same]; exact hb
-    simp only [interp_sAnd, sTop_iff hD hS, sIn_var hD hc hS hS hx, interp_evar, Function.update_same] at h'
-    obtain ⟨h1, -, ⟨h3, -⟩, h4⟩ := h'
-    exact ⟨(upd_irrel hX e b a).mp (h1 ▸ h3), h.mp ((upd_irrel hψ e b a).mp h4)⟩
-  · rintro ⟨h1, h2⟩
-    have hx : Inh I σ ((upd e z a).evalEvar z) := by rw [upd_same]; exact ha
-    refine ⟨a, ha, ?_⟩
-    simp only [interp_sAnd, sTop_iff hD hS, sIn_var hD hc hS hS hx, interp_evar, Function.update_same]
-    exact ⟨trivial, ha, ⟨(upd_irrel hX e a a).mpr h1, ha⟩, (upd_irrel hψ e a a).mpr (h.mpr h2)⟩
-
-/-- **`∃y. ⌈y⌉ ∧ (y ∈ t ∧ y ∈ u)` is `⌈t ∧ u⌉`** at an element of S, y free in neither, where the
-elements of `t ∧ u` lie in S. -/
-theorem ceilEx_body {y : EVar} {S t u : P} {σ : M} (hS : SortAt I S σ) (ht : t.isFreeEvar y = false)
-    (hu : u.isFreeEvar y = false) {e : Valuation M}
-    (hin : ∀ b, t.interpret I e b → u.interpret I e b → Inh I σ b) {a : M} (ha : Inh I σ a) :
-    (sExists y S (sAnd (sCeil S S (.evar y)) (sAnd (sIn S S (.evar y) t) (sIn S S (.evar y) u)))).interpret I e a ↔
-      (sCeil S S (sAnd t u)).interpret I e a := by
-  rw [exS_iff hD hS,
-    interp_sCeil hD hc (hS.den e) (hS.den e) hS.isSort hS.isSort
-      (fun b hb => hin b (interp_sAnd.mp hb).1 (interp_sAnd.mp hb).2) a]
-  constructor
-  · rintro ⟨b, hb, h⟩
-    have hx : Inh I σ ((upd e y b).evalEvar y) := by rw [upd_same]; exact hb
-    simp only [interp_sAnd, sIn_var hD hc hS hS hx, Function.update_same] at h
-    obtain ⟨-, ⟨h3, -⟩, h4, -⟩ := h
-    exact ⟨⟨b, interp_sAnd.mpr ⟨(upd_irrel ht e b b).mp h3, (upd_irrel hu e b b).mp h4⟩⟩, ha⟩
-  · rintro ⟨⟨b, hb⟩, -⟩
-    rw [interp_sAnd] at hb
-    have hbσ : Inh I σ b := hin b hb.1 hb.2
-    have hx : Inh I σ ((upd e y b).evalEvar y) := by rw [upd_same]; exact hbσ
-    refine ⟨b, hbσ, ?_⟩
-    simp only [interp_sAnd, sIn_var hD hc hS hS hx, Function.update_same]
-    refine ⟨?_, ⟨(upd_irrel ht e b b).mpr hb.1, ha⟩, (upd_irrel hu e b b).mpr hb.2, ha⟩
-    rw [interp_sCeil hD hc (hS.den _) (hS.den _) hS.isSort hS.isSort
-      (fun c hc' => by rw [interp_evar] at hc'; rw [hc']; exact hx) a]
-    exact ⟨⟨_, interp_evar.mpr rfl⟩, ha⟩
-
-end
-end
-
-end Bodies
 
 /-! ## e3-eq-exists-ctor-ml -/
 
