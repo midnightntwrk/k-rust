@@ -54,6 +54,17 @@
   (`kio_text`) and the values of the domain values (`kio_dv`) are written out and checked by the
   kernel against the text.
 
+  The declared symbols Γ lacks (`lackedDeclared`, decided by the kernel on the text's declarations:
+  `lackedDeclared_eq`) are 47 declarations of domains.md: 42 hooked ones, 4 of them with sort
+  parameters, and `#open(_)`, `#stderr`, `#stdin`, `#stdout` and `_dividesInt_`
+  (`lackedDeclared_split`). The same model gives K-IO's 17 hooked ones beside `#open(_,_)` and
+  `#traceK` (`kioHooked`: `#accept`, `#close`, `#lock`, `#log`, `#logToFile`, `#mkstemp`, `#putc`,
+  `#read`, `#remove`, `#seek`, `#seekEnd`, `#shutdownWrite`, `#system`, `#tell`, `#time`, `#trace`,
+  `#unlock`) any family `gs` of partial functions into their declared sorts (`kioHooked_decl`), and
+  the `functional` axioms 2603 (`#log`), 2604 (`#logToFile`), 2613 (`#remove`) and 2621 (`#trace`),
+  each `∃y:K. y = L(x̄)` (`kil_text`), hold in it where `gs` has a value everywhere at these four;
+  the family that gives them the empty K and the others no value is one (`kilGs`).
+
   Nothing here writes a right side, a value or a `G` by hand but the values of `fv` and that section's. The model is
   the arm's (`GenEqs.model_with_inits_arm`): `G` read from the equations along the cell tree
   (`GenEqs.armG`), the getter and the projections by `GenEqs.armBase`. The names are the constants
@@ -530,17 +541,245 @@ theorem constDvB_spec {L : String} {S : Kore.KSort} {text : String} {e : RawEqn}
 theorem kio_consts : names.contains stdinN = true ∧ names.contains stdoutN = true ∧
     nodFunValAr fs fv (armAr eqsN) stdinN = 0 ∧ nodFunValAr fs fv (armAr eqsN) stdoutN = 0 := by decide +kernel
 
-/-- **For every H and every partial function `g` into `IOInt`, one model of `Γc ∪ Γstep` of
-`c.withHooks H`, whose steps at configurations are `Step`'s, in which `#open(_,_)` is `g`, the 45
-listed sentences hold, and K-IO's four equations and `#stderr`'s `functional` axiom hold**: 2811
-(`#open(S) = #open(S, "r+")`), 2812 (`#stderr = 2`), 2813 (`#stdin = 0`) and 2814 (`#stdout = 1`)
-at every list of values of their variables' sorts, and 2614 (`∃y:Int. y = #stderr`). Γ lacks
-`#open(_)`, `#open(_,_)`, `#stdin`, `#stdout` and `#stderr` (the first conjunct), and the text
-states nothing of `#open(_,_)` but its declaration: the model gives it any `g`, and 2811 holds
-whatever `g` is. -/
+/-! ## The declarations Γ lacks, and K-IO's hooked ones in the model -/
+
+/-- The text's symbol declarations that are hooked or carry a `Source` and whose name no symbol of Γ
+bears, in text order: 47 declarations of domains.md (the text has no other hooked or `Source`d
+declaration Γ lacks). -/
+def lackedDeclared : List String :=
+  ["Lbl'Hash'accept'LParUndsRParUnds'K-IO'Unds'IOInt'Unds'Int",
+   "Lbl'Hash'close'LParUndsRParUnds'K-IO'Unds'K'Unds'Int",
+   "Lbl'Hash'lock'LParUndsCommUndsRParUnds'K-IO'Unds'K'Unds'Int'Unds'Int",
+   "Lbl'Hash'log",
+   "Lbl'Hash'logToFile",
+   "Lbl'Hash'mkstemp'LParUndsRParUnds'K-IO'Unds'IOFile'Unds'String",
+   "Lbl'Hash'open'LParUndsRParUnds'K-IO'Unds'IOInt'Unds'String",
+   "Lbl'Hash'open'LParUndsCommUndsRParUnds'K-IO'Unds'IOInt'Unds'String'Unds'String",
+   "Lbl'Hash'putc'LParUndsCommUndsRParUnds'K-IO'Unds'K'Unds'Int'Unds'Int",
+   "Lbl'Hash'read'LParUndsCommUndsRParUnds'K-IO'Unds'IOString'Unds'Int'Unds'Int",
+   "Lbl'Hash'remove'LParUndsRParUnds'K-IO'Unds'K'Unds'String",
+   "Lbl'Hash'seek'LParUndsCommUndsRParUnds'K-IO'Unds'K'Unds'Int'Unds'Int",
+   "Lbl'Hash'seekEnd'LParUndsCommUndsRParUnds'K-IO'Unds'K'Unds'Int'Unds'Int",
+   "Lbl'Hash'shutdownWrite'LParUndsRParUnds'K-IO'Unds'K'Unds'Int",
+   "Lbl'Hash'stderr'Unds'K-IO'Unds'Int",
+   "Lbl'Hash'stdin'Unds'K-IO'Unds'Int",
+   "Lbl'Hash'stdout'Unds'K-IO'Unds'Int",
+   "Lbl'Hash'system'LParUndsRParUnds'K-IO'Unds'KItem'Unds'String",
+   "Lbl'Hash'tell'LParUndsRParUnds'K-IO'Unds'IOInt'Unds'Int",
+   "Lbl'Hash'time'LParRParUnds'K-IO'Unds'Int",
+   "Lbl'Hash'trace",
+   "Lbl'Hash'traceK",
+   "Lbl'Hash'unlock'LParUndsCommUndsRParUnds'K-IO'Unds'K'Unds'Int'Unds'Int",
+   "Lbl'Hash'unparseKORE'LParUndsRParUnds'K-REFLECTION'Unds'String'Unds'Sort",
+   "LblBase2String'LParUndsCommUndsRParUnds'STRING-COMMON'Unds'String'Unds'Int'Unds'Int",
+   "LblFloatFormat",
+   "LblList'Coln'getMInt",
+   "LblList'Coln'setMInt",
+   "LblMap'Coln'choice",
+   "LblSet'Coln'choice",
+   "LblString2Float'LParUndsRParUnds'STRING-COMMON'Unds'Float'Unds'String",
+   "Lbl'UndsAnd-'Int'Unds'",
+   "Lbl'Unds'-Map'UndsUnds'MAP'Unds'Map'Unds'Map'Unds'Map",
+   "Lbl'Unds-LT-Eqls'Map'UndsUnds'MAP'Unds'Bool'Unds'Map'Unds'Map",
+   "Lbl'Unds'dividesInt'UndsUnds'INT-COMMON'Unds'Bool'Unds'Int'Unds'Int",
+   "Lbl'Unds'xorInt'Unds'",
+   "Lbl'UndsPipe'Int'Unds'",
+   "LblcategoryChar'LParUndsRParUnds'STRING-COMMON'Unds'String'Unds'String",
+   "LbldirectionalityChar'LParUndsRParUnds'STRING-COMMON'Unds'String'Unds'String",
+   "Lblkeys'Unds'list'LParUndsRParUnds'MAP'Unds'List'Unds'Map",
+   "LblnewUUID'Unds'STRING-COMMON'Unds'String",
+   "LblrandInt'LParUndsRParUnds'INT-COMMON'Unds'Int'Unds'Int",
+   "LblsizeMInt",
+   "LblsrandInt'LParUndsRParUnds'INT-COMMON'Unds'K'Unds'Int",
+   "LblupdateMap'LParUndsCommUndsRParUnds'MAP'Unds'Map'Unds'Map'Unds'Map",
+   "Lblvalues'LParUndsRParUnds'MAP'Unds'List'Unds'Map",
+   "Lbl'Tild'Int'Unds'"]
+
+def dividesIntN : String := "Lbl'Unds'dividesInt'UndsUnds'INT-COMMON'Unds'Bool'Unds'Int'Unds'Int"
+
+/-- **The declared symbols Γ lacks are those 47.** -/
+theorem lackedDeclared_eq :
+    (kore.symbolDecls.filter (fun sd => nodLackedB c sd.name &&
+      (sd.hooked || sd.attributes.contains "org'Stop'kframework'Stop'attributes'Stop'Source"))).map (·.name) =
+      lackedDeclared := by
+  rw [show nodLackedB c = _ from funext lacked_codes]; decide +kernel
+
+/-- **Of the 47, 42 are hooked (4 of them with sort parameters) and 5 are not**: `#open(_)`,
+`#stderr`, `#stdin`, `#stdout` and `_dividesInt_`, none with sort parameters. -/
+theorem lackedDeclared_split :
+    lackedDeclared.length = 47 ∧
+    (kore.symbolDecls.filter (fun sd => lackedDeclared.contains sd.name && sd.hooked)).length = 42 ∧
+    (kore.symbolDecls.filter (fun sd => lackedDeclared.contains sd.name && sd.hooked && !sd.params.isEmpty)).length = 4 ∧
+    (kore.symbolDecls.filter (fun sd => lackedDeclared.contains sd.name && !sd.hooked)).map
+      (fun sd => (sd.name, sd.params.isEmpty)) =
+      [(openOne, true), (stderrN, true), (stdinN, true), (stdoutN, true), (dividesIntN, true)] := by
+  decide +kernel
+
+/-- K-IO's hooked declarations that Γ lacks, beside `#open(_,_)` and `#traceK`. -/
+def acceptN : String := "Lbl'Hash'accept'LParUndsRParUnds'K-IO'Unds'IOInt'Unds'Int"
+def closeN : String := "Lbl'Hash'close'LParUndsRParUnds'K-IO'Unds'K'Unds'Int"
+def lockN : String := "Lbl'Hash'lock'LParUndsCommUndsRParUnds'K-IO'Unds'K'Unds'Int'Unds'Int"
+def logN : String := "Lbl'Hash'log"
+def logToFileN : String := "Lbl'Hash'logToFile"
+def mkstempN : String := "Lbl'Hash'mkstemp'LParUndsRParUnds'K-IO'Unds'IOFile'Unds'String"
+def putcN : String := "Lbl'Hash'putc'LParUndsCommUndsRParUnds'K-IO'Unds'K'Unds'Int'Unds'Int"
+def readN : String := "Lbl'Hash'read'LParUndsCommUndsRParUnds'K-IO'Unds'IOString'Unds'Int'Unds'Int"
+def removeN : String := "Lbl'Hash'remove'LParUndsRParUnds'K-IO'Unds'K'Unds'String"
+def seekN : String := "Lbl'Hash'seek'LParUndsCommUndsRParUnds'K-IO'Unds'K'Unds'Int'Unds'Int"
+def seekEndN : String := "Lbl'Hash'seekEnd'LParUndsCommUndsRParUnds'K-IO'Unds'K'Unds'Int'Unds'Int"
+def shutdownWriteN : String := "Lbl'Hash'shutdownWrite'LParUndsRParUnds'K-IO'Unds'K'Unds'Int"
+def systemN : String := "Lbl'Hash'system'LParUndsRParUnds'K-IO'Unds'KItem'Unds'String"
+def tellN : String := "Lbl'Hash'tell'LParUndsRParUnds'K-IO'Unds'IOInt'Unds'Int"
+def timeN : String := "Lbl'Hash'time'LParRParUnds'K-IO'Unds'Int"
+def traceN : String := "Lbl'Hash'trace"
+def unlockN : String := "Lbl'Hash'unlock'LParUndsCommUndsRParUnds'K-IO'Unds'K'Unds'Int'Unds'Int"
+/-- `#traceK`, a symbol of `fs`. -/
+def traceKN : String := "Lbl'Hash'traceK"
+/-- The sorts `IOFile` and `IOString`. -/
+def ioFile : Srt := 13
+def ioString : Srt := 15
+
+/-- The hooked declarations with their numbers of arguments and result sorts. -/
+def kioHooked : List (String × Nat × Srt) :=
+  [(acceptN, 1, ioInt),
+   (closeN, 1, Srt.k),
+   (lockN, 2, Srt.k),
+   (logN, 1, Srt.k),
+   (logToFileN, 2, Srt.k),
+   (mkstempN, 1, ioFile),
+   (putcN, 2, Srt.k),
+   (readN, 2, ioString),
+   (removeN, 1, Srt.k),
+   (seekN, 2, Srt.k),
+   (seekEndN, 2, Srt.k),
+   (shutdownWriteN, 1, Srt.k),
+   (systemN, 1, Srt.kitem),
+   (tellN, 1, ioInt),
+   (timeN, 0, Srt.int),
+   (traceN, 1, Srt.k),
+   (unlockN, 2, Srt.k)]
+/-- Those the text declares `total`, each of the sort K: `#log`, `#logToFile`, `#remove`, `#trace`. -/
+def kioTotal : List (String × Nat × Srt) :=
+  [(logN, 1, Srt.k), (logToFileN, 2, Srt.k), (removeN, 1, Srt.k), (traceN, 1, Srt.k)]
+
+/-- **`kioHooked` is as the text declares**: each a hooked symbol without sort parameters, of that
+number of arguments and that result sort. -/
+theorem kioHooked_decl : kioHooked.all (fun p => kore.symbolDecls.any (fun sd => sd.name == p.1 && sd.hooked &&
+    sd.params.isEmpty && sd.args.length == p.2.1 && armSrt c sd.result == some p.2.2)) = true := by decide +kernel
+
+/-- **Γ lacks K-IO's hooked declarations** `kioHooked` names, and `#traceK`. -/
+theorem kil_lacked :
+    [acceptN, closeN, lockN, logN, logToFileN, mkstempN, putcN, readN, removeN, seekN, seekEndN,
+      shutdownWriteN, systemN, tellN, timeN, traceN, traceKN, unlockN].all (nodLackedB c) = true := by
+  rw [show nodLackedB c = _ from funext lacked_codes]; decide +kernel
+
+theorem kil_tbl_lacked : kioHooked.all (fun p => nodLackedB c p.1) = true := by
+  rw [show nodLackedB c = _ from funext lacked_codes]; decide +kernel
+
+/-- The names of `kioHooked` are apart, none is a name of the instance, of `fs`, of `fv` or of
+`kioNames`, and those of `kioTotal` are among them. -/
+theorem kil_self : ∀ p ∈ kioHooked, kioHooked.find? (·.1 == p.1) = some p := by decide +kernel
+theorem kil_fresh : kioHooked.all (fun p => !names.contains p.1 && (fs.find? (·.1 == p.1)).isNone &&
+    (fv.find? (·.1 == p.1)).isNone && !kioNames.contains p.1) = true := by decide +kernel
+theorem kil_total : ∀ p ∈ kioTotal, p ∈ kioHooked ∧ p.2.2 = Srt.k := by decide +kernel
+
+theorem kil_none {n : String} (hn : nodFunValN names fs fv n ∨ n ∈ kioNames) :
+    kioHooked.find? (·.1 == n) = none := by
+  apply List.find?_eq_none.mpr
+  intro p hp he
+  have hpn : p.1 = n := beq_iff_eq.mp he
+  have h := List.all_eq_true.mp kil_fresh p hp
+  simp only [Bool.and_eq_true, Bool.not_eq_true', Option.isNone_iff_eq_none] at h
+  obtain ⟨⟨⟨h1, h2⟩, h3⟩, h4⟩ := h
+  rw [hpn] at h1 h2 h3 h4
+  rcases hn with (hn | hn | hn) | hn
+  · rw [h1] at hn; cases hn
+  · rw [h2] at hn; cases hn
+  · rw [h3] at hn; cases hn
+  · rw [List.contains_iff_mem.mpr hn] at h4; cases h4
+
+/-- The arities with `kioHooked`'s. -/
+def kilAr (ar : String → Nat) (n : String) : Nat :=
+  match kioHooked.find? (·.1 == n) with
+  | some p => p.2.1
+  | none => ar n
+
+/-- The names' values with `kioHooked`'s: each is `gs` at its name. -/
+def kilG (gs G : String → List GroundTerm → Option GroundTerm) : String → List GroundTerm → Option GroundTerm :=
+  fun n ws => match kioHooked.find? (·.1 == n) with
+    | some _ => gs n ws
+    | none => G n ws
+
+/-- The sort K, as the `functional` axioms name it, and the empty K, a value of it. -/
+theorem kil_srtK : armSrt c (KoreAML.srt "K") = some Srt.k ∧ c.sortOf (.ctor dotk []) = some Srt.k := by
+  decide +kernel
+
+/-- A `functional` axiom `∃y:K. y = L(x₁, …, xₙ)` of the symbol and number of arguments of `p`. -/
+def kilFunB (p : String × Nat × Srt) (q : String × List Kore.EVar × Kore.KSort) : Bool :=
+  q.1 == p.1 && q.2.1.length == p.2.1 && decide (q.2.2 = KoreAML.srt "K")
+
+/-- **The `functional` axioms of `#log` (2603), `#logToFile` (2604), `#remove` (2613) and `#trace`
+(2621), as the text states them**: each `∃y:K. y = L(x₁, …, xₙ)`. -/
+theorem kil_text :
+    (nodFunctionalAt? U.ax2603.ax).any (kilFunB (logN, 1, Srt.k)) = true ∧
+    (nodFunctionalAt? U.ax2604.ax).any (kilFunB (logToFileN, 2, Srt.k)) = true ∧
+    (nodFunctionalAt? U.ax2613.ax).any (kilFunB (removeN, 1, Srt.k)) = true ∧
+    (nodFunctionalAt? U.ax2621.ax).any (kilFunB (traceN, 1, Srt.k)) = true := by decide +kernel
+
+/-- **The `functional` axiom of a symbol of `kioHooked` of the sort K holds** in a model that gives
+it a function with a value at every list of arguments. -/
+theorem kil_fun (H : HookParams) {N : String → Prop} {ar : String → Nat}
+    {gs G : String → List GroundTerm → Option GroundTerm} {I : ML.Interpretation KoreAML.Sym Faithful.Model.Elem}
+    (hM : InitModel (cH H) N (kilAr ar) (kilG gs G) I) (hN : ∀ p ∈ kioHooked, N p.1)
+    (hgs : ∀ p ∈ kioHooked, ∀ ws v, gs p.1 ws = some v → c.sortOf v = some p.2.2)
+    {p : String × Nat × Srt} (hp : p ∈ kioHooked) (hk : p.2.2 = Srt.k) (ht : ∀ ws, ∃ v, gs p.1 ws = some v)
+    {o : Option (String × List Kore.EVar × Kore.KSort)} (ho : o.any (kilFunB p) = true) :
+    ∃ xs S, o = some (p.1, xs, S) ∧ NodFunAt (cH H) I p.1 xs S := by
+  cases o with
+  | none => cases ho
+  | some q =>
+    obtain ⟨L, xs, S⟩ := q
+    simp only [Option.any_some, kilFunB, Bool.and_eq_true, beq_iff_eq, decide_eq_true_eq] at ho
+    obtain ⟨⟨hL, hlen⟩, hS⟩ := ho
+    subst hL hS
+    refine ⟨xs, _, rfl, ?_⟩
+    intro ws hws s hs y
+    have hsk : s = Srt.k := by
+      have h1 : armSrt (cH H) (KoreAML.srt "K") = armSrt c (KoreAML.srt "K") := rfl
+      rw [h1, kil_srtK.1] at hs; exact (Option.some.inj hs).symm
+    subst hsk
+    obtain ⟨v, hv⟩ := ht ws
+    have hvs : (cH H).sortOf v = some Srt.k := by
+      rw [Semantics.sortOf_withHooks c H noRaw, ← hk]; exact hgs p hp ws v hv
+    have hfind := kil_self p hp
+    have hl : ws.length = kilAr ar p.1 := by
+      simp only [kilAr, hfind]; exact (nodVals_sorts hws).2.trans hlen
+    have e : kilG gs G p.1 ws = some v := by simp only [kilG, hfind]; exact hv
+    have hden : DenV (cH H) I (KoreAML.appList (KoreAML.sym (.symbol p.1)) (ws.map (den (cH H)))) v :=
+      ⟨⟨_, hvs⟩, fun ρ m => (hM.names p.1 (hN p hp) ws hl (nodVals_sorted hws) ρ m).trans (by rw [e]; simp)⟩
+    exact hM.functional hden hvs y
+
+/-- **For every H, every partial function `g` into `IOInt` and every family `gs` of partial
+functions into the declared sorts with a value everywhere at the `total` ones, one model of
+`Γc ∪ Γstep` of `c.withHooks H`, whose steps at configurations are `Step`'s, in which `#open(_,_)`
+is `g`, each hooked symbol of `kioHooked` is `gs` at its name, the 45 listed sentences hold, K-IO's
+four equations and `#stderr`'s `functional` axiom hold, and the `functional` axioms of `#log`,
+`#logToFile`, `#remove` and `#trace` hold**: 2811 (`#open(S) = #open(S, "r+")`), 2812
+(`#stderr = 2`), 2813 (`#stdin = 0`) and 2814 (`#stdout = 1`) at every list of values of their
+variables' sorts, 2614 (`∃y:Int. y = #stderr`), and 2603, 2604, 2613 and 2621
+(`∃y:K. y = L(x₁, …, xₙ)`) at every list of values of their variables' sorts. Γ lacks `#open(_)`,
+`#open(_,_)`, `#stdin`, `#stdout` and `#stderr` (the first conjunct) and K-IO's other hooked
+declarations it does not apply (the second), and the text states nothing of a hooked one but its
+declaration and, of the four `total` ones, that it has one value of the sort K: the model gives
+them any such `g` and `gs`, and 2811 holds whatever `g` is. -/
 theorem kio_instance (H : HookParams) (g : GroundTerm → GroundTerm → Option GroundTerm)
-    (hg : ∀ a b v, g a b = some v → c.sortOf v = some ioInt) :
+    (hg : ∀ a b v, g a b = some v → c.sortOf v = some ioInt)
+    (gs : String → List GroundTerm → Option GroundTerm)
+    (hgs : ∀ p ∈ kioHooked, ∀ ws v, gs p.1 ws = some v → c.sortOf v = some p.2.2)
+    (htot : ∀ p ∈ kioTotal, ∀ ws, ∃ v, gs p.1 ws = some v) :
     [openOne, openTwo, stdinN, stdoutN, stderrN].all (nodLackedB c) = true ∧
+    [acceptN, closeN, lockN, logN, logToFileN, mkstempN, putcN, readN, removeN, seekN, seekEndN,
+      shutdownWriteN, systemN, tellN, timeN, traceN, traceKN, unlockN].all (nodLackedB c) = true ∧
     ∃ I : ML.Interpretation KoreAML.Sym Faithful.Model.Elem,
       (I ⊧ᴵP (Faithful.Γc (cH H) ∪ Faithful.Γstep (cH H))) ∧
       (∀ x y : Config (cH H), Step (cH H) x y ↔ ¬ (I ⊧ᴵ (den (cH H) x.val ⇒ ∼ KoreAML.sNext (den (cH H) y.val)))) ∧
@@ -555,8 +794,15 @@ theorem kio_instance (H : HookParams) (g : GroundTerm → GroundTerm → Option 
       (∃ S, nodFunctional? U.ax2614.ax = some (stderrN, S) ∧ NodFun (cH H) I stderrN S) ∧
       (∀ a b : GroundTerm, (∃ s, (cH H).sortOf a = some s) → (∃ s, (cH H).sortOf b = some s) → ∀ ρ m,
         (KoreAML.appList (KoreAML.sym (.symbol openTwo)) [den (cH H) a, den (cH H) b]).interpret I ρ m ↔
-          ∃ v, g a b = some v ∧ m = .val v) := by
-  refine ⟨kio_lacked, ?_⟩
+          ∃ v, g a b = some v ∧ m = .val v) ∧
+      (∃ xs S, nodFunctionalAt? U.ax2603.ax = some (logN, xs, S) ∧ NodFunAt (cH H) I logN xs S) ∧
+      (∃ xs S, nodFunctionalAt? U.ax2604.ax = some (logToFileN, xs, S) ∧ NodFunAt (cH H) I logToFileN xs S) ∧
+      (∃ xs S, nodFunctionalAt? U.ax2613.ax = some (removeN, xs, S) ∧ NodFunAt (cH H) I removeN xs S) ∧
+      (∃ xs S, nodFunctionalAt? U.ax2621.ax = some (traceN, xs, S) ∧ NodFunAt (cH H) I traceN xs S) ∧
+      (∀ p ∈ kioHooked, ∀ ws : List GroundTerm, ws.length = p.2.1 → (∀ w ∈ ws, ∃ s, (cH H).sortOf w = some s) →
+        ∀ ρ m, (KoreAML.appList (KoreAML.sym (.symbol p.1)) (ws.map (den (cH H)))).interpret I ρ m ↔
+          ∃ v, gs p.1 ws = some v ∧ m = .val v) := by
+  refine ⟨kio_lacked, kil_lacked, ?_⟩
   have hc : (cH H).coreOK = true := (Semantics.coreOK_withHooks c H).trans coreOK
   have hlk : ∀ n, nodLackedB (cH H) n = nodLackedB c n := nodLackedB_withHooks c H
   have hso : (cH H).sortOf = c.sortOf := Semantics.sortOf_withHooks c H noRaw
@@ -576,7 +822,23 @@ theorem kio_instance (H : HookParams) (g : GroundTerm → GroundTerm → Option 
       rw [hlk]
       have := List.all_eq_true.mp kio_lacked n (by revert hn; simp only [kioNames, List.mem_cons, List.mem_nil_iff, or_false]; rintro (h | h | h) <;> simp [h])
       exact this
-  obtain ⟨I, hM, hstep⟩ := model_with_inits_arm (cH H) hc (fnHypH H) N (kioAr ar0) (kioG g G0) hN
+  let N2 : String → Prop := fun n => N n ∨ (kioHooked.find? (·.1 == n)).isSome = true
+  have hN2 : ∀ n, N2 n → (∀ φ, (Faithful.Γc (cH H) ∪ Faithful.Γstep (cH H)) φ → KoreAML.Sym.symbol n ∉ psyms φ) ∧
+      unresolvedB (cH H) n = true := by
+    rintro n (hn | hn)
+    · exact hN n hn
+    · obtain ⟨p, hp⟩ := Option.isSome_iff_exists.mp hn
+      have hpn : p.1 = n := by have := List.find?_some hp; exact beq_iff_eq.mp this
+      refine nodLacked_free hc ?_
+      rw [hlk, ← hpn]
+      exact List.all_eq_true.mp kil_tbl_lacked p (List.mem_of_find?_eq_some hp)
+  obtain ⟨I, hM2, hstep⟩ := model_with_inits_arm (cH H) hc (fnHypH H) N2 (kilAr (kioAr ar0)) (kilG gs (kioG g G0)) hN2
+  have hM : InitModel (cH H) N (kioAr ar0) (kioG g G0) I :=
+    nodFun_restrict hM2 (fun n hn => Or.inl hn)
+      (fun n hn => by simp only [kilAr, kil_none hn])
+      (fun n hn => funext fun ws => by simp only [kilG, kil_none hn])
+  have hN2t : ∀ p ∈ kioHooked, N2 p.1 := fun p hp => Or.inr (by rw [kil_self p hp]; rfl)
+  obtain ⟨t2603, t2604, t2613, t2621⟩ := kil_text
   have hM' : InitModel (cH H) (nodFunValN names fs fv) ar0 G0 I :=
     nodFun_restrict hM (fun n hn => Or.inl hn)
       (fun n hn => by obtain ⟨h1, h2, h3⟩ := kio_ne hn; simp only [kioAr, h1, h2, h3, ite_false])
@@ -609,7 +871,7 @@ theorem kio_instance (H : HookParams) (g : GroundTerm → GroundTerm → Option 
   obtain ⟨hl0, hl1⟩ := kio_look
   obtain ⟨nIn, aIn, gIn⟩ := constG (i := 0) hnin harin hl0 d0
   obtain ⟨nOut, aOut, gOut⟩ := constG (i := 1) hnout harout hl1 d1
-  refine ⟨I, hM.sat, hstep, fun i hi => ?_, fun i hi => ?_, fun i hi => ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  refine ⟨I, hM.sat, hstep, fun i hi => ?_, fun i hi => ?_, fun i hi => ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · obtain ⟨ad, ha, rest⟩ := h3 i hi; exact ⟨ad, hU ad ha, rest⟩
   · obtain ⟨ad, ha, rest⟩ := h4 i hi; exact ⟨ad, hU ad ha, rest⟩
   · rcases List.mem_append.mp hi with hi | hi
@@ -648,11 +910,45 @@ theorem kio_instance (H : HookParams) (g : GroundTerm → GroundTerm → Option 
     have hGv : kioG g G0 openTwo [a, b] = g a b := by simp [kioG]
     rw [hGv] at this
     exact this
+  · exact kil_fun H hM2 hN2t hgs (kil_total _ (by decide)).1 rfl (htot _ (by decide)) t2603
+  · exact kil_fun H hM2 hN2t hgs (kil_total _ (by decide)).1 rfl (htot _ (by decide)) t2604
+  · exact kil_fun H hM2 hN2t hgs (kil_total _ (by decide)).1 rfl (htot _ (by decide)) t2613
+  · exact kil_fun H hM2 hN2t hgs (kil_total _ (by decide)).1 rfl (htot _ (by decide)) t2621
+  · intro p hp ws hl hws ρ m
+    have hfind := kil_self p hp
+    have h := hM2.names p.1 (hN2t p hp) ws (by simp only [kilAr, hfind]; exact hl) hws ρ m
+    have e : kilG gs (kioG g G0) p.1 ws = gs p.1 ws := by simp only [kilG, hfind]
+    rw [e] at h
+    exact h
 
 /-- info: 'GenEqsNodirE2CellsStream.kio_instance' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms kio_instance
 
-/-- A `g` into `IOInt` exists (the function with no value), so the instance is not vacuous. -/
-example (H : HookParams) := kio_instance H (fun _ _ => none) (fun _ _ _ h => by cases h)
+/-- The family that gives the `total` symbols the empty K and the others no value. -/
+def kilGs : String → List GroundTerm → Option GroundTerm := fun n _ =>
+  match kioTotal.find? (·.1 == n) with
+  | some _ => some (.ctor dotk [])
+  | none => none
+
+theorem kilGs_facts : (∀ p ∈ kioHooked, (kioTotal.find? (·.1 == p.1)).isSome = true → p.2.2 = Srt.k) ∧
+    ∀ p ∈ kioTotal, (kioTotal.find? (·.1 == p.1)).isSome = true := by decide +kernel
+
+/-- A `g` into `IOInt` (the function with no value) and a family `gs` (`kilGs`) exist, so the
+instance is not vacuous. -/
+example (H : HookParams) := kio_instance H (fun _ _ => none) (fun _ _ _ h => by cases h) kilGs
+  (fun p hp ws v h => by
+    unfold kilGs at h
+    cases hf : kioTotal.find? (·.1 == p.1) with
+    | none => rw [hf] at h; cases h
+    | some q =>
+      rw [hf] at h
+      cases h
+      rw [kilGs_facts.1 p hp (by rw [hf]; rfl)]
+      exact kil_srtK.2)
+  (fun p hp ws => by
+    unfold kilGs
+    cases hf : kioTotal.find? (·.1 == p.1) with
+    | none => have := kilGs_facts.2 p hp; rw [hf] at this; cases this
+    | some q => exact ⟨_, rfl⟩)
 
 end GenEqsNodirE2CellsStream

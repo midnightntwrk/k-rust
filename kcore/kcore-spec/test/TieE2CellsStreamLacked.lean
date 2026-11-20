@@ -1,7 +1,9 @@
 /-
   The symbol declarations of `f2-examples/e2-cells-stream.kompile.kore` with a K builtin file's
-  `Source`, without a `hook` attribute and without sort parameters, that name no symbol of Γ: K-IO's
-  `#open/1`, `#stdin`, `#stdout` and `#stderr`. Each is stated by the kernel's decision of `hasSym`,
+  `Source`, without a `hook` attribute and without sort parameters, that name no symbol of Γ and
+  are K-IO's: `#open/1`, `#stdin`, `#stdout` and `#stderr` (INT-COMMON's `_dividesInt_` is the
+  fifth such declaration of the text; test/GenEqsNodirE2CellsStream.lean, `lackedDeclared_split`).
+  Each is stated by the kernel's decision of `hasSym`,
   the definition of the tie's files (test/TieE2CellsStreamDecls.lean) on the same literals. A test file
   imports no test file, so this one repeats the literals and `hasSym`. Run from the package root:
   `lake env lean -j1 test/TieE2CellsStreamLacked.lean`.
