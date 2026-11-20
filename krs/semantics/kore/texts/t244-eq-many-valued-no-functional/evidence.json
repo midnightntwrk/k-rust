@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t244-eq-many-valued-no-functional.k": "7054377a6d88c69f6eaea644c676f4865da6c4508f204490a3f2bd63d9df47d4"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t244-eq-many-valued-no-functional.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "1eb226a3069a7292f292ed492831b8ef34917e4b181ba41d6f995c6ea94750af",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

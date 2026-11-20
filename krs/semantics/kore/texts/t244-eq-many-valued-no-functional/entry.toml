@@ -1,0 +1,162 @@
+id = "t244-eq-many-valued-no-functional"
+kind = "text"
+subject = "Equations whose right side is a disjunction, or a disjunction with an existential in an alternative, of functions declared without total: h(X) => f(X) #Or g(X); p(X) => X #Or (#Exists B:Bool. (B #And {B #Equals notBool X})), and px with {B #Equals X}; s(X) => X #Or (#Exists B:Int. (B #And {B #Equals X +Int 1})). What each equation states of the application, how that stands to the function attribute, and whether the sentences as written have a model where the alternatives differ."
+rests_on = ["kk:t11-eq-applies", "kk:t10-fn-innermost"]
+
+[text]
+files = ["t244-eq-many-valued-no-functional.k"]
+kompile = "accepts"
+frontend = "differs"
+frontend_difference = "The manual gives a function at most one value (user_manual.md:540-544), and with that sentence the K text has no model, h(1), p(true) and s(0) being given two values each. kompile writes the attribute function{}() on the declarations of h, p, px and s (kore.txt:6, 8, 10, 12) and no axiom that bounds any of them to one element, so the sentences as written do not hold the manual's bound: they have a model wherever the text without the four equations has one, and in it h(1), p(true) and s(0) are two elements each."
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "(1) What each equation states. A disjunction denotes the elements of either alternative, and an existential the elements its body denotes at any value of its variable. An equation with such a right side states, at each argument where it applies (here every argument), that the application is the set of all those elements: h(x) is the elements of f(x) and of g(x), which are x and 0 -Int x; p(b) is b and notBool b; px(b) is b; s(x) is x and x +Int 1. It does not state that the application is one of them, and it states no choice among them. (2) Where the alternatives are one element the equation gives the function that value: h(0) is 0, and px(b) is b at both Booleans. (3) Where they are two elements (h(x) at every x other than 0, p(b) at both Booleans, s(x) at every integer) the equation gives the application two values. That an application has at most one value is said by the function attribute, in the manual's sentence on it, and by nothing in the equation. The K text holds both and has no model. In a text that holds the equations and no sentence of that bound the equations contradict nothing: they are satisfied by interpreting each application as the two elements, and such a text has a model wherever it has one without them. The sentences kompile writes are such a text ([ruling.kore])."
+reason = '''
+(1) The connectives. #Or and #Exists are connectives of ML-SYNTAX, #Or at one sort and #Exists binding a variable of one sort in a pattern of another (kast.md:148-149, 154). A pattern denotes a set of elements of its sort. A conjunction denotes the intersection and a negation the complement (introduction-to-matching-logic.tex:732-736), and a disjunction is the negation of the conjunction of the negations (:679-684): the union of what its alternatives denote. An existential denotes the union of what its body denotes over every value of its variable (:737-741). An equality is a predicate, the whole carrier where its two sides denote the same elements and nothing otherwise (:880-885). So B #And {B #Equals t} denotes B's element where t denotes exactly that element and nothing elsewhere, and #Exists B. (B #And {B #Equals t}) denotes t's element where t denotes exactly one element, and nothing where t denotes none or several.
+(2) The right sides. An equation states that the application equals its right side at the arguments its argument patterns denote (kk:t11-eq-applies). Each equation of the text has a variable as its argument pattern and no requires: it states the equality at every argument. So f(x) is x and g(x) is 0 -Int x. An application at arguments that have values is the application at those values (kk:t10-fn-innermost); -Int, +Int and notBool are total (domains.md:1267, 1266, 1120) and are the difference, the sum and the negation (domains.md:1238, 1106). So at each argument the right side of h denotes x and 0 -Int x; that of p, b and notBool b; that of px, b and b, one element; that of s, x and x +Int 1.
+(3) Equality, not membership. The equation's two sides are equal where they denote the same elements (:880-885): the application denotes every element the right side denotes and no other. That the application is one of the alternatives would be another sentence, the application included in the right side, and the text does not hold it.
+(4) One element or two. 0 -Int x is x at x = 0 and at no other integer; notBool true is false and notBool false is true (domains.md:1138-1139), and the two Booleans are two values (domains.md:1084); x +Int 1 is x at no integer. So h(0) is the one integer 0 and px(b) the one Boolean b, and h(x) at x other than 0, p(b) and s(x) are two values each.
+(5) The bound. The function attribute means that evaluating the symbol gives at most one value (user_manual.md:540-544). A symbol is interpreted at every element of its argument sort (:704-713), so every model interprets h at 1, where the equation gives the two values 1 and -1 and the attribute's sentence at most one: no model satisfies both, and likewise at p(true) and s(0). None of the functions is declared total. total would say that an application has at least one value (user_manual.md:546-551), which the equations already give at every argument; what the equations contradict is the bound from above, and in the K text only the function attribute's sentence states it.
+(6) Without the bound. A symbol's interpretation is a function into the subsets of its result sort's carrier (:704-713), and a subset of two elements is one of them. So the equations by themselves, as (3) reads them, are satisfied by interpreting each application as the set of (2). [ruling.kore] says this of the written sentences, which hold the equations and not the bound.'''
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/kast.md:148-149 (K 7.1.337)"
+quote = '''syntax {Sort} Sort ::= Sort "#And" Sort [symbol(#And), assoc, left, comm, unit(#Top), mlOp, group(mlAnd, mlOp), format(%i%1%d%n%2%n%i%3%d)] > Sort "#Or" Sort [symbol(#Or), assoc, left, comm, unit(#Bottom), mlOp, group(mlOp), format(%i%1%d%n%2%n%i%3%d)]'''
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/kast.md:154 (K 7.1.337)"
+quote = '''syntax {Sort1, Sort2} Sort2 ::= "#Exists" Sort1 "." Sort2 [symbol(#Exists), mlOp, mlBinder, group(mlQuantifier, mlOp)]'''
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:704-713 (K 7.1.337)"
+quote = '''A \emph{matching logic $(S,\Sigma)$-model} $M$ consists of: An $S$-sorted set $\{M_s\}_{s\in S}$, where each set $M_s$, called the \emph{carrier of sort $s$ of $M$}, is assumed non-empty; and a function $\sigma_M:M_{s_1}\times\cdots\times M_{s_n} \rightarrow {\cal P}(M_s)$ for each symbol $\sigma\in\Sigma_{s_1\ldots s_n,s}$, called the \emph{interpretation} of $\sigma$ in $M$.'''
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:679-684 (K 7.1.337)"
+quote = '''\top_{\!\!s} & \equiv & \exists x\!:\!s \,.\, x & \varphi_1 \ra \varphi_2 & \equiv & \neg\varphi_1 \vee \varphi_2 \\ \bot_{s} & \equiv & \neg \top_{\!\!s} & \varphi_1 \lra \varphi_2 & \equiv & (\varphi_1 \ra \varphi_2) \wedge (\varphi_2 \ra \varphi_1) \\ \varphi_1 \vee \varphi_2 & \equiv & \neg(\neg\varphi_1\wedge\neg\varphi_2) &'''
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:732-736 (K 7.1.337)"
+quote = '''\item $\overline{\rho}(\neg\varphi) = M_s \ \backslash\ \overline{\rho}(\varphi)$ for all $\varphi\in\Pattern_s$ \item $\overline{\rho}(\varphi_1 \wedge \varphi_2) = \overline{\rho}(\varphi_1) \cap \overline{\rho}(\varphi_2)$'''
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:737-741 (K 7.1.337)"
+quote = '''\item $\overline{\rho}(\exists x . \varphi) = \bigcup\{\overline{\rho'}(\varphi) \mid \rho':\Var\rightarrow M,\ \rho'\!\!\upharpoonright_{\Var\backslash\{x\}} = \rho\!\!\upharpoonright_{\Var\backslash\{x\}}\} = \bigcup_{a\in M} \overline{\rho[a/x]}(\varphi)'''
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:880-885 (K 7.1.337)"
+quote = '''Equality is also a predicate. if $\varphi,\varphi' \in \Pattern_{s_1}$ and $\rho : \Var \ra M$ then $\overline{\rho}(\varphi =_{s_1}^{s_2} \varphi') = \emptyset$ iff $\overline{\rho}(\varphi) \neq \overline{\rho}(\varphi')$, and $\overline{\rho}(\varphi =_{s_1}^{s_2} \varphi') = M_{s_2}$ iff $\overline{\rho}(\varphi) = \overline{\rho}(\varphi')$.'''
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:540-544 (K 7.1.337)"
+quote = "Semantically, it means that evaluation of that symbol will result in at most one return value (that is, the symbol is a *partial function*)."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:546-551 (K 7.1.337)"
+quote = "The `total` attribute indicates that a symbol cannot be equal to matching logic bottom; in other words, it has *at least* one value for every possible set of arguments. It can be added to a production with the `function` attribute to indicate to the symbolic reasoning engine that a given symbol is a *total function*, that is it has *exactly* one return value for every possible input."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1238 (K 7.1.337)"
+quote = "* Compute the sum `+Int` or difference `-Int` of two integers."
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1266 (K 7.1.337)"
+quote = '''Int "+Int" Int [function, total, symbol(_+Int_), left, comm, smt-hook(+), hook(INT.add)]'''
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1267 (K 7.1.337)"
+quote = '''| Int "-Int" Int [function, total, symbol(_-Int_), left, smt-hook(-), hook(INT.sub)]'''
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1106 (K 7.1.337)"
+quote = "* Negate a boolean value."
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1120 (K 7.1.337)"
+quote = '''syntax Bool ::= "notBool" Bool [function, total, symbol(notBool_), smt-hook(not), group(boolOperation), hook(BOOL.not)]'''
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1138-1139 (K 7.1.337)"
+quote = "rule notBool true => false rule notBool false => true"
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1084 (K 7.1.337)"
+quote = "The boolean values are `true` and `false`."
+
+[ruling.kore]
+statement = "(1) No sentence of the bound. The declarations of h, p, px and s carry function{}() (kore.txt:6, 8, 10, 12), and the text holds no functional axiom of any of them and no other axiom that bounds what they denote; the functional axioms it holds are of other symbols, those of _+Int_, _-Int_ and notBool among them (kore.txt:18, 20, 68). An attribute is not a sentence of the text: what an attribute says of meaning should correspond to an axiom declared explicitly (kore-syntax.md:223-228), and none is declared here. The axiom that would state the bound is the pattern equation for a partial function, for all x there is y with f(x) = y where f(x) is defined (introduction-to-matching-logic.tex:965-966); a symbol under no such axiom is interpreted as a relation (:955-959). (2) The equations. Each is one axiom, an implication from X0 in X to the equality of the application at X0 with the right side (kore.txt:109-123 for h, 127-141 for p, 145-159 for px, 163-177 for s). X is an element variable, so the premise holds exactly where X0 and X are one element, and the axiom states at every element x that the application at x denotes exactly what the right side denotes at X = x: the sets of [ruling] (1). (3) The equations add no contradiction. h, p, px and s occur in the text only in their declarations and at the left sides of their own equations, and no right side applies one of the four (those of h apply f and g, whose equations make f(x) the one element x and g(x) what 0 -Int x denotes, one element by kore.txt:20). So take any model of the text's other sentences and interpret each of the four, at each element x, as the set its right side denotes at x. Each such set is a subset of the result sort's carrier, as the declaration asks; the four equations hold by the choice of the sets; and the truth of every other sentence is unchanged, the four symbols not occurring in it. The text has a model exactly where the text without the four equations has one. In such a model h(1) holds the element of 1 and that of 0 -Int 1, two elements wherever those differ, as over the integers; p(true) holds true and what notBool true denotes; s(0) holds 0 and what 0 +Int 1 denotes. That those pairs are two elements is a fact of the integers and the Booleans; whether a sentence of the text states it does not matter to (3), which holds either way. (4) The contrast. A text that holds, beside the same equation, the functional axiom of h, one element Val equal to h(K0) at every K0 (the form of kore.txt:20; introduction-to-matching-logic.tex:960-964), states that h(1) is one element, and has no model in which 1 and 0 -Int 1 are two elements. The two texts differ by that one sentence."
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:6"
+quote = '''symbol Lblh{}(SortInt{}) : SortInt{} [function{}(), symbol'Kywd'{}("h")]'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:119-123"
+quote = '''\equals{SortInt{},R} ( Lblh{}(X0:SortInt{}), \and{SortInt{}} ( \or{SortInt{}}(Lblf{}(VarX:SortInt{}),Lblg{}(VarX:SortInt{})), \top{SortInt{}}())))'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:140"
+quote = '''\or{SortBool{}}(VarX:SortBool{},\exists{SortBool{}}(VarB:SortBool{},\and{SortBool{}}(VarB:SortBool{},\equals{SortBool{}, SortBool{}}(VarB:SortBool{},LblnotBool'Unds'{}(VarX:SortBool{}))))),'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:176"
+quote = '''\or{SortInt{}}(VarX:SortInt{},\exists{SortInt{}}(VarB:SortInt{},\and{SortInt{}}(VarB:SortInt{},\equals{SortInt{}, SortInt{}}(VarB:SortInt{},Lbl'UndsPlus'Int'Unds'{}(VarX:SortInt{},\dv{SortInt{}}("1")))))),'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:20"
+quote = '''axiom{R} \exists{R} (Val:SortInt{}, \equals{SortInt{}, R} (Val:SortInt{}, Lbl'Unds'-Int'Unds'{}(K0:SortInt{}, K1:SortInt{}))) [functional{}()] // functional'''
+
+[[ruling.kore.basis]]
+source = "kore-syntax"
+locator = "haskell-backend/docs/kore-syntax.md:223-228 (K 7.1.337)"
+quote = "Attributes are hints to the backend, often collected by the frontend. Some attributes express syntactic information, while others express semantic information. All semantic information contained in attributes should correspond to axioms declared explicitly. The hints indicate when the backend may use faster algorithms, more efficent data structures, and so on. The meaning of particular attributes is implementation-defined."
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:955-959 (K 7.1.337)"
+quote = '''Note that, by default, symbols are interpreted as relations in matching logic. It is often the case, though, that we want symbols to be interpreted as (partial or total) \emph{functions}. This can be easily done by axiomatically constraining those symbols to evaluate to singletons.'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:965-966 (K 7.1.337)"
+quote = '''Likewise, ``$\forall x\,.\,\exists y\,.\,\lceil f(x) \rceil \rightarrow f(x) = y$'' states that $f_M(a)$ contains at most one element ($f$ is a partial function).'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:960-964 (K 7.1.337)"
+quote = '''For example, if $f$ is a unary symbol, then the pattern equation ``$\forall x\,.\,\exists y\,.\,f(x) = y$'' (the convention for free variables allows us to drop the universal quantifier) states that in any model $M$, the set $f_M(a)$ contains precisely one element for any $a\in M$; i.e. $f$ is a total function.'''
+
+[[note]]
+implementation = "kcore"
+text = "The cases. The text's equations are those of three kcore-spec fixtures, each a text of its own: e3-ml-eq-rhs-or (f, g, h as here; f2-examples/e3-ml-eq-rhs-or.kompile.kore), e3-eq-exists-ml-in-or (p and px under the names f and fx) and e3-eq-exists-ml-in-or-int (s under the name f). KCore's theory of a kompiled text takes nothing from attributes, and holds no functional or at-most-one item of a function; it reads each of these equations as a clause with an existential variable (account.txt: existentialClause) and names the clause's match independence as owed. What is kernel-checked on the three texts is about the value the reading computes (Eval), for every H, and not about models: test/ExClauseFxOr.lean, ExClauseFixtures.Or.h_zero and h_zero_alone (h(0) has the one result 0), h_differ (h(n) has no result at n other than 0, neither a value nor none), not_fnHyp; test/ExClauseFxInOr.lean, ExClauseFixtures.InOr.fx_value and fx_alone (fx(b) is b alone), f_no_result, f_not_matchIndependent, not_fnHyp; test/ExClauseFxInOrInt.lean, ExClauseFixtures.InOrInt.no_result, not_matchIndependent, not_fnHyp. No result where the instances differ is how a reading that gives an application at most one value records two; it is not a statement that the text has no model."
+
+[[note]]
+implementation = "kcore"
+text = "The contrasts, kernel-checked. Fixture e3-ml-eq-rhs-or-total is e3-ml-eq-rhs-or with f, g and h declared total (f2-examples/mleqort.kompile.kore): KCore.TieE3MlEqRhsOrTotalNoModel.no_model (test/TieE3MlEqRhsOrTotalNoModel.lean) states, for every H, that no interpretation satisfies the text's sentences 207 (h's equation), 80 (h's functional axiom), 203 and 205 (the equations of f and g) with the signature items and the domain items of Int (each Int value one element, distinct values distinct elements, the graph of _-Int_ at [0, 1], none of which a sentence of the text states); inconsistent and not_fnHypH follow in the same file. Fixture e3-ml-eq-rhs-or-many (k(_) => 1 #Or ... #Or 9, k total): ExClauseFixtures.OrMany.no_model (test/ExClauseFxOrMany.lean), from sentences 235 (the equation) and 95 (k's functional axiom) with the signature and the distinctness of Int values. The functional sentences 80 and 95 are the premises with no counterpart in the three texts of the first note: [ruling.kore] (4)."
+
+[[note]]
+implementation = "kcore"
+text = "Not kernel-checked yet. [ruling.kore] (3) argues that the four equations add no contradiction (a model of the rest gives a model of the whole); it does not show that a model exists, and no Lean theorem states Consistent for one of the three texts. That a model exists is owed by the ticket LIB.fn-many.consistent (Faithful.Model.consistent_of_fnMany: the value model with the one function reinterpreted as the set of its instances' values), which rests on LIB.fn-many.sat-off (FnSolvesAt, Faithful.Model.sat_off in KcoreSpec/ModelSatOff.lean: submitted and not on k-rust main when this entry was written, 2026-11-20) and LIB.fn-many.over (stdIOver, interpret_over, avoids_of_leaf: pending); the three texts' ties with `consistent` for every H are owed by FIX-core.wave-D.ce-ties.or, .in-or and .in-or-int. [ruling] (1) on those texts, that in every model of the theory h(n) is the elements of n and of 0 - n (h_values; f_values for the other two), is owed by the same three tie tickets. Until they land the rows of the three fixtures stay untied with consistency named as owed. The theory KCore reasons in is not the kompiled text sentence for sentence (it adds the domains' graphs and the constructors' items), so its Consistent is a statement beside (3), not the same one."
