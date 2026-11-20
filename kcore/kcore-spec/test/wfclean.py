@@ -6,14 +6,33 @@ whose `wf` is false, unless the account states the construct `wf` rejects and th
 otherwise the reader read the text with no stated reading of that construct, or `wf` rejects a
 reading it should admit.
 
-One construct is so stated: a clause whose predicate is not `\top` (the conjunct `clausesPreTop`).
-`wf`'s consumers derive `FnHyp` from the named facts and decide totality and termination reading
-no clause predicate, and where a predicate is not `\top` the named facts do not give `FnHyp`
-(test/FnSolvesDet.lean); `coreOK` does not ask it, and the account lists those clauses and says
-that the `--core` package's statements take `FnHyp` itself. A text read clean whose only failing
-conjunct is `clausesPreTop`, with `coreOK` true and that list printed, meets layer 1 (i) of C14
+Two constructs are so stated, each by a list the account prints.
+
+A clause whose predicate is not `\top` (the conjunct `clausesPreTop`). `wf`'s consumers derive
+`FnHyp` from the named facts and decide totality and termination reading no clause predicate, and
+where a predicate is not `\top` the named facts do not give `FnHyp` (test/FnSolvesDet.lean);
+`coreOK` does not ask it, and the account lists those clauses and says that the `--core` package's
+statements take `FnHyp` itself. The list is stated when it is printed.
+
+A clause holding existential variables or a right-side predicate (the conjunct `clausesNoExsTop`).
+Such a clause gives its function's value at a match as the union of its instances, which is one
+result only where the instances are decided and those that hold agree; the text does not state
+that, so it is owed of the clause as its match obligation (`MatchIndependent`, the fourth conjunct
+of `FnHyp`), and `sound_hyp` and `complete_hyp` are stated of the text under it. `coreOK` does not
+ask it; the account lists every clause holding existential variables with that obligation. The
+list is stated when its heading is printed with a count of at least one, that many clause lines
+follow it, and each line says `MatchIndependent open` of a clause `matchObligationsL` names (a
+line the account marks as not named is the fact of no statement, and is not stated). The account
+lists the clauses by their existential variables: a clause with a right-side predicate and no
+existential variable is on no list, and this check does not see it beside a listed clause.
+
+A text read clean with `coreOK` true whose failing conjuncts are `clausesPreTop` alone,
+`clausesNoExsTop` alone, or both, each with its list stated, meets layer 1 (i) of C14
 (designs/DONE-0: `coreOK` with the failing `wf` conjunct named); it is listed as stated, not as a
-failure.
+failure. The two are accepted together because each list answers its own conjunct and the routes
+agree: the package that takes `FnHyp` itself for the predicates takes with it the match
+obligations, which are `FnHyp`'s fourth conjunct. Any other failing conjunct, alone or beside
+these, is a failure.
 
 The texts: the corpus's extracted ones (`.lake/corpus/defs`, `test/corpus.py` extracts them), the
 f2-examples' `.kore` files, and the files and directories given (a directory: every
@@ -27,10 +46,34 @@ import concurrent.futures, os, subprocess, sys
 K = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CAP = ['systemd-run', '--user', '--scope', '-q', '-p', 'MemoryMax=12G', '-p', 'MemorySwapMax=0', 'timeout', '300']
 EXE = os.path.join(K, '.lake/build/bin/kcore')
-# the failing list of a text whose only failing `wf` conjunct is `clausesPreTop`, and the account's
-# line that lists its clauses whose predicate is not `\top`
-PRE_TOP_ONLY = "wf false; failing: [clauses' premise predicates \\top (clausesPreTop): the checks outside coreOK read no clause predicate]"
+# the two `wf` conjuncts with a stated reading, as the account's failing list prints them, and
+# the heading of the account's list for each
+PRE_TOP = "clauses' premise predicates \\top (clausesPreTop): the checks outside coreOK read no clause predicate"
+NO_EXS = ('clauses without an existential variable or a right-side predicate (clausesNoExsTop): '
+          'the checks outside coreOK read neither')
 PRE_TOP_LIST = 'clauses whose predicate is not \\top (Semantics.clausesPreTop false; not a condition of coreOK:'
+NO_EXS_LIST = ("clauses holding existential variables, each a match obligation (the package's match_named, "
+               'Semantics.matchObligationsL; not a condition of wf: owed of each is MatchIndependent,')
+NOT_NAMED = 'NOT named by matchObligationsL'
+# the failing lists accepted, each with the conjuncts it holds
+STATED = {f'wf false; failing: [{PRE_TOP}]': ('clausesPreTop',),
+          f'wf false; failing: [{NO_EXS}]': ('clausesNoExsTop',),
+          f'wf false; failing: [{PRE_TOP}, {NO_EXS}]': ('clausesPreTop', 'clausesNoExsTop')}
+
+
+def exs_listed(lines):
+    """The account's list of the clauses holding existential variables is printed, non-empty, and
+    every clause of it is a match obligation."""
+    for i, l in enumerate(lines):
+        if l.startswith(NO_EXS_LIST):
+            n = l.rsplit(': ', 1)[-1]
+            if not n.isdigit() or int(n) == 0:
+                return False
+            rows = lines[i + 1:i + 1 + int(n)]
+            return len(rows) == int(n) and all(
+                r.startswith('      function ') and 'MatchIndependent open, existential Var' in r
+                and NOT_NAMED not in r for r in rows)
+    return False
 
 
 def texts(args, corpus):
@@ -57,8 +100,11 @@ def verdict(path):
     # the account's own refusals (uninduced constructor axioms, laws of no collection, …)
     if 'refused by the account: 0' not in lines:
         parse = None
-    stated = (parse == 'parse: ok; ' + PRE_TOP_ONLY and core == 'coreOK: true; failing: []'
-              and any(l.startswith(PRE_TOP_LIST) for l in lines))
+    which = STATED.get(parse[len('parse: ok; '):]) if parse and parse.startswith('parse: ok; ') else None
+    checks = {'clausesPreTop': lambda: any(l.startswith(PRE_TOP_LIST) for l in lines),
+              'clausesNoExsTop': lambda: exs_listed(lines)}
+    stated = (which if which and core == 'coreOK: true; failing: []' and all(checks[w]() for w in which)
+              else None)
     return path, parse, core, stated
 
 
@@ -76,12 +122,12 @@ def main():
     notwf = [x for x in clean if not x[1].startswith('parse: ok; wf true')]
     stated = [x for x in notwf if x[3]]
     bad = [x for x in notwf if not x[3]]
-    for path, _, _, _ in stated:
-        print(f'stated: {os.path.relpath(path, K)}: clausesPreTop alone, coreOK true, the clauses listed')
+    for path, _, _, st in stated:
+        print(f'stated: {os.path.relpath(path, K)}: {" and ".join(st)} alone, coreOK true, the clauses listed')
     for path, parse, core, _ in bad:
         print(f'{os.path.relpath(path, K)}: {parse[len("parse: ok; "):]}; {core}')
     print(f'{len(ts)} texts, {len(clean)} read with nothing refused, {len(notwf)} of them with wf false, '
-          f'{len(stated)} of those stated (clausesPreTop alone)')
+          f'{len(stated)} of those stated (clausesPreTop, clausesNoExsTop or both, alone)')
     sys.exit(1 if bad else 0)
 
 
