@@ -11,7 +11,8 @@ Usage (from kcore-spec):
   python3 -I test/constructs/e6map.py --self-check   the self-check of forms (d) and (e) only (below)
 
 Tied texts and their tie files: the Lean files test/Tie*.lean and test/LibEv*.lean, each on the text
-its `user_axioms U from "TEXT"` names.
+its `user_axioms U from "TEXT"` names; in a file of several namespaces with one `user_axioms U` each,
+a theorem of forms (a) and (b) is on the text of the `U` in scope at it (`theorem_texts`).
 A sentence of a text is its axiom of index N (KCore's AxiomDecl.index: the 1-based position among
 the text's axioms, every module counted, in text order; U.axN in a tie file). A sentence is tied by
 a theorem when one of these holds, read from the files' text:
@@ -365,8 +366,36 @@ def file_theorems(t):
     return [(th[0], th[2]) for th in out if len(th) >= 3]
 
 
+def theorem_texts(t):
+    """full theorem name -> the text of the `user_axioms U from "TEXT"` in scope at the theorem: the
+    one of the innermost enclosing namespace that has one before the theorem (a file of several
+    namespaces, each on its own text, has one `U` per namespace; the file's first text is not the
+    text of a theorem in another's namespace)."""
+    ns, cur, out = [], [(0, None)], {}
+    for l in t.split("\n"):
+        m = re.match(r"namespace (\S+)", l)
+        if m:
+            ns.append(m.group(1))
+        m = re.match(r"end (\S+)\s*$", l)
+        if m and ns and ns[-1] == m.group(1):
+            ns.pop()
+            while len(cur) > 1 and cur[-1][0] > len(ns):
+                cur.pop()
+        m = re.match(r'user_axioms U from "([^"]+)"', l)
+        if m:
+            if cur[-1][0] == len(ns):
+                cur[-1] = (len(ns), m.group(1))
+            else:
+                cur.append((len(ns), m.group(1)))
+        m = re.match(r"(?:private )?theorem (\S+)", l)
+        if m:
+            out[".".join(ns + [m.group(1)])] = next((x for _, x in reversed(cur) if x), None)
+    return out
+
+
 def lean_ties():
-    """text -> index -> [(theorem, file)], from the tie files' text (forms (a) and (b))."""
+    """text -> index -> [(theorem, file)], from the tie files' text (forms (a) and (b)); a theorem
+    is on the text of the `user_axioms U` in scope at it (`theorem_texts`)."""
     ties = defaultdict(lambda: defaultdict(list))
     for f in sorted(os.listdir(os.path.join(K, "test"))):
         if not TIE_FILE.match(f):
@@ -376,7 +405,7 @@ def lean_ties():
         um = re.search(r'user_axioms U from "([^"]+)"', t)
         if not um:
             continue
-        text = um.group(1)
+        texts = theorem_texts(t)
         idx = {m.group(1): [int(x) for x in re.findall(r"\d+", m.group(2))]
                for m in re.finditer(r"^def (\w+) : List Nat :=\s*\[([\d,\s]*)\]", t, re.M)}
         lists = {m.group(1): idx[m.group(2)] for m in re.finditer(
@@ -394,6 +423,7 @@ def lean_ties():
             if m and m.group(1) in lists:
                 ns_ |= set(lists[m.group(1)])
             kind = "refutes" if "¬" in stmt else ("partial" if "SvAtMostOne" in stmt else "ties")
+            text = texts.get(name) or um.group(1)
             for n in ns_:
                 ties[text][n].append((name, rel, kind))
     return ties
