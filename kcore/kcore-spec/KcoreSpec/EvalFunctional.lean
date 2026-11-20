@@ -34,7 +34,7 @@
     Nothing is available for the second clause's terms.
 
   `MatchIndependent` (a clause against itself) and `ClausesAgree` (two clauses of one function)
-  are its instances, the obligations `Obligations` names (Statements.lean).
+  are its instances, the obligations `Obligations` names (Obligations.lean).
 -/
 import KcoreSpec.HoldsCongr
 

@@ -6,7 +6,7 @@
   interpretation total on those parameters (`fnHyp_of_fnObligations`), hence soundness and
   completeness (`sound_fn`, `complete_fn`), with no `wf` read.
 
-  `CoreObligations` (Statements.lean) is the same kind of statement over the deciders `wf`'s
+  `CoreObligations` (Obligations.lean) is the same kind of statement over the deciders `wf`'s
   packages use; it has a fifth conjunct (the lazily skipped arguments) that `FnHyp` does not read.
   `FnObligations` has `FnHyp`'s four parts only, each over the larger deciders: termination by a rank
   of the functions, cycles decreasing in a shared weight (`rankObligations`, CallGroups.lean) and self calls decreasing in weight

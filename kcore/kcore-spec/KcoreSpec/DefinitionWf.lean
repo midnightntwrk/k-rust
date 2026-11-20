@@ -1065,7 +1065,7 @@ def fnOvlCallers : List Sym :=
 function-overloaded symbol (`fnOvlCallers`). Declaration order, with decreasing
 self calls (`Certificates.ok`), is KCore's argument that evaluation terminates
 (`terminates_of_order`, Terminates.lean); for these functions it does not apply, and their
-termination is a named obligation (`Obligations`, Statements.lean). -/
+termination is a named obligation (`Obligations`, Obligations.lean). -/
 def orderObligations : List Sym :=
   let labels := c.fns.map (·.label)
   let rec go (earlier : List Sym) : List Fn → List Sym
@@ -1104,7 +1104,7 @@ def fnExclusiveOK (heads : List CtorSig) (f : Fn) : Bool :=
       clausesAgree cl cl')
 
 /-- The functions whose equations of one priority `fnExclusiveOK` does not show to agree where two
-apply: that they do (`ClausesAgree`) is a named obligation (`Obligations`, Statements.lean). The
+apply: that they do (`ClausesAgree`) is a named obligation (`Obligations`, Obligations.lean). The
 decider reads patterns as the executable matcher does, without overloading symbols: with one, every
 function is named. -/
 def agreeObligations : List Sym :=
@@ -1113,7 +1113,7 @@ def agreeObligations : List Sym :=
 /-- The clauses whose patterns `clauseFixed` does not show to fix their variables, each as its
 function and its index among the function's clauses: that each is match independent (two matches
 at one argument list give one result, `MatchIndependent`) is a named obligation (`Obligations`,
-Statements.lean). The decider reads patterns as the executable matcher does, without overloading
+Obligations.lean). The decider reads patterns as the executable matcher does, without overloading
 symbols: with one, every clause is named. -/
 def matchObligations : List (Sym × Nat) :=
   c.fns.flatMap fun f =>
@@ -1128,7 +1128,7 @@ def clausesFixed : Bool := c.allFns.all fun f => f.clauses.all c.clauseFixed
 
 /-- The functions declared `[total]` that `totalOK` does not confirm: the functional axiom kompile
 writes for each (`∃y. f(x̄) = y`) is not shown to hold of `Eval`, and is a named obligation
-(`Obligations`, Statements.lean; KCORE-SPEC.md §2.5). The others are total (`totals_of_order`,
+(`Obligations`, Obligations.lean; KCORE-SPEC.md §2.5). The others are total (`totals_of_order`,
 Totals.lean). -/
 def totalObligations : List Sym :=
   (c.fns.filter fun f => f.total && !c.totalOK f).map (·.label)

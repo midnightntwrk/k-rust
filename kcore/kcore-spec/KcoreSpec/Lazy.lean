@@ -1,6 +1,6 @@
 /-
   KCore. The arguments a short-circuiting evaluation may leave unevaluated (checked layer; the
-  obligation is a conjunct of `Obligations`, Statements.lean).
+  obligation is a conjunct of `Obligations`, Obligations.lean).
 
   Evaluation is strict (Evaluation.lean): a hook application, `ite{S}` among them, evaluates every
   argument, and an undefined argument makes it undefined, as in matching logic, where a symbol
@@ -161,7 +161,7 @@ def definedArg (vars : List Srt) (t : Term) : Bool :=
   (sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) vars t).isSome && c.shapesOK && c.definedTerm t
 
 /-- The occurrences whose skipped argument `definedArg` does not show defined: the named lazy
-obligations (`Obligations`, Statements.lean). -/
+obligations (`Obligations`, Obligations.lean). -/
 def lazyObligations : List LazyOcc :=
   c.lazyOccs.filter fun o => !c.definedArg o.vars o.skipped
 

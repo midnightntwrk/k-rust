@@ -3,7 +3,7 @@
   equations of one priority, to give one result: each two of one priority are coherent
   (`ClausesAgree`, `Coherent`), in both orders. `Semantics.fnExclusiveOK` (DefinitionWf.lean)
   decides it for many functions (`Det.fnExclusiveOK_sound`, FnExclusive.lean); for the others it is
-  a named obligation (`Semantics.agreeObligations`, `Obligations` in Statements.lean).
+  a named obligation (`Semantics.agreeObligations`, `Obligations` in Obligations.lean).
 -/
 import KcoreSpec.EvalFunctional
 
