@@ -37,6 +37,8 @@
   - `topCut_body`: `∃z. z ∧ (⊤ ∧ (z ∈ X ∧ ψ'))` is `X ∧ ψ`, ψ' and ψ holding an element together
     (`sNot_congr_body` carries that under a `\not`); `ceilEx_body`: `∃y. ⌈y⌉ ∧ (y ∈ t ∧ y ∈ u)` is
     `⌈t ∧ u⌉`, where the elements of `t ∧ u` lie in the sort.
+  - `exEqVar_body`: `∃c. (c ∧ c = y)` holds the element y holds, y at an element of the sort and c
+    another variable; `nestedApp_body`: `∃z. h(z) ∧ ⊤` is `∃y. h(∃c. (c ∧ c = y))`.
   - `CutOf`, `cutOf_body`, `cutOf_mem`, `cutOf_or`: `∃z. z ∧ (⊤ ∧ ψ')` is T where ψ' is T's cut at z: a
     membership of z in a pattern that does not hold it, or a disjunction of cuts.
   - The parts of an equation sentence read off its KORE pattern (`premK`, `lhsK`, `rhsK`, `ensK`,
@@ -669,6 +671,52 @@ theorem ceilEx_body {y : EVar} {S t u : P} {σ : M} (hS : SortAt I S σ) (ht : t
     rw [interp_sCeil hD hc (hS.den _) (hS.den _) hS.isSort hS.isSort
       (fun c hc' => by rw [interp_evar] at hc'; rw [hc']; exact hx) a]
     exact ⟨⟨_, interp_evar.mpr rfl⟩, ha⟩
+
+/-- **`∃c:S. (c ∧ c = y)` holds the element y holds, and nothing else**, y holding an element of S
+and c another variable: an element is in it where it is the binder's element b and b is y's. -/
+theorem exEqVar_body {y c : EVar} {S : P} {σ : M} (hS : SortAt I S σ) (hcy : c ≠ y) {e : Valuation M}
+    (hy : Inh I σ (e.evalEvar y)) (m : M) :
+    (sExists c S (sAnd (.evar c) (sEquals S S (.evar c) (.evar y)))).interpret I e m ↔ m = e.evalEvar y := by
+  rw [exS_iff hD hS]
+  constructor
+  · rintro ⟨b, hb, h⟩
+    rw [interp_sAnd, interp_evar,
+      interp_sEquals hD hc (hS.den _) (hS.den _) hS.isSort hS.isSort m] at h
+    obtain ⟨h1, -, h3⟩ := h
+    have hmb : m = b := by rw [h1]; exact upd_same e c b
+    have := (h3 b hb).mp (interp_evar.mpr (upd_same e c b).symm)
+    rw [interp_evar, upd_ne e hcy.symm b] at this
+    exact hmb.trans this
+  · intro hm
+    refine ⟨m, hm ▸ hy, ?_⟩
+    rw [interp_sAnd, interp_evar,
+      interp_sEquals hD hc (hS.den _) (hS.den _) hS.isSort hS.isSort m]
+    refine ⟨(upd_same e c m).symm, hm ▸ hy, fun a _ => ?_⟩
+    rw [interp_evar, interp_evar, upd_same, upd_ne e hcy.symm m, hm]
+
+/-- **`∃z. h(z) ∧ ⊤` is `∃y. h(∃c. (c ∧ c = y))`** at an element of S: the binder c equated with the
+variable y of the binder around it holds y's element, so both sides hold what h gives at an element
+of S. The variables are free in h, and c is not y. -/
+theorem nestedApp_body {y c z : EVar} {S hd : P} {σ : M} (hS : SortAt I S σ) (hcy : c ≠ y)
+    (hhy : hd.isFreeEvar y = false) (hhz : hd.isFreeEvar z = false) {e : Valuation M} {a : M}
+    (ha : Inh I σ a) :
+    (sExists z S (sAnd (hd ⬝ .evar z) (sTop S))).interpret I e a ↔
+      (sExists y S (hd ⬝ sExists c S (sAnd (.evar c) (sEquals S S (.evar c) (.evar y))))).interpret I e a := by
+  rw [exS_iff hD hS, exS_iff hD hS]
+  refine exists_congr fun b => and_congr_right fun hb => ?_
+  have hyb : Inh I σ ((upd e y b).evalEvar y) := by rw [upd_same]; exact hb
+  rw [interp_sAnd, sTop_iff hD hS, interp_app, interp_app]
+  constructor
+  · rintro ⟨⟨f, w, hf, hw, happ⟩, -⟩
+    rw [interp_evar, upd_same] at hw
+    refine ⟨f, w, (upd_irrel hhy e b f).mpr ((upd_irrel hhz e b f).mp hf), ?_, happ⟩
+    rw [exEqVar_body hD hc hS hcy hyb, upd_same]
+    exact hw
+  · rintro ⟨f, w, hf, hw, happ⟩
+    rw [exEqVar_body hD hc hS hcy hyb, upd_same] at hw
+    refine ⟨⟨f, w, (upd_irrel hhz e b f).mpr ((upd_irrel hhy e b f).mp hf), ?_, happ⟩, ha⟩
+    rw [interp_evar, upd_same]
+    exact hw
 
 end
 end

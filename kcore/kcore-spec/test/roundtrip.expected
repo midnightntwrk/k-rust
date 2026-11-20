@@ -163,6 +163,7 @@ differs f2-examples/e3-eq-exists-ml-in-or-int.kompile.kore
 differs f2-examples/e3-eq-exists-ml-in-or.kompile.kore
 differs f2-examples/e3-eq-exists-ml-supersort.kompile.kore
 differs f2-examples/e3-eq-exists-ml-under-app.kompile.kore
+differs f2-examples/e3-eq-exists-nested-ml.kompile.kore
 differs f2-examples/e3-eq-exists-noens-ml.kompile.kore
 differs f2-examples/e3-eq-exists-partial-ml.kompile.kore
 differs f2-examples/e3-eq-exists-twice-ml.kompile.kore

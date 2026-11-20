@@ -50,9 +50,9 @@
   `total_params`), which the reader reads as that declaration. Γ states the parameter's graph at
   values from the interpretation (`ΓDomains`: its application to values denotes `paramVal`'s value,
   or nothing), so the sentence holds at values where H gives the parameter a value of its sort at
-  every argument list of its sorts: the hypothesis on H the statements take (`ParamsTotal`). The
-  account holds them in the class `parameter functional`, of the direction `hypothesis`
-  (`paramfunctional_account`), and every such sentence of the user module is in it
+  every argument list of its sorts, which is `ParamsTotal`, a fact of H that no statement here takes
+  as a hypothesis. The account holds them in the class `parameter functional`, of the direction
+  `hypothesis` (`paramfunctional_account`), and every such sentence of the user module is in it
   (`paramfunctional_heads`).
 
   The parameter lemmas (156) apply a parameter symbol no registry hook interprets, whose value the
@@ -974,8 +974,9 @@ theorem lib166_at_values (H : HookParams) : EntailsAtValues (cH H) U.ax165 (trS 
 /-! ## The parameter functional sentences (35, 72, 74, 109): owed as `ParamsTotal` -/
 
 /-- The parameter symbols no registry hook interprets that the text declares total
-(`Definition.totalParams`): the statements take `ParamsTotal c defn.totalParams H`, that `H` gives
-each a value of its result sort at every argument list of its argument sorts. -/
+(`Definition.totalParams`). `ParamsTotal c defn.totalParams H` is that `H` gives each a value
+of its result sort at every argument list of its argument sorts: a fact of H that no statement here
+takes as a hypothesis. -/
 theorem total_params : defn.totalParams.map c.symName = ["Lbl'Tild'Int'Unds'", "Lbl'UndsAnd-'Int'Unds'", "Lbl'Unds'xorInt'Unds'", "Lbl'UndsPipe'Int'Unds'"] := by decide +kernel
 
 /-- The text's `functional` sentences of those parameters (`isParamFunctional`). -/
