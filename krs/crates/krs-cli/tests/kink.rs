@@ -3841,8 +3841,8 @@ fn grammar_mutation(id: &str, production: Option<&str>, find: &str, replace: &st
 /// `parses-differently`, a literal no case writes survives; and the reparse sees an edit of each
 /// part the parse function reads (`avoid`, `prefer`, `bracket`, `token`, `prec(N)`, a function's
 /// syntax). `check` refuses a `format`-only edit (`no-parse-change`), a changed symbol
-/// (`label-changed`), a `format` the edited items leave malformed (`derived-mismatch`) and an
-/// attribute that says what the constructor means (`not-judged`).
+/// (`label-changed`), a `format` naming an item the edit removed (`derived-mismatch`) and an
+/// attribute that says what the constructor means (`not-judged`, with the grammar's next step).
 #[test]
 #[expect(
     clippy::too_many_lines,
@@ -3901,16 +3901,60 @@ fn run_judges_grammar_mutants_of_a_text_parsing_definition() {
     // No case writes `skip`: every case parses alike and runs alike.
     assert_eq!(row(&document, "skip-literal")["status"], "survived");
     // Each part the parse function reads changes the reparse of the case that exercises it.
-    for (id, program, reparse) in [
-        ("drop-avoid", "ifs", "rejected"),
-        ("avoid-prefer", "ifs", "different"),
-        ("drop-bracket", "paren", "different"),
-        ("drop-token", "called", "different"),
-        ("name-prec", "word", "rejected"),
-        ("twice-literal", "twice", "rejected"),
+    // The rows are not killed: `ifs`, `word` and `twice` never reach the `[stop]`, so whether
+    // the baseline accepts them is undecided; `avoid` to `prefer` compiles to the baseline's
+    // definition, so no test of it runs; the bracket's case runs into claims kink does not
+    // support, and a definition without the name token does not compile.
+    for (id, program, reparse, status, reason) in [
+        (
+            "drop-avoid",
+            "ifs",
+            "rejected",
+            "unknown",
+            "grammar-acceptance-not-decided",
+        ),
+        (
+            "avoid-prefer",
+            "ifs",
+            "different",
+            "unknown",
+            "grammar-run-not-supported",
+        ),
+        (
+            "drop-bracket",
+            "paren",
+            "different",
+            "unknown",
+            "unsupported-claims",
+        ),
+        (
+            "drop-token",
+            "called",
+            "different",
+            "not-admitted",
+            "rejected",
+        ),
+        (
+            "name-prec",
+            "word",
+            "rejected",
+            "unknown",
+            "grammar-acceptance-not-decided",
+        ),
+        (
+            "twice-literal",
+            "twice",
+            "rejected",
+            "unknown",
+            "grammar-acceptance-not-decided",
+        ),
     ] {
         let row = row(&document, id);
-        assert_ne!(row["status"], "invalid-mutation", "{row:#}");
+        assert_eq!(
+            (&row["status"], &row["reason"]),
+            (&json!(status), &json!(reason)),
+            "{id}: {row:#}"
+        );
         let case = row["grammar"]
             .as_array()
             .unwrap_or_else(|| panic!("{row:#}"))
@@ -3967,7 +4011,18 @@ fn run_judges_grammar_mutants_of_a_text_parsing_definition() {
         .as_str()
         .unwrap()
         .to_owned();
-    assert!(stale.contains("`format(%1 %2 %3)`"), "{stale}");
+    assert!(
+        stale.contains("names item %4, beyond its 3 items"),
+        "{stale}"
+    );
+    let strict = &row(&document, "strict")["refusals"][0];
+    assert!(
+        strict["next"]
+            .as_str()
+            .unwrap()
+            .starts_with("edit what the program parser reads"),
+        "{strict:#}"
+    );
     // The location of a grammar edit is its Rust item.
     let edit = &row(&document, "format-only")["krs"]["edits"][0];
     assert_eq!(edit["judged"], "grammar", "{edit:#}");

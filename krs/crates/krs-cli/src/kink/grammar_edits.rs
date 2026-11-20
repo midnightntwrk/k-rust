@@ -12,26 +12,32 @@
 //!   token ([`PARSE_ATTRIBUTES`]), a priority or associativity sentence, a production or
 //!   relation added or removed;
 //! - print-only: `format`, `color` and `colors` say how a term prints; a `format` the mutant
-//!   writes must be well formed for the edited items (each item referenced once, in order),
-//!   else the edit is refused `derived-mismatch`;
-//! - kept: `symbol` and `klabel` name the constructor the rules' terms use (kink-flow refuses
-//!   a changed declared label, `label-changed`, before this judgement; productions are paired
-//!   by it, so a production under a new symbol is read as one deleted and one inserted);
+//!   writes must compile for its production: each `%N` at most the production's item count,
+//!   else the edit is refused `derived-mismatch` (an authored `#[k::format]` may omit or
+//!   reorder items, so nothing more is asked);
+//! - kept: `symbol` and `klabel` name the constructor the rules' terms use; kink-flow refuses a
+//!   relabelled production before this judgement (a changed declared label `label-changed`, a
+//!   derived one kept, `keep_derived_labels`), and an inserted production may declare a fresh
+//!   `symbol` but no `klabel` (which groups constructors under one label);
 //! - every other attribute (`strict`, `result`, `function`, `private`, ...) says what the
 //!   constructor means or who sees it, not how a text parses, so an edit of one is no grammar
-//!   mutation and is refused `not-judged`.
+//!   mutation and is refused `not-judged`; so is a new subsort (a production of one nonterminal
+//!   and no name), which changes what the rules' variables match.
 //!
-//! An edit whose declarations parse every text as the specification's do (only print-only
-//! parts changed, tags reordered inside a group, or every change outside the modules the
-//! program grammar imports) is refused `no-parse-change`.
+//! Each changed sentence is judged on its own: any changed, inserted or deleted sentence of a
+//! module the program grammar does not import changes what the rules mean, not how a program
+//! parses, and refuses the mutation `not-judged`, whatever else it changes. A mutation whose
+//! changes are print-only (`format` or colors, or tags reordered inside a group) is refused
+//! `no-parse-change`.
 //!
 //! Both texts are read by k-rust's outer parser, which reads declarations as written and
 //! parses no rule body; each module's sentences are paired by their structure, spans ignored,
-//! and each run of unpaired sentences is judged: productions paired by their `symbol`, then in
-//! order; priority and associativity sentences compared as relations.
+//! and each run of unpaired sentences is judged: productions paired by their `symbol`, then the
+//! unnamed ones by identical sort and items, where a single one is left on each side, or not
+//! at all (refused `not-judged` where that leaves the pairing ambiguous); priority and
+//! associativity sentences compared as relations.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::fmt::Write as _;
 
 use k_rust::outer::{
     self, Associativity, Attribute, Module, Position, Production, ProductionItem, Sentence, Span,
@@ -39,10 +45,19 @@ use k_rust::outer::{
 };
 
 /// The attributes of a production that change which text parses to which term: a group (which
-/// the priority and associativity sentences name), the disambiguation filters, a bracket, and
-/// a token's lexing.
-pub(crate) const PARSE_ATTRIBUTES: [&str; 6] =
-    ["group", "avoid", "prefer", "bracket", "token", "prec"];
+/// the priority and associativity sentences name), an associativity, the disambiguation
+/// filters, a bracket, and a token's lexing.
+pub(crate) const PARSE_ATTRIBUTES: [&str; 9] = [
+    "group",
+    "left",
+    "right",
+    "non-assoc",
+    "avoid",
+    "prefer",
+    "bracket",
+    "token",
+    "prec",
+];
 /// The attributes that say only how a term prints.
 const PRINT_ATTRIBUTES: [&str; 3] = ["format", "color", "colors"];
 /// The attributes that name the constructor.
@@ -53,7 +68,8 @@ const NAME_ATTRIBUTES: [&str; 2] = ["symbol", "klabel"];
 pub(crate) enum GrammarRefusal {
     /// The edited declarations parse every text as the specification's do.
     NoParseChange(String),
-    /// A `format` the mutant writes is not well formed for its production's items.
+    /// A `format` the mutant writes does not compile for its production: a position beyond its
+    /// items, or text K's format language does not read.
     MalformedFormat(String),
     /// The edit changes what the judgement does not read as grammar.
     NotJudged(String),
@@ -389,6 +405,18 @@ impl Judgement {
     fn hunk(&mut self, module: &Module, hunk: &Hunk<'_>, reaches: bool) {
         self.first.get_or_insert(hunk.at);
         let at = hunk.at;
+        if !reaches {
+            self.refuse(
+                at,
+                GrammarRefusal::NotJudged(format!(
+                    "the edit changes a sentence of {}, which the program grammar does not \
+                     import: it changes what the rules mean (a function's signature, a sort the \
+                     rules read), not how a program parses",
+                    module.name
+                )),
+            );
+            return;
+        }
         let mut old_productions = Vec::new();
         let mut new_productions = Vec::new();
         let mut old_relations = Vec::new();
@@ -406,7 +434,9 @@ impl Judgement {
                                     at,
                                     GrammarRefusal::NotJudged(format!(
                                         "the edit changes a parametric or named syntax \
-                                         declaration of sort {} in {}, which KRS does not emit",
+                                         declaration of sort {} in {}; KRS emits such \
+                                         declarations, but the grammar judgement does not judge \
+                                         them yet",
                                         syntax.sort.name, module.name
                                     )),
                                 );
@@ -448,8 +478,8 @@ impl Judgement {
                     Sentence::Lexical(lexical) => self.refuse(
                         at,
                         GrammarRefusal::NotJudged(format!(
-                            "the edit changes the lexical declaration `{}` in {}, which KRS \
-                             does not emit",
+                            "the edit changes the lexical declaration `{}` in {}; KRS emits \
+                             `syntax lexical`, but the grammar judgement does not judge it yet",
                             lexical.name, module.name
                         )),
                     ),
@@ -474,9 +504,7 @@ impl Judgement {
         old_relations.sort();
         new_relations.sort();
         if old_relations != new_relations {
-            self.parse_change(reaches, || {
-                format!("a priority or associativity sentence of {}", module.name)
-            });
+            self.parse_changed = true;
         } else if !hunk.old.is_empty() && hunk.old.iter().any(|s| !matches!(s, Sentence::Syntax(_)))
         {
             self.unparsed.push(format!(
@@ -504,50 +532,95 @@ impl Judgement {
                 (None, None) => unnamed_new.push(new),
             }
         }
+        // The unnamed ones: by identical sort and items where that pairs one with one, then a
+        // single one left on each side; any other pairing is ambiguous.
         let mut unnamed_old = old_productions
             .iter()
             .enumerate()
             .filter(|(index, old)| !paired_old[*index] && old.symbol().is_none())
             .map(|(index, _)| index)
-            .collect::<Vec<_>>()
-            .into_iter();
-        for new in unnamed_new {
-            match unnamed_old.next() {
-                Some(index) => {
-                    paired_old[index] = true;
-                    pairs.push((&old_productions[index], new));
+            .collect::<Vec<_>>();
+        let same = |old: &Declared<'_>, new: &Declared<'_>| {
+            old.sort == new.sort && old.production.items == new.production.items
+        };
+        let mut unmatched_new = Vec::new();
+        for new in &unnamed_new {
+            let candidates = unnamed_old
+                .iter()
+                .copied()
+                .filter(|&index| same(&old_productions[index], new))
+                .collect::<Vec<_>>();
+            let unique = match candidates.as_slice() {
+                [index] => {
+                    unnamed_new
+                        .iter()
+                        .filter(|other| same(&old_productions[*index], other))
+                        .count()
+                        == 1
                 }
-                None => inserted.push(new),
+                _ => false,
+            };
+            if unique {
+                let index = candidates[0];
+                paired_old[index] = true;
+                unnamed_old.retain(|&other| other != index);
+                pairs.push((&old_productions[index], *new));
+            } else {
+                unmatched_new.push(*new);
+            }
+        }
+        match (unnamed_old.as_slice(), unmatched_new.as_slice()) {
+            (_, []) => {}
+            ([], news) => inserted.extend(news.iter().copied()),
+            ([index], [new]) => {
+                paired_old[*index] = true;
+                pairs.push((&old_productions[*index], *new));
+            }
+            (olds, news) => {
+                self.refuse(
+                    at,
+                    GrammarRefusal::NotJudged(format!(
+                        "the edit changes {} productions with no symbol in {} into {} others, \
+                         and which one became which is ambiguous (they differ in sort or items); \
+                         change one per mutation",
+                        olds.len(),
+                        module.name,
+                        news.len()
+                    )),
+                );
+                return;
             }
         }
         for (old, new) in pairs {
-            self.edited(at, old, new, reaches);
+            self.edited(at, old, new);
         }
         for new in inserted {
-            self.inserted(at, new, reaches);
+            self.inserted(at, new);
         }
-        for (old, _) in old_productions
-            .iter()
-            .zip(&paired_old)
-            .filter(|(_, paired)| !**paired)
-        {
-            self.parse_change(reaches, || format!("{} (deleted)", old.named()));
-        }
-    }
-
-    /// Notes a change the program parser reads, when its module is one the parser reads.
-    fn parse_change(&mut self, reaches: bool, what: impl FnOnce() -> String) {
-        if reaches {
+        if paired_old.iter().any(|paired| !paired) {
             self.parse_changed = true;
-        } else {
-            self.unparsed.push(format!(
-                "{}, in a module the program grammar does not import",
-                what()
-            ));
         }
     }
 
-    fn edited(&mut self, at: usize, old: &Declared<'_>, new: &Declared<'_>, reaches: bool) {
+    /// Refuses `declared`, a production the mutant writes, where it is a new subsort: one
+    /// nonterminal, no terminal and no name, which declares its sort below the result sort.
+    fn subsort(&mut self, at: usize, declared: &Declared<'_>) {
+        if let [ProductionItem::NonTerminal { sort, .. }] = declared.production.items.as_slice()
+            && is_subsort(declared)
+        {
+            self.refuse(
+                at,
+                GrammarRefusal::NotJudged(format!(
+                    "the mutant declares {} < {} in {}: a subsort changes what the rules' \
+                     variables of sort {} match, not only how a program parses, as an edit of an \
+                     existing subsort does",
+                    sort.name, declared.sort, declared.module, declared.sort
+                )),
+            );
+        }
+    }
+
+    fn edited(&mut self, at: usize, old: &Declared<'_>, new: &Declared<'_>) {
         let named = old.named();
         if attributes_in(&old.production.attributes, &NAME_ATTRIBUTES)
             != attributes_in(&new.production.attributes, &NAME_ATTRIBUTES)
@@ -588,14 +661,23 @@ impl Judgement {
             self.unparsed
                 .push(format!("`format`, `color` or `colors` of {named}"));
         } else {
-            self.parse_change(reaches, || named.clone());
-            self.check_format(at, new);
+            self.parse_changed = true;
+            if !is_subsort(old) {
+                self.subsort(at, new);
+            }
         }
+        self.check_format(at, new);
     }
 
-    fn inserted(&mut self, at: usize, new: &Declared<'_>, reaches: bool) {
+    fn inserted(&mut self, at: usize, new: &Declared<'_>) {
         let named = new.named();
-        let meaning = meaning_attributes(&new.production.attributes);
+        let mut meaning = meaning_attributes(&new.production.attributes);
+        meaning.extend(
+            new.production
+                .attributes
+                .iter()
+                .filter(|attribute| attribute.key == "klabel"),
+        );
         if !meaning.is_empty() {
             self.refuse(
                 at,
@@ -611,12 +693,14 @@ impl Judgement {
                 )),
             );
         }
-        self.parse_change(reaches, || format!("{named} (inserted)"));
+        self.parse_changed = true;
+        self.subsort(at, new);
         self.check_format(at, new);
     }
 
-    /// Refuses a `format` of `declared` that does not reference each of its items once, in
-    /// order.
+    /// Refuses a `format` of `declared` that does not compile for it: a `%N` beyond its item
+    /// count, or a `%` K's format language does not read. An authored `#[k::format]` may omit
+    /// or reorder items, so no more is asked of a print-only part.
     fn check_format(&mut self, at: usize, declared: &Declared<'_>) {
         let production = declared.production;
         let Some(format) = production
@@ -627,33 +711,25 @@ impl Judgement {
             return;
         };
         let text = format.value.as_deref().unwrap_or_default();
-        let lists = production
-            .items
-            .iter()
-            .any(|item| matches!(item, ProductionItem::UserList { .. }));
         let count = production.items.len();
-        let well_formed = format_references(text).is_some_and(|references| {
-            if lists {
-                references.iter().all(|&reference| reference <= count)
-            } else {
-                references == (1..=count).collect::<Vec<_>>()
-            }
-        });
-        if !well_formed {
-            let mut derived = String::new();
-            for index in 1..=count {
-                if index > 1 {
-                    derived.push(' ');
-                }
-                _ = write!(derived, "%{index}");
-            }
+        let problem = match format_references(text) {
+            None => Some(
+                "has a `%` K's format language does not read (`%%`, `%n`, `%i`, `%d`, `%c`, \
+                 `%r` or a positive item position)"
+                    .to_owned(),
+            ),
+            Some(references) => references
+                .into_iter()
+                .find(|&reference| reference > count)
+                .map(|reference| format!("names item %{reference}, beyond its {count} items")),
+        };
+        if let Some(problem) = problem {
             self.refuse(
                 at,
                 GrammarRefusal::MalformedFormat(format!(
-                    "the mutant's `format({text})` of {} does not reference each of its {count} \
-                     items (`{}`) once, in order; KRS derives a format that does, with any text \
-                     or layout controls between the references: write one, such as \
-                     `format({derived})`, or leave `format` out",
+                    "the mutant's `format({text})` of {} {problem} (`{}`): a format names a \
+                     production's items by position, so it does not compile; renumber its \
+                     positions to the edited items, or leave `format` out",
                     declared.named(),
                     items_text(&production.items)
                 )),
@@ -687,6 +763,15 @@ impl Judgement {
             Err(self.refusals)
         }
     }
+}
+
+/// Whether `declared` declares a subsort: one nonterminal, no terminal and no name.
+fn is_subsort(declared: &Declared<'_>) -> bool {
+    let production = declared.production;
+    matches!(
+        production.items.as_slice(),
+        [ProductionItem::NonTerminal { .. }]
+    ) && attributes_in(&production.attributes, &NAME_ATTRIBUTES).is_empty()
 }
 
 /// The item references of a K `format`, in order; `None` when a `%` introduces nothing K's
@@ -731,6 +816,9 @@ mod tests {
   syntax Exp ::= "count" "(" Int ")" [symbol(count), group(g-a), format(%1%2%3%4), strict]
   syntax Exp ::= Exp "+" Exp [symbol(plus), group(g-b), format(%1 %2 %3)]
   syntax Exp ::= "(" Exp ")" [bracket, format(%1%2%3)]
+  syntax Exp ::= "-" Exp [symbol(neg), right, format(%2)]
+  syntax Exp ::= "[" Exp "]"
+  syntax Exp ::= "{" Exp "}"
   syntax priority g-a g-c > g-b
   syntax left g-b
 endmodule
@@ -743,8 +831,16 @@ endmodule
 "#;
 
     fn judged(find: &str, replace: &str) -> Result<(), Vec<GrammarRefusal>> {
-        assert_eq!(BASE.matches(find).count(), 1, "{find}");
-        let mutant = BASE.replace(find, replace);
+        judged_all(&[(find, replace)])
+    }
+
+    /// The judgement of the mutation that makes each replacement in turn.
+    fn judged_all(edits: &[(&str, &str)]) -> Result<(), Vec<GrammarRefusal>> {
+        let mut mutant = BASE.to_owned();
+        for (find, replace) in edits {
+            assert_eq!(mutant.matches(find).count(), 1, "{find}");
+            mutant = mutant.replace(find, replace);
+        }
         judge(BASE, &mutant, "T-SYNTAX")
             .map_err(|refusals| refusals.into_iter().map(|(_, refusal)| refusal).collect())
     }
@@ -783,6 +879,10 @@ endmodule
             ("syntax left g-b", "syntax right g-b"),
             ("g-a g-c > g-b", "g-a g-c g-b"),
             ("  syntax left g-b\n", ""),
+            // An associativity on the production.
+            ("[symbol(neg), right,", "[symbol(neg), left,"),
+            // A literal edit of a production whose authored format omits an item.
+            (r#""-" Exp [symbol(neg)"#, r#""~" Exp [symbol(neg)"#),
             // A terminal dropped with its format following, or left out.
             (
                 r#""(" Int ")" [symbol(count), group(g-a), format(%1%2%3%4)"#,
@@ -811,12 +911,59 @@ endmodule
         for (find, replace) in [
             ("format(%1 %2 %3)", "format(%1%2%3)"),
             ("g-a g-c > g-b", "g-c g-a > g-b"),
-            // The function's production is outside the program grammar's modules.
-            (r#""helper" "(""#, r#""help" "(""#),
         ] {
             let result = judged(find, replace);
             assert_eq!(reason(&result), ["no-parse-change"], "{find}: {result:?}");
         }
+    }
+
+    /// Each changed sentence is judged on its own: a change beside an admitted one is refused
+    /// when it is outside the program grammar or its format does not compile; an unnamed
+    /// production's pairing must be unambiguous.
+    #[test]
+    fn every_changed_sentence_is_judged() {
+        let literal = (r#""count" "(""#, r#""cnt" "(""#);
+        for (edits, reasons) in [
+            // A function's signature in a module the program grammar does not import, beside a
+            // literal edit, and alone.
+            (
+                vec![literal, (r#""helper" "(" Int"#, r#""helper" "(" Exp"#)],
+                vec!["not-judged"],
+            ),
+            (
+                vec![(r#""helper" "(""#, r#""help" "(""#)],
+                vec!["not-judged"],
+            ),
+            // A format that does not compile beside a literal edit.
+            (
+                vec![literal, ("format(%1 %2 %3)", "format(%1 %2 %4)")],
+                vec!["derived-mismatch"],
+            ),
+            // Two unnamed productions changed, neither identical to the baseline's.
+            (
+                vec![
+                    (r#""[" Exp "]""#, r#""[" Exp "]]""#),
+                    (r#""{" Exp "}""#, r#""{" Exp "}}""#),
+                ],
+                vec!["not-judged"],
+            ),
+        ] {
+            let result = judged_all(&edits);
+            assert_eq!(reason(&result), reasons, "{edits:?}: {result:?}");
+        }
+        // One unnamed production changed and one deleted: the unchanged-items rule does not
+        // pair them, and two old ones are left against one new one.
+        let result = judged_all(&[
+            ("  syntax Exp ::= \"[\" Exp \"]\"\n", ""),
+            (r#""{" Exp "}""#, r#""{" Exp "}}""#),
+        ]);
+        assert_eq!(reason(&result), ["not-judged"], "{result:?}");
+        // An attribute added to an unnamed production beside a deletion: its items pair it.
+        let result = judged_all(&[
+            ("  syntax Exp ::= \"[\" Exp \"]\"\n", ""),
+            (r#""{" Exp "}""#, r#""{" Exp "}" [avoid]"#),
+        ]);
+        assert_eq!(result, Ok(()));
     }
 
     #[test]
@@ -829,8 +976,28 @@ endmodule
         let GrammarRefusal::MalformedFormat(detail) = &refusals[0] else {
             unreachable!()
         };
-        assert!(detail.contains("`format(%1 %2 %3)`"), "{detail}");
+        assert!(
+            detail.contains("names item %4, beyond its 3 items"),
+            "{detail}"
+        );
         for (find, replace) in [
+            // A new subsort, and attributes an inserted production cannot carry.
+            (
+                "  syntax Exp ::= \"(\"",
+                "  syntax Exp ::= Int\n  syntax Exp ::= \"(\"",
+            ),
+            (
+                "  syntax Exp ::= \"(\"",
+                "  syntax Exp ::= \"one\" [function]\n  syntax Exp ::= \"(\"",
+            ),
+            (
+                "  syntax Exp ::= \"(\"",
+                "  syntax Exp ::= \"one\" [anywhere]\n  syntax Exp ::= \"(\"",
+            ),
+            (
+                "  syntax Exp ::= \"(\"",
+                "  syntax Exp ::= \"one\" [klabel(count)]\n  syntax Exp ::= \"(\"",
+            ),
             ("format(%1%2%3%4), strict]", "format(%1%2%3%4)]"),
             (
                 "[symbol(plus), group(g-b)",

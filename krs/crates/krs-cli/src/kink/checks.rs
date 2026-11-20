@@ -91,6 +91,12 @@ const NEXT_DERIVED_MISMATCH: &str = "write the derived text KRS gives (the detai
      the mutant's, in the same mutation, or delete it when KRS derives nothing there";
 const NEXT_NO_CHANGE: &str = "change what the rule says: the edited rule is the \
      specification's rule up to names and brackets";
+/// The next step of a grammar edit the grammar judgement does not judge.
+const NEXT_GRAMMAR_NOT_JUDGED: &str = "edit what the program parser reads in the program \
+     grammar's modules (a literal, a sort, an alternative, a group, an associativity or a \
+     disambiguation attribute), one production per change; a change of what a constructor means \
+     (its attributes, a subsort, a function's signature outside the program grammar) is a rule \
+     mutation";
 const NEXT_NO_PARSE_CHANGE: &str = "change how a program's text parses: edit a literal, a sort, \
      an alternative, or a priority or associativity group; `format`, `color` and `colors` only \
      say how a term prints";
@@ -672,7 +678,7 @@ fn next_steps(reason: &'static str) -> Vec<&'static str> {
         DERIVED_MISMATCH => vec![NEXT_DERIVED_MISMATCH],
         NO_CHANGE => vec![NEXT_NO_CHANGE],
         NO_PARSE_CHANGE => vec![NEXT_NO_PARSE_CHANGE],
-        NOT_JUDGED => vec![NEXT_NOT_JUDGED],
+        NOT_JUDGED => vec![NEXT_NOT_JUDGED, NEXT_GRAMMAR_NOT_JUDGED],
         code => {
             let mut steps = Vec::new();
             for one_item in [false, true] {
@@ -1301,7 +1307,9 @@ impl<'a> KrsChecks<'a> {
                 GrammarRefusal::MalformedFormat(detail) => {
                     judged.refuse(DERIVED_MISMATCH, NEXT_DERIVED_MISMATCH, edit, detail);
                 }
-                GrammarRefusal::NotJudged(detail) => judged.not_judged(edit, detail),
+                GrammarRefusal::NotJudged(detail) => {
+                    judged.refuse(NOT_JUDGED, NEXT_GRAMMAR_NOT_JUDGED, edit, detail);
+                }
             }
         }
     }
