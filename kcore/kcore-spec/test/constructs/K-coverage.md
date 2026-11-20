@@ -289,6 +289,8 @@ The `cell` entries of `core-manifest.toml`: a row and a column of the release sc
 - through: KK.clausePreDecided, KK.clausePostDecided, KK.openLaws
 - defn is RefKk.defn, kore.k's package
 - checked by: examples/run.sh with ref-kk selected (test/release.sh, step examples): gen/build.sh examples/ref-kk ... User.Consistent, whose own #eval fails the build when consistent or fnSolves reaches an axiom other than propext, Classical.choice, Quot.sound
+- checked by: test/pins-kk.sh (test/release.sh, step pins-kk): KK.consistent pinned in test/PinsKk.lean at Consistent (RefKk.defn.sem.withHooks HookParams.none), with its axioms, on the package kcore gen --core writes for kore.k, with ref-kk's User modules up to User.KkThree and User.Consistent
+- checked by: test/release.sh, step axioms-refkk: #print axioms of KK.consistent, failing on an axiom other than propext, Classical.choice, Quot.sound
 
 ## E1 sentence kinds (Outer.jj) (58 rows)
 
