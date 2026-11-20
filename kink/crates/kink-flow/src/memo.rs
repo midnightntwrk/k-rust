@@ -116,8 +116,11 @@ use std::{fs, path::Path};
 /// domain).
 /// v2 since kink27 R5-WEAKENING added the facts' `weakening`; v3 since the edited rules lost
 /// `requires_edited` (the kill search reads the edit from the compiled mutant); v4 since the memo
-/// is read and written under the Z3 profile too, its key naming the solver (`smt`).
-pub const RESOLUTION_MEMO_VERSION: &str = "kink-flow/resolution-memo/v4";
+/// is read and written under the Z3 profile too, its key naming the solver (`smt`); v5 since a
+/// rule mutation that edits a macro rule has its cases parsed again (PJ-35) and its facts are
+/// never memoised (its `generation` refuses, as a grammar mutation's does), so a v4 record of its
+/// facts, which a run from the specification's configurations decided, is not read.
+pub const RESOLUTION_MEMO_VERSION: &str = "kink-flow/resolution-memo/v5";
 /// The format and meaning of a census memo record (its key's `version` and its digest's domain).
 /// v2 since the memo is read and written under the Z3 profile too, its key naming the solver
 /// (`smt`).

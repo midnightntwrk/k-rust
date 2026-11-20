@@ -2240,10 +2240,13 @@ note = "narrows the pattern to a nonzero second argument"
         }
     }
 
-    /// The up-front assembly check (design 3.2.5): kink assembles both sides' inputs from the
-    /// baseline, so a mutation of a `[macro]` rule that changes how the template parses would be
-    /// judged on an input kink never runs; it is refused before any case. A mutation of another
-    /// rule on the same template gives a witness whose assembly matches kink's.
+    /// A mutation of a `[macro]` rule may change how the template parses, and kink assembles both
+    /// sides' inputs from the baseline, so it would be judged on an input kink never runs: since
+    /// PJ-35 (U35a) such a mutation's cases are parsed again under its mutant, which the fuzz kill
+    /// job does not do, so it is refused before the campaign (`grammar-not-run`, stage
+    /// `mutation`), ahead of the up-front assembly check (design 3.2.5), which stays as a second
+    /// guard. A mutation of another rule on the same template gives a witness whose assembly
+    /// matches kink's.
     #[test]
     #[ignore = "kink"]
     fn a_macro_edit_that_changes_the_templates_parse_is_refused_before_any_case() {
@@ -2271,19 +2274,14 @@ note = "narrows the pattern to a nonzero second argument"
         );
         assert!(!ok, "{document:#}");
         let refusal = &document["job"]["refusal"];
-        assert_eq!(refusal["stage"], "assembly", "{document:#}");
-        assert_eq!(refusal["reason"], "mutant-assembly-differs");
-        assert!(
-            refusal["detail"]
-                .as_str()
-                .unwrap()
-                .contains("the mutant parses the template differently from kink's input")
-        );
-        let assembly = &document["assembly"];
-        assert_ne!(assembly["baseline_anchor"], assembly["mutant_anchor"]);
         assert_eq!(
-            assembly["baseline_anchor"],
-            assembly["kink_template"]["sha256"]
+            (&refusal["stage"], &refusal["reason"]),
+            (&Value::from("mutation"), &Value::from("grammar-not-run")),
+            "{document:#}"
+        );
+        assert!(
+            refusal["detail"].as_str().unwrap().contains("macro"),
+            "{document:#}"
         );
         assert_eq!(document["attempts"], serde_json::json!([]));
         let (document, ok) = fuzz_kill(

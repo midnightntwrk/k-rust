@@ -1463,6 +1463,115 @@ fn joint_grammar_and_rule_mutants_are_judged_by_the_one_judgement() {
     }
 }
 
+const MACRO_K: &str = "module MAC-SYNTAX
+  imports INT-SYNTAX
+  syntax Exp ::= Int
+               | Exp \"+\" Exp [left, strict, symbol(plus)]
+               | \"twice\" \"(\" Exp \")\" [macro, symbol(twice)]
+endmodule
+
+module MAC
+  imports MAC-SYNTAX
+  imports INT
+  configuration <k> $PGM:Exp </k>
+
+  syntax KResult ::= Int
+  rule [twice]: twice(E:Exp) => E + E
+  rule [plus]: I1:Int + I2:Int => I1 +Int I2
+endmodule
+";
+
+/// PJ-35 (U35a, Q1): a rule mutation that edits a rule program macro expansion reads has its
+/// cases parsed again, since k-rust's assembly expands a program's macros with the mutant's own
+/// macro rules. `twice(E)` made `E + E + E` assembles `twice(3)` as `3 + 3 + 3`, whose run ends at
+/// 9 where the baseline's `3 + 3` ends at 6: killed, `parses-differently`. Run from the
+/// specification's configuration, as before, the mutant (whose compiled rules hold no macro)
+/// ends at 6 too and would survive. `1 + 2` parses alike. The row carries `grammar` and is no
+/// grammar target; the commands that do not parse the cases again refuse it (`grammar-not-run`);
+/// a rule mutation of a rule no macro expansion reads keeps its row, with no `grammar`.
+#[test]
+fn a_rule_mutation_of_a_macro_rule_is_judged_on_its_own_expansion() {
+    use serde_json::json;
+    let dir = scratch("run-macro-rule");
+    write(&dir.join("mac.k"), MACRO_K);
+    write(
+        &dir.join("FLOW.toml"),
+        "[spec]\nentry = \"mac.k\"\nmain_module = \"MAC\"\nsyntax_module = \"MAC-SYNTAX\"\n\n\
+         [[program]]\nid = \"add\"\ntext = \"1 + 2\"\n\n\
+         [[program]]\nid = \"twice\"\ntext = \"twice(3)\"\n",
+    );
+    let manifest = dir.join("FLOW.toml");
+    let mutations = dir.join("MUTATIONS.toml");
+    write(
+        &mutations,
+        &[
+            one_edit(
+                "thrice",
+                "  rule = \"twice\"\n  find = \"E + E\"\n  replace = \"E + E + E\"",
+            ),
+            one_edit(
+                "plus-becomes-minus",
+                "  rule = \"plus\"\n  find = \"I1 +Int I2\"\n  replace = \"I1 -Int I2\"",
+            ),
+        ]
+        .concat(),
+    );
+    let (check, _) = check_list(&manifest, &mutations, None);
+    assert_eq!(row(&check, "thrice")["outcome"], "ok", "{check:#}");
+    let (document, _) = flow_support::corpus_run(&manifest, &mutations);
+    let thrice = row(&document, "thrice");
+    assert_eq!(
+        killed_as(thrice),
+        json!(["killed", "twice", "parses-differently"]),
+        "{thrice:#}"
+    );
+    assert_eq!(
+        reparsed(thrice),
+        json!([["add", "same", "run"], ["twice", "different", "run"]]),
+        "{thrice:#}"
+    );
+    let rule = row(&document, "plus-becomes-minus");
+    assert_eq!(rule["status"], "killed", "{rule:#}");
+    assert!(rule.get("grammar").is_none(), "{rule:#}");
+    assert!(rule.get("direction").is_none(), "{rule:#}");
+    let (warm, _) = flow_support::corpus_run(&manifest, &mutations);
+    assert_eq!(
+        killed_as(row(&warm, "thrice")),
+        killed_as(thrice),
+        "{warm:#}"
+    );
+    let full = kink_flow::search::run(
+        &FlowManifest::read(&manifest).unwrap(),
+        &kink_flow::MutationList::read(&mutations).unwrap(),
+        &kink_flow::search::RunOptions {
+            legacy_lock: None,
+            only: Vec::new(),
+            cache: None,
+            compile_workers: None,
+            memo: kink_flow::memo::MemoUse::On,
+            schedule: kink_campaign::ScheduleMode::Full,
+            lock: None,
+            locked: false,
+        },
+    )
+    .0;
+    let refused = row(&full, "thrice");
+    assert_eq!(
+        (&refused["status"], &refused["reason"]),
+        (&Value::from("error"), &Value::from("grammar-not-run")),
+        "{refused:#}"
+    );
+    assert!(
+        refused["detail"].as_str().unwrap().contains("macro"),
+        "{refused:#}"
+    );
+    assert_eq!(
+        row(&full, "plus-becomes-minus")["status"],
+        "killed",
+        "{full:#}"
+    );
+}
+
 /// PJ-34 (U34c): under a `[stop]` the baseline's run of `1 + 2` reaches, the baseline accepts
 /// the case, so a mutant that rejects it at parse is killed by it, direction `mutant-rejects`,
 /// with no run (`killer_source` `reparse`); an ambiguous text is a rejection (dropping `left`

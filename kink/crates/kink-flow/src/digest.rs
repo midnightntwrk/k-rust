@@ -609,3 +609,24 @@ pub fn mutation_identity(baseline: &Baseline, patch: &Patch) -> Option<Sha256Dig
         canonical_json(&json!({"edits": edits})).as_bytes(),
     ))
 }
+
+/// The tier-1 identity of a resolved mutation: its patch's [`mutation_identity`], wrapped as
+/// `{reparsed: identity}` (same domain) for a rule mutation whose cases are parsed again because
+/// it edits a macro rule (`ResolvedMutation::writes_macro_rule`, PJ-35). Such a mutation's run of
+/// a case its mutant parses apart starts from the mutant's configuration, where a run made
+/// before PJ-35 started from the specification's under the plain identity; the wrapped identity
+/// keeps those older records from being served. A grammar mutation was never run otherwise, so it
+/// keeps the plain identity.
+pub fn resolved_identity(
+    baseline: &Baseline,
+    resolved: &crate::mutation::ResolvedMutation,
+) -> Option<Sha256Digest> {
+    let identity = mutation_identity(baseline, &resolved.patch)?;
+    if resolved.writes_macro_rule() && !resolved.is_grammar() {
+        return Some(payload_digest(
+            MUTATION_IDENTITY_DOMAIN,
+            canonical_json(&json!({"reparsed": identity.to_string()})).as_bytes(),
+        ));
+    }
+    Some(identity)
+}

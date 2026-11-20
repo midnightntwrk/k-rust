@@ -407,7 +407,7 @@ fn expansions(source: &Definition, written: BTreeSet<String>) -> BTreeSet<String
 
 /// The label heading the left-hand side of a rule's body: its top rewrite's left side, or the
 /// body itself, through aliases and semantic casts.
-fn rule_head(body: &Term) -> Option<&str> {
+pub(crate) fn rule_head(body: &Term) -> Option<&str> {
     let left = match body.unannotated() {
         Term::Rewrite { left, .. } => left,
         body => body,

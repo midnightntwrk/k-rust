@@ -193,7 +193,7 @@ use crate::{
     cli::{CommandSpelling, FrontEnd, Verb},
     compare::{EndsJudged, EndsQuestion, Vocabulary},
     digest::ExecutionDigest,
-    digest::{mutation_identity, outcome_context, spec_digest},
+    digest::{outcome_context, spec_digest},
     lock::{Lock, Settle},
     manifest::ProjectionSection,
     manifest::{Budget, FlowManifest},
@@ -1495,7 +1495,7 @@ impl Search<'_, '_> {
             return Vec::new();
         }
         if self.mode == RunMode::Search {
-            let identity = mutation_identity(&self.spec.loaded.baseline, &resolved.patch);
+            let identity = crate::digest::resolved_identity(&self.spec.loaded.baseline, resolved);
             let (records, stored) = self.valid_records(identity, &order, &mut Map::new());
             if self
                 .tier1(&mutation.id, &order, &records, stored.as_ref())
@@ -1537,7 +1537,10 @@ impl Search<'_, '_> {
         row.insert("digest".into(), json!(digest.to_string()));
         // The survivor report's rule texts (README 5.7); a killed mutation drops them below.
         row.insert("rules".into(), rules_value(&resolved.rules));
-        if resolved.is_grammar() {
+        // The one judgement: a mutation whose mutant may parse a case otherwise (it edits the
+        // grammar or a macro rule) has its cases parsed again; any other mutant's input pipeline
+        // is the specification's, so every case parses alike and its reparse is skipped.
+        if resolved.reparses() {
             return self.search_grammar(mutation, row, resolved);
         }
         // The generation must derive from the validator's own baseline (the runner refuses any
@@ -2095,7 +2098,7 @@ impl Search<'_, '_> {
         Facts {
             digest: resolved.digest,
             rules: resolved.rules.clone(),
-            identity: mutation_identity(&self.spec.loaded.baseline, &resolved.patch),
+            identity: crate::digest::resolved_identity(&self.spec.loaded.baseline, resolved),
             // Re-pin L2-2-fix-1: the edited rules' typing errors in compilation's view,
             // diagnostics only (compilation decides whether the mutant is valid).
             typing_diagnostics: typing_diagnostics_value(
@@ -5062,7 +5065,7 @@ pub(crate) fn run_session(
                     // parse differs, not one that matches an edited rule.
                     if let Some(horizons) = row.get("horizon").and_then(Value::as_array) {
                         Some(horizon_reason(horizons))
-                    } else if row.get("grammar").is_some()
+                    } else if crate::report::edits_grammar(&row)
                         && row["status"] == "survived"
                         && row["reason"].is_null()
                     {
@@ -5324,7 +5327,7 @@ impl KillCells for Session<'_, '_, '_> {
             && self.ahead.as_ref().map(|(at, _)| *at) != Some(mutation)
             && let Ok(resolved) = resolution
         {
-            let identity = mutation_identity(&spec.loaded.baseline, &resolved.patch);
+            let identity = crate::digest::resolved_identity(&spec.loaded.baseline, resolved);
             let (records, _) = self
                 .search
                 .valid_records(identity, &[candidate], &mut Map::new());

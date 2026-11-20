@@ -343,7 +343,10 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// `unknown` (reason `same-parse-run-differs`, removed; `grammar-killer-not-a-case` is new); a
 /// program of O both sides reject is not run (a row all of whose programs of O agree so survives
 /// with no call); a mutation may edit rules and grammar declarations together; and `run --verify`
-/// judges a grammar mutation. A list of rule mutations writes the document it wrote.
+/// judges a grammar mutation. A rule mutation that edits a macro or alias rule (a rule program
+/// macro expansion reads) is judged as a grammar mutation is: its row has `grammar` and
+/// `direction`, and the commands that do not parse cases again refuse it (`grammar-not-run`). A
+/// list of rule mutations none of which edits such a rule writes the document it wrote.
 pub const RUN_VERSION: u64 = 46;
 
 /// The name of the observation slot of an executed entry's `slots`, after the end slots
@@ -1938,6 +1941,18 @@ const GRAMMAR_SURVIVOR_ACTION: &str = "write a case that tells the two grammars 
      added alternative is a constructor no rule reads), no case tells it apart: argue it and keep \
      it with `expect = \"survive\"`, or drop it";
 
+/// Whether `row` is a judged grammar mutation's (it has `grammar`) with a grammar declaration
+/// among its `rules`: a rule mutation whose cases were parsed again because it edits a macro rule
+/// (PJ-35) has `grammar` too, but no declaration a missing case's text must tell apart, so it is
+/// no grammar target and its survivor's action is a rule survivor's.
+#[must_use]
+pub fn edits_grammar(row: &Value) -> bool {
+    row.get("grammar").is_some()
+        && entries(row, "rules")
+            .iter()
+            .any(|rule| rule["kind"] == "grammar")
+}
+
 /// The run document's `grammar_targets` (PJ-34), for a run some row of which is a grammar
 /// mutation the search judged (it has a `grammar` member, [`crate::reparse`]); `None` otherwise,
 /// so a run that judges no grammar mutation writes the document it wrote before. One entry per
@@ -1958,7 +1973,7 @@ pub fn grammar_targets(mutations: &[Value]) -> Option<Value> {
     Some(json!(
         mutations
             .iter()
-            .filter(|row| row.get("grammar").is_some() && row["status"] == "survived")
+            .filter(|row| row["status"] == "survived" && edits_grammar(row))
             .map(|row| {
                 let declarations = entries(row, "rules")
                     .iter()

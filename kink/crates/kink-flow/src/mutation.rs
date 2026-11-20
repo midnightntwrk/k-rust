@@ -937,10 +937,11 @@ pub enum InvalidReason {
     /// lower apart from the rest of the load (a tag declared only in the prelude): kink-flow
     /// cannot tell what the edit changes.
     UnreadDeclaration,
-    /// A command that does not judge a mutation that edits the grammar: only `run`'s first-kill
-    /// search (in its default mode or under `--verify`) in a flow without `[[projection]]` parses
-    /// each case again under the mutant's grammar (`crate::reparse`), and running the mutant on
-    /// the baseline's parsed cases would judge another mutant. `run --full`, a flow with
+    /// A command that does not judge a mutation whose cases are parsed again (it edits the
+    /// grammar or a macro rule, [`ResolvedMutation::reparses`]): only `run`'s first-kill search
+    /// (in its default mode or under `--verify`) in a flow without `[[projection]]` parses each
+    /// case again under the mutant (`crate::reparse`), and running the mutant on the baseline's
+    /// parsed cases would judge another mutant. `run --full`, a flow with
     /// `[[projection]]`, prune's cells, coverage flips and a `fuzz` kill job give it. It is kink's
     /// limit, neither a fault of the mutation nor a verdict, so the row's status is `error`;
     /// `check` resolves the mutation.
@@ -1131,7 +1132,7 @@ impl InvalidReason {
             Self::GrammarNotRun => {
                 "judge the mutation with `run`'s first-kill search (with or without `--verify`) in \
                  a flow without `[[projection]]`: this command does not parse the cases again \
-                 under a mutant's grammar, so it does not judge it"
+                 under a mutant that edits the grammar or a macro rule, so it does not judge it"
             }
             Self::GrammarSetNotJudged => {
                 "leave the generated grammar set out of this flow's list, and write each grammar \
@@ -1198,6 +1199,8 @@ pub struct ResolvedMutation {
     pub edited_sources: BTreeMap<String, String>,
     /// What the edited load read in place of each edited file (see [`Self::overlay`]).
     overlay: BTreeMap<String, String>,
+    /// Whether the patch writes a rule program macro expansion reads ([`writes_macro_rule`]).
+    macro_rules: bool,
 }
 
 /// One edit of a mutation as resolution applied it to the K view of its file.
@@ -1271,6 +1274,7 @@ impl ResolvedMutation {
             edited_views: BTreeMap::new(),
             edited_sources: BTreeMap::new(),
             overlay: BTreeMap::new(),
+            macro_rules: false,
         }
     }
 
@@ -1284,8 +1288,23 @@ impl ResolvedMutation {
         &self.overlay
     }
 
-    /// Whether the mutation edits grammar declarations (it may edit rules beside them). A mutation
-    /// that does not is a rule mutation, whose grammar is the specification's.
+    /// Whether the mutation's cases are parsed again under its mutant (`crate::reparse`): it
+    /// edits grammar declarations, or a rule program macro expansion reads (a macro or alias
+    /// rule, [`writes_macro_rule`]), so its assembly of a program may differ from the
+    /// specification's. Every other mutation is a rule mutation whose input pipeline is the
+    /// specification's: its reparse is skipped, and every case of it parses alike.
+    #[must_use]
+    pub fn reparses(&self) -> bool {
+        self.is_grammar() || self.macro_rules
+    }
+
+    /// Whether the patch writes a rule program macro expansion reads ([`Self::reparses`]).
+    #[must_use]
+    pub fn writes_macro_rule(&self) -> bool {
+        self.macro_rules
+    }
+
+    /// Whether the mutation edits grammar declarations (it may edit rules beside them).
     #[must_use]
     pub fn is_grammar(&self) -> bool {
         self.rules
@@ -1314,9 +1333,10 @@ impl ResolvedMutation {
             reason: InvalidReason::PatchRejected,
             detail,
         };
-        if !self.is_grammar() {
+        if !self.reparses() {
             return Err(rejected(
-                "a rule mutation has no grammar generation".to_owned(),
+                "a rule mutation whose cases are not parsed again has no grammar generation"
+                    .to_owned(),
             ));
         }
         let generation =
@@ -1329,30 +1349,39 @@ impl ResolvedMutation {
         }
     }
 
-    /// Why a command does not judge this mutation: `grammar-not-run` for a mutation that edits
-    /// the grammar ([`InvalidReason::GrammarNotRun`]), `None` for a rule mutation. Only `run`'s
-    /// first-kill search, in its default mode or under `--verify`, judges a grammar mutation
-    /// (`crate::reparse`); a `fuzz` kill job, coverage flips, prune's cells, `run --full` and a
-    /// flow that declares `[[projection]]` give this refusal.
+    /// Why a command does not judge this mutation: `grammar-not-run` for a mutation whose cases
+    /// are parsed again ([`Self::reparses`]: it edits the grammar or a macro rule;
+    /// [`InvalidReason::GrammarNotRun`]), `None` for a rule mutation whose input pipeline is the
+    /// specification's. Only `run`'s first-kill search, in its default mode or under `--verify`,
+    /// judges such a mutation (`crate::reparse`); a `fuzz` kill job, coverage flips, prune's
+    /// cells, `run --full` and a flow that declares `[[projection]]` give this refusal.
     #[must_use]
     pub fn run_refusal(&self) -> Option<InvalidMutation> {
-        self.is_grammar().then(|| InvalidMutation {
-            edit: None,
-            reason: InvalidReason::GrammarNotRun,
-            detail: format!(
-                "the mutation edits the grammar ({}); only `run`'s first-kill search (with or \
-                 without `--verify`), in a flow that declares no `[[projection]]`, parses each \
-                 case again under the mutant's grammar, and running the mutant on the cases as \
-                 the specification parses them would judge another mutant",
-                self.rules
-                    .iter()
-                    .map(|rule| match &rule.label {
-                        Some(label) => format!("{label} at {}:{}", rule.file, rule.start_line),
-                        None => format!("the declaration at {}:{}", rule.file, rule.start_line),
-                    })
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
+        self.reparses().then(|| {
+            let what = if self.is_grammar() {
+                "the grammar"
+            } else {
+                "a rule program macro expansion reads (a macro or alias rule), so its mutant may \
+                 parse a program to another configuration than the specification's"
+            };
+            InvalidMutation {
+                edit: None,
+                reason: InvalidReason::GrammarNotRun,
+                detail: format!(
+                    "the mutation edits {what} ({}); only `run`'s first-kill search (with or \
+                     without `--verify`), in a flow that declares no `[[projection]]`, parses \
+                     each case again under the mutant, and running the mutant on the cases as \
+                     the specification parses them would judge another mutant",
+                    self.rules
+                        .iter()
+                        .map(|rule| match &rule.label {
+                            Some(label) => format!("{label} at {}:{}", rule.file, rule.start_line),
+                            None => format!("the declaration at {}:{}", rule.file, rule.start_line),
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+            }
         })
     }
 
@@ -2156,6 +2185,7 @@ pub fn resolve(
         .into_iter()
         .map(|(name, file)| (name, file.edited_view))
         .collect::<BTreeMap<_, _>>();
+    let macro_rules = writes_macro_rule(baseline.definition(), &patch);
     let resolved = ResolvedMutation {
         id: mutation.id.clone(),
         patch,
@@ -2164,11 +2194,64 @@ pub fn resolve(
         edits: resolved_edits,
         edited_sources: edited_views.clone(),
         edited_views,
+        macro_rules,
         overlay,
     };
-    // kink-patch applies the patch (and nothing else) once more when it folds the generation.
-    resolved.generation(baseline)?;
+    // kink-patch applies the patch (and nothing else) once more when it folds the generation: a
+    // mutation whose cases are parsed again folds it as a grammar mutation does.
+    if resolved.reparses() {
+        resolved.grammar_generation(baseline, loaded.syntax_module())?;
+    } else {
+        resolved.generation(baseline)?;
+    }
     Ok(resolved)
+}
+
+/// Whether `patch` writes (replaces, deletes or inserts) a rule that program macro expansion reads
+/// in `definition`, before or after the edit: k-rust's assembly macro-expands every program and
+/// configuration value with the rules `MacroExpansionDefinition::prepare` accepts, a rule that
+/// carries a macro-like attribute (`macro`, `macro-rec`, `alias`, `alias-rec`) or whose
+/// left-hand side's head is a production with one. Expansion applies only those rules, so the
+/// set is closed under what an expansion applies: a rule a macro's right-hand side reaches is
+/// read only if it is itself such a rule. A rule edit of no grammar sentence leaves the
+/// productions, and so the macro productions, the specification's.
+fn writes_macro_rule(definition: &Definition, patch: &Patch) -> bool {
+    let macros = definition
+        .modules
+        .iter()
+        .flat_map(|module| &module.local_sentences)
+        .filter_map(|sentence| match &**sentence {
+            Sentence::Production {
+                label: Some(label),
+                attributes,
+                ..
+            } if attributes.has_any(&AttributeKey::MACRO_LIKE) => Some(label.name.as_str()),
+            _ => None,
+        })
+        .collect::<BTreeSet<_>>();
+    let read = |sentence: &Sentence| match sentence {
+        Sentence::Rule {
+            body, attributes, ..
+        } => {
+            attributes.has_any(&AttributeKey::MACRO_LIKE)
+                || crate::coverage::scope::rule_head(body).is_some_and(|head| macros.contains(head))
+        }
+        _ => false,
+    };
+    let baseline_read = |at: &SentenceRef| {
+        definition
+            .modules
+            .iter()
+            .find(|module| module.name == at.module)
+            .and_then(|module| module.local_sentences.get(at.index as usize))
+            .is_some_and(|sentence| read(sentence))
+    };
+    patch.edits().iter().any(|edit| match edit {
+        Edit::ReplaceSentence { at, replacement } => baseline_read(at) || read(replacement),
+        Edit::DeleteSentence { at } => baseline_read(at),
+        Edit::InsertSentence { sentence, .. } => read(sentence),
+        _ => false,
+    })
 }
 
 /// The digest of `patch`, the mutation's identity, or why it has none: kink's depth limit
@@ -2440,6 +2523,7 @@ fn resolve_grammar(
         edited_sources: edited_views.clone(),
         edited_views,
         overlay: BTreeMap::new(),
+        macro_rules: false,
     })
 }
 
