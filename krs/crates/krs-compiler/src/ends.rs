@@ -479,14 +479,24 @@ pub fn declared_ends(definition: &DefinitionIr) -> Result<Vec<DeclaredEnd>, crat
 }
 
 /// The schema of `ends.json`.
-pub const ENDS_SCHEMA: &str = "krs-ends/1";
+///
+/// Version 2: `argument_sort` is the sort of the whole configuration, the sort of its one root
+/// cell where it has one (`KCell`) and `GeneratedTopCell` where it has several top-level cells;
+/// version 1 wrote `GeneratedTopCell` for every definition.
+pub const ENDS_SCHEMA: &str = "krs-ends/2";
 
 /// `ends.json`: the table of the ends a definition declares, for the tools that evaluate them.
 ///
-/// `kore` gives the KORE symbol a K label compiles to, without sort arguments; the compiler
-/// that writes the table knows the backend's encoding, and this crate does not.
+/// `argument_sort` is the K sort of the functions' one argument, the whole configuration
+/// ([`krs_ir_levels::k_surface::configuration_sort`]). `kore` gives the KORE symbol a K label
+/// compiles to, without sort arguments; the compiler that writes the table knows the backend's
+/// encoding, and this crate does not.
 #[must_use]
-pub fn ends_json(ends: &[DeclaredEnd], kore: &dyn Fn(&str) -> String) -> String {
+pub fn ends_json(
+    ends: &[DeclaredEnd],
+    argument_sort: &str,
+    kore: &dyn Fn(&str) -> String,
+) -> String {
     let symbol = |symbol: &EndSymbol| {
         serde_json::json!({
             "production": symbol.production,
@@ -496,7 +506,7 @@ pub fn ends_json(ends: &[DeclaredEnd], kore: &dyn Fn(&str) -> String) -> String 
     };
     let document = serde_json::json!({
         "schema": ENDS_SCHEMA,
-        "argument_sort": "GeneratedTopCell",
+        "argument_sort": argument_sort,
         "ends": ends.iter().map(|end| {
             let mut entry = serde_json::Map::new();
             entry.insert("class".to_owned(), end.class.word().into());

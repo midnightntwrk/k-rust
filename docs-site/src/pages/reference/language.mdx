@@ -1095,8 +1095,13 @@ A definition without these warnings is therefore not shown to declare its ends o
 An end's condition that applies a function declared `total, assumed = ".."` rests on that assumption, as every sentence that applies the function does.
 
 Each end is emitted as a K function of one argument, the whole configuration.
+Its sort is the sort the definition's sentences give the whole configuration.
+Where the configuration has several top-level cells, that is `GeneratedTopCell`, the sort of the generated top cell `<generatedTop>` that holds them.
+Where it has one root cell, the root is the whole configuration, and the sort is the root's (`KCell` for a configuration that is `<k>` alone).
+Compilation puts `<generatedTop>` around a lone root too, beside its counter cell, and `krs run` applies such a function to that root.
 The function `end<Name>`, where `<Name>` is the item's name in upper camel case, is total and of sort `Bool`: `syntax Bool ::= "endHalt" "(" GeneratedTopCell ")" [symbol(endHalt), function, total]`.
 It has one equation whose result is `true`, the function applied to `<generatedTop> .. ... </generatedTop>` with the cells the end reads, under the end's conditions, and one `owise` equation whose result is `false`, so it is true exactly at the end's states.
+With one root cell, the equation's argument is that root with the cells the end reads, `<t> .. ... </t>`, or the root's own pattern where the end reads the root alone: `rule endFinished ( <k> done ... </k> ) => true`.
 A `refused` end is also emitted as the partial function `end<Name>Reason`, of the reason's sort, whose one equation has the same left side and conditions: `rule endTrapReason ( <generatedTop> <k> trap ( Code:Int ) ... </k> ... </generatedTop> ) => trap ( Code:Int )`.
 The equations are labelled by the item (`halt`), by `<item>_otherwise` and by `<item>_reason`.
 The declaration therefore takes those three item names in its module, and the Rust names `End<Name>` and `End<Name>Reason`, which are the functions' structs: another item of one of those names is the Rust error a second declaration of a name is.
@@ -1113,7 +1118,7 @@ It is one item in each of them, named by its Rust path under its crate's name (`
 A containing definition adds its own ends, typed by its configuration, whose patterns name the group's cells through the group's struct.
 
 `krs emit-k` writes the table `ends.json` beside `definition.k` for a definition that declares an end, and no such file for one that declares none, whose artifacts are what they were.
-The table has the schema `krs-ends/1`, the sort of the functions' argument (`argument_sort`, `GeneratedTopCell`), and one entry per end: its `class`; its `item`, the Rust path with `crate::` for an item of the definition's root package and with its crate's name for an item of a dependency; the item's `package`, `module` and `name`; its `form`, `clause` for a `fn` and `constructor` for the shorthand; `holds`, the function that says whether the end holds, by its Definition IR `production`, its K `label` and its `kore` symbol; for a `refused` end `reason`, the reason's function alike with the `sort` of its values; and `origin`, the file and byte range of the declaration.
+The table has the schema `krs-ends/2`, the sort of the functions' argument (`argument_sort`: `GeneratedTopCell`, or the root cell's sort where the configuration has one root cell; `krs-ends/1` wrote `GeneratedTopCell` always), and one entry per end: its `class`; its `item`, the Rust path with `crate::` for an item of the definition's root package and with its crate's name for an item of a dependency; the item's `package`, `module` and `name`; its `form`, `clause` for a `fn` and `constructor` for the shorthand; `holds`, the function that says whether the end holds, by its Definition IR `production`, its K `label` and its `kore` symbol; for a `refused` end `reason`, the reason's function alike with the `sort` of its values; and `origin`, the file and byte range of the declaration.
 Running a definition does not read the declaration yet: `krs run` reports the end of a run as it does for a definition that declares none.
 
 ### Coverage of total functions

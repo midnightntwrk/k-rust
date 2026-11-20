@@ -21,9 +21,60 @@ use krs_ir::{
     ProductionAttribute, ProductionGroupId, StableItemId,
 };
 
-/// The K sort of a whole configuration, which K declares for every definition: the sort of
-/// the one argument a declared end's function takes.
+/// The K sort of the generated top cell `<generatedTop>`, which holds a configuration's
+/// top-level cells where it has several: then the sort of the whole configuration, and of the
+/// one argument a declared end's function takes ([`configuration_sort`]).
 pub const GENERATED_TOP_CELL_SORT: &str = "GeneratedTopCell";
+
+/// The cell that is the whole configuration in the definition's sentences, where that is one of
+/// its own cells: the explicit root, or the one top-level cell of a configuration that has one
+/// and holds it exactly once. `None` where the whole configuration is the generated top cell
+/// around several top-level cells.
+///
+/// A sentence is read against the configuration as declared: one root cell is the whole
+/// state, and only several top-level cells need the generated top cell to hold them, so that is
+/// the only case in which a sentence may name [`GENERATED_TOP_CELL_SORT`]. Compilation also
+/// puts `<generatedTop>` around a lone root, beside the counter cell, so the term a run holds
+/// is a `<generatedTop>` term with that root as its child.
+#[must_use]
+pub fn configuration_root<S, C, T>(configuration: &FixedConfiguration<S, C, T>) -> Option<&str>
+where
+    C: Clone + Ord,
+{
+    match configuration.root() {
+        krs_ir::ConfigurationRoot::Named { name, .. } => Some(name),
+        krs_ir::ConfigurationRoot::GeneratedTop => match configuration.cells() {
+            [cell] if cell.multiplicity().is_none() => Some(cell.name()),
+            _ => None,
+        },
+    }
+}
+
+/// The K sort of the whole configuration in the definition's sentences: the sort of the cell
+/// [`configuration_root`] names, or [`GENERATED_TOP_CELL_SORT`].
+#[must_use]
+pub fn configuration_sort<S, C, T>(configuration: &FixedConfiguration<S, C, T>) -> String
+where
+    C: Clone + Ord,
+{
+    configuration_root(configuration)
+        .map_or_else(|| GENERATED_TOP_CELL_SORT.to_owned(), cell_sort_name)
+}
+
+/// The configuration `definition` declares (a valid definition declares one), if any.
+#[must_use]
+pub fn definition_configuration(
+    definition: &DefinitionIr,
+) -> Option<&FixedConfiguration<DefinitionSortRef, SymbolId, DefinitionTerm>> {
+    definition
+        .modules()
+        .iter()
+        .flat_map(DefinitionModule::sentences)
+        .find_map(|sentence| match sentence {
+            DefinitionSentence::Configuration(configuration) => Some(configuration),
+            _ => None,
+        })
+}
 
 /// Borrowed declarations and names from one Definition IR.
 #[derive(Default)]

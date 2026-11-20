@@ -240,7 +240,7 @@ fn emit_production_items(
             writer.push(" ");
         }
         if configuration_argument == Some(index) {
-            writer.push(krs_ir_levels::k_surface::GENERATED_TOP_CELL_SORT);
+            writer.push(&context.configuration_sort());
             writer.push(" ");
         }
         let start = writer.source.len();
@@ -1939,19 +1939,37 @@ fn emit_end_equation(
     writer.push(" ( ");
     match sentence.function_context() {
         Some(function_context) => {
-            writer.push("<generatedTop>");
-            let start = writer.source.len();
             let cells = function_context.cells().cells();
-            emit_in_instances(
-                cells.iter().map(FixedCellPattern::cell),
-                context,
-                writer,
-                |index, indent, writer| {
-                    emit_function_context_cell(&cells[index], names, context, indent, writer)
-                },
-            )?;
-            writer.record(function_context.origin().key(), start, writer.source.len())?;
-            writer.push("\n    ... </generatedTop>");
+            // The pattern is the configuration's: the cells the equation reads inside the cell
+            // that is the whole configuration, open to the cells they do not name, or that
+            // cell's own pattern where the equation reads it alone.
+            let whole = match (context.configuration_root, cells) {
+                (Some(root), [cell]) if context.cell_name(cell.cell())? == root => None,
+                (Some(root), _) => Some(root),
+                (None, _) => Some("generatedTop"),
+            };
+            if let Some(whole) = whole {
+                writer.push("<");
+                writer.push(whole);
+                writer.push(">");
+                let start = writer.source.len();
+                emit_in_instances(
+                    cells.iter().map(FixedCellPattern::cell),
+                    context,
+                    writer,
+                    |index, indent, writer| {
+                        emit_function_context_cell(&cells[index], names, context, indent, writer)
+                    },
+                )?;
+                writer.record(function_context.origin().key(), start, writer.source.len())?;
+                writer.push("\n    ... </");
+                writer.push(whole);
+                writer.push(">");
+            } else {
+                let start = writer.source.len();
+                emit_function_context_cell(&cells[0], names, context, 0, writer)?;
+                writer.record(function_context.origin().key(), start, writer.source.len())?;
+            }
         }
         None => writer.push("_"),
     }

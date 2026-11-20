@@ -26,6 +26,7 @@ fn context() -> EmitContext<'static> {
         lexicon: TokenLexicon::default(),
         spec_identifiers: None,
         constant_markers: true,
+        configuration_root: None,
     }
 }
 

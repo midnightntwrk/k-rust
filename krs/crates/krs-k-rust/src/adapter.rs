@@ -337,6 +337,9 @@ struct Adapter<'a> {
     omitted_claims: usize,
     /// The spec module whose proof definition is adapted, if any (KF-041).
     spec_module: Option<String>,
+    /// The cell that is the whole configuration, where it is one of the definition's own cells
+    /// ([`krs_ir_levels::k_surface::configuration_root`]); `None` for the generated top cell.
+    configuration_root: Option<&'a str>,
 }
 
 impl<'a> Adapter<'a> {
@@ -353,7 +356,17 @@ impl<'a> Adapter<'a> {
             keep_claims,
             omitted_claims: 0,
             spec_module: None,
+            configuration_root: krs_ir_levels::k_surface::definition_configuration(ir)
+                .and_then(krs_ir_levels::k_surface::configuration_root),
         }
+    }
+
+    /// The K sort of the whole configuration, the argument of a declared end's function.
+    fn configuration_sort(&self) -> String {
+        self.configuration_root.map_or_else(
+            || krs_ir_levels::k_surface::GENERATED_TOP_CELL_SORT.to_owned(),
+            krs_ir_levels::k_surface::cell_sort_name,
+        )
     }
 
     fn adapt(mut self, ir: &DefinitionIr) -> Result<AdaptedDefinition, AdapterError> {
@@ -436,10 +449,11 @@ impl<'a> Adapter<'a> {
             let native = self.sentence(sentence, &module_name, sentence_index)?;
             local_sentences.push(std::sync::Arc::new(native));
         }
-        // A declared end's function takes the configuration's sort, which exists once the
-        // configuration is expanded. Until then the module that declares such a function
-        // states the sort as a parse aid of its own, which k-rust's reader of K text adds
-        // for every cell sort a production names and the loader drops after expansion.
+        // A declared end's function takes the configuration's sort (`GeneratedTopCell`, or the
+        // sort of its one root cell), which exists once the configuration is expanded. Until
+        // then the module that declares such a function states the sort as a parse aid of its
+        // own, which k-rust's reader of K text adds for every cell sort a production names and
+        // the loader drops after expansion.
         if module.sentences().iter().any(|sentence| {
             matches!(
                 sentence,
@@ -454,7 +468,7 @@ impl<'a> Adapter<'a> {
             local_sentences.push(std::sync::Arc::new(
                 native_definition::Sentence::SyntaxSort {
                     parameters: Vec::new(),
-                    sort: NativeSort::new(krs_ir_levels::k_surface::GENERATED_TOP_CELL_SORT),
+                    sort: NativeSort::new(self.configuration_sort()),
                     attributes,
                 },
             ));

@@ -30,7 +30,11 @@
 //!   known ([`crate::Halt::EndUndecided`]), whatever the others answer: an end left undecided
 //!   may be of the other class, or the first in order.
 //!
-//! The functions are applied to the configuration alone.
+//! The functions are applied to the configuration alone, as the definition's sentences read it:
+//! where the configuration has several top-level cells, to the whole `<generatedTop>` term; where
+//! it has one root cell, the whole configuration in the sentences, to that root, the child of the
+//! `<generatedTop>` term beside the counter cell that compilation adds around it
+//! ([`krs_ir_levels::k_surface::configuration_root`]).
 //! A state that carries a constraint denotes the configurations that satisfy it, and a function
 //! that simplifies to `true` or `false` on the configuration has that value at each of them, so
 //! the answer holds under the constraint; an evaluation that would need the constraint to reach a
@@ -151,7 +155,12 @@ pub(crate) struct Declared {
 
 /// The ends a definition declares, in the order of declaring package, module and item name.
 #[derive(Clone, Debug, Default)]
-pub(crate) struct DeclaredEnds(Vec<Declared>);
+pub(crate) struct DeclaredEnds {
+    ends: Vec<Declared>,
+    /// Whether the functions take the configuration's one root cell
+    /// ([`krs_ir_levels::k_surface::configuration_root`]) and not the whole `<generatedTop>` term.
+    at_root: bool,
+}
 
 impl DeclaredEnds {
     pub(crate) fn of(definition: &DefinitionIr, values: &ValueIndex) -> Self {
@@ -213,8 +222,8 @@ impl DeclaredEnds {
                 }
             }
         }
-        Self(
-            holds
+        Self {
+            ends: holds
                 .into_iter()
                 .map(|(key, (class, item, holds))| Declared {
                     class,
@@ -223,25 +232,34 @@ impl DeclaredEnds {
                     reason: reasons.remove(&key),
                 })
                 .collect(),
-        )
+            at_root: krs_ir_levels::k_surface::definition_configuration(definition)
+                .and_then(krs_ir_levels::k_surface::configuration_root)
+                .is_some(),
+        }
+    }
+
+    /// Whether the functions take the configuration's one root cell, which [`application`] is
+    /// then told.
+    pub(crate) const fn at_root(&self) -> bool {
+        self.at_root
     }
 
     pub(crate) fn is_empty(&self) -> bool {
-        self.0.is_empty()
+        self.ends.is_empty()
     }
 
     pub(crate) fn iter(&self) -> impl Iterator<Item = &Declared> {
-        self.0.iter()
+        self.ends.iter()
     }
 
     /// The declared end whose item is `item`.
     pub(crate) fn get(&self, item: &str) -> Option<&Declared> {
-        self.0.iter().find(|declared| declared.item == item)
+        self.ends.iter().find(|declared| declared.item == item)
     }
 
     /// The items, each quoted, for a refusal that lists them.
     pub(crate) fn listed(&self) -> String {
-        self.0
+        self.ends
             .iter()
             .map(|declared| format!("`{}`", declared.item))
             .collect::<Vec<_>>()
@@ -299,16 +317,37 @@ pub fn end_functions(definition: &DefinitionIr) -> Vec<String> {
         .collect()
 }
 
+/// The KORE symbols of the generated top cell and of the counter cell compilation adds in it.
+const GENERATED_TOP: &str = "Lbl'-LT-'generatedTop'-GT-'";
+const GENERATED_COUNTER: &str = "Lbl'-LT-'generatedCounter'-GT-'";
+
 /// `symbol` applied to the configuration of `state`, a state's pattern: the pattern itself, or
-/// its one configuration conjunct where it carries constraints; `None` for any other pattern.
-pub(crate) fn application(symbol: &str, state: &Pattern) -> Option<Pattern> {
-    let configuration = match state {
+/// its one configuration conjunct where it carries constraints; with `at_root`, to the one
+/// child of that `<generatedTop>` term that is not the counter cell, the configuration's root.
+/// `None` for any other pattern.
+pub(crate) fn application(symbol: &str, state: &Pattern, at_root: bool) -> Option<Pattern> {
+    let mut configuration = match state {
         Pattern::And { arguments, .. } => arguments.iter().find(|argument| {
             matches!(argument, Pattern::Application { symbol, .. } if symbol.name.starts_with("Lbl'-LT-'"))
         })?,
         Pattern::Application { .. } => state,
         _ => return None,
     };
+    if at_root
+        && let Pattern::Application {
+            symbol: top,
+            arguments,
+        } = configuration
+        && top.name == GENERATED_TOP
+    {
+        let mut roots = arguments.iter().filter(|argument| {
+            !matches!(argument, Pattern::Application { symbol, .. } if symbol.name == GENERATED_COUNTER)
+        });
+        configuration = match (roots.next(), roots.next()) {
+            (Some(root), None) => root,
+            _ => return None,
+        };
+    }
     Some(Pattern::Application {
         symbol: Symbol {
             name: symbol.to_owned(),
@@ -399,7 +438,7 @@ mod tests {
         let configuration = apply("Lbl'-LT-'generatedTop'-GT-'", vec![]);
         let expected = apply("LblendHalt", vec![configuration.clone()]);
         assert_eq!(
-            application("LblendHalt", &configuration),
+            application("LblendHalt", &configuration, false),
             Some(expected.clone())
         );
         let constrained = Pattern::And {
@@ -411,10 +450,47 @@ mod tests {
                 },
             ],
         };
-        assert_eq!(application("LblendHalt", &constrained), Some(expected));
+        assert_eq!(
+            application("LblendHalt", &constrained, false),
+            Some(expected)
+        );
         let bottom = Pattern::Bottom {
             sort: sort("SortGeneratedTopCell"),
         };
-        assert_eq!(application("LblendHalt", &bottom), None);
+        assert_eq!(application("LblendHalt", &bottom, false), None);
+    }
+
+    /// Where the configuration has one root cell, an end's function takes that root: the child
+    /// of the `<generatedTop>` term beside the counter cell, whichever order they are in, and a
+    /// configuration term that is the root already.
+    #[test]
+    fn a_function_of_the_root_is_applied_to_the_root() {
+        let root = apply("Lbl'-LT-'k'-GT-'", vec![]);
+        let counter = apply("Lbl'-LT-'generatedCounter'-GT-'", vec![]);
+        let expected = apply("LblendHalt", vec![root.clone()]);
+        let top = apply(
+            "Lbl'-LT-'generatedTop'-GT-'",
+            vec![root.clone(), counter.clone()],
+        );
+        assert_eq!(
+            application("LblendHalt", &top, true),
+            Some(expected.clone())
+        );
+        let reversed = apply("Lbl'-LT-'generatedTop'-GT-'", vec![counter, root.clone()]);
+        assert_eq!(
+            application("LblendHalt", &reversed, true),
+            Some(expected.clone())
+        );
+        let without_counter = apply("Lbl'-LT-'generatedTop'-GT-'", vec![root.clone()]);
+        assert_eq!(
+            application("LblendHalt", &without_counter, true),
+            Some(expected.clone())
+        );
+        assert_eq!(application("LblendHalt", &root, true), Some(expected));
+        let two = apply(
+            "Lbl'-LT-'generatedTop'-GT-'",
+            vec![root.clone(), apply("Lbl'-LT-'n'-GT-'", vec![])],
+        );
+        assert_eq!(application("LblendHalt", &two, true), None);
     }
 }

@@ -1140,8 +1140,8 @@ def verify_ends(harness: FixtureGate) -> None:
             if text not in library[fixture.package][END_MODULE]:
                 raise GateError(f"{fixture.package}: the emitted K does not hold\n{text}in:\n{source}")
         table = json.loads((emitted.directory / "ends.json").read_text(encoding="utf-8"))
-        if table.get("schema") != "krs-ends/1" or table.get("argument_sort") != "GeneratedTopCell":
-            raise GateError(f"{fixture.package}: ends.json is not a krs-ends/1 table:\n{table}")
+        if table.get("schema") != "krs-ends/2" or table.get("argument_sort") != "GeneratedTopCell":
+            raise GateError(f"{fixture.package}: ends.json is not a krs-ends/2 table:\n{table}")
         rows = end_rows(table)
         expected = tuple(sorted((*END_CORE_ENDS, *END_OWN_ENDS[fixture.package]), key=lambda row: row[1]))
         if tuple(sorted(rows, key=lambda row: row[1])) != expected:

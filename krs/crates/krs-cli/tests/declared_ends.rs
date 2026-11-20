@@ -168,6 +168,102 @@ impl Machine {
 const DECLARING: &str = "krs-cli-declared-ends-fixture";
 const PLAIN: &str = "krs-cli-no-declared-ends-fixture";
 
+/// A definition whose configuration has one cell, `<k>`, which reads the program as text, and
+/// whose end `finished` reads that cell: the cell is the whole configuration in its sentences,
+/// so the end's function takes `KCell`, and a run applies it to that cell of the state.
+const ONE_ROOT: &str = r#"
+use k::builtin::KSequence;
+use k::KItem;
+
+k::sorts! {
+    Exp: KItem;
+}
+
+#[k::constructors(sort = Exp, result = k::KResult)]
+pub enum ExpSyntax {
+    #[k::syntax("done")]
+    Done(),
+    #[k::syntax("rest")]
+    Rest(),
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(pgm: Exp) -> Self {
+        Self { k: k::k![pgm] }
+    }
+}
+
+/// `done` is finished.
+#[k::end(finished)]
+pub fn finished(
+    k::cells! {
+        k: k::configuration::KCell(ExpSyntax::Done(), ..),
+        ..
+    }: Machine,
+) {
+}
+"#;
+
+/// [`ONE_ROOT`] with the cells in one group, `<core>`, the one root cell: the end's function
+/// takes `CoreCell`, and its equation reads `<k>` inside `<core>`.
+const ONE_GROUP_ROOT: &str = r#"
+use k::builtin::{Int, KSequence};
+use k::KItem;
+
+k::sorts! {
+    Exp: KItem;
+}
+
+#[k::constructors(sort = Exp, result = k::KResult)]
+pub enum ExpSyntax {
+    #[k::syntax("done")]
+    Done(),
+    #[k::syntax("rest")]
+    Rest(),
+}
+
+#[k::cell]
+pub struct Core {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub n: Int,
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell(nested)]
+    pub core: Core,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(pgm: Exp) -> Self {
+        Self { core: Core { k: k::k![pgm], n: 0 } }
+    }
+}
+
+/// `done` is finished.
+#[k::end(finished)]
+pub fn finished(
+    k::cells! {
+        Core::k: k::configuration::KCell(ExpSyntax::Done(), ..),
+        ..
+    }: Machine,
+) {
+}
+"#;
+
+const ONE_ROOT_PACKAGE: &str = "krs-cli-declared-ends-one-root";
+const ONE_GROUP_ROOT_PACKAGE: &str = "krs-cli-declared-ends-one-group-root";
+
 /// The fixture as two packages built once per test process: one that declares the ends, and
 /// one of the same rules that declares none.
 struct Project {
@@ -200,6 +296,18 @@ fn project() -> &'static Project {
                 PLAIN,
                 "ORG-KRS-CLI-NO-DECLARED-ENDS",
                 FIXTURE.replace("/*TRAP*/", ""),
+            ),
+            (
+                "one-root",
+                ONE_ROOT_PACKAGE,
+                "ORG-KRS-CLI-DECLARED-ENDS-ONE-ROOT",
+                ONE_ROOT.to_owned(),
+            ),
+            (
+                "one-group-root",
+                ONE_GROUP_ROOT_PACKAGE,
+                "ORG-KRS-CLI-DECLARED-ENDS-ONE-GROUP-ROOT",
+                ONE_GROUP_ROOT.to_owned(),
             ),
         ] {
             let root = directory.path().join(member);
@@ -710,6 +818,123 @@ fn ends_of_both_classes_at_one_state_refuse_the_run() {
 /// The definition of the same rules that declares no end: the status lines, the statuses and the
 /// run document of `krs-exec/7`, with no `end`, and an end document that states no class and
 /// refuses one.
+/// A configuration of one root cell, a leaf (`<k>`) or a group (`<core>`), whose program is
+/// text: the definition loads, the end's function takes the root's sort (`ends.json` says it),
+/// and a run applies it to that root of the state it ends in, so `done` ends `finished` and
+/// `rest` at no declared end.
+#[test]
+fn an_end_of_a_configuration_of_one_root_cell_takes_the_root() {
+    for (member, package, sort, equation) in [
+        (
+            "one-root",
+            ONE_ROOT_PACKAGE,
+            "KCell",
+            "rule endFinished ( <k> done ... </k> ) => true",
+        ),
+        (
+            "one-group-root",
+            ONE_GROUP_ROOT_PACKAGE,
+            "CoreCell",
+            "rule endFinished ( <core>\n    <k> done ... </k>\n    ... </core> ) => true",
+        ),
+    ] {
+        let done = run_in(member, package, "done", "done", &[]);
+        assert_eq!(
+            status_line(&done),
+            "krs run: finished after 0 steps, at `crate::finished`; <k> starts with `done`",
+            "{member}: {}",
+            text(&done.stderr)
+        );
+        assert_eq!(done.status.code(), Some(0), "{member}");
+        let end = run_in(member, package, "done", "done", &["--output", "end"]);
+        let document: Json = serde_json::from_slice(&end.stdout)
+            .unwrap_or_else(|error| panic!("{member}: {error}: {}", text(&end.stderr)));
+        assert_eq!(document["class"], "finished", "{member}: {document}");
+        assert_eq!(document["end"], "crate::finished", "{member}: {document}");
+        let rest = run_in(member, package, "rest", "rest", &[]);
+        assert_eq!(
+            status_line(&rest),
+            "krs run: stuck after 0 steps, at no declared end; <k> starts with `rest`",
+            "{member}: {}",
+            text(&rest.stderr)
+        );
+
+        let output = project().directory.path().join(member).join("emitted");
+        let emitted = krs_in(
+            member,
+            package,
+            "emit-k",
+            &[],
+            &["--output", output.to_str().unwrap()],
+        );
+        assert!(
+            emitted.status.success(),
+            "{member}: {}",
+            text(&emitted.stderr)
+        );
+        let k = fs::read_to_string(output.join("definition.k")).unwrap();
+        assert!(
+            k.contains(&format!(
+                "syntax Bool ::= \"endFinished\" \"(\" {sort} \")\""
+            )),
+            "{member}:\n{k}"
+        );
+        assert!(k.contains(equation), "{member}:\n{k}");
+        assert!(!k.contains("GeneratedTopCell"), "{member}:\n{k}");
+        let table: Json =
+            serde_json::from_str(&fs::read_to_string(output.join("ends.json")).unwrap()).unwrap();
+        assert_eq!(table["schema"], "krs-ends/2", "{member}");
+        assert_eq!(table["argument_sort"], sort, "{member}");
+    }
+}
+
+/// `krs kink` loads the one-root definition's emitted K as its specification, and `coverage`
+/// reads the declared class of the program's end.
+#[cfg(feature = "kink")]
+#[test]
+fn kink_loads_a_definition_of_one_root_cell_and_reads_its_end() {
+    let project = project();
+    let root = project.directory.path().join("one-root");
+    fs::create_dir_all(root.join("kink")).unwrap();
+    fs::write(
+        root.join("kink/FLOW.toml"),
+        format!(
+            "[spec]\nkrs = {{ package = \"{ONE_ROOT_PACKAGE}\", definition = \"main\" }}\n\n\
+             [[program]]\nid = \"done\"\ntext = \"done\"\n"
+        ),
+    )
+    .unwrap();
+    let kink = |verb: &str| {
+        let mut process = krs_command!();
+        fixture_build_env(&mut process, project.target.path());
+        let output = process
+            .current_dir(&root)
+            .args([
+                "kink",
+                verb,
+                "--package",
+                ONE_ROOT_PACKAGE,
+                "--definition",
+                "main",
+            ])
+            .output()
+            .unwrap();
+        let document: Json = serde_json::from_slice(&output.stdout)
+            .unwrap_or_else(|error| panic!("{verb}: {error}: {}", text(&output.stderr)));
+        assert_eq!(output.status.code(), Some(0), "{verb}: {document:#}");
+        assert_eq!(
+            document["spec"]["outcome"], "admitted",
+            "{verb}: {document:#}"
+        );
+        document
+    };
+    kink("check");
+    let coverage = kink("coverage");
+    let ends = &coverage["programs"][0]["ends"];
+    assert_eq!(ends[0]["declared"], "finished", "{coverage:#}");
+    assert_eq!(ends[0]["declared_by"], "crate::finished", "{coverage:#}");
+}
+
 #[test]
 fn a_definition_that_declares_no_end_says_what_it_said() {
     let plain = |name: &str, program: &str, arguments: &[&str]| {

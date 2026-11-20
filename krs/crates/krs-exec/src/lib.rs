@@ -3454,10 +3454,13 @@ impl Semantics {
         state: &Term,
         budget: Option<u64>,
     ) -> Result<Result<(Pattern, Option<Short>), Short>, ExecError> {
+        // A function of the root takes a part of the held configuration, which is built as a
+        // request; a function of the whole is applied to the held state as it is.
+        let at_root = self.ends.at_root();
         let request = match state.held() {
-            Some(held) if console::exit_code_of_whole(held) => None,
+            Some(held) if !at_root && console::exit_code_of_whole(held) => None,
             _ => Some(
-                declared_ends::application(symbol, state.kore()).ok_or_else(|| {
+                declared_ends::application(symbol, state.kore(), at_root).ok_or_else(|| {
                     ExecError::Result(
                         "a run that ended where no rule applies ended in a state that is no configuration, so its declared ends have nothing to be evaluated at".to_owned(),
                     )

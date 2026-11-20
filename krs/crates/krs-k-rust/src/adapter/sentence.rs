@@ -213,7 +213,7 @@ impl Adapter<'_> {
                 }
             })
             .collect::<Result<Vec<_>, AdapterError>>()?;
-        let items = with_configuration_argument(sentence, items);
+        let items = with_configuration_argument(sentence, &self.configuration_sort(), items);
         // K's outer syntax desugars `List{Elem, "sep"}` privately; this is
         // k-rust's `lower_user_list` (`bison_lists = false`) for the cons
         // sentence: `[Elem, Terminal(sep), List]`, unnamed, the separator kept
@@ -811,16 +811,29 @@ impl Adapter<'_> {
                     SentenceNodeRole::Term(vec![0]),
                 );
                 let configuration = match sentence.function_context() {
-                    Some(context) => incomplete_cell(
-                        "generatedTop",
-                        self.function_context(context, module, sentence_index)?,
-                        true,
-                    ),
+                    Some(context) => {
+                        let cells = context.cells().cells();
+                        // The cells the equation reads inside the cell that is the whole
+                        // configuration, open to the others, or that cell's own pattern where
+                        // the equation reads it alone.
+                        let whole = match (self.configuration_root, cells) {
+                            (Some(root), [cell])
+                                if self.index.cell_name(cell.cell()) == Some(root) =>
+                            {
+                                None
+                            }
+                            (Some(root), _) => Some(root),
+                            (None, _) => Some("generatedTop"),
+                        };
+                        let cells = self.function_context(context, module, sentence_index)?;
+                        match whole {
+                            Some(whole) => incomplete_cell(whole, cells, true),
+                            None => cells,
+                        }
+                    }
                     None => NativeTerm::Variable {
                         name: format!("_{}", generated_variable_name("configuration")),
-                        sort: Some(NativeSort::new(
-                            krs_ir_levels::k_surface::GENERATED_TOP_CELL_SORT,
-                        )),
+                        sort: Some(NativeSort::new(self.configuration_sort())),
                     },
                 };
                 NativeTerm::Rewrite {
@@ -1868,13 +1881,14 @@ fn native_config_cell(name: &str, properties: NativeTerm, contents: NativeTerm) 
 /// closing parenthesis of its syntax, as the emitted K writes it.
 fn with_configuration_argument(
     production: &ProductionSentence,
+    configuration_sort: &str,
     mut items: Vec<NativeItem>,
 ) -> Vec<NativeItem> {
     if is_end_function(production) {
         items.insert(
             items.len().saturating_sub(1),
             NativeItem::NonTerminal {
-                sort: NativeSort::new(krs_ir_levels::k_surface::GENERATED_TOP_CELL_SORT),
+                sort: NativeSort::new(configuration_sort),
                 name: None,
             },
         );

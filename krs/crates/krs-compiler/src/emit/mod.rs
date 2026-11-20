@@ -355,6 +355,9 @@ struct EmitContext<'a> {
     /// Whether a literal that is a constant's whole value names the constant in a K comment
     /// (FB52); a `k::patterns!` part's text carries none, since kink reads it as rule content.
     constant_markers: bool,
+    /// The cell that is the whole configuration, where it is one of the definition's own cells
+    /// ([`krs_ir_levels::k_surface::configuration_root`]); `None` for the generated top cell.
+    configuration_root: Option<&'a str>,
 }
 
 impl<'a> EmitContext<'a> {
@@ -375,7 +378,17 @@ impl<'a> EmitContext<'a> {
             lexicon: TokenLexicon::new(definition),
             spec_identifiers: None,
             constant_markers: true,
+            configuration_root: krs_ir_levels::k_surface::definition_configuration(definition)
+                .and_then(krs_ir_levels::k_surface::configuration_root),
         }
+    }
+
+    /// The K sort of the whole configuration, the argument of a declared end's function.
+    fn configuration_sort(&self) -> String {
+        self.configuration_root.map_or_else(
+            || krs_ir_levels::k_surface::GENERATED_TOP_CELL_SORT.to_owned(),
+            krs_ir_levels::k_surface::cell_sort_name,
+        )
     }
 
     /// The context of one author spec module: identifiers that a token

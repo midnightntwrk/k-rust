@@ -2488,11 +2488,20 @@ fn render_emitted(
         ]);
         // The table of the definition's declared ends, written only where it declares one: a
         // definition without an end has the artifacts it had.
-        let ends = krs_compiler::declared_ends(prepared.lowered.definition())?;
+        let definition = prepared.lowered.definition();
+        let ends = krs_compiler::declared_ends(definition)?;
         if !ends.is_empty() {
+            let argument_sort = krs_ir_levels::k_surface::definition_configuration(definition)
+                .map_or_else(
+                    || krs_ir_levels::k_surface::GENERATED_TOP_CELL_SORT.to_owned(),
+                    krs_ir_levels::k_surface::configuration_sort,
+                );
             artifacts.push((
                 krs_compiler::ENDS_ARTIFACT,
-                krs_compiler::ends_json(&ends, &|label| krs_k_rust::kore_label(label)).into_bytes(),
+                krs_compiler::ends_json(&ends, &argument_sort, &|label| {
+                    krs_k_rust::kore_label(label)
+                })
+                .into_bytes(),
             ));
         }
         Ok::<_, CommandError>(artifacts)
