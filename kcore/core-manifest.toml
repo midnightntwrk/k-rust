@@ -232,7 +232,7 @@ items = [
   "every proof",
   "the reader (Parse) and the tie to the KORE text: trusted only when a definition is read without the tie",
   "the generator and every generated package",
-  "the test system: test/integration.sh per merged batch (pins of the statements, axioms of every declaration, cone diff, witnesses, corpus, round trip, agreement with reference backends on cases) and test/release.sh (every example package, KEVM, mir)",
+  "the test system: test/integration.sh per merged batch (pins of the statements, axioms of every declaration, cone diff, witnesses, corpus, round trip, agreement with reference backends on cases) and test/release.sh (the integration run, then the committed example packages built as they stand with their user's modules, the pins of C10's statements on kore.k's package, the axioms of the examples' statements and the tripwire; no step builds a KEVM or mir package)",
   "the deciders and the executable evaluators (the one for collection patterns is proved to list exactly Step's successors: KCore.CExec.step_iff)",
   "theorem kinds (invariants, determinism, noninterference), certificates, the symbolic layer: taught later as uses of the core, each when its interface is stable",
 ]
@@ -257,4 +257,179 @@ meaning = "x₀ is kimp's configuration `while (!($n <= 0)) { $s = $s + $n; $n =
 checked_by = [
   "examples/run.sh with ref-kimp and ref-kk both selected (its default list, or `examples/run.sh ref-kimp ref-kk`): gen/build.sh --only --with examples/ref-kimp examples/ref-kk User.KimpInst, whose own #eval fails the build when encDef_kimp, succs_at, step_named, x₀_sorted, y₀_sorted, t₀_tie or r₀_tie reaches an axiom other than propext, Classical.choice, Quot.sound, or when the statement of encDef_kimp, succs_at or step_named names KCore.KK.enc, KCore.KK.emb or KCore.KK.embSt",
   "test/release.sh, step axioms-kkinst: #print axioms of KCore.KK.KimpInst.encDef_kimp, succs_at and step_named over the built packages ref-kimp and ref-kk, failing on an axiom other than propext, Classical.choice, Quot.sound",
+]
+
+[[cell]]
+row = "imp"
+column = "consumer"
+criterion = "DONE-0 C9 part 5: the statement k2lean generates from K's claim sum-spec equals the statement of the claim's KORE sentence fixed beforehand, the stronger statement fixed beforehand from the claim's text is proved about the package's Step with no hypothesis on the functions, and one concrete configuration meets its hypotheses"
+theorem = "RefKimp.Claims.sum_spec_holds"
+statement = "Expected.«sum-spec»"
+file = "kcore-spec/examples/ref-kimp/User/SumSpecHolds.lean"
+through = [
+  "RefKimp.Claims.sum_spec_run_withHooks (the run from the left side to the right side under every H)",
+  "RefKimp.Claims.loop_runs_withHooks (the induction on $n, the claim's circularity)",
+  "RefKimp.deterministic (kcore-spec/examples/ref-kimp/RefKimp/Kinds/Det.lean)",
+  "KCore.Reachability.allPath_of_star",
+]
+meaning = "RefKimp.Claims.Expected.«sum-spec» (kcore-spec/examples/ref-kimp/User/SumSpecStmt.lean, written from the claim's text before any generator ran) is: for every interpretation H, integers N ≥ 0, S, rest K of the k cell and counter C, AllPath (Step (RefKimp.defn.sem.withHooks H)) from the configuration with the loop `while (!($n <= 0)) { $s = $s + $n; $n = $n + -1; }` before K, $n ↦ N, $s ↦ S and the counter C, to the configuration with K alone, $n ↦ 0, $s ↦ S + ((N + 1) * N).tdiv 2 and the counter C; its hypotheses are N ≥ 0 alone. RefKimp.Claims.ExpectedKore.«sum-spec» (the claim's KORE sentence: the target's counter existential) follows from it (RefKimp.Claims.sum_spec_kore), and RefKimp.Claims.Generated.«sum-spec» (kcore-spec/examples/ref-kimp/User/SumSpecGen.lean, written by k2lean kcore-claims) is ExpectedKore.«sum-spec» by rfl (kcore-spec/test/PinsKimp.lean). RefKimp.Claims.sum_spec_instance (kcore-spec/examples/ref-kimp/User/SumSpecInstance.lean) is the claim at N = 3, S = 0, .K and the counter 0, a configuration under every H by RefKimp.Claims.instSorted, every complete path from it passing through $n ↦ 0, $s ↦ 6"
+checked_by = [
+  "examples/run.sh with ref-kimp selected (test/release.sh, step examples): gen/build.sh examples/ref-kimp ... User.SumSpecHolds User.SumSpecML User.SumSpecInstance, whose own #eval fails the build when sum_spec_holds, sum_spec_kore, sum_spec_run_withHooks, loop_runs_withHooks or sum_spec_instance reaches an axiom other than propext, Classical.choice, Quot.sound, or reaches KCore.FnHyp, RefKimp.fnHyp_defn or RefKimp.fnHyp_withHooks_defn through any definition or proof below it",
+  "test/pins-kimp.sh (test/integration.sh, step pins-kimp): k2lean kcore-claims regenerates SumSpecGen.lean byte for byte, the body of Generated.«sum-spec» equals that of ExpectedKore.«sum-spec» as text, and test/PinsKimp.lean checks Generated.«sum-spec» = ExpectedKore.«sum-spec» by rfl, Expected.«sum-spec» → ExpectedKore.«sum-spec» and Claims.Expected.«sum-spec» := Claims.sum_spec_holds",
+  "test/release.sh, step axioms-sumspec: #print axioms of RefKimp.Claims.sum_spec_holds, sum_spec_kore and sum_spec_instance among the ref-kimp statements, failing on an axiom other than propext, Classical.choice, Quot.sound",
+]
+
+[[cell]]
+row = "imp"
+column = "coreOK"
+criterion = "DONE-0 C9 part 2: coreOK_defn kernel-checked in the package"
+theorem = "RefKimp.coreOK_defn"
+statement = "defn.sem.coreOK = true"
+file = "kcore-spec/examples/ref-kimp/RefKimp/Sound.lean"
+through = [
+  "KCore.Definition.coreOK_of_wf",
+  "RefKimp.wf_defn : wf defn = true (kcore-spec/examples/ref-kimp/RefKimp/Wf/Wf.lean)",
+]
+checked_by = [
+  "examples/run.sh with ref-kimp selected (test/release.sh, step examples): the package built in the kernel",
+  "test/release.sh, step axioms-refkimp: #print axioms of RefKimp.coreOK_defn, failing on an axiom other than propext, Classical.choice, Quot.sound",
+]
+
+[[cell]]
+row = "imp"
+column = "statements"
+criterion = "DONE-0 C9 part 3, consistent: the theory has a model for every interpretation H, with no hypothesis on the functions"
+theorem = "RefKimp.consistent"
+statement = "∀ H : HookParams, Consistent (defn.sem.withHooks H)"
+file = "kcore-spec/examples/ref-kimp/RefKimp/FnHyp.lean"
+through = [
+  "KCore.consistent_of_fnHyp",
+  "RefKimp.coreOK_withHooks_defn",
+  "RefKimp.fnHyp_withHooks_defn (a theorem: FnHyp (defn.sem.withHooks H) for every H)",
+]
+checked_by = [
+  "test/pins-kimp.sh (test/integration.sh, step pins-kimp): the type pinned in test/PinsKimp.lean, on the package kcore gen --wf writes for kimp's text",
+  "test/release.sh, step axioms-refkimp: #print axioms of RefKimp.consistent, failing on an axiom other than propext, Classical.choice, Quot.sound",
+]
+
+[[cell]]
+row = "imp"
+column = "statements"
+criterion = "DONE-0 C9 part 3, sound_at: every step of Step is a theorem of Γ, concluding Consistent, for every interpretation H"
+theorem = "RefKimp.sound_at"
+statement = "∀ (H : HookParams) (x y : Config (defn.sem.withHooks H)) (_hs : Step (defn.sem.withHooks H) x y), Consistent (defn.sem.withHooks H) ∧ (Γ (defn.sem.withHooks H) ⊧ (den (defn.sem.withHooks H) x.val ⇒ KoreAML.sNext (den (defn.sem.withHooks H) y.val)))"
+file = "kcore-spec/examples/ref-kimp/RefKimp/FnHyp.lean"
+through = [
+  "KCore.consistent_of_fnHyp",
+  "KCore.sound_at_plain",
+  "RefKimp.plain_withHooks_defn",
+]
+checked_by = [
+  "test/pins-kimp.sh (test/integration.sh, step pins-kimp): the type pinned in test/PinsKimp.lean, on the package kcore gen --wf writes for kimp's text",
+  "test/release.sh, step axioms-refkimp: #print axioms of RefKimp.sound_at, failing on an axiom other than propext, Classical.choice, Quot.sound",
+]
+
+[[cell]]
+row = "imp"
+column = "statements"
+criterion = "DONE-0 C9 part 3, complete_at: where the evaluations the step at x reads have results, every successor of x is one of a list holding Step's successors, concluding Consistent, for every interpretation H"
+theorem = "RefKimp.complete_at"
+statement = "∀ (H : HookParams) (x : Config (defn.sem.withHooks H)) (_hd : StepDecided (defn.sem.withHooks H) x.val) (ys : List GroundTerm) (_hys : ∀ y : Config (defn.sem.withHooks H), Step (defn.sem.withHooks H) x y → y.val ∈ ys), Consistent (defn.sem.withHooks H) ∧ ((Γ (defn.sem.withHooks H) ∪ Γstep (defn.sem.withHooks H)) ⊧ (den (defn.sem.withHooks H) x.val ⇒ KoreAML.allNext (KoreAML.disjList (ys.map (den (defn.sem.withHooks H))))))"
+file = "kcore-spec/examples/ref-kimp/RefKimp/FnHyp.lean"
+through = [
+  "KCore.consistent_of_fnHyp",
+  "KCore.complete_at_plain",
+  "RefKimp.plain_withHooks_defn",
+]
+checked_by = [
+  "test/pins-kimp.sh (test/integration.sh, step pins-kimp): the type pinned in test/PinsKimp.lean, on the package kcore gen --wf writes for kimp's text",
+  "test/release.sh, step axioms-refkimp: #print axioms of RefKimp.complete_at, failing on an axiom other than propext, Classical.choice, Quot.sound",
+]
+
+[[cell]]
+row = "imp"
+column = "statements"
+criterion = "DONE-0 C9 part 3, run_exact: at a fuel where nothing ran out, with the step's closure every successor of x is one successorsN lists, and each one it lists is a successor of x in every model of Γ, concluding Consistent, for every interpretation H"
+theorem = "RefKimp.run_exact"
+statement = "∀ (H : HookParams) {n : Nat} {x : Config (defn.sem.withHooks H)} (_hfu : CExec.outOfFuel (defn.sem.withHooks H) n x.val = false), Consistent (defn.sem.withHooks H) ∧ ((Γ (defn.sem.withHooks H) ∪ Γstep (defn.sem.withHooks H)) ⊧ (den (defn.sem.withHooks H) x.val ⇒ KoreAML.allNext (KoreAML.disjList ((CExec.successorsN (defn.sem.withHooks H) n x.val).map (den (defn.sem.withHooks H)))))) ∧ ∀ y ∈ CExec.successorsN (defn.sem.withHooks H) n x.val, (Γ (defn.sem.withHooks H) ⊧ (den (defn.sem.withHooks H) x.val ⇒ KoreAML.sNext (den (defn.sem.withHooks H) y)))"
+file = "kcore-spec/examples/ref-kimp/RefKimp/FnHyp.lean"
+through = [
+  "KCore.consistent_of_fnHyp",
+  "KCore.CExec.run_exact",
+  "RefKimp.exec_ready : CExec.execReady defn.sem = true",
+]
+checked_by = [
+  "test/pins-kimp.sh (test/integration.sh, step pins-kimp): the type pinned in test/PinsKimp.lean, on the package kcore gen --wf writes for kimp's text",
+  "test/release.sh, step axioms-refkimp: #print axioms of RefKimp.run_exact, failing on an axiom other than propext, Classical.choice, Quot.sound",
+]
+
+[[cell]]
+row = "imp"
+column = "admitted interpretations"
+criterion = "DONE-0 C9 part 4: every [total] function of the definition is Total for every interpretation H, no exception claimed"
+theorem = "RefKimp.totals_withHooks"
+statement = "(H : HookParams) : ∀ f fn, (c.withHooks H).lookupFn f = some fn → fn.total = true → Total (c.withHooks H) f"
+file = "kcore-spec/examples/ref-kimp/RefKimp/Facts/Terminates.lean"
+through = [
+  "KCore.totals_of_nil_withHooks",
+  "RefKimp.terminates_withHooks",
+  "RefKimp.named_totals : defn.sem.totalObligations = []",
+]
+meaning = "c is defn.sem (kcore-spec/examples/ref-kimp/RefKimp/Core.lean); named_totals says no [total] function's totality is named, so no interpretation is admitted at which a [total] function has no value"
+checked_by = [
+  "examples/run.sh with ref-kimp selected (test/release.sh, step examples): the package built in the kernel",
+  "test/release.sh, step axioms-refkimp: #print axioms of RefKimp.totals and RefKimp.totals_withHooks, failing on an axiom other than propext, Classical.choice, Quot.sound",
+]
+
+[[cell]]
+row = "KORE in K"
+column = "coreOK"
+criterion = "DONE-0 C10 part 1: coreOK_defn kernel-checked in the package"
+theorem = "RefKk.coreOK_defn"
+statement = "defn.sem.coreOK = true"
+file = "kcore-spec/examples/ref-kk/RefKk/CoreOK.lean"
+through = [
+  "KCore.Semantics.coreOK_of_T",
+  "KCore.Semantics.faithCoreOK_of_partsK",
+]
+meaning = "decided conjunct by conjunct without wf: ref-kk is generated with kcore gen --core"
+checked_by = [
+  "examples/run.sh with ref-kk selected (test/release.sh, step examples): the package built in the kernel",
+  "test/release.sh, step axioms-refkk: #print axioms of RefKk.coreOK_defn, failing on an axiom other than propext, Classical.choice, Quot.sound",
+]
+
+[[cell]]
+row = "KORE in K"
+column = "statements"
+criterion = "DONE-0 C10 part 2: succs_sound, succs_stuck and succs_complete at d.withHooks HookParams.none, with the hypotheses execReady d and encDef d = some E, and for completeness CoherentAll (d₀ d) and succs having a value at x"
+theorem = "KCore.KK.kk_step"
+statement = "SuccsSound sig ∧ SuccsStuck sig ∧ SuccsComplete sig"
+file = "kcore-spec/examples/ref-kk/User/KkThree.lean"
+through = [
+  "KCore.KK.succs_sound : SuccsSound sig",
+  "KCore.KK.succs_stuck : SuccsStuck sig",
+  "KCore.KK.succs_complete : SuccsComplete sig",
+]
+meaning = "SuccsSound, SuccsStuck and SuccsComplete are the propositions of kcore-spec/KcoreSpec/KKStatements.lean, each over every d and E with CExec.execReady d = true and S.encDef d = some E, at d₀ d, SuccsComplete also under CoherentAll (d₀ d); sig = ⟨RefKk.defn.sem, 510, emb, embD, embSt, enc, encDef⟩"
+checked_by = [
+  "test/pins-kk.sh (test/release.sh, step pins-kk): the three statements, kk_step and sig's fields pinned in test/PinsKk.lean on the package kcore gen --core writes for kore.k, with ref-kk's User modules up to User.KkThree",
+  "examples/run.sh with ref-kk selected (test/release.sh, step examples): gen/build.sh examples/ref-kk ... User.KkThree",
+]
+
+[[cell]]
+row = "KORE in K"
+column = "statements"
+criterion = "DONE-0 C10 part 8: consistent for kore.k's semantics at HookParams.none, by consistent_of with FnDet and FnSolves proved"
+theorem = "KK.consistent"
+statement = "Consistent (defn.sem.withHooks HookParams.none)"
+file = "kcore-spec/examples/ref-kk/User/Consistent.lean"
+through = [
+  "KCore.consistent_of",
+  "KK.fnDet",
+  "KK.fnSolves : FnSolves c₀",
+  "KK.clausePreDecided, KK.clausePostDecided, KK.openLaws",
+]
+meaning = "defn is RefKk.defn, kore.k's package"
+checked_by = [
+  "examples/run.sh with ref-kk selected (test/release.sh, step examples): gen/build.sh examples/ref-kk ... User.Consistent, whose own #eval fails the build when consistent or fnSolves reaches an axiom other than propext, Classical.choice, Quot.sound",
 ]
