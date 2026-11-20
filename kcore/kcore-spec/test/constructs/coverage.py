@@ -39,7 +39,10 @@ The document holds, in this order:
              proved, else open where one is, else false; an owed_refuted is false), and each false
              or open owed fact, one line per fixture: the entry's group, the state, and the
              theorem or the reason. Such an entry's status cell reads "STATUS (owed fact proved)",
-             "STATUS (owed fact open)" or "STATUS (owed fact false)", its group.
+             "STATUS (owed fact open)" or "STATUS (owed fact false)", its group. An entry with a
+             `tie_premise` table (rows-header.toml: its sentences tied under a premise no sentence
+             of the text states) has its status cell read "STATUS (tied under PREMISE)", the
+             tables' premises.
   teaches    every layer of the manifest in its order: id, status, `teaches`, declarations, and the
              status of each `except` entry; then the manifest's not_core items.
   cells      every `cell` entry of the manifest: the scoreboard row and column, the theorem named
@@ -210,6 +213,15 @@ def no_model_mark(e):
         if rest:
             out.append(", ".join(rest) + ": " + m)
     return "; ".join(out)
+
+
+def premise_mark(e):
+    """The mark beside an entry's status for its `tie_premise` tables, "tied under PREMISE" (the
+    premises of the tables, in their order, each once), "" without one."""
+    tp = e.get("tie_premise")
+    ps = [d["premise"] for d in tp if isinstance(d, dict) and isinstance(d.get("premise"), str)] \
+        if isinstance(tp, list) else []
+    return "tied under " + ", ".join(dict.fromkeys(ps)) if ps else ""
 
 
 def owed_facts(e):
@@ -494,6 +506,8 @@ def generate(rows_path, manifest_path):
                     st += f" ({', '.join(fs)})" if fs else " (no form)"
                 if no_model_mark(e):
                     st += f" ({no_model_mark(e)})"
+                if premise_mark(e):
+                    st += f" ({premise_mark(e)})"
                 if owed_mark(e):
                     st += f" (owed fact {owed_mark(e)})"
                 lines.append([

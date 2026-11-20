@@ -92,6 +92,16 @@
 #   with PATH f2-examples/FIXTURE.kompile.kore, or a text that carries the Source of the fixture's own
 #   fixtures/FIXTURE/FIXTURE.k), and each index of `sentences` is an axiom of each such text (1 to
 #   its number of axioms, as AxiomDecl.index counts them).
+# - `tie_premise` (rows-header.toml; rest.py checks its fields and sentences): a non-empty list of
+#   tables naming a `premise`; each of its theorems `theorem`, `converse`, `needed`, `at_values`,
+#   `consistent` that it names is declared in a file of the entry's `tie` (the first declaring it),
+#   once, in no AtNone namespace, its statement for every H as above; `theorem`'s statement mentions
+#   the premise (Γ's item from the sentence under it); `needed`'s has a ¬ and does not mention it (the
+#   item does not follow without it); `consistent`'s mentions Consistent and negates nothing;
+#   `at_values`'s mentions EntailsAtValues (or EntailsAtValuesΓc) and not the premise; `converse`'s
+#   mentions Γ or Γc and ⊧; with `in_gamma = false`, a file of `tie` states `theorem readsConfined_c :
+#   c.readsConfined = false` (the definition reads no confined sort, so Γc is Γ, which does not hold
+#   the premise). The tables are counted on a line of their own.
 # Prints the entries by form and kind (the counts C7 asks for: forms (b), (r) and "through the
 # reading" counted apart), the fixtures of the form (r) entries (a text without a model, or a sentence
 # against the reading: the table's `fixture`, else the entry's), and every failure. Exit 1 on a
@@ -116,6 +126,7 @@ FORMS = {"a", "b", "c", "r"}
 KINDS = {"from sentences", "through the reading", "in a model"}
 AGAINST = "sentence against the reading"
 R_KINDS = (None, "through the reading", AGAINST)
+TP_KEY = "tie_premise"
 HP = r"(?:KCore\.)?HookParams"
 SEMT = r"(?:KCore\.)?Semantics"
 SEM_READERS = ("Γ", "Γc", "Γstep", "Γcl", "Eval", "EvalTerm", "Step", "Holds", "hookRes", "sortOf", "sortsOf",
@@ -493,16 +504,89 @@ def check(rows, base):
                        " silent_statement applies hook or hookRes (each states the predicate only)")
     for where in sorted(keyrows - stated):
         bad.append(f"{where}: the row of a key of silentTable has no `silent_statement`")
+
+    def premise_tables(node, where):
+        if isinstance(node, dict):
+            if "tie_premise" in node:
+                yield where, node
+            for k, v in node.items():
+                yield from premise_tables(v, f"{where} {k}" if where else k)
+        elif isinstance(node, list):
+            for i, v in enumerate(node):
+                yield from premise_tables(v, f"{where}[{i}]")
+
+    def tie_file_of(name, e):
+        """(the file of the entry's `tie` declaring `name`, its path), the first such file, or None."""
+        ts = e.get("tie")
+        for fl in (ts if isinstance(ts, list) else [ts] if isinstance(ts, str) else []):
+            path = os.path.join(base, fl) if isinstance(fl, str) else ""
+            if os.path.isfile(path):
+                if path not in cache:
+                    cache[path] = declarations(path)
+                if name in cache[path]:
+                    return fl, path
+        return None
+
+    for where, e in premise_tables(t, ""):
+        tp = e["tie_premise"]
+        if not (isinstance(tp, list) and tp and all(isinstance(x, dict) for x in tp)):
+            bad.append(f"{where}: `tie_premise` is not a non-empty list of tables"); continue
+        for i, d in enumerate(tp):
+            at = f"{where}: tie_premise[{i}]"
+            counts[TP_KEY] = counts.get(TP_KEY, 0) + 1
+            q = d.get("premise")
+            if not (isinstance(q, str) and q.strip()):
+                bad.append(f"{at}: names no `premise`"); continue
+            stmts = {}
+            for n in ("theorem", "converse", "needed", "at_values", "consistent"):
+                th = d.get(n)
+                if th is None:
+                    continue
+                got = tie_file_of(th, e) if isinstance(th, str) else None
+                if got is None:
+                    bad.append(f"{at}: `{n}` {th!r} is declared in no file of the entry's `tie`"); continue
+                stmts[n] = theorem_ok(at, th, got[0], got[1], f"{n} ", None)
+            st = stmts.get("theorem")
+            if st is not None and not mentions(q, st):
+                bad.append(f"{at}: the statement of `theorem` {d['theorem']} does not mention the premise {q}")
+            st = stmts.get("needed")
+            if st is not None and ("¬" not in st or mentions(q, st)):
+                bad.append(f"{at}: the statement of `needed` {d['needed']} has no ¬ or mentions the premise {q}"
+                           " (that the item does not follow without it)")
+            st = stmts.get("consistent")
+            if st is not None and not (mentions("Consistent", st) and "¬" not in st):
+                bad.append(f"{at}: the statement of `consistent` {d['consistent']} does not state Consistent"
+                           " (it mentions no Consistent, or negates)")
+            st = stmts.get("at_values")
+            if st is not None and (not (mentions("EntailsAtValues", st) or mentions("EntailsAtValuesΓc", st))
+                                   or mentions(q, st)):
+                bad.append(f"{at}: the statement of `at_values` {d['at_values']} states no EntailsAtValues, or"
+                           f" mentions the premise {q}")
+            st = stmts.get("converse")
+            if st is not None and not ((mentions("Γ", st) or mentions("Γc", st)) and ("⊧" in st)):
+                bad.append(f"{at}: the statement of `converse` {d['converse']} states no consequence of Γ or Γc")
+            if d.get("in_gamma") is False:
+                ts = e.get("tie")
+                ts = ts if isinstance(ts, list) else [ts] if isinstance(ts, str) else []
+                plain = re.compile(r"^theorem readsConfined_c : c\.readsConfined = false :=", re.M)
+                if not any(isinstance(fl, str) and os.path.isfile(os.path.join(base, fl))
+                           and plain.search(open(os.path.join(base, fl), encoding="utf-8").read()) for fl in ts):
+                    bad.append(f"{at}: in_gamma = false, and no file of the entry's `tie` states"
+                               " `readsConfined_c : c.readsConfined = false` (where the definition reads a confined"
+                               " sort, Γc may hold the premise)")
     return counts, bad, nomodel
 
 
 def report(rows, base):
     counts, bad, nomodel = check(rows, base)
+    tp = counts.pop(TP_KEY, 0)
     total = sum(counts.values())
     print(f"provenance: {total} derivations named" + (": " + ", ".join(f"{k} {v}" for k, v in sorted(counts.items())) if total else ""))
     if nomodel:
         print(f"provenance: {len(nomodel)} of form (r), a text without a model or a sentence against the reading: "
               + "; ".join(f"{w} (fixture {fx or 'none'}, {th})" for w, fx, th in nomodel))
+    if tp:
+        print(f"provenance: {tp} tie_premise table{'s' if tp > 1 else ''} (a sentence tied under a premise no sentence states)")
     for b in bad[:40]:
         print(f"  {b}")
     if len(bad) > 40:
@@ -559,6 +643,16 @@ section S
 variable (H : HookParams)
 theorem viaVar : Eval (cH H) e v := sorry
 end S
+theorem closedW1 (H : HookParams) : ∀ it ∈ ruleItems (cH H), ∃ ad ∈ ruleText,
+    TiePair.Texts ((trS ad).pat :: [boolClosed (cH H)]) ∪ ΓSig (cH H) ⊧ it.pat := sorry
+theorem notWithout (H : HookParams) : ¬ ∀ it ∈ ruleItems (cH H), ∃ ad ∈ ruleText,
+    TiePair.Texts [(trS ad).pat] ∪ ΓSig (cH H) ⊧ it.pat := sorry
+theorem atVal (H : HookParams) : EntailsAtValues (cH H) U.ax157 (trS U.ax157).pat := sorry
+theorem atValCl (H : HookParams) (h : boolClosed (cH H) = boolClosed (cH H)) :
+    EntailsAtValues (cH H) U.ax157 (trS U.ax157).pat := sorry
+theorem conv (H : HookParams) : Γ (cH H) ⊧ (trS U.ax157).pat := sorry
+theorem convFixed : Γ cFix ⊧ (trS U.ax157).pat := sorry
+theorem notWithCl (H : HookParams) : ¬ ∀ it ∈ ruleItems (cH H), TiePair.Texts [boolClosed (cH H)] ⊧ it.pat := sorry
 namespace AtNone
 theorem hidden (H : HookParams) : Eval (cH H) e v := sorry
 theorem hiddenModel (H : HookParams) : ∃ I, InitModel (cH H) N ar G I ∧ ∀ x y, Step (cH H) x y ↔ R I x y := sorry
@@ -652,6 +746,33 @@ end KCore.ProvT
         (dict(pr, kind="from sentences"), "without `sentences`", {}, hk),
         (pr, "without `sentences`", {"status": "parameter"}, hk),
     ]
+    open(os.path.join(d, "R.lean"), "w").write("namespace KCore.ProvR\ntheorem readsConfined_c : c.readsConfined = false := sorry\n"
+                                               "end KCore.ProvR\n")
+    fr = os.path.relpath(os.path.join(d, "R.lean"), K)
+    tpok = {"sentences": [157], "premise": "boolClosed", "in_gamma": False, "ground": "g",
+            "theorem": "KCore.ProvT.closedW1", "converse": "KCore.ProvT.conv", "needed": "KCore.ProvT.notWithout",
+            "at_values": "KCore.ProvT.atVal", "consistent": "KCore.ProvT.consistent"}
+    tpw = lambda **kw: {"tie": [f, fr], "tie_premise": [{k: v for k, v in dict(tpok, **kw).items() if v is not None}]}
+    good = cases[0][0]
+    cases += [  # a tie_premise table (third item: the entry's fields)
+        (good, None, tpw()),
+        (good, None, tpw(in_gamma=True, needed=None)),
+        (good, None, dict(tpw(in_gamma=True), tie=[f])),
+        (good, "no file of the entry's `tie` states `readsConfined_c", dict(tpw(), tie=[f])),
+        (good, "does not mention the premise boolClosed", tpw(theorem="KCore.ProvT.conv")),
+        (good, "the statement of `needed` KCore.ProvT.closedW1 has no ¬", tpw(needed="KCore.ProvT.closedW1")),
+        (good, "the statement of `needed` KCore.ProvT.notWithCl has no ¬ or mentions the premise boolClosed",
+         tpw(needed="KCore.ProvT.notWithCl")),
+        (good, "the statement of `consistent` KCore.ProvT.inconsistent does not state Consistent",
+         tpw(consistent="KCore.ProvT.inconsistent")),
+        (good, "states no EntailsAtValues, or mentions the premise", tpw(at_values="KCore.ProvT.atValCl")),
+        (good, "states no EntailsAtValues, or mentions the premise", tpw(at_values="KCore.ProvT.conv")),
+        (good, "states no consequence of Γ or Γc", tpw(converse="KCore.ProvT.atVal")),
+        (good, "is declared in no file of the entry's `tie`", tpw(converse="KCore.ProvT.missing")),
+        (good, "the statement of converse KCore.ProvT.convFixed is not for every H", tpw(converse="KCore.ProvT.convFixed")),
+        (good, "names no `premise`", tpw(premise=None)),
+        (good, "`tie_premise` is not a non-empty list of tables", {"tie_premise": []}),
+    ]
     sa = lambda th: {"form": "a", "kind": "from sentences", "sentences": [1], "theorem": f"KCore.ProvT.{th}", "file": f}
     cases += [  # statements for every H without a HookParams name
         (sa("overSem"), None),
@@ -723,7 +844,8 @@ end KCore.ProvT
           "fixture": "e5-ovl-fun"}, None, own),
     ]
     ok = True
-    val = lambda v: (f"{v!r}".replace("'", '"') if not isinstance(v, (list, dict)) else
+    val = lambda v: (("true" if v else "false") if isinstance(v, bool) else
+                     f"{v!r}".replace("'", '"') if not isinstance(v, (list, dict)) else
                      "[" + ", ".join(val(x) for x in v) + "]" if isinstance(v, list) else
                      "{ " + ", ".join(f"{k} = {val(x)}" for k, x in v.items()) + " }")
     for i, (dt, want, *more) in enumerate(cases):

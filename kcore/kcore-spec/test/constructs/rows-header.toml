@@ -240,6 +240,30 @@
 #             rest.py exempts no other entry. A declaration is no axiom and has no class: a
 #             `sentence` locating no axiom counts neither way; one not in the tie's text is refused
 #             (its class is not read).
+#   tie_premise  on a supported row or nested table: a list of tables, one per premise, for the
+#             entry's rule sentences that its fixture's tie ties under a premise no sentence of the
+#             text states (tiegen --hand rules with rule_from_text_closed or rule_from_text_dom; the
+#             tie's `def underPremise` lists them with the premise, not `uncovered`). Each table:
+#               sentences  the indices (AxiomDecl.index) of the sentences, each in `underPremise` of
+#                          a file of `tie` reading the entry's text, with this premise;
+#               premise    the premise's name as `underPremise` writes it ("boolClosed", or
+#                          "ruleDomAux": the value items and value distinctness the section lists);
+#               in_gamma   false where Γ does not hold the premise (the definition reads no confined
+#                          sort, and a file of `tie` states `readsConfined_c : c.readsConfined =
+#                          false`), true where it is an item of Γ's own (ΓDomains);
+#               ground     where the premise comes from, in words (for boolClosed: DONE-0 section 0
+#                          (4), the builtin Bool's values `true` and `false`);
+#               theorem    Γ's item from the sentence under the premise (its statement mentions it);
+#               converse   the sentence from Γ (or Γc), under the premise or not;
+#               at_values  the sentence from Γ at values, without the premise (EntailsAtValues);
+#                          at least one of converse and at_values;
+#               needed     required where in_gamma is false: that the item does not follow without
+#                          the premise (a statement with ¬ that does not mention it);
+#               consistent Consistent for every H (not negated).
+#             Each theorem is a full name declared in a file of `tie`; the entry also names `needed`
+#             and `at_values` among tie_theorems. rest.py counts such an entry as "supported (tied
+#             under a domain premise)", apart from the entries tied with no premise; provenance.sh
+#             checks the statements; K-coverage.md prints "supported (tied under PREMISE)".
 #   For erased, the forms of findings/work/decision-fixrest-erased-forms.md section 2, at least one,
 #   each checked (kfix.py check, rest.py; K-coverage.md prints their letters beside the status):
 #   pair      P: the fixture (or a list of them, each checked) whose kompile.txt records the entry's
