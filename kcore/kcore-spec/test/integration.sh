@@ -15,10 +15,11 @@
 #               modules among them): each test/X row runs its file with `#axioms_here`
 #               (KcoreSpec/AxiomsCheck.lean) appended, and this row, after them, requires that line's
 #               verdict in every row's log (a run killed or timed out before it fails the row)
-#   axioms-packages  the same of every declaration of each row package (ROWPKGS: ref-kimp, and ref-kk
-#               when examples/ref-kk exists), after the user row has built them: every module of
-#               its modules.txt (which must list every module of the package's library) and of its
-#               User/ imported, `#axioms_modules` over the library and User
+#   axioms-packages  the same of every declaration of each row package (ROWPKGS: ref-kimp and ref-kk),
+#               after the user row has built both in this run: every module of its modules.txt (which
+#               must list every module of the package's library) and of its User/ imported,
+#               `#axioms_modules` over the library and User, with the other row packages' libraries on
+#               the path after its own (ref-kk's User.KimpInst imports ref-kimp's modules)
 #   witnesses   test/Witnesses.lean: the witness modules' theorems, and their axioms
 #   cone        the review cone (v) (test/ConeV.lean, computed from the root list test/roots.toml) against the
 #               committed one, kcore/core-cone.txt at the main revision the tree is on (or $KCORE_CONE), its
@@ -126,7 +127,7 @@ axiomsTests() {
 # the row packages: those of DONE-0's two rows
 ROWPKGS="ref-kimp ref-kk"
 axiomsPackages() {
-  local p d lib f m n=0 miss
+  local p q d lib f m n=0 miss lp
   for p in $ROWPKGS; do
     d=examples/$p
     [ -d "$d" ] || { echo "$p: no package"; continue; }
@@ -139,7 +140,9 @@ axiomsPackages() {
     { echo "import KcoreSpec.AxiomsCheck"; sed 's/^/import /' "$d/modules.txt"
       for m in "$d"/User/*.lean; do [ -f "$m" ] && echo "import User.$(basename "$m" .lean)"; done
       echo "#axioms_modules $lib User"; } > "$f"
-    LEAN_PATH=$K/$d/.lake/build/lib/lean:$LP cap 1200 "$TC/bin/lean" -j1 "$f" || { echo "$p: failed"; return 1; }
+    lp=$K/$d/.lake/build/lib/lean
+    for q in $ROWPKGS; do [ "$q" = "$p" ] || lp=$lp:$K/examples/$q/.lake/build/lib/lean; done
+    LEAN_PATH=$lp:$LP cap 1200 "$TC/bin/lean" -j1 "$f" || { echo "$p: failed"; return 1; }
     n=$((n + 1))
   done
   [ $n -gt 0 ] || { echo "no row package"; return 1; }
@@ -156,7 +159,7 @@ predSorted() {
 }
 userModules() {
   examples/run.sh --build-only peano prio kink-imp kimp imp-sec imp-sec-leaky ph kimp-ni colls-list \
-    lazy fprio colls ref-peano ref-fprio ref-kimp vault-leaky
+    lazy fprio colls ref-peano ref-fprio ref-kimp ref-kk vault-leaky
 }
 # the k2lean directory: $K2LEAN, or k2lean/ in the nearest directory above kcore-spec holding one
 # with lean/prelude (the k-rust checkout); exported for ../consumer/cs2/build.sh
