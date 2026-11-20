@@ -18,6 +18,9 @@
   Each rule's item in Γ is a consequence of its text sentence (W1), on the same texts:
   test/TieE3Vars.lean `rule2_from_text` (sentence 170), test/TieE3VarsTwo.lean `rule0_from_text`
   (sentence 154), test/TieE3VarsBool.lean `rule0_from_text` (sentence 113).
+  Γ entails sentences 170 and 113 as written, for every H (W2: test/TieE3VarsRuleW2.lean and
+  test/TieE3VarsBoolRuleW2.lean, `rule_entailed`), so every model of `Γc` with the step's closure
+  satisfies them (`rule_in_step_models`): the models `Bool.choice` gives are models of sentence 113.
 
   - `Vars` (`rule <k> c(_, _Y) => d(?Z:Int) ... </k>`, the text's third rule `r2`, Z its
     existential variable 5). At `<k> c(1, 2) </k>` (`X H`): `step H i`, `Step` to `<k> d(i) </k>`

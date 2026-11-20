@@ -1756,6 +1756,15 @@ table above, on the tree before String and Bytes). Not investigated here.
   `rule_w2_closed_noprem` in test/TieE3MlReqNot157.lean. test/TieRuleLhsAnd.lean's
   `rule_from_text_cons` (Ceil, Equals) is W1 over the sentence, `ΓSig` and the Cons-Fun item of
   `inj{Exp,KItem}`.
+- `test/TieE3VarsRuleW2.lean`, `test/TieE3VarsBoolRuleW2.lean`: W2 for the rule with a binder,
+  sentence 170 of e3-vars (`<k> c(_, _Y) => d(?Z:Int) ... </k>`) and sentence 113 of e3-vars-bool
+  (`<k> c() => d(?Z:Bool) </k>`), for every H (KcoreSpec/TieRuleW2ExGen.lean). Γ's axiom adds the
+  one conjunct `⌈∃Z. (t ∧ ⊤)⌉` (`rule_tie`, `extras`, `right_built`), t built of Z, the rule's
+  variables and generators whose Cons-Fun items Γ has (`right_funs`). The binder's sort has an
+  element in every model of Γ (`int_inhabited`, `bool_inhabited`: it has a value), at which t is one
+  element, so Γ entails the sentence as written (`rule_entailed`,
+  `TieRuleW2G.rule_w2_exBuiltG_Γ`) and every model of `Γc` with the step's closure satisfies it
+  (`rule_in_step_models`). A few seconds each.
 - `test/C3SimpEnsRefuted.lean`, `test/InertE2SimpRefuted.lean`: simplification sentences that are
   not inert: c3-simp-ens's `f(f(X)) => f(X) ensures X >=Int 0` beside `f(X) => X` (`ens_refuted`),
   and e2-simplification's `f(X) -Int 1 => X` and `sl(X) >=Int 0 => true` beside `f(X) => X`,

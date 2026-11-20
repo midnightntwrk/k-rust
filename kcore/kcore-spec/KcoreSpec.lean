@@ -360,6 +360,7 @@ import KcoreSpec.GenEqsInit
 import KcoreSpec.TieRuleGuard
 import KcoreSpec.TieRuleW2Guarded
 import KcoreSpec.TieRuleW2GuardedGen
+import KcoreSpec.TieRuleW2ExGen
 import KcoreSpec.TieRuleRhsRefuted
 import KcoreSpec.ModelFnsPre
 import KcoreSpec.CoreDecide
