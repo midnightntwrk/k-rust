@@ -31,6 +31,15 @@
   the text": the statement is "in a model with these two facts, the two sentences give the three
   items", and it names them.
 
+  From the text and its signature, one fact of the values named (`sp_from_text_sig`). In a model
+  of sentence 132, sentence 62, definedness and `ΓSig (cH H)`, in which each of the literals `true`
+  and `false` denotes one element, an element of Bool (the premise `hlit`), Γ's three items hold.
+  The signature gives what the readings take of the model beside `hlit` (`TieFRSig.sig_of_core`):
+  definedness, the item of `⌈_⌉`, that each numbered sort denotes one sort, and that the terms read
+  (none holds an injection, `ni_facts`) lie in their sorts. `hlit` is no item of `ΓSig` and is not
+  shown here a consequence of the text, so this is not yet "Γ's items are consequences of the text
+  and its signature"; that two values are apart is not read.
+
   From Γ's items to the sentence. `sp_of_items`: in a model with the same two facts, Γ's three
   items and `boolClosed (cH H)` give sentence 132, with no functional sentence. `boolClosed` (every
   element of Bool is the element of `true` or of `false`) is a named premise: no sentence of the
@@ -43,6 +52,7 @@
   items for f (`eval_true`: the second clause applies, `false = notBool(true)`).
 -/
 import KcoreSpec
+import KcoreSpec.TieEXSig
 
 set_option autoImplicit false
 set_option maxRecDepth 1000000
@@ -283,6 +293,72 @@ theorem sp_from_text (H : HookParams) (N : HoldsShape.NodeFacts (cH H) I) (hTS :
       (CGB := CGof I (cH H) tblG (vsBof (cH H) [Srt.bool]))
       hSA hG hr hσ X.hxr X.hinB X.hcondB X.hbodyB hT hone (BNG (cH H))
 
+/-- The terms the readings take hold no injection (kernel): the operands `tightB` reads of the body
+as terms, and the last alternative's term. -/
+theorem ni_facts : TieFRSig.tightNIB NT (vsF ++ [Bv]) bodyK = true ∧ TieFRSig.injFree jB.1 = true := by
+  decide +kernel
+
+/-- The readings in a model with `LitFacts` and `TermsInSortNI`. -/
+theorem factsL (H : HookParams) (F : TieEXSig.LitFacts (cH H) I) (hTS : TieFRSig.TermsInSortNI (cH H) I) :
+    ∃ β, IsSort I β ∧ (∀ (e : Valuation M) a, TieFRRead.boolP.interpret I e a ↔ a = β) ∧
+      (∀ (e : Valuation M) a, (trSort tblG (srtOf (cH H) Srt.bool)).interpret I e a ↔ a = β) ∧
+      ExFacts I (cH H) tblG (vsOf (cH H)) ws β (xsOfB (xLit true) (xLit false)) [jB] bodyT ensT xB
+        (CGof I (cH H) tblG (vsOf (cH H))) (CGof I (cH H) tblG (vsBof (cH H) [Srt.bool])) := by
+  obtain ⟨β, hβ, hβd⟩ := TieFRSig.boolDen_of_sig F.sig
+  have hσ : ∀ (e : Valuation M) a, (trSort tblG (srtOf (cH H) Srt.bool)).interpret I e a ↔ a = β := fun e a => by
+    rw [boolSort_H H]; exact hβd e a
+  exact ⟨β, hβ, hβd, hσ, TieEXSig.exFacts_of_exB_lit F hTS names_c.1 names_c.2 (al := []) ni_facts.1 ni_facts.2
+    lit_facts.1 lit_facts.2 idx_facts.2.2.2.2.2.1 hσ hβ rfl rfl (exReadB_H H)⟩
+
+/-- The three items in a model of sentences 132 and 62 with `LitFacts` and `TermsInSortNI`. -/
+theorem sp_of_litFacts (H : HookParams) (F : TieEXSig.LitFacts (cH H) I) (hTS : TieFRSig.TermsInSortNI (cH H) I)
+    (hT : I ⊧ᴵ (trS U.ax132).pat) (hF : I ⊧ᴵ (trS U.ax62).pat) :
+    ∀ it ∈ Faithful.kernelItems (Faithful.fnEquationsK (cH H) fFn), I ⊧ᴵ it.pat := by
+  intro it hit
+  have hmem : it.pat ∈ gpats (cH H) := by
+    rw [← gamma_shape H]; exact List.mem_map.mpr ⟨it, hit, rfl⟩
+  rw [text_shape] at hT
+  rw [fnl_shape] at hF
+  obtain ⟨β, hβ, hd, hσ, X⟩ := factsL H F hTS
+  have hSA : SortAt I TieFRRead.boolP β := ⟨hd, hβ, rfl⟩
+  obtain ⟨hFf, hnd, hrk, hvk, hvr, hr, hx0⟩ := idx_facts
+  have hG := guardsOf_pred (I := I) F.sig.defOK U.ax132.ax
+  have hone : ∀ e m, At I ws rG e m → ∃ y, Inh I β y ∧ ∀ a, Inh I β a → (Ff.interpret I e a ↔ a = y) := by
+    intro e m hat
+    rw [hFf]
+    exact one_of_fnl F.sig.defOK F.sig.ceilDef hSA.den hSA.isSort hr hF (Closed.sym _) hnd hrk hvk hvr rfl
+      (fun t ht => by
+        simp only [tsF, List.mem_singleton] at ht
+        subst ht
+        exact ⟨hx0, Closed.sym _⟩) hat
+  have hcl1 := fun (x : Term × List Cond)
+      (hx : x ∈ xsOfB (xLit true) (xLit false) true ++ xsOfB (xLit true) (xLit false) false) =>
+    TieEXSig.ex_clause_of_text_lit F (tbl := tblG) (vs := vsOf (cH H)) (s := Srt.bool)
+      (CG := CGof I (cH H) tblG (vsOf (cH H))) hSA hG hr hσ X.hin X.hcond X.hbody hT hone hx
+  simp only [gpats, List.mem_cons, List.not_mem_nil, or_false] at hmem
+  rcases hmem with h | h | h <;> rw [h]
+  · exact hcl1 (xLit true) (List.mem_cons_self ..)
+  · exact hcl1 (xLit false) (List.mem_cons_of_mem _ (List.mem_cons_self ..))
+  · exact TieEXSig.ex_last_of_text_lit F (tbl := tblG) (vs := vsOf (cH H)) (s := Srt.bool)
+      (CGB := CGof I (cH H) tblG (vsBof (cH H) [Srt.bool]))
+      hSA hG hr hσ X.hxr X.hinB X.hcondB X.hbodyB hT hone (BNG (cH H))
+
+/-- **Γ's three items for f from sentences 132 and 62 with the signature, and one fact of the
+values named**, for every H: in a model of the two sentences, definedness and `ΓSig (cH H)` in
+which each of the literals `true` and `false` denotes one element, an element of Bool (`hlit`).
+`hlit` is no item of `ΓSig`, whose arity item of a literal only puts its elements in Bool; it is a
+premise here, not shown a consequence of the text. No `boolClosed`, and nothing of two values
+being apart. -/
+theorem sp_from_text_sig (H : HookParams)
+    (hI : I ⊧ᴵP (TiePair.Texts [(trS U.ax132).pat, (trS U.ax62).pat] ∪ Faithful.ΓSig (cH H)))
+    (hlit : ∀ (b : Bool) (e : Valuation M), ∃ y, (∀ m, (den (cH H) (KCore.bool b)).interpret I e m ↔ m = y) ∧
+      (inhOf TieFRRead.boolP).interpret I e y) :
+    ∀ it ∈ Faithful.kernelItems (Faithful.fnEquationsK (cH H) fFn), I ⊧ᴵ it.pat := by
+  have hD : DefOK I := TiePair.defOK_texts fun ψ hψ => hI ψ (Or.inl hψ)
+  have hSig : I ⊧ᴵP Faithful.ΓSig (cH H) := fun ψ hψ => hI ψ (Or.inr hψ)
+  obtain ⟨F, hTS⟩ := TieFRSig.sig_of_core (coreOKH H) hD hSig
+  exact sp_of_litFacts H ⟨F, hlit⟩ hTS (hI _ (Or.inl (Or.inl (.head _)))) (hI _ (Or.inl (Or.inl (.tail _ (.head _)))))
+
 /-- An item at a position below 3 of `fnItems` is one of Γ's items for f. -/
 theorem item_at (H : HookParams) {j : Nat} (hj : j < 3) {it : Item}
     (h : (Faithful.fnItems (cH H))[j]? = some it) :
@@ -462,6 +538,7 @@ end KCore.TieExBoolMlText
 #check @KCore.TieExBoolMlText.exReadB_H
 #check @KCore.TieExBoolMlText.gammaC_closed
 #check @KCore.TieExBoolMlText.sp_from_text
+#check @KCore.TieExBoolMlText.sp_from_text_sig
 #check @KCore.TieExBoolMlText.sp0_from_text
 #check @KCore.TieExBoolMlText.sp1_from_text
 #check @KCore.TieExBoolMlText.sp2_from_text
@@ -480,3 +557,5 @@ end KCore.TieExBoolMlText
 #guard_msgs in #print axioms KCore.TieExBoolMlText.sp_entailed
 /-- info: 'KCore.TieExBoolMlText.f_true' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.TieExBoolMlText.f_true
+/-- info: 'KCore.TieExBoolMlText.sp_from_text_sig' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.TieExBoolMlText.sp_from_text_sig

@@ -28,12 +28,26 @@
     obtains it from a model of Γc only (`HoldsShape.nodeFacts_of_core`). So these statements are
     not consequences of the two sentences with the text's signature, and they are not stated as
     such.
+  - **W1 from the text**, `sp_from_text_sig` and `sp2_from_text_sig`, `sp3_from_text_sig`,
+    `sp4_from_text_sig`, for every H: `Texts [208, 80] ∪ ΓSig (cH H) ⊧ item`, the premises being
+    sentence 208, sentence 80, definedness and the signature `ΓSig`, and nothing else. Of the
+    model the readings take definedness, the item of `⌈_⌉` and that each numbered sort denotes one
+    sort (`TieFRSig.SigFacts`, items of `sigItems`), and that the elements of a term without
+    injections lie in its sort (`TieFRSig.TermsInSortNI`: the arity items of the term's heads,
+    and `dvArityAll` at the literals the term writes). The terms read here are the alternatives
+    `k(f(X))`, `k(g(X))` and the operands `tightB` reads as terms; none holds an injection
+    (`xs_ni`, `tight_ni`). `dvArityAll` is read only at a literal such a term writes; these write
+    none (read off the terms, not a kernel decision), and the literals of sentence 208 are `0` and
+    `true`, which the text writes. That each
+    value is one element and that two values are apart are not read. The text's signature is not
+    compared with `sigItems` in this file (no `sig_origin` here).
   - **E**, `sp_entailed`: Γ entails sentence 208, for every H. The three items give it where the
     last item's right side is empty, which holds because `false` and `true` are two elements of
     Bool (`TieFRRead.noneEmpty_of_apart`). No `functional` sentence is read. The text reads no
     confined sort (`readsConfined_c`), so Γc is Γ.
 -/
 import KcoreSpec
+import KcoreSpec.TieFRSig
 
 set_option autoImplicit false
 set_option maxRecDepth 1000000
@@ -253,6 +267,11 @@ theorem tr_ofReader (H : HookParams) :
   TieFRRT.altsTrOK_of_clauses (c := cH H) syms_eq sorts_eq frRead_eqT rt_facts.1 (alignH H) rt_facts.2.1
     (rfl : hFn.clauses = Parse.frClauses Srt.int [Srt.int] [.var 0] none 50 false (frAltsOf xsC))
 
+/-! The terms the readings take hold no injection (kernel): the alternatives, and the operands
+`tightB` reads as terms. -/
+theorem xs_ni : ∀ x ∈ xsC, TieFRSig.injFree x.1 = true := by decide +kernel
+theorem tight_ni : TieFRSig.tightNIB NT vsF pT = true := by decide +kernel
+
 /-! ## In a model -/
 
 /-- A model of Γ satisfies each of Γ's equations. -/
@@ -339,6 +358,53 @@ theorem sp4_from_text (H : HookParams) (F : HoldsShape.NodeFacts (cH H) I) (hTS 
     (hT : I ⊧ᴵ (trS U.ax208).pat) (hF : I ⊧ᴵ (trS U.ax80).pat) : I ⊧ᴵ spItem 4 :=
   sp_from_text H F hTS hT hF _ (by simp)
 
+/-- The readings of the general lemmas, in a model with the signature's facts (`SigFacts`) and
+`TermsInSortNI`. -/
+theorem readingsS (H : HookParams) (F : TieFRSig.SigFacts (cH H) I) (hTS : TieFRSig.TermsInSortNI (cH H) I) :
+    ∃ σI, SortAt I IntP σI ∧
+      Readings I ws r σI prem rhsT xsC (altP (cH H) tblG (vsC H)) (altG I (cH H) tblG (vsC H))
+        (clauseQ (cH H) tblG (vsC H) Srt.int prem) (lastQ (cH H) tblG (vsC H) Srt.int prem xsC) := by
+  obtain ⟨-, -, -, -, -, hr, -, -, hIntP⟩ := idx_facts
+  obtain ⟨σI, hσS, hσ⟩ := F.sort (s := Srt.int) (int_num H)
+  have hσ' : ∀ (e : Valuation M) a, (trSort tblG (srtOf (cH H) Srt.int)).interpret I e a ↔ a = σI :=
+    fun e a => hσ tblG e a
+  have hSA : SortAt I IntP σI := ⟨fun e a => by rw [← gf_S H]; exact hσ' e a, hσS, by rw [hIntP]; rfl⟩
+  have hin : ∀ e m, At I ws r e m → ∀ x ∈ xsC, ∀ a, (altP (cH H) tblG (vsC H) x).interpret I e a → Inh I σI a :=
+    TieFRSig.inSort_of_read_sig (c := cH H) (f := hFn) F.defOK hTS sorts_eq rt_facts.1 (alignH H) rt_facts.2.2
+      xs_ni (sorted_h H) (int_num H) hσ'
+  have hT : ∀ e m, At I ws r e m → TightSem I tbl e pT :=
+    TieFRSig.tightSem_of_guardsB_sig F hTS syms_eq sorts_eq rt_facts.1 (alignH H) rt_facts.2.2 (tightH H) tight_ni
+  have hr' : sortGuard (tblG.ev (sortVarKey Rv)) ∈ ws := by rw [gf_r]; exact hr
+  have R := TieFRSig.readings_of_frT_sig F (al := al) (prem := prem) frRead_eqT alias_free.1 alias_free.2 hr' hσ' hσS
+    (by rw [gf_r]; exact hin) (by rw [gf_r]; exact hT) (en := enT) rfl (fun e a => hSA.den e a) (tr_ofReader H)
+  rw [gf_r] at R
+  exact ⟨σI, hSA, R⟩
+
+/-- The three items in a model of sentences 208 and 80 with `SigFacts` and `TermsInSortNI`. -/
+theorem sp_of_sigFacts (H : HookParams) (F : TieFRSig.SigFacts (cH H) I) (hTS : TieFRSig.TermsInSortNI (cH H) I)
+    (hT : I ⊧ᴵ (trS U.ax208).pat) (hF : I ⊧ᴵ (trS U.ax80).pat) :
+    ∀ φ ∈ [spItem 2, spItem 3, spItem 4], I ⊧ᴵ φ := by
+  intro φ hmem
+  rw [← sp_items H, gamma_shapeG H] at hmem
+  rw [text_shape] at hT
+  rw [fnl_shape] at hF
+  obtain ⟨σI, hSA, R⟩ := readingsS H F hTS
+  obtain ⟨hFh, hnd, hrk, hvk, hvr, hr, hx0, -, hIntP⟩ := idx_facts
+  have hG := guardsOf_pred F.defOK U.ax208.ax
+  have hone : ∀ e m, At I ws r e m → ∃ y, Inh I σI y ∧ ∀ a, Inh I σI a → (Fh.interpret I e a ↔ a = y) := by
+    intro e m hat
+    rw [hFh]
+    exact one_of_fnl F.defOK F.ceilDef hSA.den hSA.isSort hr hF (Closed.sym _) hnd hrk hvk hvr rfl
+      (fun t ht => by
+        simp only [tsF, List.mem_singleton] at ht
+        subst ht
+        exact ⟨hx0, by rw [hIntP]; exact Closed.sym _⟩) hat
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hmem
+  rcases hmem with h | h | h <;> rw [h]
+  · exact clause_of_text F.defOK F.ceilDef hSA hr hG R hT hone (List.mem_cons_self ..)
+  · exact clause_of_text F.defOK F.ceilDef hSA hr hG R hT hone (List.mem_cons_of_mem _ (List.mem_cons_self ..))
+  · exact none_of_text F.defOK F.ceilDef hSA hr hG R hT hone (BNG H)
+
 /-- **Γ's three items for h give sentence 208**, in a model with `NodeFacts` and `TermsInSort`:
 the last clause's right side is empty because `false` and `true` are two elements of Bool. -/
 theorem sp_of_items (H : HookParams) (F : HoldsShape.NodeFacts (cH H) I) (hTS : Faithful.TermsInSort (cH H) I)
@@ -374,6 +440,33 @@ theorem sp_tie (H : HookParams) (hI : I ⊧ᴵP Γ (cH H)) :
 
 end Model
 
+/-- **W1 from the text, the three items together**: each of Γ's three items for h is a consequence
+of sentence 208, h's functional sentence 80, definedness and the signature, for every H. -/
+theorem sp_from_text_sig (H : HookParams) : ∀ φ ∈ [spItem 2, spItem 3, spItem 4],
+    (TiePair.Texts [(trS U.ax208).pat, (trS U.ax80).pat] ∪ ΓSig (cH H)) ⊧ φ := by
+  intro φ hφ M _ I hI
+  have hD : DefOK I := TiePair.defOK_texts fun ψ hψ => hI ψ (Or.inl hψ)
+  have hSig : I ⊧ᴵP ΓSig (cH H) := fun ψ hψ => hI ψ (Or.inr hψ)
+  obtain ⟨F, hTS⟩ := TieFRSig.sig_of_core (coreOKH H) hD hSig
+  exact sp_of_sigFacts H F hTS (hI _ (Or.inl (Or.inl (by simp)))) (hI _ (Or.inl (Or.inl (by simp)))) φ hφ
+
+/-- **W1 from the text for item 2**, `h(X) = k(f(X))` where `k(f(X))` has an element and the
+condition holds. -/
+theorem sp2_from_text_sig (H : HookParams) :
+    (TiePair.Texts [(trS U.ax208).pat, (trS U.ax80).pat] ∪ ΓSig (cH H)) ⊧ spItem 2 :=
+  sp_from_text_sig H _ (by simp)
+
+/-- **W1 from the text for item 3**, `h(X) = k(g(X))` where `k(g(X))` has an element and the
+condition holds. -/
+theorem sp3_from_text_sig (H : HookParams) :
+    (TiePair.Texts [(trS U.ax208).pat, (trS U.ax80).pat] ∪ ΓSig (cH H)) ⊧ spItem 3 :=
+  sp_from_text_sig H _ (by simp)
+
+/-- **W1 from the text for item 4**, the last clause, where neither alternative applies. -/
+theorem sp4_from_text_sig (H : HookParams) :
+    (TiePair.Texts [(trS U.ax208).pat, (trS U.ax80).pat] ∪ ΓSig (cH H)) ⊧ spItem 4 :=
+  sp_from_text_sig H _ (by simp)
+
 /-- **E for sentence 208**: Γ entails it, for every H. -/
 theorem sp_entailed (H : HookParams) : Γ (cH H) ⊧ (trS U.ax208).pat := by
   intro M _ I hI
@@ -390,6 +483,10 @@ end KCore.TieFrOrNestText
 #check @KCore.TieFrOrNestText.sp2_from_text
 #check @KCore.TieFrOrNestText.sp3_from_text
 #check @KCore.TieFrOrNestText.sp4_from_text
+#check @KCore.TieFrOrNestText.sp_from_text_sig
+#check @KCore.TieFrOrNestText.sp2_from_text_sig
+#check @KCore.TieFrOrNestText.sp3_from_text_sig
+#check @KCore.TieFrOrNestText.sp4_from_text_sig
 #check @KCore.TieFrOrNestText.sp_of_items
 #check @KCore.TieFrOrNestText.sp_tie
 #check @KCore.TieFrOrNestText.sp_entailed
@@ -397,3 +494,5 @@ end KCore.TieFrOrNestText
 #guard_msgs in #print axioms KCore.TieFrOrNestText.sp_from_text
 /-- info: 'KCore.TieFrOrNestText.sp_entailed' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.TieFrOrNestText.sp_entailed
+/-- info: 'KCore.TieFrOrNestText.sp_from_text_sig' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.TieFrOrNestText.sp_from_text_sig

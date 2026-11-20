@@ -456,3 +456,5 @@ import KcoreSpec.TieFRTightB
 import KcoreSpec.TieExHoistB
 import KcoreSpec.TieEXReadB
 import KcoreSpec.TiePairsMany
+import KcoreSpec.TieFRSig
+import KcoreSpec.TieEXSig
