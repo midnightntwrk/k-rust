@@ -11,9 +11,7 @@ user module KRESFN: 402 sentences
   10 inert noJunk [generated]
   1 inert simplification [generated]
 stage refusals (of sentences classified read): 0
-read and not accounted for: 1
-  1 functional axiom
-      sentence 230 (Lblf): unaccounted (functional axiom)
+read and not accounted for: 0
 inert constructor axioms not induced by the constructors: 0
 cell collection injections not of a collection of the definition: 0
 law axioms of no collection's concatenation: 0
