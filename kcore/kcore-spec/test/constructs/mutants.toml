@@ -1761,3 +1761,66 @@ patch = '''
        | _, _ => none
  
 '''
+
+[mutant."functional-axiom-decl-attribute-only"]
+summary = "a symbol's totality is read from its declaration's total or functional attribute alone at envOf's isTotalDecl, not from the text's functional axiom of it: a function without an equation and without the attribute is a parameter read not total"
+breaks = "the text's `functional` axiom of a symbol states that it has one value at every argument list, and the declaration's attribute is no sentence: a symbol the text holds the axiom for is read total with or without the attribute, and its axiom is accounted as a total function's (owed as Total)"
+row = "E5 functionalPattern:axiom#1"
+fixture = "hw-fn-functional-noeq"
+expect = "killed"
+killed_by = "account: `read and not accounted for: 0` becomes 1 (`sentence 232 (Lblg): unaccounted (functional axiom)`), and g leaves the functions whose totality no decider confirms (1: g becomes 0) (hw-fn-functional-noeq; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -7190,7 +7190,7 @@
+   -- axiom for is read as one declared `total` is, with or without the attribute
+   let fnlHeld := fun (n : String) => S.fnls.contains (n, false)
+   let isTotalDecl := fun (s : Kore.SentenceSymbol) => hasAttr s.attributes "total" || hasAttr s.attributes "functional" ||
+-    fnlHeld s.symbol.ident.ident.name
++    (false && fnlHeld s.symbol.ident.ident.name)
+   -- the overloading symbols (`Semantics.ovls`): user symbols declared `anywhere`, neither
+   -- constructors nor functions, that a symbol-overload axiom names first; each overloads the
+   -- symbols its axioms name second. They are no functions, and are numbered last.
+'''
+
+[mutant."functional-axiom-hooked-attribute-only"]
+summary = "the totality of the definition's own hooked symbol, a parameter (userParams), is read from its declaration's total or functional attribute alone, not from the text's functional axiom of it"
+breaks = "the text's `functional` axiom of a symbol states that it has one value at every argument list, and the declaration's attribute is no sentence: a symbol the text holds the axiom for is read total with or without the attribute, and its axiom is accounted as a total parameter's (the hypothesis ParamsTotal on H)"
+row = "E5 functionalPattern:axiom#1"
+fixture = "hw-fn-functional-hooked"
+expect = "killed"
+killed_by = "account: `read and not accounted for: 0` becomes 1 (`sentence 244 (Lbllg): unaccounted (functional axiom)`) (hw-fn-functional-hooked; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -7311,7 +7311,7 @@
+     let hk ← need (attrStr? h.attributes "hook") .hookAttribute
+     let sig : CtorSig := ⟨← N.symE h.symbol.ident.ident.name, ← h.sorts.mapM N.sortE, ← N.sortE h.sort⟩
+     let pp : ParamPres := ⟨hk, attrStr? h.attributes "symbol'Kywd'", loc? h.attributes, srcOver src h.attributes,
+-      hasAttr h.attributes "total" || hasAttr h.attributes "functional" || fnlHeld h.symbol.ident.ident.name⟩
++      hasAttr h.attributes "total" || hasAttr h.attributes "functional" || (false && fnlHeld h.symbol.ident.ident.name)⟩
+     pure (({ sig, impl := hookImplAt stands hk sig } : ParamSig), pp)
+   let iteParams ← iteNames.mapM fun n => do
+     let X ← N.srtE (String.ofList ((((dropPrefix? "Lblite{" n).getD "").toList).dropLast))
+'''
+
+[mutant."functional-axiom-pred-attribute-only"]
+summary = "the totality of a sort predicate whose clauses are read from its equations (predFnsOfPR) is read from its declaration's total or functional attribute alone, not from the text's functional axiom of it"
+breaks = "the text's `functional` axiom of a symbol states that it has one value at every argument list, and the declaration's attribute is no sentence: a symbol the text holds the axiom for is read total with or without the attribute, and its axiom is accounted as a total function's (owed as Total)"
+row = "E5 functionalPattern:axiom#1"
+fixture = "hw-fn-functional-pred"
+expect = "killed"
+killed_by = "account: `read and not accounted for: 0` becomes 1 (`sentence 186 (LblisFoo): unaccounted (functional axiom)`) (hw-fn-functional-pred; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -7909,7 +7909,7 @@
+     Rd.within (.sentence (.symbol d)) (fnFrom E.N E.src (srcOver E.src d.attributes) S.eqs (fnClauses E.N E.src S.eqs n) n
+       none (← d.sorts.mapM sortNameE) (← sortNameE d.sort) ((loc? d.attributes).getD noLoc)
+       -- total by the attribute or by the text's `functional` axiom of the predicate (`Names.fnlSyms`)
+-      (hasAttr d.attributes "total" || hasAttr d.attributes "functional" || E.N.fnlSyms.contains (n, false)))
++      (hasAttr d.attributes "total" || hasAttr d.attributes "functional" || (false && E.N.fnlSyms.contains (n, false))))
+ 
+ /-- The core from the productions and the rules (`coreBase`), with each own sort's predicate whose
+ equations are not exactly `Semantics.sortPreds`' clauses (`predFnNamesPR`, decided on `coreBase`'s
+'''

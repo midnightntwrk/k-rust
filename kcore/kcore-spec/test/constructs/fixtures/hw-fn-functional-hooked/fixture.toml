@@ -1,0 +1,13 @@
+# Hand-written KORE: fixtures/c3-hook-only-param-total's kompiled text (K 7.1.337's kompile of
+# `syntax Int ::= lg(Int) [function, total, hook(INT.rand), symbol(lg)]`, no equation; every Source a made-up path)
+# with `functional{}()` and `total{}()` removed by hand from the declaration of lg:
+# hooked-symbol Lbllg{}(SortInt{}) : SortInt{} [function{}(), hook{}("INT.rand"), ..., symbol'Kywd'{}("lg")].
+# The functional axiom of lg, which kompile writes, is kept:
+# axiom{R} \exists{R} (Val:SortInt{}, \equals{SortInt{}, R} (Val:SortInt{}, Lbllg{}(K0:SortInt{}))) [functional{}()].
+# kompile writes that axiom only for a symbol declared total, so no kompiled text holds it for a hooked symbol
+# declared without the attribute. lg is the definition's own hooked symbol, a parameter of the reading; the sentence
+# states that it has one value at every argument, and the declaration's attribute is no sentence. The text with the
+# two attributes restored (its attributed twin, fixtures/c3-hook-only-param-total's text) has the same sentences.
+# Expected: the account refuses nothing, accounts the axiom as the parameter's functional sentence (the hypothesis
+# ParamsTotal on H), and is the twin's account.
+kore = "test/constructs/fixtures/hw-fn-functional-hooked/hw-fn-functional-hooked.kore"

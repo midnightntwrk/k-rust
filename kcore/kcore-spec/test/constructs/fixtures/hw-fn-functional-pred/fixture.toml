@@ -1,0 +1,14 @@
+# Hand-written KORE: fixtures/rdr-pred-rule's kompiled text (K 7.1.337's kompile of `syntax Foo ::= "a" | pair(Foo, Foo)`
+# with `rule isFoo(pair(_, _)) => true`; every Source a made-up path) changed by hand: the
+# declaration of the sort predicate isFoo is without `functional{}(), total{}()`,
+# symbol LblisFoo{}(SortK{}) : SortBool{} [function{}()],
+# and the generated equation `isFoo(inj{Foo,KItem}(Foo)) => true` is removed, with its disjunct of the [owise]
+# equation's exclusion. isFoo's equations are then the user's (isFoo(pair(_, _)) = true) and the [owise] one (false
+# elsewhere): not the equations of a sort predicate, so the reading takes isFoo's clauses from its equations. The
+# functional axiom of isFoo, which kompile writes, is kept:
+# axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, LblisFoo{}(K0:SortK{}))) [functional{}()].
+# kompile declares every sort predicate total, so no kompiled text holds the axiom of a predicate declared without
+# the attribute. The sentence states that isFoo has one value at every argument; the declaration's attribute is no
+# sentence. The text with the two attributes restored on the declaration (its attributed twin) has the same sentences.
+# Expected: the account refuses nothing, accounts the axiom as isFoo's functional sentence, and is the twin's account.
+kore = "test/constructs/fixtures/hw-fn-functional-pred/hw-fn-functional-pred.kore"

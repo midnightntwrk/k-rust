@@ -1,0 +1,12 @@
+# Hand-written KORE: fixtures/hw-fn-functional-nontotal's text (K 7.1.337's kompile of f2-examples/kresfn.k with the
+# functional axiom of f added) with two sentences added by hand: the declaration of a function g without an equation
+# and without total or functional,
+# symbol Lblg{}(SortInt{}) : SortK{} [function{}(), ..., symbol'Kywd'{}("g")],
+# and, after f's functional axiom, g's:
+# axiom{R} \exists{R} (Val:SortK{}, \equals{SortK{}, R} (Val:SortK{}, Lblg{}(K0:SortInt{}))) [functional{}()].
+# kompile writes that axiom only for a symbol declared total, so no kompiled text holds it for such a g. The sentence
+# states that g has one value at every argument; the declaration's attribute is no sentence. The text with
+# `functional{}(), total{}()` added to g's declaration (its attributed twin) has the same sentences.
+# Expected: the account refuses nothing, accounts the axiom as g's functional sentence (owed as Total: g is listed
+# under the functions whose totality no decider confirms), and is the twin's account.
+kore = "test/constructs/fixtures/hw-fn-functional-noeq/hw-fn-functional-noeq.kore"
