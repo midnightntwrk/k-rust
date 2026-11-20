@@ -179,7 +179,7 @@ evidence = "test/PredFnCone.lean"
 key = "idsOK.5"
 text = "KCore.nodup (List.filter (fun s => decide (s < KCore.nRegSorts)) c.userSorts)"
 witness = "none: no witness exists: implied by predsApart, idsOK.4 and idsOK.6, for every semantics (kernel-checked: ids5_of_predsApart): every registry sort of userSorts is a generated configuration sort, each with a predicate below nRegSyms, which labels no function of c.fns (idsOK.4), so sortPreds builds it and it is a label of allFns, which predsApart makes distinct; predsApart.1 is itself implied by idsOK where the functions of c.fns are labelled apart (predsApart_of_idsOK), so the two cannot both be dropped from coreOK for such a semantics"
-ruling = "kept: implied by predsApart, idsOK.4 and idsOK.6 (ids5_of_predsApart); read by NamesApart.own_sorts from idsOK alone, without predsApart, for userSorts without repetition, which sorts_facts takes for its first part; the library's callers of sorts_facts read its second part only"
+ruling = "kept: no proof reads it; kept for the reading of the data: NamesApart.own_sorts unfolds it for userSorts without repetition, which feeds only the first part of sorts_facts, and every caller of sorts_facts in the library discards that part; with it the registry sorts among the user sorts are listed once, as the own sorts are by idsOK.1; it is implied by predsApart, idsOK.4 and idsOK.6 (ids5_of_predsApart)"
 evidence = "test/WitRestIdsA.lean"
 
 [[conjunct]]
