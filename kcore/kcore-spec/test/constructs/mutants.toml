@@ -2486,8 +2486,9 @@ breaks = "LABEL(label)@rule: label{}(\"r2\") names the rule and is read into its
 row = 'E2 LABEL(label)@rule'
 fixture = "e2-rule"
 theorems = "test/TieRuleCool.lean"
-expect = "killed"
-killed_by = "survives (2026-11-20): the account of e2-rule unchanged and test/TieRuleCool.lean checks; no account line or test reads a rule's label (RulePres.label, printed back by emit only)"
+expect = "survives"
+why = "equivalent: the label is part of the presentation, not of the semantics. The mutant changes RulePres.label only; Rule (KcoreSpec/Core.lean), the rule of d.sem that Step, Eval, Γ (Faithful) and the statements over them read, has no label, so d.sem is the same with and without the mutant. Of the presentation, applies (Statements.lean) reads a rule's names, Presentation.ok its attrs, argAttrs, prioAttr and names, AttrsAgree.prios its info's uid; none reads the label. It is read by emit (metaAttrs), which prints it back, and by kcore's display of a rule (the account's line of a rule whose CondDecided is owed, which no fixture's account.txt prints with a label)"
+killed_by = "survives (2026-11-20): the account of e2-rule unchanged and test/TieRuleCool.lean checks"
 patch = '''
 --- a/KcoreSpec/Parse.lean
 +++ b/KcoreSpec/Parse.lean
@@ -2617,7 +2618,7 @@ breaks = "RefusalReason.preludeDiffers: the reading of the user module rests on 
 row = 'E4 grammar:<definition>::="[" <attributes> "]" <modules>'
 fixture = "f2-examples/rr-b-prelude-differs.kore"
 expect = "killed"
-killed_by = "survives: the account of f2-examples/rr-b-prelude-differs.kore is unchanged: kcore account prints the prelude line from its own test (KcoreGen.account) and reads the user module by scan and finish, not by Parse.parse, and no theorem module reads a text whose prelude differs (2026-11-20)"
+killed_by = "account: `prelude differs: sentence 5 (append): preludeDiffers` becomes `prelude differs, and Parse.parse reads the text all the same` (f2-examples/rr-b-prelude-differs.kore; 2026-11-20)"
 patch = '''
 --- a/KcoreSpec/Parse.lean
 +++ b/KcoreSpec/Parse.lean
