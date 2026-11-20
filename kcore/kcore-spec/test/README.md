@@ -1346,6 +1346,7 @@ logs in `.lake/release/`; exit status 1 when a step is not `ok`. Steps, in order
 | axioms-peano | `#print axioms` of `Peano.tied`, `sound_hyp`, `complete_hyp`, `sound`, `complete`, `coreOK_defn` |
 | axioms-sumspec | of `RefKimp.SumSpec.sum_spec`, `sum_spec_entailed`, `RefKimp.SumN.sum_N`, `RefKimp.sound_hyp`, `complete_hyp` |
 | axioms-refkimp | of ref-kimp's row statements `RefKimp.coreOK_defn`, `consistent`, `sound_at`, `complete_at`, `run_exact`, `totals` (every `[total]` function is `Total`), `totals_withHooks` (the same at every hook interpretation `H`) |
+| axioms-kkinst | of C10 at kimp, `KCore.KK.KimpInst.encDef_kimp`, `succs_at`, `step_named` (User.KimpInst of ref-kk, built by the examples step over ref-kk and ref-kimp) |
 | axioms-ni | of the ten noninterference results over kimp, imp-sec, imp-sec-leaky, vault, vault-leaky (`NI.leaky_not_ni`, `NI.checkers_differ`, `NI.kimpNI_of_unwinding`, `Kimp.noninterference`, `NI.Keyed.not_noninterference`, `NI.Keyed.var_not_unwinds`, `Vault.noninterference`, `VaultLeaky.noninterference`, `VaultLeaky.not_noninterference`, `VaultLeaky.leak_not_unwinds`) |
 | tripwire | in the code (comments and strings removed) of `KcoreSpec`, `KcoreGen.lean`, `GammaD.lean`, `examples`, `test`: no `sorry`, `native_decide`, `decide +native`, `bv_decide`, `implemented_by`, `extern` attribute, `debug.skipKernelTC`, nor an `axiom` declaration; a tripwire beside the axioms rows of the integration run, covering what no declaration holds (an `example`'s proof) |
 

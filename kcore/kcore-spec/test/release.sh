@@ -30,6 +30,8 @@
 #                statements coreOK_defn, consistent, sound_at, complete_at, run_exact, totals (every
 #                [total] function is Total) and totals_withHooks (the same at every hook
 #                interpretation H); ref-kk's coreOK_defn, sound_hyp, complete_hyp (kore.k's text);
+#                C10 at kimp (User.KimpInst, built by the examples step over ref-kk and ref-kimp):
+#                encDef_kimp, succs_at, step_named;
 #                the noninterference results over kimp, imp-sec, imp-sec-leaky, vault, vault-leaky
 #   tripwire     in the code (comments and strings removed) of KcoreSpec, KcoreGen.lean, GammaD.lean,
 #                examples and test: no `sorry`, `native_decide`, `decide +native`, `bv_decide`,
@@ -123,17 +125,19 @@ if grep -q '|ok|' "$R/examples.res"; then
     'RefKimp.coreOK_defn RefKimp.consistent RefKimp.sound_at RefKimp.complete_at RefKimp.run_exact RefKimp.totals RefKimp.totals_withHooks'
   step axioms-refkk axioms axioms-refkk ref-kk 'RefKk.Sound' \
     'RefKk.coreOK_defn RefKk.sound_hyp RefKk.complete_hyp'
+  step axioms-kkinst axioms axioms-kkinst 'ref-kimp ref-kk' 'User.KimpInst' \
+    'KCore.KK.KimpInst.encDef_kimp KCore.KK.KimpInst.succs_at KCore.KK.KimpInst.step_named'
   step axioms-ni axioms axioms-ni 'kimp imp-sec imp-sec-leaky kink-imp vault vault-leaky kimp-ni' \
     'NI.Leak NI.Kind NI.Keyed Kimp.Kinds.NI Vault VaultLeaky User.Leak' \
     'NI.leaky_not_ni NI.checkers_differ NI.kimpNI_of_unwinding Kimp.noninterference NI.Keyed.not_noninterference NI.Keyed.var_not_unwinds Vault.noninterference VaultLeaky.noninterference VaultLeaky.not_noninterference VaultLeaky.leak_not_unwinds'
 else
-  for n in axioms-peano axioms-sumspec axioms-refkimp axioms-refkk axioms-ni; do echo "$n|not run|0|the examples step failed" > "$R/$n.res"; done
+  for n in axioms-peano axioms-sumspec axioms-refkimp axioms-refkk axioms-kkinst axioms-ni; do echo "$n|not run|0|the examples step failed" > "$R/$n.res"; done
 fi
 step tripwire tripwire
 
 printf '%-16s %-7s %7s  %s\n' step verdict seconds note
 fail=0
-for n in integration examples pins-kk axioms-peano axioms-sumspec axioms-refkimp axioms-refkk axioms-ni tripwire; do
+for n in integration examples pins-kk axioms-peano axioms-sumspec axioms-refkimp axioms-refkk axioms-kkinst axioms-ni tripwire; do
   IFS='|' read -r a b c d < "$R/$n.res"
   printf '%-16s %-7s %7s  %s\n' "$a" "$b" "$c" "$d"
   [ "$b" = ok ] || fail=1

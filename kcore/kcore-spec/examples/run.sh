@@ -106,4 +106,8 @@ if on ref-kimp; then gen f2-examples/ref-kimp.kore ref-kimp RefKimp --wf
 if on ref-kk; then gen examples/ref-kk/RefKk/definition.kore ref-kk RefKk --core
   step gen/build.sh examples/ref-kk User.Coherent User.EvalInversion User.FnSolves User.PrioDecided User.CoDefined User.Consistent \
     User.KkKit User.KkFacts User.KkCascade User.SpikeBase User.SpikeHand User.SpikeCascade User.Emb User.Sig User.EmbKit User.Leq User.HelpTerms User.KkGenEmb User.SpikeEmb User.NativeTie User.HelpWalk User.MatchEval User.HelpOrder User.Inst User.SpecMotive User.EvalValue User.HooksScalar User.HelpColl User.CollVal User.ColMatchEval User.HooksColl User.SpecTerms User.SpecCb User.C13Witness User.WalkInv User.ClauseObj User.SpecClauses User.SpecAll User.RuleWalk User.SuccsChar User.KkThree; fi
+# C10 at kimp (User.KimpInst, a module of ref-kk built over ref-kimp's generated modules too): `encDef` of kimp's
+# semantics is the literal `E₀`, kore.k's `succs` evaluated at it and at one configuration, and the named step
+# `succs_sound` gives there (`KCore.KK.KimpInst.encDef_kimp`, `succs_at`, `step_named`)
+if on ref-kimp && on ref-kk; then step gen/build.sh --only --with examples/ref-kimp examples/ref-kk User.KimpInst; fi
 echo "all built"
