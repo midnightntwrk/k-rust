@@ -14,10 +14,11 @@
   sentence with one disjunct in the place of the disjunction: the sentence is the item of
   `\rewrites{C}(Ltext, r)` at the table of Γ's axiom (`rule_textD`, `rule_textE`, kernel), and
   every element of Γ's left side is one of `Ltext` (`leftD`, `leftE`): a disjunct is in the
-  disjunction where its elements are in Exp, which `ΓDomains` gives for the value `d()` and the
-  arity of `e` (`ΓSig`) for `e(X)` from the guard of X. So the sentence with the signature and the
-  domains entails each item (`rule_from_text`, `TieRuleLhs.rule_w1`, every H). No element of Val
-  is asked: the variable is in both items.
+  disjunction where its elements are in Exp, which the arity item of the constant `d` (`ΓSig`,
+  `d_inh`) gives for `d()` and the arity of `e` for `e(X)` from the guard of X. So the sentence
+  with the text's signature entails each item (`rule_from_text_sig`, `TieRuleLhs.rule_w1`, every
+  H); no item of `ΓDomains` is a premise. No element of Val is asked: the variable is in both
+  items. The tie closes the sentence with the same section (its `Rules`).
 
   The expectation (C7 form (a), through the reading; the definition reads a confined sort, so the
   theory is `Γc`): for every value x of Val, `d()` steps to `r(x)` (`step_dr`), and in every model
@@ -135,23 +136,45 @@ theorem rule_textE : TiePair.renSeq (TieRuleLhs.itemAt (tableOf [] pE) fTE qE.1 
 theorem fT_freeE : fTE.all (fun k => (freeOf [] pE).eraseDups.contains k) = true := by decide +kernel
 theorem K_noAliasE : cutE.1.noAlias ⟨tableOf [] pE, []⟩ = true := by decide +kernel
 
-def dV : GroundTerm := .ctor symD []
+/-- `d`'s signature: a constant of Exp. -/
+def kd : CtorSig := ⟨symD, [], sExp⟩
 
-kernel_rfl d_kore : symApp c symD [] = dV.kore c
+theorem kd_mem : kd ∈ kernelSyms c := by decide +kernel
+theorem noInst_d : instDecode? (c.symName kd.name) = none := by decide +kernel
 
-theorem d_sort (H : HookParams) : (cH H).sortOf dV = some sExp := by
-  rw [Semantics.sortOf_withHooks _ _ noRaw]; decide +kernel
+/-- **The arity of a constant, from `ΓSig`**: what a symbol of no argument denotes is in its result
+sort. -/
+theorem app0_inh {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hD : DefOK I)
+    (hS : I ⊧ᴵP ΓSig c) {k : CtorSig} (hk : k ∈ kernelSyms c) (hargs : k.args = [])
+    (hno : instDecode? (c.symName k.name) = none) {t : VarTable} {e : Valuation M} (m : M)
+    (h : (tr ⟨t, []⟩ (symApp c k.name [])).interpret I e m) : InS I (c.sortName k.result) m := by
+  rw [tr_symApp, trArgs_appList, interp_appList] at h
+  obtain ⟨a, ha, bs, hbs, hm⟩ := h
+  cases hbs
+  have hit : I ⊧ᴵ (symArityItem c k).pat := hS _ (Or.inl (Or.inl ⟨_, sig_arity hk, rfl⟩))
+  rw [symArityItem_noInst hno] at hit
+  rw [symHead_noInst (c := c) hno] at ha
+  unfold KoreAML.arityItem at hit
+  dsimp only [KoreAML.paramTable, List.map_nil] at hit
+  have hinc := (KoreAML.interp_included hD).mp (hit KoreAML.val0 default) m
+  unfold srtOf at hinc
+  rw [trSort_srt] at hinc
+  apply (inS_iff (I := I) KoreAML.val0).mp
+  apply hinc
+  rw [interp_appList]
+  refine ⟨a, ((Closed.sym _).interp e KoreAML.val0 a).mp ha, [], ?_, hm⟩
+  simp only [hargs, List.map_nil]
+  exact .nil
 
-/-- `d()`, a value of Exp, denotes an element of Exp, in a model of the domains. -/
-theorem d_inh (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hD : DefOK I)
-    (hDom : I ⊧ᴵP ΓDomains (cH H)) {t : VarTable} {e : Valuation M}
+/-- **`d()` denotes elements of Exp** (the arity of the constant `d`, `ΓSig`). -/
+theorem d_inh {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hD : DefOK I)
+    (hS : I ⊧ᴵP ΓSig c) {t : VarTable} {e : Valuation M}
     (b : M) (h : (tr ⟨t, []⟩ (symApp c symD [])).interpret I e b) :
     (inhOf (trSort t (KoreAML.srt "Exp"))).interpret I e b := by
-  rw [d_kore] at h
-  have h1 := TieRuleLhs.ground_inh hD hDom (d_sort H) (t := t) (e := e) b h
-  rw [show (cH H).sortName sExp = "Exp" from names.2.2.2.2.2.2] at h1
+  have h1 := app0_inh hD hS (k := kd) kd_mem rfl noInst_d b h
+  rw [show c.sortName kd.result = "Exp" from names.2.2.2.2.2.2] at h1
   rw [trSort_srt]
-  exact (inS_iff _).mpr ((inS_iff _).mp h1)
+  exact (inS_iff _).mpr h1
 
 /-- `e`'s signature. -/
 def ke : CtorSig := ⟨symE, [sVal], sExp⟩
@@ -190,8 +213,8 @@ theorem xE_free : evarKey xE ∈ (freeOf [] pE).eraseDups := by decide +kernel
 /-- Every element of Γ's left side of `rD` is an element of the text's left side: its first
 conjunct with `d()` in the place of the disjunction is in the first conjunct of `LtextD`, and its
 conjunct `⌈r⌉` is not asked. -/
-theorem leftD (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hD : DefOK I)
-    (hDom : I ⊧ᴵP ΓDomains (cH H)) (e : Valuation M) (a : M)
+theorem leftD {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hD : DefOK I)
+    (hS : I ⊧ᴵP ΓSig c) (e : Valuation M) (a : M)
     (h : (tr ⟨tableOf [] pD, []⟩ qD.2.1).interpret I e a) : (tr ⟨tableOf [] pD, []⟩ LtextD).interpret I e a := by
   rw [lD_eq, interp_and (List.cons_ne_nil _ _)] at h
   unfold LtextD
@@ -200,7 +223,7 @@ theorem leftD (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation Kore
   rcases List.mem_cons.mp hp with rfl | hp
   · refine TieRuleLhs.tr_fill_mono _ cutD.1 K_noAliasD (TieRuleLhs.sub_or_right fun a' h' => ?_) a (h _ (List.mem_cons_self ..))
     rw [dD_eq] at h'
-    exact d_inh H hD hDom a' h'
+    exact d_inh hD hS a' h'
   · rw [List.mem_singleton.mp hp]; exact h _ (List.mem_cons_of_mem _ (List.mem_cons_self ..))
 
 /-- Every element of Γ's left side of `rE` is an element of the text's left side, with `e(X)`. -/
@@ -218,24 +241,28 @@ theorem leftE {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hD : 
     exact e_inh hD hS (fun b hb => x_inh hD rfl (hg _ xE_free) b hb) a' h'
   · rw [List.mem_singleton.mp hp]; exact h _ (List.mem_cons_of_mem _ (List.mem_cons_self ..))
 
+/-- The rule sentence. -/
+noncomputable def ruleText : List AxiomDecl := [U.ax104]
+
 /-- **W1 for the rule, and the converse for `ruleItems`**: each of Γ's two rule items, with its
-premise `⌈r⌉`, is a consequence of the text's sentence 104 with the signature and the domains
-(`\or{SortExp{}}` holds the elements of its disjuncts that are in Exp: `d()` is a value of Exp, and
-the arity of `e` puts `e(X)` there), for every H. The item of the rule read from `d()` holds X as
-the sentence does: no element of Val is a premise. -/
-theorem rule_from_text (H : HookParams) :
-    ∀ it ∈ ruleItems (cH H), (TiePair.Texts [(trS U.ax104).pat] ∪ ΓSig (cH H) ∪ ΓDomains (cH H)) ⊧ it.pat := by
-  intro it hit M _ I hI
+premise `⌈r⌉`, is a consequence of the text's sentence 104 with the text's signature (`ΓSig`), for
+every H. `\or{SortExp{}}` holds the elements of its disjuncts that are in Exp, and the arities put
+them there: of the constant `d` for `d()`, of `e` for `e(X)` from the guard of X. The item of the
+rule read from `d()` holds X as the sentence does: no element of Val is a premise. -/
+theorem rule_from_text_sig (H : HookParams) :
+    ∀ it ∈ ruleItems (cH H), ∃ ad ∈ ruleText, itemsPremises [trS ad] ∪ ΓSig (cH H) ⊧ it.pat := by
+  intro it hit
   rw [TiePair.ruleItems_withHooks, ruleItems_eq] at hit
-  have hD : DefOK I := TiePair.defOK_texts fun φ hφ => hI φ (Or.inl (Or.inl hφ))
-  have hT : I ⊧ᴵ (trS U.ax104).pat := hI _ (Or.inl (Or.inl (Or.inl (List.mem_singleton_self _))))
-  have hS : I ⊧ᴵP ΓSig c := fun φ hφ => hI φ (Or.inl (Or.inr (by
-    unfold ΓSig at hφ ⊢; rw [sigItems_withHooks]; exact hφ)))
-  have hDom : I ⊧ᴵP ΓDomains (cH H) := fun φ hφ => hI φ (Or.inr hφ)
+  refine ⟨U.ax104, List.mem_cons_self .., ?_⟩
+  intro M _ I hI
+  have hD : DefOK I := defOK_of fun x => hI _ (Or.inl (Or.inr ⟨x, rfl⟩))
+  have hT : I ⊧ᴵ (trS U.ax104).pat := hI _ (Or.inl (Or.inl ⟨trS U.ax104, List.mem_singleton_self _, rfl⟩))
+  have hS : I ⊧ᴵP ΓSig c := fun φ hφ => hI φ (Or.inr (by
+    unfold ΓSig at hφ ⊢; rw [sigItems_withHooks]; exact hφ))
   rcases List.mem_cons.mp hit with rfl | hit
   · exact TieRuleLhs.rule_w1 hD qE_eq rule_textE fT_freeE hT fun e m0 hg a ha => leftE hD hS e m0 a hg ha
   · rw [List.mem_singleton.mp hit]
-    exact TieRuleLhs.rule_w1 hD qD_eq rule_textD fT_freeD hT fun e _ _ a ha => leftD H hD hDom e a ha
+    exact TieRuleLhs.rule_w1 hD qD_eq rule_textD fT_freeD hT fun e _ _ a ha => leftD hD hS e a ha
 
 /-! ## The expectation (C7 form (a), through the reading): `d()` steps to `r(x)` for every value x of Val -/
 
@@ -371,13 +398,13 @@ end KCore.TieE3MlLhsOrRhsVarRule
 
 #check @KCore.TieE3MlLhsOrRhsVarRule.rule_textD
 #check @KCore.TieE3MlLhsOrRhsVarRule.rule_textE
-#check @KCore.TieE3MlLhsOrRhsVarRule.rule_from_text
+#check @KCore.TieE3MlLhsOrRhsVarRule.rule_from_text_sig
 #check @KCore.TieE3MlLhsOrRhsVarRule.step_dr
 #check @KCore.TieE3MlLhsOrRhsVarRule.sound_dr
 #print axioms KCore.TieE3MlLhsOrRhsVarRule.coreOK
 #print axioms KCore.TieE3MlLhsOrRhsVarRule.rule_textD
 #print axioms KCore.TieE3MlLhsOrRhsVarRule.rule_textE
-#print axioms KCore.TieE3MlLhsOrRhsVarRule.rule_from_text
+#print axioms KCore.TieE3MlLhsOrRhsVarRule.rule_from_text_sig
 #print axioms KCore.TieE3MlLhsOrRhsVarRule.openDecidedH
 #print axioms KCore.TieE3MlLhsOrRhsVarRule.stepBy
 #print axioms KCore.TieE3MlLhsOrRhsVarRule.step_dr

@@ -3,7 +3,8 @@
   (`test/constructs/fixtures/e3-ml-rule-lhs-or`), sentence by sentence, against the translation of the text as
   written (`trS ad := trAxiom k.symbolDecls k.aliasNames ad`), on the literals `kore` and `defn`, for
   every interpretation H. Nothing here reads `Parse.parse` or `emit`. Written by
-  `test/constructs/tiegen.py e3-ml-rule-lhs-or`; run from the package root: `lake env lean -j1 test/TieE3MlRuleLhsOr.lean`.
+  `test/constructs/tiegen.py e3-ml-rule-lhs-or`, its rules section by hand; run from the package root:
+  `lake env lean -j1 test/TieE3MlRuleLhsOr.lean`.
 
   Layer 1.
   - `wf_defn`: `wf defn = true`.
@@ -24,6 +25,16 @@
   - Function equations (29): each of Γ's items is the translation of one sentence, in the
     order `fnText` lists them (`fn_shape`); `fns_entailed` (E), `fns_from_text` (the converse),
     `fn_prios` (the priorities the sentences state are the clauses').
+  - Rewrite rules (104), by hand, in the section `The rules` (`Rules`): each of Γ's rule items is a
+    consequence of its text sentence with the text's signature (`ΓSig`), `Rules.ruleText` in
+    `ruleItems`' order (`Rules.rule_from_text_sig`, W1, every H; `Rules.rules_account`). `ΓSig`
+    holds the items of the text's declarations or surplus ones, the sort constant of a registry sort
+    or the arity of a hooked symbol that the text does not declare at that shape (`sig_origin`), and
+    the arity of every literal (`dvArityAll`). Two limits, argued and not proved: that a surplus
+    item of a name the text declares with sort parameters adds no consequence in the text's symbols;
+    and that `dvArityAll` at a literal no axiom of the text writes, no item of the text, adds none
+    either. The section's other headline statements (its comment says what each states):
+    `Rules.rule_text0`, `Rules.d_arity`, `Rules.a_inh`, `Rules.d_inh`.
   - Constructor sentences (37): entailed by Γ (`cons_entailed`).
   - No junk (3 of a sort without generators, `nojunk_trivial_entailed`; 7 equal to
     one of Γ's constructor items, `nojunk_items`; 1 KItem's with its disjuncts in the text's
@@ -35,7 +46,7 @@
     `absent_closed`.
 
   The sentences with no counterpart in f2-examples/ens.kompile.kore are `unmapped` (22);
-  the sentences of a class with a theorem that no theorem here holds of are `uncovered` (1).
+  the sentences of a class with a theorem that no theorem here holds of are `uncovered` (0).
 -/
 import KcoreSpec
 
@@ -181,7 +192,7 @@ def unmapped : List (Nat × String) :=
 /-- The sentences of a class with a theorem in the tie that no theorem of this file holds of: the
 tie's remainder on this text. -/
 def uncovered : List (Nat × String) :=
-  [(104, "rewrite rule")]
+  []
 
 /-- Each listed sentence is in its class in the account. -/
 theorem lists_in_account : (unmapped ++ uncovered).all (fun ic => (classOf ic.2).contains ic.1) = true := by
@@ -628,6 +639,242 @@ theorem idem_refuted : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation Kore
 end Idem
 
 
+/-! ## The rules (104): W1 from the sentence and the text's signature, for every H (by hand)
+
+Γ's two rule items (`orSplit`), one per disjunct of `d(X, a()) #Or d(a(), X)`, each with the
+conjunct `⌈r⌉` more on its left side: the sentence is the item of `\rewrites{C}(Ltext, r)` at the
+table of Γ's axiom (`rule_text0`, `rule_text1`, kernel), and every element of Γ's left side is one
+of `Ltext` (`left0`, `left1`): a disjunct is in `\or{SortExp{}}` where its elements are in Exp,
+which the arity of `d` gives from the guard of X and from `a()`, in Exp by the arity item of the
+constant `a` (`a_inh`, `d_inh`). So each item is a consequence of the sentence with the text's
+signature (`rule_from_text_sig`, every H); no item of `ΓDomains` is a premise. -/
+
+namespace Rules
+
+noncomputable def r0 : Rule := c.rules[0]'(by decide +kernel)
+
+/-- Γ's axiom of rule 0. -/
+noncomputable def p0 : Kore.Pattern := prioRuleK c r0
+
+/-- Its parts `\rewrites{C}(L', r)`. -/
+noncomputable def q0 : Kore.KSort × Kore.Pattern × Kore.Pattern :=
+  (TieRuleLhs.rwParts p0).getD (KoreAML.R, .top KoreAML.R, .top KoreAML.R)
+
+kernel_rfl q0_eq : TieRuleLhs.rwParts p0 = some q0
+
+/-- The context of its left side's term around the argument of `c`, and the argument. -/
+noncomputable def cut0 : KoreCutCtx × Kore.Pattern :=
+  (TieRuleLhs.cutAt [0, 0, 0, 0] (TieRuleLhs.andHead q0.2.1)).getD (.hole, .top KoreAML.R)
+
+noncomputable def r1 : Rule := c.rules[1]'(by decide +kernel)
+
+/-- Γ's axiom of rule 1. -/
+noncomputable def p1 : Kore.Pattern := prioRuleK c r1
+
+/-- Its parts `\rewrites{C}(L', r)`. -/
+noncomputable def q1 : Kore.KSort × Kore.Pattern × Kore.Pattern :=
+  (TieRuleLhs.rwParts p1).getD (KoreAML.R, .top KoreAML.R, .top KoreAML.R)
+
+-- The sort and the right side are rule 0's.
+kernel_rfl q1_eq : TieRuleLhs.rwParts p1 = some (q0.1, q1.2.1, q0.2.2)
+
+/-- The context of its left side's term around the argument of `c`, and the argument. -/
+noncomputable def cut1 : KoreCutCtx × Kore.Pattern :=
+  (TieRuleLhs.cutAt [0, 0, 0, 0] (TieRuleLhs.andHead q1.2.1)).getD (.hole, .top KoreAML.R)
+
+theorem ruleItems_eq : ruleItems c = [trAxiom [] [] ⟨0, "kernel", ⟨[], p0, []⟩⟩, trAxiom [] [] ⟨0, "kernel", ⟨[], p1, []⟩⟩] := by kernel_rfl
+
+/-- The two left sides have one context around the argument of `c`. -/
+noncomputable def K : KoreCutCtx := cut0.1
+
+kernel_rfl l0_eq : q0.2.1 = .and q0.1 (K.fill cut0.2 :: .top q0.1 :: (TieRuleLhs.andTail q0.2.1).drop 1)
+kernel_rfl l1_eq : q1.2.1 = .and q0.1 (K.fill cut1.2 :: .top q0.1 :: (TieRuleLhs.andTail q1.2.1).drop 1)
+
+/-- The left side as the text writes it: the argument of `c` is `\or{SortExp{}}(a(), b())`, and
+no conjunct follows `\top`. -/
+noncomputable def Ltext : Kore.Pattern :=
+  .and q0.1 [K.fill (.or (KoreAML.srt "Exp") [cut0.2, cut1.2]), .top q0.1]
+
+/-- The free variables of the text's form. -/
+noncomputable def fT : List VarKey := (freeOf [] (.rewrites q0.1 Ltext q0.2.2)).eraseDups
+
+/-- **The text's sentence 104 is the item of `\rewrites{C}(Ltext, r)` at the table of Γ's axiom**,
+for each of Γ's two axioms (kernel): Γ's axiom is the sentence with one disjunct in the place of
+the disjunction and the conjunct `⌈r⌉` more. -/
+theorem rule_text0 : TiePair.renSeq (TieRuleLhs.itemAt (tableOf [] p0) fT q0.1 Ltext q0.2.2) [] = some (trS U.ax104).pat := by
+  decide +kernel
+theorem fT_free0 : fT.all (fun k => (freeOf [] p0).eraseDups.contains k) = true := by decide +kernel
+theorem K_noAlias0 : K.noAlias ⟨tableOf [] p0, []⟩ = true := by decide +kernel
+theorem rule_text1 : TiePair.renSeq (TieRuleLhs.itemAt (tableOf [] p1) fT q0.1 Ltext q0.2.2) [] = some (trS U.ax104).pat := by
+  decide +kernel
+theorem fT_free1 : fT.all (fun k => (freeOf [] p1).eraseDups.contains k) = true := by decide +kernel
+theorem K_noAlias1 : K.noAlias ⟨tableOf [] p1, []⟩ = true := by decide +kernel
+
+theorem names : c.symName 385 = "Lbla" ∧ c.symName 386 = "Lblb" ∧ c.symName 387 = "Lblc" ∧
+    c.symName 388 = "Lbld" ∧ c.sortName 32 = "Exp" := by
+  decide +kernel
+
+/-- The variable X of both of Γ's rules (index 0 of their tables). -/
+noncomputable def x0 : Kore.EVar := KoreAML.evar "VarV0" (KoreAML.srt "Exp")
+
+-- The two disjuncts as Γ writes them: `d(X, a())` and `d(a(), X)`, applications of the
+-- constructor `d` (388) and `a` (385) by `symApp`.
+kernel_rfl d0_eq : cut0.2 = symApp c 388 [.var (.evar x0), symApp c 385 []]
+kernel_rfl d1_eq : cut1.2 = symApp c 388 [symApp c 385 [], .var (.evar x0)]
+/-- `d`'s signature. -/
+def kd : CtorSig := ⟨388, [32, 32], 32⟩
+
+theorem kd_mem : kd ∈ kernelSyms c := by decide +kernel
+theorem noInst_d : instDecode? (c.symName 388) = none := by decide +kernel
+
+kernel_rfl sigItems_withHooks : ∀ (c : Semantics) (H : HookParams), sigItems (c.withHooks H) = sigItems c
+
+/-- **The arity of `d` from `ΓSig`**: what `d` builds from two elements of Exp is in Exp. -/
+theorem d_arity {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hD : DefOK I)
+    (hS : I ⊧ᴵP ΓSig c) {e : Valuation M} {a : M} (ha : (symHead c 388).interpret I e a)
+    {b0 b1 m : M} (h0 : InS I "Exp" b0) (h1 : InS I "Exp" b1) (hm : AppE I a [b0, b1] m) :
+    InS I "Exp" m := by
+  have hit : I ⊧ᴵ (symArityItem c kd).pat := hS _ (Or.inl (Or.inl ⟨_, sig_arity kd_mem, rfl⟩))
+  rw [symArityItem_noInst (k := kd) noInst_d, show kd.name = 388 from rfl] at hit
+  rw [symHead_noInst (c := c) (f := 388) noInst_d] at ha
+  unfold KoreAML.arityItem at hit
+  dsimp only [KoreAML.paramTable, List.map_nil] at hit
+  have hinc := (KoreAML.interp_included hD).mp (hit KoreAML.val0 default) m
+  unfold srtOf at hinc
+  rw [trSort_srt] at hinc
+  have hres : c.sortName kd.result = "Exp" := names.2.2.2.2
+  rw [hres] at hinc
+  apply (inS_iff (I := I) (s := "Exp") (a := m) KoreAML.val0).mp
+  apply hinc
+  rw [interp_appList]
+  refine ⟨a, ((Closed.sym _).interp e KoreAML.val0 a).mp ha, [b0, b1], ?_, hm⟩
+  have hn : c.sortName 32 = "Exp" := names.2.2.2.2
+  simp only [kd, List.map_cons, List.map_nil, trSort_srt, hn]
+  exact .cons ((inS_iff _).mpr h0) (.cons ((inS_iff _).mpr h1) .nil)
+
+/-- `a`'s signature: a constant of Exp. -/
+def ka : CtorSig := ⟨385, [], 32⟩
+
+theorem ka_mem : ka ∈ kernelSyms c := by decide +kernel
+theorem noInst_a : instDecode? (c.symName 385) = none := by decide +kernel
+
+/-- **`a()` denotes elements of Exp** (the arity item of the constant `a`, `ΓSig`). -/
+theorem a_inh {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hD : DefOK I)
+    (hS : I ⊧ᴵP ΓSig c) {t : VarTable} {e : Valuation M}
+    (b : M) (h : (tr ⟨t, []⟩ (symApp c 385 [])).interpret I e b) : InS I "Exp" b := by
+  rw [tr_symApp, trArgs_appList, interp_appList] at h
+  obtain ⟨a, ha, bs, hbs, hm⟩ := h
+  cases hbs
+  have hit : I ⊧ᴵ (symArityItem c ka).pat := hS _ (Or.inl (Or.inl ⟨_, sig_arity ka_mem, rfl⟩))
+  rw [symArityItem_noInst (k := ka) noInst_a, show ka.name = 385 from rfl] at hit
+  rw [symHead_noInst (c := c) (f := 385) noInst_a] at ha
+  unfold KoreAML.arityItem at hit
+  dsimp only [KoreAML.paramTable, List.map_nil] at hit
+  have hinc := (KoreAML.interp_included hD).mp (hit KoreAML.val0 default) b
+  unfold srtOf at hinc
+  rw [trSort_srt] at hinc
+  have hres : c.sortName ka.result = "Exp" := names.2.2.2.2
+  rw [hres] at hinc
+  apply (inS_iff (I := I) (s := "Exp") (a := b) KoreAML.val0).mp
+  apply hinc
+  rw [interp_appList]
+  refine ⟨a, ((Closed.sym _).interp e KoreAML.val0 a).mp ha, [], ?_, hm⟩
+  simp only [ka, List.map_nil]
+  exact .nil
+
+/-- The guard of X puts its value in Exp. -/
+theorem x_inh {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hD : DefOK I) {t : VarTable}
+    {e : Valuation M} {m0 : M} (hg : (guardOf t (evarKey x0)).interpret I e m0)
+    (b : M) (h : (tr ⟨t, []⟩ (.var (.evar x0))).interpret I e b) : InS I "Exp" b := by
+  have h1 := (TieRuleLhs.guard_evarKey hD).mp hg
+  simp only [tr] at h
+  rw [interp_evar] at h
+  rw [h]
+  have : x0.sort = KoreAML.srt "Exp" := rfl
+  rw [this, trSort_srt] at h1
+  exact (inS_iff _).mp h1
+
+/-- **`d` at two patterns whose elements are in Exp is in Exp** (`d_arity`). -/
+theorem d_inh {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hD : DefOK I)
+    (hS : I ⊧ᴵP ΓSig c) {t : VarTable} {e : Valuation M} {p q : Kore.Pattern}
+    (hp : ∀ b, (tr ⟨t, []⟩ p).interpret I e b → InS I "Exp" b)
+    (hq : ∀ b, (tr ⟨t, []⟩ q).interpret I e b → InS I "Exp" b) (m : M)
+    (h : (tr ⟨t, []⟩ (symApp c 388 [p, q])).interpret I e m) :
+    (inhOf (trSort t (KoreAML.srt "Exp"))).interpret I e m := by
+  rw [tr_symApp, trArgs_appList, interp_appList] at h
+  obtain ⟨a, ha, bs, hbs, hm⟩ := h
+  simp only [List.map_cons, List.map_nil] at hbs
+  cases hbs with
+  | cons hb0 hbs =>
+    cases hbs with
+    | cons hb1 hbs =>
+      cases hbs
+      rw [trSort_srt]
+      exact (inS_iff _).mpr (d_arity hD hS ha (hp _ hb0) (hq _ hb1) hm)
+
+theorem x0_free0 : evarKey x0 ∈ (freeOf [] p0).eraseDups := by decide +kernel
+theorem x0_free1 : evarKey x0 ∈ (freeOf [] p1).eraseDups := by decide +kernel
+
+/-- Every element of Γ's left side of rule 0 is an element of the text's left side: its first
+conjunct with `d(X, a())` in the place of the disjunction is in the first conjunct of `Ltext`, and
+its conjunct `⌈r⌉` is not asked. -/
+theorem left0 {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hD : DefOK I)
+    (hS : I ⊧ᴵP ΓSig c) (e : Valuation M) (m0 a : M)
+    (hg : ∀ k ∈ (freeOf [] p0).eraseDups, (guardOf (tableOf [] p0) k).interpret I e m0)
+    (h : (tr ⟨tableOf [] p0, []⟩ q0.2.1).interpret I e a) : (tr ⟨tableOf [] p0, []⟩ Ltext).interpret I e a := by
+  rw [l0_eq, interp_and (List.cons_ne_nil _ _)] at h
+  unfold Ltext
+  rw [interp_and (List.cons_ne_nil _ _)]
+  intro p hp
+  rcases List.mem_cons.mp hp with rfl | hp
+  · refine TieRuleLhs.tr_fill_mono _ K K_noAlias0 (TieRuleLhs.sub_or_left fun a' h' => ?_) a (h _ (List.mem_cons_self ..))
+    rw [d0_eq] at h'
+    exact d_inh hD hS (fun b hb => x_inh hD (hg _ x0_free0) b hb) (fun b hb => a_inh hD hS b hb) a' h'
+  · rw [List.mem_singleton.mp hp]; exact h _ (List.mem_cons_of_mem _ (List.mem_cons_self ..))
+
+/-- Every element of Γ's left side of rule 1 is an element of the text's left side, as `left0`
+with `d(a(), X)`. -/
+theorem left1 {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hD : DefOK I)
+    (hS : I ⊧ᴵP ΓSig c) (e : Valuation M) (m0 a : M)
+    (hg : ∀ k ∈ (freeOf [] p1).eraseDups, (guardOf (tableOf [] p1) k).interpret I e m0)
+    (h : (tr ⟨tableOf [] p1, []⟩ q1.2.1).interpret I e a) : (tr ⟨tableOf [] p1, []⟩ Ltext).interpret I e a := by
+  rw [l1_eq, interp_and (List.cons_ne_nil _ _)] at h
+  unfold Ltext
+  rw [interp_and (List.cons_ne_nil _ _)]
+  intro p hp
+  rcases List.mem_cons.mp hp with rfl | hp
+  · refine TieRuleLhs.tr_fill_mono _ K K_noAlias1 (TieRuleLhs.sub_or_right fun a' h' => ?_) a (h _ (List.mem_cons_self ..))
+    rw [d1_eq] at h'
+    exact d_inh hD hS (fun b hb => a_inh hD hS b hb) (fun b hb => x_inh hD (hg _ x0_free1) b hb) a' h'
+  · rw [List.mem_singleton.mp hp]; exact h _ (List.mem_cons_of_mem _ (List.mem_cons_self ..))
+
+/-- The rule sentence. -/
+noncomputable def ruleText : List AxiomDecl := [U.ax104]
+
+/-- The rule sentences are the class rewrite rule of the account. -/
+theorem rules_account : (classOf "rewrite rule").isPerm (ruleText.map (·.index)) = true := by decide +kernel
+
+/-- **W1 for the rule, and the converse for `ruleItems`**: each of Γ's two rule items, with its
+premise `⌈r⌉`, is a consequence of the text's sentence 104 with the text's signature (`ΓSig`), for
+every H: the arities of `d` and of the constant `a` put the disjuncts' elements in Exp, and
+`\or{SortExp{}}` holds the elements of its disjuncts that are in Exp. -/
+theorem rule_from_text_sig (H : HookParams) :
+    ∀ it ∈ ruleItems (cH H), ∃ ad ∈ ruleText, itemsPremises [trS ad] ∪ ΓSig (cH H) ⊧ it.pat := by
+  intro it hit
+  rw [TiePair.ruleItems_withHooks, ruleItems_eq] at hit
+  refine ⟨U.ax104, List.mem_cons_self .., ?_⟩
+  intro M _ I hI
+  have hD : DefOK I := defOK_of fun x => hI _ (Or.inl (Or.inr ⟨x, rfl⟩))
+  have hT : I ⊧ᴵ (trS U.ax104).pat := hI _ (Or.inl (Or.inl ⟨trS U.ax104, List.mem_singleton_self _, rfl⟩))
+  have hS : I ⊧ᴵP ΓSig c := fun φ hφ => hI φ (Or.inr (by
+    unfold ΓSig at hφ ⊢; rw [sigItems_withHooks]; exact hφ))
+  rcases List.mem_cons.mp hit with rfl | hit
+  · exact TieRuleLhs.rule_w1 hD q0_eq rule_text0 fT_free0 hT fun e m0 hg a ha => left0 hD hS e m0 a hg ha
+  · rw [List.mem_singleton.mp hit]
+    exact TieRuleLhs.rule_w1 hD q1_eq rule_text1 fT_free1 hT fun e m0 hg a ha => left1 hD hS e m0 a hg ha
+
+end Rules
+
 end KCore.TieE3MlRuleLhsOr
 
 #check @KCore.TieE3MlRuleLhsOr.noRaw
@@ -663,6 +910,12 @@ end KCore.TieE3MlRuleLhsOr
 #check @KCore.TieE3MlRuleLhsOr.nojunk_kitem_entailed
 #check @KCore.TieE3MlRuleLhsOr.cons_entailed
 #check @KCore.TieE3MlRuleLhsOr.idem_refuted
+#check @KCore.TieE3MlRuleLhsOr.Rules.rules_account
+#check @KCore.TieE3MlRuleLhsOr.Rules.rule_from_text_sig
+#check @KCore.TieE3MlRuleLhsOr.Rules.rule_text0
+#check @KCore.TieE3MlRuleLhsOr.Rules.d_arity
+#check @KCore.TieE3MlRuleLhsOr.Rules.a_inh
+#check @KCore.TieE3MlRuleLhsOr.Rules.d_inh
 #print axioms KCore.TieE3MlRuleLhsOr.noRaw
 #print axioms KCore.TieE3MlRuleLhsOr.readsConfined_c
 #print axioms KCore.TieE3MlRuleLhsOr.userAxioms_eq
@@ -696,3 +949,9 @@ end KCore.TieE3MlRuleLhsOr
 #print axioms KCore.TieE3MlRuleLhsOr.nojunk_kitem_entailed
 #print axioms KCore.TieE3MlRuleLhsOr.cons_entailed
 #print axioms KCore.TieE3MlRuleLhsOr.idem_refuted
+#print axioms KCore.TieE3MlRuleLhsOr.Rules.rules_account
+#print axioms KCore.TieE3MlRuleLhsOr.Rules.rule_from_text_sig
+#print axioms KCore.TieE3MlRuleLhsOr.Rules.rule_text0
+#print axioms KCore.TieE3MlRuleLhsOr.Rules.d_arity
+#print axioms KCore.TieE3MlRuleLhsOr.Rules.a_inh
+#print axioms KCore.TieE3MlRuleLhsOr.Rules.d_inh

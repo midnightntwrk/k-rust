@@ -2085,27 +2085,29 @@ def self_test():
         for f_, c_ in (("account.txt", clean), ("kompile.txt", "exit 0\n"), ("kore.txt", f"{un_r}\n{un_c}\n")):
             open(os.path.join(fxd, "e3-ml-rule-lhs-and", f_), "w").write(c_)
         tlv, trl = "test/TieLhsAndVar.lean", "test/TieRuleLhsAnd.lean"
+        # the cases read tlv as a tie leaving 104 uncovered, whatever the file states today
+        _unc[tlv] = ("f2-examples/mllhsandv.kompile.kore", {104})
         un = lambda **kw: dict({"status": "supported", "fixture": "e3-ml-rule-lhs-and", "sentence": [un_r],
                                 "tie": [tlv, trl], "tie_theorems": ["KCore.TieLhsAndVar.account",
                                                                     "TieRuleLhsAnd.Var.tie"]}, **kw)
         # a tie_premise table: e3-ml-req-not's rule (sentence 157 of f2-examples/mlreqnot.kompile.kore, which
         # test/TieE3MlReqNot.lean reads) as tiegen writes it under a premise form, in `underPremise`
-        # and not `uncovered`
+        # and not `uncovered`, its theorems in the tie's section on the rules (namespace Rules)
         os.makedirs(os.path.join(fxd, "e3-ml-req-not"))
         for f_, c_ in (("account.txt", clean), ("kompile.txt", "exit 0\n"), ("kore.txt", "Lblgo{}(VarX:SortInt{})\n")):
             open(os.path.join(fxd, "e3-ml-req-not", f_), "w").write(c_)
-        trn, trn157, trdr = "test/TieE3MlReqNot.lean", "test/TieE3MlReqNot157.lean", "test/RdrCondNotCounter.lean"
+        trn, treq = "test/TieE3MlReqNot.lean", "test/TieE3MlEqReqNot.lean"
         _upr[trn] = ("f2-examples/mlreqnot.kompile.kore", {157: "boolClosed"})
         _unc[trn] = ("f2-examples/mlreqnot.kompile.kore", set())
         tpok = {"sentences": [157], "premise": "boolClosed", "in_gamma": False, "ground": "DONE-0 section 0 (4)",
-                "theorem": "KCore.TieE3MlReqNot157.rule_from_text_closed",
-                "converse": "KCore.TieE3MlReqNot157.rule_w2_closed_noprem",
-                "needed": "KCore.RdrCondNotCounter.rule_not_from_text_dom", "consistent": "KCore.TieE3MlReqNot.consistent"}
+                "theorem": "KCore.TieE3MlReqNot.Rules.rule_from_text_closed",
+                "converse": "KCore.TieE3MlReqNot.Rules.rule_w2_closed_noprem",
+                "needed": "KCore.TieE3MlReqNot.Rules.rule_not_from_text", "consistent": "KCore.TieE3MlReqNot.consistent"}
         tpt = lambda **kw: {k: v for k, v in dict(tpok, **kw).items() if v is not None}
         pr = lambda tp=None, **kw: dict({"status": "supported", "fixture": "e3-ml-req-not",
-                                         "sentence": ["Lblgo{}(VarX:SortInt{})"], "tie": [trn, trn157, trdr],
+                                         "sentence": ["Lblgo{}(VarX:SortInt{})"], "tie": [trn],
                                          "tie_theorems": ["KCore.TieE3MlReqNot.account",
-                                                          "KCore.RdrCondNotCounter.rule_not_from_text_dom"]},
+                                                          "KCore.TieE3MlReqNot.Rules.rule_not_from_text"]},
                                         **({"tie_premise": tp} if tp is not None else {}), **kw)
         if form("E3", "A", pr([tpok])) != PREMISE_FORM or form("E3", "A", pr()) != "supported":
             bad_forms.append(f"tie_premise: form {form('E3', 'A', pr([tpok]))!r}, expected {PREMISE_FORM!r}")
@@ -2120,15 +2122,15 @@ def self_test():
             ("E3", "A", pr([tpt(in_gamma="no")]), False),
             ("E3", "A", pr([tpt(ground=None)]), False),
             ("E3", "A", pr([tpt(converse=None)]), False),
-            ("E3", "A", pr([tpt(converse=None, at_values="KCore.TieE3MlReqNot157.rule_w2_closed")]), False),
-            ("E3", "A", pr([tpt(converse=None, at_values="KCore.TieE3MlReqNot157.rule_w2_closed")],
-                           tie_theorems=["KCore.TieE3MlReqNot.account", "KCore.TieE3MlReqNot157.rule_w2_closed",
-                                         "KCore.RdrCondNotCounter.rule_not_from_text_dom"]), True),
+            ("E3", "A", pr([tpt(converse=None, at_values="KCore.TieE3MlReqNot.Rules.rule_w2_closed")]), False),
+            ("E3", "A", pr([tpt(converse=None, at_values="KCore.TieE3MlReqNot.Rules.rule_w2_closed")],
+                           tie_theorems=["KCore.TieE3MlReqNot.account", "KCore.TieE3MlReqNot.Rules.rule_w2_closed",
+                                         "KCore.TieE3MlReqNot.Rules.rule_not_from_text"]), True),
             ("E3", "A", pr([tpok], tie_theorems=["KCore.TieE3MlReqNot.account"]), False),
             ("E3", "A", pr([tpt(consistent="KCore.TieE3MlReqNot.no_such")]), False),
             ("E3", "A", pr([tpt(premise="boolDist")]), False),
             ("E3", "A", pr([tpt(sentences=[158])]), False),
-            ("E3", "A", pr([tpok], tie=[trn157, trdr]), False),
+            ("E3", "A", pr([tpok], tie=[treq]), False),
             # B21: the rule uncovered by tiegen's tie and tied by a companion the entry names a theorem of
             ("E3", "A", un(), True),
             ("E3", "A", un(tie=[tlv], tie_theorems=["KCore.TieLhsAndVar.account"]), False),
