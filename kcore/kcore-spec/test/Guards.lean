@@ -214,6 +214,10 @@
     (`stepClosure_everyH`); over all H, `Γ` determines no silent point (`silent_undetermined`, every
     semantics with `coreOK`). A piece that reads no interpretation has no companion H; its entry says
     so and names the model that would separate the readings where none is built.
+    The hooks' graphs, the value items and distinctness read the interpretation only through which
+    terms are values (`Semantics.sortOf`), at an open generator's application; there the companions
+    of the value items and of distinctness at a collection sort are
+    `test/GuardOpenGen.lean`'s `valElem_open_reached` and `distinct_open_reached`.
   - The tie classes whose direction is neither `entailed` nor `equal` (`tieClassRows`, exhaustive
     over `tieClassesOvl` by `tieClassRows_exhaustive`): a class with a reading note cites that
     note's entry; a class without one (hooked functional, library, set-variable lemma, and the
@@ -4596,7 +4600,8 @@ def gammaFamily : GammaFamily → GuardEntry
         .decl ``KCore.exact_own, .decl ``KCore.detached_of_decided,
         .test "test/TieEnsRegistry.lean" "ens_registry_everyH", .test "test/TieKimpRegistry.lean" "kimp_registry_everyH",
         .test "test/TieKkRegistry.lean" "kk_registry_everyH"],
-      companion := [.test "test/TieEnsRegistry.lean" "registry_detached", .test "test/TieKimpSig.lean" "surplusItem"],
+      companion := [.test "test/TieEnsRegistry.lean" "registry_detached", .test "test/TieKimpRegistry.lean" "registry_detached",
+        .test "test/TieKkRegistry.lean" "registry_detached", .test "test/TieKimpSig.lean" "surplusItem"],
       invariant := [``KCore.Faithful.kernelSorts, ``KCore.Faithful.kernelSyms, ``KCore.detachedB],
       note := "the sort constants of the registry's sorts and the arities of its symbols: K's interpreted builtin library is part of every theory, whether or not the text imports its module. Where the text declares the name the item is the declaration's (sig_origin); where it does not (surplusItem) it is a premise of the registry family, with, at those names, the hooks' graphs (domHookGraph), the silent points (fallbackSilent), the value items and distinctness (domValElem, domDistinctLib) and the library collections' no-junk and axioms (domCollNoJunk, collAxioms). For every H, at the names the decided check detachedB passes, the family is conservative: a model of the theory without the premises naming them extends to a model of the whole theory, and the steps at values are the same with and without them (registry_everyH, for coreOK, FnHyp and clausesPreTop). detachedB reads no interpretation (detachedB_withHooks), so its decision at a text's parsed semantics is the decision at c.withHooks H for every H (registry_withHooks_of_decided). The point is reached on ens, kimp and kore.k, whose texts do not declare those names: detachedB is decided on each (registry_detached), and for every H the family is conservative there (ens_registry_everyH, kimp_registry_everyH, each with FnHyp at every H from the text's empty obligations; kk_registry_everyH under FnHyp (c.withHooks H), which kore.k's open function obligations leave a hypothesis); kimp lists its surplus items (surplusItem)" }
   | .sigNext =>
@@ -4625,7 +4630,7 @@ def gammaFamily : GammaFamily → GuardEntry
         .decl ``KCore.Guards.Fam.family_model_everyH, .test "test/HooksInt.lean" "vals_gamma"],
       companion := [.decl ``KCore.Guards.setIdem_reached, .test "test/TieEns.lean" "idem_refuted"],
       invariant := [``KCore.hook, ``KCore.silent, ``KCore.Faithful.ΓDomains],
-      note := "the graph of each interpreted hooked symbol at values of its argument sorts, ⊥ where hook gives no value off a silent point: the builtin files' prose for each hook, which no sentence of the text states (trusted base (4)); each supported hook's graph is checked against its prose by test/Hooks*.lean (vals_gamma for INT). For every H, Γ holds _Set_ = ⊥ at sets with a common member (setIdem_gamma, G7), and the value model of c.withHooks H satisfies every graph (family_model_everyH). The graph reads no interpretation; the point is reached at _Set_: were it silent there, its value would be the interpretation's (setIdem_reached), and the text's idempotence sentence is refuted by the graph (idem_refuted)" }
+      note := "the graph of each interpreted hooked symbol at values of its argument sorts, ⊥ where hook gives no value off a silent point: the builtin files' prose for each hook, which no sentence of the text states (trusted base (4)); each supported hook's graph is checked against its prose by test/Hooks*.lean (vals_gamma for INT). For every H, Γ holds _Set_ = ⊥ at sets with a common member (setIdem_gamma, G7), and the value model of c.withHooks H satisfies every graph (family_model_everyH). The graph reads the interpretation only through which argument lists are values of the argument sorts (c.sortsOf, where an open generator's application is a value exactly where H leaves it raw), so where no parameter is an open generator no H separates the readings (Semantics.sortOf_withHooks); the point is reached at _Set_: were it silent there, its value would be the interpretation's (setIdem_reached), and the text's idempotence sentence is refuted by the graph (idem_refuted)" }
   | .domParamGraph =>
     { status := .guarded,
       guard := [.decl ``KCore.Guards.fnRest_nil_eq_paramVal_everyH, .decl ``KCore.Guards.DevRefl.conf_value],
@@ -4634,19 +4639,24 @@ def gammaFamily : GammaFamily → GuardEntry
       note := "the graph of each parameter symbol at values under the interpretation (paramVal reads c.hooks, which is H): a parameter is a symbol the text declares without equations that no registry hook interprets, so the text gives it no value and its value is the interpretation's. For every H a function with no clause and a parameter of its name and signature have one value (fnRest_nil_eq_paramVal_everyH, G6; conf_value on e6-configuration's text); the point is reached: over all H, Γ entails neither ⊥ nor a value at a parameter no hook implements (param_undetermined), and under Hk go steps where under HookParams.none it does not (go_step_Hk)" }
   | .domValElem =>
     { status := .guarded,
-      guard := [.decl ``KCore.Guards.Fam.family_model_everyH, .decl ``KCore.Faithful.Model.sat_valElem],
-      invariant := [``KCore.Faithful.ΓDomains, ``KCore.Semantics.sortOf],
-      note := "every value of a sort denotes exactly one element of that sort: K's values are elements of their sorts. For a constructor term the constructors' functionality gives it; for a collection and a domain value nothing else does. For every H it holds in the value model of c.withHooks H (family_model_everyH). No companion: it reads no interpretation, so no H separates the readings; a model of Γ without it, in which a collection value denotes no element, is not built" }
+      guard := [.decl ``KCore.Guards.Fam.family_model_everyH, .decl ``KCore.Faithful.Model.sat_valElem,
+        .decl ``KCore.Semantics.sortOf_withHooks_rawFree, .decl ``KCore.Semantics.sortOf_withHooks],
+      companion := [.test "test/GuardOpenGen.lean" "valElem_open_reached"],
+      invariant := [``KCore.Faithful.ΓDomains, ``KCore.Semantics.sortOf, ``KCore.Semantics.keepsRaw],
+      note := "every value of a sort denotes exactly one element of that sort: K's values are elements of their sorts. For a constructor term the constructors' functionality gives it; for a collection and a domain value nothing else does. For every H it holds in the value model of c.withHooks H (family_model_everyH). It reads the interpretation only through which terms are values (c.sortOf): a term that applies no open generator is a value of the same sort at every H (Semantics.sortOf_withHooks_rawFree), so where no parameter is an open generator no H separates the readings (Semantics.sortOf_withHooks); an open generator's application is a value exactly where H leaves it raw (keepsRaw), and there the point is reached, on c3-ctor-assoc (valElem_open_reached): under the associative normal form, where Γ has a model, plus(.E, .E) is a value of Exp and its value item is a premise of Γ; under an H that answers no value of Exp at plus, where Γ has a model, it is no value and no model of Γ satisfies that item, so the item stated at every application whatever H would leave Γ without a model there. That H gives plus no value, so it does not meet OpenTotal, the text's owed functional sentence of plus (not_total_bot), and no H that gives the application a value separates: under the H answering .E the application is no value either and Γ entails the item, from the parameter's graph and the item of .E (valItem_entailed_E). A model of Γ without the piece, in which a collection value denotes no element, is not built" }
   | .domDistinctLit =>
     { status := .guarded,
-      guard := [.decl ``KCore.Guards.Fam.family_model_everyH, .decl ``KCore.Faithful.Model.sat_distinct],
-      invariant := [``KCore.Faithful.distinctSorts, ``KCore.Guards.Fam.litDistinctSorts],
-      note := "distinct values of Int, Bool, KConfigVar, Float, String and Bytes denote distinct elements: the builtin prose gives these sorts their literals as values, and K's values are distinct where they differ; no sentence of the text states it. For every H it holds in the value model of c.withHooks H (family_model_everyH). No companion: it reads no interpretation; a model of Γ without it, in which two literals denote one element, is not built" }
+      guard := [.decl ``KCore.Guards.Fam.family_model_everyH, .decl ``KCore.Faithful.Model.sat_distinct,
+        .test "test/GuardOpenGen.lean" "litSort_everyH", .test "test/GuardOpenGen.lean" "lit_c3"],
+      invariant := [``KCore.Faithful.distinctSorts, ``KCore.Guards.Fam.litDistinctSorts, ``KCore.Semantics.litSort],
+      note := "distinct values of Int, Bool, KConfigVar, Float, String and Bytes denote distinct elements: the builtin prose gives these sorts their literals as values, and K's values are distinct where they differ; no sentence of the text states it. For every H it holds in the value model of c.withHooks H (family_model_everyH). It reads the interpretation only through which terms are values of the sort (c.sortOf). Where the sort holds only literals (Semantics.litSort, decided on the data: no constructor, overloading symbol, injection or open generator ends at it, and it is no token, byte, collection or carrier sort), a value of it is a domain value and is one at every H (litSort_everyH, for every semantics), so there no H separates the readings and no open generator's application is a value of the sort; the six sorts are such on c3-ctor-assoc, which has an open generator (lit_c3). Where one of the six does not hold only literals, no H separates the readings where no parameter is an open generator (Semantics.sortOf_withHooks), and nothing is stated here otherwise. No companion: a model of Γ without the piece, in which two literals denote one element, is not built" }
   | .domDistinctLib =>
     { status := .guarded,
-      guard := [.decl ``KCore.Guards.Fam.family_model_everyH, .decl ``KCore.Faithful.Model.sat_distinct],
-      invariant := [``KCore.Faithful.distinctSorts],
-      note := "distinct values of one sort denote distinct elements at the library's token and byte sorts, every collection sort and the sorts hooked to a library carrier (the rest of distinctSorts): a token's value is its literal, a collection's its entries or elements, a carrier's its carrier's value, by the builtin prose; no sentence of the text states it. For every H it holds in the value model of c.withHooks H (family_model_everyH). No companion: it reads no interpretation; a model of Γ without it is not built" }
+      guard := [.decl ``KCore.Guards.Fam.family_model_everyH, .decl ``KCore.Faithful.Model.sat_distinct,
+        .decl ``KCore.Semantics.sortOf_withHooks_rawFree, .decl ``KCore.Semantics.sortOf_withHooks],
+      companion := [.test "test/GuardOpenGen.lean" "distinct_open_reached"],
+      invariant := [``KCore.Faithful.distinctSorts, ``KCore.Semantics.sortOf, ``KCore.Semantics.keepsRaw],
+      note := "distinct values of one sort denote distinct elements at the library's token and byte sorts, every collection sort and the sorts hooked to a library carrier (the rest of distinctSorts): a token's value is its literal, a collection's its entries or elements, a carrier's its carrier's value, by the builtin prose; no sentence of the text states it. For every H it holds in the value model of c.withHooks H (family_model_everyH). It reads the interpretation only through which terms are values of the sort (c.sortOf): a term that applies no open generator is a value of the same sort at every H (Semantics.sortOf_withHooks_rawFree), so where no parameter is an open generator no H separates the readings (Semantics.sortOf_withHooks); a collection one of whose elements applies an open generator is a value exactly where H leaves that application raw, and there the point is reached, on c3-ctor-assoc (distinct_open_reached): under the associative normal form, where Γ has a model, ListItem(inj(plus(.E, .E))) is a value of List and its distinctness from ListItem(inj(.E)) is a premise of Γ; under an H that answers .E at plus, where Γ has a model, it is no value and no model of Γ satisfies that item (the two lists denote one element), so the item stated whatever H would leave Γ without a model there; that H gives plus a value at every argument list (total_E). A model of Γ without the piece is not built" }
   | .domCollNoJunk =>
     { status := .guarded,
       guard := [.decl ``KCore.Guards.Fam.family_model_everyH, .decl ``KCore.Faithful.Model.sat_collNoJunk],
@@ -4674,9 +4684,10 @@ def gammaFamily : GammaFamily → GuardEntry
   | .fnEquations =>
     { status := .stated,
       guard := [.test "test/TieEns.lean" "fns_from_text", .test "test/TieKimp.lean" "fns_from_text",
+        .test "test/TieKkFns.lean" "fns_from_text", .test "test/TieKkOwise.lean" "ow_from_text",
         .test "test/TieKkFns.lean" "fns_positions"],
       invariant := [``KCore.Faithful.fnItems, ``KCore.Faithful.prioEquation],
-      note := "the function equations, each clause under the negations of the clauses of a smaller priority: per text each item is a consequence of the translated sentence at its index (fns_from_text; kore.k's 302 positions), kernel-checked, not pinned. The negations are the readings equationPriority and owiseAsPriority of the reading table" }
+      note := "the function equations, each clause under the negations of the clauses of a smaller priority: per text each item is a consequence of the translated sentence at its index (fns_from_text; on kore.k fns_from_text at 295 of the 302 positions and ow_from_text at the 7 others, the two lists being all 302 by fns_positions), kernel-checked, not pinned. The negations are the readings equationPriority and owiseAsPriority of the reading table" }
   | .ruleAxioms =>
     { status := .stated,
       guard := [.test "test/TieKimpRules.lean" "rules_from_text", .test "test/TieKkRules.lean" "rules_from_text",
