@@ -53,6 +53,9 @@
 #               (nothing is run as Lean)
 #   imp-tie-atvalues test/imp-tie-atvalues.sh: the files of that record that import the generated
 #               package (TieKimpAtValues, TieKimpRefuted, TieKimpReach), over its own build of it
+#   kk-tie      test/kk-tie.sh: the same of ref-kk's record (test/kk-tie.toml)
+#   kk-tie-atvalues test/kk-tie-atvalues.sh: the files of that record that import the generated
+#               package (TieKkAtValues, TieKkRefuted, TieKkCountEmpty), over its own build of it
 #   kk-kompile  test/kk-kompile.sh: the same of the command recorded for ref-kk's text, kore.k's
 #               kompiled KORE, and kore.k has the recorded SHA-256 (nothing is kompiled)
 #   member      test/member.sh: why each text is or is not tied, the frozen registry table
@@ -68,7 +71,7 @@
 #   test/X      every other test/*.lean checked by `lean`: the kompiled text per K construct and the
 #               library's small cores (not ReviewCone, which writes the committed cones, nor
 #               PrintNames, a command-line tool, nor TieKimpHints, a generator, nor the three files
-#               imp-tie-atvalues checks over the package, nor the pin files of the packages:
+#               imp-tie-atvalues checks over the package and the three kk-tie-atvalues checks, nor the pin files of the packages:
 #               PinsPeano and PinsKimp, which the rows pins-peano and pins-kimp check, and PinsKk, which
 #               test/release.sh's pins-kk step checks), each with `#axioms_here` appended (axioms-tests)
 #
@@ -198,7 +201,7 @@ fi
 LP=$(lake env printenv LEAN_PATH)
 
 # native checks
-order="$order regen roundtrip corpus agree agree-kore-in-k imp-kompile imp-tie kk-kompile"
+order="$order regen roundtrip corpus agree agree-kore-in-k imp-kompile imp-tie kk-tie kk-kompile"
 check regen scoreboard test/regen.sh -j "$J"
 check roundtrip scoreboard test/roundtrip.sh
 check corpus scoreboard python3 -I test/corpus.py -j "$J" --expected test/corpus.expected
@@ -206,10 +209,11 @@ check agree scoreboard test/agree.sh
 check agree-kore-in-k scoreboard agreeKoreInK
 check imp-kompile scoreboard test/imp-kompile.sh
 check imp-tie scoreboard test/imp-tie.sh
+check kk-tie scoreboard test/kk-tie.sh
 check kk-kompile scoreboard test/kk-kompile.sh
 
 # Lean checks, the longest first
-order="$order pins pins-peano pins-kimp imp-tie-atvalues axioms witnesses cone member not-plain pred-sorted user cs2"
+order="$order pins pins-peano pins-kimp imp-tie-atvalues kk-tie-atvalues axioms witnesses cone member not-plain pred-sorted user cs2"
 testx=""
 while [ "$(jobs -rp | wc -l)" -ge "$J" ]; do wait -n; done
 { check user scoreboard userModules; check cs2 scoreboard cs2; } &
@@ -217,6 +221,7 @@ pool pred-sorted scoreboard predSorted
 pool pins-peano required test/pins-peano.sh
 pool pins-kimp required test/pins-kimp.sh
 pool imp-tie-atvalues scoreboard test/imp-tie-atvalues.sh
+pool kk-tie-atvalues scoreboard test/kk-tie-atvalues.sh
 pool member scoreboard test/member.sh
 pool not-plain scoreboard test/not-plain.sh
 pool pins required lean1 test/Pins.lean
@@ -225,7 +230,7 @@ pool witnesses required lean1 test/Witnesses.lean
 pool cone required cone
 for f in test/*.lean; do
   case $(basename "$f" .lean) in
-    Pins|PinsPeano|PinsKimp|PinsKk|Axioms|Witnesses|ConeV|ReviewCone|PrintNames|Member|PredSorted|TieKimpHints|TieKimpAtValues|TieKimpRefuted|TieKimpReach) continue;;
+    Pins|PinsPeano|PinsKimp|PinsKk|Axioms|Witnesses|ConeV|ReviewCone|PrintNames|Member|PredSorted|TieKimpHints|TieKimpAtValues|TieKimpRefuted|TieKimpReach|TieKkAtValues|TieKkRefuted|TieKkCountEmpty) continue;;
   esac
   order="$order ${f%.lean}"; testx="$testx ${f%.lean}"
   pool "${f%.lean}" scoreboard leanAx "$f"
