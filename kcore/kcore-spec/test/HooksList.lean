@@ -939,6 +939,31 @@ theorem stOff_ok : stOff.all (fun p => stRows.contains (p.f, p.name) && (sig p.f
     hook p.f (p.xs.map A.val) == some none && silent p.f (p.xs.map A.val)) = true := by
   decide +kernel
 
+/-- At every point of `stOff`, in the semantics `cU`: the symbol's signature, its arguments of the
+argument sorts, no value of `hook`, a silent point, and `.List` a value of the result sort. -/
+theorem stOff_cU : stOff.all (fun p => lookupSig hookSigs p.f == some (sig p.f) &&
+    cU.sortsOf (p.xs.map A.val) == some (sig p.f).args && hook p.f (p.xs.map A.val) == some none &&
+    silent p.f (p.xs.map A.val) && cU.sortOf p.v.val == some (sig p.f).result) = true := by
+  decide +kernel
+
+/-- **Γ determines none of the off-range points of the four**: over all interpretations it entails
+neither that the application has no value nor that it is `.List` (the `param_undetermined` shape,
+by the schema `undetermined`, in the semantics `cU`). -/
+theorem stOff_undetermined : ∀ p ∈ stOff,
+    ¬ (∀ H : HookParams, Γ (cU.withHooks H) ⊧ (appP (cU.withHooks H) (sig p.f) (p.xs.map A.val) ≡ ⊥)) ∧
+    ¬ (∀ H : HookParams, Γ (cU.withHooks H) ⊧
+      (appP (cU.withHooks H) (sig p.f) (p.xs.map A.val) ≡ den (cU.withHooks H) p.v.val)) := by
+  intro p hp
+  have h := List.all_eq_true.mp stOff_cU p hp
+  simp only [Bool.and_eq_true, beq_iff_eq] at h
+  obtain ⟨⟨⟨⟨hks, hvs⟩, hh⟩, hs⟩, hv⟩ := h
+  have hname : (sig p.f).name = p.f := (lookupSig_spec hks).2
+  exact undetermined cU cU_coreOK cU_noRaw (by rw [hname]; exact hks) hvs (by rw [hname]; exact hh)
+    (by rw [hname]; exact hs) hv (fnHypU _) (fnHypU _)
+
+/-- info: 'KCore.HooksListTest.stOff_undetermined' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms stOff_undetermined
+
 /-- `HookParams.lib` (LibAdmitted.lean) gives none of the four a value at any point, as it gave
 none while they were parameter symbols: the values above are `hook`'s, at points where it gave
 none, and off range it gives none still. -/

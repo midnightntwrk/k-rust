@@ -81,6 +81,11 @@
   exponentiation `^Int` of two integers" (DOM 1228). At `b ≥ 0` the one value is `a` to the power
   `b` (`pow_at`, `pow_gamma`, `powVals`); at `b < 0` the sentence names no integer and writes no
   `#False`, so `hook` gives none and the point is silent (`pow_neg`, `2 ^Int -1` among them).
+
+  The two silent regions (a negative exponent of `^Int`; of `^%Int` off a zero modulus) have the
+  `param_undetermined` shape at the points `powOpens`, in the semantics `cU`
+  (`powOpens_undetermined`): the statement of step 2 for these two rows, which step 2 above, about
+  the sixteen rows of `intRows`, does not cover.
 -/
 import KcoreSpec
 
@@ -1110,5 +1115,138 @@ theorem lib_pow_none (vs : List GroundTerm) : HookParams.lib.app intPow vs = non
 
 /-- info: 'KCore.HooksIntTest.int_only' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms int_only
+
+/-! ## The silent points of `^Int` and `^%Int` have the `param_undetermined` shape
+
+At a negative exponent (for `^%Int`, off a zero modulus) the prose names no value and writes no
+`#False` (`pow_neg`, `powmod_silent`): the region is unstated, and Γ states there the
+interpretation's value. So over all interpretations Γ entails neither that the application has no
+value nor that it is a given integer. -/
+
+/-- The interpretation that gives `v` everywhere. -/
+def constH (v : GroundTerm) : HookParams := ⟨fun _ _ => some v⟩
+
+/-- At a silent point, `Γ (c.withHooks H)` holds the fallback's graph. -/
+theorem gamma_fallback (c : Semantics) (H : HookParams) {k : CtorSig}
+    (hks : lookupSig hookSigs k.name = some k) {vs : List GroundTerm}
+    (hvs : (c.withHooks H).sortsOf vs = some k.args) (hh : hook k.name vs = some none) (hs : silent k.name vs = true) :
+    Γ (c.withHooks H) (appP (c.withHooks H) k vs ≡ (match (c.withHooks H).fallback k.name vs with
+      | some v => den (c.withHooks H) v
+      | none => ⊥)) :=
+  Or.inr (Or.inl ⟨k, vs, (lookupSig_spec hks).1, hvs, hh, hs, rfl⟩)
+
+theorem fallback_none (c : Semantics) (k : CtorSig) (vs : List GroundTerm) :
+    (c.withHooks HookParams.none).fallback k.name vs = none := by
+  unfold Semantics.fallback; split <;> rfl
+
+theorem fallback_const (c : Semantics) (hr : ∀ k ∈ c.params, k.raw = false) {k : CtorSig}
+    (hks : lookupSig hookSigs k.name = some k) (vs : List GroundTerm) {v : GroundTerm}
+    (hv : c.sortOf v = some k.result) : (c.withHooks (constH v)).fallback k.name vs = some v := by
+  unfold Semantics.fallback; rw [hks, Semantics.sortOf_withHooks c _ hr]
+  simp [Semantics.withHooks, constH, Option.filter, hv]
+
+/-- **The `param_undetermined` shape at a silent point** (the schema `undetermined` of
+test/SilentPoints.lean). Over all interpretations, Γ entails neither that the application has no
+value nor that it is `v`: under `HookParams.none` it is ⊥ in every model, under `constH v` it is `v`
+in every model, and both theories have models (`sound_hyp`). -/
+theorem undetermined (c : Semantics) (hok : c.coreOK = true) (hr : ∀ k ∈ c.params, k.raw = false)
+    {k : CtorSig}
+    (hks : lookupSig hookSigs k.name = some k) {vs : List GroundTerm}
+    (hvs : c.sortsOf vs = some k.args) (hh : hook k.name vs = some none) (hs : silent k.name vs = true)
+    {v : GroundTerm} (hv : c.sortOf v = some k.result)
+    (hfn₀ : FnHyp (c.withHooks HookParams.none)) (hfnv : FnHyp (c.withHooks (constH v))) :
+    ¬ (∀ H : HookParams, Γ (c.withHooks H) ⊧ (appP (c.withHooks H) k vs ≡ ⊥)) ∧
+    ¬ (∀ H : HookParams, Γ (c.withHooks H) ⊧ (appP (c.withHooks H) k vs ≡ den (c.withHooks H) v)) := by
+  constructor
+  · -- under `constH v` the application is `v`'s element, so not ⊥
+    intro hall
+    obtain ⟨M, _, I, hI⟩ := (sound_hyp (c.withHooks (constH v)) ((Semantics.coreOK_withHooks c _).trans hok) hfnv).1
+    have hIΓ : I ⊧ᴵP Γ (c.withHooks (constH v)) := fun φ h => hI φ (Or.inl (Or.inl h))
+    have hD := defOK hIΓ
+    have hfb := hIΓ _ (gamma_fallback c (constH v) hks (by rw [Semantics.sortsOf_withHooks c _ hr]; exact hvs) hh hs)
+    rw [fallback_const c hr hks vs hv] at hfb
+    have hbot := hall (constH v) hIΓ
+    obtain ⟨a, ha, -⟩ := den_single hIΓ (c := c.withHooks (constH v))
+      (by rw [Semantics.sortOf_withHooks c _ hr]; exact hv) KoreAML.val0
+    have h1 := (KoreAML.interp_equal hD).mp (hfb KoreAML.val0 default) a
+    have h2 := (KoreAML.interp_equal hD).mp (hbot KoreAML.val0 default) a
+    exact absurd ((h2.mp (h1.mpr ((ha a).mpr rfl)))) (by simp [Pattern.interpret])
+  · -- under `HookParams.none` the application is ⊥, so not `v`
+    intro hall
+    obtain ⟨M, _, I, hI⟩ := (sound_hyp (c.withHooks HookParams.none) ((Semantics.coreOK_withHooks c _).trans hok) hfn₀).1
+    have hIΓ : I ⊧ᴵP Γ (c.withHooks HookParams.none) := fun φ h => hI φ (Or.inl (Or.inl h))
+    have hD := defOK hIΓ
+    have hfb := hIΓ _ (gamma_fallback c HookParams.none hks (by rw [Semantics.sortsOf_withHooks c _ hr]; exact hvs) hh hs)
+    rw [fallback_none c k vs] at hfb
+    have hval := hall HookParams.none hIΓ
+    obtain ⟨a, ha, -⟩ := den_single hIΓ (c := c.withHooks HookParams.none)
+      (by rw [Semantics.sortOf_withHooks c _ hr]; exact hv) KoreAML.val0
+    have h1 := (KoreAML.interp_equal hD).mp (hfb KoreAML.val0 default) a
+    have h2 := (KoreAML.interp_equal hD).mp (hval KoreAML.val0 default) a
+    exact absurd (h1.mp (h2.mpr ((ha a).mpr rfl))) (by simp [Pattern.interpret])
+
+/-- A semantics with `coreOK`, Int below KItem, the configuration `<k> K </k>` with the generated
+counter, and no function (the cells as in ModelSetIdemWitness.lean). -/
+def cU : Semantics :=
+  { lib := { sortsBelowKItem := [Srt.int] }
+    sortNames := ["KCell", "KCellOpt"]
+    symNames := ["LblisKCell", "LblisKCellOpt", "Lbl'-LT-'k'-GT-'", "LblnoKCell"]
+    userSorts := [Srt.top, Srt.topFrag, nRegSorts, nRegSorts + 1, Srt.counter, Srt.counterOpt]
+    ctors := [⟨topLabel, [nRegSorts, Srt.counter], Srt.top⟩, ⟨topFragLabel, [nRegSorts + 1, Srt.counterOpt], Srt.topFrag⟩,
+      ⟨nRegSyms + 2, [Srt.k], nRegSorts⟩, ⟨nRegSyms + 3, [], nRegSorts + 1⟩,
+      ⟨counterLabel, [Srt.int], Srt.counter⟩, ⟨noCounter, [], Srt.counterOpt⟩]
+    fns := []
+    userSubsorts := [(nRegSorts, nRegSorts + 1), (Srt.counter, Srt.counterOpt)]
+    pgmSort := Srt.k
+    rules := [] }
+
+instance : OvlOK cU := .of_nil rfl (by decide +kernel)
+
+theorem cU_coreOK : cU.coreOK = true := by decide_cheap
+
+theorem cU_noRaw : ∀ k ∈ cU.params, k.raw = false := by decide +kernel
+
+theorem fnHypU (H : HookParams) : FnHyp (cU.withHooks H) := by
+  have h : (cU.withHooks H).fns = [] := rfl
+  have hrc : (cU.withHooks H).readsConfined = false :=
+    (Semantics.readsConfined_withHooks cU H).trans (by decide +kernel)
+  refine ⟨?_, ?_, ?_, ?_, openDecided_of_readsConfined hrc, openLaws_of_plain (c := cU.withHooks H) cU_noRaw⟩ <;> intro fn hfn <;> rw [h] at hfn <;>
+    exact absurd hfn List.not_mem_nil
+
+/-- Points of the two regions; the value component is an integer, a value of the result sort:
+`2 ^Int -1`, `0 ^Int -3`; `2 ^%Int -1 5`, `-2 ^%Int -3 -4`. -/
+def powOpens : List (Sym × List Int × Int) :=
+  [(intPow, [2, -1], 0), (intPow, [0, -3], 1), (intPowMod, [2, -1, 5], 0), (intPowMod, [-2, -3, -4], 1)]
+
+/-- At every point, in the semantics `cU`: the symbol's signature, its arguments of the argument
+sorts, no value of `hook`, a silent point, and the value component of the result sort. -/
+theorem powOpens_ok : powOpens.all (fun p => lookupSig hookSigs p.1 == some (sig p.1) &&
+    cU.sortsOf (p.2.1.map int) == some (sig p.1).args && hook p.1 (p.2.1.map int) == some none &&
+    silent p.1 (p.2.1.map int) && cU.sortOf (int p.2.2) == some (sig p.1).result) = true := by
+  decide +kernel
+
+/-- The points lie in the regions: a negative exponent, and for `^%Int` a modulus other than 0. -/
+theorem powOpens_regions : powOpens.all (fun p => match p.2.1 with
+    | [_, b] => p.1 == intPow && decide (b < 0)
+    | [_, b, m] => p.1 == intPowMod && decide (b < 0) && decide (m ≠ 0)
+    | _ => false) = true := by
+  decide +kernel
+
+/-- **Γ determines none of the points**: over all interpretations it entails neither that the
+application has no value nor that it is the point's integer. -/
+theorem powOpens_undetermined : ∀ p ∈ powOpens,
+    ¬ (∀ H : HookParams, Γ (cU.withHooks H) ⊧ (appP (cU.withHooks H) (sig p.1) (p.2.1.map int) ≡ ⊥)) ∧
+    ¬ (∀ H : HookParams, Γ (cU.withHooks H) ⊧
+      (appP (cU.withHooks H) (sig p.1) (p.2.1.map int) ≡ den (cU.withHooks H) (int p.2.2))) := by
+  intro p hp
+  have h := List.all_eq_true.mp powOpens_ok p hp
+  simp only [Bool.and_eq_true, beq_iff_eq] at h
+  obtain ⟨⟨⟨⟨hks, hvs⟩, hh⟩, hs⟩, hv⟩ := h
+  have hname : (sig p.1).name = p.1 := (lookupSig_spec hks).2
+  exact undetermined cU cU_coreOK cU_noRaw (by rw [hname]; exact hks) hvs (by rw [hname]; exact hh)
+    (by rw [hname]; exact hs) hv (fnHypU _) (fnHypU _)
+
+/-- info: 'KCore.HooksIntTest.powOpens_undetermined' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms powOpens_undetermined
 
 end KCore.HooksIntTest

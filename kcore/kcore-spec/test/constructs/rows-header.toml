@@ -65,6 +65,13 @@
 #             coreOK: the conjuncts of coreOK (as KcoreGen.coreParts names them) that the line
 #             `coreOK: false; failing: [...]` of the fixture's account.txt prints; test/constructs/rest.py
 #             accepts it in place of a RefusalReason where it equals that list as a set.
+#   A refused entry whose `reasons` name a RefusalReason quotes, between back quotes in evidence,
+#             reader_today, refused_by, place, note, reason or reader_reason, a line that a fixture of
+#             its own prints with that reason in account.txt (a refusal line `sentence N (SYMBOL): R
+#             (detail)`, a class line `N refused R [origin]`, a count line): the line from its start,
+#             whole or a prefix holding the reason's name, or from the reason's name into its detail,
+#             an ellipsis (…) standing for any text. The reason's name alone quotes no line
+#             (test/constructs/rest.py; DONE-0 C2: the account prints exactly the named reason).
 # First written by test/constructs/seed-rows.py (its docstring states how each status was carried).
 # Then test/constructs/apply-triage.py applies findings/TRIAGE-*.toml, copying each decision's fields
 # as written (names made one vocabulary; its docstring gives the renaming). Fields it adds:

@@ -128,9 +128,17 @@ The evidence forms (DONE-0 C2's table), by status and list, and the items each n
       test/constructs/e4e5.py's parse of the text when that module exists, else by `sentence`;
       with `node_sentence`, the sentence of the fixture's cached kompiled definition whose first
       line contains it holds the node (e4e5.py)
-  supported hook (E6, key hook:)
-      derived      a `derived` table of form (a) (the in-domain value; FIX-core.rows-evidence names
-                   the hook's three statements there)
+  supported hook (E6, key hook:): the hook's three statements (DONE-0 C2)
+      derived      a `derived` table of form (a): the in-domain value
+      silent       on the row itself, unless it is a hooked sort (the key's last part starts with
+                   Sort: no argument list): `silent_statement`, a non-empty list of tables
+                   { theorem, file }: the silent predicate is the region the prose excludes or
+                   leaves unstated, or the hook is no key of silentTable and the prose covers every
+                   argument list (test/provenance.sh checks the statements)
+      region       on the row of a key of silentTable (test/constructs/silentkeys.py): a `derived`
+                   table of form (c), the param_undetermined shape at a point of that region
+      A table nested in the row whose fixture's reading implements the symbol by the hook needs
+      the form (a) table only: the three statements are the row's.
   supported function of the text (a table nested in an E6 `hook:` row, whose fixture's reading
   takes the row's symbol for no hook: the fixture's params.txt, the `param` lines of `kcore
   sem-fields`, lists no parameter implemented by it, `impl=SYMBOL` with SYMBOL the key's last part;
@@ -214,7 +222,14 @@ The evidence forms (DONE-0 C2's table), by status and list, and the items each n
   refused
       reasons      `reasons` holds RefusalReason.X items; or `core_failing` (below) in their place
       account      a fixture of the entry (`fixture`, `also_fixtures`) whose account prints each of
-                   them (a refusal line or a class line, as closed.py reads accounts); or, for an
+                   them (a refusal line or a class line, as closed.py reads accounts), and, for
+                   each, a line of such an account that prints it and that the entry quotes between
+                   back quotes in evidence, reader_today, refused_by, place, note, reason or
+                   reader_reason: the line from its start (whole, or a prefix of it holding the
+                   reason's name), or from the reason's name, where the line writes it after
+                   `): `, into its detail; an ellipsis (…) in the quotation stands for any text; the
+                   reason's name alone quotes no line (DONE-0 C2: the account prints exactly the
+                   named reason, on the sentence the entry says); or, for an
                    entry kompile refuses (unit "none (scope): rejected", or class R-b with an error
                    fixture), its fixture is an error fixture (fixture.toml expect = "error") and
                    `reasons` is not needed; or, for an option that writes no definition (unit
@@ -417,6 +432,7 @@ class Fixtures:
         self.ctors = constructors()
         self.core_parts = core_part_names()
         self.rows = rows
+        self._silent = None
 
     def check_absent(self, e):
         """Form S of an erased entry (kfix.check_absent: the scan of the texts in scope)."""
@@ -485,6 +501,20 @@ class Fixtures:
                 self._acc[name] = (names, refusals, clean)
         return self._acc[name]
 
+    def silent_key(self, key):
+        """Whether the E6 row `key` is the row of a key of silentTable (silentkeys.py reads the keys
+        from the sources, as test/provenance.sh does)."""
+        if self._silent is None:
+            import silentkeys
+            _, hook, kore = silentkeys.key_names()
+            self._silent = (silentkeys, hook, kore)
+        sk, hook, kore = self._silent
+        return sk.keyed(key, hook, kore)
+
+    def account_lines(self, name):
+        """The lines of the fixture's account.txt, stripped (empty without one)."""
+        return [ln.strip() for ln in (self.read(name, "account.txt") or "").splitlines()]
+
     def core_failing(self, name):
         """The conjuncts of coreOK the account prints as failing (its line `coreOK: B; failing:
         [...]`, an empty list where B is true), or None without account.txt or that line."""
@@ -540,6 +570,45 @@ CLASSLINE = re.compile(r"^\s+(\d+) (refused|inert|unread|read) (\w+) \[", re.M)
 REFUSAL = re.compile(r"(?:sentence \d+|the module) \(.*?\): (\w+)(?: \(.*\))?$", re.M)
 COUNTED = [("sentences the library's data induces that the text does not hold: ", "builtinIncomplete"),
            ("library sentences of the modules held that the text does not hold: ", "builtinIncomplete")]
+
+
+# The fields of an entry whose back-quoted strings are read as quotations of an account's lines.
+QUOTE_FIELDS = ("evidence", "reader_today", "refused_by", "place", "note", "reason", "reader_reason")
+
+
+def quoted(e):
+    """The strings an entry writes between back quotes in QUOTE_FIELDS."""
+    return [q.strip() for f in QUOTE_FIELDS if isinstance(e.get(f), str) for q in re.findall(r"`([^`]+)`", e[f])]
+
+
+def reason_lines(lines, r):
+    """The lines of an account (stripped) that print the refusal reason r: those holding its name as
+    a word (a refusal line `sentence N (SYMBOL): r (detail)`, its `finish:` copy, a class line
+    `N refused r [origin]`, a count line `N r`), and a COUNTED line of r with a count above 0."""
+    word = re.compile(r"(?<!\w)" + re.escape(r) + r"(?!\w)")
+    return [L for L in lines if word.search(L)
+            or any(c == r and re.match(re.escape(start) + r"[1-9]", L) for start, c in COUNTED)]
+
+
+def quote_is_line(q, r, L):
+    """Whether the quotation q is of the account line L, which prints the reason r: q, an ellipsis
+    (…) in it standing for any text, is L from its start (L whole or a prefix of it), or starts
+    at the reason's name where L writes it after `): ` and goes on into its detail. The reason's name
+    alone quotes no line. A COUNTED line does not write the name: q is then L from its start, with
+    its count."""
+    if not q or q == r:
+        return False
+    counted = [start for start, c in COUNTED if c == r and L.startswith(start)]
+    named = re.search(r"(?<!\w)" + re.escape(r) + r"(?!\w)", q)
+    if not named and not (counted and re.match(re.escape(counted[0]) + r"[1-9]", q)):
+        return False
+    m = re.match(".*".join(re.escape(part) for part in q.split("…")), L)
+    if m:
+        return True
+    if not q.startswith(r):
+        return False
+    at = L.find("): " + r)
+    return at >= 0 and bool(re.match(".*".join(re.escape(part) for part in q.split("…")), L[at + 3:]))
 
 
 def core_part_names():
@@ -1262,6 +1331,23 @@ def evidence(fx, l, key, e, row):
         ok = any(isinstance(e.get(x), str) and e[x].strip() for x in fields)
         item(ok, "reason", "reason sentence")
 
+    def hook_statements():
+        """The second and third statements of a supported `hook:` row (DONE-0 C2; the first is its
+        form (a) table). A hooked sort has no argument list, so no region and no silent predicate."""
+        if key.split(":", 2)[-1].startswith("Sort"):
+            have.append("a hooked sort (no argument list: no region, no silent predicate)"); return
+        ss = e.get("silent_statement")
+        ok = isinstance(ss, list) and bool(ss) and all(
+            isinstance(d, dict) and isinstance(d.get("theorem"), str) and isinstance(d.get("file"), str) for d in ss)
+        item(ok, f"silent_statement ({len(ss) if ok else 0})",
+             "silent_statement (the hook's third statement: its silent predicate is the region the prose leaves"
+             " unstated, or it is no key of silentTable and the prose covers every argument list)")
+        if fx.silent_key(key):
+            got = [d for d in (e.get("derived") or []) if isinstance(d, dict) and d.get("form") == "c"]
+            item(bool(got), f"derived form c ({len(got)}: a key of silentTable)",
+                 "derived of form c (a key of silentTable: the param_undetermined shape at a point of the region"
+                 " the prose excludes or leaves unstated, the hook's second statement)")
+
     if f is None:
         return have, miss
     if f == PREMISE_FORM:
@@ -1284,6 +1370,8 @@ def evidence(fx, l, key, e, row):
         uncovered_items(fx, e, own, have, miss)
     elif f == "supported hook":
         derived(["a"])
+        if e is row:
+            hook_statements()
     elif f == "supported function of the text":
         x = fixture_items(True); ties()
         nodir_items(fx, e, x, have, miss)
@@ -1397,6 +1485,14 @@ def evidence(fx, l, key, e, row):
                      f"account prints {', '.join(rs)} ({', '.join(x for x, _ in accs)} print "
                      + (", ".join(sorted(set().union(*[a[1] for _, a in accs]))) or "no refusal") + ")")
                 fresh_of += hit[:1]
+                if hit:
+                    quotes = quoted(e)
+                    for r in rs:
+                        ln = next(((x, L) for x in hit for L in reason_lines(fx.account_lines(x), r)
+                                   if any(quote_is_line(q, r, L) for q in quotes)), None)
+                        item(ln is not None, f"account line of {r} quoted ({ln[0] if ln else ''})",
+                             f"account line of {r}: the entry quotes (between back quotes, in "
+                             + ", ".join(QUOTE_FIELDS) + f") no line that {', '.join(hit)}'s account prints with it")
             if cf is not None and not scope:
                 names = cf if isinstance(cf, list) and all(isinstance(x, str) for x in cf) else None
                 bad = [x for x in (names or []) if x not in fx.core_parts]
@@ -2096,6 +2192,7 @@ def self_test():
         fx.check_other = lambda e, own: kfix.check_other(e, own, read=fx.read, full_text=lambda x: defn)
         tie = "test/C3EqReqEns.lean"
         thm = {"form": "a", "theorem": "KCore.C3EqReqEns.f_5", "file": tie}
+        sil = {"theorem": "KCore.C3EqReqEns.f_5", "file": tie}
         bad_forms = []
         for name, conf in (("cmp", 'differs_from = "ok"\n'), ("e1-module", ""), ("e2-rule", ""), ("opt", 'differs_from = "e8-ref"\n')):
             os.makedirs(os.path.join(fxd, name))
@@ -2307,7 +2404,26 @@ def self_test():
             ("E2", "A", {"status": "supported", "fixture": "ok", "tie": [tie], "derived": [dict(thm, form="r",
                          kind="sentence against the reading", consistent="KCore.C3EqReqEns.no_such_theorem")]}, False),
             ("E2", "A", {"status": "refused", "fixture": "bad", "reasons": ["RefusalReason.setVariable"],
-                         "reason": "r"}, True),
+                         "reason": "r", "evidence": "account.txt: `sentence 7 (Lblf): setVariable (VarS: in the requires)`"}, True),
+            # the account's line, quoted: whole, a prefix, from the reason into its detail, with an
+            # ellipsis; not the reason's name alone, another sentence's line, another detail, or no
+            # quotation
+            ("E2", "A", {"status": "refused", "fixture": "bad", "reasons": ["RefusalReason.setVariable"],
+                         "reason": "r", "note": "`sentence 7 (Lblf): setVariable`"}, True),
+            ("E2", "A", {"status": "refused", "fixture": "bad", "reasons": ["RefusalReason.setVariable"],
+                         "reason": "r", "refused_by": "`setVariable (VarS: in the`"}, True),
+            ("E2", "A", {"status": "refused", "fixture": "bad", "reasons": ["RefusalReason.setVariable"],
+                         "reason": "r", "evidence": "`sentence 7 (Lblf): setVariable (VarS: …)`"}, True),
+            ("E2", "A", {"status": "refused", "fixture": "bad", "reasons": ["RefusalReason.setVariable"],
+                         "reason": "r"}, False),
+            ("E2", "A", {"status": "refused", "fixture": "bad", "reasons": ["RefusalReason.setVariable"],
+                         "reason": "r", "evidence": "`setVariable`"}, False),
+            ("E2", "A", {"status": "refused", "fixture": "bad", "reasons": ["RefusalReason.setVariable"],
+                         "reason": "r", "evidence": "`sentence 8 (Lblf): setVariable (VarS: in the requires)`"}, False),
+            ("E2", "A", {"status": "refused", "fixture": "bad", "reasons": ["RefusalReason.setVariable"],
+                         "reason": "r", "evidence": "`setVariable (VarT`"}, False),
+            ("E2", "A", {"status": "refused", "fixture": "bad", "reasons": ["RefusalReason.setVariable"],
+                         "reason": "r", "evidence": "sentence 7 (Lblf): setVariable (VarS: in the requires)"}, False),
             ("E2", "A", {"status": "refused", "fixture": "bad", "reasons": ["RefusalReason.ruleShape"],
                          "reason": "r"}, False),
             ("E2", "A", {"status": "refused", "fixture": "bad", "reasons": ["RefusalReason.setVariable"]}, False),
@@ -2329,7 +2445,8 @@ def self_test():
                          "reasons": ["RefusalReason.setVariable"], "reason": "r"}, False),
             ("E2", "A", {"status": "refused", "fixture": "bad", "also_fixtures": ["corefail"],
                          "core_failing": ["subsortsOK", "clauses sorted"],
-                         "reasons": ["RefusalReason.setVariable"], "reason": "r"}, True),
+                         "reasons": ["RefusalReason.setVariable"], "reason": "r",
+                         "evidence": "`sentence 7 (Lblf): setVariable (VarS: in the requires)`"}, True),
             ("E2", "A", {"status": "refused", "fixture": "err", "class": "R-b", "reason": "r"}, True),
             ("E2", "A", {"status": "refused", "fixture": "err", "class": "R-a", "reason": "r"}, False),
             ("E2", "A", {"status": "erased", "fixture": "eq"}, True),
@@ -2384,7 +2501,8 @@ def self_test():
                              "reasons": [SCOPE_OPTION], "reason": "r"}, True),
             # with the reader's refusal beside it: checked against the account
             ("E8", "--opt", {"status": "refused", "fixture": "optref", "class": "R-b",
-                             "reasons": [SCOPE_OPTION, "RefusalReason.setVariable"], "reason": "r"}, True),
+                             "reasons": [SCOPE_OPTION, "RefusalReason.setVariable"], "reason": "r",
+                             "evidence": "`sentence 7 (Lblf): setVariable (VarS: in the requires)`"}, True),
             ("E8", "--opt", {"status": "refused", "fixture": "optk", "class": "R-b",
                              "reasons": [SCOPE_OPTION, "RefusalReason.setVariable"], "reason": "r"}, False),
             # R-12's value of --backend; an option the command does not pass; no fixture; no reason
@@ -2434,7 +2552,8 @@ def self_test():
                          "also_fixtures": ["hwread"], "refused_by": "identityAlias", "reason": "r"}, False),
             # with a RefusalReason, a not-delivered entry is checked against the account as before
             ("E2", "A", {"status": "refused", "class": "scope", "unit": "none (scope): not delivered",
-                         "fixture": "hwref", "reasons": ["RefusalReason.setVariable"], "reason": "r"}, True),
+                         "fixture": "hwref", "reasons": ["RefusalReason.setVariable"], "reason": "r",
+                         "evidence": "`sentence 7 (Lblf): setVariable (VarS: in the requires)`"}, True),
             ("E2", "A", {"status": "inert", "fixture": "ok", "inert_class": "simplification", "tie": [tie],
                          "tie_theorems": ["KCore.C3EqReqEns.f_5"]}, True),
             ("E2", "A", {"status": "inert", "fixture": "ok", "inert_class": "claim", "tie": [tie],
@@ -2458,8 +2577,18 @@ def self_test():
             ("E6", "x", {"status": "parameter", "derived": [thm]}, False),
             ("E6", "x", {"status": "parameter", "derived": [{"form": "r", "theorem": "T", "file": tie}]}, True),
             ("E6", "x", {"status": "parameter", "derived": [{"form": "r", "theorem": "T", "file": tie}, thm]}, True),
-            ("E6", "hook:X", {"status": "supported", "derived": [thm]}, True),
-            ("E6", "hook:X", {"status": "supported"}, False),
+            # a hook's three statements: the value (form a), the silent statement, and, on the row
+            # of a key of silentTable (LIST.get), the param_undetermined instance (form c); a hooked
+            # sort has no argument list
+            ("E6", "hook:X", {"status": "supported", "derived": [thm], "silent_statement": [sil]}, True),
+            ("E6", "hook:X", {"status": "supported", "derived": [thm]}, False),
+            ("E6", "hook:X", {"status": "supported", "derived": [thm], "silent_statement": []}, False),
+            ("E6", "hook:X", {"status": "supported", "silent_statement": [sil]}, False),
+            ("E6", "hook:K.Foo:SortFoo", {"status": "supported", "derived": [thm]}, True),
+            ("E6", "hook:LIST.get:LblList'Coln'get", {"status": "supported", "derived": [thm, dict(sil, form="c")],
+                                                       "silent_statement": [sil]}, True),
+            ("E6", "hook:LIST.get:LblList'Coln'get", {"status": "supported", "derived": [thm],
+                                                       "silent_statement": [sil]}, False),
             ("E6", "symbol:X", {"status": "supported", "tie": [tie], "tie_theorems": ["KCore.C3EqReqEns.f_5"]}, True),
             ("E6", "axiom:X", {"status": "supported", "e6_tie": ["KCore.C3EqReqEns.f_5 (test/C3EqReqEns.lean; t axiom 3)"]}, True),
             ("E6", "axiom:X", {"status": "supported", "e6_tie": ["KCore.C3EqReqEns.nope (test/C3EqReqEns.lean; t axiom 3)"]}, False),
