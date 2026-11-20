@@ -21,7 +21,10 @@ The document holds, in this order:
              the refutation uses, the theorem, its kind where given, and `owed_refuted`. Such an
              entry's status cell in its list reads "STATUS (no model)", or "STATUS (no model; the
              reading has one)" where every such table is of kind "sentence against the reading" (Γ
-             has a model and refutes one sentence of the text as written).
+             has a model and refutes one sentence of the text as written). The mark is of the text
+             the sentences are: tables of a fixture that is not the entry's are marked apart, with
+             their fixtures named first, "STATUS (FIXTURE, FIXTURE: MARK)", so that an entry whose
+             own fixture has no such table is not marked as if it had.
   owed facts every entry (row or nested) with an `owed_state` (rows-header.toml: per fixture, the
              state of the CondDecided its account lists as owed, or a MatchIndependent proved on
              the text of a fixture of the same shape) or an `owed_refuted` (a refuted owed fact of
@@ -114,19 +117,34 @@ def no_model(e):
     return [d for d in ds if isinstance(d, dict) and d.get("form") == "r"] if isinstance(ds, list) else []
 
 
-def no_model_mark(e):
-    """The mark beside an entry's status: "no model", or "no model; the reading has one" where each of
-    its form (r) tables is of kind "sentence against the reading"; "" without one."""
-    ds = no_model(e)
-    if not ds:
-        return ""
-    return "no model; the reading has one" if all(d.get("kind") == AGAINST for d in ds) else "no model"
-
-
 def table_fixture(e, d):
     """The fixture whose text a `derived` table's sentences are: its own `fixture` (another
     fixture's text than the entry's, rows-header.toml), else the entry's."""
     return d.get("fixture") or e.get("fixture", "")
+
+
+def no_model_mark(e):
+    """The mark beside an entry's status, "" without a form (r) table. A mark is of one text: "no
+    model", or "no model; the reading has one" where each form (r) table of that text is of kind
+    "sentence against the reading". The tables of the entry's own fixture give the bare mark; those
+    of another fixture's text give "FIXTURE, ...: MARK", the fixtures of one mark together, so the
+    entry's own fixture is not said to have what another text has."""
+    by = {}
+    for d in no_model(e):
+        by.setdefault(table_fixture(e, d), []).append(d)
+    marks = {}
+    for x, ds in by.items():
+        m = "no model; the reading has one" if all(d.get("kind") == AGAINST for d in ds) else "no model"
+        marks.setdefault(m, []).append(x)
+    own = e.get("fixture", "")
+    out = []
+    for m, xs in marks.items():
+        if own in xs:
+            out.append(m)
+        rest = [x for x in xs if x != own]
+        if rest:
+            out.append(", ".join(rest) + ": " + m)
+    return " / ".join(out)
 
 
 def owed_facts(e):
@@ -300,7 +318,9 @@ def generate(rows_path, manifest_path):
           "The entry's status is the reading's, and its list prints \"(no model)\" beside it. "
           f"Of kind \"{AGAINST}\": the reading has a model (`consistent`), and no model of it satisfies "
           "the first sentence named as written; the sentence-level statement stays owed "
-          "(`owed_statement`); its list prints \"(no model; the reading has one)\".", ""]
+          "(`owed_statement`); its list prints \"(no model; the reading has one)\". "
+          "A mark is of the text the sentences are: where that is another fixture's than the entry's, "
+          "the list names the fixture before the mark.", ""]
     if not nomodel:
         o += ["None."]
     else:
