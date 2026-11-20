@@ -31,6 +31,8 @@ Usage (from kcore-spec):
       of whose states is proved where no state ends `; no fixture of this shape has it proved:
       REASON` (rows-header.toml: why no fixture of the entry's shape has the fact proved), or where
       one does beside a proved state. Prints the entries by their best fixture (proved, else open, else false)
+      Then, where an entry carries `match_refuted` (rows-header.toml), one line naming those entries
+      and their fixtures (an owed MatchIndependent refuted on a text whose reading has a model)
   python3 -I test/constructs/rest.py --self-test
       the check on entries and fixtures written to a scratch directory, each accepted or refused
       as expected
@@ -92,6 +94,14 @@ The evidence forms (DONE-0 C2's table), by status and list, and the items each n
                    file of `tie`) and the `theorem` and `consistent` (form (r), kind "sentence
                    against the reading") of each `derived` table (declared in its `file`): at
                    least one, each declared
+      match refuted on an entry with `match_refuted` (rows-header.toml; any supported form, E6's
+                   aside, and on no other): each table names `fixture`, the entry's `fixture` or
+                   one of its `also_fixtures`, once, whose account prints `MatchIndependent open`;
+                   `owed_refuted` and `consistent`, declared in `file`, a file as `tie`'s above that
+                   reads the fixture's text (reads_own_text); no other field; and the entry has no
+                   form (r) table of that fixture other than of kind "sentence against the
+                   reading". provenance.sh checks the statements; check prints the records on a
+                   line of their own, and the entries stay in the headline count
       removed      on an entry with `removed` (the sentences an option removes from a reference
                    text; any status): the fixture's `differs_from` names the reference, and of the
                    texts f2-examples/REFERENCE.kompile.kore and f2-examples/FIXTURE.kompile.kore,
@@ -912,6 +922,85 @@ def uncovered_items(fx, e, own, have, miss):
                     " and no other file of `tie` reading that text declares a theorem the entry names")
 
 
+# An owed MatchIndependent refuted on a text whose reading has a model (rows-header.toml, field
+# match_refuted): the field, its tables' fields, and an account's line of a clause whose
+# MatchIndependent is owed (the package's match_named).
+MR_KEY = "match_refuted"
+MR_FIELDS = ("fixture", "owed_refuted", "consistent", "file")
+MATCH_OPEN = re.compile(r"^\s+(.+): MatchIndependent open\b", re.M)
+
+
+def match_refuted_tables(e):
+    """The tables of the entry's `match_refuted` (a table, or a non-empty list of tables), [] without
+    the field, None where it is neither."""
+    v = e.get(MR_KEY)
+    if v is None:
+        return []
+    if isinstance(v, dict):
+        return [v]
+    return v if isinstance(v, list) and v and all(isinstance(d, dict) for d in v) else None
+
+
+def match_refuted_items(fx, e, f, have, miss):
+    """On an entry with `match_refuted` (rows-header.toml): it is of a supported form (SUPPORTED_TIED),
+    and each table names a fixture of the entry (`fixture`, `also_fixtures`), once, whose account
+    prints `MatchIndependent open`; `owed_refuted`, `consistent` and `file` and no other field; `file` a
+    tie file (tie_file_ok) reading the fixture's text (reads_own_text) and declaring both theorems;
+    and no form (r) table of the entry, of the same fixture, other than of kind "sentence against
+    the reading" (a text without a model has no model of its reading). provenance.sh checks the
+    statements."""
+    ds = match_refuted_tables(e)
+    if ds is None:
+        miss.append(f"{MR_KEY} (not a table or a non-empty list of tables)"); return
+    if f not in SUPPORTED_TIED:
+        miss.append(f"{MR_KEY} on an entry of form {f!r} (it is the record of a supported entry)"); return
+    own = [x for x in [e.get("fixture")] + list(e.get("also_fixtures") or []) if isinstance(x, str)]
+    nomodel = {(d.get("fixture") or e.get("fixture")): d.get("theorem") for d in (e.get("derived") or [])
+               if isinstance(d, dict) and d.get("form") == "r" and d.get("kind") != "sentence against the reading"}
+    seen = set()
+    for k, d in enumerate(ds):
+        at = MR_KEY + (f"[{k}]" if len(ds) > 1 else "")
+        x, th, cs, fl = (d.get(n) for n in MR_FIELDS)
+        why = [f"no `{n}`" for n in MR_FIELDS if not (isinstance(d.get(n), str) and d[n].strip())]
+        why += [f"field `{n}` is none of {', '.join(MR_FIELDS)}" for n in d if n not in MR_FIELDS]
+        if isinstance(x, str) and x.strip():
+            if x not in own:
+                why.append(f"`fixture` {x} is not the entry's `fixture` or one of its `also_fixtures`")
+            elif not fx.exists(x):
+                why.append(f"no directory fixtures/{x}")
+            elif x in seen:
+                why.append(f"a second table for {x}")
+            elif not MATCH_OPEN.search(fx.read(x, "account.txt") or ""):
+                why.append(f"fixtures/{x}'s account prints no `MatchIndependent open` (no owed match independence)")
+            elif x in nomodel:
+                why.append(f"beside a form (r) table of {x} ({nomodel[x]}: its text has no model)")
+        if isinstance(fl, str) and fl.strip():
+            w = tie_file_ok(fl)
+            if w:
+                why.append(w)
+            else:
+                out = [n for n in (th, cs) if isinstance(n, str) and n.strip() and not declared(n, [fl])]
+                if out:
+                    why.append(f"{', '.join(out)} not declared in {fl}")
+                if isinstance(x, str) and x in own and fx.exists(x) and not reads_own_text(fl, x):
+                    why.append(f"{fl} does not read fixtures/{x}'s text")
+        if isinstance(x, str):
+            seen.add(x)
+        if why:
+            miss.append(f"{at} (" + "; ".join(why) + ")"); continue
+        have.append(f"owed match independence refuted, the reading has a model: {x} ({th}; {cs}, {fl})")
+
+
+def print_match_refuted(t):
+    """The entries recording an owed MatchIndependent refuted on a text with a model, on a line of
+    their own (nothing where none does); they stay in the headline count."""
+    rs = [(where, d.get("fixture")) for _, _, where, e, _ in entries(t) for d in (match_refuted_tables(e) or [])]
+    if rs:
+        print(f"match-refuted: {len({w for w, _ in rs})} entries record an owed MatchIndependent refuted on a text"
+              f" whose reading has a model (owed fact false; in the headline count), {len(rs)} tables: "
+              + "; ".join(f"{w} ({x})" for w, x in rs))
+
+
 def declared(name, files):
     """Whether the full name is declared in one of the files (a declaration's name may also be a
     suffix of it)."""
@@ -1265,6 +1354,8 @@ def evidence(fx, l, key, e, row):
         miss.append(f"a status ({f!r} is none of DONE-0 C2's five)")
     if "removed" in e:
         removed_items(fx, e, own, item, miss)
+    if MR_KEY in e:
+        match_refuted_items(fx, e, f, have, miss)
     return have, miss
 
 
@@ -1442,7 +1533,9 @@ def main(argv):
         print_list([r for r in res if not r[4]], fresh, opt["--list"])
     rc = print_check(res, fresh, report, opt.get("--out"))
     rc = print_reader_owed(t, gate) or rc
-    return print_owed_state(t, fx) or rc
+    rc = print_owed_state(t, fx) or rc
+    print_match_refuted(t)
+    return rc
 
 
 # ------------------------------------------------------------------------- inert of class attribute
@@ -2340,6 +2433,56 @@ def self_test():
             cases.append(("E6", key, e, want))
             if form("E6", key, e) != f:
                 bad_forms.append(f"{key} {v[:50]!r}: form {form('E6', key, e)!r}, expected {f!r}")
+        # match_refuted: e3-eq-exists-ml-in-or-int's clause, whose MatchIndependent its account names as
+        # owed and test/ExClauseFxInOrInt.lean refutes; the scratch fixture's account prints that
+        # line, and a `consistent` is added to that file's declarations here (the tie states it)
+        import contextlib, io
+        mrx, mrf = "e3-eq-exists-ml-in-or-int", "test/ExClauseFxInOrInt.lean"
+        mrn, mrc = "ExClauseFixtures.InOrInt.not_matchIndependent", "ExClauseFixtures.InOrInt.consistent"
+        mi = "      function f, clause 0 at e3-eq-exists-ml-in-or-int.k:4: MatchIndependent open, existential Var'Hash'Or0:Int\n"
+        for name, acc in ((mrx, clean + mi), ("mr-closed", clean), ("mr-other", clean + mi)):
+            os.makedirs(os.path.join(fxd, name))
+            for f_, c_ in (("account.txt", acc), ("kompile.txt", "exit 0\n"), ("kore.txt", "Lblf{}(VarX:SortInt{})\n")):
+                open(os.path.join(fxd, name, f_), "w").write(c_)
+        _decls[mrf] = (file_decls(mrf) or set()) | {mrc}
+        mrt = {"fixture": mrx, "owed_refuted": mrn, "consistent": mrc, "file": mrf}
+        mrw = lambda **kw: {k: v for k, v in dict(mrt, **kw).items() if v is not None}
+        mre = lambda mr=None, **kw: dict({"status": "supported", "fixture": mrx, "tie": [mrf], "tie_theorems": [mrn]},
+                                         **({MR_KEY: mr} if mr is not None else {}), **kw)
+        mrd = lambda **kw: dict({"form": "r", "sentences": [348], "family": "ΓDomains", "theorem": mrn, "file": mrf}, **kw)
+        mrcases = [  # (entry, the substring of its one failure, or None where accepted)
+            (mre(), None),
+            (mre(mrt), None),
+            (mre([mrt]), None),
+            (mre([mrt, mrw(fixture="mr-other")], also_fixtures=["mr-other"]), "does not read fixtures/mr-other's text"),
+            (mre([]), "not a table or a non-empty list"),
+            (mre("x"), "not a table or a non-empty list"),
+            (mre(mrw(consistent=None)), "no `consistent`"),
+            (mre(mrw(file=None)), "no `file`"),
+            (mre(mrw(extra="x")), "field `extra` is none of"),
+            (mre(mrw(fixture="mr-other")), "is not the entry's `fixture` or one of its `also_fixtures`"),
+            (mre([mrt, mrt]), "a second table for e3-eq-exists-ml-in-or-int"),
+            (mre(mrw(fixture="mr-closed"), fixture="mr-closed"), "prints no `MatchIndependent open`"),
+            (mre(mrw(consistent="ExClauseFixtures.InOrInt.no_such")), "no_such not declared in"),
+            (mre(mrw(file="test/NoSuch.lean")), "test/NoSuch.lean does not exist"),
+            (mre(mrt, derived=[mrd()]), "beside a form (r) table of e3-eq-exists-ml-in-or-int"),
+            (mre(mrt, derived=[mrd(kind="sentence against the reading", consistent=mrc)]), None),
+            (mre(mrt, derived=[mrd(fixture="mr-other")], also_fixtures=["mr-other"]), None),
+        ]
+        for i, (e, want) in enumerate(mrcases):
+            _, miss = evidence(fx, "E3", "A", e, e)
+            if want is None and miss or want is not None and not (len(miss) == 1 and want in miss[0]):
+                bad_forms.append(f"match_refuted case {i}: missing {miss}, expected " + (repr(want) if want else "none"))
+        _, miss = evidence(fx, "E2", "A", {"status": "inert", "inert_class": "attribute", MR_KEY: mrt}, {})
+        if not any(m.startswith(MR_KEY + " on an entry of form") for m in miss):
+            bad_forms.append(f"match_refuted on an inert entry: missing {miss}, expected the field refused")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            print_match_refuted({"E3": {"R": {"status": "supported", "cases": [mre(mrt), mre()]}, "S": mre([mrt])}})
+            print_match_refuted({"E3": {"S": mre()}})
+        if not out.getvalue().startswith("match-refuted: 2 entries") or out.getvalue().count("\n") != 1 \
+                or "E3 'R' cases[0] (e3-eq-exists-ml-in-or-int)" not in out.getvalue():
+            bad_forms.append(f"print_match_refuted: printed {out.getvalue()!r}")
         bad = list(bad_forms)
         for i, (l, key, e, want) in enumerate(cases):
             have, miss = evidence(fx, l, key, e, e)
@@ -2478,7 +2621,7 @@ def self_test():
         for b in bad:
             print(f"rest self-test: FAILS: {b}")
         print(f"rest self-test: {len(cases)} entries, {len(ncases)} nested in a hook: row, the core predicate and"
-              f" {len(ocases)} owed_state tables,"
+              f" {len(ocases)} owed_state tables, {len(mrcases) + 2} match_refuted cases,"
               f" {len(bad)} failing")
         return 1 if bad else 0
     finally:

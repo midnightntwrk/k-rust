@@ -371,6 +371,38 @@
 #             statements; the groups open and false are counted apart), and lists every false or open
 #             owed fact with its fixture and its entry's group: a fixture with a false owed fact is a
 #             recorded limit of the hypothesis.
+# Field of an owed MatchIndependent refuted on a text whose theory has a model (outside form (r); checked
+# by test/constructs/rest.py check and test/provenance.sh; findings/work/decision-ce-disagree.md
+# section 5):
+#   match_refuted  on a supported row or nested table: a table, or a non-empty list of tables, one
+#             per fixture, { fixture, owed_refuted, consistent, file }, for a text whose account
+#             names a clause's MatchIndependent as owed (`MatchIndependent open`, the package's
+#             match_named) where that fact is false for every H and the reading still has a model:
+#               fixture       the fixture whose text the theorems are about, the entry's own
+#                             `fixture` or one of its `also_fixtures` (unlike a `derived` table's
+#                             `fixture`, which names another fixture than the entry's); its
+#                             account.txt prints `MatchIndependent open`;
+#               owed_refuted  the full name of a theorem of `file` whose statement is, for every H,
+#                             `¬ MatchIndependent (c.withHooks H) cl` for a clause cl the account
+#                             names, with no hypothesis (no FnHyp, no →: a hypothesis on H makes it a
+#                             statement at some H);
+#               consistent    the full name of a theorem of `file` stating, for every H, `Consistent`
+#                             of the reading (not negated): Γ has a model outside the value model;
+#               file          a test/X.lean that test/integration.sh builds, reading the fixture's
+#                             text (f2-examples/FIXTURE.kompile.kore, or a text carrying the Source of
+#                             fixtures/FIXTURE's own .k file).
+#             The record is no form (r): the text's sentences have a model, so the table's fixture
+#             has no form (r) table on the entry other than of kind "sentence against the reading",
+#             and none of the entry's tie_theorems is named `inconsistent` or states ¬ Consistent.
+#             Its owed_refuted is a false owed fact of the fixture, as a form (r) table's
+#             owed_refuted is (owed_state above): it puts the entry in the group false unless
+#             another of its owed facts is proved or open. Where the group is false, K-coverage.md
+#             prints "(owed fact false; the reading has a model)" beside the status (the fixture
+#             named before "the reading has a model" where it is not the entry's); it lists the fact
+#             with both theorems, and prints no "(no model)" for it.
+#             rest.py counts the records on a line of their own and keeps the entry in the headline
+#             count, as it keeps any entry with a false owed fact; provenance.sh checks the
+#             statements.
 # The rule for a sentence of the text that the reader does not put in Γ (decision owed-sentence,
 # findings/work/review-no-fable-window.md section 15 items 1 to 5; DONE-0 C2, C6, C8, C14):
 #   1. it is owed: entailed by Γ (the inert lemma classes, C14 direction entailed or at values; for a

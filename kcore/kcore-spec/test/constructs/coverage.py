@@ -33,8 +33,12 @@ The document holds, in this order:
              fixture has no such table is not marked as if it had.
   owed facts every entry (row or nested) with an `owed_state` (rows-header.toml: per fixture, the
              state of the CondDecided its account lists as owed, or a MatchIndependent proved on
-             the text of a fixture of the same shape) or an `owed_refuted` (a refuted owed fact of
-             its table's fixture, as under no model): the count
+             the text of a fixture of the same shape), an `owed_refuted` (a refuted owed fact of
+             its table's fixture, as under no model) or a `match_refuted` table (rows-header.toml:
+             a MatchIndependent refuted, false, on a text whose reading has a model; its line
+             names both theorems, and where the entry's group is false its status cell reads
+             "STATUS (owed fact false; the reading has a model)", the table's fixture named
+             before "the reading has a model" where it is not the entry's): the count
              of entries by their best fixture (rows-header.toml: proved where one of its states is
              proved, else open where one is, else false; an owed_refuted is false), and each false
              or open owed fact, one line per fixture: the entry's group, the state, and the
@@ -233,6 +237,8 @@ def owed_facts(e):
         word, _, rest = str(v).partition(": ")
         out.append((x, "false" if word == "refuted" else word, rest))
     out += [(table_fixture(e, d), "false", d["owed_refuted"]) for d in no_model(e) if d.get("owed_refuted")]
+    out += [(d.get("fixture", ""), "false", f"{d.get('owed_refuted', '')}; the reading has a model: {d.get('consistent', '')}")
+            for d in match_refuted(e)]
     return out
 
 
@@ -241,6 +247,27 @@ def owed_mark(e):
     K-coverage.md prints beside the entry's status; None for an entry with no owed fact."""
     ws = {w for _, w, _ in owed_facts(e)}
     return next((w for w in ("proved", "open", "false") if w in ws), None)
+
+
+def match_refuted(e):
+    """The tables of an entry's `match_refuted` (rows-header.toml: a table or a list of them)."""
+    v = e.get("match_refuted")
+    v = [v] if isinstance(v, dict) else v if isinstance(v, list) else []
+    return [d for d in v if isinstance(d, dict)]
+
+
+def model_mark(e):
+    """"; the reading has a model" after the group "false" of an entry with a `match_refuted` table
+    (its owed MatchIndependent false on a text whose reading has a model), the fixtures of tables
+    that are not the entry's own named first; "" otherwise."""
+    if owed_mark(e) != "false":
+        return ""
+    xs = list(dict.fromkeys(d.get("fixture", "") for d in match_refuted(e)))
+    if not xs:
+        return ""
+    own = e.get("fixture", "")
+    out = (["the reading has a model"] if own in xs else []) + [x + ": the reading has a model" for x in xs if x != own]
+    return "; " + "; ".join(out)
 
 
 def mark(v):
@@ -441,6 +468,11 @@ def generate(rows_path, manifest_path):
           "holds it, state nothing of the step at that text, and the fixture is a recorded limit of "
           "that hypothesis. The list prints the entry's group beside the "
           "status; below, every false or open owed fact, with its entry's group.", ""]
+    if any(match_refuted(e) for _, _, _, e in owed):
+        o[-2] += (" A `match_refuted` table is an owed MatchIndependent refuted, for every H, on a text "
+                  "whose reading has a model (`consistent`, named beside it): the fact is false and the "
+                  "text is no text without a model, so the list prints \"(owed fact false; the reading has a "
+                  "model)\" where the entry's group is false, and no \"(no model)\".")
     if not shown:
         o += ["None."]
     else:
@@ -509,7 +541,7 @@ def generate(rows_path, manifest_path):
                 if premise_mark(e):
                     st += f" ({premise_mark(e)})"
                 if owed_mark(e):
-                    st += f" (owed fact {owed_mark(e)})"
+                    st += f" (owed fact {owed_mark(e)}{model_mark(e)})"
                 lines.append([
                     name, text(st), text(e.get("class", "")),
                     text(e.get("reason", e.get("note", "")), CUT)

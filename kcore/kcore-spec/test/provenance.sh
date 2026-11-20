@@ -81,6 +81,13 @@
 #   declared once in `file`, mentions H and `Consistent` and negates nothing (`¬`); the entry claims
 #   no inconsistency: none of its `tie_theorems` is named `inconsistent` or, declared in a file of its
 #   `tie`, states `¬ Consistent`.
+# - `match_refuted` (rows-header.toml; rest.py checks its fixture, fields and file): a table, or a
+#   non-empty list of tables, on any table of rows.toml; `owed_refuted` and `consistent` each
+#   declared once in `file` (no AtNone file or namespace), its statement for every H as above, with
+#   no binder beside H's, no `→` and no `FnHyp` (a hypothesis on H makes it a statement at some H);
+#   `owed_refuted`'s type is `¬ MatchIndependent …` and `consistent`'s `Consistent …`, negating
+#   nothing; the entry claims no inconsistency (its `tie_theorems` as for kind "sentence against the
+#   reading"). The tables accepted are listed on a line of their own, where there are any.
 # - `silent_statement` (rows-header.toml), on a supported E6 `hook:` row, or a supported E6 `symbol:`
 #   row of a key of silentTable without a registry hook (the keys as test/constructs/silentkeys.py
 #   reads them from the sources), only: a non-empty list of tables { theorem, file }, each checked
@@ -133,6 +140,8 @@ SEM_READERS = ("Γ", "Γc", "Γstep", "Γcl", "Eval", "EvalTerm", "Step", "Holds
                "Consistent", "coreOK", "shapesOK", "floatShapeOK", "params", "fns", "lib", "sem",
                "withHooks", "HookParams", "Semantics", "FnHyp", "InitModel", "Config")
 IDENT = r"[^\s(){}\[\]:,.⟨⟩]+"
+MR_KEY = "match_refuted"
+MR_SEEN = []   # (where, fixture, owed_refuted) of each match_refuted table the last check accepted
 
 
 def strip_comments(src):
@@ -301,6 +310,7 @@ def entries(node, where):
 def check(rows, base):
     t = tomllib.load(open(rows, "rb"))
     cache, fixed, bad, counts, nomodel = {}, {}, [], {}, []
+    MR_SEEN.clear()
     hookrows = {f"E6 {k}" for k, v in (t.get("E6") or {}).items()
                 if k.startswith("hook:") and isinstance(v, dict) and v.get("status") == "supported"}
     keyrows = {f"E6 {k}" for k, v in (t.get("E6") or {}).items()
@@ -368,12 +378,51 @@ def check(rows, base):
             if st is not None and not (mentions("Consistent", st) and "¬" not in st):
                 bad.append(f"{at}: the statement of consistent {cs} does not state Consistent (it mentions no"
                            " Consistent, or negates)")
+        for n in claims_inconsistent(e):
+            bad.append(f"{at}: kind '{AGAINST}' beside tie_theorems {n}, which claims the reading inconsistent")
+
+    def claims_inconsistent(e):
+        """The entry's `tie_theorems` that claim the reading inconsistent: named `inconsistent`, or
+        stating ¬ Consistent in a file of its `tie`."""
+        out = []
         for n in (e.get("tie_theorems") or []):
             if not isinstance(n, str):
                 continue
             st = tie_statement(n, e)
             if n.split(".")[-1] == "inconsistent" or (st is not None and re.search(r"¬\s*\(?\s*Consistent\b", st)):
-                bad.append(f"{at}: kind '{AGAINST}' beside tie_theorems {n}, which claims the reading inconsistent")
+                out.append(n)
+        return out
+
+    def match_refuted(at, d, e):
+        """A `match_refuted` table (rows-header.toml): `owed_refuted` states, for every H and with no
+        hypothesis, ¬ MatchIndependent; `consistent` states Consistent, for every H, not negated, with
+        no hypothesis; both declared once in `file`, in no AtNone namespace. Returns whether it holds."""
+        n0 = len(bad)
+        fl = d.get("file")
+        if not isinstance(fl, str) or not os.path.isfile(os.path.join(base, fl)):
+            bad.append(f"{at}: no file {fl!r}"); return False
+        if "AtNone" in fl:
+            bad.append(f"{at}: the file {fl} is named AtNone: never a row's evidence")
+        path = os.path.join(base, fl)
+        for n, head, what in (("owed_refuted", r"¬\s*\(?\s*(?:KCore\.)?MatchIndependent(?![\w'₀-₉!?])",
+                               "¬ MatchIndependent (the owed fact refuted)"),
+                              ("consistent", r"(?:KCore\.)?Consistent(?![\w'₀-₉!?])", "Consistent (not negated)")):
+            th = d.get(n)
+            if not isinstance(th, str):
+                bad.append(f"{at}: names no `{n}`"); continue
+            st = theorem_ok(at, th, fl, path, f"{n} ", None)
+            if st is None:
+                continue
+            binders, typ = split_type(st)
+            _, others = hook_binders(binders)
+            if not re.match(r"\s*" + head, typ) or (n == "consistent" and "¬" in typ):
+                bad.append(f"{at}: the statement of {n} {th} is not {what}")
+            elif others.strip() or "→" in typ or mentions("FnHyp", st):
+                bad.append(f"{at}: the statement of {n} {th} has a hypothesis (a binder beside H, an →, or FnHyp):"
+                           " a statement at some H")
+        for n in claims_inconsistent(e):
+            bad.append(f"{at}: beside tie_theorems {n}, which claims the reading inconsistent")
+        return len(bad) == n0
 
     def fixture_ok(at, d, e):
         """A table's `fixture`: another fixture than the entry's, whose text the table's `file` reads
@@ -470,6 +519,26 @@ def check(rows, base):
                     bad.append(f"{at}: `owed_refuted` is not a theorem's full name")
                 else:
                     theorem_ok(at, ow, fl, path, "owed_refuted ", form)
+
+    def refuted_tables(node, where):
+        if isinstance(node, dict):
+            if MR_KEY in node:
+                yield where, node
+            for k, v in node.items():
+                yield from refuted_tables(v, f"{where} {k}" if where else k)
+        elif isinstance(node, list):
+            for i, v in enumerate(node):
+                yield from refuted_tables(v, f"{where}[{i}]")
+
+    for where, e in refuted_tables(t, ""):
+        mr = e[MR_KEY]
+        mr = [mr] if isinstance(mr, dict) else mr
+        if not (isinstance(mr, list) and mr and all(isinstance(x, dict) for x in mr)):
+            bad.append(f"{where}: `{MR_KEY}` is not a table or a non-empty list of tables"); continue
+        for i, d in enumerate(mr):
+            at = f"{where}: {MR_KEY}" + (f"[{i}]" if len(mr) > 1 else "")
+            if match_refuted(at, d, e):
+                MR_SEEN.append((where, d.get("fixture"), d.get("owed_refuted")))
     def silent_tables(node, where):
         if isinstance(node, dict):
             if "silent_statement" in node:
@@ -582,6 +651,10 @@ def report(rows, base):
     tp = counts.pop(TP_KEY, 0)
     total = sum(counts.values())
     print(f"provenance: {total} derivations named" + (": " + ", ".join(f"{k} {v}" for k, v in sorted(counts.items())) if total else ""))
+    if MR_SEEN:
+        print(f"provenance: {len(MR_SEEN)} match_refuted table{'s' if len(MR_SEEN) > 1 else ''} (an owed"
+              " MatchIndependent refuted for every H on a text whose reading is Consistent): "
+              + "; ".join(f"{w} (fixture {x}, {th})" for w, x, th in MR_SEEN))
     if nomodel:
         print(f"provenance: {len(nomodel)} of form (r), a text without a model or a sentence against the reading: "
               + "; ".join(f"{w} (fixture {fx or 'none'}, {th})" for w, fx, th in nomodel))
@@ -623,6 +696,10 @@ theorem notFnImp (H : HookParams) : ¬ FnHyp (cH H) → ¬ MatchIndependent (cH 
 theorem consistent (H : HookParams) : Consistent (cH H) := sorry
 theorem inconsistent (H : HookParams) : ¬ Consistent (cH H) := sorry
 theorem noCons (H : HookParams) : ¬Consistent (cH H) := sorry
+theorem matchPos (H : HookParams) : MatchIndependent (cH H) cl := sorry
+theorem refutedImp (H : HookParams) : ¬ MatchIndependent (cH H) cl → ¬ MatchIndependent (cH H) cl' := sorry
+theorem refutedFixed : ¬ MatchIndependent cFix cl := sorry
+theorem consistentHyp (H : HookParams) (h : OpenDecided (cH H)) : Consistent (cH H) := sorry
 theorem overSem (c : Semantics) (i : Int) : c.sortOf (int i) = some Srt.int := sorry
 theorem overSemImpl {c : Semantics} (hs : c.shapesOK = true) : ∀ f ∈ fs, ∃ v, hook f vs = some (some v) := sorry
 theorem atConst (c : Semantics) : (c.withHooks (constH v)).sortOf x = some s := sorry
@@ -655,6 +732,7 @@ theorem convFixed : Γ cFix ⊧ (trS U.ax157).pat := sorry
 theorem notWithCl (H : HookParams) : ¬ ∀ it ∈ ruleItems (cH H), TiePair.Texts [boolClosed (cH H)] ⊧ it.pat := sorry
 namespace AtNone
 theorem hidden (H : HookParams) : Eval (cH H) e v := sorry
+theorem hiddenRefuted (H : HookParams) : ¬ MatchIndependent (cH H) cl := sorry
 theorem hiddenModel (H : HookParams) : ∃ I, InitModel (cH H) N ar G I ∧ ∀ x y, Step (cH H) x y ↔ R I x y := sorry
 end AtNone
 end KCore.ProvT
@@ -736,6 +814,39 @@ end KCore.ProvT
           "consistent": "KCore.ProvT.consistent"}, "`consistent` on form (r)"),
         ({"form": "r", "kind": "through the reading", "sentences": [344], "family": "ΓCons", "theorem": "KCore.ProvT.noModel",
           "file": f, "owed_statement": "x"}, "`owed_statement` on form (r) kind"),
+    ]
+    mrt = {"fixture": "e3-eq-exists-ml-in-or-int", "owed_refuted": "KCore.ProvT.refuted",
+           "consistent": "KCore.ProvT.consistent", "file": f}
+    mrw = lambda **kw: {MR_KEY: {k: v for k, v in dict(mrt, **kw).items() if v is not None}}
+    mrg = cases[0][0]
+    cases += [  # a match_refuted table (third item: the entry's fields)
+        (mrg, None, mrw()),
+        (mrg, None, {MR_KEY: [mrt, dict(mrt, fixture="e3-eq-exists-ml-in-or")]}),
+        (mrg, "cases[0]: match_refuted: the statement of consistent KCore.ProvT.inconsistent is not Consistent",
+         {"cases": [{"case": "n", "status": "supported", "derived": [mrg], **mrw(consistent="KCore.ProvT.inconsistent")}]}),
+        (mrg, "match_refuted[1]: the statement of owed_refuted KCore.ProvT.notFn is not ¬ MatchIndependent",
+         {MR_KEY: [mrt, dict(mrt, owed_refuted="KCore.ProvT.notFn")]}),
+        (mrg, "the statement of owed_refuted KCore.ProvT.matchPos is not ¬ MatchIndependent",
+         mrw(owed_refuted="KCore.ProvT.matchPos")),
+        (mrg, "the statement of owed_refuted KCore.ProvT.refutedFn has a hypothesis", mrw(owed_refuted="KCore.ProvT.refutedFn")),
+        (mrg, "the statement of owed_refuted KCore.ProvT.notFnImp is not ¬ MatchIndependent",
+         mrw(owed_refuted="KCore.ProvT.notFnImp")),
+        (mrg, "the statement of owed_refuted KCore.ProvT.refutedImp has a hypothesis", mrw(owed_refuted="KCore.ProvT.refutedImp")),
+        (mrg, "the statement of owed_refuted KCore.ProvT.refutedFixed is not for every H",
+         mrw(owed_refuted="KCore.ProvT.refutedFixed")),
+        (mrg, "KCore.ProvT.AtNone.hiddenRefuted is in a namespace named AtNone",
+         mrw(owed_refuted="KCore.ProvT.AtNone.hiddenRefuted")),
+        (mrg, "0 theorems named KCore.ProvT.missing", mrw(owed_refuted="KCore.ProvT.missing")),
+        (mrg, "the statement of consistent KCore.ProvT.noCons is not Consistent", mrw(consistent="KCore.ProvT.noCons")),
+        (mrg, "the statement of consistent KCore.ProvT.consistentHyp has a hypothesis",
+         mrw(consistent="KCore.ProvT.consistentHyp")),
+        (mrg, "the statement of consistent KCore.ProvT.refuted is not Consistent", mrw(consistent="KCore.ProvT.refuted")),
+        (mrg, "match_refuted: names no `consistent`", mrw(consistent=None)),
+        (mrg, "match_refuted: no file None", mrw(file=None)),
+        (mrg, "match_refuted: beside tie_theorems KCore.ProvT.inconsistent, which claims the reading inconsistent",
+         dict(mrw(), tie=[f], tie_theorems=["KCore.ProvT.inconsistent"])),
+        (mrg, "`match_refuted` is not a table or a non-empty list of tables", {MR_KEY: []}),
+        (mrg, "`match_refuted` is not a table or a non-empty list of tables", {MR_KEY: "x"}),
     ]
     hk = ("E6", "hook:K.x:Lblx")
     pr = {"form": "a", "kind": "through the reading", "family": "ΓDomains", "sentences": [], "theorem": "KCore.ProvT.good", "file": f}
@@ -867,6 +978,17 @@ end KCore.ProvT
         if [x for _, x, _ in nomodel] != fx:
             ok = False
             print(f"self-test case {i}: form (r) listed under {[x for _, x, _ in nomodel]}, expected {fx}")
+    # the match_refuted tables accepted are those the report lists, a nested one under its case
+    rp = os.path.join(d, "rows-mr.toml")
+    open(rp, "w").write('[E3]\n"row" = { status = "supported", cases = [{ case = "n", status = "supported", '
+                        f'match_refuted = {{ fixture = "fx", owed_refuted = "KCore.ProvT.refuted", '
+                        f'consistent = "KCore.ProvT.consistent", file = "{f}" }} }}, '
+                        f'{{ case = "m", match_refuted = {{ owed_refuted = "KCore.ProvT.notFn", '
+                        f'consistent = "KCore.ProvT.consistent", file = "{f}" }} }}] }}\n')
+    _, bad, _ = check(rp, K)
+    if MR_SEEN != [("E3 row cases[0]", "fx", "KCore.ProvT.refuted")] or len(bad) != 1:
+        ok = False
+        print(f"self-test match_refuted listing: {MR_SEEN}, failures {bad}")
     for x in os.listdir(d):
         os.remove(os.path.join(d, x))
     os.rmdir(d)
