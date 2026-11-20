@@ -2261,7 +2261,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                   if "rules" in hand else None)
     if rules_hand:
         covered |= set(rules_hand["idx"])
-    # the rule sentences the hand section ties under a premise no sentence states, apart from those
+    # the rule sentences the hand section ties under a premise no sentence is shown to state, apart from those
     # tied with none and from `uncovered`
     under_premise = [(i, rules_hand["premise"]) for i in rules_hand["idx"]] if rules_hand and rules_hand["premise"] else []
     # a user lemma has no generated theorem: it is the tie's remainder, as an uncovered sentence of a
@@ -2892,8 +2892,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     else:
         w(f"  the sentences of a class with a theorem that no theorem here holds of are `uncovered` ({len(uncovered)}).")
     if under_premise:
-        w(f"  The rule sentences tied under a premise that no sentence of the text states are `underPremise`")
-        w(f"  ({len(under_premise)}), with the premise's name.")
+        w(f"  The rule sentences tied under a premise that no sentence of the text is shown to state are")
+        w(f"  `underPremise` ({len(under_premise)}), with the premise's name.")
     w("-/")
     w("import KcoreSpec")
     w("")
@@ -3338,9 +3338,9 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     w("  [" + wrap_nums([f'({i}, "{c_}")' for i, c_ in uncovered], 3) + "]")
     w("")
     if under_premise:
-        w("/-- The rule sentences tied under a premise that no sentence of the text states, with the premise:")
-        w("Γ's items are a consequence of the sentence with it, and the section on the rules states the other")
-        w("direction. -/")
+        w("/-- The rule sentences tied under a premise that no sentence of the text is shown to state, with the")
+        w("premise: Γ's items are a consequence of the sentence with it, and the section on the rules states the")
+        w("other direction. -/")
         w("def underPremise : List (Nat × String) :=")
         w("  [" + wrap_nums([f'({i}, "{p_}")' for i, p_ in under_premise], 3) + "]")
         w("")
@@ -4822,7 +4822,7 @@ HAND_SECTIONS = {"consistency": "/-! ## Consistency for every H",
 # sentence and the text's signature (`ΓSig`); `rule_from_text_aux` these, other sentences of the text
 # (`ruleAux`) and items of the text's signature that `ΓSig` leaves out (`ruleSigAux`);
 # `rule_from_text_closed` these and `boolClosed`, `rule_from_text_dom` these and items of the domains
-# (`ruleDomAux`): a premise that no sentence of the text states, under which the sentence is tied
+# (`ruleDomAux`): a premise that no sentence of the text is shown to state, under which the sentence is tied
 # (RULES_PREMISE)
 RULES_AUX_PRE = "TiePair.Texts ((trS ad).pat :: (ruleAux.map (fun a => (trS a).pat) ++ ruleSigAux.map (·.pat)"
 RULES_W1_FORMS = {
@@ -4847,7 +4847,7 @@ RULES_W1_FORMS = {
 RULES_SIG_FORMS = ("rule_from_text_sig", "rule_from_text_aux", "rule_from_text_closed", "rule_from_text_dom")
 RULES_AUX_FORMS = ("rule_from_text_aux", "rule_from_text_closed", "rule_from_text_dom")
 RULES_SIGAUX_TEXT = ": ∀ it ∈ ruleSigAux, it ∈ (Theory.ofDefinition kore).signature"
-# the forms with a premise no sentence of the text states: the premise's name in `underPremise`, and
+# the forms with a premise no sentence of the text is shown to state: the premise's name in `underPremise`, and
 # what the header says of it (what it states, its ground)
 RULES_PREMISE = {
     "rule_from_text_closed": ("boolClosed", "every element of Bool is `true`'s or `false`'s",
@@ -4931,7 +4931,7 @@ def rules_hand_of(name, text, rule_cls, rules_full, split, sig_origin=True, cls=
     is not the class; a form with `ΓSig` in a tie without `sig_origin` (`sig_origin` false: an item
     of Γ's signature is not shown the text's); a statement whose premises name a family of Γ's own
     (RULES_GAMMA_NAMES); a section declaring a name the statements read, or defining notation.
-    A form with a premise no sentence states (RULES_PREMISE; `premise`, its name in `underPremise`)
+    A form with a premise no sentence is shown to state (RULES_PREMISE; `premise`, its name in `underPremise`)
     also needs in the section the other direction for each sentence of `ruleText` (RULES_CONVERSE;
     `converse`), for `rule_from_text_closed` a tie whose definition reads no confined sort
     (`confined` false, `readsConfined_c : c.readsConfined = false`: Γc is Γ, which does not hold
@@ -5121,7 +5121,7 @@ def rules_hand_bullet(rh):
                  "either.")
     if form in RULES_PREMISE:
         ss = rh["idx"]
-        extra += (f" No sentence of the text states `{rh['premise']}`; its ground is "
+        extra += (f" No sentence of the text is shown to state `{rh['premise']}`; its ground is "
                   f"{RULES_PREMISE[form][2]}"
                   + ("; Γ does not hold it, the definition reading no confined sort (`readsConfined_c`: Γc is Γ)"
                      f", and without it W1 does not hold (`{rh['needed']}`)" if rh["needed"] else
