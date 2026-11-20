@@ -45,15 +45,15 @@
 //! production, a priority sentence for `>`, an associativity sentence per `left:` group and per
 //! `[left]`), and the parser reads priority and associativity only from those sentences, so the
 //! edit is of the whole declaration: `find` occurs once in it, and `delete = true` deletes it (one
-//! of several productions is refused). A mutation edits rules or grammar declarations, never both
-//! ([`InvalidReason::RuleAndGrammarEdits`]).
+//! of several productions is refused). A mutation may edit rules beside grammar declarations
+//! (PJ-35).
 //!
-//! A grammar mutant changes which program text parses to which term and keeps the rules' terms
-//! (the patched baseline's rules are the baseline's), so a grammar edit is not read by an edited
-//! load, which would parse every rule again under the edited grammar (a literal a rule uses would
-//! make it fail): every source file's K view, the edited views in place of the edited files, is
-//! read by k-rust's outer parser and lowered as one source set ([`k_rust::outer::lower`], which
-//! never parses a rule's body). Then, failing closed:
+//! A grammar mutant changes which program text parses to which term and keeps the terms of the
+//! rules it does not edit (the patched baseline's unedited rules are the baseline's), so a grammar
+//! edit is not read by an edited load, which would parse every rule again under the edited
+//! grammar (a literal a rule uses would make it fail): every source file's K view, the edited
+//! views in place of the edited files, is read by k-rust's outer parser and lowered as one source
+//! set ([`k_rust::outer::lower`], which never parses a rule's body). Then, failing closed:
 //!
 //! 1. each edited file has the baseline's modules (names, attributes, imports, requires) and its
 //!    declarations less the deleted ones, of the same kinds, each unedited one where the edits move
@@ -75,19 +75,29 @@
 //!    already has the derived label); a declared label that changes is `label-changed`;
 //! 4. the pinned patch applies (`edited-load-failed` for a definition that does not resolve) and
 //!    its mutant gives a program parser for the syntax module (kink-patch
-//!    `Mutant::program_parser`; `no-program-parser`).
+//!    `Mutant::program_parser`; `no-program-parser`);
+//! 5. a rule edited beside the grammar edits is the declaration its bubble is in steps 1 and 2,
+//!    and its text after the edits is parsed under the mutant's grammar (the baseline patched by
+//!    step 4's patch), at its module, by k-rust's `parse_rule_content`, the parse the load makes
+//!    of every rule bubble with its module's rule grammar (checked: its text before the edits,
+//!    parsed so under the specification's grammar, is the loaded rule, else
+//!    `unread-declaration`): a rule that does not parse there is `edited-load-failed`, one no
+//!    longer one rule `structure-changed`, a changed label `label-changed`. Its replacement (or
+//!    deletion) joins the patch, which is admitted again as in step 4.
 //!
-//! The rows show the declaration before and after ([`EditedKind::Grammar`]). `run`'s search
-//! judges a grammar mutation after it parses each case again under the mutant's grammar
-//! (`crate::reparse`, [`ResolvedMutation::grammar_generation`]); every other command and mode
-//! refuses one ([`ResolvedMutation::run_refusal`]).
+//! The rows show the declaration before and after ([`EditedKind::Grammar`]), and each edited
+//! rule as a rule mutation's rows do. `run`'s first-kill search judges a grammar mutation after it
+//! parses each case again under the mutant's grammar (`crate::reparse`,
+//! [`ResolvedMutation::grammar_generation`]); every other command and mode refuses one
+//! ([`ResolvedMutation::run_refusal`]).
 
 use crate::{
     admit::corpus_source,
     manifest::{FlowManifest, ManifestError},
 };
 use k_rust::{
-    definition::{AttributeKey, Attributes, Definition, Location, Sentence},
+    definition::{AttributeKey, Attributes, Definition, Location, ResolvedDefinition, Sentence},
+    inner::parse_rule_content,
     outer::{self, extract_fenced_k_code_with_map},
     provenance::{LogicalSourceId, SourceId},
 };
@@ -927,16 +937,13 @@ pub enum InvalidReason {
     /// lower apart from the rest of the load (a tag declared only in the prelude): kink-flow
     /// cannot tell what the edit changes.
     UnreadDeclaration,
-    /// The mutation edits both rules and grammar declarations. A grammar edit is read without
-    /// parsing any rule (the rules keep their terms), and an edited rule's text is parsed under
-    /// the specification's grammar; which grammar a rule edited beside a grammar edit is parsed
-    /// under is not decided, so such a mutation is refused.
-    RuleAndGrammarEdits,
-    /// `run` (and a `fuzz` kill job) does not judge a grammar mutation yet: judging one needs
-    /// each case parsed again under the mutant's grammar (PJ-34), which kink does not do yet, and
-    /// running the mutant on the baseline's parsed cases would judge another mutant. It is kink's
-    /// limit, neither a fault of the mutation nor a verdict, so the row's status is `error`; `check`
-    /// resolves the mutation.
+    /// A command that does not judge a mutation that edits the grammar: only `run`'s first-kill
+    /// search (in its default mode or under `--verify`) in a flow without `[[projection]]` parses
+    /// each case again under the mutant's grammar (`crate::reparse`), and running the mutant on
+    /// the baseline's parsed cases would judge another mutant. `run --full`, a flow with
+    /// `[[projection]]`, prune's cells, coverage flips and a `fuzz` kill job give it. It is kink's
+    /// limit, neither a fault of the mutation nor a verdict, so the row's status is `error`;
+    /// `check` resolves the mutation.
     GrammarNotRun,
     /// A generated grammar set ([`GrammarSet`]) in a flow whose front end judges written
     /// production edits only (a KRS flow, whose productions are emitted from Rust items; a
@@ -987,7 +994,6 @@ impl InvalidReason {
             Self::HostStackRefused => "host-stack-refused",
             Self::NoProgramParser => "no-program-parser",
             Self::UnreadDeclaration => "unread-declaration",
-            Self::RuleAndGrammarEdits => "rule-and-grammar-edits",
             Self::GrammarNotRun => "grammar-not-run",
             Self::GrammarSetNotJudged => "grammar-set-not-judged",
             Self::GrammarSetIdCollision => "grammar-set-id-collision",
@@ -995,7 +1001,7 @@ impl InvalidReason {
     }
 
     /// Every reason kink-flow gives, in declaration order (not [`Self::External`], a front end's).
-    pub const ALL: [Self; 30] = [
+    pub const ALL: [Self; 29] = [
         Self::UnknownFile,
         Self::FileRequired,
         Self::UnknownLabel,
@@ -1022,7 +1028,6 @@ impl InvalidReason {
         Self::HostStackRefused,
         Self::NoProgramParser,
         Self::UnreadDeclaration,
-        Self::RuleAndGrammarEdits,
         Self::GrammarNotRun,
         Self::GrammarSetNotJudged,
         Self::GrammarSetIdCollision,
@@ -1123,12 +1128,10 @@ impl InvalidReason {
                 "edit another declaration, or report it: kink-flow cannot read this declaration's \
                  edit apart from the rest of the specification (the detail says why)"
             }
-            Self::RuleAndGrammarEdits => {
-                "split the mutation: one mutation edits rules, another grammar declarations"
-            }
             Self::GrammarNotRun => {
-                "keep the mutation for `check`, or leave it out of the list `run` reads: kink does \
-                 not yet parse the cases again under a mutant's grammar, so no run judges it"
+                "judge the mutation with `run`'s first-kill search (with or without `--verify`) in \
+                 a flow without `[[projection]]`: this command does not parse the cases again \
+                 under a mutant's grammar, so it does not judge it"
             }
             Self::GrammarSetNotJudged => {
                 "leave the generated grammar set out of this flow's list, and write each grammar \
@@ -1281,7 +1284,8 @@ impl ResolvedMutation {
         &self.overlay
     }
 
-    /// Whether the mutation edits grammar declarations (it then edits no rule).
+    /// Whether the mutation edits grammar declarations (it may edit rules beside them). A mutation
+    /// that does not is a rule mutation, whose grammar is the specification's.
     #[must_use]
     pub fn is_grammar(&self) -> bool {
         self.rules
@@ -1325,21 +1329,21 @@ impl ResolvedMutation {
         }
     }
 
-    /// Why a command does not judge this mutation: `grammar-not-run` for a grammar mutation
-    /// ([`InvalidReason::GrammarNotRun`]), `None` for a rule mutation. Only `run`'s search in its
-    /// default mode judges a grammar mutation (`crate::reparse`); a `fuzz` kill job, coverage
-    /// flips, prune's cells, `run --full`, `run --verify` and a flow that declares
-    /// `[[projection]]` give this refusal.
+    /// Why a command does not judge this mutation: `grammar-not-run` for a mutation that edits
+    /// the grammar ([`InvalidReason::GrammarNotRun`]), `None` for a rule mutation. Only `run`'s
+    /// first-kill search, in its default mode or under `--verify`, judges a grammar mutation
+    /// (`crate::reparse`); a `fuzz` kill job, coverage flips, prune's cells, `run --full` and a
+    /// flow that declares `[[projection]]` give this refusal.
     #[must_use]
     pub fn run_refusal(&self) -> Option<InvalidMutation> {
         self.is_grammar().then(|| InvalidMutation {
             edit: None,
             reason: InvalidReason::GrammarNotRun,
             detail: format!(
-                "the mutation edits the grammar ({}); only `run`'s first-kill search, without \
-                 `--verify` and in a flow that declares no `[[projection]]`, parses each case \
-                 again under the mutant's grammar, and running the mutant on the cases as the \
-                 specification parses them would judge another mutant",
+                "the mutation edits the grammar ({}); only `run`'s first-kill search (with or \
+                 without `--verify`), in a flow that declares no `[[projection]]`, parses each \
+                 case again under the mutant's grammar, and running the mutant on the cases as \
+                 the specification parses them would judge another mutant",
                 self.rules
                     .iter()
                     .map(|rule| match &rule.label {
@@ -1967,22 +1971,11 @@ pub fn resolve(
         text_edits.push(text_edit);
     }
 
-    // A grammar edit edits a declaration, read without parsing any rule (module documentation,
-    // "Grammar edits"); a mutation edits rules or grammar declarations, not both.
-    if let Some(grammar) = text_edits.iter().find(|e| e.declaration.is_some()) {
-        if let Some(rule) = text_edits.iter().find(|e| e.declaration.is_none()) {
-            return Err(InvalidMutation {
-                edit: Some(grammar.edit.max(rule.edit)),
-                reason: InvalidReason::RuleAndGrammarEdits,
-                detail: format!(
-                    "edit[{}] edits a rule and edit[{}] a grammar declaration: a grammar edit \
-                     changes which program text parses to which term and keeps the rules' terms, \
-                     and under which grammar a rule edited beside it is read is not decided",
-                    rule.edit, grammar.edit
-                ),
-            });
-        }
-        return resolve_grammar(loaded, mutation, &text_edits, &mut views, &authored);
+    // A grammar edit edits a declaration, read without parsing any unedited rule (module
+    // documentation, "Grammar edits"); a rule edited beside it is parsed under the mutant's
+    // grammar.
+    if text_edits.iter().any(|e| e.declaration.is_some()) {
+        return resolve_grammar(loaded, mutation, text_edits, &mut views, &authored);
     }
 
     // Edits of one rule must not overlap; a deleted rule takes no other edit.
@@ -2320,15 +2313,17 @@ struct DeclarationPair {
     edited: bool,
 }
 
-/// Steps 2 and 3 for a mutation whose every edit is a grammar edit (PJ-34; module documentation,
+/// Steps 2 and 3 for a mutation with a grammar edit (PJ-34, PJ-35; module documentation,
 /// "Grammar edits"): the edits are applied to the K views, every file's view is read with k-rust's
 /// outer parser and lowered (no rule is parsed), every declaration no edit edits must lower as
 /// before, and each edited declaration's sentences are compared with its baseline's to give the
-/// patch, which must apply and give a program parser for the syntax module.
+/// grammar patch, which must apply and give a program parser for the syntax module; each rule
+/// edited beside them is then parsed under that patch's grammar ([`rule_patch_edits`]), and the
+/// whole patch is admitted again.
 fn resolve_grammar(
     loaded: &LoadedSource,
     mutation: &Mutation,
-    text_edits: &[TextEdit],
+    mut text_edits: Vec<TextEdit>,
     views: &mut Views<'_>,
     authored: &[Authored<'_>],
 ) -> Result<ResolvedMutation, InvalidMutation> {
@@ -2339,6 +2334,15 @@ fn resolve_grammar(
         reason,
         detail,
     };
+
+    // A rule edited beside a grammar edit is the declaration its bubble is, so that the pairing
+    // and the span checks cover it as they cover an edited declaration.
+    for edit in &mut text_edits {
+        if edit.declaration.is_none() {
+            edit.declaration = Some(rule_bubble(views, authored, edit)?);
+        }
+    }
+    let text_edits = text_edits.as_slice();
 
     // Edits of one declaration must not overlap; a deleted declaration takes no other edit.
     let mut groups = BTreeMap::<(String, usize), Vec<&TextEdit>>::new();
@@ -2377,7 +2381,7 @@ fn resolve_grammar(
     let (before_files, after_files, pairs) =
         read_files(loaded, views, &edited_files, &groups, whole())?;
 
-    let edits = grammar_patch_edits(
+    let (edits, bubbles) = grammar_patch_edits(
         baseline,
         authored,
         &before_files,
@@ -2387,17 +2391,40 @@ fn resolve_grammar(
         whole(),
     )?;
     if edits.is_empty() {
+        let first = text_edits
+            .iter()
+            .find(|e| e.declaration.as_ref().is_some_and(|d| d.grammar))
+            .unwrap_or(&text_edits[0]);
         return Err(InvalidMutation {
-            edit: Some(text_edits[0].edit),
+            edit: Some(first.edit),
             reason: InvalidReason::NoChange,
-            detail: "the edited declarations lower to the same sentences as before the edits: \
-                     layout and comments are no change"
+            detail: "the edited grammar declarations lower to the same sentences as before the \
+                     edits: layout and comments are no change"
                 .into(),
         });
     }
 
-    let rules = grammar_rows(views, authored, &groups, &pairs, &edited_files)?;
-    let patch = admitted_patch(loaded, edits, whole())?;
+    let mut rules = grammar_rows(views, authored, &groups, &pairs, &edited_files)?;
+    let grammar_patch = admitted_patch(loaded, edits.clone(), whole())?;
+    let patch = if bubbles.is_empty() {
+        grammar_patch
+    } else {
+        // Each edited rule parsed under the mutant's grammar, then the whole patch admitted.
+        let (rule_edits, rule_rows) = rule_patch_edits(
+            baseline,
+            &grammar_patch,
+            &bubbles,
+            &groups,
+            views,
+            authored,
+            &edited_files,
+        )?;
+        rules.extend(rule_rows);
+        rules.sort_by(|a, b| a.at.cmp(&b.at));
+        let mut edits = edits;
+        edits.extend(rule_edits);
+        admitted_patch(loaded, edits, whole())?
+    };
     let digest = patch_digest(baseline, &patch, &rules, whole())?;
     resolved_edits.sort_by_key(|e| e.edit);
     let edited_views = edited_files
@@ -2432,6 +2459,10 @@ fn grammar_rows(
     };
     let mut rules = Vec::new();
     for ((file, start), group) in groups {
+        if group[0].declaration.as_ref().is_some_and(|d| !d.grammar) {
+            // An edited rule's row is [`rule_patch_edits`]'s.
+            continue;
+        }
         let pair = pairs
             .iter()
             .find(|p| p.file == *file && p.before.span.start == *start)
@@ -2461,6 +2492,253 @@ fn grammar_rows(
         });
     }
     Ok(rules)
+}
+
+/// The declaration of the rule a rule edit of a grammar mutation addresses: the bubble of its
+/// file's K view that starts where the rule's sentence starts (the outer lowering sets a
+/// bubble's `SentenceStartOffset` to its start, and the load keeps it). `no-usable-span` where
+/// no bubble starts there.
+fn rule_bubble(
+    views: &mut Views<'_>,
+    authored: &[Authored<'_>],
+    edit: &TextEdit,
+) -> Result<Declaration, InvalidMutation> {
+    let site = authored
+        .iter()
+        .find(|a| a.at == edit.at)
+        .expect("an addressed rule is authored");
+    let no_span = |detail: String| InvalidMutation {
+        edit: Some(edit.edit),
+        reason: InvalidReason::NoUsableSpan,
+        detail,
+    };
+    let start = offsets(site.sentence)
+        .ok_or_else(|| no_span(format!("{} has no offset attributes", site.describe())))?
+        .start;
+    let (_, declarations) =
+        views
+            .parsed(&edit.file)
+            .map_err(|(reason, detail)| InvalidMutation {
+                edit: Some(edit.edit),
+                reason,
+                detail,
+            })?;
+    declarations
+        .iter()
+        .find(|d| d.kind == "bubble" && d.span.start == start)
+        .cloned()
+        .ok_or_else(|| {
+            no_span(format!(
+                "no rule of the K view of {} starts where {} starts (byte {start})",
+                edit.file,
+                site.describe()
+            ))
+        })
+}
+
+/// One rule a grammar mutation edits beside its grammar edits, as the outer lowering reads it:
+/// its module, its declaration's file and start in the baseline view, its lowered sentences
+/// before and after the edits (none after for a deleted rule).
+struct EditedBubble {
+    module: String,
+    file: String,
+    start: usize,
+    before: Vec<Arc<Sentence>>,
+    after: Option<(Declaration, Vec<Arc<Sentence>>)>,
+}
+
+/// The one rule bubble `sentences` lower to: its contents and attributes, the source id left out
+/// (no source table holds the edited view, so the parsed terms carry no source provenance; the
+/// replacement takes the baseline rule's position keys, [`with_baseline_positions`]) and its
+/// source named `file`, which a parse error names.
+fn rule_bubble_parts<'s>(
+    sentences: &'s [Arc<Sentence>],
+    file: &str,
+) -> Option<(&'s str, Attributes)> {
+    match sentences {
+        [sentence] => match &**sentence {
+            Sentence::Bubble {
+                sentence_type,
+                contents,
+                attributes,
+            } if sentence_type == "rule" => {
+                let mut attributes = attributes.clone();
+                attributes.remove(AttributeKey::SourceId.as_str());
+                attributes.set(AttributeKey::Source, serde_json::json!(file));
+                Some((contents.as_str(), attributes))
+            }
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// The replacement of the rule `original` (authored as `site`) that `bubble` edits, its edited
+/// text lowered to `sentences`: parsed under the mutant's grammar `grammar`, with the baseline
+/// rule's label, identity and position keys, and not the baseline rule ([`rule_patch_edits`]).
+/// `Err` holds the refusal's reason and detail.
+fn edited_rule(
+    grammar: &ResolvedDefinition,
+    bubble: &EditedBubble,
+    sentences: &[Arc<Sentence>],
+    original: &Sentence,
+    site: &Authored<'_>,
+) -> Result<Sentence, (InvalidReason, String)> {
+    let (contents, attributes) = rule_bubble_parts(sentences, &bubble.file).ok_or_else(|| {
+        (
+            InvalidReason::StructureChanged,
+            format!("{} is no longer a rule after the edit", site.describe()),
+        )
+    })?;
+    let parsed =
+        parse_rule_content(grammar, &bubble.module, contents, attributes).map_err(|e| {
+            (
+                InvalidReason::EditedLoadFailed,
+                format!(
+                    "{} does not parse under the edited grammar: {e}",
+                    site.describe()
+                ),
+            )
+        })?;
+    for key in [AttributeKey::Label, AttributeKey::UniqueId] {
+        if parsed.attributes().value(key) != original.attributes().value(key) {
+            return Err((
+                if key == AttributeKey::Label {
+                    InvalidReason::LabelChanged
+                } else {
+                    InvalidReason::StructureChanged
+                },
+                format!(
+                    "the edit changes the {} of {} to {}",
+                    key.as_str(),
+                    site.describe(),
+                    parsed
+                        .attributes()
+                        .value(key)
+                        .map_or_else(|| "none".to_owned(), ToString::to_string)
+                ),
+            ));
+        }
+    }
+    let replacement = with_baseline_positions(&parsed, original);
+    if fingerprint_equal(&replacement, original) {
+        return Err((
+            InvalidReason::NoChange,
+            format!(
+                "{} parses under the edited grammar to the same sentence as before the edits",
+                site.describe()
+            ),
+        ));
+    }
+    Ok(replacement)
+}
+
+/// The edits and rows of the rules a grammar mutation edits beside its grammar edits (module
+/// documentation, "Grammar edits"). Each edited rule's text is parsed under the mutant's grammar,
+/// the baseline patched by `grammar_patch`: k-rust's `parse_rule_content` at the rule's module,
+/// the parse the load makes of every rule bubble with its module's rule grammar. That reading is
+/// checked on the baseline first: the rule's text before the edits, parsed so under the
+/// specification's grammar, must be the loaded rule up to positions (else `unread-declaration`).
+/// An edited rule that does not parse under the mutant's grammar is `edited-load-failed`; one
+/// that is no longer one rule is `structure-changed`; a changed label `label-changed`; a rule
+/// equal to the baseline's up to positions `no-change`. A replacement carries the baseline
+/// rule's position keys, a deleted rule is a `DeleteSentence`; every other rule keeps the
+/// specification's terms.
+fn rule_patch_edits(
+    baseline: &Baseline,
+    grammar_patch: &Patch,
+    bubbles: &[EditedBubble],
+    groups: &BTreeMap<(String, usize), Vec<&TextEdit>>,
+    views: &mut Views<'_>,
+    authored: &[Authored<'_>],
+    edited_files: &BTreeMap<String, EditedFile>,
+) -> Result<(Vec<Edit>, Vec<EditedRule>), InvalidMutation> {
+    let rejected = |detail: String| InvalidMutation {
+        edit: None,
+        reason: InvalidReason::PatchRejected,
+        detail,
+    };
+    let specification = ResolvedDefinition::resolve(baseline.definition())
+        .map_err(|e| rejected(format!("the specification does not resolve: {e}")))?;
+    let mutant = kink_patch::apply(baseline, grammar_patch).map_err(|e| rejected(e.to_string()))?;
+    let grammar =
+        ResolvedDefinition::resolve(mutant.definition()).map_err(|e| InvalidMutation {
+            edit: None,
+            reason: InvalidReason::EditedLoadFailed,
+            detail: format!("the edited grammar does not resolve: {e}"),
+        })?;
+    let mut edits = Vec::new();
+    let mut rows = Vec::new();
+    for bubble in bubbles {
+        let group = &groups[&(bubble.file.clone(), bubble.start)];
+        let edit = group[0].edit;
+        let at = &group[0].at;
+        let site = authored
+            .iter()
+            .find(|a| a.at == *at)
+            .expect("an addressed rule is authored");
+        let original = baseline
+            .sentence(at)
+            .expect("an addressed rule is a baseline sentence");
+        let fail = |reason, detail: String| InvalidMutation {
+            edit: Some(edit),
+            reason,
+            detail,
+        };
+        let unread = || {
+            fail(
+                InvalidReason::UnreadDeclaration,
+                format!(
+                    "{}: k-rust's outer lowering of its text, parsed with its module's rule \
+                     grammar, is not the loaded rule",
+                    site.describe()
+                ),
+            )
+        };
+        let (contents, attributes) =
+            rule_bubble_parts(&bubble.before, &bubble.file).ok_or_else(unread)?;
+        let read = parse_rule_content(&specification, &bubble.module, contents, attributes)
+            .map_err(|_| unread())?;
+        if !fingerprint_equal(&with_baseline_positions(&read, original), original) {
+            return Err(unread());
+        }
+        let view = views
+            .view(&bubble.file)
+            .map_err(|(reason, detail)| fail(reason, detail))?;
+        let before = view.text[view_span(original, &view.text, &site.describe())
+            .map_err(|detail| fail(InvalidReason::NoUsableSpan, detail))?]
+        .to_owned();
+        let after = match &bubble.after {
+            None => {
+                edits.push(Edit::DeleteSentence { at: at.clone() });
+                None
+            }
+            Some((declaration, sentences)) => {
+                let replacement = edited_rule(&grammar, bubble, sentences, original, site)
+                    .map_err(|(reason, detail)| fail(reason, detail))?;
+                edits.push(Edit::ReplaceSentence {
+                    at: at.clone(),
+                    replacement,
+                });
+                Some(edited_files[&bubble.file].edited_view[declaration.span.clone()].to_owned())
+            }
+        };
+        let location = site.location.expect("an addressed rule has a location");
+        let mut indices = group.iter().map(|e| e.edit).collect::<Vec<_>>();
+        indices.sort_unstable();
+        rows.push(EditedRule {
+            at: at.clone(),
+            kind: EditedKind::Rule,
+            edits: indices,
+            file: bubble.file.clone(),
+            label: site.label().map(str::to_owned),
+            start_line: location.start_line,
+            end_line: location.end_line,
+            before,
+            after,
+        });
+    }
+    Ok((edits, rows))
 }
 
 /// The pinned patch of a grammar mutation's `edits`, once it applies (`edited-load-failed` for a
@@ -2588,7 +2866,7 @@ fn grammar_patch_edits(
     pairs: &[DeclarationPair],
     groups: &BTreeMap<(String, usize), Vec<&TextEdit>>,
     whole: Option<usize>,
-) -> Result<Vec<Edit>, InvalidMutation> {
+) -> Result<(Vec<Edit>, Vec<EditedBubble>), InvalidMutation> {
     let fail = |reason, detail: String| InvalidMutation {
         edit: whole,
         reason,
@@ -2609,6 +2887,7 @@ fn grammar_patch_edits(
         )
     })?;
     let mut edits = Vec::new();
+    let mut bubbles = Vec::new();
     let mut inserted = BTreeMap::<String, u32>::new();
     for module in &lowered_before.modules {
         let after_module = lowered_after
@@ -2659,6 +2938,18 @@ fn grammar_patch_edits(
                 }
                 continue;
             }
+            if !pair.before.grammar {
+                // An edited rule: parsed under the mutant's grammar once the grammar's edits are
+                // known ([`rule_patch_edits`]).
+                bubbles.push(EditedBubble {
+                    module: module.name.clone(),
+                    file: pair.file.clone(),
+                    start: pair.before.span.start,
+                    before: old.to_vec(),
+                    after: pair.after.clone().map(|d| (d, new.to_vec())),
+                });
+                continue;
+            }
             let edit_of = groups
                 .get(&(pair.file.clone(), pair.before.span.start))
                 .and_then(|edits| edits.first())
@@ -2675,7 +2966,7 @@ fn grammar_patch_edits(
             )?;
         }
     }
-    Ok(edits)
+    Ok((edits, bubbles))
 }
 
 /// The loaded specification's sentences of the edited declaration of `pair`, which must be

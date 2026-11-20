@@ -1142,7 +1142,6 @@ fn every_reason_is_produced_or_listed_as_defensive() {
         // PJ-34: produced by the grammar tests below.
         NoProgramParser,
         UnreadDeclaration,
-        RuleAndGrammarEdits,
         // PJ-34 (U34h): produced by tests/check.rs
         // (a_generated_grammar_set_is_refused_in_a_krs_flow_and_on_an_id_collision).
         GrammarSetNotJudged,
@@ -1213,7 +1212,6 @@ fn every_reason_is_produced_or_listed_as_defensive() {
             | HostStackRefused
             | NoProgramParser
             | UnreadDeclaration
-            | RuleAndGrammarEdits
             | GrammarNotRun
             | GrammarSetNotJudged
             | GrammarSetIdCollision => {}
@@ -2752,14 +2750,15 @@ fn grammar_edits_that_do_not_resolve() {
             ),
             AddressMismatch,
         ),
-        // A rule edited beside a grammar declaration.
+        // A rule edited beside a grammar declaration is parsed under the mutant's grammar
+        // (PJ-35), where `print` is no longer a literal.
         (
             format!(
                 "{}{}",
                 edit_of("rule = \"run\"", ".K", "print 1 ;"),
                 edit_of("production = \"print\"", "\"print\"", "\"show\"")
             ),
-            RuleAndGrammarEdits,
+            EditedLoadFailed,
         ),
         // Two edits of one declaration that overlap.
         (

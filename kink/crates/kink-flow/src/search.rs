@@ -570,6 +570,11 @@ struct Search<'a, 's> {
     /// parses to another configuration. Empty otherwise, so every rule mutant runs the
     /// baseline's test cases.
     starts: kink_campaign::MutantStarts,
+    /// The programs of O left out of the campaign call while a grammar mutation's search runs
+    /// ([`Search::search_grammar`]): each program both sides reject (the mutant at parse, the
+    /// baseline's run at every end), which agrees with no run, since the mutant's pipeline never
+    /// runs it. Empty otherwise, so every rule mutant's O is every candidate.
+    excluded: BTreeSet<usize>,
 }
 
 impl Search<'_, '_> {
@@ -1100,14 +1105,18 @@ impl Search<'_, '_> {
 
     /// The programs O of a mutation (README 5.6 step 2), as candidate indices, before its mutant
     /// compiles: every candidate in corpus order (the candidates are built in manifest order), or
-    /// the one candidate a cell is asked of ([`Search::within`], [`KillCells::cell`]). A
+    /// the one candidate a cell is asked of ([`Search::within`], [`KillCells::cell`]), less the
+    /// programs a grammar mutation's reparse leaves out ([`Search::excluded`], empty for a rule
+    /// mutation). A
     /// first-kill call then runs first the programs whose coverage witnesses the mutant's
     /// compiled edit ([`Search::call_untimed`]); what is decided before any compile (tier 1, the
     /// compiles ahead) depends only on the set of programs, not on their order.
     fn program_order(&self) -> Vec<usize> {
         match self.within {
             Some(candidate) => vec![candidate],
-            None => (0..self.candidates.len()).collect(),
+            None => (0..self.candidates.len())
+                .filter(|c| !self.excluded.contains(c))
+                .collect(),
         }
     }
 
@@ -1125,6 +1134,7 @@ impl Search<'_, '_> {
         self.recorded
             .get(id)
             .and_then(|program| self.position(program))
+            .filter(|c| !self.excluded.contains(c))
     }
 
     /// What tier 1 decides for the mutation `id` from its valid `records` ([`tier1_decision`]),
@@ -1541,19 +1551,25 @@ impl Search<'_, '_> {
             .expect("a live resolution's search always gives a row")
     }
 
-    /// The search of a grammar mutation ([`crate::reparse`]): every case is assembled again under
-    /// the mutant's grammar, built once for the mutation from the mutant's definition, and
-    /// judged from both sides' outcomes before anything runs. A kill the cases decide, or a case
-    /// they leave undecided, gives the row with no call. Otherwise every case agrees or is run:
-    /// the mutant's runs of O are its runs of the baseline's test cases, each case parsed to
-    /// another term run from that term on the mutant's side ([`Search::starts`]), and the search
-    /// of a rule mutant over them decides ([`Search::search_facts`] with the grammar generation,
+    /// The search of a mutation that edits the grammar ([`crate::reparse`]), the one judgement of
+    /// every mutant with its reparse made (a rule mutant's is skipped: every case of it parses
+    /// alike, so its row is [`Search::search_facts`]'s, [`Search::search_one`]). Every case is
+    /// assembled again under the mutant's grammar, built once for the mutation from the mutant's
+    /// definition, and judged from both sides' outcomes before anything runs. A kill the cases
+    /// decide, or a case they leave undecided, gives the row with no call, and so does a row
+    /// every program of O of which both sides reject (`survived`). Otherwise every case agrees
+    /// or is run: the mutant's runs of O are its runs of the baseline's test cases, each case
+    /// parsed to another term run from that term on the mutant's side ([`Search::starts`]), each
+    /// program both sides reject left out ([`Search::excluded`]), and the search of a rule
+    /// mutant over them decides ([`Search::search_facts`] with the grammar generation,
     /// [`ResolvedMutation::grammar_generation`]), read for a grammar mutant
-    /// ([`crate::reparse::read_call`]) whichever path, a call or tier 1, gave its status. The
-    /// stated cases the mutant's grammar parses are run on the mutant alone where O kills nothing
-    /// ([`Self::with_alone`]), and first where the lock records one of them as the killer. Only
-    /// the first-kill search over the whole O in search mode of a flow without `[[projection]]`
-    /// judges one; every other search refuses it ([`ResolvedMutation::run_refusal`]).
+    /// ([`crate::reparse::read_call`]: a kill is `parses-differently` or `runs-differently`)
+    /// whichever path, a call or tier 1, gave its status. The stated cases the mutant's grammar
+    /// parses are run on the mutant alone where O kills nothing ([`Self::with_alone`]), and first
+    /// where the lock records one of them as the killer. The first-kill search over the whole O
+    /// of a flow without `[[projection]]`, in search mode or under `--verify` (whose calls take
+    /// the same starts), judges one; every other search refuses it
+    /// ([`ResolvedMutation::run_refusal`]).
     fn search_grammar(
         &mut self,
         mutation: &Mutation,
@@ -1561,7 +1577,7 @@ impl Search<'_, '_> {
         resolved: &ResolvedMutation,
     ) -> (Value, bool) {
         let digest = json!(resolved.digest.to_string());
-        let judged = self.mode == RunMode::Search
+        let judged = matches!(self.mode, RunMode::Search | RunMode::Verify)
             && self.schedule == ScheduleMode::FirstKill
             && self.within.is_none()
             && self.projected.is_none();
@@ -1657,8 +1673,17 @@ impl Search<'_, '_> {
                 .filter(|case| !case.stated)
                 .filter_map(|case| Some((case.program.clone(), case.start.clone()?)))
                 .collect();
+            // Each program of O both sides reject agrees with no run: the mutant's pipeline never
+            // runs it, so the call's O leaves it out.
+            self.excluded = order
+                .iter()
+                .zip(&cases)
+                .filter(|(_, case)| reparse::agrees_unrun(case))
+                .map(|(c, _)| *c)
+                .collect();
             let searched = self.search_facts(mutation, row, &facts, Some(&generation));
             self.starts.clear();
+            self.excluded.clear();
             let (mut value, error) =
                 searched.expect("a live resolution's search always gives a row");
             if let Some(row) = value.as_object_mut() {
@@ -1872,6 +1897,20 @@ impl Search<'_, '_> {
                     unreachable!("an undecided case has an unknown verdict");
                 };
                 ("unknown", None, Some(reason), case)
+            }
+            reparse::Decision::Agree => {
+                // Every program of O agrees with no run: a survivor of O (its stated cases are
+                // read after, [`Self::with_alone`]).
+                row.insert("status".into(), json!("survived"));
+                row.insert("reason".into(), Value::Null);
+                row.insert(
+                    "detail".into(),
+                    json!(
+                        "both the baseline and the mutant reject every program of O, the mutant \
+                         at parse: each agrees, with no run"
+                    ),
+                );
+                return finish(row, None, None, RowCalls::default(), Vec::new());
             }
             reparse::Decision::Call => unreachable!("a call's row is the search's"),
         };
@@ -4795,6 +4834,7 @@ pub(crate) fn run_session(
         rows: &update.rows,
         tests: vec![None; candidates.len()],
         starts: kink_campaign::MutantStarts::new(),
+        excluded: BTreeSet::new(),
         floor: poll_floor(&candidates),
         candidates,
         mode,
@@ -5427,6 +5467,7 @@ pub(crate) fn search_derived(
         rows: &update.rows,
         tests: vec![None; candidates.len()],
         starts: kink_campaign::MutantStarts::new(),
+        excluded: BTreeSet::new(),
         floor: poll_floor(&candidates),
         candidates,
         mode,

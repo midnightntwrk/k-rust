@@ -3593,6 +3593,10 @@ fn admission_status(admission: &FlowAdmission) -> u8 {
 /// Still 21 (PJ-35, U35d): a set may name its forms (`grammar = { forms = [...] }`), and its
 /// summary's and rows' `grammar` repeat the value as written; a `grammar = "default"` set writes
 /// `"default"` as before (its rows are those of `kink-flow/grammar-set/v2`).
+/// Still 21 (PJ-35, U35a; branch-only) since a mutation may edit rules beside grammar
+/// declarations: it resolves where it was refused `rule-and-grammar-edits` (removed), its `rules`
+/// list each edited rule beside the grammar entries, in sentence order; a list of rule mutations
+/// gives the document it gave.
 pub const CHECK_VERSION: u64 = 21;
 
 /// The check document's members, and under the Z3 profile `z3` ([`crate::with_z3_build`]); every

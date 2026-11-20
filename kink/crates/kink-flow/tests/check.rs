@@ -1261,6 +1261,208 @@ fn a_grammar_mutant_that_parses_a_case_differently_is_killed_by_its_run() {
     );
 }
 
+/// A mutation of two edits, each a TOML edit body.
+fn two_edits(id: &str, first: &str, second: &str) -> String {
+    format!(
+        "[[mutation]]\nid = \"{id}\"\nmisunderstanding = \"{id}\"\n\n  [[mutation.edit]]\n{first}\n\n  \
+         [[mutation.edit]]\n{second}\n"
+    )
+}
+
+const RIGHT_PLUS: &str = "  production = \"add\"\n  find = \"> left:\\n                 Exp \\\"+\\\"\"\n  \
+                          replace = \"> right:\\n                 Exp \\\"+\\\"\"";
+const RIGHT_MUL: &str = "  production = \"mul\"\n  find = \"> left:\\n                 Exp \\\"*\\\"\"\n  \
+                         replace = \"> right:\\n                 Exp \\\"*\\\"\"";
+const MINUS_LITERAL: &str =
+    "  production = \"sub\"\n  find = \"\\\"-\\\"\"\n  replace = \"\\\"minus\\\"\"";
+
+/// PJ-35 (U35a): one judgement for every mutant, and a mutation may edit rules beside grammar
+/// declarations. A case both grammars parse alike that kills is a kill, direction
+/// `runs-differently`: `*` made right-associative with the `add` rule made a subtraction parses
+/// `1 + 2` alike and runs it to -1, where the baseline runs it to 3. A joint mutant whose grammar
+/// edit parses a case apart is killed by its run, `parses-differently` (`+` and `-` made
+/// right-associative, with a rule edit that changes no value). An edited rule is parsed under the
+/// mutant's grammar: written in the edited syntax (`minus`) it resolves beside the edit that makes
+/// that syntax, is refused as a rule mutation alone (`edited-load-failed`), and written in the old
+/// syntax beside the grammar edit is refused too. The rule mutation's row is the one a list of
+/// rule mutations alone gives, with no `grammar` or `direction`; warm rows equal the cold ones;
+/// `run --verify` judges the grammar mutations and finds no mismatch.
+#[test]
+fn joint_grammar_and_rule_mutants_are_judged_by_the_one_judgement() {
+    use serde_json::json;
+    let dir = scratch("run-joint");
+    write(&dir.join("calc.k"), CALC_K);
+    write(
+        &dir.join("FLOW.toml"),
+        "[spec]\nentry = \"calc.k\"\nmain_module = \"CALC\"\nsyntax_module = \"CALC-SYNTAX\"\n\n\
+         [[program]]\nid = \"add\"\ntext = \"1 + 2\"\n\n\
+         [[program]]\nid = \"sub\"\ntext = \"10 - 4 - 3\"\n\n\
+         [[program]]\nid = \"chain\"\ntext = \"2 * 3 * 4\"\n\n\
+         [[program]]\nid = \"bad\"\ntext = \"1 + * 2\"\nexpect = { rejected = \"parse\" }\n",
+    );
+    let manifest = dir.join("FLOW.toml");
+    let mutations = dir.join("MUTATIONS.toml");
+    let rules_only = dir.join("RULES.toml");
+    let new_syntax_rule = "  line = 23\n  find = \"I1:Int - I2:Int => I1 -Int I2\"\n  \
+                           replace = \"I1:Int minus I2:Int => I2 -Int I1\"";
+    let same_meaning_rule =
+        "  line = 23\n  find = \"I1:Int - I2:Int\"\n  replace = \"I1:Int minus I2:Int\"";
+    let old_syntax_rule = "  line = 23\n  find = \"I1 -Int I2\"\n  replace = \"I2 -Int I1\"";
+    write(&rules_only, &one_edit("add-becomes-sub", ARITH));
+    write(
+        &mutations,
+        &[
+            one_edit("add-becomes-sub", ARITH),
+            two_edits("joint-runs-differently", RIGHT_MUL, ARITH),
+            two_edits(
+                "joint-parses-differently",
+                RIGHT_PLUS,
+                "  rule = \"mul\"\n  find = \"I1 *Int I2\"\n  replace = \"I1 *Int I2 +Int 0\"",
+            ),
+            two_edits("joint-new-syntax", MINUS_LITERAL, new_syntax_rule),
+            one_edit("new-syntax-alone", new_syntax_rule),
+            two_edits("joint-old-syntax", MINUS_LITERAL, old_syntax_rule),
+            two_edits("joint-same-meaning", MINUS_LITERAL, same_meaning_rule),
+        ]
+        .concat(),
+    );
+    let (check, _) = check_list(&manifest, &mutations, None);
+    for id in [
+        "joint-runs-differently",
+        "joint-parses-differently",
+        "joint-new-syntax",
+    ] {
+        assert_eq!(row(&check, id)["outcome"], "ok", "{id}: {check:#}");
+    }
+    // The joint mutation's rows: the grammar declaration and the edited rule, in sentence order
+    // (module `CALC` before `CALC-SYNTAX`); the rule's row is a rule mutation's.
+    let joint = row(&check, "joint-new-syntax");
+    let rules = joint["rules"].as_array().unwrap();
+    assert_eq!(rules.len(), 2, "{joint:#}");
+    assert_eq!(
+        (&rules[0]["kind"], &rules[1]["kind"]),
+        (&Value::Null, &Value::from("grammar")),
+        "{joint:#}"
+    );
+    assert!(
+        rules[0]["after"]
+            .as_str()
+            .unwrap()
+            .contains("I1:Int minus I2:Int => I2 -Int I1"),
+        "{joint:#}"
+    );
+    let refused = |id: &str| {
+        let row = row(&check, id);
+        assert_eq!(row["outcome"], "refused", "{id}: {row:#}");
+        row["refusals"][0]["reason"].as_str().unwrap().to_owned()
+    };
+    assert_eq!(refused("new-syntax-alone"), "edited-load-failed");
+    assert_eq!(refused("joint-old-syntax"), "edited-load-failed");
+    // The rule written in the edited syntax with its meaning kept is the same rule: the same
+    // constructor applied to the same arguments.
+    assert_eq!(refused("joint-same-meaning"), "no-change");
+
+    let (document, _) = flow_support::corpus_run(&manifest, &mutations);
+    let runs = row(&document, "joint-runs-differently");
+    assert_eq!(
+        killed_as(runs),
+        json!(["killed", "add", "runs-differently"]),
+        "{runs:#}"
+    );
+    assert_eq!(
+        reparsed(runs),
+        json!([
+            ["add", "same", "run"],
+            ["sub", "same", "run"],
+            ["chain", "different", "run"],
+            ["bad", "rejected", "agree"]
+        ]),
+        "{runs:#}"
+    );
+    assert_eq!(runs["killer_source"], "search", "{runs:#}");
+    let parses = row(&document, "joint-parses-differently");
+    assert_eq!(
+        killed_as(parses),
+        json!(["killed", "sub", "parses-differently"]),
+        "{parses:#}"
+    );
+    // The new syntax rejects `10 - 4 - 3` at parse; calc declares no end and no `[stop]`, so
+    // whether the baseline accepts it is not decided (README.md D2).
+    let syntax = row(&document, "joint-new-syntax");
+    assert_eq!(
+        (&syntax["status"], &syntax["reason"]),
+        (
+            &Value::from("unknown"),
+            &Value::from("grammar-acceptance-not-decided")
+        ),
+        "{syntax:#}"
+    );
+    // The rule mutation's row is the one a list of rule mutations alone gives.
+    let (alone, _) = flow_support::corpus_run(&manifest, &rules_only);
+    let rule_verdict = |document: &Value| {
+        let row = row(document, "add-becomes-sub");
+        assert!(row.get("grammar").is_none(), "{row:#}");
+        assert!(row.get("direction").is_none(), "{row:#}");
+        json!({
+            "status": row["status"],
+            "reason": row["reason"],
+            "killer": row["killer"],
+            "killed_by": row["killed_by"],
+            "executed": row["executed"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|entry| json!([entry["program"], entry["outcome"]]))
+                .collect::<Vec<_>>(),
+            "removed_claims": row["removed_claims"],
+            "witnesses": row["witnesses"],
+        })
+    };
+    assert_eq!(
+        rule_verdict(&document),
+        rule_verdict(&alone),
+        "{document:#}"
+    );
+    let (warm, _) = flow_support::corpus_run(&manifest, &mutations);
+    for id in [
+        "joint-runs-differently",
+        "joint-parses-differently",
+        "joint-new-syntax",
+    ] {
+        let verdict = |document: &Value| {
+            let mut verdict = grammar_verdict(row(document, id));
+            verdict.as_object_mut().unwrap().remove("killer_source");
+            verdict
+        };
+        assert_eq!(verdict(&warm), verdict(&document), "{id}: {warm:#}");
+    }
+    // `run --verify` judges a grammar mutation: its calls start each case parsed apart from the
+    // mutant's configuration, so the records agree with the live runs.
+    let (verified, _) = kink_flow::search::run_with(
+        &FlowManifest::read(&manifest).unwrap(),
+        &kink_flow::MutationList::read(&mutations).unwrap(),
+        &kink_flow::search::RunOptions {
+            legacy_lock: None,
+            only: Vec::new(),
+            cache: None,
+            compile_workers: None,
+            memo: kink_flow::memo::MemoUse::On,
+            schedule: kink_campaign::ScheduleMode::FirstKill,
+            lock: None,
+            locked: false,
+        },
+        kink_flow::search::RunMode::Verify,
+    );
+    assert_eq!(verified["mismatches"], json!([]), "{verified:#}");
+    for id in ["joint-runs-differently", "joint-parses-differently"] {
+        assert_eq!(
+            killed_as(row(&verified, id)),
+            killed_as(row(&document, id)),
+            "{id}: {verified:#}"
+        );
+    }
+}
+
 /// PJ-34 (U34c): under a `[stop]` the baseline's run of `1 + 2` reaches, the baseline accepts
 /// the case, so a mutant that rejects it at parse is killed by it, direction `mutant-rejects`,
 /// with no run (`killer_source` `reparse`); an ambiguous text is a rejection (dropping `left`

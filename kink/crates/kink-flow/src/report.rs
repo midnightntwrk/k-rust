@@ -338,6 +338,12 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// `projection_domains` where a listed projection has a `domain`, and `lock.failed` may name an
 /// entry `--verify` did not judge (`verify-judges-no-projection`). A flow without
 /// `[[projection]]` whose baseline runs take no undefined step gives the document it gave.
+/// Still 46 since one judgement serves every mutant (PJ-35, U35a): a grammar row killed by a
+/// program both grammars parse alike is killed, direction `runs-differently`, where it was
+/// `unknown` (reason `same-parse-run-differs`, removed; `grammar-killer-not-a-case` is new); a
+/// program of O both sides reject is not run (a row all of whose programs of O agree so survives
+/// with no call); a mutation may edit rules and grammar declarations together; and `run --verify`
+/// judges a grammar mutation. A list of rule mutations writes the document it wrote.
 pub const RUN_VERSION: u64 = 46;
 
 /// The name of the observation slot of an executed entry's `slots`, after the end slots
@@ -733,10 +739,9 @@ pub fn action(status: &str, reason: Option<&str>) -> Option<&'static str> {
              (grammar: a variable's module gives no parser, or a variable is missing), a fault \
              of the mutant, not of the case"
         }
-        "unknown" if reason == Some(crate::reparse::SAME_PARSE_RUN_DIFFERS) => {
-            "report it: a case both grammars parse to one term kills the grammar mutant by its \
-             run (detail), so the kill has no grammar direction; a grammar edit changes no rule, \
-             so the runs of one term should agree"
+        "unknown" if reason == Some(crate::reparse::KILLER_NOT_A_CASE) => {
+            "report it: the campaign call's killer of a grammar mutant is no program the mutant \
+             ran as a case of the mutation (detail), which the call's programs exclude"
         }
         "unknown" => {
             "write a program whose final configuration under the mutant kink can compare: the \
