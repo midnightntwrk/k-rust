@@ -415,8 +415,8 @@ note = "the reader refuses it (rows.toml E4 tree:Pattern.rightAssoc is refused),
 #            of KK.encodable (a fixture's or ref-kimp's text), the table's Bool, or the first
 #            uncovered hook row's; refused_on, the text or table entry; first_uncovered, the hook
 #            row a module row is refused by.
-# Entries: 1110; covered 427; refused 683 (paramsOK 403, appsOK 160, shapesOK 64, litsOK 48, ovlsOK 8).
-# By evidence: fixture 889, hook table 139, kimp 50, module hooks 19, sort table 13.
+# Entries: 1113; covered 428; refused 685 (paramsOK 403, appsOK 160, shapesOK 66, litsOK 48, ovlsOK 8).
+# By evidence: fixture 892, hook table 139, kimp 50, module hooks 19, sort table 13.
 # No evidence text, no verdict (a fixture is owed; check fails on them, check --report lists them): 0.
 
 [rows.E1."Require:kw:requires"]
@@ -1342,6 +1342,23 @@ refused_on = "e3-vars"
 verdict = "covered"
 by = "fixture"
 case = "e3-ml-req-exists"
+
+[rows.E3."ML-SYNTAX:Sort2::=\"#Exists\" Sort1 \".\" Sort2#cases[19]"]
+verdict = "refused"
+by = "fixture"
+bool = "shapesOK"
+refused_on = "e3-eq-exists-twice-ml"
+
+[rows.E3."ML-SYNTAX:Sort2::=\"#Exists\" Sort1 \".\" Sort2#cases[20]"]
+verdict = "refused"
+by = "fixture"
+bool = "shapesOK"
+refused_on = "e3-eq-exists-argname-ml"
+
+[rows.E3."ML-SYNTAX:Sort2::=\"#Exists\" Sort1 \".\" Sort2#cases[21]"]
+verdict = "covered"
+by = "fixture"
+case = "e3-eq-exists-unheld-arg-ml"
 
 [rows.E3."ML-SYNTAX:Sort2::=\"#Exists\" Sort1 \".\" Sort2#cases[23]"]
 verdict = "refused"
