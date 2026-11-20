@@ -3,7 +3,8 @@
   (`test/constructs/fixtures/e3-ml-rule-rhs-bottom`), sentence by sentence, against the translation of the text as
   written (`trS ad := trAxiom k.symbolDecls k.aliasNames ad`), on the literals `kore` and `defn`, for
   every interpretation H. Nothing here reads `Parse.parse` or `emit`. Written by
-  `test/constructs/tiegen.py e3-ml-rule-rhs-bottom`; run from the package root: `lake env lean -j1 test/TieE3MlRuleRhsBottom.lean`.
+  `test/constructs/tiegen.py e3-ml-rule-rhs-bottom`, its rules section by hand; run from the package root:
+  `lake env lean -j1 test/TieE3MlRuleRhsBottom.lean`.
 
   Layer 1.
   - `wf_defn`: `wf defn = true`.
@@ -27,6 +28,11 @@
     prelude sentences (`fns_account`, and `preludeKseq_eq`: they are the text's); `fns_entailed`
     (E), `fns_from_text` (the converse), `fn_prios` (the priorities the sentences state are the
     clauses').
+  - Rewrite rules (157, 158), by hand, in the section `The rules` (`Rules`): each of Γ's rule items
+    is a consequence of its text sentence, `Rules.ruleText` in `ruleItems`' order
+    (`Rules.rule_from_text`, W1, every H; `Rules.rules_account`). The section's other headline
+    statements (its comment says what each states): `Rules.rule_text0`, `Rules.rule_text1`,
+    `Rules.rtext0_empty`, `Rules.rule0_from_text`, `Rules.rule1_from_text`.
   - Constructor sentences (32): entailed by Γ (`cons_entailed`).
   - No junk (3 of a sort without generators, `nojunk_trivial_entailed`; 7 equal to
     one of Γ's constructor items, `nojunk_items`; 1 KItem's with its disjuncts in the text's
@@ -39,7 +45,7 @@
     `absent_closed`.
 
   The sentences with no counterpart in f2-examples/ens.kompile.kore are `unmapped` (17);
-  the sentences of a class with a theorem that no theorem here holds of are `uncovered` (2).
+  the sentences of a class with a theorem that no theorem here holds of are `uncovered` (0).
 -/
 import KcoreSpec
 
@@ -190,7 +196,7 @@ def unmapped : List (Nat × String) :=
 /-- The sentences of a class with a theorem in the tie that no theorem of this file holds of: the
 tie's remainder on this text. -/
 def uncovered : List (Nat × String) :=
-  [(157, "rewrite rule"), (158, "rewrite rule")]
+  []
 
 /-- Each listed sentence is in its class in the account. -/
 theorem lists_in_account : (unmapped ++ uncovered).all (fun ic => (classOf ic.2).contains ic.1) = true := by
@@ -764,6 +770,161 @@ theorem lib166_at_values (H : HookParams) : EntailsAtValues (cH H) U.ax169 (trS 
   exact lib166 H hI n e (((elemOf_spec hI hv e).1 _).mp hden) m
 
 
+/-! ## The rules (157, 158): W1 from each sentence alone, for every H (by hand)
+
+Sentence 157, `rule <k> go(_) => #Bottom ... </k>`, is read with the right side its left side and the
+`ensures` false: Γ's item is `\rewrites(T ∧ ⊤ ∧ ⌈right⌉, T ∧ {false = true})`, T the left side's
+term; the sentence is `\rewrites(T ∧ ⊤, K[append(⊥, R)] ∧ ⊤)`, K the context of the k cell's content
+in T and R the rest of the cell (`rule_text0`, kernel). Γ's left side is the sentence's with the
+conjunct `⌈right⌉` more (`left0`), and the sentence's right side holds nothing in every model of
+definedness (`rtext0_empty`), so Γ's item is a consequence of the sentence alone (`rule0_from_text`,
+by `TieRuleRhs.rule_w1_rhs`). Sentence 158 (priority 60): Γ's item is the sentence with the negation
+of rule 0's left side and `⌈right⌉` more on its left side (`rule_text1`, `left1`; `rule1_from_text`,
+by `TieRuleLhs.rule_w1`). `rule_from_text`: W1 for both, every H. -/
+
+namespace Rules
+
+noncomputable def r0 : Rule := c.rules[0]'(by decide +kernel)
+
+/-- Γ's axiom of the rule. -/
+noncomputable def p0 : Kore.Pattern := prioRuleK c r0
+
+/-- Its parts `\rewrites{C}(L', right)`. -/
+noncomputable def q0 : Kore.KSort × Kore.Pattern × Kore.Pattern :=
+  (TieRuleLhs.rwParts p0).getD (KoreAML.R, .top KoreAML.R, .top KoreAML.R)
+
+kernel_rfl q0_eq : TieRuleLhs.rwParts p0 = some q0
+
+noncomputable def r1 : Rule := c.rules[1]'(by decide +kernel)
+
+/-- Γ's axiom of rule 1. -/
+noncomputable def p1 : Kore.Pattern := prioRuleK c r1
+
+/-- Its parts `\rewrites{C}(L', right)`. -/
+noncomputable def q1 : Kore.KSort × Kore.Pattern × Kore.Pattern :=
+  (TieRuleLhs.rwParts p1).getD (KoreAML.R, .top KoreAML.R, .top KoreAML.R)
+
+kernel_rfl q1_eq : TieRuleLhs.rwParts p1 = some q1
+
+theorem ruleItems_eq : ruleItems c = [trAxiom [] [] ⟨0, "kernel", ⟨[], p0, []⟩⟩, trAxiom [] [] ⟨0, "kernel", ⟨[], p1, []⟩⟩] := by kernel_rfl
+
+/-- The text sentences of Γ's rules, in `ruleItems`'s order. -/
+noncomputable def ruleText : List AxiomDecl := [U.ax157, U.ax158]
+
+theorem rules_account : (classOf "rewrite rule").isPerm (ruleText.map (·.index)) = true := by decide +kernel
+
+/-- The context of the k cell's content in the left side's term, and the content. -/
+noncomputable def cut0 : KoreCutCtx × Kore.Pattern :=
+  (TieRuleLhs.cutAt [0, 0] (TieRuleLhs.andHead q0.2.1)).getD (.hole, .top KoreAML.R)
+
+/-- The rest of the k cell, the rule's variable after `go(_)`. -/
+noncomputable def x0 : Kore.Pattern :=
+  ((TieRuleLhs.cutAt [0, 0, 1] (TieRuleLhs.andHead q0.2.1)).getD (.hole, .top KoreAML.R)).2
+
+/-- The context of `\bottom` in `append(\bottom, R)`. -/
+noncomputable def appCtx : KoreCutCtx :=
+  .app ⟨⟨"append"⟩⟩ [] [] .hole [x0]
+
+-- Γ's left side: the term, `\top`, then `⌈right⌉`.
+kernel_rfl l0_eq : q0.2.1 = .and q0.1 [TieRuleLhs.andHead q0.2.1, .top q0.1, .ceil q0.1 q0.1 q0.2.2]
+
+/-- The left side as the text writes it: no conjunct follows `\top`. -/
+noncomputable def Ltext0 : Kore.Pattern := .and q0.1 [TieRuleLhs.andHead q0.2.1, .top q0.1]
+
+/-- The right side as the text writes it: `append(\bottom{SortK{}}(), R)` as the k cell's content,
+and `\top`. -/
+noncomputable def Rtext0 : Kore.Pattern :=
+  .and q0.1 [cut0.1.fill (appCtx.fill (.bottom (KoreAML.srt "K"))), .top q0.1]
+
+noncomputable def fT0 : List VarKey := (freeOf [] (.rewrites q0.1 Ltext0 Rtext0)).eraseDups
+
+/-- **Sentence 157 is the item of `\rewrites{C}(Ltext0, Rtext0)` at the table of Γ's axiom**
+(kernel). -/
+theorem rule_text0 : TiePair.renSeq (TieRuleLhs.itemAt (tableOf [] p0) fT0 q0.1 Ltext0 Rtext0) [] = some (trS U.ax157).pat := by
+  decide +kernel
+theorem fT_free0 : fT0.all (fun k => (freeOf [] p0).eraseDups.contains k) = true := by decide +kernel
+
+-- Γ's left side of rule 1: the term, `\top`, then the negation of rule 0's left side and `⌈right⌉`.
+kernel_rfl l1_eq : q1.2.1 = .and q1.1 (TieRuleLhs.andHead q1.2.1 :: .top q1.1 :: (TieRuleLhs.andTail q1.2.1).drop 1)
+
+theorem l1_more : ((TieRuleLhs.andTail q1.2.1).drop 1).length = 2 := by decide +kernel
+
+/-- The left side of rule 1 as the text writes it: no conjunct follows `\top`. -/
+noncomputable def Ltext1 : Kore.Pattern := .and q1.1 [TieRuleLhs.andHead q1.2.1, .top q1.1]
+
+noncomputable def fT1 : List VarKey := (freeOf [] (.rewrites q1.1 Ltext1 q1.2.2)).eraseDups
+
+/-- **Sentence 158 is the item of `\rewrites{C}(Ltext1, right)` at the table of Γ's axiom**
+(kernel). -/
+theorem rule_text1 : TiePair.renSeq (TieRuleLhs.itemAt (tableOf [] p1) fT1 q1.1 Ltext1 q1.2.2) [] = some (trS U.ax158).pat := by
+  decide +kernel
+theorem fT_free1 : fT1.all (fun k => (freeOf [] p1).eraseDups.contains k) = true := by decide +kernel
+
+theorem cut0_noAlias : cut0.1.noAlias ⟨tableOf [] p0, []⟩ = true := by decide +kernel
+theorem appCtx_noAlias : appCtx.noAlias ⟨tableOf [] p0, []⟩ = true := by decide +kernel
+
+/-- **The sentence's right side holds nothing**, in every model of definedness: `\bottom` holds
+nothing, and an application with an argument that holds nothing holds nothing. -/
+theorem rtext0_empty {M : Type} {I : Interpretation KoreAML.Sym M} (hD : DefOK I) (e : Valuation M) (b : M) :
+    ¬ (tr ⟨tableOf [] p0, []⟩ Rtext0).interpret I e b :=
+  TieRuleRhs.and_empty (List.mem_cons_self ..)
+    (TieRuleRhs.tr_fill_empty _ cut0.1 cut0_noAlias
+      (TieRuleRhs.tr_fill_empty _ appCtx appCtx_noAlias (TieRhs.tr_botConst_empty hD rfl e))) b
+
+/-- Every element of Γ's left side is an element of the text's left side: the text's conjuncts are
+Γ's first two. -/
+theorem left0 {M : Type} {I : Interpretation KoreAML.Sym M} (e : Valuation M) (a : M)
+    (h : (tr ⟨tableOf [] p0, []⟩ q0.2.1).interpret I e a) : (tr ⟨tableOf [] p0, []⟩ Ltext0).interpret I e a := by
+  rw [l0_eq, interp_and (List.cons_ne_nil _ _)] at h
+  unfold Ltext0
+  rw [interp_and (List.cons_ne_nil _ _)]
+  intro p hp
+  rcases List.mem_cons.mp hp with rfl | hp
+  · exact h _ (List.mem_cons_self ..)
+  · rw [List.mem_singleton.mp hp]; exact h _ (List.mem_cons_of_mem _ (List.mem_cons_self ..))
+
+/-- **W1 for rule 0**: Γ's item is a consequence of sentence 157. -/
+theorem rule0_from_text : itemsPremises [trS U.ax157] ⊧ (trAxiom [] [] ⟨0, "kernel", ⟨[], p0, []⟩⟩).pat := by
+  intro M _ I hI
+  have hD : DefOK I := defOK_of fun x => hI _ (Or.inr ⟨x, rfl⟩)
+  exact TieRuleRhs.rule_w1_rhs hD q0_eq rule_text0 fT_free0
+    (hI _ (Or.inl ⟨trS U.ax157, List.mem_singleton_self _, rfl⟩))
+    (fun e _ _ a ha => left0 e a ha)
+    (fun e _ _ b hb => absurd hb (rtext0_empty hD e b))
+
+/-- Every element of Γ's left side of rule 1 is an element of the text's left side: the text's
+conjuncts are Γ's first two. -/
+theorem left1 {M : Type} {I : Interpretation KoreAML.Sym M} (e : Valuation M) (a : M)
+    (h : (tr ⟨tableOf [] p1, []⟩ q1.2.1).interpret I e a) : (tr ⟨tableOf [] p1, []⟩ Ltext1).interpret I e a := by
+  rw [l1_eq, interp_and (List.cons_ne_nil _ _)] at h
+  unfold Ltext1
+  rw [interp_and (List.cons_ne_nil _ _)]
+  intro p hp
+  rcases List.mem_cons.mp hp with rfl | hp
+  · exact h _ (List.mem_cons_self ..)
+  · rw [List.mem_singleton.mp hp]; exact h _ (List.mem_cons_of_mem _ (List.mem_cons_self ..))
+
+/-- **W1 for rule 1**: Γ's item is a consequence of sentence 158, which it is with two conjuncts
+more on its left side. -/
+theorem rule1_from_text : itemsPremises [trS U.ax158] ⊧ (trAxiom [] [] ⟨0, "kernel", ⟨[], p1, []⟩⟩).pat := by
+  intro M _ I hI
+  have hD : DefOK I := defOK_of fun x => hI _ (Or.inr ⟨x, rfl⟩)
+  exact TieRuleLhs.rule_w1 hD q1_eq rule_text1 fT_free1
+    (hI _ (Or.inl ⟨trS U.ax158, List.mem_singleton_self _, rfl⟩))
+    (fun e _ _ a ha => left1 e a ha)
+
+/-- **W1 for the rules**: each of Γ's rule items is a consequence of its text sentence in
+`ruleText`, for every H. -/
+theorem rule_from_text (H : HookParams) : ∀ it ∈ ruleItems (cH H), ∃ ad ∈ ruleText, itemsPremises [trS ad] ⊧ it.pat := by
+  intro it hit
+  rw [TiePair.ruleItems_withHooks, ruleItems_eq] at hit
+  rcases List.mem_cons.mp hit with rfl | hit
+  · exact ⟨U.ax157, List.mem_cons_self .., rule0_from_text⟩
+  · rw [List.mem_singleton.mp hit]
+    exact ⟨U.ax158, List.mem_cons_of_mem _ (List.mem_cons_self ..), rule1_from_text⟩
+
+end Rules
+
 end KCore.TieE3MlRuleRhsBottom
 
 #check @KCore.TieE3MlRuleRhsBottom.noRaw
@@ -802,6 +963,13 @@ end KCore.TieE3MlRuleRhsBottom
 #check @KCore.TieE3MlRuleRhsBottom.idem_refuted
 #check @KCore.TieE3MlRuleRhsBottom.lib166
 #check @KCore.TieE3MlRuleRhsBottom.lib166_at_values
+#check @KCore.TieE3MlRuleRhsBottom.Rules.rules_account
+#check @KCore.TieE3MlRuleRhsBottom.Rules.rule_from_text
+#check @KCore.TieE3MlRuleRhsBottom.Rules.rule_text0
+#check @KCore.TieE3MlRuleRhsBottom.Rules.rule_text1
+#check @KCore.TieE3MlRuleRhsBottom.Rules.rtext0_empty
+#check @KCore.TieE3MlRuleRhsBottom.Rules.rule0_from_text
+#check @KCore.TieE3MlRuleRhsBottom.Rules.rule1_from_text
 #print axioms KCore.TieE3MlRuleRhsBottom.noRaw
 #print axioms KCore.TieE3MlRuleRhsBottom.readsConfined_c
 #print axioms KCore.TieE3MlRuleRhsBottom.userAxioms_eq
@@ -838,3 +1006,10 @@ end KCore.TieE3MlRuleRhsBottom
 #print axioms KCore.TieE3MlRuleRhsBottom.idem_refuted
 #print axioms KCore.TieE3MlRuleRhsBottom.lib166
 #print axioms KCore.TieE3MlRuleRhsBottom.lib166_at_values
+#print axioms KCore.TieE3MlRuleRhsBottom.Rules.rules_account
+#print axioms KCore.TieE3MlRuleRhsBottom.Rules.rule_from_text
+#print axioms KCore.TieE3MlRuleRhsBottom.Rules.rule_text0
+#print axioms KCore.TieE3MlRuleRhsBottom.Rules.rule_text1
+#print axioms KCore.TieE3MlRuleRhsBottom.Rules.rtext0_empty
+#print axioms KCore.TieE3MlRuleRhsBottom.Rules.rule0_from_text
+#print axioms KCore.TieE3MlRuleRhsBottom.Rules.rule1_from_text

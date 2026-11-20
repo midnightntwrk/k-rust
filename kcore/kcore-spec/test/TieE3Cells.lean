@@ -3,7 +3,8 @@
   (`test/constructs/fixtures/e3-cells`), sentence by sentence, against the translation of the text as
   written (`trS ad := trAxiom k.symbolDecls k.aliasNames ad`), on the literals `kore` and `defn`, for
   every interpretation H. Nothing here reads `Parse.parse` or `emit`. Written by
-  `test/constructs/tiegen.py e3-cells`; run from the package root: `lake env lean -j1 test/TieE3Cells.lean`.
+  `test/constructs/tiegen.py e3-cells`, its rules section by hand; run from the package root:
+  `lake env lean -j1 test/TieE3Cells.lean`.
 
   Layer 1.
   - `wf_defn`: `wf defn = true`.
@@ -24,6 +25,10 @@
   - Function equations (43): each of Γ's items is the translation of one sentence, in the
     order `fnText` lists them (`fn_shape`); `fns_entailed` (E), `fns_from_text` (the converse),
     `fn_prios` (the priorities the sentences state are the clauses').
+  - Rewrite rules (197, 198, 199, 200, 201), by hand, in the section `The rules` (`Rules`): each of
+    Γ's rule items is a consequence of its text sentence, `Rules.ruleText` in `ruleItems`' order
+    (`Rules.rule_from_text`, W1, every H; `Rules.rules_account`). The section's other headline
+    statements (its comment says what each states): `Rules.rule_prios`, `Rules.rules_tie`.
   - Constructor sentences (56): entailed by Γ (`cons_entailed`).
   - No junk (3 of a sort without generators, `nojunk_trivial_entailed`; 14 equal to
     one of Γ's constructor items, `nojunk_items`; 1 KItem's with its disjuncts in the text's
@@ -36,7 +41,7 @@
     `absent_closed`.
 
   The sentences with no counterpart in f2-examples/ens.kompile.kore are `unmapped` (92);
-  the sentences of a class with a theorem that no theorem here holds of are `uncovered` (5).
+  the sentences of a class with a theorem that no theorem here holds of are `uncovered` (0).
 -/
 import KcoreSpec
 
@@ -212,8 +217,7 @@ def unmapped : List (Nat × String) :=
 /-- The sentences of a class with a theorem in the tie that no theorem of this file holds of: the
 tie's remainder on this text. -/
 def uncovered : List (Nat × String) :=
-  [(197, "rewrite rule"), (198, "rewrite rule"), (199, "rewrite rule"), (200, "rewrite rule"),
-   (201, "rewrite rule")]
+  []
 
 /-- Each listed sentence is in its class in the account. -/
 theorem lists_in_account : (unmapped ++ uncovered).all (fun ic => (classOf ic.2).contains ic.1) = true := by
@@ -791,6 +795,52 @@ theorem lib166_at_values (H : HookParams) : EntailsAtValues (cH H) U.ax212 (trS 
   exact lib166 H hI n e (((elemOf_spec hI hv e).1 _).mp hden) m
 
 
+/-! ## The rules (197 to 201): W1 from each sentence alone, for every H (by hand)
+
+The rules are sentences 197 to 201 in the order of `c.rules` (`rule_prios`): four of priority 50
+over the cells `<k>`, `<s>`, `<m>` of `<t>` and one of priority 60 beside the priority-50 rule of the
+same left side. Γ's axiom of each rule (`prioRuleK`) is its sentence with conjuncts more on the left
+side: the definedness of the right side, and for the priority-60 rule also the negation of the left
+sides and `requires` of the rules of priority 50; the two have one variable table and one list of
+free variables (`rules_tie`, kernel). A left side with conjuncts more holds fewer elements, so each
+of Γ's rule items is a consequence of its sentence alone (`rule_from_text`, W1, every H, by
+`TieRulePair.rules_from_text`). -/
+
+namespace Rules
+
+/-- The rule sentences, in the order of `c.rules`. -/
+noncomputable def ruleText : List AxiomDecl := [U.ax197, U.ax198, U.ax199, U.ax200, U.ax201]
+
+theorem rules_account : (classOf "rewrite rule").isPerm (ruleText.map (·.index)) = true := by decide +kernel
+
+noncomputable def rulePats : List P := ruleText.map (trS · |>.pat)
+
+/-- **The rules' priorities (the text's `priority` attributes) and their sentences' indices.** -/
+theorem rule_prios : c.rules.map (·.prio) = [50, 50, 50, 50, 60] ∧
+    ruleText.map (·.index) = [197, 198, 199, 200, 201] := by
+  decide +kernel
+
+/-- **Γ's axiom of each rule is its sentence with conjuncts more on the left side** (kernel). -/
+theorem rules_tie : TieRulePair.rulesTieB c rulePats = true := by decide +kernel
+
+theorem rules_tieH (H : HookParams) : TieRulePair.rulesTieB (cH H) rulePats = true :=
+  (TieRulePair.rulesTieB_withHooks c H rulePats).trans rules_tie
+
+/-- **W1 for the rules**: each of Γ's rule items is a consequence of its sentence, by position in
+`ruleText`, for every H. -/
+theorem rule_from_text (H : HookParams) :
+    ∀ (j : Nat) (it : Item), (ruleItems (cH H))[j]? = some it →
+      ∃ ad, ruleText[j]? = some ad ∧ (TiePair.Texts [(trS ad).pat] ⊧ it.pat) := by
+  intro j it hj
+  obtain ⟨t, ht, hent⟩ := TieRulePair.rules_from_text (rules_tieH H) j it hj
+  unfold rulePats at ht
+  rw [List.getElem?_map] at ht
+  cases hf : ruleText[j]? with
+  | none => rw [hf] at ht; cases ht
+  | some ad => rw [hf] at ht; cases ht; exact ⟨ad, rfl, hent⟩
+
+end Rules
+
 end KCore.TieE3Cells
 
 #check @KCore.TieE3Cells.noRaw
@@ -828,6 +878,10 @@ end KCore.TieE3Cells
 #check @KCore.TieE3Cells.idem_refuted
 #check @KCore.TieE3Cells.lib166
 #check @KCore.TieE3Cells.lib166_at_values
+#check @KCore.TieE3Cells.Rules.rules_account
+#check @KCore.TieE3Cells.Rules.rule_from_text
+#check @KCore.TieE3Cells.Rules.rule_prios
+#check @KCore.TieE3Cells.Rules.rules_tie
 #print axioms KCore.TieE3Cells.noRaw
 #print axioms KCore.TieE3Cells.readsConfined_c
 #print axioms KCore.TieE3Cells.userAxioms_eq
@@ -863,3 +917,7 @@ end KCore.TieE3Cells
 #print axioms KCore.TieE3Cells.idem_refuted
 #print axioms KCore.TieE3Cells.lib166
 #print axioms KCore.TieE3Cells.lib166_at_values
+#print axioms KCore.TieE3Cells.Rules.rules_account
+#print axioms KCore.TieE3Cells.Rules.rule_from_text
+#print axioms KCore.TieE3Cells.Rules.rule_prios
+#print axioms KCore.TieE3Cells.Rules.rules_tie
