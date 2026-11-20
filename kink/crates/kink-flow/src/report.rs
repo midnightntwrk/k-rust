@@ -1938,7 +1938,7 @@ const GRAMMAR_SURVIVOR_ACTION: &str = "write a case that tells the two grammars 
      adds texts, or a program the specification accepts and the mutant does not parse, or \
      parses to another term whose run differs; the edit's form does not say which, and every \
      case parsed agreed (grammar). Where the mutant's later layers reject every text its grammar adds (an \
-     added alternative is a constructor no rule reads), no case tells it apart: argue it and keep \
+     added production no rule reads and no macro expands away), no case tells it apart: argue it and keep \
      it with `expect = \"survive\"`, or drop it";
 
 /// Whether `row` is a judged grammar mutation's (it has `grammar`) with a grammar declaration
