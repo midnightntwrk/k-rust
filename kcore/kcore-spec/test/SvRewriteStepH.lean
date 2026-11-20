@@ -29,6 +29,8 @@
     `d(a)` (to `d(b)`), a model of `Γc` with the step's closure in which X does not step to `d(a)`
     (to `d(b)`) and does step to the other. So, a and b distinct, the theory entails neither step
     alone: it entails that X steps to `d(a)` or `d(b)`, as the sentence at the set `{a, b}` says.
+    Each of the two is a model of sentence 104 as written: every model of `Γc` with the step's
+    closure is, for every H (test/TieE3SetvarRewrite.lean, `rule_in_step_models`, on the same text).
 -/
 import KcoreSpec
 
