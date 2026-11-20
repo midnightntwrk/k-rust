@@ -449,7 +449,15 @@ What it states where the text:
   declares total (`isParamFunctional`, the class `parameter functional`, direction hypothesis):
   `total_params` (`Definition.totalParams`), `paramfunctional_account`, `paramfunctional_heads`; it is
   owed as `ParamsTotal`, the hypothesis on H the statements take. The functional sentence of a
-  parameter without `impl` the text does not declare total is refused.
+  parameter without `impl` the text does not declare total is refused. A `functional` sentence of a
+  sort-parametric symbol over its sort variables, of which such a parameter is an instance (the
+  probe's `FQ` lines, `functionalSQ`), is of that class too: it applies the symbol at sort variables,
+  a head Γ lacks, and read at the instance's sorts it is the parameter's `functional` sentence;
+  `paramfunctional_inst` states each with its instance, `account_absent` and `absent_closed` hold
+  it apart (`paramFunctionalSQ`), and where `consistent` is the generated one for every H and one
+  value is exhibited of the parameters' result sort, `paramsTotal_witness` and `consistent_witness`
+  state an interpretation that meets `ParamsTotal` and a model under it (refused with --chunk, the
+  --heads flags, --split, or an overloading symbol).
 
 What the test states (each a kernel decision or a proof from one):
 - layer 1: `wf defn = true` (or `coreOK` with the failing conjuncts of `wf` named); the account (the
@@ -875,6 +883,7 @@ def obligations(name, path, hand=False):
 PROBE = r'''import KcoreSpec
 open KCore ML Faithful KoreAML
 @READINGS_DEFS@
+@SQDEF@
 def tgOrTopBot (S : P) : P := conjList [] ⇒ (sOr S (sTop S) (sBot S) ≡ inhOf S)
 def tgRuleParts : Kore.Pattern → Option (Kore.KSort × Kore.Pattern × Kore.Pattern × Kore.Pattern × Kore.Pattern)
   | .rewrites C (.and _ [l, t, x]) r => some (C, l, t, x, r)
@@ -1053,6 +1062,9 @@ def tgNjOrder (gs : List KoreAML.Gen) : List Kore.Pattern → Option (List Nat)
   let tgTotV := ((c.params.find? fun k => d.totalParams.contains k.sig.name).bind fun k =>
     Parse.exhibit? c k.sig.result).getD default
   IO.println s!"H totalWit {ParamSchema.constTotal c d.totalParams tgTotV}"
+  for ad in us do
+    for p in d.totalParams.map c.symName do
+      if tgFunctionalSQ p ad.ax then IO.println s!"FQ {ad.index}\t{p}"
   IO.println s!"H attrsParts {AttrsAgree.ctors k c} {AttrsAgree.fns k c} {AttrsAgree.hooks k c} {AttrsAgree.colls k c} {AttrsAgree.prios k d}"
   -- the clauses read from a `symbol-overload` axiom (priority 0, which the reading gives and no attribute
   -- states), by (function name, position), and the user module's overload axioms that are equations of
@@ -1402,6 +1414,29 @@ PROBE_READINGS = r'''  for j in List.range fis.length do
     | _, _, _ => pure ()'''
 
 
+def sq_def(nm):
+    """The Lean predicate of a sort-quantified `functional` sentence at an instance named `p`, under the name `nm`:
+    in the probe (`FQ` lines) and in a tie with such a sentence of the class parameter functional."""
+    return f"""/-- The axiom is the `functional` sentence `\\exists(V, \\equals(V, f{{S₁,…,Sₙ}}(x₁,…,xₘ)))` of a
+sort-parametric symbol `f` at n ≥ 1 distinct sort variables of the axiom, its arguments element
+variables, and `p` names an instance `f{{X₁,…,Xₙ}}` of it (`instDecode?`): read at the sorts `Xᵢ` for
+the `Sᵢ`, the sentence states that `p` has a value at every argument list of its argument sorts. -/
+def {nm} (p : String) (a : Kore.Axiom) : Bool :=
+  AttrsAgree.has a.attributes "functional" && match a.pattern with
+    | .exist _ _ (.equals _ _ _ (.app h ss xs)) =>
+      !ss.isEmpty && ss.all (fun s => match s with
+          | .var v => a.sortVars.contains v
+          | .ctor _ _ => false) &&
+        ss.eraseDups.length == ss.length &&
+        xs.all (fun x => match x with
+          | .var (.evar _) => true
+          | _ => false) &&
+        match instDecode? p with
+        | some (hd, ys) => hd == h.ident.name && ys.length == ss.length
+        | none => false
+    | _ => false"""
+
+
 def probe(name, path, um, order="[]", cons_head=False, sig_pos=False, decl_pos=False, reads_h=(), readings=False):
     with tempfile.TemporaryDirectory(prefix="tiegen-") as d:
         f = os.path.join(d, "Probe.lean")
@@ -1412,7 +1447,8 @@ def probe(name, path, um, order="[]", cons_head=False, sig_pos=False, decl_pos=F
                            .replace("@DECLPOS@", "true" if decl_pos else "false")
                            .replace("@READSH@", "[" + ", ".join(map(str, reads_h)) + "]")
                            .replace("@READINGS@", PROBE_READINGS if readings else "")
-                           .replace("@READINGS_DEFS@", setvar_probe_defs() if readings else ""))
+                           .replace("@READINGS_DEFS@", setvar_probe_defs() if readings else "")
+                           .replace("@SQDEF@", sq_def("tgFunctionalSQ")))
         env = dict(os.environ, LEAN_NUM_THREADS="1")
         r = run(WRAP + ["timeout", os.environ.get("TIEGEN_PROBE_TIMEOUT", "900"), "lake", "env", "lean", "-j1", f], cwd=KS, env=env)
     if r.returncode != 0:
@@ -1452,6 +1488,9 @@ def probe(name, path, um, order="[]", cons_head=False, sig_pos=False, decl_pos=F
         elif l.startswith("H "):
             k, _, v = l[2:].partition(" ")
             head[k] = v
+        elif l.startswith("FQ "):
+            f = l[3:].split("\t")
+            head.setdefault("fq", {}).setdefault(int(f[0]), []).append(f[1])
         elif l.startswith("L "):
             f = l[2:].split("\t")
             head["lawRef"].append(dict(j=int(f[0]), searched=f[1] == "true", tried=int(f[2]),
@@ -1547,14 +1586,23 @@ def builtin_symbol_decls(text):
     return names
 
 
-def form_class(s, raw, builtin, laws=(), open_laws=(), raw_names=(), at_values=(), total_params=(), reads_h=()):
+def form_class(s, raw, builtin, laws=(), open_laws=(), raw_names=(), at_values=(), total_params=(), reads_h=(), sq=()):
     """The class a sentence's form and its probe give, or None. `laws`: the sentences that are, as
     written, the reader's laws of functions (`lawPattern`); `open_laws`: those that are Γ's law
     items of open generators (`lawItemsK`); `raw_names`: the open generators' symbol names;
     `at_values`: the user lemmas the caller names as holding at values only; `total_params`: the
     names of the parameter symbols without `impl` that the text declares total
     (`Definition.totalParams`); `reads_h`: the user lemmas the caller names as reading a value the
-    interpretation gives (the class parameter lemma)."""
+    interpretation gives (the class parameter lemma); `sq`: the sentences that are the `functional`
+    sentence of a sort-parametric symbol over its sort variables, of which a parameter the text declares
+    total is an instance (the probe's `FQ` lines)."""
+    # the `functional` sentence of a sort-parametric symbol quantified over its sort variables applies
+    # the symbol at sort variables, a head Γ lacks; read at the sorts of an instance the text declares
+    # total, it is that parameter's `functional` sentence, which Γ holds at values exactly where H
+    # gives the parameter a value at every argument list of its sorts (`ParamsTotal`): no direction
+    # leaves that fact unstated, so it is a parameter functional sentence, owed as `ParamsTotal`
+    if s["absent"] and s["idx"] in sq:
+        return PARAM_FUNCTIONAL_CLASS
     # a sentence applying a head Γ lacks: no item of Γ states anything of that head and H gives it
     # no value, so no class with a direction holds it. The class is not what the text owes: where
     # eliminating the head fixes a value of a symbol of Γ (findChar's equation, domains.md 1891,
@@ -1632,7 +1680,7 @@ def form_class(s, raw, builtin, laws=(), open_laws=(), raw_names=(), at_values=(
 
 
 def classify(name, text, sents, laws=(), open_laws=(), raw_names=(), at_values=(), total_params=(), no_impl=(),
-             reads_h=()):
+             reads_h=(), sq=()):
     um, ua = user_axioms(text)
     both = sorted(set(at_values) & set(reads_h))
     if both:
@@ -1647,7 +1695,7 @@ def classify(name, text, sents, laws=(), open_laws=(), raw_names=(), at_values=(
     cls, mapped, unmapped = {}, {}, []
     for i, _, s, raw in ua:
         builtin = "/include/kframework/builtin/" in raw
-        fc = form_class(sents[i], raw, builtin, laws, open_laws, raw_names, at_values, total_params, reads_h)
+        fc = form_class(sents[i], raw, builtin, laws, open_laws, raw_names, at_values, total_params, reads_h, sq)
         # the functional sentence of a parameter without `impl` that the text does not declare total
         # has no class: the reader reads such a sentence only as the declaration (`totalParams`)
         if ("[functional{}()]" in raw and sents[i]["fh"] in no_impl and sents[i]["fh"] not in total_params
@@ -2213,7 +2261,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                   if "rules" in hand else None)
     if rules_hand:
         covered |= set(rules_hand["idx"])
-    # the rule sentences the hand section ties under a premise no sentence states, apart from those
+    # the rule sentences the hand section ties under a premise no sentence is shown to state, apart from those
     # tied with none and from `uncovered`
     under_premise = [(i, rules_hand["premise"]) for i in rules_hand["idx"]] if rules_hand and rules_hand["premise"] else []
     # a user lemma has no generated theorem: it is the tie's remainder, as an uncovered sentence of a
@@ -2225,6 +2273,19 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     open_fun = [i for i in idx if cls[i] == OPEN_FUNCTIONAL_CLASS and sents[i]["fh"] in {k["name"] for k in raw}]
     param_lem = by_class[PARAM_LEMMA_CLASS]
     param_fun = by_class[PARAM_FUNCTIONAL_CLASS]
+    # the sort-quantified parameter functional sentences, each with the parameters declared total that are
+    # instances of its head (the probe's `FQ` lines)
+    sq_pairs = [(i, q) for i in param_fun for q in head.get("fq", {}).get(i, [])]
+    sq_idx = sorted({i for i, _ in sq_pairs})
+    sq_wit = bool(sq_pairs) and "consistency" not in hand and not raw and not agree and not tp_held and \
+        head.get("totalWit") == "true"
+    if sq_pairs and (ovl_fn or tok_omit or ovl_nc or ovl_any):
+        raise Refused(f"{name}: the sort-quantified parameter functional sentences ({', '.join(map(str, sq_idx))}) "
+                      f"beside an overloading symbol or KItem's no-junk sentence listed apart: tiegen states not both")
+    if sq_pairs and (chunk or heads_literal or heads_codes or heads_plain or split):
+        raise Refused(f"{name}: the sort-quantified parameter functional sentences ({', '.join(map(str, sq_idx))}) "
+                      f"are stated in `account_absent` and `absent_closed` by one decision over the user module: "
+                      f"--chunk, --heads-literal, --heads-codes, --heads-plain and --split do not state them")
     total_names = re.findall(r"[^\s\[\],]+", head.get("totalParams", ""))
     user_lem, user_lem_v = by_class[USER_LEMMA_CLASS], by_class[USER_LEMMA_VALUES_CLASS]
     if tp_params and not held_total and (not tp_held or raw or agree or ob["match"] or ob["owed"]):
@@ -2347,6 +2408,16 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w(f"  - The account: the class lists partition the {len(idx)} sentences of the user module {um}, in")
         w("    `tieClassesOvl`' order (`account`, `account_sizes`, `account_classes`); the no-direction class holds")
         w("    exactly the sentences that apply a symbol Γ lacks (`account_absent`, `absent_closed`).")
+    elif sq_pairs:
+        w(textwrap.fill(
+            f"- The account: the class lists partition the {len(idx)} sentences of the user module {um}, in "
+            "`tieClasses`' order (`account`, `account_sizes`, `account_classes`); the no-direction class holds "
+            "exactly the sentences that apply a symbol Γ lacks, but the sort-quantified parameter functional "
+            f"sentence{'s' if len(sq_idx) > 1 else ''} ({', '.join(map(str, sq_idx))}, `paramFunctionalSQ`), "
+            f"which appl{'y' if len(sq_idx) > 1 else 'ies'} a sort-parametric symbol at sort variables "
+            "(`account_absent`, `absent_closed`).",
+            width=100, initial_indent="  ", subsequent_indent="    ", break_on_hyphens=False,
+            break_long_words=False))
     else:
         w(f"  - The account: the class lists partition the {len(idx)} sentences of the user module {um}, in")
         w("    `tieClasses`' order (`account`, `account_sizes`, `account_classes`); the no-direction class holds")
@@ -2648,7 +2719,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     if open_law:
         owed_more += "; open generator law: Γ's law item (`openlaw_item`,\n    `openlaw_account`)"
     if param_fun:
-        owed_more += ("; parameter functional: owed as `ParamsTotal`\n    (`total_params`, `paramfunctional_account`, "
+        owed_more += ("; parameter functional: owed as `ParamsTotal`\n    (`total_params`, "
+                      + ("`paramfunctional_inst`, " if sq_pairs else "") + "`paramfunctional_account`, "
                       "`paramfunctional_heads`)")
     if param_lem:
         owed_more += ("; parameter lemma: owed as a hypothesis on H, at values\n    (`paramlemma_account`, "
@@ -2731,6 +2803,18 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                 f"{'them' if len(param_fun) > 1 else 'it'} in the class `{PARAM_FUNCTIONAL_CLASS}`, of the direction "
                 "`hypothesis` (`paramfunctional_account`), and every such sentence of the user module is in it "
                 "(`paramfunctional_heads`)."]
+        if sq_pairs:
+            sqn = lambda i: ", ".join(f"`{q}`" for j, q in sq_pairs if j == i)
+            para.append(
+                " ".join(f"Sentence {i} is the `functional` sentence of a sort-parametric symbol over its sort "
+                         f"variables, of which the parameter {sqn(i)} is an instance;" for i in sq_idx)
+                + " read at the instance's sorts it is that parameter's `functional` sentence (`paramfunctional_inst`). "
+                f"{'They apply' if len(sq_idx) > 1 else 'It applies'} the symbol at sort variables, a head Γ lacks, "
+                f"and the account holds {'them' if len(sq_idx) > 1 else 'it'} apart from the no-direction class "
+                "(`paramFunctionalSQ`, `account_absent`), whose reason, that a defining equation gives the lacked "
+                f"symbol's value, does not hold of {'them' if len(sq_idx) > 1 else 'it'}."
+                + (" One interpretation meets `ParamsTotal` (`paramsTotal_witness`) and Γ with the step's closure has "
+                   "a model under it (`consistent_witness`); `consistent` holds for every H." if sq_wit else ""))
         w(textwrap.fill(" ".join(para), width=100, initial_indent="  ", subsequent_indent="  ",
                         break_on_hyphens=False, break_long_words=False))
         w("")
@@ -2808,8 +2892,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     else:
         w(f"  the sentences of a class with a theorem that no theorem here holds of are `uncovered` ({len(uncovered)}).")
     if under_premise:
-        w(f"  The rule sentences tied under a premise that no sentence of the text states are `underPremise`")
-        w(f"  ({len(under_premise)}), with the premise's name.")
+        w(f"  The rule sentences tied under a premise that no sentence of the text is shown to state are")
+        w(f"  `underPremise` ({len(under_premise)}), with the premise's name.")
     w("-/")
     w("import KcoreSpec")
     w("")
@@ -3006,6 +3090,26 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         mark("Account")
     if absent_file:
         mark("Absent")
+    if sq_pairs:
+        sql = ", ".join(map(str, sq_idx))
+        w(sq_def("functionalSQ"))
+        w("")
+        w(f"/-- The sort-quantified parameter functional sentences ({sql}): each the `functional` sentence of a")
+        w("sort-parametric symbol over its sort variables, of which a parameter the text declares total is an")
+        w("instance (`paramfunctional_inst`). It applies the symbol at sort variables, a head Γ lacks, and is")
+        w(f"of the class `{PARAM_FUNCTIONAL_CLASS}`, not of the no-direction class. -/")
+        w(f"def paramFunctionalSQ : List Nat := [{sql}]")
+        w("")
+        w("/-- `tieAbsent_of_account` with the members of `s` held apart: where the members of `l` in `p` are")
+        w("exactly those in neither `q` nor `s`, every member in neither `p` nor `s` is in `q`. -/")
+        w("theorem absentSQ_of_account {α : Type} (l : List α) (p q s : α → Bool)")
+        w("    (h : l.all (fun a => p a != (q a || s a)) = true) : (l.filter (fun a => !p a && !s a)).all q = true := by")
+        w("  refine List.all_eq_true.mpr fun a ha => ?_")
+        w("  have hf := (List.mem_filter.mp ha).2")
+        w("  have hpq := List.all_eq_true.mp h a (List.mem_filter.mp ha).1")
+        w("  revert hpq hf")
+        w("  cases p a <;> cases q a <;> cases s a <;> decide")
+        w("")
     if chunk:
         w("/-- The sentence is in the no-direction class exactly where it applies a head Γ lacks. -/")
         w("noncomputable def absentP (ad : AxiomDecl) : Bool :=")
@@ -3091,12 +3195,23 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                                ranges(len(idx), 0, chunk), "tieAll", True)
         w(thms)
         w("")
-    w("/-- **A sentence outside the no-direction class applies only symbols Γ has**, each a head with its")
-    w("sort arguments (`appHeadsOf`) among Γ's (`gammaHeads`), and each sentence of that class applies one")
-    w("Γ lacks. -/")
-    w("theorem account_absent : userAxioms.all (fun ad =>")
-    w('    (classOf "no direction").contains ad.index != (appHeadsOf ad.ax.pattern).all (gammaHasHead c)) = true := by')
-    if chunk and heads_plain:
+    if sq_pairs:
+        w("/-- **A sentence outside the no-direction class applies only symbols Γ has**, each a head with its")
+        w("sort arguments (`appHeadsOf`) among Γ's (`gammaHeads`), but the sort-quantified parameter functional")
+        w("sentences (`paramFunctionalSQ`), and each sentence of that class applies one Γ lacks. -/")
+        w("theorem account_absent : userAxioms.all (fun ad =>")
+        w('    (classOf "no direction").contains ad.index !=')
+        w("      ((appHeadsOf ad.ax.pattern).all (gammaHasHead c) || paramFunctionalSQ.contains ad.index)) = true := by")
+        w("  rw [userAxioms_eq]; decide +kernel")
+    else:
+        w("/-- **A sentence outside the no-direction class applies only symbols Γ has**, each a head with its")
+        w("sort arguments (`appHeadsOf`) among Γ's (`gammaHeads`), and each sentence of that class applies one")
+        w("Γ lacks. -/")
+        w("theorem account_absent : userAxioms.all (fun ad =>")
+        w('    (classOf "no direction").contains ad.index != (appHeadsOf ad.ax.pattern).all (gammaHasHead c)) = true := by')
+    if sq_pairs:
+        pass
+    elif chunk and heads_plain:
         w("  rw [userAxioms_eq]")
         w("  have h : (U.all).all absentPH = true :=")
         w("    " + body.replace("\n    ", "\n      "))
@@ -3117,14 +3232,27 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     else:
         w("  rw [userAxioms_eq]; decide +kernel")
     w("")
-    w("/-- **The no-direction class is closed**: every sentence outside it applies only symbols Γ has,")
-    w("so no sentence with a direction applies a symbol Γ lacks. The injection `inj` is no member of")
-    w("`kernelSyms` and is Γ's all the same at each subsort pair, where the constructor items state it")
-    w("(`gammaHeads`). -/")
-    w("theorem absent_closed :")
-    w('    (userAxioms.filter (fun ad => !(classOf "no direction").contains ad.index)).all')
-    w("      (fun ad => (appHeadsOf ad.ax.pattern).all (gammaHasHead c)) = true :=")
-    w("  tieAbsent_of_account userAxioms _ _ account_absent")
+    if sq_pairs:
+        w("/-- **The no-direction class is closed**: every sentence outside it applies only symbols Γ has, but")
+        w("the sort-quantified parameter functional sentences (`paramFunctionalSQ`), so no other sentence with a")
+        w("direction applies a symbol Γ lacks. The injection `inj` is no member of `kernelSyms` and is Γ's all")
+        w("the same at each subsort pair, where the constructor items state it (`gammaHeads`). -/")
+        w("theorem absent_closed :")
+        w('    (userAxioms.filter (fun ad => !(classOf "no direction").contains ad.index &&')
+        w("      !paramFunctionalSQ.contains ad.index)).all")
+        w("      (fun ad => (appHeadsOf ad.ax.pattern).all (gammaHasHead c)) = true :=")
+        w('  absentSQ_of_account userAxioms (fun ad => (classOf "no direction").contains ad.index)')
+        w("    (fun ad => (appHeadsOf ad.ax.pattern).all (gammaHasHead c)) (fun ad => paramFunctionalSQ.contains ad.index)")
+        w("    account_absent")
+    else:
+        w("/-- **The no-direction class is closed**: every sentence outside it applies only symbols Γ has,")
+        w("so no sentence with a direction applies a symbol Γ lacks. The injection `inj` is no member of")
+        w("`kernelSyms` and is Γ's all the same at each subsort pair, where the constructor items state it")
+        w("(`gammaHeads`). -/")
+        w("theorem absent_closed :")
+        w('    (userAxioms.filter (fun ad => !(classOf "no direction").contains ad.index)).all')
+        w("      (fun ad => (appHeadsOf ad.ax.pattern).all (gammaHasHead c)) = true :=")
+        w("  tieAbsent_of_account userAxioms _ _ account_absent")
     w("")
     if abs_proj:
         w("/-- The sentences of the no-direction class that are equations of a projection `project:X` (their")
@@ -3210,9 +3338,9 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     w("  [" + wrap_nums([f'({i}, "{c_}")' for i, c_ in uncovered], 3) + "]")
     w("")
     if under_premise:
-        w("/-- The rule sentences tied under a premise that no sentence of the text states, with the premise:")
-        w("Γ's items are a consequence of the sentence with it, and the section on the rules states the other")
-        w("direction. -/")
+        w("/-- The rule sentences tied under a premise that no sentence of the text is shown to state, with the")
+        w("premise: Γ's items are a consequence of the sentence with it, and the section on the rules states the")
+        w("other direction. -/")
         w("def underPremise : List (Nat × String) :=")
         w("  [" + wrap_nums([f'({i}, "{p_}")' for i, p_ in under_premise], 3) + "]")
         w("")
@@ -4254,7 +4382,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     if open_fun:
         w(open_functional_section(open_fun, rnames))
     if param_fun:
-        w(param_functional_section(param_fun, total_names, len(idx), chunk))
+        w(param_functional_section(param_fun, total_names, len(idx), chunk, sq_pairs, sq_wit))
     if param_lem:
         w(param_lemma_section(param_lem, reads_h))
     if user_lem or user_lem_v:
@@ -4371,7 +4499,9 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     if open_fun:
         names.append("open_functional_not_item")
     if param_fun:
-        names += ["total_params", "paramfunctional_account", "paramfunctional_heads"]
+        names += ["total_params"] + (["paramfunctional_inst"] if sq_pairs else []) + \
+            ["paramfunctional_account", "paramfunctional_heads"] + \
+            (["paramsTotal_witness", "consistent_witness"] if sq_wit else [])
     if param_lem:
         names += ["paramlemma_account", "paramlemma_heads"] + (["paramlemma_reads_h"] if reads_h else []) + \
             ["ParamLemmaWitnessAtValues"]
@@ -4692,7 +4822,7 @@ HAND_SECTIONS = {"consistency": "/-! ## Consistency for every H",
 # sentence and the text's signature (`ΓSig`); `rule_from_text_aux` these, other sentences of the text
 # (`ruleAux`) and items of the text's signature that `ΓSig` leaves out (`ruleSigAux`);
 # `rule_from_text_closed` these and `boolClosed`, `rule_from_text_dom` these and items of the domains
-# (`ruleDomAux`): a premise that no sentence of the text states, under which the sentence is tied
+# (`ruleDomAux`): a premise that no sentence of the text is shown to state, under which the sentence is tied
 # (RULES_PREMISE)
 RULES_AUX_PRE = "TiePair.Texts ((trS ad).pat :: (ruleAux.map (fun a => (trS a).pat) ++ ruleSigAux.map (·.pat)"
 RULES_W1_FORMS = {
@@ -4717,7 +4847,7 @@ RULES_W1_FORMS = {
 RULES_SIG_FORMS = ("rule_from_text_sig", "rule_from_text_aux", "rule_from_text_closed", "rule_from_text_dom")
 RULES_AUX_FORMS = ("rule_from_text_aux", "rule_from_text_closed", "rule_from_text_dom")
 RULES_SIGAUX_TEXT = ": ∀ it ∈ ruleSigAux, it ∈ (Theory.ofDefinition kore).signature"
-# the forms with a premise no sentence of the text states: the premise's name in `underPremise`, and
+# the forms with a premise no sentence of the text is shown to state: the premise's name in `underPremise`, and
 # what the header says of it (what it states, its ground)
 RULES_PREMISE = {
     "rule_from_text_closed": ("boolClosed", "every element of Bool is `true`'s or `false`'s",
@@ -4801,7 +4931,7 @@ def rules_hand_of(name, text, rule_cls, rules_full, split, sig_origin=True, cls=
     is not the class; a form with `ΓSig` in a tie without `sig_origin` (`sig_origin` false: an item
     of Γ's signature is not shown the text's); a statement whose premises name a family of Γ's own
     (RULES_GAMMA_NAMES); a section declaring a name the statements read, or defining notation.
-    A form with a premise no sentence states (RULES_PREMISE; `premise`, its name in `underPremise`)
+    A form with a premise no sentence is shown to state (RULES_PREMISE; `premise`, its name in `underPremise`)
     also needs in the section the other direction for each sentence of `ruleText` (RULES_CONVERSE;
     `converse`), for `rule_from_text_closed` a tie whose definition reads no confined sort
     (`confined` false, `readsConfined_c : c.readsConfined = false`: Γc is Γ, which does not hold
@@ -4991,7 +5121,7 @@ def rules_hand_bullet(rh):
                  "either.")
     if form in RULES_PREMISE:
         ss = rh["idx"]
-        extra += (f" No sentence of the text states `{rh['premise']}`; its ground is "
+        extra += (f" No sentence of the text is shown to state `{rh['premise']}`; its ground is "
                   f"{RULES_PREMISE[form][2]}"
                   + ("; Γ does not hold it, the definition reading no confined sort (`readsConfined_c`: Γc is Γ)"
                      f", and without it W1 does not hold (`{rh['needed']}`)" if rh["needed"] else
@@ -7406,7 +7536,13 @@ theorem law_account : lawText.map (·.index) = classOf "{LAW_FN_CLASS}" := by
 """
 
 
-def param_functional_section(param_fun, total_names, n, chunk):
+def param_functional_section(param_fun, total_names, n, chunk, sq_pairs=(), sq_wit=False):
+    """The section of the class parameter functional. `sq_pairs`: the sort-quantified sentences of the class,
+    each with a parameter declared total that is an instance of its head (`paramFunctionalSQ`, written
+    before `account_absent`); `sq_wit`: also state that one H meets `ParamsTotal` and that Γ has a model
+    under it (the plain consistency section, `consistent` for every H)."""
+    if sq_pairs:
+        return param_functional_section_sq(param_fun, total_names, sq_pairs, sq_wit)
     il = ", ".join(map(str, param_fun))
     lt = ", ".join(f"U.ax{i}" for i in param_fun)
     tn = ", ".join(f'"{x}"' for x in total_names)
@@ -7446,6 +7582,75 @@ theorem paramfunctional_account : paramFunctionalText.map (·.index) = classOf "
 theorem paramfunctional_heads : userAxioms.all {pred} = true := by
 {heads[1]}
 """
+
+
+def param_functional_section_sq(param_fun, total_names, sq_pairs, sq_wit):
+    il = ", ".join(map(str, param_fun))
+    lt = ", ".join(f"U.ax{i}" for i in param_fun)
+    tn = ", ".join(f'"{x}"' for x in total_names)
+    pairs = ", ".join(f'(U.ax{i}, "{q}")' for i, q in sq_pairs)
+    sql = ", ".join(map(str, sorted({i for i, _ in sq_pairs})))
+    ofb = f"functionalOfNamed [{tn}] ad.ax || [{tn}].any (fun p => functionalSQ p ad.ax)"
+    wit = ""
+    if sq_wit:
+        wit = """
+/-- A value of the result sort of the parameters the text declares total, exhibited by the
+search over the definition's data (`Parse.exhibit?`). -/
+noncomputable def totalWitnessV : GroundTerm :=
+  ((c.params.find? fun k => defn.totalParams.contains k.sig.name).bind fun k =>
+    Parse.exhibit? c k.sig.result).getD default
+
+/-- **The owed fact is met**: the interpretation answering `totalWitnessV` everywhere is total on the
+parameters the text declares total. -/
+theorem paramsTotal_witness : ParamsTotal c defn.totalParams (ParamSchema.constH totalWitnessV) :=
+  ParamSchema.paramsTotal_constH (by decide +kernel)
+
+/-- **Γ with the step's closure has a model under an interpretation that meets the owed fact**
+(`paramsTotal_witness`), from `consistent`, which holds for every H. -/
+theorem consistent_witness : Consistent (cH (ParamSchema.constH totalWitnessV)) :=
+  consistent _
+"""
+    return f"""/-! ## The parameter functional sentences ({il}): owed as `ParamsTotal` -/
+
+/-- The parameter symbols no registry hook interprets that the text declares total
+(`Definition.totalParams`): the statements take `ParamsTotal c defn.totalParams H`, that `H` gives
+each a value of its result sort at every argument list of its argument sorts. -/
+theorem total_params : defn.totalParams.map c.symName = [{tn}] := by decide +kernel
+
+/-- The text's `functional` sentences of those parameters (`isParamFunctional`), and those of a
+sort-parametric symbol over its sort variables of which one is an instance (`functionalSQ`). -/
+noncomputable def paramFunctionalText : List AxiomDecl := [{lt}]
+
+/-- The sort-quantified sentences of the class ({sql}), each with a parameter the text declares total
+that is an instance of its head. -/
+noncomputable def paramFunctionalInst : List (AxiomDecl × String) := [{pairs}]
+
+/-- **The instances**: each sentence of `paramFunctionalInst` is the `functional` sentence of a
+sort-parametric symbol over its sort variables, of which the named parameter, one the text declares
+total (`total_params`), is an instance; read at that instance's sorts the sentence is that
+parameter's `functional` sentence, which holds at values exactly where `H` gives it a value of its
+result sort at every argument list of its argument sorts: `ParamsTotal` at that parameter. They are
+the sentences `paramFunctionalSQ` holds apart in `account_absent`. -/
+theorem paramfunctional_inst :
+    paramFunctionalInst.all (fun x => functionalSQ x.2 x.1.ax && (defn.totalParams.map c.symName).contains x.2) = true ∧
+    (paramFunctionalInst.map (·.1.index)).eraseDups = paramFunctionalSQ := by
+  decide +kernel
+
+/-- The parameter functional sentences are the account's class `{PARAM_FUNCTIONAL_CLASS}`, of the
+direction `hypothesis`: Γ states a parameter's graph at values from the interpretation (`ΓDomains`),
+so it holds the sentence at values exactly where `H` gives the parameter a value at the values of its
+argument sorts, which is `ParamsTotal` at that parameter. -/
+theorem paramfunctional_account : paramFunctionalText.map (·.index) = classOf "{PARAM_FUNCTIONAL_CLASS}" ∧
+    paramFunctionalText.all (fun ad => {ofb}) = true := by
+  decide +kernel
+
+/-- Every `functional` sentence of the user module of a parameter the text declares total
+(`total_params`), or of a sort-parametric symbol over its sort variables of which one is an instance,
+is of the class `{PARAM_FUNCTIONAL_CLASS}`. -/
+theorem paramfunctional_heads : userAxioms.all (fun ad => !({ofb}) ||
+    (classOf "{PARAM_FUNCTIONAL_CLASS}").contains ad.index) = true := by
+  rw [userAxioms_eq]; decide +kernel
+{wit}"""
 
 
 def param_lemma_section(param_lem, reads_h=()):
@@ -8103,7 +8308,8 @@ def main(argv):
     law_set, open_set = {l[0] for l in laws}, {l[0] for l in open_laws}
     names_of = lambda k: set(re.findall(r"[^\s\[\],]+", head.get(k, "")))
     um, cls, mapped, unmapped = classify(name, text, sents, law_set, open_set, {k["name"] for k in head["raw"]},
-                                         at_values, names_of("totalParams"), names_of("noImplParams"), reads_h)
+                                         at_values, names_of("totalParams"), names_of("noImplParams"), reads_h,
+                                         set(head.get("fq", {})))
     for i in law_set | open_set:
         if sents[i]["fnJ"] or (i in law_set and sents[i]["consItem"]):
             raise Refused(f"{name}: law sentence {i} is a function equation's item or a constructor item of Γ")

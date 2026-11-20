@@ -39,11 +39,11 @@
     (`sig_origin`), and the arity of every literal (`dvArityAll`). Two limits, argued and not
     proved: that a surplus item of a name the text declares with sort parameters adds no consequence
     in the text's symbols; and that `dvArityAll` at a literal no axiom of the text writes, no item
-    of the text, adds none either. No sentence of the text states `boolClosed`; its ground is the
-    builtin domain Bool, whose values are `true` and `false`; Γ does not hold it, the definition
-    reading no confined sort (`readsConfined_c`: Γc is Γ), and without it W1 does not hold
-    (`Rules.rule_not_from_text`). The other direction: `Rules.rule157_at_values`. Sentence 157 is
-    tied under the premise (`underPremise`), not `uncovered`. The section's other headline
+    of the text, adds none either. No sentence of the text is shown to state `boolClosed`; its
+    ground is the builtin domain Bool, whose values are `true` and `false`; Γ does not hold it, the
+    definition reading no confined sort (`readsConfined_c`: Γc is Γ), and without it W1 does not
+    hold (`Rules.rule_not_from_text`). The other direction: `Rules.rule157_at_values`. Sentence 157
+    is tied under the premise (`underPremise`), not `uncovered`. The section's other headline
     statements (its comment says what each states): `Rules.rule_text0`, `Rules.true_iff_not_false`,
     `Rules.cond_iff`, `Rules.left_sub`, `Rules.left_sup`, `Rules.lit_sents`,
     `Rules.boolDist_of_text`, `Rules.boolDist_from_text`, `Rules.ClosedNeg157.sat_sig`,
@@ -65,8 +65,8 @@
 
   The sentences with no counterpart in f2-examples/ens.kompile.kore are `unmapped` (16);
   the sentences of a class with a theorem that no theorem here holds of are `uncovered` (0).
-  The rule sentences tied under a premise that no sentence of the text states are `underPremise`
-  (1), with the premise's name.
+  The rule sentences tied under a premise that no sentence of the text is shown to state are
+  `underPremise` (1), with the premise's name.
 -/
 import KcoreSpec
 
@@ -218,9 +218,9 @@ tie's remainder on this text. -/
 def uncovered : List (Nat × String) :=
   []
 
-/-- The rule sentences tied under a premise that no sentence of the text states, with the premise:
-Γ's items are a consequence of the sentence with it, and the section on the rules states the other
-direction. -/
+/-- The rule sentences tied under a premise that no sentence of the text is shown to state, with the
+premise: Γ's items are a consequence of the sentence with it, and the section on the rules states the
+other direction. -/
 def underPremise : List (Nat × String) :=
   [(157, "boolClosed")]
 

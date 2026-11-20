@@ -8,8 +8,10 @@
   Layer 1.
   - `wf_defn`: `wf defn = true`.
   - The account: the class lists partition the 255 sentences of the user module PARSEL-TOT, in
-    `tieClasses`' order (`account`, `account_sizes`, `account_classes`); the no-direction class holds
-    exactly the sentences that apply a symbol Γ lacks (`account_absent`, `absent_closed`).
+    `tieClasses`' order (`account`, `account_sizes`, `account_classes`); the no-direction class
+    holds exactly the sentences that apply a symbol Γ lacks, but the sort-quantified parameter
+    functional sentence (80, `paramFunctionalSQ`), which applies a sort-parametric symbol at sort
+    variables (`account_absent`, `absent_closed`).
   - `absent_proj_below`: the 13 no-direction sentences that are equations of a projection
     `project:X` are of sorts X that are K, KItem or below KItem in Γ (`GenEqs.projBelowB`).
   - `attrs_agree`: the attributes the translation does not read agree with `defn`.
@@ -41,8 +43,25 @@
     five parts Γ defines by predicates, or definedness (`gamma_origin`, `gamma_from`).
   - Function functional: at values in every model of `Γc`, from the sort predicates' results, not
     from `FnHyp` (`fnFun_at_values`, `fnFun_account`).
-  - Hooked functional, collection law, library: at values (no theorem here); no direction:
-    `absent_closed`.
+  - Hooked functional, collection law, library: at values (no theorem here); parameter functional:
+    owed as `ParamsTotal` (`total_params`, `paramfunctional_inst`, `paramfunctional_account`,
+    `paramfunctional_heads`); no direction: `absent_closed`.
+
+  The parameter functional sentence (80) is the `functional` sentence of a parameter symbol no
+  registry hook interprets that the text declares total (`Definition.totalParams`, `total_params`),
+  which the reader reads as that declaration. Γ states the parameter's graph at values from the
+  interpretation (`ΓDomains`: its application to values denotes `paramVal`'s value, or nothing), so
+  the sentence holds at values where H gives the parameter a value of its sort at every argument
+  list of its sorts: the hypothesis on H the statements take (`ParamsTotal`). The account holds it
+  in the class `parameter functional`, of the direction `hypothesis` (`paramfunctional_account`),
+  and every such sentence of the user module is in it (`paramfunctional_heads`). Sentence 80 is the
+  `functional` sentence of a sort-parametric symbol over its sort variables, of which the parameter
+  `Lblidp{Int}` is an instance; read at the instance's sorts it is that parameter's `functional`
+  sentence (`paramfunctional_inst`). It applies the symbol at sort variables, a head Γ lacks, and
+  the account holds it apart from the no-direction class (`paramFunctionalSQ`, `account_absent`),
+  whose reason, that a defining equation gives the lacked symbol's value, does not hold of it. One
+  interpretation meets `ParamsTotal` (`paramsTotal_witness`) and Γ with the step's closure has a
+  model under it (`consistent_witness`); `consistent` holds for every H.
 
   The sentences with no counterpart in f2-examples/ens.kompile.kore are `unmapped` (7);
   the sentences of a class with a theorem that no theorem here holds of are `uncovered` (0).
@@ -117,12 +136,12 @@ def classes : List (String × List Nat) :=
    ("function law", []),
    ("open generator law", []),
    ("open generator functional", []),
-   ("parameter functional", []),
+   ("parameter functional", [80]),
    ("parameter lemma", []),
    ("user lemma", []),
    ("user lemma at values", []),
-   ("no direction", [35, 39, 41, 72, 74, 80, 81, 97, 109, 110, 152, 184, 205, 207, 208, 209, 237, 238, 243, 244,
-      245, 246, 247, 248, 249, 250, 251, 252, 253, 254, 255])]
+   ("no direction", [35, 39, 41, 72, 74, 81, 97, 109, 110, 152, 184, 205, 207, 208, 209, 237, 238, 243, 244, 245,
+      246, 247, 248, 249, 250, 251, 252, 253, 254, 255])]
 
 /-- The indices of a class. -/
 def classOf (n : String) : List Nat := (classes.filter (·.1 == n)).flatMap (·.2)
@@ -136,27 +155,66 @@ theorem account : (classes.flatMap (·.2)).isPerm (userAxioms.map (·.index)) = 
 
 /-- The class sizes. -/
 theorem account_sizes : classes.map (fun cl => (cl.1, cl.2.length)) =
-    [("function equation", 28), ("rewrite rule", 1), ("priority equation", 0), ("constructor functional", 7), ("subsort", 14), ("injectivity", 5), ("distinctness", 0), ("no junk", 10), ("function functional", 14), ("hooked functional", 47), ("collection law", 9), ("library", 82), ("set idempotence", 1), ("set-variable lemma", 6), ("function law", 0), ("open generator law", 0), ("open generator functional", 0), ("parameter functional", 0), ("parameter lemma", 0), ("user lemma", 0), ("user lemma at values", 0), ("no direction", 31)] := by
+    [("function equation", 28), ("rewrite rule", 1), ("priority equation", 0), ("constructor functional", 7), ("subsort", 14), ("injectivity", 5), ("distinctness", 0), ("no junk", 10), ("function functional", 14), ("hooked functional", 47), ("collection law", 9), ("library", 82), ("set idempotence", 1), ("set-variable lemma", 6), ("function law", 0), ("open generator law", 0), ("open generator functional", 0), ("parameter functional", 1), ("parameter lemma", 0), ("user lemma", 0), ("user lemma at values", 0), ("no direction", 30)] := by
   decide +kernel
 
 /-- The classes are the tie's (`tieClasses`, which gives each its direction), in its order. -/
 theorem account_classes : classes.map (·.1) = tieClasses.map (·.1) := by decide +kernel
 
+/-- The axiom is the `functional` sentence `\exists(V, \equals(V, f{S₁,…,Sₙ}(x₁,…,xₘ)))` of a
+sort-parametric symbol `f` at n ≥ 1 distinct sort variables of the axiom, its arguments element
+variables, and `p` names an instance `f{X₁,…,Xₙ}` of it (`instDecode?`): read at the sorts `Xᵢ` for
+the `Sᵢ`, the sentence states that `p` has a value at every argument list of its argument sorts. -/
+def functionalSQ (p : String) (a : Kore.Axiom) : Bool :=
+  AttrsAgree.has a.attributes "functional" && match a.pattern with
+    | .exist _ _ (.equals _ _ _ (.app h ss xs)) =>
+      !ss.isEmpty && ss.all (fun s => match s with
+          | .var v => a.sortVars.contains v
+          | .ctor _ _ => false) &&
+        ss.eraseDups.length == ss.length &&
+        xs.all (fun x => match x with
+          | .var (.evar _) => true
+          | _ => false) &&
+        match instDecode? p with
+        | some (hd, ys) => hd == h.ident.name && ys.length == ss.length
+        | none => false
+    | _ => false
+
+/-- The sort-quantified parameter functional sentences (80): each the `functional` sentence of a
+sort-parametric symbol over its sort variables, of which a parameter the text declares total is an
+instance (`paramfunctional_inst`). It applies the symbol at sort variables, a head Γ lacks, and is
+of the class `parameter functional`, not of the no-direction class. -/
+def paramFunctionalSQ : List Nat := [80]
+
+/-- `tieAbsent_of_account` with the members of `s` held apart: where the members of `l` in `p` are
+exactly those in neither `q` nor `s`, every member in neither `p` nor `s` is in `q`. -/
+theorem absentSQ_of_account {α : Type} (l : List α) (p q s : α → Bool)
+    (h : l.all (fun a => p a != (q a || s a)) = true) : (l.filter (fun a => !p a && !s a)).all q = true := by
+  refine List.all_eq_true.mpr fun a ha => ?_
+  have hf := (List.mem_filter.mp ha).2
+  have hpq := List.all_eq_true.mp h a (List.mem_filter.mp ha).1
+  revert hpq hf
+  cases p a <;> cases q a <;> cases s a <;> decide
+
 /-- **A sentence outside the no-direction class applies only symbols Γ has**, each a head with its
-sort arguments (`appHeadsOf`) among Γ's (`gammaHeads`), and each sentence of that class applies one
-Γ lacks. -/
+sort arguments (`appHeadsOf`) among Γ's (`gammaHeads`), but the sort-quantified parameter functional
+sentences (`paramFunctionalSQ`), and each sentence of that class applies one Γ lacks. -/
 theorem account_absent : userAxioms.all (fun ad =>
-    (classOf "no direction").contains ad.index != (appHeadsOf ad.ax.pattern).all (gammaHasHead c)) = true := by
+    (classOf "no direction").contains ad.index !=
+      ((appHeadsOf ad.ax.pattern).all (gammaHasHead c) || paramFunctionalSQ.contains ad.index)) = true := by
   rw [userAxioms_eq]; decide +kernel
 
-/-- **The no-direction class is closed**: every sentence outside it applies only symbols Γ has,
-so no sentence with a direction applies a symbol Γ lacks. The injection `inj` is no member of
-`kernelSyms` and is Γ's all the same at each subsort pair, where the constructor items state it
-(`gammaHeads`). -/
+/-- **The no-direction class is closed**: every sentence outside it applies only symbols Γ has, but
+the sort-quantified parameter functional sentences (`paramFunctionalSQ`), so no other sentence with a
+direction applies a symbol Γ lacks. The injection `inj` is no member of `kernelSyms` and is Γ's all
+the same at each subsort pair, where the constructor items state it (`gammaHeads`). -/
 theorem absent_closed :
-    (userAxioms.filter (fun ad => !(classOf "no direction").contains ad.index)).all
+    (userAxioms.filter (fun ad => !(classOf "no direction").contains ad.index &&
+      !paramFunctionalSQ.contains ad.index)).all
       (fun ad => (appHeadsOf ad.ax.pattern).all (gammaHasHead c)) = true :=
-  tieAbsent_of_account userAxioms _ _ account_absent
+  absentSQ_of_account userAxioms (fun ad => (classOf "no direction").contains ad.index)
+    (fun ad => (appHeadsOf ad.ax.pattern).all (gammaHasHead c)) (fun ad => paramFunctionalSQ.contains ad.index)
+    account_absent
 
 /-- The sentences of the no-direction class that are equations of a projection `project:X` (their
 left side applies `Lblproject'Coln'X`), each with X. -/
@@ -186,8 +244,8 @@ theorem absent_proj_below (H : HookParams) :
 
 /-- The sentences whose text is none of f2-examples/ens.kompile.kore's user module, with their class. -/
 def unmapped : List (Nat × String) :=
-  [(78, "constructor functional"), (79, "injectivity"), (80, "no direction"), (120, "no junk"),
-   (150, "rewrite rule"), (206, "function equation"), (209, "no direction")]
+  [(78, "constructor functional"), (79, "injectivity"), (80, "parameter functional"),
+   (120, "no junk"), (150, "rewrite rule"), (206, "function equation"), (209, "no direction")]
 
 /-- The sentences of a class with a theorem in the tie that no theorem of this file holds of: the
 tie's remainder on this text. -/
@@ -851,6 +909,63 @@ theorem lib166_at_values (H : HookParams) : EntailsAtValues (cH H) U.ax161 (trS 
   exact lib166 H hI n e (((elemOf_spec hI hv e).1 _).mp hden) m
 
 
+/-! ## The parameter functional sentences (80): owed as `ParamsTotal` -/
+
+/-- The parameter symbols no registry hook interprets that the text declares total
+(`Definition.totalParams`): the statements take `ParamsTotal c defn.totalParams H`, that `H` gives
+each a value of its result sort at every argument list of its argument sorts. -/
+theorem total_params : defn.totalParams.map c.symName = ["Lblidp{Int}"] := by decide +kernel
+
+/-- The text's `functional` sentences of those parameters (`isParamFunctional`), and those of a
+sort-parametric symbol over its sort variables of which one is an instance (`functionalSQ`). -/
+noncomputable def paramFunctionalText : List AxiomDecl := [U.ax80]
+
+/-- The sort-quantified sentences of the class (80), each with a parameter the text declares total
+that is an instance of its head. -/
+noncomputable def paramFunctionalInst : List (AxiomDecl × String) := [(U.ax80, "Lblidp{Int}")]
+
+/-- **The instances**: each sentence of `paramFunctionalInst` is the `functional` sentence of a
+sort-parametric symbol over its sort variables, of which the named parameter, one the text declares
+total (`total_params`), is an instance; read at that instance's sorts the sentence is that
+parameter's `functional` sentence, which holds at values exactly where `H` gives it a value of its
+result sort at every argument list of its argument sorts: `ParamsTotal` at that parameter. They are
+the sentences `paramFunctionalSQ` holds apart in `account_absent`. -/
+theorem paramfunctional_inst :
+    paramFunctionalInst.all (fun x => functionalSQ x.2 x.1.ax && (defn.totalParams.map c.symName).contains x.2) = true ∧
+    (paramFunctionalInst.map (·.1.index)).eraseDups = paramFunctionalSQ := by
+  decide +kernel
+
+/-- The parameter functional sentences are the account's class `parameter functional`, of the
+direction `hypothesis`: Γ states a parameter's graph at values from the interpretation (`ΓDomains`),
+so it holds the sentence at values exactly where `H` gives the parameter a value at the values of its
+argument sorts, which is `ParamsTotal` at that parameter. -/
+theorem paramfunctional_account : paramFunctionalText.map (·.index) = classOf "parameter functional" ∧
+    paramFunctionalText.all (fun ad => functionalOfNamed ["Lblidp{Int}"] ad.ax || ["Lblidp{Int}"].any (fun p => functionalSQ p ad.ax)) = true := by
+  decide +kernel
+
+/-- Every `functional` sentence of the user module of a parameter the text declares total
+(`total_params`), or of a sort-parametric symbol over its sort variables of which one is an instance,
+is of the class `parameter functional`. -/
+theorem paramfunctional_heads : userAxioms.all (fun ad => !(functionalOfNamed ["Lblidp{Int}"] ad.ax || ["Lblidp{Int}"].any (fun p => functionalSQ p ad.ax)) ||
+    (classOf "parameter functional").contains ad.index) = true := by
+  rw [userAxioms_eq]; decide +kernel
+
+/-- A value of the result sort of the parameters the text declares total, exhibited by the
+search over the definition's data (`Parse.exhibit?`). -/
+noncomputable def totalWitnessV : GroundTerm :=
+  ((c.params.find? fun k => defn.totalParams.contains k.sig.name).bind fun k =>
+    Parse.exhibit? c k.sig.result).getD default
+
+/-- **The owed fact is met**: the interpretation answering `totalWitnessV` everywhere is total on the
+parameters the text declares total. -/
+theorem paramsTotal_witness : ParamsTotal c defn.totalParams (ParamSchema.constH totalWitnessV) :=
+  ParamSchema.paramsTotal_constH (by decide +kernel)
+
+/-- **Γ with the step's closure has a model under an interpretation that meets the owed fact**
+(`paramsTotal_witness`), from `consistent`, which holds for every H. -/
+theorem consistent_witness : Consistent (cH (ParamSchema.constH totalWitnessV)) :=
+  consistent _
+
 /-! ## The converse over Γ's content -/
 
 /-- The parts of Γ that are no sentence's translation: the families. -/
@@ -936,6 +1051,12 @@ end KCore.TieParselTot
 #check @KCore.TieParselTot.lib166_at_values
 #check @KCore.TieParselTot.gamma_origin
 #check @KCore.TieParselTot.gamma_from
+#check @KCore.TieParselTot.total_params
+#check @KCore.TieParselTot.paramfunctional_inst
+#check @KCore.TieParselTot.paramfunctional_account
+#check @KCore.TieParselTot.paramfunctional_heads
+#check @KCore.TieParselTot.paramsTotal_witness
+#check @KCore.TieParselTot.consistent_witness
 #print axioms KCore.TieParselTot.noRaw
 #print axioms KCore.TieParselTot.readsConfined_c
 #print axioms KCore.TieParselTot.userAxioms_eq
@@ -976,3 +1097,9 @@ end KCore.TieParselTot
 #print axioms KCore.TieParselTot.lib166_at_values
 #print axioms KCore.TieParselTot.gamma_origin
 #print axioms KCore.TieParselTot.gamma_from
+#print axioms KCore.TieParselTot.total_params
+#print axioms KCore.TieParselTot.paramfunctional_inst
+#print axioms KCore.TieParselTot.paramfunctional_account
+#print axioms KCore.TieParselTot.paramfunctional_heads
+#print axioms KCore.TieParselTot.paramsTotal_witness
+#print axioms KCore.TieParselTot.consistent_witness
