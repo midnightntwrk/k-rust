@@ -3,7 +3,8 @@
   `bottomAsEnsures`: `rule <k> go(_) => #Bottom ... </k>` beside
   `rule <k> go(_) => done ... </k> [priority(60)]`. The text is
   `f2-examples/e3-ml-rule-rhs-bottom.kompile.kore`, the one test/TieE3MlRuleRhsBottom.lean ties
-  sentence by sentence with the two rules (sentences 157 and 158) left uncovered. Run from the
+  sentence by sentence; its section The rules ties the two rules (sentences 157 and 158) by W1
+  from the sentence alone, from this file's proofs (uncovered = []). Run from the
   package root: `lake env lean -j1 test/TieRuleRhsBottom.lean`. Every statement is on the literal
   `defn`, for every interpretation H; nothing reads `Parse.parse` or `emit`.
 

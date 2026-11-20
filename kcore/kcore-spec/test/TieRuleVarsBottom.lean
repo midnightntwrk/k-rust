@@ -2,8 +2,8 @@
   The rule sentence of construct fixture e3-vars-bottom, read through `existsDropped`:
   `rule <k> c() => d(?Z:Int) #And #Bottom </k>`, a right side that conjoins `\bottom{SortK{}}()`
   under an existential variable. The text is `f2-examples/e3-vars-bottom.kompile.kore`, the one
-  test/TieE3VarsBottom.lean ties sentence by sentence with this rule (sentence 154) left
-  uncovered. Run from the package root: `lake env lean -j1 test/TieRuleVarsBottom.lean`. Every
+  test/TieE3VarsBottom.lean ties sentence by sentence; its section The rules ties this rule
+  (sentence 154) by W1 from the sentence alone, from this file's proof (uncovered = []). Run from the package root: `lake env lean -j1 test/TieRuleVarsBottom.lean`. Every
   statement is on the literal `defn`, for every interpretation H; nothing reads `Parse.parse` or
   `emit`.
 

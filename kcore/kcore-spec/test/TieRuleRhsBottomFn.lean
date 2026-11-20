@@ -2,8 +2,8 @@
   The rule sentence of construct fixture e3-ml-rule-rhs-bottom-fn, read through `bottomAsEnsures`:
   `rule <k> go(X) => pair(f(X), #Bottom) ... </k>`, a right side that applies a constructor to
   `\bottom{SortInt{}}()`. The text is `f2-examples/e3-ml-rule-rhs-bottom-fn.kompile.kore`, the one
-  test/TieE3MlRuleRhsBottomFn.lean ties sentence by sentence with this rule (sentence 155) left
-  uncovered. Run from the package root: `lake env lean -j1 test/TieRuleRhsBottomFn.lean`. Every
+  test/TieE3MlRuleRhsBottomFn.lean ties sentence by sentence; its section The rules ties this
+  rule (sentence 155) by W1 from the sentence alone, from this file's proof (uncovered = []). Run from the package root: `lake env lean -j1 test/TieRuleRhsBottomFn.lean`. Every
   statement is on the literal `defn`, for every interpretation H; nothing reads `Parse.parse` or
   `emit`.
 
