@@ -2099,6 +2099,19 @@ table above, on the tree before String and Bytes). Not investigated here.
   is (`forallEqBool_const`; `f`'s equation is not read), and neither is `{true}`. Hence Γ entails
   sentence 157 (`rule157_entailed`), and at values (`rule157_at_values`). Expectation
   `forall_stuck` (`go(1)` has no successor). About 3 minutes.
+- `test/NotePredBoolBottom.lean`, `test/NotePredBoolNotPred.lean`: the same on the texts of
+  e3-ml-req-bottom (`requires \bottom{Bool} = true`) and e3-ml-req-not-pred
+  (`requires ¬{X = 0} = true` at Bool), for every H, with W1 from the text: `rule_from_text_aux`,
+  whose premises are the rule's sentence, sentences 138 (`INT-KORE.eq-int-true-left`) and 147
+  (`INT-KORE.eq-int-false-rigth`), Int's G-nonempty item of the text's signature
+  (`ruleSigAux_text`) and `ΓSig`, with no item of `ΓDomains`: the two sentences at an element of
+  Int state that `false` and `true` do not hold of the same elements of Bool
+  (`BoolLitsApartText.lits_apart`), so Γ's left side of rule 0 holds nothing (`left0_empty`). The
+  sentence's own left side holds nothing at every valuation (`ltext0_empty`): `\bottom{Bool}`
+  holds of no element (`bottomBool_none`) and the `\not` at Bool of an `\equals` into Bool is all
+  of Bool or none of it (`notEqBool_const`), so neither is `{true}`. Hence Γ entails sentence 157
+  (`rule157_entailed`), and at values (`rule157_at_values`). Expectations `bottom_other`,
+  `not_pred_other` (`go(1)` steps to `other`). About 2 minutes each.
 - `test/NoteAndBool.lean`: the tie (C14) of the reading note `andAtBool` on its construct fixture's
   kompiled text (`f2-examples/mlreqv`, e3-ml-req-and-var), for every H, in the same form. Sentence
   113 (`requires \and{SortBool{}}(true, B) = true`) is entailed at values (`EntailsAtValues`,
