@@ -2,7 +2,8 @@
   The statements of C10 (kore.k's `succs` against the object semantics), pinned on the package
   `kcore gen --core` writes for kore.k read from kompile's own KORE
   (examples/ref-kk/RefKk/definition.kore), with the User modules of examples/ref-kk up to
-  User.KkThree built over it. Each is checked by its proof term at the type written out:
+  User.KkThree and User.Consistent built over it. Each is checked by its proof term at the type
+  written out:
 
   - the three statements, `KK.succs_sound : SuccsSound KK.sig`, `KK.succs_stuck : SuccsStuck KK.sig`,
     `KK.succs_complete : SuccsComplete KK.sig` (the propositions of KcoreSpec/KKStatements.lean),
@@ -17,17 +18,21 @@
   - `KK.encodable`, equal by `rfl` to its eleven conjuncts named (`ovlsOK`, `paramsOK`, `appsOK`,
     `headsOK`, `litsOK`, `subsortsOK`, `colPatsOK`, `asOK`, `ensOK`, `shapesOK`, `collFormOK`):
     a condition added to it narrows the hypothesis `encDef d = some E` of the three statements, and
-    fails this file.
+    fails this file;
+  - `_root_.KK.consistent : Consistent (RefKk.defn.sem.withHooks HookParams.none)` (User.Consistent,
+    in the root namespace `KK`): kore.k's theory with its step's closure has a model at
+    `HookParams.none`.
 
   Their axioms are within `propext`, `Classical.choice`, `Quot.sound` (the loop at the end).
   test/pins-kk.sh generates the package under the namespace `RefKk` into .lake/pins/kk, builds it
   with the User modules and checks this file against it:
 
       gen/gen.sh examples/ref-kk/RefKk/definition.kore .lake/pins/kk RefKk --core
-      gen/build.sh .lake/pins/kk User.Coherent … User.KkThree
+      gen/build.sh .lake/pins/kk User.Coherent … User.KkThree … User.Consistent
       LEAN_PATH=.lake/pins/kk/.lake/build/lib/lean:$(lake env printenv LEAN_PATH) lean test/PinsKk.lean
 -/
 import User.KkThree
+import User.Consistent
 
 set_option autoImplicit false
 
@@ -69,16 +74,20 @@ example (d : Semantics) : encodable d = (ovlsOK d && paramsOK d && appsOK d && h
     litsOK d && subsortsOK d && colPatsOK d && asOK d && ensOK d && shapesOK d && collFormOK d) :=
   rfl
 
+/-! ## kore.k's theory has a model -/
+
+example : Consistent (RefKk.defn.sem.withHooks HookParams.none) := _root_.KK.consistent
+
 /-! ## Axioms -/
 
 open Lean in
 #eval show CoreM Unit from do
   for n in [``succs_sound, ``succs_stuck, ``succs_complete, ``kk_step, ``sig, ``succs_name,
       ``enc_injective, ``emb_injective, ``embSt_injective, ``emb_sorted, ``embD_sorted,
-      ``encDef_isSome] do
+      ``encDef_isSome, ``_root_.KK.consistent] do
     let axs ← collectAxioms n
     unless axs.all ([``propext, ``Classical.choice, ``Quot.sound].contains ·) do
       throwError "{n}: axioms {axs}"
-  IO.println "pins on kk: 12 declarations within propext, Classical.choice, Quot.sound"
+  IO.println "pins on kk: 13 declarations within propext, Classical.choice, Quot.sound"
 
 end KCore.KK.PinsKk

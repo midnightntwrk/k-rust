@@ -21,9 +21,11 @@
 #                kimp-ni's noninterference modules
 #   pins-kk      test/pins-kk.sh: C10's statements (succs_sound, succs_stuck, succs_complete, kk_step at
 #                KK.sig, sig's fields, succs_name, enc_injective, emb_injective, embSt_injective,
-#                emb_sorted, embD_sorted, encDef_isSome) pinned in test/PinsKk.lean on the package
-#                `kcore gen --core` writes for kore.k, with ref-kk's User modules up to User.KkThree
-#   axioms-*     `#print axioms` of the examples' statements: peano's tie, sound_hyp, complete_hyp,
+#                emb_sorted, embD_sorted, encDef_isSome, and KK.consistent) pinned in test/PinsKk.lean
+#                on the package `kcore gen --core` writes for kore.k, with ref-kk's User modules up to
+#                User.KkThree and User.Consistent
+#   axioms-*     `#print axioms` of the examples' statements: ref-kk's KK.consistent (kore.k's theory
+#                has a model at HookParams.none); peano's tie, sound_hyp, complete_hyp,
 #                sound, complete; ref-kimp's sum_spec, sum_spec_entailed, sum_N, run_instance,
 #                sum_spec_holds, sum_spec_kore, stepDecided_all, sum_spec_ml, sum_spec_ml_closure,
 #                sum_spec_ml_stuck, sum_spec_instance; ref-kimp's row
@@ -59,21 +61,22 @@ step() {
   [ $rc -eq 0 ] && v=ok || { v=FAIL; note="exit $rc: $note"; }
   echo "$name|$v|$(( $(date +%s) - t0 ))|$note" > "$R/$name.res"
 }
-# axioms NAME 'PKG...' 'IMPORT...' 'DECL...': the axioms of DECL..., over the built packages PKG...
+# axioms NAME 'PKG...' 'IMPORT...' 'DECL...'...: the axioms of DECL... (every argument from the
+# fourth on), over the built packages PKG...
 axioms() {
   local f=$R/$1.lean lp=$LP p m d out
   for p in $2; do lp=$K/examples/$p/.lake/build/lib/lean:$lp; done
   : > "$f"; for m in $3; do echo "import $m" >> "$f"; done
-  for d in $4; do echo "#print axioms $d" >> "$f"; done
+  for d in ${*:4}; do echo "#print axioms $d" >> "$f"; done
   out=$(LEAN_PATH=$lp cap 1200 "$TC/bin/lean" -j1 "$f" 2>&1) || { echo "$out"; return 1; }
   echo "$out"
-  [ "$(echo "$out" | grep -c 'depends on axioms\|does not depend on any axioms')" -eq "$(echo $4 | wc -w)" ] \
+  [ "$(echo "$out" | grep -c 'depends on axioms\|does not depend on any axioms')" -eq "$(echo ${*:4} | wc -w)" ] \
     || { echo "axioms: not every declaration printed"; return 1; }
   if echo "$out" | grep 'depends on axioms' | sed 's/.*depends on axioms: \[//; s/\]$//' | tr ',' '\n' \
       | sed 's/^ *//' | grep -v -x -e propext -e Classical.choice -e Quot.sound | grep -q .; then
     echo "axioms: beyond propext, Classical.choice, Quot.sound"; return 1
   fi
-  echo "axioms: $(echo $4 | wc -w) declarations within propext, Classical.choice, Quot.sound"
+  echo "axioms: $(echo ${*:4} | wc -w) declarations within propext, Classical.choice, Quot.sound"
 }
 tripwire() {
   python3 -I - KcoreSpec KcoreGen.lean GammaD.lean examples test <<'NS'
@@ -123,7 +126,7 @@ if grep -q '|ok|' "$R/examples.res"; then
     'RefKimp.SumSpec.sum_spec RefKimp.SumSpec.sum_spec_entailed RefKimp.SumN.sum_N RefKimp.sound_hyp RefKimp.complete_hyp RefKimp.RunInstance.run_instance RefKimp.Claims.sum_spec_holds RefKimp.Claims.sum_spec_kore RefKimp.stepDecided_all RefKimp.Claims.sum_spec_ml RefKimp.Claims.sum_spec_ml_closure RefKimp.Claims.sum_spec_ml_stuck RefKimp.Claims.sum_spec_instance'
   step axioms-refkimp axioms axioms-refkimp ref-kimp 'RefKimp.Sound RefKimp.FnHyp RefKimp.Facts.Terminates' \
     'RefKimp.coreOK_defn RefKimp.consistent RefKimp.sound_at RefKimp.complete_at RefKimp.run_exact RefKimp.totals RefKimp.totals_withHooks'
-  step axioms-refkk axioms axioms-refkk ref-kk 'RefKk.Sound' \
+  step axioms-refkk axioms axioms-refkk ref-kk 'RefKk.Sound User.Consistent' KK.consistent \
     'RefKk.coreOK_defn RefKk.sound_hyp RefKk.complete_hyp'
   step axioms-kkinst axioms axioms-kkinst 'ref-kimp ref-kk' 'User.KimpInst' \
     'KCore.KK.KimpInst.encDef_kimp KCore.KK.KimpInst.succs_at KCore.KK.KimpInst.step_named'
