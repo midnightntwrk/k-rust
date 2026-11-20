@@ -512,12 +512,13 @@ example (g : CtorSig) : libFn g = !regHookNames.any (·.1 == g.name) := rfl
 
 example (k : Kore.Definition) (c : Semantics) : hooks k c =
     ((symDeclsAt k c).all (fun (n, as) =>
+      let plain := k.symbolDecls.any fun sd => sd.name == n && sd.params.isEmpty
       match strArg as "hook" with
       | some h =>
-        (hookSigs.all fun g => c.symName g.name != n || regHookOf h == some g.name) &&
+        (hookSigs.all fun g => c.symName g.name != n || regHookOf h == some g.name || !plain) &&
         (c.params.all fun p => c.symName p.sig.name != n || p.impl == regHookOf h)
       | none =>
-        (hookSigs.all fun g => c.symName g.name != n || (libFn g && has as "function")) &&
+        (hookSigs.all fun g => c.symName g.name != n || (libFn g && has as "function") || !plain) &&
         c.params.all fun p => c.symName p.sig.name != n ||
           (p.impl.isNone && (p.raw != has as "function") && (eqnsOf k n).isEmpty))) := rfl
 

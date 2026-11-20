@@ -24,6 +24,17 @@
   - on `parsel` the instances' rows are `sel{K}` and `sel{Int}`, each with the declaration's
     `function{}`, and a tie's pairing finds the two equations of `sel{K}` by its instance name
     (`TiePair.findEqn`, `AttrsAgree.eqnHeadIs`).
+  `hooks` compares an interpreted hooked symbol with a row only where the text declares the row's
+  name with no sort parameter:
+  - it holds wherever `formerPlainHooks`, the comparison at every row of that name, holds
+    (`hooks_of_formerPlain`), and is equal to it where every row named like a symbol of
+    `hookSigs` is declared with no sort parameter (`hooks_eq_formerPlain`);
+  - on `rdr-ite-two-eq`, `rdr-ite-own-eq`, `rdr-ite-two` and `rdr-ite-own` (each declares its own
+    sort-parametric `Lblite`, without a hook, beside the registry's plainly named `kIte`) the five
+    parts are true;
+  - `hooks` is false on the unhooked text against the hooked text's reading, on the hooked text
+    against the unhooked one's reading (both at the instance's row), and on `parsel` with
+    `KEQUAL.eq`'s hook removed from `_==K_`'s plain declaration, against parsel's reading.
 -/
 import KcoreSpec
 
@@ -111,9 +122,57 @@ theorem fns_of_former {k : Kore.Definition} {c : Semantics} (hI : instDecls k c 
   rintro ⟨n, as⟩ hx
   exact fnRow_mono _ _ _ _ _ _ _ _ _ (@eqnsOf_isEmpty_of_former k n) (h (n, as) hx)
 
+/-- `hooks`'s comparison with an interpreted hooked symbol at every row of its name, whether or not
+the text declares the name with no sort parameter. -/
+def formerPlainHooks (k : Kore.Definition) (c : Semantics) : Bool :=
+  (symDeclsAt k c).all (fun (n, as) =>
+    match strArg as "hook" with
+    | some h =>
+      (hookSigs.all fun g => c.symName g.name != n || regHookOf h == some g.name) &&
+      (c.params.all fun p => c.symName p.sig.name != n || p.impl == regHookOf h)
+    | none =>
+      (hookSigs.all fun g => c.symName g.name != n || (libFn g && has as "function")) &&
+      c.params.all fun p => c.symName p.sig.name != n ||
+        (p.impl.isNone && (p.raw != has as "function") && (eqnsOf k n).isEmpty))
+
+theorem hooks_of_formerPlain (k : Kore.Definition) (c : Semantics)
+    (h : formerPlainHooks k c = true) : hooks k c = true := by
+  simp only [formerPlainHooks, List.all_eq_true] at h
+  simp only [hooks, List.all_eq_true]
+  intro x hx
+  have := h x hx
+  obtain ⟨n, as⟩ := x
+  simp only at this ⊢
+  split at this <;> rename_i heq <;> simp only [heq] <;>
+    simp only [Bool.and_eq_true, List.all_eq_true, Bool.or_eq_true] at this ⊢ <;>
+    exact ⟨fun g hg => Or.inl (this.1 g hg), this.2⟩
+
+theorem hooks_eq_formerPlain (k : Kore.Definition) (c : Semantics)
+    (hp : ∀ x ∈ symDeclsAt k c, ∀ g ∈ hookSigs, c.symName g.name = x.1 →
+      (k.symbolDecls.any fun sd => sd.name == x.1 && sd.params.isEmpty) = true) :
+    hooks k c = formerPlainHooks k c := by
+  refine Bool.eq_iff_iff.mpr ⟨fun h2 => ?_, hooks_of_formerPlain k c⟩
+  simp only [hooks, List.all_eq_true] at h2
+  simp only [formerPlainHooks, List.all_eq_true]
+  intro x hx
+  have := h2 x hx
+  have hp' := hp x hx
+  obtain ⟨n, as⟩ := x
+  simp only at this hp' ⊢
+  split at this <;> rename_i heq <;> simp only [heq] <;>
+    simp only [Bool.and_eq_true, List.all_eq_true, Bool.or_eq_true, bne_iff_ne, ne_eq,
+      Bool.not_eq_true'] at this ⊢ <;>
+    refine ⟨fun g hg => ?_, this.2⟩ <;>
+    (rcases this.1 g hg with d | b
+     · exact d
+     · by_cases hn : c.symName g.name = n
+       · rw [hp' g hg hn] at b; cases b
+       · exact Or.inl hn)
+
 theorem hooks_of_former {k : Kore.Definition} {c : Semantics} (hI : instDecls k c = [])
     (h : formerHooks k c = true) : hooks k c = true := by
-  simp only [formerHooks, hooks, symDeclsAt, hI, List.append_nil, List.all_eq_true] at h ⊢
+  apply hooks_of_formerPlain
+  simp only [formerHooks, formerPlainHooks, symDeclsAt, hI, List.append_nil, List.all_eq_true] at h ⊢
   intro x hx
   have hx' := h x hx
   rcases x with ⟨n, as⟩
@@ -184,3 +243,36 @@ info: instances [(Lblsel{K}, true), (Lblsel{Int}, true)]; instance clause keys [
     | .ok d =>
       let keys := (TiePair.clauseKeys d.sem).filter fun key => (instBase key.1).isSome
       IO.println s!"instances {(instDecls k d.sem).map fun (n, as) => (n, has as "function")}; instance clause keys {keys}; found {keys.map fun key => (TiePair.findEqn k.axiomDecls key).isSome}"
+
+/-- The text at `path` and its reading. -/
+def readPlain (path : String) : IO (Option (Kore.Definition × Definition)) := do
+  match Kore.parseDefinition (← IO.FS.readFile path) with
+  | .error _ => return none
+  | .ok k => match Parse.parse k with
+    | .ok d => return some (k, d)
+    | .error _ => return none
+
+/--
+info: [true, true, true, true, true]; fns [(Lblf, 1), (Lblite{Foo,Foo}, 1)]; params without impl []
+[true, true, true, true, true]; fns [(Lblf, 1), (Lblite{Foo}, 1)]; params without impl []
+[true, true, true, true, true]; fns [(Lblf, 1)]; params without impl [(Lblite{Foo,Foo}, false)]
+[true, true, true, true, true]; fns [(Lblf, 1)]; params without impl [(Lblite{Foo}, false)]
+unhooked text, hooked reading: hooks false
+hooked text, unhooked reading: hooks false
+parsel without KEQUAL.eq's hook, parsel's reading: changed true; hooks false
+-/
+#guard_msgs in
+#eval show IO Unit from do
+  for f in ["rdr-ite-two-eq", "rdr-ite-own-eq", "rdr-ite-two", "rdr-ite-own"] do
+    IO.println (← attrsParts s!"f2-examples/{f}.kompile.kore")
+  match ← readPlain "f2-examples/rdr-ite-own.kompile.kore",
+      ← readPlain "f2-examples/rdr-ite-own-hook.kompile.kore" with
+  | some (ko, dO), some (kh, dh) =>
+    IO.println s!"unhooked text, hooked reading: hooks {hooks ko dh.sem}"
+    IO.println s!"hooked text, unhooked reading: hooks {hooks kh dO.sem}"
+  | _, _ => IO.println "not read"
+  let src ← IO.FS.readFile "f2-examples/parsel.kompile.kore"
+  let src' := src.replace "hook{}(\"KEQUAL.eq\"), " ""
+  match Kore.parseDefinition src', ← readPlain "f2-examples/parsel.kompile.kore" with
+  | .ok k', some (_, d) => IO.println s!"parsel without KEQUAL.eq's hook, parsel's reading: changed {src != src'}; hooks {hooks k' d.sem}"
+  | _, _ => IO.println "not read"
