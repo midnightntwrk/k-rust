@@ -27,7 +27,8 @@
 # test/constructs/e6map.py --check: each E6 library
 # row's e6_tie is the tie its sentences have in the tie files. Then test/constructs/rest.py check: DONE-0 C2's
 # evidence per status over every row and nested entry (each failure in .lake/constructs/c2-evidence.txt),
-# in report mode (listed, not failing) until FIX-rest's closing check removes --report; with the
+# failing on an entry that lacks an item of its form (but the entries rest.py pins to an owner's
+# answer, listed as missing their evidence on every run); with the
 # entries FIX-core does not hold, by list, status and evidence form, with the evidence each has and
 # lacks (accounts compared with fresh ones; each entry in .lake/constructs/rest.txt). Then
 # test/constructs/e4e5.py check: every supported E4 and E5 row and `cases` entry naming a fixture
@@ -92,7 +93,7 @@ python3 -I test/constructs/kklink.py || rc=1
 python3 -I test/constructs/provisional.py || rc=1
 python3 -I test/constructs/silentkeys.py || rc=1
 python3 -I test/constructs/e6map.py --check || rc=1
-python3 -I test/constructs/rest.py check --report --fresh --list .lake/constructs/rest.txt \
+python3 -I test/constructs/rest.py check --fresh --list .lake/constructs/rest.txt \
   --out .lake/constructs/c2-evidence.txt || rc=1
 python3 -I test/constructs/e4e5.py check || rc=1
 python3 -I test/constructs/coverage.py check || rc=1

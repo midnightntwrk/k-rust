@@ -12,7 +12,10 @@ Usage (from kcore-spec):
       needs is missing; prints per list and form how many entries have their evidence, and the
       failures (all of them into FILE, the first 40 on the output); with --list, also the list
       above (its entries into LFILE); exit 1 on a failure, exit 0 with --report (failures listed,
-      not failing: test/constructs.sh's mode until the closing check of FIX-rest)
+      not failing). test/constructs.sh runs it without --report. An entry of C2_PINNED, whose
+      evidence waits on an owner's answer, is listed as missing its evidence on every run and
+      does not fail the check while it misses exactly the items pinned; a pin whose entry is
+      gone, has its evidence or misses something else fails it
       Then the E6 library rows (`e6_library`: a row of E6 of status supported or inert with an
       `e6_tie`, test/constructs/e6map.py; the tables nested in one are not among them): how many
       are tied, how many are in each group counted apart (E6 no direction (in a model), supported
@@ -286,6 +289,15 @@ SCOPE_OPTION = "none (scope): option"
 R12_OPTIONS = {"--backend": "haskell"}
 STATUSES = ["supported", "parameter", "inert", "erased", "refused", "independent",
             "pending-fixture", "not-handled"]
+# The entries whose evidence waits on an owner's answer: (the entry's place, the items it misses, the
+# owner item). Such an entry has no evidence of its status and is listed as missing it on every run;
+# the check does not fail on it while it misses exactly these items, and fails on a pin whose entry
+# is gone, has its evidence, or misses something else. No status is given or accepted by a pin.
+C2_PINNED = [
+    (f"E6 'token:SortFloat' cases[{i}] ", ["tie", "theorems"],
+     "owner item B1 (findings/GATE-DONE-message-items.md): whether Γ may hold that a Float literal's string"
+     " and the text of the datum it is read as denote one datum; test/TieE6FloatLiteralsRules.lean")
+    for i in range(4)]
 
 
 # ------------------------------------------------------------------------------------- the entries
@@ -1669,7 +1681,23 @@ def print_e6_library(t, res):
             print(line(r))
 
 
-def print_check(res, fresh, report, out):
+def pinned(res, pins):
+    """(the results pinned: failing with exactly their pin's items; the pins that are stale, each
+    with why) for the pins (place prefix, items, owner item)."""
+    held, stale = [], []
+    for prefix, items, why in pins:
+        rs = [r for r in res if r[3].startswith(prefix)]
+        if len(rs) != 1:
+            stale.append(f"{prefix.strip()}: {len(rs)} entries, not one")
+        elif sorted(rs[0][6]) != sorted(items):
+            stale.append(f"{prefix.strip()}: misses " + ("; ".join(rs[0][6]) or "nothing") + f", not {'; '.join(items)}"
+                         " (the pin is of an entry missing exactly these: remove or rewrite it)")
+        else:
+            held.append((rs[0], why))
+    return held, stale
+
+
+def print_check(res, fresh, report, out, pins=()):
     """The check of every entry; returns the exit code."""
     fails = [r for r in res if r[6]]
     by = collections.Counter((r[0], r[2]) for r in fails)
@@ -1697,7 +1725,16 @@ def print_check(res, fresh, report, out):
     print(f"c2-evidence: {len(unc)} entries whose `sentence` locates an axiom their tie leaves uncovered (B21)")
     for r, ms in unc:
         print(f"    {r[3]}: " + "; ".join(m[len("uncovered sentence: "):] for m in ms))
-    return 0 if report or not fails else 1
+    held, stale = pinned(res, pins)
+    if pins:
+        print(f"c2-evidence: {len(held)} of the entries missing evidence wait on an owner's answer (pinned, not"
+              f" failing; no evidence of their status); {len(stale)} stale pins")
+        for r, why in held:
+            print(f"    {r[3]}: MISSING: {'; '.join(r[6])}; waits on {why}")
+        for x in stale:
+            print(f"    stale pin: {x}")
+    rest = [r for r in fails if not any(r is h for h, _ in held)]
+    return 0 if report or not (rest or stale) else 1
 
 
 def main(argv):
@@ -1716,7 +1753,7 @@ def main(argv):
         return 0
     if "--list" in opt:
         print_list([r for r in res if not r[4]], fresh, opt["--list"])
-    rc = print_check(res, fresh, report, opt.get("--out"))
+    rc = print_check(res, fresh, report, opt.get("--out"), C2_PINNED)
     print_e6_library(t, res)
     rc = print_reader_owed(t, gate) or rc
     rc = print_owed_state(t, fx) or rc
@@ -2780,6 +2817,19 @@ def self_test():
                      print_check([], True, False, None))
         if codes != (1, 0, 0):
             bad.append(f"check exit codes (failing, --report, none failing): {codes}, expected (1, 0, 0)")
+        # a pin: not failing on its entry while it misses exactly the pin's items; failing where the
+        # entry has its evidence, misses something else, or is gone, and on any entry not pinned
+        pin = [("E6 'T' cases[0] ", ["tie", "theorems"], "owner item X")]
+        pres = lambda miss, where="E6 'T' cases[0] ('c')": ("E6", "supported", "supported E6", where, None, [], miss)
+        with contextlib.redirect_stdout(io.StringIO()):
+            codes = (print_check([pres(["tie", "theorems"])], True, False, None, pin),
+                     print_check([pres([])], True, False, None, pin),
+                     print_check([pres(["tie"])], True, False, None, pin),
+                     print_check([], True, False, None, pin),
+                     print_check([pres(["tie", "theorems"]), res[0]], True, False, None, pin),
+                     print_check([pres(["tie", "theorems"], "E6 'T' cases[1] ('d')")], True, False, None, pin))
+        if codes != (0, 1, 1, 1, 1, 1):
+            bad.append(f"pinned entries' exit codes: {codes}, expected (0, 1, 1, 1, 1, 1)")
         t = {"E2": {"P": {"status": "supported", "reader_does_it": False, "cases": [
                  {"case": "c", "status": "inert", "fixture": "rdr-x", "reader_does_it": False},
                  {"case": "d", "status": "refused", "fixture": "rdr-y", "reader_does_it": False}]},
