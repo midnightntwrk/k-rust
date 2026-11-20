@@ -1,0 +1,2 @@
+# f2-examples/parsel-tot.k: a sort-parametric function declared total, applied in a rule at Int with its
+# equation at K; kompile states the totality of every instance by one axiom quantified over the sort variable.

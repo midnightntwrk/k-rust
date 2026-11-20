@@ -1,0 +1,2 @@
+# f2-examples/parsel-int.k: as parsel, with the equations' variables at Int, so kompile writes them at
+# `sel{Int}`, the instance the rule applies.

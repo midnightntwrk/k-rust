@@ -1,0 +1,2 @@
+# f2-examples/parsel.k: a sort-parametric function sel{S} declared [function] with its equations at the
+# sort K (`sel{K}`) and applied by a rule at Int (`sel{Int}`), as K's regression fixture kompile/parametric.
