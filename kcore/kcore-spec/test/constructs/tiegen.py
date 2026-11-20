@@ -3,7 +3,7 @@
 
 Usage (from anywhere; the library and `kcore` built first):
   python3 -I test/constructs/tiegen.py FIXTURE [--sig-chunk N] [--decl-chunk N] [--chunk N]
-                                               [--hand consistency=FILE] [--hand ovlfn=FILE] [--hand rules=FILE]
+                                               [--hand consistency=FILE] [--hand ovlfn=FILE] [--hand rules=FILE] [--hand runs=FILE]
                                                [--at-values N,...] [--reads-h N,...]
                                                [--cons-head] [--wf-parts]
                                                [--split] [--account-sorted] [--heads-literal] [--heads-codes]
@@ -257,7 +257,8 @@ shape's lemma of KcoreSpec/TieExClause.lean (`ex<j>_text_shape`, `ex<j>_gamma_sh
 the signature's facts `TieFRSig.SigFacts`; `ex<j>_from_text`, W1 over the sentence and `ΓSig`, left out
 of `fns_from_text`; `ex<j>_entailed`, in `fns_entailed`), or (`un<j>_differs`) an item no reading here
 ties, whose sentence is `uncovered` and which `fns_entailed` and `fns_from_text` leave out; on a text
-that reads a confined sort too (its statements over Γ, which `Γc` holds). The probe then also writes,
+that reads a confined sort too (its statements over Γ, which `Γc` holds, but `sp<j0>_entailed` of
+--hand runs, which is over `Γc` there). The probe then also writes,
 per item, whether the empty-alternative reading ties it (`WR` lines), the cuts that tie it (`WC` lines),
 whether the `andAsEnsures` or the `setVarInDropped` form ties it (`WE` lines) and the first shape of
 EX_SHAPES that ties it, with the indices of the variables the clause binds that the sentence does not
@@ -268,7 +269,23 @@ sentences with Γ's items many to one (`fnPins`, `TiePair.fnTextMany`, `fnPins_o
 equation at each of its clauses' positions, `fns_account` over the distinct indices; each such item is
 not its sentence (`sp<j>_differs`), the sentence is `uncovered`, and `fns_entailed` and `fns_from_text`
 leave the items out (the sentence gives an item only with the function's functional sentence, and the
-items give the sentence only all together); without the flag such a text is refused. A clause read from a
+items give the sentence only all together); without the flag such a text is refused. --hand runs=FILE
+ties such a sentence many to one, from all the items of its run together: FILE starts with
+`/-! ## The runs` and states at the top level, for each run (first item j0, items j0 to j0+k-1,
+sentence i), `theorem sp<j0>_of_items (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation
+KoreAML.Sym M} (N : HoldsShape.NodeFacts (cH H) I) (hTS : Faithful.TermsInSort (cH H) I) (hs : ∀ φ ∈
+[spItem<j0>, ..., spItem<j0+k-1>], I ⊧ᴵ φ) : I ⊧ᴵ (trS U.ax<i>).pat`, on a text that reads a confined
+sort with or without the premise `(hcl : I ⊧ᴵ Faithful.boolClosed (cH H))` before `hs` (the item of
+`Γcl`; refused on a text that reads none, where it is no sentence of the theory): in an interpretation
+with the facts of a model of the theory, the run's items give the sentence. Its definitions go in
+namespaces it opens; the reading of the sentence and of the items it proves the statement from is the
+section's. The tie then states, after it, `sp<j0>_entailed` for every H, `Γ (cH H) ⊧ (trS U.ax<i>).pat`,
+or `Γc (cH H) ⊧ ...` on a text that reads a confined sort (the facts are those of a model of `Γc`,
+and `boolClosed` is its item), from the items being Γ's (`spItem_sat`, `spItem<j>_at`), and the
+sentence is not `uncovered`. The converse is not stated (the sentence gives the
+application the union of the alternatives, not each item), `sp<j>_differs` stay, and `fns_entailed` and
+`fns_from_text` leave the items out as without it. Refused: a text without such a run, a FILE that does
+not state the form for each run, and --split. A clause read from a
 `symbol-overload` axiom is pinned to that axiom too (the probe's `ovlPins`). Γ's item binds the argument
 by a membership in the argument pattern, an injection `inj{A, N}(v)`, where the axiom applies the
 function to that pattern: where the axiom is the item's text form up to the names of the variables
@@ -2268,6 +2285,9 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         covered |= set(pair_text)
     if fn_rds:
         covered |= set(pair_text) - {pair_text[j] for j in pair_un} - {i_ for _, _, i_ in pair_sp}
+    # the sentences read as several clauses that a hand section ties from the run's items (`--hand runs`)
+    runs_hand = runs_hand_of(name, hand["runs"], pair_sp, confined, split) if "runs" in hand else {}
+    covered |= {i_ for _, _, i_ in pair_sp if runs_hand}
     covered |= {i for i, _, _ in own_idem}
     if prios_out:
         covered |= {i for _, _, _, i in prios_out["tie"]}
@@ -2390,6 +2410,12 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w("  of Γ, so each entailment holds over `Γc` too (`entails_c`, the `_c` forms at the end)" +
           (", and every\n  premise of `Γc` is a premise of Γ or `boolClosed`, the one item of `Γcl` here, which no sentence\n"
            "  states (`gamma_origin_c`)." if gamma else "."))
+        if runs_hand:
+            w(textwrap.fill(
+                "But " + ", ".join(f"`sp{j0}_entailed`" for j0, _, _ in pair_sp) + ", of a sentence read as several "
+                "clauses: stated over `Γc` and not over Γ, from the facts of a model of `Γc`"
+                + (", `boolClosed` among them" if any(runs_hand.values()) else "") + ".",
+                width=100, initial_indent="  ", subsequent_indent="  ", break_on_hyphens=False, break_long_words=False))
         w("")
     w("  Layer 1.")
     if wf_ok:
@@ -2483,7 +2509,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             "each clause left out is aligned with the run's sentence at the priority that sentence states ("
             + ", ".join(f"{n_} {ci}: sentence {i}, `prios_split_at{j}`" for n_, ci, j, i in prios_out["split"])
             + "; `fn_prios` states it of every clause). That is a fact of priorities: the clause's item is not "
-            "tied to its sentence, which is uncovered."
+            + ("its sentence, which the run's items give together (`sp<j0>_entailed`)." if runs_hand else
+               "tied to its sentence, which is uncovered.")
             + (f" The overload clauses are left out too, each tied to its sentence ({tie_txt})." if tie_txt else ""),
             width=100, initial_indent="  ", subsequent_indent="    ", break_on_hyphens=False, break_long_words=False))
     else:
@@ -2670,7 +2697,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                         break_long_words=False))
     if fn_rds:
         w(readings_header(by_class, pair_text, pair_ws, pair_ac, pair_rd, pair_un, pair_cut_l, confined,
-                          pair_ens, pair_sv, pair_sp, pair_om, pair_ex))
+                          pair_ens, pair_sv, pair_sp, pair_om, pair_ex, runs_hand))
     if rules_full and nrules:
         w(f"  - Rewrite rules ({nrules}): each of Γ's rule items (with the premise `⌈rhs ∧ ens⌉`) is a consequence")
         w("    of its text sentence, `ruleText` in `ruleItems`' order (`rule_from_text`, W1, every H).")
@@ -2729,7 +2756,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             width=100, initial_indent="  - ", subsequent_indent="    ", break_on_hyphens=False, break_long_words=False))
     if fn_rds:
         w(readings_gamma_header(pair_text, pair_ws, pair_ac, pair_rd, pair_un, pair_cut_l, pair_ens, pair_sv, pair_sp,
-                                pair_om, pair_ex))
+                                pair_om, pair_ex, runs_hand))
     owed_more = ""
     if law_idx:
         owed_more += "; function law: owed as `FnLaws` (`law_account`)"
@@ -4428,7 +4455,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                            len(by_class["priority equation"]), pair_cut_l, confined,
                            [(j, pair_text[j]) for j in pair_ens], [(j, pair_text[j]) for j in pair_sv],
                            pair_sp, fn_pins, pin_other, prios_out["split"] if prios_out else [], pair_om,
-                           [(j, pair_text[j], head["fnEx"][j]) for j in pair_ex]))
+                           [(j, pair_text[j], head["fnEx"][j]) for j in pair_ex], runs_hand))
         mark("Rest")
     if gamma:
         w(GAMMA_ALIGN if fn_align else GAMMA_RULES if nrules else GAMMA)
@@ -4437,6 +4464,11 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         sec, cnames = gamma_c_section(gamma, fn_align, nrules, fn_any, nj_triv, nj_items, nj_kitem, cons_text, idem,
                                       own_idem, ovl_eq, ovl_nc, tok_omit, tok_sorts, ovl_fn, ovl_fn_rows)
         w(sec)
+    if runs_hand:
+        # in place of the first, the hand section
+        w(HAND_SECTIONS["runs"] + " (by hand) -/")
+        w("")
+        w(runs_entailed_section(pair_sp, runs_hand, confined))
     if rules_hand:
         # in place of it, the hand section
         w(HAND_SECTIONS["rules"] + " (by hand) -/")
@@ -4532,6 +4564,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     if facts_kind == "FnFacts" and not agree and not raw and not held_total:
         names += ["owed_rules", "owed_clauses", "openDecidedH"]
     names += cnames
+    if runs_hand:
+        names += [n.format(j0) for j0, _, _ in pair_sp for n in ("sp{}_of_items", "sp{}_entailed")]
     if rules_hand:
         names += rules_hand["names"]
     pair_names = ["fns_account", "aW_narrowed", "w_text", "w_differs", "w1", "shape", "fns_entailed",
@@ -4600,7 +4634,9 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                                            **({"setvar_in": pair_sv} if pair_sv else {}),
                                            **({"ex_clause": {j: dict(sentence=pair_text[j], shape=head["fnEx"][j]["kind"])
                                                              for j in pair_ex}} if pair_ex else {}),
-                                           **({"split": {j0: dict(clauses=k_, sentence=i_) for j0, k_, i_ in pair_sp}}
+                                           **({"split": {j0: dict(clauses=k_, sentence=i_, **({"entailed": "Γc" if confined else "Γ"}
+                                                                                      if runs_hand else {}))
+                                                        for j0, k_, i_ in pair_sp}}
                                               if pair_sp else {}))} if fn_rds else {}),
                    cons=len(cons_text), nojunk=[len(nj_triv), len(nj_items), len(nj_kitem), len(nj_sorts)],
                    idem=idem, own_idem=[i for i, _, _ in own_idem], lib166=lib166, gamma=gamma, laws=law_idx, open_generators=[k["name"] for k in raw],
@@ -4839,7 +4875,8 @@ def split_tie(ns, lean, marks, text_rel, cmd, blocks):
 # the sections a hand-written text may take the place of (`--hand NAME=FILE`), by their first line
 HAND_SECTIONS = {"consistency": "/-! ## Consistency for every H",
                  "ovlfn": "/-! ## Sentences of a function-overloaded symbol: the covered part",
-                 "rules": "/-! ## The rules"}
+                 "rules": "/-! ## The rules",
+                 "runs": "/-! ## The runs"}
 
 # the statements of W1 for the rules a hand section (`--hand rules`) may give, by the theorem's name,
 # each up to white space. The name says the premise set beside the sentence: `rule_from_text` the
@@ -4943,6 +4980,202 @@ def lean_list(text, head):
             continue
         cur += ch
     return None
+
+
+# the names the statements of `--hand runs` read, which the section must not declare (in any namespace)
+RUNS_READ_NAMES = {"HookParams", "Inhabited", "Interpretation", "Sym", "KoreAML", "HoldsShape", "NodeFacts", "Faithful",
+                   "TermsInSort", "boolClosed", "cH", "c", "defn", "trS", "U", "pat", "P", "Γ", "Γc"}
+
+
+def runs_stmt(j0, k, i, closed):
+    """The statement of `sp<j0>_of_items` (`--hand runs`), from its name to `:=`."""
+    items = ", ".join(f"spItem{j0 + m}" for m in range(k))
+    return (f"theorem sp{j0}_of_items (H : HookParams) {{M : Type}} [Inhabited M] {{I : Interpretation KoreAML.Sym M}} "
+            f"(N : HoldsShape.NodeFacts (cH H) I) (hTS : Faithful.TermsInSort (cH H) I) "
+            + ("(hcl : I ⊧ᴵ Faithful.boolClosed (cH H)) " if closed else "")
+            + f"(hs : ∀ φ ∈ [{items}], I ⊧ᴵ φ) : I ⊧ᴵ (trS U.ax{i}).pat :=")
+
+
+def runs_hand_of(name, text, sps, confined, split=False):
+    """What the hand section on the sentences read as several clauses (`--hand runs`) states: for each
+    run `(j0, k, i)` of `sps`, whether `sp<j0>_of_items` takes `boolClosed` (`{j0: closed}`). The
+    statement is compared up to white space with `runs_stmt`, and stands at the top level (outside
+    the namespaces the section opens, which are closed where it ends). Refused: a text without such a
+    run, --split, a section that does not state the form for each run, one that takes `boolClosed`
+    on a text that reads no confined sort, and one with `sorry`, an `axiom` or `native_decide`."""
+    if split:
+        raise Refused(f"{name}: --hand runs adds a section after the others; --split does not place it")
+    if not sps:
+        raise Refused(f"{name}: --hand runs: no equation of the text is read as several clauses (--fn-readings, `fnPins`)")
+    if not text.startswith(HAND_SECTIONS["runs"]):
+        raise Refused(f"{name}: --hand runs: the section starts with `{HAND_SECTIONS['runs']}`")
+    if "\n/-! ## " in text:
+        raise Refused(f"{name}: --hand runs: the section holds a second `/-! ## ` heading")
+    code = re.sub(r"/-.*?-/", " ", text, flags=re.S)
+    code = re.sub(r"--[^\n]*", " ", code)
+    for bad in ("sorry", "native_decide"):
+        if re.search(rf"\b{bad}\b", code):
+            raise Refused(f"{name}: --hand runs: the section holds `{bad}`")
+    if re.search(r"^\s*(?:private\s+|protected\s+)?axiom\b", code, re.M):
+        raise Refused(f"{name}: --hand runs: the section declares an axiom")
+    if re.search(r"^\s*(?:local\s+|scoped\s+)?(?:notation|infixl?|infixr|prefix|postfix|macro|macro_rules|syntax|elab)\b",
+                 code, re.M):
+        raise Refused(f"{name}: --hand runs: the section defines notation, which can change what a statement reads")
+    declared = re.findall(r"^\s*(?:noncomputable\s+|private\s+|protected\s+)*(?:def|abbrev|theorem|lemma|structure|"
+                          r"inductive|class|opaque|instance|kernel_rfl)\s+([^\s:({\[]+)", code, re.M)
+    shadow = sorted({n for n in declared if n.split(".")[-1] in RUNS_READ_NAMES or re.fullmatch(r"spItem\d+", n.split(".")[-1])})
+    if shadow:
+        raise Refused(f"{name}: --hand runs: the section declares {', '.join(f'`{n}`' for n in shadow)}, a name the "
+                      f"statements read")
+    # the namespaces and sections open at each statement
+    stack, at = [], {}
+    for m in re.finditer(r"^(namespace|section|end)\b|^theorem (sp\d+_of_items)\b", code, re.M):
+        if m.group(2):
+            at.setdefault(m.group(2), []).append((stack.count("namespace"), m.start()))
+        elif m.group(1) == "end":
+            if not stack:
+                raise Refused(f"{name}: --hand runs: an `end` closes nothing the section opens")
+            stack.pop()
+        else:
+            stack.append(m.group(1))
+    if stack:
+        raise Refused(f"{name}: --hand runs: a namespace or section of the section is not closed")
+    norm = lambda t: re.sub(r"\s+", " ", t).strip()
+    out = {}
+    for j0, k, i in sps:
+        got = at.get(f"sp{j0}_of_items", [])
+        if len(got) != 1:
+            raise Refused(f"{name}: --hand runs: the section states `sp{j0}_of_items` {len(got)} times, not once "
+                          f"(items {j0} to {j0 + k - 1}, sentence {i})")
+        ns_depth, pos = got[0]
+        if ns_depth:
+            raise Refused(f"{name}: --hand runs: `sp{j0}_of_items` is inside a namespace of the section")
+        stmt = norm(code[pos:code.index(":=", pos) + 2])
+        forms = {norm(runs_stmt(j0, k, i, c)): c for c in (False, True)}
+        if stmt not in forms:
+            raise Refused(f"{name}: --hand runs: `sp{j0}_of_items` states {stmt!r}, not {norm(runs_stmt(j0, k, i, False))!r} "
+                          f"(or with `(hcl : I ⊧ᴵ Faithful.boolClosed (cH H))` before `hs`)")
+        if forms[stmt] and not confined:
+            raise Refused(f"{name}: --hand runs: `sp{j0}_of_items` takes `boolClosed`, and the definition reads no "
+                          f"confined sort: `boolClosed` is no sentence of its theory")
+        out[j0] = forms[stmt]
+    extra = sorted(set(at) - {f"sp{j0}_of_items" for j0, _, _ in sps})
+    if extra:
+        raise Refused(f"{name}: --hand runs: the section states {', '.join(f'`{x}`' for x in extra)}, of no run of the text")
+    return out
+
+
+def runs_entailed_section(sps, runs_hand, confined):
+    """The section after the hand section on the runs: `spItem_sat`, and `sp<j0>_entailed` for every H
+    from `sp<j0>_of_items`, over Γ, or over `Γc` where that statement takes `boolClosed`."""
+    theory = lambda j0: "`Γc`" if confined else "Γ"
+    L = ["/-! ## E for the sentences read as several clauses, from all the items of a run together", "",
+         textwrap.fill(
+             "The items of a run are Γ's (`spItem<j>_at`), so a model of Γ satisfies each (`spItem_sat`); a model "
+             "of the theory has the constructors' facts (`HoldsShape.nodeFacts_of_core`) and its terms' elements "
+             "lie in their sorts (`Faithful.termsInSort_of_core`), and, where the statement takes it, `boolClosed` "
+             "is the item of `Γcl` (`gammaCl_eq`). With those, `sp<j0>_of_items` gives the sentence: "
+             + "; ".join(f"sentence {i} over {theory(j0)} (`sp{j0}_entailed`, items {j0} to {j0 + k - 1})"
+                         for j0, k, i in sps)
+             + ". The converse is not stated: the sentence gives the application every element of each alternative "
+             "that applies, which is an item only where the application is one element.", width=100,
+             break_on_hyphens=False, break_long_words=False) + " -/", "",
+         "/-- A model of Γ satisfies each of Γ's equations, for every H. -/",
+         "theorem spItem_sat (H : HookParams) {M : Type} {I : Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP Γ (cH H))",
+         "    {j : Nat} {φ : P} (h : (TiePair.gammaPats c)[j]? = some φ) : I ⊧ᴵ φ := by",
+         "  unfold TiePair.gammaPats at h",
+         "  rw [List.getElem?_map] at h",
+         "  cases hj : (fnItems c)[j]? with",
+         "  | none => rw [hj] at h; cases h",
+         "  | some it =>",
+         "    rw [hj] at h",
+         "    rw [← Option.some.inj h]",
+         "    exact hI _ (TiePair.mem_Γ_fns (Or.inl ⟨it, by rw [TiePair.fnItems_withHooks]; exact List.mem_of_getElem? hj, rfl⟩))",
+         ""]
+    for j0, k, i in sps:
+        closed = runs_hand[j0]
+        items = ", ".join(str(j0 + m) for m in range(k))
+        L += [f"/-- **E for sentence {i}**: {theory(j0)} entails it, for every H, from Γ's items {items} "
+              f"together{' and `boolClosed`' if closed else ''} (`sp{j0}_of_items`). -/"]
+        if confined:
+            L += [f"theorem sp{j0}_entailed (H : HookParams) : Γc (cH H) ⊧ (trS U.ax{i}).pat := by",
+                  "  intro M _ I hIc",
+                  "  have hI : I ⊧ᴵP Γ (cH H) := fun φ hφ => hIc φ (Γ_sub_Γc _ hφ)",
+                  f"  refine sp{j0}_of_items H (HoldsShape.nodeFacts_of_core (coreOKH H) hIc)",
+                  "    (Faithful.termsInSort_of_core (coreOKH H) hI) "
+                  + ("(hIc _ (Or.inr ((gammaCl_eq H _).mpr rfl))) " if closed else "") + "fun φ hφ => ?_"]
+        else:
+            L += [f"theorem sp{j0}_entailed (H : HookParams) : Γ (cH H) ⊧ (trS U.ax{i}).pat := by",
+                  "  intro M _ I hI",
+                  "  have hIc : I ⊧ᴵP Γc (cH H) := by",
+                  "    rw [Γc_plain ((Semantics.readsConfined_withHooks c H).trans readsConfined_c)]; exact hI",
+                  f"  refine sp{j0}_of_items H (HoldsShape.nodeFacts_of_core (coreOKH H) hIc)",
+                  "    (Faithful.termsInSort_of_core (coreOKH H) hI) fun φ hφ => ?_"]
+        L += ["  simp only [List.mem_cons, List.not_mem_nil, or_false] at hφ",
+              "  rcases hφ with " + " | ".join(["rfl"] * k)]
+        L += [f"  · exact spItem_sat H hI spItem{j0 + m}_at" for m in range(k)] if k > 1 else \
+             [f"  exact spItem_sat H hI spItem{j0}_at"]
+        L += [""]
+    return "\n".join(L)
+
+
+def runs_hand_case(stmt, body="", pre=""):
+    """A hand section on the runs for `runs_hand_self_test`."""
+    return HAND_SECTIONS["runs"] + " (test) -/\n\n" + pre + stmt + " by\n  exact absurd hs (by simp)\n" + body
+
+
+# `runs_hand_of` on the run (2, 3, 208): (label, section, confined, what is read, or the refusal's text)
+RUNS_HAND_TEST = [
+    ("over Γ", runs_hand_case(runs_stmt(2, 3, 208, False)), False, {2: False}, None),
+    ("over Γ, on a confined text", runs_hand_case(runs_stmt(2, 3, 208, False)), True, {2: False}, None),
+    ("with boolClosed", runs_hand_case(runs_stmt(2, 3, 208, True).replace(") (hs", ")\n    (hs")), True, {2: True}, None),
+    ("definitions in a namespace", runs_hand_case(runs_stmt(2, 3, 208, False), pre="namespace Run2\ndef tbl : Nat := 0\nend Run2\n\n"),
+     False, {2: False}, None),
+    ("boolClosed, no confined sort", runs_hand_case(runs_stmt(2, 3, 208, True)), False, None, "no\n  confined sort".replace("\n  ", " ")),
+    ("no statement", HAND_SECTIONS["runs"] + " (test) -/\n", False, None, "0 times"),
+    ("fewer items", runs_hand_case(runs_stmt(2, 2, 208, False)), False, None, "states"),
+    ("another sentence", runs_hand_case(runs_stmt(2, 3, 207, False)), False, None, "states"),
+    ("a premise more", runs_hand_case(runs_stmt(2, 3, 208, False).replace("(hs :", "(hx : False) (hs :")), False, None, "states"),
+    ("in a namespace", runs_hand_case(runs_stmt(2, 3, 208, False), pre="namespace Run2\n", body="end Run2\n"), False, None,
+     "inside a namespace"),
+    ("namespace not closed", runs_hand_case(runs_stmt(2, 3, 208, False), body="namespace Run2\n"), False, None, "not closed"),
+    ("sorry", runs_hand_case(runs_stmt(2, 3, 208, False), body="theorem t : True := by sorry\n"), False, None, "`sorry`"),
+    ("axiom", runs_hand_case(runs_stmt(2, 3, 208, False), pre="axiom ax : False\n"), False, None, "an axiom"),
+    ("a name the statement reads", runs_hand_case(runs_stmt(2, 3, 208, False), pre="def Faithful.TermsInSort (c : Nat) (I : Nat) : Prop := True\n"),
+     False, None, "a name the statements read"),
+    ("an item's name", runs_hand_case(runs_stmt(2, 3, 208, False), pre="namespace Run2\ndef spItem3 : Nat := 0\nend Run2\n"),
+     False, None, "a name the statements read"),
+    ("notation", runs_hand_case(runs_stmt(2, 3, 208, False), pre="local notation \"⊧ᴵ\" => fun _ _ => True\n"), False, None, "notation"),
+    ("another run", runs_hand_case(runs_stmt(2, 3, 208, False), body=runs_stmt(7, 2, 300, False) + " by simp\n"), False, None,
+     "of no run"),
+    ("a second heading", runs_hand_case(runs_stmt(2, 3, 208, False), body="\n/-! ## More -/\n"), False, None, "heading"),
+]
+
+
+def runs_hand_self_test():
+    bad = []
+    for label, text, confined, want, refusal in RUNS_HAND_TEST:
+        got, err = None, None
+        try:
+            got = runs_hand_of("self-test", text, [(2, 3, 208)], confined)
+        except Refused as e:
+            err = str(e)
+        ok = (err is not None and refusal in err) if refusal is not None else (err is None and got == want)
+        if not ok:
+            print(f"tiegen self-test: --hand runs case {label!r}: "
+                  + (f"refused: {err}" if err else f"accepted: {got}") + "  FAILS")
+            bad.append(f"runs {label}")
+    for sps, split, refusal in (([], False, "is read as several clauses"), ([(2, 3, 208)], True, "--split")):
+        try:
+            runs_hand_of("self-test", RUNS_HAND_TEST[0][1], sps, False, split)
+            bad.append(f"runs {refusal}")
+            print(f"tiegen self-test: --hand runs: accepted where {refusal!r} is expected  FAILS")
+        except Refused as e:
+            if refusal not in str(e):
+                bad.append(f"runs {refusal}")
+                print(f"tiegen self-test: --hand runs: refused: {e}  FAILS")
+    print(f"tiegen self-test: --hand runs: {len(RUNS_HAND_TEST) + 2} cases, {len(bad)} failing")
+    return bad
 
 
 def rules_hand_of(name, text, rule_cls, rules_full, split, sig_origin=True, cls=None, confined=False):
@@ -6058,8 +6291,21 @@ def cut_in_entailed(k, confined):
     return cut_form(k) == "under" or (cut_form(k) == "own" and not confined)
 
 
+def runs_tied_txt(sps, runs, confined=False):
+    """How the runs' sentences are tied (`--hand runs`), for the header and the section's comment."""
+    cl = [j0 for j0, _, _ in sps if runs[j0]]
+    return ("in an interpretation with the facts of a model of the theory"
+            + (f", and with `boolClosed`, the item of `Γcl`, for the run{'s' if len(cl) > 1 else ''} at "
+               f"{', '.join(map(str, cl))} (the sentence's binder ranges over every element of Bool, the items' cases "
+               f"are `true`, `false` and none)" if cl else "")
+            + ", all the items of a run together give its sentence (`sp<j0>_of_items`, in the section on the runs, by "
+            "hand), so "
+            + "; ".join(f"{'`Γc`' if confined else 'Γ'} entails sentence {i} for every H (`sp{j0}_entailed`)"
+                        for j0, _, i in sps))
+
+
 def readings_header(by_class, pair_text, ws, acs, rds, uns, cuts=(), confined=False, enss=(), svs=(), sps=(), pns=(),
-                    exs=()):
+                    exs=(), runs=None):
     """The header's paragraph of the function equations `readings_section` ties."""
     nfe, npe = len(by_class["function equation"]), len(by_class["priority equation"])
     lst = lambda js: ", ".join(f"{j} ({pair_text[j]})" for j in js)
@@ -6082,9 +6328,12 @@ def readings_header(by_class, pair_text, ws, acs, rds, uns, cuts=(), confined=Fa
         txt_ += (" " + "; ".join(f"Items {j0} to {j0 + k - 1} are the {k} clauses sentence {i} is read as" for j0, k, i in sps)
                  + " (`fnPins`: the alignment holds the sentence at each of those positions, `TiePair.fnTextMany`, "
                  "`fnPins_ok`, `fnText_all`). No such item is its sentence (`sp<j>_differs`); the sentence gives an "
-                 "item only with the function's functional sentence, and Γ gives the sentence only from all the "
-                 "items of the run together, which no form here states: the sentence is `uncovered`, and "
-                 "`fns_entailed` and `fns_from_text` leave those items out.")
+                 "item only with the function's functional sentence, "
+                 + (f"which is not stated here; {runs_tied_txt(sps, runs, confined)}. `fns_entailed` and `fns_from_text` "
+                    f"leave those items out." if runs else
+                    "and Γ gives the sentence only from all the "
+                    "items of the run together, which no form here states: the sentence is `uncovered`, and "
+                    "`fns_entailed` and `fns_from_text` leave those items out."))
     if ws:
         txt_ += (f" Item{pl(ws, 's', '')} {lst(ws)} (sentence in parentheses) {pl(ws, 'are', 'is')} the clause "
                  f"under the negation of the clauses of a smaller priority that are not `aside`, which the sentence "
@@ -6152,7 +6401,7 @@ def readings_header(by_class, pair_text, ws, acs, rds, uns, cuts=(), confined=Fa
                          break_long_words=False)
 
 
-def readings_gamma_header(pair_text, ws, acs, rds, uns, cuts=(), enss=(), svs=(), sps=(), pns=(), exs=()):
+def readings_gamma_header(pair_text, ws, acs, rds, uns, cuts=(), enss=(), svs=(), sps=(), pns=(), exs=(), runs=None):
     """The header's paragraph of `readings_section`'s converse over Γ's content."""
     cno = [j for j, _, k in cuts if cut_form(k) != "own"]
     spjs = [j0 + m for j0, k, _ in sps for m in range(k)]
@@ -6171,7 +6420,7 @@ def readings_gamma_header(pair_text, ws, acs, rds, uns, cuts=(), enss=(), svs=()
                f"{'s give' if len(svs) > 1 else ' gives'} it with the definition of `\\ceil` and the sort constant "
                f"`SortExp`: `sv<j>_w1`)" if svs else "")
             + (f", Γ's own item{'s' if len(spjs) > 1 else ''} {', '.join(map(str, spjs))} (the clauses one sentence is "
-               f"read as, whose sentence is uncovered)" if sps else "")
+               f"read as, whose sentence {'the items of the run give together' if runs else 'is uncovered'})" if sps else "")
             + (f", Γ's own item{'s' if len(pns) > 1 else ''} {', '.join(str(j) for j, _, _ in pns)} (whose sentence"
                f"{'s give' if len(pns) > 1 else ' gives'} it with the constructors' facts and Cons-Fun of the injection: "
                f"`ovlm<j>_from_text`)" if pns else "")
@@ -6206,7 +6455,7 @@ def readings_names(ws, acs, rds, uns, cuts=(), enss=(), svs=(), sps=(), split_at
 
 
 def readings_section(ws, acs, rds, uns, nfe, npe, cuts=(), confined=False, enss=(), svs=(), sps=(), pins=(),
-                     pin_other=(), split_at=(), pns=(), exs=()):
+                     pin_other=(), split_at=(), pns=(), exs=(), runs=None):
     """`pairs_section` with two more kinds of Γ's items beside the narrowed ones `ws` and those `acs`
     equal up to the operands' order and the variables' names: the items `rds` (each `(j, i)`: item
     `j`, sentence `i`), whose sentence writes an alternative that holds nothing beside the right
@@ -6332,9 +6581,13 @@ def readings_section(ws, acs, rds, uns, nfe, npe, cuts=(), confined=False, enss=
                      f"priority; `fnPins_ok`, `fnText_all`). No such item is its sentence (`sp<j>_differs`). The "
                      f"sentence gives an item only together with the function's functional sentence (where an "
                      f"alternative applies, the sentence gives the application every element that alternative "
-                     f"holds, and the item one element), and the items give the sentence only all together; no "
-                     f"form here states either, so the sentence is uncovered, `fns_entailed` and `fns_from_text` "
-                     f"leave its items out, and the premise set of `gamma_from` holds Γ's items there.")
+                     f"holds, and the item one element), and the items give the sentence only all together"
+                     + (f": the first is not stated here, and {runs_tied_txt(sps, runs, confined)}; `fns_entailed` and "
+                        f"`fns_from_text` leave the items out, and the premise set of `gamma_from` holds Γ's items there."
+                        if runs else
+                        "; no "
+                        "form here states either, so the sentence is uncovered, `fns_entailed` and `fns_from_text` "
+                        "leave its items out, and the premise set of `gamma_from` holds Γ's items there."))
     if pns:
         ol = ", ".join(f"{j} (sentence {i})" for j, i, _ in pns)
         parts.append(f"Γ's item{'s' if len(pns) > 1 else ''} {ol} {'are clauses' if len(pns) > 1 else 'is the clause'} "
@@ -6663,7 +6916,9 @@ def readings_section(ws, acs, rds, uns, nfe, npe, cuts=(), confined=False, enss=
                     f"noncomputable def spItem{j} : P := (TiePair.gammaPats c).getD {j} ⊥",
                     f"theorem spItem{j}_at : (TiePair.gammaPats c)[{j}]? = some spItem{j} := by decide +kernel",
                     f"kernel_rfl fnText_at{j} : fnText[{j}]? = some U.ax{i}",
-                    f"/-- **Γ's item {j} is not the text's sentence {i}** (kernel): the sentence is uncovered. -/",
+                    f"/-- **Γ's item {j} is not the text's sentence {i}** (kernel)"
+                    + (f": the run's items give the sentence together (`sp{j0}_entailed`). -/" if runs else
+                       ": the sentence is uncovered. -/"),
                     f"theorem sp{j}_differs : spItem{j} ≠ (trS U.ax{i}).pat := by decide +kernel", ""]
             if j in sat:
                 n_, ci = sat[j]
@@ -8596,7 +8851,7 @@ HEAD_CODE_TEST = [(("kseq", []), "(6197441387, [])"),
 
 
 def self_test():
-    bad = rules_hand_self_test() + match_hand_self_test()
+    bad = rules_hand_self_test() + match_hand_self_test() + runs_hand_self_test()
     for order, want in INDEX_RANGE_TEST:
         if index_range(order) != want:
             print(f"tiegen self-test: index_range({order}) is {index_range(order)}, not {want}  FAILS")

@@ -3,12 +3,14 @@
   (`test/constructs/fixtures/e3-eq-exists-bool-ml`), sentence by sentence, against the translation of the text as
   written (`trS ad := trAxiom k.symbolDecls k.aliasNames ad`), on the literals `kore` and `defn`, for
   every interpretation H. Nothing here reads `Parse.parse` or `emit`. Written by
-  `test/constructs/tiegen.py e3-eq-exists-bool-ml`, its consistency section by hand; run from the package root:
+  `test/constructs/tiegen.py e3-eq-exists-bool-ml`, its consistency, runs section by hand; run from the package root:
   `lake env lean -j1 test/TieE3EqExistsBoolMl.lean`.
 
   The definition reads a confined sort (`readsConfined_c`, `Semantics.readsConfined`), so its
   theory is `Γc = Γ ∪ Γcl`. Each statement of layers 1 and 2 is over Γ; `Γc` holds every premise
   of Γ, so each entailment holds over `Γc` too (`entails_c`, the `_c` forms at the end).
+  But `sp0_entailed`, of a sentence read as several clauses: stated over `Γc` and not over Γ, from
+  the facts of a model of `Γc`, `boolClosed` among them.
 
   Layer 1.
   - `coreOK`: `coreOK`; `wf` fails at the conjuncts clauses' premise predicates \top (clausesPreTop): the checks outside coreOK read no clause predicate (`wfFailing`).
@@ -24,7 +26,8 @@
     (`AttrsAgree.priosBut`) the priorities agree, and each clause left out is aligned with the run's
     sentence at the priority that sentence states (Lblf 1: sentence 132, `prios_split_at1`, Lblf 2:
     sentence 132, `prios_split_at2`; `fn_prios` states it of every clause). That is a fact of
-    priorities: the clause's item is not tied to its sentence, which is uncovered.
+    priorities: the clause's item is not its sentence, which the run's items give together
+    (`sp<j0>_entailed`).
   - `sig_origin_but_next`: each of the 204 items of `sigItems c` but one is a declaration's item
     of the text or a surplus one; the one is next's arity at the configuration sort, which Γ states
     and the text, having no `\rewrites` (`text_nextless`), does not. `decls_entailed`: Γ entails
@@ -43,9 +46,12 @@
     Γ entails it (`fns_entailed`). Items 0 to 2 are the 3 clauses sentence 132 is read as (`fnPins`:
     the alignment holds the sentence at each of those positions, `TiePair.fnTextMany`, `fnPins_ok`,
     `fnText_all`). No such item is its sentence (`sp<j>_differs`); the sentence gives an item only
-    with the function's functional sentence, and Γ gives the sentence only from all the items of the
-    run together, which no form here states: the sentence is `uncovered`, and `fns_entailed` and
-    `fns_from_text` leave those items out. `fns_from_text` (the converse), `fn_prios` (the
+    with the function's functional sentence, which is not stated here; in an interpretation with the
+    facts of a model of the theory, and with `boolClosed`, the item of `Γcl`, for the run at 0 (the
+    sentence's binder ranges over every element of Bool, the items' cases are `true`, `false` and
+    none), all the items of a run together give its sentence (`sp<j0>_of_items`, in the section on
+    the runs, by hand), so `Γc` entails sentence 132 for every H (`sp0_entailed`). `fns_entailed`
+    and `fns_from_text` leave those items out. `fns_from_text` (the converse), `fn_prios` (the
     priorities the sentences state are the clauses').
   - Constructor sentences (24): entailed by Γ (`cons_entailed`).
   - No junk (3 of a sort without generators, `nojunk_trivial_entailed`; 6 equal to
@@ -53,13 +59,14 @@
     order, `nojunk_kitem_entailed`).
   - Set idempotence (48): Γ with it has no model (`idem_refuted`).
   - The converse over Γ's content: each premise is a consequence of the function sentences, Γ's own
-    items 0, 1, 2 (the clauses one sentence is read as, whose sentence is uncovered), Γ's rule
-    items, the five parts Γ defines by predicates, or definedness (`gamma_from`).
+    items 0, 1, 2 (the clauses one sentence is read as, whose sentence the items of the run give
+    together), Γ's rule items, the five parts Γ defines by predicates, or definedness
+    (`gamma_from`).
   - Hooked functional, collection law, library: at values (no theorem here); function functional:
     owed as `FnHyp` (no theorem); no direction: `absent_closed`.
 
   The sentences with no counterpart in f2-examples/ens.kompile.kore are `unmapped` (24);
-  the sentences of a class with a theorem that no theorem here holds of are `uncovered` (1).
+  the sentences of a class with a theorem that no theorem here holds of are `uncovered` (0).
 -/
 import KcoreSpec
 
@@ -207,7 +214,7 @@ def unmapped : List (Nat × String) :=
 /-- The sentences of a class with a theorem in the tie that no theorem of this file holds of: the
 tie's remainder on this text. -/
 def uncovered : List (Nat × String) :=
-  [(132, "function equation")]
+  []
 
 /-- Each listed sentence is in its class in the account. -/
 theorem lists_in_account : (unmapped ++ uncovered).all (fun ic => (classOf ic.2).contains ic.1) = true := by
@@ -866,9 +873,12 @@ its sentence, every other position the first sentence of its function and priori
 `fnText_all`). No such item is its sentence (`sp<j>_differs`). The sentence gives an item only
 together with the function's functional sentence (where an alternative applies, the sentence gives
 the application every element that alternative holds, and the item one element), and the items give
-the sentence only all together; no form here states either, so the sentence is uncovered,
-`fns_entailed` and `fns_from_text` leave its items out, and the premise set of `gamma_from` holds
-Γ's items there.
+the sentence only all together: the first is not stated here, and in an interpretation with the
+facts of a model of the theory, and with `boolClosed`, the item of `Γcl`, for the run at 0 (the
+sentence's binder ranges over every element of Bool, the items' cases are `true`, `false` and none),
+all the items of a run together give its sentence (`sp<j0>_of_items`, in the section on the runs, by
+hand), so `Γc` entails sentence 132 for every H (`sp0_entailed`); `fns_entailed` and `fns_from_text`
+leave the items out, and the premise set of `gamma_from` holds Γ's items there.
 
 Every other item is the translation of its function sentence (`shape`). -/
 
@@ -902,14 +912,14 @@ theorem fns_account :
 noncomputable def spItem0 : P := (TiePair.gammaPats c).getD 0 ⊥
 theorem spItem0_at : (TiePair.gammaPats c)[0]? = some spItem0 := by decide +kernel
 kernel_rfl fnText_at0 : fnText[0]? = some U.ax132
-/-- **Γ's item 0 is not the text's sentence 132** (kernel): the sentence is uncovered. -/
+/-- **Γ's item 0 is not the text's sentence 132** (kernel): the run's items give the sentence together (`sp0_entailed`). -/
 theorem sp0_differs : spItem0 ≠ (trS U.ax132).pat := by decide +kernel
 
 /-- Γ's item 1, the clause 1 of the 3 that sentence 132 is read as. -/
 noncomputable def spItem1 : P := (TiePair.gammaPats c).getD 1 ⊥
 theorem spItem1_at : (TiePair.gammaPats c)[1]? = some spItem1 := by decide +kernel
 kernel_rfl fnText_at1 : fnText[1]? = some U.ax132
-/-- **Γ's item 1 is not the text's sentence 132** (kernel): the sentence is uncovered. -/
+/-- **Γ's item 1 is not the text's sentence 132** (kernel): the run's items give the sentence together (`sp0_entailed`). -/
 theorem sp1_differs : spItem1 ≠ (trS U.ax132).pat := by decide +kernel
 
 /-- **The clause 1 of `Lblf`, which `attrs_prios_but` leaves out, is Γ's item 1**, aligned with
@@ -923,7 +933,7 @@ theorem prios_split_at1 : ((c.allFns.takeWhile (c.symName ·.label != "Lblf")).m
 noncomputable def spItem2 : P := (TiePair.gammaPats c).getD 2 ⊥
 theorem spItem2_at : (TiePair.gammaPats c)[2]? = some spItem2 := by decide +kernel
 kernel_rfl fnText_at2 : fnText[2]? = some U.ax132
-/-- **Γ's item 2 is not the text's sentence 132** (kernel): the sentence is uncovered. -/
+/-- **Γ's item 2 is not the text's sentence 132** (kernel): the run's items give the sentence together (`sp0_entailed`). -/
 theorem sp2_differs : spItem2 ≠ (trS U.ax132).pat := by decide +kernel
 
 /-- **The clause 2 of `Lblf`, which `attrs_prios_but` leaves out, is Γ's item 2**, aligned with
@@ -1028,6 +1038,231 @@ theorem idem_refuted_c (H : HookParams) : ∀ (M : Type) (_ : Inhabited M) (I : 
     I ⊧ᴵP Γc (cH H) → ¬ (I ⊧ᴵ (trS U.ax48).pat) :=
   fun M hM I hI => idem_refuted H M hM I fun φ hφ => hI φ (Γ_sub_Γc _ hφ)
 
+/-! ## The runs: sentence 132 from Γ's items 0, 1, 2 and `boolClosed`
+
+`rule f(X) => #Exists B:Bool. (B #And {B #Equals notBool X})`: Γ's three items for f are `f(X) = b`
+under `⌈b⌉ ∧ b = notBool(X)` at each literal b of Bool, and a last one where no element of Bool
+gives the right side an element. `Run0`: the sentence is `eqnPat` of `(∃B:Bool. body) ∧ ⊤`
+(`text_shape`); Γ's three items are `eqnPat` over the same guards, premise, sort and left side
+(`gamma_shape`, `sp_items`); what the parts mean at a valuation is `TieEX.ExFacts`, from the decision
+`exReadB_fun` (`facts`). `sp0_of_items`: the sentence's binder ranges over every element of Bool and
+the items' cases are `true`, `false` and none, so the items give the sentence where every element of
+Bool is the element of a literal, `boolClosed` (`TieEX.ex_text_of_split`). No `functional` sentence
+is read. -/
+
+namespace Run0
+
+open KoreAML.TieFR KCore.TieEX KCore.TieEXReadB
+
+def Fs : Sym := nRegSyms + 4
+def litT (b : Bool) : Term := .dv Srt.bool (.bool b)
+def notX : Term := .app boolNot [.var 0]
+/-- The alternative of the instance at the literal b: the term b, with `b = notBool(X)`. -/
+def xLit (b : Bool) : Term × List Cond := (litT b, [.equals Srt.bool (litT b) notX])
+/-- The alternative of the body with B the variable at index 1: B, with `B = notBool(X)`. -/
+def jB : Term × List Cond := (.var 1, [.equals Srt.bool (.var 1) notX])
+
+/-- f, declared `total`, with the clauses of the split. -/
+def fFn : Fn := ⟨Fs, [Srt.bool], Srt.bool,
+  Parse.exClauses Srt.bool [Srt.bool] [.var 0] none 50 false [xLit true, xLit false] [jB], true⟩
+
+/-! **f is the first function of `defn`**, with these clauses (kernel). -/
+kernel_rfl fFn_at : c.fns[0]? = some fFn
+
+/-! ### The text's two sentences -/
+
+def bS : Kore.KSort := srt "Bool"
+def Xp : Kore.Pattern := ev "VarX" bS
+def Bp : Kore.Pattern := ev "VarB" bS
+def vsF : List KoreAML.Var := [⟨"X", "Bool"⟩]
+def Bv : KoreAML.Var := ⟨"B", "Bool"⟩
+
+/-- The names the body is read with: the definition's sorts and symbols, f a function of the
+definition with a `functional` sentence, Bool's literals its values. -/
+def NT : Parse.Names :=
+  { sorts := ["KCell", "KCellOpt"]
+    syms := ["LblisKCell", "LblisKCellOpt", "Lbl'-LT-'k'-GT-'", "LblnoKCell", "Lblf"]
+    keyFns := [(nRegSyms + 4, "Bool")]
+    fnlSyms := [("Lblf", false)]
+    boolLits := true }
+
+theorem names_c : NT.syms = c.symNames ∧ NT.sorts = c.sortNames := by decide +kernel
+
+/-- The binder's body `B ∧ (B = notBool(X))`. -/
+def bodyK : Kore.Pattern := .and bS [Bp, .equals bS bS Bp (ap "LblnotBool'Unds'" [Xp])]
+
+/-- The table of sentence 132, its guards, and the table of Γ's items for f: R, the argument, the
+clause's variable and the binder. -/
+noncomputable def tbl : VarTable := tableOf U.ax132.ax.sortVars U.ax132.ax.pattern
+noncomputable def ws : List P := guardsOf U.ax132.ax
+def tblG : VarTable := [.sortVar "R", .evar "X0" bS, .evar "VarV0" bS, .evar "VarV1" bS]
+abbrev rG : EVar := tblG.ev (sortVarKey Rv)
+noncomputable def prem : P := tr ⟨tbl, []⟩ (.and R [.top R, .and R [.in bS R (ev "X0" bS) Xp, .top R]])
+noncomputable def Ff : P := tr ⟨tbl, []⟩ (ap "Lblf" [ev "X0" bS])
+noncomputable def xB : EVar := tbl.ev (evarKey Bv.kore)
+noncomputable def bodyT : P := tr ⟨tbl, []⟩ bodyK
+noncomputable def ensT : P := tr ⟨tbl, []⟩ (.top bS)
+
+
+/-- **Sentence 132, translated as the text writes it, is the equation
+`X0 ∈ X → f(X0) = (∃B:Bool. B ∧ (B = notBool(X))) ∧ ⊤`** (kernel). -/
+theorem text_shape : (trS U.ax132).pat =
+    eqnPat ws rG prem TieFRRead.boolP Ff (sAnd (sExists xB TieFRRead.boolP bodyT) ensT) := by decide +kernel
+
+/-- The sort guard is one of the sentence's guards. -/
+theorem idx_facts : sortGuard rG ∈ ws := by decide +kernel
+
+/-- The variables read are of Bool, and the guards hold each in its sort. -/
+theorem lit_facts : Parse.varSorts NT vsF = .ok [Srt.bool] ∧ TieFRVars.guardsHold ws tbl vsF = true :=
+  ⟨by kernel_rfl, by decide +kernel⟩
+
+/-! ### Γ's items for f -/
+
+/-- The clauses' variables. -/
+abbrev vsOf (C : Semantics) : List KoreAML.Var := Faithful.canonVars C [Srt.bool]
+
+/-- The last clause's right side `true ∧ (false = true)`. -/
+noncomputable def BNG (C : Semantics) : P := sAnd (altPC C tblG (vsOf C) (xLit true))
+  (tr ⟨tblG, []⟩ (reqPat (srtOf C Srt.bool) (some (Term.kore C (vsOf C) (Parse.boolT false)))))
+
+/-- The three equations: of the alternative at `true`, of the alternative at `false`, and the
+last, over the sentence's guards and application of f. -/
+noncomputable def gpats (C : Semantics) : List P :=
+  [eqnPat ws rG (clauseQC C tblG (vsOf C) Srt.bool prem (xLit true)) TieFRRead.boolP Ff
+     (sAnd (altPC C tblG (vsOf C) (xLit true)) (sTop TieFRRead.boolP)),
+   eqnPat ws rG (clauseQC C tblG (vsOf C) Srt.bool prem (xLit false)) TieFRRead.boolP Ff
+     (sAnd (altPC C tblG (vsOf C) (xLit false)) (sTop TieFRRead.boolP)),
+   eqnPat ws rG (lastBQC C tblG (vsOf C) Srt.bool prem [jB]) TieFRRead.boolP Ff (BNG C)]
+
+/-- The decisions on the semantics with any hook parameters: Γ's items for f are `gpats`, and
+Bool's sort translates to Bool's pattern. -/
+noncomputable def shapeB (C : Semantics) : Bool :=
+  decide ((Faithful.kernelItems (Faithful.fnEquationsK C fFn)).map (·.pat) = gpats C) &&
+    decide (trSort tblG (srtOf C Srt.bool) = TieFRRead.boolP)
+
+/-- (kernel) As a function of the hook parameters, the constant `true`. -/
+theorem shapeB_fun : (fun Hk : HookParams => shapeB (c.withHooks Hk)) = fun _ => true := by kernel_rfl
+
+/-- **Γ's items for f are the three equations**, for every H. -/
+theorem gamma_shape (H : HookParams) :
+    (Faithful.kernelItems (Faithful.fnEquationsK (cH H) fFn)).map (·.pat) = gpats (cH H) := by
+  have h : shapeB (cH H) = true := congrFun shapeB_fun H
+  simp only [shapeB, Bool.and_eq_true, decide_eq_true_eq] at h
+  exact h.1
+
+theorem boolSort_H (H : HookParams) : trSort tblG (srtOf (cH H) Srt.bool) = TieFRRead.boolP := by
+  have h : shapeB (cH H) = true := congrFun shapeB_fun H
+  simp only [shapeB, Bool.and_eq_true, decide_eq_true_eq] at h
+  exact h.2
+
+theorem items_length (H : HookParams) :
+    (Faithful.kernelItems (Faithful.fnEquationsK (cH H) fFn)).length = 3 := by
+  have := congrArg List.length (gamma_shape H)
+  rw [List.length_map] at this
+  exact this
+
+/-- **The decision of the readings** (`TieEXReadB.exReadB`), at the semantics with any hook
+parameters (kernel): the function of the hook parameters is the constant `true`. -/
+theorem exReadB_fun : (fun Hk : HookParams => exReadB NT (c.withHooks Hk) tblG tbl [Srt.bool] vsF Bv Srt.bool bodyK
+    (.top bS) (xLit true) (xLit false) jB) = fun _ => true := by kernel_rfl
+
+theorem exReadB_H (H : HookParams) : exReadB NT (cH H) tblG tbl [Srt.bool] vsF Bv Srt.bool bodyK
+    (.top bS) (xLit true) (xLit false) jB = true := congrFun exReadB_fun H
+/-! **Γ's items for f are the items 0, 1 and 2 of `fnItems`**, for every H (kernel). -/
+kernel_rfl sp_items : ∀ H : HookParams,
+  (Faithful.kernelItems (Faithful.fnEquationsK (cH H) fFn)).map (·.pat) = [spItem0, spItem1, spItem2]
+
+section
+variable {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
+
+/-- **The readings** `TieEX`'s lemmas take, in a model with `NodeFacts` and `TermsInSort`, from the
+decision. -/
+theorem facts (H : HookParams) (N : HoldsShape.NodeFacts (cH H) I) (hTS : Faithful.TermsInSort (cH H) I) :
+    ∃ β, IsSort I β ∧ (∀ (e : Valuation M) a, TieFRRead.boolP.interpret I e a ↔ a = β) ∧
+      (∀ (e : Valuation M) a, (trSort tblG (srtOf (cH H) Srt.bool)).interpret I e a ↔ a = β) ∧
+      ExFacts I (cH H) tblG (vsOf (cH H)) ws β (xsOfB (xLit true) (xLit false)) [jB] bodyT ensT xB
+        (CGof I (cH H) tblG (vsOf (cH H))) (CGof I (cH H) tblG (vsBof (cH H) [Srt.bool])) := by
+  obtain ⟨β, hβ, hβd⟩ := TieFRRead.boolDen_of N
+  have hσ : ∀ (e : Valuation M) a, (trSort tblG (srtOf (cH H) Srt.bool)).interpret I e a ↔ a = β := fun e a => by
+    rw [boolSort_H H]; exact hβd e a
+  exact ⟨β, hβ, hβd, hσ, exFacts_of_exB N hTS names_c.1 names_c.2 (al := []) lit_facts.1 lit_facts.2
+    idx_facts hσ hβ rfl rfl (exReadB_H H)⟩
+
+end
+
+end Run0
+
+section
+open KoreAML.TieFR KCore.TieEX KCore.TieEXReadB Run0
+
+/-- **Γ's items 0, 1, 2 and `boolClosed` give sentence 132**, for every H, in a model with
+`NodeFacts (cH H) I` and `TermsInSort (cH H) I`. -/
+theorem sp0_of_items (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
+    (N : HoldsShape.NodeFacts (cH H) I) (hTS : Faithful.TermsInSort (cH H) I)
+    (hcl : I ⊧ᴵ Faithful.boolClosed (cH H))
+    (hs : ∀ φ ∈ [spItem0, spItem1, spItem2], I ⊧ᴵ φ) : I ⊧ᴵ (trS U.ax132).pat := by
+  have hs' : ∀ φ ∈ gpats (cH H), I ⊧ᴵ φ := by
+    rw [← gamma_shape H, sp_items H]; exact hs
+  rw [text_shape]
+  obtain ⟨β, hβ, hd, hσ, X⟩ := facts H N hTS
+  have hSA : SortAt I TieFRRead.boolP β := ⟨hd, hβ, rfl⟩
+  have hr := idx_facts
+  have hk : ∀ x ∈ xsOfB (xLit true) (xLit false) true ++ xsOfB (xLit true) (xLit false) false,
+      I ⊧ᴵ eqnPat ws rG (clauseQC (cH H) tblG (vsOf (cH H)) Srt.bool prem x) TieFRRead.boolP Ff
+        (sAnd (altPC (cH H) tblG (vsOf (cH H)) x) (sTop TieFRRead.boolP)) := by
+    intro x hx
+    have hx' : x = xLit true ∨ x = xLit false := by
+      rcases List.mem_append.mp hx with h | h
+      · exact Or.inl (List.mem_singleton.mp h)
+      · exact Or.inr (List.mem_singleton.mp h)
+    rcases hx' with rfl | rfl
+    · exact hs' _ (List.mem_cons_self ..)
+    · exact hs' _ (List.mem_cons_of_mem _ (List.mem_cons_self ..))
+  have hn : I ⊧ᴵ eqnPat ws rG (lastBQC (cH H) tblG (vsOf (cH H)) Srt.bool prem [jB]) TieFRRead.boolP Ff
+      (BNG (cH H)) :=
+    hs' _ (List.mem_cons_of_mem _ (List.mem_cons_of_mem _ (List.mem_cons_self ..)))
+  exact ex_text_of_split N hcl (tbl := tblG) (vs := vsOf (cH H)) (s := Srt.bool)
+    (CG := CGof I (cH H) tblG (vsOf (cH H))) (CGB := CGof I (cH H) tblG (vsBof (cH H) [Srt.bool]))
+    (body := bodyT) (ensT := ensT) (xB := xB) (SR := srtOf (cH H) Srt.bool)
+    hSA (guardsOf_pred (I := I) N.defOK U.ax132.ax) hr hσ hσ X.hin X.hcond X.hbody X.hxr X.hinB X.hcondB
+    X.hbodyB hk hn
+
+end
+
+/-! ## E for the sentences read as several clauses, from all the items of a run together
+
+The items of a run are Γ's (`spItem<j>_at`), so a model of Γ satisfies each (`spItem_sat`); a model
+of the theory has the constructors' facts (`HoldsShape.nodeFacts_of_core`) and its terms' elements
+lie in their sorts (`Faithful.termsInSort_of_core`), and, where the statement takes it, `boolClosed`
+is the item of `Γcl` (`gammaCl_eq`). With those, `sp<j0>_of_items` gives the sentence: sentence 132
+over `Γc` (`sp0_entailed`, items 0 to 2). The converse is not stated: the sentence gives the
+application every element of each alternative that applies, which is an item only where the
+application is one element. -/
+
+/-- A model of Γ satisfies each of Γ's equations, for every H. -/
+theorem spItem_sat (H : HookParams) {M : Type} {I : Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP Γ (cH H))
+    {j : Nat} {φ : P} (h : (TiePair.gammaPats c)[j]? = some φ) : I ⊧ᴵ φ := by
+  unfold TiePair.gammaPats at h
+  rw [List.getElem?_map] at h
+  cases hj : (fnItems c)[j]? with
+  | none => rw [hj] at h; cases h
+  | some it =>
+    rw [hj] at h
+    rw [← Option.some.inj h]
+    exact hI _ (TiePair.mem_Γ_fns (Or.inl ⟨it, by rw [TiePair.fnItems_withHooks]; exact List.mem_of_getElem? hj, rfl⟩))
+
+/-- **E for sentence 132**: `Γc` entails it, for every H, from Γ's items 0, 1, 2 together and `boolClosed` (`sp0_of_items`). -/
+theorem sp0_entailed (H : HookParams) : Γc (cH H) ⊧ (trS U.ax132).pat := by
+  intro M _ I hIc
+  have hI : I ⊧ᴵP Γ (cH H) := fun φ hφ => hIc φ (Γ_sub_Γc _ hφ)
+  refine sp0_of_items H (HoldsShape.nodeFacts_of_core (coreOKH H) hIc)
+    (Faithful.termsInSort_of_core (coreOKH H) hI) (hIc _ (Or.inr ((gammaCl_eq H _).mpr rfl))) fun φ hφ => ?_
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hφ
+  rcases hφ with rfl | rfl | rfl
+  · exact spItem_sat H hI spItem0_at
+  · exact spItem_sat H hI spItem1_at
+  · exact spItem_sat H hI spItem2_at
+
 end KCore.TieE3EqExistsBoolMl
 
 #check @KCore.TieE3EqExistsBoolMl.noRaw
@@ -1063,6 +1298,8 @@ end KCore.TieE3EqExistsBoolMl
 #check @KCore.TieE3EqExistsBoolMl.nojunk_kitem_entailed_c
 #check @KCore.TieE3EqExistsBoolMl.cons_entailed_c
 #check @KCore.TieE3EqExistsBoolMl.idem_refuted_c
+#check @KCore.TieE3EqExistsBoolMl.sp0_of_items
+#check @KCore.TieE3EqExistsBoolMl.sp0_entailed
 #print axioms KCore.TieE3EqExistsBoolMl.noRaw
 #print axioms KCore.TieE3EqExistsBoolMl.readsConfined_c
 #print axioms KCore.TieE3EqExistsBoolMl.userAxioms_eq
@@ -1096,6 +1333,8 @@ end KCore.TieE3EqExistsBoolMl
 #print axioms KCore.TieE3EqExistsBoolMl.nojunk_kitem_entailed_c
 #print axioms KCore.TieE3EqExistsBoolMl.cons_entailed_c
 #print axioms KCore.TieE3EqExistsBoolMl.idem_refuted_c
+#print axioms KCore.TieE3EqExistsBoolMl.sp0_of_items
+#print axioms KCore.TieE3EqExistsBoolMl.sp0_entailed
 #check @KCore.TieE3EqExistsBoolMl.fnPins_ok
 #check @KCore.TieE3EqExistsBoolMl.fnText_all
 #check @KCore.TieE3EqExistsBoolMl.fns_account

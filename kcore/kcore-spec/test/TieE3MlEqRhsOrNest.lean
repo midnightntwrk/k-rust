@@ -3,7 +3,7 @@
   (`test/constructs/fixtures/e3-ml-eq-rhs-or-nest`), sentence by sentence, against the translation of the text as
   written (`trS ad := trAxiom k.symbolDecls k.aliasNames ad`), on the literals `kore` and `defn`, for
   every interpretation H. Nothing here reads `Parse.parse` or `emit`. Written by
-  `test/constructs/tiegen.py e3-ml-eq-rhs-or-nest`, its consistency section by hand; run from the package root:
+  `test/constructs/tiegen.py e3-ml-eq-rhs-or-nest`, its consistency, runs section by hand; run from the package root:
   `lake env lean -j1 test/TieE3MlEqRhsOrNest.lean`.
 
   Layer 1.
@@ -20,7 +20,8 @@
     (`AttrsAgree.priosBut`) the priorities agree, and each clause left out is aligned with the run's
     sentence at the priority that sentence states (Lblh 1: sentence 208, `prios_split_at3`, Lblh 2:
     sentence 208, `prios_split_at4`; `fn_prios` states it of every clause). That is a fact of
-    priorities: the clause's item is not tied to its sentence, which is uncovered.
+    priorities: the clause's item is not its sentence, which the run's items give together
+    (`sp<j0>_entailed`).
   - `sig_origin_but_next`: each of the 207 items of `sigItems c` but one is a declaration's item
     of the text or a surplus one; the one is next's arity at the configuration sort, which Γ states
     and the text, having no `\rewrites` (`text_nextless`), does not. `decls_entailed`: Γ entails
@@ -38,10 +39,11 @@
     Γ entails it (`fns_entailed`). Items 2 to 4 are the 3 clauses sentence 208 is read as (`fnPins`:
     the alignment holds the sentence at each of those positions, `TiePair.fnTextMany`, `fnPins_ok`,
     `fnText_all`). No such item is its sentence (`sp<j>_differs`); the sentence gives an item only
-    with the function's functional sentence, and Γ gives the sentence only from all the items of the
-    run together, which no form here states: the sentence is `uncovered`, and `fns_entailed` and
-    `fns_from_text` leave those items out. `fns_from_text` (the converse), `fn_prios` (the
-    priorities the sentences state are the clauses').
+    with the function's functional sentence, which is not stated here; in an interpretation with the
+    facts of a model of the theory, all the items of a run together give its sentence
+    (`sp<j0>_of_items`, in the section on the runs, by hand), so Γ entails sentence 208 for every H
+    (`sp2_entailed`). `fns_entailed` and `fns_from_text` leave those items out. `fns_from_text` (the
+    converse), `fn_prios` (the priorities the sentences state are the clauses').
   - Constructor sentences (24): entailed by Γ (`cons_entailed`).
   - No junk (3 of a sort without generators, `nojunk_trivial_entailed`; 6 equal to
     one of Γ's constructor items, `nojunk_items`; 1 KItem's with its disjuncts in the text's
@@ -49,13 +51,14 @@
   - Set idempotence (60): Γ with it has no model (`idem_refuted`).
   - Library sample, 161 (`I -Int 0 = I`): holds at values (`lib166`, `lib166_at_values`).
   - The converse over Γ's content: each premise is a consequence of the function sentences, Γ's own
-    items 2, 3, 4 (the clauses one sentence is read as, whose sentence is uncovered), Γ's rule
-    items, the five parts Γ defines by predicates, or definedness (`gamma_from`).
+    items 2, 3, 4 (the clauses one sentence is read as, whose sentence the items of the run give
+    together), Γ's rule items, the five parts Γ defines by predicates, or definedness
+    (`gamma_from`).
   - Hooked functional, collection law, library: at values (no theorem here); function functional:
     owed as `FnHyp` (no theorem); no direction: `absent_closed`.
 
   The sentences with no counterpart in f2-examples/ens.kompile.kore are `unmapped` (10);
-  the sentences of a class with a theorem that no theorem here holds of are `uncovered` (1).
+  the sentences of a class with a theorem that no theorem here holds of are `uncovered` (0).
 -/
 import KcoreSpec
 
@@ -204,7 +207,7 @@ def unmapped : List (Nat × String) :=
 /-- The sentences of a class with a theorem in the tie that no theorem of this file holds of: the
 tie's remainder on this text. -/
 def uncovered : List (Nat × String) :=
-  [(208, "function equation")]
+  []
 
 /-- Each listed sentence is in its class in the account. -/
 theorem lists_in_account : (unmapped ++ uncovered).all (fun ic => (classOf ic.2).contains ic.1) = true := by
@@ -1069,9 +1072,11 @@ its sentence, every other position the first sentence of its function and priori
 `fnText_all`). No such item is its sentence (`sp<j>_differs`). The sentence gives an item only
 together with the function's functional sentence (where an alternative applies, the sentence gives
 the application every element that alternative holds, and the item one element), and the items give
-the sentence only all together; no form here states either, so the sentence is uncovered,
-`fns_entailed` and `fns_from_text` leave its items out, and the premise set of `gamma_from` holds
-Γ's items there.
+the sentence only all together: the first is not stated here, and in an interpretation with the
+facts of a model of the theory, all the items of a run together give its sentence
+(`sp<j0>_of_items`, in the section on the runs, by hand), so Γ entails sentence 208 for every H
+(`sp2_entailed`); `fns_entailed` and `fns_from_text` leave the items out, and the premise set of
+`gamma_from` holds Γ's items there.
 
 Every other item is the translation of its function sentence (`shape`). -/
 
@@ -1105,14 +1110,14 @@ theorem fns_account :
 noncomputable def spItem2 : P := (TiePair.gammaPats c).getD 2 ⊥
 theorem spItem2_at : (TiePair.gammaPats c)[2]? = some spItem2 := by decide +kernel
 kernel_rfl fnText_at2 : fnText[2]? = some U.ax208
-/-- **Γ's item 2 is not the text's sentence 208** (kernel): the sentence is uncovered. -/
+/-- **Γ's item 2 is not the text's sentence 208** (kernel): the run's items give the sentence together (`sp2_entailed`). -/
 theorem sp2_differs : spItem2 ≠ (trS U.ax208).pat := by decide +kernel
 
 /-- Γ's item 3, the clause 1 of the 3 that sentence 208 is read as. -/
 noncomputable def spItem3 : P := (TiePair.gammaPats c).getD 3 ⊥
 theorem spItem3_at : (TiePair.gammaPats c)[3]? = some spItem3 := by decide +kernel
 kernel_rfl fnText_at3 : fnText[3]? = some U.ax208
-/-- **Γ's item 3 is not the text's sentence 208** (kernel): the sentence is uncovered. -/
+/-- **Γ's item 3 is not the text's sentence 208** (kernel): the run's items give the sentence together (`sp2_entailed`). -/
 theorem sp3_differs : spItem3 ≠ (trS U.ax208).pat := by decide +kernel
 
 /-- **The clause 1 of `Lblh`, which `attrs_prios_but` leaves out, is Γ's item 3**, aligned with
@@ -1126,7 +1131,7 @@ theorem prios_split_at3 : ((c.allFns.takeWhile (c.symName ·.label != "Lblh")).m
 noncomputable def spItem4 : P := (TiePair.gammaPats c).getD 4 ⊥
 theorem spItem4_at : (TiePair.gammaPats c)[4]? = some spItem4 := by decide +kernel
 kernel_rfl fnText_at4 : fnText[4]? = some U.ax208
-/-- **Γ's item 4 is not the text's sentence 208** (kernel): the sentence is uncovered. -/
+/-- **Γ's item 4 is not the text's sentence 208** (kernel): the run's items give the sentence together (`sp2_entailed`). -/
 theorem sp4_differs : spItem4 ≠ (trS U.ax208).pat := by decide +kernel
 
 /-- **The clause 2 of `Lblh`, which `attrs_prios_but` leaves out, is Γ's item 4**, aligned with
@@ -1200,6 +1205,269 @@ theorem gamma_from (H : HookParams) : ∀ φ, Γ (cH H) φ → TiePair.Pre (cH H
   TiePair.gamma_from (shapeH H)
 
 
+/-! ## The runs: sentence 208 from Γ's items 2, 3, 4
+
+`rule h(X) => (k(f(X) #Or g(X)) #Or #Bottom) #And {X *Int X >=Int 0 #Equals true}`: the sentence's
+right side holds every element of `k(f(X))` and of `k(g(X))` where `X *Int X >=Int 0` is `true`.
+Γ's three items for h are `h(X) = k(f(X))` where `k(f(X))` has an element and the condition holds,
+the same for `k(g(X))`, and a last one, with the right side `k(f(X)) ∧ (false = true)`, where neither
+applies. `Run2`: the sentence is h's equation and `Parse.frRead` reads it as h's clauses in `defn`
+(`raw208`, `frRead_eqT`, `hFn_at`); the sentence and the three items are `eqnPat` over one guard
+list, premise, sort and left side (`text_shape`, `gamma_shapeG`, `sp_items`); what each premise and
+right side means at a valuation is `TieFR.Readings`, from the decisions `tightH` and `tr_ofReader`
+(`readingsG`). `sp2_of_items`: where an alternative applies its item gives h(X) that alternative,
+and every alternative that applies has its item, so h(X) holds what the sentence's right side holds;
+where none applies the last item gives h(X) its right side, which is empty because `false` and `true`
+are two elements of Bool (`TieFRRead.noneEmpty_of_apart`). No `functional` sentence is read. -/
+
+namespace Run2
+
+open KoreAML.TieFR KCore.TieFRRead KCore.TieFRTightB
+
+
+def fS : Sym := nRegSyms + 4
+def gS : Sym := nRegSyms + 5
+def hS : Sym := nRegSyms + 6
+def kS : Sym := nRegSyms + 7
+def kfX : Term := .app kS [.app fS [.var 0]]
+def kgX : Term := .app kS [.app gS [.var 0]]
+/-- `X *Int X >=Int 0`. -/
+def bX : Term := .app intGe [.app intMul [.var 0, .var 0], .dv Srt.int (.int 0)]
+
+/-- The alternatives: `k(f(X))` and `k(g(X))`, each with the lifted condition. -/
+def xsC : List (Term × List Term) := [(kfX, [bX]), (kgX, [bX])]
+
+/-- h, declared `total`, with the clauses of the split of its equation. -/
+def hFn : Fn := ⟨hS, [Srt.int], Srt.int, Parse.frClauses Srt.int [Srt.int] [.var 0] none 50 false (frAltsOf xsC), true⟩
+
+/-! **h is the third function of `defn`**, with these clauses. -/
+kernel_rfl hFn_at : c.fns[2]? = some hFn
+theorem hFn_mem (H : HookParams) : hFn ∈ (cH H).fns := List.mem_of_getElem? hFn_at
+
+/-! ### The text's two sentences -/
+
+def iS : Kore.KSort := srt "Int"
+def bS : Kore.KSort := srt "Bool"
+def xK : Kore.Pattern := ev "VarX" iS
+def fK : Kore.Pattern := ap "Lblf" [xK]
+def gK : Kore.Pattern := ap "Lblg" [xK]
+/-- `k(f(X) ∨ g(X))`. -/
+def kOr : Kore.Pattern := ap "Lblk" [.or iS [fK, gK]]
+/-- `X *Int X >=Int 0`. -/
+def bK : Kore.Pattern := ap "Lbl'Unds-GT-Eqls'Int'Unds'" [ap "Lbl'UndsStar'Int'Unds'" [xK, xK], .dv iS "0"]
+/-- `{X *Int X >=Int 0 #Equals true}`. -/
+def eqK : Kore.Pattern := .equals bS iS bK (.dv bS "true")
+/-- The right side: `(k(f(X) ∨ g(X)) ∨ ⊥) ∧ {X *Int X >=Int 0 #Equals true}`. -/
+def pT : Kore.Pattern := .and iS [.or iS [kOr, .bottom iS], eqK]
+def enT : Kore.Pattern := .top iS
+/-- The premise: `X0 ∈ VarX`. -/
+def premK : Kore.Pattern := .and R [.top R, .and R [.in iS R (ev "X0" iS) xK, .top R]]
+
+/-- **Sentence 208** is `X0 ∈ VarX → h(X0) = pT ∧ ⊤`. -/
+theorem pat208 : U.ax208.ax.sortVars = [Rv] ∧
+    U.ax208.ax.pattern = .implies R premK (.equals iS R (ap "Lblh" [ev "X0" iS]) (.and iS [pT, enT])) := by
+  decide +kernel
+
+
+/-- The names the equation is read with: the definition's sorts and symbols (`sorts_eq`, `syms_eq`),
+f, g, h, k its functions of result sort Int, and h with a `functional` sentence (sentence 80). -/
+def NT : Parse.Names :=
+  { sorts := ["KCell", "KCellOpt"]
+    syms := ["LblisKCell", "LblisKCellOpt", "Lbl'-LT-'k'-GT-'", "LblnoKCell", "Lblf", "Lblg", "Lblh", "Lblk"]
+    keyFns := [(nRegSyms + 4, "Int"), (nRegSyms + 5, "Int"), (nRegSyms + 6, "Int"), (nRegSyms + 7, "Int")]
+    fnlSyms := [("Lblh", false)] }
+
+theorem sorts_eq : NT.sorts = c.sortNames := by decide +kernel
+theorem syms_eq : NT.syms = c.symNames := by decide +kernel
+
+/-- The equation of sentence 208 as `Parse.rawEqn?` reads it. -/
+noncomputable def eqT : Parse.RawEqn := ⟨"Lblh", [xK], none, none, pT, U.ax208.ax.attributes, none, false⟩
+kernel_rfl raw208 : Parse.rawEqn? U.ax208.ax = some eqT
+
+def vsF : List KoreAML.Var := [⟨"X", "Int"⟩]
+
+/-! **The reader reads the equation** as h's clauses (kernel). -/
+kernel_rfl frRead_eqT : Parse.frRead NT eqT = .ok (some (hFn.clauses, vsF))
+/-! ### The shapes -/
+
+noncomputable def al : List String := kore.aliasNames
+noncomputable def tbl : VarTable := tableOf U.ax208.ax.sortVars U.ax208.ax.pattern
+noncomputable def ctx : Ctx := ⟨tbl, al⟩
+noncomputable def ws : List P := guardsOf U.ax208.ax
+noncomputable def r : EVar := tbl.ev (sortVarKey Rv)
+noncomputable def prem : P := tr ctx premK
+noncomputable def IntP : P := trSort tbl iS
+noncomputable def Fh : P := tr ctx (ap "Lblh" [ev "X0" iS])
+noncomputable def rhsT : P := sAnd (tr ctx pT) (tr ctx enT)
+noncomputable def x0 : EVar := tbl.ev (evarKey (evar "X0" iS))
+noncomputable def xv : EVar := tbl.ev (evarKey (evar "VarX" iS))
+
+theorem text_shape : (trS U.ax208).pat = eqnPat ws r prem IntP Fh rhsT :=
+  trAxiom_eqnPat kore.symbolDecls kore.aliasNames U.ax208.index U.ax208.module U.ax208.ax pat208.1 pat208.2
+
+/-- The right side and the `ensures` part apply no alias of the text. -/
+theorem alias_free : aliasFreeFR al eqT.rhs = true ∧ aliasFreeFR al enT = true := by decide +kernel
+
+/-- The table of Γ's items for h. -/
+def tblG : VarTable := [.sortVar "R", .evar "X0" (srt "Int"), .evar "VarV0" (srt "Int")]
+
+/-- The clauses' variables. -/
+noncomputable abbrev vsC (H : HookParams) : List KoreAML.Var := Faithful.canonVars (cH H) [Srt.int]
+
+/-- The last clause's right side `k(f(X)) ∧ (false = true)`. -/
+noncomputable def BNG (H : HookParams) : P := sAnd (altP (cH H) tblG (vsC H) (kfX, [bX]))
+  (tr ⟨tblG, []⟩ (reqPat (srtOf (cH H) Srt.int) (some (Term.kore (cH H) (vsC H) (Parse.boolT false)))))
+
+/-! The semantics is well sorted (`sortedOK`, a part of `coreOK`), for every H (kernel). -/
+kernel_rfl sortedH : ∀ H : HookParams, (cH H).sortedOK = true
+
+/-- The clause check holds of h's clauses. -/
+theorem sorted_h (H : HookParams) : ∀ cl ∈ hFn.clauses, (cH H).clauseSorted hFn ((cH H).fns.map Fn.sig) cl = true :=
+  TieFRVars.clauseSorted_of_sortedOK (sortedH H) (hFn_mem H)
+
+/-! The frame of Γ's items for h (no competitor: h's clauses are all of priority 50) is the text's:
+its table `tblG`, the text's guards, premise and left side, for every H (kernel). -/
+kernel_rfl gf_lower : TieFRGamma.lowerAtFG hFn 50 = []
+kernel_rfl gf_tbl : ∀ H : HookParams, TieFRGamma.tblFG (cH H) hFn [] [Srt.int] [.var 0] none = tblG
+kernel_rfl gf_ws : ∀ H : HookParams, TieFRGamma.wsFG (cH H) hFn [] [Srt.int] [.var 0] none = ws
+kernel_rfl gf_r : tblG.ev (sortVarKey Rv) = r
+kernel_rfl gf_prem : ∀ H : HookParams, tr ⟨tblG, []⟩ (TieFRGamma.premFG (cH H) hFn [Srt.int] [.var 0] none) = prem
+kernel_rfl gf_S : ∀ H : HookParams, trSort tblG (srtOf (cH H) Srt.int) = IntP
+kernel_rfl gf_F : ∀ H : HookParams, tr ⟨tblG, []⟩ (TieFRGamma.headFG (cH H) hFn) = Fh
+
+/-- **Γ's three items for h**, with the premises `clauseQ`, `lastQ` of the general lemmas
+(`TieFRGamma.gamma_shapeFG`), for every H. -/
+theorem gamma_shapeG (H : HookParams) : (Faithful.kernelItems (Faithful.fnEquationsK (cH H) hFn)).map (·.pat) =
+    [eqnPat ws r (clauseQ (cH H) tblG (vsC H) Srt.int prem (kfX, [bX])) IntP Fh
+       (sAnd (altP (cH H) tblG (vsC H) (kfX, [bX])) (sTop IntP)),
+     eqnPat ws r (clauseQ (cH H) tblG (vsC H) Srt.int prem (kgX, [bX])) IntP Fh
+       (sAnd (altP (cH H) tblG (vsC H) (kgX, [bX])) (sTop IntP)),
+     eqnPat ws r (lastQ (cH H) tblG (vsC H) Srt.int prem xsC) IntP Fh (BNG H)] := by
+  obtain ⟨hxs, hlen, hocc⟩ := TieFRVars.gammaPrem_of_frRead (c := cH H) frRead_eqT
+    (rfl : hFn.clauses = Parse.frClauses Srt.int [Srt.int] [.var 0] none 50 false (frAltsOf xsC)) (sorted_h H)
+  have h := TieFRGamma.gamma_shapeFG (cH H) hFn (s := Srt.int) (vars := [Srt.int]) (pats := [.var 0]) (req := none)
+    (prio := 50) (aside := false) (xs := xsC) hxs hlen hocc
+  have hS : trSort tblG (srtOf (cH H) hFn.result) = IntP := gf_S H
+  simp only [gf_lower, gf_tbl H, gf_ws H, gf_r, gf_prem H, hS, gf_F H, TieFRGamma.withCompFG_nil] at h
+  exact h
+
+/-! **Γ's items for h are the items 2, 3 and 4 of `fnItems`**, for every H (kernel). -/
+kernel_rfl sp_items : ∀ H : HookParams,
+  (Faithful.kernelItems (Faithful.fnEquationsK (cH H) hFn)).map (·.pat) = [spItem2, spItem3, spItem4]
+
+/-- The sort guard is one of the sentence's guards, and Int's pattern. -/
+theorem idx_facts : sortGuard r ∈ ws ∧ IntP = sym (.sort "SortInt") := by decide +kernel
+
+/-- What the round trip of `Parse.term` takes of the text (kernel): the sorts of the variables
+read, the alternatives and the lifted conjunct read as the terms of their patterns (`frRT`), and
+the guards holding each variable read in its sort (`guardsHold`). -/
+theorem rt_facts : Parse.varSorts NT vsF = .ok [Srt.int] ∧ TieFRRT.frRT NT eqT = true ∧
+    TieFRVars.guardsHold ws tbl vsF = true :=
+  ⟨by kernel_rfl, by decide +kernel, by decide +kernel⟩
+
+/-! The tables are aligned on the variables read, for every H (kernel). -/
+kernel_rfl alignH : ∀ H : HookParams, TermRT.alignOK (cH H) tblG tbl [Srt.int] vsF = true
+
+/-! **The decision `tightB` on the right side**, for every H (kernel): each operand of its
+connectives states its sort or is read as a term of it. -/
+kernel_rfl tightH : ∀ H : HookParams, tightB NT (cH H) tblG tbl [Srt.int] vsF pT = true
+
+theorem int_num (H : HookParams) : Srt.int < nRegSorts + (cH H).sortNames.length :=
+  (by decide +kernel : Srt.int < nRegSorts + c.sortNames.length)
+
+/-- The alternatives translate as the kept ones, each with the lifted conjunct's Bool term as its
+condition (`altsTrOK`): from the reader, by the round trip of `Parse.term`. -/
+theorem tr_ofReader (H : HookParams) :
+    altsTrOK (cH H) tblG (vsC H) tbl (frConds eqT.rhs) [] (keptAlts (frSide eqT.rhs)) xsC = true :=
+  TieFRRT.altsTrOK_of_clauses (c := cH H) syms_eq sorts_eq frRead_eqT rt_facts.1 (alignH H) rt_facts.2.1
+    (rfl : hFn.clauses = Parse.frClauses Srt.int [Srt.int] [.var 0] none 50 false (frAltsOf xsC))
+
+section Model
+variable {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
+
+/-- The readings of the general lemmas, in a model with `NodeFacts (cH H) I` and
+`TermsInSort (cH H) I`: `TightSem` of the right side from the decision `tightH`. -/
+theorem readingsG (H : HookParams) (F : HoldsShape.NodeFacts (cH H) I) (hTS : Faithful.TermsInSort (cH H) I) :
+    ∃ σI, SortAt I IntP σI ∧
+      (∀ (e : Valuation M) a, (trSort tblG (srtOf (cH H) Srt.int)).interpret I e a ↔ a = σI) ∧
+      Readings I ws r σI prem rhsT xsC (altP (cH H) tblG (vsC H)) (altG I (cH H) tblG (vsC H))
+        (clauseQ (cH H) tblG (vsC H) Srt.int prem) (lastQ (cH H) tblG (vsC H) Srt.int prem xsC) := by
+  obtain ⟨hr, hIntP⟩ := idx_facts
+  obtain ⟨σI, hσS, hσ⟩ := F.sort (s := Srt.int) (int_num H)
+  have hσ' : ∀ (e : Valuation M) a, (trSort tblG (srtOf (cH H) Srt.int)).interpret I e a ↔ a = σI :=
+    fun e a => hσ tblG e a
+  have hSA : SortAt I IntP σI := ⟨fun e a => by rw [← gf_S H]; exact hσ' e a, hσS, by rw [hIntP]; rfl⟩
+  have hin : ∀ e m, At I ws r e m → ∀ x ∈ xsC, ∀ a, (altP (cH H) tblG (vsC H) x).interpret I e a → Inh I σI a :=
+    TieFRVars.inSort_of_read (c := cH H) (f := hFn) F.defOK hTS sorts_eq rt_facts.1 (alignH H) rt_facts.2.2
+      (sorted_h H) (int_num H) hσ'
+  have hT : ∀ e m, At I ws r e m → TightSem I tbl e pT :=
+    tightSem_of_guardsB F hTS syms_eq sorts_eq rt_facts.1 (alignH H) rt_facts.2.2 (tightH H)
+  have hr' : sortGuard (tblG.ev (sortVarKey Rv)) ∈ ws := by rw [gf_r]; exact hr
+  have R := readings_of_frT F (al := al) (prem := prem) frRead_eqT alias_free.1 alias_free.2 hr' hσ' hσS
+    (by rw [gf_r]; exact hin) (by rw [gf_r]; exact hT) (en := enT) rfl (fun e a => hSA.den e a) (tr_ofReader H)
+  rw [gf_r] at R
+  exact ⟨σI, hSA, hσ', R⟩
+
+
+end Model
+
+end Run2
+
+section
+open KoreAML.TieFR KCore.TieFRRead Run2
+
+/-- **Γ's items 2, 3, 4 give sentence 208**, for every H, in a model with `NodeFacts (cH H) I` and
+`TermsInSort (cH H) I`. -/
+theorem sp2_of_items (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
+    (N : HoldsShape.NodeFacts (cH H) I) (hTS : Faithful.TermsInSort (cH H) I)
+    (hs : ∀ φ ∈ [spItem2, spItem3, spItem4], I ⊧ᴵ φ) : I ⊧ᴵ (trS U.ax208).pat := by
+  rw [← sp_items H, gamma_shapeG H] at hs
+  rw [text_shape]
+  obtain ⟨σI, hSA, hσ', R⟩ := readingsG H N hTS
+  refine text_of_split (BN := BNG H) N.defOK N.ceilDef hSA idx_facts.1 (guardsOf_pred N.defOK U.ax208.ax) R
+    (fun x hx => ?_) (hs _ (by simp)) (noneEmpty_of_apart N hσ' hSA.isSort)
+  simp only [xsC, List.mem_cons, List.not_mem_nil, or_false] at hx
+  rcases hx with rfl | rfl
+  · exact hs _ (by simp)
+  · exact hs _ (by simp)
+
+end
+
+/-! ## E for the sentences read as several clauses, from all the items of a run together
+
+The items of a run are Γ's (`spItem<j>_at`), so a model of Γ satisfies each (`spItem_sat`); a model
+of the theory has the constructors' facts (`HoldsShape.nodeFacts_of_core`) and its terms' elements
+lie in their sorts (`Faithful.termsInSort_of_core`), and, where the statement takes it, `boolClosed`
+is the item of `Γcl` (`gammaCl_eq`). With those, `sp<j0>_of_items` gives the sentence: sentence 208
+over Γ (`sp2_entailed`, items 2 to 4). The converse is not stated: the sentence gives the
+application every element of each alternative that applies, which is an item only where the
+application is one element. -/
+
+/-- A model of Γ satisfies each of Γ's equations, for every H. -/
+theorem spItem_sat (H : HookParams) {M : Type} {I : Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP Γ (cH H))
+    {j : Nat} {φ : P} (h : (TiePair.gammaPats c)[j]? = some φ) : I ⊧ᴵ φ := by
+  unfold TiePair.gammaPats at h
+  rw [List.getElem?_map] at h
+  cases hj : (fnItems c)[j]? with
+  | none => rw [hj] at h; cases h
+  | some it =>
+    rw [hj] at h
+    rw [← Option.some.inj h]
+    exact hI _ (TiePair.mem_Γ_fns (Or.inl ⟨it, by rw [TiePair.fnItems_withHooks]; exact List.mem_of_getElem? hj, rfl⟩))
+
+/-- **E for sentence 208**: Γ entails it, for every H, from Γ's items 2, 3, 4 together (`sp2_of_items`). -/
+theorem sp2_entailed (H : HookParams) : Γ (cH H) ⊧ (trS U.ax208).pat := by
+  intro M _ I hI
+  have hIc : I ⊧ᴵP Γc (cH H) := by
+    rw [Γc_plain ((Semantics.readsConfined_withHooks c H).trans readsConfined_c)]; exact hI
+  refine sp2_of_items H (HoldsShape.nodeFacts_of_core (coreOKH H) hIc)
+    (Faithful.termsInSort_of_core (coreOKH H) hI) fun φ hφ => ?_
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hφ
+  rcases hφ with rfl | rfl | rfl
+  · exact spItem_sat H hI spItem2_at
+  · exact spItem_sat H hI spItem3_at
+  · exact spItem_sat H hI spItem4_at
+
 end KCore.TieE3MlEqRhsOrNest
 
 #check @KCore.TieE3MlEqRhsOrNest.noRaw
@@ -1230,6 +1498,8 @@ end KCore.TieE3MlEqRhsOrNest
 #check @KCore.TieE3MlEqRhsOrNest.idem_refuted
 #check @KCore.TieE3MlEqRhsOrNest.lib166
 #check @KCore.TieE3MlEqRhsOrNest.lib166_at_values
+#check @KCore.TieE3MlEqRhsOrNest.sp2_of_items
+#check @KCore.TieE3MlEqRhsOrNest.sp2_entailed
 #print axioms KCore.TieE3MlEqRhsOrNest.noRaw
 #print axioms KCore.TieE3MlEqRhsOrNest.readsConfined_c
 #print axioms KCore.TieE3MlEqRhsOrNest.userAxioms_eq
@@ -1258,6 +1528,8 @@ end KCore.TieE3MlEqRhsOrNest
 #print axioms KCore.TieE3MlEqRhsOrNest.idem_refuted
 #print axioms KCore.TieE3MlEqRhsOrNest.lib166
 #print axioms KCore.TieE3MlEqRhsOrNest.lib166_at_values
+#print axioms KCore.TieE3MlEqRhsOrNest.sp2_of_items
+#print axioms KCore.TieE3MlEqRhsOrNest.sp2_entailed
 #check @KCore.TieE3MlEqRhsOrNest.fnPins_ok
 #check @KCore.TieE3MlEqRhsOrNest.fnText_all
 #check @KCore.TieE3MlEqRhsOrNest.fns_account
