@@ -230,7 +230,14 @@
 #             no-direction class, every sentence `sentence` locates there is listed, and a `derived`
 #             table of form (a), kind "in a model", has exactly these indices as its sentences; it
 #             refuses a supported entry of which a sentence `sentence` locates is of that class and
-#             that has no such field and table. A declaration is no axiom and has no class: a
+#             that has no such field and table. Under item 7's recorded exception (the subsort of a
+#             cell into its collection sort) the field stays, since the class is the tie's, and a
+#             `derived` table of form (r) stands in the place of the table "in a model": the entry's
+#             `reasons` name UnreadReason.cellCollectionInjection; the table has no kind, is on the
+#             entry's own fixture, has its theorem among tie_theorems, and holds among its sentences
+#             a no_direction index that is a subsort sentence of the text (attribute subsort{A, B});
+#             every no_direction index is a sentence applying inj{A, B} of such a refuted one.
+#             rest.py exempts no other entry. A declaration is no axiom and has no class: a
 #             `sentence` locating no axiom counts neither way; one not in the tie's text is refused
 #             (its class is not read).
 #   For erased, the forms of findings/work/decision-fixrest-erased-forms.md section 2, at least one,
@@ -403,6 +410,25 @@
 #      with `Step`'s steps in which the text's sentences of those symbols hold together at values
 #      (DONE-0 C2's floor; field no_direction, a `derived` table of kind "in a model"). Where no such
 #      model exists the sentences contradict Γ or one another: the text is not tied.
+#      One exception is recorded (DONE-0 section 0, beside trusted base (4);
+#      findings/work/decision-cellcoll-inj.md, findings/work/decision-b17-cellcoll.md): the subsort
+#      sentence of a cell into its collection sort and the collection sort's no-junk sentence. They
+#      are of the no-direction class by their head, inj{XCell, XCellColl}, which Γ lacks because the
+#      reader leaves the subsort out (UnreadReason.cellCollectionInjection), and they are no
+#      definition of that head: the text holds a third sentence applying it, the prelude's INJ axiom
+#      at (XCell, XCellColl, KItem), and with it the subsort sentence has no model with Γ (Γ's
+#      Cons-Dist of the two injections into KItem; proved for every H on e1-starinit,
+#      KCore.TieE1Starinit.cellcoll_subsort_refuted, and argued for the other cell-collection
+#      texts). The floor is a model in which the text's
+#      sentences of the head hold together, so none exists for any set of them holding the subsort
+#      sentence, the no-junk sentence's included, and no table "in a model" can be written. The
+#      record is the refutation: a `derived` table of form (r) whose sentences hold the subsort
+#      sentence, proved for every H on the entry's own text. C14's statement on such a text excludes
+#      these sentences by name; the tie's statements on the other sentences of the user module
+#      stand (`account_absent` lists the two, `absent_closed` says no sentence with a direction
+#      applies their head). An entry on a cell-collection text without that theorem on its own
+#      text has no evidence for this item until the theorem is proved there. No other refuted
+#      sentence of the no-direction class is recorded: the text of one is not tied.
 #   7, library parameters (findings/work/decision-lib-param-unapplied.md). Γ also lacks a parameter
 #      symbol of an imported module that no rule and no function clause of the reading applies. Such
 #      a symbol is a function or hooked symbol of the library that no registry hook interprets

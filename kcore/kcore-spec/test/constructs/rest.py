@@ -66,7 +66,15 @@ The evidence forms (DONE-0 C2's table), by status and list, and the items each n
                    account_absent and absent_closed among tie_theorems, each declared in that file
                    or in a file of `tie` with the same text and classes (a tie --split writes over
                    several files); a `derived` table of form (a), kind "in a model", whose
-                   sentences are the no_direction indices
+                   sentences are the no_direction indices. The recorded exception (DONE-0 section
+                   0, the subsort of a cell into its collection sort; item 7's last paragraph): an
+                   entry whose `reasons` name UnreadReason.cellCollectionInjection carries in that
+                   table's place a `derived` table of form (r), without kind and on its own
+                   fixture, with its theorem among tie_theorems, whose sentences hold a
+                   no_direction index that is a subsort sentence of the text (attribute
+                   subsort{A, B}); every no_direction index is then a sentence applying inj{A, B}
+                   of such a refuted one (no model holds the sentences of that head together, so
+                   no table "in a model" of them exists). No other entry is exempted
       own sentence (B21, findings/work/wave-B-audit.md; also on supported E4, E5 and a function of
                    the text) an axiom of a fixture's text (`fixture`, `also_fixtures`) that a
                    `sentence` locates is not in `def uncovered` of a file of `tie` reading that
@@ -691,10 +699,47 @@ def nodir_items(fx, e, x, have, miss):
     tabs = [d for d in (e.get("derived") or []) if isinstance(d, dict) and d.get("form") == "a"
             and d.get("kind") == "in a model" and isinstance(d.get("sentences"), list)]
     hit = [d for d in tabs if nd and set(d["sentences"]) == set(nd)]
-    (have if hit else miss).append(
-        "derived form a, in a model" if hit else
-        "derived of form a, kind 'in a model', whose sentences are the no_direction indices"
-        + (f" ({len(tabs)} of that kind with other sentences)" if tabs else ""))
+    if hit:
+        have.append("derived form a, in a model")
+        return
+    exc = cellcoll_refuted(e, x, nd, text, names) if nd else None
+    if exc and exc[0]:
+        have.append(exc[1])
+        return
+    miss.append("derived of form a, kind 'in a model', whose sentences are the no_direction indices"
+                + (f" ({len(tabs)} of that kind with other sentences)" if tabs else "")
+                + (f"; or the cell-collection subsort exception's table ({exc[1]})" if exc else ""))
+
+
+CELLCOLL_REASON = "UnreadReason.cellCollectionInjection"
+
+
+def cellcoll_refuted(e, x, nd, text, names):
+    """The recorded exception to item 7's table 'in a model' (DONE-0 section 0, the subsort of a cell
+    into its collection sort; rows-header.toml item 7): None where the entry does not name it
+    (`reasons` without UnreadReason.cellCollectionInjection), else (ok, what). It holds where a
+    `derived` table of form (r) without kind, on the entry's own fixture x, whose theorem is among
+    tie_theorems (names), has among its sentences a no_direction index (nd) that is a subsort
+    sentence of the text (attribute subsort{A, B}), and every no_direction index is a sentence
+    applying inj{A, B} of such a refuted one: the sentences of a head whose subsort sentence has no
+    model with Γ have no model together, so no table 'in a model' of them exists."""
+    if CELLCOLL_REASON not in (e.get("reasons") or []):
+        return None
+    ax = {i: t for i, t, _ in nodir_axioms(text)}
+    tabs = [d for d in (e.get("derived") or []) if isinstance(d, dict) and d.get("form") == "r"
+            and d.get("kind") is None and d.get("fixture") in (None, x) and d.get("theorem") in names
+            and isinstance(d.get("sentences"), list)]
+    if not tabs:
+        return False, "no derived table of form r, without kind, on the entry's fixture, with its theorem in tie_theorems"
+    for d in tabs:
+        heads = {f"inj{{{m[1]}, {m[2]}}}" for i in set(d["sentences"]) & set(nd)
+                 for m in re.finditer(r"\[subsort\{(\S+\{\}), (\S+\{\})\}\(\)\]", ax.get(i, ""))}
+        out = [i for i in nd if not any(h in ax.get(i, "") for h in heads)]
+        if heads and not out:
+            return True, (f"derived form r in place of the table in a model ({d['theorem'].rsplit('.', 1)[-1]}: no model"
+                          f" with {', '.join(sorted(heads))}'s subsort sentence; the cell-collection subsort exception)")
+    return False, ("no form r table refutes a subsort sentence among no_direction" if not heads else
+                   f"{out[:3]} of no_direction apply no injection whose subsort sentence the table refutes")
 
 
 _unc = {}
@@ -1768,9 +1813,12 @@ def self_test():
         # the tie's text writes otherwise
         nd_f, nd_src = "\\exists{R} (Var'Unds'Gen0:SortBool{},", 'Source(FIXTURE/base.k)'
         nd_t = "// rule initTCell(Init)=>`TCellSetItem`(`<t>`(initVCell(Init),initPCell(Init)))"
+        # the subsort sentence of TCell into TCellSet (31, of no direction, with the no-junk sentence
+        # 183 the two that apply inj{TCell,TCellSet}) and the form (r) table refuting it
+        nd_cc = "inj{SortTCell{}, SortTCellSet{}} (From:SortTCell{}))) [subsort{SortTCell{}, SortTCellSet{}}()]"
         for name, kore in (("base", f"//@ 30\n  {nd_kd} [function{{}}()]\n//@ 99\n{nd_k}\n  axiom{{R}} x\n"
                                     f"//@ 100\n  axiom{{R}} {nd_f} [{nd_src}]\n"),
-                           ("e1-starinit", f"//@ 300\n{nd_t}\n  axiom{{R}} x\n"),
+                           ("e1-starinit", f"//@ 300\n{nd_t}\n  axiom{{R}} x\n//@ 301\n  axiom{{R}} {nd_cc}\n"),
                            ("e2-cells-stream", "//@ 7000\n  ostream\n")):
             os.makedirs(os.path.join(fxd, name))
             open(os.path.join(fxd, name, "account.txt"), "w").write(clean)
@@ -1783,6 +1831,12 @@ def self_test():
         acc3 = lambda ns: [f"KCore.{ns}.account", f"KCore.{ns}.account_absent", f"KCore.{ns}.absent_closed"]
         model = lambda ss, kind="in a model": {"form": "a", "kind": kind, "sentences": ss, "theorem": "KCore.C3EqReqEns.f_5",
                                               "file": tie}
+        tcc, cc_thm = "test/TieE1StarinitCellColl.lean", "KCore.TieE1Starinit.cellcoll_subsort_refuted"
+        cc_r = lambda ss, **kw: dict({"form": "r", "sentences": ss, "family": "ΓCons", "theorem": cc_thm, "file": tcc}, **kw)
+        ccok = {"status": "supported", "fixture": "e1-starinit", "sentence": [nd_cc], "tie": [ts_, tcc],
+                "reasons": ["UnreadReason.cellCollectionInjection"],
+                "tie_theorems": acc3("TieE1Starinit") + [cc_thm], "no_direction": [31, 183], "derived": [cc_r([3, 31])]}
+        cc = lambda **kw: dict({k: v for k, v in ccok.items() if kw.get(k, 0) is not None}, **{k: v for k, v in kw.items() if v is not None})
         ndok = {"status": "supported", "fixture": "base", "sentence": [nd_k], "tie": [tbase, tie],
                 "tie_theorems": acc3("TieBase"), "no_direction": [93], "derived": [model([93])]}
         nd = lambda **kw: dict({k: v for k, v in ndok.items() if kw.get(k, 0) is not None}, **{k: v for k, v in kw.items() if v is not None})
@@ -1878,6 +1932,21 @@ def self_test():
                          "tie_theorems": acc3("TieE1Starinit"), "no_direction": [281], "derived": [model([281])]}, False),
             ("E1", "A", {"status": "supported", "fixture": "e1-starinit", "sentence": [nd_t], "tie": [ts_],
                          "tie_theorems": acc3("TieE1Starinit"), "no_direction": [283], "derived": [model([283])]}, True),
+            # the cell-collection subsort exception: the form (r) table refuting the subsort sentence
+            # stands in place of the table in a model, for the sentences of that injection only and
+            # only on an entry naming the reader's reason
+            ("E1", "A", ccok, True),
+            ("E1", "A", cc(no_direction=[31]), True),
+            ("E1", "A", cc(reasons=None), False),
+            ("E1", "A", cc(derived=None), False),
+            ("E1", "A", cc(derived=[cc_r([3])]), False),
+            ("E1", "A", cc(derived=[cc_r([3, 183])]), False),
+            ("E1", "A", cc(derived=[cc_r([3, 31], kind="through the reading")]), False),
+            ("E1", "A", cc(derived=[cc_r([3, 31], fixture="base")]), False),
+            ("E1", "A", cc(tie_theorems=acc3("TieE1Starinit")), False),
+            ("E1", "A", cc(no_direction=[31, 183, 283]), False),
+            ("E1", "A", cc(no_direction=None), False),
+            ("E1", "A", cc(tie_theorems=[cc_thm]), False),
             ("E2", "A", {"status": "supported", "fixture": "e2-cells-stream", "sentence": ["ostream"], "tie": [tcs, tcsa],
                          "tie_theorems": acc3("TieE2CellsStream"), "no_direction": [2895], "derived": [model([2895])]}, True),
             ("E2", "A", {"status": "supported", "fixture": "e2-cells-stream", "sentence": ["ostream"], "tie": [tcs],
