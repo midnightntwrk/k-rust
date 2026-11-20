@@ -9,7 +9,7 @@
   clause decides at `w̄` (`Clause.DecidesAt`): it applies under σ (its patterns match, its
   `requires` evaluates to `true`) and no clause of a smaller priority applies at `w̄` under any
   substitution (vacuously where there is none; the negated exclusions otherwise, `exclusion_iffCl`).
-  There the values of `f` are those of `rhs` under σ (`eval_of_decides`): `FnSolves` for a function
+  There the values of `f` are those of `rhs` under σ (`eval_of_decides`): `FnSolvesAt` for a function
   of the definition, and for a sort predicate the same by `solves_of_parts` (its clauses have no
   `requires` and a literal as right-hand side). No result of a clause that does not apply is read.
   Where every clause fails at values `w̄` of its argument sorts, `Eval` gives `f` its rest
@@ -20,6 +20,17 @@ import KcoreSpec.ModelStep
 set_option autoImplicit false
 
 namespace KCore
+
+/-- **Evaluation solves the equations of one function**: `FnSolves` at `fn`. Where a clause of `fn`
+decides under σ at argument values of its sorts, the values of `fn` there are the values the
+instances of that clause's right side give. -/
+def FnSolvesAt (c : Semantics) (fn : Fn) : Prop :=
+  ∀ vs, c.sortsOf vs = some fn.args → ∀ cl ∈ fn.clauses, ∀ σ,
+    cl.DecidesAt c fn σ vs → ∀ v, Eval c fn.label vs (some v) ↔
+      ∃ σ', AgreeOff cl.exsFree σ σ' ∧ c.WellSorted cl.vars σ' ∧ cl.Gives c σ' v
+
+/-- `FnSolves` is `FnSolvesAt` at every function of the definition. -/
+theorem fnSolves_iff_at {c : Semantics} : FnSolves c ↔ ∀ fn ∈ c.fns, FnSolvesAt c fn := Iff.rfl
 
 namespace Faithful
 
@@ -386,16 +397,17 @@ theorem fails_false {ws : List GroundTerm} {cl : Clause} {σ : Subst} (hmi : FnD
 /-- **A clause that decides gives the function's values**: where it applies under σ and no
 clause of a smaller priority applies, the values of the function are those of its right-hand side
 under σ, for a clause without existential variables. For a function of the definition this is
-`FnSolves`, the right side's predicate of such a clause being `\top`; a sort predicate's clauses have no
-`requires` and a literal as right-hand side, so `solves_of_parts`' conditions hold of it. -/
-theorem eval_of_decides (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {cl : Clause} (hcl : cl ∈ fn.clauses)
+`FnSolvesAt` at it (`hs`), the right side's predicate of such a clause being `\top`; a sort predicate's
+clauses have no `requires` and a literal as right-hand side, so `solves_of_parts`' conditions hold of it. -/
+theorem eval_of_decides (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) (hs : fn ∈ c.fns → FnSolvesAt c fn)
+    {cl : Clause} (hcl : cl ∈ fn.clauses)
     (hex : cl.exs = []) {ws : List GroundTerm} (hws : c.sortsOf ws = some fn.args) {σ : Subst} (hdec : cl.DecidesAt c fn σ ws) :
     ∀ v, Eval c fn.label ws (some v) ↔
       EvalTerm c σ cl.rhs (some v) ∧ ∀ t, cl.ens = some t → EvalTerm c σ t (some (bool true)) := by
   rcases List.mem_append.mp hfn with hu | hp
   · intro v
     have hpl := Semantics.clausePlainOpenEx_parts ((Semantics.sortedOKClEx_parts h.hyp.1).2.1 fn hu cl hcl).2
-    exact (h.solves fn hu ws hws cl hcl σ hdec v).trans (Clause.gives_iff_noExs hex (hpl.2.1 hex) ((wellSortedAt_univ hex).mp hdec.1.1) v)
+    exact (hs hu ws hws cl hcl σ hdec v).trans (Clause.gives_iff_noExs hex (hpl.2.1 hex) ((wellSortedAt_univ hex).mp hdec.1.1) v)
   · have hsh := sortPreds_shape hp
     exact solves_of_parts (h.lookupFn hfn) h.det
       (fun cl' hcl' => ⟨Semantics.sortPreds_exs hp cl' hcl', Semantics.sortPreds_post hp cl' hcl'⟩)
@@ -411,16 +423,17 @@ theorem eval_of_decides (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {
 where it applies under σ and no clause of a smaller priority applies, the values of the function
 are the values the instances of its right side give, at the well-sorted σ' that are σ off the
 existential variables the left side does not hold. For a function of the definition this is
-`FnSolves`; a sort predicate's clause has no existential variable and the predicate `\top`, so
-its one instance is the one at σ (`eval_of_decides`). -/
-theorem eval_of_decides_ex (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {cl : Clause} (hcl : cl ∈ fn.clauses)
+`FnSolvesAt` at it (`hs`); a sort predicate's clause has no existential variable and the predicate
+`\top`, so its one instance is the one at σ (`eval_of_decides`). -/
+theorem eval_of_decides_ex (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) (hs : fn ∈ c.fns → FnSolvesAt c fn)
+    {cl : Clause} (hcl : cl ∈ fn.clauses)
     {ws : List GroundTerm} (hws : c.sortsOf ws = some fn.args) {σ : Subst} (hdec : cl.DecidesAt c fn σ ws) :
     ∀ v, Eval c fn.label ws (some v) ↔
       ∃ σ', AgreeOff cl.exsFree σ σ' ∧ c.WellSorted cl.vars σ' ∧ cl.Gives c σ' v := by
   rcases List.mem_append.mp hfn with hu | hp
-  · exact h.solves fn hu ws hws cl hcl σ hdec
+  · exact hs hu ws hws cl hcl σ hdec
   · intro v
-    exact (eval_of_decides h hfn hcl (Semantics.sortPreds_exs hp cl hcl) hws hdec v).trans
+    exact (eval_of_decides h hfn hs hcl (Semantics.sortPreds_exs hp cl hcl) hws hdec v).trans
       (Clause.gives_iff_noExs (Semantics.sortPreds_exs hp cl hcl) (Semantics.sortPreds_post hp cl hcl)
         ((wellSortedAt_univ (Semantics.sortPreds_exs hp cl hcl)).mp hdec.1.1) v).symm
 

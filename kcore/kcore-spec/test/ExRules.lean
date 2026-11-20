@@ -16,8 +16,8 @@
   Each is well sorted (`ruleSorted`: an existential variable is open and in no condition), and none
   has `rulePlainOpen` (that conjunct asks for no existential variable).
 
-  The value model at a transition T (`Faithful.Model.sat_rule_T`, `satRulesGoal_T`): under `FnDet`
-  and `FnSolves`, the axiom of each admitted rule holds at the transition that relates x and y where
+  The value model at a transition T (`Faithful.Model.sat_rule_T`, `satRulesGoal_T`): under `FnDet`,
+  the axiom of each admitted rule holds at the transition that relates x and y where
   some `StepMAt` instance of the rule does (the rule need not be one of the definition's); `satRulesGoal_T` at the definition's rules; and the landed
   `satRulesGoal_open` is `satRulesGoal_T` at `T := StepM c`. The step's closure
   (`Faithful.Model.closureDisjunct_T`, `satStepGoal_T`): a `StepMAt` step by each admitted rule lies
@@ -146,14 +146,14 @@ def ownT (r : Rule) (x y : GroundTerm) : Prop := ∃ σ, StepMAt c r σ x y
 
 /-- `sat_rule_T` at a rule with existential variables and the transition of its own instances:
 `hall` is not asked, `hsome` holds with the instance itself. -/
-theorem sat_own (hd : FnDet c) (hs : FnSolves c) {r : Rule} (hsr : c.ruleSorted r = true)
+theorem sat_own (hd : FnDet c) {r : Rule} (hsr : c.ruleSorted r = true)
     (hpr : c.rulePlainEx r = true) (hne : r.exs ≠ []) :
     stdI_T c (ownT r) ⊧ᴵ (KoreAML.trAxiom [] [] ⟨0, "kernel",
       { sortVars := [], pattern := prioRuleK c r, attributes := [] }⟩).pat :=
-  sat_rule_T (hypModel_of_fn coreOK hd hs) hrulesC hsr hpr (ownT r)
+  sat_rule_T (hypModel_of_fn coreOK hd) hrulesC hsr hpr (ownT r)
     (fun _ _ _ _ he => absurd he hne) (fun σ _ y hst _ => ⟨y, σ, fun _ _ => rfl, hst, σ, hst⟩)
 
-example (hd : FnDet c) (hs : FnSolves c) :
+example (hd : FnDet c) :
     (stdI_T c (ownT exA) ⊧ᴵ (KoreAML.trAxiom [] [] ⟨0, "kernel",
       { sortVars := [], pattern := prioRuleK c exA, attributes := [] }⟩).pat) ∧
     (stdI_T c (ownT exB) ⊧ᴵ (KoreAML.trAxiom [] [] ⟨0, "kernel",
@@ -162,31 +162,31 @@ example (hd : FnDet c) (hs : FnSolves c) :
       { sortVars := [], pattern := prioRuleK c exTwo, attributes := [] }⟩).pat) ∧
     (stdI_T c (ownT exUnsat) ⊧ᴵ (KoreAML.trAxiom [] [] ⟨0, "kernel",
       { sortVars := [], pattern := prioRuleK c exUnsat, attributes := [] }⟩).pat) :=
-  ⟨sat_own hd hs exA_ex.1 exA_ex.2.1 (by rw [exA_ex.2.2.2.1]; exact List.cons_ne_nil _ _),
-   sat_own hd hs exB_ex.1 exB_ex.2.1 (by rw [exB_ex.2.2.2.1]; exact List.cons_ne_nil _ _),
-   sat_own hd hs exTwo_ex.1 exTwo_ex.2.1 (by rw [exTwo_ex.2.2.2.1]; exact List.cons_ne_nil _ _),
-   sat_own hd hs exUnsat_ex.1 exUnsat_ex.2.1 (by rw [exUnsat_ex.2.2.2.1]; exact List.cons_ne_nil _ _)⟩
+  ⟨sat_own hd exA_ex.1 exA_ex.2.1 (by rw [exA_ex.2.2.2.1]; exact List.cons_ne_nil _ _),
+   sat_own hd exB_ex.1 exB_ex.2.1 (by rw [exB_ex.2.2.2.1]; exact List.cons_ne_nil _ _),
+   sat_own hd exTwo_ex.1 exTwo_ex.2.1 (by rw [exTwo_ex.2.2.2.1]; exact List.cons_ne_nil _ _),
+   sat_own hd exUnsat_ex.1 exUnsat_ex.2.1 (by rw [exUnsat_ex.2.2.2.1]; exact List.cons_ne_nil _ _)⟩
 
 /-- `satRulesGoal_T` at the definition's rules at `StepM`. `c`'s rules
 have no existential variable, so `hsome` is not read here; the instances with existential variables
 are `sat_rule_T`'s above, and `satRulesGoal_T` at `cX` (end of file). -/
-example (hd : FnDet c) (hs : FnSolves c) :
+example (hd : FnDet c) :
     (stdI_T c (StepM c) ⊧ᴵP ΓRules c) := by
-  exact satRulesGoal_T (hypModel_of_fn coreOK hd hs) hrulesC (StepM c)
+  exact satRulesGoal_T (hypModel_of_fn coreOK hd) hrulesC (StepM c)
     (fun r σ _ _ hb _ => (stepM_iff_by c).mpr ⟨r, σ, hb⟩)
     (fun r σ _ y hb _ => ⟨y, σ, fun _ _ => rfl, hb, (stepM_iff_by c).mpr ⟨r, σ, hb⟩⟩)
 
 /-- `closureDisjunct_T` at a rule, the closure's variable placed after the rule's table. -/
-theorem disj_own (hd : FnDet c) (hs : FnSolves c) {r : Rule} (hsr : c.ruleSorted r = true)
+theorem disj_own (hd : FnDet c) {r : Rule} (hsr : c.ruleSorted r = true)
     (hpr : c.rulePlainEx r = true) (T : GroundTerm → GroundTerm → Prop) {σ : Subst} {x y : GroundTerm}
     (hst : StepMAt c r σ x y) (hx : c.sortOf x = some topCellSort) (e1 : ML.Valuation Elem)
     (he1 : e1.evalEvar ⟨(KoreAML.tableOf [] (prioRuleK c r)).length + 1⟩ = .val y) :
     (KoreAML.closureDisjunct [] 0 ⟨(KoreAML.tableOf [] (prioRuleK c r)).length + 1⟩ (prioRuleK c r)).2.interpret
       (stdI_T c T) e1 (.val x) :=
-  closureDisjunct_T (hypModel_of_fn coreOK hd hs) hrulesC hsr hpr hst hx 0 _
+  closureDisjunct_T (hypModel_of_fn coreOK hd) hrulesC hsr hpr hst hx 0 _
     (fun k hk he => by have h1 := index_le hk; rw [← he] at h1; simp at h1; omega) e1 he1
 
-example (hd : FnDet c) (hs : FnSolves c) (T : GroundTerm → GroundTerm → Prop) (σ : Subst) (x y : GroundTerm)
+example (hd : FnDet c) (T : GroundTerm → GroundTerm → Prop) (σ : Subst) (x y : GroundTerm)
     (hx : c.sortOf x = some topCellSort) (e1 : ML.Valuation Elem) :
     (StepMAt c exA σ x y → e1.evalEvar ⟨(KoreAML.tableOf [] (prioRuleK c exA)).length + 1⟩ = .val y →
       (KoreAML.closureDisjunct [] 0 ⟨(KoreAML.tableOf [] (prioRuleK c exA)).length + 1⟩ (prioRuleK c exA)).2.interpret
@@ -200,14 +200,14 @@ example (hd : FnDet c) (hs : FnSolves c) (T : GroundTerm → GroundTerm → Prop
     (StepMAt c exUnsat σ x y → e1.evalEvar ⟨(KoreAML.tableOf [] (prioRuleK c exUnsat)).length + 1⟩ = .val y →
       (KoreAML.closureDisjunct [] 0 ⟨(KoreAML.tableOf [] (prioRuleK c exUnsat)).length + 1⟩
         (prioRuleK c exUnsat)).2.interpret (stdI_T c T) e1 (.val x)) :=
-  ⟨fun hst he1 => disj_own hd hs exA_ex.1 exA_ex.2.1 T hst hx e1 he1,
-   fun hst he1 => disj_own hd hs exB_ex.1 exB_ex.2.1 T hst hx e1 he1,
-   fun hst he1 => disj_own hd hs exTwo_ex.1 exTwo_ex.2.1 T hst hx e1 he1,
-   fun hst he1 => disj_own hd hs exUnsat_ex.1 exUnsat_ex.2.1 T hst hx e1 he1⟩
+  ⟨fun hst he1 => disj_own hd exA_ex.1 exA_ex.2.1 T hst hx e1 he1,
+   fun hst he1 => disj_own hd exB_ex.1 exB_ex.2.1 T hst hx e1 he1,
+   fun hst he1 => disj_own hd exTwo_ex.1 exTwo_ex.2.1 T hst hx e1 he1,
+   fun hst he1 => disj_own hd exUnsat_ex.1 exUnsat_ex.2.1 T hst hx e1 he1⟩
 
 /-- `satStepGoal_T` at the definition's rules at `StepM`. -/
-example (hd : FnDet c) (hs : FnSolves c) : stdI_T c (StepM c) ⊧ᴵP Γstep c :=
-  satStepGoal_T (hypModel_of_fn coreOK hd hs) hrulesC (StepM c) (fun _ _ _ _ h => h)
+example (hd : FnDet c) : stdI_T c (StepM c) ⊧ᴵP Γstep c :=
+  satStepGoal_T (hypModel_of_fn coreOK hd) hrulesC (StepM c) (fun _ _ _ _ h => h)
 
 end AtT
 
@@ -280,20 +280,20 @@ example (h : FnHyp c) (σ : Subst) (x y : GroundTerm) (hσ : c.WellSorted exA.va
 /-! ## At configurations the value model's transition is T -/
 
 /-- `step_iff_stdI_T` at the transition of `exA`'s own instances. -/
-example (hd : FnDet c) (hs : FnSolves c) (x y : Config c) :
+example (hd : FnDet c) (x y : Config c) :
     ownT exA x.val y.val ↔
       ¬ (stdI_T c (ownT exA) ⊧ᴵ (den c x.val ⇒ ∼ KoreAML.sNext (den c y.val))) :=
-  step_iff_stdI_T c (hypModel_of_fn coreOK hd hs) (ownT exA) x y
+  step_iff_stdI_T c (hypModel_of_fn coreOK hd) (ownT exA) x y
 
 /-! ## The models, at the definition's rules -/
 
 example (hd : FnDet c) (hs : FnSolves c) : stdI_T c (StepM c) ⊧ᴵP (Γc c ∪ Γstep c) :=
-  stdI_T_modelCEx c (hypModel_of_fn coreOK hd hs) (clausePreDecided_of_isTop (by decide +kernel)) (clausePostDecided_of_isTop_exr (by decide +kernel)) (openLaws_of_plain (by decide +kernel)) hrulesC (StepM c) (fun _ _ _ _ hT => hT)
+  stdI_T_modelCEx c (hypModel_of_fn coreOK hd) hs (clausePreDecided_of_isTop (by decide +kernel)) (clausePostDecided_of_isTop_exr (by decide +kernel)) (openLaws_of_plain (by decide +kernel)) hrulesC (StepM c) (fun _ _ _ _ hT => hT)
     (fun r σ _ _ hb _ => (stepM_iff_by c).mpr ⟨r, σ, hb⟩)
     (fun r σ _ y hb _ => ⟨y, σ, fun _ _ => rfl, hb, (stepM_iff_by c).mpr ⟨r, σ, hb⟩⟩)
 
 example (hd : FnDet c) (hs : FnSolves c) : stdI c ⊧ᴵP (Γc c ∪ Γstep c) :=
-  stdI_model_exCEx c (hypModel_of_fn coreOK hd hs) (clausePreDecided_of_isTop (by decide +kernel)) (clausePostDecided_of_isTop_exr (by decide +kernel)) (openLaws_of_plain (by decide +kernel)) hrulesC
+  stdI_model_exCEx c (hypModel_of_fn coreOK hd) hs (clausePreDecided_of_isTop (by decide +kernel)) (clausePostDecided_of_isTop_exr (by decide +kernel)) (openLaws_of_plain (by decide +kernel)) hrulesC
 
 /-- `has_model_choice_exCEx` at `T := Step c`. -/
 example (hf : FnHyp c) : ∃ (M : Type) (_ : Inhabited M) (I : ML.Interpretation KoreAML.Sym M),
@@ -564,23 +564,23 @@ section FlipX
 open Faithful Faithful.Model
 
 /-- `satRulesGoal_T` at `cX`'s rules at `StepM`: `hsome` read at `exTwo`. -/
-example (hd : FnDet cX) (hs : FnSolves cX) : stdI_T cX (StepM cX) ⊧ᴵP ΓRules cX :=
-  satRulesGoal_T (hypModel_of_fn coreX.1 hd hs) hrulesX (StepM cX)
+example (hd : FnDet cX) : stdI_T cX (StepM cX) ⊧ᴵP ΓRules cX :=
+  satRulesGoal_T (hypModel_of_fn coreX.1 hd) hrulesX (StepM cX)
     (fun r σ _ _ hb _ => (stepM_iff_by cX).mpr ⟨r, σ, hb⟩)
     (fun r σ _ y hb _ => ⟨y, σ, fun _ _ => rfl, hb, (stepM_iff_by cX).mpr ⟨r, σ, hb⟩⟩)
 
 /-- `satStepGoal_T` at `cX`'s rules at `StepM`. -/
-example (hd : FnDet cX) (hs : FnSolves cX) : stdI_T cX (StepM cX) ⊧ᴵP Γstep cX :=
-  satStepGoal_T (hypModel_of_fn coreX.1 hd hs) hrulesX (StepM cX) (fun _ _ _ _ hT => hT)
+example (hd : FnDet cX) : stdI_T cX (StepM cX) ⊧ᴵP Γstep cX :=
+  satStepGoal_T (hypModel_of_fn coreX.1 hd) hrulesX (StepM cX) (fun _ _ _ _ hT => hT)
 
 /-- `stdI_T_modelCEx` at `cX`'s rules at `StepM`: `hsome` read at `exTwo`. -/
 example (hd : FnDet cX) (hs : FnSolves cX) : stdI_T cX (StepM cX) ⊧ᴵP (Γc cX ∪ Γstep cX) :=
-  stdI_T_modelCEx cX (hypModel_of_fn coreX.1 hd hs) (clausePreDecided_of_isTop (by decide +kernel)) (clausePostDecided_of_isTop_exr (by decide +kernel)) (openLaws_of_plain (by decide +kernel)) hrulesX (StepM cX) (fun _ _ _ _ hT => hT)
+  stdI_T_modelCEx cX (hypModel_of_fn coreX.1 hd) hs (clausePreDecided_of_isTop (by decide +kernel)) (clausePostDecided_of_isTop_exr (by decide +kernel)) (openLaws_of_plain (by decide +kernel)) hrulesX (StepM cX) (fun _ _ _ _ hT => hT)
     (fun r σ _ _ hb _ => (stepM_iff_by cX).mpr ⟨r, σ, hb⟩)
     (fun r σ _ y hb _ => ⟨y, σ, fun _ _ => rfl, hb, (stepM_iff_by cX).mpr ⟨r, σ, hb⟩⟩)
 
 example (hd : FnDet cX) (hs : FnSolves cX) : stdI cX ⊧ᴵP (Γc cX ∪ Γstep cX) :=
-  stdI_model_exCEx cX (hypModel_of_fn coreX.1 hd hs) (clausePreDecided_of_isTop (by decide +kernel)) (clausePostDecided_of_isTop_exr (by decide +kernel)) (openLaws_of_plain (by decide +kernel)) hrulesX
+  stdI_model_exCEx cX (hypModel_of_fn coreX.1 hd) hs (clausePreDecided_of_isTop (by decide +kernel)) (clausePostDecided_of_isTop_exr (by decide +kernel)) (openLaws_of_plain (by decide +kernel)) hrulesX
 
 /-- The pinned `consistent_of` at `cX`. -/
 example (hd : FnDet cX) (hs : FnSolves cX) (hp : ClausePreDecided cX) (hl : OpenLaws cX) : Consistent cX :=

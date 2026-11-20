@@ -400,7 +400,7 @@ variable {H : Sym → Bool}
 rules with `ruleSorted` and `rulePlainHeldH`: the value model at a transition `T` that holds only steps
 of `StepV` between configurations, every `StepVBy` step of a rule without existential variables,
 and for each `StepVBy` step of a rule with existential variables one of its instances. -/
-theorem has_model_total_core_held (h : HypModelCore c) (hp : ClausePreDecided c) (hq : ClausePostDecided c)
+theorem has_model_total_core_held (h : HypModelCore c) (hsol : FnSolves c) (hp : ClausePreDecided c) (hq : ClausePostDecided c)
     (hl : OpenLaws c)
     (hv : ∀ fn ∈ c.fns, fn.total = true → ∀ vs, c.sortsOf vs = some fn.args → ∃ v, Eval c fn.label vs (some v))
     (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainHeldH H r = true)
@@ -417,7 +417,7 @@ theorem has_model_total_core_held (h : HypModelCore c) (hp : ClausePreDecided c)
     · exact AtT.satConsGoal h hl φ hφ
     · exact AtT.satDomainsGoal h φ hφ
     · exact AtT.satCollsGoal h φ hφ
-    · exact AtT.satFnsGoalEx h (hypModelCore_clsFactsCe h) hp hq φ hφ
+    · exact AtT.satFnsGoalEx h hsol (hypModelCore_clsFactsCe h) hp hq φ hφ
     · exact satRulesGoal_held h hrules T hall hsome φ hφ
     · exact AtT.satFallbackGoal h φ hφ
   · exact satStepGoal_held h hrules T hsub φ hφ
@@ -465,7 +465,7 @@ theorem has_model_total_held {c : Semantics} {H : Sym → Bool} (h : c.coreOK = 
     Model.stdI c ⊧ᴵP (Γ c ∪ Γstep c ∪ Model.ΓTotal c) := by
   have hiff : ∀ {x y : GroundTerm}, Model.StepV c x y ↔ Model.StepM c x y :=
     Model.stepV_iff_stepM h (fnModel_of_fnHyp h hf).1 hf.1 (fun r hr => (hrules r hr).1)
-  exact Model.has_model_total_core_held (hypModel_of_fnHyp h hf) (clausePreDecided_of_fnHyp h hf)
+  exact Model.has_model_total_core_held (hypModel_of_fnHyp h hf) (fnModel_of_fnHyp h hf).2 (clausePreDecided_of_fnHyp h hf)
     (clausePostDecided_of_fnHypCEx (Semantics.coreOK_iff_ex.mp h) hf) hf.2.2.2.2.2 hf.2.1 hrules (Model.StepM c)
     (fun _ _ _ _ hT => hiff.mpr hT) (fun r σ _ _ hb _ => hiff.mp ⟨r, σ, hb⟩)
     (fun r σ _ y hb _ => ⟨y, σ, fun _ _ => rfl, hb, hiff.mp ⟨r, σ, hb⟩⟩)
@@ -496,7 +496,7 @@ theorem sound_total_held {c : Semantics} {H : Sym → Bool} (h : c.coreOK = true
   have hm : Model.stdI_T c (Model.StepV c) ⊧ᴵP (Γc c ∪ Γstep c ∪ Model.ΓTotal c) := by
     intro φ hφ
     rcases hφ with hφ | hφ
-    · exact stdI_T_model_heldCEx c (hypModel_of_fnHyp h hf) (clausePreDecided_of_fnHyp h hf) (clausePostDecided_of_fnHypCEx (Semantics.coreOK_iff_ex.mp h) hf) hf.2.2.2.2.2 hrules (Model.StepV c)
+    · exact stdI_T_model_heldCEx c (hypModel_of_fnHyp h hf) (fnModel_of_fnHyp h hf).2 (clausePreDecided_of_fnHyp h hf) (clausePostDecided_of_fnHypCEx (Semantics.coreOK_iff_ex.mp h) hf) hf.2.2.2.2.2 hrules (Model.StepV c)
         (fun _ _ _ _ hT => hT) (fun r σ _ _ hb _ => ⟨r, σ, hb⟩)
         (fun r σ _ y hb _ => ⟨y, σ, fun _ _ => rfl, hb, ⟨r, σ, hb⟩⟩) φ hφ
     · exact Model.AtT.sat_total (hypModel_of_fnHyp h hf) hf.2.1 φ hφ

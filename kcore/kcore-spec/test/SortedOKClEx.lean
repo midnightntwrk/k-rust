@@ -29,7 +29,7 @@ open KCore Faithful Faithful.Model
 example (c : Semantics) (h : HypModelCore c) : c.sortedOKClEx = true := h.hyp.1
 example (c : Semantics) (h : HypModelCore c) : c.sortedOKClEx = true := h.sound.1
 example (c : Semantics) : HypFnModel c =
-    (c.sortedOKClEx = true ∧ c.srReady = true ∧ NamesNumbered c ∧ FnDet c ∧ FnSolves c) := rfl
+    (c.sortedOKClEx = true ∧ c.srReady = true ∧ NamesNumbered c ∧ FnDet c) := rfl
 example (c : Semantics) : HypSoundModel c =
     (c.sortedOKClEx = true ∧ c.srReady = true ∧ NamesNumbered c ∧ genWf c = true ∧ patHooksApart c = true ∧
       collSortsOK c = true ∧ collsOK c = true ∧ patHeadsOK c = true ∧ OvlOK c) := rfl
@@ -67,10 +67,11 @@ example {c : Semantics} (h : HypModelCore c) :
 
 /-! The statements on the model's path without existential variables keep `FnsNoExs` as a premise. -/
 
-example (c : Semantics) (h : HypModelCore c) (hne : c.FnsNoExs) (hp : ClausePreDecided c) (hl : OpenLaws c) :
-    stdI_T c (StepV c) ⊧ᴵP (Γ c ∪ Γstep c) := stdI_V_model_core h hne hp hl
-example (c : Semantics) (h : HypModelCore c) (hne : c.FnsNoExs) (hp : ClausePreDecided c) : SatFnsGoal c :=
-  satFnsGoal_decided h hne hp
+example (c : Semantics) (h : HypModelCore c) (hs : FnSolves c) (hne : c.FnsNoExs) (hp : ClausePreDecided c)
+    (hl : OpenLaws c) : stdI_T c (StepV c) ⊧ᴵP (Γ c ∪ Γstep c) := stdI_V_model_core h hs hne hp hl
+example (c : Semantics) (h : HypModelCore c) (hs : FnSolves c) (hne : c.FnsNoExs) (hp : ClausePreDecided c) :
+    SatFnsGoal c :=
+  satFnsGoal_decided h hs hne hp
 example := @consistent_ofCl
 example := @vmModelCl
 

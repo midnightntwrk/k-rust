@@ -48,9 +48,9 @@ theorem has_model_step_of_hyp (h : HypModelCore c) (h2 : SatConsGoal c) (h5 : Sa
   has_model_step_of c (satSigGoal h) h2 (satDomainsGoal h) (satCollsGoal h) h5 h6 h7 (satFallbackGoal h)
 
 /-- **The value model at its own step satisfies `Γ` with the step's closure** under
-`HypModelCore`: of the rules it reads `ruleSorted` and `rulePlainHeldH` (`satRulesGoal_held`,
+`HypModelCore` and `FnSolves`: of the rules it reads `ruleSorted` and `rulePlainHeldH` (`satRulesGoal_held`,
 `satStepGoal_held`), which `HypModelCore` gives (`HypModelCore.ruleFactsHeld`). -/
-theorem stdI_V_model_core (h : HypModelCore c) (hne : c.FnsNoExs) (hp : ClausePreDecided c) (hl : OpenLaws c) :
+theorem stdI_V_model_core (h : HypModelCore c) (hsol : FnSolves c) (hne : c.FnsNoExs) (hp : ClausePreDecided c) (hl : OpenLaws c) :
     stdI_T c (StepV c) ⊧ᴵP (Γ c ∪ Γstep c) := by
   intro φ hφ
   rcases hφ with hφ | hφ
@@ -59,35 +59,40 @@ theorem stdI_V_model_core (h : HypModelCore c) (hne : c.FnsNoExs) (hp : ClausePr
     · exact AtT.satConsGoal h hl φ hφ
     · exact AtT.satDomainsGoal h φ hφ
     · exact AtT.satCollsGoal h φ hφ
-    · exact AtT.satFnsGoal_decided h hne hp φ hφ
+    · exact AtT.satFnsGoal_decided h hsol hne hp φ hφ
     · exact satRulesGoal_held h h.ruleFactsHeld (StepV c) (fun r σ _ _ hb _ => ⟨r, σ, hb⟩)
         (fun r σ _ y hb _ => ⟨y, σ, fun _ _ => rfl, hb, ⟨r, σ, hb⟩⟩) φ hφ
     · exact AtT.satFallbackGoal h φ hφ
   · exact satStepGoal_held h h.ruleFactsHeld (StepV c) (fun _ _ _ _ hT => hT) φ hφ
 
-/-- **`Γ` with the step's closure has a model** under `HypModelCore`: the value model at its own
+/-- **`Γ` with the step's closure has a model** under `HypModelCore` and `FnSolves`: the value model at its own
 step (`stdI_V_model_core`), where no clause has an existential variable (`FnsNoExs`) and each
 clause's predicate has a truth value wherever its patterns match (`ClausePreDecided`). The rules' predicates are not read. -/
-theorem has_model_core (h : HypModelCore c) (hne : c.FnsNoExs) (hp : ClausePreDecided c)
+theorem has_model_core (h : HypModelCore c) (hsol : FnSolves c) (hne : c.FnsNoExs) (hp : ClausePreDecided c)
     (_htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top) (hl : OpenLaws c) :
     ∃ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), I ⊧ᴵP (Γ c ∪ Γstep c) :=
-  ⟨Elem, inferInstance, stdI_T c (StepV c), stdI_V_model_core h hne hp hl⟩
+  ⟨Elem, inferInstance, stdI_T c (StepV c), stdI_V_model_core h hsol hne hp hl⟩
 
 /-- `HypModel` gives `HypModelCore`: its functions' coherence gives `FnDet`
-(`fnDet_of_coherent`), and with their termination `FnSolves` (`fnSolves_of_total`). -/
+(`fnDet_of_coherent`). -/
 theorem HypModel.core (h : HypModel c) : HypModelCore c :=
   have hc := h.hyp.core (Semantics.overloadsOK_pats h.sound.2.2.2.2.2.2.2.2.ok)
-  have hd := fnDet_of_coherent (CoherentAll_of hc)
-  HypModel.core_of h hd (fnSolves_of_total h.sound.core hd hc.2.2.1
+  HypModel.core_of h (fnDet_of_coherent (CoherentAll_of hc))
+
+/-- `HypModel` gives `FnSolves`: with the functions' termination, where a clause decides the
+function's values are its right side's (`fnSolves_of_total`). -/
+theorem HypModel.fnSolves (h : HypModel c) : FnSolves c :=
+  have hc := h.hyp.core (Semantics.overloadsOK_pats h.sound.2.2.2.2.2.2.2.2.ok)
+  fnSolves_of_total h.sound.core (fnDet_of_coherent (CoherentAll_of hc)) hc.2.2.1
     fun fn hfn cl hcl hne vs σ hdec =>
       (h.hyp.2.2.2.2.2.1 fn hfn cl hcl).2 hne fn.label fn vs σ
-        (lookupFn_of_sound h.sound.core (List.mem_append_left _ hfn)) hcl hdec)
+        (lookupFn_of_sound h.sound.core (List.mem_append_left _ hfn)) hcl hdec
 
 /-- **`Γ` with the step's closure has a model** under `HypModel`: `has_model_core`. -/
 theorem has_model (h : HypModel c) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top) (hl : OpenLaws c) :
     ∃ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), I ⊧ᴵP (Γ c ∪ Γstep c) :=
   have hc := h.hyp.core (Semantics.overloadsOK_pats h.sound.2.2.2.2.2.2.2.2.ok)
-  has_model_core h.core (Semantics.fnsNoExs_of_okAll h.hyp.1) (clausePreDecided_of_terminates h.sound.core
+  has_model_core h.core h.fnSolves (Semantics.fnsNoExs_of_okAll h.hyp.1) (clausePreDecided_of_terminates h.sound.core
     hc.2.2.1) htop hl
 
 end Model

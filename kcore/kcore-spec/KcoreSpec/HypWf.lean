@@ -220,16 +220,16 @@ theorem hyp_of_fnHyp (h : c.coreOK = true) (hf : FnHyp c) : HypCore c := by
 theorem hyp_of_core (h : c.coreOK = true) (hrh : c.RightHeld) (hob : CoreObligations c t) (hpreTop : c.clausesPreTop = true := by first | decide +kernel | (simp only [Semantics.clausesPreTop_withHooks]; decide +kernel) | exact rfl) (hnoEx : c.FnsNoExs := by first | assumption | exact Semantics.fnsNoExs_of_all (by decide +kernel) | exact (Semantics.fnsNoExs_withHooks _ _).mpr (Semantics.fnsNoExs_of_all (by decide +kernel)) | exact Semantics.fnsNoExs_of_all rfl) : HypCore c :=
   hyp_of_fnHyp h (fnHyp_of_core (hpreTop := hpreTop) (hnoEx := hnoEx) h hrh hob)
 
-/-- **What the existence of a model reads, from `coreOK`, `FnDet` and `FnSolves`**: `sortedOK`,
-`srReady` and the names numbered with the two facts on the functions (`HypFnModel`),
+/-- **What the existence of a model reads, from `coreOK` and `FnDet`**: `sortedOK`,
+`srReady` and the names numbered with `FnDet` (`HypFnModel`),
 `HypSoundCore` (`hypSound_of_core`), the semantics' own sorts and symbols numbered (`idsOK`), the
 conditions `faithCoreOK` decides, and the collection symbols apart from the constructors, which
 follows from two of them (`collsNotCtors_of`). -/
-theorem hypModel_of_fn (h : c.coreOK = true) (hd : FnDet c) (hs : FnSolves c) : HypModelCore c := by
+theorem hypModel_of_fn (h : c.coreOK = true) (hd : FnDet c) : HypModelCore c := by
   obtain ⟨hok, hfa, -, hp, hids⟩ := Semantics.coreOK_parts h
   obtain ⟨hnn, -, -, hcs, -, hn, hl, hs', hi, hk, hc, hf'⟩ := faithCoreOK_parts hfa
   exact ⟨⟨Semantics.sortedOKClEx_of_sortedOKEx (Semantics.sortedOK_iff_ex.mp hok), NamesApart.srReady_of hp hids hok
-    (NamesApart.rangeKeys_genWf_of_faithCore (Semantics.coreOK_parts h).2.1) (Semantics.coreOK_ovls h), namesNumbered_spec hnn, hd, hs⟩,
+    (NamesApart.rangeKeys_genWf_of_faithCore (Semantics.coreOK_parts h).2.1) (Semantics.coreOK_ovls h), namesNumbered_spec hnn, hd⟩,
     HypSoundCore.model (hypSound_of_core h), hn, hl,
     hids, hs', collsNotCtors_of hk hcs, hi, hk, hc, hf', Semantics.coreOK_ovls h, ovlsOnce_of_ids hids⟩
 
@@ -239,9 +239,9 @@ symbols apart from the constructors (`patHooksApart`), which `coreOK` gives thro
 taken as hypotheses. -/
 theorem hypModel_ofCl (hok : c.sortedOKCl = true) (hsr : c.srReady = true) (hov : OvlOK c)
     (hfa : c.faithCoreOK = true) (hph : patHooksApart c = true) (hids : c.idsOK = true)
-    (hd : FnDet c) (hs : FnSolves c) : HypModelCore c := by
+    (hd : FnDet c) : HypModelCore c := by
   obtain ⟨hnn, hg, hcso, hcs, hph', hn, hl, hs', hi, hk, hc, hf'⟩ := faithCoreOK_parts hfa
-  exact ⟨⟨Semantics.sortedOKClEx_of_sortedOKCl hok, hsr, namesNumbered_spec hnn, hd, hs⟩,
+  exact ⟨⟨Semantics.sortedOKClEx_of_sortedOKCl hok, hsr, namesNumbered_spec hnn, hd⟩,
     ⟨Semantics.sortedOKClEx_of_sortedOKCl hok, hsr, namesNumbered_spec hnn, hg, hph, hcso, hcs, hph', hov⟩, hn, hl,
     hids, hs', collsNotCtors_of hk hcs, hi, hk, hc, hf', hov.ok, ovlsOnce_of_ids hids⟩
 
@@ -274,7 +274,7 @@ theorem fnSolves_of_parts (h : c.coreOK = true) (hnoEx : c.FnsNoExs) (hd : FnDet
 /-- **What the existence of a model reads, from `coreOK` and `FnHyp`**: `hypModel_of_fn` with
 `fnModel_of_fnHyp`. -/
 theorem hypModel_of_fnHyp (h : c.coreOK = true) (hf : FnHyp c) : HypModelCore c :=
-  hypModel_of_fn h (fnModel_of_fnHyp h hf).1 (fnModel_of_fnHyp h hf).2
+  hypModel_of_fn h (fnModel_of_fnHyp h hf).1
 
 /-- **What the existence of a model reads, from `coreOK` and `CoreObligations`**:
 `hypModel_of_fnHyp` with `fnHyp_of_core`. -/

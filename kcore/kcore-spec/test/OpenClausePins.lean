@@ -979,7 +979,7 @@ theorem fnSolves5 : FnSolves c5 := by
 /-- The value model is a model of `c5`'s theory. -/
 theorem hypModel5 : Faithful.Model.HypModelCore c5 :=
   hypModel_ofCl decided5.1 decided5.2.1 ovl5 decided5.2.2.2.2.1 decided5.2.2.2.2.2.1 decided5.2.2.2.2.2.2
-    fnDet5 fnSolves5
+    fnDet5
 
 /-- **`exclusion_iffCl` at `clYE`, a clause of `clOne5`'s `lowerClauses` with a variable outside
 its patterns and conditions**: in the value model, `clYE`'s exclusion holds exactly where its

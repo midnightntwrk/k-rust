@@ -84,10 +84,11 @@ structure HypModel (c : Semantics) : Prop where
 /-- What the value model reads of the functions, beside the clauses being well sorted
 (`sortedOKClEx`: each variable occurs in its clause, the patterns need not bind it, and a clause may
 bind variables by `\exists`; `srReady`) and
-the names numbered: every function has at most one result (`FnDet`) and evaluation solves the
-equations (`FnSolves`). No termination and no totality. -/
+the names numbered: every function has at most one result (`FnDet`). No termination, no totality,
+and not that evaluation solves the equations (`FnSolves`), which only the reading of a function's
+own equations asks, of that function. -/
 def HypFnModel (c : Semantics) : Prop :=
-  c.sortedOKClEx = true ∧ c.srReady = true ∧ NamesNumbered c ∧ FnDet c ∧ FnSolves c
+  c.sortedOKClEx = true ∧ c.srReady = true ∧ NamesNumbered c ∧ FnDet c
 
 /-- `HypSoundCore` with `sortedOKClEx` in place of `sortedOK`: what the value model reads of the
 conditions step soundness reads. -/
@@ -100,7 +101,7 @@ theorem HypSoundCore.model {c : Semantics} (h : HypSoundCore c) : HypSoundModel 
 
 /-- `HypModel` with `HypFnModel` and `HypSoundModel` in place of `Hyp` and `HypSound`: what the
 model's proofs read of the clauses and rules is that they are well sorted with each variable
-occurring (`sortedOKClEx`), and of the functions `FnDet` and `FnSolves`. -/
+occurring (`sortedOKClEx`), and of the functions `FnDet`. -/
 structure HypModelCore (c : Semantics) : Prop where
   hyp : HypFnModel c
   sound : HypSoundModel c
@@ -122,14 +123,12 @@ structure HypModelCore (c : Semantics) : Prop where
 theorem HypModelCore.ovlCase {c : Semantics} (h : HypModelCore c) : c.OvlCase :=
   OvlOK.ovlCase h.sound.2.2.2.2.2.2.2.2
 
-theorem HypModelCore.det {c : Semantics} (h : HypModelCore c) : FnDet c := h.hyp.2.2.2.1
-
-theorem HypModelCore.solves {c : Semantics} (h : HypModelCore c) : FnSolves c := h.hyp.2.2.2.2
+theorem HypModelCore.det {c : Semantics} (h : HypModelCore c) : FnDet c := h.hyp.2.2.2
 
 /-- `HypModelCore` from its parts other than the functions'. -/
-theorem HypModel.core_of {c : Semantics} (h : HypModel c) (hd : FnDet c) (hs : FnSolves c) : HypModelCore c :=
+theorem HypModel.core_of {c : Semantics} (h : HypModel c) (hd : FnDet c) : HypModelCore c :=
   have hc := h.hyp.core (Semantics.overloadsOK_pats h.sound.2.2.2.2.2.2.2.2.ok)
-  ⟨⟨Semantics.sortedOKClEx_of_sortedOKEx (Semantics.sortedOK_iff_ex.mp hc.1), hc.2.1, hc.2.2.2.2.2.2, hd, hs⟩,
+  ⟨⟨Semantics.sortedOKClEx_of_sortedOKEx (Semantics.sortedOK_iff_ex.mp hc.1), hc.2.1, hc.2.2.2.2.2.2, hd⟩,
     HypSoundCore.model h.sound.core, h.names, h.lits, h.ids,
     h.sorts, h.collCtors, h.ites, h.kinds, h.ctors, h.fns, h.sound.2.2.2.2.2.2.2.2.ok, ovlsOnce_of_ids h.ids⟩
 

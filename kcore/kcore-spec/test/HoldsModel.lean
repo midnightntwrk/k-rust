@@ -6,7 +6,7 @@
   The semantics is the reader's for `f2-examples/symrule.kompile.kore` (as `test/ExRules.lean`):
   `a(Exp)` and `b()` of sort Exp (symbols 385, 386), `<generatedCounter>(Int)` (73) of the counter
   cell's sort. Each condition below has `condOK` and `Cond.bound` (decided), and the lemma is read at
-  it in the value model at any T, under `FnDet` and `FnSolves`:
+  it in the value model at any T, under `FnDet`:
   - `pNot`: `not (and (mem Z a(b)) (mem Z G))`, Z and G of Exp (the pre of a complement on a left side);
   - `pOr`: `or (mem Z b) (mem Z a(b))` (the post of a connective on a right side);
   - `pCeil`: `ceil (X *Int 2)`; `pEq`: `equals (X ==Int 1) true`, X of Int;
@@ -72,12 +72,12 @@ example : (ctorOccs c (.app 73 [.var 1])).contains 1 = true ∧ c.confined Srt.i
 section
 open Faithful Faithful.Model
 
-variable (hd : FnDet c) (hs : FnSolves c) (T : GroundTerm → GroundTerm → Prop)
-include hd hs
+variable (hd : FnDet c) (T : GroundTerm → GroundTerm → Prop)
+include hd
 
 /-! ## The reading at each shape -/
 
-omit hd hs in
+omit hd in
 /-- `holds_atT` at a condition with its two facts, every other premise explicit. -/
 theorem holdsAt (h : HypModelCore c) (p : Cond) (vars : List Srt) (hok : c.condOK vars p = true)
     (hbd : Cond.bound c vars.length p = true) :
@@ -88,36 +88,36 @@ theorem holdsAt (h : HypModelCore c) (p : Cond) (vars : List Srt) (hok : c.condO
       ((KoreAML.tr ⟨tbl, []⟩ (Cond.kore c (canonVars c vars) (srtOf c S) p)).interpret (stdI_T c T) e a ↔ b = true) :=
   fun _ _ _ _ _ _ hP hr hk hS hh a ha => holds_atT (T := T) h p hok hbd hP hr hk hS hh a ha
 
-example := holdsAt T (hypModel_of_fn coreOK hd hs) pNot [32, 32] conds_ok.1.1 conds_ok.1.2
-example := holdsAt T (hypModel_of_fn coreOK hd hs) pOr [32] conds_ok.2.1.1 conds_ok.2.1.2
-example := holdsAt T (hypModel_of_fn coreOK hd hs) pCeil [Srt.int] conds_ok.2.2.1.1 conds_ok.2.2.1.2
-example := holdsAt T (hypModel_of_fn coreOK hd hs) pEq [Srt.int] conds_ok.2.2.2.1.1 conds_ok.2.2.2.1.2
-example := holdsAt T (hypModel_of_fn coreOK hd hs) pEx [Srt.int] conds_ok.2.2.2.2.1.1 conds_ok.2.2.2.2.1.2
-example := holdsAt T (hypModel_of_fn coreOK hd hs) pAll [] conds_ok.2.2.2.2.2.1.1 conds_ok.2.2.2.2.2.1.2
-example := holdsAt T (hypModel_of_fn coreOK hd hs) pMatch [sC] conds_ok.2.2.2.2.2.2.1 conds_ok.2.2.2.2.2.2.2
+example := holdsAt T (hypModel_of_fn coreOK hd) pNot [32, 32] conds_ok.1.1 conds_ok.1.2
+example := holdsAt T (hypModel_of_fn coreOK hd) pOr [32] conds_ok.2.1.1 conds_ok.2.1.2
+example := holdsAt T (hypModel_of_fn coreOK hd) pCeil [Srt.int] conds_ok.2.2.1.1 conds_ok.2.2.1.2
+example := holdsAt T (hypModel_of_fn coreOK hd) pEq [Srt.int] conds_ok.2.2.2.1.1 conds_ok.2.2.2.1.2
+example := holdsAt T (hypModel_of_fn coreOK hd) pEx [Srt.int] conds_ok.2.2.2.2.1.1 conds_ok.2.2.2.2.1.2
+example := holdsAt T (hypModel_of_fn coreOK hd) pAll [] conds_ok.2.2.2.2.2.1.1 conds_ok.2.2.2.2.2.1.2
+example := holdsAt T (hypModel_of_fn coreOK hd) pMatch [sC] conds_ok.2.2.2.2.2.2.1 conds_ok.2.2.2.2.2.2.2
 
 /-- The case lemmas at their shapes. -/
-example : HoldsT c T pNot := holdsT_not (hypModel_of_fn coreOK hd hs)
-  (holdsT_and (holdsT_mem (hypModel_of_fn coreOK hd hs) 32 (.var 0) (tA tB))
-    (holdsT_mem (hypModel_of_fn coreOK hd hs) 32 (.var 0) (.var 1)))
-example : HoldsT c T pOr := holdsT_or (hypModel_of_fn coreOK hd hs)
-  (holdsT_mem (hypModel_of_fn coreOK hd hs) 32 (.var 0) tB) (holdsT_mem (hypModel_of_fn coreOK hd hs) 32 (.var 0) (tA tB))
-example : HoldsT c T pCeil := holdsT_ceil (hypModel_of_fn coreOK hd hs) Srt.int (.app intMul [.var 0, i 2])
-example : HoldsT c T pEq := holdsT_equals (hypModel_of_fn coreOK hd hs) Srt.bool (.app intEq [.var 0, i 1]) tt
-example : HoldsT c T pEx := holdsT_ex (hypModel_of_fn coreOK hd hs) Srt.bool
-  (holdsT_equals (hypModel_of_fn coreOK hd hs) Srt.bool (.var 1) tt)
-example : HoldsT c T pAll := holdsT_all (hypModel_of_fn coreOK hd hs) Srt.bool
-  (holdsT_or (hypModel_of_fn coreOK hd hs) (holdsT_mem (hypModel_of_fn coreOK hd hs) Srt.bool (.var 0) tt)
-    (holdsT_mem (hypModel_of_fn coreOK hd hs) Srt.bool (.var 0) ff))
-example : HoldsT c T pMatch := holdsT_exMatch (hypModel_of_fn coreOK hd hs) [Srt.int] sC (.app 73 [.var 1]) (.var 0)
-  (holdsT_top (hypModel_of_fn coreOK hd hs))
+example : HoldsT c T pNot := holdsT_not (hypModel_of_fn coreOK hd)
+  (holdsT_and (holdsT_mem (hypModel_of_fn coreOK hd) 32 (.var 0) (tA tB))
+    (holdsT_mem (hypModel_of_fn coreOK hd) 32 (.var 0) (.var 1)))
+example : HoldsT c T pOr := holdsT_or (hypModel_of_fn coreOK hd)
+  (holdsT_mem (hypModel_of_fn coreOK hd) 32 (.var 0) tB) (holdsT_mem (hypModel_of_fn coreOK hd) 32 (.var 0) (tA tB))
+example : HoldsT c T pCeil := holdsT_ceil (hypModel_of_fn coreOK hd) Srt.int (.app intMul [.var 0, i 2])
+example : HoldsT c T pEq := holdsT_equals (hypModel_of_fn coreOK hd) Srt.bool (.app intEq [.var 0, i 1]) tt
+example : HoldsT c T pEx := holdsT_ex (hypModel_of_fn coreOK hd) Srt.bool
+  (holdsT_equals (hypModel_of_fn coreOK hd) Srt.bool (.var 1) tt)
+example : HoldsT c T pAll := holdsT_all (hypModel_of_fn coreOK hd) Srt.bool
+  (holdsT_or (hypModel_of_fn coreOK hd) (holdsT_mem (hypModel_of_fn coreOK hd) Srt.bool (.var 0) tt)
+    (holdsT_mem (hypModel_of_fn coreOK hd) Srt.bool (.var 0) ff))
+example : HoldsT c T pMatch := holdsT_exMatch (hypModel_of_fn coreOK hd) [Srt.int] sC (.app 73 [.var 1]) (.var 0)
+  (holdsT_top (hypModel_of_fn coreOK hd))
 example : HoldsT c T (.implies .top .bot) :=
-  holdsT_implies (hypModel_of_fn coreOK hd hs) (holdsT_top (hypModel_of_fn coreOK hd hs)) holdsT_bot
+  holdsT_implies (hypModel_of_fn coreOK hd) (holdsT_top (hypModel_of_fn coreOK hd)) holdsT_bot
 
 /-- `holds_atoms` at the atoms of `pCeil`, `pEq` and `pOr`. -/
-example : HoldsT c T pCeil := (holds_atoms (hypModel_of_fn coreOK hd hs)).1 Srt.int (.app intMul [.var 0, i 2])
-example : HoldsT c T pEq := (holds_atoms (hypModel_of_fn coreOK hd hs)).2.1 Srt.bool (.app intEq [.var 0, i 1]) tt
-example : HoldsT c T (.mem 32 (.var 0) tB) := (holds_atoms (hypModel_of_fn coreOK hd hs)).2.2 32 (.var 0) tB
+example : HoldsT c T pCeil := (holds_atoms (hypModel_of_fn coreOK hd)).1 Srt.int (.app intMul [.var 0, i 2])
+example : HoldsT c T pEq := (holds_atoms (hypModel_of_fn coreOK hd)).2.1 Srt.bool (.app intEq [.var 0, i 1]) tt
+example : HoldsT c T (.mem 32 (.var 0) tB) := (holds_atoms (hypModel_of_fn coreOK hd)).2.2 32 (.var 0) tB
 
 end
 
@@ -130,7 +130,7 @@ variable (hf : FnHyp c) (T : GroundTerm → GroundTerm → Prop)
 include hf
 
 theorem hModel : HypModelCore c :=
-  hypModel_of_fn coreOK (fnModel_of_fnHyp coreOK hf).1 (fnModel_of_fnHyp coreOK hf).2
+  hypModel_of_fn coreOK (fnModel_of_fnHyp coreOK hf).1
 
 example {P : Nat → Prop} {σ : Subst} {tbl : KoreAML.VarTable} {e : ML.Valuation Elem} {S : Srt}
     (hP : ∀ j ∈ varOccsCond 2 pNot, j < 2 → P j) (hr : ReadsT c [32, 32] P σ tbl e)
@@ -165,10 +165,10 @@ end
 
 open Faithful Faithful.Model in
 /-- Bool is numbered by being confined; `X *Int 2`'s sort Int by the term's. -/
-example (hd : FnDet c) (hs : FnSolves c) :
+example (hd : FnDet c) :
     Srt.bool < nRegSorts + c.sortNames.length ∧ Srt.int < nRegSorts + c.sortNames.length :=
-  ⟨confined_numberedStdI (hypModel_of_fn coreOK hd hs) (by decide +kernel),
-   sortOfTerm_numStdI (hypModel_of_fn coreOK hd hs) (fun k hk => rhsHead_kernel fns_headsOK hk) (fun _ _ h' => h') rfl
+  ⟨confined_numberedStdI (hypModel_of_fn coreOK hd) (by decide +kernel),
+   sortOfTerm_numStdI (hypModel_of_fn coreOK hd) (fun k hk => rhsHead_kernel fns_headsOK hk) (fun _ _ h' => h') rfl
      (vars := [Srt.int]) (.app intMul [.var 0, i 2]) (by decide +kernel) (fun j hj s' hs' => by
        simp [varOccs, varOccsList, i] at hj
        subst hj

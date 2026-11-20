@@ -519,7 +519,7 @@ variable {T : GroundTerm → GroundTerm → Prop}
 /-- **The value model satisfies the functions' equations with their predicates**, where each
 clause of a function of the definition has a well-sorted predicate with a truth value wherever its
 patterns match and its `requires` is `true`. -/
-theorem satFnsGoalPre (h : HypModelCore c) (hne : c.FnsNoExs)
+theorem satFnsGoalPre (h : HypModelCore c) (hsol : FnSolves c) (hne : c.FnsNoExs)
     (hpreOK : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, c.condOK cl.vars cl.pre = true)
     (hdec : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, ∀ σ ws, c.WellSorted cl.vars σ → PatVals c σ cl.pats ws →
       (∀ t, cl.req = some t → EvalTerm c σ t (some (bool true))) → ∃ b, Holds c cl.vars.length σ cl.pre b) :
@@ -545,7 +545,7 @@ theorem satFnsGoalPre (h : HypModelCore c) (hne : c.FnsNoExs)
   · rw [show prioEquation c fn cl = clauseEquation c fn cl from if_pos hlow] at hit
     refine sat_kernelItem_of hit (clauseEquation_nilPre F.exs)
       (sat_clauseEqPre h hfn F (hdecA fn hfn cl hcl) fun σ ws hws happ => ?_)
-    refine eval_of_decides h hfn hcl (hexA fn hfn cl hcl) hws ⟨happ, fun cl' hcl' hna hlt => ?_⟩
+    refine eval_of_decides h hfn (hsol fn) hcl (hexA fn hfn cl hcl) hws ⟨happ, fun cl' hcl' hna hlt => ?_⟩
     have : cl' ∈ lowerClauses fn cl := by simp [lowerClauses, hcl', hna, hlt]
     rw [List.isEmpty_iff.mp hlow] at this
     exact absurd this List.not_mem_nil
@@ -555,18 +555,18 @@ theorem satFnsGoalPre (h : HypModelCore c) (hne : c.FnsNoExs)
       (sat_competingEqPre h hfn F (hdecA fn hfn cl hcl)
         (fun cl' hcl' => (clause_eqnFactsPre h hfn (hdl cl' hcl') (hexA fn hfn cl' (hdl cl' hcl')) (hokA fn hfn cl' (hdl cl' hcl'))).toExclFactsPre)
         fun σ ws hws happ hfails => ?_)
-    exact eval_of_decides h hfn hcl (hexA fn hfn cl hcl) hws ⟨happ, fun cl' hcl' hna hlt σ' hw hp' =>
+    exact eval_of_decides h hfn (hsol fn) hcl (hexA fn hfn cl hcl) hws ⟨happ, fun cl' hcl' hna hlt σ' hw hp' =>
       hfails cl' (List.mem_filter.mpr ⟨hcl', by simp [hna, hlt]⟩) σ' hw hp'⟩
 
 end AtT
 
 /-- **`SatFnsGoal` with the clauses' predicates**: `AtT.satFnsGoalPre` in the value model. -/
-theorem satFnsGoalPre (h : HypModelCore c) (hne : c.FnsNoExs)
+theorem satFnsGoalPre (h : HypModelCore c) (hsol : FnSolves c) (hne : c.FnsNoExs)
     (hpreOK : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, c.condOK cl.vars cl.pre = true)
     (hdec : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, ∀ σ ws, c.WellSorted cl.vars σ → PatVals c σ cl.pats ws →
       (∀ t, cl.req = some t → EvalTerm c σ t (some (bool true))) → ∃ b, Holds c cl.vars.length σ cl.pre b) :
     SatFnsGoal c :=
-  AtT.satFnsGoalPre (c := c) (T := StepM c) h hne hpreOK hdec
+  AtT.satFnsGoalPre (c := c) (T := StepM c) h hsol hne hpreOK hdec
 
 end Model
 

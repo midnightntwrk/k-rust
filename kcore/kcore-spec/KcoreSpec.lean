@@ -401,6 +401,7 @@ import KcoreSpec.GenEqsInitArm
 import KcoreSpec.ValueModelApp
 import KcoreSpec.ModelHasEx
 import KcoreSpec.HypModelCoreEx
+import KcoreSpec.ModelSatOff
 import KcoreSpec.FamValuesCE
 import KcoreSpec.CoreOKEx
 import KcoreSpec.CoreOKExFacts

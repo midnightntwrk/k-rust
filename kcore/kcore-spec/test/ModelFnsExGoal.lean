@@ -34,11 +34,11 @@ variable {c : Semantics}
 example (c : Semantics) : ClausePostDecided c =
     ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, ∀ σ, c.WellSorted cl.vars σ → ∃ b, Holds c cl.vars.length σ cl.post b := rfl
 
-example (c : Semantics) (hm : HypModelCore c)
+example (c : Semantics) (hm : HypModelCore c) (hs : FnSolves c)
     (hcls : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, c.clauseSortedOpen fn (c.fns.map Fn.sig) cl = true ∧
       c.clauseExOK cl = true ∧ (cl.exs = [] → cl.post = .top))
     (hp : ClausePreDecided c) (hq : ClausePostDecided c) (hl : OpenLaws c) : Consistent c :=
-  consistent_of_modelEx c hm hcls hp hq hl
+  consistent_of_modelEx c hm hs hcls hp hq hl
 
 /-- Under `HypModelCore` every clause has `hcls`' facts: `sortedOKClEx` holds `clauseSortedOpen`
 and `clausePlainOpenEx` of each clause, which holds `clauseExOK` and `\top` as the right-side
@@ -54,11 +54,11 @@ is `\top`, so it is decided. -/
 theorem postDecided_of_hypModelCore (h : HypModelCore c) (hne : c.FnsNoExs) : ClausePostDecided c :=
   clausePostDecided_of_top fun fn hfn cl hcl => (hcls_of_hypModelCore h fn hfn cl hcl).2.2 (hne fn hfn cl hcl)
 
-/-- `consistent_of_modelEx` gives `Consistent` from `HypModelCore`, `FnsNoExs`, `ClausePreDecided`
+/-- `consistent_of_modelEx` gives `Consistent` from `HypModelCore`, `FnSolves`, `FnsNoExs`, `ClausePreDecided`
 and `OpenLaws`. -/
-example (c : Semantics) (hm : HypModelCore c) (hne : c.FnsNoExs) (hp : ClausePreDecided c) (hl : OpenLaws c) :
-    Consistent c :=
-  consistent_of_modelEx c hm (hcls_of_hypModelCore hm) hp (postDecided_of_hypModelCore hm hne) hl
+example (c : Semantics) (hm : HypModelCore c) (hs : FnSolves c) (hne : c.FnsNoExs) (hp : ClausePreDecided c)
+    (hl : OpenLaws c) : Consistent c :=
+  consistent_of_modelEx c hm hs (hcls_of_hypModelCore hm) hp (postDecided_of_hypModelCore hm hne) hl
 
 /-- **The equation of a clause with existential variables holds in the value model from the
 clause's facts**, the clause not being asked to be one of the semantics: `clauseSortedOpen`,
