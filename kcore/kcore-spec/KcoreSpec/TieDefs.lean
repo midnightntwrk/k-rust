@@ -204,7 +204,9 @@ def instDecls (k : Kore.Definition) (c : Semantics) : List (String × List Kore.
 (`symDecls`), and each instance of a sort-parametric declaration that the semantics has, at the
 instance's name with the declaration's attributes (`instDecls`). The semantics names an own symbol
 of a sort-parametric declaration by its instance, never by the declared name, so no row of
-`symDecls` compares it. -/
+`symDecls` compares an own symbol at the declared name. A registry symbol of `hookSigs` plainly
+named like the declaration is compared with that row by `hooks` only where the text also declares
+the name with no sort parameter. -/
 def symDeclsAt (k : Kore.Definition) (c : Semantics) : List (String × List Kore.AppPattern) :=
   symDecls k ++ instDecls k c
 
@@ -303,15 +305,20 @@ interpretation), and it is an open generator (`raw`) exactly where the text does
 `function{}`: an open generator is a parameter declared without hook and without function, and a
 parameter declared `function{}` without hook is a function without equations. An instance of a
 sort-parametric declaration is compared at its own name with the declaration's attributes
-(`symDeclsAt`). -/
+(`symDeclsAt`). An interpreted hooked symbol is compared with a row only where the text declares
+the row's name with no sort parameter (`plain`, the negation of `surplusItem`'s condition on the
+name): a declaration `f{S}` with sort parameters declares its instances `f{s}` and no symbol `f`
+applied to no sort, so the registry's symbol plainly named `f` is not the one it declares, and its
+items are surplus; the instances' rows keep both comparisons. -/
 def hooks (k : Kore.Definition) (c : Semantics) : Bool :=
   (symDeclsAt k c).all (fun (n, as) =>
+    let plain := k.symbolDecls.any fun sd => sd.name == n && sd.params.isEmpty
     match strArg as "hook" with
     | some h =>
-      (hookSigs.all fun g => c.symName g.name != n || regHookOf h == some g.name) &&
+      (hookSigs.all fun g => c.symName g.name != n || regHookOf h == some g.name || !plain) &&
       (c.params.all fun p => c.symName p.sig.name != n || p.impl == regHookOf h)
     | none =>
-      (hookSigs.all fun g => c.symName g.name != n || (libFn g && has as "function")) &&
+      (hookSigs.all fun g => c.symName g.name != n || (libFn g && has as "function") || !plain) &&
       c.params.all fun p => c.symName p.sig.name != n ||
         (p.impl.isNone && (p.raw != has as "function") && (eqnsOf k n).isEmpty))
 
