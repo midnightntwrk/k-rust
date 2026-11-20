@@ -963,7 +963,8 @@ def tgNjOrder (gs : List KoreAML.Gen) : List Kore.Pattern → Option (List Nat)
   let kg := (gensInOrder c d.pres Srt.kitem).map (Gen.toK c)
   let kitemPat := (KoreAML.Cons.noJunkItem (c.sortName Srt.kitem) kg).pat
   let tsig := (Theory.ofDefinition k).signature
-  let sigFrom := fun (it : Item) => tsig.any (·.pat == it.pat) || surplusItem k it
+  let sigFrom0 := fun (it : Item) => tsig.any (·.pat == it.pat) || surplusItem k it
+  let sigFrom := fun (it : Item) => sigFrom0 it || KoreAML.instItem k it
   let hasSym := has
   let plainSyms := k.symbolDecls.filter fun sd => sd.params.isEmpty && hasSym sd.name
   let plainSorts := k.sortDecls.filter (·.params.isEmpty)
@@ -983,6 +984,7 @@ def tgNjOrder (gs : List KoreAML.Gen) : List Kore.Pattern → Option (List Nat)
   IO.println s!"H sigBad {(si.zip (List.range si.length)).filter (!sigFrom ·.1) |>.map (·.2)}"
   let nextIt := (KoreAML.nextArityItem [] (srtOf c topCellSort)).pat
   IO.println s!"H sigBadNext {(si.filter (!sigFrom ·)).all (·.pat == nextIt)}"
+  IO.println s!"H sigInst {(si.zip (List.range si.length)).filter (fun p => !sigFrom0 p.1 && KoreAML.instItem k p.1) |>.map (·.2)}"
   -- each item's origin (`--sig-positions`): its first position in the text's signature, else the
   -- registry sort or the hooked symbol of `hookSigs` whose surplus item it is (`surplusItem`'s
   -- disjuncts), else next's arity
@@ -2252,8 +2254,12 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     w(f"  (`test/constructs/fixtures/{name}`), sentence by sentence, against the translation of the text as")
     w("  written (`trS ad := trAxiom k.symbolDecls k.aliasNames ad`), on the literals `kore` and `defn`, for")
     w("  every interpretation H. Nothing here reads `Parse.parse` or `emit`. Written by")
+    # the flags that change what is stated or how it is decided, so that the tie is reproduced from its
+    # header: the user lemmas' classes, and the forms of the declarations' ranges
     cmd = name + (f" --at-values {','.join(map(str, sorted(at_values)))}" if at_values else "") + \
-        (f" --reads-h {','.join(map(str, sorted(reads_h)))}" if reads_h else "")
+        (f" --reads-h {','.join(map(str, sorted(reads_h)))}" if reads_h else "") + \
+        (" --sig-positions" if sig_pos else "") + (" --decl-positions" if decl_pos else "") + \
+        (" --decl-syms-literal" if decl_syms else "")
     if hand:
         w(f"  `test/constructs/tiegen.py {cmd}`, its {', '.join(sorted(hand))} section by hand; run from the package root:")
         w(f"  `lake env lean -j1 test/{ns}.lean`.")
@@ -2354,6 +2360,17 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             width=100, initial_indent="  ", subsequent_indent="    ", break_on_hyphens=False, break_long_words=False))
     else:
         w("  - `attrs_agree`: the attributes the translation does not read agree with `defn`.")
+    sig_inst_h = [int(x) for x in re.findall(r"\d+", head.get("sigInst", ""))]
+    if sig_inst_h:
+        w(textwrap.fill(
+            f"`{'sig_origin' if head['sigAll'] == 'true' else 'sig_origin_but_next'}` also takes the arity item of an "
+            f"instance of a sort-parametric declaration of the text (`KoreAML.instItem`; item"
+            f"{'s' if len(sig_inst_h) > 1 else ''} {', '.join(map(str, sig_inst_h))} of `sigItems c`): the "
+            f"declaration's arity item with its sort parameters instantiated at the instance's sorts, each a sort the "
+            f"text declares without parameters. It is no item of the text's signature, and a consequence of the "
+            f"declaration's arity item and the G-sort items of those sorts (`sig_inst_entailed`, "
+            f"`KoreAML.instItem_sound`).", width=100, initial_indent="  - ", subsequent_indent="    ",
+            break_on_hyphens=False, break_long_words=False))
     if head["sigAll"] == "true":
         w(f"  - `sig_origin`: each of the {head['nSig']} items of `sigItems c` is a declaration's item of the text or a")
         w("    surplus one; `decls_entailed`: Γ entails the item of each declaration without sort parameters")
@@ -3386,10 +3403,24 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     w("theorem tieAllE_whole {α : Type} {l : List α} {p : α → Bool} (h : (l.drop 0).all p = true) :")
     w("    l.all p = true := h")
     w("")
-    w("/-- The item of Γ's signature is a declaration's item of the text, or a surplus one. -/")
+    sig_inst = [int(x) for x in re.findall(r"\d+", head.get("sigInst", ""))]
+    inst_or = " || KoreAML.instItem kore it" if sig_inst else ""
+    if sig_inst:
+        w("/-- The item of Γ's signature is a declaration's item of the text, a surplus one, or the arity item")
+        w("of an instance of a sort-parametric declaration of the text (`KoreAML.instItem`). -/")
+    else:
+        w("/-- The item of Γ's signature is a declaration's item of the text, or a surplus one. -/")
     w("noncomputable def sigFrom (it : Item) : Bool :=")
-    w("  (Theory.ofDefinition kore).signature.any (·.pat == it.pat) || surplusItem kore it")
+    w("  (Theory.ofDefinition kore).signature.any (·.pat == it.pat) || surplusItem kore it" + inst_or)
     w("")
+    if sig_inst:
+        w("/-- **The arity item of an instance of a sort-parametric declaration is a consequence of the")
+        w("text's signature items**: the declaration's arity item instantiated at the instance's sorts, each")
+        w("a sort the text declares (its G-sort item), `KoreAML.instItem_sound`. -/")
+        w("theorem sig_inst_entailed (it : Item) (h : KoreAML.instItem kore it = true) :")
+        w("    itemsPremises (Theory.ofDefinition kore).signature ⊧ it.pat :=")
+        w("  KoreAML.instItem_sound h")
+        w("")
     sig_next = head["sigAll"] != "true"
     if sig_next:
         w("/-- Next's arity at the configuration sort, which Γ states whatever the text. -/")
@@ -3482,14 +3513,14 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w("the text does not declare at that shape. Next's arity at the configuration sort has none: the")
         w("text has no rule (`text_nextless`). -/")
         w("theorem sig_origin_but_next : (sigItems c).all (fun it =>")
-        w("    (Theory.ofDefinition kore).signature.any (·.pat == it.pat) || surplusItem kore it ||")
+        w("    (Theory.ofDefinition kore).signature.any (·.pat == it.pat) || surplusItem kore it" + inst_or + " ||")
         w("      it.pat == nextItem.pat) = true :=")
     else:
         w("/-- **Every item of Γ's signature has its origin**: the item of a declaration of the text, or the")
         w("sort constant of a registry sort or the arity of an interpreted hooked symbol that the text does not")
         w("declare at that shape. -/")
         w("theorem sig_origin : (sigItems c).all (fun it =>")
-        w("    (Theory.ofDefinition kore).signature.any (·.pat == it.pat) || surplusItem kore it) = true :=")
+        w("    (Theory.ofDefinition kore).signature.any (·.pat == it.pat) || surplusItem kore it" + inst_or + ") = true :=")
     w("  " + body)
     w("")
     w("kernel_rfl sigItems_withHooks : ∀ (c : Semantics) (H : HookParams), sigItems (c.withHooks H) = sigItems c")
@@ -4226,7 +4257,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
           (("prios_out_at{}", "ovlm{}_ok", "ovlm{}_inj", "ovlm{}_injFun", "ovlm{}_same", "prios_out_entailed{}")
            if j in prios_out["mem"] else ("prios_out_at{}", "prios_out_entailed{}"))]
          if prios_out else ["attrs_agree"]) + (["decl_counts"] if decl_parts else []) + \
-        ["sig_origin_but_next" if head["sigAll"] != "true" else "sig_origin", "decls_entailed",
+        ["sig_origin_but_next" if head["sigAll"] != "true" else "sig_origin"] + \
+        (["sig_inst_entailed"] if re.findall(r"\d+", head.get("sigInst", "")) else []) + ["decls_entailed",
          "consistent"] + (["text_nextless"] if head["sigAll"] != "true" else []) + \
         (["builtin_decls_entailed"] if builtin_decls else [])
     if fn_full:
@@ -8007,6 +8039,9 @@ def main(argv):
         if not builtin_decls:
             raise Refused(f"{name}: --builtin-decls: the text declares no symbol of Γ with a K builtin file's "
                           f"Source, without a hook and without sort parameters")
+    if sig_pos and re.findall(r"\d+", head.get("sigInst", "")):
+        raise Refused(f"{name}: --sig-positions: an item of the signature is the arity item of an instance of a "
+                      f"sort-parametric declaration (items {head['sigInst']}), whose origin `TieSigAt` does not name")
     if sig_pos and (len(head.get("sigPos", [])) != int(head["nSig"]) or any(k == "x" for k, _ in head["sigPos"])):
         raise Refused(f"{name}: --sig-positions: the probe gives no origin for each item of the signature")
     if decl_pos and (len(head.get("declPos", [])) != int(head["nDecl"]) or None in head["declPos"]):
