@@ -320,6 +320,11 @@ cannot f2-examples/heldrangemap.kompile.kore
 differs f2-examples/heldrhstop.kompile.kore
 differs f2-examples/heldset.kompile.kore
 cannot f2-examples/heldupdate.kompile.kore
+differs f2-examples/hw-fn-functional-hooked.kompile.kore
+differs f2-examples/hw-fn-functional-init.kompile.kore
+differs f2-examples/hw-fn-functional-noeq.kompile.kore
+differs f2-examples/hw-fn-functional-nontotal.kompile.kore
+differs f2-examples/hw-fn-functional-pred.kompile.kore
 differs f2-examples/idemctor.kompile.kore
 cannot f2-examples/imp-programs.kore
 exact f2-examples/imp-sec-leaky.kore
