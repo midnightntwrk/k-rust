@@ -4,8 +4,10 @@
   `Γ` has no axiom `∃y. f(x̄) = y` for a function declared `total`: totality enters the
   statements only as the second conjunct of `FnHyp`. This module shows that the model that
   `sound_hyp` builds for the model conjunct of `SoundC` (the value model `stdI`, `has_model_core`)
-  satisfies that axiom, in the form `emit` writes it for a `total` function (`functionalAx`, the
-  sentence `∃Val:s. Val = f(K0, …, Kn)` over the sort variable `R`, translated as `Γ`'s axioms are),
+  satisfies that axiom (`functionalAxiom`: the sentence `∃Val:s. Val = f(K0, …, Kn)` over the sort
+  variable `R`, `f` at the head `Γ` writes its applications at, translated as `Γ`'s axioms are; for
+  a function that is no instance of a sort-parametric symbol, the sentence `emit` writes for a
+  `total` function, `functionalAx_eq`),
   for every function of `c.fns` declared `total`, at every valuation: `trAxiom`'s guards put each
   `Kj` in its argument sort, which in the value model holds exactly the values of that sort, and
   there `FnHyp` gives `f` a value, of the result sort (subject reduction), and only that one
@@ -42,28 +44,33 @@ variable {c : Semantics}
 
 /-! ## The functional axiom of a function -/
 
-/-- The functional axiom of `fn` as `emit` writes it for a `[total]` function:
-`∃Val:s. Val =_{s,R} f(K0, …)` over the sort variable `R` (`functionalAx`). -/
+/-- The functional axiom of `fn`, `∃Val:s. Val =_{s,R} f(K0, …)` over the sort variable `R`, `f`
+applied to the formal arguments as `symApp` writes an application of `fn`: the axiom speaks of the
+head `Γ`'s equations of `fn` and its applications are written at (for an instance of a
+sort-parametric function, the declared head at the instance's sorts). -/
 def functionalAxiom (c : Semantics) (fn : Fn) : Kore.Axiom :=
   { sortVars := [KoreAML.Rv]
     pattern := .exist KoreAML.R (KoreAML.evar "Val" (KoreAML.srt (c.sortName fn.result)))
       (.equals (KoreAML.srt (c.sortName fn.result)) KoreAML.R
         (.var (.evar (KoreAML.evar "Val" (KoreAML.srt (c.sortName fn.result)))))
-        (KoreAML.ap (c.symName fn.label) (KoreAML.vars (KoreAML.numbered "K" 0 (fn.args.map c.sortName)))))
+        (symApp c fn.label (KoreAML.vars (KoreAML.numbered "K" 0 (fn.args.map c.sortName)))))
     attributes := [KoreAML.attr "functional"] }
 
-/-- It is the sentence `functionalAx` builds. -/
-theorem functionalAx_eq (fn : Fn) :
+/-- For a function whose name the decoder reads as no instance, it is the sentence `functionalAx`
+builds at the function's name, which `emit` writes for a `[total]` function. -/
+theorem functionalAx_eq (fn : Fn) (hno : instDecode? (c.symName fn.label) = none) :
     KoreAML.functionalAx (c.symName fn.label) (fn.args.map c.sortName) (c.sortName fn.result) =
-      .axiom (functionalAxiom c fn) := rfl
+      .axiom (functionalAxiom c fn) := by
+  unfold functionalAxiom; rw [symApp_noInst hno]; rfl
 
 /-- The functional axiom of `fn`, translated as `Γ`'s axioms are (`kernelItems`). -/
 def functionalItem (c : Semantics) (fn : Fn) : KoreAML.Item :=
   KoreAML.trAxiom [] [] ⟨0, "kernel", functionalAxiom c fn⟩
 
-theorem kernelItems_functionalAx (fn : Fn) :
+theorem kernelItems_functionalAx (fn : Fn) (hno : instDecode? (c.symName fn.label) = none) :
     kernelItems [KoreAML.functionalAx (c.symName fn.label) (fn.args.map c.sortName) (c.sortName fn.result)] =
-      [functionalItem c fn] := rfl
+      [functionalItem c fn] := by
+  rw [functionalAx_eq fn hno]; rfl
 
 /-- **The totality axioms**: the functional axiom of each function of `c` declared `total`. -/
 def ΓTotal (c : Semantics) : Premises KoreAML.Sym :=
@@ -204,21 +211,23 @@ namespace AtT
 
 variable {T : GroundTerm → GroundTerm → Prop}
 
-/-- **The call `f(K0, …)`** in the value model at a transition, at a valuation giving the variables the arguments' values: the values
+/-- **The call `f(K0, …)`** in the value model at a transition, `f` at the head and the sorts
+`symApp` writes it at (`hw`), at a valuation giving the variables the arguments' values: the values
 `Eval` gives. -/
-theorem callK_read (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {tbl : KoreAML.VarTable} {e : Valuation Elem}
+theorem callK_read (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {hd : String} {xs : List String}
+    (hw : ∀ ps, symApp c fn.label ps = .app ⟨⟨hd⟩⟩ (xs.map KoreAML.srt) ps)
+    {tbl : KoreAML.VarTable} {e : Valuation Elem}
     {ws : List GroundTerm} (hws : c.sortsOf ws = some fn.args)
     (hK : ∀ (j : Nat) (w : GroundTerm) (s : String), ws[j]? = some w → (fn.args.map c.sortName)[j]? = some s →
       e.evalEvar (tbl.ev (.evar ("K" ++ toString j) (KoreAML.srt s))) = .val w) (b : Elem) :
-    (KoreAML.tr ⟨tbl, []⟩ (KoreAML.ap (c.symName fn.label)
+    (KoreAML.tr ⟨tbl, []⟩ (.app ⟨⟨hd⟩⟩ (xs.map KoreAML.srt)
       (KoreAML.vars (KoreAML.numbered "K" 0 (fn.args.map c.sortName))))).interpret (stdI_T c T) e b ↔
       ∃ v, b = .val v ∧ Eval c fn.label ws (some v) := by
   obtain ⟨hc, hh, hp⟩ := h.fnApart hfn
   have hl : ws.length = fn.args.length := sortsOf_len hws
-  rw [tr_ap_tbl, interp_symList _ _ (ws.map Elem.val)
+  rw [tr_instApp, trArgs_appList, interp_appList_sing _ _ (ws.map Elem.val)
     (numbered_read "K" _ ws 0 (by simp [hl]) (fun n w s h1 h2 => by rw [Nat.zero_add]; exact hK n w s h1 h2)) b]
-  rw [show c.symName fn.label = c.symName fn.sig.name from rfl,
-    symE_vals h.namesK (fn_sig_mem hfn) (by rw [hl]; rfl) b]
+  rw [instHead_app (k := fn.sig) h (fn_sig_mem hfn) hw (by rw [hl]; rfl) e b]
   exact result_fn (k := fn.sig) hc hh hp (c.isOvl_of_lookupFn (h.lookupFn hfn)) b
 
 /-- **The value model at a transition satisfies the functional axiom of every `[total]` function** whose totality
@@ -232,6 +241,7 @@ theorem sat_functional (h : HypModelCore c)
   have hfs := h.fnSorts hfnA
   have hres := hfs fn.result (List.mem_cons_self ..)
   have hmi := h.det
+  obtain ⟨hd, xs, -, hw⟩ := symApp_head c fn.label
   intro e m
   unfold functionalItem KoreAML.trAxiom
   dsimp only
@@ -260,15 +270,18 @@ theorem sat_functional (h : HypModelCore c)
   -- the names of the pattern
   let S := KoreAML.srt (c.sortName fn.result)
   let kV : KoreAML.VarKey := .evar "Val" S
-  let call := KoreAML.ap (c.symName fn.label) (KoreAML.vars (KoreAML.numbered "K" 0 (fn.args.map c.sortName)))
+  let call : Kore.Pattern := .app ⟨⟨hd⟩⟩ (xs.map KoreAML.srt)
+    (KoreAML.vars (KoreAML.numbered "K" 0 (fn.args.map c.sortName)))
   have hPeq : P = .exist KoreAML.R (KoreAML.evar "Val" S)
-      (.equals S KoreAML.R (.var (.evar (KoreAML.evar "Val" S))) call) := by rw [← hP]; rfl
+      (.equals S KoreAML.R (.var (.evar (KoreAML.evar "Val" S))) call) := by
+    rw [← hP]
+    show Kore.Pattern.exist _ _ (.equals _ _ _ (symApp c fn.label _)) = _
+    rw [hw]
   have hcallF : ∀ j s, (fn.args.map c.sortName)[j]? = some s →
       KoreAML.VarKey.evar ("K" ++ toString j) (KoreAML.srt s) ∈ KoreAML.freeOf [] P := fun j s hj => by
     rw [hPeq, KoreAML.freeOf, KoreAML.freeOf]
     refine List.mem_append_right _ ?_
-    show _ ∈ KoreAML.freeOf _ (KoreAML.ap _ _)
-    unfold KoreAML.ap
+    show _ ∈ KoreAML.freeOf _ (Kore.Pattern.app _ _ _)
     rw [KoreAML.freeOf]
     have h1 := numbered_mem_free "K" [kV] (fun n s' he => by
       rw [List.mem_singleton] at he
@@ -280,8 +293,7 @@ theorem sat_functional (h : HypModelCore c)
     refine hvarsP _ ?_
     rw [hPeq, KoreAML.varsOf, KoreAML.varsOf]
     refine List.mem_append_right _ (List.mem_append_right _ ?_)
-    show _ ∈ KoreAML.varsOf (KoreAML.ap _ _)
-    unfold KoreAML.ap
+    show _ ∈ KoreAML.varsOf (Kore.Pattern.app _ _ _)
     rw [KoreAML.varsOf]
     refine List.mem_append_right _ ?_
     have := numbered_mem_vars "K" _ 0 j s hj
@@ -326,7 +338,7 @@ theorem sat_functional (h : HypModelCore c)
     refine imp_congr Iff.rfl ?_
     have hx : (eV x).evalEvar (({ vars := tbl, aliases := [] } : KoreAML.Ctx).vars.ev
         (KoreAML.evarKey (KoreAML.evar "Val" S))) = x := heV x
-    rw [KoreAML.tr, KoreAML.interp_evar, callK_read h hfnA hws (heK x) b, hx]
+    rw [KoreAML.tr, KoreAML.interp_evar, callK_read h hfnA hw hws (heK x) b, hx]
   constructor
   · rintro ⟨x, -, hx⟩
     exact ((hbody x).mp hx).1
@@ -355,16 +367,18 @@ theorem sat_total (h : HypModelCore c)
 
 end AtT
 
-/-- **The call `f(K0, …)`**, at a valuation giving the variables the arguments' values: the values
-`Eval` gives. -/
-theorem callK_read (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {tbl : KoreAML.VarTable} {e : Valuation Elem}
+/-- **The call `f(K0, …)`**, `f` at the head and the sorts `symApp` writes it at (`hw`), at a
+valuation giving the variables the arguments' values: the values `Eval` gives. -/
+theorem callK_read (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {hd : String} {xs : List String}
+    (hw : ∀ ps, symApp c fn.label ps = .app ⟨⟨hd⟩⟩ (xs.map KoreAML.srt) ps)
+    {tbl : KoreAML.VarTable} {e : Valuation Elem}
     {ws : List GroundTerm} (hws : c.sortsOf ws = some fn.args)
     (hK : ∀ (j : Nat) (w : GroundTerm) (s : String), ws[j]? = some w → (fn.args.map c.sortName)[j]? = some s →
       e.evalEvar (tbl.ev (.evar ("K" ++ toString j) (KoreAML.srt s))) = .val w) (b : Elem) :
-    (KoreAML.tr ⟨tbl, []⟩ (KoreAML.ap (c.symName fn.label)
+    (KoreAML.tr ⟨tbl, []⟩ (.app ⟨⟨hd⟩⟩ (xs.map KoreAML.srt)
       (KoreAML.vars (KoreAML.numbered "K" 0 (fn.args.map c.sortName))))).interpret (stdI c) e b ↔
       ∃ v, b = .val v ∧ Eval c fn.label ws (some v) :=
-  AtT.callK_read (T := StepM c) h hfn hws hK b
+  AtT.callK_read (T := StepM c) h hfn hw hws hK b
 
 /-- **The value model satisfies the functional axiom of every `[total]` function** whose totality
 `hv` gives (`FnHyp`'s second conjunct). -/

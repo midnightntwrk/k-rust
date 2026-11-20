@@ -24,11 +24,13 @@
   - `rdr-ite-two-eq` (`syntax {S1, S2} S2 ::= cast(S1) [function, symbol(ite)]`, `rule cast(a) =>
     b`, `rule f(X) => cast(X)`): the instance `Lblite{Foo,Foo}` is a function of the reading with
     the text's equation, not K's `ite`. The reading's values: `TwoEq.ite_value` (`Lblite{Foo,Foo}`
-    at `a` is `b`) and `TwoEq.f_value` (f at `a` is `b`), for every H. No tie of the text's
-    sentences 137 (f's, whose right side applies the instance) and 171 (the instance's equation)
-    is stated here.
-    TwoEq.not_tied removed by KRN.ihw-writers: Γ writes the instance head Lblite{SortFoo,SortFoo}
-    the text uses, so the head no longer separates them; KRN.ihw-ties states the positive tie.
+    at `a` is `b`) and `TwoEq.f_value` (f at `a` is `b`), for every H. Γ writes the instance as the
+    text does, the head `Lblite` at the sorts `SortFoo`, `SortFoo`: `TwoEq.fn_text` (the clauses of
+    f and of the instance find the text's sentences 137, whose right side applies the instance,
+    and 171, the instance's own equation, by head and sort arguments), `TwoEq.tied` (Γ's equation
+    items of the two are the translations of those sentences up to one variable's name,
+    `TiePair.sameB`, nothing rewritten) and `TwoEq.fn_shape` (so is every equation item of Γ's
+    functions against the sentence its clause finds, in order).
   The symbol numbers are the reader's for each text, found by name.
 -/
 import KcoreSpec
@@ -156,6 +158,26 @@ theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
 /-- `tr s`: the item `Theory.ofDefinition kore` holds for the sentence. -/
 noncomputable def trS (ad : AxiomDecl) : Item := trAxiom kore.symbolDecls kore.aliasNames ad
 
+/-- The clauses of f and of `Lblite{Foo,Foo}` are keyed by their functions' names, and the keys find
+the text's sentences 137 (`f(X) = Lblite{SortFoo,SortFoo}(X)`) and 171
+(`Lblite{SortFoo,SortFoo}(a) = b`): the instance's key finds the equation whose left side is the
+head `Lblite` at the instance's two sorts. -/
+theorem fn_text : (TiePair.clauseKeys c).take 2 = [("Lblf", 50), ("Lblite{Foo,Foo}", 50)] ∧
+    ((TiePair.fnTextOf c U.all).take 2).map (·.index) = [137, 171] := by decide +kernel
+
+/-- **Γ's equation items of f and of `Lblite{Foo,Foo}` (the first two, in `fnItems`'s order) are the
+translations of the text's sentences 137 and 171**, up to one variable's name (`TiePair.sameB`;
+kernel), with nothing rewritten: Γ applies the head `Lblite` at the sorts `SortFoo`, `SortFoo`, on
+the right side of f's equation and at the left side of the instance's own, as the sentences do. -/
+theorem tied : (((TiePair.gammaPats c).take 2).zip [(trS U.ax137).pat, (trS U.ax171).pat]).all
+    (fun p => TiePair.sameB p.1 p.2) = true := by decide +kernel
+
+/-- **Every equation item of Γ's functions is the translation of the sentence its clause finds**
+(`TiePair.fnTextOf`, by head symbol at its sort arguments and priority), in `fnItems`'s order, up
+to one variable's name (`TiePair.shapeB`; kernel). -/
+theorem fn_shape : TiePair.shapeB (TiePair.gammaPats c)
+    ((TiePair.fnTextOf c U.all).map fun ad => (trS ad).pat) = true := by decide +kernel
+
 /-- f and `Lblite{Foo,Foo}` are the first two functions, one clause each. -/
 theorem fns_first : (c.allFns.take 2).map (fun fn => (c.symName fn.label, fn.clauses.length)) =
     [("Lblf", 1), ("Lblite{Foo,Foo}", 1)] := by decide +kernel
@@ -198,6 +220,9 @@ end KCore.IteHookForms
 #check @KCore.IteHookForms.OwnHook.ite_value
 #check @KCore.IteHookForms.OwnHook.f_rhs_value
 #check @KCore.IteHookForms.OwnHook.f_value
+#check @KCore.IteHookForms.TwoEq.fn_text
+#check @KCore.IteHookForms.TwoEq.tied
+#check @KCore.IteHookForms.TwoEq.fn_shape
 #check @KCore.IteHookForms.TwoEq.fns_first
 #check @KCore.IteHookForms.TwoEq.ite_value
 #check @KCore.IteHookForms.TwoEq.f_value
@@ -207,6 +232,10 @@ end KCore.IteHookForms
 #guard_msgs in #print axioms KCore.IteHookForms.OwnHook.f_rhs_value
 /-- info: 'KCore.IteHookForms.OwnHook.f_value' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.IteHookForms.OwnHook.f_value
+/-- info: 'KCore.IteHookForms.TwoEq.tied' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.IteHookForms.TwoEq.tied
+/-- info: 'KCore.IteHookForms.TwoEq.fn_shape' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.IteHookForms.TwoEq.fn_shape
 /-- info: 'KCore.IteHookForms.TwoEq.ite_value' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.IteHookForms.TwoEq.ite_value
 /-- info: 'KCore.IteHookForms.TwoEq.f_value' depends on axioms: [propext, Classical.choice, Quot.sound] -/

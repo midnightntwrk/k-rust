@@ -84,3 +84,30 @@ example :
     let e : Kore.Pattern := .equals k k (.app ⟨⟨"Lblsel"⟩⟩ [k] []) (.app ⟨⟨"Lblx"⟩⟩ [] [])
     AttrsAgree.eqnHeadIs "Lblsel{K}" e = true ∧ AttrsAgree.eqnHeadIs "Lblsel" e = true ∧
       AttrsAgree.eqnHeadIs "Lblsel{Int}" e = false := by decide +kernel
+
+/-! ## The names of a declaration's instances (`Parse.instNameOf`) -/
+
+/-- `instNameOf f n` holds exactly where the decoder reads `n` as an instance of the head `f`. -/
+theorem instNameOf_iff_decode (f n : String) :
+    Parse.instNameOf f n = true ↔ ∃ xs, instDecode? n = some (f, xs) := by
+  unfold Parse.instNameOf
+  cases h : instDecode? n with
+  | none => simp
+  | some p =>
+    obtain ⟨h', xs⟩ := p
+    simp only [beq_iff_eq, Option.some.injEq, Prod.mk.injEq]
+    constructor
+    · rintro rfl; exact ⟨xs, rfl, rfl⟩
+    · rintro ⟨_, rfl, -⟩; rfl
+
+/-- The name the reader gives an instance of `f` (`Parse.instName`) is one of `f`'s. -/
+theorem instNameOf_instName_decode {f : String} {xs : List String} (ok : InstNameOK f xs) :
+    Parse.instNameOf f (Parse.instName f xs) = true :=
+  (instNameOf_iff_decode f _).2 ⟨xs, instDecode?_instName ok⟩
+
+/-- A name is an instance's of `f` by its head, whole, and only where it is closed, at sort names. -/
+example : Parse.instNameOf "Lblsel" "Lblsel{K}" = true ∧ Parse.instNameOf "Lblsel" "Lblsel{K,Int}" = true ∧
+    Parse.instNameOf "Lblsel" "Lblselx{K}" = false ∧ Parse.instNameOf "Lbl" "Lblsel{K}" = false ∧
+    Parse.instNameOf "Lblsel" "Lblsel{K" = false ∧ Parse.instNameOf "Lblsel" "Lblsel{}" = false ∧
+    Parse.instNameOf "Lblsel" "Lblsel{K}x" = false ∧ Parse.instNameOf "Lblsel" "Lblsel" = false := by
+  decide +kernel

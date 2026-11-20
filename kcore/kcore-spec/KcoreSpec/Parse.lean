@@ -1247,10 +1247,14 @@ no other symbol's. (K's `ite`'s instances keep their own reading, `iteName`, imp
 registry's `kIte`.) -/
 def instName (f : String) (xs : List String) : String := f ++ "{" ++ ",".intercalate xs ++ "}"
 
-/-- `n` is the name `instName` gives an instance of the sort-parametric symbol `f`, `f{…}`: the
-symbol the text applies is `f`, at sort arguments. KORE's identifiers hold no brace, so `n` is no
-other symbol's name. -/
-def instNameOf (f n : String) : Bool := n.startsWith (f ++ "{") && n.endsWith "}"
+/-- `n` is the name `instName` gives an instance of the sort-parametric symbol `f`: the decoder
+reads it as the head `f` at sort names (`instDecode?`, the inverse of `instName`), so the symbol
+the text applies is `f`, at sort arguments, and `Γ` writes `n` at the head `f` (`Term.kore`).
+KORE's identifiers hold no brace, so `n` is no other symbol's name. -/
+def instNameOf (f n : String) : Bool :=
+  match instDecode? n with
+  | some (h, _) => h == f
+  | none => false
 
 /-- The functions kompile generates and a user axiom may apply: K's `append`, the projections
 `project:X`, a collection cell's initializer `initXCell`. `envOf` numbers those its axioms apply. A
