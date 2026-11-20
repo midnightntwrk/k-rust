@@ -307,7 +307,8 @@ e2-fn-assoc and e2-fn-assoc-rest (both not refuted).
 
 What it states where the text:
 - owes an agreement (`agree_named` not empty): `facts` and `consistent` take it as a hypothesis
-  (`AgreeOwed`), the proof owed (`owed` in the summary), unless `--hand consistency` gives it;
+  (`AgreeOwed`), the proof owed (`owed` in the summary), unless `--hand consistency` gives it; the
+  same beside a confined sort, `consistent` then a model of `Γc`;
 - has open generators (`raw`, one or several, each with its laws): `params_raw`, `facts` and `consistent` for every H
   satisfying `OpenLaws`, at `lawHooks c H` for every H, for every H where it has no law
   (`openLaws_any`); `libAdmitted_lawHooks` (`lawHooks c H` is admitted by the library's sentences
@@ -1955,7 +1956,6 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     # a held-named function's fact or a `[total]` function's totality owed (`--hand consistency`
     # only): the hand section states `consistent` for every H, by `FnHyp` (`fnHypH`) or otherwise
     held_total = "consistency" in hand and bool(ob.get("held") or ob.get("total") or ob.get("prehyp"))
-    held_hand = held_total and bool(ob.get("held"))
     hand_c = hand.get("consistency", "")
     # with an open generator, a model for every H is not asked: at an H whose values of the generator
     # identify what the text's sentences keep apart, Γ holds the generator's graph at H beside them.
@@ -2186,8 +2186,6 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     if raw and facts_kind != "FnFacts" and "consistency" not in hand:
         raise Refused(f"{name}: an open generator and obligations of the form {facts_kind}: tiegen states the "
                       f"open generator's consistency section through `FnFacts` only, otherwise by hand")
-    if agree and confined and not held_hand:
-        raise Refused(f"{name}: an owed agreement beside a confined sort: tiegen states not both")
     if confined and head["litBool"] != "true":
         raise Refused(f"{name}: the definition reads a confined sort and Bool holds other than its literals (`Γcl` empty)")
     law_fns = sorted({sents[i]["eh"] for i in law_idx})
@@ -2406,15 +2404,16 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                   ": the function functional sentences, owed as `FnHyp`, are not shown by this tie where `FnHyp` fails."))
         w(textwrap.fill(para, 104, initial_indent="    ", subsequent_indent="    "))
     elif agree:
+        th = "`Γc`" if confined else "Γ"
         an = " and ".join(f"`{x}`" for x in ob["agree_names"])
-        w("  - The definition reads no confined sort (`readsConfined_c`) and has no open generator (`noRaw`).")
+        w(f"  - The definition reads {'a' if confined else 'no'} confined sort (`readsConfined_c`) and has no open generator (`noRaw`).")
         w(f"    It owes {'one fact' if len(agree) == 1 else numword(len(agree)) + ' facts'}, the agreement of {an} (`agree_named`): no decider shows that its")
         w("    competing clauses give one result where more than one applies (`ClausesAgree`).")
         if "consistency" in hand:
-            w("    The agreement holds for every H (`agree`), so Γ with the step's closure has a model for every")
+            w(f"    The agreement holds for every H (`agree`), so {th} with the step's closure has a model for every")
             w("    H (`facts`, `consistent`).")
         else:
-            w("    Under every H where it holds (`AgreeOwed`), Γ with the step's closure has a model (`facts`,")
+            w(f"    Under every H where it holds (`AgreeOwed`), {th} with the step's closure has a model (`facts`,")
             w("    `consistent`): the proof of `AgreeOwed` is owed.")
     elif ob["match"] or ob["owed"]:
         th = "`Γc`" if confined else "Γ"
@@ -3723,7 +3722,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w("   openLaws_of_plain fun k hk => by")
         w("    simpa using List.all_eq_true.mp (by decide +kernel : c.params.all (fun k => !k.raw) = true) k hk⟩")
         w("")
-        w("/-- **Γ with the step's closure has a model, for every H where the agreement holds.** -/")
+        w(f"/-- **{'`Γc`' if confined else 'Γ'} with the step's closure has a model, for every H where the agreement holds.** -/")
         w("theorem consistent (H : HookParams) (hag : AgreeOwed H) : Consistent (cH H) :=")
         w("  consistent_of_fnFacts (coreOKH H) (Semantics.rightHeld_withHooks_of_valued (by decide +kernel) H) (facts H hag)")
         w("")
