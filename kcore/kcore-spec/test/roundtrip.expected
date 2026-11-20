@@ -144,6 +144,9 @@ differs f2-examples/e2-unit-ctor.kompile.kore
 differs f2-examples/e3-casts.kompile.kore
 differs f2-examples/e3-cells-dotbag.kompile.kore
 differs f2-examples/e3-cells.kompile.kore
+differs f2-examples/e3-eq-exists-ctor-ml.kompile.kore
+differs f2-examples/e3-eq-exists-ml-supersort.kompile.kore
+differs f2-examples/e3-eq-exists-partial-ml.kompile.kore
 differs f2-examples/e3-fragment.kompile.kore
 differs f2-examples/e3-fresh.kompile.kore
 differs f2-examples/e3-k-fun2.kompile.kore
