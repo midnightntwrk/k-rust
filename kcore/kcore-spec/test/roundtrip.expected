@@ -145,8 +145,10 @@ differs f2-examples/e3-casts.kompile.kore
 differs f2-examples/e3-cells-dotbag.kompile.kore
 differs f2-examples/e3-cells.kompile.kore
 differs f2-examples/e3-eq-exists-ctor-ml.kompile.kore
+differs f2-examples/e3-eq-exists-ml-confined-fix.kompile.kore
 differs f2-examples/e3-eq-exists-ml-supersort.kompile.kore
 differs f2-examples/e3-eq-exists-partial-ml.kompile.kore
+differs f2-examples/e3-eq-exists-under-app-partial-ml.kompile.kore
 differs f2-examples/e3-fragment.kompile.kore
 differs f2-examples/e3-fresh.kompile.kore
 differs f2-examples/e3-k-fun2.kompile.kore
@@ -157,6 +159,7 @@ differs f2-examples/e3-kseq.kompile.kore
 differs f2-examples/e3-ml-eq-req-and-under-app.kompile.kore
 differs f2-examples/e3-ml-eq-req-not.kompile.kore
 differs f2-examples/e3-ml-eq-rhs-and-pred.kompile.kore
+differs f2-examples/e3-ml-eq-rhs-ceil-and.kompile.kore
 differs f2-examples/e3-ml-eq-rhs-or-bottom.kompile.kore
 differs f2-examples/e3-ml-eq-rhs-or-empty.kompile.kore
 differs f2-examples/e3-ml-lhs-or-rhs-var.kompile.kore
