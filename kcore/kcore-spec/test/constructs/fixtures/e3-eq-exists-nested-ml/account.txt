@@ -1,0 +1,20 @@
+out/definition.kore: 5 modules; prelude agrees
+user module E3-EQ-EXISTS-NESTED-ML: 279 sentences
+  1 inert import [generated]
+  157 read [generated]
+  95 read [builtin]
+  1 read [user]
+  4 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  9 inert noJunk [generated]
+  1 read existentialClause [user]
+  1 inert simplification [generated]
+connective readings per sentence: 1
+      sentence 245: existentialClause
+stage refusals (of sentences classified read): 1
+  1 manyValuedRightSide
+      sentence 245 (Lblf): manyValuedRightSide (\exists)
+        [user] (no label) at e3-eq-exists-nested-ml.k:4: axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortBool{}, R}(X0:SortBool{}, VarX:SortBool{}), \top{R}())), \equals{SortBool{}, R}(Lblf{}(X0:SortBool{}), \and{SortBool{}}(\exists{SortBool{}}(VarB:SortBool{}, LblnotBool'Unds'{}(\exists{SortBool{}}(VarC:SortBool{}, \and{SortBool{}}(VarC:SortBool{}, \equals{SortBool{}, SortBool{}}(VarC:SortBool{}, VarB:SortBool{}))))), \top{SortBool{}}()))) [UNI …
+finish: sentence 245 (Lblf): manyValuedRightSide (\exists)
+(exit 0)

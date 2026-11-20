@@ -1,0 +1,18 @@
+command: kompile --backend haskell e3-eq-exists-nested-ml.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 3.2
+definition.kore bytes: 122537
+definition.kore sha256: f7e25fde6ff55bf28d8f6bfc6772597059234854d55020f597342cdcb68dfc6c
+stripped sha256: bd15dd1445e73fbfc5fa49bea1fb37a366f0cf466a1fcbd3150bc9c733163426
+main module: 282 sentences, 13 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Variable 'X' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/e3-eq-exists-nested-ml.k)
+  	Location(4,10,4,11)
+  	4 |	  rule f(X) => #Exists B:Bool. notBool(#Exists C:Bool. (C #And {C #Equals
+  B}))
+  	  .	         ^
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-EQ-EXISTS-NESTED-ML-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using E3-EQ-EXISTS-NESTED-ML as default.

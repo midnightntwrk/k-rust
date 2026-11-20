@@ -1,0 +1,42 @@
+//@ 0
+module E3-EQ-EXISTS-NESTED-ML
+//@ 55
+  symbol Lblf{}(SortBool{}) : SortBool{} [function{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,19,3,48)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e3-eq-exists-nested-ml.k)"), symbol'Kywd'{}("f")]
+//@ 138
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'UndsEqlsSlshEqls'Bool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 139
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'UndsEqlsEqls'Bool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 152
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds'andBool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 153
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds'andThenBool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 154
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds'impliesBool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 157
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds'orBool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 158
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds'orElseBool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 159
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds'xorBool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 181
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, LblnotBool'Unds'{}(K0:SortBool{}))) [functional{}()] // functional
+//@ 232
+// rule f(X)=>#Exists{Bool,Bool}(B,`notBool_`(#Exists{Bool,Bool}(C,#And{Bool}(C,#Equals{Bool,Bool}(C,B))))) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(58a99cb7b1f7cc6a4bcddc61ad6fa2c9530026c6ad46a708c3c2368525df00b9), org.kframework.attributes.Location(Location(4,8,4,79)), org.kframework.attributes.Source(Source(FIXTURE/e3-eq-exists-nested-ml.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortBool{}, R} (
+            X0:SortBool{},
+            VarX:SortBool{}
+          ),
+          \top{R} ()
+        )),
+    \equals{SortBool{},R} (
+      Lblf{}(X0:SortBool{}),
+     \and{SortBool{}} (
+       \exists{SortBool{}}(VarB:SortBool{},LblnotBool'Unds'{}(\exists{SortBool{}}(VarC:SortBool{},\and{SortBool{}}(VarC:SortBool{},\equals{SortBool{}, SortBool{}}(VarC:SortBool{},VarB:SortBool{}))))),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("58a99cb7b1f7cc6a4bcddc61ad6fa2c9530026c6ad46a708c3c2368525df00b9"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,8,4,79)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e3-eq-exists-nested-ml.k)")]
+//@ 281
+endmodule [org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1,1,5,10)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e3-eq-exists-nested-ml.k)")]
