@@ -1604,7 +1604,7 @@ An edit may edit a grammar declaration instead of a rule (PJ-34): a `syntax` dec
 It is addressed by `production = NAME`, a production's name, or by a `line` or a `find` inside the declaration and inside no rule; `rule` and `production` exclude each other.
 A production's name is its label: the `symbol` (or `klabel`) it declares, else the label K derives from its text (`_+__D-SYNTAX_Exp_Exp_Exp`), matched as `rule` matches a label.
 A separate key keeps rule anchors as they were: K writes a rule label and a production symbol alike (`rule [add]` and `symbol(add)`), and an anchor naming two sentences is refused.
-Every production KRS emits declares the symbol KRS derives from the production's own item (`lowerCamel(Enum)` and the variant, `natSyntaxSucc` for `NatSyntax::Succ`), which no other production has, so a KRS production is anchored by item as a rule is.
+Every constructor production KRS emits declares the symbol KRS derives from the production's own item (`lowerCamel(Enum)` and the variant, `natSyntaxSucc` for `NatSyntax::Succ`), which no other production has, so it is anchored by item as a rule is; a token or bracket production KRS emits declares none, and is addressed by `line` or `find` inside its declaration.
 
 ```toml
   [[mutation.edit]]
