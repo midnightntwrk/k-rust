@@ -147,6 +147,7 @@ differs f2-examples/e3-cells.kompile.kore
 differs f2-examples/e3-eq-exists-ctor-ml.kompile.kore
 differs f2-examples/e3-eq-exists-ml-confined-fix.kompile.kore
 differs f2-examples/e3-eq-exists-ml-supersort.kompile.kore
+differs f2-examples/e3-eq-exists-ml-under-app.kompile.kore
 differs f2-examples/e3-eq-exists-partial-ml.kompile.kore
 differs f2-examples/e3-eq-exists-under-app-partial-ml.kompile.kore
 differs f2-examples/e3-fragment.kompile.kore
