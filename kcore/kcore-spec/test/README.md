@@ -1740,7 +1740,16 @@ table above, on the tree before String and Bytes). Not investigated here.
   `right_funs`), so Γ entails the sentence (`rule161_entailed`, `rule162_entailed`,
   `rule163_entailed`, `TieRuleW2G.rules_w2_built_nil`). The right side of 160 holds `inj`
   (`right0_not_built`): `rule160_w2` keeps `⌈right⌉` as its premise, under the guards of the
-  rule's variables (`TieRuleW2G.rule_w2_guarded`). About 1 minute.
+  rule's variables (`TieRuleW2G.rule_w2_guarded`). `rule160_entailed`: the injection is a generator
+  with a Cons-Fun item of its own, which `TieRuleCutG.builtGB` reads (KcoreSpec/TieRuleCutGen.lean,
+  KcoreSpec/TieRuleW2GuardedGen.lean), so Γ entails sentence 160 too
+  (`TieRuleW2G.rules_w2_builtG_nil`). About 1 minute.
+  The companions whose `rule_w2` keeps `⌈right⌉` as a premise state it without the premise beside it
+  where the right side is built so: `rule_w2_noprem` in test/TieRuleConn.lean (RhsOr, LhsNot,
+  LhsNotOther), test/TieRuleLhsAnd.lean (Ceil, Equals, Var) and test/TieE3MlReqAndUnderApp.lean,
+  `rule_w2_closed_noprem` in test/TieE3MlReqNot157.lean. test/TieRuleLhsAnd.lean's
+  `rule_from_text_cons` (Ceil, Equals) is W1 over the sentence, `ΓSig` and the Cons-Fun item of
+  `inj{Exp,KItem}`.
 - `test/C3SimpEnsRefuted.lean`, `test/InertE2SimpRefuted.lean`: simplification sentences that are
   not inert: c3-simp-ens's `f(f(X)) => f(X) ensures X >=Int 0` beside `f(X) => X` (`ens_refuted`),
   and e2-simplification's `f(X) -Int 1 => X` and `sl(X) >=Int 0 => true` beside `f(X) => X`,

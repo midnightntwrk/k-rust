@@ -18,7 +18,9 @@
   - Rule 160: the right side holds `inj{Exp, KItem}`, a symbol with sort arguments, which
     `TieRuleCut.builtB` does not read. `rule160_w2`: the sentence holds in a model of Γ at each
     valuation where, the guards of the rule's variables holding, `⌈right⌉` holds of every element
-    of the sentence's left side (`TieRuleW2G.rule_w2_guarded`).
+    of the sentence's left side (`TieRuleW2G.rule_w2_guarded`). `rule160_entailed`: the injection
+    has a Cons-Fun item of its own, which `TieRuleCutG.builtGB` reads, so Γ entails sentence 160
+    too (`TieRuleW2G.rules_w2_builtG_nil`).
 -/
 import KcoreSpec
 
@@ -143,6 +145,36 @@ theorem rule160_w2 (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation
     (hI _ (Or.inl (Or.inr (Or.inl ⟨_, List.mem_map_of_mem
       (List.mem_of_getElem? (show c.rules[0]? = some r0 from List.getElem?_eq_getElem _)), rfl⟩)))) e m hx
 
+/-- The generators of the right side of rule 160: `rightCtors`, `kseq`, the injection of Exp into
+KItem and the constructors `b` and `c`. -/
+def rightGens0 : List (String × KoreAML.Gen) :=
+  [("GeneratedTopCell", .ctor ⟨"Lbl'-LT-'generatedTop'-GT-'", ["KCell", "GeneratedCounterCell"], "GeneratedTopCell"⟩),
+   ("KCell", .ctor ⟨"Lbl'-LT-'k'-GT-'", ["K"], "KCell"⟩),
+   ("K", .ctor ⟨"kseq", ["KItem", "K"], "K"⟩),
+   ("KItem", .inj "Exp"),
+   ("Exp", .ctor ⟨"Lblb", [], "Exp"⟩),
+   ("Exp", .ctor ⟨"Lblc", [], "Exp"⟩)]
+
+/-- Γ has the Cons-Fun item of each (kernel). -/
+theorem right_funs0 : TieRuleCutG.funsInGB c rightGens0 = true := by decide +kernel
+
+/-- **The axiom of rule 160 adds `⌈t ∧ ⊤⌉` alone**, t built of the rule's variables and of
+`rightGens0`, the injection among them (kernel). -/
+theorem right_built0 : TieRuleW2G.rightBuiltGB rightGens0 (freeKeys r0) "GeneratedTopCell" []
+    (rightTerm (prioRuleK c r0)) (prioRuleK c r0) = true := by decide +kernel
+
+/-- **Γ entails sentence 160** (`<k> a() => b() ~> c() ... </k>`), for every H: the injection of an
+element of Exp is one element of KItem (its Cons-Fun item), so the right side holds one element
+where the guards hold (`TieRuleW2G.rules_w2_builtG_nil`). -/
+theorem rule160_entailed (H : HookParams) : Γ (cH H) ⊧ (trS U.ax160).pat := by
+  haveI : OvlOK (cH H) := ovlOK_of_core (coreOKH H)
+  intro M _ I hI
+  exact TieRuleW2G.rules_w2_builtG_nil (rules_tieH H) (j := 0) (r := r0)
+    (show c.rules[0]? = some r0 from List.getElem?_eq_getElem _)
+    (show rulePats[0]? = some (trS U.ax160).pat from rfl) (top_numbered H) (top_name H)
+    ((TieRuleCutG.funsInGB_withHooks c H rightGens0).trans right_funs0)
+    (by rw [TieRuleW2G.prioRuleK_withHooksW2G]; exact right_built0) hI
+
 end KCore.TieE3KseqRuleW2
 
 #check @KCore.TieE3KseqRuleW2.rules_tie
@@ -153,6 +185,10 @@ end KCore.TieE3KseqRuleW2
 #check @KCore.TieE3KseqRuleW2.rule162_entailed
 #check @KCore.TieE3KseqRuleW2.rule163_entailed
 #check @KCore.TieE3KseqRuleW2.rule160_w2
+#check @KCore.TieE3KseqRuleW2.rule160_entailed
+#print axioms KCore.TieE3KseqRuleW2.rule160_entailed
+#check @KCore.TieRuleW2G.rules_w2_builtG
+#check @KCore.TieRuleW2G.rules_w2_builtG_nil
 #check @KCore.TieRuleW2G.rule_w2_guarded
 #check @KCore.TieRuleW2G.ruleGuard_of_built
 #check @KCore.TieRuleW2G.rule_w2_built

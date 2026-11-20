@@ -43,7 +43,9 @@
     is the element X). W2, with the guard: in a model of Γ the sentence holds at each valuation at
     which `⌈R⌉` holds wherever the text's left side does (`rule_w2`), since the text's left side
     with `⌈R⌉` is inside Γ's (`left_sup`: `f(X #And Y) ==Int 0 = true` holds of the element `true`
-    of Bool, so `X #And Y` has an element and X, Y are one).
+    of Bool, so `X #And Y` has an element and X, Y are one). `right_defined`, `rule_w2_noprem`:
+    `⌈R⌉` is the one conjunct after the membership and holds in every model of Γ where the guards
+    hold (R is built of variables, constructors and `inj{Exp,KItem}`), so Γ entails sentence 155.
 
   The sentences with no counterpart in f2-examples/ens.kompile.kore are `unmapped` (15);
   the sentences of a class with a theorem that no theorem here holds of are `uncovered` (none).
@@ -931,6 +933,69 @@ theorem rule_w2 (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation Ko
     left_sup H hD hc hSig hDom e m hgs a ha (hR a ha)
 
 
+/-! ## The right side is defined in every model of Γ -/
+
+/-- The generators of the right side's term: the top cell, the `k` cell, `kseq`, the injection of
+Exp into KItem and the constructor `done`. -/
+def rightGens : List (String × KoreAML.Gen) :=
+  [("GeneratedTopCell", .ctor ⟨"Lbl'-LT-'generatedTop'-GT-'", ["KCell", "GeneratedCounterCell"], "GeneratedTopCell"⟩),
+   ("KCell", .ctor ⟨"Lbl'-LT-'k'-GT-'", ["K"], "KCell"⟩),
+   ("K", .ctor ⟨"kseq", ["KItem", "K"], "K"⟩),
+   ("KItem", .inj "Exp"),
+   ("Exp", .ctor ⟨"Lbldone", [], "Exp"⟩)]
+
+/-- Γ has the Cons-Fun item of each (kernel). -/
+theorem right_funs : TieRuleCutG.funsInGB c rightGens = true := by decide +kernel
+
+/-- The right side's term, `<k> done </k>`. -/
+noncomputable def rT : Kore.Pattern := TieRuleLhs.andHead q0.2.2
+
+/-- The conjunct of Γ's left side after the membership is `⌈rT ∧ ⊤⌉` alone, and `rT` is built of
+the text's variables and of those generators (kernel). -/
+theorem right_built : (TieRuleLhs.andTail q0.2.1).drop 2 = [.ceil tC tC (.and tC [rT, .top tC])] ∧
+    TieRuleCutG.builtGB rightGens fT0 rT "GeneratedTopCell" = true := by decide +kernel
+
+theorem sorts_numbered : Srt.bool < nRegSorts + c.sortNames.length ∧ topCellSort < nRegSorts + c.sortNames.length := by
+  decide +kernel
+
+/-- **The premise of `rule_w2` holds in every model of Γ**, for every H: where the guards of the
+text's variables hold, the right side holds one element, by the Cons-Fun items of its generators,
+so `⌈R⌉` holds of every element of the top cell's sort, which the `requires` of the text's left
+side (an `\equals` at that sort) keeps its elements in. -/
+theorem right_defined (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
+    (hI : I ⊧ᴵP Γ (cH H)) (e : Valuation M) (m : M)
+    (hg : ∀ k ∈ fT0, (guardOf (tableOf [] p0) k).interpret I e m) (a : M)
+    (ha : (tr ⟨tableOf [] p0, []⟩ Ltext0).interpret I e a) :
+    ∀ x ∈ (TieRuleLhs.andTail q0.2.1).drop 2, (tr ⟨tableOf [] p0, []⟩ x).interpret I e a := by
+  haveI : OvlOK (cH H) := ovlOK_of_core (coreOKH H)
+  intro x hx
+  rw [right_built.1] at hx
+  rw [List.mem_singleton.mp hx]
+  have ha' : (tr ⟨tableOf [] p0, []⟩ (.and tC [TieRuleLhs.andHead q0.2.1,
+      .equals (srt "Bool") (srt "GeneratedTopCell") (eqZ (.and (srt "Int") [xP, yP])) (.dv (srt "Bool") "true")])).interpret I e a := ha
+  have h1 := (interp_and (List.cons_ne_nil _ _)).mp ha' _ (List.mem_cons_of_mem _ List.mem_cons_self)
+  exact TieRuleCutG.rightDefined_top hI sorts_numbered.2 (top_name H)
+    ((TieRuleCutG.funsInGB_withHooks c H rightGens).trans right_funs) right_built.2 e m hg a
+    (TieRuleCutG.equals_top hI sorts_numbered.1 (bool_name H) sorts_numbered.2 (top_name H) h1)
+
+/-- **W2 for the rule, without a premise**: sentence 155 holds in every model of Γ, for every H. -/
+theorem rule_w2_noprem (H : HookParams) : Γ (cH H) ⊧ (trS U.ax155).pat := by
+  intro M _ I hI e m
+  haveI : OvlOK (cH H) := ovlOK_of_core (coreOKH H)
+  have hD := defOK hI
+  have hc : I ⊧ᴵ ceilDefItem.pat := sat_sigItem hI (sig_ceilDef (c := cH H))
+  have hSig : I ⊧ᴵP ΓSig (cH H) := fun φ hφ => sat_sig hI hφ
+  have hDom : I ⊧ᴵP ΓDomains (cH H) := fun φ hφ => sat_dom hI hφ
+  have hit : trAxiom [] [] ⟨0, "kernel", ⟨[], p0, []⟩⟩ ∈ ruleItems (cH H) := by
+    rw [TiePair.ruleItems_withHooks, ruleItems_eq]; exact List.mem_singleton_self _
+  have hg : I ⊧ᴵ (trAxiom [] [] ⟨0, "kernel", ⟨[], p0, []⟩⟩).pat :=
+    hI _ (Or.inl (Or.inr (Or.inl ⟨_, hit, rfl⟩)))
+  rw [TieRuleLhs.rwParts_eq q0_eq, TieRuleLhs.trAxiom_rule] at hg
+  rw [trS155]
+  exact TieRuleLhs.lhs_entails hD free_sub hg e m fun hgs a ha =>
+    left_sup H hD hc hSig hDom e m hgs a ha (right_defined H hI e m hgs a ha)
+
+
 end KCore.TieE3MlReqAndUnderApp
 
 #check @KCore.TieE3MlReqAndUnderApp.noRaw
@@ -1002,3 +1067,6 @@ end KCore.TieE3MlReqAndUnderApp
 #print axioms KCore.TieE3MlReqAndUnderApp.left_sup
 #print axioms KCore.TieE3MlReqAndUnderApp.rule_from_text
 #print axioms KCore.TieE3MlReqAndUnderApp.rule_w2
+#check @KCore.TieE3MlReqAndUnderApp.right_defined
+#check @KCore.TieE3MlReqAndUnderApp.rule_w2_noprem
+#print axioms KCore.TieE3MlReqAndUnderApp.rule_w2_noprem
