@@ -3,7 +3,7 @@
 
 Usage (from anywhere; the library and `kcore` built first):
   python3 -I test/constructs/tiegen.py FIXTURE [--sig-chunk N] [--decl-chunk N] [--chunk N]
-                                               [--hand consistency=FILE] [--hand ovlfn=FILE]
+                                               [--hand consistency=FILE] [--hand ovlfn=FILE] [--hand rules=FILE]
                                                [--at-values N,...] [--reads-h N,...]
                                                [--cons-head] [--wf-parts]
                                                [--split] [--account-sorted] [--heads-literal] [--heads-codes]
@@ -132,6 +132,20 @@ order, holding only such sentences, and `ovlfn_refuted_sub` states it a sublist 
 `OvlFnHyp<i>` (a hypothesis on H), `ovlfn_hyp_at_values_<i>` (under it, the sentence at values),
 `ovlfn_hyp_holds_<i>` and `ovlfn_hyp_fails_<i>` (an H at which it holds, one at which it fails). tiegen
 reads only the names; their statements are the section's.
+--hand rules=FILE adds FILE as the last section, for a text whose rule sentences tiegen does not tie
+itself (Γ's rule items are not each the translation of one rule sentence with a conjunct more, for
+example a rule Γ reads through a cut, or with a priority premise): FILE starts with `/-! ## The rules`
+and states, at the top level or in namespaces it opens, `ruleText : List AxiomDecl` (the rule
+sentences, as `[U.ax<i>, ...]`, in `ruleItems`' order), `theorem rules_account : (classOf "rewrite
+rule").isPerm (ruleText.map (·.index)) = true` and W1 for every H, `theorem rule_from_text (H :
+HookParams)` with one of the statements `∀ it ∈ ruleItems (cH H), ∃ ad ∈ ruleText, itemsPremises [trS
+ad] ⊧ it.pat` or `∀ (j : Nat) (it : Item), (ruleItems (cH H))[j]? = some it → ∃ ad, ruleText[j]? = some
+ad ∧ (TiePair.Texts [(trS ad).pat] ⊧ it.pat)` (each of Γ's rule items is a consequence of its
+sentence). The sentences of `ruleText`, which must be the class rewrite rule, are then not
+`uncovered`, and the header says where they are tied. The theorems checked at the end are
+`rules_account`, `rule_from_text` and FILE's theorems whose comment opens in bold (`/-- **`), its
+headline statements. Refused with --split, on a text without rule sentences, and where tiegen ties the
+rules itself.
 --hand consistency=FILE puts FILE in place of the consistency section, for a text that owes an
 agreement, a clause's match independence, or a rule's or clause's condition (`owed_rules`,
 `owed_clauses`): FILE proves the owed facts and states `consistent` for every H, with `facts` for an
@@ -242,7 +256,9 @@ What it states where the text:
   (`AgreeOwed`), the proof owed (`owed` in the summary), unless `--hand consistency` gives it;
 - has an open generator (`raw`; one at most): `params_raw`, `facts` and `consistent` for every H
   satisfying `OpenLaws`, at `lawHooks c H` for every H, for every H where it has no law
-  (`openLaws_any`); its law sentence is Γ's law item (`openlaw_*`, the class `open generator law`),
+  (`openLaws_any`); `libAdmitted_lawHooks` (`lawHooks c H` is admitted by the library's sentences
+  wherever H is) and `lawHooks_lib` (`lawHooks c HookParams.lib` satisfies the laws, the generators'
+  `functional` sentences and the library's sentences together, CN-4 4.7); its law sentence is Γ's law item (`openlaw_*`, the class `open generator law`),
   its functional sentence no item of Γ (`open_functional_not_item`, the class `open generator
   functional`);
 - states a law of a function (`Definition.laws`): `law_text` (the sentence as written is `lawPattern`),
@@ -1908,6 +1924,11 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         covered |= {i for _, _, _, i in prios_out["tie"]}
     if idem is not None:
         covered.add(idem)
+    # the rule sentences a hand section ties (`--hand rules`), where tiegen does not
+    rules_hand = (rules_hand_of(name, hand["rules"], by_class["rewrite rule"], rules_full, split)
+                  if "rules" in hand else None)
+    if rules_hand:
+        covered |= set(rules_hand["idx"])
     # a user lemma has no generated theorem: it is the tie's remainder, as an uncovered sentence of a
     # class with a theorem is
     uncovered = [(i, cls[i]) for i in idx
@@ -2076,6 +2097,9 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             w("    has no law, so that is every H (`openLaws_any`, `consistent_any`).")
         else:
             w("    `consistent`), at `lawHooks c H` for every H (`lawHooks_laws`, `consistent_lawHooks`).")
+        w("    `lawHooks c H` is admitted by the library's sentences wherever H is (`libAdmitted_lawHooks`), so")
+        w("    `lawHooks c HookParams.lib` satisfies the laws, the open generators' `functional` sentences and")
+        w("    the library's sentences together (`lawHooks_lib`).")
     elif held_total:
         th = "`Γc`" if confined else "Γ"
         owes = []
@@ -2214,6 +2238,17 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                 f"(`rule<j>_text`, `item_of_minusComp`).",
                 width=100, initial_indent="    ", subsequent_indent="    ", break_on_hyphens=False,
                 break_long_words=False).replace("\0", " "))
+    if rules_hand:
+        rp = rules_hand["prefix"]
+        w(textwrap.fill(
+            f"Rewrite rules ({', '.join(map(str, rules_hand['idx']))}), by hand, in the section `The rules`"
+            + (f" (`{rp[:-1]}`)" if rp else "") + f": each of Γ's rule items is a consequence of its text "
+            f"sentence, `{rp}ruleText` in `ruleItems`' order (`{rp}rule_from_text`, W1, every H; "
+            f"`{rp}rules_account`)."
+            + (" The section's other headline statements (its comment says what each states): "
+               + ", ".join(f"`{n}`" for n in rules_hand["names"][2:]) + "." if rules_hand["names"][2:] else ""),
+            width=100, initial_indent="  - ", subsequent_indent="    ", break_on_hyphens=False,
+            break_long_words=False))
     w(f"  - Constructor sentences ({len(cons_text)}): entailed by Γ (`cons_entailed`).")
     if ovl_eq:
         w(f"  - Overload axioms ({', '.join(map(str, ovl_eq))}): entailed by Γ, whose overload equation states each at every")
@@ -3230,6 +3265,20 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w("theorem consistent_lawHooks (H : HookParams) : Consistent (c.withHooks (lawHooks c H)) :=")
         w("  consistent (lawHooks c H) (lawHooks_laws H).1")
         w("")
+        w("/-- **`lawHooks c H` is admitted by the library's sentences wherever H is and gives `_RangeMap_`")
+        w("no value**, for every H (`KCore.libAdmitted_lawHooks`). -/")
+        w("theorem libAdmitted_lawHooks (H : HookParams) (ha : (c.withHooks H).libAdmitted)")
+        w("    (hrm : ∀ vs, H.app rmConcat vs = none) : (c.withHooks (lawHooks c H)).libAdmitted :=")
+        w("  KCore.libAdmitted_lawHooks c coreOK H ha hrm")
+        w("")
+        w("/-- **`lawHooks c HookParams.lib` satisfies the laws, the open generators' `functional` sentences")
+        w("and the library's sentences together.** -/")
+        w("theorem lawHooks_lib :")
+        w("    OpenLaws (c.withHooks (lawHooks c HookParams.lib)) ∧ OpenTotal (c.withHooks (lawHooks c HookParams.lib)) ∧")
+        w("    (c.withHooks (lawHooks c HookParams.lib)).libAdmitted :=")
+        w("  ⟨(lawHooks_laws HookParams.lib).1, (lawHooks_laws HookParams.lib).2,")
+        w("    libAdmitted_lawHooks HookParams.lib (libAdmitted_lib_of_coreOK coreOK) lib_app_rmConcat_none⟩")
+        w("")
         if no_law and len(raw) == 1:
             w(f"/-- **{rnames} has no law: `OpenLaws` holds under every interpretation.** -/")
             w("theorem openLaws_any (H : HookParams) : OpenLaws (cH H) := fun k hk hr => by")
@@ -3735,6 +3784,10 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         sec, cnames = gamma_c_section(gamma, fn_align, nrules, fn_any, nj_triv, nj_items, nj_kitem, cons_text, idem,
                                       own_idem, ovl_eq, ovl_nc, tok_omit, tok_sorts, ovl_fn, ovl_fn_rows)
         w(sec)
+    if rules_hand:
+        # in place of it, the hand section
+        w(HAND_SECTIONS["rules"] + " (by hand) -/")
+        w("")
     w(f"end KCore.{ns}")
     w("")
     names = ["params_raw" if raw else "noRaw", "readsConfined_c", "userAxioms_eq", "coreOK"] + (["wf_defn"] if wf_ok else []) + \
@@ -3801,7 +3854,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     if law_idx:
         names += ["law_indices", "law_text", "law_not_item", "law_account"]
     if raw:
-        names += ["names", "facts", "lawHooks_laws", "consistent_lawHooks"] + (["openLaws_any", "consistent_any"] if no_law and len(raw) == 1 else [])
+        names += ["names", "facts", "lawHooks_laws", "consistent_lawHooks", "libAdmitted_lawHooks", "lawHooks_lib"] + (["openLaws_any", "consistent_any"] if no_law and len(raw) == 1 else [])
     names += nj_names
     if open_law:
         names += ["openlaw_item", "openlaw_cons", "openlaw_entailed", "openlaw_account"]
@@ -3817,6 +3870,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     if facts_kind == "FnFacts" and not agree and not raw and not held_total:
         names += ["owed_rules", "owed_clauses", "openDecidedH"]
     names += cnames
+    if rules_hand:
+        names += rules_hand["names"]
     pair_names = ["fns_account", "aW_narrowed", "w_text", "w_differs", "w1", "shape", "fns_entailed",
                   "fns_from_text", "fn_prios", "gamma_from"] if fn_pair else []
     if fn_pairs:
@@ -4104,7 +4159,78 @@ def split_tie(ns, lean, marks, text_rel, cmd, blocks):
 
 # the sections a hand-written text may take the place of (`--hand NAME=FILE`), by their first line
 HAND_SECTIONS = {"consistency": "/-! ## Consistency for every H",
-                 "ovlfn": "/-! ## Sentences of a function-overloaded symbol: the covered part"}
+                 "ovlfn": "/-! ## Sentences of a function-overloaded symbol: the covered part",
+                 "rules": "/-! ## The rules"}
+
+# the statements of W1 for the rules a hand section (`--hand rules`) may give `rule_from_text`, up to
+# white space: the generated one, and the one by the position of each item
+RULES_W1_FORMS = [
+    "(H : HookParams) : ∀ it ∈ ruleItems (cH H), ∃ ad ∈ ruleText, itemsPremises [trS ad] ⊧ it.pat",
+    "(H : HookParams) : ∀ (j : Nat) (it : Item), (ruleItems (cH H))[j]? = some it → ∃ ad, ruleText[j]? = some ad ∧ "
+    "(TiePair.Texts [(trS ad).pat] ⊧ it.pat)",
+]
+
+
+def rules_hand_of(name, text, rule_cls, rules_full, split):
+    """What the hand section on the rules (`--hand rules`) states: the sentences of `ruleText`, the
+    namespace prefix of its declarations, and the theorems to check (`rules_account`,
+    `rule_from_text`, and those whose comment opens in bold). Refused where tiegen ties the rules
+    itself, the text states none, the section is cut by --split, or the section does not state
+    `ruleText`, `rules_account` and `rule_from_text` in their forms, or `ruleText` is not the class."""
+    if split:
+        raise Refused(f"{name}: --hand rules adds a section after the others; --split does not place it")
+    if not rule_cls:
+        raise Refused(f"{name}: --hand rules: the text states no rewrite rule")
+    if rules_full:
+        raise Refused(f"{name}: --hand rules: tiegen ties the rule sentences itself (`rule_from_text`)")
+    if not text.startswith(HAND_SECTIONS["rules"]):
+        raise Refused(f"{name}: --hand rules: the section starts with `{HAND_SECTIONS['rules']}`")
+    stack, decls, bold = [], {}, False
+    lines = text.split("\n")
+    for k, ln in enumerate(lines):
+        m = re.match(r"(namespace|section) (\S+)\s*$", ln) or re.match(r"(namespace|section)\s*$", ln)
+        if m:
+            stack.append((m.group(1), m.group(2) if m.lastindex and m.lastindex >= 2 else None))
+            continue
+        if re.match(r"end(?: \S+)?\s*$", ln) and stack:
+            stack.pop()
+            continue
+        if ln.startswith("/-- **"):
+            bold = True
+        m = re.match(r"(?:noncomputable |private )?(theorem|def|abbrev) ([^\s(:{]+)", ln)
+        if m:
+            pre = "".join(n + "." for kind, n in stack if kind == "namespace" and n)
+            decls[m.group(2)] = dict(full=pre + m.group(2), kind=m.group(1), bold=bold and m.group(1) == "theorem",
+                                     line=k)
+            bold = False
+    if stack:
+        raise Refused(f"{name}: --hand rules: a namespace or section of the section is not closed")
+    for n in ("ruleText", "rules_account", "rule_from_text"):
+        if n not in decls:
+            raise Refused(f"{name}: --hand rules: the section does not state `{n}`")
+    pre = {decls[n]["full"][:-len(n)] for n in ("ruleText", "rules_account", "rule_from_text")}
+    if len(pre) != 1:
+        raise Refused(f"{name}: --hand rules: `ruleText`, `rules_account` and `rule_from_text` are not in one namespace")
+    prefix = pre.pop()
+    m = re.search(r"^(?:noncomputable )?def ruleText : List AxiomDecl :=\s*\[([^\]]*)\]", text, re.M)
+    if not m or not re.fullmatch(r"\s*U\.ax\d+(\s*,\s*U\.ax\d+)*\s*", m.group(1)):
+        raise Refused(f"{name}: --hand rules: `ruleText` is not a literal list `[U.ax<i>, ...]`")
+    idx = [int(x) for x in re.findall(r"U\.ax(\d+)", m.group(1))]
+    if sorted(idx) != sorted(rule_cls) or len(set(idx)) != len(idx):
+        raise Refused(f"{name}: --hand rules: `ruleText` lists {idx}, the class rewrite rule is {sorted(rule_cls)}")
+    if not re.search(r'^theorem rules_account : \(classOf "rewrite rule"\)\.isPerm \(ruleText\.map \(·\.index\)\) = true :=',
+                     text, re.M):
+        raise Refused(f"{name}: --hand rules: `rules_account` is not `(classOf \"rewrite rule\").isPerm "
+                      f"(ruleText.map (·.index)) = true`")
+    m = re.search(r"^theorem rule_from_text (.*?):=", text, re.M | re.S)
+    st = " ".join(m.group(1).split()) if m else ""
+    if st not in RULES_W1_FORMS:
+        raise Refused(f"{name}: --hand rules: `rule_from_text` states {st!r}, not W1 for every H in a form tiegen "
+                      f"reads (" + "; ".join(RULES_W1_FORMS) + ")")
+    names = [decls["rules_account"]["full"], decls["rule_from_text"]["full"]] + \
+        [d["full"] for n, d in sorted(decls.items(), key=lambda kv: kv[1]["line"])
+         if d["bold"] and n not in ("rules_account", "rule_from_text")]
+    return dict(idx=idx, prefix=prefix, names=names)
 
 NEX_TIE = os.path.join(KS, "test/NonExecOwiseTie.lean")
 

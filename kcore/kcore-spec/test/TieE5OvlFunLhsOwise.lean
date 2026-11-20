@@ -3,8 +3,7 @@
   (`test/constructs/fixtures/e5-ovl-fun-lhs-owise`), sentence by sentence, against the translation of the text as
   written (`trS ad := trAxiom k.symbolDecls k.aliasNames ad`), on the literals `kore` and `defn`, for
   every interpretation H. Nothing here reads `Parse.parse` or `emit`. Written by
-  `test/constructs/tiegen.py e5-ovl-fun-lhs-owise`, its consistency, ovlfn section by hand, and the section `Run`,
-  by hand; run from the package root:
+  `test/constructs/tiegen.py e5-ovl-fun-lhs-owise`, its consistency, ovlfn, rules section by hand; run from the package root:
   `lake env lean -j1 test/TieE5OvlFunLhsOwise.lean`.
 
   The definition reads a confined sort (`readsConfined_c`, `Semantics.readsConfined`), so its
@@ -33,6 +32,14 @@
   - Function equations (34): each of Γ's items is the translation of one sentence, in the
     order `fnText` lists them (`fn_shape`); `fns_entailed` (E), `fns_from_text` (the converse),
     `fn_prios` (the priorities the sentences state are the clauses').
+  - Rewrite rules (169, 170), by hand, in the section `The rules` (`Run`): each of Γ's rule items is
+    a consequence of its text sentence, `Run.ruleText` in `ruleItems`' order (`Run.rule_from_text`,
+    W1, every H; `Run.rules_account`). The section's other headline statements (its comment says
+    what each states): `Run.held_ok`, `Run.ow_text`, `Run.cut_parts`, `Run.cut_text`, `Run.shape`,
+    `Run.gamma_from`, `Run.pre_model`, `Run.evalCap_res`, `Run.cap_eq_z`, `Run.cap_ne_inf`,
+    `Run.stepZ`, `Run.succ_z`, `Run.notApplies_inf`, `Run.stepInf`, `Run.succ_inf`, `Run.sound_of`,
+    `Run.complete_of`, `Run.z_step`, `Run.inf_step`, `Run.z_only`, `Run.inf_only`, `Run.z_succs`,
+    `Run.inf_succs`.
   - Constructor sentences (35): entailed by Γ (`cons_entailed`).
   - Overload axioms (139): entailed by Γ, whose overload equation states each at every
     element (`ovleq_entailed`).
@@ -51,11 +58,6 @@
   - Library sample, 181 (`I -Int 0 = I`): holds at values (`lib166`, `lib166_at_values`).
   - Function functional: at values in every model of `Γc`, from `FnHyp`, which holds for every H
     (`fnHypH`), and the sort predicates' results (`fnFun_at_values`, `fnFun_account`).
-  - Rewrite rules (169, the `[owise]` rule `run(_) => done(inf)`; 170, `run(cap(G)) => done(G)`,
-    which Γ reads through the cut, `Ovl0` in the place of `capGas(G)` with `pre := Ovl0 ∈ capGas(G)`),
-    by hand, in the section `Run`: each of Γ's rule items is a consequence of its sentence
-    (`Run.rule_from_text`, W1, every H; 169 by `TieRulePair.rule_weaker`, 170 by
-    `TieRuleCut.openCut_w1`).
   - Hooked functional, collection law, library: at values (no theorem here); no direction:
     `absent_closed`.
 
@@ -64,19 +66,6 @@
 
   The sentences with no counterpart in f2-examples/ens.kompile.kore are `unmapped` (33);
   the sentences of a class with a theorem that no theorem here holds of are `uncovered` (0).
-
-  The section `Run` also states the fixture's expectations (C7 form (a)), for every H, over
-  `Run.Pre H`: the function sentences as written, Γ's rule items, the families of the reading and
-  `Γcl` (`Run.gamma_from`, `Run.pre_model`).
-  - `Run.z_step`: `run(inj{N,Gas}(z))`, the value of `run(cap(z))`, steps to `done(inj{N,Gas}(z))`
-    by the cut rule. `Run.z_only`: in every model of `Pre` with the step's closure, a configuration
-    it has a successor in is `done(inj{N,Gas}(z))`. `Run.z_succs`: every successor is in the cut
-    rule's family at `Ovl0 := inj{N,Gas}(z)`.
-  - `Run.inf_step`: `run(inf)` steps to `done(inf)` by the `[owise]` rule, in every model of `Pre`,
-    where G ranges over the elements of the unconfined sort Gas: the cut holds G (`Run.held_ok`,
-    `KCore.memHeld`). `Run.inf_only`, `Run.inf_succs`: as above, the family at `Ovl0 := inf` beside
-    `done(inf)`.
-  That an element of the cut rule's family is a value's element is not stated here.
 -/
 import KcoreSpec
 
@@ -1964,19 +1953,24 @@ end KCore.TieE5OvlFunLhsOwise
 #check @KCore.TieE5OvlFunLhsOwise.ovlfn_entails_item_82_c
 #check @KCore.TieE5OvlFunLhsOwise.ovlfn_entails_item_83_c
 #check @KCore.TieE5OvlFunLhsOwise.Run.rules_account
+#check @KCore.TieE5OvlFunLhsOwise.Run.rule_from_text
+#check @KCore.TieE5OvlFunLhsOwise.Run.held_ok
 #check @KCore.TieE5OvlFunLhsOwise.Run.ow_text
 #check @KCore.TieE5OvlFunLhsOwise.Run.cut_parts
 #check @KCore.TieE5OvlFunLhsOwise.Run.cut_text
-#check @KCore.TieE5OvlFunLhsOwise.Run.rule_from_text
-#check @KCore.TieE5OvlFunLhsOwise.Run.held_ok
 #check @KCore.TieE5OvlFunLhsOwise.Run.shape
 #check @KCore.TieE5OvlFunLhsOwise.Run.gamma_from
 #check @KCore.TieE5OvlFunLhsOwise.Run.pre_model
+#check @KCore.TieE5OvlFunLhsOwise.Run.evalCap_res
+#check @KCore.TieE5OvlFunLhsOwise.Run.cap_eq_z
+#check @KCore.TieE5OvlFunLhsOwise.Run.cap_ne_inf
 #check @KCore.TieE5OvlFunLhsOwise.Run.stepZ
 #check @KCore.TieE5OvlFunLhsOwise.Run.succ_z
 #check @KCore.TieE5OvlFunLhsOwise.Run.notApplies_inf
 #check @KCore.TieE5OvlFunLhsOwise.Run.stepInf
 #check @KCore.TieE5OvlFunLhsOwise.Run.succ_inf
+#check @KCore.TieE5OvlFunLhsOwise.Run.sound_of
+#check @KCore.TieE5OvlFunLhsOwise.Run.complete_of
 #check @KCore.TieE5OvlFunLhsOwise.Run.z_step
 #check @KCore.TieE5OvlFunLhsOwise.Run.inf_step
 #check @KCore.TieE5OvlFunLhsOwise.Run.z_only
@@ -2051,19 +2045,24 @@ end KCore.TieE5OvlFunLhsOwise
 #print axioms KCore.TieE5OvlFunLhsOwise.ovlfn_entails_item_82_c
 #print axioms KCore.TieE5OvlFunLhsOwise.ovlfn_entails_item_83_c
 #print axioms KCore.TieE5OvlFunLhsOwise.Run.rules_account
+#print axioms KCore.TieE5OvlFunLhsOwise.Run.rule_from_text
+#print axioms KCore.TieE5OvlFunLhsOwise.Run.held_ok
 #print axioms KCore.TieE5OvlFunLhsOwise.Run.ow_text
 #print axioms KCore.TieE5OvlFunLhsOwise.Run.cut_parts
 #print axioms KCore.TieE5OvlFunLhsOwise.Run.cut_text
-#print axioms KCore.TieE5OvlFunLhsOwise.Run.rule_from_text
-#print axioms KCore.TieE5OvlFunLhsOwise.Run.held_ok
 #print axioms KCore.TieE5OvlFunLhsOwise.Run.shape
 #print axioms KCore.TieE5OvlFunLhsOwise.Run.gamma_from
 #print axioms KCore.TieE5OvlFunLhsOwise.Run.pre_model
+#print axioms KCore.TieE5OvlFunLhsOwise.Run.evalCap_res
+#print axioms KCore.TieE5OvlFunLhsOwise.Run.cap_eq_z
+#print axioms KCore.TieE5OvlFunLhsOwise.Run.cap_ne_inf
 #print axioms KCore.TieE5OvlFunLhsOwise.Run.stepZ
 #print axioms KCore.TieE5OvlFunLhsOwise.Run.succ_z
 #print axioms KCore.TieE5OvlFunLhsOwise.Run.notApplies_inf
 #print axioms KCore.TieE5OvlFunLhsOwise.Run.stepInf
 #print axioms KCore.TieE5OvlFunLhsOwise.Run.succ_inf
+#print axioms KCore.TieE5OvlFunLhsOwise.Run.sound_of
+#print axioms KCore.TieE5OvlFunLhsOwise.Run.complete_of
 #print axioms KCore.TieE5OvlFunLhsOwise.Run.z_step
 #print axioms KCore.TieE5OvlFunLhsOwise.Run.inf_step
 #print axioms KCore.TieE5OvlFunLhsOwise.Run.z_only

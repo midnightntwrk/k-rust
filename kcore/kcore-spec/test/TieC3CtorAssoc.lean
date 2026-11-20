@@ -24,6 +24,9 @@
     about its functions (`term_named`, `total_named`, `agree_named`, `match_named`), so Γ with the
     step's closure has a model for every H that satisfies the open generator's laws (`facts`,
     `consistent`), at `lawHooks c H` for every H (`lawHooks_laws`, `consistent_lawHooks`).
+    `lawHooks c H` is admitted by the library's sentences wherever H is (`libAdmitted_lawHooks`), so
+    `lawHooks c HookParams.lib` satisfies the laws, the open generators' `functional` sentences and
+    the library's sentences together (`lawHooks_lib`).
 
   Layer 2, by class (indices are the text's axiom numbers, `AxiomDecl.index`).
   - Function equations (29): each of Γ's items is the translation of one sentence, in the
@@ -354,6 +357,20 @@ theorem lawHooks_laws (H : HookParams) :
 
 theorem consistent_lawHooks (H : HookParams) : Consistent (c.withHooks (lawHooks c H)) :=
   consistent (lawHooks c H) (lawHooks_laws H).1
+
+/-- **`lawHooks c H` is admitted by the library's sentences wherever H is and gives `_RangeMap_`
+no value**, for every H (`KCore.libAdmitted_lawHooks`). -/
+theorem libAdmitted_lawHooks (H : HookParams) (ha : (c.withHooks H).libAdmitted)
+    (hrm : ∀ vs, H.app rmConcat vs = none) : (c.withHooks (lawHooks c H)).libAdmitted :=
+  KCore.libAdmitted_lawHooks c coreOK H ha hrm
+
+/-- **`lawHooks c HookParams.lib` satisfies the laws, the open generators' `functional` sentences
+and the library's sentences together.** -/
+theorem lawHooks_lib :
+    OpenLaws (c.withHooks (lawHooks c HookParams.lib)) ∧ OpenTotal (c.withHooks (lawHooks c HookParams.lib)) ∧
+    (c.withHooks (lawHooks c HookParams.lib)).libAdmitted :=
+  ⟨(lawHooks_laws HookParams.lib).1, (lawHooks_laws HookParams.lib).2,
+    libAdmitted_lawHooks HookParams.lib (libAdmitted_lib_of_coreOK coreOK) lib_app_rmConcat_none⟩
 
 /-! ## Function functional (15): the sort predicates' `functional` sentences, at values in every model of Γc -/
 
@@ -811,6 +828,8 @@ end KCore.TieC3CtorAssoc
 #check @KCore.TieC3CtorAssoc.facts
 #check @KCore.TieC3CtorAssoc.lawHooks_laws
 #check @KCore.TieC3CtorAssoc.consistent_lawHooks
+#check @KCore.TieC3CtorAssoc.libAdmitted_lawHooks
+#check @KCore.TieC3CtorAssoc.lawHooks_lib
 #check @KCore.TieC3CtorAssoc.nojunk_exp_order
 #check @KCore.TieC3CtorAssoc.nojunk_exp_members
 #check @KCore.TieC3CtorAssoc.nojunk_exp_plus
@@ -860,6 +879,8 @@ end KCore.TieC3CtorAssoc
 #print axioms KCore.TieC3CtorAssoc.facts
 #print axioms KCore.TieC3CtorAssoc.lawHooks_laws
 #print axioms KCore.TieC3CtorAssoc.consistent_lawHooks
+#print axioms KCore.TieC3CtorAssoc.libAdmitted_lawHooks
+#print axioms KCore.TieC3CtorAssoc.lawHooks_lib
 #print axioms KCore.TieC3CtorAssoc.nojunk_exp_order
 #print axioms KCore.TieC3CtorAssoc.nojunk_exp_members
 #print axioms KCore.TieC3CtorAssoc.nojunk_exp_plus

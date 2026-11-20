@@ -3,7 +3,7 @@
   (`test/constructs/fixtures/e5-ovl-fun-keep-run`), sentence by sentence, against the translation of the text as
   written (`trS ad := trAxiom k.symbolDecls k.aliasNames ad`), on the literals `kore` and `defn`, for
   every interpretation H. Nothing here reads `Parse.parse` or `emit`. Written by
-  `test/constructs/tiegen.py e5-ovl-fun-keep-run`, its consistency, ovlfn section by hand; run from the package root:
+  `test/constructs/tiegen.py e5-ovl-fun-keep-run`, its consistency, ovlfn, rules section by hand; run from the package root:
   `lake env lean -j1 test/TieE5OvlFunKeepRun.lean`.
 
   The definition reads a confined sort (`readsConfined_c`, `Semantics.readsConfined`), so its
@@ -32,6 +32,10 @@
   - Function equations (34): each of Γ's items is the translation of one sentence, in the
     order `fnText` lists them (`fn_shape`); `fns_entailed` (E), `fns_from_text` (the converse),
     `fn_prios` (the priorities the sentences state are the clauses').
+  - Rewrite rules (111), by hand, in the section `The rules` (`Run`): each of Γ's rule items is a
+    consequence of its text sentence, `Run.ruleText` in `ruleItems`' order (`Run.rule_from_text`,
+    W1, every H; `Run.rules_account`). The section's other headline statements (its comment says
+    what each states): `Run.cut_parts`, `Run.cut_text`.
   - Constructor sentences (35): entailed by Γ (`cons_entailed`).
   - Overload axioms (110): entailed by Γ, whose overload equation states each at every
     element (`ovleq_entailed`).
@@ -56,7 +60,7 @@
   order than `Semantics.gens`.
 
   The sentences with no counterpart in f2-examples/ens.kompile.kore are `unmapped` (33);
-  the sentences of a class with a theorem that no theorem here holds of are `uncovered` (1).
+  the sentences of a class with a theorem that no theorem here holds of are `uncovered` (0).
 -/
 import KcoreSpec
 
@@ -215,7 +219,7 @@ def unmapped : List (Nat × String) :=
 /-- The sentences of a class with a theorem in the tie that no theorem of this file holds of: the
 tie's remainder on this text. -/
 def uncovered : List (Nat × String) :=
-  [(111, "rewrite rule")]
+  []
 
 /-- Each listed sentence is in its class in the account. -/
 theorem lists_in_account : (unmapped ++ uncovered).all (fun ic => (classOf ic.2).contains ic.1) = true := by
@@ -1197,6 +1201,89 @@ theorem ovlfn_entails_item_60_c (H : HookParams) {M : Type} [Inhabited M] {I : I
     (I ⊧ᴵ (KoreAML.Cons.distUncItem ((cH H).sortName 32) (Gen.toK (cH H) ovlFnGen1) (Gen.toK (cH H) ovlFnGen0) (ovlArgsOf (cH H) ovlFnGen1) (ovlArgsOf (cH H) ovlFnGen0)).pat) :=
   ovlfn_entails_item_60 H (fun φ hφ => hI φ (Γ_sub_Γc _ hφ)) hf h
 
+/-! ## The rules (111): W1 through the cut, for every H (by hand)
+
+Γ's one rule is `run(cap(G)) => done(G)` (sentence 111) read through the cut (`Parse.ovlCut`): its
+left side holds the variable `Ovl0` (`V`) in the place of `capGas(G)` (`φ`), and its `pre` is
+`Ovl0 ∈ capGas(G)`. Γ's axiom of the rule is `\rewrites(K[V] ∧ ⊤ ∧ V ∈ φ ∧ ⌈r⌉, r)` (`cut_parts`),
+and sentence 111 is the item of `\rewrites(K[φ] ∧ ⊤, r)` at the table of Γ's axiom, one variable
+renamed (`cut_text`); `K[φ]` is the union of `K[b]` over the elements b of φ (`KoreAML.cut_sem`).
+So Γ's rule item is a consequence of its sentence (`rule_from_text`, W1, every H, by
+`TieRuleCut.openCut_w1`). -/
+
+namespace Run
+
+/-- The rule `<k> run(cap(G)) => done(G) </k>` read through the cut. -/
+noncomputable def rCut : Rule := c.rules[0]'(by decide +kernel)
+
+theorem rules_len : c.rules.length = 1 := by decide +kernel
+
+/-- The rule sentence. -/
+noncomputable def ruleText : List AxiomDecl := [U.ax111]
+
+theorem rules_account : (classOf "rewrite rule").isPerm (ruleText.map (·.index)) = true := by decide +kernel
+
+/-- Γ's axiom of the cut rule. -/
+noncomputable def pCut : Kore.Pattern := prioRuleK c rCut
+
+theorem ruleItems_eq : ruleItems c = [trAxiom [] [] ⟨0, "kernel", ⟨[], pCut, []⟩⟩] := by kernel_rfl
+
+/-- The parts `\rewrites{C}(L', r)` of the cut rule's axiom. -/
+noncomputable def qCut : Kore.KSort × Kore.Pattern × Kore.Pattern :=
+  (TieRuleLhs.rwParts pCut).getD (KoreAML.R, .top KoreAML.R, .top KoreAML.R)
+
+/-- The context of its left side's term around the argument of `run`. -/
+noncomputable def K : KoreCutCtx :=
+  ((TieRuleLhs.cutAt [0, 0, 0, 0, 0] (TieRuleLhs.andHead qCut.2.1)).getD (.hole, .top KoreAML.R)).1
+
+/-- The variable of the cut, `Ovl0` (the rule's third variable). -/
+def V : Kore.EVar := ⟨⟨⟨"VarV2"⟩⟩, KoreAML.srt "Gas"⟩
+/-- G, the rule's first variable. -/
+def G : Kore.EVar := ⟨⟨⟨"VarV0"⟩⟩, KoreAML.srt "Gas"⟩
+
+/-- The application the cut takes out, `capGas(G)`. -/
+def φ : Kore.Pattern := .app ⟨⟨"LblcapGas"⟩⟩ [] [.var (.evar G)]
+
+/-- The conjuncts Γ's left side holds after the membership: `⌈r⌉`. -/
+noncomputable def extra : List Kore.Pattern := [.ceil qCut.1 qCut.1 qCut.2.2]
+
+/-- **Γ's axiom of the cut rule is `\rewrites(K[V] ∧ ⊤ ∧ V ∈ φ ∧ ⌈r⌉, r)`** (kernel). -/
+theorem cut_parts : TieRuleLhs.rwParts pCut = some (qCut.1,
+    .and qCut.1 (K.fill (.var (.evar V)) :: ([.top qCut.1] ++ .in V.sort qCut.1 (.var (.evar V)) φ :: extra)),
+    qCut.2.2) := by
+  decide +kernel
+
+/-- The left side as the text writes it: `capGas(G)` in the place of the variable, and no conjunct
+after `\top`. -/
+noncomputable def Ltext : Kore.Pattern := .and qCut.1 (K.fill φ :: [.top qCut.1])
+
+/-- The free variables of the text's form: G and the counter cell's. -/
+noncomputable def fT : List VarKey := (freeOf [] (.rewrites qCut.1 Ltext qCut.2.2)).eraseDups
+
+/-- **Sentence 111 is the item of `\rewrites{C}(Ltext, r)` at the table of Γ's axiom**, G renamed
+(kernel): in Γ's table the variable of the cut is the first. -/
+theorem cut_text : TiePair.renSeq (TieRuleLhs.itemAt (tableOf [] pCut) fT qCut.1 Ltext qCut.2.2) [(3, 1)] =
+    some (trS U.ax111).pat := by decide +kernel
+theorem fT_free : fT.all (fun k => (freeOf [] pCut).eraseDups.contains k) = true := by decide +kernel
+theorem K_noAlias : K.noAlias ⟨tableOf [] pCut, []⟩ = true := by decide +kernel
+
+/-- **W1 for the rule**: Γ's rule item is a consequence of its sentence, for every H, by
+`TieRuleCut.openCut_w1`. -/
+theorem rule_from_text (H : HookParams) :
+    ∀ (j : Nat) (it : Item), (ruleItems (cH H))[j]? = some it →
+      ∃ ad, ruleText[j]? = some ad ∧ (TiePair.Texts [(trS ad).pat] ⊧ it.pat) := by
+  intro j it hj
+  rw [ruleItems_withHooks, ruleItems_eq] at hj
+  match j, hj with
+  | 0, hj =>
+    cases hj
+    exact ⟨U.ax111, rfl, fun {M} _ {I} hI =>
+      TieRuleCut.openCut_w1 (TiePair.defOK_texts hI) cut_parts K_noAlias cut_text fT_free
+        (hI _ (Or.inl (List.mem_singleton_self _)))⟩
+  | j + 1, hj => simp at hj
+
+end Run
+
 end KCore.TieE5OvlFunKeepRun
 
 #check @KCore.TieE5OvlFunKeepRun.noRaw
@@ -1266,6 +1353,10 @@ end KCore.TieE5OvlFunKeepRun
 #check @KCore.TieE5OvlFunKeepRun.ovlfn_entails_item_58_c
 #check @KCore.TieE5OvlFunKeepRun.ovlfn_entails_item_59_c
 #check @KCore.TieE5OvlFunKeepRun.ovlfn_entails_item_60_c
+#check @KCore.TieE5OvlFunKeepRun.Run.rules_account
+#check @KCore.TieE5OvlFunKeepRun.Run.rule_from_text
+#check @KCore.TieE5OvlFunKeepRun.Run.cut_parts
+#check @KCore.TieE5OvlFunKeepRun.Run.cut_text
 #print axioms KCore.TieE5OvlFunKeepRun.noRaw
 #print axioms KCore.TieE5OvlFunKeepRun.readsConfined_c
 #print axioms KCore.TieE5OvlFunKeepRun.userAxioms_eq
@@ -1333,3 +1424,7 @@ end KCore.TieE5OvlFunKeepRun
 #print axioms KCore.TieE5OvlFunKeepRun.ovlfn_entails_item_58_c
 #print axioms KCore.TieE5OvlFunKeepRun.ovlfn_entails_item_59_c
 #print axioms KCore.TieE5OvlFunKeepRun.ovlfn_entails_item_60_c
+#print axioms KCore.TieE5OvlFunKeepRun.Run.rules_account
+#print axioms KCore.TieE5OvlFunKeepRun.Run.rule_from_text
+#print axioms KCore.TieE5OvlFunKeepRun.Run.cut_parts
+#print axioms KCore.TieE5OvlFunKeepRun.Run.cut_text
