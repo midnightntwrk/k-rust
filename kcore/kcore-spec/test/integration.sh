@@ -68,8 +68,9 @@
 #   test/X      every other test/*.lean checked by `lean`: the kompiled text per K construct and the
 #               library's small cores (not ReviewCone, which writes the committed cones, nor
 #               PrintNames, a command-line tool, nor TieKimpHints, a generator, nor the three files
-#               imp-tie-atvalues checks over the package), each with
-#               `#axioms_here` appended (axioms-tests)
+#               imp-tie-atvalues checks over the package, nor the pin files of the packages:
+#               PinsPeano and PinsKimp, which the rows pins-peano and pins-kimp check, and PinsKk, which
+#               test/release.sh's pins-kk step checks), each with `#axioms_here` appended (axioms-tests)
 #
 # The native checks run first, then the Lean checks, JOBS at once: JOBS is the available memory
 # (`free -g` at start) over 12 GiB, between 1 and 8, or $INTEGRATION_JOBS. Every Lean and `kcore`
@@ -224,7 +225,7 @@ pool witnesses required lean1 test/Witnesses.lean
 pool cone required cone
 for f in test/*.lean; do
   case $(basename "$f" .lean) in
-    Pins|PinsPeano|PinsKimp|Axioms|Witnesses|ConeV|ReviewCone|PrintNames|Member|PredSorted|TieKimpHints|TieKimpAtValues|TieKimpRefuted|TieKimpReach) continue;;
+    Pins|PinsPeano|PinsKimp|PinsKk|Axioms|Witnesses|ConeV|ReviewCone|PrintNames|Member|PredSorted|TieKimpHints|TieKimpAtValues|TieKimpRefuted|TieKimpReach) continue;;
   esac
   order="$order ${f%.lean}"; testx="$testx ${f%.lean}"
   pool "${f%.lean}" scoreboard leanAx "$f"
