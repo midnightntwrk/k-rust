@@ -149,6 +149,9 @@ differs f2-examples/e3-eq-exists-ctor-ml.kompile.kore
 differs f2-examples/e3-eq-exists-ml-and-right.kompile.kore
 differs f2-examples/e3-eq-exists-ml-and-terms.kompile.kore
 differs f2-examples/e3-eq-exists-ml-confined-fix.kompile.kore
+differs f2-examples/e3-eq-exists-ml-in-or-float.kompile.kore
+differs f2-examples/e3-eq-exists-ml-in-or-int.kompile.kore
+differs f2-examples/e3-eq-exists-ml-in-or.kompile.kore
 differs f2-examples/e3-eq-exists-ml-supersort.kompile.kore
 differs f2-examples/e3-eq-exists-ml-under-app.kompile.kore
 differs f2-examples/e3-eq-exists-partial-ml.kompile.kore
@@ -169,6 +172,7 @@ differs f2-examples/e3-ml-eq-rhs-or-bottom.kompile.kore
 differs f2-examples/e3-ml-eq-rhs-or-empty.kompile.kore
 differs f2-examples/e3-ml-eq-rhs-or-many-x.kompile.kore
 differs f2-examples/e3-ml-eq-rhs-or-many.kompile.kore
+differs f2-examples/e3-ml-eq-rhs-or-nest.kompile.kore
 differs f2-examples/e3-ml-eq-rhs-or.kompile.kore
 differs f2-examples/e3-ml-lhs-or-rhs-var.kompile.kore
 differs f2-examples/e3-ml-lhs-value-sort.kompile.kore
@@ -477,4 +481,3 @@ differs examples/ref-kk/RefKk/definition.kore
 differs examples/ref-peano/RefPeano/definition.kore
 exact examples/vault-leaky/VaultLeaky/definition.kore
 exact examples/vault/Vault/definition.kore
-differs f2-examples/e3-ml-eq-rhs-or-nest.kompile.kore
