@@ -14,8 +14,10 @@
   `validBits`): equal data are then equal literals (±0 distinct, the format part of the literal).
   Lean's model covers p ≥ 2 and e ≥ 2. A format K names with a field of 1 (`p1xM`, `pNx1`, N and
   M positive) has values too (`thinOK`): its encodings in the same p + e bits that are no NaN
-  pattern, and one code past the bits for its NaN (at p = 1 there is no significand field to mark
-  one). Their data are read (FloatThin.lean `tnUnpack`) and every operation computes on them, by the
+  pattern, and one code past the bits for its NaN: at p = 1 there is no significand field to mark
+  one; at e = 1 with p ≥ 2 there is one, and the patterns it marks (the exponent bit set, the
+  significand field not 0) are left out all the same, so that a format with a field of 1 has its
+  one NaN under one code whichever field is 1. Their data are read (FloatThin.lean `tnUnpack`) and every operation computes on them, by the
   formulas here over the rounding to the nearest datum of that format (Hooks.lean `asDatum`,
   `thinHooks`).
 
@@ -62,8 +64,12 @@ def validBits (s : Format) (b : Nat) : Bool :=
 /-- `b` is an encoding of a format with a field of 1 (`p = 1` or `e = 1`, both positive: domains.md
 1469-1476 names `pNxM` for N and M positive), which Lean core's model does not cover: a datum in the
 `p + e` bits of sign, `e` exponent bits and `p − 1` significand bits that is no NaN pattern (an
-exponent field of all ones with a nonzero significand field), or `2 ^ (p + e)`, the format's one NaN
-(at `p = 1` there is no significand field, so no pattern of the bits is a NaN). -/
+exponent field of all ones with a nonzero significand field), or `2 ^ (p + e)`, the format's one NaN.
+At `p = 1` there is no significand field, so no pattern of the bits is a NaN. At `e = 1` with
+`p ≥ 2` the patterns with the exponent bit set and a nonzero significand field are NaN patterns;
+none of them is a literal, and the NaN is the code `2 ^ (p + e)` there too: the format has one NaN
+(domains.md 1497), which code names it is a choice no statement depends on, and one code for every
+format with a field of 1 lets `tnUnpack` and `text` read the NaN without asking which field is 1. -/
 def thinOK (p e b : Nat) : Bool :=
   decide (1 ≤ p ∧ 1 ≤ e ∧ (p = 1 ∨ e = 1)) &&
     (b == 2 ^ (p + e) ||

@@ -1311,6 +1311,10 @@ def z11 : GroundTerm := fv 1 1 0
 def inf11 : GroundTerm := fv 1 1 1
 def nan11 : GroundTerm := fv 1 1 4
 def z18 : GroundTerm := fv 1 8 0
+def nan21 : GroundTerm := fv 2 1 8
+def half31 : GroundTerm := fv 3 1 1
+def one31 : GroundTerm := fv 3 1 2
+def oneHalf31 : GroundTerm := fv 3 1 3
 
 /-- **At a thin format the operations have the values the prose states**
 (finding 1; [P] and [A] as in `vals`, the data [R]): `isNaN(1.0p1x8)` false, `isNaN(NaNp1x8)` true,
@@ -1328,7 +1332,11 @@ one exponent bit, rulings section 7 R1): `isNaN(1.0p2x1)` false, `1.0p2x1 ==Floa
 true; `--Float 1.0p2x1` is `-1.0p2x1`, `absFloat(-1.0p2x1)` is `1.0p2x1`; 1 × 1 = 1, 1 / 1 = 1;
 `floorFloat(1.0p2x1)` is itself; `roundFloat(1.0, 2, 1)` is `1.0p2x1`, `roundFloat(1.0p2x1, 24, 8)`
 is `1.0f`; `Int2Float(1, 2, 1)` is `1.0p2x1` and `Int2Float(0, 1, 1)` is `0.0p1x1`;
-`maxValueFloat(2, 1)` and `minValueFloat(2, 1)` are both `1.0p2x1`, the one positive finite datum. -/
+`maxValueFloat(2, 1)` and `minValueFloat(2, 1)` are both `1.0p2x1`, the one positive finite datum.
+At one exponent bit and a precision of 2 or more a significand field exists: `isNaN(NaNp2x1)` is
+true, the NaN being the code past the bits there too (`KFloat.thinOK`); and a tie goes to the even
+significand [A]: `0.5p3x1 *Float 1.5p3x1` is exactly 0.75, halfway between the data 0.5 and 1.0 of
+`p3x1` (significands 1 and 2 at the exponent of the last digit), so `1.0p3x1`. -/
 def thinVals : List Pt :=
   [⟨floatIsNaN, [t18], bool false⟩, ⟨floatIsNaN, [nan18], bool true⟩, ⟨floatIsNaN, [inf18], bool false⟩,
    ⟨floatEq, [t18, one64], bool true⟩, ⟨floatEq, [two18, two], bool true⟩, ⟨floatLt, [mt18, t18], bool true⟩,
@@ -1348,7 +1356,8 @@ def thinVals : List Pt :=
    ⟨floatMul, [t21, t21], t21⟩, ⟨floatDiv, [t21, t21], t21⟩, ⟨floatFloor, [t21], t21⟩,
    ⟨floatRound, [one64, int 2, int 1], t21⟩, ⟨floatRound, [t21, int 24, int 8], one⟩,
    ⟨int2Float, [int 1, int 2, int 1], t21⟩, ⟨int2Float, [int 0, int 1, int 1], z11⟩,
-   ⟨floatMaxValue, [int 2, int 1], t21⟩, ⟨floatMinValue, [int 2, int 1], t21⟩]
+   ⟨floatMaxValue, [int 2, int 1], t21⟩, ⟨floatMinValue, [int 2, int 1], t21⟩,
+   ⟨floatIsNaN, [nan21], bool true⟩, ⟨floatMul, [half31, oneHalf31], one31⟩]
 
 theorem thinVals_ok : thinVals.all (fun p => decide (sig p.f ∈ hookSigs) && (sig p.f).name == p.f &&
     c.sortsOf p.vs == some (sig p.f).args && hook p.f p.vs == some (some p.v)) = true := by

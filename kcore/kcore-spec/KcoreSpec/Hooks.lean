@@ -925,8 +925,10 @@ Line numbers are domains.md's (K 7.1.337).
   the status it has at any format, 1475, 1481-1488) the comparisons and `isNaN` read the datum
   (`asDatum`, `KFloat.tnUnpack`), and the other operations compute on it by the formulas of a format
   with a model over the rounding to the nearest datum of that format (`thinHooks`, FloatThin.lean),
-  with the silent points the bullets above name, and at an exact result halfway between two data of
-  the format (zero and the smallest positive datum included). `isInfinite` is silent at a value of
+  with the silent points the bullets above name, and at precision 1 at an exact result halfway
+  between two data of the format: both have the significand 1, so "the even one" names neither
+  (`KFloat.tnRound`). At one exponent bit and a precision of 2 or more a tie goes to the even
+  significand, as at a format with a model. `isInfinite` is silent at a value of
   the format `(1, 1)`, where `maxValueFloat`, which its equation (1673) reads, is.
 - RANGEMAP's `lookup` and `find_range` off the keys: "yield an exception during concrete execution"
   (534-535, 555-556), of a run, and no `#False`, the reading taken for `memsetBytes`.
