@@ -120,6 +120,8 @@ differs f2-examples/e2-initial.kompile.kore
 differs f2-examples/e2-macro-plain.kompile.kore
 differs f2-examples/e2-macro.kompile.kore
 differs f2-examples/e2-module-att.kompile.kore
+differs f2-examples/e2-open-mixed-as.kompile.kore
+differs f2-examples/e2-open-mixed.kompile.kore
 differs f2-examples/e2-open-rec-held.kompile.kore
 differs f2-examples/e2-rule-nocool.kore
 differs f2-examples/e2-rule-nopreservesdefinedness.kore

@@ -18,6 +18,9 @@
     steps to `<k> d(x) </k>` and to nothing else.
   - `swap_x`, `swap_y`: at `Hswap`, which answers `and(x, y)` at `and [y, x]`, it steps both to
     `<k> d(x) </k>` and to `<k> d(y) </k>`.
+  - `step_y_undetermined`: so over all H the reading's theory with the step's closure entails
+    neither that `<k> c(x & y) </k>` steps to `<k> d(y) </k>` nor that it does not: `swap_y` and
+    exactness refute the one, `none_iff` and a model at `HookParams.none` the other.
 
   The other branches of the cut (beside an `[owise]` rule; every argument variable held elsewhere in
   the left side; an `#as` under the generator) are test/OpenGenerator.lean's.
@@ -337,6 +340,42 @@ theorem swap_y : Step (cH Hswap) XS DYS :=
 
 theorem DXS_ne : DXS ≠ DYS := fun h => absurd (congrArg Subtype.val h) (by decide +kernel)
 
+/-! ## The text does not determine whether `c(x & y)` steps to `d(y)` -/
+
+def dy : GroundTerm := cfg (.ctor symD [y])
+def DY0 : Config (cH HookParams.none) := ⟨dy, by decide +kernel⟩
+
+theorem DY0_ne : DY0 ≠ DX0 := fun h => absurd (congrArg Subtype.val h) (by decide +kernel)
+
+open ML Faithful in
+/-- **The text does not determine whether `<k> c(x & y) </k>` steps to `<k> d(y) </k>`**: over
+all H, the reading's theory with the step's closure entails neither that `<k> d(y) </k>` is not a
+successor of `<k> c(x & y) </k>` nor that it is one. The first is refuted at `Hswap`, where
+`and(y, x)` is `x & y` and the step exists (`swap_y`, in a model exactness gives); the second at
+`HookParams.none`, where `x & y` is `and`'s value at (x, y) only, so the configuration steps to
+`<k> d(x) </k>` alone (`none_iff`), and the theory has a model. -/
+theorem step_y_undetermined :
+    ¬ (∀ H : HookParams, (Γc (cH H) ∪ Γstep (cH H)) ⊧
+        (den (cH H) (cfg (.ctor symC [xy])) ⇒ ∼ KoreAML.sNext (den (cH H) dy))) ∧
+    ¬ (∀ H : HookParams, (Γc (cH H) ∪ Γstep (cH H)) ⊧
+        (den (cH H) (cfg (.ctor symC [xy])) ⇒ KoreAML.sNext (den (cH H) dy))) := by
+  refine ⟨fun h => ?_, fun h => ?_⟩
+  · obtain ⟨M, hM, I, hI, hn⟩ := (exact_hyp (cH Hswap) (coreOK_H Hswap) (fnHyp Hswap) XS DYS).mp swap_y
+    exact hn (h Hswap hI)
+  · have hns : ¬ Step (cH HookParams.none) X0 DY0 := fun hs => DY0_ne ((none_iff DY0).mp hs)
+    obtain ⟨M, hM, I, hI⟩ := (sound_hyp (cH HookParams.none) (coreOK_H _) (fnHyp _)).1
+    have hIΓ : I ⊧ᴵP Γ (cH HookParams.none) := fun φ hφ => hI φ (Or.inl (Or.inl hφ))
+    have hno : I ⊧ᴵ (den (cH HookParams.none) X0.val ⇒ ∼ KoreAML.sNext (den (cH HookParams.none) DY0.val)) :=
+      Classical.not_not.mp fun hn =>
+        hns ((exact_hyp _ (coreOK_H _) (fnHyp _) X0 DY0).mpr ⟨M, hM, I, hI, hn⟩)
+    have hx := ((elemOf_spec hIΓ X0.property KoreAML.val0).1 (elemOf (cH HookParams.none) I X0.val)).mpr rfl
+    have h1 := hno KoreAML.val0 (elemOf (cH HookParams.none) I X0.val)
+    have h2 := h HookParams.none hI KoreAML.val0 (elemOf (cH HookParams.none) I X0.val)
+    rw [interpret_impl] at h1 h2
+    have h3 := h1 hx
+    rw [interpret_neg] at h3
+    exact h3 (h2 hx)
+
 end OpenCutStep
 
 #check @OpenCutStep.step_iff
@@ -347,3 +386,5 @@ end OpenCutStep
 #print axioms OpenCutStep.none_iff
 #print axioms OpenCutStep.swap_x
 #print axioms OpenCutStep.swap_y
+#check @OpenCutStep.step_y_undetermined
+#print axioms OpenCutStep.step_y_undetermined
