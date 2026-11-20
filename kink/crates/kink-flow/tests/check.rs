@@ -4389,7 +4389,9 @@ const IMP_K: &str = include_str!("../../../examples/imp/imp.k");
 /// constructor (kink-native `Freezers`); `+` made strict in its first operand only gets stuck on
 /// `1 + (2 + 3)`; `<=` made `strict` evaluates its right operand first (an undeclared variable)
 /// where `seqstrict` gets stuck on `1 / 0`; `+` made `seqstrict` no longer reaches the undeclared
-/// variable of `1 / 0 + y`. The programs are this test's, not examples/imp's corpus.
+/// variable of `1 / 0 + y`; and `+` made strict in its first operand only is killed by
+/// `x = 1 + 1 / 0;`, whose specification end holds the freezer of `+`'s second position, which
+/// only the specification declares. The programs are this test's, not examples/imp's corpus.
 #[test]
 fn a_strictness_edit_on_imp_is_killed_by_a_run_difference() {
     use serde_json::json;
@@ -4467,4 +4469,24 @@ fn a_strictness_edit_on_imp_is_killed_by_a_run_difference() {
             "{row:#}"
         );
     }
+    // The other direction: the specification's end holds the freezer of `+`'s second position,
+    // which the mutant does not declare, and is read as a value under the mutant's definition.
+    let spec_side = dir.join("SPEC-SIDE.toml");
+    write(
+        &spec_side,
+        "[spec]\nentry = \"imp.k\"\nmain_module = \"IMP\"\nsyntax_module = \"IMP-SYNTAX\"\n\n\
+         [[program]]\nid = \"spec-freezer\"\ntext = \"int x; x = 1 + 1 / 0;\"\n",
+    );
+    let plus_only = dir.join("PLUS.toml");
+    write(
+        &plus_only,
+        &one_edit("plus-strict-first", &plus("strict", "strict(1)")),
+    );
+    let (document, _) = flow_support::corpus_run(&spec_side, &plus_only);
+    let row = row(&document, "plus-strict-first");
+    assert_eq!(
+        killed_as(row),
+        json!(["killed", "spec-freezer", "runs-differently"]),
+        "{row:#}"
+    );
 }
