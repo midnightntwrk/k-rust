@@ -21,17 +21,23 @@
   hypothesis of W1 and of the direction entailed at every valuation, named in each statement, and
   the one premise of W1, beside `ΓSig`, that is no sentence or signature item of the text. It does
   not empty the W2 statements: Γ with the step's closure has a model that satisfies it, for every
-  H (`closed_model`, the value model at its own step). That the premises of W1 (`Pre157Cl H`)
-  have a model is argued, not proved here: it asks of that model the sentences `ruleAux` too.
+  H (`closed_model`, the value model at its own step). That the premises of W1 have a model is
+  argued, not proved here: it asks of that model the sentences `ruleAux` too.
 
   - `rule_text0`: sentence 157 is the item of the text's left side at the table of Γ's axiom
     (kernel).
   - `cond_iff`: the two conditions denote one set, from `boolDist` and `boolClosed`.
   - `left_sub`, `left_sup`: Γ's left side is inside the text's, and the text's with `⌈R⌉` inside
     Γ's.
-  - `rule_from_text_closed` (W1): Γ's one rule item is a consequence of `Pre157Cl H`: sentence 157,
-    the sentences `ruleAux`, the signature item `ruleSigAux`, `ΓSig` and `boolClosed`. No item of
-    `ΓDomains` is a premise.
+  - `rule_from_text_closed` (W1): Γ's one rule item is a consequence of the sentence of `ruleText`
+    (157), the sentences `ruleAux`, the signature item `ruleSigAux`, `boolClosed` and `ΓSig`. No
+    item of `ΓDomains` is a premise.
+  - `rule_not_from_text`: the same premises without `boolClosed` do not entail the item, for every
+    H. The countermodel `ClosedNeg157.J` holds every element in every sort; `_==Int_` and
+    `_=/=Int_` decide the equality of their arguments into the two literals' elements, so the
+    sentences `ruleAux` hold (`sat_pre`), and `_>Int_` gives `false`'s element. Bool holds a third
+    element, so `\not{Bool}(X >Int 0)` is not `true`: sentence 157 holds with an empty left side
+    and Γ's item fails (`item_fails`).
   - `rule_w2_closed` (W2, with the guard): in a model of Γ that satisfies `boolClosed`, sentence
     157 holds at each valuation at which `⌈R⌉` holds wherever the text's left side does.
   - `right_defined`, `rule_w2_closed_noprem`: `⌈R⌉` holds in every model of Γ where the guards hold
@@ -605,34 +611,624 @@ theorem boolDist_from_text (H : HookParams) :
   exact boolDist_of_text H (TiePair.defOK_texts fun φ hφ => hI φ (Or.inl hφ)) (fun φ hφ => hI φ (Or.inr hφ))
     fun φ hφ => hI φ (Or.inl (Or.inl hφ))
 
+/-! ## W1 does not hold without `boolClosed`: the countermodel
+
+An interpretation in which every sort holds every element, `_==Int_` and `_=/=Int_` decide the
+equality of their two arguments into `true`'s element `tt` and `false`'s element `ff`, `_>Int_`
+gives `ff`, every other symbol and literal gives the element `o`, and nothing has a successor.
+Bool then holds `o`, which neither literal denotes: the complement of `X >Int 0` in Bool holds `o`
+with `tt`, so the text's condition `\not{Bool}(X >Int 0) = true` fails everywhere and sentence 157
+holds with an empty left side, while Γ's condition `X >Int 0 = false` holds and Γ's item asks a
+successor of `o`. The sentences `ruleAux` say of the two literals only how `_==Int_` and `_=/=Int_`
+meet them; none bounds Bool's elements. -/
+
+namespace ClosedNeg157
+
+inductive El where
+  | d | i | c0 | c1 | c2 | n | gt | gt1 | eq | ne | dvT | dvF | tt | ff | o
+  | eq1 (a : El)
+  | ne1 (a : El)
+
+instance : Inhabited El := ⟨.o⟩
+
+def evS : KoreAML.Sym → Set El
+  | .defined => fun m => m = .d
+  | .inh => fun m => m = .i
+  | .ceil => fun m => m = .c0
+  | .next => fun m => m = .n
+  | .dv lit => fun m => m = (if lit = "true" then El.dvT else if lit = "false" then El.dvF else El.o)
+  | .symbol s => fun m => m = (if s = gtName then El.gt else if s = LitsText157.eqIntName then El.eq
+      else if s = LitsText157.neqIntName then El.ne else El.o)
+  | _ => fun m => m = .o
+
+def evA : El → El → Set El
+  | .d, _ => fun _ => True
+  | .i, _ => fun _ => True
+  | .c0, _ => fun m => m = .c1
+  | .c1, _ => fun m => m = .c2
+  | .c2, _ => fun _ => True
+  | .n, _ => fun _ => False
+  | .gt, _ => fun m => m = .gt1
+  | .gt1, _ => fun m => m = .ff
+  | .eq, a => fun m => m = .eq1 a
+  | .eq1 a, b => fun m => (a = b ∧ m = .tt) ∨ (a ≠ b ∧ m = .ff)
+  | .ne, a => fun m => m = .ne1 a
+  | .ne1 a, b => fun m => (a = b ∧ m = .ff) ∨ (a ≠ b ∧ m = .tt)
+  | .dvT, _ => fun m => m = .tt
+  | .dvF, _ => fun m => m = .ff
+  | _, _ => fun m => m = .o
+
+/-- The interpretation. -/
+def J : Interpretation KoreAML.Sym El := ⟨evS, evA⟩
+
+theorem defOK_J : DefOK J := fun _ _ => ⟨.d, rfl, True.intro⟩
+theorem inh_all (σ m : El) : Inh J σ m := ⟨.i, rfl, True.intro⟩
+theorem isSort_all (σ : El) : IsSort J σ := ⟨.o, rfl, inh_all _ _⟩
+
+theorem inhOf_of {S : P} {e : Valuation El} (h : ∃ σ, S.interpret J e σ) (m : El) : (inhOf S).interpret J e m :=
+  interp_inhOf.mpr (h.imp fun σ hσ => ⟨hσ, inh_all σ m⟩)
+
+theorem inhOf_sort (n : String) (e : Valuation El) (m : El) : (inhOf (sym (.sort n))).interpret J e m :=
+  inhOf_of (S := sym (.sort n)) ⟨.o, (rfl : El.o = El.o)⟩ m
+theorem inhOf_evar (x : EVar) (e : Valuation El) (m : El) : (inhOf (.evar x)).interpret J e m :=
+  inhOf_of (S := .evar x) ⟨e.evalEvar x, (rfl : e.evalEvar x = e.evalEvar x)⟩ m
+
+theorem sat_def (x : EVar) : J ⊧ᴵ @definedness KoreAML.Sym _ x := by
+  intro e m
+  simp only [definedness, Pattern.interpret]
+  rintro ⟨a, ha⟩
+  exact ha ⟨.d, _, rfl, rfl, True.intro⟩
+
+theorem guarded_of {ws : List P} {φ : P} {e : Valuation El} {m : El} (h : φ.interpret J e m) :
+    (guarded ws φ).interpret J e m := by
+  cases ws with
+  | nil => exact h
+  | cons w ws => exact fun _ => h
+
+theorem sat_ceilDef : J ⊧ᴵ ceilDefItem.pat := by
+  intro e m
+  unfold ceilDefItem
+  dsimp only
+  refine guarded_of ?_
+  rw [interp_equal defOK_J]
+  intro a
+  constructor
+  · intro _; exact inhOf_evar _ e a
+  · intro _
+    rw [interp_sCeil_raw]
+    exact ⟨_, _, _, rfl, rfl, rfl, .c2, ⟨.c1, ⟨.c0, rfl, rfl⟩, rfl⟩, True.intro⟩
+
+/-- **The interpretation satisfies the signature of every semantics.** -/
+theorem sat_sig (s : Semantics) : J ⊧ᴵP ΓSig s := by
+  intro φ hφ
+  rcases hφ with hφ | ⟨lit, rfl⟩
+  · rcases hφ with ⟨it, hit, rfl⟩ | ⟨x, rfl⟩
+    · simp only [sigItems, List.mem_append, List.mem_map, List.mem_cons,
+        List.not_mem_nil, or_false] at hit
+      rcases hit with ((rfl | ⟨s', hs, rfl⟩) | ⟨k, hk, rfl⟩) | rfl | rfl | rfl
+      · exact sat_def _
+      · intro e m
+        show (sExists ⟨1⟩ (sym .sortSort) (sym (.sort ("Sort" ++ s.sortName s')) ≡ .evar ⟨1⟩)).interpret J e m
+        rw [interp_sExists]
+        refine ⟨.o, ?_, ?_⟩
+        · rw [interp_member defOK_J]; exact inhOf_of (S := sym .sortSort) ⟨.o, (rfl : El.o = El.o)⟩ _
+        · rw [interp_equal defOK_J]
+          intro b
+          rw [interp_evar]
+          simp only [Function.update_same]
+          exact Iff.rfl
+      · obtain ⟨hd, xs, -, hw⟩ := symApp_head s k.name
+        intro e m
+        rw [symArityItem_of_symApp hw, interp_included defOK_J]
+        intro a _
+        exact inhOf_sort _ e a
+      · intro e m
+        unfold ceilArityItem
+        dsimp only
+        refine guarded_of ?_
+        rw [interp_included defOK_J]
+        intro a _
+        exact inhOf_evar _ e a
+      · exact sat_ceilDef
+      · intro e m
+        show (sNext (inhOf (sym (.sort ("Sort" ++ s.sortName topCellSort)))) ⊆⊆
+          inhOf (sym (.sort ("Sort" ++ s.sortName topCellSort)))).interpret J e m
+        rw [interp_included defOK_J]
+        intro a _
+        exact inhOf_sort _ e a
+    · exact sat_def x
+  · intro e m
+    unfold dvArityItem
+    dsimp only
+    refine guarded_of ?_
+    rw [interp_included defOK_J]
+    intro a _
+    exact inhOf_evar _ e a
+
+/-! ### Patterns in the interpretation -/
+
+/-- φ denotes the one element x. -/
+def Sing (φ : P) (e : Valuation El) (x : El) : Prop := ∀ m, φ.interpret J e m ↔ m = x
+
+section
+variable {t : VarTable} {e : Valuation El}
+
+theorem symb_iff (f : String) (m : El) : J.evalSymb (.symbol f) m ↔
+    m = (if f = gtName then El.gt else if f = LitsText157.eqIntName then El.eq
+      else if f = LitsText157.neqIntName then El.ne else El.o) := Iff.rfl
+
+theorem symb_eq (m : El) : J.evalSymb (.symbol LitsText157.eqIntName) m ↔ m = .eq := by
+  rw [symb_iff, if_neg (show ¬ LitsText157.eqIntName = gtName by decide), if_pos rfl]
+
+theorem symb_ne (m : El) : J.evalSymb (.symbol LitsText157.neqIntName) m ↔ m = .ne := by
+  rw [symb_iff, if_neg (show ¬ LitsText157.neqIntName = gtName by decide),
+    if_neg (show ¬ LitsText157.neqIntName = LitsText157.eqIntName by decide), if_pos rfl]
+
+theorem sing_symbol {f : String} (hf : f ≠ gtName) (hf1 : f ≠ LitsText157.eqIntName)
+    (hf2 : f ≠ LitsText157.neqIntName) : Sing (sym (.symbol f)) e .o := fun m => by
+  show J.evalSymb (.symbol f) m ↔ m = .o
+  rw [symb_iff, if_neg hf, if_neg hf1, if_neg hf2]
+theorem sing_sort (n : String) : Sing (sym (.sort n)) e .o := fun _ => Iff.rfl
+theorem sing_evar (x : EVar) : Sing (.evar x) e (e.evalEvar x) := fun _ => Iff.rfl
+
+/-- An application whose head denotes `o` denotes `o`. -/
+theorem sing_app_o {φ ψ : P} {y : El} (h1 : Sing φ e .o) (h2 : Sing ψ e y) : Sing (φ ⬝ ψ) e .o := fun m => by
+  rw [interp_app]
+  constructor
+  · rintro ⟨a, b, ha, -, hab⟩
+    rw [(h1 a).mp ha] at hab
+    exact hab
+  · rintro rfl
+    exact ⟨.o, y, (h1 _).mpr rfl, (h2 _).mpr rfl, rfl⟩
+
+theorem tr_ev (n : String) (s : Kore.KSort) : tr ⟨t, []⟩ (ev n s) = .evar (t.ev (evarKey (evar n s))) := by
+  unfold ev; rw [tr]
+
+theorem sing_cfg {a : Kore.Pattern} (h : Sing (tr ⟨t, []⟩ a) e .o) : Sing (tr ⟨t, []⟩ (cfg a)) e .o := by
+  unfold cfg ap kP cP
+  simp only [tr_app0, trArgs_cons, trArgs_nil, tr_injP, appList, tr_ev]
+  exact sing_app_o (sing_app_o (sing_symbol (by decide) (by decide) (by decide))
+    (sing_app_o (sing_symbol (by decide) (by decide) (by decide))
+      (sing_app_o (sing_app_o (sing_symbol (by decide) (by decide) (by decide))
+        (sing_app_o (sing_app_o (sing_app_o (sing_symbol (by decide) (by decide) (by decide)) (sing_sort _))
+          (sing_sort _)) h))
+        (sing_evar _)))) (sing_evar _)
+
+theorem sing_go : Sing (tr ⟨t, []⟩ (ap "Lblgo" [xP])) e .o := by
+  unfold ap xP
+  simp only [tr_app0, trArgs_cons, trArgs_nil, tr_ev]
+  exact sing_app_o (sing_symbol (by decide) (by decide) (by decide)) (sing_evar _)
+
+theorem sing_done : Sing (tr ⟨t, []⟩ (ap "Lbldone" [])) e .o := by
+  unfold ap
+  simp only [tr_app0, trArgs_nil]
+  exact sing_symbol (by decide) (by decide) (by decide)
+
+/-- `X >Int 0` denotes `false`'s element at every X. -/
+theorem sing_gt : Sing (tr ⟨t, []⟩ gtX) e .ff := fun m => by
+  unfold gtX ap xP
+  simp only [tr_app0, trArgs_cons, trArgs_nil, tr_ev, tr_dv]
+  rw [interp_app]
+  constructor
+  · rintro ⟨a, b, ha, -, hab⟩
+    rw [interp_app] at ha
+    obtain ⟨a', b', ha', -, hab'⟩ := ha
+    have h1 : a' = .gt := ha'
+    subst h1
+    have h2 : a = .gt1 := hab'
+    subst h2
+    exact hab
+  · rintro rfl
+    exact ⟨.gt1, .o, interp_app.mpr ⟨.gt, _, rfl, rfl, rfl⟩, interp_app.mpr ⟨.o, .o, rfl, rfl, rfl⟩, rfl⟩
+
+theorem sing_true : Sing (tr ⟨t, []⟩ (.dv (srt "Bool") "true")) e .tt := fun m => by
+  rw [tr_dv, interp_app]
+  constructor
+  · rintro ⟨a, b, ha, -, hab⟩
+    have h1 : a = .dvT := ha
+    subst h1
+    exact hab
+  · rintro rfl
+    exact ⟨.dvT, .o, rfl, rfl, rfl⟩
+
+theorem sing_false : Sing (tr ⟨t, []⟩ (.dv (srt "Bool") "false")) e .ff := fun m => by
+  rw [tr_dv, interp_app]
+  constructor
+  · rintro ⟨a, b, ha, -, hab⟩
+    have h1 : a = .dvF := ha
+    subst h1
+    exact hab
+  · rintro rfl
+    exact ⟨.dvF, .o, rfl, rfl, rfl⟩
+
+theorem hS (n : String) : ∀ b, (trSort t (srt n)).interpret J e b ↔ b = .o := by
+  rw [trSort_srt]; exact fun _ => Iff.rfl
+
+theorem inh_srt (n : String) (m : El) : (inhOf (trSort t (srt n))).interpret J e m := by
+  rw [trSort_srt]; exact inhOf_sort _ e m
+
+theorem top_holds (m : El) : (tr ⟨t, []⟩ (.top tC)).interpret J e m := by
+  rw [tr]
+  refine (interp_sTop defOK_J (by unfold tC; rw [trSort_srt]; rfl) m).mpr ?_
+  exact inh_srt _ m
+
+theorem rhs_o : (tr ⟨t, []⟩ rhs0).interpret J e .o := by
+  unfold rhs0
+  rw [interp_and (List.cons_ne_nil _ _)]
+  intro p hp
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hp
+  rcases hp with rfl | rfl
+  · exact (sing_cfg sing_done _).mpr rfl
+  · exact top_holds _
+
+/-- **Γ's left side holds of `o`** at every valuation: `X >Int 0` and `false` denote one element. -/
+theorem L0_o : (tr ⟨t, []⟩ L0).interpret J e .o := by
+  unfold L0
+  rw [interp_and (List.cons_ne_nil _ _)]
+  intro p hp
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hp
+  rcases hp with rfl | rfl | rfl | rfl
+  · exact (sing_cfg sing_go _).mpr rfl
+  · exact top_holds _
+  · rw [eqB_tr]
+    exact (interp_sEquals defOK_J sat_ceilDef (hS _) (hS _) (isSort_all _) (isSort_all _) _).mpr
+      ⟨inh_all _ _, fun a _ => (sing_gt a).trans (sing_false a).symm⟩
+  · unfold ceilR
+    rw [tr]
+    exact (interp_sCeil defOK_J sat_ceilDef (hS _) (hS _) (isSort_all _) (isSort_all _)
+      (fun a _ => inh_all _ a) _).mpr ⟨⟨.o, rhs_o⟩, inh_all _ _⟩
+
+/-- **The text's left side holds of nothing**: `\not{Bool}(X >Int 0)` holds of `o`, an element of
+Bool that `true` does not denote. -/
+theorem Ltext0_empty (a : El) : ¬ (tr ⟨t, []⟩ Ltext0).interpret J e a := by
+  intro h
+  unfold Ltext0 at h
+  rw [interp_and (List.cons_ne_nil _ _)] at h
+  have h1 := h (eqB (.not (srt "Bool") gtX) "true") (by simp)
+  rw [eqB_tr] at h1
+  have h2 := ((interp_sEquals defOK_J sat_ceilDef (hS _) (hS _) (isSort_all _) (isSort_all _) a).mp h1).2
+    .o (inh_all _ _)
+  have h3 : (tr ⟨t, []⟩ (.not (srt "Bool") gtX)).interpret J e .o := by
+    rw [tr, interp_sNot]
+    exact ⟨fun hg => (by cases (sing_gt _).mp hg), inh_srt _ _⟩
+  cases (sing_true _).mp (h2.mp h3)
+
+/-- Nothing has a successor. -/
+theorem next_empty (φ : P) (m : El) : ¬ (sNext φ).interpret J e m := by
+  unfold sNext
+  rw [interp_app]
+  rintro ⟨a, b, ha, -, hab⟩
+  have h1 : a = .n := ha
+  subst h1
+  exact hab
+
+theorem tr_rw (C : Kore.KSort) (X r : Kore.Pattern) :
+    tr ⟨t, []⟩ (.rewrites C X r) = sRewrites (trSort t C) (tr ⟨t, []⟩ X) (tr ⟨t, []⟩ r) := by rw [tr]
+
+end
+
+/-! ### The sentences of the Bool literals in the interpretation -/
+
+/-- An equality between sorts that denote one element each holds where its two sides denote the
+same elements: every sort holds every element. -/
+theorem sEq_iff {e : Valuation El} {S S' φ ψ : P} {σ σ' : El} (hS : ∀ a, S.interpret J e a ↔ a = σ)
+    (hS' : ∀ a, S'.interpret J e a ↔ a = σ') (m : El) :
+    (sEquals S S' φ ψ).interpret J e m ↔ ∀ a, (φ.interpret J e a ↔ ψ.interpret J e a) := by
+  rw [interp_sEquals defOK_J sat_ceilDef hS hS' (isSort_all _) (isSort_all _)]
+  exact ⟨fun h a => h.2 a (inh_all _ _), fun h => ⟨inh_all _ _, fun a _ => h a⟩⟩
+
+/-- `K1 ==Int K2` denotes `tt` where the two are one element and `ff` where they are two. -/
+theorem app34_eq (e : Valuation El) (m : El) : (LitsText157.app34 LitsText157.eqIntName).interpret J e m ↔
+    (e.evalEvar ⟨3⟩ = e.evalEvar ⟨4⟩ ∧ m = .tt) ∨ (e.evalEvar ⟨3⟩ ≠ e.evalEvar ⟨4⟩ ∧ m = .ff) := by
+  unfold LitsText157.app34
+  rw [interp_app]
+  constructor
+  · rintro ⟨f, y, hf, hy, hfy⟩
+    rw [interp_app] at hf
+    obtain ⟨g, x, hg, hx, hgx⟩ := hf
+    have hg' : g = .eq := (symb_eq g).mp hg
+    subst hg'
+    have hf' : f = .eq1 x := hgx
+    subst hf'
+    have hx' : x = e.evalEvar ⟨3⟩ := hx
+    have hy' : y = e.evalEvar ⟨4⟩ := hy
+    subst hx' hy'
+    exact hfy
+  · intro h
+    exact ⟨.eq1 (e.evalEvar ⟨3⟩), e.evalEvar ⟨4⟩,
+      interp_app.mpr ⟨.eq, e.evalEvar ⟨3⟩, (symb_eq _).mpr rfl, rfl, rfl⟩, rfl, h⟩
+
+/-- `K1 =/=Int K2` denotes `ff` where the two are one element and `tt` where they are two. -/
+theorem app34_ne (e : Valuation El) (m : El) : (LitsText157.app34 LitsText157.neqIntName).interpret J e m ↔
+    (e.evalEvar ⟨3⟩ = e.evalEvar ⟨4⟩ ∧ m = .ff) ∨ (e.evalEvar ⟨3⟩ ≠ e.evalEvar ⟨4⟩ ∧ m = .tt) := by
+  unfold LitsText157.app34
+  rw [interp_app]
+  constructor
+  · rintro ⟨f, y, hf, hy, hfy⟩
+    rw [interp_app] at hf
+    obtain ⟨g, x, hg, hx, hgx⟩ := hf
+    have hg' : g = .ne := (symb_ne g).mp hg
+    subst hg'
+    have hf' : f = .ne1 x := hgx
+    subst hf'
+    have hx' : x = e.evalEvar ⟨3⟩ := hx
+    have hy' : y = e.evalEvar ⟨4⟩ := hy
+    subst hx' hy'
+    exact hfy
+  · intro h
+    exact ⟨.ne1 (e.evalEvar ⟨3⟩), e.evalEvar ⟨4⟩,
+      interp_app.mpr ⟨.ne, e.evalEvar ⟨3⟩, (symb_ne _).mpr rfl, rfl, rfl⟩, rfl, h⟩
+
+theorem litP_true {e : Valuation El} (m : El) : (LitsText157.litP "true").interpret J e m ↔ m = .tt := by
+  unfold LitsText157.litP
+  rw [interp_app]
+  constructor
+  · rintro ⟨a, b, ha, -, hab⟩
+    have h1 : a = .dvT := ha
+    subst h1
+    exact hab
+  · rintro rfl
+    exact ⟨.dvT, .o, rfl, rfl, rfl⟩
+
+theorem litP_false {e : Valuation El} (m : El) : (LitsText157.litP "false").interpret J e m ↔ m = .ff := by
+  unfold LitsText157.litP
+  rw [interp_app]
+  constructor
+  · rintro ⟨a, b, ha, -, hab⟩
+    have h1 : a = .dvF := ha
+    subst h1
+    exact hab
+  · rintro rfl
+    exact ⟨.dvF, .o, rfl, rfl, rfl⟩
+
+theorem eqR_one (x y : El) : ∃ v, ∀ m, ((x = y ∧ m = El.tt) ∨ (x ≠ y ∧ m = El.ff)) ↔ m = v := by
+  by_cases h : x = y
+  · exact ⟨.tt, fun m => ⟨fun hm => hm.elim (fun h1 => h1.2) (fun h1 => absurd h h1.1), fun hm => Or.inl ⟨h, hm⟩⟩⟩
+  · exact ⟨.ff, fun m => ⟨fun hm => hm.elim (fun h1 => absurd h1.1 h) (fun h1 => h1.2), fun hm => Or.inr ⟨h, hm⟩⟩⟩
+
+theorem neR_one (x y : El) : ∃ v, ∀ m, ((x = y ∧ m = El.ff) ∨ (x ≠ y ∧ m = El.tt)) ↔ m = v := by
+  by_cases h : x = y
+  · exact ⟨.ff, fun m => ⟨fun hm => hm.elim (fun h1 => h1.2) (fun h1 => absurd h h1.1), fun hm => Or.inl ⟨h, hm⟩⟩⟩
+  · exact ⟨.tt, fun m => ⟨fun hm => hm.elim (fun h1 => absurd h1.1 h) (fun h1 => h1.2), fun hm => Or.inr ⟨h, hm⟩⟩⟩
+
+/-- **A functional sentence of a symbol from two Ints to Bool holds** where the symbol applied to
+two elements denotes one element. -/
+theorem sat_fnl {f : String} {R : El → El → El → Prop}
+    (happ : ∀ (e : Valuation El) (m : El),
+      (LitsText157.app34 f).interpret J e m ↔ R (e.evalEvar ⟨3⟩) (e.evalEvar ⟨4⟩) m)
+    (hone : ∀ x y, ∃ v, ∀ m, R x y m ↔ m = v) : J ⊧ᴵ LitsText157.sentPat (LitsText157.fnlBoolAx f) := by
+  intro e m
+  rw [LitsText157.fnlBool_shape, interpret_impl]
+  intro _
+  rw [interp_equal defOK_J]
+  intro a
+  refine ⟨fun _ => inhOf_evar _ e a, fun _ => ?_⟩
+  obtain ⟨v, hv⟩ := hone (e.evalEvar ⟨3⟩) (e.evalEvar ⟨4⟩)
+  rw [interp_sExists]
+  refine ⟨v, ?_, ?_⟩
+  · rw [interp_member defOK_J]
+    exact inhOf_of (S := LitsText157.boolP) ⟨.o, (rfl : El.o = El.o)⟩ _
+  · refine (sEq_iff (S := LitsText157.boolP) (S' := (.evar ⟨1⟩ : P)) (σ := .o) (fun _ => Iff.rfl)
+      (fun _ => Iff.rfl) a).mpr fun b => ?_
+    rw [happ, interp_evar]
+    simp only [Function.update_same, Function.update_noteq (show (⟨3⟩ : EVar) ≠ ⟨2⟩ by decide),
+      Function.update_noteq (show (⟨4⟩ : EVar) ≠ ⟨2⟩ by decide)]
+    exact (hv b).symm
+
+/-- **A simplification sentence holds** where its two sides hold the same at every valuation. -/
+theorem sat_simp {L Rr : P} (h : ∀ (e : Valuation El) (a : El), L.interpret J e a ↔ Rr.interpret J e a) :
+    J ⊧ᴵ (conjList (sortGuard ⟨1⟩ :: sortGuard ⟨2⟩ :: LitsText157.g34) ⇒
+      (sImp (.evar ⟨1⟩) (sTop (.evar ⟨1⟩)) (sEquals (.evar ⟨2⟩) (.evar ⟨1⟩) L Rr) ≡ inhOf (.evar ⟨1⟩))) := by
+  intro e m
+  rw [interpret_impl]
+  intro _
+  rw [interp_equal defOK_J]
+  intro a
+  refine ⟨fun _ => inhOf_evar _ e a, fun _ => ?_⟩
+  rw [interp_sImp]
+  refine ⟨inhOf_evar _ e a, fun _ => ?_⟩
+  exact (sEq_iff (S := (.evar ⟨2⟩ : P)) (S' := (.evar ⟨1⟩ : P)) (fun _ => Iff.rfl) (fun _ => Iff.rfl) a).mpr (h e)
+
+/-- `\equals{SortInt{}, Q0}(K1, K2)` holds where K1 and K2 are one element. -/
+theorem k12_iff (e : Valuation El) (a : El) :
+    (sEquals LitsText157.intP (.evar ⟨2⟩) (.evar ⟨3⟩) (.evar ⟨4⟩)).interpret J e a ↔
+      e.evalEvar ⟨3⟩ = e.evalEvar ⟨4⟩ := by
+  refine (sEq_iff (S := LitsText157.intP) (S' := (.evar ⟨2⟩ : P)) (σ := .o) (fun _ => Iff.rfl)
+    (fun _ => Iff.rfl) a).trans ⟨fun h => ?_, fun h b => ?_⟩
+  · exact interp_evar.mp ((h (e.evalEvar ⟨3⟩)).mp (interp_evar.mpr rfl))
+  · rw [interp_evar, interp_evar, h]
+
+theorem top2 (e : Valuation El) (a : El) : (sTop (.evar ⟨2⟩)).interpret J e a :=
+  (interp_sTop defOK_J rfl a).mpr (inhOf_evar _ e a)
+
+/-- `(K1 ==Int K2) = true` holds where K1 and K2 are one element. -/
+theorem eqTrue_iff (e : Valuation El) (a : El) :
+    (sEquals LitsText157.boolP (.evar ⟨2⟩) (LitsText157.app34 LitsText157.eqIntName)
+      (LitsText157.litP "true")).interpret J e a ↔ e.evalEvar ⟨3⟩ = e.evalEvar ⟨4⟩ := by
+  refine (sEq_iff (S := LitsText157.boolP) (S' := (.evar ⟨2⟩ : P)) (σ := .o) (fun _ => Iff.rfl)
+    (fun _ => Iff.rfl) a).trans ⟨fun h => ?_, fun h b => ?_⟩
+  · apply Classical.byContradiction
+    intro hne
+    cases (litP_true .ff).mp ((h .ff).mp ((app34_eq e .ff).mpr (Or.inr ⟨hne, rfl⟩)))
+  · rw [app34_eq, litP_true]
+    exact ⟨fun hb => hb.elim (fun h1 => h1.2) (fun h1 => absurd h h1.1), fun hb => Or.inl ⟨h, hb⟩⟩
+
+/-- `(K1 =/=Int K2) = false` holds where K1 and K2 are one element. -/
+theorem neFalse_iff (e : Valuation El) (a : El) :
+    (sEquals LitsText157.boolP (.evar ⟨2⟩) (LitsText157.app34 LitsText157.neqIntName)
+      (LitsText157.litP "false")).interpret J e a ↔ e.evalEvar ⟨3⟩ = e.evalEvar ⟨4⟩ := by
+  refine (sEq_iff (S := LitsText157.boolP) (S' := (.evar ⟨2⟩ : P)) (σ := .o) (fun _ => Iff.rfl)
+    (fun _ => Iff.rfl) a).trans ⟨fun h => ?_, fun h b => ?_⟩
+  · apply Classical.byContradiction
+    intro hne
+    cases (litP_false .tt).mp ((h .tt).mp ((app34_ne e .tt).mpr (Or.inr ⟨hne, rfl⟩)))
+  · rw [app34_ne, litP_false]
+    exact ⟨fun hb => hb.elim (fun h1 => h1.2) (fun h1 => absurd h h1.1), fun hb => Or.inl ⟨h, hb⟩⟩
+
+/-- `false = (K1 ==Int K2)` holds where K1 and K2 are two elements. -/
+theorem falseEq_iff (e : Valuation El) (a : El) :
+    (sEquals LitsText157.boolP (.evar ⟨2⟩) (LitsText157.litP "false")
+      (LitsText157.app34 LitsText157.eqIntName)).interpret J e a ↔ e.evalEvar ⟨3⟩ ≠ e.evalEvar ⟨4⟩ := by
+  refine (sEq_iff (S := LitsText157.boolP) (S' := (.evar ⟨2⟩ : P)) (σ := .o) (fun _ => Iff.rfl)
+    (fun _ => Iff.rfl) a).trans ⟨fun h heq => ?_, fun h b => ?_⟩
+  · cases (litP_false .tt).mp ((h .tt).mpr ((app34_eq e .tt).mpr (Or.inl ⟨heq, rfl⟩)))
+  · rw [app34_eq, litP_false]
+    exact ⟨fun hb => Or.inr ⟨h, hb⟩, fun hb => hb.elim (fun h1 => absurd h1.1 h) (fun h1 => h1.2)⟩
+
+/-- INT-KORE.eq-int-true-left holds: both sides say that K1 and K2 are one element. -/
+theorem sat_eqTrueLeft : J ⊧ᴵ LitsText157.sentPat LitsText157.eqIntTrueLeftAx := by
+  rw [LitsText157.simp_shape_tt]
+  exact sat_simp fun e a => by
+    rw [eqTrue_iff, interp_sAnd, k12_iff]
+    exact ⟨fun h => ⟨h, top2 e a⟩, fun h => h.1⟩
+
+/-- INT-KORE.neq-int-false-left holds: both sides say that K1 and K2 are one element. -/
+theorem sat_neFalseLeft : J ⊧ᴵ LitsText157.sentPat LitsText157.neqIntFalseLeftAx := by
+  rw [LitsText157.simp_shape_nf]
+  exact sat_simp fun e a => by
+    rw [neFalse_iff, interp_sAnd, k12_iff]
+    exact ⟨fun h => ⟨h, top2 e a⟩, fun h => h.1⟩
+
+/-- INT-KORE.eq-int-false-rigth holds: both sides say that K1 and K2 are two elements. -/
+theorem sat_eqFalseRight : J ⊧ᴵ LitsText157.sentPat LitsText157.eqIntFalseRightAx := by
+  rw [LitsText157.simp_shape_ff]
+  exact sat_simp fun e a => by
+    rw [falseEq_iff, interp_sAnd, interp_sNot, k12_iff]
+    exact ⟨fun h => ⟨⟨h, inhOf_evar _ e a⟩, top2 e a⟩, fun h => h.1.1⟩
+
+theorem sat_fnlEq : J ⊧ᴵ LitsText157.sentPat (LitsText157.fnlBoolAx LitsText157.eqIntName) :=
+  sat_fnl (R := fun x y m => (x = y ∧ m = El.tt) ∨ (x ≠ y ∧ m = El.ff)) app34_eq eqR_one
+
+theorem sat_fnlNe : J ⊧ᴵ LitsText157.sentPat (LitsText157.fnlBoolAx LitsText157.neqIntName) :=
+  sat_fnl (R := fun x y m => (x = y ∧ m = El.ff) ∨ (x ≠ y ∧ m = El.tt)) app34_ne neR_one
+
+/-- Int has an element. -/
+theorem sat_intNonempty : J ⊧ᴵ (nonemptyItem ⟨"SortInt", [], true⟩).pat := by
+  intro e m
+  show (notEqual (inhOf (sym (.sort "SortInt"))) ⊥ : P).interpret J e m
+  rw [interp_notEqual defOK_J]
+  intro h
+  exact interpret_bottom.mp ((h .o).mp (inhOf_sort _ e .o))
+
+/-! ### Sentence 157 and Γ's rule item in the interpretation -/
+
+theorem free0 : (freeOf [] (.rewrites tC L0 rhs0)).eraseDups =
+    [.evar "VarV0" (srt "Int"), .evar "VarV1" (srt "K"), .evar "VarV2" (srt "GeneratedCounterCell")] := by
+  decide +kernel
+
+/-- **The interpretation satisfies sentence 157**: its left side holds of nothing. -/
+theorem text_holds : J ⊧ᴵ (trS U.ax157).pat := by
+  rw [trS157]
+  intro e m
+  unfold TieRuleLhs.itemAt
+  rw [interpret_impl]
+  intro _
+  rw [interp_equal defOK_J]
+  intro a
+  rw [tr_rw]
+  unfold sRewrites
+  rw [interp_sImp]
+  exact ⟨fun h => h.1, fun hi => ⟨hi, fun hl => absurd hl (Ltext0_empty a)⟩⟩
+
+/-- **The interpretation does not satisfy Γ's item of the rule**: at every valuation its left side
+holds of `o`, which has no successor. -/
+theorem item_fails : ¬ (J ⊧ᴵ (trAxiom [] [] ⟨0, "kernel", ⟨[], p0, []⟩⟩).pat) := by
+  intro h
+  rw [p0_eq, TieRuleLhs.trAxiom_rule] at h
+  have h1 := h ⟨fun _ => .o, fun _ _ => False⟩ .o
+  unfold TieRuleLhs.itemAt at h1
+  rw [interpret_impl, free0] at h1
+  have h2 := h1 (TieUnion.interp_conjListAll.mpr fun φ hφ => by
+    simp only [List.map, List.mem_cons, List.not_mem_nil, or_false] at hφ
+    rcases hφ with rfl | rfl | rfl <;>
+      exact (interp_guard_evar defOK_J).mpr (inh_srt _ _))
+  rw [interp_equal defOK_J] at h2
+  have h3 := (h2 .o).mpr (inh_srt _ _)
+  rw [tr_rw] at h3
+  unfold sRewrites at h3
+  rw [interp_sImp] at h3
+  exact next_empty _ _ (h3.2 L0_o)
+
+/-- **The interpretation satisfies the premises of W1 without `boolClosed`**, for every H:
+sentence 157, the sentences `ruleAux`, the signature item `ruleSigAux` and `ΓSig`. -/
+theorem sat_pre (H : HookParams) : J ⊧ᴵP (TiePair.Texts ((trS U.ax157).pat ::
+    (ruleAux.map (fun a => (trS a).pat) ++ ruleSigAux.map (·.pat))) ∪ ΓSig (cH H)) := by
+  intro φ hφ
+  rcases hφ with (hφ | ⟨x, rfl⟩) | hφ
+  · have hφ' : φ ∈ [(trS U.ax157).pat, (trS U.ax138).pat, (trS U.ax133).pat, (trS U.ax147).pat,
+        (trS U.ax49).pat, (trS U.ax46).pat, (nonemptyItem ⟨"SortInt", [], true⟩).pat] := hφ
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at hφ'
+    obtain ⟨s1, s2, s3, s4, s5⟩ := lit_sents
+    rcases hφ' with h | h | h | h | h | h | h
+    · rw [h]; exact text_holds
+    · rw [h, s1]; exact sat_eqTrueLeft
+    · rw [h, s2]; exact sat_neFalseLeft
+    · rw [h, s3]; exact sat_eqFalseRight
+    · rw [h, s4]; exact sat_fnlEq
+    · rw [h, s5]; exact sat_fnlNe
+    · rw [h]; exact sat_intNonempty
+  · exact sat_def x
+  · exact sat_sig (cH H) φ hφ
+
+/-- **In the interpretation Bool has an element that neither literal denotes**, and the literals
+denote two elements. -/
+theorem bool_other (e : Valuation El) :
+    (inhOf (sortP "Bool")).interpret J e .o ∧
+    ¬ (tr ⟨[], []⟩ (.dv (srt "Bool") "true")).interpret J e .o ∧
+    ¬ (tr ⟨[], []⟩ (.dv (srt "Bool") "false")).interpret J e .o ∧
+    ¬ ∃ a, (tr ⟨[], []⟩ (.dv (srt "Bool") "true")).interpret J e a ∧
+      (tr ⟨[], []⟩ (.dv (srt "Bool") "false")).interpret J e a :=
+  ⟨inhOf_sort _ e _, fun h => (by cases (sing_true _).mp h), fun h => (by cases (sing_false _).mp h),
+    fun ⟨a, h1, h2⟩ => (by cases ((sing_true a).mp h1).symm.trans ((sing_false a).mp h2))⟩
+
+end ClosedNeg157
+
 /-! ## W1 and W2 -/
 
-/-- The premise `boolClosed`: every element of Bool is `true`'s or `false`'s. -/
-noncomputable def BoolCl (H : HookParams) : Premises KoreAML.Sym := fun φ => φ = boolClosed (cH H)
-
-/-- The premises of W1: sentence 157, the text's sentences `ruleAux` and signature item
-`ruleSigAux` (from which `true` and `false` are apart, `boolDist_from_text`), the signature, and
-`boolClosed`, the one premise beside `ΓSig` that is no sentence or signature item of the text. -/
-noncomputable abbrev Pre157Cl (H : HookParams) : Premises KoreAML.Sym :=
-  (TiePair.Texts ((trS U.ax157).pat :: (ruleAux.map (fun a => (trS a).pat) ++ ruleSigAux.map (·.pat))) ∪ ΓSig (cH H)) ∪
-    BoolCl H
+/-- The rule sentence of the text. -/
+noncomputable def ruleText : List AxiomDecl := [U.ax157]
 
 /-- **W1 for the rule, under `boolClosed`**: Γ's one rule item is a consequence of sentence 157
-with the text's sentences `ruleAux`, Int's G-nonempty item, the signature and `boolClosed`, for
-every H. No item of `ΓDomains` is among the premises. -/
+with the text's sentences `ruleAux`, Int's G-nonempty item, `boolClosed` and the signature, for
+every H. `boolClosed` is the one premise that is no sentence or signature item of the text; no
+item of `ΓDomains` is among the premises. -/
 theorem rule_from_text_closed (H : HookParams) :
-    ∀ it ∈ ruleItems (cH H), Pre157Cl H ⊧ it.pat := by
-  intro it hit M _ I hI
+    ∀ it ∈ ruleItems (cH H), ∃ ad ∈ ruleText,
+      TiePair.Texts ((trS ad).pat :: (ruleAux.map (fun a => (trS a).pat) ++ ruleSigAux.map (·.pat) ++
+        [boolClosed (cH H)])) ∪ ΓSig (cH H) ⊧ it.pat := by
+  intro it hit
+  refine ⟨U.ax157, List.mem_singleton_self _, ?_⟩
+  intro M _ I hI
   rw [TiePair.ruleItems_withHooks, ruleItems_eq] at hit
-  have hD : DefOK I := TiePair.defOK_texts fun φ hφ => hI φ (Or.inl (Or.inl hφ))
-  have hSig : I ⊧ᴵP ΓSig (cH H) := fun φ hφ => hI φ (Or.inl (Or.inr hφ))
+  have hT : ∀ φ ∈ (trS U.ax157).pat :: (ruleAux.map (fun a => (trS a).pat) ++ ruleSigAux.map (·.pat) ++
+      [boolClosed (cH H)]), I ⊧ᴵ φ := fun φ hφ => hI φ (Or.inl (Or.inl hφ))
+  have hD : DefOK I := TiePair.defOK_texts fun φ hφ => hI φ (Or.inl hφ)
+  have hSig : I ⊧ᴵP ΓSig (cH H) := fun φ hφ => hI φ (Or.inr hφ)
   have hc : I ⊧ᴵ ceilDefItem.pat := hSig _ (Or.inl (Or.inl ⟨_, sig_ceilDef, rfl⟩))
   have hdist : I ⊧ᴵ boolDist H := boolDist_of_text H hD hSig
-    fun φ hφ => hI φ (Or.inl (Or.inl (Or.inl (List.mem_cons_of_mem _ hφ))))
-  have hcl : I ⊧ᴵ boolClosed (cH H) := hI _ (Or.inr rfl)
+    fun φ hφ => hT φ (List.mem_cons_of_mem _ (List.mem_append_left _ hφ))
+  have hcl : I ⊧ᴵ boolClosed (cH H) :=
+    hT _ (List.mem_cons_of_mem _ (List.mem_append_right _ (List.mem_singleton_self _)))
   rw [List.mem_singleton.mp hit]
-  exact TieRuleLhs.rule_w1 hD p0_parts rule_text0 fT_free0 (hI _ (Or.inl (Or.inl (Or.inl (List.mem_cons_self ..)))))
+  exact TieRuleLhs.rule_w1 hD p0_parts rule_text0 fT_free0 (hT _ (List.mem_cons_self ..))
     fun e _ _ a ha => left_sub H hD hc hSig hdist hcl _ e a ha
+
+/-- **W1 for the rule does not hold without `boolClosed`**, for every H: sentence 157 with the
+text's sentences `ruleAux`, Int's G-nonempty item and the signature does not entail Γ's rule item.
+The interpretation `ClosedNeg157.J` satisfies these premises (`ClosedNeg157.sat_pre`) and not the
+item (`ClosedNeg157.item_fails`); in it Bool has an element neither literal denotes
+(`ClosedNeg157.bool_other`). -/
+theorem rule_not_from_text (H : HookParams) :
+    ¬ ∀ it ∈ ruleItems (cH H), ∃ ad ∈ ruleText,
+      TiePair.Texts ((trS ad).pat :: (ruleAux.map (fun a => (trS a).pat) ++ ruleSigAux.map (·.pat))) ∪
+        ΓSig (cH H) ⊧ it.pat := by
+  intro h
+  have hit : trAxiom [] [] ⟨0, "kernel", ⟨[], p0, []⟩⟩ ∈ ruleItems (cH H) := by
+    rw [TiePair.ruleItems_withHooks, ruleItems_eq]; exact List.mem_singleton_self _
+  obtain ⟨ad, had, hent⟩ := h _ hit
+  have had' : ad = U.ax157 := List.mem_singleton.mp had
+  subst had'
+  exact ClosedNeg157.item_fails (hent (I := ClosedNeg157.J) (ClosedNeg157.sat_pre H))
 
 /-- **W2 for the rule, with the guard, under `boolClosed`**: in a model of Γ that satisfies
 `boolClosed`, sentence 157 holds at each valuation at which `⌈R⌉` holds wherever the text's left
@@ -929,6 +1525,9 @@ end KCore.TieE3MlReqNot157
 #check @KCore.TieE3MlReqNot157.left_sub
 #check @KCore.TieE3MlReqNot157.left_sup
 #check @KCore.TieE3MlReqNot157.rule_from_text_closed
+#check @KCore.TieE3MlReqNot157.rule_not_from_text
+#check @KCore.TieE3MlReqNot157.ClosedNeg157.sat_pre
+#check @KCore.TieE3MlReqNot157.ClosedNeg157.item_fails
 #check @KCore.TieE3MlReqNot157.rule_w2_closed
 #check @KCore.TieE3MlReqNot157.right_defined
 #check @KCore.TieE3MlReqNot157.rule_w2_closed_noprem
@@ -936,6 +1535,7 @@ end KCore.TieE3MlReqNot157
 #print axioms KCore.TieE3MlReqNot157.boolDist_mem
 #print axioms KCore.TieE3MlReqNot157.cond_iff
 #print axioms KCore.TieE3MlReqNot157.rule_from_text_closed
+#print axioms KCore.TieE3MlReqNot157.rule_not_from_text
 #print axioms KCore.TieE3MlReqNot157.rule_w2_closed
 #print axioms KCore.TieE3MlReqNot157.rule_w2_closed_noprem
 #check @KCore.TieE3MlReqNot157.lit_sents
