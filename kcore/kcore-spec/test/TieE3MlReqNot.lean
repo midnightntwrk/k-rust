@@ -45,8 +45,7 @@
     (`Rules.rule_not_from_text`). The other direction: `Rules.rule157_at_values`. Sentence 157 is
     tied under the premise (`underPremise`), not `uncovered`. The section's other headline
     statements (its comment says what each states): `Rules.rule_text0`, `Rules.true_iff_not_false`,
-    `Rules.cond_iff`, `Rules.left_sub`, `Rules.left_sup`, `Rules.LitsText157.fnl_one`,
-    `Rules.LitsText157.simp_at`, `Rules.LitsText157.boolLits_core`, `Rules.lit_sents`,
+    `Rules.cond_iff`, `Rules.left_sub`, `Rules.left_sup`, `Rules.lit_sents`,
     `Rules.boolDist_of_text`, `Rules.boolDist_from_text`, `Rules.ClosedNeg157.sat_sig`,
     `Rules.ClosedNeg157.L0_o`, `Rules.ClosedNeg157.Ltext0_empty`, `Rules.ClosedNeg157.sat_fnl`,
     `Rules.ClosedNeg157.sat_simp`, `Rules.ClosedNeg157.text_holds`, `Rules.ClosedNeg157.item_fails`,
@@ -804,7 +803,7 @@ holds `\equals{Bool}(\not{Bool}(X >Int 0), true)`, Γ's item the condition `\equ
 false)`. The two denote one set where every element of Bool is `true`'s or `false`'s (`boolClosed`)
 and no element is both (`boolDist`): `cond_iff`. `boolDist` is a consequence of the text's sentences
 138, 133, 147, 49, 46 (`ruleAux`) with Int's G-nonempty item (`ruleSigAux`) and `ΓSig`
-(`boolDist_from_text`, `LitsText157`). `boolClosed` is a fact of the builtin domain Bool that no
+(`boolDist_from_text`, from `TieReqBool.boolLits_of_text_sig`). `boolClosed` is a fact of the builtin domain Bool that no
 sentence of the text is known to state, and Γ of this text does not hold it (the definition reads
 no confined sort, `readsConfined_c`).
 - `rule_from_text_closed` (W1): Γ's rule item is a consequence of the sentence with `ruleAux`,
@@ -1015,285 +1014,18 @@ The text writes no sentence about `\dv{SortBool{}}("true")` alone. It writes thr
 module INT-KORE over element variables and the functional sentences of `_==Int_` and `_=/=Int_`.
 At an element n of Int, with both sort variables at Int: `n ==Int n` is one element of Bool among
 Bool's and agrees with `true` on Bool; `n =/=Int n` likewise with `false`; and `false` does not
-agree with `n ==Int n` on Bool. -/
+agree with `n ==Int n` on Bool. The lemma is
+`TieReqBool.boolLits_of_text_sig`, on the patterns `TieReqBool` writes for the five sentences. -/
 
-namespace LitsText157
-
-set_option linter.unusedSectionVars false
-
-/-- The sort variable `Q0` of a simplification sentence. -/
-def Q0v : Kore.SortVar := ⟨⟨⟨"Q0"⟩⟩⟩
-def Q0 : Kore.KSort := .var Q0v
-def eqIntName : String := "Lbl'UndsEqlsEqls'Int'Unds'"
-def neqIntName : String := "Lbl'UndsEqlsSlshEqls'Int'Unds'"
-
-/-- The functional sentence of a symbol `f` from two Ints to Bool:
-`axiom{R} \exists{R}(Val:SortBool{}, \equals{SortBool{}, R}(Val, f(K0:SortInt{}, K1:SortInt{})))`. -/
-def fnlBoolAx (f : String) : Kore.Axiom :=
-  ⟨[Rv], .exist R (evar "Val" (srt "Bool"))
-    (.equals (srt "Bool") R (ev "Val" (srt "Bool")) (ap f [ev "K0" (srt "Int"), ev "K1" (srt "Int")])), []⟩
-
-/-- A sentence `axiom{R, Q0} \implies{R}(\top{R}(), \equals{Q0, R}(l, \and{Q0}(r, \top{Q0}())))`. -/
-def simpAx (l r : Kore.Pattern) : Kore.Axiom :=
-  ⟨[Rv, Q0v], .implies R (.top R) (.equals Q0 R l (.and Q0 [r, .top Q0])), []⟩
-
-/-- `\equals{SortInt{}, Q0}(K1, K2)`. -/
-def k12Eq : Kore.Pattern := .equals (srt "Int") Q0 (ev "VarK1" (srt "Int")) (ev "VarK2" (srt "Int"))
-def k12App (f : String) : Kore.Pattern := ap f [ev "VarK1" (srt "Int"), ev "VarK2" (srt "Int")]
-
-/-- INT-KORE.eq-int-true-left: `{K1 ==Int K2 #Equals true} => {K1 #Equals K2}`. -/
-def eqIntTrueLeftAx : Kore.Axiom :=
-  simpAx (.equals (srt "Bool") Q0 (k12App eqIntName) (.dv (srt "Bool") "true")) k12Eq
-/-- INT-KORE.neq-int-false-left: `{K1 =/=Int K2 #Equals false} => {K1 #Equals K2}`. -/
-def neqIntFalseLeftAx : Kore.Axiom :=
-  simpAx (.equals (srt "Bool") Q0 (k12App neqIntName) (.dv (srt "Bool") "false")) k12Eq
-/-- INT-KORE.eq-int-false-rigth: `{false #Equals K1 ==Int K2} => #Not({K1 #Equals K2})`. -/
-def eqIntFalseRightAx : Kore.Axiom :=
-  simpAx (.equals (srt "Bool") Q0 (.dv (srt "Bool") "false") (k12App eqIntName)) (.not Q0 k12Eq)
-
-/-- The translation of a sentence, whatever its place in a text: the pattern of `trAxiom` reads
-neither the index nor the module, and the sort of these sentences is read without the symbol
-declarations. -/
-def sentPat (a : Kore.Axiom) : P := (trAxiom [] [] ⟨0, "", a⟩).pat
-
-def intP : P := sym (.sort "SortInt")
-def boolP : P := sym (.sort "SortBool")
-/-- `f(x, y)` at the variables 3 and 4, the two Int variables of each of the five sentences. -/
-def app34 (f : String) : P := sym (.symbol f) ⬝ .evar ⟨3⟩ ⬝ .evar ⟨4⟩
-def litP (n : String) : P := sym (.dv n) ⬝ boolP
-def g34 : List P := [(⟨3⟩ : EVar) ∈∈ inhOf intP, (⟨4⟩ : EVar) ∈∈ inhOf intP]
-
-theorem fnlBool_shape (f : String) : sentPat (fnlBoolAx f) =
-    (conjList (sortGuard ⟨1⟩ :: g34) ⇒
-      (sExists ⟨2⟩ boolP (sEquals boolP (.evar ⟨1⟩) (.evar ⟨2⟩) (app34 f)) ≡ inhOf (.evar ⟨1⟩))) := by
-  rfl
-
-theorem simp_shape_tt : sentPat eqIntTrueLeftAx =
-    (conjList (sortGuard ⟨1⟩ :: sortGuard ⟨2⟩ :: g34) ⇒
-      (sImp (.evar ⟨1⟩) (sTop (.evar ⟨1⟩)) (sEquals (.evar ⟨2⟩) (.evar ⟨1⟩)
-        (sEquals boolP (.evar ⟨2⟩) (app34 eqIntName) (litP "true"))
-        (sAnd (sEquals intP (.evar ⟨2⟩) (.evar ⟨3⟩) (.evar ⟨4⟩)) (sTop (.evar ⟨2⟩)))) ≡ inhOf (.evar ⟨1⟩))) := by
-  decide +kernel
-
-theorem simp_shape_nf : sentPat neqIntFalseLeftAx =
-    (conjList (sortGuard ⟨1⟩ :: sortGuard ⟨2⟩ :: g34) ⇒
-      (sImp (.evar ⟨1⟩) (sTop (.evar ⟨1⟩)) (sEquals (.evar ⟨2⟩) (.evar ⟨1⟩)
-        (sEquals boolP (.evar ⟨2⟩) (app34 neqIntName) (litP "false"))
-        (sAnd (sEquals intP (.evar ⟨2⟩) (.evar ⟨3⟩) (.evar ⟨4⟩)) (sTop (.evar ⟨2⟩)))) ≡ inhOf (.evar ⟨1⟩))) := by
-  decide +kernel
-
-theorem simp_shape_ff : sentPat eqIntFalseRightAx =
-    (conjList (sortGuard ⟨1⟩ :: sortGuard ⟨2⟩ :: g34) ⇒
-      (sImp (.evar ⟨1⟩) (sTop (.evar ⟨1⟩)) (sEquals (.evar ⟨2⟩) (.evar ⟨1⟩)
-        (sEquals boolP (.evar ⟨2⟩) (litP "false") (app34 eqIntName))
-        (sAnd (sNot (.evar ⟨2⟩) (sEquals intP (.evar ⟨2⟩) (.evar ⟨3⟩) (.evar ⟨4⟩))) (sTop (.evar ⟨2⟩)))) ≡
-        inhOf (.evar ⟨1⟩))) := by
-  decide +kernel
-
-section lits
-variable {M : Type} {I : Interpretation KoreAML.Sym M}
-
-/-- The valuation that gives the variables 1 and 2 (the sort variables) `σ` and every other
-variable `n`. -/
-def valAt (σ n : M) : Valuation M := ⟨fun x => match x with | ⟨1⟩ => σ | ⟨2⟩ => σ | _ => n, fun _ _ => False⟩
-
-/-- An element of `f(n, n)`. -/
-def AppAt (I : Interpretation KoreAML.Sym M) (f : String) (n b : M) : Prop :=
-  ∃ s x, I.evalSymb (.symbol f) s ∧ I.evalApp s n x ∧ I.evalApp x n b
-
-theorem interp_app34 {f : String} {e : Valuation M} {n : M} (h3 : e.evalEvar ⟨3⟩ = n) (h4 : e.evalEvar ⟨4⟩ = n)
-    (b : M) : (app34 f).interpret I e b ↔ AppAt I f n b := by
-  unfold app34 AppAt
-  simp only [interp_app, interp_sym, interp_evar]
-  constructor
-  · rintro ⟨x, y, ⟨s, z, hs, rfl, hx⟩, rfl, hb⟩
-    exact ⟨s, x, hs, h3 ▸ hx, h4 ▸ hb⟩
-  · rintro ⟨s, x, hs, hx, hb⟩
-    exact ⟨x, _, ⟨s, _, hs, rfl, h3 ▸ hx⟩, rfl, h4 ▸ hb⟩
-
-
-theorem g34_at [Inhabited M] (hD : DefOK I) {σI n : M} (hI : ∀ a, I.evalSymb (.sort "SortInt") a ↔ a = σI) (_hσI : IsSort I σI) (hn : Inh I σI n) (e : Valuation M) (h3 : e.evalEvar ⟨3⟩ = n) (h4 : e.evalEvar ⟨4⟩ = n) (m : M) :
-    ∀ w ∈ g34, w.interpret I e m := by
-  intro w hw
-  simp only [g34, List.mem_cons, List.not_mem_nil, or_false] at hw
-  rcases hw with rfl | rfl
-  · rw [interp_member hD, interp_inhOf_of (S := intP) (σ := σI) (fun a => hI a), h3]; exact hn
-  · rw [interp_member hD, interp_inhOf_of (S := intP) (σ := σI) (fun a => hI a), h4]; exact hn
-
-theorem sortGuard_at [Inhabited M] (hD : DefOK I) {σI : M} (hσI : IsSort I σI) (e : Valuation M) {x : EVar} (hx : e.evalEvar x = σI) (m : M) :
-    (sortGuard x).interpret I e m := by
-  unfold sortGuard; rw [interp_member hD, interp_sortsDomain, hx]; exact hσI
-
-
-/-- **A functional sentence at `(n, n)`**: among Bool's elements, `f(n, n)` holds exactly one. -/
-theorem fnl_one [Inhabited M] (hD : DefOK I) (hc : I ⊧ᴵ ceilDefItem.pat) {σI σB n : M} (hI : ∀ a, I.evalSymb (.sort "SortInt") a ↔ a = σI) (hσI : IsSort I σI) (hB : ∀ a, I.evalSymb (.sort "SortBool") a ↔ a = σB) (hσB : IsSort I σB) (hn : Inh I σI n) {f : String} (h : I ⊧ᴵ sentPat (fnlBoolAx f)) :
-    ∃ y, Inh I σB y ∧ ∀ b, Inh I σB b → (AppAt I f n b ↔ b = y) := by
-  have h1 := h (valAt σI n) n
-  rw [fnlBool_shape, interpret_impl] at h1
-  have h2 := h1 (interp_conjList fun w hw => by
-    rcases List.mem_cons.mp hw with rfl | hw
-    · exact sortGuard_at hD hσI _ rfl n
-    · exact g34_at hD hI hσI hn _ rfl rfl n w hw)
-  rw [interp_equal hD] at h2
-  have h3 := (h2 n).mpr ((interp_inhOf_of (σ := σI) (fun a => Iff.rfl)).mpr hn)
-  rw [interp_sExists] at h3
-  obtain ⟨y, hy1, hy2⟩ := h3
-  rw [interp_member hD, interp_inhOf_of (S := boolP) (σ := σB) (fun a => hB a)] at hy1
-  simp only [Function.update_same] at hy1
-  rw [interp_sEquals hD hc (S := boolP) (σ := σB) (σ' := σI) (fun a => hB a) (fun a => Iff.rfl) hσB hσI] at hy2
-  refine ⟨y, hy1, fun b hb => ?_⟩
-  have h4 := hy2.2 b hb
-  rw [interp_app34 (n := n) rfl rfl, interp_evar] at h4
-  simp only [Function.update_same] at h4
-  exact h4.symm
-
-/-- **A simplification sentence at `(n, n)`**, the sort variables at Int: its two sides hold the
-same of `n`. -/
-theorem simp_at [Inhabited M] (hD : DefOK I) (hc : I ⊧ᴵ ceilDefItem.pat) {σI σB n : M} (hI : ∀ a, I.evalSymb (.sort "SortInt") a ↔ a = σI) (hσI : IsSort I σI) (_hB : ∀ a, I.evalSymb (.sort "SortBool") a ↔ a = σB) (_hσB : IsSort I σB) (hn : Inh I σI n) {L Rr : P}
-    (h : I ⊧ᴵ (conjList (sortGuard ⟨1⟩ :: sortGuard ⟨2⟩ :: g34) ⇒
-      (sImp (.evar ⟨1⟩) (sTop (.evar ⟨1⟩)) (sEquals (.evar ⟨2⟩) (.evar ⟨1⟩) L Rr) ≡ inhOf (.evar ⟨1⟩)))) :
-    L.interpret I (valAt σI n) n ↔ Rr.interpret I (valAt σI n) n := by
-  have h1 := h (valAt σI n) n
-  rw [interpret_impl] at h1
-  have h2 := h1 (interp_conjList fun w hw => by
-    rcases List.mem_cons.mp hw with rfl | hw
-    · exact sortGuard_at hD hσI _ rfl n
-    rcases List.mem_cons.mp hw with rfl | hw
-    · exact sortGuard_at hD hσI _ rfl n
-    · exact g34_at hD hI hσI hn _ rfl rfl n w hw)
-  rw [interp_equal hD] at h2
-  have hin : (inhOf (.evar ⟨1⟩) : P).interpret I (valAt σI n) n :=
-    (interp_inhOf_of (σ := σI) (fun a => Iff.rfl)).mpr hn
-  have h3 := (h2 n).mpr hin
-  rw [interp_sImp] at h3
-  have h4 := h3.2 ((interp_sTop hD rfl n).mpr hin)
-  rw [interp_sEquals hD hc (σ := σI) (σ' := σI) (fun a => Iff.rfl) (fun a => Iff.rfl) hσI hσI] at h4
-  exact h4.2 n hn
-
-/-- `\equals{SortBool{}, Q0}(x, y)` at `n`, Q0 at Int: `x` and `y` hold the same of Bool's
-elements. -/
-theorem boolEq_at [Inhabited M] (hD : DefOK I) (hc : I ⊧ᴵ ceilDefItem.pat) {σI σB n : M} (_hI : ∀ a, I.evalSymb (.sort "SortInt") a ↔ a = σI) (hσI : IsSort I σI) (hB : ∀ a, I.evalSymb (.sort "SortBool") a ↔ a = σB) (hσB : IsSort I σB) (hn : Inh I σI n) {x y : P} : (sEquals boolP (.evar ⟨2⟩) x y).interpret I (valAt σI n) n ↔
-    ∀ b, Inh I σB b → (x.interpret I (valAt σI n) b ↔ y.interpret I (valAt σI n) b) := by
-  rw [interp_sEquals hD hc (S := boolP) (σ := σB) (σ' := σI) (fun a => hB a) (fun a => Iff.rfl) hσB hσI]
-  exact ⟨fun h => h.2, fun h => ⟨hn, h⟩⟩
-
-/-- `\and{Q0}(\equals{SortInt{}, Q0}(K1, K2), \top{Q0}())` holds of `n` at `(n, n)`. -/
-theorem k12_at [Inhabited M] (hD : DefOK I) (hc : I ⊧ᴵ ceilDefItem.pat) {σI σB n : M} (hI : ∀ a, I.evalSymb (.sort "SortInt") a ↔ a = σI) (hσI : IsSort I σI) (_hB : ∀ a, I.evalSymb (.sort "SortBool") a ↔ a = σB) (_hσB : IsSort I σB) (hn : Inh I σI n) : (sEquals intP (.evar ⟨2⟩) (.evar ⟨3⟩) (.evar ⟨4⟩)).interpret I (valAt σI n) n := by
-  rw [interp_sEquals hD hc (S := intP) (σ := σI) (σ' := σI) (fun a => hI a) (fun a => Iff.rfl) hσI hσI]
-  exact ⟨hn, fun _ _ => Iff.rfl⟩
-
-/-- A literal of Bool holds elements of Bool only (its arity item). -/
-theorem lit_in_bool [Inhabited M] (hD : DefOK I) {σB : M} (hB : ∀ a, I.evalSymb (.sort "SortBool") a ↔ a = σB) (hσB : IsSort I σB) {lit : String} (hd : I ⊧ᴵ (dvArityItem lit).pat) (e : Valuation M) (m : M)
-    (h : (litP lit).interpret I e m) : Inh I σB m := by
-  have h1 := hd ⟨fun _ => σB, e.evalSvar⟩ default
-  unfold dvArityItem at h1
-  dsimp only at h1
-  unfold guarded at h1
-  have h2 := h1 (by
-    unfold conjList sortGuard; rw [interp_member hD, interp_sortsDomain]; exact hσB)
-  rw [interp_included hD] at h2
-  have h3 := h2 m (by
-    unfold litP boolP at h
-    rw [interp_app] at h ⊢
-    obtain ⟨a, b, ha, hb, hab⟩ := h
-    exact ⟨a, σB, ha, rfl, (hB b).mp hb ▸ hab⟩)
-  exact (interp_inhOf_of (σ := σB) (fun a => Iff.rfl)).mp h3
-
-/-- **The Bool literals from the text's sentences.** In an interpretation with definedness,
-`⌈_⌉`'s definition, the sort constants Int and Bool, an element `n` of Int and the arity of the
-literals `true` and `false`, that satisfies eq-int-true-left, neq-int-false-left,
-eq-int-false-rigth and the functional sentences of `_==Int_` and `_=/=Int_`: `false` and `true`
-each denote one element of Bool, and the two elements differ. `n ==Int n` is one element of Bool
-among Bool's and agrees there with `true`; `n =/=Int n` likewise with `false`; and `false` does
-not agree with `n ==Int n` on Bool. -/
-theorem boolLits_core [Inhabited M] (hD : DefOK I) (hc : I ⊧ᴵ ceilDefItem.pat) {σI σB n : M} (hI : ∀ a, I.evalSymb (.sort "SortInt") a ↔ a = σI) (hσI : IsSort I σI) (hB : ∀ a, I.evalSymb (.sort "SortBool") a ↔ a = σB) (hσB : IsSort I σB) (hn : Inh I σI n) (hdT : I ⊧ᴵ (dvArityItem "true").pat) (hdF : I ⊧ᴵ (dvArityItem "false").pat)
-    (h1 : I ⊧ᴵ sentPat eqIntTrueLeftAx) (h2 : I ⊧ᴵ sentPat neqIntFalseLeftAx)
-    (h3 : I ⊧ᴵ sentPat eqIntFalseRightAx)
-    (hf1 : I ⊧ᴵ sentPat (fnlBoolAx eqIntName)) (hf2 : I ⊧ᴵ sentPat (fnlBoolAx neqIntName)) (e : Valuation M) :
-    ∃ aF aT, (∀ m, (litP "false").interpret I e m ↔ m = aF) ∧ (∀ m, (litP "true").interpret I e m ↔ m = aT) ∧
-      aF ≠ aT ∧ Inh I σB aF ∧ Inh I σB aT := by
-  have hcl : ∀ (lit : String) m, (litP lit).interpret I e m ↔ (litP lit).interpret I (valAt σI n) m :=
-    fun lit m => ((Closed.sym _).app (Closed.sym _)).interp _ _ m
-  obtain ⟨v, hv, hv1⟩ := fnl_one hD hc hI hσI hB hσB hn hf1
-  obtain ⟨w, hw, hw1⟩ := fnl_one hD hc hI hσI hB hσB hn hf2
-  rw [simp_shape_tt] at h1
-  rw [simp_shape_nf] at h2
-  rw [simp_shape_ff] at h3
-  have hk : (sAnd (sEquals intP (.evar ⟨2⟩) (.evar ⟨3⟩) (.evar ⟨4⟩)) (sTop (.evar ⟨2⟩)) : P).interpret I (valAt σI n) n :=
-    interp_sAnd.mpr ⟨k12_at hD hc hI hσI hB hσB hn,
-      (interp_sTop hD rfl n).mpr ((interp_inhOf_of (σ := σI) (fun a => Iff.rfl)).mpr hn)⟩
-  have e1 := (boolEq_at hD hc hI hσI hB hσB hn).mp ((simp_at hD hc hI hσI hB hσB hn h1).mpr hk)
-  have e2 := (boolEq_at hD hc hI hσI hB hσB hn).mp ((simp_at hD hc hI hσI hB hσB hn h2).mpr hk)
-  have e3 : ¬ ∀ b, Inh I σB b → ((litP "false").interpret I (valAt σI n) b ↔ (app34 eqIntName).interpret I (valAt σI n) b) :=
-    fun hall => by
-      have := (simp_at hD hc hI hσI hB hσB hn h3).mp ((boolEq_at hD hc hI hσI hB hσB hn).mpr hall)
-      rw [interp_sAnd, interp_sNot] at this
-      exact this.1.1 (k12_at hD hc hI hσI hB hσB hn)
-  have hT : ∀ m, (litP "true").interpret I e m ↔ m = v := fun m => by
-    rw [hcl]
-    constructor
-    · intro hm
-      have hmB := lit_in_bool hD hB hσB hdT _ m hm
-      exact (hv1 m hmB).mp ((interp_app34 rfl rfl m).mp ((e1 m hmB).mpr hm))
-    · rintro rfl
-      exact (e1 m hv).mp ((interp_app34 rfl rfl m).mpr ((hv1 m hv).mpr rfl))
-  have hF : ∀ m, (litP "false").interpret I e m ↔ m = w := fun m => by
-    rw [hcl]
-    constructor
-    · intro hm
-      have hmB := lit_in_bool hD hB hσB hdF _ m hm
-      exact (hw1 m hmB).mp ((interp_app34 rfl rfl m).mp ((e2 m hmB).mpr hm))
-    · rintro rfl
-      exact (e2 m hw).mp ((interp_app34 rfl rfl m).mpr ((hw1 m hw).mpr rfl))
-  refine ⟨w, v, hF, hT, fun hwv => e3 fun b hb => ?_, hw, hv⟩
-  rw [← hcl, hF, interp_app34 (n := n) rfl rfl, hv1 b hb, hwv]
-
-end lits
-
-section
-variable {M : Type} {I : Interpretation KoreAML.Sym M}
-
-/-- `boolLits_of_text` with the signature items from `ΓSig c`, for a semantics whose sort `sI`
-is named Int. -/
-theorem boolLits_of_text_sig [Inhabited M] (hD : DefOK I) {c : Semantics} [OvlOK c] (hSig : I ⊧ᴵP ΓSig c)
-    {sI : Srt} (hsI : sI < nRegSorts + c.sortNames.length) (hnI : c.sortName sI = "Int") {bn : Bool}
-    (hne : I ⊧ᴵ (nonemptyItem ⟨"SortInt", [], bn⟩).pat)
-    (h1 : I ⊧ᴵ sentPat eqIntTrueLeftAx) (h2 : I ⊧ᴵ sentPat neqIntFalseLeftAx)
-    (h3 : I ⊧ᴵ sentPat eqIntFalseRightAx)
-    (hf1 : I ⊧ᴵ sentPat (fnlBoolAx eqIntName)) (hf2 : I ⊧ᴵ sentPat (fnlBoolAx neqIntName))
-    (t : VarTable) (e : Valuation M) :
-    ∃ σB aF aT, (∀ a, (trSort t (srt "Bool")).interpret I e a ↔ a = σB) ∧ IsSort I σB ∧
-      (∀ m, (tr ⟨t, []⟩ (.dv (srt "Bool") "false")).interpret I e m ↔ m = aF) ∧
-      (∀ m, (tr ⟨t, []⟩ (.dv (srt "Bool") "true")).interpret I e m ↔ m = aT) ∧
-      aF ≠ aT ∧ Inh I σB aF ∧ Inh I σB aT := by
-  have hc : I ⊧ᴵ ceilDefItem.pat := hSig _ (Or.inl (Or.inl ⟨_, sig_ceilDef, rfl⟩))
-  obtain ⟨σI, hI, hσI⟩ := TieRhs.sortSing_sig hD hSig hsI
-  rw [hnI] at hI
-  have hI : ∀ a, I.evalSymb (.sort "SortInt") a ↔ a = σI := hI
-  obtain ⟨σB, hB, hσB⟩ := TieRhs.sortSing_sig hD hSig (bool_numbered (c := c))
-  rw [sortName_bool] at hB
-  obtain ⟨n, hn⟩ := nonempty_of hD hne (e := e)
-  have hn' : Inh I σI n := (interp_inhOf_of (S := intP) (σ := σI) (fun a => hI a)).mp hn
-  obtain ⟨aF, aT, hF, hT, hne', hiF, hiT⟩ := boolLits_core hD hc hI hσI hB hσB hn'
-    (hSig _ (Or.inr ⟨"true", rfl⟩)) (hSig _ (Or.inr ⟨"false", rfl⟩)) h1 h2 h3 hf1 hf2 e
-  have htr : ∀ (lit : String), tr ⟨t, []⟩ (.dv (srt "Bool") lit) = litP lit := by
-    intro lit; rw [tr, trSort_srt]; rfl
-  refine ⟨σB, aF, aT, fun a => by rw [trSort_srt]; exact hB a, hσB, fun m => ?_, fun m => ?_, hne', hiF, hiT⟩
-  · rw [htr]; exact hF m
-  · rw [htr]; exact hT m
-
-end
-end LitsText157
-
-/-- **Each of the five sentences is the pattern `LitsText157` writes for it** (kernel):
+/-- **Each of the five sentences is the pattern `TieReqBool` writes for it** (kernel):
 INT-KORE.eq-int-true-left (138), INT-KORE.neq-int-false-left (133), INT-KORE.eq-int-false-rigth
 (147), and the functional sentences of `_==Int_` (49) and `_=/=Int_` (46). -/
 theorem lit_sents :
-    (trS U.ax138).pat = LitsText157.sentPat LitsText157.eqIntTrueLeftAx ∧
-    (trS U.ax133).pat = LitsText157.sentPat LitsText157.neqIntFalseLeftAx ∧
-    (trS U.ax147).pat = LitsText157.sentPat LitsText157.eqIntFalseRightAx ∧
-    (trS U.ax49).pat = LitsText157.sentPat (LitsText157.fnlBoolAx LitsText157.eqIntName) ∧
-    (trS U.ax46).pat = LitsText157.sentPat (LitsText157.fnlBoolAx LitsText157.neqIntName) := by
+    (trS U.ax138).pat = TieReqBool.sentPat TieReqBool.eqIntTrueLeftAx ∧
+    (trS U.ax133).pat = TieReqBool.sentPat TieReqBool.neqIntFalseLeftAx ∧
+    (trS U.ax147).pat = TieReqBool.sentPat TieReqBool.eqIntFalseRightAx ∧
+    (trS U.ax49).pat = TieReqBool.sentPat (TieReqBool.fnlBoolAx TieReqBool.eqIntName) ∧
+    (trS U.ax46).pat = TieReqBool.sentPat (TieReqBool.fnlBoolAx TieReqBool.neqIntName) := by
   refine ⟨?_, ?_, ?_, ?_, ?_⟩ <;> decide +kernel
 
 /-- The other sentences of the text the statement reads. -/
@@ -1325,7 +1057,7 @@ theorem boolDist_of_text (H : HookParams) {M : Type} [Inhabited M] {I : Interpre
   have hT' : ∀ φ ∈ [(trS U.ax138).pat, (trS U.ax133).pat, (trS U.ax147).pat, (trS U.ax49).pat, (trS U.ax46).pat,
       (nonemptyItem ⟨"SortInt", [], true⟩).pat], I ⊧ᴵ φ := hT
   obtain ⟨s1, s2, s3, s4, s5⟩ := lit_sents
-  obtain ⟨σB, aF, aT, -, -, haf, hat, hne, -, -⟩ := LitsText157.boolLits_of_text_sig hD hSig
+  obtain ⟨σB, aF, aT, -, -, haf, hat, hne, -, -⟩ := TieReqBool.boolLits_of_text_sig hD hSig
     (Nat.lt_of_lt_of_le (by decide : Srt.int < nRegSorts) (Nat.le_add_right _ _) :
       Srt.int < nRegSorts + (cH H).sortNames.length) (int_name H)
     (hT' _ (.tail _ (.tail _ (.tail _ (.tail _ (.tail _ (.head _)))))))
@@ -1371,8 +1103,8 @@ def evS : KoreAML.Sym → Set El
   | .ceil => fun m => m = .c0
   | .next => fun m => m = .n
   | .dv lit => fun m => m = (if lit = "true" then El.dvT else if lit = "false" then El.dvF else El.o)
-  | .symbol s => fun m => m = (if s = gtName then El.gt else if s = LitsText157.eqIntName then El.eq
-      else if s = LitsText157.neqIntName then El.ne else El.o)
+  | .symbol s => fun m => m = (if s = gtName then El.gt else if s = TieReqBool.eqIntName then El.eq
+      else if s = TieReqBool.neqIntName then El.ne else El.o)
   | _ => fun m => m = .o
 
 def evA : El → El → Set El
@@ -1488,18 +1220,18 @@ section
 variable {t : VarTable} {e : Valuation El}
 
 theorem symb_iff (f : String) (m : El) : J.evalSymb (.symbol f) m ↔
-    m = (if f = gtName then El.gt else if f = LitsText157.eqIntName then El.eq
-      else if f = LitsText157.neqIntName then El.ne else El.o) := Iff.rfl
+    m = (if f = gtName then El.gt else if f = TieReqBool.eqIntName then El.eq
+      else if f = TieReqBool.neqIntName then El.ne else El.o) := Iff.rfl
 
-theorem symb_eq (m : El) : J.evalSymb (.symbol LitsText157.eqIntName) m ↔ m = .eq := by
-  rw [symb_iff, if_neg (show ¬ LitsText157.eqIntName = gtName by decide), if_pos rfl]
+theorem symb_eq (m : El) : J.evalSymb (.symbol TieReqBool.eqIntName) m ↔ m = .eq := by
+  rw [symb_iff, if_neg (show ¬ TieReqBool.eqIntName = gtName by decide), if_pos rfl]
 
-theorem symb_ne (m : El) : J.evalSymb (.symbol LitsText157.neqIntName) m ↔ m = .ne := by
-  rw [symb_iff, if_neg (show ¬ LitsText157.neqIntName = gtName by decide),
-    if_neg (show ¬ LitsText157.neqIntName = LitsText157.eqIntName by decide), if_pos rfl]
+theorem symb_ne (m : El) : J.evalSymb (.symbol TieReqBool.neqIntName) m ↔ m = .ne := by
+  rw [symb_iff, if_neg (show ¬ TieReqBool.neqIntName = gtName by decide),
+    if_neg (show ¬ TieReqBool.neqIntName = TieReqBool.eqIntName by decide), if_pos rfl]
 
-theorem sing_symbol {f : String} (hf : f ≠ gtName) (hf1 : f ≠ LitsText157.eqIntName)
-    (hf2 : f ≠ LitsText157.neqIntName) : Sing (sym (.symbol f)) e .o := fun m => by
+theorem sing_symbol {f : String} (hf : f ≠ gtName) (hf1 : f ≠ TieReqBool.eqIntName)
+    (hf2 : f ≠ TieReqBool.neqIntName) : Sing (sym (.symbol f)) e .o := fun m => by
   show J.evalSymb (.symbol f) m ↔ m = .o
   rw [symb_iff, if_neg hf, if_neg hf1, if_neg hf2]
 theorem sing_sort (n : String) : Sing (sym (.sort n)) e .o := fun _ => Iff.rfl
@@ -1652,9 +1384,9 @@ theorem sEq_iff {e : Valuation El} {S S' φ ψ : P} {σ σ' : El} (hS : ∀ a, S
   exact ⟨fun h a => h.2 a (inh_all _ _), fun h => ⟨inh_all _ _, fun a _ => h a⟩⟩
 
 /-- `K1 ==Int K2` denotes `tt` where the two are one element and `ff` where they are two. -/
-theorem app34_eq (e : Valuation El) (m : El) : (LitsText157.app34 LitsText157.eqIntName).interpret J e m ↔
+theorem app34_eq (e : Valuation El) (m : El) : (TieReqBool.app34 TieReqBool.eqIntName).interpret J e m ↔
     (e.evalEvar ⟨3⟩ = e.evalEvar ⟨4⟩ ∧ m = .tt) ∨ (e.evalEvar ⟨3⟩ ≠ e.evalEvar ⟨4⟩ ∧ m = .ff) := by
-  unfold LitsText157.app34
+  unfold TieReqBool.app34
   rw [interp_app]
   constructor
   · rintro ⟨f, y, hf, hy, hfy⟩
@@ -1673,9 +1405,9 @@ theorem app34_eq (e : Valuation El) (m : El) : (LitsText157.app34 LitsText157.eq
       interp_app.mpr ⟨.eq, e.evalEvar ⟨3⟩, (symb_eq _).mpr rfl, rfl, rfl⟩, rfl, h⟩
 
 /-- `K1 =/=Int K2` denotes `ff` where the two are one element and `tt` where they are two. -/
-theorem app34_ne (e : Valuation El) (m : El) : (LitsText157.app34 LitsText157.neqIntName).interpret J e m ↔
+theorem app34_ne (e : Valuation El) (m : El) : (TieReqBool.app34 TieReqBool.neqIntName).interpret J e m ↔
     (e.evalEvar ⟨3⟩ = e.evalEvar ⟨4⟩ ∧ m = .ff) ∨ (e.evalEvar ⟨3⟩ ≠ e.evalEvar ⟨4⟩ ∧ m = .tt) := by
-  unfold LitsText157.app34
+  unfold TieReqBool.app34
   rw [interp_app]
   constructor
   · rintro ⟨f, y, hf, hy, hfy⟩
@@ -1693,8 +1425,8 @@ theorem app34_ne (e : Valuation El) (m : El) : (LitsText157.app34 LitsText157.ne
     exact ⟨.ne1 (e.evalEvar ⟨3⟩), e.evalEvar ⟨4⟩,
       interp_app.mpr ⟨.ne, e.evalEvar ⟨3⟩, (symb_ne _).mpr rfl, rfl, rfl⟩, rfl, h⟩
 
-theorem litP_true {e : Valuation El} (m : El) : (LitsText157.litP "true").interpret J e m ↔ m = .tt := by
-  unfold LitsText157.litP
+theorem litP_true {e : Valuation El} (m : El) : (TieReqBool.litP "true").interpret J e m ↔ m = .tt := by
+  unfold TieReqBool.litP
   rw [interp_app]
   constructor
   · rintro ⟨a, b, ha, -, hab⟩
@@ -1704,8 +1436,8 @@ theorem litP_true {e : Valuation El} (m : El) : (LitsText157.litP "true").interp
   · rintro rfl
     exact ⟨.dvT, .o, rfl, rfl, rfl⟩
 
-theorem litP_false {e : Valuation El} (m : El) : (LitsText157.litP "false").interpret J e m ↔ m = .ff := by
-  unfold LitsText157.litP
+theorem litP_false {e : Valuation El} (m : El) : (TieReqBool.litP "false").interpret J e m ↔ m = .ff := by
+  unfold TieReqBool.litP
   rw [interp_app]
   constructor
   · rintro ⟨a, b, ha, -, hab⟩
@@ -1729,10 +1461,10 @@ theorem neR_one (x y : El) : ∃ v, ∀ m, ((x = y ∧ m = El.ff) ∨ (x ≠ y �
 two elements denotes one element. -/
 theorem sat_fnl {f : String} {R : El → El → El → Prop}
     (happ : ∀ (e : Valuation El) (m : El),
-      (LitsText157.app34 f).interpret J e m ↔ R (e.evalEvar ⟨3⟩) (e.evalEvar ⟨4⟩) m)
-    (hone : ∀ x y, ∃ v, ∀ m, R x y m ↔ m = v) : J ⊧ᴵ LitsText157.sentPat (LitsText157.fnlBoolAx f) := by
+      (TieReqBool.app34 f).interpret J e m ↔ R (e.evalEvar ⟨3⟩) (e.evalEvar ⟨4⟩) m)
+    (hone : ∀ x y, ∃ v, ∀ m, R x y m ↔ m = v) : J ⊧ᴵ TieReqBool.sentPat (TieReqBool.fnlBoolAx f) := by
   intro e m
-  rw [LitsText157.fnlBool_shape, interpret_impl]
+  rw [TieReqBool.fnlBool_shape, interpret_impl]
   intro _
   rw [interp_equal defOK_J]
   intro a
@@ -1741,8 +1473,8 @@ theorem sat_fnl {f : String} {R : El → El → El → Prop}
   rw [interp_sExists]
   refine ⟨v, ?_, ?_⟩
   · rw [interp_member defOK_J]
-    exact inhOf_of (S := LitsText157.boolP) ⟨.o, (rfl : El.o = El.o)⟩ _
-  · refine (sEq_iff (S := LitsText157.boolP) (S' := (.evar ⟨1⟩ : P)) (σ := .o) (fun _ => Iff.rfl)
+    exact inhOf_of (S := TieReqBool.boolP) ⟨.o, (rfl : El.o = El.o)⟩ _
+  · refine (sEq_iff (S := TieReqBool.boolP) (S' := (.evar ⟨1⟩ : P)) (σ := .o) (fun _ => Iff.rfl)
       (fun _ => Iff.rfl) a).mpr fun b => ?_
     rw [happ, interp_evar]
     simp only [Function.update_same, Function.update_noteq (show (⟨3⟩ : EVar) ≠ ⟨2⟩ by decide),
@@ -1751,7 +1483,7 @@ theorem sat_fnl {f : String} {R : El → El → El → Prop}
 
 /-- **A simplification sentence holds** where its two sides hold the same at every valuation. -/
 theorem sat_simp {L Rr : P} (h : ∀ (e : Valuation El) (a : El), L.interpret J e a ↔ Rr.interpret J e a) :
-    J ⊧ᴵ (conjList (sortGuard ⟨1⟩ :: sortGuard ⟨2⟩ :: LitsText157.g34) ⇒
+    J ⊧ᴵ (conjList (sortGuard ⟨1⟩ :: sortGuard ⟨2⟩ :: TieReqBool.g34) ⇒
       (sImp (.evar ⟨1⟩) (sTop (.evar ⟨1⟩)) (sEquals (.evar ⟨2⟩) (.evar ⟨1⟩) L Rr) ≡ inhOf (.evar ⟨1⟩))) := by
   intro e m
   rw [interpret_impl]
@@ -1765,9 +1497,9 @@ theorem sat_simp {L Rr : P} (h : ∀ (e : Valuation El) (a : El), L.interpret J 
 
 /-- `\equals{SortInt{}, Q0}(K1, K2)` holds where K1 and K2 are one element. -/
 theorem k12_iff (e : Valuation El) (a : El) :
-    (sEquals LitsText157.intP (.evar ⟨2⟩) (.evar ⟨3⟩) (.evar ⟨4⟩)).interpret J e a ↔
+    (sEquals TieReqBool.intP (.evar ⟨2⟩) (.evar ⟨3⟩) (.evar ⟨4⟩)).interpret J e a ↔
       e.evalEvar ⟨3⟩ = e.evalEvar ⟨4⟩ := by
-  refine (sEq_iff (S := LitsText157.intP) (S' := (.evar ⟨2⟩ : P)) (σ := .o) (fun _ => Iff.rfl)
+  refine (sEq_iff (S := TieReqBool.intP) (S' := (.evar ⟨2⟩ : P)) (σ := .o) (fun _ => Iff.rfl)
     (fun _ => Iff.rfl) a).trans ⟨fun h => ?_, fun h b => ?_⟩
   · exact interp_evar.mp ((h (e.evalEvar ⟨3⟩)).mp (interp_evar.mpr rfl))
   · rw [interp_evar, interp_evar, h]
@@ -1777,9 +1509,9 @@ theorem top2 (e : Valuation El) (a : El) : (sTop (.evar ⟨2⟩)).interpret J e 
 
 /-- `(K1 ==Int K2) = true` holds where K1 and K2 are one element. -/
 theorem eqTrue_iff (e : Valuation El) (a : El) :
-    (sEquals LitsText157.boolP (.evar ⟨2⟩) (LitsText157.app34 LitsText157.eqIntName)
-      (LitsText157.litP "true")).interpret J e a ↔ e.evalEvar ⟨3⟩ = e.evalEvar ⟨4⟩ := by
-  refine (sEq_iff (S := LitsText157.boolP) (S' := (.evar ⟨2⟩ : P)) (σ := .o) (fun _ => Iff.rfl)
+    (sEquals TieReqBool.boolP (.evar ⟨2⟩) (TieReqBool.app34 TieReqBool.eqIntName)
+      (TieReqBool.litP "true")).interpret J e a ↔ e.evalEvar ⟨3⟩ = e.evalEvar ⟨4⟩ := by
+  refine (sEq_iff (S := TieReqBool.boolP) (S' := (.evar ⟨2⟩ : P)) (σ := .o) (fun _ => Iff.rfl)
     (fun _ => Iff.rfl) a).trans ⟨fun h => ?_, fun h b => ?_⟩
   · apply Classical.byContradiction
     intro hne
@@ -1789,9 +1521,9 @@ theorem eqTrue_iff (e : Valuation El) (a : El) :
 
 /-- `(K1 =/=Int K2) = false` holds where K1 and K2 are one element. -/
 theorem neFalse_iff (e : Valuation El) (a : El) :
-    (sEquals LitsText157.boolP (.evar ⟨2⟩) (LitsText157.app34 LitsText157.neqIntName)
-      (LitsText157.litP "false")).interpret J e a ↔ e.evalEvar ⟨3⟩ = e.evalEvar ⟨4⟩ := by
-  refine (sEq_iff (S := LitsText157.boolP) (S' := (.evar ⟨2⟩ : P)) (σ := .o) (fun _ => Iff.rfl)
+    (sEquals TieReqBool.boolP (.evar ⟨2⟩) (TieReqBool.app34 TieReqBool.neqIntName)
+      (TieReqBool.litP "false")).interpret J e a ↔ e.evalEvar ⟨3⟩ = e.evalEvar ⟨4⟩ := by
+  refine (sEq_iff (S := TieReqBool.boolP) (S' := (.evar ⟨2⟩ : P)) (σ := .o) (fun _ => Iff.rfl)
     (fun _ => Iff.rfl) a).trans ⟨fun h => ?_, fun h b => ?_⟩
   · apply Classical.byContradiction
     intro hne
@@ -1801,39 +1533,39 @@ theorem neFalse_iff (e : Valuation El) (a : El) :
 
 /-- `false = (K1 ==Int K2)` holds where K1 and K2 are two elements. -/
 theorem falseEq_iff (e : Valuation El) (a : El) :
-    (sEquals LitsText157.boolP (.evar ⟨2⟩) (LitsText157.litP "false")
-      (LitsText157.app34 LitsText157.eqIntName)).interpret J e a ↔ e.evalEvar ⟨3⟩ ≠ e.evalEvar ⟨4⟩ := by
-  refine (sEq_iff (S := LitsText157.boolP) (S' := (.evar ⟨2⟩ : P)) (σ := .o) (fun _ => Iff.rfl)
+    (sEquals TieReqBool.boolP (.evar ⟨2⟩) (TieReqBool.litP "false")
+      (TieReqBool.app34 TieReqBool.eqIntName)).interpret J e a ↔ e.evalEvar ⟨3⟩ ≠ e.evalEvar ⟨4⟩ := by
+  refine (sEq_iff (S := TieReqBool.boolP) (S' := (.evar ⟨2⟩ : P)) (σ := .o) (fun _ => Iff.rfl)
     (fun _ => Iff.rfl) a).trans ⟨fun h heq => ?_, fun h b => ?_⟩
   · cases (litP_false .tt).mp ((h .tt).mpr ((app34_eq e .tt).mpr (Or.inl ⟨heq, rfl⟩)))
   · rw [app34_eq, litP_false]
     exact ⟨fun hb => Or.inr ⟨h, hb⟩, fun hb => hb.elim (fun h1 => absurd h1.1 h) (fun h1 => h1.2)⟩
 
 /-- INT-KORE.eq-int-true-left holds: both sides say that K1 and K2 are one element. -/
-theorem sat_eqTrueLeft : J ⊧ᴵ LitsText157.sentPat LitsText157.eqIntTrueLeftAx := by
-  rw [LitsText157.simp_shape_tt]
+theorem sat_eqTrueLeft : J ⊧ᴵ TieReqBool.sentPat TieReqBool.eqIntTrueLeftAx := by
+  rw [TieReqBool.simp_shape_tt]
   exact sat_simp fun e a => by
     rw [eqTrue_iff, interp_sAnd, k12_iff]
     exact ⟨fun h => ⟨h, top2 e a⟩, fun h => h.1⟩
 
 /-- INT-KORE.neq-int-false-left holds: both sides say that K1 and K2 are one element. -/
-theorem sat_neFalseLeft : J ⊧ᴵ LitsText157.sentPat LitsText157.neqIntFalseLeftAx := by
-  rw [LitsText157.simp_shape_nf]
+theorem sat_neFalseLeft : J ⊧ᴵ TieReqBool.sentPat TieReqBool.neqIntFalseLeftAx := by
+  rw [TieReqBool.simp_shape_nf]
   exact sat_simp fun e a => by
     rw [neFalse_iff, interp_sAnd, k12_iff]
     exact ⟨fun h => ⟨h, top2 e a⟩, fun h => h.1⟩
 
 /-- INT-KORE.eq-int-false-rigth holds: both sides say that K1 and K2 are two elements. -/
-theorem sat_eqFalseRight : J ⊧ᴵ LitsText157.sentPat LitsText157.eqIntFalseRightAx := by
-  rw [LitsText157.simp_shape_ff]
+theorem sat_eqFalseRight : J ⊧ᴵ TieReqBool.sentPat TieReqBool.eqIntFalseRightAx := by
+  rw [TieReqBool.simp_shape_ff]
   exact sat_simp fun e a => by
     rw [falseEq_iff, interp_sAnd, interp_sNot, k12_iff]
     exact ⟨fun h => ⟨⟨h, inhOf_evar _ e a⟩, top2 e a⟩, fun h => h.1.1⟩
 
-theorem sat_fnlEq : J ⊧ᴵ LitsText157.sentPat (LitsText157.fnlBoolAx LitsText157.eqIntName) :=
+theorem sat_fnlEq : J ⊧ᴵ TieReqBool.sentPat (TieReqBool.fnlBoolAx TieReqBool.eqIntName) :=
   sat_fnl (R := fun x y m => (x = y ∧ m = El.tt) ∨ (x ≠ y ∧ m = El.ff)) app34_eq eqR_one
 
-theorem sat_fnlNe : J ⊧ᴵ LitsText157.sentPat (LitsText157.fnlBoolAx LitsText157.neqIntName) :=
+theorem sat_fnlNe : J ⊧ᴵ TieReqBool.sentPat (TieReqBool.fnlBoolAx TieReqBool.neqIntName) :=
   sat_fnl (R := fun x y m => (x = y ∧ m = El.ff) ∨ (x ≠ y ∧ m = El.tt)) app34_ne neR_one
 
 /-- Int has an element. -/
@@ -2305,9 +2037,6 @@ end KCore.TieE3MlReqNot
 #check @KCore.TieE3MlReqNot.Rules.cond_iff
 #check @KCore.TieE3MlReqNot.Rules.left_sub
 #check @KCore.TieE3MlReqNot.Rules.left_sup
-#check @KCore.TieE3MlReqNot.Rules.LitsText157.fnl_one
-#check @KCore.TieE3MlReqNot.Rules.LitsText157.simp_at
-#check @KCore.TieE3MlReqNot.Rules.LitsText157.boolLits_core
 #check @KCore.TieE3MlReqNot.Rules.lit_sents
 #check @KCore.TieE3MlReqNot.Rules.boolDist_of_text
 #check @KCore.TieE3MlReqNot.Rules.boolDist_from_text
@@ -2374,9 +2103,6 @@ end KCore.TieE3MlReqNot
 #print axioms KCore.TieE3MlReqNot.Rules.cond_iff
 #print axioms KCore.TieE3MlReqNot.Rules.left_sub
 #print axioms KCore.TieE3MlReqNot.Rules.left_sup
-#print axioms KCore.TieE3MlReqNot.Rules.LitsText157.fnl_one
-#print axioms KCore.TieE3MlReqNot.Rules.LitsText157.simp_at
-#print axioms KCore.TieE3MlReqNot.Rules.LitsText157.boolLits_core
 #print axioms KCore.TieE3MlReqNot.Rules.lit_sents
 #print axioms KCore.TieE3MlReqNot.Rules.boolDist_of_text
 #print axioms KCore.TieE3MlReqNot.Rules.boolDist_from_text
