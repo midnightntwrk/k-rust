@@ -15,7 +15,7 @@ use k_rust::kast::{Sort, Term};
 use k_rust::outer::ResolvedSource;
 use kink_patch::{
     Baseline, CandidateDisposition, CandidateFailureKind, CandidateGeneration, ExclusionReason,
-    SemanticInput, SentenceFingerprint, SentenceRef, SiteSelector, Universe, apply, canonical_json,
+    FingerprintError, SemanticInput, SentenceFingerprint, SentenceRef, SiteSelector, Universe, apply, canonical_json,
     catalogue_v1, derive_sites, derive_sites_in, generate, resolve_universe, sha256,
 };
 use serde_json::{Value, json};
@@ -163,8 +163,18 @@ fn summary(generation: &CandidateGeneration<'_>) -> Value {
     })
 }
 
+/// A sentence's fingerprint; `None` for a context alias, which has no v1 fingerprint (its place in
+/// the table is still compared). Any other refusal fails the sweep.
+fn fingerprint_of(sentence: &Sentence) -> Option<SentenceFingerprint> {
+    match SentenceFingerprint::of(sentence) {
+        Ok(fingerprint) => Some(fingerprint),
+        Err(FingerprintError::ContextAlias) => None,
+        Err(error) => panic!("fingerprint: {error}"),
+    }
+}
+
 /// Every local sentence of every module with its fingerprint.
-fn table(baseline: &Baseline) -> Vec<(SentenceRef, SentenceFingerprint)> {
+fn table(baseline: &Baseline) -> Vec<(SentenceRef, Option<SentenceFingerprint>)> {
     baseline
         .definition()
         .modules
@@ -177,7 +187,7 @@ fn table(baseline: &Baseline) -> Vec<(SentenceRef, SentenceFingerprint)> {
                 .map(|(index, sentence)| {
                     (
                         SentenceRef::new(&module.name, u32::try_from(index).expect("index")),
-                        SentenceFingerprint::of(sentence).expect("fingerprint"),
+                        fingerprint_of(sentence),
                     )
                 })
         })
@@ -399,8 +409,9 @@ fn semantic_input_round_trip(original: &Baseline) {
     );
     let table = |b: &Baseline| {
         b.authored_sentences()
-            .map(|(at, _)| {
-                let fingerprint = b.fingerprint(&at).unwrap();
+            .map(|(at, sentence)| {
+                let fingerprint = (!matches!(sentence, Sentence::ContextAlias { .. }))
+                    .then(|| b.fingerprint(&at).unwrap());
                 (at, fingerprint)
             })
             .collect::<Vec<_>>()
