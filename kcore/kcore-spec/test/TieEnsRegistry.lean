@@ -18,6 +18,10 @@
   - `ens_conservative`, `ens_exact_own`: the registry family at those names is conservative
     (`registry_conservative`) and no step at values rests on it (`exact_own`), under `FnHyp c`
     from the functions' obligations, each empty on the text by a kernel decision (`fnHyp`).
+  - `ens_registry_everyH`: the names detached, the family conservative and no step at values resting on
+    it, at `c.withHooks H` for every H: `detachedB` reads no
+    interpretation (`detachedB_withHooks`), and the obligations, empty and read under none, give
+    `FnHyp (c.withHooks H)` (`fnHyp_everyH`, by `fnHyp_decided`).
 -/
 import KcoreSpec
 
@@ -156,12 +160,30 @@ theorem ens_conservative : RegistryConservative c (DetachedB.names c ss ks) :=
 theorem ens_exact_own : ExactOwn c (DetachedB.names c ss ks) :=
   exact_own (hpreTop := by decide +kernel) c ss ks coreOK fnHyp registry_detached
 
+/-! ## For every H -/
+
+/-- What the statements assume of ens' functions under every interpretation H: the obligations
+named on the text are empty and read no interpretation (`fnHyp_decided`). -/
+theorem fnHyp_everyH (H : HookParams) : FnHyp (c.withHooks H) :=
+  ParamSchema.fnHyp_decided c coreOK (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
+    term_named total_named agree_named match_named H
+
+/-- **The registry family at the names ens does not declare, for every H**: detached, conservative
+and resting no step at values, at `c.withHooks H`, from the decision at `c`
+(`registry_withHooks_of_decided`, `detachedB_withHooks`). -/
+theorem ens_registry_everyH (H : HookParams) :
+    Detached (c.withHooks H) (DetachedB.names (c.withHooks H) ss ks) ∧
+    RegistryConservative (c.withHooks H) (DetachedB.names (c.withHooks H) ss ks) ∧
+    ExactOwn (c.withHooks H) (DetachedB.names (c.withHooks H) ss ks) :=
+  registry_withHooks_of_decided c H ss ks coreOK (by decide +kernel) (fnHyp_everyH H) registry_detached
+
 end KCore.TieEns
 
 #check @KCore.TieEns.ens_conservative
 #check @KCore.TieEns.ens_exact_own
 #check @KCore.TieEns.registry_detached
 #check @KCore.TieEns.surplus_registry
+#check @KCore.TieEns.ens_registry_everyH
 #print axioms KCore.TieEns.registry_detached
 #print axioms KCore.TieEns.surplus_registry
 
@@ -169,3 +191,5 @@ end KCore.TieEns
 #guard_msgs in #print axioms KCore.TieEns.ens_exact_own
 /-- info: 'KCore.TieEns.ens_conservative' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.TieEns.ens_conservative
+/-- info: 'KCore.TieEns.ens_registry_everyH' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.TieEns.ens_registry_everyH
