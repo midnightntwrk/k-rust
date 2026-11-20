@@ -178,6 +178,23 @@ Not core:
 - the deciders and the executable evaluators (the one for collection patterns is proved to list exactly Step's successors: KCore.CExec.step\_iff)
 - theorem kinds (invariants, determinism, noninterference), certificates, the symbolic layer: taught later as uses of the core, each when its interface is stable
 
+## Scoreboard cells the manifest names (1)
+
+The `cell` entries of `core-manifest.toml`: a row and a column of the release scoreboard (DONE-0 section 3), the theorem the manifest names for it, its statement and file, and how it is checked. They are not entries of the cone, and a cell the manifest does not name is not listed here.
+
+| row | column | theorem | statement | file |
+|---|---|---|---|---|
+| KORE in K | consumer | `KCore.KK.KimpInst.step_named` | Step (RefKimp.defn.sem.withHooks HookParams.none) ⟨x₀, x₀\_sorted⟩ ⟨y₀, y₀\_sorted⟩ | kcore-spec/examples/ref-kk/User/KimpInst.lean |
+
+`KCore.KK.KimpInst.step_named` (KORE in K, consumer): DONE-0 C10 part 4 (reading R-6): encDef at ref-kimp's semantics by computation, and one concrete imp configuration whose successor succs\_sound gives as a named Step
+
+- through: KCore.KK.KimpInst.encDef\_kimp : encDef RefKimp.defn.sem = some E₀
+- through: KCore.KK.KimpInst.succs\_at : Eval KK.c₀ 510 [embD E₀, t₀] (some r₀)
+- through: KCore.KK.succs\_sound (kcore-spec/examples/ref-kk/User/KkThree.lean)
+- x₀ is kimp's configuration \`while (!($n &lt;= 0)) { $s = $s + $n; $n = $n + -1; }\` before .K, with $n ↦ 3, $s ↦ 0 and the counter 0 (the loop of K's claim sum-spec at N = 3, S = 0); y₀ is the loop unfolded by the rule while, the store and the counter unchanged. E₀, x₀, y₀, t₀ and r₀ are literals, and the statements of encDef\_kimp, succs\_at and step\_named name no encoding of a configuration and no embedding of a term or of a result
+- checked by: examples/run.sh with ref-kimp and ref-kk both selected (its default list, or \`examples/run.sh ref-kimp ref-kk\`): gen/build.sh --only --with examples/ref-kimp examples/ref-kk User.KimpInst, whose own #eval fails the build when encDef\_kimp, succs\_at, step\_named, x₀\_sorted, y₀\_sorted, t₀\_tie or r₀\_tie reaches an axiom other than propext, Classical.choice, Quot.sound, or when the statement of encDef\_kimp, succs\_at or step\_named names KCore.KK.enc, KCore.KK.emb or KCore.KK.embSt
+- checked by: test/release.sh, step axioms-kkinst: #print axioms of KCore.KK.KimpInst.encDef\_kimp, succs\_at and step\_named over the built packages ref-kimp and ref-kk, failing on an axiom other than propext, Classical.choice, Quot.sound
+
 ## E1 sentence kinds (Outer.jj) (58 rows)
 
 | row | status | class | reason | cone | unit | fixture | kimp | kk.k | evidence |

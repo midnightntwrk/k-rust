@@ -510,7 +510,8 @@ kompile writes on a subsort axiom and K's attribute table does not list).
 hand: `python3 -I test/constructs/coverage.py` writes it from `rows.toml` and `../core-manifest.toml`
 alone (the rows by status per list, the refused rows and nested entries by class R-a, R-b, R-c and
 scope, counted as `units.py` counts them, every R-c entry with its cone declaration and unit, the rows
-not yet decided, each manifest layer's `teaches` with its declarations, and one table per list, a line
+not yet decided, each manifest layer's `teaches` with its declarations, the scoreboard cells the
+manifest names (`[[cell]]`: theorem, statement, file and checks), and one table per list, a line
 per row and per nested entry). `coverage.py check` (run by `constructs.sh`, and alone in under a
 second) fails when the committed document differs from what the generator writes, so a change to
 `rows.toml` or to the manifest is committed with the document regenerated; a merge that conflicts in

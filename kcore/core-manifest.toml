@@ -236,3 +236,25 @@ items = [
   "the deciders and the executable evaluators (the one for collection patterns is proved to list exactly Step's successors: KCore.CExec.step_iff)",
   "theorem kinds (invariants, determinism, noninterference), certificates, the symbolic layer: taught later as uses of the core, each when its interface is stable",
 ]
+
+# A cell of the release scoreboard (designs/DONE-0-definition-of-done.md section 3: a row of
+# `scoreboard_rows` by a column of `scoreboard_columns`) with the theorem that meets it and how that
+# theorem is checked. A cell is not an entry of the review cone: its theorem is a use of the core,
+# proved over generated packages, and is neither taught nor frozen by this file.
+[[cell]]
+row = "KORE in K"
+column = "consumer"
+criterion = "DONE-0 C10 part 4 (reading R-6): encDef at ref-kimp's semantics by computation, and one concrete imp configuration whose successor succs_sound gives as a named Step"
+theorem = "KCore.KK.KimpInst.step_named"
+statement = "Step (RefKimp.defn.sem.withHooks HookParams.none) ⟨x₀, x₀_sorted⟩ ⟨y₀, y₀_sorted⟩"
+file = "kcore-spec/examples/ref-kk/User/KimpInst.lean"
+through = [
+  "KCore.KK.KimpInst.encDef_kimp : encDef RefKimp.defn.sem = some E₀",
+  "KCore.KK.KimpInst.succs_at : Eval KK.c₀ 510 [embD E₀, t₀] (some r₀)",
+  "KCore.KK.succs_sound (kcore-spec/examples/ref-kk/User/KkThree.lean)",
+]
+meaning = "x₀ is kimp's configuration `while (!($n <= 0)) { $s = $s + $n; $n = $n + -1; }` before .K, with $n ↦ 3, $s ↦ 0 and the counter 0 (the loop of K's claim sum-spec at N = 3, S = 0); y₀ is the loop unfolded by the rule while, the store and the counter unchanged. E₀, x₀, y₀, t₀ and r₀ are literals, and the statements of encDef_kimp, succs_at and step_named name no encoding of a configuration and no embedding of a term or of a result"
+checked_by = [
+  "examples/run.sh with ref-kimp and ref-kk both selected (its default list, or `examples/run.sh ref-kimp ref-kk`): gen/build.sh --only --with examples/ref-kimp examples/ref-kk User.KimpInst, whose own #eval fails the build when encDef_kimp, succs_at, step_named, x₀_sorted, y₀_sorted, t₀_tie or r₀_tie reaches an axiom other than propext, Classical.choice, Quot.sound, or when the statement of encDef_kimp, succs_at or step_named names KCore.KK.enc, KCore.KK.emb or KCore.KK.embSt",
+  "test/release.sh, step axioms-kkinst: #print axioms of KCore.KK.KimpInst.encDef_kimp, succs_at and step_named over the built packages ref-kimp and ref-kk, failing on an axiom other than propext, Classical.choice, Quot.sound",
+]

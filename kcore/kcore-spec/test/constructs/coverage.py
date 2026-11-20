@@ -36,6 +36,9 @@ The document holds, in this order:
              "STATUS (owed fact open)" or "STATUS (owed fact false)", its group.
   teaches    every layer of the manifest in its order: id, status, `teaches`, declarations, and the
              status of each `except` entry; then the manifest's not_core items.
+  cells      every `cell` entry of the manifest: the scoreboard row and column, the theorem named
+             for it with its statement, file and the declarations it goes through, and how it is
+             checked.
   the lists  one table per list, one line per row in rows.toml's order, each nested entry on a line
              of its own after its row: status, class, reason (the row's `reason`, else its `note`),
              cone, unit, fixture, kimp and kore marks, evidence. An erased entry's status is
@@ -374,6 +377,27 @@ def generate(rows_path, manifest_path):
     nc = m.get("not_core", {}).get("items", [])
     if nc:
         o += ["", "Not core:", ""] + [f"- {text(x)}" for x in nc]
+
+    cells = [x for x in m.get("cell", []) if isinstance(x, dict)]
+    o += ["", f"## Scoreboard cells the manifest names ({len(cells)})", "",
+          "The `cell` entries of `core-manifest.toml`: a row and a column of the release scoreboard "
+          "(DONE-0 section 3), the theorem the manifest names for it, its statement and file, and how "
+          "it is checked. They are not entries of the cone, and a cell the manifest does not name is "
+          "not listed here.", ""]
+    if not cells:
+        o += ["None."]
+    else:
+        o += table(["row", "column", "theorem", "statement", "file"], [
+            [text(x.get("row", "")), text(x.get("column", "")), code(x.get("theorem", "")),
+             text(x.get("statement", "")), text(x.get("file", ""))]
+            for x in cells])
+        for x in cells:
+            o += ["", f"{code(x.get('theorem', ''))} ({text(x.get('row', ''))}, {text(x.get('column', ''))}): "
+                  f"{text(x.get('criterion', ''))}", ""]
+            o += [f"- through: {text(t)}" for t in x.get("through", [])]
+            if x.get("meaning"):
+                o += [f"- {text(x['meaning'])}"]
+            o += [f"- checked by: {text(c)}" for c in x.get("checked_by", [])]
 
     for l in LISTS:
         tab = t.get(l, {})
