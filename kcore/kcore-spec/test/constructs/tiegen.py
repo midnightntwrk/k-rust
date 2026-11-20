@@ -2254,8 +2254,12 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     w(f"  (`test/constructs/fixtures/{name}`), sentence by sentence, against the translation of the text as")
     w("  written (`trS ad := trAxiom k.symbolDecls k.aliasNames ad`), on the literals `kore` and `defn`, for")
     w("  every interpretation H. Nothing here reads `Parse.parse` or `emit`. Written by")
+    # the flags that change what is stated or how it is decided, so that the tie is reproduced from its
+    # header: the user lemmas' classes, and the forms of the declarations' ranges
     cmd = name + (f" --at-values {','.join(map(str, sorted(at_values)))}" if at_values else "") + \
-        (f" --reads-h {','.join(map(str, sorted(reads_h)))}" if reads_h else "")
+        (f" --reads-h {','.join(map(str, sorted(reads_h)))}" if reads_h else "") + \
+        (" --sig-positions" if sig_pos else "") + (" --decl-positions" if decl_pos else "") + \
+        (" --decl-syms-literal" if decl_syms else "")
     if hand:
         w(f"  `test/constructs/tiegen.py {cmd}`, its {', '.join(sorted(hand))} section by hand; run from the package root:")
         w(f"  `lake env lean -j1 test/{ns}.lean`.")
