@@ -22,7 +22,9 @@
 # under a 12 GiB scope, one thread.
 #
 # Usage (from anywhere; the library and kcore built in this tree):
-#   test/mutants.sh [--keep] [--list] [NAME...]   ($KCORE_MUTANTS: another mutants file)
+#   test/mutants.sh [--keep] [--list] [--par] [NAME...]   ($KCORE_MUTANTS: another mutants file)
+#     --par   the mutants run several at once, as many as free memory admits (KCORE_RESERVE_GIB,
+#             default 16, kept free; KCORE_JOBS an upper bound), each in its own scratch copy
 #   test/mutants.sh --kernel    the kernel mutants ([kernel.*]: a change of Eval or Step, shown by
 #                               argument, not run): each listed, each refutation's theorem found
 set -u
@@ -118,6 +120,57 @@ def check_row(ref):
 nb = subprocess.run(["lake", "build", "--no-build", "kcore"], cwd=K, capture_output=True, text=True)
 if nb.returncode:
     sys.exit("mutants: this tree's build is not current (`lake build --no-build kcore` fails): run test/lake-par.py and `lake build kcore` first")
+
+
+def parallel(todo):
+    """--par: each mutant run by its own `test/mutants.sh NAME` (its own scratch copy), several at
+    once. A run is started only when MemAvailable leaves RESERVE GiB free beyond the expected peak of
+    every run already started and of the new one: a run's peak is its build (about 2 GiB) or, when
+    the mutant names a theorem module, that module's recorded peak (test/lake-par.py's table), the
+    whole peak charged for as long as the run lasts. The outputs are printed as the runs end."""
+    import json, time
+    reserve = float(os.environ.get("KCORE_RESERVE_GIB", "16"))
+    cap = int(os.environ.get("KCORE_JOBS", "0")) or os.cpu_count()
+    try:
+        peaks = json.load(open(os.path.expanduser("~/.cache/kcore-lake-peaks.json")))
+    except Exception:
+        peaks = {}
+
+    def est(n):
+        t = ms[n].get("theorems")
+        return max(2.5, min(12.0, peaks.get(t, 9.0) * 1.15)) if t else 2.5
+
+    def avail():
+        for l in open("/proc/meminfo"):
+            if l.startswith("MemAvailable:"):
+                return int(l.split()[1]) / 1048576
+        return 0.0
+    # the heaviest first, so that the light runs fill the room the heavy ones leave
+    queue = sorted(todo, key=lambda n: -est(n))
+    running, outs, nbad = {}, {}, 0
+    while queue or running:
+        for n, p in list(running.items()):
+            if p.poll() is not None:
+                o = open(outs[n]).read(); os.unlink(outs[n])
+                print(o.rstrip("\n").split("\nmutants: ")[0], flush=True)
+                nbad += 1 if p.returncode else 0
+                del running[n]
+        started = False
+        if queue and len(running) < cap and (not running or
+                avail() - sum(est(n) for n in running) - est(queue[0]) >= reserve):
+            n = queue.pop(0)
+            outs[n] = os.path.join(K, ".lake", f"mutants-{n}.out")
+            running[n] = subprocess.Popen(["bash", os.path.join(K, "test/mutants.sh")] + (["--keep"] if keep else []) + [n],
+                                          stdout=open(outs[n], "w"), stderr=subprocess.STDOUT)
+            started = True
+        # a run reaches its build's size within seconds: the next one is weighed against it
+        time.sleep(15 if started else 5)
+    print(f"mutants: {len(todo)} run, " + ("each as expected" if not nbad else f"{nbad} not as expected or in error"))
+    return 1 if nbad else 0
+
+
+if "--par" in args and len(todo) > 1:
+    sys.exit(parallel(todo))
 bad = 0
 for name in todo:
     m = ms[name]

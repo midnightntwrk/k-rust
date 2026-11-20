@@ -26,19 +26,19 @@ row = 'E3 REQUIRES-ENSURES:#RuleContent::=#RuleBody "ensures" Bool'
 fixture = "f2-examples/ens.kompile.kore"
 theorems = "test/TieEns.lean"
 expect = "killed"
-killed_by = "theorems: fn_shape, half_neg4, run_stuck (test/TieEns.lean; the account of the text unchanged; 2026-11-18)"
+killed_by = "theorems: fn_shape, half_neg4, run_stuck (test/TieEns.lean; the account of f2-examples/ens.kompile.kore unchanged; 2026-11-20)"
 patch = '''
 --- a/KcoreSpec/Parse.lean
 +++ b/KcoreSpec/Parse.lean
-@@ -2281,7 +2281,7 @@
+@@ -4594,7 +4594,7 @@
+       if ens.toList.length + cs.length > 1 then N.hookEqE kEq
+       pure (rhs, if cs.isEmpty then ens else conjTerms (ens.toList ++ cs), vs)
    -- a `non-executable` equation: a clause that no `[owise]` premise negates (`Clause.aside`)
-   let aside := nonExec e
-   match excl with
--  | none => pure ({ vars := ← varSorts N vs, pats, req, rhs, ens, prio, aside },
-+  | none => pure ({ vars := ← varSorts N vs, pats, req := conjTerms (req.toList ++ ens.toList), rhs, ens := none, prio, aside },
-       ⟨vs.map (·.name), m, vs.map (·.name), attrStr? e.attrs "label", srcOver msrc e.attrs, explicit.isSome⟩)
-   | some ex =>
-     let (bs, body) := binders eqnFuel ex
+-  clauseExcl N msrc e excl vs { vars := [], pats, req, rhs, ens, prio := (eqnPrio e).2, aside := nonExec e,
++  clauseExcl N msrc e excl vs { vars := [], pats, req := conjTerms (req.toList ++ ens.toList), rhs, ens := none, prio := (eqnPrio e).2, aside := nonExec e,
+                                 pre := conjC reqCs }
+ 
+ /-- A function's clause from its equation (and the `[owise]` equation's exclusion of it). -/
 '''
 
 [mutant."ensures-as-requires-pair"]
@@ -48,19 +48,19 @@ row = 'C3 equation requires x equation ensures'
 fixture = "c3-eq-req-ens"
 theorems = "test/C3EqReqEns.lean"
 expect = "killed"
-killed_by = "theorems: shape, f_5 (test/C3EqReqEns.lean; the account of the fixture unchanged; 2026-11-18)"
+killed_by = "theorems: shape, f_5 (test/C3EqReqEns.lean; the account of c3-eq-req-ens unchanged; 2026-11-20)"
 patch = '''
 --- a/KcoreSpec/Parse.lean
 +++ b/KcoreSpec/Parse.lean
-@@ -2281,7 +2281,7 @@
+@@ -4594,7 +4594,7 @@
+       if ens.toList.length + cs.length > 1 then N.hookEqE kEq
+       pure (rhs, if cs.isEmpty then ens else conjTerms (ens.toList ++ cs), vs)
    -- a `non-executable` equation: a clause that no `[owise]` premise negates (`Clause.aside`)
-   let aside := nonExec e
-   match excl with
--  | none => pure ({ vars := ← varSorts N vs, pats, req, rhs, ens, prio, aside },
-+  | none => pure ({ vars := ← varSorts N vs, pats, req := conjTerms (req.toList ++ ens.toList), rhs, ens := none, prio, aside },
-       ⟨vs.map (·.name), m, vs.map (·.name), attrStr? e.attrs "label", srcOver msrc e.attrs, explicit.isSome⟩)
-   | some ex =>
-     let (bs, body) := binders eqnFuel ex
+-  clauseExcl N msrc e excl vs { vars := [], pats, req, rhs, ens, prio := (eqnPrio e).2, aside := nonExec e,
++  clauseExcl N msrc e excl vs { vars := [], pats, req := conjTerms (req.toList ++ ens.toList), rhs, ens := none, prio := (eqnPrio e).2, aside := nonExec e,
+                                 pre := conjC reqCs }
+ 
+ /-- A function's clause from its equation (and the `[owise]` equation's exclusion of it). -/
 '''
 
 [mutant."requires-priority-default"]
@@ -70,18 +70,19 @@ row = 'C3 equation requires x equation priority'
 fixture = "c3-eq-req-prio-comp"
 theorems = "test/C3EqReqPrioComp.lean"
 expect = "killed"
-killed_by = "account: the line `function equations read with the premise that no clause of a smaller priority applies (equationPriority): 1` gone, agree_named `0:` becomes `1: f` (c3-eq-req-prio-comp; 2026-11-18)"
+killed_by = "account: -function equations read with the premise that no clause of a smaller priority applies (eq / -functions whose equations' agreement no decider confirms (the package's agree_named, Sema (c3-eq-req-prio-comp; 2026-11-20)"
 patch = '''
 --- a/KcoreSpec/Parse.lean
 +++ b/KcoreSpec/Parse.lean
-@@ -2304,6 +2304,7 @@
+@@ -4594,7 +4594,7 @@
+       if ens.toList.length + cs.length > 1 then N.hookEqE kEq
        pure (rhs, if cs.isEmpty then ens else conjTerms (ens.toList ++ cs), vs)
-   let m ← need (eqnInfo? e.attrs) .sentenceInfo
-   let (explicit, prio) := eqnPrio e
-+  let prio := if req.isSome && explicit.isSome then 50 else prio
    -- a `non-executable` equation: a clause that no `[owise]` premise negates (`Clause.aside`)
-   let aside := nonExec e
-   match excl with
+-  clauseExcl N msrc e excl vs { vars := [], pats, req, rhs, ens, prio := (eqnPrio e).2, aside := nonExec e,
++  clauseExcl N msrc e excl vs { vars := [], pats, req, rhs, ens, prio := if req.isSome && (eqnPrio e).1.isSome then 50 else (eqnPrio e).2, aside := nonExec e,
+                                 pre := conjC reqCs }
+ 
+ /-- A function's clause from its equation (and the `[owise]` equation's exclusion of it). -/
 '''
 
 [mutant."owise-sibling-requires-dropped"]
@@ -91,18 +92,18 @@ row = 'C3 equation requires x equation owise'
 fixture = "c3-eq-req-owise"
 theorems = "test/C3EqReqOwise.lean"
 expect = "killed"
-killed_by = "theorems: shape, f_neg1 (test/C3EqReqOwise.lean; the account of the fixture unchanged; 2026-11-18)"
+killed_by = "theorems: shape, f_neg1 (test/C3EqReqOwise.lean; the account of c3-eq-req-owise unchanged; 2026-11-20)"
 patch = '''
 --- a/KcoreSpec/Parse.lean
 +++ b/KcoreSpec/Parse.lean
-@@ -2388,6 +2388,7 @@
+@@ -4722,6 +4722,7 @@
    for e in ows.drop 1 do
      let _ ← (pairExcl exec (e.competitors.getD [])).mapM (clauseOf N msrc)
-   let clauses ← cl
+   let clauses := (← cl).flatten
 +  let clauses := if ows.isEmpty then clauses else clauses.map fun (c, p) => ({ c with req := none }, p)
-   -- the `[owise]` equations: clauses of priority 200, after the others
-   let owise ← ows.mapM fun e => clause? N msrc e none
-   -- a selector-domain axiom: the projection's one equation is `project:X(kseq(inj{X,KItem}(V),
+   -- the `[owise]` equations: clauses of priority 200, after the others; one read by cases gives
+   -- its clauses, each under the equation's premise
+   let owise := (← ows.mapM fun e => clauses? N msrc e none).flatten
 '''
 
 [mutant."total-requires-dropped"]
@@ -112,18 +113,18 @@ row = 'C3 equation requires x equation total'
 fixture = "c3-eq-req-total"
 theorems = "test/C3EqReqTotal.lean"
 expect = "killed"
-killed_by = "account: total_named `1: f` becomes `0:` (c3-eq-req-total; 2026-11-18)"
+killed_by = "account: -functions declared [total] whose totality no decider confirms (the package's total_named, / +functions declared [total] whose totality no decider confirms (the package's total_named, (c3-eq-req-total; 2026-11-20)"
 patch = '''
 --- a/KcoreSpec/Parse.lean
 +++ b/KcoreSpec/Parse.lean
-@@ -2388,6 +2388,7 @@
+@@ -4722,6 +4722,7 @@
    for e in ows.drop 1 do
      let _ ← (pairExcl exec (e.competitors.getD [])).mapM (clauseOf N msrc)
-   let clauses ← cl
+   let clauses := (← cl).flatten
 +  let clauses := if total then clauses.map fun (c, p) => ({ c with req := none }, p) else clauses
-   -- the `[owise]` equations: clauses of priority 200, after the others
-   let owise ← ows.mapM fun e => clause? N msrc e none
-   -- a selector-domain axiom: the projection's one equation is `project:X(kseq(inj{X,KItem}(V),
+   -- the `[owise]` equations: clauses of priority 200, after the others; one read by cases gives
+   -- its clauses, each under the equation's premise
+   let owise := (← ows.mapM fun e => clauses? N msrc e none).flatten
 '''
 
 [mutant."priority-ensures-dropped"]
@@ -133,18 +134,19 @@ row = 'C3 equation ensures x equation priority'
 fixture = "c3-eq-ens-prio-comp"
 theorems = "test/C3EqEnsPrioComp.lean"
 expect = "killed"
-killed_by = "theorems: shape, f_neg1 (test/C3EqEnsPrioComp.lean; the account of the fixture unchanged; 2026-11-18)"
+killed_by = "theorems: shape, f_neg1 (test/C3EqEnsPrioComp.lean; the account of c3-eq-ens-prio-comp unchanged; 2026-11-20)"
 patch = '''
 --- a/KcoreSpec/Parse.lean
 +++ b/KcoreSpec/Parse.lean
-@@ -2304,6 +2304,7 @@
+@@ -4594,7 +4594,7 @@
+       if ens.toList.length + cs.length > 1 then N.hookEqE kEq
        pure (rhs, if cs.isEmpty then ens else conjTerms (ens.toList ++ cs), vs)
-   let m ← need (eqnInfo? e.attrs) .sentenceInfo
-   let (explicit, prio) := eqnPrio e
-+  let ens := if explicit.isSome then none else ens
    -- a `non-executable` equation: a clause that no `[owise]` premise negates (`Clause.aside`)
-   let aside := nonExec e
-   match excl with
+-  clauseExcl N msrc e excl vs { vars := [], pats, req, rhs, ens, prio := (eqnPrio e).2, aside := nonExec e,
++  clauseExcl N msrc e excl vs { vars := [], pats, req, rhs, ens := if (eqnPrio e).1.isSome then none else ens, prio := (eqnPrio e).2, aside := nonExec e,
+                                 pre := conjC reqCs }
+ 
+ /-- A function's clause from its equation (and the `[owise]` equation's exclusion of it). -/
 '''
 
 [mutant."owise-sibling-ensures-as-requires"]
@@ -154,19 +156,19 @@ row = 'C3 equation ensures x equation owise'
 fixture = "c3-eq-ens-owise"
 theorems = "test/C3EqEnsOwise.lean"
 expect = "killed"
-killed_by = "theorems: shape, half_neg4 (test/C3EqEnsOwise.lean; the account of the fixture unchanged; 2026-11-18)"
+killed_by = "theorems: shape, half_neg4 (test/C3EqEnsOwise.lean; the account of c3-eq-ens-owise unchanged; 2026-11-20)"
 patch = '''
 --- a/KcoreSpec/Parse.lean
 +++ b/KcoreSpec/Parse.lean
-@@ -2388,6 +2388,8 @@
+@@ -4722,6 +4722,8 @@
    for e in ows.drop 1 do
      let _ ← (pairExcl exec (e.competitors.getD [])).mapM (clauseOf N msrc)
-   let clauses ← cl
+   let clauses := (← cl).flatten
 +  let clauses := if ows.isEmpty then clauses else clauses.map fun (c, p) =>
 +    ({ c with req := conjTerms (c.req.toList ++ c.ens.toList), ens := none }, p)
-   -- the `[owise]` equations: clauses of priority 200, after the others
-   let owise ← ows.mapM fun e => clause? N msrc e none
-   -- a selector-domain axiom: the projection's one equation is `project:X(kseq(inj{X,KItem}(V),
+   -- the `[owise]` equations: clauses of priority 200, after the others; one read by cases gives
+   -- its clauses, each under the equation's premise
+   let owise := (← ows.mapM fun e => clauses? N msrc e none).flatten
 '''
 
 [mutant."total-ensures-dropped"]
@@ -176,18 +178,18 @@ row = 'C3 equation ensures x equation total'
 fixture = "c3-eq-ens-total"
 theorems = "test/C3EqEnsTotal.lean"
 expect = "killed"
-killed_by = "account: total_named `1: f` becomes `0:` (c3-eq-ens-total; 2026-11-18)"
+killed_by = "account: -functions declared [total] whose totality no decider confirms (the package's total_named, / +functions declared [total] whose totality no decider confirms (the package's total_named, (c3-eq-ens-total; 2026-11-20)"
 patch = '''
 --- a/KcoreSpec/Parse.lean
 +++ b/KcoreSpec/Parse.lean
-@@ -2388,6 +2388,7 @@
+@@ -4722,6 +4722,7 @@
    for e in ows.drop 1 do
      let _ ← (pairExcl exec (e.competitors.getD [])).mapM (clauseOf N msrc)
-   let clauses ← cl
+   let clauses := (← cl).flatten
 +  let clauses := if total then clauses.map fun (c, p) => ({ c with ens := none }, p) else clauses
-   -- the `[owise]` equations: clauses of priority 200, after the others
-   let owise ← ows.mapM fun e => clause? N msrc e none
-   -- a selector-domain axiom: the projection's one equation is `project:X(kseq(inj{X,KItem}(V),
+   -- the `[owise]` equations: clauses of priority 200, after the others; one read by cases gives
+   -- its clauses, each under the equation's premise
+   let owise := (← ows.mapM fun e => clauses? N msrc e none).flatten
 '''
 
 [mutant."owise-before-priority"]
@@ -197,14 +199,14 @@ row = 'C3 equation priority x equation owise'
 fixture = "c3-eq-prio-owise"
 theorems = "test/C3EqPrioOwise.lean"
 expect = "killed"
-killed_by = "account: a line `function equations read with the premise that no clause of a smaller priority applies (equationPriority): 1` added, `wf true` becomes `wf false` (c3-eq-prio-owise; 2026-11-18)"
+killed_by = "account: +function equations read with the premise that no clause of a smaller priority applies (eq / -parse: ok; wf true; failing: [] (c3-eq-prio-owise; 2026-11-20)"
 patch = '''
 --- a/KcoreSpec/Parse.lean
 +++ b/KcoreSpec/Parse.lean
-@@ -2390,6 +2390,7 @@
-   let clauses ← cl
-   -- the `[owise]` equations: clauses of priority 200, after the others
-   let owise ← ows.mapM fun e => clause? N msrc e none
+@@ -4725,6 +4725,7 @@
+   -- the `[owise]` equations: clauses of priority 200, after the others; one read by cases gives
+   -- its clauses, each under the equation's premise
+   let owise := (← ows.mapM fun e => clauses? N msrc e none).flatten
 +  let owise := if plain.any (fun e => (eqnPrio e).1.isSome) then owise.map fun (c, p) => ({ c with prio := 0 }, p) else owise
    -- a selector-domain axiom: the projection's one equation is `project:X(kseq(inj{X,KItem}(V),
    -- dotk)) = V` without `requires`, and the axiom is one; then its clause, of priority 200, last
@@ -218,18 +220,18 @@ row = 'C3 equation priority x equation total'
 fixture = "c3-eq-prio-total-comp"
 theorems = "test/C3EqPrioTotalComp.lean"
 expect = "killed"
-killed_by = "account: the line `function equations read with the premise that no clause of a smaller priority applies (equationPriority): 1` gone, agree_named `0:` becomes `1: f` (c3-eq-prio-total-comp; 2026-11-18)"
+killed_by = "account: -function equations read with the premise that no clause of a smaller priority applies (eq / -functions whose equations' agreement no decider confirms (the package's agree_named, Sema (c3-eq-prio-total-comp; 2026-11-20)"
 patch = '''
 --- a/KcoreSpec/Parse.lean
 +++ b/KcoreSpec/Parse.lean
-@@ -2388,6 +2388,7 @@
+@@ -4722,6 +4722,7 @@
    for e in ows.drop 1 do
      let _ ← (pairExcl exec (e.competitors.getD [])).mapM (clauseOf N msrc)
-   let clauses ← cl
+   let clauses := (← cl).flatten
 +  let clauses := if total then clauses.map fun (c, p) => ({ c with prio := 50 }, p) else clauses
-   -- the `[owise]` equations: clauses of priority 200, after the others
-   let owise ← ows.mapM fun e => clause? N msrc e none
-   -- a selector-domain axiom: the projection's one equation is `project:X(kseq(inj{X,KItem}(V),
+   -- the `[owise]` equations: clauses of priority 200, after the others; one read by cases gives
+   -- its clauses, each under the equation's premise
+   let owise := (← ows.mapM fun e => clauses? N msrc e none).flatten
 '''
 
 [mutant."total-owise-dropped"]
@@ -239,14 +241,14 @@ row = 'C3 equation owise x equation total'
 fixture = "c3-eq-owise-total"
 theorems = "test/C3EqOwiseTotal.lean"
 expect = "killed"
-killed_by = "theorems: defs_attrsAgree, fnText_index, account (test/C3EqOwiseTotal.lean; the account of the fixture unchanged; 2026-11-18)"
+killed_by = "theorems: defs_attrsAgree, fnText_index, account (test/C3EqOwiseTotal.lean; the account of c3-eq-owise-total unchanged; 2026-11-20)"
 patch = '''
 --- a/KcoreSpec/Parse.lean
 +++ b/KcoreSpec/Parse.lean
-@@ -2390,6 +2390,7 @@
-   let clauses ← cl
-   -- the `[owise]` equations: clauses of priority 200, after the others
-   let owise ← ows.mapM fun e => clause? N msrc e none
+@@ -4725,6 +4725,7 @@
+   -- the `[owise]` equations: clauses of priority 200, after the others; one read by cases gives
+   -- its clauses, each under the equation's premise
+   let owise := (← ows.mapM fun e => clauses? N msrc e none).flatten
 +  let owise := if total then [] else owise
    -- a selector-domain axiom: the projection's one equation is `project:X(kseq(inj{X,KItem}(V),
    -- dotk)) = V` without `requires`, and the axiom is one; then its clause, of priority 200, last
@@ -260,16 +262,16 @@ row = 'C3 rule requires x rule ensures'
 fixture = "c3-rule-req-ens"
 theorems = "test/C3RuleReqEns.lean"
 expect = "killed"
-killed_by = "account: `rules with an `ensures`: 1` becomes `0` (c3-rule-req-ens; 2026-11-18)"
+killed_by = "account: -rules with an `ensures`: 1 / +rules with an `ensures`: 0 (c3-rule-req-ens; 2026-11-20)"
 patch = '''
 --- a/KcoreSpec/Parse.lean
 +++ b/KcoreSpec/Parse.lean
-@@ -2741,7 +2741,7 @@
+@@ -4938,7 +4938,7 @@
      let prio := match explicit with
        | some n => n
        | none => if plain.contains "owise" then 200 else 50
--    pure ({ vars := ← varSorts N vs, lhs, req, rhs, ens, prio, exs, pre },
-+    pure ({ vars := ← varSorts N vs, lhs, req := conjTerms (req.toList ++ ens.toList), rhs, ens := none, prio, exs, pre },
+-    pure ({ vars := ← varSorts N vs, lhs, req, rhs, ens, prio, exs, pre, post },
++    pure ({ vars := ← varSorts N vs, lhs, req := conjTerms (req.toList ++ ens.toList), rhs, ens := none, prio, exs, pre, post },
            ⟨vs.map (·.name), ← need (info? a.attributes) .sentenceInfo, attrStr? a.attributes "label",
             plain.filter (· != "owise"), explicit.isSome,
             a.attributes.filterMap (fun ap => match ap.sorts, ap.args with
@@ -304,17 +306,17 @@ row = 'C3 rule requires x rule owise'
 fixture = "c3-rule-req-owise"
 theorems = "test/C3RuleReqOwise.lean"
 expect = "killed"
-killed_by = "theorems: defs_attrsAgree, rule_prios, a5_succs (test/C3RuleReqOwise.lean; the account of the fixture unchanged; 2026-11-18)"
+killed_by = "theorems: defs_attrsAgree, rule_prios, a5_succs (test/C3RuleReqOwise.lean; the account of c3-rule-req-owise unchanged; 2026-11-20)"
 patch = '''
 --- a/KcoreSpec/Parse.lean
 +++ b/KcoreSpec/Parse.lean
-@@ -2740,7 +2740,7 @@
+@@ -4937,7 +4937,7 @@
      let explicit := (attrStr? a.attributes "priority").bind fun s => digitsVal s.toList 0
      let prio := match explicit with
        | some n => n
 -      | none => if plain.contains "owise" then 200 else 50
 +      | none => 50
-     pure ({ vars := ← varSorts N vs, lhs, req, rhs, ens, prio, exs, pre },
+     pure ({ vars := ← varSorts N vs, lhs, req, rhs, ens, prio, exs, pre, post },
            ⟨vs.map (·.name), ← need (info? a.attributes) .sentenceInfo, attrStr? a.attributes "label",
             plain.filter (· != "owise"), explicit.isSome,
 '''
@@ -326,16 +328,16 @@ row = 'C3 rule ensures x rule priority'
 fixture = "c3-rule-ens-prio"
 theorems = "test/C3RuleEnsPrio.lean"
 expect = "killed"
-killed_by = "account: `rules with an `ensures`: 1` becomes `0` (c3-rule-ens-prio; 2026-11-18)"
+killed_by = "account: -rules with an `ensures`: 1 / +rules with an `ensures`: 0 (c3-rule-ens-prio; 2026-11-20)"
 patch = '''
 --- a/KcoreSpec/Parse.lean
 +++ b/KcoreSpec/Parse.lean
-@@ -2741,7 +2741,7 @@
+@@ -4938,7 +4938,7 @@
      let prio := match explicit with
        | some n => n
        | none => if plain.contains "owise" then 200 else 50
--    pure ({ vars := ← varSorts N vs, lhs, req, rhs, ens, prio, exs, pre },
-+    pure ({ vars := ← varSorts N vs, lhs, req, rhs, ens := if explicit.isSome then none else ens, prio, exs, pre },
+-    pure ({ vars := ← varSorts N vs, lhs, req, rhs, ens, prio, exs, pre, post },
++    pure ({ vars := ← varSorts N vs, lhs, req, rhs, ens := if explicit.isSome then none else ens, prio, exs, pre, post },
            ⟨vs.map (·.name), ← need (info? a.attributes) .sentenceInfo, attrStr? a.attributes "label",
             plain.filter (· != "owise"), explicit.isSome,
             a.attributes.filterMap (fun ap => match ap.sorts, ap.args with
@@ -348,16 +350,16 @@ row = 'C3 rule ensures x rule owise'
 fixture = "c3-rule-ens-owise"
 theorems = "test/C3RuleEnsOwise.lean"
 expect = "killed"
-killed_by = "account: `rules with an `ensures`: 1` becomes `0` (c3-rule-ens-owise; 2026-11-18)"
+killed_by = "account: -rules with an `ensures`: 1 / +rules with an `ensures`: 0 (c3-rule-ens-owise; 2026-11-20)"
 patch = '''
 --- a/KcoreSpec/Parse.lean
 +++ b/KcoreSpec/Parse.lean
-@@ -2741,7 +2741,7 @@
+@@ -4938,7 +4938,7 @@
      let prio := match explicit with
        | some n => n
        | none => if plain.contains "owise" then 200 else 50
--    pure ({ vars := ← varSorts N vs, lhs, req, rhs, ens, prio, exs, pre },
-+    pure ({ vars := ← varSorts N vs, lhs, req := conjTerms (req.toList ++ ens.toList), rhs, ens := none, prio, exs, pre },
+-    pure ({ vars := ← varSorts N vs, lhs, req, rhs, ens, prio, exs, pre, post },
++    pure ({ vars := ← varSorts N vs, lhs, req := conjTerms (req.toList ++ ens.toList), rhs, ens := none, prio, exs, pre, post },
            ⟨vs.map (·.name), ← need (info? a.attributes) .sentenceInfo, attrStr? a.attributes "label",
             plain.filter (· != "owise"), explicit.isSome,
             a.attributes.filterMap (fun ap => match ap.sorts, ap.args with
@@ -370,17 +372,17 @@ row = 'C3 rule priority x rule owise'
 fixture = "c3-rule-prio-owise"
 theorems = "test/C3RulePrioOwise.lean"
 expect = "killed"
-killed_by = "account: `wf true` becomes `wf false`, a presentation conjunct failing (c3-rule-prio-owise; 2026-11-18)"
+killed_by = "account: -parse: ok; wf true; failing: [] / +parse: ok; wf false; failing: [presentation: variable names distinct; cells named apart,  (c3-rule-prio-owise; 2026-11-20)"
 patch = '''
 --- a/KcoreSpec/Parse.lean
 +++ b/KcoreSpec/Parse.lean
-@@ -2740,7 +2740,7 @@
+@@ -4937,7 +4937,7 @@
      let explicit := (attrStr? a.attributes "priority").bind fun s => digitsVal s.toList 0
      let prio := match explicit with
        | some n => n
 -      | none => if plain.contains "owise" then 200 else 50
 +      | none => if plain.contains "owise" then 30 else 50
-     pure ({ vars := ← varSorts N vs, lhs, req, rhs, ens, prio, exs, pre },
+     pure ({ vars := ← varSorts N vs, lhs, req, rhs, ens, prio, exs, pre, post },
            ⟨vs.map (·.name), ← need (info? a.attributes) .sentenceInfo, attrStr? a.attributes "label",
             plain.filter (· != "owise"), explicit.isSome,
 '''
@@ -391,7 +393,7 @@ breaks = "the owed reading of the equation (Parse.regLemmaEqn): plus(X, 0) => X 
 row = 'C3 hook x equation'
 fixture = "c3-hook-eq"
 expect = "killed"
-killed_by = "not run yet (expected: account, the line `1 user lemma at values [user]` gone and the stage refusal `1 hookEquation` back on c3-hook-eq)"
+killed_by = "account: the line `1 user lemma at values [user]` gone, `1 read [user]` becomes `2 read [user]`, `stage refusals (of sentences classified read): 1`, `sentence 387 (Lblplus): hookEquation` (c3-hook-eq; 2026-11-20)"
 patch = '''
 --- a/KcoreSpec/Parse.lean
 +++ b/KcoreSpec/Parse.lean
@@ -694,7 +696,7 @@ row = 'E4 grammar:<matching-logic-pattern>::="\ceil" "{" <sort> "," <sort> "}" "
 fixture = "f2-examples/projapp.kore"
 theorems = "test/NoteProjDom.lean"
 expect = "killed"
-killed_by = "theorems: prios_read_clause, gammaPats_length, a1_pattern, tr1_eq, shape, dec_named, clauses_eq, proj_dotk (test/NoteProjDom.lean; the account of the text unchanged; 2026-11-20)"
+killed_by = "theorems: prios_read_clause, read_clause_item, gammaPats_length, a1_pattern, tr1_eq, shape, dec_named, clauses_eq, proj_dotk (test/NoteProjDom.lean; the account of the text unchanged; 2026-11-20)"
 patch = '''
 --- a/KcoreSpec/Parse.lean
 +++ b/KcoreSpec/Parse.lean
@@ -1574,24 +1576,24 @@ patch = '''
 '''
 
 [mutant."e123-ex-binder-twice-read"]
-summary = "an equation's right side that binds one name twice (\\exists B. \\exists B. φ) is read (Parse.ceRead's dupBinder check not taken)"
-breaks = "ceRead names the binders of the right side by their names (exBind): in \\exists B. \\exists B. φ the outer binder binds nothing, the inner one B in φ, and read by name the two are one variable of the clause, which is no reading of the pattern's scopes; refused patternConnective"
+summary = "an equation's right side that binds one variable twice (\\exists B. \\exists B. φ) is read with both binders (Parse.ceBinders without ceInnermost): read by name, the two are one variable of the clause"
+breaks = "ceBinders/ceInnermost (existsBindsNothing): in \\exists B. \\exists B. φ the outer binder binds nothing, the inner one B in φ, so the sentence is ∃B. φ; read by name both binders are one existential variable of the clause, which is no reading of the pattern's scopes"
 row = 'E3 ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2'
 fixture = "e3-eq-exists-twice-ml"
 expect = "killed"
-killed_by = "account: `stage refusals (of sentences classified read): 1` (sentence 278 (Lblp): patternConnective (VarB: bound twice)) becomes 0 (e3-eq-exists-twice-ml; 2026-11-20)"
+killed_by = "account: -      sentence 278: existentialClause, existsBindsNothing / +      sentence 278: existentialClause (e3-eq-exists-twice-ml; 2026-11-20)"
 patch = '''
 --- a/KcoreSpec/Parse.lean
 +++ b/KcoreSpec/Parse.lean
-@@ -3891,7 +3891,7 @@
-   let (xs, body) := peelExists e.rhs
-   if hasExists body then fail .manyValuedRightSide "\\exists"
-   if isPred body then fail .manyValuedRightSide "\\top"
--  if let some x := dupBinder xs then fail .patternConnective s!"{x.var.ident.name}: bound twice"
-+  if let some x := dupBinder (xs.take 0) then fail .patternConnective s!"{x.var.ident.name}: bound twice"
-   let bound := xs.map (·.var.ident.name)
-   let used := evarNamesList (e.rhs :: e.pats ++ e.req.toList ++ e.ens.toList)
-   let (t, n, cuts, ps) := cutAnd used bound 0 body
+@@ -3860,7 +3860,7 @@
+   if xs.isEmpty then (e, []) else
+   let outer := e.pats ++ e.req.toList ++ e.ens.toList ++ e.competitors.getD []
+   let names := evarNamesList outer
+-  let xs1 := ceInnermost xs
++  let xs1 := xs
+   let (xs2, body, _) := ceApart names (evarNamesList (e.rhs :: outer)) xs1 body
+   let free := freeEVarsS [] body
+   let held := fun (x : Kore.KSort × Kore.EVar) => free.any (decide <| · = x.2)
 '''
 
 [mutant."e123-unheld-rule-binder-read"]
@@ -1616,24 +1618,24 @@ patch = '''
 '''
 
 [mutant."e123-unheld-eq-binder-read"]
-summary = "an equation's right side \\exists Z. X, Z not in the body, is read (Parse.ceRead's held check not taken)"
-breaks = "\\exists Z:Int. X denotes X where Int has an element and nothing where the sort has none; read as X, with Z an existential variable of the clause bound by nothing, the clause states p(X) = X whatever the sort, which the text states only through Z's sort; refused unheldVariable"
+summary = "an equation's \\exists binder whose variable its body does not hold is left out whatever its sort (Parse.ceBinders keeps only the binders the body holds)"
+breaks = "ceBinders (existsBindsNothing): ∃Z:s. φ with Z not free in φ is φ where s has an element and empty where it has none; left out only where an argument pattern holds a variable of s, otherwise kept with ⌈Z⌉ a conjunct of the body. Left out where no argument has the sort, the clause gives a value where s may be empty and the sentence states none"
 row = 'E3 ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2'
 fixture = "e3-eq-exists-unheld-ml"
 expect = "killed"
-killed_by = "account: `stage refusals (of sentences classified read): 2` becomes 1: sentence 387's `unheldVariable (VarZ: bound by \\exists, not held by its body)` becomes `existentialEquation (VarZ:Int: …)` and sentence 402's (Z:Bool) is gone (e3-eq-exists-unheld-ml; 2026-11-20)"
+killed_by = "account: -stage refusals (of sentences classified read): 1 / -  1 existentialEquation (e3-eq-exists-unheld-ml; 2026-11-20)"
 patch = '''
 --- a/KcoreSpec/Parse.lean
 +++ b/KcoreSpec/Parse.lean
-@@ -3897,7 +3897,7 @@
-   let (t, n, cuts, ps) := cutAnd used bound 0 body
-   let (t, cuts) := orCutAll used t cuts
-   if let some c := (t :: cuts.flatMap (·.2.2)).findSome? orManyValued? then fail .manyValuedRightSide c
--  if let some x := xs.find? (fun x => !(evarNames body).contains x.var.ident.name) then
-+  if let some x := xs.find? (fun x => false && !(evarNames body).contains x.var.ident.name) then
-     fail .unheldVariable s!"{x.var.ident.name}: bound by \\exists, not held by its body"
-   let (ps, _, ccuts) := cutCeils used bound n ps
-   let cuts := cuts ++ ccuts
+@@ -3865,7 +3865,7 @@
+   let free := freeEVarsS [] body
+   let held := fun (x : Kore.KSort × Kore.EVar) => free.any (decide <| · = x.2)
+   let argSorts := (freeEVarsSList [] e.pats).map (·.sort)
+-  let kept := xs2.filter fun x => held x || !argSorts.any (decide <| · = x.2.sort)
++  let kept := xs2.filter fun x => held x
+   let body := (kept.filter (!held ·)).foldl
+     (fun b x => .and x.1 [b, .ceil x.2.sort x.1 (.var (.evar x.2))]) body
+   ({ e with rhs := underExistsS kept body },
 '''
 
 [mutant."e123-exists-cases-true-only"]
@@ -1844,4 +1846,767 @@ patch = '''
      | .app _ _ ps | .and _ ps => anyVacuousAtBool ps
      | _ => false
      termination_by structural p => p
+'''
+
+[mutant."mc-note-and-terms-weaker-ens-dropped"]
+summary = "a rule's right side t ∧ u of two terms is read as t with no condition: Parse.sideConds' `.same` arm gives no term for the conjunction (the `t ==K u` ensures dropped)"
+breaks = "ReadingNote.andTermsWeaker: t ∧ u at a right side denotes the element both terms denote, so the rule read without the cut is t with the ensures t = u (a weakening the text entails); with the ensures dropped the rule steps to t where u differs, which the text does not state"
+row = 'E3 ML-SYNTAX:Sort::=Sort "#And" Sort'
+fixture = "e3-ml-rule-rhs-and-fn"
+theorems = "test/TieE3MlRuleRhsAndFn.lean"
+expect = "killed"
+killed_by = "account: `rules with an `ensures`: 1` becomes 0 (e3-ml-rule-rhs-and-fn; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -2514,7 +2514,7 @@
+         else Term.app kseq [if X == "KItem" then x else .inj s Srt.kitem x, .app dotk []]
+       pure (Term.app kEq [wrap t, wrap u])
+     let (ts, vs) ← sideConds N vs cs
+-    pure (c :: ts, vs)
++    pure (ts, vs)
+ 
+ mutual
+   /-- A term without its `#as` bindings. -/
+'''
+
+[mutant."mc-note-and-terms-cut-not-taken"]
+summary = "a rule's right side conjunction of terms is never read through the cut (Parse.andCutRule? gives none): the rule read by ruleBodyUncut, the first conjunct with the conjuncts' equality as an ensures"
+breaks = "ReadingNote.andTermsCut: C[V ∧ u] = C[V] ∧ V ∈ u, the cut reading being the text's sentence itself (post the membership, a fresh existential where no conjunct is a variable); read uncut the rule is the weaker t with ensures t = u, which drops the steps at elements u holds and t ==K u does not decide"
+row = 'E3 ML-SYNTAX:Sort::=Sort "#And" Sort'
+fixture = "e3-ml-rule-rhs-and-var"
+theorems = "test/TieE3MlRuleRhsAndVar.lean"
+expect = "killed"
+killed_by = "account: `1 read andTermsCut [user]` becomes `1 read andTermsWeaker [user]`, `rules read with the premise ⌈rhs ∧ ens⌉ (ruleRightDefined): 2` becomes 1 (e3-ml-rule-rhs-and-var; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -5330,7 +5330,7 @@
+ (`andRuleBody`), where the cut read succeeds and `andCutOK` holds of it; `none` otherwise. -/
+ def andCutRule? (N : Names) (msrc : String) (a : Kore.Axiom) : Option (Rule × RulePres) :=
+   match ruleBodyUncut N msrc a, andRuleBody N msrc a with
+-  | .ok (base, _), .ok (cut, pres) => if andCutOK N base cut then some (cut, pres) else none
++  | .ok (base, _), .ok (cut, pres) => if false && andCutOK N base cut then some (cut, pres) else none
+   | _, _ => none
+ 
+ /-- A rewrite axiom's rule. A conjunction of terms on its right side is read through the cut where
+'''
+
+[mutant."mc-note-or-cases-last-dropped"]
+summary = "an equation's right side \\or of alternatives is read as the clauses of all alternatives but the last (Parse.frRead gives frClauses alts.dropLast)"
+breaks = "ReadingNote.orAsCases: f(X̄) = t₁ ∨ … ∨ tₙ of a functional f states that f(X̄) is one of the tᵢ, each case a clause under its condition; with the last case dropped, f has no value where only that case's condition holds"
+row = 'E3 ML-SYNTAX:Sort::=Sort "#Or" Sort'
+fixture = "e3-ml-eq-rhs-or-nest"
+theorems = "test/TieE3MlEqRhsOrNest.lean"
+expect = "killed"
+killed_by = "account: the clausesPreTop line differs, one clause fewer (e3-ml-eq-rhs-or-nest; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -3224,7 +3224,7 @@
+     (alts.flatMap (fun a => varOccs a.1 ++ a.2.flatMap (varOccsCond vs.length)) ++ common.flatMap varOccs)
+   let s ← resSort N e
+   let alts := alts.map fun a => (a.1, common.map isTrueC ++ a.2)
+-  pure (some (frClauses s (← varSorts N vs) pats req (eqnPrio e).2 (nonExec e) alts, vs))
++  pure (some (frClauses s (← varSorts N vs) pats req (eqnPrio e).2 (nonExec e) alts.dropLast, vs))
+ 
+ /-- `frRead` reads only a right side that is `rhsSorted`. -/
+ theorem frRead_rhsSorted {N : Names} {e : RawEqn} {x : Option (List Clause × List Var)}
+'''
+
+[mutant."mc-note-requires-or-first-only"]
+summary = "a rule whose requires is a disjunction is read as the rule of its first disjunct only (Parse.splitRule takes 1 of the requires' disjuncts)"
+breaks = "ReadingNote.requiresOrSplit: l ∧ (B₁ ∨ B₂) → •r is (l ∧ B₁ → •r) ∧ (l ∧ B₂ → •r), one rule per disjunct; read with the first only, a configuration where only B₂ holds has no step by the axiom"
+row = 'E3 ML-SYNTAX:Sort::=Sort "#Or" Sort'
+fixture = "e3-ml-req-or"
+theorems = "test/TieE3MlReqOr.lean"
+expect = "killed"
+killed_by = "account: `rules read with the premise ⌈rhs ∧ ens⌉ (ruleRightDefined): 2` becomes 1, one rule fewer (e3-ml-req-or; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -2307,7 +2307,7 @@
+     if ro.isNone && !hasOr l && (exUnheld? l).isNone then [a]
+     else
+       let ls := if hasOr l then (orAlts l).filter (!vacuous ·) else [l]
+-      let reqs := (ro.map (·.2)).getD [r0]
++      let reqs := ((ro.map (·.2)).getD [r0]).take 1
+       let consumed := (ro.map (·.1)).toList
+       let used := evarNames a.pattern
+       let vars := evarsOnce ((freeEVarsS [] a.pattern).filter fun x => !consumed.contains x.var.ident.name)
+'''
+
+[mutant."mc-note-not-cond-as-true"]
+summary = "a condition \\not{Bool}(B) is read as B' = true in place of B' = false (Parse.condCuts' notCondTerm? arm)"
+breaks = "ReadingNote.notAsCondition: in a definition whose Bool has only its literals, \\not{Bool}(B) as a condition holds exactly where B is false (B' = false); read as B' = true the rule or clause applies where B is true, the opposite of the text"
+row = 'E3 ML-SYNTAX:Sort::="#Not" "(" Sort ")"'
+fixture = "e3-ml-req-not"
+theorems = "test/TieE3MlReqNot.lean"
+expect = "killed"
+killed_by = "account: a line `rules read with conjuncts B = true of pre or post ... (andAtBool): 1` added, `rule 0: 1 in pre, 0 in post` (e3-ml-req-not; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -2470,7 +2470,7 @@
+   | some b' => do
+     unless N.boolLits do fail .openExtent "Bool"
+     let (t, vs) ← term N vs b'
+-    pure ([], [.equals Srt.bool t (.dv Srt.bool (.bool false))], [], vs)
++    pure ([], [.equals Srt.bool t (.dv Srt.bool (.bool true))], [], vs)
+   | none => do
+     let some (ps, ms) := condAndCutTList N (boolConj b) | fail .patternConnective "\\and"
+     let (ts, vs) ← terms N vs ps
+'''
+
+[mutant."mc-note-and-under-app-mems-dropped"]
+summary = "a condition with a conjunction \\and(t₁, …, tₙ) under applications is read with t₁ in its place and the memberships t₁ ∈ tⱼ dropped (Parse.condCuts reads condCutMems of no cut)"
+breaks = "ReadingNote.andUnderAppCut: C[t₁ ∧ t₂] holds where C[t₁] holds and t₁ ∈ t₂; with the memberships dropped the condition holds at every t₁, so the rule or clause applies where the text's condition does not"
+row = 'E3 ML-SYNTAX:Sort::=Sort "#And" Sort'
+fixture = "e3-ml-req-and-under-app"
+theorems = "test/TieE3MlReqAndUnderApp.lean"
+expect = "killed"
+killed_by = "theorems: l0_eq, right_built (test/TieE3MlReqAndUnderApp.lean; the account of the fixture unchanged; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -2474,7 +2474,7 @@
+   | none => do
+     let some (ps, ms) := condAndCutTList N (boolConj b) | fail .patternConnective "\\and"
+     let (ts, vs) ← terms N vs ps
+-    let (cs, vs) ← condCutMems N vs ms
++    let (cs, vs) ← condCutMems N vs []
+     pure (ts, cs, ps, vs)
+ 
+ /-- An equation's `requires` B: where `condCutTaken` holds, the strict conjunction of the terms
+'''
+
+[mutant."mc-note-conn-cut-pre-dropped"]
+summary = "a rule with a connective at a term position of its left side is read with the cut variable in its place and the cut's membership not in pre (Parse.connRuleBody's pre := conjC [])"
+breaks = "ReadingNote.connectiveCut: C[¬φ] on a left side matches a configuration C[Z] with Z ∈ ¬φ; with the membership dropped Z is unconstrained and the rule steps at configurations where Z ∈ φ, which the text's left side does not match"
+row = 'E3 ML-SYNTAX:Sort::="#Not" "(" Sort ")"'
+fixture = "e3-ml-rule-lhs-not"
+theorems = "test/TieE3MlRuleLhsNot.lean"
+expect = "killed"
+killed_by = "theorems: rz, read, ruleItems_eq (test/TieE3MlRuleLhsNot.lean; the account of the fixture unchanged; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -5419,7 +5419,7 @@
+         let vs : List Var := (pres.names.zip rule.vars).map fun (n, s) => ⟨n, N.sortNameOf s⟩
+         let (pre, _, vs) ← connCutConds N vs cutsL
+         let (post, zs, vs) ← connCutConds N vs cutsR
+-        pure ({ rule with vars := ← varSorts N vs, pre := conjC pre, post := conjC post, exs := rule.exs ++ zs },
++        pure ({ rule with vars := ← varSorts N vs, pre := conjC [], post := conjC post, exs := rule.exs ++ zs },
+               { pres with names := vs.map (·.name) })
+ 
+ /-- The cut of a connective at a term position is taken for the axiom (`connRuleBody`): something
+'''
+
+[mutant."mc-note-lhs-and-cut-conds-dropped"]
+summary = "a rule whose left side holds a conjunction p ∧ q of two patterns under applications is read with the fresh variable at q's place and the cut's condition (Z matches q) not in pre (Parse.lhsAndRuleBody drops lhsAndConds' conditions)"
+breaks = "ReadingNote.lhsAndCut: C[p ∧ q] matches the elements both patterns match, read as C[p #as Z] with Z matching q; with the condition dropped the rule matches every element p matches, and steps where q does not"
+row = 'E3 ML-SYNTAX:Sort::=Sort "#And" Sort'
+fixture = "e3-ml-rule-lhs-and-pats"
+theorems = "test/TieE3MlRuleLhsAndPats.lean"
+expect = "killed"
+killed_by = "theorems: readsConfined_c, p0_parts (test/TieE3MlRuleLhsAndPats.lean; the account of the fixture unchanged; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -5521,7 +5521,7 @@
+       let (ps, vs) ← condOfList N vs preds
+       let (ms, vs) ← lhsAndConds N vs cuts
+       pure ({ rule with vars := ← varSorts N vs,
+-                        pre := conjC ((if rule.pre.isTop then [] else [rule.pre]) ++ ps ++ ms) },
++                        pre := conjC ((if rule.pre.isTop then [] else [rule.pre]) ++ ps) },
+             { pres with names := vs.map (·.name) })
+ 
+ /-- The cut of a left side's conjunction is taken for the axiom (`lhsAndRuleBody`): something is
+'''
+
+[mutant."mc-note-existential-clause-not-taken"]
+summary = "an equation whose right side has an \\exists at the top, a conjunction of terms or a predicate other than \\equals(B, true) (ceShape) is read by clauseBody, not by ceRead (Parse.clausesBody's ceShape arm not taken)"
+breaks = "ReadingNote.existentialClause: f(X̄) = ∃Z. (t ∧ P) states f(X̄) is a t with P, read as one clause with existential variables and the predicate; read by clauseBody the right side is not that clause (refused or read without its binders)"
+row = 'E3 ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2'
+fixture = "e3-eq-exists-ctor-ml"
+theorems = "test/TieE3EqExistsCtorMl.lean"
+expect = "killed"
+killed_by = "account: the reading does not finish (the account's sections after `stage refusals` gone) (e3-eq-exists-ctor-ml; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -4654,7 +4654,7 @@
+     match ← (if hasOr eC.rhs then frRead N eC else pure none) with
+     | some (cls, vs) => cls.mapM (clauseExcl N msrc e excl vs)
+     | none =>
+-      if ceShape eC.rhs then byCE () else do
++      if false && ceShape eC.rhs then byCE () else do
+       let x ← clauseBody N msrc e' excl
+       pure [x]
+ 
+'''
+
+[mutant."mc-note-exists-binds-nothing-dropped"]
+summary = "an equation's right-side binder whose variable the body does not hold is always left out (Parse.ceBinders keeps only held binders), also where no argument is of its sort"
+breaks = "ReadingNote.existsBindsNothing: ∃Z:s. φ with Z not free in φ is φ where s has an element and empty where it has none; left out where no argument pattern holds a variable of s, the clause gives f(X̄) = φ also where s is empty, where the text gives f(X̄) no value (kept, ∃Z:s. (φ ∧ ⌈Z⌉))"
+row = 'E3 ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2'
+fixture = "e3-eq-exists-unheld-empty-ml"
+expect = "killed"
+killed_by = "account: `stage refusals (of sentences classified read): 1` (sentence 289 existentialEquation, Z:S of a sort the text leaves unconfined) becomes 0, the binder left out and the equation read (e3-eq-exists-unheld-empty-ml; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -3865,7 +3865,7 @@
+   let free := freeEVarsS [] body
+   let held := fun (x : Kore.KSort × Kore.EVar) => free.any (decide <| · = x.2)
+   let argSorts := (freeEVarsSList [] e.pats).map (·.sort)
+-  let kept := xs2.filter fun x => held x || !argSorts.any (decide <| · = x.2.sort)
++  let kept := xs2.filter fun x => held x
+   let body := (kept.filter (!held ·)).foldl
+     (fun b x => .and x.1 [b, .ceil x.2.sort x.1 (.var (.evar x.2))]) body
+   ({ e with rhs := underExistsS kept body },
+'''
+
+[mutant."mc-note-overload-function-refused"]
+summary = "a symbol-overload axiom whose second symbol is a function of the definition is not read as an overload (Parse's overload check admits a constructor or an overloading symbol only): refused overloadForm"
+breaks = "ReadingNote.overloadFunction: f(lift x̄) = lift(g(x̄)) with g a function states that the overloading symbol f at g's arguments is g's injected value, read as an overload of a function (the functional, injectivity and distinctness axioms read at the arguments no overload covers); refused, the text's overload is not read"
+row = 'E2 OVERLOAD(overload)@frontend'
+fixture = "e5-ovl-fun"
+theorems = "test/TieE5OvlFun.lean"
+expect = "killed"
+killed_by = "account: the reading does not finish (overloadForm); `overloading symbols that overload a function ... (overloadFunction): 1` gone (e5-ovl-fun; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -7434,7 +7434,7 @@
+       if ovlDeclNames.contains f then Rd.within (.attrs e.attrs) (
+         match ovlDecls.find? (·.symbol.ident.ident.name == f), S.syms.find? (·.symbol.ident.ident.name == g) with
+         | some fd, some gd =>
+-          if isCtorDecl gd || ovlDeclNames.contains g || fnNames.contains g then match ovlEqMissing fd gd e with
++          if isCtorDecl gd || ovlDeclNames.contains g then match ovlEqMissing fd gd e with
+             | none => pure ()
+             | some m => fail .overloadForm m
+           else fail .overloadForm s!"{g}: neither a constructor, an overloading symbol nor a function of the definition"
+'''
+
+[mutant."mc-inert-import"]
+summary = "an import sentence is classified read, not inert import (Parse.classify's .import arm)"
+breaks = "InertReason.import: kompile writes every imported module's sentences into the main module, so the import sentence states nothing beyond them and is inert; classified read, the account counts a sentence the reading has no item for"
+row = 'E1 Import:kw:imports'
+fixture = "e1-module"
+expect = "killed"
+killed_by = "account: `1 inert import [generated]` gone, `166 read [generated]` becomes 167 (e1-module; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -6848,7 +6848,7 @@
+ fresh variable (`keyFunctionAsMember`, `keyCutFns`), and whether a subsort or no-junk axiom is a
+ cell collection's injection (`Names.cellPairs`, `isCellCollAxiom`). -/
+ def classify (N : Names) : Kore.Sentence → SentenceClass
+-  | .import _ => .inert .import
++  | .import _ => .read
+   | .claim c => match attrFault? .claim .outsideE2 c.attributes with
+       | some (r, _) => .refused r
+       | none => .inert .claim
+'''
+
+[mutant."mc-inert-claim"]
+summary = "a claim with no refused attribute is classified read, not inert claim (Parse.classify's .claim arm)"
+breaks = "InertReason.claim: a claim is a reachability statement to be proved, no axiom of the definition's theory; read, the account holds it among the sentences the reading states"
+row = 'E1 Sentence:kw:claim'
+fixture = "hw-claim"
+expect = "killed"
+killed_by = "account: `1 inert claim [generated]` gone, `196 read [generated]` becomes 197 (hw-claim; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -6851,7 +6851,7 @@
+   | .import _ => .inert .import
+   | .claim c => match attrFault? .claim .outsideE2 c.attributes with
+       | some (r, _) => .refused r
+-      | none => .inert .claim
++      | none => .read
+   | .alias _ => .refused .aliasDeclaration
+   | .symbol s => if isMacroDecl s.attributes then .unread .macroUnused
+       else if let some c := (if isKBuiltin s.attributes && !isDefaultConfig (.symbol s) then
+'''
+
+[mutant."mc-inert-distinct-ctors"]
+summary = "a constructor axiom of the distinctness shape is classified read, not inert distinctCtors (Parse.classifyAxiom's constructor arm)"
+breaks = "InertReason.distinctCtors: ¬(f(X̄) ∧ g(Ȳ)) for two constructors is a sentence Γ states (KoreAML.Cons), checked against the induced axioms; read, it is outside that comparison and the reading has no item for it"
+row = 'E5 genNoConfusionAxioms:axiom#2'
+fixture = "e1-sentences"
+expect = "killed"
+killed_by = "account: `9 inert distinctCtors [generated]` gone, `216 read [generated]` becomes 225 (e1-sentences; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -6798,7 +6798,7 @@
+   else if (scanEvent s).isSome || (scanOr s).isSome then .read
+   else if (source? a.attributes).isNone && hasAttr a.attributes "constructor" then
+     match ctorAxiomClass a with
+-    | some r => .inert r
++    | some r => if r == .distinctCtors then .read else .inert r
+     | none => .refused .axiomShape
+   else if (source? a.attributes).isNone && isIdemLaw a then .unread .setIdempotence
+   else if (source? a.attributes).isNone && isCollectionLaw a then .inert .collectionLaw
+'''
+
+[mutant."mc-inert-injectivity"]
+summary = "a constructor axiom of the injectivity shape is classified read, not inert injectivity (Parse.classifyAxiom's constructor arm)"
+breaks = "InertReason.injectivity: f(X̄) ∧ f(Ȳ) → f(X̄ ∧ Ȳ) is a sentence Γ states (Cons-Inj), checked against the induced axioms; read, it is outside that comparison and the reading has no item for it"
+row = 'E5 genNoConfusionAxioms:axiom#1'
+fixture = "base"
+expect = "killed"
+killed_by = "account: `4 inert injectivity [generated]` gone, `148 read [generated]` becomes 152 (base; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -6798,7 +6798,7 @@
+   else if (scanEvent s).isSome || (scanOr s).isSome then .read
+   else if (source? a.attributes).isNone && hasAttr a.attributes "constructor" then
+     match ctorAxiomClass a with
+-    | some r => .inert r
++    | some r => if r == .injectivity then .read else .inert r
+     | none => .refused .axiomShape
+   else if (source? a.attributes).isNone && isIdemLaw a then .unread .setIdempotence
+   else if (source? a.attributes).isNone && isCollectionLaw a then .inert .collectionLaw
+'''
+
+[mutant."mc-inert-nojunk"]
+summary = "a constructor axiom of the no-junk shape (a disjunction) is classified read, not inert noJunk (Parse.classifyAxiom's constructor arm)"
+breaks = "InertReason.noJunk: a sort's no-junk axiom is a sentence Γ states (the constructors' no-junk item), checked against the induced axioms; read, it is outside that comparison and the reading has no item for it"
+row = 'E5 genNoJunkAxiom:axiom#1'
+fixture = "base"
+expect = "killed"
+killed_by = "account: `9 inert noJunk [generated]` gone, `148 read [generated]` becomes 157 (base; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -6798,7 +6798,7 @@
+   else if (scanEvent s).isSome || (scanOr s).isSome then .read
+   else if (source? a.attributes).isNone && hasAttr a.attributes "constructor" then
+     match ctorAxiomClass a with
+-    | some r => .inert r
++    | some r => if r == .noJunk then .read else .inert r
+     | none => .refused .axiomShape
+   else if (source? a.attributes).isNone && isIdemLaw a then .unread .setIdempotence
+   else if (source? a.attributes).isNone && isCollectionLaw a then .inert .collectionLaw
+'''
+
+[mutant."mc-inert-collection-law"]
+summary = "an assoc/comm/unit equation of one symbol is not classified collectionLaw (the arm's condition false): the next arms classify it"
+breaks = "InertReason.collectionLaw: the law of a collection's concatenation is a sentence of Γ's collection axioms (at values), inert; not recognized, the law is refused or read as no sentence of the reading"
+row = 'E5 genAssocAxiom:axiom#1'
+fixture = "base"
+expect = "killed"
+killed_by = "account: `9 inert collectionLaw [generated]` becomes `9 refused axiomShape [generated]` (base; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -6801,7 +6801,7 @@
+     | some r => .inert r
+     | none => .refused .axiomShape
+   else if (source? a.attributes).isNone && isIdemLaw a then .unread .setIdempotence
+-  else if (source? a.attributes).isNone && isCollectionLaw a then .inert .collectionLaw
++  else if false && (source? a.attributes).isNone && isCollectionLaw a then .inert .collectionLaw
+   else if (source? a.attributes).isNone && isParametricFunctional a then .inert .parametricFunctional
+   else if (existentialAxiom? a).isSome then .refused .existentialAxiom
+   else if isParametricSubsort a then .refused .parametricSort
+'''
+
+[mutant."mc-inert-param-functional"]
+summary = "the functional axiom of a sort-parametric symbol is not classified parametricFunctional (the arm's condition false): the next arms classify it"
+breaks = "InertReason.parametricFunctional: \\exists v. v = f{S}(X̄) for a sort-parametric symbol states that each instance is functional, which Γ entails of the instances the reading holds; not recognized, the axiom is refused or read as no sentence of the reading"
+row = 'E5 functionalPattern:axiom#1'
+fixture = "e2-collection"
+expect = "killed"
+killed_by = "account: `1 inert parametricFunctional [generated]` becomes `1 refused axiomShape [generated]` (ite's functional axiom; e2-collection; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -6802,7 +6802,7 @@
+     | none => .refused .axiomShape
+   else if (source? a.attributes).isNone && isIdemLaw a then .unread .setIdempotence
+   else if (source? a.attributes).isNone && isCollectionLaw a then .inert .collectionLaw
+-  else if (source? a.attributes).isNone && isParametricFunctional a then .inert .parametricFunctional
++  else if false && (source? a.attributes).isNone && isParametricFunctional a then .inert .parametricFunctional
+   else if (existentialAxiom? a).isSome then .refused .existentialAxiom
+   else if isParametricSubsort a then .refused .parametricSort
+   else if isUnkompiledForm a.pattern then .refused .unkompiledForm
+'''
+
+[mutant."mc-inert-vacuous-left"]
+summary = "a rewrite axiom whose left side is empty (\\bottom) is not classified vacuousLeft (the arm's condition false): the next arms classify it, read as a rule"
+breaks = "InertReason.vacuousLeft: C[⊥] = ⊥, and ⊥ → •R holds in every model, so the axiom states nothing; read as a rule, its left side is a pattern the reading must match"
+row = 'E3 ML-SYNTAX:Sort::="#Bottom"'
+fixture = "e3-ml-rule-lhs-bottom"
+expect = "killed"
+killed_by = "account: `1 inert vacuousLeft [user]` gone, `4 read [user]` becomes 5 (e3-ml-rule-lhs-bottom; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -6779,7 +6779,7 @@
+     if (overloadEqn? a).isSome then .read else .refused .overloadAxiom
+   else if (source? a.attributes).isNone && (projectionDomain? a).isSome then .readAs .projectionDomainAsClause
+   else if (match a.pattern with
+-      | .rewrites _ (.and _ [l, _]) _ => vacuous l
++      | .rewrites _ (.and _ [l, _]) _ => false && vacuous l
+       | _ => false) then .inert .vacuousLeft
+   else if (match a.pattern with
+       | .rewrites _ (.and _ [l, _]) _ => vacuousAtBool l
+'''
+
+[mutant."mc-unread-cell-coll-inj"]
+summary = "a cell collection's subsort or no-junk axiom (isCellCollAxiom) is not classified cellCollectionInjection (the arm's condition false): the next arms classify it"
+breaks = "UnreadReason.cellCollectionInjection: the injection of a cell into its collection sort is no subsort the reading has (the collection's element), so the axiom is unread; classified by the next arms it is an inert constructor axiom compared with the induced ones, or refused"
+row = 'E2 CELL_COLLECTION(cellCollection)@frontend'
+fixture = "e2-cells"
+expect = "killed"
+killed_by = "account: `6 unread cellCollectionInjection [generated]` gone, `552 read [generated]` becomes 555 (e2-cells; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -6769,7 +6769,7 @@
+   else if isNoPredSentence s then .unread .noSortPredicate
+   -- a sentence of a K installation's file about names of its own is read as a user's file's
+   else if let some c := (if isKBuiltin a.attributes then classifyKBuiltin s else none) then c
+-  else if isCellCollAxiom N.cellPairs a then .unread .cellCollectionInjection
++  else if false && isCellCollAxiom N.cellPairs a then .unread .cellCollectionInjection
+   -- a `\rewrites` axiom carrying `simplification` states a step: it is read, and `ruleBody`
+   -- refuses it (`ruleAttrFault?`) instead of the step being dropped as an inert lemma
+   else if hasAttr a.attributes "simplification" && (scanRewrite s).isNone then .inert .simplification
+'''
+
+[mutant."mc-unread-macro-unused"]
+summary = "a macro or alias symbol declaration (isMacroDecl) is not classified macroUnused (the arm's condition false): the next arms classify it, read as a symbol of the definition"
+breaks = "UnreadReason.macroUnused: kompile expands every macro application, so the declaration is applied by no sentence and is no symbol of the reading; read, the definition has a symbol the text gives no meaning"
+row = 'E2 MACRO(macro)@symbol'
+fixture = "e2-macro-plain"
+expect = "killed"
+killed_by = "account: `4 unread macroUnused [user]` gone, `4 read [user]` becomes 8 (e2-macro-plain; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -6853,7 +6853,7 @@
+       | some (r, _) => .refused r
+       | none => .inert .claim
+   | .alias _ => .refused .aliasDeclaration
+-  | .symbol s => if isMacroDecl s.attributes then .unread .macroUnused
++  | .symbol s => if false && isMacroDecl s.attributes then .unread .macroUnused
+       else if let some c := (if isKBuiltin s.attributes && !isDefaultConfig (.symbol s) then
+           classifyKBuiltin (.symbol s) else none) then c
+       else if !s.symbol.sortVars.isEmpty && (isUserSource s.attributes || ownBuiltinNamed (.symbol s)) then
+'''
+
+[mutant."mc-unread-set-idem"]
+summary = "a set concatenation's [idem] equation is not classified setIdempotence (the arm's condition false): the next arm reads it as a collection law, inert"
+breaks = "UnreadReason.setIdempotence: K(K, K) = K for a set's concatenation is refuted where an element exists (idem_refuted: the set's concatenation is disjoint union), so the sentence is unread, never claimed entailed; as an inert collectionLaw it is claimed a consequence of Γ"
+row = 'E2 IDEM(idem)@symbol'
+fixture = "e2-collection"
+expect = "killed"
+killed_by = "account: `2 unread setIdempotence [generated]` gone, `15 inert collectionLaw [generated]` becomes 17 (e2-collection; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -6800,7 +6800,7 @@
+     match ctorAxiomClass a with
+     | some r => .inert r
+     | none => .refused .axiomShape
+-  else if (source? a.attributes).isNone && isIdemLaw a then .unread .setIdempotence
++  else if false && (source? a.attributes).isNone && isIdemLaw a then .unread .setIdempotence
+   else if (source? a.attributes).isNone && isCollectionLaw a then .inert .collectionLaw
+   else if (source? a.attributes).isNone && isParametricFunctional a then .inert .parametricFunctional
+   else if (existentialAxiom? a).isSome then .refused .existentialAxiom
+'''
+
+[mutant."mc-unread-no-sort-pred"]
+summary = "a generated sentence about a sort predicate the reading has no predicate for (isNoPredSentence) is not classified noSortPredicate (both arms' conditions false): the next arms classify it"
+breaks = "UnreadReason.noSortPredicate: the predicate isMInt of a sort with no predicate in the reading is applied by no read sentence, so its declaration and equation are unread; classified by the next arms they are read as a symbol and an equation of the definition"
+row = 'E5 translateSymbol:symbol#1'
+fixture = "hw-ispred-mint"
+expect = "killed"
+killed_by = "account: `1 unread noSortPredicate [generated]` gone, `196 read [generated]` becomes 197 (hw-ispred-mint; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -6766,7 +6766,7 @@
+   let s := Kore.Sentence.axiom a
+   if (sortAboveKOf? a).isSome then .refused .sortAboveK
+   else if isBuiltinSource a.attributes then .read
+-  else if isNoPredSentence s then .unread .noSortPredicate
++  else if false && isNoPredSentence s then .unread .noSortPredicate
+   -- a sentence of a K installation's file about names of its own is read as a user's file's
+   else if let some c := (if isKBuiltin a.attributes then classifyKBuiltin s else none) then c
+   else if isCellCollAxiom N.cellPairs a then .unread .cellCollectionInjection
+@@ -6861,7 +6861,7 @@
+       -- an open generator is read where the text declares it `functional`: a parameter symbol
+       -- that is a generator of its sort (`ParamSig.raw`)
+       else if isOpenGenerator s && !hasAttr s.attributes "functional" then .refused .openGenerator
+-      else if isNoPredSentence (.symbol s) then .unread .noSortPredicate
++      else if false && isNoPredSentence (.symbol s) then .unread .noSortPredicate
+       else match symAttrFault? s.attributes with
+         | some (r, _) => .refused r
+         | none => .read
+'''
+
+[mutant."mc-row-rule-rhs-as-lhs"]
+summary = "every rewrite axiom's right side is read as its left side (ruleBodyAnd's rhs := stripAs lhs)"
+breaks = "E1 rule: \\rewrites(lhs ∧ req, rhs ∧ ens) is the rule from lhs to rhs, read as written; with the left side in the right side's place each rule steps a configuration to itself"
+row = 'E1 Sentence:kw:rule'
+fixture = "e1-sentences"
+theorems = "test/TieE1Sentences.lean"
+expect = "killed"
+killed_by = "theorems: rule0_text, ..., rule10_text (11 errors; test/TieE1Sentences.lean; the account of e1-sentences unchanged; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -4929,7 +4929,7 @@
+     let pre := ovlCutConj (keys ++ (if pre.isTop then [] else [pre]) ++
+       (if reqs.length ≤ 1 then [] else [ruleEqTrueCnj reqs.tail]) ++ reqCs)
+     let req := reqs.head?
+-    let rhs := if empty then stripAs lhs else rhs
++    let rhs := stripAs lhs
+     let plain := a.attributes.filterMap fun ap =>
+       if ap.sorts.isEmpty && ap.args.isEmpty then some ap.head.ident.name else none
+     -- `digitsVal`, not `String.toNat?`: the latter reaches an opaque well-founded fixpoint in
+'''
+
+[mutant."mc-row-cool-eq-requires-dropped"]
+summary = "an equation's requires is not read (clauseBody's req none): the clause applies at every argument"
+breaks = "COOL(cool)@equation: f(X) = X requires isKResult(HOLE), HOLE bound by no argument, states f(X) = X where some value of HOLE satisfies the requires; the reader reads HOLE as an open condition variable and the account names the CondDecided the clause owes. Without the requires the clause is f(X) = X everywhere"
+row = 'E2 COOL(cool)@equation'
+fixture = "e2-cool-eq"
+theorems = "test/CoolEqWit.lean"
+expect = "killed"
+killed_by = "account: `function f, clause 0 at e2-cool-eq.k:5: CondDecided open, over VarHOLE:K` gone, the simplification's owed line changes (e2-cool-eq; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -4564,7 +4564,7 @@
+   -- are `Clause.pre`'s (`eqnReqCut`)
+   let (req, reqCs, vs) ← match e.req with
+     | none => pure (none, [], vs)
+-    | some r => eqnReqCut N vs r
++    | some _ => pure (none, [], vs)
+   -- a variable the arguments do not bind is read; in a condition the values do not decide it is
+   -- refused once the definition is built (`clauseRefusal`)
+   -- the `ensures`, the clause's `ens`: part of the right side, not of whether it applies
+'''
+
+[mutant."mc-row-heat-requires-dropped"]
+summary = "a rewrite axiom's requires is not read (ruleBodyAnd's reqs empty): the rule applies wherever its left side matches"
+breaks = "HEAT(heat)@frontend: kompile adds requires notBool isKResult(HOLE), HOLE in no side, so the axiom rewrites where some value of HOLE satisfies it, a closed condition the reader reads with HOLE an open variable and whose CondDecided the account names as owed; without the requires the rule applies unconditionally"
+row = 'E2 HEAT(heat)@frontend'
+fixture = "e2-rule"
+theorems = "test/TieRuleCool.lean"
+expect = "killed"
+killed_by = "account: `rule 6: CondDecided open, over VarHOLE:K` and `rule 7: ...` gone (e2-rule; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -4898,7 +4898,7 @@
+     -- the conditions `ruleCondTermsCnj` gives beside them conjuncts of `pre`
+     let (reqs, reqCs, vs) ← match ← need (req? r0) .requiresShape with
+       | none => pure ([], [], vs)
+-      | some q => ruleCondTermsCnj N vs q
++      | some _ => pure ([], [], vs)
+     let n0 := vs.length
+     let (enss, ensCs, vs) ← match ens with
+       | none => pure ([], [], vs)
+'''
+
+[mutant."mc-row-heatcool-requires-dropped"]
+summary = "a rewrite axiom's requires is not read (ruleBodyAnd's reqs empty): the requires [heat] and [cool] add are lost"
+breaks = "09:resolveHeatCoolAttribute: [heat] adds notBool isKResult(HOLE) and [cool] isKResult(HOLE) to the rule's requires, read as written; without them the heating and cooling rules apply unconditionally"
+row = 'E7 09:resolveHeatCoolAttribute'
+fixture = "e2-rule"
+theorems = "test/TieRuleCool.lean"
+expect = "killed"
+killed_by = "account: `rule 6: CondDecided open, over VarHOLE:K` and `rule 7: ...` gone (e2-rule; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -4898,7 +4898,7 @@
+     -- the conditions `ruleCondTermsCnj` gives beside them conjuncts of `pre`
+     let (reqs, reqCs, vs) ← match ← need (req? r0) .requiresShape with
+       | none => pure ([], [], vs)
+-      | some q => ruleCondTermsCnj N vs q
++      | some _ => pure ([], [], vs)
+     let n0 := vs.length
+     let (enss, ensCs, vs) ← match ens with
+       | none => pure ([], [], vs)
+'''
+
+[mutant."mc-row-cool-rule-refused"]
+summary = "the cool attribute on a rule is refused ruleAttribute in place of inert (ParseAttr's .rule, .cool verdict)"
+breaks = "COOL(cool)@rule: K gives the key no meaning on the axiom (a marker of a strictness cooling rule; written by an author, its effect is the requires kompile adds), so it is inert and the rule is read; refused, the rule the text states is not read"
+row = 'E2 COOL(cool)@rule'
+fixture = "e2-rule"
+expect = "killed"
+killed_by = "account: `stage refusals (of sentences classified read): 0` becomes nonzero (ruleAttribute), the reading does not finish (e2-rule; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/ParseAttr.lean
++++ b/KcoreSpec/ParseAttr.lean
+@@ -436,7 +436,7 @@
+   | .rule, .uniqueId =>
+     .read
+   | .rule, .concrete => .inert "which terms a prover applies the rule to (concrete values of the named variables): no statement of the theory; the axiom states the rule"
+-  | .rule, .cool => .inert "marks a cooling rule of a strictness declaration; the axiom states the rule"
++  | .rule, .cool => .refused .ruleAttribute "marks a cooling rule of a strictness declaration; the axiom states the rule"
+   | .rule, .coolLike => .inert "marks a rule as cooling-like for strictness; the axiom states the rule"
+   | .rule, .left => .refused .ruleAttribute (erased "LEFT_INTERNAL(left)@any")
+   | .rule, .nat => .refused .ruleAttribute (ruled "NAT(nat)@any")
+'''
+
+[mutant."mc-row-preserves-def-refused"]
+summary = "the preserves-definedness attribute on a rule is refused ruleAttribute in place of inert (ParseAttr's .rule, .preservesDefinedness verdict)"
+breaks = "PRESERVES_DEFINEDNESS(preserves-definedness)@rule: the axiom is the same with or without the mark, so it is inert and the rule is read; refused, the rule the text states is not read"
+row = 'E2 PRESERVES_DEFINEDNESS(preserves-definedness)@rule'
+fixture = "e2-rule"
+expect = "killed"
+killed_by = "account: `stage refusals (of sentences classified read): 0` becomes nonzero (ruleAttribute), the reading does not finish (e2-rule; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/ParseAttr.lean
++++ b/KcoreSpec/ParseAttr.lean
+@@ -441,7 +441,7 @@
+   | .rule, .left => .refused .ruleAttribute (erased "LEFT_INTERNAL(left)@any")
+   | .rule, .nat => .refused .ruleAttribute (ruled "NAT(nat)@any")
+   | .rule, .nonExecutable => .refused .ruleAttribute "the key may leave the axiom a rule like any other, or leave it out of what a rule of a larger priority number excludes (as it does for an equation, Clause.aside); the two give different steps where the rule overlaps such a rule, and no sentence of the text chooses between them (a priority is an attribute)"
+-  | .rule, .preservesDefinedness => .inert "no K text gives it a meaning (kore-syntax.md:223-229; the user manual has no occurrence); kompile writes it on the axiom and no sentence beside it (e2-rule/kore.txt:193-199); the axiom states the rule"
++  | .rule, .preservesDefinedness => .refused .ruleAttribute "no K text gives it a meaning (kore-syntax.md:223-229; the user manual has no occurrence); kompile writes it on the axiom and no sentence beside it (e2-rule/kore.txt:193-199); the axiom states the rule"
+   | .rule, .priorities => .refused .ruleAttribute (erased "PRIORITIES(priorities)@any")
+   | .rule, .right => .refused .ruleAttribute (erased "RIGHT_INTERNAL(right)@any")
+   | .rule, .simplification => .refused .ruleAttribute "the axiom states a step, which classing it a lemma (inert) would drop, while the key says the axiom is a lemma and no rule of the definition, which reading it as a rule would drop"
+'''
+
+[mutant."mc-row-rule-label-dropped"]
+summary = "a rule's label attribute is not read (RulePres' label none)"
+breaks = "LABEL(label)@rule: label{}(\"r2\") names the rule and is read into its presentation, printed back by emit; dropped, the rule's sentence prints without it"
+row = 'E2 LABEL(label)@rule'
+fixture = "e2-rule"
+theorems = "test/TieRuleCool.lean"
+expect = "killed"
+killed_by = "survives (2026-11-20): the account of e2-rule unchanged and test/TieRuleCool.lean checks; no account line or test reads a rule's label (RulePres.label, printed back by emit only)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -4939,7 +4939,7 @@
+       | some n => n
+       | none => if plain.contains "owise" then 200 else 50
+     pure ({ vars := ← varSorts N vs, lhs, req, rhs, ens, prio, exs, pre, post },
+-          ⟨vs.map (·.name), ← need (info? a.attributes) .sentenceInfo, attrStr? a.attributes "label",
++          ⟨vs.map (·.name), ← need (info? a.attributes) .sentenceInfo, none,
+            plain.filter (· != "owise"), explicit.isSome,
+            a.attributes.filterMap (fun ap => match ap.sorts, ap.args with
+              | [], [.string v] =>
+'''
+
+[mutant."mc-row-rule-priority-ignored"]
+summary = "a rule with priority{}(n) is read at the default priority 50 (ruleBodyAnd's prio)"
+breaks = "PRIORITY(priority)@rule: priority(10) on <k> a(X) => c(X) ... </k> makes it apply before the rules at a(X) of priorities 50 and 60, so a(5) steps to c(5) only; at 50 the three rules compete"
+row = 'E2 PRIORITY(priority)@rule'
+fixture = "e2-rule"
+theorems = "test/TieRuleCool.lean"
+expect = "killed"
+killed_by = "theorems: rule_prios, r1_parts, r3_parts (test/TieRuleCool.lean; the account of e2-rule unchanged; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -4936,7 +4936,7 @@
+     -- Lean v4.34.0's string iterators, which the kernel cannot unfold (test/OpaqueAudit.lean)
+     let explicit := (attrStr? a.attributes "priority").bind fun s => digitsVal s.toList 0
+     let prio := match explicit with
+-      | some n => n
++      | some _ => 50
+       | none => if plain.contains "owise" then 200 else 50
+     pure ({ vars := ← varSorts N vs, lhs, req, rhs, ens, prio, exs, pre, post },
+           ⟨vs.map (·.name), ← need (info? a.attributes) .sentenceInfo, attrStr? a.attributes "label",
+'''
+
+[mutant."mc-row-rule-owise-default"]
+summary = "an [owise] rule is read at the default priority 50, not 200 (ruleBodyAnd's prio)"
+breaks = "OWISE(owise)@rule: <k> b(X) => c(X) ... </k> [owise] applies only where no other rule at b(X) does, so b(0) steps by b(0) => c(0) alone; at 50 both rules apply at b(0)"
+row = 'E2 OWISE(owise)@rule'
+fixture = "e2-rule"
+theorems = "test/TieRuleCool.lean"
+expect = "killed"
+killed_by = "theorems: rule_prios, r5_parts (test/TieRuleCool.lean; the account of e2-rule unchanged; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -4937,7 +4937,7 @@
+     let explicit := (attrStr? a.attributes "priority").bind fun s => digitsVal s.toList 0
+     let prio := match explicit with
+       | some n => n
+-      | none => if plain.contains "owise" then 200 else 50
++      | none => 50
+     pure ({ vars := ← varSorts N vs, lhs, req, rhs, ens, prio, exs, pre, post },
+           ⟨vs.map (·.name), ← need (info? a.attributes) .sentenceInfo, attrStr? a.attributes "label",
+            plain.filter (· != "owise"), explicit.isSome,
+'''
+
+[mutant."mc-row-unbound-as-exists"]
+summary = "a variable of a rule's right side that neither the left side nor the requires binds is read as an existential variable of the rule (ruleBodyAnd's exs)"
+breaks = "UNBOUND_VARIABLES(unboundVariables)@frontend: X free on the right side only is universal over the whole axiom, so every instance b(X) is a successor of a(); read as \\exists X on the right side, a() steps to some b(X)"
+row = 'E2 UNBOUND_VARIABLES(unboundVariables)@frontend'
+fixture = "e2-unbound"
+theorems = "test/TieUnboundRule.lean"
+expect = "killed"
+killed_by = "theorems: rule_text, r0_exs, arm_A (4 errors; test/TieUnboundRule.lean; the account of e2-unbound unchanged; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -4919,7 +4919,7 @@
+         pure (rhs, es.head?, ruleEqTrueCnjWith es.tail (ensCs ++ csCs), vs)
+     -- the right side's existential variables, in the text's order of nesting: the binders that
+     -- bind something, looked up before `keyCut` adds its variables
+-    let exs := exIndices vs n0 kept
++    let exs := exIndices vs n0 kept ++ ((List.range vs.length).filter fun i => n0 ≤ i && !(exIndices vs n0 kept).contains i)
+     -- a map key of the left side applying a function of the definition's own: a fresh variable,
+     -- its membership in the application a conjunct of `pre` (`keyCut`)
+     let (lhs, vs, keys) ← keyCut N lhs vs
+'''
+
+[mutant."mc-row-unbound-rhs-as-exists"]
+summary = "a variable of a rule's right side that neither the left side nor the requires binds is read as an existential variable of the rule (ruleBodyAnd's exs)"
+breaks = "unboundVariables x right-side variable: the key lets kompile write <k> a() => b(X) ... </k> with X free on the right side only, universal over the axiom, every b(X) a successor; read as \\exists X, a() steps to some b(X)"
+row = 'C3 unboundVariables x right-side variable'
+fixture = "e2-unbound"
+theorems = "test/TieUnboundRule.lean"
+expect = "killed"
+killed_by = "theorems: rule_text, r0_exs, arm_A (4 errors; test/TieUnboundRule.lean; the account of e2-unbound unchanged; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -4919,7 +4919,7 @@
+         pure (rhs, es.head?, ruleEqTrueCnjWith es.tail (ensCs ++ csCs), vs)
+     -- the right side's existential variables, in the text's order of nesting: the binders that
+     -- bind something, looked up before `keyCut` adds its variables
+-    let exs := exIndices vs n0 kept
++    let exs := exIndices vs n0 kept ++ ((List.range vs.length).filter fun i => n0 ≤ i && !(exIndices vs n0 kept).contains i)
+     -- a map key of the left side applying a function of the definition's own: a fresh variable,
+     -- its membership in the application a conjunct of `pre` (`keyCut`)
+     let (lhs, vs, keys) ← keyCut N lhs vs
+'''
+
+[mutant."mc-row-hybrid-pred-std"]
+summary = "a sort predicate whose equations in the text are not sortPreds' standard clauses is read with the standard clauses all the same (predCoreOfPR reads none of predFnNamesPR's names from its equations)"
+breaks = "strict x hybrid: hybrid makes kompile write isKResult(pair(K0, K1)) = true where both arguments are results, an equation of the sort predicate beside the standard ones; the reader reads isKResult as the function of the text's equations (predCoreOfPR). With the standard clauses only, isKResult(pair(1, 2)) is false, against the text"
+row = 'C3 strict x hybrid'
+fixture = "c3-strict-hybrid"
+expect = "killed"
+killed_by = "account: the stage refusals line is replaced, the reading does not finish: the text's isKResult equations are no clauses of the standard predicate (c3-strict-hybrid; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -8123,7 +8123,7 @@
+ def predCoreOfPR (S : Scan) (E : Env) (prods : List Prod) (rules : List (Rule × RulePres)) :
+     Rd (Semantics × List (Fn × FnPres)) := do
+   let core ← coreBase S E prods rules
+-  match predFnNamesPR E.N E.src S.eqs core with
++  match (predFnNamesPR E.N E.src S.eqs core).take 0 with
+   | [] => pure (core, [])
+   | ns =>
+     let pfs ← predFnsOfPR S E ns
 '''
