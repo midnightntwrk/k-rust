@@ -13,6 +13,11 @@ Usage (from kcore-spec):
       failures (all of them into FILE, the first 40 on the output); with --list, also the list
       above (its entries into LFILE); exit 1 on a failure, exit 0 with --report (failures listed,
       not failing: test/constructs.sh's mode until the closing check of FIX-rest)
+      Then the E6 library rows (`e6_library`: a row of E6 of status supported or inert with an
+      `e6_tie`, test/constructs/e6map.py; the tables nested in one are not among them): how many
+      are tied, how many are in each group counted apart (E6 no direction (in a model), supported
+      (no model), refuted (recorded)), and how many miss evidence, each of these listed with what
+      it misses (an "uncovered: ..." e6_tie with the reason e6map gives)
       Then the entries whose reading is owed (READER_OWED): every entry of status supported,
       parameter or inert with reader_does_it = false, with the ticket that owes the reading; exit 1
       (--report or not) on one that names no ticket, or whose ticket is done or not in PROGRESS
@@ -1484,6 +1489,27 @@ def print_list(res, fresh, out):
         print("\n".join(lines))
 
 
+def e6_library(t, res):
+    """The results of `run` for the E6 library rows (a row of E6 of status supported or inert with an
+    `e6_tie`; not a table nested in one), and their count by group: "missing evidence" for one with a
+    missing item, else its form where it is a group counted apart (E6_GROUPS), else "tied"."""
+    lib = {f"E6 {k!r}" for k, r in (t.get("E6") or {}).items()
+           if isinstance(r, dict) and r.get("status") in ("supported", "inert") and r.get("e6_tie") is not None}
+    rs = [r for r in res if r[0] == "E6" and r[3] in lib]
+    return rs, collections.Counter("missing evidence" if r[6] else r[2] if r[2] in E6_GROUPS else "tied" for r in rs)
+
+
+def print_e6_library(t, res):
+    """One line counting the E6 library rows by group (`e6_library`), then each row missing evidence."""
+    rs, c = e6_library(t, res)
+    print(f"e6-library: {len(rs)} E6 library rows (status supported or inert, with an e6_tie): {c['tied']} tied; "
+          f"counted apart: " + ", ".join(f"{c[g]} {g}" for g in E6_GROUPS)
+          + f"; {c['missing evidence']} missing evidence")
+    for r in sorted(rs, key=order):
+        if r[6]:
+            print(line(r))
+
+
 def print_check(res, fresh, report, out):
     """The check of every entry; returns the exit code."""
     fails = [r for r in res if r[6]]
@@ -1532,6 +1558,7 @@ def main(argv):
     if "--list" in opt:
         print_list([r for r in res if not r[4]], fresh, opt["--list"])
     rc = print_check(res, fresh, report, opt.get("--out"))
+    print_e6_library(t, res)
     rc = print_reader_owed(t, gate) or rc
     rc = print_owed_state(t, fx) or rc
     print_match_refuted(t)
@@ -2435,10 +2462,29 @@ def self_test():
             cases.append(("E6", key, e, want))
             if form("E6", key, e) != f:
                 bad_forms.append(f"{key} {v[:50]!r}: form {form('E6', key, e)!r}, expected {f!r}")
+        # the E6 library line: those rows, a tied row and a nested table without e6_tie, counted by group
+        import contextlib, io
+        t6 = {"E6": {f"{key}#{i}": dict({"status": "supported", "e6_tie": v}, **more)
+                     for i, (key, v, more, _, _) in enumerate(e6cases)}}
+        t6["E6"]["axiom:T"] = {"status": "supported", "e6_tie": [f"{f5})"],
+                               "cases": [{"status": "supported", "case": "c"}]}
+        t6["E6"]["axiom:N"] = {"status": "refused"}
+        rs6, c6 = e6_library(t6, run(t6, fx))
+        want6 = {"tied": 1, E6_ND: 2, E6_NM: 2, E6_REF: 2,
+                 "missing evidence": sum(1 for *_, w in e6cases if not w)}
+        if len(rs6) != len(e6cases) + 1 or c6 != collections.Counter(want6):
+            bad_forms.append(f"e6_library: {len(rs6)} rows, {dict(c6)}, expected {len(e6cases) + 1}, {want6}")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            print_e6_library(t6, run(t6, fx))
+        if not out.getvalue().startswith(f"e6-library: {len(e6cases) + 1} E6 library rows (status supported or "
+                                         f"inert, with an e6_tie): 1 tied; counted apart: 2 {E6_ND}, 2 {E6_NM}, 2 "
+                                         f"{E6_REF}; {want6['missing evidence']} missing evidence\n") \
+                or out.getvalue().count("\n") != 1 + want6["missing evidence"]:
+            bad_forms.append(f"print_e6_library: printed {out.getvalue()[:300]!r}")
         # match_refuted: e3-eq-exists-ml-in-or-int's clause, whose MatchIndependent its account names as
         # owed and test/ExClauseFxInOrInt.lean refutes; the scratch fixture's account prints that
         # line, and a `consistent` is added to that file's declarations here (the tie states it)
-        import contextlib, io
         mrx, mrf = "e3-eq-exists-ml-in-or-int", "test/ExClauseFxInOrInt.lean"
         mrn, mrc = "ExClauseFixtures.InOrInt.not_matchIndependent", "ExClauseFixtures.InOrInt.consistent"
         mi = "      function f, clause 0 at e3-eq-exists-ml-in-or-int.k:4: MatchIndependent open, existential Var'Hash'Or0:Int\n"
