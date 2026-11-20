@@ -42,13 +42,8 @@ prog = os.environ.get("KCORE_PROGRESS") or next(
                  os.path.join(KR, "draft-personal/k-semantics-core-2026-11/progress"))
      if os.path.isdir(d)), os.path.join(K, "../progress"))
 
-# Provisional entries owed by a ticket of PROGRESS: (the entry's declaration, ticket).
-# WIT.manifest makes the entry name its witness or WIT.decide's decision (DONE-0 C5 part 4); until
-# then the conjunct has neither (test/witnesses.toml itesApart.1).
-ALLOWANCE = [
-    ("inside faithCoreOK: the first leaf of itesApart (every sort name of an instance name names a "
-     "numbered sort)", "WIT.manifest"),
-]
+# Provisional entries owed by a ticket of PROGRESS: (the entry's declaration, ticket). None is owed.
+ALLOWANCE = []
 
 
 def entries(v, where):
