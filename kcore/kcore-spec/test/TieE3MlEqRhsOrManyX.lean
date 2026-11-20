@@ -30,10 +30,12 @@
   Layer 2, by class (indices are the text's axiom numbers, `AxiomDecl.index`).
   - Function equations (28) and priority equations (0), in the order `fnText` lists them
     (`fns_account`): each of Γ's items but 0 is the translation of one sentence (`shape`), so Γ
-    entails it (`fns_entailed`). Item 0 (235) is not its sentence (`un<j>_differs`) and no reading
-    here ties it: the sentence is `uncovered`, and `fns_entailed` and `fns_from_text` leave it out.
-    `fns_from_text` (the converse), `fn_prios` (the priorities the sentences state are the
-    clauses').
+    entails it (`fns_entailed`). Item 0 (235) is the equation read as a clause with existential
+    variables (`existentialClause`), not its sentence (`ex<j>_differs`): the two hold in the same
+    interpretations with the signature's facts (`ex<j>_iff`, by a lemma of
+    KcoreSpec/TieExClause.lean), so Γ entails the sentence (`ex<j>_entailed`) and the sentence with
+    `ΓSig` gives the item (`ex<j>_from_text`, W1), which `fns_from_text` leaves out. `fns_from_text`
+    (the converse), `fn_prios` (the priorities the sentences state are the clauses').
   - Constructor sentences (24): entailed by Γ (`cons_entailed`).
   - No junk (3 of a sort without generators, `nojunk_trivial_entailed`; 6 equal to
     one of Γ's constructor items, `nojunk_items`; 1 KItem's with its disjuncts in the text's
@@ -41,13 +43,13 @@
   - Set idempotence (60): Γ with it has no model (`idem_refuted`).
   - Library sample, 158 (`I -Int 0 = I`): holds at values (`lib166`, `lib166_at_values`).
   - The converse over Γ's content: each premise is a consequence of the function sentences, Γ's own
-    item 0 (whose sentence is uncovered), Γ's rule items, the five parts Γ defines by predicates, or
-    definedness (`gamma_from`).
+    item 0 (whose sentence gives it with `ΓSig`: `ex<j>_from_text`), Γ's rule items, the five parts
+    Γ defines by predicates, or definedness (`gamma_from`).
   - Hooked functional, collection law, library: at values (no theorem here); function functional:
     owed as `FnHyp` (no theorem); no direction: `absent_closed`.
 
   The sentences with no counterpart in f2-examples/ens.kompile.kore are `unmapped` (4);
-  the sentences of a class with a theorem that no theorem here holds of are `uncovered` (1).
+  the sentences of a class with a theorem that no theorem here holds of are `uncovered` (0).
 -/
 import KcoreSpec
 
@@ -194,7 +196,7 @@ def unmapped : List (Nat × String) :=
 /-- The sentences of a class with a theorem in the tie that no theorem of this file holds of: the
 tie's remainder on this text. -/
 def uncovered : List (Nat × String) :=
-  [(235, "function equation")]
+  []
 
 /-- Each listed sentence is in its class in the account. -/
 theorem lists_in_account : (unmapped ++ uncovered).all (fun ic => (classOf ic.2).contains ic.1) = true := by
@@ -939,9 +941,16 @@ theorem lib166_at_values (H : HookParams) : EntailsAtValues (cH H) U.ax158 (trS 
 
 /-! ## Function equations (28 sentences) and priority equations (0 sentences)
 
-Γ's item 0 (sentence 235) is not its sentence (`un<j>_differs`), and no reading here gives it from
-the sentence or the sentence from it: the sentence is uncovered, `fns_entailed` and `fns_from_text`
-leave it out, and the premise set of `gamma_from` holds Γ's item there.
+Γ's item 0 (sentence 235, `orMany`) is the equation read as a clause with existential variables
+(`existentialClause`): Γ's right side binds the clause's variables under `\exists` with `\top`
+beside the term, where the text writes its own right side, so the item is not the sentence
+(`ex<j>_differs`). Both are `eqnPat` over one guard list, premise, sort and left side
+(`ex<j>_text_shape`, `ex<j>_gamma_shape`, read off the sentence by KcoreSpec/TieExClause.lean's
+parts), and the two right sides hold the same elements of the sort, by the lemma of
+KcoreSpec/TieExClause.lean each item's comment names, so the two hold in the same interpretations
+among those with the signature's facts (`ex<j>_iff`; `TieFRSig.SigFacts`: definedness, the item of
+`⌈_⌉`, each numbered sort one sort): Γ entails the sentence (`ex<j>_entailed`) and the sentence with
+definedness and `ΓSig` gives the item (`ex<j>_from_text`, W1), which `fns_from_text` leaves out.
 
 Every other item is the translation of its function sentence (`shape`). -/
 
@@ -955,16 +964,96 @@ theorem fns_account :
     (classOf "function equation" ++ classOf "priority equation").isPerm (fnText.map (·.index)) = true := by
   decide +kernel
 
-/-- Γ's item 0 (sentence 235): no reading here ties it. -/
-noncomputable def unItem0 : P := (TiePair.gammaPats c).getD 0 ⊥
-theorem unItem0_at : (TiePair.gammaPats c)[0]? = some unItem0 := by decide +kernel
+section
+
+open KoreAML.TieFR KCore.TieExClause
+
+/-- Γ's item 0 (sentence 235): an existential clause, `t₁ ∨ … ∨ tₖ` against `∃z. z ∧ (⊤ ∧ (z ∈ t₁ ∨ … ∨ z ∈ tₖ))` (`cutOf_body, cutOf_or, cutOf_mem`). -/
+noncomputable def exItem0 : P := (TiePair.gammaPats c).getD 0 ⊥
+theorem exItem0_at : (TiePair.gammaPats c)[0]? = some exItem0 := by decide +kernel
 kernel_rfl fnText_at0 : fnText[0]? = some U.ax235
-/-- **Γ's item 0 is not the text's sentence 235** (kernel): the sentence is uncovered. -/
-theorem un0_differs : unItem0 ≠ (trS U.ax235).pat := by decide +kernel
+/-- **Γ's item 0 is not the text's sentence 235** (kernel). -/
+theorem ex0_differs : exItem0 ≠ (trS U.ax235).pat := by decide +kernel
+
+noncomputable def ex0tbl : VarTable := tableOf U.ax235.ax.sortVars U.ax235.ax.pattern
+noncomputable abbrev ex0ctx : Ctx := ⟨ex0tbl, kore.aliasNames⟩
+noncomputable def ex0ws : List P := guardsOf U.ax235.ax
+noncomputable def ex0r : EVar := ex0tbl.ev (sortVarKey Rv)
+noncomputable def ex0prem : P := tr ex0ctx (premK U.ax235.ax.pattern)
+noncomputable def ex0S : P := trSort ex0tbl (srt "Int")
+noncomputable def ex0F : P := tr ex0ctx (lhsK U.ax235.ax.pattern)
+noncomputable def ex0ens : P := tr ex0ctx (ensK U.ax235.ax.pattern)
+noncomputable def ex0K : Kore.Pattern := rhsK U.ax235.ax.pattern
+noncomputable def ex0z : EVar := ⟨4⟩
+noncomputable def ex0t1_ : P := tr ex0ctx (argK 0 (argK 0 (argK 0 (argK 0 (argK 0 (argK 0 (argK 0 (argK 0 ex0K))))))))
+noncomputable def ex0t2_ : P := tr ex0ctx (argK 1 (argK 0 (argK 0 (argK 0 (argK 0 (argK 0 (argK 0 (argK 0 ex0K))))))))
+noncomputable def ex0t3_ : P := tr ex0ctx (argK 1 (argK 0 (argK 0 (argK 0 (argK 0 (argK 0 (argK 0 ex0K)))))))
+noncomputable def ex0t4_ : P := tr ex0ctx (argK 1 (argK 0 (argK 0 (argK 0 (argK 0 (argK 0 ex0K))))))
+noncomputable def ex0t5_ : P := tr ex0ctx (argK 1 (argK 0 (argK 0 (argK 0 (argK 0 ex0K)))))
+noncomputable def ex0t6_ : P := tr ex0ctx (argK 1 (argK 0 (argK 0 (argK 0 ex0K))))
+noncomputable def ex0t7_ : P := tr ex0ctx (argK 1 (argK 0 (argK 0 ex0K)))
+noncomputable def ex0t8_ : P := tr ex0ctx (argK 1 (argK 0 ex0K))
+noncomputable def ex0t9_ : P := tr ex0ctx (argK 1 ex0K)
+
+/-- The translated sentence 235 is `eqnPat` with the right side the text writes (kernel). -/
+theorem ex0_text_shape : (trS U.ax235).pat = eqnPat ex0ws ex0r ex0prem ex0S ex0F (sAnd (sOr ex0S (sOr ex0S (sOr ex0S (sOr ex0S (sOr ex0S (sOr ex0S (sOr ex0S (sOr ex0S (ex0t1_) ex0t2_) ex0t3_) ex0t4_) ex0t5_) ex0t6_) ex0t7_) ex0t8_) ex0t9_) ex0ens) := by
+  decide +kernel
+
+/-- Γ's item 0 is `eqnPat` over the same guards, premise, sort and left side, with the clause's right
+side (kernel). -/
+theorem ex0_gamma_shape : (TiePair.gammaPats c)[0]? = some (eqnPat ex0ws ex0r ex0prem ex0S ex0F (sAnd (sExists ex0z ex0S (sAnd (.evar ex0z) (sAnd (sTop ex0S) (sOr ex0S (sOr ex0S (sOr ex0S (sOr ex0S (sOr ex0S (sOr ex0S (sOr ex0S (sOr ex0S (sIn ex0S ex0S (.evar ex0z) ex0t1_) (sIn ex0S ex0S (.evar ex0z) ex0t2_)) (sIn ex0S ex0S (.evar ex0z) ex0t3_)) (sIn ex0S ex0S (.evar ex0z) ex0t4_)) (sIn ex0S ex0S (.evar ex0z) ex0t5_)) (sIn ex0S ex0S (.evar ex0z) ex0t6_)) (sIn ex0S ex0S (.evar ex0z) ex0t7_)) (sIn ex0S ex0S (.evar ex0z) ex0t8_)) (sIn ex0S ex0S (.evar ex0z) ex0t9_))))) ex0ens)) := by
+  decide +kernel
+
+theorem ex0_guard_r : sortGuard ex0r ∈ ex0ws := by decide +kernel
+theorem ex0_t1_free : ex0t1_.isFreeEvar ex0z = false := by decide +kernel
+theorem ex0_t2_free : ex0t2_.isFreeEvar ex0z = false := by decide +kernel
+theorem ex0_t3_free : ex0t3_.isFreeEvar ex0z = false := by decide +kernel
+theorem ex0_t4_free : ex0t4_.isFreeEvar ex0z = false := by decide +kernel
+theorem ex0_t5_free : ex0t5_.isFreeEvar ex0z = false := by decide +kernel
+theorem ex0_t6_free : ex0t6_.isFreeEvar ex0z = false := by decide +kernel
+theorem ex0_t7_free : ex0t7_.isFreeEvar ex0z = false := by decide +kernel
+theorem ex0_t8_free : ex0t8_.isFreeEvar ex0z = false := by decide +kernel
+theorem ex0_t9_free : ex0t9_.isFreeEvar ex0z = false := by decide +kernel
+theorem ex0_nameS (H : HookParams) : (cH H).sortName (3 : Srt) = "Int" :=
+  (by decide +kernel : c.sortName (3 : Srt) = "Int")
+theorem ex0_ltS (H : HookParams) : (3 : Srt) < nRegSorts + (cH H).sortNames.length :=
+  (by decide +kernel : (3 : Srt) < nRegSorts + c.sortNames.length)
+
+/-- **Sentence 235 and Γ's item 0 hold in the same interpretations** among those with the
+signature's facts (definedness, the item of `⌈_⌉`, each numbered sort one sort), for every H. -/
+theorem ex0_iff (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
+    (F : TieFRSig.SigFacts (cH H) I) :
+    (I ⊧ᴵ eqnPat ex0ws ex0r ex0prem ex0S ex0F (sAnd (sExists ex0z ex0S (sAnd (.evar ex0z) (sAnd (sTop ex0S) (sOr ex0S (sOr ex0S (sOr ex0S (sOr ex0S (sOr ex0S (sOr ex0S (sOr ex0S (sOr ex0S (sIn ex0S ex0S (.evar ex0z) ex0t1_) (sIn ex0S ex0S (.evar ex0z) ex0t2_)) (sIn ex0S ex0S (.evar ex0z) ex0t3_)) (sIn ex0S ex0S (.evar ex0z) ex0t4_)) (sIn ex0S ex0S (.evar ex0z) ex0t5_)) (sIn ex0S ex0S (.evar ex0z) ex0t6_)) (sIn ex0S ex0S (.evar ex0z) ex0t7_)) (sIn ex0S ex0S (.evar ex0z) ex0t8_)) (sIn ex0S ex0S (.evar ex0z) ex0t9_))))) ex0ens)) ↔ (I ⊧ᴵ (trS U.ax235).pat) := by
+  rw [ex0_text_shape]
+  obtain ⟨σ, hS⟩ := sortAtN F (ex0_nameS H) (ex0_ltS H) ex0tbl
+  exact eqnPat_of_body F.defOK F.ceilDef hS ex0_guard_r (guardsOf_pred F.defOK U.ax235.ax) fun e m hat a ha =>
+    cutOf_body F.defOK hS
+      (cutOf_or hS (cutOf_or hS (cutOf_or hS (cutOf_or hS (cutOf_or hS (cutOf_or hS (cutOf_or hS (cutOf_or hS (cutOf_mem F.defOK F.ceilDef hS ex0_t1_free)
+      (cutOf_mem F.defOK F.ceilDef hS ex0_t2_free))
+      (cutOf_mem F.defOK F.ceilDef hS ex0_t3_free))
+      (cutOf_mem F.defOK F.ceilDef hS ex0_t4_free))
+      (cutOf_mem F.defOK F.ceilDef hS ex0_t5_free))
+      (cutOf_mem F.defOK F.ceilDef hS ex0_t6_free))
+      (cutOf_mem F.defOK F.ceilDef hS ex0_t7_free))
+      (cutOf_mem F.defOK F.ceilDef hS ex0_t8_free))
+      (cutOf_mem F.defOK F.ceilDef hS ex0_t9_free)) ha
+
+/-- **W1**: Γ's item 0 is a consequence of sentence 235 with definedness and `ΓSig (cH H)`, for every H. -/
+theorem ex0_from_text (H : HookParams) : ∀ it, (Faithful.fnItems (cH H))[0]? = some it →
+    (TiePair.Texts [(trS U.ax235).pat] ∪ Faithful.ΓSig (cH H)) ⊧ it.pat :=
+  (tie_of_iff (coreOKH H) (by rw [TiePair.gammaPats_withHooks]; exact ex0_gamma_shape)
+    (fun F _ => ex0_iff H F)).1
+
+/-- **E**: Γ entails sentence 235, for every H. -/
+theorem ex0_entailed (H : HookParams) : Faithful.Γ (cH H) ⊧ (trS U.ax235).pat :=
+  (tie_of_iff (coreOKH H) (by rw [TiePair.gammaPats_withHooks]; exact ex0_gamma_shape)
+    (fun F _ => ex0_iff H F)).2
+
+end
 
 /-- The premise set's equations, in `fnItems`'s order: each text sentence's translation, and Γ's
 item at position 0. -/
-noncomputable def textPats : List P := (fnText.map (trS · |>.pat)).set 0 unItem0
+noncomputable def textPats : List P := (fnText.map (trS · |>.pat)).set 0 exItem0
 
 /-- **Each of Γ's equations is the translation of its text sentence**, but the ones set to Γ's
 items (kernel). -/
@@ -984,17 +1073,21 @@ theorem textPats_of {j : Nat} {ad : AxiomDecl} (hj : fnText[j]? = some ad) (hn :
   rw [List.getElem?_set_ne (Ne.symm h0), List.getElem?_map, hj]
   rfl
 
-/-- **E for the function equations**: Γ entails each sentence of `fnText` but the untied ones (items 0), for every H. -/
+/-- **E for the function equations**: Γ entails each sentence of `fnText`, for every H; item 0 by `ex0_entailed`. -/
 theorem fns_entailed (H : HookParams) : ∀ (j : Nat) (ad : AxiomDecl), fnText[j]? = some ad →
-    j ∉ ([0] : List Nat) → Γ (cH H) ⊧ (trS ad).pat := by
+    j ∉ ([] : List Nat) → Γ (cH H) ⊧ (trS ad).pat := by
   intro j ad hj hn
+  by_cases h0 : j = 0
+  · subst h0
+    rw [fnText_at0] at hj
+    rw [← Option.some.inj hj]
+    exact ex0_entailed H
   have hn' : j ∉ pairSetAt := by
     simp only [pairSetAt, List.mem_cons, List.not_mem_nil, or_false] at hn ⊢
     omega
-  intro M _ I hI
-  exact TiePair.entailed (shapeH H) _ (List.mem_of_getElem? (textPats_of hj hn')) hI
+  exact TiePair.entailed (shapeH H) _ (List.mem_of_getElem? (textPats_of hj hn'))
 
-/-- **The converse for `fnItems`**: each item but the untied ones (items 0) is a consequence of a text sentence, the j-th of `fnText`; the others by their translation. -/
+/-- **The converse for `fnItems`**: each item but the existential clauses given with `ΓSig` (items 0) is a consequence of a text sentence, the j-th of `fnText`; the others by their translation. -/
 theorem fns_from_text (H : HookParams) :
     ∀ (j : Nat) (it : Item), (fnItems (cH H))[j]? = some it → j ∉ ([0] : List Nat) →
       ∃ ad, fnText[j]? = some ad ∧ (TiePair.Texts [(trS ad).pat] ⊧ it.pat) := by
@@ -1016,7 +1109,7 @@ theorem fn_prios : fnText.map (fun ad => AttrsAgree.prioOf ad.ax.attributes) =
 /-! ## The converse over Γ's content -/
 
 /-- **Every premise of Γ is a consequence of the text's function sentences** (the items set to
-Γ's through their sentences, the untied ones as Γ's own), Γ's rule items and the five parts Γ defines by predicates
+Γ's through their sentences, the existential clauses as Γ's own, which their sentences give with `ΓSig`), Γ's rule items and the five parts Γ defines by predicates
 (`TiePair.Pre`), for every H. -/
 theorem gamma_from (H : HookParams) : ∀ φ, Γ (cH H) φ → TiePair.Pre (cH H) textPats ⊧ φ :=
   TiePair.gamma_from (shapeH H)
@@ -1124,14 +1217,48 @@ end KCore.TieE3MlEqRhsOrManyX
 #print axioms KCore.TieE3MlEqRhsOrManyX.cons_entailed_c
 #print axioms KCore.TieE3MlEqRhsOrManyX.idem_refuted_c
 #check @KCore.TieE3MlEqRhsOrManyX.fns_account
-#check @KCore.TieE3MlEqRhsOrManyX.un0_differs
+#check @KCore.TieE3MlEqRhsOrManyX.ex0_differs
+#check @KCore.TieE3MlEqRhsOrManyX.ex0_text_shape
+#check @KCore.TieE3MlEqRhsOrManyX.ex0_gamma_shape
+#check @KCore.TieE3MlEqRhsOrManyX.ex0_guard_r
+#check @KCore.TieE3MlEqRhsOrManyX.ex0_t1_free
+#check @KCore.TieE3MlEqRhsOrManyX.ex0_t2_free
+#check @KCore.TieE3MlEqRhsOrManyX.ex0_t3_free
+#check @KCore.TieE3MlEqRhsOrManyX.ex0_t4_free
+#check @KCore.TieE3MlEqRhsOrManyX.ex0_t5_free
+#check @KCore.TieE3MlEqRhsOrManyX.ex0_t6_free
+#check @KCore.TieE3MlEqRhsOrManyX.ex0_t7_free
+#check @KCore.TieE3MlEqRhsOrManyX.ex0_t8_free
+#check @KCore.TieE3MlEqRhsOrManyX.ex0_t9_free
+#check @KCore.TieE3MlEqRhsOrManyX.ex0_nameS
+#check @KCore.TieE3MlEqRhsOrManyX.ex0_ltS
+#check @KCore.TieE3MlEqRhsOrManyX.ex0_iff
+#check @KCore.TieE3MlEqRhsOrManyX.ex0_from_text
+#check @KCore.TieE3MlEqRhsOrManyX.ex0_entailed
 #check @KCore.TieE3MlEqRhsOrManyX.shape
 #check @KCore.TieE3MlEqRhsOrManyX.fns_entailed
 #check @KCore.TieE3MlEqRhsOrManyX.fns_from_text
 #check @KCore.TieE3MlEqRhsOrManyX.fn_prios
 #check @KCore.TieE3MlEqRhsOrManyX.gamma_from
 #print axioms KCore.TieE3MlEqRhsOrManyX.fns_account
-#print axioms KCore.TieE3MlEqRhsOrManyX.un0_differs
+#print axioms KCore.TieE3MlEqRhsOrManyX.ex0_differs
+#print axioms KCore.TieE3MlEqRhsOrManyX.ex0_text_shape
+#print axioms KCore.TieE3MlEqRhsOrManyX.ex0_gamma_shape
+#print axioms KCore.TieE3MlEqRhsOrManyX.ex0_guard_r
+#print axioms KCore.TieE3MlEqRhsOrManyX.ex0_t1_free
+#print axioms KCore.TieE3MlEqRhsOrManyX.ex0_t2_free
+#print axioms KCore.TieE3MlEqRhsOrManyX.ex0_t3_free
+#print axioms KCore.TieE3MlEqRhsOrManyX.ex0_t4_free
+#print axioms KCore.TieE3MlEqRhsOrManyX.ex0_t5_free
+#print axioms KCore.TieE3MlEqRhsOrManyX.ex0_t6_free
+#print axioms KCore.TieE3MlEqRhsOrManyX.ex0_t7_free
+#print axioms KCore.TieE3MlEqRhsOrManyX.ex0_t8_free
+#print axioms KCore.TieE3MlEqRhsOrManyX.ex0_t9_free
+#print axioms KCore.TieE3MlEqRhsOrManyX.ex0_nameS
+#print axioms KCore.TieE3MlEqRhsOrManyX.ex0_ltS
+#print axioms KCore.TieE3MlEqRhsOrManyX.ex0_iff
+#print axioms KCore.TieE3MlEqRhsOrManyX.ex0_from_text
+#print axioms KCore.TieE3MlEqRhsOrManyX.ex0_entailed
 #print axioms KCore.TieE3MlEqRhsOrManyX.shape
 #print axioms KCore.TieE3MlEqRhsOrManyX.fns_entailed
 #print axioms KCore.TieE3MlEqRhsOrManyX.fns_from_text

@@ -249,11 +249,19 @@ summary's `owed` lists), or (`ens<j>_*`) the item whose right side r the sentenc
 `nsvAxG` whose sentence is that file's `nsvAxS` (`setVarInDropped`: two memberships in one set variable
 against two element variables; its section `Bridge` copied, `nsv_iff`, with the definition of `\\ceil`
 and the sort constant `SortExp`, items of Γ: in `fns_entailed`, `sv<j>_w1`, left out of
-`fns_from_text`), or (`un<j>_differs`) an item no reading here ties, whose sentence is
-`uncovered` and which `fns_entailed` and `fns_from_text` leave out; on a text that reads a confined
-sort too (its statements over Γ, which `Γc` holds). The probe then also writes, per item, whether the
-empty-alternative reading ties it (`WR` lines), the cuts that tie it (`WC` lines) and whether the
-`andAsEnsures` or the `setVarInDropped` form ties it (`WE` lines).
+`fns_from_text`), or (`ex<j>_*`) the item of an equation read as a clause with existential variables
+(`existentialClause`: Γ's right side binds the clause's variables under `\\exists` with `\\top` beside
+the term) whose right side and the sentence's are, part by part (KcoreSpec/TieExClause.lean's `rhsK`,
+`argK`, ...), one of the shapes of EX_SHAPES, the two holding the same elements of the sort by that
+shape's lemma of KcoreSpec/TieExClause.lean (`ex<j>_text_shape`, `ex<j>_gamma_shape`, `ex<j>_iff`, over
+the signature's facts `TieFRSig.SigFacts`; `ex<j>_from_text`, W1 over the sentence and `ΓSig`, left out
+of `fns_from_text`; `ex<j>_entailed`, in `fns_entailed`), or (`un<j>_differs`) an item no reading here
+ties, whose sentence is `uncovered` and which `fns_entailed` and `fns_from_text` leave out; on a text
+that reads a confined sort too (its statements over Γ, which `Γc` holds). The probe then also writes,
+per item, whether the empty-alternative reading ties it (`WR` lines), the cuts that tie it (`WC` lines),
+whether the `andAsEnsures` or the `setVarInDropped` form ties it (`WE` lines) and the first shape of
+EX_SHAPES that ties it, with the indices of the variables the clause binds that the sentence does not
+name and the sorts' names and numbers (`WX` lines).
 Where one equation is read as several clauses (an `\\or` or an `\\exists` over a Bool on its right side,
 read case by case: the clauses of a function that hold one equation's id), the section aligns the
 sentences with Γ's items many to one (`fnPins`, `TiePair.fnTextMany`, `fnPins_ok`, `fnText_all`): that
@@ -1446,8 +1454,9 @@ def probe(name, path, um, order="[]", cons_head=False, sig_pos=False, decl_pos=F
                            .replace("@SIGPOS@", "true" if sig_pos else "false")
                            .replace("@DECLPOS@", "true" if decl_pos else "false")
                            .replace("@READSH@", "[" + ", ".join(map(str, reads_h)) + "]")
-                           .replace("@READINGS@", PROBE_READINGS if readings else "")
-                           .replace("@READINGS_DEFS@", setvar_probe_defs() if readings else "")
+                           .replace("@READINGS@", PROBE_READINGS + "\n" + PROBE_EX if readings else "")
+                           .replace("@READINGS_DEFS@", setvar_probe_defs() + "\n" + PROBE_EX_SORT + ex_probe_defs()
+                                    if readings else "")
                            .replace("@SQDEF@", sq_def("tgFunctionalSQ")))
         env = dict(os.environ, LEAN_NUM_THREADS="1")
         r = run(WRAP + ["timeout", os.environ.get("TIEGEN_PROBE_TIMEOUT", "900"), "lake", "env", "lean", "-j1", f], cwd=KS, env=env)
@@ -1513,6 +1522,10 @@ def probe(name, path, um, order="[]", cons_head=False, sig_pos=False, decl_pos=F
         elif l.startswith("WR "):
             f = l[3:].split("\t")
             head.setdefault("fnRd", {})[int(f[0])] = dict(orEmpty=f[1] == "true")
+        elif l.startswith("WX "):
+            f = l[3:].split("\t")
+            head.setdefault("fnEx", {})[int(f[0])] = dict(i=int(f[1]), kind=f[2], z=int(f[3]), y=int(f[4]), k=int(f[5]),
+                                                         S=f[6], SNo=int(f[7]), B=f[8], BNo=int(f[9]))
         elif l.startswith("WE "):
             f = l[3:].split("\t")
             head.setdefault("fnEns", {})[int(f[0])] = dict(andTop=f[1] == "true", setvar=f[2] == "true")
@@ -1945,7 +1958,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     # without that premise it is the sentence (`TiePair.minusNeg`), which entails it (W1)
     fn_pair, pair_text, pair_w = False, [], None
     fn_pairs, pair_ws, pair_ac = False, [], []
-    fn_rds, pair_rd, pair_un, pair_cut, pair_ens, pair_sv = False, [], [], [], [], []
+    fn_rds, pair_rd, pair_un, pair_cut, pair_ens, pair_sv, pair_ex = False, [], [], [], [], [], []
     fw = head["fnW"]
     # the pins of a many-to-one alignment (`TiePair.fnTextMany`, `pinsOK`): the clauses one equation is
     # read as (`splitGroups`: function, first clause, count, sentence, Γ's first item), each pinned to
@@ -2037,7 +2050,12 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             pair_ens = [j for j in ws if j not in done and fe.get(j, {}).get("andTop", False) and fw[j]["differs"]]
             pair_sv = [j for j in ws if j not in done + pair_ens and fe.get(j, {}).get("setvar", False)
                        and fw[j]["differs"]]
-            pair_un = [j for j in ws if j not in done + pair_ens + pair_sv]
+            # an item an existential clause gives (`existentialClause`), whose right side the probe finds in a
+            # shape of EX_SHAPES against the sentence's (`WX` lines)
+            fx = head.get("fnEx", {})
+            pair_ex = [j for j in ws if j not in done + pair_ens + pair_sv and j in fx and fw[j]["differs"]
+                       and fx[j]["i"] == txt[j]]
+            pair_un = [j for j in ws if j not in done + pair_ens + pair_sv + pair_ex]
     pair_cut_l = [(j, pair_text[j], head["fnCut"][j]) for j in pair_cut]
     agree = ob["agree"]
     facts_kind = ob["kind"]
@@ -2651,7 +2669,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                         break_long_words=False))
     if fn_rds:
         w(readings_header(by_class, pair_text, pair_ws, pair_ac, pair_rd, pair_un, pair_cut_l, confined,
-                          pair_ens, pair_sv, pair_sp, pair_om))
+                          pair_ens, pair_sv, pair_sp, pair_om, pair_ex))
     if rules_full and nrules:
         w(f"  - Rewrite rules ({nrules}): each of Γ's rule items (with the premise `⌈rhs ∧ ens⌉`) is a consequence")
         w("    of its text sentence, `ruleText` in `ruleItems`' order (`rule_from_text`, W1, every H).")
@@ -2710,7 +2728,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             width=100, initial_indent="  - ", subsequent_indent="    ", break_on_hyphens=False, break_long_words=False))
     if fn_rds:
         w(readings_gamma_header(pair_text, pair_ws, pair_ac, pair_rd, pair_un, pair_cut_l, pair_ens, pair_sv, pair_sp,
-                                pair_om))
+                                pair_om, pair_ex))
     owed_more = ""
     if law_idx:
         owed_more += "; function law: owed as `FnLaws` (`law_account`)"
@@ -4406,7 +4424,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                            [(j, pair_text[j]) for j in pair_un], len(by_class["function equation"]),
                            len(by_class["priority equation"]), pair_cut_l, confined,
                            [(j, pair_text[j]) for j in pair_ens], [(j, pair_text[j]) for j in pair_sv],
-                           pair_sp, fn_pins, pin_other, prios_out["split"] if prios_out else [], pair_om))
+                           pair_sp, fn_pins, pin_other, prios_out["split"] if prios_out else [], pair_om,
+                           [(j, pair_text[j], head["fnEx"][j]) for j in pair_ex]))
         mark("Rest")
     if gamma:
         w(GAMMA_ALIGN if fn_align else GAMMA_RULES if nrules else GAMMA)
@@ -4521,7 +4540,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             ["shape", "fns_entailed", "fns_from_text", "fn_prios", "gamma_from"]
     if fn_rds:
         pair_names = readings_names(pair_ws, pair_ac, pair_rd, pair_un, pair_cut_l, pair_ens, pair_sv, pair_sp,
-                                    prios_out["split"] if prios_out else [], pair_om)
+                                    prios_out["split"] if prios_out else [], pair_om,
+                                    {j: head["fnEx"][j] for j in pair_ex})
     for block in (names, pair_names):
         for n in block:
             w(f"#check @KCore.{ns}.{n}")
@@ -4575,6 +4595,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                                               if pair_cut_l else {}),
                                            **({"and_top": pair_ens} if pair_ens else {}),
                                            **({"setvar_in": pair_sv} if pair_sv else {}),
+                                           **({"ex_clause": {j: dict(sentence=pair_text[j], shape=head["fnEx"][j]["kind"])
+                                                             for j in pair_ex}} if pair_ex else {}),
                                            **({"split": {j0: dict(clauses=k_, sentence=i_) for j0, k_, i_ in pair_sp}}
                                               if pair_sp else {}))} if fn_rds else {}),
                    cons=len(cons_text), nojunk=[len(nj_triv), len(nj_items), len(nj_kitem), len(nj_sorts)],
@@ -6033,7 +6055,8 @@ def cut_in_entailed(k, confined):
     return cut_form(k) == "under" or (cut_form(k) == "own" and not confined)
 
 
-def readings_header(by_class, pair_text, ws, acs, rds, uns, cuts=(), confined=False, enss=(), svs=(), sps=(), pns=()):
+def readings_header(by_class, pair_text, ws, acs, rds, uns, cuts=(), confined=False, enss=(), svs=(), sps=(), pns=(),
+                    exs=()):
     """The header's paragraph of the function equations `readings_section` ties."""
     nfe, npe = len(by_class["function equation"]), len(by_class["priority equation"])
     lst = lambda js: ", ".join(f"{j} ({pair_text[j]})" for j in js)
@@ -6042,7 +6065,7 @@ def readings_header(by_class, pair_text, ws, acs, rds, uns, cuts=(), confined=Fa
     pnjs = [j for j, _, _ in pns]
     txt_ = (f"Function equations ({nfe}) and priority equations ({npe}), in the order `fnText` lists them "
             f"(`fns_account`): each of Γ's items but "
-            f"{', '.join(map(str, sorted(ws + acs + rds + uns + [j for j, _, _ in cuts] + list(enss) + list(svs) + spjs + pnjs)))} is the "
+            f"{', '.join(map(str, sorted(ws + acs + rds + uns + [j for j, _, _ in cuts] + list(enss) + list(svs) + spjs + pnjs + list(exs))))} is the "
             f"translation of one sentence (`shape`), so Γ entails it (`fns_entailed`).")
     if pns:
         txt_ += (f" Item{pl(pnjs, 's', '')} {lst(pnjs)} {pl(pnjs, 'are clauses', 'is the clause')} read from a "
@@ -6109,6 +6132,12 @@ def readings_header(by_class, pair_text, ws, acs, rds, uns, cuts=(), confined=Fa
                  f"definedness, of the definition of `\\ceil` and of the sort constant `SortExp` (`sv<j>_iff`, "
                  f"`nsv_iff`), items of Γ (`sv_sig_pats`), so Γ entails the sentence (`sv<j>_entailed`), and the "
                  f"sentence with those two items gives the item (`sv<j>_w1`), which `fns_from_text` leaves out.")
+    if exs:
+        txt_ += (f" Item{pl(exs, 's', '')} {lst(exs)} {pl(exs, 'are equations', 'is the equation')} read as a clause with "
+                 f"existential variables (`existentialClause`), not {pl(exs, 'their sentences', 'its sentence')} "
+                 f"(`ex<j>_differs`): the two hold in the same interpretations with the signature's facts (`ex<j>_iff`, "
+                 f"by a lemma of KcoreSpec/TieExClause.lean), so Γ entails the sentence (`ex<j>_entailed`) and the "
+                 f"sentence with `ΓSig` gives the item (`ex<j>_from_text`, W1), which `fns_from_text` leaves out.")
     if uns:
         txt_ += (f" Item{pl(uns, 's', '')} {lst(uns)} {pl(uns, 'are', 'is')} not {pl(uns, 'their sentences', 'its sentence')} "
                  f"(`un<j>_differs`) and no reading here ties {pl(uns, 'them', 'it')}: {pl(uns, 'those sentences are', 'the sentence is')} "
@@ -6120,7 +6149,7 @@ def readings_header(by_class, pair_text, ws, acs, rds, uns, cuts=(), confined=Fa
                          break_long_words=False)
 
 
-def readings_gamma_header(pair_text, ws, acs, rds, uns, cuts=(), enss=(), svs=(), sps=(), pns=()):
+def readings_gamma_header(pair_text, ws, acs, rds, uns, cuts=(), enss=(), svs=(), sps=(), pns=(), exs=()):
     """The header's paragraph of `readings_section`'s converse over Γ's content."""
     cno = [j for j, _, k in cuts if cut_form(k) != "own"]
     spjs = [j0 + m for j0, k, _ in sps for m in range(k)]
@@ -6143,12 +6172,14 @@ def readings_gamma_header(pair_text, ws, acs, rds, uns, cuts=(), enss=(), svs=()
             + (f", Γ's own item{'s' if len(pns) > 1 else ''} {', '.join(str(j) for j, _, _ in pns)} (whose sentence"
                f"{'s give' if len(pns) > 1 else ' gives'} it with the constructors' facts and Cons-Fun of the injection: "
                f"`ovlm<j>_from_text`)" if pns else "")
+            + (f", Γ's own item{'s' if len(exs) > 1 else ''} {', '.join(map(str, exs))} (whose sentence"
+               f"{'s give' if len(exs) > 1 else ' gives'} it with `ΓSig`: `ex<j>_from_text`)" if exs else "")
             + ", Γ's rule items, the five parts Γ defines by predicates, or definedness (`gamma_from`).")
     return textwrap.fill(txt_, width=100, initial_indent="  - ", subsequent_indent="    ", break_on_hyphens=False,
                          break_long_words=False)
 
 
-def readings_names(ws, acs, rds, uns, cuts=(), enss=(), svs=(), sps=(), split_at=(), pns=()):
+def readings_names(ws, acs, rds, uns, cuts=(), enss=(), svs=(), sps=(), split_at=(), pns=(), exw=None):
     """The theorems `readings_section` states, in its order."""
     dirs = {"own": ("cut{}_from_text", "cut{}_entailed"), "under": ("cut{}_entailed", "cut{}_from_text"),
             "not": ("cut{}_iff", "cut{}_entailed")}
@@ -6163,6 +6194,7 @@ def readings_names(ws, acs, rds, uns, cuts=(), enss=(), svs=(), sps=(), split_at
                                                  "ens{}_differs", "ens{}_iff", "ens{}_entailed")] +
             (["nsv_iff", "sv_sig_pats"] if svs else []) +
             [n.format(j) for j in svs for n in ("sv{}_text", "sv{}_differs", "sv{}_iff", "sv{}_w1", "sv{}_entailed")] +
+            [n for j, wx in sorted((exw or {}).items()) for n in ex_names(j, wx)] +
             [f"un{j}_differs" for j in uns] +
             [n.format(j0 + m) for j0, k, _ in sps for m in range(k)
              for n in (("sp{}_differs", "prios_split_at{}") if j0 + m in sat else ("sp{}_differs",))] +
@@ -6171,7 +6203,7 @@ def readings_names(ws, acs, rds, uns, cuts=(), enss=(), svs=(), sps=(), split_at
 
 
 def readings_section(ws, acs, rds, uns, nfe, npe, cuts=(), confined=False, enss=(), svs=(), sps=(), pins=(),
-                     pin_other=(), split_at=(), pns=()):
+                     pin_other=(), split_at=(), pns=(), exs=()):
     """`pairs_section` with two more kinds of Γ's items beside the narrowed ones `ws` and those `acs`
     equal up to the operands' order and the variables' names: the items `rds` (each `(j, i)`: item
     `j`, sentence `i`), whose sentence writes an alternative that holds nothing beside the right
@@ -6196,11 +6228,16 @@ def readings_section(ws, acs, rds, uns, nfe, npe, cuts=(), confined=False, enss=
     whose item layer 1 defines (`ovlmItem<j>`) and whose sentence it shows entailed by Γ
     (`prios_out_entailed<j>`): the sentence gives the item with the constructors' facts and Cons-Fun of
     the injection (`ovlm<j>_from_text`, left out of `fns_from_text`), and the priorities agree but at
-    those positions (`fn_prios_but`)."""
+    those positions (`fn_prios_but`). And the items `exs` (each `(item, sentence, the probe's `WX`
+    fields)`) an existential clause gives (`existentialClause`), in a shape of EX_SHAPES: the two hold in
+    the same interpretations with the signature's facts (`ex<j>_iff`), so Γ entails the sentence
+    (`ex<j>_entailed`, in `fns_entailed`) and the sentence with `ΓSig` gives the item (`ex<j>_from_text`,
+    W1, left out of `fns_from_text`, whose premise set is the sentence alone)."""
     spjs = [j0 + m for j0, k, _ in sps for m in range(k)]
     pnjs = [j for j, _, _ in pns]
+    exjs = [j for j, _, _ in exs]
     at = sorted([j for j, _, _ in ws] + [j for j, _ in acs] + [j for j, _ in rds] + [j for j, _ in uns] +
-                [j for j, _, _ in cuts] + [j for j, _ in enss] + [j for j, _ in svs] + spjs + pnjs)
+                [j for j, _, _ in cuts] + [j for j, _ in enss] + [j for j, _ in svs] + spjs + pnjs + exjs)
     wjs = [j for j, _, _ in ws]
     ujs = [j for j, _ in uns]
     parts = []
@@ -6309,6 +6346,19 @@ def readings_section(ws, acs, rds, uns, nfe, npe, cuts=(), confined=False, enss=
                      f"item in a model with both (`ovlm<j>_from_text`), which `fns_from_text` leaves out (its premise "
                      f"set is the sentence alone). The priority 0 the reading gives such a clause is stated by no "
                      f"attribute, so the priorities agree at every position but those (`fn_prios_but`).")
+    if exs:
+        xl = ", ".join(f"{j} (sentence {i}, `{wx['kind']}`)" for j, i, wx in exs)
+        parts.append(f"Γ's item{'s' if len(exs) > 1 else ''} {xl} {'are equations' if len(exs) > 1 else 'is the equation'} "
+                     f"read as a clause with existential variables (`existentialClause`): Γ's right side binds "
+                     f"the clause's variables under `\\exists` with `\\top` beside the term, where the text writes its own "
+                     f"right side, so the item is not the sentence (`ex<j>_differs`). Both are `eqnPat` over one "
+                     f"guard list, premise, sort and left side (`ex<j>_text_shape`, `ex<j>_gamma_shape`, read off the "
+                     f"sentence by KcoreSpec/TieExClause.lean's parts), and the two right sides hold the same "
+                     f"elements of the sort, by the lemma of KcoreSpec/TieExClause.lean each item's comment names, "
+                     f"so the two hold in the same interpretations among those with the signature's facts "
+                     f"(`ex<j>_iff`; `TieFRSig.SigFacts`: definedness, the item of `⌈_⌉`, each numbered sort one "
+                     f"sort): Γ entails the sentence (`ex<j>_entailed`) and the sentence with definedness and "
+                     f"`ΓSig` gives the item (`ex<j>_from_text`, W1), which `fns_from_text` leaves out.")
     parts.append("Every other item is the translation of its function sentence (`shape`). -/")
     intro = "\n\n".join(textwrap.fill(x, width=100, break_on_hyphens=False, break_long_words=False) for x in parts)
     out = [f"/-! ## Function equations ({nfe} sentences) and priority equations ({npe} sentences)", "", intro, ""]
@@ -6590,6 +6640,11 @@ def readings_section(ws, acs, rds, uns, nfe, npe, cuts=(), confined=False, enss=
                 "    hI _ (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (sv_sig_pats H φ hφ)))))))",
                 f"  exact (sv{j}_iff (defOK hI) (hs _ (by simp [svSigPats])) (hs _ (by simp [svSigPats]))).mpr",
                 f"    (fnItem_sat hI svItem{j}_at)", ""]
+    if exs:
+        out += ["section", "", "open KoreAML.TieFR KCore.TieExClause", ""]
+        for j, i, wx in exs:
+            out += ex_block(j, i, wx)
+        out += ["end", ""]
     for j, i in uns:
         out += [f"/-- Γ's item {j} (sentence {i}): no reading here ties it. -/",
                 f"noncomputable def unItem{j} : P := (TiePair.gammaPats c).getD {j} ⊥",
@@ -6629,7 +6684,7 @@ def readings_section(ws, acs, rds, uns, nfe, npe, cuts=(), confined=False, enss=
     item = ({j: f"prioItem{j}" for j, _, _ in ws} | {j: f"acItem{j}" for j, _ in acs} |
             {j: f"rdItem{j}" for j, _ in rds} | {j: f"unItem{j}" for j, _ in uns} | {j: f"cutItem{j}" for j, _, _ in cuts} |
             {j: f"ensItem{j}" for j, _ in enss} | {j: f"svItem{j}" for j, _ in svs} | {j: f"spItem{j}" for j in spjs} |
-            {j: f"ovlmItem{j}" for j in pnjs})
+            {j: f"ovlmItem{j}" for j in pnjs} | {j: f"exItem{j}" for j in exjs})
     tp = "(fnText.map (trS · |>.pat))"
     for j in at:
         tp = f"({tp}.set {j} {item[j]})"
@@ -6661,12 +6716,12 @@ def readings_section(ws, acs, rds, uns, nfe, npe, cuts=(), confined=False, enss=
     cf = [j for j, _, k in cuts if cut_form(k) == "own"]
     cy = [j for j, _, k in cuts if cut_form(k) != "own"]
     svjs = [j for j, _ in svs]
-    ex_f = sorted(ujs + cy + svjs + spjs + pnjs)
+    ex_f = sorted(ujs + cy + svjs + spjs + pnjs + exjs)
     out_l = ", ".join(map(str, sorted(wjs + ujs + cx + spjs)))
     via = [f"item {j} through `ac{j}_iff`" for j, _ in acs] + [f"item {j} through `rd{j}_iff`" for j, _ in rds] + \
         [f"item {j} through `ens{j}_iff`" for j, _ in enss]
     via_e = via + [f"item {j} by `cut{j}_entailed`" for j, _ in ce] + [f"item {j} by `sv{j}_entailed`" for j in svjs] + \
-        [f"item {j} by `prios_out_entailed{j}`" for j in pnjs]
+        [f"item {j} by `prios_out_entailed{j}`" for j in pnjs] + [f"item {j} by `ex{j}_entailed`" for j in exjs]
     via_f = via + [f"item {j} by `cut{j}_from_text`" for j in cf]
     but = ([f"the narrowed ones (items {', '.join(map(str, wjs))})"] if ws else []) + \
         ([f"the untied ones (items {', '.join(map(str, ujs))})"] if uns else []) + \
@@ -6677,7 +6732,8 @@ def readings_section(ws, acs, rds, uns, nfe, npe, cuts=(), confined=False, enss=
         ([f"the set-variable ones given with two signature items (items {', '.join(map(str, svjs))})"] if svs else []) + \
         ([f"the clauses of one equation (items {', '.join(map(str, spjs))})"] if sps else []) + \
         ([f"the overload clauses given with the constructors' facts and Cons-Fun of the injection (items "
-          f"{', '.join(map(str, pnjs))})"] if pns else [])
+          f"{', '.join(map(str, pnjs))})"] if pns else []) + \
+        ([f"the existential clauses given with `ΓSig` (items {', '.join(map(str, exjs))})"] if exs else [])
     out += [f"/-- **E for the function equations**: Γ entails each sentence of `fnText`"
             + (f" but {' and '.join(but)}" if but else "") + ", for every H"
             + ("; " + ", ".join(via_e) if via_e else "") + ". -/",
@@ -6685,10 +6741,11 @@ def readings_section(ws, acs, rds, uns, nfe, npe, cuts=(), confined=False, enss=
             f"    j ∉ ([{out_l}] : List Nat) → Γ (cH H) ⊧ (trS ad).pat := by",
             "  intro j ad hj hn"]
     pnl = [(j, i) for j, i, _ in pns]
-    for j, i in acs + rds + ce + list(enss) + list(svs) + pnl:
+    exl = [(j, i) for j, i, _ in exs]
+    for j, i in acs + rds + ce + list(enss) + list(svs) + pnl + exl:
         ent = f"ac{j}_entailed" if (j, i) in acs else f"rd{j}_entailed" if (j, i) in rds else \
             f"ens{j}_entailed" if (j, i) in enss else f"sv{j}_entailed" if (j, i) in svs else \
-            f"prios_out_entailed{j}" if (j, i) in pnl else f"cut{j}_entailed"
+            f"prios_out_entailed{j}" if (j, i) in pnl else f"ex{j}_entailed" if (j, i) in exl else f"cut{j}_entailed"
         out += [f"  by_cases h{j} : j = {j}",
                 f"  · subst h{j}",
                 f"    rw [fnText_at{j}] at hj",
@@ -6700,7 +6757,7 @@ def readings_section(ws, acs, rds, uns, nfe, npe, cuts=(), confined=False, enss=
             "    simp only [pairSetAt, List.mem_cons, List.not_mem_nil, or_false] at hn ⊢",
             "    omega"]
     out += (["  exact TiePair.entailed (shapeH H) _ (List.mem_of_getElem? (textPats_of hj hn'))", ""]
-            if acs or rds or ce or enss or svs or pns else
+            if acs or rds or ce or enss or svs or pns or exs else
             ["  intro M _ I hI",
              "  exact TiePair.entailed (shapeH H) _ (List.mem_of_getElem? (textPats_of hj hn')) hI", ""])
     out += ["/-- **The converse for `fnItems`**: each item"
@@ -6773,6 +6830,7 @@ def readings_section(ws, acs, rds, uns, nfe, npe, cuts=(), confined=False, enss=
             "Γ's through their sentences" + (", the untied ones as Γ's own" if uns else "")
             + (", the clauses of one equation as Γ's own" if sps else "")
             + (", the overload clauses as Γ's own" if pns else "")
+            + (", the existential clauses as Γ's own, which their sentences give with `ΓSig`" if exs else "")
             + "), Γ's rule items and the five parts Γ defines by predicates",
             "(`TiePair.Pre`), for every H. -/",
             "theorem gamma_from (H : HookParams) : ∀ φ, Γ (cH H) φ → TiePair.Pre (cH H) textPats ⊧ φ :=",
@@ -6798,6 +6856,320 @@ def setvar_bridge_block():
     if "def nsvAxS" not in s or "def nsvAxG" not in s or "theorem nsv_iff" not in s:
         raise Refused("test/NoteSetVarIn.lean has changed: its section Bridge lacks nsvAxS, nsvAxG or nsv_iff")
     return s
+
+
+# ---------------------------------------------------------------------------------------------
+# with --fn-readings: Γ's item of an equation read as a clause with existential variables
+# (`existentialClause`, `Parse.ceRead`) against the sentence. Each shape gives the right side the text
+# writes (`text`) and Γ's (`item`) from the parts of the sentence (KcoreSpec/TieExClause.lean's
+# `rhsK`, `argK`, `exBK`, ...), the side conditions (`facts`, kernel decisions) and the proof that the
+# two equations hold in the same interpretations with the signature's facts (`TieFRSig.SigFacts`), by
+# the lemma `lemma` of KcoreSpec/TieExClause.lean. In an expression `@n` is a definition of the item's
+# block, `#n` a theorem of it, `AD` the sentence, `KA` the text's alias names, `«SN»` and `«BN»` the
+# names of the equation's sort and of the outer binder's, `$z` and `$y` the indices of the variables
+# the clause binds that the sentence does not name, `$k` the number of alternatives.
+EX_COMMON = [("tbl", "VarTable", "tableOf AD.ax.sortVars AD.ax.pattern"),
+             ("ctx", "Ctx", "⟨@tbl, KA⟩"),
+             ("ws", "List P", "guardsOf AD.ax"),
+             ("r", "EVar", "@tbl.ev (sortVarKey Rv)"),
+             ("prem", "P", "tr @ctx (premK AD.ax.pattern)"),
+             ("S", "P", "trSort @tbl (srt «SN»)"),
+             ("F", "P", "tr @ctx (lhsK AD.ax.pattern)"),
+             ("ens", "P", "tr @ctx (ensK AD.ax.pattern)"),
+             ("K", "Kore.Pattern", "rhsK AD.ax.pattern")]
+
+
+def ex_body(call, pre=""):
+    return (f"  obtain ⟨σ, hS⟩ := sortAtN F (#nameS H) (#ltS H) @tbl\n{pre}"
+            f"  exact eqnPat_of_body F.defOK F.ceilDef hS #guard_r (guardsOf_pred F.defOK AD.ax) fun e m hat a ha =>\n"
+            f"    {call}")
+
+
+def ex_or_many(k):
+    """`k` alternatives, nested to the left as the text nests them: definitions, text, item, facts, proof."""
+    def part(i):
+        e = "@K"
+        for _ in range(k - max(i, 2)):
+            e = f"(argK 0 {e})"
+        return f"tr @ctx (argK {0 if i == 1 else 1} {e})"
+    defs = [("z", "EVar", "⟨$z⟩")] + [(f"t{i}_", "P", part(i)) for i in range(1, k + 1)]
+    text, item, prf = "@t1_", "sIn @S @S (.evar @z) @t1_", "(cutOf_mem F.defOK F.ceilDef hS #t1_free)"
+    for i in range(2, k + 1):
+        text = f"sOr @S ({text}) @t{i}_"
+        item = f"sOr @S ({item}) (sIn @S @S (.evar @z) @t{i}_)"
+        prf = f"(cutOf_or hS {prf}\n      (cutOf_mem F.defOK F.ceilDef hS #t{i}_free))"
+    return dict(defs=defs, text=text, item=f"sExists @z @S (sAnd (.evar @z) (sAnd (sTop @S) ({item})))",
+                facts=[(f"t{i}_free", f"@t{i}_.isFreeEvar @z = false") for i in range(1, k + 1)],
+                proof=ex_body(f"cutOf_body F.defOK hS\n      {prf} ha"))
+
+
+# in the order the probe tries them; `params` the indices it searches, `noF` where no fact of the
+# signature is read, `sB` where the outer binder's sort is named
+EX_SHAPES = [
+    dict(kind="ensTop", lemma="ExEnsTop.eqnPat_ensTop", noF=True,
+         what="`∃x. x ∧ ψ` against the clause's `∃x. x ∧ (⊤ ∧ ψ)`",
+         defs=[("x", "EVar", "exVK @tbl @K"), ("psi", "P", "tr @ctx (argK 1 (exBK @K))")],
+         text="sExists @x @S (sAnd (.evar @x) @psi)",
+         item="sExists @x @S (sAnd (.evar @x) (sAnd (sTop @S) @psi))",
+         facts=[("top_free", "@S.isFreeEvar topVar = false")],
+         proof="  exact ExEnsTop.eqnPat_ensTop #top_free"),
+    dict(kind="ensTopEx", lemma="ensTop_ex_body", sB=True,
+         what="`∃x:B. t ∧ ψ` against `∃x:B. t ∧ (⊤ ∧ ψ)`",
+         defs=[("x", "EVar", "exVK @tbl @K"), ("sB", "P", "trSort @tbl (srt «BN»)"),
+               ("t", "P", "tr @ctx (argK 0 (exBK @K))"), ("psi", "P", "tr @ctx (argK 1 (exBK @K))")],
+         text="sExists @x @sB (sAnd @t @psi)", item="sExists @x @sB (sAnd @t (sAnd (sTop @S) @psi))",
+         proof=ex_body("ensTop_ex_body F.defOK hS ha")),
+    dict(kind="memTerm", lemma="memTerm_body",
+         what="`∃x. x ∧ t` against `∃x. x ∧ (⊤ ∧ x ∈ t)`",
+         defs=[("x", "EVar", "exVK @tbl @K"), ("t", "P", "tr @ctx (argK 1 (exBK @K))")],
+         text="sExists @x @S (sAnd (.evar @x) @t)",
+         item="sExists @x @S (sAnd (.evar @x) (sAnd (sTop @S) (sIn @S @S (.evar @x) @t)))",
+         proof=ex_body("memTerm_body F.defOK F.ceilDef hS ha")),
+    dict(kind="andRight", lemma="andRight_body",
+         what="`u ∧ ∃x. (x ∧ ψ)` against `∃x. x ∧ (⊤ ∧ (ψ ∧ x ∈ u))`",
+         defs=[("x", "EVar", "exVK @tbl (argK 1 @K)"), ("u", "P", "tr @ctx (argK 0 @K)"),
+               ("psi", "P", "tr @ctx (argK 1 (exBK (argK 1 @K)))")],
+         text="sAnd @u (sExists @x @S (sAnd (.evar @x) @psi))",
+         item="sExists @x @S (sAnd (.evar @x) (sAnd (sTop @S) (sAnd @psi (sIn @S @S (.evar @x) @u))))",
+         facts=[("u_free", "@u.isFreeEvar @x = false")],
+         proof=ex_body("andRight_body F.defOK F.ceilDef hS #u_free ha")),
+    dict(kind="underApp", lemma="underApp_body",
+         what="`h(∃x. (x ∧ (l = r)))` against `∃x. h(x) ∧ (⊤ ∧ (l = r))`",
+         defs=[("x", "EVar", "exVK @tbl (argK 0 @K)"), ("hd", "P", "sym (.symbol (headK @K))"),
+               ("pl", "P", "tr @ctx (eqLK (argK 1 (exBK (argK 0 @K))))"),
+               ("pr", "P", "tr @ctx (eqRK (argK 1 (exBK (argK 0 @K))))")],
+         text="@hd ⬝ sExists @x @S (sAnd (.evar @x) (sEquals @S @S @pl @pr))",
+         item="sExists @x @S (sAnd (@hd ⬝ .evar @x) (sAnd (sTop @S) (sEquals @S @S @pl @pr)))",
+         facts=[("hd_free", "@hd.isFreeEvar @x = false")],
+         proof=ex_body("underApp_body F.defOK hS #hd_free (fun b _ => sEquals_predOn F.defOK F.ceilDef hS hS _) ha")),
+    dict(kind="twoBinders", lemma="twoBinders_body", sB=True,
+         what="`∃y:B. ∃z. ((z ∧ t) ∧ u) ∧ ψ` against `∃y:B. ∃z. z ∧ (⊤ ∧ (ψ ∧ (z ∈ t ∧ z ∈ u)))`",
+         defs=[("y", "EVar", "exVK @tbl @K"), ("z", "EVar", "exVK @tbl (exBK @K)"),
+               ("sB", "P", "trSort @tbl (srt «BN»)"),
+               ("t", "P", "tr @ctx (argK 1 (argK 0 (argK 0 (exBK (exBK @K)))))"),
+               ("u", "P", "tr @ctx (argK 1 (argK 0 (exBK (exBK @K))))"),
+               ("psi", "P", "tr @ctx (argK 1 (exBK (exBK @K)))")],
+         text="sExists @y @sB (sExists @z @S (sAnd (sAnd (sAnd (.evar @z) @t) @u) @psi))",
+         item="sExists @y @sB (sExists @z @S (sAnd (.evar @z) (sAnd (sTop @S) (sAnd @psi (sAnd (sIn @S @S (.evar @z) @t) "
+              "(sIn @S @S (.evar @z) @u))))))",
+         proof=ex_body("twoBinders_body F.defOK F.ceilDef hB hS ha",
+                       "  obtain ⟨τ, hB⟩ := sortAtN F (#nameB H) (#ltB H) @tbl\n")),
+    dict(kind="cutAnd", lemma="cutAnd_body", params="z",
+         what="`t ∧ u` against `∃z. z ∧ (⊤ ∧ (z ∈ t ∧ z ∈ u))`",
+         defs=[("z", "EVar", "⟨$z⟩"), ("t", "P", "tr @ctx (argK 0 @K)"), ("u", "P", "tr @ctx (argK 1 @K)")],
+         text="sAnd @t @u",
+         item="sExists @z @S (sAnd (.evar @z) (sAnd (sTop @S) (sAnd (sIn @S @S (.evar @z) @t) (sIn @S @S (.evar @z) @u))))",
+         facts=[("t_free", "@t.isFreeEvar @z = false"), ("u_free", "@u.isFreeEvar @z = false")],
+         proof=ex_body("cutAnd_body F.defOK F.ceilDef hS #t_free #u_free ha")),
+    dict(kind="cutOr", lemma="cutOr_body", params="z",
+         what="`t ∨ u` against `∃z. z ∧ (⊤ ∧ (z ∈ t ∨ z ∈ u))`",
+         defs=[("z", "EVar", "⟨$z⟩"), ("t", "P", "tr @ctx (argK 0 @K)"), ("u", "P", "tr @ctx (argK 1 @K)")],
+         text="sOr @S @t @u",
+         item="sExists @z @S (sAnd (.evar @z) (sAnd (sTop @S) (sOr @S (sIn @S @S (.evar @z) @t) (sIn @S @S (.evar @z) @u))))",
+         facts=[("t_free", "@t.isFreeEvar @z = false"), ("u_free", "@u.isFreeEvar @z = false")],
+         proof=ex_body("cutOr_body F.defOK F.ceilDef hS #t_free #u_free ha")),
+    dict(kind="inOr", lemma="inOr_body", params="z",
+         what="`X ∨ ∃y. (y ∧ ψ)` against `∃y. ∃z. z ∧ (⊤ ∧ (z ∈ X ∨ (z ∈ y ∧ ψ)))`",
+         defs=[("y", "EVar", "exVK @tbl (argK 1 @K)"), ("z", "EVar", "⟨$z⟩"), ("X", "P", "tr @ctx (argK 0 @K)"),
+               ("psi", "P", "tr @ctx (argK 1 (exBK (argK 1 @K)))")],
+         text="sOr @S @X (sExists @y @S (sAnd (.evar @y) @psi))",
+         item="sExists @y @S (sExists @z @S (sAnd (.evar @z) (sAnd (sTop @S) (sOr @S (sIn @S @S (.evar @z) @X) "
+              "(sAnd (sIn @S @S (.evar @z) (.evar @y)) @psi)))))",
+         facts=[("Xy_free", "@X.isFreeEvar @y = false"), ("Xz_free", "@X.isFreeEvar @z = false"),
+                ("psi_free", "@psi.isFreeEvar @z = false"), ("zy", "@z ≠ @y")],
+         proof=ex_body("inOr_body F.defOK F.ceilDef hS #Xy_free #Xz_free #psi_free #zy ha")),
+    dict(kind="inOrEx", lemma="inOrEx_body, renamed_body", params="y",
+         what="`X ∨ ∃y. (y ∧ ψ)` against `∃y. y ∧ (⊤ ∧ (y ∈ X ∨ ∃y'. (y ∈ y' ∧ ψ[y'/y])))`",
+         defs=[("y", "EVar", "exVK @tbl (argK 1 @K)"), ("y2", "EVar", "⟨$y⟩"), ("X", "P", "tr @ctx (argK 0 @K)"),
+               ("psi", "P", "tr @ctx (argK 1 (exBK (argK 1 @K)))")],
+         text="sOr @S @X (sExists @y @S (sAnd (.evar @y) @psi))",
+         item="sExists @y @S (sAnd (.evar @y) (sAnd (sTop @S) (sOr @S (sIn @S @S (.evar @y) @X) (sExists @y2 @S "
+              "(sAnd (sIn @S @S (.evar @y) (.evar @y2)) (@psi.substEvar @y (.evar @y2)))))))",
+         facts=[("X_free", "@X.isFreeEvar @y = false"), ("yy", "@y ≠ @y2"),
+                ("ren_ok", "Faithful.renOK @y @y2 @psi = true"), ("y2_free", "@psi.isFreeEvar @y2 = false")],
+         proof=ex_body("inOrEx_body F.defOK F.ceilDef hS #X_free #yy\n"
+                       "      (fun v w m => renamed_body #ren_ok #y2_free (Or.inr (Or.inl rfl)) e v w m) ha")),
+    dict(kind="twice", lemma="ensTop_ex_body, exVac_body",
+         what="`∃x. ∃x. (x ∧ ψ)` against `∃x. x ∧ (⊤ ∧ ψ)`",
+         defs=[("x", "EVar", "exVK @tbl @K"), ("psi", "P", "tr @ctx (argK 1 (exBK (exBK @K)))")],
+         text="sExists @x @S (sExists @x @S (sAnd (.evar @x) @psi))",
+         item="sExists @x @S (sAnd (.evar @x) (sAnd (sTop @S) @psi))",
+         facts=[("inner_free", "(sExists @x @S (sAnd (.evar @x) @psi)).isFreeEvar @x = false")],
+         proof=ex_body("(ensTop_ex_body F.defOK hS ha).trans (exVac_body F.defOK hS #inner_free ha).symm")),
+    dict(kind="argName", lemma="exVarTop_body, exVar_body", params="z",
+         what="`∃x. x` against `∃z. z ∧ ⊤`",
+         defs=[("x", "EVar", "exVK @tbl @K"), ("z", "EVar", "⟨$z⟩")],
+         text="sExists @x @S (.evar @x)", item="sExists @z @S (sAnd (.evar @z) (sTop @S))",
+         proof=ex_body("iff_of_true (exVarTop_body F.defOK hS ha) (exVar_body F.defOK hS ha)")),
+    dict(kind="unheld", lemma="exVac_body",
+         what="`∃x. X`, X not holding x, against X",
+         defs=[("x", "EVar", "exVK @tbl @K"), ("X", "P", "tr @ctx (exBK @K)")],
+         text="sExists @x @S @X", item="@X",
+         facts=[("X_free", "@X.isFreeEvar @x = false")],
+         proof=ex_body("(exVac_body F.defOK hS #X_free ha).symm")),
+    dict(kind="topCut", lemma="topCut_body", params="z",
+         what="`X ∧ ψ` against `∃z. z ∧ (⊤ ∧ (z ∈ X ∧ ψ))`",
+         defs=[("z", "EVar", "⟨$z⟩"), ("X", "P", "tr @ctx (argK 0 @K)"), ("psi", "P", "tr @ctx (argK 1 @K)")],
+         text="sAnd @X @psi",
+         item="sExists @z @S (sAnd (.evar @z) (sAnd (sTop @S) (sAnd (sIn @S @S (.evar @z) @X) @psi)))",
+         facts=[("X_free", "@X.isFreeEvar @z = false"), ("psi_free", "@psi.isFreeEvar @z = false")],
+         proof=ex_body("topCut_body F.defOK F.ceilDef hS #X_free #psi_free ha Iff.rfl")),
+    dict(kind="orMany", lemma="cutOf_body, cutOf_or, cutOf_mem", params="zk",
+         what="`t₁ ∨ … ∨ tₖ` against `∃z. z ∧ (⊤ ∧ (z ∈ t₁ ∨ … ∨ z ∈ tₖ))`"),
+]
+EX_BY_KIND = {s["kind"]: s for s in EX_SHAPES}
+# the indices the probe searches for the variables the clause binds that the sentence does not name,
+# and the numbers of alternatives
+EX_VARS, EX_ALTS = 16, range(3, 13)
+
+
+def ex_spec(kind, k=0):
+    s = dict(EX_BY_KIND[kind])
+    if kind == "orMany":
+        s.update(ex_or_many(k))
+    s.setdefault("facts", [])
+    return s
+
+
+def ex_subst(e, local, fact, ad, ka, sn, bn, z, y):
+    e = re.sub(r"@(\w+)", lambda m: local(m.group(1)), e)
+    e = re.sub(r"#(\w+)", lambda m: fact(m.group(1)), e)
+    return (e.replace("AD", ad).replace("KA", ka).replace("«SN»", sn).replace("«BN»", bn)
+            .replace("$z", z).replace("$y", y))
+
+
+def ex_probe_defs():
+    """The probe's search for the shape of each item an existential clause gives (`WX` lines): a
+    function of the sentence, Γ's item and the variable indices, trying each shape of EX_SHAPES with
+    the expressions the test states, and `orMany` for each number of alternatives."""
+    out = ["open KoreAML.TieFR KCore.TieExClause in",
+           "/-- The first shape of the existential-clause readings that ties Γ's item `g` to the sentence `ad`",
+           "(its text `t`): the shape and the indices, or the empty string. -/",
+           "def tgExShape (k : Kore.Definition) (ad : AxiomDecl) (t g : P) (sn bn : String) : String := Id.run do",
+           "  let mut found := \"\""]
+    loc = lambda n: f"{n}_"
+    for d in EX_COMMON:
+        out.append(f"  let {d[0]}_ : {d[1]} := " + ex_subst(d[2], loc, loc, "ad", "k.aliasNames", "sn", "bn", "0", "0"))
+    out.append("  let eqB := fun (tx it : P) => decide (t = eqnPat ws_ r_ prem_ S_ F_ (sAnd tx ens_)) &&")
+    out.append("    decide (g = eqnPat ws_ r_ prem_ S_ F_ (sAnd it ens_))")
+    for s0 in EX_SHAPES:
+        ks = list(EX_ALTS) if s0["kind"] == "orMany" else [0]
+        ps = s0.get("params", "")
+        for k in ks:
+            s = ex_spec(s0["kind"], k)
+            sub = lambda e: ex_subst(e, loc, loc, "ad", "k.aliasNames", "sn", "bn", "zi", "yi")
+            ind = "  "
+            body = []
+            if "z" in ps:
+                body.append(f"{ind}for zi in List.range {EX_VARS} do"); ind += "  "
+            if "y" in ps:
+                body.append(f"{ind}for yi in List.range {EX_VARS} do"); ind += "  "
+            body.append(f"{ind}if found == \"\" then")
+            ind += "  "
+            for n, ty, e in s["defs"]:
+                body.append(f"{ind}let {n}_ : {ty} := {sub(e)}")
+            cond = [f"eqB ({sub(s['text'])}) ({sub(s['item'])})"] + [f"decide ({sub(st)})" for _, st in s["facts"]]
+            body.append(f"{ind}if " + " &&\n{ind}    ".replace("{ind}", ind).join(cond) + " then")
+            zs = "zi" if "z" in ps else "0"
+            ys = "yi" if "y" in ps else "0"
+            body.append(f"{ind}  found := s!\"{s['kind']}\\t{{{zs}}}\\t{{{ys}}}\\t{k}\"")
+            out += body
+    out.append("  return found")
+    return "\n".join(out) + "\n"
+
+
+PROBE_EX = r'''  for j in List.range fis.length do
+    match pairText[j]?, fis[j]? with
+    | some ad, some it =>
+      let t := (trS ad).pat
+      if it.pat != t then
+        let sn := tgExEqSort ad.ax.pattern
+        let bn := tgExBinderSort (KCore.TieExClause.rhsK ad.ax.pattern)
+        let f := tgExShape k ad t it.pat sn bn
+        if f != "" then
+          let no := fun (n : String) => ((List.range (nRegSorts + c.sortNames.length)).find? (c.sortName · == n)).getD 0
+          IO.println s!"WX {j}\t{ad.index}\t{f}\t{sn}\t{no sn}\t{bn}\t{no bn}"
+    | _, _ => pure ()'''
+
+PROBE_EX_SORT = r'''/-- The name a sort takes among the semantics' names: `X` for `SortX{}`; empty otherwise. -/
+def tgExSortName : Kore.KSort → String
+  | .ctor h [] =>
+    let l := h.ident.name.toList
+    if l.take 4 == ['S', 'o', 'r', 't'] then String.ofList (l.drop 4) else ""
+  | _ => ""
+/-- The name of an equation sentence's sort. -/
+def tgExEqSort : Kore.Pattern → String
+  | .implies _ _ (.equals s _ _ _) => tgExSortName s
+  | _ => ""
+/-- The name of the sort an `\\exists` binds. -/
+def tgExBinderSort : Kore.Pattern → String
+  | .exist _ x _ => tgExSortName x.sort
+  | _ => ""
+'''
+
+
+def ex_block(j, i, wx):
+    """The theorems of Γ's item `j`, an existential clause, against its sentence `i`, in the shape the
+    probe found (`wx`: the `WX` fields)."""
+    s = ex_spec(wx["kind"], wx["k"])
+    loc = lambda n: f"ex{j}{n}"
+    fct = lambda n: f"ex{j}_{n}"
+    sub = lambda e: ex_subst(e, loc, fct, f"U.ax{i}", "kore.aliasNames", f'"{wx["S"]}"', f'"{wx["B"]}"',
+                             str(wx["z"]), str(wx["y"]))
+    out = [f"/-- Γ's item {j} (sentence {i}): an existential clause, {s['what']} (`{s['lemma']}`). -/",
+           f"noncomputable def exItem{j} : P := (TiePair.gammaPats c).getD {j} ⊥",
+           f"theorem exItem{j}_at : (TiePair.gammaPats c)[{j}]? = some exItem{j} := by decide +kernel",
+           f"kernel_rfl fnText_at{j} : fnText[{j}]? = some U.ax{i}",
+           f"/-- **Γ's item {j} is not the text's sentence {i}** (kernel). -/",
+           f"theorem ex{j}_differs : exItem{j} ≠ (trS U.ax{i}).pat := by decide +kernel", ""]
+    for n, ty, e in EX_COMMON + s["defs"]:
+        kw = "noncomputable abbrev" if n == "ctx" else "noncomputable def"
+        out.append(f"{kw} {loc(n)} : {ty} := {sub(e)}")
+    eq = lambda r: f"eqnPat {loc('ws')} {loc('r')} {loc('prem')} {loc('S')} {loc('F')} (sAnd ({sub(r)}) {loc('ens')})"
+    out += ["", f"/-- The translated sentence {i} is `eqnPat` with the right side the text writes (kernel). -/",
+            f"theorem {fct('text_shape')} : (trS U.ax{i}).pat = {eq(s['text'])} := by",
+            "  decide +kernel", "",
+            f"/-- Γ's item {j} is `eqnPat` over the same guards, premise, sort and left side, with the clause's right",
+            "side (kernel). -/",
+            f"theorem {fct('gamma_shape')} : (TiePair.gammaPats c)[{j}]? = some ({eq(s['item'])}) := by",
+            "  decide +kernel", "",
+            f"theorem {fct('guard_r')} : sortGuard {loc('r')} ∈ {loc('ws')} := by decide +kernel"]
+    for n, st in s["facts"]:
+        out.append(f"theorem {fct(n)} : {sub(st)} := by decide +kernel")
+    sorts = [] if s.get("noF") else [("S", wx["S"], wx["SNo"])]
+    if s.get("sB"):
+        sorts.append(("B", wx["B"], wx["BNo"]))
+    for tag, nm, no in sorts:
+        out += [f"theorem {fct('name' + tag)} (H : HookParams) : (cH H).sortName ({no} : Srt) = \"{nm}\" :=",
+                f"  (by decide +kernel : c.sortName ({no} : Srt) = \"{nm}\")",
+                f"theorem {fct('lt' + tag)} (H : HookParams) : ({no} : Srt) < nRegSorts + (cH H).sortNames.length :=",
+                f"  (by decide +kernel : ({no} : Srt) < nRegSorts + c.sortNames.length)"]
+    fname = "_F" if s.get("noF") else "F"
+    out += ["", f"/-- **Sentence {i} and Γ's item {j} hold in the same interpretations** among those with the",
+            "signature's facts (definedness, the item of `⌈_⌉`, each numbered sort one sort), for every H. -/",
+            f"theorem {fct('iff')} (H : HookParams) {{M : Type}} [Inhabited M] {{I : Interpretation KoreAML.Sym M}}",
+            f"    ({fname} : TieFRSig.SigFacts (cH H) I) :",
+            f"    (I ⊧ᴵ {eq(s['item'])}) ↔ (I ⊧ᴵ (trS U.ax{i}).pat) := by",
+            f"  rw [{fct('text_shape')}]",
+            sub(s["proof"]), "",
+            f"/-- **W1**: Γ's item {j} is a consequence of sentence {i} with definedness and `ΓSig (cH H)`, for every H. -/",
+            f"theorem {fct('from_text')} (H : HookParams) : ∀ it, (Faithful.fnItems (cH H))[{j}]? = some it →",
+            f"    (TiePair.Texts [(trS U.ax{i}).pat] ∪ Faithful.ΓSig (cH H)) ⊧ it.pat :=",
+            f"  (tie_of_iff (coreOKH H) (by rw [TiePair.gammaPats_withHooks]; exact {fct('gamma_shape')})",
+            f"    (fun F _ => {fct('iff')} H F)).1", "",
+            f"/-- **E**: Γ entails sentence {i}, for every H. -/",
+            f"theorem {fct('entailed')} (H : HookParams) : Faithful.Γ (cH H) ⊧ (trS U.ax{i}).pat :=",
+            f"  (tie_of_iff (coreOKH H) (by rw [TiePair.gammaPats_withHooks]; exact {fct('gamma_shape')})",
+            f"    (fun F _ => {fct('iff')} H F)).2", ""]
+    return out
+
+
+def ex_names(j, wx):
+    s = ex_spec(wx["kind"], wx["k"])
+    sorts = ([] if s.get("noF") else ["S"]) + (["B"] if s.get("sB") else [])
+    return ([f"ex{j}_differs", f"ex{j}_text_shape", f"ex{j}_gamma_shape", f"ex{j}_guard_r"] +
+            [f"ex{j}_{n}" for n, _ in s["facts"]] + [f"ex{j}_{p}{t}" for t in sorts for p in ("name", "lt")] +
+            [f"ex{j}_iff", f"ex{j}_from_text", f"ex{j}_entailed"])
 
 
 def setvar_probe_defs():
