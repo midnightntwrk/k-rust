@@ -175,7 +175,10 @@
     `functional` sentence of `ite` at a sort the definition has is entailed at values
     (`inertIteFunctional_everyH`: at the instance, the text's sentence being over a sort variable,
     which no value has for its sort); a rewrite axiom whose left side is empty is entailed
-    (`inertVacuousLeft_everyH`). The fixture sentences are in test/InertEvFixtures.lean.
+    (`inertVacuousLeft_everyH`). G4 for `vacuousLeftAtBool`, for every semantics with `coreOK` and
+    every H: a rewrite axiom whose left side holds `\floor{SortBool{}, SortBool{}}(x)` of an element
+    variable is entailed by Γ, from Bool's two literals (`inertVacuousLeftAtBool_everyH`). The
+    fixture sentences are in test/InertEvFixtures.lean.
 -/
 import KcoreSpec
 
@@ -3277,6 +3280,21 @@ theorem inertVacuousLeft_everyH (c : Semantics) (H : HookParams) {a : Kore.Axiom
     Γ (c.withHooks H) ⊧ (KoreAML.trAxiom decls [] ⟨i, mod, a⟩).pat :=
   InertEv.vacuousLeft_entailed (c.withHooks H) hv decls i mod
 
+/-- **A rewrite axiom whose left side is empty in every model of Γ is entailed, for every
+interpretation**: where the left side is one `Parse.vacuousAtBool` accepts (the condition of
+`Parse.classifyAxiom`, `InertReason.vacuousLeftAtBool`), with any declarations and no alias, for a
+semantics meeting `coreOK`. The proof reads definedness, `⌈_⌉`'s definition and Bool's sort from
+`ΓSig` and Bool's two literals from `ΓDomains`, and no hook. -/
+theorem inertVacuousLeftAtBool_everyH (c : Semantics) (hcore : c.coreOK = true) (H : HookParams)
+    {a : Kore.Axiom}
+    (hv : (match a.pattern with
+      | .rewrites _ (.and _ [l, _]) _ => Parse.vacuousAtBool l
+      | _ => false) = true)
+    (decls : List KoreAML.SymbolDecl) (i : Nat) (mod : String) :
+    Γ (c.withHooks H) ⊧ (KoreAML.trAxiom decls [] ⟨i, mod, a⟩).pat :=
+  haveI : OvlOK (c.withHooks H) := ovlOK_of_core ((Semantics.coreOK_withHooks c H).trans hcore)
+  InertEv.vacuousLeftAtBool_entailed (c.withHooks H) hv decls i mod
+
 end KCore.Guards
 
 #print axioms KCore.Guards.g0_refuted
@@ -3309,6 +3327,7 @@ end KCore.Guards
 #print axioms KCore.Guards.inertListLaw_everyH
 #print axioms KCore.Guards.inertIteFunctional_everyH
 #print axioms KCore.Guards.inertVacuousLeft_everyH
+#print axioms KCore.Guards.inertVacuousLeftAtBool_everyH
 #print axioms KCore.Guards.DevOr.or_steps
 #print axioms KCore.Guards.DevOr.or_one_stuck
 #print axioms KCore.Guards.DevTop.top_steps
@@ -3723,6 +3742,12 @@ def inertReason : InertReason → GuardEntry
         .test "test/Connectives.lean" "vacuousLeft"],
       invariant := [``KCore.Parse.vacuous],
       note := "for every semantics and every H, Γ entails a rewrite axiom whose left side Parse.vacuous accepts: the left side's translation holds of no element (InertEv.vacuous_none, by recursion on the pattern), so the axiom holds in every interpretation with definedness; the proof reads no hook. Translated without aliases: an alias application is not expanded, and a text with an alias declaration is refused (aliasDeclaration). The fixture is the rule of e3-ml-rule-lhs-bottom (vacuous_lhs_bottom)" }
+  | .vacuousLeftAtBool =>
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.inertVacuousLeftAtBool_everyH, .test "test/InertEvFixtures.lean" "vacuous_lhs_floor",
+        .test "test/Connectives.lean" "vacuousLeftAtBool"],
+      invariant := [``KCore.Parse.vacuousAtBool, ``KCore.Faithful.ΓDomains],
+      note := "for every semantics with coreOK and every H, Γ entails a rewrite axiom whose left side Parse.vacuousAtBool accepts (\\floor{SortBool{}, SortBool{}}(x) of an element variable under applications and conjunctions): Bool is one sort with the two elements true and false in every model of ΓSig and ΓDomains (TieReqBool.boolTwo, its den hypotheses for every semantics by InertEv.den_boolLit), so the \\floor is empty (InertEv.floorVar_none) and with it the left side (InertEv.vacuousAtBool_none). Entailed by Γ, not valid: a model of matching logic with one element of Bool makes the left side non-empty, and a text that does not state the two literals apart may have such a model. The fixture is the rule of e3-ml-rule-lhs-floor (vacuous_lhs_floor)" }
 
 def unreadReason : UnreadReason → GuardEntry
   | .cellCollectionInjection =>
@@ -3765,7 +3790,7 @@ def readingNotes : List ReadingNote :=
 
 def inertReasons : List InertReason :=
   [.import, .claim, .simplification, .distinctCtors, .injectivity, .noJunk, .collectionLaw,
-   .parametricFunctional, .vacuousLeft]
+   .parametricFunctional, .vacuousLeft, .vacuousLeftAtBool]
 
 def unreadReasons : List UnreadReason :=
   [.cellCollectionInjection, .macroUnused, .parametricUnused, .setIdempotence, .overloadConfusion,

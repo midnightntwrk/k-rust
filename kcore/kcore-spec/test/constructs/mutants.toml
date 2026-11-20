@@ -1824,3 +1824,24 @@ patch = '''
  /-- The core from the productions and the rules (`coreBase`), with each own sort's predicate whose
  equations are not exactly `Semantics.sortPreds`' clauses (`predFnNamesPR`, decided on `coreBase`'s
 '''
+
+[mutant."floor-bool-any-operand"]
+summary = "Parse.vacuousAtBool reads \\floor{SortBool{}, SortBool{}}(φ) as empty whatever its operand φ, not only where φ is an element variable"
+breaks = "InertReason.vacuousLeftAtBool: a rule whose left side holds \\floor{SortBool{}, SortBool{}}(x) of an element variable is left out of Γ, its left side being empty in every model of Γ (x denotes one element, Bool has two); of an operand that may hold every element of Bool (true ∨ false) the \\floor is all of Bool there, the left side has elements and the rule states a step from each, which the mutant leaves out of Γ"
+row = "E4 tree:Pattern.floor"
+fixture = "e3-ml-rule-lhs-floor-or"
+expect = "killed"
+killed_by = "account: `3 read [user]` becomes `2 read [user]` and `1 inert vacuousLeftAtBool [user]`, `stage refusals (of sentences classified read): 1` (patternConnective (\\floor)) becomes 0 (e3-ml-rule-lhs-floor-or; 2026-11-20)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -1901,7 +1901,7 @@
+   (`InertReason.vacuousLeftAtBool`). An operand that may hold two elements (a disjunction, a set
+   variable, an application) is not read here: `\floor{SortBool{}, S}(true ∨ false)` is all of S. -/
+   def vacuousAtBool : Kore.Pattern → Bool
+-    | .floor s s' (.var (.evar _)) => decide (s = KoreAML.srt "Bool") && decide (s' = KoreAML.srt "Bool")
++    | .floor s s' _ => decide (s = KoreAML.srt "Bool") && decide (s' = KoreAML.srt "Bool")
+     | .app _ _ ps | .and _ ps => anyVacuousAtBool ps
+     | _ => false
+     termination_by structural p => p
+'''

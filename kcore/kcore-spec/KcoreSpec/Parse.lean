@@ -519,6 +519,13 @@ inductive InertReason where
   /-- A rewrite axiom whose left side is empty (`vacuous`: `\bottom` under applications, conjunctions
   and `\exists`, or a disjunction of such): `C[⊥] = ⊥`, and `⊥ → •R` holds in every model. -/
   | vacuousLeft
+  /-- A rewrite axiom whose left side holds, under applications and conjunctions,
+  `\floor{SortBool{}, SortBool{}}(x)` of an element variable x (`vacuousAtBool`): that pattern is all
+  of Bool where x denotes every element of Bool and empty where Bool has a second element, and Bool
+  has two, `true` and `false`, in every model of Γ (`ΓSig`, and `ΓDomains`'s items of the two
+  literals and their distinctness). So the left side is empty in every model of Γ and the axiom
+  holds there; unlike `vacuousLeft`, not in every model of matching logic. -/
+  | vacuousLeftAtBool
   deriving Repr, DecidableEq, Inhabited
 
 /-- Why a sentence that states something is deliberately not part of the reading. -/
@@ -1739,6 +1746,8 @@ reader reads those so, each with its note (`ReadingNote`), and refuses the other
   G a Bool variable free nowhere else and each Aᵢ a term, is n rules, the i-th with `requires` Aᵢ
   (`reqOrSplit?`, `splitRule`).
 - Left side empty (`InertReason.vacuousLeft`): `C[⊥] = ⊥`, and `⊥ → •R` holds in every model.
+- Left side empty in the models of Γ (`InertReason.vacuousLeftAtBool`): `\floor{SortBool{}, SortBool{}}(x)`
+  of an element variable is empty where Bool has two elements, which Γ's domains give it.
 - Right side (`andAsEnsures`, `andTermsWeaker`, `bottomAsEnsures`, `orBottom`): for a predicate P
   (a pattern that is everything or nothing) `σ(…, φ ∧ P, …) = σ(…, φ, …) ∧ P`, and
   `σ(…, ⊥, …) = ⊥`, for every symbol σ. So `\equals{SortBool{},S}(B, true)` conjoined to a part of
@@ -1881,6 +1890,24 @@ mutual
   def allVacuous : List Kore.Pattern → Bool
     | [] => true
     | p :: ps => vacuous p && allVacuous ps
+    termination_by structural ps => ps
+end
+
+mutual
+  /-- The pattern holds, under applications and conjunctions, `\floor{SortBool{}, SortBool{}}(x)` of
+  an element variable x: empty wherever Bool has two elements (x denotes one element, so not every
+  element of Bool), and with it every application and conjunction holding it. Not an arm of
+  `vacuous`, which is emptiness by matching logic alone: this is emptiness in the models of Γ
+  (`InertReason.vacuousLeftAtBool`). An operand that may hold two elements (a disjunction, a set
+  variable, an application) is not read here: `\floor{SortBool{}, S}(true ∨ false)` is all of S. -/
+  def vacuousAtBool : Kore.Pattern → Bool
+    | .floor s s' (.var (.evar _)) => decide (s = KoreAML.srt "Bool") && decide (s' = KoreAML.srt "Bool")
+    | .app _ _ ps | .and _ ps => anyVacuousAtBool ps
+    | _ => false
+    termination_by structural p => p
+  def anyVacuousAtBool : List Kore.Pattern → Bool
+    | [] => false
+    | p :: ps => vacuousAtBool p || anyVacuousAtBool ps
     termination_by structural ps => ps
 end
 
@@ -3843,6 +3870,58 @@ def ceBinders (e : RawEqn) : RawEqn × List ReadingNote :=
    (if xs1.any (names.contains ·.2.var.ident.name) then [ReadingNote.existsRenamedApart] else []) ++
    (if xs1.length != xs.length || xs2.any (!held ·) then [ReadingNote.existsBindsNothing] else []))
 
+/-- The variable `y` where the pattern is `\equals{s', s}(x, y)` or `\equals{s', s}(y, x)` of two
+element variables, `y` not `x` and of `x`'s sort, `s'` that sort. -/
+def ceEqVar? (x : Kore.EVar) (s : Kore.KSort) : Kore.Pattern → Option Kore.EVar
+  | .equals s1 s2 (.var (.evar a)) (.var (.evar b)) =>
+    if s1 = x.sort ∧ s2 = s then
+      if a = x ∧ b ≠ x ∧ b.sort = x.sort then some b
+      else if b = x ∧ a ≠ x ∧ a.sort = x.sort then some a
+      else none
+    else none
+  | _ => none
+
+/-- The body of `\exists{S}(x, φ)` read as the element it fixes: `y` where φ is `x ∧ (x = y)` (the
+conjuncts in either order, the `\equals` as `ceEqVar?` reads it), y an element variable other than x
+and of its sort, the `\and` and the `\exists` at that sort. At a valuation ρ the body is {ρ(x)}
+where ρ(x) = ρ(y) and empty elsewhere (`\equals` of two element variables is all of the sort where
+they denote one element, empty where they do not); the union over the elements of the sort is
+{ρ(y)}, ρ(y) being an element of it. So `\exists x. (x ∧ x = y)` is y in every interpretation,
+nothing asked of the sort or of a symbol. Of a pattern y other than a variable the same holds only
+where y has exactly one element, which is a fact of the model (a `functional` sentence, a domain
+value's denotation), so no other pattern is read. `none` for any other body. -/
+def ceBinderElem? (S : Kore.KSort) (x : Kore.EVar) : Kore.Pattern → Option Kore.Pattern
+  | .and s [p, q] =>
+    if S = s ∧ s = x.sort then
+      if p = .var (.evar x) then (ceEqVar? x s q).map (fun y => .var (.evar y))
+      else if q = .var (.evar x) then (ceEqVar? x s p).map (fun y => .var (.evar y))
+      else none
+    else none
+  | _ => none
+
+mutual
+  /-- An equation's right side under its binders with each `\exists` under applications,
+  conjunctions, disjunctions and binders that `ceBinderElem?` reads replaced by the variable it
+  gives: `∃C:s. (C ∧ C = y)` is y in every interpretation, and a pattern with a part replaced by one
+  equal to it at every valuation is equal to it at every valuation. The variable y is free where the
+  binder stood, so nothing is captured and no variable stops being free. Any other pattern is left
+  as it is. -/
+  def ceBinderElems : Kore.Pattern → Kore.Pattern
+    | .exist S x p =>
+      match ceBinderElem? S x p with
+      | some y => y
+      | none => .exist S x (ceBinderElems p)
+    | .app h ss ps => .app h ss (ceBinderElemsList ps)
+    | .and s ps => .and s (ceBinderElemsList ps)
+    | .or s ps => .or s (ceBinderElemsList ps)
+    | p => p
+    termination_by structural p => p
+  def ceBinderElemsList : List Kore.Pattern → List Kore.Pattern
+    | [] => []
+    | p :: ps => ceBinderElems p :: ceBinderElemsList ps
+    termination_by structural ps => ps
+end
+
 /-! ### `\or` of terms at a term position
 
 `t₁ ∨ … ∨ tₙ` of terms is the elements some tⱼ holds. At a position `C[·]` under applications,
@@ -4097,6 +4176,7 @@ def ceReadBody (N : Names) (e : RawEqn) : Rd (Clause × List Var × List String 
   let (pats, req, ens, vs, _) ← eqnHead N e
   let n0 := vs.length
   let (xs, body) := peelExists e.rhs
+  let body := ceBinderElems body
   if exOutsideAlt body then fail .manyValuedRightSide "\\exists"
   if isPred body then fail .manyValuedRightSide "\\top"
   let bound := xs.map (·.var.ident.name)
@@ -4190,11 +4270,15 @@ occurrences it binds; a binder whose variable is not free in the body left out w
 pattern holds a variable of its sort, and otherwise kept, a variable of `exs` with `⌈Z⌉` in `post`
 (`f(x̄) = ∃Z:s. t` at an empty s is `f(x̄) = ⊥`, which does not entail `f(x̄) = t`, so that binder
 is not left out as a rule's is, `exKept`).
+A binder under the equation's binders whose body equates it with another element variable of its
+sort, `∃C:s. (C ∧ C = y)`, is read as y before the body is read (`ceBinderElems`): the two are
+equal in every interpretation.
 An alternative `\exists x:s. φ` of a disjunction of terms, φ under no further binder, is read
 where the text writes it (`memOf`): `Cond.ex s (Z ∈ φ)` in the disjunction of the memberships, x
 at the index past every variable of the clause, each numbered before the memberships are read.
 Refused `manyValuedRightSide`: no term conjunct (`\top`: the body is a predicate, every element
-or none); a further `\exists` in the body that heads no such alternative (`exOutsideAlt`); `\top` or `\not` under applications of the term, of
+or none); a further `\exists` in the body that heads no such alternative and that `ceBinderElems` does not
+read (`exOutsideAlt`); `\top` or `\not` under applications of the term, of
 a cut's conjunct or of an alternative; `\or` under an application of an alternative (not read:
 the cut of a position inside an alternative is not the text where the alternative is empty); an
 alternative that is a predicate.
@@ -6643,6 +6727,9 @@ def classifyAxiom (N : Names) (a : Kore.Axiom) : SentenceClass :=
   else if (match a.pattern with
       | .rewrites _ (.and _ [l, _]) _ => vacuous l
       | _ => false) then .inert .vacuousLeft
+  else if (match a.pattern with
+      | .rewrites _ (.and _ [l, _]) _ => vacuousAtBool l
+      | _ => false) then .inert .vacuousLeftAtBool
   -- the conjunction of an equation's or a rewrite axiom's right side with its `ensures`, of another
   -- sort than KORE gives it or with an operand of another sort (`bodyConjFault?`), and likewise
   -- the conjunction of a rewrite axiom's left side or an equation's arguments with the `requires`
