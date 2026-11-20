@@ -13,7 +13,7 @@ use kink_pattern::{
     TermRelation,
 };
 
-use crate::data::DataEnds;
+use crate::data::{DataEnds, Freezers};
 use crate::feasibility::{
     BackendRelations, Inhabitation, TestInitialState, contains_non_strict_injection,
     contains_untrusted_domain_value, domain_value_identity_safe, free_constructor,
@@ -726,6 +726,9 @@ pub struct ObservationDecider<'a> {
     /// The same for the leaf definition when it is another definition than the shared one: an
     /// overload application in a leaf is admitted only where it is data under both.
     leaf_data: DataEnds<'a>,
+    /// The context freezers of the definition whose ends this decider judges, when that is
+    /// another definition than the shared one ([`Self::reading_freezers`]).
+    foreign_freezers: Option<&'a Freezers>,
 }
 
 impl<'a> ObservationDecider<'a> {
@@ -756,6 +759,7 @@ impl<'a> ObservationDecider<'a> {
             collections_trusted: true,
             data: DataEnds::None,
             leaf_data: DataEnds::None,
+            foreign_freezers: None,
         }
     }
 
@@ -808,6 +812,30 @@ impl<'a> ObservationDecider<'a> {
         self.data = shared;
         self.leaf_data = leaf;
         self
+    }
+
+    /// This decider, judging terms of another definition whose context freezers are `foreign`
+    /// ([`Freezers`], PJ-35): an application of one of them that the shared definition does not
+    /// declare passes [`Self::node_test`] as a free constructor would, its arguments judged at its
+    /// argument sorts (`K`). The shared definition extended by such a symbol is a conservative
+    /// extension of it (kink `trust.md`, "What a kill trusts"): a fresh free constructor with no
+    /// equation, no axiom of associativity, commutativity, idempotence or unit, no `anywhere`
+    /// rule and no hook adds terms that equal no term of the shared definition, and two of which
+    /// are equal only argument by argument. A symbol the shared definition declares is judged as
+    /// that definition declares it, whatever `foreign` holds.
+    #[must_use]
+    pub const fn reading_freezers(mut self, foreign: &'a Freezers) -> Self {
+        self.foreign_freezers = Some(foreign);
+        self
+    }
+
+    /// The argument sorts of `symbol` when it is a foreign context freezer the shared definition
+    /// does not declare ([`Self::reading_freezers`]).
+    fn foreign_freezer(&self, symbol: &str) -> Option<&'a [InternalSort]> {
+        if self.definition.symbols().get(symbol).is_some() {
+            return None;
+        }
+        self.foreign_freezers?.argument_sorts(symbol)
     }
 
     /// This decider, with no collection term a terminal value unless `trusted`: false when the
@@ -911,9 +939,12 @@ impl<'a> ObservationDecider<'a> {
                     fails(LocalTest::CanonicalInjection)
                 }
             }
-            Pattern::Application { symbol, .. } => {
+            Pattern::Application { symbol, arguments } => {
                 let Some(head) = self.definition.symbols().get(symbol.name.as_str()) else {
-                    return fails(LocalTest::DeclaredSymbol);
+                    return match self.foreign_freezer(&symbol.name) {
+                        Some(sorts) if sorts.len() == arguments.len() => Ok(judged),
+                        _ => fails(LocalTest::DeclaredSymbol),
+                    };
                 };
                 if free_constructor(head) {
                     Ok(judged)
@@ -1254,13 +1285,19 @@ impl<'a> ObservationDecider<'a> {
             };
             vec![source]
         } else {
-            let Some(backend) = self.definition.symbols().get(symbol.name.as_str()) else {
+            let declared = self
+                .definition
+                .symbols()
+                .get(symbol.name.as_str())
+                .map(|backend| backend.argument_sorts.as_slice())
+                .or_else(|| self.foreign_freezer(&symbol.name));
+            let Some(argument_sorts) = declared else {
                 return fails(LocalTest::DeclaredSymbol);
             };
-            if arguments.len() != backend.argument_sorts.len() {
+            if arguments.len() != argument_sorts.len() {
                 return fails(LocalTest::Arity);
             }
-            backend.argument_sorts.clone()
+            argument_sorts.to_vec()
         };
         frames.push(ValueFrame::Arguments {
             symbol,

@@ -963,3 +963,114 @@ fn a_side_prefixed_name_is_refused_as_such() {
         );
     });
 }
+
+/// PJ-35 (U35b): the context freezers of a compiled definition ([`Freezers`]) are the `KItem`
+/// productions k-rust's `resolve_contexts` generates, one per evaluation context, found by their
+/// origin record: strictness.k's twelve strict positions (`+`, `-`, `*`, `/` and `pair` two each,
+/// `&` and `~` one each) give twelve, and none of its written productions is one. Judging an end
+/// of that definition under another one (strictunary.k, which declares none of them), an
+/// application of one of its freezers is read as a free constructor of `KItem` once the decider
+/// reads its freezers ([`ObservationDecider::reading_freezers`]), its argument judged as a term of
+/// `K`; without them it is a symbol the definition does not declare. A written symbol the other
+/// definition does not declare (`plus`) is never read so.
+#[test]
+fn a_freezer_only_the_other_definition_declares_is_a_free_constructor_of_kitem() {
+    use k_rust::kore::ast::{Pattern, Sort, Symbol};
+    use kink_native::data::Freezers;
+    use kink_native::feasibility::TestInitialState;
+    use kink_native::step_events::ObservationDecider;
+    on_a_big_stack(|| {
+        let compile = |name: &str| {
+            let compiled = NativeValidator::bind(support::load(name), CompileOptions::default())
+                .compile_baseline()
+                .unwrap();
+            let definition = loaded_definition(&compiled).unwrap();
+            let freezers = Freezers::of(&compiled.artifacts().execution_definition, &definition);
+            (definition, freezers)
+        };
+        let (strictness, freezers) = compile("strictness.k");
+        let names = freezers.names().collect::<Vec<_>>();
+        assert_eq!(names.len(), 12, "{names:?}");
+        assert!(
+            names
+                .iter()
+                .all(|name| name.starts_with("Lbl'Hash'freezer")),
+            "{names:?}"
+        );
+        assert!(strictness.symbols().get("Lblplus").is_some());
+        let (unary, unary_freezers) = compile("strictunary.k");
+        assert_eq!(unary_freezers.names().count(), 1);
+
+        let sort = |name: &str| Sort::Application {
+            name: name.to_owned(),
+            arguments: Vec::new(),
+        };
+        let app = |name: &str, arguments| Pattern::Application {
+            symbol: Symbol {
+                name: name.to_owned(),
+                sort_parameters: Vec::new(),
+            },
+            arguments,
+        };
+        let one = Pattern::DomainValue {
+            sort: sort("SortInt"),
+            value: "1".into(),
+        };
+        let item = Pattern::Application {
+            symbol: Symbol {
+                name: "inj".to_owned(),
+                sort_parameters: vec![sort("SortInt"), sort("SortKItem")],
+            },
+            arguments: vec![one.clone()],
+        };
+        let k = app("kseq", vec![item, app("dotk", Vec::new())]);
+        let freezer = names
+            .iter()
+            .find(|name| {
+                freezers
+                    .argument_sorts(name)
+                    .is_some_and(|sorts| sorts.len() == 1)
+            })
+            .expect("a freezer with one argument");
+        let frozen = app(
+            "kseq",
+            vec![app(freezer, vec![k.clone()]), app("dotk", Vec::new())],
+        );
+        let solver = k_rust_backend::smt::NoSolver;
+        let decider = || ObservationDecider::new(&unary, &solver, TestInitialState::of_test(&k));
+        assert_eq!(decider().terminal_value(&frozen), None);
+        assert_eq!(
+            decider()
+                .reading_freezers(&freezers)
+                .terminal_value(&frozen),
+            Some(frozen.clone())
+        );
+        assert!(
+            decider()
+                .reading_freezers(&freezers)
+                .definition_independent(&frozen)
+        );
+        // Its arguments are judged as terms of `K` under the judging definition.
+        let unknown = app(
+            "kseq",
+            vec![
+                app(freezer, vec![app("Lblplus", vec![one.clone(), one])]),
+                app("dotk", Vec::new()),
+            ],
+        );
+        assert_eq!(
+            decider()
+                .reading_freezers(&freezers)
+                .terminal_value(&unknown),
+            None
+        );
+        // A written symbol of the other definition is no freezer.
+        let written = app("Lblplus", vec![k.clone(), k.clone()]);
+        assert_eq!(
+            decider()
+                .reading_freezers(&freezers)
+                .terminal_value(&written),
+            None
+        );
+    });
+}

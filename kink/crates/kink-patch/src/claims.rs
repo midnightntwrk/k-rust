@@ -20,7 +20,8 @@
 //! symbol (function rules, `anywhere` rules and macro rules headed by it, an `smt-lemma` among
 //! them unless it is a `simplification`), the claims, and the sorts and constructors that make
 //! up each sort's values. Rewrite rules are transitions and never change what a term denotes,
-//! and neither do contexts or reachability claims. So a claim about a symbol `f` is true or false
+//! and neither do reachability claims, nor contexts but for the freezer constructors they add
+//! (below, PJ-35). So a claim about a symbol `f` is true or false
 //! by the equations of the symbols `f`'s equations mention (left side, right side, `requires`
 //! and `ensures`), transitively, and by the claims about those symbols; a claim of a rule (its
 //! `preserves-definedness`, or the lemma it states) by the rule's own terms and by the same
@@ -44,7 +45,21 @@
 //! configuration, or a rule whose head cannot be read), every symbol counts as redefined. An edit
 //! of a lexical, priority or associativity declaration, and a production replacement that keeps
 //! the symbol, its signature and its attributes and changes only its terminals or regex, change
-//! only which text parses to which term, and redefine no symbol (PJ-34, `parse_only`). A deleted
+//! only which text parses to which term, and redefine no symbol (PJ-34, `parse_only`). A
+//! production replacement or attribute edit that changes only its `strict` or `seqstrict`
+//! positions ([`strictness_only`], PJ-35) redefines no symbol either: compilation lowers each
+//! strict position to an evaluation context, and each context to heating and cooling rewrite
+//! rules and a freezer, a constructor of `KItem` under a label no sentence of the definition
+//! names. The freezers' values are, to every sentence, values of `KItem` told apart only by
+//! equality, so where both definitions have infinitely many of them a bijection between the two
+//! sets, carried through every other constructor, preserves everything a claim can state; this
+//! rests on the premise that the hooks that can receive a freezer value read it by equality
+//! alone (kink `trust.md`, provisional). Where either definition has only freezers without
+//! arguments ([`open_freezers`]), a claim could state their number, and every symbol counts as
+//! redefined; so it does for an edit of a context or context alias under the same condition,
+//! for a production with `hybrid` (whose generated equations of the sort predicates read the
+//! strict positions), and for an edit of a production's `result` or of a context alias's
+//! strictness, which are not read here. A deleted
 //! production removes values from its sort, so every symbol counts as redefined. An inserted
 //! fresh constructor adds values to its sort and to every sort that can hold one (PJ-34, U34f,
 //! [`ClaimSupport::growth`]): it redefines the symbols a claim or an equation is about that take
@@ -129,7 +144,12 @@ use std::collections::{BTreeMap, BTreeSet};
 /// where the compiled definition has no symbol for them; what is withdrawn is unchanged.
 /// Extended again before its release (PJ-35, U35d): an inserted fresh macro ([`fresh_macro`])
 /// and the plain rules headed by it redefine only the macro's label, where every symbol counted
-/// as redefined before.
+/// as redefined before. Extended again before its release (PJ-35, U35b): a production edit that
+/// changes only its `strict` or `seqstrict` positions ([`strictness_only`] or an attribute edit
+/// of those keys, at a [`strictness_site`]) redefines nothing where both definitions have
+/// infinitely many freezer values ([`open_freezers`]), where every symbol counted as redefined
+/// before; an edited or inserted context or context alias, which redefined nothing, now does so
+/// only under the same condition (no route builds such a patch).
 pub const CLAIM_REMOVAL_VERSION: &str = "kink-patch/claim-removal/v5";
 
 /// The version of the weakening test ([`ClaimSupport::weakening`]): whether a mutation is
@@ -753,43 +773,73 @@ impl ClaimSupport {
             Role::Unknown => None,
             Role::Lemma | Role::Rewrite => Some(None),
         };
-        // The productions a parse-only replacement edits ([`parse_only`]): they redefine nothing.
+        // The productions a parse-only replacement ([`parse_only`]) or a strictness edit
+        // ([`strictness_only`]) edits: they redefine nothing.
         let mut reparsed = BTreeSet::new();
+        // Whether the patch changes the evaluation contexts compilation lowers to freezers and
+        // heating and cooling rules: then both sides must have infinitely many freezer values
+        // ([`open_freezers`]).
+        let mut contexts = false;
         for at in touched {
             let sentence = baseline.sentence(at)?;
             match sentence {
                 Sentence::Rule { .. } => redefined.extend(head(sentence)?),
+                Sentence::Context { .. } | Sentence::ContextAlias { .. } => contexts = true,
                 Sentence::Claim { .. }
-                | Sentence::Context { .. }
-                | Sentence::ContextAlias { .. }
                 // Which text parses to which term, and nothing an equation, a claim, a sort or a
                 // constructor says (PJ-34; see [`parse_only`]).
                 | Sentence::SyntaxLexical { .. }
                 | Sentence::SyntaxPriority { .. }
                 | Sentence::SyntaxAssociativity { .. } => {}
                 Sentence::Production { .. } => {
-                    // Only a claim edit keeps the sort's values and the symbol's kind, and a
-                    // parse-only replacement keeps everything but the text.
-                    if !edits.iter().all(|edit| match edit {
-                        Edit::AddAttribute {
-                            at: edited, key, ..
+                    // Only a claim edit keeps the sort's values and the symbol's kind, a
+                    // parse-only replacement keeps everything but the text, and a strictness edit
+                    // everything but the evaluation contexts compilation generates from it.
+                    let mut strictness = false;
+                    let mut claim = false;
+                    for edit in edits {
+                        let kept = match edit {
+                            Edit::AddAttribute {
+                                at: edited, key, ..
+                            }
+                            | Edit::RemoveAttribute {
+                                at: edited, key, ..
+                            }
+                            | Edit::ReplaceAttribute {
+                                at: edited, key, ..
+                            } if edited == *at => {
+                                claim |= is_symbol_claim(key);
+                                strictness |= is_strictness_key(key);
+                                is_symbol_claim(key) || is_strictness_key(key)
+                            }
+                            Edit::DeleteSentence { at: edited } => edited != *at,
+                            Edit::ReplaceSentence {
+                                at: edited,
+                                replacement,
+                            } if edited == *at => {
+                                let changed = strictness_only(sentence, replacement);
+                                strictness |= changed;
+                                changed || parse_only(sentence, replacement)
+                            }
+                            _ => true,
+                        };
+                        if !kept {
+                            return None;
                         }
-                        | Edit::RemoveAttribute {
-                            at: edited, key, ..
-                        }
-                        | Edit::ReplaceAttribute {
-                            at: edited, key, ..
-                        } => edited != *at || is_symbol_claim(key),
-                        Edit::DeleteSentence { at: edited } => edited != *at,
-                        Edit::ReplaceSentence {
-                            at: edited,
-                            replacement,
-                        } => edited != *at || parse_only(sentence, replacement),
-                        _ => true,
-                    }) {
-                        return None;
                     }
-                    if replacing_edit(edits, at).is_some() {
+                    if strictness {
+                        let edited = mutant.origins().iter().find_map(|(mutant_at, origin)| {
+                            matches!(origin, SentenceOrigin::Baseline(original) if original == *at)
+                                .then_some(mutant_at)
+                        })?;
+                        if !strictness_site(sentence)
+                            || !strictness_site(sentence_at(mutant.definition(), edited)?)
+                        {
+                            return None;
+                        }
+                        contexts = true;
+                    }
+                    if replacing_edit(edits, at).is_some() || (strictness && !claim) {
                         reparsed.insert(*at);
                     }
                 }
@@ -846,9 +896,17 @@ impl ClaimSupport {
                     (Sentence::Production { label, .. }, SentenceOrigin::Baseline(_)) => {
                         redefined.insert(label.as_ref()?.name.clone());
                     }
+                    (
+                        Sentence::Context { .. } | Sentence::ContextAlias { .. },
+                        SentenceOrigin::Inserted { .. },
+                    ) => contexts = true,
                     _ => {}
                 }
             }
+        }
+        if contexts && !(open_freezers(baseline.definition()) && open_freezers(mutant.definition()))
+        {
+            return None;
         }
         if inserted.is_empty() {
             return Some(Redefined {
@@ -2373,6 +2431,126 @@ fn parse_only(original: &Sentence, replacement: &Sentence) -> bool {
         && sort == new_sort
         && nonterminals(items) == nonterminals(new_items)
         && unpositioned(attributes) == unpositioned(new_attributes)
+}
+
+/// The attributes of a production that only compilation's strictness lowering reads: k-rust
+/// `resolve_strict` lowers each strict position of a `strict` or `seqstrict` production to an
+/// evaluation context (a `seqstrict` one requiring the earlier positions to be results), and
+/// `resolve_contexts` lowers each context to a freezer production and a heating and a cooling
+/// rewrite rule. Neither key is emitted to KORE (`AttributeKey::emits`).
+const STRICTNESS_KEYS: [AttributeKey; 2] = [AttributeKey::Strict, AttributeKey::Seqstrict];
+
+fn is_strictness_key(key: &str) -> bool {
+    STRICTNESS_KEYS
+        .iter()
+        .any(|strictness| strictness.as_str() == key)
+}
+
+/// Whether replacing the production `original` by `replacement` changes only its strictness
+/// (PJ-35): the same production in every item and attribute but `strict` and `seqstrict` (and
+/// the position keys), with one of those two changed (added, removed, or given other positions).
+/// [`strictness_site`] says which productions such an edit is read on.
+fn strictness_only(original: &Sentence, replacement: &Sentence) -> bool {
+    let (
+        Sentence::Production {
+            label,
+            parameters,
+            sort,
+            items,
+            attributes,
+        },
+        Sentence::Production {
+            label: new_label,
+            parameters: new_parameters,
+            sort: new_sort,
+            items: new_items,
+            attributes: new_attributes,
+        },
+    ) = (original, replacement)
+    else {
+        return false;
+    };
+    let without = |attributes: &k_rust::definition::Attributes| {
+        let mut attributes = attributes.clone();
+        for key in POSITION_KEYS.iter().chain(&STRICTNESS_KEYS) {
+            attributes.remove(key.as_str());
+        }
+        attributes
+    };
+    let strictness = |attributes: &k_rust::definition::Attributes| {
+        STRICTNESS_KEYS.map(|key| attributes.value(key).cloned())
+    };
+    label == new_label
+        && parameters == new_parameters
+        && sort == new_sort
+        && items == new_items
+        && without(attributes) == without(new_attributes)
+        && strictness(attributes) != strictness(new_attributes)
+}
+
+/// Whether `production`, on either side of a strictness edit, is one whose strictness lowers to
+/// evaluation contexts of the production alone: a grammar production site
+/// ([`crate::grammar::production_site`]) without sort parameters and without `hybrid` (whose
+/// generated equations of the sort predicates `isR` read the strict positions, so an edit of them
+/// changes equations), whose `strict` and `seqstrict`, where present, name positions only (no
+/// context alias, whose contexts another sentence writes).
+fn strictness_site(production: &Sentence) -> bool {
+    let Sentence::Production {
+        label: Some(label),
+        parameters,
+        sort,
+        attributes,
+        ..
+    } = production
+    else {
+        return false;
+    };
+    crate::grammar::production_site(production)
+        && parameters.is_empty()
+        && label.parameters.is_empty()
+        && sort.parameters.is_empty()
+        && !attributes.has(AttributeKey::Hybrid)
+        && STRICTNESS_KEYS
+            .iter()
+            .all(|key| attributes.value(*key).is_none_or(positions_only))
+}
+
+/// Whether a `strict` or `seqstrict` value names positions only: empty (every position) or a
+/// comma-separated list of positions.
+fn positions_only(value: &Value) -> bool {
+    value.as_str().is_some_and(|text| {
+        text.trim().is_empty()
+            || text.split(',').all(|part| {
+                let part = part.trim();
+                !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit())
+            })
+    })
+}
+
+/// Whether `definition`, once compiled, has infinitely many freezer values: whether its main
+/// module's import closure has a production whose strictness ([`strictness_site`], `strict` or
+/// `seqstrict` present) lowers at least one context with another argument of the production
+/// beside the hole. Such a production has two or more nonterminals; the context of a strict
+/// position `i` is the production applied to the hole at `i` and to a variable at every other
+/// position (k-rust `resolve_strict` `default_alias`, body `HERE`), and its freezer takes those
+/// variables, each of sort `K` (`resolve_contexts`): its values are a freezer applied to any
+/// terms of `K`, among them the freezer's own applications, so they are infinitely many.
+fn open_freezers(definition: &Definition) -> bool {
+    main_module_sentences(definition)
+        .into_iter()
+        .any(|sentence| {
+            let Sentence::Production {
+                items, attributes, ..
+            } = sentence
+            else {
+                return false;
+            };
+            let nonterminals = items
+                .iter()
+                .filter(|item| matches!(item, ProductionItem::NonTerminal { .. }))
+                .count();
+            nonterminals >= 2 && attributes.has_any(&STRICTNESS_KEYS) && strictness_site(sentence)
+        })
 }
 
 fn is_symbol_claim(key: &str) -> bool {

@@ -645,7 +645,98 @@ pub(crate) fn symbolic(rule: &RewriteRule) -> bool {
 /// injective codec, its payload in its sort's stored form, so an end holding one (a cell, a Map
 /// key or value, a List or Set element) is compared. The same codec admits it in step-event
 /// patterns, configuration existence and shared feasibility.
-pub const TERMINAL_VALUE_VERSION: &str = "kink-native/terminal-value/v3";
+/// v4 (PJ-35, U35b): an end of one side of a pair judged under the other side's definition may
+/// hold a context freezer of its own side that the other definition does not declare
+/// ([`Freezers`]): the walk reads such an application as a free constructor of `KItem` and judges
+/// its arguments as terms of `K`, so a strictness mutant's end holding the freezer of a position
+/// only its definition makes strict is compared, where it was not data there.
+pub const TERMINAL_VALUE_VERSION: &str = "kink-native/terminal-value/v4";
+
+/// The context freezers of one compiled definition: the `KItem` productions k-rust's
+/// `resolve_contexts` pass generates, one per evaluation context (from a `context` sentence or a
+/// `strict` or `seqstrict` position), each holding the context's other variables at sort `K`,
+/// under a label fresh against every production label of the definition. Each is kept by its KORE
+/// symbol name with its argument sorts, when the definition's backend declares that symbol a free
+/// constructor ([`crate::feasibility::is_free_constructor`]: a constructor with no hook, no
+/// collection role, no binder and no macro, heading no equation, `anywhere` rule or overload
+/// axiom).
+///
+/// A freezer is identified by its production's origin record (the pass that generated it), not by
+/// its spelling, so a production a definition writes under a freezer-like label is none.
+///
+/// The other side of a pair reads them ([`crate::step_events::ObservationDecider::reading_freezers`]):
+/// a symbol only this definition declares and that is one of these is, under the other definition
+/// extended by it, a fresh free constructor (kink `trust.md`, "What a kill trusts").
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct Freezers {
+    symbols: BTreeMap<String, Vec<k_rust_backend::term::Sort>>,
+}
+
+impl Freezers {
+    /// The context freezers of the compiled definition whose transformed execution definition is
+    /// `execution` (k-rust `CompiledKoreArtifacts::execution_definition`) and whose loaded backend
+    /// definition is `definition`.
+    #[must_use]
+    pub fn of(execution: &k_rust::definition::Definition, definition: &BackendDefinition) -> Self {
+        use k_rust::definition::{ProductionItem, Sentence};
+        use k_rust::names::BuiltinSort;
+        use k_rust::provenance::GeneratingPass;
+        let mut symbols = BTreeMap::new();
+        for module in &execution.modules {
+            for sentence in &module.local_sentences {
+                let Sentence::Production {
+                    label: Some(label),
+                    parameters,
+                    sort,
+                    items,
+                    attributes,
+                } = &**sentence
+                else {
+                    continue;
+                };
+                let generated = attributes
+                    .origin_record()
+                    .is_some_and(|record| record.pass == GeneratingPass::ResolveContexts);
+                let arity = items
+                    .iter()
+                    .filter(|item| matches!(item, ProductionItem::NonTerminal { .. }))
+                    .count();
+                if !generated
+                    || !parameters.is_empty()
+                    || !label.parameters.is_empty()
+                    || !sort.is_builtin(BuiltinSort::KItem)
+                    || items.iter().any(|item| {
+                        matches!(item, ProductionItem::NonTerminal { sort, .. }
+                            if !sort.is_builtin(BuiltinSort::K))
+                    })
+                {
+                    continue;
+                }
+                let name = k_rust::kast::identifier::encode_label(&label.name);
+                let Some(symbol) = definition.symbols().get(name.as_str()) else {
+                    continue;
+                };
+                if crate::feasibility::is_free_constructor(definition, &name)
+                    && symbol.argument_sorts.len() == arity
+                {
+                    symbols.insert(name, symbol.argument_sorts.clone());
+                }
+            }
+        }
+        Self { symbols }
+    }
+
+    /// The argument sorts of the freezer `name`, or `None` when it is none of these.
+    #[must_use]
+    pub fn argument_sorts(&self, name: &str) -> Option<&[k_rust_backend::term::Sort]> {
+        self.symbols.get(name).map(Vec::as_slice)
+    }
+
+    /// The KORE names of these freezers.
+    pub fn names(&self) -> impl Iterator<Item = &str> {
+        self.symbols.keys().map(String::as_str)
+    }
+}
 
 /// Which ends of runs on a definition are data under it ([`data_ends`]).
 #[derive(Clone, Copy, Debug)]

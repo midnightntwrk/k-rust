@@ -200,7 +200,7 @@ use kink_native::bridge::{
 };
 use kink_native::consistency::{CompiledEquations, MutantFailure, UnjoinedEquations};
 use kink_native::coverage::{RuleAuthors, TestCoverage};
-use kink_native::data::{DataEnds, DataFacts, data_ends};
+use kink_native::data::{DataEnds, DataFacts, Freezers, data_ends};
 use kink_native::exclusion::{DefinitionExclusions, Exclusion};
 use kink_native::execution::{
     AdaptedExecution, DefinitionTables, ExecutionAdapter, ExecutionAdapterFailure, ExecutionBudget,
@@ -4403,6 +4403,7 @@ fn judge_across(
         test,
         &compared(baseline),
         &[bindings(baseline), bindings(mutant), payloads(baseline)].concat(),
+        &baseline_runtime.freezers,
     );
     // Under the baseline's definition: the mutant's terminals, then its one-sided terminals.
     let mutant_ends = compared(mutant);
@@ -4415,6 +4416,7 @@ fn judge_across(
                 .chain(one_sided.iter().map(|terminal| terminal.state.clone()))
                 .collect::<Vec<_>>(),
             &payloads(mutant),
+            &mutant_runtime.freezers,
         );
     // A host's refusal of a stack a judgement under either definition needed is no answer about
     // the ends: the pair's mutant run fails as infrastructure, which kink-flow's outcome cache
@@ -4799,6 +4801,10 @@ struct Runtime {
     /// The KORE symbols declared `function` without a hook: the symbols equations define, whose
     /// application left in a leaf's state is one no equation reduces (a run's [`LeafCensus`]).
     functions: BTreeSet<String>,
+    /// The side's context freezers ([`Freezers`]): the other side of a pair reads one its own
+    /// definition does not declare as a fresh free constructor when it judges this side's ends
+    /// ([`judge_across`], PJ-35).
+    freezers: Freezers,
     /// The solver options of `backend` ([`LoadedSide::solver`]).
     solver: BackendOptions,
     /// The declarations a stop condition's read signature is read from
@@ -4921,6 +4927,7 @@ impl Runtime {
             &selected,
             &side.compile_options().builtin_source_prefixes,
         );
+        let freezers = Freezers::of(&side.artifacts().execution_definition, &selected);
         let context = EvaluationContext {
             test_id: String::new(),
             bounds: campaign.budget.bounds(),
@@ -4944,6 +4951,7 @@ impl Runtime {
             exclusions,
             data: None,
             functions,
+            freezers,
             solver,
             signature,
             observe: None,
@@ -5693,6 +5701,7 @@ impl Runtime {
         test: &TestCase,
         terminals: &[Pattern],
         bindings: &[Pattern],
+        foreign: &Freezers,
     ) -> (Result<EndJudgement, SegmentRefused>, usize, bool) {
         let refused = || EndJudgement {
             terminals: vec![false; terminals.len()],
@@ -5725,7 +5734,8 @@ impl Runtime {
                     TestInitialState::of_test(&test.initial_state),
                 )
                 .trusting_collections(trusted)
-                .judging_data(ends, ends);
+                .judging_data(ends, ends)
+                .reading_freezers(foreign);
                 let judgement = decider.host_refusal_during(|| {
                     let terminals = terminals
                         .iter()
@@ -6349,10 +6359,11 @@ mod tests {
                 // A pair's judgement of ends.
                 let end = judged.ends.iter().next().expect("an end").clone();
                 let (judgement, _, unjudged) =
-                    runtime.judge_ends(test, std::slice::from_ref(&end), &[]);
+                    runtime.judge_ends(test, std::slice::from_ref(&end), &[], &Freezers::default());
                 assert!(!unjudged && judgement.is_ok_and(|judgement| judgement.terminals[0]));
                 refuse(true);
-                let (judgement, _, unjudged) = runtime.judge_ends(test, &[end], &[]);
+                let (judgement, _, unjudged) =
+                    runtime.judge_ends(test, &[end], &[], &Freezers::default());
                 refuse(false);
                 assert!(unjudged && judgement.is_ok_and(|judgement| !judgement.terminals[0]));
 
@@ -6411,7 +6422,8 @@ mod tests {
 
                 let end = judged.ends.iter().next().expect("an end").clone();
                 stop(true);
-                let (judgement, _, unjudged) = runtime.judge_ends(test, &[end], &[]);
+                let (judgement, _, unjudged) =
+                    runtime.judge_ends(test, &[end], &[], &Freezers::default());
                 stop(false);
                 assert!(unjudged && judgement.is_ok_and(|judgement| judgement.terminals[0]));
             },

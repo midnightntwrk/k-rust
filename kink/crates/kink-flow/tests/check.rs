@@ -4377,3 +4377,94 @@ fn accept_reads_its_projection_from_the_command_line() {
         assert!(help.contains(option.spelling), "{help}");
     }
 }
+
+const IMP_K: &str = include_str!("../../../examples/imp/imp.k");
+
+/// PJ-35 (U35b): a strictness edit is judged on IMP and killed by a run difference on a case
+/// both grammars parse alike (`runs-differently`). Its claim removal withdraws nothing and
+/// refuses nothing (it redefines no symbol, kink-patch `strictness_only`), and its mutant compiles
+/// with the heating and cooling rules of its own strictness: `&&` made strict in both operands
+/// evaluates `1 / 0 <= 1` beside a false left operand and gets stuck, an end holding the freezer
+/// of `&&`'s second position, which only the mutant declares and the comparison reads as a free
+/// constructor (kink-native `Freezers`); `+` made strict in its first operand only gets stuck on
+/// `1 + (2 + 3)`; `<=` made `strict` evaluates its right operand first (an undeclared variable)
+/// where `seqstrict` gets stuck on `1 / 0`; `+` made `seqstrict` no longer reaches the undeclared
+/// variable of `1 / 0 + y`. The programs are this test's, not examples/imp's corpus.
+#[test]
+fn a_strictness_edit_on_imp_is_killed_by_a_run_difference() {
+    use serde_json::json;
+    let dir = scratch("imp-strictness");
+    write(&dir.join("imp.k"), IMP_K);
+    write(
+        &dir.join("FLOW.toml"),
+        "[spec]\nentry = \"imp.k\"\nmain_module = \"IMP\"\nsyntax_module = \"IMP-SYNTAX\"\n\n\
+         [budget]\ntime_ms = 10000\nmax_depth = 100000\nwork_factor = 4\n\n\
+         [[program]]\nid = \"short-circuit\"\ntext = \"int x; if (2 <= 1 && 1 / 0 <= 1) {} else {}\"\n\n\
+         [[program]]\nid = \"nested-sum\"\ntext = \"int x; x = 1 + (2 + 3);\"\n\n\
+         [[program]]\nid = \"order\"\ntext = \"int x; if (1 / 0 <= y) {} else {}\"\n\n\
+         [[program]]\nid = \"both-stuck\"\ntext = \"int x; x = 1 / 0 + y;\"\n",
+    );
+    let plus = |from: &str, to: &str| {
+        format!(
+            "  production = \"_+__IMP-SYNTAX_AExp_AExp_AExp\"\n  \
+             find = \"AExp \\\"+\\\" AExp              [left, {from}]\"\n  \
+             replace = \"AExp \\\"+\\\" AExp              [left, {to}]\""
+        )
+    };
+    let mutations = dir.join("MUTATIONS.toml");
+    write(
+        &mutations,
+        &[
+            one_edit(
+                "and-strict-both",
+                "  production = \"_&&__IMP-SYNTAX_BExp_BExp_BExp\"\n  find = \"strict(1)\"\n  \
+                 replace = \"strict\"",
+            ),
+            one_edit("plus-strict-first", &plus("strict", "strict(1)")),
+            one_edit(
+                "leq-strict",
+                "  production = \"_<=__IMP-SYNTAX_BExp_AExp_AExp\"\n  find = \"seqstrict\"\n  \
+                 replace = \"strict\"",
+            ),
+            one_edit("plus-seqstrict", &plus("strict", "seqstrict")),
+        ]
+        .concat(),
+    );
+    let manifest = dir.join("FLOW.toml");
+    let (check, _) = check_list(&manifest, &mutations, None);
+    for id in [
+        "and-strict-both",
+        "plus-strict-first",
+        "leq-strict",
+        "plus-seqstrict",
+    ] {
+        assert_eq!(row(&check, id)["outcome"], "ok", "{id}: {check:#}");
+    }
+    let (document, _) = flow_support::corpus_run(&manifest, &mutations);
+    for (id, killer) in [
+        ("and-strict-both", "short-circuit"),
+        ("plus-strict-first", "nested-sum"),
+        ("leq-strict", "order"),
+        ("plus-seqstrict", "both-stuck"),
+    ] {
+        let row = row(&document, id);
+        assert_eq!(
+            killed_as(row),
+            json!(["killed", killer, "runs-differently"]),
+            "{row:#}"
+        );
+        assert_eq!(
+            row["removed_claims"],
+            json!({"removed": [], "unsupported": []}),
+            "{id}"
+        );
+        assert!(
+            row["grammar"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|case| case["reparse"] == "same"),
+            "{row:#}"
+        );
+    }
+}
