@@ -10,9 +10,13 @@
 //!    (`generated-only`), a mutation whose tokens are the baseline's (`changes-no-node`), and
 //!    what it cannot hand on (`not-judged`); an edit of grammar declarations goes to the grammar
 //!    judgement ([`super::grammar_edits`]) instead of steps 2 and 3, which admits it by what it
-//!    does to the parse function and refuses an edit that changes no parse
-//!    (`no-parse-change`), a malformed `format` (`derived-mismatch`) and an edit of what is no
-//!    grammar (`not-judged`);
+//!    does to the parse function, or a constructor's strictness by what KRS authors, and
+//!    refuses an edit that changes neither (`no-parse-change`), a malformed `format`
+//!    (`derived-mismatch`), a strictness KRS refuses (its code) and an edit of what is no
+//!    grammar (`not-judged`); a mutation that edits grammar declarations and rules together has
+//!    its grammar declarations judged so, on the specification with only their edits applied,
+//!    and its rule sentences by steps 2 and 3, read under the mutant's grammar, and is admitted
+//!    only when every sentence is;
 //! 2. the re-derivation ([`krs_k_rust::lift`]) lifts each edited sentence's authored content
 //!    into the semantic IR and accepts the sentence only when it is what KRS emits for it; it
 //!    refuses a derived node that does not follow the edit (`derived-mismatch`), a mutation equal
@@ -94,8 +98,9 @@ const NEXT_NO_CHANGE: &str = "change what the rule says: the edited rule is the 
 /// The next step of a grammar edit the grammar judgement does not judge.
 const NEXT_GRAMMAR_NOT_JUDGED: &str = "edit what the program parser reads in the program \
      grammar's modules (a literal, a sort, an alternative, a group, an associativity or a \
-     disambiguation attribute), one production per change; a change of what a constructor means \
-     (its attributes, a subsort, a function's signature outside the program grammar) is a rule \
+     disambiguation attribute), one production per change, or a constructor's `strict` or \
+     `seqstrict` alone; any other change of what a constructor means (`result`, `hybrid`, another \
+     attribute, a subsort, a function's signature outside the program grammar) is a rule \
      mutation";
 const NEXT_NO_PARSE_CHANGE: &str = "change how a program's text parses: edit a literal, a sort, \
      an alternative, or a priority or associativity group; `format`, `color` and `colors` only \
@@ -1255,37 +1260,56 @@ impl<'a> KrsChecks<'a> {
             MutationVerdict::NeedsRederivation => {
                 self.rederivation(&check, &constructs, &mut judged);
             }
-            MutationVerdict::NeedsGrammarJudgement => self.grammar(&check, &mut judged),
-            MutationVerdict::GrammarAndRules => judged.not_judged(
-                check
-                    .judgement
-                    .sentences
-                    .first()
-                    .and_then(|sentence| sentence.edits.first().copied()),
-                "the mutation edits a grammar declaration and a rule together: a rule's \
-                 re-derivation reads the specification's grammar and a grammar mutant keeps every \
-                 rule's term, so neither judges both; write them as two mutations"
-                    .into(),
-            ),
+            MutationVerdict::NeedsGrammarJudgement => self.grammar(&check, &edits, &mut judged),
+            // Each sentence by its own stage: the grammar declarations by the grammar judgement,
+            // the rules by the re-derivation under the mutant's grammar (`MutantChecker::check`),
+            // whose theory check runs only when no sentence of either is refused.
+            MutationVerdict::GrammarAndRules => {
+                self.grammar(&check, &edits, &mut judged);
+                self.rederivation(&check, &constructs, &mut judged);
+            }
             _ => self.judge_refusals(&check, &mut judged),
         }
         judged
     }
 
-    /// The grammar judgement of a mutation whose every changed sentence is a grammar
-    /// declaration ([`super::grammar_edits`]): each refusal at the first edit of the sentence
-    /// its declarations start in.
-    fn grammar(&self, check: &MutationCheck, judged: &mut Judged) {
+    /// The grammar judgement of the grammar declarations a mutation changes
+    /// ([`super::grammar_edits`]), read on the specification with only their edits applied
+    /// (`EditJudgement::grammar_mutant`), so that a rule the mutation also edits is the
+    /// re-derivation's alone: each refusal at the first edit of the grammar sentence its
+    /// declarations start in.
+    fn grammar(&self, check: &MutationCheck, edits: &[KEdit<'_>], judged: &mut Judged) {
         let main = self.emitted.ir.main_module().as_str();
         let syntax_module = format!("{main}-SYNTAX");
+        let definition = &self.emitted.definition;
+        // KRS emits no strictness it did not read from an authored helper; a node the map marks
+        // inserted would be one.
+        let inserted_strictness = self
+            .nodes
+            .values()
+            .filter(|node| {
+                node.inserted
+                    && node.kind == SourceMapNodeKind::ProductionAttribute
+                    && definition.get(node.range.clone()).is_some_and(|text| {
+                        text.starts_with("strict") || text.starts_with("seqstrict")
+                    })
+            })
+            .map(|node| node.range.clone())
+            .collect::<Vec<_>>();
         let Err(refusals) = super::grammar_edits::judge(
-            &self.emitted.definition,
-            &check.judgement.mutant,
+            definition,
+            &check.judgement.grammar_mutant(definition, edits),
             &syntax_module,
+            &inserted_strictness,
         ) else {
             return;
         };
-        let sentences = &check.judgement.sentences;
+        let sentences = check
+            .judgement
+            .sentences
+            .iter()
+            .filter(|sentence| sentence.verdict == SentenceVerdict::Grammar)
+            .collect::<Vec<_>>();
         for (at, refusal) in refusals {
             // The sentence holding `at`, else the last one before it (an insertion continues
             // the sentence before it), else the first.
@@ -1309,6 +1333,9 @@ impl<'a> KrsChecks<'a> {
                 }
                 GrammarRefusal::NotJudged(detail) => {
                     judged.refuse(NOT_JUDGED, NEXT_GRAMMAR_NOT_JUDGED, edit, detail);
+                }
+                GrammarRefusal::Krs(code, detail) => {
+                    judged.refuse(code, krs_next(code, false, false), edit, detail);
                 }
             }
         }
@@ -1458,10 +1485,13 @@ impl<'a> KrsChecks<'a> {
         if !judged.refusals.is_empty() {
             return;
         }
+        // The first rule sentence's: a mutation that also edits grammar declarations has its
+        // rules' refusals placed on them.
         let first = check
             .judgement
             .sentences
-            .first()
+            .iter()
+            .find(|sentence| sentence.verdict != SentenceVerdict::Grammar)
             .and_then(|sentence| sentence.edits.first().copied());
         if check.unchanged() {
             judged.refuse(

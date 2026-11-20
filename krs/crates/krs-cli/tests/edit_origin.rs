@@ -1324,6 +1324,52 @@ fn story_mutations_are_accepted() {
     }
 }
 
+/// A mutation that edits a production and a rule together has its rule checked under the
+/// mutant's grammar: a rule written in the mutant's syntax is lifted and re-derived (KRS renders it
+/// in the specification's syntax, which reads to the same term), one written in the
+/// specification's syntax for the edited production no longer parses, and the production has no
+/// entry of this check (the grammar judgement's).
+#[test]
+fn a_rule_edited_beside_the_grammar_is_read_under_the_mutant_s_grammar() {
+    let baseline = baseline("story-plus", "NAT", STORY);
+    let succ = "rule plus ( s ( M:Nat ) , N:Nat )";
+    let production = "syntax Nat ::= \"s\"";
+    let checker = baseline.checker();
+    let check = |rule: (&str, &'static str)| {
+        let edits = [
+            baseline.view.edit(production, "\"s\"", "\"succ\""),
+            baseline.view.edit(succ, rule.0, rule.1),
+        ];
+        checker.check(&edits).unwrap()
+    };
+    let written = check((
+        "s ( M:Nat ) , N:Nat ) => s ( plus ( M:Nat , N:Nat ) )",
+        "succ ( M:Nat ) , N:Nat ) => succ ( N:Nat )",
+    ));
+    assert_eq!(
+        written.judgement.verdict(),
+        MutationVerdict::GrammarAndRules,
+        "{:#?}",
+        written.judgement
+    );
+    assert_eq!(written.sentences.len(), 1, "{written:#?}");
+    let accepted = written.sentences[0].outcome.as_ref().unwrap();
+    assert!(!accepted.unchanged && !accepted.deleted, "{accepted:#?}");
+    assert_eq!(
+        accepted.pre_derivation.as_ref().unwrap().id().item_name(),
+        "plus_succ"
+    );
+    // The whole mutation is the grammar judgement's to admit too.
+    assert!(!written.accepted());
+    // The rule left in the specification's syntax for `s`, which the mutant no longer has.
+    let stale = check(("s ( plus ( M:Nat , N:Nat ) )", "s ( N:Nat )"));
+    assert_eq!(stale.sentences.len(), 1, "{stale:#?}");
+    assert!(
+        matches!(&stale.sentences[0].outcome, Err(Refusal::Unparsable(_))),
+        "{stale:#?}"
+    );
+}
+
 /// A package that names neither `KItem` nor `KResult` and reads no collection KRS projects, so
 /// it emits no framework module, with a rule that binds a `Map` cell it does not read.
 const UNREAD: &str = r#"

@@ -3842,7 +3842,8 @@ fn grammar_mutation(id: &str, production: Option<&str>, find: &str, replace: &st
 /// part the parse function reads (`avoid`, `prefer`, `bracket`, `token`, `prec(N)`, a function's
 /// syntax). `check` refuses a `format`-only edit (`no-parse-change`), a changed symbol
 /// (`label-changed`), a `format` naming an item the edit removed (`derived-mismatch`) and an
-/// attribute that says what the constructor means (`not-judged`, with the grammar's next step).
+/// attribute that says what the constructor means (`result` added with a strictness: `not-judged`,
+/// with the grammar's next step).
 #[test]
 #[expect(
     clippy::too_many_lines,
@@ -3988,7 +3989,7 @@ fn run_judges_grammar_mutants_of_a_text_parsing_definition() {
             "strict",
             Some("expSyntaxSub"),
             "format(%1 %2 %3)]",
-            "format(%1 %2 %3), strict]",
+            "format(%1 %2 %3), strict, result(KResult)]",
         ),
     ];
     project.write("kink/check-grammar.toml", refused.concat());
@@ -4031,6 +4032,397 @@ fn run_judges_grammar_mutants_of_a_text_parsing_definition() {
         Some(line_of(GRAMMAR, "Sub { lhs: Exp, rhs: Exp }")),
         "{edit:#}"
     );
+}
+
+/// A text-parsing language with declared ends (an integer is finished): `+` and `-` strict in
+/// both operands, `&&` strict in its left one and keeping it (a short circuit), `twice`
+/// evaluated by its rule, `boom` stuck, and `half` whose condition divides.
+const STRICT_OPS: &str = r#"use k::builtin::{Int, KSequence, int};
+use k::{KResult, Term};
+
+k::sorts! {
+    #[k::bracket("(", ")")]
+    Exp;
+    Value: Exp + KResult;
+    impl Value for Int;
+}
+
+#[k::constructors(sort = Exp, result = KResult)]
+#[k::precedence((Twice, Boom, Half) > left (Add, Sub) > (And))]
+#[rustfmt::skip]
+pub enum Ops {
+    #[k::syntax("{lhs} + {rhs}")] #[k::strict]
+    Add { lhs: Exp, rhs: Exp },
+    #[k::syntax("{lhs} - {rhs}")] #[k::strict]
+    Sub { lhs: Exp, rhs: Exp },
+    #[k::syntax("{lhs} && {rhs}")] #[k::strict(lhs)]
+    And { lhs: Exp, rhs: Exp },
+    #[k::syntax("twice {e}")]
+    Twice { e: Exp },
+    #[k::syntax("boom")]
+    Boom(),
+    #[k::syntax("half {value}")]
+    Half { value: Int },
+}
+
+k::rules! {
+    for Exp;
+    use Ops::*;
+
+    add: Add { lhs, rhs } => int::add(lhs, rhs) where lhs: Int, rhs: Int;
+    sub: Sub { lhs, rhs } => int::sub(lhs, rhs) where lhs: Int, rhs: Int;
+    and: And { lhs, rhs } => lhs where lhs: Int;
+    twice: Twice { e } => Add { lhs: e, rhs: e };
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(pgm: Exp) -> Self {
+        Self { k: k::k![pgm] }
+    }
+}
+
+/// An integer is finished: every other stuck end is a gap.
+#[k::end(finished)]
+pub fn finished(
+    v: Term<Int>,
+    k::cells! {
+        k: k::configuration::KCell(v),
+        ..
+    }: Machine,
+) {
+}
+
+#[k::rule]
+#[k::requires(10 / value > 1)]
+fn half(k::term![Ops::Half { value }]: Term<Exp>) -> Term<Exp> {
+    Ops::Boom()
+}
+"#;
+
+/// The cases of [`STRICT_OPS`]'s corpus, by id.
+const STRICT_OPS_CASES: [(&str, &str); 6] = [
+    ("short", "0 && boom"),
+    ("lazy", "(1 + 1) && boom"),
+    ("nested", "1 + (2 + 3)"),
+    ("minus", "5 - 1 - 1"),
+    ("twice", "twice (1 + 1)"),
+    ("plain", "2 + 3"),
+];
+
+fn strict_ops_project() -> Project {
+    let mut flow = "[spec]\nkrs = { definition = \"main\" }\n".to_owned();
+    let mut files = vec![("src/lib.rs".to_owned(), STRICT_OPS.as_bytes().to_vec())];
+    for (id, text) in STRICT_OPS_CASES {
+        _ = write!(
+            flow,
+            "\n[[program]]\nid = \"{id}\"\nfile = \"cases/{id}.ops\"\n"
+        );
+        files.push((
+            format!("kink/cases/{id}.ops"),
+            format!("{text}\n").into_bytes(),
+        ));
+    }
+    files.push(("kink/FLOW.toml".to_owned(), flow.into_bytes()));
+    project_of("krs-cli-kink-strict-ops", "OPS", &files)
+}
+
+/// One `[[mutation.edit]]`: `find` becomes `replace` in the rule labelled `rule`, the production
+/// of symbol `production`, or the one declaration holding `find`.
+fn ops_edit(anchor: Option<(&str, &str)>, find: &str, replace: &str) -> String {
+    let anchor = anchor.map_or_else(String::new, |(key, name)| format!("  {key} = \"{name}\"\n"));
+    format!(
+        "  [[mutation.edit]]\n{anchor}  find = {}\n  replace = {}\n\n",
+        serde_json::to_string(find).unwrap(),
+        serde_json::to_string(replace).unwrap()
+    )
+}
+
+/// A mutation of the edits `edits`.
+fn ops_mutation(id: &str, edits: &[String]) -> String {
+    format!(
+        "[[mutation]]\nid = \"{id}\"\nmisunderstanding = \"{id}\"\n\n{}",
+        edits.concat()
+    )
+}
+
+/// PJ-35, U35c: `krs kink run` judges a mutation that edits grammar declarations and rules
+/// together, each sentence by its own stage (a rule written in the mutant's syntax is read under
+/// the mutant's grammar), and an edit of an authored constructor's strictness; it refuses a
+/// joint mutation one of whose sentences is refused, by either stage, and the strictness edits no
+/// Rust source writes (`hybrid`, `result`, a position KRS refuses).
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One run and one check document, read for each kind of mutation."
+)]
+fn run_judges_joint_and_strictness_mutants_of_a_text_parsing_definition() {
+    let project = strict_ops_project();
+    let production = |name| Some(("production", name));
+    let rule = |name| Some(("rule", name));
+    let mutations = [
+        // Strictness: `&&` strict in both operands evaluates `boom`, which is stuck.
+        ops_mutation(
+            "and-strict",
+            &[ops_edit(
+                production("opsAnd"),
+                "strict(1), result",
+                "strict, result",
+            )],
+        ),
+        // `+` no longer evaluates its right operand.
+        ops_mutation(
+            "add-lazy",
+            &[ops_edit(
+                production("opsAdd"),
+                "strict, result",
+                "strict(1), result",
+            )],
+        ),
+        // `&&` evaluates neither operand, `result` left as KRS writes it.
+        ops_mutation(
+            "and-unstrict",
+            &[ops_edit(
+                production("opsAnd"),
+                "strict(1), result(KResult)",
+                "result(KResult)",
+            )],
+        ),
+        // Strictness added, and `strict` for `seqstrict`: no case tells them apart.
+        ops_mutation(
+            "twice-strict",
+            &[ops_edit(
+                production("opsTwice"),
+                "format(%1 %2)]",
+                "format(%1 %2), strict]",
+            )],
+        ),
+        ops_mutation(
+            "sub-seq",
+            &[ops_edit(
+                production("opsSub"),
+                "strict, result",
+                "seqstrict, result",
+            )],
+        ),
+        // Joint: `+` and `-` right-associative, and `add` multiplies.
+        ops_mutation(
+            "joint-assoc",
+            &[
+                ops_edit(None, "syntax left", "syntax right"),
+                ops_edit(rule("add"), "+Int", "*Int"),
+            ],
+        ),
+        // Joint: `-` written `~`, and `sub`, written in the mutant's syntax, adds.
+        ops_mutation(
+            "joint-syntax",
+            &[
+                ops_edit(production("opsSub"), "Exp \"-\" Exp", "Exp \"~\" Exp"),
+                ops_edit(
+                    rule("sub"),
+                    "Lhs:Int - Rhs:Int => Lhs:Int -Int",
+                    "Lhs:Int ~ Rhs:Int => Lhs:Int +Int",
+                ),
+            ],
+        ),
+        // Joint, one sentence refused: by the grammar judgement, by the re-derivation, a rule
+        // half that changes nothing, a grammar half that changes no parse.
+        ops_mutation(
+            "joint-bad-grammar",
+            &[
+                ops_edit(
+                    production("opsTwice"),
+                    "format(%1 %2)]",
+                    "format(%1 %2), private]",
+                ),
+                ops_edit(rule("add"), "+Int", "*Int"),
+            ],
+        ),
+        ops_mutation(
+            "joint-bad-rule",
+            &[
+                ops_edit(None, "syntax left", "syntax right"),
+                ops_edit(
+                    rule("half"),
+                    "10 /Int Value:Int",
+                    "10 /Int (Value:Int +Int 1)",
+                ),
+            ],
+        ),
+        ops_mutation(
+            "joint-noop-rule",
+            &[
+                ops_edit(None, "syntax left", "syntax right"),
+                ops_edit(
+                    rule("and"),
+                    "Lhs:Int && Rhs:Exp => Lhs:Int",
+                    "L:Int && R:Exp => L:Int",
+                ),
+            ],
+        ),
+        ops_mutation(
+            "joint-print-grammar",
+            &[
+                ops_edit(production("opsTwice"), "format(%1 %2)]", "format(%1%2)]"),
+                ops_edit(rule("add"), "+Int", "*Int"),
+            ],
+        ),
+        // Strictness edits no Rust source writes.
+        ops_mutation(
+            "hybrid",
+            &[ops_edit(
+                production("opsAnd"),
+                "strict(1), result",
+                "hybrid, strict(1), result",
+            )],
+        ),
+        ops_mutation(
+            "result",
+            &[ops_edit(
+                production("opsAnd"),
+                "result(KResult)",
+                "result(Value)",
+            )],
+        ),
+        ops_mutation(
+            "add-with-result",
+            &[ops_edit(
+                production("opsTwice"),
+                "format(%1 %2)]",
+                "format(%1 %2), strict, result(KResult)]",
+            )],
+        ),
+        ops_mutation(
+            "and-position",
+            &[ops_edit(
+                production("opsAnd"),
+                "strict(1), result",
+                "strict(3), result",
+            )],
+        ),
+    ];
+    project.write("kink/MUTATIONS.toml", mutations.concat());
+    let output = project.kink("run", &["--cache", "kink/run-cache"]);
+    assert_status(&output, 2);
+    let document = json(&output);
+    for (id, status, direction, killer) in [
+        (
+            "and-strict",
+            "killed",
+            Some("runs-differently"),
+            Some("short"),
+        ),
+        (
+            "add-lazy",
+            "killed",
+            Some("runs-differently"),
+            Some("nested"),
+        ),
+        (
+            "and-unstrict",
+            "killed",
+            Some("runs-differently"),
+            Some("lazy"),
+        ),
+        ("twice-strict", "survived", None, None),
+        ("sub-seq", "survived", None, None),
+        // `(1 + 1) && boom` parses alike and runs to 1.
+        (
+            "joint-assoc",
+            "killed",
+            Some("runs-differently"),
+            Some("lazy"),
+        ),
+        // The first case that writes `-` is rejected by the mutant.
+        (
+            "joint-syntax",
+            "killed",
+            Some("mutant-rejects"),
+            Some("minus"),
+        ),
+    ] {
+        let row = row(&document, id);
+        assert_eq!(
+            (
+                row["status"].as_str(),
+                row["direction"].as_str(),
+                row["killer"].as_str()
+            ),
+            (Some(status), direction, killer),
+            "{id}: {row:#}"
+        );
+        // A strictness edit redefines no symbol, so no claim is withdrawn.
+        assert_eq!(
+            row["removed_claims"]["unsupported"],
+            json!([]),
+            "{id}: {row:#}"
+        );
+    }
+    for (id, reason) in [
+        ("joint-bad-grammar", "not-judged"),
+        ("joint-bad-rule", "derived-mismatch"),
+        ("joint-noop-rule", "no-change"),
+        ("joint-print-grammar", "no-parse-change"),
+        ("hybrid", "not-judged"),
+        ("result", "not-judged"),
+        ("add-with-result", "not-judged"),
+        ("and-position", "krs::syntax::invalid-strictness"),
+    ] {
+        let row = row(&document, id);
+        assert_eq!(
+            (row["status"].as_str(), row["reason"].as_str()),
+            (Some("invalid-mutation"), Some(reason)),
+            "{id}: {row:#}"
+        );
+    }
+
+    // `check` reports a refusal of each half of a joint mutation, at the edit of its sentence,
+    // and locates each edit by its own stage.
+    let both = ops_mutation(
+        "joint-both-bad",
+        &[
+            ops_edit(
+                production("opsTwice"),
+                "format(%1 %2)]",
+                "format(%1 %2), private]",
+            ),
+            ops_edit(
+                rule("half"),
+                "10 /Int Value:Int",
+                "10 /Int (Value:Int +Int 1)",
+            ),
+        ],
+    );
+    project.write("kink/check-joint.toml", both);
+    let output = project.kink("check", &["--mutations", "kink/check-joint.toml"]);
+    let document = json(&output);
+    let row = row(&document, "joint-both-bad");
+    let refusals = row["refusals"].as_array().unwrap();
+    assert_eq!(
+        refusals
+            .iter()
+            .map(|refusal| (refusal["reason"].as_str(), refusal["edit"].as_u64()))
+            .collect::<Vec<_>>(),
+        [
+            (Some("not-judged"), Some(0)),
+            (Some("derived-mismatch"), Some(1))
+        ],
+        "{row:#}"
+    );
+    let judged = row["krs"]["edits"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|edit| edit["judged"].as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(judged[0], Some("grammar"), "{row:#}");
+    assert_ne!(judged[1], Some("grammar"), "{row:#}");
 }
 
 /// `run` gives each mutation the front end refuses its first refusal, runs nothing for it, runs

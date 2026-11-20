@@ -19,7 +19,14 @@
 //!   relabelled production before this judgement (a changed declared label `label-changed`, a
 //!   derived one kept, `keep_derived_labels`), and an inserted production may declare a fresh
 //!   `symbol` but no `klabel` (which groups constructors under one label);
-//! - every other attribute (`strict`, `result`, `function`, `private`, ...) says what the
+//! - strictness: `strict` and `seqstrict` change no parse but say in which order a
+//!   constructor's arguments are evaluated, which KRS authors on a constructor
+//!   (`#[k::strict]`, `#[k::seqstrict]`; KRS never inserts one), so an edit of them on a
+//!   constructor production is a mutant some Rust source writes ([`Judgement::strictness`]):
+//!   positions changed, `strict` for `seqstrict` or back, strictness added or removed, each
+//!   position a nonterminal not of sort `K`, `result` and every other attribute left as they
+//!   are;
+//! - every other attribute (`result`, `hybrid`, `function`, `private`, ...) says what the
 //!   constructor means or who sees it, not how a text parses, so an edit of one is no grammar
 //!   mutation and is refused `not-judged`; so is a new subsort (a production of one nonterminal
 //!   and no name), which changes what the rules' variables match.
@@ -28,7 +35,7 @@
 //! module the program grammar does not import changes what the rules mean, not how a program
 //! parses, and refuses the mutation `not-judged`, whatever else it changes. A mutation whose
 //! changes are print-only (`format` or colors, or tags reordered inside a group) is refused
-//! `no-parse-change`.
+//! `no-parse-change`; a strictness edit is a change, though no parse changes.
 //!
 //! Both texts are read by k-rust's outer parser, which reads declarations as written and
 //! parses no rule body; each module's sentences are paired by their structure, spans ignored,
@@ -38,6 +45,7 @@
 //! associativity sentences compared as relations.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::ops::Range;
 
 use k_rust::outer::{
     self, Associativity, Attribute, Module, Position, Production, ProductionItem, Sentence, Span,
@@ -62,6 +70,12 @@ pub(crate) const PARSE_ATTRIBUTES: [&str; 9] = [
 const PRINT_ATTRIBUTES: [&str; 3] = ["format", "color", "colors"];
 /// The attributes that name the constructor.
 const NAME_ATTRIBUTES: [&str; 2] = ["symbol", "klabel"];
+/// The attributes that say in which order a constructor's arguments are evaluated.
+const STRICTNESS_ATTRIBUTES: [&str; 2] = ["strict", "seqstrict"];
+/// KRS's codes for a strictness no Rust source writes: a position of sort `KSequence` (K's `K`),
+/// and an empty or repeated position or one that names no field.
+const INVALID_STRICT_POSITION: &str = "krs::analysis::invalid-strictness";
+const INVALID_STRICTNESS: &str = "krs::syntax::invalid-strictness";
 
 /// Why the grammar judgement refuses an edit.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -73,6 +87,8 @@ pub(crate) enum GrammarRefusal {
     MalformedFormat(String),
     /// The edit changes what the judgement does not read as grammar.
     NotJudged(String),
+    /// The edit writes what KRS refuses of every Rust source, with KRS's code.
+    Krs(&'static str, String),
 }
 
 /// A refusal with the baseline byte its declarations start at (the place of the edit that
@@ -80,9 +96,16 @@ pub(crate) enum GrammarRefusal {
 pub(crate) type Placed = (usize, GrammarRefusal);
 
 /// Judges the grammar edits that turn `baseline` into `mutant`, two texts of `definition.k`,
-/// where `syntax_module` is the module whose grammar parses programs. `Ok(())` admits the
+/// where `syntax_module` is the module whose grammar parses programs and `inserted_strictness`
+/// holds the baseline bytes of each strictness KRS inserted on its own (none, as KRS emits
+/// today; a strictness edit of a production holding one is refused). `Ok(())` admits the
 /// mutation as a grammar mutant; otherwise the refusals, in text order.
-pub(crate) fn judge(baseline: &str, mutant: &str, syntax_module: &str) -> Result<(), Vec<Placed>> {
+pub(crate) fn judge(
+    baseline: &str,
+    mutant: &str,
+    syntax_module: &str,
+    inserted_strictness: &[Range<usize>],
+) -> Result<(), Vec<Placed>> {
     let unread = |which: &str, error: &dyn std::fmt::Display| {
         vec![(
             0,
@@ -123,7 +146,10 @@ pub(crate) fn judge(baseline: &str, mutant: &str, syntax_module: &str) -> Result
         )]);
     }
     let parsed = program_modules(&before, syntax_module);
-    let mut judgement = Judgement::default();
+    let mut judgement = Judgement {
+        inserted_strictness,
+        ..Judgement::default()
+    };
     for (old, new) in before.modules.iter().zip(&after.modules) {
         let reaches = parsed.contains(old.name.as_str());
         for hunk in hunks(old, new) {
@@ -331,6 +357,11 @@ fn attributes_in<'a>(attributes: &'a [Attribute], keys: &[&str]) -> Vec<&'a Attr
 
 /// The attributes that are neither parse, print nor name attributes, sorted.
 fn meaning_attributes(attributes: &[Attribute]) -> Vec<&Attribute> {
+    meaning_attributes_but(attributes, &[])
+}
+
+/// [`meaning_attributes`] but those of `keys`.
+fn meaning_attributes_but<'a>(attributes: &'a [Attribute], keys: &[&str]) -> Vec<&'a Attribute> {
     let mut chosen = attributes
         .iter()
         .filter(|attribute| {
@@ -338,6 +369,7 @@ fn meaning_attributes(attributes: &[Attribute]) -> Vec<&Attribute> {
             !PARSE_ATTRIBUTES.contains(&key)
                 && !PRINT_ATTRIBUTES.contains(&key)
                 && !NAME_ATTRIBUTES.contains(&key)
+                && !keys.contains(&key)
         })
         .collect::<Vec<_>>();
     chosen.sort_by(|a, b| (&a.key, &a.value).cmp(&(&b.key, &b.value)));
@@ -382,10 +414,14 @@ enum Relation {
 
 /// What the hunks of a mutation give.
 #[derive(Default)]
-struct Judgement {
+struct Judgement<'i> {
     refusals: Vec<Placed>,
     /// Whether some edit changes what the program parser reads.
     parse_changed: bool,
+    /// Whether some edit changes a constructor's strictness ([`Self::strictness`]).
+    strictness_changed: bool,
+    /// The baseline bytes of each strictness KRS inserted on its own.
+    inserted_strictness: &'i [Range<usize>],
     /// What the edits change that the program parser does not read, for the
     /// `no-parse-change` detail.
     unparsed: Vec<String>,
@@ -393,7 +429,7 @@ struct Judgement {
     first: Option<usize>,
 }
 
-impl Judgement {
+impl Judgement<'_> {
     fn refuse(&mut self, at: usize, refusal: GrammarRefusal) {
         self.refusals.push((at, refusal));
     }
@@ -634,28 +670,32 @@ impl Judgement {
             );
         }
         let (before, after) = (
-            meaning_attributes(&old.production.attributes),
-            meaning_attributes(&new.production.attributes),
+            meaning_attributes_but(&old.production.attributes, &STRICTNESS_ATTRIBUTES),
+            meaning_attributes_but(&new.production.attributes, &STRICTNESS_ATTRIBUTES),
         );
         if before != after {
+            let listed = |attributes: &[&Attribute]| {
+                attributes
+                    .iter()
+                    .map(|a| attribute_text(a))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
             self.refuse(
                 at,
                 GrammarRefusal::NotJudged(format!(
                     "the edit changes the attributes [{}] of {named} to [{}]: they say what the \
                      constructor means or who sees it, not how a text parses, so the edit is no \
-                     grammar mutation",
-                    before
-                        .iter()
-                        .map(|a| attribute_text(a))
-                        .collect::<Vec<_>>()
-                        .join(", "),
-                    after
-                        .iter()
-                        .map(|a| attribute_text(a))
-                        .collect::<Vec<_>>()
-                        .join(", ")
+                     grammar mutation (a strictness edit changes `strict` or `seqstrict` alone, \
+                     `result` and `hybrid` left as they are)",
+                    listed(&before),
+                    listed(&after)
                 )),
             );
+        } else if attributes_in(&old.production.attributes, &STRICTNESS_ATTRIBUTES)
+            != attributes_in(&new.production.attributes, &STRICTNESS_ATTRIBUTES)
+        {
+            self.strictness(at, old, new);
         }
         if old.parse_part() == new.parse_part() {
             self.unparsed
@@ -667,6 +707,93 @@ impl Judgement {
             }
         }
         self.check_format(at, new);
+    }
+
+    /// Judges an edit of the strictness of `old`, every other attribute kept: admitted where the
+    /// production is a constructor, whose strictness KRS authors (an enum variant's or a
+    /// constructor's `#[k::strict]` or `#[k::seqstrict]`) and does not insert, and the mutant's
+    /// strictness is one a Rust source writes.
+    ///
+    /// KRS writes `result(R)` beside every strictness, and the edit leaves `result` as it is,
+    /// which gives the same compiled definition as a source's: k-rust reads a production's
+    /// `result` only to lower that production's strictness (its contexts' result sort, `KResult`
+    /// where none is written), and emits it to no KORE, so a strictness removed with `result`
+    /// kept compiles as the source without the helper, and one added without `result` as
+    /// `#[k::strict(sequence = [..], result = k::KResult)]`, which every variant may write.
+    fn strictness(&mut self, at: usize, old: &Declared<'_>, new: &Declared<'_>) {
+        let named = old.named();
+        let span = old.production.span;
+        let refused = |why: String| {
+            GrammarRefusal::NotJudged(format!("the edit changes the strictness of {named}: {why}"))
+        };
+        if self
+            .inserted_strictness
+            .iter()
+            .any(|inserted| span.start.offset <= inserted.start && inserted.end <= span.end.offset)
+        {
+            self.refuse(
+                at,
+                refused(
+                    "KRS inserted that strictness on its own, so no Rust source authors it".into(),
+                ),
+            );
+            return;
+        }
+        let other = meaning_attributes_but(
+            &old.production.attributes,
+            &["strict", "seqstrict", "result"],
+        );
+        if old.symbol().is_none() || !other.is_empty() {
+            self.refuse(
+                at,
+                refused(format!(
+                    "KRS authors strictness on a constructor (`#[k::strict]`, `#[k::seqstrict]`), \
+                     and this production is none: it has {}",
+                    if other.is_empty() {
+                        "no symbol".to_owned()
+                    } else {
+                        format!(
+                            "the attributes [{}]",
+                            other
+                                .iter()
+                                .map(|a| attribute_text(a))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        )
+                    }
+                )),
+            );
+            return;
+        }
+        let items = &old.production.items;
+        if items
+            .iter()
+            .any(|item| matches!(item, ProductionItem::UserList { .. }))
+        {
+            self.refuse(
+                at,
+                refused(
+                    "a list's strictness is read by the overloads of its value list (a `Vals` \
+                     list joins only a strict list), which the judgement does not check yet"
+                        .into(),
+                ),
+            );
+            return;
+        }
+        let sorts = items
+            .iter()
+            .filter_map(|item| match item {
+                ProductionItem::NonTerminal { sort, .. } => Some(sort.name.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        for (side, declared) in [("specification", old), ("mutant", new)] {
+            if let Some(refusal) = strictness_form(side, declared, &sorts) {
+                self.refuse(at, refusal);
+                return;
+            }
+        }
+        self.strictness_changed = true;
     }
 
     fn inserted(&mut self, at: usize, new: &Declared<'_>) {
@@ -738,7 +865,7 @@ impl Judgement {
     }
 
     fn finish(mut self) -> Result<(), Vec<Placed>> {
-        if self.refusals.is_empty() && !self.parse_changed {
+        if self.refusals.is_empty() && !self.parse_changed && !self.strictness_changed {
             let mut unparsed = std::mem::take(&mut self.unparsed);
             unparsed.dedup();
             let what = if unparsed.is_empty() {
@@ -763,6 +890,76 @@ impl Judgement {
             Err(self.refusals)
         }
     }
+}
+
+/// The refusal of the strictness `declared` writes (`side` names the definition it is in), whose
+/// argument positions have the sorts `sorts`: none where it writes none, or one strategy naming
+/// distinct positions of arguments not of sort `K`, as a Rust source's `#[k::strict]` or
+/// `#[k::seqstrict]` does.
+fn strictness_form(side: &str, declared: &Declared<'_>, sorts: &[&str]) -> Option<GrammarRefusal> {
+    let named = declared.named();
+    let written = attributes_in(&declared.production.attributes, &STRICTNESS_ATTRIBUTES);
+    if written.len() > 1 {
+        return Some(GrammarRefusal::Krs(
+            INVALID_STRICTNESS,
+            format!(
+                "the {side}'s {named} is both `strict` and `seqstrict`; a constructor declares \
+                 one evaluation strategy"
+            ),
+        ));
+    }
+    let attribute = written.first()?;
+    let text = attribute_text(attribute);
+    let value = attribute.value.as_deref().unwrap_or_default().trim();
+    let positions = if value.is_empty() {
+        Some((1..=sorts.len()).collect::<Vec<_>>())
+    } else {
+        value
+            .split(',')
+            .map(|part| {
+                let part = part.trim();
+                part.bytes()
+                    .all(|byte| byte.is_ascii_digit())
+                    .then(|| part.parse::<usize>().ok())
+                    .flatten()
+            })
+            .collect::<Option<Vec<_>>>()
+    };
+    let Some(positions) = positions else {
+        return Some(GrammarRefusal::NotJudged(format!(
+            "the edit changes the strictness of {named}: the {side} writes `{text}`, which names \
+             a context alias or no positions; a strictness that names positions only is judged"
+        )));
+    };
+    let mut seen = BTreeSet::new();
+    let bad = positions
+        .iter()
+        .find(|&&position| position == 0 || position > sorts.len() || !seen.insert(position));
+    if positions.is_empty() || bad.is_some() {
+        return Some(GrammarRefusal::Krs(
+            INVALID_STRICTNESS,
+            format!(
+                "the {side}'s `{text}` of {named} names {}, and the production has {} argument \
+                 positions: each strict position names one argument, once",
+                bad.map_or_else(
+                    || "no position".to_owned(),
+                    |position| format!("position {position}")
+                ),
+                sorts.len()
+            ),
+        ));
+    }
+    let position = positions
+        .iter()
+        .find(|&&position| sorts[position - 1] == "K")?;
+    Some(GrammarRefusal::Krs(
+        INVALID_STRICT_POSITION,
+        format!(
+            "the {side}'s `{text}` of {named} makes position {position} strict, whose sort is \
+             `K` (KRS's `KSequence`): a sequence of items is no item heating can move, so KRS \
+             refuses that strictness"
+        ),
+    ))
 }
 
 /// Whether `declared` declares a subsort: one nonterminal, no terminal and no name.
@@ -807,7 +1004,9 @@ fn format_references(text: &str) -> Option<Vec<usize>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{GrammarRefusal, format_references, judge};
+    use super::{
+        GrammarRefusal, INVALID_STRICT_POSITION, INVALID_STRICTNESS, format_references, judge,
+    };
 
     const BASE: &str = r#"module T-SYNTAX
   imports INT-SYNTAX
@@ -815,6 +1014,10 @@ mod tests {
   syntax Exp
   syntax Exp ::= "count" "(" Int ")" [symbol(count), group(g-a), format(%1%2%3%4), strict]
   syntax Exp ::= Exp "+" Exp [symbol(plus), group(g-b), format(%1 %2 %3)]
+  syntax Exp ::= Exp "&&" Exp [symbol(and), group(g-c), strict(1), result(KResult)]
+  syntax Exp ::= Exp ";" K [symbol(seq), group(g-c)]
+  syntax Exp ::= "f" Exp [symbol(f), function]
+  syntax Exp ::= "h" Exp Exp [symbol(h), group(g-c), hybrid, strict]
   syntax Exp ::= "(" Exp ")" [bracket, format(%1%2%3)]
   syntax Exp ::= "-" Exp [symbol(neg), right, format(%2)]
   syntax Exp ::= "[" Exp "]"
@@ -841,7 +1044,7 @@ endmodule
             assert_eq!(mutant.matches(find).count(), 1, "{find}");
             mutant = mutant.replace(find, replace);
         }
-        judge(BASE, &mutant, "T-SYNTAX")
+        judge(BASE, &mutant, "T-SYNTAX", &[])
             .map_err(|refusals| refusals.into_iter().map(|(_, refusal)| refusal).collect())
     }
 
@@ -855,6 +1058,7 @@ endmodule
                 GrammarRefusal::NoParseChange(_) => "no-parse-change",
                 GrammarRefusal::MalformedFormat(_) => "derived-mismatch",
                 GrammarRefusal::NotJudged(_) => "not-judged",
+                GrammarRefusal::Krs(code, _) => code,
             })
             .collect()
     }
@@ -998,7 +1202,6 @@ endmodule
                 "  syntax Exp ::= \"(\"",
                 "  syntax Exp ::= \"one\" [klabel(count)]\n  syntax Exp ::= \"(\"",
             ),
-            ("format(%1%2%3%4), strict]", "format(%1%2%3%4)]"),
             (
                 "[symbol(plus), group(g-b)",
                 "[symbol(plus), group(g-b), private",
@@ -1013,6 +1216,102 @@ endmodule
             let result = judged(find, replace);
             assert_eq!(reason(&result), ["not-judged"], "{find}: {result:?}");
         }
+    }
+
+    /// A constructor's strictness is editable where a Rust source writes the result: positions,
+    /// the strategy, strictness added or removed, `result` kept; `hybrid`, `result`, alias
+    /// forms, a function, an inserted strictness and positions KRS refuses are not.
+    #[test]
+    fn strictness_edits_are_judged() {
+        for (find, replace) in [
+            ("strict(1), result(KResult)", "strict, result(KResult)"),
+            ("strict(1), result(KResult)", "strict(2), result(KResult)"),
+            ("strict(1), result(KResult)", "strict(2,1), result(KResult)"),
+            (
+                "strict(1), result(KResult)",
+                "seqstrict(1), result(KResult)",
+            ),
+            ("strict(1), result(KResult)", "result(KResult)"),
+            ("format(%1%2%3%4), strict]", "format(%1%2%3%4)]"),
+            ("format(%1 %2 %3)]", "format(%1 %2 %3), strict]"),
+            ("format(%1 %2 %3)]", "format(%1 %2 %3), seqstrict(2)]"),
+            (
+                "[symbol(seq), group(g-c)]",
+                "[symbol(seq), group(g-c), strict(1)]",
+            ),
+        ] {
+            assert_eq!(judged(find, replace), Ok(()), "{find} -> {replace}");
+        }
+        for (find, replace, reasons) in [
+            // Another attribute beside the strictness, or instead of it.
+            (
+                "strict(1), result(KResult)",
+                "strict, result(Int)",
+                vec!["not-judged"],
+            ),
+            (
+                "strict(1), result(KResult)",
+                "strict(1)",
+                vec!["not-judged"],
+            ),
+            (
+                "format(%1 %2 %3)]",
+                "format(%1 %2 %3), strict, result(KResult)]",
+                vec!["not-judged"],
+            ),
+            ("hybrid, strict]", "hybrid, strict(1)]", vec!["not-judged"]),
+            ("hybrid, strict]", "strict]", vec!["not-judged"]),
+            // Not a constructor's, or an alias form.
+            (
+                "[symbol(f), function]",
+                "[symbol(f), function, strict]",
+                vec!["not-judged"],
+            ),
+            (
+                "strict(1), result(KResult)",
+                "strict(c; 1), result(KResult)",
+                vec!["not-judged"],
+            ),
+            // Positions KRS refuses.
+            (
+                "strict(1), result(KResult)",
+                "strict(3), result(KResult)",
+                vec!["krs::syntax::invalid-strictness"],
+            ),
+            (
+                "strict(1), result(KResult)",
+                "strict(1,1), result(KResult)",
+                vec!["krs::syntax::invalid-strictness"],
+            ),
+            (
+                "strict(1), result(KResult)",
+                "strict(1), seqstrict(2), result(KResult)",
+                vec!["krs::syntax::invalid-strictness"],
+            ),
+            (
+                "[symbol(seq), group(g-c)]",
+                "[symbol(seq), group(g-c), strict]",
+                vec!["krs::analysis::invalid-strictness"],
+            ),
+        ] {
+            let result = judged(find, replace);
+            assert_eq!(reason(&result), reasons, "{find} -> {replace}: {result:?}");
+        }
+        for code in [INVALID_STRICTNESS, INVALID_STRICT_POSITION] {
+            assert_eq!(krs_diagnostic::codes::static_spelling(code), Some(code));
+        }
+        // A strictness KRS inserted.
+        let at = BASE.find("strict(1)").unwrap();
+        let mutant = BASE.replace("strict(1), result", "strict, result");
+        let inserted = at..at + "strict(1)".len();
+        let result = judge(BASE, &mutant, "T-SYNTAX", std::slice::from_ref(&inserted));
+        assert!(
+            matches!(&result, Err(refusals) if matches!(
+                &refusals[..],
+                [(_, GrammarRefusal::NotJudged(detail))] if detail.contains("inserted")
+            )),
+            "{result:?}"
+        );
     }
 
     #[test]

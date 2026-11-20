@@ -16,7 +16,12 @@
 //! An edit of a grammar declaration KRS emitted from authored syntax (a production, a priority
 //! or an associativity sentence) is handed to the grammar judgement instead
 //! ([`SentenceVerdict::Grammar`]), which decides it by what it does to the parse function: a
-//! grammar mutant models an implementer's parser, and its rules keep their terms.
+//! grammar mutant models an implementer's parser, and its unedited rules keep their terms.
+//! A mutation may change grammar declarations and rules together
+//! ([`MutationVerdict::GrammarAndRules`]): each sentence is judged by its own stage, the
+//! grammar declarations on the baseline with only their edits applied
+//! ([`EditJudgement::grammar_mutant`]), the rules by the second stage under the mutant's
+//! grammar, and the mutation is accepted only when every sentence is.
 //! Every other changed sentence needs the second stage, which parses the mutant, derives what
 //! KRS derives from the edited authored content and compares the mutant's sentence with that
 //! derivation's rendering; until a caller has run it, the judge's answer for such a sentence
@@ -88,10 +93,11 @@ pub enum MutationVerdict {
     /// the mutation may be accepted only once the grammar judgement accepts its edits of the
     /// grammar. This is not an acceptance.
     NeedsGrammarJudgement,
-    /// The judge refuses no sentence, but the mutation changes a grammar declaration and a rule
-    /// together: the rule's re-derivation reads the baseline's grammar and the grammar
-    /// judgement keeps every rule's term, so neither stage judges both, and the mutation is
-    /// refused.
+    /// The judge refuses nothing, every changed sentence is [`SentenceVerdict::Grammar`] or
+    /// [`SentenceVerdict::NeedsRederivation`], and both kinds are present: the mutation may be
+    /// accepted only once the grammar judgement accepts its edits of the grammar (read on
+    /// [`EditJudgement::grammar_mutant`]) and the re-derivation accepts each rule sentence,
+    /// whose text it reads under the mutant's grammar. This is not an acceptance.
     GrammarAndRules,
 }
 
@@ -123,8 +129,39 @@ impl EditJudgement {
     pub fn refused(&self) -> bool {
         !matches!(
             self.verdict(),
-            MutationVerdict::NeedsRederivation | MutationVerdict::NeedsGrammarJudgement
+            MutationVerdict::NeedsRederivation
+                | MutationVerdict::NeedsGrammarJudgement
+                | MutationVerdict::GrammarAndRules
         )
+    }
+
+    /// The indices of the edits that change a [`SentenceVerdict::Grammar`] sentence, ascending.
+    #[must_use]
+    pub fn grammar_edits(&self) -> Vec<usize> {
+        let mut edits = self
+            .sentences
+            .iter()
+            .filter(|sentence| sentence.verdict == SentenceVerdict::Grammar)
+            .flat_map(|sentence| sentence.edits.iter().copied())
+            .collect::<Vec<_>>();
+        edits.sort_unstable();
+        edits.dedup();
+        edits
+    }
+
+    /// The grammar mutant: `source`, a text of the baseline's length or the baseline itself, with
+    /// only [`Self::grammar_edits`] of `edits` applied, the edits this judgement was made of.
+    /// The grammar judgement of a mutation that also changes rules reads its declarations from
+    /// it, so that no rule edit reaches that judgement.
+    ///
+    /// # Panics
+    ///
+    /// When `edits` are not the edits of this judgement, so that an edit does not fit `source`.
+    #[must_use]
+    pub fn grammar_mutant(&self, source: &str, edits: &[KEdit<'_>]) -> String {
+        let mut order = self.grammar_edits();
+        order.sort_by_key(|&index| (edits[index].range.start, edits[index].range.end, index));
+        apply_edits(source, edits, &order)
     }
 }
 
@@ -2301,7 +2338,8 @@ endmodule
     /// An edit of a grammar declaration KRS emitted from authored syntax is handed to the
     /// grammar judgement, whatever part of it the edit changes; one of a production KRS
     /// inserted is refused as an edit of an inserted node; and a mutation that changes a
-    /// grammar declaration and a rule together is refused.
+    /// grammar declaration and a rule together hands each to its own stage, the grammar
+    /// judgement reading the baseline with the grammar edits alone.
     #[test]
     fn grammar_declarations_go_to_the_grammar_judgement() {
         for edits in [
@@ -2345,7 +2383,19 @@ endmodule
         let judgement = judge(&[edit(PRODUCTION, "go", "went"), edit(GO, "+Int 1", "+Int 2")]);
         assert_eq!(judgement.sentences.len(), 2, "{judgement:#?}");
         assert_eq!(judgement.verdict(), MutationVerdict::GrammarAndRules);
-        assert!(judgement.refused());
+        assert!(!judgement.refused());
+        let edits = [edit(PRODUCTION, "go", "went"), edit(GO, "+Int 1", "+Int 2")];
+        assert_eq!(judgement.grammar_edits(), [0]);
+        let grammar = judgement.grammar_mutant(TEXT, &edits);
+        assert_eq!(grammar, judge(&edits[..1]).mutant);
+        assert_ne!(grammar, judgement.mutant);
+        // A refused sentence beside them refuses the mutation.
+        let judgement = judge(&[
+            edit(PRODUCTION, "go", "went"),
+            edit(GO, "+Int 1", "+Int 2"),
+            edit(LIFTED, "lifted", "raised"),
+        ]);
+        assert_eq!(judgement.verdict(), MutationVerdict::Refused);
     }
 
     /// A sentence's own tokens are the sentence node's, and authored; layout and comments are

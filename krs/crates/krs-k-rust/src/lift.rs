@@ -26,6 +26,16 @@
 //! showing the text KRS derives. A mutation whose every changed sentence is the baseline's up to
 //! renaming changes nothing and is refused.
 //!
+//! A mutation that also changes grammar declarations ([`MutationVerdict::GrammarAndRules`]) is a
+//! grammar mutant whose edited rules kink reads under the mutant's grammar, and KRS renders a
+//! rule's constructors in their concrete syntax, so such a rule may be written in the mutant's
+//! syntax: step 1 then reads the mutant's sentence, and its authored content, with the rule
+//! grammar of the mutant's definition ([`MutantChecker::check`]), and step 5 reads KRS's
+//! rendering, which is in the baseline's syntax, with the baseline's. The lift and the
+//! comparison read labels, sorts and variables, which the two grammars share for every
+//! production the mutant keeps (kink keeps a production's label), so they are unchanged. The
+//! grammar declarations themselves are not judged here.
+//!
 //! Refusals are sound by construction (a refused mutant is never run); every place where the
 //! lift reads less than KRS writes is a refusal, never an acceptance. One is coarser than the
 //! judge: a part of the sentence that holds a lookup guard or a local function is not lifted, so
@@ -147,13 +157,17 @@ pub struct MutationCheck {
     /// The judge's answer, where every sentence whose edits change only key cells KRS adds and
     /// the keys the sentence passes is handed on ([`MutantChecker::check`]).
     pub judgement: EditJudgement,
-    /// One entry per sentence the judge hands on, in text order; empty when the judge refuses.
+    /// One entry per sentence the judge hands on to this check, in text order: every changed
+    /// sentence of a rule mutation, the rule sentences of a mutation that also changes grammar
+    /// declarations; empty when the judge refuses.
     pub sentences: Vec<SentenceCheck>,
 }
 
 impl MutationCheck {
     /// Whether the mutation is accepted: the judge refuses nothing, every changed sentence is
-    /// accepted, and some changed sentence is not the baseline's up to renaming.
+    /// accepted, and some changed sentence is not the baseline's up to renaming. A mutation that
+    /// also changes grammar declarations is never accepted by this check alone: its grammar
+    /// edits are the grammar judgement's.
     #[must_use]
     pub fn accepted(&self) -> bool {
         self.judgement.verdict() == MutationVerdict::NeedsRederivation
@@ -590,6 +604,30 @@ fn present(term: Term) -> Option<Term> {
         .then_some(term)
 }
 
+/// k-rust's load of the `definition.k` text `source`, whose main module is `main`.
+fn load(source: &str, main: String) -> Result<LoadedDefinition, CheckerError> {
+    let options = LoadOptions {
+        implicit_sources: vec![
+            builtin::embedded("kast.md").ok_or_else(|| CheckerError::Load("kast.md".into()))?,
+            builtin::embedded("prelude.md")
+                .ok_or_else(|| CheckerError::Load("prelude.md".into()))?,
+        ],
+        ..LoadOptions::default()
+    };
+    let mut resolver = |_: &str, required: &str| {
+        builtin::embedded(required).ok_or_else(|| format!("no builtin source {required}"))
+    };
+    let (loaded, _) = load_for_compilation(
+        ResolvedSource::new(DEFINITION_ARTIFACT, source),
+        main,
+        None,
+        &mut resolver,
+        &options,
+    )
+    .map_err(|error| CheckerError::Load(error.to_string()))?;
+    Ok(loaded)
+}
+
 impl<'a> MutantChecker<'a> {
     /// The check over the baseline `rederivation`, whose `definition.k` is `source`, indexed by
     /// `map`.
@@ -608,25 +646,7 @@ impl<'a> MutantChecker<'a> {
             .main_module()
             .as_str()
             .to_owned();
-        let options = LoadOptions {
-            implicit_sources: vec![
-                builtin::embedded("kast.md").ok_or_else(|| CheckerError::Load("kast.md".into()))?,
-                builtin::embedded("prelude.md")
-                    .ok_or_else(|| CheckerError::Load("prelude.md".into()))?,
-            ],
-            ..LoadOptions::default()
-        };
-        let mut resolver = |_: &str, required: &str| {
-            builtin::embedded(required).ok_or_else(|| format!("no builtin source {required}"))
-        };
-        let (loaded, _) = load_for_compilation(
-            ResolvedSource::new(DEFINITION_ARTIFACT, source),
-            main,
-            None,
-            &mut resolver,
-            &options,
-        )
-        .map_err(|error| CheckerError::Load(error.to_string()))?;
+        let loaded = load(source, main)?;
         let mut nodes = Vec::new();
         for entry in map.entries() {
             let Some(generated) = entry.generated() else {
@@ -690,20 +710,46 @@ impl<'a> MutantChecker<'a> {
     /// whether or not the baseline's author wrote the cell, so it is judged the same, by the
     /// lift ([`Self::added_key`]).
     ///
+    /// A mutation that also changes grammar declarations ([`MutationVerdict::GrammarAndRules`])
+    /// has each of its rule sentences checked with the mutant's sentence text, and its authored
+    /// content, read under the mutant's grammar ([`Self::mutant_grammar`]); its grammar
+    /// declarations are the grammar judgement's, and have no entry here.
+    ///
     /// # Errors
     ///
     /// The judge's error for edits it cannot apply.
     pub fn check(&self, edits: &[KEdit<'_>]) -> Result<MutationCheck, JudgeError> {
         let mut judgement = judge_edits(self.source, self.map, DEFINITION_ARTIFACT, edits)?;
         self.hand_on_key_edits(&mut judgement, edits);
-        let sentences = if judgement.verdict() == MutationVerdict::NeedsRederivation {
-            judgement
+        let sentences = match judgement.verdict() {
+            MutationVerdict::NeedsRederivation => judgement
                 .sentences
                 .iter()
                 .map(|sentence| self.check_sentence(edits, &judgement, sentence))
-                .collect()
-        } else {
-            Vec::new()
+                .collect(),
+            MutationVerdict::GrammarAndRules => {
+                let grammar = self.mutant_grammar(edits, &judgement);
+                judgement
+                    .sentences
+                    .iter()
+                    .filter(|sentence| sentence.verdict != SentenceVerdict::Grammar)
+                    .map(|sentence| match &grammar {
+                        Ok(grammar) => {
+                            self.check_sentence_in(edits, &judgement, sentence, Some(grammar))
+                        }
+                        Err(error) => SentenceCheck {
+                            sentence: sentence.sentence.clone(),
+                            item: sentence.item.clone(),
+                            outcome: Err(Refusal::NotJudged(NotJudged::Sentence(format!(
+                                "the rule is read under the mutant's grammar, and the \
+                                 specification with the mutation's grammar edits and without \
+                                 its rules and claims does not load: {error}"
+                            )))),
+                        },
+                    })
+                    .collect()
+            }
+            _ => Vec::new(),
         };
         Ok(MutationCheck {
             judgement,
@@ -711,13 +757,61 @@ impl<'a> MutantChecker<'a> {
         })
     }
 
-    /// Checks one sentence the judge hands on.
+    /// Checks one sentence the judge hands on, reading it under the baseline's grammar.
     #[must_use]
     pub fn check_sentence(
         &self,
         edits: &[KEdit<'_>],
         judgement: &EditJudgement,
         sentence: &SentenceJudgement,
+    ) -> SentenceCheck {
+        self.check_sentence_in(edits, judgement, sentence, None)
+    }
+
+    /// The mutant's grammar: k-rust's load of [`EditJudgement::grammar_mutant`] of the baseline
+    /// with every rule and claim sentence blanked, its offsets kept. Its grammar is the
+    /// baseline's grammar declarations with the mutation's grammar edits, which a rule or claim
+    /// does not change, and it parses no rule of the baseline: kink keeps an unedited rule's
+    /// term, so no such rule needs to parse under the mutant's grammar.
+    fn mutant_grammar(
+        &self,
+        edits: &[KEdit<'_>],
+        judgement: &EditJudgement,
+    ) -> Result<LoadedDefinition, CheckerError> {
+        let mut blanked = self.source.as_bytes().to_vec();
+        for node in &self.nodes {
+            if matches!(
+                node.kind,
+                SourceMapNodeKind::Rule | SourceMapNodeKind::Claim
+            ) {
+                for byte in &mut blanked[node.range.clone()] {
+                    if *byte != b'\n' {
+                        *byte = b' ';
+                    }
+                }
+            }
+        }
+        // Each range starts and ends at a character boundary, and every byte of it is now
+        // ASCII.
+        let blanked = String::from_utf8(blanked).map_err(|_| CheckerError::Map)?;
+        let main = self
+            .rederivation
+            .lowered()
+            .definition()
+            .main_module()
+            .as_str()
+            .to_owned();
+        load(&judgement.grammar_mutant(&blanked, edits), main)
+    }
+
+    /// [`Self::check_sentence`], reading the mutant's sentence under `grammar` where one is
+    /// given (the mutant's), else under the baseline's.
+    fn check_sentence_in(
+        &self,
+        edits: &[KEdit<'_>],
+        judgement: &EditJudgement,
+        sentence: &SentenceJudgement,
+        grammar: Option<&LoadedDefinition>,
     ) -> SentenceCheck {
         let outcome = match &sentence.verdict {
             SentenceVerdict::NeedsRederivation { containers } => {
@@ -730,6 +824,7 @@ impl<'a> MutantChecker<'a> {
                     &judgement.mutant,
                     &sentence.sentence,
                     &containers,
+                    grammar,
                 )
             }
             _ => Err(Refusal::NotJudged(NotJudged::Sentence(
@@ -757,7 +852,13 @@ impl<'a> MutantChecker<'a> {
                 "{key} is no sentence of the definition"
             ))));
         };
-        self.check_edited(&[], self.source, key, &[(node.range.clone(), node.kind)])
+        self.check_edited(
+            &[],
+            self.source,
+            key,
+            &[(node.range.clone(), node.kind)],
+            None,
+        )
     }
 
     /// The rule sentences of the baseline's `definition.k`, by key, in text order.
@@ -780,13 +881,18 @@ impl<'a> MutantChecker<'a> {
             .collect()
     }
 
+    /// The check of the sentence `key` of `mutant`, whose text and authored content are read
+    /// under `grammar` where one is given (a grammar mutant's), else under the baseline's; KRS's
+    /// rendering and the baseline's sentence are read under the baseline's.
     fn check_edited(
         &self,
         edits: &[Trimmed],
         mutant: &str,
         key: &SourceMapKey,
         containers: &[(Range<usize>, SourceMapNodeKind)],
+        grammar: Option<&LoadedDefinition>,
     ) -> Result<Accepted, Refusal> {
+        let mutant_grammar = grammar.unwrap_or(&self.loaded);
         let sentence = self
             .by_key
             .get(key)
@@ -838,9 +944,16 @@ impl<'a> MutantChecker<'a> {
             return Err(Refusal::NotJudged(NotJudged::Attributes));
         }
         let module = site.emitted_module.clone();
-        let mutant_parse = self.parse(&module, &mutant_text[mutant_split.contents.clone()])?;
-        let authored_parse =
-            self.parse(&module, &authored_text[authored_split.contents.clone()])?;
+        let mutant_parse = Self::parse_in(
+            mutant_grammar,
+            &module,
+            &mutant_text[mutant_split.contents.clone()],
+        )?;
+        let authored_parse = Self::parse_in(
+            mutant_grammar,
+            &module,
+            &authored_text[authored_split.contents.clone()],
+        )?;
         let lifted = self.lift_sentence(&site, sentence, &nodes, &authored_parse, containers)?;
         let rederived =
             self.rederivation
@@ -878,6 +991,15 @@ impl<'a> MutantChecker<'a> {
     }
 
     fn parse(&self, module: &str, contents: &str) -> Result<ParsedRule, Refusal> {
+        Self::parse_in(&self.loaded, module, contents)
+    }
+
+    /// `contents`, a rule's text, parsed with the rule grammar of `module` in `grammar`.
+    fn parse_in(
+        grammar: &LoadedDefinition,
+        module: &str,
+        contents: &str,
+    ) -> Result<ParsedRule, Refusal> {
         let attributes = Attributes::new(BTreeMap::from([
             (
                 k_rust::definition::SOURCE_ATTRIBUTE.into(),
@@ -889,12 +1011,7 @@ impl<'a> MutantChecker<'a> {
             ),
             ("contentStartOffset".into(), serde_json::json!(0)),
         ]));
-        match k_rust::inner::parse_rule_content(
-            self.loaded.resolved(),
-            module,
-            contents,
-            attributes,
-        ) {
+        match k_rust::inner::parse_rule_content(grammar.resolved(), module, contents, attributes) {
             Ok(Sentence::Rule {
                 body,
                 requires,
