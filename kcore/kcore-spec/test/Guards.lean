@@ -17,8 +17,9 @@
     false or its right side without a value), the function has no value. On a hand-built
     `g1x() => ?B ensures ?B` with `post := ?B ∈ false`, for every H: no value
     (`G1Ex.g1x_noValue_everyH`); without the `post`, the instance at `B := true` gives `true`
-    (`G1Ex.g1x_reached_everyH`). The reader reads no function equation with existential variables
-    (`Parse.clauseBody` refuses an `\exists` on the right side), so no kompiled text gives one.
+    (`G1Ex.g1x_reached_everyH`). `g1x` is hand-built; the reader writes a clause with existential
+    variables from an equation whose right side has `\exists`, a conjunction or a disjunction of
+    terms (`Parse.ceRead`, `existentialClause`).
   - G2, the same beside an `[owise]` equation (in place of the refusal `ensuresPriority`):
     `f2-examples/ens-owise.kompile.kore`, for every H (`EnsOwise.half_neg4_gamma`).
   - G3, `projectionDomainAsClause`: krust's texts hold, for every sort X, the selector-domain axiom
@@ -179,6 +180,23 @@
     every H: a rewrite axiom whose left side holds `\floor{SortBool{}, SortBool{}}(x)` of an element
     variable is entailed by Γ, from Bool's two literals (`inertVacuousLeftAtBool_everyH`). The
     fixture sentences are in test/InertEvFixtures.lean.
+  - `existentialClause` (`CeGuard`), for every semantics with `coreOK` and every H: an item of
+    `Γ (c.withHooks H)` whose right side is `∃x:s. t ∧ (⊤_S ∧ ψ)`, a conjunction of terms
+    `∃z. z ∧ (⊤ ∧ (z ∈ t ∧ z ∈ u))` or a disjunction of terms, is a consequence of the text's
+    sentence with right side `∃x:s. t ∧ ψ`, `t ∧ u` or `t ∨ u`, with definedness and the signature,
+    and `Γ (c.withHooks H)` entails that sentence (`exists_everyH`, `andTerms_everyH`,
+    `orTerms_everyH`); the other shapes and the sentences of the fixtures tied there, for every H,
+    are test/TieExClauseShapes.lean's. The values are G1's for a clause with existential variables
+    (`G1Ex`): the right-side predicate decides `g1x()`'s value under every H.
+  - `existsBindsNothing` (`CeGuard`), for every semantics with `coreOK` and every H: the text's
+    equation and the one `Parse.ceBinders` writes hold in the same interpretations with the
+    signature's facts, so `Γ (c.withHooks H)` entails either where it entails the other: the
+    innermost of several binders of one variable alone, at every sort (`innermost_everyH`); a
+    binder binding nothing left out where an argument's guard gives its sort an element
+    (`unheld_everyH`); kept with `⌈x⌉` beside the body, at every sort (`kept_everyH`). The companion
+    is a hypothesis form, no interpretation being constructed: where the sort has no element the
+    text's right side holds nothing, whatever the body without the binder holds (`empty_everyH`),
+    so the sort separates the readings.
 -/
 import KcoreSpec
 
@@ -3295,6 +3313,277 @@ theorem inertVacuousLeftAtBool_everyH (c : Semantics) (hcore : c.coreOK = true) 
   haveI : OvlOK (c.withHooks H) := ovlOK_of_core ((Semantics.coreOK_withHooks c H).trans hcore)
   InertEv.vacuousLeftAtBool_entailed (c.withHooks H) hv decls i mod
 
+/-! ## `existentialClause` and `existsBindsNothing`: an equation's right side, for every interpretation
+
+The sentence the reader writes for an equation whose right side has `\exists`, a conjunction of terms
+or an `\or` (`Parse.ceRead`), and the one it writes where a binder binds nothing (`Parse.ceBinders`),
+against the text's sentence: each right-side equality holds in every interpretation where
+definedness is definedness, the item of `⌈_⌉` holds and the sorts named denote sorts
+(`TieFRSig.SigFacts`), which every model of `Γ (c.withHooks H)` has, for every semantics with
+`coreOK` and every H. The equalities of the bodies are of this section (`vac_body`,
+`innermost_body`, `kept_body`, `ceilVar_body`) or of `KcoreSpec/TieExClause.lean` (`ensTop_ex_body`,
+`cutAnd_body`, `cutOr_body`); the instances on the fixtures' texts tied there are test/TieExClauseShapes.lean's; nothing here
+is instantiated on a text. -/
+
+namespace CeGuard
+
+open KoreAML KoreAML.TieFR KCore.TieExClause
+
+/-! ### Right sides, in every interpretation -/
+
+section
+variable {M : Type} {I : Interpretation KoreAML.Sym M}
+
+/-- A chain of binders `∃y₁:s₁. … ∃yₙ:sₙ. φ`. -/
+def chain : List (EVar × P) → P → P
+  | [], φ => φ
+  | (y, s) :: ys, φ => sExists y s (chain ys φ)
+
+/-- Where a chain of binders holds an element, its body holds it at some valuation. -/
+theorem chain_body {ys : List (EVar × P)} {φ : P} {e : Valuation M} {m : M}
+    (h : (chain ys φ).interpret I e m) : ∃ e' : Valuation M, φ.interpret I e' m := by
+  induction ys generalizing e with
+  | nil => exact ⟨e, h⟩
+  | cons y ys ih =>
+    obtain ⟨y, s⟩ := y
+    obtain ⟨_, -, h'⟩ := interp_sExists.mp h
+    exact ih h'
+
+variable (hD : DefOK I)
+include hD
+
+/-- **A binder whose variable the body does not hold, over a sort with an element, binds nothing**:
+`∃x:s. φ` is φ at every element, where s has some element b (any one: not the element at which the
+sentence is read). -/
+theorem vac_body {x : EVar} {s φ : P} {τ : M} (hs : SortAt I s τ) (hφ : φ.isFreeEvar x = false)
+    {b : M} (hb : Inh I τ b) {e : Valuation M} {m : M} :
+    (sExists x s φ).interpret I e m ↔ φ.interpret I e m := by
+  rw [exS_iff hD hs]
+  exact ⟨fun ⟨b', _, h⟩ => (upd_irrel hφ e b' m).mp h, fun h => ⟨b, hb, (upd_irrel hφ e b m).mpr h⟩⟩
+
+/-- Where `∃x:s. φ` holds an element, s has one. -/
+theorem exS_inh {x : EVar} {s φ : P} {τ : M} (hs : SortAt I s τ) {e : Valuation M} {m : M}
+    (h : (sExists x s φ).interpret I e m) : ∃ b, Inh I τ b := by
+  obtain ⟨b, hb, -⟩ := (exS_iff hD hs).mp h
+  exact ⟨b, hb⟩
+
+/-- **Of several binders of one variable the innermost alone binds**: `∃x:s. ∃ȳ. ∃x:s. φ` is
+`∃ȳ. ∃x:s. φ` at every element, at every sort s, empty or not: where the inner chain holds an
+element, the inner binder's own witness is an element of s. -/
+theorem innermost_body {x : EVar} {s φ : P} {τ : M} (hs : SortAt I s τ) {ys : List (EVar × P)}
+    (hfree : (chain ys (sExists x s φ)).isFreeEvar x = false) {e : Valuation M} {m : M} :
+    (sExists x s (chain ys (sExists x s φ))).interpret I e m ↔ (chain ys (sExists x s φ)).interpret I e m := by
+  constructor
+  · intro h
+    obtain ⟨b, -, h'⟩ := (exS_iff hD hs).mp h
+    exact (upd_irrel hfree e b m).mp h'
+  · intro h
+    obtain ⟨_, h'⟩ := chain_body h
+    obtain ⟨b, hb⟩ := exS_inh hD hs h'
+    exact (vac_body hD hs hfree hb).mpr h
+
+/-- **Over a sort without an element a binder holds nothing**, whatever its body. -/
+theorem empty_body {x : EVar} {s B : P} {τ : M} (hs : SortAt I s τ) (hτ : ∀ b, ¬ Inh I τ b)
+    {e : Valuation M} {m : M} : ¬ (sExists x s B).interpret I e m := fun h =>
+  let ⟨b, hb⟩ := exS_inh hD hs h
+  hτ b hb
+
+section
+variable [Inhabited M] (hc : I ⊧ᴵ ceilDefItem.pat)
+include hc
+
+/-- **`⌈x⌉` of an element variable is the sort**: where x holds an element of s, `B ∧ ⌈x⌉{s,S}` is
+B at every element of S. -/
+theorem ceilVar_body {x : EVar} {s S B : P} {τ σ : M} (hs : SortAt I s τ) (hS : SortAt I S σ)
+    {e : Valuation M} (hx : Inh I τ (e.evalEvar x)) {m : M} (hm : Inh I σ m) :
+    (sAnd B (sCeil s S (.evar x))).interpret I e m ↔ B.interpret I e m := by
+  rw [interp_sAnd, interp_sCeil hD hc (hs.den e) (hS.den e) hs.isSort hS.isSort
+    (fun a ha => by rw [interp_evar] at ha; rw [ha]; exact hx) m]
+  exact ⟨fun h => h.1, fun h => ⟨h, ⟨_, interp_evar.mpr rfl⟩, hm⟩⟩
+
+/-- **A kept binder with `⌈x⌉` beside its body**: `∃x:s. B` is `∃x:s. (B ∧ ⌈x⌉{s,S})` at every
+element of S, at every sort s. -/
+theorem kept_body {x : EVar} {s S B : P} {τ σ : M} (hs : SortAt I s τ) (hS : SortAt I S σ)
+    {e : Valuation M} {m : M} (hm : Inh I σ m) :
+    (sExists x s B).interpret I e m ↔ (sExists x s (sAnd B (sCeil s S (.evar x)))).interpret I e m := by
+  rw [exS_iff hD hs, exS_iff hD hs]
+  exact exists_congr fun b => and_congr_right fun hb =>
+    (ceilVar_body hD hc hs hS (by rw [upd_same]; exact hb) hm).symm
+
+end
+end
+
+/-! ### The sentences, for every interpretation H -/
+
+/-- An equation sentence over the guards of the axiom `a`, at the numbered sort `S0`. -/
+noncomputable abbrev eqn (c : Semantics) (a : Kore.Axiom) (tbl : VarTable) (S0 : Srt) (r : EVar)
+    (prem F B ens : P) : P :=
+  eqnPat (guardsOf a) r prem (trSort tbl (srtOf c S0)) F (sAnd B ens)
+
+/-- **Two sentences that hold in the same interpretations among those with the facts of the
+signature of `c.withHooks H` are entailed by `Γ (c.withHooks H)` together.** -/
+theorem entails_iff_everyH {c : Semantics} (hcore : c.coreOK = true) (H : HookParams) {t t' : P}
+    (h : ∀ {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}, TieFRSig.SigFacts (c.withHooks H) I →
+      ((I ⊧ᴵ t) ↔ (I ⊧ᴵ t'))) :
+    (Γ (c.withHooks H) ⊧ t) ↔ (Γ (c.withHooks H) ⊧ t') := by
+  have hcore' := (Semantics.coreOK_withHooks c H).trans hcore
+  have sig : ∀ {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}, I ⊧ᴵP Γ (c.withHooks H) →
+      TieFRSig.SigFacts (c.withHooks H) I := fun hI =>
+    (TieFRSig.sig_of_core hcore' (Faithful.defOK hI)
+      fun φ hφ => hI φ (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl hφ))))))).1
+  exact ⟨fun ht M _ I hI => (h (sig hI)).mp (ht hI), fun ht M _ I hI => (h (sig hI)).mpr (ht hI)⟩
+
+/-- **existsBindsNothing, nested binders, for every H**: the equation whose right side is
+`∃x:s. ∃ȳ. ∃x:s. φ` and the one whose right side is `∃ȳ. ∃x:s. φ` hold in the same interpretations
+with the signature's facts, at every sort s of the definition, and `Γ (c.withHooks H)` entails
+either where it entails the other. -/
+theorem innermost_everyH {c : Semantics} (hcore : c.coreOK = true) (H : HookParams) (a : Kore.Axiom)
+    (tbl : VarTable) (S0 : Srt) {s0 : Srt} (hs0 : s0 < nRegSorts + c.sortNames.length) {r x : EVar}
+    {prem F φ ens : P} {ys : List (EVar × P)}
+    (hfree : (chain ys (sExists x (trSort tbl (srtOf c s0)) φ)).isFreeEvar x = false) :
+    (∀ {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}, TieFRSig.SigFacts (c.withHooks H) I →
+      ((I ⊧ᴵ eqn c a tbl S0 r prem F (sExists x (trSort tbl (srtOf c s0))
+          (chain ys (sExists x (trSort tbl (srtOf c s0)) φ))) ens) ↔
+        (I ⊧ᴵ eqn c a tbl S0 r prem F (chain ys (sExists x (trSort tbl (srtOf c s0)) φ)) ens))) ∧
+    ((Γ (c.withHooks H) ⊧ eqn c a tbl S0 r prem F (sExists x (trSort tbl (srtOf c s0))
+          (chain ys (sExists x (trSort tbl (srtOf c s0)) φ))) ens) ↔
+      (Γ (c.withHooks H) ⊧ eqn c a tbl S0 r prem F (chain ys (sExists x (trSort tbl (srtOf c s0)) φ)) ens)) := by
+  have h : ∀ {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}, TieFRSig.SigFacts (c.withHooks H) I →
+      ((I ⊧ᴵ eqn c a tbl S0 r prem F (sExists x (trSort tbl (srtOf c s0))
+          (chain ys (sExists x (trSort tbl (srtOf c s0)) φ))) ens) ↔
+        (I ⊧ᴵ eqn c a tbl S0 r prem F (chain ys (sExists x (trSort tbl (srtOf c s0)) φ)) ens)) := by
+    intro M _ I Fs
+    obtain ⟨τ, hs⟩ := sortAt_sig Fs hs0 tbl
+    have hs' : SortAt I (trSort tbl (srtOf c s0)) τ := hs
+    exact TieExHoistB.eqnPat_congr fun e m => by
+      rw [interp_sAnd, interp_sAnd, innermost_body Fs.defOK hs' hfree]
+  exact ⟨h, entails_iff_everyH hcore H h⟩
+
+/-- **existsBindsNothing, a binder no argument's sort leaves empty, for every H**: where an
+argument pattern holds a variable y of the binder's sort s (its guard `y ∈ ⟦s⟧` is one of the
+sentence's), the equation with right side `∃x:s. B`, x not free in B, and the one with right side
+B hold in the same interpretations with the signature's facts, and `Γ (c.withHooks H)` entails
+either where it entails the other. -/
+theorem unheld_everyH {c : Semantics} (hcore : c.coreOK = true) (H : HookParams) (a : Kore.Axiom)
+    (tbl : VarTable) {S0 s0 : Srt} (hS0 : S0 < nRegSorts + c.sortNames.length)
+    (hs0 : s0 < nRegSorts + c.sortNames.length) {r x y : EVar} {prem F B ens : P}
+    (hr : sortGuard r ∈ guardsOf a) (hy : (y ∈∈ inhOf (trSort tbl (srtOf c s0))) ∈ guardsOf a)
+    (hB : B.isFreeEvar x = false) :
+    (∀ {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}, TieFRSig.SigFacts (c.withHooks H) I →
+      ((I ⊧ᴵ eqn c a tbl S0 r prem F (sExists x (trSort tbl (srtOf c s0)) B) ens) ↔
+        (I ⊧ᴵ eqn c a tbl S0 r prem F B ens))) ∧
+    ((Γ (c.withHooks H) ⊧ eqn c a tbl S0 r prem F (sExists x (trSort tbl (srtOf c s0)) B) ens) ↔
+      (Γ (c.withHooks H) ⊧ eqn c a tbl S0 r prem F B ens)) := by
+  have h : ∀ {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}, TieFRSig.SigFacts (c.withHooks H) I →
+      ((I ⊧ᴵ eqn c a tbl S0 r prem F (sExists x (trSort tbl (srtOf c s0)) B) ens) ↔
+        (I ⊧ᴵ eqn c a tbl S0 r prem F B ens)) := by
+    intro M _ I Fs
+    obtain ⟨σ, hS⟩ := sortAt_sig Fs hS0 tbl
+    obtain ⟨τ, hs⟩ := sortAt_sig Fs hs0 tbl
+    exact eqnPat_of_body Fs.defOK Fs.ceilDef hS hr (guardsOf_pred Fs.defOK a) fun _ _ hat _ _ =>
+      vac_body Fs.defOK hs hB (var_in Fs.defOK hs hy hat)
+  exact ⟨h, entails_iff_everyH hcore H h⟩
+
+/-- **existsBindsNothing, a binder kept with `⌈x⌉`, for every H**: the equation with right side
+`∃x:s. B` and the one with right side `∃x:s. (B ∧ ⌈x⌉{s,S})`, S the equation's sort, hold in the
+same interpretations with the signature's facts, at every sort s of the definition, and
+`Γ (c.withHooks H)` entails either where it entails the other. -/
+theorem kept_everyH {c : Semantics} (hcore : c.coreOK = true) (H : HookParams) (a : Kore.Axiom)
+    (tbl : VarTable) {S0 s0 : Srt} (hS0 : S0 < nRegSorts + c.sortNames.length)
+    (hs0 : s0 < nRegSorts + c.sortNames.length) {r x : EVar} {prem F B ens : P}
+    (hr : sortGuard r ∈ guardsOf a) :
+    (∀ {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}, TieFRSig.SigFacts (c.withHooks H) I →
+      ((I ⊧ᴵ eqn c a tbl S0 r prem F (sExists x (trSort tbl (srtOf c s0)) B) ens) ↔
+        (I ⊧ᴵ eqn c a tbl S0 r prem F (sExists x (trSort tbl (srtOf c s0))
+          (sAnd B (sCeil (trSort tbl (srtOf c s0)) (trSort tbl (srtOf c S0)) (.evar x)))) ens))) ∧
+    ((Γ (c.withHooks H) ⊧ eqn c a tbl S0 r prem F (sExists x (trSort tbl (srtOf c s0)) B) ens) ↔
+      (Γ (c.withHooks H) ⊧ eqn c a tbl S0 r prem F (sExists x (trSort tbl (srtOf c s0))
+          (sAnd B (sCeil (trSort tbl (srtOf c s0)) (trSort tbl (srtOf c S0)) (.evar x)))) ens)) := by
+  have h : ∀ {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}, TieFRSig.SigFacts (c.withHooks H) I →
+      ((I ⊧ᴵ eqn c a tbl S0 r prem F (sExists x (trSort tbl (srtOf c s0)) B) ens) ↔
+        (I ⊧ᴵ eqn c a tbl S0 r prem F (sExists x (trSort tbl (srtOf c s0))
+          (sAnd B (sCeil (trSort tbl (srtOf c s0)) (trSort tbl (srtOf c S0)) (.evar x)))) ens)) := by
+    intro M _ I Fs
+    obtain ⟨σ, hS⟩ := sortAt_sig Fs hS0 tbl
+    obtain ⟨τ, hs⟩ := sortAt_sig Fs hs0 tbl
+    exact eqnPat_of_body Fs.defOK Fs.ceilDef hS hr (guardsOf_pred Fs.defOK a) fun _ _ _ _ hm =>
+      kept_body Fs.defOK Fs.ceilDef hs hS hm
+  exact ⟨h, entails_iff_everyH hcore H h⟩
+
+/-- **The point is reached: a binder dropped where no argument holds its sort**, for every H: in
+an interpretation with the signature's facts of `c.withHooks H` where the binder's sort s has no
+element, the text's right side `∃x:s. B` holds nothing, whatever B holds, so the text's equation
+states the function's application empty there; the right side B, the binder dropped as a rule's
+`existsDropped` drops it, holds what B holds. -/
+theorem empty_everyH {c : Semantics} (H : HookParams) (tbl : VarTable) {s0 : Srt} {x : EVar} {B : P} {M : Type} [Inhabited M]
+    {I : Interpretation KoreAML.Sym M} (Fs : TieFRSig.SigFacts (c.withHooks H) I) {τ : M}
+    (hτ : SortAt I (trSort tbl (srtOf c s0)) τ) (hempty : ∀ b, ¬ Inh I τ b) (e : Valuation M) (m : M) :
+    ¬ (sExists x (trSort tbl (srtOf c s0)) B).interpret I e m :=
+  empty_body Fs.defOK hτ hempty
+
+/-- **existentialClause, an `\exists` right side, for every H**: Γ's item j of the clause, whose
+right side is `∃x:s. t ∧ (⊤_S ∧ ψ)` (the clause's right side t and its predicate ψ under the
+binder, S the equation's sort), is a consequence of the text's sentence, the right side
+`∃x:s. t ∧ ψ`, with definedness and `ΓSig (c.withHooks H)`, and `Γ (c.withHooks H)` entails the
+text's sentence. -/
+theorem exists_everyH {c : Semantics} (hcore : c.coreOK = true) (H : HookParams) (a : Kore.Axiom)
+    (tbl : VarTable) {S0 : Srt} (hS0 : S0 < nRegSorts + c.sortNames.length) {j : Nat} {r x : EVar}
+    {s prem F t ψ ens : P} (hr : sortGuard r ∈ guardsOf a)
+    (hitem : (TiePair.gammaPats c)[j]? =
+      some (eqn c a tbl S0 r prem F (sExists x s (sAnd t (sAnd (sTop (trSort tbl (srtOf c S0))) ψ))) ens)) :
+    (∀ it, (fnItems (c.withHooks H))[j]? = some it →
+      (TiePair.Texts [eqn c a tbl S0 r prem F (sExists x s (sAnd t ψ)) ens] ∪ ΓSig (c.withHooks H)) ⊧ it.pat) ∧
+    (Γ (c.withHooks H) ⊧ eqn c a tbl S0 r prem F (sExists x s (sAnd t ψ)) ens) :=
+  tie_of_iff ((Semantics.coreOK_withHooks c H).trans hcore) (by rw [TiePair.gammaPats_withHooks]; exact hitem)
+    fun Fs _ => by
+      obtain ⟨σ, hS⟩ := sortAt_sig Fs hS0 tbl
+      exact eqnPat_of_body Fs.defOK Fs.ceilDef hS hr (guardsOf_pred Fs.defOK a) fun _ _ _ _ hb =>
+        ensTop_ex_body Fs.defOK hS hb
+
+/-- **existentialClause, a conjunction of terms, for every H**: Γ's item j, whose right side is
+`∃z:S. z ∧ (⊤_S ∧ (z ∈ t ∧ z ∈ u))` (the conjunction's position a variable with its memberships),
+and the text's sentence, with right side `t ∧ u`, z free in neither, entail each other as
+`exists_everyH` states. -/
+theorem andTerms_everyH {c : Semantics} (hcore : c.coreOK = true) (H : HookParams) (a : Kore.Axiom)
+    (tbl : VarTable) {S0 : Srt} (hS0 : S0 < nRegSorts + c.sortNames.length) {j : Nat} {r z : EVar}
+    {prem F t u ens : P} (hr : sortGuard r ∈ guardsOf a) (ht : t.isFreeEvar z = false)
+    (hu : u.isFreeEvar z = false)
+    (hitem : (TiePair.gammaPats c)[j]? =
+      some (eqn c a tbl S0 r prem F (sExists z (trSort tbl (srtOf c S0)) (sAnd (.evar z)
+        (sAnd (sTop (trSort tbl (srtOf c S0))) (sAnd (sIn (trSort tbl (srtOf c S0)) (trSort tbl (srtOf c S0)) (.evar z) t)
+          (sIn (trSort tbl (srtOf c S0)) (trSort tbl (srtOf c S0)) (.evar z) u))))) ens)) :
+    (∀ it, (fnItems (c.withHooks H))[j]? = some it →
+      (TiePair.Texts [eqn c a tbl S0 r prem F (sAnd t u) ens] ∪ ΓSig (c.withHooks H)) ⊧ it.pat) ∧
+    (Γ (c.withHooks H) ⊧ eqn c a tbl S0 r prem F (sAnd t u) ens) :=
+  tie_of_iff ((Semantics.coreOK_withHooks c H).trans hcore) (by rw [TiePair.gammaPats_withHooks]; exact hitem)
+    fun Fs _ => by
+      obtain ⟨σ, hS⟩ := sortAt_sig Fs hS0 tbl
+      exact eqnPat_of_body Fs.defOK Fs.ceilDef hS hr (guardsOf_pred Fs.defOK a) fun _ _ _ _ hb =>
+        cutAnd_body Fs.defOK Fs.ceilDef hS ht hu hb
+
+/-- **existentialClause, a disjunction of terms, for every H**: Γ's item j, whose right side is
+`∃z:S. z ∧ (⊤_S ∧ (z ∈ t ∨ z ∈ u))`, and the text's sentence, with right side `t ∨ u`, z free in
+neither, entail each other as `exists_everyH` states. -/
+theorem orTerms_everyH {c : Semantics} (hcore : c.coreOK = true) (H : HookParams) (a : Kore.Axiom)
+    (tbl : VarTable) {S0 : Srt} (hS0 : S0 < nRegSorts + c.sortNames.length) {j : Nat} {r z : EVar}
+    {prem F t u ens : P} (hr : sortGuard r ∈ guardsOf a) (ht : t.isFreeEvar z = false)
+    (hu : u.isFreeEvar z = false)
+    (hitem : (TiePair.gammaPats c)[j]? =
+      some (eqn c a tbl S0 r prem F (sExists z (trSort tbl (srtOf c S0)) (sAnd (.evar z)
+        (sAnd (sTop (trSort tbl (srtOf c S0))) (sOr (trSort tbl (srtOf c S0))
+          (sIn (trSort tbl (srtOf c S0)) (trSort tbl (srtOf c S0)) (.evar z) t)
+          (sIn (trSort tbl (srtOf c S0)) (trSort tbl (srtOf c S0)) (.evar z) u))))) ens)) :
+    (∀ it, (fnItems (c.withHooks H))[j]? = some it →
+      (TiePair.Texts [eqn c a tbl S0 r prem F (sOr (trSort tbl (srtOf c S0)) t u) ens] ∪ ΓSig (c.withHooks H)) ⊧ it.pat) ∧
+    (Γ (c.withHooks H) ⊧ eqn c a tbl S0 r prem F (sOr (trSort tbl (srtOf c S0)) t u) ens) :=
+  tie_of_iff ((Semantics.coreOK_withHooks c H).trans hcore) (by rw [TiePair.gammaPats_withHooks]; exact hitem)
+    fun Fs _ => by
+      obtain ⟨σ, hS⟩ := sortAt_sig Fs hS0 tbl
+      exact eqnPat_of_body Fs.defOK Fs.ceilDef hS hr (guardsOf_pred Fs.defOK a) fun _ _ _ _ hb =>
+        cutOr_body Fs.defOK Fs.ceilDef hS ht hu hb
+
+end CeGuard
+
 end KCore.Guards
 
 #print axioms KCore.Guards.g0_refuted
@@ -3383,6 +3672,13 @@ end KCore.Guards
 #print axioms KCore.Guards.DevPrio.prio_gamma_of_text
 #print axioms KCore.Guards.DevOwise.owise_values
 #print axioms KCore.Guards.DevOwise.owise_unread_H9
+#print axioms KCore.Guards.CeGuard.innermost_everyH
+#print axioms KCore.Guards.CeGuard.unheld_everyH
+#print axioms KCore.Guards.CeGuard.kept_everyH
+#print axioms KCore.Guards.CeGuard.empty_everyH
+#print axioms KCore.Guards.CeGuard.exists_everyH
+#print axioms KCore.Guards.CeGuard.andTerms_everyH
+#print axioms KCore.Guards.CeGuard.orTerms_everyH
 
 /-! ## The table of readings (DONE-0 C6)
 
@@ -3683,17 +3979,34 @@ def readingNote : ReadingNote → GuardEntry
         ``KCore.Cert.checkStep_withHooks, ``KCore.Cert.stuckCheck_sound],
       note := "a predicate operand, on e3-ml-rule-lhs-equals' text (go(X) ∧ (X = 1) => done, read as go(X) => done with pre X = 1), every H: go(1) steps to done and go(2) has no successor; the companion is the conjunction read as its term operand alone, no pre, where go(2) steps to done under every H (no function is at the point); a variable operand, on e3-ml-rule-lhs-and's text (c(X ∧ d(_, b())) => X, read as c(d(G, b()) #as X) => X), every H: c(d(a, b)) steps to d(a, b) and c(a) has no successor, with no companion here; the read left side is the text's in every interpretation (KoreAML.rule_and_pred, rule_and_as at the fixtures, test/TieRuleLhsAnd.lean); two term operands (exMatch in pre) and a ⌈ ⌉ operand have their steps at the parsed semantics only (test/PredFixtures.lean, LhsAnd)" }
   | .existentialClause =>
-    { status := .pending "GUARD.final",
-      guard := [.test "test/ReaderWire.lean" "wire_ce_or", .test "test/ReaderWire.lean" "wire_ce_and",
-        .test "test/ReaderWire.lean" "wire_ce_noLits", .test "test/ExClauseReader.lean" "## exists",
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.CeGuard.exists_everyH, .decl ``KCore.Guards.CeGuard.andTerms_everyH,
+        .decl ``KCore.Guards.CeGuard.orTerms_everyH, .decl ``KCore.Guards.G1Ex.g1x_noValue_everyH,
+        .decl ``KCore.TieExClause.ensTop_ex_body, .decl ``KCore.TieExClause.cutAnd_body,
+        .decl ``KCore.TieExClause.cutOr_body, .decl ``KCore.TieExClause.tie_of_iff,
+        .test "test/TieExClauseShapes.lean" "Ctor.ex_from_text187", .test "test/TieExClauseShapes.lean" "Ctor.ex_entailed_c187",
+        .test "test/TieE3EqExistsPartialMl131.lean" "ex_from_text_sig",
+        .test "test/TieE3EqExistsTwiceMl.lean" "p_value", .test "test/TieCeDisagreeValues.lean" "f_values",
+        .test "test/ReaderWire.lean" "wire_ce_or", .test "test/ReaderWire.lean" "wire_ce_and",
+        .test "test/ReaderWire.lean" "wire_ce_noLits", .test "test/ExClauseReader.lean" "ceRead_eqB",
         .decl ``KCore.Parse.ceRead, .decl ``KCore.Parse.clauseRefusal],
-      note := "an equation's right side with \\exists, a conjunction of terms or an \\or that frRead does not read, read as one clause with existential variables and a right-side predicate (Parse.ceRead through Parse.clausesBody, ceCases); the clauses on the fixtures' texts and the dispatch on hand-written equations are the tests'; a clause whose existential variable is neither confined nor fixed is refused existentialEquation (clauseRefusal); no statement over c.withHooks H, no companion" }
+      companion := [.decl ``KCore.Guards.G1Ex.g1x_reached_everyH],
+      invariant := [``KCore.Faithful.clauseRhs, ``KCore.Semantics.clausePlainEx, ``KCore.Eval],
+      note := "an equation's right side with \\exists, a conjunction of terms or an \\or that frRead does not read, read as one clause with existential variables and a right-side predicate (Parse.ceRead through Parse.clausesBody, ceCases), whose item in Γ is prem → F = (∃x̄. rhs ∧ ⊤_S ∧ post) ∧ ens. For every semantics with coreOK and every H, for an item of Γ of each of three shapes, the item is a consequence of the text's sentence with definedness and ΓSig (c.withHooks H), and Γ (c.withHooks H) entails the sentence: the right side ∃x:s. t ∧ (⊤_S ∧ ψ) against the text's ∃x:s. t ∧ ψ (exists_everyH, by ensTop_ex_body), a conjunction of terms ∃z. z ∧ (⊤ ∧ (z ∈ t ∧ z ∈ u)) against t ∧ u (andTerms_everyH, cutAnd_body) and a disjunction of terms against t ∨ u (orTerms_everyH, cutOr_body). The other shapes (an \\exists beside a term or under an application, two binders, a \\ceil or \\not conjunct, a binder in an alternative, more than two alternatives) have their right-side equalities in KcoreSpec/TieExClause.lean and test/TieExClauseShapes.lean, and the sentences of the fixtures tied there their ties for every H, in test/TieExClauseShapes.lean (one namespace per fixture) and test/TieE3EqExistsPartialMl131.lean; the read sentences of e3-eq-exists-ml-in-or-float, e3-eq-exists-nested-ml, e3-eq-exists-noens-ml, hw-ex-bool-subsort and e3-eq-exists-unheld-ml's q have no tie file. The values, for every H: a hand-built clause g1x() => ?B ensures ?B with post ?B ∈ false has no value (g1x_noValue_everyH); on e3-eq-exists-twice-ml's text p(b) is notBool(b) (test/TieE3EqExistsTwiceMl.lean); where the instances disagree, the function's elements in every model of Γ are the instances' (test/TieCeDisagreeValues.lean). The companion: the same clause read without its right-side predicate has the value true under every H (g1x_reached_everyH), so the predicate decides the value. The clauses on the fixtures' texts and the dispatch on hand-written equations are the reader tests'; a clause whose existential variable is neither confined nor fixed is refused existentialEquation (clauseRefusal, Semantics.clausePlainEx)" }
 
   | .existsBindsNothing =>
-    { status := .pending "GUARD.final",
-      guard := [.test "test/ExClauseReader.lean" "ceRead_binders", .test "test/ExClauseReader.lean" "ceBinders_notes",
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.CeGuard.innermost_everyH, .decl ``KCore.Guards.CeGuard.unheld_everyH,
+        .decl ``KCore.Guards.CeGuard.kept_everyH, .decl ``KCore.Guards.CeGuard.innermost_body,
+        .decl ``KCore.Guards.CeGuard.vac_body, .decl ``KCore.Guards.CeGuard.kept_body,
+        .decl ``KCore.Guards.CeGuard.ceilVar_body,
+        .test "test/TieExClauseShapes.lean" "Twice.ex_from_text164", .test "test/TieExClauseShapes.lean" "Twice.ex_entailed_c164",
+        .test "test/TieExClauseShapes.lean" "UnheldArg.ex_from_text252", .test "test/TieExClauseShapes.lean" "UnheldArg.ex_entailed_c252",
+        .test "test/ExClauseReader.lean" "ceRead_binders", .test "test/ExClauseReader.lean" "ceBinders_notes",
         .decl ``KCore.Parse.ceBinders, .decl ``KCore.Parse.clauseRefusal],
-      note := "an equation's right side under \\exists one of whose binders binds nothing, read by a sentence equal to the text's in every interpretation (Parse.ceBinders, in Parse.ceRead): of several binders of one variable the innermost alone (e3-eq-exists-twice-ml); a binder whose variable is not free in the body left out where an argument pattern holds a variable of its sort (e3-eq-exists-unheld-ml's q), and otherwise kept as an existential variable Z of the clause with ⌈Z⌉ in post (the same text's p, whose clause is then refused existentialEquation at the unconfined sort Int, clauseRefusal); the clauses on hand-written equations are the test's, in the kernel; the equalities are the note's docstring, stated by no theorem; no statement over c.withHooks H, no companion" }
+      companion := [.decl ``KCore.Guards.CeGuard.empty_everyH, .decl ``KCore.Guards.CeGuard.empty_body],
+      invariant := [``KoreAML.sExists, ``KoreAML.TieFR.guardsOf, ``KCore.TieExClause.exS_iff],
+      note := "an equation's right side under \\exists one of whose binders binds nothing, read by a sentence equal to the text's (Parse.ceBinders, in Parse.ceRead). For every semantics with coreOK and every H, the two equation sentences hold in the same interpretations with the signature's facts of c.withHooks H, so Γ (c.withHooks H) entails either where it entails the other, in each of the three cases: of several binders of one variable the innermost alone, ∃x:s. ∃ȳ. ∃x:s. φ against ∃ȳ. ∃x:s. φ at every sort s, empty or not (innermost_everyH, innermost_body: the inner binder's witness is an element of s; e3-eq-exists-twice-ml); a binder whose variable is not free in the body, left out where an argument pattern holds a variable y of its sort s, ∃x:s. B against B, the guard y ∈ ⟦s⟧ of the sentence giving s an element at every valuation it is stated under (unheld_everyH, vac_body; e3-eq-exists-unheld-arg-ml, e3-eq-exists-unheld-ml's q); otherwise kept with ⌈x⌉ beside the body, ∃x:s. B against ∃x:s. (B ∧ ⌈x⌉{s,S}) at every sort s (kept_everyH, kept_body; ceilVar_body for ⌈x⌉ under the whole chain of kept binders, where ceBinders writes it), the clause then refused existentialEquation where x's sort is neither confined nor fixed (e3-eq-exists-unheld-ml's p, clauseRefusal). The fixtures' sentences against Γ's items, for every H: test/TieExClauseShapes.lean (Twice, UnheldArg). The companion, in the form of a hypothesis (no such interpretation is constructed here): the binder dropped as a rule's existsDropped drops it, also where no argument holds its sort, which is no equality: in an interpretation with the signature's facts where s has no element the text's right side ∃x:s. B holds nothing whatever B holds (empty_everyH, empty_body), so the text states the application empty there and the dropped reading states it is B. The sort separates the readings, not an H: no function of the interpretation is at the point. The clauses on hand-written equations are the reader test's, in the kernel" }
 
 def inertReason : InertReason → GuardEntry
   | .import =>
