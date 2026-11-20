@@ -465,3 +465,4 @@ import KcoreSpec.TiePairsMany
 import KcoreSpec.TieFRSig
 import KcoreSpec.TieEXSig
 import KcoreSpec.LibEvSortPredPre
+import KcoreSpec.TieInstArity
