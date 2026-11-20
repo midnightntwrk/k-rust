@@ -1,0 +1,19 @@
+command: kompile --backend haskell e3-eq-exists-bool-ml-open.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 2.6
+output:
+  [Error] Compiler: Cannot add new constructors to hooked sort Bool
+  	Source(FIXTURE/e3-eq-exists-bool-ml-open.k)
+  	Location(3,19,3,55)
+  	3 |	  syntax Bool ::= Bool "&&&" Bool [comm, symbol(band)]
+  	  .	                  ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  [Error] Compiler: Sort Bool was declared as a token. Productions of this sort
+  can only contain [function] or [token] labels.
+  	Source(FIXTURE/e3-eq-exists-bool-ml-open.k)
+  	Location(3,19,3,55)
+  	3 |	  syntax Bool ::= Bool "&&&" Bool [comm, symbol(band)]
+  	  .	                  ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  [Error] Compiler: Had 2 structural errors.
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-EQ-EXISTS-BOOL-ML-OPEN-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using E3-EQ-EXISTS-BOOL-ML-OPEN as default.

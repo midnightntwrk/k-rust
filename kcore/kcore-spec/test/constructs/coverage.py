@@ -13,7 +13,12 @@ The document holds, in this order:
              row's `cases` (recursively), `also_refused` and `split`, walked as
              test/constructs/units.py walks them, so the class counts are units.py's.
   R-c        every entry (row or nested) of class R-c: its notion, the cone declaration that
-             changes (`cone`), the ticket or unit that supports it (`unit`) and the planned lane.
+             changes (`cone`), the ticket or unit that supports it (`unit`) and the planned lane,
+             in two parts by the `cone` prefix (findings/work/decision-rc-cone.md section 1 (c)):
+             the R-c list, entries whose cone names declarations of ../core-cone.txt; and reader
+             debt, entries whose cone starts with "none (reader only)" (no cone declaration
+             changes, so the release gate requires none). Rows whose cone starts with "none at the
+             row" are named after the two parts and counted through their cases.
   undecided  the rows of status pending-fixture and not-handled, by list.
   no model   every entry (row or nested) with a `derived` table of form (r), the text's sentences
              having no model (DONE-0 C7, rows-header.toml): the fixture whose text the sentences
@@ -58,7 +63,12 @@ Usage (from kcore-spec):
       test/constructs/K-coverage.md)
   python3 -I test/constructs/coverage.py check [ROWS.toml [MANIFEST.toml [OUT.md]]]
       exit 1 when OUT.md differs from what write would write (test/constructs.sh runs it); the
-      fix is to run write, also after a merge that conflicts in OUT.md.
+      fix is to run write, also after a merge that conflicts in OUT.md. Also exit 1 when an entry
+      of class R-c has a cone that is not well formed (rc_defects): none; "none at the row" on a
+      nested entry; or, outside the two "none" prefixes, a leading list (the comma-separated
+      names before the first ":" or "(") with a name that is not a declaration of core-cone.txt
+      (beside MANIFEST.toml), written short (a cone line ends in "." and the name) or unknown.
+      Write does not read core-cone.txt: the document is the same with or without it.
 """
 import collections, os, sys, tomllib
 
@@ -85,6 +95,8 @@ STATUSES = ["supported", "parameter", "inert", "erased", "refused", "pending-fix
             "not-handled"]
 CLASSES = ["R-a", "R-b", "R-c", "scope"]
 CUT, NCUT = 300, 120
+# the prefixes of an R-c entry's `cone` that name no declaration (decision-rc-cone.md section 1 (c))
+RC_DEBT, RC_ROW = "none (reader only)", "none at the row"
 
 
 def text(s, cut=None):
@@ -114,6 +126,54 @@ def nested(e):
                 yield f"{f}[{i}]", c
                 for w, d in nested(c):
                     yield f"{f}[{i}].{w}", d
+
+
+def rc_part(e):
+    """The part of the R-c section an entry of class R-c is in, by its `cone` prefix: "debt" (reader
+    debt), "row" (counted through its cases), else "list"."""
+    c = str(e.get("cone", ""))
+    return "debt" if c.startswith(RC_DEBT) else "row" if c.startswith(RC_ROW) else "list"
+
+
+def rc_names(cone):
+    """The leading list of an R-c cone: the comma-separated names before its first ":" or "("."""
+    cut = min((i for i in (cone.find(":"), cone.find("(")) if i >= 0), default=len(cone))
+    return [n.strip() for n in cone[:cut].split(",")]
+
+
+def cone_decls(path):
+    """The declaration names of core-cone.txt: the third field of its declaration lines."""
+    out = set()
+    for l in open(path, encoding="utf-8"):
+        w = l.split()
+        if l.startswith("  ") and len(w) >= 3 and w[0].count("-") == 1 and w[0].replace("-", "").isdigit():
+            out.add(w[2])
+    return out
+
+
+def rc_defects(t, decls):
+    """[(list, row, place, defect)] of the entries of class R-c whose cone is not well formed (the
+    usage of check)."""
+    out = []
+    for l in LISTS:
+        for key, r in t.get(l, {}).items():
+            for w, e in [("", r)] + list(nested(r)):
+                if e.get("class") != "R-c":
+                    continue
+                c = " ".join(str(e.get("cone", "")).split())
+                if not c:
+                    out.append((l, key, w, "no cone"))
+                elif c.startswith(RC_ROW):
+                    if w:
+                        out.append((l, key, w, f"'{RC_ROW}' on a nested entry"))
+                elif not c.startswith(RC_DEBT):
+                    for n in rc_names(c):
+                        if n in decls:
+                            continue
+                        full = sorted(d for d in decls if d.endswith("." + n))
+                        out.append((l, key, w, f"'{n}' is short for {', '.join(full)}" if full and n else
+                                    f"'{n}' is not a declaration of core-cone.txt"))
+    return out
 
 
 def no_model(e):
@@ -296,14 +356,29 @@ def generate(rows_path, manifest_path):
           f"(counted apart), {e6t['refuted']} refuted and "
           f"{e6t['uncovered']} uncovered."]
 
+    parts = {p: [x for x in rc if rc_part(x[3]) == p] for p in ("list", "debt", "row")}
     o += ["", f"## Entries of class R-c ({len(rc)})", "",
           "Each names the notion the kernel lacks, the cone declaration that would change, and the "
-          "ticket or unit that supports it (`unit`, checked by `units.py`).", ""]
-    o += table(["list", "row", "entry", "status", "notion", "cone", "unit", "planned"], [
-        [l, code(key), text(w) if w else "row", text(e.get("status", "")),
-         text(e.get("notion", ""), CUT), text(e.get("cone", ""), CUT),
-         text(e.get("unit", "no unit")), text(e.get("planned", ""), CUT)]
-        for l, key, w, e in rc])
+          "ticket or unit that supports it (`unit`, checked by `units.py`). They are in two parts by "
+          f"the `cone` prefix: the R-c list ({len(parts['list'])}), whose cone names declarations of "
+          f"`../core-cone.txt` (`coverage.py check` fails a name that is not one, or is written short); "
+          f"and reader debt ({len(parts['debt'])}), whose cone starts with \"{RC_DEBT}\": no cone "
+          "declaration changes, the reading is the reader's to write, and the release gate requires "
+          f"none. The {len(parts['row'])} rows whose cone starts with \"{RC_ROW}\" are counted "
+          "through their cases and named after the two parts.", ""]
+
+    def rc_table(xs):
+        return table(["list", "row", "entry", "status", "notion", "cone", "unit", "planned"], [
+            [l, code(key), text(w) if w else "row", text(e.get("status", "")),
+             text(e.get("notion", ""), CUT), text(e.get("cone", ""), CUT),
+             text(e.get("unit", "no unit")), text(e.get("planned", ""), CUT)]
+            for l, key, w, e in xs]) if xs else ["None."]
+    o += [f"### The R-c list: a cone declaration changes ({len(parts['list'])})", ""]
+    o += rc_table(parts["list"])
+    o += ["", f"### Reader debt: no cone declaration changes, none at the gate ({len(parts['debt'])})", ""]
+    o += rc_table(parts["debt"])
+    o += ["", f"Rows counted through their cases ({len(parts['row'])}): "
+          + ("; ".join(f"{l} {code(key)}" for l, key, _, _ in parts["row"]) or "none") + "."]
 
     nund = sum(len(v) for v in undecided.values())
     o += ["", f"## Rows not yet decided ({nund})", ""]
@@ -443,6 +518,17 @@ def main(argv):
     rows, man, out = (argv + [None] * 3)[:3]
     doc = generate(rows or ROWS, man or MANIFEST)
     out = out or OUT
+    bad = 0
+    if mode == "check":
+        cone = os.path.join(os.path.dirname(os.path.abspath(man or MANIFEST)), "core-cone.txt")
+        if not os.path.exists(cone):
+            print(f"coverage: no {os.path.relpath(cone, K)}, which the R-c check reads")
+            bad = 1
+        else:
+            ds = rc_defects(tomllib.load(open(rows or ROWS, "rb")), cone_decls(cone))
+            for l, key, w, d in ds:
+                print(f"coverage: R-c cone of {l} {key} {w or 'row'}: {d}")
+            bad = 1 if ds else 0
     if mode == "write":
         with open(out, "w") as f:
             f.write(doc)
@@ -451,7 +537,7 @@ def main(argv):
     have = open(out).read() if os.path.exists(out) else None
     if have == doc:
         print(f"coverage: {os.path.relpath(out, K)} is what rows.toml and the manifest give")
-        return 0
+        return bad
     if have is None:
         print(f"coverage: no {os.path.relpath(out, K)}; run python3 -I test/constructs/coverage.py")
         return 1
