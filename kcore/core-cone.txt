@@ -5,7 +5,7 @@
 #   opaque KCore.CExec.outOfFuel: a hypothesis of run_exact at one configuration and fuel: a body true too often makes run_exact say less, never something false; where it is true at every fuel tried run_exact says nothing (findings/ROOTS-run-exact-decision.md 1.3)
 # computed by #review_cone (KcoreSpec/ReviewCone.lean); rule: types of reached declarations, values of reached non-theorem definitions, proofs not entered, Init/Std/Lean trusted
 # written by kcore-spec/test/ConeV.lean to kcore-spec/.lake/cone-v.txt and by kcore-spec/test/ReviewCone.lean to kcore-spec/.lake/review-cone-core-hyp.txt; kcore-spec/test/cone.py compares either with this file
-# computed at git 1dedcdc1b9852d80ead00c3e39c73c133fb0bf5b (written by kcore-spec/test/cone-freeze.sh): the sources its declarations' texts are read at
+# computed at git c7efec44776b7a4ca62d83f31ba317bc2386102e (written by kcore-spec/test/cone-freeze.sh): the sources its declarations' texts are read at
 
 ## KcoreSpec.Kore.Base  (9 declarations, 39 lines)
   12-17      structure  KoreAML.CtorSig                              via KoreAML.Gen.argSorts

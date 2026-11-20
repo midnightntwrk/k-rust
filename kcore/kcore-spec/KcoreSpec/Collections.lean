@@ -428,8 +428,8 @@ theorem hook_in (s : Srt) (a : List GroundTerm) (k : GroundTerm) :
   · rintro ⟨e, he, h⟩; rw [cmp_eq_iff.mp (beq_iff_eq.mp h)]; exact he
   · intro h; exact ⟨k, h, by simp [cmp_refl]⟩
 
-/-- `L[I]`: the element at I from the front (`0 ≤ I`) or from the back (`I < 0`), undefined out
-of range. -/
+/-- `L[I]`: the element at I from the front (`0 ≤ I`) or from the back (`I < 0`); `hook` gives no value out
+of range (a silent point of `L[I]`, `silentTable`). -/
 theorem hook_get_nonneg (s : Srt) (a : List GroundTerm) (i : Nat) :
     hook listGet [.list s a, int i] = some a[i]? := by
   show some ((listIndex a.length i).bind (a[·]?)) = _

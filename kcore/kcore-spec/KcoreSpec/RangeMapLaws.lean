@@ -4,11 +4,11 @@
   `rangeMapHooks`' concatenation:
   - `rmConcat_unit`: `.RangeMap` is the value `rmV []`, and `_RangeMap_` of it and a value, either
     way round, is that value;
-  - `rmConcat_assoc`: `(m n) p` and `m (n p)` are one result, both undefined together, as an
-    equality of patterns states.
+  - `rmConcat_assoc`: `(m n) p` and `m (n p)` are one result of `rmHook`, both without a value together, as an
+    equality of patterns states (where `rmHook` gives none the point is silent, `silentTable`, and the value is the interpretation's).
 
   The proof reads a range map by the function it describes (`RmCov`: an interval of the entries
-  holds the key with the value). Concatenation is defined exactly where the two functions have no
+  holds the key with the value). Concatenation has a value of `rmHook` exactly where the two functions have no
   key in common and then describes their union; the description of a function by maximal
   intervals in order is unique (`rmOK_unique`); so both groupings describe the union of the three
   functions by maximal intervals, and are one list.
@@ -529,7 +529,7 @@ theorem rmConcat_unit {es : Entries} (h : rangesOK es = true) :
     simp [rmTriples, rmDisjoint, rmCanon_eq, hcanon, rmV]
 
 /-- **`_RangeMap_` is associative at range-map values** (domains.md 508, `assoc`), as an equality
-of patterns: `(m n) p` and `m (n p)` are both undefined, or are one value. -/
+of patterns: `(m n) p` and `m (n p)` both have no value of `rmHook` (silent points of `_RangeMap_`), or have one value. -/
 theorem rmConcat_assoc {es fs gs : Entries} (he : rangesOK es = true) (hf : rangesOK fs = true)
     (hg : rangesOK gs = true) :
     ((rmHook rmConcat [rmV es, rmV fs]).join.bind fun x => (rmHook rmConcat [x, rmV gs]).join) =
