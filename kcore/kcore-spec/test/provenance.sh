@@ -20,7 +20,11 @@
 #              for every H no model of the theory the statements are
 #              about (`Γc (c.withHooks H)`; `Γ` where the proof reads no `boolClosed`, which is the
 #              stronger form) satisfies the one sentence named first in `sentences`, as written; the
-#              reading is consistent, `consistent`)
+#              reading is consistent, `consistent`) or "with the reading's families" (the premise
+#              set holds families of the reading that no sentence of the text states, and the
+#              reading has no model either, `inconsistent`: the text has no model with those
+#              families; its own sentences are not shown to have none). A new table without kind is
+#              a refutation from the text's sentences and the signature only (rows-header.toml)
 #   family     kind "through the reading": the family the expectation goes through (`Γstep`, the
 #              premise ⌈rhs ∧ ens⌉, ...); form (r): the families of the reading the refutation uses
 #              beside the sentences, each named (always required: no refutation is from sentences
@@ -41,6 +45,11 @@
 #   owed_statement  kind "sentence against the reading" only, required: in words, the sentence-level
 #              statement left owed (no model of the translated sentences and the named families,
 #              with no other item of Γ)
+#   inconsistent  kind "with the reading's families" only, required: the full name of a theorem of
+#              `file` stating `¬ Consistent` of the reading for every H
+#   from_sentences  kind "with the reading's families" only, optional: the full name of a theorem of
+#              `file` over the translated sentences and the signature alone (what the sentences give,
+#              which the named families refute)
 #   fixture    optional, on a table whose sentences are another fixture's text than the entry's (its
 #              `fixture`): that fixture, a directory of test/constructs/fixtures/. The indices of
 #              `sentences` are axioms of that fixture's kompiled text, and the entry is listed under
@@ -48,12 +57,13 @@
 #              Without it the table's sentences are taken to be the entry's fixture's (not checked).
 # The checks, each on the text of the named file (no Lean is run):
 # - `form` is one of the four, `kind` one of the three for form (a) and absent, "through the
-#   reading" or "sentence against the reading" for form (r), `family` given for "through the
+#   reading", "sentence against the reading" or "with the reading's families" for form (r), `family` given for "through the
 #   reading" and for form (r), `sentences` a non-empty list of indices for forms (a) and (r)
 #   (`[]` admitted on the supported `hook:` row's own form (a) table of kind "through the reading"),
 #   `derivation` an existing file for form (b), `theorem` and `file` given for forms (a), (c) and
 #   (r), `owed_refuted` on form (r) only, `consistent` and `owed_statement` given for kind
-#   "sentence against the reading" and on no other table;
+#   "sentence against the reading" and on no other table, `inconsistent` given for kind "with the
+#   reading's families" and, like `from_sentences`, on no other table;
 # - the theorem (and `owed_refuted`) is declared in the file, once, under that full name
 #   (`namespace`/`section`/`end` tracked; comments removed);
 # - neither the file's path nor a namespace of the theorem's name contains `AtNone`: such a theorem
@@ -81,6 +91,14 @@
 #   declared once in `file`, mentions H and `Consistent` and negates nothing (`¬`); the entry claims
 #   no inconsistency: none of its `tie_theorems` is named `inconsistent` or, declared in a file of its
 #   `tie`, states `¬ Consistent`.
+# - kind "with the reading's families": `inconsistent` is declared once in `file`, is for every H and
+#   states `¬ Consistent`; `from_sentences`, where given, is declared once in `file`, is for every H,
+#   has no hypothesis `FnHyp`, and states a satisfaction (`⊧ᴵP`) of a premise set written as
+#   `TiePair.Texts … ∪ ΓSig …`, in the statement itself or as the body of the one `def` or `abbrev`
+#   of the file the statement names in its place (the check reads that body: the name of a defined
+#   set alone would pass anything); neither the statement nor that body mentions another part of the
+#   reading (Γ, Γc, ΓDomains, ΓCons, ΓColls, ΓFns, ΓRules, ΓFallback, Γstep, Γcl, TiePair.Pre,
+#   TiePair.Families).
 # - `match_refuted` (rows-header.toml; rest.py checks its fixture, fields and file): a table, or a
 #   non-empty list of tables, on any table of rows.toml; `owed_refuted` and `consistent` each
 #   declared once in `file` (no AtNone file or namespace), its statement for every H as above, with
@@ -110,8 +128,9 @@
 #   c.readsConfined = false` (the definition reads no confined sort, so Γc is Γ, which does not hold
 #   the premise). The tables are counted on a line of their own.
 # Prints the entries by form and kind (the counts C7 asks for: forms (b), (r) and "through the
-# reading" counted apart), the fixtures of the form (r) entries (a text without a model, or a sentence
-# against the reading: the table's `fixture`, else the entry's), and every failure. Exit 1 on a
+# reading" counted apart), the fixtures of the form (r) entries (a text without a model, one without a
+# model with the reading's families, or a sentence against the reading: the table's `fixture`, else
+# the entry's), and every failure. Exit 1 on a
 # failure.
 #
 # Usage (from anywhere): test/provenance.sh [ROWS.toml]   (default test/constructs/rows.toml)
@@ -121,7 +140,7 @@
 set -u
 K=$(cd "$(dirname "$0")/.." && pwd); cd "$K"
 exec python3 -I - "$K" "${1:-test/constructs/rows.toml}" <<'PY'
-import importlib.util, os, re, sys, tempfile, tomllib
+import importlib.util, json, os, re, sys, tempfile, tomllib
 
 K, arg = sys.argv[1], sys.argv[2]
 _sk = importlib.util.spec_from_file_location("silentkeys", os.path.join(K, "test/constructs/silentkeys.py"))
@@ -132,7 +151,10 @@ APPLIES_HOOK = re.compile(r"(?<![\w'₀-₉])(?:hook|hookRes)(?![\w'₀-₉!?])"
 FORMS = {"a", "b", "c", "r"}
 KINDS = {"from sentences", "through the reading", "in a model"}
 AGAINST = "sentence against the reading"
-R_KINDS = (None, "through the reading", AGAINST)
+FAMILIES = "with the reading's families"
+R_KINDS = (None, "through the reading", AGAINST, FAMILIES)
+READING_PARTS = ("Γ", "Γc", "ΓDomains", "ΓCons", "ΓColls", "ΓFns", "ΓRules", "ΓFallback", "Γstep", "Γcl",
+                 "TiePair.Pre", "TiePair.Families")
 TP_KEY = "tie_premise"
 HP = r"(?:KCore\.)?HookParams"
 SEMT = r"(?:KCore\.)?Semantics"
@@ -381,6 +403,41 @@ def check(rows, base):
         for n in claims_inconsistent(e):
             bad.append(f"{at}: kind '{AGAINST}' beside tie_theorems {n}, which claims the reading inconsistent")
 
+    def families(at, d, fl, path):
+        """Kind "with the reading's families": `inconsistent` states ¬ Consistent for every H;
+        `from_sentences`, where given, is over the translated sentences and the signature alone."""
+        ic = d.get("inconsistent")
+        if not isinstance(ic, str):
+            bad.append(f"{at}: kind '{FAMILIES}' names no `inconsistent`, the theorem that the reading has no model")
+        elif path is not None:
+            st = theorem_ok(at, ic, fl, path, "inconsistent ", "r")
+            if st is not None and not re.match(r"\s*¬\s*\(?\s*(?:KCore\.)?Consistent(?![\w'₀-₉!?])", split_type(st)[1]):
+                bad.append(f"{at}: the statement of inconsistent {ic} does not state ¬ Consistent")
+        fs = d.get("from_sentences")
+        if fs is None or path is None:
+            return
+        if not isinstance(fs, str):
+            bad.append(f"{at}: `from_sentences` is not a theorem's full name"); return
+        st = theorem_ok(at, fs, fl, path, "from_sentences ", "r")
+        if st is None:
+            return
+        src = strip_comments(open(path, encoding="utf-8").read())
+        texts = [st]
+        if not (mentions("TiePair.Texts", st) and mentions("ΓSig", st)):
+            defs = [(m.group(1), m.group(2)) for m in re.finditer(
+                r"^[ \t]*(?:noncomputable\s+)?(?:abbrev|def)\s+(\S+)[^\n]*?:=(.*?)(?=\n[ \t]*\n|\Z)", src, re.M | re.S)]
+            named = [b for n, b in defs if mentions(n, st) and mentions("TiePair.Texts", b) and mentions("ΓSig", b)]
+            if len(named) != 1:
+                bad.append(f"{at}: the statement of from_sentences {fs} is over no premise set of the sentences and"
+                           " the signature (`TiePair.Texts … ∪ ΓSig …`, in it or as the body of the one definition it names)")
+                return
+            texts.append(named[0])
+        if "⊧ᴵP" not in st:
+            bad.append(f"{at}: the statement of from_sentences {fs} states no satisfaction of a premise set (⊧ᴵP)")
+        got = [x for x in READING_PARTS if any(mentions(x, t) for t in texts)]
+        if got:
+            bad.append(f"{at}: from_sentences {fs} reads {', '.join(got)}: it is over the sentences and ΓSig alone")
+
     def claims_inconsistent(e):
         """The entry's `tie_theorems` that claim the reading inconsistent: named `inconsistent`, or
         stating ¬ Consistent in a file of its `tie`."""
@@ -475,7 +532,8 @@ def check(rows, base):
                 if form == "a" and kind not in KINDS:
                     bad.append(f"{at}: form (a) with kind {kind!r}, not 'from sentences', 'through the reading' or 'in a model'")
                 if form == "r" and kind not in R_KINDS:
-                    bad.append(f"{at}: form (r) with kind {kind!r}, not absent, 'through the reading' or '{AGAINST}'")
+                    bad.append(f"{at}: form (r) with kind {kind!r}, not absent, 'through the reading', '{AGAINST}'"
+                               f" or \"{FAMILIES}\"")
                 if (form == "r" or kind == "through the reading") and not (isinstance(d.get("family"), str) and d["family"].strip()):
                     bad.append(f"{at}: " + ("form (r)" if form == "r" else "kind 'through the reading'") + " names no family")
                 ss = d.get("sentences")
@@ -491,6 +549,10 @@ def check(rows, base):
                 if d.get(fld) is not None and (form, kind) != ("r", AGAINST):
                     bad.append(f"{at}: `{fld}` on form ({form})" + (f" kind {kind!r}" if kind else "")
                                + f"; it is kind '{AGAINST}''s")
+            for fld in ("inconsistent", "from_sentences"):
+                if d.get(fld) is not None and (form, kind) != ("r", FAMILIES):
+                    bad.append(f"{at}: `{fld}` on form ({form})" + (f" kind {kind!r}" if kind else "")
+                               + f"; it is kind \"{FAMILIES}\"'s")
             if form == "b":
                 dv = d.get("derivation")
                 if not (isinstance(dv, str) and os.path.isfile(os.path.join(base, dv))):
@@ -509,11 +571,15 @@ def check(rows, base):
                 bad.append(f"{at}: no file {fl}")
                 if (form, kind) == ("r", AGAINST):
                     against(at, d, e, fl, None)
+                if (form, kind) == ("r", FAMILIES):
+                    families(at, d, fl, None)
                 continue
             theorem_ok(at, th, fl, path, "", form, kind if form == "a" or (form, kind) == ("r", AGAINST) else None,
                        d.get("family"))
             if (form, kind) == ("r", AGAINST):
                 against(at, d, e, fl, path)
+            if (form, kind) == ("r", FAMILIES):
+                families(at, d, fl, path)
             if ow is not None and form == "r":
                 if not isinstance(ow, str):
                     bad.append(f"{at}: `owed_refuted` is not a theorem's full name")
@@ -656,7 +722,8 @@ def report(rows, base):
               " MatchIndependent refuted for every H on a text whose reading is Consistent): "
               + "; ".join(f"{w} (fixture {x}, {th})" for w, x, th in MR_SEEN))
     if nomodel:
-        print(f"provenance: {len(nomodel)} of form (r), a text without a model or a sentence against the reading: "
+        print(f"provenance: {len(nomodel)} of form (r), a text without a model, one without a model with the reading's"
+              " families, or a sentence against the reading: "
               + "; ".join(f"{w} (fixture {fx or 'none'}, {th})" for w, fx, th in nomodel))
     if tp:
         print(f"provenance: {tp} tie_premise table{'s' if tp > 1 else ''} (a sentence tied under a premise no sentence states)")
@@ -696,6 +763,21 @@ theorem notFnImp (H : HookParams) : ¬ FnHyp (cH H) → ¬ MatchIndependent (cH 
 theorem consistent (H : HookParams) : Consistent (cH H) := sorry
 theorem inconsistent (H : HookParams) : ¬ Consistent (cH H) := sorry
 theorem noCons (H : HookParams) : ¬Consistent (cH H) := sorry
+theorem fromS (H : HookParams) {M : Type} {I : Interpretation Sym M}
+    (hI : I ⊧ᴵP TiePair.Texts [(trS ax).pat] ∪ ΓSig (cH H)) : ∀ m, P I m := sorry
+noncomputable def PreS (H : HookParams) : Premises Sym :=
+  TiePair.Texts [(trS ax).pat] ∪ ΓSig (cH H)
+
+noncomputable def PreD (H : HookParams) : Premises Sym :=
+  TiePair.Texts [(trS ax).pat] ∪ ΓSig (cH H) ∪ ΓDomains (cH H)
+
+theorem fromNamed (H : HookParams) {M : Type} {I : Interpretation Sym M} (hI : I ⊧ᴵP PreS H) : ∀ m, P I m := sorry
+theorem fromDom (H : HookParams) {M : Type} {I : Interpretation Sym M} (hI : I ⊧ᴵP PreD H) : ∀ m, P I m := sorry
+theorem fromGamma (H : HookParams) {M : Type} {I : Interpretation Sym M}
+    (hI : I ⊧ᴵP TiePair.Texts [(trS ax).pat] ∪ ΓSig (cH H) ∪ Γ (cH H)) : ∀ m, P I m := sorry
+theorem fromFn (H : HookParams) (hf : FnHyp (cH H)) {M : Type} {I : Interpretation Sym M}
+    (hI : I ⊧ᴵP TiePair.Texts [(trS ax).pat] ∪ ΓSig (cH H)) : ∀ m, P I m := sorry
+theorem fromOpaque (H : HookParams) {M : Type} {I : Interpretation Sym M} (hI : I ⊧ᴵP Pre H) : ∀ m, P I m := sorry
 theorem matchPos (H : HookParams) : MatchIndependent (cH H) cl := sorry
 theorem refutedImp (H : HookParams) : ¬ MatchIndependent (cH H) cl → ¬ MatchIndependent (cH H) cl' := sorry
 theorem refutedFixed : ¬ MatchIndependent cFix cl := sorry
@@ -814,6 +896,27 @@ end KCore.ProvT
           "consistent": "KCore.ProvT.consistent"}, "`consistent` on form (r)"),
         ({"form": "r", "kind": "through the reading", "sentences": [344], "family": "ΓCons", "theorem": "KCore.ProvT.noModel",
           "file": f, "owed_statement": "x"}, "`owed_statement` on form (r) kind"),
+    ]
+    fm = {"form": "r", "kind": "with the reading's families", "sentences": [207, 80], "family": "ΓDomains",
+          "theorem": "KCore.ProvT.noModel", "file": f, "inconsistent": "KCore.ProvT.inconsistent"}
+    fmw = lambda **kw: {k: v for k, v in dict(fm, **kw).items() if v is not None}
+    cases += [  # kind "with the reading's families"
+        (fm, None),
+        (fmw(inconsistent="KCore.ProvT.noCons", owed_refuted="KCore.ProvT.notFn"), None),
+        (fmw(from_sentences="KCore.ProvT.fromS"), None),
+        (fmw(from_sentences="KCore.ProvT.fromNamed"), None),
+        (fmw(inconsistent=None), "names no `inconsistent`"),
+        (fmw(inconsistent="KCore.ProvT.consistent"), "does not state ¬ Consistent"),
+        (fmw(inconsistent="KCore.ProvT.missing"), "0 theorems named KCore.ProvT.missing"),
+        (fmw(family=None), "form (r) names no family"),
+        (fmw(from_sentences="KCore.ProvT.fromDom"), "reads ΓDomains"),
+        (fmw(from_sentences="KCore.ProvT.fromGamma"), "reads Γ:"),
+        (fmw(from_sentences="KCore.ProvT.fromOpaque"), "is over no premise set of the sentences"),
+        (fmw(from_sentences="KCore.ProvT.fromFn"), "mentions FnHyp"),
+        (fmw(consistent="KCore.ProvT.consistent"), "`consistent` on form (r) kind"),
+        ({"form": "r", "sentences": [344], "family": "ΓCons", "theorem": "KCore.ProvT.noModel", "file": f,
+          "inconsistent": "KCore.ProvT.inconsistent"}, "`inconsistent` on form (r)"),
+        (agw(from_sentences="KCore.ProvT.fromS"), "`from_sentences` on form (r) kind"),
     ]
     mrt = {"fixture": "e3-eq-exists-ml-in-or-int", "owed_refuted": "KCore.ProvT.refuted",
            "consistent": "KCore.ProvT.consistent", "file": f}
@@ -956,7 +1059,8 @@ end KCore.ProvT
     ]
     ok = True
     val = lambda v: (("true" if v else "false") if isinstance(v, bool) else
-                     f"{v!r}".replace("'", '"') if not isinstance(v, (list, dict)) else
+                     json.dumps(v, ensure_ascii=False) if isinstance(v, str) else
+                     f"{v!r}" if not isinstance(v, (list, dict)) else
                      "[" + ", ".join(val(x) for x in v) + "]" if isinstance(v, list) else
                      "{ " + ", ".join(f"{k} = {val(x)}" for k, x in v.items()) + " }")
     for i, (dt, want, *more) in enumerate(cases):

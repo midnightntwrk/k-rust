@@ -7,13 +7,18 @@
   `lake env lean -j1 test/TieE3MlEqRhsOrTotalNoModel.lean`. Every statement is on the literals `kore`
   and `defn`, for every interpretation H.
 
-  - The text has no model (C7 form (r), `no_model`): the premise set `Pre H` is the four sentences as
-    the text writes them, with the signature and the domains of the reading (`ΓSig`: definedness and
-    the sorts; `ΓDomains`: each Int value one element of Int, the graph of `_-Int_` at `[0, 1]`,
-    distinct Int values distinct elements). Read at X0 = X = 1 (`valAt`, `eqn_read`): f(1) is 1 (203),
-    g(1) is the value of `0 -Int 1`, which the graph makes -1 (205); 207 puts both in h(1); 80 makes
-    h(1) one element of Int (`fnl_read`); and 1 and -1 are distinct elements. No other item of Γ is
-    used.
+  - What the sentences give without the domains (`sub_forced`): the premise set `PreS H` is the four
+    sentences as the text writes them with the signature of the reading (`ΓSig`: definedness and
+    the sorts) and no item of `ΓDomains`. Read at X0 = X = m1 (`valAt`, `eqn_read`), for any
+    element m1 of Int: f(m1) holds m1 (203), g(m1) holds the elements of `0 -Int m1` (205), 207
+    puts both in h(m1), and 80 makes h(m1) one element of Int (`fnl_read`). So every element of
+    `0 -Int m1` is m1.
+  - With the domains of the reading there is no model (C7 form (r), kind "with the reading's
+    families", `no_model`): `Pre H` is `PreS H` with `ΓDomains`, of which three items are read:
+    1 and -1 are each one element of Int, the graph of `_-Int_` at `[0, 1]` puts the element of -1
+    in `0 -Int 1`, and distinct Int values are distinct elements. No sentence of the text states
+    any of the three, and no other item of Γ is used. That the four sentences, or the text's
+    sentences, have no model without the domains is not proved here.
   - The reading has no model either (`gamma_no_model`, `inconsistent`): Γ's clauses of h
     (`orAsCases`: h(X) = f(X) where f(X) is defined, h(X) = g(X) where g(X) is) both apply at 1, so
     h(1) is the element of f(1) and that of g(1), 1 and -1 (`eqn_readG` on Γ's items, `gAx`).
@@ -285,28 +290,82 @@ theorem int_distinct (H : HookParams) : (distinctSorts (cH H)).contains Srt.int 
   exact List.contains_iff_mem.mpr (List.mem_append_left _ (List.mem_append_left _ (List.mem_append_left _
     (List.mem_append_left _ (List.mem_cons_self ..)))))
 
-/-- **The premises the refutation uses**: sentences 207 (`h(X) = f(X) ∨ g(X)`), 80 (h is
-functional), 203 (`f(X) = X`) and 205 (`g(X) = 0 -Int X`) as the text writes them, with the
-signature and the domains of the reading (the graph of `_-Int_` at `[0, 1]`, each Int value one
-element of Int, distinct Int values distinct elements), for every H. No other item of Γ. -/
+/-- The four sentences as the text writes them, with the signature of the reading (definedness,
+the sort Int) and nothing else of it: no item of `ΓDomains`. -/
+noncomputable def PreS (H : HookParams) : Premises KoreAML.Sym :=
+  TiePair.Texts [(trS U.ax207).pat, (trS U.ax80).pat, (trS U.ax203).pat, (trS U.ax205).pat] ∪ ΓSig (cH H)
+
+/-- **What the sentences give, without the domains, for every H**: in a model of the four sentences
+and the signature, at every element m1 of Int, every element of Int in `0 -Int X` (the right side
+of 205 as translated) read at X = m1 is m1. f(m1) holds m1 (203), g(m1) holds the elements of
+`0 -Int m1` (205), h(m1) holds both (207) and is one element (80). -/
+theorem sub_forced (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP PreS H) :
+    ∃ σI, (∀ a, I.evalSymb (.sort "SortInt") a ↔ a = σI) ∧ ∀ m1, Inh I σI m1 → ∀ b, Inh I σI b →
+      (tr ⟨tableOf U.ax205.ax.sortVars U.ax205.ax.pattern, []⟩ (ap "Lbl'Unds'-Int'Unds'" [.dv sI "0", vX])).interpret I
+        (valAt σI m1) b → b = m1 := by
+  have hD : DefOK I := TiePair.defOK_texts fun φ hφ => hI φ (Or.inl hφ)
+  have hSig : I ⊧ᴵP ΓSig (cH H) := fun φ hφ => hI φ (Or.inr hφ)
+  have hc : I ⊧ᴵ ceilDefItem.pat := hSig _ (Or.inl (Or.inl ⟨_, sig_ceilDef, rfl⟩))
+  have hT : ∀ φ ∈ [(trS U.ax207).pat, (trS U.ax80).pat, (trS U.ax203).pat, (trS U.ax205).pat], I ⊧ᴵ φ :=
+    fun φ hφ => hI φ (Or.inl (Or.inl hφ))
+  haveI : OvlOK (cH H) := ovlOK_of_core (coreOKH H)
+  obtain ⟨σI, hσI1, hσI2⟩ := TieRhs.sortSing_sig hD hSig (int_numbered H)
+  rw [int_name] at hσI1
+  refine ⟨σI, hσI1, fun m1 hm1 b hb hsub => ?_⟩
+  let e := valAt σI m1
+  have hev : ∀ n : Nat, n ≠ 1 → e.evalEvar ⟨n⟩ = m1 := fun n hn => valAt_ne σI m1 (fun h => hn (by cases h; rfl))
+  -- 203: f(m1) is m1
+  have hA := eqn_read hD hc hσI1 hσI2 s203 free_eqn.1 tab_eqn.1 (by rw [← trS_plain.2.1]; exact hT _ (by simp)) m1 hm1
+  -- 205: g(m1) is `0 -Int m1`
+  have hB := eqn_read hD hc hσI1 hσI2 s205 free_eqn.2.1 tab_eqn.2.1 (by rw [← trS_plain.2.2.1]; exact hT _ (by simp)) m1 hm1
+  -- 207: h(m1) holds f(m1) and g(m1)
+  have hC := eqn_read hD hc hσI1 hσI2 s207 free_eqn.2.2 tab_eqn.2.2 (by rw [← trS_plain.2.2.2]; exact hT _ (by simp)) m1 hm1
+  -- 80: h(m1) is one element of Int
+  obtain ⟨y, hy⟩ := fnl_read hD hc hσI1 hσI2 (by rw [← trS_plain.1]; exact hT _ (by simp)) m1 hm1
+  have t3 := tab_eqn.1.2.2
+  have t3'' := tab_eqn.2.2.2.2
+  have hvX : ∀ t : VarTable, t.ev kX = ⟨3⟩ → tr ⟨t, []⟩ vX = .evar ⟨3⟩ := fun t h => by
+    unfold vX ev; rw [KoreAML.tr, show evarKey (evar "VarX" sI) = kX from rfl, h]
+  -- f(X0) and f(VarX) agree at e (X0 and VarX are both m1)
+  have hsw : ∀ (g : String) b, (sym (.symbol g) ⬝ .evar ⟨3⟩).interpret I e b ↔ (sym (.symbol g) ⬝ .evar ⟨2⟩).interpret I e b :=
+    fun g b => interp_app_congr (fun _ => Iff.rfl) (fun m => by rw [interp_evar, interp_evar, hev 3 (by decide), hev 2 (by decide)]) b
+  have hfm1 : (sym (.symbol "Lblf") ⬝ .evar ⟨2⟩).interpret I e m1 := by
+    refine (hA m1 hm1).mpr ?_
+    rw [hvX _ t3, interp_evar]; exact (hev 3 (by decide)).symm
+  have hgb : (sym (.symbol "Lblg") ⬝ .evar ⟨2⟩).interpret I e b := (hB b hb).mpr hsub
+  have hor : ∀ b, Inh I σI b → ((sym (.symbol "Lblf") ⬝ .evar ⟨2⟩).interpret I e b ∨
+      (sym (.symbol "Lblg") ⬝ .evar ⟨2⟩).interpret I e b) → (sym (.symbol "Lblh") ⬝ .evar ⟨2⟩).interpret I e b := by
+    intro b hb h
+    refine (hC b hb).mpr ?_
+    have ht : tr ⟨tableOf U.ax207.ax.sortVars U.ax207.ax.pattern, []⟩ (.or sI [ap "Lblf" [vX], ap "Lblg" [vX]]) =
+        sOr (trSort (tableOf U.ax207.ax.sortVars U.ax207.ax.pattern) sI)
+          (sym (.symbol "Lblf") ⬝ .evar ⟨3⟩) (sym (.symbol "Lblg") ⬝ .evar ⟨3⟩) := by
+      rw [KoreAML.tr]; simp only [trOrList]; unfold ap; rw [tr_app0, tr_app0, trArgs_cons, trArgs_cons, trArgs_nil, trArgs_nil, hvX _ t3'']
+    rw [ht, interp_sOr]
+    refine ⟨(interp_inhOf_of (S := trSort _ sI) (fun b => by unfold sI; rw [trSort_srt]; exact hσI1 b)).mpr hb, ?_⟩
+    rcases h with h | h
+    · exact Or.inl ((hsw _ b).mpr h)
+    · exact Or.inr ((hsw _ b).mpr h)
+  have e1 : m1 = y := (hy m1 hm1).mp (hor m1 hm1 (Or.inl hfm1))
+  have e2 : b = y := (hy b hb).mp (hor b hb (Or.inr hgb))
+  exact e2.trans e1.symm
+
+/-- **The premises the refutation uses**: `PreS` (sentences 207, 80, 203 and 205 as the text writes
+them, with the signature) and the domains of the reading, for every H. No other item of Γ. -/
 noncomputable def Pre (H : HookParams) : Premises KoreAML.Sym :=
   TiePair.Texts [(trS U.ax207).pat, (trS U.ax80).pat, (trS U.ax203).pat, (trS U.ax205).pat] ∪ ΓSig (cH H) ∪ ΓDomains (cH H)
 
-/-- **The text's sentences have no model, for every H** (C7 form (r)): at X = 1, f(1) is 1 (203)
-and g(1) is `0 -Int 1`, which the graph of `_-Int_` makes -1 (205); 207 puts both in h(1), and 80
-makes h(1) one element of Int; the values 1 and -1 of Int are distinct elements. -/
+/-- **The four sentences with the signature and the domains have no model, for every H** (C7 form
+(r), kind "with the reading's families"): by `sub_forced` every element of `0 -Int 1` is the
+element of 1, and three items of `ΓDomains` refute that: 1 and -1 are each one element of Int, the
+graph of `_-Int_` at `[0, 1]` puts the element of -1 in `0 -Int 1`, and the values 1 and -1 are
+distinct elements. -/
 theorem no_model (H : HookParams) :
     ¬ ∃ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), I ⊧ᴵP Pre H := by
   rintro ⟨M, _, I, hI⟩
   have hD : DefOK I := TiePair.defOK_texts fun φ hφ => hI φ (Or.inl (Or.inl hφ))
-  have hSig : I ⊧ᴵP ΓSig (cH H) := fun φ hφ => hI φ (Or.inl (Or.inr hφ))
   have hDom : I ⊧ᴵP ΓDomains (cH H) := fun φ hφ => hI φ (Or.inr hφ)
-  have hc : I ⊧ᴵ ceilDefItem.pat := hSig _ (Or.inl (Or.inl ⟨_, sig_ceilDef, rfl⟩))
-  have hT : ∀ φ ∈ [(trS U.ax207).pat, (trS U.ax80).pat, (trS U.ax203).pat, (trS U.ax205).pat], I ⊧ᴵ φ :=
-    fun φ hφ => hI φ (Or.inl (Or.inl (Or.inl hφ)))
-  haveI : OvlOK (cH H) := ovlOK_of_core (coreOKH H)
-  obtain ⟨σI, hσI1, hσI2⟩ := TieRhs.sortSing_sig hD hSig (int_numbered H)
-  rw [int_name] at hσI1
+  obtain ⟨σI, hσI1, hsub⟩ := sub_forced H (I := I) fun φ hφ => hI φ (Or.inl hφ)
   have hSI : ∀ (e : Valuation M) b, (sortP "Int").interpret I e b ↔ b = σI := fun _ b => hσI1 b
   -- the elements of 1 and -1
   obtain ⟨m1, hm1d, hm1s⟩ := TieRhs.den_single_dom hD hDom (show (cH H).sortOf (KCore.int 1) = some Srt.int from rfl) KoreAML.val0
@@ -320,28 +379,12 @@ theorem no_model (H : HookParams) :
   have hdenN : ∀ b, (den (cH H) (KCore.int (0 - 1))).interpret I e b ↔ b = mN := fun b =>
     ((den_closed (cH H) (KCore.int (0 - 1))).interp e KoreAML.val0 b).trans (hmNd b)
   have hev : ∀ n : Nat, n ≠ 1 → e.evalEvar ⟨n⟩ = m1 := fun n hn => valAt_ne σI m1 (fun h => hn (by cases h; rfl))
-  -- 203: f(1) is 1
-  have hA := eqn_read hD hc hσI1 hσI2 s203 free_eqn.1 tab_eqn.1 (by rw [← trS_plain.2.1]; exact hT _ (by simp)) m1 hm1
-  -- 205: g(1) is -1
-  have hB := eqn_read hD hc hσI1 hσI2 s205 free_eqn.2.1 tab_eqn.2.1 (by rw [← trS_plain.2.2.1]; exact hT _ (by simp)) m1 hm1
-  -- 207: h(1) holds f(1) and g(1)
-  have hC := eqn_read hD hc hσI1 hσI2 s207 free_eqn.2.2 tab_eqn.2.2 (by rw [← trS_plain.2.2.2]; exact hT _ (by simp)) m1 hm1
-  -- 80: h(1) is one element of Int
-  obtain ⟨y, hy⟩ := fnl_read hD hc hσI1 hσI2 (by rw [← trS_plain.1]; exact hT _ (by simp)) m1 hm1
-  have t3 := tab_eqn.1.2.2
   have t3' := tab_eqn.2.1.2.2
-  have t3'' := tab_eqn.2.2.2.2
   have hvX : ∀ t : VarTable, t.ev kX = ⟨3⟩ → tr ⟨t, []⟩ vX = .evar ⟨3⟩ := fun t h => by
     unfold vX ev; rw [KoreAML.tr, show evarKey (evar "VarX" sI) = kX from rfl, h]
-  -- f(X0) and f(VarX) agree at e (X0 and VarX are both m1)
-  have hsw : ∀ (g : String) b, (sym (.symbol g) ⬝ .evar ⟨3⟩).interpret I e b ↔ (sym (.symbol g) ⬝ .evar ⟨2⟩).interpret I e b :=
-    fun g b => interp_app_congr (fun _ => Iff.rfl) (fun m => by rw [interp_evar, interp_evar, hev 3 (by decide), hev 2 (by decide)]) b
-  have hfm1 : (sym (.symbol "Lblf") ⬝ .evar ⟨2⟩).interpret I e m1 := by
-    refine (hA m1 hm1).mpr ?_
-    rw [hvX _ t3, interp_evar]; exact (hev 3 (by decide)).symm
-  have hgmN : (sym (.symbol "Lblg") ⬝ .evar ⟨2⟩).interpret I e mN := by
-    refine (hB mN hmN).mpr ?_
-    -- the graph of `_-Int_` at [0, 1]
+  -- the element of -1 is in `0 -Int 1`: the graph of `_-Int_` at [0, 1]
+  have hsubN : (tr ⟨tableOf U.ax205.ax.sortVars U.ax205.ax.pattern, []⟩ (ap "Lbl'Unds'-Int'Unds'" [.dv sI "0", vX])).interpret I
+      e mN := by
     have hgraph := hDom _ (Or.inl ⟨⟨intSub, [Srt.int, Srt.int], Srt.int⟩, [KCore.int 0, KCore.int 1], some (KCore.int (0 - 1)),
       by decide +kernel, rfl, rfl, fun h => absurd h (by simp), rfl⟩)
     have hg2 := (KoreAML.interp_equal hD).mp (hgraph e default)
@@ -357,27 +400,13 @@ theorem no_model (H : HookParams) :
     refine (interp_app_congr (fun m => interp_app_congr (fun _ => Iff.rfl) (fun m => by rw [den_int0]) m)
       (fun m => ?_) mN).mpr h3
     rw [interp_evar, hev 3 (by decide), hden1]
-  have hor : ∀ b, Inh I σI b → ((sym (.symbol "Lblf") ⬝ .evar ⟨2⟩).interpret I e b ∨
-      (sym (.symbol "Lblg") ⬝ .evar ⟨2⟩).interpret I e b) → (sym (.symbol "Lblh") ⬝ .evar ⟨2⟩).interpret I e b := by
-    intro b hb h
-    refine (hC b hb).mpr ?_
-    have ht : tr ⟨tableOf U.ax207.ax.sortVars U.ax207.ax.pattern, []⟩ (.or sI [ap "Lblf" [vX], ap "Lblg" [vX]]) =
-        sOr (trSort (tableOf U.ax207.ax.sortVars U.ax207.ax.pattern) sI)
-          (sym (.symbol "Lblf") ⬝ .evar ⟨3⟩) (sym (.symbol "Lblg") ⬝ .evar ⟨3⟩) := by
-      rw [KoreAML.tr]; simp only [trOrList]; unfold ap; rw [tr_app0, tr_app0, trArgs_cons, trArgs_cons, trArgs_nil, trArgs_nil, hvX _ t3'']
-    rw [ht, interp_sOr]
-    refine ⟨(interp_inhOf_of (S := trSort _ sI) (fun b => by unfold sI; rw [trSort_srt]; exact hσI1 b)).mpr hb, ?_⟩
-    rcases h with h | h
-    · exact Or.inl ((hsw _ b).mpr h)
-    · exact Or.inr ((hsw _ b).mpr h)
-  have e1 : m1 = y := (hy m1 hm1).mp (hor m1 hm1 (Or.inl hfm1))
-  have e2 : mN = y := (hy mN hmN).mp (hor mN hmN (Or.inr hgmN))
+  have e12 : mN = m1 := hsub m1 hm1 mN hmN hsubN
   -- 1 and -1 are distinct elements of Int
   have hax := hDom _ (Or.inr (Or.inr (Or.inr (Or.inl ⟨KCore.int 1, KCore.int (0 - 1), Srt.int, int_distinct H, rfl, rfl,
     by decide, rfl⟩))))
   have := hax e m1
   rw [interpret_neg, interpret_conj] at this
-  exact this ⟨(hden1 m1).mpr rfl, (hdenN m1).mpr (e1.trans e2.symm)⟩
+  exact this ⟨(hden1 m1).mpr rfl, (hdenN m1).mpr e12.symm⟩
 
 /-! ## Γ has no model either -/
 
@@ -547,6 +576,7 @@ theorem not_fnHypH (H : HookParams) : ¬ FnHyp (cH H) := fun hf =>
 
 end KCore.TieE3MlEqRhsOrTotalNoModel
 
+#print axioms KCore.TieE3MlEqRhsOrTotalNoModel.sub_forced
 #print axioms KCore.TieE3MlEqRhsOrTotalNoModel.no_model
 #print axioms KCore.TieE3MlEqRhsOrTotalNoModel.inconsistent
 #print axioms KCore.TieE3MlEqRhsOrTotalNoModel.not_fnHypH

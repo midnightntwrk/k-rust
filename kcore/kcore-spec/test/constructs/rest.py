@@ -96,8 +96,9 @@ The evidence forms (DONE-0 C2's table), by status and list, and the items each n
       tie          `tie` lists the C14 tie modules: files test/X.lean that test/integration.sh
                    builds (not in its skip list)
       theorems     the theorems the entry names, `tie_theorems` (full names, each declared in a
-                   file of `tie`) and the `theorem` and `consistent` (form (r), kind "sentence
-                   against the reading") of each `derived` table (declared in its `file`): at
+                   file of `tie`) and the `theorem`, `consistent` (form (r), kind "sentence
+                   against the reading"), `inconsistent` and `from_sentences` (form (r), kind "with
+                   the reading's families") of each `derived` table (declared in its `file`): at
                    least one, each declared
       match refuted on an entry with `match_refuted` (rows-header.toml; any supported form, E6's
                    aside, and on no other): each table names `fixture`, the entry's `fixture` or
@@ -1099,8 +1100,8 @@ def evidence(fx, l, key, e, row):
             item(not why, "tie " + ", ".join(ts), "tie (" + "; ".join(why) + ")")
             ok = not why
         thms = [(n, ts) for n in (e.get("tie_theorems") or [])]
-        thms += [(d.get(k), [d.get("file")]) for d in (e.get("derived") or []) for k in ("theorem", "consistent")
-                 if isinstance(d, dict) and d.get(k)]
+        thms += [(d.get(k), [d.get("file")]) for d in (e.get("derived") or [])
+                 for k in ("theorem", "consistent", "inconsistent", "from_sentences") if isinstance(d, dict) and d.get(k)]
         if not thms:
             miss.append("theorems")
         else:

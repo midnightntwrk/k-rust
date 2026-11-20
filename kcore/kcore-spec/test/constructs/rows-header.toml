@@ -166,6 +166,29 @@
 #             (owed_state below, one rule for both): it puts the entry in the group false unless
 #             another of its owed facts is proved or open, K-coverage.md prints the group beside the
 #             status and lists the entry with the refuted owed facts.
+#             Form (r), kind "with the reading's families", for a text that has no model with
+#             families of the reading no sentence of it states, the reading having no model either
+#             (findings/work/decision-ce-or-total.md section 5): the refutation reads an item of Γ
+#             that no sentence states (a hook's graph at values, the elements and the distinctness
+#             of domain values, a constructor's item the text gives by attribute only), so that the
+#             text has no model is not shown from its sentences, and since Γ holds what those
+#             sentences state in full the reading has no model, so the entry cannot be of kind
+#             "sentence against the reading" and its text is not tied (every statement over Γc is
+#             vacuous there; the owed fact is refuted, owed_refuted). What has no model is the text
+#             as K means it: the families are what K means by a hooked sort or symbol and by a
+#             constructor, carried by attributes and `\dv`, which are no sentences of the text's
+#             theory. theorem and sentences as form (r); family (required) names each item no
+#             sentence states; inconsistent (required) the full name of a theorem of the same file
+#             stating ¬ Consistent for every H; from_sentences (optional) the full name of a theorem
+#             of the same file over the translated sentences and ΓSig alone, stating what the
+#             sentences give and the named families refute; owed_refuted as above. K-coverage.md
+#             prints "(no model with the reading's families)" beside the status.
+#             test/provenance.sh checks the fields and the statements' shapes; rest.py counts
+#             inconsistent and from_sentences among the entry's theorems. A form (r) table without
+#             kind says only that its premise set has no model; where it names a family no sentence
+#             states and the reading has no model, the kind says so (the recorded cell-collection
+#             subsort exception stays without kind: rest.py reads it so), and a refutation from the
+#             text's sentences and the signature only is the one that needs no kind.
 #             Form (r), kind "sentence against the reading", for a text one of whose sentences no
 #             model of the reading satisfies, the reading having a model; the text's own sentences
 #             may have a model (where a premise of the refutation is the reading's alone, named in

@@ -20,11 +20,16 @@ The document holds, in this order:
              changes, so the release gate requires none). Rows whose cone starts with "none at the
              row" are named after the two parts and counted through their cases.
   undecided  the rows of status pending-fixture and not-handled, by list.
-  no model   every entry (row or nested) with a `derived` table of form (r), the text's sentences
-             having no model (DONE-0 C7, rows-header.toml): the fixture whose text the sentences
+  no model   every entry (row or nested) with a `derived` table of form (r) (DONE-0 C7,
+             rows-header.toml: the premise set of its sentences and the families it names has no
+             model; of kind "with the reading's families" the table says that a family is one no
+             sentence of the text states and that the reading has no model either): the fixture
+             whose text the sentences
              are (the table's `fixture`, else the entry's), the sentences and families
              the refutation uses, the theorem, its kind where given, and `owed_refuted`. Such an
-             entry's status cell in its list reads "STATUS (no model)", or "STATUS (a sentence
+             entry's status cell in its list reads "STATUS (no model)", "STATUS (no model with the
+             reading's families)" where every such table is of kind "with the reading's families"
+             (the text's own sentences are not shown to have none), or "STATUS (a sentence
              against the reading)" where every such table is of kind "sentence against the reading"
              (Γ has a model and refutes one sentence of the text as written; the entry's `family`
              says whether the text's own sentences have a model). The mark is of the text the
@@ -87,6 +92,7 @@ LISTS = ["E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8", "C3"]
 # the kind of a form (r) table whose reading has a model, none satisfying one sentence of the text
 # as written (rows-header.toml)
 AGAINST = "sentence against the reading"
+FAMILIES = "with the reading's families"
 TITLES = {
     "E1": "E1 sentence kinds (Outer.jj)",
     "E2": "E2 attributes (Att.scala; key x KORE sentence class)",
@@ -198,7 +204,8 @@ def table_fixture(e, d):
 def no_model_mark(e):
     """The mark beside an entry's status, "" without a form (r) table. A mark is of one text: "no
     model", or "a sentence against the reading" where each form (r) table of that text is of kind
-    "sentence against the reading". The tables of the entry's own fixture give the bare mark; those
+    "sentence against the reading", or "no model with the reading's families" where each is of kind
+    "with the reading's families". The tables of the entry's own fixture give the bare mark; those
     of another fixture's text give "FIXTURE, ...: MARK", the fixtures of one mark together, so the
     entry's own fixture is not said to have what another text has."""
     by = {}
@@ -206,7 +213,8 @@ def no_model_mark(e):
         by.setdefault(table_fixture(e, d), []).append(d)
     marks = {}
     for x, ds in by.items():
-        m = "a sentence against the reading" if all(d.get("kind") == AGAINST for d in ds) else "no model"
+        m = ("a sentence against the reading" if all(d.get("kind") == AGAINST for d in ds) else
+             "no model with the reading's families" if all(d.get("kind") == FAMILIES for d in ds) else "no model")
         marks.setdefault(m, []).append(x)
     own = e.get("fixture", "")
     out = []
@@ -428,13 +436,20 @@ def generate(rows_path, manifest_path):
             o.append(f"- {l} {code(key)}: {text(r.get('status'))}"
                      + (f"; pending: {text(r['pending'], CUT)}" if r.get("pending") else ""))
 
-    o += ["", f"## Entries with a table of form (r): a text without a model, or a sentence against the reading ({len(nomodel)})", "",
+    o += ["", "## Entries with a table of form (r): a text without a model, one without a model with the reading's "
+          f"families, or a sentence against the reading ({len(nomodel)})", "",
           "A `derived` table of form (r): a kernel-checked theorem that the premise set form (a) "
           "would use has no model, from the sentences named (by index) and the families named "
           "beside them; `owed_refuted` the theorem refuting the fact the package names as owed. "
           "The fixture is the one whose text the sentences are: the table's `fixture` where they are "
           "another fixture's than the entry's, else the entry's. "
           "The entry's status is the reading's, and its list prints \"(no model)\" beside it. "
+          f"Of kind \"{FAMILIES}\": the premise set holds families of the reading that no sentence of the "
+          "text states (named under families), and the reading has no model either (`inconsistent`): the text "
+          "has no model with those families, which are what K means by its hooked sorts and symbols and by its "
+          "constructors, and its own sentences are not shown to have none; `from sentences` names the theorem, "
+          "where there is one, of what the sentences and the signature alone give. "
+          "Its list prints \"(no model with the reading's families)\". "
           f"Of kind \"{AGAINST}\": the reading has a model (`consistent`), and no model of it satisfies "
           "the first sentence named as written; the sentence-level statement stays owed "
           "(`owed_statement`), and `family` says which of the premises a sentence of the text states: "
@@ -446,11 +461,11 @@ def generate(rows_path, manifest_path):
         o += ["None."]
     else:
         o += table(["list", "row", "entry", "status", "fixture", "sentences", "families", "kind",
-                    "theorem", "owed refuted"], [
+                    "theorem", "owed refuted", "inconsistent", "from sentences"], [
             [l, code(key), text(w) if w else "row", text(e.get("status", "")), text(table_fixture(e, d)),
              text(", ".join(str(x) for x in d.get("sentences", [])) if isinstance(d.get("sentences"), list) else ""),
              text(d.get("family", ""), CUT), text(d.get("kind", "")), text(d.get("theorem", "")),
-             text(d.get("owed_refuted", ""))]
+             text(d.get("owed_refuted", "")), text(d.get("inconsistent", "")), text(d.get("from_sentences", ""))]
             for l, key, w, e, d in nomodel])
 
     marks = collections.Counter(owed_mark(e) for _, _, _, e in owed)
