@@ -1194,6 +1194,10 @@ def tgNjOrder (gs : List KoreAML.Gen) : List Kore.Pattern → Option (List Nat)
     let kitem := p == kitemPat
     let rw := AttrsAgree.isRewrite ad.ax.pattern
     let eh := (AttrsAgree.eqnHead ad.ax.pattern).getD ""
+    -- the kind of the symbol at the head of an equation's left side, read by `AttrsAgree.eqnHeadIs`:
+    -- a function of the semantics is named by its declared name or, applied at sort arguments, by
+    -- its instance's name, which the head's declared name is not
+    let ehk := if afs.any (fun f => AttrsAgree.eqnHeadIs (c.symName f.label) ad.ax.pattern) then "fn" else kind eh
     let fh := match ad.ax.pattern with
       | .exist _ _ (.equals _ _ _ (.app h _ _)) => h.ident.name
       | _ => ""
@@ -1234,7 +1238,7 @@ def tgNjOrder (gs : List KoreAML.Gen) : List Kore.Pattern → Option (List Nat)
     let ovlFn : String := if c.fnOvlSyms.isEmpty then "" else
       if tieOvlFnFunB c ad.ax then "fun" else if tieOvlFnInjB c ad.ax then "inj"
       else if tieOvlFnDistB c ad.ax then "dist" else ""
-    IO.println s!"S {ad.index}\t{absent}\t{fnJ}\t{cons}\t{plain}\t{consItem}\t{triv}\t{kitem}\t{rw}\t{eh}\t{kind eh}\t{fh}\t{kind fh}\t{AttrsAgree.prioOf ad.ax.attributes}\t{pl}\t{simp}\t{usrc}\t{rl}\t{ovlEq}\t{ovlNc}\t{Parse.isOwnLibrarySentence (.axiom ad.ax)}\t{omitX}\t{hr}\t{ovlFn}"
+    IO.println s!"S {ad.index}\t{absent}\t{fnJ}\t{cons}\t{plain}\t{consItem}\t{triv}\t{kitem}\t{rw}\t{eh}\t{ehk}\t{fh}\t{kind fh}\t{AttrsAgree.prioOf ad.ax.attributes}\t{pl}\t{simp}\t{usrc}\t{rl}\t{ovlEq}\t{ovlNc}\t{Parse.isOwnLibrarySentence (.axiom ad.ax)}\t{omitX}\t{hr}\t{ovlFn}"
     -- for such a sentence, each sort and generator (or pair) its predicate accepts it at, whether N is
     -- one of the semantics' sorts, and per generator: `tieOvlFnArityB`, the user sentences that are its
     -- `functional` sentence in the form `tieOvlFnFunShapeB` decides, and `Semantics.fnOvl`

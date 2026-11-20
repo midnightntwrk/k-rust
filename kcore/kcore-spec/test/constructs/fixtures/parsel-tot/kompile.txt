@@ -1,0 +1,9 @@
+command: kompile --backend haskell parsel-tot.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.1
+definition.kore bytes: 204608
+definition.kore sha256: b55074fe857e34d118ee53864bccfc7b471db6989c776573f9bbb912c8459941
+stripped sha256: 2be46a909f5c401ebc53f953098be473a992dc4801d2d75d1041dbd22a545b18
+main module: 396 sentences, 42 not in base's, in kore.txt
+output:
+  
