@@ -44,6 +44,16 @@
     bound beyond the rule's own, so Γ's axiom `∀x̄. (L' ∧ ⌈R⌉ → •R)` is the text's
     `∀x̄. (L → •R)` with the premise `⌈R⌉` every rule's axiom carries (`Var`: `rule_from_text`,
     `rule_w2`; `Ceil`, `Equals`: `rule_from_text_in`, `rule_w2`).
+  - `right_defined`, `rule_w2_noprem` (each of the three): the premise `⌈R⌉` of `rule_w2` holds in
+    every model of Γ where the guards hold (R is built of the text's variables, constructors and
+    `inj{Exp,KItem}`, each with its Cons-Fun item in Γ: `TieRuleCutG.rightDefined_top`), so Γ
+    entails the sentence, for every H.
+  - `rule_from_text_cons` (`Ceil`, `Equals`; W1 without the inclusions as premises): Γ's rule item
+    is a consequence of the sentence, `ΓSig` and one item of `ΓCons`, the Cons-Fun item of the
+    injection of Exp into KItem (`injFun`, `injFun_cons`). `terms_in_cons`: go's arity (`ΓSig`)
+    puts the elements of `go(X)` in Exp, and the injection's item puts those of
+    `inj{Exp,KItem}(go(X))` in KItem (`TieRuleCutG.inj_inh`). The signature has no item that gives
+    the injection's result sort, so that item is part of the premise set.
   - The theorems hold at any table and leave as premises what `rule_and_pred` lists of the table
     and the interpretation: definedness, the sorts' patterns, every element of t in KItem, every
     element of `K[t]` in the top cell's sort, and (Ceil) every element of go(X) in Exp. The
@@ -398,6 +408,109 @@ theorem rule_w2 (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation Ko
       ⟨(left_iff H hD hSig e (terms_in H hI e m hgs).1 (terms_in H hI e m hgs).2 x).mpr hx, hR e m hgs x hx⟩)
     (fun e m _ x hx => hx)
 
+/-- The generators of the right side's term: the top cell, the `k` cell, `kseq`, the injection of
+Exp into KItem and the constructor `done`. -/
+def rightGens : List (String × KoreAML.Gen) :=
+  [("GeneratedTopCell", .ctor ⟨"Lbl'-LT-'generatedTop'-GT-'", ["KCell", "GeneratedCounterCell"], "GeneratedTopCell"⟩),
+   ("KCell", .ctor ⟨"Lbl'-LT-'k'-GT-'", ["K"], "KCell"⟩),
+   ("K", .ctor ⟨"kseq", ["KItem", "K"], "K"⟩),
+   ("KItem", .inj "Exp"),
+   ("Exp", .ctor ⟨"Lbldone", [], "Exp"⟩)]
+
+/-- Γ has the Cons-Fun item of each (kernel). -/
+theorem right_funs : TieRuleCutG.funsInGB c rightGens = true := by decide +kernel
+
+/-- The right side's term is built of the text's variables and of those generators, at arguments
+of their sorts (kernel). -/
+theorem right_built : TieRuleCutG.builtGB rightGens fT (K.fill (injP "Exp" "KItem" (ap "Lbldone" []))) "GeneratedTopCell" = true := by
+  decide +kernel
+
+/-- **The premise of `rule_w2` holds in every model of Γ**, for every H: where the guards of the
+text's variables hold, the right side holds one element, by the Cons-Fun items of its generators,
+so `⌈R⌉` holds of every element of the top cell's sort, which the `\top` of the text's left side
+keeps its elements in. -/
+theorem right_defined (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
+    (hI : I ⊧ᴵP Γ (cH H)) (e : Valuation M) (m : M)
+    (hg : ∀ k ∈ fT, (guardOf (tableOf [] p0) k).interpret I e m) (a : M)
+    (ha : (tr ⟨tableOf [] p0, []⟩ left).interpret I e a) :
+    (tr ⟨tableOf [] p0, []⟩ (.ceil topC topC R)).interpret I e a := by
+  haveI : OvlOK (cH H) := ovlOK_of_core (coreOKH H)
+  have ha' : (tr ⟨tableOf [] p0, []⟩ (.and topC [K.fill (.and kitemS [t, P]), E])).interpret I e a := ha
+  exact TieRuleCutG.rightDefined_top hI
+    (by decide +kernel : topCellSort < nRegSorts + c.sortNames.length)
+    (show (cH H).sortName topCellSort = "GeneratedTopCell" from
+      (by decide +kernel : c.sortName topCellSort = "GeneratedTopCell"))
+    ((TieRuleCutG.funsInGB_withHooks c H rightGens).trans right_funs) right_built e m hg a
+    ((interp_and (List.cons_ne_nil _ _)).mp ha' E (List.mem_cons_of_mem _ List.mem_cons_self))
+
+/-- **W2 for the rule, without a premise**: sentence 157 holds in every model of Γ, for every H
+(`rule_w2` with `right_defined`). -/
+theorem rule_w2_noprem (H : HookParams) : Γ (cH H) ⊧ (trS U.ax157).pat :=
+  fun {_} _ {_} hI => rule_w2 H hI (right_defined H hI)
+
+/-- go's signature, Int to Exp. -/
+def kgo : KCore.CtorSig := ⟨386, [Srt.int], 32⟩
+theorem kgo_mem (H : HookParams) : kgo ∈ kernelSyms (cH H) := (by decide +kernel : kgo ∈ kernelSyms c)
+/-- go's arity item: go of elements of Int holds elements of Exp only. -/
+theorem kgo_arity_c : (symArityItem c kgo).pat =
+    (sym (.symbol "Lblgo") ⬝ inhOf (sortP "Int") ⊆⊆ inhOf (sortP "Exp")) := by decide +kernel
+kernel_rfl kgo_arity_withHooks : ∀ H : HookParams, (symArityItem (c.withHooks H) kgo).pat = (symArityItem c kgo).pat
+theorem kgo_arity (H : HookParams) : (symArityItem (cH H) kgo).pat =
+    (sym (.symbol "Lblgo") ⬝ inhOf (sortP "Int") ⊆⊆ inhOf (sortP "Exp")) :=
+  (kgo_arity_withHooks H).trans kgo_arity_c
+
+/-- The Cons-Fun item of the injection of Exp into KItem: the injection of an element of Exp is
+one element of KItem. -/
+def injFun : KoreAML.Item := KoreAML.Cons.funItem "KItem" (.inj "Exp")
+
+/-- It is one of Γ's constructor items, for every H. -/
+theorem injFun_cons (H : HookParams) : ΓCons (cH H) injFun.pat :=
+  TieRuleCutG.funsInGB_cons (g := ("KItem", .inj "Exp"))
+    ((TieRuleCutG.funsInGB_withHooks c H rightGens).trans right_funs) (by decide)
+
+/-- **In a model of the signature and of the injection's Cons-Fun item, where X's guard holds**,
+every element of `go(X)` is in Exp (go's arity, an item of the signature) and every element of
+`inj{Exp,KItem}(go(X))` in KItem (`TieRuleCutG.inj_inh`). -/
+theorem terms_in_cons (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hD : DefOK I)
+    (hSig : I ⊧ᴵP ΓSig (cH H)) (hF : I ⊧ᴵ injFun.pat) (e : Valuation M) (m : M)
+    (hg : ∀ k ∈ (freeOf [] p0).eraseDups, (guardOf (tableOf [] p0) k).interpret I e m) :
+    (∀ a, (tr ⟨tableOf [] p0, []⟩ goX).interpret I e a →
+      (inhOf (trSort (tableOf [] p0) (srt "Exp"))).interpret I e a) ∧
+    (∀ a, (tr ⟨tableOf [] p0, []⟩ t).interpret I e a →
+      (inhOf (trSort (tableOf [] p0) kitemS)).interpret I e a) := by
+  have hx := hg _ (List.contains_iff_mem.mp (List.all_eq_true.mp fT_free0 _ x_free0))
+  rw [interp_guard_evar hD, trSort_srt] at hx
+  have hit : I ⊧ᴵ (symArityItem (cH H) kgo).pat := hSig _ (Or.inl (Or.inl ⟨_, sig_arity (kgo_mem H), rfl⟩))
+  rw [kgo_arity] at hit
+  have hgo : ∀ a, (tr ⟨tableOf [] p0, []⟩ goX).interpret I e a →
+      (inhOf (trSort (tableOf [] p0) (srt "Exp"))).interpret I e a := by
+    intro a ha
+    rw [trSort_srt]
+    refine (interp_included hD).mp (hit e default) a ?_
+    have ha' : (tr ⟨tableOf [] p0, []⟩ (.app ⟨⟨"Lblgo"⟩⟩ [] [.var (.evar (evar "VarV0" (srt "Int")))])).interpret I e a := ha
+    simp only [trArgs_cons, trArgs_nil, tr] at ha'
+    obtain ⟨p, b, hp, hb, hpb⟩ := interp_app.mp ha'
+    rw [interp_evar] at hb
+    exact interp_app.mpr ⟨p, b, hp, by rw [hb]; exact hx, hpb⟩
+  exact ⟨hgo, fun a ha => TieRuleCutG.inj_inh hD hF hgo a ha⟩
+
+/-- **W1 for the rule, over the sentence, the signature and the injection's Cons-Fun item**: Γ's
+one rule item is a consequence of sentence 157, `ΓSig` and `injFun` (an item of `ΓCons`,
+`injFun_cons`), for every H. The signature alone does not put the elements of
+`inj{Exp,KItem}(go(X))` in KItem: that is the injection's item. -/
+theorem rule_from_text_cons (H : HookParams) :
+    ∀ it ∈ ruleItems (cH H), (TiePair.Texts [(trS U.ax157).pat, injFun.pat] ∪ ΓSig (cH H)) ⊧ it.pat := by
+  intro it hit M _ I hI
+  have hT : I ⊧ᴵP (TiePair.Texts [(trS U.ax157).pat] ∪ ΓSig (cH H)) := by
+    intro φ hφ
+    rcases hφ with (hm | hd) | hs
+    · exact hI φ (Or.inl (Or.inl (List.mem_cons.mpr (Or.inl (List.mem_singleton.mp hm)))))
+    · exact hI φ (Or.inl (Or.inr hd))
+    · exact hI φ (Or.inr hs)
+  have hD : DefOK I := TiePair.defOK_texts fun φ hφ => hI φ (Or.inl hφ)
+  have hF : I ⊧ᴵ injFun.pat := hI _ (Or.inl (Or.inl (List.mem_cons_of_mem _ (List.mem_singleton_self _))))
+  exact rule_from_text_in H hT (fun e m hg => (terms_in_cons H hD (fun φ hφ => hI φ (Or.inr hφ)) hF e m hg)) it hit
+
 /-- info: 'TieRuleLhsAnd.Ceil.rule_from_text_in' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms rule_from_text_in
 /-- info: 'TieRuleLhsAnd.Ceil.rule_w2' depends on axioms: [propext, Classical.choice, Quot.sound] -/
@@ -406,6 +519,15 @@ theorem rule_w2 (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation Ko
 #check @terms_in
 #check @rule_from_text_in
 #check @rule_w2
+/-- info: 'TieRuleLhsAnd.Ceil.rule_w2_noprem' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms rule_w2_noprem
+/-- info: 'TieRuleLhsAnd.Ceil.rule_from_text_cons' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms rule_from_text_cons
+#check @right_defined
+#check @rule_w2_noprem
+#check @injFun_cons
+#check @terms_in_cons
+#check @rule_from_text_cons
 
 end Ceil
 
@@ -660,6 +782,109 @@ theorem rule_w2 (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation Ko
       ⟨(left_iff H hD hSig e (terms_in H hI e m hgs) x).mpr hx, hR e m hgs x hx⟩)
     (fun e m _ x hx => hx)
 
+/-- The generators of the right side's term: the top cell, the `k` cell, `kseq`, the injection of
+Exp into KItem and the constructor `done`. -/
+def rightGens : List (String × KoreAML.Gen) :=
+  [("GeneratedTopCell", .ctor ⟨"Lbl'-LT-'generatedTop'-GT-'", ["KCell", "GeneratedCounterCell"], "GeneratedTopCell"⟩),
+   ("KCell", .ctor ⟨"Lbl'-LT-'k'-GT-'", ["K"], "KCell"⟩),
+   ("K", .ctor ⟨"kseq", ["KItem", "K"], "K"⟩),
+   ("KItem", .inj "Exp"),
+   ("Exp", .ctor ⟨"Lbldone", [], "Exp"⟩)]
+
+/-- Γ has the Cons-Fun item of each (kernel). -/
+theorem right_funs : TieRuleCutG.funsInGB c rightGens = true := by decide +kernel
+
+/-- The right side's term is built of the text's variables and of those generators, at arguments
+of their sorts (kernel). -/
+theorem right_built : TieRuleCutG.builtGB rightGens fT (K.fill (injP "Exp" "KItem" (ap "Lbldone" []))) "GeneratedTopCell" = true := by
+  decide +kernel
+
+/-- **The premise of `rule_w2` holds in every model of Γ**, for every H: where the guards of the
+text's variables hold, the right side holds one element, by the Cons-Fun items of its generators,
+so `⌈R⌉` holds of every element of the top cell's sort, which the `\top` of the text's left side
+keeps its elements in. -/
+theorem right_defined (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
+    (hI : I ⊧ᴵP Γ (cH H)) (e : Valuation M) (m : M)
+    (hg : ∀ k ∈ fT, (guardOf (tableOf [] p0) k).interpret I e m) (a : M)
+    (ha : (tr ⟨tableOf [] p0, []⟩ left).interpret I e a) :
+    (tr ⟨tableOf [] p0, []⟩ (.ceil topC topC R)).interpret I e a := by
+  haveI : OvlOK (cH H) := ovlOK_of_core (coreOKH H)
+  have ha' : (tr ⟨tableOf [] p0, []⟩ (.and topC [K.fill (.and kitemS [t, P]), E])).interpret I e a := ha
+  exact TieRuleCutG.rightDefined_top hI
+    (by decide +kernel : topCellSort < nRegSorts + c.sortNames.length)
+    (show (cH H).sortName topCellSort = "GeneratedTopCell" from
+      (by decide +kernel : c.sortName topCellSort = "GeneratedTopCell"))
+    ((TieRuleCutG.funsInGB_withHooks c H rightGens).trans right_funs) right_built e m hg a
+    ((interp_and (List.cons_ne_nil _ _)).mp ha' E (List.mem_cons_of_mem _ List.mem_cons_self))
+
+/-- **W2 for the rule, without a premise**: sentence 157 holds in every model of Γ, for every H
+(`rule_w2` with `right_defined`). -/
+theorem rule_w2_noprem (H : HookParams) : Γ (cH H) ⊧ (trS U.ax157).pat :=
+  fun {_} _ {_} hI => rule_w2 H hI (right_defined H hI)
+
+/-- go's signature, Int to Exp. -/
+def kgo : KCore.CtorSig := ⟨386, [Srt.int], 32⟩
+theorem kgo_mem (H : HookParams) : kgo ∈ kernelSyms (cH H) := (by decide +kernel : kgo ∈ kernelSyms c)
+/-- go's arity item: go of elements of Int holds elements of Exp only. -/
+theorem kgo_arity_c : (symArityItem c kgo).pat =
+    (sym (.symbol "Lblgo") ⬝ inhOf (sortP "Int") ⊆⊆ inhOf (sortP "Exp")) := by decide +kernel
+kernel_rfl kgo_arity_withHooks : ∀ H : HookParams, (symArityItem (c.withHooks H) kgo).pat = (symArityItem c kgo).pat
+theorem kgo_arity (H : HookParams) : (symArityItem (cH H) kgo).pat =
+    (sym (.symbol "Lblgo") ⬝ inhOf (sortP "Int") ⊆⊆ inhOf (sortP "Exp")) :=
+  (kgo_arity_withHooks H).trans kgo_arity_c
+
+/-- The Cons-Fun item of the injection of Exp into KItem: the injection of an element of Exp is
+one element of KItem. -/
+def injFun : KoreAML.Item := KoreAML.Cons.funItem "KItem" (.inj "Exp")
+
+/-- It is one of Γ's constructor items, for every H. -/
+theorem injFun_cons (H : HookParams) : ΓCons (cH H) injFun.pat :=
+  TieRuleCutG.funsInGB_cons (g := ("KItem", .inj "Exp"))
+    ((TieRuleCutG.funsInGB_withHooks c H rightGens).trans right_funs) (by decide)
+
+/-- **In a model of the signature and of the injection's Cons-Fun item, where X's guard holds**,
+every element of `go(X)` is in Exp (go's arity, an item of the signature) and every element of
+`inj{Exp,KItem}(go(X))` in KItem (`TieRuleCutG.inj_inh`). -/
+theorem terms_in_cons (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hD : DefOK I)
+    (hSig : I ⊧ᴵP ΓSig (cH H)) (hF : I ⊧ᴵ injFun.pat) (e : Valuation M) (m : M)
+    (hg : ∀ k ∈ (freeOf [] p0).eraseDups, (guardOf (tableOf [] p0) k).interpret I e m) :
+    (∀ a, (tr ⟨tableOf [] p0, []⟩ (ap "Lblgo" [x])).interpret I e a →
+      (inhOf (trSort (tableOf [] p0) (srt "Exp"))).interpret I e a) ∧
+    (∀ a, (tr ⟨tableOf [] p0, []⟩ t).interpret I e a →
+      (inhOf (trSort (tableOf [] p0) kitemS)).interpret I e a) := by
+  have hx := hg _ (List.contains_iff_mem.mp (List.all_eq_true.mp fT_free0 _ x_free0))
+  rw [interp_guard_evar hD, trSort_srt] at hx
+  have hit : I ⊧ᴵ (symArityItem (cH H) kgo).pat := hSig _ (Or.inl (Or.inl ⟨_, sig_arity (kgo_mem H), rfl⟩))
+  rw [kgo_arity] at hit
+  have hgo : ∀ a, (tr ⟨tableOf [] p0, []⟩ (ap "Lblgo" [x])).interpret I e a →
+      (inhOf (trSort (tableOf [] p0) (srt "Exp"))).interpret I e a := by
+    intro a ha
+    rw [trSort_srt]
+    refine (interp_included hD).mp (hit e default) a ?_
+    have ha' : (tr ⟨tableOf [] p0, []⟩ (.app ⟨⟨"Lblgo"⟩⟩ [] [.var (.evar (evar "VarV0" (srt "Int")))])).interpret I e a := ha
+    simp only [trArgs_cons, trArgs_nil, tr] at ha'
+    obtain ⟨p, b, hp, hb, hpb⟩ := interp_app.mp ha'
+    rw [interp_evar] at hb
+    exact interp_app.mpr ⟨p, b, hp, by rw [hb]; exact hx, hpb⟩
+  exact ⟨hgo, fun a ha => TieRuleCutG.inj_inh hD hF hgo a ha⟩
+
+/-- **W1 for the rule, over the sentence, the signature and the injection's Cons-Fun item**: Γ's
+one rule item is a consequence of sentence 157, `ΓSig` and `injFun` (an item of `ΓCons`,
+`injFun_cons`), for every H. The signature alone does not put the elements of
+`inj{Exp,KItem}(go(X))` in KItem: that is the injection's item. -/
+theorem rule_from_text_cons (H : HookParams) :
+    ∀ it ∈ ruleItems (cH H), (TiePair.Texts [(trS U.ax157).pat, injFun.pat] ∪ ΓSig (cH H)) ⊧ it.pat := by
+  intro it hit M _ I hI
+  have hT : I ⊧ᴵP (TiePair.Texts [(trS U.ax157).pat] ∪ ΓSig (cH H)) := by
+    intro φ hφ
+    rcases hφ with (hm | hd) | hs
+    · exact hI φ (Or.inl (Or.inl (List.mem_cons.mpr (Or.inl (List.mem_singleton.mp hm)))))
+    · exact hI φ (Or.inl (Or.inr hd))
+    · exact hI φ (Or.inr hs)
+  have hD : DefOK I := TiePair.defOK_texts fun φ hφ => hI φ (Or.inl hφ)
+  have hF : I ⊧ᴵ injFun.pat := hI _ (Or.inl (Or.inl (List.mem_cons_of_mem _ (List.mem_singleton_self _))))
+  exact rule_from_text_in H hT (fun e m hg => (terms_in_cons H hD (fun φ hφ => hI φ (Or.inr hφ)) hF e m hg).2) it hit
+
 /-- info: 'TieRuleLhsAnd.Equals.rule_from_text_in' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms rule_from_text_in
 /-- info: 'TieRuleLhsAnd.Equals.rule_w2' depends on axioms: [propext, Classical.choice, Quot.sound] -/
@@ -668,6 +893,15 @@ theorem rule_w2 (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation Ko
 #check @terms_in
 #check @rule_from_text_in
 #check @rule_w2
+/-- info: 'TieRuleLhsAnd.Equals.rule_w2_noprem' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms rule_w2_noprem
+/-- info: 'TieRuleLhsAnd.Equals.rule_from_text_cons' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms rule_from_text_cons
+#check @right_defined
+#check @rule_w2_noprem
+#check @injFun_cons
+#check @terms_in_cons
+#check @rule_from_text_cons
 
 end Equals
 
@@ -795,6 +1029,53 @@ theorem rule_w2 (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation Ko
     hI _ (Or.inl (Or.inr (Or.inl ⟨_, hit, rfl⟩)))
   exact TieRuleConnText.rule_w2_sides hD p0_parts rule_text0 free_sub0 hg
     (fun e m hgs a ha => (at_rule (tableOf [] p0) e a).mpr ⟨ha, hR e m hgs a ha⟩) (fun _ _ _ _ h => h)
+
+theorem coreOK : c.coreOK = true := by decide_cheap
+theorem coreOKH (H : HookParams) : (cH H).coreOK = true := (Semantics.coreOK_withHooks c H).trans coreOK
+
+/-- The generators of the right side's term: the top cell, the `k` cell, `kseq`, the injection of
+Exp into KItem. -/
+def rightGens : List (String × KoreAML.Gen) :=
+  [("GeneratedTopCell", .ctor ⟨"Lbl'-LT-'generatedTop'-GT-'", ["KCell", "GeneratedCounterCell"], "GeneratedTopCell"⟩),
+   ("KCell", .ctor ⟨"Lbl'-LT-'k'-GT-'", ["K"], "KCell"⟩),
+   ("K", .ctor ⟨"kseq", ["KItem", "K"], "K"⟩),
+   ("KItem", .inj "Exp")]
+
+/-- Γ has the Cons-Fun item of each (kernel). -/
+theorem right_funs : TieRuleCutG.funsInGB c rightGens = true := by decide +kernel
+
+/-- The right side's term is built of the text's variables and of those generators, at arguments
+of their sorts (kernel). -/
+theorem right_built : TieRuleCutG.builtGB rightGens fT ((itemCtx .hole (ev "VarV2" (srt "K")) (ev "VarV3" (srt "GeneratedCounterCell"))).fill (injP "Exp" "KItem" (.var (.evar x)))) "GeneratedTopCell" = true := by
+  decide +kernel
+
+/-- **The premise of `rule_w2` holds in every model of Γ**, for every H: where the guards of the
+text's variables hold, the right side holds one element, by the Cons-Fun items of its generators,
+so `⌈R⌉` holds of every element of the top cell's sort, which the `\top` of the text's left side
+keeps its elements in. -/
+theorem right_defined (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
+    (hI : I ⊧ᴵP Γ (cH H)) (e : Valuation M) (m : M)
+    (hg : ∀ k ∈ fT, (guardOf (tableOf [] p0) k).interpret I e m) (a : M)
+    (ha : (tr ⟨tableOf [] p0, []⟩ left).interpret I e a) :
+    (tr ⟨tableOf [] p0, []⟩ (.ceil topC topC R)).interpret I e a := by
+  haveI : OvlOK (cH H) := ovlOK_of_core (coreOKH H)
+  have ha' : (tr ⟨tableOf [] p0, []⟩ (.and topC [K.fill (.and S [.var (.evar x), p]), E])).interpret I e a := ha
+  exact TieRuleCutG.rightDefined_top hI
+    (by decide +kernel : topCellSort < nRegSorts + c.sortNames.length)
+    (show (cH H).sortName topCellSort = "GeneratedTopCell" from
+      (by decide +kernel : c.sortName topCellSort = "GeneratedTopCell"))
+    ((TieRuleCutG.funsInGB_withHooks c H rightGens).trans right_funs) right_built e m hg a
+    ((interp_and (List.cons_ne_nil _ _)).mp ha' E (List.mem_cons_of_mem _ List.mem_cons_self))
+
+/-- **W2 for the rule, without a premise**: sentence 104 holds in every model of Γ, for every H
+(`rule_w2` with `right_defined`). -/
+theorem rule_w2_noprem (H : HookParams) : Γ (cH H) ⊧ (trS U.ax104).pat :=
+  fun {_} _ {_} hI => rule_w2 H hI (right_defined H hI)
+
+/-- info: 'TieRuleLhsAnd.Var.rule_w2_noprem' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms rule_w2_noprem
+#check @right_defined
+#check @rule_w2_noprem
 
 end Var
 

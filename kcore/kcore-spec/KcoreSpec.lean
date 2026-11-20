@@ -335,6 +335,7 @@ import KcoreSpec.CondKoreVars
 import KcoreSpec.ClausePreRead
 import KcoreSpec.TieRuleLhs
 import KcoreSpec.TieRuleCut
+import KcoreSpec.TieRuleCutGen
 import KcoreSpec.TieRuleConnText
 import KcoreSpec.TieRuleUnheld
 import KcoreSpec.TieRuleRhs
@@ -356,6 +357,7 @@ import KcoreSpec.GenEqsWalk
 import KcoreSpec.GenEqsInit
 import KcoreSpec.TieRuleGuard
 import KcoreSpec.TieRuleW2Guarded
+import KcoreSpec.TieRuleW2GuardedGen
 import KcoreSpec.TieRuleRhsRefuted
 import KcoreSpec.ModelFnsPre
 import KcoreSpec.CoreDecide
