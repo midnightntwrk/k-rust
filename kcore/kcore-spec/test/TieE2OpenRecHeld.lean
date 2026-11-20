@@ -43,6 +43,12 @@
     of X, the counter cell's variable and the constructors `d`, `kseq`, `dotk`, `<k>` and
     `<generatedTop>`, whose Cons-Fun items Γ has (`KCore.TieRuleCut.rightDefined_of_Γ`). This
     section is written by hand.
+  - The rule's steps, by hand: `<k> c(v, x, y) </k>` steps exactly where H gives `and(x, y)` the
+    value v, to `<k> d(x) </k>` (`orhStep_iff`, every H). From the sentences, where H gives
+    `and(e, e)` the value v, `<k> c(v, e, e) </k>` has the successor `<k> d(e) </k>`
+    (`orhStep_ee`; premises `orhPre`, with a model, `orhPre_model`); where H gives it no value or
+    another one, the configuration has no successor (`orhNoStep_ee`); the text does not determine
+    whether `<k> c(e, e, e) </k>` steps to `<k> d(e) </k>` (`orhStep_undetermined`).
   - Function functional: at values in every model of `Γc`, from the sort predicates' results, not
     from `FnHyp` (`fnFun_at_values`, `fnFun_account`).
   - Hooked functional, collection law, library: at values (no theorem here); open generator
@@ -920,6 +926,370 @@ theorem rule_to_text (H : HookParams) {M : Type} [Inhabited M] {I : Interpretati
   rw [List.mem_singleton.mp hit] at hIt
   exact (rule_tie H hI).mpr hIt
 
+/-! ## The steps of the rule, for every H (written by hand)
+
+The rule is read through the cut: `<k> c(Open0, X, Y) => d(X) </k>` with `pre := Open0 ∈ and(X, Y)`
+(`orhR0`), whose term is the interpretation's value of `and` at the values of X and Y
+(`EvalTerm.param`, `Semantics.paramVal`). So `<k> c(v, a, b) </k>` steps exactly where H gives
+`and(a, b)` the value v, and then to `<k> d(a) </k>` alone (`orhStep_iff`).
+
+- `orhStep_ee` (from the sentences): where H gives `and(e, e)` the value v, `<k> c(v, e, e) </k>`
+  has the successor `<k> d(e) </k>`. The premises (`orhPre`) are the function sentences as written,
+  Γ's rule item (a consequence of sentence 99, `rule_from_text`; the two hold together in a model of
+  Γ, `rule_tie`) and the families of the reading; the value of `and(e, e)` is the family ΓDomains'
+  (the parameter's graph at H), which no sentence states. They have a model with the step's
+  closure (`orhPre_model`).
+- `orhNoStep_ee` (through the reading): where H gives `and(e, e)` no value or another one than v,
+  `<k> c(v, e, e) </k>` has no successor, with the step's closure.
+- `orhStep_undetermined`: the text does not determine whether `<k> c(e, e, e) </k>` steps to
+  `<k> d(e) </k>`: at `fstH`, where `and(e, e)` is `e`, it does; at `HookParams.none`, where
+  `and(e, e)` is the application itself, it does not. Both theories have models. -/
+
+def orhK : Sym := 383
+def orhC : Sym := 385
+def orhD : Sym := 386
+def orhESym : Sym := 387
+
+theorem orhNames : c.symName orhK = "Lbl'-LT-'k'-GT-'" ∧ c.symName orhC = "Lblc" ∧ c.symName orhD = "Lbld" ∧
+    c.symName orhESym = "Lble" := by decide +kernel
+
+def orhAndP : ParamSig := { sig := ⟨and, [b, b], b⟩, raw := true }
+
+theorem orhR0_mem (H : HookParams) : r0 ∈ (cH H).rules := List.getElem_mem _
+
+/-- The text has the one rule. -/
+theorem orhRule_eq (H : HookParams) {r : Rule} (hr : r ∈ (cH H).rules) : r = r0 := by
+  obtain ⟨i, hi, rfl⟩ := List.getElem_of_mem hr
+  have h1 : c.rules.length = 1 := by decide +kernel
+  have : i = 0 := by change i < c.rules.length at hi; omega
+  subst this
+  rfl
+
+/-- **The cut's reading of the rule**: variables X, Y (of B), the counter cell's and Open0 (of B);
+no `requires` or `ensures`; `pre` the membership of Open0 in `and(X, Y)`; `post` true; no
+existential variable. -/
+theorem orhR0 : r0.vars = [b, b, 19, b] ∧
+    r0.lhs = .app topLabel [.app orhK [.app kseq [.app orhC [.var 3, .var 0, .var 1], .app dotk []]], .var 2] ∧
+    r0.rhs = .app topLabel [.app orhK [.app kseq [.app orhD [.var 0], .app dotk []]], .var 2] ∧
+    r0.req = none ∧ r0.ens = none ∧ r0.pre = .mem b (.var 3) (.app and [.var 0, .var 1]) ∧ r0.post = .top ∧
+    r0.exs = [] :=
+  ⟨by decide +kernel, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+
+theorem orhFacts : r0.reqClosed = false ∧ c.fns = [] ∧ (∀ j ∈ varOccs r0.rhs, j < 4) := by decide +kernel
+
+theorem orhSyms (H : HookParams) : (cH H).isCtor topLabel = true ∧ (cH H).isCtor orhK = true ∧
+    (cH H).isCtor kseq = true ∧ (cH H).isCtor orhC = true ∧ (cH H).isCtor dotk = true ∧
+    (cH H).isCtor orhD = true := by
+  change c.isCtor topLabel = true ∧ c.isCtor orhK = true ∧ c.isCtor kseq = true ∧
+    c.isCtor orhC = true ∧ c.isCtor dotk = true ∧ c.isCtor orhD = true
+  decide +kernel
+
+theorem orhHooks : patternHooks.contains topLabel = false ∧ patternHooks.contains orhK = false ∧
+    patternHooks.contains kseq = false ∧ patternHooks.contains orhC = false := by
+  decide +kernel
+
+/-- `and` is a parameter, neither a constructor nor a hooked symbol, read as the open generator
+`orhAndP` with no registry hook. -/
+theorem orhAnd (H : HookParams) : (cH H).isCtor and = false ∧ isHook and = false ∧
+    (cH H).isParam and = true ∧ (cH H).lookupParam and = some orhAndP := by
+  change c.isCtor and = false ∧ isHook and = false ∧ c.isParam and = true ∧ c.lookupParam and = some orhAndP
+  decide +kernel
+
+/-- **`FnHyp` holds at every H**: the text declares no function, the rule needs no witness (its
+condition holds Open0, which the left side binds), and `and` has no law. -/
+theorem orhFnHyp (H : HookParams) : FnHyp (cH H) :=
+  have hn : ∀ fn, fn ∈ (cH H).fns → False := fun fn hfn => by
+    change fn ∈ c.fns at hfn
+    rw [orhFacts.2.1] at hfn
+    cases hfn
+  ⟨fun fn hfn => (hn fn hfn).elim, fun fn hfn => (hn fn hfn).elim, fun fn hfn => (hn fn hfn).elim,
+    fun fn hfn => (hn fn hfn).elim,
+    openDecided_of_plain (fun r hr => by
+        rw [orhRule_eq H hr]
+        simp [Rule.needsWitness, orhFacts.1]) (fun fn hfn => (hn fn hfn).elim),
+    openLaws_any H⟩
+
+theorem orhFnDet (H : HookParams) : FnDet (cH H) := (fnModel_of_fnHyp (coreOKH H) (orhFnHyp H)).1
+
+/-! ### The configurations -/
+
+def orhCtr : GroundTerm := .ctor counterLabel [int 0]
+def orhE : GroundTerm := .ctor orhESym []
+
+/-- `<k> st ~> . </k>` with the counter 0. -/
+def orhCfg (st : GroundTerm) : GroundTerm :=
+  .ctor topLabel [.ctor orhK [.ctor kseq [st, .ctor dotk []]], orhCtr]
+
+theorem orhCtr_sort (H : HookParams) : (cH H).sortOf orhCtr = some 19 :=
+  (Semantics.sortOf_withHooks_rawFree c H (by decide +kernel)).trans (by decide +kernel)
+
+theorem orhE_sort (H : HookParams) : (cH H).sortOf orhE = some b :=
+  (Semantics.sortOf_withHooks_rawFree c H (by decide +kernel)).trans (by decide +kernel)
+
+/-- The substitution of the rule's variables X, Y, the counter and Open0. -/
+def orhσ (x y v : GroundTerm) : Subst := [(0, x), (1, y), (2, orhCtr), (3, v)]
+
+theorem orhMatch (H : HookParams) (x y v : GroundTerm) :
+    PatVal (cH H) (orhσ x y v) r0.lhs (orhCfg (.ctor orhC [v, x, y])) := by
+  rw [orhR0.2.1]
+  have hs := orhSyms H
+  exact .ctor hs.1 (.cons (.ctor hs.2.1 (.cons (.ctor hs.2.2.1
+    (.cons (.ctor hs.2.2.2.1 (.cons (.var rfl) (.cons (.var rfl) (.cons (.var rfl) .nil))))
+      (.cons (.ctor hs.2.2.2.2.1 .nil) .nil))) .nil))
+    (.cons (.var rfl) .nil))
+
+theorem orhEvalD (H : HookParams) (x y v : GroundTerm) :
+    EvalTerm (cH H) (orhσ x y v) r0.rhs (some (orhCfg (.ctor orhD [x]))) := by
+  rw [orhR0.2.2.1]
+  have hs := orhSyms H
+  exact .ctor hs.1 (.cons (.ctor hs.2.1 (.cons (.ctor hs.2.2.1
+    (.cons (.ctor hs.2.2.2.2.2 (.cons .var .nil)) (.cons (.ctor hs.2.2.2.2.1 .nil) .nil))) .nil))
+    (.cons .var .nil))
+
+/-- `pre` at any substitution: its truth value is whether the value of Open0 is the value
+`paramVal` gives `and` at the values of X and Y. -/
+theorem orhPre_at (H : HookParams) (τ : Subst) :
+    Holds (cH H) r0.vars.length τ r0.pre ((τ.lookup 3).isSome &&
+      sameResult (τ.lookup 3) ((allSome [τ.lookup 0, τ.lookup 1]).bind ((cH H).paramVal and))) := by
+  rw [orhR0.2.2.2.2.2.1]
+  have ha := orhAnd H
+  exact .mem .var (.param ha.1 ha.2.1 ha.2.2.1 (.cons .var (.cons .var .nil)) rfl)
+
+theorem orhSame_iff (v : GroundTerm) (r : Option GroundTerm) :
+    sameResult (some v) r = true ↔ r = some v := by
+  cases r with
+  | none => simp [sameResult]
+  | some w =>
+    simp only [sameResult, beq_iff_eq, Option.some.injEq]
+    exact ⟨fun h => (cmp_eq_iff.mp h).symm, fun h => cmp_eq_iff.mpr h.symm⟩
+
+/-- The value `paramVal` gives `and` is of sort B. -/
+theorem orhVal_sort (H : HookParams) {x y v : GroundTerm} (hv : (cH H).paramVal and [x, y] = some v) :
+    (cH H).sortOf v = some b :=
+  ((paramVal_raw_sorted (orhAnd H).2.2.2 rfl rfl).mp hv).2
+
+/-- The step by the rule at `orhσ x y v`, where `and` is v at (x, y). -/
+theorem orhStepBy (H : HookParams) {x y v : GroundTerm} (hx : (cH H).sortOf x = some b)
+    (hy : (cH H).sortOf y = some b) (hv : (cH H).paramVal and [x, y] = some v)
+    (X Y : Config (cH H)) (hX : X.val = orhCfg (.ctor orhC [v, x, y])) (hY : Y.val = orhCfg (.ctor orhD [x])) :
+    StepBy (cH H) r0 (orhσ x y v) X Y where
+  mem := orhR0_mem H
+  hσ := fun j s hs => by
+    rw [orhR0.1] at hs
+    match j, hs with
+    | 0, hs => cases hs; exact ⟨_, rfl, hx⟩
+    | 1, hs => cases hs; exact ⟨_, rfl, hy⟩
+    | 2, hs => cases hs; exact ⟨_, rfl, orhCtr_sort H⟩
+    | 3, hs => cases hs; exact ⟨_, rfl, orhVal_sort H hv⟩
+  hmatch := hX ▸ orhMatch H x y v
+  hreq := fun t ht => by rw [orhR0.2.2.2.1] at ht; cases ht
+  hpre := by
+    have hp := orhPre_at H (orhσ x y v)
+    have h3 : (orhσ x y v).lookup 3 = some v := rfl
+    have hab : (allSome [(orhσ x y v).lookup 0, (orhσ x y v).lookup 1]) = some [x, y] := rfl
+    rw [h3, hab, Option.bind_some, hv] at hp
+    have ht : ((some v).isSome && sameResult (some v) (some v)) = true := by
+      simp [(orhSame_iff v (some v)).mpr rfl]
+    exact ht ▸ hp
+  heval := hY ▸ orhEvalD H x y v
+  hens := fun t ht => by rw [orhR0.2.2.2.2.1] at ht; cases ht
+  hpost := by rw [orhR0.2.2.2.2.2.2.1]; exact .top
+  hprio := fun r' hr' hlt => by
+    rw [orhRule_eq H hr'] at hlt
+    exact absurd hlt (Nat.lt_irrefl _)
+
+/-- A substitution under which the left side denotes `<k> c(v, x, y) </k>` gives Open0, X, Y and
+the counter cell those values. -/
+theorem orhLookups {H : HookParams} {τ : Subst} {x y v : GroundTerm}
+    (hm : PatVal (cH H) τ r0.lhs (orhCfg (.ctor orhC [v, x, y]))) :
+    τ.lookup 3 = some v ∧ τ.lookup 0 = some x ∧ τ.lookup 1 = some y ∧ τ.lookup 2 = some orhCtr := by
+  rw [orhR0.2.1] at hm
+  have hs := orhSyms H
+  obtain ⟨-, vs, hv, hs1⟩ := PatVal.app_inv orhHooks.1 hm hs.1
+  injection hv with _ hv
+  subst hv
+  cases hs1 with
+  | cons hk hs2 =>
+    cases hs2 with
+    | cons h2 _ =>
+      obtain ⟨-, vs, hv, hs3⟩ := PatVal.app_inv orhHooks.2.1 hk hs.2.1
+      injection hv with _ hv
+      subst hv
+      cases hs3 with
+      | cons hq _ =>
+        obtain ⟨-, vs, hv, hs4⟩ := PatVal.app_inv orhHooks.2.2.1 hq hs.2.2.1
+        injection hv with _ hv
+        subst hv
+        cases hs4 with
+        | cons hcv _ =>
+          obtain ⟨-, vs, hv, hs5⟩ := PatVal.app_inv orhHooks.2.2.2 hcv hs.2.2.2.1
+          injection hv with _ hv
+          subst hv
+          cases hs5 with
+          | cons h3 hs6 =>
+            cases hs6 with
+            | cons h0 hs7 =>
+              cases hs7 with
+              | cons h1 _ =>
+                exact ⟨PatVal.var_inv h3, PatVal.var_inv h0, PatVal.var_inv h1, PatVal.var_inv h2⟩
+
+/-- **For every interpretation H, `<k> c(v, x, y) </k>` steps to Y exactly when the
+interpretation's `and` is v at (x, y) and Y is `<k> d(x) </k>`.** -/
+theorem orhStep_iff (H : HookParams) (X Y : Config (cH H)) {x y v : GroundTerm}
+    (hx : (cH H).sortOf x = some b) (hy : (cH H).sortOf y = some b)
+    (hX : X.val = orhCfg (.ctor orhC [v, x, y])) :
+    Step (cH H) X Y ↔ (cH H).paramVal and [x, y] = some v ∧ Y.val = orhCfg (.ctor orhD [x]) := by
+  constructor
+  · intro hs
+    obtain ⟨r, τ, hst⟩ := step_iff_by.mp hs
+    have hr := orhRule_eq H hst.mem
+    subst hr
+    have hm : PatVal (cH H) τ r0.lhs (orhCfg (.ctor orhC [v, x, y])) := hX ▸ hst.hmatch
+    obtain ⟨h3, h0, h1, h2⟩ := orhLookups hm
+    have hd := orhFnDet H
+    have hp := Holds.functional_of_fnDet hd hst.hpre (orhPre_at H τ)
+    rw [h3, h0, h1] at hp
+    have hab : allSome [some x, some y] = some [x, y] := rfl
+    rw [hab, Option.bind_some] at hp
+    have hv : (cH H).paramVal and [x, y] = some v := by
+      have : sameResult (some v) ((cH H).paramVal and [x, y]) = true := by
+        simpa using hp.symm
+      exact (orhSame_iff v _).mp this
+    have hτ : ∀ j ∈ varOccs r0.rhs, (orhσ x y v).lookup j = τ.lookup j := fun j hj => by
+      have hj4 := orhFacts.2.2 j hj
+      match j, hj4 with
+      | 0, _ => exact h0.symm
+      | 1, _ => exact h1.symm
+      | 2, _ => exact h2.symm
+      | 3, _ => exact h3.symm
+    have he := EvalTerm.functional_of_fnDet hd hst.heval
+      (Exec.EvalTerm.congr (orhEvalD H x y v) hτ)
+    exact ⟨hv, Option.some.inj he⟩
+  · rintro ⟨hv, hY⟩
+    exact step_iff_by.mpr ⟨r0, orhσ x y v, orhStepBy H hx hy hv X Y hX hY⟩
+
+/-! ### The premises of the derivation -/
+
+noncomputable def orhTextPats : List P := fnText.map (trS · |>.pat)
+
+theorem orhShape : TiePair.shapeB (TiePair.gammaPats c) orhTextPats = true := by decide +kernel
+
+theorem orhShapeH (H : HookParams) : TiePair.shapeB (TiePair.gammaPats (cH H)) orhTextPats = true := by
+  rw [TiePair.gammaPats_withHooks]; exact orhShape
+
+/-- The function sentences as written, Γ's rule item and the families of the reading. The
+definition reads no confined sort, so the theory the statements are about is Γ. -/
+def orhPre (H : HookParams) : Premises KoreAML.Sym := TiePair.Pre (cH H) orhTextPats
+
+/-- **Every premise of Γ is a consequence of `orhPre`.** -/
+theorem orhGamma_from (H : HookParams) : ∀ φ, Γ (cH H) φ → orhPre H ⊧ φ :=
+  TiePair.gamma_from (orhShapeH H)
+
+/-- **`orhPre` with the step's closure has a model, for every H**: every model of Γ with it is one. -/
+theorem orhPre_model (H : HookParams) :
+    ∃ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), I ⊧ᴵP (orhPre H ∪ Γstep (cH H)) := by
+  obtain ⟨M, hM, I, hI⟩ := consistent_any H
+  have hΓ : I ⊧ᴵP Γ (cH H) := fun φ h => hI φ (Or.inl (Or.inl h))
+  refine ⟨M, hM, I, fun φ h => ?_⟩
+  rcases h with h | h
+  · rcases h with ((h1 | h1) | h1)
+    · rcases h1 with ht | ⟨x, rfl⟩
+      · exact TiePair.entailed (orhShapeH H) φ ht hΓ
+      · exact hΓ _ (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inr ⟨x, rfl⟩))))))))
+    · exact hΓ _ (Or.inl (Or.inr h1))
+    · rcases h1 with (((h1 | h1) | h1) | h1) | h1
+      · exact hΓ _ (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl h1))))))
+      · exact hΓ _ (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inr h1))))))
+      · exact hΓ _ (Or.inl (Or.inl (Or.inl (Or.inl (Or.inr h1)))))
+      · exact hΓ _ (Or.inl (Or.inl (Or.inl (Or.inr h1))))
+      · exact hΓ _ (Or.inr h1)
+  · exact hI _ (Or.inr h)
+
+theorem orhReadsConfinedH (H : HookParams) : (cH H).readsConfined = false := readsConfined_c
+
+/-! ### The expectations -/
+
+/-- **Where H gives `and(x, y)` the value v, `<k> c(v, x, y) </k>` has the successor
+`<k> d(x) </k>`, from the sentences**, for every H and all values x, y of B. -/
+theorem orhStep (H : HookParams) {x y v : GroundTerm} (hx : (cH H).sortOf x = some b)
+    (hy : (cH H).sortOf y = some b) (hv : (cH H).paramVal and [x, y] = some v)
+    (X Y : Config (cH H)) (hX : X.val = orhCfg (.ctor orhC [v, x, y])) (hY : Y.val = orhCfg (.ctor orhD [x])) :
+    orhPre H ⊧ (den (cH H) X.val ⇒ KoreAML.sNext (den (cH H) Y.val)) :=
+  fun hT => sound_at_step (cH H) (coreOKH H) (orhReadsConfinedH H) X Y
+    ((orhStep_iff H X Y hx hy hX).mpr ⟨hv, hY⟩) fun φ hφ => orhGamma_from H φ hφ hT
+
+/-- **Where H gives `and(e, e)` the value v, `<k> c(v, e, e) </k>` steps to `<k> d(e) </k>`, from
+the sentences**, for every H: sentence 99, the rule, at X := e, Y := e, where `and(X, Y)` is v. -/
+theorem orhStep_ee (H : HookParams) {v : GroundTerm} (hv : (cH H).paramVal and [orhE, orhE] = some v)
+    (X Y : Config (cH H)) (hX : X.val = orhCfg (.ctor orhC [v, orhE, orhE]))
+    (hY : Y.val = orhCfg (.ctor orhD [orhE])) :
+    orhPre H ⊧ (den (cH H) X.val ⇒ KoreAML.sNext (den (cH H) Y.val)) :=
+  orhStep H (orhE_sort H) (orhE_sort H) hv X Y hX hY
+
+/-- **Where H gives `and(e, e)` no value or another one than v, `<k> c(v, e, e) </k>` has no
+successor**, for every H, with the step's closure: the one rule's membership fails at its one
+match. -/
+theorem orhNoStep_ee (H : HookParams) {v : GroundTerm} (hv : (cH H).paramVal and [orhE, orhE] ≠ some v)
+    (X : Config (cH H)) (hX : X.val = orhCfg (.ctor orhC [v, orhE, orhE])) :
+    (orhPre H ∪ Γstep (cH H)) ⊧ (den (cH H) X.val ⇒ KoreAML.allNext (KoreAML.disjList
+      (([] : List GroundTerm).map (den (cH H))))) :=
+  fun hT => complete_at_step (cH H) (coreOKH H) (orhReadsConfinedH H) X
+    (stepDecided_of_fnHyp (coreOKH H) (orhFnHyp H) X) []
+    (fun Y hs => absurd ((orhStep_iff H X Y (orhE_sort H) (orhE_sort H) hX).mp hs).1 hv)
+    fun φ hφ => by
+      rcases hφ with hφ | hφ
+      · exact orhGamma_from H φ hφ (fun χ hχ => hT χ (Or.inl hχ))
+      · exact hT φ (Or.inr hφ)
+
+/-- `<k> c(e, e, e) </k>` and `<k> d(e) </k>`. -/
+def orhA : GroundTerm := orhCfg (.ctor orhC [orhE, orhE, orhE])
+def orhB : GroundTerm := orhCfg (.ctor orhD [orhE])
+
+theorem orhA_sort (H : HookParams) : (cH H).sortOf orhA = some topCellSort :=
+  (Semantics.sortOf_withHooks_rawFree c H (by decide +kernel)).trans (by decide +kernel)
+theorem orhB_sort (H : HookParams) : (cH H).sortOf orhB = some topCellSort :=
+  (Semantics.sortOf_withHooks_rawFree c H (by decide +kernel)).trans (by decide +kernel)
+
+/-- At `fstH`, `and(e, e)` is `e`; at `HookParams.none` it is the application, another value. -/
+theorem orhAnd_values : (cH fstH).paramVal and [orhE, orhE] = some orhE ∧
+    (cH HookParams.none).paramVal and [orhE, orhE] ≠ some orhE := by
+  decide +kernel
+
+/-- **The text does not determine whether `<k> c(e, e, e) </k>` steps to `<k> d(e) </k>`**: over
+all H, the reading's theory with the step's closure entails neither that `<k> d(e) </k>` is not a
+successor of `<k> c(e, e, e) </k>` nor that it is one. The first is refuted at `fstH`, where
+`and(e, e)` is `e` and the step exists (in a model exactness gives); the second at
+`HookParams.none`, where `and(e, e)` is the application itself, the configuration has no step, and
+the theory has a model (`consistent_any`). -/
+theorem orhStep_undetermined :
+    ¬ (∀ H : HookParams, (Γc (cH H) ∪ Γstep (cH H)) ⊧
+        (den (cH H) orhA ⇒ ∼ KoreAML.sNext (den (cH H) orhB))) ∧
+    ¬ (∀ H : HookParams, (Γc (cH H) ∪ Γstep (cH H)) ⊧
+        (den (cH H) orhA ⇒ KoreAML.sNext (den (cH H) orhB))) := by
+  refine ⟨fun h => ?_, fun h => ?_⟩
+  · let X : Config (cH fstH) := ⟨orhA, orhA_sort fstH⟩
+    let Y : Config (cH fstH) := ⟨orhB, orhB_sort fstH⟩
+    have hs : Step (cH fstH) X Y :=
+      (orhStep_iff fstH X Y (orhE_sort fstH) (orhE_sort fstH) rfl).mpr ⟨orhAnd_values.1, rfl⟩
+    obtain ⟨M, hM, I, hI, hn⟩ := (exact_hyp (cH fstH) (coreOKH fstH) (orhFnHyp fstH) X Y).mp hs
+    exact hn (h fstH hI)
+  · let X : Config (cH HookParams.none) := ⟨orhA, orhA_sort _⟩
+    let Y : Config (cH HookParams.none) := ⟨orhB, orhB_sort _⟩
+    have hns : ¬ Step (cH HookParams.none) X Y := fun hs =>
+      orhAnd_values.2 ((orhStep_iff _ X Y (orhE_sort _) (orhE_sort _) rfl).mp hs).1
+    obtain ⟨M, hM, I, hI⟩ := consistent_any HookParams.none
+    have hIΓ : I ⊧ᴵP Γ (cH HookParams.none) := fun φ hφ => hI φ (Or.inl (Or.inl hφ))
+    have hno : I ⊧ᴵ (den (cH HookParams.none) X.val ⇒ ∼ KoreAML.sNext (den (cH HookParams.none) Y.val)) :=
+      Classical.not_not.mp fun hn =>
+        hns ((exact_hyp _ (coreOKH _) (orhFnHyp _) X Y).mpr ⟨M, hM, I, hI, hn⟩)
+    have hx := ((elemOf_spec hIΓ X.property KoreAML.val0).1 (elemOf (cH HookParams.none) I X.val)).mpr rfl
+    have h1 := hno KoreAML.val0 (elemOf (cH HookParams.none) I X.val)
+    have h2 := h HookParams.none hI KoreAML.val0 (elemOf (cH HookParams.none) I X.val)
+    rw [interpret_impl] at h1 h2
+    have h3 := h1 hx
+    rw [interpret_neg] at h3
+    exact h3 (h2 hx)
+
 end KCore.TieE2OpenRecHeld
 
 #check @KCore.TieE2OpenRecHeld.params_raw
@@ -1026,3 +1396,14 @@ end KCore.TieE2OpenRecHeld
 #print axioms KCore.TieE2OpenRecHeld.and_inB
 #print axioms KCore.TieE2OpenRecHeld.rule_tie
 #print axioms KCore.TieE2OpenRecHeld.rule_to_text
+#check @KCore.TieE2OpenRecHeld.orhStep_iff
+#check @KCore.TieE2OpenRecHeld.orhPre_model
+#check @KCore.TieE2OpenRecHeld.orhStep
+#check @KCore.TieE2OpenRecHeld.orhStep_ee
+#check @KCore.TieE2OpenRecHeld.orhNoStep_ee
+#check @KCore.TieE2OpenRecHeld.orhStep_undetermined
+#print axioms KCore.TieE2OpenRecHeld.orhStep_iff
+#print axioms KCore.TieE2OpenRecHeld.orhPre_model
+#print axioms KCore.TieE2OpenRecHeld.orhStep_ee
+#print axioms KCore.TieE2OpenRecHeld.orhNoStep_ee
+#print axioms KCore.TieE2OpenRecHeld.orhStep_undetermined

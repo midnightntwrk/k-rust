@@ -52,6 +52,11 @@
     definedness (`gamma_from`).
   - Hooked functional, collection law, library: at values (no theorem here); function functional:
     owed as `FnHyp` (no theorem); no direction: `absent_closed`.
+  - `f(0) = 1`, by hand, for every H: `Eval` gives it by the clause at H := d (`wpEval_f0`), every
+    model of `Γc` reads it (`wpF0_c`, the clause's owed condition by `openDecidedH`), and it is
+    derived from the function sentences (215 through Γ's item, `cut0_from_text`), Γ's rule item,
+    the families of the reading and `Γcl` (`wpPre`, `wpF0_is_1`), premises that have a model with
+    the step's closure (`wpPre_model`).
 
   The sentences with no counterpart in f2-examples/ens.kompile.kore are `unmapped` (32);
   the sentences of a class with a theorem that no theorem here holds of are `uncovered` (0).
@@ -1112,6 +1117,114 @@ theorem idem_refuted_c (H : HookParams) : ∀ (M : Type) (_ : Inhabited M) (I : 
     I ⊧ᴵP Γc (cH H) → ¬ (I ⊧ᴵ (trS U.ax62).pat) :=
   fun M hM I hI => idem_refuted H M hM I fun φ hφ => hI φ (Γ_sub_Γc _ hφ)
 
+/-! ## `f(0) = 1`, from the sentences, for every H (written by hand) -/
+
+def wpI0 : GroundTerm := .dv Srt.int (.int 0)
+def wpI1 : GroundTerm := .dv Srt.int (.int 1)
+
+theorem wpInt_sorts (H : HookParams) :
+    (cH H).sortOf wpI0 = some Srt.int ∧ (cH H).sortOf wpI1 = some Srt.int := by
+  rw [Semantics.sortOf_withHooks _ _ noRaw]; decide +kernel
+
+/-- `X ↦ 0`, `H ↦ d`. -/
+def wpσG : Subst := [(0, wpI0), (1, dv)]
+
+theorem wpWs_G (H : HookParams) : (cH H).WellSorted clG.vars wpσG := fun i s hs => by
+  match i, hs with
+  | 0, hs => cases (show some Srt.int = some s from hs); exact ⟨wpI0, rfl, (wpInt_sorts H).1⟩
+  | 1, hs => cases (show some sS = some s from hs); exact ⟨dv, rfl, sortsH H⟩
+  | _ + 2, hs => cases (show (none : Option Srt) = some s from hs)
+
+/-- The predicate `H ∈ d` at X := 0, H := d: true. -/
+theorem wpPre_G (H : HookParams) : Holds (cH H) clG.vars.length wpσG clG.pre true := by
+  have h := Holds.mem (c := cH H) (n := clG.vars.length) (σ := wpσG) (s := sS) (EvalTerm.var (i := 1))
+    (EvalTerm.ctor (ts := []) syms.1 .nil)
+  have e : ((wpσG.lookup 1).isSome &&
+      sameResult (wpσG.lookup 1) ((allSome ([] : List (Option GroundTerm))).map (GroundTerm.ctor dS))) = true := by
+    decide +kernel
+  rw [e] at h
+  exact h
+
+/-- **`f(0)` is 1, for every H**, by the clause of `f` at X := 0, H := d: its `requires` `isC(d)`
+is `true` (`isC_d`) and its predicate `d ∈ d` true. -/
+theorem wpEval_f0 (H : HookParams) : Eval (cH H) fS [wpI0] (some wpI1) :=
+  .clause (cl := clG) (σ := wpσG) (lookupFH H) (by simp [fG]) (wpWs_G H) (.cons (.var rfl) .nil)
+    (fun t ht => by
+      cases ht
+      exact .call (vs := [dv]) syms.2.1 syms.2.2.1 (.cons .var .nil) rfl (isC_d H) syms.2.2.2)
+    (wpPre_G H)
+    (fun cl' hcl' _ hlt => by
+      simp only [fG, List.mem_cons, List.not_mem_nil, or_false] at hcl'
+      subst hcl'
+      exact absurd hlt (by decide))
+    rfl .dv (fun _ ht => by cases ht) .top
+
+/-- `⟦f(0)⟧`. -/
+noncomputable abbrev wpF0 (H : HookParams) : P := TiePair.app (cH H) fS [wpI0]
+
+/-- **Every model of `Γc` reads `f(0)` as 1, for every H**: `Eval`'s result, the clause's owed
+condition (`openDecidedH`, by `witnessedH`) giving the exclusions the reading of a clause needs. -/
+theorem wpF0_c (H : HookParams) : Γc (cH H) ⊧ (wpF0 H ≡ den (cH H) wpI1) := by
+  intro M _ I hIc e m
+  have hI : I ⊧ᴵP Γ (cH H) := fun φ hφ => hIc φ (Or.inl hφ)
+  obtain ⟨hok, hsr, hnn, -, hph, -, -, -, hno⟩ := hypSound_of_core (coreOKH H)
+  haveI : OvlOK (cH H) := hno
+  have hsc := sortCtx_of_all hok hsr (OvlOK.ovlCase hno)
+  have hokCl := Semantics.sortedOKCl_of_sortedOK_noExs hok ((Semantics.fnsNoExs_withHooks c H).mpr noExs)
+  have hpreR := HoldsShape.preReadAll_of_core (coreOKH H) hIc
+  have hneg := neg_of_coreCl hIc hokCl hsr (Semantics.coreOK_parts (coreOKH H)).2.1 hph (openDecidedH H).2 hpreR
+  have h0 := eval_den4ClPre hI hnn hsc hph (clauseOpenFactsP_of_sortedOKCl hokCl)
+    hneg hpreR (wpEval_f0 H) (lookupFH H)
+    (sortsOf_cons.mpr ⟨_, _, (wpInt_sorts H).1, sortsOf_nil, rfl⟩)
+  rw [KoreAML.interp_equal (defOK hI)]
+  intro a
+  exact h0 e a
+
+/-- The sentences of `fnText`'s first four items: 215 is `f(_) => 1 requires isC(H:S #And d)`,
+223, 224 and 225 are `isC(a) => false`, `isC(c(_)) => true` and `isC(d) => true`. -/
+theorem wpFnText_index : (fnText.map (·.index)).take 4 = [215, 223, 224, 225] := by decide +kernel
+
+/-- The premises of the derivation: the function sentences as written, but Γ's item in the place
+of sentence 215 (`textPats`; the sentence gives the item, `cut0_from_text`), Γ's rule item, the
+families of the reading, and `Γcl` (`boolClosed`, a family of the reading of a definition that
+reads a confined sort). -/
+def wpPre (H : HookParams) : Premises KoreAML.Sym := TiePair.Pre (cH H) textPats ∪ Γcl (cH H)
+
+/-- **Every premise of `Γc` is a consequence of `wpPre`.** -/
+theorem wpGamma_from (H : HookParams) : ∀ φ, Γc (cH H) φ → wpPre H ⊧ φ := by
+  intro φ h M _ I hI
+  rcases h with h | h
+  · exact gamma_from H φ h (I := I) fun ψ hψ => hI ψ (Or.inl hψ)
+  · exact hI φ (Or.inr h)
+
+/-- **`wpPre` with the step's closure has a model, for every H**: every model of `Γc` with it is one. -/
+theorem wpPre_model (H : HookParams) :
+    ∃ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), I ⊧ᴵP (wpPre H ∪ Γstep (cH H)) := by
+  obtain ⟨M, hM, I, hI⟩ := consistent H
+  have hΓ : I ⊧ᴵP Γ (cH H) := fun φ h => hI φ (Or.inl (Or.inl h))
+  refine ⟨M, hM, I, fun φ h => ?_⟩
+  rcases h with (h | h) | h
+  · rcases h with ((h1 | h1) | h1)
+    · rcases h1 with ht | ⟨x, rfl⟩
+      · exact TiePair.entailed (shapeH H) φ ht hΓ
+      · exact hΓ _ (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inr ⟨x, rfl⟩))))))))
+    · exact hΓ _ (Or.inl (Or.inr h1))
+    · rcases h1 with (((h1 | h1) | h1) | h1) | h1
+      · exact hΓ _ (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl h1))))))
+      · exact hΓ _ (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inr h1))))))
+      · exact hΓ _ (Or.inl (Or.inl (Or.inl (Or.inl (Or.inr h1)))))
+      · exact hΓ _ (Or.inl (Or.inl (Or.inl (Or.inr h1))))
+      · exact hΓ _ (Or.inr h1)
+  · exact hI _ (Or.inl (Or.inr h))
+  · exact hI _ (Or.inr h)
+
+/-- **`f(0) = 1`, derived from `wpPre`, for every H**: sentence 215, the equation of `f`, holds H
+universal over S, so it holds at H := d, where `isC(d) => true` (225) makes `isC(H #And d)` true;
+`wpPre` with the step's closure has a model (`wpPre_model`). -/
+theorem wpF0_is_1 (H : HookParams) : wpPre H ⊧ (wpF0 H ≡ den (cH H) wpI1) :=
+  fun hT => wpF0_c H fun φ hφ => wpGamma_from H φ hφ hT
+
+
 end KCore.TieE3WitnessedPre
 
 #check @KCore.TieE3WitnessedPre.noRaw
@@ -1204,3 +1317,10 @@ end KCore.TieE3WitnessedPre
 #print axioms KCore.TieE3WitnessedPre.fns_from_text
 #print axioms KCore.TieE3WitnessedPre.fn_prios
 #print axioms KCore.TieE3WitnessedPre.gamma_from
+#check @KCore.TieE3WitnessedPre.wpEval_f0
+#check @KCore.TieE3WitnessedPre.wpF0_c
+#check @KCore.TieE3WitnessedPre.wpFnText_index
+#check @KCore.TieE3WitnessedPre.wpPre_model
+#check @KCore.TieE3WitnessedPre.wpF0_is_1
+#print axioms KCore.TieE3WitnessedPre.wpF0_is_1
+#print axioms KCore.TieE3WitnessedPre.wpPre_model
