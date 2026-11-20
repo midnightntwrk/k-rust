@@ -251,7 +251,8 @@ theorem total_E : OpenTotal (cH HE) := by
 
 /-- At `HE`, where `plus(.E, .E)` is no value but has the value `.E`, Γ entails its value item, from
 the parameter's graph and the value item of `.E`: an interpretation that gives the application a
-value does not separate the readings of the value items. -/
+value does not separate the readings at this application's own value item. It does at a set holding
+the application and its value, where Γ under `HE` holds `_Set_({.E}, {.E}) = ⊥`; no theorem here states that. -/
 theorem valItem_entailed_E : Γ (cH HE) ⊧ valItem := by
   intro M _ I hI e m
   have hD := defOK hI
