@@ -79,13 +79,13 @@ def lacked : List CtorSig := [freshIdSig, string2IdSig]
 
 /-- **The two are the registry's library parameters under the names the text declares, Γ lacks
 each, and each resolves to no symbol**: each is a parameter of a module of the library with the
-signature above, no hook interprets it, the text declares it once, and its name is neither `inj`
-nor the name of a head of Γ. -/
+signature above, no hook interprets it, the text declares it once, its name is neither `inj`
+nor the name of a head of Γ, and it is no instance name `h{x₁,…,xₙ}` (`instDecode?`). -/
 theorem lacked_names :
     lacked.all (fun k => (library.any fun m => m.params.any (· == k)) && !isHook k.name &&
       (kore.symbolDecls.filter (·.name == c.symName k.name)).length == 1 &&
       sigNamed c lacked (c.symName k.name) == some k && lackedNameB c (c.symName k.name) &&
-      GenEqs.unresolvedB c (c.symName k.name) && (iteSort? (c.symName k.name)).isNone) = true := by
+      GenEqs.unresolvedB c (c.symName k.name) && (instDecode? (c.symName k.name)).isNone) = true := by
   decide +kernel
 
 theorem names_text : c.symName 322 = freshIdName ∧ c.symName 321 = string2IdName ∧
@@ -235,7 +235,7 @@ theorem freshId_total (H : HookParams) : ∀ ws, (cH H).sortsOf ws = some freshI
 
 theorem lacked_ok (H : HookParams) : ∀ k ∈ lacked, sigNamed (cH H) lacked ((cH H).symName k.name) = some k ∧
     lackedNameB (cH H) ((cH H).symName k.name) = true ∧ GenEqs.unresolvedB (cH H) ((cH H).symName k.name) = true ∧
-    iteSort? ((cH H).symName k.name) = none := by
+    instDecode? ((cH H).symName k.name) = none := by
   intro k hk
   have h := List.all_eq_true.mp lacked_names k hk
   simp only [Bool.and_eq_true, beq_iff_eq, Option.isNone_iff_eq_none] at h

@@ -1163,15 +1163,15 @@ killed_by = "account: the module's refusal `iteShape (Lblite{Name})` becomes `un
 patch = '''
 --- a/KcoreSpec/Parse.lean
 +++ b/KcoreSpec/Parse.lean
-@@ -6968,7 +6968,7 @@
+@@ -7253,7 +7253,7 @@
    -- sort the definition does not have has no declaration and no number, and is refused, not read
    -- as K's `ite`
    let ownIte := S.paramDecls.any fun d => d.symbol.ident.ident.name == "Lblite" && d.symbol.sortVars.length == 1
--  match (if ownIte then extra.find? (fun n => (iteSort? n).isSome && !clauseless.contains n) else none) with
-+  match (if ownIte && S.paramDecls.isEmpty then extra.find? (fun n => (iteSort? n).isSome && !clauseless.contains n) else none) with
+-  match (if ownIte then extra.find? (fun n => iteNamed n && !clauseless.contains n) else none) with
++  match (if ownIte && S.paramDecls.isEmpty then extra.find? (fun n => iteNamed n && !clauseless.contains n) else none) with
    | some n => fail .iteShape n
    | none => pure ()
-   let iteNames := extra.filter fun n => (iteSort? n).isSome && !clauseless.contains n
+   let iteNames := extra.filter fun n => iteNamed n && !clauseless.contains n
 '''
 
 [mutant."held-owise-priority-own"]
