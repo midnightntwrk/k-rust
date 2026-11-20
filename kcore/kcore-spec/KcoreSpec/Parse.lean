@@ -7814,8 +7814,10 @@ mutual
     termination_by structural ps => ps
 end
 
-/-- `f` is a symbol of the registry or of `c`. -/
-def symOfDefn (c : Semantics) (f : String) : Bool := regSymNames.contains f || c.symNames.contains f
+/-- `f` is a symbol `Γ` applies: one of the registry or of `c`, or the head at which `Γ` writes a
+symbol of `c` named as an instance of a sort-parametric symbol (`Semantics.instHeadFree`). -/
+def symOfDefn (c : Semantics) (f : String) : Bool :=
+  regSymNames.contains f || c.symNames.contains f || !c.instHeadFree f
 
 /-- **The getter's equation is the one the account takes** (`e` among the text's equations `eqs`):
 it is the only equation of the getter, it has no `requires`, no `ensures` and no exclusion, its
