@@ -80,6 +80,8 @@ import KcoreSpec.ModelFnCtorWitness
 import KcoreSpec.ModelKindsWitness
 import KcoreSpec.ModelItesWitness
 import KcoreSpec.ModelInstConstWitness
+import KcoreSpec.ModelInstArityWitness
+import KcoreSpec.ModelInstInjWitness
 import KcoreSpec.ModelOvlTwiceWitness
 import KcoreSpec.ModelSortsWitness
 import KcoreSpec.ModelPrioTextWitness

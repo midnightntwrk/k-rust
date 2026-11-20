@@ -94,20 +94,18 @@ witness = "KcoreSpec.ModelSortsWitness"
 [[conjunct]]
 key = "itesApart.1"
 text = "match KCore.instDecode? (c.symName k.name) with | some (fst, xs) => xs.all fun x => (KCore.Faithful.kernelSorts c).any fun s => c.sortName s == x | none => true"
-witness = "none: not found; the leaf is not implied by the others, and Γ of a semantics failing it alone has a model (argued, not kernel-checked)"
+witness = "none: not found; the leaf is not implied by the others (kernel-checked: a parameter named Lblite{Foo}, Foo naming no sort, meets every other leaf of coreOK and FnHyp); Γ of that semantics has a model (argued): the semantics with Foo made an own sort of no constructor meets coreOK and FnHyp and has its value model (kernel-checked: c3_core, model3), its Γ holds the items of the first's but KItem's no-junk item, which there has one more disjunct, the injection of an element of Foo, and Foo has no element in that model (the comparison of the items is argued); for another head, several sorts or a function so named the same construction is the argument, nothing of it kernel-checked; the leaf is asked for the value model of the semantics itself, which reads a sort symbol by its name among the numbered sorts (instSorts_numbered, HypModelCore.iteSorted)"
 evidence = "test/ItesNumbered.lean"
 
 [[conjunct]]
 key = "itesApart.2"
 text = "match KCore.instDecode? (c.symName k.name) with | some (h, xs) => (KCore.Faithful.kernelSyms c).all fun k' => match KCore.instDecode? (c.symName k'.name) with | some (h', xs') => h' != h || xs'.length == xs.length | none => true | none => true"
-witness = "none: not found; Γ writes every instance name at its head and sorts, so whether a semantics failing this leaf alone has a model is open (not argued)"
-evidence = "test/ItesNumbered.lean"
+witness = "KcoreSpec.ModelInstArityWitness"
 
 [[conjunct]]
 key = "itesApart.3"
 text = "match KCore.instDecode? (c.symName k.name) with | some (h, snd) => h != \"inj\" | none => true"
-witness = "none: not found; Γ writes every instance name at its head and sorts, so whether a semantics failing this leaf alone has a model is open (not argued)"
-evidence = "test/ItesNumbered.lean"
+witness = "KcoreSpec.ModelInstInjWitness"
 
 [[conjunct]]
 key = "itesApart.4"
