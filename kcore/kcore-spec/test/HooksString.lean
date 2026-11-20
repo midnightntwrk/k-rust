@@ -57,6 +57,9 @@
   - **(2)** `pts`: one point of each part of each region; Γ over all interpretations entails neither
     ⊥ nor a value there (`pts_undetermined`).
   - **(3)** `keys_silent` with the twelve `*_none` theorems; `plain_no_key`, `plain_covered`.
+    `String2Bool` (DOM 1792-1794), a key of `silentTable` that no registry hook names (the row
+    `symbol:STRING-COMMON:…String2Bool…`, not among `rows`): `string2Bool_silent` with
+    `string2Bool_none`, no value exactly off `"true"` and `"false"`.
 
   The sort row `STRING.String` (DOM 1681, 1707-1708): every string of the carrier is a value
   (`str_value`), two strings are two values (`str_inj`), nothing else is one (`str_only`); a sort has
@@ -396,6 +399,26 @@ theorem string2Base_none (t : String) (b : Int) : hook string2Base [sv t, int b]
   · rename_i h
     cases KStr.toIntRadix b.toNat t.toList <;> simp <;> omega
   · rename_i h; exact ⟨fun _ => by omega, fun _ => rfl⟩
+
+/-- The silent predicate of `String2Bool` is true at every argument list: its silent points are the
+argument lists where `hook` gives no value (`string2Bool_none`). -/
+theorem string2Bool_silent (vs : List GroundTerm) : silent string2Bool vs = true := rfl
+
+/-- `String2Bool` (DOM 1792-1794, two equations, no `total`), a library symbol of STRING-COMMON that
+`hook` interprets and a key of `silentTable`, with no registry hook (so it is none of `rows`): no
+value exactly off `"true"` and `"false"`. -/
+theorem string2Bool_none (t : String) : hook string2Bool [sv t] = some none ↔
+    (t.toList ≠ "true".toList ∧ t.toList ≠ "false".toList) := by
+  rw [hook_at (h := fun vs => match vs with
+      | [a] => (asStr a).bind fun x => (KStr.toBool x).map bool | _ => none) rfl]
+  simp only [asStr_sv, Option.bind_some, Option.some.injEq, Option.map_eq_none_iff]
+  unfold KStr.toBool
+  split
+  · rename_i h; simp [h]
+  · rename_i h
+    split
+    · rename_i h'; simp [h']
+    · rename_i h'; exact ⟨fun _ => ⟨h, h'⟩, fun _ => rfl⟩
 
 
 /-! ## The rows -/
@@ -742,6 +765,8 @@ theorem pts_undetermined : ∀ p ∈ pts,
 #print axioms string2Int_none
 #print axioms string2Base_none
 #print axioms replace_none
+#print axioms string2Bool_silent
+#print axioms string2Bool_none
 #print axioms concat_at
 #print axioms ge_at
 #print axioms str_value

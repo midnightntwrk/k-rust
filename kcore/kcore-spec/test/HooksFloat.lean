@@ -77,6 +77,12 @@
   - **(3)** `groups`, `keys_silent`, `fmts_not_silent`, `valued_not_silent`, the `*_none` theorems,
     `covered_fmt`, `covered_isNaN`, `covered_cmp`.
 
+  `sqrtFloat` and `isInfinite` (DOM 1624, 1545) are keys of `silentTable` that no registry hook names
+  (rows `symbol:FLOAT:…`, not among `rows`); their predicate is true at every argument list
+  (`libKeys_silent`), and `hook` gives no value at a literal exactly where `sqrt_none` (a format
+  without a model that `thinAt` does not name, or no datum for the root) and `isInfinite_none` (no
+  format, or the format `(1, 1)`, where `maxValueFloat` has none) say.
+
   The sort row `FLOAT.Float` (DOM 1464-1490, 1494-1497): a value is a datum of a format `(p, e)`, the
   precision and the exponent bits of the literal's suffix (1483-1487), `p24x8` for `f` and `p53x11`
   for `d` or no suffix (1484-1490; `lits_read`: the reader takes each literal of `lits` to the
@@ -676,6 +682,68 @@ theorem int2Float_none (n x y : Int) : hook int2Float [int n, int x, int y] = so
   rw [hk_ofInt, Option.some.injEq, flOr_none, flOfInt_none, tflOfInt_none, spec_none]
   have : (x.toNat < 2 ∨ y.toNat < 2) ↔ (x < 2 ∨ y < 2) := by omega
   rw [this]
+
+/-! ### The two keys of FLOAT without a registry hook
+
+`sqrtFloat` and `isInfinite` are library symbols of FLOAT (DOM 1624, 1545) that `hook` interprets
+and that are keys of `silentTable`; no registry hook names them, so neither is among `rows`. -/
+
+theorem hk_sqrt (vs : List GroundTerm) :
+    hook floatSqrt vs = some (flOr (fl1 KFloat.sqrt?) (tfl1 KFloat.tnSqrt?) vs) := hook_at rfl vs
+theorem hk_isInf (vs : List GroundTerm) :
+    hook floatIsInfinite vs = some (flOr (flTestM KFloat.isInf) tflInf vs) := hook_at rfl vs
+
+/-- The silent predicate of `sqrtFloat` and `isInfinite` is true at every argument list: their
+silent points are the argument lists where `hook` gives no value (`sqrt_none`, `isInfinite_none`). -/
+theorem libKeys_silent : ∀ f ∈ [floatSqrt, floatIsInfinite], ∀ vs : List GroundTerm, silent f vs = true := by
+  intro f hf vs
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hf
+  rcases hf with rfl | rfl <;> rfl
+
+theorem flTestM_none (t : Float.Model.UnpackedFloat → Bool) (p e b : Nat) :
+    flTestM t [fv p e b] = none ↔ (p < 2 ∨ e < 2) := by
+  rw [← spec_none]
+  simp only [flTestM, asFloat_fv]
+  cases KFloat.spec? p e <;> simp
+
+theorem tflInf_none (p e b : Nat) :
+    tflInf [fv p e b] = none ↔ (thinAt p e = true → KFloat.tnMax? p e = none) := by
+  simp only [tflInf, asThin_fv]
+  cases thinAt p e <;> simp
+
+/-- `sqrtFloat` ("the square root", DOM 1600, 1671; no `total`): no value exactly at an operand of
+a format without a model that `thinAt` does not name, and where the root gives no datum
+(`KFloat.sqrt?` at a format with a model, `KFloat.tnSqrt?` at one `thinAt` names). -/
+theorem sqrt_none (p e b : Nat) : hook floatSqrt [fv p e b] = some none ↔
+    ((p < 2 ∨ e < 2) ∨ ∀ sp, KFloat.spec? p e = some sp → KFloat.sqrt? sp (KFloat.unpackBits sp b) = none) ∧
+    (thinAt p e = true → KFloat.tnSqrt? p e (KFloat.tnUnpack p e b) = none) := by
+  rw [hk_sqrt, Option.some.injEq, flOr_none, fl1_none, tfl1_none]
+  exact and_congr (spec_all_iff fun _ => Iff.rfl) Iff.rfl
+
+/-- `isInfinite` (DOM 1545, 1673, an equation that reads `maxValueFloat` at the operand's format):
+no value exactly at a precision or exponent bits of 0, which names no format, and at the format
+`(1, 1)`, where `maxValueFloat` has none (`at_none`). -/
+theorem isInfinite_none (p e b : Nat) : hook floatIsInfinite [fv p e b] = some none ↔
+    (p = 0 ∨ e = 0 ∨ (p = 1 ∧ e = 1)) := by
+  rw [hk_isInf, Option.some.injEq, flOr_none, flTestM_none, tflInf_none]
+  by_cases h11 : p = 1 ∧ e = 1
+  · obtain ⟨rfl, rfl⟩ := h11
+    simp [KFloat.tnMax?_one_one]
+  · by_cases ht : thinAt p e = true
+    · obtain ⟨m, hm⟩ := tnMax_thin ht h11
+      simp only [thinAt, KFloat.tnFormat, decide_eq_true_eq] at ht
+      rw [hm]
+      constructor
+      · rintro ⟨-, h⟩
+        have := h (by simp only [thinAt, KFloat.tnFormat, decide_eq_true_eq]; exact ht)
+        cases this
+      · intro h; omega
+    · have hf : thinAt p e = false := by simpa using ht
+      rw [hf]
+      simp only [thinAt, KFloat.tnFormat, decide_eq_false_iff_not] at hf
+      constructor
+      · rintro ⟨h, -⟩; omega
+      · intro h; exact ⟨by omega, fun h' => by cases h'⟩
 
 /-! ### The unstated regions, on the data -/
 
@@ -1436,6 +1504,9 @@ theorem thin_fmt : hook floatPrecision [t18] = some (some (int 1)) ∧
 #print axioms round_none
 #print axioms int2Float_none
 #print axioms at_none
+#print axioms libKeys_silent
+#print axioms sqrt_none
+#print axioms isInfinite_none
 #print axioms float_value
 #print axioms float_only
 #print axioms covered_fmt

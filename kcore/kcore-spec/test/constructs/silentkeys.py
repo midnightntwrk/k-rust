@@ -29,7 +29,9 @@ def body(src, head):
     return src[i:j]
 
 
-def expected():
+def key_names():
+    """silentTable's keys, the registry hook of each key that has one, and the KORE name of each
+    other key (None where it cannot be read)."""
     hooks, sig = read("KcoreSpec/Hooks.lean"), read("KcoreSpec/FixedSignature.lean")
     keys = re.findall(r"\((\w+), fun ", body(hooks, "def silentTable :"))
     if len(keys) != len(set(keys)) or not keys:
@@ -42,13 +44,27 @@ def expected():
         sys.exit("silentkeys: regSymNames is no longer its own names ++ BuiltinNames.newSymNames ++ …")
     pre, post = reg.split("BuiltinNames.newSymNames")
     names = strs(pre) + strs(body(read("KcoreSpec/BuiltinNames.lean"), "def newSymNames :")) + strs(post)
+    kore = {k: (names[num[k]] if k in num and num[k] < len(names) else None) for k in keys if k not in hook}
+    return keys, {k: hook[k] for k in keys if k in hook}, kore
+
+
+def keyed(row, hook, kore):
+    """`row` (an E6 entry name) is the row of a key: `hook:H:…` of a key's registry hook H, or
+    `symbol:MODULE:NAME` of the KORE name of a key without one."""
+    if row.startswith("hook:"):
+        return row.split(":", 2)[1] in hook.values()
+    return row.startswith("symbol:") and row.count(":") >= 2 and row.split(":", 2)[2] in kore.values()
+
+
+def expected():
+    keys, hook, kore = key_names()
     e6 = tomllib.load(open(os.path.join(K, "test/constructs/rows.toml"), "rb"))["E6"]
     rows, bad = [], []
     for k in keys:
         if k in hook:
             found = [r for r in e6 if r.startswith(f"hook:{hook[k]}:")]
-        elif k in num and num[k] < len(names):
-            found = [r for r in e6 if r.startswith("symbol:") and r.split(":", 2)[2] == names[num[k]]]
+        elif kore[k] is not None:
+            found = [r for r in e6 if r.startswith("symbol:") and r.split(":", 2)[2] == kore[k]]
         else:
             found = []
         if len(found) != 1:

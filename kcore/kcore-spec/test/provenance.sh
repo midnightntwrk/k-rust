@@ -79,9 +79,12 @@
 #   declared once in `file`, mentions H and `Consistent` and negates nothing (`¬`); the entry claims
 #   no inconsistency: none of its `tie_theorems` is named `inconsistent` or, declared in a file of its
 #   `tie`, states `¬ Consistent`.
-# - `silent_statement` (rows-header.toml), on a supported E6 `hook:` row only: a non-empty list of
-#   tables { theorem, file }, each checked as a form (c) table's theorem (declared once, no AtNone,
-#   for every H as above).
+# - `silent_statement` (rows-header.toml), on a supported E6 `hook:` row, or a supported E6 `symbol:`
+#   row of a key of silentTable without a registry hook (the keys as test/constructs/silentkeys.py
+#   reads them from the sources), only: a non-empty list of tables { theorem, file }, each checked
+#   as a form (c) table's theorem (declared once, no AtNone, for every H as above). Each supported
+#   row of a key has one, and one of its theorems states the region: its statement applies `hook`
+#   or `hookRes` (a statement of `silent f vs = true` or of `silentKey` alone is the predicate).
 # - a table's `fixture`: a directory of test/constructs/fixtures/, not the entry's own `fixture`, on a
 #   table with `file` and non-empty `sentences`; the file reads that fixture's text (a `from "PATH"`
 #   with PATH f2-examples/FIXTURE.kompile.kore, or a text that carries the Source of the fixture's own
@@ -98,9 +101,14 @@
 set -u
 K=$(cd "$(dirname "$0")/.." && pwd); cd "$K"
 exec python3 -I - "$K" "${1:-test/constructs/rows.toml}" <<'PY'
-import os, re, sys, tempfile, tomllib
+import importlib.util, os, re, sys, tempfile, tomllib
 
 K, arg = sys.argv[1], sys.argv[2]
+_sk = importlib.util.spec_from_file_location("silentkeys", os.path.join(K, "test/constructs/silentkeys.py"))
+silentkeys = importlib.util.module_from_spec(_sk)
+_sk.loader.exec_module(silentkeys)
+_, KEY_HOOKS, KEY_KORE = silentkeys.key_names()
+APPLIES_HOOK = re.compile(r"(?<![\w'₀-₉])(?:hook|hookRes)(?![\w'₀-₉!?])")
 FORMS = {"a", "b", "c", "r"}
 KINDS = {"from sentences", "through the reading", "in a model"}
 AGAINST = "sentence against the reading"
@@ -281,6 +289,8 @@ def check(rows, base):
     cache, fixed, bad, counts, nomodel = {}, {}, [], {}, []
     hookrows = {f"E6 {k}" for k, v in (t.get("E6") or {}).items()
                 if k.startswith("hook:") and isinstance(v, dict) and v.get("status") == "supported"}
+    keyrows = {f"E6 {k}" for k, v in (t.get("E6") or {}).items()
+               if isinstance(v, dict) and v.get("status") == "supported" and silentkeys.keyed(k, KEY_HOOKS, KEY_KORE)}
 
     def theorem_ok(at, th, fl, path, what, form, kind=None, family=None):
         """The checks on a named theorem of `fl`: declared once, in no AtNone namespace, its statement
@@ -456,21 +466,30 @@ def check(rows, base):
             for i, v in enumerate(node):
                 yield from silent_tables(v, f"{where}[{i}]")
 
+    stated = set()
     for where, e in silent_tables(t, ""):
         ss = e["silent_statement"]
-        if where not in hookrows:
-            bad.append(f"{where}: `silent_statement` on an entry that is no supported E6 hook: row"); continue
+        if where not in hookrows | keyrows:
+            bad.append(f"{where}: `silent_statement` on an entry that is no supported E6 hook: row and no"
+                       " supported row of a key of silentTable"); continue
         if not (isinstance(ss, list) and ss and all(isinstance(x, dict) for x in ss)):
             bad.append(f"{where}: `silent_statement` is not a non-empty list of tables"); continue
+        stated.add(where)
+        stmts = []
         for i, d in enumerate(ss):
             at = f"{where}: silent_statement[{i}]"
             th, fl = d.get("theorem"), d.get("file")
             if not (isinstance(th, str) and isinstance(fl, str)):
-                bad.append(f"{at}: names no `theorem` and `file`"); continue
+                bad.append(f"{at}: names no `theorem` and `file`"); stmts.append(None); continue
             path = os.path.join(base, fl)
             if "AtNone" in fl or not os.path.isfile(path):
-                bad.append(f"{at}: no file {fl}, or one named AtNone"); continue
-            theorem_ok(at, th, fl, path, "", "c")
+                bad.append(f"{at}: no file {fl}, or one named AtNone"); stmts.append(None); continue
+            stmts.append(theorem_ok(at, th, fl, path, "", "c"))
+        if where in keyrows and None not in stmts and not any(APPLIES_HOOK.search(x) for x in stmts):
+            bad.append(f"{where}: the row of a key of silentTable cites no region: no theorem of its"
+                       " silent_statement applies hook or hookRes (each states the predicate only)")
+    for where in sorted(keyrows - stated):
+        bad.append(f"{where}: the row of a key of silentTable has no `silent_statement`")
     return counts, bad, nomodel
 
 
@@ -527,6 +546,10 @@ theorem noSem : ∀ f ∈ fs, ∀ vs : List GroundTerm, silent f vs = false := s
 theorem readsFixed : ∀ f ∈ fs, silent f vs = false ∧ cFix.sortOf x = some s := sorry
 theorem readsAnon : silentKey f = false ∧ Γ cX φ := sorry
 theorem readsTheory : Pre ⊧ φ := sorry
+theorem keyPred : ∀ f ∈ keys, ∀ vs : List GroundTerm, silent f vs = true := sorry
+theorem keyRegion (p e b : Nat) : hook floatSqrt [fv p e b] = some none ↔ p < 2 := sorry
+theorem keyCovered (c : Semantics) (H : HookParams) (hs : (c.withHooks H).shapesOK = true) {vs : List GroundTerm} :
+    ∃ a, vs = [a] ∧ (c.withHooks H).hookRes floatAdd vs = some none := sorry
 theorem shadows (cFix : Semantics) (i : Int) : cFix.sortOf (int i) = some Srt.int := sorry
 noncomputable def cFix : Semantics := default
 section S
@@ -646,6 +669,20 @@ end KCore.ProvT
         (pr, "silent_statement[0]: 0 theorems named", {"silent_statement": [{"theorem": "KCore.ProvT.missing", "file": f}]}, hk),
         (pr, "not a non-empty list", {"silent_statement": []}, hk),
         (sa("good"), "no supported E6 hook: row", {"silent_statement": [{"theorem": "KCore.ProvT.noSem", "file": f}]}),
+    ]
+    kh = ("E6", "hook:FLOAT.add:Lblx")                   # a key's hook row
+    ksym = ("E6", "symbol:FLOAT:" + KEY_KORE["floatSqrt"])  # a key's row without a registry hook
+    cases += [  # the row of a key of silentTable cites a theorem that states its region
+        (pr, "cites no region", {"silent_statement": [{"theorem": "KCore.ProvT.keyPred", "file": f}]}, kh),
+        (pr, None, {"silent_statement": [{"theorem": "KCore.ProvT.keyPred", "file": f},
+                                         {"theorem": "KCore.ProvT.keyRegion", "file": f}]}, kh),
+        (pr, None, {"silent_statement": [{"theorem": "KCore.ProvT.keyCovered", "file": f}]}, kh),
+        (pr, "has no `silent_statement`", {}, kh),
+        (sa("good"), None, {"silent_statement": [{"theorem": "KCore.ProvT.keyRegion", "file": f}]}, ksym),
+        (sa("good"), "cites no region", {"silent_statement": [{"theorem": "KCore.ProvT.keyPred", "file": f}]}, ksym),
+        (sa("good"), "has no `silent_statement`", {}, ksym),
+        (sa("good"), "no supported E6 hook: row", {"silent_statement": [{"theorem": "KCore.ProvT.keyRegion", "file": f}]},
+         ("E6", "symbol:FLOAT:Lblx")),
     ]
     # a table's `fixture` (fixtures of test/constructs/fixtures, read by name; the text by its Source in S.kore)
     sk = os.path.relpath(os.path.join(d, "S.kore"), K)
