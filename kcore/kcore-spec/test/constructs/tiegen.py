@@ -199,6 +199,15 @@ and the sort constant `SortExp`, items of Γ: in `fns_entailed`, `sv<j>_w1`, lef
 sort too (its statements over Γ, which `Γc` holds). The probe then also writes, per item, whether the
 empty-alternative reading ties it (`WR` lines), the cuts that tie it (`WC` lines) and whether the
 `andAsEnsures` or the `setVarInDropped` form ties it (`WE` lines).
+Where one equation is read as several clauses (an `\\or` or an `\\exists` over a Bool on its right side,
+read case by case: the clauses of a function that hold one equation's id), the section aligns the
+sentences with Γ's items many to one (`fnPins`, `TiePair.fnTextMany`, `fnPins_ok`, `fnText_all`): that
+equation at each of its clauses' positions, `fns_account` over the distinct indices; each such item is
+not its sentence (`sp<j>_differs`), the sentence is `uncovered`, and `fns_entailed` and `fns_from_text`
+leave the items out (the sentence gives an item only with the function's functional sentence, and the
+items give the sentence only all together); without the flag such a text is refused. A clause read from a
+`symbol-overload` axiom is pinned to that axiom too (the probe's `ovlPins`), and refused: no form here
+states its item from the sentence.
 Without the flag the output is unchanged.
 --at-values N,... names the user lemmas (by `AxiomDecl.index`) that are of the class `user lemma at
 values` in place of `user lemma`; an index that is no user lemma of the text is refused.
@@ -221,7 +230,10 @@ a text whose `attrsAgree` fails (by `prios` alone, where the clauses read from a
 have the priority 0 the reading gives and no attribute states, and `AttrsAgree.priosBut` holds with them
 and the overload axioms left out, layer 1 is stated in that form, `attrs_parts`, `attrs_prios_false`,
 `attrs_prios_but`, provided each clause left out is Γ's item that is its axiom's translation as written,
-`prios_out_at<j>`, `prios_out_entailed<j>`; otherwise refused with the clause that no theorem ties); a law of the reader or a law item of Γ that is not one sentence as
+`prios_out_at<j>`, `prios_out_entailed<j>`; otherwise refused with the clause that no theorem ties;
+where an equation is read as several clauses, `priosBut` leaves out every clause of the run but its first
+and, with --fn-readings, `prios_split_at<j>` states of each that its item is aligned with the run's
+sentence at the priority that sentence states); a law of the reader or a law item of Γ that is not one sentence as
 written; a text with a law of a function that the probe refutes at values (Function laws, below).
 
 Function laws. A law of a function (`Definition.laws`) is owed as `FnLaws`: `LawAt` for each law,
@@ -1771,33 +1783,78 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     fn_pairs, pair_ws, pair_ac = False, [], []
     fn_rds, pair_rd, pair_un, pair_cut, pair_ens, pair_sv = False, [], [], [], [], []
     fw = head["fnW"]
-    # the pins of a many-to-one alignment (`TiePair.fnTextMany`): the probe's `pairText` is then not
-    # `fnTextOf`, which the function sections below state; no kind here takes such a text
+    # the pins of a many-to-one alignment (`TiePair.fnTextMany`, `pinsOK`): the clauses one equation is
+    # read as (`splitGroups`: function, first clause, count, sentence, Γ's first item), each pinned to
+    # that equation, and the clauses read from a `symbol-overload` axiom (`ovlPins`), each pinned to it
     fn_pins = [tuple(map(int, p_)) for p_ in re.findall(r"\((\d+), (\d+)\)", head.get("pins", ""))]
-    if not fn_full and not fn_align and nfn and (not confined or fn_readings) and not raw and not fn_pins and \
+    split_groups = [(n_, int(p_), int(k_), None if i_ == "none" else int(i_), int(j_)) for n_, p_, k_, i_, j_ in
+                    re.findall(r"([^\s\[\],]+)\t(\d+)\t(\d+)\t(\w+)\t(\d+)", head.get("splitGroups", ""))]
+    ovl_pins = [(n_, int(p_), None if i_ == "none" else int(i_), int(j_)) for n_, p_, i_, j_ in
+                re.findall(r"([^\s\[\],]+)\t(\d+)\t(\w+)\t(\d+)", head.get("ovlPins", ""))]
+    pair_sp, pair_pn, pin_other = [], [], []
+    if split_groups and not fn_full and not fn_align and nfn and not fn_readings:
+        raise Refused(f"{name}: an equation is read as several clauses ("
+                      + ", ".join(f"{n_} clauses {p_}..{p_ + k_ - 1}: sentence {i_}" for n_, p_, k_, i_, _ in split_groups)
+                      + "): the function sentences are aligned with Γ's items many to one (`TiePair.fnTextMany`), "
+                      "which only the --fn-readings section states")
+    if not fn_full and not fn_align and nfn and (not confined or fn_readings) and not raw and \
+            (not fn_pins or fn_readings) and \
             sorted(fw) == list(range(nfn)) and int(head.get("pairTextLen", -1)) == nfn and \
             all(fw[j]["idx"] is not None for j in range(nfn)):
         txt = [fw[j]["idx"] for j in range(nfn)]
-        ws = [j for j in range(nfn) if not fw[j]["same"]]
+        pinned = {j for j, _ in fn_pins}
+        ws = [j for j in range(nfn) if not fw[j]["same"] and j not in pinned]
         fn_prio_list = [int(x) for x in re.findall(r"\d+", head["fnPrios"])]
         w1_ok = lambda j: fw[j]["narrowed"] and fw[j]["wtext"] and fw[j]["differs"]
         ac_ok = lambda j: fw[j]["ac"] and fw[j]["differs"]
-        common = sorted(txt) == sorted(by_class["function equation"] + by_class["priority equation"]) and \
-            len(set(txt)) == nfn and [sents[i]["prio"] for i in txt] == fn_prio_list
-        if len(ws) == 1 and w1_ok(ws[0]) and common and not confined:
+        if not fn_pins:
+            common = sorted(txt) == sorted(by_class["function equation"] + by_class["priority equation"]) and \
+                len(set(txt)) == nfn and [sents[i]["prio"] for i in txt] == fn_prio_list
+        else:
+            # pin mode: each sentence of the two classes, and each pinned sentence of another class
+            # (`fnPinOther`), at one position, or at the k positions of the k clauses it is read as;
+            # the priorities the sentences state are the clauses' but at the overload clauses
+            if head.get("pinsOK") != "true" or head.get("pinsMissing") != "0":
+                raise Refused(f"{name}: the pins {fn_pins} of the many-to-one alignment are not `TiePair.pinsOK`, "
+                              f"or a run of clauses has no sentence of its id (pinsMissing {head.get('pinsMissing')})")
+            nones = [int(x) for x in re.findall(r"\d+", head.get("pairNone", ""))]
+            if nones:
+                raise Refused(f"{name}: Γ's item{'s' if len(nones) > 1 else ''} {', '.join(map(str, nones))} "
+                              f"{'have' if len(nones) > 1 else 'has'} no sentence in the many-to-one alignment "
+                              f"(`TiePair.fnTextMany` gives none there), which no form here states")
+            fe_pe = set(by_class["function equation"] + by_class["priority equation"])
+            pin_other = sorted({i for _, i in fn_pins} - fe_pe)
+            mult = {i_: k_ for _, _, k_, i_, _ in split_groups}
+            ovl_js = {j_ for _, _, _, j_ in ovl_pins}
+            missing = sorted(fe_pe - set(txt))
+            if missing:
+                raise Refused(f"{name}: the function sentence{'s' if len(missing) > 1 else ''} "
+                              f"{', '.join(map(str, missing))} {'are' if len(missing) > 1 else 'is'} at no position of "
+                              f"the many-to-one alignment: a sentence with no item has nothing to tie")
+            common = set(txt) == fe_pe | set(pin_other) and \
+                all(txt.count(i) == mult.get(i, 1) for i in set(txt)) and \
+                all(sents[txt[j]]["prio"] == fn_prio_list[j] for j in range(nfn) if j not in ovl_js)
+            if not common:
+                raise Refused(f"{name}: the many-to-one alignment {txt} does not hold each function sentence once, "
+                              f"or a split sentence once per clause it is read as, or a sentence's priority is not "
+                              f"its clause's")
+            pair_sp = [(j_, k_, i_) for _, _, k_, i_, j_ in split_groups]
+            pair_pn = [(j_, i_) for _, _, i_, j_ in ovl_pins]
+        if len(ws) == 1 and w1_ok(ws[0]) and common and not confined and not fn_pins:
             fn_pair, pair_text, pair_w = True, txt, ws[0]
         # several such items, or an item that is its sentence up to the order of the operands of its
         # sorted disjunctions and the names of its variables (`TieAlpha.acEqB`: an `[owise]`
         # equation's exclusion, which the text writes in another order with other bound variables)
-        elif ws and common and all(ac_ok(j) or w1_ok(j) for j in ws) and not confined:
+        elif ws and common and all(ac_ok(j) or w1_ok(j) for j in ws) and not confined and not fn_pins:
             fn_pairs, pair_text = True, txt
             pair_ac = [j for j in ws if ac_ok(j)]
             pair_ws = [j for j in ws if not ac_ok(j)]
         # with --fn-readings, also an item whose sentence writes an alternative beside its right side's
         # first conjunct that holds nothing (`TieRhs.orEmptyOK`, `orBottom`'s `dropEmptyAlts`), each item
         # tied by its own theorem, and an item no reading here ties left uncovered with its sentence,
-        # the others tied as written (`readings_section`); a text that reads a confined sort too
-        elif fn_readings and ws and common:
+        # the others tied as written (`readings_section`); a text that reads a confined sort too; and,
+        # with pins, the clauses one equation is read as (`pair_sp`, each `(first item, count, sentence)`)
+        elif fn_readings and (ws or fn_pins) and common:
             rd_ok = lambda j: head.get("fnRd", {}).get(j, {}).get("orEmpty", False) and fw[j]["differs"]
             fn_rds, pair_text = True, txt
             pair_ac = [j for j in ws if ac_ok(j)]
@@ -1881,24 +1938,39 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                       f"which it does not cut")
     parts = dict(zip(["ctors", "fns", "hooks", "colls", "prios"], head["attrsParts"].split()))
     # `attrsAgree` false by `prios` alone, where a clause's priority is given by the reading of a
-    # `symbol-overload` axiom (0) and by no attribute: layer 1 is stated with the four other parts,
-    # `AttrsAgree.priosBut` with those clauses and the overload axioms left out, and for each clause
-    # left out the theorem that ties Γ's item to its sentence (`prios_out`)
+    # `symbol-overload` axiom (0) and by no attribute, or where one equation is read as several clauses
+    # (the equation states one priority, the clauses are counted each): layer 1 is stated with the four
+    # other parts, `AttrsAgree.priosBut` with those clauses (of a run, all but its first) and the
+    # overload axioms left out, and for each clause left out the theorem that ties Γ's item to its
+    # sentence (`prios_out`: `tie`), or for a clause of a run the theorem that its item is aligned with
+    # the run's sentence at the priority that sentence states (`split`)
     prios_out = None
     out_cl = re.findall(r"([^\s\[\],]+)\t(\d+)", head.get("priosOutCl", ""))
-    # the clauses of a run one equation is read as, but its first (`priosBut` leaves them out too)
     split_cl = re.findall(r"([^\s\[\],]+)\t(\d+)", head.get("priosSplitCl", ""))
     if head["attrsAgree"] != "true" and [k for k, v in parts.items() if v != "true"] == ["prios"] and \
-            head.get("priosBut") == "true" and out_cl and not split_cl:
-        prios_out = dict(cl=[(n, int(i)) for n, i in out_cl],
+            head.get("priosBut") == "true" and (out_cl or split_cl):
+        prios_out = dict(cl=[(n, int(i)) for n, i in out_cl + split_cl],
                          ax=[int(x) for x in re.findall(r"\d+", head.get("priosOutAx", ""))],
                          j=[int(x) for x in re.findall(r"\d+", head.get("priosOutJ", ""))])
-        # each clause left out is tied to its sentence: Γ's item for it is one overload axiom's
+        # each overload clause left out is tied to its sentence: Γ's item for it is one overload axiom's
         # translation as written (`fnJ`), so Γ entails that sentence (`prios_out_entailed<j>`)
-        if len(prios_out["j"]) != len(prios_out["cl"]):
+        if len(prios_out["j"]) != len(out_cl):
             raise Refused(f"{name}: the probe gives no item of Γ for each clause `priosBut` leaves out")
+        # each clause of a run left out: Γ's item `j`, aligned with the run's sentence (`prios_split_at<j>`)
+        split_j = [int(x) for x in re.findall(r"\d+", head.get("priosSplitJ", ""))]
+        if len(split_j) != len(split_cl):
+            raise Refused(f"{name}: the probe gives no item of Γ for each clause of a run `priosBut` leaves out")
+        prios_out["split"] = []
+        for (n_, ci), j in zip(split_cl, split_j):
+            gi = [i_ for g_n, p_, k_, i_, j0 in split_groups if g_n == n_ and p_ < int(ci) < p_ + k_ and j0 + int(ci) - p_ == j]
+            if len(gi) != 1 or not fn_rds or not any(j0 <= j < j0 + k_ for j0, k_, _ in pair_sp):
+                raise Refused(f"{name}: attrsAgree false by prios alone, and `AttrsAgree.priosBut` holds with the clauses "
+                              f"of a run one equation is read as left out, but the clause {ci} of {n_} (Γ's item {j}) is in "
+                              f"no run the function section aligns with its sentence (--fn-readings, `fnPins`), which "
+                              f"the layer-1 form names for each clause left out")
+            prios_out["split"].append((n_, int(ci), j, gi[0]))
         prios_out["tie"] = []
-        for (n_, ci), j in zip(prios_out["cl"], prios_out["j"]):
+        for (n_, ci), j in zip(prios_out["cl"][:len(out_cl)], prios_out["j"]):
             at_ = [a for a in prios_out["ax"] if j in sents.get(a, {}).get("fnJ", [])]
             if len(at_) != 1:
                 raise Refused(f"{name}: attrsAgree false by prios alone, and `AttrsAgree.priosBut` holds with the "
@@ -1909,15 +1981,26 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                               f"and the layer-1 form names one for each clause left out")
             prios_out["tie"].append((n_, ci, j, at_[0]))
         if law_idx or raw:
-            raise Refused(f"{name}: attrsAgree false by the overload clauses' priorities beside a law or an open "
+            raise Refused(f"{name}: attrsAgree false by the priorities of the clauses left out beside a law or an open "
                           f"generator: tiegen states the priorities left out on neither")
         if attrs_parts:
             raise Refused(f"{name}: --attrs-parts states `attrs_agree` from its five conjuncts; with `prios` false "
-                          f"(the overload clauses) the attributes are stated by `attrs_parts` and `attrs_prios_but`")
+                          f"(the clauses left out) the attributes are stated by `attrs_parts` and `attrs_prios_but`")
     elif head["attrsAgree"] != "true":
         bad = [k for k, v in parts.items() if v != "true"]
+        if split_cl and "prios" in bad:
+            bad = [b_ + (" (an equation read as several clauses: `priosBut` with them left out is "
+                         f"{head.get('priosBut')})" if b_ == "prios" else "") for b_ in bad]
         raise Refused(f"{name}: the attributes do not agree with the definition (attrsAgree false; failing "
                       f"{', '.join(bad)})")
+    # an overload clause pinned to its axiom: the alignment is right, but no form here states the item
+    # beside the sentence (the item binds the argument by a membership, the axiom applies the function
+    # to the argument pattern itself)
+    if fn_rds and pair_pn:
+        raise Refused(f"{name}: the clause{'s' if len(pair_pn) > 1 else ''} read from a `symbol-overload` axiom "
+                      + ", ".join(f"(Γ's item {j_}, sentence {i_})" for j_, i_ in pair_pn)
+                      + " are aligned with their axioms (`fnPins`), but no form of the function section states "
+                      "such an item from its sentence")
     taken = set(RESERVED)
     rn = [ident(short_sym(k["name"]), f"openGen{j}", taken) for j, k in enumerate(raw)]
     sn = {}
@@ -1962,7 +2045,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     if fn_pair or fn_pairs:
         covered |= set(pair_text)
     if fn_rds:
-        covered |= set(pair_text) - {pair_text[j] for j in pair_un}
+        covered |= set(pair_text) - {pair_text[j] for j in pair_un} - {i_ for _, _, i_ in pair_sp}
     covered |= {i for i, _, _ in own_idem}
     if prios_out:
         covered |= {i for _, _, _, i in prios_out["tie"]}
@@ -2107,7 +2190,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w(f"  - `attrs_agree`: the attributes the translation does not read agree with `defn`; the open")
         w(f"    {gens} {rnames} {'is a parameter' if len(raw) == 1 else 'are parameters'} declared without `hook` and without `function`, of which the")
         w("    text states no equation.")
-    elif prios_out:
+    elif prios_out and not prios_out["split"]:
         w(textwrap.fill(
             "- `attrs_parts`, `attrs_prios_false`, `attrs_prios_but`: the attributes the translation does not read "
             "agree with `defn` but for the priorities (`attrsAgree` is false by `prios` alone): the "
@@ -2117,6 +2200,20 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             "(`AttrsAgree.priosBut`) the priorities agree, and each clause left out is tied to its sentence ("
             + ", ".join(f"{n_} {ci}: sentence {i}, `prios_out_at{j}`, `prios_out_entailed{j}`"
                         for n_, ci, j, i in prios_out["tie"]) + ").",
+            width=100, initial_indent="  ", subsequent_indent="    ", break_on_hyphens=False, break_long_words=False))
+    elif prios_out:
+        tie_txt = ", ".join(f"{n_} {ci}: sentence {i}, `prios_out_at{j}`, `prios_out_entailed{j}`"
+                            for n_, ci, j, i in prios_out["tie"])
+        w(textwrap.fill(
+            "- `attrs_parts`, `attrs_prios_false`, `attrs_prios_but`: the attributes the translation does not read "
+            "agree with `defn` but for the priorities (`attrsAgree` is false by `prios` alone): an equation read as "
+            "several clauses states one priority, which `prios` counts once against the clauses counted each. With "
+            "every clause of such a run but its first left out (`AttrsAgree.priosBut`) the priorities agree, and "
+            "each clause left out is aligned with the run's sentence at the priority that sentence states ("
+            + ", ".join(f"{n_} {ci}: sentence {i}, `prios_split_at{j}`" for n_, ci, j, i in prios_out["split"])
+            + "; `fn_prios` states it of every clause). That is a fact of priorities: the clause's item is not "
+            "tied to its sentence, which is uncovered."
+            + (f" The overload clauses are left out too, each tied to its sentence ({tie_txt})." if tie_txt else ""),
             width=100, initial_indent="  ", subsequent_indent="    ", break_on_hyphens=False, break_long_words=False))
     else:
         w("  - `attrs_agree`: the attributes the translation does not read agree with `defn`.")
@@ -2269,7 +2366,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                         break_long_words=False))
     if fn_rds:
         w(readings_header(by_class, pair_text, pair_ws, pair_ac, pair_rd, pair_un, pair_cut_l, confined,
-                          pair_ens, pair_sv))
+                          pair_ens, pair_sv, pair_sp))
     if rules_full and nrules:
         w(f"  - Rewrite rules ({nrules}): each of Γ's rule items (with the premise `⌈rhs ∧ ens⌉`) is a consequence")
         w("    of its text sentence, `ruleText` in `ruleItems`' order (`rule_from_text`, W1, every H).")
@@ -2336,7 +2433,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             f"parts Γ defines by predicates, or definedness (`gamma_from`).",
             width=100, initial_indent="  - ", subsequent_indent="    ", break_on_hyphens=False, break_long_words=False))
     if fn_rds:
-        w(readings_gamma_header(pair_text, pair_ws, pair_ac, pair_rd, pair_un, pair_cut_l, pair_ens, pair_sv))
+        w(readings_gamma_header(pair_text, pair_ws, pair_ac, pair_rd, pair_un, pair_cut_l, pair_ens, pair_sv, pair_sp))
     owed_more = ""
     if law_idx:
         owed_more += "; function law: owed as `FnLaws` (`law_account`)"
@@ -2959,7 +3056,41 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     elif not prios_out:
         w("/-- **The attributes of the text agree with `defn`** (`attrsAgree`): constructors, functions,")
         w("hooks, collection symbols, priorities. -/")
-    if prios_out:
+    if prios_out and prios_out["split"]:
+        tie, spl = prios_out["tie"], prios_out["split"]
+        w("/-- **The attributes of the text agree with `defn` but for the priorities**: constructors, functions,")
+        w("hooks and collection symbols agree (`attrs_parts`), and `prios` is false (`attrs_prios_false`). -/")
+        w("theorem attrs_parts : AttrsAgree.ctors kore defn.sem = true ∧ AttrsAgree.fns kore defn.sem = true ∧")
+        w("    AttrsAgree.hooks kore defn.sem = true ∧ AttrsAgree.colls kore defn.sem = true := by decide +kernel")
+        w("theorem attrs_prios_false : AttrsAgree.prios kore defn = false ∧ attrsAgree kore defn = false := by")
+        w("  decide +kernel")
+        w("")
+        w(textwrap.fill(
+            "/-- The clauses left out, by (function, position): "
+            + ("the clauses read from a `symbol-overload` axiom (priority 0, which the reading gives and no "
+               "attribute states), and " if tie else "")
+            + "of each run of clauses one equation is read as, every clause but the first (the equation states one "
+            "priority, the clauses are counted each). "
+            + ("The overload axioms of the user module, by index. -/" if tie else "No sentence is left out. -/"),
+            width=100, break_on_hyphens=False, break_long_words=False))
+        w("def priosOutCl : List (String × Nat) := [" + ", ".join(f'("{n_}", {ci})' for n_, ci in prios_out["cl"]) + "]")
+        w("def priosOutAx : List Nat := [" + ", ".join(map(str, prios_out["ax"])) + "]")
+        w("")
+        w(textwrap.fill(
+            "/-- **With those clauses left out of the clause side"
+            + (" and the overload axioms left out of the text side" if tie else "")
+            + ", the priorities agree** (`AttrsAgree.priosBut`). "
+            + ("Each overload clause left out is tied to its sentence: "
+               + ", ".join(f"`prios_out_at{j}`, `prios_out_entailed{j}`" for _, _, j, _ in tie) + ". " if tie else "")
+            + "Each clause of a run left out is aligned with the run's sentence at the priority it states: "
+            + ", ".join(f"`prios_split_at{j}`" for _, _, j, _ in spl) + ". -/",
+            width=100, break_on_hyphens=False, break_long_words=False))
+        w("theorem attrs_prios_but : AttrsAgree.priosBut priosOutAx priosOutCl kore defn = true := by decide +kernel")
+        w("")
+        if tie:
+            raise Refused(f"{name}: overload clauses and runs of clauses of one equation both left out of `prios`: "
+                          f"no form here states the two together")
+    elif prios_out:
         tie = prios_out["tie"]
         pl = len(tie) > 1
         w("/-- **The attributes of the text agree with `defn` but for the priorities**: constructors, functions,")
@@ -3819,7 +3950,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                            [(j, pair_text[j]) for j in pair_ac], [(j, pair_text[j]) for j in pair_rd],
                            [(j, pair_text[j]) for j in pair_un], len(by_class["function equation"]),
                            len(by_class["priority equation"]), pair_cut_l, confined,
-                           [(j, pair_text[j]) for j in pair_ens], [(j, pair_text[j]) for j in pair_sv]))
+                           [(j, pair_text[j]) for j in pair_ens], [(j, pair_text[j]) for j in pair_sv],
+                           pair_sp, fn_pins, pin_other, prios_out["split"] if prios_out else []))
         mark("Rest")
     if gamma:
         w(GAMMA_ALIGN if fn_align else GAMMA_RULES if nrules else GAMMA)
@@ -3924,7 +4056,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             [n.format(j) for j in pair_ac for n in ("ac{}_same", "ac{}_differs", "ac{}_iff", "ac{}_entailed")] + \
             ["shape", "fns_entailed", "fns_from_text", "fn_prios", "gamma_from"]
     if fn_rds:
-        pair_names = readings_names(pair_ws, pair_ac, pair_rd, pair_un, pair_cut_l, pair_ens, pair_sv)
+        pair_names = readings_names(pair_ws, pair_ac, pair_rd, pair_un, pair_cut_l, pair_ens, pair_sv, pair_sp,
+                                    prios_out["split"] if prios_out else [])
     for block in (names, pair_names):
         for n in block:
             w(f"#check @KCore.{ns}.{n}")
@@ -3972,7 +4105,9 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                                            **({"cut": {j: dict(sentence=i, **k) for j, i, k in pair_cut_l}}
                                               if pair_cut_l else {}),
                                            **({"and_top": pair_ens} if pair_ens else {}),
-                                           **({"setvar_in": pair_sv} if pair_sv else {}))} if fn_rds else {}),
+                                           **({"setvar_in": pair_sv} if pair_sv else {}),
+                                           **({"split": {j0: dict(clauses=k_, sentence=i_) for j0, k_, i_ in pair_sp}}
+                                              if pair_sp else {}))} if fn_rds else {}),
                    cons=len(cons_text), nojunk=[len(nj_triv), len(nj_items), len(nj_kitem), len(nj_sorts)],
                    idem=idem, own_idem=[i for i, _, _ in own_idem], lib166=lib166, gamma=gamma, laws=law_idx, open_generators=[k["name"] for k in raw],
                    confined=confined, uncovered=uncovered, owed=owed, theorems=names,
@@ -4764,15 +4899,23 @@ def cut_in_entailed(k, confined):
     return cut_form(k) == "under" or (cut_form(k) == "own" and not confined)
 
 
-def readings_header(by_class, pair_text, ws, acs, rds, uns, cuts=(), confined=False, enss=(), svs=()):
+def readings_header(by_class, pair_text, ws, acs, rds, uns, cuts=(), confined=False, enss=(), svs=(), sps=()):
     """The header's paragraph of the function equations `readings_section` ties."""
     nfe, npe = len(by_class["function equation"]), len(by_class["priority equation"])
     lst = lambda js: ", ".join(f"{j} ({pair_text[j]})" for j in js)
     pl = lambda js, a, b: a if len(js) > 1 else b
+    spjs = [j0 + m for j0, k, _ in sps for m in range(k)]
     txt_ = (f"Function equations ({nfe}) and priority equations ({npe}), in the order `fnText` lists them "
             f"(`fns_account`): each of Γ's items but "
-            f"{', '.join(map(str, sorted(ws + acs + rds + uns + [j for j, _, _ in cuts] + list(enss) + list(svs))))} is the "
+            f"{', '.join(map(str, sorted(ws + acs + rds + uns + [j for j, _, _ in cuts] + list(enss) + list(svs) + spjs)))} is the "
             f"translation of one sentence (`shape`), so Γ entails it (`fns_entailed`).")
+    if sps:
+        txt_ += (" " + "; ".join(f"Items {j0} to {j0 + k - 1} are the {k} clauses sentence {i} is read as" for j0, k, i in sps)
+                 + " (`fnPins`: the alignment holds the sentence at each of those positions, `TiePair.fnTextMany`, "
+                 "`fnPins_ok`, `fnText_all`). No such item is its sentence (`sp<j>_differs`); the sentence gives an "
+                 "item only with the function's functional sentence, and Γ gives the sentence only from all the "
+                 "items of the run together, which no form here states: the sentence is `uncovered`, and "
+                 "`fns_entailed` and `fns_from_text` leave those items out.")
     if ws:
         txt_ += (f" Item{pl(ws, 's', '')} {lst(ws)} (sentence in parentheses) {pl(ws, 'are', 'is')} the clause "
                  f"under the negation of the clauses of a smaller priority that are not `aside`, which the sentence "
@@ -4832,9 +4975,10 @@ def readings_header(by_class, pair_text, ws, acs, rds, uns, cuts=(), confined=Fa
                          break_long_words=False)
 
 
-def readings_gamma_header(pair_text, ws, acs, rds, uns, cuts=(), enss=(), svs=()):
+def readings_gamma_header(pair_text, ws, acs, rds, uns, cuts=(), enss=(), svs=(), sps=()):
     """The header's paragraph of `readings_section`'s converse over Γ's content."""
     cno = [j for j, _, k in cuts if cut_form(k) != "own"]
+    spjs = [j0 + m for j0, k, _ in sps for m in range(k)]
     via = (([f"{', '.join(str(pair_text[j]) for j in ws)} through W1"] if ws else [])
            + [f"{pair_text[j]} through `ac{j}_iff`" for j in acs] + [f"{pair_text[j]} through `rd{j}_iff`" for j in rds]
            + [f"{i} through `cut{j}_from_text`" for j, i, k in cuts if cut_form(k) == "own"]
@@ -4849,16 +4993,19 @@ def readings_gamma_header(pair_text, ws, acs, rds, uns, cuts=(), enss=(), svs=()
             + (f", Γ's own item{'s' if len(svs) > 1 else ''} {', '.join(map(str, svs))} (whose sentence"
                f"{'s give' if len(svs) > 1 else ' gives'} it with the definition of `\\ceil` and the sort constant "
                f"`SortExp`: `sv<j>_w1`)" if svs else "")
+            + (f", Γ's own item{'s' if len(spjs) > 1 else ''} {', '.join(map(str, spjs))} (the clauses one sentence is "
+               f"read as, whose sentence is uncovered)" if sps else "")
             + ", Γ's rule items, the five parts Γ defines by predicates, or definedness (`gamma_from`).")
     return textwrap.fill(txt_, width=100, initial_indent="  - ", subsequent_indent="    ", break_on_hyphens=False,
                          break_long_words=False)
 
 
-def readings_names(ws, acs, rds, uns, cuts=(), enss=(), svs=()):
+def readings_names(ws, acs, rds, uns, cuts=(), enss=(), svs=(), sps=(), split_at=()):
     """The theorems `readings_section` states, in its order."""
     dirs = {"own": ("cut{}_from_text", "cut{}_entailed"), "under": ("cut{}_entailed", "cut{}_from_text"),
             "not": ("cut{}_iff", "cut{}_entailed")}
-    return (["fns_account"] + [n.format(j) for j in ws for n in
+    sat = {j for _, _, j, _ in split_at}
+    return ((["fnPins_ok", "fnText_all"] if sps else []) + ["fns_account"] + [n.format(j) for j in ws for n in
                                ("prio{}_narrowed", "prio{}_text", "prio{}_differs", "prio{}_w1")] +
             [n.format(j) for j in acs for n in ("ac{}_same", "ac{}_differs", "ac{}_iff", "ac{}_entailed")] +
             [n.format(j) for j in rds for n in ("rd{}_ok", "rd{}_text", "rd{}_differs", "rd{}_iff", "rd{}_entailed")] +
@@ -4869,10 +5016,13 @@ def readings_names(ws, acs, rds, uns, cuts=(), enss=(), svs=()):
             (["nsv_iff", "sv_sig_pats"] if svs else []) +
             [n.format(j) for j in svs for n in ("sv{}_text", "sv{}_differs", "sv{}_iff", "sv{}_w1", "sv{}_entailed")] +
             [f"un{j}_differs" for j in uns] +
+            [n.format(j0 + m) for j0, k, _ in sps for m in range(k)
+             for n in (("sp{}_differs", "prios_split_at{}") if j0 + m in sat else ("sp{}_differs",))] +
             ["shape", "fns_entailed", "fns_from_text", "fn_prios", "gamma_from"])
 
 
-def readings_section(ws, acs, rds, uns, nfe, npe, cuts=(), confined=False, enss=(), svs=()):
+def readings_section(ws, acs, rds, uns, nfe, npe, cuts=(), confined=False, enss=(), svs=(), sps=(), pins=(),
+                     pin_other=(), split_at=()):
     """`pairs_section` with two more kinds of Γ's items beside the narrowed ones `ws` and those `acs`
     equal up to the operands' order and the variables' names: the items `rds` (each `(j, i)`: item
     `j`, sentence `i`), whose sentence writes an alternative that holds nothing beside the right
@@ -4887,9 +5037,15 @@ def readings_section(ws, acs, rds, uns, nfe, npe, cuts=(), confined=False, enss=
     whose sentence writes the right side r as `\\and{s}(r, \\top{s}())` (`TieRhs.rhsMap_iff`,
     `TieRhs.andTop_agree`, every model of definedness), and `svs` (each `(j, i)`), test/NoteSetVarIn.lean's
     literal sentence and item (`nsv_iff`, with two signature items of Γ: in `fns_entailed`, and left out of
-    `fns_from_text`, whose premise set is the sentence alone)."""
+    `fns_from_text`, whose premise set is the sentence alone). And, with `pins` (`(position, sentence)`),
+    the alignment many to one (`TiePair.fnTextMany`): the runs `sps` (each `(first item, count,
+    sentence)`), the clauses one equation is read as, all aligned with that sentence; their items are
+    Γ's in the premise set, left out of `fns_entailed` and `fns_from_text`, and the sentence is uncovered;
+    `pin_other` the pinned sentences of another account class; `split_at` (each `(function, clause,
+    item, sentence)`) the clauses of a run layer 1 leaves out (`prios_split_at<j>`)."""
+    spjs = [j0 + m for j0, k, _ in sps for m in range(k)]
     at = sorted([j for j, _, _ in ws] + [j for j, _ in acs] + [j for j, _ in rds] + [j for j, _ in uns] +
-                [j for j, _, _ in cuts] + [j for j, _ in enss] + [j for j, _ in svs])
+                [j for j, _, _ in cuts] + [j for j, _ in enss] + [j for j, _ in svs] + spjs)
     wjs = [j for j, _, _ in ws]
     ujs = [j for j, _ in uns]
     parts = []
@@ -4971,17 +5127,57 @@ def readings_section(ws, acs, rds, uns, nfe, npe, cuts=(), confined=False, enss=
                      f"the sentence (`sv<j>_entailed`), and the sentence with them gives the item (`sv<j>_w1`), "
                      f"which `fns_from_text` leaves out (its premise set is the sentence alone). It is not the item "
                      f"(`sv<j>_differs`).")
+    if sps:
+        gl = "; ".join(f"items {j0} to {j0 + k - 1}, sentence {i}" for j0, k, i in sps)
+        parts.append(f"One equation read as several clauses ({gl}): the equation's right side holds alternatives "
+                     f"(an `\\or`, or an `\\exists` over a Bool, read case by case), and the reading gives a clause "
+                     f"for each alternative, with its condition, and one where none applies. The alignment holds "
+                     f"the sentence at each of the clauses' positions (`fnPins`, `TiePair.fnTextMany`: a pinned "
+                     f"position holds its sentence, every other position the first sentence of its function and "
+                     f"priority; `fnPins_ok`, `fnText_all`). No such item is its sentence (`sp<j>_differs`). The "
+                     f"sentence gives an item only together with the function's functional sentence (where an "
+                     f"alternative applies, the sentence gives the application every element that alternative "
+                     f"holds, and the item one element), and the items give the sentence only all together; no "
+                     f"form here states either, so the sentence is uncovered, `fns_entailed` and `fns_from_text` "
+                     f"leave its items out, and the premise set of `gamma_from` holds Γ's items there.")
     parts.append("Every other item is the translation of its function sentence (`shape`). -/")
     intro = "\n\n".join(textwrap.fill(x, width=100, break_on_hyphens=False, break_long_words=False) for x in parts)
-    out = [f"/-! ## Function equations ({nfe} sentences) and priority equations ({npe} sentences)", "", intro, "",
-           "/-- The text sentences of Γ's equations, in `fnItems`'s order: found by head symbol and priority",
-           "(`TiePair.fnTextOf`); `shape` is what makes them the equations' sentences. -/",
-           "noncomputable def fnText : List AxiomDecl := TiePair.fnTextOf c U.all", "",
-           "/-- **`fnText` is the account's function-equation and priority-equation classes**: the same",
-           "indices, each once. -/",
-           "theorem fns_account :",
-           '    (classOf "function equation" ++ classOf "priority equation").isPerm (fnText.map (·.index)) = true := by',
-           "  decide +kernel", ""]
+    out = [f"/-! ## Function equations ({nfe} sentences) and priority equations ({npe} sentences)", "", intro, ""]
+    if not pins:
+        out += ["/-- The text sentences of Γ's equations, in `fnItems`'s order: found by head symbol and priority",
+                "(`TiePair.fnTextOf`); `shape` is what makes them the equations' sentences. -/",
+                "noncomputable def fnText : List AxiomDecl := TiePair.fnTextOf c U.all", "",
+                "/-- **`fnText` is the account's function-equation and priority-equation classes**: the same",
+                "indices, each once. -/",
+                "theorem fns_account :",
+                '    (classOf "function equation" ++ classOf "priority equation").isPerm (fnText.map (·.index)) = true := by',
+                "  decide +kernel", ""]
+    else:
+        po = ' ++ fnPinOther' if pin_other else ''
+        out += ["/-- The pins of the alignment, `(item, sentence index)`: each clause of a run one equation is read",
+                "as, at that equation. -/",
+                "def fnPins : List (Nat × Nat) := [" + ", ".join(f"({j}, {i})" for j, i in pins) + "]", ""]
+        if pin_other:
+            out += ["/-- The pinned sentences of another account class than the function and priority equations. -/",
+                    "def fnPinOther : List Nat := [" + ", ".join(map(str, pin_other)) + "]", ""]
+        out += ["/-- The text sentences of Γ's equations, in `fnItems`'s order: a pinned position holds its",
+                "sentence, every other one the first sentence of its head symbol and priority that no earlier",
+                "position took (`TiePair.fnTextMany`); `shape` is what makes them the equations' sentences. -/",
+                "noncomputable def fnTextO : List (Option AxiomDecl) := TiePair.fnTextMany c U.all fnPins", "",
+                "/-- **Each pin names a clause position and an equation of that clause's function, no position",
+                "twice, the positions of one sentence consecutive** (kernel). -/",
+                "theorem fnPins_ok : TiePair.pinsOK c U.all fnPins = true := by decide +kernel", "",
+                "/-- **Every position holds a sentence, one per item of `fnItems`** (kernel). -/",
+                "theorem fnText_all : TiePair.manyAllSomeB fnTextO = true ∧ TiePair.manyLengthB c fnTextO = true := by",
+                "  decide +kernel", "",
+                "noncomputable def fnText : List AxiomDecl := fnTextO.filterMap id", "",
+                "/-- **`fnText` is the account's function-equation and priority-equation classes**"
+                + (", with the pinned sentences of another class" if pin_other else "") + ": the same",
+                "indices, each once, a pinned sentence at each position of its run. -/",
+                "theorem fns_account :",
+                f'    (classOf "function equation" ++ classOf "priority equation"{po}).isPerm',
+                "      (fnText.map (·.index)).eraseDups = true := by",
+                "  decide +kernel", ""]
     if svs:
         out += [setvar_bridge_block().replace("\n/-! ## ", "\n/-! ### ")]
     if acs or rds or cuts or enss or svs:
@@ -5228,9 +5424,27 @@ def readings_section(ws, acs, rds, uns, nfe, npe, cuts=(), confined=False, enss=
                 f"kernel_rfl fnText_at{j} : fnText[{j}]? = some U.ax{i}",
                 f"/-- **Γ's item {j} is not the text's sentence {i}** (kernel): the sentence is uncovered. -/",
                 f"theorem un{j}_differs : unItem{j} ≠ (trS U.ax{i}).pat := by decide +kernel", ""]
+    sat = {j: (n_, ci) for n_, ci, j, _ in split_at}
+    for j0, k, i in sps:
+        for m in range(k):
+            j = j0 + m
+            out += [f"/-- Γ's item {j}, the clause {m} of the {k} that sentence {i} is read as. -/",
+                    f"noncomputable def spItem{j} : P := (TiePair.gammaPats c).getD {j} ⊥",
+                    f"theorem spItem{j}_at : (TiePair.gammaPats c)[{j}]? = some spItem{j} := by decide +kernel",
+                    f"kernel_rfl fnText_at{j} : fnText[{j}]? = some U.ax{i}",
+                    f"/-- **Γ's item {j} is not the text's sentence {i}** (kernel): the sentence is uncovered. -/",
+                    f"theorem sp{j}_differs : spItem{j} ≠ (trS U.ax{i}).pat := by decide +kernel", ""]
+            if j in sat:
+                n_, ci = sat[j]
+                out += [f"/-- **The clause {ci} of `{n_}`, which `attrs_prios_but` leaves out, is Γ's item {j}**, aligned with",
+                        f"sentence {i}, and its priority is the one that sentence states (kernel). -/",
+                        f"theorem prios_split_at{j} : ((c.allFns.takeWhile (c.symName ·.label != \"{n_}\")).map (·.clauses.length)).sum + {ci} = {j} ∧",
+                        f"    (fnText[{j}]?).map (·.index) = some {i} ∧",
+                        f"    (c.allFns.flatMap (fun f => f.clauses.map (·.prio)))[{j}]? = some (AttrsAgree.prioOf U.ax{i}.ax.attributes) := by",
+                        "  decide +kernel", ""]
     item = ({j: f"prioItem{j}" for j, _, _ in ws} | {j: f"acItem{j}" for j, _ in acs} |
             {j: f"rdItem{j}" for j, _ in rds} | {j: f"unItem{j}" for j, _ in uns} | {j: f"cutItem{j}" for j, _, _ in cuts} |
-            {j: f"ensItem{j}" for j, _ in enss} | {j: f"svItem{j}" for j, _ in svs})
+            {j: f"ensItem{j}" for j, _ in enss} | {j: f"svItem{j}" for j, _ in svs} | {j: f"spItem{j}" for j in spjs})
     tp = "(fnText.map (trS · |>.pat))"
     for j in at:
         tp = f"({tp}.set {j} {item[j]})"
@@ -5262,18 +5476,20 @@ def readings_section(ws, acs, rds, uns, nfe, npe, cuts=(), confined=False, enss=
     cf = [j for j, _, k in cuts if cut_form(k) == "own"]
     cy = [j for j, _, k in cuts if cut_form(k) != "own"]
     svjs = [j for j, _ in svs]
-    ex_f = sorted(ujs + cy + svjs)
-    out_l = ", ".join(map(str, sorted(wjs + ujs + cx)))
+    ex_f = sorted(ujs + cy + svjs + spjs)
+    out_l = ", ".join(map(str, sorted(wjs + ujs + cx + spjs)))
     via = [f"item {j} through `ac{j}_iff`" for j, _ in acs] + [f"item {j} through `rd{j}_iff`" for j, _ in rds] + \
         [f"item {j} through `ens{j}_iff`" for j, _ in enss]
     via_e = via + [f"item {j} by `cut{j}_entailed`" for j, _ in ce] + [f"item {j} by `sv{j}_entailed`" for j in svjs]
     via_f = via + [f"item {j} by `cut{j}_from_text`" for j in cf]
     but = ([f"the narrowed ones (items {', '.join(map(str, wjs))})"] if ws else []) + \
         ([f"the untied ones (items {', '.join(map(str, ujs))})"] if uns else []) + \
-        ([f"the cut ones whose entailment reads more than Γ (items {', '.join(map(str, cx))})"] if cx else [])
+        ([f"the cut ones whose entailment reads more than Γ (items {', '.join(map(str, cx))})"] if cx else []) + \
+        ([f"the clauses of one equation (items {', '.join(map(str, spjs))})"] if sps else [])
     but_f = ([f"the untied ones (items {', '.join(map(str, ujs))})"] if uns else []) + \
         ([f"the cut ones given with the constructors' facts (items {', '.join(map(str, cy))})"] if cy else []) + \
-        ([f"the set-variable ones given with two signature items (items {', '.join(map(str, svjs))})"] if svs else [])
+        ([f"the set-variable ones given with two signature items (items {', '.join(map(str, svjs))})"] if svs else []) + \
+        ([f"the clauses of one equation (items {', '.join(map(str, spjs))})"] if sps else [])
     out += [f"/-- **E for the function equations**: Γ entails each sentence of `fnText`"
             + (f" but {' and '.join(but)}" if but else "") + ", for every H"
             + ("; " + ", ".join(via_e) if via_e else "") + ". -/",
@@ -5354,6 +5570,7 @@ def readings_section(ws, acs, rds, uns, nfe, npe, cuts=(), confined=False, enss=
             "/-! ## The converse over Γ's content -/", "",
             "/-- **Every premise of Γ is a consequence of the text's function sentences** (the items set to",
             "Γ's through their sentences" + (", the untied ones as Γ's own" if uns else "")
+            + (", the clauses of one equation as Γ's own" if sps else "")
             + "), Γ's rule items and the five parts Γ defines by predicates",
             "(`TiePair.Pre`), for every H. -/",
             "theorem gamma_from (H : HookParams) : ∀ φ, Γ (cH H) φ → TiePair.Pre (cH H) textPats ⊧ φ :=",
