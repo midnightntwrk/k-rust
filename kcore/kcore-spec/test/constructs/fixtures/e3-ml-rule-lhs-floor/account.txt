@@ -1,0 +1,18 @@
+out/definition.kore: 5 modules; prelude agrees
+user module E3-ML-RULE-LHS-FLOOR: 293 sentences
+  1 inert import [generated]
+  167 read [generated]
+  95 read [builtin]
+  3 read [user]
+  5 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert distinctCtors [generated]
+  10 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 patternConnective
+      sentence 231 (E3-ML-RULE-LHS-FLOOR.floor-bool-lhs): patternConnective (\floor)
+        [user] E3-ML-RULE-LHS-FLOOR.floor-bool-lhs at e3-ml-rule-lhs-floor.k:5: axiom{} \rewrites{SortGeneratedTopCell{}}(\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}}(Lblb{}(\floor{SortBool{}, SortBool{}}(Var'Unds'Gen0:SortBool{}))), Var'Unds'DotVar1:SortK{})), Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()), \and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'- …
+finish: sentence 231 (E3-ML-RULE-LHS-FLOOR.floor-bool-lhs): patternConnective (\floor)
+(exit 0)
