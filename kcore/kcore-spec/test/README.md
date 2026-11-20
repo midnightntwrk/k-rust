@@ -1754,8 +1754,9 @@ table above, on the tree before String and Bytes). Not investigated here.
   where the right side is built so: `rule_w2_noprem` in test/TieRuleConn.lean (RhsOr, LhsNot,
   LhsNotOther), test/TieRuleLhsAnd.lean (Ceil, Equals, Var) and test/TieE3MlReqAndUnderApp.lean,
   `rule_w2_closed_noprem` in test/TieE3MlReqNot157.lean. test/TieRuleLhsAnd.lean's
-  `rule_from_text_cons` (Ceil, Equals) is W1 over the sentence, `ΓSig` and the Cons-Fun item of
-  `inj{Exp,KItem}`.
+  `rule_from_text_aux` (Ceil, Equals) is W1 over the sentence, `ΓSig` and the arity item of the
+  text's declaration `symbol inj{From, To}(From) : To` (an item of the text's signature,
+  `ruleSigAux_text`), which puts every element of `inj{Exp,KItem}(go(X))` in KItem.
 - `test/TieE3VarsRuleW2.lean`, `test/TieE3VarsBoolRuleW2.lean`: W2 for the rule with a binder,
   sentence 170 of e3-vars (`<k> c(_, _Y) => d(?Z:Int) ... </k>`) and sentence 113 of e3-vars-bool
   (`<k> c() => d(?Z:Bool) </k>`), for every H (KcoreSpec/TieRuleW2ExGen.lean). Γ's axiom adds the

@@ -48,12 +48,16 @@
     every model of Γ where the guards hold (R is built of the text's variables, constructors and
     `inj{Exp,KItem}`, each with its Cons-Fun item in Γ: `TieRuleCutG.rightDefined_top`), so Γ
     entails the sentence, for every H.
-  - `rule_from_text_cons` (`Ceil`, `Equals`; W1 without the inclusions as premises): Γ's rule item
-    is a consequence of the sentence, `ΓSig` and one item of `ΓCons`, the Cons-Fun item of the
-    injection of Exp into KItem (`injFun`, `injFun_cons`). `terms_in_cons`: go's arity (`ΓSig`)
-    puts the elements of `go(X)` in Exp, and the injection's item puts those of
-    `inj{Exp,KItem}(go(X))` in KItem (`TieRuleCutG.inj_inh`). The signature has no item that gives
-    the injection's result sort, so that item is part of the premise set.
+  - `rule_from_text_aux` (`Ceil`, `Equals`; W1 from the text, without the inclusions as premises):
+    Γ's rule item is a consequence of the sentence, `ΓSig` and one item of the text's signature that
+    `ΓSig` does not hold, the arity item of the text's declaration `symbol inj{From, To}(From) : To`
+    (`ruleSigAux`, `ruleSigAux_text`; `injArity_pat`: it is `TieFRSig.injArityP`). `terms_in_inj`:
+    in a model of definedness, `ΓSig` and that item, where X's guard holds, every term lies in its
+    sort (`TieFRSig.sig_of_core_inj`): go's arity (`ΓSig`) puts the elements of `go(X)` in Exp, and
+    the arity of `inj` at Exp, KItem puts those of `inj{Exp,KItem}(go(X))` in KItem. `ΓSig` holds no
+    item for `inj`; the text's signature does. The text's subsort sentence of Exp, KItem is not a
+    premise: it equates `inj{Exp,KItem}(x)` with an element at the sort KItem, and an equation at
+    KItem says nothing of an element outside KItem, so it does not give the inclusion alone.
   - The theorems hold at any table and leave as premises what `rule_and_pred` lists of the table
     and the interpretation: definedness, the sorts' patterns, every element of t in KItem, every
     element of `K[t]` in the top cell's sort, and (Ceil) every element of go(X) in Exp. The
@@ -64,6 +68,8 @@ import KcoreSpec
 
 set_option autoImplicit false
 set_option maxRecDepth 1000000
+
+deriving instance DecidableEq for KoreAML.SymbolDecl
 
 open KCore KCore.Faithful KoreAML ML
 
@@ -459,48 +465,83 @@ theorem kgo_arity (H : HookParams) : (symArityItem (cH H) kgo).pat =
     (sym (.symbol "Lblgo") ⬝ inhOf (sortP "Int") ⊆⊆ inhOf (sortP "Exp")) :=
   (kgo_arity_withHooks H).trans kgo_arity_c
 
-/-- The Cons-Fun item of the injection of Exp into KItem: the injection of an element of Exp is
-one element of KItem. -/
-def injFun : KoreAML.Item := KoreAML.Cons.funItem "KItem" (.inj "Exp")
+/-- The text's declaration `symbol inj{From, To}(From) : To [sortInjection{}()]`. -/
+def injDecl : SymbolDecl :=
+  ⟨"inj", [⟨⟨⟨"From"⟩⟩⟩, ⟨⟨⟨"To"⟩⟩⟩], [.var ⟨⟨⟨"From"⟩⟩⟩], .var ⟨⟨⟨"To"⟩⟩⟩, false, ["sortInjection"]⟩
 
-/-- It is one of Γ's constructor items, for every H. -/
-theorem injFun_cons (H : HookParams) : ΓCons (cH H) injFun.pat :=
-  TieRuleCutG.funsInGB_cons (g := ("KItem", .inj "Exp"))
-    ((TieRuleCutG.funsInGB_withHooks c H rightGens).trans right_funs) (by decide)
+theorem injDecl_mem : injDecl ∈ kore.symbolDecls := by decide +kernel
 
-/-- **In a model of the signature and of the injection's Cons-Fun item, where X's guard holds**,
-every element of `go(X)` is in Exp (go's arity, an item of the signature) and every element of
-`inj{Exp,KItem}(go(X))` in KItem (`TieRuleCutG.inj_inh`). -/
-theorem terms_in_cons (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hD : DefOK I)
-    (hSig : I ⊧ᴵP ΓSig (cH H)) (hF : I ⊧ᴵ injFun.pat) (e : Valuation M) (m : M)
+/-- Its arity item is `TieFRSig.injArityP`: at two sorts, what `inj` builds of an element of the
+first lies in the second. -/
+theorem injArity_pat : (arityItem injDecl).pat = TieFRSig.injArityP := TieFRSig.injArityP_shape _ _
+
+/-- The rule sentence. -/
+noncomputable def ruleText : List AxiomDecl := [U.ax157]
+
+/-- The other sentences of the text the statement reads: none. -/
+noncomputable def ruleAux : List AxiomDecl := []
+
+/-- The item of the text's signature the statement reads, which `ΓSig` does not hold: the arity
+item of the declaration of `inj`. -/
+def ruleSigAux : List Item := [arityItem injDecl]
+
+/-- Each item of `ruleSigAux` is an item of the signature of the text's theory. -/
+theorem ruleSigAux_text : ∀ it ∈ ruleSigAux, it ∈ (Theory.ofDefinition kore).signature := by
+  intro it hit
+  rw [List.mem_singleton.mp hit]
+  simp only [Theory.ofDefinition, List.mem_append, List.mem_map]
+  exact Or.inl (Or.inl (Or.inl (Or.inr ⟨_, injDecl_mem, rfl⟩)))
+
+/-- **In a model of definedness, the signature and `inj`'s arity item, where X's guard holds**,
+every element of `go(X)` is in Exp and every element of `inj{Exp,KItem}(go(X))` in KItem: each term
+lies in its sort (`TieFRSig.sig_of_core_inj`: go's result sort from its arity item in `ΓSig`, the
+injection's target sort from `inj`'s arity item at the subsort pair Exp, KItem). -/
+theorem terms_in_inj (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hD : DefOK I)
+    (hSig : I ⊧ᴵP ΓSig (cH H)) (hA : I ⊧ᴵ TieFRSig.injArityP) (e : Valuation M) (m : M)
     (hg : ∀ k ∈ (freeOf [] p0).eraseDups, (guardOf (tableOf [] p0) k).interpret I e m) :
     (∀ a, (tr ⟨tableOf [] p0, []⟩ goX).interpret I e a →
       (inhOf (trSort (tableOf [] p0) (srt "Exp"))).interpret I e a) ∧
     (∀ a, (tr ⟨tableOf [] p0, []⟩ t).interpret I e a →
       (inhOf (trSort (tableOf [] p0) kitemS)).interpret I e a) := by
+  have hT : TermsInSort (cH H) I := (TieFRSig.sig_of_core_inj (coreOKH H) hD hSig hA).2
+  obtain ⟨hk1, hk2, hs1, hs2, hkey⟩ := terms_kore
   have hx := hg _ (List.contains_iff_mem.mp (List.all_eq_true.mp fT_free0 _ x_free0))
   rw [interp_guard_evar hD, trSort_srt] at hx
-  have hit : I ⊧ᴵ (symArityItem (cH H) kgo).pat := hSig _ (Or.inl (Or.inl ⟨_, sig_arity (kgo_mem H), rfl⟩))
-  rw [kgo_arity] at hit
-  have hgo : ∀ a, (tr ⟨tableOf [] p0, []⟩ goX).interpret I e a →
-      (inhOf (trSort (tableOf [] p0) (srt "Exp"))).interpret I e a := by
-    intro a ha
-    rw [trSort_srt]
-    refine (interp_included hD).mp (hit e default) a ?_
-    have ha' : (tr ⟨tableOf [] p0, []⟩ (.app ⟨⟨"Lblgo"⟩⟩ [] [.var (.evar (evar "VarV0" (srt "Int")))])).interpret I e a := ha
-    simp only [trArgs_cons, trArgs_nil, tr] at ha'
-    obtain ⟨p, b, hp, hb, hpb⟩ := interp_app.mp ha'
-    rw [interp_evar] at hb
-    exact interp_app.mpr ⟨p, b, hp, by rw [hb]; exact hx, hpb⟩
-  exact ⟨hgo, fun a ha => TieRuleCutG.inj_inh hD hF hgo a ha⟩
+  have hvars : ∀ i ∈ varOccs (.inj 32 Srt.kitem (.app 386 [.var 0])),
+      InS I ((cH H).sortName (rz.vars.getD i 0)) (e.evalEvar ((tableOf [] p0).ev (canonKey (cH H) rz.vars i))) := by
+    intro i hi
+    have : i = 0 := by simpa [varOccs, varOccsList] using hi
+    subst this
+    show InS I (c.sortName (rz.vars.getD 0 0)) (e.evalEvar ((tableOf [] p0).ev (canonKey c rz.vars 0)))
+    rw [hkey]
+    exact (inS_iff e).mp hx
+  have h1 : ∀ a, (tr ⟨tableOf [] p0, []⟩ (Term.kore (cH H) (canonVars (cH H) rz.vars) (.app 386 [.var 0]))).interpret I e a →
+      InS I ((cH H).sortName 32) a :=
+    hT (show sortOfTerm ((cH H).rhsCtx ((cH H).fns.map Fn.sig)) rz.vars (.app 386 [.var 0]) = some 32 from hs1)
+      (by decide +kernel : (32 : Srt) < nRegSorts + c.sortNames.length)
+      (fun i hi => hvars i (by simpa [varOccs, varOccsList] using hi))
+  have h2 : ∀ a, (tr ⟨tableOf [] p0, []⟩
+      (Term.kore (cH H) (canonVars (cH H) rz.vars) (.inj 32 Srt.kitem (.app 386 [.var 0])))).interpret I e a →
+      InS I ((cH H).sortName Srt.kitem) a :=
+    hT (show sortOfTerm ((cH H).rhsCtx ((cH H).fns.map Fn.sig)) rz.vars (.inj 32 Srt.kitem (.app 386 [.var 0])) =
+      some Srt.kitem from hs2)
+      (by decide +kernel : Srt.kitem < nRegSorts + c.sortNames.length) hvars
+  rw [(terms_koreH H).1, hk1, show (cH H).sortName 32 = "Exp" from (by decide +kernel : c.sortName 32 = "Exp")] at h1
+  rw [(terms_koreH H).2, hk2, show (cH H).sortName Srt.kitem = "KItem" from
+    (by decide +kernel : c.sortName Srt.kitem = "KItem")] at h2
+  exact ⟨fun a ha => by rw [trSort_srt]; exact (inS_iff e).mpr (h1 a ha),
+    fun a ha => by rw [kitemS, trSort_srt]; exact (inS_iff e).mpr (h2 a ha)⟩
 
-/-- **W1 for the rule, over the sentence, the signature and the injection's Cons-Fun item**: Γ's
-one rule item is a consequence of sentence 157, `ΓSig` and `injFun` (an item of `ΓCons`,
-`injFun_cons`), for every H. The signature alone does not put the elements of
-`inj{Exp,KItem}(go(X))` in KItem: that is the injection's item. -/
-theorem rule_from_text_cons (H : HookParams) :
-    ∀ it ∈ ruleItems (cH H), (TiePair.Texts [(trS U.ax157).pat, injFun.pat] ∪ ΓSig (cH H)) ⊧ it.pat := by
-  intro it hit M _ I hI
+/-- **W1 for the rule, from the text**: Γ's one rule item is a consequence of sentence 157 with the
+arity item of the text's declaration of `inj` (`ruleSigAux`, an item of the text's signature that
+`ΓSig` does not hold) and `ΓSig`, for every H. The arity item puts every element of
+`inj{Exp,KItem}(go(X))` in KItem (`terms_in_inj`); the text's subsort sentence of Exp, KItem is not
+read (it equates the injection with an element at KItem only). -/
+theorem rule_from_text_aux (H : HookParams) : ∀ it ∈ ruleItems (cH H), ∃ ad ∈ ruleText,
+    TiePair.Texts ((trS ad).pat :: (ruleAux.map (fun a => (trS a).pat) ++ ruleSigAux.map (·.pat))) ∪ ΓSig (cH H) ⊧ it.pat := by
+  intro it hit
+  refine ⟨U.ax157, List.mem_singleton_self _, ?_⟩
+  intro M _ I hI
   have hT : I ⊧ᴵP (TiePair.Texts [(trS U.ax157).pat] ∪ ΓSig (cH H)) := by
     intro φ hφ
     rcases hφ with (hm | hd) | hs
@@ -508,8 +549,10 @@ theorem rule_from_text_cons (H : HookParams) :
     · exact hI φ (Or.inl (Or.inr hd))
     · exact hI φ (Or.inr hs)
   have hD : DefOK I := TiePair.defOK_texts fun φ hφ => hI φ (Or.inl hφ)
-  have hF : I ⊧ᴵ injFun.pat := hI _ (Or.inl (Or.inl (List.mem_cons_of_mem _ (List.mem_singleton_self _))))
-  exact rule_from_text_in H hT (fun e m hg => (terms_in_cons H hD (fun φ hφ => hI φ (Or.inr hφ)) hF e m hg)) it hit
+  have hA : I ⊧ᴵ TieFRSig.injArityP := by
+    rw [← injArity_pat]
+    exact hI _ (Or.inl (Or.inl (List.mem_cons_of_mem _ (List.mem_singleton_self _))))
+  exact rule_from_text_in H hT (fun e m hg => terms_in_inj H hD (fun φ hφ => hI φ (Or.inr hφ)) hA e m hg) it hit
 
 /-- info: 'TieRuleLhsAnd.Ceil.rule_from_text_in' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms rule_from_text_in
@@ -521,13 +564,13 @@ theorem rule_from_text_cons (H : HookParams) :
 #check @rule_w2
 /-- info: 'TieRuleLhsAnd.Ceil.rule_w2_noprem' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms rule_w2_noprem
-/-- info: 'TieRuleLhsAnd.Ceil.rule_from_text_cons' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms rule_from_text_cons
+/-- info: 'TieRuleLhsAnd.Ceil.rule_from_text_aux' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms rule_from_text_aux
 #check @right_defined
 #check @rule_w2_noprem
-#check @injFun_cons
-#check @terms_in_cons
-#check @rule_from_text_cons
+#check @ruleSigAux_text
+#check @terms_in_inj
+#check @rule_from_text_aux
 
 end Ceil
 
@@ -833,48 +876,75 @@ theorem kgo_arity (H : HookParams) : (symArityItem (cH H) kgo).pat =
     (sym (.symbol "Lblgo") ⬝ inhOf (sortP "Int") ⊆⊆ inhOf (sortP "Exp")) :=
   (kgo_arity_withHooks H).trans kgo_arity_c
 
-/-- The Cons-Fun item of the injection of Exp into KItem: the injection of an element of Exp is
-one element of KItem. -/
-def injFun : KoreAML.Item := KoreAML.Cons.funItem "KItem" (.inj "Exp")
+/-- The text's declaration `symbol inj{From, To}(From) : To [sortInjection{}()]`. -/
+def injDecl : SymbolDecl :=
+  ⟨"inj", [⟨⟨⟨"From"⟩⟩⟩, ⟨⟨⟨"To"⟩⟩⟩], [.var ⟨⟨⟨"From"⟩⟩⟩], .var ⟨⟨⟨"To"⟩⟩⟩, false, ["sortInjection"]⟩
 
-/-- It is one of Γ's constructor items, for every H. -/
-theorem injFun_cons (H : HookParams) : ΓCons (cH H) injFun.pat :=
-  TieRuleCutG.funsInGB_cons (g := ("KItem", .inj "Exp"))
-    ((TieRuleCutG.funsInGB_withHooks c H rightGens).trans right_funs) (by decide)
+theorem injDecl_mem : injDecl ∈ kore.symbolDecls := by decide +kernel
 
-/-- **In a model of the signature and of the injection's Cons-Fun item, where X's guard holds**,
-every element of `go(X)` is in Exp (go's arity, an item of the signature) and every element of
-`inj{Exp,KItem}(go(X))` in KItem (`TieRuleCutG.inj_inh`). -/
-theorem terms_in_cons (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hD : DefOK I)
-    (hSig : I ⊧ᴵP ΓSig (cH H)) (hF : I ⊧ᴵ injFun.pat) (e : Valuation M) (m : M)
+/-- Its arity item is `TieFRSig.injArityP`: at two sorts, what `inj` builds of an element of the
+first lies in the second. -/
+theorem injArity_pat : (arityItem injDecl).pat = TieFRSig.injArityP := TieFRSig.injArityP_shape _ _
+
+/-- The rule sentence. -/
+noncomputable def ruleText : List AxiomDecl := [U.ax157]
+
+/-- The other sentences of the text the statement reads: none. -/
+noncomputable def ruleAux : List AxiomDecl := []
+
+/-- The item of the text's signature the statement reads, which `ΓSig` does not hold: the arity
+item of the declaration of `inj`. -/
+def ruleSigAux : List Item := [arityItem injDecl]
+
+/-- Each item of `ruleSigAux` is an item of the signature of the text's theory. -/
+theorem ruleSigAux_text : ∀ it ∈ ruleSigAux, it ∈ (Theory.ofDefinition kore).signature := by
+  intro it hit
+  rw [List.mem_singleton.mp hit]
+  simp only [Theory.ofDefinition, List.mem_append, List.mem_map]
+  exact Or.inl (Or.inl (Or.inl (Or.inr ⟨_, injDecl_mem, rfl⟩)))
+
+/-- **In a model of definedness, the signature and `inj`'s arity item, where X's guard holds**,
+every element of `inj{Exp,KItem}(go(X))` is in KItem: the term lies in its sort
+(`TieFRSig.sig_of_core_inj`: go's result sort from its arity item in `ΓSig`, the injection's target
+sort from `inj`'s arity item at the subsort pair Exp, KItem). -/
+theorem terms_in_inj (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hD : DefOK I)
+    (hSig : I ⊧ᴵP ΓSig (cH H)) (hA : I ⊧ᴵ TieFRSig.injArityP) (e : Valuation M) (m : M)
     (hg : ∀ k ∈ (freeOf [] p0).eraseDups, (guardOf (tableOf [] p0) k).interpret I e m) :
-    (∀ a, (tr ⟨tableOf [] p0, []⟩ (ap "Lblgo" [x])).interpret I e a →
-      (inhOf (trSort (tableOf [] p0) (srt "Exp"))).interpret I e a) ∧
-    (∀ a, (tr ⟨tableOf [] p0, []⟩ t).interpret I e a →
-      (inhOf (trSort (tableOf [] p0) kitemS)).interpret I e a) := by
+    ∀ a, (tr ⟨tableOf [] p0, []⟩ t).interpret I e a →
+      (inhOf (trSort (tableOf [] p0) kitemS)).interpret I e a := by
+  have hT : TermsInSort (cH H) I := (TieFRSig.sig_of_core_inj (coreOKH H) hD hSig hA).2
+  obtain ⟨hk2, hs2, hkey⟩ := terms_kore
   have hx := hg _ (List.contains_iff_mem.mp (List.all_eq_true.mp fT_free0 _ x_free0))
   rw [interp_guard_evar hD, trSort_srt] at hx
-  have hit : I ⊧ᴵ (symArityItem (cH H) kgo).pat := hSig _ (Or.inl (Or.inl ⟨_, sig_arity (kgo_mem H), rfl⟩))
-  rw [kgo_arity] at hit
-  have hgo : ∀ a, (tr ⟨tableOf [] p0, []⟩ (ap "Lblgo" [x])).interpret I e a →
-      (inhOf (trSort (tableOf [] p0) (srt "Exp"))).interpret I e a := by
-    intro a ha
-    rw [trSort_srt]
-    refine (interp_included hD).mp (hit e default) a ?_
-    have ha' : (tr ⟨tableOf [] p0, []⟩ (.app ⟨⟨"Lblgo"⟩⟩ [] [.var (.evar (evar "VarV0" (srt "Int")))])).interpret I e a := ha
-    simp only [trArgs_cons, trArgs_nil, tr] at ha'
-    obtain ⟨p, b, hp, hb, hpb⟩ := interp_app.mp ha'
-    rw [interp_evar] at hb
-    exact interp_app.mpr ⟨p, b, hp, by rw [hb]; exact hx, hpb⟩
-  exact ⟨hgo, fun a ha => TieRuleCutG.inj_inh hD hF hgo a ha⟩
+  have hvars : ∀ i ∈ varOccs (.inj 32 Srt.kitem (.app 386 [.var 0])),
+      InS I ((cH H).sortName (rz.vars.getD i 0)) (e.evalEvar ((tableOf [] p0).ev (canonKey (cH H) rz.vars i))) := by
+    intro i hi
+    have : i = 0 := by simpa [varOccs, varOccsList] using hi
+    subst this
+    show InS I (c.sortName (rz.vars.getD 0 0)) (e.evalEvar ((tableOf [] p0).ev (canonKey c rz.vars 0)))
+    rw [hkey]
+    exact (inS_iff e).mp hx
+  have h2 : ∀ a, (tr ⟨tableOf [] p0, []⟩
+      (Term.kore (cH H) (canonVars (cH H) rz.vars) (.inj 32 Srt.kitem (.app 386 [.var 0])))).interpret I e a →
+      InS I ((cH H).sortName Srt.kitem) a :=
+    hT (show sortOfTerm ((cH H).rhsCtx ((cH H).fns.map Fn.sig)) rz.vars (.inj 32 Srt.kitem (.app 386 [.var 0])) =
+      some Srt.kitem from hs2)
+      (by decide +kernel : Srt.kitem < nRegSorts + c.sortNames.length) hvars
+  rw [show Term.kore (cH H) (canonVars (cH H) rz.vars) (.inj 32 Srt.kitem (.app 386 [.var 0])) =
+    Term.kore c (canonVars c rz.vars) (.inj 32 Srt.kitem (.app 386 [.var 0])) from congrFun terms_koreF H, hk2,
+    show (cH H).sortName Srt.kitem = "KItem" from (by decide +kernel : c.sortName Srt.kitem = "KItem")] at h2
+  exact fun a ha => by rw [kitemS, trSort_srt]; exact (inS_iff e).mpr (h2 a ha)
 
-/-- **W1 for the rule, over the sentence, the signature and the injection's Cons-Fun item**: Γ's
-one rule item is a consequence of sentence 157, `ΓSig` and `injFun` (an item of `ΓCons`,
-`injFun_cons`), for every H. The signature alone does not put the elements of
-`inj{Exp,KItem}(go(X))` in KItem: that is the injection's item. -/
-theorem rule_from_text_cons (H : HookParams) :
-    ∀ it ∈ ruleItems (cH H), (TiePair.Texts [(trS U.ax157).pat, injFun.pat] ∪ ΓSig (cH H)) ⊧ it.pat := by
-  intro it hit M _ I hI
+/-- **W1 for the rule, from the text**: Γ's one rule item is a consequence of sentence 157 with the
+arity item of the text's declaration of `inj` (`ruleSigAux`, an item of the text's signature that
+`ΓSig` does not hold) and `ΓSig`, for every H. The arity item puts every element of
+`inj{Exp,KItem}(go(X))` in KItem (`terms_in_inj`); the text's subsort sentence of Exp, KItem is not
+read (it equates the injection with an element at KItem only). -/
+theorem rule_from_text_aux (H : HookParams) : ∀ it ∈ ruleItems (cH H), ∃ ad ∈ ruleText,
+    TiePair.Texts ((trS ad).pat :: (ruleAux.map (fun a => (trS a).pat) ++ ruleSigAux.map (·.pat))) ∪ ΓSig (cH H) ⊧ it.pat := by
+  intro it hit
+  refine ⟨U.ax157, List.mem_singleton_self _, ?_⟩
+  intro M _ I hI
   have hT : I ⊧ᴵP (TiePair.Texts [(trS U.ax157).pat] ∪ ΓSig (cH H)) := by
     intro φ hφ
     rcases hφ with (hm | hd) | hs
@@ -882,8 +952,10 @@ theorem rule_from_text_cons (H : HookParams) :
     · exact hI φ (Or.inl (Or.inr hd))
     · exact hI φ (Or.inr hs)
   have hD : DefOK I := TiePair.defOK_texts fun φ hφ => hI φ (Or.inl hφ)
-  have hF : I ⊧ᴵ injFun.pat := hI _ (Or.inl (Or.inl (List.mem_cons_of_mem _ (List.mem_singleton_self _))))
-  exact rule_from_text_in H hT (fun e m hg => (terms_in_cons H hD (fun φ hφ => hI φ (Or.inr hφ)) hF e m hg).2) it hit
+  have hA : I ⊧ᴵ TieFRSig.injArityP := by
+    rw [← injArity_pat]
+    exact hI _ (Or.inl (Or.inl (List.mem_cons_of_mem _ (List.mem_singleton_self _))))
+  exact rule_from_text_in H hT (fun e m hg => terms_in_inj H hD (fun φ hφ => hI φ (Or.inr hφ)) hA e m hg) it hit
 
 /-- info: 'TieRuleLhsAnd.Equals.rule_from_text_in' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms rule_from_text_in
@@ -895,13 +967,13 @@ theorem rule_from_text_cons (H : HookParams) :
 #check @rule_w2
 /-- info: 'TieRuleLhsAnd.Equals.rule_w2_noprem' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms rule_w2_noprem
-/-- info: 'TieRuleLhsAnd.Equals.rule_from_text_cons' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms rule_from_text_cons
+/-- info: 'TieRuleLhsAnd.Equals.rule_from_text_aux' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms rule_from_text_aux
 #check @right_defined
 #check @rule_w2_noprem
-#check @injFun_cons
-#check @terms_in_cons
-#check @rule_from_text_cons
+#check @ruleSigAux_text
+#check @terms_in_inj
+#check @rule_from_text_aux
 
 end Equals
 
