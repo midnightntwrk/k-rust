@@ -1,14 +1,15 @@
 /-
   KCore, checked layer: FLOAT's library sentence 1648 (domains.md, K 7.1.337),
   `F1 =/=Float F2 => notBool (F1 ==Float F2)`, entailed at values (`EntailsAtValues`) in every
-  semantics meeting `coreOK`, for every interpretation meeting `Semantics.neFloatEq`.
+  semantics meeting `coreOK`, for every interpretation.
 
   Both sides read the two Floats through `==Float` and `=/=Float`, whose values are stated at every
   pair of data (domains.md 1631-1638 and 1541: the comparison of the exact values, the zeros equal,
   a NaN unequal to every datum), so the sentence's value reads no clause of an operation that the
   text takes from IEEE 754 by name. Where `hook` gives `=/=Float` a value it gives `==Float` one
   too, and the first is the negation of the second (`flCmp` at complementary tests). Where it gives
-  `=/=Float` none, the left side is at a silent point and `neFloatEq` is the sentence there.
+  `=/=Float` none it gives `==Float` none, neither is a key of `silentTable`, and both sides have
+  no value.
 
   FLOAT's sentence 1673, `isInfinite(F) => F >Float maxValueFloat(precisionFloat(F),
   exponentBitsFloat(F)) orBool F <Float --Float maxValueFloat(precisionFloat(F), exponentBitsFloat(F))`
@@ -59,11 +60,11 @@ theorem flt_ne_eq {c : Semantics} (a b : GroundTerm) (h : hook floatNe [a, b] �
       rw [hv_of_value e1, hv_of_value e2, Option.bind_some, fhv_boolNot]
       rfl
 
-/-- **1648 holds of the values where the interpretation meets `neFloatEq`.** -/
-theorem fnNeFloat_holds {c : Semantics} (hc : c.neFloatEq) : fnNeFloat.Holds c := by
+/-- **1648 holds of the values, under every interpretation.** -/
+theorem fnNeFloat_holds {c : Semantics} : fnNeFloat.Holds c := by
   intro σ hσ _ hm
-  obtain ⟨a, ha, sa⟩ := hσ 0 ("VarF1", Srt.float) rfl
-  obtain ⟨b, hb, sb⟩ := hσ 1 ("VarF2", Srt.float) rfl
+  obtain ⟨a, ha, -⟩ := hσ 0 ("VarF1", Srt.float) rfl
+  obtain ⟨b, hb, -⟩ := hσ 1 ("VarF2", Srt.float) rfl
   obtain ⟨h2, -, h3, -⟩ := hm
   have h2' : σ.lookup 2 = some a := st_arg h2 ha
   have h3' : σ.lookup 3 = some b := st_arg h3 hb
@@ -74,14 +75,29 @@ theorem fnNeFloat_holds {c : Semantics} (hc : c.neFloatEq) : fnNeFloat.Holds c :
     cases c.hv floatEq [a, b] <;> rfl
   rw [hl, hr]
   by_cases hs : hook floatNe [a, b] = some none
-  · exact hc a b (sortsOf_cons.mpr ⟨_, _, sa, sortsOf_cons.mpr ⟨_, _, sb, sortsOf_nil, rfl⟩, rfl⟩) hs
+  · have h1 : hook floatNe [a, b] = some (flCmp (fun o => o != some .eq) [a, b]) := rfl
+    have h2 : hook floatEq [a, b] = some (flCmp (fun o => o == some .eq) [a, b]) := rfl
+    have he : hook floatEq [a, b] = some none := by
+      rw [h1, Option.some.injEq] at hs
+      rw [h2, flCmp_none hs]
+    have kN : c.hookRes floatNe [a, b] = hook floatNe [a, b] :=
+      Semantics.hookRes_of_notKey (by decide +kernel) [a, b]
+    have kE : c.hookRes floatEq [a, b] = hook floatEq [a, b] :=
+      Semantics.hookRes_of_notKey (by decide +kernel) [a, b]
+    have eN : c.hv floatNe [a, b] = none := by
+      show (c.hookRes floatNe [a, b]).join = none
+      rw [kN, hs]; first | done | rfl
+    have eE : c.hv floatEq [a, b] = none := by
+      show (c.hookRes floatEq [a, b]).join = none
+      rw [kE, he]; first | done | rfl
+    rw [eN, eE]; first | done | rfl
   · exact flt_ne_eq a b hs
 
-/-- **domains.md 1648** is entailed at values, for an interpretation meeting `neFloatEq`. -/
-theorem fnNeFloat_ev {c : Semantics} (h : c.coreOK = true) (hc : c.neFloatEq) (ad : KoreAML.AxiomDecl)
+/-- **domains.md 1648** is entailed at values, under every interpretation. -/
+theorem fnNeFloat_ev {c : Semantics} (h : c.coreOK = true) (ad : KoreAML.AxiomDecl)
     (hp : ad.ax.pattern = fnNeFloat.patR) (hsv : ad.ax.sortVars = [KoreAML.Rv]) :
     EntailsAtValues c ad (KoreAML.trAxiom [] [] ad).pat :=
-  FnEqn.entailed_reg h fnNeFloat (by decide) (by rfl) (fnNeFloat_holds hc) ad hp hsv
+  FnEqn.entailed_reg h fnNeFloat (by decide) (by rfl) fnNeFloat_holds ad hp hsv
 
 /-! ## 1673: `isInfinite(F) => F >Float maxValueFloat(precisionFloat(F), exponentBitsFloat(F)) orBool
 F <Float --Float maxValueFloat(precisionFloat(F), exponentBitsFloat(F))`, under `isInfiniteEq` -/

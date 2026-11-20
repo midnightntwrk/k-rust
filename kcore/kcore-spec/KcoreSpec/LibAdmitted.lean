@@ -7,14 +7,13 @@
   on the interpretation; the interpretations the text admits are those meeting every such condition.
 
   - `HookParams.lib`: `HookParams.totals`' values at the silent points of the `total` symbols, and:
-    `maxValueFloat` at a format with a field of 1 that format's NaN, the five Float comparisons at a
-    silent point `false`, `=/=Float` `true`; `rootFloat` at a Float and 2 what `hook` gives
+    `maxValueFloat` at a format with a field of 1 that format's NaN; `rootFloat` at a Float and 2 what `hook` gives
     `sqrtFloat` there; `replace` at a silent point its first argument and `replaceAll` at one the
     value of `replace` at the count; nothing elsewhere.
   - `libSentences`: the library sentences over Γ's symbols, besides the `functional` sentences of
     `totalSilentKeys`, that read the interpretation (test/LibProbe.lean checks the list).
   - `Semantics.libAdmitted c`: `silentTotal` and one condition per sentence of `libSentences`
-    (`neFloatEq`, `isInfiniteEq`, `rfindCharEq`, `findCharEq`, `sqrtFloatEq`, `replaceAllEq`,
+    (`isInfiniteEq`, `rfindCharEq`, `findCharEq`, `sqrtFloatEq`, `replaceAllEq`,
     `rangeMapAssocEq`), each the sentence at the values where it reads the interpretation: where its
     left side is at a silent point, for `sqrtFloat`'s at every Float, its right side being
     `rootFloat`, which no hook interprets, and for `_RangeMap_`'s associativity at every three range
@@ -70,15 +69,10 @@ def libReplaceAll (vs : List GroundTerm) : Option GroundTerm :=
     some (((hook stringReplace [s, n, r, ((hook stringCountAll [s, n]).join).getD (int 0)]).join).getD s)
   | _ => none
 
-/-- The Float comparisons `HookParams.lib` gives `false` at their silent points. They have none at a
-Float literal: `hook` compares the data of two literals of any formats (`asDatum` has one at every
-format, `flCmp`), so the entry is read at no sorted Floats. -/
-def libFalseCmps : List Sym := [floatLe, floatLt, floatGe, floatGt, floatEq]
-
 /-- **An interpretation under which the library's sentences hold at values**: `replaceAll` at a
 silent point `replace` at the count (`libReplaceAll`) and `replace` at one its first argument;
 `totalsVal` at the other symbols of `totalSilentKeys` (so `countAllOccurrences` 0); `maxValueFloat` at a format with a field of 1 its NaN (`libMaxValue`);
-`<=Float`, `<Float`, `>=Float`, `>Float`, `==Float` `false` and `=/=Float` `true`; `rootFloat` at a
+`rootFloat` at a
 Float and 2 `hook`'s value of `sqrtFloat` (`libRootVal`); nothing elsewhere.
 At an interpreted symbol it is read only at silent points (`Semantics.fallback`), where `hook` gives
 no value; at `rootFloat`, a parameter symbol, at every argument. At the Float points of a format with
@@ -94,14 +88,12 @@ def HookParams.lib : HookParams :=
     else if f == stringReplace then vs.head?
     else if totalSilentKeys.contains f then totalsVal f vs
     else if f == floatMaxValue then libMaxValue vs
-    else if f == floatNe then some (bool true)
-    else if libFalseCmps.contains f then some (bool false)
     else if f == libRootFloat then libRootVal vs
     else Option.none⟩
 
 /-- The library sentences over Γ's symbols, other than the `functional` sentences of
 `totalSilentKeys` (`Semantics.silentTotal`), that read the interpretation at some value, by their
-line in domains.md (K 7.1.337), and the condition each states on it: `=/=Float` (1648),
+line in domains.md (K 7.1.337), and the condition each states on it:
 `isInfinite` (1673), `rfindChar` (1893), `findChar` (1891), `sqrtFloat` (1671), `replaceAll` (1917),
 and the `assoc` attribute of `_RangeMap_` (508), a collection law: where two of its three range
 maps have a key in common, `_RangeMap_` is at a silent point.
@@ -115,7 +107,7 @@ the K 7.1.337 builtin files the library holds, the list is closed. The probe nam
 law by its symbol, since a law sentence carries no line of its own: line 508 is that of
 `_RangeMap_`'s declaration, whose attributes the law sentences are generated from. -/
 def libSentences : List (Nat × String) :=
-  [(1648, "neFloatEq"), (1673, "isInfiniteEq"), (1893, "rfindCharEq"), (1891, "findCharEq"),
+  [(1673, "isInfiniteEq"), (1893, "rfindCharEq"), (1891, "findCharEq"),
    (1671, "sqrtFloatEq"), (1917, "replaceAllEq"), (508, "rangeMapAssocEq")]
 
 /-! ## The conditions the library's sentences state on the interpretation -/
@@ -126,14 +118,6 @@ variable (c : Semantics)
 /-- The value of the interpreted symbol `f` at `vs` in Γ's reading (`hookRes`), none where Γ
 states ⊥. -/
 def hv (f : Sym) (vs : List GroundTerm) : Option GroundTerm := (c.hookRes f vs).join
-
-/-- **domains.md 1648** `F1 =/=Float F2 => notBool (F1 ==Float F2)`, at the pairs of Floats where
-`=/=Float` is at a silent point (there both sides read the interpretation; elsewhere neither does).
-At two Float literals `=/=Float` has a value (`flCmp`: `asDatum` has one at every format), so the
-condition reads no pair of sorted Floats where every Float value is a literal. -/
-def neFloatEq : Prop :=
-  ∀ a b, c.sortsOf [a, b] = some [Srt.float, Srt.float] → hook floatNe [a, b] = some none →
-    c.hv floatNe [a, b] = (c.hv floatEq [a, b]).bind fun v => c.hv boolNot [v]
 
 /-- **domains.md 1673** `isInfinite(F) => F >Float maxValueFloat(precisionFloat(F),
 exponentBitsFloat(F)) orBool F <Float --Float maxValueFloat(precisionFloat(F), exponentBitsFloat(F))`,
@@ -208,7 +192,7 @@ def rangeMapAssocEq : Prop :=
 /-- **The interpretations the text admits**: every library sentence over Γ's symbols, two
 excepted, holds at the values where it reads the interpretation: the `functional` sentences of
 `totalSilentKeys` (`silentTotal`) and the sentences of `libSentences`. Each conjunct after the
-first is one sentence of domains.md as a condition on the interpretation: `neFloatEq` (1648),
+first is one sentence of domains.md as a condition on the interpretation:
 `isInfiniteEq` (1673), `rfindCharEq` (1893), `findCharEq` (1891) and `replaceAllEq` (1917) where
 the sentence's left side is at a silent point, `sqrtFloatEq` (1671) at every Float,
 `rangeMapAssocEq` (508) at every three range maps. The two
@@ -220,7 +204,7 @@ text without that instance. At the other values a library sentence reads `hook` 
 or fails for every interpretation alike. Γ does not state it; the statements over Γ hold for
 every interpretation, admitted or not. -/
 def libAdmitted : Prop :=
-  c.silentTotal ∧ c.neFloatEq ∧ c.isInfiniteEq ∧ c.rfindCharEq ∧ c.findCharEq ∧ c.sqrtFloatEq ∧
+  c.silentTotal ∧ c.isInfiniteEq ∧ c.rfindCharEq ∧ c.findCharEq ∧ c.sqrtFloatEq ∧
     c.replaceAllEq ∧ c.rangeMapAssocEq
 
 /-- Where `rootFloat` is the library's parameter symbol, its value at a Float and 2 is `rootAt2`. -/
@@ -261,7 +245,7 @@ theorem hv_none {f : Sym} {vs : List GroundTerm} (hh : hook f vs = some none) (h
 
 end Lib
 
-/-! ### The Float comparisons, `isInfinite`, `rfindChar`, `findChar`, `sqrtFloat` under `HookParams.lib` -/
+/-! ### `isInfinite`, `rfindChar`, `findChar`, `sqrtFloat` under `HookParams.lib` -/
 
 theorem flCmp_none {t t' : Option Ordering → Bool} {vs : List GroundTerm} (h : flCmp t vs = none) :
     flCmp t' vs = none := by
@@ -270,20 +254,6 @@ theorem flCmp_none {t t' : Option Ordering → Bool} {vs : List GroundTerm} (h :
     unfold flCmp at h ⊢
     cases ha : asDatum a <;> cases hb : asDatum b <;> simp_all
   | [] | [_] | _ :: _ :: _ :: _ => rfl
-
-/-- `=/=Float`'s sentence holds under `HookParams.lib` in every semantics: where `=/=Float` is silent
-so is `==Float` (both read the two Floats' data), and `lib` gives them `true` and `false`. -/
-theorem neFloatEq_lib (c : Semantics) : (c.withHooks HookParams.lib).neFloatEq := by
-  intro a b _ hh
-  have h1 : hook floatNe [a, b] = some (flCmp (fun o => o != some .eq) [a, b]) := rfl
-  have h2 : hook floatEq [a, b] = some (flCmp (fun o => o == some .eq) [a, b]) := rfl
-  rw [h1, Option.some.injEq] at hh
-  have he : hook floatEq [a, b] = some none := by rw [h2, flCmp_none hh]
-  rw [hh] at h1
-  rw [hv_of_silent (k := ⟨floatNe, [Srt.float, Srt.float], Srt.bool⟩) rfl h1 rfl rfl (sortOf_bool true),
-    hv_of_silent (k := ⟨floatEq, [Srt.float, Srt.float], Srt.bool⟩) rfl he rfl rfl (sortOf_bool false),
-    Option.bind_some, hv_of_value (rfl : hook boolNot [bool false] = some (some (bool true)))]
-  rfl
 
 /-- The NaN `HookParams.lib` gives `maxValueFloat` at a format with a field of 1 is a Float value. -/
 theorem thin_nan_ok {p e : Nat} (hp : 1 ≤ p) (he : 1 ≤ e) (h1 : p = 1 ∨ e = 1) :
@@ -594,7 +564,7 @@ theorem rangeMapAssocEq_lib (c : Semantics) : (c.withHooks HookParams.lib).range
 value is a Float literal. -/
 theorem libAdmitted_lib (c : Semantics) (hfs : c.floatShapeOK = true) :
     (c.withHooks HookParams.lib).libAdmitted := by
-  refine ⟨?_, neFloatEq_lib c, isInfiniteEq_lib c hfs, rfindCharEq_lib c, findCharEq_lib c, sqrtFloatEq_lib c,
+  refine ⟨?_, isInfiniteEq_lib c hfs, rfindCharEq_lib c, findCharEq_lib c, sqrtFloatEq_lib c,
     replaceAllEq_lib c, rangeMapAssocEq_lib c⟩
   intro k hk hkey vs hvs _ _
   unfold Semantics.fallback

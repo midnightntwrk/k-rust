@@ -6,7 +6,7 @@
   - The table against the builtin text (native): an interpreted symbol is a key of `silentTable`
     whose declaration in the library's text carries `total` (or `functional`) exactly when it is in
     `totalSilentKeys`; the symbols the text declares `total` that are neither off `partialHooks` nor
-    in `totalSilentKeys` are exactly `precisionFloat` and `exponentBitsFloat` (`floatResInt`), which
+    in `totalSilentKeys` are exactly `isNaN`, `precisionFloat` and `exponentBitsFloat` (`floatLitTotal`), which
     `total_hook_value` covers where every Float value is a Float literal (`floatShapeOK`): every
     interpreted symbol the text declares `total` is in one of its three cases.
   - Non-vacuity: `HookParams.totals` meets `silentTotal` in every semantics (`silentTotal_totals`,
@@ -17,8 +17,9 @@
     `ceilFloat`, `truncFloat` at `NaNp1x1`: under `HookParams.none` Γ states the application ⊥ (the
     text's `functional` sentence fails there), under `HookParams.totals` it states a value
     (`both_ways`), and the result has a value (`total_hook_value`'s conclusion, `totals_value`).
-    `Bytes2Int` has no such point where the sorts have their shapes (`bytes2Int_value`), nor `isNaN`
-    where every Float value is a Float literal (`isNaN_value`).
+    `Bytes2Int` has no such point where the sorts have their shapes (`bytes2Int_value`). `isNaN`,
+    no key, has `hook`'s value at every Float where every Float value is a Float literal
+    (`isNaN_value`).
   - The interpretations the text admits (`Semantics.libAdmitted`, LibAdmitted.lean), in the same
     semantics: `HookParams.lib` meets every condition (`lib_admitted`); each of `isInfiniteEq`,
     `rfindCharEq`, `findCharEq`, `sqrtFloatEq` fails at one point under an interpretation that gives
@@ -26,8 +27,8 @@
     at `("ab", "a", 5)`; `fc5`, `findChar` 5 and `findString` 7, at `("abc", "a", 7)`; `root3`,
     `rootFloat` 3.0, at binary64 4.0, where `hook` gives `sqrtFloat` 2.0; `HookParams.totals`,
     `replaceAll` `""` and `countAllOccurrences` 0, at `("a", "", "b")`, where `replace("a", "", "b", 0)`
-    is `"a"`: `totals_not_replaceAllEq`); `neFloatEq` is met by every interpretation where every
-    Float value is a Float literal (`neFloatEq_every`: `=/=Float` has a value at every two);
+    is `"a"`: `totals_not_replaceAllEq`); `=/=Float` has `hook`'s value at every two Floats where
+    every Float value is a Float literal (`neFloat_value`), so its sentence (1648) is no condition;
     `rootFloat`'s number
     is a parameter of FLOAT with the signature `paramVal_libRootFloat` reads (`rootFloat_param`);
     `precisionFloat` and `exponentBitsFloat` at `1.0p1x2` and binary32 `1.0` (`fmt_values`).
@@ -69,9 +70,9 @@ def tableCheck : IO Unit := do
   if !bad.isEmpty then
     throw (IO.userError s!"totalSilentKeys differs from the text at {bad.map (regSymNames.getD · "")}")
   let third := ks.filter fun f => textTotal f && partialHooks.contains f && !totalSilentKeys.contains f
-  if third != floatResInt then
+  if third.any (!floatLitTotal.contains ·) || floatLitTotal.any (!third.contains ·) then
     throw (IO.userError s!"declared total, in partialHooks, not in totalSilentKeys: {third.map (regSymNames.getD · "")}")
-  IO.println s!"totalSilentKeys: the {totalSilentKeys.length} keys of silentTable the text declares total; declared total, in partialHooks and no key (total_hook_value's third case, floatResInt): {third.map (regSymNames.getD · "")}"
+  IO.println s!"totalSilentKeys: the {totalSilentKeys.length} keys of silentTable the text declares total; declared total, in partialHooks and no key (total_hook_value's third case, floatLitTotal): {third.map (regSymNames.getD · "")}"
 
 #eval tableCheck
 
@@ -125,8 +126,8 @@ def pts : List Pt :=
    ⟨floatCeil, [n11], n11⟩, ⟨floatTrunc, [n11], n11⟩,
    ⟨stringCountAll, [s "a", s ""], int 0⟩, ⟨stringReplaceAll, [s "a", s "", s "b"], s ""⟩]
 
-/-- Every key but `Bytes2Int` and `isNaN` has a point. -/
-theorem pts_cover : totalSilentKeys.all (fun f => f == bytes2Int || f == floatIsNaN || pts.any (·.f == f)) = true := by
+/-- Every key but `Bytes2Int` has a point. -/
+theorem pts_cover : totalSilentKeys.all (fun f => f == bytes2Int || pts.any (·.f == f)) = true := by
   decide +kernel
 
 /-- At each: the signature, arguments of its sorts, no value of `hook`, a silent point,
@@ -197,42 +198,26 @@ theorem bytes2Int_value {c : Semantics} (hs : c.shapesOK = true) (H : HookParams
   obtain ⟨v, hv⟩ := bytes2Int_total hs hvs
   exact ⟨v, Semantics.hookRes_of_value hv⟩
 
-/-- A value of sort Float has a datum (`asDatum`) where every Float value is a Float literal
-(`floatShapeOK`): a literal's format is positive (`KFloat.ok_pos`), and `asDatum` reads one at every
-positive format. -/
-theorem asDatum_sorted {c : Semantics} (hf : c.floatShapeOK = true) {v : GroundTerm}
-    (hv : c.sortOf v = some Srt.float) : ∃ u, asDatum v = some u := by
-  obtain ⟨p, e, b, rfl, hok⟩ := shape_float hf hv
-  obtain ⟨hp, he⟩ := KFloat.ok_pos hok
-  have ht : KFloat.spec? p e = none → KFloat.tnFormat p e = true := by
-    intro hs; unfold KFloat.spec? at hs; split at hs
-    · cases hs
-    · rename_i h; simp only [KFloat.tnFormat, decide_eq_true_eq]; omega
-  cases hs : KFloat.spec? p e with
-  | some sp => exact ⟨KFloat.unpackBits sp b, by simp [asDatum, hs]⟩
-  | none => exact ⟨KFloat.tnUnpack p e b, by simp [asDatum, hs, ht hs]⟩
-
-/-- `isNaN` gives a value at every value of sort Float where every Float value is a Float literal:
-its silent region is empty there, whatever the interpretation. -/
+/-- `isNaN` gives a value at every value of sort Float where every Float value is a Float literal,
+whatever the interpretation. -/
 theorem isNaN_value {c : Semantics} (hf : c.floatShapeOK = true) (H : HookParams) {v : GroundTerm}
     (hv : c.sortOf v = some Srt.float) : ∃ w, (c.withHooks H).hookRes floatIsNaN [v] = some (some w) := by
   obtain ⟨u, hu⟩ := asDatum_sorted hf hv
   have hh : hook floatIsNaN [v] = some (flTest KFloat.isNaN [v]) := rfl
   exact ⟨bool (KFloat.isNaN u), Semantics.hookRes_of_value (by rw [hh]; simp [flTest, hu])⟩
 
-/-- **`neFloatEq` is met by every interpretation** where every Float value is a Float literal:
-`=/=Float` has a value at every two of them (`flCmp`, `asDatum_sorted`), so the condition reads no
-pair of Floats. -/
-theorem neFloatEq_every {c : Semantics} (hf : c.floatShapeOK = true) (H : HookParams) :
-    (c.withHooks H).neFloatEq := by
-  intro a b hs hh
+/-- **`=/=Float` gives a value at every two values of sort Float** where every Float value is a
+Float literal, whatever the interpretation: `hook` compares their data (`flCmp`, `asDatum_sorted`). -/
+theorem neFloat_value {c : Semantics} (hf : c.floatShapeOK = true) (H : HookParams) {a b : GroundTerm}
+    (hs : (c.withHooks H).sortsOf [a, b] = some [Srt.float, Srt.float]) :
+    ∃ w, (c.withHooks H).hookRes floatNe [a, b] = some (some w) := by
   obtain ⟨a', b', he, ha, hb⟩ := _root_.KCore.sortsOf_two hs
   obtain ⟨rfl, rfl⟩ : a = a' ∧ b = b' := by simpa using he
   obtain ⟨u, hu⟩ := asDatum_sorted (c := c.withHooks H) hf ha
   obtain ⟨w, hw⟩ := asDatum_sorted (c := c.withHooks H) hf hb
   have h1 : hook floatNe [a, b] = some (flCmp (fun o => o != some .eq) [a, b]) := rfl
-  rw [h1] at hh
-  simp [flCmp, hu, hw] at hh
+  exact ⟨bool (KFloat.cmpExact u w != some .eq),
+    Semantics.hookRes_of_value (by rw [h1]; simp [flCmp, hu, hw])⟩
 
 /-! ## The interpretations the text admits -/
 
@@ -319,7 +304,7 @@ theorem fmt_values :
 #print axioms libAdmitted_lib
 #print axioms totals_not_isInfiniteEq
 #print axioms isNaN_value
-#print axioms neFloatEq_every
+#print axioms neFloat_value
 #print axioms rc5_not_rfindCharEq
 #print axioms fc5_not_findCharEq
 #print axioms root3_not_sqrtFloatEq

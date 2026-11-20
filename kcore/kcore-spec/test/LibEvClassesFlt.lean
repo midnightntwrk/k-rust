@@ -26,19 +26,19 @@
 
   Hooked functional, `LibEv.functional_ev` (one kernel decision per list):
   - `fun_entailed`: the 63 sentences of symbols that are not partial, for every H;
-  - `funInt_entailed`: `exponentBitsFloat` (117), `precisionFloat` (159), of `floatResInt`, for every
-    H (`floatShapeOK`, from `coreOK`);
-  - `funSilent_entailed`: the eleven sentences of symbols of `totalSilentKeys` (25, 44, 103, 108, 113, 119, 134, 143, 162, 172, 173), for
-    every H meeting `silentTotal`. test/LibEvFloatFlt.lean states the seven FLOAT ones one by one too.
+  - `funInt_entailed`: `exponentBitsFloat` (117), `isNaN` (143), `precisionFloat` (159), of
+    `floatLitTotal`, for every H (`floatShapeOK`, from `coreOK`);
+  - `funSilent_entailed`: the ten sentences of symbols of `totalSilentKeys` (25, 44, 103, 108, 113, 119, 134, 162, 172, 173), for
+    every H meeting `silentTotal`. test/LibEvFloatFlt.lean states the nine FLOAT ones one by one too.
   Collection law: `laws_entailed`, for every H (LibEvLaw.lean).
 
   Library (`lib_partition`, the class's 105 in five lists):
   - `libHere` (82): test/LibEvLibFlt.lean `lib_entailed`, `set_entailed`, `lib_indices`, for every H;
   - `libStr` (17): test/LibEvStrFlt.lean, `evN` for each N, for every H;
-  - `libCond` (4), under a condition on H that `HookParams.lib` meets: 254 (domains.md 1648,
-    `neFloatEq`) and 321 (1673, `isInfiniteEq`), test/LibEvFloatFlt.lean `ev254`, `ev321`; 374 (1917,
-    `replaceAllEq`) and 377 (1893, `rfindCharEq`), test/LibEvStrFlt.lean `ev374`, `ev377`, under
-    `Semantics.libAdmitted`;
+  - `libCond` (4): 254 (domains.md 1648), test/LibEvFloatFlt.lean `ev254`, for every H; and, under
+    a condition on H that `HookParams.lib` meets, 321 (1673, `isInfiniteEq`), test/LibEvFloatFlt.lean
+    `ev321`; 374 (1917, `replaceAllEq`) and 377 (1893, `rfindCharEq`), test/LibEvStrFlt.lean `ev374`,
+    `ev377`, under `Semantics.libAdmitted`;
   - `libOwise` (1): 373 (1915), test/LibEvFnOwiseFlt.lean `ev373`, for every H;
   - `libLeft` (1): 294 (`countAllOccurrences`' second equation, 1898), not tied: at the empty needle
     its sides agree exactly where the interpretation gives the count no value
@@ -77,12 +77,12 @@ def funIdx : List Nat :=
    68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 82, 90, 91, 92, 93, 94, 95, 96, 97, 98, 100, 102,
    104, 120, 124, 149, 150, 152, 154, 155, 158, 160, 161, 163, 164, 169, 170, 171]
 
-/-- Hooked functional: the sentences of symbols of `floatResInt`. -/
-def funIntIdx : List Nat := [117, 159]
+/-- Hooked functional: the sentences of symbols of `floatLitTotal`. -/
+def funIntIdx : List Nat := [117, 143, 159]
 
 /-- Hooked functional: the sentences of symbols of `totalSilentKeys`. -/
 def funSilentIdx : List Nat :=
-  [25, 44, 103, 108, 113, 119, 134, 143, 162, 172, 173]
+  [25, 44, 103, 108, 113, 119, 134, 162, 172, 173]
 
 /-- Collection law. -/
 def lawIdx : List Nat := [79, 80, 81, 83, 84, 85, 86, 88, 89]
@@ -383,7 +383,7 @@ theorem fun_indices : (funText ++ funIntText ++ funSilentText).map (·.index) =
   decide +kernel
 
 theorem fun_checked : funText.all (funOKBy fun k => !partialHooks.contains k.name) = true := by decide +kernel
-theorem funInt_checked : funIntText.all (funOKBy fun k => floatResInt.contains k.name) = true := by decide +kernel
+theorem funInt_checked : funIntText.all (funOKBy fun k => floatLitTotal.contains k.name) = true := by decide +kernel
 theorem funSilent_checked : funSilentText.all (funOKBy fun k => totalSilentKeys.contains k.name) = true := by
   decide +kernel
 
@@ -417,7 +417,7 @@ theorem fun_entailed (H : HookParams) : ∀ ad ∈ funText, EntailsAtValues (cH 
   obtain ⟨k, hk, hp, hsv, hreg, hpar⟩ := funOKBy_sig (List.all_eq_true.mp fun_checked ad had)
   exact LibEv.functional_ev (coreOKH H) (shapesOKH H) hk (Or.inl (by simpa using hpar)) hreg ad hp hsv
 
-/-- **Ev for the `functional` sentences of `floatResInt`'s symbols**, for every H. -/
+/-- **Ev for the `functional` sentences of `floatLitTotal`'s symbols**, for every H. -/
 theorem funInt_entailed (H : HookParams) : ∀ ad ∈ funIntText, EntailsAtValues (cH H) ad (trS ad).pat := by
   intro ad had
   rw [trS_of (List.mem_append_left _ (List.mem_append_right _ had))]

@@ -39,14 +39,17 @@
   | `FLOAT.precision`, `FLOAT.exponentBits` | DOM 1508, 1516; `total` 1511, 1519 | nowhere at a Float value (`covered_fmt`) |
   | `FLOAT.neg`, `abs` | DOM 1552-1554, 1578; `total` 1562, 1608 | the NaN (`negAbs_none`) |
   | `FLOAT.floor`, `ceil`, `trunc` | DOM 1583-1588; `total` 1610-1612 | an infinity or NaN; a zero result of a nonzero operand; an integer the format does not hold (`roundings_none`, `convert_special`) |
-  | `FLOAT.isNaN` | DOM 1541; `total` 1544 | nowhere at a Float literal (`isNaN_none`) |
-  | `FLOAT.le`, `lt`, `ge`, `gt`, `eq` | DOM 1631-1638; 1641-1645, no `total` | nowhere at two Float literals (`cmp_none`) |
+  | `FLOAT.isNaN` | DOM 1541; `total` 1544 | nowhere at a Float value (`isNaN_none`, `covered_isNaN`) |
+  | `FLOAT.le`, `lt`, `ge`, `gt`, `eq` | DOM 1631-1638; 1641-1645, no `total` | nowhere at two Float values (`cmp_none`, `covered_cmp`) |
   | `FLOAT.add`, `sub`, `mul`, `div`, `rem` | DOM 1556-1559; 1565-1570, no `total` | two formats; an infinite or NaN operand; a zero divisor; a zero result, but `0.0 -Float 0.0`; an exact result above the largest finite datum, or one rounding to zero; for `%Float` a quotient halfway between two integers; at precision 1 an exact result halfway between two data (`arith_none`, `arith_special`, `div_rem_zero`, `exact_zero_none`, `above_max_none`) |
   | `FLOAT.round` | DOM 1579-1582; 1609, no `total` | no format; a value the target does not hold, an infinity, NaN (`round_none`, `convert_special`, `held_exact`) |
   | `FLOAT.int2float` | DOM 1653-1654; 1661, no `total` | no format; an Int the target does not hold (`int2Float_none`) |
   | `FLOAT.maxValue`, `FLOAT.minValue` | DOM 1601-1604; 1625, 1626, no `total` | no format; the format `(1, 1)`, whose finite data are the two zeros (`at_none`) |
 
-  `precisionFloat` and `exponentBitsFloat` are no key of `silentTable`. The other twenty are keys
+  `precisionFloat` and `exponentBitsFloat` (`fmts`), `isNaN` and the five comparisons (`valued`)
+  are no key of `silentTable` (`groups`, `fmts_not_silent`, `valued_not_silent`): the prose states
+  their value at every Float, and `hook` has one at every argument list of the signature
+  (`covered_fmt`, `covered_isNaN`, `covered_cmp`). The other fourteen are keys
   whose predicate is true at every argument list (`keys_silent`), so the silent points of each are
   exactly the argument lists of the third column. Against the prose that region has four parts:
   - **two formats** (`+Float`, `-Float`, `*Float`, `/Float`, `%Float`): the prose computes "the sum …
@@ -71,7 +74,8 @@
   - **(2)** `pts`: a point of each row of the unstated parts; Γ over all interpretations entails
     neither ⊥ nor a value there (`pts_undetermined`). The same at a point of each key in the thin
     part (`thin_undetermined`), which is a fact about Γ and, by finding 1, not a reading of the prose.
-  - **(3)** `groups`, `keys_silent`, the `*_none` theorems, `covered_fmt`.
+  - **(3)** `groups`, `keys_silent`, `fmts_not_silent`, `valued_not_silent`, the `*_none` theorems,
+    `covered_fmt`, `covered_isNaN`, `covered_cmp`.
 
   The sort row `FLOAT.Float` (DOM 1464-1490, 1494-1497): a value is a datum of a format `(p, e)`, the
   precision and the exponent bits of the literal's suffix (1483-1487), `p24x8` for `f` and `p53x11`
@@ -99,7 +103,7 @@
      0 < f < 2^(p-1), ±∞, the NaN: the encoding rule read at one exponent bit, rulings section 7 R1,
      not confirmed against the standard), a tie at p = 1 giving no value; Γ determines none of the
      points of `thin`, each in an unstated region. The comparisons and `isNaN` have a value at every
-     Float literal (`cmp_none`, `isNaN_none`). The reader takes no literal of a thin format
+     Float literal (`cmp_none`, `isNaN_none`) and are no keys. The reader takes no literal of a thin format
      (test/FloatLib.lean). `precisionFloat` and `exponentBitsFloat` have their values there
      (`covered_fmt`).
   2. Rounding. The prose gives a direction only for literals ("rounded to the nearest possible
@@ -488,35 +492,47 @@ def cmps : List Sym := [floatLe, floatLt, floatGe, floatGt, floatEq]
 def arith : List Sym := [floatAdd, floatSub, floatMul, floatDiv, floatRem]
 def ats : List Sym := [floatMaxValue, floatMinValue]
 
-/-- The twenty keys of `silentTable` among the rows. -/
-def keys : List Sym := unary ++ [floatIsNaN] ++ cmps ++ arith ++ [floatRound, int2Float] ++ ats
+/-- `isNaN` and the five comparisons: the rows, besides `fmts`, whose prose states a value at every
+Float (DOM 1541, 1631-1638). -/
+def valued : List Sym := floatIsNaN :: cmps
 
-/-- The rows are the registry's entries with a `FLOAT.` hook, and `fmts` and `keys` part them. -/
+/-- The fourteen keys of `silentTable` among the rows. -/
+def keys : List Sym := unary ++ arith ++ [floatRound, int2Float] ++ ats
+
+/-- The rows are the registry's entries with a `FLOAT.` hook, and `fmts`, `valued` and `keys` part
+them. -/
 theorem rows_registry :
     ((regHookNames.filter (fun e => e.2.toList.take 6 == "FLOAT.".toList)).all rows.contains &&
     rows.all regHookNames.contains &&
-    rows.all (fun r => (fmts ++ keys).count r.1 == 1) &&
-    (fmts ++ keys).all (fun f => rows.any (·.1 == f)) &&
+    rows.all (fun r => (fmts ++ valued ++ keys).count r.1 == 1) &&
+    (fmts ++ valued ++ keys).all (fun f => rows.any (·.1 == f)) &&
     rows.all (fun r => decide (sig r.1 ∈ hookSigs) && (sig r.1).name == r.1)) = true := by
   decide +kernel
 
 /-! ## Statement 3 -/
 
-/-- **The groups against `silentTable` and `partialHooks`**: `precisionFloat` and
-`exponentBitsFloat` are no key (and among `partialHooks`: a value of sort Float that is no literal
-would have none, which `floatShapeOK` excludes); each of the twenty others is a key. -/
+/-- **The groups against `silentTable` and `partialHooks`**: `precisionFloat`,
+`exponentBitsFloat`, `isNaN` and the five comparisons are no key (and among `partialHooks`: a value
+of sort Float that is no literal would have none, which `floatShapeOK` excludes); each of the
+fourteen others is a key. -/
 theorem groups :
-    (fmts.all (fun f => !silentKey f && partialHooks.contains f) && keys.all silentKey) = true := by
+    ((fmts ++ valued).all (fun f => !silentKey f && partialHooks.contains f) && keys.all silentKey) = true := by
   decide +kernel
 
-/-- **Each of the twenty keys has a predicate true at every argument list**: its silent points are
+/-- **Each of the fourteen keys has a predicate true at every argument list**: its silent points are
 the argument lists where `hook` gives no value. -/
 theorem keys_silent : ∀ f ∈ keys, ∀ vs : List GroundTerm, silent f vs = true := by
   intro f hf vs
-  simp only [keys, unary, cmps, arith, ats, List.cons_append, List.nil_append, List.mem_cons,
+  simp only [keys, unary, arith, ats, List.cons_append, List.nil_append, List.mem_cons,
     List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
-    rfl | rfl | rfl | rfl | rfl <;> rfl
+  rcases hf with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> rfl
+
+/-- The silent predicate of `isNaN` and of the five comparisons is true nowhere. -/
+theorem valued_not_silent : ∀ f ∈ valued, ∀ vs : List GroundTerm, silent f vs = false := by
+  intro f hf vs
+  refine silent_of_not_silentKey ?_ vs
+  simp only [valued, cmps, List.mem_cons, List.not_mem_nil, or_false] at hf
+  rcases hf with rfl | rfl | rfl | rfl | rfl | rfl <;> decide +kernel
 
 /-- The silent predicate of `precisionFloat` and `exponentBitsFloat` is true nowhere. -/
 theorem fmts_not_silent : ∀ f ∈ fmts, ∀ vs : List GroundTerm, silent f vs = false := by
@@ -823,6 +839,44 @@ theorem covered_fmt {c : Semantics} (hf : c.floatShapeOK = true) {vs : List Grou
   obtain ⟨p, e, b, rfl, hok⟩ := float_only hf hw
   obtain ⟨hp, he⟩ := ok_pos hok
   exact ⟨p, e, b, rfl, fmt_at p e b hp he⟩
+
+/-- **`isNaN` has a value at every argument list of the signature**: a Float value is a literal of
+positive precision and exponent bits, where `hook` reads its datum (`isNaN_none`). The prose
+(DOM 1541) covers every argument list, and `isNaN` is no key. -/
+theorem covered_isNaN {c : Semantics} (hf : c.floatShapeOK = true) {vs : List GroundTerm}
+    (hvs : c.sortsOf vs = some [Srt.float]) : ∃ w, hook floatIsNaN vs = some (some w) := by
+  obtain ⟨w, rfl, hw⟩ := sortsOf_one hvs
+  obtain ⟨p, e, b, rfl, hok⟩ := float_only hf hw
+  obtain ⟨hp, he⟩ := ok_pos hok
+  have hn := isNaN_none p e b
+  cases h : hook floatIsNaN [fv p e b] with
+  | none => rw [hk_isNaN] at h; cases h
+  | some r =>
+    cases r with
+    | some w => exact ⟨w, rfl⟩
+    | none => have := hn.mp h; omega
+
+/-- **Each of the five comparisons has a value at every argument list of the signature**: two Float
+values are two literals of positive precision and exponent bits, of one format or two, where
+`hook` compares their data (`cmp_none`). The prose (DOM 1631-1638) covers every argument list, and
+none of the five is a key. -/
+theorem covered_cmp {c : Semantics} (hf : c.floatShapeOK = true) {vs : List GroundTerm}
+    (hvs : c.sortsOf vs = some [Srt.float, Srt.float]) : ∀ f ∈ cmps, ∃ w, hook f vs = some (some w) := by
+  intro f hfm
+  obtain ⟨w₁, w₂, rfl, h₁, h₂⟩ := sortsOf_two hvs
+  obtain ⟨p, e, b, rfl, hok⟩ := float_only hf h₁
+  obtain ⟨p', e', b', rfl, hok'⟩ := float_only hf h₂
+  have hn := cmp_none f hfm p e b p' e' b'
+  have hs : (hook f [fv p e b, fv p' e' b']).isSome = true := by
+    rw [hook_isSome_args]
+    simp only [cmps, List.mem_cons, List.not_mem_nil, or_false] at hfm
+    rcases hfm with rfl | rfl | rfl | rfl | rfl <;> decide +kernel
+  cases h : hook f [fv p e b, fv p' e' b'] with
+  | none => rw [h] at hs; cases hs
+  | some r =>
+    cases r with
+    | some w => exact ⟨w, rfl⟩
+    | none => have := hn.mp h; have := ok_pos hok; have := ok_pos hok'; omega
 
 /-- An argument list of two Floats is two literals (with `cmp_none`, `arith_none`). -/
 theorem covered_ff {c : Semantics} (hf : c.floatShapeOK = true) {vs : List GroundTerm}
@@ -1310,8 +1364,7 @@ theorem thinVals_gamma : ∀ p ∈ thinVals, ∀ H : HookParams,
   exact gamma_val (c.withHooks H) hk (by rw [Semantics.sortsOf_withHooks _ _ noRaw]; exact hvs)
     (by rw [hname]; exact hh)
 
-/-- The keys with a silent point at a Float literal: all but the five comparisons and `isNaN`, which
-have a value at every one (`cmp_none`, `isNaN_none`). -/
+/-- The keys, each with a silent point at a Float literal of a thin format. -/
 def thinKeys : List Sym := unary ++ arith ++ [floatRound, int2Float] ++ ats
 
 /-- A point of each of `thinKeys` at a thin format where `hook` gives no value, the region of a format
@@ -1357,6 +1410,9 @@ theorem thin_fmt : hook floatPrecision [t18] = some (some (int 1)) ∧
 #print axioms groups
 #print axioms keys_silent
 #print axioms fmts_not_silent
+#print axioms valued_not_silent
+#print axioms covered_isNaN
+#print axioms covered_cmp
 #print axioms negAbs_none
 #print axioms roundings_none
 #print axioms arith_special

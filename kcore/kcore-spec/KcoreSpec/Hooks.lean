@@ -865,8 +865,13 @@ only where the text says there is none (`#False`, `#Bottom`). Where the text dec
 `total`, it states that a value exists at its silent points and not which: the interpretations it
 admits give one there (`totalSilentKeys`, `Semantics.silentTotal`, ParamsTotal.lean). A library
 equation whose instance at values reaches a silent point is likewise a condition on the
-interpretation (`Semantics.libAdmitted`, LibAdmitted.lean). Line numbers are domains.md's
-(K 7.1.337).
+interpretation (`Semantics.libAdmitted`, LibAdmitted.lean). A symbol is a key for a region among
+the argument lists that a semantics meeting `coreOK` has. Every value of sort Float is a Float
+literal there (`floatShapeOK_of_coreOK`, LibAdmitted.lean), so an argument of sort Float that is
+no literal makes no symbol a key: `<=Float`, `<Float`, `>=Float`, `>Float`, `==Float`, `=/=Float`
+and `isNaN`, whose value the text states at every datum (1541, 1631-1638, 1648) and which have one
+at every Float literal (`asDatum`), are none, as `precisionFloat` and `exponentBitsFloat` are none.
+Line numbers are domains.md's (K 7.1.337).
 - `L[I]`, `range`: the text describes an index of the list (960-963) and removing that many elements
   from the front and the back (1012-1013); an index off the list, or more elements than there are, is
   not described.
@@ -969,9 +974,7 @@ def silentTable : List (Sym × (List GroundTerm → Bool)) :=
    (floatSqrt, fun _ => true),
    (floatNeg, fun _ => true), (floatAbs, fun _ => true), (floatFloor, fun _ => true),
    (floatCeil, fun _ => true), (floatTrunc, fun _ => true),
-   (floatLe, fun _ => true), (floatLt, fun _ => true), (floatGe, fun _ => true),
-   (floatGt, fun _ => true), (floatEq, fun _ => true), (floatNe, fun _ => true),
-   (floatIsNaN, fun _ => true), (floatIsInfinite, fun _ => true),
+   (floatIsInfinite, fun _ => true),
    (rmElem, fun _ => true), (rmConcat, fun _ => true), (rmLookup, fun _ => true),
    (rmFindRange, fun _ => true), (rmUpdate, fun _ => true), (rmRemove, fun _ => true),
    (rmRemoveAll, fun _ => true),

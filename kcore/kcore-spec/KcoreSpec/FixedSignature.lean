@@ -671,10 +671,10 @@ the truncating remainder of the power), `bitRangeInt` and
 `fillList` (the interpretation's off the ranges the text describes),
 `_Map_` and `_Set_` (undefined where the two collections share a key or a member), `Map:lookup`,
 `List:get` and `List:range`, and FLOAT's (undefined on two formats or at a format without a model;
-those FLOAT declares `total` are listed too, so no check counts on their totality: the seven of
-`totalSilentKeys` have silent points, and `precisionFloat` and `exponentBitsFloat` have a value at
-every Float literal and none at a value of sort Float that is no literal, a constructor, injection
-or token of that sort, which only `floatShapeOK` excludes), and STRING's and BYTES' partial ones
+those FLOAT declares `total` are listed too, so no check counts on their totality: the six of
+`totalSilentKeys` have silent points, and `isNaN`, `precisionFloat` and `exponentBitsFloat` have a
+value at every Float literal and none at a value of sort Float that is no literal, a constructor,
+injection or token of that sort, which only `floatShapeOK` excludes), and STRING's and BYTES' partial ones
 (`stringPartial`, `bytesPartial`), and RANGEMAP's seven that the text does not declare `total`: the
 element symbol, update and remove at a range that is no proper Int range, `removeAll` at a member
 that is none, remove and `removeAll` at a range no part of which is in the map, concatenation

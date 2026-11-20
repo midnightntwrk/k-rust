@@ -10,7 +10,7 @@
     one giving a value `v` of the result sort) both have models of Γ, and the models differ there:
     the application is ⊥ in every model of the first and `v` in every model of the second.
   - The schema at one point of every key of `silentTable` (`pts`; the six Float comparisons and
-    `isNaN` have a value at every Float literal, so no silent point: `fltValued`), in the semantics of
+    `isNaN` have a value at every Float literal and are no keys: `fltValued`), in the semantics of
     `f2-examples/strbytes.kompile.kore` (`coreOK`, no function): `hook` gives no value, the point is
     silent, its arguments have the signature's sorts and `v` has exactly the result sort (decided),
     so neither `f(vs) = ⊥` nor `f(vs) = v` holds for every interpretation (`pts_undetermined`).
@@ -222,7 +222,7 @@ structure Pt where
   v : GroundTerm
   deriving DecidableEq
 
-/-- One point per key of `silentTable` but `Bytes2Int` and `fltValued` (some keys two). The value `v` has exactly
+/-- One point per key of `silentTable` but `Bytes2Int` (some keys two). The value `v` has exactly
 the result sort: `ki 0` (`inj{Int,KItem}(0)`) for `L[I]`'s KItem, `.List`, `0.0`, `0`, `""`,
 `true`, `.Bytes`. -/
 def pts : List Pt :=
@@ -269,15 +269,16 @@ def pts : List Pt :=
 /-- RANGEMAP's seven keys of `silentTable`. -/
 def rmKeysSilent : List Sym := [rmElem, rmConcat, rmLookup, rmFindRange, rmUpdate, rmRemove, rmRemoveAll]
 
-/-- The six Float comparisons and `isNaN`: keys of `silentTable` with a value at every Float literal
-(`asDatum` has a datum at every format), so with no silent point where every Float value is a
-literal. -/
+/-- The six Float comparisons and `isNaN`: a value at every Float literal (`asDatum` has a datum at
+every format), and no key of `silentTable`. -/
 def fltValued : List Sym := [floatLe, floatLt, floatGe, floatGt, floatEq, floatNe, floatIsNaN]
 
-/-- Every key but `Bytes2Int`, RANGEMAP's and `fltValued` has a point here (`Bytes2Int`'s are in
+theorem fltValued_notKey : fltValued.all (fun f => !silentKey f) = true := by decide +kernel
+
+/-- Every key but `Bytes2Int` and RANGEMAP's has a point here (`Bytes2Int`'s are in
 `ptsB`, RANGEMAP's in `ptsR`, at other semantics: `ptsR_cover`). -/
 theorem pts_cover : silentTable.all (fun e => e.1 == bytes2Int || pts.any (·.f == e.1) ||
-    rmKeysSilent.contains e.1 || fltValued.contains e.1) = true := by
+    rmKeysSilent.contains e.1) = true := by
   decide +kernel
 
 /-- E1 and E2 at every point: the symbol's signature, its arguments of the argument sorts, no value
@@ -412,7 +413,8 @@ theorem rangeMap_undetermined : ∀ p ∈ ptsR,
 
 /-! ## E4: at a described point, `hook`'s value whatever the interpretation -/
 
-/-- Described points of the keys, and of `<=Set` (which has no silent point), with `hook`'s value. -/
+/-- Described points of the keys, and of `<=Set`, `<=Float` and `isNaN` (which have no silent point),
+with `hook`'s value. -/
 def vals : List Pt :=
   [⟨listGet, [lst [ki 1], int (-1)], ki 1⟩,
    ⟨listRange, [lst [ki 1], int 1, int 0], lst []⟩,
