@@ -168,7 +168,7 @@ Exceptions inside the layers:
 | `evaluation` | strictness of Bool hooks | stable |
 | `theory` | ΓDomains | stable |
 | `well-formedness` | inside overloadsOK: an overloading symbol is not named like an instance of a sort-parametric symbol (instDecode?), in particular not like ite at a sort | stable |
-| `well-formedness` | inside faithCoreOK: the first three leaves of itesApart (every sort name of an instance name names a numbered sort, all instance names of one head are at one number of sorts, no instance name has the head inj) | provisional |
+| `well-formedness` | inside faithCoreOK: the first leaf of itesApart (every sort name of an instance name names a numbered sort) | provisional |
 
 Not core:
 

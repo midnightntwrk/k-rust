@@ -34,7 +34,9 @@
     else in `Γ` names `Lblite` at `SortKCell` (`itesApart` leaves no other symbol there; the
     registry's `Lblite` is applied to a Bool's element first). Where a rule's right-hand side
     applies the constructor, `Γ` equates the two heads nowhere, so the conjunct is asked for
-    soundness, as test/OvlIteSoundC.lean kernel-checks for the overloading symbol, not for a model.
+    soundness, not for a model: test/CtorIteSoundC.lean kernel-checks it for a constructor so named
+    of one argument and a rule building it (its theory with the step's closure has a model, and
+    `SoundC` fails), as test/OvlIteSoundC.lean does for the overloading symbol.
   - `CtorInt.c`: `Γ` reads Int as a sort of domain values: distinct literals are distinct elements,
     and the hooks' graphs speak of literals. `consItemsK` states its items per constructor sort
     (`consSorts`), which Int is not, so `k` has no function, injectivity, distinctness or no-junk

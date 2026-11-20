@@ -46,9 +46,8 @@ prog = os.environ.get("KCORE_PROGRESS") or next(
 # WIT.manifest makes the entry name its witness or WIT.decide's decision (DONE-0 C5 part 4); until
 # then the conjunct has neither (test/witnesses.toml itesApart.1).
 ALLOWANCE = [
-    ("inside faithCoreOK: the first three leaves of itesApart (every sort name of an instance name "
-     "names a numbered sort, all instance names of one head are at one number of sorts, no instance "
-     "name has the head inj)", "WIT.manifest"),
+    ("inside faithCoreOK: the first leaf of itesApart (every sort name of an instance name names a "
+     "numbered sort)", "WIT.manifest"),
 ]
 
 

@@ -1,9 +1,9 @@
 /-
   The conjunct of `overloadsOK` "an overloading symbol is not named like `ite` at a sort": no
   witness was found, that is, no semantics that meets every other condition of `coreOK` and
-  `FnHyp`, fails only that conjunct, and whose `Γ` has no model. The conjunct appears to be needed
-  for the step to be entailed (argued below, not kernel-checked), which is a different failure from
-  `Γ` having no model.
+  `FnHyp`, fails only that conjunct, and whose `Γ` has no model. The conjunct is needed for the
+  step to be entailed (argued below for the semantics here, kernel-checked with a rule in
+  test/OvlIteSoundC.lean), which is a different failure from `Γ` having no model.
   Run from the package root: `lake env lean -j1 test/OvlIteName.lean`.
 
   Kernel-checked here:
@@ -17,7 +17,9 @@
     the decoder reads as `ite` at a sort X (`instDecode?` gives `("Lblite", [X])`), a pattern or
     right-hand side (`Term.kore`) applies it as `Lblite{SortX}(…)`,
     while a value (`GroundTerm.kore`, hence `den`) and the constructor and overload items (`toK`,
-    through `consItemsK`) write it under its own name `Lblite{X}(…)`, a different head.
+    through `consItemsK`) write it under its own name `Lblite{X}(…)`, a different head. The same
+    holds of an instance name at any head and sorts: `symApp` writes the head the decoder reads
+    (`symApp_inst`), which holds no `{`, and a value the name, which holds one.
 
   Argued, not kernel-checked:
   - `Γ` has a model. Of the head `Lblite ⬝ SortX` `Γ` states the overloading symbol's arity
@@ -27,8 +29,10 @@
     `itesApart` holds (`resolve_inst`), meets each of these as it does for a plainly named symbol.
     Nothing else in `Γ` names `Lblite` at `SortX`: the registry's `Lblite` (`kIte`) is applied
     to a Bool's element first, and `itesApart` leaves no other symbol at X. Building that model in
-    the kernel is the canonical model's construction without the conjunct, which it reads through
-    `OvlLaws.ovl_parts` (its fourth part, in FaithfulCollPat.lean's `kernel_arity` steps).
+    the kernel is the canonical model's construction without the conjunct. The proofs read the
+    conjunct through `OvlLaws.ovl_noInst_irs` (FaithfulCollPat.lean) and the fourth part of
+    `OvlLaws.ovl_parts` (HeldBackCl.lean): an overloading symbol's arity item and applications are
+    then written at its name.
   - The step to a value applying the symbol is not entailed. For a rule `… => Lblite{X}(1)`,
     `Step` gives the successor `.ctor o [1]`, whose `den` is the plain head applied to 1, while
     `famEx c r σ` (the rule's right-hand side, `ruleRight`, through `Term.kore`) applies
