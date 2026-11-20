@@ -234,6 +234,7 @@ differs f2-examples/e5-hooked-int.kompile.kore
 differs f2-examples/e5-ovl-fn-fn-ctor.kompile.kore
 differs f2-examples/e5-ovl-fn-fn-owise.kompile.kore
 differs f2-examples/e5-ovl-fn-fn.kompile.kore
+differs f2-examples/e5-ovl-fun-clause.kompile.kore
 differs f2-examples/e5-ovl-fun-keep-run.kompile.kore
 differs f2-examples/e5-ovl-fun-keep.kompile.kore
 cannot f2-examples/e5-ovl-fun-lhs-int.kompile.kore
