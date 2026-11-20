@@ -40,7 +40,7 @@ theorem clauseFixed_sound {cl : Clause} {ss : List Srt} {x : TermCtx} {s : Srt} 
   · cases hfx
 
 /-- Each clause that `matchObligations` names is match independent: the obligation, as
-`Obligations` (Statements.lean) states it. -/
+`Obligations` (Obligations.lean) states it. -/
 def MatchObligations (c : Semantics) : Prop :=
   ∀ p ∈ c.matchObligations, ∀ fn, c.lookupFn p.1 = some fn → ∀ cl, fn.clauses[p.2]? = some cl →
     MatchIndependent c cl

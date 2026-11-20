@@ -3,9 +3,9 @@
   ground value and its matching-logic pattern (`GroundTerm.kore`, `den`), the parts of the theory's
   constructor and rule axioms that do not read the theory (`distLbItem`, `applies`), a step function and what it is to list `Step`'s successors (`StepFn`,
   `StepIs`), the decidable conditions the statements assume of a semantics (`Semantics.coreOK`,
-  which `wf` implies, `Definition.coreOK_of_wf`), what they assume of its functions (`FnHyp`), and
+  which `wf` implies, `Definition.coreOK_of_wf`). What they assume of its functions (`FnHyp`) and
   the named facts the deciders leave open, from which that follows (`CoreObligations`;
-  `Obligations`, a definition's).
+  `Obligations`, a definition's), are stated in Obligations.lean.
 
   The theory itself, `Γ`, is built from `Semantics` in Faithful.lean, which imports this file;
   soundness and completeness over it are stated in Sound.lean (`Sound`, `Complete`).
