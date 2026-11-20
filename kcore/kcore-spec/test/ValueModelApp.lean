@@ -29,10 +29,10 @@ namespace ValueModelAppTest
 /-- The reading at the model `consistent_ofCl` builds, from its hypotheses. -/
 example (c : Semantics) (hok : c.sortedOKCl = true) (hsr : c.srReady = true) [hov : OvlOK c]
     (hfa : c.faithCoreOK = true) (hph : patHooksApart c = true) (hids : c.idsOK = true)
-    (hd : FnDet c) (hs : FnSolves c) {fn : Fn} (hfn : fn ∈ c.fns) {vs : List GroundTerm}
+    (hd : FnDet c) {fn : Fn} (hfn : fn ∈ c.fns) {vs : List GroundTerm}
     (hvs : c.sortsOf vs = some fn.args) (e : ML.Valuation Elem) (m : Elem) :
     (TiePair.app c fn.label vs).interpret (stdI_T c (StepV c)) e m ↔ ∃ v, m = .val v ∧ Eval c fn.label vs (some v) :=
-  vmApp_fn_iff (hypModel_ofCl hok hsr hov hfa hph hids hd hs) _ (List.mem_append_left _ hfn) hvs (KCore.sortsOf_length hvs) e m
+  vmApp_fn_iff (hypModel_ofCl hok hsr hov hfa hph hids hd) _ (List.mem_append_left _ hfn) hvs (KCore.sortsOf_length hvs) e m
 
 /-! ## clgenless -/
 

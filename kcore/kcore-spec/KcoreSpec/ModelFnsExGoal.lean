@@ -13,10 +13,10 @@
   - `eqnFactsPre_of_sorted`, `eqnFactsPre_sortPred`: `EqnFactsPre` of a clause with
     `clauseSortedOpen`, no existential variable and the right side's predicate `\top`, and of a
     sort predicate's clause.
-  - `AtT.satFnsGoalEx`: `ΓFns` in the value model. Per clause: without existential variables the
-    equation `sat_clauseEqPre` / `sat_competingEqPre` read, with them the one `sat_clauseEqEx` /
-    `sat_competingEqEx` read; in both the function's values are those `FnSolves` states
-    (`eval_of_decides_ex`).
+  - `AtT.sat_fnEqsEx` (one function), `AtT.satFnsGoalEx` (`ΓFns`, under `FnSolves`), in the value
+    model. Per clause: without existential variables the equation `sat_clauseEqPre` /
+    `sat_competingEqPre` read, with them the one `sat_clauseEqEx` / `sat_competingEqEx` read; in
+    both the function's values are those `FnSolvesAt` states (`eval_of_decides_ex`).
 
   What `AtT.satFnsGoalEx` reads of a clause is in `hcls`: `clauseSortedOpen`, `clauseExOK`, and the
   predicate `\top` where there is no existential variable. It does not read that an existential
@@ -139,16 +139,19 @@ namespace AtT
 
 variable {T : GroundTerm → GroundTerm → Prop}
 
-/-- **The value model satisfies the functions' equations where a clause may hold existential
-variables.** Each clause of a function of the definition has `clauseSortedOpen` and `clauseExOK`,
-and the right-side predicate `\top` where it has no existential variable (`hcls`); its premise's
-predicate has a truth value wherever its patterns match (`ClausePreDecided`) and its right side's
-at each well-sorted instance (`ClausePostDecided`). No fact of a clause's existential variables
-or of its right side's predicate is read from `HypModelCore`. -/
-theorem satFnsGoalEx (h : HypModelCore c)
+/-- **The value model satisfies the equations of one function where a clause may hold existential
+variables**, the function being one of the definition whose equations evaluation solves
+(`FnSolvesAt`, `hsol`) or a sort predicate. Each clause of a function of the definition has
+`clauseSortedOpen` and `clauseExOK`, and the right-side predicate `\top` where it has no existential
+variable (`hcls`); its premise's predicate has a truth value wherever its patterns match
+(`ClausePreDecided`) and its right side's at each well-sorted instance (`ClausePostDecided`). No
+fact of a clause's existential variables or of its right side's predicate is read from
+`HypModelCore`, and `FnSolvesAt` is read of no other function. -/
+theorem sat_fnEqsEx (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) (hsol : fn ∈ c.fns → FnSolvesAt c fn)
     (hcls : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, c.clauseSortedOpen fn (c.fns.map Fn.sig) cl = true ∧
       c.clauseExOK cl = true ∧ (cl.exs = [] → cl.post = .top))
-    (hp : ClausePreDecided c) (hq : ClausePostDecided c) : (stdI_T c T ⊧ᴵP ΓFns c) := by
+    (hp : ClausePreDecided c) (hq : ClausePostDecided c) :
+    ∀ it ∈ kernelItems (fnEquationsK c fn), stdI_T c T ⊧ᴵ it.pat := by
   have hL : HeadsOK c (c.fns.map Fn.sig) := fun k hk => by
     obtain ⟨g, hg, rfl⟩ := List.mem_map.mp hk
     exact ⟨g, List.mem_append_left _ hg, rfl⟩
@@ -174,8 +177,7 @@ theorem satFnsGoalEx (h : HypModelCore c)
       rcases List.mem_append.mp hfn with hu | hs
       · exact ⟨eqnFactsEx_of_sorted h hfn hL (hcls fn hu cl hcl).1 (hcls fn hu cl hcl).2.1, hq fn hu cl hcl⟩
       · exact absurd (Semantics.sortPreds_exs hs cl hcl) hne
-  refine sat_itemsPremises c fun it hit => ?_
-  obtain ⟨fn, hfn, hit⟩ := List.mem_flatMap.mp hit
+  intro it hit
   obtain ⟨s, hs, hit⟩ := List.mem_filterMap.mp hit
   unfold fnEquationsK at hs
   obtain ⟨cl, hcl, rfl⟩ := List.mem_map.mp hs
@@ -192,12 +194,12 @@ theorem satFnsGoalEx (h : HypModelCore c)
       refine sat_kernelItem_of hit (clauseEquation_nilPre hex)
         (sat_clauseEqPre h hfn F (fun σ ws hσ hpv hr => hdecL fn hfn cl hcl σ ws (hσ.at _) hpv hr)
           fun σ ws hws happ v => ?_)
-      exact (eval_of_decides_ex h hfn hcl hws (hdecides happ) v).trans
+      exact (eval_of_decides_ex h hfn hsol hcl hws (hdecides happ) v).trans
         (Clause.gives_iff_noExs hex hpost ((wellSortedAt_univ hex).mp happ.1) v)
     · obtain ⟨F, hpd⟩ := hcons fn hfn cl hcl hex
       exact sat_kernelItem_of hit (clauseEquation_axEx hex F.exLt)
         (sat_clauseEqEx h hfn F (hdecL fn hfn cl hcl) hpd fun σ ws hws happ =>
-          eval_of_decides_ex h hfn hcl hws (hdecides happ))
+          eval_of_decides_ex h hfn hsol hcl hws (hdecides happ))
   · rw [show prioEquation c fn cl = competingEquation c fn (lowerClauses fn cl) cl from if_neg hlow] at hit
     have hdecides : ∀ {σ ws}, cl.AppliesAt c σ ws →
         (∀ cl' ∈ lowerClauses fn cl, ∀ σ', c.WellSortedAt cl'.vars cl'.leftVars σ' → PatVals c σ' cl'.pats ws →
@@ -211,22 +213,32 @@ theorem satFnsGoalEx (h : HypModelCore c)
       refine sat_kernelItem_of hit (competingEquation_nilPre hex)
         (sat_competingEqPre h hfn F (fun σ ws hσ hpv hr => hdecL fn hfn cl hcl σ ws (hσ.at _) hpv hr) hF
           fun σ ws hws happ hfails v => ?_)
-      exact (eval_of_decides_ex h hfn hcl hws (hdecides happ hfails) v).trans
+      exact (eval_of_decides_ex h hfn hsol hcl hws (hdecides happ hfails) v).trans
         (Clause.gives_iff_noExs hex hpost ((wellSortedAt_univ hex).mp happ.1) v)
     · obtain ⟨F, hpd⟩ := hcons fn hfn cl hcl hex
       exact sat_kernelItem_of hit (competingEquation_axEx hex F.exLt)
         (sat_competingEqEx h hfn F (hdecL fn hfn cl hcl) hpd hF fun σ ws hws happ hfails =>
-          eval_of_decides_ex h hfn hcl hws (hdecides happ hfails))
+          eval_of_decides_ex h hfn hsol hcl hws (hdecides happ hfails))
+
+/-- **The value model satisfies the functions' equations where a clause may hold existential
+variables**, where evaluation solves the equations (`FnSolves`): `sat_fnEqsEx` at each function. -/
+theorem satFnsGoalEx (h : HypModelCore c) (hsol : FnSolves c)
+    (hcls : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, c.clauseSortedOpen fn (c.fns.map Fn.sig) cl = true ∧
+      c.clauseExOK cl = true ∧ (cl.exs = [] → cl.post = .top))
+    (hp : ClausePreDecided c) (hq : ClausePostDecided c) : (stdI_T c T ⊧ᴵP ΓFns c) := by
+  refine sat_itemsPremises c fun it hit => ?_
+  obtain ⟨fn, hfn, hit⟩ := List.mem_flatMap.mp hit
+  exact sat_fnEqsEx h hfn (hsol fn) hcls hp hq it hit
 
 end AtT
 
 /-- **`SatFnsGoal` where a clause may hold existential variables**: `AtT.satFnsGoalEx` in the value
 model. -/
-theorem satFnsGoalEx (h : HypModelCore c)
+theorem satFnsGoalEx (h : HypModelCore c) (hsol : FnSolves c)
     (hcls : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, c.clauseSortedOpen fn (c.fns.map Fn.sig) cl = true ∧
       c.clauseExOK cl = true ∧ (cl.exs = [] → cl.post = .top))
     (hp : ClausePreDecided c) (hq : ClausePostDecided c) : SatFnsGoal c :=
-  AtT.satFnsGoalEx (c := c) (T := StepM c) h hcls hp hq
+  AtT.satFnsGoalEx (c := c) (T := StepM c) h hsol hcls hp hq
 
 end Model
 

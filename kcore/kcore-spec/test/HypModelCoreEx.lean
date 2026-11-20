@@ -25,8 +25,8 @@ open KCore GroundTerm Faithful Faithful.Model
 
 /-! ## The statements -/
 
-example (c : Semantics) (h : c.coreOKEx = true) (hd : FnDet c) (hs : FnSolves c) : HypModelCore c :=
-  hypModelCore_of_coreEx h hd hs
+example (c : Semantics) (h : c.coreOKEx = true) (hd : FnDet c) : HypModelCore c :=
+  hypModelCore_of_coreEx h hd
 example (c : Semantics) (h : c.sortedOKEx = true) : c.sortedOKClEx = true := Semantics.sortedOKClEx_of_sortedOKEx h
 example (c : Semantics) (h : HypModel c) : c.FnsNoExs := h.fnsNoExs
 example (c : Semantics) (h : c.coreOKEx = true) (hd : FnDet c) (hs : FnSolves c) (hp : ClausePreDecided c)
@@ -316,7 +316,7 @@ theorem fnSolves : FnSolves cCeG := by
   · exact g_solves lookup_g fnDet hdec v
 
 /-- **`HypModelCore cCeG`.** -/
-theorem hypModelCore : HypModelCore cCeG := hypModelCore_of_coreEx cCeG_coreOKEx fnDet fnSolves
+theorem hypModelCore : HypModelCore cCeG := hypModelCore_of_coreEx cCeG_coreOKEx fnDet
 
 theorem preDecided : ClausePreDecided cCeG := clausePreDecided_of_isTop (by decide +kernel)
 
@@ -592,7 +592,7 @@ theorem fnSolves : FnSolves cCeV := by
   · exact g_solves lookup_g fnDet hdec v
 
 /-- **`HypModelCore cCeV`.** -/
-theorem hypModelCore : HypModelCore cCeV := hypModelCore_of_coreEx cCeV_coreOKEx fnDet fnSolves
+theorem hypModelCore : HypModelCore cCeV := hypModelCore_of_coreEx cCeV_coreOKEx fnDet
 
 theorem preDecided : ClausePreDecided cCeV := clausePreDecided_of_isTop (by decide +kernel)
 

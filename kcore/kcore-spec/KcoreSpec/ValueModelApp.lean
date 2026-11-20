@@ -83,14 +83,14 @@ theorem vmModelCl (c : Semantics) (hok : c.sortedOKCl = true) (hsr : c.srReady =
     (hfa : c.faithCoreOK = true) (hph : patHooksApart c = true) (hids : c.idsOK = true)
     (hd : FnDet c) (hs : FnSolves c) (hp : ClausePreDecided c) (hl : OpenLaws c) :
     stdI_T c (StepV c) ⊧ᴵP (Γc c ∪ Γstep c) := by
-  have hm := hypModel_ofCl hok hsr hov hfa hph hids hd hs
+  have hm := hypModel_ofCl hok hsr hov hfa hph hids hd
   have hne := Semantics.fnsNoExs_of_sortedOKCl hok
   intro φ hφ
   rcases hφ with (hφ | hφ) | hφ
-  · exact stdI_V_model_core hm hne hp hl φ (Or.inl hφ)
+  · exact stdI_V_model_core hm hs hne hp hl φ (Or.inl hφ)
   · obtain ⟨-, hlit, rfl⟩ := hφ
     exact boolClosed_modelClT hm hlit
-  · exact stdI_V_model_core hm hne hp hl φ (Or.inr hφ)
+  · exact stdI_V_model_core hm hs hne hp hl φ (Or.inr hφ)
 
 /-- **The theory does not entail another value of `f(vs)` than `Eval`'s**: under
 `consistent_ofCl`'s hypotheses, where `Eval` gives `f` the value `v` at `vs` and `w` is another
@@ -104,7 +104,7 @@ theorem vmApp_fn_not_entailed (c : Semantics) (hok : c.sortedOKCl = true) (hsr :
     {s : Srt} (hw : c.sortOf w = some s) (hne : v ≠ w) :
     ¬ ((Γc c ∪ Γstep c) ⊧ (TiePair.app c fn.label vs ≡ den c w)) := by
   intro hent
-  have hm := hypModel_ofCl hok hsr hov hfa hph hids hd hs
+  have hm := hypModel_ofCl hok hsr hov hfa hph hids hd
   have h1 := hent (vmModelCl c hok hsr hfa hph hids hd hs hp hl) KoreAML.val0 (.val v)
   rw [KoreAML.interp_equal AtT.defOK_std] at h1
   have h2 := (h1 (.val v)).mp ((vmApp_fn_eq hm _ hfn hvs hlen hE _ _).mpr rfl)
@@ -121,7 +121,7 @@ theorem vmApp_fn_not_bot (c : Semantics) (hok : c.sortedOKCl = true) (hsr : c.sr
     (hlen : vs.length = fn.args.length) {v : GroundTerm} (hE : Eval c fn.label vs (some v)) :
     ¬ ((Γc c ∪ Γstep c) ⊧ (TiePair.app c fn.label vs ≡ ⊥)) := by
   intro hent
-  have hm := hypModel_ofCl hok hsr hov hfa hph hids hd hs
+  have hm := hypModel_ofCl hok hsr hov hfa hph hids hd
   have h1 := hent (vmModelCl c hok hsr hfa hph hids hd hs hp hl) KoreAML.val0 (.val v)
   rw [KoreAML.interp_equal AtT.defOK_std] at h1
   have h2 := (h1 (.val v)).mp ((vmApp_fn_eq hm _ hfn hvs hlen hE _ _).mpr rfl)

@@ -198,8 +198,8 @@ example (hft : FnTerminates cO) {M : Type} [Inhabited M] {I : ML.Interpretation 
 
 /-- The value model at `cO`: each open rule's axiom holds in it (`sat_rule_open`), and its `applies`
 pattern is where it applies (`applies_iff_open`). -/
-example (hd : FnDet cO) (hs : FnSolves cO) : True := by
-  have h := hypModel_of_fn coreO.1 hd hs
+example (hd : FnDet cO) : True := by
+  have h := hypModel_of_fn coreO.1 hd
   have := Faithful.Model.sat_rule_open h (r := ok1) m1 facts.1.1 facts.1.2.1 (h.ruleFactsEx_of_all (by decide +kernel))
   have := Faithful.Model.sat_rule_open h (r := okB) mB facts.2.1.1 facts.2.1.2.1 (h.ruleFactsEx_of_all (by decide +kernel))
   have := Faithful.Model.sat_rule_open h (r := ok2) m2 facts.2.2.1.1 facts.2.2.1.2.1 (h.ruleFactsEx_of_all (by decide +kernel))

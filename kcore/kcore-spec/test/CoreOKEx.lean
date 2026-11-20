@@ -98,9 +98,9 @@ theorem cCeG_sortedOKClEx : cCeG.sortedOKClEx = true ∧ cCeG.clausePlainOpenEx 
 
 example (hm : Faithful.Model.HypModelCore cCeG) : cCeG.sortedOKClEx = true := hm.hyp.1
 
-example (hm : Faithful.Model.HypModelCore cCeG) (hp : ClausePreDecided cCeG)
+example (hm : Faithful.Model.HypModelCore cCeG) (hs : FnSolves cCeG) (hp : ClausePreDecided cCeG)
     (hq : ClausePostDecided cCeG) (hl : OpenLaws cCeG) : Consistent cCeG :=
-  Faithful.Model.consistent_ce cCeG hm hp hq hl
+  Faithful.Model.consistent_ce cCeG hm hs hp hq hl
 
 /-- info: 'KCore.CoreOKExTest.cCeG_sortedOKClEx' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms cCeG_sortedOKClEx

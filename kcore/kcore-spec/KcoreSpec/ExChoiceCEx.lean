@@ -4,7 +4,7 @@
 
   - `stepBy_of_stepMBy_exCEx`: a `StepMBy` step between configurations is a `StepBy` step; every
     configuration is `StepDecided` by `stepDecided_ppCEx`.
-  - `stdI_T_modelCEx`: `stdI_T c T` is a model of `Γc` with the step's closure, under `HypModelCore`,
+  - `stdI_T_modelCEx`: `stdI_T c T` is a model of `Γc` with the step's closure, under `HypModelCore`, `FnSolves`,
     `ClausePreDecided`, `ClausePostDecided` and `OpenLaws`. The functions' equations are
     `AtT.satFnsGoalEx`, which reads the equation of a clause with existential variables, and Bool's
     closure is `boolClosed_modelClT`; neither reads `coreOK`.
@@ -35,11 +35,11 @@ theorem stepBy_of_stepMBy_exCEx {c : Semantics} (h : c.coreOKEx = true) (hft : F
 
 /-- **The value model at a transition T is a model of `Γc` with the step's closure, where a clause
 may bind variables by `\exists`**: under `HypModelCore` (whose sortedness of the clauses is
-`sortedOKClEx`), with each clause's two predicates decided, for rules with `ruleSorted` and
+`sortedOKClEx`) and `FnSolves`, with each clause's two predicates decided, for rules with `ruleSorted` and
 `rulePlainEx`, where every T step between configurations is a `StepM` step (`hsub`), every `StepMBy`
 instance of a rule without existential variables is in T (`hall`), and for a rule with existential
 variables some instance that differs from a given one at ē only is (`hsome`). -/
-theorem stdI_T_modelCEx (c : Semantics) (hm : HypModelCore c) (hp : ClausePreDecided c)
+theorem stdI_T_modelCEx (c : Semantics) (hm : HypModelCore c) (hsol : FnSolves c) (hp : ClausePreDecided c)
     (hq : ClausePostDecided c) (hl : OpenLaws c)
     (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainEx r = true)
     (T : GroundTerm → GroundTerm → Prop)
@@ -55,7 +55,7 @@ theorem stdI_T_modelCEx (c : Semantics) (hm : HypModelCore c) (hp : ClausePreDec
     · exact AtT.satConsGoal hm hl φ hφ
     · exact AtT.satDomainsGoal hm φ hφ
     · exact AtT.satCollsGoal hm φ hφ
-    · exact AtT.satFnsGoalEx hm (hypModelCore_clsFactsCe hm) hp hq φ hφ
+    · exact AtT.satFnsGoalEx hm hsol (hypModelCore_clsFactsCe hm) hp hq φ hφ
     · exact satRulesGoal_T hm hrules T hall hsome φ hφ
     · exact AtT.satFallbackGoal hm φ hφ
   · obtain ⟨-, hlit, rfl⟩ := hφ
@@ -64,11 +64,11 @@ theorem stdI_T_modelCEx (c : Semantics) (hm : HypModelCore c) (hp : ClausePreDec
 
 /-- **The value model is a model of `Γc` with the step's closure, where a clause may bind variables
 by `\exists`**: `stdI_T_modelCEx` at `T := StepM c`. -/
-theorem stdI_model_exCEx (c : Semantics) (hm : HypModelCore c) (hp : ClausePreDecided c)
+theorem stdI_model_exCEx (c : Semantics) (hm : HypModelCore c) (hsol : FnSolves c) (hp : ClausePreDecided c)
     (hq : ClausePostDecided c) (hl : OpenLaws c)
     (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainEx r = true) :
     stdI c ⊧ᴵP (Γc c ∪ Γstep c) :=
-  stdI_T_modelCEx c hm hp hq hl hrules (StepM c) (fun _ _ _ _ hT => hT)
+  stdI_T_modelCEx c hm hsol hp hq hl hrules (StepM c) (fun _ _ _ _ hT => hT)
     (fun r σ _ _ hb _ => (stepM_iff_by c).mpr ⟨r, σ, hb⟩)
     (fun r σ _ y hb _ => ⟨y, σ, fun _ _ => rfl, hb, (stepM_iff_by c).mpr ⟨r, σ, hb⟩⟩)
 
@@ -88,9 +88,9 @@ theorem has_model_choice_exCEx (c : Semantics) (h : c.coreOKEx = true) (hf : FnH
       ∀ x y : Config c, T x y ↔ ¬ (I ⊧ᴵ (den c x.val ⇒ ∼ KoreAML.sNext (den c y.val))) := by
   have hfm := fnModel_of_fnHypCEx h hf
   have hfd := hfm.1
-  have hm := hypModelCore_of_coreEx h hfm.1 hfm.2
+  have hm := hypModelCore_of_coreEx h hfm.1
   refine ⟨Elem, inferInstance, stdI_T c (liftT_ex c T),
-    stdI_T_modelCEx c hm (clausePreDecided_of_fnHypCEx h hf) (clausePostDecided_of_fnHypCEx h hf)
+    stdI_T_modelCEx c hm hfm.2 (clausePreDecided_of_fnHypCEx h hf) (clausePostDecided_of_fnHypCEx h hf)
       hf.2.2.2.2.2 hrules (liftT_ex c T) ?_ ?_ ?_,
     fun x y => (liftT_ex_iff T x y).symm.trans (step_iff_stdI_T c hm _ x y)⟩
   · intro x y hx hy hT

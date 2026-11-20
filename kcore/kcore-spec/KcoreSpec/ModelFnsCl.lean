@@ -443,7 +443,7 @@ namespace AtT
 variable {T : GroundTerm → GroundTerm → Prop}
 
 /-- **The equation of a clause with no clause of a smaller priority holds.** -/
-theorem sat_clauseEq (hpreTop : c.clausesPreTop = true) {cl : Clause} (hcl : cl ∈ fn.clauses) (hlow : lowerClauses fn cl = []) :
+theorem sat_clauseEq (hpreTop : c.clausesPreTop = true) (hs : FnSolves c) {cl : Clause} (hcl : cl ∈ fn.clauses) (hlow : lowerClauses fn cl = []) :
     stdI_T c T ⊧ᴵ (KoreAML.trAxiom [] [] ⟨0, "kernel", (⟨[KoreAML.Rv], .implies KoreAML.R
       (premise (fn.args.map c.sortName) (cl.req.map (Term.kore c (canonVars c cl.vars)))
         (Term.koreList c (canonVars c cl.vars) cl.pats))
@@ -458,7 +458,7 @@ theorem sat_clauseEq (hpreTop : c.clausesPreTop = true) {cl : Clause} (hcl : cl 
   obtain ⟨hσ, hvar⟩ := substE_ok (T := T) hEq.vin
   obtain ⟨-, hq, hpv⟩ := (premise_iff h (R_read e) hEq.Rs hvar (fun t ht => termOK_of_sorted h hL (hreqs t ht))
     (patOKs_of_sorted h (h.pats_nf hfn hcl hpats)) hlen hEq.args a).mp hprem
-  refine eval_of_decides h hfn hcl (hne.allFns fn hfn cl hcl) hEq.args.sorts ⟨⟨hσ.at _, hpv, hq, Clause.holds_preTop (clause_preCl (hpreTop := hpreTop) h hfn hcl) _⟩, fun cl' hcl' hna hlt => ?_⟩
+  refine eval_of_decides h hfn (hs fn) hcl (hne.allFns fn hfn cl hcl) hEq.args.sorts ⟨⟨hσ.at _, hpv, hq, Clause.holds_preTop (clause_preCl (hpreTop := hpreTop) h hfn hcl) _⟩, fun cl' hcl' hna hlt => ?_⟩
   have : cl' ∈ lowerClauses fn cl := by simp [lowerClauses, hcl', hna, hlt]
   rw [hlow] at this
   exact absurd this List.not_mem_nil
@@ -466,13 +466,13 @@ theorem sat_clauseEq (hpreTop : c.clausesPreTop = true) {cl : Clause} (hcl : cl 
 end AtT
 
 /-- **The equation of a clause with no clause of a smaller priority holds.** -/
-theorem sat_clauseEq (hpreTop : c.clausesPreTop = true) {cl : Clause} (hcl : cl ∈ fn.clauses) (hlow : lowerClauses fn cl = []) :
+theorem sat_clauseEq (hpreTop : c.clausesPreTop = true) (hs : FnSolves c) {cl : Clause} (hcl : cl ∈ fn.clauses) (hlow : lowerClauses fn cl = []) :
     stdI c ⊧ᴵ (KoreAML.trAxiom [] [] ⟨0, "kernel", (⟨[KoreAML.Rv], .implies KoreAML.R
       (premise (fn.args.map c.sortName) (cl.req.map (Term.kore c (canonVars c cl.vars)))
         (Term.koreList c (canonVars c cl.vars) cl.pats))
       (fnConcl c fn (Term.kore c (canonVars c cl.vars) cl.rhs)
         (reqPat (srtOf c fn.result) (cl.ens.map (Term.kore c (canonVars c cl.vars))))), []⟩ : Kore.Axiom)⟩).pat :=
-  AtT.sat_clauseEq (hpreTop := hpreTop) (c := c) (T := StepM c) (cl := cl) (hcl := hcl) (hlow := hlow) (h := h) (hne := hne) (hfn := hfn)
+  AtT.sat_clauseEq (hpreTop := hpreTop) (c := c) (T := StepM c) (cl := cl) (hcl := hcl) (hlow := hlow) (h := h) (hne := hne) (hfn := hfn) (hs := hs)
 
 namespace AtT
 
@@ -542,7 +542,7 @@ variable {T : GroundTerm → GroundTerm → Prop}
 
 /-- **The equation of a clause with clauses of a smaller priority holds**: where they all fail and
 it applies. -/
-theorem sat_competingEq (hpreTop : c.clausesPreTop = true) {cl : Clause} (hcl : cl ∈ fn.clauses) :
+theorem sat_competingEq (hpreTop : c.clausesPreTop = true) (hs : FnSolves c) {cl : Clause} (hcl : cl ∈ fn.clauses) :
     stdI_T c T ⊧ᴵ (KoreAML.trAxiom [] [] ⟨0, "kernel", (⟨[KoreAML.Rv], .implies KoreAML.R
       (competingPremise (fn.args.map c.sortName)
         ((lowerClauses fn cl).map fun cl' => exclusion c fn cl' (canonClausePres cl'))
@@ -571,21 +571,21 @@ theorem sat_competingEq (hpreTop : c.clausesPreTop = true) {cl : Clause} (hcl : 
         exact varsOf_and_mem (List.mem_cons_self ..) (varsOf_not_exclCl hcl' (clause_preCl (hpreTop := hpreTop) h hfn (hdl cl' hcl')) hi hil))) hnot
     obtain ⟨-, hq, hpv⟩ := (premise_iff h (R_read e) hEq.Rs hvar (fun t ht => termOK_of_sorted h hL (hreqs t ht))
       (patOKs_of_sorted h (h.pats_nf hfn hcl hpats)) hlen hEq.args a).mp hp
-    exact eval_of_decides h hfn hcl (hne.allFns fn hfn cl hcl) hEq.args.sorts ⟨⟨hσ.at _, hpv, hq, Clause.holds_preTop (clause_preCl (hpreTop := hpreTop) h hfn hcl) _⟩, fun cl' hcl' hna hlt σ' hw hp' hq' =>
+    exact eval_of_decides h hfn (hs fn) hcl (hne.allFns fn hfn cl hcl) hEq.args.sorts ⟨⟨hσ.at _, hpv, hq, Clause.holds_preTop (clause_preCl (hpreTop := hpreTop) h hfn hcl) _⟩, fun cl' hcl' hna hlt σ' hw hp' hq' =>
       hfails cl' (List.mem_filter.mpr ⟨hcl', by simp [hna, hlt]⟩) σ' ⟨hw, hp', hq'.1⟩⟩
 
 end AtT
 
 /-- **The equation of a clause with clauses of a smaller priority holds**: where they all fail and
 it applies. -/
-theorem sat_competingEq (hpreTop : c.clausesPreTop = true) {cl : Clause} (hcl : cl ∈ fn.clauses) :
+theorem sat_competingEq (hpreTop : c.clausesPreTop = true) (hs : FnSolves c) {cl : Clause} (hcl : cl ∈ fn.clauses) :
     stdI c ⊧ᴵ (KoreAML.trAxiom [] [] ⟨0, "kernel", (⟨[KoreAML.Rv], .implies KoreAML.R
       (competingPremise (fn.args.map c.sortName)
         ((lowerClauses fn cl).map fun cl' => exclusion c fn cl' (canonClausePres cl'))
         (cl.req.map (Term.kore c (canonVars c cl.vars))) (Term.koreList c (canonVars c cl.vars) cl.pats))
       (fnConcl c fn (Term.kore c (canonVars c cl.vars) cl.rhs)
         (reqPat (srtOf c fn.result) (cl.ens.map (Term.kore c (canonVars c cl.vars))))), []⟩ : Kore.Axiom)⟩).pat :=
-  AtT.sat_competingEq (hpreTop := hpreTop) (c := c) (T := StepM c) (cl := cl) (hcl := hcl) (h := h) (hne := hne) (hfn := hfn)
+  AtT.sat_competingEq (hpreTop := hpreTop) (c := c) (T := StepM c) (cl := cl) (hcl := hcl) (h := h) (hne := hne) (hfn := hfn) (hs := hs)
 
 end
 
@@ -618,24 +618,24 @@ namespace AtT
 variable {T : GroundTerm → GroundTerm → Prop}
 
 /-- **`SatFnsGoal`**: the value model satisfies the functions' equations. -/
-theorem satFnsGoal (hpreTop : c.clausesPreTop = true) (h : HypModelCore c) (hne : c.FnsNoExs) : (stdI_T c T ⊧ᴵP ΓFns c) := by
+theorem satFnsGoal (hpreTop : c.clausesPreTop = true) (h : HypModelCore c) (hs : FnSolves c) (hne : c.FnsNoExs) : (stdI_T c T ⊧ᴵP ΓFns c) := by
   refine sat_itemsPremises c fun it hit => ?_
   obtain ⟨fn, hfn, hit⟩ := List.mem_flatMap.mp hit
-  obtain ⟨s, hs, hit⟩ := List.mem_filterMap.mp hit
-  unfold fnEquationsK at hs
-  obtain ⟨cl, hcl, rfl⟩ := List.mem_map.mp hs
+  obtain ⟨s, hsm, hit⟩ := List.mem_filterMap.mp hit
+  unfold fnEquationsK at hsm
+  obtain ⟨cl, hcl, rfl⟩ := List.mem_map.mp hsm
   by_cases hlow : (lowerClauses fn cl).isEmpty = true
   · rw [show prioEquation c fn cl = clauseEquation c fn cl from if_pos hlow] at hit
     exact sat_kernelItem_of hit (clauseEquation_top (clause_preCl (hpreTop := hpreTop) h hfn hcl) (hne.allFns fn hfn cl hcl))
-      (sat_clauseEq (hpreTop := hpreTop) h hne hfn hcl (List.isEmpty_iff.mp hlow))
+      (sat_clauseEq (hpreTop := hpreTop) h hne hfn hs hcl (List.isEmpty_iff.mp hlow))
   · rw [show prioEquation c fn cl = competingEquation c fn (lowerClauses fn cl) cl from if_neg hlow] at hit
-    exact sat_kernelItem_of hit (competingEquation_top (clause_preCl (hpreTop := hpreTop) h hfn hcl) (hne.allFns fn hfn cl hcl)) (sat_competingEq (hpreTop := hpreTop) h hne hfn hcl)
+    exact sat_kernelItem_of hit (competingEquation_top (clause_preCl (hpreTop := hpreTop) h hfn hcl) (hne.allFns fn hfn cl hcl)) (sat_competingEq (hpreTop := hpreTop) h hne hfn hs hcl)
 
 end AtT
 
 /-- **`SatFnsGoal`**: the value model satisfies the functions' equations. -/
-theorem satFnsGoal (hpreTop : c.clausesPreTop = true) (h : HypModelCore c) (hne : c.FnsNoExs) : SatFnsGoal c :=
-  AtT.satFnsGoal (hpreTop := hpreTop) (c := c) (T := StepM c) (h := h) (hne := hne)
+theorem satFnsGoal (hpreTop : c.clausesPreTop = true) (h : HypModelCore c) (hs : FnSolves c) (hne : c.FnsNoExs) : SatFnsGoal c :=
+  AtT.satFnsGoal (hpreTop := hpreTop) (c := c) (T := StepM c) (h := h) (hs := hs) (hne := hne)
 
 end Model
 

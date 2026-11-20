@@ -34,11 +34,11 @@ example (c : Semantics) {H : Sym → Bool} (h : c.coreOKEx = true) (hf : FnHyp c
     (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainHeldH H r = true) (hbk : HeldBackAll c H) :
     ExactC c := exact_heldCEx c h hf hrules hbk
 
-example (c : Semantics) {H : Sym → Bool} (hm : HypModelCore c) (hp : ClausePreDecided c)
+example (c : Semantics) {H : Sym → Bool} (hm : HypModelCore c) (hsol : FnSolves c) (hp : ClausePreDecided c)
     (hq : ClausePostDecided c) (hl : OpenLaws c)
     (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainHeldH H r = true) :
     stdI_T c (StepV c) ⊧ᴵP (Γc c ∪ Γstep c) :=
-  stdI_T_model_heldCEx c hm hp hq hl hrules (StepV c) (fun _ _ _ _ hT => hT)
+  stdI_T_model_heldCEx c hm hsol hp hq hl hrules (StepV c) (fun _ _ _ _ hT => hT)
     (fun r σ _ _ hb _ => ⟨r, σ, hb⟩) (fun r σ _ y hb _ => ⟨y, σ, fun _ _ => rfl, hb, ⟨r, σ, hb⟩⟩)
 
 /-! ## Over `coreOK`: the statements of `exact_hyp` and `has_model_choice` -/

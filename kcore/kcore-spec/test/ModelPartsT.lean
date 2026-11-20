@@ -54,19 +54,19 @@ example (hd : FnDet c) (hs : FnSolves c) :
     (stdI_T c (fun _ _ => False) ⊧ᴵP ΓSig c) ∧ (stdI_T c (fun _ _ => False) ⊧ᴵP ΓFns c) ∧
     (stdI_T c (fun _ _ => False) ⊧ᴵ boolClosed c) ∧
     (stdI_T c (fun _ _ => True) ⊧ᴵP ΓCons c) ∧ (stdI_T c (fun _ _ => True) ⊧ᴵP ΓDomains c) := by
-  have h := hypModel_of_fn coreOK hd hs
+  have h := hypModel_of_fn coreOK hd
   have p0 := model_parts_T h coreOK (openLaws_of_plain (by decide +kernel)) (fun _ _ => False)
-    (AtT.satFnsGoal_decided h (Semantics.fnsNoExs_of_all (by decide +kernel)) (clausePreDecided_of_isTop (by decide +kernel)))
+    (AtT.satFnsGoal_decided h hs (Semantics.fnsNoExs_of_all (by decide +kernel)) (clausePreDecided_of_isTop (by decide +kernel)))
   have p1 := model_parts_T h coreOK (openLaws_of_plain (by decide +kernel)) (fun _ _ => True)
-    (AtT.satFnsGoal_decided h (Semantics.fnsNoExs_of_all (by decide +kernel)) (clausePreDecided_of_isTop (by decide +kernel)))
+    (AtT.satFnsGoal_decided h hs (Semantics.fnsNoExs_of_all (by decide +kernel)) (clausePreDecided_of_isTop (by decide +kernel)))
   exact ⟨p0.1, p0.2.2.2.2.1, p0.2.2.2.2.2.2 boolLit, p1.2.1, p1.2.2.1⟩
 
 /-- Under the empty transition `true` denotes its own element, and no value has a successor. -/
-example (hd : FnDet c) (hs : FnSolves c) (e : ML.Valuation Elem) (φ : KoreAML.P) (x : GroundTerm) :
+example (hd : FnDet c) (e : ML.Valuation Elem) (φ : KoreAML.P) (x : GroundTerm) :
     ((den c (.dv Srt.bool (.bool true))).interpret (stdI_T c (fun _ _ => False)) e
         (.val (.dv Srt.bool (.bool true)))) ∧
     ¬ (KoreAML.sNext φ).interpret (stdI_T c (fun _ _ => False)) e (.val x) := by
-  have h := hypModel_of_fn coreOK hd hs
+  have h := hypModel_of_fn coreOK hd
   refine ⟨(den_val_T h _ _ (by decide +kernel : c.sortOf (.dv Srt.bool (.bool true)) = some Srt.bool) e _).mpr rfl,
     fun hn => ?_⟩
   obtain ⟨y, -, hst⟩ := (sNext_iff_T _ φ e x).mp hn

@@ -569,7 +569,7 @@ theorem succ_undetermined :
     rw [show den cP BP.val = den c B.val from den_plus _] at hn
     exact h2 hx hn
   · have hm := hypModel_ofCl decided.1 decided.2.1 ovl decided.2.2.1 decided.2.2.2.1 decided.2.2.2.2.1
-      fnModel.1 fnModel.2
+      fnModel.1
     have hmod := vmModelCl c decided.1 decided.2.1 decided.2.2.1 decided.2.2.2.1 decided.2.2.2.2.1
       fnModel.1 fnModel.2 (clausePreDecided_of_fnFactsN coreOK (fun f _ => rightHeld.heldOwed f) obl_nil)
       obl_nil.2.2.2.2
@@ -1078,7 +1078,7 @@ theorem succ_undetermined :
     rw [show den cP BP.val = den c B.val from den_plus _] at hn
     exact h2 hx hn
   · have hm := hypModel_ofCl decided.1 decided.2.1 ovl decided.2.2.1 decided.2.2.2.1 decided.2.2.2.2.1
-      fnModel.1 fnModel.2
+      fnModel.1
     have hmod := vmModelCl c decided.1 decided.2.1 decided.2.2.1 decided.2.2.2.1 decided.2.2.2.2.1
       fnModel.1 fnModel.2 (clausePreDecided_of_fnFactsN coreOK (fun f _ => rightHeld.heldOwed f) obl_nil)
       obl_nil.2.2.2.2

@@ -97,7 +97,7 @@ end
 section
 open ML Faithful Faithful.Model
 
-variable (hd : FnDet c) (hs : FnSolves c) (T : GroundTerm → GroundTerm → Prop)
+variable (hd : FnDet c) (T : GroundTerm → GroundTerm → Prop)
 
 /-- `holdsT_atR` at a condition with its two facts, every other premise explicit. -/
 theorem modelR (h : HypModelCore c) (p : Cond) (vars : List Srt) (hok : c.condOK vars p = true)
@@ -112,15 +112,15 @@ theorem modelR (h : HypModelCore c) (p : Cond) (vars : List Srt) (hok : c.condOK
         ((KoreAML.tr ⟨tbl, []⟩ (Cond.kore c (canonVars c vars) KoreAML.R p)).interpret (stdI_T c T) e a ↔ b = true) :=
   fun _ _ _ _ _ hP hr hk hRm hσr hh a ha => holdsT_atR (T := T) h p hok hbd hP hr hk hRm hσr hh a ha
 
-include hd hs
+include hd
 
-example := modelR T (hypModel_of_fn coreOK hd hs) pNot [32, 32] conds_ok.1.1 conds_ok.1.2
-example := modelR T (hypModel_of_fn coreOK hd hs) pEx [Srt.int] conds_ok.2.1.1 conds_ok.2.1.2
-example := modelR T (hypModel_of_fn coreOK hd hs) pAll [] conds_ok.2.2.1.1 conds_ok.2.2.1.2
-example := modelR T (hypModel_of_fn coreOK hd hs) pMatch [sC] conds_ok.2.2.2.1 conds_ok.2.2.2.2
+example := modelR T (hypModel_of_fn coreOK hd) pNot [32, 32] conds_ok.1.1 conds_ok.1.2
+example := modelR T (hypModel_of_fn coreOK hd) pEx [Srt.int] conds_ok.2.1.1 conds_ok.2.1.2
+example := modelR T (hypModel_of_fn coreOK hd) pAll [] conds_ok.2.2.1.1 conds_ok.2.2.1.2
+example := modelR T (hypModel_of_fn coreOK hd) pMatch [sC] conds_ok.2.2.2.1 conds_ok.2.2.2.2
 
 /-- The value model has `TermsInSort`. -/
-example : TermsInSort c (stdI_T c T) := termsInSort_stdI (hypModel_of_fn coreOK hd hs)
+example : TermsInSort c (stdI_T c T) := termsInSort_stdI (hypModel_of_fn coreOK hd)
 
 end
 

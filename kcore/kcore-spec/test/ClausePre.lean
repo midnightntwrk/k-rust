@@ -795,7 +795,7 @@ section ModelSide
 
 open Faithful Faithful.Model ML
 
-theorem hypModel : HypModelCore c := hypModel_of_fn coreOK_ok fnDet fnSolves
+theorem hypModel : HypModelCore c := hypModel_of_fn coreOK_ok fnDet
 
 theorem preOK_c : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, c.condOK cl.vars cl.pre = true := by
   intro fn hfn cl hcl
@@ -809,7 +809,7 @@ theorem preDec_c : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, ∀ σ ws, c.WellSor
 
 /-- **`satFnsGoalPre` at `c`**: the value model satisfies the functions' equations with their
 predicates. -/
-theorem satFns : SatFnsGoal c := satFnsGoalPre hypModel (Semantics.fnsNoExs_of_all (by decide +kernel)) preOK_c preDec_c
+theorem satFns : SatFnsGoal c := satFnsGoalPre hypModel fnSolves (Semantics.fnsNoExs_of_all (by decide +kernel)) preOK_c preDec_c
 
 theorem gFn_mem : gFn ∈ c.fns := by simp [c]
 theorem gCl1_mem : gCl1 ∈ gFn.clauses := List.mem_cons_self ..
@@ -824,7 +824,7 @@ theorem sat_gCl1 (T : GroundTerm → GroundTerm → Prop) :
         (reqPat (srtOf c gFn.result) (gCl1.ens.map (Term.kore c (canonVars c gCl1.vars))))), []⟩ : Kore.Axiom)⟩).pat :=
   AtT.sat_clauseEqPre hypModel gFn_all (clause_eqnFactsPre hypModel gFn_all gCl1_mem rfl (preOK_c _ gFn_mem _ gCl1_mem))
     (preDec_c _ gFn_mem _ gCl1_mem)
-    fun σ ws hws happ => eval_of_decides hypModel gFn_all gCl1_mem rfl hws ⟨happ, fun cl' hcl' _ hlt => by
+    fun σ ws hws happ => eval_of_decides hypModel gFn_all (fnSolves _) gCl1_mem rfl hws ⟨happ, fun cl' hcl' _ hlt => by
       rcases gCl_of hcl' with rfl | rfl
       · exact absurd hlt (Nat.lt_irrefl _)
       · exact absurd hlt (by decide)⟩
@@ -842,7 +842,7 @@ theorem sat_gCl2 (T : GroundTerm → GroundTerm → Prop) :
     (fun cl' hcl' => by
       obtain rfl : cl' = gCl1 := by simpa using hcl'
       exact (clause_eqnFactsPre hypModel gFn_all gCl1_mem rfl (preOK_c _ gFn_mem _ gCl1_mem)).toExclFactsPre)
-    fun σ ws hws happ hfails => eval_of_decides hypModel gFn_all gCl2_mem rfl hws ⟨happ, fun cl' hcl' _ hlt σ' hw hp' => by
+    fun σ ws hws happ hfails => eval_of_decides hypModel gFn_all (fnSolves _) gCl2_mem rfl hws ⟨happ, fun cl' hcl' _ hlt σ' hw hp' => by
       rcases gCl_of hcl' with rfl | rfl
       · exact hfails gCl1 (List.mem_singleton_self _) σ' hw hp'
       · exact absurd hlt (Nat.lt_irrefl _)⟩

@@ -196,7 +196,8 @@ the premise is false there and the rule's axiom holds; the value model is a mode
 interpretation. -/
 theorem value_model (H : HookParams) :
     Faithful.Model.stdI (c0.withHooks H) ⊧ᴵP (Γc (c0.withHooks H) ∪ Γstep (c0.withHooks H)) :=
-  stdI_model_exCEx (c0.withHooks H) (hypModel_of_fnHyp coreOK fnHyp) (clausePreDecided_of_fnHyp coreOK fnHyp)
+  stdI_model_exCEx (c0.withHooks H) (hypModel_of_fnHyp coreOK fnHyp) (fnModel_of_fnHyp coreOK fnHyp).2
+    (clausePreDecided_of_fnHyp coreOK fnHyp)
     (clausePostDecided_of_fnHypCEx (Semantics.coreOK_iff_ex.mp coreOK) fnHyp)
     (openLaws_of_plain (fun k hk => by rw [params_nil] at hk; cases hk))
     ruleFacts

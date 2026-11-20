@@ -23,9 +23,9 @@ namespace KCore
 open ML Faithful Faithful.Model
 
 /-- **The value model satisfies `Γc c` with the step's closure** for a semantics with
-`HypModelCore` (whose clauses are asked `sortedOKCl`) and rules with `ruleSorted` and
+`HypModelCore` (whose clauses are asked `sortedOKCl`), `FnSolves` and rules with `ruleSorted` and
 `rulePlainOpen`: `stdI_modelOpen` with `boolClosed_modelCl` for the closure axiom. -/
-theorem stdI_modelOpenCl (c : Semantics) (hm : HypModelCore c) (hne : c.FnsNoExs) (hp : ClausePreDecided c) (hl : OpenLaws c)
+theorem stdI_modelOpenCl (c : Semantics) (hm : HypModelCore c) (hsol : FnSolves c) (hne : c.FnsNoExs) (hp : ClausePreDecided c) (hl : OpenLaws c)
     (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainOpen r = true) :
     stdI c ⊧ᴵP (Γc c ∪ Γstep c) := by
   intro φ hφ
@@ -35,7 +35,7 @@ theorem stdI_modelOpenCl (c : Semantics) (hm : HypModelCore c) (hne : c.FnsNoExs
     · exact satConsGoal hm hl φ hφ
     · exact satDomainsGoal hm φ hφ
     · exact satCollsGoal hm φ hφ
-    · exact satFnsGoal_decided hm hne hp φ hφ
+    · exact satFnsGoal_decided hm hsol hne hp φ hφ
     · exact satRulesGoal_open hm hrules φ hφ
     · exact satFallbackGoal hm φ hφ
   · obtain ⟨-, hl, rfl⟩ := hφ
@@ -43,9 +43,9 @@ theorem stdI_modelOpenCl (c : Semantics) (hm : HypModelCore c) (hne : c.FnsNoExs
   · exact satStepGoal_open hm hrules φ hφ
 
 /-- **The value model satisfies `Γc c` with the step's closure** for a semantics with
-`HypModelCore` and rules with `ruleSorted` and `rulePlainEx`: `stdI_modelOpenCl` with the rules'
+`HypModelCore`, `FnSolves` and rules with `ruleSorted` and `rulePlainEx`: `stdI_modelOpenCl` with the rules'
 axioms and the step's closure at `T := StepM c` (`satRulesGoal_StepM`, `satStepGoal_StepM`). -/
-theorem stdI_modelExCl (c : Semantics) (hm : HypModelCore c) (hne : c.FnsNoExs) (hp : ClausePreDecided c) (hl : OpenLaws c)
+theorem stdI_modelExCl (c : Semantics) (hm : HypModelCore c) (hsol : FnSolves c) (hne : c.FnsNoExs) (hp : ClausePreDecided c) (hl : OpenLaws c)
     (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainEx r = true) :
     stdI c ⊧ᴵP (Γc c ∪ Γstep c) := by
   intro φ hφ
@@ -55,7 +55,7 @@ theorem stdI_modelExCl (c : Semantics) (hm : HypModelCore c) (hne : c.FnsNoExs) 
     · exact satConsGoal hm hl φ hφ
     · exact satDomainsGoal hm φ hφ
     · exact satCollsGoal hm φ hφ
-    · exact satFnsGoal_decided hm hne hp φ hφ
+    · exact satFnsGoal_decided hm hsol hne hp φ hφ
     · exact satRulesGoal_StepM hm hrules φ hφ
     · exact satFallbackGoal hm φ hφ
   · obtain ⟨-, hl, rfl⟩ := hφ
@@ -72,13 +72,13 @@ of the sorts of the variables a clause's patterns and conditions do not hold. -/
 theorem consistent_ofCl (c : Semantics) (hok : c.sortedOKCl = true) (_htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top) (hsr : c.srReady = true) [hov : OvlOK c]
     (hfa : c.faithCoreOK = true) (hph : patHooksApart c = true) (hids : c.idsOK = true)
     (hd : FnDet c) (hs : FnSolves c) (hp : ClausePreDecided c) (hl : OpenLaws c) : Consistent c := by
-  have hm := hypModel_ofCl hok hsr hov hfa hph hids hd hs
+  have hm := hypModel_ofCl hok hsr hov hfa hph hids hd
   have hne := Semantics.fnsNoExs_of_sortedOKCl hok
   refine ⟨Elem, inferInstance, stdI_T c (StepV c), fun φ hφ => ?_⟩
   rcases hφ with (hφ | hφ) | hφ
-  · exact stdI_V_model_core hm hne hp hl φ (Or.inl hφ)
+  · exact stdI_V_model_core hm hs hne hp hl φ (Or.inl hφ)
   · obtain ⟨-, hlit, rfl⟩ := hφ
     exact boolClosed_modelClT hm hlit
-  · exact stdI_V_model_core hm hne hp hl φ (Or.inr hφ)
+  · exact stdI_V_model_core hm hs hne hp hl φ (Or.inr hφ)
 
 end KCore

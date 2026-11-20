@@ -5,7 +5,8 @@
   and of its right side's predicate from a hypothesis on the clauses (`hcls`) and the truth values
   of the right sides' predicates from `ClausePostDecided`.
 
-  The other items of the theory are read as `stdI_V_model_core` reads them, from `HypModelCore`.
+  The other items of the theory are read as `stdI_V_model_core` reads them, from `HypModelCore`;
+  `FnSolves` is read by the functions' equations only.
 -/
 import KcoreSpec.ModelFnsExGoal
 import KcoreSpec.BoolClosedCl
@@ -25,7 +26,7 @@ variable {c : Semantics}
 /-- **The value model at its own step satisfies `Γ` with the step's closure where a clause may
 hold existential variables**: `stdI_V_model_core` with the functions' equations by
 `AtT.satFnsGoalEx`. -/
-theorem stdI_V_model_coreEx (h : HypModelCore c)
+theorem stdI_V_model_coreEx (h : HypModelCore c) (hsol : FnSolves c)
     (hcls : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, c.clauseSortedOpen fn (c.fns.map Fn.sig) cl = true ∧
       c.clauseExOK cl = true ∧ (cl.exs = [] → cl.post = .top))
     (hp : ClausePreDecided c) (hq : ClausePostDecided c) (hl : OpenLaws c) :
@@ -37,7 +38,7 @@ theorem stdI_V_model_coreEx (h : HypModelCore c)
     · exact AtT.satConsGoal h hl φ hφ
     · exact AtT.satDomainsGoal h φ hφ
     · exact AtT.satCollsGoal h φ hφ
-    · exact AtT.satFnsGoalEx h hcls hp hq φ hφ
+    · exact AtT.satFnsGoalEx h hsol hcls hp hq φ hφ
     · exact satRulesGoal_held h h.ruleFactsHeld (StepV c) (fun r σ _ _ hb _ => ⟨r, σ, hb⟩)
         (fun r σ _ y hb _ => ⟨y, σ, fun _ _ => rfl, hb, ⟨r, σ, hb⟩⟩) φ hφ
     · exact AtT.satFallbackGoal h φ hφ
@@ -50,19 +51,19 @@ end Faithful
 open ML Faithful Faithful.Model
 
 /-- **The theory is consistent where a clause may hold existential variables**, under
-`HypModelCore`, the clauses' facts (`hcls`), `ClausePreDecided`, `ClausePostDecided` and
+`HypModelCore`, `FnSolves`, the clauses' facts (`hcls`), `ClausePreDecided`, `ClausePostDecided` and
 `OpenLaws`: the value model at its own step (`stdI_V_model_coreEx`), with the closure axiom where
 Bool holds only its literals. -/
-theorem consistent_of_modelEx (c : Semantics) (hm : HypModelCore c)
+theorem consistent_of_modelEx (c : Semantics) (hm : HypModelCore c) (hsol : FnSolves c)
     (hcls : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, c.clauseSortedOpen fn (c.fns.map Fn.sig) cl = true ∧
       c.clauseExOK cl = true ∧ (cl.exs = [] → cl.post = .top))
     (hp : ClausePreDecided c) (hq : ClausePostDecided c) (hl : OpenLaws c) : Consistent c := by
   refine ⟨Elem, inferInstance, stdI_T c (StepV c), fun φ hφ => ?_⟩
   rcases hφ with (hφ | hφ) | hφ
-  · exact stdI_V_model_coreEx hm hcls hp hq hl φ (Or.inl hφ)
+  · exact stdI_V_model_coreEx hm hsol hcls hp hq hl φ (Or.inl hφ)
   · obtain ⟨-, hlit, rfl⟩ := hφ
     exact boolClosed_modelClT hm hlit
-  · exact stdI_V_model_coreEx hm hcls hp hq hl φ (Or.inr hφ)
+  · exact stdI_V_model_coreEx hm hsol hcls hp hq hl φ (Or.inr hφ)
 
 
 namespace Faithful
@@ -79,11 +80,11 @@ theorem hypModelCore_clsFactsCe {c : Semantics} (h : HypModelCore c) :
   ⟨hp.1, (Semantics.clausePlainOpenEx_parts hp.2).1, (Semantics.clausePlainOpenEx_parts hp.2).2.1⟩
 
 /-- **The theory is consistent where a clause may hold existential variables**, under
-`HypModelCore` (whose sortedness of the clauses is `sortedOKClEx`), `ClausePreDecided`,
+`HypModelCore` (whose sortedness of the clauses is `sortedOKClEx`), `FnSolves`, `ClausePreDecided`,
 `ClausePostDecided` and `OpenLaws`. -/
-theorem consistent_ce (c : Semantics) (hm : HypModelCore c) (hp : ClausePreDecided c)
+theorem consistent_ce (c : Semantics) (hm : HypModelCore c) (hsol : FnSolves c) (hp : ClausePreDecided c)
     (hq : ClausePostDecided c) (hl : OpenLaws c) : Consistent c :=
-  consistent_of_modelEx c hm (hypModelCore_clsFactsCe hm) hp hq hl
+  consistent_of_modelEx c hm hsol (hypModelCore_clsFactsCe hm) hp hq hl
 
 end Model
 

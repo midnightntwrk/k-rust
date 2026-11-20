@@ -232,10 +232,10 @@ example : c.readsConfined = false ∧ c2.readsConfined = false := by decide +ker
 /-! ## The value model: `applies_iff_open`, `rule_premise_open` -/
 
 /-- The lemmas at each of the four rules, in the value model of the text's semantics, for every
-`FnDet` and `FnSolves`: a configuration is in a rule's `applies` pattern exactly where the rule
+`FnDet`: a configuration is in a rule's `applies` pattern exactly where the rule
 applies, and the left part of the rule's axiom holds exactly at `StepM`'s premises for it. -/
-example (hd : FnDet c) (hs : FnSolves c) : True := by
-  have h := hypModel_of_fn coreOK hd hs
+example (hd : FnDet c) : True := by
+  have h := hypModel_of_fn coreOK hd
   have := @Faithful.Model.applies_iff_open c h ok1 ok1_open.1 ok1_open.2.1
   have := @Faithful.Model.applies_iff_open c h okB okB_open.1 okB_open.2
   have := @Faithful.Model.applies_iff_open c h ok2 ok2_open.1 ok2_open.2.1
@@ -247,8 +247,8 @@ example (hd : FnDet c) (hs : FnSolves c) : True := by
   trivial
 
 /-- `freeOf_prioOpen` at each of the four rules: the free variables of the rule's axiom are its own. -/
-example (hd : FnDet c) (hs : FnSolves c) : True := by
-  have h := hypModel_of_fn coreOK hd hs
+example (hd : FnDet c) : True := by
+  have h := hypModel_of_fn coreOK hd
   have := @Faithful.Model.freeOf_prioOpen c h ok1 ok1_open.1 ok1_open.2.1 (h.ruleFactsEx_of_all (by decide +kernel))
   have := @Faithful.Model.freeOf_prioOpen c h okB okB_open.1 okB_open.2 (h.ruleFactsEx_of_all (by decide +kernel))
   have := @Faithful.Model.freeOf_prioOpen c h ok2 ok2_open.1 ok2_open.2.1 (h.ruleFactsEx_of_all (by decide +kernel))
@@ -263,9 +263,9 @@ theorem ok1hi_open : c2.ruleSorted ok1hi = true ∧ c2.rulePlainOpen ok1hi = tru
     (c2.rules.filter (·.prio < ok1hi.prio)).length = 2 := by
   decide +kernel
 
-example (hd : FnDet c2) (hs : FnSolves c2) : True := by
-  have := Faithful.Model.rule_premise_open (hypModel_of_fn coreOK2 hd hs) ok1hi_open.1 ok1hi_open.2.1
-    ((hypModel_of_fn coreOK2 hd hs).ruleFactsEx_of_all (by decide +kernel))
+example (hd : FnDet c2) : True := by
+  have := Faithful.Model.rule_premise_open (hypModel_of_fn coreOK2 hd) ok1hi_open.1 ok1hi_open.2.1
+    ((hypModel_of_fn coreOK2 hd).ruleFactsEx_of_all (by decide +kernel))
   trivial
 
 /-! ## The rules' facts at the text's semantics and at `c2` -/

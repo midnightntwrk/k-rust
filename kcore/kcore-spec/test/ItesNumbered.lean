@@ -240,10 +240,10 @@ theorem c3_graph_head (args : List Kore.Pattern) :
 /-- The value model of `c3` is a model of its theory. -/
 theorem model3 : stdI c3 ⊧ᴵP (Γc c3 ∪ Γstep c3) :=
   stdI_modelOpen c3 c3_core
-    (hypModel_of_fn c3_core (fnModel_of_fnHyp c3_core c3_fnHyp).1 (fnModel_of_fnHyp c3_core c3_fnHyp).2)
+    (hypModel_of_fn c3_core (fnModel_of_fnHyp c3_core c3_fnHyp).1)
     c3_fnHyp.2.2.2.2.2 (fun _ h => absurd h List.not_mem_nil)
     (satFnsGoal_decided
-      (hypModel_of_fn c3_core (fnModel_of_fnHyp c3_core c3_fnHyp).1 (fnModel_of_fnHyp c3_core c3_fnHyp).2)
+      (hypModel_of_fn c3_core (fnModel_of_fnHyp c3_core c3_fnHyp).1) (fnModel_of_fnHyp c3_core c3_fnHyp).2
       (Semantics.fnsNoExs_of_all (by decide +kernel)) (clausePreDecided_of_fnHyp c3_core c3_fnHyp))
 
 end Numbered

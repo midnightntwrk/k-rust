@@ -912,7 +912,7 @@ theorem closed_model (H : HookParams) : ∃ (M : Type) (_ : Inhabited M) (I : In
   have h' := Semantics.coreOK_iff_ex.mp h
   have hf := fnHypH H
   have hm : HypModelCore (cH H) := hypModel_of_fnHyp h hf
-  exact ⟨_, inferInstance, _, stdI_V_model_coreEx hm
+  exact ⟨_, inferInstance, _, stdI_V_model_coreEx hm (fnModel_of_fnHyp h hf).2
     (fun fn hfn cl hcl =>
       have hcp := (Semantics.sortedOKClEx_parts (Semantics.sortedOKClEx_of_sortedOKEx
         (Semantics.coreOKEx_parts h').1)).2.1 fn hfn cl hcl

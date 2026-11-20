@@ -67,7 +67,7 @@ variable (hf : FnHyp c) (T : GroundTerm → GroundTerm → Prop)
 include hf
 
 theorem hModel : HypModelCore c :=
-  hypModel_of_fn coreOK (fnModel_of_fnHyp coreOK hf).1 (fnModel_of_fnHyp coreOK hf).2
+  hypModel_of_fn coreOK (fnModel_of_fnHyp coreOK hf).1
 
 /-- A sort `hasValue` accepts is numbered: it has a value (`hasValue_value`, on `coreOK`), whose
 sort is numbered in the model. -/

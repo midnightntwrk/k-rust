@@ -577,11 +577,12 @@ theorem stepBy_of_stepVByCEx {c : Semantics} (h : c.coreOKEx = true) (hfd : FnDe
 
 /-- **The value model at a transition T is a model of `Γc` with the step's closure, where a clause
 may bind variables by `\exists`**, for rules with `ruleSorted` and `rulePlainHeldH`: under
-`HypModelCore`, with each clause's two predicates decided, where every T step between configurations
+`HypModelCore` and `FnSolves`, with each clause's two predicates decided, where every T step between configurations
 is a `StepV` step (`hsub`), every `StepVBy` instance of a rule without existential variables is in T
 (`hall`), and for a rule with existential variables some instance that differs from a given one at ē
 only is (`hsome`). The functions' equations are `AtT.satFnsGoalEx`. -/
-theorem stdI_T_model_heldCEx (c : Semantics) {H : Sym → Bool} (hm : HypModelCore c) (hp : ClausePreDecided c)
+theorem stdI_T_model_heldCEx (c : Semantics) {H : Sym → Bool} (hm : HypModelCore c) (hsol : FnSolves c)
+    (hp : ClausePreDecided c)
     (hq : ClausePostDecided c) (hl : OpenLaws c)
     (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainHeldH H r = true)
     (T : GroundTerm → GroundTerm → Prop)
@@ -597,7 +598,7 @@ theorem stdI_T_model_heldCEx (c : Semantics) {H : Sym → Bool} (hm : HypModelCo
     · exact AtT.satConsGoal hm hl φ hφ
     · exact AtT.satDomainsGoal hm φ hφ
     · exact AtT.satCollsGoal hm φ hφ
-    · exact AtT.satFnsGoalEx hm (hypModelCore_clsFactsCe hm) hp hq φ hφ
+    · exact AtT.satFnsGoalEx hm hsol (hypModelCore_clsFactsCe hm) hp hq φ hφ
     · exact satRulesGoal_held hm hrules T hall hsome φ hφ
     · exact AtT.satFallbackGoal hm φ hφ
   · obtain ⟨-, hlit, rfl⟩ := hφ
@@ -620,9 +621,9 @@ theorem has_model_choice_heldCEx (c : Semantics) {H : Sym → Bool} (h : c.coreO
       ∀ x y : Config c, T x y ↔ ¬ (I ⊧ᴵ (den c x.val ⇒ ∼ KoreAML.sNext (den c y.val))) := by
   have hfm := fnModel_of_fnHypCEx h hf
   have hfd := hfm.1
-  have hm := hypModelCore_of_coreEx h hfm.1 hfm.2
+  have hm := hypModelCore_of_coreEx h hfm.1
   have hsr : ∀ r ∈ c.rules, c.ruleSorted r = true := fun r hr => (hrules r hr).1
-  refine ⟨Elem, inferInstance, stdI_T c (liftT_ex c T), stdI_T_model_heldCEx c hm (clausePreDecided_of_fnHypCEx h hf) (clausePostDecided_of_fnHypCEx h hf)
+  refine ⟨Elem, inferInstance, stdI_T c (liftT_ex c T), stdI_T_model_heldCEx c hm hfm.2 (clausePreDecided_of_fnHypCEx h hf) (clausePostDecided_of_fnHypCEx h hf)
       hf.2.2.2.2.2 hrules (liftT_ex c T) ?_ ?_ ?_,
     fun x y => (liftT_ex_iff T x y).symm.trans (step_iff_stdI_T c hm _ x y)⟩
   · intro x y hx hy hT

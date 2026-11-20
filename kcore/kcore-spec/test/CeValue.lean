@@ -801,7 +801,6 @@ theorem complete_x1 :
 
 theorem cCeV_hypModelCore : Faithful.Model.HypModelCore cCeV :=
   Faithful.Model.hypModelCore_of_coreEx cCeV_coreOKEx (fnModel_of_fnHypCEx cCeV_coreOKEx cCeV_fnHyp).1
-    (fnModel_of_fnHypCEx cCeV_coreOKEx cCeV_fnHyp).2
 
 theorem cCeV_preDecided : ClausePreDecided cCeV := clausePreDecided_of_fnHypCEx cCeV_coreOKEx cCeV_fnHyp
 
@@ -809,7 +808,8 @@ theorem cCeV_postDecided : ClausePostDecided cCeV := clausePostDecided_of_fnHypC
 
 /-- **`consistent_ce` at `cCeV`**: the theory of the text with the rule `r0` has a model. -/
 theorem cCeV_consistent : Consistent cCeV :=
-  Faithful.Model.consistent_ce cCeV cCeV_hypModelCore cCeV_preDecided cCeV_postDecided cCeV_openLaws
+  Faithful.Model.consistent_ce cCeV cCeV_hypModelCore (fnModel_of_fnHypCEx cCeV_coreOKEx cCeV_fnHyp).2
+    cCeV_preDecided cCeV_postDecided cCeV_openLaws
 
 /-- The pinned `consistent_of` and `sound_hyp` at `cCeV`, which `coreOK` accepts. -/
 example : Consistent cCeV :=
