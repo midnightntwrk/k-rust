@@ -134,6 +134,16 @@ The evidence forms (DONE-0 C2's table), by status and list, and the items each n
       of kind "in a model" naming the sentence or declaration, rows-header.toml item 7), beside the
       class's theorems; or, on a module row, "no direction in a model: MODULE; every ... row of
       MODULE (n) is ..." (every member of no direction with a theorem in a model)
+  supported (tied under a domain premise) (left out of the headline count: an entry of a supported
+  form above, E6's aside, with `tie_premise`, rows-header.toml): its form's items, and
+      tie premise  each table of `tie_premise` has non-empty `sentences`, `premise`, a boolean
+                   `in_gamma`, `ground`, `theorem`, `consistent`, `converse` or `at_values`, and
+                   `needed` where in_gamma is false, each theorem declared in a file of `tie`
+                   (`needed` and `at_values` also among tie_theorems); each of
+                   its sentences is in `def underPremise` of a file of `tie` reading the entry's text,
+                   with that premise (tiegen --hand rules, a premise form). On a supported entry
+                   without the field, a sentence `sentence` locates that such a file lists in
+                   `underPremise` is missing its table. provenance.sh checks the statements
   supported (no model) (left out of the headline count: Γ of every text holding the sentence has
   no model, so an entailment there is vacuous)
       "no model: MODULE; ..." with an item "...; no model)" (the no-model theorem of a form (r)
@@ -314,8 +324,13 @@ def hook_own(fx, key, e, row):
 
 E6_ND, E6_NM, E6_REF = "E6 no direction (in a model)", "supported (no model)", "refuted (recorded)"
 E6_GROUPS = (E6_ND, E6_NM, E6_REF)
-# Left out of the headline count (decision-e6-uncovered section 3: Γ of the text has no model).
-APART = (E6_NM,)
+# A supported entry with a `tie_premise` table: its sentences tied under a premise that no sentence of
+# the text states (rows-header.toml, field tie_premise).
+PREMISE_FORM = "supported (tied under a domain premise)"
+SUPPORTED_TIED = ("supported", "supported E4/E5", "supported function of the text")
+# Left out of the headline count: Γ of the text has no model (decision-e6-uncovered section 3); the
+# sentences are tied under a premise, not by the text with no premise.
+APART = (E6_NM, PREMISE_FORM)
 E6_ITEM = re.compile(r"(\S+) \((test/[^;()]+\.lean); ([^()]*)\)")
 RULING = re.compile(r"DONE-0 section 0 \(4\)|\bdecision-[\w-]+\.md\b")
 
@@ -339,6 +354,14 @@ def e6_group(key, e):
 
 
 def form(l, key, e, row=None, fx=None):
+    """The evidence form of DONE-0 C2's table for the entry's status, or None without a status: that
+    of `base_form`, and PREMISE_FORM for an entry of one of the forms SUPPORTED_TIED with a
+    `tie_premise` field (`base_form` gives the items it needs beside its tables)."""
+    f = base_form(l, key, e, row, fx)
+    return PREMISE_FORM if f in SUPPORTED_TIED and e.get("tie_premise") is not None else f
+
+
+def base_form(l, key, e, row=None, fx=None):
     """The evidence form of DONE-0 C2's table for the entry's status, or None without a status.
     With the entry's row and the fixtures, a table nested in an E6 `hook:` row whose reading takes
     the symbol for a function of the text has that form (`hook_own`). An E6 library row of status
@@ -762,6 +785,95 @@ def tie_uncovered(f):
     return _unc[f]
 
 
+_upr = {}
+
+
+def tie_under_premise(f):
+    """(the text the tie file reads by `kore_term kore from`, {index: premise} of its `def
+    underPremise`), or None where it has no such text or no `underPremise` (tiegen writes it only
+    where a hand section on the rules ties a sentence under a premise)."""
+    if f not in _upr:
+        p = os.path.join(K, f) if isinstance(f, str) else None
+        r = None
+        if p and os.path.isfile(p):
+            src = open(p).read()
+            m = re.search(r'^kore_term kore from "([^"]+)"', src, re.M)
+            i = src.find("\ndef underPremise : List (Nat × String) :=")
+            if m and i >= 0:
+                body = src[i + 1:].split("\n\n", 1)[0].split(":=", 1)[1]
+                r = (m[1], {int(n): q for n, q in re.findall(r'\(\s*(\d+)\s*,\s*"([^"]*)"\s*\)', body)})
+        _upr[f] = r
+    return _upr[f]
+
+
+TIE_PREMISE_NAMES = ("theorem", "converse", "needed", "at_values", "consistent")
+
+
+def tie_premise_items(fx, e, own, have, miss):
+    """On a supported entry: each table of `tie_premise` (rows-header.toml) is evidence for its
+    sentences, tied under its premise. It has non-empty `sentences` (indices), `premise` (the name
+    tiegen writes in `underPremise`), `in_gamma` (a boolean), `ground`, `theorem` and `consistent`,
+    `converse` or `at_values` (at least one: the other direction), and `needed` where in_gamma is
+    false; each named theorem declared in a file of `tie`, `needed` and `at_values` also among
+    `tie_theorems`; and each sentence is in `underPremise`, with
+    that premise, of a file of `tie` reading a text of the entry's fixtures. Without the field: a
+    sentence `sentence` locates that such a file lists in `underPremise` is missing its table."""
+    ts = e.get("tie")
+    ts = list(dict.fromkeys(f for f in (ts if isinstance(ts, list) else [ts] if ts else []) if isinstance(f, str)))
+    under = {}
+    for x in own:
+        for f in ts:
+            u = tie_under_premise(f)
+            if u and reads_own_text(f, x):
+                for i, q in u[1].items():
+                    under.setdefault(i, []).append((q, f, u[0]))
+    tp = e.get("tie_premise")
+    if tp is None:
+        ss = e.get("sentence")
+        ss = ss if isinstance(ss, list) else [ss] if isinstance(ss, str) else []
+        for i, ws in sorted(under.items()):
+            for q, f, path in ws:
+                if ss and i in fx.located(path, ss)[0]:
+                    miss.append(f"tie_premise: sentence {i}, which `sentence` locates, is in `underPremise` of {f}"
+                                f" (under {q}), and the entry has no tie_premise table for it")
+        return
+    if not (isinstance(tp, list) and tp and all(isinstance(d, dict) for d in tp)):
+        miss.append("tie_premise (not a non-empty list of tables)"); return
+    for k, d in enumerate(tp):
+        at = f"tie_premise[{k}]"
+        ss, q = d.get("sentences"), d.get("premise")
+        why = []
+        if not (isinstance(ss, list) and ss and all(isinstance(i, int) and not isinstance(i, bool) for i in ss)):
+            why.append("`sentences` not a non-empty list of indices")
+        if not (isinstance(q, str) and q.strip()):
+            why.append("no `premise`")
+        if not isinstance(d.get("in_gamma"), bool):
+            why.append("`in_gamma` not a boolean")
+        if not (isinstance(d.get("ground"), str) and d["ground"].strip()):
+            why.append("no `ground`")
+        for n in ("theorem", "consistent") + (("needed",) if d.get("in_gamma") is False else ()):
+            if not isinstance(d.get(n), str):
+                why.append(f"no `{n}`")
+        if not any(isinstance(d.get(n), str) for n in ("converse", "at_values")):
+            why.append("neither `converse` nor `at_values` (the other direction)")
+        bad = [d[n] for n in TIE_PREMISE_NAMES if isinstance(d.get(n), str) and not declared(d[n], ts)]
+        if bad:
+            why.append(f"{', '.join(bad[:2])} not declared in a file of `tie`")
+        unnamed = [d[n] for n in ("needed", "at_values") if isinstance(d.get(n), str)
+                   and d[n] not in (e.get("tie_theorems") or [])]
+        if unnamed:
+            why.append(f"{', '.join(unnamed)} not among tie_theorems")
+        if why:
+            miss.append(f"{at} (" + "; ".join(why) + ")"); continue
+        out = [i for i in ss if not any(q_ == q for q_, _, _ in under.get(i, []))]
+        if out:
+            miss.append(f"{at}: sentence {out[0]} is in no `underPremise` of a file of `tie` reading the entry's"
+                        f" text with the premise {q}" + (f" (there under {under[out[0]][0][0]})" if under.get(out[0]) else ""))
+            continue
+        have.append(f"tied under a domain premise: {', '.join(map(str, ss))} under {q} "
+                    f"({under[ss[0]][0][1]} underPremise)")
+
+
 def uncovered_items(fx, e, own, have, miss):
     """B21 (findings/work/wave-B-audit.md) on a supported entry: an axiom of a fixture's text that
     the entry's `sentence` locates is not in `uncovered` of a file of `tie` reading that text
@@ -995,6 +1107,10 @@ def evidence(fx, l, key, e, row):
 
     if f is None:
         return have, miss
+    if f == PREMISE_FORM:
+        f = base_form(l, key, e, row, fx)
+    if f in SUPPORTED_TIED:
+        tie_premise_items(fx, e, own, have, miss)
     if f in ("pending-fixture", "not-handled"):
         miss.append(f"a status ({f} is none of DONE-0 C2's five)")
     elif f == "supported":
@@ -1879,8 +1995,47 @@ def self_test():
         un = lambda **kw: dict({"status": "supported", "fixture": "e3-ml-rule-lhs-and", "sentence": [un_r],
                                 "tie": [tlv, trl], "tie_theorems": ["KCore.TieLhsAndVar.account",
                                                                     "TieRuleLhsAnd.Var.tie"]}, **kw)
+        # a tie_premise table: e3-ml-req-not's rule (sentence 157 of f2-examples/mlreqnot.kompile.kore, which
+        # test/TieE3MlReqNot.lean reads) as tiegen writes it under a premise form, in `underPremise`
+        # and not `uncovered`
+        os.makedirs(os.path.join(fxd, "e3-ml-req-not"))
+        for f_, c_ in (("account.txt", clean), ("kompile.txt", "exit 0\n"), ("kore.txt", "Lblgo{}(VarX:SortInt{})\n")):
+            open(os.path.join(fxd, "e3-ml-req-not", f_), "w").write(c_)
+        trn, trn157, trdr = "test/TieE3MlReqNot.lean", "test/TieE3MlReqNot157.lean", "test/RdrCondNotCounter.lean"
+        _upr[trn] = ("f2-examples/mlreqnot.kompile.kore", {157: "boolClosed"})
+        _unc[trn] = ("f2-examples/mlreqnot.kompile.kore", set())
+        tpok = {"sentences": [157], "premise": "boolClosed", "in_gamma": False, "ground": "DONE-0 section 0 (4)",
+                "theorem": "KCore.TieE3MlReqNot157.rule_from_text_closed",
+                "converse": "KCore.TieE3MlReqNot157.rule_w2_closed_noprem",
+                "needed": "KCore.RdrCondNotCounter.rule_not_from_text_dom", "consistent": "KCore.TieE3MlReqNot.consistent"}
+        tpt = lambda **kw: {k: v for k, v in dict(tpok, **kw).items() if v is not None}
+        pr = lambda tp=None, **kw: dict({"status": "supported", "fixture": "e3-ml-req-not",
+                                         "sentence": ["Lblgo{}(VarX:SortInt{})"], "tie": [trn, trn157, trdr],
+                                         "tie_theorems": ["KCore.TieE3MlReqNot.account",
+                                                          "KCore.RdrCondNotCounter.rule_not_from_text_dom"]},
+                                        **({"tie_premise": tp} if tp is not None else {}), **kw)
+        if form("E3", "A", pr([tpok])) != PREMISE_FORM or form("E3", "A", pr()) != "supported":
+            bad_forms.append(f"tie_premise: form {form('E3', 'A', pr([tpok]))!r}, expected {PREMISE_FORM!r}")
         cases = [
             # (list, key, entry, accepted)
+            # tie_premise: the table for the sentence in `underPremise`; none, or one wanting a field
+            ("E3", "A", pr([tpok]), True),
+            ("E3", "A", pr(), False),
+            ("E3", "A", pr([]), False),
+            ("E3", "A", pr([tpt(needed=None)]), False),
+            ("E3", "A", pr([tpt(needed=None, in_gamma=True)]), True),
+            ("E3", "A", pr([tpt(in_gamma="no")]), False),
+            ("E3", "A", pr([tpt(ground=None)]), False),
+            ("E3", "A", pr([tpt(converse=None)]), False),
+            ("E3", "A", pr([tpt(converse=None, at_values="KCore.TieE3MlReqNot157.rule_w2_closed")]), False),
+            ("E3", "A", pr([tpt(converse=None, at_values="KCore.TieE3MlReqNot157.rule_w2_closed")],
+                           tie_theorems=["KCore.TieE3MlReqNot.account", "KCore.TieE3MlReqNot157.rule_w2_closed",
+                                         "KCore.RdrCondNotCounter.rule_not_from_text_dom"]), True),
+            ("E3", "A", pr([tpok], tie_theorems=["KCore.TieE3MlReqNot.account"]), False),
+            ("E3", "A", pr([tpt(consistent="KCore.TieE3MlReqNot.no_such")]), False),
+            ("E3", "A", pr([tpt(premise="boolDist")]), False),
+            ("E3", "A", pr([tpt(sentences=[158])]), False),
+            ("E3", "A", pr([tpok], tie=[trn157, trdr]), False),
             # B21: the rule uncovered by tiegen's tie and tied by a companion the entry names a theorem of
             ("E3", "A", un(), True),
             ("E3", "A", un(tie=[tlv], tie_theorems=["KCore.TieLhsAndVar.account"]), False),

@@ -141,11 +141,37 @@ rule").isPerm (ruleText.map (·.index)) = true` and W1 for every H, `theorem rul
 HookParams)` with one of the statements `∀ it ∈ ruleItems (cH H), ∃ ad ∈ ruleText, itemsPremises [trS
 ad] ⊧ it.pat` or `∀ (j : Nat) (it : Item), (ruleItems (cH H))[j]? = some it → ∃ ad, ruleText[j]? = some
 ad ∧ (TiePair.Texts [(trS ad).pat] ⊧ it.pat)` (each of Γ's rule items is a consequence of its
-sentence). The sentences of `ruleText`, which must be the class rewrite rule, are then not
-`uncovered`, and the header says where they are tied. The theorems checked at the end are
-`rules_account`, `rule_from_text` and FILE's theorems whose comment opens in bold (`/-- **`), its
-headline statements. Refused with --split, on a text without rule sentences, and where tiegen ties the
-rules itself.
+sentence). In its place FILE may state W1 over a larger premise set, by name, exactly one of:
+`rule_from_text_sig`, the sentence and the text's signature, `∀ it ∈ ruleItems (cH H), ∃ ad ∈
+ruleText, itemsPremises [trS ad] ∪ ΓSig (cH H) ⊧ it.pat` or the by-position form with `TiePair.Texts
+[(trS ad).pat] ∪ ΓSig (cH H)`; `rule_from_text_aux`, these with other sentences of the text and items
+of its signature, `∀ it ∈ ruleItems (cH H), ∃ ad ∈ ruleText, TiePair.Texts ((trS ad).pat ::
+(ruleAux.map (fun a => (trS a).pat) ++ ruleSigAux.map (·.pat))) ∪ ΓSig (cH H) ⊧ it.pat`, with
+`ruleAux : List AxiomDecl` a literal list `[U.ax<k>, ...]` of sentences of the user module (the
+header names each with its class), `ruleSigAux : List Item` a literal list, and `theorem
+ruleSigAux_text : ∀ it ∈ ruleSigAux, it ∈ (Theory.ofDefinition kore).signature`. Both are refused in
+a tie stating `sig_origin_but_next` in place of `sig_origin`, and the header names the premise set
+and the two limits of `ΓSig` against the text's signature. Two forms add a premise that no sentence of
+the text states, and the sentences are then not `uncovered` but `underPremise` (`def underPremise :
+List (Nat × String)`, index and premise, beside `uncovered` in the account): `rule_from_text_closed`,
+the premises of `rule_from_text_aux` with `++ [boolClosed (cH H)]` after `ruleSigAux.map (·.pat)`,
+only in a tie whose definition reads no confined sort (`readsConfined_c : c.readsConfined = false`)
+and with a theorem `(H : HookParams) : ¬ ∀ it ∈ ruleItems (cH H), ∃ ad ∈ ruleText, ...` of the
+premises without it (W1 does not hold without the premise); and `rule_from_text_dom`, with `++
+ruleDomAux H` there, `def ruleDomAux (H : HookParams) : List P := [...]` a literal list,
+`ruleDomAux_mem (H : HookParams) : ∀ φ ∈ ruleDomAux H, ΓDomains (cH H) φ` and `ruleDomAux_values`,
+that each is ΓDomains' item of a value or of two values apart (its third and fourth disjuncts as
+written there; a hook's graph is refused). Each also needs, for each sentence i of `ruleText`, a
+theorem `(H : HookParams) : Γ (cH H) ⊧ (trS U.ax<i>).pat` or `EntailsAtValues (cH H) U.ax<i> (trS
+U.ax<i>).pat` (or their `Γc` forms), the other direction. A W1 statement whose premises name
+`ΓDomains`, `ΓCons`, `ΓColls`, `ΓFallback`, `Γcl`, `Γ` or `Γc` (Γ's own) is refused with that
+reason, and so is a section that declares a name the statements read (`ΓSig`, `trS`, `cH`, `kore`,
+`U`, ...), declares one of its own (`ruleText`, `ruleAux`, ...) twice, has an `include` or a
+`variable` with an instance binder, or defines notation. The sentences of `ruleText`, which must be the class rewrite rule, are then
+not `uncovered`, and the header says where they are tied. The theorems checked at the end are
+`rules_account`, the W1 statement, `ruleSigAux_text` where it is read, the theorems a premise form
+needs, and FILE's theorems whose comment opens in bold (`/-- **`), its headline statements. Refused
+with --split, on a text without rule sentences, and where tiegen ties the rules itself.
 --hand consistency=FILE puts FILE in place of the consistency section, for a text that owes an
 agreement, a clause's match independence, or a rule's or clause's condition (`owed_rules`,
 `owed_clauses`): FILE proves the owed facts and states `consistent` for every H, with `facts` for an
@@ -166,6 +192,15 @@ FILE states `theorem consistent (H : HookParams) : Consistent (cH H)` and either
 `not_fnHypH` (refused otherwise), beside the facts it owes (`owed_rules`, `owed_clauses`, `match_named`
 and the others above). The function functional sentences are then not stated at values (both routes
 read `clausesPreTop`): the header says they are owed as `FnHyp`.
+A text with an open generator under --hand consistency (one of whose clauses has a predicate other
+than `\\top`, for example): FILE states `theorem consistent (H : HookParams) …` under the hypotheses on H it
+names, and `theorem consistent_lawHooks (H : HookParams) : Consistent (c.withHooks (lawHooks c H))`
+(refused otherwise), and need state neither `fnHypH` nor `not_fnHypH` (`FnHyp` is then owed): at an H
+whose values of the generator identify what the text's sentences keep apart, Γ holds the generator's
+graph at H beside them and may have no model, so no statement for every H is asked; at `lawHooks c H` the
+generator's values are its free applications. tiegen states `lawHooks_laws`, `libAdmitted_lawHooks`
+and `lawHooks_lib` in a section before FILE's. With --fn-readings, such a text takes the readings
+path of the function equations.
 Where each sentence of the class function functional is, as written, a sort predicate's `functional`
 sentence (`LibEv.funPat`), the clauses' predicates are `\\top`, no clause binds a variable by
 `\\exists` and no clause's condition reads a variable its patterns leave open, the tie states those
@@ -273,13 +308,14 @@ e2-fn-assoc and e2-fn-assoc-rest (both not refuted).
 What it states where the text:
 - owes an agreement (`agree_named` not empty): `facts` and `consistent` take it as a hypothesis
   (`AgreeOwed`), the proof owed (`owed` in the summary), unless `--hand consistency` gives it;
-- has an open generator (`raw`; one at most): `params_raw`, `facts` and `consistent` for every H
+- has open generators (`raw`, one or several, each with its laws): `params_raw`, `facts` and `consistent` for every H
   satisfying `OpenLaws`, at `lawHooks c H` for every H, for every H where it has no law
   (`openLaws_any`); `libAdmitted_lawHooks` (`lawHooks c H` is admitted by the library's sentences
   wherever H is) and `lawHooks_lib` (`lawHooks c HookParams.lib` satisfies the laws, the generators'
-  `functional` sentences and the library's sentences together, CN-4 4.7); its law sentence is Γ's law item (`openlaw_*`, the class `open generator law`),
-  its functional sentence no item of Γ (`open_functional_not_item`, the class `open generator
-  functional`);
+  `functional` sentences and the library's sentences together, CN-4 4.7); each law sentence is Γ's law item (`openlaw_*`, the class `open generator law`; with several,
+  each statement over their list), each functional sentence no item of Γ (`open_functional_not_item`, the class `open generator
+  functional`); the same beside a confined sort, `consistent` then a model of `Γc`; refused beside an
+  owed agreement;
 - states a law of a function (`Definition.laws`): `law_text` (the sentence as written is `lawPattern`),
   `law_not_item`, `law_account` (the class `function law`);
 - has a lemma applying a parameter symbol no hook implements (`isParamLemma`, or a `simplification`
@@ -1836,7 +1872,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                       + ", ".join(f"{n_} clauses {p_}..{p_ + k_ - 1}: sentence {i_}" for n_, p_, k_, i_, _ in split_groups)
                       + "): the function sentences are aligned with Γ's items many to one (`TiePair.fnTextMany`), "
                       "which only the --fn-readings section states")
-    if not fn_full and not fn_align and nfn and (not confined or fn_readings) and not raw and \
+    if not fn_full and not fn_align and nfn and (not confined or fn_readings) and (not raw or fn_readings) and \
             (not fn_pins or fn_readings) and \
             sorted(fw) == list(range(nfn)) and int(head.get("pairTextLen", -1)) == nfn and \
             all(fw[j]["idx"] is not None for j in range(nfn)):
@@ -1921,7 +1957,18 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     held_total = "consistency" in hand and bool(ob.get("held") or ob.get("total") or ob.get("prehyp"))
     held_hand = held_total and bool(ob.get("held"))
     hand_c = hand.get("consistency", "")
-    if held_total and not re.search(r"^theorem consistent \(H : HookParams\) : Consistent \(cH H\)", hand_c, re.M):
+    # with an open generator, a model for every H is not asked: at an H whose values of the generator
+    # identify what the text's sentences keep apart, Γ holds the generator's graph at H beside them.
+    # The hand section states `consistent` under the hypotheses on H it names, and a model at
+    # `lawHooks c H` for every H (`consistent_lawHooks`), where the generator's values are its free
+    # applications
+    raw_hand = bool(raw) and "consistency" in hand
+    if raw_hand and not (re.search(r"^theorem consistent \(H : HookParams\)", hand_c, re.M) and re.search(
+            r"^theorem consistent_lawHooks \(H : HookParams\) : Consistent \(c\.withHooks \(lawHooks c H\)\)", hand_c, re.M)):
+        raise Refused(f"{name}: an open generator: the consistency section states `consistent` "
+                      f"(`theorem consistent (H : HookParams) …`) and `consistent_lawHooks` "
+                      f"(`theorem consistent_lawHooks (H : HookParams) : Consistent (c.withHooks (lawHooks c H))`)")
+    if held_total and not raw_hand and not re.search(r"^theorem consistent \(H : HookParams\) : Consistent \(cH H\)", hand_c, re.M):
         raise Refused(f"{name}: the consistency section does not state `consistent` for every H "
                       f"(`theorem consistent (H : HookParams) : Consistent (cH H)`)")
     fnhyp_hand = held_total and bool(re.search(r"^theorem fnHypH \(H : HookParams\) : FnHyp \(cH H\)", hand_c, re.M))
@@ -1933,8 +1980,9 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     notfnhyp_hand = held_total and not fnhyp_hand and bool(re.search(
         r"^theorem not_fnHypH \(H : HookParams\) : ¬ FnHyp \(cH H\)", hand_c, re.M))
     # a clause's predicate not `\top`: `FnHyp` is no consequence of the named facts, so the section says
-    # whether it holds, `fnHypH` or `not_fnHypH`
-    if ob.get("prehyp") and not (fnhyp_hand or notfnhyp_hand):
+    # whether it holds, `fnHypH` or `not_fnHypH`; beside an open generator it may say neither, and
+    # `FnHyp` is then owed
+    if ob.get("prehyp") and not (fnhyp_hand or notfnhyp_hand or raw_hand):
         raise Refused(f"{name}: a clause's predicate is not \\top: the consistency section states `FnHyp` for every H "
                       f"(`theorem fnHypH (H : HookParams) : FnHyp (cH H)`) or that it fails "
                       f"(`theorem not_fnHypH (H : HookParams) : ¬ FnHyp (cH H)`)")
@@ -2107,10 +2155,15 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     if idem is not None:
         covered.add(idem)
     # the rule sentences a hand section ties (`--hand rules`), where tiegen does not
-    rules_hand = (rules_hand_of(name, hand["rules"], by_class["rewrite rule"], rules_full, split)
+    rules_hand = (rules_hand_of(name, hand["rules"], by_class["rewrite rule"], rules_full, split,
+                                sig_origin=head["sigAll"] == "true", cls=cls,
+                                confined=head["readsConfined"] == "true")
                   if "rules" in hand else None)
     if rules_hand:
         covered |= set(rules_hand["idx"])
+    # the rule sentences the hand section ties under a premise no sentence states, apart from those
+    # tied with none and from `uncovered`
+    under_premise = [(i, rules_hand["premise"]) for i in rules_hand["idx"]] if rules_hand and rules_hand["premise"] else []
     # a user lemma has no generated theorem: it is the tie's remainder, as an uncovered sentence of a
     # class with a theorem is
     uncovered = [(i, cls[i]) for i in idx
@@ -2128,17 +2181,25 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                       f"only where the totality holds under it (`totalObligationsRP callOrder defn.totalParams` empty), "
                       f"one value exhibited is of every such parameter's result sort (`constTotal`), and no open "
                       f"generator, agreement, match independence or condition is owed")
-    if len(raw) > 1:
-        raise Refused(f"{name}: {len(raw)} open generators: tiegen states one")
-    if raw and (agree or confined or facts_kind != "FnFacts"):
-        raise Refused(f"{name}: an open generator beside an owed agreement or a confined sort: tiegen states "
-                      f"neither together")
+    if raw and agree:
+        raise Refused(f"{name}: an open generator beside an owed agreement: tiegen states not both")
+    if raw and facts_kind != "FnFacts" and "consistency" not in hand:
+        raise Refused(f"{name}: an open generator and obligations of the form {facts_kind}: tiegen states the "
+                      f"open generator's consistency section through `FnFacts` only, otherwise by hand")
     if agree and confined and not held_hand:
         raise Refused(f"{name}: an owed agreement beside a confined sort: tiegen states not both")
     if confined and head["litBool"] != "true":
         raise Refused(f"{name}: the definition reads a confined sort and Bool holds other than its literals (`Γcl` empty)")
     law_fns = sorted({sents[i]["eh"] for i in law_idx})
     rawd = [(k, rn[j], sn[k["res"]]) for j, k in enumerate(raw)]
+    ogs = "open generator's" if len(raw) == 1 else "open generators'"
+    # the law of each item of `lawItemsK`, in its order: per open generator, its associativity, then
+    # its idempotence
+    open_law_of = [(r, law) for k, r, _ in rawd for law, a in (("associativity", "assoc"), ("idempotence", "idem"))
+                   if k[a] == "true"]
+    if len(open_law_of) != len(open_law):
+        raise Refused(f"{name}: the probe's law items of the open generators ({len(open_law)}) are not one per "
+                      f"`assoc` and `idem` ({len(open_law_of)})")
     sig_rs = ranges(int(head["nSig"]), chunks[0], chunks[1])
     decl_rs = ranges(int(head["nDecl"]), 0, chunks[2])
     dc = head["declCounts"].split()
@@ -2290,18 +2351,30 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     no_law = raw and all(k["assoc"] == "false" and k["idem"] == "false" for k in raw)
     if raw:
         srts = sorted({s for _, _, s in rawd})
-        w(f"  - The definition reads no confined sort (`readsConfined_c`); its {numword(len(raw))} open generator{'s' if len(raw) > 1 else ''} {'is' if len(raw) == 1 else 'are'} {rnames}")
-        w(f"    (`params_raw`), of {', '.join(k['sort'] for k in raw)}. It owes no fact")
-        w("    about its functions (`term_named`, `total_named`, `agree_named`, `match_named`), so Γ with the")
-        w("    step's closure has a model for every H that satisfies the open generator's laws (`facts`,")
-        if no_law:
-            w(f"    `consistent`), at `lawHooks c H` for every H (`lawHooks_laws`, `consistent_lawHooks`); {rnames}")
-            w("    has no law, so that is every H (`openLaws_any`, `consistent_any`).")
+        w(f"  - The definition reads {'a' if confined else 'no'} confined sort (`readsConfined_c`); its {numword(len(raw))} open generator{'s' if len(raw) > 1 else ''} {'is' if len(raw) == 1 else 'are'} {rnames}")
+        if raw_hand:
+            w(f"    (`params_raw`), of {', '.join(dict.fromkeys(k['sort'] for k in raw))}.")
+            th = "`Γc`" if confined else "Γ"
+            para = ("The consistency section, written by hand, states that " + th + " with the step's closure has a "
+                    "model at `lawHooks c H` for every H (`consistent_lawHooks`), and states `consistent` under the "
+                    "hypotheses on H it names" + (", with `FnHyp`'s status (`fnHypH`, `not_fnHypH`)" if fnhyp_hand or notfnhyp_hand
+                                                  else "; `FnHyp` is owed" if ob.get("prehyp") else "") +
+                    ". `lawHooks c H` satisfies the laws (`lawHooks_laws`) and is admitted by the library's sentences "
+                    "wherever H is (`libAdmitted_lawHooks`), so `lawHooks c HookParams.lib` satisfies the laws, the open "
+                    "generators' `functional` sentences and the library's sentences together (`lawHooks_lib`).")
+            w(textwrap.fill(para, 104, initial_indent="    ", subsequent_indent="    "))
         else:
-            w("    `consistent`), at `lawHooks c H` for every H (`lawHooks_laws`, `consistent_lawHooks`).")
-        w("    `lawHooks c H` is admitted by the library's sentences wherever H is (`libAdmitted_lawHooks`), so")
-        w("    `lawHooks c HookParams.lib` satisfies the laws, the open generators' `functional` sentences and")
-        w("    the library's sentences together (`lawHooks_lib`).")
+            w(f"    (`params_raw`), of {', '.join(dict.fromkeys(k['sort'] for k in raw))}. It owes no fact")
+            w(f"    about its functions (`term_named`, `total_named`, `agree_named`, `match_named`), so {'`Γc`' if confined else 'Γ'} with the")
+            w(f"    step's closure has a model for every H that satisfies the {ogs} laws (`facts`,")
+            if no_law and len(raw) == 1:
+                w(f"    `consistent`), at `lawHooks c H` for every H (`lawHooks_laws`, `consistent_lawHooks`); {rnames}")
+                w("    has no law, so that is every H (`openLaws_any`, `consistent_any`).")
+            else:
+                w("    `consistent`), at `lawHooks c H` for every H (`lawHooks_laws`, `consistent_lawHooks`).")
+            w("    `lawHooks c H` is admitted by the library's sentences wherever H is (`libAdmitted_lawHooks`), so")
+            w("    `lawHooks c HookParams.lib` satisfies the laws, the open generators' `functional` sentences and")
+            w("    the library's sentences together (`lawHooks_lib`).")
     elif held_total:
         th = "`Γc`" if confined else "Γ"
         owes = []
@@ -2441,16 +2514,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                 width=100, initial_indent="    ", subsequent_indent="    ", break_on_hyphens=False,
                 break_long_words=False).replace("\0", " "))
     if rules_hand:
-        rp = rules_hand["prefix"]
-        w(textwrap.fill(
-            f"Rewrite rules ({', '.join(map(str, rules_hand['idx']))}), by hand, in the section `The rules`"
-            + (f" (`{rp[:-1]}`)" if rp else "") + f": each of Γ's rule items is a consequence of its text "
-            f"sentence, `{rp}ruleText` in `ruleItems`' order (`{rp}rule_from_text`, W1, every H; "
-            f"`{rp}rules_account`)."
-            + (" The section's other headline statements (its comment says what each states): "
-               + ", ".join(f"`{n}`" for n in rules_hand["names"][2:]) + "." if rules_hand["names"][2:] else ""),
-            width=100, initial_indent="  - ", subsequent_indent="    ", break_on_hyphens=False,
-            break_long_words=False))
+        w(rules_hand_bullet(rules_hand))
     w(f"  - Constructor sentences ({len(cons_text)}): entailed by Γ (`cons_entailed`).")
     if ovl_eq:
         w(f"  - Overload axioms ({', '.join(map(str, ovl_eq))}): entailed by Γ, whose overload equation states each at every")
@@ -2547,14 +2611,27 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             para.append(f"{e['sort']}'s no junk ({i}) is entailed (`nojunk_{sn[e['srt']]}_entailed`): its item lists {e['sort']}'s generators"
                         + (f", {' and '.join(f'`{g}`' for g in gr)} among them," if gr else "")
                         + (" in the text's order." if e["form"] == "order" else " in another order than `Semantics.gens`."))
-        for i in open_law:
-            para.append(f"The law sentence of {rnames} ({i}) is Γ's law item as written and entailed")
+        if len(open_law) == 1 and len(raw) == 1:
+            para.append(f"The law sentence of {rnames} ({open_law[0]}) is Γ's law item as written and entailed")
             para.append(f"(`openlaw_item`, `openlaw_entailed`); the account holds it in `{LAW_OPEN_CLASS}`, of the")
             para.append("direction `equal`.")
-        if open_fun:
-            para.append(f"{rnames}'s functional sentence{'s' if len(open_fun) > 1 else ''} ({', '.join(map(str, open_fun))}) {'is' if len(open_fun) == 1 else 'are'} no item of")
+        elif open_law:
+            one_l = len(open_law) == 1
+            para.append(f"The law sentence{'' if one_l else 's'} ("
+                        + "; ".join(f"{i}: the {law} of `{r}`" for i, (r, law) in zip(open_law, open_law_of))
+                        + f") {'is' if one_l else 'are'} Γ's law item{'' if one_l else 's'} as written and entailed")
+            para.append(f"(`openlaw_item`, `openlaw_entailed`); the account holds {'it' if one_l else 'them'} in "
+                        f"`{LAW_OPEN_CLASS}`, of the direction `equal`.")
+        if open_fun and len(open_fun) == 1:
+            para.append(f"{rnames}'s functional sentence ({open_fun[0]}) is no item of")
             para.append("Γ and is owed at values as `OpenTotal` (`open_functional_not_item`); the account holds it in")
             para.append(f"`{OPEN_FUNCTIONAL_CLASS}`, of the direction `hypothesis`.")
+        elif open_fun:
+            whose_f = {sents[i]["fh"]: i for i in open_fun}
+            para.append("The functional sentences of the open generators ("
+                        + "; ".join(f"{whose_f[k['name']]}: `{r}`" for k, r, _ in rawd if k["name"] in whose_f)
+                        + ") are no items of Γ and are owed at values as `OpenTotal` (`open_functional_not_item`); "
+                        f"the account holds them in `{OPEN_FUNCTIONAL_CLASS}`, of the direction `hypothesis`.")
         if para:
             w(textwrap.fill(" ".join(para), width=100, initial_indent="  ", subsequent_indent="  ",
                             break_on_hyphens=False, break_long_words=False))
@@ -2646,6 +2723,9 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w(f"  `uncovered` ({len(uncovered)}).")
     else:
         w(f"  the sentences of a class with a theorem that no theorem here holds of are `uncovered` ({len(uncovered)}).")
+    if under_premise:
+        w(f"  The rule sentences tied under a premise that no sentence of the text states are `underPremise`")
+        w(f"  ({len(under_premise)}), with the premise's name.")
     w("-/")
     w("import KcoreSpec")
     w("")
@@ -2669,7 +2749,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         one = len(raw) == 1
         sorts_of = sorted({k["res"] for k in raw})
         w(f"/-- {rnames}, the text's {numword(len(raw))} open generator{'' if one else 's'} (`raw`), and "
-          f"{', '.join(k['sort'] for k in raw if k['res'] in sorts_of)}, {'its sort' if one else 'their sorts'}. -/")
+          f"{', '.join(dict.fromkeys(k['sort'] for k in raw))}, {'its sort' if one else 'their sort' if len(sorts_of) == 1 else 'their sorts'}. -/")
         for k, r, _ in rawd:
             w(f"def {r} : Sym := {k['sym']}")
         for s in sorts_of:
@@ -3045,6 +3125,13 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     w("def uncovered : List (Nat × String) :=")
     w("  [" + wrap_nums([f'({i}, "{c_}")' for i, c_ in uncovered], 3) + "]")
     w("")
+    if under_premise:
+        w("/-- The rule sentences tied under a premise that no sentence of the text states, with the premise:")
+        w("Γ's items are a consequence of the sentence with it, and the section on the rules states the other")
+        w("direction. -/")
+        w("def underPremise : List (Nat × String) :=")
+        w("  [" + wrap_nums([f'({i}, "{p_}")' for i, p_ in under_premise], 3) + "]")
+        w("")
     if lists_by_class:
         listed = [(i, cls[i]) for i in unmapped] + list(uncovered)
         for c_ in classes_list:
@@ -3515,8 +3602,31 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     # ---- consistency
     mark("Consistency")
     tp = "[]"
+    if raw_hand:
+        # what holds of `lawHooks c H` whatever the consistency section, which is by hand
+        w(f"/-! ## `lawHooks c H`: the {ogs} laws and the library's sentences -/")
+        w("")
+        w(f"/-- **`lawHooks c H` satisfies the laws and gives each open generator a value at every argument list**, for every H. -/")
+        w("theorem lawHooks_laws (H : HookParams) :")
+        w("    OpenLaws (c.withHooks (lawHooks c H)) ∧ OpenTotal (c.withHooks (lawHooks c H)) :=")
+        w("  ⟨openLaws_lawHooks c coreOK H, openTotal_lawHooks c coreOK H⟩")
+        w("")
+        w("/-- **`lawHooks c H` is admitted by the library's sentences wherever H is and gives `_RangeMap_`")
+        w("no value**, for every H (`KCore.libAdmitted_lawHooks`). -/")
+        w("theorem libAdmitted_lawHooks (H : HookParams) (ha : (c.withHooks H).libAdmitted)")
+        w("    (hrm : ∀ vs, H.app rmConcat vs = none) : (c.withHooks (lawHooks c H)).libAdmitted :=")
+        w("  KCore.libAdmitted_lawHooks c coreOK H ha hrm")
+        w("")
+        w("/-- **`lawHooks c HookParams.lib` satisfies the laws, the open generators' `functional` sentences")
+        w("and the library's sentences together.** -/")
+        w("theorem lawHooks_lib :")
+        w("    OpenLaws (c.withHooks (lawHooks c HookParams.lib)) ∧ OpenTotal (c.withHooks (lawHooks c HookParams.lib)) ∧")
+        w("    (c.withHooks (lawHooks c HookParams.lib)).libAdmitted :=")
+        w("  ⟨(lawHooks_laws HookParams.lib).1, (lawHooks_laws HookParams.lib).2,")
+        w("    libAdmitted_lawHooks HookParams.lib (libAdmitted_lib_of_coreOK coreOK) lib_app_rmConcat_none⟩")
+        w("")
     if raw:
-        w("/-! ## Consistency for every H satisfying the open generator's laws -/")
+        w(f"/-! ## Consistency for every H satisfying the {ogs} laws -/")
     elif agree:
         w(f"/-! ## Consistency for every H: the agreement of {' and '.join(f'`{x}`' for x in ob['agree_names'])} -/")
     else:
@@ -3536,13 +3646,13 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
               "    ((Det.Semantics.agreeObligationsI_withHooks _ H).trans agree_named)",
               "    ((Det.Semantics.matchObligationsL_withHooks _ H).trans match_named)"]
     if raw:
-        w("/-- No function's fact is named: under every interpretation that satisfies the open generator's")
+        w(f"/-- No function's fact is named: under every interpretation that satisfies the {ogs}")
         w("laws, `FnFacts` holds. -/")
         w("theorem facts (H : HookParams) (hop : OpenLaws (cH H)) : FnFacts (cH H) callOrder [] :=")
         w("  FnFacts.of_nil_laws")
         w("\n".join(of_nil) + " hop")
         w("")
-        w("/-- **Γ with the step's closure has a model, for every H that satisfies the open generator's laws**")
+        w(f"/-- **{'`Γc`' if confined else 'Γ'} with the step's closure has a model, for every H that satisfies the {ogs} laws**")
         w("(`OpenLaws`). -/")
         w("theorem consistent (H : HookParams) (hop : OpenLaws (cH H)) : Consistent (cH H) :=")
         w("  consistent_of_fnFacts (coreOKH H) (Semantics.rightHeld_withHooks_of_valued (by decide +kernel) H) (facts H hop)")
@@ -3551,7 +3661,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                             f"{k['sort'] if len(set(k['args'])) == 1 and k['args'][0] == k['res'] else 'argument'} values"
                             for k, r, _ in rawd)
         w(f"/-- **`lawHooks c H` satisfies the laws and gives {vals}**,")
-        w("for every H; so Γ with the step's closure has a model there. -/")
+        w(f"for every H; so {'`Γc`' if confined else 'Γ'} with the step's closure has a model there. -/")
         w("theorem lawHooks_laws (H : HookParams) :")
         w("    OpenLaws (c.withHooks (lawHooks c H)) ∧ OpenTotal (c.withHooks (lawHooks c H)) :=")
         w("  ⟨openLaws_lawHooks c coreOK H, openTotal_lawHooks c coreOK H⟩")
@@ -3582,7 +3692,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             w("  simp only [Prod.mk.injEq] at hm")
             w("  exact ⟨fun h => (by rw [hm.2.2.2.1] at h; cases h), fun h => (by rw [hm.2.2.2.2] at h; cases h)⟩")
             w("")
-            w("/-- **Γ with the step's closure has a model, for every H.** -/")
+            w(f"/-- **{'`Γc`' if confined else 'Γ'} with the step's closure has a model, for every H.** -/")
             w("theorem consistent_any (H : HookParams) : Consistent (cH H) := consistent H (openLaws_any H)")
             w("")
     elif agree:
@@ -4042,7 +4152,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     if law_idx:
         w(law_section(law_idx))
     if open_law:
-        w(openlaw_section(open_law, rnames, need_rfl=not nj_items))
+        w(openlaw_section(open_law, rnames, need_rfl=not nj_items, law_of=open_law_of, one_gen=len(raw) == 1))
     if open_fun:
         w(open_functional_section(open_fun, rnames))
     if param_fun:
@@ -4150,7 +4260,9 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     names[k:k] = after
     if law_idx:
         names += ["law_indices", "law_text", "law_not_item", "law_account"]
-    if raw:
+    if raw_hand:
+        names += ["names", "lawHooks_laws", "libAdmitted_lawHooks", "lawHooks_lib", "consistent_lawHooks"]
+    elif raw:
         names += ["names", "facts", "lawHooks_laws", "consistent_lawHooks", "libAdmitted_lawHooks", "lawHooks_lib"] + (["openLaws_any", "consistent_any"] if no_law and len(raw) == 1 else [])
     names += nj_names
     if open_law:
@@ -4232,6 +4344,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                    cons=len(cons_text), nojunk=[len(nj_triv), len(nj_items), len(nj_kitem), len(nj_sorts)],
                    idem=idem, own_idem=[i for i, _, _ in own_idem], lib166=lib166, gamma=gamma, laws=law_idx, open_generators=[k["name"] for k in raw],
                    confined=confined, uncovered=uncovered, owed=owed, theorems=names,
+                   **({"under_premise": under_premise} if under_premise else {}),
                    **({"tok_kitem_apart": dict(sentence=tok_omit[0], sorts=[e["sort"] for e in tok_sorts],
                                                valued=[e["sort"] for e in tok_sorts if e["valued"]])}
                       if tok_omit else {}),
@@ -4462,21 +4575,129 @@ HAND_SECTIONS = {"consistency": "/-! ## Consistency for every H",
                  "ovlfn": "/-! ## Sentences of a function-overloaded symbol: the covered part",
                  "rules": "/-! ## The rules"}
 
-# the statements of W1 for the rules a hand section (`--hand rules`) may give `rule_from_text`, up to
-# white space: the generated one, and the one by the position of each item
-RULES_W1_FORMS = [
-    "(H : HookParams) : ∀ it ∈ ruleItems (cH H), ∃ ad ∈ ruleText, itemsPremises [trS ad] ⊧ it.pat",
-    "(H : HookParams) : ∀ (j : Nat) (it : Item), (ruleItems (cH H))[j]? = some it → ∃ ad, ruleText[j]? = some ad ∧ "
-    "(TiePair.Texts [(trS ad).pat] ⊧ it.pat)",
-]
+# the statements of W1 for the rules a hand section (`--hand rules`) may give, by the theorem's name,
+# each up to white space. The name says the premise set beside the sentence: `rule_from_text` the
+# sentence alone (the generated statement, or by the position of each item); `rule_from_text_sig` the
+# sentence and the text's signature (`ΓSig`); `rule_from_text_aux` these, other sentences of the text
+# (`ruleAux`) and items of the text's signature that `ΓSig` leaves out (`ruleSigAux`);
+# `rule_from_text_closed` these and `boolClosed`, `rule_from_text_dom` these and items of the domains
+# (`ruleDomAux`): a premise that no sentence of the text states, under which the sentence is tied
+# (RULES_PREMISE)
+RULES_AUX_PRE = "TiePair.Texts ((trS ad).pat :: (ruleAux.map (fun a => (trS a).pat) ++ ruleSigAux.map (·.pat)"
+RULES_W1_FORMS = {
+    "rule_from_text": [
+        "(H : HookParams) : ∀ it ∈ ruleItems (cH H), ∃ ad ∈ ruleText, itemsPremises [trS ad] ⊧ it.pat",
+        "(H : HookParams) : ∀ (j : Nat) (it : Item), (ruleItems (cH H))[j]? = some it → ∃ ad, ruleText[j]? = some ad ∧ "
+        "(TiePair.Texts [(trS ad).pat] ⊧ it.pat)"],
+    "rule_from_text_sig": [
+        "(H : HookParams) : ∀ it ∈ ruleItems (cH H), ∃ ad ∈ ruleText, itemsPremises [trS ad] ∪ ΓSig (cH H) ⊧ it.pat",
+        "(H : HookParams) : ∀ (j : Nat) (it : Item), (ruleItems (cH H))[j]? = some it → ∃ ad, ruleText[j]? = some ad ∧ "
+        "(TiePair.Texts [(trS ad).pat] ∪ ΓSig (cH H) ⊧ it.pat)"],
+    "rule_from_text_aux": [
+        f"(H : HookParams) : ∀ it ∈ ruleItems (cH H), ∃ ad ∈ ruleText, {RULES_AUX_PRE})) ∪ ΓSig (cH H) ⊧ it.pat"],
+    "rule_from_text_closed": [
+        f"(H : HookParams) : ∀ it ∈ ruleItems (cH H), ∃ ad ∈ ruleText, {RULES_AUX_PRE} ++ [boolClosed (cH H)])) ∪ "
+        "ΓSig (cH H) ⊧ it.pat"],
+    "rule_from_text_dom": [
+        f"(H : HookParams) : ∀ it ∈ ruleItems (cH H), ∃ ad ∈ ruleText, {RULES_AUX_PRE} ++ ruleDomAux H)) ∪ "
+        "ΓSig (cH H) ⊧ it.pat"],
+}
+# the forms whose premises hold the text's signature, and those that also read `ruleAux` and `ruleSigAux`
+RULES_SIG_FORMS = ("rule_from_text_sig", "rule_from_text_aux", "rule_from_text_closed", "rule_from_text_dom")
+RULES_AUX_FORMS = ("rule_from_text_aux", "rule_from_text_closed", "rule_from_text_dom")
+RULES_SIGAUX_TEXT = ": ∀ it ∈ ruleSigAux, it ∈ (Theory.ofDefinition kore).signature"
+# the forms with a premise no sentence of the text states: the premise's name in `underPremise`, and
+# what the header says of it (what it states, its ground)
+RULES_PREMISE = {
+    "rule_from_text_closed": ("boolClosed", "every element of Bool is `true`'s or `false`'s",
+                              "the builtin domain Bool, whose values are `true` and `false`"),
+    "rule_from_text_dom": ("ruleDomAux", "the items of the domains `ruleDomAux`, each that a value is one element "
+                           "of its sort or that two values of a sort are apart",
+                           "Γ's account of the values of the builtin domains (`ΓDomains`)"),
+}
+# beside `rule_from_text_closed`: W1 without the premise does not hold (`¬`, over the other premises)
+RULES_NOT_WITHOUT = (f"(H : HookParams) : ¬ ∀ it ∈ ruleItems (cH H), ∃ ad ∈ ruleText, {RULES_AUX_PRE})) ∪ "
+                     "ΓSig (cH H) ⊧ it.pat")
+# beside either: the other direction, Γ (or Γc) entails the sentence, at every valuation or at values
+RULES_CONVERSE = re.compile(r"\(H : HookParams\) : (?:(?:Γ|Γc) \(cH H\) ⊧ \(trS U\.ax(\d+)\)\.pat|"
+                            r"EntailsAtValues(?:Γc)? \(cH H\) U\.ax(\d+) \(trS U\.ax(\d+)\)\.pat)")
+# beside `rule_from_text_dom`: each item of `ruleDomAux` is one of `ΓDomains`, and is a value item or a
+# value distinctness (ΓDomains' third and fourth disjuncts, as written there; not a hook's graph)
+RULES_DOMAUX_MEM = "(H : HookParams) : ∀ φ ∈ ruleDomAux H, ΓDomains (cH H) φ"
+RULES_DOMAUX_VALUES = (
+    "(H : HookParams) : ∀ φ ∈ ruleDomAux H, (∃ (v : GroundTerm) (s : Srt), (cH H).sortOf v = some s ∧ "
+    "φ = KoreAML.sExists ⟨1⟩ (sortP ((cH H).sortName s)) (den (cH H) v ≡ .evar ⟨1⟩)) ∨ "
+    "(∃ (v w : GroundTerm) (s : Srt), (distinctSorts (cH H)).contains s = true ∧ (cH H).sortOf v = some s ∧ "
+    "(cH H).sortOf w = some s ∧ GroundTerm.cmp v w ≠ .eq ∧ φ = ∼(den (cH H) v ⋀ den (cH H) w))")
+# premise sets that are Γ's own and no consequence of the text: a W1 statement naming one is refused
+RULES_GAMMA_NAMES = re.compile(r"(?<![\w'.])(ΓDomains|ΓCons|ΓColls|ΓFallback|Γcl|Γc|Γ)(?![\w'])")
+# the names the accepted statements read, which the section must not declare (a declaration of one
+# in the section's namespace would change what the statement says), and commands that define notation
+RULES_READ_NAMES = {"ΓSig", "itemsPremises", "ruleItems", "trS", "cH", "c", "kore", "defn", "U", "Texts", "TiePair",
+                    "Theory", "classOf", "HookParams", "Item", "AxiomDecl", "boolClosed", "ΓDomains", "Γ", "Γc",
+                    "EntailsAtValues", "EntailsAtValuesΓc", "GroundTerm", "Srt", "sortP", "den", "distinctSorts"}
+RULES_DECL = re.compile(r"^(?:@\[[^\]]*\]\s*)?(?:(?:noncomputable|private|protected|partial|unsafe)\s+)*"
+                        r"(?:theorem|lemma|def|abbrev|instance|structure|inductive|class|opaque|axiom|kore_term|"
+                        r"definition_of|user_axioms)\s+([^\s(:{]+)", re.M)
+# a hypothesis a statement can take without writing it: an `include`d variable, or an instance binder
+# of a `variable` (included where the statement mentions what it depends on)
+RULES_HIDDEN_HYP = re.compile(r"^\s*(?:include\b|variable\b.*\[)", re.M)
+# the declarations tiegen reads by their first occurrence in the section, which must be the only one
+RULES_ONCE = ("ruleText", "rules_account", "ruleAux", "ruleSigAux", "ruleSigAux_text", "ruleDomAux", "ruleDomAux_mem",
+              "ruleDomAux_values")
+RULES_NOTATION = re.compile(r"^\s*(?:@\[[^\]]*\]\s*)?(?:local |scoped )?(?:notation|infix|infixl|infixr|prefix|postfix|"
+                            r"macro|macro_rules|syntax|elab)\b", re.M)
 
 
-def rules_hand_of(name, text, rule_cls, rules_full, split):
+def lean_list(text, head):
+    """The items of the literal list that the declaration starting `head` is defined as, split at its
+    top-level commas (brackets, parentheses and ⟨⟩ nested), or None where it is no literal list (the
+    definition is more than the list, up to the next blank line)."""
+    m = re.search(r"^(?:noncomputable )?" + re.escape(head) + r"\s*:=\s*\[", text, re.M)
+    if not m:
+        return None
+    depth, items, cur = 0, [], ""
+    for k, ch in enumerate(text[m.end():]):
+        if ch in "[(⟨{":
+            depth += 1
+        elif ch in "])⟩}":
+            if depth == 0:
+                if cur.strip():
+                    items.append(" ".join(cur.split()))
+                elif items:
+                    return None
+                # the definition ends with the list
+                return items if not text[m.end() + k + 1:].split("\n\n", 1)[0].strip() else None
+            depth -= 1
+        elif ch == "," and depth == 0:
+            if not cur.strip():
+                return None
+            items.append(" ".join(cur.split()))
+            cur = ""
+            continue
+        cur += ch
+    return None
+
+
+def rules_hand_of(name, text, rule_cls, rules_full, split, sig_origin=True, cls=None, confined=False):
     """What the hand section on the rules (`--hand rules`) states: the sentences of `ruleText`, the
-    namespace prefix of its declarations, and the theorems to check (`rules_account`,
-    `rule_from_text`, and those whose comment opens in bold). Refused where tiegen ties the rules
-    itself, the text states none, the section is cut by --split, or the section does not state
-    `ruleText`, `rules_account` and `rule_from_text` in their forms, or `ruleText` is not the class."""
+    namespace prefix of its declarations, the W1 statement's name (`form`, RULES_W1_FORMS) and its
+    other premises (`aux`, the sentences of `ruleAux` with their class; `sig_aux`, the items of
+    `ruleSigAux`), and the theorems to check (`rules_account`, the W1 statement, `ruleSigAux_text`
+    for the forms reading it, and those whose comment opens in bold). Refused where tiegen ties the
+    rules itself, the text states none, the section is cut by --split, or the section does not
+    state `ruleText`, `rules_account` and exactly one W1 statement in their forms, or `ruleText`
+    is not the class; a form with `ΓSig` in a tie without `sig_origin` (`sig_origin` false: an item
+    of Γ's signature is not shown the text's); a statement whose premises name a family of Γ's own
+    (RULES_GAMMA_NAMES); a section declaring a name the statements read, or defining notation.
+    A form with a premise no sentence states (RULES_PREMISE; `premise`, its name in `underPremise`)
+    also needs in the section the other direction for each sentence of `ruleText` (RULES_CONVERSE;
+    `converse`), for `rule_from_text_closed` a tie whose definition reads no confined sort
+    (`confined` false, `readsConfined_c : c.readsConfined = false`: Γc is Γ, which does not hold
+    `boolClosed`) and a theorem that W1 does not hold without the premise (RULES_NOT_WITHOUT;
+    `needed`), for `rule_from_text_dom` a literal list `ruleDomAux` (`dom_aux`) with
+    `ruleDomAux_mem` and `ruleDomAux_values`. `cls`: the class of each sentence of the user module,
+    by index."""
     if split:
         raise Refused(f"{name}: --hand rules adds a section after the others; --split does not place it")
     if not rule_cls:
@@ -4505,12 +4726,44 @@ def rules_hand_of(name, text, rule_cls, rules_full, split):
             bold = False
     if stack:
         raise Refused(f"{name}: --hand rules: a namespace or section of the section is not closed")
-    for n in ("ruleText", "rules_account", "rule_from_text"):
+    shadow = sorted({n.split(".")[-1] for n in RULES_DECL.findall(text)} & RULES_READ_NAMES)
+    if shadow:
+        raise Refused(f"{name}: --hand rules: the section declares {', '.join(f'`{n}`' for n in shadow)}, a name the "
+                      f"statements tiegen reads use")
+    seen = [n.split(".")[-1] for n in RULES_DECL.findall(text)]
+    twice = [n for n in RULES_ONCE if seen.count(n) > 1]
+    if twice:
+        raise Refused(f"{name}: --hand rules: the section declares `{twice[0]}` more than once")
+    if RULES_HIDDEN_HYP.search(text):
+        raise Refused(f"{name}: --hand rules: the section has an `include` or a `variable` with an instance binder, "
+                      f"which can add a hypothesis to a statement tiegen reads")
+    if RULES_NOTATION.search(text):
+        raise Refused(f"{name}: --hand rules: the section defines notation, which can change what a statement "
+                      f"tiegen reads says")
+    w1 = re.findall(r"^theorem (rule_from_text(?:_\w+)?)\b", text, re.M)
+    stmts = {}
+    for n in dict.fromkeys(w1):
+        m = re.search(r"^theorem " + re.escape(n) + r"\b(.*?):=", text, re.M | re.S)
+        stmts[n] = " ".join(m.group(1).split())
+        if n not in RULES_W1_FORMS or stmts[n] not in RULES_W1_FORMS[n]:
+            g = sorted(set(RULES_GAMMA_NAMES.findall(stmts[n])))
+            if g:
+                raise Refused(f"{name}: --hand rules: the premises of `{n}` name {', '.join(f'`{x}`' for x in g)}, "
+                              f"Γ's own and no consequence of the text: W1 states that Γ's item follows from "
+                              f"the text")
+        if n not in RULES_W1_FORMS:
+            raise Refused(f"{name}: --hand rules: `{n}` names no premise set tiegen reads "
+                          f"({', '.join(f'`{x}`' for x in RULES_W1_FORMS)})")
+    if len(w1) > 1:
+        raise Refused(f"{name}: --hand rules: the section states {', '.join(f'`{x}`' for x in w1)}: one W1 statement")
+    form = w1[0] if w1 else "rule_from_text"
+    for n in ("ruleText", "rules_account", form) + (("ruleAux", "ruleSigAux", "ruleSigAux_text")
+                                                    if form in RULES_AUX_FORMS else ()):
         if n not in decls:
             raise Refused(f"{name}: --hand rules: the section does not state `{n}`")
-    pre = {decls[n]["full"][:-len(n)] for n in ("ruleText", "rules_account", "rule_from_text")}
+    pre = {decls[n]["full"][:-len(n)] for n in ("ruleText", "rules_account", form)}
     if len(pre) != 1:
-        raise Refused(f"{name}: --hand rules: `ruleText`, `rules_account` and `rule_from_text` are not in one namespace")
+        raise Refused(f"{name}: --hand rules: `ruleText`, `rules_account` and `{form}` are not in one namespace")
     prefix = pre.pop()
     m = re.search(r"^(?:noncomputable )?def ruleText : List AxiomDecl :=\s*\[([^\]]*)\]", text, re.M)
     if not m or not re.fullmatch(r"\s*U\.ax\d+(\s*,\s*U\.ax\d+)*\s*", m.group(1)):
@@ -4522,15 +4775,286 @@ def rules_hand_of(name, text, rule_cls, rules_full, split):
                      text, re.M):
         raise Refused(f"{name}: --hand rules: `rules_account` is not `(classOf \"rewrite rule\").isPerm "
                       f"(ruleText.map (·.index)) = true`")
-    m = re.search(r"^theorem rule_from_text (.*?):=", text, re.M | re.S)
-    st = " ".join(m.group(1).split()) if m else ""
-    if st not in RULES_W1_FORMS:
-        raise Refused(f"{name}: --hand rules: `rule_from_text` states {st!r}, not W1 for every H in a form tiegen "
-                      f"reads (" + "; ".join(RULES_W1_FORMS) + ")")
-    names = [decls["rules_account"]["full"], decls["rule_from_text"]["full"]] + \
-        [d["full"] for n, d in sorted(decls.items(), key=lambda kv: kv[1]["line"])
-         if d["bold"] and n not in ("rules_account", "rule_from_text")]
-    return dict(idx=idx, prefix=prefix, names=names)
+    st = stmts.get(form, "")
+    if st not in RULES_W1_FORMS[form]:
+        raise Refused(f"{name}: --hand rules: `{form}` states {st!r}, not W1 for every H in a form tiegen "
+                      f"reads (" + "; ".join(RULES_W1_FORMS[form]) + ")")
+    if form in RULES_SIG_FORMS and not sig_origin:
+        raise Refused(f"{name}: --hand rules: `{form}` has the premise `ΓSig`, and the tie states `sig_origin_but_next`, "
+                      f"not `sig_origin`: an item of Γ's signature is not shown an item of the text's")
+    aux, sig_aux, req = [], [], []
+    if form in RULES_AUX_FORMS:
+        for n in ("ruleAux", "ruleSigAux", "ruleSigAux_text"):
+            if decls[n]["full"] != prefix + n:
+                raise Refused(f"{name}: --hand rules: `{n}` is not in the namespace of `ruleText`")
+        items = lean_list(text, "def ruleAux : List AxiomDecl")
+        if items is None or not all(re.fullmatch(r"U\.ax\d+", x) for x in items):
+            raise Refused(f"{name}: --hand rules: `ruleAux` is not a literal list `[U.ax<k>, ...]` (`List AxiomDecl`)")
+        ks = [int(x[len("U.ax"):]) for x in items]
+        out = [k for k in ks if cls is not None and k not in cls]
+        if out or len(set(ks)) != len(ks):
+            raise Refused(f"{name}: --hand rules: `ruleAux` lists {ks}: " + (
+                f"{out[0]} is no sentence of the user module" if out else "a sentence twice"))
+        aux = [(k, cls[k] if cls is not None else None) for k in ks]
+        sig_aux = lean_list(text, "def ruleSigAux : List Item")
+        if sig_aux is None:
+            raise Refused(f"{name}: --hand rules: `ruleSigAux` is not a literal list (`List Item`)")
+        m = re.search(r"^theorem ruleSigAux_text\b(.*?):=", text, re.M | re.S)
+        if not m or " ".join(m.group(1).split()) != RULES_SIGAUX_TEXT:
+            raise Refused(f"{name}: --hand rules: `ruleSigAux_text` does not state `∀ it ∈ ruleSigAux, it ∈ "
+                          f"(Theory.ofDefinition kore).signature`")
+        req.append(decls["ruleSigAux_text"]["full"])
+    premise, converse, needed, dom_aux = None, [], None, []
+    if form in RULES_PREMISE:
+        premise = RULES_PREMISE[form][0]
+        thms = {m.group(1): " ".join(m.group(2).split())
+                for m in re.finditer(r"^theorem (\S+)(.*?):=", text, re.M | re.S)}
+        full = lambda n: decls[n]["full"] if n in decls else prefix + n
+        for i in idx:
+            got = [n for n, st in thms.items() for m in [RULES_CONVERSE.fullmatch(st)]
+                   if m and {int(x) for x in m.groups() if x} == {i}]
+            if not got:
+                raise Refused(f"{name}: --hand rules: `{form}` ties sentence {i} under `{premise}`, and the section "
+                              f"states no other direction for it (`Γ (cH H) ⊧ (trS U.ax{i}).pat`, or "
+                              f"`EntailsAtValues (cH H) U.ax{i} (trS U.ax{i}).pat`, or their `Γc` forms)")
+            converse += [full(n) for n in got if full(n) not in converse]
+        if form == "rule_from_text_closed":
+            if confined:
+                raise Refused(f"{name}: --hand rules: `{form}` has the premise `boolClosed`, and the definition "
+                              f"reads a confined sort (`readsConfined_c` true), where `Γc` is `Γ ∪ Γcl`")
+            got = [n for n, st in thms.items() if st == RULES_NOT_WITHOUT]
+            if not got:
+                raise Refused(f"{name}: --hand rules: `{form}`: the section states no theorem that W1 does not hold "
+                              f"without `boolClosed` (`{RULES_NOT_WITHOUT}`)")
+            needed = full(got[0])
+        else:
+            for n in ("ruleDomAux", "ruleDomAux_mem", "ruleDomAux_values"):
+                if n not in decls or decls[n]["full"] != prefix + n:
+                    raise Refused(f"{name}: --hand rules: `{form}`: the section does not state `{n}` in the "
+                                  f"namespace of `ruleText`")
+            dom_aux = lean_list(text, "def ruleDomAux (H : HookParams) : List P")
+            if not dom_aux:
+                raise Refused(f"{name}: --hand rules: `ruleDomAux` is not a non-empty literal list "
+                              f"(`def ruleDomAux (H : HookParams) : List P := [...]`)")
+            for n, want in (("ruleDomAux_mem", RULES_DOMAUX_MEM), ("ruleDomAux_values", RULES_DOMAUX_VALUES)):
+                if thms.get(n) != want:
+                    raise Refused(f"{name}: --hand rules: `{n}` does not state `{want}`")
+            req += [decls["ruleDomAux_mem"]["full"], decls["ruleDomAux_values"]["full"]]
+        req += converse + ([needed] if needed else [])
+    names = [decls["rules_account"]["full"], decls[form]["full"]] + req
+    others = [d["full"] for n, d in sorted(decls.items(), key=lambda kv: kv[1]["line"])
+              if d["bold"] and d["full"] not in names]
+    return dict(idx=idx, prefix=prefix, names=names + others, others=others, form=form, aux=aux, sig_aux=sig_aux,
+                premise=premise, converse=converse, needed=needed, dom_aux=dom_aux)
+
+
+def rules_hand_bullet(rh):
+    """The header's item on the rules a hand section ties (`rules_hand_of`): the sentences, the
+    premise set of the W1 statement in words, and the section's other headline statements."""
+    rp, form = rh["prefix"], rh["form"]
+    prem, extra = "", ""
+    if form in RULES_AUX_FORMS:
+        parts = []
+        if rh["aux"]:
+            parts.append(f"the text's sentence{'s' if len(rh['aux']) > 1 else ''} "
+                         + ", ".join(f"{k} ({c})" if c else str(k) for k, c in rh["aux"]) + f" (`{rp}ruleAux`)")
+        if rh["sig_aux"]:
+            parts.append(f"the item{'s' if len(rh['sig_aux']) > 1 else ''} of the text's signature "
+                         + ", ".join(f"`{x}`" for x in rh["sig_aux"])
+                         + f" (`{rp}ruleSigAux`; each an item of `(Theory.ofDefinition kore).signature`, "
+                         f"`{rp}ruleSigAux_text`)")
+        parts.append("the text's signature (`ΓSig`)")
+        if form in RULES_PREMISE:
+            what = RULES_PREMISE[form][1].replace("`ruleDomAux`", f"`{rp}ruleDomAux`")
+            parts.append(f"the premise `{rh['premise']}` ({what}" + (
+                ": " + ", ".join(f"`{x}`" for x in rh["dom_aux"]) if rh["dom_aux"] else "") + ")")
+        prem = " with " + (", ".join(parts[:-1]) + " and " if parts[:-1] else "") + parts[-1]
+    elif form in RULES_SIG_FORMS:
+        prem = " with the text's signature (`ΓSig`)"
+    if form in RULES_SIG_FORMS:
+        extra = (" `ΓSig` holds the items of the text's declarations or surplus ones, the sort constant of a registry "
+                 "sort or the arity of a hooked symbol that the text does not declare at that shape (`sig_origin`), "
+                 "and the arity of every literal (`dvArityAll`). Two limits, argued and not proved: that a surplus "
+                 "item of a name the text declares with sort parameters adds no consequence in the text's symbols; "
+                 "and that `dvArityAll` at a literal no axiom of the text writes, no item of the text, adds none "
+                 "either.")
+    if form in RULES_PREMISE:
+        ss = rh["idx"]
+        extra += (f" No sentence of the text states `{rh['premise']}`; its ground is "
+                  f"{RULES_PREMISE[form][2]}"
+                  + ("; Γ does not hold it, the definition reading no confined sort (`readsConfined_c`: Γc is Γ)"
+                     f", and without it W1 does not hold (`{rh['needed']}`)" if rh["needed"] else
+                     f"; each item is a value item or a value distinctness of `ΓDomains` (`{rp}ruleDomAux_values`, "
+                     f"`{rp}ruleDomAux_mem`)")
+                  + f". The other direction: " + ", ".join(f"`{n}`" for n in rh["converse"])
+                  + f". {'The sentences' if len(ss) > 1 else 'Sentence'} {', '.join(map(str, ss))} "
+                  f"{'are' if len(ss) > 1 else 'is'} tied under the premise (`underPremise`), not `uncovered`.")
+    return textwrap.fill(
+        f"Rewrite rules ({', '.join(map(str, rh['idx']))}), by hand, in the section `The rules`"
+        + (f" (`{rp[:-1]}`)" if rp else "") + f": each of Γ's rule items is a consequence of its text "
+        f"sentence{prem}, `{rp}ruleText` in `ruleItems`' order (`{rp}{form}`, W1, every H; "
+        f"`{rp}rules_account`)." + extra
+        + (" The section's other headline statements (its comment says what each states): "
+           + ", ".join(f"`{n}`" for n in rh["others"]) + "." if rh["others"] else ""),
+        width=100, initial_indent="  - ", subsequent_indent="    ", break_on_hyphens=False,
+        break_long_words=False)
+
+
+def rules_hand_case(w1, stmt, extra="", text=None):
+    """A hand section on the rules for `rules_hand_self_test`: `ruleText := [U.ax157]` in a namespace
+    `Run`, `rules_account`, the theorem `w1` with the statement `stmt`, and `extra` before it."""
+    return text or (HAND_SECTIONS["rules"] + " (test) -/\n\nnamespace Run\n\n"
+                    "noncomputable def ruleText : List AxiomDecl := [U.ax157]\n\n"
+                    'theorem rules_account : (classOf "rewrite rule").isPerm (ruleText.map (·.index)) = true := by\n'
+                    "  decide +kernel\n\n" + extra
+                    + f"/-- **W1.** -/\ntheorem {w1} {stmt} := by\n  sorry\n\n"
+                    "/-- **A headline statement.** -/\ntheorem cut_text : True := trivial\n\nend Run\n")
+
+
+RULES_AUX_DEFS = ("noncomputable def ruleAux : List AxiomDecl := [U.ax138, U.ax147]\n\n"
+                  'def ruleSigAux : List Item := [nonemptyItem ⟨"SortInt", [], true⟩]\n\n'
+                  "theorem ruleSigAux_text : ∀ it ∈ ruleSigAux, it ∈ (Theory.ofDefinition kore).signature := by\n"
+                  "  sorry\n\n")
+RULES_NEEDED = (f"/-- Without the premise. -/\ntheorem rule_not_from_text {RULES_NOT_WITHOUT} := by\n  sorry\n\n")
+RULES_AT_VALUES = ("theorem rule157_at_values (H : HookParams) :\n    EntailsAtValues (cH H) U.ax157 (trS U.ax157).pat := "
+                   "by\n  sorry\n\n")
+RULES_ENTAILED = "theorem rule157_entailed (H : HookParams) : Γ (cH H) ⊧ (trS U.ax157).pat := by\n  sorry\n\n"
+RULES_DOM_DEFS = ("noncomputable def ruleDomAux (H : HookParams) : List P := [boolDist H]\n\n"
+                  f"theorem ruleDomAux_mem {RULES_DOMAUX_MEM} := by\n  sorry\n\n"
+                  f"theorem ruleDomAux_values {RULES_DOMAUX_VALUES} := by\n  sorry\n\n")
+RULES_FIXED = "(H : HookParams) :\n    ∀ it ∈ ruleItems (cH H), (TiePair.Texts [(trS U.ax157).pat] ∪ ΓSig (cH H)) ⊧ it.pat"
+# (label, section, keyword arguments, None where accepted or the text of the refusal, the result's
+# fields where accepted)
+RULES_HAND_TEST = [
+    ("alone", rules_hand_case("rule_from_text", RULES_W1_FORMS["rule_from_text"][0]), {}, None,
+     dict(form="rule_from_text", names=["Run.rules_account", "Run.rule_from_text", "Run.cut_text"],
+          bullet="  - Rewrite rules (157), by hand, in the section `The rules` (`Run`): each of Γ's rule items is a\n"
+                 "    consequence of its text sentence, `Run.ruleText` in `ruleItems`' order (`Run.rule_from_text`,\n"
+                 "    W1, every H; `Run.rules_account`). The section's other headline statements (its comment says\n"
+                 "    what each states): `Run.cut_text`.")),
+    ("sig", rules_hand_case("rule_from_text_sig", "(H : HookParams) :\n    " + RULES_W1_FORMS["rule_from_text_sig"][0][len("(H : HookParams) : "):]),
+     {}, None, dict(form="rule_from_text_sig", names=["Run.rules_account", "Run.rule_from_text_sig", "Run.cut_text"])),
+    ("sig by position", rules_hand_case("rule_from_text_sig", RULES_W1_FORMS["rule_from_text_sig"][1]), {}, None,
+     dict(form="rule_from_text_sig")),
+    ("sig without sig_origin", rules_hand_case("rule_from_text_sig", RULES_W1_FORMS["rule_from_text_sig"][0]),
+     dict(sig_origin=False), "not `sig_origin`", None),
+    ("aux", rules_hand_case("rule_from_text_aux", RULES_W1_FORMS["rule_from_text_aux"][0], RULES_AUX_DEFS),
+     dict(cls={138: "library", 147: "library", 157: "rewrite rule"}), None,
+     dict(form="rule_from_text_aux", aux=[(138, "library"), (147, "library")],
+          sig_aux=['nonemptyItem ⟨"SortInt", [], true⟩'],
+          names=["Run.rules_account", "Run.rule_from_text_aux", "Run.ruleSigAux_text", "Run.cut_text"])),
+    ("aux, empty lists", rules_hand_case("rule_from_text_aux", RULES_W1_FORMS["rule_from_text_aux"][0],
+                                         RULES_AUX_DEFS.replace("[U.ax138, U.ax147]", "[]")
+                                         .replace('[nonemptyItem ⟨"SortInt", [], true⟩]', "[]")),
+     dict(cls={157: "rewrite rule"}), None, dict(aux=[], sig_aux=[])),
+    ("aux without ruleSigAux_text", rules_hand_case("rule_from_text_aux", RULES_W1_FORMS["rule_from_text_aux"][0],
+                                                    RULES_AUX_DEFS.split("theorem ruleSigAux_text")[0]),
+     {}, "does not state `ruleSigAux_text`", None),
+    ("aux, ruleAux no literal", rules_hand_case("rule_from_text_aux", RULES_W1_FORMS["rule_from_text_aux"][0],
+                                                RULES_AUX_DEFS.replace("[U.ax138, U.ax147]", "[U.ax138] ++ more")),
+     {}, "`ruleAux` is not a literal list", None),
+    ("aux, ruleAux no sentence", rules_hand_case("rule_from_text_aux", RULES_W1_FORMS["rule_from_text_aux"][0],
+                                                 RULES_AUX_DEFS), dict(cls={138: "library", 157: "rewrite rule"}),
+     "147 is no sentence of the user module", None),
+    ("aux without sig_origin", rules_hand_case("rule_from_text_aux", RULES_W1_FORMS["rule_from_text_aux"][0],
+                                               RULES_AUX_DEFS), dict(sig_origin=False), "not `sig_origin`", None),
+    ("ΓDomains named", rules_hand_case("rule_from_text_sig", "(H : HookParams) : ∀ it ∈ ruleItems (cH H), ∃ ad ∈ ruleText, "
+                                "itemsPremises [trS ad] ∪ ΓSig (cH H) ∪ ΓDomains (cH H) ⊧ it.pat"),
+     {}, "name `ΓDomains`, Γ's own", None),
+    ("Γ", rules_hand_case("rule_from_text", "(H : HookParams) : ∀ it ∈ ruleItems (cH H), Γ (cH H) ⊧ it.pat"),
+     {}, "name `Γ`, Γ's own", None),
+    ("constructors", rules_hand_case("rule_from_text_cons", "(H : HookParams) : ∀ it ∈ ruleItems (cH H), ∃ ad ∈ "
+                                     "ruleText, itemsPremises [trS ad] ∪ ΓCons (cH H) ⊧ it.pat"),
+     {}, "name `ΓCons`, Γ's own", None),
+    ("the sentence fixed", rules_hand_case("rule_from_text_sig", RULES_FIXED), {}, "not W1 for every H in a form", None),
+    ("another name", rules_hand_case("rule_from_text_inj", RULES_W1_FORMS["rule_from_text_sig"][0]), {},
+     "names no premise set tiegen reads", None),
+    ("two statements", rules_hand_case("rule_from_text_sig", RULES_W1_FORMS["rule_from_text_sig"][0],
+                                       f"theorem rule_from_text {RULES_W1_FORMS['rule_from_text'][0]} := by\n  sorry\n\n"),
+     {}, "one W1 statement", None),
+    ("ΓSig declared", rules_hand_case("rule_from_text_sig", RULES_W1_FORMS["rule_from_text_sig"][0],
+                                      "def ΓSig (c : Semantics) : Premises KoreAML.Sym := Γ c\n\n"),
+     {}, "declares `ΓSig`", None),
+    ("notation", rules_hand_case("rule_from_text_sig", RULES_W1_FORMS["rule_from_text_sig"][0],
+                                 'local notation "ΓS" => Γ\n\n'), {}, "defines notation", None),
+    ("text declared", rules_hand_case("rule_from_text_sig", RULES_W1_FORMS["rule_from_text_sig"][0],
+                                      'user_axioms U from "f2-examples/other.kompile.kore" module "M"\n\n'), {},
+     "declares `U`", None),
+    ("ruleText twice", rules_hand_case("rule_from_text_sig", RULES_W1_FORMS["rule_from_text_sig"][0],
+                                       "namespace In\nnoncomputable def ruleText : List AxiomDecl := [U.ax158]\nend In\n\n"),
+     {}, "declares `ruleText` more than once", None),
+    ("include", rules_hand_case("rule_from_text_sig", RULES_W1_FORMS["rule_from_text_sig"][0],
+                                "variable (h : False)\ninclude h\n\n"), {}, "an `include`", None),
+    ("instance variable", rules_hand_case("rule_from_text_sig", RULES_W1_FORMS["rule_from_text_sig"][0],
+                                          "variable [Fact False]\n\n"), {}, "an `include`", None),
+    ("variable", rules_hand_case("rule_from_text_sig", RULES_W1_FORMS["rule_from_text_sig"][0],
+                                 "variable (H : HookParams)\n\n"), {}, None, dict(form="rule_from_text_sig")),
+    ("closed", rules_hand_case("rule_from_text_closed", RULES_W1_FORMS["rule_from_text_closed"][0],
+                               RULES_AUX_DEFS + RULES_NEEDED + RULES_AT_VALUES), {}, None,
+     dict(form="rule_from_text_closed", premise="boolClosed", converse=["Run.rule157_at_values"],
+          needed="Run.rule_not_from_text", names=["Run.rules_account", "Run.rule_from_text_closed",
+                                                  "Run.ruleSigAux_text", "Run.rule157_at_values",
+                                                  "Run.rule_not_from_text", "Run.cut_text"])),
+    ("closed, Γ ⊧", rules_hand_case("rule_from_text_closed", RULES_W1_FORMS["rule_from_text_closed"][0],
+                                    RULES_AUX_DEFS + RULES_NEEDED + RULES_ENTAILED), {}, None,
+     dict(converse=["Run.rule157_entailed"])),
+    ("closed, confined", rules_hand_case("rule_from_text_closed", RULES_W1_FORMS["rule_from_text_closed"][0],
+                                         RULES_AUX_DEFS + RULES_NEEDED + RULES_AT_VALUES), dict(confined=True),
+     "reads a confined sort", None),
+    ("closed, not needed", rules_hand_case("rule_from_text_closed", RULES_W1_FORMS["rule_from_text_closed"][0],
+                                           RULES_AUX_DEFS + RULES_AT_VALUES), {},
+     "no theorem that W1 does not hold without `boolClosed`", None),
+    ("closed, no converse", rules_hand_case("rule_from_text_closed", RULES_W1_FORMS["rule_from_text_closed"][0],
+                                            RULES_AUX_DEFS + RULES_NEEDED), {}, "no other direction for it", None),
+    ("closed, converse of another", rules_hand_case(
+        "rule_from_text_closed", RULES_W1_FORMS["rule_from_text_closed"][0],
+        RULES_AUX_DEFS + RULES_NEEDED + RULES_AT_VALUES.replace("U.ax157 (trS U.ax157)", "U.ax157 (trS U.ax158)")),
+     {}, "no other direction for it", None),
+    ("closed without sig_origin", rules_hand_case("rule_from_text_closed", RULES_W1_FORMS["rule_from_text_closed"][0],
+                                                  RULES_AUX_DEFS + RULES_NEEDED + RULES_AT_VALUES),
+     dict(sig_origin=False), "not `sig_origin`", None),
+    ("closed over Pre", rules_hand_case("rule_from_text_closed", "(H : HookParams) :\n    ∀ it ∈ ruleItems (cH H), "
+                                        "Pre157Cl H ⊧ it.pat", RULES_AUX_DEFS + RULES_NEEDED + RULES_AT_VALUES),
+     {}, "not W1 for every H in a form", None),
+    ("domains", rules_hand_case("rule_from_text_dom", RULES_W1_FORMS["rule_from_text_dom"][0],
+                                RULES_AUX_DEFS + RULES_DOM_DEFS + RULES_ENTAILED), {}, None,
+     dict(form="rule_from_text_dom", premise="ruleDomAux", dom_aux=["boolDist H"], needed=None,
+          names=["Run.rules_account", "Run.rule_from_text_dom", "Run.ruleSigAux_text", "Run.ruleDomAux_mem",
+                 "Run.ruleDomAux_values", "Run.rule157_entailed", "Run.cut_text"])),
+    ("domains, a graph", rules_hand_case("rule_from_text_dom", RULES_W1_FORMS["rule_from_text_dom"][0],
+                                         RULES_AUX_DEFS + RULES_DOM_DEFS.split("theorem ruleDomAux_values")[0]
+                                         + "theorem ruleDomAux_values (H : HookParams) : ∀ φ ∈ ruleDomAux H, "
+                                         "ΓDomains (cH H) φ := by\n  sorry\n\n" + RULES_ENTAILED),
+     {}, "`ruleDomAux_values` does not state", None),
+    ("domains, no values", rules_hand_case("rule_from_text_dom", RULES_W1_FORMS["rule_from_text_dom"][0],
+                                           RULES_AUX_DEFS + RULES_DOM_DEFS.split("theorem ruleDomAux_values")[0]
+                                           + RULES_ENTAILED),
+     {}, "does not state `ruleDomAux_values`", None),
+    ("domains, empty", rules_hand_case("rule_from_text_dom", RULES_W1_FORMS["rule_from_text_dom"][0],
+                                       RULES_AUX_DEFS + RULES_DOM_DEFS.replace("[boolDist H]", "[]") + RULES_ENTAILED),
+     {}, "not a non-empty literal list", None),
+]
+
+
+def rules_hand_self_test():
+    """The cases of RULES_HAND_TEST on `rules_hand_of` and `rules_hand_bullet`: the failing labels."""
+    bad = []
+    for label, text, kw, refused, want in RULES_HAND_TEST:
+        try:
+            got = rules_hand_of("case", text, [157], False, False, **kw)
+            got["bullet"] = rules_hand_bullet(got)
+            err = None
+        except Refused as e:
+            got, err = None, str(e)
+        ok = (err is not None and refused in err) if refused else (
+            err is None and all(got.get(k) == v for k, v in (want or {}).items()))
+        if not ok:
+            print(f"tiegen self-test: --hand rules case {label!r}: "
+                  + (f"refused: {err}" if err else f"accepted: {({k: got.get(k) for k in (want or {})})}") + "  FAILS")
+            bad.append(f"rules {label}")
+    print(f"tiegen self-test: --hand rules: {len(RULES_HAND_TEST)} cases, {len(bad)} failing")
+    return bad
+
 
 NEX_TIE = os.path.join(KS, "test/NonExecOwiseTie.lean")
 
@@ -6648,10 +7172,39 @@ def UserLemmaAtValues : Prop :=
 """
 
 
-def openlaw_section(open_law, rnames, need_rfl):
+def openlaw_section(open_law, rnames, need_rfl, law_of, one_gen):
+    """The law sentences of the open generators, Γ's law items as written; `law_of`: the generator and
+    the law of each."""
     i = open_law[0]
     rfl = ("kernel_rfl consItemsK_withHooks : ∀ (c : Semantics) (H : HookParams), consItemsK (c.withHooks H) = consItemsK c\n\n"
            if need_rfl else "")
+    if len(open_law) > 1 or not one_gen:
+        whose = "; ".join(f"{j}: the {law} of `{r}`" for j, (r, law) in zip(open_law, law_of))
+        il = ", ".join(map(str, open_law))
+        many = len(open_law) > 1
+        lst = ax_list(open_law, 4)
+        owners = " and ".join(dict.fromkeys(f"`{r}`" for r, _ in law_of))
+        doc = textwrap.fill(f"/-- **Γ's law item{'s are the translations of the sentences' if many else ' is the translation of sentence'} "
+                            f"{il}, as written** ({whose}; `lawItemsK`, a part of the constructors' items). -/",
+                            width=100, break_on_hyphens=False, break_long_words=False)
+        return f"""/-! ## The law sentence{'s' if many else ''} of {owners} ({il}): {'items' if many else 'an item'} of Γ -/
+
+{rfl}{doc}
+theorem openlaw_item : (lawItemsK c).map (·.pat) = {lst}.map (fun ad => (trS ad).pat) := by decide +kernel
+theorem openlaw_cons : {lst}.all (fun ad => (consItemsK c).any (·.pat == (trS ad).pat)) = true := by
+  decide +kernel
+
+/-- **E for the law sentences**: Γ entails each, for every H. -/
+theorem openlaw_entailed (H : HookParams) : ∀ ad ∈ {lst}, Γ (cH H) ⊧ (trS ad).pat := by
+  intro ad had M _ I hI
+  obtain ⟨it, hit, he⟩ := List.any_eq_true.mp (List.all_eq_true.mp openlaw_cons ad had)
+  rw [← of_decide_eq_true he]
+  exact sat_cons hI (Or.inl ⟨it, by rw [consItemsK_withHooks]; exact hit, rfl⟩)
+
+/-- The law sentences are the account's class `{LAW_OPEN_CLASS}` (direction `equal`: Γ's law items
+are their translations, `openlaw_item`, and Γ entails each, `openlaw_entailed`). -/
+theorem openlaw_account : classOf "{LAW_OPEN_CLASS}" = [{il}] := by decide +kernel
+"""
     return f"""/-! ## The law sentence of {rnames} ({i}): an item of Γ -/
 
 {rfl}/-- **Γ's one law item is the translation of sentence {i}, as written** (`lawItemsK`, a part of
@@ -7085,7 +7638,7 @@ HEAD_CODE_TEST = [(("kseq", []), "(6197441387, [])"),
 
 
 def self_test():
-    bad = []
+    bad = rules_hand_self_test()
     for order, want in INDEX_RANGE_TEST:
         if index_range(order) != want:
             print(f"tiegen self-test: index_range({order}) is {index_range(order)}, not {want}  FAILS")
@@ -7176,8 +7729,8 @@ def main(argv):
     laws, open_laws = nested(head["lawIx"]), nested(head["openLawIx"])
     if any(len(l) != 1 for l in laws) or len({l[0] for l in laws}) != len(laws):
         raise Refused(f"{name}: a law of the reader (`Definition.laws`) is not, as written, exactly one sentence of the user module")
-    if any(len(l) != 1 for l in open_laws) or len(open_laws) > 1:
-        raise Refused(f"{name}: Γ's law items (`lawItemsK`) are not one sentence of the user module, as written")
+    if any(len(l) != 1 for l in open_laws) or len({l[0] for l in open_laws}) != len(open_laws):
+        raise Refused(f"{name}: Γ's law items (`lawItemsK`) are not each one sentence of the user module, as written")
     if len(head["lawRef"]) != len(laws):
         raise Refused(f"{name}: the probe's law search does not list the reader's laws")
     refuted = law_refuted(name, head, laws, {i: raw for i, _, _, raw in ua}, sents)
@@ -7264,6 +7817,7 @@ def main(argv):
     print(json.dumps(summary, indent=1) if "--print" in argv else
           f"tiegen: {summary['file']}: {summary['sentences']} sentences ({summary['mapped']} as ens's, "
           f"{summary['unmapped']} unmapped), {len(summary['uncovered'])} uncovered"
+          + (f", {len(summary['under_premise'])} under a premise" if summary.get("under_premise") else "")
           + (f"; {len(files)} files: {', '.join(summary['files'])}" if files else ""))
     return 0
 
