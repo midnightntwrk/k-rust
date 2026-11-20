@@ -16,7 +16,11 @@
 # consistent, sound_at, complete_at, run_exact and totals_withHooks; the consumer's statement), C10
 # (kore.k's three) and C14 (the theory, the translation, the tie's statement definitions, and the
 # registry family's two statements at the decided check, registry_conservative and exact_own, with
-# detached_of_decided) mention.
+# detached_of_decided) mention: among them the hypotheses of consistent_of on the functions (FnDet,
+# FnSolves), eventually, and the facts the tie owes on the interpretation (OpenTotal, FnLaws,
+# ParamsTotal, and a function-overloaded symbol's OvlFnTotal, OvlFnInj, OvlFnDist). A proposition
+# such a statement takes or concludes is a root, or is named in kcore/core-manifest.toml's
+# [tree].left_out with its reason.
 # With the roots before them they reach every library definition those statements mention (Step,
 # Config, NotApplies, den and the like through the closure). run_exact's executor, successorsN and
 # outOfFuel, is listed under [opaque] and is no root: run_exact, which names it, is a theorem, and a
@@ -43,6 +47,9 @@ roots = [
   # and on the right side
   "KCore.ClausePreDecided",
   "KCore.ClausePostDecided",
+  # C9: consistent_of's, run_exact's and step_iff_at's hypotheses on the functions
+  "KCore.FnDet",
+  "KCore.FnSolves",
   # C9 part 5, the consumer's statement: all-path claims over Step, its configurations built by Tm
   "KCore.Reachability.AllPath",
   "KCore.Tm",
@@ -56,6 +63,8 @@ roots = [
   "KCore.Srt.k",
   "KCore.Srt.kitem",
   "KCore.Srt.top",
+  # C9: the conclusion of ref-kimp's claim sum_spec_ml, Γ ⊧ ⟦x⟧ ⇒ eventually ⟦y⟧
+  "KCore.eventually",
   # C10, row KORE in K: kore.k's three statements (with Sig, SuccsAt, d0, K0, CoherentAll)
   "KCore.KK.SuccsSound",
   "KCore.KK.SuccsStuck",
@@ -66,6 +75,7 @@ roots = [
   "KoreAML.Theory.ofDefinition",
   "KCore.AtValues",
   "KCore.EntailsAtValues",
+  "KCore.EntailsAtValuesΓc",
   "KCore.SetVarsAtValues",
   "KCore.EntailsAtSetValues",
   "KCore.SetVarsAtMostOne",
@@ -76,6 +86,15 @@ roots = [
   "KCore.surplusItem",
   "KoreAML.instItem",
   "KCore.tieClasses",
+  # C14: the classes of an account with an overload axiom, and what tieClasses' text names as owed
+  # on the interpretation
+  "KCore.tieClassesOvl",
+  "KCore.OpenTotal",
+  "KCore.FnLaws",
+  "KCore.ParamsTotal",
+  "KCore.Faithful.OvlFnTotal",
+  "KCore.Faithful.OvlFnInj",
+  "KCore.Faithful.OvlFnDist",
   # C14, the registry family: registry_conservative, exact_own and detached_of_decided (pinned by type
   # in test/Pins.lean) at the decided check detachedB, every clause's predicate \top (clausesPreTop),
   # and the definitions their statements' bodies read
