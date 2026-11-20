@@ -2812,7 +2812,7 @@ def clip (n : Nat) (s : String) : String :=
   if r.2 then String.ofList r.1 ++ " …" else s
 
 /-- `kcore account KORE`: the reader's account of a text, with no package written: the prelude's
-agreement, the user module's sentences by class and origin with one example of each refused
+agreement (where it differs, the refusal `Parse.parse` gives), the user module's sentences by class and origin with one example of each refused
 class, every refusal of the stages, the sentences read that the definition does not account for,
 the rules and the functions' clauses whose `CondDecided` is owed (`Parse.owedCondDecided`,
 `Parse.owedClauseCondDecided`) and, printed once after them, that the text's soundness,
@@ -2825,7 +2825,13 @@ def account (koreFile : String) : IO UInt32 := do
   let .ok k := Kore.parseDefinition text | IO.eprintln s!"{koreFile}: KORE read error"; return 1
   let some m := k.modules.getLast? | IO.eprintln s!"{koreFile}: no module"; return 1
   let off := Parse.preludeLength k
-  IO.println s!"{koreFile}: {k.modules.length} modules; prelude {if k.modules.dropLast = preludeModules then "agrees" else "differs: " ++ (Parse.preludeRefusal k).toText}"
+  -- where the modules before the last differ from the prelude, the refusal is the reader's own
+  -- (`Parse.parse`'s prelude arm), not a second test of the same condition
+  let preludeLine := if k.modules.dropLast = preludeModules then "agrees" else
+    match Parse.parse k with
+    | .error r => "differs: " ++ r.toText
+    | .ok _ => "differs, and Parse.parse reads the text all the same"
+  IO.println s!"{koreFile}: {k.modules.length} modules; prelude {preludeLine}"
   IO.println s!"user module {m.name.ident.name}: {m.sentences.length} sentences"
   let N := Parse.namesOf k
   -- a lemma applying a parameter symbol without `impl` of the reading is a parameter lemma, and so
