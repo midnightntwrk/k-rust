@@ -66,10 +66,12 @@ def lookup (m k : GroundTerm) : Option GroundTerm :=
 /-! ## kimp's configurations -/
 
 mutual
-  /-- The configuration of a cell tree whose leaf named n holds `v n`. -/
+  /-- The configuration of a cell tree whose leaf named n holds `v n`. A cell collection child is
+  no cell and its name is empty (`Cell.name`): it holds `v ""`. kimp's cell tree has none. -/
   def fill (v : String → GroundTerm) : Cell → GroundTerm
     | .leaf n _ i => .ctor i.label [v n]
     | .node _ cs i => .ctor i.label (fillList v cs)
+    | .coll _ => v ""
     termination_by structural x => x
   def fillList (v : String → GroundTerm) : List Cell → List GroundTerm
     | [] => []
