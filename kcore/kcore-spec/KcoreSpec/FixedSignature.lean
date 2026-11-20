@@ -649,12 +649,12 @@ def floatResFloat : List Sym :=
 def floatResBool : List Sym := [floatLe, floatLt, floatGe, floatGt, floatEq, floatNe, floatIsNaN, floatIsInfinite]
 def floatResInt : List Sym := [floatPrecision, floatExponentBits]
 
-/-- STRING's and BYTES' interpreted symbols that are partial: undefined off valid indices or digits,
-at a negative count or length, at a byte outside 0–255, at an integer that is no code point.
+/-- STRING's and BYTES' interpreted symbols that are partial: `hook` gives no value off valid indices or digits,
+at a negative count or length, at a byte outside 0–255, at an integer that is no code point. There STRING's, `memsetBytes` and `Int2Bytes` have the interpretation's value (silent points, `silentTable`), and BYTES' others have none.
 `substrString` and `Int2Bytes`, declared `total` by the library's text, are among them
 (findings/KN-4-string-bytes.md §1.4, §3), and so are `countAllOccurrences` and `replaceAll`, declared
-`total` and without a `hook` value at the empty needle. `Bytes2Int` is not: it is undefined only at an Endianness
-or Signedness value that is no constructor of BYTES, and the deciders count on its totality where
+`total` and without a `hook` value at the empty needle. `Bytes2Int` is not: `hook` gives it no value only at an Endianness
+or Signedness value that is no constructor of BYTES (a silent point: the interpretation's value), and the deciders count on its totality where
 those sorts have only BYTES' constructors (`enumShapesOK`). -/
 def stringPartial : List Sym :=
   [stringOrd, stringSubstr, stringFind, stringRfind, stringFindChar, stringRfindChar, string2Bool, string2Int,
@@ -662,15 +662,15 @@ def stringPartial : List Sym :=
 def bytesPartial : List Sym :=
   [bytesUpdate, bytesGet, bytesSubstr, bytesReplaceAt, bytesMemset, bytesPadRight, bytesPadLeft, int2Bytes]
 
-/-- The interpreted symbols not known total here (`hook` can be undefined): division and modulo,
+/-- The interpreted symbols not known total here (`hook` gives no value somewhere: at a silent point, `silent`, the value is the interpretation's, and elsewhere there is none, which "undefined" says below): division and modulo,
 the two shifts (undefined at a negative amount) and `log2Int` (undefined at a number not above 0),
 `^%Int` (no value at a zero modulus, the interpretation's at a negative exponent, and elsewhere
 the truncating remainder of the power), `bitRangeInt` and
 `signExtendBitRangeInt` (undefined at a negative index or length, the second also at length 0),
 `^Int` (the interpretation's at a negative exponent), `L[I <- V]`, `makeList`, `updateList` and
 `fillList` (the interpretation's off the ranges the text describes),
-`_Map_` and `_Set_` (undefined where the two collections share a key or a member), `Map:lookup`,
-`List:get` and `List:range`, and FLOAT's (undefined on two formats or at a format without a model
+`_Map_` and `_Set_` (undefined where the two collections share a key or a member), `Map:lookup` (undefined off the keys),
+`List:get` and `List:range` (the interpretation's off the list), and FLOAT's (the interpretation's on two formats, off the region the text states, or at a format without a model
 that `thinAt` does not name; those FLOAT declares `total` are listed too, so no check counts on
 their totality: the six of `totalSilentKeys` have silent points, and `isNaN`, `precisionFloat` and `exponentBitsFloat` have a
 value at every Float literal and none at a value of sort Float that is no literal, a constructor,
@@ -678,7 +678,7 @@ injection or token of that sort, which only `floatShapeOK` excludes), and STRING
 (`stringPartial`, `bytesPartial`), and RANGEMAP's seven that the text does not declare `total`: the
 element symbol, update and remove at a range that is no proper Int range, `removeAll` at a member
 that is none, remove and `removeAll` at a range no part of which is in the map, concatenation
-where two intervals meet, `lookup` and `find_range` off the keys.
+where two intervals meet, `lookup` and `find_range` off the keys (silent points all: the interpretation's value).
 The library's text declares every other one `total` (KCORE-AUDIT.md). -/
 def partialHooks : List Sym :=
   [intTDiv, intTMod, intEDiv, intEMod, mapConcat, setConcat, mapLookup, listGet, listRange] ++ floatResFloat ++

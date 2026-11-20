@@ -31,14 +31,14 @@
   implemented by a registry hook (`_AccountCellMap_`, `MAP.concat`) takes its declared result
   sort (`Semantics.paramVal`, `GroundTerm.withSort`).
 
-  `hook f vs`: `none` if `f` is not an interpreted symbol; `some none` if it is, and is undefined
+  `hook f vs`: `none` if `f` is not an interpreted symbol; `some none` if it is, and has no value here
   at `vs` (division by zero, a lookup off the keys, the union of maps with a common key, arguments
   of the wrong shape); `some (some v)` its value. Every argument is a value (evaluation is strict,
   Evaluation.lean).
 
   This function is the standard model of the domain theories: Γ's domains (`ΓDomains`,
   Faithful.lean) get, for each interpreted symbol, the graph of `hook` on ground values of its
-  argument sorts, ⊥ where it is undefined. So the domain theories
+  argument sorts, ⊥ where it gives no value off the silent points (`silent`). So the domain theories
   are not written by hand symbol by symbol; they are read off this one function, which is what a
   reviewer checks against K's documented meaning of each hook (domains.md): Int is ℤ with
   truncating `/Int` and `%Int` and Euclidean `divInt` and `modInt`, all undefined at divisor 0
@@ -318,14 +318,14 @@ def floatV (p e : Nat) (sp : Format) (u : UnpackedFloat) : GroundTerm :=
   .dv Srt.float (.float p e (KFloat.packBits sp u))
 
 open Float.Model in
-/-- An operation on one Float, in its format; undefined where the operation gives no datum. -/
+/-- An operation on one Float, in its format; no value where the operation gives no datum. -/
 def fl1 (op : Format → UnpackedFloat → Option UnpackedFloat) (vs : List GroundTerm) : Option GroundTerm :=
   match vs with
   | [a] => (asFloat a).bind fun (p, e, sp, u) => (op sp u).map (floatV p e sp)
   | _ => none
 
 open Float.Model in
-/-- An operation on two Floats of one format, in that format; undefined on two formats and where
+/-- An operation on two Floats of one format, in that format; no value on two formats and where
 the operation gives no datum. -/
 def fl2 (op : Format → UnpackedFloat → UnpackedFloat → Option UnpackedFloat) (vs : List GroundTerm) :
     Option GroundTerm :=
@@ -378,7 +378,7 @@ def flFmt (f : Nat → Nat → Int) (vs : List GroundTerm) : Option GroundTerm :
   | _ => none
 
 open Float.Model in
-/-- A datum of the format `(p, e)` given by two Ints; undefined at a format without a model. -/
+/-- A datum of the format `(p, e)` given by two Ints; no value at a format without a model. -/
 def flAt (op : Format → UnpackedFloat) (vs : List GroundTerm) : Option GroundTerm :=
   match vs with
   | [x, y] => (asInt x).bind fun p => (asInt y).bind fun e =>
@@ -386,7 +386,7 @@ def flAt (op : Format → UnpackedFloat) (vs : List GroundTerm) : Option GroundT
   | _ => none
 
 open Float.Model in
-/-- A datum converted to the format `(p, e)` given by two Ints (`roundFloat`); undefined at a format
+/-- A datum converted to the format `(p, e)` given by two Ints (`roundFloat`); no value at a format
 without a model and where the conversion gives no datum. -/
 def flTo (op : Format → UnpackedFloat → Option UnpackedFloat) (vs : List GroundTerm) : Option GroundTerm :=
   match vs with
@@ -394,7 +394,7 @@ def flTo (op : Format → UnpackedFloat → Option UnpackedFloat) (vs : List Gro
       (KFloat.spec? p.toNat e.toNat).bind fun sp => (op sp u).map (floatV p.toNat e.toNat sp)
   | _ => none
 
-/-- An Int converted to the format `(p, e)` given by two Ints (`Int2Float`); undefined at a format
+/-- An Int converted to the format `(p, e)` given by two Ints (`Int2Float`); no value at a format
 without a model and at an Int the format does not hold (`KFloat.ofInt?`). -/
 def flOfInt (vs : List GroundTerm) : Option GroundTerm :=
   match vs with
@@ -438,7 +438,7 @@ def tfl1 (op : Nat → Nat → UnpackedFloat → Option UnpackedFloat) (vs : Lis
   | _ => none
 
 open Float.Model in
-/-- An operation on two Floats of one format `thinAt` names, in that format; undefined on two
+/-- An operation on two Floats of one format `thinAt` names, in that format; no value on two
 formats. -/
 def tfl2 (op : Nat → Nat → UnpackedFloat → UnpackedFloat → Option UnpackedFloat) (vs : List GroundTerm) :
     Option GroundTerm :=
@@ -533,8 +533,8 @@ theorem flOr_of_none {f g : List GroundTerm → Option GroundTerm} {vs : List Gr
 /-- FLOAT's interpreted symbols, each with a value where K's text states one (FloatDomain.lean:
 the exact result rounded to nearest, ties to even, off the infinities, NaN, a zero divisor, the
 zero results the text gives no sign and the values above the format's largest finite one;
-`roundFloat` and `Int2Float` at a value the format holds). A binary operation on two formats is
-undefined (K's documentation leaves it open; the symbols are not total); a comparison of two
+`roundFloat` and `Int2Float` at a value the format holds). A binary operation on two formats has
+no value here: a silent point (`silentTable`; K's text does not give the result's format), where the value is the interpretation's; a comparison of two
 formats compares the exact values. Each operation that computes a Float, and `isInfinite`, is
 paired by `flOr` with its entry of `thinHooks`: at a format with a model Lean core's, at a format
 `thinAt` names the same formulas over the rounding to the nearest datum of that format. -/
@@ -837,7 +837,7 @@ number of the table is below 2^16 - 1 (`hookTable_keys`). One term for every loo
 are unfolded (evaluated) once. -/
 def hookTrie : NatMap (List GroundTerm → Option GroundTerm) := NatMap.ofListBy 16 hookTable
 
-/-- `none`: not an interpreted symbol; `some r`: interpreted, with value `r` (`none`: undefined).
+/-- `none`: not an interpreted symbol; `some r`: interpreted, with value `r` (`none`: no value here; at a silent point, `silent`, the value is the interpretation's, `Semantics.hookRes`).
 Reaching an entry of `hookTrie` unfolds about log₂ f levels, however many entries the table has. -/
 def hook (f : Sym) (vs : List GroundTerm) : Option (Option GroundTerm) :=
   (hookTrie.find f).map fun h => h vs
