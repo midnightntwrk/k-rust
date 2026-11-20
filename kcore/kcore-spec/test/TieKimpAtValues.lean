@@ -1,6 +1,6 @@
 /-
-  Row imp, the classes hooked functional, collection law and library entailed at values on kimp's
-  text as kompile wrote it (`examples/ref-kimp/RefKimp/definition.kore`, user module `IMP`), for
+  Row imp, the classes function functional, hooked functional, collection law and library entailed
+  at values on kimp's text as kompile wrote it (`examples/ref-kimp/RefKimp/definition.kore`, user module `IMP`), for
   every interpretation H. The semantics is the generated package's `RefKimp.defn.sem`, and its
   `coreOK`, which the library's statements take, is the package's `RefKimp.coreOK_defn` (from
   `wf defn`). Each sentence is tied by the library's one statement of it (KcoreSpec/LibEv*.lean):
@@ -9,6 +9,12 @@
   Run from the package root with the package built (test/imp-tie-atvalues.sh does both):
   `LEAN_PATH=.lake/pins/kimp-tie/.lake/build/lib/lean:$(lake env printenv LEAN_PATH) lean test/TieKimpAtValues.lean`.
 
+  - Function functional (`fnFun_at_values`, `fnFun_indices`): the class's 20 sentences, the
+    `functional` sentences of the sort predicates `isX`, at values in every model of Γc
+    (`EntailsAtValuesΓc`, Γ with the closure item of Bool), for every H, from the sort predicates'
+    own results and without `FnHyp` (`LibEv.sortPredFun_evC_withHooks`: `coreOK`, the clauses'
+    predicates `\top`, no `\exists` in a clause, and no condition over a variable the patterns
+    leave open, `fnFun_clauses`).
   - Hooked functional (`fun_entailed`, `fun_indices`): the class's 47 sentences
     `\exists{R}(Val:s, \equals{s, R}(Val:s, f(K0:s0, …)))` whose symbol is an interpreted hooked
     symbol that is not partial (`LibEv.functional_ev`). The sentence of `ite` (633), which the text
@@ -51,6 +57,58 @@ theorem boolBelowH (H : HookParams) : Srt.bool ∈ (cH H).sortsBelowKItem :=
   List.contains_iff_mem.mp (by decide +kernel : c.sortsBelowKItem.contains Srt.bool = true)
 theorem intBelowH (H : HookParams) : Srt.int ∈ (cH H).sortsBelowKItem :=
   List.contains_iff_mem.mp (by decide +kernel : c.sortsBelowKItem.contains Srt.int = true)
+
+/-! ## Function functional (20): the sort predicates' `functional` sentences, at values in every model of Γc -/
+
+/-- The sentences' indices. -/
+def fnFunIdx : List Nat :=
+  [613, 614, 615, 616, 617, 618, 619, 620, 621, 622, 623, 624, 625, 626, 627, 628, 629, 630, 631, 632]
+
+/-- The sentences, in text order. -/
+noncomputable def fnFunText : List AxiomDecl := U.all.filter fun ad => fnFunIdx.contains ad.index
+
+theorem fnFun_indices : fnFunText.map (·.index) =
+    [613, 614, 615, 616, 617, 618, 619, 620, 621, 622, 623, 624, 625, 626, 627, 628, 629, 630, 631, 632] := by
+  decide +kernel
+
+/-- The sentence is the `functional` sentence of a sort predicate of `c`, over the one sort
+variable `R`, with its variables' sorts the registry's. -/
+noncomputable def fnFunOK (ad : AxiomDecl) : Bool :=
+  decide (ad.ax.sortVars = [Rv]) &&
+    c.sortPreds.any fun fn => decide (ad.ax.pattern = LibEv.funPat c fn.sig) && LibEv.predFunReg c fn.sig
+
+theorem fnFun_checked : fnFunText.all fnFunOK = true := by decide +kernel
+
+/-- None of the 20 reads a declaration or an alias. -/
+theorem fnFun_trS : fnFunText.all (fun ad => decide ((trS ad).pat = (trAxiom [] [] ad).pat)) = true := by
+  decide +kernel
+
+/-- The clauses' predicates are `\top`, no clause binds a variable by `\exists`, and no clause has
+a condition over a variable its patterns leave open. -/
+theorem fnFun_clauses : c.clausesPreTop = true ∧
+    (c.fns.all fun f => f.clauses.all fun cl => cl.exs.isEmpty) = true ∧
+    (c.fns.all fun f => f.clauses.all fun cl => !cl.reqOpen) = true := by
+  decide +kernel
+
+theorem fnFun_noWitH (H : HookParams) : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness (cH H) = false := by
+  intro fn hfn cl hcl
+  have h := List.all_eq_true.mp (List.all_eq_true.mp fnFun_clauses.2.2 fn hfn) cl hcl
+  simp only [Bool.not_eq_eq_eq_not, Bool.not_true] at h
+  simp [Clause.needsWitness, h]
+
+/-- **The function functional sentences hold at values in every model of `Γc`, for every H**
+(`EntailsAtValuesΓc`), without `FnHyp`. -/
+theorem fnFun_at_values (H : HookParams) : ∀ ad ∈ fnFunText, EntailsAtValuesΓc (cH H) ad (trS ad).pat := by
+  intro ad had
+  rw [of_decide_eq_true (List.all_eq_true.mp fnFun_trS ad had)]
+  have hok := List.all_eq_true.mp fnFun_checked ad had
+  simp only [fnFunOK, Bool.and_eq_true, decide_eq_true_eq] at hok
+  obtain ⟨hsv, hany⟩ := hok
+  obtain ⟨fn, hfn, hfp⟩ := List.any_eq_true.mp hany
+  simp only [Bool.and_eq_true, decide_eq_true_eq] at hfp
+  exact LibEv.sortPredFun_evC_withHooks H RefKimp.coreOK_defn fnFun_clauses.1
+    (Semantics.fnsNoExs_of_all fnFun_clauses.2.1)
+    (fun fn hfn cl hcl hw => absurd hw (by rw [fnFun_noWitH H fn hfn cl hcl]; decide)) hfn hfp.2 ad hfp.1 hsv
 
 /-! ## Hooked functional (47 of 48) -/
 
@@ -507,6 +565,8 @@ theorem lib_indices : (predText ++ evText ++ setText).map (·.index) =
 
 end KCore.TieKimpAtValues
 
+/-- info: 'KCore.TieKimpAtValues.fnFun_at_values' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.TieKimpAtValues.fnFun_at_values
 /-- info: 'KCore.TieKimpAtValues.fun_entailed' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.TieKimpAtValues.fun_entailed
 /-- info: 'KCore.TieKimpAtValues.laws_entailed' depends on axioms: [propext, Classical.choice, Quot.sound] -/

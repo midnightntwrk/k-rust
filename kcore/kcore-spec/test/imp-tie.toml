@@ -105,8 +105,11 @@ theorems = ["nojunk_account", "nojunk_entailed"]
 name = "function functional"
 count = 20
 direction = "hypothesis"
-remainder = 20
-reason = "Gamma does not hold them: the functional sentences of the semantics' 20 functions (the sort predicates) are owed as FnHyp, which the package discharges at every H (RefKimp.fnHyp_withHooks_defn, examples/ref-kimp/RefKimp/FnHyp.lean); no theorem relates the 20 sentences to FnHyp"
+at_values = 20
+file = "test/TieKimpAtValues.lean"
+theorems = ["fnFun_checked", "fnFun_trS", "fnFun_clauses", "fnFun_at_values", "fnFun_indices"]
+indices = ["fnFun_indices"]
+note = "the 20 are the functional sentences of the sort predicates isX; each holds at values in every model of Gamma-c (EntailsAtValuesΓc, Gamma with the closure item of Bool), for every H, from the sort predicates' own results and without FnHyp (LibEv.sortPredFun_evC_withHooks)"
 
 [[class]]
 name = "hooked functional"

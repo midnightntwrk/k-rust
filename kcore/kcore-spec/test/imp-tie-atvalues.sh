@@ -4,7 +4,8 @@
 # own build, which examples/run.sh writes), builds it there with gen/build.sh when its oleans are
 # missing or older than the library's or than its sources, then checks against it, each in its own
 # process, one thread, under a 12 GiB memory scope (no swap):
-#   test/TieKimpAtValues.lean  hooked functional, collection law and library, at values, every H;
+#   test/TieKimpAtValues.lean  function functional, hooked functional, collection law and library,
+#                              at values, every H;
 #   test/TieKimpRefuted.lean   set idempotence and the set-variable lemmas, refuted, every H;
 #   test/TieKimpReach.lean     no failing-clause point, no silent symbol applied, every H.
 # Each file is checked from a copy in .lake/axioms-tests with the import of KcoreSpec.AxiomsCheck put

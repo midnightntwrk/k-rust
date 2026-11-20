@@ -1549,8 +1549,9 @@ table above, on the tree before String and Bytes). Not investigated here.
   About 8 min (the search runs in the interpreter), 0.2 GiB.
 - `test/imp-tie.toml`, `test/imp-tie.sh`: row imp's tie, per class of the account of kimp's user
   module: the count, the direction, how many are kernel-checked in it on kimp's text (proved, at
-  values, refuted, without direction) with the theorems, and the remainder with its reason (the
-  function `functional` sentences are owed as `FnHyp`); `Consistent` at every H (the package's
+  values, refuted, without direction) with the theorems, and the remainder with its reason (none: the
+  function `functional` sentences, the sort predicates', hold at values in every model of Γc
+  without `FnHyp`); `Consistent` at every H (the package's
   `consistent`). The script checks the record by text against test/TieKimp.lean's `account_sizes`,
   `tieClasses` and `classes` (the indices a class ties and its remainder partition the class) and
   the files of the theorems it names. Given another record (`test/imp-tie.sh RECORD`), the same
@@ -1558,8 +1559,9 @@ table above, on the tree before String and Bytes). Not investigated here.
 - `test/imp-tie-atvalues.sh`: builds a copy of the committed package examples/ref-kimp in
   .lake/pins/kimp-tie and checks against it the three files that import it, on kimp's text, for
   every H, with `coreOK` from the package's `RefKimp.coreOK_defn`:
-  `test/TieKimpAtValues.lean` (hooked functional 47, collection law 9, library 82 at values or,
-  for the 8 over set variables, at set values; 4.0 GiB, 62 s),
+  `test/TieKimpAtValues.lean` (function functional 20 at values in every model of Γc, hooked
+  functional 47, collection law 9, library 82 at values or, for the 8 over set variables, at set
+  values; 3.5 GiB, 42 s),
   `test/TieKimpRefuted.lean` (set idempotence 573 and the set-variable lemmas 671 to 675, 904,
   refuted; 2.1 GiB, 11 s), `test/TieKimpReach.lean` (no point where every clause of a function
   fails, so every premise of `ΓFallback` is at a silent point; no rule or clause applies a symbol of
