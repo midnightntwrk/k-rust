@@ -24,8 +24,8 @@
 //!   (`#[k::strict]`, `#[k::seqstrict]`; KRS never inserts one), so an edit of them on a
 //!   constructor production is a mutant some Rust source writes ([`Judgement::strictness`]):
 //!   positions changed, `strict` for `seqstrict` or back, strictness added or removed, each
-//!   position a nonterminal of the mutant's production not of sort `K` (checked whenever the
-//!   mutant's production is strict, its strictness edited or not), `result` and every other
+//!   position a nonterminal of the mutant's production not of sort `K` (checked where the
+//!   strictness changes or a strict production's argument sorts, number or list-ness change), `result` and every other
 //!   attribute left as they are; a strictness written another way that lowers to the same
 //!   contexts (`strict` and every position, positions reordered, a `seqstrict` of one position
 //!   and its `strict`) is no change;
@@ -697,7 +697,8 @@ impl Judgement<'_> {
             );
         } else if attributes_in(&old.production.attributes, &STRICTNESS_ATTRIBUTES)
             != attributes_in(&new.production.attributes, &STRICTNESS_ATTRIBUTES)
-            || !attributes_in(&new.production.attributes, &STRICTNESS_ATTRIBUTES).is_empty()
+            || (!attributes_in(&new.production.attributes, &STRICTNESS_ATTRIBUTES).is_empty()
+                && arguments(old) != arguments(new))
         {
             self.strictness(at, old, new);
         }
@@ -714,9 +715,11 @@ impl Judgement<'_> {
     }
 
     /// Judges the strictness of `new`, the mutant's production edited from `old`, every other
-    /// meaning attribute kept. The mutant's strictness, where it has one, must be one a Rust
-    /// source writes for the mutant's own arguments, whether or not its text changed (an edit of
-    /// an argument's sort can make a kept strictness one KRS refuses). A changed strictness is
+    /// meaning attribute kept; called where the strictness changed, or where a kept one's
+    /// arguments ([`arguments`]) did. The mutant's strictness must be one a Rust source writes
+    /// for the mutant's own arguments, whether or not its text changed (an edit of an argument's
+    /// sort can make a kept strictness one KRS refuses); a kept strictness over unchanged
+    /// arguments is the specification's, and is not read again. A changed strictness is
     /// admitted where the production is a constructor, whose strictness KRS authors (an enum
     /// variant's or a constructor's `#[k::strict]` or `#[k::seqstrict]`) and does not insert,
     /// and it is a change where it lowers to other contexts ([`Strictness`]); one written another
@@ -1017,6 +1020,21 @@ fn strictness_form(side: &str, declared: &Declared<'_>) -> Result<Strictness, Gr
     })
 }
 
+/// The arguments of `declared` a strictness reads: each nonterminal's or list item's sort, in
+/// order, and whether it is a list (its separator and emptiness are not read).
+fn arguments<'d>(declared: &Declared<'d>) -> Vec<(&'d str, bool)> {
+    declared
+        .production
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            ProductionItem::NonTerminal { sort, .. } => Some((sort.name.as_str(), false)),
+            ProductionItem::UserList { sort, .. } => Some((sort.name.as_str(), true)),
+            _ => None,
+        })
+        .collect()
+}
+
 /// Whether `declared` declares a subsort: one nonterminal, no terminal and no name.
 fn is_subsort(declared: &Declared<'_>) -> bool {
     let production = declared.production;
@@ -1074,6 +1092,8 @@ mod tests {
   syntax Exp ::= "f" Exp [symbol(f), function]
   syntax Exp ::= "h" Exp Exp [symbol(h), group(g-c), hybrid, strict]
   syntax Exp ::= Exp "*" Exp [symbol(times), group(g-c), strict, result(KResult)]
+  syntax Exps ::= List{Exp, ","} [symbol(exps), strict, result(KResult)]
+  syntax Exp ::= "w" Exp [symbol(w), group(g-c), strict(c; 1), result(KResult)]
   syntax Exp ::= "(" Exp ")" [bracket, format(%1%2%3)]
   syntax Exp ::= "-" Exp [symbol(neg), right, format(%2)]
   syntax Exp ::= "[" Exp "]"
@@ -1304,6 +1324,14 @@ endmodule
                 "times), group(g-c), strict,",
                 "times), group(g-c), seqstrict(2,1),",
             ),
+        ] {
+            assert_eq!(judged(find, replace), Ok(()), "{find} -> {replace}");
+        }
+        // A kept strictness over unchanged arguments is not read again: a list's separator, the
+        // literal of a production whose strictness names a context alias.
+        for (find, replace) in [
+            (r#"List{Exp, ","}"#, r#"List{Exp, ";"}"#),
+            (r#""w" Exp"#, r#""ww" Exp"#),
         ] {
             assert_eq!(judged(find, replace), Ok(()), "{find} -> {replace}");
         }
