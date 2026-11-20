@@ -185,7 +185,17 @@ owed fact is false for every H, that `FnHyp` is too, and that the theory has a m
 outside the value model (whose construction reads `FnHyp` or the named facts, the refuted one among
 them), not that FILE proves what it owes; the summary's `match_refuted` names the theorems
 (`owed_refuted`, one per refuted clause, `consistent`, `not_fnhyp`), which rows-header.toml's
-`match_refuted` table (one per fixture: one of the `owed_refuted`) records.
+`match_refuted` table (one per fixture: one of the `owed_refuted`) records. A statement with
+`¬ MatchIndependent` that names neither `cH`, `c` nor `defn` (a lemma over any semantics) is no
+refutation of the text's and is not read.
+On a text that owes a held-named function's fact (`Held`, below) beside a clause's match
+independence, and neither a `[total]` function's totality nor `FnHyp` itself, FILE may refute the
+match independence in that form only where it also proves the held fact for every H, `theorem held
+(H : HookParams) : ∀ f ∈ c.heldObligations, HeldOwed (cH H) f` (refused otherwise), with
+`held_named`, `owed_rules`, `owed_clauses` and `openDecidedH`: the held fact holds (each held
+variable's sort has a value the package's search does not exhibit, for example), the match
+independence and `FnHyp` are false, and the header says each; the summary's `match_refuted` also
+names `held`. A FILE on such a text that refutes no match independence is taken as below.
 It also takes a text that owes a held-named function's fact (`Held`, `HeldOwed`) or the totality of a
 `[total]` function (`total_named` not empty), beside any of those: FILE then states
 `theorem consistent (H : HookParams) : Consistent (cH H)` (refused otherwise), with `held_named` or
@@ -2015,8 +2025,15 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     # a clause's match independence owed, the consistency section by hand (and no other fact but a
     # rule's or clause's condition): it proves what it owes, or refutes that match independence for
     # every H beside `FnHyp` false for every H and `consistent` (`match_refuted_of`)
-    match_ref = (match_refuted_of(name, hand_c) if "consistency" in hand and ob["match"] and not held_total
+    # The same where the text also owes a held-named function's fact (and no other fact of the
+    # held form): a section that refutes the match independence proves the held fact for every H
+    # (`held`), and the text is then taken in the match-refuted form, the held fact among what holds
+    held_only = bool(ob.get("held")) and not ob.get("total") and not ob.get("prehyp")
+    match_ref = (match_refuted_of(name, hand_c, held=held_only)
+                 if "consistency" in hand and ob["match"] and (not held_total or held_only)
                  and not raw and not agree else None)
+    held_ref = bool(match_ref and match_ref.get("held"))
+    held_total = held_total and not held_ref
     if ob.get("prehyp") and not (fnhyp_hand or notfnhyp_hand or raw_hand):
         raise Refused(f"{name}: a clause's predicate is not \\top: the consistency section states `FnHyp` for every H "
                       f"(`theorem fnHypH (H : HookParams) : FnHyp (cH H)`) or that it fails "
@@ -2472,10 +2489,16 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             w("    `consistent`): the proof of `AgreeOwed` is owed.")
     elif ob["match"] or ob["owed"]:
         th = "`Γc`" if confined else "Γ"
-        owes = (["the match independence of a clause (`match_named`)"] if ob["match"] else []) + \
+        owes = ([f"the fact of the held-named function {' and '.join(f'`{x}`' for x in ob['held_names'])} "
+                 f"(`held_named`, `HeldOwed`)"] if held_ref else []) + \
+            (["the match independence of a clause (`match_named`)"] if ob["match"] else []) + \
             (["the condition of a rule or clause (`owed_rules`, `owed_clauses`)"] if ob["owed"] else [])
         w(f"  - The definition reads {'a' if confined else 'no'} confined sort (`readsConfined_c`) and has no open generator")
-        w(f"    (`noRaw`). It owes {' and '.join(owes)}.")
+        if held_ref:
+            w(textwrap.fill(f"(`noRaw`). It owes {', '.join(owes[:-1])} and {owes[-1]}.", 104,
+                            initial_indent="    ", subsequent_indent="    "))
+        else:
+            w(f"    (`noRaw`). It owes {' and '.join(owes)}.")
         if match_ref:
             w(match_refuted_para(match_ref, th, ob["owed"], ob["match_n"]))
         else:
@@ -4325,7 +4348,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     elif agree:
         after += ["agree_named"] + (["agree"] if "consistency" in hand else []) + ["facts"]
     if match_ref:
-        after += [n for n, _ in match_ref["refuted"]] + ["not_fnHypH"]
+        after += (["held_named", "held"] if held_ref else []) + [n for n, _ in match_ref["refuted"]] + ["not_fnHypH"]
     if fnfun_gen:
         after += ["fnFun_indices", "fnFun_account", "fnFun_checked", "fnFun_trS", "fnFun_at_values",
                   "fnFun_at_values_step"]
@@ -4429,7 +4452,9 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                    confined=confined, uncovered=uncovered, owed=owed, theorems=names,
                    **({"match_refuted": dict(owed_refuted=[f"KCore.{ns}.{n}" for n, _ in match_ref["refuted"]],
                                              consistent=f"KCore.{ns}.consistent",
-                                             not_fnhyp=f"KCore.{ns}.not_fnHypH")} if match_ref else {}),
+                                             not_fnhyp=f"KCore.{ns}.not_fnHypH",
+                                             **({"held": f"KCore.{ns}.held"} if held_ref else {}))}
+                      if match_ref else {}),
                    **({"under_premise": under_premise} if under_premise else {}),
                    **({"tok_kitem_apart": dict(sentence=tok_omit[0], sorts=[e["sort"] for e in tok_sorts],
                                                valued=[e["sort"] for e in tok_sorts if e["valued"]])}
@@ -5153,19 +5178,32 @@ MATCH_FNHYP = re.compile(r"^theorem fnHypH \(H : HookParams\) : FnHyp \(cH H\)",
 MATCH_CONSISTENT = re.compile(r"^theorem consistent \(H : HookParams\) : Consistent \(cH H\)", re.M)
 # the names those statements read, which the section must not declare
 MATCH_READ_NAMES = {"MatchIndependent", "FnHyp", "Consistent", "HookParams", "cH", "c", "defn"}
+# a statement that names the text's semantics (`cH`, `c`, `defn`): one with `¬ MatchIndependent` that
+# names none of them is a lemma over any semantics, no refutation of the text's
+MATCH_TEXT_SEM = re.compile(r"(?<![\w'.])(?:cH|c|defn)(?![\w'])")
+# on a text that owes a held-named function's fact beside the match independence: that fact proved
+# for every H, at the section's top level, and the name it reads beside MATCH_READ_NAMES
+MATCH_HELD = re.compile(r"^theorem held \(H : HookParams\) : ∀ f ∈ c\.heldObligations, HeldOwed \(cH H\) f\s*:=", re.M)
+MATCH_HELD_READ_NAMES = {"HeldOwed"}
 
 
-def match_refuted_of(name, text):
+def match_refuted_of(name, text, held=False):
     """What a --hand consistency section on a text that owes a clause's match independence states of
     it: None where it states neither `not_fnHypH` nor a `¬ MatchIndependent` (it proves what it owes,
     as tiegen has always taken it); otherwise `refuted`, each theorem refuting a clause's match
     independence for every H (`(H : HookParams) : ¬ MatchIndependent (cH H) cl`, MATCH_REFUTED_STMT)
-    as (its name with the section's namespace prefix, cl). Refused where a statement with
-    `¬ MatchIndependent` is not of that shape (a hypothesis beside H makes it a statement at some H),
-    where the section refutes no clause but states `not_fnHypH`, or refutes one without stating
-    `not_fnHypH` and `consistent` at its top level (MATCH_NOT_FNHYP, MATCH_CONSISTENT), or states
-    `fnHypH` beside them; and, as for --hand rules, where the section declares a name those statements
-    read, has an `include` or a `variable` with an instance binder, or defines notation."""
+    as (its name with the section's namespace prefix, cl). A statement with `¬ MatchIndependent` that
+    names neither `cH`, `c` nor `defn` (MATCH_TEXT_SEM) is a lemma over any semantics and is not read.
+    Refused where another statement with `¬ MatchIndependent` is not of that shape (a hypothesis beside
+    H makes it a statement at some H), where the section refutes no clause but states `not_fnHypH`, or
+    refutes one without stating `not_fnHypH` and `consistent` at its top level (MATCH_NOT_FNHYP,
+    MATCH_CONSISTENT), or states `fnHypH` beside them; and, as for --hand rules, where the section
+    declares a name those statements read, has an `include` or a `variable` with an instance binder,
+    or defines notation.
+    `held`: the text also owes a held-named function's fact (and neither a `[total]` function's
+    totality nor `FnHyp` itself). A section that refutes no clause is then None, `not_fnHypH` or not
+    (the held form, which says nothing of the match independence); one that refutes a clause must also
+    prove the held fact for every H at its top level (MATCH_HELD), and the result has `held`."""
     stack, thms = [], []
     for ln in text.split("\n"):
         m = re.match(r"(namespace|section) (\S+)\s*$", ln) or re.match(r"(namespace|section)\s*$", ln)
@@ -5183,10 +5221,10 @@ def match_refuted_of(name, text):
         m = re.search(r"^(?:@\[[^\]]*\]\s*)?(?:(?:private|protected)\s+)?theorem " + re.escape(n) + r"(?![\w'.])(.*?):=",
                       text, re.M | re.S)
         st = " ".join(m.group(1).split()) if m else ""
-        if MATCH_NEG.search(st):
+        if MATCH_NEG.search(st) and MATCH_TEXT_SEM.search(st):
             neg.append((pre + n, st))
     nfh = bool(MATCH_NOT_FNHYP.search(text))
-    if not neg and not nfh:
+    if not neg and (held or not nfh):
         return None
     hs = "--hand consistency"
     bad = [n for n, st in neg if not MATCH_REFUTED_STMT.fullmatch(st) or "FnHyp" in st]
@@ -5206,7 +5244,12 @@ def match_refuted_of(name, text):
                       f"state `consistent` for every H (`theorem consistent (H : HookParams) : Consistent (cH H)`)")
     if MATCH_FNHYP.search(text):
         raise Refused(f"{name}: {hs}: the section states `fnHypH` beside `not_fnHypH`")
-    shadow = sorted({n.split(".")[-1] for n in RULES_DECL.findall(text)} & MATCH_READ_NAMES)
+    if held and not MATCH_HELD.search(text):
+        raise Refused(f"{name}: {hs}: the section refutes an owed match independence (`{neg[0][0]}`) beside a "
+                      f"held-named function's fact and does not prove that fact for every H (`theorem held (H : "
+                      f"HookParams) : ∀ f ∈ c.heldObligations, HeldOwed (cH H) f`)")
+    shadow = sorted({n.split(".")[-1] for n in RULES_DECL.findall(text)}
+                    & (MATCH_READ_NAMES | (MATCH_HELD_READ_NAMES if held else set())))
     if shadow:
         raise Refused(f"{name}: {hs}: the section declares {', '.join(f'`{n}`' for n in shadow)}, a name the "
                       f"statements tiegen reads use")
@@ -5216,7 +5259,7 @@ def match_refuted_of(name, text):
     if RULES_NOTATION.search(text):
         raise Refused(f"{name}: {hs}: the section defines notation, which can change what a statement tiegen "
                       f"reads says")
-    return dict(refuted=[(n, MATCH_REFUTED_STMT.fullmatch(st).group(1)) for n, st in neg])
+    return dict(refuted=[(n, MATCH_REFUTED_STMT.fullmatch(st).group(1)) for n, st in neg], **({"held": True} if held else {}))
 
 
 def match_refuted_para(mr, th, owed, match_n):
@@ -5225,10 +5268,13 @@ def match_refuted_para(mr, th, owed, match_n):
     `Γc`) with the step's closure has a model for every H outside the value model, whose construction
     reads `FnHyp` or the named facts (`FnFacts`, of which each named clause's match independence is
     one). `owed`: a rule's or clause's condition is owed too; `match_n`: the clauses `match_named`
-    names."""
+    names. Where `mr` has `held`, it first says that the section proves the held fact for every H."""
     cls = list(dict.fromkeys(cl for _, cl in mr["refuted"]))
     nm = ", ".join(f"`{n}`" for n, _ in mr["refuted"])
-    para = (f"The consistency section, written by hand, refutes the match independence it owes: for the "
+    para = (f"The consistency section, written by hand, "
+            + ("proves the fact of the held-named function for every H (`held`: the variables of its clauses "
+               "are held, or it has a result at every argument list of its sorts), and " if mr.get("held") else "")
+            + f"refutes the match independence it owes: for the "
             f"clause{'s' if len(cls) > 1 else ''} {', '.join(f'`{x}`' for x in cls)} it is false for every H "
             f"({nm}), and so is `FnHyp` (`not_fnHypH`).")
     if match_n > len(cls):
@@ -5287,7 +5333,33 @@ MATCH_HAND_TEST = [
      None),
     ("include", match_hand_case("variable (h : False)\ninclude h\n\n"), "an `include`", None),
     ("notation", match_hand_case('local notation "MI" => MatchIndependent\n\n'), "defines notation", None),
+    ("a lemma over any semantics", match_hand_case("theorem not_mi_any {d : Semantics} (h : P d) :\n"
+                                                   "    ¬ MatchIndependent d CeH.clH := by\n  sorry\n\n"),
+     None, dict(refuted=[("h_not_matchIndependent", "CeH.clH")])),
+    ("a statement at c", match_hand_case("theorem not_mi_c : ¬ MatchIndependent c CeH.clH := by\n  sorry\n\n"),
+     "with no other hypothesis", None),
 ]
+# the cases where the text also owes a held-named function's fact (`match_refuted_of`'s `held`), and
+# the paragraph's opening there; the held fact as the section proves it
+MATCH_HELD_THM = ("theorem held (H : HookParams) : ∀ f ∈ c.heldObligations, HeldOwed (cH H) f := by\n"
+                  "  sorry\n\n")
+MATCH_HELD_TEST = [
+    ("held proved, refuted", match_hand_case(MATCH_HELD_THM), None,
+     dict(refuted=[("h_not_matchIndependent", "CeH.clH")], held=True)),
+    ("held not proved, refuted", match_hand_case(), "does not prove that fact for every H", None),
+    ("held at one H, refuted", match_hand_case(MATCH_HELD_THM.replace("(H : HookParams) : ∀ f", ": ∀ f")
+                                               .replace("(cH H)", "c")),
+     "does not prove that fact for every H", None),
+    ("not_fnHypH alone", match_hand_case(refute=False), None, None),
+    ("held proved, not_fnHypH alone", match_hand_case(MATCH_HELD_THM, refute=False), None, None),
+    ("proves", MATCH_PROVES, None, None),
+    ("held proved, HeldOwed declared", match_hand_case(MATCH_HELD_THM + "def HeldOwed := True\n\n"),
+     "declares `HeldOwed`", None),
+]
+MATCH_HELD_PARA_OPEN = ("The consistency section, written by hand, proves the fact of the held-named function for "
+                        "every H (`held`: the variables of its clauses are held, or it has a result at every argument "
+                        "list of its sorts), and refutes the match independence it owes: for the clause `CeH.clH` it "
+                        "is false for every H (`h_not_matchIndependent`), and so is `FnHyp` (`not_fnHypH`).")
 # the header's paragraph where the section refutes `clH`'s match independence on a text owing it only
 MATCH_REFUTED_PARA = (
     "    The consistency section, written by hand, refutes the match independence it owes: for the clause\n"
@@ -5323,7 +5395,23 @@ def match_hand_self_test():
             or "It proves the condition of a rule or clause it owes" not in two:
         print(f"tiegen self-test: match_refuted_para with a second clause and an owed condition is\n{two}  FAILS")
         bad.append("match paragraph, two clauses")
-    print(f"tiegen self-test: --hand consistency (match): {len(MATCH_HAND_TEST)} cases, {len(bad)} failing")
+    for label, text, refused, want in MATCH_HELD_TEST:
+        try:
+            got, err = match_refuted_of("case", text, held=True), None
+        except Refused as e:
+            got, err = None, str(e)
+        ok = (err is not None and refused in err) if refused else (err is None and got == want)
+        if not ok:
+            print(f"tiegen self-test: --hand consistency (match, held) case {label!r}: "
+                  + (f"refused: {err}" if err else f"accepted: {got}") + "  FAILS")
+            bad.append(f"match held {label}")
+    held = " ".join(match_refuted_para(match_refuted_of("case", match_hand_case(MATCH_HELD_THM), held=True),
+                                       "`Γc`", False, 1).split())
+    if not held.startswith(MATCH_HELD_PARA_OPEN) or "proves what it owes" in held:
+        print(f"tiegen self-test: match_refuted_para with the held fact is\n{held}  FAILS")
+        bad.append("match paragraph, held")
+    print(f"tiegen self-test: --hand consistency (match): {len(MATCH_HAND_TEST)} cases and "
+          f"{len(MATCH_HELD_TEST)} beside a held fact, {len(bad)} failing")
     return bad
 
 
