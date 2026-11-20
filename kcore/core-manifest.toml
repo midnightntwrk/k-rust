@@ -76,6 +76,7 @@ roots = [
   "KCore.appHeadsOf",
   "KCore.gammaHasHead",
   "KCore.surplusItem",
+  "KoreAML.instItem",
   "KCore.tieClasses",
   "KCore.Semantics.clausesPreTop",
   "KCore.RegistryConservative",
