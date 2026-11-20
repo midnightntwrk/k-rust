@@ -166,6 +166,15 @@ FILE states `theorem consistent (H : HookParams) : Consistent (cH H)` and either
 `not_fnHypH` (refused otherwise), beside the facts it owes (`owed_rules`, `owed_clauses`, `match_named`
 and the others above). The function functional sentences are then not stated at values (both routes
 read `clausesPreTop`): the header says they are owed as `FnHyp`.
+A text with an open generator under --hand consistency (one of whose clauses has a predicate other
+than `\\top`, for example): FILE states `theorem consistent (H : HookParams) …` under the hypotheses on H it
+names, and `theorem consistent_lawHooks (H : HookParams) : Consistent (c.withHooks (lawHooks c H))`
+(refused otherwise), and need state neither `fnHypH` nor `not_fnHypH` (`FnHyp` is then owed): at an H
+whose values of the generator identify what the text's sentences keep apart, Γ holds the generator's
+graph at H beside them and may have no model, so no statement for every H is asked; at `lawHooks c H` the
+generator's values are its free applications. tiegen states `lawHooks_laws`, `libAdmitted_lawHooks`
+and `lawHooks_lib` in a section before FILE's. With --fn-readings, such a text takes the readings
+path of the function equations.
 Where each sentence of the class function functional is, as written, a sort predicate's `functional`
 sentence (`LibEv.funPat`), the clauses' predicates are `\\top`, no clause binds a variable by
 `\\exists` and no clause's condition reads a variable its patterns leave open, the tie states those
@@ -273,13 +282,14 @@ e2-fn-assoc and e2-fn-assoc-rest (both not refuted).
 What it states where the text:
 - owes an agreement (`agree_named` not empty): `facts` and `consistent` take it as a hypothesis
   (`AgreeOwed`), the proof owed (`owed` in the summary), unless `--hand consistency` gives it;
-- has an open generator (`raw`; one at most): `params_raw`, `facts` and `consistent` for every H
+- has open generators (`raw`, one or several, each with its laws): `params_raw`, `facts` and `consistent` for every H
   satisfying `OpenLaws`, at `lawHooks c H` for every H, for every H where it has no law
   (`openLaws_any`); `libAdmitted_lawHooks` (`lawHooks c H` is admitted by the library's sentences
   wherever H is) and `lawHooks_lib` (`lawHooks c HookParams.lib` satisfies the laws, the generators'
-  `functional` sentences and the library's sentences together, CN-4 4.7); its law sentence is Γ's law item (`openlaw_*`, the class `open generator law`),
-  its functional sentence no item of Γ (`open_functional_not_item`, the class `open generator
-  functional`);
+  `functional` sentences and the library's sentences together, CN-4 4.7); each law sentence is Γ's law item (`openlaw_*`, the class `open generator law`; with several,
+  each statement over their list), each functional sentence no item of Γ (`open_functional_not_item`, the class `open generator
+  functional`); the same beside a confined sort, `consistent` then a model of `Γc`; refused beside an
+  owed agreement;
 - states a law of a function (`Definition.laws`): `law_text` (the sentence as written is `lawPattern`),
   `law_not_item`, `law_account` (the class `function law`);
 - has a lemma applying a parameter symbol no hook implements (`isParamLemma`, or a `simplification`
@@ -1836,7 +1846,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                       + ", ".join(f"{n_} clauses {p_}..{p_ + k_ - 1}: sentence {i_}" for n_, p_, k_, i_, _ in split_groups)
                       + "): the function sentences are aligned with Γ's items many to one (`TiePair.fnTextMany`), "
                       "which only the --fn-readings section states")
-    if not fn_full and not fn_align and nfn and (not confined or fn_readings) and not raw and \
+    if not fn_full and not fn_align and nfn and (not confined or fn_readings) and (not raw or fn_readings) and \
             (not fn_pins or fn_readings) and \
             sorted(fw) == list(range(nfn)) and int(head.get("pairTextLen", -1)) == nfn and \
             all(fw[j]["idx"] is not None for j in range(nfn)):
@@ -1921,7 +1931,18 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     held_total = "consistency" in hand and bool(ob.get("held") or ob.get("total") or ob.get("prehyp"))
     held_hand = held_total and bool(ob.get("held"))
     hand_c = hand.get("consistency", "")
-    if held_total and not re.search(r"^theorem consistent \(H : HookParams\) : Consistent \(cH H\)", hand_c, re.M):
+    # with an open generator, a model for every H is not asked: at an H whose values of the generator
+    # identify what the text's sentences keep apart, Γ holds the generator's graph at H beside them.
+    # The hand section states `consistent` under the hypotheses on H it names, and a model at
+    # `lawHooks c H` for every H (`consistent_lawHooks`), where the generator's values are its free
+    # applications
+    raw_hand = bool(raw) and "consistency" in hand
+    if raw_hand and not (re.search(r"^theorem consistent \(H : HookParams\)", hand_c, re.M) and re.search(
+            r"^theorem consistent_lawHooks \(H : HookParams\) : Consistent \(c\.withHooks \(lawHooks c H\)\)", hand_c, re.M)):
+        raise Refused(f"{name}: an open generator: the consistency section states `consistent` "
+                      f"(`theorem consistent (H : HookParams) …`) and `consistent_lawHooks` "
+                      f"(`theorem consistent_lawHooks (H : HookParams) : Consistent (c.withHooks (lawHooks c H))`)")
+    if held_total and not raw_hand and not re.search(r"^theorem consistent \(H : HookParams\) : Consistent \(cH H\)", hand_c, re.M):
         raise Refused(f"{name}: the consistency section does not state `consistent` for every H "
                       f"(`theorem consistent (H : HookParams) : Consistent (cH H)`)")
     fnhyp_hand = held_total and bool(re.search(r"^theorem fnHypH \(H : HookParams\) : FnHyp \(cH H\)", hand_c, re.M))
@@ -1933,8 +1954,9 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     notfnhyp_hand = held_total and not fnhyp_hand and bool(re.search(
         r"^theorem not_fnHypH \(H : HookParams\) : ¬ FnHyp \(cH H\)", hand_c, re.M))
     # a clause's predicate not `\top`: `FnHyp` is no consequence of the named facts, so the section says
-    # whether it holds, `fnHypH` or `not_fnHypH`
-    if ob.get("prehyp") and not (fnhyp_hand or notfnhyp_hand):
+    # whether it holds, `fnHypH` or `not_fnHypH`; beside an open generator it may say neither, and
+    # `FnHyp` is then owed
+    if ob.get("prehyp") and not (fnhyp_hand or notfnhyp_hand or raw_hand):
         raise Refused(f"{name}: a clause's predicate is not \\top: the consistency section states `FnHyp` for every H "
                       f"(`theorem fnHypH (H : HookParams) : FnHyp (cH H)`) or that it fails "
                       f"(`theorem not_fnHypH (H : HookParams) : ¬ FnHyp (cH H)`)")
@@ -2128,17 +2150,25 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                       f"only where the totality holds under it (`totalObligationsRP callOrder defn.totalParams` empty), "
                       f"one value exhibited is of every such parameter's result sort (`constTotal`), and no open "
                       f"generator, agreement, match independence or condition is owed")
-    if len(raw) > 1:
-        raise Refused(f"{name}: {len(raw)} open generators: tiegen states one")
-    if raw and (agree or confined or facts_kind != "FnFacts"):
-        raise Refused(f"{name}: an open generator beside an owed agreement or a confined sort: tiegen states "
-                      f"neither together")
+    if raw and agree:
+        raise Refused(f"{name}: an open generator beside an owed agreement: tiegen states not both")
+    if raw and facts_kind != "FnFacts" and "consistency" not in hand:
+        raise Refused(f"{name}: an open generator and obligations of the form {facts_kind}: tiegen states the "
+                      f"open generator's consistency section through `FnFacts` only, otherwise by hand")
     if agree and confined and not held_hand:
         raise Refused(f"{name}: an owed agreement beside a confined sort: tiegen states not both")
     if confined and head["litBool"] != "true":
         raise Refused(f"{name}: the definition reads a confined sort and Bool holds other than its literals (`Γcl` empty)")
     law_fns = sorted({sents[i]["eh"] for i in law_idx})
     rawd = [(k, rn[j], sn[k["res"]]) for j, k in enumerate(raw)]
+    ogs = "open generator's" if len(raw) == 1 else "open generators'"
+    # the law of each item of `lawItemsK`, in its order: per open generator, its associativity, then
+    # its idempotence
+    open_law_of = [(r, law) for k, r, _ in rawd for law, a in (("associativity", "assoc"), ("idempotence", "idem"))
+                   if k[a] == "true"]
+    if len(open_law_of) != len(open_law):
+        raise Refused(f"{name}: the probe's law items of the open generators ({len(open_law)}) are not one per "
+                      f"`assoc` and `idem` ({len(open_law_of)})")
     sig_rs = ranges(int(head["nSig"]), chunks[0], chunks[1])
     decl_rs = ranges(int(head["nDecl"]), 0, chunks[2])
     dc = head["declCounts"].split()
@@ -2290,18 +2320,30 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     no_law = raw and all(k["assoc"] == "false" and k["idem"] == "false" for k in raw)
     if raw:
         srts = sorted({s for _, _, s in rawd})
-        w(f"  - The definition reads no confined sort (`readsConfined_c`); its {numword(len(raw))} open generator{'s' if len(raw) > 1 else ''} {'is' if len(raw) == 1 else 'are'} {rnames}")
-        w(f"    (`params_raw`), of {', '.join(k['sort'] for k in raw)}. It owes no fact")
-        w("    about its functions (`term_named`, `total_named`, `agree_named`, `match_named`), so Γ with the")
-        w("    step's closure has a model for every H that satisfies the open generator's laws (`facts`,")
-        if no_law:
-            w(f"    `consistent`), at `lawHooks c H` for every H (`lawHooks_laws`, `consistent_lawHooks`); {rnames}")
-            w("    has no law, so that is every H (`openLaws_any`, `consistent_any`).")
+        w(f"  - The definition reads {'a' if confined else 'no'} confined sort (`readsConfined_c`); its {numword(len(raw))} open generator{'s' if len(raw) > 1 else ''} {'is' if len(raw) == 1 else 'are'} {rnames}")
+        if raw_hand:
+            w(f"    (`params_raw`), of {', '.join(dict.fromkeys(k['sort'] for k in raw))}.")
+            th = "`Γc`" if confined else "Γ"
+            para = ("The consistency section, written by hand, states that " + th + " with the step's closure has a "
+                    "model at `lawHooks c H` for every H (`consistent_lawHooks`), and states `consistent` under the "
+                    "hypotheses on H it names" + (", with `FnHyp`'s status (`fnHypH`, `not_fnHypH`)" if fnhyp_hand or notfnhyp_hand
+                                                  else "; `FnHyp` is owed" if ob.get("prehyp") else "") +
+                    ". `lawHooks c H` satisfies the laws (`lawHooks_laws`) and is admitted by the library's sentences "
+                    "wherever H is (`libAdmitted_lawHooks`), so `lawHooks c HookParams.lib` satisfies the laws, the open "
+                    "generators' `functional` sentences and the library's sentences together (`lawHooks_lib`).")
+            w(textwrap.fill(para, 104, initial_indent="    ", subsequent_indent="    "))
         else:
-            w("    `consistent`), at `lawHooks c H` for every H (`lawHooks_laws`, `consistent_lawHooks`).")
-        w("    `lawHooks c H` is admitted by the library's sentences wherever H is (`libAdmitted_lawHooks`), so")
-        w("    `lawHooks c HookParams.lib` satisfies the laws, the open generators' `functional` sentences and")
-        w("    the library's sentences together (`lawHooks_lib`).")
+            w(f"    (`params_raw`), of {', '.join(dict.fromkeys(k['sort'] for k in raw))}. It owes no fact")
+            w(f"    about its functions (`term_named`, `total_named`, `agree_named`, `match_named`), so {'`Γc`' if confined else 'Γ'} with the")
+            w(f"    step's closure has a model for every H that satisfies the {ogs} laws (`facts`,")
+            if no_law and len(raw) == 1:
+                w(f"    `consistent`), at `lawHooks c H` for every H (`lawHooks_laws`, `consistent_lawHooks`); {rnames}")
+                w("    has no law, so that is every H (`openLaws_any`, `consistent_any`).")
+            else:
+                w("    `consistent`), at `lawHooks c H` for every H (`lawHooks_laws`, `consistent_lawHooks`).")
+            w("    `lawHooks c H` is admitted by the library's sentences wherever H is (`libAdmitted_lawHooks`), so")
+            w("    `lawHooks c HookParams.lib` satisfies the laws, the open generators' `functional` sentences and")
+            w("    the library's sentences together (`lawHooks_lib`).")
     elif held_total:
         th = "`Γc`" if confined else "Γ"
         owes = []
@@ -2547,14 +2589,27 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             para.append(f"{e['sort']}'s no junk ({i}) is entailed (`nojunk_{sn[e['srt']]}_entailed`): its item lists {e['sort']}'s generators"
                         + (f", {' and '.join(f'`{g}`' for g in gr)} among them," if gr else "")
                         + (" in the text's order." if e["form"] == "order" else " in another order than `Semantics.gens`."))
-        for i in open_law:
-            para.append(f"The law sentence of {rnames} ({i}) is Γ's law item as written and entailed")
+        if len(open_law) == 1 and len(raw) == 1:
+            para.append(f"The law sentence of {rnames} ({open_law[0]}) is Γ's law item as written and entailed")
             para.append(f"(`openlaw_item`, `openlaw_entailed`); the account holds it in `{LAW_OPEN_CLASS}`, of the")
             para.append("direction `equal`.")
-        if open_fun:
-            para.append(f"{rnames}'s functional sentence{'s' if len(open_fun) > 1 else ''} ({', '.join(map(str, open_fun))}) {'is' if len(open_fun) == 1 else 'are'} no item of")
+        elif open_law:
+            one_l = len(open_law) == 1
+            para.append(f"The law sentence{'' if one_l else 's'} ("
+                        + "; ".join(f"{i}: the {law} of `{r}`" for i, (r, law) in zip(open_law, open_law_of))
+                        + f") {'is' if one_l else 'are'} Γ's law item{'' if one_l else 's'} as written and entailed")
+            para.append(f"(`openlaw_item`, `openlaw_entailed`); the account holds {'it' if one_l else 'them'} in "
+                        f"`{LAW_OPEN_CLASS}`, of the direction `equal`.")
+        if open_fun and len(open_fun) == 1:
+            para.append(f"{rnames}'s functional sentence ({open_fun[0]}) is no item of")
             para.append("Γ and is owed at values as `OpenTotal` (`open_functional_not_item`); the account holds it in")
             para.append(f"`{OPEN_FUNCTIONAL_CLASS}`, of the direction `hypothesis`.")
+        elif open_fun:
+            whose_f = {sents[i]["fh"]: i for i in open_fun}
+            para.append("The functional sentences of the open generators ("
+                        + "; ".join(f"{whose_f[k['name']]}: `{r}`" for k, r, _ in rawd if k["name"] in whose_f)
+                        + ") are no items of Γ and are owed at values as `OpenTotal` (`open_functional_not_item`); "
+                        f"the account holds them in `{OPEN_FUNCTIONAL_CLASS}`, of the direction `hypothesis`.")
         if para:
             w(textwrap.fill(" ".join(para), width=100, initial_indent="  ", subsequent_indent="  ",
                             break_on_hyphens=False, break_long_words=False))
@@ -2669,7 +2724,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         one = len(raw) == 1
         sorts_of = sorted({k["res"] for k in raw})
         w(f"/-- {rnames}, the text's {numword(len(raw))} open generator{'' if one else 's'} (`raw`), and "
-          f"{', '.join(k['sort'] for k in raw if k['res'] in sorts_of)}, {'its sort' if one else 'their sorts'}. -/")
+          f"{', '.join(dict.fromkeys(k['sort'] for k in raw))}, {'its sort' if one else 'their sort' if len(sorts_of) == 1 else 'their sorts'}. -/")
         for k, r, _ in rawd:
             w(f"def {r} : Sym := {k['sym']}")
         for s in sorts_of:
@@ -3515,8 +3570,31 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     # ---- consistency
     mark("Consistency")
     tp = "[]"
+    if raw_hand:
+        # what holds of `lawHooks c H` whatever the consistency section, which is by hand
+        w(f"/-! ## `lawHooks c H`: the {ogs} laws and the library's sentences -/")
+        w("")
+        w(f"/-- **`lawHooks c H` satisfies the laws and gives each open generator a value at every argument list**, for every H. -/")
+        w("theorem lawHooks_laws (H : HookParams) :")
+        w("    OpenLaws (c.withHooks (lawHooks c H)) ∧ OpenTotal (c.withHooks (lawHooks c H)) :=")
+        w("  ⟨openLaws_lawHooks c coreOK H, openTotal_lawHooks c coreOK H⟩")
+        w("")
+        w("/-- **`lawHooks c H` is admitted by the library's sentences wherever H is and gives `_RangeMap_`")
+        w("no value**, for every H (`KCore.libAdmitted_lawHooks`). -/")
+        w("theorem libAdmitted_lawHooks (H : HookParams) (ha : (c.withHooks H).libAdmitted)")
+        w("    (hrm : ∀ vs, H.app rmConcat vs = none) : (c.withHooks (lawHooks c H)).libAdmitted :=")
+        w("  KCore.libAdmitted_lawHooks c coreOK H ha hrm")
+        w("")
+        w("/-- **`lawHooks c HookParams.lib` satisfies the laws, the open generators' `functional` sentences")
+        w("and the library's sentences together.** -/")
+        w("theorem lawHooks_lib :")
+        w("    OpenLaws (c.withHooks (lawHooks c HookParams.lib)) ∧ OpenTotal (c.withHooks (lawHooks c HookParams.lib)) ∧")
+        w("    (c.withHooks (lawHooks c HookParams.lib)).libAdmitted :=")
+        w("  ⟨(lawHooks_laws HookParams.lib).1, (lawHooks_laws HookParams.lib).2,")
+        w("    libAdmitted_lawHooks HookParams.lib (libAdmitted_lib_of_coreOK coreOK) lib_app_rmConcat_none⟩")
+        w("")
     if raw:
-        w("/-! ## Consistency for every H satisfying the open generator's laws -/")
+        w(f"/-! ## Consistency for every H satisfying the {ogs} laws -/")
     elif agree:
         w(f"/-! ## Consistency for every H: the agreement of {' and '.join(f'`{x}`' for x in ob['agree_names'])} -/")
     else:
@@ -3536,13 +3614,13 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
               "    ((Det.Semantics.agreeObligationsI_withHooks _ H).trans agree_named)",
               "    ((Det.Semantics.matchObligationsL_withHooks _ H).trans match_named)"]
     if raw:
-        w("/-- No function's fact is named: under every interpretation that satisfies the open generator's")
+        w(f"/-- No function's fact is named: under every interpretation that satisfies the {ogs}")
         w("laws, `FnFacts` holds. -/")
         w("theorem facts (H : HookParams) (hop : OpenLaws (cH H)) : FnFacts (cH H) callOrder [] :=")
         w("  FnFacts.of_nil_laws")
         w("\n".join(of_nil) + " hop")
         w("")
-        w("/-- **Γ with the step's closure has a model, for every H that satisfies the open generator's laws**")
+        w(f"/-- **{'`Γc`' if confined else 'Γ'} with the step's closure has a model, for every H that satisfies the {ogs} laws**")
         w("(`OpenLaws`). -/")
         w("theorem consistent (H : HookParams) (hop : OpenLaws (cH H)) : Consistent (cH H) :=")
         w("  consistent_of_fnFacts (coreOKH H) (Semantics.rightHeld_withHooks_of_valued (by decide +kernel) H) (facts H hop)")
@@ -3551,7 +3629,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                             f"{k['sort'] if len(set(k['args'])) == 1 and k['args'][0] == k['res'] else 'argument'} values"
                             for k, r, _ in rawd)
         w(f"/-- **`lawHooks c H` satisfies the laws and gives {vals}**,")
-        w("for every H; so Γ with the step's closure has a model there. -/")
+        w(f"for every H; so {'`Γc`' if confined else 'Γ'} with the step's closure has a model there. -/")
         w("theorem lawHooks_laws (H : HookParams) :")
         w("    OpenLaws (c.withHooks (lawHooks c H)) ∧ OpenTotal (c.withHooks (lawHooks c H)) :=")
         w("  ⟨openLaws_lawHooks c coreOK H, openTotal_lawHooks c coreOK H⟩")
@@ -3582,7 +3660,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             w("  simp only [Prod.mk.injEq] at hm")
             w("  exact ⟨fun h => (by rw [hm.2.2.2.1] at h; cases h), fun h => (by rw [hm.2.2.2.2] at h; cases h)⟩")
             w("")
-            w("/-- **Γ with the step's closure has a model, for every H.** -/")
+            w(f"/-- **{'`Γc`' if confined else 'Γ'} with the step's closure has a model, for every H.** -/")
             w("theorem consistent_any (H : HookParams) : Consistent (cH H) := consistent H (openLaws_any H)")
             w("")
     elif agree:
@@ -4042,7 +4120,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     if law_idx:
         w(law_section(law_idx))
     if open_law:
-        w(openlaw_section(open_law, rnames, need_rfl=not nj_items))
+        w(openlaw_section(open_law, rnames, need_rfl=not nj_items, law_of=open_law_of, one_gen=len(raw) == 1))
     if open_fun:
         w(open_functional_section(open_fun, rnames))
     if param_fun:
@@ -4150,7 +4228,9 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     names[k:k] = after
     if law_idx:
         names += ["law_indices", "law_text", "law_not_item", "law_account"]
-    if raw:
+    if raw_hand:
+        names += ["names", "lawHooks_laws", "libAdmitted_lawHooks", "lawHooks_lib", "consistent_lawHooks"]
+    elif raw:
         names += ["names", "facts", "lawHooks_laws", "consistent_lawHooks", "libAdmitted_lawHooks", "lawHooks_lib"] + (["openLaws_any", "consistent_any"] if no_law and len(raw) == 1 else [])
     names += nj_names
     if open_law:
@@ -6648,10 +6728,39 @@ def UserLemmaAtValues : Prop :=
 """
 
 
-def openlaw_section(open_law, rnames, need_rfl):
+def openlaw_section(open_law, rnames, need_rfl, law_of, one_gen):
+    """The law sentences of the open generators, Γ's law items as written; `law_of`: the generator and
+    the law of each."""
     i = open_law[0]
     rfl = ("kernel_rfl consItemsK_withHooks : ∀ (c : Semantics) (H : HookParams), consItemsK (c.withHooks H) = consItemsK c\n\n"
            if need_rfl else "")
+    if len(open_law) > 1 or not one_gen:
+        whose = "; ".join(f"{j}: the {law} of `{r}`" for j, (r, law) in zip(open_law, law_of))
+        il = ", ".join(map(str, open_law))
+        many = len(open_law) > 1
+        lst = ax_list(open_law, 4)
+        owners = " and ".join(dict.fromkeys(f"`{r}`" for r, _ in law_of))
+        doc = textwrap.fill(f"/-- **Γ's law item{'s are the translations of the sentences' if many else ' is the translation of sentence'} "
+                            f"{il}, as written** ({whose}; `lawItemsK`, a part of the constructors' items). -/",
+                            width=100, break_on_hyphens=False, break_long_words=False)
+        return f"""/-! ## The law sentence{'s' if many else ''} of {owners} ({il}): {'items' if many else 'an item'} of Γ -/
+
+{rfl}{doc}
+theorem openlaw_item : (lawItemsK c).map (·.pat) = {lst}.map (fun ad => (trS ad).pat) := by decide +kernel
+theorem openlaw_cons : {lst}.all (fun ad => (consItemsK c).any (·.pat == (trS ad).pat)) = true := by
+  decide +kernel
+
+/-- **E for the law sentences**: Γ entails each, for every H. -/
+theorem openlaw_entailed (H : HookParams) : ∀ ad ∈ {lst}, Γ (cH H) ⊧ (trS ad).pat := by
+  intro ad had M _ I hI
+  obtain ⟨it, hit, he⟩ := List.any_eq_true.mp (List.all_eq_true.mp openlaw_cons ad had)
+  rw [← of_decide_eq_true he]
+  exact sat_cons hI (Or.inl ⟨it, by rw [consItemsK_withHooks]; exact hit, rfl⟩)
+
+/-- The law sentences are the account's class `{LAW_OPEN_CLASS}` (direction `equal`: Γ's law items
+are their translations, `openlaw_item`, and Γ entails each, `openlaw_entailed`). -/
+theorem openlaw_account : classOf "{LAW_OPEN_CLASS}" = [{il}] := by decide +kernel
+"""
     return f"""/-! ## The law sentence of {rnames} ({i}): an item of Γ -/
 
 {rfl}/-- **Γ's one law item is the translation of sentence {i}, as written** (`lawItemsK`, a part of
@@ -7176,8 +7285,8 @@ def main(argv):
     laws, open_laws = nested(head["lawIx"]), nested(head["openLawIx"])
     if any(len(l) != 1 for l in laws) or len({l[0] for l in laws}) != len(laws):
         raise Refused(f"{name}: a law of the reader (`Definition.laws`) is not, as written, exactly one sentence of the user module")
-    if any(len(l) != 1 for l in open_laws) or len(open_laws) > 1:
-        raise Refused(f"{name}: Γ's law items (`lawItemsK`) are not one sentence of the user module, as written")
+    if any(len(l) != 1 for l in open_laws) or len({l[0] for l in open_laws}) != len(open_laws):
+        raise Refused(f"{name}: Γ's law items (`lawItemsK`) are not each one sentence of the user module, as written")
     if len(head["lawRef"]) != len(laws):
         raise Refused(f"{name}: the probe's law search does not list the reader's laws")
     refuted = law_refuted(name, head, laws, {i: raw for i, _, _, raw in ua}, sents)
