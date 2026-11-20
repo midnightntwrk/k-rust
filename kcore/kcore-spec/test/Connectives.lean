@@ -38,7 +38,7 @@ set_option maxRecDepth 1000000
 open KCore
 
 /-- The reader's verdict on the text at `path`: its user sentences read in another form than
-written or inert by `vacuousLeft`, and the refusal or what the account finds. -/
+written or inert by `vacuousLeft` or `vacuousLeftAtBool`, and the refusal or what the account finds. -/
 def verdict (path : String) : IO String := do
   match Kore.parseDefinition (← IO.FS.readFile path) with
   | .error e => return s!"KORE read error {e}"
@@ -46,7 +46,7 @@ def verdict (path : String) : IO String := do
     let notes := (Parse.classCounts k).filter fun (n, _) =>
       ["read orSplit", "read topAsVariable", "read existsAsVariable", "read andAsEnsures",
        "read andTermsWeaker", "read andTermsCut", "read bottomAsEnsures", "read orBottom", "read predicateAtBool", "read andAtBool",
-       "inert vacuousLeft"].contains n
+       "inert vacuousLeft", "inert vacuousLeftAtBool"].contains n
     return s!"{notes}; " ++ match Parse.parse k with
       | .ok d => s!"read; unaccounted {(Parse.unconsumed k d).length}; uninduced {(Parse.uninduced k d).length}; coreOK {d.sem.coreOK}"
       | .error r => s!"{r.reason.name}{if r.detail.isEmpty then "" else " " ++ r.detail}"

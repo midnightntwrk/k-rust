@@ -1862,4 +1862,57 @@ end HoistEval
 /-- info: 'ExClauseReader.HoistEval.eval_after_hoist' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms HoistEval.eval_after_hoist
 
+/-! ## A binder nested under an application, equated with a variable
+
+`#Exists B. notBool(#Exists C. (C #And {C #Equals B}))` (fixture e3-eq-exists-nested-ml): the inner
+binder is the element B denotes, `∃C:Bool. (C ∧ C = B)` = B in every interpretation, so the right
+side is read as `#Exists B. notBool(B)` (`ceBinderElems`): one clause, `exs [B]`, `rhs notBool(B)`.
+The conjuncts in the other order and the `\equals` the other way round read the same. Not read: an
+inner binder equated with itself (`C = C` fixes nothing) or with a term other than a variable
+(`notBool(X)`, whose having one element is a fact of the model), each refused
+`manyValuedRightSide` (`\exists`) as before. -/
+
+namespace HandNested
+
+open Hand
+
+def eqNested : RawEqn := eqn (ex "VarB" (notB (ex "VarC" (.and bool [C, eqP C B]))))
+def eqNestedRev : RawEqn := eqn (ex "VarB" (notB (ex "VarC" (.and bool [eqP B C, C]))))
+def eqNestedSelf : RawEqn := eqn (ex "VarB" (notB (ex "VarC" (.and bool [C, eqP C C]))))
+def eqNestedTerm : RawEqn := eqn (ex "VarB" (notB (ex "VarC" (.and bool [C, eqP C (notB X)]))))
+
+def notB1 : Term := .app (regSymNames.idxOf "LblnotBool'Unds'") [.var 1]
+
+/-- **The nested binder read as the variable it is equated with, in the kernel.** -/
+theorem ceRead_nested :
+    ceRead N1 eqNested = .ok
+      ({ vars := [Srt.bool, Srt.bool], pats := [.var 0], req := none, rhs := notB1, ens := none, prio := 50,
+         aside := false, exs := [1], post := .top }, [⟨"X", "Bool"⟩, ⟨"B", "Bool"⟩]) ∧
+    ceRead N1 eqNestedRev = ceRead N1 eqNested := by
+  constructor <;> kernel_rfl
+
+/-- The shapes not read, refused as before. -/
+theorem ceRead_nested_refused :
+    let reason := fun (e : RawEqn) => match ceRead N1 e with | .error f => some f.reason | .ok _ => none
+    reason eqNestedSelf = some .manyValuedRightSide ∧ reason eqNestedTerm = some .manyValuedRightSide := by
+  decide +kernel
+
+/-- `ceBinderElems` on the bodies, and the binders' notes unchanged (`ceBinders` reads the outer
+binder, which binds B; the inner one is no binder of the equation). -/
+theorem ceBinderElems_nested :
+    ceBinderElems (notB (ex "VarC" (.and bool [C, eqP C B]))) = notB B ∧
+    ceBinderElems (notB (ex "VarC" (.and bool [C, eqP C (notB X)]))) =
+      notB (ex "VarC" (.and bool [C, eqP C (notB X)])) ∧
+    (ceBinders eqNested).2 = [] := by
+  decide +kernel
+
+end HandNested
+
+/-- info: 'ExClauseReader.HandNested.ceRead_nested' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms HandNested.ceRead_nested
+/-- info: 'ExClauseReader.HandNested.ceRead_nested_refused' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms HandNested.ceRead_nested_refused
+/-- info: 'ExClauseReader.HandNested.ceBinderElems_nested' depends on axioms: [propext] -/
+#guard_msgs in #print axioms HandNested.ceBinderElems_nested
+
 end ExClauseReader

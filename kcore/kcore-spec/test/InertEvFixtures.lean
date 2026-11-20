@@ -1,5 +1,5 @@
 /-
-  The fixture sentences of three inert classes (`Parse.InertReason`), each entailed by
+  The fixture sentences of four inert classes (`Parse.InertReason`), each entailed by
   `Γ (c.withHooks H)` for every interpretation H, from the library's statement of its class
   (`KcoreSpec/InertEv.lean`). Run from the package root: `lake env lean test/InertEvFixtures.lean`.
 
@@ -14,6 +14,10 @@
   - `vacuousLeft`: the rule of fixture e3-ml-rule-lhs-bottom (`rule <k> c(#Bottom) => a() ... </k>`,
     `test/constructs/fixtures/e3-ml-rule-lhs-bottom/kore.txt` at `//@ 202`, the axiom copied to
     `LhsBottom.ax`), entailed for every semantics (`LhsBottom.vacuous_lhs_bottom`).
+  - `vacuousLeftAtBool`: the rule of fixture e3-ml-rule-lhs-floor (`rule <k> b(#Floor(_:Bool)) => done
+    ... </k>`, its `kore.txt` at `//@ 218`, the axiom copied to `LhsFloor.ax`), entailed by Γ for
+    every semantics meeting `coreOK` and every H (`LhsFloor.vacuous_lhs_floor`), from Bool's two
+    literals in `ΓDomains` (`InertEv.vacuousLeftAtBool_entailed`).
 -/
 import KcoreSpec
 
@@ -154,9 +158,42 @@ theorem vacuous_lhs_bottom (c : Semantics) (H : HookParams) (decls : List Symbol
 
 end LhsBottom
 
+namespace LhsFloor
+
+open LhsBottom (top cfg)
+
+/-- The rule's axiom (fixture e3-ml-rule-lhs-floor, `test/constructs/fixtures/e3-ml-rule-lhs-floor/kore.txt`
+at `//@ 218`): `b(\floor{SortBool{}, SortBool{}}(_Gen0))` on the left side, `_Gen0` an element
+variable of Bool. -/
+def ax : Kore.Axiom :=
+  { sortVars := []
+    pattern := .rewrites top
+      (.and top [cfg (ap "Lblb" [.floor (srt "Bool") (srt "Bool") (ev "Var'Unds'Gen0" (srt "Bool"))]), .top top])
+      (.and top [cfg (ap "Lbldone" []), .top top])
+    attributes := [] }
+
+/-- info: "inert vacuousLeftAtBool" -/
+#guard_msgs in #eval (Parse.classifyShape (.axiom ax)).name
+
+/-- **The rule with `#Floor` of a Bool variable on its left side is entailed by Γ**, for every
+semantics meeting `coreOK` and every H, with any declarations, at any place in a text: Bool has the
+two elements `true` and `false` in every model of Γ, so the left side is empty there. What this
+states is entailment by Γ; it does not say that the text's sentences entail the rule, nor that the
+text states nothing by it (a text that does not state Bool's two literals apart may have a model
+with one element of Bool, where the left side is not empty). -/
+theorem vacuous_lhs_floor (c : Semantics) (hcore : c.coreOK = true) (H : HookParams) (decls : List SymbolDecl)
+    (i : Nat) (mod : String) :
+    Γ (c.withHooks H) ⊧ (trAxiom decls [] ⟨i, mod, ax⟩).pat :=
+  haveI : OvlOK (c.withHooks H) := ovlOK_of_core ((Semantics.coreOK_withHooks c H).trans hcore)
+  InertEv.vacuousLeftAtBool_entailed (c.withHooks H) (by decide +kernel) decls i mod
+
+end LhsFloor
+
 end KCore.InertEvFixtures
 
 #check @KCore.InertEv.vacuousLeft_entailed
+#check @KCore.InertEv.vacuousLeftAtBool_entailed
+#check @KCore.InertEv.den_boolLit
 #check @KCore.InertEv.listLaw_ev
 #check @KCore.InertEv.iteFun_entailed
 /-- info: 'KCore.InertEvFixtures.Ens.list_laws_ens' depends on axioms: [propext, Classical.choice, Quot.sound] -/
@@ -165,3 +202,5 @@ end KCore.InertEvFixtures
 #guard_msgs in #print axioms KCore.InertEvFixtures.Lazy.ite_int_lazy
 /-- info: 'KCore.InertEvFixtures.LhsBottom.vacuous_lhs_bottom' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.InertEvFixtures.LhsBottom.vacuous_lhs_bottom
+/-- info: 'KCore.InertEvFixtures.LhsFloor.vacuous_lhs_floor' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.InertEvFixtures.LhsFloor.vacuous_lhs_floor

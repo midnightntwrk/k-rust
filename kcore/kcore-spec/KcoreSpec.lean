@@ -467,3 +467,4 @@ import KcoreSpec.TieFRSig
 import KcoreSpec.TieEXSig
 import KcoreSpec.LibEvSortPredPre
 import KcoreSpec.TieInstArity
+import KcoreSpec.InertEvBool
