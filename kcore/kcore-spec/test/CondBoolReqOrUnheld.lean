@@ -34,8 +34,9 @@
     Y := 3 (`witnessedH`), so `OpenDecided` holds (`openDecidedH`), and with it `FnHyp` and
     `consistent` for every H.
 
-  The rule theorems are over Γ, and hold of `Γc`, which is Γ with `boolClosed` here
-  (`readsConfined` is true: no left side binds Y); `consistent` is over `Γc`.
+  `rule154_at_values` is over Γ, and holds of `Γc`, which is Γ with `boolClosed` here
+  (`readsConfined` is true: no left side binds Y); `consistent` is over `Γc`. `rule_from_text_aux`
+  reads neither: its premises are the text's sentences and signature items with `ΓSig`.
 
   No expectation is stated here. The kernel decisions of `Semantics.ok` and `CExec.execReady` do
   not reduce on this text, so no checker lists its steps, and `sound_at_step` asks
