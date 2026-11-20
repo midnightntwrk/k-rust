@@ -629,3 +629,336 @@ end ExClauseFixtures.Noens
 #guard_msgs in #print axioms ExClauseFixtures.Noens.coreOK
 /-- info: 'ExClauseFixtures.Noens.plain' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms ExClauseFixtures.Noens.plain
+
+/-! ## pred-rhs-top-cut: e3-ml-eq-rhs-not-ceil-and, the term's position cut at the top
+
+`rule h(X) => X #And #Not(#Ceil(f(X) #And g(X)))` with `rule f(X) => X requires X >Int 0` and
+`rule g(X) => 0 -Int X requires X <Int 5`.
+
+From the sentences: `h(x)` is x where `f(x)` and `g(x)` have no common element, and empty where they
+have one. At 0 < x < 5, `f(x) = x` and `g(x) = 0 - x`, which differ at x = 1, so `h(1) = 1`.
+
+- The clause read (`read`, on the definition built from the text): `[X:Int, #Cut0:Int]`, `exs [1]`,
+  `rhs #Cut0`, `post (#Cut0 ∈ X) ∧ ¬∃Z:Int. (⌈Z⌉ ∧ Z ∈ f(X) ∧ Z ∈ g(X))`, Z at the index 2 past
+  the clause's variables (`Parse.ceilExCond` keeps the binder inside the predicate, `Parse.ceTopCut`
+  cuts the term's position). `clausePlainEx` and `Cond.bound` of its `post` hold (`plainEx`).
+- `h_1`: `h(1) = 1`, by `Eval.clauseEx` at #Cut0 := 1, every H: `f(1) = 1` and `g(1) = -1` have no
+  common element, so the negated `\ceil` is true, and every other instance has `#Cut0 ∈ X` false.
+- The hand-written variant whose g is f, `h(X) => X #And #Not(#Ceil(f(X) #And f(X)))` (`clTop fF`,
+  in `cV`, the definition with h's clause replaced): at 0 < n, `f(n) = n` is a common element, so
+  the negated `\ceil` is false at every instance and `h(n)` has the result none by `Eval.exNone`
+  (`hV_none`, every H); `hsome`, the one well-sorted instance `Eval.exNone` asks, is #Cut0 := 0,
+  a value of Int.
+-/
+
+namespace ExClauseFixtures.TopCut
+
+open GroundTerm
+
+definition_of defn from "f2-examples/e3-ml-eq-rhs-not-ceil-and.kompile.kore"
+
+noncomputable abbrev c : Semantics := defn.sem
+noncomputable abbrev cH (H : HookParams) : Semantics := c.withHooks H
+
+def fF : Sym := 384
+def gS : Sym := 385
+def hS : Sym := 386
+
+/-- `f(X) => X requires X >Int 0`. -/
+def clFf : Clause :=
+  { vars := [Srt.int], pats := [.var 0], req := some (.app intGt [.var 0, .dv Srt.int (.int 0)]),
+    rhs := .var 0, ens := none }
+
+def fnF : Fn := { label := fF, args := [Srt.int], result := Srt.int, clauses := [clFf] }
+
+/-- `g(X) => 0 -Int X requires X <Int 5`. -/
+def clGg : Clause :=
+  { vars := [Srt.int], pats := [.var 0], req := some (.app intLt [.var 0, .dv Srt.int (.int 5)]),
+    rhs := .app intSub [.dv Srt.int (.int 0), .var 0], ens := none }
+
+def fnG : Fn := { label := gS, args := [Srt.int], result := Srt.int, clauses := [clGg] }
+
+/-- `¬∃Z:Int. (⌈Z⌉ ∧ Z ∈ f(X) ∧ Z ∈ u(X))`, Z at the index 2. -/
+def notCeilAnd (u : Sym) : Cond :=
+  .not (.ex Srt.int (.and (.ceil Srt.int (.var 2))
+    (.and (.mem Srt.int (.var 2) (.app fF [.var 0])) (.mem Srt.int (.var 2) (.app u [.var 0])))))
+
+/-- `h(X) => X #And #Not(#Ceil(f(X) #And u(X)))`, read with the term's position the existential
+variable #Cut0: `exs [1]`, `rhs #Cut0`, `post (#Cut0 ∈ X) ∧ ¬∃Z. (⌈Z⌉ ∧ Z ∈ f(X) ∧ Z ∈ u(X))`. -/
+def clTop (u : Sym) : Clause :=
+  { vars := [Srt.int, Srt.int], pats := [.var 0], req := none, rhs := .var 1, ens := none, exs := [1],
+    post := .and (.mem Srt.int (.var 1) (.var 0)) (notCeilAnd u) }
+
+def fnH : Fn := { label := hS, args := [Srt.int], result := Srt.int, clauses := [clTop gS] }
+
+/-- **The reading**: the text's functions are `f`, `g` and `h`, each with its one clause. -/
+theorem read : c.fns = [fnF, fnG, fnH] := by kernel_rfl
+
+/-- #Cut0 is of the unconfined Int and fixed by `#Cut0 ∈ X`, and the kept binder is admitted. -/
+theorem plainEx : c.clausePlainEx (clTop gS) = true ∧ Cond.bound c 2 (clTop gS).post = true ∧
+    c.confined Srt.int = false := by decide +kernel
+
+/-- The variant whose g is f: h's clause `clTop fF`. -/
+def fnHV : Fn := { label := hS, args := [Srt.int], result := Srt.int, clauses := [clTop fF] }
+
+/-- The text's definition with h's clause replaced by the variant's. -/
+noncomputable def cV : Semantics := { c with fns := [fnF, fnG, fnHV] }
+
+theorem lookupF : c.lookupFn fF = some fnF := by rw [Semantics.lookupFn_eq]; rfl
+theorem lookupG : c.lookupFn gS = some fnG := by rw [Semantics.lookupFn_eq]; rfl
+theorem lookupH : c.lookupFn hS = some fnH := by rw [Semantics.lookupFn_eq]; rfl
+theorem lookupFV : cV.lookupFn fF = some fnF := by rw [Semantics.lookupFn_eq]; rfl
+theorem lookupHV : cV.lookupFn hS = some fnHV := by rw [Semantics.lookupFn_eq]; rfl
+theorem ctors : c.isCtor intGt = false ∧ c.isCtor intLt = false ∧ c.isCtor intSub = false ∧
+    c.isCtor fF = false ∧ c.isCtor gS = false := by decide +kernel
+theorem fnsPlain : c.isParam fF = false ∧ c.isParam gS = false := by decide +kernel
+theorem hooks : isHook intGt = true ∧ isHook intLt = true ∧ isHook intSub = true ∧ isHook fF = false ∧
+    isHook gS = false := by decide +kernel
+
+section Clauses
+
+variable {d : Semantics} {σ : Subst}
+
+theorem lkSelf (i : Nat) (v : GroundTerm) (σ : Subst) : ((i, v) :: σ : Subst).lookup i = some v := by
+  simp [List.lookup]
+
+theorem lkNe {i j : Nat} (v : GroundTerm) (σ : Subst) (h : i ≠ j) :
+    ((j, v) :: σ : Subst).lookup i = σ.lookup i := by
+  have hb : (i == j) = false := by simp [h]
+  simp [List.lookup, hb]
+
+theorem holds_cast {n : Nat} {p : Cond} {b b' : Bool} (h : Holds d n σ p b) (e : b = b') : Holds d n σ p b' :=
+  e ▸ h
+
+theorem sameResult_some {v w : GroundTerm} : sameResult (some v) (some w) = true ↔ v = w := by
+  simp [sameResult, cmp_eq_iff]
+
+theorem sameResult_self (v : GroundTerm) : sameResult (some v) (some v) = true := sameResult_some.mpr rfl
+
+theorem sameResult_eq_some {r : Option GroundTerm} {v : GroundTerm} (h : sameResult r (some v) = true) :
+    r = some v := by
+  cases r with
+  | none => cases h
+  | some w => rw [sameResult_some.mp h]
+
+theorem varOf {i : Nat} {v : GroundTerm} (h : σ.lookup i = some v) : EvalTerm d σ (.var i) (some v) := by
+  rw [← h]; exact .var
+
+theorem sorted1 {a : Srt} {x : GroundTerm} (h0 : σ.lookup 0 = some x) (hx : d.sortOf x = some a) :
+    d.WellSorted [a] σ := by
+  intro i s hs
+  match i, hs with
+  | 0, hs => cases hs; exact ⟨x, h0, hx⟩
+  | i + 1, hs => simp at hs
+
+theorem sorted2 {a b : Srt} {x w : GroundTerm} (h0 : σ.lookup 0 = some x) (hx : d.sortOf x = some a)
+    (h1 : σ.lookup 1 = some w) (hw : d.sortOf w = some b) : d.WellSorted [a, b] σ := by
+  intro i s hs
+  match i, hs with
+  | 0, hs => cases hs; exact ⟨x, h0, hx⟩
+  | 1, hs => cases hs; exact ⟨w, h1, hw⟩
+  | i + 2, hs => simp at hs
+
+theorem call_var {f : Sym} (hc : d.isCtor f = false) (hh : isHook f = false) (hp : d.isParam f = false)
+    {i : Nat} {w : GroundTerm} (hl : σ.lookup i = some w) {r : Option GroundTerm} (h : Eval d f [w] r) :
+    EvalTerm d σ (.app f [.var i]) r :=
+  .call (vs := [w]) hc hh (.cons .var .nil) (by rw [hl]; rfl) h hp
+
+theorem hookGt (n : Int) : d.hookRes intGt [int n, int 0] = some (some (bool (decide (n > 0)))) :=
+  Semantics.hookRes_of_value (by rw [Det.hook_intGt]; rfl)
+
+theorem hookLt (n : Int) : d.hookRes intLt [int n, int 5] = some (some (bool (decide (n < 5)))) :=
+  Semantics.hookRes_of_value (by rw [Det.hook_intLt]; rfl)
+
+theorem hookSub (n : Int) : d.hookRes intSub [int 0, int n] = some (some (int (0 - n))) :=
+  Semantics.hookRes_of_value (by rw [hook_intSub]; rfl)
+
+/-- **`f(n)` is n where 0 < n**, by its one clause. -/
+theorem valueF (hgt : d.isCtor intGt = false) (hl : d.lookupFn fF = some fnF) {n : Int} (hn : 0 < n) :
+    Eval d fF [int n] (some (int n)) :=
+  .clause (fn := fnF) (cl := clFf) (σ := [(0, int n)]) hl (List.mem_singleton_self _)
+    (sorted1 rfl (rmS_sortOf_int d n)) (.cons (.var rfl) .nil)
+    (fun t ht => by
+      cases ht
+      exact .hook hgt hooks.1 (rs := [some (int n), some (int 0)]) (.cons .var (.cons .dv .nil))
+        (fun vs hvs => by cases hvs; rw [hookGt, decide_eq_true (show n > 0 from hn)])
+        (fun hn => by cases hn))
+    .top
+    (fun cl' hcl' _ hlt => by
+      simp only [fnF, List.mem_singleton] at hcl'; subst hcl'; exact absurd hlt (Nat.lt_irrefl _))
+    rfl .var (fun t ht => nomatch ht) .top
+
+/-- **`g(n)` is `0 - n` where n < 5**, by its one clause. -/
+theorem valueG (hlt5 : d.isCtor intLt = false) (hsub : d.isCtor intSub = false) (hl : d.lookupFn gS = some fnG)
+    {n : Int} (hn : n < 5) : Eval d gS [int n] (some (int (0 - n))) :=
+  .clause (fn := fnG) (cl := clGg) (σ := [(0, int n)]) hl (List.mem_singleton_self _)
+    (sorted1 rfl (rmS_sortOf_int d n)) (.cons (.var rfl) .nil)
+    (fun t ht => by
+      cases ht
+      exact .hook hlt5 hooks.2.1 (rs := [some (int n), some (int 5)]) (.cons .var (.cons .dv .nil))
+        (fun vs hvs => by cases hvs; rw [hookLt, decide_eq_true hn])
+        (fun hn => by cases hn))
+    .top
+    (fun cl' hcl' _ hlt => by
+      simp only [fnG, List.mem_singleton] at hcl'; subst hcl'; exact absurd hlt (Nat.lt_irrefl _))
+    rfl
+    (.hook hsub hooks.2.2.1 (rs := [some (int 0), some (int n)]) (.cons .dv (.cons .var .nil))
+      (fun vs hvs => by cases hvs; exact hookSub n) (fun hn => by cases hn))
+    (fun t ht => nomatch ht) .top
+
+/-- The truth value of the body `⌈Z⌉ ∧ Z ∈ f(X) ∧ Z ∈ u(X)` where Z has the value z and `f(X)`,
+`u(X)` the results rf, ru. -/
+def bodyVal (z rf ru : Option GroundTerm) : Bool :=
+  z.isSome && ((z.isSome && sameResult z rf) && (z.isSome && sameResult z ru))
+
+theorem bodyVal_true {z : GroundTerm} {rf ru : Option GroundTerm} :
+    bodyVal (some z) rf ru = true ↔ sameResult (some z) rf = true ∧ sameResult (some z) ru = true := by
+  simp [bodyVal]
+
+/-- **The negated `\ceil` has a truth value**: true where no value of Int is both results, at any σ
+giving X the value n, given the results of `f(n)` and `u(n)`. -/
+theorem holds_notCeilAnd {u : Sym} (hfC : d.isCtor fF = false) (hfP : d.isParam fF = false)
+    (huC : d.isCtor u = false) (huH : isHook u = false) (huP : d.isParam u = false)
+    {n : Int} (h0 : σ.lookup 0 = some (int n)) {rf ru : Option GroundTerm}
+    (hf : Eval d fF [int n] rf) (hu : Eval d u [int n] ru) (b : Bool)
+    (hb : b = true ↔ ∃ z, d.sortOf z = some Srt.int ∧ sameResult (some z) rf = true ∧ sameResult (some z) ru = true) :
+    Holds d 2 σ (notCeilAnd u) (!b) := by
+  refine .not (.ex (fun σ' => bodyVal (σ'.lookup 2) rf ru) (fun σ' he => ?_) ?_)
+  · have h0' : σ'.lookup 0 = some (int n) := (he.1 0 (by decide)).trans h0
+    exact .and (.ceil .var) (.and (.mem .var (call_var hfC hooks.2.2.2.1 hfP h0' hf))
+      (.mem .var (call_var huC huH huP h0' hu)))
+  · rw [hb]
+    constructor
+    · rintro ⟨z, hz, h1, h2⟩
+      refine ⟨(2, z) :: σ, ⟨fun i hi => lkNe _ _ (by omega), fun j s hj => ?_⟩, ?_⟩
+      · match j, hj with
+        | 0, hj => cases hj; exact ⟨z, lkSelf _ _ _, hz⟩
+        | j + 1, hj => simp at hj
+      · show bodyVal (((2, z) :: σ : Subst).lookup 2) rf ru = true
+        rw [lkSelf]; exact bodyVal_true.mpr ⟨h1, h2⟩
+    · rintro ⟨σ', he, hg⟩
+      have hg : bodyVal (σ'.lookup 2) rf ru = true := hg
+      obtain ⟨z, hz2, hz⟩ := he.2 0 Srt.int rfl
+      simp only [Nat.add_zero] at hz2
+      rw [hz2] at hg
+      exact ⟨z, hz, bodyVal_true.mp hg⟩
+
+end Clauses
+
+/-! ### The text: `h(1) = 1` -/
+
+section Text
+
+variable {d : Semantics} {σ : Subst}
+
+/-- What a semantics must give for the text's three clauses to be read in it. -/
+structure Reads (d : Semantics) : Prop where
+  gt : d.isCtor intGt = false
+  lt : d.isCtor intLt = false
+  sub : d.isCtor intSub = false
+  fC : d.isCtor fF = false
+  fP : d.isParam fF = false
+  gC : d.isCtor gS = false
+  gP : d.isParam gS = false
+  lookF : d.lookupFn fF = some fnF
+  lookG : d.lookupFn gS = some fnG
+  lookH : d.lookupFn hS = some fnH
+
+/-- At X := 1 no value of Int is both `f(1) = 1` and `g(1) = -1`. -/
+theorem post1 (hd : Reads d) (h0 : σ.lookup 0 = some (int 1)) :
+    Holds d 2 σ (clTop gS).post
+      (((σ.lookup 1).isSome && sameResult (σ.lookup 1) (some (int 1))) && !false) :=
+  .and (.mem .var (varOf h0))
+    (holds_notCeilAnd hd.fC hd.fP hd.gC hooks.2.2.2.2 hd.gP h0 (valueF hd.gt hd.lookF (by decide))
+      (valueG hd.lt hd.sub hd.lookG (by decide)) false
+      ⟨fun h => absurd h (by decide), fun ⟨_, _, h1, h2⟩ =>
+        absurd ((sameResult_some.mp h1).symm.trans (sameResult_some.mp h2)) (by simp [int])⟩)
+
+/-- **`h(1) = 1`**, by `Eval.clauseEx` at #Cut0 := 1: every other instance has `#Cut0 ∈ X` false. -/
+theorem valueH1 (hd : Reads d) : Eval d hS [int 1] (some (int 1)) := by
+  have hs : d.WellSorted (clTop gS).vars [(1, int 1), (0, int 1)] :=
+    sorted2 rfl (rmS_sortOf_int d 1) rfl (rmS_sortOf_int d 1)
+  refine .clauseEx (fn := fnH) (cl := clTop gS) (σ := [(1, int 1), (0, int 1)]) hd.lookH
+    (List.mem_singleton_self _) hs (.cons (.var rfl) .nil) (fun t ht => nomatch ht) .top
+    (fun cl' hcl' _ hlt => by
+      simp only [fnH, List.mem_singleton] at hcl'; subst hcl'; exact absurd hlt (Nat.lt_irrefl _))
+    (List.cons_ne_nil _ _) (varOf rfl) (fun t ht => nomatch ht)
+    (holds_cast (post1 hd rfl) (by simp [List.lookup, sameResult_self])) (fun σ' ha _ => ?_)
+  have h0 : σ'.lookup 0 = some (int 1) := ha 0 (by decide)
+  cases hb : ((σ'.lookup 1).isSome && sameResult (σ'.lookup 1) (some (int 1))) with
+  | true =>
+    simp only [Bool.and_eq_true] at hb
+    exact .gives (varOf (sameResult_eq_some hb.2)) (fun t ht => nomatch ht)
+      (holds_cast (post1 hd h0) (by simp [hb]))
+  | false =>
+    exact .fails (post1 hd h0) (.post (holds_cast (post1 hd h0) (by simp [hb])))
+
+end Text
+
+/-! ### The variant whose g is f: no value at 0 < n -/
+
+section Variant
+
+variable {d : Semantics} {σ : Subst}
+
+/-- At X := n, 0 < n, `f(n) = n` is a common element of `f(n)` and `f(n)`: the negated `\ceil` is
+false. -/
+theorem postV (hgt : d.isCtor intGt = false) (hfC : d.isCtor fF = false) (hfP : d.isParam fF = false)
+    (hl : d.lookupFn fF = some fnF) {n : Int} (hn : 0 < n) (h0 : σ.lookup 0 = some (int n)) :
+    Holds d 2 σ (clTop fF).post
+      (((σ.lookup 1).isSome && sameResult (σ.lookup 1) (some (int n))) && !true) :=
+  .and (.mem .var (varOf h0))
+    (holds_notCeilAnd hfC hfP hfC hooks.2.2.2.1 hfP h0 (valueF hgt hl hn) (valueF hgt hl hn) true
+      ⟨fun _ => ⟨int n, rmS_sortOf_int d n, sameResult_self _, sameResult_self _⟩, fun _ => rfl⟩)
+
+/-- **The variant's `h(n)` is none at 0 < n**, by `Eval.exNone`: every instance has its `post`
+false; the one instance asked to exist is #Cut0 := 0. -/
+theorem noneHV (hgt : d.isCtor intGt = false) (hfC : d.isCtor fF = false) (hfP : d.isParam fF = false)
+    (hl : d.lookupFn fF = some fnF) (hlH : d.lookupFn hS = some fnHV) {n : Int} (hn : 0 < n) :
+    Eval d hS [int n] none := by
+  have hs : d.WellSorted (clTop fF).vars [(1, int 0), (0, int n)] :=
+    sorted2 rfl (rmS_sortOf_int d n) rfl (rmS_sortOf_int d 0)
+  exact .exNone (fn := fnHV) (cl := clTop fF) (σ := [(1, int 0), (0, int n)]) hlH (List.mem_singleton_self _)
+    (List.cons_ne_nil _ _) (hs.at _) (.cons (.var rfl) .nil) (fun t ht => nomatch ht) .top
+    (fun cl' hcl' _ hlt => by
+      simp only [fnHV, List.mem_singleton] at hcl'; subst hcl'; exact absurd hlt (Nat.lt_irrefl _))
+    ⟨_, fun _ _ => rfl, hs⟩
+    (fun σ' ha _ => .fails (postV hgt hfC hfP hl hn (ha 0 (by decide)))
+      (.post (holds_cast (postV hgt hfC hfP hl hn (ha 0 (by decide))) (by simp))))
+
+end Variant
+
+/-! ### The expectations, for every H -/
+
+theorem reads (H : HookParams) : Reads (cH H) where
+  gt := ctors.1
+  lt := ctors.2.1
+  sub := ctors.2.2.1
+  fC := ctors.2.2.2.1
+  fP := fnsPlain.1
+  gC := ctors.2.2.2.2
+  gP := fnsPlain.2
+  lookF := by rw [Semantics.lookupFn_withHooks]; exact lookupF
+  lookG := by rw [Semantics.lookupFn_withHooks]; exact lookupG
+  lookH := by rw [Semantics.lookupFn_withHooks]; exact lookupH
+
+/-- **`h(1) = 1`, for every H.** -/
+theorem h_1 (H : HookParams) : Eval (cH H) hS [int 1] (some (int 1)) := valueH1 (reads H)
+
+/-- **The variant's `h(n)` is none at 0 < n, for every H** (`h(X) => X #And #Not(#Ceil(f(X) #And
+f(X)))`). -/
+theorem hV_none (H : HookParams) {n : Int} (hn : 0 < n) : Eval (cV.withHooks H) hS [int n] none :=
+  noneHV (d := cV.withHooks H) ctors.1 ctors.2.2.2.1 fnsPlain.1 (by rw [Semantics.lookupFn_withHooks]; exact lookupFV)
+    (by rw [Semantics.lookupFn_withHooks]; exact lookupHV) hn
+
+/-- **The variant's `h(1)` is none, for every H.** -/
+theorem hV_1 (H : HookParams) : Eval (cV.withHooks H) hS [int 1] none := hV_none H (by decide)
+
+end ExClauseFixtures.TopCut
+
+/-- info: 'ExClauseFixtures.TopCut.read' does not depend on any axioms -/
+#guard_msgs in #print axioms ExClauseFixtures.TopCut.read
+/-- info: 'ExClauseFixtures.TopCut.h_1' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms ExClauseFixtures.TopCut.h_1
+/-- info: 'ExClauseFixtures.TopCut.hV_none' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms ExClauseFixtures.TopCut.hV_none

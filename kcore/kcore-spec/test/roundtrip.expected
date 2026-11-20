@@ -182,6 +182,7 @@ differs f2-examples/e3-ml-eq-rhs-and-term.kompile.kore
 differs f2-examples/e3-ml-eq-rhs-ceil-and.kompile.kore
 differs f2-examples/e3-ml-eq-rhs-ceil.kompile.kore
 differs f2-examples/e3-ml-eq-rhs-equals-term.kompile.kore
+differs f2-examples/e3-ml-eq-rhs-not-ceil-and.kompile.kore
 differs f2-examples/e3-ml-eq-rhs-not-ceil.kompile.kore
 differs f2-examples/e3-ml-eq-rhs-or-bottom.kompile.kore
 differs f2-examples/e3-ml-eq-rhs-or-empty.kompile.kore
