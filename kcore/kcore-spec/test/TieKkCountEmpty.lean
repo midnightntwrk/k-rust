@@ -17,6 +17,8 @@
     Int value at `("", "")`.
   - `s521_202_refuted`: for every H, Γ (cH H) with sentences 202 and 521 has no model.
   - `s521_none`: where H gives the count no value at `("", "")`, both sides have no value there.
+  - `s202_none_refuted`: at `HookParams.none`, which gives the count no value at `("", "")`, Γ with
+    sentence 202 has no model.
 
   So sentence 521 is refuted jointly with sentence 202, a sentence of the same library text.
 -/
@@ -357,6 +359,16 @@ theorem s521_202_refuted (H : HookParams) :
   obtain ⟨e, -, -, hn⟩ := s521_at_of H (count202_value H hI h202) hI
   exact hn (hax e default)
 
+/-- **At `HookParams.none`, Γ with sentence 202 has no model**: the interpretation gives the count
+no value at `("", "")`, a silent point, and sentence 202 asks one there (`count202_value`). -/
+theorem s202_none_refuted : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M),
+    I ⊧ᴵP Γ (cH HookParams.none) → ¬ (I ⊧ᴵ (trS U.ax202).pat) := by
+  intro M _ I hI h202
+  obtain ⟨n, hn⟩ := count202_value HookParams.none hI h202
+  have h0 : (cH HookParams.none).hv stringCountAll [foS "", foS ""] = none := by decide +kernel
+  rw [h0] at hn
+  cases hn
+
 /-- The sentence of the library class refuted here. -/
 theorem s521_indices : [U.ax521].map (·.index) = [521] := by decide +kernel
 
@@ -373,3 +385,5 @@ end KCore.TieKkCountEmpty
 /-- info: 'KCore.TieKkCountEmpty.s521_202_refuted' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.TieKkCountEmpty.s521_202_refuted
 #check @KCore.TieKkCountEmpty.s521_indices
+/-- info: 'KCore.TieKkCountEmpty.s202_none_refuted' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.TieKkCountEmpty.s202_none_refuted

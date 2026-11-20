@@ -44,7 +44,7 @@ note = "the item of each of the 32 sort declarations without sort parameters and
 file = "examples/ref-kk/User/Consistent.lean"
 theorems = ["consistent"]
 pinned = "test/PinsKk.lean"
-reached = "Consistent (defn.sem.withHooks HookParams.none) is kernel-checked (KK.consistent, by consistent_of: coreOK, FnDet, FnSolves, ClausePreDecided, OpenLaws at HookParams.none), at no other H; FnHyp at every H rests on the 17 facts the package names, the termination of 14 functions and the agreement of 3 (RefKk.namedFacts; RefKk.fnHyp_withHooks_defn under OblH H). So the classes tied for every H count at HookParams.none. The 5 sentences tied under libAdmitted (202, 321, 341 of hooked functional, 795, 802 of library) are tied at HookParams.lib (funS_lib, ev795_lib, ev802_lib), where Consistent is not proved; at HookParams.none, where it is, the three functional sentences of countAllOccurrences, replaceAll and substrString ask a value at the symbols' silent points, where Gamma (cH HookParams.none) gives none"
+reached = "Consistent (defn.sem.withHooks HookParams.none) is kernel-checked (KK.consistent, by consistent_of: coreOK, FnDet, FnSolves, ClausePreDecided, OpenLaws at HookParams.none), at no other H; FnHyp at every H rests on the 17 facts the package names, the termination of 14 functions and the agreement of 3 (RefKk.namedFacts; RefKk.fnHyp_withHooks_defn under OblH H). So the classes tied for every H count at HookParams.none. The 5 sentences tied under a condition on H (202, 321, 341 of hooked functional under silentTotal, 795, 802 of library under libAdmitted) are tied at HookParams.lib (funS_lib, ev795_lib, ev802_lib), where Consistent is not proved; at HookParams.none, where it is, Gamma with 202 has no model (test/TieKkCountEmpty.lean s202_none_refuted: none gives countAllOccurrences no value at its silent point (\"\", \"\")), and 321 and 341 ask a value at silent points of replaceAll and substrString where none gives none (argued, not kernel-checked). Not shown for this text: an H at which the entailments count that reaches each failing-clause or silent point a term of the text reaches (imp's TieKimpReach has no counterpart here)"
 
 [[class]]
 name = "function equation"
@@ -129,9 +129,10 @@ at_values = 58
 hypothesis = 3
 condition = "Semantics.silentTotal (cH H), the first conjunct of Semantics.libAdmitted, met at HookParams.lib (funS_lib)"
 file = "test/TieKkAtValues.lean"
-theorems = ["fun_checked", "fun_trS", "fun_entailed", "fun_indices", "funS_checked", "funS_entailed", "funS_lib", "funS_indices"]
+theorems = ["fun_checked", "fun_trS", "fun_entailed", "fun_indices", "funS_checked", "funS_entailed", "funS_lib", "funS_indices",
+  "test/TieKkCountEmpty.lean::s202_none_refuted"]
 indices = ["fun_indices", "funS_indices"]
-note = "58 of symbols that are not partial, for every H (fun_entailed); 202 (countAllOccurrences), 321 (replaceAll), 341 (substrString), declared total by the library's text where hook gives no value (totalSilentKeys), for every H meeting silentTotal (funS_entailed)"
+note = "58 of symbols that are not partial, for every H (fun_entailed); 202 (countAllOccurrences), 321 (replaceAll), 341 (substrString), declared total by the library's text where hook gives no value (totalSilentKeys), for every H meeting silentTotal (funS_entailed); at HookParams.none Gamma with 202 has no model (s202_none_refuted)"
 
 [[class]]
 name = "collection law"
