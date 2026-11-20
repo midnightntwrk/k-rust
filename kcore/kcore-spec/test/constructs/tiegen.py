@@ -713,8 +713,20 @@ def camel(name):
 
 def restored_text(name):
     h = kfix.recorded_sha(name)
+    if not h and kfix.conf(name).get("kore"):
+        # a fixture of a KORE text kompile does not write (fixture.toml `kore`): the text itself, which
+        # its kompile.txt records by sha256 (`kfix.py run`)
+        kp = kfix.conf(name)["kore"]
+        kt = os.path.join(FX, name, "kompile.txt")
+        m = re.search(r"^definition\.kore sha256: (\w+)$", open(kt).read() if os.path.exists(kt) else "", re.M)
+        if not os.path.isfile(os.path.join(KS, kp)):
+            raise Refused(f"{name}: fixture.toml names the KORE text {kp}, which does not exist")
+        t = open(os.path.join(KS, kp)).read()
+        if not m or hashlib.sha256(t.encode()).hexdigest() != m[1]:
+            raise Refused(f"{name}: the KORE text {kp} is not the one kompile.txt records (`kfix.py run {name}`)")
+        return t
     if not h:
-        raise Refused(f"{name}: kompile.txt records no kompiled text (an error fixture, a kore fixture, or not run)")
+        raise Refused(f"{name}: kompile.txt records no kompiled text (an error fixture, or not run)")
     t = kfix.recorded_text(name)
     if t is None:
         raise Refused(f"{name}: the kompiled text of sha256 {h} is neither in .lake/kfix nor in the cache "
@@ -2250,7 +2262,12 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             w("")
     # ---- header
     w("/-")
-    w(f"  The tie (C14) on `{text_rel}`, the kompiled text of construct fixture {name}")
+    kp = kfix.conf(name).get("kore") if not kfix.recorded_sha(name) else None
+    if kp:
+        # a fixture of a hand-written KORE text: the text is that file's, copied
+        w(f"  The tie (C14) on `{text_rel}`, a copy of the hand-written KORE text `{kp}` of construct fixture {name}")
+    else:
+        w(f"  The tie (C14) on `{text_rel}`, the kompiled text of construct fixture {name}")
     w(f"  (`test/constructs/fixtures/{name}`), sentence by sentence, against the translation of the text as")
     w("  written (`trS ad := trAxiom k.symbolDecls k.aliasNames ad`), on the literals `kore` and `defn`, for")
     w("  every interpretation H. Nothing here reads `Parse.parse` or `emit`. Written by")
