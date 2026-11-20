@@ -197,6 +197,31 @@
     is a hypothesis form, no interpretation being constructed: where the sort has no element the
     text's right side holds nothing, whatever the body without the binder holds (`empty_everyH`),
     so the sort separates the readings.
+  - The pieces of `Γ` that no sentence states (`GammaFamily`, namespace `Fam`): one constructor per
+    part, disjunct and list kind of `Faithful.Γ`'s seven parts, of `Γcl` and of `Γstep`;
+    `families_cover` puts every premise of `Γc` and `Γstep` in a piece, so a definition that gains a
+    part, a disjunct, an item kind of `sigItems` or a list of `distinctSorts` fails this file (the
+    items of `consItemsK`, `fnItems`, `ruleItems` and `collAxioms` are pieces as whole lists), and
+    `families_sound` puts nothing else there.
+    The table `gammaFamily` gives each piece its note and its guard: the pieces the translation of
+    the text holds as well (the encoding's items, the own sorts' and symbols' items, the function
+    equations, the rule axioms) are `stated`, with the theorems that say so; every other piece is
+    guarded for every H. The guards proved here: the value model of `c.withHooks H` satisfies each
+    piece of the signature, the constructors, the domains, the collections, the fallback and the
+    closure of Bool (`family_model_everyH`); the registry family is conservative at the names
+    `detachedB` passes (`registry_everyH`); a definition without rules has no step
+    (`nextless_everyH`); the step's closure gives the successors `Step` gives
+    (`stepClosure_everyH`); over all H, `Γ` determines no silent point (`silent_undetermined`, every
+    semantics with `coreOK`). A piece that reads no interpretation has no companion H; its entry says
+    so and names the model that would separate the readings where none is built.
+  - The tie classes whose direction is neither `entailed` nor `equal` (`tieClassRows`, exhaustive
+    over `tieClassesOvl` by `tieClassRows_exhaustive`): a class with a reading note cites that
+    note's entry; a class without one (hooked functional, library, set-variable lemma, and the
+    hypothesis classes function functional, function law, open generator functional, parameter
+    functional) cites the hypothesis or the class statement that stands for the note and its guard
+    for every H (`hookedFunctional_everyH`, `library_everyH`, `setVarLemma_everyH`,
+    `fnLaws_everyH`, the library's `fnFun_evC_withHooks`, `fnHyp_withHooks`, `open_undetermined`),
+    with a fixture account that lists sentences of the class.
 -/
 import KcoreSpec
 
@@ -3680,6 +3705,454 @@ end KCore.Guards
 #print axioms KCore.Guards.CeGuard.andTerms_everyH
 #print axioms KCore.Guards.CeGuard.orTerms_everyH
 
+/-! ## The pieces of Γ that no sentence states (DONE-0 C14 part 2, "more, with its note")
+
+`GammaFamily` has one constructor per piece of `Faithful.Γ`'s seven parts, of `Γcl` and of `Γstep`,
+as their definitions write them: the items of the lists (`sigItems` by kind and by registry or own
+name, `consItemsK`, `fnItems`, `ruleItems`), `dvArityAll`, each disjunct of `ΓDomains` (the
+distinctness split at the six literal sorts and the rest of `distinctSorts`) and of `ΓFallback`,
+`ΓColls`, `Γcl` and `Γstep`. `families_cover` splits `Γc` and `Γstep` into those pieces, so a part
+of `Γ`, a disjunct of `ΓSig`, `ΓDomains` or `ΓFallback`, an item kind of `sigItems` or a list of
+`distinctSorts` added without a piece fails this file (an item added inside `consItemsK`,
+`fnItems`, `ruleItems` or `collAxioms` falls in that list's piece);
+`families_sound` says the pieces hold nothing else. The table `gammaFamily` gives each piece its
+note and its guard. -/
+
+namespace KCore.Guards.Fam
+
+open KCore ML Faithful
+
+/-- The pieces of `Faithful.Γ`, `Γcl` and `Γstep`, read from their definitions. -/
+inductive GammaFamily where
+  | sigEncoding | sigOwn | sigRegistry | sigNext | sigDv
+  | consItems
+  | domHookGraph | domParamGraph | domValElem | domDistinctLit | domDistinctLib | domCollNoJunk
+  | collAxioms
+  | fallbackSilent | fallbackRest
+  | fnEquations | ruleAxioms
+  | boolClosed | stepClosure
+  deriving Repr, DecidableEq
+
+/-- The six sorts `distinctSorts` lists first, whose values are their literals. -/
+def litDistinctSorts : List Srt := [Srt.int, Srt.bool, Srt.kconfigVar, Srt.float, Srt.string, Srt.bytes]
+
+/-- The premises of each piece, each written as the definition of its part writes it. -/
+def GammaFamily.holds : GammaFamily → Semantics → Premises KoreAML.Sym
+  | .sigEncoding, _ => fun φ => φ = KoreAML.definednessItem.pat ∨ φ = KoreAML.ceilArityItem.pat ∨
+      φ = KoreAML.ceilDefItem.pat ∨ ∃ x : EVar, φ = @definedness KoreAML.Sym _ x
+  | .sigOwn, c => fun φ =>
+      (∃ s ∈ kernelSorts c, nRegSorts ≤ s ∧ φ = (KoreAML.sortConstantItem (sortDeclOf c s)).pat) ∨
+      (∃ k ∈ kernelSyms c, nRegSyms ≤ k.name ∧ φ = (symArityItem c k).pat)
+  | .sigRegistry, c => fun φ =>
+      (∃ s ∈ kernelSorts c, s < nRegSorts ∧ φ = (KoreAML.sortConstantItem (sortDeclOf c s)).pat) ∨
+      (∃ k ∈ kernelSyms c, k.name < nRegSyms ∧ φ = (symArityItem c k).pat)
+  | .sigNext, c => fun φ => φ = (KoreAML.nextArityItem [] (srtOf c topCellSort)).pat
+  | .sigDv, _ => KoreAML.dvArityAll
+  | .consItems, c => fun φ => ∃ it ∈ consItemsK c, it.pat = φ
+  | .domHookGraph, c => fun φ => ∃ (k : CtorSig) (vs : List GroundTerm) (r : Option GroundTerm),
+      k ∈ hookSigs ∧ c.sortsOf vs = some k.args ∧ hook k.name vs = some r ∧
+      (r = none → silent k.name vs = false) ∧
+      φ = (KoreAML.den (symApp c k.name (GroundTerm.koreList c vs)) ≡ (match r with
+        | some v => den c v
+        | none => ⊥))
+  | .domParamGraph, c => fun φ => ∃ (k : ParamSig) (vs : List GroundTerm),
+      k ∈ c.params ∧ c.sortsOf vs = some k.sig.args ∧
+      φ = (KoreAML.den (symApp c k.sig.name (GroundTerm.koreList c vs)) ≡
+        (match c.paramVal k.sig.name vs with
+          | some v => den c v
+          | none => ⊥))
+  | .domValElem, c => fun φ => ∃ (v : GroundTerm) (s : Srt), c.sortOf v = some s ∧
+      φ = KoreAML.sExists ⟨1⟩ (sortP (c.sortName s)) (den c v ≡ .evar ⟨1⟩)
+  | .domDistinctLit, c => fun φ => ∃ (v w : GroundTerm) (s : Srt),
+      s ∈ litDistinctSorts ∧ c.sortOf v = some s ∧ c.sortOf w = some s ∧ GroundTerm.cmp v w ≠ .eq ∧
+      φ = ∼(den c v ⋀ den c w)
+  | .domDistinctLib, c => fun φ => ∃ (v w : GroundTerm) (s : Srt),
+      s ∈ c.lib.tokenSorts ++ c.lib.byteSorts ++ c.allColls.map (·.sort) ++ c.lib.carriers.map (·.1) ∧
+      c.sortOf v = some s ∧ c.sortOf w = some s ∧ GroundTerm.cmp v w ≠ .eq ∧
+      φ = ∼(den c v ⋀ den c w)
+  | .domCollNoJunk, c => fun φ => ∃ k ∈ c.allColls, φ = collNoJunk c k
+  | .collAxioms, c => ΓColls c
+  | .fallbackSilent, c => fun φ => ∃ (k : CtorSig) (vs : List GroundTerm),
+      k ∈ hookSigs ∧ c.sortsOf vs = some k.args ∧ hook k.name vs = some none ∧ silent k.name vs = true ∧
+      φ = (KoreAML.den (symApp c k.name (GroundTerm.koreList c vs)) ≡ (match c.fallback k.name vs with
+        | some v => den c v
+        | none => ⊥))
+  | .fallbackRest, c => fun φ => ∃ (fn : Fn) (vs : List GroundTerm),
+      fn ∈ c.allFns ∧ c.sortsOf vs = some fn.args ∧ (∀ cl ∈ fn.clauses, Fails c vs cl) ∧
+      φ = (KoreAML.den (symApp c fn.label (GroundTerm.koreList c vs)) ≡ (match c.fnRest fn vs with
+        | some v => den c v
+        | none => ⊥))
+  | .fnEquations, c => fun φ => ∃ it ∈ fnItems c, it.pat = φ
+  | .ruleAxioms, c => fun φ => ∃ it ∈ ruleItems c, it.pat = φ
+  | .boolClosed, c => Γcl c
+  | .stepClosure, c => Γstep c
+
+/-- A sort of the library's lists of `distinctSorts` is a sort of `distinctSorts`. -/
+theorem distinct_lib_mem {c : Semantics} {s : Srt}
+    (h : s ∈ c.lib.tokenSorts ++ c.lib.byteSorts ++ c.allColls.map (·.sort) ++ c.lib.carriers.map (·.1)) :
+    s ∈ distinctSorts c := by
+  show s ∈ litDistinctSorts ++ c.lib.tokenSorts ++ c.lib.byteSorts ++ c.allColls.map (·.sort) ++
+    c.lib.carriers.map (·.1)
+  rcases List.mem_append.mp h with h3 | hK
+  · rcases List.mem_append.mp h3 with h2 | hC
+    · rcases List.mem_append.mp h2 with hT | hB
+      · exact List.mem_append_left _ (List.mem_append_left _ (List.mem_append_left _ (List.mem_append_right _ hT)))
+      · exact List.mem_append_left _ (List.mem_append_left _ (List.mem_append_right _ hB))
+    · exact List.mem_append_left _ (List.mem_append_right _ hC)
+  · exact List.mem_append_right _ hK
+
+/-- **Every premise of the theory and of the step's closure is a premise of one of the pieces.**
+The proof splits `Γc` and `Γstep` into the parts and the disjuncts of their definitions, the items of
+`sigItems` by kind and `distinctSorts` by list, so any of those added without a piece fails it. -/
+theorem families_cover (c : Semantics) (φ : KoreAML.P) (h : Γc c φ ∨ Γstep c φ) :
+    ∃ f : GammaFamily, f.holds c φ := by
+  rcases h with (((((((hφ | hφ) | hφ) | hφ) | hφ) | hφ) | hφ) | hφ) | hφ
+  · rcases hφ with (⟨it, hit, rfl⟩ | ⟨x, rfl⟩) | ⟨lit, rfl⟩
+    · simp only [sigItems, List.mem_append, List.mem_map, List.mem_cons,
+        List.not_mem_nil, or_false] at hit
+      rcases hit with ((rfl | ⟨s, hs, rfl⟩) | ⟨k, hk, rfl⟩) | rfl | rfl | rfl
+      · exact ⟨.sigEncoding, Or.inl rfl⟩
+      · by_cases hr : s < nRegSorts
+        · exact ⟨.sigRegistry, Or.inl ⟨s, hs, hr, rfl⟩⟩
+        · exact ⟨.sigOwn, Or.inl ⟨s, hs, Nat.le_of_not_lt hr, rfl⟩⟩
+      · by_cases hr : k.name < nRegSyms
+        · exact ⟨.sigRegistry, Or.inr ⟨k, hk, hr, rfl⟩⟩
+        · exact ⟨.sigOwn, Or.inr ⟨k, hk, Nat.le_of_not_lt hr, rfl⟩⟩
+      · exact ⟨.sigEncoding, Or.inr (Or.inl rfl)⟩
+      · exact ⟨.sigEncoding, Or.inr (Or.inr (Or.inl rfl))⟩
+      · exact ⟨.sigNext, rfl⟩
+    · exact ⟨.sigEncoding, Or.inr (Or.inr (Or.inr ⟨x, rfl⟩))⟩
+    · exact ⟨.sigDv, ⟨lit, rfl⟩⟩
+  · rcases hφ with ⟨it, hit, rfl⟩ | ⟨x, rfl⟩
+    · exact ⟨.consItems, it, hit, rfl⟩
+    · exact ⟨.sigEncoding, Or.inr (Or.inr (Or.inr ⟨x, rfl⟩))⟩
+  · rcases hφ with hd | hd | hd | ⟨v, w, s, hs, hd⟩ | hd
+    · exact ⟨.domHookGraph, hd⟩
+    · exact ⟨.domParamGraph, hd⟩
+    · exact ⟨.domValElem, hd⟩
+    · have hs' : s ∈ litDistinctSorts ++ c.lib.tokenSorts ++ c.lib.byteSorts ++ c.allColls.map (·.sort) ++
+          c.lib.carriers.map (·.1) := List.contains_iff_mem.mp hs
+      rcases List.mem_append.mp hs' with h4 | hK
+      · rcases List.mem_append.mp h4 with h3 | hC
+        · rcases List.mem_append.mp h3 with h2 | hB
+          · rcases List.mem_append.mp h2 with hL | hT
+            · exact ⟨.domDistinctLit, v, w, s, hL, hd⟩
+            · exact ⟨.domDistinctLib, v, w, s,
+                List.mem_append_left _ (List.mem_append_left _ (List.mem_append_left _ hT)), hd⟩
+          · exact ⟨.domDistinctLib, v, w, s,
+              List.mem_append_left _ (List.mem_append_left _ (List.mem_append_right _ hB)), hd⟩
+        · exact ⟨.domDistinctLib, v, w, s, List.mem_append_left _ (List.mem_append_right _ hC), hd⟩
+      · exact ⟨.domDistinctLib, v, w, s, List.mem_append_right _ hK, hd⟩
+    · exact ⟨.domCollNoJunk, hd⟩
+  · exact ⟨.collAxioms, hφ⟩
+  · rcases hφ with ⟨it, hit, rfl⟩ | ⟨x, rfl⟩
+    · exact ⟨.fnEquations, it, hit, rfl⟩
+    · exact ⟨.sigEncoding, Or.inr (Or.inr (Or.inr ⟨x, rfl⟩))⟩
+  · rcases hφ with ⟨it, hit, rfl⟩ | ⟨x, rfl⟩
+    · exact ⟨.ruleAxioms, it, hit, rfl⟩
+    · exact ⟨.sigEncoding, Or.inr (Or.inr (Or.inr ⟨x, rfl⟩))⟩
+  · rcases hφ with hd | hd
+    · exact ⟨.fallbackSilent, hd⟩
+    · exact ⟨.fallbackRest, hd⟩
+  · exact ⟨.boolClosed, hφ⟩
+  · exact ⟨.stepClosure, hφ⟩
+
+/-- **Every premise of a piece is a premise of the theory or of the step's closure**: the pieces
+add nothing to `Γc` and `Γstep`. -/
+theorem families_sound (c : Semantics) (f : GammaFamily) (φ : KoreAML.P) (h : f.holds c φ) :
+    Γc c φ ∨ Γstep c φ := by
+  have sig : ∀ {it}, it ∈ sigItems c → it.pat = φ → Γc c φ ∨ Γstep c φ := by
+    intro it hit he
+    exact Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl ⟨it, hit, he⟩)))))))))
+  cases f with
+  | sigEncoding =>
+    rcases h with rfl | rfl | rfl | ⟨x, rfl⟩
+    · exact sig (List.mem_append_left _ (List.mem_append_left _ (List.mem_append_left _ (List.mem_cons_self ..)))) rfl
+    · exact sig (List.mem_append_right _ (List.mem_cons_self ..)) rfl
+    · exact sig (List.mem_append_right _ (List.mem_cons_of_mem _ (List.mem_cons_self ..))) rfl
+    · exact Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inr ⟨x, rfl⟩)))))))))
+  | sigOwn =>
+    rcases h with ⟨s, hs, -, rfl⟩ | ⟨k, hk, -, rfl⟩
+    · exact sig (List.mem_append_left _ (List.mem_append_left _ (List.mem_append_right _ (List.mem_map.mpr ⟨s, hs, rfl⟩)))) rfl
+    · exact sig (List.mem_append_left _ (List.mem_append_right _ (List.mem_map.mpr ⟨k, hk, rfl⟩))) rfl
+  | sigRegistry =>
+    rcases h with ⟨s, hs, -, rfl⟩ | ⟨k, hk, -, rfl⟩
+    · exact sig (List.mem_append_left _ (List.mem_append_left _ (List.mem_append_right _ (List.mem_map.mpr ⟨s, hs, rfl⟩)))) rfl
+    · exact sig (List.mem_append_left _ (List.mem_append_right _ (List.mem_map.mpr ⟨k, hk, rfl⟩))) rfl
+  | sigNext => exact sig (List.mem_append_right _ (List.mem_cons_of_mem _ (List.mem_cons_of_mem _ (List.mem_cons_self ..)))) h.symm
+  | sigDv => exact Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inr h))))))))
+  | consItems => exact Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inr (Or.inl h))))))))
+  | domHookGraph => exact Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inr (Or.inl h)))))))
+  | domParamGraph => exact Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inr (Or.inr (Or.inl h))))))))
+  | domValElem => exact Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inr (Or.inr (Or.inr (Or.inl h)))))))))
+  | domDistinctLit =>
+    obtain ⟨v, w, s, hs, hd⟩ := h
+    have hm : (distinctSorts c).contains s = true :=
+      List.contains_iff_mem.mpr (List.mem_append_left _ (List.mem_append_left _ (List.mem_append_left _
+        (List.mem_append_left _ hs))))
+    exact Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl
+      ⟨v, w, s, hm, hd⟩))))))))))
+  | domDistinctLib =>
+    obtain ⟨v, w, s, hs, hd⟩ := h
+    exact Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl
+      ⟨v, w, s, List.contains_iff_mem.mpr (distinct_lib_mem hs), hd⟩))))))))))
+  | domCollNoJunk => exact Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr h))))))))))
+  | collAxioms => exact Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inr h)))))
+  | fallbackSilent => exact Or.inl (Or.inl (Or.inr (Or.inl h)))
+  | fallbackRest => exact Or.inl (Or.inl (Or.inr (Or.inr h)))
+  | fnEquations => exact Or.inl (Or.inl (Or.inl (Or.inl (Or.inr (Or.inl h)))))
+  | ruleAxioms => exact Or.inl (Or.inl (Or.inl (Or.inr (Or.inl h))))
+  | boolClosed => exact Or.inl (Or.inr h)
+  | stepClosure => exact Or.inr h
+
+
+/-! ## Guards of the pieces -/
+
+open Faithful.Model in
+/-- **The value model satisfies each piece, for every H**: the pieces of `ΓSig`, `ΓCons`,
+`ΓDomains`, `ΓColls`, `ΓFallback` and `Γcl` hold in the intended interpretation of
+`c.withHooks H` (its elements the values, each symbol its graph on them), for every semantics with
+`coreOK` and every H meeting `FnHyp`, the constructors' law items where the interpretation meets
+the laws (`OpenLaws`). The function equations, the rule axioms and the step's closure are left out:
+they are stated per sentence (the first two) or beside Γ. -/
+theorem family_model_everyH (c : Semantics) (H : HookParams) (hok : c.coreOK = true)
+    (hf : FnHyp (c.withHooks H)) (f : GammaFamily) (hl : f = .consItems → OpenLaws (c.withHooks H))
+    (hfe : f ≠ .fnEquations) (hre : f ≠ .ruleAxioms) (hst : f ≠ .stepClosure) :
+    stdI (c.withHooks H) ⊧ᴵP f.holds (c.withHooks H) := by
+  have h : HypModelCore (c.withHooks H) := hypModel_of_fnHyp ((Semantics.coreOK_withHooks c H).trans hok) hf
+  have hsig := satSigGoal h
+  have hdom := satDomainsGoal h
+  cases f with
+  | sigEncoding =>
+    intro φ hφ
+    rcases hφ with rfl | rfl | rfl | ⟨x, rfl⟩
+    · exact hsig _ (Or.inl (Or.inl ⟨_, List.mem_append_left _ (List.mem_append_left _ (List.mem_append_left _
+        (List.mem_cons_self ..))), rfl⟩))
+    · exact hsig _ (Or.inl (Or.inl ⟨_, List.mem_append_right _ (List.mem_cons_self ..), rfl⟩))
+    · exact hsig _ (Or.inl (Or.inl ⟨_, List.mem_append_right _ (List.mem_cons_of_mem _ (List.mem_cons_self ..)), rfl⟩))
+    · exact hsig _ (Or.inl (Or.inr ⟨x, rfl⟩))
+  | sigOwn =>
+    rintro φ (⟨s, hs, -, rfl⟩ | ⟨k, hk, -, rfl⟩)
+    · exact hsig _ (Or.inl (Or.inl ⟨_, List.mem_append_left _ (List.mem_append_left _ (List.mem_append_right _
+        (List.mem_map.mpr ⟨s, hs, rfl⟩))), rfl⟩))
+    · exact hsig _ (Or.inl (Or.inl ⟨_, List.mem_append_left _ (List.mem_append_right _
+        (List.mem_map.mpr ⟨k, hk, rfl⟩)), rfl⟩))
+  | sigRegistry =>
+    rintro φ (⟨s, hs, -, rfl⟩ | ⟨k, hk, -, rfl⟩)
+    · exact hsig _ (Or.inl (Or.inl ⟨_, List.mem_append_left _ (List.mem_append_left _ (List.mem_append_right _
+        (List.mem_map.mpr ⟨s, hs, rfl⟩))), rfl⟩))
+    · exact hsig _ (Or.inl (Or.inl ⟨_, List.mem_append_left _ (List.mem_append_right _
+        (List.mem_map.mpr ⟨k, hk, rfl⟩)), rfl⟩))
+  | sigNext =>
+    intro φ hφ
+    exact hsig _ (Or.inl (Or.inl ⟨_, List.mem_append_right _ (List.mem_cons_of_mem _ (List.mem_cons_of_mem _
+      (List.mem_cons_self ..))), hφ.symm⟩))
+  | sigDv => exact fun φ hφ => hsig φ (Or.inr hφ)
+  | consItems => exact fun φ hφ => satConsGoal h (hl rfl) φ (Or.inl hφ)
+  | domHookGraph => exact fun φ hφ => hdom φ (Or.inl hφ)
+  | domParamGraph => exact fun φ hφ => hdom φ (Or.inr (Or.inl hφ))
+  | domValElem => exact fun φ hφ => hdom φ (Or.inr (Or.inr (Or.inl hφ)))
+  | domDistinctLit =>
+    rintro φ ⟨v, w, s, hs, hd⟩
+    exact hdom φ (Or.inr (Or.inr (Or.inr (Or.inl ⟨v, w, s, List.contains_iff_mem.mpr (List.mem_append_left _
+      (List.mem_append_left _ (List.mem_append_left _ (List.mem_append_left _ hs)))), hd⟩))))
+  | domDistinctLib =>
+    rintro φ ⟨v, w, s, hs, hd⟩
+    exact hdom φ (Or.inr (Or.inr (Or.inr (Or.inl ⟨v, w, s, List.contains_iff_mem.mpr (distinct_lib_mem hs), hd⟩))))
+  | domCollNoJunk => exact fun φ hφ => hdom φ (Or.inr (Or.inr (Or.inr (Or.inr hφ))))
+  | collAxioms => exact satCollsGoal h
+  | fallbackSilent => exact fun φ hφ => satFallbackGoal h φ (Or.inl hφ)
+  | fallbackRest => exact fun φ hφ => satFallbackGoal h φ (Or.inr hφ)
+  | fnEquations => exact absurd rfl hfe
+  | ruleAxioms => exact absurd rfl hre
+  | boolClosed =>
+    rintro φ ⟨-, hl', rfl⟩
+    exact boolClosed_modelCl h hl'
+  | stepClosure => exact absurd rfl hst
+
+/-- **The registry family is conservative at the names a text does not declare, for every H**:
+`registry_conservative` and `exact_own` at `c.withHooks H`, at the names the decided check
+`detachedB` passes. -/
+theorem registry_everyH (c : Semantics) (H : HookParams) (ss : List Srt) (ks : List Sym)
+    (hok : c.coreOK = true) (hpre : c.clausesPreTop = true) (hf : FnHyp (c.withHooks H))
+    (hd : detachedB (c.withHooks H) ss ks = true) :
+    Detached (c.withHooks H) (DetachedB.names (c.withHooks H) ss ks) ∧
+    RegistryConservative (c.withHooks H) (DetachedB.names (c.withHooks H) ss ks) ∧
+    ExactOwn (c.withHooks H) (DetachedB.names (c.withHooks H) ss ks) :=
+  have h := (Semantics.coreOK_withHooks c H).trans hok
+  have hp := (Semantics.clausesPreTop_withHooks c H).trans hpre
+  ⟨detached_of_decided _ ss ks h hd, registry_conservative _ hp ss ks h hf hd, exact_own _ hp ss ks h hf hd⟩
+
+/-- **A definition without rules has no step, for every H**: next's arity at the configuration
+sort, which `ΓSig` states whether or not the text has a rule, speaks of no step there. -/
+theorem nextless_everyH (c : Semantics) (H : HookParams) (hr : c.rules = []) (x y : Config (c.withHooks H)) :
+    ¬ Step (c.withHooks H) x y := by
+  rintro ⟨r, hm⟩
+  have : r ∈ c.rules := hm
+  rw [hr] at this
+  exact absurd this List.not_mem_nil
+
+/-- **The step's closure makes the successors of a model those of `Step`, for every H**:
+`step_iff_model` at `c.withHooks H`. -/
+theorem stepClosure_everyH (c : Semantics) (H : HookParams) (hpreTop : (c.withHooks H).clausesPreTop = true)
+    (h : HypSoundCore (c.withHooks H))
+    (hb : ∀ r ∈ (c.withHooks H).rules, binds r.vars.length (varOccs r.lhs) = true)
+    (htop : ∀ r ∈ (c.withHooks H).rules, r.pre = .top ∧ r.post = .top)
+    (hbc : ∀ fn ∈ (c.withHooks H).fns, ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true)
+    (x y : Config (c.withHooks H)) (hd : StepDecided (c.withHooks H) x.val)
+    {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
+    (hI : I ⊧ᴵP (Γ (c.withHooks H) ∪ Γstep (c.withHooks H))) :
+    Step (c.withHooks H) x y ↔ ¬ (I ⊧ᴵ (den (c.withHooks H) x.val ⇒ ∼ KoreAML.sNext (den (c.withHooks H) y.val))) :=
+  step_iff_model hpreTop h hb htop hbc x y hd hI
+
+/-- At a silent point, `Γ (c.withHooks H)` holds the interpretation's value of the result sort. -/
+theorem gamma_silent_everyH (c : Semantics) (H : HookParams) {k : CtorSig}
+    (hks : lookupSig hookSigs k.name = some k) {vs : List GroundTerm}
+    (hvs : (c.withHooks H).sortsOf vs = some k.args) (hh : hook k.name vs = some none) (hs : silent k.name vs = true) :
+    Γ (c.withHooks H) (KoreAML.den (symApp (c.withHooks H) k.name (GroundTerm.koreList (c.withHooks H) vs)) ≡
+      (match (c.withHooks H).fallback k.name vs with
+      | some v => den (c.withHooks H) v
+      | none => ⊥)) :=
+  Or.inr (Or.inl ⟨k, vs, (lookupSig_spec hks).1, hvs, hh, hs, rfl⟩)
+
+theorem fallback_none_fam (c : Semantics) (k : CtorSig) (vs : List GroundTerm) :
+    (c.withHooks HookParams.none).fallback k.name vs = none := by
+  unfold Semantics.fallback; split <;> rfl
+
+/-- **Γ does not determine a silent point, over all H**: at a silent point of an interpreted
+symbol, Γ entails for every H neither that the application has no value nor that it is `v`: under
+`HookParams.none` it is ⊥ in every model, under an interpretation `Hv` whose value there is `v` it
+is `v` in every model, and both theories have models (`sound_hyp`). -/
+theorem silent_undetermined (c : Semantics) (hok : c.coreOK = true) (hr : ∀ k ∈ c.params, k.raw = false)
+    {k : CtorSig} (hks : lookupSig hookSigs k.name = some k) {vs : List GroundTerm}
+    (hvs : c.sortsOf vs = some k.args) (hh : hook k.name vs = some none) (hs : silent k.name vs = true)
+    {v : GroundTerm} (hv : c.sortOf v = some k.result) {Hv : HookParams}
+    (hHv : (c.withHooks Hv).fallback k.name vs = some v)
+    (hfn₀ : FnHyp (c.withHooks HookParams.none)) (hfnv : FnHyp (c.withHooks Hv)) :
+    ¬ (∀ H : HookParams, Γ (c.withHooks H) ⊧
+      (KoreAML.den (symApp (c.withHooks H) k.name (GroundTerm.koreList (c.withHooks H) vs)) ≡ ⊥)) ∧
+    ¬ (∀ H : HookParams, Γ (c.withHooks H) ⊧
+      (KoreAML.den (symApp (c.withHooks H) k.name (GroundTerm.koreList (c.withHooks H) vs)) ≡
+        den (c.withHooks H) v)) := by
+  constructor
+  · intro hall
+    obtain ⟨M, _, I, hI⟩ := (sound_hyp (c.withHooks Hv) ((Semantics.coreOK_withHooks c _).trans hok) hfnv).1
+    have hIΓ : I ⊧ᴵP Γ (c.withHooks Hv) := fun φ h => hI φ (Or.inl (Or.inl h))
+    have hD := defOK hIΓ
+    have hfb := hIΓ _ (gamma_silent_everyH c Hv hks (by rw [Semantics.sortsOf_withHooks c _ hr]; exact hvs) hh hs)
+    rw [hHv] at hfb
+    have hbot := hall Hv hIΓ
+    obtain ⟨a, ha, -⟩ := den_single hIΓ (c := c.withHooks Hv)
+      (by rw [Semantics.sortOf_withHooks c _ hr]; exact hv) KoreAML.val0
+    have h1 := (KoreAML.interp_equal hD).mp (hfb KoreAML.val0 default) a
+    have h2 := (KoreAML.interp_equal hD).mp (hbot KoreAML.val0 default) a
+    exact absurd ((h2.mp (h1.mpr ((ha a).mpr rfl)))) (by simp [Pattern.interpret])
+  · intro hall
+    obtain ⟨M, _, I, hI⟩ := (sound_hyp (c.withHooks HookParams.none) ((Semantics.coreOK_withHooks c _).trans hok) hfn₀).1
+    have hIΓ : I ⊧ᴵP Γ (c.withHooks HookParams.none) := fun φ h => hI φ (Or.inl (Or.inl h))
+    have hD := defOK hIΓ
+    have hfb := hIΓ _ (gamma_silent_everyH c HookParams.none hks (by rw [Semantics.sortsOf_withHooks c _ hr]; exact hvs) hh hs)
+    rw [fallback_none_fam c k vs] at hfb
+    have hval := hall HookParams.none hIΓ
+    obtain ⟨a, ha, -⟩ := den_single hIΓ (c := c.withHooks HookParams.none)
+      (by rw [Semantics.sortOf_withHooks c _ hr]; exact hv) KoreAML.val0
+    have h1 := (KoreAML.interp_equal hD).mp (hfb KoreAML.val0 default) a
+    have h2 := (KoreAML.interp_equal hD).mp (hval KoreAML.val0 default) a
+    exact absurd (h1.mp (h2.mpr ((ha a).mpr rfl))) (by simp [Pattern.interpret])
+
+/-- The translation of any text's declarations holds the three items of definedness of the piece
+`sigEncoding`: they are the encoding's, read from no sentence. -/
+theorem encoding_in_text (d : Kore.Definition) :
+    KoreAML.definednessItem ∈ (KoreAML.Theory.ofDefinition d).signature ∧
+    KoreAML.ceilArityItem ∈ (KoreAML.Theory.ofDefinition d).signature ∧
+    KoreAML.ceilDefItem ∈ (KoreAML.Theory.ofDefinition d).signature := by
+  unfold KoreAML.Theory.ofDefinition
+  dsimp only
+  refine ⟨?_, ?_, ?_⟩
+  · exact List.mem_append_left _ (List.mem_append_left _ (List.mem_append_left _ (List.mem_append_left _
+      (List.mem_append_left _ (List.mem_append_left _ (List.mem_append_left _ (List.mem_cons_self ..)))))))
+  · exact List.mem_append_left _ (List.mem_append_left _ (List.mem_append_right _ (List.mem_cons_self ..)))
+  · exact List.mem_append_left _ (List.mem_append_left _ (List.mem_append_right _
+      (List.mem_cons_of_mem _ (List.mem_cons_self ..))))
+
+/-- The translation of a text's declarations holds next's arity at each sort of its rewrites, and
+the arity of a domain value at each literal it writes. -/
+theorem dv_in_text (d : Kore.Definition) (lit : String)
+    (h : lit ∈ (d.axiomDecls.flatMap fun ad => KoreAML.dvLitsOf ad.ax.pattern).eraseDups) :
+    KoreAML.dvArityItem lit ∈ (KoreAML.Theory.ofDefinition d).signature := by
+  simp only [KoreAML.Theory.ofDefinition, List.mem_append]
+  exact Or.inr (List.mem_map.mpr ⟨lit, h, rfl⟩)
+
+/-! ## Guards of the tie classes without a reading note -/
+
+open LibEv in
+/-- **Hooked functional, for every H**: the `functional` sentence of an interpreted symbol with a
+value at every argument list of its sorts holds at values in every model of `Γ (c.withHooks H)`
+(`LibEv.functional_ev` at `c.withHooks H`). -/
+theorem hookedFunctional_everyH (c : Semantics) (H : HookParams) (h : c.coreOK = true)
+    (hs : (c.withHooks H).shapesOK = true) {k : CtorSig} (hk : k ∈ hookSigs)
+    (hkind : partialHooks.contains k.name = false ∨ (k.name ∈ totalSilentKeys ∧ (c.withHooks H).silentTotal) ∨
+      (k.name ∈ floatLitTotal ∧ (c.withHooks H).floatShapeOK = true))
+    (hr : funReg k = true) (ad : KoreAML.AxiomDecl) (hp : ad.ax.pattern = funPatR k)
+    (hsv : ad.ax.sortVars = [KoreAML.Rv]) :
+    EntailsAtValues (c.withHooks H) ad (KoreAML.trAxiom [] [] ad).pat :=
+  functional_ev ((Semantics.coreOK_withHooks c H).trans h) hs hk hkind hr ad hp hsv
+
+open LibEv in
+/-- **Library, for every H**: a library equation whose sides have equal values wherever its
+`requires` is true holds at values in every model of `Γ (c.withHooks H)` (`LibEv.Eqn.entailed`
+at `c.withHooks H`). -/
+theorem library_everyH (c : Semantics) (H : HookParams) (h : c.coreOK = true) (E : Eqn)
+    (ht : E.typed (c.withHooks H) = true) (hE : E.Holds (c.withHooks H)) (ad : KoreAML.AxiomDecl)
+    (hp : ad.ax.pattern = E.pattern (c.withHooks H)) (hsv : ad.ax.sortVars = [KoreAML.Rv])
+    (hfv : ∀ i, i < E.vars.length → vkey (c.withHooks H) E.vars i ∈ KoreAML.freeOf [] ad.ax.pattern) :
+    EntailsAtValues (c.withHooks H) ad (KoreAML.trAxiom [] [] ad).pat :=
+  Eqn.entailed ((Semantics.coreOK_withHooks c H).trans h) E ht hE ad hp hsv hfv
+
+open LibEv in
+/-- **Set-variable lemma, for every H**: the definedness lemma `#Ceil(f(@I1, @I2)) => g(@I2, 0) ==
+false`-shaped over set variables fails in every model of `Γ (c.withHooks H)` at a valuation sending
+each set variable to a set of values, where `f(p, q)` has a value and `g(z, 0)` is `false`
+(`LibEv.ceilInt_refuted_at` at `c.withHooks H`). -/
+theorem setVarLemma_everyH (c : Semantics) (H : HookParams) (h : c.coreOK = true) (f g : Sym)
+    (hr : (ceilIntEqn f g).regular = true) (ht : (ceilIntEqn f g).typed (c.withHooks H) = true) (p q z : Int)
+    (hf : ∃ r, (c.withHooks H).hv f [int p, int q] = some r)
+    (hg : (c.withHooks H).hv g [int z, int 0] = some (bool false)) (ad : KoreAML.AxiomDecl)
+    (hp : ad.ax.pattern = (ceilIntEqn f g).patR) (hsv : ad.ax.sortVars = [KoreAML.Rv, Q0v])
+    {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP Γ (c.withHooks H)) :
+    ∃ e : Valuation M, AtValues (c.withHooks H) I e ad.ax ∧ SetVarsAtValues (c.withHooks H) I e ad.ax ∧
+      ¬ (KoreAML.trAxiom [] [] ad).pat.interpret I e default :=
+  ceilInt_refuted_at ((Semantics.coreOK_withHooks c H).trans h) f g hr ht p q z hf hg ad hp hsv hI
+
+/-- **Function law, for every H**: where the interpretation `H` meets the obligations and, at
+values, the laws the text writes for its functions (`FnLaws`), the value model of
+`c.withHooks H` satisfies `Γc` with the step's closure and each law's sentence
+(`consistent_with_laws` at `c.withHooks H`). -/
+theorem fnLaws_everyH (c : Semantics) (H : HookParams) (h : c.coreOK = true) (hd : FnDet (c.withHooks H))
+    (hs : FnSolves (c.withHooks H)) (hp : ClausePreDecided (c.withHooks H)) (hq : ClausePostDecided (c.withHooks H))
+    (ho : OpenLaws (c.withHooks H)) {ls : List LawEq} (hl : FnLaws (c.withHooks H) ls)
+    (hsort : ∀ l ∈ ls, lawSorted (c.withHooks H) l = true) :
+    ∃ (M : Type) (_ : Inhabited M) (I : ML.Interpretation KoreAML.Sym M),
+      (I ⊧ᴵP (Γc (c.withHooks H) ∪ Γstep (c.withHooks H))) ∧ ∀ l ∈ ls, I ⊧ᴵ lawPattern (c.withHooks H) l :=
+  consistent_with_laws ((Semantics.coreOK_withHooks c H).trans h) hd hs hp hq ho hl hsort
+
+end KCore.Guards.Fam
+
+#print axioms KCore.Guards.Fam.families_cover
+#print axioms KCore.Guards.Fam.families_sound
+#print axioms KCore.Guards.Fam.family_model_everyH
+#print axioms KCore.Guards.Fam.registry_everyH
+#print axioms KCore.Guards.Fam.nextless_everyH
+#print axioms KCore.Guards.Fam.stepClosure_everyH
+#print axioms KCore.Guards.Fam.gamma_silent_everyH
+#print axioms KCore.Guards.Fam.silent_undetermined
+#print axioms KCore.Guards.Fam.encoding_in_text
+#print axioms KCore.Guards.Fam.dv_in_text
+#print axioms KCore.Guards.Fam.hookedFunctional_everyH
+#print axioms KCore.Guards.Fam.library_everyH
+#print axioms KCore.Guards.Fam.setVarLemma_everyH
+#print axioms KCore.Guards.Fam.fnLaws_everyH
+
 /-! ## The table of readings (DONE-0 C6)
 
 One entry for every constructor of `Parse.ReadingNote`, `Parse.InertReason` and
@@ -3721,6 +4194,10 @@ inductive GuardStatus where
   | readerTest
   /-- Not yet: the ticket that owes the entry. -/
   | pending (ticket : String)
+  /-- A piece of `Γ` that the text's translation holds as well: each of its items is a sentence's
+  translation, a consequence of one, or an item of the translation's own signature; the pointers
+  are the theorems that say so (per text, or for every text). -/
+  | stated
 
 structure GuardEntry where
   status : GuardStatus
@@ -3737,10 +4214,16 @@ def GuardStatus.show : GuardStatus → String
   | .guarded => "guarded"
   | .readerTest => "reader-test"
   | .pending t => s!"pending {t}"
+  | .stated => "stated"
 
 def GuardEntry.line (ctor : String) (e : GuardEntry) : String :=
   let refs := fun (rs : List GuardRef) => ";".intercalate (rs.map GuardRef.show)
   s!"GUARD|{ctor}|{e.status.show}|{refs e.guard}|{refs e.companion}|{";".intercalate (e.invariant.map toString)}|{e.note}"
+
+/-- The line of an entry of the families table or of the class table, under its own prefix. -/
+def GuardEntry.lineAs (pre ctor : String) (e : GuardEntry) : String :=
+  let refs := fun (rs : List GuardRef) => ";".intercalate (rs.map GuardRef.show)
+  s!"{pre}|{ctor}|{e.status.show}|{refs e.guard}|{refs e.companion}|{";".intercalate (e.invariant.map toString)}|{e.note}"
 
 -- table:begin
 def readingNote : ReadingNote → GuardEntry
@@ -4090,6 +4573,206 @@ def unreadReason : UnreadReason → GuardEntry
     { status := .readerTest,
       guard := [.test "test/RangeMap.lean" "isNoPredName"],
       note := "the theory has no symbol isX for a sort the registry gives no predicate; the sixth of the six UnreadReason constructors GUARD.unread counts" }
+open KCore.Guards.Fam in
+/-- **The families table**: each piece of `Γc` and `Γstep` (`GammaFamily`, split by
+`families_cover`), with what `Γ` adds there and why it is what K means, and its guard. A piece the
+translation of the text holds as well is `stated`; every other piece is guarded. -/
+def gammaFamily : GammaFamily → GuardEntry
+  | .sigEncoding =>
+    { status := .stated,
+      guard := [.decl ``KCore.Guards.Fam.encoding_in_text],
+      invariant := [``KCore.Faithful.sigItems, ``KoreAML.Theory.ofDefinition],
+      note := "definedness (its item, and the definedness premise at every variable of each list part), the arity of the definedness symbols and their definedness: the encoding of sorted matching logic in applicative matching logic, read from no sentence; the translation of every text holds the same three items (encoding_in_text), so no sentence's direction rests on them" }
+  | .sigOwn =>
+    { status := .stated,
+      guard := [.test "test/TieKimpSig.lean" "sig_origin", .test "test/TieBase.lean" "sig_origin_but_next",
+        .test "test/TieKkSig.lean" "sig_origin"],
+      invariant := [``KCore.Faithful.kernelSorts, ``KCore.Faithful.kernelSyms, ``KCore.Faithful.symArityItem],
+      note := "the sort constant of each sort and the arity of each symbol numbered past the registry: per text, each is the item of a declaration of the text in its translation's signature (sig_origin per text, with next's arity apart where the text has no rule: sig_origin_but_next; kernel-checked, not pinned)" }
+  | .sigRegistry =>
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.Fam.registry_everyH, .decl ``KCore.registry_conservative,
+        .decl ``KCore.exact_own, .decl ``KCore.detached_of_decided],
+      companion := [.test "test/TieEnsRegistry.lean" "registry_detached", .test "test/TieKimpSig.lean" "surplusItem"],
+      invariant := [``KCore.Faithful.kernelSorts, ``KCore.Faithful.kernelSyms, ``KCore.detachedB],
+      note := "the sort constants of the registry's sorts and the arities of its symbols: K's interpreted builtin library is part of every theory, whether or not the text imports its module. Where the text declares the name the item is the declaration's (sig_origin); where it does not (surplusItem) it is a premise of the registry family, with, at those names, the hooks' graphs (domHookGraph), the silent points (fallbackSilent), the value items and distinctness (domValElem, domDistinctLib) and the library collections' no-junk and axioms (domCollNoJunk, collAxioms). For every H, at the names the decided check detachedB passes, the family is conservative: a model of the theory without the premises naming them extends to a model of the whole theory, and the steps at values are the same with and without them (registry_everyH, for coreOK, FnHyp and clausesPreTop). The point is reached on ens, whose text does not declare those names: detachedB is decided there at the parsed semantics, whose interpretation is HookParams.none (registry_detached), not at every H, and for no other text; kimp lists its surplus items (surplusItem)" }
+  | .sigNext =>
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.Fam.family_model_everyH, .decl ``KCore.Guards.Fam.nextless_everyH,
+        .decl ``KCore.Faithful.Model.sat_nextArity],
+      companion := [.test "test/TieBase.lean" "text_nextless", .test "test/TieBase.lean" "sig_origin_but_next"],
+      invariant := [``KoreAML.nextArityItem, ``KCore.Faithful.Γstep],
+      note := "next's arity at the configuration sort: what has a configuration as its successor is a configuration. The translation states it at each sort of the text's rewrites, so where the text has a rule it is a declaration's item; Γ states it always. Where the text has no rule (text_nextless: sig_origin_but_next names it as the one item no declaration gives) no value is at stake: for every H the definition has no step (nextless_everyH), and the value model of c.withHooks H, whose next is the step, satisfies it (family_model_everyH). The item reads no interpretation, so no H separates the readings with and without it" }
+  | .sigDv =>
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.Fam.family_model_everyH, .decl ``KCore.Faithful.Model.sat_dvArity,
+        .decl ``KCore.Guards.Fam.dv_in_text],
+      invariant := [``KoreAML.dvArityAll, ``KoreAML.dvArityItem],
+      note := "the arity of a domain value at every literal: KORE's domain value of sort s is a pattern of sort s. The translation states it at the literals the text writes (dv_in_text), Γ at every literal, since a configuration may carry a literal the text does not write. For every H it holds in the value model of c.withHooks H, where a domain value is a value of its sort (family_model_everyH). No companion: the item reads no interpretation, so no H separates the readings; a model of Γ without it, in which a literal the text does not write denotes an element outside its sort, is not built" }
+  | .consItems =>
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.Fam.family_model_everyH, .decl ``KCore.Guards.inertCons_everyH,
+        .decl ``KCore.Guards.inertNoJunk_everyH, .test "test/TieEns.lean" "cons_entailed"],
+      companion := [.decl ``KCore.Faithful.noJunk_omitted_refuted, .test "test/TokKItem.lean" "tok_refuted"],
+      invariant := [``KCore.Faithful.consItemsK, ``KCore.Semantics.gens],
+      note := "K's constructors are free: per constructor sort each generator that is no open generator is total and injective, distinct generators are apart, and the sort holds only what its generators build; injections compose along the subsort closure; each overload equation; each open generator's law sentence as the text writes it. The text's constructor sentences are entailed by these items, for every H (inertCons_everyH, inertNoJunk_everyH; cons_entailed per text). The items no sentence of a text states (coherence triangles of the closure, distinctness of injections with a common lower bound, the items at uncovered arguments of a function-overloaded symbol: ReadingNote.overloadFunction; KItem's no-junk with an added injection: ReadingNote.tokKItem) hold in the value model of c.withHooks H for every H where the interpretation meets the open generators' laws (family_model_everyH). Which items a given text states is not enumerated by a theorem (per text the converse puts ΓCons whole among the families, gamma_origin). The point is reached at KItem's no-junk: the text's sentence that leaves out an injection from a sort with a value has no model with Γ, for every H (noJunk_omitted_refuted; tok_refuted on hashsort's text)" }
+  | .domHookGraph =>
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.setIdem_gamma, .decl ``KCore.Guards.setIdem_everyH,
+        .decl ``KCore.Guards.Fam.family_model_everyH, .test "test/HooksInt.lean" "vals_gamma"],
+      companion := [.decl ``KCore.Guards.setIdem_reached, .test "test/TieEns.lean" "idem_refuted"],
+      invariant := [``KCore.hook, ``KCore.silent, ``KCore.Faithful.ΓDomains],
+      note := "the graph of each interpreted hooked symbol at values of its argument sorts, ⊥ where hook gives no value off a silent point: the builtin files' prose for each hook, which no sentence of the text states (trusted base (4)); each supported hook's graph is checked against its prose by test/Hooks*.lean (vals_gamma for INT). For every H, Γ holds _Set_ = ⊥ at sets with a common member (setIdem_gamma, G7), and the value model of c.withHooks H satisfies every graph (family_model_everyH). The graph reads no interpretation; the point is reached at _Set_: were it silent there, its value would be the interpretation's (setIdem_reached), and the text's idempotence sentence is refuted by the graph (idem_refuted)" }
+  | .domParamGraph =>
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.fnRest_nil_eq_paramVal_everyH, .decl ``KCore.Guards.DevRefl.conf_value],
+      companion := [.decl ``KCore.ParamSchema.param_undetermined, .decl ``KCore.Guards.DevRefl.go_step_Hk],
+      invariant := [``KCore.Semantics.paramVal],
+      note := "the graph of each parameter symbol at values under the interpretation (paramVal reads c.hooks, which is H): a parameter is a symbol the text declares without equations that no registry hook interprets, so the text gives it no value and its value is the interpretation's. For every H a function with no clause and a parameter of its name and signature have one value (fnRest_nil_eq_paramVal_everyH, G6; conf_value on e6-configuration's text); the point is reached: over all H, Γ entails neither ⊥ nor a value at a parameter no hook implements (param_undetermined), and under Hk go steps where under HookParams.none it does not (go_step_Hk)" }
+  | .domValElem =>
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.Fam.family_model_everyH, .decl ``KCore.Faithful.Model.sat_valElem],
+      invariant := [``KCore.Faithful.ΓDomains, ``KCore.Semantics.sortOf],
+      note := "every value of a sort denotes exactly one element of that sort: K's values are elements of their sorts. For a constructor term the constructors' functionality gives it; for a collection and a domain value nothing else does. For every H it holds in the value model of c.withHooks H (family_model_everyH). No companion: it reads no interpretation, so no H separates the readings; a model of Γ without it, in which a collection value denotes no element, is not built" }
+  | .domDistinctLit =>
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.Fam.family_model_everyH, .decl ``KCore.Faithful.Model.sat_distinct],
+      invariant := [``KCore.Faithful.distinctSorts, ``KCore.Guards.Fam.litDistinctSorts],
+      note := "distinct values of Int, Bool, KConfigVar, Float, String and Bytes denote distinct elements: the builtin prose gives these sorts their literals as values, and K's values are distinct where they differ; no sentence of the text states it. For every H it holds in the value model of c.withHooks H (family_model_everyH). No companion: it reads no interpretation; a model of Γ without it, in which two literals denote one element, is not built" }
+  | .domDistinctLib =>
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.Fam.family_model_everyH, .decl ``KCore.Faithful.Model.sat_distinct],
+      invariant := [``KCore.Faithful.distinctSorts],
+      note := "distinct values of one sort denote distinct elements at the library's token and byte sorts, every collection sort and the sorts hooked to a library carrier (the rest of distinctSorts): a token's value is its literal, a collection's its entries or elements, a carrier's its carrier's value, by the builtin prose; no sentence of the text states it. For every H it holds in the value model of c.withHooks H (family_model_everyH). No companion: it reads no interpretation; a model of Γ without it is not built" }
+  | .domCollNoJunk =>
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.Fam.family_model_everyH, .decl ``KCore.Faithful.Model.sat_collNoJunk],
+      invariant := [``KCore.Faithful.collNoJunk, ``KCore.Semantics.allColls],
+      note := "every element of a collection sort (the library's Map, Set and List, and the definition's own) is built from its unit by adding elements one at a time: the builtin prose of the collections (a map a finite map, a list a finite sequence, a set a finite set), which no sentence of the text states (a cell collection's no-junk sentence applies a head Γ lacks). For every H it holds in the value model of c.withHooks H (family_model_everyH). No companion: it reads no interpretation; a model of Γ without it, with a collection element no value denotes, is not built" }
+  | .collAxioms =>
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.Fam.family_model_everyH, .decl ``KCore.Faithful.Model.satCollsGoal,
+        .decl ``KCore.Faithful.setColl_idem_refuted_text],
+      companion := [.test "test/SetIdemColl.lean" "own_idem_refuted_99"],
+      invariant := [``KCore.Faithful.collAxioms, ``KCore.Faithful.ΓColls],
+      note := "four map, five list and four set axioms per collection sort, the definition's own included: what the unit, element and concatenation symbols are on elements that need not be values' elements, written from the builtin prose of the collections, not read from the text's axioms; they make a map pattern hold of a value only where it matches it (FaithfulColl.lean, step_sound_stage4). For every H they hold in the value model of c.withHooks H (family_model_everyH). The point is reached at a definition's own set collection: for every H, Γ's set items refute the idempotence sentence kompile writes for it (setColl_idem_refuted_text; own_idem_refuted_99 on starinit's sentence 99). The model of the other parts in which a map pattern holds of a map it does not match is described in FaithfulColl.lean, not built" }
+  | .fallbackSilent =>
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.Fam.silent_undetermined, .decl ``KCore.Guards.Fam.gamma_silent_everyH],
+      companion := [.test "test/HooksBytes.lean" "undetermined", .test "test/HooksInt.lean" "undetermined"],
+      invariant := [``KCore.Semantics.fallback, ``KCore.silent],
+      note := "at a silent point of an interpreted symbol, where the builtin prose gives no value (silent), the interpretation's value of the result sort, ⊥ where it gives none: the text says nothing there, so the value is the interpretation's. For every H, Γ holds that graph (gamma_silent_everyH), and over all H it entails neither ⊥ nor a value there (silent_undetermined, every semantics with coreOK; per hook in test/Hooks*.lean)" }
+  | .fallbackRest =>
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.rest_undetermined, .decl ``KCore.Guards.gamma_rest],
+      companion := [.decl ``KCore.Guards.RestOpen.F0_undetermined],
+      invariant := [``KCore.Semantics.fnRest, ``KCore.Fails],
+      note := "at values of a function's argument sorts where every clause fails, the function's rest, from the interpretation, ⊥ where it is undefined: the text states no value there (a function with no applying equation is undetermined at that point). Γ holds that graph (gamma_rest), and over all H it entails neither ⊥ nor a value there (rest_undetermined, every semantics with coreOK); the point is reached at a function with no clause (F0_undetermined)" }
+  | .fnEquations =>
+    { status := .stated,
+      guard := [.test "test/TieEns.lean" "fns_from_text", .test "test/TieKimp.lean" "fns_from_text",
+        .test "test/TieKkFns.lean" "fns_positions"],
+      invariant := [``KCore.Faithful.fnItems, ``KCore.Faithful.prioEquation],
+      note := "the function equations, each clause under the negations of the clauses of a smaller priority: per text each item is a consequence of the translated sentence at its index (fns_from_text; kore.k's 302 positions), kernel-checked, not pinned. The negations are the readings equationPriority and owiseAsPriority of the reading table" }
+  | .ruleAxioms =>
+    { status := .stated,
+      guard := [.test "test/TieKimpRules.lean" "rules_from_text", .test "test/TieKkRules.lean" "rules_from_text",
+        .test "test/TieEns.lean" "rule_from_text"],
+      invariant := [``KCore.Faithful.ruleItems, ``KCore.Faithful.prioRuleK],
+      note := "the rule axioms, each with the premise that its right side with the ensures is defined and the negations of the rules of a smaller priority: per text each is a consequence of the rule sentence at its index (rules_from_text). The premise is the reading ruleRightDefined of the reading table; the negations rest on the priority prose of the K manual" }
+  | .boolClosed =>
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.DevExCases.exCases_everyH, .decl ``KCore.Guards.Fam.family_model_everyH,
+        .decl ``KCore.boolClosed_modelCl],
+      companion := [.decl ``KCore.Guards.DevExCases.exCases_first_Ht],
+      invariant := [``KCore.Faithful.boolClosed, ``KCore.Faithful.Γcl],
+      note := "every element of Bool is true or false, for a definition that reads a confined sort and whose Bool holds only its literals: the builtin prose gives Bool the two values, which no sentence states (the text's no-junk sentence of Bool is about the sort's values, not its elements). For every H it holds in the value model of c.withHooks H (family_model_everyH), and the readings existsAsCases and notAsCondition rest on it: f(b) is notBool(b) (exCases_everyH); the point is reached: with the binder read at its first instance alone, f(true) is the interpretation's (exCases_first_Ht)" }
+  | .stepClosure =>
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.Fam.stepClosure_everyH, .decl ``KCore.Faithful.step_iff_model],
+      companion := [.test "test/TieEns.lean" "run_neg4"],
+      invariant := [``KCore.Faithful.stepClosureItem, ``KCore.Faithful.prioRuleK],
+      note := "a configuration has a successor only by a rule whose left side, with its priority read, matches it, the successor in its right side: K's transition relation is the rules' and no other. Not part of Γ: soundness does not read it, and completeness and the existence of a model state it beside Γ. For every H, in every model of Γ with it, a configuration has a successor exactly where Step has one (stepClosure_everyH, from step_iff_model). The point is reached on ens: with it run(-4) has no successor (run_neg4); Γ alone states each rule's instances as successors, not that there are no others (no model of Γ with another successor is built here)" }
+
+open KCore.Guards.Fam in
+/-- **The tie classes whose direction is not the default** (neither `entailed` nor `equal`, the
+directions that need no note: `Γ` entails the sentence, or its item is the sentence's
+translation), each with its note or the hypothesis that stands for one, and its guard. The list
+is the classes of `tieClassesOvl` in its order (`tieClassRows_exhaustive`). -/
+def tieClassRows : List (String × GuardEntry) :=
+  [("rewrite rule",
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.ruleRightDefined_everyH, .test "test/TieEns.lean" "rule_from_text"],
+      companion := [.decl ``KCore.Faithful.UndefRhsWitness.not_model_text],
+      note := "weaker: ReadingNote.ruleRightDefined (the reading table's entry), Γ's item a consequence of the sentence for every H" }),
+   ("priority equation",
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.DevPrio.prio_gamma_of_text, .decl ``KCore.Guards.DevOwise.owise_values,
+        .test "test/TieC3EqPrioNonexec.lean" "w1"],
+      companion := [.decl ``KCore.Faithful.PrioTextWitness.not_model_text],
+      note := "weaker: ReadingNote.equationPriority and ReadingNote.owiseAsPriority (the reading table's entries); on c3-eq-prio-nonexec's account the sentence of priority 60 entails Γ's item (w1)" }),
+   ("function functional",
+    { status := .guarded,
+      guard := [.decl ``KCore.LibEv.fnFun_evC_withHooks, .decl ``KCore.Guards.total_of_restTotal,
+        .test "test/TieBase.lean" "fnFun_at_values"],
+      note := "hypothesis, no reading note: the functional sentence of a function of the semantics is owed as FnHyp, the hypothesis of sound_hyp and complete_hyp, which stands for the note. For every H where FnHyp holds it holds at values in every model of Γc (fnFun_evC_withHooks); under RestTotal a total function is total (total_of_restTotal, G5); the accounts state the sort predicates' at values (fnFun_at_values)" }),
+   ("hooked functional",
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.Fam.hookedFunctional_everyH, .test "test/TieKimpAtValues.lean" "fun_entailed"],
+      note := "at values, no reading note: the reader reads the sentence as the library's text and Γ states the symbol's graph (the piece domHookGraph); for every H the sentence holds at values in every model of Γ (hookedFunctional_everyH); at values because the graph speaks of values only. On kimp's account the 47 sentences of the class are entailed so (fun_entailed)" }),
+   ("collection law",
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.inertListLaw_everyH, .test "test/TieKimpAtValues.lean" "laws_entailed"],
+      note := "at values: InertReason.collectionLaw (the reading table's entry); on kimp's account the nine sentences of the class are entailed at values (laws_entailed)" }),
+   ("library",
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.Fam.library_everyH, .test "test/TieKimpAtValues.lean" "lib_entailed",
+        .test "test/TieEns.lean" "lib166"],
+      note := "at values, no reading note: an equation or a lemma of the builtin library over symbols Γ interprets, read as the library's text; where its sides have equal values it holds at values in every model of Γ, for every H (library_everyH). On kimp's account the 82 sentences of the class are entailed so (lib_entailed); ens's 166 (lib166)" }),
+   ("set idempotence",
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.setIdem_gamma, .decl ``KCore.Guards.setIdem_everyH],
+      companion := [.test "test/TieEns.lean" "idem_refuted"],
+      note := "refuted: UnreadReason.setIdempotence (the reading table's entry, G7); a known case of trusted base (4): the builtin prose's sets are nilpotent" }),
+   ("set-variable lemma",
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.Fam.setVarLemma_everyH, .test "test/LibSetVarCeil.lean" "ceil126_at"],
+      companion := [.test "test/LibEvCeilEns.lean" "refuted"],
+      note := "refuted, no reading note: a definedness lemma of K's builtin files over set variables, which contradicts the hooks' graphs at a set of two values (for every H, setVarLemma_everyH; ens's 126, ceil126_at) and holds at sets of at most one value; a known case of trusted base (4), recorded, not a failing tie" }),
+   ("function law",
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.Fam.fnLaws_everyH, .test "test/TieE2FnAssoc.lean" "law_account"],
+      note := "hypothesis, no reading note: a law sentence of a function is read as a law of the function at values and owed as FnLaws, which stands for the note; for every H meeting it, the value model satisfies Γc, the step's closure and each law's sentence (fnLaws_everyH). On e2-fn-assoc's account (law_account)" }),
+   ("open generator functional",
+    { status := .guarded,
+      guard := [.decl ``KCore.open_undetermined, .test "test/TieC3CtorAssoc.lean" "open_functional_not_item"],
+      note := "hypothesis, no reading note: the functional sentence of an open generator is owed as OpenTotal, which stands for the note: its value is the interpretation's, and over all H Γ entails neither ⊥ nor a value at an open generator's application (open_undetermined). On c3-ctor-assoc's account (open_functional_not_item)" }),
+   ("parameter functional",
+    { status := .guarded,
+      guard := [.decl ``KCore.fnHyp_withHooks, .decl ``KCore.ParamSchema.param_undetermined,
+        .test "test/TieC3HookOnlyParamTotal.lean" "paramfunctional_account"],
+      note := "hypothesis, no reading note: the functional sentence of a parameter the text declares total is read as that declaration and owed as ParamsTotal, which stands for the note: under ParamsTotal at H, FnHyp holds at c.withHooks H (fnHyp_withHooks); over all H Γ entails neither ⊥ nor a value at the parameter (param_undetermined). On c3-hook-only-param-total's account (paramfunctional_account)" }),
+   ("parameter lemma",
+    { status := .guarded,
+      guard := [.decl ``KCore.ParamSchema.param_undetermined, .decl ``KCore.Guards.rest_undetermined,
+        .test "test/TieE6ParamInt.lean" "paramlemma_account"],
+      note := "hypothesis: InertReason.simplification (the reading table's entry): a lemma whose truth at values reads a value the interpretation gives (a parameter's, a function's rest, a hook's open point), owed as a hypothesis on H at values; over all H Γ determines none of those values (param_undetermined, rest_undetermined). On e6-param-int's account (paramlemma_account)" }),
+   ("user lemma at values",
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.Fam.library_everyH, .decl ``KCore.Guards.ProjK.inverse_holds],
+      note := "at values: InertReason.simplification (the reading table's entry): a user's lemma that rests on an interpreted symbol's graph, shown at values as a library equation is (library_everyH). No account of a tie file lists a sentence of the class" }),
+   ("no direction",
+    { status := .readerTest,
+      guard := [.test "test/TieBase.lean" "absent_closed", .test "test/TieEns.lean" "absent_proj_below"],
+      note := "a sentence that applies a symbol Γ does not have: the reading leaves it out (UnreadReason's reasons where one applies, or the class itself), and the account decides that the class holds exactly the sentences applying a head Γ lacks (account_absent, absent_closed); no value of Γ is at stake" })]
+
+/-- The classes of `tieClassesOvl` whose direction is neither `entailed` nor `equal`. -/
+def nonDefaultClasses : List String :=
+  (tieClassesOvl.filter fun p => !(p.2 == .entailed || p.2 == .equal)).map (·.1)
+
+/-- The class table has one row per non-default class, in `tieClassesOvl`'s order: a class added
+to `tieClassesOvl` with another direction, or a row for a default class, fails this file. -/
+theorem tieClassRows_exhaustive : tieClassRows.map (·.1) = nonDefaultClasses := by decide
 -- table:end
 
 def readingNotes : List ReadingNote :=
@@ -4116,14 +4799,20 @@ def unnoted : List (String × ReadingNote) :=
    ("the priority form of a function's equations", .equationPriority),
    ("[owise] as priority 200", .owiseAsPriority)]
 
-example : readingNotes.Nodup ∧ inertReasons.Nodup ∧ unreadReasons.Nodup := by decide
+open KCore.Guards.Fam in
+def gammaFamilies : List GammaFamily :=
+  [.sigEncoding, .sigOwn, .sigRegistry, .sigNext, .sigDv, .consItems, .domHookGraph, .domParamGraph,
+   .domValElem, .domDistinctLit, .domDistinctLib, .domCollNoJunk, .collAxioms, .fallbackSilent,
+   .fallbackRest, .fnEquations, .ruleAxioms, .boolClosed, .stepClosure]
+
+example : readingNotes.Nodup ∧ inertReasons.Nodup ∧ unreadReasons.Nodup ∧ gammaFamilies.Nodup := by decide
 
 -- The three lists hold every constructor (with `Nodup`, each once), so the printed table is the
 -- whole of each `match`.
 run_cmd do
   let env ← getEnv
   for (ind, n) in [(``ReadingNote, readingNotes.length), (``InertReason, inertReasons.length),
-      (``UnreadReason, unreadReasons.length)] do
+      (``UnreadReason, unreadReasons.length), (``KCore.Guards.Fam.GammaFamily, gammaFamilies.length)] do
     let some (.inductInfo i) := env.find? ind | throwError "guards: no inductive {ind}"
     unless i.ctors.length == n do
       throwError "guards: {ind} has {i.ctors.length} constructors, its list {n}"
@@ -4146,10 +4835,19 @@ run_cmd do
     readingNotes.map (fun r => (reprStr r, readingNote r)) ++
     inertReasons.map (fun r => (reprStr r, inertReason r)) ++
     unreadReasons.map (fun r => (reprStr r, unreadReason r))
-  for (ctor, e) in entries do
+  let more : List (String × GuardEntry) :=
+    gammaFamilies.map (fun f => (reprStr f, gammaFamily f)) ++ tieClassRows
+  for (ctor, e) in entries ++ more do
     if let .guarded := e.status then
       unless e.guard.any (fun | .decl n => everyH n | .test _ _ => false) do
         throwError "guards: {ctor} is marked guarded, but no guard of it is a declaration stated about c.withHooks H for every H : HookParams"
+  -- the families table and the class table have no pending entry, and a stated piece names the
+  -- theorems that say the translation holds it
+  for (ctor, e) in more do
+    if let .pending _ := e.status then
+      throwError "guards: {ctor} is pending; the families and class tables admit no pending entry"
+    if let .stated := e.status then
+      if e.guard.isEmpty then throwError "guards: {ctor} is stated with no pointer"
 
 /-- REVIEW-RN section 3's minimum (DONE-0 C6, "Minimum content"), each with its guards: declarations
 of this file stated about `c.withHooks H` for every `H : HookParams` (the `run_cmd` below checks each
@@ -4182,5 +4880,12 @@ run_cmd do
   for r in inertReasons do IO.println ((inertReason r).line (short (reprStr r)))
   for r in unreadReasons do IO.println ((unreadReason r).line (short (reprStr r)))
   for (w, r) in unnoted do IO.println s!"GUARD-UNNOTED|{w}|{short (reprStr r)}"
+  for f in gammaFamilies do
+    IO.println ((gammaFamily f).lineAs "GUARD-FAMILY" ((reprStr f).splitOn "GammaFamily.").getLast!)
+  for (n, e) in tieClassRows do
+    let dir := match tieClassesOvl.find? (·.1 == n) with
+      | some (_, d) => (reprStr d).replace "KCore.TieDir." ""
+      | none => "?"
+    IO.println (e.lineAs "GUARD-CLASS" s!"{n} ({dir})")
 
 end KCore.Guards.Table
