@@ -33,12 +33,12 @@ Nested entries by status:
 | E2 | 67 | 12 | 0 | 2 | 0 | 53 | 0 | 0 |
 | E3 | 92 | 65 | 0 | 2 | 0 | 25 | 0 | 0 |
 | E4 | 57 | 20 | 0 | 4 | 0 | 33 | 0 | 0 |
-| E5 | 70 | 37 | 1 | 2 | 0 | 30 | 0 | 0 |
+| E5 | 74 | 41 | 1 | 2 | 0 | 30 | 0 | 0 |
 | E6 | 35 | 9 | 2 | 0 | 0 | 24 | 0 | 0 |
 | E7 | 9 | 4 | 1 | 0 | 0 | 4 | 0 | 0 |
 | E8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 37 | 17 | 0 | 2 | 1 | 17 | 0 | 0 |
-| all | 375 | 167 | 4 | 12 | 1 | 191 | 0 | 0 |
+| all | 379 | 171 | 4 | 12 | 1 | 191 | 0 | 0 |
 
 Refused rows by class:
 
@@ -70,7 +70,7 @@ Refused nested entries by class:
 | C3 | 17 | 8 | 4 | 0 | 5 |
 | all | 191 | 61 | 19 | 7 | 104 |
 
-Supported entries (rows and nested): 1007; 18 of them have an owed fact and are counted by their best fixture: **15 proved** (the owed fact proved on a fixture the entry names: these count as supported under the headline statements), 0 open and 3 false (counted apart: the headline statements' hypothesis is not shown on their fixtures). The other 989 have no owed fact.
+Supported entries (rows and nested): 1011; 18 of them have an owed fact and are counted by their best fixture: **15 proved** (the owed fact proved on a fixture the entry names: these count as supported under the headline statements), 0 open and 3 false (counted apart: the headline statements' hypothesis is not shown on their fixtures). The other 993 have no owed fact.
 
 E6 library rows by their `e6_tie` (test/constructs/e6map.py; rows-header.toml): 480, of which 406 tied, 12 of no direction (the tie's no-direction class, owed-sentence rule item 7: never tied, counted apart), 46 of a text without a model (counted apart), 16 refuted and 0 uncovered.
 
@@ -1097,6 +1097,10 @@ The `cell` entries of `core-manifest.toml`: a row and a column of the release sc
 | cases[2]: B18 subsort of a cell sort into a user sort | supported |  | a cell sort is a sort of the definition and scanEvent reads any subsort attribute pair that is not a cell-collection pair |  |  | e5-cellsub |  |  | fixtures/e5-cellsub (f2-examples/cellsub.k: syntax Pgm ::= KCell): account.txt \`parse: ok; wf true; failing: []\`, \`coreOK: true; failing: []\`, \`refused by the account: 0\` |
 | cases[3]: B20 functional axiom of a sort-parametric symbol | inert |  | Stated per instance at values: for every semantics with coreOK and shapesOK, every H and every sort at which the definition has ite implemented by kIte, the sentence at that sort holds at values (inertIteFunctional\_everyH); on f2-examples/lazy.kore, sentence 39 at SortInt{} (ax39\_text, ax39\_class, i… |  |  |  |  |  | fixtures/hw-base/account.txt \`1 inert parametricFunctional [generated]\` (the functional axiom of ite) |
 | cases[4]: B21 functional axiom of a function not read total | supported |  | The sentence \\exists V. V = f(x1, ..., xn) [functional], the xi distinct variables, states that f has one value at every argument list, which is what Fn.total reads; an attribute of f's declaration states nothing in the text's theory. A function with an equation is read total from its declaration's… |  |  | hw-fn-functional-nontotal |  |  | fixtures/hw-fn-functional-nontotal/account.txt (f2-examples/kresfn.kompile.kore with the functional axiom of f, declared [function] and not total, added as sentence 230): \`read and not accounted for: 0\`, \`parse: ok; wf true; failing: []\`, \`coreOK: true; failing: []\`, \`refused by the account: 0\` |
+| cases[5]: B21 functional axiom of a function without an equation, declared without total | supported |  | g is declared [function] with no equation and neither total nor functional, and the text holds g's functional axiom. Without the axiom such a symbol is a parameter of the reading (the text gives it no meaning); with it, it is read as a symbol declared total is: a function without clauses, total (env… |  |  | hw-fn-functional-noeq |  |  | fixtures/hw-fn-functional-noeq/account.txt (hw-fn-functional-nontotal's text with the declaration of g and g's functional axiom added by hand): \`read and not accounted for: 0\`, \`parse: ok; wf true; failing: []\`, \`coreOK: true; failing: []\`, \`refused by the account: 0\`, \`functions declared [total] wh… |
+| cases[6]: B21 functional axiom of a generated initializer a rule applies, declared without total | supported |  | initGeneratedCounterCell is declared [function] without total or functional, a rule's right side applies it, and the text holds its functional axiom (which kompile writes). The reading numbers a generated function from its use and reads its totality by the same test as any declaration's (envOf's isT… |  |  | hw-fn-functional-init |  |  | fixtures/hw-fn-functional-init/account.txt (hw-fn-functional-nontotal's text with the initializer's declaration without \`functional{}(), total{}()\` and the rule go's right side applying it, by hand): \`read and not accounted for: 0\`, \`parse: ok; wf true; failing: []\`, \`coreOK: true; failing: []\`, \`re… |
+| cases[7]: B21 functional axiom of a sort predicate read from its equations, declared without total | supported |  | isFoo is declared [function] without total or functional, its equations are not a sort predicate's (the generated equation at inj{Foo,KItem} is removed; the user's isFoo(pair(\_, \_)) = true and the [owise] one remain), and the text holds isFoo's functional axiom (which kompile writes). The reading ta… |  |  | hw-fn-functional-pred |  |  | fixtures/hw-fn-functional-pred/account.txt (rdr-pred-rule's kompiled text with isFoo's declaration without \`functional{}(), total{}()\` and the generated equation isFoo(inj{Foo,KItem}(Foo)) = true removed, by hand): \`read and not accounted for: 0\`, \`parse: ok; wf true; failing: []\`, \`coreOK: true; fa… |
+| cases[8]: B21 functional axiom of the definition's own hooked symbol, declared without total | supported |  | lg is the definition's own hooked symbol (hook INT.rand on a user declaration), declared [function] without total or functional and without an equation, and the text holds lg's functional axiom (which kompile writes for the symbol declared total). The reading has lg as a parameter (userParams), whos… |  |  | hw-fn-functional-hooked |  |  | fixtures/hw-fn-functional-hooked/account.txt (c3-hook-only-param-total's kompiled text with \`functional{}()\` and \`total{}()\` removed from lg's declaration, by hand): \`read and not accounted for: 0\`, \`parse: ok; wf true; failing: []\`, \`coreOK: true; failing: []\`, \`refused by the account: 0\` |
 
 ## E6 builtin library (826 rows)
 

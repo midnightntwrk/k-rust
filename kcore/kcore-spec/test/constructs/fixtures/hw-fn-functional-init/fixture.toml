@@ -1,0 +1,16 @@
+# Hand-written KORE: fixtures/hw-fn-functional-nontotal's text (K 7.1.337's kompile of f2-examples/kresfn.k with the
+# functional axiom of f added) changed by hand in two places: the declaration of the generated initializer
+# initGeneratedCounterCell is without `functional{}(), total{}()`,
+# symbol LblinitGeneratedCounterCell{}() : SortGeneratedCounterCell{} [function{}()],
+# and the right side of the rule `go` applies it in place of the frame variable,
+# Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(Lblf{}(VarN:SortInt{})),LblinitGeneratedCounterCell{}()).
+# The functional axiom of the initializer, which kompile writes, is kept:
+# axiom{R} \exists{R} (Val:SortGeneratedCounterCell{}, \equals{SortGeneratedCounterCell{}, R} (Val:SortGeneratedCounterCell{}, LblinitGeneratedCounterCell{}())) [functional{}()].
+# kompile declares every symbol it writes that axiom for total, so no kompiled text holds the axiom of an initializer
+# declared without the attribute. The sentence states that the initializer has one value; the declaration's attribute
+# is no sentence. The text with the two attributes restored on the declaration (its attributed twin) has the same
+# sentences. A rule applies the initializer, so the reading has it as a function (a generated function numbered from
+# its use).
+# Expected: the account refuses nothing, accounts the axiom as the initializer's functional sentence, and is the
+# twin's account.
+kore = "test/constructs/fixtures/hw-fn-functional-init/hw-fn-functional-init.kore"

@@ -415,8 +415,8 @@ note = "the reader refuses it (rows.toml E4 tree:Pattern.rightAssoc is refused),
 #            of KK.encodable (a fixture's or ref-kimp's text), the table's Bool, or the first
 #            uncovered hook row's; refused_on, the text or table entry; first_uncovered, the hook
 #            row a module row is refused by.
-# Entries: 1113; covered 428; refused 685 (paramsOK 403, appsOK 160, shapesOK 66, litsOK 48, ovlsOK 8).
-# By evidence: fixture 892, hook table 139, kimp 50, module hooks 19, sort table 13.
+# Entries: 1117; covered 431; refused 686 (paramsOK 404, appsOK 160, shapesOK 66, litsOK 48, ovlsOK 8).
+# By evidence: fixture 896, hook table 139, kimp 50, module hooks 19, sort table 13.
 # No evidence text, no verdict (a fixture is owed; check fails on them, check --report lists them): 0.
 
 [rows.E1."Require:kw:requires"]
@@ -2589,6 +2589,27 @@ case = "e5-cellsub"
 verdict = "covered"
 by = "fixture"
 case = "hw-fn-functional-nontotal"
+
+[rows.E5."functionalPattern:axiom#1#cases[5]"]
+verdict = "covered"
+by = "fixture"
+case = "hw-fn-functional-noeq"
+
+[rows.E5."functionalPattern:axiom#1#cases[6]"]
+verdict = "covered"
+by = "fixture"
+case = "hw-fn-functional-init"
+
+[rows.E5."functionalPattern:axiom#1#cases[7]"]
+verdict = "covered"
+by = "fixture"
+case = "hw-fn-functional-pred"
+
+[rows.E5."functionalPattern:axiom#1#cases[8]"]
+verdict = "refused"
+by = "fixture"
+bool = "paramsOK"
+refused_on = "hw-fn-functional-hooked"
 
 [rows.E6."module:ARRAY-SYNTAX"]
 verdict = "refused"
