@@ -15,6 +15,8 @@ use kink_patch::{
     generate_grammar, grammar_variants,
 };
 use serde_json::Value;
+use std::collections::BTreeSet;
+use std::path::Path;
 
 const SYNTAX: &str = "GRAMMAR-SYNTAX";
 
@@ -242,11 +244,17 @@ fn the_default_set_is_the_widening_forms_and_token_level_narrowing() {
         names(&GrammarForm::DEFAULT),
         [
             "alternative-without-terminal",
-            "merge-alternative",
             "loosen-regex",
             "narrow-regex",
             "drop-anchor"
         ]
+    );
+    // No form inserts a production's copy at another sort (PJ-35): `merge-alternative` is gone.
+    assert_eq!(GrammarForm::ALL.len(), 11);
+    assert!(
+        GrammarForm::ALL
+            .iter()
+            .all(|form| form.name() != "merge-alternative")
     );
     let off = GrammarForm::ALL
         .into_iter()
@@ -298,15 +306,23 @@ fn the_default_set_is_the_widening_forms_and_token_level_narrowing() {
     }
 }
 
-/// Every candidate of the default set, supplied again as one patch (as kink-flow judges a
-/// generated grammar row, U34h), is one admitted mutant with that patch: an insertion anchored
-/// after its production (`alternative-without-terminal`, `merge-alternative`) is authorized by
-/// its anchor, which `supplied_grammar` makes a site.
+/// Every candidate of every form, supplied again as one patch (as kink-flow judges a
+/// generated grammar row, U34h), is one admitted mutant with that patch: the insertions anchored
+/// after their production (`alternative-without-terminal`'s macro copy and its rule) are
+/// authorized by their anchor, which `supplied_grammar` makes a site.
 #[test]
 fn each_default_candidate_is_admitted_again_as_a_supplied_patch() {
     let baseline = baseline();
-    let generations =
-        generate_default_grammar(&baseline, &[], SYNTAX, usize::MAX).expect("generations");
+    // Every form, since a list may name any (PJ-35), not only the default ones.
+    let generations = GrammarForm::ALL
+        .into_iter()
+        .map(|form| {
+            (
+                form,
+                generate_grammar(&baseline, form, &[], SYNTAX, usize::MAX).expect("generation"),
+            )
+        })
+        .collect::<Vec<_>>();
     let mut inserted = 0;
     for (form, generation) in &generations {
         for candidate in generation.candidates() {
@@ -567,10 +583,8 @@ fn the_program_parser_gate_refuses_what_k_rust_builds_no_parser_for() {
 /// imports INT (whose hooked and `concrete` equations make an edit of unknown effect
 /// unsupported): every generated priority, associativity, lexical, regex and literal edit. A
 /// deleted production, which changes its sort's values, still withdraws every claim and is
-/// refused. An inserted one adds values to its sort and to the sorts that hold them, which only
-/// the symbols taking a value of one see (U34f): grammar.k has no claim of its own, and the
-/// prelude's rest on the parametric premise (kink `trust.md`), so the two insertion forms are
-/// trusted and withdraw nothing.
+/// refused. An inserted macro copy with its rule (`alternative-without-terminal`, PJ-35) redefines
+/// only its fresh label, which no claim names, so it is trusted and withdraws nothing.
 #[test]
 fn a_parse_only_edit_leaves_every_claim() {
     let baseline = baseline();
@@ -600,21 +614,177 @@ fn a_parse_only_edit_leaves_every_claim() {
         .withdraw(&baseline, &one(Edit::DeleteSentence { at }))
         .expect("applies");
     assert!(!withdrawal.trusted());
-    for form in [
-        GrammarForm::AlternativeWithoutTerminal,
-        GrammarForm::MergeAlternative,
-    ] {
-        let variants = grammar_variants(&baseline, form, &[]);
-        assert!(!variants.is_empty(), "{}", form.name());
-        for (at, patch) in variants {
-            let withdrawal = support.withdraw(&baseline, &patch).expect("applies");
-            assert!(
-                withdrawal.trusted() && withdrawal.withdrawn.is_empty(),
-                "{} {at:?}: {withdrawal:?}",
-                form.name()
-            );
-        }
+    let variants = grammar_variants(&baseline, GrammarForm::AlternativeWithoutTerminal, &[]);
+    assert_ne!(variants.len(), 0);
+    for (at, patch) in variants {
+        let withdrawal = support.withdraw(&baseline, &patch).expect("applies");
+        assert!(
+            withdrawal.trusted() && withdrawal.withdrawn.is_empty(),
+            "{at:?}: {withdrawal:?}"
+        );
+        let effect = support.effect(&baseline, &patch).expect("applies");
+        let [Edit::InsertSentence { sentence, .. }, _] = patch.edits() else {
+            panic!("a copy and its rule: {patch:?}");
+        };
+        let Sentence::Production {
+            label: Some(label), ..
+        } = sentence
+        else {
+            panic!("a labelled copy: {sentence:?}");
+        };
+        assert_eq!(
+            effect.redefined,
+            Some(BTreeSet::from([label.name.clone()])),
+            "{at:?}"
+        );
     }
+}
+
+/// grammar.k with `print`'s copy without its `;` written by hand as the macro
+/// `alternative-without-terminal` inserts, under the label kink-patch gives it.
+fn hand_written_macro() -> Baseline {
+    let text = std::fs::read_to_string(Path::new(support::DIR).join("grammar.k"))
+        .expect("grammar.k")
+        .replace(
+            "  syntax Stmt ::= \"print\" Exp \";\" [symbol(print)]\n",
+            "  syntax Stmt ::= \"print\" Exp \";\" [symbol(print)]\n                \
+             | \"print\" Exp [macro, symbol(print-kink-without-2)]\n",
+        )
+        .replace(
+            "  syntax Note\n",
+            "  syntax Note\n  rule print X0:Exp => print X0:Exp ;\n",
+        );
+    let dir = std::env::temp_dir().join(format!("kink-patch-grammar-macro-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let path = dir.join("grammar.k");
+    std::fs::write(&path, text).expect("written");
+    let baseline = support::load_path(&path, "GRAMMAR");
+    std::fs::remove_dir_all(&dir).ok();
+    baseline
+}
+
+/// `alternative-without-terminal` (PJ-35) inserts, after the production, its copy without the
+/// literal as a macro under a fresh label, and the macro rule rewriting the copy's application to
+/// the production's with the same arguments: the very sentences k-rust's loader reads from that
+/// copy and rule written by hand (`| "print" Exp [macro]` and `rule print X0:Exp => print X0:Exp
+/// ;`), up to positions and the hand-written `symbol`.
+#[test]
+fn an_alternative_without_a_literal_is_a_macro_of_its_production() {
+    use kink_patch::SentenceFingerprint;
+    let baseline = baseline();
+    let print = [GrammarSelector::Label("print".to_owned())];
+    let (site, patch) =
+        grammar_variants(&baseline, GrammarForm::AlternativeWithoutTerminal, &print)
+            .into_iter()
+            .find(|(site, _)| site.path.0 == [2])
+            .expect("print without its `;`");
+    let [
+        Edit::InsertSentence {
+            position: first,
+            ordinal: 0,
+            sentence: copy,
+        },
+        Edit::InsertSentence {
+            position: second,
+            ordinal: 1,
+            sentence: rule,
+        },
+    ] = patch.edits()
+    else {
+        panic!("two insertions: {patch:?}");
+    };
+    assert_eq!(first, second);
+    assert_eq!(
+        *first,
+        kink_patch::InsertPosition::After(site.sentence.clone())
+    );
+    let written = hand_written_macro();
+    let (_, mut loaded_copy) = find(&written, |sentence| {
+        matches!(sentence, Sentence::Production { label: Some(l), .. }
+            if l.name == "print-kink-without-2")
+    });
+    loaded_copy.attributes_mut().unset(AttributeKey::Symbol);
+    let (_, loaded_rule) = find(&written, |sentence| {
+        matches!(sentence, Sentence::Rule { .. })
+            && format!("{sentence:?}").contains("print-kink-without-2")
+    });
+    let fingerprint = |sentence: &Sentence| SentenceFingerprint::of(sentence).expect("fingerprint");
+    assert_eq!(
+        fingerprint(copy),
+        fingerprint(&loaded_copy),
+        "{copy:#?}\n{loaded_copy:#?}"
+    );
+    assert_eq!(
+        fingerprint(rule),
+        fingerprint(&loaded_rule),
+        "{rule:#?}\n{loaded_rule:#?}"
+    );
+    assert!(copy.attributes().has(AttributeKey::Macro));
+    let mutant = apply(&baseline, &patch).expect("applies");
+    mutant.program_parser(SYNTAX).expect("a program parser");
+}
+
+/// Claim removal reads an inserted macro by its shape (PJ-35): a fresh label with `macro`,
+/// beside the one rule that expands every application of it, redefines that label only; a macro
+/// with a `function` kind, one with no rule, and one whose rule's left side does not cover every
+/// application count every symbol as redefined (fail closed), and a `simplification` lemma headed
+/// by the macro is no macro rule but the patch's own claim, which refuses the mutant.
+#[test]
+fn an_inserted_macro_redefines_its_label_only_and_other_shapes_fail_closed() {
+    let baseline = baseline();
+    let support = ClaimSupport::new(&baseline);
+    let (_, patch) = grammar_variants(
+        &baseline,
+        GrammarForm::AlternativeWithoutTerminal,
+        &[GrammarSelector::Label("print".to_owned())],
+    )
+    .into_iter()
+    .next()
+    .expect("a copy");
+    let edited = |change: &dyn Fn(&mut Vec<Edit>)| {
+        let mut edits = patch.edits().to_vec();
+        change(&mut edits);
+        Patch::new(edits).expect("patch")
+    };
+    let redefined = |patch: &Patch| support.effect(&baseline, patch).expect("applies").redefined;
+    assert_eq!(redefined(&patch).map(|set| set.len()), Some(1));
+    // The copy as a function macro: not a fresh macro.
+    let function = edited(&|edits| {
+        if let Edit::InsertSentence { sentence, .. } = &mut edits[0] {
+            sentence.attributes_mut().mark(AttributeKey::Function);
+        }
+    });
+    assert_eq!(redefined(&function), None);
+    // The copy without its rule: an application no rule expands is a value of its sort, so the
+    // macro is no fresh macro, and as no fresh constructor either it counts every symbol.
+    let alone = edited(&|edits| {
+        edits.pop();
+    });
+    assert_eq!(redefined(&alone), None);
+    // A rule whose left side does not cover every application: one variable twice.
+    let repeated = edited(&|edits| {
+        if let Edit::InsertSentence {
+            sentence: Sentence::Rule { body, .. },
+            ..
+        } = &mut edits[1]
+            && let k_rust::kast::Term::Rewrite { left, .. } = body
+            && let k_rust::kast::Term::Apply { arguments, .. } = left.as_mut()
+        {
+            arguments.push(arguments[0].clone());
+        }
+    });
+    assert_eq!(redefined(&repeated), None);
+    // The rule as a `simplification` lemma: no macro rule; the macro alone is still read, and
+    // the lemma is the patch's own claim.
+    let lemma = edited(&|edits| {
+        if let Edit::InsertSentence { sentence, .. } = &mut edits[1] {
+            sentence
+                .attributes_mut()
+                .insert("simplification", Value::String(String::new()));
+        }
+    });
+    let withdrawal = support.withdraw(&baseline, &lemma).expect("applies");
+    assert!(!withdrawal.trusted(), "{withdrawal:?}");
 }
 
 /// Every production identity a term of `definition` carries in its metadata.
@@ -672,7 +842,8 @@ fn a_production_a_rule_applies_is_not_deleted() {
     );
 }
 
-/// The source reading of an inserted alternative over grammar.k (FX2, U34h Q1): the affected
+/// The source reading of an inserted fresh constructor over grammar.k (FX2, U34h Q1; the copy
+/// `alternative-without-terminal` inserts, without its `macro` and its rule): the affected
 /// labels include `initStdinCell` and `initStdoutCell`, whose equations reach the redefined
 /// `#unboxKConfigValue`, and which only the prelude's `STDIN-STREAM` and `STDOUT-STREAM` declare;
 /// GRAMMAR does not import them, so they are `unimported` (kink-native leaves such a label out of
@@ -682,10 +853,24 @@ fn a_production_a_rule_applies_is_not_deleted() {
 fn an_inserted_alternatives_affected_labels_outside_the_main_module_are_unimported() {
     let baseline = baseline();
     let support = ClaimSupport::new(&baseline);
-    let (_, patch) = grammar_variants(&baseline, GrammarForm::AlternativeWithoutTerminal, &[])
-        .into_iter()
-        .next()
-        .expect("an alternative");
+    let (_, alternative) =
+        grammar_variants(&baseline, GrammarForm::AlternativeWithoutTerminal, &[])
+            .into_iter()
+            .next()
+            .expect("an alternative");
+    let Some(Edit::InsertSentence {
+        position, sentence, ..
+    }) = alternative.edits().first()
+    else {
+        panic!("an insertion: {alternative:?}");
+    };
+    let mut constructor = sentence.clone();
+    constructor.attributes_mut().unset(AttributeKey::Macro);
+    let patch = one(Edit::InsertSentence {
+        position: position.clone(),
+        ordinal: 0,
+        sentence: constructor,
+    });
     let effect = support.effect(&baseline, &patch).expect("applies");
     let affected = effect.affected.expect("known symbol by symbol");
     let unimported = ["initStdinCell", "initStdoutCell"].map(str::to_owned);

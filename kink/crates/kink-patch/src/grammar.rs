@@ -43,6 +43,7 @@ use k_rust::definition::{
     parse_regex, production_identity,
 };
 use k_rust::kast::{Label, ProductionIdentity, Sort, Term};
+use k_rust::names::BuiltinSort;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// How a grammar form edits its site.
@@ -57,13 +58,13 @@ pub enum GrammarForm {
     /// authored grammar production of the same sort, in text order.
     ChangeTerminal,
     /// An alternative is added: a copy of the production with one terminal removed, inserted
-    /// after it under a fresh label, so that the text without that literal also parses (to a
-    /// new constructor).
+    /// after it as a macro of the production (a fresh label with `macro`, and one rule rewriting
+    /// the copy's application to the production's with the same arguments), so that the text
+    /// without that literal also parses, to the production's own construct once macros are
+    /// expanded. Not generated at a production with a sort parameter (its macro rule would need
+    /// the parametric instance of each application), or where the copy would be left with one
+    /// nonterminal alone.
     AlternativeWithoutTerminal,
-    /// Alternatives are merged: a copy of the production is inserted at another sort that an
-    /// authored grammar production of its module has, under a fresh label, so that the
-    /// production's text also parses where that sort is expected.
-    MergeAlternative,
     /// The production is deleted. Not generated where a term of the definition applies it (a
     /// rule built with it): the mutant would keep an application of a production it does not
     /// declare, which compilation refuses, so it is no grammar mutant.
@@ -91,11 +92,16 @@ pub enum GrammarForm {
 
 impl GrammarForm {
     /// Every form, in declaration order.
-    pub const ALL: [Self; 12] = [
+    ///
+    /// No form inserts a production's copy at another sort (PJ-35): its text would parse to a
+    /// fresh constructor no rule reads, which every later layer rejects (the specification at
+    /// the language level, README.md D2), and no macro can give it an existing meaning, since a
+    /// term of the other sort that is the production's application exists only where the
+    /// production's sort is below it, and there the text already parses through the subsort.
+    pub const ALL: [Self; 11] = [
         Self::DropTerminal,
         Self::ChangeTerminal,
         Self::AlternativeWithoutTerminal,
-        Self::MergeAlternative,
         Self::DeleteProduction,
         Self::LoosenRegex,
         Self::NarrowRegex,
@@ -114,9 +120,8 @@ impl GrammarForm {
     /// kills production-level narrowing (the ticket's judgement), and so is a disambiguation
     /// edit, whose witnesses include valid cases ([`GrammarEffect`]). An off form is generated
     /// by name with [`generate_grammar`].
-    pub const DEFAULT: [Self; 5] = [
+    pub const DEFAULT: [Self; 4] = [
         Self::AlternativeWithoutTerminal,
-        Self::MergeAlternative,
         Self::LoosenRegex,
         Self::NarrowRegex,
         Self::DropAnchor,
@@ -126,10 +131,9 @@ impl GrammarForm {
     #[must_use]
     pub const fn effect(self) -> GrammarEffect {
         match self {
-            Self::AlternativeWithoutTerminal
-            | Self::MergeAlternative
-            | Self::LoosenRegex
-            | Self::DropAnchor => GrammarEffect::Widening,
+            Self::AlternativeWithoutTerminal | Self::LoosenRegex | Self::DropAnchor => {
+                GrammarEffect::Widening
+            }
             Self::NarrowRegex => GrammarEffect::TokenNarrowing,
             Self::DeleteProduction => GrammarEffect::ProductionNarrowing,
             Self::DropTerminal | Self::ChangeTerminal => GrammarEffect::LiteralMove,
@@ -147,7 +151,6 @@ impl GrammarForm {
             Self::DropTerminal => "drop-terminal",
             Self::ChangeTerminal => "change-terminal",
             Self::AlternativeWithoutTerminal => "alternative-without-terminal",
-            Self::MergeAlternative => "merge-alternative",
             Self::DeleteProduction => "delete-production",
             Self::LoosenRegex => "loosen-regex",
             Self::NarrowRegex => "narrow-regex",
@@ -167,8 +170,8 @@ impl GrammarForm {
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum GrammarEffect {
     /// The site accepts every text it accepted, with its parse tree, and more: an alternative
-    /// added (a copy of a production inserted beside it, without a literal or at another sort)
-    /// or a token loosened (each variant's regex matches a superset of the original's, an
+    /// added (a copy of a production without a literal, inserted beside it as its macro) or a
+    /// token loosened (each variant's regex matches a superset of the original's, an
     /// anchor dropped among them). A text only the mutant accepts is told apart by a case the
     /// specification rejects, which no coverage forces. Default.
     Widening,
@@ -184,9 +187,8 @@ pub enum GrammarEffect {
     /// A production's literal is changed or dropped: the same constructor gets another text.
     /// Its old text is gone, a production-level narrowing that a case writing the production
     /// tells apart before its new text is judged (as for [`Self::ProductionNarrowing`]); its new
-    /// text parses. A dropped
-    /// literal's new text is the one [`GrammarForm::AlternativeWithoutTerminal`] adds without
-    /// removing the old (as a fresh constructor). Off.
+    /// text parses. A dropped literal's new text is the one
+    /// [`GrammarForm::AlternativeWithoutTerminal`] adds without removing the old. Off.
     LiteralMove,
     /// A priority or associativity declaration is edited: no site's text changes, the filter on
     /// parse trees does. A text the specification filters out can then parse, and a text it
@@ -310,8 +312,8 @@ pub fn generate_default_grammar<'b>(
 /// resolved into `patch`): one origin, admitted as [`generate_grammar`] admits a generated one,
 /// when its mutant gives a program parser for `syntax_module`. The origin's sites are the
 /// sentences the patch replaces or deletes, each sentence an insertion is anchored before or
-/// after (the inserted alternative of [`GrammarForm::AlternativeWithoutTerminal`] or
-/// [`GrammarForm::MergeAlternative`], which kink-flow judges as a supplied patch), and, for an
+/// after (the macro copy and its rule of [`GrammarForm::AlternativeWithoutTerminal`], which
+/// kink-flow judges as a supplied patch), and, for an
 /// insertion at a module's start or end, the first sentence of that module; their paths are
 /// empty, since no form's variant names them. Complete: the generation is the one patch it was
 /// given.
@@ -395,8 +397,8 @@ const NOT_A_PRODUCTION_SITE: [AttributeKey; 10] = [
 
 /// The attributes an inserted copy keeps: those that only choose among parses. Every other
 /// attribute says something of the symbol (its claims, hook, overload family, unit, function or
-/// macro kind) or names it (`symbol`, `klabel`) or its items by position (`format`), and a fresh
-/// constructor of the site's signature has none of them.
+/// strictness) or names it (`symbol`, `klabel`) or its items by position (`format`): the copy is
+/// a macro of the production, whose application carries all of them once expanded.
 const COPIED_ATTRIBUTES: [AttributeKey; 2] = [AttributeKey::Prefer, AttributeKey::Avoid];
 
 /// A production that the production forms edit: labelled, not a cell, list, bracket or token.
@@ -489,7 +491,6 @@ fn edits_at(
             GrammarForm::DropTerminal
             | GrammarForm::ChangeTerminal
             | GrammarForm::AlternativeWithoutTerminal
-            | GrammarForm::MergeAlternative
             | GrammarForm::DeleteProduction,
             _,
         ) if !production_site(sentence) => Vec::new(),
@@ -525,36 +526,22 @@ fn edits_at(
             GrammarForm::AlternativeWithoutTerminal,
             Sentence::Production {
                 label: Some(label),
-                items,
-                ..
-            },
-        ) => terminals_dropped(items)
-            .into_iter()
-            .map(|(index, items)| {
-                let name = fresh_label(labels, &format!("{}-kink-without-{index}", label.name));
-                let copy = copy_of(sentence, name, None, items);
-                (vec![index], insert_after(at, copy))
-            })
-            .collect(),
-        (
-            GrammarForm::MergeAlternative,
-            Sentence::Production {
-                label: Some(label),
                 parameters,
                 sort,
                 items,
                 ..
             },
-        ) if parameters.is_empty() => module_sorts(baseline, &at.module)
-            .into_iter()
-            .filter(|other| other != sort)
-            .enumerate()
-            .map(|(choice, other)| {
-                let name = fresh_label(labels, &format!("{}-kink-at-{}", label.name, other.name));
-                let copy = copy_of(sentence, name, Some(other), items.clone());
-                (vec![index_u32(choice)], insert_after(at, copy))
-            })
-            .collect(),
+        ) if parameters.is_empty() && label.parameters.is_empty() && sort.parameters.is_empty() => {
+            terminals_dropped(items)
+                .into_iter()
+                .map(|(index, kept)| {
+                    let name = fresh_label(labels, &format!("{}-kink-without-{index}", label.name));
+                    let copy = macro_copy(sentence, name, kept);
+                    let rule = macro_rule(&copy, sentence);
+                    (vec![index], insert_after(at, vec![copy, rule]))
+                })
+                .collect()
+        }
         (GrammarForm::DeleteProduction, _) => {
             vec![(Vec::new(), vec![Edit::DeleteSentence { at: at.clone() }])]
         }
@@ -652,12 +639,17 @@ fn index_u32(index: usize) -> u32 {
     u32::try_from(index).expect("an item index fits u32")
 }
 
-fn insert_after(at: &SentenceRef, sentence: Sentence) -> Vec<Edit> {
-    vec![Edit::InsertSentence {
-        position: InsertPosition::After(at.clone()),
-        ordinal: 0,
-        sentence,
-    }]
+/// `sentences` inserted after `at`, in order.
+fn insert_after(at: &SentenceRef, sentences: Vec<Sentence>) -> Vec<Edit> {
+    sentences
+        .into_iter()
+        .enumerate()
+        .map(|(ordinal, sentence)| Edit::InsertSentence {
+            position: InsertPosition::After(at.clone()),
+            ordinal: index_u32(ordinal),
+            sentence,
+        })
+        .collect()
 }
 
 /// Each terminal's index with the items left when it is removed, where some item is left and
@@ -695,20 +687,6 @@ fn sort_terminals(baseline: &Baseline, at: &SentenceRef, sort: &Sort) -> BTreeSe
         .collect()
 }
 
-/// The result sorts of the authored production sites of `module`.
-fn module_sorts(baseline: &Baseline, module: &str) -> BTreeSet<Sort> {
-    baseline
-        .authored_sentences()
-        .filter(|(at, sentence)| at.module == module && production_site(sentence))
-        .filter_map(|(_, sentence)| match sentence {
-            Sentence::Production {
-                sort, parameters, ..
-            } if parameters.is_empty() => Some(sort.clone()),
-            _ => None,
-        })
-        .collect()
-}
-
 fn with_items(sentence: &Sentence, items: Vec<ProductionItem>) -> Sentence {
     let mut sentence = sentence.clone();
     if let Sentence::Production { items: slot, .. } = &mut sentence {
@@ -728,18 +706,13 @@ fn with_priorities(sentence: &Sentence, priorities: Vec<Vec<String>>) -> Sentenc
     sentence
 }
 
-/// A fresh constructor with `production`'s items replaced by `items`, at `sort` or the
-/// production's own sort, keeping only [`COPIED_ATTRIBUTES`].
-fn copy_of(
-    production: &Sentence,
-    name: String,
-    sort: Option<Sort>,
-    items: Vec<ProductionItem>,
-) -> Sentence {
+/// A macro production under the fresh label `name` with `production`'s sort and `items` in place
+/// of its items, keeping only [`COPIED_ATTRIBUTES`] and gaining `macro`.
+fn macro_copy(production: &Sentence, name: String, items: Vec<ProductionItem>) -> Sentence {
     let Sentence::Production {
         label: Some(label),
         parameters,
-        sort: own,
+        sort,
         attributes,
         ..
     } = production
@@ -752,12 +725,67 @@ fn copy_of(
             copied.set(key, value.clone());
         }
     }
+    copied.mark(AttributeKey::Macro);
     Sentence::Production {
         label: Some(Label::with_parameters(name, label.parameters.clone())),
         parameters: parameters.clone(),
-        sort: sort.unwrap_or_else(|| own.clone()),
+        sort: sort.clone(),
         items,
         attributes: copied,
+    }
+}
+
+/// The macro rule of `copy`, a production with the nonterminals of `original` in their order:
+/// `copy(X0, .., Xn) => original(X0, .., Xn)`, each variable read at its nonterminal's sort, as
+/// k-rust's rule parser reads `X0:S0` (`#SemanticCastToS0(X0)`), with `requires` and `ensures`
+/// `true` and no attribute. The copy is macro-like, so compilation and program assembly rewrite
+/// every application of it to the original's application with the same arguments.
+fn macro_rule(copy: &Sentence, original: &Sentence) -> Sentence {
+    let (
+        Sentence::Production {
+            label: Some(copy), ..
+        },
+        Sentence::Production {
+            label: Some(original),
+            items,
+            ..
+        },
+    ) = (copy, original)
+    else {
+        unreachable!("a production site and its copy are labelled productions");
+    };
+    let arguments = items
+        .iter()
+        .filter_map(|item| match item {
+            ProductionItem::NonTerminal { sort, .. } => Some(sort),
+            _ => None,
+        })
+        .enumerate()
+        .map(|(index, sort)| {
+            Term::apply(
+                format!("#SemanticCastTo{sort}"),
+                vec![Term::variable(format!("X{index}"))],
+            )
+        })
+        .collect::<Vec<_>>();
+    let truth = || Term::Token {
+        token: "true".to_owned(),
+        sort: Sort::builtin(BuiltinSort::Bool),
+    };
+    Sentence::Rule {
+        body: Term::Rewrite {
+            left: Box::new(Term::Apply {
+                label: copy.clone(),
+                arguments: arguments.clone(),
+            }),
+            right: Box::new(Term::Apply {
+                label: original.clone(),
+                arguments,
+            }),
+        },
+        requires: truth(),
+        ensures: truth(),
+        attributes: Attributes::default(),
     }
 }
 

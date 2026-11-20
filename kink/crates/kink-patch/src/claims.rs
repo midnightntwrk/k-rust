@@ -56,8 +56,11 @@
 //! prelude sentences that name only them are left out: they rest on the parametric premise (kink
 //! `trust.md`, provisional), that a prelude equation that names no symbol of the importing
 //! definition stays true for any constructor the definition adds, which kink-patch's
-//! `tests/premise.rs` checks against k-rust's hooks for the equations it decides. Any other
-//! inserted production counts every symbol as redefined. A
+//! `tests/premise.rs` checks against k-rust's hooks for the equations it decides. An inserted
+//! fresh macro (PJ-35, [`fresh_macro`]: a fresh label with `macro`, as kink-patch's
+//! `alternative-without-terminal` inserts with its one rule) redefines only its own label, which
+//! no claim names: its symbol adds no value and no semantic axiom, and its rules are expanded
+//! away. Any other inserted production counts every symbol as redefined. A
 //! claim is *supported* in the mutant when no symbol of its closure is redefined and the patch
 //! left its own sentence alone: then every sentence and claim it rests on is the baseline's,
 //! and it holds in the mutant exactly as in the baseline. An edit of a rewrite rule only
@@ -124,6 +127,9 @@ use std::collections::{BTreeMap, BTreeSet};
 /// labels only modules outside the main module's import closure declare
 /// ([`SourceEffect::unimported`]), which kink-native's admission leaves out of the checked heads
 /// where the compiled definition has no symbol for them; what is withdrawn is unchanged.
+/// Extended again before its release (PJ-35, U35d): an inserted fresh macro ([`fresh_macro`])
+/// and the plain rules headed by it redefine only the macro's label, where every symbol counted
+/// as redefined before.
 pub const CLAIM_REMOVAL_VERSION: &str = "kink-patch/claim-removal/v5";
 
 /// The version of the weakening test ([`ClaimSupport::weakening`]): whether a mutation is
@@ -790,6 +796,29 @@ impl ClaimSupport {
                 _ => return None,
             }
         }
+        // The fresh macros the patch inserts ([`fresh_macro`]) with the one rule that expands
+        // every application of each ([`covering_macro_rule`]): each redefines its own label, and
+        // its rule is its macro rule, an equation of that label.
+        let mut inserted_sentences = Vec::new();
+        for (at, origin) in mutant.origins() {
+            if let SentenceOrigin::Inserted { .. } = origin {
+                inserted_sentences.push(sentence_at(mutant.definition(), at)?);
+            }
+        }
+        let macros = inserted_sentences
+            .iter()
+            .filter_map(|sentence| {
+                let label = fresh_macro(sentence, &self.named)?;
+                let mut rules = inserted_sentences.iter().filter(|rule| {
+                    matches!(rule, Sentence::Rule { body, .. }
+                        if self::head(matched_term(body)) == Some(label))
+                });
+                let rule = rules.next()?;
+                (rules.next().is_none() && covering_macro_rule(rule, sentence))
+                    .then(|| label.to_owned())
+            })
+            .collect::<BTreeSet<_>>();
+        redefined.extend(macros.iter().cloned());
         for (at, origin) in mutant.origins() {
             let edited = match origin {
                 SentenceOrigin::Baseline(original) => {
@@ -800,7 +829,15 @@ impl ClaimSupport {
             if edited {
                 let sentence = sentence_at(mutant.definition(), at)?;
                 match (sentence, origin) {
+                    (Sentence::Rule { .. }, SentenceOrigin::Inserted { .. })
+                        if macro_rule_of(sentence, &macros) => {}
                     (Sentence::Rule { .. }, _) => redefined.extend(head(sentence)?),
+                    (
+                        Sentence::Production {
+                            label: Some(label), ..
+                        },
+                        SentenceOrigin::Inserted { .. },
+                    ) if macros.contains(&label.name) => {}
                     // An inserted production adds values to its sort and to every sort they
                     // reach (PJ-34, U34f): read after the loop ([`Self::growth`]).
                     (Sentence::Production { .. }, SentenceOrigin::Inserted { .. }) => {
@@ -1567,6 +1604,128 @@ fn fresh_constructor<'s>(
     sentence: &'s Sentence,
     named: &BTreeSet<String>,
 ) -> Option<(&'s str, &'s Sort)> {
+    fresh_production(sentence, named, &[])
+}
+
+/// The label of `sentence` when it is a fresh macro (PJ-35, U35d): a production that is a fresh
+/// constructor ([`fresh_constructor`]) but for `macro`, which it carries. It is read as such only
+/// beside the one inserted rule that expands every application of it
+/// ([`covering_macro_rule`]). k-rust declares a macro production's symbol with no `constructor`,
+/// injectivity or no-confusion axiom and leaves it out of its sort's no-junk axiom, and
+/// compilation and program assembly expand every application of it by that rule, emitted as a
+/// macro axiom and never as a semantic one. So no term a run starts from or reaches applies it,
+/// the theory gains one symbol no axiom mentions and no value, and since no baseline sentence
+/// applies the fresh label, no baseline sentence is expanded differently: the macro redefines its
+/// own label and nothing else.
+fn fresh_macro<'s>(sentence: &'s Sentence, named: &BTreeSet<String>) -> Option<&'s str> {
+    if !sentence.attributes().has(AttributeKey::Macro) {
+        return None;
+    }
+    fresh_production(sentence, named, &[AttributeKey::Macro]).map(|(label, _)| label)
+}
+
+/// Whether `sentence` is a plain rule headed by one of the fresh macros `macros`
+/// ([`fresh_macro`]): compilation reads it as a macro rule, since its head is macro-like, and
+/// emits it as a macro axiom. Fail closed on any attribute but a label, `macro` and position
+/// keys (a `simplification` lemma headed by the macro is a semantic axiom).
+fn macro_rule_of(sentence: &Sentence, macros: &BTreeSet<String>) -> bool {
+    let Sentence::Rule {
+        body, attributes, ..
+    } = sentence
+    else {
+        return false;
+    };
+    let allowed = |key: &str| {
+        [AttributeKey::Label, AttributeKey::Macro]
+            .iter()
+            .chain(&POSITION_KEYS)
+            .any(|allowed| allowed.as_str() == key)
+    };
+    head(matched_term(body)).is_some_and(|label| macros.contains(label))
+        && attributes.wire_entries().all(|(key, _)| allowed(key))
+}
+
+/// Whether `rule` expands every application of the macro production `production`: a plain rule
+/// ([`macro_rule_of`]) whose left side is the production's label applied to one distinct
+/// variable per nonterminal, each at that nonterminal's sort (written `X:S`, which the rule
+/// parser reads as `#SemanticCastToS(X)`), with `requires` and `ensures` `true`. Without such a
+/// rule an application could stay unexpanded, and k-rust reads an irreducible application of a
+/// macro production as a value of its sort: the production would add values, which only the
+/// growth reading accounts for.
+fn covering_macro_rule(rule: &Sentence, production: &Sentence) -> bool {
+    let (
+        Sentence::Rule {
+            body,
+            requires,
+            ensures,
+            ..
+        },
+        Sentence::Production {
+            label: Some(label),
+            items,
+            ..
+        },
+    ) = (rule, production)
+    else {
+        return false;
+    };
+    let truth = |term: &Term| {
+        matches!(term.unannotated(), Term::Token { token, sort } if token == "true"
+            && sort.is_builtin(BuiltinSort::Bool))
+    };
+    let Term::Rewrite { left, .. } = unaliased(body) else {
+        return false;
+    };
+    let Term::Apply {
+        label: head,
+        arguments,
+    } = left.unannotated()
+    else {
+        return false;
+    };
+    let sorts = items
+        .iter()
+        .filter_map(|item| match item {
+            ProductionItem::NonTerminal { sort, .. } => Some(sort),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let mut names = BTreeSet::new();
+    let variables = arguments.len() == sorts.len()
+        && arguments.iter().zip(&sorts).all(|(argument, sort)| {
+            let name = match argument.unannotated() {
+                Term::Apply { label, arguments } => match arguments.as_slice() {
+                    [variable] if label.semantic_cast_sort().as_ref() == Some(*sort) => {
+                        match variable.unannotated() {
+                            Term::Variable { name, sort: None } => Some(name),
+                            _ => None,
+                        }
+                    }
+                    _ => None,
+                },
+                Term::Variable {
+                    name,
+                    sort: Some(written),
+                } if written == *sort => Some(name),
+                _ => None,
+            };
+            name.is_some_and(|name| names.insert(name.clone()))
+        });
+    head.name == label.name
+        && head.parameters.is_empty()
+        && variables
+        && truth(requires)
+        && truth(ensures)
+        && macro_rule_of(rule, &BTreeSet::from([label.name.clone()]))
+}
+
+/// The label and sort of a fresh production whose attributes are [`CONSTRUCTOR_ATTRIBUTES`],
+/// position keys and `extra` ([`fresh_constructor`]).
+fn fresh_production<'s>(
+    sentence: &'s Sentence,
+    named: &BTreeSet<String>,
+    extra: &[AttributeKey],
+) -> Option<(&'s str, &'s Sort)> {
     let Sentence::Production {
         label: Some(label),
         parameters,
@@ -1581,6 +1740,7 @@ fn fresh_constructor<'s>(
         CONSTRUCTOR_ATTRIBUTES
             .iter()
             .chain(&POSITION_KEYS)
+            .chain(extra)
             .any(|allowed| allowed.as_str() == key)
     };
     let fresh = !named.contains(&label.name)

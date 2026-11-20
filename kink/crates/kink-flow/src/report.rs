@@ -327,7 +327,8 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// `grammar-mutant-acceptance-not-decided` is new.
 /// Still 46 since a list may name a generated grammar set (PJ-34, U34h, [`crate::grammar_set`]):
 /// each row it expands into follows the written mutations and has `generated`; a list with no
-/// set writes the document it wrote.
+/// set writes the document it wrote. Still 46 since a set may name its forms (PJ-35, U35d):
+/// `generated.grammar` is the value as written, `"default"` or `{"forms": [...]}`.
 /// Still 46 since FX1: a program row states a baseline's undefined step (`undefined_steps`, only
 /// where a path takes one); in a flow that declares `[[projection]]`, a `timeout` or `error` row
 /// its programs decide is judged per projection on the projection's domain (an entry may be

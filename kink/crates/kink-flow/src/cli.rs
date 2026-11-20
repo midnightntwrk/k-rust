@@ -130,7 +130,7 @@ A mutation (MUTATIONS.toml):
     # or, in place of find and replace: delete = true, which removes the rule
   [[mutation]]                      # or, with no edit: the default grammar operator set,
   id = \"grammar\"                  # one mutation per generated grammar patch
-  grammar = \"default\"
+  grammar = \"default\"             # or { forms = [\"alternative-without-terminal\", ...] }
   An edit of emitted K (krs emit-k's definition.k) is anchored by rule, never by line =:
   its lines move with every emission.
 
@@ -3590,6 +3590,9 @@ fn admission_status(admission: &FlowAdmission) -> u8 {
 /// set ([`crate::grammar_set`]): its rows follow the written ones, each with `generated`, the
 /// document has `grammar_sets`, and the refusals `grammar-set-not-judged` and
 /// `grammar-set-id-collision` are new; a list with no set gives the document it gave.
+/// Still 21 (PJ-35, U35d): a set may name its forms (`grammar = { forms = [...] }`), and its
+/// summary's and rows' `grammar` repeat the value as written; a `grammar = "default"` set writes
+/// `"default"` as before (its rows are those of `kink-flow/grammar-set/v2`).
 pub const CHECK_VERSION: u64 = 21;
 
 /// The check document's members, and under the Z3 profile `z3` ([`crate::with_z3_build`]); every

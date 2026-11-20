@@ -990,8 +990,8 @@ fn a_source_changed_since_the_load_is_never_edited() {
 }
 
 /// PJ-34 (U34h): a `[[mutation]]` with `grammar` is a generated set, kept apart from the written
-/// mutations: `grammar = "default"` alone, an optional misunderstanding, no edit and no
-/// expectation; its id is unique with the written ones and qualified by its file's stem in a
+/// mutations: `grammar = "default"` or `grammar = { forms = [...] }` (PJ-35: distinct, not empty,
+/// each a kink-patch form), an optional misunderstanding, no edit and no expectation; its id is unique with the written ones and qualified by its file's stem in a
 /// mutations directory, and `--only` may name it or an id under it.
 #[test]
 fn a_generated_grammar_set_decodes_apart_from_the_written_mutations() {
@@ -1028,10 +1028,60 @@ fn a_generated_grammar_set_decodes_apart_from_the_written_mutations() {
     )
     .unwrap();
     assert_eq!(noted.grammar_sets[0].misunderstanding.as_deref(), Some("m"));
+    // PJ-35: `forms = [...]` names the forms, any of kink-patch's, kept in `GrammarForm::ALL`
+    // order whatever order the list writes; `default` is the default forms.
+    let named = MutationList::decode(
+        "[[mutation]]\nid = \"g\"\n\
+         grammar = { forms = [\"delete-relation\", \"alternative-without-terminal\"] }\n",
+    )
+    .unwrap();
+    let forms = kink_patch::GrammarForm::ALL;
+    let (relation, alternative) = (forms[10], forms[2]);
+    assert_eq!(
+        (relation.name(), alternative.name()),
+        ("delete-relation", "alternative-without-terminal")
+    );
+    assert_eq!(
+        named.grammar_sets[0].set,
+        kink_flow::GrammarSetName::Forms(vec![alternative, relation])
+    );
+    assert_eq!(
+        named.grammar_sets[0].set.value(),
+        serde_json::json!({"forms": ["alternative-without-terminal", "delete-relation"]})
+    );
+    assert_eq!(
+        kink_flow::GrammarSetName::Default.forms(),
+        kink_patch::GrammarForm::DEFAULT
+    );
+    assert_eq!(
+        kink_flow::GrammarSetName::Default.value(),
+        serde_json::json!("default")
+    );
     for (text, key) in [
         (
             "[[mutation]]\nid = \"g\"\ngrammar = \"widening\"\n",
             "mutation \"g\".grammar",
+        ),
+        (
+            "[[mutation]]\nid = \"g\"\ngrammar = { forms = [] }\n",
+            "mutation \"g\".grammar",
+        ),
+        (
+            "[[mutation]]\nid = \"g\"\ngrammar = { forms = \"loosen-regex\" }\n",
+            "mutation \"g\".grammar",
+        ),
+        (
+            "[[mutation]]\nid = \"g\"\ngrammar = { forms = [\"merge-alternative\"] }\n",
+            "mutation \"g\".grammar.forms",
+        ),
+        (
+            "[[mutation]]\nid = \"g\"\n\
+             grammar = { forms = [\"loosen-regex\", \"loosen-regex\"] }\n",
+            "mutation \"g\".grammar.forms",
+        ),
+        (
+            "[[mutation]]\nid = \"g\"\ngrammar = { forms = [\"loosen-regex\"], sort = \"Exp\" }\n",
+            "mutation \"g\".grammar.sort",
         ),
         (
             "[[mutation]]\nid = \"g\"\ngrammar = \"default\"\nexpect = \"kill\"\n",

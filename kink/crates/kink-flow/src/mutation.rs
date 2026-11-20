@@ -94,8 +94,9 @@ use k_rust::{
 use kink_corpus::{LoadedSource, resolver::load_source_with_overlay};
 use kink_patch::{
     Baseline, Bindings, CandidateDisposition, CandidateGeneration, CodecError, Discovery,
-    DiscoveryTuple, Edit, InsertPosition, POSITION_KEYS, Patch, PatchFailureKind, SelectionPolicy,
-    SentenceFingerprint, SentenceRef, Sha256Digest, Site, StackRefusal, TermRef, select, sha256,
+    DiscoveryTuple, Edit, GrammarForm, InsertPosition, POSITION_KEYS, Patch, PatchFailureKind,
+    SelectionPolicy, SentenceFingerprint, SentenceRef, Sha256Digest, Site, StackRefusal, TermRef,
+    select, sha256,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -122,34 +123,49 @@ pub struct MutationList {
     pub grammar_sets: Vec<GrammarSet>,
 }
 
-/// One `[[mutation]]` that names a generated set of grammar mutations (`grammar = "default"`)
-/// instead of writing edits ([`crate::grammar_set`]).
+/// One `[[mutation]]` that names a generated set of grammar mutations (`grammar = "default"` or
+/// `grammar = { forms = [...] }`) instead of writing edits ([`crate::grammar_set`]).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct GrammarSet {
     /// The id as written (qualified by the file's stem in a mutations directory): the prefix of
     /// every generated row's id, `<id>/<form>/<module>/<site>/<variant>`.
     pub id: String,
-    /// The set: kink-patch `GrammarForm::DEFAULT`, the only one.
+    /// The forms it generates, as written.
     pub set: GrammarSetName,
     /// The entry's `misunderstanding` (or `note`), when it gives one: it prefixes every row's
     /// note, which states the form's misunderstanding at its site.
     pub misunderstanding: Option<String>,
 }
 
-/// A set of grammar forms a [`GrammarSet`] names.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// The grammar forms a [`GrammarSet`] names (PJ-35).
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum GrammarSetName {
     /// `grammar = "default"`: kink-patch `GrammarForm::DEFAULT` (widening and token-level
     /// narrowing).
     Default,
+    /// `grammar = { forms = [...] }`: the forms named, distinct and not empty, in
+    /// `GrammarForm::ALL` order whatever order the list writes them in.
+    Forms(Vec<GrammarForm>),
 }
 
 impl GrammarSetName {
-    /// The value the list writes.
+    /// The forms the set generates, in `GrammarForm::ALL` order.
     #[must_use]
-    pub const fn as_str(self) -> &'static str {
+    pub fn forms(&self) -> Vec<GrammarForm> {
         match self {
-            Self::Default => "default",
+            Self::Default => GrammarForm::DEFAULT.to_vec(),
+            Self::Forms(forms) => forms.clone(),
+        }
+    }
+
+    /// The value as the list writes it: `"default"`, or `{"forms": [...]}`.
+    #[must_use]
+    pub fn value(&self) -> serde_json::Value {
+        match self {
+            Self::Default => serde_json::Value::from("default"),
+            Self::Forms(forms) => serde_json::json!({
+                "forms": forms.iter().map(|form| form.name()).collect::<Vec<_>>(),
+            }),
         }
     }
 }
@@ -509,9 +525,10 @@ fn optional_non_empty(
         .transpose()
 }
 
-/// A `[[mutation]]` with `grammar` at `index` ([`GrammarSet`]): `id`, `grammar = "default"` and
-/// an optional `misunderstanding` (or `note`); `edit` and `expect` are errors, since a set writes
-/// no edit and one claim cannot hold for every row it gives.
+/// A `[[mutation]]` with `grammar` at `index` ([`GrammarSet`]): `id`, `grammar = "default"` or
+/// `grammar = { forms = [...] }` ([`grammar_forms`]) and an optional `misunderstanding` (or
+/// `note`); `edit` and `expect` are errors, since a set writes no edit and one claim cannot hold
+/// for every row it gives.
 fn grammar_set(index: usize, value: &Value) -> Result<GrammarSet, ManifestError> {
     let position = format!("mutation[{index}]");
     let entry = value
@@ -539,16 +556,7 @@ fn grammar_set(index: usize, value: &Value) -> Result<GrammarSet, ManifestError>
         }
     }
     known_keys(entry, &key, &["id", "grammar", "misunderstanding", "note"])?;
-    let set = match entry["grammar"].as_str() {
-        Some("default") => GrammarSetName::Default,
-        _ => {
-            return Err(ManifestError::new(
-                join(&key, "grammar"),
-                "expected \"default\": the default grammar operator set (widening and \
-                 token-level narrowing)",
-            ));
-        }
-    };
+    let set = grammar_forms(&entry["grammar"], &join(&key, "grammar"))?;
     let misunderstanding = match (entry.get("misunderstanding"), entry.get("note")) {
         (Some(text), None) => Some(non_empty(text, &join(&key, "misunderstanding"))?),
         (None, Some(text)) => Some(non_empty(text, &join(&key, "note"))?),
@@ -565,6 +573,61 @@ fn grammar_set(index: usize, value: &Value) -> Result<GrammarSet, ManifestError>
         set,
         misunderstanding,
     })
+}
+
+/// A set's `grammar` value: `"default"`, or an inline table whose one key `forms` is a non-empty
+/// array of distinct form names, any of kink-patch's forms (`GrammarForm::ALL`).
+fn grammar_forms(value: &Value, position: &str) -> Result<GrammarSetName, ManifestError> {
+    let names = GrammarForm::ALL
+        .iter()
+        .map(|form| format!("\"{}\"", form.name()))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let expected = || {
+        ManifestError::new(
+            position,
+            format!(
+                "expected \"default\" (the default grammar operator set: widening and \
+                 token-level narrowing) or {{ forms = [...] }}, a non-empty list of distinct \
+                 forms among {names}"
+            ),
+        )
+    };
+    if value.as_str() == Some("default") {
+        return Ok(GrammarSetName::Default);
+    }
+    let table = value.as_table().ok_or_else(expected)?;
+    known_keys(table, position, &["forms"])?;
+    let written = table
+        .get("forms")
+        .and_then(Value::as_array)
+        .filter(|forms| !forms.is_empty())
+        .ok_or_else(expected)?;
+    let mut forms = Vec::new();
+    for item in written {
+        let form = item
+            .as_str()
+            .and_then(|name| {
+                GrammarForm::ALL
+                    .into_iter()
+                    .find(|form| form.name() == name)
+            })
+            .ok_or_else(|| {
+                ManifestError::new(
+                    join(position, "forms"),
+                    format!("unknown grammar form {item}: the forms are {names}"),
+                )
+            })?;
+        if forms.contains(&form) {
+            return Err(ManifestError::new(
+                join(position, "forms"),
+                format!("the form \"{}\" is named twice", form.name()),
+            ));
+        }
+        forms.push(form);
+    }
+    forms.sort();
+    Ok(GrammarSetName::Forms(forms))
 }
 
 fn mutation(index: usize, value: &Value) -> Result<Mutation, ManifestError> {

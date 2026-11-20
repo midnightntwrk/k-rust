@@ -1,7 +1,8 @@
-//! Generated grammar sets (PJ-34, U34h): a `[[mutation]]` with `grammar = "default"` names the
-//! default grammar operator set (kink-patch `GrammarForm::DEFAULT`: widening and token-level
-//! narrowing) instead of writing edits, and expands, once the specification is admitted, into one
-//! mutation per generated grammar patch ([`expand`]).
+//! Generated grammar sets (PJ-34, U34h; PJ-35, U35d): a `[[mutation]]` with `grammar` names
+//! grammar forms instead of writing edits, `grammar = "default"` the default grammar operator set
+//! (kink-patch `GrammarForm::DEFAULT`: widening and token-level narrowing) and
+//! `grammar = { forms = [...] }` the forms it lists (any of `GrammarForm::ALL`), and expands, once
+//! the specification is admitted, into one mutation per generated grammar patch ([`expand`]).
 //!
 //! Each row is the patch kink-patch generates at one site (`generate_grammar`, admitted when its
 //! mutant gives a program parser for the syntax module), resolved as a grammar mutation with that
@@ -15,19 +16,23 @@
 //! (transitively, every import, and itself): a program's text is parsed with the grammar the
 //! syntax module sees, so a sentence outside them changes no case's parse, and its survivor would
 //! be a target no case can meet. The expansion is a function of the admitted baseline, the
-//! syntax module and the entry: forms in `GrammarForm::DEFAULT` order, sites in kink-patch's site
-//! order, variants in kink-patch's order, the same rows with the same ids on every run.
+//! syntax module and the entry: forms in `GrammarForm::ALL` order (whatever order the list writes
+//! them in), sites in kink-patch's site order, variants in kink-patch's order, the same rows with
+//! the same ids on every run.
 //!
 //! A row's id is `<set>/<form>/<module>/<site>/<variant>`, a function of the form and of the
 //! site's own content, never of a sentence index:
 //!
 //! - site: a labelled production's label; a lexical declaration's `lexical-<Name>`; an unlabelled
-//!   token production's `<Sort>-token-<the first 8 hex digits of the SHA-256 of its regex>`; two
-//!   sites with one key in one module (two tokens of one sort with one regex) take `#2`, `#3` in
-//!   module order;
-//! - variant: `merge-alternative`'s target sort, `drop-anchor`'s `start` or `end`, else
-//!   kink-patch's variant path joined by `.` (a terminal's item index, a regex node's preorder
-//!   index and the choice made there), each a function of the site's own sentence.
+//!   token production's `<Sort>-token-<the first 8 hex digits of the SHA-256 of its regex>`; a
+//!   priority declaration's `priority-<the same of its groups>`; an associativity declaration's
+//!   `<left|right|non-assoc>-<the same of its tags>`; two sites with one key in one module (two
+//!   tokens of one sort with one regex) take `#2`, `#3` in module order;
+//! - variant: `drop-anchor`'s `start` or `end`; `change-terminal`'s item index and the literal it
+//!   writes (`<item>.<literal>`, percent-encoded outside `[A-Za-z0-9_-]`); `change-associativity`'s
+//!   associativity; `whole` for a deletion; else kink-patch's variant path joined by `.` (a
+//!   terminal's item index, a regex node's preorder index and the choice made there, a group
+//!   boundary), each a function of the site's own sentence.
 //!
 //! So an edit of the definition elsewhere (a rule, a production, a module, a sentence before the
 //! site) keeps every row's id; an edit of the site itself may give its id to another mutant, whose
@@ -48,7 +53,8 @@ use crate::{
         ResolvedMutation, View, sentence_span,
     },
 };
-use k_rust::definition::{AttributeKey, ProductionItem, Sentence};
+use k_rust::definition::{Associativity, AttributeKey, ProductionItem, Sentence};
+use k_rust::kast::Term;
 use kink_corpus::LoadedSource;
 use kink_patch::{
     Baseline, CandidateDisposition, Edit, GrammarEffect, GrammarForm, GrammarSelector, Patch,
@@ -58,11 +64,16 @@ use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// The expansion of a generated grammar set: the forms it takes (kink-patch
-/// `GrammarForm::DEFAULT`), the sites it selects (the syntax module's import closure) and the
-/// rows' id scheme (module documentation). It keys no record: a row's outcome records are keyed
-/// by its patch's identity and its lock row by its id, so a change of the expansion changes which
-/// rows exist.
-pub const GRAMMAR_SET_VERSION: &str = "kink-flow/grammar-set/v1";
+/// `GrammarForm::DEFAULT`, or the forms the list names), what each generates, the sites it selects
+/// (the syntax module's import closure) and the rows' id scheme (module documentation). It keys no
+/// record: a row's outcome records are keyed by its patch's identity and its lock row by its id,
+/// so a change of the expansion changes which rows exist. v2 (PJ-35, U35d): a list names the forms
+/// (`grammar = { forms = [...] }`, any of `GrammarForm::ALL`); `merge-alternative` is no form, so
+/// the default set has no row of it; `alternative-without-terminal` inserts its copy as a macro of
+/// the production with its rule, so a row of that id is another mutant; priority and
+/// associativity sites and `change-terminal` and `change-associativity` variants are keyed by
+/// their content.
+pub const GRAMMAR_SET_VERSION: &str = "kink-flow/grammar-set/v2";
 
 /// One row a set expands into: a mutation of the list as `run` and `check` read it.
 #[derive(Clone, Debug)]
@@ -142,7 +153,7 @@ pub fn expand_all(
 pub fn expand(manifest: &FlowManifest, loaded: &LoadedSource, set: &GrammarSet) -> Expansion {
     let mut summary = json!({
         "id": set.id,
-        "grammar": set.set.as_str(),
+        "grammar": set.set.value(),
         "version": GRAMMAR_SET_VERSION,
         "modules": [],
         "forms": [],
@@ -176,7 +187,7 @@ pub fn expand(manifest: &FlowManifest, loaded: &LoadedSource, set: &GrammarSet) 
     let mut views = BTreeMap::<String, Result<View, (InvalidReason, String)>>::new();
     let mut rows = Vec::new();
     let mut forms = Vec::new();
-    for form in GrammarForm::DEFAULT {
+    for form in set.set.forms() {
         let (generated, rejected) =
             match form_candidates(baseline, form, &modules, syntax_module, &sites) {
                 Ok(candidates) => candidates,
@@ -322,7 +333,7 @@ fn refused_row(set: &GrammarSet, refusal: InvalidMutation) -> GeneratedRow {
         resolution: Err(refusal),
         generated: json!({
             "set": set.id,
-            "grammar": set.set.as_str(),
+            "grammar": set.set.value(),
             "version": GRAMMAR_SET_VERSION,
         }),
     }
@@ -366,7 +377,7 @@ fn generated_row(
     };
     let generated = json!({
         "set": set.id,
-        "grammar": set.set.as_str(),
+        "grammar": set.set.value(),
         "version": GRAMMAR_SET_VERSION,
         "form": form.name(),
         "effect": effect_name(form.effect()),
@@ -440,16 +451,24 @@ fn site_rule(
         )
     })?;
     let before = view.text[span].to_owned();
-    let after = patch
+    // A replacement or a deletion of the site, or the site followed by what is inserted after it.
+    let mut after = Vec::new();
+    if patch
         .edits()
         .iter()
-        .map(|edit| match edit {
+        .any(|edit| matches!(edit, Edit::InsertSentence { .. }))
+    {
+        after.push(before.clone());
+    }
+    for edit in patch.edits() {
+        after.push(match edit {
             Edit::ReplaceSentence { replacement, .. } => render(replacement),
-            Edit::InsertSentence { sentence, .. } => format!("{before}\n{}", render(sentence)),
+            Edit::InsertSentence { sentence, .. } => render(sentence),
+            Edit::DeleteSentence { .. } => "(deleted)".to_owned(),
             other => format!("{other:?}"),
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
+        });
+    }
+    let after = after.join("\n");
     Ok(EditedRule {
         at: at.clone(),
         kind: EditedKind::Grammar,
@@ -513,15 +532,63 @@ fn site_key(sentence: &Sentence) -> Option<String> {
             label: Some(label), ..
         } => Some(label.name.clone()),
         Sentence::Production { sort, items, .. } => match items.as_slice() {
-            [ProductionItem::RegexTerminal { regex }] => Some(format!(
-                "{sort}-token-{}",
-                &sha256(regex.as_bytes()).to_string()[..8]
-            )),
+            [ProductionItem::RegexTerminal { regex }] => {
+                Some(format!("{sort}-token-{}", hex8(regex)))
+            }
             _ => None,
         },
         Sentence::SyntaxLexical { name, .. } => Some(format!("lexical-{name}")),
+        Sentence::SyntaxPriority { priorities, .. } => {
+            Some(format!("priority-{}", hex8(&priority_text(priorities))))
+        }
+        Sentence::SyntaxAssociativity {
+            associativity,
+            tags,
+            ..
+        } => Some(format!(
+            "{}-{}",
+            associativity_name(*associativity),
+            hex8(&tags.join(" "))
+        )),
         _ => None,
     }
+}
+
+/// The first 8 hex digits of the SHA-256 of `text`.
+fn hex8(text: &str) -> String {
+    sha256(text.as_bytes()).to_string()[..8].to_owned()
+}
+
+/// A priority declaration's groups as K writes them: `a b > c`.
+fn priority_text(priorities: &[Vec<String>]) -> String {
+    priorities
+        .iter()
+        .map(|group| group.join(" "))
+        .collect::<Vec<_>>()
+        .join(" > ")
+}
+
+const fn associativity_name(associativity: Associativity) -> &'static str {
+    match associativity {
+        Associativity::Left => "left",
+        Associativity::Right => "right",
+        Associativity::NonAssoc => "non-assoc",
+        Associativity::Unspecified => "unspecified",
+    }
+}
+
+/// `text` with every byte outside `[A-Za-z0-9_-]` written `%XX`, so that a literal is one id
+/// component.
+fn percent_encoded(text: &str) -> String {
+    text.bytes()
+        .map(|byte| {
+            if byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-' {
+                char::from(byte).to_string()
+            } else {
+                format!("%{byte:02X}")
+            }
+        })
+        .collect()
 }
 
 fn path_text(at: &TermRef) -> String {
@@ -541,12 +608,25 @@ fn path_text(at: &TermRef) -> String {
 /// form at its site, from the site's own content.
 fn variant_text(form: GrammarForm, at: &TermRef, patch: &Patch) -> String {
     match form {
-        GrammarForm::MergeAlternative => inserted(patch)
-            .and_then(|sentence| match sentence {
-                Sentence::Production { sort, .. } => Some(sort.to_string()),
-                _ => None,
-            })
-            .unwrap_or_else(|| path_text(at)),
+        // kink-patch's choice counts the other literals of the sort, which an unrelated
+        // production moves: the literal written names the variant instead.
+        GrammarForm::ChangeTerminal => match (at.path.0.first(), replaced(patch)) {
+            (Some(&item), Some(Sentence::Production { items, .. })) => {
+                match usize::try_from(item).ok().and_then(|item| items.get(item)) {
+                    Some(ProductionItem::Terminal(text)) => {
+                        format!("{item}.{}", percent_encoded(text))
+                    }
+                    _ => path_text(at),
+                }
+            }
+            _ => path_text(at),
+        },
+        GrammarForm::ChangeAssociativity => match replaced(patch) {
+            Some(Sentence::SyntaxAssociativity { associativity, .. }) => {
+                associativity_name(*associativity).to_owned()
+            }
+            _ => path_text(at),
+        },
         GrammarForm::DropAnchor => match at.path.0.as_slice() {
             [0] => "start".to_owned(),
             [1] => "end".to_owned(),
@@ -607,44 +687,63 @@ fn describe(form: GrammarForm, site: &Sentence, variant: &[u32], patch: &Patch) 
         || match site {
             Sentence::SyntaxLexical { name, .. } => format!("the lexical {name}"),
             Sentence::Production { sort, .. } => format!("the token of {sort}"),
+            Sentence::SyntaxPriority { priorities, .. } => {
+                format!("the priority `{}`", priority_text(priorities))
+            }
+            Sentence::SyntaxAssociativity {
+                associativity,
+                tags,
+                ..
+            } => format!(
+                "the associativity `{} {}`",
+                associativity_name(*associativity),
+                tags.join(" ")
+            ),
             _ => "the declaration".to_owned(),
         },
         |label| format!("production `{label}`"),
     );
-    let fresh = inserted(patch)
-        .and_then(production_label)
-        .unwrap_or("?")
-        .to_owned();
+    // The literal at the variant's first index (a terminal form's item index, kink-patch).
+    let literal = || match (site, variant.first()) {
+        (Sentence::Production { items, .. }, Some(&index)) => match usize::try_from(index)
+            .ok()
+            .and_then(|index| items.get(index))
+        {
+            Some(ProductionItem::Terminal(text)) => format!("{text:?}"),
+            _ => "a literal".to_owned(),
+        },
+        _ => "a literal".to_owned(),
+    };
     match form {
-        GrammarForm::AlternativeWithoutTerminal => {
-            // The variant's path is the dropped terminal's item index (kink-patch).
-            let dropped = match (site, variant.first()) {
-                (Sentence::Production { items, .. }, Some(&index)) => {
+        GrammarForm::AlternativeWithoutTerminal => format!(
+            "the text of {name} without its literal {} also parses, as a macro of the \
+             production (`{}`): to the production's own construct",
+            literal(),
+            inserted(patch).and_then(production_label).unwrap_or("?")
+        ),
+        GrammarForm::DropTerminal => format!(
+            "{name} is written without its literal {}, which no longer parses",
+            literal()
+        ),
+        GrammarForm::ChangeTerminal => {
+            let written = match (replaced(patch), variant.first()) {
+                (Some(Sentence::Production { items, .. }), Some(&index)) => {
                     match usize::try_from(index)
                         .ok()
                         .and_then(|index| items.get(index))
                     {
                         Some(ProductionItem::Terminal(text)) => format!("{text:?}"),
-                        _ => "a literal".to_owned(),
+                        _ => "another literal".to_owned(),
                     }
                 }
-                _ => "a literal".to_owned(),
+                _ => "another literal".to_owned(),
             };
             format!(
-                "the text of {name} without its literal {dropped} also parses, to a new \
-                 constructor `{fresh}`"
+                "{name} is written with {written} in place of its literal {}",
+                literal()
             )
         }
-        GrammarForm::MergeAlternative => {
-            let sort = match inserted(patch) {
-                Some(Sentence::Production { sort, .. }) => sort.to_string(),
-                _ => "another sort".to_owned(),
-            };
-            format!(
-                "the text of {name} also parses where {sort} is expected, to a new constructor \
-                 `{fresh}`"
-            )
-        }
+        GrammarForm::DeleteProduction => format!("{name} is deleted, and its text with it"),
         GrammarForm::LoosenRegex | GrammarForm::NarrowRegex | GrammarForm::DropAnchor => {
             let how = match form {
                 GrammarForm::LoosenRegex => "loosened at one node",
@@ -657,7 +756,13 @@ fn describe(form: GrammarForm, site: &Sentence, variant: &[u32], patch: &Patch) 
                 replaced(patch).and_then(regex_of).unwrap_or_default()
             )
         }
-        _ => format!("{} at {name}", form.name()),
+        GrammarForm::MergePriorityGroups
+        | GrammarForm::SwapPriorityGroups
+        | GrammarForm::ChangeAssociativity => format!(
+            "{name} becomes {}",
+            replaced(patch).map_or_else(|| "?".to_owned(), render)
+        ),
+        GrammarForm::DeleteRelation => format!("{name} is deleted"),
     }
 }
 
@@ -694,6 +799,7 @@ pub fn render(sentence: &Sentence) -> String {
             }
             for (key, tag) in [
                 (AttributeKey::Token, "token"),
+                (AttributeKey::Macro, "macro"),
                 (AttributeKey::Prefer, "prefer"),
                 (AttributeKey::Avoid, "avoid"),
             ] {
@@ -710,6 +816,63 @@ pub fn render(sentence: &Sentence) -> String {
         Sentence::SyntaxLexical { name, regex, .. } => {
             format!("syntax lexical {name} = r\"{regex}\"")
         }
+        Sentence::SyntaxPriority { priorities, .. } => {
+            format!("syntax priority {}", priority_text(priorities))
+        }
+        Sentence::SyntaxAssociativity {
+            associativity,
+            tags,
+            ..
+        } => format!(
+            "syntax {} {}",
+            associativity_name(*associativity),
+            tags.join(" ")
+        ),
+        Sentence::Rule {
+            body,
+            requires,
+            ensures,
+            ..
+        } => {
+            let truth = |term: &Term| matches!(term.unannotated(), Term::Token { token, .. } if token == "true");
+            let mut parts = vec![format!("rule {}", term_text(body))];
+            if !truth(requires) {
+                parts.push(format!("requires {}", term_text(requires)));
+            }
+            if !truth(ensures) {
+                parts.push(format!("ensures {}", term_text(ensures)));
+            }
+            parts.join(" ")
+        }
+        other => format!("{other:?}"),
+    }
+}
+
+/// `term` written in KAST prefix form, to describe a generated rule: an application as
+/// `` `label`(arguments) ``, a variable cast to a sort as `X:Sort`, a token as `token`.
+fn term_text(term: &Term) -> String {
+    match term.unannotated() {
+        Term::Rewrite { left, right } => format!("{} => {}", term_text(left), term_text(right)),
+        Term::Apply { label, arguments } => {
+            match (label.semantic_cast_sort(), arguments.as_slice()) {
+                (Some(sort), [Term::Variable { name, .. }]) => format!("{name}:{sort}"),
+                _ => format!(
+                    "`{}`({})",
+                    label.name,
+                    arguments
+                        .iter()
+                        .map(term_text)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+            }
+        }
+        Term::Variable {
+            name,
+            sort: Some(sort),
+        } => format!("{name}:{sort}"),
+        Term::Variable { name, sort: None } => name.clone(),
+        Term::Token { token, .. } => token.clone(),
         other => format!("{other:?}"),
     }
 }
