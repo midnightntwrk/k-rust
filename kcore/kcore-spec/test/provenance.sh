@@ -726,7 +726,7 @@ def report(rows, base):
               " families, or a sentence against the reading: "
               + "; ".join(f"{w} (fixture {fx or 'none'}, {th})" for w, fx, th in nomodel))
     if tp:
-        print(f"provenance: {tp} tie_premise table{'s' if tp > 1 else ''} (a sentence tied under a premise no sentence states)")
+        print(f"provenance: {tp} tie_premise table{'s' if tp > 1 else ''} (a sentence tied under a premise no sentence of the text is shown to state)")
     for b in bad[:40]:
         print(f"  {b}")
     if len(bad) > 40:

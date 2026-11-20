@@ -50,7 +50,7 @@ The document holds, in this order:
              theorem or the reason. Such an entry's status cell reads "STATUS (owed fact proved)",
              "STATUS (owed fact open)" or "STATUS (owed fact false)", its group. An entry with a
              `tie_premise` table (rows-header.toml: its sentences tied under a premise no sentence
-             of the text states) has its status cell read "STATUS (tied under PREMISE)", the
+             of the text is shown to state) has its status cell read "STATUS (tied under PREMISE)", the
              tables' premises.
   teaches    every layer of the manifest in its order: id, status, `teaches`, declarations, and the
              status of each `except` entry; then the manifest's not_core items.

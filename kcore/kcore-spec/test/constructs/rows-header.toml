@@ -265,7 +265,7 @@
 #             (its class is not read).
 #   tie_premise  on a supported row or nested table: a list of tables, one per premise, for the
 #             entry's rule sentences that its fixture's tie ties under a premise no sentence of the
-#             text states (tiegen --hand rules with rule_from_text_closed or rule_from_text_dom; the
+#             text is shown to state (tiegen --hand rules with rule_from_text_closed or rule_from_text_dom; the
 #             tie's `def underPremise` lists them with the premise, not `uncovered`). Each table:
 #               sentences  the indices (AxiomDecl.index) of the sentences, each in `underPremise` of
 #                          a file of `tie` reading the entry's text, with this premise;
