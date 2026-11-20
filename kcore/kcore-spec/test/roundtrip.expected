@@ -254,6 +254,7 @@ differs f2-examples/e7-projuser.kompile.kore
 differs f2-examples/e7-removeunit.kompile.kore
 differs f2-examples/e8-disable-ceil-simplification-rules.kompile.kore
 differs f2-examples/e8-hook-namespaces.kompile.kore
+differs f2-examples/e8-llvm-e2-open-mixed-clause.kompile.kore
 differs f2-examples/e8-main-module.kompile.kore
 differs f2-examples/e8-md.kompile.kore
 differs f2-examples/e8-ref.kompile.kore

@@ -445,3 +445,4 @@ import KcoreSpec.LibEvCeilFn
 import KcoreSpec.FnHypPre
 import KcoreSpec.TiePriosBut
 import KcoreSpec.TieOvlMem
+import KcoreSpec.TieEqArgCut
