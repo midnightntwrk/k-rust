@@ -48,6 +48,10 @@
     `\in`, which the sentence does not hold, so the premise set is the sentence with `ΓSig` (the
     sorts and `\ceil`'s definition; no rule's item), not the sentence alone as in the ties tiegen
     writes (`rule_from_text`). `rule_prios`: the priority the sentence states is the rule's.
+    Γ entails the sentence as written, for every H (`rule_entailed`): an element of `c(S, S)` is one
+    of `c(a₀, a₁)` for a₀, a₁ in S, the item's right side there is defined from the Cons-Fun items
+    of its generators (`SvR.right_defined`), and the successor the item gives is in `d(S)`. So
+    every model of `Γc` with the step's closure satisfies the sentence (`rule_in_step_models`).
 
   The sentences with no counterpart in f2-examples/ens.kompile.kore are `unmapped` (22);
   the sentences of a class with a theorem that no theorem here holds of are `uncovered` (0).
@@ -738,6 +742,195 @@ theorem item_of_sentence {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sy
     · exact Or.inl ⟨h0, hbT⟩
     · exact Or.inr ⟨h0, hbT⟩
 
+/-! The converse: the sentence holds where Γ's item and the Cons-Fun items of the right side's
+generators do. -/
+
+/-- The generators the right side `<generatedTop>(<k>(kseq(inj{Exp,KItem}(d(Z)), k)), counter)`
+applies, each with the name of its sort. -/
+def rightGens : List (String × KoreAML.Gen) :=
+  [("Exp", .ctor ⟨"Lbld", ["Exp"], "Exp"⟩), ("KItem", .inj "Exp"),
+   ("K", .ctor ⟨"kseq", ["KItem", "K"], "K"⟩), ("KCell", .ctor ⟨"Lbl'-LT-'k'-GT-'", ["K"], "KCell"⟩),
+   ("GeneratedTopCell", .ctor ⟨"Lbl'-LT-'generatedTop'-GT-'", ["KCell", "GeneratedCounterCell"], "GeneratedTopCell"⟩)]
+
+/-- The configurations of the sentence read at `e` and of Γ's item read at `e'` are of one shape
+with the same elements at their side patterns, where `e'` gives the item's two variables beside
+the `k` cell's first item the values `e` gives the sentence's. -/
+theorem cfg_same_at {M : Type} {I : Interpretation KoreAML.Sym M} (e e' : Valuation M)
+    (hk : ∀ m, (tr ⟨tblT, []⟩ dv1).interpret I e m ↔ (Pattern.evar ⟨3⟩ : P).interpret I e' m)
+    (hcn : ∀ m, (tr ⟨tblT, []⟩ dv0).interpret I e m ↔ (Pattern.evar ⟨4⟩ : P).interpret I e' m)
+    {item : SvCtx} (h : Same I e e' item item) :
+    Same I e e' (cfgCtx tblT (tr ⟨tblT, []⟩ dv1) (tr ⟨tblT, []⟩ dv0) item)
+      (cfgCtx tblG (.evar ⟨3⟩) (.evar ⟨4⟩) item) :=
+  .app (.app (.side fun _ => Iff.rfl) (.app (.side fun _ => Iff.rfl)
+    (.app (.app (.side fun _ => Iff.rfl) (.app (.side fun _ => Iff.rfl) h)) (.side hk))))
+    (.side hcn)
+
+theorem ins_one {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} {s : String} {a : M}
+    (h : InS I s a) : ∀ (i : Nat) (x : M) (s' : String), [a][i]? = some x → [s][i]? = some s' → InS I s' x := by
+  intro i x s' hx hs
+  cases i with
+  | zero => simp at hx hs; rw [← hx, ← hs]; exact h
+  | succ i => simp at hx
+
+theorem ins_two {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} {s t : String} {a b : M}
+    (h : InS I s a) (h' : InS I t b) :
+    ∀ (i : Nat) (x : M) (s' : String), [a, b][i]? = some x → [s, t][i]? = some s' → InS I s' x := by
+  intro i x s' hx hs
+  cases i with
+  | zero => simp at hx hs; rw [← hx, ← hs]; exact h
+  | succ i => exact ins_one h' i x s' (by simpa using hx) (by simpa using hs)
+
+/-- **The right side's configuration at an element of Exp is one element, of the top cell's
+sort**, from the Cons-Fun items of its generators: `d`, `inj{Exp, KItem}`, `kseq`, `<k>` and
+`<generatedTop>` each build one element of their sort from elements of their argument sorts. -/
+theorem right_defined {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hD : DefOK I)
+    (hfun : ∀ g ∈ rightGens, I ⊧ᴵ (KoreAML.Cons.funItem g.1 g.2).pat) (e : Valuation M) (z : M)
+    (hz : InS I "Exp" z) (hk : InS I "K" (e.evalEvar ⟨3⟩))
+    (hcn : InS I "GeneratedCounterCell" (e.evalEvar ⟨4⟩)) :
+    ∃ b, InS I "GeneratedTopCell" b ∧ RG.den I e (fun _ => z) 0 b := by
+  obtain ⟨y1, hy1, hu1⟩ := fun_at hD (hfun ("Exp", .ctor ⟨"Lbld", ["Exp"], "Exp"⟩) List.mem_cons_self)
+    (xs := [z]) rfl (ins_one hz)
+  obtain ⟨y2, hy2, hu2⟩ := fun_at hD (hfun ("KItem", .inj "Exp") (.tail _ List.mem_cons_self))
+    (xs := [y1]) rfl (ins_one hy1)
+  obtain ⟨y3, hy3, hu3⟩ := fun_at hD (hfun ("K", .ctor ⟨"kseq", ["KItem", "K"], "K"⟩) (.tail _ (.tail _ List.mem_cons_self)))
+    (xs := [y2, e.evalEvar ⟨3⟩]) rfl (ins_two hy2 hk)
+  obtain ⟨y4, hy4, hu4⟩ := fun_at hD (hfun ("KCell", .ctor ⟨"Lbl'-LT-'k'-GT-'", ["K"], "KCell"⟩) (.tail _ (.tail _ (.tail _ List.mem_cons_self))))
+    (xs := [y3]) rfl (ins_one hy3)
+  obtain ⟨y5, hy5, hu5⟩ := fun_at hD (hfun ("GeneratedTopCell",
+      .ctor ⟨"Lbl'-LT-'generatedTop'-GT-'", ["KCell", "GeneratedCounterCell"], "GeneratedTopCell"⟩) (.tail _ (.tail _ (.tail _ (.tail _ List.mem_cons_self)))))
+    (xs := [y4, e.evalEvar ⟨4⟩]) rfl (ins_two hy4 hcn)
+  obtain ⟨h1, hh1, a1, hap1, he1⟩ := (hu1 y1).mpr rfl
+  have he1 : y1 = a1 := he1
+  subst he1
+  obtain ⟨h2, hh2, a2, hap2, he2⟩ := (hu2 y2).mpr rfl
+  have he2 : y2 = a2 := he2
+  subst he2
+  obtain ⟨h3, hh3, a3, hap3, a3', hap3', he3⟩ := (hu3 y3).mpr rfl
+  have he3 : y3 = a3' := he3
+  subst he3
+  obtain ⟨h4, hh4, a4, hap4, he4⟩ := (hu4 y4).mpr rfl
+  have he4 : y4 = a4 := he4
+  subst he4
+  obtain ⟨h5, hh5, a5, hap5, a5', hap5', he5⟩ := (hu5 y5).mpr rfl
+  have he5 : y5 = a5' := he5
+  subst he5
+  have d1 : dItem.den I e (fun _ => z) 0 y1 := ⟨h1, z, hh1, rfl, hap1⟩
+  have hinj : (sym (.symbol "inj") ⬝ trSort tblG expS ⬝ trSort tblG (srt "KItem") : P).interpret I e h2 := hh2
+  exact ⟨y5, hy5, a5, e.evalEvar ⟨4⟩, ⟨h5, y4, hh5, ⟨h4, y3, hh4,
+    ⟨a3, e.evalEvar ⟨3⟩, ⟨h3, y2, hh3, ⟨h2, y1, hinj, d1, hap2⟩, hap3⟩, rfl, hap3'⟩, hap4⟩, hap5⟩, rfl, hap5'⟩
+
+/-- **Sentence 104 holds where Γ's item does**, in an interpretation with definedness, `\ceil`'s
+definition, the sorts Exp and GeneratedTopCell each one sort, and the Cons-Fun items of the right
+side's generators. At a set S inside Exp and an element of `c(S, S)`, an element of some
+`c(a₀, a₁)` with a₀ and a₁ in S (`SvCtx.atSet_iff`): the right side of the item at a₀, a₁ is
+defined (`d(a₀)` in its configuration is an element, `right_defined`), so the item gives a
+successor in `d(z)` for z one of a₀, a₁, an element of `d(S)`. -/
+theorem sentence_of_item {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hD : DefOK I)
+    (hc : I ⊧ᴵ ceilDefItem.pat) {σe σt : M}
+    (hE : ∀ a, I.evalSymb (.sort "SortExp") a ↔ a = σe)
+    (hT : ∀ a, I.evalSymb (.sort "SortGeneratedTopCell") a ↔ a = σt)
+    (hσe : IsSort I σe) (hσt : IsSort I σt)
+    (hfun : ∀ g ∈ rightGens, I ⊧ᴵ (KoreAML.Cons.funItem g.1 g.2).pat)
+    (h : I ⊧ᴵ (trAxiom [] [] (kAx gPat)).pat) : I ⊧ᴵ (trAxiom [] [] U.ax104).pat := by
+  intro e m
+  rw [tr_t, interpret_impl]
+  intro hg
+  simp only [conjList, interpret_conj] at hg
+  obtain ⟨g0, g2, g3⟩ := hg
+  have g0 : ∀ x, e.evalSvar X x → (inhOf (trSort tblT expS)).interpret I e x := (interp_included hD).mp g0
+  have g2 := (interp_guard_evar hD (t := tblT) (n := "Var'Unds'DotVar1") (s := srt "K")).mp g2
+  have g3 := (interp_guard_evar hD (t := tblT) (n := "Var'Unds'DotVar0") (s := srt "GeneratedCounterCell")).mp g3
+  have hEP : ∀ (e : Valuation M) a, expP.interpret I e a ↔ a = σe := fun _ a => hE a
+  have hTP : ∀ (e : Valuation M) a, topP.interpret I e a ↔ a = σt := fun _ a => hT a
+  have hTop : ∀ (e : Valuation M) b, (sTop topP).interpret I e b ↔ Inh I σt b := fun e b => by
+    rw [interp_sTop hD (by decide) b, interp_inhOf_of (hTP e)]
+  have insE : ∀ x, InS I "Exp" x ↔ Inh I σe x := fun x => interp_inhOf_of (hEP KoreAML.val0)
+  have insT : ∀ x, InS I "GeneratedTopCell" x ↔ Inh I σt x := fun x => interp_inhOf_of (hTP KoreAML.val0)
+  rw [interp_equal hD]
+  intro a
+  unfold sRewrites
+  rw [interp_sImp]
+  refine ⟨fun hh => hh.1, fun ha => ⟨ha, fun hL => ?_⟩⟩
+  have haT : Inh I σt a := (interp_inhOf_of (hTP e)).mp ha
+  have he : svarAt_svin e X (e.evalSvar X) = e := by
+    have hu : Function.update e.evalSvar X (e.evalSvar X) = e.evalSvar := by
+      funext Y
+      by_cases hY : Y = X
+      · subst hY; simp
+      · simp [Function.update, hY]
+    show (⟨e.evalEvar, Function.update e.evalSvar X (e.evalSvar X)⟩ : Valuation M) = e
+    rw [hu]
+  have hL' : (LT.atSet X).interpret I (svarAt_svin e X (e.evalSvar X)) a := by rw [he]; exact hL
+  obtain ⟨af, haf, hLden⟩ := (SvCtx.atSet_iff X e (e.evalSvar X) LT sidesT.1 0 a).mp hL'
+  have hA0 : e.evalSvar X (af 0) := haf 0 (by decide)
+  have hA1 : e.evalSvar X (af 1) := haf 1 (by decide)
+  have hE0 : Inh I σe (af 0) := (interp_inhOf_of (hEP e)).mp (g0 _ hA0)
+  have hE1 : Inh I σe (af 1) := (interp_inhOf_of (hEP e)).mp (g0 _ hA1)
+  -- Γ's item, its two left variables at the two elements
+  let e' : Valuation M := ⟨fun x => if x.val = 1 then af 0 else if x.val = 2 then af 1 else e.evalEvar ⟨x.val - 1⟩,
+    e.evalSvar⟩
+  have e1 : e'.evalEvar ⟨1⟩ = af 0 := rfl
+  have e2 : e'.evalEvar ⟨2⟩ = af 1 := rfl
+  have hsame : ∀ {item : SvCtx}, Same I e e' item item →
+      Same I e e' (cfgCtx tblT (tr ⟨tblT, []⟩ dv1) (tr ⟨tblT, []⟩ dv0) item) (cfgCtx tblG (.evar ⟨3⟩) (.evar ⟨4⟩) item) :=
+    fun hi => cfg_same_at e e' (fun _ => Iff.rfl) (fun _ => Iff.rfl) hi
+  have hG := h e' a
+  rw [tr_g, interpret_impl] at hG
+  have hgG : (conjList [guardOf tblG k0, guardOf tblG k1, guardOf tblG k2, guardOf tblG k3]).interpret I e' a := by
+    simp only [conjList, interpret_conj]
+    refine ⟨?_, ?_, ?_, ?_⟩
+    · exact (interp_guard_evar hD (t := tblG) (n := "VarV0") (s := expS)).mpr ((interp_inhOf_of (hEP e')).mpr hE0)
+    · exact (interp_guard_evar hD (t := tblG) (n := "VarV1") (s := expS)).mpr ((interp_inhOf_of (hEP e')).mpr hE1)
+    · exact (interp_guard_evar hD (t := tblG) (n := "VarV2") (s := srt "K")).mpr g2
+    · exact (interp_guard_evar hD (t := tblG) (n := "VarV3") (s := srt "GeneratedCounterCell")).mpr g3
+  have h3 := ((interp_equal hD).mp (hG hgG) a).mpr ha
+  unfold sRewrites at h3
+  rw [interp_sImp] at h3
+  have hLG : (LG.atVars xsL 0).interpret I e' a :=
+    (SvCtx.atVars_iff xsL e' e' af LG 0 (sidesAgree_refl e' LG) (fun i hi => by
+      have h2 : LG.holes = 2 := rfl
+      have : i = 0 ∨ i = 1 := by omega
+      rcases this with rfl | rfl <;> rfl) a).mpr (((hsame (cItem_same _ _)).den af 0 a).mp hLden.1)
+  -- the elements of the item's right side
+  have hR : ∀ b, rhsP.interpret I e' b ↔
+      ∃ z, (z = af 0 ∨ z = af 1) ∧ Inh I σt b ∧ RG.den I e' (fun _ => z) 0 b := by
+    intro b
+    unfold rhsP
+    rw [interp_sExists_elem hD]
+    refine exists_congr fun z => ?_
+    have e55 : (updE e' ⟨5⟩ z).evalEvar ⟨5⟩ = z := by simp
+    have e51 : (updE e' ⟨5⟩ z).evalEvar ⟨1⟩ = af 0 := by simp [Function.update, e1]
+    have e52 : (updE e' ⟨5⟩ z).evalEvar ⟨2⟩ = af 1 := by simp [Function.update, e2]
+    have hden : (RG.atVars xsR 0).interpret I (updE e' ⟨5⟩ z) b ↔ RG.den I e' (fun _ => z) 0 b :=
+      SvCtx.atVars_iff xsR e' (updE e' ⟨5⟩ z) (fun _ => z) RG 0 (cfgG_agree e' z) (fun _ _ => e55) b
+    unfold bodyG
+    rw [interp_sAnd, interp_sAnd, hden, hTop, interp_sOr, interp_inhOf_of (hTP _), interp_inhOf_of (hEP _)]
+    constructor
+    · rintro ⟨hzE, hd, hbT, -, hin⟩
+      rw [interp_sIn_evar_svin hD hc (hEP _) (hTP _) hσe hσt (e55 ▸ hzE) b,
+        interp_sIn_evar_svin hD hc (hEP _) (hTP _) hσe hσt (e55 ▸ hzE) b, e55, e51, e52] at hin
+      exact ⟨hin.imp (·.1) (·.1), hbT, hd⟩
+    · rintro ⟨hz, hbT, hd⟩
+      have hzE : Inh I σe z := by rcases hz with rfl | rfl <;> assumption
+      refine ⟨hzE, hd, hbT, hbT, ?_⟩
+      rw [interp_sIn_evar_svin hD hc (hEP _) (hTP _) hσe hσt (e55 ▸ hzE) b,
+        interp_sIn_evar_svin hD hc (hEP _) (hTP _) hσe hσt (e55 ▸ hzE) b, e55, e51, e52]
+      exact hz.imp (⟨·, hbT⟩) (⟨·, hbT⟩)
+  -- the right side at a₀ is defined
+  have hceil : (sCeil topP topP rhsP).interpret I e' a := by
+    rw [interp_sCeil hD hc (hTP e') (hTP e') hσt hσt (fun b hb => by obtain ⟨_, _, hbT, _⟩ := (hR b).mp hb; exact hbT) a]
+    obtain ⟨b, hbT, hbd⟩ := right_defined hD hfun e' (af 0) ((insE _).mpr hE0) g2 g3
+    exact ⟨⟨b, (hR b).mpr ⟨af 0, Or.inl rfl, (insT b).mp hbT, hbd⟩⟩, haT⟩
+  have h4 := h3.2 (interp_sAnd.mpr ⟨hLG, interp_sAnd.mpr ⟨(hTop e' a).mpr haT, hceil⟩⟩)
+  unfold sNext at h4 ⊢
+  obtain ⟨nx, b, hnx, hb, happ⟩ := interp_app.mp h4
+  obtain ⟨z, hz, hbT, hbd⟩ := (hR b).mp hb
+  have hzA : e.evalSvar X z := by rcases hz with rfl | rfl <;> assumption
+  have key := (SvCtx.atSet_iff X e (e.evalSvar X) RT sidesT.2 0 b).mpr ⟨fun _ => z, fun _ _ => hzA,
+    ((hsame (dItem_same _ _)).den (fun _ => z) 0 b).mpr hbd, (hTop e b).mpr hbT⟩
+  rw [he] at key
+  exact interp_app.mpr ⟨nx, b, hnx, key, happ⟩
+
 end SvR
 
 /-- **W1 for rule 0, over the signature**: Γ's item is a consequence of sentence 104 and Γ's
@@ -862,6 +1055,38 @@ theorem cons_entailed (H : HookParams) : ∀ ad ∈ consText, Γ (cH H) ⊧ (trS
   haveI : OvlOK (cH H) := ovlOK_of_core (coreOKH H)
   exact tieCons_entailed (c := cH H) (a := ad.ax)
     ((tieConsB_withHooks c H ad.ax).trans (List.all_eq_true.mp cons_checked ad had)) ad.index ad.module hI
+
+/-! ## The rule: W2
+
+Γ entails sentence 104 as written. Γ's item of the rule has the premise that its right side is
+defined, which the sentence does not; the right side applies generators only, so the premise
+holds from their Cons-Fun items. -/
+
+/-- Γ has the Cons-Fun item of each generator of the rule's right side (kernel). -/
+theorem rightGens_in : SvR.rightGens.all (fun g => (consItemsK c).any fun it =>
+    decide (it.pat = (KoreAML.Cons.funItem g.1 g.2).pat)) = true := by decide +kernel
+
+/-- **W2 for sentence 104: Γ entails it as written, for every H.** Each element of `c(S, S)`, S a
+set inside Exp, is an element of `c(a₀, a₁)` for some a₀, a₁ of S, and Γ's item of the rule gives
+it a successor in `d(a₀)` or `d(a₁)`, an element of `d(S)`; the item's premise, its right side
+defined, holds from the Cons-Fun items of the right side's generators (`SvR.sentence_of_item`). -/
+theorem rule_entailed (H : HookParams) : Γ (cH H) ⊧ (trS U.ax104).pat := by
+  intro M _ I hI
+  haveI : OvlOK (cH H) := ovlOK_of_core (coreOKH H)
+  obtain ⟨σe, hE, hσe⟩ := sortSing hI (s := 32)
+    (by decide +kernel : (32 : Srt) < nRegSorts + c.sortNames.length)
+  obtain ⟨σt, hT, hσt⟩ := sortSing hI (s := topCellSort)
+    (by decide +kernel : topCellSort < nRegSorts + c.sortNames.length)
+  rw [show (cH H).sortName 32 = "Exp" from (by decide +kernel : c.sortName 32 = "Exp")] at hE
+  rw [show (cH H).sortName topCellSort = "GeneratedTopCell" from
+    (by decide +kernel : c.sortName topCellSort = "GeneratedTopCell")] at hT
+  rw [SvR.ax_trS]
+  refine SvR.sentence_of_item (defOK hI) (sat_sigItem hI sig_ceilDef) hE hT hσe hσt (fun g hg => ?_) ?_
+  · obtain ⟨it, hit, hpat⟩ := List.any_eq_true.mp (List.all_eq_true.mp rightGens_in g hg)
+    rw [← of_decide_eq_true hpat]
+    exact sat_cons hI (Or.inl ⟨it, by rw [consItemsK_withHooks]; exact hit, rfl⟩)
+  · rw [← SvR.g_eq]
+    exact hI _ (Or.inl (Or.inr (Or.inl ⟨_, by rw [ruleItems_withHooks, ruleItems_eq]; exact List.mem_singleton_self _, rfl⟩)))
 
 /-! ## Set idempotence (61): refuted -/
 
@@ -991,6 +1216,13 @@ theorem nojunk_kitem_entailed_c (H : HookParams) : Γc (cH H) ⊧ (trS U.ax103).
   entails_c (nojunk_kitem_entailed H)
 theorem cons_entailed_c (H : HookParams) : ∀ ad ∈ consText, Γc (cH H) ⊧ (trS ad).pat :=
   fun ad had => entails_c (cons_entailed H ad had)
+theorem rule_entailed_c (H : HookParams) : Γc (cH H) ⊧ (trS U.ax104).pat := entails_c (rule_entailed H)
+/-- **Every model of `Γc` with the step's closure satisfies sentence 104 as written**, for every H:
+so do the models that differ on which of `d(a)`, `d(b)` is the successor of `c(a, b)`
+(test/SvRewriteStepH.lean, `choice_a` and `choice_b`, models of `Γc ∪ Γstep` of the same text),
+and the text entails neither successor. -/
+theorem rule_in_step_models (H : HookParams) : Γc (cH H) ∪ Γstep (cH H) ⊧ (trS U.ax104).pat :=
+  fun hI => rule_entailed_c H fun φ hφ => hI φ (Or.inl hφ)
 /-- **Sentence 47 is refuted over `Γc`, for every H**: a model of `Γc` is one of Γ. -/
 theorem idem_refuted_c (H : HookParams) : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M),
     I ⊧ᴵP Γc (cH H) → ¬ (I ⊧ᴵ (trS U.ax47).pat) :=
@@ -1090,7 +1322,13 @@ end KCore.TieE3SetvarRewrite
 #check @KCore.TieE3SetvarRewrite.SvR.item_of_sentence
 #check @KCore.TieE3SetvarRewrite.rule0_from_text_sig
 #check @KCore.TieE3SetvarRewrite.rule_from_text_sig
+#check @KCore.TieE3SetvarRewrite.SvR.sentence_of_item
+#check @KCore.TieE3SetvarRewrite.rule_entailed
+#check @KCore.TieE3SetvarRewrite.rule_entailed_c
+#check @KCore.TieE3SetvarRewrite.rule_in_step_models
 #check @KCore.TieE3SetvarRewrite.rule_prios
 #print axioms KCore.TieE3SetvarRewrite.rules_account
 #print axioms KCore.TieE3SetvarRewrite.rule_from_text_sig
+#print axioms KCore.TieE3SetvarRewrite.rule_entailed
+#print axioms KCore.TieE3SetvarRewrite.rule_in_step_models
 #print axioms KCore.TieE3SetvarRewrite.rule_prios
