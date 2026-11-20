@@ -65,7 +65,7 @@ theorem pins_ok : TiePair.pinsOK c U.all pins = true := by decide +kernel
 theorem text_all : TiePair.manyAllSomeB textO = true ∧ TiePair.manyLengthB c textO = true := by
   decide +kernel
 
-theorem find208 : U.all.find? (·.index == 208) = some U.ax208 := by decide +kernel
+theorem find208 : U.all.find? (·.index == 208) = some U.ax208 := by kernel_rfl
 
 theorem text_at2 : textO[2]? = some (some U.ax208) := by
   rw [← find208]; exact TiePair.fnTextMany_pin c U.all pins (by rw [keys_length]; decide) rfl
@@ -75,7 +75,7 @@ theorem text_at4 : textO[4]? = some (some U.ax208) := by
   rw [← find208]; exact TiePair.fnTextMany_pin c U.all pins (by rw [keys_length]; decide) rfl
 
 /-- The position after the group holds k's sentence. -/
-theorem text_at5 : textO[5]? = some (some U.ax241) := by decide +kernel
+theorem text_at5 : textO[5]? = some (some U.ax241) := by kernel_rfl
 
 /-- The sentences, one per item of Γ, at the same positions. -/
 theorem text_sentences_at2 : (textO.filterMap id)[2]? = some U.ax208 := by
@@ -93,7 +93,7 @@ user_axioms U from "f2-examples/e5-ovl-fn-fn.kompile.kore" module "E5-OVL-FN-FN"
 noncomputable abbrev c : Semantics := defn.sem
 
 /-- No pin: position 0 is `none`, and nothing shifts. -/
-theorem nil_at0 : (TiePair.fnTextMany c U.all [])[0]? = some none := by decide +kernel
+theorem nil_at0 : (TiePair.fnTextMany c U.all [])[0]? = some none := by kernel_rfl
 theorem nil_length : TiePair.manyLengthB c (TiePair.fnTextMany c U.all []) = true := by decide +kernel
 
 /-- With no pin the sentences are `fnTextOf`'s, one fewer than Γ's items. -/
@@ -110,13 +110,13 @@ theorem pins_ok : TiePair.pinsOK c U.all pins = true := by decide +kernel
 theorem text_all : TiePair.manyAllSomeB textO = true ∧ TiePair.manyLengthB c textO = true := by
   decide +kernel
 
-theorem find124 : U.all.find? (·.index == 124) = some U.ax124 := by decide +kernel
+theorem find124 : U.all.find? (·.index == 124) = some U.ax124 := by kernel_rfl
 
 theorem text_at0 : textO[0]? = some (some U.ax124) := by
   rw [← find124]; exact TiePair.fnTextMany_pin c U.all pins (by decide +kernel) rfl
 
 /-- Key `(negExp, 50)` takes 245: 124 is no longer among the sentences matched by key. -/
-theorem text_at1 : textO[1]? = some (some U.ax245) := by decide +kernel
+theorem text_at1 : textO[1]? = some (some U.ax245) := by kernel_rfl
 
 end OvlFn
 
