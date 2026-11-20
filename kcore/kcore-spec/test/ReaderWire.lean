@@ -533,14 +533,15 @@ theorem wire_ce_empty : clausesBody N0 "" eqAndBot none = (clauseBody N0 "" eqAn
     ceCases N0 eqAndBot = false := by
   constructor <;> kernel_rfl
 
-/-- **Which equations are CE's**: `ceCases` holds of those `clausesBody` gives to `ceRead`, and
-not of `frRead`'s (`eqH`), `exRead`'s (`eqP`), a plain equation's or a term with a predicate
-(`clauseBody`'s). -/
+/-- **Which equations are CE's**: `ceCases` holds of those `clausesBody` gives to `ceRead`,
+including a term with a predicate other than `\equals(B, true)` (`eqPred`, `f(X) ∧ {X = X}`: `ceShape`
+sends it to `ceRead`, which reads the predicate as a condition of post), and not of `frRead`'s
+(`eqH`), `exRead`'s (`eqP`) or a plain equation's (`clauseBody`'s). -/
 theorem wire_ce_cases :
     [ceCases N0 eqFOr, ceCases N0 eqAnd, ceCases N0 eqMany, ceCases N0 eqAlt, ceCases N0 eqAltFree,
       ceCases { N0 with boolLits := false } eqP,
       ceCases N0 eqH, ceCases N0 eqP, ceCases N0 eqPlain, ceCases N0 eqPred] =
-    [true, true, true, true, true, true, false, false, false, false] := by kernel_rfl
+    [true, true, true, true, true, true, false, false, false, true] := by kernel_rfl
 
 end Hand
 
